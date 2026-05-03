@@ -38,11 +38,16 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             type=raw,value=latest,enable={{is_default_branch}}
-      - name: Build + push (linux/amd64 + linux/arm64)
+      # amd64 only by default — building arm64 via QEMU on the free
+      # ubuntu-latest runner takes 15–20 min per release. OpenShift
+      # clusters are overwhelmingly x86, so this covers ~95% of users.
+      # If you need arm64 (Apple Silicon dev, AWS Graviton), set
+      # vars.BUILD_PLATFORMS=linux/amd64,linux/arm64 in repo settings.
+      - name: Build + push
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ vars.BUILD_PLATFORMS || 'linux/amd64' }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
