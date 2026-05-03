@@ -13,7 +13,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=frontend-builder /app/frontend/out /app/frontend/out
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o qmetry . && \
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o coremetry . && \
     CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o demo ./cmd/demo
 
 # ── Stage 3: minimal runtime image ────────────────────────────────────────────
@@ -26,9 +26,9 @@ RUN apk add --no-cache ca-certificates tzdata && \
     addgroup -S -g 65532 nonroot 2>/dev/null || true && \
     adduser  -S -u 65532 -G nonroot -h /app nonroot 2>/dev/null || true
 WORKDIR /app
-COPY --from=go-builder /app/qmetry /app/demo ./
+COPY --from=go-builder /app/coremetry /app/demo ./
 COPY config.yaml .
 RUN chown -R nonroot:0 /app && chmod -R g+rX /app
 USER 65532
 EXPOSE 4317 8088
-ENTRYPOINT ["./qmetry"]
+ENTRYPOINT ["./coremetry"]

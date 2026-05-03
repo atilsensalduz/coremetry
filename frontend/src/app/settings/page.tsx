@@ -129,7 +129,7 @@ function SMTPTab() {
       </Row>
       <Row>
         <Field label="From address" flex={2}>
-          <input required type="email" value={s.from} placeholder="qmetry@yourcorp.com"
+          <input required type="email" value={s.from} placeholder="coremetry@yourcorp.com"
             onChange={e => update('from', e.target.value)} />
         </Field>
         <Field label="From name (optional)" flex={1}>

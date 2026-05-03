@@ -1,9 +1,9 @@
-# OpenTelemetry Collector configuration for Qmetry.
+# OpenTelemetry Collector configuration for Coremetry.
 #
 # Pipeline:
 #   apps  ──▶ otel-collector (OTLP gRPC :4317 / HTTP :4318)
 #         ──▶ batch + memory_limiter
-#         ──▶ otlp exporter to qmetry:4317
+#         ──▶ otlp exporter to coremetry:4317
 
 receivers:
   otlp:
@@ -37,9 +37,9 @@ processors:
         action: upsert
 
 exporters:
-  # Send everything to Qmetry over OTLP/gRPC (insecure inside the docker network).
-  otlp/qmetry:
-    endpoint: qmetry:4317
+  # Send everything to Coremetry over OTLP/gRPC (insecure inside the docker network).
+  otlp/coremetry:
+    endpoint: coremetry:4317
     tls:
       insecure: true
     sending_queue:
@@ -73,12 +73,12 @@ service:
     traces:
       receivers:  [otlp]
       processors: [memory_limiter, resource, batch]
-      exporters:  [otlp/qmetry]
+      exporters:  [otlp/coremetry]
     metrics:
       receivers:  [otlp]
       processors: [memory_limiter, resource, batch]
-      exporters:  [otlp/qmetry]
+      exporters:  [otlp/coremetry]
     logs:
       receivers:  [otlp]
       processors: [memory_limiter, resource, batch]
-      exporters:  [otlp/qmetry]
+      exporters:  [otlp/coremetry]

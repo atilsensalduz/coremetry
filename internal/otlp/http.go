@@ -13,8 +13,8 @@ import (
 	metricscollpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	tracecollpb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 
-	"github.com/cenk/qmetry/internal/chstore"
-	"github.com/cenk/qmetry/internal/consumer"
+	"github.com/cilcenk/coremetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/consumer"
 )
 
 // Ingester wires the three OTLP consumers together.

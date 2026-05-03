@@ -70,12 +70,12 @@ jobs:
         with:
           version: 'v3.15.0'
       - name: helm lint
-        run: helm lint charts/qmetry
+        run: helm lint charts/coremetry
       # Render with optional features on so we catch broken conditionals
       # that the lint pass alone would miss.
       - name: helm template (full features)
         run: |
-          helm template ci charts/qmetry \
+          helm template ci charts/coremetry \
             --set ingress.enabled=true \
             --set 'ingress.hosts[0].host=ci.example.com' \
             --set 'ingress.hosts[0].paths[0].path=/' \

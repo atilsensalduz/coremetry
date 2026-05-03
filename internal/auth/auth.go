@@ -1,5 +1,5 @@
 // Package auth implements local username/password auth + JWT issuing for
-// the Qmetry HTTP API. It deliberately avoids external session storage —
+// the Coremetry HTTP API. It deliberately avoids external session storage —
 // JWTs are stateless and self-contained.
 package auth
 
@@ -24,12 +24,12 @@ const (
 
 	// CookieName is set on login and cleared on logout. It must be the
 	// same on the frontend (login fetch uses credentials: 'include').
-	CookieName = "qmetry_session"
+	CookieName = "coremetry_session"
 )
 
 type ctxKey string
 
-const userCtxKey ctxKey = "qmetry.user"
+const userCtxKey ctxKey = "coremetry.user"
 
 // Claims is the payload embedded in every JWT.
 type Claims struct {
@@ -52,7 +52,7 @@ func NewService(secret string, ttl time.Duration) *Service {
 		b := make([]byte, 32)
 		_, _ = rand.Read(b)
 		secret = hex.EncodeToString(b)
-		log.Printf("[auth] no jwt_secret configured — generated ephemeral key (sessions will not survive restarts; set QMETRY_JWT_SECRET in production)")
+		log.Printf("[auth] no jwt_secret configured — generated ephemeral key (sessions will not survive restarts; set COREMETRY_JWT_SECRET in production)")
 	}
 	if ttl == 0 {
 		ttl = 24 * time.Hour
@@ -70,7 +70,7 @@ func (s *Service) Issue(userID, email, role string) (string, time.Time, error) {
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(exp),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			Issuer:    "qmetry",
+			Issuer:    "coremetry",
 			Subject:   userID,
 		},
 	}

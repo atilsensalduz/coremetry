@@ -15,12 +15,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cenk/qmetry/internal/auth"
-	"github.com/cenk/qmetry/internal/cache"
-	"github.com/cenk/qmetry/internal/chstore"
-	"github.com/cenk/qmetry/internal/notify"
-	"github.com/cenk/qmetry/internal/otlp"
-	"github.com/cenk/qmetry/internal/profileconv"
+	"github.com/cilcenk/coremetry/internal/auth"
+	"github.com/cilcenk/coremetry/internal/cache"
+	"github.com/cilcenk/coremetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/notify"
+	"github.com/cilcenk/coremetry/internal/otlp"
+	"github.com/cilcenk/coremetry/internal/profileconv"
 )
 
 type Server struct {
@@ -374,17 +374,17 @@ func (s *Server) ingestProfile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	service := r.Header.Get("X-Qmetry-Service")
+	service := r.Header.Get("X-Coremetry-Service")
 	if service == "" {
 		service = "unknown"
 	}
-	host := r.Header.Get("X-Qmetry-Host")
-	ptype := r.Header.Get("X-Qmetry-Profile-Type")
+	host := r.Header.Get("X-Coremetry-Host")
+	ptype := r.Header.Get("X-Coremetry-Profile-Type")
 	if ptype == "" {
 		ptype = "cpu"
 	}
-	durNs, _ := strconv.ParseInt(r.Header.Get("X-Qmetry-Duration-Ns"), 10, 64)
-	startNs, _ := strconv.ParseInt(r.Header.Get("X-Qmetry-Start-Time-Ns"), 10, 64)
+	durNs, _ := strconv.ParseInt(r.Header.Get("X-Coremetry-Duration-Ns"), 10, 64)
+	startNs, _ := strconv.ParseInt(r.Header.Get("X-Coremetry-Start-Time-Ns"), 10, 64)
 	if startNs == 0 {
 		startNs = time.Now().UnixNano()
 	}
@@ -574,9 +574,9 @@ func (s *Server) authConfig(w http.ResponseWriter, r *http.Request) {
 // ── OIDC sign-in ─────────────────────────────────────────────────────────────
 
 const (
-	oidcStateCookie    = "qmetry_oidc_state"
-	oidcNonceCookie    = "qmetry_oidc_nonce"
-	oidcVerifierCookie = "qmetry_oidc_verifier"
+	oidcStateCookie    = "coremetry_oidc_state"
+	oidcNonceCookie    = "coremetry_oidc_nonce"
+	oidcVerifierCookie = "coremetry_oidc_verifier"
 )
 
 func (s *Server) oidcStart(w http.ResponseWriter, r *http.Request) {

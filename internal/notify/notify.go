@@ -26,7 +26,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cenk/qmetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/chstore"
 )
 
 const settingsKey = "smtp"
@@ -146,7 +146,7 @@ func (n *Notifier) SendTest(ctx context.Context, c chstore.NotificationChannel) 
 		RuleID:      "test",
 		RuleName:    "Test alert from Coremetry",
 		Severity:    "warning",
-		Service:     "qmetry",
+		Service:     "coremetry",
 		Metric:      "test",
 		Value:       42,
 		Threshold:   10,

@@ -2,26 +2,26 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "qmetry.fullname" . }}-java-demo
+  name: {{ include "coremetry.fullname" . }}-java-demo
   labels:
-    {{- include "qmetry.labels" . | nindent 4 }}
+    {{- include "coremetry.labels" . | nindent 4 }}
     app.kubernetes.io/component: java-demo
 spec:
   replicas: 1
   selector:
     matchLabels:
-      {{- include "qmetry.selectorLabels" . | nindent 6 }}
+      {{- include "coremetry.selectorLabels" . | nindent 6 }}
       app.kubernetes.io/component: java-demo
   template:
     metadata:
       labels:
-        {{- include "qmetry.selectorLabels" . | nindent 8 }}
+        {{- include "coremetry.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: java-demo
     spec:
-      {{- include "qmetry.imagePullSecrets" (dict "imageRoot" .Values.javaDemo.image "global" .Values.global) | nindent 6 }}
+      {{- include "coremetry.imagePullSecrets" (dict "imageRoot" .Values.javaDemo.image "global" .Values.global) | nindent 6 }}
       containers:
         - name: java-demo
-          image: {{ include "qmetry.image" (dict "imageRoot" .Values.javaDemo.image "global" .Values.global "defaultTag" .Chart.AppVersion) | quote }}
+          image: {{ include "coremetry.image" (dict "imageRoot" .Values.javaDemo.image "global" .Values.global "defaultTag" .Chart.AppVersion) | quote }}
           imagePullPolicy: {{ .Values.javaDemo.image.pullPolicy }}
           ports:
             - { name: http, containerPort: 8080 }
@@ -34,9 +34,9 @@ spec:
               value: "deployment.environment=demo,host.name=java-demo,service.version={{ .Chart.AppVersion }}"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ if .Values.otelCollector.enabled -}}
-                       "http://{{ include "qmetry.fullname" . }}-otelcol:{{ .Values.otelCollector.service.grpcPort }}"
+                       "http://{{ include "coremetry.fullname" . }}-otelcol:{{ .Values.otelCollector.service.grpcPort }}"
                      {{- else -}}
-                       "http://{{ include "qmetry.fullname" . }}:{{ .Values.service.grpcPort }}"
+                       "http://{{ include "coremetry.fullname" . }}:{{ .Values.service.grpcPort }}"
                      {{- end }}
             - name: OTEL_EXPORTER_OTLP_PROTOCOL
               value: grpc
@@ -53,9 +53,9 @@ spec:
             - name: OTEL_METRIC_EXPORT_INTERVAL
               value: "10000"
             # Profile pusher (sidecar shell script — not OTel) → posts
-            # async-profiler output to qmetry's /v1/profiles endpoint.
-            - name: QMETRY_URL
-              value: "http://{{ include "qmetry.fullname" . }}:{{ .Values.service.httpPort }}"
+            # async-profiler output to coremetry's /v1/profiles endpoint.
+            - name: COREMETRY_URL
+              value: "http://{{ include "coremetry.fullname" . }}:{{ .Values.service.httpPort }}"
             - name: PROFILE_INTERVAL_SEC
               value: "15"
             - name: PROFILE_WINDOW_SEC
@@ -80,14 +80,14 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "qmetry.fullname" . }}-java-demo
+  name: {{ include "coremetry.fullname" . }}-java-demo
   labels:
-    {{- include "qmetry.labels" . | nindent 4 }}
+    {{- include "coremetry.labels" . | nindent 4 }}
     app.kubernetes.io/component: java-demo
 spec:
   type: {{ .Values.javaDemo.service.type }}
   selector:
-    {{- include "qmetry.selectorLabels" . | nindent 4 }}
+    {{- include "coremetry.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: java-demo
   ports:
     - name: http

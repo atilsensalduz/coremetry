@@ -2,9 +2,9 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "qmetry.fullname" . }}-otelcol
+  name: {{ include "coremetry.fullname" . }}-otelcol
   labels:
-    {{- include "qmetry.labels" . | nindent 4 }}
+    {{- include "coremetry.labels" . | nindent 4 }}
     app.kubernetes.io/component: otel-collector
 data:
   config.yaml: |
@@ -22,40 +22,40 @@ data:
         timeout: 5s
         send_batch_size: 1000
     exporters:
-      otlp/qmetry:
-        endpoint: {{ include "qmetry.fullname" . }}:{{ .Values.service.grpcPort }}
+      otlp/coremetry:
+        endpoint: {{ include "coremetry.fullname" . }}:{{ .Values.service.grpcPort }}
         tls: { insecure: true }
         sending_queue: { enabled: true, num_consumers: 4, queue_size: 5000 }
         retry_on_failure: { enabled: true, initial_interval: 1s, max_interval: 30s }
     service:
       pipelines:
-        traces:  { receivers: [otlp], processors: [memory_limiter, batch], exporters: [otlp/qmetry] }
-        metrics: { receivers: [otlp], processors: [memory_limiter, batch], exporters: [otlp/qmetry] }
-        logs:    { receivers: [otlp], processors: [memory_limiter, batch], exporters: [otlp/qmetry] }
+        traces:  { receivers: [otlp], processors: [memory_limiter, batch], exporters: [otlp/coremetry] }
+        metrics: { receivers: [otlp], processors: [memory_limiter, batch], exporters: [otlp/coremetry] }
+        logs:    { receivers: [otlp], processors: [memory_limiter, batch], exporters: [otlp/coremetry] }
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "qmetry.fullname" . }}-otelcol
+  name: {{ include "coremetry.fullname" . }}-otelcol
   labels:
-    {{- include "qmetry.labels" . | nindent 4 }}
+    {{- include "coremetry.labels" . | nindent 4 }}
     app.kubernetes.io/component: otel-collector
 spec:
   replicas: 1
   selector:
     matchLabels:
-      {{- include "qmetry.selectorLabels" . | nindent 6 }}
+      {{- include "coremetry.selectorLabels" . | nindent 6 }}
       app.kubernetes.io/component: otel-collector
   template:
     metadata:
       labels:
-        {{- include "qmetry.selectorLabels" . | nindent 8 }}
+        {{- include "coremetry.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: otel-collector
     spec:
-      {{- include "qmetry.imagePullSecrets" (dict "imageRoot" .Values.otelCollector.image "global" .Values.global) | nindent 6 }}
+      {{- include "coremetry.imagePullSecrets" (dict "imageRoot" .Values.otelCollector.image "global" .Values.global) | nindent 6 }}
       containers:
         - name: otelcol
-          image: {{ include "qmetry.image" (dict "imageRoot" .Values.otelCollector.image "global" .Values.global) | quote }}
+          image: {{ include "coremetry.image" (dict "imageRoot" .Values.otelCollector.image "global" .Values.global) | quote }}
           # SCC-friendly — same restricted-v2 profile as the main app.
           securityContext:
             runAsNonRoot: true
@@ -74,19 +74,19 @@ spec:
       volumes:
         - name: config
           configMap:
-            name: {{ include "qmetry.fullname" . }}-otelcol
+            name: {{ include "coremetry.fullname" . }}-otelcol
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "qmetry.fullname" . }}-otelcol
+  name: {{ include "coremetry.fullname" . }}-otelcol
   labels:
-    {{- include "qmetry.labels" . | nindent 4 }}
+    {{- include "coremetry.labels" . | nindent 4 }}
     app.kubernetes.io/component: otel-collector
 spec:
   type: {{ .Values.otelCollector.service.type }}
   selector:
-    {{- include "qmetry.selectorLabels" . | nindent 4 }}
+    {{- include "coremetry.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: otel-collector
   ports:
     - name: otlp-grpc

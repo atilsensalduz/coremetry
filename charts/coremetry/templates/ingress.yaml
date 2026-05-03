@@ -2,8 +2,8 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "qmetry.fullname" . }}
-  labels: {{- include "qmetry.labels" . | nindent 4 }}
+  name: {{ include "coremetry.fullname" . }}
+  labels: {{- include "coremetry.labels" . | nindent 4 }}
   {{- with .Values.ingress.annotations }}
   annotations: {{ toYaml . | nindent 4 }}
   {{- end }}
@@ -24,7 +24,7 @@ spec:
             pathType: {{ .pathType }}
             backend:
               service:
-                name: {{ include "qmetry.fullname" $ }}
+                name: {{ include "coremetry.fullname" $ }}
                 port:
                   number: {{ $.Values.service.httpPort }}
           {{- end }}

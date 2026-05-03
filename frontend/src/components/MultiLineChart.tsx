@@ -13,7 +13,7 @@ Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryS
 // Vertical crosshair line at the active hover position — paints a dashed
 // rule under the tooltip so the user can read off the X value precisely.
 const crosshairPlugin: Plugin<'line'> = {
-  id: 'qmetry-crosshair',
+  id: 'coremetry-crosshair',
   afterDatasetsDraw(chart) {
     const tt = chart.tooltip;
     if (!tt || !tt.opacity) return;

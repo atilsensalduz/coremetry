@@ -5,16 +5,16 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "qmetry.fullname" . }}-clickhouse
+  name: {{ include "coremetry.fullname" . }}-clickhouse
   labels:
-    {{- include "qmetry.labels" . | nindent 4 }}
+    {{- include "coremetry.labels" . | nindent 4 }}
     app.kubernetes.io/component: clickhouse
 spec:
   type: {{ .Values.clickhouse.service.type }}
   selector:
-    {{- include "qmetry.selectorLabels" . | nindent 4 }}
+    {{- include "coremetry.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: clickhouse
-  # Headless not required — qmetry connects via the Service name.
+  # Headless not required — coremetry connects via the Service name.
   ports:
     - name: native
       port: {{ .Values.clickhouse.service.nativePort }}
@@ -26,30 +26,30 @@ spec:
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: {{ include "qmetry.fullname" . }}-clickhouse
+  name: {{ include "coremetry.fullname" . }}-clickhouse
   labels:
-    {{- include "qmetry.labels" . | nindent 4 }}
+    {{- include "coremetry.labels" . | nindent 4 }}
     app.kubernetes.io/component: clickhouse
 spec:
-  serviceName: {{ include "qmetry.fullname" . }}-clickhouse
+  serviceName: {{ include "coremetry.fullname" . }}-clickhouse
   replicas: 1
   selector:
     matchLabels:
-      {{- include "qmetry.selectorLabels" . | nindent 6 }}
+      {{- include "coremetry.selectorLabels" . | nindent 6 }}
       app.kubernetes.io/component: clickhouse
   template:
     metadata:
       labels:
-        {{- include "qmetry.selectorLabels" . | nindent 8 }}
+        {{- include "coremetry.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: clickhouse
     spec:
-      {{- include "qmetry.imagePullSecrets" (dict "imageRoot" .Values.clickhouse.image "global" .Values.global) | nindent 6 }}
+      {{- include "coremetry.imagePullSecrets" (dict "imageRoot" .Values.clickhouse.image "global" .Values.global) | nindent 6 }}
       {{- with .Values.clickhouse.podSecurityContext }}
       securityContext: {{ toYaml . | nindent 8 }}
       {{- end }}
       containers:
         - name: clickhouse
-          image: {{ include "qmetry.image" (dict "imageRoot" .Values.clickhouse.image "global" .Values.global) | quote }}
+          image: {{ include "coremetry.image" (dict "imageRoot" .Values.clickhouse.image "global" .Values.global) | quote }}
           imagePullPolicy: {{ .Values.clickhouse.image.pullPolicy }}
           # The official clickhouse-server image runs as fixed UID 101.
           # Vanilla k8s admits this fine; on OpenShift you need to bind
@@ -72,11 +72,11 @@ spec:
             - name: CLICKHOUSE_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "qmetry.secretName" . }}
+                  name: {{ include "coremetry.secretName" . }}
                   key: clickhouse-password
                   optional: true
             # Allow `default` user to manage roles via SQL — useful when
-            # qmetry creates additional schemas at first boot.
+            # coremetry creates additional schemas at first boot.
             - name: CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT
               value: "1"
           volumeMounts:

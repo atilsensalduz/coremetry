@@ -9,7 +9,7 @@ const nextConfig = {
   experimental: {
     scrollRestoration: true,
   },
-  // In dev, proxy API calls to the Qmetry backend.
+  // In dev, proxy API calls to the Coremetry backend.
   // (rewrites only run in `next dev`, ignored on static export.)
   async rewrites() {
     return [

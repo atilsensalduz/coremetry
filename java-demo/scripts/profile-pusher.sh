@@ -1,10 +1,10 @@
 #!/bin/sh
-# Continuously sample the JVM with async-profiler, push pprof bytes to Qmetry.
+# Continuously sample the JVM with async-profiler, push pprof bytes to Coremetry.
 # This is the zero-code profiling hook — the Java code knows nothing about it.
 set -u
 
 SERVICE=${OTEL_SERVICE_NAME:-java-demo}
-QMETRY_URL=${QMETRY_URL:-http://qmetry:4318}
+COREMETRY_URL=${COREMETRY_URL:-http://coremetry:4318}
 INTERVAL=${PROFILE_INTERVAL_SEC:-15}
 WINDOW=${PROFILE_WINDOW_SEC:-5}
 ENGINE=${PROFILE_ENGINE:-itimer}   # itimer works without perf_event_paranoid tuning
@@ -37,12 +37,12 @@ while true; do
     SIZE=$(wc -c < "$TMPFILE" 2>/dev/null || echo 0)
     if [ "$SIZE" -gt 0 ]; then
       DUR_NS=$((WINDOW * 1000000000))
-      HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$QMETRY_URL/v1/profiles" \
+      HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$COREMETRY_URL/v1/profiles" \
         -H "Content-Type: text/plain" \
-        -H "X-Qmetry-Service: $SERVICE" \
-        -H "X-Qmetry-Profile-Type: cpu" \
-        -H "X-Qmetry-Start-Time-Ns: $START_NS" \
-        -H "X-Qmetry-Duration-Ns: $DUR_NS" \
+        -H "X-Coremetry-Service: $SERVICE" \
+        -H "X-Coremetry-Profile-Type: cpu" \
+        -H "X-Coremetry-Start-Time-Ns: $START_NS" \
+        -H "X-Coremetry-Duration-Ns: $DUR_NS" \
         --data-binary @"$TMPFILE")
       echo "[profiler] pushed cpu profile ($SIZE bytes, http=$HTTP)"
     else

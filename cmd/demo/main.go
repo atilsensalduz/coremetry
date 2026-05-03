@@ -1,5 +1,5 @@
-// Qmetry demo: realistic e-commerce traffic generator that emits
-// OTLP traces, logs, and metrics over HTTP to Qmetry.
+// Coremetry demo: realistic e-commerce traffic generator that emits
+// OTLP traces, logs, and metrics over HTTP to Coremetry.
 //
 // Usage:
 //   go run ./cmd/demo -endpoint http://localhost:14318 -rps 2.0
@@ -36,7 +36,7 @@ import (
 
 var (
 	endpoint        = flag.String("endpoint", "http://localhost:14318", "OTLP HTTP endpoint (collector host port)")
-	profileEndpoint = flag.String("profile-endpoint", "", "Qmetry profile ingest endpoint (defaults to -endpoint with /v1/profiles, NOT collector!)")
+	profileEndpoint = flag.String("profile-endpoint", "", "Coremetry profile ingest endpoint (defaults to -endpoint with /v1/profiles, NOT collector!)")
 	rps             = flag.Float64("rps", 2.0, "Scenarios per second to generate")
 )
 
@@ -122,7 +122,7 @@ func (t *Trace) Send() error {
 				kvStr("service.version", "1.0.0"),
 			}},
 			ScopeSpans: []*tracepb.ScopeSpans{{
-				Scope: &commonpb.InstrumentationScope{Name: "qmetry-demo"},
+				Scope: &commonpb.InstrumentationScope{Name: "coremetry-demo"},
 				Spans: spans,
 			}},
 		})
@@ -358,7 +358,7 @@ func sendLog(service string, severity int32, sevText, body string, traceID, span
 			kvStr("service.name", s.Name), kvStr("host.name", s.Host),
 		}},
 		ScopeLogs: []*logspb.ScopeLogs{{
-			Scope:      &commonpb.InstrumentationScope{Name: "qmetry-demo"},
+			Scope:      &commonpb.InstrumentationScope{Name: "coremetry-demo"},
 			LogRecords: []*logspb.LogRecord{rec},
 		}},
 	}}}
@@ -627,7 +627,7 @@ func (m *metricsState) flush(startNs, nowNs uint64) []*metricspb.ResourceMetrics
 				kvStr("deployment.environment", "demo"),
 			}},
 			ScopeMetrics: []*metricspb.ScopeMetrics{{
-				Scope:   &commonpb.InstrumentationScope{Name: "qmetry-demo"},
+				Scope:   &commonpb.InstrumentationScope{Name: "coremetry-demo"},
 				Metrics: mts,
 			}},
 		})
@@ -677,10 +677,10 @@ func pickScenario() (string, scenario) {
 func main() {
 	flag.Parse()
 	if *profileEndpoint == "" {
-		// Default to qmetry directly (collector doesn't speak our pprof protocol).
-		*profileEndpoint = "http://qmetry:8088"
+		// Default to coremetry directly (collector doesn't speak our pprof protocol).
+		*profileEndpoint = "http://coremetry:8088"
 	}
-	log.Printf("Qmetry demo")
+	log.Printf("Coremetry demo")
 	log.Printf("  endpoint:         %s (traces/logs/metrics)", *endpoint)
 	log.Printf("  profile endpoint: %s", *profileEndpoint)
 	log.Printf("  rate:             %.1f scenarios/sec", *rps)
@@ -856,11 +856,11 @@ func captureAndPush(ctx context.Context, service, host string) {
 func pushProfile(service, host, ptype string, startNs, durNs int64, data []byte) error {
 	req, _ := http.NewRequest("POST", *profileEndpoint+"/v1/profiles", bytes.NewReader(data))
 	req.Header.Set("Content-Type", "application/octet-stream")
-	req.Header.Set("X-Qmetry-Service", service)
-	req.Header.Set("X-Qmetry-Host", host)
-	req.Header.Set("X-Qmetry-Profile-Type", ptype)
-	req.Header.Set("X-Qmetry-Start-Time-Ns", fmt.Sprintf("%d", startNs))
-	req.Header.Set("X-Qmetry-Duration-Ns", fmt.Sprintf("%d", durNs))
+	req.Header.Set("X-Coremetry-Service", service)
+	req.Header.Set("X-Coremetry-Host", host)
+	req.Header.Set("X-Coremetry-Profile-Type", ptype)
+	req.Header.Set("X-Coremetry-Start-Time-Ns", fmt.Sprintf("%d", startNs))
+	req.Header.Set("X-Coremetry-Duration-Ns", fmt.Sprintf("%d", durNs))
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return err

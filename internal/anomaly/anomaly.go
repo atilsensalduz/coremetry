@@ -19,12 +19,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cenk/qmetry/internal/cache"
-	"github.com/cenk/qmetry/internal/chstore"
-	"github.com/cenk/qmetry/internal/notify"
+	"github.com/cilcenk/coremetry/internal/cache"
+	"github.com/cilcenk/coremetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/notify"
 )
 
-const lockKey = "qmetry:lock:anomaly"
+const lockKey = "coremetry:lock:anomaly"
 
 // Tunables — exposed as constants so it's obvious what to fiddle with.
 const (

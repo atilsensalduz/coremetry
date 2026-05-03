@@ -16,7 +16,7 @@ type Config struct {
 	Redis      RedisConfig     `yaml:"redis"`
 }
 
-// RedisConfig is fully optional. When URL is empty Qmetry runs in
+// RedisConfig is fully optional. When URL is empty Coremetry runs in
 // single-instance mode: no cache (always misses) and the in-process
 // "always-leader" lock — meaning background workers always run.
 type RedisConfig struct {
@@ -28,7 +28,7 @@ type RedisConfig struct {
 // rotates every restart and invalidates sessions, so production deployments
 // should set it explicitly.
 type AuthConfig struct {
-	JWTSecret       string        `yaml:"jwt_secret"`        // HS256 key — set via QMETRY_JWT_SECRET in prod
+	JWTSecret       string        `yaml:"jwt_secret"`        // HS256 key — set via COREMETRY_JWT_SECRET in prod
 	TokenTTL        time.Duration `yaml:"token_ttl"`         // session lifetime (default 24h)
 	InitialAdmin    string        `yaml:"initial_admin"`     // email — seeded if users table is empty
 	InitialPassword string        `yaml:"initial_password"`  // bcrypted on first boot
@@ -85,7 +85,7 @@ type IngestionConfig struct {
 var defaults = Config{
 	Listen: ListenConfig{HTTP: ":8088", GRPC: ":4317"},
 	ClickHouse: CHConfig{
-		Addr: "127.0.0.1:9000", Database: "qmetry",
+		Addr: "127.0.0.1:9000", Database: "coremetry",
 		Username: "default", MaxOpenConns: 10, DialTimeout: "5s",
 	},
 	Retention:  RetentionConfig{SpansDays: 30, LogsDays: 30, MetricsDays: 7},
@@ -110,52 +110,52 @@ func Load(path string) (*Config, error) {
 	}
 
 	// Environment variable overrides (Docker / k8s friendly)
-	if v := os.Getenv("QMETRY_CH_ADDR"); v != "" {
+	if v := os.Getenv("COREMETRY_CH_ADDR"); v != "" {
 		cfg.ClickHouse.Addr = v
 	}
-	if v := os.Getenv("QMETRY_CH_DATABASE"); v != "" {
+	if v := os.Getenv("COREMETRY_CH_DATABASE"); v != "" {
 		cfg.ClickHouse.Database = v
 	}
-	if v := os.Getenv("QMETRY_CH_USERNAME"); v != "" {
+	if v := os.Getenv("COREMETRY_CH_USERNAME"); v != "" {
 		cfg.ClickHouse.Username = v
 	}
-	if v := os.Getenv("QMETRY_CH_PASSWORD"); v != "" {
+	if v := os.Getenv("COREMETRY_CH_PASSWORD"); v != "" {
 		cfg.ClickHouse.Password = v
 	}
-	if v := os.Getenv("QMETRY_HTTP_ADDR"); v != "" {
+	if v := os.Getenv("COREMETRY_HTTP_ADDR"); v != "" {
 		cfg.Listen.HTTP = v
 	}
-	if v := os.Getenv("QMETRY_GRPC_ADDR"); v != "" {
+	if v := os.Getenv("COREMETRY_GRPC_ADDR"); v != "" {
 		cfg.Listen.GRPC = v
 	}
-	if v := os.Getenv("QMETRY_JWT_SECRET"); v != "" {
+	if v := os.Getenv("COREMETRY_JWT_SECRET"); v != "" {
 		cfg.Auth.JWTSecret = v
 	}
-	if v := os.Getenv("QMETRY_INITIAL_ADMIN"); v != "" {
+	if v := os.Getenv("COREMETRY_INITIAL_ADMIN"); v != "" {
 		cfg.Auth.InitialAdmin = v
 	}
-	if v := os.Getenv("QMETRY_INITIAL_PASSWORD"); v != "" {
+	if v := os.Getenv("COREMETRY_INITIAL_PASSWORD"); v != "" {
 		cfg.Auth.InitialPassword = v
 	}
-	if v := os.Getenv("QMETRY_OIDC_ENABLED"); v == "true" || v == "1" {
+	if v := os.Getenv("COREMETRY_OIDC_ENABLED"); v == "true" || v == "1" {
 		cfg.Auth.OIDC.Enabled = true
 	}
-	if v := os.Getenv("QMETRY_OIDC_ISSUER_URL"); v != "" {
+	if v := os.Getenv("COREMETRY_OIDC_ISSUER_URL"); v != "" {
 		cfg.Auth.OIDC.IssuerURL = v
 	}
-	if v := os.Getenv("QMETRY_OIDC_CLIENT_ID"); v != "" {
+	if v := os.Getenv("COREMETRY_OIDC_CLIENT_ID"); v != "" {
 		cfg.Auth.OIDC.ClientID = v
 	}
-	if v := os.Getenv("QMETRY_OIDC_CLIENT_SECRET"); v != "" {
+	if v := os.Getenv("COREMETRY_OIDC_CLIENT_SECRET"); v != "" {
 		cfg.Auth.OIDC.ClientSecret = v
 	}
-	if v := os.Getenv("QMETRY_OIDC_REDIRECT_URL"); v != "" {
+	if v := os.Getenv("COREMETRY_OIDC_REDIRECT_URL"); v != "" {
 		cfg.Auth.OIDC.RedirectURL = v
 	}
-	if v := os.Getenv("QMETRY_DEMO_MODE"); v == "true" || v == "1" {
+	if v := os.Getenv("COREMETRY_DEMO_MODE"); v == "true" || v == "1" {
 		cfg.Auth.DemoMode = true
 	}
-	if v := os.Getenv("QMETRY_REDIS_URL"); v != "" {
+	if v := os.Getenv("COREMETRY_REDIS_URL"); v != "" {
 		cfg.Redis.URL = v
 	}
 	if cfg.Auth.TokenTTL == 0 {

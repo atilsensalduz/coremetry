@@ -23,8 +23,8 @@ const NAV = [
   { href: '/slos',       label: 'SLOs',         icon: '◉' },
 ];
 
-const SIDEBAR_WIDTH_KEY     = 'qmetry-sidebar-w';
-const SIDEBAR_COLLAPSED_KEY = 'qmetry-sidebar-collapsed';
+const SIDEBAR_WIDTH_KEY     = 'coremetry-sidebar-w';
+const SIDEBAR_COLLAPSED_KEY = 'coremetry-sidebar-collapsed';
 const COLLAPSED_W = 56;
 const MIN_W = 160;
 const MAX_W = 360;

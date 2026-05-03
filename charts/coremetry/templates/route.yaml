@@ -7,8 +7,8 @@
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
-  name: {{ include "qmetry.fullname" . }}
-  labels: {{- include "qmetry.labels" . | nindent 4 }}
+  name: {{ include "coremetry.fullname" . }}
+  labels: {{- include "coremetry.labels" . | nindent 4 }}
   {{- with .Values.route.annotations }}
   annotations: {{ toYaml . | nindent 4 }}
   {{- end }}
@@ -18,7 +18,7 @@ spec:
   {{- end }}
   to:
     kind: Service
-    name: {{ include "qmetry.fullname" . }}
+    name: {{ include "coremetry.fullname" . }}
     weight: 100
   port:
     targetPort: http

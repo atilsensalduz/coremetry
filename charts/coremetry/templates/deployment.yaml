@@ -1,27 +1,27 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "qmetry.fullname" . }}
+  name: {{ include "coremetry.fullname" . }}
   labels:
-    {{- include "qmetry.labels" . | nindent 4 }}
-    app.kubernetes.io/component: qmetry
+    {{- include "coremetry.labels" . | nindent 4 }}
+    app.kubernetes.io/component: coremetry
 spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
-  # Selector includes `component: qmetry` so it doesn't accidentally adopt
+  # Selector includes `component: coremetry` so it doesn't accidentally adopt
   # ClickHouse / Redis / OTel-Collector pods (they share the chart-wide
   # name + instance labels). This selector is immutable post-create — see
   # NOTES.txt for the upgrade path from chart < 0.1.3.
   selector:
     matchLabels:
-      {{- include "qmetry.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: qmetry
+      {{- include "coremetry.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: coremetry
   template:
     metadata:
       labels:
-        {{- include "qmetry.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: qmetry
+        {{- include "coremetry.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: coremetry
         {{- with .Values.podLabels }}{{ toYaml . | nindent 8 }}{{- end }}
       annotations:
         # Roll the pods whenever the rendered config or secret changes.
@@ -31,14 +31,14 @@ spec:
         {{- end }}
         {{- with .Values.podAnnotations }}{{ toYaml . | nindent 8 }}{{- end }}
     spec:
-      serviceAccountName: {{ include "qmetry.serviceAccountName" . }}
-      {{- include "qmetry.imagePullSecrets" (dict "imageRoot" .Values.image "global" .Values.global) | nindent 6 }}
-      # Wait for ClickHouse to be reachable before the qmetry binary
-      # tries to migrate. The qmetry image is alpine + busybox so `nc`
+      serviceAccountName: {{ include "coremetry.serviceAccountName" . }}
+      {{- include "coremetry.imagePullSecrets" (dict "imageRoot" .Values.image "global" .Values.global) | nindent 6 }}
+      # Wait for ClickHouse to be reachable before the coremetry binary
+      # tries to migrate. The coremetry image is alpine + busybox so `nc`
       # is available; runs as the same non-root UID 65532.
       initContainers:
         - name: wait-for-clickhouse
-          image: {{ include "qmetry.image" (dict "imageRoot" .Values.image "global" .Values.global "defaultTag" .Chart.AppVersion) | quote }}
+          image: {{ include "coremetry.image" (dict "imageRoot" .Values.image "global" .Values.global "defaultTag" .Chart.AppVersion) | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           {{- with .Values.securityContext }}
           securityContext: {{ toYaml . | nindent 12 }}
@@ -47,7 +47,7 @@ spec:
           args:
             - |
               set -eu
-              addr="{{ include "qmetry.clickhouseAddr" . }}"
+              addr="{{ include "coremetry.clickhouseAddr" . }}"
               host="${addr%:*}"
               port="${addr##*:}"
               echo "[init] waiting for clickhouse at $host:$port"
@@ -65,8 +65,8 @@ spec:
       securityContext: {{ toYaml . | nindent 8 }}
       {{- end }}
       containers:
-        - name: qmetry
-          image: {{ include "qmetry.image" (dict "imageRoot" .Values.image "global" .Values.global "defaultTag" .Chart.AppVersion) | quote }}
+        - name: coremetry
+          image: {{ include "coremetry.image" (dict "imageRoot" .Values.image "global" .Values.global "defaultTag" .Chart.AppVersion) | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           {{- with .Values.securityContext }}
           securityContext: {{ toYaml . | nindent 12 }}
@@ -79,34 +79,34 @@ spec:
               containerPort: 4317
               protocol: TCP
           env:
-            - name: QMETRY_JWT_SECRET
+            - name: COREMETRY_JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "qmetry.secretName" . }}
+                  name: {{ include "coremetry.secretName" . }}
                   key: jwt-secret
                   optional: true
-            - name: QMETRY_CH_PASSWORD
+            - name: COREMETRY_CH_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "qmetry.secretName" . }}
+                  name: {{ include "coremetry.secretName" . }}
                   key: clickhouse-password
                   optional: true
-            - name: QMETRY_INITIAL_PASSWORD
+            - name: COREMETRY_INITIAL_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "qmetry.secretName" . }}
+                  name: {{ include "coremetry.secretName" . }}
                   key: initial-admin-password
                   optional: true
             {{- if .Values.config.auth.oidc.enabled }}
-            - name: QMETRY_OIDC_CLIENT_SECRET
+            - name: COREMETRY_OIDC_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "qmetry.secretName" . }}
+                  name: {{ include "coremetry.secretName" . }}
                   key: oidc-client-secret
             {{- end }}
-            {{- $redisURL := include "qmetry.redisURL" . }}
+            {{- $redisURL := include "coremetry.redisURL" . }}
             {{- if $redisURL }}
-            - name: QMETRY_REDIS_URL
+            - name: COREMETRY_REDIS_URL
               value: {{ $redisURL | quote }}
             {{- end }}
           volumeMounts:
@@ -129,7 +129,7 @@ spec:
       volumes:
         - name: config
           configMap:
-            name: {{ include "qmetry.fullname" . }}-config
+            name: {{ include "coremetry.fullname" . }}-config
         - name: tmp
           emptyDir: {}
       {{- with .Values.nodeSelector }}

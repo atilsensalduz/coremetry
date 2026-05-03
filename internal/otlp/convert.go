@@ -13,7 +13,7 @@ import (
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 
-	"github.com/cenk/qmetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/chstore"
 )
 
 // ── Trace conversion ──────────────────────────────────────────────────────────

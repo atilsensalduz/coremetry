@@ -1,10 +1,10 @@
 // Package cache provides a thin abstraction over Redis (or none) for two
-// scaling primitives the rest of Qmetry depends on:
+// scaling primitives the rest of Coremetry depends on:
 //
 //   - Cache: short-TTL hot read cache, used by API handlers in front of
 //     ClickHouse for endpoints that get polled at high frequency.
 //   - Lock: distributed lock with token-based release, used by background
-//     workers (evaluator, anomaly detector) so multiple Qmetry replicas
+//     workers (evaluator, anomaly detector) so multiple Coremetry replicas
 //     don't all run the same scheduled work.
 //
 // Both have a Noop fallback so the binary keeps running unchanged when

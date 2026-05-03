@@ -1,10 +1,10 @@
 apiVersion: v2
-name: qmetry
+name: coremetry
 description: Enterprise OpenTelemetry APM — traces, metrics, logs, profiles on ClickHouse
 type: application
-version: 0.1.9
-appVersion: "0.1.9"
-home: https://github.com/cilcenk/qmetry
+version: 0.2.0
+appVersion: "0.2.0"
+home: https://github.com/cilcenk/coremetry
 keywords:
   - apm
   - opentelemetry
@@ -14,10 +14,10 @@ keywords:
   - openshift
 annotations:
   category: Observability
-  charts.openshift.io/name: Qmetry
-  charts.openshift.io/provider: Qmetry
+  charts.openshift.io/name: Coremetry
+  charts.openshift.io/provider: Coremetry
 maintainers:
   - name: Jane Doe
     email: cil.cenk@gmail.com
 sources:
-  - https://github.com/cilcenk/qmetry
+  - https://github.com/cilcenk/coremetry

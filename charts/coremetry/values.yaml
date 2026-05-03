@@ -1,10 +1,10 @@
-## Qmetry default values
+## Coremetry default values
 ## Override anything here with --set or a custom values file.
 
 # ── Global image override ───────────────────────────────────────────────────
 #
 # When `global.imageRegistry` is set it REPLACES the .registry of every
-# image in this chart (qmetry, ClickHouse, Redis, OTel Collector). Built
+# image in this chart (coremetry, ClickHouse, Redis, OTel Collector). Built
 # for air-gapped clusters that mirror upstream images into an internal
 # registry — e.g.:
 #
@@ -12,7 +12,7 @@
 #     imageRegistry: docker.artifacthub.registry.example.com
 #
 # Mirrors expected at:
-#   docker.artifacthub.registry.example.com/cilcenk/qmetry:0.1.4
+#   docker.artifacthub.registry.example.com/cilcenk/coremetry:0.1.4
 #   docker.artifacthub.registry.example.com/clickhouse/clickhouse-server:24.8-alpine
 #   docker.artifacthub.registry.example.com/library/redis:7-alpine
 #   docker.artifacthub.registry.example.com/otel/opentelemetry-collector-contrib:0.111.0
@@ -27,7 +27,7 @@ image:
   # Built and pushed by .github/workflows/release.yml on every v*.*.* tag.
   # Public on GHCR — no pullSecrets needed by default.
   registry: "ghcr.io"
-  repository: "cilcenk/qmetry"
+  repository: "cilcenk/coremetry"
   tag: ""               # defaults to .Chart.appVersion
   pullPolicy: IfNotPresent
   pullSecrets: []       # legacy field — prefer global.imagePullSecrets
@@ -75,13 +75,13 @@ ingress:
   className: ""
   annotations: {}
   hosts:
-    - host: qmetry.local
+    - host: coremetry.local
       paths:
         - path: /
           pathType: Prefix
   tls: []
-  # - secretName: qmetry-tls
-  #   hosts: [qmetry.example.com]
+  # - secretName: coremetry-tls
+  #   hosts: [coremetry.example.com]
 
 # OpenShift native Route — preferred over Ingress on OCP because the
 # router handles edge TLS automatically with the cluster cert. Use either
@@ -102,7 +102,7 @@ autoscaling:
   targetCPUUtilizationPercentage: 70
   targetMemoryUtilizationPercentage: 80
 
-# ── Qmetry config block ───────────────────────────────────────────────────────
+# ── Coremetry config block ───────────────────────────────────────────────────────
 # Mirrors config.yaml. Anything here is rendered into a ConfigMap and mounted.
 # Sensitive fields (jwtSecret, ClickHouse password, OIDC client secret,
 # initialAdmin password) come from the Secret instead — see `secrets:` below.
@@ -118,7 +118,7 @@ config:
     workers: 4
   auth:
     tokenTTL: "24h"
-    initialAdmin: "admin@qmetry.local"
+    initialAdmin: "admin@coremetry.local"
     oidc:
       enabled: false
       issuerUrl: ""
@@ -132,18 +132,18 @@ config:
 # Sensitive values land in a Secret. Override these or point existingSecret
 # at a pre-created Secret with the same keys.
 secrets:
-  jwtSecret: ""             # leave empty in dev → Qmetry generates an ephemeral key
+  jwtSecret: ""             # leave empty in dev → Coremetry generates an ephemeral key
   clickHousePassword: ""
   oidcClientSecret: ""
   initialAdminPassword: "admin"
-  existingSecret: ""        # if set, Qmetry reads JWT/CH/OIDC/init-admin from it instead
+  existingSecret: ""        # if set, Coremetry reads JWT/CH/OIDC/init-admin from it instead
 
 # ── ClickHouse ───────────────────────────────────────────────────────────────
 #
 # Two modes:
 #  • `enabled: true` → bundle a single-node CH StatefulSet inside the chart
 #    (good for dev + small prod, ~1-2GB RAM, single PVC). The Service is
-#    auto-discovered by the qmetry pods.
+#    auto-discovered by the coremetry pods.
 #  • `enabled: false` → connect to an external CH (Altinity Operator,
 #    ClickHouse Cloud, etc.) — point `external.addr` at it.
 #
@@ -155,7 +155,7 @@ clickhouse:
   external:
     addr: ""               # e.g. "ch-cluster.databases.svc:9000"
 
-  database: "qmetry"
+  database: "coremetry"
   username: "default"
   # password comes from secret.clickHousePassword (or existingSecret); empty
   # password is honoured (in-cluster CH starts with ALLOW_EMPTY_PASSWORD=yes)
@@ -165,7 +165,7 @@ clickhouse:
   # The official ClickHouse image runs as USER 101 (clickhouse) with a
   # fixed UID — fine on vanilla k8s, but on OpenShift you'll need to bind
   # `anyuid` SCC to the service account, OR use external CH:
-  #   oc adm policy add-scc-to-user anyuid -z <release>-qmetry-clickhouse \
+  #   oc adm policy add-scc-to-user anyuid -z <release>-coremetry-clickhouse \
   #     -n <namespace>
   image:
     registry: ""                                 # empty = docker.io
@@ -181,7 +181,7 @@ clickhouse:
     limits:   { cpu: "2",  memory: 4Gi }
   service:
     type: ClusterIP
-    nativePort: 9000        # CH native protocol — qmetry connects here
+    nativePort: 9000        # CH native protocol — coremetry connects here
     httpPort: 8123          # Useful for ad-hoc clickhouse-client / debugging
   podSecurityContext: {}    # OpenShift assigns UID + fsGroup automatically
 
@@ -201,8 +201,8 @@ redis:
     limits:   { cpu: 500m, memory: 256Mi }
 
 # OTel Collector — runs as a sidecar deployment, accepts OTLP from apps,
-# forwards to qmetry over gRPC. Disable if you already operate a collector
-# elsewhere and point apps directly at qmetry's gRPC service.
+# forwards to coremetry over gRPC. Disable if you already operate a collector
+# elsewhere and point apps directly at coremetry's gRPC service.
 otelCollector:
   enabled: true
   image:
@@ -224,7 +224,7 @@ javaDemo:
   enabled: false
   image:
     registry: "ghcr.io"
-    repository: cilcenk/qmetry-java-demo
+    repository: cilcenk/coremetry-java-demo
     tag: ""               # defaults to .Chart.appVersion
     pullPolicy: IfNotPresent
   service:
@@ -235,7 +235,7 @@ javaDemo:
     limits:   { cpu: "1",  memory: 1Gi }
   # Anything else you want to inject into the pod (e.g. extra OTEL_*
   # attributes, async-profiler tuning). Standard env vars are wired
-  # automatically — Otel endpoint and the qmetry profile-push URL.
+  # automatically — Otel endpoint and the coremetry profile-push URL.
   extraEnv: []
   service:
     type: ClusterIP

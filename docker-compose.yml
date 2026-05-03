@@ -1,9 +1,9 @@
 services:
   clickhouse:
     image: clickhouse/clickhouse-server:24.8-alpine
-    container_name: qmetry-clickhouse
+    container_name: coremetry-clickhouse
     # Ports exposed to the host for local dev convenience. When deploying
-    # publicly via Cloudflare Tunnel, comment these two out — the qmetry
+    # publicly via Cloudflare Tunnel, comment these two out — the coremetry
     # container reaches CH over the docker network only.
     ports:
       - "9000:9000"   # native protocol
@@ -24,33 +24,33 @@ services:
       timeout: 5s
       retries: 10
 
-  qmetry:
+  coremetry:
     build: .
-    container_name: qmetry
-    # The OTel Collector handles OTLP/HTTP for apps now, so qmetry only
+    container_name: coremetry
+    # The OTel Collector handles OTLP/HTTP for apps now, so coremetry only
     # exposes its web/API port externally. OTLP/gRPC stays internal — the
     # collector forwards over the docker network.
     ports:
       - "8088:8088"   # Web UI + REST API + direct OTLP/HTTP fallback
     environment:
-      QMETRY_CH_ADDR: "clickhouse:9000"
+      COREMETRY_CH_ADDR: "clickhouse:9000"
       # CH password — keep in sync with the clickhouse service above. Read
       # from .env so secrets stay out of the repo.
-      QMETRY_CH_PASSWORD: "${CLICKHOUSE_PASSWORD:-}"
+      COREMETRY_CH_PASSWORD: "${CLICKHOUSE_PASSWORD:-}"
       # JWT signing key. REQUIRED for any non-throwaway deployment — empty
       # → ephemeral random key, all sessions invalidated on every restart.
       # Generate one with: openssl rand -hex 32
-      QMETRY_JWT_SECRET: "${QMETRY_JWT_SECRET:-}"
+      COREMETRY_JWT_SECRET: "${COREMETRY_JWT_SECRET:-}"
       # Bootstrap admin password applied on first boot only (when the users
       # table is empty). Override before exposing publicly.
-      QMETRY_INITIAL_ADMIN: "${QMETRY_INITIAL_ADMIN:-admin@qmetry.local}"
-      QMETRY_INITIAL_PASSWORD: "${QMETRY_INITIAL_PASSWORD:-admin}"
+      COREMETRY_INITIAL_ADMIN: "${COREMETRY_INITIAL_ADMIN:-admin@coremetry.local}"
+      COREMETRY_INITIAL_PASSWORD: "${COREMETRY_INITIAL_PASSWORD:-admin}"
       # Demo deployments only — exposes admin credentials on the login
       # page. NEVER set this on a real deployment.
-      QMETRY_DEMO_MODE: "${QMETRY_DEMO_MODE:-}"
+      COREMETRY_DEMO_MODE: "${COREMETRY_DEMO_MODE:-}"
       # Hot-cache + distributed lock backend. Comment out to fall back to
       # single-instance mode (no cache, always-leader background workers).
-      QMETRY_REDIS_URL: "redis://redis:6379/0"
+      COREMETRY_REDIS_URL: "redis://redis:6379/0"
     volumes:
       - ./config.yaml:/app/config.yaml:ro
     depends_on:
@@ -71,7 +71,7 @@ services:
   #   2) Named tunnel — paste a tunnel token from
   #      https://one.dash.cloudflare.com/ → Networks → Tunnels into
   #      CLOUDFLARE_TUNNEL_TOKEN in .env. Persistent URL like
-  #      qmetry.yourdomain.com (configured in the dashboard).
+  #      coremetry.yourdomain.com (configured in the dashboard).
   #
   # Activate with:  docker compose --profile tunnel up -d cloudflared
   # Quick (ephemeral) tunnel — no Cloudflare account, no domain. The
@@ -81,10 +81,10 @@ services:
   # Activate with:  docker compose --profile tunnel up -d cloudflared
   cloudflared:
     image: cloudflare/cloudflared:latest
-    container_name: qmetry-cloudflared
-    command: tunnel --no-autoupdate --url http://qmetry:8088
+    container_name: coremetry-cloudflared
+    command: tunnel --no-autoupdate --url http://coremetry:8088
     depends_on:
-      qmetry:
+      coremetry:
         condition: service_started
     restart: unless-stopped
     profiles: ["tunnel"]
@@ -92,18 +92,18 @@ services:
   # Named tunnel — persistent URL on your own Cloudflare-managed domain.
   # Requires CLOUDFLARE_TUNNEL_TOKEN in .env (from
   # https://one.dash.cloudflare.com/ → Networks → Tunnels). Public
-  # hostname → http://qmetry:8088 must be configured in the dashboard.
+  # hostname → http://coremetry:8088 must be configured in the dashboard.
   #
   # Activate with:  docker compose --profile tunnel-named up -d cloudflared-named
   cloudflared-named:
     image: cloudflare/cloudflared:latest
-    container_name: qmetry-cloudflared-named
+    container_name: coremetry-cloudflared-named
     command: tunnel --no-autoupdate run
     environment:
       # cloudflared exits with a clear error if this is empty.
       TUNNEL_TOKEN: "${CLOUDFLARE_TUNNEL_TOKEN:-}"
     depends_on:
-      qmetry:
+      coremetry:
         condition: service_started
     restart: unless-stopped
     profiles: ["tunnel-named"]
@@ -113,18 +113,18 @@ services:
   # appendonly disabled because all data here is rebuildable from CH.
   redis:
     image: redis:7-alpine
-    container_name: qmetry-redis
+    container_name: coremetry-redis
     command: ["redis-server", "--appendonly", "no", "--save", ""]
     ports:
       - "6379:6379"
     restart: unless-stopped
 
-  # OpenTelemetry Collector — apps send here, collector forwards to qmetry.
+  # OpenTelemetry Collector — apps send here, collector forwards to coremetry.
   # Standard OTLP ports (4317/4318) are exposed on the host as 14317/14318
-  # so they don't clash with qmetry's direct ports.
+  # so they don't clash with coremetry's direct ports.
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.111.0
-    container_name: qmetry-otel-collector
+    container_name: coremetry-otel-collector
     command: ["--config=/etc/otelcol/config.yaml"]
     volumes:
       - ./otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
@@ -133,16 +133,16 @@ services:
       - "14318:4318"   # OTLP HTTP
       - "13133:13133"  # health check
     depends_on:
-      qmetry:
+      coremetry:
         condition: service_started
     restart: unless-stopped
 
-  # ── Grafana: Qmetry pre-wired as a Tempo datasource ─────────────────────────
-  # Open http://localhost:3000 (admin/admin) → Explore → Qmetry (Tempo).
+  # ── Grafana: Coremetry pre-wired as a Tempo datasource ─────────────────────────
+  # Open http://localhost:3000 (admin/admin) → Explore → Coremetry (Tempo).
   # Disable with `docker compose up -d` (omit profile).
   grafana:
     image: grafana/grafana:11.3.0
-    container_name: qmetry-grafana
+    container_name: coremetry-grafana
     ports:
       - "3000:3000"
     environment:
@@ -154,7 +154,7 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana-data:/var/lib/grafana
     depends_on:
-      - qmetry
+      - coremetry
     restart: unless-stopped
     profiles: ["grafana", "demo"]
 
@@ -164,7 +164,7 @@ services:
   java-demo:
     build:
       context: ./java-demo
-    container_name: qmetry-java-demo
+    container_name: coremetry-java-demo
     environment:
       OTEL_SERVICE_NAME: java-demo
       OTEL_RESOURCE_ATTRIBUTES: "deployment.environment=demo,host.name=java-demo-1,service.version=0.1.0"
@@ -177,7 +177,7 @@ services:
       OTEL_INSTRUMENTATION_RUNTIME_TELEMETRY_ENABLED: "true"
       OTEL_METRIC_EXPORT_INTERVAL: "10000"
       # Profile pusher (sidecar shell script — not OTel)
-      QMETRY_URL: "http://qmetry:8088"
+      COREMETRY_URL: "http://coremetry:8088"
       PROFILE_INTERVAL_SEC: "15"
       PROFILE_WINDOW_SEC: "10"
       PROFILE_ENGINE: wall   # wallclock sampling — captures all threads, no kernel perms needed
@@ -185,13 +185,13 @@ services:
       - "8080:8080"
     depends_on:
       - otel-collector
-      - qmetry
+      - coremetry
     restart: unless-stopped
 
   # ── Optional Go demo (kept for direct OTLP testing) ──────────────────────────
   go-demo:
     build: .
-    container_name: qmetry-go-demo
+    container_name: coremetry-go-demo
     entrypoint: ["./demo"]
     command: ["-endpoint", "http://otel-collector:4318", "-rps", "3"]
     depends_on:

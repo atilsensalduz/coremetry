@@ -9,7 +9,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
-	"github.com/cenk/qmetry/internal/config"
+	"github.com/cilcenk/coremetry/internal/config"
 )
 
 type Store struct {

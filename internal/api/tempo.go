@@ -1,4 +1,4 @@
-// Tempo-compatible HTTP API. Lets Grafana add Qmetry as a Tempo datasource:
+// Tempo-compatible HTTP API. Lets Grafana add Coremetry as a Tempo datasource:
 // only the endpoints Grafana actually calls during search and trace view are
 // implemented (echo, search, search/tags, search/tag/{name}/values, traces/{id}).
 //
@@ -22,12 +22,12 @@ import (
 	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 
-	"github.com/cenk/qmetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/chstore"
 )
 
 // RegisterTempoRoutes wires Tempo-compatible endpoints onto an existing mux.
 // All routes live under /tempo/* so they don't collide with our own /api/*.
-// Grafana's datasource config should point its URL at:  http://<qmetry>/tempo
+// Grafana's datasource config should point its URL at:  http://<coremetry>/tempo
 func (s *Server) registerTempoRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /tempo/api/echo",                    s.tempoEcho)
 	mux.HandleFunc("GET /tempo/ready",                       s.tempoEcho)
@@ -280,7 +280,7 @@ func buildTracesData(spans []chstore.SpanRow) *tracepb.TracesData {
 		td.ResourceSpans = append(td.ResourceSpans, &tracepb.ResourceSpans{
 			Resource:   &resourcepb.Resource{Attributes: makeAttrs(resAttrs)},
 			ScopeSpans: []*tracepb.ScopeSpans{{
-				Scope: &commonpb.InstrumentationScope{Name: "qmetry"},
+				Scope: &commonpb.InstrumentationScope{Name: "coremetry"},
 				Spans: spansPB,
 			}},
 		})

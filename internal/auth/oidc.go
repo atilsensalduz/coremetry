@@ -12,7 +12,7 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 
-	"github.com/cenk/qmetry/internal/config"
+	"github.com/cilcenk/coremetry/internal/config"
 )
 
 // OIDCService is the optional SSO layer. nil when disabled — every call

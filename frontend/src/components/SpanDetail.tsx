@@ -8,7 +8,7 @@ import { CopyButton } from './CopyButton';
 
 const PANEL_MIN = 300;
 const PANEL_MAX = 1100;
-const PANEL_STORAGE_KEY = 'qmetry-span-panel-w';
+const PANEL_STORAGE_KEY = 'coremetry-span-panel-w';
 
 export function SpanDetail({ span, onClose }: { span: SpanRow; onClose: () => void }) {
   const attrs = Object.entries(span.attributes ?? {});

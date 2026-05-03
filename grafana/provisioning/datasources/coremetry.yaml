@@ -1,7 +1,7 @@
-# Grafana datasource provisioning — Qmetry exposed as a Tempo backend.
+# Grafana datasource provisioning — Coremetry exposed as a Tempo backend.
 #
 # Once Grafana starts it automatically picks this up:
-#   • Explore → "Qmetry (Tempo)" — search traces, view trace timeline
+#   • Explore → "Coremetry (Tempo)" — search traces, view trace timeline
 #   • Trace ID lookup, tag filtering, basic TraceQL all supported
 #
 # `deleteDatasources` runs first on every startup, so config changes here
@@ -10,23 +10,23 @@
 apiVersion: 1
 
 deleteDatasources:
-  - name: Qmetry (Tempo)
+  - name: Coremetry (Tempo)
     orgId: 1
 
 datasources:
-  - name: Qmetry (Tempo)
+  - name: Coremetry (Tempo)
     type: tempo
     access: proxy
-    uid: qmetry-tempo
-    # Inside the docker network the qmetry container is reachable as `qmetry`.
-    # The /tempo prefix is the Tempo-compatible API exposed by Qmetry.
-    url: http://qmetry:8088/tempo
+    uid: coremetry-tempo
+    # Inside the docker network the coremetry container is reachable as `coremetry`.
+    # The /tempo prefix is the Tempo-compatible API exposed by Coremetry.
+    url: http://coremetry:8088/tempo
     isDefault: true
     editable: false
     jsonData:
       httpMethod: GET
       tracesToLogs:
-        datasourceUid: qmetry-tempo
+        datasourceUid: coremetry-tempo
         tags: ['service.name']
       nodeGraph:
         enabled: true

@@ -20,7 +20,7 @@ export const viewport: Viewport = {
 const themeBoot = `
   (function() {
     try {
-      var t = localStorage.getItem('qmetry-theme');
+      var t = localStorage.getItem('coremetry-theme');
       if (t !== 'light' && t !== 'dark') t = 'dark';
       document.documentElement.setAttribute('data-theme', t);
     } catch (e) {

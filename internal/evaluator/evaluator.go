@@ -13,12 +13,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cenk/qmetry/internal/cache"
-	"github.com/cenk/qmetry/internal/chstore"
-	"github.com/cenk/qmetry/internal/notify"
+	"github.com/cilcenk/coremetry/internal/cache"
+	"github.com/cilcenk/coremetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/notify"
 )
 
-const lockKey = "qmetry:lock:evaluator"
+const lockKey = "coremetry:lock:evaluator"
 
 type Evaluator struct {
 	store    *chstore.Store
@@ -27,7 +27,7 @@ type Evaluator struct {
 	notifier *notify.Notifier
 }
 
-// New takes a cache.Lock so multiple Qmetry replicas only run the
+// New takes a cache.Lock so multiple Coremetry replicas only run the
 // evaluation loop once per tick, and a notifier so PROBLEM OPENED
 // transitions fan out to email/slack/etc.
 func New(store *chstore.Store, interval time.Duration, lock cache.Lock, notifier *notify.Notifier) *Evaluator {

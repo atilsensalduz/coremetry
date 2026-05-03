@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 
 type Theme = 'dark' | 'light';
 
-const STORAGE_KEY = 'qmetry-theme';
+const STORAGE_KEY = 'coremetry-theme';
 
 /**
  * Switches between dark and light palettes by toggling the

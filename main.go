@@ -12,16 +12,16 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/cenk/qmetry/internal/anomaly"
-	"github.com/cenk/qmetry/internal/api"
-	"github.com/cenk/qmetry/internal/auth"
-	"github.com/cenk/qmetry/internal/cache"
-	"github.com/cenk/qmetry/internal/chstore"
-	"github.com/cenk/qmetry/internal/config"
-	"github.com/cenk/qmetry/internal/consumer"
-	"github.com/cenk/qmetry/internal/evaluator"
-	"github.com/cenk/qmetry/internal/notify"
-	"github.com/cenk/qmetry/internal/otlp"
+	"github.com/cilcenk/coremetry/internal/anomaly"
+	"github.com/cilcenk/coremetry/internal/api"
+	"github.com/cilcenk/coremetry/internal/auth"
+	"github.com/cilcenk/coremetry/internal/cache"
+	"github.com/cilcenk/coremetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/config"
+	"github.com/cilcenk/coremetry/internal/consumer"
+	"github.com/cilcenk/coremetry/internal/evaluator"
+	"github.com/cilcenk/coremetry/internal/notify"
+	"github.com/cilcenk/coremetry/internal/otlp"
 )
 
 //go:embed all:frontend/out
@@ -42,7 +42,7 @@ func main() {
 	// ── ClickHouse ────────────────────────────────────────────────────────────
 	store, err := chstore.New(cfg.ClickHouse, cfg.Retention)
 	if err != nil {
-		log.Fatalf("clickhouse: %v\n\nMake sure ClickHouse is running:\n  docker run -d --name qmetry-ch -p 9000:9000 -p 8123:8123 clickhouse/clickhouse-server:24.8-alpine", err)
+		log.Fatalf("clickhouse: %v\n\nMake sure ClickHouse is running:\n  docker run -d --name coremetry-ch -p 9000:9000 -p 8123:8123 clickhouse/clickhouse-server:24.8-alpine", err)
 	}
 	defer store.Close()
 
@@ -153,7 +153,7 @@ func main() {
 // exception_groups inbox in sync. Cheap (one CH GROUP BY per minute) and
 // safe to run while the user is also driving the inbox UI.
 func runExceptionRefresher(ctx context.Context, store *chstore.Store, lock cache.Lock) {
-	const lockKey = "qmetry:lock:exception-refresher"
+	const lockKey = "coremetry:lock:exception-refresher"
 	const interval = 60 * time.Second
 	// First pass scans the last 24h so an existing install backfills.
 	// Subsequent ticks scan a 5-minute trailing window — generous overlap

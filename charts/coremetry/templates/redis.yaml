@@ -2,27 +2,27 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "qmetry.fullname" . }}-redis
+  name: {{ include "coremetry.fullname" . }}-redis
   labels:
-    {{- include "qmetry.labels" . | nindent 4 }}
+    {{- include "coremetry.labels" . | nindent 4 }}
     app.kubernetes.io/component: redis
 spec:
   replicas: 1
   strategy: { type: Recreate }   # single-instance dev redis; no rolling
   selector:
     matchLabels:
-      {{- include "qmetry.selectorLabels" . | nindent 6 }}
+      {{- include "coremetry.selectorLabels" . | nindent 6 }}
       app.kubernetes.io/component: redis
   template:
     metadata:
       labels:
-        {{- include "qmetry.selectorLabels" . | nindent 8 }}
+        {{- include "coremetry.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: redis
     spec:
-      {{- include "qmetry.imagePullSecrets" (dict "imageRoot" .Values.redis.image "global" .Values.global) | nindent 6 }}
+      {{- include "coremetry.imagePullSecrets" (dict "imageRoot" .Values.redis.image "global" .Values.global) | nindent 6 }}
       containers:
         - name: redis
-          image: {{ include "qmetry.image" (dict "imageRoot" .Values.redis.image "global" .Values.global) | quote }}
+          image: {{ include "coremetry.image" (dict "imageRoot" .Values.redis.image "global" .Values.global) | quote }}
           # SCC-friendly: no fixed UID, no privileged caps. The official
           # redis image refuses to start as root; with restricted-v2 the
           # platform assigns a high non-root UID — that works because we
@@ -59,14 +59,14 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "qmetry.fullname" . }}-redis
+  name: {{ include "coremetry.fullname" . }}-redis
   labels:
-    {{- include "qmetry.labels" . | nindent 4 }}
+    {{- include "coremetry.labels" . | nindent 4 }}
     app.kubernetes.io/component: redis
 spec:
   type: ClusterIP
   selector:
-    {{- include "qmetry.selectorLabels" . | nindent 4 }}
+    {{- include "coremetry.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: redis
   ports:
     - name: redis

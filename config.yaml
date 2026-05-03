@@ -4,7 +4,7 @@ listen:
 
 clickhouse:
   addr: "127.0.0.1:9000"
-  database: "qmetry"
+  database: "coremetry"
   username: "default"
   password: ""
   max_open_conns: 10
@@ -23,7 +23,7 @@ ingestion:
 
 # Optional. Empty url = single-instance mode (no cache, always-leader lock).
 # Set this to enable hot caching of frequently-polled endpoints AND to make
-# background workers safe to run across multiple Qmetry replicas.
+# background workers safe to run across multiple Coremetry replicas.
 redis:
   url: ""   # e.g. "redis://localhost:6379/0"
 
@@ -45,7 +45,7 @@ auth:
     issuer_url: ""              # e.g. https://accounts.google.com
     client_id: ""
     client_secret: ""
-    redirect_url: ""            # e.g. https://qmetry.example.com/api/auth/oidc/callback
+    redirect_url: ""            # e.g. https://coremetry.example.com/api/auth/oidc/callback
     scopes: ["openid", "email", "profile"]
     display_name: "SSO"         # text shown on the login button
     default_role: "viewer"      # role given to first-time OIDC users

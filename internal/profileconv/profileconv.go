@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/pprof/profile"
 
-	"github.com/cenk/qmetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/chstore"
 )
 
 // IsPprof returns true if the byte slice looks like a pprof payload

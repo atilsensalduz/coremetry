@@ -15,7 +15,7 @@ import (
 // New parses a Redis URL (redis://host:port/db) and returns a working
 // Cache+Lock pair. On URL parse error or initial PING failure it falls
 // back to the Noop implementation and returns the error so the caller
-// can log it — Qmetry should not crash just because Redis is unhealthy.
+// can log it — Coremetry should not crash just because Redis is unhealthy.
 func New(url string) (Cache, Lock, error) {
 	opts, err := redis.ParseURL(url)
 	if err != nil {
