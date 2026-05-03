@@ -34,7 +34,7 @@ auth:
   # all sessions.
   jwt_secret: ""
   token_ttl: "24h"
-  initial_admin: "admin@qmetry.local"
+  initial_admin: "admin@coremetry.local"
   initial_password: "admin"     # change after first login
 
   # ── Optional: OIDC / SSO ─────────────────────────────────────────────────

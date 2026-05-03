@@ -144,7 +144,7 @@ func (n *Notifier) SendTest(ctx context.Context, c chstore.NotificationChannel) 
 	test := chstore.Problem{
 		ID:          "test",
 		RuleID:      "test",
-		RuleName:    "Test alert from Qmetry",
+		RuleName:    "Test alert from Coremetry",
 		Severity:    "warning",
 		Service:     "qmetry",
 		Metric:      "test",

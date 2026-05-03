@@ -73,7 +73,7 @@ export default function LoginPage() {
             <TelescopeIcon size={40} />
           </div>
           <div style={{ fontSize: 22, fontWeight: 700, marginTop: 10, letterSpacing: '0.5px' }}>
-            Qmetry
+            Coremetry
           </div>
           <div style={{ color: 'var(--text3)', fontSize: 11, marginTop: 4 }}>
             Powered by OpenTelemetry · Sign in to continue

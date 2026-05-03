@@ -92,7 +92,7 @@ var defaults = Config{
 	Ingestion:  IngestionConfig{BatchSize: 10_000, BufferSize: 100_000, FlushInterval: 5 * time.Second, Workers: 4},
 	Auth: AuthConfig{
 		TokenTTL:        24 * time.Hour,
-		InitialAdmin:    "admin@qmetry.local",
+		InitialAdmin:    "admin@coremetry.local",
 		InitialPassword: "admin",
 	},
 }

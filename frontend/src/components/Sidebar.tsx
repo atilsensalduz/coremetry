@@ -171,7 +171,7 @@ export function Sidebar() {
         }}>
         <div id="sidebar-header">
           <TelescopeIcon size={22} />
-          {showLabels && <span className="title">Qmetry</span>}
+          {showLabels && <span className="title">Coremetry</span>}
           <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
             {showLabels && <ThemeToggle />}
             {!isMobile && (

@@ -136,7 +136,7 @@ func main() {
 	}()
 
 	log.Println("┌──────────────────────────────────────────────┐")
-	log.Println("│           Qmetry APM       — ready            │")
+	log.Println("│         Coremetry APM       — ready           │")
 	log.Printf( "│  OTLP/gRPC ingest:    localhost%s         │", cfg.Listen.GRPC)
 	log.Printf( "│  Web UI + REST API:   http://localhost%s   │", cfg.Listen.HTTP)
 	log.Println("└──────────────────────────────────────────────┘")

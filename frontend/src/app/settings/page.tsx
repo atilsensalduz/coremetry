@@ -133,7 +133,7 @@ function SMTPTab() {
             onChange={e => update('from', e.target.value)} />
         </Field>
         <Field label="From name (optional)" flex={1}>
-          <input value={s.fromName} placeholder="Qmetry Alerts"
+          <input value={s.fromName} placeholder="Coremetry Alerts"
             onChange={e => update('fromName', e.target.value)} />
         </Field>
       </Row>

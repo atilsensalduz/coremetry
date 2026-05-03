@@ -4,7 +4,7 @@ import { AppShell } from '@/components/AppShell';
 import '@/styles/globals.css';
 
 export const metadata: Metadata = {
-  title: 'Qmetry',
+  title: 'Coremetry',
   description: 'Enterprise OpenTelemetry APM',
 };
 
