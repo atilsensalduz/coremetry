@@ -2,17 +2,26 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "qmetry.fullname" . }}
-  labels: {{- include "qmetry.labels" . | nindent 4 }}
+  labels:
+    {{- include "qmetry.labels" . | nindent 4 }}
+    app.kubernetes.io/component: qmetry
 spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
+  # Selector includes `component: qmetry` so it doesn't accidentally adopt
+  # ClickHouse / Redis / OTel-Collector pods (they share the chart-wide
+  # name + instance labels). This selector is immutable post-create — see
+  # NOTES.txt for the upgrade path from chart < 0.1.3.
   selector:
-    matchLabels: {{- include "qmetry.selectorLabels" . | nindent 6 }}
+    matchLabels:
+      {{- include "qmetry.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: qmetry
   template:
     metadata:
       labels:
         {{- include "qmetry.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: qmetry
         {{- with .Values.podLabels }}{{ toYaml . | nindent 8 }}{{- end }}
       annotations:
         # Roll the pods whenever the rendered config or secret changes.

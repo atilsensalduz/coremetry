@@ -2,13 +2,20 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "qmetry.fullname" . }}
-  labels: {{- include "qmetry.labels" . | nindent 4 }}
+  labels:
+    {{- include "qmetry.labels" . | nindent 4 }}
+    app.kubernetes.io/component: qmetry
   {{- with .Values.service.annotations }}
   annotations: {{ toYaml . | nindent 4 }}
   {{- end }}
 spec:
   type: {{ .Values.service.type }}
-  selector: {{- include "qmetry.selectorLabels" . | nindent 4 }}
+  # Component-scoped selector — without this the Service routed to ALL
+  # pods sharing the chart-wide name+instance labels (CH, Redis, OTel
+  # Collector), which silently dropped traces and broke the UI.
+  selector:
+    {{- include "qmetry.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: qmetry
   ports:
     - name: http
       port: {{ .Values.service.httpPort }}
