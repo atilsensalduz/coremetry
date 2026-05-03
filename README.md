@@ -114,6 +114,65 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:14317   # gRPC
 
 ---
 
+## Expose via Cloudflare Tunnel (zero-cloud, public HTTPS URL)
+
+For sharing a demo without paying for a cloud host, the bundled
+`cloudflared` service publishes Qmetry to a public HTTPS URL. Two modes:
+
+### Quick tunnel (no Cloudflare account, ephemeral URL)
+
+```bash
+cp .env.example .env
+# Edit .env — at minimum set:
+#   QMETRY_JWT_SECRET=$(openssl rand -hex 32)
+#   QMETRY_INITIAL_PASSWORD=<a strong password>
+#   CLICKHOUSE_PASSWORD=<another strong password>
+# Leave CLOUDFLARE_TUNNEL_TOKEN empty.
+
+docker compose up -d
+docker compose --profile tunnel up -d cloudflared
+
+# Watch the logs — Cloudflare prints the public URL it assigned.
+docker compose logs -f cloudflared
+# Look for: https://<random-words>.trycloudflare.com
+```
+
+The URL changes on every cloudflared restart. Good for "just look at this for an hour", not for production.
+
+### Named tunnel (persistent URL on your domain)
+
+1. **Cloudflare dashboard** → Zero Trust → Networks → Tunnels → **Create**
+2. Name it `qmetry`, pick **cloudflared**, copy the install token
+3. Add a public hostname → service URL `http://qmetry:8088` (the docker network resolves it)
+4. Paste the token into `.env`:
+   ```
+   CLOUDFLARE_TUNNEL_TOKEN=eyJhI...
+   ```
+5. Bring it up:
+   ```bash
+   docker compose --profile tunnel-named up -d cloudflared-named
+   ```
+
+Cloudflare terminates TLS at the edge, so you don't need Caddy/Traefik
+inside the stack. The qmetry container stays HTTP-only on the docker
+network and is never directly reachable from the public internet.
+
+### ⚠ Before exposing publicly
+
+| Setting | Why |
+|---|---|
+| `QMETRY_JWT_SECRET` | empty value rotates on every restart, drops sessions |
+| `QMETRY_INITIAL_PASSWORD` | the default `admin` is in this README |
+| `CLICKHOUSE_PASSWORD` | even though CH isn't published through the tunnel, set it |
+| Drop CH host ports | comment out `9000:9000` and `8123:8123` in compose if you don't need direct CH access |
+| Drop java-demo and Grafana host ports | same — they're internal-only when going through the tunnel |
+
+After first login at the tunnel URL, sign in with `admin@qmetry.local` /
+`<INITIAL_PASSWORD>`, open the user menu → **Change password** to rotate
+even that one.
+
+---
+
 ## Production install (Helm)
 
 The chart lives in [`charts/qmetry`](charts/qmetry). It deploys Qmetry plus

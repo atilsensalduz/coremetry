@@ -2,12 +2,15 @@ services:
   clickhouse:
     image: clickhouse/clickhouse-server:24.8-alpine
     container_name: qmetry-clickhouse
+    # Ports exposed to the host for local dev convenience. When deploying
+    # publicly via Cloudflare Tunnel, comment these two out — the qmetry
+    # container reaches CH over the docker network only.
     ports:
       - "9000:9000"   # native protocol
       - "8123:8123"   # HTTP
     environment:
       CLICKHOUSE_USER: default
-      CLICKHOUSE_PASSWORD: ""
+      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:-}"
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
     ulimits:
       nofile:
@@ -31,6 +34,17 @@ services:
       - "8088:8088"   # Web UI + REST API + direct OTLP/HTTP fallback
     environment:
       QMETRY_CH_ADDR: "clickhouse:9000"
+      # CH password — keep in sync with the clickhouse service above. Read
+      # from .env so secrets stay out of the repo.
+      QMETRY_CH_PASSWORD: "${CLICKHOUSE_PASSWORD:-}"
+      # JWT signing key. REQUIRED for any non-throwaway deployment — empty
+      # → ephemeral random key, all sessions invalidated on every restart.
+      # Generate one with: openssl rand -hex 32
+      QMETRY_JWT_SECRET: "${QMETRY_JWT_SECRET:-}"
+      # Bootstrap admin password applied on first boot only (when the users
+      # table is empty). Override before exposing publicly.
+      QMETRY_INITIAL_ADMIN: "${QMETRY_INITIAL_ADMIN:-admin@qmetry.local}"
+      QMETRY_INITIAL_PASSWORD: "${QMETRY_INITIAL_PASSWORD:-admin}"
       # Hot-cache + distributed lock backend. Comment out to fall back to
       # single-instance mode (no cache, always-leader background workers).
       QMETRY_REDIS_URL: "redis://redis:6379/0"
@@ -42,6 +56,54 @@ services:
       redis:
         condition: service_started
     restart: unless-stopped
+
+  # ── Cloudflare Tunnel (publish the UI to a public HTTPS URL) ────────────────
+  # Two modes:
+  #
+  #   1) Quick tunnel — no Cloudflare account, no domain. The container
+  #      prints a random *.trycloudflare.com URL to its logs. Default mode
+  #      when CLOUDFLARE_TUNNEL_TOKEN is empty. Ephemeral — URL changes on
+  #      every restart, intended for dev/preview.
+  #
+  #   2) Named tunnel — paste a tunnel token from
+  #      https://one.dash.cloudflare.com/ → Networks → Tunnels into
+  #      CLOUDFLARE_TUNNEL_TOKEN in .env. Persistent URL like
+  #      qmetry.yourdomain.com (configured in the dashboard).
+  #
+  # Activate with:  docker compose --profile tunnel up -d cloudflared
+  # Quick (ephemeral) tunnel — no Cloudflare account, no domain. The
+  # container prints a random *.trycloudflare.com URL to its logs. URL
+  # changes on every restart; intended for dev/preview shares.
+  #
+  # Activate with:  docker compose --profile tunnel up -d cloudflared
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: qmetry-cloudflared
+    command: tunnel --no-autoupdate --url http://qmetry:8088
+    depends_on:
+      qmetry:
+        condition: service_started
+    restart: unless-stopped
+    profiles: ["tunnel"]
+
+  # Named tunnel — persistent URL on your own Cloudflare-managed domain.
+  # Requires CLOUDFLARE_TUNNEL_TOKEN in .env (from
+  # https://one.dash.cloudflare.com/ → Networks → Tunnels). Public
+  # hostname → http://qmetry:8088 must be configured in the dashboard.
+  #
+  # Activate with:  docker compose --profile tunnel-named up -d cloudflared-named
+  cloudflared-named:
+    image: cloudflare/cloudflared:latest
+    container_name: qmetry-cloudflared-named
+    command: tunnel --no-autoupdate run
+    environment:
+      # cloudflared exits with a clear error if this is empty.
+      TUNNEL_TOKEN: "${CLOUDFLARE_TUNNEL_TOKEN:-}"
+    depends_on:
+      qmetry:
+        condition: service_started
+    restart: unless-stopped
+    profiles: ["tunnel-named"]
 
   # Hot cache (services list, metric names, sidebar problem count) +
   # distributed lock for the evaluator/anomaly workers. Lightweight —
