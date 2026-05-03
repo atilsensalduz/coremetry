@@ -30,14 +30,42 @@ func New(cfg config.CHConfig, ret config.RetentionConfig) (*Store, error) {
 
 	ctx := context.Background()
 
-	// Create database using default DB connection
-	setup, err := clickhouse.Open(&clickhouse.Options{
-		Addr:        []string{cfg.Addr},
-		Auth:        clickhouse.Auth{Database: "default", Username: cfg.Username, Password: cfg.Password},
-		DialTimeout: dialTimeout,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("setup connect: %w", err)
+	// Create database using default DB connection. CH may still be coming
+	// up (Helm-managed StatefulSet, fresh container, etc.) so retry the
+	// initial CREATE DATABASE for up to ~2 minutes before giving up.
+	var setup driver.Conn
+	openSetup := func() error {
+		c, err := clickhouse.Open(&clickhouse.Options{
+			Addr:        []string{cfg.Addr},
+			Auth:        clickhouse.Auth{Database: "default", Username: cfg.Username, Password: cfg.Password},
+			DialTimeout: dialTimeout,
+		})
+		if err != nil {
+			return err
+		}
+		if err := c.Ping(ctx); err != nil {
+			c.Close()
+			return err
+		}
+		setup = c
+		return nil
+	}
+	{
+		const attempts = 24
+		var lastErr error
+		for i := 0; i < attempts; i++ {
+			if err := openSetup(); err == nil {
+				lastErr = nil
+				break
+			} else {
+				lastErr = err
+				log.Printf("[chstore] waiting for ClickHouse at %s (%d/%d): %v", cfg.Addr, i+1, attempts, err)
+				time.Sleep(5 * time.Second)
+			}
+		}
+		if lastErr != nil {
+			return nil, fmt.Errorf("setup connect after retries: %w", lastErr)
+		}
 	}
 	if err := setup.Exec(ctx, fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`", cfg.Database)); err != nil {
 		setup.Close()

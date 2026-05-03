@@ -61,6 +61,59 @@ enabled, then empty (single-instance / no cache mode).
 {{- end -}}
 
 {{/*
+qmetry.image renders a fully-qualified image reference for any of the
+chart's components. Resolution order for the registry portion:
+
+  1. global.imageRegistry (when set) — wins for ALL images, useful for
+     air-gapped clusters that mirror everything into one internal registry
+  2. <component>.image.registry — per-image override
+  3. "" — no prefix, lets the runtime pick the default (docker.io)
+
+Tag falls back to .defaultTag (typically Chart.AppVersion for the qmetry
+image, hard-coded for upstream images).
+
+Usage:
+  image: {{ include "qmetry.image" (dict "imageRoot" .Values.image
+                                          "global"    .Values.global
+                                          "defaultTag" .Chart.AppVersion) }}
+*/}}
+{{- define "qmetry.image" -}}
+{{- $registry := .imageRoot.registry | default "" -}}
+{{- if and .global .global.imageRegistry -}}
+{{- $registry = .global.imageRegistry -}}
+{{- end -}}
+{{- $repo := .imageRoot.repository -}}
+{{- $tag := .imageRoot.tag | toString -}}
+{{- if eq $tag "" -}}{{- $tag = (.defaultTag | toString) -}}{{- end -}}
+{{- if eq $tag "" -}}{{- $tag = "latest" -}}{{- end -}}
+{{- if $registry -}}
+{{- printf "%s/%s:%s" $registry $repo $tag -}}
+{{- else -}}
+{{- printf "%s:%s" $repo $tag -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+qmetry.imagePullSecrets renders an `imagePullSecrets` list. Merges
+global.imagePullSecrets and the per-image .image.pullSecrets if any.
+*/}}
+{{- define "qmetry.imagePullSecrets" -}}
+{{- $secrets := list -}}
+{{- if and .global .global.imagePullSecrets -}}
+{{- $secrets = concat $secrets .global.imagePullSecrets -}}
+{{- end -}}
+{{- if .imageRoot.pullSecrets -}}
+{{- $secrets = concat $secrets .imageRoot.pullSecrets -}}
+{{- end -}}
+{{- if $secrets }}
+imagePullSecrets:
+{{- range $secrets }}
+  - name: {{ . }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
 ClickHouse address (host:port): explicit external takes priority, then
 in-cluster service when enabled, then a sane "clickhouse:9000" placeholder
 that will fail loudly so the misconfiguration is obvious.

@@ -52,9 +52,10 @@ spec:
         {{- include "qmetry.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: otel-collector
     spec:
+      {{- include "qmetry.imagePullSecrets" (dict "imageRoot" .Values.otelCollector.image "global" .Values.global) | nindent 6 }}
       containers:
         - name: otelcol
-          image: "{{ .Values.otelCollector.image.repository }}:{{ .Values.otelCollector.image.tag }}"
+          image: {{ include "qmetry.image" (dict "imageRoot" .Values.otelCollector.image "global" .Values.global) | quote }}
           # SCC-friendly — same restricted-v2 profile as the main app.
           securityContext:
             runAsNonRoot: true

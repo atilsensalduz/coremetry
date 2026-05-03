@@ -43,16 +43,18 @@ spec:
         {{- include "qmetry.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: clickhouse
     spec:
+      {{- include "qmetry.imagePullSecrets" (dict "imageRoot" .Values.clickhouse.image "global" .Values.global) | nindent 6 }}
       {{- with .Values.clickhouse.podSecurityContext }}
       securityContext: {{ toYaml . | nindent 8 }}
       {{- end }}
       containers:
         - name: clickhouse
-          image: "{{ .Values.clickhouse.image.repository }}:{{ .Values.clickhouse.image.tag }}"
+          image: {{ include "qmetry.image" (dict "imageRoot" .Values.clickhouse.image "global" .Values.global) | quote }}
           imagePullPolicy: {{ .Values.clickhouse.image.pullPolicy }}
-          # SCC-friendly — bitnami/clickhouse handles arbitrary UID + group 0
-          # ownership, so this admits cleanly under restricted-v2 without
-          # any custom SCC binding.
+          # The official clickhouse-server image runs as fixed UID 101.
+          # Vanilla k8s admits this fine; on OpenShift you need to bind
+          # `anyuid` SCC to this chart's service account first
+          # (see README OpenShift section).
           securityContext:
             runAsNonRoot: true
             allowPrivilegeEscalation: false
@@ -62,28 +64,24 @@ spec:
             - { name: native, containerPort: 9000 }
             - { name: http,   containerPort: 8123 }
           env:
-            - name: CLICKHOUSE_DATABASE
+            # Official CH env vars (different from bitnami's CLICKHOUSE_ADMIN_*)
+            - name: CLICKHOUSE_DB
               value: {{ .Values.clickhouse.database | quote }}
-            - name: CLICKHOUSE_ADMIN_USER
+            - name: CLICKHOUSE_USER
               value: {{ .Values.clickhouse.username | quote }}
-            # Mutually exclusive: either the password (when supplied) or
-            # ALLOW_EMPTY_PASSWORD=yes — bitnami refuses to boot otherwise.
-            {{- if or .Values.secrets.clickHousePassword .Values.secrets.existingSecret }}
-            - name: CLICKHOUSE_ADMIN_PASSWORD
+            - name: CLICKHOUSE_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "qmetry.secretName" . }}
                   key: clickhouse-password
                   optional: true
-            - name: ALLOW_EMPTY_PASSWORD
-              value: "yes"   # acts as fallback when the secret value is empty
-            {{- else }}
-            - name: ALLOW_EMPTY_PASSWORD
-              value: "yes"
-            {{- end }}
+            # Allow `default` user to manage roles via SQL — useful when
+            # qmetry creates additional schemas at first boot.
+            - name: CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT
+              value: "1"
           volumeMounts:
             - name: data
-              mountPath: /bitnami/clickhouse
+              mountPath: /var/lib/clickhouse
           readinessProbe:
             tcpSocket: { port: native }
             initialDelaySeconds: 5

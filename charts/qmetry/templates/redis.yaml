@@ -19,9 +19,10 @@ spec:
         {{- include "qmetry.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: redis
     spec:
+      {{- include "qmetry.imagePullSecrets" (dict "imageRoot" .Values.redis.image "global" .Values.global) | nindent 6 }}
       containers:
         - name: redis
-          image: "{{ .Values.redis.image.repository }}:{{ .Values.redis.image.tag }}"
+          image: {{ include "qmetry.image" (dict "imageRoot" .Values.redis.image "global" .Values.global) | quote }}
           # SCC-friendly: no fixed UID, no privileged caps. The official
           # redis image refuses to start as root; with restricted-v2 the
           # platform assigns a high non-root UID — that works because we

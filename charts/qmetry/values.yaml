@@ -1,13 +1,36 @@
 ## Qmetry default values
 ## Override anything here with --set or a custom values file.
 
+# ── Global image override ───────────────────────────────────────────────────
+#
+# When `global.imageRegistry` is set it REPLACES the .registry of every
+# image in this chart (qmetry, ClickHouse, Redis, OTel Collector). Built
+# for air-gapped clusters that mirror upstream images into an internal
+# registry — e.g.:
+#
+#   global:
+#     imageRegistry: docker.artifacthub.registry.example.com
+#
+# Mirrors expected at:
+#   docker.artifacthub.registry.example.com/cilcenk/qmetry:0.1.4
+#   docker.artifacthub.registry.example.com/clickhouse/clickhouse-server:24.8-alpine
+#   docker.artifacthub.registry.example.com/library/redis:7-alpine
+#   docker.artifacthub.registry.example.com/otel/opentelemetry-collector-contrib:0.111.0
+#
+# Per-image overrides (.image.registry on each component) take priority
+# over the global. Set imagePullSecrets here when the registry is private.
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+
 image:
   # Built and pushed by .github/workflows/release.yml on every v*.*.* tag.
-  # Public on GHCR — no pullSecrets needed.
-  repository: ghcr.io/cilcenk/qmetry
+  # Public on GHCR — no pullSecrets needed by default.
+  registry: "ghcr.io"
+  repository: "cilcenk/qmetry"
   tag: ""               # defaults to .Chart.appVersion
   pullPolicy: IfNotPresent
-  pullSecrets: []
+  pullSecrets: []       # legacy field — prefer global.imagePullSecrets
 
 replicaCount: 1         # safe to scale up — Redis lock arbitrates background workers
 
@@ -138,12 +161,16 @@ clickhouse:
   # password is honoured (in-cluster CH starts with ALLOW_EMPTY_PASSWORD=yes)
   maxOpenConns: 20
 
-  # In-cluster StatefulSet options (consulted only when enabled: true). The
-  # bitnami image runs as an arbitrary UID and accepts group 0 ownership,
-  # so it admits cleanly under OpenShift's restricted-v2 SCC.
+  # In-cluster StatefulSet options (consulted only when enabled: true).
+  # The official ClickHouse image runs as USER 101 (clickhouse) with a
+  # fixed UID — fine on vanilla k8s, but on OpenShift you'll need to bind
+  # `anyuid` SCC to the service account, OR use external CH:
+  #   oc adm policy add-scc-to-user anyuid -z <release>-qmetry-clickhouse \
+  #     -n <namespace>
   image:
-    repository: bitnami/clickhouse
-    tag: "24"
+    registry: ""                                 # empty = docker.io
+    repository: clickhouse/clickhouse-server
+    tag: "24.8-alpine"
     pullPolicy: IfNotPresent
   storage:
     size: 20Gi
@@ -166,7 +193,8 @@ redis:
   external:
     url: ""               # e.g. "redis://my-redis.svc:6379/0" — overrides in-cluster
   image:
-    repository: redis
+    registry: ""          # empty = docker.io
+    repository: library/redis
     tag: 7-alpine
   resources:
     requests: { cpu: 50m,  memory: 64Mi }
@@ -178,6 +206,7 @@ redis:
 otelCollector:
   enabled: true
   image:
+    registry: ""          # empty = docker.io
     repository: otel/opentelemetry-collector-contrib
     tag: "0.111.0"
   service:

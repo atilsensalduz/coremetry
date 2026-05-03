@@ -287,17 +287,65 @@ Pod admission errors that suggest you need to lift SCC restrictions are
 almost always avoidable by overriding chart values rather than granting
 extra privilege — open an issue with the error if you hit one.
 
-### Switching to Quay.io
+### Air-gapped / private mirror (`global.imageRegistry`)
 
-GHCR is the default because the release workflow already pushes there.
-To pull from Quay (or any registry) instead, mirror the image and override:
+Enterprise / regulated environments usually require all images to be
+mirrored into an internal registry. The chart's `global.imageRegistry`
+overrides the registry portion of every image (qmetry + ClickHouse +
+Redis + OTel Collector) in one place — same pattern as the bitnami
+charts.
+
+Mirror these four upstream images into your registry first:
+
+| Upstream | Suggested mirror path |
+|---|---|
+| `ghcr.io/cilcenk/qmetry:<version>`            | `<your-registry>/cilcenk/qmetry:<version>` |
+| `clickhouse/clickhouse-server:24.8-alpine`    | `<your-registry>/clickhouse/clickhouse-server:24.8-alpine` |
+| `library/redis:7-alpine`                      | `<your-registry>/library/redis:7-alpine` |
+| `otel/opentelemetry-collector-contrib:0.111.0`| `<your-registry>/otel/opentelemetry-collector-contrib:0.111.0` |
+
+Then install with the override:
 
 ```bash
-helm install qmetry ./charts/qmetry \
-  --set image.repository=quay.io/yourorg/qmetry \
-  --set image.tag=0.1.0 \
+helm install qmetry oci://ghcr.io/cilcenk/charts/qmetry --version 0.1.4 \
+  -n qmetry \
+  --set global.imageRegistry=docker.artifacthub.registry.example.com \
+  --set 'global.imagePullSecrets={registry-pull-cred}' \
+  --set route.enabled=true \
   ...
 ```
+
+`global.imagePullSecrets` is propagated to every pod (qmetry + CH +
+Redis + Collector) so a single registry credential covers the whole
+stack.
+
+To swap a single image without touching the rest, set its per-image
+`registry` / `repository`:
+
+```bash
+--set image.registry=quay.io --set image.repository=yourorg/qmetry
+```
+
+### ClickHouse on OpenShift — anyuid SCC
+
+The bundled CH (`clickhouse.enabled: true`) uses the official
+`clickhouse/clickhouse-server:24.8-alpine` image, which runs as the
+fixed UID 101. OpenShift's `restricted-v2` SCC rejects fixed UIDs
+outside the project's allocated range, so before installing on OCP
+you need ONE of:
+
+```bash
+# Option A — bind anyuid SCC to the chart's service account
+oc adm policy add-scc-to-user anyuid -z qmetry-qmetry -n qmetry
+
+# Option B — disable bundled CH and point at an external one
+helm install ... \
+  --set clickhouse.enabled=false \
+  --set clickhouse.external.addr=ch-cluster.databases.svc:9000
+```
+
+Production deployments should prefer Option B with an Altinity Operator
+managed cluster.
 
 After install, the chart's NOTES print port-forward / ingress URLs and warn
 if you left any insecure defaults in place.
