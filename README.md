@@ -258,12 +258,33 @@ One-command install (bundled CH + Redis + Collector + Route on HTTPS):
 ```bash
 oc new-project qmetry
 
-helm install qmetry oci://ghcr.io/cilcenk/charts/qmetry --version 0.1.2 \
+# If your CH bundled SCC needs anyuid (almost always on OpenShift):
+oc adm policy add-scc-to-user anyuid -z qmetry-qmetry -n qmetry
+
+helm install qmetry oci://ghcr.io/cilcenk/charts/qmetry --version 0.1.5 \
   --namespace qmetry \
   --set secrets.jwtSecret=$(openssl rand -hex 32) \
   --set secrets.initialAdminPassword=$INITIAL_PW \
   --set route.enabled=true
 ```
+
+Air-gapped clusters that mirror images into an internal registry add
+one flag:
+
+```bash
+helm install qmetry oci://ghcr.io/cilcenk/charts/qmetry --version 0.1.5 \
+  --namespace qmetry \
+  --set global.imageRegistry=docker.artifacthub.registry.example.com \
+  --set 'global.imagePullSecrets={registry-pull-cred}' \
+  --set secrets.jwtSecret=$(openssl rand -hex 32) \
+  --set secrets.initialAdminPassword=$INITIAL_PW \
+  --set route.enabled=true
+```
+
+That single `global.imageRegistry` flag rewrites the registry of all
+four images (qmetry, ClickHouse, Redis, OTel Collector) — see the
+**Air-gapped / private mirror** section below for the upstream → mirror
+path mapping.
 
 That's it — get the URL:
 
@@ -287,6 +308,62 @@ Pod admission errors that suggest you need to lift SCC restrictions are
 almost always avoidable by overriding chart values rather than granting
 extra privilege — open an issue with the error if you hit one.
 
+### Connecting an existing OTel Collector to Qmetry
+
+If your cluster already runs a Collector (e.g. OpenShift's
+`OpenTelemetryCollector` operator), disable the chart's bundled one and
+point your existing collector's exporter at qmetry's gRPC service:
+
+```bash
+helm install qmetry oci://ghcr.io/cilcenk/charts/qmetry --version 0.1.5 \
+  -n qmetry \
+  --set otelCollector.enabled=false \
+  --set route.enabled=true ...
+```
+
+Then in your Collector's CR, add an OTLP exporter pointing at:
+
+```
+qmetry-qmetry.qmetry.svc.cluster.local:4317
+```
+
+Example exporter config:
+
+```yaml
+exporters:
+  otlp/qmetry:
+    endpoint: qmetry-qmetry.qmetry.svc.cluster.local:4317
+    tls: { insecure: true }       # in-cluster traffic, no TLS termination on qmetry
+    sending_queue: { enabled: true, num_consumers: 4, queue_size: 5000 }
+    retry_on_failure: { enabled: true, initial_interval: 1s, max_interval: 30s }
+
+service:
+  pipelines:
+    traces:  { receivers: [otlp], processors: [batch], exporters: [otlp/qmetry] }
+    metrics: { receivers: [otlp], processors: [batch], exporters: [otlp/qmetry] }
+    logs:    { receivers: [otlp], processors: [batch], exporters: [otlp/qmetry] }
+```
+
+Cross-namespace works too — qualify the host with the qmetry namespace
+(`qmetry-qmetry.<namespace>.svc.cluster.local`). For OCP NetworkPolicy
+clusters allow ingress on TCP/4317 to qmetry from the collector's NS.
+
+### Java demo (optional)
+
+Spring Boot demo app with zero-code OTel auto-instrumentation +
+async-profiler sidecar. Off by default; enable to see traces / metrics /
+profiles flow end-to-end with no app code to write:
+
+```bash
+helm install qmetry oci://ghcr.io/cilcenk/charts/qmetry --version 0.1.5 \
+  -n qmetry \
+  --set javaDemo.enabled=true \
+  --set route.enabled=true ...
+```
+
+The demo image (`ghcr.io/cilcenk/qmetry-java-demo`) is pushed alongside
+qmetry's image on every release tag.
+
 ### Air-gapped / private mirror (`global.imageRegistry`)
 
 Enterprise / regulated environments usually require all images to be
@@ -303,6 +380,7 @@ Mirror these four upstream images into your registry first:
 | `clickhouse/clickhouse-server:24.8-alpine`    | `<your-registry>/clickhouse/clickhouse-server:24.8-alpine` |
 | `library/redis:7-alpine`                      | `<your-registry>/library/redis:7-alpine` |
 | `otel/opentelemetry-collector-contrib:0.111.0`| `<your-registry>/otel/opentelemetry-collector-contrib:0.111.0` |
+| `ghcr.io/cilcenk/qmetry-java-demo:<version>`  | `<your-registry>/cilcenk/qmetry-java-demo:<version>` *(only if `javaDemo.enabled=true`)* |
 
 Then install with the override:
 
