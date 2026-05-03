@@ -187,6 +187,32 @@ export interface ServiceEdgeStats {
   p99Ms: number;
 }
 
+// ── Settings + notifications ─────────────────────────────────────────────────
+
+export interface SMTPSettings {
+  host: string;
+  port: number;
+  username: string;
+  password: string;       // sentinel "********" on read; empty on submit = keep existing
+  from: string;
+  fromName: string;
+  startTLS: boolean;
+  skipVerify: boolean;
+  configured?: boolean;   // server-side derived
+}
+
+export type ChannelType = 'email' | 'slack' | 'webhook';
+
+export interface NotificationChannel {
+  id: string;
+  name: string;
+  type: ChannelType;
+  config: { recipients?: string[]; webhookUrl?: string; url?: string }; // type-specific
+  enabled: boolean;
+  minSeverity: 'info' | 'warning' | 'critical';
+  createdAt: number;
+}
+
 // ── Time range ───────────────────────────────────────────────────────────────
 //
 // `preset` is one of the strings in PRESET_SECONDS (lib/utils.ts) — '1h',

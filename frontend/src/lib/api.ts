@@ -4,6 +4,7 @@ import type {
   ProfileRow, ProfileDetail, AggregateRow, SpanMetricSeries,
   AlertRule, Problem, ServiceEdgeStats, Exception,
   Dashboard, DashboardSummary, SLO, SLORow, SLOStatus,
+  SMTPSettings, NotificationChannel,
 } from './types';
 
 // Empty base = same origin (works in production where Go serves both UI and API).
@@ -141,6 +142,38 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ currentPassword, newPassword }),
     }),
+
+  // ── Settings + notification channels (admin) ─────────────────────────────
+  getSMTP:    () => get<SMTPSettings>('/api/settings/smtp'),
+  putSMTP:    (s: SMTPSettings) =>
+    request<SMTPSettings>('/api/settings/smtp', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(s),
+    }),
+  testSMTP:   (recipient: string) =>
+    request<{ status: string }>('/api/settings/smtp/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recipient }),
+    }),
+  listChannels:  () => get<NotificationChannel[] | null>('/api/channels'),
+  createChannel: (c: Omit<NotificationChannel, 'id' | 'createdAt'>) =>
+    request<NotificationChannel>('/api/channels', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(c),
+    }),
+  updateChannel: (id: string, c: Omit<NotificationChannel, 'id' | 'createdAt'>) =>
+    request<NotificationChannel>(`/api/channels/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(c),
+    }),
+  deleteChannel: (id: string) =>
+    request<void>(`/api/channels/${id}`, { method: 'DELETE' }),
+  testChannel:   (id: string) =>
+    request<{ status: string }>(`/api/channels/${id}/test`, { method: 'POST' }),
 
   // ── User management (admin) ──────────────────────────────────────────────
   listUsers: () => get<UserRow[] | null>('/api/users'),

@@ -20,6 +20,7 @@ import (
 	"github.com/cenk/qmetry/internal/config"
 	"github.com/cenk/qmetry/internal/consumer"
 	"github.com/cenk/qmetry/internal/evaluator"
+	"github.com/cenk/qmetry/internal/notify"
 	"github.com/cenk/qmetry/internal/otlp"
 )
 
@@ -85,12 +86,15 @@ func main() {
 		}
 	}
 
+	// ── Notifier (SMTP-driven email; slack/webhook stubs) ────────────────────
+	notifier := notify.New(store)
+
 	// ── Alert evaluator (background — opens & resolves problems) ─────────────
-	evalr := evaluator.New(store, time.Minute, lockImpl)
+	evalr := evaluator.New(store, time.Minute, lockImpl, notifier)
 	go evalr.Start(ctx)
 
 	// ── Anomaly detector (Watchdog-style baseline check) ─────────────────────
-	go anomaly.New(store, 2*time.Minute, lockImpl).Start(ctx)
+	go anomaly.New(store, 2*time.Minute, lockImpl, notifier).Start(ctx)
 
 	// ── Auth (JWT issuer + initial admin seed) ────────────────────────────────
 	authSvc := auth.NewService(cfg.Auth.JWTSecret, cfg.Auth.TokenTTL)
@@ -114,7 +118,7 @@ func main() {
 	}
 
 	// ── HTTP server (OTLP + API + UI) ─────────────────────────────────────────
-	srv := api.NewServer(cfg.Listen.HTTP, ing, store, webFS, authSvc, oidcSvc, cacheImpl)
+	srv := api.NewServer(cfg.Listen.HTTP, ing, store, webFS, authSvc, oidcSvc, cacheImpl, notifier)
 	go func() {
 		if err := srv.Start(); err != nil {
 			log.Fatalf("[http] %v", err)

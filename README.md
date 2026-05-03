@@ -1,5 +1,10 @@
 # Qmetry
 
+[![CI](https://github.com/cilcenk/qmetry/actions/workflows/ci.yml/badge.svg)](https://github.com/cilcenk/qmetry/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/cilcenk/qmetry?display_name=tag&sort=semver)](https://github.com/cilcenk/qmetry/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Go Report Card](https://goreportcard.com/badge/github.com/cilcenk/qmetry)](https://goreportcard.com/report/github.com/cilcenk/qmetry)
+
 Enterprise OpenTelemetry APM. Traces, metrics, logs, and profiles on
 ClickHouse, with a Next.js UI, custom dashboards, SLOs, anomaly detection,
 local + OIDC auth, and a Tempo-compatible API for Grafana integration.

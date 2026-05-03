@@ -111,9 +111,14 @@ export function Sidebar() {
               padding: 4, zIndex: 50,
             }}>
               {user.role === 'admin' && (
-                <MenuItem onClick={() => { setMenuOpen(false); router.push('/users'); }}>
-                  ◯ Manage users
-                </MenuItem>
+                <>
+                  <MenuItem onClick={() => { setMenuOpen(false); router.push('/users'); }}>
+                    ◯ Manage users
+                  </MenuItem>
+                  <MenuItem onClick={() => { setMenuOpen(false); router.push('/settings'); }}>
+                    ⚙ Settings
+                  </MenuItem>
+                </>
               )}
               <MenuItem onClick={() => { setMenuOpen(false); setShowChangePw(true); }}>
                 ⚿ Change password

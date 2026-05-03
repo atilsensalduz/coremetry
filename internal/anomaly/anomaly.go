@@ -21,6 +21,7 @@ import (
 
 	"github.com/cenk/qmetry/internal/cache"
 	"github.com/cenk/qmetry/internal/chstore"
+	"github.com/cenk/qmetry/internal/notify"
 )
 
 const lockKey = "qmetry:lock:anomaly"
@@ -43,15 +44,16 @@ type Detector struct {
 	store    *chstore.Store
 	interval time.Duration
 	lock     cache.Lock
+	notifier *notify.Notifier
 }
 
 // New takes a cache.Lock so multiple replicas don't all open the same
-// anomaly. Pass cache.NewNoop()'s lock for single-instance.
-func New(store *chstore.Store, interval time.Duration, lock cache.Lock) *Detector {
+// anomaly, and a notifier so PROBLEM OPENED transitions email/slack out.
+func New(store *chstore.Store, interval time.Duration, lock cache.Lock, notifier *notify.Notifier) *Detector {
 	if interval == 0 {
 		interval = 2 * time.Minute
 	}
-	return &Detector{store: store, interval: interval, lock: lock}
+	return &Detector{store: store, interval: interval, lock: lock, notifier: notifier}
 }
 
 func (d *Detector) Start(ctx context.Context) {
@@ -153,6 +155,9 @@ func (d *Detector) checkOne(ctx context.Context, service, metric string) {
 		}
 		log.Printf("[anomaly] OPENED %s · %s = %.2f%s (μ=%.2f σ=%.2f z=%.1f)",
 			service, metric, current, unitOf(metric), mean, stdev, z)
+		if d.notifier != nil {
+			go d.notifier.SendProblemAlert(context.Background(), p)
+		}
 	} else if abs <= resolveZ && hasOpen {
 		now := time.Now().UnixNano()
 		open.Status = "resolved"

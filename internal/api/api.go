@@ -18,22 +18,24 @@ import (
 	"github.com/cenk/qmetry/internal/auth"
 	"github.com/cenk/qmetry/internal/cache"
 	"github.com/cenk/qmetry/internal/chstore"
+	"github.com/cenk/qmetry/internal/notify"
 	"github.com/cenk/qmetry/internal/otlp"
 	"github.com/cenk/qmetry/internal/profileconv"
 )
 
 type Server struct {
-	addr  string
-	store *chstore.Store
-	ing   *otlp.Ingester
-	webFS embed.FS
-	auth  *auth.Service
-	oidc  *auth.OIDCService // nil when SSO disabled
-	cache cache.Cache       // Noop when Redis isn't configured
+	addr   string
+	store  *chstore.Store
+	ing    *otlp.Ingester
+	webFS  embed.FS
+	auth   *auth.Service
+	oidc   *auth.OIDCService // nil when SSO disabled
+	cache  cache.Cache       // Noop when Redis isn't configured
+	notify *notify.Notifier
 }
 
-func NewServer(addr string, ing *otlp.Ingester, store *chstore.Store, webFS embed.FS, authSvc *auth.Service, oidcSvc *auth.OIDCService, c cache.Cache) *Server {
-	return &Server{addr: addr, store: store, ing: ing, webFS: webFS, auth: authSvc, oidc: oidcSvc, cache: c}
+func NewServer(addr string, ing *otlp.Ingester, store *chstore.Store, webFS embed.FS, authSvc *auth.Service, oidcSvc *auth.OIDCService, c cache.Cache, n *notify.Notifier) *Server {
+	return &Server{addr: addr, store: store, ing: ing, webFS: webFS, auth: authSvc, oidc: oidcSvc, cache: c, notify: n}
 }
 
 func (s *Server) Start() error {
@@ -96,6 +98,16 @@ func (s *Server) Start() error {
 	mux.HandleFunc("POST   /api/dashboards",      auth.RequireRole(auth.RoleAdmin, s.createDashboard))
 	mux.HandleFunc("PUT    /api/dashboards/{id}", auth.RequireRole(auth.RoleAdmin, s.updateDashboard))
 	mux.HandleFunc("DELETE /api/dashboards/{id}", auth.RequireRole(auth.RoleAdmin, s.deleteDashboard))
+
+	// Settings + notification channels (admin only)
+	mux.HandleFunc("GET    /api/settings/smtp",       auth.RequireRole(auth.RoleAdmin, s.getSMTPSettings))
+	mux.HandleFunc("PUT    /api/settings/smtp",       auth.RequireRole(auth.RoleAdmin, s.putSMTPSettings))
+	mux.HandleFunc("POST   /api/settings/smtp/test",  auth.RequireRole(auth.RoleAdmin, s.testSMTPSettings))
+	mux.HandleFunc("GET    /api/channels",            auth.RequireRole(auth.RoleAdmin, s.listChannels))
+	mux.HandleFunc("POST   /api/channels",            auth.RequireRole(auth.RoleAdmin, s.createChannel))
+	mux.HandleFunc("PUT    /api/channels/{id}",       auth.RequireRole(auth.RoleAdmin, s.updateChannel))
+	mux.HandleFunc("DELETE /api/channels/{id}",       auth.RequireRole(auth.RoleAdmin, s.deleteChannel))
+	mux.HandleFunc("POST   /api/channels/{id}/test",  auth.RequireRole(auth.RoleAdmin, s.testChannel))
 
 	// User management (admin only)
 	mux.HandleFunc("GET    /api/users",                  auth.RequireRole(auth.RoleAdmin, s.listUsers))
@@ -690,6 +702,148 @@ func (s *Server) changeOwnPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+// ── SMTP + notification channels (admin only) ───────────────────────────────
+
+// maskedSMTP returns the persisted settings with the password redacted —
+// the GET endpoint must never echo the real password back to the browser
+// (it'd be visible to anyone with browser dev tools open).
+func maskedSMTP(s notify.SMTPSettings) map[string]any {
+	masked := ""
+	if s.Password != "" {
+		masked = "********"
+	}
+	return map[string]any{
+		"host": s.Host, "port": s.Port, "username": s.Username,
+		"password": masked, "from": s.From, "fromName": s.FromName,
+		"startTLS": s.StartTLS, "skipVerify": s.SkipVerify,
+		"configured": s.Configured(),
+	}
+}
+
+func (s *Server) getSMTPSettings(w http.ResponseWriter, r *http.Request) {
+	cfg := s.notify.SMTP(r.Context())
+	writeJSON(w, maskedSMTP(cfg))
+}
+
+func (s *Server) putSMTPSettings(w http.ResponseWriter, r *http.Request) {
+	var body notify.SMTPSettings
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	// Empty / sentinel password = "keep the existing one" so admins can
+	// edit the host/port without re-entering credentials each time.
+	if body.Password == "" || body.Password == "********" {
+		body.Password = s.notify.SMTP(r.Context()).Password
+	}
+	if err := s.notify.SaveSMTP(r.Context(), body); err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, maskedSMTP(body))
+}
+
+func (s *Server) testSMTPSettings(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Recipient string `json:"recipient"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	if body.Recipient == "" {
+		http.Error(w, `{"error":"recipient required"}`, http.StatusBadRequest)
+		return
+	}
+	cfgRaw, _ := json.Marshal(notify.EmailChannelConfig{Recipients: []string{body.Recipient}})
+	tmp := chstore.NotificationChannel{
+		ID: "ad-hoc-test", Name: "Ad-hoc test", Type: "email",
+		Config: cfgRaw, Enabled: true, MinSeverity: "info",
+	}
+	if err := s.notify.SendTest(r.Context(), tmp); err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, map[string]string{"status": "sent"})
+}
+
+func (s *Server) listChannels(w http.ResponseWriter, r *http.Request) {
+	out, err := s.store.ListChannels(r.Context())
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, out)
+}
+
+func (s *Server) createChannel(w http.ResponseWriter, r *http.Request) {
+	var c chstore.NotificationChannel
+	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	if c.Name == "" || c.Type == "" {
+		http.Error(w, `{"error":"name and type required"}`, http.StatusBadRequest)
+		return
+	}
+	c.ID = newID(8)
+	if err := s.store.UpsertChannel(r.Context(), c); err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, c)
+}
+
+func (s *Server) updateChannel(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	existing, err := s.store.GetChannel(r.Context(), id)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if existing == nil {
+		http.Error(w, `{"error":"channel not found"}`, http.StatusNotFound)
+		return
+	}
+	var c chstore.NotificationChannel
+	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	c.ID = id
+	c.CreatedAt = existing.CreatedAt
+	if err := s.store.UpsertChannel(r.Context(), c); err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, c)
+}
+
+func (s *Server) deleteChannel(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.DeleteChannel(r.Context(), r.PathValue("id")); err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+func (s *Server) testChannel(w http.ResponseWriter, r *http.Request) {
+	c, err := s.store.GetChannel(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if c == nil {
+		http.Error(w, `{"error":"channel not found"}`, http.StatusNotFound)
+		return
+	}
+	if err := s.notify.SendTest(r.Context(), *c); err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, map[string]string{"status": "sent"})
 }
 
 // ── User management (admin only) ─────────────────────────────────────────────

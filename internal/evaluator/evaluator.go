@@ -15,6 +15,7 @@ import (
 
 	"github.com/cenk/qmetry/internal/cache"
 	"github.com/cenk/qmetry/internal/chstore"
+	"github.com/cenk/qmetry/internal/notify"
 )
 
 const lockKey = "qmetry:lock:evaluator"
@@ -23,16 +24,17 @@ type Evaluator struct {
 	store    *chstore.Store
 	interval time.Duration
 	lock     cache.Lock
+	notifier *notify.Notifier
 }
 
 // New takes a cache.Lock so multiple Qmetry replicas only run the
-// evaluation loop once per tick. Pass cache.NewNoop()'s lock for
-// single-instance deployments.
-func New(store *chstore.Store, interval time.Duration, lock cache.Lock) *Evaluator {
+// evaluation loop once per tick, and a notifier so PROBLEM OPENED
+// transitions fan out to email/slack/etc.
+func New(store *chstore.Store, interval time.Duration, lock cache.Lock, notifier *notify.Notifier) *Evaluator {
 	if interval == 0 {
 		interval = time.Minute
 	}
-	return &Evaluator{store: store, interval: interval, lock: lock}
+	return &Evaluator{store: store, interval: interval, lock: lock, notifier: notifier}
 }
 
 // Start runs the evaluation loop until ctx is cancelled. Built-in rules
@@ -209,6 +211,11 @@ func (e *Evaluator) evaluateOne(ctx context.Context, r chstore.AlertRule, servic
 		} else {
 			log.Printf("[evaluator] PROBLEM OPENED: %s · %s = %.2f (threshold %.2f)",
 				service, r.Metric, value, r.Threshold)
+			// Fan out to user channels (email/slack/etc). Fire-and-forget
+			// so a flaky SMTP doesn't block the eval loop.
+			if e.notifier != nil {
+				go e.notifier.SendProblemAlert(context.Background(), p)
+			}
 		}
 
 	case breached && hasOpen:

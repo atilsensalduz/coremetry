@@ -150,6 +150,26 @@ func (s *Store) migrate(ctx context.Context) error {
 		) ENGINE = ReplacingMergeTree(version)
 		ORDER BY id`,
 
+		`CREATE TABLE IF NOT EXISTS system_settings (
+			key        String,
+			value      String,                          -- JSON-encoded
+			updated_at DateTime64(9) DEFAULT now64(9),
+			version    UInt64 DEFAULT toUnixTimestamp64Nano(now64(9))
+		) ENGINE = ReplacingMergeTree(version)
+		ORDER BY key`,
+
+		`CREATE TABLE IF NOT EXISTS notification_channels (
+			id         String,
+			name       String,
+			type       LowCardinality(String),          -- email | slack | webhook
+			config     String,                           -- JSON, schema depends on type
+			enabled    UInt8 DEFAULT 1,
+			min_severity LowCardinality(String) DEFAULT 'warning',  -- info | warning | critical
+			created_at DateTime64(9) DEFAULT now64(9),
+			version    UInt64 DEFAULT toUnixTimestamp64Nano(now64(9))
+		) ENGINE = ReplacingMergeTree(version)
+		ORDER BY id`,
+
 		`CREATE TABLE IF NOT EXISTS slos (
 			id            String,
 			name          String,

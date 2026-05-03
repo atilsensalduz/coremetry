@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Avoid burning minutes on duplicate runs when force-pushing or rapid PR
+# updates: cancel any in-flight run for the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend (typecheck + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
+        working-directory: frontend
+        run: npm ci || npm install
+      - name: Type check
+        working-directory: frontend
+        run: npx tsc --noEmit
+      - name: Build (static export)
+        working-directory: frontend
+        run: npx next build
+      - name: Upload built UI for the Go job
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-out
+          path: frontend/out
+          retention-days: 1
+
+  backend:
+    name: Backend (vet + build)
+    needs: frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+      # main.go uses //go:embed all:frontend/out, so the Go build needs
+      # the rendered Next.js export from the frontend job.
+      - name: Pull built UI
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-out
+          path: frontend/out
+      - name: go vet
+        run: go vet ./...
+      - name: go build
+        run: go build ./...
+
+  helm:
+    name: Helm (lint + template)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: 'v3.15.0'
+      - name: helm lint
+        run: helm lint charts/qmetry
+      # Render with optional features on so we catch broken conditionals
+      # that the lint pass alone would miss.
+      - name: helm template (full features)
+        run: |
+          helm template ci charts/qmetry \
+            --set ingress.enabled=true \
+            --set 'ingress.hosts[0].host=ci.example.com' \
+            --set 'ingress.hosts[0].paths[0].path=/' \
+            --set 'ingress.hosts[0].paths[0].pathType=Prefix' \
+            --set autoscaling.enabled=true \
+            --set config.auth.oidc.enabled=true \
+            --set config.auth.oidc.issuerUrl=https://example.com \
+            --set secrets.jwtSecret=ci-test \
+            > /dev/null
