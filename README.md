@@ -175,22 +175,26 @@ even that one.
 
 ## Production install (Helm)
 
-The chart lives in [`charts/qmetry`](charts/qmetry). It deploys Qmetry plus
-an optional in-cluster Redis and OTel Collector. **ClickHouse is external** —
-use the [Altinity Operator](https://github.com/Altinity/clickhouse-operator)
-or ClickHouse Cloud.
+The chart lives in [`charts/qmetry`](charts/qmetry). It deploys:
 
-The default image (`ghcr.io/cilcenk/qmetry`) is published as a public
-multi-arch image (linux/amd64 + linux/arm64) by the release workflow on
-every `v*.*.*` tag. No image pull secret needed.
+- **Qmetry** — the Go binary with embedded UI
+- **ClickHouse** (`clickhouse.enabled: true`, default) — single-node
+  StatefulSet using the OCP-friendly `bitnami/clickhouse` image with a
+  PVC. For real-prod scale set `clickhouse.enabled: false` and point
+  `clickhouse.external.addr` at an Altinity-Operator-managed cluster.
+- **Redis** (`redis.enabled: true`, default) — in-cluster cache + leader
+  lock. Disable + use `redis.external.url` for managed Redis.
+- **OTel Collector** (`otelCollector.enabled: true`, default) —
+  upstream collector for apps to point their OTLP exporter at.
 
-### Vanilla Kubernetes
+The image (`ghcr.io/cilcenk/qmetry`) is published as a public image by
+the release workflow on every `v*.*.*` tag. No image pull secret needed.
+
+### Vanilla Kubernetes — bundled CH (one-command demo)
 
 ```bash
 helm install qmetry ./charts/qmetry \
   --namespace qmetry --create-namespace \
-  --set clickhouse.addr=ch-cluster.databases.svc:9000 \
-  --set secrets.clickHousePassword=$CH_PASSWORD \
   --set secrets.jwtSecret=$(openssl rand -hex 32) \
   --set secrets.initialAdminPassword=$INITIAL_PW \
   --set ingress.enabled=true \
@@ -199,33 +203,73 @@ helm install qmetry ./charts/qmetry \
   --set ingress.hosts[0].paths[0].pathType=Prefix
 ```
 
+That installs everything — qmetry, CH, Redis, OTel Collector — on a
+single namespace. Storage: ~20 GiB PVC for CH (override via
+`clickhouse.storage.size`).
+
+### Vanilla Kubernetes — external CH (production)
+
+```bash
+helm install qmetry ./charts/qmetry \
+  --namespace qmetry --create-namespace \
+  --set clickhouse.enabled=false \
+  --set clickhouse.external.addr=ch-cluster.databases.svc:9000 \
+  --set secrets.clickHousePassword=$CH_PASSWORD \
+  --set secrets.jwtSecret=$(openssl rand -hex 32) \
+  --set secrets.initialAdminPassword=$INITIAL_PW \
+  --set ingress.enabled=true ...
+```
+
 ### OpenShift
 
 The chart is **drop-in compatible with OpenShift's `restricted-v2` SCC**:
 no fixed `runAsUser`, no privileged caps, `seccompProfile: RuntimeDefault`,
-read-only root with a writable `/tmp` emptyDir. The image's USER is the
-non-root `nonroot` (UID 65532) and `/app` is group-readable so the random
-UID OpenShift assigns at admission can still execute the binary.
+read-only root with a writable `/tmp` emptyDir. The image's USER is
+non-root (UID 65532) and `/app` is group-readable so the random UID
+OpenShift assigns at admission can still execute the binary. The
+bundled ClickHouse uses the OCP-friendly `bitnami/clickhouse` image so
+the PVC works under the project's allocated UID/fsGroup pair.
 
-Use a **Route** instead of Ingress — the OCP router handles edge TLS with
-the cluster wildcard cert, no cert-manager needed:
+Use a **Route** instead of Ingress — the OCP router terminates HTTPS at
+the edge with the cluster's wildcard cert, no cert-manager needed.
+HTTPS-by-default + HTTP→HTTPS redirect are the chart's defaults:
+
+```yaml
+route:
+  enabled: false
+  host: ""               # empty → router auto-generates qmetry-qmetry.apps.<cluster>
+  tls:
+    enabled: true
+    termination: edge                       # ← edge HTTPS
+    insecureEdgeTerminationPolicy: Redirect # ← HTTP auto-redirects to HTTPS
+```
+
+One-command install (bundled CH + Redis + Collector + Route on HTTPS):
 
 ```bash
 oc new-project qmetry
 
 helm install qmetry ./charts/qmetry --namespace qmetry \
-  --set clickhouse.addr=ch-cluster.databases.svc:9000 \
-  --set secrets.clickHousePassword=$CH_PASSWORD \
   --set secrets.jwtSecret=$(openssl rand -hex 32) \
   --set secrets.initialAdminPassword=$INITIAL_PW \
   --set route.enabled=true
-  # `route.host` empty → OCP router auto-generates qmetry-qmetry.apps.<cluster>
 ```
 
-Verify the Route URL:
+That's it — get the URL:
 
 ```bash
-oc get route qmetry-qmetry -n qmetry -o jsonpath='{.spec.host}'
+oc get route qmetry-qmetry -n qmetry -o jsonpath='https://{.spec.host}{"\n"}'
+```
+
+External CH on OpenShift looks the same, just override the toggles:
+
+```bash
+helm install qmetry ./charts/qmetry --namespace qmetry \
+  --set clickhouse.enabled=false \
+  --set clickhouse.external.addr=ch.databases.svc:9000 \
+  --set secrets.clickHousePassword=$CH_PASSWORD \
+  --set secrets.jwtSecret=$(openssl rand -hex 32) \
+  --set route.enabled=true
 ```
 
 Pod admission errors that suggest you need to lift SCC restrictions are
@@ -316,8 +360,11 @@ helm upgrade --install qmetry ./charts/qmetry -f my-values.yaml -n qmetry
 | `service.grpcPort`           | `4317`                         | OTLP/gRPC ingest |
 | `ingress.enabled`            | `false`                        | |
 | `autoscaling.enabled`        | `false`                        | HPA on CPU + memory |
-| `clickhouse.addr`            | `clickhouse:9000`              | **Required** — external CH |
+| `clickhouse.enabled`         | `true`                         | Bundle CH StatefulSet (dev/small prod) |
+| `clickhouse.external.addr`   | `""`                           | If set, overrides bundled CH (e.g. `ch.svc:9000`) |
+| `clickhouse.storage.size`    | `20Gi`                         | PVC size for bundled CH |
 | `clickhouse.database`        | `qmetry`                       | Created on first boot |
+| `route.enabled`              | `false`                        | OpenShift Route — HTTPS via edge TLS by default |
 | `redis.enabled`              | `true`                         | In-cluster Redis (small/dev) |
 | `redis.external.url`         | `""`                           | If set, in-cluster Redis is skipped |
 | `otelCollector.enabled`      | `true`                         | Sidecar collector deployment |

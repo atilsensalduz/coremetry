@@ -115,16 +115,48 @@ secrets:
   initialAdminPassword: "admin"
   existingSecret: ""        # if set, Qmetry reads JWT/CH/OIDC/init-admin from it instead
 
-# ── External dependencies ─────────────────────────────────────────────────────
-# ClickHouse: production deployments should use a managed CH cluster (Altinity
-# Operator, ClickHouse Cloud). This chart only references it — point addr at
-# the right host:port and provide credentials.
+# ── ClickHouse ───────────────────────────────────────────────────────────────
+#
+# Two modes:
+#  • `enabled: true` → bundle a single-node CH StatefulSet inside the chart
+#    (good for dev + small prod, ~1-2GB RAM, single PVC). The Service is
+#    auto-discovered by the qmetry pods.
+#  • `enabled: false` → connect to an external CH (Altinity Operator,
+#    ClickHouse Cloud, etc.) — point `external.addr` at it.
+#
+# Setting `external.addr` even when `enabled: true` overrides the in-cluster
+# Service, so you can flip from bundled → external without disabling the
+# StatefulSet immediately (use Pause Deletion / two-step migration).
 clickhouse:
-  addr: "clickhouse:9000"
+  enabled: true
+  external:
+    addr: ""               # e.g. "ch-cluster.databases.svc:9000"
+
   database: "qmetry"
   username: "default"
-  # password comes from secret.clickHousePassword (or existingSecret)
+  # password comes from secret.clickHousePassword (or existingSecret); empty
+  # password is honoured (in-cluster CH starts with ALLOW_EMPTY_PASSWORD=yes)
   maxOpenConns: 20
+
+  # In-cluster StatefulSet options (consulted only when enabled: true). The
+  # bitnami image runs as an arbitrary UID and accepts group 0 ownership,
+  # so it admits cleanly under OpenShift's restricted-v2 SCC.
+  image:
+    repository: bitnami/clickhouse
+    tag: "24"
+    pullPolicy: IfNotPresent
+  storage:
+    size: 20Gi
+    storageClassName: ""   # empty = cluster default
+    accessModes: ["ReadWriteOnce"]
+  resources:
+    requests: { cpu: 500m, memory: 1Gi }
+    limits:   { cpu: "2",  memory: 4Gi }
+  service:
+    type: ClusterIP
+    nativePort: 9000        # CH native protocol — qmetry connects here
+    httpPort: 8123          # Useful for ad-hoc clickhouse-client / debugging
+  podSecurityContext: {}    # OpenShift assigns UID + fsGroup automatically
 
 # Redis (cache + distributed lock). Setting `enabled: true` creates a small
 # in-cluster Deployment good for dev/small prod. For high-throughput

@@ -10,7 +10,7 @@ data:
       grpc: ":4317"
 
     clickhouse:
-      addr: "{{ .Values.clickhouse.addr }}"
+      addr: "{{ include "qmetry.clickhouseAddr" . }}"
       database: "{{ .Values.clickhouse.database }}"
       username: "{{ .Values.clickhouse.username }}"
       max_open_conns: {{ .Values.clickhouse.maxOpenConns }}

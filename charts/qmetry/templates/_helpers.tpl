@@ -59,3 +59,18 @@ enabled, then empty (single-instance / no cache mode).
 {{- printf "redis://%s-redis:6379/0" (include "qmetry.fullname" .) -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+ClickHouse address (host:port): explicit external takes priority, then
+in-cluster service when enabled, then a sane "clickhouse:9000" placeholder
+that will fail loudly so the misconfiguration is obvious.
+*/}}
+{{- define "qmetry.clickhouseAddr" -}}
+{{- if .Values.clickhouse.external.addr -}}
+{{- .Values.clickhouse.external.addr -}}
+{{- else if .Values.clickhouse.enabled -}}
+{{- printf "%s-clickhouse:%d" (include "qmetry.fullname" .) (int .Values.clickhouse.service.nativePort) -}}
+{{- else -}}
+clickhouse:9000
+{{- end -}}
+{{- end -}}

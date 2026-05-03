@@ -1,0 +1,109 @@
+{{- if and .Values.clickhouse.enabled (not .Values.clickhouse.external.addr) -}}
+# Single-node bundled ClickHouse. Suitable for dev + small prod. For
+# production-grade deployments use the Altinity Operator instead and
+# point clickhouse.external.addr at the resulting Service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "qmetry.fullname" . }}-clickhouse
+  labels:
+    {{- include "qmetry.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clickhouse
+spec:
+  type: {{ .Values.clickhouse.service.type }}
+  selector:
+    {{- include "qmetry.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: clickhouse
+  # Headless not required — qmetry connects via the Service name.
+  ports:
+    - name: native
+      port: {{ .Values.clickhouse.service.nativePort }}
+      targetPort: native
+    - name: http
+      port: {{ .Values.clickhouse.service.httpPort }}
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "qmetry.fullname" . }}-clickhouse
+  labels:
+    {{- include "qmetry.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clickhouse
+spec:
+  serviceName: {{ include "qmetry.fullname" . }}-clickhouse
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "qmetry.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: clickhouse
+  template:
+    metadata:
+      labels:
+        {{- include "qmetry.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: clickhouse
+    spec:
+      {{- with .Values.clickhouse.podSecurityContext }}
+      securityContext: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: clickhouse
+          image: "{{ .Values.clickhouse.image.repository }}:{{ .Values.clickhouse.image.tag }}"
+          imagePullPolicy: {{ .Values.clickhouse.image.pullPolicy }}
+          # SCC-friendly — bitnami/clickhouse handles arbitrary UID + group 0
+          # ownership, so this admits cleanly under restricted-v2 without
+          # any custom SCC binding.
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+            seccompProfile: { type: RuntimeDefault }
+          ports:
+            - { name: native, containerPort: 9000 }
+            - { name: http,   containerPort: 8123 }
+          env:
+            - name: CLICKHOUSE_DATABASE
+              value: {{ .Values.clickhouse.database | quote }}
+            - name: CLICKHOUSE_ADMIN_USER
+              value: {{ .Values.clickhouse.username | quote }}
+            # Mutually exclusive: either the password (when supplied) or
+            # ALLOW_EMPTY_PASSWORD=yes — bitnami refuses to boot otherwise.
+            {{- if or .Values.secrets.clickHousePassword .Values.secrets.existingSecret }}
+            - name: CLICKHOUSE_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "qmetry.secretName" . }}
+                  key: clickhouse-password
+                  optional: true
+            - name: ALLOW_EMPTY_PASSWORD
+              value: "yes"   # acts as fallback when the secret value is empty
+            {{- else }}
+            - name: ALLOW_EMPTY_PASSWORD
+              value: "yes"
+            {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: /bitnami/clickhouse
+          readinessProbe:
+            tcpSocket: { port: native }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket: { port: native }
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 4
+          resources: {{- toYaml .Values.clickhouse.resources | nindent 12 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: {{ toYaml .Values.clickhouse.storage.accessModes | nindent 10 }}
+        {{- with .Values.clickhouse.storage.storageClassName }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.clickhouse.storage.size }}
+{{- end -}}
