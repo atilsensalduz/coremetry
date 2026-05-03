@@ -214,6 +214,7 @@ export interface ExceptionSample {
   traceId: string;
   spanId: string;
   time: number;          // unix ns
+  message: string;       // per-sample exception message — varies within a group
   stacktrace: string;    // raw, may be empty
   spanName: string;      // operation that errored
   statusMsg: string;

@@ -5,6 +5,8 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 )
 
@@ -44,16 +46,67 @@ type ExceptionGroup struct {
 	Notes       string `json:"notes"`
 }
 
-// FingerprintExceptions: sha1(type|message|service). Stable across runs;
-// an empty message still produces a unique fingerprint per type+service.
-func FingerprintException(exType, exMessage, service string) string {
+// FingerprintException computes a stable identifier for "the same
+// exception" across many occurrences. Strategy mirrors Sentry/Honeybadger:
+//
+//  1. If a stacktrace is available, hash the top 5 frame identifiers
+//     (class.method, line numbers stripped) — code path is the most
+//     stable signal even when messages contain dynamic IDs.
+//  2. Otherwise, normalize the message (digits / hex / UUIDs replaced
+//     with placeholders) so "order 12345 not found" and "order 67890
+//     not found" collapse into one group.
+//
+// Service is always part of the hash — same exception in two services
+// stays in two distinct inbox rows so different teams can triage them.
+func FingerprintException(exType, exMessage, service, stacktrace string) string {
 	h := sha1.New()
 	h.Write([]byte(exType))
 	h.Write([]byte("|"))
-	h.Write([]byte(exMessage))
-	h.Write([]byte("|"))
 	h.Write([]byte(service))
+	h.Write([]byte("|"))
+	if frames := topFrames(stacktrace, 5); frames != "" {
+		h.Write([]byte("stack:"))
+		h.Write([]byte(frames))
+	} else {
+		h.Write([]byte("msg:"))
+		h.Write([]byte(normalizeMessage(exMessage)))
+	}
 	return hex.EncodeToString(h.Sum(nil))[:16]
+}
+
+// Java-style "    at fully.qualified.Class.method(Source.java:42)" — the
+// line number is intentionally dropped so a refactor that moves the
+// throw doesn't fragment the group.
+var atLineRe = regexp.MustCompile(`(?m)^\s*at\s+([\w$.<>]+)\(`)
+
+func topFrames(stacktrace string, n int) string {
+	if stacktrace == "" {
+		return ""
+	}
+	matches := atLineRe.FindAllStringSubmatch(stacktrace, n)
+	if len(matches) == 0 {
+		return ""
+	}
+	out := make([]string, 0, len(matches))
+	for _, m := range matches {
+		out = append(out, m[1])
+	}
+	return strings.Join(out, "\n")
+}
+
+// Replacements applied in order — UUIDs and hex tokens contain digits,
+// so they MUST be substituted before the bare-digit pass.
+var (
+	uuidRe = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
+	hexRe  = regexp.MustCompile(`\b0x[0-9a-fA-F]+\b`)
+	intRe  = regexp.MustCompile(`\b\d+\b`)
+)
+
+func normalizeMessage(s string) string {
+	s = uuidRe.ReplaceAllString(s, "#uuid")
+	s = hexRe.ReplaceAllString(s, "#hex")
+	s = intRe.ReplaceAllString(s, "#")
+	return s
 }
 
 // UpsertExceptionGroup is called from the GetExceptions read path so
@@ -243,14 +296,18 @@ type ExceptionSample struct {
 	TraceID    string `json:"traceId"`
 	SpanID     string `json:"spanId"`
 	Time       int64  `json:"time"`        // unix ns
+	Message    string `json:"message"`     // per-sample exception message — varies within a group
 	Stacktrace string `json:"stacktrace"`  // raw, may be empty
 	SpanName   string `json:"spanName"`    // operation that errored
 	StatusMsg  string `json:"statusMsg"`   // span status message
 }
 
 // GetExceptionGroupSamples returns up to `limit` recent occurrences of
-// the group (by fingerprint), most-recent first. Each sample is enough
-// to deep-link into the trace + see the stacktrace inline.
+// the group (by fingerprint), most-recent first. Because v2 fingerprints
+// merge messages that differ only in dynamic IDs, we can't filter the
+// candidate set by exact message — instead we scan recent spans matching
+// (service, type), recompute the fingerprint per row in Go, and return
+// the first `limit` that match.
 func (s *Store) GetExceptionGroupSamples(ctx context.Context, fingerprint string, limit int) ([]ExceptionSample, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 10
@@ -262,48 +319,65 @@ func (s *Store) GetExceptionGroupSamples(ctx context.Context, fingerprint string
 	if g == nil {
 		return nil, nil
 	}
+	// Pull a wide candidate window so even rare messages within the group
+	// have a chance to surface, capped to bound memory.
+	const maxCandidates = 500
 	rows, err := s.conn.Query(ctx, `
 		SELECT trace_id, span_id, toUnixTimestamp64Nano(time),
+		       coalesce(JSON_VALUE(events, '$[0].attributes."exception.message"'), '')    AS message,
 		       coalesce(JSON_VALUE(events, '$[0].attributes."exception.stacktrace"'), '') AS stacktrace,
 		       name, status_msg
 		FROM spans
 		WHERE service_name = ?
 		  AND events LIKE '%"exception"%'
 		  AND coalesce(JSON_VALUE(events, '$[0].attributes."exception.type"'), '<unknown>') = ?
-		  AND coalesce(JSON_VALUE(events, '$[0].attributes."exception.message"'), '')        = ?
 		ORDER BY time DESC
-		LIMIT ?`, g.Service, g.Type, g.Message, limit)
+		LIMIT ?`, g.Service, g.Type, maxCandidates)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []ExceptionSample
+	out := make([]ExceptionSample, 0, limit)
 	for rows.Next() {
 		var sm ExceptionSample
-		if err := rows.Scan(&sm.TraceID, &sm.SpanID, &sm.Time, &sm.Stacktrace, &sm.SpanName, &sm.StatusMsg); err != nil {
+		if err := rows.Scan(&sm.TraceID, &sm.SpanID, &sm.Time, &sm.Message, &sm.Stacktrace, &sm.SpanName, &sm.StatusMsg); err != nil {
 			return nil, err
 		}
+		// Filter to samples that belong to this group — keeps message
+		// variants together while excluding spans whose stacktrace puts
+		// them in a different inbox row.
+		if FingerprintException(g.Type, sm.Message, g.Service, sm.Stacktrace) != fingerprint {
+			continue
+		}
 		out = append(out, sm)
+		if len(out) >= limit {
+			break
+		}
 	}
 	return out, rows.Err()
 }
 
-// RefreshExceptionGroups scans exception events newer than `since` from the
-// spans table, groups them by (type, message, service) — the most specific
-// grouping, ensuring fingerprint stability — and upserts each into the
-// inbox. Called from a background ticker so the inbox stays in sync
-// without piggy-backing on user requests.
+// RefreshExceptionGroups scans exception events newer than `since`, then
+// applies the v2 fingerprint (stacktrace top-frames or normalized message)
+// to merge what would otherwise show as several rows for the same logical
+// bug — e.g. "order 12345 not found" + "order 67890 not found".
+//
+// Step 1 is a coarse SQL-side aggregation by (type, message, service) +
+// the most-recent stacktrace per bucket; step 2 is a Go-side re-merge by
+// the v2 fingerprint into a smaller set of canonical groups.
 func (s *Store) RefreshExceptionGroups(ctx context.Context, since time.Time) (int, error) {
 	rows, err := s.conn.Query(ctx, `
 		WITH src AS (
 		  SELECT
-		    coalesce(JSON_VALUE(events, '$[0].attributes."exception.type"'),    '<unknown>') AS ex_type,
-		    coalesce(JSON_VALUE(events, '$[0].attributes."exception.message"'), '')          AS ex_msg,
+		    coalesce(JSON_VALUE(events, '$[0].attributes."exception.type"'),       '<unknown>') AS ex_type,
+		    coalesce(JSON_VALUE(events, '$[0].attributes."exception.message"'),    '')          AS ex_msg,
+		    coalesce(JSON_VALUE(events, '$[0].attributes."exception.stacktrace"'), '')          AS ex_stack,
 		    service_name, time
 		  FROM spans
 		  WHERE time >= ? AND events LIKE '%"exception"%'
 		)
 		SELECT ex_type, ex_msg, service_name,
+		       argMax(ex_stack, time) AS stacktrace,
 		       count() AS cnt,
 		       toUnixTimestamp64Nano(min(time)) AS first_seen,
 		       toUnixTimestamp64Nano(max(time)) AS last_seen
@@ -313,27 +387,50 @@ func (s *Store) RefreshExceptionGroups(ctx context.Context, since time.Time) (in
 		return 0, err
 	}
 	defer rows.Close()
-	count := 0
+
+	// Re-merge by v2 fingerprint. The SQL pre-aggregation already collapses
+	// duplicate raw events; the Go pass merges across messages that differ
+	// only in dynamic IDs / values so they share an inbox row.
+	merged := map[string]*ExceptionGroup{}
 	for rows.Next() {
-		var exType, exMsg, svc string
+		var exType, exMsg, svc, stack string
 		var cnt uint64
 		var firstSeen, lastSeen int64
-		if err := rows.Scan(&exType, &exMsg, &svc, &cnt, &firstSeen, &lastSeen); err != nil {
-			return count, err
+		if err := rows.Scan(&exType, &exMsg, &svc, &stack, &cnt, &firstSeen, &lastSeen); err != nil {
+			return 0, err
 		}
-		g := ExceptionGroup{
-			Fingerprint: FingerprintException(exType, exMsg, svc),
-			Type:        exType,
-			Message:     exMsg,
-			Service:     svc,
-			FirstSeen:   firstSeen,
-			LastSeen:    lastSeen,
-			Occurrences: cnt,
+		fp := FingerprintException(exType, exMsg, svc, stack)
+		if g, ok := merged[fp]; ok {
+			g.Occurrences += cnt
+			if firstSeen < g.FirstSeen {
+				g.FirstSeen = firstSeen
+			}
+			if lastSeen > g.LastSeen {
+				// Latest sample wins for the displayed message — gives a
+				// recent example rather than the first-ever one.
+				g.LastSeen = lastSeen
+				g.Message = exMsg
+			}
+		} else {
+			merged[fp] = &ExceptionGroup{
+				Fingerprint: fp,
+				Type:        exType,
+				Message:     exMsg,
+				Service:     svc,
+				FirstSeen:   firstSeen,
+				LastSeen:    lastSeen,
+				Occurrences: cnt,
+			}
 		}
-		if err := s.UpsertExceptionGroup(ctx, g); err != nil {
-			return count, err
-		}
-		count++
 	}
-	return count, rows.Err()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	for _, g := range merged {
+		if err := s.UpsertExceptionGroup(ctx, *g); err != nil {
+			return 0, err
+		}
+	}
+	return len(merged), nil
 }

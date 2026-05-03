@@ -226,12 +226,19 @@ function SamplesPanel({ fingerprint }: { fingerprint: string }) {
     return <div style={{ color: 'var(--text3)', fontSize: 12 }}>No sample occurrences found.</div>;
   }
 
+  const distinct = new Set(samples.map(s => s.message)).size;
+
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
         <span style={{ fontSize: 12, color: 'var(--text2)', fontWeight: 600 }}>
           Recent occurrences
         </span>
+        {distinct > 1 && (
+          <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text3)' }}>
+            · {distinct} distinct messages observed in this group
+          </span>
+        )}
         <span style={{ flex: 1 }} />
         <label style={{ fontSize: 11, color: 'var(--text3)', marginRight: 6 }}>Show</label>
         <select value={limit} onChange={e => setLimit(parseInt(e.target.value))}
@@ -269,7 +276,13 @@ function SampleCard({ sample, index }: { sample: ExceptionSample; index: number 
         <span style={{ flex: 1 }} />
         <span style={{ color: 'var(--text3)', fontSize: 11 }}>{tsLong(sample.time)}</span>
       </div>
-      {sample.statusMsg && (
+      {sample.message && (
+        <div style={{ fontSize: 12, color: 'var(--text)', marginTop: 6,
+                      fontFamily: 'monospace', wordBreak: 'break-word' }}>
+          {sample.message}
+        </div>
+      )}
+      {sample.statusMsg && sample.statusMsg !== sample.message && (
         <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 4, fontFamily: 'monospace' }}>
           status: {sample.statusMsg}
         </div>
