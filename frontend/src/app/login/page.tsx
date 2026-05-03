@@ -65,13 +65,12 @@ export default function LoginPage() {
       }}>
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
           <div style={{
-            display: 'inline-flex', alignItems: 'center', gap: 10,
-            padding: '8px 14px', borderRadius: 12,
-            background: 'linear-gradient(135deg, rgba(227,6,19,0.12) 0%, rgba(66,92,199,0.16) 100%)',
-            border: '1px solid var(--border)',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            width: 64, height: 64, borderRadius: 16,
+            background: 'rgba(66,92,199,0.12)',
+            border: '1px solid rgba(66,92,199,0.35)',
           }}>
-            <span style={{ fontSize: 30, color: 'var(--accent)', lineHeight: 1 }}>⬡</span>
-            <TelescopeIcon size={28} />
+            <TelescopeIcon size={40} />
           </div>
           <div style={{ fontSize: 22, fontWeight: 700, marginTop: 10, letterSpacing: '0.5px' }}>
             Qmetry

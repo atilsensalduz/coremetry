@@ -170,8 +170,7 @@ export function Sidebar() {
           } : {}),
         }}>
         <div id="sidebar-header">
-          <span className="logo">⬡</span>
-          {showLabels && <TelescopeIcon size={18} />}
+          <TelescopeIcon size={22} />
           {showLabels && <span className="title">Qmetry</span>}
           <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
             {showLabels && <ThemeToggle />}

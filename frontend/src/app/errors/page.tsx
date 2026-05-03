@@ -19,6 +19,19 @@ const TABS: { key: string; label: string; hint: string }[] = [
   { key: 'ignored',      label: 'Ignored',      hint: 'Permanently silenced' },
 ];
 
+type SortKey = 'state' | 'type' | 'service' | 'occurrences' | 'firstSeen' | 'lastSeen' | 'assignee';
+type SortDir = 'asc' | 'desc';
+
+// Severity-style ordering for state column (worst at top desc-sorted)
+const STATE_RANK: Record<string, number> = {
+  new: 5, regressed: 4, acknowledged: 3, resolved: 2, ignored: 1,
+};
+
+const NATURAL_DIR: Record<SortKey, SortDir> = {
+  state: 'desc', type: 'asc', service: 'asc',
+  occurrences: 'desc', firstSeen: 'desc', lastSeen: 'desc', assignee: 'asc',
+};
+
 export default function ExceptionsPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
@@ -48,15 +61,36 @@ export default function ExceptionsPage() {
     api.listUsers().then(u => setUsers(u ?? [])).catch(() => {});
   }, [isAdmin]);
 
+  const [sortBy, setSortBy] = useState<SortKey>('lastSeen');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
+
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
-    if (!term) return data ?? [];
-    return (data ?? []).filter(g =>
-      g.type.toLowerCase().includes(term) ||
-      g.message.toLowerCase().includes(term) ||
-      g.service.toLowerCase().includes(term)
-    );
-  }, [data, search]);
+    const list = (data ?? []).filter(g => {
+      if (!term) return true;
+      return g.type.toLowerCase().includes(term)
+          || g.message.toLowerCase().includes(term)
+          || g.service.toLowerCase().includes(term);
+    });
+    const cmp = (a: ExceptionGroup, b: ExceptionGroup): number => {
+      switch (sortBy) {
+        case 'state':       return (STATE_RANK[a.state] ?? 0) - (STATE_RANK[b.state] ?? 0);
+        case 'type':        return a.type.localeCompare(b.type);
+        case 'service':     return a.service.localeCompare(b.service);
+        case 'occurrences': return Number(a.occurrences) - Number(b.occurrences);
+        case 'firstSeen':   return a.firstSeen - b.firstSeen;
+        case 'lastSeen':    return a.lastSeen  - b.lastSeen;
+        case 'assignee':    return (a.assignee || '').localeCompare(b.assignee || '');
+      }
+    };
+    const arr = [...list].sort(cmp);
+    return sortDir === 'desc' ? arr.reverse() : arr;
+  }, [data, search, sortBy, sortDir]);
+
+  const toggleSort = (col: SortKey) => {
+    if (sortBy === col) setSortDir(sortDir === 'desc' ? 'asc' : 'desc');
+    else { setSortBy(col); setSortDir(NATURAL_DIR[col]); }
+  };
 
   const userById = useMemo(() => {
     const m = new Map<string, UserRow>();
@@ -123,13 +157,13 @@ export default function ExceptionsPage() {
               <thead>
                 <tr>
                   <th style={{ width: 24 }}></th>
-                  <th style={{ width: 110 }}>State</th>
-                  <th>Exception</th>
-                  <th>Service</th>
-                  <th style={{ textAlign: 'right' }}>Occurrences</th>
-                  <th>First seen</th>
-                  <th>Last seen</th>
-                  <th>Assignee</th>
+                  <SortTh col="state"       label="State"       sort={sortBy} dir={sortDir} onSort={toggleSort} />
+                  <SortTh col="type"        label="Exception"   sort={sortBy} dir={sortDir} onSort={toggleSort} />
+                  <SortTh col="service"     label="Service"     sort={sortBy} dir={sortDir} onSort={toggleSort} />
+                  <SortTh col="occurrences" label="Occurrences" sort={sortBy} dir={sortDir} onSort={toggleSort} align="right" />
+                  <SortTh col="firstSeen"   label="First seen"  sort={sortBy} dir={sortDir} onSort={toggleSort} />
+                  <SortTh col="lastSeen"    label="Last seen"   sort={sortBy} dir={sortDir} onSort={toggleSort} />
+                  <SortTh col="assignee"    label="Assignee"    sort={sortBy} dir={sortDir} onSort={toggleSort} />
                   {isAdmin && <th style={{ width: 240 }}>Actions</th>}
                 </tr>
               </thead>
@@ -365,4 +399,21 @@ function humanize(err: unknown): string {
     if (j && typeof j.error === 'string') return j.error;
   } catch {}
   return body || msg;
+}
+
+function SortTh({ col, label, sort, dir, onSort, align }: {
+  col: SortKey; label: string;
+  sort: SortKey; dir: SortDir;
+  onSort: (c: SortKey) => void;
+  align?: 'left' | 'right';
+}) {
+  const active = sort === col;
+  return (
+    <th className={`sortable${active ? ' sorted' : ''}`}
+        onClick={() => onSort(col)}
+        style={{ textAlign: align ?? 'left' }}>
+      {label}
+      <span className="sort-arrow">{active ? (dir === 'desc' ? '▼' : '▲') : '↕'}</span>
+    </th>
+  );
 }
