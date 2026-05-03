@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState, FormEvent } from 'react';
 import { useAuth } from '@/components/AuthProvider';
+import { TelescopeIcon } from '@/components/TelescopeIcon';
 import { api, type AuthConfigResponse } from '@/lib/api';
 
 export default function LoginPage() {
@@ -63,10 +64,20 @@ export default function LoginPage() {
         boxShadow: '0 12px 36px rgba(0,0,0,0.25)',
       }}>
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <div style={{ fontSize: 30, color: 'var(--accent)' }}>⬡</div>
-          <div style={{ fontSize: 20, fontWeight: 600, marginTop: 4 }}>Qmetry</div>
-          <div style={{ color: 'var(--text3)', fontSize: 12, marginTop: 4 }}>
-            Sign in to continue
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 10,
+            padding: '8px 14px', borderRadius: 12,
+            background: 'linear-gradient(135deg, rgba(227,6,19,0.12) 0%, rgba(66,92,199,0.16) 100%)',
+            border: '1px solid var(--border)',
+          }}>
+            <span style={{ fontSize: 30, color: 'var(--accent)', lineHeight: 1 }}>⬡</span>
+            <TelescopeIcon size={28} />
+          </div>
+          <div style={{ fontSize: 22, fontWeight: 700, marginTop: 10, letterSpacing: '0.5px' }}>
+            Qmetry
+          </div>
+          <div style={{ color: 'var(--text3)', fontSize: 11, marginTop: 4 }}>
+            Powered by OpenTelemetry · Sign in to continue
           </div>
         </div>
 

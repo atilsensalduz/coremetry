@@ -179,8 +179,9 @@ The chart lives in [`charts/qmetry`](charts/qmetry). It deploys:
 
 - **Qmetry** — the Go binary with embedded UI
 - **ClickHouse** (`clickhouse.enabled: true`, default) — single-node
-  StatefulSet using the OCP-friendly `bitnami/clickhouse` image with a
-  PVC. For real-prod scale set `clickhouse.enabled: false` and point
+  StatefulSet using the official `clickhouse/clickhouse-server:24.8-alpine`
+  image with a 20 GiB PVC mounted at `/var/lib/clickhouse`. For
+  production scale set `clickhouse.enabled: false` and point
   `clickhouse.external.addr` at an Altinity-Operator-managed cluster.
 - **Redis** (`redis.enabled: true`, default) — in-cluster cache + leader
   lock. Disable + use `redis.external.url` for managed Redis.
@@ -236,8 +237,10 @@ no fixed `runAsUser`, no privileged caps, `seccompProfile: RuntimeDefault`,
 read-only root with a writable `/tmp` emptyDir. The image's USER is
 non-root (UID 65532) and `/app` is group-readable so the random UID
 OpenShift assigns at admission can still execute the binary. The
-bundled ClickHouse uses the OCP-friendly `bitnami/clickhouse` image so
-the PVC works under the project's allocated UID/fsGroup pair.
+bundled ClickHouse uses the official `clickhouse/clickhouse-server:24.8-alpine`
+image with the PVC mounted at `/var/lib/clickhouse`. The image runs as
+fixed UID 101 — bind `anyuid` SCC to the chart's service account first
+(see snippet below).
 
 Use a **Route** instead of Ingress — the OCP router terminates HTTPS at
 the edge with the cluster's wildcard cert, no cert-manager needed.
@@ -369,8 +372,7 @@ qmetry's image on every release tag.
 Enterprise / regulated environments usually require all images to be
 mirrored into an internal registry. The chart's `global.imageRegistry`
 overrides the registry portion of every image (qmetry + ClickHouse +
-Redis + OTel Collector) in one place — same pattern as the bitnami
-charts.
+Redis + OTel Collector) in one place.
 
 Mirror these four upstream images into your registry first:
 

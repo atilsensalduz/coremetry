@@ -7,6 +7,7 @@ import { Combobox } from '@/components/Combobox';
 import { FilterBuilder } from '@/components/FilterBuilder';
 import { api } from '@/lib/api';
 import { tsShort, timeRangeToNs, fmtNum } from '@/lib/utils';
+import { encodeRange, decodeRange, encodeFilters, decodeFilters, buildQuery } from '@/lib/urlState';
 import type { TracesResponse, TimeRange, SortColumn, SortOrder, AggregateRow, FilterExpr } from '@/lib/types';
 
 type View = 'list' | 'aggregate';
@@ -22,31 +23,70 @@ function TracesPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [range, setRange] = useState<TimeRange>({ preset: '24h' });
-  const [view, setView] = useState<View>('list');
+  // All these hydrate from URL on first render so the back button
+  // restores filters / sort / page intact after viewing a trace detail.
+  const [range, setRange] = useState<TimeRange>(
+    () => decodeRange(searchParams.get('range'), { preset: '24h' }));
+  const [view, setView] = useState<View>(
+    () => (searchParams.get('view') === 'aggregate' ? 'aggregate' : 'list'));
 
   // List view sort
-  const [sort, setSort] = useState<SortColumn>('time');
-  const [order, setOrder] = useState<SortOrder>('desc');
-  const [page, setPage] = useState(0);
+  const [sort, setSort] = useState<SortColumn>(
+    () => (searchParams.get('sort') as SortColumn) || 'time');
+  const [order, setOrder] = useState<SortOrder>(
+    () => (searchParams.get('order') === 'asc' ? 'asc' : 'desc'));
+  const [page, setPage] = useState(
+    () => parseInt(searchParams.get('page') ?? '0', 10) || 0);
 
   // Aggregate view sort + group-by
-  const [groupBy, setGroupBy] = useState<GroupBy>('operation');
-  const [aggSort, setAggSort] = useState<AggSort>('count');
-  const [aggOrder, setAggOrder] = useState<SortOrder>('desc');
+  const [groupBy, setGroupBy] = useState<GroupBy>(
+    () => (searchParams.get('groupBy') === 'service' ? 'service' : 'operation'));
+  const [aggSort, setAggSort] = useState<AggSort>(
+    () => (searchParams.get('aggSort') as AggSort) || 'count');
+  const [aggOrder, setAggOrder] = useState<SortOrder>(
+    () => (searchParams.get('aggOrder') === 'asc' ? 'asc' : 'desc'));
 
-  const [filter, setFilter] = useState({
-    service: searchParams.get('service') ?? '',
-    search: '',
-    traceId: '',
-    minMs: '',
-    maxMs: '',
-    hasError: false,
-  });
+  const [filter, setFilter] = useState(() => ({
+    service:  searchParams.get('service') ?? '',
+    search:   searchParams.get('search')  ?? '',
+    traceId:  searchParams.get('traceId') ?? '',
+    minMs:    searchParams.get('minMs')   ?? '',
+    maxMs:    searchParams.get('maxMs')   ?? '',
+    hasError: searchParams.get('hasError') === 'true',
+  }));
   const [draft, setDraft] = useState(filter);
-  const [advFilters, setAdvFilters] = useState<FilterExpr[]>([]);
+  const [advFilters, setAdvFilters] = useState<FilterExpr[]>(
+    () => decodeFilters(searchParams.get('filters')));
   const [data, setData] = useState<TracesResponse | null | undefined>(undefined);
   const [agg, setAgg] = useState<AggregateRow[] | null | undefined>(undefined);
+
+  // ── State → URL ────────────────────────────────────────────────────────────
+  // Mirror everything that affects the rendered list to the URL so the
+  // browser back button restores the same filters / sort / page after a
+  // trip into /trace/{id}. Uses replaceState so we don't pollute history.
+  useEffect(() => {
+    const qs = buildQuery([
+      ['range',    encodeRange(range)],
+      ['view',     view !== 'list' ? view : ''],
+      ['sort',     sort !== 'time' ? sort : ''],
+      ['order',    order !== 'desc' ? order : ''],
+      ['page',     page > 0 ? page : ''],
+      ['groupBy',  view === 'aggregate' && groupBy !== 'operation' ? groupBy : ''],
+      ['aggSort',  view === 'aggregate' && aggSort !== 'count' ? aggSort : ''],
+      ['aggOrder', view === 'aggregate' && aggOrder !== 'desc' ? aggOrder : ''],
+      ['service',  filter.service],
+      ['search',   filter.search],
+      ['traceId',  filter.traceId],
+      ['minMs',    filter.minMs],
+      ['maxMs',    filter.maxMs],
+      ['hasError', filter.hasError ? 'true' : ''],
+      ['filters',  encodeFilters(advFilters)],
+    ]);
+    const next = qs ? `?${qs}` : '';
+    if (typeof window !== 'undefined' && next !== window.location.search) {
+      router.replace(`/traces${next}`, { scroll: false });
+    }
+  }, [range, view, sort, order, page, groupBy, aggSort, aggOrder, filter, advFilters, router]);
 
   // Autocomplete option lists
   const [services, setServices] = useState<string[]>([]);

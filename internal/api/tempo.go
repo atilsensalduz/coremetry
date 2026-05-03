@@ -37,7 +37,7 @@ func (s *Server) registerTempoRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /tempo/api/search/tag/{name}/values", s.tempoTagValues)
 	mux.HandleFunc("GET /tempo/api/v2/search/tag/{name}/values", s.tempoTagValuesV2)
 	mux.HandleFunc("GET /tempo/api/traces/{id}",             s.tempoTrace)
-	mux.HandleFunc("GET /tempo/api/v2/traces/{id}",          s.tempoTrace)
+	mux.HandleFunc("GET /tempo/api/v2/traces/{id}",          s.tempoTraceV2)
 }
 
 // ── /api/echo — Grafana datasource health check ──────────────────────────────
@@ -170,6 +170,60 @@ func (s *Server) tempoTrace(w http.ResponseWriter, r *http.Request) {
 	if err != nil { writeErr(w, err); return }
 	w.Header().Set("Content-Type", "application/protobuf")
 	w.Write(body)
+}
+
+// tempoTraceV2 returns the same trace as v1 wrapped in Tempo's
+// `TraceByIDResponse` proto:
+//
+//   message TraceByIDResponse {
+//     Trace  trace  = 1;
+//     string status = 4;
+//   }
+//
+// Modern Grafana Tempo datasources prefer the v2 endpoint and try to
+// decode the body as TraceByIDResponse — feeding them a bare TracesData
+// trips an "OTLP format EOF" parse error. We hand-encode the wrapper
+// rather than pulling the tempopb proto in as a dependency.
+func (s *Server) tempoTraceV2(w http.ResponseWriter, r *http.Request) {
+	id := strings.ToLower(r.PathValue("id"))
+	spans, err := s.store.GetTrace(r.Context(), id)
+	if err != nil { writeErr(w, err); return }
+	if len(spans) == 0 {
+		http.NotFound(w, r); return
+	}
+
+	td := buildTracesData(spans)
+
+	if strings.Contains(r.Header.Get("Accept"), "application/json") {
+		writeJSON(w, map[string]interface{}{"trace": td, "status": "OK"})
+		return
+	}
+
+	traceBytes, err := proto.Marshal(td)
+	if err != nil { writeErr(w, err); return }
+
+	// TraceByIDResponse wire format:
+	//   field 1 (Trace, embedded message) — tag 0x0a + varint(len) + bytes
+	//   field 4 (status, string)          — tag 0x22 + varint(len) + "OK"
+	const okStatus = "OK"
+	out := make([]byte, 0, len(traceBytes)+len(okStatus)+8)
+	out = append(out, 0x0a)
+	out = appendVarint(out, uint64(len(traceBytes)))
+	out = append(out, traceBytes...)
+	out = append(out, 0x22)
+	out = appendVarint(out, uint64(len(okStatus)))
+	out = append(out, okStatus...)
+
+	w.Header().Set("Content-Type", "application/protobuf")
+	w.Write(out)
+}
+
+func appendVarint(buf []byte, v uint64) []byte {
+	for v >= 0x80 {
+		buf = append(buf, byte(v)|0x80)
+		v >>= 7
+	}
+	return append(buf, byte(v))
 }
 
 // buildTracesData turns our flat span rows into an OTLP TracesData tree

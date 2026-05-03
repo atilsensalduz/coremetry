@@ -4,6 +4,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { ThemeToggle } from './ThemeToggle';
+import { TelescopeIcon } from './TelescopeIcon';
 import { useAuth } from './AuthProvider';
 import { ChangePasswordModal } from './ChangePasswordModal';
 
@@ -170,6 +171,7 @@ export function Sidebar() {
         }}>
         <div id="sidebar-header">
           <span className="logo">⬡</span>
+          {showLabels && <TelescopeIcon size={18} />}
           {showLabels && <span className="title">Qmetry</span>}
           <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
             {showLabels && <ThemeToggle />}
