@@ -1,5 +1,6 @@
 'use client';
 import { Suspense, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
@@ -8,9 +9,11 @@ import { FilterBuilder } from '@/components/FilterBuilder';
 import { MultiLineChart } from '@/components/MultiLineChart';
 import { ShareButton } from '@/components/ShareButton';
 import { api } from '@/lib/api';
-import { timeRangeToNs, fmtNum } from '@/lib/utils';
+import { timeRangeToNs, fmtNum, tsLong } from '@/lib/utils';
 import { encodeRange, decodeRange, encodeFilters, decodeFilters, buildQuery } from '@/lib/urlState';
-import type { TimeRange, FilterExpr, SpanMetricSeries, SpanAgg } from '@/lib/types';
+import type { TimeRange, FilterExpr, SpanMetricSeries, SpanAgg, TraceRow } from '@/lib/types';
+
+type ResultMode = 'metric' | 'traces';
 
 const AGG_OPTIONS: { v: SpanAgg; label: string; unit?: string }[] = [
   { v: 'count',      label: 'Count',           unit: '' },
@@ -63,6 +66,15 @@ function ExploreInner() {
   const [series, setSeries] = useState<SpanMetricSeries[] | null | undefined>(undefined);
   const [services, setServices] = useState<string[]>([]);
 
+  // Result mode: aggregated metrics chart, OR raw matching trace list.
+  // Same filter/DSL drives both — different backend endpoint per mode.
+  const [resultMode, setResultMode] = useState<ResultMode>(
+    () => (searchParams.get('result') === 'traces' ? 'traces' : 'metric'));
+  const [traces, setTraces] = useState<TraceRow[] | null | undefined>(undefined);
+  const [traceTotal, setTraceTotal] = useState(0);
+  const [traceLimit, setTraceLimit] = useState(
+    () => parseInt(searchParams.get('limit') ?? '50', 10) || 50);
+
   // Advanced query mode + DSL textarea
   const [mode, setMode] = useState<'builder' | 'advanced'>(
     () => (searchParams.get('mode') === 'advanced' ? 'advanced' : 'builder'));
@@ -72,20 +84,22 @@ function ExploreInner() {
   // ── State → URL (replaceState — keeps history clean) ─────────────────────
   useEffect(() => {
     const qs = buildQuery([
-      ['agg',     agg !== 'count' ? agg : ''],
-      ['field',   field !== 'duration_ms' ? field : ''],
-      ['groupBy', groupBy.join(',')],
+      ['result',  resultMode === 'traces' ? 'traces' : ''],
+      ['agg',     resultMode === 'metric' && agg !== 'count' ? agg : ''],
+      ['field',   resultMode === 'metric' && field !== 'duration_ms' ? field : ''],
+      ['groupBy', resultMode === 'metric' ? groupBy.join(',') : ''],
       ['filters', mode === 'builder' ? encodeFilters(filters) : ''],
       ['dsl',     mode === 'advanced' ? dsl : ''],
       ['mode',    mode === 'advanced' ? 'advanced' : ''],
       ['range',   encodeRange(range)],
-      ['step',    step || ''],
+      ['step',    resultMode === 'metric' && step ? step : ''],
+      ['limit',   resultMode === 'traces' && traceLimit !== 50 ? traceLimit : ''],
     ]);
     const next = qs ? `?${qs}` : '';
     if (next !== window.location.search) {
       router.replace(`/explore${next}`, { scroll: false });
     }
-  }, [agg, field, groupBy, filters, dsl, mode, range, step, router]);
+  }, [resultMode, agg, field, groupBy, filters, dsl, mode, range, step, traceLimit, router]);
 
   // Load service options for filter value suggestions
   useEffect(() => {
@@ -96,24 +110,43 @@ function ExploreInner() {
 
   // Run query whenever inputs change (debounce skipped — small payload)
   useEffect(() => {
-    setSeries(undefined);
     setQueryError(null);
     const { from, to } = timeRangeToNs(range);
-    api.spanMetric({
-      agg, field,
-      groupBy: groupBy.join(',') || undefined,
-      filters: mode === 'builder' && filters.length ? JSON.stringify(filters) : undefined,
-      dsl:     mode === 'advanced' && dsl.trim() ? dsl : undefined,
-      from, to,
-      step: step || undefined,
-    })
-      .then(r => setSeries(r ?? []))
-      .catch(err => {
-        setSeries(null);
-        const msg = String(err?.message ?? err);
-        setQueryError(msg.includes('DSL') ? msg : null);
-      });
-  }, [range, filters, dsl, mode, agg, field, groupBy, step]);
+    const filterArg = mode === 'builder' && filters.length ? JSON.stringify(filters) : undefined;
+    const dslArg    = mode === 'advanced' && dsl.trim() ? dsl : undefined;
+
+    if (resultMode === 'metric') {
+      setSeries(undefined);
+      api.spanMetric({
+        agg, field,
+        groupBy: groupBy.join(',') || undefined,
+        filters: filterArg, dsl: dslArg,
+        from, to,
+        step: step || undefined,
+      })
+        .then(r => setSeries(r ?? []))
+        .catch(err => {
+          setSeries(null);
+          const msg = String(err?.message ?? err);
+          setQueryError(msg.includes('DSL') ? msg : null);
+        });
+    } else {
+      // Traces mode — same filters/DSL feed the trace search instead.
+      setTraces(undefined);
+      api.traces({
+        filters: filterArg, dsl: dslArg,
+        from, to,
+        sort: 'time', order: 'desc',
+        limit: traceLimit,
+      })
+        .then(r => { setTraces(r.traces ?? []); setTraceTotal(r.total ?? 0); })
+        .catch(err => {
+          setTraces(null);
+          const msg = String(err?.message ?? err);
+          setQueryError(msg.includes('DSL') ? msg : null);
+        });
+    }
+  }, [resultMode, range, filters, dsl, mode, agg, field, groupBy, step, traceLimit]);
 
   const aggMeta = AGG_OPTIONS.find(o => o.v === agg)!;
   const unit = aggMeta.unit ?? '';
@@ -152,30 +185,63 @@ function ExploreInner() {
       <div id="content">
         <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 12, color: 'var(--text2)', flex: 1 }}>
-            Build span metrics on the fly — filter spans, pick an aggregation, optionally split by attributes.
+            {resultMode === 'metric'
+              ? 'Build span metrics on the fly — filter spans, pick an aggregation, optionally split by attributes.'
+              : 'Search raw traces with the same filter / DSL — click a row to open the waterfall.'}
           </span>
           <ShareButton />
         </div>
 
-        {/* Aggregation + field row */}
-        <div className="controls">
-          <span style={{ color: 'var(--text2)', fontSize: 12 }}>Aggregation:</span>
-          <select value={agg} onChange={e => setAgg(e.target.value as SpanAgg)}>
-            {AGG_OPTIONS.map(o => <option key={o.v} value={o.v}>{o.label}</option>)}
-          </select>
-          {needsField(agg) && (
-            <>
-              <span style={{ color: 'var(--text2)', fontSize: 12, marginLeft: 4 }}>of:</span>
-              <Combobox value={field} onChange={setField}
-                options={['duration_ms', 'duration_s', 'http.status_code', '1']}
-                placeholder="duration_ms" width={170} />
-            </>
-          )}
-          <span style={{ color: 'var(--text2)', fontSize: 12, marginLeft: 4 }}>Step:</span>
-          <select value={step} onChange={e => setStep(Number(e.target.value))}>
-            {STEP_OPTIONS.map(o => <option key={o.v} value={o.v}>{o.label}</option>)}
-          </select>
+        {/* Result mode toggle: Metric chart ⇄ Trace list (same filters drive both) */}
+        <div className="controls" style={{ marginBottom: 6 }}>
+          <span style={{ color: 'var(--text2)', fontSize: 12 }}>Show:</span>
+          <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
+            <button onClick={() => setResultMode('metric')}
+              className={resultMode === 'metric' ? '' : 'sec'}
+              style={{ borderRadius: 0, borderRight: '1px solid var(--border)' }}>
+              ∿ Metric
+            </button>
+            <button onClick={() => setResultMode('traces')}
+              className={resultMode === 'traces' ? '' : 'sec'}
+              style={{ borderRadius: 0 }}>
+              ⋮ Traces
+            </button>
+          </div>
         </div>
+
+        {/* Aggregation + field row — only in metric mode */}
+        {resultMode === 'metric' && (
+          <div className="controls">
+            <span style={{ color: 'var(--text2)', fontSize: 12 }}>Aggregation:</span>
+            <select value={agg} onChange={e => setAgg(e.target.value as SpanAgg)}>
+              {AGG_OPTIONS.map(o => <option key={o.v} value={o.v}>{o.label}</option>)}
+            </select>
+            {needsField(agg) && (
+              <>
+                <span style={{ color: 'var(--text2)', fontSize: 12, marginLeft: 4 }}>of:</span>
+                <Combobox value={field} onChange={setField}
+                  options={['duration_ms', 'duration_s', 'http.status_code', '1']}
+                  placeholder="duration_ms" width={170} />
+              </>
+            )}
+            <span style={{ color: 'var(--text2)', fontSize: 12, marginLeft: 4 }}>Step:</span>
+            <select value={step} onChange={e => setStep(Number(e.target.value))}>
+              {STEP_OPTIONS.map(o => <option key={o.v} value={o.v}>{o.label}</option>)}
+            </select>
+          </div>
+        )}
+
+        {resultMode === 'traces' && (
+          <div className="controls">
+            <span style={{ color: 'var(--text2)', fontSize: 12 }}>Limit:</span>
+            <select value={traceLimit} onChange={e => setTraceLimit(Number(e.target.value))}>
+              {[20, 50, 100, 200, 500].map(n => <option key={n} value={n}>{n} traces</option>)}
+            </select>
+            <span style={{ color: 'var(--text2)', fontSize: 12, marginLeft: 'auto' }}>
+              Sorted by start time desc
+            </span>
+          </div>
+        )}
 
         {/* Mode toggle: Builder ⇄ Advanced */}
         <div className="controls" style={{ marginBottom: 6 }}>
@@ -233,7 +299,8 @@ name ~ checkout`}
           </div>
         )}
 
-        {/* Group by */}
+        {/* Group by — only meaningful for metric mode */}
+        {resultMode === 'metric' && (
         <div className="controls" style={{ marginBottom: 14 }}>
           <span style={{ color: 'var(--text2)', fontSize: 12 }}>Split by:</span>
           {groupBy.length === 0 && (
@@ -256,15 +323,16 @@ name ~ checkout`}
             <button className="sec" onClick={() => addGroupKey(groupDraft)}>Add</button>
           )}
         </div>
+        )}
 
-        {/* Chart */}
-        {series === undefined && <Spinner />}
-        {series && series.length === 0 && (
+        {/* ── Metric mode: chart + per-series summary ─────────────────────────── */}
+        {resultMode === 'metric' && series === undefined && <Spinner />}
+        {resultMode === 'metric' && series && series.length === 0 && (
           <Empty icon="◎" title="No data for this query">
             Try a wider time range, fewer filters, or remove split keys.
           </Empty>
         )}
-        {series && series.length > 0 && (
+        {resultMode === 'metric' && series && series.length > 0 && (
           <>
             <div style={{
               background: 'var(--bg1)', border: '1px solid var(--border)',
@@ -306,6 +374,64 @@ name ~ checkout`}
                 </table>
               </div>
             )}
+          </>
+        )}
+
+        {/* ── Traces mode: matching trace list ────────────────────────────────── */}
+        {resultMode === 'traces' && traces === undefined && <Spinner />}
+        {resultMode === 'traces' && traces && traces.length === 0 && (
+          <Empty icon="⋮" title="No matching traces">
+            Loosen your filters or widen the time range.
+          </Empty>
+        )}
+        {resultMode === 'traces' && traces && traces.length > 0 && (
+          <>
+            <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 8 }}>
+              Showing <b style={{ color: 'var(--accent2)' }}>{traces.length}</b> of {fmtNum(traceTotal)} traces
+              {traces.length < traceTotal && <> · raise the limit to see more</>}
+            </div>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Trace ID</th>
+                    <th>Root</th>
+                    <th>Service</th>
+                    <th style={{ textAlign: 'right' }}>Duration</th>
+                    <th style={{ textAlign: 'right' }}>Spans</th>
+                    <th>Started</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {traces.map(t => (
+                    <tr key={t.traceId}
+                        onClick={() => router.push(`/trace?id=${t.traceId}`)}
+                        style={{ cursor: 'pointer' }}>
+                      <td className="mono">
+                        <Link href={`/trace?id=${t.traceId}`}
+                              onClick={e => e.stopPropagation()}
+                              style={{ fontSize: 11 }}>
+                          {t.traceId.slice(0, 12)}…
+                        </Link>
+                      </td>
+                      <td><b>{t.rootName}</b></td>
+                      <td className="mono" style={{ fontSize: 12 }}>{t.serviceName}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>
+                        {t.durationMs.toFixed(1)}ms
+                      </td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{fmtNum(t.spanCount)}</td>
+                      <td className="mono" style={{ fontSize: 11 }}>{tsLong(t.startTime)}</td>
+                      <td>
+                        {t.hasError
+                          ? <span className="badge b-err">ERROR</span>
+                          : <span className="badge b-ok">OK</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </>
         )}
       </div>

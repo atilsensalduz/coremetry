@@ -108,30 +108,30 @@ export function SpanDetail({ span, onClose }: { span: SpanRow; onClose: () => vo
       <div id="span-panel-body">
         <Section title="Info">
           <KV>
-            <Row k="Service" v={span.serviceName} />
-            <Row k="Kind" v={span.kind} />
-            <Row k="Duration" v={`${span.durationMs.toFixed(3)} ms`} />
-            <Row k="Start" v={tsLong(span.startTime)} />
+            <Row k="Service" v={span.serviceName} copyable />
+            <Row k="Kind" v={span.kind} copyable />
+            <Row k="Duration" v={`${span.durationMs.toFixed(3)} ms`} copyable />
+            <Row k="Start" v={tsLong(span.startTime)} copyable />
             <Row k="Trace ID" v={span.traceId} mono copyable />
             <Row k="Span ID" v={span.spanId} mono copyable />
             {span.parentSpanId && <Row k="Parent" v={span.parentSpanId} mono copyable />}
-            {span.dbSystem && <Row k="DB System" v={span.dbSystem} />}
-            {span.dbStatement && <Row k="DB Statement" v={span.dbStatement} pre />}
-            {span.httpMethod && <Row k="HTTP" v={`${span.httpMethod} ${span.httpRoute ?? ''} ${span.httpStatus ?? ''}`} />}
-            {span.peerService && <Row k="Peer" v={span.peerService} />}
-            {span.statusMessage && <Row k="Status msg" v={span.statusMessage} />}
+            {span.dbSystem && <Row k="DB System" v={span.dbSystem} copyable />}
+            {span.dbStatement && <Row k="DB Statement" v={span.dbStatement} pre copyable />}
+            {span.httpMethod && <Row k="HTTP" v={`${span.httpMethod} ${span.httpRoute ?? ''} ${span.httpStatus ?? ''}`} copyable />}
+            {span.peerService && <Row k="Peer" v={span.peerService} copyable />}
+            {span.statusMessage && <Row k="Status msg" v={span.statusMessage} copyable />}
           </KV>
         </Section>
 
         {attrs.length > 0 && (
           <Section title={`Attributes (${attrs.length})`}>
-            <KV>{attrs.map(([k, v]) => <Row key={k} k={k} v={String(v)} />)}</KV>
+            <KV>{attrs.map(([k, v]) => <Row key={k} k={k} v={String(v)} copyable />)}</KV>
           </Section>
         )}
 
         {res.length > 0 && (
           <Section title={`Resource (${res.length})`}>
-            <KV>{res.map(([k, v]) => <Row key={k} k={k} v={String(v)} />)}</KV>
+            <KV>{res.map(([k, v]) => <Row key={k} k={k} v={String(v)} copyable />)}</KV>
           </Section>
         )}
 

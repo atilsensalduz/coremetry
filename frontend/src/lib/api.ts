@@ -284,6 +284,7 @@ export interface TracesParams {
   from?: number;
   to?: number;
   filters?: string;     // JSON-encoded FilterExpr[]
+  dsl?: string;         // multi-line DSL (AND-joined with `filters`)
   sort?: SortColumn;
   order?: SortOrder;
   limit?: number;

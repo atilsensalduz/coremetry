@@ -160,30 +160,54 @@ func (s *Store) GetOperations(ctx context.Context, service string, since time.Du
 // GetServiceGraph returns the directed call graph between services.
 // If `service` is non-empty, only edges where it appears as source OR target
 // are returned (i.e. the neighborhood of that service).
+//
+// Edge derivation: parent→child span pairs across different service_names.
+// This is what every modern OTel SDK populates by default — no need for
+// the apps to set peer.service explicitly. Self-joining the spans table
+// is more expensive than reading peer_service directly, but works for
+// any well-instrumented stack.
 func (s *Store) GetServiceGraph(ctx context.Context, service string, since time.Duration, from, to time.Time) ([]ServiceEdge, error) {
-	var wc whereClause
+	// Time filter applied to the *child* (callee) side. We don't need a
+	// matching filter on parent because parent.time ≤ child.time always.
+	var startTime time.Time
+	var endTime time.Time
 	if !from.IsZero() {
-		wc.add("time >= ?", from)
+		startTime = from
 		if !to.IsZero() {
-			wc.add("time <= ?", to)
+			endTime = to
 		}
 	} else {
-		wc.add("time >= ?", time.Now().Add(-since))
+		startTime = time.Now().Add(-since)
 	}
-	wc.add("peer_service != ''")
-	wc.add("kind IN ('client', 'producer')")
+
+	args := []any{startTime}
+	timeFilter := "child.time >= ?"
+	if !endTime.IsZero() {
+		timeFilter += " AND child.time <= ?"
+		args = append(args, endTime)
+	}
+	svcFilter := ""
 	if service != "" {
-		wc.add("(service_name = ? OR peer_service = ?)", service, service)
+		svcFilter = " AND (parent.service_name = ? OR child.service_name = ?)"
+		args = append(args, service, service)
 	}
+
 	rows, err := s.conn.Query(ctx, `
-		SELECT service_name                              AS source,
-		       peer_service                             AS target,
-		       count()                                  AS calls,
-		       countIf(status_code = 'error') / count() * 100 AS error_rate,
-		       avg(duration) / 1e6                      AS avg_ms
-		FROM spans `+wc.sql()+`
+		SELECT parent.service_name                              AS source,
+		       child.service_name                               AS target,
+		       count()                                          AS calls,
+		       countIf(child.status_code = 'error') / count() * 100 AS error_rate,
+		       avg(child.duration) / 1e6                        AS avg_ms
+		FROM spans AS child
+		INNER JOIN spans AS parent
+		  ON child.trace_id = parent.trace_id
+		 AND child.parent_id = parent.span_id
+		WHERE `+timeFilter+`
+		  AND parent.service_name != ''
+		  AND child.service_name  != ''
+		  AND parent.service_name != child.service_name`+svcFilter+`
 		GROUP BY source, target
-		ORDER BY calls DESC`, wc.args...)
+		ORDER BY calls DESC`, args...)
 	if err != nil {
 		return nil, err
 	}
