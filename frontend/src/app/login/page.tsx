@@ -2,6 +2,7 @@
 import { useEffect, useState, FormEvent } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { TelescopeIcon } from '@/components/TelescopeIcon';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { api, type AuthConfigResponse } from '@/lib/api';
 
 export default function LoginPage() {
@@ -58,6 +59,11 @@ export default function LoginPage() {
       position: 'fixed', inset: 0, display: 'grid', placeItems: 'center',
       background: 'var(--bg)',
     }}>
+      {/* Theme toggle in the top-right corner — same control the rest of
+          the app uses, here so users can flip the theme before signing in. */}
+      <div style={{ position: 'fixed', top: 16, right: 16, zIndex: 1 }}>
+        <ThemeToggle />
+      </div>
       <form onSubmit={onSubmit} style={{
         width: 340, padding: 32, borderRadius: 10,
         background: 'var(--bg2)', border: '1px solid var(--border)',
@@ -76,7 +82,7 @@ export default function LoginPage() {
             Coremetry
           </div>
           <div style={{ color: 'var(--text3)', fontSize: 11, marginTop: 4 }}>
-            Powered by OpenTelemetry · Sign in to continue
+            Sign in to continue
           </div>
         </div>
 
