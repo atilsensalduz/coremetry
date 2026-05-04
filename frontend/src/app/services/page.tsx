@@ -45,10 +45,18 @@ export default function ServicesPage() {
     setData(undefined);
     setSparklines({});
     const r = timeRangeToNs(range);
-    api.services(r, limit).then(setData).catch(() => setData(null));
-    // Sparklines are non-blocking — failure (or empty MV for very fresh
-    // installs) just means the rows render without thumbnails.
-    api.serviceSparklines(r).then(d => setSparklines(d ?? {})).catch(() => {});
+    // Two-phase fetch: get the services list first, then ask for
+    // sparklines scoped to ONLY those names. Without the scope the
+    // sparklines payload is one bucket array per service across all of
+    // them — multi-MB at 10k+ services. Sparkline call is fire-and-forget
+    // (non-blocking) so the table renders even if the MV is empty.
+    api.services(r, limit).then(svcs => {
+      setData(svcs);
+      const names = (svcs ?? []).map(s => s.name);
+      if (names.length > 0) {
+        api.serviceSparklines(r, names).then(d => setSparklines(d ?? {})).catch(() => {});
+      }
+    }).catch(() => setData(null));
   }, [range, limit]);
 
   // Service combobox options come from the loaded data itself.

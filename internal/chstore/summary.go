@@ -92,6 +92,55 @@ func (s *Store) GetServicesAgg(ctx context.Context, from, to time.Time, limit in
 	return out, rows.Err()
 }
 
+// GetServiceSummary5mFor reads MV buckets for a set of named services.
+// Same shape as GetServiceSummary5m but accepts a list — used by the
+// sparklines endpoint to scope the result to the visible top-N rows on
+// the services page (otherwise the response is one array per service
+// across all of them, which is multi-MB at high cardinality).
+//
+// Empty list returns ALL services (so an internal caller that genuinely
+// wants the full set still has a path).
+func (s *Store) GetServiceSummary5mFor(ctx context.Context, services []string, from, to time.Time) ([]ServiceSummaryRow, error) {
+	args := []any{from, to}
+	svcFilter := ""
+	if len(services) > 0 {
+		// Use the IN(...) tuple form. clickhouse-go takes a slice and
+		// binds it as an array; keeps the SQL parameterised (no
+		// hand-quoted values).
+		svcFilter = " AND service_name IN ?"
+		args = append(args, services)
+	}
+	rows, err := s.conn.Query(ctx, `
+		SELECT
+		  service_name,
+		  toUnixTimestamp64Nano(toDateTime64(time_bucket, 9)) AS bucket_ns,
+		  countMerge(span_count_state)                      AS spans,
+		  countIfMerge(error_count_state)                   AS errors,
+		  sumMerge(duration_sum_state) / nullIf(countMerge(span_count_state), 0) / 1e6 AS avg_ms,
+		  arrayElement(quantilesMerge(0.5, 0.95, 0.99)(duration_q_state), 1) / 1e6 AS p50_ms,
+		  arrayElement(quantilesMerge(0.5, 0.95, 0.99)(duration_q_state), 2) / 1e6 AS p95_ms,
+		  arrayElement(quantilesMerge(0.5, 0.95, 0.99)(duration_q_state), 3) / 1e6 AS p99_ms
+		FROM service_summary_5m
+		WHERE time_bucket >= ? AND time_bucket <= ?`+svcFilter+`
+		GROUP BY service_name, time_bucket
+		ORDER BY service_name, time_bucket
+		SETTINGS max_execution_time = 30`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ServiceSummaryRow{}
+	for rows.Next() {
+		var r ServiceSummaryRow
+		if err := rows.Scan(&r.Service, &r.BucketStart, &r.SpanCount, &r.ErrorCount,
+			&r.AvgMs, &r.P50Ms, &r.P95Ms, &r.P99Ms); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // GetServiceSummary5m reads pre-aggregated 5-minute buckets from the MV.
 // Suitable for "show last N hours per-service trend" without paying the
 // cost of scanning raw span rows. Buckets that haven't materialised yet

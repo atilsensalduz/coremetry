@@ -210,9 +210,26 @@ func (s *Server) getServiceSparklines(w http.ResponseWriter, r *http.Request) {
 	if to.IsZero() {
 		to = time.Now()
 	}
-	key := fmt.Sprintf("services-spark:from=%s:to=%s", q.Get("from"), q.Get("to"))
+	// Caller passes the visible service names (comma-separated). Without
+	// this filter the response is one bucket array per service across the
+	// full window — at 10k+ services that's multi-MB of JSON the browser
+	// has to parse just to render 50 thumbnails. The cap (200) is a hard
+	// safety net; the UI normally sends 50.
+	wantSvcs := strings.Split(q.Get("services"), ",")
+	cleaned := wantSvcs[:0]
+	for _, s := range wantSvcs {
+		if s = strings.TrimSpace(s); s != "" {
+			cleaned = append(cleaned, s)
+		}
+		if len(cleaned) >= 200 {
+			break
+		}
+	}
+	wantSvcs = cleaned
+	key := fmt.Sprintf("services-spark:from=%s:to=%s:svcs=%s",
+		q.Get("from"), q.Get("to"), strings.Join(wantSvcs, ","))
 	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
-		rows, err := s.store.GetServiceSummary5m(r.Context(), "", from, to)
+		rows, err := s.store.GetServiceSummary5mFor(r.Context(), wantSvcs, from, to)
 		if err != nil {
 			return nil, err
 		}

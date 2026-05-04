@@ -46,8 +46,11 @@ export const api = {
     get<Service[] | null>(`/api/services?${qs({ ...r, limit })}`),
   graph:      (r: RangeParams, service?: string) =>
     get<ServiceEdge[] | null>(`/api/services/graph?${qs({ ...r, service })}`),
-  serviceSparklines: (r: RangeParams) =>
-    get<Record<string, SparklineBucket[]> | null>(`/api/services/sparklines?${qs(r)}`),
+  // services: comma-separated allow-list — server caps to 200 to keep
+  // the payload small even on 10k+ service installs.
+  serviceSparklines: (r: RangeParams, services?: string[]) =>
+    get<Record<string, SparklineBucket[]> | null>(
+      `/api/services/sparklines?${qs({ ...r, services: services?.join(',') })}`),
   operations: (service: string, r: RangeParams) =>
     get<string[] | null>(`/api/operations?${qs({ ...r, service })}`),
 
