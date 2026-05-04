@@ -1,6 +1,6 @@
-package com.qmetry.demo.repository;
+package com.coremetry.demo.repository;
 
-import com.qmetry.demo.model.Product;
+import com.coremetry.demo.model.Product;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;

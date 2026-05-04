@@ -2,11 +2,11 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.qmetry</groupId>
+    <groupId>com.coremetry</groupId>
     <artifactId>java-demo</artifactId>
     <version>0.1.0</version>
     <packaging>jar</packaging>
-    <name>qmetry-java-demo</name>
+    <name>coremetry-java-demo</name>
     <description>Spring Boot demo — instrumented with OTel javaagent (zero code)</description>
 
     <parent>

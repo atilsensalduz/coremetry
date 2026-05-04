@@ -1,7 +1,7 @@
-package com.qmetry.demo.controller;
+package com.coremetry.demo.controller;
 
-import com.qmetry.demo.model.User;
-import com.qmetry.demo.repository.UserRepository;
+import com.coremetry.demo.model.User;
+import com.coremetry.demo.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;

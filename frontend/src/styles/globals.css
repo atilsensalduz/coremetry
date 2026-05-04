@@ -207,24 +207,53 @@ tbody td { padding: 7px 12px; max-width: 320px; white-space: nowrap; overflow: h
 }
 .wf-tick-label { position: absolute; top: 50%; transform: translate(-50%, -50%); font-size: 10px; color: var(--text2); font-family: monospace; white-space: nowrap; pointer-events: none; }
 .wf-vline { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--border); pointer-events: none; }
-.wf-row { display: flex; align-items: stretch; min-height: 26px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background .07s; }
+/* ── Waterfall row, Tempo-style ──────────────────────────────────────── */
+.wf-row { display: flex; align-items: stretch; min-height: 26px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background .07s; position: relative; }
 .wf-row:last-child { border-bottom: none; }
 .wf-row:hover { background: var(--bg2); }
-.wf-row.wf-sel { background: rgba(56,139,253,.08); }
+.wf-row.wf-sel { background: rgba(56,139,253,.10); }
+.wf-row.wf-sel .wf-stripe { width: 4px; filter: brightness(1.25); }
 .wf-row.wf-err .wf-name { color: var(--err); }
-.wf-row-name { flex-shrink: 0; display: flex; align-items: center; padding: 3px 8px 3px 0; border-right: 1px solid var(--border); overflow: hidden; gap: 2px; }
-.wf-toggle { width: 16px; height: 100%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 9px; color: var(--text2); cursor: pointer; border-radius: 2px; }
-.wf-toggle:hover { background: var(--bg3); }
+
+/* Service-color stripe down the left edge — Tempo's primary signal for
+   identifying which service this span belongs to. Always visible, fixed
+   width. Selected row widens it slightly. */
+.wf-stripe { flex-shrink: 0; width: 3px; transition: width .07s, filter .07s; }
+
+.wf-row-name { flex-shrink: 0; position: relative; display: flex; align-items: center; border-right: 1px solid var(--border); overflow: hidden; }
+.wf-row-name-inner { display: flex; align-items: center; gap: 2px; flex: 1; padding-right: 8px; min-width: 0; }
+.wf-toggle { width: 16px; height: 100%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 9px; color: var(--text2); cursor: pointer; border-radius: 2px; background: transparent; border: 0; padding: 0; }
+.wf-toggle:hover { background: var(--bg3); color: var(--text); }
 .wf-leaf { width: 16px; flex-shrink: 0; }
-.wf-dot { font-size: 9px; flex-shrink: 0; line-height: 1; }
-.wf-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); margin-left: 3px; }
-.wf-svc { font-size: 10px; color: var(--text3); font-family: monospace; flex-shrink: 0; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: 4px; }
-.wf-dur { font-size: 10px; color: var(--text2); font-family: monospace; flex-shrink: 0; margin-left: 6px; min-width: 48px; text-align: right; }
+.wf-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); margin-left: 3px; min-width: 0; }
+.wf-svc { font-size: 10px; color: var(--text3); font-family: monospace; flex-shrink: 0; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: 4px; padding: 1px 5px; background: var(--bg3); border-radius: 3px; }
+.wf-err-dot { color: var(--err); font-size: 11px; flex-shrink: 0; margin-left: 4px; line-height: 1; }
+.wf-kind { font-size: 11px; opacity: .65; margin-right: 2px; flex-shrink: 0; line-height: 1; }
+
+/* Tree connector lines — vertical guides for ancestor depths plus an
+   L-shape elbow joining the row to its parent. Standard Tempo / Jaeger
+   visual; helps the eye trace deep hierarchies without scanning indents
+   character by character. */
+.wf-tree-v { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--border); pointer-events: none; }
+.wf-tree-v-empty { display: none; }
+.wf-tree-elbow {
+  position: absolute; top: 0; height: 13px; width: 12px;
+  pointer-events: none;
+  border-left: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  border-bottom-left-radius: 4px;
+}
+.wf-tree-elbow-last {} /* last child: same elbow shape; no extension */
+
+/* Bar lane — single solid bar, no overlays. The wait time is implicit
+   from the gap between parent and children's positions, exactly the
+   way Tempo / Jaeger / Honeycomb render it. */
 .wf-row-bar { flex: 1; position: relative; }
-.wf-bar { position: absolute; top: 50%; transform: translateY(-50%); height: 14px; border-radius: 2px; min-width: 2px; display: flex; align-items: center; overflow: hidden; padding: 0 4px; transition: filter .1s; }
+.wf-bar { position: absolute; top: 50%; transform: translateY(-50%); height: 14px; border-radius: 3px; min-width: 2px; display: flex; align-items: center; overflow: hidden; padding: 0 5px; transition: filter .1s, transform .1s; box-shadow: 0 1px 0 rgba(0,0,0,.2); }
 .wf-row:hover .wf-bar { filter: brightness(1.15); }
-.wf-bar-label { font-size: 10px; color: rgba(255,255,255,.88); white-space: nowrap; font-family: monospace; overflow: hidden; }
-.wf-row.wf-sel .wf-bar { outline: 1px solid rgba(255,255,255,.3); }
+.wf-row.wf-sel .wf-bar { outline: 1px solid rgba(255,255,255,.4); outline-offset: 0; }
+.wf-bar-label { font-size: 10px; color: rgba(255,255,255,.92); white-space: nowrap; font-family: monospace; overflow: hidden; pointer-events: none; text-shadow: 0 1px 1px rgba(0,0,0,.25); }
+.wf-bar-label-outside { position: absolute; top: 50%; transform: translateY(-50%); font-size: 10px; color: var(--text2); font-family: monospace; pointer-events: none; white-space: nowrap; }
 
 /* Span detail panel */
 #span-panel { width: 340px; flex-shrink: 0; background: var(--bg1); border: 1px solid var(--border); border-radius: 8px; overflow: auto; display: flex; flex-direction: column; position: relative; }

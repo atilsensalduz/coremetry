@@ -1,10 +1,10 @@
-package com.qmetry.demo.controller;
+package com.coremetry.demo.controller;
 
-import com.qmetry.demo.model.Order;
-import com.qmetry.demo.model.Product;
-import com.qmetry.demo.model.User;
-import com.qmetry.demo.repository.OrderRepository;
-import com.qmetry.demo.repository.ProductRepository;
+import com.coremetry.demo.model.Order;
+import com.coremetry.demo.model.Product;
+import com.coremetry.demo.model.User;
+import com.coremetry.demo.repository.OrderRepository;
+import com.coremetry.demo.repository.ProductRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;

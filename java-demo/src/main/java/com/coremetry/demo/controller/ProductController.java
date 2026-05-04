@@ -1,7 +1,7 @@
-package com.qmetry.demo.controller;
+package com.coremetry.demo.controller;
 
-import com.qmetry.demo.model.Product;
-import com.qmetry.demo.repository.ProductRepository;
+import com.coremetry.demo.model.Product;
+import com.coremetry.demo.repository.ProductRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;

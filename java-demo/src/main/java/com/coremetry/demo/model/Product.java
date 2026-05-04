@@ -1,4 +1,4 @@
-package com.qmetry.demo.model;
+package com.coremetry.demo.model;
 
 import jakarta.persistence.*;
 

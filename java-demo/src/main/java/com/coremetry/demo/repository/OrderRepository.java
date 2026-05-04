@@ -1,6 +1,6 @@
-package com.qmetry.demo.repository;
+package com.coremetry.demo.repository;
 
-import com.qmetry.demo.model.Order;
+import com.coremetry.demo.model.Order;
 import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 

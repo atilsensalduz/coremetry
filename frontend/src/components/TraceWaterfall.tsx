@@ -6,11 +6,31 @@ import { fmtNs, hashColor } from '@/lib/utils';
 const TICKS = [0, 0.25, 0.5, 0.75, 1];
 const NAME_MIN = 160;
 const NAME_MAX = 800;
+const INDENT_PX = 16;
 
 interface Row {
   span: SpanRow;
   depth: number;
   hasChildren: boolean;
+  // For each ancestor depth (1..depth), whether the ancestor at that
+  // depth still has later siblings in the visible tree. Drives the
+  // continuation tree lines: at depths where the ancestor has more
+  // siblings, the vertical guide line extends through this row.
+  // Standard Tempo / Jaeger waterfall convention.
+  ancestorContinues: boolean[];
+  isLastSibling: boolean;
+}
+
+// Span-kind glyphs — case-insensitive variants of the OTel-spec values.
+const KIND_ICON: Record<string, string> = {
+  server:   '🖥',
+  client:   '📡',
+  producer: '📤',
+  consumer: '📥',
+  internal: '⚙',
+};
+function kindIcon(k: string): string {
+  return KIND_ICON[(k || 'internal').toLowerCase()] ?? '⚙';
 }
 
 export function TraceWaterfall({ spans, selectedId, onSelect }: {
@@ -19,12 +39,11 @@ export function TraceWaterfall({ spans, selectedId, onSelect }: {
   onSelect: (id: string) => void;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [nameWidth, setNameWidth] = useState<number | null>(null); // null = auto-fit
+  const [nameWidth, setNameWidth] = useState<number | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ startX: number; startW: number } | null>(null);
 
-  // Track container width so the 2:3 default can adapt to the viewport.
   useEffect(() => {
     if (!containerRef.current) return;
     setContainerWidth(containerRef.current.clientWidth);
@@ -45,13 +64,20 @@ export function TraceWaterfall({ spans, selectedId, onSelect }: {
     roots.sort((a, b) => a.startTime - b.startTime);
 
     const out: Row[] = [];
-    const dfs = (id: string, depth: number) => {
+    const dfs = (id: string, depth: number, isLast: boolean, ancestorContinues: boolean[]) => {
       const s = map.get(id); if (!s) return;
       const kids = children.get(id) ?? [];
-      out.push({ span: s, depth, hasChildren: kids.length > 0 });
-      if (!collapsed.has(id)) kids.forEach(c => dfs(c.spanId, depth + 1));
+      out.push({ span: s, depth, hasChildren: kids.length > 0, ancestorContinues, isLastSibling: isLast });
+      if (collapsed.has(id)) return;
+      kids.forEach((c, i) => {
+        const last = i === kids.length - 1;
+        // children inherit the parent's ancestor-continues flags + add
+        // a flag for this depth based on whether this very subtree's
+        // root still has siblings after it.
+        dfs(c.spanId, depth + 1, last, [...ancestorContinues, !isLast]);
+      });
     };
-    roots.forEach(r => dfs(r.spanId, 0));
+    roots.forEach((r, i) => dfs(r.spanId, 0, i === roots.length - 1, []));
 
     const minT = Math.min(...spans.map(s => s.startTime));
     const maxT = Math.max(...spans.map(s => s.endTime));
@@ -60,19 +86,15 @@ export function TraceWaterfall({ spans, selectedId, onSelect }: {
     return { rows: out, minT, totalNs, maxDepth };
   }, [spans, collapsed]);
 
-  // 2:3 split — span column gets 2/5 (≈40%) of the container; bar gets 3/5.
-  // Bounded by NAME_MIN/NAME_MAX and a depth-aware floor so deeply nested
-  // trees still have room for indentation.
   const defaultNameWidth = useMemo(() => {
     if (containerWidth <= 0) return 380;
     const target = Math.round((containerWidth - 6) * 0.4);
-    const depthMin = Math.min(320, 220 + maxDepth * 16);
+    const depthMin = Math.min(320, 220 + maxDepth * INDENT_PX);
     return Math.max(NAME_MIN, depthMin, Math.min(target, NAME_MAX, containerWidth * 0.65));
   }, [containerWidth, maxDepth]);
 
   const colWidth = nameWidth ?? defaultNameWidth;
 
-  // ── Drag-to-resize handler ───────────────────────────────────────────────
   const onResizeStart = (e: React.MouseEvent) => {
     e.preventDefault();
     dragRef.current = { startX: e.clientX, startW: colWidth };
@@ -100,7 +122,6 @@ export function TraceWaterfall({ spans, selectedId, onSelect }: {
     };
   }, []);
 
-  // Double-click resizer → reset to default
   const onResizeDoubleClick = () => setNameWidth(null);
 
   const toggle = (id: string, e: React.MouseEvent) => {
@@ -109,6 +130,14 @@ export function TraceWaterfall({ spans, selectedId, onSelect }: {
     next.has(id) ? next.delete(id) : next.add(id);
     setCollapsed(next);
   };
+
+  // Stable per-service colour (the left stripe + the bar). Hashing on
+  // serviceName means a trace that hops 3 services has 3 distinct
+  // stripes — the standard Tempo signal for "service handoff happens
+  // here". The bar itself uses a lighter shade so the stripe still
+  // reads as the service identifier.
+  const colorFor = (s: SpanRow) =>
+    s.statusCode === 'error' ? '#ff5252' : hashColor(s.serviceName + '::' + s.name);
 
   return (
     <div id="wf-outer" ref={containerRef}>
@@ -128,34 +157,78 @@ export function TraceWaterfall({ spans, selectedId, onSelect }: {
         </div>
       </div>
 
-      {rows.map(({ span: s, depth, hasChildren }) => {
-        const color = s.statusCode === 'error' ? '#ff5252' : hashColor(s.serviceName + '::' + s.name);
+      {rows.map(({ span: s, depth, hasChildren, ancestorContinues, isLastSibling }) => {
+        const color = colorFor(s);
         const startPct = ((s.startTime - minT) / totalNs * 100).toFixed(4);
         const widthPct = Math.max(0.15, ((s.endTime - s.startTime) / totalNs) * 100).toFixed(4);
         const dur = s.endTime - s.startTime;
+        const durMs = dur / 1e6;
         const isCol = collapsed.has(s.spanId);
-        const indent = 8 + depth * 18;
         const sel = s.spanId === selectedId;
         const cls = ['wf-row', s.statusCode === 'error' ? 'wf-err' : '', sel ? 'wf-sel' : ''].join(' ').trim();
+
+        // Decide whether the duration label fits inside the bar (Tempo
+        // does this — short bars get the label outside-right). 60px is
+        // roughly the width of "10.5ms" at the row's font size.
+        const labelInside = parseFloat(widthPct) > 6;
+
         return (
           <div key={s.spanId} className={cls} onClick={() => onSelect(s.spanId)}>
-            <div className="wf-row-name" style={{ width: colWidth, paddingLeft: indent }}>
-              {hasChildren
-                ? <div className="wf-toggle" onClick={e => toggle(s.spanId, e)}>{isCol ? '▶' : '▼'}</div>
-                : <div className="wf-leaf" />}
-              <span className="wf-dot" style={{ color }}>●</span>
-              <span className="wf-name" title={s.name}>{s.name}</span>
-              <span className="wf-svc" title={s.serviceName}>{s.serviceName}</span>
-              <span className="wf-dur">{fmtNs(dur)}</span>
+            {/* Left stripe — solid 3px service-color marker so the eye
+                can scan service handoffs down the trace. Selected row
+                gets a brighter, wider stripe to mark focus. */}
+            <div className="wf-stripe" style={{ background: color }} />
+
+            <div className="wf-row-name" style={{ width: colWidth }}>
+              {/* Tree guide lines — one vertical line per ancestor that
+                  still has later siblings, plus an L-shape for the row
+                  itself. Indent comes from the lines, not padding, so
+                  the visualization is tight at every depth. */}
+              {ancestorContinues.map((cont, i) => (
+                <span key={i} className={`wf-tree-v${cont ? '' : ' wf-tree-v-empty'}`}
+                      style={{ left: i * INDENT_PX + 4 }} />
+              ))}
+              {depth > 0 && (
+                <span className={`wf-tree-elbow${isLastSibling ? ' wf-tree-elbow-last' : ''}`}
+                      style={{ left: (depth - 1) * INDENT_PX + 4 }} />
+              )}
+
+              <div className="wf-row-name-inner" style={{ paddingLeft: depth * INDENT_PX + 8 }}>
+                {hasChildren
+                  ? <button className="wf-toggle" onClick={e => toggle(s.spanId, e)}
+                            aria-label={isCol ? 'Expand' : 'Collapse'}
+                            title={isCol ? 'Expand' : 'Collapse'}>
+                      {isCol ? '▶' : '▼'}
+                    </button>
+                  : <div className="wf-leaf" />}
+                <span className="wf-kind" title={s.kind || 'internal'}>{kindIcon(s.kind)}</span>
+                <span className="wf-name" title={s.name}>{s.name}</span>
+                <span className="wf-svc" title={s.serviceName}>{s.serviceName}</span>
+                {s.statusCode === 'error' && (
+                  <span className="wf-err-dot" title="Error">●</span>
+                )}
+              </div>
             </div>
+
             <div className="wf-resizer-row" />
+
             <div className="wf-row-bar">
               {TICKS.filter(t => t > 0).map(t => (
                 <div key={`v${t}`} className="wf-vline" style={{ left: `${t * 100}%` }} />
               ))}
-              <div className="wf-bar" style={{ left: `${startPct}%`, width: `${widthPct}%`, background: color }}>
-                <span className="wf-bar-label">{fmtNs(dur)}</span>
+              <div
+                className="wf-bar"
+                title={`${s.name}\n${s.serviceName}\n${fmtNs(dur)} (${durMs.toFixed(2)}ms)`}
+                style={{ left: `${startPct}%`, width: `${widthPct}%`, background: color }}
+              >
+                {labelInside && <span className="wf-bar-label">{fmtNs(dur)}</span>}
               </div>
+              {!labelInside && (
+                <span className="wf-bar-label-outside"
+                      style={{ left: `calc(${startPct}% + ${widthPct}% + 4px)` }}>
+                  {fmtNs(dur)}
+                </span>
+              )}
             </div>
           </div>
         );

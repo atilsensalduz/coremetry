@@ -1,4 +1,4 @@
-package com.qmetry.demo.service;
+package com.coremetry.demo.service;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
