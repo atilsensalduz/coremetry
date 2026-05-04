@@ -334,6 +334,37 @@ func (s *Store) migrate(ctx context.Context) error {
 			return fmt.Errorf("alter table: %w\nSQL: %.120s", err, q)
 		}
 	}
+
+	// Materialized views — pre-aggregate the high-volume spans table into
+	// summary tables that read paths can hit instead of scanning raw rows.
+	// New MVs go here; AggregatingMergeTree lets us combine count/sum/quantile
+	// states across partitions cheaply at query time via *Merge() finalisers.
+	//
+	// service_summary_5m: per-(service, 5min) counts + duration quantiles.
+	// Used by /services and the anomaly baseline scan to avoid touching the
+	// raw spans table for time-bucketed queries that span hours/days.
+	mvs := []string{
+		`CREATE MATERIALIZED VIEW IF NOT EXISTS service_summary_5m
+		 ENGINE = AggregatingMergeTree
+		 PARTITION BY toDate(time_bucket)
+		 ORDER BY (service_name, time_bucket)
+		 TTL toDate(time_bucket) + INTERVAL 90 DAY
+		 SETTINGS index_granularity = 8192
+		 AS SELECT
+		   service_name,
+		   toStartOfInterval(time, INTERVAL 5 MINUTE) AS time_bucket,
+		   countState()                                AS span_count_state,
+		   countIfState(status_code = 'error')         AS error_count_state,
+		   sumState(duration)                          AS duration_sum_state,
+		   quantilesState(0.5, 0.95, 0.99)(duration)   AS duration_q_state
+		 FROM spans
+		 GROUP BY service_name, time_bucket`,
+	}
+	for _, q := range mvs {
+		if err := s.conn.Exec(ctx, q); err != nil {
+			return fmt.Errorf("create MV: %w\nSQL: %.140s", err, q)
+		}
+	}
 	log.Println("[chstore] migrations complete")
 	return nil
 }

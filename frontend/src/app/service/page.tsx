@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
+import { ServiceStructure } from '@/components/ServiceStructure';
 import { api } from '@/lib/api';
 import { fmtNum, timeRangeToNs } from '@/lib/utils';
 import type { Service, ServiceEdgeStats, Problem, TimeRange } from '@/lib/types';
@@ -94,20 +95,24 @@ function ServiceDetailInner() {
 
         {loading && <Spinner />}
         {!loading && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <DependencyTable
-              title="Upstream callers"
-              hint="Services that send requests to this one"
-              icon="←"
-              rows={callers}
-              empty="No upstream callers in this window" />
-            <DependencyTable
-              title="Downstream dependencies"
-              hint="Services / backends this service calls"
-              icon="→"
-              rows={callees}
-              empty="No outgoing calls in this window" />
-          </div>
+          <>
+            <ServiceStructure service={svc} callers={callers} callees={callees} />
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <DependencyTable
+                title="Upstream callers"
+                hint="Services that send requests to this one"
+                icon="←"
+                rows={callers}
+                empty="No upstream callers in this window" />
+              <DependencyTable
+                title="Downstream dependencies"
+                hint="Services / backends this service calls"
+                icon="→"
+                rows={callees}
+                empty="No outgoing calls in this window" />
+            </div>
+          </>
         )}
       </div>
     </>

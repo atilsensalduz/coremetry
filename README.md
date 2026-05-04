@@ -277,7 +277,7 @@ one flag:
 ```bash
 helm install coremetry oci://ghcr.io/cilcenk/charts/coremetry --version 0.1.5 \
   --namespace coremetry \
-  --set global.imageRegistry=docker.artifacthub.registry.example.com \
+  --set global.imageRegistry=registry.example.com \
   --set 'global.imagePullSecrets={registry-pull-cred}' \
   --set secrets.jwtSecret=$(openssl rand -hex 32) \
   --set secrets.initialAdminPassword=$INITIAL_PW \
@@ -389,7 +389,7 @@ Then install with the override:
 ```bash
 helm install coremetry oci://ghcr.io/cilcenk/charts/coremetry --version 0.1.4 \
   -n coremetry \
-  --set global.imageRegistry=docker.artifacthub.registry.example.com \
+  --set global.imageRegistry=registry.example.com \
   --set 'global.imagePullSecrets={registry-pull-cred}' \
   --set route.enabled=true \
   ...
