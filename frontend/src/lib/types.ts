@@ -278,13 +278,24 @@ export interface SMTPSettings {
   configured?: boolean;   // server-side derived
 }
 
-export type ChannelType = 'email' | 'slack' | 'webhook';
+export type ChannelType = 'email' | 'slack' | 'mattermost' | 'webhook' | 'whatsapp';
 
 export interface NotificationChannel {
   id: string;
   name: string;
   type: ChannelType;
-  config: { recipients?: string[]; webhookUrl?: string; url?: string }; // type-specific
+  // Type-specific union. Optional fields keep the existing email/slack/
+  // webhook callers happy; new channels (mattermost shares slack's
+  // shape; whatsapp adds Twilio creds) only fill the fields they need.
+  config: {
+    recipients?: string[];   // email + whatsapp 'to' list
+    webhookUrl?: string;     // slack + mattermost
+    url?: string;            // generic webhook
+    accountSid?: string;     // whatsapp (Twilio)
+    authToken?: string;      // whatsapp (Twilio)
+    from?: string;           // whatsapp sender (with or without 'whatsapp:' prefix)
+    to?: string[];           // whatsapp recipient list
+  };
   enabled: boolean;
   minSeverity: 'info' | 'warning' | 'critical';
   createdAt: number;

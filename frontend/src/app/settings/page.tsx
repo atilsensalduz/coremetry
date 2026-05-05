@@ -265,8 +265,9 @@ function ChannelsTab() {
 
 function summarizeChannel(c: NotificationChannel): string {
   if (c.type === 'email') return (c.config.recipients ?? []).join(', ') || '(none)';
-  if (c.type === 'slack') return c.config.webhookUrl ?? '(no webhook)';
+  if (c.type === 'slack' || c.type === 'mattermost') return c.config.webhookUrl ?? '(no webhook)';
   if (c.type === 'webhook') return c.config.url ?? '(no url)';
+  if (c.type === 'whatsapp') return (c.config.to ?? []).join(', ') || '(no recipients)';
   return '';
 }
 
@@ -285,6 +286,11 @@ function ChannelModal({ initial, onClose, onSaved }: {
   const [recipients, setRecipients] = useState((initial?.config.recipients ?? []).join(', '));
   const [webhookUrl, setWebhookUrl] = useState(initial?.config.webhookUrl ?? '');
   const [url, setUrl] = useState(initial?.config.url ?? '');
+  // WhatsApp / Twilio fields
+  const [twilioSid, setTwilioSid] = useState(initial?.config.accountSid ?? '');
+  const [twilioToken, setTwilioToken] = useState(initial?.config.authToken ?? '');
+  const [waFrom, setWaFrom] = useState(initial?.config.from ?? '');
+  const [waTo, setWaTo] = useState((initial?.config.to ?? []).join(', '));
   const [enabled, setEnabled] = useState(initial?.enabled ?? true);
   const [minSeverity, setMinSeverity] = useState<'info' | 'warning' | 'critical'>(initial?.minSeverity ?? 'warning');
   const [busy, setBusy] = useState(false);
@@ -298,12 +304,21 @@ function ChannelModal({ initial, onClose, onSaved }: {
       if (type === 'email') {
         config.recipients = recipients.split(/[,;\s]+/).map(s => s.trim()).filter(Boolean);
         if (config.recipients.length === 0) throw new Error('At least one recipient is required');
-      } else if (type === 'slack') {
-        if (!webhookUrl) throw new Error('Slack webhook URL is required');
+      } else if (type === 'slack' || type === 'mattermost') {
+        if (!webhookUrl) throw new Error(`${type === 'slack' ? 'Slack' : 'Mattermost'} webhook URL is required`);
         config.webhookUrl = webhookUrl;
       } else if (type === 'webhook') {
         if (!url) throw new Error('Webhook URL is required');
         config.url = url;
+      } else if (type === 'whatsapp') {
+        if (!twilioSid || !twilioToken) throw new Error('Twilio Account SID and Auth Token are required');
+        if (!waFrom) throw new Error('Sender number (whatsapp:+E164) is required');
+        const tos = waTo.split(/[,;\s]+/).map(s => s.trim()).filter(Boolean);
+        if (tos.length === 0) throw new Error('At least one WhatsApp recipient is required');
+        config.accountSid = twilioSid.trim();
+        config.authToken = twilioToken.trim();
+        config.from = waFrom.trim();
+        config.to = tos;
       }
       const payload = { name, type, config, enabled, minSeverity };
       if (initial) await api.updateChannel(initial.id, payload);
@@ -337,8 +352,10 @@ function ChannelModal({ initial, onClose, onSaved }: {
             <Field label="Type" flex={1}>
               <select value={type} onChange={e => setType(e.target.value as ChannelType)}>
                 <option value="email">Email</option>
-                <option value="slack" disabled>Slack (coming soon)</option>
-                <option value="webhook" disabled>Webhook (coming soon)</option>
+                <option value="slack">Slack</option>
+                <option value="mattermost">Mattermost</option>
+                <option value="webhook">Webhook (generic JSON POST)</option>
+                <option value="whatsapp">WhatsApp (via Twilio)</option>
               </select>
             </Field>
             <Field label="Min severity" flex={1}>
@@ -358,16 +375,48 @@ function ChannelModal({ initial, onClose, onSaved }: {
             </Field>
           )}
           {type === 'slack' && (
-            <Field label="Slack webhook URL">
-              <input required value={webhookUrl} placeholder="https://hooks.slack.com/..."
+            <Field label="Slack incoming webhook URL">
+              <input required value={webhookUrl} placeholder="https://hooks.slack.com/services/T.../B.../..."
+                onChange={e => setWebhookUrl(e.target.value)} style={{ width: '100%' }} />
+            </Field>
+          )}
+          {type === 'mattermost' && (
+            <Field label="Mattermost incoming webhook URL">
+              <input required value={webhookUrl} placeholder="https://your-mattermost.example.com/hooks/..."
                 onChange={e => setWebhookUrl(e.target.value)} style={{ width: '100%' }} />
             </Field>
           )}
           {type === 'webhook' && (
-            <Field label="Webhook URL">
-              <input required value={url} placeholder="https://..."
+            <Field label="Webhook URL (raw Problem JSON is POSTed here)">
+              <input required value={url} placeholder="https://your-receiver.example.com/incidents"
                 onChange={e => setUrl(e.target.value)} style={{ width: '100%' }} />
             </Field>
+          )}
+          {type === 'whatsapp' && (
+            <>
+              <Row>
+                <Field label="Twilio Account SID" flex={1}>
+                  <input required value={twilioSid} placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    onChange={e => setTwilioSid(e.target.value)} style={{ width: '100%' }} />
+                </Field>
+                <Field label="Auth Token" flex={1}>
+                  <input required type="password" value={twilioToken} placeholder="32-char Auth Token"
+                    onChange={e => setTwilioToken(e.target.value)} style={{ width: '100%' }} />
+                </Field>
+              </Row>
+              <Field label="Sender number (with whatsapp: prefix)">
+                <input required value={waFrom} placeholder="whatsapp:+14155238886 (Twilio sandbox) or your approved number"
+                  onChange={e => setWaFrom(e.target.value)} style={{ width: '100%' }} />
+              </Field>
+              <Field label="Recipient numbers (comma-separated, E.164)">
+                <input required value={waTo} placeholder="+905XXXXXXXXX, +1XXXXXXXXXX"
+                  onChange={e => setWaTo(e.target.value)} style={{ width: '100%' }} />
+              </Field>
+              <p style={{ fontSize: 11, color: 'var(--text3)', marginTop: -4 }}>
+                Twilio is the de-facto WhatsApp Business API broker. The sandbox lets you test for free
+                (recipients must opt in by texting the join code). Production usage requires a Twilio-approved sender.
+              </p>
+            </>
           )}
 
           <label style={{ display: 'flex', gap: 6, alignItems: 'center',
