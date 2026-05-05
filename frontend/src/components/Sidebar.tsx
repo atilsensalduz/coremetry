@@ -9,7 +9,8 @@ import { useAuth } from './AuthProvider';
 import { ChangePasswordModal } from './ChangePasswordModal';
 
 const NAV = [
-  { href: '/problems',   label: 'Problems',     icon: '⚠' },
+  { href: '/incidents',  label: 'Incidents',    icon: '⚠' },
+  { href: '/problems',   label: 'Problems',     icon: '!' },
   { href: '/errors',     label: 'Exceptions',   icon: '⊗' },
   { href: '/services',   label: 'Services',     icon: '◈' },
   { href: '/traces',     label: 'Traces',       icon: '⋮' },

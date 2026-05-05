@@ -21,6 +21,7 @@ import (
 	"github.com/cilcenk/coremetry/internal/auth"
 	"github.com/cilcenk/coremetry/internal/cache"
 	"github.com/cilcenk/coremetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/copilot"
 	"github.com/cilcenk/coremetry/internal/logstore"
 	"github.com/cilcenk/coremetry/internal/notify"
 	"github.com/cilcenk/coremetry/internal/otlp"
@@ -28,15 +29,16 @@ import (
 )
 
 type Server struct {
-	addr   string
-	store  *chstore.Store
-	logs   logstore.Store    // read-side abstraction; CH or external ES
-	ing    *otlp.Ingester
-	webFS  embed.FS
-	auth   *auth.Service
-	oidc   *auth.OIDCService // nil when SSO disabled
-	cache  cache.Cache       // Noop when Redis isn't configured
-	notify *notify.Notifier
+	addr    string
+	store   *chstore.Store
+	logs    logstore.Store    // read-side abstraction; CH or external ES
+	ing     *otlp.Ingester
+	webFS   embed.FS
+	auth    *auth.Service
+	oidc    *auth.OIDCService // nil when SSO disabled
+	cache   cache.Cache       // Noop when Redis isn't configured
+	notify  *notify.Notifier
+	copilot *copilot.Service  // nil when AI key not configured
 
 	// Demo deployments only — when true, /api/auth/config returns
 	// initial admin credentials so the login page can pre-fill them.
@@ -57,10 +59,10 @@ type rateSample struct {
 	count int64
 }
 
-func NewServer(addr string, ing *otlp.Ingester, store *chstore.Store, logs logstore.Store, webFS embed.FS, authSvc *auth.Service, oidcSvc *auth.OIDCService, c cache.Cache, n *notify.Notifier) *Server {
+func NewServer(addr string, ing *otlp.Ingester, store *chstore.Store, logs logstore.Store, webFS embed.FS, authSvc *auth.Service, oidcSvc *auth.OIDCService, c cache.Cache, n *notify.Notifier, cop *copilot.Service) *Server {
 	return &Server{
 		addr: addr, store: store, logs: logs, ing: ing, webFS: webFS,
-		auth: authSvc, oidc: oidcSvc, cache: c, notify: n,
+		auth: authSvc, oidc: oidcSvc, cache: c, notify: n, copilot: cop,
 		rateSamples: map[string]rateSample{},
 	}
 }
@@ -120,6 +122,22 @@ func (s *Server) Start() error {
 	mux.HandleFunc("POST   /api/alert-rules/{id}/enable",   auth.RequireRole(auth.RoleAdmin, s.enableAlertRule))
 	mux.HandleFunc("GET /api/health", s.getHealth)
 	mux.HandleFunc("GET /api/status", s.getStatus)
+
+	// ── AI Copilot ─────────────────────────────────────────────────
+	mux.HandleFunc("GET    /api/copilot/config",            s.copilotConfig)
+	mux.HandleFunc("POST   /api/copilot/explain-trace/{id}", s.copilotExplainTrace)
+	mux.HandleFunc("POST   /api/copilot/explain-problem/{id}", s.copilotExplainProblem)
+
+	// ── Incident management ───────────────────────────────────────
+	mux.HandleFunc("GET    /api/incidents",                 s.listIncidents)
+	mux.HandleFunc("POST   /api/incidents",                 auth.RequireRole(auth.RoleAdmin, s.createIncident))
+	mux.HandleFunc("GET    /api/incidents/{id}",            s.getIncident)
+	mux.HandleFunc("PUT    /api/incidents/{id}",            auth.RequireRole(auth.RoleAdmin, s.updateIncident))
+	mux.HandleFunc("POST   /api/incidents/{id}/ack",        auth.RequireRole(auth.RoleAdmin, s.ackIncident))
+	mux.HandleFunc("POST   /api/incidents/{id}/resolve",    auth.RequireRole(auth.RoleAdmin, s.resolveIncident))
+	mux.HandleFunc("POST   /api/incidents/{id}/note",       auth.RequireRole(auth.RoleAdmin, s.addIncidentNote))
+	mux.HandleFunc("GET    /api/incidents/{id}/timeline",   s.incidentTimeline)
+	mux.HandleFunc("GET    /api/incidents/{id}/problems",   s.incidentProblems)
 
 	// ── Synthetic monitoring ───────────────────────────────────────
 	mux.HandleFunc("GET    /api/monitors",                s.listMonitors)
@@ -1291,6 +1309,223 @@ func (s *Server) svcCallees(w http.ResponseWriter, r *http.Request) {
 	out, err := s.store.CalleesOf(r.Context(), r.PathValue("name"), since)
 	if err != nil { writeErr(w, err); return }
 	writeJSON(w, out)
+}
+
+// ── AI Copilot ──────────────────────────────────────────────────────────────
+
+// copilotConfig surfaces whether the feature is enabled — UI uses this
+// to show or hide the "AI explain" buttons. Doesn't leak the key.
+func (s *Server) copilotConfig(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, map[string]bool{"enabled": s.copilot.Configured()})
+}
+
+// copilotExplainTrace fetches the spans for a trace, builds a compact
+// JSON description, and asks the model for an SRE-flavoured summary.
+// Heavy lifting (gathering context) happens server-side so the
+// browser doesn't ship trace data back to the API just to ship it on
+// to Anthropic.
+func (s *Server) copilotExplainTrace(w http.ResponseWriter, r *http.Request) {
+	if !s.copilot.Configured() {
+		http.Error(w, "AI copilot not configured", http.StatusServiceUnavailable); return
+	}
+	id := r.PathValue("id")
+	spans, err := s.store.GetTrace(r.Context(), id)
+	if err != nil { writeErr(w, err); return }
+	if len(spans) == 0 {
+		http.Error(w, "trace not found", http.StatusNotFound); return
+	}
+	// Compact each span — full attribute maps blow the prompt for big
+	// traces. Keep just the fields a senior engineer would want.
+	type lite struct {
+		Name       string  `json:"name"`
+		Service    string  `json:"service"`
+		Kind       string  `json:"kind"`
+		ParentSpan string  `json:"parent,omitempty"`
+		SpanID     string  `json:"id"`
+		DurationMs float64 `json:"durMs"`
+		Status     string  `json:"status,omitempty"`
+		StatusMsg  string  `json:"statusMsg,omitempty"`
+	}
+	cap := 100
+	if len(spans) > cap {
+		spans = spans[:cap] // bound the prompt; large traces still get a useful summary from the head
+	}
+	compact := make([]lite, 0, len(spans))
+	for _, sp := range spans {
+		dur := float64(sp.EndTime-sp.StartTime) / 1e6
+		l := lite{Name: sp.Name, Service: sp.ServiceName, Kind: sp.Kind,
+			ParentSpan: sp.ParentSpanID, SpanID: sp.SpanID, DurationMs: dur}
+		if sp.StatusCode == "error" {
+			l.Status = "error"
+			l.StatusMsg = sp.StatusMessage
+		}
+		compact = append(compact, l)
+	}
+	payload, _ := json.Marshal(compact)
+	user := fmt.Sprintf("Trace %s with %d spans:\n```json\n%s\n```", id, len(compact), string(payload))
+	out, err := s.copilot.Explain(r.Context(), copilot.SystemPromptTrace(), user)
+	if err != nil { writeErr(w, err); return }
+	writeJSON(w, map[string]string{"explanation": out})
+}
+
+// copilotExplainProblem fetches a Problem and asks the model for a
+// likely-cause + first-action summary. Useful on a fresh page during
+// an incident.
+func (s *Server) copilotExplainProblem(w http.ResponseWriter, r *http.Request) {
+	if !s.copilot.Configured() {
+		http.Error(w, "AI copilot not configured", http.StatusServiceUnavailable); return
+	}
+	id := r.PathValue("id")
+	probs, err := s.store.ListProblems(r.Context(), chstore.ProblemFilter{Limit: 1000})
+	if err != nil { writeErr(w, err); return }
+	var p *chstore.Problem
+	for i := range probs {
+		if probs[i].ID == id {
+			p = &probs[i]; break
+		}
+	}
+	if p == nil {
+		http.Error(w, "problem not found", http.StatusNotFound); return
+	}
+	user := fmt.Sprintf(
+		"Service: %s\nMetric: %s\nValue: %.2f (threshold %.2f)\nSeverity: %s\nRule: %s\nDescription: %s",
+		p.Service, p.Metric, p.Value, p.Threshold, p.Severity, p.RuleName, p.Description,
+	)
+	out, err := s.copilot.Explain(r.Context(), copilot.SystemPromptProblem(), user)
+	if err != nil { writeErr(w, err); return }
+	writeJSON(w, map[string]string{"explanation": out})
+}
+
+// ── Incident management ─────────────────────────────────────────────────────
+
+func (s *Server) listIncidents(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	rows, err := s.store.ListIncidents(r.Context(), chstore.IncidentFilter{
+		Status:   q.Get("status"),
+		Service:  q.Get("service"),
+		Severity: q.Get("severity"),
+		Limit:    parseInt(q.Get("limit"), 200),
+	})
+	if err != nil { writeErr(w, err); return }
+	writeJSON(w, rows)
+}
+
+func (s *Server) getIncident(w http.ResponseWriter, r *http.Request) {
+	inc, err := s.store.GetIncident(r.Context(), r.PathValue("id"))
+	if err != nil { writeErr(w, err); return }
+	if inc == nil { http.Error(w, "not found", http.StatusNotFound); return }
+	writeJSON(w, inc)
+}
+
+func (s *Server) createIncident(w http.ResponseWriter, r *http.Request) {
+	var inc chstore.Incident
+	if err := json.NewDecoder(r.Body).Decode(&inc); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest); return
+	}
+	if inc.Title == "" {
+		http.Error(w, "title required", http.StatusBadRequest); return
+	}
+	inc.ID = ""
+	if err := s.store.UpsertIncident(r.Context(), &inc); err != nil {
+		writeErr(w, err); return
+	}
+	actor := actorOf(r)
+	_ = s.store.AppendIncidentEvent(r.Context(), chstore.IncidentEvent{
+		IncidentID: inc.ID, Kind: "created", Actor: actor,
+		Body: "Manually created",
+	})
+	writeJSON(w, inc)
+}
+
+func (s *Server) updateIncident(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var inc chstore.Incident
+	if err := json.NewDecoder(r.Body).Decode(&inc); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest); return
+	}
+	inc.ID = id
+	if err := s.store.UpsertIncident(r.Context(), &inc); err != nil {
+		writeErr(w, err); return
+	}
+	writeJSON(w, inc)
+}
+
+func (s *Server) ackIncident(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	inc, err := s.store.GetIncident(r.Context(), id)
+	if err != nil { writeErr(w, err); return }
+	if inc == nil { http.Error(w, "not found", http.StatusNotFound); return }
+	now := time.Now().UnixNano()
+	inc.Status = "acknowledged"
+	inc.AckAt = &now
+	actor := actorOf(r)
+	if inc.Assignee == "" {
+		inc.Assignee = actor
+	}
+	if err := s.store.UpsertIncident(r.Context(), inc); err != nil {
+		writeErr(w, err); return
+	}
+	_ = s.store.AppendIncidentEvent(r.Context(), chstore.IncidentEvent{
+		IncidentID: id, Kind: "ack", Actor: actor, Body: "Incident acknowledged",
+	})
+	writeJSON(w, inc)
+}
+
+func (s *Server) resolveIncident(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	inc, err := s.store.GetIncident(r.Context(), id)
+	if err != nil { writeErr(w, err); return }
+	if inc == nil { http.Error(w, "not found", http.StatusNotFound); return }
+	now := time.Now().UnixNano()
+	inc.Status = "resolved"
+	inc.ResolvedAt = &now
+	if err := s.store.UpsertIncident(r.Context(), inc); err != nil {
+		writeErr(w, err); return
+	}
+	_ = s.store.AppendIncidentEvent(r.Context(), chstore.IncidentEvent{
+		IncidentID: id, Kind: "resolved", Actor: actorOf(r), Body: "Incident resolved",
+	})
+	writeJSON(w, inc)
+}
+
+func (s *Server) addIncidentNote(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var body struct{ Text string `json:"text"` }
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest); return
+	}
+	if body.Text == "" {
+		http.Error(w, "text required", http.StatusBadRequest); return
+	}
+	if err := s.store.AppendIncidentEvent(r.Context(), chstore.IncidentEvent{
+		IncidentID: id, Kind: "note", Actor: actorOf(r), Body: body.Text,
+	}); err != nil {
+		writeErr(w, err); return
+	}
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+func (s *Server) incidentTimeline(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.store.IncidentTimeline(r.Context(), r.PathValue("id"))
+	if err != nil { writeErr(w, err); return }
+	writeJSON(w, rows)
+}
+
+func (s *Server) incidentProblems(w http.ResponseWriter, r *http.Request) {
+	ids, err := s.store.IncidentProblems(r.Context(), r.PathValue("id"))
+	if err != nil { writeErr(w, err); return }
+	writeJSON(w, ids)
+}
+
+// actorOf returns the email of the authenticated user for audit
+// fields, or "anonymous" when the call somehow reached a handler
+// without auth context (shouldn't happen for the /api/incidents/*
+// admin-gated routes, but safe default).
+func actorOf(r *http.Request) string {
+	if c := auth.FromContext(r.Context()); c != nil && c.Email != "" {
+		return c.Email
+	}
+	return "anonymous"
 }
 
 // ── Synthetic monitors ──────────────────────────────────────────────────────

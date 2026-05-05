@@ -17,6 +17,13 @@ ARG ASYNC_PROFILER_VERSION=3.0
 # OpenTelemetry Java auto-instrumentation agent (zero-code traces/metrics/logs)
 ADD https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${OTEL_AGENT_VERSION}/opentelemetry-javaagent.jar /agent/opentelemetry-javaagent.jar
 
+# Pyroscope Java agent — pushes continuous CPU + alloc profiles to Pyroscope
+# server every ~10s. Uses async-profiler under the hood. Activated via
+# the PYROSCOPE_* env vars wired in compose. Sourced from the official
+# GitHub release (the Maven artifact name has shifted between versions).
+ARG PYROSCOPE_AGENT_VERSION=0.14.0
+ADD https://github.com/grafana/pyroscope-java/releases/download/v${PYROSCOPE_AGENT_VERSION}/pyroscope.jar /agent/pyroscope.jar
+
 # async-profiler for CPU profiling (zero-code, attaches via JVMTI)
 RUN apt-get update -qq && \
     apt-get install -y -qq --no-install-recommends curl ca-certificates && \

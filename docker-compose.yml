@@ -209,6 +209,21 @@ services:
     restart: unless-stopped
     profiles: ["grafana", "demo"]
 
+  # ── Pyroscope (continuous profiling, Grafana stack) ─────────────────────────
+  # Ingests CPU/memory profiles from app agents (Java, Go, .NET, Ruby, etc.)
+  # Coremetry ships its own pprof ingest at /v1/profiles for ad-hoc captures,
+  # but Pyroscope is the de-facto standard for *continuous* profiling and has
+  # a far richer flame-graph UI. Run alongside; java-demo's profile-pusher
+  # below targets it.
+  #
+  # UI: http://localhost:4040  (no auth in dev)
+  pyroscope:
+    image: grafana/pyroscope:1.7.1
+    container_name: coremetry-pyroscope
+    ports:
+      - "4040:4040"
+    restart: unless-stopped
+
   # ── Java demo: zero-code OTel auto-instrumentation ──────────────────────────
   # Spring Boot app, no OTel imports in source. The javaagent injects all
   # traces/metrics/logs at JVM startup; async-profiler pushes CPU profiles.
@@ -227,6 +242,14 @@ services:
       OTEL_INSTRUMENTATION_LOGBACK_APPENDER_ENABLED: "true"
       OTEL_INSTRUMENTATION_RUNTIME_TELEMETRY_ENABLED: "true"
       OTEL_METRIC_EXPORT_INTERVAL: "10000"
+      # Pyroscope continuous profiling — agent pushes CPU + alloc
+      # profiles every ~10s. Tagged with service+env so the Pyroscope
+      # UI can group by service. Open http://localhost:4040 to view.
+      PYROSCOPE_APPLICATION_NAME: "java-demo"
+      PYROSCOPE_SERVER_ADDRESS: "http://pyroscope:4040"
+      PYROSCOPE_FORMAT: "jfr"
+      PYROSCOPE_PROFILING_INTERVAL: "10s"
+      PYROSCOPE_LABELS: "service.name=java-demo,deployment.environment=demo"
       # Profile pusher (sidecar shell script — not OTel)
       COREMETRY_URL: "http://coremetry:8088"
       PROFILE_INTERVAL_SEC: "15"

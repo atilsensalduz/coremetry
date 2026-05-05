@@ -211,6 +211,14 @@ func (e *Evaluator) evaluateOne(ctx context.Context, r chstore.AlertRule, servic
 		} else {
 			log.Printf("[evaluator] PROBLEM OPENED: %s · %s = %.2f (threshold %.2f)",
 				service, r.Metric, value, r.Threshold)
+			// Auto-group into an Incident — same-service same-severity
+			// problems within 30min get folded under one declared
+			// incident so the oncall has a single place to drive
+			// response from. Best-effort; failure here doesn't block
+			// alerting.
+			if _, err := e.store.AttachProblemToIncident(ctx, p); err != nil {
+				log.Printf("[evaluator] incident attach: %v", err)
+			}
 			// Fan out to user channels (email/slack/etc). Fire-and-forget
 			// so a flaky SMTP doesn't block the eval loop.
 			if e.notifier != nil {

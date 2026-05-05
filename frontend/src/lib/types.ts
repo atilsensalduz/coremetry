@@ -11,6 +11,34 @@ export interface Service {
 
 // One row of the system status grid on /status. Mirrors the
 // componentStatus / systemStatus types in internal/api.
+// ── Incident management ──────────────────────────────────────────────────────
+
+export type IncidentStatus = 'open' | 'acknowledged' | 'resolved';
+
+export interface Incident {
+  id: string;
+  title: string;
+  severity: 'info' | 'warning' | 'critical';
+  status: IncidentStatus;
+  service?: string;
+  summary?: string;
+  assignee?: string;
+  postmortem?: string;
+  startedAt: number;
+  ackAt?: number;
+  resolvedAt?: number;
+  updatedAt: number;
+}
+
+export interface IncidentEvent {
+  incidentId: string;
+  time: number;
+  kind: 'created' | 'ack' | 'resolved' | 'note' | 'problem_attached' | 'problem_resolved';
+  actor?: string;
+  body?: string;
+  refId?: string;
+}
+
 // ── Synthetic monitoring ─────────────────────────────────────────────────────
 
 export interface Monitor {

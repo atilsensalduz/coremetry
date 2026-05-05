@@ -155,6 +155,11 @@ func (d *Detector) checkOne(ctx context.Context, service, metric string) {
 		}
 		log.Printf("[anomaly] OPENED %s · %s = %.2f%s (μ=%.2f σ=%.2f z=%.1f)",
 			service, metric, current, unitOf(metric), mean, stdev, z)
+		// Auto-attach to the active incident for this service+severity
+		// (same convention as evaluator-opened problems).
+		if _, err := d.store.AttachProblemToIncident(ctx, p); err != nil {
+			log.Printf("[anomaly] incident attach: %v", err)
+		}
 		if d.notifier != nil {
 			go d.notifier.SendProblemAlert(context.Background(), p)
 		}

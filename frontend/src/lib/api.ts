@@ -9,6 +9,7 @@ import type {
   SparklineBucket, OperationSummary,
   SystemStatus,
   Monitor, MonitorResult, MonitorRow,
+  Incident, IncidentEvent,
 } from './types';
 
 // Empty base = same origin (works in production where Go serves both UI and API).
@@ -71,6 +72,30 @@ export const api = {
 
   health: ()                         => get<HealthInfo>(`/api/health`),
   status: ()                         => get<SystemStatus>(`/api/status`),
+
+  // AI Copilot
+  copilotConfig:         () => get<{ enabled: boolean }>(`/api/copilot/config`),
+  copilotExplainTrace:   (id: string) =>
+    request<{ explanation: string }>(`/api/copilot/explain-trace/${id}`, { method: 'POST' }),
+  copilotExplainProblem: (id: string) =>
+    request<{ explanation: string }>(`/api/copilot/explain-problem/${id}`, { method: 'POST' }),
+
+  // Incident management
+  listIncidents:    (params?: { status?: string; service?: string; severity?: string; limit?: number }) =>
+    get<Incident[] | null>(`/api/incidents?${qs(params ?? {})}`),
+  getIncident:      (id: string) => get<Incident>(`/api/incidents/${id}`),
+  createIncident:   (i: Partial<Incident>) =>
+    request<Incident>(`/api/incidents`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(i) }),
+  updateIncident:   (id: string, i: Partial<Incident>) =>
+    request<Incident>(`/api/incidents/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(i) }),
+  ackIncident:      (id: string) =>
+    request<Incident>(`/api/incidents/${id}/ack`, { method: 'POST' }),
+  resolveIncident:  (id: string) =>
+    request<Incident>(`/api/incidents/${id}/resolve`, { method: 'POST' }),
+  addIncidentNote:  (id: string, text: string) =>
+    request<void>(`/api/incidents/${id}/note`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) }),
+  incidentTimeline: (id: string) => get<IncidentEvent[] | null>(`/api/incidents/${id}/timeline`),
+  incidentProblems: (id: string) => get<string[] | null>(`/api/incidents/${id}/problems`),
 
   // Synthetic monitoring
   listMonitors:    ()              => get<MonitorRow[] | null>(`/api/monitors`),

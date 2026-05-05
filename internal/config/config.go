@@ -28,6 +28,17 @@ type Config struct {
 	Auth       AuthConfig      `yaml:"auth"`
 	Redis      RedisConfig     `yaml:"redis"`
 	Logs       LogsConfig      `yaml:"logs"`
+	AI         AIConfig        `yaml:"ai"`
+}
+
+// AIConfig wires the optional Anthropic-backed Copilot. When APIKey is
+// empty the feature is dormant — no UI buttons appear and the
+// /api/copilot/* endpoints return "not configured" errors. Operator
+// brings their own key (Anthropic console → API keys), so Coremetry
+// never ships with embedded credentials.
+type AIConfig struct {
+	APIKey string `yaml:"api_key"` // env: COREMETRY_AI_API_KEY
+	Model  string `yaml:"model"`   // env: COREMETRY_AI_MODEL (default claude-sonnet-4-6)
 }
 
 // LogsConfig picks which read backend serves /api/logs. Ingest still
@@ -217,6 +228,12 @@ func Load(path string) (*Config, error) {
 	}
 	if v := os.Getenv("COREMETRY_ES_INSECURE"); v == "true" || v == "1" {
 		cfg.Logs.Elasticsearch.InsecureSkipVerify = true
+	}
+	if v := os.Getenv("COREMETRY_AI_API_KEY"); v != "" {
+		cfg.AI.APIKey = v
+	}
+	if v := os.Getenv("COREMETRY_AI_MODEL"); v != "" {
+		cfg.AI.Model = v
 	}
 	if cfg.Auth.TokenTTL == 0 {
 		cfg.Auth.TokenTTL = defaults.Auth.TokenTTL

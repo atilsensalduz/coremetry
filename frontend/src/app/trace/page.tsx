@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { TraceWaterfall } from '@/components/TraceWaterfall';
 import { SpanDetail } from '@/components/SpanDetail';
 import { CopyButton } from '@/components/CopyButton';
+import { CopilotExplain } from '@/components/CopilotExplain';
 import { api } from '@/lib/api';
 import { fmtNs, tsLong } from '@/lib/utils';
 import type { SpanRow, TimeRange } from '@/lib/types';
@@ -69,12 +70,17 @@ function TraceDetailInner() {
         {spans === undefined && <Spinner />}
         {spans && spans.length === 0 && <Empty icon="⋮" title="Trace not found" />}
         {spans && spans.length > 0 && (
-          <div id="td-outer">
-            <div id="td-wf">
-              <TraceWaterfall spans={spans} selectedId={selectedId} onSelect={setSelectedId} />
+          <>
+            <div style={{ marginBottom: 10 }}>
+              <CopilotExplain kind="trace" id={id} label="🤖 Explain this trace" />
             </div>
-            {sel && <SpanDetail span={sel} onClose={() => setSelectedId(null)} />}
-          </div>
+            <div id="td-outer">
+              <div id="td-wf">
+                <TraceWaterfall spans={spans} selectedId={selectedId} onSelect={setSelectedId} />
+              </div>
+              {sel && <SpanDetail span={sel} onClose={() => setSelectedId(null)} />}
+            </div>
+          </>
         )}
       </div>
     </>

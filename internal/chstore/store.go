@@ -319,6 +319,56 @@ func (s *Store) migrate(ctx context.Context) error {
 		TTL toDate(time) + INTERVAL %d DAY
 		SETTINGS index_granularity = 8192`, 30),
 
+		// ── Incident management ──────────────────────────────────────
+		// One row per declared incident. Multiple Problems / Monitor
+		// flips auto-attach to a single Incident when they share the
+		// same service + severity within a short window — gives the
+		// oncall one place to track the whole event end-to-end.
+		`CREATE TABLE IF NOT EXISTS incidents (
+			id          String,
+			title       String,
+			severity    LowCardinality(String),       -- info | warning | critical
+			status      LowCardinality(String),       -- open | acknowledged | resolved
+			service     LowCardinality(String) DEFAULT '',
+			summary     String        DEFAULT '',
+			assignee    String        DEFAULT '',
+			postmortem  String        DEFAULT '',     -- markdown body, blameless template
+			started_at  DateTime64(9),
+			ack_at      Nullable(DateTime64(9)),
+			resolved_at Nullable(DateTime64(9)),
+			updated_at  DateTime64(9) DEFAULT now64(9),
+			version     UInt64        DEFAULT toUnixTimestamp64Nano(now64(9))
+		) ENGINE = ReplacingMergeTree(version)
+		PARTITION BY toDate(started_at)
+		ORDER BY id`,
+
+		// Append-only timeline of events on each incident — Problem
+		// attachments, state changes, manual notes from oncall. Drives
+		// the "what happened when" UI on the incident detail page.
+		`CREATE TABLE IF NOT EXISTS incident_events (
+			incident_id String,
+			time        DateTime64(9) DEFAULT now64(9) CODEC(Delta, ZSTD(3)),
+			kind        LowCardinality(String),       -- created | ack | resolved | note | problem_attached | problem_resolved
+			actor       String        DEFAULT '',     -- user email or 'system'
+			body        String        DEFAULT '',
+			ref_id      String        DEFAULT '',     -- problem id, etc.
+			INDEX idx_iid incident_id TYPE bloom_filter(0.01) GRANULARITY 4
+		) ENGINE = MergeTree()
+		PARTITION BY toDate(time)
+		ORDER BY (incident_id, time)
+		SETTINGS index_granularity = 8192`,
+
+		// problem_id → incident_id mapping for auto-grouping.
+		// ReplacingMergeTree on problem_id keeps only the latest
+		// assignment when a problem gets re-grouped.
+		`CREATE TABLE IF NOT EXISTS incident_problems (
+			problem_id  String,
+			incident_id String,
+			attached_at DateTime64(9) DEFAULT now64(9),
+			version     UInt64 DEFAULT toUnixTimestamp64Nano(now64(9))
+		) ENGINE = ReplacingMergeTree(version)
+		ORDER BY problem_id`,
+
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS profiles (
 			profile_id    String       CODEC(ZSTD(3)),
 			service_name  LowCardinality(String),

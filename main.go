@@ -21,6 +21,7 @@ import (
 	"github.com/cilcenk/coremetry/internal/config"
 	"github.com/cilcenk/coremetry/internal/consumer"
 	"github.com/cilcenk/coremetry/internal/evaluator"
+	"github.com/cilcenk/coremetry/internal/copilot"
 	"github.com/cilcenk/coremetry/internal/logstore"
 	"github.com/cilcenk/coremetry/internal/monitor"
 	"github.com/cilcenk/coremetry/internal/notify"
@@ -149,8 +150,19 @@ func main() {
 	}
 	log.Printf("[logs] read backend: %s", logsStore.Backend())
 
+	// ── AI Copilot (optional) ────────────────────────────────────────────────
+	// Returns nil when no API key is configured; the API surface
+	// branches on that and the UI hides the buttons.
+	copilotSvc := copilot.New(cfg.AI.APIKey, cfg.AI.Model)
+	if copilotSvc != nil {
+		log.Printf("[copilot] AI explain enabled (model=%s)", func() string {
+			if cfg.AI.Model != "" { return cfg.AI.Model }
+			return "claude-sonnet-4-6"
+		}())
+	}
+
 	// ── HTTP server (OTLP + API + UI) ─────────────────────────────────────────
-	srv := api.NewServer(cfg.Listen.HTTP, ing, store, logsStore, webFS, authSvc, oidcSvc, cacheImpl, notifier)
+	srv := api.NewServer(cfg.Listen.HTTP, ing, store, logsStore, webFS, authSvc, oidcSvc, cacheImpl, notifier, copilotSvc)
 	if cfg.Auth.DemoMode {
 		srv.EnableDemoMode(cfg.Auth.InitialAdmin, cfg.Auth.InitialPassword)
 		log.Printf("[auth] DEMO MODE — login page will display + pre-fill admin credentials. DO NOT use in production.")
