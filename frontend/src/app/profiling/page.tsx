@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
-import { Combobox } from '@/components/Combobox';
+import { ServicePicker } from '@/components/ServicePicker';
 import { api } from '@/lib/api';
 import { tsShort, timeRangeToNs, fmtNum } from '@/lib/utils';
 import type { ProfileRow, TimeRange } from '@/lib/types';
@@ -42,7 +42,7 @@ export default function ProfilingPage() {
       <Topbar title="Profiling" range={range} onRangeChange={setRange} />
       <div id="content">
         <div className="controls">
-          <Combobox value={service} onChange={setService} options={services}
+          <ServicePicker value={service} onChange={setService}
             placeholder="Service…" width={170} />
           <select value={ptype} onChange={e => setPtype(e.target.value)}>
             {TYPES.map(t => <option key={t.v} value={t.v}>{t.label}</option>)}

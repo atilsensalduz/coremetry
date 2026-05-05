@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { Combobox } from '@/components/Combobox';
+import { ServicePicker } from '@/components/ServicePicker';
 import { FilterBuilder } from '@/components/FilterBuilder';
 import { MultiLineChart } from '@/components/MultiLineChart';
 import { ShareButton } from '@/components/ShareButton';
@@ -126,8 +127,8 @@ export default function MetricsPage() {
         {/* Metric + service + agg + step */}
         <div className="controls">
           <span style={{ color: 'var(--text2)', fontSize: 12 }}>Service:</span>
-          <Combobox value={service} onChange={setService}
-            options={services.map(s => s.name)} placeholder="(all)" width={170} />
+          <ServicePicker value={service} onChange={setService}
+            placeholder="(all)" width={170} />
           <span style={{ color: 'var(--text2)', fontSize: 12 }}>Metric:</span>
           <Combobox value={metric} onChange={setMetric}
             options={metricNames.map(m => m.name)} placeholder="select metric…" width={280} />

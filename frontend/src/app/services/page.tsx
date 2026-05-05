@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
-import { Combobox } from '@/components/Combobox';
+import { ServicePicker } from '@/components/ServicePicker';
 import { Sparkline } from '@/components/Sparkline';
 import { api } from '@/lib/api';
 import { fmtNum, timeRangeToNs, rowClickHandlers } from '@/lib/utils';
@@ -183,8 +183,8 @@ export default function ServicesPage() {
       <div id="content">
         {data && data.length > 0 && (
           <div className="controls">
-            <Combobox value={serviceFilter} onChange={setServiceFilter}
-              options={serviceOptions} placeholder="Service…" width={200} />
+            <ServicePicker value={serviceFilter} onChange={setServiceFilter}
+              placeholder="Service…" width={200} />
             <input placeholder="Min spans" value={minSpans} type="number"
               onChange={e => setMinSpans(e.target.value)} style={{ width: 100 }} />
             <input placeholder="Min P99 (ms)" value={minP99} type="number"

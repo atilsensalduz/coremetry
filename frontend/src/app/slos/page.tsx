@@ -2,7 +2,7 @@
 import { useEffect, useState, FormEvent } from 'react';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
-import { Combobox } from '@/components/Combobox';
+import { ServicePicker } from '@/components/ServicePicker';
 import { useAuth } from '@/components/AuthProvider';
 import { api } from '@/lib/api';
 import type { SLORow, SLIType } from '@/lib/types';
@@ -188,8 +188,7 @@ function NewSLOModal({ services, onClose, onCreated }: {
           </Field>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <Field label="Service">
-              <Combobox value={service} onChange={setService}
-                options={services} placeholder="…" />
+              <ServicePicker value={service} onChange={setService} placeholder="…" />
             </Field>
             <Field label="Operation (optional)">
               <input value={operation}

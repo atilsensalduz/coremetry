@@ -14,6 +14,15 @@ import { encodeRange, decodeRange, encodeFilters, decodeFilters, buildQuery } fr
 import type { TimeRange, FilterExpr, SpanMetricSeries, SpanAgg, TraceRow } from '@/lib/types';
 
 type ResultMode = 'metric' | 'traces';
+type TraceSortKey = 'traceId' | 'rootName' | 'serviceName' | 'duration' | 'spans' | 'time' | 'status';
+
+// Each column's natural starting direction when first selected: time
+// and duration are most-recent / slowest-first (descending), others
+// alphabetical ascending. Matches the convention on /traces and /services.
+const TRACE_SORT_NATURAL: Record<TraceSortKey, 'asc' | 'desc'> = {
+  traceId: 'asc', rootName: 'asc', serviceName: 'asc',
+  duration: 'desc', spans: 'desc', time: 'desc', status: 'desc',
+};
 
 const AGG_OPTIONS: { v: SpanAgg; label: string; unit?: string }[] = [
   { v: 'count',      label: 'Count',           unit: '' },
@@ -71,6 +80,10 @@ function ExploreInner() {
   const [resultMode, setResultMode] = useState<ResultMode>(
     () => (searchParams.get('result') === 'traces' ? 'traces' : 'metric'));
   const [traces, setTraces] = useState<TraceRow[] | null | undefined>(undefined);
+  // Client-side sort for the traces result table — page-size is small
+  // (default 50, max 500) so we don't need a server roundtrip per click.
+  const [traceSort, setTraceSort] = useState<TraceSortKey>('time');
+  const [traceSortDir, setTraceSortDir] = useState<'asc' | 'desc'>('desc');
   const [traceTotal, setTraceTotal] = useState(0);
   const [traceLimit, setTraceLimit] = useState(
     () => parseInt(searchParams.get('limit') ?? '50', 10) || 50);
@@ -163,6 +176,31 @@ function ExploreInner() {
     setGroupBy(groupBy.filter(x => x !== k));
 
   // Quick stats per series for the summary table
+  // Sorted view of the trace results — pure client-side because the
+  // page is bounded (default 50, hard max 500). Avoids a server
+  // round-trip per header click.
+  const sortedTraces = useMemo(() => {
+    if (!traces) return traces;
+    const cmp = (a: TraceRow, b: TraceRow): number => {
+      switch (traceSort) {
+        case 'traceId':     return a.traceId.localeCompare(b.traceId);
+        case 'rootName':    return (a.rootName || '').localeCompare(b.rootName || '');
+        case 'serviceName': return a.serviceName.localeCompare(b.serviceName);
+        case 'duration':    return a.durationMs - b.durationMs;
+        case 'spans':       return a.spanCount - b.spanCount;
+        case 'time':        return a.startTime - b.startTime;
+        case 'status':      return Number(a.hasError) - Number(b.hasError);
+      }
+    };
+    const arr = [...traces].sort(cmp);
+    return traceSortDir === 'desc' ? arr.reverse() : arr;
+  }, [traces, traceSort, traceSortDir]);
+
+  const toggleTraceSort = (col: TraceSortKey) => {
+    if (traceSort === col) setTraceSortDir(d => d === 'desc' ? 'asc' : 'desc');
+    else { setTraceSort(col); setTraceSortDir(TRACE_SORT_NATURAL[col]); }
+  };
+
   const summary = useMemo(() => {
     if (!series) return [];
     return series.map(s => {
@@ -196,15 +234,15 @@ function ExploreInner() {
         <div className="controls" style={{ marginBottom: 6 }}>
           <span style={{ color: 'var(--text2)', fontSize: 12 }}>Show:</span>
           <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
-            <button onClick={() => setResultMode('metric')}
-              className={resultMode === 'metric' ? '' : 'sec'}
-              style={{ borderRadius: 0, borderRight: '1px solid var(--border)' }}>
-              ∿ Metric
-            </button>
             <button onClick={() => setResultMode('traces')}
               className={resultMode === 'traces' ? '' : 'sec'}
-              style={{ borderRadius: 0 }}>
+              style={{ borderRadius: 0, borderRight: '1px solid var(--border)' }}>
               ⋮ Traces
+            </button>
+            <button onClick={() => setResultMode('metric')}
+              className={resultMode === 'metric' ? '' : 'sec'}
+              style={{ borderRadius: 0 }}>
+              ∿ Metric
             </button>
           </div>
         </div>
@@ -394,17 +432,17 @@ name ~ checkout`}
               <table>
                 <thead>
                   <tr>
-                    <th>Trace ID</th>
-                    <th>Root</th>
-                    <th>Service</th>
-                    <th style={{ textAlign: 'right' }}>Duration</th>
-                    <th style={{ textAlign: 'right' }}>Spans</th>
-                    <th>Started</th>
-                    <th>Status</th>
+                    <TraceSortTh col="traceId"     label="Trace ID"  sort={traceSort} dir={traceSortDir} onSort={toggleTraceSort} />
+                    <TraceSortTh col="rootName"    label="Root"      sort={traceSort} dir={traceSortDir} onSort={toggleTraceSort} />
+                    <TraceSortTh col="serviceName" label="Service"   sort={traceSort} dir={traceSortDir} onSort={toggleTraceSort} />
+                    <TraceSortTh col="duration"    label="Duration"  sort={traceSort} dir={traceSortDir} onSort={toggleTraceSort} align="right" />
+                    <TraceSortTh col="spans"       label="Spans"     sort={traceSort} dir={traceSortDir} onSort={toggleTraceSort} align="right" />
+                    <TraceSortTh col="time"        label="Started"   sort={traceSort} dir={traceSortDir} onSort={toggleTraceSort} />
+                    <TraceSortTh col="status"      label="Status"    sort={traceSort} dir={traceSortDir} onSort={toggleTraceSort} />
                   </tr>
                 </thead>
                 <tbody>
-                  {traces.map(t => (
+                  {(sortedTraces ?? []).map(t => (
                     <tr key={t.traceId}
                         {...rowClickHandlers(`/trace?id=${t.traceId}`,
                                              () => router.push(`/trace?id=${t.traceId}`))}
@@ -449,5 +487,24 @@ export default function ExplorePage() {
     <Suspense fallback={<Spinner />}>
       <ExploreInner />
     </Suspense>
+  );
+}
+
+// Sortable header for the traces result table. Reuses the same .sortable
+// CSS class as the /traces and /services tables for visual consistency.
+function TraceSortTh({ col, label, sort, dir, onSort, align }: {
+  col: TraceSortKey; label: string;
+  sort: TraceSortKey; dir: 'asc' | 'desc';
+  onSort: (c: TraceSortKey) => void;
+  align?: 'left' | 'right';
+}) {
+  const active = sort === col;
+  return (
+    <th className={`sortable${active ? ' sorted' : ''}`}
+        onClick={() => onSort(col)}
+        style={{ textAlign: align ?? 'left' }}>
+      {label}
+      <span className="sort-arrow">{active ? (dir === 'desc' ? '▼' : '▲') : '↕'}</span>
+    </th>
   );
 }

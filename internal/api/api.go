@@ -73,6 +73,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/services", s.getServices)
 	mux.HandleFunc("GET /api/services/graph", s.getServiceGraph)
 	mux.HandleFunc("GET /api/services/sparklines", s.getServiceSparklines)
+	mux.HandleFunc("GET /api/service-names",       s.getServiceNames)
 	mux.HandleFunc("GET /api/operations", s.getOperations)
 	mux.HandleFunc("GET /api/traces", s.getTraces)
 	mux.HandleFunc("GET /api/traces/aggregate", s.getTraceAggregate)
@@ -248,6 +249,46 @@ func (s *Server) getServiceSparklines(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 		return out, nil
+	})
+}
+
+// getServiceNames is the lookup endpoint behind every service-name picker
+// in the UI. Distinct service names from the MV (cheap — already
+// per-service grouped), with wildcard substring search and paging.
+//
+// Why a dedicated endpoint instead of /api/services?
+//   /api/services is top-N capped (50 by default) so the dashboard can
+//   render in sub-second on 10k-service installs. That cap leaks into
+//   any picker that scraped the names from the same response — users
+//   couldn't pick a less-busy service. This endpoint exists purely for
+//   pickers and never aggregates anything beyond DISTINCT.
+//
+// Wildcard:
+//   - "pay"     → substring match (LIKE '%pay%'), case-insensitive
+//   - "pay*"    → prefix match (LIKE 'pay%')
+//   - "*pay"    → suffix match (LIKE '%pay')
+//   - "*pay*"   → explicit substring (same as plain "pay")
+//   - "p?y"     → '?' becomes single-char wildcard (LIKE 'p_y')
+func (s *Server) getServiceNames(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	pattern := strings.TrimSpace(q.Get("q"))
+	limit := parseInt(q.Get("limit"), 200)
+	if limit > 1000 {
+		limit = 1000
+	}
+	offset := parseInt(q.Get("offset"), 0)
+
+	key := fmt.Sprintf("svc-names:q=%s:limit=%d:offset=%d", pattern, limit, offset)
+	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
+		names, total, err := s.store.ListServiceNames(r.Context(), pattern, limit, offset)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"names":   names,
+			"total":   total,
+			"hasMore": offset+len(names) < total,
+		}, nil
 	})
 }
 

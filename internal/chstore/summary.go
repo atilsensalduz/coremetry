@@ -3,6 +3,7 @@ package chstore
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -19,6 +20,73 @@ type ServiceSummaryRow struct {
 	P50Ms       float64 `json:"p50Ms"`
 	P95Ms       float64 `json:"p95Ms"`
 	P99Ms       float64 `json:"p99Ms"`
+}
+
+// ListServiceNames is the lookup behind UI service-name pickers (traces,
+// logs, services filter, alerts, SLOs, exceptions, ...).
+//
+// Reads DISTINCT service_name from the 5-minute MV. The MV stores one
+// row per (service, 5min bucket) so DISTINCT is essentially "what
+// services have we seen in the last 90 days" (= MV TTL) — exactly the
+// set the pickers care about, and the read is cheap because the MV's
+// ORDER BY (service_name, time_bucket) makes the distinct streamable.
+//
+// `pattern` accepts simple Lucene-style wildcards:
+//   - bare text  → case-insensitive substring (LIKE '%text%')
+//   - "*"        → multi-char wildcard
+//   - "?"        → single-char wildcard
+// SQL LIKE special chars in user input ('%', '_') are escaped first so
+// they're matched literally rather than acting as inadvertent wildcards.
+func (s *Store) ListServiceNames(ctx context.Context, pattern string, limit, offset int) ([]string, int, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	args := []any{}
+	where := ""
+	if pattern != "" {
+		// Translate user pattern → ClickHouse ILIKE. Service names in
+		// the wild are typically [a-zA-Z0-9._-]+ so the SQL wildcard
+		// chars (%, _) almost never appear literally; we accept the
+		// edge case rather than escape (CH doesn't support ESCAPE
+		// on ILIKE anyway).
+		like := strings.NewReplacer(`*`, `%`, `?`, `_`).Replace(pattern)
+		// If the user didn't include any wildcards, default to a
+		// substring match — that's what they expect when typing into a
+		// picker, not an exact equality.
+		if !strings.ContainsAny(pattern, "*?") {
+			like = "%" + like + "%"
+		}
+		where = " WHERE service_name ILIKE ?"
+		args = append(args, like)
+	}
+
+	var total uint64
+	if err := s.conn.QueryRow(ctx,
+		"SELECT count(DISTINCT service_name) FROM service_summary_5m"+where+
+			" SETTINGS max_execution_time = 10",
+		args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	args = append(args, limit, offset)
+	rows, err := s.conn.Query(ctx,
+		"SELECT DISTINCT service_name FROM service_summary_5m"+where+
+			" ORDER BY service_name LIMIT ? OFFSET ?"+
+			" SETTINGS max_execution_time = 10",
+		args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, n)
+	}
+	return out, int(total), rows.Err()
 }
 
 // GetServicesAgg returns one aggregate row per service for the requested

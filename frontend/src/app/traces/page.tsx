@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { Combobox } from '@/components/Combobox';
+import { ServicePicker } from '@/components/ServicePicker';
 import { FilterBuilder } from '@/components/FilterBuilder';
 import { api } from '@/lib/api';
 import { tsShort, timeRangeToNs, fmtNum, rowClickHandlers } from '@/lib/utils';
@@ -217,8 +218,8 @@ function TracesPageInner() {
 
         {/* Filters (shared between views) */}
         <div className="controls">
-          <Combobox value={draft.service} onChange={v => setDraft({ ...draft, service: v })}
-            options={services} placeholder="Service…" width={170} onEnter={apply} />
+          <ServicePicker value={draft.service} onChange={v => setDraft({ ...draft, service: v })}
+            placeholder="Service…" width={170} onEnter={apply} />
           <Combobox value={draft.search} onChange={v => setDraft({ ...draft, search: v })}
             options={operations} placeholder="Operation…" width={240} onEnter={apply} />
           <input placeholder="Min ms" value={draft.minMs} onChange={e => setDraft({ ...draft, minMs: e.target.value })}

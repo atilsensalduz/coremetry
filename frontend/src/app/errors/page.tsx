@@ -3,7 +3,7 @@ import { Fragment, useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
-import { Combobox } from '@/components/Combobox';
+import { ServicePicker } from '@/components/ServicePicker';
 import { useAuth } from '@/components/AuthProvider';
 import { api, type UserRow } from '@/lib/api';
 import { fmtNum, tsLong } from '@/lib/utils';
@@ -134,7 +134,7 @@ export default function ExceptionsPage() {
         </div>
 
         <div className="controls">
-          <Combobox value={service} onChange={setService} options={services}
+          <ServicePicker value={service} onChange={setService}
             placeholder="Service…" width={170} />
           <input value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Search type/message…" style={{ width: 260 }} />

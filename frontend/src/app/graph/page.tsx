@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { ServiceGraphSVG } from '@/components/ServiceGraphSVG';
-import { Combobox } from '@/components/Combobox';
+import { ServicePicker } from '@/components/ServicePicker';
 import { api } from '@/lib/api';
 import { timeRangeToNs, timeRangeLabel } from '@/lib/utils';
 import type { Service, ServiceEdge, TimeRange } from '@/lib/types';
@@ -34,8 +34,7 @@ export default function GraphPage() {
       <Topbar title="Service Graph" range={range} onRangeChange={setRange} />
       <div id="content">
         <div className="controls">
-          <Combobox value={filter} onChange={setFilter}
-            options={services.map(s => s.name)}
+          <ServicePicker value={filter} onChange={setFilter}
             placeholder="Filter by service…" width={240} />
           {filter && (
             <button className="sec" onClick={() => setFilter('')}>Clear</button>

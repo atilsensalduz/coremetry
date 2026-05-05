@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
-import { Combobox } from '@/components/Combobox';
+import { ServicePicker } from '@/components/ServicePicker';
 import { api } from '@/lib/api';
 import { tsLong } from '@/lib/utils';
 import type { AlertRule, TimeRange } from '@/lib/types';
@@ -91,8 +91,8 @@ export default function AlertsPage() {
                   placeholder="e.g. High error rate on api-gateway" />
               </Field>
               <Field label="Service (empty = all)">
-                <Combobox value={draft.service ?? ''} onChange={v => setDraft({ ...draft, service: v })}
-                  options={services} placeholder="Service…" width="100%" />
+                <ServicePicker value={draft.service ?? ''} onChange={v => setDraft({ ...draft, service: v })}
+                  placeholder="Service…" width="100%" />
               </Field>
               <Field label="Severity">
                 <select value={draft.severity}

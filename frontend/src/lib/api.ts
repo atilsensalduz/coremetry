@@ -52,6 +52,9 @@ export const api = {
   serviceSparklines: (r: RangeParams, services?: string[]) =>
     get<Record<string, SparklineBucket[]> | null>(
       `/api/services/sparklines?${qs({ ...r, services: services?.join(',') })}`),
+  serviceNames: (q?: string, limit = 200, offset = 0) =>
+    get<{ names: string[]; total: number; hasMore: boolean }>(
+      `/api/service-names?${qs({ q, limit, offset })}`),
   operations: (service: string, r: RangeParams) =>
     get<string[] | null>(`/api/operations?${qs({ ...r, service })}`),
 
