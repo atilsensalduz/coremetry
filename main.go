@@ -162,7 +162,7 @@ func main() {
 	}
 
 	// ── HTTP server (OTLP + API + UI) ─────────────────────────────────────────
-	srv := api.NewServer(cfg.Listen.HTTP, ing, store, logsStore, webFS, authSvc, oidcSvc, cacheImpl, notifier, copilotSvc, cfg.Profiling.PyroscopeURL)
+	srv := api.NewServer(cfg.Listen.HTTP, ing, store, logsStore, webFS, authSvc, oidcSvc, cacheImpl, notifier, copilotSvc)
 	if cfg.Auth.DemoMode {
 		srv.EnableDemoMode(cfg.Auth.InitialAdmin, cfg.Auth.InitialPassword)
 		log.Printf("[auth] DEMO MODE — login page will display + pre-fill admin credentials. DO NOT use in production.")

@@ -73,9 +73,6 @@ export const api = {
   health: ()                         => get<HealthInfo>(`/api/health`),
   status: ()                         => get<SystemStatus>(`/api/status`),
 
-  // Profiling (Pyroscope embed config)
-  profilingConfig: () => get<{ pyroscopeEmbedded: boolean }>(`/api/profiling/config`),
-
   // AI Copilot
   copilotConfig:         () => get<{ enabled: boolean }>(`/api/copilot/config`),
   copilotExplainTrace:   (id: string) =>

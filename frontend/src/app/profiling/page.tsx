@@ -50,12 +50,12 @@ export default function ProfilingPage() {
           <span style={{ color: 'var(--text2)', fontSize: 12, marginLeft: 'auto' }}>
             Continuous CPU + heap profiles, captured in 5s windows.
           </span>
-          {/* Pyroscope flame graphs — embedded inline when the operator
-              configured COREMETRY_PYROSCOPE_URL, opens upstream in a
-              new tab otherwise. */}
-          <a href="/profiling/flame" className="sec"
+          {/* Pyroscope is the de-facto continuous-profiling tool.
+              When the bundled Compose stack runs it's at port 4040;
+              the link is harmless if the operator hasn't deployed it. */}
+          <a href={pyroscopeURL()} target="_blank" rel="noopener" className="sec"
              style={{ padding: '5px 12px', fontSize: 12, textDecoration: 'none', borderRadius: 6, border: '1px solid var(--border)', color: 'var(--accent2)' }}>
-            🔥 Flame graphs →
+            🔥 Open Pyroscope ↗
           </a>
         </div>
 
@@ -100,5 +100,14 @@ export default function ProfilingPage() {
       </div>
     </>
   );
+}
+
+// pyroscopeURL — same host as Coremetry, port 4040 (Pyroscope's default).
+// Override at build time with NEXT_PUBLIC_PYROSCOPE_URL for prod.
+function pyroscopeURL(): string {
+  if (typeof window === 'undefined') return '';
+  const env = process.env.NEXT_PUBLIC_PYROSCOPE_URL;
+  if (env) return env;
+  return `${window.location.protocol}//${window.location.hostname}:4040`;
 }
 

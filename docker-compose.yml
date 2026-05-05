@@ -51,11 +51,6 @@ services:
       # Hot-cache + distributed lock backend. Comment out to fall back to
       # single-instance mode (no cache, always-leader background workers).
       COREMETRY_REDIS_URL: "redis://redis:6379/0"
-      # Embed Pyroscope inside Coremetry — when set, /profiling/flame
-      # iframes the Pyroscope UI proxied at /pyroscope/. Same auth
-      # boundary, single URL. Leave empty to fall back to the
-      # standalone "Open Pyroscope ↗" link.
-      COREMETRY_PYROSCOPE_URL: "http://pyroscope:4040"
       # Logs read backend. "clickhouse" (default) keeps the existing path;
       # "elasticsearch" makes /api/logs query ES directly so logs shipped
       # by the collector's ES exporter are searchable in the Coremetry UI.
