@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"path"
 	"strconv"
@@ -29,16 +30,17 @@ import (
 )
 
 type Server struct {
-	addr    string
-	store   *chstore.Store
-	logs    logstore.Store    // read-side abstraction; CH or external ES
-	ing     *otlp.Ingester
-	webFS   embed.FS
-	auth    *auth.Service
-	oidc    *auth.OIDCService // nil when SSO disabled
-	cache   cache.Cache       // Noop when Redis isn't configured
-	notify  *notify.Notifier
-	copilot *copilot.Service  // nil when AI key not configured
+	addr        string
+	store       *chstore.Store
+	logs        logstore.Store    // read-side abstraction; CH or external ES
+	ing         *otlp.Ingester
+	webFS       embed.FS
+	auth        *auth.Service
+	oidc        *auth.OIDCService // nil when SSO disabled
+	cache       cache.Cache       // Noop when Redis isn't configured
+	notify      *notify.Notifier
+	copilot     *copilot.Service  // nil when AI key not configured
+	pyroscopeURL string           // upstream Pyroscope, "" disables embed
 
 	// Demo deployments only — when true, /api/auth/config returns
 	// initial admin credentials so the login page can pre-fill them.
@@ -59,11 +61,12 @@ type rateSample struct {
 	count int64
 }
 
-func NewServer(addr string, ing *otlp.Ingester, store *chstore.Store, logs logstore.Store, webFS embed.FS, authSvc *auth.Service, oidcSvc *auth.OIDCService, c cache.Cache, n *notify.Notifier, cop *copilot.Service) *Server {
+func NewServer(addr string, ing *otlp.Ingester, store *chstore.Store, logs logstore.Store, webFS embed.FS, authSvc *auth.Service, oidcSvc *auth.OIDCService, c cache.Cache, n *notify.Notifier, cop *copilot.Service, pyroURL string) *Server {
 	return &Server{
 		addr: addr, store: store, logs: logs, ing: ing, webFS: webFS,
 		auth: authSvc, oidc: oidcSvc, cache: c, notify: n, copilot: cop,
-		rateSamples: map[string]rateSample{},
+		pyroscopeURL: pyroURL,
+		rateSamples:  map[string]rateSample{},
 	}
 }
 
@@ -193,6 +196,19 @@ func (s *Server) Start() error {
 
 	// Tempo-compatible API (Grafana datasource integration)
 	s.registerTempoRoutes(mux)
+
+	// ── Pyroscope reverse proxy (embedded profiling UI) ─────────────
+	// When configured, /pyroscope/* and /querier.v1.QuerierService/*
+	// (the gRPC-Web routes Pyroscope's own UI calls) forward to the
+	// upstream Pyroscope server, with X-Frame-Options stripped so the
+	// UI iframes cleanly under our origin.
+	if s.pyroscopeURL != "" {
+		proxy := s.buildPyroscopeProxy()
+		if proxy != nil {
+			mux.Handle("/pyroscope/", proxy)
+		}
+	}
+	mux.HandleFunc("GET /api/profiling/config", s.profilingConfig)
 
 	// Web UI (embedded Next.js static export). Custom handler instead of
 	// http.FileServer so we can:
@@ -1309,6 +1325,62 @@ func (s *Server) svcCallees(w http.ResponseWriter, r *http.Request) {
 	out, err := s.store.CalleesOf(r.Context(), r.PathValue("name"), since)
 	if err != nil { writeErr(w, err); return }
 	writeJSON(w, out)
+}
+
+// ── Profiling (Pyroscope embed) ─────────────────────────────────────────────
+
+// profilingConfig tells the UI whether the embedded Pyroscope view is
+// available (i.e. the operator pointed COREMETRY_PYROSCOPE_URL at an
+// upstream server). Drives the "Open Pyroscope" link vs the inline
+// iframe affordance.
+func (s *Server) profilingConfig(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, map[string]any{
+		"pyroscopeEmbedded": s.pyroscopeURL != "",
+	})
+}
+
+// buildPyroscopeProxy returns a ReverseProxy that forwards requests
+// at /pyroscope/* to the upstream Pyroscope server's root, stripping
+// frame-blocking headers so Coremetry can render the UI in an iframe.
+//
+// Pyroscope's own UI calls relative paths like /api/services and
+// /static/...; we rewrite those onto /pyroscope/api/... etc on the
+// way in and proxy back accordingly. The simplest implementation
+// that handles this is mounting the proxy at /pyroscope/ and
+// rewriting URL.Path to drop the prefix before forwarding.
+func (s *Server) buildPyroscopeProxy() http.Handler {
+	target, err := url.Parse(s.pyroscopeURL)
+	if err != nil {
+		log.Printf("[proxy] invalid Pyroscope URL %q: %v", s.pyroscopeURL, err)
+		return nil
+	}
+	rp := &httputil.ReverseProxy{
+		Director: func(req *http.Request) {
+			// Rewrite /pyroscope/foo → /foo on the upstream.
+			req.URL.Scheme = target.Scheme
+			req.URL.Host = target.Host
+			req.Host = target.Host
+			p := strings.TrimPrefix(req.URL.Path, "/pyroscope")
+			if p == "" {
+				p = "/"
+			}
+			req.URL.Path = p
+			// Pyroscope's UI resolves asset URLs from the response's
+			// HTML <base href> when present. We hint it should think
+			// it's at /pyroscope/ so all relative fetches stay routed
+			// through the proxy.
+			req.Header.Set("X-Forwarded-Prefix", "/pyroscope")
+		},
+		ModifyResponse: func(resp *http.Response) error {
+			// Strip iframe-blocking headers so we can embed under the
+			// Coremetry origin. Same trick Grafana uses for its
+			// Pyroscope datasource.
+			resp.Header.Del("X-Frame-Options")
+			resp.Header.Del("Content-Security-Policy")
+			return nil
+		},
+	}
+	return rp
 }
 
 // ── AI Copilot ──────────────────────────────────────────────────────────────

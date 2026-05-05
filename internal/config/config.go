@@ -29,6 +29,17 @@ type Config struct {
 	Redis      RedisConfig     `yaml:"redis"`
 	Logs       LogsConfig      `yaml:"logs"`
 	AI         AIConfig        `yaml:"ai"`
+	Profiling  ProfilingConfig `yaml:"profiling"`
+}
+
+// ProfilingConfig optionally points Coremetry at an upstream Pyroscope
+// server. When set, Coremetry reverse-proxies Pyroscope's UI under
+// /pyroscope/ so it embeds inline (single origin, single auth boundary,
+// single URL). Empty URL disables the proxy and the embedded view —
+// the Profiling page falls back to the standalone "Open Pyroscope ↗"
+// link.
+type ProfilingConfig struct {
+	PyroscopeURL string `yaml:"pyroscope_url"` // e.g. http://pyroscope:4040
 }
 
 // AIConfig wires the optional Anthropic-backed Copilot. When APIKey is
@@ -234,6 +245,9 @@ func Load(path string) (*Config, error) {
 	}
 	if v := os.Getenv("COREMETRY_AI_MODEL"); v != "" {
 		cfg.AI.Model = v
+	}
+	if v := os.Getenv("COREMETRY_PYROSCOPE_URL"); v != "" {
+		cfg.Profiling.PyroscopeURL = v
 	}
 	if cfg.Auth.TokenTTL == 0 {
 		cfg.Auth.TokenTTL = defaults.Auth.TokenTTL

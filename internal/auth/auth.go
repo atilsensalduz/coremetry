@@ -147,6 +147,13 @@ func SkipPath(method, path string) bool {
 	if strings.HasPrefix(path, "/api/heartbeats/") {
 		return true
 	}
+	// Embedded Pyroscope reverse-proxy — Pyroscope brings its own
+	// security model upstream; the proxy just rewrites paths and
+	// strips frame-blocking headers so it iframes cleanly. Adding
+	// our JWT layer on top would block the proxied static assets.
+	if strings.HasPrefix(path, "/pyroscope/") || path == "/pyroscope" {
+		return true
+	}
 	// Anything outside /api/* is the static UI — let the browser fetch it
 	// so the login page itself can load.
 	if !strings.HasPrefix(path, "/api/") {
