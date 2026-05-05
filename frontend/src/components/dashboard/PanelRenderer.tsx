@@ -22,6 +22,11 @@ export function PanelRenderer({ panel, range }: { panel: Panel; range: TimeRange
       return <StatPanel cfg={panel.config as StatPanelConfig} range={range} />;
     case 'markdown':
       return <MarkdownPanel cfg={panel.config as MarkdownPanelConfig} />;
+    case 'row':
+      // Row markers are layout-only; the dashboard page intercepts them
+      // before they get here. This branch is a defensive no-op so a
+      // rogue render path doesn't crash the page.
+      return null;
     default:
       return <PanelError msg={`Unknown panel type: ${(panel as Panel).type}`} />;
   }
@@ -46,7 +51,7 @@ function MetricPanel({ cfg, range }: { cfg: MetricPanelConfig; range: TimeRange 
   if (error) return <PanelError msg={error} />;
   if (series === undefined) return <PanelLoading />;
   if (!series || series.length === 0) return <PanelEmpty />;
-  return <div style={{ height: 220 }}><MultiLineChart series={series} /></div>;
+  return <div style={{ height: 280 }}><MultiLineChart series={series} /></div>;
 }
 
 // ── Span metric line chart ──────────────────────────────────────────────────
@@ -69,7 +74,7 @@ function SpanMetricPanel({ cfg, range }: { cfg: SpanMetricPanelConfig; range: Ti
   if (error) return <PanelError msg={error} />;
   if (series === undefined) return <PanelLoading />;
   if (!series || series.length === 0) return <PanelEmpty />;
-  return <div style={{ height: 220 }}><MultiLineChart series={series} /></div>;
+  return <div style={{ height: 280 }}><MultiLineChart series={series} /></div>;
 }
 
 // ── Single value (last point of the series, with a sparkline) ───────────────

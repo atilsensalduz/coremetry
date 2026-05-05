@@ -15,6 +15,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cilcenk/coremetry/internal/auth"
@@ -42,10 +43,26 @@ type Server struct {
 	demoMode      bool
 	demoEmail     string
 	demoPassword  string
+
+	// Last sample of each ingest queue's accepted counter, used to
+	// compute per-second rate on /api/status. Mutex covers the map +
+	// the time/value pair atomically; status calls are infrequent so
+	// contention is irrelevant.
+	rateMu      sync.Mutex
+	rateSamples map[string]rateSample
+}
+
+type rateSample struct {
+	at    time.Time
+	count int64
 }
 
 func NewServer(addr string, ing *otlp.Ingester, store *chstore.Store, logs logstore.Store, webFS embed.FS, authSvc *auth.Service, oidcSvc *auth.OIDCService, c cache.Cache, n *notify.Notifier) *Server {
-	return &Server{addr: addr, store: store, logs: logs, ing: ing, webFS: webFS, auth: authSvc, oidc: oidcSvc, cache: c, notify: n}
+	return &Server{
+		addr: addr, store: store, logs: logs, ing: ing, webFS: webFS,
+		auth: authSvc, oidc: oidcSvc, cache: c, notify: n,
+		rateSamples: map[string]rateSample{},
+	}
 }
 
 // EnableDemoMode wires the demo credentials returned by /api/auth/config.
@@ -103,6 +120,19 @@ func (s *Server) Start() error {
 	mux.HandleFunc("POST   /api/alert-rules/{id}/enable",   auth.RequireRole(auth.RoleAdmin, s.enableAlertRule))
 	mux.HandleFunc("GET /api/health", s.getHealth)
 	mux.HandleFunc("GET /api/status", s.getStatus)
+
+	// ── Synthetic monitoring ───────────────────────────────────────
+	mux.HandleFunc("GET    /api/monitors",                s.listMonitors)
+	mux.HandleFunc("POST   /api/monitors",                auth.RequireRole(auth.RoleAdmin, s.createMonitor))
+	mux.HandleFunc("GET    /api/monitors/{id}",           s.getMonitor)
+	mux.HandleFunc("PUT    /api/monitors/{id}",           auth.RequireRole(auth.RoleAdmin, s.updateMonitor))
+	mux.HandleFunc("DELETE /api/monitors/{id}",           auth.RequireRole(auth.RoleAdmin, s.deleteMonitor))
+	mux.HandleFunc("GET    /api/monitors/{id}/timeline",  s.monitorTimeline)
+	// Heartbeat ingest — no auth so cron jobs / batch jobs can hit
+	// it directly with curl. The token in the URL is the security
+	// boundary (random 32-char hex per monitor).
+	mux.HandleFunc("POST /api/heartbeats/{token}", s.acceptHeartbeat)
+	mux.HandleFunc("GET  /api/heartbeats/{token}", s.acceptHeartbeat) // GET for `curl` and uptime trackers that only do GET
 
 	// Auth
 	mux.HandleFunc("GET  /api/auth/config",   s.authConfig)
@@ -1263,6 +1293,119 @@ func (s *Server) svcCallees(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, out)
 }
 
+// ── Synthetic monitors ──────────────────────────────────────────────────────
+
+func (s *Server) listMonitors(w http.ResponseWriter, r *http.Request) {
+	monitors, err := s.store.ListMonitors(r.Context())
+	if err != nil { writeErr(w, err); return }
+	last, err := s.store.LastMonitorStatus(r.Context())
+	if err != nil { writeErr(w, err); return }
+	// Combine definition + last status in the response so the list
+	// page renders without a per-row roundtrip.
+	type row struct {
+		chstore.Monitor
+		LastResult *chstore.MonitorResult `json:"lastResult,omitempty"`
+	}
+	out := make([]row, 0, len(monitors))
+	for _, m := range monitors {
+		r := row{Monitor: m}
+		if lr, ok := last[m.ID]; ok {
+			r.LastResult = &lr
+		}
+		out = append(out, r)
+	}
+	writeJSON(w, out)
+}
+
+func (s *Server) getMonitor(w http.ResponseWriter, r *http.Request) {
+	m, err := s.store.GetMonitor(r.Context(), r.PathValue("id"))
+	if err != nil { writeErr(w, err); return }
+	if m == nil { http.Error(w, "not found", http.StatusNotFound); return }
+	writeJSON(w, m)
+}
+
+func (s *Server) createMonitor(w http.ResponseWriter, r *http.Request) {
+	var m chstore.Monitor
+	if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest); return
+	}
+	if m.Name == "" { http.Error(w, "name required", http.StatusBadRequest); return }
+	if m.Type != "http" && m.Type != "heartbeat" {
+		http.Error(w, "type must be http or heartbeat", http.StatusBadRequest); return
+	}
+	if m.Type == "http" && m.URL == "" {
+		http.Error(w, "url required for http monitor", http.StatusBadRequest); return
+	}
+	m.ID = "" // force new ID
+	if err := s.store.UpsertMonitor(r.Context(), &m); err != nil {
+		writeErr(w, err); return
+	}
+	// UpsertMonitor stamped the new id + heartbeat token onto m;
+	// echo it back directly. Re-reading via FINAL would race the
+	// MergeTree merge cycle and sometimes return null.
+	writeJSON(w, m)
+}
+
+func (s *Server) updateMonitor(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var m chstore.Monitor
+	if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest); return
+	}
+	m.ID = id
+	if err := s.store.UpsertMonitor(r.Context(), &m); err != nil {
+		writeErr(w, err); return
+	}
+	writeJSON(w, m)
+}
+
+func (s *Server) deleteMonitor(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.DeleteMonitor(r.Context(), r.PathValue("id")); err != nil {
+		writeErr(w, err); return
+	}
+	writeJSON(w, map[string]string{"status": "deleted"})
+}
+
+func (s *Server) monitorTimeline(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	limit := parseInt(r.URL.Query().Get("limit"), 500)
+	rows, err := s.store.MonitorTimeline(r.Context(), id, limit)
+	if err != nil { writeErr(w, err); return }
+	writeJSON(w, rows)
+}
+
+// acceptHeartbeat is the unauth'd ingest endpoint. The token in the
+// URL is matched against the heartbeat_token column on a monitor; if
+// it matches, an "up" result is recorded AND any open Problem for that
+// monitor is resolved synchronously (the runner only watches for
+// absence so it never sees the up→down transition on its own).
+func (s *Server) acceptHeartbeat(w http.ResponseWriter, r *http.Request) {
+	token := r.PathValue("token")
+	m, err := s.store.GetMonitorByToken(r.Context(), token)
+	if err != nil { writeErr(w, err); return }
+	if m == nil {
+		// Don't leak whether the token is valid — same response shape
+		// as a successful beat. Cheap defense against token enumeration.
+		writeJSON(w, map[string]string{"status": "ok"})
+		return
+	}
+	_ = s.store.InsertMonitorResult(r.Context(), chstore.MonitorResult{
+		MonitorID: m.ID, Status: "up", Message: "heartbeat received",
+	})
+	// Auto-resolve any open Problem the runner opened for this monitor.
+	// Runner ticks every 5s; without this synchronous resolution, the
+	// alert would clear on the next tick (a 0-5s lag) AND no
+	// notification would fire because runner rate-limits to state
+	// changes only.
+	if open, err := s.store.FindOpenProblem(r.Context(), "monitor:"+m.ID, m.Name); err == nil && open != nil {
+		open.Status = "resolved"
+		now := time.Now().UnixNano()
+		open.ResolvedAt = &now
+		_ = s.store.UpsertProblem(r.Context(), *open)
+	}
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
 // ── Problems & alert rules ───────────────────────────────────────────────────
 
 func (s *Server) listProblems(w http.ResponseWriter, r *http.Request) {
@@ -1470,10 +1613,16 @@ func (s *Server) getStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 type componentStatus struct {
-	Name      string `json:"name"`
-	Status    string `json:"status"` // operational | degraded | outage
-	Message   string `json:"message,omitempty"`
-	LatencyMs int64  `json:"latencyMs,omitempty"`
+	Name      string            `json:"name"`
+	Status    string            `json:"status"` // operational | degraded | outage
+	Message   string            `json:"message,omitempty"`
+	LatencyMs int64             `json:"latencyMs,omitempty"`
+	// Free-form key/value extras shown on the row — version, address,
+	// db name, queue depth, ingest rate, etc. Kept loose so each
+	// component can surface what's relevant without bloating the type.
+	Info map[string]string `json:"info,omitempty"`
+	// Per-second rate (only set on ingest queue components).
+	RatePerSec float64 `json:"ratePerSec,omitempty"`
 }
 
 type systemStatus struct {
@@ -1483,71 +1632,105 @@ type systemStatus struct {
 }
 
 func (s *Server) collectStatus(ctx context.Context) systemStatus {
-	probe := func(name string, fn func(context.Context) error) componentStatus {
-		// 2s budget per component — enough for a remote ping over a
-		// laggy network, short enough that a single dead dependency
-		// can't make the whole page hang.
-		pctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		defer cancel()
-		start := time.Now()
-		err := fn(pctx)
-		ms := time.Since(start).Milliseconds()
-		c := componentStatus{Name: name, LatencyMs: ms}
-		if err == nil {
-			c.Status = "operational"
-			return c
-		}
-		// Timeout vs hard failure → outage either way for now;
-		// "degraded" is reserved for capacity warnings (queue depth).
-		c.Status = "outage"
-		c.Message = err.Error()
-		return c
-	}
-
-	// Run probes concurrently — sequential serialisation would make a
-	// page load >2s if any single component is slow.
+	// 2s budget per probe — enough for a remote ping over a laggy
+	// network, short enough that a single dead dependency can't make
+	// the whole page hang. Each probe is its own goroutine so total
+	// page latency = max(probe times) not sum.
 	type result struct {
 		idx int
 		c   componentStatus
 	}
-	probes := []struct {
-		name string
-		fn   func(context.Context) error
-	}{
-		{"ClickHouse",     s.store.Ping},
-		{"Cache (Redis)",  s.cache.Ping},
-		{"Logs backend",   s.logs.Ping},
+
+	chProbe := func() componentStatus {
+		pctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		start := time.Now()
+		c := componentStatus{Name: "ClickHouse", Info: map[string]string{}}
+		if err := s.store.Ping(pctx); err != nil {
+			c.LatencyMs = time.Since(start).Milliseconds()
+			c.Status = "outage"
+			c.Message = err.Error()
+			return c
+		}
+		// Liveness OK — surface version + connection details so the
+		// operator can verify they're hitting the right cluster.
+		var version, db, uptime string
+		_ = s.store.Conn().QueryRow(pctx, `SELECT version(), currentDatabase(), formatReadableTimeDelta(uptime())`).Scan(&version, &db, &uptime)
+		c.LatencyMs = time.Since(start).Milliseconds()
+		c.Status = "operational"
+		if version != "" {
+			c.Info["version"] = version
+		}
+		if db != "" {
+			c.Info["database"] = db
+		}
+		if uptime != "" {
+			c.Info["uptime"] = uptime
+		}
+		return c
 	}
+
+	cacheProbe := func() componentStatus {
+		pctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		start := time.Now()
+		c := componentStatus{Name: "Cache (Redis)", Info: map[string]string{}}
+		if err := s.cache.Ping(pctx); err != nil {
+			c.LatencyMs = time.Since(start).Milliseconds()
+			c.Status = "outage"
+			c.Message = err.Error()
+			return c
+		}
+		c.LatencyMs = time.Since(start).Milliseconds()
+		c.Status = "operational"
+		// The cache.Cache interface doesn't expose backend details
+		// (kept it minimal). Surface the configured mode at least.
+		switch s.cache.(type) {
+		case interface{ Info(context.Context) (map[string]string, error) }:
+			// hook for a future redis impl that exposes Info; not used today
+		}
+		c.Info["mode"] = "active"
+		return c
+	}
+
+	logsProbe := func() componentStatus {
+		pctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		start := time.Now()
+		c := componentStatus{Name: "Logs backend"}
+		if err := s.logs.Ping(pctx); err != nil {
+			c.LatencyMs = time.Since(start).Milliseconds()
+			c.Status = "outage"
+			c.Message = err.Error()
+			return c
+		}
+		c.LatencyMs = time.Since(start).Milliseconds()
+		c.Status = "operational"
+		c.Info = map[string]string{"backend": s.logs.Backend()}
+		return c
+	}
+
+	probes := []func() componentStatus{chProbe, cacheProbe, logsProbe}
 	out := make([]componentStatus, len(probes))
 	results := make(chan result, len(probes))
 	for i, p := range probes {
 		i, p := i, p
-		go func() { results <- result{i, probe(p.name, p.fn)} }()
+		go func() { results <- result{i, p()} }()
 	}
 	for range probes {
 		r := <-results
 		out[r.idx] = r.c
 	}
 
-	// API + Ingest queues — synchronous, in-process, no timeout needed.
+	// API + Ingest queues with per-second rates sampled across status
+	// invocations (delta of accepted counter / wall-clock delta).
 	out = append(out,
 		componentStatus{Name: "HTTP API", Status: "operational"},
-		queueStatus("Spans ingest",   s.ing.Spans),
-		queueStatus("Logs ingest",    s.ing.Logs),
-		queueStatus("Metrics ingest", s.ing.Metrics),
+		s.queueStatusWithRate("Spans ingest",   s.ing.Spans),
+		s.queueStatusWithRate("Logs ingest",    s.ing.Logs),
+		s.queueStatusWithRate("Metrics ingest", s.ing.Metrics),
 	)
-	// Annotate the logs-backend row with which backend is wired so a
-	// glance at the page tells the operator the configured topology.
-	for i := range out {
-		if out[i].Name == "Logs backend" {
-			if out[i].Message == "" {
-				out[i].Message = "backend: " + s.logs.Backend()
-			}
-			break
-		}
-	}
 
-	// Worst-of aggregation. Operational < Degraded < Outage.
 	rank := map[string]int{"operational": 0, "degraded": 1, "outage": 2}
 	worst := "operational"
 	for _, c := range out {
@@ -1560,6 +1743,48 @@ func (s *Server) collectStatus(ctx context.Context) systemStatus {
 		CheckedAt:  time.Now().UTC().Format(time.RFC3339),
 		Components: out,
 	}
+}
+
+// queueStatusWithRate wraps the older queueStatus helper, additionally
+// computing a per-second ingest rate as the delta of the accepted
+// counter divided by wall-clock elapsed since the last sample.
+//
+// First sample after process start has no baseline so rate is reported
+// as 0; subsequent samples are accurate.
+type counter interface {
+	QueueLen() int
+	Dropped() int64
+	Accepted() int64
+}
+
+func (s *Server) queueStatusWithRate(name string, q counter) componentStatus {
+	c := queueStatus(name, q)
+	now := time.Now()
+	cur := q.Accepted()
+
+	s.rateMu.Lock()
+	prev, ok := s.rateSamples[name]
+	s.rateSamples[name] = rateSample{at: now, count: cur}
+	s.rateMu.Unlock()
+
+	if ok {
+		dt := now.Sub(prev.at).Seconds()
+		if dt > 0 {
+			rate := float64(cur-prev.count) / dt
+			if rate < 0 {
+				rate = 0 // counter shouldn't go backwards, but defensive
+			}
+			c.RatePerSec = rate
+		}
+	}
+	if c.Info == nil {
+		c.Info = map[string]string{}
+	}
+	c.Info["queue"] = fmt.Sprintf("%d / %d", q.QueueLen(), 100_000)
+	if q.Dropped() > 0 {
+		c.Info["dropped"] = fmt.Sprintf("%d", q.Dropped())
+	}
+	return c
 }
 
 // queueStatus inspects an ingest queue and reports degraded once it's

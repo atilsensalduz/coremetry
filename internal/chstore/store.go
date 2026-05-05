@@ -278,6 +278,47 @@ func (s *Store) migrate(ctx context.Context) error {
 		PARTITION BY toDate(started_at)
 		ORDER BY id`,
 
+		// ── Synthetic monitoring ─────────────────────────────────────
+		// Definitions for HTTP probes and passive heartbeats. Probed by
+		// the runner loop in the background; results stream into
+		// monitor_results below for status timeline + uptime% calc.
+		`CREATE TABLE IF NOT EXISTS monitors (
+			id            String,
+			name          String,
+			type          LowCardinality(String),         -- http | heartbeat
+			-- HTTP-only fields (ignored for heartbeats):
+			url           String        DEFAULT '',
+			method        LowCardinality(String) DEFAULT 'GET',
+			expected_status UInt16      DEFAULT 200,
+			timeout_sec   UInt16        DEFAULT 5,
+			-- Common:
+			interval_sec  UInt32        DEFAULT 60,        -- probe interval (HTTP) or grace window (heartbeat)
+			enabled       UInt8         DEFAULT 1,
+			-- Heartbeat-only:
+			heartbeat_token String      DEFAULT '',        -- random; appears in /api/heartbeats/{token}
+			created_at    DateTime64(9) DEFAULT now64(9),
+			version       UInt64        DEFAULT toUnixTimestamp64Nano(now64(9))
+		) ENGINE = ReplacingMergeTree(version)
+		ORDER BY id`,
+
+		// One row per probe attempt — keeps a 30d (default) timeline
+		// the UI can render as a status bar. status = up | down |
+		// degraded; latency_ms = wall-clock probe time. message holds
+		// the failure reason for down/degraded rows.
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS monitor_results (
+			monitor_id  String,
+			time        DateTime64(9) CODEC(Delta, ZSTD(3)),
+			status      LowCardinality(String),
+			latency_ms  Int64         CODEC(T64, ZSTD(3)),
+			http_code   UInt16        DEFAULT 0,
+			message     String        CODEC(ZSTD(3)),
+			INDEX idx_mid monitor_id TYPE bloom_filter(0.01) GRANULARITY 4
+		) ENGINE = MergeTree()
+		PARTITION BY toDate(time)
+		ORDER BY (monitor_id, time)
+		TTL toDate(time) + INTERVAL %d DAY
+		SETTINGS index_granularity = 8192`, 30),
+
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS profiles (
 			profile_id    String       CODEC(ZSTD(3)),
 			service_name  LowCardinality(String),

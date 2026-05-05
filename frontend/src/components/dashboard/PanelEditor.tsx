@@ -11,6 +11,7 @@ const TYPE_LABELS: Record<PanelType, string> = {
   spanmetric: 'Span aggregation (line)',
   stat:       'Stat (single value)',
   markdown:   'Markdown / notes',
+  row:        'Row (collapsible group)',
 };
 
 const WIDTH_LABELS: Record<PanelWidth, string> = {
@@ -222,5 +223,8 @@ export function defaultConfig(t: PanelType): Panel['config'] {
     case 'spanmetric': return { agg: 'count' };
     case 'stat':       return { source: 'spanmetric', span: { agg: 'count' }, decimals: 0 };
     case 'markdown':   return { text: '## Notes\n\nDescribe what this dashboard shows.' };
+    // Row panels carry no config of their own — title is on the panel
+    // itself, default-collapsed is opt-in.
+    case 'row':        return { collapsed: false };
   }
 }

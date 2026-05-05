@@ -68,26 +68,52 @@ function Banner({ status, headline }: { status: ComponentHealth; headline: strin
 }
 
 function ComponentRow({ c }: { c: StatusComponent }) {
+  // Promote ratePerSec into the chips list so ingest rows show
+  // "spans/sec: 12.4" alongside the queue + dropped chips.
+  const infoEntries = Object.entries(c.info ?? {});
   return (
     <div className={`status-row status-row-${c.status}`}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flexWrap: 'wrap' }}>
         <StatusDot status={c.status} />
         <span style={{ fontWeight: 600 }}>{c.name}</span>
         {c.message && (
-          <span style={{ color: 'var(--text3)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <span style={{ color: 'var(--text3)', fontSize: 12, maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                title={c.message}>
             · {c.message}
           </span>
         )}
+        {c.ratePerSec !== undefined && (
+          <InfoChip k="rate" v={`${c.ratePerSec.toFixed(1)}/s`} highlight />
+        )}
+        {infoEntries.map(([k, v]) => <InfoChip key={k} k={k} v={v} />)}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
         {c.latencyMs !== undefined && c.latencyMs > 0 && (
-          <span style={{ color: 'var(--text3)', fontSize: 11, fontFamily: 'monospace' }}>
+          <span style={{ color: 'var(--text3)', fontSize: 11, fontFamily: 'monospace' }}
+                title="Probe latency">
             {c.latencyMs}ms
           </span>
         )}
         <span className={`status-pill status-pill-${c.status}`}>{labelOf(c.status)}</span>
       </div>
     </div>
+  );
+}
+
+// Compact key=value chip — same visual rhythm as service tags elsewhere
+// in the UI. `highlight` stripes the rate chip in accent so the eye
+// finds throughput numbers fast.
+function InfoChip({ k, v, highlight }: { k: string; v: string; highlight?: boolean }) {
+  return (
+    <span style={{
+      fontSize: 11, fontFamily: 'monospace', padding: '1px 6px', borderRadius: 4,
+      background: highlight ? 'rgba(56,139,253,.14)' : 'var(--bg3)',
+      color: highlight ? 'var(--accent)' : 'var(--text2)',
+      border: highlight ? '1px solid rgba(56,139,253,.30)' : '1px solid var(--border)',
+      whiteSpace: 'nowrap',
+    }}>
+      <span style={{ opacity: .65, marginRight: 4 }}>{k}:</span>{v}
+    </span>
   );
 }
 

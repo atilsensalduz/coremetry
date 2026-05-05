@@ -25,6 +25,11 @@ type Consumer[T any] struct {
 	flushFn func(ctx context.Context, batch []T) error
 	wg      sync.WaitGroup
 	dropped atomic.Int64
+	// accepted is a monotonic counter of items the consumer received
+	// (including ones it later dropped from the channel-full path —
+	// well, actually NO, dropped items never enter; this counts only
+	// queued items). Status page samples this to compute ingest rate.
+	accepted atomic.Int64
 }
 
 func New[T any](name string, opts Options, flushFn func(context.Context, []T) error) *Consumer[T] {
@@ -40,6 +45,7 @@ func New[T any](name string, opts Options, flushFn func(context.Context, []T) er
 func (c *Consumer[T]) Add(item T) bool {
 	select {
 	case c.ch <- item:
+		c.accepted.Add(1)
 		return true
 	default:
 		c.dropped.Add(1)
@@ -109,3 +115,6 @@ func (c *Consumer[T]) Stop() {
 
 func (c *Consumer[T]) QueueLen() int  { return len(c.ch) }
 func (c *Consumer[T]) Dropped() int64 { return c.dropped.Load() }
+// Accepted returns the cumulative count of items that were successfully
+// queued. Sampled twice over a known interval to compute an ingest rate.
+func (c *Consumer[T]) Accepted() int64 { return c.accepted.Load() }

@@ -1,0 +1,239 @@
+package chstore
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
+	"time"
+)
+
+// Synthetic monitoring — HTTP uptime probes + heartbeat checks.
+//
+// Two monitor types share the schema:
+//   - http      — runner periodically GETs the URL, records latency +
+//                 status_code. Down when the response code doesn't
+//                 match `expected_status` or the request times out.
+//   - heartbeat — passive: external job posts to
+//                 /api/heartbeats/{token} on its own cadence. The
+//                 runner inspects the gap since the last beat and
+//                 marks the monitor down when it exceeds the
+//                 monitor's interval_sec (treated as "expected
+//                 cadence"). Useful for cron jobs that don't run a
+//                 server.
+//
+// State changes (up→down / down→up) open and resolve a Problem via the
+// shared problems table, so the existing notification stack delivers
+// alerts without any monitor-specific plumbing.
+
+type Monitor struct {
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Type           string `json:"type"`            // http | heartbeat
+	URL            string `json:"url,omitempty"`   // http only
+	Method         string `json:"method,omitempty"`
+	ExpectedStatus uint16 `json:"expectedStatus,omitempty"`
+	TimeoutSec     uint16 `json:"timeoutSec,omitempty"`
+	IntervalSec    uint32 `json:"intervalSec"`     // HTTP probe interval OR heartbeat grace window
+	Enabled        bool   `json:"enabled"`
+	HeartbeatToken string `json:"heartbeatToken,omitempty"`
+	CreatedAt      int64  `json:"createdAt"`
+}
+
+type MonitorResult struct {
+	MonitorID string `json:"monitorId"`
+	Time      int64  `json:"time"`        // unix ns
+	Status    string `json:"status"`      // up | down | degraded
+	LatencyMs int64  `json:"latencyMs"`
+	HTTPCode  uint16 `json:"httpCode,omitempty"`
+	Message   string `json:"message,omitempty"`
+}
+
+func (s *Store) ListMonitors(ctx context.Context) ([]Monitor, error) {
+	rows, err := s.conn.Query(ctx, `
+		SELECT id, name, type, url, method, expected_status, timeout_sec,
+		       interval_sec, enabled, heartbeat_token,
+		       toUnixTimestamp64Nano(created_at)
+		FROM monitors FINAL
+		ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Monitor{}
+	for rows.Next() {
+		var m Monitor
+		var enabled uint8
+		if err := rows.Scan(&m.ID, &m.Name, &m.Type, &m.URL, &m.Method,
+			&m.ExpectedStatus, &m.TimeoutSec, &m.IntervalSec, &enabled,
+			&m.HeartbeatToken, &m.CreatedAt); err != nil {
+			return nil, err
+		}
+		m.Enabled = enabled == 1
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) GetMonitor(ctx context.Context, id string) (*Monitor, error) {
+	row := s.conn.QueryRow(ctx, `
+		SELECT id, name, type, url, method, expected_status, timeout_sec,
+		       interval_sec, enabled, heartbeat_token,
+		       toUnixTimestamp64Nano(created_at)
+		FROM monitors FINAL WHERE id = ? LIMIT 1`, id)
+	var m Monitor
+	var enabled uint8
+	if err := row.Scan(&m.ID, &m.Name, &m.Type, &m.URL, &m.Method,
+		&m.ExpectedStatus, &m.TimeoutSec, &m.IntervalSec, &enabled,
+		&m.HeartbeatToken, &m.CreatedAt); err != nil {
+		if err.Error() == "sql: no rows in result set" {
+			return nil, nil
+		}
+		return nil, err
+	}
+	m.Enabled = enabled == 1
+	return &m, nil
+}
+
+func (s *Store) GetMonitorByToken(ctx context.Context, token string) (*Monitor, error) {
+	if token == "" {
+		return nil, nil
+	}
+	row := s.conn.QueryRow(ctx,
+		`SELECT id FROM monitors FINAL WHERE heartbeat_token = ? AND type = 'heartbeat' LIMIT 1`, token)
+	var id string
+	if err := row.Scan(&id); err != nil {
+		if err.Error() == "sql: no rows in result set" {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return s.GetMonitor(ctx, id)
+}
+
+// UpsertMonitor takes a pointer so that auto-generated IDs / tokens
+// (filled in for new monitors) flow back to the caller.
+func (s *Store) UpsertMonitor(ctx context.Context, m *Monitor) error {
+	if m.ID == "" {
+		m.ID = randHex(8)
+	}
+	if m.Type == "heartbeat" && m.HeartbeatToken == "" {
+		m.HeartbeatToken = randHex(16)
+	}
+	if m.Method == "" {
+		m.Method = "GET"
+	}
+	if m.ExpectedStatus == 0 {
+		m.ExpectedStatus = 200
+	}
+	if m.TimeoutSec == 0 {
+		m.TimeoutSec = 5
+	}
+	if m.IntervalSec == 0 {
+		m.IntervalSec = 60
+	}
+	enabled := uint8(0)
+	if m.Enabled {
+		enabled = 1
+	}
+	created := time.Now().UTC()
+	if m.CreatedAt > 0 {
+		created = time.Unix(0, m.CreatedAt).UTC()
+	}
+	batch, err := s.conn.PrepareBatch(ctx, `INSERT INTO monitors
+		(id, name, type, url, method, expected_status, timeout_sec,
+		 interval_sec, enabled, heartbeat_token, created_at, version)`)
+	if err != nil {
+		return err
+	}
+	if err := batch.Append(m.ID, m.Name, m.Type, m.URL, m.Method,
+		m.ExpectedStatus, m.TimeoutSec, m.IntervalSec, enabled,
+		m.HeartbeatToken, created, uint64(time.Now().UnixNano())); err != nil {
+		return err
+	}
+	return batch.Send()
+}
+
+func (s *Store) DeleteMonitor(ctx context.Context, id string) error {
+	return s.conn.Exec(ctx, `ALTER TABLE monitors DELETE WHERE id = ?`, id)
+}
+
+func (s *Store) InsertMonitorResult(ctx context.Context, r MonitorResult) error {
+	batch, err := s.conn.PrepareBatch(ctx,
+		`INSERT INTO monitor_results (monitor_id, time, status, latency_ms, http_code, message)`)
+	if err != nil {
+		return err
+	}
+	t := time.Unix(0, r.Time).UTC()
+	if r.Time == 0 {
+		t = time.Now().UTC()
+	}
+	if err := batch.Append(r.MonitorID, t, r.Status, r.LatencyMs, r.HTTPCode, r.Message); err != nil {
+		return err
+	}
+	return batch.Send()
+}
+
+// LastMonitorStatus returns the most recent result for each monitor —
+// drives the dashboard cells.
+func (s *Store) LastMonitorStatus(ctx context.Context) (map[string]MonitorResult, error) {
+	rows, err := s.conn.Query(ctx, `
+		SELECT monitor_id,
+		       toUnixTimestamp64Nano(argMax(time, time))    AS t,
+		       argMax(status, time)                          AS status,
+		       argMax(latency_ms, time)                      AS lat,
+		       argMax(http_code, time)                       AS code,
+		       argMax(message, time)                         AS msg
+		FROM monitor_results
+		WHERE time > now() - INTERVAL 7 DAY
+		GROUP BY monitor_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]MonitorResult{}
+	for rows.Next() {
+		var r MonitorResult
+		if err := rows.Scan(&r.MonitorID, &r.Time, &r.Status, &r.LatencyMs, &r.HTTPCode, &r.Message); err != nil {
+			return nil, err
+		}
+		out[r.MonitorID] = r
+	}
+	return out, rows.Err()
+}
+
+// MonitorTimeline returns the result history for one monitor (newest
+// first), capped at `limit` rows. Drives the per-monitor status timeline.
+func (s *Store) MonitorTimeline(ctx context.Context, monitorID string, limit int) ([]MonitorResult, error) {
+	if limit <= 0 || limit > 5000 {
+		limit = 500
+	}
+	rows, err := s.conn.Query(ctx, `
+		SELECT monitor_id, toUnixTimestamp64Nano(time), status, latency_ms, http_code, message
+		FROM monitor_results
+		WHERE monitor_id = ?
+		ORDER BY time DESC
+		LIMIT ?`, monitorID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []MonitorResult{}
+	for rows.Next() {
+		var r MonitorResult
+		if err := rows.Scan(&r.MonitorID, &r.Time, &r.Status, &r.LatencyMs, &r.HTTPCode, &r.Message); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func randHex(n int) string {
+	b := make([]byte, n)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// silence unused import warning if hex never used elsewhere
+var _ = fmt.Sprintf

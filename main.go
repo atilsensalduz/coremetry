@@ -22,6 +22,7 @@ import (
 	"github.com/cilcenk/coremetry/internal/consumer"
 	"github.com/cilcenk/coremetry/internal/evaluator"
 	"github.com/cilcenk/coremetry/internal/logstore"
+	"github.com/cilcenk/coremetry/internal/monitor"
 	"github.com/cilcenk/coremetry/internal/notify"
 	"github.com/cilcenk/coremetry/internal/otlp"
 )
@@ -98,6 +99,11 @@ func main() {
 	// ── Anomaly detector (Watchdog-style baseline check) ─────────────────────
 	go anomaly.New(store, 2*time.Minute, lockImpl, notifier).Start(ctx)
 
+	// ── Synthetic monitor runner (HTTP probes + heartbeat absence) ───────────
+	// Lock-gated so HA replicas don't double-probe; emits state-change
+	// problems through the same notifier path as alert-rule firings.
+	go monitor.New(store, notifier, lockImpl).Start(ctx)
+
 	// ── Exception inbox refresher ────────────────────────────────────────────
 	// Scans recent exception events every minute and upserts each distinct
 	// (type, message, service) into exception_groups. Leader-gated so
@@ -108,6 +114,14 @@ func main() {
 	authSvc := auth.NewService(cfg.Auth.JWTSecret, cfg.Auth.TokenTTL)
 	if err := seedInitialAdmin(ctx, store, cfg.Auth); err != nil {
 		log.Printf("[auth] seed initial admin: %v", err)
+	}
+
+	// ── Seed SRE preset dashboards (only on a fresh install) ────────────────
+	// Idempotent + non-destructive — checks for any existing dashboard
+	// and skips if the table isn't empty. Operator can delete or modify
+	// presets freely; we never re-seed on subsequent boots.
+	if err := store.SeedPresetDashboards(ctx); err != nil {
+		log.Printf("[chstore] seed preset dashboards: %v", err)
 	}
 
 	// ── Optional OIDC ─────────────────────────────────────────────────────────

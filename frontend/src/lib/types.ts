@@ -11,12 +11,49 @@ export interface Service {
 
 // One row of the system status grid on /status. Mirrors the
 // componentStatus / systemStatus types in internal/api.
+// ── Synthetic monitoring ─────────────────────────────────────────────────────
+
+export interface Monitor {
+  id: string;
+  name: string;
+  type: 'http' | 'heartbeat';
+  url?: string;
+  method?: string;
+  expectedStatus?: number;
+  timeoutSec?: number;
+  intervalSec: number;        // probe period (http) or grace window (heartbeat)
+  enabled: boolean;
+  heartbeatToken?: string;    // returned by the API on heartbeat-type monitors
+  createdAt: number;
+}
+
+export interface MonitorResult {
+  monitorId: string;
+  time: number;               // unix ns
+  status: 'up' | 'down' | 'degraded';
+  latencyMs: number;
+  httpCode?: number;
+  message?: string;
+}
+
+// List API rolls the latest result into the row so the list page renders
+// without an extra round-trip per monitor.
+export interface MonitorRow extends Monitor {
+  lastResult?: MonitorResult;
+}
+
 export type ComponentHealth = 'operational' | 'degraded' | 'outage';
 export interface StatusComponent {
   name: string;
   status: ComponentHealth;
   message?: string;
   latencyMs?: number;
+  // Free-form extras shown alongside the row — version, address, db
+  // name, queue depth, etc. Values are strings so the UI doesn't need
+  // per-component formatting logic.
+  info?: Record<string, string>;
+  // Per-second ingest rate; only set on ingest queue components.
+  ratePerSec?: number;
 }
 export interface SystemStatus {
   status: ComponentHealth;
@@ -358,7 +395,7 @@ export interface SLORow extends SLO {
 
 // ── Dashboards ───────────────────────────────────────────────────────────────
 
-export type PanelType = 'metric' | 'spanmetric' | 'stat' | 'markdown';
+export type PanelType = 'metric' | 'spanmetric' | 'stat' | 'markdown' | 'row';
 export type PanelWidth = 1 | 2 | 3 | 4;  // 1=quarter … 4=full (12-col grid)
 
 // Each panel type has a different config shape. Kept as a tagged union so
@@ -389,13 +426,18 @@ export interface StatPanelConfig {
 export interface MarkdownPanelConfig {
   text: string;
 }
+// Row panels are pure layout markers — they start a new (collapsible)
+// row group. Title comes from Panel.title; no extra config needed.
+export interface RowPanelConfig {
+  collapsed?: boolean;
+}
 
 export interface Panel {
   id: string;
   type: PanelType;
   title: string;
   width: PanelWidth;
-  config: MetricPanelConfig | SpanMetricPanelConfig | StatPanelConfig | MarkdownPanelConfig;
+  config: MetricPanelConfig | SpanMetricPanelConfig | StatPanelConfig | MarkdownPanelConfig | RowPanelConfig;
 }
 
 export interface DashboardSummary {

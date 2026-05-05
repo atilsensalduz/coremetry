@@ -239,7 +239,12 @@ services:
       - coremetry
     restart: unless-stopped
 
-  # ── Optional Go demo (kept for direct OTLP testing) ──────────────────────────
+  # ── Multi-service traffic generator (8 services, real OTLP) ─────────────────
+  # Emits realistic cross-service traces over OTLP HTTP — frontend →
+  # api-gateway → (product-service / order-service → payment-service /
+  # cart-service / search-service / user-service). Populates the service
+  # graph, multi-service aggregates, and the trace waterfall with proper
+  # parent_id chains across services. Source: cmd/demo.
   go-demo:
     build: .
     container_name: coremetry-go-demo
@@ -248,7 +253,6 @@ services:
     depends_on:
       - otel-collector
     restart: unless-stopped
-    profiles: ["go-demo"]
 
 volumes:
   clickhouse-data:

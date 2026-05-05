@@ -79,7 +79,33 @@ export function MultiLineChart({ series, unit }: { series: SpanMetricSeries[]; u
         interaction: { mode: 'index', intersect: false, axis: 'x' },
         hover:       { mode: 'index', intersect: false },
         plugins: {
-          legend: { labels: { color: text2, boxWidth: 12 }, position: 'bottom' as const },
+          legend: {
+            labels: { color: text2, boxWidth: 12 },
+            position: 'bottom' as const,
+            // Grafana-style isolate-on-click: clicking a legend item
+            // shows ONLY that series (hiding all others). Clicking the
+            // already-isolated series again restores all. The default
+            // Chart.js behaviour was the opposite — click toggled the
+            // clicked item off, which is rarely what an oncall wants.
+            onClick: (_e, legendItem, legend) => {
+              const chart = legend.chart;
+              const idx = legendItem.datasetIndex;
+              if (idx === undefined) return;
+              const total = chart.data.datasets.length;
+              const others = chart.data.datasets
+                .map((_, i) => i)
+                .filter(i => i !== idx && chart.isDatasetVisible(i)).length;
+              const isolated = others === 0 && chart.isDatasetVisible(idx);
+              if (isolated) {
+                // Restore all
+                for (let i = 0; i < total; i++) chart.setDatasetVisibility(i, true);
+              } else {
+                // Hide everything else; keep just the clicked series
+                for (let i = 0; i < total; i++) chart.setDatasetVisibility(i, i === idx);
+              }
+              chart.update();
+            },
+          },
           tooltip: {
             mode: 'index', intersect: false,
             backgroundColor: 'rgba(13,17,23,0.92)',
@@ -113,5 +139,14 @@ export function MultiLineChart({ series, unit }: { series: SpanMetricSeries[]; u
     return () => { chartRef.current?.destroy(); };
   }, [series, unit]);
 
-  return <div style={{ height: 360 }}><canvas ref={ref} /></div>;
+  // Chart.js with maintainAspectRatio:false sizes the canvas from its
+  // immediate parent — must be position:relative + sized. We default
+  // to 360px when the caller hasn't wrapped us in a sized container,
+  // but use 100%/100% so a sized parent (like a dashboard panel that
+  // wants 220px) wins.
+  return (
+    <div style={{ position: 'relative', height: '100%', minHeight: 240 }}>
+      <canvas ref={ref} />
+    </div>
+  );
 }

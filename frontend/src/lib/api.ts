@@ -8,6 +8,7 @@ import type {
   ExceptionGroup, ExceptionGroupState, ExceptionSample,
   SparklineBucket, OperationSummary,
   SystemStatus,
+  Monitor, MonitorResult, MonitorRow,
 } from './types';
 
 // Empty base = same origin (works in production where Go serves both UI and API).
@@ -70,6 +71,24 @@ export const api = {
 
   health: ()                         => get<HealthInfo>(`/api/health`),
   status: ()                         => get<SystemStatus>(`/api/status`),
+
+  // Synthetic monitoring
+  listMonitors:    ()              => get<MonitorRow[] | null>(`/api/monitors`),
+  getMonitor:      (id: string)    => get<Monitor>(`/api/monitors/${id}`),
+  createMonitor:   (m: Partial<Monitor>) =>
+    request<Monitor>(`/api/monitors`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(m),
+    }),
+  updateMonitor:   (id: string, m: Partial<Monitor>) =>
+    request<Monitor>(`/api/monitors/${id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(m),
+    }),
+  deleteMonitor:   (id: string) =>
+    request<void>(`/api/monitors/${id}`, { method: 'DELETE' }),
+  monitorTimeline: (id: string, limit = 200) =>
+    get<MonitorResult[] | null>(`/api/monitors/${id}/timeline?limit=${limit}`),
 
   spanMetric: (params: SpanMetricParams) =>
     get<SpanMetricSeries[] | null>(`/api/spans/metric?${qs(params)}`),

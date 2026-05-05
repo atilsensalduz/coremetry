@@ -140,6 +140,13 @@ func SkipPath(method, path string) bool {
 		strings.HasPrefix(path, "/v1/profiles") {
 		return true
 	}
+	// Heartbeat ingest is unauth'd by design — cron jobs / batch
+	// scripts hit this with `curl ${URL}` and the random token in
+	// the path is the security boundary. Same threat model as a
+	// signed S3 URL.
+	if strings.HasPrefix(path, "/api/heartbeats/") {
+		return true
+	}
 	// Anything outside /api/* is the static UI — let the browser fetch it
 	// so the login page itself can load.
 	if !strings.HasPrefix(path, "/api/") {

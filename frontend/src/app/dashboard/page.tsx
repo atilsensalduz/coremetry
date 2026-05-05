@@ -55,7 +55,12 @@ function Inner() {
   };
   const addPanel = (type: PanelType) => {
     const p: Panel = {
-      id: rid(), type, title: `New ${type}`, width: 2, config: defaultConfig(type),
+      id: rid(), type,
+      title: type === 'row' ? 'New row' : `New ${type}`,
+      // Row markers always span the full grid; everything else defaults
+      // to half-width and the user can resize via the editor.
+      width: type === 'row' ? 4 : 2,
+      config: defaultConfig(type),
     };
     setDraft({ ...draft, panels: [...panels, p] });
     setEditingPanel(p.id);
@@ -130,34 +135,12 @@ function Inner() {
                      : 'Click Edit to add panels.'}
           </Empty>
         ) : (
-          <div style={{
-            display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12,
-          }}>
-            {panels.map(p => (
-              <div key={p.id} style={{
-                gridColumn: `span ${Math.max(1, Math.min(4, p.width))}`,
-                background: 'var(--bg2)', border: '1px solid var(--border)',
-                borderRadius: 6, padding: 10,
-                position: 'relative',
-              }}>
-                <div style={{
-                  display: 'flex', alignItems: 'center', marginBottom: 6,
-                  fontSize: 12, color: 'var(--text2)',
-                }}>
-                  <span style={{ fontWeight: 600, color: 'var(--text)' }}>{p.title}</span>
-                  {editing && (
-                    <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
-                      <button className="sec" onClick={() => setEditingPanel(p.id)}
-                        style={{ padding: '2px 7px', fontSize: 11 }}>Edit</button>
-                      <button className="sec" onClick={() => deletePanel(p.id)}
-                        style={{ padding: '2px 7px', fontSize: 11, color: 'var(--err)' }}>×</button>
-                    </span>
-                  )}
-                </div>
-                <PanelRenderer panel={p} range={range} />
-              </div>
-            ))}
-          </div>
+          <DashboardGrid
+            panels={panels}
+            range={range}
+            editing={editing}
+            onEditPanel={setEditingPanel}
+            onDeletePanel={deletePanel} />
         )}
 
         {editingPanelObj && (
@@ -183,7 +166,7 @@ function AddPanelMenu({ onAdd }: { onAdd: (t: PanelType) => void }) {
           borderRadius: 6, padding: 4, zIndex: 50, minWidth: 180,
           boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
         }}>
-          {(['metric', 'spanmetric', 'stat', 'markdown'] as PanelType[]).map(t => (
+          {(['row', 'metric', 'spanmetric', 'stat', 'markdown'] as PanelType[]).map(t => (
             <button key={t}
               onClick={() => { onAdd(t); setOpen(false); }}
               style={{
@@ -218,4 +201,107 @@ function normalizePanels(raw: unknown): Panel[] {
     catch { return []; }
   }
   return [];
+}
+
+// Grafana-style row layout: panels of type 'row' act as collapsible
+// section headers. All non-row panels following a row marker (until
+// the next row) belong to that row's grid. Panels before any row
+// marker form an implicit "default" row at the top.
+//
+// Per-row collapse state is local component state, keyed by panel id —
+// not persisted across reloads (matches Grafana's default behaviour;
+// add a localStorage layer if users start asking for it).
+function DashboardGrid({
+  panels, range, editing, onEditPanel, onDeletePanel,
+}: {
+  panels: Panel[];
+  range: TimeRange;
+  editing: boolean;
+  onEditPanel: (id: string) => void;
+  onDeletePanel: (id: string) => void;
+}) {
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+  // Bucket panels into row groups.
+  type RowGroup = { rowPanel: Panel | null; key: string; panels: Panel[] };
+  const groups: RowGroup[] = [];
+  let cur: RowGroup = { rowPanel: null, key: '__head', panels: [] };
+  groups.push(cur);
+  for (const p of panels) {
+    if (p.type === 'row') {
+      cur = { rowPanel: p, key: p.id, panels: [] };
+      groups.push(cur);
+    } else {
+      cur.panels.push(p);
+    }
+  }
+  // Drop the implicit head if it ended up empty (i.e. the dashboard
+  // starts with an explicit row).
+  const visible = groups.filter(g => g.rowPanel || g.panels.length > 0);
+
+  return (
+    <div>
+      {visible.map(g => {
+        const isCollapsed = g.rowPanel ? collapsed.has(g.rowPanel.id) : false;
+        return (
+          <div key={g.key} style={{ marginBottom: 14 }}>
+            {g.rowPanel && (
+              <div className="dash-row-header"
+                   onClick={() => {
+                     if (!g.rowPanel) return;
+                     const next = new Set(collapsed);
+                     next.has(g.rowPanel.id) ? next.delete(g.rowPanel.id) : next.add(g.rowPanel.id);
+                     setCollapsed(next);
+                   }}>
+                <span className="dash-row-toggle">{isCollapsed ? '▶' : '▼'}</span>
+                <span className="dash-row-title">{g.rowPanel.title || 'Row'}</span>
+                <span className="dash-row-count">
+                  {g.panels.length} panel{g.panels.length === 1 ? '' : 's'}
+                </span>
+                {editing && (
+                  <span style={{ marginLeft: 8, display: 'flex', gap: 4 }} onClick={e => e.stopPropagation()}>
+                    <button className="sec" onClick={() => g.rowPanel && onEditPanel(g.rowPanel.id)}
+                      style={{ padding: '2px 7px', fontSize: 11 }}>Edit</button>
+                    <button className="sec" onClick={() => g.rowPanel && onDeletePanel(g.rowPanel.id)}
+                      style={{ padding: '2px 7px', fontSize: 11, color: 'var(--err)' }}>×</button>
+                  </span>
+                )}
+              </div>
+            )}
+            {!isCollapsed && g.panels.length > 0 && (
+              <div style={{
+                display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12,
+                marginTop: g.rowPanel ? 8 : 0,
+              }}>
+                {g.panels.map(p => (
+                  <div key={p.id} style={{
+                    gridColumn: `span ${Math.max(1, Math.min(4, p.width))}`,
+                    background: 'var(--bg2)', border: '1px solid var(--border)',
+                    borderRadius: 6, padding: 10,
+                    position: 'relative',
+                  }}>
+                    <div style={{
+                      display: 'flex', alignItems: 'center', marginBottom: 6,
+                      fontSize: 12, color: 'var(--text2)',
+                    }}>
+                      <span style={{ fontWeight: 600, color: 'var(--text)' }}>{p.title}</span>
+                      {editing && (
+                        <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+                          <button className="sec" onClick={() => onEditPanel(p.id)}
+                            style={{ padding: '2px 7px', fontSize: 11 }}>Edit</button>
+                          <button className="sec" onClick={() => onDeletePanel(p.id)}
+                            style={{ padding: '2px 7px', fontSize: 11, color: 'var(--err)' }}>×</button>
+                        </span>
+                      )}
+                    </div>
+                    <PanelRenderer panel={p} range={range} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
