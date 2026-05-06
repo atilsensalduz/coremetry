@@ -160,14 +160,16 @@ func main() {
 	log.Printf("[logs] read backend: %s", logsStore.Backend())
 
 	// ── AI Copilot (optional) ────────────────────────────────────────────────
-	// Returns nil when no API key is configured; the API surface
-	// branches on that and the UI hides the buttons.
-	copilotSvc := copilot.New(cfg.AI.APIKey, cfg.AI.Model)
-	if copilotSvc != nil {
-		log.Printf("[copilot] AI explain enabled (model=%s)", func() string {
-			if cfg.AI.Model != "" { return cfg.AI.Model }
-			return "claude-sonnet-4-6"
-		}())
+	// Always created — env vars are the boot-time default, DB overrides
+	// (saved via Settings → AI Copilot) win on top. Configured() returns
+	// false when no key is set; the UI hides the buttons in that case.
+	copilotSvc := copilot.New(cfg.AI.Provider, cfg.AI.APIKey, cfg.AI.Model)
+	if err := copilotSvc.LoadPersisted(ctx, store); err != nil {
+		log.Printf("[copilot] load persisted config: %v", err)
+	}
+	if copilotSvc.Configured() {
+		p, m, _ := copilotSvc.Snapshot()
+		log.Printf("[copilot] AI explain enabled (provider=%s model=%s)", p, m)
 	}
 
 	// ── HTTP server (OTLP + API + UI) ─────────────────────────────────────────

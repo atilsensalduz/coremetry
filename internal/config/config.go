@@ -31,14 +31,19 @@ type Config struct {
 	AI         AIConfig        `yaml:"ai"`
 }
 
-// AIConfig wires the optional Anthropic-backed Copilot. When APIKey is
-// empty the feature is dormant — no UI buttons appear and the
-// /api/copilot/* endpoints return "not configured" errors. Operator
-// brings their own key (Anthropic console → API keys), so Coremetry
-// never ships with embedded credentials.
+// AIConfig wires the optional AI Copilot. Two providers supported:
+//   - "anthropic" (default): APIKey is an `sk-ant-…` key from the
+//     Anthropic console.
+//   - "github":              APIKey is a GitHub OAuth token (`ghu_…`)
+//     with Copilot access; Coremetry exchanges it for a session token
+//     and calls api.githubcopilot.com (OpenAI-compatible).
+//
+// Env config is the boot-time default; the admin Settings tab can
+// override at runtime, persisted to system_settings.
 type AIConfig struct {
-	APIKey string `yaml:"api_key"` // env: COREMETRY_AI_API_KEY
-	Model  string `yaml:"model"`   // env: COREMETRY_AI_MODEL (default claude-sonnet-4-6)
+	Provider string `yaml:"provider"` // env: COREMETRY_AI_PROVIDER (anthropic|github)
+	APIKey   string `yaml:"api_key"`  // env: COREMETRY_AI_API_KEY
+	Model    string `yaml:"model"`    // env: COREMETRY_AI_MODEL
 }
 
 // LogsConfig picks which read backend serves /api/logs. Ingest still
@@ -228,6 +233,9 @@ func Load(path string) (*Config, error) {
 	}
 	if v := os.Getenv("COREMETRY_ES_INSECURE"); v == "true" || v == "1" {
 		cfg.Logs.Elasticsearch.InsecureSkipVerify = true
+	}
+	if v := os.Getenv("COREMETRY_AI_PROVIDER"); v != "" {
+		cfg.AI.Provider = v
 	}
 	if v := os.Getenv("COREMETRY_AI_API_KEY"); v != "" {
 		cfg.AI.APIKey = v

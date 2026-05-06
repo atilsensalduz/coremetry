@@ -1,15 +1,16 @@
-// Package copilot wraps the Anthropic Messages API to produce
+// Package copilot wraps an LLM Messages/Chat API to produce
 // natural-language explanations of telemetry artifacts — trace flame,
-// open Problem, exception group. Optional: when no API key is
-// configured the package returns a clean "not configured" error and
-// the UI hides its buttons.
+// open Problem, exception group.
 //
-// Why server-side?
-//   - The Anthropic API key never leaves the operator's network.
-//   - Heavy context (full trace span list, exception stack) lives in
-//     ClickHouse already; building the prompt server-side avoids
-//     shipping it to the browser just to ship it back.
-//   - One central place to enforce token budgets, retries, redaction.
+// Two providers supported:
+//   - "anthropic": Anthropic Messages API (api.anthropic.com).
+//   - "github":    GitHub Copilot Chat (api.githubcopilot.com). The
+//                  caller's API key is a GitHub OAuth token (`ghu_…`)
+//                  which we exchange for a short-lived Copilot session
+//                  token (cached + auto-refreshed).
+//
+// The Service is configurable at runtime — admins can flip provider
+// or rotate keys via the Settings UI without restarting Coremetry.
 package copilot
 
 import (
@@ -21,49 +22,110 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
+const (
+	ProviderAnthropic = "anthropic"
+	ProviderGitHub    = "github"
+)
+
 // Service is the small surface other packages call into.
+//
+// Internals are guarded by mu so PUT /api/settings/ai can swap creds
+// while Explain calls are in flight.
 type Service struct {
-	apiKey string
-	model  string
-	cli    *http.Client
+	mu       sync.RWMutex
+	provider string
+	apiKey   string
+	model    string
+
+	// GitHub session token cache. We exchange ghu_ → session token
+	// once and reuse until ~30s before the server-stated expiry.
+	ghSessTok string
+	ghSessExp time.Time
+
+	cli *http.Client
 }
 
-// New returns a Service if an API key is configured, otherwise nil
-// so callers can branch and the rest of Coremetry continues to work.
-func New(apiKey, model string) *Service {
-	if apiKey == "" {
-		return nil
-	}
-	if model == "" {
-		// Sonnet is the right default for this kind of analysis —
-		// fast, cheap, plenty smart enough to summarize a trace.
-		model = "claude-sonnet-4-6"
+// New always returns a Service. When apiKey is empty Configured()
+// reports false and callers branch off — that's the dormant state
+// before the operator pastes a key in Settings.
+func New(provider, apiKey, model string) *Service {
+	if provider == "" {
+		provider = ProviderAnthropic
 	}
 	return &Service{
-		apiKey: apiKey,
-		model:  model,
-		cli:    &http.Client{Timeout: 30 * time.Second},
+		provider: provider,
+		apiKey:   apiKey,
+		model:    model,
+		cli:      &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
-// Configured reports whether the service has credentials. Used by
-// /api/copilot/config so the UI can hide the buttons in deployments
-// that haven't enabled it.
-func (s *Service) Configured() bool { return s != nil && s.apiKey != "" }
+// Configure swaps live credentials. Used by PUT /api/settings/ai.
+// Empty apiKey legitimately disables the feature — Configured() flips
+// to false and the UI hides the buttons.
+func (s *Service) Configure(provider, apiKey, model string) {
+	if provider == "" {
+		provider = ProviderAnthropic
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Provider or key changed → drop any cached GitHub session token.
+	if s.provider != provider || s.apiKey != apiKey {
+		s.ghSessTok, s.ghSessExp = "", time.Time{}
+	}
+	s.provider, s.apiKey, s.model = provider, apiKey, model
+}
 
-// Explain runs a single Anthropic Messages call with the given system
-// prompt + user prompt. Caller decides what to put in `userPrompt` —
-// trace JSON, problem details, etc. Returns the assistant's plain-text
-// reply.
+// Snapshot returns the current configuration. The apiKey is masked
+// (only "set" / "unset" matters to the UI) — full key is never echoed.
+func (s *Service) Snapshot() (provider, model string, hasKey bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.provider, s.model, s.apiKey != ""
+}
+
+// Configured reports whether the service has credentials.
+func (s *Service) Configured() bool {
+	if s == nil {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.apiKey != ""
+}
+
+// Explain runs a single Messages/Chat call with the given system +
+// user prompt. Branches on the configured provider.
 func (s *Service) Explain(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
-	if s == nil || s.apiKey == "" {
-		return "", errors.New("AI copilot not configured (set COREMETRY_AI_API_KEY)")
+	if !s.Configured() {
+		return "", errors.New("AI copilot not configured (open Settings → AI Copilot)")
+	}
+	s.mu.RLock()
+	provider := s.provider
+	s.mu.RUnlock()
+	switch provider {
+	case ProviderGitHub:
+		return s.explainGitHub(ctx, systemPrompt, userPrompt)
+	default:
+		return s.explainAnthropic(ctx, systemPrompt, userPrompt)
+	}
+}
+
+// ── Anthropic ───────────────────────────────────────────────────────────────
+
+func (s *Service) explainAnthropic(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	s.mu.RLock()
+	apiKey, model := s.apiKey, s.model
+	s.mu.RUnlock()
+	if model == "" {
+		model = "claude-sonnet-4-6"
 	}
 	body := map[string]any{
-		"model":      s.model,
+		"model":      model,
 		"max_tokens": 1024,
 		"system":     systemPrompt,
 		"messages": []map[string]any{
@@ -77,7 +139,7 @@ func (s *Service) Explain(ctx context.Context, systemPrompt, userPrompt string) 
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-API-Key", s.apiKey)
+	req.Header.Set("X-API-Key", apiKey)
 	req.Header.Set("Anthropic-Version", "2023-06-01")
 
 	resp, err := s.cli.Do(req)
@@ -105,6 +167,183 @@ func (s *Service) Explain(ctx context.Context, systemPrompt, userPrompt string) 
 		}
 	}
 	return out.String(), nil
+}
+
+// ── GitHub Copilot ──────────────────────────────────────────────────────────
+//
+// Two-step call:
+//   1. Exchange the user's GitHub OAuth token (apiKey, ghu_…) for a
+//      short-lived Copilot session token via copilot_internal/v2/token.
+//      We cache it until ~30s before its server-stated expiry.
+//   2. POST OpenAI-compat chat/completions to api.githubcopilot.com
+//      with that session token as Bearer + the integration headers
+//      Copilot's edge expects.
+
+func (s *Service) explainGitHub(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	sessTok, err := s.githubSessionToken(ctx)
+	if err != nil {
+		return "", err
+	}
+	s.mu.RLock()
+	model := s.model
+	s.mu.RUnlock()
+	if model == "" {
+		model = "gpt-4o"
+	}
+	body := map[string]any{
+		"model":       model,
+		"max_tokens":  1024,
+		"temperature": 0.2,
+		"messages": []map[string]any{
+			{"role": "system", "content": systemPrompt},
+			{"role": "user", "content": userPrompt},
+		},
+	}
+	raw, _ := json.Marshal(body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"https://api.githubcopilot.com/chat/completions", bytes.NewReader(raw))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+sessTok)
+	req.Header.Set("Editor-Version", "vscode/1.85.0")
+	req.Header.Set("Editor-Plugin-Version", "copilot-chat/0.12.0")
+	req.Header.Set("Copilot-Integration-Id", "vscode-chat")
+	req.Header.Set("User-Agent", "GithubCopilot/1.155.0")
+
+	resp, err := s.cli.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("github copilot call: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode >= 300 {
+		return "", fmt.Errorf("github copilot %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+	var parsed struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(respBody, &parsed); err != nil {
+		return "", fmt.Errorf("decode github copilot response: %w", err)
+	}
+	if len(parsed.Choices) == 0 {
+		return "", errors.New("github copilot: empty response")
+	}
+	return parsed.Choices[0].Message.Content, nil
+}
+
+// githubSessionToken returns a valid Copilot session token, refreshing
+// from api.github.com when the cached one is missing or near expiry.
+func (s *Service) githubSessionToken(ctx context.Context) (string, error) {
+	s.mu.RLock()
+	tok, exp := s.ghSessTok, s.ghSessExp
+	s.mu.RUnlock()
+	if tok != "" && time.Until(exp) > 30*time.Second {
+		return tok, nil
+	}
+
+	s.mu.RLock()
+	apiKey := s.apiKey
+	s.mu.RUnlock()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		"https://api.github.com/copilot_internal/v2/token", nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "token "+apiKey)
+	req.Header.Set("Editor-Version", "vscode/1.85.0")
+	req.Header.Set("Editor-Plugin-Version", "copilot-chat/0.12.0")
+	req.Header.Set("User-Agent", "GithubCopilot/1.155.0")
+
+	resp, err := s.cli.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("github token exchange: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode >= 300 {
+		return "", fmt.Errorf("github token exchange %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var parsed struct {
+		Token     string `json:"token"`
+		ExpiresAt int64  `json:"expires_at"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return "", fmt.Errorf("decode github token: %w", err)
+	}
+	if parsed.Token == "" {
+		return "", errors.New("github token exchange: empty token (OAuth token missing Copilot access?)")
+	}
+	expiry := time.Unix(parsed.ExpiresAt, 0)
+	if parsed.ExpiresAt == 0 {
+		// Fallback for shape changes — assume 25 minutes.
+		expiry = time.Now().Add(25 * time.Minute)
+	}
+	s.mu.Lock()
+	s.ghSessTok = parsed.Token
+	s.ghSessExp = expiry
+	s.mu.Unlock()
+	return parsed.Token, nil
+}
+
+// ── Persistence ─────────────────────────────────────────────────────────────
+//
+// Runtime overrides are stored in system_settings under "ai_copilot".
+// Boot order: env defaults → DB overlay (LoadPersisted) → live calls
+// to Configure() update both memory and DB.
+
+const settingsKey = "ai_copilot"
+
+type persisted struct {
+	Provider string `json:"provider"`
+	APIKey   string `json:"apiKey"`
+	Model    string `json:"model"`
+}
+
+// SettingsStore is the small slice of *chstore.Store we need —
+// declared as an interface here so this package doesn't import chstore
+// (which would cycle through callers).
+type SettingsStore interface {
+	GetSetting(ctx context.Context, key string) ([]byte, error)
+	PutSetting(ctx context.Context, key string, value []byte) error
+}
+
+// LoadPersisted reads any DB-saved override and applies it. Silently
+// skips when nothing's saved — env defaults stay in effect.
+func (s *Service) LoadPersisted(ctx context.Context, store SettingsStore) error {
+	raw, err := store.GetSetting(ctx, settingsKey)
+	if err != nil {
+		return err
+	}
+	if len(raw) == 0 {
+		return nil
+	}
+	var p persisted
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return err
+	}
+	s.Configure(p.Provider, p.APIKey, p.Model)
+	return nil
+}
+
+// SavePersisted writes new credentials to system_settings AND updates
+// the live Service. Called by PUT /api/settings/ai.
+func (s *Service) SavePersisted(ctx context.Context, store SettingsStore, provider, apiKey, model string) error {
+	raw, err := json.Marshal(persisted{Provider: provider, APIKey: apiKey, Model: model})
+	if err != nil {
+		return err
+	}
+	if err := store.PutSetting(ctx, settingsKey, raw); err != nil {
+		return err
+	}
+	s.Configure(provider, apiKey, model)
+	return nil
 }
 
 // ── Prompt helpers (pre-baked so handlers don't have to compose) ────────────
@@ -137,8 +376,6 @@ fix hint or first investigation step.
 
 Be terse and direct — the operator is debugging in real time.`
 
-// SystemPromptTrace returns the system prompt to use for trace
-// explanations; exposed so callers can prefix domain context.
 func SystemPromptTrace() string     { return systemTrace }
 func SystemPromptProblem() string   { return systemProblem }
 func SystemPromptException() string { return systemException }

@@ -12,6 +12,7 @@ import type {
   Incident, IncidentEvent,
   StatusPageConfig, StatusComponent, StatusSubscriber,
   RetentionSpec,
+  AISettings, AISettingsInput,
 } from './types';
 
 // Empty base = same origin (works in production where Go serves both UI and API).
@@ -87,6 +88,14 @@ export const api = {
     request<RetentionSpec>(`/api/settings/retention`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(sp),
+    }),
+
+  // Runtime settings: AI Copilot
+  getAISettings: () => get<AISettings>(`/api/settings/ai`),
+  putAISettings: (s: AISettingsInput) =>
+    request<AISettings>(`/api/settings/ai`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(s),
     }),
 
   // AI Copilot

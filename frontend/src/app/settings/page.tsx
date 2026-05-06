@@ -4,7 +4,7 @@ import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { useAuth } from '@/components/AuthProvider';
 import { api } from '@/lib/api';
-import type { SMTPSettings, NotificationChannel, ChannelType } from '@/lib/types';
+import type { SMTPSettings, NotificationChannel, ChannelType, AIProvider } from '@/lib/types';
 
 type Tab = 'smtp' | 'channels' | 'ai' | 'retention';
 
@@ -475,81 +475,174 @@ function FlashBox({ kind, children }: { kind: 'ok' | 'err'; children: React.Reac
   );
 }
 
-// AITab — read-only status of the AI Copilot integration. Configuration
-// is server-side via env vars (COREMETRY_AI_API_KEY) so the operator
-// who edits compose / Helm controls credentials, not anyone with admin
-// access in the UI. This tab just shows whether the wiring's working.
+// AITab — editable AI Copilot configuration. Admin picks a provider,
+// pastes their key, optionally sets a model, hits Save. Server stores
+// the override in system_settings and updates the live service so the
+// next Explain call uses the new creds without restart.
+//
+// Two providers:
+//   - Anthropic: classic sk-ant-… key.
+//   - GitHub Copilot: GitHub OAuth token (ghu_…) with Copilot access;
+//     server exchanges it for a session token and calls
+//     api.githubcopilot.com (OpenAI-compatible).
 function AITab() {
-  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [provider, setProvider] = useState<AIProvider>('anthropic');
+  const [model, setModel] = useState('');
+  const [hasKey, setHasKey] = useState(false);
+  const [apiKey, setApiKey] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+
   useEffect(() => {
-    api.copilotConfig().then(c => setEnabled(c.enabled)).catch(() => setEnabled(false));
+    api.getAISettings().then(s => {
+      setProvider(s.provider || 'anthropic');
+      setModel(s.model || '');
+      setHasKey(s.hasKey);
+      setLoaded(true);
+    }).catch(() => setLoaded(true));
   }, []);
 
-  if (enabled === null) return <Spinner />;
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true); setMsg(null);
+    try {
+      const next = await api.putAISettings({ provider, apiKey, model });
+      setHasKey(next.hasKey);
+      setApiKey('');
+      setMsg({ kind: 'ok', text: next.hasKey ? 'Saved — Copilot is live.' : 'Saved — Copilot disabled.' });
+    } catch (err) {
+      setMsg({ kind: 'err', text: err instanceof Error ? err.message : 'Save failed' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const clearKey = async () => {
+    if (!confirm('Remove the saved API key? Copilot buttons will disappear until a new key is set.')) return;
+    setBusy(true); setMsg(null);
+    try {
+      const next = await api.putAISettings({ provider, apiKey: '', model });
+      setHasKey(next.hasKey);
+      setApiKey('');
+      setMsg({ kind: 'ok', text: 'Key cleared — Copilot is dormant.' });
+    } catch (err) {
+      setMsg({ kind: 'err', text: err instanceof Error ? err.message : 'Clear failed' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!loaded) return <Spinner />;
+
+  // Per-provider hint shown under the key field — explains where to
+  // get the token + what shape it has, so users don't paste the wrong
+  // thing.
+  const keyHint = provider === 'github' ? (
+    <>
+      Paste a GitHub OAuth token with Copilot access (starts with{' '}
+      <code style={{ background: 'var(--bg0)', padding: '1px 5px', borderRadius: 3 }}>ghu_</code>).
+      You can copy it from{' '}
+      <code style={{ background: 'var(--bg0)', padding: '1px 5px', borderRadius: 3 }}>~/.config/github-copilot/hosts.json</code>{' '}
+      or run your own OAuth flow. Coremetry exchanges it for a Copilot session token automatically.
+    </>
+  ) : (
+    <>
+      Paste your Anthropic API key (starts with{' '}
+      <code style={{ background: 'var(--bg0)', padding: '1px 5px', borderRadius: 3 }}>sk-ant-</code>).
+      Get one at{' '}
+      <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener"
+         style={{ color: 'var(--accent2)' }}>console.anthropic.com</a>.
+    </>
+  );
+
+  const modelPlaceholder = provider === 'github' ? 'gpt-4o (default)' : 'claude-sonnet-4-6 (default)';
 
   return (
     <div style={{ maxWidth: 640 }}>
       <h2 style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>AI Copilot</h2>
       <p style={{ color: 'var(--text2)', fontSize: 13, marginBottom: 16 }}>
-        Inline natural-language explanations for traces and Problems via Anthropic's
-        Messages API. The button shows up automatically on the trace detail page and
-        in the Problems table once configured.
+        Inline natural-language explanations for traces, Problems and exceptions.
+        Pick a provider, paste your key, save — buttons appear automatically on the
+        trace detail page and the Problems table.
       </p>
 
-      <div className={`status-banner status-banner-${enabled ? 'operational' : 'degraded'}`}>
-        <span className={`status-pill status-pill-${enabled ? 'operational' : 'degraded'}`}>
-          {enabled ? 'CONFIGURED' : 'NOT CONFIGURED'}
+      <div className={`status-banner status-banner-${hasKey ? 'operational' : 'degraded'}`}>
+        <span className={`status-pill status-pill-${hasKey ? 'operational' : 'degraded'}`}>
+          {hasKey ? 'CONFIGURED' : 'NOT CONFIGURED'}
         </span>
         <span style={{ fontWeight: 600, fontSize: 14 }}>
-          {enabled
-            ? 'AI Copilot is ready — buttons are visible on trace and problem pages.'
-            : 'AI Copilot is dormant — set COREMETRY_AI_API_KEY to enable.'}
+          {hasKey
+            ? `Provider: ${provider === 'github' ? 'GitHub Copilot' : 'Anthropic'} — ready.`
+            : 'No API key configured. Paste one below to enable.'}
         </span>
       </div>
 
-      {!enabled && (
-        <div style={{ marginTop: 18, padding: 16, borderRadius: 8,
-          background: 'var(--bg2)', border: '1px solid var(--border)' }}>
-          <h3 style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Enable in 3 steps</h3>
-          <ol style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--text)', paddingLeft: 18 }}>
-            <li>
-              Get an API key from{' '}
-              <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener"
-                 style={{ color: 'var(--accent2)' }}>console.anthropic.com</a>.
-            </li>
-            <li>
-              Set the env var on the coremetry container:{' '}
-              <code style={{ background: 'var(--bg0)', padding: '1px 6px', borderRadius: 3 }}>
-                COREMETRY_AI_API_KEY=sk-ant-…
-              </code>
-              {' '}(via <code>.env</code> for compose, or a Secret on Helm).
-            </li>
-            <li>Restart the coremetry container — this banner flips to <b style={{ color: 'var(--ok)' }}>CONFIGURED</b>.</li>
-          </ol>
-          <p style={{ fontSize: 11, color: 'var(--text3)', marginTop: 10 }}>
-            Default model: <code>claude-sonnet-4-6</code>.{' '}
-            Override with <code>COREMETRY_AI_MODEL</code>.
-          </p>
-        </div>
-      )}
+      <form onSubmit={save} style={{
+        marginTop: 18, padding: 16, borderRadius: 8,
+        background: 'var(--bg2)', border: '1px solid var(--border)',
+      }}>
+        <label style={{ display: 'block', marginBottom: 12 }}>
+          <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 4 }}>Provider</div>
+          <select value={provider}
+                  onChange={e => setProvider(e.target.value as AIProvider)}
+                  style={{ width: '100%' }}>
+            <option value="anthropic">Anthropic (Claude)</option>
+            <option value="github">GitHub Copilot</option>
+          </select>
+        </label>
 
-      {enabled && (
+        <label style={{ display: 'block', marginBottom: 6 }}>
+          <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 4 }}>
+            API key {hasKey && <span style={{ color: 'var(--text3)' }}>(saved — leave empty to keep current)</span>}
+          </div>
+          <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)}
+                 placeholder={hasKey ? '••••••••••••••••' : (provider === 'github' ? 'ghu_…' : 'sk-ant-…')}
+                 autoComplete="off" style={{ width: '100%' }} />
+        </label>
+        <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 14, lineHeight: 1.5 }}>
+          {keyHint}
+        </div>
+
+        <label style={{ display: 'block', marginBottom: 14 }}>
+          <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 4 }}>Model (optional)</div>
+          <input value={model} onChange={e => setModel(e.target.value)}
+                 placeholder={modelPlaceholder} style={{ width: '100%' }} />
+        </label>
+
+        {msg && (
+          <div style={{
+            marginBottom: 12, padding: '6px 10px', borderRadius: 4, fontSize: 12,
+            color: msg.kind === 'ok' ? 'var(--ok)' : 'var(--err)',
+            background: msg.kind === 'ok' ? 'rgba(63,185,80,0.10)' : 'rgba(220,38,38,0.08)',
+            border: `1px solid ${msg.kind === 'ok' ? 'rgba(63,185,80,0.35)' : 'rgba(220,38,38,0.3)'}`,
+          }}>
+            {msg.text}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button type="submit" disabled={busy || (!apiKey && !hasKey)}>
+            {busy ? 'Saving…' : 'Save'}
+          </button>
+          {hasKey && (
+            <button type="button" className="sec" onClick={clearKey} disabled={busy}
+                    style={{ color: 'var(--err)' }}>
+              Remove key
+            </button>
+          )}
+        </div>
+      </form>
+
+      {hasKey && (
         <div style={{ marginTop: 18, padding: 16, borderRadius: 8,
           background: 'var(--bg2)', border: '1px solid var(--border)' }}>
           <h3 style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>What it does</h3>
           <ul style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--text)', paddingLeft: 18 }}>
-            <li>
-              <b>🤖 Explain this trace</b> — on any trace detail page. Pulls the spans server-side,
-              builds a compact summary, asks for slowest span / error concentration / root-cause hint.
-            </li>
-            <li>
-              <b>🤖</b> column on the <a href="/problems" style={{ color: 'var(--accent2)' }}>Problems</a> page.
-              Click the icon to get plain-language meaning + ranked likely causes + first three things to check.
-            </li>
+            <li><b>🤖 Explain this trace</b> — on any trace detail page.</li>
+            <li><b>🤖</b> column on the <a href="/problems" style={{ color: 'var(--accent2)' }}>Problems</a> page —
+              plain-language meaning + ranked likely causes + first three things to check.</li>
           </ul>
-          <p style={{ fontSize: 11, color: 'var(--text3)', marginTop: 10 }}>
-            Cost: ~1¢-3¢ per call against Sonnet at typical trace size.
-          </p>
         </div>
       )}
     </div>

@@ -142,6 +142,8 @@ func (s *Server) Start() error {
 	// ── Runtime settings (admin) ───────────────────────────────────
 	mux.HandleFunc("GET /api/settings/retention", auth.RequireRole(auth.RoleAdmin, s.getRetention))
 	mux.HandleFunc("PUT /api/settings/retention", auth.RequireRole(auth.RoleAdmin, s.putRetention))
+	mux.HandleFunc("GET /api/settings/ai",        auth.RequireRole(auth.RoleAdmin, s.getAISettings))
+	mux.HandleFunc("PUT /api/settings/ai",        auth.RequireRole(auth.RoleAdmin, s.putAISettings))
 
 	// ── AI Copilot ─────────────────────────────────────────────────
 	mux.HandleFunc("GET    /api/copilot/config",            s.copilotConfig)
@@ -1646,6 +1648,45 @@ func (s *Server) putRetention(w http.ResponseWriter, r *http.Request) {
 // to show or hide the "AI explain" buttons. Doesn't leak the key.
 func (s *Server) copilotConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]bool{"enabled": s.copilot.Configured()})
+}
+
+// getAISettings returns the current Copilot config minus the actual
+// key. UI uses it to drive the editable form. We expose only
+// {provider, model, hasKey} — the secret never round-trips.
+func (s *Server) getAISettings(w http.ResponseWriter, r *http.Request) {
+	provider, model, hasKey := s.copilot.Snapshot()
+	writeJSON(w, map[string]any{
+		"provider": provider,
+		"model":    model,
+		"hasKey":   hasKey,
+	})
+}
+
+// putAISettings saves a new provider + key (+ optional model) and
+// updates the live service. Body shape matches the GET response sans
+// hasKey, plus an apiKey field. An empty apiKey legitimately disables
+// the feature (UI's "remove key" path).
+func (s *Server) putAISettings(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Provider string `json:"provider"`
+		APIKey   string `json:"apiKey"`
+		Model    string `json:"model"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest); return
+	}
+	if in.Provider != "" && in.Provider != copilot.ProviderAnthropic && in.Provider != copilot.ProviderGitHub {
+		http.Error(w, "provider must be 'anthropic' or 'github'", http.StatusBadRequest); return
+	}
+	if err := s.copilot.SavePersisted(r.Context(), s.store, in.Provider, in.APIKey, in.Model); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError); return
+	}
+	provider, model, hasKey := s.copilot.Snapshot()
+	writeJSON(w, map[string]any{
+		"provider": provider,
+		"model":    model,
+		"hasKey":   hasKey,
+	})
 }
 
 // copilotExplainTrace fetches the spans for a trace, builds a compact

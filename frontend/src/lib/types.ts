@@ -51,6 +51,20 @@ export interface RetentionSpec {
   profiles?: string;
 }
 
+// AI Copilot config edited from Settings. apiKey is write-only — the
+// GET response never includes it; hasKey is the masked indicator.
+export type AIProvider = 'anthropic' | 'github';
+export interface AISettings {
+  provider: AIProvider;
+  model: string;
+  hasKey: boolean;
+}
+export interface AISettingsInput {
+  provider: AIProvider;
+  apiKey: string;
+  model?: string;
+}
+
 // ── Public status page (admin types) ─────────────────────────────────────────
 
 export interface StatusPageConfig {
