@@ -787,11 +787,17 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	authed := user != nil && user.PasswordHash != "" && auth.CheckPassword(user.PasswordHash, body.Password)
 
 	if !authed && s.ldap.Enabled() {
+		log.Printf("[auth] local check failed for %q — falling back to LDAP", body.Email)
 		ldapUser, lerr := s.loginViaLDAP(r.Context(), body.Email, body.Password, user)
 		if lerr == nil {
 			user = ldapUser
 			authed = true
+			log.Printf("[auth] LDAP login OK for %q (role=%s, dn-trail in [ldap] lines above)", user.Email, user.Role)
+		} else {
+			log.Printf("[auth] LDAP login FAILED for %q: %v", body.Email, lerr)
 		}
+	} else if !authed {
+		log.Printf("[auth] local check failed for %q (LDAP disabled)", body.Email)
 	}
 
 	if !authed || user == nil {

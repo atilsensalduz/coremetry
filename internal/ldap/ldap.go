@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"strings"
 	"sync"
@@ -81,19 +82,34 @@ func (c *Config) Normalize() {
 		}
 	}
 	if c.UserSearchFilter == "" {
-		c.UserSearchFilter = "(sAMAccountName={{username}})"
+		// Default that handles the three common login formats Corporate-
+		// style AD users will type:
+		//   - bare sAMAccountName  ("j.doe")
+		//   - full UPN              ("j.doe@example")
+		//   - mail address          ("j.doe@example.com")
+		// objectclass=person prevents matching computer / service
+		// principal accounts that may share a similar name.
+		c.UserSearchFilter = "(&(objectclass=person)(|(sAMAccountName={{username}})(userPrincipalName={{username}})(mail={{username}})))"
 	}
 	if c.UserAttribute == "" {
 		c.UserAttribute = "sAMAccountName"
 	}
 	if c.EmailAttribute == "" {
-		c.EmailAttribute = "mail"
+		// userPrincipalName lights up on every AD account and matches
+		// the address the user typed at the login form. `mail` is
+		// often unset on internal-only accounts, so UPN is the safer
+		// default for inserting into our users table.
+		c.EmailAttribute = "userPrincipalName"
 	}
 	if c.DisplayAttribute == "" {
 		c.DisplayAttribute = "displayName"
 	}
 	if c.GroupFilter == "" {
-		c.GroupFilter = "(member={{userDN}})"
+		// LDAP_MATCHING_RULE_IN_CHAIN — walks nested group membership
+		// recursively, so `Coremetry-Admins` can be a member of
+		// `Coremetry-Roles` etc. Standard `(member={{userDN}})` only
+		// catches direct membership and breaks for AD-style nesting.
+		c.GroupFilter = "(member:1.2.840.113556.1.4.1941:={{userDN}})"
 	}
 	if c.DefaultRole == "" {
 		c.DefaultRole = "viewer"
@@ -222,7 +238,13 @@ func (s *Service) SavePersisted(ctx context.Context, store SettingsStore, c Conf
 	if err != nil {
 		return err
 	}
-	return store.PutSetting(ctx, settingsKey, raw)
+	if err := store.PutSetting(ctx, settingsKey, raw); err != nil {
+		return err
+	}
+	log.Printf("[ldap] config saved enabled=%v host=%s:%d tls=%v startTLS=%v baseDN=%q userFilter=%q groupFilter=%q mappings=%d defaultRole=%s",
+		c.Enabled, c.Host, c.Port, c.UseTLS, c.StartTLS, c.BaseDN,
+		c.UserSearchFilter, c.GroupFilter, len(c.GroupRoleMap), c.DefaultRole)
+	return nil
 }
 
 // ── Connection ──────────────────────────────────────────────────────────────
@@ -302,11 +324,15 @@ func (s *Service) TestConnection(ctx context.Context, override *Config) error {
 		}
 		cfg = c
 	}
+	log.Printf("[ldap] test-connection host=%s:%d tls=%v startTLS=%v bindDN=%q",
+		cfg.Host, cfg.Port, cfg.UseTLS, cfg.StartTLS, cfg.BindDN)
 	conn, err := bindAdmin(cfg)
 	if err != nil {
+		log.Printf("[ldap] test-connection FAILED: %v", err)
 		return err
 	}
 	defer conn.Close()
+	log.Printf("[ldap] test-connection OK")
 	return nil
 }
 
@@ -314,6 +340,7 @@ func (s *Service) TestConnection(ctx context.Context, override *Config) error {
 // configured filter template). Returns (nil, nil) for "no such user".
 func findUser(conn *goldap.Conn, c Config, username string) (*LDAPUser, error) {
 	filter := strings.ReplaceAll(c.UserSearchFilter, "{{username}}", goldap.EscapeFilter(username))
+	log.Printf("[ldap] user search baseDN=%q filter=%s", c.BaseDN, filter)
 	req := goldap.NewSearchRequest(
 		c.BaseDN, goldap.ScopeWholeSubtree, goldap.NeverDerefAliases,
 		2, 5, false,
@@ -323,16 +350,26 @@ func findUser(conn *goldap.Conn, c Config, username string) (*LDAPUser, error) {
 	)
 	res, err := conn.Search(req)
 	if err != nil {
+		log.Printf("[ldap] user search FAILED: %v", err)
 		return nil, fmt.Errorf("user search: %w", err)
 	}
 	if len(res.Entries) == 0 {
+		log.Printf("[ldap] user search returned 0 entries — entered username %q does not match filter or baseDN scope", username)
 		return nil, nil
 	}
 	if len(res.Entries) > 1 {
+		dns := make([]string, 0, len(res.Entries))
+		for _, e := range res.Entries {
+			dns = append(dns, e.DN)
+		}
+		log.Printf("[ldap] user search returned %d entries (filter too loose?): %v", len(res.Entries), dns)
 		return nil, fmt.Errorf("user search returned %d entries (filter too loose?)", len(res.Entries))
 	}
 	e := res.Entries[0]
 	groups := e.GetAttributeValues("memberOf")
+	log.Printf("[ldap] user found dn=%q (%s=%q, mail=%q, memberOf=%d direct groups)",
+		e.DN, c.UserAttribute, e.GetAttributeValue(c.UserAttribute),
+		e.GetAttributeValue(c.EmailAttribute), len(groups))
 	return &LDAPUser{
 		DN:          e.DN,
 		Username:    firstNonEmpty(e.GetAttributeValue(c.UserAttribute), username),
@@ -401,8 +438,10 @@ func (s *Service) Authenticate(ctx context.Context, username, password string) (
 	if !c.Enabled {
 		return nil, errors.New("ldap disabled")
 	}
+	log.Printf("[ldap] authenticate attempt username=%q", username)
 	conn, err := bindAdmin(c)
 	if err != nil {
+		log.Printf("[ldap] service-bind FAILED: %v", err)
 		return nil, err
 	}
 	defer conn.Close()
@@ -415,8 +454,10 @@ func (s *Service) Authenticate(ctx context.Context, username, password string) (
 		return nil, errors.New("user not found in directory")
 	}
 	if err := conn.Bind(user.DN, password); err != nil {
+		log.Printf("[ldap] user-bind FAILED for dn=%q: %v", user.DN, err)
 		return nil, errors.New("invalid credentials")
 	}
+	log.Printf("[ldap] user-bind OK dn=%q", user.DN)
 
 	// Group lookup — separate search if the user entry didn't ship
 	// memberOf (some directories don't populate it). Also folds the
@@ -424,6 +465,7 @@ func (s *Service) Authenticate(ctx context.Context, username, password string) (
 	groups := append([]string(nil), user.Groups...)
 	if c.GroupSearchBase != "" {
 		grpFilter := strings.ReplaceAll(c.GroupFilter, "{{userDN}}", goldap.EscapeFilter(user.DN))
+		log.Printf("[ldap] group search baseDN=%q filter=%s", c.GroupSearchBase, grpFilter)
 		grpReq := goldap.NewSearchRequest(
 			c.GroupSearchBase, goldap.ScopeWholeSubtree, goldap.NeverDerefAliases,
 			0, 5, false,
@@ -432,14 +474,24 @@ func (s *Service) Authenticate(ctx context.Context, username, password string) (
 			nil,
 		)
 		grpRes, err := conn.Search(grpReq)
-		if err == nil {
+		if err != nil {
+			log.Printf("[ldap] group search FAILED: %v (continuing with memberOf only)", err)
+		} else {
 			for _, e := range grpRes.Entries {
 				groups = append(groups, e.DN)
 			}
+			log.Printf("[ldap] group search returned %d entries", len(grpRes.Entries))
 		}
 	}
 	user.Groups = groups
 	role := mapRole(groups, c.GroupRoleMap, c.DefaultRole)
+	log.Printf("[ldap] resolved role=%q (matched %d groups against %d mappings, fallback=%q)",
+		role, len(groups), len(c.GroupRoleMap), c.DefaultRole)
+	if len(groups) > 0 && len(groups) <= 10 {
+		// Only dump full group list when it's small — large AD users
+		// can have 50+ memberships and we don't want to flood logs.
+		log.Printf("[ldap] user groups: %v", groups)
+	}
 	return &AuthResult{User: *user, Role: role}, nil
 }
 
