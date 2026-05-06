@@ -101,7 +101,7 @@ export default function UsersPage() {
                         )}
                       </td>
                       <td>
-                        <span className={`badge ${u.role === 'admin' ? 'b-info' : 'b-ok'}`}>
+                        <span className={`badge ${u.role === 'admin' ? 'b-info' : u.role === 'editor' ? 'b-warn' : 'b-ok'}`}>
                           {u.role}
                         </span>
                       </td>
@@ -157,7 +157,7 @@ export default function UsersPage() {
 function NewUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<'admin' | 'viewer'>('viewer');
+  const [role, setRole] = useState<'admin' | 'editor' | 'viewer'>('viewer');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -186,8 +186,9 @@ function NewUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
             onChange={e => setPassword(e.target.value)} style={{ width: '100%' }} />
         </Field>
         <Field label="Role">
-          <select value={role} onChange={e => setRole(e.target.value as 'admin' | 'viewer')}>
+          <select value={role} onChange={e => setRole(e.target.value as 'admin' | 'editor' | 'viewer')}>
             <option value="viewer">Viewer (read only)</option>
+            <option value="editor">Editor (dashboards / monitors / alerts)</option>
             <option value="admin">Admin (full access)</option>
           </select>
         </Field>

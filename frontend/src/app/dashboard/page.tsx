@@ -65,7 +65,7 @@ function Inner() {
   if (doc === null) return <Empty icon="⚠" title="Dashboard not found" />;
   if (!draft) return <Spinner />;
 
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'editor';
   const panels: Panel[] = draft.panels ?? [];
 
   const updatePanel = (panel: Panel) => {

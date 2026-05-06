@@ -22,6 +22,7 @@ import (
 	"github.com/cilcenk/coremetry/internal/consumer"
 	"github.com/cilcenk/coremetry/internal/evaluator"
 	"github.com/cilcenk/coremetry/internal/copilot"
+	"github.com/cilcenk/coremetry/internal/ldap"
 	"github.com/cilcenk/coremetry/internal/logstore"
 	"github.com/cilcenk/coremetry/internal/monitor"
 	"github.com/cilcenk/coremetry/internal/notify"
@@ -172,8 +173,19 @@ func main() {
 		log.Printf("[copilot] AI explain enabled (provider=%s model=%s)", p, m)
 	}
 
+	// ── LDAP / AD enterprise auth (optional) ─────────────────────────────────
+	ldapSvc := ldap.New()
+	if err := ldapSvc.LoadPersisted(ctx, store); err != nil {
+		log.Printf("[ldap] load persisted config: %v", err)
+	}
+	if ldapSvc.Enabled() {
+		c := ldapSvc.Snapshot()
+		log.Printf("[ldap] enterprise auth enabled (host=%s:%d tls=%v startTLS=%v baseDN=%s)",
+			c.Host, c.Port, c.UseTLS, c.StartTLS, c.BaseDN)
+	}
+
 	// ── HTTP server (OTLP + API + UI) ─────────────────────────────────────────
-	srv := api.NewServer(cfg.Listen.HTTP, ing, store, logsStore, webFS, authSvc, oidcSvc, cacheImpl, notifier, copilotSvc)
+	srv := api.NewServer(cfg.Listen.HTTP, ing, store, logsStore, webFS, authSvc, oidcSvc, ldapSvc, cacheImpl, notifier, copilotSvc)
 	if cfg.Auth.DemoMode {
 		// Demo mode auto-signs the visitor in as the configured initial
 		// admin so they can poke at every screen, including admin-only

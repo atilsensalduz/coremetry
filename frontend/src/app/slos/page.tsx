@@ -12,7 +12,7 @@ export default function SLOsPage() {
   const [items, setItems] = useState<SLORow[] | null | undefined>(undefined);
   const [services, setServices] = useState<string[]>([]);
   const [showNew, setShowNew] = useState(false);
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'editor';
 
   const refresh = () => {
     setItems(undefined);

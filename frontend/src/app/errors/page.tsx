@@ -34,7 +34,7 @@ const NATURAL_DIR: Record<SortKey, SortDir> = {
 
 export default function ExceptionsPage() {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'editor';
   const [tab, setTab] = useState<string>('open');
   const [service, setService] = useState('');
   const [search, setSearch] = useState('');

@@ -6,6 +6,7 @@ import (
 	"embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -23,6 +24,7 @@ import (
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/copilot"
 	"github.com/cilcenk/coremetry/internal/logstore"
+	"github.com/cilcenk/coremetry/internal/ldap"
 	"github.com/cilcenk/coremetry/internal/notify"
 	"github.com/cilcenk/coremetry/internal/otlp"
 	"github.com/cilcenk/coremetry/internal/profileconv"
@@ -36,6 +38,7 @@ type Server struct {
 	webFS       embed.FS
 	auth        *auth.Service
 	oidc        *auth.OIDCService // nil when SSO disabled
+	ldap        *ldap.Service     // always set; Enabled() reports config presence
 	cache       cache.Cache       // Noop when Redis isn't configured
 	notify      *notify.Notifier
 	copilot     *copilot.Service  // nil when AI key not configured
@@ -59,10 +62,10 @@ type rateSample struct {
 	count int64
 }
 
-func NewServer(addr string, ing *otlp.Ingester, store *chstore.Store, logs logstore.Store, webFS embed.FS, authSvc *auth.Service, oidcSvc *auth.OIDCService, c cache.Cache, n *notify.Notifier, cop *copilot.Service) *Server {
+func NewServer(addr string, ing *otlp.Ingester, store *chstore.Store, logs logstore.Store, webFS embed.FS, authSvc *auth.Service, oidcSvc *auth.OIDCService, ldapSvc *ldap.Service, c cache.Cache, n *notify.Notifier, cop *copilot.Service) *Server {
 	return &Server{
 		addr: addr, store: store, logs: logs, ing: ing, webFS: webFS,
-		auth: authSvc, oidc: oidcSvc, cache: c, notify: n, copilot: cop,
+		auth: authSvc, oidc: oidcSvc, ldap: ldapSvc, cache: c, notify: n, copilot: cop,
 		rateSamples: map[string]rateSample{},
 	}
 }
@@ -75,6 +78,12 @@ func (s *Server) EnableDemoMode(email, password string) {
 	s.demoEmail = email
 	s.demoPassword = password
 }
+
+// editorRoles is the role bundle used by RequireAnyRole on routes
+// that admin + editor may both use (dashboards, monitors, alerts,
+// incidents, exception triage). Admin-only routes (user mgmt, system
+// settings, channels, status page) keep RequireRole for clarity.
+var editorRoles = []string{auth.RoleAdmin, auth.RoleEditor}
 
 func (s *Server) Start() error {
 	mux := http.NewServeMux()
@@ -111,16 +120,16 @@ func (s *Server) Start() error {
 	// Errors Inbox — stateful exception groups (read = any, write = admin)
 	mux.HandleFunc("GET    /api/exception-groups",                s.listExceptionGroups)
 	mux.HandleFunc("GET    /api/exception-groups/{fp}/samples",   s.getExceptionGroupSamples)
-	mux.HandleFunc("POST   /api/exception-groups/{fp}/state",     auth.RequireRole(auth.RoleAdmin, s.setExceptionGroupState))
-	mux.HandleFunc("POST   /api/exception-groups/{fp}/assign",    auth.RequireRole(auth.RoleAdmin, s.assignExceptionGroup))
+	mux.HandleFunc("POST   /api/exception-groups/{fp}/state",     auth.RequireAnyRole(editorRoles, s.setExceptionGroupState))
+	mux.HandleFunc("POST   /api/exception-groups/{fp}/assign",    auth.RequireAnyRole(editorRoles, s.assignExceptionGroup))
 	mux.HandleFunc("GET    /api/services/{name}/operations", s.svcOperationSummary)
 	mux.HandleFunc("GET    /api/services/{name}/callers",  s.svcCallers)
 	mux.HandleFunc("GET    /api/services/{name}/callees",  s.svcCallees)
 	mux.HandleFunc("GET    /api/problems",                  s.listProblems)
 	mux.HandleFunc("GET    /api/alert-rules",               s.listAlertRules)
-	mux.HandleFunc("POST   /api/alert-rules",               auth.RequireRole(auth.RoleAdmin, s.createAlertRule))
-	mux.HandleFunc("DELETE /api/alert-rules/{id}",          auth.RequireRole(auth.RoleAdmin, s.deleteAlertRule))
-	mux.HandleFunc("POST   /api/alert-rules/{id}/enable",   auth.RequireRole(auth.RoleAdmin, s.enableAlertRule))
+	mux.HandleFunc("POST   /api/alert-rules",               auth.RequireAnyRole(editorRoles, s.createAlertRule))
+	mux.HandleFunc("DELETE /api/alert-rules/{id}",          auth.RequireAnyRole(editorRoles, s.deleteAlertRule))
+	mux.HandleFunc("POST   /api/alert-rules/{id}/enable",   auth.RequireAnyRole(editorRoles, s.enableAlertRule))
 	mux.HandleFunc("GET /api/health", s.getHealth)
 	mux.HandleFunc("GET /api/status", s.getStatus)
 
@@ -144,6 +153,11 @@ func (s *Server) Start() error {
 	mux.HandleFunc("PUT /api/settings/retention", auth.RequireRole(auth.RoleAdmin, s.putRetention))
 	mux.HandleFunc("GET /api/settings/ai",        auth.RequireRole(auth.RoleAdmin, s.getAISettings))
 	mux.HandleFunc("PUT /api/settings/ai",        auth.RequireRole(auth.RoleAdmin, s.putAISettings))
+	mux.HandleFunc("GET  /api/settings/ldap",        auth.RequireRole(auth.RoleAdmin, s.getLDAPSettings))
+	mux.HandleFunc("PUT  /api/settings/ldap",        auth.RequireRole(auth.RoleAdmin, s.putLDAPSettings))
+	mux.HandleFunc("POST /api/settings/ldap/test",   auth.RequireRole(auth.RoleAdmin, s.testLDAPConnection))
+	mux.HandleFunc("GET  /api/settings/ldap/search", auth.RequireRole(auth.RoleAdmin, s.searchLDAPUsers))
+	mux.HandleFunc("POST /api/users/from-ldap",      auth.RequireRole(auth.RoleAdmin, s.provisionLDAPUser))
 
 	// ── AI Copilot ─────────────────────────────────────────────────
 	mux.HandleFunc("GET    /api/copilot/config",            s.copilotConfig)
@@ -152,21 +166,21 @@ func (s *Server) Start() error {
 
 	// ── Incident management ───────────────────────────────────────
 	mux.HandleFunc("GET    /api/incidents",                 s.listIncidents)
-	mux.HandleFunc("POST   /api/incidents",                 auth.RequireRole(auth.RoleAdmin, s.createIncident))
+	mux.HandleFunc("POST   /api/incidents",                 auth.RequireAnyRole(editorRoles, s.createIncident))
 	mux.HandleFunc("GET    /api/incidents/{id}",            s.getIncident)
-	mux.HandleFunc("PUT    /api/incidents/{id}",            auth.RequireRole(auth.RoleAdmin, s.updateIncident))
-	mux.HandleFunc("POST   /api/incidents/{id}/ack",        auth.RequireRole(auth.RoleAdmin, s.ackIncident))
-	mux.HandleFunc("POST   /api/incidents/{id}/resolve",    auth.RequireRole(auth.RoleAdmin, s.resolveIncident))
-	mux.HandleFunc("POST   /api/incidents/{id}/note",       auth.RequireRole(auth.RoleAdmin, s.addIncidentNote))
+	mux.HandleFunc("PUT    /api/incidents/{id}",            auth.RequireAnyRole(editorRoles, s.updateIncident))
+	mux.HandleFunc("POST   /api/incidents/{id}/ack",        auth.RequireAnyRole(editorRoles, s.ackIncident))
+	mux.HandleFunc("POST   /api/incidents/{id}/resolve",    auth.RequireAnyRole(editorRoles, s.resolveIncident))
+	mux.HandleFunc("POST   /api/incidents/{id}/note",       auth.RequireAnyRole(editorRoles, s.addIncidentNote))
 	mux.HandleFunc("GET    /api/incidents/{id}/timeline",   s.incidentTimeline)
 	mux.HandleFunc("GET    /api/incidents/{id}/problems",   s.incidentProblems)
 
 	// ── Synthetic monitoring ───────────────────────────────────────
 	mux.HandleFunc("GET    /api/monitors",                s.listMonitors)
-	mux.HandleFunc("POST   /api/monitors",                auth.RequireRole(auth.RoleAdmin, s.createMonitor))
+	mux.HandleFunc("POST   /api/monitors",                auth.RequireAnyRole(editorRoles, s.createMonitor))
 	mux.HandleFunc("GET    /api/monitors/{id}",           s.getMonitor)
-	mux.HandleFunc("PUT    /api/monitors/{id}",           auth.RequireRole(auth.RoleAdmin, s.updateMonitor))
-	mux.HandleFunc("DELETE /api/monitors/{id}",           auth.RequireRole(auth.RoleAdmin, s.deleteMonitor))
+	mux.HandleFunc("PUT    /api/monitors/{id}",           auth.RequireAnyRole(editorRoles, s.updateMonitor))
+	mux.HandleFunc("DELETE /api/monitors/{id}",           auth.RequireAnyRole(editorRoles, s.deleteMonitor))
 	mux.HandleFunc("GET    /api/monitors/{id}/timeline",  s.monitorTimeline)
 	// Heartbeat ingest — no auth so cron jobs / batch jobs can hit
 	// it directly with curl. The token in the URL is the security
@@ -187,15 +201,15 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET    /api/slos",            s.listSLOs)
 	mux.HandleFunc("GET    /api/slos/{id}",       s.getSLO)
 	mux.HandleFunc("GET    /api/slos/{id}/status", s.sloStatus)
-	mux.HandleFunc("POST   /api/slos",            auth.RequireRole(auth.RoleAdmin, s.createSLO))
-	mux.HandleFunc("DELETE /api/slos/{id}",       auth.RequireRole(auth.RoleAdmin, s.deleteSLO))
+	mux.HandleFunc("POST   /api/slos",            auth.RequireAnyRole(editorRoles, s.createSLO))
+	mux.HandleFunc("DELETE /api/slos/{id}",       auth.RequireAnyRole(editorRoles, s.deleteSLO))
 
 	// Dashboards (read = any user, write = admin)
 	mux.HandleFunc("GET    /api/dashboards",      s.listDashboards)
 	mux.HandleFunc("GET    /api/dashboards/{id}", s.getDashboard)
-	mux.HandleFunc("POST   /api/dashboards",      auth.RequireRole(auth.RoleAdmin, s.createDashboard))
-	mux.HandleFunc("PUT    /api/dashboards/{id}", auth.RequireRole(auth.RoleAdmin, s.updateDashboard))
-	mux.HandleFunc("DELETE /api/dashboards/{id}", auth.RequireRole(auth.RoleAdmin, s.deleteDashboard))
+	mux.HandleFunc("POST   /api/dashboards",      auth.RequireAnyRole(editorRoles, s.createDashboard))
+	mux.HandleFunc("PUT    /api/dashboards/{id}", auth.RequireAnyRole(editorRoles, s.updateDashboard))
+	mux.HandleFunc("DELETE /api/dashboards/{id}", auth.RequireAnyRole(editorRoles, s.deleteDashboard))
 
 	// Settings + notification channels (admin only)
 	mux.HandleFunc("GET    /api/settings/smtp",       auth.RequireRole(auth.RoleAdmin, s.getSMTPSettings))
@@ -755,15 +769,31 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "email and password required", http.StatusBadRequest)
 		return
 	}
+
+	// Two-pass auth:
+	//   (1) Local bcrypt — bootstrap admin + any user with a saved
+	//       password hash. Always tried first so the bootstrap admin
+	//       keeps a path in even when LDAP breaks.
+	//   (2) LDAP — when enabled and local didn't match. Lets domain
+	//       users sign in with their AD creds; first successful LDAP
+	//       login auto-provisions a row in our users table (role
+	//       resolved via group→role mapping).
 	user, err := s.store.GetUserByEmail(r.Context(), body.Email)
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
-	// Run bcrypt either way to keep the timing path consistent across the
-	// "unknown user" and "wrong password" branches.
-	ok := user != nil && auth.CheckPassword(user.PasswordHash, body.Password)
-	if !ok {
+	authed := user != nil && user.PasswordHash != "" && auth.CheckPassword(user.PasswordHash, body.Password)
+
+	if !authed && s.ldap.Enabled() {
+		ldapUser, lerr := s.loginViaLDAP(r.Context(), body.Email, body.Password, user)
+		if lerr == nil {
+			user = ldapUser
+			authed = true
+		}
+	}
+
+	if !authed || user == nil {
 		http.Error(w, `{"error":"invalid credentials"}`, http.StatusUnauthorized)
 		return
 	}
@@ -809,6 +839,222 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// loginViaLDAP runs the directory bind for the entered credentials,
+// resolves a Coremetry role from the user's groups (via the saved
+// group→role mapping), and ensures a row exists in the users table —
+// either updating the existing one or auto-provisioning a fresh one.
+//
+// Returns the persisted *chstore.User so the caller can issue a JWT
+// directly. Pre-existing rows keep their stored role unless a group
+// mapping bumps them up to a higher privilege (mapping is the
+// "source of truth" for org-managed users).
+func (s *Server) loginViaLDAP(ctx context.Context, email, password string, existing *chstore.User) (*chstore.User, error) {
+	// Try the user-entered string both as a username and (if it looks
+	// like an email) as the local part. The configured user filter
+	// usually matches sAMAccountName, so handing it `cenk@corp.example.com`
+	// won't bind — but `cenk` will. Splitting on '@' covers both.
+	usernames := []string{email}
+	if at := strings.IndexByte(email, '@'); at > 0 {
+		usernames = append(usernames, email[:at])
+	}
+	var (
+		res *ldap.AuthResult
+		err error
+	)
+	for _, u := range usernames {
+		res, err = s.ldap.Authenticate(ctx, u, password)
+		if err == nil && res != nil {
+			break
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	if res == nil {
+		return nil, errors.New("ldap auth: no result")
+	}
+
+	// Email — prefer the directory's mail attribute, fall back to the
+	// entered identifier so we always have a non-empty key.
+	finalEmail := strings.ToLower(strings.TrimSpace(res.User.Email))
+	if finalEmail == "" {
+		finalEmail = email
+	}
+
+	// Provisioning logic:
+	//   - If a row already exists for this email, keep its ID +
+	//     persist the latest role from the group mapping (so AD
+	//     becomes the source of truth on every login).
+	//   - If admin pre-provisioned a row (existing != nil) without
+	//     specifying a group-derived role, we still trust the saved
+	//     role over the mapping default — that's the "manual override"
+	//     escape hatch.
+	if existing == nil {
+		existing, _ = s.store.GetUserByEmail(ctx, finalEmail)
+	}
+	role := res.Role
+	if existing != nil && existing.Role != "" && existing.AuthProvider == "ldap" {
+		// Reapply group mapping every login — promotions and demotions
+		// in AD reflect on next sign-in. Manually-set role on a `local`
+		// user wouldn't get here.
+	} else if existing != nil && existing.AuthProvider != "ldap" && existing.Role != "" {
+		role = existing.Role
+	}
+	if !auth.IsValidRole(role) {
+		role = auth.RoleViewer
+	}
+
+	u := chstore.User{
+		Email:        finalEmail,
+		Role:         role,
+		AuthProvider: "ldap",
+	}
+	if existing != nil {
+		u.ID = existing.ID
+		u.CreatedAt = existing.CreatedAt
+	} else {
+		idBytes := make([]byte, 8)
+		_, _ = rand.Read(idBytes)
+		u.ID = hex.EncodeToString(idBytes)
+	}
+	if err := s.store.UpsertUser(ctx, u); err != nil {
+		return nil, fmt.Errorf("provision ldap user: %w", err)
+	}
+	// Re-read so callers get the canonical row (CreatedAt set by CH on
+	// first insert via DEFAULT now()).
+	saved, err := s.store.GetUserByEmail(ctx, finalEmail)
+	if err != nil || saved == nil {
+		return &u, nil
+	}
+	return saved, nil
+}
+
+// ── LDAP settings (admin) ────────────────────────────────────────────────────
+
+// getLDAPSettings returns the saved LDAP config minus the bind
+// password (Sanitize() replaces it with the "__SET__" sentinel so the
+// UI can show "saved — leave empty to keep current").
+func (s *Server) getLDAPSettings(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, s.ldap.Snapshot())
+}
+
+// putLDAPSettings saves a new LDAP config and updates the live
+// service. An empty BindPassword preserves the saved one (matches the
+// UI's "leave empty" affordance).
+func (s *Server) putLDAPSettings(w http.ResponseWriter, r *http.Request) {
+	var c ldap.Config
+	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest); return
+	}
+	// Drop the "password is set" sentinel — the field's empty value
+	// from the UI means "keep current", which Service.SavePersisted
+	// already handles.
+	if c.BindPassword == "__SET__" {
+		c.BindPassword = ""
+	}
+	for _, m := range c.GroupRoleMap {
+		if m.Role != "" && !auth.IsValidRole(m.Role) {
+			http.Error(w, "invalid role in mapping: "+m.Role, http.StatusBadRequest); return
+		}
+	}
+	if c.DefaultRole != "" && !auth.IsValidRole(c.DefaultRole) {
+		http.Error(w, "invalid defaultRole", http.StatusBadRequest); return
+	}
+	if err := s.ldap.SavePersisted(r.Context(), s.store, c); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError); return
+	}
+	writeJSON(w, s.ldap.Snapshot())
+}
+
+// testLDAPConnection runs the dial+bind probe against either the
+// saved config (empty body) or a draft (PUT-shape body) — that lets
+// the UI verify creds before saving.
+func (s *Server) testLDAPConnection(w http.ResponseWriter, r *http.Request) {
+	var draft *ldap.Config
+	if r.ContentLength > 0 {
+		var c ldap.Config
+		if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest); return
+		}
+		if c.BindPassword == "__SET__" {
+			c.BindPassword = ""
+		}
+		draft = &c
+	}
+	if err := s.ldap.TestConnection(r.Context(), draft); err != nil {
+		writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
+}
+
+// searchLDAPUsers proxies the admin's "find a user to provision"
+// query into the directory. Returned entries are not yet provisioned;
+// the caller posts to /api/users/from-ldap to actually create a row.
+func (s *Server) searchLDAPUsers(w http.ResponseWriter, r *http.Request) {
+	if !s.ldap.Enabled() {
+		http.Error(w, "ldap not enabled", http.StatusBadRequest); return
+	}
+	q := r.URL.Query().Get("q")
+	limit := 25
+	if v := r.URL.Query().Get("limit"); v != "" {
+		fmt.Sscan(v, &limit)
+	}
+	users, err := s.ldap.Search(r.Context(), q, limit)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError); return
+	}
+	writeJSON(w, map[string]any{"users": users})
+}
+
+// provisionLDAPUser inserts a row in the users table for an LDAP
+// directory entry, with a role chosen by the admin. This is the "pre-
+// provision before first login" path — useful when group→role
+// mapping isn't enough or you want to grant admin to a single user
+// that doesn't belong to the AD admin group.
+func (s *Server) provisionLDAPUser(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Email string `json:"email"`
+		Role  string `json:"role"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest); return
+	}
+	body.Email = strings.ToLower(strings.TrimSpace(body.Email))
+	if body.Email == "" {
+		http.Error(w, "email required", http.StatusBadRequest); return
+	}
+	if !auth.IsValidRole(body.Role) {
+		http.Error(w, "role must be admin, editor or viewer", http.StatusBadRequest); return
+	}
+	existing, _ := s.store.GetUserByEmail(r.Context(), body.Email)
+	u := chstore.User{
+		Email:        body.Email,
+		Role:         body.Role,
+		AuthProvider: "ldap",
+	}
+	if existing != nil {
+		u.ID = existing.ID
+		u.CreatedAt = existing.CreatedAt
+		// Preserve any password hash on a converting user — they may
+		// have been local before. After a successful LDAP login the
+		// hash becomes irrelevant but keeping it costs nothing.
+		u.PasswordHash = existing.PasswordHash
+	} else {
+		idBytes := make([]byte, 8)
+		_, _ = rand.Read(idBytes)
+		u.ID = hex.EncodeToString(idBytes)
+	}
+	if err := s.store.UpsertUser(r.Context(), u); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError); return
+	}
+	saved, _ := s.store.GetUserByEmail(r.Context(), body.Email)
+	if saved == nil {
+		saved = &u
+	}
+	writeJSON(w, saved)
+}
+
 // authConfig describes which auth methods the UI should offer. Public on
 // purpose — the login page must be able to call it before the user signs in.
 //
@@ -816,33 +1062,31 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 // credentials so the login form can pre-fill them. That is intentionally
 // public — anyone with the demo URL is meant to log in as the demo user.
 func (s *Server) authConfig(w http.ResponseWriter, r *http.Request) {
-	// Cache key includes demoMode so flipping it doesn't keep serving stale
-	// auth config to the login page.
-	key := "auth-config"
-	if s.demoMode {
-		key = "auth-config:demo"
+	// Don't cache — admin LDAP/AI/demo edits should reflect on the
+	// login page within a single round-trip, not after a 60s wait.
+	resp := map[string]interface{}{
+		"local": map[string]bool{"enabled": true},
+		"oidc":  map[string]interface{}{"enabled": false},
+		"demo":  map[string]interface{}{"enabled": false},
+		"ldap":  map[string]interface{}{"enabled": false},
 	}
-	s.serveCached(w, r, key, 60*time.Second, func() (any, error) {
-		resp := map[string]interface{}{
-			"local": map[string]bool{"enabled": true},
-			"oidc":  map[string]interface{}{"enabled": false},
-			"demo":  map[string]interface{}{"enabled": false},
+	if s.oidc.Enabled() {
+		resp["oidc"] = map[string]interface{}{
+			"enabled":     true,
+			"displayName": s.oidc.DisplayName(),
 		}
-		if s.oidc.Enabled() {
-			resp["oidc"] = map[string]interface{}{
-				"enabled":     true,
-				"displayName": s.oidc.DisplayName(),
-			}
+	}
+	if s.demoMode {
+		resp["demo"] = map[string]interface{}{
+			"enabled":  true,
+			"email":    s.demoEmail,
+			"password": s.demoPassword,
 		}
-		if s.demoMode {
-			resp["demo"] = map[string]interface{}{
-				"enabled":  true,
-				"email":    s.demoEmail,
-				"password": s.demoPassword,
-			}
-		}
-		return resp, nil
-	})
+	}
+	if s.ldap.Enabled() {
+		resp["ldap"] = map[string]interface{}{"enabled": true}
+	}
+	writeJSON(w, resp)
 }
 
 // ── OIDC sign-in ─────────────────────────────────────────────────────────────

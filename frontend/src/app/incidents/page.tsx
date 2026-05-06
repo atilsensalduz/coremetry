@@ -15,7 +15,7 @@ import type { Incident, IncidentStatus } from '@/lib/types';
 // non-alert sourced events (e.g. customer-reported issue).
 export default function IncidentsPage() {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'editor';
   const [items, setItems] = useState<Incident[] | null | undefined>(undefined);
   const [statusFilter, setStatusFilter] = useState<'all' | IncidentStatus>('all');
   const [serviceFilter, setServiceFilter] = useState('');

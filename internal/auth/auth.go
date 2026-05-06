@@ -19,13 +19,26 @@ import (
 )
 
 const (
+	// RoleAdmin can do everything (user mgmt, settings, all CRUD).
+	// RoleEditor can create/edit content (dashboards, monitors,
+	//            alert rules, incidents) but not user mgmt or system
+	//            settings.
+	// RoleViewer is read-only.
 	RoleAdmin  = "admin"
+	RoleEditor = "editor"
 	RoleViewer = "viewer"
 
 	// CookieName is set on login and cleared on logout. It must be the
 	// same on the frontend (login fetch uses credentials: 'include').
 	CookieName = "coremetry_session"
 )
+
+// IsValidRole reports whether s is one of the canonical role strings.
+// Used by handlers that accept a role from outside (admin upserting
+// users, LDAP group→role mapping).
+func IsValidRole(s string) bool {
+	return s == RoleAdmin || s == RoleEditor || s == RoleViewer
+}
 
 type ctxKey string
 
@@ -194,6 +207,26 @@ func RequireRole(role string, h http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		h(w, r)
+	}
+}
+
+// RequireAnyRole accepts any of the listed roles. Used for routes
+// that should be open to admin and editor (dashboard/monitor CRUD
+// etc.) — admin-only routes still use RequireRole for clarity.
+func RequireAnyRole(roles []string, h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		c := FromContext(r.Context())
+		if c == nil {
+			writeUnauth(w, "insufficient role")
+			return
+		}
+		for _, role := range roles {
+			if c.Role == role {
+				h(w, r)
+				return
+			}
+		}
+		writeUnauth(w, "insufficient role")
 	}
 }
 

@@ -18,7 +18,7 @@ function Inner() {
   const router = useRouter();
   const { user } = useAuth();
   const id = sp.get('id') ?? '';
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'editor';
   const [inc, setInc] = useState<Incident | null | undefined>(undefined);
   const [timeline, setTimeline] = useState<IncidentEvent[]>([]);
   const [problems, setProblems] = useState<string[]>([]);

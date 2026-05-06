@@ -21,7 +21,7 @@ export default function DashboardsPage() {
   };
   useEffect(refresh, []);
 
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'editor';
 
   return (
     <>

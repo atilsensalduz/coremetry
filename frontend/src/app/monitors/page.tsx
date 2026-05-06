@@ -17,7 +17,7 @@ import type { Monitor, MonitorRow, MonitorResult } from '@/lib/types';
 //                 the monitor's `intervalSec` (treated as grace window).
 export default function MonitorsPage() {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'editor';
   const [items, setItems] = useState<MonitorRow[] | null | undefined>(undefined);
   const [showNew, setShowNew] = useState(false);
   const [editing, setEditing] = useState<MonitorRow | null>(null);

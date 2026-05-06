@@ -13,6 +13,7 @@ import type {
   StatusPageConfig, StatusComponent, StatusSubscriber,
   RetentionSpec,
   AISettings, AISettingsInput,
+  Role, LDAPConfig, LDAPDirectoryUser,
 } from './types';
 
 // Empty base = same origin (works in production where Go serves both UI and API).
@@ -96,6 +97,27 @@ export const api = {
     request<AISettings>(`/api/settings/ai`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(s),
+    }),
+
+  // Runtime settings: LDAP / AD enterprise auth
+  getLDAPSettings: () => get<LDAPConfig>(`/api/settings/ldap`),
+  putLDAPSettings: (c: LDAPConfig) =>
+    request<LDAPConfig>(`/api/settings/ldap`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(c),
+    }),
+  testLDAPConnection: (draft?: LDAPConfig) =>
+    request<{ ok: boolean; error?: string }>(`/api/settings/ldap/test`, {
+      method: 'POST',
+      headers: draft ? { 'Content-Type': 'application/json' } : undefined,
+      body: draft ? JSON.stringify(draft) : undefined,
+    }),
+  searchLDAPUsers: (q: string, limit = 25) =>
+    get<{ users: LDAPDirectoryUser[] | null }>(`/api/settings/ldap/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+  provisionLDAPUser: (email: string, role: Role) =>
+    request<AuthUser>(`/api/users/from-ldap`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, role }),
     }),
 
   // AI Copilot
@@ -293,7 +315,7 @@ export const api = {
 
   // ── User management (admin) ──────────────────────────────────────────────
   listUsers: () => get<UserRow[] | null>('/api/users'),
-  createUser: (email: string, password: string, role: 'admin' | 'viewer') =>
+  createUser: (email: string, password: string, role: Role) =>
     request<AuthUser>('/api/users', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -324,6 +346,7 @@ export interface AuthConfigResponse {
   local: { enabled: boolean };
   oidc:  { enabled: boolean; displayName?: string };
   demo?: { enabled: boolean; email?: string; password?: string };
+  ldap?: { enabled: boolean };
 }
 
 export interface MetricQueryParams {

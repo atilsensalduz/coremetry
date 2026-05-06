@@ -63,6 +63,7 @@ export default function LoginPage() {
   const oidcEnabled = !!config?.oidc.enabled;
   const oidcLabel = config?.oidc.displayName || 'SSO';
   const demoEnabled = !!config?.demo?.enabled;
+  const ldapEnabled = !!config?.ldap?.enabled;
 
   return (
     <div style={{
@@ -130,10 +131,20 @@ export default function LoginPage() {
           </>
         )}
 
+        {ldapEnabled && (
+          <div style={{
+            marginBottom: 14, padding: '6px 10px', borderRadius: 6,
+            background: 'rgba(66,92,199,0.08)', border: '1px solid rgba(66,92,199,0.30)',
+            color: 'var(--text2)', fontSize: 11, lineHeight: 1.4,
+          }}>
+            Sign in with your <b style={{ color: 'var(--text)' }}>domain account</b> (username or email).
+          </div>
+        )}
+
         <label style={{ display: 'block', fontSize: 12, color: 'var(--text2)', marginBottom: 4 }}>
-          Email
+          {ldapEnabled ? 'Username or email' : 'Email'}
         </label>
-        <input type="email" autoComplete="username" required autoFocus
+        <input type={ldapEnabled ? 'text' : 'email'} autoComplete="username" required autoFocus
           value={email} onChange={e => setEmail(e.target.value)}
           style={{ width: '100%', marginBottom: 14 }} />
 

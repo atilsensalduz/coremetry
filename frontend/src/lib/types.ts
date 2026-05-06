@@ -65,6 +65,48 @@ export interface AISettingsInput {
   model?: string;
 }
 
+// Role hierarchy used everywhere. `editor` was introduced for the
+// LDAP enterprise rollout — admin/users/system-settings stay admin-
+// only, dashboards/monitors/alerts/incidents are open to editor too.
+export type Role = 'admin' | 'editor' | 'viewer';
+
+// LDAP / AD enterprise auth — config edited from Settings, persisted
+// in system_settings. BindPassword is sent as the literal string
+// "__SET__" by the GET endpoint when one is saved (so the form can
+// show a masked placeholder); leaving the field empty on PUT keeps
+// the saved value.
+export interface LDAPGroupRoleMapping {
+  group: string;
+  role: Role;
+}
+export interface LDAPConfig {
+  enabled: boolean;
+  host: string;
+  port: number;
+  useTLS: boolean;
+  startTLS: boolean;
+  skipVerify: boolean;
+  caCert?: string;
+  bindDN: string;
+  bindPassword: string;
+  baseDN: string;
+  userSearchFilter: string;
+  userAttribute: string;
+  emailAttribute: string;
+  displayAttribute: string;
+  groupSearchBase: string;
+  groupFilter: string;
+  defaultRole: Role;
+  groupRoleMap: LDAPGroupRoleMapping[];
+}
+export interface LDAPDirectoryUser {
+  dn: string;
+  username: string;
+  email: string;
+  displayName: string;
+  groups?: string[];
+}
+
 // ── Public status page (admin types) ─────────────────────────────────────────
 
 export interface StatusPageConfig {
