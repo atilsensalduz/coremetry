@@ -338,22 +338,38 @@ func (s *Service) TestConnection(ctx context.Context, override *Config) error {
 
 // findUser looks up a directory entry by username (resolving the
 // configured filter template). Returns (nil, nil) for "no such user".
+//
+// Search limits: sizeLimit 50 / timeLimit 30s. The previous 2/5
+// values were tuned for tiny test directories — enterprise-scale AD with
+// sub-tree search at the root naming context routinely tripped both.
+// 50 is still small enough to catch a "filter too loose" misconfig
+// (10+ matches means the operator should narrow their filter), and
+// AD's default page size is 1000, so 50 stays well under any forest-
+// wide policy.
 func findUser(conn *goldap.Conn, c Config, username string) (*LDAPUser, error) {
 	filter := strings.ReplaceAll(c.UserSearchFilter, "{{username}}", goldap.EscapeFilter(username))
 	log.Printf("[ldap] user search baseDN=%q filter=%s", c.BaseDN, filter)
 	req := goldap.NewSearchRequest(
 		c.BaseDN, goldap.ScopeWholeSubtree, goldap.NeverDerefAliases,
-		2, 5, false,
+		50, 30, false,
 		filter,
 		[]string{"dn", c.UserAttribute, c.EmailAttribute, c.DisplayAttribute, "memberOf"},
 		nil,
 	)
 	res, err := conn.Search(req)
+	// Soft-handle SizeLimitExceeded — AD sometimes returns this even
+	// when the result fits, alongside a partial response. As long as
+	// we got entries we can keep going; the dedup check below catches
+	// the "filter actually matches too much" case.
 	if err != nil {
-		log.Printf("[ldap] user search FAILED: %v", err)
-		return nil, fmt.Errorf("user search: %w", err)
+		if goldap.IsErrorWithCode(err, goldap.LDAPResultSizeLimitExceeded) && res != nil && len(res.Entries) > 0 {
+			log.Printf("[ldap] user search hit size-limit but returned %d partial entries — continuing", len(res.Entries))
+		} else {
+			log.Printf("[ldap] user search FAILED: %v", err)
+			return nil, fmt.Errorf("user search: %w", err)
+		}
 	}
-	if len(res.Entries) == 0 {
+	if res == nil || len(res.Entries) == 0 {
 		log.Printf("[ldap] user search returned 0 entries — entered username %q does not match filter or baseDN scope", username)
 		return nil, nil
 	}
@@ -401,13 +417,16 @@ func (s *Service) Search(ctx context.Context, query string, limit int) ([]LDAPUs
 	}
 	req := goldap.NewSearchRequest(
 		c.BaseDN, goldap.ScopeWholeSubtree, goldap.NeverDerefAliases,
-		limit, 10, false,
+		limit, 30, false,
 		filter,
 		[]string{"dn", c.UserAttribute, c.EmailAttribute, c.DisplayAttribute},
 		nil,
 	)
 	res, err := conn.Search(req)
-	if err != nil {
+	// Soft-handle SizeLimitExceeded — caller asked for `limit` rows
+	// and AD returned partial results before timing out; that's still
+	// the answer.
+	if err != nil && !(goldap.IsErrorWithCode(err, goldap.LDAPResultSizeLimitExceeded) && res != nil) {
 		return nil, fmt.Errorf("search: %w", err)
 	}
 	out := make([]LDAPUser, 0, len(res.Entries))
@@ -468,15 +487,20 @@ func (s *Service) Authenticate(ctx context.Context, username, password string) (
 		log.Printf("[ldap] group search baseDN=%q filter=%s", c.GroupSearchBase, grpFilter)
 		grpReq := goldap.NewSearchRequest(
 			c.GroupSearchBase, goldap.ScopeWholeSubtree, goldap.NeverDerefAliases,
-			0, 5, false,
+			0, 30, false,
 			grpFilter,
 			[]string{"dn", "cn"},
 			nil,
 		)
 		grpRes, err := conn.Search(grpReq)
-		if err != nil {
+		// Same SizeLimitExceeded tolerance as user search — partial
+		// results still tell us something about the user's groups.
+		if err != nil && !goldap.IsErrorWithCode(err, goldap.LDAPResultSizeLimitExceeded) {
 			log.Printf("[ldap] group search FAILED: %v (continuing with memberOf only)", err)
-		} else {
+		} else if grpRes != nil {
+			if err != nil {
+				log.Printf("[ldap] group search hit size-limit but returned %d partial entries — continuing", len(grpRes.Entries))
+			}
 			for _, e := range grpRes.Entries {
 				groups = append(groups, e.DN)
 			}
