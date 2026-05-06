@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import type { SpanRow, ProfileRow, LogRow } from '@/lib/types';
-import { tsLong, tsShort, sevName, sevClass } from '@/lib/utils';
+import { tsLong, tsShort, sevName, sevClass, displaySpanName } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { CopyButton } from './CopyButton';
 
@@ -97,8 +97,8 @@ export function SpanDetail({ span, onClose }: { span: SpanRow; onClose: () => vo
            onMouseDown={onResizeStart}
            onDoubleClick={onResetWidth} />
       <div id="span-panel-head">
-        <div className="ps-title">
-          {span.name}{' '}
+        <div className="ps-title" title={displaySpanName(span) === span.name ? span.name : `raw: ${span.name}`}>
+          {displaySpanName(span)}{' '}
           <span className={`badge ${span.statusCode === 'error' ? 'b-err' : 'b-ok'}`} style={{ marginLeft: 4 }}>
             {span.statusCode === 'error' ? 'ERROR' : 'OK'}
           </span>
@@ -106,6 +106,16 @@ export function SpanDetail({ span, onClose }: { span: SpanRow; onClose: () => vo
         <button className="ps-close" onClick={onClose}>✕</button>
       </div>
       <div id="span-panel-body">
+        {/* Attributes first — what the application code emitted; usually
+            the most informative bit when debugging an unfamiliar span.
+            "Info" (service/kind/timing/IDs) below: shape of the row,
+            useful but rarely the answer to "what was this span doing?". */}
+        {attrs.length > 0 && (
+          <Section title={`Attributes (${attrs.length})`}>
+            <KV>{attrs.map(([k, v]) => <Row key={k} k={k} v={String(v)} copyable />)}</KV>
+          </Section>
+        )}
+
         <Section title="Info">
           <KV>
             <Row k="Service" v={span.serviceName} copyable />
@@ -122,12 +132,6 @@ export function SpanDetail({ span, onClose }: { span: SpanRow; onClose: () => vo
             {span.statusMessage && <Row k="Status msg" v={span.statusMessage} copyable />}
           </KV>
         </Section>
-
-        {attrs.length > 0 && (
-          <Section title={`Attributes (${attrs.length})`}>
-            <KV>{attrs.map(([k, v]) => <Row key={k} k={k} v={String(v)} copyable />)}</KV>
-          </Section>
-        )}
 
         {res.length > 0 && (
           <Section title={`Resource (${res.length})`}>

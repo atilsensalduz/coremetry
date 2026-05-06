@@ -221,19 +221,27 @@ func (s *Store) GetOperations(ctx context.Context, service string, since time.Du
 }
 
 // GetServiceGraph returns the directed call graph between services.
-// If `service` is non-empty, only edges where it appears as source OR target
-// are returned (i.e. the neighborhood of that service).
+// If `service` is non-empty, only edges where it appears as source OR
+// target are returned (the neighborhood of that service).
 //
-// Edge derivation: parent→child span pairs across different service_names.
-// This is what every modern OTel SDK populates by default — no need for
-// the apps to set peer.service explicitly. Self-joining the spans table
-// is more expensive than reading peer_service directly, but works for
-// any well-instrumented stack.
+// Two-source derivation, UNION'd then re-aggregated:
+//
+//  1. parent→child self-join across different service_names. This is
+//     the strong signal — both sides emit OTel spans, so the edge
+//     reflects a real cross-service call.
+//
+//  2. parent.peer_service when set and ≠ parent.service_name. Catches
+//     edges to non-instrumented downstreams: managed DBs, third-party
+//     APIs, message brokers, etc. The OTel SDK populates peer.service
+//     automatically for HTTP/gRPC client spans whenever the SDK has a
+//     hint (server header, gRPC metadata, well-known port).
+//
+// We deliberately DO NOT derive edges from net.peer.ip / pod names —
+// they're network-layer identifiers that change on every restart and
+// would create spurious nodes for sidecars / proxies / load balancers.
+// service_name + peer.service are application-layer and stable.
 func (s *Store) GetServiceGraph(ctx context.Context, service string, since time.Duration, from, to time.Time) ([]ServiceEdge, error) {
-	// Time filter applied to the *child* (callee) side. We don't need a
-	// matching filter on parent because parent.time ≤ child.time always.
-	var startTime time.Time
-	var endTime time.Time
+	var startTime, endTime time.Time
 	if !from.IsZero() {
 		startTime = from
 		if !to.IsZero() {
@@ -243,39 +251,87 @@ func (s *Store) GetServiceGraph(ctx context.Context, service string, since time.
 		startTime = time.Now().Add(-since)
 	}
 
-	args := []any{startTime}
-	timeFilter := "child.time >= ?"
+	// Build the two source CTEs sharing the same time predicate.
+	timeP := "time >= ?"
+	timeArgsBase := []any{startTime}
 	if !endTime.IsZero() {
-		timeFilter += " AND child.time <= ?"
-		args = append(args, endTime)
+		timeP += " AND time <= ?"
+		timeArgsBase = append(timeArgsBase, endTime)
 	}
-	svcFilter := ""
+
+	svcWhere := ""
 	if service != "" {
-		svcFilter = " AND (parent.service_name = ? OR child.service_name = ?)"
+		svcWhere = " AND (source = ? OR target = ?)"
+	}
+
+	// CTE 1: parent→child JOIN. CTE 2: parent.peer_service. Union them,
+	// then re-aggregate so an edge surfaced by both paths counts once.
+	sql := `
+		WITH joined AS (
+			SELECT parent.service_name AS source,
+			       child.service_name  AS target,
+			       child.status_code   AS status_code,
+			       child.duration      AS duration
+			FROM spans AS child
+			INNER JOIN spans AS parent
+			  ON child.trace_id = parent.trace_id
+			 AND child.parent_id = parent.span_id
+			WHERE child.` + timeP + `
+			  AND parent.service_name != ''
+			  AND child.service_name  != ''
+			  AND parent.service_name != child.service_name
+		),
+		peered AS (
+			SELECT service_name AS source,
+			       peer_service AS target,
+			       status_code,
+			       duration
+			FROM spans
+			WHERE ` + timeP + `
+			  AND service_name != ''
+			  AND peer_service != ''
+			  AND peer_service != service_name
+			  -- Drop pairs already covered by the JOIN side so we don't
+			  -- double-count when both signals fire (peer.service is
+			  -- set AND the downstream emits a child span).
+			  AND (service_name, peer_service) NOT IN (
+			    SELECT DISTINCT parent.service_name, child.service_name
+			    FROM spans AS child
+			    INNER JOIN spans AS parent
+			      ON child.trace_id = parent.trace_id
+			     AND child.parent_id = parent.span_id
+			    WHERE child.` + timeP + `
+			      AND parent.service_name != ''
+			      AND child.service_name  != ''
+			  )
+		),
+		edges AS (
+			SELECT source, target, status_code, duration FROM joined
+			UNION ALL
+			SELECT source, target, status_code, duration FROM peered
+		)
+		SELECT source, target,
+		       count() AS calls,
+		       countIf(status_code = 'error') / count() * 100 AS error_rate,
+		       avg(duration) / 1e6 AS avg_ms
+		FROM edges
+		WHERE 1=1` + svcWhere + `
+		GROUP BY source, target
+		ORDER BY calls DESC`
+
+	args := append([]any{}, timeArgsBase...) // joined CTE timeP
+	args = append(args, timeArgsBase...)     // peered CTE timeP
+	args = append(args, timeArgsBase...)     // peered NOT IN subquery timeP
+	if service != "" {
 		args = append(args, service, service)
 	}
 
-	rows, err := s.conn.Query(ctx, `
-		SELECT parent.service_name                              AS source,
-		       child.service_name                               AS target,
-		       count()                                          AS calls,
-		       countIf(child.status_code = 'error') / count() * 100 AS error_rate,
-		       avg(child.duration) / 1e6                        AS avg_ms
-		FROM spans AS child
-		INNER JOIN spans AS parent
-		  ON child.trace_id = parent.trace_id
-		 AND child.parent_id = parent.span_id
-		WHERE `+timeFilter+`
-		  AND parent.service_name != ''
-		  AND child.service_name  != ''
-		  AND parent.service_name != child.service_name`+svcFilter+`
-		GROUP BY source, target
-		ORDER BY calls DESC`, args...)
+	rows, err := s.conn.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []ServiceEdge
+	out := []ServiceEdge{}
 	for rows.Next() {
 		var e ServiceEdge
 		if err := rows.Scan(&e.Source, &e.Target, &e.CallCount, &e.ErrorRate, &e.AvgMs); err != nil {

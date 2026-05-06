@@ -57,12 +57,20 @@ function TraceDetailInner() {
               <span className={`badge ${hasErr ? 'b-err' : 'b-ok'}`}>{hasErr ? 'ERROR' : 'OK'}</span>
               <span style={{ color: 'var(--text2)', fontSize: 12 }}>{spans.length} spans · {fmtNs(totalNs)}</span>
               {root && <span style={{ color: 'var(--text3)', fontSize: 12 }}>{tsLong(root.startTime)}</span>}
-              <Link href={`/logs?traceId=${id}`}
-                style={{ marginLeft: 'auto', fontSize: 12, padding: '3px 10px',
-                  background: 'var(--bg3)', border: '1px solid var(--border)',
-                  borderRadius: 4, color: 'var(--accent2)', textDecoration: 'none' }}>
-                ≡ View logs
-              </Link>
+              <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                <button className="sec"
+                  onClick={() => exportTraceJSON(id, spans)}
+                  title="Download this trace as JSON (full span list with attributes + events)"
+                  style={{ fontSize: 12, padding: '3px 10px' }}>
+                  ⬇ Export JSON
+                </button>
+                <Link href={`/logs?traceId=${id}`}
+                  style={{ fontSize: 12, padding: '3px 10px',
+                    background: 'var(--bg3)', border: '1px solid var(--border)',
+                    borderRadius: 4, color: 'var(--accent2)', textDecoration: 'none' }}>
+                  ≡ View logs
+                </Link>
+              </span>
             </>
           )}
         </div>
@@ -93,4 +101,21 @@ export default function TraceDetailPage() {
       <TraceDetailInner />
     </Suspense>
   );
+}
+
+// exportTraceJSON triggers a browser download of the full trace as a
+// pretty-printed JSON file. Filename includes a short trace-id prefix
+// so a folder of exports stays scannable. Pure client-side — no
+// extra round-trip; the spans are already loaded.
+function exportTraceJSON(traceId: string, spans: unknown[]) {
+  const payload = JSON.stringify({ traceId, spans }, null, 2);
+  const blob = new Blob([payload], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `trace-${traceId.slice(0, 12)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }

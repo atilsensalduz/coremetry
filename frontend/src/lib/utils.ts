@@ -116,3 +116,50 @@ export function rowClickHandlers(href: string, navigate: () => void) {
     },
   };
 }
+
+// displaySpanName builds the string shown in the waterfall + tooltips.
+// Most OTel SDKs name spans well (e.g. "GET /api/orders", "SELECT users")
+// but gRPC instrumentations often emit useless generic names — "grpc",
+// "grpc command", or just the rpc.method on its own — which is unhelpful
+// when 5 services are calling each other. When the raw name looks
+// generic, build a richer label from the rpc.* / peer.service attributes.
+//
+// Rule of thumb:
+//   - Names containing rpc.service + rpc.method already → leave alone.
+//   - Otherwise, if rpc.service is set: "<rpc.service>/<rpc.method>".
+//   - If only peer.service is set:        "<service.name> → <peer.service>".
+//   - Else fall back to the raw name.
+export function displaySpanName(s: {
+  name: string;
+  serviceName?: string;
+  attributes?: Record<string, string>;
+}): string {
+  const a = s.attributes ?? {};
+  const raw = (s.name ?? '').trim();
+  const lc  = raw.toLowerCase();
+  const rpcService = a['rpc.service'];
+  const rpcMethod  = a['rpc.method'];
+  const peer       = a['peer.service'];
+
+  // Bail when the existing name is already informative — anything that
+  // contains a `/`, `.`, or whitespace and isn't the bare keywords below
+  // is treated as descriptive (matches HTTP, DB, message-broker patterns).
+  const generic = lc === 'grpc' || lc === 'grpc command' || lc === 'rpc' ||
+                  lc === 'call' || (rpcMethod ? lc === rpcMethod.toLowerCase() : false);
+
+  if (!generic) return raw;
+
+  if (rpcService && rpcMethod) {
+    if (peer && peer !== rpcService) {
+      return `${peer}/${rpcService}/${rpcMethod}`;
+    }
+    return `${rpcService}/${rpcMethod}`;
+  }
+  if (rpcMethod && peer) {
+    return `${peer}.${rpcMethod}`;
+  }
+  if (peer && s.serviceName) {
+    return `${s.serviceName} → ${peer}`;
+  }
+  return raw;
+}

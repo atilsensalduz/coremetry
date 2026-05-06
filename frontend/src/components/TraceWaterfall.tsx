@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SpanRow } from '@/lib/types';
-import { fmtNs, hashColor } from '@/lib/utils';
+import { fmtNs, hashColor, displaySpanName } from '@/lib/utils';
 
 const TICKS = [0, 0.25, 0.5, 0.75, 1];
 const NAME_MIN = 160;
@@ -162,6 +162,9 @@ export function TraceWaterfall({ spans, selectedId, onSelect }: {
         const startPct = ((s.startTime - minT) / totalNs * 100).toFixed(4);
         const widthPct = Math.max(0.15, ((s.endTime - s.startTime) / totalNs) * 100).toFixed(4);
         const dur = s.endTime - s.startTime;
+        // Replace generic gRPC names ("grpc command", "rpc", bare method)
+        // with a richer label derived from rpc.* / peer.service attrs.
+        const displayName = displaySpanName(s);
         const durMs = dur / 1e6;
         const isCol = collapsed.has(s.spanId);
         const sel = s.spanId === selectedId;
@@ -202,7 +205,9 @@ export function TraceWaterfall({ spans, selectedId, onSelect }: {
                     </button>
                   : <div className="wf-leaf" />}
                 <span className="wf-kind" title={s.kind || 'internal'}>{kindIcon(s.kind)}</span>
-                <span className="wf-name" title={s.name}>{s.name}</span>
+                <span className="wf-name" title={s.name === displayName ? s.name : `raw: ${s.name}`}>
+                  {displayName}
+                </span>
                 <span className="wf-svc" title={s.serviceName}>{s.serviceName}</span>
                 {s.statusCode === 'error' && (
                   <span className="wf-err-dot" title="Error">●</span>
@@ -218,7 +223,7 @@ export function TraceWaterfall({ spans, selectedId, onSelect }: {
               ))}
               <div
                 className="wf-bar"
-                title={`${s.name}\n${s.serviceName}\n${fmtNs(dur)} (${durMs.toFixed(2)}ms)`}
+                title={`${displayName}\n${s.serviceName}\n${fmtNs(dur)} (${durMs.toFixed(2)}ms)`}
                 style={{ left: `${startPct}%`, width: `${widthPct}%`, background: color }}
               >
                 {labelInside && <span className="wf-bar-label">{fmtNs(dur)}</span>}
