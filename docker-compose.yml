@@ -248,6 +248,13 @@ services:
       OTEL_INSTRUMENTATION_LOGBACK_APPENDER_ENABLED: "true"
       OTEL_INSTRUMENTATION_RUNTIME_TELEMETRY_ENABLED: "true"
       OTEL_METRIC_EXPORT_INTERVAL: "10000"
+      # W3C Trace Context (https://www.w3.org/TR/trace-context/) is the
+      # default in modern OTel SDKs but pinning it explicitly makes the
+      # propagation contract visible to anyone reading this file. Every
+      # service in the stack must agree on the same propagator(s) for
+      # cross-service spans to chain into one trace — mixing tracecontext
+      # with B3 / Jaeger across services breaks that.
+      OTEL_PROPAGATORS: "tracecontext,baggage"
       # Pyroscope continuous profiling — agent pushes CPU + alloc
       # profiles every ~10s. Tagged with service+env so the Pyroscope
       # UI can group by service. Open http://localhost:4040 to view.

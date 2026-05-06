@@ -364,6 +364,49 @@ Pod admission errors that suggest you need to lift SCC restrictions are
 almost always avoidable by overriding chart values rather than granting
 extra privilege — open an issue with the error if you hit one.
 
+### W3C Trace Context propagation
+
+Coremetry expects every service in the chain to use **W3C Trace Context**
+(<https://www.w3.org/TR/trace-context/>). That's the OTel SDK default
+across every supported language, so most installs Just Work — but the
+contract is worth pinning explicitly because mixed propagators silently
+break cross-service traces (you'll see disconnected single-service
+traces instead of one end-to-end trace).
+
+**Required on every instrumented service:**
+
+```bash
+OTEL_PROPAGATORS=tracecontext,baggage
+```
+
+The bundled `java-demo` and the chart's `javaDemo` template both set
+this explicitly. For your own services, ensure either the env var is
+set or the SDK's default propagators include `tracecontext`.
+
+**Outgoing requests** must carry the W3C `traceparent` header (and
+optionally `tracestate`). Auto-instrumentation handles this for HTTP
+and gRPC clients in every supported language. If you have hand-rolled
+HTTP clients or message-broker code, you'll need to inject the
+context — most SDKs expose a one-liner like
+`propagation.TextMapPropagator().inject(context, headers)`.
+
+**Incoming requests** must extract `traceparent` and continue the trace
+(use as parent of new spans). Again, auto-instrumentation handles
+this for the standard server frameworks (Spring, Express, Django,
+ASP.NET, etc.).
+
+**Coremetry surfaces broken propagation:** when you open a trace
+that contains spans whose `parent_id` doesn't resolve to any other
+span in the same trace (the "orphan" case), an amber warning at the
+top of the trace detail page tells you which service the broken
+hop landed on. That usually means an upstream service was either
+not instrumented, used a different propagator (B3, Jaeger), or
+dropped the header in a custom proxy.
+
+The OTel Collector is propagation-transparent — it forwards
+trace_id / span_id / parent_id verbatim from incoming OTLP to its
+exporters, so adding it in the path doesn't change anything.
+
 ### Connecting an existing OTel Collector to Coremetry
 
 If your cluster already runs a Collector (e.g. OpenShift's

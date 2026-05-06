@@ -52,6 +52,13 @@ spec:
               value: "true"
             - name: OTEL_METRIC_EXPORT_INTERVAL
               value: "10000"
+            # W3C Trace Context propagation (https://www.w3.org/TR/trace-context/)
+            # — pinned explicitly so the cross-service propagation contract is
+            # discoverable. Every service in the trace pipeline must agree on
+            # the propagator(s); mixing tracecontext with B3/Jaeger across
+            # services breaks the chain.
+            - name: OTEL_PROPAGATORS
+              value: "tracecontext,baggage"
             # Profile pusher (sidecar shell script — not OTel) → posts
             # async-profiler output to coremetry's /v1/profiles endpoint.
             - name: COREMETRY_URL
