@@ -128,6 +128,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET    /api/problems",                  s.listProblems)
 	mux.HandleFunc("GET    /api/alert-rules",               s.listAlertRules)
 	mux.HandleFunc("POST   /api/alert-rules",               auth.RequireAnyRole(editorRoles, s.createAlertRule))
+	mux.HandleFunc("PUT    /api/alert-rules/{id}",          auth.RequireAnyRole(editorRoles, s.updateAlertRule))
 	mux.HandleFunc("DELETE /api/alert-rules/{id}",          auth.RequireAnyRole(editorRoles, s.deleteAlertRule))
 	mux.HandleFunc("POST   /api/alert-rules/{id}/enable",   auth.RequireAnyRole(editorRoles, s.enableAlertRule))
 	mux.HandleFunc("GET /api/health", s.getHealth)
@@ -2288,6 +2289,30 @@ func (s *Server) createAlertRule(w http.ResponseWriter, r *http.Request) {
 	}
 	rule.BuiltIn = false
 	rule.CreatedAt = time.Now().UnixNano()
+	if err := s.store.UpsertAlertRule(r.Context(), rule); err != nil {
+		writeErr(w, err); return
+	}
+	writeJSON(w, rule)
+}
+
+// updateAlertRule edits an existing rule (including built-ins). The
+// `builtIn` flag and original `createdAt` are preserved server-side
+// so the UI can't accidentally re-flag a built-in as user-created or
+// reset its history. Built-in rules can be renamed and re-tuned —
+// they're scaffolding, not contracts.
+func (s *Server) updateAlertRule(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	existing, err := s.store.GetAlertRule(r.Context(), id)
+	if err != nil || existing == nil {
+		http.Error(w, `{"error":"rule not found"}`, http.StatusNotFound); return
+	}
+	var rule chstore.AlertRule
+	if err := json.NewDecoder(r.Body).Decode(&rule); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest); return
+	}
+	rule.ID = existing.ID
+	rule.BuiltIn = existing.BuiltIn
+	rule.CreatedAt = existing.CreatedAt
 	if err := s.store.UpsertAlertRule(r.Context(), rule); err != nil {
 		writeErr(w, err); return
 	}

@@ -28,15 +28,23 @@ const WINDOWS = [
   { v: 3600,  label: '1 hour' },
 ];
 
+// Empty draft used for both "+ New" and as the reset value after save.
+// Kept at module scope so the create/edit reset paths share one source.
+const emptyDraft: Partial<AlertRule> = {
+  name: '', service: '', metric: 'error_rate', comparator: '>',
+  threshold: 5, windowSec: 300, severity: 'warning', enabled: true,
+};
+
 export default function AlertsPage() {
   const [range, setRange] = useState<TimeRange>({ preset: '1h' });
   const [rules, setRules] = useState<AlertRule[] | undefined>(undefined);
   const [services, setServices] = useState<string[]>([]);
   const [showForm, setShowForm] = useState(false);
-  const [draft, setDraft] = useState<Partial<AlertRule>>({
-    name: '', service: '', metric: 'error_rate', comparator: '>',
-    threshold: 5, windowSec: 300, severity: 'warning', enabled: true,
-  });
+  const [draft, setDraft] = useState<Partial<AlertRule>>(emptyDraft);
+  // Non-null while editing — `id` of the row we're editing. Drives the
+  // form's "Update" vs "Save" copy and decides between PUT and POST on
+  // submit.
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const refresh = () =>
     api.alertRules().then(r => setRules(r ?? [])).catch(() => setRules([]));
@@ -48,12 +56,25 @@ export default function AlertsPage() {
       .catch(() => {});
   }, []);
 
+  const startEdit = (r: AlertRule) => {
+    setDraft({ ...r });
+    setEditingId(r.id);
+    setShowForm(true);
+  };
+  const cancelForm = () => {
+    setShowForm(false);
+    setEditingId(null);
+    setDraft(emptyDraft);
+  };
+
   const save = async () => {
     if (!draft.name || !draft.metric) return;
-    await api.createAlertRule(draft);
-    setShowForm(false);
-    setDraft({ name: '', service: '', metric: 'error_rate', comparator: '>',
-      threshold: 5, windowSec: 300, severity: 'warning', enabled: true });
+    if (editingId) {
+      await api.updateAlertRule(editingId, draft);
+    } else {
+      await api.createAlertRule(draft);
+    }
+    cancelForm();
     refresh();
   };
   const remove = async (id: string) => {
@@ -72,9 +93,11 @@ export default function AlertsPage() {
       <div id="content">
         <div className="controls" style={{ marginBottom: 14 }}>
           <span style={{ color: 'var(--text2)', fontSize: 12 }}>
-            Evaluator runs every minute. Built-in rules can be disabled but not deleted.
+            Evaluator runs every minute. Built-in rules ship pre-configured but
+            can be edited or disabled to taste.
           </span>
-          <button onClick={() => setShowForm(s => !s)} style={{ marginLeft: 'auto' }}>
+          <button onClick={() => showForm ? cancelForm() : setShowForm(true)}
+                  style={{ marginLeft: 'auto' }}>
             {showForm ? 'Cancel' : '+ New alert rule'}
           </button>
         </div>
@@ -123,8 +146,18 @@ export default function AlertsPage() {
                 </select>
               </Field>
             </div>
-            <div style={{ marginTop: 10 }}>
-              <button onClick={save}>Save rule</button>
+            <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button onClick={save}>{editingId ? 'Update rule' : 'Save rule'}</button>
+              {editingId && (
+                <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+                  Editing <code>{editingId}</code>
+                  {draft.builtIn && (
+                    <span style={{ marginLeft: 6, color: 'var(--text2)' }}>
+                      (built-in — edits persist; preset values aren't restored on next boot)
+                    </span>
+                  )}
+                </span>
+              )}
             </div>
           </div>
         )}
@@ -160,7 +193,8 @@ export default function AlertsPage() {
                     <td>{r.builtIn
                       ? <span className="badge b-info">BUILT-IN</span>
                       : <span className="badge b-gray">custom</span>}</td>
-                    <td>
+                    <td style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                      <button className="sec" onClick={() => startEdit(r)}>Edit</button>
                       {r.enabled
                         ? <button className="sec" onClick={() => remove(r.id)}>Disable</button>
                         : <button className="sec" onClick={() => enable(r.id)}>Enable</button>}

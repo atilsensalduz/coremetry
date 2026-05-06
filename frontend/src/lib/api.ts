@@ -259,6 +259,12 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(rule),
     }),
+  updateAlertRule: (id: string, rule: Partial<AlertRule>) =>
+    request<AlertRule>(`/api/alert-rules/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(rule),
+    }),
   deleteAlertRule: (id: string) =>
     request<void>(`/api/alert-rules/${id}`, { method: 'DELETE' }),
   enableAlertRule: (id: string) =>
