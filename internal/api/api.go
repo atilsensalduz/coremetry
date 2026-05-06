@@ -888,23 +888,29 @@ func (s *Server) loginViaLDAP(ctx context.Context, email, password string, exist
 		finalEmail = email
 	}
 
-	// Provisioning logic:
-	//   - If a row already exists for this email, keep its ID +
-	//     persist the latest role from the group mapping (so AD
-	//     becomes the source of truth on every login).
-	//   - If admin pre-provisioned a row (existing != nil) without
-	//     specifying a group-derived role, we still trust the saved
-	//     role over the mapping default — that's the "manual override"
-	//     escape hatch.
+	// Provisioning logic — three branches:
+	//   (a) NEW user (no existing row): auto-provision with the role
+	//       resolved from group mapping; falls back to RoleViewer when
+	//       no mapping matches and the configured defaultRole is empty.
+	//       This is the "first-time domain user lands in the app" path.
+	//   (b) Existing LDAP-provider row: re-apply the role from group
+	//       mapping every login so AD promotions/demotions take effect.
+	//   (c) Existing local-provider row converting to LDAP: keep the
+	//       admin's manually-set role — that's a deliberate override.
 	if existing == nil {
 		existing, _ = s.store.GetUserByEmail(ctx, finalEmail)
 	}
 	role := res.Role
-	if existing != nil && existing.Role != "" && existing.AuthProvider == "ldap" {
-		// Reapply group mapping every login — promotions and demotions
-		// in AD reflect on next sign-in. Manually-set role on a `local`
-		// user wouldn't get here.
-	} else if existing != nil && existing.AuthProvider != "ldap" && existing.Role != "" {
+	if existing == nil {
+		// First-time login. role already from group mapping; if the
+		// directory user has no group match AND the admin hasn't set
+		// a defaultRole, mapRole() returns "" and we fall through to
+		// the IsValidRole guard below.
+	} else if existing.AuthProvider == "ldap" && existing.Role != "" {
+		// Existing LDAP user — refresh role from current AD groups.
+		// (Empty branch body — `role` already holds res.Role.)
+	} else if existing.AuthProvider != "ldap" && existing.Role != "" {
+		// Local user, manually pinned by admin — preserve their role.
 		role = existing.Role
 	}
 	if !auth.IsValidRole(role) {
@@ -916,6 +922,7 @@ func (s *Server) loginViaLDAP(ctx context.Context, email, password string, exist
 		Role:         role,
 		AuthProvider: "ldap",
 	}
+	firstLogin := existing == nil
 	if existing != nil {
 		u.ID = existing.ID
 		u.CreatedAt = existing.CreatedAt
@@ -926,6 +933,11 @@ func (s *Server) loginViaLDAP(ctx context.Context, email, password string, exist
 	}
 	if err := s.store.UpsertUser(ctx, u); err != nil {
 		return nil, fmt.Errorf("provision ldap user: %w", err)
+	}
+	if firstLogin {
+		log.Printf("[auth] first-time LDAP login auto-provisioned user %q as %s (id=%s)", finalEmail, role, u.ID)
+	} else if existing != nil && existing.Role != role {
+		log.Printf("[auth] LDAP login refreshed role for %q: %s → %s", finalEmail, existing.Role, role)
 	}
 	// Re-read so callers get the canonical row (CreatedAt set by CH on
 	// first insert via DEFAULT now()).
