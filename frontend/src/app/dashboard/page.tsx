@@ -60,6 +60,41 @@ function Inner() {
     }).catch(() => setDoc(null));
   }, [id]);
 
+  // Mirror the variable values into the URL so the selection survives
+  // reloads + is shareable. One param per variable name. Empty values
+  // get removed so we don't accumulate dead params on toggle.
+  //
+  // NOTE: defined BEFORE the early returns below — Rules of Hooks
+  // require every hook to be called on every render in the same
+  // order. Putting this after the early returns crashed the page on
+  // second render (when doc finished loading) because the hook count
+  // changed mid-mount.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const reserved = new Set(['id', 'edit', 'range']);
+    for (const key of Array.from(url.searchParams.keys())) {
+      if (!reserved.has(key)) url.searchParams.delete(key);
+    }
+    for (const [k, v] of Object.entries(varValues)) {
+      if (v) url.searchParams.set(k, v);
+    }
+    window.history.replaceState({}, '', url.toString());
+  }, [varValues]);
+
+  // Parsed variable definitions (live from the dashboard doc) drive
+  // both the picker bar and what gets substituted into panels. Same
+  // Rules-of-Hooks reasoning as the URL mirror — declared before any
+  // conditional returns.
+  const variables: DashboardVariable[] = useMemo(() => {
+    const raw = doc?.variables;
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw as DashboardVariable[];
+    try {
+      const parsed = JSON.parse(raw as unknown as string);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch { return []; }
+  }, [doc?.variables]);
+
   if (!id) return <Empty icon="◫" title="No dashboard selected" />;
   if (doc === undefined) return <Spinner />;
   if (doc === null) return <Empty icon="⚠" title="Dashboard not found" />;
@@ -111,34 +146,6 @@ function Inner() {
   };
 
   const editingPanelObj = editingPanel ? panels.find(p => p.id === editingPanel) : null;
-
-  // Mirror the variable values into the URL so the selection survives
-  // reloads + is shareable. One param per variable name. Empty values
-  // get removed so we don't accumulate dead params on toggle.
-  useEffect(() => {
-    const url = new URL(window.location.href);
-    // Wipe previously-set variable params (we'll re-add the live ones).
-    const reserved = new Set(['id', 'edit', 'range']);
-    for (const key of Array.from(url.searchParams.keys())) {
-      if (!reserved.has(key)) url.searchParams.delete(key);
-    }
-    for (const [k, v] of Object.entries(varValues)) {
-      if (v) url.searchParams.set(k, v);
-    }
-    window.history.replaceState({}, '', url.toString());
-  }, [varValues]);
-
-  // Parsed variable definitions (live from the dashboard doc) drive
-  // both the picker bar and what gets substituted into panels.
-  const variables: DashboardVariable[] = useMemo(() => {
-    const raw = doc?.variables;
-    if (!raw) return [];
-    if (Array.isArray(raw)) return raw as DashboardVariable[];
-    try {
-      const parsed = JSON.parse(raw as unknown as string);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch { return []; }
-  }, [doc?.variables]);
 
   return (
     <>
