@@ -118,7 +118,19 @@ export function ServiceGraphSVG({ services, edges, onNodeClick, highlightService
   const [w, setW] = useState(900);
   // Pan/zoom — applied as a single SVG-group transform.
   const [view, setView] = useState({ x: 0, y: 0, k: 1 });
-  const dragRef = useRef<{ x: number; y: number; vx: number; vy: number } | null>(null);
+  // Per-node drag offset relative to the layout's resting position.
+  // Survives re-layout (keyed by name), so a user-arranged graph
+  // doesn't snap back when the data refreshes.
+  const [nodeOffsets, setNodeOffsets] = useState<Record<string, { dx: number; dy: number }>>({});
+  // Hovered node — drives edge / neighbor highlight. `null` = nothing hovered.
+  const [hovered, setHovered] = useState<string | null>(null);
+
+  // Drag state machine refs:
+  //   panRef     — when set, the user grabbed empty canvas and is panning.
+  //   nodeDrag   — when set, the user grabbed a specific node.
+  // Tracking moved=true prevents a click handler firing after a real drag.
+  const panRef = useRef<{ x: number; y: number; vx: number; vy: number; moved: boolean } | null>(null);
+  const nodeDrag = useRef<{ name: string; startX: number; startY: number; ox: number; oy: number; moved: boolean } | null>(null);
 
   useEffect(() => {
     const update = () => setW(containerRef.current?.clientWidth ?? 900);
@@ -154,19 +166,33 @@ export function ServiceGraphSVG({ services, edges, onNodeClick, highlightService
 
   const nodes: LaidOutNode[] = useMemo(() => names.map(name => {
     const p = positions.get(name) ?? { x: w / 2, y: VIEW_H / 2 };
+    const off = nodeOffsets[name] ?? { dx: 0, dy: 0 };
     const svc = services.find(s => s.name === name);
     const inc = incoming.get(name);
     return {
       name,
       kind: classify(name),
-      x: p.x, y: p.y,
+      x: p.x + off.dx, y: p.y + off.dy,
       avgMs: svc?.avgDurationMs ?? (inc && inc.n > 0 ? inc.sum / inc.n : 0),
       errorRate: svc?.errorRate ?? inc?.err ?? 0,
     };
-  }), [names, positions, services, incoming, w]);
+  }), [names, positions, services, incoming, w, nodeOffsets]);
 
   const nodeMap = new Map(nodes.map(n => [n.name, n]));
   const maxCalls = Math.max(...edges.map(e => e.callCount), 1);
+
+  // Neighbour set of the hovered node — used to dim non-related edges
+  // and nodes the same way Uptrace does on hover. Empty when nothing
+  // is hovered.
+  const neighborhood = useMemo(() => {
+    if (!hovered) return null;
+    const ns = new Set<string>([hovered]);
+    edges.forEach(e => {
+      if (e.source === hovered) ns.add(e.target);
+      if (e.target === hovered) ns.add(e.source);
+    });
+    return ns;
+  }, [hovered, edges]);
 
   // Pan/zoom handlers
   const onWheel = (ev: React.WheelEvent) => {
@@ -181,22 +207,72 @@ export function ServiceGraphSVG({ services, edges, onNodeClick, highlightService
       return { x: mx - (mx - v.x) * ratio, y: my - (my - v.y) * ratio, k };
     });
   };
-  const onMouseDown = (ev: React.MouseEvent) => {
-    if ((ev.target as Element).closest('.graph-node')) return; // don't pan when grabbing a node
-    dragRef.current = { x: ev.clientX, y: ev.clientY, vx: view.x, vy: view.y };
+
+  // Mouse-down anywhere outside a node starts a pan; node-specific
+  // mousedown (see <g onMouseDown> below) intercepts before this fires.
+  const onCanvasMouseDown = (ev: React.MouseEvent) => {
+    if ((ev.target as Element).closest('.graph-node')) return;
+    panRef.current = { x: ev.clientX, y: ev.clientY, vx: view.x, vy: view.y, moved: false };
   };
+
   const onMouseMove = (ev: React.MouseEvent) => {
-    if (!dragRef.current) return;
-    setView(v => ({ ...v, x: dragRef.current!.vx + (ev.clientX - dragRef.current!.x),
-                          y: dragRef.current!.vy + (ev.clientY - dragRef.current!.y) }));
+    // Node drag wins over canvas pan when both could fire.
+    if (nodeDrag.current) {
+      const drag = nodeDrag.current;
+      // Translate screen-pixel delta into graph-space (account for zoom).
+      const sdx = (ev.clientX - drag.startX) / view.k;
+      const sdy = (ev.clientY - drag.startY) / view.k;
+      if (Math.abs(sdx) > 1 || Math.abs(sdy) > 1) drag.moved = true;
+      setNodeOffsets(prev => ({
+        ...prev,
+        [drag.name]: { dx: drag.ox + sdx, dy: drag.oy + sdy },
+      }));
+      return;
+    }
+    if (panRef.current) {
+      const pan = panRef.current;
+      const dx = ev.clientX - pan.x, dy = ev.clientY - pan.y;
+      if (Math.abs(dx) > 2 || Math.abs(dy) > 2) pan.moved = true;
+      setView(v => ({ ...v, x: pan.vx + dx, y: pan.vy + dy }));
+    }
   };
-  const onMouseUp = () => { dragRef.current = null; };
+
+  const onMouseUp = () => {
+    nodeDrag.current = null;
+    panRef.current = null;
+  };
+
+  // Per-node mouse-down — captures the node by name, records its
+  // current offset, and prevents the canvas pan handler from firing.
+  const onNodeMouseDown = (ev: React.MouseEvent, name: string) => {
+    ev.stopPropagation();
+    const off = nodeOffsets[name] ?? { dx: 0, dy: 0 };
+    nodeDrag.current = {
+      name, startX: ev.clientX, startY: ev.clientY,
+      ox: off.dx, oy: off.dy, moved: false,
+    };
+  };
+
+  // Click only counts when the mouse-up fires on the same node and
+  // didn't move enough to qualify as a drag. Without this guard a
+  // drag would also navigate the user to /service?name=X.
+  const onNodeClickGuarded = (ev: React.MouseEvent, name: string) => {
+    if (nodeDrag.current && nodeDrag.current.moved) {
+      ev.stopPropagation();
+      return;
+    }
+    onNodeClick(name);
+  };
 
   return (
-    <div ref={containerRef} id="graph-wrap" style={{ height: VIEW_H, position: 'relative' }}>
+    <div ref={containerRef} id="graph-wrap"
+         style={{ height: VIEW_H, position: 'relative', cursor: panRef.current ? 'grabbing' : 'default' }}>
       <svg id="graph-svg" viewBox={`0 0 ${w} ${VIEW_H}`}
-           onWheel={onWheel} onMouseDown={onMouseDown}
-           onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}>
+           onWheel={onWheel}
+           onMouseDown={onCanvasMouseDown}
+           onMouseMove={onMouseMove}
+           onMouseUp={onMouseUp}
+           onMouseLeave={onMouseUp}>
         <defs>
           {/* Background dot grid — graph paper feel */}
           <pattern id="dot-grid" x="0" y="0" width="18" height="18" patternUnits="userSpaceOnUse">
@@ -209,6 +285,14 @@ export function ServiceGraphSVG({ services, edges, onNodeClick, highlightService
           <marker id="arr-err" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
             <path d="M0,0 L10,4 L0,8 Z" fill="#f85149" />
           </marker>
+          {/* Highlighted variants — rendered when an edge belongs to
+              the hovered node's neighborhood. Brighter, no dash, fatter. */}
+          <marker id="arr-ok-hl"  markerWidth="11" markerHeight="9" refX="9" refY="4.5" orient="auto">
+            <path d="M0,0 L11,4.5 L0,9 Z" fill="#56d364" />
+          </marker>
+          <marker id="arr-err-hl" markerWidth="11" markerHeight="9" refX="9" refY="4.5" orient="auto">
+            <path d="M0,0 L11,4.5 L0,9 Z" fill="#ff7b72" />
+          </marker>
         </defs>
 
         <rect x="0" y="0" width={w} height={VIEW_H} fill="url(#dot-grid)" />
@@ -219,7 +303,19 @@ export function ServiceGraphSVG({ services, edges, onNodeClick, highlightService
             const src = nodeMap.get(e.source); const tgt = nodeMap.get(e.target);
             if (!src || !tgt) return null;
             const errored = e.errorRate > 0;
-            const color = errored ? '#f85149' : '#3fb950';
+            // An edge is "active" when one of its endpoints is hovered.
+            // Active edges paint brighter; inactive edges dim (opacity)
+            // when there's any hover state at all.
+            const inNeighborhood = !neighborhood || neighborhood.has(e.source) && neighborhood.has(e.target);
+            const isHovered = hovered != null && (e.source === hovered || e.target === hovered);
+            let color = errored ? '#f85149' : '#3fb950';
+            let opacity = errored ? 0.85 : 0.7;
+            if (isHovered) {
+              color = errored ? '#ff7b72' : '#56d364';
+              opacity = 1;
+            } else if (hovered && !inNeighborhood) {
+              opacity = 0.18;
+            }
             // Endpoint = node border, not center, so arrow tip lands cleanly
             const pad = 4;
             const dx = tgt.x - src.x, dy = tgt.y - src.y;
@@ -228,14 +324,18 @@ export function ServiceGraphSVG({ services, edges, onNodeClick, highlightService
             const ty = tgt.y - (dy / len) * (NODE_H / 2 + pad);
             const sx = src.x + (dx / len) * (NODE_W / 2 + pad);
             const sy = src.y + (dy / len) * (NODE_H / 2 + pad);
-            const strokeW = Math.max(1.2, Math.log1p((e.callCount / maxCalls) * 8) * 1.4);
+            const baseW = Math.max(1.2, Math.log1p((e.callCount / maxCalls) * 8) * 1.4);
+            const strokeW = isHovered ? baseW + 1.4 : baseW;
+            const marker = isHovered
+              ? (errored ? 'url(#arr-err-hl)' : 'url(#arr-ok-hl)')
+              : (errored ? 'url(#arr-err)' : 'url(#arr-ok)');
             return (
               <path key={i}
                 d={`M ${sx} ${sy} L ${tx} ${ty}`}
                 stroke={color} strokeWidth={strokeW} fill="none"
-                strokeOpacity={errored ? 0.85 : 0.7}
-                strokeDasharray={errored ? '6 4' : undefined}
-                markerEnd={errored ? 'url(#arr-err)' : 'url(#arr-ok)'}
+                strokeOpacity={opacity}
+                strokeDasharray={errored && !isHovered ? '6 4' : undefined}
+                markerEnd={marker}
                 onMouseEnter={ev => setTooltip({
                   x: ev.clientX, y: ev.clientY,
                   text: `${e.source} → ${e.target}\nCalls: ${fmtNum(e.callCount)}\nErrors: ${e.errorRate.toFixed(1)}%\nAvg: ${e.avgMs.toFixed(2)}ms`,
@@ -247,34 +347,57 @@ export function ServiceGraphSVG({ services, edges, onNodeClick, highlightService
           {/* Nodes */}
           {nodes.map(n => {
             const style = KIND_STYLE[n.kind];
-            const isHL = highlightService === n.name;
-            const dim  = highlightService && !isHL;
+            const isExplicit = highlightService === n.name;
+            const isHover    = hovered === n.name;
+            // Dim a node if there's any active focus (explicit highlight
+            // OR hover) and this node isn't part of it.
+            const focused = !!(highlightService || hovered);
+            const inFocus = isExplicit || isHover ||
+                            (highlightService && highlightService === n.name) ||
+                            (neighborhood && neighborhood.has(n.name));
+            const dim = focused && !inFocus;
             const subtitle = `${style.subtitle} · ${formatMs(n.avgMs)}`;
+            const isDragging = nodeDrag.current?.name === n.name;
             return (
               <g key={n.name} className="graph-node"
                  transform={`translate(${n.x - NODE_W / 2},${n.y - NODE_H / 2})`}
-                 opacity={dim ? 0.35 : 1}
-                 onClick={() => onNodeClick(n.name)}
-                 onMouseEnter={ev => setTooltip({
-                   x: ev.clientX, y: ev.clientY,
-                   text: `${n.name}\n${style.subtitle}\nAvg: ${formatMs(n.avgMs)}\nErr rate: ${n.errorRate.toFixed(1)}%`,
-                 })}
-                 onMouseLeave={() => setTooltip(null)}>
+                 opacity={dim ? 0.30 : 1}
+                 style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+                 onMouseDown={ev => onNodeMouseDown(ev, n.name)}
+                 onClick={ev => onNodeClickGuarded(ev, n.name)}
+                 onMouseEnter={ev => {
+                   setHovered(n.name);
+                   setTooltip({
+                     x: ev.clientX, y: ev.clientY,
+                     text: `${n.name}\n${style.subtitle}\nAvg: ${formatMs(n.avgMs)}\nErr rate: ${n.errorRate.toFixed(1)}%`,
+                   });
+                 }}
+                 onMouseLeave={() => {
+                   if (!nodeDrag.current) setHovered(null);
+                   setTooltip(null);
+                 }}>
+                {/* Soft glow halo when this node is hovered or pinned. */}
+                {(isHover || isExplicit) && (
+                  <rect x={-4} y={-4} width={NODE_W + 8} height={NODE_H + 8} rx="9" ry="9"
+                        fill="none" stroke={isExplicit ? '#f0883e' : '#58a6ff'}
+                        strokeOpacity={0.28} strokeWidth={6} />
+                )}
                 <rect width={NODE_W} height={NODE_H} rx="6" ry="6"
                   fill={style.fill}
-                  stroke={isHL ? '#f0883e' : style.stroke}
-                  strokeWidth={isHL ? 2 : 1} />
+                  stroke={isExplicit ? '#f0883e' : isHover ? '#58a6ff' : style.stroke}
+                  strokeWidth={isExplicit || isHover ? 2 : 1} />
                 {/* Icon */}
                 <g transform="translate(8, 14)">
                   <NodeIcon kind={n.kind} color={style.fg} />
                 </g>
                 {/* Name (top line) */}
-                <text x={32} y={18} fill={style.fg} fontSize="12" fontWeight="700">
+                <text x={32} y={18} fill={style.fg} fontSize="12" fontWeight="700"
+                      style={{ pointerEvents: 'none' }}>
                   {truncate(n.name, 18)}
                 </text>
                 {/* Subtitle (bottom line) */}
                 <text x={32} y={34} fill="#8b949e" fontSize="9" fontWeight="600"
-                      letterSpacing="0.5">
+                      letterSpacing="0.5" style={{ pointerEvents: 'none' }}>
                   {subtitle}
                 </text>
                 {n.errorRate > 0 && (
@@ -286,14 +409,26 @@ export function ServiceGraphSVG({ services, edges, onNodeClick, highlightService
         </g>
       </svg>
 
-      {/* Zoom controls */}
+      {/* Zoom controls + reset layout */}
       <div style={{
         position: 'absolute', left: 8, bottom: 8, display: 'flex', flexDirection: 'column',
         gap: 4, background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 4,
       }}>
         <ZoomBtn onClick={() => setView(v => ({ ...v, k: Math.min(2.5, v.k * 1.25) }))}>+</ZoomBtn>
         <ZoomBtn onClick={() => setView(v => ({ ...v, k: Math.max(0.4, v.k / 1.25) }))}>−</ZoomBtn>
-        <ZoomBtn onClick={() => setView({ x: 0, y: 0, k: 1 })}>⌂</ZoomBtn>
+        <ZoomBtn onClick={() => { setView({ x: 0, y: 0, k: 1 }); setNodeOffsets({}); }}
+                 title="Reset zoom + node positions">⌂</ZoomBtn>
+      </div>
+
+      {/* Hint strip — explain interactions to a first-time user. */}
+      <div style={{
+        position: 'absolute', right: 8, bottom: 8, padding: '4px 8px',
+        background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 4,
+        color: 'var(--text3)', fontSize: 10, lineHeight: 1.4, pointerEvents: 'none',
+      }}>
+        <b style={{ color: 'var(--text2)' }}>Drag</b> a node to move it ·
+        {' '}<b style={{ color: 'var(--text2)' }}>Hover</b> to highlight neighbours ·
+        {' '}<b style={{ color: 'var(--text2)' }}>Wheel</b> to zoom
       </div>
 
       {tooltip && (
@@ -305,9 +440,9 @@ export function ServiceGraphSVG({ services, edges, onNodeClick, highlightService
   );
 }
 
-function ZoomBtn({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
+function ZoomBtn({ children, onClick, title }: { children: React.ReactNode; onClick: () => void; title?: string }) {
   return (
-    <button onClick={onClick} style={{
+    <button onClick={onClick} title={title} style={{
       width: 28, height: 24, padding: 0, background: 'transparent', color: 'var(--text2)',
       border: 'none', cursor: 'pointer', fontSize: 14,
     }}>{children}</button>
