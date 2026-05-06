@@ -51,6 +51,12 @@ services:
       # Hot-cache + distributed lock backend. Comment out to fall back to
       # single-instance mode (no cache, always-leader background workers).
       COREMETRY_REDIS_URL: "redis://redis:6379/0"
+      # AI Copilot — explain-trace / explain-problem endpoints, plus
+      # the inline "🤖 AI explain" buttons in the UI. Bring your own
+      # Anthropic API key (https://console.anthropic.com/ → API Keys).
+      # Empty = feature dormant + buttons hidden.
+      COREMETRY_AI_API_KEY: "${COREMETRY_AI_API_KEY:-}"
+      COREMETRY_AI_MODEL:   "${COREMETRY_AI_MODEL:-claude-sonnet-4-6}"
       # Logs read backend. "clickhouse" (default) keeps the existing path;
       # "elasticsearch" makes /api/logs query ES directly so logs shipped
       # by the collector's ES exporter are searchable in the Coremetry UI.

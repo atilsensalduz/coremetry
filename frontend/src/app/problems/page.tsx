@@ -5,6 +5,7 @@ import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { api } from '@/lib/api';
 import { tsLong } from '@/lib/utils';
+import { CopilotExplain } from '@/components/CopilotExplain';
 import type { Problem, TimeRange } from '@/lib/types';
 
 type SortKey = 'severity' | 'service' | 'metric' | 'value' | 'rule' | 'started' | 'status';
@@ -111,6 +112,7 @@ export default function ProblemsPage() {
                   <SortTh col="rule"     label="Rule"     sort={sortBy} dir={sortDir} onSort={toggleSort} />
                   <SortTh col="started"  label="Started"  sort={sortBy} dir={sortDir} onSort={toggleSort} />
                   <SortTh col="status"   label="Status"   sort={sortBy} dir={sortDir} onSort={toggleSort} />
+                  <th>AI</th>
                 </tr>
               </thead>
               <tbody>
@@ -146,6 +148,11 @@ export default function ProblemsPage() {
                         {p.status === 'open'
                           ? <span className="badge b-err">OPEN</span>
                           : <span className="badge b-ok">RESOLVED</span>}
+                      </td>
+                      <td>
+                        {/* Self-hides when COREMETRY_AI_API_KEY isn't set;
+                            renders as a small button + inline reply when it is. */}
+                        <CopilotExplain kind="problem" id={p.id} label="🤖" />
                       </td>
                     </tr>
                   );

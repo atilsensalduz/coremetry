@@ -6,7 +6,7 @@ import { useAuth } from '@/components/AuthProvider';
 import { api } from '@/lib/api';
 import type { SMTPSettings, NotificationChannel, ChannelType } from '@/lib/types';
 
-type Tab = 'smtp' | 'channels';
+type Tab = 'smtp' | 'channels' | 'ai';
 
 export default function SettingsPage() {
   const { user } = useAuth();
@@ -32,9 +32,11 @@ export default function SettingsPage() {
         <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border)', marginBottom: 16 }}>
           <TabBtn active={tab === 'smtp'} onClick={() => setTab('smtp')}>📨 SMTP</TabBtn>
           <TabBtn active={tab === 'channels'} onClick={() => setTab('channels')}>🔔 Notification channels</TabBtn>
+          <TabBtn active={tab === 'ai'} onClick={() => setTab('ai')}>🤖 AI Copilot</TabBtn>
         </div>
         {tab === 'smtp' && <SMTPTab />}
         {tab === 'channels' && <ChannelsTab />}
+        {tab === 'ai' && <AITab />}
       </div>
     </>
   );
@@ -468,6 +470,87 @@ function FlashBox({ kind, children }: { kind: 'ok' | 'err'; children: React.Reac
       padding: '6px 10px', background: colors.bg,
       border: `1px solid ${colors.bd}`, borderRadius: 4,
     }}>{children}</div>
+  );
+}
+
+// AITab — read-only status of the AI Copilot integration. Configuration
+// is server-side via env vars (COREMETRY_AI_API_KEY) so the operator
+// who edits compose / Helm controls credentials, not anyone with admin
+// access in the UI. This tab just shows whether the wiring's working.
+function AITab() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  useEffect(() => {
+    api.copilotConfig().then(c => setEnabled(c.enabled)).catch(() => setEnabled(false));
+  }, []);
+
+  if (enabled === null) return <Spinner />;
+
+  return (
+    <div style={{ maxWidth: 640 }}>
+      <h2 style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>AI Copilot</h2>
+      <p style={{ color: 'var(--text2)', fontSize: 13, marginBottom: 16 }}>
+        Inline natural-language explanations for traces and Problems via Anthropic's
+        Messages API. The button shows up automatically on the trace detail page and
+        in the Problems table once configured.
+      </p>
+
+      <div className={`status-banner status-banner-${enabled ? 'operational' : 'degraded'}`}>
+        <span className={`status-pill status-pill-${enabled ? 'operational' : 'degraded'}`}>
+          {enabled ? 'CONFIGURED' : 'NOT CONFIGURED'}
+        </span>
+        <span style={{ fontWeight: 600, fontSize: 14 }}>
+          {enabled
+            ? 'AI Copilot is ready — buttons are visible on trace and problem pages.'
+            : 'AI Copilot is dormant — set COREMETRY_AI_API_KEY to enable.'}
+        </span>
+      </div>
+
+      {!enabled && (
+        <div style={{ marginTop: 18, padding: 16, borderRadius: 8,
+          background: 'var(--bg2)', border: '1px solid var(--border)' }}>
+          <h3 style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Enable in 3 steps</h3>
+          <ol style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--text)', paddingLeft: 18 }}>
+            <li>
+              Get an API key from{' '}
+              <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener"
+                 style={{ color: 'var(--accent2)' }}>console.anthropic.com</a>.
+            </li>
+            <li>
+              Set the env var on the coremetry container:{' '}
+              <code style={{ background: 'var(--bg0)', padding: '1px 6px', borderRadius: 3 }}>
+                COREMETRY_AI_API_KEY=sk-ant-…
+              </code>
+              {' '}(via <code>.env</code> for compose, or a Secret on Helm).
+            </li>
+            <li>Restart the coremetry container — this banner flips to <b style={{ color: 'var(--ok)' }}>CONFIGURED</b>.</li>
+          </ol>
+          <p style={{ fontSize: 11, color: 'var(--text3)', marginTop: 10 }}>
+            Default model: <code>claude-sonnet-4-6</code>.{' '}
+            Override with <code>COREMETRY_AI_MODEL</code>.
+          </p>
+        </div>
+      )}
+
+      {enabled && (
+        <div style={{ marginTop: 18, padding: 16, borderRadius: 8,
+          background: 'var(--bg2)', border: '1px solid var(--border)' }}>
+          <h3 style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>What it does</h3>
+          <ul style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--text)', paddingLeft: 18 }}>
+            <li>
+              <b>🤖 Explain this trace</b> — on any trace detail page. Pulls the spans server-side,
+              builds a compact summary, asks for slowest span / error concentration / root-cause hint.
+            </li>
+            <li>
+              <b>🤖</b> column on the <a href="/problems" style={{ color: 'var(--accent2)' }}>Problems</a> page.
+              Click the icon to get plain-language meaning + ranked likely causes + first three things to check.
+            </li>
+          </ul>
+          <p style={{ fontSize: 11, color: 'var(--text3)', marginTop: 10 }}>
+            Cost: ~1¢-3¢ per call against Sonnet at typical trace size.
+          </p>
+        </div>
+      )}
+    </div>
   );
 }
 
