@@ -66,7 +66,7 @@ function Inner() {
   if (!draft) return <Spinner />;
 
   const isAdmin = user?.role === 'admin';
-  const panels: Panel[] = draft.panels;
+  const panels: Panel[] = draft.panels ?? [];
 
   const updatePanel = (panel: Panel) => {
     setDraft({ ...draft, panels: panels.map(p => p.id === panel.id ? panel : p) });

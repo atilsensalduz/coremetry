@@ -528,7 +528,10 @@ export interface DashboardSummary {
   updatedAt: number;
 }
 export interface Dashboard extends DashboardSummary {
-  panels: Panel[];
+  // Optional because list responses skip the heavy fields; only
+  // the single-dashboard endpoint guarantees them. Renderer
+  // normalises via normalizePanels().
+  panels?: Panel[];
   variables?: DashboardVariable[];
 }
 

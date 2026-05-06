@@ -13,19 +13,29 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [config, setConfig] = useState<AuthConfigResponse | null>(null);
 
-  // Pull auth config so we know whether to show the SSO button + handle
-  // demo-mode prefill.
+  // Pull auth config + auto-sign-in when demo mode is on. The demo
+  // viewer creds are intentionally public (they're returned by an
+  // unauth'd endpoint) so the user lands directly in the app
+  // without seeing this form. On non-demo deployments the form
+  // renders normally and the operator types their own creds.
   useEffect(() => {
     api.authConfig().then(c => {
       setConfig(c);
       if (c.demo?.enabled && c.demo.email && c.demo.password) {
         setEmail(c.demo.email);
         setPassword(c.demo.password);
+        // Auto-submit. Don't block on user interaction.
+        setBusy(true);
+        login(c.demo.email, c.demo.password).catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : 'Demo login failed';
+          setError(msg);
+          setBusy(false);
+        });
       }
     }).catch(() => setConfig({
       local: { enabled: true }, oidc: { enabled: false },
     }));
-  }, []);
+  }, [login]);
 
   // Surface OIDC failure messages bubbled back via ?error=…
   useEffect(() => {

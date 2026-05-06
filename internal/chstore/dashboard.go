@@ -19,8 +19,11 @@ type Dashboard struct {
 	ID          string          `json:"id"`
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
-	Panels      json.RawMessage `json:"panels"`        // [] of {id,type,title,width,config}
-	Variables   json.RawMessage `json:"variables"`     // [] of {name,type,options,defaultValue}
+	// `omitempty` so the lightweight ListDashboards response doesn't
+	// emit null fields the SPA isn't expecting (panels/variables are
+	// only fetched on the single-dashboard endpoint).
+	Panels      json.RawMessage `json:"panels,omitempty"`
+	Variables   json.RawMessage `json:"variables,omitempty"`
 	CreatedAt   int64           `json:"createdAt"`     // unix ns
 	UpdatedAt   int64           `json:"updatedAt"`     // unix ns
 }

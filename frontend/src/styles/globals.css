@@ -391,9 +391,21 @@ canvas { max-width: 100%; }
   margin: 4px 0 8px;
   font-size: 12px;
 }
-.ex-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+/* ex-head is a wrap-able row. Type + ESCAPED + time/copy/toggle
+   sit on the first line; the message gets flex-basis 100% so it
+   always falls to its own line below — readable even when it's a
+   long Java/Python error string. */
+.ex-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; row-gap: 4px; }
 .ex-type { font-weight: 700; color: var(--err); }
-.ex-msg  { color: var(--text); flex: 1; word-break: break-word; }
+.ex-msg  {
+  flex: 0 0 100%;
+  color: var(--text);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font-size: 13px;
+  line-height: 1.45;
+}
 .ex-toggle {
   background: transparent; border: 0; color: var(--text2);
   cursor: pointer; padding: 0 4px; font-size: 11px;
