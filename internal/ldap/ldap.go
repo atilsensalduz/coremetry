@@ -71,6 +71,30 @@ type GroupRoleMapping struct {
 	Role  string `json:"role"`  // admin | editor | viewer
 }
 
+// resolveUserFilter returns the filter actually used at search time.
+// Two cases:
+//   1. The configured filter contains {{username}} — substitute and use as-is.
+//   2. It does not — wrap it as a Dex-style additional filter, AND-ing
+//      a canonical OR clause that matches sAMAccountName / UPN / mail.
+//      This is how operators familiar with Dex's `userSearch.filter:
+//      "(objectclass=person)"` shorthand expect things to work; without
+//      this wrap, the filter matches every person and the dedup check
+//      fails with "user search returned N entries (filter too loose?)".
+func resolveUserFilter(rawFilter, escapedUsername string) string {
+	if strings.Contains(rawFilter, "{{username}}") {
+		return strings.ReplaceAll(rawFilter, "{{username}}", escapedUsername)
+	}
+	usernameClause := fmt.Sprintf("(|(sAMAccountName=%s)(userPrincipalName=%s)(mail=%s))",
+		escapedUsername, escapedUsername, escapedUsername)
+	if rawFilter == "" {
+		return usernameClause
+	}
+	// AND the operator's pre-filter with the username clause. Mirrors
+	// Dex's behaviour: the saved filter narrows the candidate set
+	// (e.g. (objectclass=person)), then we add the username predicate.
+	return "(&" + rawFilter + usernameClause + ")"
+}
+
 // Normalize fills in Active-Directory-friendly defaults so half-filled
 // configs produce a working probe. Mutates in place.
 func (c *Config) Normalize() {
@@ -347,7 +371,10 @@ func (s *Service) TestConnection(ctx context.Context, override *Config) error {
 // AD's default page size is 1000, so 50 stays well under any forest-
 // wide policy.
 func findUser(conn *goldap.Conn, c Config, username string) (*LDAPUser, error) {
-	filter := strings.ReplaceAll(c.UserSearchFilter, "{{username}}", goldap.EscapeFilter(username))
+	filter := resolveUserFilter(c.UserSearchFilter, goldap.EscapeFilter(username))
+	if !strings.Contains(c.UserSearchFilter, "{{username}}") {
+		log.Printf("[ldap] WARN: userSearchFilter has no {{username}} placeholder — auto-wrapping with sAMAccountName/UPN/mail OR clause. Set the filter to e.g. (sAMAccountName={{username}}) to silence this.")
+	}
 	log.Printf("[ldap] user search baseDN=%q filter=%s", c.BaseDN, filter)
 	req := goldap.NewSearchRequest(
 		c.BaseDN, goldap.ScopeWholeSubtree, goldap.NeverDerefAliases,
