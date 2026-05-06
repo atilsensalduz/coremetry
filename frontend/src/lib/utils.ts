@@ -137,9 +137,29 @@ export function displaySpanName(s: {
   const a = s.attributes ?? {};
   const raw = (s.name ?? '').trim();
   const lc  = raw.toLowerCase();
+
   const rpcService = a['rpc.service'];
   const rpcMethod  = a['rpc.method'];
   const peer       = a['peer.service'];
+
+  // OTel HTTP semconv: server.address (new) or http.host (old) carries
+  // the target hostname; url.path / http.target / http.route carries
+  // the path. Both new + old conventions are honoured because in-the-
+  // wild SDKs are mid-migration.
+  const serverAddr = a['server.address'] || a['http.host'] || a['net.peer.name'];
+  const urlPath    = a['url.path']       || a['http.target'] || a['http.route'];
+
+  // Bare HTTP verb? Some SDKs (especially the older Node + Python
+  // instrumentations) name client spans literally "GET" / "POST" /
+  // etc. Useless on its own — enrich with server.address + path
+  // when available.
+  const httpVerbs = new Set(['get', 'post', 'put', 'delete', 'patch', 'head', 'options']);
+  if (httpVerbs.has(lc)) {
+    if (serverAddr && urlPath) return `${raw} ${serverAddr}${urlPath}`;
+    if (serverAddr)            return `${raw} ${serverAddr}`;
+    if (urlPath)               return `${raw} ${urlPath}`;
+    return raw;
+  }
 
   // Bail when the existing name is already informative — anything that
   // contains a `/`, `.`, or whitespace and isn't the bare keywords below
