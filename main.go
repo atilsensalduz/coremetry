@@ -173,19 +173,12 @@ func main() {
 	// ── HTTP server (OTLP + API + UI) ─────────────────────────────────────────
 	srv := api.NewServer(cfg.Listen.HTTP, ing, store, logsStore, webFS, authSvc, oidcSvc, cacheImpl, notifier, copilotSvc)
 	if cfg.Auth.DemoMode {
-		// In demo mode we expose a VIEWER session, not the admin
-		// account. Visitors land in a read-only tour: every admin-
-		// gated endpoint (dashboard CRUD, channel config, retention
-		// settings, etc.) returns 403 because of the existing
-		// auth.RequireRole guards. The login page auto-submits these
-		// creds so there's no password prompt.
-		const demoEmail = "demo@coremetry.local"
-		const demoPassword = "demo"
-		if err := seedDemoViewer(ctx, store, demoEmail, demoPassword); err != nil {
-			log.Printf("[auth] seed demo viewer: %v", err)
-		}
-		srv.EnableDemoMode(demoEmail, demoPassword)
-		log.Printf("[auth] DEMO MODE — login page auto-signs in as %s (viewer, read-only). DO NOT use in production.", demoEmail)
+		// Demo mode auto-signs the visitor in as the configured initial
+		// admin so they can poke at every screen, including admin-only
+		// surfaces (dashboards, channels, retention). The login page
+		// auto-submits these creds — no password prompt.
+		srv.EnableDemoMode(cfg.Auth.InitialAdmin, cfg.Auth.InitialPassword)
+		log.Printf("[auth] DEMO MODE — login page auto-signs in as %s (admin). DO NOT use in production.", cfg.Auth.InitialAdmin)
 	}
 	go func() {
 		if err := srv.Start(); err != nil {
@@ -304,33 +297,4 @@ func seedInitialAdmin(ctx context.Context, store *chstore.Store, ac config.AuthC
 	}
 	log.Printf("[auth] seeded initial admin %q (change the password via API after first login)", ac.InitialAdmin)
 	return nil
-}
-
-// seedDemoViewer upserts a fixed read-only viewer user used by the
-// demo auto-login flow. Idempotent — the same email always produces
-// the same user row (UpsertUser overwrites). The login page calls
-// /api/auth/login with these creds on every fresh visit so the demo
-// experience is "land in the app, no password prompt, no admin
-// surface".
-func seedDemoViewer(ctx context.Context, store *chstore.Store, email, password string) error {
-	// Reuse the existing user when one's already there for this email
-	// (idempotent across reboots — same id, fresh password hash).
-	existing, _ := store.GetUserByEmail(ctx, email)
-	hash, err := auth.HashPassword(password)
-	if err != nil {
-		return err
-	}
-	u := chstore.User{
-		Email:        email,
-		PasswordHash: hash,
-		Role:         auth.RoleViewer,
-	}
-	if existing != nil && existing.ID != "" {
-		u.ID = existing.ID
-	} else {
-		id := make([]byte, 8)
-		_, _ = rand.Read(id)
-		u.ID = hex.EncodeToString(id)
-	}
-	return store.UpsertUser(ctx, u)
 }
