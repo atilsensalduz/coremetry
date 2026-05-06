@@ -21,17 +21,46 @@ import (
 // table that already has them stays a no-op via ReplacingMergeTree.
 
 func (s *Store) SeedPresetDashboards(ctx context.Context) error {
-	// Only seed when there's nothing here at all.
+	// One-shot upgrade: the original "Service: RED (template)" preset
+	// hardcoded service.name=java-demo, which annoyed operators with
+	// other services. The new preset relies on the dashboard-level
+	// service picker. Detect the old preset by its name + drop it so
+	// the seeder below recreates it from the new definition.
+	const oldName = "Service: RED (template)"
+	if err := s.conn.Exec(ctx,
+		`ALTER TABLE dashboards DELETE WHERE id = 'preset-sre-service-red' AND name = ?`,
+		oldName); err != nil {
+		log.Printf("[chstore] preset upgrade probe: %v", err)
+	}
+
+	// Then seed when the table is empty (fresh install) — and ALSO
+	// when the table is non-empty but the upgraded preset isn't here
+	// yet (the path the upgrade above just took).
 	row := s.conn.QueryRow(ctx, `SELECT count() FROM dashboards FINAL`)
 	var n uint64
 	if err := row.Scan(&n); err != nil {
 		return fmt.Errorf("count dashboards: %w", err)
 	}
-	if n > 0 {
-		return nil
-	}
+	freshInstall := n == 0
 
 	for _, d := range presetDashboards() {
+		if !freshInstall {
+			// Upgrade-mode: only insert the rows we explicitly want
+			// to refresh (i.e. the preset whose definition just
+			// changed). Operator's own dashboards stay untouched.
+			if d.ID != "preset-sre-service-red" {
+				continue
+			}
+			// And only if the row is currently absent — otherwise
+			// the operator has the new version already (or a
+			// custom override; respect that).
+			var exists uint64
+			if err := s.conn.QueryRow(ctx,
+				`SELECT count() FROM dashboards FINAL WHERE id = ?`,
+				d.ID).Scan(&exists); err == nil && exists > 0 {
+				continue
+			}
+		}
 		if err := s.UpsertDashboard(ctx, d); err != nil {
 			return fmt.Errorf("seed dashboard %s: %w", d.ID, err)
 		}
@@ -170,59 +199,59 @@ func presetGoldenSignals() Dashboard {
 	)
 }
 
-// ── Dashboard 2: Service RED (template — clone per service) ─────────────────
+// ── Dashboard 2: Service RED (per-service via top-of-page picker) ───────────
 //
-// RED method (Rate / Errors / Duration) for a single service. Filters
-// on service.name=java-demo as a starting point — clone this dashboard
-// and change the filter for each service you want focused on.
+// RED method (Rate / Errors / Duration) for ONE service at a time.
+// No hardcoded service filter — the dashboard's top-of-page service
+// picker scopes every panel. Pick a service from the dropdown and
+// the same dashboard becomes useful for any service in the system.
 func presetServiceRED() Dashboard {
-	const svcDSL = `service.name = "java-demo"`
 	return dash(
 		"preset-sre-service-red",
-		"Service: RED (template)",
-		"Rate / Errors / Duration for a single service. Hardcoded to service.name=java-demo as a template — clone this dashboard and change the filter to monitor any other service the same way.",
+		"Service: RED (per service)",
+		"Rate / Errors / Duration for one service at a time. Use the Service picker at the top of the dashboard to choose which service.",
 		[]panel{
 			{
 				ID: "intro", Type: "markdown", Width: 4, Title: "",
-				Config: mdCfg{Text: "**Service RED** — Rate / Errors / Duration for a single service. " +
-					"This dashboard filters on `service.name = \"java-demo\"`. " +
-					"Clone it (top-right ⋮ → Duplicate) and change the filter on each panel to monitor a different service."},
+				Config: mdCfg{Text: "**Service RED** — Rate / Errors / Duration. " +
+					"**Pick a service from the dropdown above** to scope every panel on this page. " +
+					"Without a selection, you'll see aggregates across all services."},
 			},
 			{
 				ID: "stat-rps", Type: "stat", Width: 1, Title: "RPS",
 				Config: statCfg{Source: "spanmetric", Unit: "rps", Decimals: 2,
-					Span: &spanCfg{Agg: "rate", DSL: svcDSL}},
+					Span: &spanCfg{Agg: "rate"}},
 			},
 			{
 				ID: "stat-err", Type: "stat", Width: 1, Title: "Error rate",
 				Config: statCfg{Source: "spanmetric", Unit: "%", Decimals: 2,
-					Span: &spanCfg{Agg: "error_rate", DSL: svcDSL}},
+					Span: &spanCfg{Agg: "error_rate"}},
 			},
 			{
 				ID: "stat-p95", Type: "stat", Width: 1, Title: "P95",
 				Config: statCfg{Source: "spanmetric", Unit: "ms", Decimals: 1,
-					Span: &spanCfg{Agg: "p95", Field: "duration_ms", DSL: svcDSL}},
+					Span: &spanCfg{Agg: "p95", Field: "duration_ms"}},
 			},
 			{
 				ID: "stat-p99", Type: "stat", Width: 1, Title: "P99",
 				Config: statCfg{Source: "spanmetric", Unit: "ms", Decimals: 1,
-					Span: &spanCfg{Agg: "p99", Field: "duration_ms", DSL: svcDSL}},
+					Span: &spanCfg{Agg: "p99", Field: "duration_ms"}},
 			},
 			{
 				ID: "rps-by-op", Type: "spanmetric", Width: 2, Title: "RPS by operation",
-				Config: spanCfg{Agg: "rate", DSL: svcDSL, GroupBy: "name"},
+				Config: spanCfg{Agg: "rate", GroupBy: "name"},
 			},
 			{
 				ID: "err-by-op", Type: "spanmetric", Width: 2, Title: "Error rate (%) by operation",
-				Config: spanCfg{Agg: "error_rate", DSL: svcDSL, GroupBy: "name"},
+				Config: spanCfg{Agg: "error_rate", GroupBy: "name"},
 			},
 			{
 				ID: "p95-by-op", Type: "spanmetric", Width: 2, Title: "P95 by operation",
-				Config: spanCfg{Agg: "p95", Field: "duration_ms", DSL: svcDSL, GroupBy: "name"},
+				Config: spanCfg{Agg: "p95", Field: "duration_ms", GroupBy: "name"},
 			},
 			{
 				ID: "p99-by-op", Type: "spanmetric", Width: 2, Title: "P99 by operation",
-				Config: spanCfg{Agg: "p99", Field: "duration_ms", DSL: svcDSL, GroupBy: "name"},
+				Config: spanCfg{Agg: "p99", Field: "duration_ms", GroupBy: "name"},
 			},
 		},
 	)

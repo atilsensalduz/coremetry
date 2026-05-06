@@ -12,14 +12,22 @@ import { Spinner } from '../Spinner';
 // PanelRenderer dispatches on panel.type. Self-contained — fetches its
 // own data, re-fetches when `range` changes. Errors are surfaced inline
 // instead of crashing the whole dashboard.
-export function PanelRenderer({ panel, range }: { panel: Panel; range: TimeRange }) {
+export function PanelRenderer({ panel, range, serviceOverride }: {
+  panel: Panel;
+  range: TimeRange;
+  // Dashboard-level service filter — when non-empty, every panel's
+  // query gets scoped to that service: metric panels use it as the
+  // service param (overriding cfg.service); spanmetric panels splice
+  // it into the DSL, replacing any existing service.name predicate.
+  serviceOverride?: string;
+}) {
   switch (panel.type) {
     case 'metric':
-      return <MetricPanel cfg={panel.config as MetricPanelConfig} range={range} />;
+      return <MetricPanel cfg={withMetricService(panel.config as MetricPanelConfig, serviceOverride)} range={range} />;
     case 'spanmetric':
-      return <SpanMetricPanel cfg={panel.config as SpanMetricPanelConfig} range={range} />;
+      return <SpanMetricPanel cfg={withSpanService(panel.config as SpanMetricPanelConfig, serviceOverride)} range={range} />;
     case 'stat':
-      return <StatPanel cfg={panel.config as StatPanelConfig} range={range} />;
+      return <StatPanel cfg={withStatService(panel.config as StatPanelConfig, serviceOverride)} range={range} />;
     case 'markdown':
       return <MarkdownPanel cfg={panel.config as MarkdownPanelConfig} />;
     case 'row':
@@ -30,6 +38,38 @@ export function PanelRenderer({ panel, range }: { panel: Panel; range: TimeRange
     default:
       return <PanelError msg={`Unknown panel type: ${(panel as Panel).type}`} />;
   }
+}
+
+// withMetricService overrides metric.service when an override is set.
+function withMetricService(cfg: MetricPanelConfig, override?: string): MetricPanelConfig {
+  if (!override) return cfg;
+  return { ...cfg, service: override };
+}
+
+// withSpanService rewrites the DSL so service.name = "<override>" wins.
+// Replaces any existing service.name = "..." line; otherwise prepends.
+// Pure-string substitution is fragile in the abstract but the DSL
+// shape is line-based AND-joined "<key> <op> <value>" — narrow enough
+// to handle reliably without bringing in a parser.
+function withSpanService(cfg: SpanMetricPanelConfig, override?: string): SpanMetricPanelConfig {
+  if (!override) return cfg;
+  const re = /^service\.name\s*=\s*"[^"]*"\s*$/gm;
+  let dsl = cfg.dsl ?? '';
+  const newLine = `service.name = "${override}"`;
+  if (re.test(dsl)) {
+    dsl = dsl.replace(re, newLine);
+  } else {
+    dsl = dsl ? `${newLine}\n${dsl}` : newLine;
+  }
+  return { ...cfg, dsl };
+}
+
+function withStatService(cfg: StatPanelConfig, override?: string): StatPanelConfig {
+  if (!override) return cfg;
+  if (cfg.source === 'metric') {
+    return { ...cfg, metric: cfg.metric ? withMetricService(cfg.metric, override) : cfg.metric };
+  }
+  return { ...cfg, span: cfg.span ? withSpanService(cfg.span, override) : cfg.span };
 }
 
 // ── Metric line chart ───────────────────────────────────────────────────────

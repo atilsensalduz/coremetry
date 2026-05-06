@@ -6,6 +6,7 @@ import { Spinner, Empty } from '@/components/Spinner';
 import { useAuth } from '@/components/AuthProvider';
 import { PanelRenderer } from '@/components/dashboard/PanelRenderer';
 import { PanelEditor, defaultConfig } from '@/components/dashboard/PanelEditor';
+import { ServicePicker } from '@/components/ServicePicker';
 import { api } from '@/lib/api';
 import type { Dashboard, Panel, PanelType, TimeRange } from '@/lib/types';
 
@@ -28,6 +29,10 @@ function Inner() {
   const [draft, setDraft] = useState<Dashboard | null>(null);
   const [editingPanel, setEditingPanel] = useState<string | null>(null); // panel id
   const [busy, setBusy] = useState(false);
+  // Optional service override — drives a global filter applied to every
+  // panel on the dashboard. Persists via the URL so reloads + share-links
+  // preserve the selection. Empty string = "all services" (default).
+  const [serviceOverride, setServiceOverride] = useState<string>(() => sp.get('service') ?? '');
 
   useEffect(() => {
     if (!id) return;
@@ -94,6 +99,16 @@ function Inner() {
 
   const editingPanelObj = editingPanel ? panels.find(p => p.id === editingPanel) : null;
 
+  // Mirror the service picker into the URL so the choice survives
+  // reloads + is shareable. Done in an effect so we only push when the
+  // value actually changes (avoids a render loop).
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (serviceOverride) url.searchParams.set('service', serviceOverride);
+    else                 url.searchParams.delete('service');
+    window.history.replaceState({}, '', url.toString());
+  }, [serviceOverride]);
+
   return (
     <>
       <Topbar title={draft.name} range={range} onRangeChange={setRange} />
@@ -117,6 +132,19 @@ function Inner() {
               {draft.description && (
                 <span style={{ color: 'var(--text2)', fontSize: 12 }}>{draft.description}</span>
               )}
+              {/* Dashboard-level service override. Picker drives every panel
+                  on this page — for spanmetric panels we splice the
+                  service.name filter into the DSL, for metric panels we
+                  swap the service param. Empty = no override (panel's
+                  own filters / no filter applied). */}
+              <span style={{ marginLeft: 12, fontSize: 12, color: 'var(--text3)' }}>Service:</span>
+              <ServicePicker value={serviceOverride} onChange={setServiceOverride}
+                placeholder="(all services)" width={220} />
+              {serviceOverride && (
+                <button className="sec" onClick={() => setServiceOverride('')}
+                  title="Clear service filter"
+                  style={{ padding: '3px 8px', fontSize: 11 }}>✕</button>
+              )}
               <span style={{ marginLeft: 'auto' }} />
               {isAdmin && (
                 <>
@@ -138,6 +166,7 @@ function Inner() {
           <DashboardGrid
             panels={panels}
             range={range}
+            serviceOverride={serviceOverride}
             editing={editing}
             onEditPanel={setEditingPanel}
             onDeletePanel={deletePanel} />
@@ -212,10 +241,11 @@ function normalizePanels(raw: unknown): Panel[] {
 // not persisted across reloads (matches Grafana's default behaviour;
 // add a localStorage layer if users start asking for it).
 function DashboardGrid({
-  panels, range, editing, onEditPanel, onDeletePanel,
+  panels, range, serviceOverride, editing, onEditPanel, onDeletePanel,
 }: {
   panels: Panel[];
   range: TimeRange;
+  serviceOverride?: string;
   editing: boolean;
   onEditPanel: (id: string) => void;
   onDeletePanel: (id: string) => void;
@@ -294,7 +324,7 @@ function DashboardGrid({
                         </span>
                       )}
                     </div>
-                    <PanelRenderer panel={p} range={range} />
+                    <PanelRenderer panel={p} range={range} serviceOverride={serviceOverride} />
                   </div>
                 ))}
               </div>
