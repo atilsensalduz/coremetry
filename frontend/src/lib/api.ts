@@ -10,6 +10,7 @@ import type {
   SystemStatus,
   Monitor, MonitorResult, MonitorRow,
   Incident, IncidentEvent,
+  StatusPageConfig, StatusComponent, StatusSubscriber,
 } from './types';
 
 // Empty base = same origin (works in production where Go serves both UI and API).
@@ -79,6 +80,21 @@ export const api = {
     request<{ explanation: string }>(`/api/copilot/explain-trace/${id}`, { method: 'POST' }),
   copilotExplainProblem: (id: string) =>
     request<{ explanation: string }>(`/api/copilot/explain-problem/${id}`, { method: 'POST' }),
+
+  // Public status page admin
+  statusPageGetConfig:    () => get<StatusPageConfig>(`/api/status-page/config`),
+  statusPagePutConfig:    (c: StatusPageConfig) =>
+    request<StatusPageConfig>(`/api/status-page/config`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(c) }),
+  statusPageListComponents: () => get<StatusComponent[] | null>(`/api/status-page/components`),
+  statusPageCreateComponent: (c: Partial<StatusComponent>) =>
+    request<StatusComponent>(`/api/status-page/components`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(c) }),
+  statusPageUpdateComponent: (id: string, c: Partial<StatusComponent>) =>
+    request<StatusComponent>(`/api/status-page/components/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(c) }),
+  statusPageDeleteComponent: (id: string) =>
+    request<void>(`/api/status-page/components/${id}`, { method: 'DELETE' }),
+  statusPageListSubscribers: () => get<StatusSubscriber[] | null>(`/api/status-page/subscribers`),
+  statusPageDeleteSubscriber: (email: string) =>
+    request<void>(`/api/status-page/subscribers?email=${encodeURIComponent(email)}`, { method: 'DELETE' }),
 
   // Incident management
   listIncidents:    (params?: { status?: string; service?: string; severity?: string; limit?: number }) =>

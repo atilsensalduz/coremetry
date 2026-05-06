@@ -123,6 +123,21 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/health", s.getHealth)
 	mux.HandleFunc("GET /api/status", s.getStatus)
 
+	// ── Public status page ────────────────────────────────────────
+	// Read-only unauth: anyone with the URL can see status + subscribe.
+	mux.HandleFunc("GET  /api/public-status",            s.publicStatus)
+	mux.HandleFunc("POST /api/public-status/subscribe",  s.publicStatusSubscribe)
+	// Admin-gated config + subscriber management.
+	mux.HandleFunc("GET    /api/status-page/config",       auth.RequireRole(auth.RoleAdmin, s.statusPageGetConfig))
+	mux.HandleFunc("PUT    /api/status-page/config",       auth.RequireRole(auth.RoleAdmin, s.statusPagePutConfig))
+	mux.HandleFunc("GET    /api/status-page/components",   auth.RequireRole(auth.RoleAdmin, s.statusPageListComponents))
+	mux.HandleFunc("POST   /api/status-page/components",   auth.RequireRole(auth.RoleAdmin, s.statusPageCreateComponent))
+	mux.HandleFunc("PUT    /api/status-page/components/{id}", auth.RequireRole(auth.RoleAdmin, s.statusPageUpdateComponent))
+	mux.HandleFunc("DELETE /api/status-page/components/{id}", auth.RequireRole(auth.RoleAdmin, s.statusPageDeleteComponent))
+	mux.HandleFunc("GET    /api/status-page/subscribers",  auth.RequireRole(auth.RoleAdmin, s.statusPageListSubscribers))
+	mux.HandleFunc("DELETE /api/status-page/subscribers",  auth.RequireRole(auth.RoleAdmin, s.statusPageDeleteSubscriber))
+	mux.HandleFunc("PUT    /api/status-page/incidents/{id}/publish", auth.RequireRole(auth.RoleAdmin, s.statusPagePublishIncident))
+
 	// ── AI Copilot ─────────────────────────────────────────────────
 	mux.HandleFunc("GET    /api/copilot/config",            s.copilotConfig)
 	mux.HandleFunc("POST   /api/copilot/explain-trace/{id}", s.copilotExplainTrace)
@@ -1309,6 +1324,235 @@ func (s *Server) svcCallees(w http.ResponseWriter, r *http.Request) {
 	out, err := s.store.CalleesOf(r.Context(), r.PathValue("name"), since)
 	if err != nil { writeErr(w, err); return }
 	writeJSON(w, out)
+}
+
+// ── Public status page ──────────────────────────────────────────────────────
+//
+// Single read endpoint /api/public-status returns the entire payload
+// the public page needs in one shot: page config + each component's
+// current state + 90-day uptime bar + recent published incidents.
+// Cached 30s — high-traffic status pages can hammer this and we don't
+// want to thrash the underlying queries.
+
+type publicComponentRow struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description,omitempty"`
+	Status      string    `json:"status"` // operational | degraded | outage | unknown
+	Message     string    `json:"message,omitempty"`
+	UptimeDays  []float64 `json:"uptimeDays,omitempty"` // 90 ratios; -1 = no data
+}
+
+type publicIncidentRow struct {
+	ID         string  `json:"id"`
+	Title      string  `json:"title"`
+	Body       string  `json:"body,omitempty"`
+	Status     string  `json:"status"`
+	Severity   string  `json:"severity"`
+	StartedAt  int64   `json:"startedAt"`
+	ResolvedAt *int64  `json:"resolvedAt,omitempty"`
+}
+
+type publicStatusResp struct {
+	Title       string                `json:"title"`
+	Description string                `json:"description,omitempty"`
+	SupportURL  string                `json:"supportUrl,omitempty"`
+	Status      string                `json:"status"` // worst-of components
+	CheckedAt   string                `json:"checkedAt"`
+	Components  []publicComponentRow  `json:"components"`
+	Incidents   []publicIncidentRow   `json:"incidents"`
+}
+
+func (s *Server) publicStatus(w http.ResponseWriter, r *http.Request) {
+	s.serveCached(w, r, "public-status", 30*time.Second, func() (any, error) {
+		return s.collectPublicStatus(r.Context())
+	})
+}
+
+func (s *Server) collectPublicStatus(ctx context.Context) (publicStatusResp, error) {
+	cfg, err := s.store.GetStatusPageConfig(ctx)
+	if err != nil {
+		return publicStatusResp{}, err
+	}
+	comps, err := s.store.ListStatusComponents(ctx)
+	if err != nil {
+		return publicStatusResp{}, err
+	}
+	monStatus, _ := s.store.LastMonitorStatus(ctx)
+	openProblems, _ := s.store.ListProblems(ctx, chstore.ProblemFilter{Status: "open", Limit: 500})
+	openByService := map[string]chstore.Problem{}
+	for _, p := range openProblems {
+		// Track the worst severity per service
+		prev, ok := openByService[p.Service]
+		if !ok || severityRank(p.Severity) > severityRank(prev.Severity) {
+			openByService[p.Service] = p
+		}
+	}
+
+	rank := map[string]int{"operational": 0, "degraded": 1, "outage": 2}
+	worst := "operational"
+	rows := make([]publicComponentRow, 0, len(comps))
+	for _, c := range comps {
+		row := publicComponentRow{ID: c.ID, Name: c.Name, Description: c.Description, Status: "operational"}
+		if c.MonitorID != "" {
+			if last, ok := monStatus[c.MonitorID]; ok {
+				switch last.Status {
+				case "up":
+					row.Status = "operational"
+				case "down":
+					row.Status = "outage"
+					row.Message = last.Message
+				case "degraded":
+					row.Status = "degraded"
+					row.Message = last.Message
+				default:
+					row.Status = "unknown"
+				}
+			} else {
+				row.Status = "unknown"
+				row.Message = "no probe data yet"
+			}
+			// 90-day uptime bar — same source the operator picked.
+			if up, err := s.store.ComponentUptime(ctx, c.MonitorID, 90); err == nil {
+				row.UptimeDays = up
+			}
+		} else if c.ServiceName != "" {
+			if p, ok := openByService[c.ServiceName]; ok {
+				switch p.Severity {
+				case "critical":
+					row.Status = "outage"
+				default:
+					row.Status = "degraded"
+				}
+				row.Message = p.RuleName
+			}
+		}
+		if rank[row.Status] > rank[worst] {
+			worst = row.Status
+		}
+		rows = append(rows, row)
+	}
+
+	// Recent published incidents.
+	pubIncidents, _, err := s.store.ListPublishedIncidents(ctx, 30)
+	if err != nil {
+		return publicStatusResp{}, err
+	}
+	incRows := make([]publicIncidentRow, 0, len(pubIncidents))
+	for _, i := range pubIncidents {
+		incRows = append(incRows, publicIncidentRow{
+			ID: i.ID, Title: i.Title, Body: i.Summary,
+			Status: i.Status, Severity: i.Severity,
+			StartedAt: i.StartedAt, ResolvedAt: i.ResolvedAt,
+		})
+	}
+
+	return publicStatusResp{
+		Title:       cfg.Title,
+		Description: cfg.Description,
+		SupportURL:  cfg.SupportURL,
+		Status:      worst,
+		CheckedAt:   time.Now().UTC().Format(time.RFC3339),
+		Components:  rows,
+		Incidents:   incRows,
+	}, nil
+}
+
+func severityRank(sev string) int {
+	switch strings.ToLower(sev) {
+	case "critical":
+		return 2
+	case "warning":
+		return 1
+	default:
+		return 0
+	}
+}
+
+func (s *Server) publicStatusSubscribe(w http.ResponseWriter, r *http.Request) {
+	var body struct{ Email string `json:"email"` }
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest); return
+	}
+	email := strings.TrimSpace(strings.ToLower(body.Email))
+	// Cheap surface validation — proper would be RFC 5322 / DNS check,
+	// but signups go through the operator anyway.
+	if email == "" || !strings.ContainsRune(email, '@') {
+		http.Error(w, "valid email required", http.StatusBadRequest); return
+	}
+	if err := s.store.AddStatusSubscriber(r.Context(), email); err != nil {
+		writeErr(w, err); return
+	}
+	writeJSON(w, map[string]string{"status": "subscribed"})
+}
+
+// ── Public status page admin ────────────────────────────────────────────────
+
+func (s *Server) statusPageGetConfig(w http.ResponseWriter, r *http.Request) {
+	c, err := s.store.GetStatusPageConfig(r.Context())
+	if err != nil { writeErr(w, err); return }
+	writeJSON(w, c)
+}
+func (s *Server) statusPagePutConfig(w http.ResponseWriter, r *http.Request) {
+	var c chstore.StatusPageConfig
+	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest); return
+	}
+	if err := s.store.UpsertStatusPageConfig(r.Context(), c); err != nil {
+		writeErr(w, err); return
+	}
+	writeJSON(w, c)
+}
+func (s *Server) statusPageListComponents(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.store.ListStatusComponents(r.Context())
+	if err != nil { writeErr(w, err); return }
+	writeJSON(w, rows)
+}
+func (s *Server) statusPageCreateComponent(w http.ResponseWriter, r *http.Request) {
+	var c chstore.StatusComponent
+	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest); return
+	}
+	c.ID = ""
+	if err := s.store.UpsertStatusComponent(r.Context(), &c); err != nil { writeErr(w, err); return }
+	writeJSON(w, c)
+}
+func (s *Server) statusPageUpdateComponent(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var c chstore.StatusComponent
+	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest); return
+	}
+	c.ID = id
+	if err := s.store.UpsertStatusComponent(r.Context(), &c); err != nil { writeErr(w, err); return }
+	writeJSON(w, c)
+}
+func (s *Server) statusPageDeleteComponent(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.DeleteStatusComponent(r.Context(), r.PathValue("id")); err != nil {
+		writeErr(w, err); return
+	}
+	writeJSON(w, map[string]string{"status": "deleted"})
+}
+func (s *Server) statusPageListSubscribers(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.store.ListStatusSubscribers(r.Context())
+	if err != nil { writeErr(w, err); return }
+	writeJSON(w, rows)
+}
+func (s *Server) statusPageDeleteSubscriber(w http.ResponseWriter, r *http.Request) {
+	email := r.URL.Query().Get("email")
+	if email == "" { http.Error(w, "email required", http.StatusBadRequest); return }
+	if err := s.store.RemoveStatusSubscriber(r.Context(), email); err != nil { writeErr(w, err); return }
+	writeJSON(w, map[string]string{"status": "deleted"})
+}
+func (s *Server) statusPagePublishIncident(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var p chstore.PublishedIncident
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest); return
+	}
+	p.IncidentID = id
+	if err := s.store.SetIncidentPublished(r.Context(), p); err != nil { writeErr(w, err); return }
+	writeJSON(w, p)
 }
 
 // ── AI Copilot ──────────────────────────────────────────────────────────────

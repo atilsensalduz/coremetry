@@ -147,6 +147,12 @@ func SkipPath(method, path string) bool {
 	if strings.HasPrefix(path, "/api/heartbeats/") {
 		return true
 	}
+	// Public status page — read endpoint + subscriber sign-up are
+	// the customer-facing entry points; the whole point is that
+	// they're reachable without a Coremetry account.
+	if path == "/api/public-status" || path == "/api/public-status/subscribe" {
+		return true
+	}
 	// Anything outside /api/* is the static UI — let the browser fetch it
 	// so the login page itself can load.
 	if !strings.HasPrefix(path, "/api/") {

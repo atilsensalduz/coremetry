@@ -4,7 +4,10 @@
 // next.config.mjs sets trailingSlash: true, so pathnames arrive as `/login/`.
 // Compare against a normalised form to avoid getting stuck redirecting.
 
-const PUBLIC_PATHS = new Set<string>(['/login']);
+// Routes that render WITHOUT the operator sidebar/topbar AND don't
+// require auth. /public-status is the customer-facing status page;
+// /login is the gatekeeper for everything else.
+const PUBLIC_PATHS = new Set<string>(['/login', '/public-status']);
 
 export function normalizePath(p: string): string {
   if (!p) return '/';

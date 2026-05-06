@@ -24,6 +24,7 @@ const NAV = [
   { href: '/slos',       label: 'SLOs',         icon: '◉' },
   { href: '/monitors',   label: 'Monitors',     icon: '◉' },
   { href: '/status',     label: 'Status',       icon: '◐' },
+  { href: '/admin/status-page', label: 'Public Status Page', icon: '◫' },
 ];
 
 const SIDEBAR_WIDTH_KEY     = 'coremetry-sidebar-w';

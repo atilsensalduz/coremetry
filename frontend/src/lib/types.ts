@@ -39,6 +39,31 @@ export interface IncidentEvent {
   refId?: string;
 }
 
+// ── Public status page (admin types) ─────────────────────────────────────────
+
+export interface StatusPageConfig {
+  title: string;
+  description?: string;
+  supportUrl?: string;
+}
+
+export interface StatusComponent {
+  id: string;
+  name: string;
+  description?: string;
+  monitorId?: string;
+  serviceName?: string;
+  displayOrder: number;
+  createdAt: number;
+}
+
+export interface StatusSubscriber {
+  id: string;
+  email: string;
+  verified: boolean;
+  createdAt: number;
+}
+
 // ── Synthetic monitoring ─────────────────────────────────────────────────────
 
 export interface Monitor {

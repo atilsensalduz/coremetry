@@ -369,6 +369,64 @@ func (s *Store) migrate(ctx context.Context) error {
 		) ENGINE = ReplacingMergeTree(version)
 		ORDER BY problem_id`,
 
+		// ── Public status page ──────────────────────────────────────
+		// Single-row config table — operator-customizable header for
+		// the public /public-status page. ID always 'default'.
+		`CREATE TABLE IF NOT EXISTS status_page_config (
+			id          String,
+			title       String        DEFAULT 'Service Status',
+			description String        DEFAULT '',
+			support_url String        DEFAULT '',
+			updated_at  DateTime64(9) DEFAULT now64(9),
+			version     UInt64        DEFAULT toUnixTimestamp64Nano(now64(9))
+		) ENGINE = ReplacingMergeTree(version)
+		ORDER BY id`,
+
+		// Curated list of components shown on the public status page.
+		// Each component derives its current state from EITHER:
+		//   - a monitor (HTTP probe / heartbeat) — if monitor_id set
+		//   - the absence of open critical incidents on a service —
+		//     if service_name set
+		// display_order controls top-to-bottom rendering.
+		`CREATE TABLE IF NOT EXISTS status_page_components (
+			id            String,
+			name          String,
+			description   String        DEFAULT '',
+			monitor_id    String        DEFAULT '',
+			service_name  String        DEFAULT '',
+			display_order Int32         DEFAULT 0,
+			created_at    DateTime64(9) DEFAULT now64(9),
+			version       UInt64        DEFAULT toUnixTimestamp64Nano(now64(9))
+		) ENGINE = ReplacingMergeTree(version)
+		ORDER BY id`,
+
+		// Email subscribers — get notified when a public-visible
+		// incident opens or resolves on the configured components.
+		// 'verified' is reserved for a future double-opt-in flow;
+		// today the row is created in the verified state.
+		`CREATE TABLE IF NOT EXISTS status_page_subscribers (
+			id         String,
+			email      String,
+			verified   UInt8         DEFAULT 1,
+			created_at DateTime64(9) DEFAULT now64(9),
+			version    UInt64        DEFAULT toUnixTimestamp64Nano(now64(9))
+		) ENGINE = ReplacingMergeTree(version)
+		ORDER BY email`,
+
+		// Marks an existing incident as visible on the public status
+		// page. Operator toggles via the admin UI. Kept as a separate
+		// table so the existing incidents row schema stays untouched
+		// (ALTER on ReplacingMergeTree is awkward).
+		`CREATE TABLE IF NOT EXISTS status_page_published (
+			incident_id   String,
+			published     UInt8         DEFAULT 1,
+			public_title  String        DEFAULT '',  -- override the internal title for public display
+			public_body   String        DEFAULT '',  -- markdown explanation suitable for end users
+			updated_at    DateTime64(9) DEFAULT now64(9),
+			version       UInt64        DEFAULT toUnixTimestamp64Nano(now64(9))
+		) ENGINE = ReplacingMergeTree(version)
+		ORDER BY incident_id`,
+
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS profiles (
 			profile_id    String       CODEC(ZSTD(3)),
 			service_name  LowCardinality(String),
