@@ -5,29 +5,30 @@ import type {
   Panel, MetricPanelConfig, SpanMetricPanelConfig, StatPanelConfig, MarkdownPanelConfig,
   SpanMetricSeries, TimeRange,
 } from '@/lib/types';
-import { timeRangeToNs } from '@/lib/utils';
+import { timeRangeToNs, substituteVars } from '@/lib/utils';
 import { MultiLineChart } from '../MultiLineChart';
 import { Spinner } from '../Spinner';
 
 // PanelRenderer dispatches on panel.type. Self-contained — fetches its
 // own data, re-fetches when `range` changes. Errors are surfaced inline
 // instead of crashing the whole dashboard.
-export function PanelRenderer({ panel, range, serviceOverride }: {
+export function PanelRenderer({ panel, range, vars }: {
   panel: Panel;
   range: TimeRange;
-  // Dashboard-level service filter — when non-empty, every panel's
-  // query gets scoped to that service: metric panels use it as the
-  // service param (overriding cfg.service); spanmetric panels splice
-  // it into the DSL, replacing any existing service.name predicate.
-  serviceOverride?: string;
+  // Resolved values for the dashboard's variables (Grafana-style
+  // ${name} references in DSL / service / groupBy fields). Empty
+  // values cause the referenced predicate line to drop, so a panel
+  // with `service.name = "${service}"` and no service picked behaves
+  // as "no service filter" rather than failing.
+  vars?: Record<string, string>;
 }) {
   switch (panel.type) {
     case 'metric':
-      return <MetricPanel cfg={withMetricService(panel.config as MetricPanelConfig, serviceOverride)} range={range} />;
+      return <MetricPanel cfg={applyVarsToMetric(panel.config as MetricPanelConfig, vars)} range={range} />;
     case 'spanmetric':
-      return <SpanMetricPanel cfg={withSpanService(panel.config as SpanMetricPanelConfig, serviceOverride)} range={range} />;
+      return <SpanMetricPanel cfg={applyVarsToSpan(panel.config as SpanMetricPanelConfig, vars)} range={range} />;
     case 'stat':
-      return <StatPanel cfg={withStatService(panel.config as StatPanelConfig, serviceOverride)} range={range} />;
+      return <StatPanel cfg={applyVarsToStat(panel.config as StatPanelConfig, vars)} range={range} />;
     case 'markdown':
       return <MarkdownPanel cfg={panel.config as MarkdownPanelConfig} />;
     case 'row':
@@ -40,36 +41,41 @@ export function PanelRenderer({ panel, range, serviceOverride }: {
   }
 }
 
-// withMetricService overrides metric.service when an override is set.
-function withMetricService(cfg: MetricPanelConfig, override?: string): MetricPanelConfig {
-  if (!override) return cfg;
-  return { ...cfg, service: override };
+// Variable substitution per panel type. Each function returns a new
+// config with ${name} expanded against `vars` in the relevant fields.
+
+function expand(s: string | undefined, vars?: Record<string, string>): string | undefined {
+  if (!s || !vars) return s;
+  return substituteVars(s, vars);
 }
 
-// withSpanService rewrites the DSL so service.name = "<override>" wins.
-// Replaces any existing service.name = "..." line; otherwise prepends.
-// Pure-string substitution is fragile in the abstract but the DSL
-// shape is line-based AND-joined "<key> <op> <value>" — narrow enough
-// to handle reliably without bringing in a parser.
-function withSpanService(cfg: SpanMetricPanelConfig, override?: string): SpanMetricPanelConfig {
-  if (!override) return cfg;
-  const re = /^service\.name\s*=\s*"[^"]*"\s*$/gm;
-  let dsl = cfg.dsl ?? '';
-  const newLine = `service.name = "${override}"`;
-  if (re.test(dsl)) {
-    dsl = dsl.replace(re, newLine);
-  } else {
-    dsl = dsl ? `${newLine}\n${dsl}` : newLine;
-  }
-  return { ...cfg, dsl };
+function applyVarsToMetric(cfg: MetricPanelConfig, vars?: Record<string, string>): MetricPanelConfig {
+  if (!vars) return cfg;
+  return {
+    ...cfg,
+    metricName: expand(cfg.metricName, vars) ?? '',
+    service:    expand(cfg.service, vars),
+    groupBy:    expand(cfg.groupBy, vars),
+    filters:    expand(cfg.filters, vars),
+  };
 }
 
-function withStatService(cfg: StatPanelConfig, override?: string): StatPanelConfig {
-  if (!override) return cfg;
+function applyVarsToSpan(cfg: SpanMetricPanelConfig, vars?: Record<string, string>): SpanMetricPanelConfig {
+  if (!vars) return cfg;
+  return {
+    ...cfg,
+    dsl:     expand(cfg.dsl, vars),
+    groupBy: expand(cfg.groupBy, vars),
+    filters: expand(cfg.filters, vars),
+  };
+}
+
+function applyVarsToStat(cfg: StatPanelConfig, vars?: Record<string, string>): StatPanelConfig {
+  if (!vars) return cfg;
   if (cfg.source === 'metric') {
-    return { ...cfg, metric: cfg.metric ? withMetricService(cfg.metric, override) : cfg.metric };
+    return { ...cfg, metric: cfg.metric ? applyVarsToMetric(cfg.metric, vars) : cfg.metric };
   }
-  return { ...cfg, span: cfg.span ? withSpanService(cfg.span, override) : cfg.span };
+  return { ...cfg, span: cfg.span ? applyVarsToSpan(cfg.span, vars) : cfg.span };
 }
 
 // ── Metric line chart ───────────────────────────────────────────────────────

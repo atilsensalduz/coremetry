@@ -21,21 +21,7 @@ import (
 // table that already has them stays a no-op via ReplacingMergeTree.
 
 func (s *Store) SeedPresetDashboards(ctx context.Context) error {
-	// One-shot upgrade: the original "Service: RED (template)" preset
-	// hardcoded service.name=java-demo, which annoyed operators with
-	// other services. The new preset relies on the dashboard-level
-	// service picker. Detect the old preset by its name + drop it so
-	// the seeder below recreates it from the new definition.
-	const oldName = "Service: RED (template)"
-	if err := s.conn.Exec(ctx,
-		`ALTER TABLE dashboards DELETE WHERE id = 'preset-sre-service-red' AND name = ?`,
-		oldName); err != nil {
-		log.Printf("[chstore] preset upgrade probe: %v", err)
-	}
-
-	// Then seed when the table is empty (fresh install) — and ALSO
-	// when the table is non-empty but the upgraded preset isn't here
-	// yet (the path the upgrade above just took).
+	// Fresh install? Seed everything.
 	row := s.conn.QueryRow(ctx, `SELECT count() FROM dashboards FINAL`)
 	var n uint64
 	if err := row.Scan(&n); err != nil {
@@ -43,21 +29,32 @@ func (s *Store) SeedPresetDashboards(ctx context.Context) error {
 	}
 	freshInstall := n == 0
 
+	// Upgrade-detection: re-upsert preset-sre-service-red whenever its
+	// stored variables column is empty/[] — that means the install
+	// has either the original "java-demo hardcoded" version (no
+	// variables shipped at all) OR the dashboard-picker-based v2
+	// (also no variables). The current v3 ships
+	// variables=[{"service",...}] so the absence signals "needs
+	// upgrade". Avoids the ALTER DELETE async-timing trap from the
+	// previous attempt — UpsertDashboard increments the version, and
+	// ReplacingMergeTree's merge picks our newer row.
+	staleServiceRED := false
+	if !freshInstall {
+		var v string
+		_ = s.conn.QueryRow(ctx, `
+			SELECT variables FROM dashboards FINAL
+			WHERE id = 'preset-sre-service-red' LIMIT 1`).Scan(&v)
+		staleServiceRED = (v == "" || v == "[]")
+	}
+
 	for _, d := range presetDashboards() {
 		if !freshInstall {
-			// Upgrade-mode: only insert the rows we explicitly want
-			// to refresh (i.e. the preset whose definition just
-			// changed). Operator's own dashboards stay untouched.
+			// Upgrade-mode: only refresh presets we know need upgrading.
+			// Operator-customised dashboards stay untouched.
 			if d.ID != "preset-sre-service-red" {
 				continue
 			}
-			// And only if the row is currently absent — otherwise
-			// the operator has the new version already (or a
-			// custom override; respect that).
-			var exists uint64
-			if err := s.conn.QueryRow(ctx,
-				`SELECT count() FROM dashboards FINAL WHERE id = ?`,
-				d.ID).Scan(&exists); err == nil && exists > 0 {
+			if !staleServiceRED {
 				continue
 			}
 		}
@@ -130,13 +127,26 @@ func mustJSON(v any) json.RawMessage {
 	return b
 }
 
-func dash(id, name, desc string, panels []panel) Dashboard {
+func dash(id, name, desc string, panels []panel, vars ...dashVar) Dashboard {
 	return Dashboard{
 		ID:          id,
 		Name:        name,
 		Description: desc,
 		Panels:      mustJSON(panels),
+		Variables:   mustJSON(vars),
 	}
+}
+
+// dashVar describes a Grafana-style dashboard variable. Type "service"
+// auto-populates from /api/service-names. Type "custom" uses the
+// `options` list. Variables are referenced as ${name} in panel DSL /
+// service / groupBy fields and substituted at render time.
+type dashVar struct {
+	Name         string   `json:"name"`
+	Label        string   `json:"label,omitempty"`
+	Type         string   `json:"type"` // service | custom
+	Options      []string `json:"options,omitempty"`
+	DefaultValue string   `json:"defaultValue,omitempty"`
 }
 
 // ── Dashboard 1: SRE Golden Signals (system-wide) ───────────────────────────
@@ -199,61 +209,66 @@ func presetGoldenSignals() Dashboard {
 	)
 }
 
-// ── Dashboard 2: Service RED (per-service via top-of-page picker) ───────────
+// ── Dashboard 2: Service RED (Grafana-style $service variable) ──────────────
 //
 // RED method (Rate / Errors / Duration) for ONE service at a time.
-// No hardcoded service filter — the dashboard's top-of-page service
-// picker scopes every panel. Pick a service from the dropdown and
-// the same dashboard becomes useful for any service in the system.
+// Uses a `service` dashboard variable (type=service, autopopulated from
+// /api/service-names). Each panel's DSL references ${service}, and the
+// renderer substitutes the picked value before fetching. Lines whose
+// variable resolves to empty are dropped — so when the picker is empty,
+// the panels show aggregates across all services rather than failing.
 func presetServiceRED() Dashboard {
+	const svcDSL = `service.name = "${service}"`
 	return dash(
 		"preset-sre-service-red",
 		"Service: RED (per service)",
-		"Rate / Errors / Duration for one service at a time. Use the Service picker at the top of the dashboard to choose which service.",
+		"Rate / Errors / Duration for one service at a time. Pick a service from the variable bar above to scope every panel.",
 		[]panel{
 			{
 				ID: "intro", Type: "markdown", Width: 4, Title: "",
 				Config: mdCfg{Text: "**Service RED** — Rate / Errors / Duration. " +
-					"**Pick a service from the dropdown above** to scope every panel on this page. " +
+					"**Pick a service from the `$service` dropdown above** to scope every panel on this page. " +
 					"Without a selection, you'll see aggregates across all services."},
 			},
 			{
 				ID: "stat-rps", Type: "stat", Width: 1, Title: "RPS",
 				Config: statCfg{Source: "spanmetric", Unit: "rps", Decimals: 2,
-					Span: &spanCfg{Agg: "rate"}},
+					Span: &spanCfg{Agg: "rate", DSL: svcDSL}},
 			},
 			{
 				ID: "stat-err", Type: "stat", Width: 1, Title: "Error rate",
 				Config: statCfg{Source: "spanmetric", Unit: "%", Decimals: 2,
-					Span: &spanCfg{Agg: "error_rate"}},
+					Span: &spanCfg{Agg: "error_rate", DSL: svcDSL}},
 			},
 			{
 				ID: "stat-p95", Type: "stat", Width: 1, Title: "P95",
 				Config: statCfg{Source: "spanmetric", Unit: "ms", Decimals: 1,
-					Span: &spanCfg{Agg: "p95", Field: "duration_ms"}},
+					Span: &spanCfg{Agg: "p95", Field: "duration_ms", DSL: svcDSL}},
 			},
 			{
 				ID: "stat-p99", Type: "stat", Width: 1, Title: "P99",
 				Config: statCfg{Source: "spanmetric", Unit: "ms", Decimals: 1,
-					Span: &spanCfg{Agg: "p99", Field: "duration_ms"}},
+					Span: &spanCfg{Agg: "p99", Field: "duration_ms", DSL: svcDSL}},
 			},
 			{
 				ID: "rps-by-op", Type: "spanmetric", Width: 2, Title: "RPS by operation",
-				Config: spanCfg{Agg: "rate", GroupBy: "name"},
+				Config: spanCfg{Agg: "rate", DSL: svcDSL, GroupBy: "name"},
 			},
 			{
 				ID: "err-by-op", Type: "spanmetric", Width: 2, Title: "Error rate (%) by operation",
-				Config: spanCfg{Agg: "error_rate", GroupBy: "name"},
+				Config: spanCfg{Agg: "error_rate", DSL: svcDSL, GroupBy: "name"},
 			},
 			{
 				ID: "p95-by-op", Type: "spanmetric", Width: 2, Title: "P95 by operation",
-				Config: spanCfg{Agg: "p95", Field: "duration_ms", GroupBy: "name"},
+				Config: spanCfg{Agg: "p95", Field: "duration_ms", DSL: svcDSL, GroupBy: "name"},
 			},
 			{
 				ID: "p99-by-op", Type: "spanmetric", Width: 2, Title: "P99 by operation",
-				Config: spanCfg{Agg: "p99", Field: "duration_ms", GroupBy: "name"},
+				Config: spanCfg{Agg: "p99", Field: "duration_ms", DSL: svcDSL, GroupBy: "name"},
 			},
 		},
+		// Single dashboard variable. Empty default → "all services" mode.
+		dashVar{Name: "service", Label: "Service", Type: "service"},
 	)
 }
 

@@ -1,12 +1,13 @@
 'use client';
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { useAuth } from '@/components/AuthProvider';
 import { PanelRenderer } from '@/components/dashboard/PanelRenderer';
 import { PanelEditor, defaultConfig } from '@/components/dashboard/PanelEditor';
-import { ServicePicker } from '@/components/ServicePicker';
+import { VariablesBar } from '@/components/dashboard/VariablesBar';
+import type { DashboardVariable } from '@/lib/types';
 import { api } from '@/lib/api';
 import type { Dashboard, Panel, PanelType, TimeRange } from '@/lib/types';
 
@@ -29,10 +30,22 @@ function Inner() {
   const [draft, setDraft] = useState<Dashboard | null>(null);
   const [editingPanel, setEditingPanel] = useState<string | null>(null); // panel id
   const [busy, setBusy] = useState(false);
-  // Optional service override — drives a global filter applied to every
-  // panel on the dashboard. Persists via the URL so reloads + share-links
-  // preserve the selection. Empty string = "all services" (default).
-  const [serviceOverride, setServiceOverride] = useState<string>(() => sp.get('service') ?? '');
+  // Resolved values for the dashboard's Grafana-style variables.
+  // URL-persisted so reloads + share-links keep the choice.
+  // Empty value for a variable means "all" — the renderer drops any
+  // predicate line that references the empty variable so the panel
+  // shows aggregates across the relevant universe.
+  const [varValues, setVarValues] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    sp.forEach((v, k) => {
+      // Reserve route params like id/edit/range for their own slots; everything
+      // else becomes a candidate variable value. Cheaper than parsing the
+      // dashboard's variable list synchronously here.
+      if (k === 'id' || k === 'edit' || k === 'range') return;
+      init[k] = v;
+    });
+    return init;
+  });
 
   useEffect(() => {
     if (!id) return;
@@ -99,15 +112,33 @@ function Inner() {
 
   const editingPanelObj = editingPanel ? panels.find(p => p.id === editingPanel) : null;
 
-  // Mirror the service picker into the URL so the choice survives
-  // reloads + is shareable. Done in an effect so we only push when the
-  // value actually changes (avoids a render loop).
+  // Mirror the variable values into the URL so the selection survives
+  // reloads + is shareable. One param per variable name. Empty values
+  // get removed so we don't accumulate dead params on toggle.
   useEffect(() => {
     const url = new URL(window.location.href);
-    if (serviceOverride) url.searchParams.set('service', serviceOverride);
-    else                 url.searchParams.delete('service');
+    // Wipe previously-set variable params (we'll re-add the live ones).
+    const reserved = new Set(['id', 'edit', 'range']);
+    for (const key of Array.from(url.searchParams.keys())) {
+      if (!reserved.has(key)) url.searchParams.delete(key);
+    }
+    for (const [k, v] of Object.entries(varValues)) {
+      if (v) url.searchParams.set(k, v);
+    }
     window.history.replaceState({}, '', url.toString());
-  }, [serviceOverride]);
+  }, [varValues]);
+
+  // Parsed variable definitions (live from the dashboard doc) drive
+  // both the picker bar and what gets substituted into panels.
+  const variables: DashboardVariable[] = useMemo(() => {
+    const raw = doc?.variables;
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw as DashboardVariable[];
+    try {
+      const parsed = JSON.parse(raw as unknown as string);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch { return []; }
+  }, [doc?.variables]);
 
   return (
     <>
@@ -132,19 +163,6 @@ function Inner() {
               {draft.description && (
                 <span style={{ color: 'var(--text2)', fontSize: 12 }}>{draft.description}</span>
               )}
-              {/* Dashboard-level service override. Picker drives every panel
-                  on this page — for spanmetric panels we splice the
-                  service.name filter into the DSL, for metric panels we
-                  swap the service param. Empty = no override (panel's
-                  own filters / no filter applied). */}
-              <span style={{ marginLeft: 12, fontSize: 12, color: 'var(--text3)' }}>Service:</span>
-              <ServicePicker value={serviceOverride} onChange={setServiceOverride}
-                placeholder="(all services)" width={220} />
-              {serviceOverride && (
-                <button className="sec" onClick={() => setServiceOverride('')}
-                  title="Clear service filter"
-                  style={{ padding: '3px 8px', fontSize: 11 }}>✕</button>
-              )}
               <span style={{ marginLeft: 'auto' }} />
               {isAdmin && (
                 <>
@@ -157,6 +175,18 @@ function Inner() {
           )}
         </div>
 
+        {/* Grafana-style variables bar — only renders when the
+            dashboard declares variables. Each variable's selection
+            persists in the URL as ?<name>=<value> and the renderer
+            substitutes ${name} into panel DSLs / service / groupBy. */}
+        {!editing && variables.length > 0 && (
+          <VariablesBar
+            variables={variables}
+            values={varValues}
+            onChange={(k, v) => setVarValues(prev => ({ ...prev, [k]: v }))}
+          />
+        )}
+
         {panels.length === 0 ? (
           <Empty icon="◫" title="No panels yet">
             {editing ? 'Use "+ Add panel" above to start building.'
@@ -166,7 +196,7 @@ function Inner() {
           <DashboardGrid
             panels={panels}
             range={range}
-            serviceOverride={serviceOverride}
+            vars={varValues}
             editing={editing}
             onEditPanel={setEditingPanel}
             onDeletePanel={deletePanel} />
@@ -241,11 +271,11 @@ function normalizePanels(raw: unknown): Panel[] {
 // not persisted across reloads (matches Grafana's default behaviour;
 // add a localStorage layer if users start asking for it).
 function DashboardGrid({
-  panels, range, serviceOverride, editing, onEditPanel, onDeletePanel,
+  panels, range, vars, editing, onEditPanel, onDeletePanel,
 }: {
   panels: Panel[];
   range: TimeRange;
-  serviceOverride?: string;
+  vars?: Record<string, string>;
   editing: boolean;
   onEditPanel: (id: string) => void;
   onDeletePanel: (id: string) => void;
@@ -324,7 +354,7 @@ function DashboardGrid({
                         </span>
                       )}
                     </div>
-                    <PanelRenderer panel={p} range={range} serviceOverride={serviceOverride} />
+                    <PanelRenderer panel={p} range={range} vars={vars} />
                   </div>
                 ))}
               </div>

@@ -237,11 +237,15 @@ func (s *Store) migrate(ctx context.Context) error {
 			name         String,
 			description  String       DEFAULT '',
 			panels       String       DEFAULT '[]' CODEC(ZSTD(3)),
+			variables    String       DEFAULT '[]' CODEC(ZSTD(3)),
 			created_at   DateTime64(9) DEFAULT now64(9),
 			updated_at   DateTime64(9) DEFAULT now64(9),
 			version      UInt64       DEFAULT toUnixTimestamp64Nano(now64(9))
 		) ENGINE = ReplacingMergeTree(version)
 		ORDER BY id`,
+		// Forward-compat: add the variables column to installs that
+		// pre-date the Grafana-style variable system.
+		`ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS variables String DEFAULT '[]' CODEC(ZSTD(3))`,
 
 		`CREATE TABLE IF NOT EXISTS alert_rules (
 			id           String,

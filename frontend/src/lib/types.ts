@@ -505,6 +505,21 @@ export interface Panel {
   config: MetricPanelConfig | SpanMetricPanelConfig | StatPanelConfig | MarkdownPanelConfig | RowPanelConfig;
 }
 
+// DashboardVariable — Grafana-style variable. Referenced as ${name} in
+// any panel's DSL / service / groupBy / metricName field. Substituted at
+// render time with the picker's current value.
+//
+// Types:
+//   - service  populated from /api/service-names; UI is a service picker.
+//   - custom   options array; UI is a dropdown of those values.
+export interface DashboardVariable {
+  name: string;          // e.g. "service" — used as ${service} in panels
+  label?: string;        // display label (default: name)
+  type: 'service' | 'custom';
+  options?: string[];    // custom-type only
+  defaultValue?: string; // empty → "all" / no override
+}
+
 export interface DashboardSummary {
   id: string;
   name: string;
@@ -514,6 +529,7 @@ export interface DashboardSummary {
 }
 export interface Dashboard extends DashboardSummary {
   panels: Panel[];
+  variables?: DashboardVariable[];
 }
 
 // ── Profiling ────────────────────────────────────────────────────────────────

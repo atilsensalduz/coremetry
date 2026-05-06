@@ -84,6 +84,31 @@ export function sevClass(n: number): string {
   return 's-trace';
 }
 
+// substituteVars expands ${name} references against a variables map.
+// Lines whose ALL ${name} references resolve to empty strings are
+// dropped — that's how an "all services" filter degrades cleanly:
+// ${service} = '' makes `service.name = "${service}"` collapse to
+// nothing instead of becoming a literal empty-string predicate.
+//
+// Used by the dashboard renderer to inject Grafana-style variables
+// into spanmetric DSLs and other line-based config fields.
+export function substituteVars(s: string, vars: Record<string, string>): string {
+  if (!s) return s;
+  // Multi-line case: drop a line if every variable on it is empty
+  // (not "if any are empty" — partially-resolved lines may still be
+  // useful, e.g. when the DSL combines a fixed predicate with a
+  // variable one). For our presets the rule "all empty → drop" is
+  // the right one.
+  const lines = s.split('\n');
+  const out: string[] = [];
+  for (const line of lines) {
+    const refs = [...line.matchAll(/\$\{([^}]+)\}/g)].map(m => m[1]);
+    if (refs.length > 0 && refs.every(name => !vars[name])) continue;
+    out.push(line.replace(/\$\{([^}]+)\}/g, (_, name) => vars[name] ?? ''));
+  }
+  return out.join('\n');
+}
+
 // rowClickHandlers: spread onto a row element to make it behave like a
 // real anchor for `href` — left-click navigates SPA-style via `navigate`,
 // middle-click or Cmd/Ctrl/Shift+click opens in a new tab. Plain
