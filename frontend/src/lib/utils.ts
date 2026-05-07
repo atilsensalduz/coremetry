@@ -73,26 +73,31 @@ export function tsLong(ns: number): string {
 // Order is hue-stepped so consecutive services in a hash collision
 // chain don't end up neighbouring on the colour wheel — you still
 // get visually distinct services even on small traces.
-// Tempo / Grafana-classic palette. Order matters because the first
-// services hashed often hit the early indices — purple intentionally
-// sits late so a "first service" doesn't pop violet on every fresh
-// trace. Red (#E24D42) and pink (#F29191/#E5A8E2) are dropped: red
-// is reserved for the error overlay, pinks were a long-standing
-// user no-go. Reused across every service-coloured surface
-// (waterfall stripe, bar, badge; service-graph node).
+// Tempo-inspired hand-tuned palette. Slightly desaturated relative
+// to the raw Grafana-classic set so the dark UI feels refined
+// rather than vibrant — same hue coverage (cool / green / warm /
+// purple) Tempo uses, just polished. Red and pink stay out (red is
+// the error overlay; pink is a standing user no-go).
 const COLORS = [
-  '#1F78C1',  // dark blue
-  '#56A6E0',  // medium blue
-  '#82B5D8',  // light blue
-  '#6ED0E0',  // cyan
-  '#7EB26D',  // green
-  '#629E51',  // medium green
-  '#EAB839',  // yellow
-  '#CCA300',  // gold
-  '#EF843C',  // orange
-  '#C15C17',  // burnt orange
-  '#705DA0',  // purple
-  '#AEA2E0',  // lavender
+  // Cool — blues, cyan, teal
+  '#4A90D9',  // clean blue
+  '#5FA8DC',  // sky blue
+  '#4FB6C5',  // turquoise
+  '#5FB39C',  // teal-green
+
+  // Greens
+  '#6FA86F',  // sage green
+  '#588E48',  // forest green
+
+  // Warm — yellow, gold, orange, tan
+  '#D4A537',  // amber gold
+  '#E0913A',  // clean orange
+  '#C46A2C',  // burnt orange
+  '#C28456',  // warm tan
+
+  // Purple
+  '#8A6FB5',  // muted purple
+  '#A899D9',  // lavender
 ];
 export function hashColor(s: string): string {
   let h = 5381;
