@@ -6,6 +6,7 @@ import { Spinner, Empty } from '@/components/Spinner';
 import { Combobox } from '@/components/Combobox';
 import { ServicePicker } from '@/components/ServicePicker';
 import { FilterBuilder } from '@/components/FilterBuilder';
+import { TraceVolumeHistogram } from '@/components/TraceVolumeHistogram';
 import { api } from '@/lib/api';
 import { tsShort, timeRangeToNs, fmtNum, rowClickHandlers } from '@/lib/utils';
 import { encodeRange, decodeRange, encodeFilters, decodeFilters, buildQuery } from '@/lib/urlState';
@@ -178,10 +179,30 @@ function TracesPageInner() {
   const total = data?.total;             // undefined when count was skipped
   const hasMore = data?.hasMore ?? false;
 
+  // Build a DSL string the histogram can use to scope its volume +
+  // error-rate query to the same predicate the table is showing. We
+  // only fold in the *cheap* filters (service + hasError); free-text
+  // search and ms-range filters need a full traces fetch and aren't
+  // useful in a histogram anyway.
+  const histogramDSL = (() => {
+    const lines: string[] = [];
+    if (filter.service)  lines.push(`service.name = "${filter.service}"`);
+    if (filter.hasError) lines.push(`status_code = "error"`);
+    return lines.join('\n');
+  })();
+  const histogramFilters = advFilters.length ? JSON.stringify(advFilters) : undefined;
+
   return (
     <>
       <Topbar title="Traces" range={range} onRangeChange={setRange} />
       <div id="content">
+        {/* Span-volume histogram — Datadog/Honeycomb-style stacked
+            bars (ok in slate, errors in red) with total / errors /
+            error-rate KPI tiles on the right. Reflects the current
+            service + advanced-filter scope but ignores free-text
+            search and ms-range filters. */}
+        <TraceVolumeHistogram range={range} dsl={histogramDSL} filters={histogramFilters} />
+
         {/* View toggle + dedicated Trace ID lookup on the far right */}
         <div className="controls" style={{ marginBottom: 8, alignItems: 'center' }}>
           <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
