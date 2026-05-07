@@ -77,10 +77,10 @@ const COLORS = [
   '#5b8def',  // sky blue
   '#7c8cf8',  // periwinkle
   '#5fa3c4',  // dust blue
-  '#5fa39a',  // teal
-  '#6ba38a',  // sea green
-  '#7d9c6d',  // sage
-  '#a39e54',  // olive
+  '#4fb6c5',  // turquoise
+  '#5db8be',  // cyan-teal
+  '#41a8b8',  // deep cyan
+  '#6cc4cc',  // light aqua
   '#c89651',  // amber-tan
   '#d97c5f',  // terracotta
   '#9b87f5',  // soft violet

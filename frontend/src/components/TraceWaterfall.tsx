@@ -50,7 +50,7 @@ type SpanCategory = { tag: string; color: string };
 function categoryOf(s: SpanRow): SpanCategory | null {
   const a = s.attributes ?? {};
   if (a['db.system'])        return { tag: 'DB',   color: '#c89651' }; // amber-tan
-  if (a['messaging.system']) return { tag: 'MQ',   color: '#7d9c6d' }; // sage
+  if (a['messaging.system']) return { tag: 'MQ',   color: '#4fb6c5' }; // turquoise
   if (a['rpc.system'])       return { tag: 'RPC',  color: '#9b87f5' }; // soft violet
   if (a['http.method'] || a['http.request.method']) {
     return { tag: 'HTTP', color: '#5b8def' };                          // sky blue
