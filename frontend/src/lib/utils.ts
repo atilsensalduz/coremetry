@@ -73,21 +73,37 @@ export function tsLong(ns: number): string {
 // Order is hue-stepped so consecutive services in a hash collision
 // chain don't end up neighbouring on the colour wheel — you still
 // get visually distinct services even on small traces.
+// Tempo-inspired distribution: a balanced mix across cool / purple /
+// warm / neutral so a multi-service trace doesn't feel
+// monochromatic. No pinks/magentas (user pref), and the blue band is
+// trimmed to three entries — earlier iterations leaned too heavy on
+// blue once cyan was added.
+//
+// Hue distribution: 3 blue/cyan · 3 purple-violet · 4 warm earth ·
+// 4 cool gray. All in the same low-mid saturation band so they read
+// as a curated palette on a dark UI.
 const COLORS = [
+  // Cool blue / cyan
   '#5b8def',  // sky blue
-  '#7c8cf8',  // periwinkle
-  '#5fa3c4',  // dust blue
   '#4fb6c5',  // turquoise
-  '#5db8be',  // cyan-teal
-  '#41a8b8',  // deep cyan
-  '#6cc4cc',  // light aqua
+  '#5fa39a',  // teal
+
+  // Mor — purple-violet family
+  '#9b87f5',  // soft violet
+  '#7e6bd9',  // indigo violet
+  '#8b6cb1',  // muted purple
+
+  // Warm earth
   '#c89651',  // amber-tan
   '#d97c5f',  // terracotta
-  '#9b87f5',  // soft violet
+  '#b88547',  // burnt sienna
+  '#a39187',  // taupe
+
+  // Cool grays
   '#7e8ea1',  // slate
   '#8a9aa8',  // cool gray
   '#5d8484',  // teal-gray
-  '#a39187',  // taupe
+  '#6b7a8a',  // steel
 ];
 export function hashColor(s: string): string {
   let h = 5381;
