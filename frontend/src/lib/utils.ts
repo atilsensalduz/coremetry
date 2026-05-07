@@ -73,33 +73,26 @@ export function tsLong(ns: number): string {
 // Order is hue-stepped so consecutive services in a hash collision
 // chain don't end up neighbouring on the colour wheel — you still
 // get visually distinct services even on small traces.
-// Hue distribution: turkuaz · gri · açık mor · turuncu — same four
-// groups as before, just rebalanced. Mor band cut from 4 to 2
-// (previous version felt purple-heavy); the freed slots go to the
-// turkuaz and turuncu bands for more cool-side variety. No blues
-// outside the cyan-leaning turquoise band, no pinks, no greens.
+// Tempo / Grafana-classic palette. Order matters because the first
+// services hashed often hit the early indices — purple intentionally
+// sits late so a "first service" doesn't pop violet on every fresh
+// trace. Red (#E24D42) and pink (#F29191/#E5A8E2) are dropped: red
+// is reserved for the error overlay, pinks were a long-standing
+// user no-go. Reused across every service-coloured surface
+// (waterfall stripe, bar, badge; service-graph node).
 const COLORS = [
-  // Turkuaz / cyan (4)
-  '#4fb6c5',  // turquoise
-  '#5fa39a',  // teal
-  '#6cc4cc',  // light aqua
-  '#5fa3c4',  // dust cyan
-
-  // Açık mor (2)
-  '#a48cf2',  // light violet
-  '#b78cf0',  // medium violet
-
-  // Turuncu / peach / coral (4)
-  '#e89456',  // soft orange
-  '#d97c3a',  // burnt orange
-  '#f0a868',  // peach
-  '#d68a6c',  // coral-tan
-
-  // Gri (4)
-  '#8b95a3',  // slate
-  '#9aa3ad',  // neutral gray
-  '#7d8693',  // darker slate
-  '#aab3bb',  // light gray
+  '#1F78C1',  // dark blue
+  '#56A6E0',  // medium blue
+  '#82B5D8',  // light blue
+  '#6ED0E0',  // cyan
+  '#7EB26D',  // green
+  '#629E51',  // medium green
+  '#EAB839',  // yellow
+  '#CCA300',  // gold
+  '#EF843C',  // orange
+  '#C15C17',  // burnt orange
+  '#705DA0',  // purple
+  '#AEA2E0',  // lavender
 ];
 export function hashColor(s: string): string {
   let h = 5381;
