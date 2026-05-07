@@ -18,13 +18,22 @@ function TraceDetailInner() {
 
   const [range, setRange] = useState<TimeRange>({ preset: '1h' });
   const [spans, setSpans] = useState<SpanRow[] | null | undefined>(undefined);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // selectedId + tab are URL-bound so a Share-button copy round-
+  // trips: "open trace X with the rpc-call span focused on the Logs
+  // tab" comes back identical when pasted in another browser.
+  const [selectedId, setSelectedId] = useState<string | null>(
+    () => searchParams.get('span'));
   // Side-tab state — Trace (waterfall + detail) vs Logs (entries
   // matching this trace_id, Uptrace-style). Logs are fetched lazily
   // on first tab click so the trace page stays fast for users who
   // never need them.
-  const [tab, setTab] = useState<'trace' | 'logs'>('trace');
+  const [tab, setTab] = useState<'trace' | 'logs'>(
+    () => (searchParams.get('tab') === 'logs' ? 'logs' : 'trace'));
   const [logs, setLogs] = useState<LogRow[] | null | undefined>(undefined);
+  // Share-button feedback. Flips to 'copied' for 2s after a click,
+  // then resets — gives the user visible confirmation without
+  // pulling in a toast library.
+  const [shared, setShared] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -38,6 +47,19 @@ function TraceDetailInner() {
       .then(r => setLogs(r.logs ?? []))
       .catch(() => setLogs(null));
   }, [tab, id, logs]);
+
+  // Mirror selectedId + tab to the URL via replaceState so the Share
+  // button captures the current view exactly. We don't push history
+  // — selecting a span shouldn't add a back-button stop.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !id) return;
+    const url = new URL(window.location.href);
+    if (selectedId) url.searchParams.set('span', selectedId);
+    else url.searchParams.delete('span');
+    if (tab === 'logs') url.searchParams.set('tab', 'logs');
+    else url.searchParams.delete('tab');
+    window.history.replaceState({}, '', url.toString());
+  }, [selectedId, tab, id]);
 
   if (!id) {
     return (
@@ -71,6 +93,13 @@ function TraceDetailInner() {
               <span style={{ color: 'var(--text2)', fontSize: 12 }}>{spans.length} spans · {fmtNs(totalNs)}</span>
               {root && <span style={{ color: 'var(--text3)', fontSize: 12 }}>{tsLong(root.startTime)}</span>}
               <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                <button className="sec"
+                  onClick={() => shareTrace(setShared)}
+                  title="Copy a shareable link to this trace (current selected span + tab + time range preserved)"
+                  style={{ fontSize: 12, padding: '3px 10px',
+                           color: shared ? 'var(--ok)' : undefined }}>
+                  {shared ? '✓ Link copied' : '🔗 Share'}
+                </button>
                 <button className="sec"
                   onClick={() => exportTraceJSON(id, spans)}
                   title="Download this trace as JSON (full span list with attributes + events)"
@@ -211,6 +240,38 @@ export default function TraceDetailPage() {
       <TraceDetailInner />
     </Suspense>
   );
+}
+
+// shareTrace copies the current full URL (including span/tab/range
+// query params, which the page already mirrors via replaceState) to
+// the clipboard, then pings the caller's setShared(true) for a 2s
+// "✓ Link copied" affordance on the button. No backend round-trip —
+// the URL is the share artifact.
+function shareTrace(setShared: (v: boolean) => void) {
+  const url = typeof window !== 'undefined' ? window.location.href : '';
+  if (!url) return;
+  const reset = () => setTimeout(() => setShared(false), 2000);
+  // Modern path — Clipboard API requires a secure context (HTTPS or
+  // localhost). Falls back to a hidden textarea + execCommand for
+  // older browsers / non-secure dev hosts.
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(url).then(() => { setShared(true); reset(); })
+      .catch(() => { fallbackCopy(url); setShared(true); reset(); });
+    return;
+  }
+  fallbackCopy(url);
+  setShared(true); reset();
+}
+
+function fallbackCopy(text: string) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); } catch { /* swallow */ }
+  ta.remove();
 }
 
 // exportTraceJSON triggers a browser download of the full trace as a
