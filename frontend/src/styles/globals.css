@@ -721,16 +721,44 @@ canvas { max-width: 100%; }
   display: flex; gap: 6px; margin-top: 10px;
 }
 
-/* Combobox (input + datalist + clear) */
+/* Combobox — input + custom dropdown panel + clear/caret affordance.
+   Replaces native <datalist> for filtered/typeahead pickers; this
+   dropdown sizes to its content (min = input width, capped via
+   max-width) so long span / operation names aren't truncated. */
 .cb-wrap { position: relative; display: inline-block; }
 .cb-wrap input { width: 100%; padding-right: 26px; }
-.cb-clear {
+.cb-clear, .cb-caret {
   position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
   background: transparent; border: 0; color: var(--text2);
   cursor: pointer; padding: 0 6px; line-height: 1;
   font-size: 13px; border-radius: 3px; height: 20px;
 }
-.cb-clear:hover { color: var(--text); background: var(--bg3); }
+.cb-clear:hover, .cb-caret:hover { color: var(--text); background: var(--bg3); }
+.cb-caret { font-size: 10px; opacity: 0.7; }
+.cb-list {
+  position: absolute; left: 0; top: calc(100% + 4px); z-index: 50;
+  min-width: 100%; max-width: 520px;
+  max-height: 280px; overflow-y: auto;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.30);
+  padding: 4px 0;
+}
+.cb-row {
+  padding: 5px 10px;
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.cb-row-on { background: var(--bg3); }
+.cb-row-cur { color: var(--accent2); }
+.cb-row-empty {
+  color: var(--text3);
+  font-size: 11px;
+  font-style: italic;
+  cursor: default;
+}
 
 /* Time range picker (Grafana-style) */
 .trp { position: relative; }
