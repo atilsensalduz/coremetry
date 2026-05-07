@@ -33,6 +33,28 @@ function kindIcon(k: string): string {
   return KIND_ICON[(k || 'internal').toLowerCase()] ?? '⚙';
 }
 
+// Span category chip — Uptrace/SigNoz convention. The eye scans the
+// category column and immediately sees "this is a DB call vs an
+// outbound HTTP vs a Kafka publish", which is faster than parsing
+// the operation name.
+//
+// Detection runs against the OTel semantic conventions: presence of
+// `db.system` is the tell for a DB span, `messaging.system` for a
+// queue/topic span, etc. Order matters — e.g. an HTTP span calling a
+// gRPC server has both `rpc.system` and (rarely) `http.method`; we
+// pick RPC first because that's what's actually being executed.
+type SpanCategory = { tag: string; color: string };
+function categoryOf(s: SpanRow): SpanCategory | null {
+  const a = s.attributes ?? {};
+  if (a['db.system'])        return { tag: 'DB',   color: '#fb923c' }; // orange
+  if (a['messaging.system']) return { tag: 'MQ',   color: '#22c55e' }; // green
+  if (a['rpc.system'])       return { tag: 'RPC',  color: '#a78bfa' }; // purple
+  if (a['http.method'] || a['http.request.method']) {
+    return { tag: 'HTTP', color: '#60a5fa' };                          // blue
+  }
+  return null;
+}
+
 export function TraceWaterfall({ spans, selectedId, onSelect }: {
   spans: SpanRow[];
   selectedId: string | null;
@@ -131,13 +153,16 @@ export function TraceWaterfall({ spans, selectedId, onSelect }: {
     setCollapsed(next);
   };
 
-  // Stable per-service colour (the left stripe + the bar). Hashing on
-  // serviceName means a trace that hops 3 services has 3 distinct
-  // stripes — the standard Tempo signal for "service handoff happens
-  // here". The bar itself uses a lighter shade so the stripe still
-  // reads as the service identifier.
+  // Stable per-service colour (the left stripe + the bar + the
+  // service badge). Hashing on serviceName ALONE means every span
+  // emitted by `user-service` gets the same colour anywhere in the
+  // trace — the standard Uptrace/Tempo convention for "scan the row
+  // colours to spot service handoffs". (Earlier we hashed on
+  // serviceName+name, which gave each operation in a service its
+  // own colour and made traces look noisier than the topology
+  // actually was.)
   const colorFor = (s: SpanRow) =>
-    s.statusCode === 'error' ? '#ff5252' : hashColor(s.serviceName + '::' + s.name);
+    s.statusCode === 'error' ? '#ff5252' : hashColor(s.serviceName);
 
   return (
     <div id="wf-outer" ref={containerRef}>
@@ -159,6 +184,7 @@ export function TraceWaterfall({ spans, selectedId, onSelect }: {
 
       {rows.map(({ span: s, depth, hasChildren, ancestorContinues, isLastSibling }) => {
         const color = colorFor(s);
+        const cat = categoryOf(s);
         const startPct = ((s.startTime - minT) / totalNs * 100).toFixed(4);
         const widthPct = Math.max(0.15, ((s.endTime - s.startTime) / totalNs) * 100).toFixed(4);
         const dur = s.endTime - s.startTime;
@@ -215,6 +241,12 @@ export function TraceWaterfall({ spans, selectedId, onSelect }: {
                       style={{ background: color, color: '#fff' }}>
                   {s.serviceName}
                 </span>
+                {cat && (
+                  <span className="wf-cat" title={`Category: ${cat.tag}`}
+                        style={{ background: cat.color, color: '#0a0e14' }}>
+                    {cat.tag}
+                  </span>
+                )}
                 <span className="wf-name" title={s.name === displayName ? s.name : `raw: ${s.name}`}>
                   {displayName}
                 </span>

@@ -248,6 +248,72 @@ tbody td { padding: 7px 12px; max-width: 320px; white-space: nowrap; overflow: h
   letter-spacing: 0.1px;
   box-shadow: inset 0 0 0 1px rgba(0,0,0,0.15);
 }
+
+/* Span category chip — DB / HTTP / RPC / MQ. Tighter than wf-svc and
+   uses fixed category palette colours (background set inline in the
+   component). Reads as a categorical tag rather than an identifier. */
+.wf-cat {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-right: 6px;
+  text-transform: uppercase;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+}
+
+/* Trace → Logs side tab. Uptrace-style: timestamp · sev · service ·
+   body · span_id, monospace for the body so JSON-like log lines
+   stay aligned. Severity chip drives the row's leftmost colour
+   stripe. */
+.trace-logs { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+.trace-logs-row {
+  display: grid;
+  grid-template-columns: 110px 64px 160px 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.trace-logs-row:hover { background: var(--bg2); }
+.trace-logs-ts  { color: var(--text2); }
+.trace-logs-svc { color: var(--accent2); overflow: hidden; text-overflow: ellipsis; }
+.trace-logs-msg {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+.trace-logs-span {
+  font-size: 10px;
+  color: var(--text3);
+  background: var(--bg3);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+/* Severity chip — fixed width, uppercase, one of five colours that
+   match the Logs page's existing palette. */
+.trace-logs-sev {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 3px;
+  text-align: center;
+}
+.trace-logs-sev.sev-fatal  { background: #be123c; color: #fff; }
+.trace-logs-sev.sev-err    { background: rgba(220,38,38,0.18); color: #ff7b72; box-shadow: inset 0 0 0 1px rgba(220,38,38,0.4); }
+.trace-logs-sev.sev-warn   { background: rgba(234,179,8,0.18);  color: #f0b400; box-shadow: inset 0 0 0 1px rgba(234,179,8,0.4); }
+.trace-logs-sev.sev-info   { background: rgba(56,139,253,0.18); color: #79c0ff; box-shadow: inset 0 0 0 1px rgba(56,139,253,0.4); }
+.trace-logs-sev.sev-debug  { background: rgba(139,148,158,0.18); color: var(--text2); box-shadow: inset 0 0 0 1px rgba(139,148,158,0.4); }
+.trace-logs-sev.sev-trace  { background: rgba(139,148,158,0.10); color: var(--text3); box-shadow: inset 0 0 0 1px rgba(139,148,158,0.25); }
 .wf-err-dot { color: var(--err); font-size: 11px; flex-shrink: 0; margin-left: 4px; line-height: 1; }
 .wf-kind { font-size: 11px; opacity: .65; margin-right: 2px; flex-shrink: 0; line-height: 1; }
 

@@ -3,14 +3,13 @@ import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
-import Link from 'next/link';
 import { TraceWaterfall } from '@/components/TraceWaterfall';
 import { SpanDetail } from '@/components/SpanDetail';
 import { CopyButton } from '@/components/CopyButton';
 import { CopilotExplain } from '@/components/CopilotExplain';
 import { api } from '@/lib/api';
 import { fmtNs, tsLong } from '@/lib/utils';
-import type { SpanRow, TimeRange } from '@/lib/types';
+import type { LogRow, SpanRow, TimeRange } from '@/lib/types';
 
 function TraceDetailInner() {
   const router = useRouter();
@@ -20,12 +19,25 @@ function TraceDetailInner() {
   const [range, setRange] = useState<TimeRange>({ preset: '1h' });
   const [spans, setSpans] = useState<SpanRow[] | null | undefined>(undefined);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Side-tab state — Trace (waterfall + detail) vs Logs (entries
+  // matching this trace_id, Uptrace-style). Logs are fetched lazily
+  // on first tab click so the trace page stays fast for users who
+  // never need them.
+  const [tab, setTab] = useState<'trace' | 'logs'>('trace');
+  const [logs, setLogs] = useState<LogRow[] | null | undefined>(undefined);
 
   useEffect(() => {
     if (!id) return;
     setSpans(undefined);
     api.trace(id).then(d => setSpans(d.spans ?? [])).catch(() => setSpans(null));
   }, [id]);
+
+  useEffect(() => {
+    if (tab !== 'logs' || !id || logs !== undefined) return;
+    api.logs({ traceId: id, limit: 500 })
+      .then(r => setLogs(r.logs ?? []))
+      .catch(() => setLogs(null));
+  }, [tab, id, logs]);
 
   if (!id) {
     return (
@@ -65,12 +77,6 @@ function TraceDetailInner() {
                   style={{ fontSize: 12, padding: '3px 10px' }}>
                   ⬇ Export JSON
                 </button>
-                <Link href={`/logs?traceId=${id}`}
-                  style={{ fontSize: 12, padding: '3px 10px',
-                    background: 'var(--bg3)', border: '1px solid var(--border)',
-                    borderRadius: 4, color: 'var(--accent2)', textDecoration: 'none' }}>
-                  ≡ View logs
-                </Link>
               </span>
             </>
           )}
@@ -83,17 +89,120 @@ function TraceDetailInner() {
             <div style={{ marginBottom: 10 }}>
               <CopilotExplain kind="trace" id={id} label="🤖 Explain this trace" />
             </div>
-            <div id="td-outer">
-              <div id="td-wf">
-                <TraceWaterfall spans={spans} selectedId={selectedId} onSelect={setSelectedId} />
-              </div>
-              {sel && <SpanDetail span={sel} onClose={() => setSelectedId(null)} />}
+
+            {/* Tab strip — Trace vs Logs (Uptrace-style). Trace tab
+                is the default; Logs lazy-loads on first click. */}
+            <div style={{
+              display: 'flex', gap: 4, marginBottom: 10,
+              borderBottom: '1px solid var(--border)',
+            }}>
+              <TabBtn active={tab === 'trace'} onClick={() => setTab('trace')}>
+                Trace <span style={{ color: 'var(--text3)', marginLeft: 4 }}>{spans.length}</span>
+              </TabBtn>
+              <TabBtn active={tab === 'logs'} onClick={() => setTab('logs')}>
+                Logs {logs && <span style={{ color: 'var(--text3)', marginLeft: 4 }}>{logs.length}</span>}
+              </TabBtn>
             </div>
+
+            {tab === 'trace' && (
+              <div id="td-outer">
+                <div id="td-wf">
+                  <TraceWaterfall spans={spans} selectedId={selectedId} onSelect={setSelectedId} />
+                </div>
+                {sel && <SpanDetail span={sel} onClose={() => setSelectedId(null)} />}
+              </div>
+            )}
+
+            {tab === 'logs' && (
+              <TraceLogsPanel logs={logs} />
+            )}
           </>
         )}
       </div>
     </>
   );
+}
+
+function TabBtn({ active, onClick, children }: {
+  active: boolean; onClick: () => void; children: React.ReactNode;
+}) {
+  return (
+    <button onClick={onClick} style={{
+      padding: '8px 14px',
+      background: 'transparent',
+      border: 'none',
+      borderBottom: active ? '2px solid var(--accent2)' : '2px solid transparent',
+      color: active ? 'var(--text)' : 'var(--text2)',
+      fontSize: 13, fontWeight: 600,
+      cursor: 'pointer',
+      marginBottom: -1,
+    }}>{children}</button>
+  );
+}
+
+// TraceLogsPanel — flat list of log entries that share this trace
+// id, ordered chronologically. Layout mirrors Uptrace's trace→logs
+// tab: timestamp · severity · service · message preview, with the
+// span_id shown as a smaller tag so the operator can correlate
+// "this log line belongs to that span".
+function TraceLogsPanel({ logs }: { logs: LogRow[] | null | undefined }) {
+  if (logs === undefined) return <Spinner />;
+  if (logs === null) return <Empty icon="⚠" title="Failed to load logs" />;
+  if (logs.length === 0) {
+    return <Empty icon="≡" title="No logs for this trace">
+      Make sure your collector ships logs with the W3C trace context (trace_id + span_id) populated.
+    </Empty>;
+  }
+  // Ascending chronological order — easier to read with the trace
+  // waterfall above mentally lined up to the same timeline.
+  const sorted = [...logs].sort((a, b) => a.timestamp - b.timestamp);
+  return (
+    <div className="trace-logs">
+      {sorted.map((l, i) => {
+        const sev = l.severityText || severityFromNumber(l.severity);
+        const sevCls = severityClass(sev);
+        return (
+          <div key={i} className="trace-logs-row">
+            <span className="trace-logs-ts" title={tsLong(l.timestamp)}>{fmtClock(l.timestamp)}</span>
+            <span className={`trace-logs-sev ${sevCls}`}>{sev || 'info'}</span>
+            <span className="trace-logs-svc">{l.serviceName || '—'}</span>
+            <span className="trace-logs-msg">{l.body}</span>
+            {l.spanId && (
+              <span className="trace-logs-span" title={`span_id: ${l.spanId}`}>
+                {l.spanId.slice(0, 12)}
+              </span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function severityFromNumber(n: number): string {
+  // OTel SeverityNumber bands (1-4 trace, 5-8 debug, 9-12 info, 13-16 warn, 17-20 error, 21-24 fatal)
+  if (n >= 21) return 'fatal';
+  if (n >= 17) return 'error';
+  if (n >= 13) return 'warn';
+  if (n >= 9)  return 'info';
+  if (n >= 5)  return 'debug';
+  return 'trace';
+}
+function severityClass(s: string): string {
+  const lc = (s || '').toLowerCase();
+  if (lc.startsWith('fatal') || lc.startsWith('crit')) return 'sev-fatal';
+  if (lc.startsWith('err')) return 'sev-err';
+  if (lc.startsWith('warn')) return 'sev-warn';
+  if (lc.startsWith('info') || lc === 'notice') return 'sev-info';
+  if (lc.startsWith('debug')) return 'sev-debug';
+  return 'sev-trace';
+}
+// HH:MM:SS.mmm formatter — drops the date prefix because all logs in
+// the panel belong to the same trace (often <1s wide).
+function fmtClock(ns: number): string {
+  const d = new Date(ns / 1e6);
+  const pad = (n: number, w = 2) => n.toString().padStart(w, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
 }
 
 export default function TraceDetailPage() {
