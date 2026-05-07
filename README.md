@@ -6,8 +6,17 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/cilcenk/coremetry)](https://goreportcard.com/report/github.com/cilcenk/coremetry)
 
 Enterprise OpenTelemetry APM. Traces, metrics, logs, and profiles on
-ClickHouse, with a Next.js UI, custom dashboards, SLOs, anomaly detection,
-local + OIDC auth, and a Tempo-compatible API for Grafana integration.
+ClickHouse, with a Next.js UI, dashboards (with Grafana-style template
+variables), SLOs, anomaly detection, AI Copilot (Anthropic Claude or
+GitHub Copilot), interactive service graph, and a Tempo-compatible
+API for Grafana integration.
+
+Auth is enterprise-friendly: local username/password, **OIDC SSO**,
+and **LDAP / Active Directory** with AD group → role mapping
+(admin / editor / viewer). External multi-node ClickHouse clusters
+are supported natively — drop a comma-separated seed list into the
+chart and the driver round-robins / fails over without an upstream
+LB.
 
 ```
 apps ──▶ OTel Collector ──▶ Coremetry (gRPC :4317)
@@ -16,6 +25,34 @@ apps ──▶ OTel Collector ──▶ Coremetry (gRPC :4317)
                               ├── Redis       (cache + leader lock, optional)
                               └── HTTP UI/API (:8088)
 ```
+
+---
+
+## Recent additions
+
+- 🔐 **LDAP / Active Directory** auth with AD group → role mapping,
+  recursive `memberOf` lookup, LDAPS + StartTLS, internal-CA paste,
+  pre-provisioning picker, first-time auto-provision. Configured
+  live from Settings.
+- 👥 **Editor role** — between viewer and admin. Can manage
+  dashboards / monitors / alert rules / incidents / exception
+  triage; can't touch user mgmt or system settings.
+- 🤖 **AI Copilot pluggable provider** — switch between Anthropic
+  Claude and GitHub Copilot from Settings; key never round-trips
+  back to the UI.
+- 📊 **Uptrace / SigNoz-inspired APM dashboard bundle** — APM
+  Overview, Service detail (with `$service` picker), HTTP,
+  Database, Messaging, External Calls, Errors. Versioned migration
+  rotates the preset set without touching user-customised
+  dashboards.
+- 🔔 **Editable built-in alert rules** — rename them, retune
+  thresholds, change windows. Built-in flag preserved; edits
+  survive restarts.
+- 🪢 **Interactive service graph** — drag nodes to move them;
+  hover lights up the neighbourhood and dims everything else.
+- 🗄 **External multi-node ClickHouse** — `addr` accepts a
+  comma-separated seed list; driver round-robins / fails over
+  natively. Native TLS supported.
 
 ---
 
@@ -219,6 +256,8 @@ single namespace. Storage: ~20 GiB PVC for CH (override via
 
 ### Vanilla Kubernetes — external CH (production)
 
+Single in-cluster endpoint:
+
 ```bash
 helm install coremetry ./charts/coremetry \
   --namespace coremetry --create-namespace \
@@ -228,6 +267,34 @@ helm install coremetry ./charts/coremetry \
   --set secrets.jwtSecret=$(openssl rand -hex 32) \
   --set secrets.initialAdminPassword=$INITIAL_PW \
   --set ingress.enabled=true ...
+```
+
+**External multi-node cluster (no LB required)** — `addr` accepts a
+comma-separated seed list; the clickhouse-go driver round-robins and
+fails over across all nodes natively, so a 4-node cluster outside
+the Kubernetes cluster wires end-to-end without a separate load
+balancer:
+
+```yaml
+# values-prod.yaml
+clickhouse:
+  enabled: false
+  external:
+    # Native protocol port: 9000 plain, 9440 TLS.
+    addr: "ch1.example.com:9440,ch2.example.com:9440,ch3.example.com:9440,ch4.example.com:9440"
+  database: "coremetry"
+  username: "coremetry_app"
+  secure: true                    # native-TLS
+  insecureSkipVerify: false       # set true ONLY for self-signed dev certs
+
+secrets:
+  clickHousePassword: "strong-pass"
+  jwtSecret: "<32 random hex>"
+```
+
+Boot log echoes the chosen mode:
+```
+[chstore] connecting to 4 host(s) over native TLS (insecure=false): [ch1... ch2... ch3... ch4...]
 ```
 
 ### OpenShift
@@ -674,9 +741,12 @@ helm upgrade --install coremetry ./charts/coremetry -f my-values.yaml -n coremet
 | `ingress.enabled`            | `false`                        | |
 | `autoscaling.enabled`        | `false`                        | HPA on CPU + memory |
 | `clickhouse.enabled`         | `true`                         | Bundle CH StatefulSet (dev/small prod) |
-| `clickhouse.external.addr`   | `""`                           | If set, overrides bundled CH (e.g. `ch.svc:9000`) |
+| `clickhouse.external.addr`   | `""`                           | If set, overrides bundled CH. Single host or comma-separated seeds (`ch1:9440,ch2:9440,…`) |
+| `clickhouse.secure`          | `false`                        | Native-TLS (use port 9440 in `addr`)  |
+| `clickhouse.insecureSkipVerify` | `false`                     | Skip TLS verify (self-signed dev only) |
 | `clickhouse.storage.size`    | `20Gi`                         | PVC size for bundled CH |
-| `clickhouse.database`        | `coremetry`                       | Created on first boot |
+| `clickhouse.database`        | `coremetry`                    | Created on first boot |
+| `clickhouse.username`        | `default`                      | CH user — comes paired with `secrets.clickHousePassword` |
 | `route.enabled`              | `false`                        | OpenShift Route — HTTPS via edge TLS by default |
 | `redis.enabled`              | `true`                         | In-cluster Redis (small/dev) |
 | `redis.external.url`         | `""`                           | If set, in-cluster Redis is skipped |
@@ -703,19 +773,33 @@ Configure via [`config.yaml`](config.yaml) or environment variables:
 
 | Env var                       | Effect                                     |
 | ----------------------------- | ------------------------------------------ |
-| `COREMETRY_CH_ADDR`              | ClickHouse host:port                       |
+| `COREMETRY_CH_ADDR`              | ClickHouse host:port (or comma-separated seeds for cluster) |
+| `COREMETRY_CH_USERNAME`          | ClickHouse username (default `default`)    |
 | `COREMETRY_CH_PASSWORD`          | ClickHouse password                        |
+| `COREMETRY_CH_DATABASE`          | ClickHouse database (default `coremetry`)  |
+| `COREMETRY_CH_SECURE`            | `true` to use native TLS (port 9440)       |
+| `COREMETRY_CH_INSECURE_SKIP_VERIFY` | Skip TLS cert verification (dev only)   |
 | `COREMETRY_HTTP_ADDR`            | UI/API listen address (default `:8088`)    |
 | `COREMETRY_GRPC_ADDR`            | OTLP/gRPC listen (default `:4317`)         |
 | `COREMETRY_REDIS_URL`            | `redis://host:port/db` — enables cache + lock |
 | `COREMETRY_JWT_SECRET`           | HS256 signing key (set this in prod)       |
-| `COREMETRY_INITIAL_ADMIN`        | Bootstrap admin email                       |
-| `COREMETRY_INITIAL_PASSWORD`     | Bootstrap admin password                    |
+| `COREMETRY_INITIAL_ADMIN`        | Bootstrap admin email                      |
+| `COREMETRY_INITIAL_PASSWORD`     | Bootstrap admin password                   |
+| `COREMETRY_DEMO_MODE`            | `true` → auto-login as initial admin (DO NOT use in prod) |
 | `COREMETRY_OIDC_ENABLED`         | `true` to enable OIDC SSO                  |
 | `COREMETRY_OIDC_ISSUER_URL`      | OIDC discovery URL                         |
 | `COREMETRY_OIDC_CLIENT_ID`       | OIDC client ID                             |
 | `COREMETRY_OIDC_CLIENT_SECRET`   | OIDC client secret                         |
 | `COREMETRY_OIDC_REDIRECT_URL`    | Public callback URL                        |
+| `COREMETRY_AI_PROVIDER`          | `anthropic` (default) or `github`          |
+| `COREMETRY_AI_API_KEY`           | Boot-time default for the AI Copilot key (overridable via Settings) |
+| `COREMETRY_AI_MODEL`             | Model override (otherwise provider default)|
+
+LDAP / AD is configured exclusively from the running app's
+**Settings → 🔐 LDAP / AD** tab — there's no env-only path because
+the bind password and group-role mappings need to live in the
+runtime store anyway, and operators are far more likely to change
+them than to redeploy.
 
 ---
 
@@ -742,16 +826,119 @@ Why Redis matters once you horizontally scale Coremetry:
 
 ## Authentication
 
-- **Local** username/password is always available, even when OIDC is on
-  (so you keep an admin fallback if the IdP is unreachable).
-- **OIDC SSO** is opt-in via `auth.oidc.enabled`. Standard Authorization
-  Code + PKCE + nonce. First-time OIDC users are auto-provisioned with
-  `auth.oidc.defaultRole`. Optional `allowedDomains` whitelist.
-- Sessions are stateless JWTs in `HttpOnly` cookies. Set
-  `COREMETRY_JWT_SECRET` in production so sessions survive restarts.
-- The first run seeds an admin from `auth.initial_admin` /
-  `initial_password`. Rotate the password from the user menu after first
-  login. Subsequent runs are no-ops if any users exist.
+Three login providers — all coexist, all configurable from the
+running app's Settings UI without a restart:
+
+- **Local** username/password is always available, even when SSO is
+  on (so you keep an admin fallback if the IdP is unreachable).
+- **OIDC SSO** — opt-in via `auth.oidc.enabled`. Standard
+  Authorization Code + PKCE + nonce. First-time OIDC users
+  auto-provision with `auth.oidc.defaultRole`. Optional
+  `allowedDomains` whitelist.
+- **LDAP / Active Directory** — opt-in via Settings → 🔐 LDAP / AD.
+  See [Enterprise auth (LDAP / AD)](#enterprise-auth-ldap--ad)
+  below.
+
+Sessions are stateless JWTs in `HttpOnly` cookies. Set
+`COREMETRY_JWT_SECRET` in production so sessions survive restarts.
+
+The first run seeds an admin from `auth.initial_admin` /
+`initial_password`. Rotate the password from the user menu after
+first login. Subsequent runs are no-ops if any users exist.
+
+### Roles
+
+| Role     | Read traces / metrics / logs | Edit dashboards / monitors / alerts / incidents | User mgmt + system settings |
+|----------|:---:|:---:|:---:|
+| `viewer` | ✅ | ❌ | ❌ |
+| `editor` | ✅ | ✅ | ❌ |
+| `admin`  | ✅ | ✅ | ✅ |
+
+Role bumps from AD group mapping run on every LDAP login, so
+promotions / demotions in the directory take effect on the next
+sign-in.
+
+### Enterprise auth (LDAP / AD)
+
+Configured entirely from **Settings → 🔐 LDAP / AD** — connection
+form, group→role mapping table, directory user search & pre-
+provisioning, and a one-click "Test connection" button. No restart
+required when changing settings.
+
+Supports:
+
+- **LDAPS** (port 636, default) and **StartTLS** (legacy 389)
+- **Internal CA** paste field, plus a `skipVerify` escape hatch for
+  self-signed dev certs
+- **Search-then-bind** authentication. The bundled default filter
+  matches `sAMAccountName` OR `userPrincipalName` OR `mail` so
+  users can sign in with `j.doe`, `j.doe@example`, or `j.doe@example.com`
+- **Recursive group lookup** via `LDAP_MATCHING_RULE_IN_CHAIN`
+  (`1.2.840.113556.1.4.1941`) so nested AD groups resolve correctly
+- **Group → role mapping** — first match wins, ranked admin > editor
+  > viewer. Group strings are matched case-insensitively as a
+  substring against the user's `memberOf` DNs (so
+  `CN=Coremetry-Admins` is enough — no need to paste the full DN)
+- **First-time auto-provision** — domain users not yet in the DB
+  are created with the resolved role, falling back to `defaultRole`
+  (or `viewer` if that's blank too)
+- **Pre-provisioning picker** — admin types a name in Settings,
+  picks the directory entry, picks a role; the row is created up
+  front with that role pinned (overrides the group mapping for that
+  user, useful for "trust this person specifically" cases)
+
+Verbose logs make troubleshooting easy — every step prints to
+stdout:
+
+```
+[ldap] test-connection host=ldap.example.com:3269 tls=true ... → OK
+[ldap] config saved enabled=true host=… userFilter=… mappings=2 defaultRole=viewer
+[auth] local check failed for "j.doe@example.com" — falling back to LDAP
+[ldap] authenticate attempt username="j.doe@example.com"
+[ldap] user search baseDN="DC=example" filter=(&(objectclass=person)(|(sAMAccountName=…)(userPrincipalName=…)(mail=…)))
+[ldap] user found dn="CN=Jane Doe,OU=Users,DC=example" (sAMAccountName="j.doe", mail="j.doe@example.com", memberOf=8 direct groups)
+[ldap] user-bind OK dn="CN=Jane Doe,…"
+[ldap] resolved role="editor" (matched 8 groups against 2 mappings, fallback="viewer")
+[auth] LDAP login OK for "j.doe@example.com" (role=editor, …)
+```
+
+When a user signs in for the first time:
+
+```
+[auth] first-time LDAP login auto-provisioned user "j.doe@example.com" as viewer (id=…)
+```
+
+When AD groups change:
+
+```
+[auth] LDAP login refreshed role for "j.doe@example.com": viewer → editor
+```
+
+The login form switches to "Username or email" + a domain-account
+banner whenever LDAP is enabled — local credentials still work in
+parallel for the bootstrap admin.
+
+### AI Copilot
+
+Inline natural-language explanations for traces, Problems and
+exception groups. Surface: a 🤖 button on the trace detail page and
+a 🤖 column on the Problems page; clicking either runs the request
+server-side (so trace data isn't shipped to the browser) and shows
+a short SRE-flavoured summary.
+
+Two providers, both configurable from **Settings → 🤖 AI Copilot**:
+
+| Provider | Auth | Default model | Endpoint |
+|---|---|---|---|
+| Anthropic | `sk-ant-…` API key | `claude-sonnet-4-6` | `api.anthropic.com/v1/messages` |
+| GitHub Copilot | `ghu_…` OAuth token (with Copilot access) | `gpt-4o` | `api.githubcopilot.com/chat/completions` (OpenAI-compat) |
+
+For GitHub Copilot, paste the OAuth token from
+`~/.config/github-copilot/hosts.json` — Coremetry exchanges it
+server-side for a short-lived Copilot session token (cached and
+auto-refreshed every ~25 min). Either provider can be enabled,
+disabled, or rotated at runtime; the API key never round-trips back
+to the UI (only a `hasKey: true` indicator).
 
 ---
 
