@@ -8,6 +8,9 @@ import type {
   SMTPSettings, NotificationChannel, ChannelType, AIProvider,
   LDAPConfig, LDAPGroupRoleMapping, LDAPDirectoryUser, Role,
 } from '@/lib/types';
+import {
+  IconMail, IconBell, IconSparkles, IconLock, IconTrash,
+} from '@/components/icons';
 
 type Tab = 'smtp' | 'channels' | 'ai' | 'ldap' | 'retention';
 
@@ -33,11 +36,21 @@ export default function SettingsPage() {
       <Topbar title="Settings" />
       <div id="content">
         <div className="tab-strip" style={{ marginBottom: 16 }}>
-          <TabBtn active={tab === 'smtp'} onClick={() => setTab('smtp')}>📨 SMTP</TabBtn>
-          <TabBtn active={tab === 'channels'} onClick={() => setTab('channels')}>🔔 Notification channels</TabBtn>
-          <TabBtn active={tab === 'ai'} onClick={() => setTab('ai')}>🤖 AI Copilot</TabBtn>
-          <TabBtn active={tab === 'ldap'} onClick={() => setTab('ldap')}>🔐 LDAP / AD</TabBtn>
-          <TabBtn active={tab === 'retention'} onClick={() => setTab('retention')}>🗑 Data retention</TabBtn>
+          <TabBtn active={tab === 'smtp'} onClick={() => setTab('smtp')}>
+            <IconMail /> <span style={{ marginLeft: 6 }}>SMTP</span>
+          </TabBtn>
+          <TabBtn active={tab === 'channels'} onClick={() => setTab('channels')}>
+            <IconBell /> <span style={{ marginLeft: 6 }}>Notification channels</span>
+          </TabBtn>
+          <TabBtn active={tab === 'ai'} onClick={() => setTab('ai')}>
+            <IconSparkles /> <span style={{ marginLeft: 6 }}>AI Copilot</span>
+          </TabBtn>
+          <TabBtn active={tab === 'ldap'} onClick={() => setTab('ldap')}>
+            <IconLock /> <span style={{ marginLeft: 6 }}>LDAP / AD</span>
+          </TabBtn>
+          <TabBtn active={tab === 'retention'} onClick={() => setTab('retention')}>
+            <IconTrash /> <span style={{ marginLeft: 6 }}>Data retention</span>
+          </TabBtn>
         </div>
         {tab === 'smtp' && <SMTPTab />}
         {tab === 'channels' && <ChannelsTab />}
@@ -215,7 +228,7 @@ function ChannelsTab() {
 
       {items === undefined && <Spinner />}
       {items !== undefined && (!items || items.length === 0) && (
-        <Empty icon="🔔" title="No channels yet">
+        <Empty icon={<IconBell size={28} />} title="No channels yet">
           Create one to start receiving alert notifications.
         </Empty>
       )}
@@ -639,8 +652,8 @@ function AITab() {
           background: 'var(--bg2)', border: '1px solid var(--border)' }}>
           <h3 style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>What it does</h3>
           <ul style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--text)', paddingLeft: 18 }}>
-            <li><b>🤖 Explain this trace</b> — on any trace detail page.</li>
-            <li><b>🤖</b> column on the <a href="/problems" style={{ color: 'var(--accent2)' }}>Problems</a> page —
+            <li><b><IconSparkles /> Explain this trace</b> — on any trace detail page.</li>
+            <li><b><IconSparkles /></b> column on the <a href="/problems" style={{ color: 'var(--accent2)' }}>Problems</a> page —
               plain-language meaning + ranked likely causes + first three things to check.</li>
           </ul>
         </div>

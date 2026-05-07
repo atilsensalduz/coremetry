@@ -7,6 +7,7 @@ import { TraceWaterfall } from '@/components/TraceWaterfall';
 import { SpanDetail } from '@/components/SpanDetail';
 import { CopyButton } from '@/components/CopyButton';
 import { CopilotExplain } from '@/components/CopilotExplain';
+import { IconLink, IconCheck, IconDownload, IconSparkles } from '@/components/icons';
 import { api } from '@/lib/api';
 import { fmtNs, tsLong } from '@/lib/utils';
 import type { LogRow, SpanRow, TimeRange } from '@/lib/types';
@@ -96,15 +97,16 @@ function TraceDetailInner() {
                 <button className="sec"
                   onClick={() => shareTrace(setShared)}
                   title="Copy a shareable link to this trace (current selected span + tab + time range preserved)"
-                  style={{ fontSize: 12, padding: '3px 10px',
+                  style={{ fontSize: 12, padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: 6,
                            color: shared ? 'var(--ok)' : undefined }}>
-                  {shared ? '✓ Link copied' : '🔗 Share'}
+                  {shared ? <IconCheck /> : <IconLink />}
+                  <span>{shared ? 'Link copied' : 'Share'}</span>
                 </button>
                 <button className="sec"
                   onClick={() => exportTraceJSON(id, spans)}
                   title="Download this trace as JSON (full span list with attributes + events)"
-                  style={{ fontSize: 12, padding: '3px 10px' }}>
-                  ⬇ Export JSON
+                  style={{ fontSize: 12, padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <IconDownload /> <span>Export JSON</span>
                 </button>
               </span>
             </>
@@ -116,7 +118,7 @@ function TraceDetailInner() {
         {spans && spans.length > 0 && (
           <>
             <div style={{ marginBottom: 10 }}>
-              <CopilotExplain kind="trace" id={id} label="🤖 Explain this trace" />
+              <CopilotExplain kind="trace" id={id} label={<><IconSparkles /> <span style={{ marginLeft: 6 }}>Explain this trace</span></>} />
             </div>
 
             {/* Trace vs Logs (Uptrace-style) — uses the shared

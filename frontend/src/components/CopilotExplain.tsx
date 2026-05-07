@@ -1,8 +1,9 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { IconSparkles } from './icons';
 
-// CopilotExplain — drop-in "🤖 Explain" button that calls the
+// CopilotExplain — drop-in Explain button that calls the
 // Coremetry AI copilot endpoint for the given subject and renders the
 // reply inline beneath the button. Self-hides when the copilot is
 // not configured (no API key on the server).
@@ -13,7 +14,7 @@ import { api } from '@/lib/api';
 export function CopilotExplain({ kind, id, label }: {
   kind: 'trace' | 'problem';
   id: string;
-  label?: string;
+  label?: React.ReactNode;
 }) {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
@@ -43,8 +44,11 @@ export function CopilotExplain({ kind, id, label }: {
   return (
     <div style={{ display: 'inline-flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
       <button onClick={run} disabled={busy} className="sec"
-        style={{ padding: '5px 12px', fontSize: 12, color: 'var(--accent2)' }}>
-        {busy ? '🤖 Thinking…' : (label ?? '🤖 AI explain')}
+        style={{ padding: '5px 12px', fontSize: 12, color: 'var(--accent2)',
+                 display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        {busy
+          ? <><IconSparkles /> <span>Thinking…</span></>
+          : (label ?? <><IconSparkles /> <span>AI explain</span></>)}
       </button>
       {error && (
         <div style={{
@@ -60,8 +64,9 @@ export function CopilotExplain({ kind, id, label }: {
           border: '1px solid rgba(56,139,253,.25)',
           color: 'var(--text)', whiteSpace: 'pre-wrap', maxWidth: 720,
         }}>
-          <div style={{ fontSize: 10, color: 'var(--accent2)', marginBottom: 6, fontWeight: 700, letterSpacing: '.5px' }}>
-            🤖 COPILOT
+          <div style={{ fontSize: 10, color: 'var(--accent2)', marginBottom: 6, fontWeight: 700, letterSpacing: '.5px',
+                        display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <IconSparkles size={11} /> COPILOT
           </div>
           {text}
         </div>

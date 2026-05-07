@@ -6,6 +6,7 @@ import { Spinner, Empty } from '@/components/Spinner';
 import { api } from '@/lib/api';
 import { tsLong } from '@/lib/utils';
 import { CopilotExplain } from '@/components/CopilotExplain';
+import { IconBell, IconSparkles } from '@/components/icons';
 import type { Problem, TimeRange } from '@/lib/types';
 
 type SortKey = 'severity' | 'service' | 'metric' | 'value' | 'rule' | 'started' | 'status';
@@ -91,7 +92,8 @@ export default function ProblemsPage() {
           <Link href="/alerts" className="sec" style={{
             marginLeft: 'auto', textDecoration: 'none', padding: '5px 12px',
             border: '1px solid var(--border)', borderRadius: 6, fontSize: 12, color: 'var(--text)',
-          }}>🔔 Manage alert rules</Link>
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+          }}><IconBell /> <span>Manage alert rules</span></Link>
         </div>
 
         {data === undefined && <Spinner />}
@@ -152,7 +154,7 @@ export default function ProblemsPage() {
                       <td>
                         {/* Self-hides when COREMETRY_AI_API_KEY isn't set;
                             renders as a small button + inline reply when it is. */}
-                        <CopilotExplain kind="problem" id={p.id} label="🤖" />
+                        <CopilotExplain kind="problem" id={p.id} label={<IconSparkles />} />
                       </td>
                     </tr>
                   );
