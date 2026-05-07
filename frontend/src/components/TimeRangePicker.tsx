@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { TimeRange } from '@/lib/types';
 import { PRESET_LABELS, PRESET_SECONDS, timeRangeLabel } from '@/lib/utils';
+import { IconClock } from './icons';
 
 const PRESETS = Object.keys(PRESET_SECONDS);
 
@@ -58,10 +59,11 @@ export function TimeRangePicker({ value, onChange }: {
 
   return (
     <div ref={ref} className="trp">
-      <button className="trp-btn sec" onClick={() => (open ? setOpen(false) : openPanel())}>
-        <span style={{ marginRight: 6 }}>🕒</span>
-        {timeRangeLabel(value)}
-        <span style={{ marginLeft: 6, color: 'var(--text2)' }}>▾</span>
+      <button className="trp-btn sec" onClick={() => (open ? setOpen(false) : openPanel())}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <IconClock />
+        <span>{timeRangeLabel(value)}</span>
+        <span style={{ marginLeft: 2, color: 'var(--text2)' }}>▾</span>
       </button>
       {open && (
         <div className="trp-panel" role="dialog">
@@ -78,12 +80,30 @@ export function TimeRangePicker({ value, onChange }: {
           <div className="trp-custom">
             <div className="trp-section-title">Absolute range</div>
 
+            {/* From — text expression input + calendar picker.
+                Native datetime-local gives the user the Grafana-
+                style calendar + hour/minute spinner without
+                pulling in a date library. Picking a date writes
+                an absolute YYYY-MM-DD HH:MM:SS string into the
+                text input; users who prefer typing `now-1h` keep
+                that path untouched. */}
             <label>
               From
-              <input type="text" value={fromInput} spellCheck={false}
-                onChange={e => { setFromInput(e.target.value); setError(''); }}
-                onKeyDown={e => e.key === 'Enter' && applyCustom()}
-                placeholder="now-1h  or  2026-05-02 12:00" />
+              <div style={{ display: 'flex', gap: 4 }}>
+                <input type="text" value={fromInput} spellCheck={false}
+                  onChange={e => { setFromInput(e.target.value); setError(''); }}
+                  onKeyDown={e => e.key === 'Enter' && applyCustom()}
+                  placeholder="now-1h  or  2026-05-02 12:00"
+                  style={{ flex: 1, minWidth: 0 }} />
+                <input type="datetime-local"
+                  value={toLocalDatetime(fromInput)}
+                  onChange={e => {
+                    const v = fromLocalDatetime(e.target.value);
+                    if (v) { setFromInput(v); setError(''); }
+                  }}
+                  className="trp-cal"
+                  title="Pick from calendar" />
+              </div>
               <div className="trp-quick">
                 {['now-15m', 'now-1h', 'now-6h', 'now-1d', 'now-7d'].map(q => (
                   <button key={q} className="trp-chip" onClick={() => setQuick('from', q)}>{q}</button>
@@ -94,10 +114,21 @@ export function TimeRangePicker({ value, onChange }: {
 
             <label>
               To
-              <input type="text" value={toInput} spellCheck={false}
-                onChange={e => { setToInput(e.target.value); setError(''); }}
-                onKeyDown={e => e.key === 'Enter' && applyCustom()}
-                placeholder="now  or  2026-05-02 13:00" />
+              <div style={{ display: 'flex', gap: 4 }}>
+                <input type="text" value={toInput} spellCheck={false}
+                  onChange={e => { setToInput(e.target.value); setError(''); }}
+                  onKeyDown={e => e.key === 'Enter' && applyCustom()}
+                  placeholder="now  or  2026-05-02 13:00"
+                  style={{ flex: 1, minWidth: 0 }} />
+                <input type="datetime-local"
+                  value={toLocalDatetime(toInput)}
+                  onChange={e => {
+                    const v = fromLocalDatetime(e.target.value);
+                    if (v) { setToInput(v); setError(''); }
+                  }}
+                  className="trp-cal"
+                  title="Pick from calendar" />
+              </div>
               <div className="trp-quick">
                 {['now', 'now-15m', 'now-1h'].map(q => (
                   <button key={q} className="trp-chip" onClick={() => setQuick('to', q)}>{q}</button>
@@ -171,4 +202,30 @@ function shortDur(secs: number): string {
   if (secs % 3600 === 0)  return `${secs/3600}h`;
   if (secs % 60 === 0)    return `${secs/60}m`;
   return `${secs}s`;
+}
+
+// `<input type="datetime-local">` expects "YYYY-MM-DDTHH:MM" (no
+// timezone, no seconds). toLocalDatetime resolves the current text
+// expression — whether it's `now-1h`, an epoch number, or an
+// absolute ISO/SQL string — into that format. fromLocalDatetime
+// reverses: takes the picker's "YYYY-MM-DDTHH:MM" and returns the
+// absolute "YYYY-MM-DD HH:MM:SS" form our text parser already
+// accepts. Returning '' from toLocalDatetime makes the picker
+// render empty (browser shows the placeholder).
+function toLocalDatetime(textExpr: string): string {
+  const ms = parseTimeExpr(textExpr);
+  if (ms === null) return '';
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function fromLocalDatetime(value: string): string | null {
+  if (!value) return null;
+  // value is local time, no TZ; reuse parseTimeExpr which understands
+  // "YYYY-MM-DDTHH:MM" via Date.parse.
+  const ms = Date.parse(value);
+  if (isNaN(ms)) return null;
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }

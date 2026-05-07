@@ -419,6 +419,9 @@ export interface TracesParams {
   // The UI defaults to "skip" and surfaces a "Show total" link for the
   // user to opt into the expensive count when they want it.
   count?: 'skip' | 'approx' | 'exact';
+  // Comma-separated user-selected attribute keys whose values should
+  // be projected into TraceRow.extras. Bounded to 8 cols server-side.
+  extraAttrs?: string;
 }
 
 export interface LogsParams {

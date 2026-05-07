@@ -787,6 +787,28 @@ canvas { max-width: 100%; }
   font-size: 11px; color: var(--text2);
 }
 .trp-custom input { font-family: monospace; }
+/* Native datetime-local input — sized as a compact icon-style
+   button next to the text expression input. Browser handles the
+   calendar popup and hour/minute spinner; we just style the chrome
+   so it sits next to the text input cleanly. */
+.trp-cal {
+  width: 32px;
+  flex-shrink: 0;
+  padding: 4px;
+  font-size: 11px;
+  color: transparent;       /* hide the displayed text — only the picker icon shows */
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.trp-cal::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.6;
+  filter: invert(0.7);     /* make the dark-theme calendar glyph visible */
+}
+.trp-cal:hover { border-color: var(--accent); }
+.trp-cal:hover::-webkit-calendar-picker-indicator { opacity: 1; }
 .trp-quick { display: flex; gap: 4px; flex-wrap: wrap; }
 .trp-chip {
   background: var(--bg2); color: var(--text2); border: 1px solid var(--border);

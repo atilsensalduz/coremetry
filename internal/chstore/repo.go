@@ -354,7 +354,14 @@ type TraceFilter struct {
 	MaxMs    float64
 	AttrKey  string
 	AttrVal  string
-	Filters  []FilterExpr // advanced filter chips (AND-joined)
+	// ExtraAttrs is the user-selected list of attribute keys whose
+	// values should be projected into TraceRow.Extras. Each key picks
+	// up the first non-empty value among span-attributes and resource-
+	// attributes for that trace. Sanitised by the HTTP layer to strict
+	// dot/underscore/dash naming so the value can flow safely into the
+	// SELECT clause.
+	ExtraAttrs []string
+	Filters    []FilterExpr // advanced filter chips (AND-joined)
 	Sort     string       // "time" | "duration"
 	Order    string       // "asc" | "desc"
 	Limit    int
@@ -465,6 +472,26 @@ func (s *Store) GetTraces(ctx context.Context, f TraceFilter) ([]TraceRow, uint6
 	// bytes. This is what powers the "Page N · 50+" badge when CountMode
 	// is "skip".
 	pageLimit := f.Limit + 1
+
+	// Build optional projections for user-requested attribute columns.
+	// Each `extra_N` column is `anyIf` over spans that actually have a
+	// non-empty value for the key; falls back to resource_attributes
+	// so things like `service.namespace` work even when set at resource
+	// level only. The key itself flows in as a `?` parameter — no
+	// string concatenation into SQL — so injection is impossible even
+	// before the HTTP-layer sanitisation kicks in.
+	extraSelect := ""
+	extraArgs := []any{}
+	for i := range f.ExtraAttrs {
+		extraSelect += fmt.Sprintf(
+			", anyIf(coalesce(nullIf(attributes[?], ''), nullIf(resource_attributes[?], '')), "+
+				"length(attributes[?]) > 0 OR length(resource_attributes[?]) > 0) AS extra_%d",
+			i,
+		)
+		key := f.ExtraAttrs[i]
+		extraArgs = append(extraArgs, key, key, key, key)
+	}
+
 	// Note: use if() not ternary ? : — ClickHouse treats ? as a param placeholder
 	querySQL := `
 		SELECT trace_id,
@@ -474,14 +501,19 @@ func (s *Store) GetTraces(ctx context.Context, f TraceFilter) ([]TraceRow, uint6
 		       (max(toUnixTimestamp64Nano(time) + duration) -
 		        toUnixTimestamp64Nano(min(time))) / 1e6 AS dur_ms,
 		       count()                                 AS span_count,
-		       max(if(status_code = 'error', 1, 0))    AS has_error
+		       max(if(status_code = 'error', 1, 0))    AS has_error` +
+		extraSelect + `
 		FROM spans ` + wc.sql() + `
 		GROUP BY trace_id
 		ORDER BY ` + sortCol + ` ` + order + `
 		LIMIT ? OFFSET ?
 		SETTINGS max_execution_time = 30`
 
-	args := append(wc.args, pageLimit, f.Offset)
+	// extraArgs go BEFORE wc.args because the SELECT projections come
+	// before the WHERE clause in the SQL; ? placeholders bind in order.
+	args := append([]any{}, extraArgs...)
+	args = append(args, wc.args...)
+	args = append(args, pageLimit, f.Offset)
 	rows, err := s.conn.Query(ctx, querySQL, args...)
 	if err != nil {
 		return nil, 0, false, err
@@ -493,11 +525,25 @@ func (s *Store) GetTraces(ctx context.Context, f TraceFilter) ([]TraceRow, uint6
 		var t TraceRow
 		var hasErr uint8
 		var ts time.Time
-		if err := rows.Scan(&t.TraceID, &t.RootName, &t.ServiceName, &ts, &t.DurationMs, &t.SpanCount, &hasErr); err != nil {
+		// Scan the fixed columns first, then peel off one extra string
+		// per requested attribute. The driver expects every column to
+		// have a destination, so the extras slice is sized exactly.
+		extras := make([]string, len(f.ExtraAttrs))
+		dest := []any{&t.TraceID, &t.RootName, &t.ServiceName, &ts, &t.DurationMs, &t.SpanCount, &hasErr}
+		for i := range extras {
+			dest = append(dest, &extras[i])
+		}
+		if err := rows.Scan(dest...); err != nil {
 			return nil, 0, false, err
 		}
 		t.StartTime = ts.UnixNano()
 		t.HasError = hasErr == 1
+		if len(extras) > 0 {
+			t.Extras = make(map[string]string, len(extras))
+			for i, k := range f.ExtraAttrs {
+				t.Extras[k] = extras[i]
+			}
+		}
 		out = append(out, t)
 	}
 	if err := rows.Err(); err != nil {

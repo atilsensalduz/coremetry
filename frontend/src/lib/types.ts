@@ -245,6 +245,10 @@ export interface TraceRow {
   durationMs: number;
   spanCount: number;
   hasError: boolean;
+  // User-requested attribute values (one per `extraAttrs` query
+  // param key). Missing/empty values surface as ""; the UI renders
+  // them as "—" so empty rows still align visually.
+  extras?: Record<string, string>;
 }
 
 export interface TracesResponse {

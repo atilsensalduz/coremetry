@@ -479,6 +479,23 @@ func (s *Server) getTraces(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f.Filters = filters
+	// Extra attribute columns. Comma-separated keys requested by the
+	// /traces UI's column manager. Strict allow-list on characters
+	// (alphanumeric + . _ -) so even though the value flows in as a
+	// `?` param, no surprises end up in user-visible output. Cap at
+	// 8 columns to keep the SELECT projection bounded.
+	if extras := q.Get("extraAttrs"); extras != "" {
+		for _, k := range strings.Split(extras, ",") {
+			k = strings.TrimSpace(k)
+			if k == "" || !isSafeAttrKey(k) {
+				continue
+			}
+			f.ExtraAttrs = append(f.ExtraAttrs, k)
+			if len(f.ExtraAttrs) >= 8 {
+				break
+			}
+		}
+	}
 	// count mode — opt-in for the expensive count(DISTINCT trace_id):
 	//   skip   (default) — no count; UI shows ">=N+1" when the page is full
 	//   approx           — count over top N+1 trace_ids only (fast)
@@ -2893,6 +2910,28 @@ func parseFiltersAndDSL(jsonFilters, dsl string) ([]chstore.FilterExpr, error) {
 		return nil, err
 	}
 	return append(out, parsed...), nil
+}
+
+// isSafeAttrKey allows only OTel-style attribute keys (alphanum + dot,
+// underscore, dash). Everything else — quotes, slashes, whitespace,
+// SQL meta — is rejected so the key can flow safely into a CH `?`
+// parameter without surprises in logs or UI rendering.
+func isSafeAttrKey(s string) bool {
+	if s == "" || len(s) > 96 {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r >= '0' && r <= '9',
+			r == '.' || r == '_' || r == '-':
+			// ok
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func parseInt(s string, def int) int {

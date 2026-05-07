@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, Suspense } from 'react';
+import { useEffect, useMemo, useRef, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
@@ -28,7 +28,11 @@ function TracesPageInner() {
   // All these hydrate from URL on first render so the back button
   // restores filters / sort / page intact after viewing a trace detail.
   const [range, setRange] = useState<TimeRange>(
-    () => decodeRange(searchParams.get('range'), { preset: '1h' }));
+    // Default to 5 min — matches the SRE "what just happened" entry
+    // point for /traces. Users with longer windows tend to switch
+    // explicitly anyway; defaulting to 1h was paying for a wide CH
+    // scan most visitors didn't actually need.
+    () => decodeRange(searchParams.get('range'), { preset: '5m' }));
   // Aggregated is the default landing tab — the most useful view for
   // an SRE arriving at /traces is "what operations are slow / errored
   // right now", not the raw flat list. The list view stays a click
@@ -63,6 +67,11 @@ function TracesPageInner() {
   const [draft, setDraft] = useState(filter);
   const [advFilters, setAdvFilters] = useState<FilterExpr[]>(
     () => decodeFilters(searchParams.get('filters')));
+  // User-selected attribute columns shown in the list view. Comma-
+  // separated in the URL so a saved link / bookmark restores the
+  // exact column set. Bounded to 8 server-side.
+  const [extraCols, setExtraCols] = useState<string[]>(
+    () => (searchParams.get('cols') ?? '').split(',').map(s => s.trim()).filter(Boolean));
   const [data, setData] = useState<TracesResponse | null | undefined>(undefined);
   const [agg, setAgg] = useState<AggregateRow[] | null | undefined>(undefined);
 
@@ -89,6 +98,7 @@ function TracesPageInner() {
       ['maxMs',    filter.maxMs],
       ['hasError', filter.hasError ? 'true' : ''],
       ['filters',  encodeFilters(advFilters)],
+      ['cols',     extraCols.join(',')],
     ]);
     const next = qs ? `?${qs}` : '';
     if (typeof window !== 'undefined' && next !== window.location.search) {
@@ -134,11 +144,12 @@ function TracesPageInner() {
       maxMs: filter.maxMs || undefined,
       hasError: filter.hasError || undefined,
       filters: advFilters.length ? JSON.stringify(advFilters) : undefined,
+      extraAttrs: extraCols.length ? extraCols.join(',') : undefined,
       // "exact" only when the user explicitly asked. Pinned trace IDs
       // skip the toggle — count of 1 is implicit.
       count: showTotal && !tid ? 'exact' : 'skip',
     }).then(setData).catch(() => setData(null));
-  }, [view, range, sort, order, page, filter, advFilters, showTotal]);
+  }, [view, range, sort, order, page, filter, advFilters, extraCols, showTotal]);
 
   // ── Aggregate fetch ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -286,6 +297,29 @@ function TracesPageInner() {
                   <SortHeader col="duration"  label="Duration"  sort={sort} order={order} onSort={toggleSort} />
                   <SortHeader col="spans"     label="Spans"     sort={sort} order={order} onSort={toggleSort} />
                   <SortHeader col="status"    label="Status"    sort={sort} order={order} onSort={toggleSort} />
+                  {/* User-added attribute columns. Right-click /
+                      ✕ button on each removes; "+ Column" header
+                      adds a new one via the manager dropdown. */}
+                  {extraCols.map(k => (
+                    <th key={k} style={{ position: 'relative', whiteSpace: 'nowrap' }}>
+                      <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 11 }}>
+                        {k}
+                      </span>
+                      <button type="button" title="Remove column"
+                        onClick={() => setExtraCols(extraCols.filter(c => c !== k))}
+                        style={{
+                          marginLeft: 6, padding: '0 4px', fontSize: 10, lineHeight: 1,
+                          background: 'transparent', border: 'none', color: 'var(--text3)',
+                          cursor: 'pointer',
+                        }}>×</button>
+                    </th>
+                  ))}
+                  <th style={{ width: 1, whiteSpace: 'nowrap' }}>
+                    <ColumnManager
+                      cols={extraCols}
+                      onAdd={k => { if (!extraCols.includes(k) && extraCols.length < 8) setExtraCols([...extraCols, k]); }}
+                      services={services} operations={operations} />
+                  </th>
                 </tr></thead>
                 <tbody>
                   {traces.map(t => (
@@ -298,6 +332,17 @@ function TracesPageInner() {
                       <td className="mono">{t.durationMs.toFixed(2)}ms</td>
                       <td>{t.spanCount}</td>
                       <td>{t.hasError ? <span className="badge b-err">ERROR</span> : <span className="badge b-ok">OK</span>}</td>
+                      {extraCols.map(k => {
+                        const v = t.extras?.[k] ?? '';
+                        return (
+                          <td key={k} className="mono" style={{ fontSize: 11, color: v ? 'var(--text2)' : 'var(--text3)', whiteSpace: 'nowrap', maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis' }} title={v || ''}>
+                            {v || '—'}
+                          </td>
+                        );
+                      })}
+                      {/* Filler cell aligning with the "+ Column"
+                          header — keeps the table layout stable. */}
+                      <td />
                     </tr>
                   ))}
                 </tbody>
@@ -424,6 +469,139 @@ function SvcBadge({ name }: { name: string }) {
     <span style={{ fontSize: 11, padding: '1px 6px', background: 'var(--bg3)', borderRadius: 3, fontFamily: 'monospace' }}>
       {name || 'unknown'}
     </span>
+  );
+}
+
+// ColumnManager — "+ Column" affordance in the trace-list header.
+// Click opens a Combobox-style picker fed by /api/attribute-keys
+// (live span + resource attribute keys observed in the last hour),
+// merged with the local services / operations lists for a richer
+// initial set. Caps at 8 user columns server-side; UI nudges with a
+// disabled state at 8.
+//
+// Performance: the attribute-keys fetch runs once per panel open
+// (not on every render), result is cached in state. Adding a column
+// triggers a single trace-list refetch — same query plan, +1 map
+// lookup per row, bounded by the 8-col cap.
+function ColumnManager({ cols, onAdd, services, operations }: {
+  cols: string[];
+  onAdd: (k: string) => void;
+  services: string[];
+  operations: string[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [keys, setKeys] = useState<string[] | null>(null);
+  const [query, setQuery] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open || keys !== null) return;
+    api.attributeKeys('1h', 500)
+      .then(res => {
+        const live = (res ?? []).map(r => r.key);
+        // Common semconv keys + the live attribute set + the
+        // already-loaded service/operation lists (renamed to their
+        // attribute-key equivalents). Dedup + sort.
+        const seed = [
+          'http.method', 'http.route', 'http.status_code', 'http.url',
+          'rpc.system', 'rpc.service', 'rpc.method',
+          'db.system', 'db.statement', 'db.operation', 'db.name',
+          'messaging.system', 'messaging.destination.name', 'messaging.operation',
+          'peer.service', 'server.address', 'kind',
+        ];
+        setKeys([...new Set([...seed, ...live])].sort());
+      })
+      .catch(() => setKeys([]));
+  }, [open, keys]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const all = keys ?? [];
+    const remaining = all.filter(k => !cols.includes(k));
+    if (!q) return remaining.slice(0, 50);
+    return remaining.filter(k => k.toLowerCase().includes(q)).slice(0, 50);
+  }, [keys, query, cols]);
+
+  const atLimit = cols.length >= 8;
+
+  return (
+    <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
+      <button type="button" disabled={atLimit}
+        onClick={() => setOpen(o => !o)}
+        title={atLimit ? 'Column limit reached (8)' : 'Add an attribute column'}
+        style={{
+          padding: '2px 8px', fontSize: 11, fontWeight: 600,
+          background: 'transparent', color: 'var(--accent2)',
+          border: '1px dashed var(--border)', borderRadius: 4,
+          cursor: atLimit ? 'not-allowed' : 'pointer',
+        }}>
+        + Column
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', right: 0, top: 'calc(100% + 4px)', zIndex: 60,
+          minWidth: 280, maxWidth: 360,
+          background: 'var(--bg2)', border: '1px solid var(--border)',
+          borderRadius: 6, boxShadow: '0 8px 24px rgba(0,0,0,0.30)',
+          padding: 6,
+        }}>
+          <input autoFocus
+            value={query} onChange={e => setQuery(e.target.value)}
+            placeholder="Filter attribute keys…"
+            style={{ width: '100%', marginBottom: 6, fontSize: 12 }} />
+          <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+            {keys === null && (
+              <div style={{ padding: 8, fontSize: 11, color: 'var(--text3)' }}>Loading…</div>
+            )}
+            {keys && filtered.length === 0 && (
+              <div style={{ padding: 8, fontSize: 11, color: 'var(--text3)', fontStyle: 'italic' }}>
+                {query.trim()
+                  ? `No keys match "${query}". Press Enter to add it as a custom column.`
+                  : 'No more attribute keys to add.'}
+              </div>
+            )}
+            {filtered.map(k => (
+              <div key={k}
+                onClick={() => { onAdd(k); setOpen(false); setQuery(''); }}
+                style={{
+                  padding: '5px 8px', fontSize: 12, cursor: 'pointer',
+                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                  borderRadius: 3,
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg3)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                {k}
+              </div>
+            ))}
+          </div>
+          {query.trim() && keys && filtered.length === 0 && /^[a-zA-Z0-9._-]+$/.test(query.trim()) && (
+            <button type="button"
+              onClick={() => { onAdd(query.trim()); setOpen(false); setQuery(''); }}
+              style={{
+                width: '100%', marginTop: 4, fontSize: 11,
+                padding: '4px 8px',
+              }}>
+              Add custom column "{query.trim()}"
+            </button>
+          )}
+          {/* Hint to users about why service/operation aren't in
+              the picker — they'd be redundant with the existing
+              fixed columns. */}
+          <div style={{ fontSize: 10, color: 'var(--text3)', padding: '6px 8px 0', borderTop: '1px solid var(--border)', marginTop: 6 }}>
+            {services.length + operations.length} services / operations indexed · keys from spans seen in the last 1h
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

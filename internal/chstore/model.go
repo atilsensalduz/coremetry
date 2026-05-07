@@ -125,6 +125,11 @@ type TraceRow struct {
 	DurationMs  float64 `json:"durationMs"`
 	SpanCount   uint64  `json:"spanCount"`
 	HasError    bool    `json:"hasError"`
+	// Per-trace lookup of attribute values requested by the caller
+	// via TraceFilter.ExtraAttrs. Keys mirror the requested list;
+	// missing/empty values surface as "" so the UI can render a
+	// "—" placeholder. Omitted entirely when no extras requested.
+	Extras map[string]string `json:"extras,omitempty"`
 }
 
 type SpanRow struct {
