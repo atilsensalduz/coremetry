@@ -32,7 +32,7 @@ export default function SettingsPage() {
     <>
       <Topbar title="Settings" />
       <div id="content">
-        <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border)', marginBottom: 16 }}>
+        <div className="tab-strip" style={{ marginBottom: 16 }}>
           <TabBtn active={tab === 'smtp'} onClick={() => setTab('smtp')}>📨 SMTP</TabBtn>
           <TabBtn active={tab === 'channels'} onClick={() => setTab('channels')}>🔔 Notification channels</TabBtn>
           <TabBtn active={tab === 'ai'} onClick={() => setTab('ai')}>🤖 AI Copilot</TabBtn>
@@ -51,12 +51,7 @@ export default function SettingsPage() {
 
 function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
-    <button onClick={onClick} style={{
-      padding: '8px 14px', background: 'transparent',
-      border: 'none', borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
-      color: active ? 'var(--text)' : 'var(--text2)',
-      fontSize: 13, fontWeight: active ? 600 : 500, cursor: 'pointer',
-    }}>{children}</button>
+    <button onClick={onClick} className={active ? 'active' : ''}>{children}</button>
   );
 }
 

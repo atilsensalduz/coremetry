@@ -140,6 +140,87 @@ button:disabled { opacity: .4; cursor: not-allowed; }
 button.sec { background: var(--bg3); color: var(--text); border: 1px solid var(--border); }
 button.sec:hover { background: var(--bg2); }
 
+/* ── Shared tab + segmented-control patterns ─────────────────────
+   Centralised so every page uses the same active-state colour,
+   underline thickness, padding and hover transition. Two patterns:
+
+     .tab-strip   — line tabs with an underline indicator. For
+                    primary content navigation (Settings sections,
+                    Exceptions inbox states, Trace/Logs split,
+                    status page admin sections).
+     .segmented   — joined-button "view toggle" for switching the
+                    same data between presentations (Traces:
+                    Aggregated vs List).
+
+   Both reuse the existing accent token so theme switches keep
+   the active marker on-brand. */
+
+.tab-strip {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+.tab-strip > button {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--text2);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 14px;
+  margin-bottom: -1px;          /* overlap the strip's 1px line */
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.tab-strip > button:hover {
+  color: var(--text);
+  background: transparent;
+}
+.tab-strip > button.active {
+  color: var(--text);
+  font-weight: 600;
+  border-bottom-color: var(--accent2);
+}
+.tab-strip > button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg2);
+}
+.segmented > button {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  border-right: 1px solid var(--border);
+  color: var(--text2);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.segmented > button:last-child { border-right: none; }
+.segmented > button:hover {
+  color: var(--text);
+  background: var(--bg3);
+}
+.segmented > button.active {
+  background: var(--bg3);
+  color: var(--text);
+  font-weight: 600;
+  /* Subtle top accent — picks up the same colour as the tab strip's
+     underline so the two patterns visually rhyme. */
+  box-shadow: inset 0 2px 0 var(--accent2);
+}
+
 /* Cards */
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
 .card {

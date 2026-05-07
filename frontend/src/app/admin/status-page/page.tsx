@@ -30,12 +30,17 @@ export default function StatusPageAdmin() {
     <>
       <Topbar title="Status Page (admin)" />
       <div id="content">
-        <div className="controls" style={{ marginBottom: 14 }}>
-          <button className={tab === 'components' ? '' : 'sec'} onClick={() => setTab('components')}>Components</button>
-          <button className={tab === 'config'     ? '' : 'sec'} onClick={() => setTab('config')}>Page header</button>
-          <button className={tab === 'subs'       ? '' : 'sec'} onClick={() => setTab('subs')}>Subscribers</button>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14 }}>
+          <div className="tab-strip" style={{ marginBottom: 0, flex: 1 }}>
+            <button onClick={() => setTab('components')}
+                    className={tab === 'components' ? 'active' : ''}>Components</button>
+            <button onClick={() => setTab('config')}
+                    className={tab === 'config' ? 'active' : ''}>Page header</button>
+            <button onClick={() => setTab('subs')}
+                    className={tab === 'subs' ? 'active' : ''}>Subscribers</button>
+          </div>
           <Link href="/public-status" target="_blank" style={{
-            marginLeft: 'auto', fontSize: 12, padding: '5px 12px',
+            fontSize: 12, padding: '5px 12px',
             background: 'var(--bg3)', border: '1px solid var(--border)',
             borderRadius: 6, color: 'var(--accent2)', textDecoration: 'none',
           }}>

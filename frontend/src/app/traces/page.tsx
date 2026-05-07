@@ -205,15 +205,13 @@ function TracesPageInner() {
 
         {/* View toggle + dedicated Trace ID lookup on the far right */}
         <div className="controls" style={{ marginBottom: 8, alignItems: 'center' }}>
-          <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
+          <div className="segmented">
             <button onClick={() => setView('aggregate')}
-              className={view === 'aggregate' ? '' : 'sec'}
-              style={{ borderRadius: 0, borderRight: '1px solid var(--border)' }}>
+              className={view === 'aggregate' ? 'active' : ''}>
               Aggregated
             </button>
             <button onClick={() => setView('list')}
-              className={view === 'list' ? '' : 'sec'}
-              style={{ borderRadius: 0 }}>
+              className={view === 'list' ? 'active' : ''}>
               Traces
             </button>
           </div>

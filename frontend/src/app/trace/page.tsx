@@ -119,12 +119,10 @@ function TraceDetailInner() {
               <CopilotExplain kind="trace" id={id} label="🤖 Explain this trace" />
             </div>
 
-            {/* Tab strip — Trace vs Logs (Uptrace-style). Trace tab
-                is the default; Logs lazy-loads on first click. */}
-            <div style={{
-              display: 'flex', gap: 4, marginBottom: 10,
-              borderBottom: '1px solid var(--border)',
-            }}>
+            {/* Trace vs Logs (Uptrace-style) — uses the shared
+                .tab-strip pattern so it visually matches Settings,
+                Exceptions inbox, and Status Page admin tabs. */}
+            <div className="tab-strip" style={{ marginBottom: 10 }}>
               <TabBtn active={tab === 'trace'} onClick={() => setTab('trace')}>
                 Trace <span style={{ color: 'var(--text3)', marginLeft: 4 }}>{spans.length}</span>
               </TabBtn>
@@ -156,16 +154,7 @@ function TabBtn({ active, onClick, children }: {
   active: boolean; onClick: () => void; children: React.ReactNode;
 }) {
   return (
-    <button onClick={onClick} style={{
-      padding: '8px 14px',
-      background: 'transparent',
-      border: 'none',
-      borderBottom: active ? '2px solid var(--accent2)' : '2px solid transparent',
-      color: active ? 'var(--text)' : 'var(--text2)',
-      fontSize: 13, fontWeight: 600,
-      cursor: 'pointer',
-      marginBottom: -1,
-    }}>{children}</button>
+    <button onClick={onClick} className={active ? 'active' : ''}>{children}</button>
   );
 }
 

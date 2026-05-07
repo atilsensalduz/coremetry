@@ -119,15 +119,10 @@ export default function ExceptionsPage() {
     <>
       <Topbar title="Exceptions" />
       <div id="content">
-        <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border)', marginBottom: 12 }}>
+        <div className="tab-strip">
           {TABS.map(t => (
             <button key={t.key} onClick={() => setTab(t.key)} title={t.hint}
-              style={{
-                padding: '8px 14px', background: 'transparent',
-                border: 'none', borderBottom: tab === t.key ? '2px solid var(--accent)' : '2px solid transparent',
-                color: tab === t.key ? 'var(--text)' : 'var(--text2)',
-                fontSize: 13, fontWeight: tab === t.key ? 600 : 500, cursor: 'pointer',
-              }}>
+              className={tab === t.key ? 'active' : ''}>
               {t.label}
             </button>
           ))}
