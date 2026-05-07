@@ -226,7 +226,28 @@ tbody td { padding: 7px 12px; max-width: 320px; white-space: nowrap; overflow: h
 .wf-toggle:hover { background: var(--bg3); color: var(--text); }
 .wf-leaf { width: 16px; flex-shrink: 0; }
 .wf-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); margin-left: 3px; min-width: 0; }
-.wf-svc { font-size: 10px; color: var(--text3); font-family: monospace; flex-shrink: 0; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: 4px; padding: 1px 5px; background: var(--bg3); border-radius: 3px; }
+/* Service badge — leading chip in every waterfall row. Background
+   is set inline to the per-service hash colour (matches the row's
+   left stripe + bar). The eye scans down the leftmost column and
+   immediately sees which service owns each span — needed because
+   gRPC spans often display their `rpc.service` (e.g. "Greeter") as
+   the operation name, which used to crowd out the actual
+   service.name in the row. */
+.wf-svc {
+  font-size: 11px;
+  font-weight: 600;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  flex-shrink: 0;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: 0 6px 0 4px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  letter-spacing: 0.1px;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.15);
+}
 .wf-err-dot { color: var(--err); font-size: 11px; flex-shrink: 0; margin-left: 4px; line-height: 1; }
 .wf-kind { font-size: 11px; opacity: .65; margin-right: 2px; flex-shrink: 0; line-height: 1; }
 

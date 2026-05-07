@@ -205,10 +205,19 @@ export function TraceWaterfall({ spans, selectedId, onSelect }: {
                     </button>
                   : <div className="wf-leaf" />}
                 <span className="wf-kind" title={s.kind || 'internal'}>{kindIcon(s.kind)}</span>
+                {/* Service badge first — Uptrace/SigNoz convention. The
+                    eye scans down the leftmost column and immediately
+                    sees which service each span belongs to, instead of
+                    having to mentally separate `rpc.service` (which the
+                    operation name often starts with) from the actual
+                    `service.name`. */}
+                <span className="wf-svc" title={`service.name: ${s.serviceName}`}
+                      style={{ background: color, color: '#fff' }}>
+                  {s.serviceName}
+                </span>
                 <span className="wf-name" title={s.name === displayName ? s.name : `raw: ${s.name}`}>
                   {displayName}
                 </span>
-                <span className="wf-svc" title={s.serviceName}>{s.serviceName}</span>
                 {s.statusCode === 'error' && (
                   <span className="wf-err-dot" title="Error">●</span>
                 )}
