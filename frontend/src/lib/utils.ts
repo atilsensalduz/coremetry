@@ -76,18 +76,18 @@ export function tsLong(ns: number): string {
 const COLORS = [
   '#5b8def',  // sky blue
   '#7c8cf8',  // periwinkle
-  '#9b87f5',  // soft violet
-  '#b478d3',  // muted lilac
-  '#c084c6',  // dusty mauve
-  '#d27ba0',  // muted rose
-  '#d97c5f',  // terracotta
-  '#c89651',  // amber-tan
-  '#a39e54',  // olive
-  '#7d9c6d',  // sage
-  '#5fa39a',  // teal
   '#5fa3c4',  // dust blue
+  '#5fa39a',  // teal
+  '#6ba38a',  // sea green
+  '#7d9c6d',  // sage
+  '#a39e54',  // olive
+  '#c89651',  // amber-tan
+  '#d97c5f',  // terracotta
+  '#9b87f5',  // soft violet
   '#7e8ea1',  // slate
-  '#a37b8e',  // mauve grey
+  '#8a9aa8',  // cool gray
+  '#5d8484',  // teal-gray
+  '#a39187',  // taupe
 ];
 export function hashColor(s: string): string {
   let h = 5381;
