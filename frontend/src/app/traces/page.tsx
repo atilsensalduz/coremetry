@@ -28,8 +28,12 @@ function TracesPageInner() {
   // restores filters / sort / page intact after viewing a trace detail.
   const [range, setRange] = useState<TimeRange>(
     () => decodeRange(searchParams.get('range'), { preset: '1h' }));
+  // Aggregated is the default landing tab — the most useful view for
+  // an SRE arriving at /traces is "what operations are slow / errored
+  // right now", not the raw flat list. The list view stays a click
+  // away and a ?view=list URL forces it on demand.
   const [view, setView] = useState<View>(
-    () => (searchParams.get('view') === 'aggregate' ? 'aggregate' : 'list'));
+    () => (searchParams.get('view') === 'list' ? 'list' : 'aggregate'));
 
   // List view sort
   const [sort, setSort] = useState<SortColumn>(
@@ -68,7 +72,9 @@ function TracesPageInner() {
   useEffect(() => {
     const qs = buildQuery([
       ['range',    encodeRange(range)],
-      ['view',     view !== 'list' ? view : ''],
+      // Aggregated is the new default — only emit ?view= when the
+      // user has explicitly switched away from it.
+      ['view',     view !== 'aggregate' ? view : ''],
       ['sort',     sort !== 'time' ? sort : ''],
       ['order',    order !== 'desc' ? order : ''],
       ['page',     page > 0 ? page : ''],

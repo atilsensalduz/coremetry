@@ -44,13 +44,16 @@ function kindIcon(k: string): string {
 // gRPC server has both `rpc.system` and (rarely) `http.method`; we
 // pick RPC first because that's what's actually being executed.
 type SpanCategory = { tag: string; color: string };
+// Muted, low-saturation palette to match the service-badge band —
+// chips read as categorical metadata without competing visually with
+// the operation name.
 function categoryOf(s: SpanRow): SpanCategory | null {
   const a = s.attributes ?? {};
-  if (a['db.system'])        return { tag: 'DB',   color: '#fb923c' }; // orange
-  if (a['messaging.system']) return { tag: 'MQ',   color: '#22c55e' }; // green
-  if (a['rpc.system'])       return { tag: 'RPC',  color: '#a78bfa' }; // purple
+  if (a['db.system'])        return { tag: 'DB',   color: '#c89651' }; // amber-tan
+  if (a['messaging.system']) return { tag: 'MQ',   color: '#7d9c6d' }; // sage
+  if (a['rpc.system'])       return { tag: 'RPC',  color: '#9b87f5' }; // soft violet
   if (a['http.method'] || a['http.request.method']) {
-    return { tag: 'HTTP', color: '#60a5fa' };                          // blue
+    return { tag: 'HTTP', color: '#5b8def' };                          // sky blue
   }
   return null;
 }

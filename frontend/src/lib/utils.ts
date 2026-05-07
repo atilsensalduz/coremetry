@@ -63,8 +63,32 @@ export function tsLong(ns: number): string {
   return new Date(ns / 1e6).toLocaleString('en', { dateStyle: 'short', timeStyle: 'medium' });
 }
 
-const COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#E30613', '#f97316', '#eab308',
-                '#22c55e', '#14b8a6', '#3b82f6', '#06b6d4', '#a855f7', '#10b981'];
+// Hand-picked palette tuned for modern APM dashboards. Replaces the
+// previous Tailwind-default rainbow (indigo/violet/pink/orange/yellow/
+// emerald/cyan…) which read as "candy crayons" on a dark UI. Every
+// entry sits roughly in the same low-to-mid saturation band (35-50%)
+// and similar perceptual lightness, so a trace with 6 services
+// looks like a designer's palette rather than a child's crayon box.
+//
+// Order is hue-stepped so consecutive services in a hash collision
+// chain don't end up neighbouring on the colour wheel — you still
+// get visually distinct services even on small traces.
+const COLORS = [
+  '#5b8def',  // sky blue
+  '#7c8cf8',  // periwinkle
+  '#9b87f5',  // soft violet
+  '#b478d3',  // muted lilac
+  '#c084c6',  // dusty mauve
+  '#d27ba0',  // muted rose
+  '#d97c5f',  // terracotta
+  '#c89651',  // amber-tan
+  '#a39e54',  // olive
+  '#7d9c6d',  // sage
+  '#5fa39a',  // teal
+  '#5fa3c4',  // dust blue
+  '#7e8ea1',  // slate
+  '#a37b8e',  // mauve grey
+];
 export function hashColor(s: string): string {
   let h = 5381;
   for (let i = 0; i < s.length; i++) h = ((h << 5) + h) ^ s.charCodeAt(i);
