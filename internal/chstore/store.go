@@ -2,6 +2,7 @@ package chstore
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"time"
@@ -30,14 +31,34 @@ func New(cfg config.CHConfig, ret config.RetentionConfig) (*Store, error) {
 
 	ctx := context.Background()
 
+	// Comma-split address — driver round-robins / fails over across
+	// the seeds, so a 4-node external cluster can be configured
+	// without a separate LB. Falls back to the raw string when no
+	// commas are present.
+	hosts := cfg.Hosts()
+	if len(hosts) == 0 {
+		return nil, fmt.Errorf("clickhouse addr is required")
+	}
+	var tlsCfg *tls.Config
+	if cfg.Secure {
+		tlsCfg = &tls.Config{InsecureSkipVerify: cfg.InsecureSkipVerify}
+	}
+	if cfg.Secure {
+		log.Printf("[chstore] connecting to %d host(s) over native TLS (insecure=%v): %v",
+			len(hosts), cfg.InsecureSkipVerify, hosts)
+	} else if len(hosts) > 1 {
+		log.Printf("[chstore] connecting to %d host(s) (driver fail-over enabled): %v", len(hosts), hosts)
+	}
+
 	// Create database using default DB connection. CH may still be coming
 	// up (Helm-managed StatefulSet, fresh container, etc.) so retry the
 	// initial CREATE DATABASE for up to ~2 minutes before giving up.
 	var setup driver.Conn
 	openSetup := func() error {
 		c, err := clickhouse.Open(&clickhouse.Options{
-			Addr:        []string{cfg.Addr},
+			Addr:        hosts,
 			Auth:        clickhouse.Auth{Database: "default", Username: cfg.Username, Password: cfg.Password},
+			TLS:         tlsCfg,
 			DialTimeout: dialTimeout,
 		})
 		if err != nil {
@@ -75,9 +96,10 @@ func New(cfg config.CHConfig, ret config.RetentionConfig) (*Store, error) {
 
 	// Connect to target database
 	conn, err := clickhouse.Open(&clickhouse.Options{
-		Addr: []string{cfg.Addr},
+		Addr: hosts,
 		Auth: clickhouse.Auth{Database: cfg.Database, Username: cfg.Username, Password: cfg.Password},
-		Compression: &clickhouse.Compression{Method: clickhouse.CompressionLZ4},
+		TLS:  tlsCfg,
+		Compression:     &clickhouse.Compression{Method: clickhouse.CompressionLZ4},
 		DialTimeout:     dialTimeout,
 		MaxOpenConns:    maxConns,
 		MaxIdleConns:    maxConns / 2,

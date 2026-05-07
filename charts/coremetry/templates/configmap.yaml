@@ -10,9 +10,14 @@ data:
       grpc: ":4317"
 
     clickhouse:
+      # `addr` accepts a single host:port or a comma-separated list of
+      # seeds for an external multi-node cluster — the driver handles
+      # round-robin + failover across them.
       addr: "{{ include "coremetry.clickhouseAddr" . }}"
       database: "{{ .Values.clickhouse.database }}"
       username: "{{ .Values.clickhouse.username }}"
+      secure: {{ .Values.clickhouse.secure | default false }}
+      insecure_skip_verify: {{ .Values.clickhouse.insecureSkipVerify | default false }}
       max_open_conns: {{ .Values.clickhouse.maxOpenConns }}
       dial_timeout: "5s"
 

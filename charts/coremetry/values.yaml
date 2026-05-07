@@ -159,12 +159,27 @@ secrets:
 clickhouse:
   enabled: true
   external:
-    addr: ""               # e.g. "ch-cluster.databases.svc:9000"
+    # Single host: "ch.databases.svc:9000"
+    # Multi-node external cluster: comma-separated seeds — the driver
+    # round-robins / fails over across them, so a 4-node cluster
+    # outside the OpenShift cluster can be wired without a separate
+    # LB. Use 9000 for plain native, 9440 for native-TLS (set
+    # `secure: true` below).
+    #   addr: "ch1.example:9440,ch2.example:9440,ch3.example:9440,ch4.example:9440"
+    addr: ""
 
   database: "coremetry"
   username: "default"
   # password comes from secret.clickHousePassword (or existingSecret); empty
   # password is honoured (in-cluster CH starts with ALLOW_EMPTY_PASSWORD=yes)
+
+  # Native-TLS toggle. Set `secure: true` when pointing at LDAPS-style
+  # 9440 endpoints (ClickHouse Cloud, internal CA-signed clusters,
+  # etc.). `insecureSkipVerify` is the escape hatch for self-signed
+  # certs — leave false in production once a CA bundle is loaded.
+  secure: false
+  insecureSkipVerify: false
+
   maxOpenConns: 20
 
   # In-cluster StatefulSet options (consulted only when enabled: true).

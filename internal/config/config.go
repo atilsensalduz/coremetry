@@ -114,14 +114,30 @@ type ListenConfig struct {
 	GRPC string `yaml:"grpc"`
 }
 
+// CHConfig describes the ClickHouse connection. `Addr` accepts either
+// a single endpoint or a comma-separated list of seeds (e.g.
+// "ch1.example:9440,ch2.example:9440,ch3.example:9440,ch4.example:9440") — driver
+// load-balances + fails over across them, so an external N-node
+// cluster can be configured without an upstream LB.
+//
+// `Secure` toggles native-TLS (port 9440); leave false for plain
+// 9000.  `InsecureSkipVerify` is the escape hatch for self-signed
+// internal certs — set false in production once a CA bundle is in
+// place.
 type CHConfig struct {
-	Addr         string `yaml:"addr"`
-	Database     string `yaml:"database"`
-	Username     string `yaml:"username"`
-	Password     string `yaml:"password"`
-	MaxOpenConns int    `yaml:"max_open_conns"`
-	DialTimeout  string `yaml:"dial_timeout"`
+	Addr               string `yaml:"addr"`                 // comma-separated for cluster
+	Database           string `yaml:"database"`
+	Username           string `yaml:"username"`
+	Password           string `yaml:"password"`
+	Secure             bool   `yaml:"secure"`               // native-TLS (9440)
+	InsecureSkipVerify bool   `yaml:"insecure_skip_verify"` // self-signed CA escape hatch
+	MaxOpenConns       int    `yaml:"max_open_conns"`
+	DialTimeout        string `yaml:"dial_timeout"`
 }
+
+// Hosts splits Addr on commas and trims surrounding whitespace, so
+// the chart can hand us a single env var with multiple seeds.
+func (c CHConfig) Hosts() []string { return splitCSV(c.Addr) }
 
 type RetentionConfig struct {
 	SpansDays   int `yaml:"spans_days"`
@@ -175,6 +191,12 @@ func Load(path string) (*Config, error) {
 	}
 	if v := os.Getenv("COREMETRY_CH_PASSWORD"); v != "" {
 		cfg.ClickHouse.Password = v
+	}
+	if v := os.Getenv("COREMETRY_CH_SECURE"); v == "true" || v == "1" {
+		cfg.ClickHouse.Secure = true
+	}
+	if v := os.Getenv("COREMETRY_CH_INSECURE_SKIP_VERIFY"); v == "true" || v == "1" {
+		cfg.ClickHouse.InsecureSkipVerify = true
 	}
 	if v := os.Getenv("COREMETRY_HTTP_ADDR"); v != "" {
 		cfg.Listen.HTTP = v
