@@ -73,28 +73,29 @@ export function tsLong(ns: number): string {
 // Order is hue-stepped so consecutive services in a hash collision
 // chain don't end up neighbouring on the colour wheel — you still
 // get visually distinct services even on small traces.
-// Hue distribution per user request: turquoise · gray · light
-// purple · orange. Four groups, balanced — no blues (other than the
-// cyan-leaning turquoise band), no pinks/magentas, no greens. Light
-// violet stays clearly purple, not lilac.
+// Hue distribution: turkuaz · gri · açık mor · turuncu — same four
+// groups as before, just rebalanced. Mor band cut from 4 to 2
+// (previous version felt purple-heavy); the freed slots go to the
+// turkuaz and turuncu bands for more cool-side variety. No blues
+// outside the cyan-leaning turquoise band, no pinks, no greens.
 const COLORS = [
-  // Turkuaz / cyan
+  // Turkuaz / cyan (4)
   '#4fb6c5',  // turquoise
   '#5fa39a',  // teal
   '#6cc4cc',  // light aqua
+  '#5fa3c4',  // dust cyan
 
-  // Açık mor — light purple/violet
+  // Açık mor (2)
   '#a48cf2',  // light violet
-  '#b39ff5',  // light lavender
   '#b78cf0',  // medium violet
-  '#c8b3f0',  // pale violet
 
-  // Turuncu
+  // Turuncu / peach / coral (4)
   '#e89456',  // soft orange
   '#d97c3a',  // burnt orange
   '#f0a868',  // peach
+  '#d68a6c',  // coral-tan
 
-  // Gri
+  // Gri (4)
   '#8b95a3',  // slate
   '#9aa3ad',  // neutral gray
   '#7d8693',  // darker slate
