@@ -435,6 +435,11 @@ type TraceFilter struct {
 	TraceID  string // exact match or prefix (16+ hex chars)
 	From, To time.Time
 	HasError bool
+	// RootOnly hides traces where the root span (parent_id = '') was
+	// never ingested — typically partial / fragmented traces where
+	// only sub-spans landed in storage. The list view exposes this
+	// as a "Root traces" checkbox alongside "Errors only".
+	RootOnly bool
 	MinMs    float64
 	MaxMs    float64
 	AttrKey  string
@@ -505,6 +510,13 @@ func (s *Store) GetTraces(ctx context.Context, f TraceFilter) ([]TraceRow, uint6
 		f.Limit = 50
 	}
 
+	// HAVING fragment for "Root traces only" — applied after GROUP BY
+	// trace_id so it can filter on whether the root span landed.
+	havingSQL := ""
+	if f.RootOnly {
+		havingSQL = " HAVING countIf(parent_id = '') > 0"
+	}
+
 	// Total-count cost is bounded by the user's choice. Default for
 	// internal callers (and back-compat) is "exact"; the HTTP layer flips
 	// to "skip" so the UI never blocks on a multi-billion-row DISTINCT.
@@ -520,15 +532,25 @@ func (s *Store) GetTraces(ctx context.Context, f TraceFilter) ([]TraceRow, uint6
 			cap = 100
 		}
 		approxSQL := fmt.Sprintf(
-			"SELECT count() FROM (SELECT trace_id FROM spans %s GROUP BY trace_id LIMIT %d) SETTINGS max_execution_time = 30",
-			wc.sql(), cap,
+			"SELECT count() FROM (SELECT trace_id FROM spans %s GROUP BY trace_id%s LIMIT %d) SETTINGS max_execution_time = 30",
+			wc.sql(), havingSQL, cap,
 		)
 		if err := s.conn.QueryRow(ctx, approxSQL, wc.args...).Scan(&total); err != nil {
 			return nil, 0, false, err
 		}
 	default: // "exact" (and "" for back-compat)
-		countSQL := "SELECT count(DISTINCT trace_id) FROM spans " + wc.sql() +
-			" SETTINGS max_execution_time = 30"
+		// RootOnly forces a GROUP BY + HAVING wrapper so the count
+		// reflects only traces whose root span landed; without it
+		// count(DISTINCT trace_id) would include partial fragments
+		// that the row-level query then hides.
+		var countSQL string
+		if f.RootOnly {
+			countSQL = "SELECT count() FROM (SELECT trace_id FROM spans " + wc.sql() +
+				" GROUP BY trace_id" + havingSQL + ") SETTINGS max_execution_time = 30"
+		} else {
+			countSQL = "SELECT count(DISTINCT trace_id) FROM spans " + wc.sql() +
+				" SETTINGS max_execution_time = 30"
+		}
 		if err := s.conn.QueryRow(ctx, countSQL, wc.args...).Scan(&total); err != nil {
 			return nil, 0, false, err
 		}
@@ -601,7 +623,7 @@ func (s *Store) GetTraces(ctx context.Context, f TraceFilter) ([]TraceRow, uint6
 		       max(if(status_code = 'error', 1, 0))    AS has_error` +
 		extraSelect + `
 		FROM spans ` + wc.sql() + `
-		GROUP BY trace_id
+		GROUP BY trace_id` + havingSQL + `
 		ORDER BY ` + sortCol + ` ` + order + `
 		LIMIT ? OFFSET ?
 		SETTINGS max_execution_time = 30`

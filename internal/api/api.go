@@ -610,6 +610,7 @@ func (s *Server) getTraces(w http.ResponseWriter, r *http.Request) {
 		From:     parseTime(q.Get("from")),
 		To:       parseTime(q.Get("to")),
 		HasError: q.Get("hasError") == "true",
+		RootOnly: q.Get("rootOnly") == "true",
 		MinMs:    parseFloat(q.Get("minMs")),
 		MaxMs:    parseFloat(q.Get("maxMs")),
 		AttrKey:  q.Get("attrKey"),

@@ -437,6 +437,9 @@ export interface TracesParams {
   search?: string;
   traceId?: string;
   hasError?: boolean;
+  // rootOnly hides traces whose root span never landed (only sub-
+  // spans ingested) — drives the "Root traces" checkbox on /traces.
+  rootOnly?: boolean;
   minMs?: number | string;
   maxMs?: number | string;
   from?: number;

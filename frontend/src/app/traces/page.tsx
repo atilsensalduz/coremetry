@@ -65,6 +65,7 @@ function TracesPageInner() {
     minMs:    searchParams.get('minMs')   ?? '',
     maxMs:    searchParams.get('maxMs')   ?? '',
     hasError: searchParams.get('hasError') === 'true',
+    rootOnly: searchParams.get('rootOnly') === 'true',
   }));
   const [draft, setDraft] = useState(filter);
   const [advFilters, setAdvFilters] = useState<FilterExpr[]>(
@@ -99,6 +100,7 @@ function TracesPageInner() {
       ['minMs',    filter.minMs],
       ['maxMs',    filter.maxMs],
       ['hasError', filter.hasError ? 'true' : ''],
+      ['rootOnly', filter.rootOnly ? 'true' : ''],
       ['filters',  encodeFilters(advFilters)],
       ['cols',     extraCols.join(',')],
     ]);
@@ -145,6 +147,7 @@ function TracesPageInner() {
       minMs: filter.minMs || undefined,
       maxMs: filter.maxMs || undefined,
       hasError: filter.hasError || undefined,
+      rootOnly: filter.rootOnly || undefined,
       filters: advFilters.length ? JSON.stringify(advFilters) : undefined,
       extraAttrs: extraCols.length ? extraCols.join(',') : undefined,
       // "exact" only when the user explicitly asked. Pinned trace IDs
@@ -175,7 +178,7 @@ function TracesPageInner() {
     setPage(0); setFilter(draft);
   };
   const reset = () => {
-    const empty = { service: '', search: '', traceId: '', minMs: '', maxMs: '', hasError: false };
+    const empty = { service: '', search: '', traceId: '', minMs: '', maxMs: '', hasError: false, rootOnly: false };
     setDraft(empty); setFilter(empty); setPage(0);
   };
   const toggleSort = (col: SortColumn) => {
@@ -267,6 +270,12 @@ function TracesPageInner() {
           <label style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--text2)', cursor: 'pointer' }}>
             <input type="checkbox" checked={draft.hasError} onChange={e => setDraft({ ...draft, hasError: e.target.checked })} />
             Errors only
+          </label>
+          <label
+            style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--text2)', cursor: 'pointer' }}
+            title="Hide partial traces — only show traces whose root span landed in storage">
+            <input type="checkbox" checked={draft.rootOnly} onChange={e => setDraft({ ...draft, rootOnly: e.target.checked })} />
+            Root traces
           </label>
           <button onClick={apply}>Search</button>
           <button className="sec" onClick={reset}>Reset</button>
