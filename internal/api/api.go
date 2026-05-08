@@ -103,6 +103,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/services/sparklines", s.getServiceSparklines)
 	mux.HandleFunc("GET /api/service-names",       s.getServiceNames)
 	mux.HandleFunc("GET /api/attribute-keys",      s.getAttributeKeys)
+	mux.HandleFunc("GET /api/attribute-values",    s.getAttributeValues)
 	mux.HandleFunc("GET /api/operations", s.getOperations)
 	mux.HandleFunc("GET /api/traces", s.getTraces)
 	mux.HandleFunc("GET /api/traces/aggregate", s.getTraceAggregate)
@@ -432,6 +433,107 @@ func (s *Server) getAttributeKeys(w http.ResponseWriter, r *http.Request) {
 				return nil, err
 			}
 			out = append(out, r)
+		}
+		return out, rows.Err()
+	})
+}
+
+// getAttributeValues returns the most-frequent values observed for a
+// given attribute key over a recent time window. Powers the
+// FilterBuilder value autocomplete: as soon as the operator picks an
+// attribute they get a real top-N value list, not a blank field.
+//
+// Two paths depending on the key:
+//   1. Well-known semconv key with a dedicated structured column
+//      (http.method → http_method, db.system → db_system, etc.) →
+//      query the LowCardinality column directly. O(rows) but the
+//      compressed column reads cheap.
+//   2. Anything else → array index lookup
+//      attr_values[indexOf(attr_keys, ?)] (or res_values for the
+//      resource-scoped scope).
+//
+// Result is cached 60s in the same Redis layer the rest of the cheap-
+// fan-out endpoints use, keyed by `key:since:limit` — so 100 SREs
+// opening the same FilterBuilder generate one CH scan, not 100.
+func (s *Server) getAttributeValues(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	rawKey := strings.TrimSpace(q.Get("key"))
+	if rawKey == "" {
+		http.Error(w, "key required", http.StatusBadRequest); return
+	}
+	if !isSafeAttrKey(strings.TrimPrefix(strings.TrimPrefix(rawKey, "resource."), "span.")) {
+		http.Error(w, "invalid key", http.StatusBadRequest); return
+	}
+	since := parseDuration(q.Get("since"), time.Hour)
+	limit := parseInt(q.Get("limit"), 200)
+	if limit > 1000 { limit = 1000 }
+
+	cacheKey := fmt.Sprintf("attr-values:%s:since=%s:limit=%d", rawKey, q.Get("since"), limit)
+	s.serveCached(w, r, cacheKey, 60*time.Second, func() (any, error) {
+		// Decide projection. The HTTP-layer attribute-key picker is
+		// allowed to send `resource.X` and `span.X` prefixes; strip
+		// them to map to the underlying column / array.
+		scope := "span"
+		key := rawKey
+		switch {
+		case strings.HasPrefix(rawKey, "resource."):
+			scope = "resource"
+			key = strings.TrimPrefix(rawKey, "resource.")
+		case strings.HasPrefix(rawKey, "span."):
+			key = strings.TrimPrefix(rawKey, "span.")
+		}
+
+		var sql string
+		var args []any
+		if col, ok := chstore.WellKnownTraceCol[key]; ok && scope == "span" {
+			// Structured-column fast path. Column is already
+			// LowCardinality so the GROUP BY is cheap; cast to String
+			// for uniform output even when the column is numeric.
+			sql = fmt.Sprintf(`
+				SELECT toString(%s) AS v, count() AS c
+				FROM coremetry.spans
+				WHERE time >= now() - toIntervalSecond(?)
+				  AND %s != ''
+				GROUP BY v
+				ORDER BY c DESC
+				LIMIT ?
+				SETTINGS max_execution_time = 10`, col, col)
+			args = []any{int64(since.Seconds()), limit}
+		} else {
+			// Array-lookup path. `has(...)` short-circuits the lookup
+			// so rows that don't have the key contribute nothing to
+			// the GROUP BY.
+			arrKeys, arrVals := "attr_keys", "attr_values"
+			if scope == "resource" {
+				arrKeys, arrVals = "res_keys", "res_values"
+			}
+			sql = fmt.Sprintf(`
+				SELECT %s[indexOf(%s, ?)] AS v, count() AS c
+				FROM coremetry.spans
+				WHERE time >= now() - toIntervalSecond(?)
+				  AND has(%s, ?)
+				GROUP BY v
+				HAVING v != ''
+				ORDER BY c DESC
+				LIMIT ?
+				SETTINGS max_execution_time = 10`, arrVals, arrKeys, arrKeys)
+			args = []any{key, int64(since.Seconds()), key, limit}
+		}
+
+		rows, err := s.store.Conn().Query(r.Context(), sql, args...)
+		if err != nil { return nil, err }
+		defer rows.Close()
+		type valRow struct {
+			Value string `json:"value"`
+			Count uint64 `json:"count"`
+		}
+		out := []valRow{}
+		for rows.Next() {
+			var v valRow
+			if err := rows.Scan(&v.Value, &v.Count); err != nil {
+				return nil, err
+			}
+			out = append(out, v)
 		}
 		return out, rows.Err()
 	})

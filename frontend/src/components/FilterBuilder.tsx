@@ -133,9 +133,47 @@ function DraftEditor({ draft, onSave, onCancel, suggestedValues, keyOptions }: {
   keyOptions: string[];
 }) {
   const [local, setLocal] = useState<FilterExpr>(draft);
-  const valueOptions = suggestedValues?.[local.k] ?? [];
   const needsValue = NEEDS_VALUE[local.op];
   const isList = local.op === 'IN' || local.op === 'NOT IN';
+
+  // Live value autocomplete. As soon as the user picks an attribute
+  // key, fetch the top-N observed values (server-cached 60s) and
+  // merge with anything the parent already pre-supplied via
+  // `suggestedValues`. Per-session client cache (keyed by attribute
+  // name) so flipping back and forth between keys doesn't refetch.
+  // Empty / unrecognised keys clear to the static suggestion list.
+  const [liveByKey, setLiveByKey] = useState<Record<string, string[]>>({});
+  const [liveLoading, setLiveLoading] = useState(false);
+  useEffect(() => {
+    const k = local.k.trim();
+    if (!k || liveByKey[k] !== undefined) return;
+    let cancelled = false;
+    setLiveLoading(true);
+    api.attributeValues(k, '1h', 200)
+      .then(rows => {
+        if (cancelled) return;
+        setLiveByKey(prev => ({ ...prev, [k]: (rows ?? []).map(r => r.value) }));
+      })
+      .catch(() => { if (!cancelled) setLiveByKey(prev => ({ ...prev, [k]: [] })); })
+      .finally(() => { if (!cancelled) setLiveLoading(false); });
+    return () => { cancelled = true; };
+  }, [local.k, liveByKey]);
+
+  // Combine: parent-provided suggestions first (services / operations
+  // tend to be richer than the 1h fast-cache), then live observed
+  // values, deduped.
+  const valueOptions = useMemo(() => {
+    const seed = suggestedValues?.[local.k] ?? [];
+    const live = liveByKey[local.k.trim()] ?? [];
+    if (seed.length === 0) return live;
+    if (live.length === 0) return seed;
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const v of [...seed, ...live]) {
+      if (!seen.has(v)) { seen.add(v); out.push(v); }
+    }
+    return out;
+  }, [local.k, suggestedValues, liveByKey]);
 
   const submit = () => {
     const v = needsValue
@@ -165,7 +203,19 @@ function DraftEditor({ draft, onSave, onCancel, suggestedValues, keyOptions }: {
         </label>
         {needsValue && (
           <label style={{ flex: 1 }}>
-            <span>{isList ? 'Values (comma-sep)' : 'Value'}</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {isList ? 'Values (comma-sep)' : 'Value'}
+              {liveLoading && (
+                <span style={{ fontSize: 10, color: 'var(--text3)', fontStyle: 'italic' }}>
+                  loading values…
+                </span>
+              )}
+              {!liveLoading && local.k.trim() && valueOptions.length > 0 && (
+                <span style={{ fontSize: 10, color: 'var(--text3)' }}>
+                  {valueOptions.length} observed
+                </span>
+              )}
+            </span>
             <Combobox value={local.v[0] ?? ''}
               onChange={v => setLocal({ ...local, v: [v] })}
               options={valueOptions}

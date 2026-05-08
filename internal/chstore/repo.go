@@ -380,12 +380,12 @@ func (s *Store) GetServiceGraph(ctx context.Context, service string, since time.
 
 // ── Trace queries ─────────────────────────────────────────────────────────────
 
-// wellKnownTraceCol maps OTel semantic-convention attribute keys to
+// WellKnownTraceCol maps OTel semantic-convention attribute keys to
 // their dedicated columns on the spans table. When the /traces page
 // asks for one of these as an extra column we pull from the indexed
 // LowCardinality column instead of scanning the attr_keys/attr_values
 // arrays — same value, much cheaper plan.
-var wellKnownTraceCol = map[string]string{
+var WellKnownTraceCol = map[string]string{
 	"http.method":      "http_method",
 	"http.route":       "http_route",
 	"http.status_code": "toString(http_status)",
@@ -547,7 +547,7 @@ func (s *Store) GetTraces(ctx context.Context, f TraceFilter) ([]TraceRow, uint6
 	extraSelect := ""
 	extraArgs := []any{}
 	for i, key := range f.ExtraAttrs {
-		if col, ok := wellKnownTraceCol[key]; ok {
+		if col, ok := WellKnownTraceCol[key]; ok {
 			extraSelect += fmt.Sprintf(", any(%s) AS extra_%d", col, i)
 			continue
 		}

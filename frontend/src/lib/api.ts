@@ -67,6 +67,13 @@ export const api = {
   attributeKeys: (since = '1h', limit = 500) =>
     get<{ scope: 'span' | 'resource'; key: string; count: number }[] | null>(
       `/api/attribute-keys?since=${since}&limit=${limit}`),
+  // Top-N values observed for a single attribute key. Powers the
+  // FilterBuilder value autocomplete; cached server-side 60s with
+  // a Redis fast-path (so 100 SREs opening the picker run 1 CH
+  // query, not 100).
+  attributeValues: (key: string, since = '1h', limit = 200) =>
+    get<{ value: string; count: number }[] | null>(
+      `/api/attribute-values?key=${encodeURIComponent(key)}&since=${since}&limit=${limit}`),
   operations: (service: string, r: RangeParams) =>
     get<string[] | null>(`/api/operations?${qs({ ...r, service })}`),
 
