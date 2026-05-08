@@ -83,42 +83,60 @@ func (e *Evaluator) runIfLeader(ctx context.Context) {
 // the last 24 hours. Users can disable them via the UI.
 
 var builtins = []chstore.AlertRule{
-	{
-		ID:         "builtin-error-rate-5pct",
-		Name:       "High error rate (>5% over 5 min)",
-		Service:    "", // wildcard — evaluated per service
-		Metric:     "error_rate",
-		Comparator: ">",
-		Threshold:  5,
-		WindowSec:  5 * 60,
-		Severity:   "warning",
-		Enabled:    true,
-		BuiltIn:    true,
-	},
-	{
-		ID:         "builtin-error-rate-15pct",
-		Name:       "Critical error rate (>15% over 5 min)",
-		Service:    "",
-		Metric:     "error_rate",
-		Comparator: ">",
-		Threshold:  15,
-		WindowSec:  5 * 60,
-		Severity:   "critical",
-		Enabled:    true,
-		BuiltIn:    true,
-	},
-	{
-		ID:         "builtin-p99-2s",
-		Name:       "High P99 latency (>2s over 5 min)",
-		Service:    "",
-		Metric:     "p99_ms",
-		Comparator: ">",
-		Threshold:  2000,
-		WindowSec:  5 * 60,
-		Severity:   "warning",
-		Enabled:    true,
-		BuiltIn:    true,
-	},
+	// ── Spans-wide, all-transport ─────────────────────────────────
+	{ID: "builtin-error-rate-5pct",  Name: "High error rate (>5% over 5 min)",
+		Metric: "error_rate", Comparator: ">", Threshold: 5,  WindowSec: 5 * 60,
+		Severity: "warning",  Enabled: true, BuiltIn: true},
+	{ID: "builtin-error-rate-15pct", Name: "Critical error rate (>15% over 5 min)",
+		Metric: "error_rate", Comparator: ">", Threshold: 15, WindowSec: 5 * 60,
+		Severity: "critical", Enabled: true, BuiltIn: true},
+	{ID: "builtin-p99-2s",           Name: "High P99 latency (>2s over 5 min)",
+		Metric: "p99_ms",     Comparator: ">", Threshold: 2000, WindowSec: 5 * 60,
+		Severity: "warning",  Enabled: true, BuiltIn: true},
+
+	// ── HTTP server-side ──────────────────────────────────────────
+	{ID: "builtin-http-5xx-1pct",    Name: "HTTP 5xx rate >1% (5 min)",
+		Metric: "http_5xx_rate", Comparator: ">", Threshold: 1,  WindowSec: 5 * 60,
+		Severity: "warning",  Enabled: true, BuiltIn: true},
+	{ID: "builtin-http-5xx-5pct",    Name: "Critical HTTP 5xx rate >5% (5 min)",
+		Metric: "http_5xx_rate", Comparator: ">", Threshold: 5,  WindowSec: 5 * 60,
+		Severity: "critical", Enabled: true, BuiltIn: true},
+	{ID: "builtin-http-p99-1s",      Name: "HTTP P99 >1s (5 min)",
+		Metric: "http_p99_ms",   Comparator: ">", Threshold: 1000, WindowSec: 5 * 60,
+		Severity: "warning",  Enabled: true, BuiltIn: true},
+	{ID: "builtin-http-p99-3s",      Name: "Critical HTTP P99 >3s (5 min)",
+		Metric: "http_p99_ms",   Comparator: ">", Threshold: 3000, WindowSec: 5 * 60,
+		Severity: "critical", Enabled: true, BuiltIn: true},
+
+	// ── Database (postgres / mysql / mongo / redis / elasticsearch) ─
+	{ID: "builtin-db-error-1pct",    Name: "DB error rate >1% (5 min)",
+		Metric: "db_error_rate", Comparator: ">", Threshold: 1,  WindowSec: 5 * 60,
+		Severity: "warning",  Enabled: true, BuiltIn: true},
+	{ID: "builtin-db-p99-500ms",     Name: "DB P99 latency >500ms (5 min)",
+		Metric: "db_p99_ms",     Comparator: ">", Threshold: 500, WindowSec: 5 * 60,
+		Severity: "warning",  Enabled: true, BuiltIn: true},
+	{ID: "builtin-db-p99-2s",        Name: "Critical DB P99 latency >2s (5 min)",
+		Metric: "db_p99_ms",     Comparator: ">", Threshold: 2000, WindowSec: 5 * 60,
+		Severity: "critical", Enabled: true, BuiltIn: true},
+
+	// ── RPC (gRPC / Thrift / etc.) ────────────────────────────────
+	{ID: "builtin-rpc-error-5pct",   Name: "RPC error rate >5% (5 min)",
+		Metric: "rpc_error_rate", Comparator: ">", Threshold: 5, WindowSec: 5 * 60,
+		Severity: "warning",  Enabled: true, BuiltIn: true},
+	{ID: "builtin-rpc-p99-1s",       Name: "RPC P99 latency >1s (5 min)",
+		Metric: "rpc_p99_ms",     Comparator: ">", Threshold: 1000, WindowSec: 5 * 60,
+		Severity: "warning",  Enabled: true, BuiltIn: true},
+
+	// ── Message queue (Kafka producers + consumers) ───────────────
+	{ID: "builtin-mq-publish-err-5pct", Name: "MQ publish error rate >5% (5 min)",
+		Metric: "mq_publish_error_rate", Comparator: ">", Threshold: 5, WindowSec: 5 * 60,
+		Severity: "warning",  Enabled: true, BuiltIn: true},
+	{ID: "builtin-mq-consume-err-5pct", Name: "MQ consume error rate >5% (5 min)",
+		Metric: "mq_consume_error_rate", Comparator: ">", Threshold: 5, WindowSec: 5 * 60,
+		Severity: "warning",  Enabled: true, BuiltIn: true},
+	{ID: "builtin-mq-consume-p99-30s",  Name: "MQ consume P99 >30s — processing lag (5 min)",
+		Metric: "mq_consume_p99_ms",     Comparator: ">", Threshold: 30000, WindowSec: 5 * 60,
+		Severity: "critical", Enabled: true, BuiltIn: true},
 }
 
 func (e *Evaluator) seedBuiltinRules(ctx context.Context) error {
@@ -295,7 +313,87 @@ func (e *Evaluator) measure(ctx context.Context, service, metric string, window 
 		err := conn.QueryRow(ctx, sql, service, cutoff).Scan(&v)
 		return v, err
 	}
+
+	// Transport-scoped metrics — narrow each query by an indexed
+	// LowCardinality column (db_system / rpc_system / kind /
+	// http_method) so the (service_name, time) primary key still
+	// drives the scan and only relevant rows are aggregated. These
+	// power the production-grade DB / RPC / HTTP / MQ alert
+	// categories.
+	if where, ok := transportFilter(metric); ok {
+		op := transportOp(metric)
+		var sql string
+		switch op {
+		case "error_rate":
+			sql = `SELECT countIf(status_code='error') / nullIf(count(),0) * 100
+				FROM spans WHERE service_name=? AND time>=? AND ` + where
+		case "p50_ms", "p95_ms", "p99_ms", "avg_ms":
+			if op == "avg_ms" {
+				sql = `SELECT avg(duration) / 1e6
+					FROM spans WHERE service_name=? AND time>=? AND ` + where
+			} else {
+				q := op[1 : len(op)-3]
+				sql = fmt.Sprintf(`SELECT quantile(0.%s)(duration) / 1e6
+					FROM spans WHERE service_name=? AND time>=? AND `, q) + where
+			}
+		case "count":
+			sql = `SELECT count() FROM spans WHERE service_name=? AND time>=? AND ` + where
+		default:
+			return 0, fmt.Errorf("unknown transport op %q in %q", op, metric)
+		}
+		var v float64
+		err := conn.QueryRow(ctx, sql, service, cutoff).Scan(&v)
+		return v, err
+	}
 	return 0, fmt.Errorf("unknown metric %q", metric)
+}
+
+// transportFilter returns the WHERE fragment that narrows a metric
+// to a specific transport / span category. The fragment never
+// references user input — only LowCardinality columns + literal
+// constants — so it's safe to concatenate.
+func transportFilter(metric string) (string, bool) {
+	switch {
+	case strings.HasPrefix(metric, "http_5xx_"):
+		return "kind='server' AND http_method != '' AND http_status >= 500", true
+	case strings.HasPrefix(metric, "http_4xx_"):
+		return "kind='server' AND http_method != '' AND http_status >= 400 AND http_status < 500", true
+	case strings.HasPrefix(metric, "http_"):
+		return "kind='server' AND http_method != ''", true
+	case strings.HasPrefix(metric, "db_"):
+		return "db_system != ''", true
+	case strings.HasPrefix(metric, "rpc_"):
+		return "rpc_system != ''", true
+	case strings.HasPrefix(metric, "mq_publish_"):
+		return "kind='producer'", true
+	case strings.HasPrefix(metric, "mq_consume_"):
+		return "kind='consumer'", true
+	}
+	return "", false
+}
+
+// transportOp pulls the aggregate suffix off a transport metric:
+//
+//	http_5xx_rate          → error_rate (5xx-narrowed by transportFilter)
+//	http_p99_ms            → p99_ms
+//	db_error_rate          → error_rate
+//	mq_publish_error_rate  → error_rate
+func transportOp(metric string) string {
+	switch {
+	case strings.HasSuffix(metric, "_rate"):
+		return "error_rate"
+	case strings.HasSuffix(metric, "_p99_ms"):
+		return "p99_ms"
+	case strings.HasSuffix(metric, "_p95_ms"):
+		return "p95_ms"
+	case strings.HasSuffix(metric, "_p50_ms"):
+		return "p50_ms"
+	case strings.HasSuffix(metric, "_avg_ms"):
+		return "avg_ms"
+	case strings.HasSuffix(metric, "_count"):
+		return "count"
+	}
+	return ""
 }
 
 func compare(value float64, op string, threshold float64) bool {
@@ -318,11 +416,13 @@ func metricUnit(m string) string {
 	if strings.HasSuffix(m, "_ms") {
 		return "ms"
 	}
-	if m == "error_rate" {
+	if strings.HasSuffix(m, "_rate") {
+		// http_5xx_rate, db_error_rate, rpc_error_rate, … all
+		// percent — request_rate is the one exception.
+		if m == "request_rate" {
+			return "/s"
+		}
 		return "%"
-	}
-	if m == "request_rate" {
-		return "/s"
 	}
 	return ""
 }
