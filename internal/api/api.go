@@ -293,13 +293,12 @@ func (s *Server) getServices(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// getServiceStructure returns the spans of a representative trace
-// involving `name` plus a "sampled from / spans used" summary —
-// drives the Grafana-Drilldown-style aggregated waterfall on the
-// service detail page. We pick the trace with the largest span
-// count from the recent N candidates rather than synthesising an
-// averaged tree; one well-chosen real trace conveys typical
-// structure honestly and lets us reuse TraceWaterfall verbatim.
+// getServiceStructure returns a Grafana-Drilldown-style multi-trace
+// path-aggregated tree across the most recent N traces involving
+// `name`. Spans with the same `(parent_path, service, displayName)`
+// triple collapse into a single node carrying count + avg/max
+// duration + error count, so a tight loop or fan-out shows up once
+// with `×N` rather than as N visually identical bars.
 func (s *Server) getServiceStructure(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if name == "" {
@@ -308,24 +307,12 @@ func (s *Server) getServiceStructure(w http.ResponseWriter, r *http.Request) {
 	since := parseDuration(r.URL.Query().Get("since"), time.Hour)
 	samples := parseInt(r.URL.Query().Get("samples"), 50)
 
-	traceID, bestSpans, sampledFrom, totalSpans, err := s.store.ServiceStructureSample(
+	roots, totalSpans, sampledFrom, err := s.store.AggregateServiceStructure(
 		r.Context(), name, since, samples)
-	if err != nil { writeErr(w, err); return }
-	if traceID == "" {
-		writeJSON(w, map[string]any{
-			"service":      name,
-			"sampledFrom":  0,
-			"totalSpans":   0,
-		})
-		return
-	}
-	spans, err := s.store.GetTrace(r.Context(), traceID)
 	if err != nil { writeErr(w, err); return }
 	writeJSON(w, map[string]any{
 		"service":     name,
-		"traceId":     traceID,
-		"spans":       spans,
-		"bestSpans":   bestSpans,
+		"roots":       roots,
 		"sampledFrom": sampledFrom,
 		"totalSpans":  totalSpans,
 	})

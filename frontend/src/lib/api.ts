@@ -57,15 +57,15 @@ export const api = {
     get<Service[] | null>(`/api/services?${qs({ ...r, limit, name })}`),
   graph:      (r: RangeParams, service?: string) =>
     get<ServiceEdge[] | null>(`/api/services/graph?${qs({ ...r, service })}`),
-  // Aggregated waterfall for a service — picks the richest recent
-  // trace involving the service and returns its span list along
-  // with sampled-from / total-spans counters for the header.
+  // Multi-trace path-aggregated structure for a service. Returns a
+  // tree of (service, operation, count, avgMs, maxMs, errorCount)
+  // nodes — Grafana-Drilldown style. Each unique `(parent_path,
+  // service, displayName)` triple appears once with `×N` for tight
+  // loops / fan-outs.
   serviceStructure: (svc: string, since = '1h', samples = 50) =>
     get<{
       service: string;
-      traceId?: string;
-      spans?: import('./types').SpanRow[];
-      bestSpans?: number;
+      roots?: import('./types').AggSpanNode[];
       sampledFrom: number;
       totalSpans: number;
     }>(`/api/services/${encodeURIComponent(svc)}/structure?since=${since}&samples=${samples}`),

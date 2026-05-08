@@ -260,56 +260,6 @@ func (s *Store) GetOperations(ctx context.Context, service string, since time.Du
 // they're network-layer identifiers that change on every restart and
 // would create spurious nodes for sidecars / proxies / load balancers.
 // service_name + the application-layer attributes above are stable.
-// ServiceStructureSample finds the trace with the most spans (i.e.
-// the richest call structure) involving `service` over the recent
-// window — used by the /service?name=… page's "Service structure"
-// view. We don't try to compose a synthetic averaged tree; one
-// well-chosen real trace tells the operator more than a multi-trace
-// fingerprint and reuses the existing TraceWaterfall component
-// unchanged.
-//
-// Returns:
-//   bestTraceID   — trace_id of the richest sampled trace
-//   bestSpanCount — span count of that trace
-//   sampledFrom   — total candidate traces inspected
-//   totalSpans    — span count summed across all candidates (for the
-//                   "X spans used" header in the UI)
-func (s *Store) ServiceStructureSample(
-	ctx context.Context, service string, since time.Duration, sampleCount int,
-) (bestTraceID string, bestSpanCount, sampledFrom, totalSpans uint64, err error) {
-	if sampleCount <= 0 || sampleCount > 500 {
-		sampleCount = 50
-	}
-	row := s.conn.QueryRow(ctx, `
-		WITH candidates AS (
-		  SELECT trace_id, count() AS sc
-		  FROM spans
-		  WHERE service_name = ?
-		    AND time >= now() - toIntervalSecond(?)
-		  GROUP BY trace_id
-		  ORDER BY sc DESC
-		  LIMIT ?
-		)
-		SELECT
-		  argMax(trace_id, sc)        AS best_trace,
-		  max(sc)                      AS best_spans,
-		  count()                      AS sampled_from,
-		  sum(sc)                      AS total_spans
-		FROM candidates
-		SETTINGS max_execution_time = 30`,
-		service, int64(since.Seconds()), sampleCount,
-	)
-	if err = row.Scan(&bestTraceID, &bestSpanCount, &sampledFrom, &totalSpans); err != nil {
-		// "no rows" → service has no recent traces; surface as zero
-		// values so the handler can return an empty payload.
-		if err.Error() == "sql: no rows in result set" {
-			return "", 0, 0, 0, nil
-		}
-		return "", 0, 0, 0, err
-	}
-	return
-}
-
 // GetServiceGraph signature kept narrow for callers; the topN cap is
 // passed via GetServiceGraphTopN below. The original entry point
 // keeps the legacy "no cap" behaviour for non-UI consumers (tests,

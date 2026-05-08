@@ -634,3 +634,21 @@ export interface ProfileDetail {
   flame: FlameNode;
 }
 export type SortOrder = 'asc' | 'desc';
+
+// One node in the multi-trace path-aggregated structure tree
+// returned by GET /api/services/{name}/structure. Each node
+// represents a unique `(parent_path → service → operation)` triple
+// observed across the sampled traces; siblings repeating the exact
+// same triple collapse into a single row carrying count + avg/max
+// duration + error count.
+export interface AggSpanNode {
+  service: string;
+  operation: string;
+  kind?: string;
+  count: number;
+  avgMs: number;
+  maxMs: number;
+  errorCount: number;
+  avgStartMs: number;
+  children?: AggSpanNode[];
+}
