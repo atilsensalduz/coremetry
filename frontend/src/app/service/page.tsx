@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { ServiceStructure } from '@/components/ServiceStructure';
+import { ServiceNeighbors } from '@/components/ServiceNeighbors';
 import { api } from '@/lib/api';
 import { fmtNum, timeRangeToNs } from '@/lib/utils';
 import { encodeFilters, encodeRange, buildQuery } from '@/lib/urlState';
@@ -99,6 +100,7 @@ function ServiceDetailInner() {
         {loading && <Spinner />}
         {!loading && (
           <>
+            <ServiceNeighbors service={svc} since={SINCE_MAP[range.preset] ?? '1h'} />
             <ServiceStructure service={svc} since={SINCE_MAP[range.preset] ?? '1h'} />
             <OperationsTable service={svc} rows={operations} range={range} />
           </>

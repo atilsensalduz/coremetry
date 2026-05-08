@@ -100,6 +100,7 @@ func (s *Server) Start() error {
 	// REST API
 	mux.HandleFunc("GET /api/services", s.getServices)
 	mux.HandleFunc("GET /api/services/{name}/structure", s.getServiceStructure)
+	mux.HandleFunc("GET /api/services/{name}/neighbors", s.getServiceNeighbors)
 	mux.HandleFunc("GET /api/services/graph", s.getServiceGraph)
 	mux.HandleFunc("GET /api/services/sparklines", s.getServiceSparklines)
 	mux.HandleFunc("GET /api/service-names",       s.getServiceNames)
@@ -313,6 +314,31 @@ func (s *Server) getServiceStructure(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{
 		"service":     name,
 		"roots":       roots,
+		"sampledFrom": sampledFrom,
+		"totalSpans":  totalSpans,
+	})
+}
+
+// getServiceNeighbors returns the service-level upstream / downstream
+// neighbours of `name` derived from sampled trace topology — the
+// callers that invoke this service and the services it calls in
+// turn. No peer.service heuristic; pure parent/child edge analysis
+// over the recent N traces.
+func (s *Server) getServiceNeighbors(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		http.Error(w, "service name required", http.StatusBadRequest); return
+	}
+	since := parseDuration(r.URL.Query().Get("since"), time.Hour)
+	samples := parseInt(r.URL.Query().Get("samples"), 50)
+
+	upstream, downstream, sampledFrom, totalSpans, err := s.store.ServiceNeighbors(
+		r.Context(), name, since, samples)
+	if err != nil { writeErr(w, err); return }
+	writeJSON(w, map[string]any{
+		"service":     name,
+		"upstream":    upstream,
+		"downstream":  downstream,
 		"sampledFrom": sampledFrom,
 		"totalSpans":  totalSpans,
 	})

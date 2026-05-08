@@ -641,6 +641,14 @@ export type SortOrder = 'asc' | 'desc';
 // observed across the sampled traces; siblings repeating the exact
 // same triple collapse into a single row carrying count + avg/max
 // duration + error count.
+// One entry in the service-level neighbours response — a single
+// upstream caller or downstream callee of the inspected service.
+export interface NeighborStat {
+  service: string;
+  traceCount: number;
+  spanCount: number;
+}
+
 export interface AggSpanNode {
   service: string;
   operation: string;

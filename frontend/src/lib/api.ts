@@ -70,6 +70,18 @@ export const api = {
       totalSpans: number;
     }>(`/api/services/${encodeURIComponent(svc)}/structure?since=${since}&samples=${samples}`),
 
+  // Service-level upstream / downstream neighbours derived from
+  // sampled trace topology. No peer.service heuristic — purely
+  // parent/child edge analysis.
+  serviceNeighbors: (svc: string, since = '1h', samples = 50) =>
+    get<{
+      service: string;
+      upstream?: import('./types').NeighborStat[];
+      downstream?: import('./types').NeighborStat[];
+      sampledFrom: number;
+      totalSpans: number;
+    }>(`/api/services/${encodeURIComponent(svc)}/neighbors?since=${since}&samples=${samples}`),
+
   // services: comma-separated allow-list — server caps to 200 to keep
   // the payload small even on 10k+ service installs.
   serviceSparklines: (r: RangeParams, services?: string[]) =>
