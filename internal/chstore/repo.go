@@ -230,16 +230,24 @@ func (s *Store) GetOperations(ctx context.Context, service string, since time.Du
 //     the strong signal — both sides emit OTel spans, so the edge
 //     reflects a real cross-service call.
 //
-//  2. parent.peer_service when set and ≠ parent.service_name. Catches
-//     edges to non-instrumented downstreams: managed DBs, third-party
-//     APIs, message brokers, etc. The OTel SDK populates peer.service
-//     automatically for HTTP/gRPC client spans whenever the SDK has a
-//     hint (server header, gRPC metadata, well-known port).
+//  2. Outbound (client / producer) spans where the downstream identity
+//     is inferred from the first non-empty among:
+//       a. peer.service                (OTel SDK hint)
+//       b. rpc.service                 (gRPC contract — the same string
+//                                       Grafana Tempo's traces-drilldown
+//                                       uses to bucket child gRPC calls)
+//       c. server.address / http.host  (HTTP downstream)
+//       d. db.system                   (DB engine)
+//       e. messaging.system            (queue / topic broker)
+//     This catches edges to non-instrumented downstreams (managed DBs,
+//     third-party APIs, brokers) AND covers environments where the
+//     OTel SDK isn't populating peer.service — common in older Java
+//     auto-instrumentation and hand-rolled gRPC clients.
 //
 // We deliberately DO NOT derive edges from net.peer.ip / pod names —
 // they're network-layer identifiers that change on every restart and
 // would create spurious nodes for sidecars / proxies / load balancers.
-// service_name + peer.service are application-layer and stable.
+// service_name + the application-layer attributes above are stable.
 func (s *Store) GetServiceGraph(ctx context.Context, service string, since time.Duration, from, to time.Time) ([]ServiceEdge, error) {
 	var startTime, endTime time.Time
 	if !from.IsZero() {
@@ -281,20 +289,43 @@ func (s *Store) GetServiceGraph(ctx context.Context, service string, since time.
 			  AND child.service_name  != ''
 			  AND parent.service_name != child.service_name
 		),
+		-- Outbound-attribute path: walk the client / producer spans
+		-- of this service and infer the downstream identity from the
+		-- first non-empty among peer.service → rpc.service →
+		-- server.address → http.host → db.system → messaging.system.
+		-- Picks up non-instrumented downstreams (managed DBs, 3rd-
+		-- party APIs, brokers) AND environments where peer.service
+		-- isn't being populated.
 		peered AS (
 			SELECT service_name AS source,
-			       peer_service AS target,
+			       multiIf(
+			         peer_service != '',                                                    peer_service,
+			         attr_values[indexOf(attr_keys, 'rpc.service')] != '',                  attr_values[indexOf(attr_keys, 'rpc.service')],
+			         attr_values[indexOf(attr_keys, 'server.address')] != '',               attr_values[indexOf(attr_keys, 'server.address')],
+			         attr_values[indexOf(attr_keys, 'http.host')] != '',                    attr_values[indexOf(attr_keys, 'http.host')],
+			         attr_values[indexOf(attr_keys, 'net.peer.name')] != '',                attr_values[indexOf(attr_keys, 'net.peer.name')],
+			         db_system != '',                                                       db_system,
+			         msg_system != '',                                                      msg_system,
+			         ''
+			       ) AS target,
 			       status_code,
 			       duration
 			FROM spans
 			WHERE ` + timeP + `
 			  AND service_name != ''
-			  AND peer_service != ''
-			  AND peer_service != service_name
+			  AND kind IN ('client', 'producer')
 			  -- Drop pairs already covered by the JOIN side so we don't
-			  -- double-count when both signals fire (peer.service is
-			  -- set AND the downstream emits a child span).
-			  AND (service_name, peer_service) NOT IN (
+			  -- double-count when both signals fire.
+			  AND (service_name, multiIf(
+			         peer_service != '',                                                    peer_service,
+			         attr_values[indexOf(attr_keys, 'rpc.service')] != '',                  attr_values[indexOf(attr_keys, 'rpc.service')],
+			         attr_values[indexOf(attr_keys, 'server.address')] != '',               attr_values[indexOf(attr_keys, 'server.address')],
+			         attr_values[indexOf(attr_keys, 'http.host')] != '',                    attr_values[indexOf(attr_keys, 'http.host')],
+			         attr_values[indexOf(attr_keys, 'net.peer.name')] != '',                attr_values[indexOf(attr_keys, 'net.peer.name')],
+			         db_system != '',                                                       db_system,
+			         msg_system != '',                                                      msg_system,
+			         ''
+			       )) NOT IN (
 			    SELECT DISTINCT parent.service_name, child.service_name
 			    FROM spans AS child
 			    INNER JOIN spans AS parent
@@ -308,7 +339,12 @@ func (s *Store) GetServiceGraph(ctx context.Context, service string, since time.
 		edges AS (
 			SELECT source, target, status_code, duration FROM joined
 			UNION ALL
-			SELECT source, target, status_code, duration FROM peered
+			-- Drop rows where multiIf fell through to '' (no usable
+			-- downstream signal) and self-loops created when, say,
+			-- a service calls its own service via peer.service.
+			SELECT source, target, status_code, duration
+			FROM peered
+			WHERE target != '' AND target != source
 		)
 		SELECT source, target,
 		       count() AS calls,

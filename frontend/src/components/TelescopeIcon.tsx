@@ -1,42 +1,38 @@
-// OpenTelemetry mark — the canonical telescope-through-an-O logo.
-// Two visual elements:
-//   1. A bold ring (the "O" of OpenTelemetry).
-//   2. A diagonal telescope barrel passing through the ring, eyepiece
-//      at the bottom-left, objective lens at the top-right, with a
-//      small star above the objective ("observing the cosmos").
+// OpenTelemetry mark — the canonical hexagon + lens design used on
+// opentelemetry.io and the project's brand assets.
 //
-// Default colour is the OTel brand blue (#425CC7).
-export function TelescopeIcon({ size = 22, color = '#425CC7', title = 'OpenTelemetry' }: {
+// Two-tone composition:
+//   - Outer hexagon outline in OTel **orange** (#F5A800) — the "O".
+//   - Smaller filled hexagon in OTel **blue** (#425CC7) at the upper
+//     right — the telescope lens / eyepiece.
+//
+// The shape stays a single SVG so it inherits sizing cleanly. Pass
+// `monoColor` to render the whole thing in a single colour (e.g. for
+// a sidebar that wants the icon to match its text colour).
+export function TelescopeIcon({ size = 22, monoColor, title = 'OpenTelemetry' }: {
   size?: number;
-  color?: string;
+  monoColor?: string;
   title?: string;
 }) {
+  const ringColor = monoColor ?? '#F5A800';
+  const lensColor = monoColor ?? '#425CC7';
+  // Hexagon vertices for the outer ring — flat-top orientation, ~28-
+  // unit diameter centred at (16, 17). Trigonometric coordinates:
+  // (cx + r·cos(θ), cy + r·sin(θ)) for θ = 0°, 60°, 120°, 180°, 240°, 300°.
+  // Pre-computed to keep the runtime trig out of the render path.
+  const outer = '28,17 22,27.39 10,27.39 4,17 10,6.61 22,6.61';
+  // Smaller hexagon at the upper-right "lens" position, ~8-unit
+  // diameter centred at (24.5, 8.5).
+  const lens  = '28,8.5 26.25,11.53 22.75,11.53 21,8.5 22.75,5.47 26.25,5.47';
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" role="img" aria-label={title}>
       <title>{title}</title>
-      {/* The "O" — bold open ring centred on the icon */}
-      <circle cx="16" cy="16" r="12.5" fill="none" stroke={color} strokeWidth="2.6" />
-
-      {/* Telescope barrel — diagonal cylinder pointing up-right, drawn
-          on top of the ring so it appears to pass through. The barrel
-          is two parallel strokes; the eyepiece + objective are tiny
-          filled caps at each end. */}
-      <g transform="rotate(-32 16 16)">
-        {/* Barrel body */}
-        <rect x="9" y="14.5" width="14" height="3" rx="1.5" fill={color} />
-        {/* Eyepiece (lower-left when rotated back) */}
-        <rect x="7" y="13.5" width="2.5" height="5" rx="0.6" fill={color} />
-        {/* Objective lens (upper-right) */}
-        <rect x="22.4" y="13" width="2.6" height="6" rx="1.3" fill={color} />
-      </g>
-
-      {/* Star observed by the telescope — upper right, slightly past
-          the objective lens. Small enough to read as a glint, not a
-          competing element. */}
-      <g fill={color}>
-        <circle cx="26" cy="6" r="1.2" />
-        <circle cx="28" cy="9" r="0.6" opacity="0.7" />
-      </g>
+      {/* Outer ring: bold polygon outline */}
+      <polygon points={outer} fill="none" stroke={ringColor} strokeWidth="2.6" strokeLinejoin="round" />
+      {/* Lens / eyepiece: filled hexagon. White stroke gives a subtle
+          gap so the lens reads as a separate element when it overlaps
+          the outer ring outline. */}
+      <polygon points={lens} fill={lensColor} stroke="var(--bg, #0d1117)" strokeWidth="1.4" strokeLinejoin="round" />
     </svg>
   );
 }

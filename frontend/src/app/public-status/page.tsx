@@ -66,9 +66,6 @@ export default function PublicStatusPage() {
       }}>
         <TelescopeIcon size={28} />
         <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{data.title}</div>
-        {data.supportUrl && (
-          <a href={data.supportUrl} style={{ marginLeft: 12, fontSize: 12, color: 'var(--accent2)' }}>Support →</a>
-        )}
         <span style={{ marginLeft: 'auto' }} />
         <ThemeToggle />
       </div>
