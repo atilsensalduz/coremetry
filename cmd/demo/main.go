@@ -54,14 +54,31 @@ type Service struct {
 }
 
 var services = map[string]Service{
-	"frontend":        {"frontend",        []string{"web-prod-1", "web-prod-2", "web-prod-3"}},
-	"api-gateway":     {"api-gateway",     []string{"gw-prod-1", "gw-prod-2", "gw-prod-3"}},
-	"user-service":    {"user-service",    []string{"users-prod-1", "users-prod-2", "users-prod-3"}},
-	"order-service":   {"order-service",   []string{"orders-prod-1", "orders-prod-2"}},
-	"payment-service": {"payment-service", []string{"pay-prod-1", "pay-prod-2"}},
-	"product-service": {"product-service", []string{"products-prod-1", "products-prod-2", "products-prod-3"}},
-	"cart-service":    {"cart-service",    []string{"cart-prod-1", "cart-prod-2"}},
-	"search-service":  {"search-service",  []string{"search-prod-1", "search-prod-2"}},
+	// Edge / public-facing
+	"frontend":               {"frontend",               []string{"web-prod-1", "web-prod-2", "web-prod-3"}},
+	"api-gateway":            {"api-gateway",            []string{"gw-prod-1", "gw-prod-2", "gw-prod-3"}},
+	// Core domain services
+	"user-service":           {"user-service",           []string{"users-prod-1", "users-prod-2", "users-prod-3"}},
+	"order-service":          {"order-service",          []string{"orders-prod-1", "orders-prod-2"}},
+	"payment-service":        {"payment-service",        []string{"pay-prod-1", "pay-prod-2"}},
+	"product-service":        {"product-service",        []string{"products-prod-1", "products-prod-2", "products-prod-3"}},
+	"cart-service":           {"cart-service",           []string{"cart-prod-1", "cart-prod-2"}},
+	"search-service":         {"search-service",         []string{"search-prod-1", "search-prod-2"}},
+	// Supporting services — added so the topology fan-out reads
+	// like a real e-commerce mesh and the backtrace / graph views
+	// have meaningful caller-callee chains to inspect.
+	"inventory-service":      {"inventory-service",      []string{"inv-prod-1", "inv-prod-2", "inv-prod-3"}},
+	"recommendation-service": {"recommendation-service", []string{"rec-prod-1", "rec-prod-2"}},
+	"review-service":         {"review-service",         []string{"review-prod-1", "review-prod-2"}},
+	"pricing-service":        {"pricing-service",        []string{"pricing-prod-1", "pricing-prod-2"}},
+	"shipping-service":       {"shipping-service",       []string{"ship-prod-1", "ship-prod-2"}},
+	"fraud-service":          {"fraud-service",          []string{"fraud-prod-1", "fraud-prod-2"}},
+	"notification-service":   {"notification-service",   []string{"notif-prod-1", "notif-prod-2"}},
+	"email-service":          {"email-service",          []string{"mail-prod-1"}},
+	"sms-service":            {"sms-service",            []string{"sms-prod-1"}},
+	"analytics-service":      {"analytics-service",      []string{"analytics-prod-1", "analytics-prod-2"}},
+	"audit-service":          {"audit-service",          []string{"audit-prod-1"}},
+	"ml-service":             {"ml-service",             []string{"ml-prod-1", "ml-prod-2"}},
 }
 
 // User-agent pool — each trace picks one to put on the frontend's
@@ -347,6 +364,23 @@ func scenarioCheckout() *Trace {
 		apiSpan, 8*time.Millisecond, dur(8, 18), kv("rpc.system", "grpc", "rpc.method", "ValidateToken",
 			"peer.service", "user-service"), true, "")
 
+	// Inventory reserve before the order is placed — checkout
+	// fails fast if any item is out of stock so this fan-out is
+	// authentic for the topology view.
+	invDur := dur(10, 30)
+	t.Add("api-gateway", "inventory-service/Reserve", tracepb.Span_SPAN_KIND_CLIENT,
+		apiSpan, 16*time.Millisecond, invDur,
+		kv("rpc.system", "grpc", "rpc.method", "Reserve",
+			"peer.service", "inventory-service"), true, "")
+	invSpan := t.Add("inventory-service", "InventoryService.Reserve", tracepb.Span_SPAN_KIND_SERVER,
+		apiSpan, 18*time.Millisecond, invDur-4*time.Millisecond,
+		kv("rpc.system", "grpc", "rpc.method", "Reserve"), true, "")
+	t.Add("inventory-service", "db.UPDATE inventory", tracepb.Span_SPAN_KIND_CLIENT,
+		invSpan, 20*time.Millisecond, dur(4, 18),
+		kv("db.system", "postgresql", "db.name", "inventory",
+			"db.statement", "UPDATE inventory SET reserved=reserved+$1 WHERE sku=$2",
+			"peer.service", "postgres"), true, "")
+
 	// Order creation
 	orderStart := 30 * time.Millisecond
 	orderDur := apiDur - 40*time.Millisecond
@@ -374,6 +408,20 @@ func scenarioCheckout() *Trace {
 		kv("payment.provider", "stripe", "payment.amount", mrand.Float64()*500+10,
 			"payment.currency", "USD"), !payFail, ifErr(payFail, "stripe: gateway timeout"))
 
+	// Fraud check fans out from payment-service before charging —
+	// real flow regardless of whether the charge later succeeds.
+	t.Add("payment-service", "fraud-service/Score", tracepb.Span_SPAN_KIND_CLIENT,
+		paySpan, payStart+3*time.Millisecond, dur(15, 50),
+		kv("rpc.system", "grpc", "rpc.method", "Score",
+			"peer.service", "fraud-service"), true, "")
+	fraudSpan := t.Add("fraud-service", "FraudService.Score", tracepb.Span_SPAN_KIND_SERVER,
+		paySpan, payStart+5*time.Millisecond, dur(12, 45),
+		kv("rpc.system", "grpc", "rpc.method", "Score",
+			"fraud.score", mrand.Float64()), true, "")
+	t.Add("fraud-service", "redis.GET fraud:rules", tracepb.Span_SPAN_KIND_CLIENT,
+		fraudSpan, payStart+6*time.Millisecond, dur(1, 4),
+		kv("db.system", "redis", "db.operation", "GET", "peer.service", "redis"), true, "")
+
 	if payFail {
 		t.Add("payment-service", "stripe.charge", tracepb.Span_SPAN_KIND_CLIENT,
 			paySpan, payStart+5*time.Millisecond, payDur-10*time.Millisecond,
@@ -384,6 +432,21 @@ func scenarioCheckout() *Trace {
 			paySpan, payStart+5*time.Millisecond, payDur-10*time.Millisecond,
 			kv("http.method", "POST", "http.url", "https://api.stripe.com/v1/charges",
 				"http.status_code", 200, "peer.service", "stripe"), true, "")
+		// Shipping label generation (only on payment success)
+		shipStart := orderStart + orderDur - 60*time.Millisecond
+		shipDur := dur(20, 70)
+		t.Add("order-service", "shipping-service/CreateLabel", tracepb.Span_SPAN_KIND_CLIENT,
+			orderSpan, shipStart, shipDur,
+			kv("rpc.system", "grpc", "rpc.method", "CreateLabel",
+				"peer.service", "shipping-service"), true, "")
+		shipSpan := t.Add("shipping-service", "ShippingService.CreateLabel", tracepb.Span_SPAN_KIND_SERVER,
+			orderSpan, shipStart+2*time.Millisecond, shipDur-4*time.Millisecond,
+			kv("rpc.system", "grpc", "rpc.method", "CreateLabel"), true, "")
+		t.Add("shipping-service", "fedex.create_shipment", tracepb.Span_SPAN_KIND_CLIENT,
+			shipSpan, shipStart+4*time.Millisecond, dur(15, 50),
+			kv("http.method", "POST", "http.url", "https://api.fedex.com/ship/v1/shipments",
+				"http.status_code", 200, "peer.service", "fedex"), true, "")
+
 		// Kafka publish on success
 		kafkaStart := orderStart + orderDur - 30*time.Millisecond
 		t.Add("order-service", "kafka.publish order.confirmed", tracepb.Span_SPAN_KIND_PRODUCER,
@@ -440,6 +503,227 @@ func scenarioCart() *Trace {
 	t.Add("cart-service", "redis.HSET cart:user", tracepb.Span_SPAN_KIND_CLIENT,
 		cartSpan, 12*time.Millisecond, dur(2, 8),
 		kv("db.system", "redis", "db.operation", "HSET", "peer.service", "redis"), true, "")
+	// Cart now also calls inventory + pricing for the live total —
+	// gives the graph two more downstream edges out of cart-service.
+	t.Add("cart-service", "inventory-service/CheckStock", tracepb.Span_SPAN_KIND_CLIENT,
+		cartSpan, 14*time.Millisecond, dur(6, 18),
+		kv("rpc.system", "grpc", "rpc.method", "CheckStock", "peer.service", "inventory-service"),
+		true, "")
+	invSpan := t.Add("inventory-service", "InventoryService.CheckStock", tracepb.Span_SPAN_KIND_SERVER,
+		cartSpan, 16*time.Millisecond, dur(4, 14),
+		kv("rpc.system", "grpc", "rpc.method", "CheckStock"), true, "")
+	t.Add("inventory-service", "redis.GET stock:sku", tracepb.Span_SPAN_KIND_CLIENT,
+		invSpan, 17*time.Millisecond, dur(1, 4),
+		kv("db.system", "redis", "db.operation", "GET", "peer.service", "redis"), true, "")
+	t.Add("cart-service", "pricing-service/Calculate", tracepb.Span_SPAN_KIND_CLIENT,
+		cartSpan, 22*time.Millisecond, dur(4, 12),
+		kv("rpc.system", "grpc", "rpc.method", "Calculate", "peer.service", "pricing-service"),
+		true, "")
+	priceSpan := t.Add("pricing-service", "PricingService.Calculate", tracepb.Span_SPAN_KIND_SERVER,
+		cartSpan, 24*time.Millisecond, dur(2, 10),
+		kv("rpc.system", "grpc", "rpc.method", "Calculate"), true, "")
+	t.Add("pricing-service", "redis.GET prices:sku", tracepb.Span_SPAN_KIND_CLIENT,
+		priceSpan, 25*time.Millisecond, dur(1, 3),
+		kv("db.system", "redis", "db.operation", "GET", "peer.service", "redis"), true, "")
+	return t
+}
+
+// scenarioHomePage: parallel fan-out for the home page — frontend
+// requests a personalised home view that the api-gateway resolves
+// by calling several services concurrently. Exercises a wide
+// cross-service edge set (api-gateway → recommendation-service →
+// ml-service, api-gateway → product-service → postgres,
+// api-gateway → user-service → postgres) so the graph view shows
+// real fan-out from a single inbound request.
+func scenarioHomePage() *Trace {
+	t := NewTrace()
+	totalDur := dur(180, 360)
+	M.RecordHTTP("api-gateway", "GET", "/api/home", 200, ms(totalDur))
+	M.RecordBiz("home.viewed")
+
+	feSpan := t.Add("frontend", "GET /home", tracepb.Span_SPAN_KIND_CLIENT,
+		nil, 0, totalDur, kv("http.method", "GET", "http.url", "/home",
+			"peer.service", "api-gateway"), true, "")
+	apiSpan := t.Add("api-gateway", "GET /api/home", tracepb.Span_SPAN_KIND_SERVER,
+		feSpan, 4*time.Millisecond, totalDur-8*time.Millisecond,
+		kv("http.method", "GET", "http.route", "/api/home", "http.status_code", 200), true, "")
+
+	// Recommendations branch: api-gateway → recommendation → ml-service
+	recDur := dur(80, 180)
+	t.Add("api-gateway", "recommendation-service/Personalise", tracepb.Span_SPAN_KIND_CLIENT,
+		apiSpan, 10*time.Millisecond, recDur,
+		kv("rpc.system", "grpc", "rpc.method", "Personalise",
+			"peer.service", "recommendation-service"), true, "")
+	recSpan := t.Add("recommendation-service", "RecommendationService.Personalise", tracepb.Span_SPAN_KIND_SERVER,
+		apiSpan, 12*time.Millisecond, recDur-4*time.Millisecond,
+		kv("rpc.system", "grpc", "rpc.method", "Personalise"), true, "")
+	t.Add("recommendation-service", "ml-service/Embed", tracepb.Span_SPAN_KIND_CLIENT,
+		recSpan, 16*time.Millisecond, dur(40, 110),
+		kv("rpc.system", "grpc", "rpc.method", "Embed", "peer.service", "ml-service"),
+		true, "")
+	mlSpan := t.Add("ml-service", "MLService.Embed", tracepb.Span_SPAN_KIND_SERVER,
+		recSpan, 18*time.Millisecond, dur(35, 100),
+		kv("rpc.system", "grpc", "rpc.method", "Embed", "ml.model", "embedding-v3"), true, "")
+	t.Add("ml-service", "redis.GET emb:user", tracepb.Span_SPAN_KIND_CLIENT,
+		mlSpan, 22*time.Millisecond, dur(1, 5),
+		kv("db.system", "redis", "db.operation", "GET", "peer.service", "redis"), true, "")
+
+	// Featured products branch (parallel to recommendations)
+	prodDur := dur(40, 110)
+	t.Add("api-gateway", "product-service/ListFeatured", tracepb.Span_SPAN_KIND_CLIENT,
+		apiSpan, 10*time.Millisecond, prodDur,
+		kv("rpc.system", "grpc", "rpc.method", "ListFeatured",
+			"peer.service", "product-service"), true, "")
+	prodSpan := t.Add("product-service", "ProductService.ListFeatured", tracepb.Span_SPAN_KIND_SERVER,
+		apiSpan, 12*time.Millisecond, prodDur-4*time.Millisecond,
+		kv("rpc.system", "grpc", "rpc.method", "ListFeatured"), true, "")
+	t.Add("product-service", "db.SELECT products WHERE featured", tracepb.Span_SPAN_KIND_CLIENT,
+		prodSpan, 16*time.Millisecond, dur(20, 80),
+		kv("db.system", "postgresql", "db.name", "shop", "db.statement",
+			"SELECT id, name, price FROM products WHERE featured=true LIMIT 12",
+			"peer.service", "postgres"), true, "")
+
+	// User profile branch (parallel)
+	userDur := dur(20, 60)
+	t.Add("api-gateway", "user-service/GetProfile", tracepb.Span_SPAN_KIND_CLIENT,
+		apiSpan, 10*time.Millisecond, userDur,
+		kv("rpc.system", "grpc", "rpc.method", "GetProfile",
+			"peer.service", "user-service"), true, "")
+	userSpan := t.Add("user-service", "UserService.GetProfile", tracepb.Span_SPAN_KIND_SERVER,
+		apiSpan, 12*time.Millisecond, userDur-4*time.Millisecond,
+		kv("rpc.system", "grpc", "rpc.method", "GetProfile"), true, "")
+	t.Add("user-service", "db.SELECT users", tracepb.Span_SPAN_KIND_CLIENT,
+		userSpan, 14*time.Millisecond, dur(8, 30),
+		kv("db.system", "postgresql", "db.name", "auth", "db.statement",
+			"SELECT id, email, prefs FROM users WHERE id=$1",
+			"peer.service", "postgres"), true, "")
+	return t
+}
+
+// scenarioProductDetail: product page with reviews + live stock —
+// product-service fans out to review-service (mongodb) and
+// inventory-service (redis). Adds two more services into the
+// product-service neighbourhood.
+func scenarioProductDetail() *Trace {
+	t := NewTrace()
+	totalDur := dur(120, 280)
+	productID := fmt.Sprintf("prod-%d", mrand.IntN(9999)+1)
+	M.RecordHTTP("api-gateway", "GET", "/api/products/{id}", 200, ms(totalDur))
+
+	feSpan := t.Add("frontend", "GET /products/"+productID, tracepb.Span_SPAN_KIND_CLIENT,
+		nil, 0, totalDur, kv("http.method", "GET", "http.url", "/products/"+productID,
+			"peer.service", "api-gateway"), true, "")
+	apiSpan := t.Add("api-gateway", "GET /api/products/{id}", tracepb.Span_SPAN_KIND_SERVER,
+		feSpan, 3*time.Millisecond, totalDur-6*time.Millisecond,
+		kv("http.method", "GET", "http.route", "/api/products/{id}",
+			"http.status_code", 200, "product.id", productID), true, "")
+	prodSpan := t.Add("product-service", "ProductService.Get", tracepb.Span_SPAN_KIND_SERVER,
+		apiSpan, 8*time.Millisecond, totalDur-20*time.Millisecond,
+		kv("rpc.system", "grpc", "rpc.method", "Get", "product.id", productID), true, "")
+	t.Add("product-service", "db.SELECT product", tracepb.Span_SPAN_KIND_CLIENT,
+		prodSpan, 12*time.Millisecond, dur(8, 40),
+		kv("db.system", "postgresql", "db.name", "shop", "db.statement",
+			"SELECT * FROM products WHERE id=$1", "peer.service", "postgres"), true, "")
+	// Reviews fan-out
+	t.Add("product-service", "review-service/List", tracepb.Span_SPAN_KIND_CLIENT,
+		prodSpan, 18*time.Millisecond, dur(20, 80),
+		kv("rpc.system", "grpc", "rpc.method", "List", "peer.service", "review-service"),
+		true, "")
+	revSpan := t.Add("review-service", "ReviewService.List", tracepb.Span_SPAN_KIND_SERVER,
+		prodSpan, 20*time.Millisecond, dur(18, 70),
+		kv("rpc.system", "grpc", "rpc.method", "List"), true, "")
+	t.Add("review-service", "mongodb.find reviews", tracepb.Span_SPAN_KIND_CLIENT,
+		revSpan, 22*time.Millisecond, dur(15, 60),
+		kv("db.system", "mongodb", "db.operation", "find", "db.collection", "reviews",
+			"peer.service", "mongodb"), true, "")
+	// Stock fan-out
+	t.Add("product-service", "inventory-service/CheckStock", tracepb.Span_SPAN_KIND_CLIENT,
+		prodSpan, 22*time.Millisecond, dur(4, 16),
+		kv("rpc.system", "grpc", "rpc.method", "CheckStock",
+			"peer.service", "inventory-service"), true, "")
+	invSpan := t.Add("inventory-service", "InventoryService.CheckStock", tracepb.Span_SPAN_KIND_SERVER,
+		prodSpan, 24*time.Millisecond, dur(2, 12),
+		kv("rpc.system", "grpc", "rpc.method", "CheckStock"), true, "")
+	t.Add("inventory-service", "redis.GET stock:sku", tracepb.Span_SPAN_KIND_CLIENT,
+		invSpan, 25*time.Millisecond, dur(1, 4),
+		kv("db.system", "redis", "db.operation", "GET", "peer.service", "redis"), true, "")
+	return t
+}
+
+// scenarioOrderEvent: event-driven side. Synthesises an
+// order.confirmed Kafka event being consumed by notification +
+// analytics + audit services; notification then fans out to email
+// and sms. Roots itself at a kafka consumer span (no parent) so
+// the trace is initiated by the broker, not the user — exercises
+// the producer / consumer kind handling and gives the graph view
+// a downstream tree from kafka outward.
+func scenarioOrderEvent() *Trace {
+	t := NewTrace()
+	totalDur := dur(120, 280)
+	M.RecordBiz("kafka.events_consumed")
+
+	notifSpan := t.Add("notification-service", "kafka.consume order.confirmed", tracepb.Span_SPAN_KIND_CONSUMER,
+		nil, 0, totalDur, kv("messaging.system", "kafka",
+			"messaging.destination", "order.confirmed",
+			"messaging.operation", "receive", "peer.service", "kafka"), true, "")
+
+	// Email branch
+	emailDur := dur(40, 120)
+	t.Add("notification-service", "email-service/Send", tracepb.Span_SPAN_KIND_CLIENT,
+		notifSpan, 8*time.Millisecond, emailDur,
+		kv("rpc.system", "grpc", "rpc.method", "Send", "peer.service", "email-service"),
+		true, "")
+	emailSpan := t.Add("email-service", "EmailService.Send", tracepb.Span_SPAN_KIND_SERVER,
+		notifSpan, 10*time.Millisecond, emailDur-4*time.Millisecond,
+		kv("rpc.system", "grpc", "rpc.method", "Send", "email.template", "order.confirmation"),
+		true, "")
+	t.Add("email-service", "sendgrid.send", tracepb.Span_SPAN_KIND_CLIENT,
+		emailSpan, 14*time.Millisecond, dur(30, 90),
+		kv("http.method", "POST", "http.url", "https://api.sendgrid.com/v3/mail/send",
+			"http.status_code", 202, "peer.service", "sendgrid"), true, "")
+
+	// SMS branch (parallel)
+	smsFail := mrand.IntN(100) < 4
+	smsDur := dur(50, 140)
+	t.Add("notification-service", "sms-service/Send", tracepb.Span_SPAN_KIND_CLIENT,
+		notifSpan, 8*time.Millisecond, smsDur,
+		kv("rpc.system", "grpc", "rpc.method", "Send", "peer.service", "sms-service"),
+		!smsFail, ifErr(smsFail, "sms send failed"))
+	smsSpan := t.Add("sms-service", "SmsService.Send", tracepb.Span_SPAN_KIND_SERVER,
+		notifSpan, 10*time.Millisecond, smsDur-4*time.Millisecond,
+		kv("rpc.system", "grpc", "rpc.method", "Send"),
+		!smsFail, ifErr(smsFail, "twilio: rate limited"))
+	twilioStatus := 200
+	if smsFail {
+		twilioStatus = 429
+	}
+	t.Add("sms-service", "twilio.send", tracepb.Span_SPAN_KIND_CLIENT,
+		smsSpan, 14*time.Millisecond, dur(35, 110),
+		kv("http.method", "POST", "http.url", "https://api.twilio.com/2010-04-01/Messages.json",
+			"http.status_code", twilioStatus, "peer.service", "twilio"),
+		!smsFail, ifErr(smsFail, "429 Too Many Requests"))
+
+	// Analytics consumer (parallel root in real life — modelled
+	// here as a sibling so the trace stays a single tree).
+	analyticsDur := dur(20, 80)
+	analSpan := t.Add("analytics-service", "kafka.consume order.confirmed", tracepb.Span_SPAN_KIND_CONSUMER,
+		notifSpan, 4*time.Millisecond, analyticsDur,
+		kv("messaging.system", "kafka", "messaging.destination", "order.confirmed",
+			"messaging.operation", "receive"), true, "")
+	t.Add("analytics-service", "elasticsearch.index events", tracepb.Span_SPAN_KIND_CLIENT,
+		analSpan, 6*time.Millisecond, dur(15, 70),
+		kv("db.system", "elasticsearch", "db.operation", "index",
+			"peer.service", "elasticsearch"), true, "")
+
+	// Audit consumer
+	auditSpan := t.Add("audit-service", "kafka.consume order.confirmed", tracepb.Span_SPAN_KIND_CONSUMER,
+		notifSpan, 4*time.Millisecond, dur(20, 70),
+		kv("messaging.system", "kafka", "messaging.destination", "order.confirmed"), true, "")
+	t.Add("audit-service", "db.INSERT audit_log", tracepb.Span_SPAN_KIND_CLIENT,
+		auditSpan, 6*time.Millisecond, dur(8, 30),
+		kv("db.system", "postgresql", "db.name", "audit",
+			"db.statement", "INSERT INTO audit_log(event, payload) VALUES($1, $2)",
+			"peer.service", "postgres"), true, "")
 	return t
 }
 
@@ -772,11 +1056,14 @@ var scenarios = []struct {
 	weight int
 	fn     scenario
 }{
-	{"BrowseProducts", 5, scenarioBrowseProducts},
-	{"Search", 4, scenarioSearch},
-	{"AddToCart", 3, scenarioCart},
-	{"Login", 2, scenarioUserLogin},
-	{"Checkout", 1, scenarioCheckout},
+	{"BrowseProducts", 4, scenarioBrowseProducts},
+	{"HomePage",       4, scenarioHomePage},
+	{"ProductDetail",  4, scenarioProductDetail},
+	{"Search",         3, scenarioSearch},
+	{"AddToCart",      3, scenarioCart},
+	{"Login",          2, scenarioUserLogin},
+	{"Checkout",       2, scenarioCheckout},
+	{"OrderEvent",     2, scenarioOrderEvent},
 }
 
 func pickScenario() (string, scenario) {
