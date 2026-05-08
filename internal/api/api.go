@@ -324,6 +324,12 @@ func (s *Server) getServiceStructure(w http.ResponseWriter, r *http.Request) {
 // callers that invoke this service and the services it calls in
 // turn. No peer.service heuristic; pure parent/child edge analysis
 // over the recent N traces.
+//
+// Result is cached for 60s — service topology doesn't shift inside
+// a one-minute window, and the underlying query (top-N traces +
+// bulk span fetch) is the most expensive thing on the service
+// detail page. Cache key folds in service / since / samples so a
+// range or sample-count change skips the cache.
 func (s *Server) getServiceNeighbors(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if name == "" {
@@ -332,15 +338,21 @@ func (s *Server) getServiceNeighbors(w http.ResponseWriter, r *http.Request) {
 	since := parseDuration(r.URL.Query().Get("since"), time.Hour)
 	samples := parseInt(r.URL.Query().Get("samples"), 50)
 
-	upstream, downstream, sampledFrom, totalSpans, err := s.store.ServiceNeighbors(
-		r.Context(), name, since, samples)
-	if err != nil { writeErr(w, err); return }
-	writeJSON(w, map[string]any{
-		"service":     name,
-		"upstream":    upstream,
-		"downstream":  downstream,
-		"sampledFrom": sampledFrom,
-		"totalSpans":  totalSpans,
+	key := fmt.Sprintf("service-neighbors:svc=%s:since=%s:samples=%d",
+		name, since, samples)
+	s.serveCached(w, r, key, 60*time.Second, func() (any, error) {
+		upstream, downstream, sampledFrom, totalSpans, err := s.store.ServiceNeighbors(
+			r.Context(), name, since, samples)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"service":     name,
+			"upstream":    upstream,
+			"downstream":  downstream,
+			"sampledFrom": sampledFrom,
+			"totalSpans":  totalSpans,
+		}, nil
 	})
 }
 
