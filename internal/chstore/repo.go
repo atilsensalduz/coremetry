@@ -344,6 +344,27 @@ func (s *Store) GetServiceGraph(ctx context.Context, service string, since time.
 
 // ── Trace queries ─────────────────────────────────────────────────────────────
 
+// wellKnownTraceCol maps OTel semantic-convention attribute keys to
+// their dedicated columns on the spans table. When the /traces page
+// asks for one of these as an extra column we pull from the indexed
+// LowCardinality column instead of scanning the attr_keys/attr_values
+// arrays — same value, much cheaper plan.
+var wellKnownTraceCol = map[string]string{
+	"http.method":      "http_method",
+	"http.route":       "http_route",
+	"http.status_code": "toString(http_status)",
+	"db.system":        "db_system",
+	"db.statement":     "db_statement",
+	"rpc.system":       "rpc_system",
+	"rpc.method":       "rpc_method",
+	"peer.service":     "peer_service",
+	"messaging.system": "msg_system",
+	"service.name":     "service_name",
+	"deployment.environment": "deploy_env",
+	"host.name":        "host_name",
+	"kind":             "kind",
+}
+
 type TraceFilter struct {
 	Service  string
 	Search   string
@@ -474,21 +495,33 @@ func (s *Store) GetTraces(ctx context.Context, f TraceFilter) ([]TraceRow, uint6
 	pageLimit := f.Limit + 1
 
 	// Build optional projections for user-requested attribute columns.
-	// Each `extra_N` column is `anyIf` over spans that actually have a
-	// non-empty value for the key; falls back to resource_attributes
-	// so things like `service.namespace` work even when set at resource
-	// level only. The key itself flows in as a `?` parameter — no
-	// string concatenation into SQL — so injection is impossible even
-	// before the HTTP-layer sanitisation kicks in.
+	//
+	// Two paths depending on the key:
+	//   - well-known semconv key with a dedicated structured column
+	//     (http.method → http_method, db.system → db_system, etc.):
+	//     use the indexed LowCardinality column. Cheap.
+	//   - everything else: array lookup against attr_values via
+	//     attr_values[indexOf(attr_keys, ?)], with a fallback to
+	//     res_values[indexOf(res_keys, ?)] so resource-level attrs
+	//     (service.namespace, k8s.pod.name, etc.) also work.
+	//
+	// Keys flow as `?` parameters; HTTP-layer sanitisation already
+	// rejected anything outside [a-zA-Z0-9._-] so the SELECT can't be
+	// poisoned even if a clickhouse-go quirk changed.
 	extraSelect := ""
 	extraArgs := []any{}
-	for i := range f.ExtraAttrs {
+	for i, key := range f.ExtraAttrs {
+		if col, ok := wellKnownTraceCol[key]; ok {
+			extraSelect += fmt.Sprintf(", any(%s) AS extra_%d", col, i)
+			continue
+		}
 		extraSelect += fmt.Sprintf(
-			", anyIf(coalesce(nullIf(attributes[?], ''), nullIf(resource_attributes[?], '')), "+
-				"length(attributes[?]) > 0 OR length(resource_attributes[?]) > 0) AS extra_%d",
+			", anyIf(coalesce("+
+				"nullIf(attr_values[indexOf(attr_keys, ?)], ''),"+
+				"nullIf(res_values[indexOf(res_keys, ?)], '')"+
+				"), has(attr_keys, ?) OR has(res_keys, ?)) AS extra_%d",
 			i,
 		)
-		key := f.ExtraAttrs[i]
 		extraArgs = append(extraArgs, key, key, key, key)
 	}
 
