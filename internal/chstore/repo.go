@@ -6,11 +6,28 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/ClickHouse/clickhouse-go/v2"
 )
 
 // ── Batch inserts ─────────────────────────────────────────────────────────────
 
+// asyncInsertCtx wraps the caller's context with ClickHouse
+// async_insert settings. async_insert lets the server coalesce
+// concurrent INSERTs from our parallel flusher pool into single
+// disk writes, reducing per-insert overhead at high throughput.
+// wait_for_async_insert=1 keeps client-side semantics synchronous
+// (the call doesn't return until the server has buffered the rows
+// for durability), so we still detect insert errors properly.
+func asyncInsertCtx(ctx context.Context) context.Context {
+	return clickhouse.Context(ctx, clickhouse.WithSettings(clickhouse.Settings{
+		"async_insert":          1,
+		"wait_for_async_insert": 1,
+	}))
+}
+
 func (s *Store) InsertSpans(ctx context.Context, spans []*Span) error {
+	ctx = asyncInsertCtx(ctx)
 	batch, err := s.conn.PrepareBatch(ctx, "INSERT INTO spans")
 	if err != nil {
 		return fmt.Errorf("prepare spans: %w", err)
@@ -32,6 +49,7 @@ func (s *Store) InsertSpans(ctx context.Context, spans []*Span) error {
 }
 
 func (s *Store) InsertLogs(ctx context.Context, logs []*Log) error {
+	ctx = asyncInsertCtx(ctx)
 	batch, err := s.conn.PrepareBatch(ctx, "INSERT INTO logs")
 	if err != nil {
 		return fmt.Errorf("prepare logs: %w", err)
@@ -49,6 +67,7 @@ func (s *Store) InsertLogs(ctx context.Context, logs []*Log) error {
 }
 
 func (s *Store) InsertMetrics(ctx context.Context, pts []*MetricPoint) error {
+	ctx = asyncInsertCtx(ctx)
 	batch, err := s.conn.PrepareBatch(ctx, "INSERT INTO metric_points")
 	if err != nil {
 		return fmt.Errorf("prepare metrics: %w", err)

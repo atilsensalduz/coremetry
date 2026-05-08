@@ -48,11 +48,13 @@ type TableStat struct {
 
 // DayStat is one bucket in the 30-day history chart. Spans / errors
 // come from service_summary_5m (5-minute rollups summed over the
-// day), so we never re-aggregate the raw spans table for this view.
+// day), traces from trace_summary_1d (HLL-state per day), so we
+// never re-aggregate the raw spans table for this view.
 type DayStat struct {
 	Day      string `json:"day"`
 	Spans    uint64 `json:"spans"`
 	Errors   uint64 `json:"errors"`
+	Traces   uint64 `json:"traces"`   // approximate, HLL-merged from trace_summary_1d
 	Services uint64 `json:"services"` // distinct service_names that contributed that day
 }
 
@@ -159,24 +161,37 @@ func (s *Store) GetSystemStats(ctx context.Context) (*SystemStats, error) {
 		WHERE time >= now() - toIntervalDay(1)`).
 		Scan(&out.Snapshot.Operations24h)
 
-	// ── 30-day history (per-day spans / errors / services) ──────
+	// ── 30-day history (per-day spans / errors / traces / services) ──
+	// LEFT JOIN trace_summary_1d so days without distinct-trace
+	// data (MV not populated yet) still appear with traces=0.
 	histRows, err := s.conn.Query(ctx, `
-		SELECT
-		  toDate(time_bucket)            AS day,
-		  countMerge(span_count_state)   AS spans,
-		  countMerge(error_count_state)  AS errors,
-		  uniq(service_name)             AS services
-		FROM service_summary_5m
-		WHERE time_bucket >= now() - toIntervalDay(30)
-		GROUP BY day
-		ORDER BY day`)
+		WITH spans_daily AS (
+		  SELECT
+		    toDate(time_bucket)            AS day,
+		    countMerge(span_count_state)   AS spans,
+		    countMerge(error_count_state)  AS errors,
+		    uniq(service_name)             AS services
+		  FROM service_summary_5m
+		  WHERE time_bucket >= now() - toIntervalDay(30)
+		  GROUP BY day
+		),
+		traces_daily AS (
+		  SELECT day, uniqMerge(trace_count_state) AS traces
+		  FROM trace_summary_1d
+		  WHERE day >= today() - 30
+		  GROUP BY day
+		)
+		SELECT s.day, s.spans, s.errors, ifNull(t.traces, 0), s.services
+		FROM spans_daily s
+		LEFT JOIN traces_daily t ON s.day = t.day
+		ORDER BY s.day`)
 	if err != nil {
 		return out, err
 	}
 	for histRows.Next() {
 		var d DayStat
 		var t time.Time
-		if err := histRows.Scan(&t, &d.Spans, &d.Errors, &d.Services); err != nil {
+		if err := histRows.Scan(&t, &d.Spans, &d.Errors, &d.Traces, &d.Services); err != nil {
 			histRows.Close()
 			return nil, err
 		}

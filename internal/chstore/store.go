@@ -565,8 +565,28 @@ func (s *Store) migrate(ctx context.Context) error {
 	// In-place column additions for upgrades. ADD COLUMN IF NOT EXISTS is a
 	// no-op on fresh installs (column already in CREATE TABLE) and on
 	// already-migrated databases.
+	//
+	// Skip indexes on the spans hot path. The (service_name, time)
+	// primary key already drives most queries, but the transport-aware
+	// alert metrics filter on `kind`, `db_system`, and `http_status`
+	// in additional WHERE predicates. Adding granule-level skip
+	// indexes lets ClickHouse drop unrelated 8k-row blocks before
+	// reading them — meaningful at 1B spans/day where each daily
+	// partition holds ~150k granules.
+	//   - idx_kind / idx_db_system: set(0) → bitmap of distinct values
+	//     per granule. Filter `kind='server'` or `db_system != ''`
+	//     skips most internal-only granules instantly.
+	//   - idx_http_status: minmax → granule's status range. Filter
+	//     `http_status >= 500` skips granules of pure 200s (the
+	//     overwhelming majority).
+	// New data benefits immediately; existing data isn't rewritten
+	// (MATERIALIZE INDEX is too heavy on a 36B-row table) but ages
+	// out via TTL inside the retention window.
 	alters := []string{
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider LowCardinality(String) DEFAULT 'local'`,
+		`ALTER TABLE spans ADD INDEX IF NOT EXISTS idx_kind        kind        TYPE set(0)    GRANULARITY 4`,
+		`ALTER TABLE spans ADD INDEX IF NOT EXISTS idx_db_system   db_system   TYPE set(0)    GRANULARITY 4`,
+		`ALTER TABLE spans ADD INDEX IF NOT EXISTS idx_http_status http_status TYPE minmax    GRANULARITY 4`,
 	}
 	for _, q := range alters {
 		if err := s.conn.Exec(ctx, q); err != nil {
@@ -606,6 +626,23 @@ func (s *Store) migrate(ctx context.Context) error {
 		   countIfState(duration > %d AND duration <= %d) AS apdex_tolerating_state
 		 FROM spans
 		 GROUP BY service_name, time_bucket`, apdexT, apdexT, apdex4T),
+
+		// trace_summary_1d: per-day distinct trace count via HLL.
+		// Lets /admin/stats history show traces-per-day without a
+		// uniqExact pass over billions of rows. uniqState writes a
+		// HLL12 sketch (~2.5 KiB per day per service); merging across
+		// 30 days is sub-millisecond.
+		`CREATE MATERIALIZED VIEW IF NOT EXISTS trace_summary_1d
+		 ENGINE = AggregatingMergeTree
+		 PARTITION BY toYYYYMM(day)
+		 ORDER BY day
+		 TTL day + INTERVAL 365 DAY
+		 SETTINGS index_granularity = 8192
+		 AS SELECT
+		   toDate(time)        AS day,
+		   uniqState(trace_id) AS trace_count_state
+		 FROM spans
+		 GROUP BY day`,
 	}
 	for _, q := range mvs {
 		if err := s.conn.Exec(ctx, q); err != nil {

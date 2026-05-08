@@ -700,6 +700,7 @@ export interface SystemStats {
     day: string;
     spans: number;
     errors: number;
+    traces: number;
     services: number;
   }[];
   ingest: {

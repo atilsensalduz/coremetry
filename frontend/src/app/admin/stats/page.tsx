@@ -244,6 +244,7 @@ export default function AdminStatsPage() {
                 <table>
                   <thead><tr>
                     <th>Day</th>
+                    <th className="num">Traces</th>
                     <th className="num">Spans</th>
                     <th className="num">Errors</th>
                     <th className="num">Err %</th>
@@ -255,6 +256,7 @@ export default function AdminStatsPage() {
                       return (
                         <tr key={d.day}>
                           <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>{d.day}</td>
+                          <td className="num">{fmtNum(d.traces)}</td>
                           <td className="num">{fmtNum(d.spans)}</td>
                           <td className="num">{fmtNum(d.errors)}</td>
                           <td className={`num ${errPct >= 5 ? 'err' : errPct > 0 ? 'warn' : ''}`}>
