@@ -26,14 +26,16 @@ export function ServiceNeighbors({ service, since = '10m' }: {
     sampledFrom: number;
     totalSpans: number;
   } | null | undefined>(undefined);
+  // Bumped to force a refetch with refresh=1 (cache bypass).
+  const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
     if (!open || !service) return;
     setData(undefined);
-    api.serviceNeighbors(service, since, 50)
+    api.serviceNeighbors(service, since, 50, refreshTick > 0)
       .then(setData)
       .catch(() => setData(null));
-  }, [open, service, since]);
+  }, [open, service, since, refreshTick]);
 
   const upstream = data?.upstream ?? [];
   const downstream = data?.downstream ?? [];
@@ -66,6 +68,21 @@ export function ServiceNeighbors({ service, since = '10m' }: {
           </span>
         )}
         <span style={{ flex: 1 }} />
+        {open && data !== undefined && (
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={e => { e.stopPropagation(); setRefreshTick(t => t + 1); }}
+            onKeyDown={e => { if (e.key === 'Enter') { e.stopPropagation(); setRefreshTick(t => t + 1); } }}
+            title="Bypass the 1h cache and recompute now"
+            style={{
+              fontSize: 11, color: 'var(--accent2)',
+              background: 'var(--bg3)', border: '1px solid var(--border)',
+              borderRadius: 4, padding: '3px 10px', cursor: 'pointer',
+            }}>
+            ↻ Refresh
+          </span>
+        )}
         {!open && (
           <span style={{ fontSize: 11, color: 'var(--text3)', fontStyle: 'italic' }}>
             click to expand

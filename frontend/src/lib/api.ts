@@ -72,15 +72,17 @@ export const api = {
 
   // Service-level upstream / downstream neighbours derived from
   // sampled trace topology. No peer.service heuristic — purely
-  // parent/child edge analysis.
-  serviceNeighbors: (svc: string, since = '1h', samples = 50) =>
+  // parent/child edge analysis. Pass refresh=true to bypass the
+  // 1h cache when the operator knows the topology has shifted
+  // (new service / pod / route just deployed).
+  serviceNeighbors: (svc: string, since = '1h', samples = 50, refresh = false) =>
     get<{
       service: string;
       upstream?: import('./types').NeighborStat[];
       downstream?: import('./types').NeighborStat[];
       sampledFrom: number;
       totalSpans: number;
-    }>(`/api/services/${encodeURIComponent(svc)}/neighbors?since=${since}&samples=${samples}`),
+    }>(`/api/services/${encodeURIComponent(svc)}/neighbors?since=${since}&samples=${samples}${refresh ? '&refresh=1' : ''}`),
 
   // Inbound-callers backtrace — Dynatrace-style consumer view.
   // Returns a row per (caller service × pod/instance × client IP ×
@@ -476,6 +478,11 @@ export interface TracesParams {
   // rootOnly hides traces whose root span never landed (only sub-
   // spans ingested) — drives the "Root traces" checkbox on /traces.
   rootOnly?: boolean;
+  // requireServices: trace must contain spans from every listed
+  // service. Lets the backtrace drill-in scope the trace list to
+  // (caller × callee) co-occurrences instead of all traces emitted
+  // by either side.
+  services?: string[];
   minMs?: number | string;
   maxMs?: number | string;
   from?: number;

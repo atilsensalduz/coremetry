@@ -719,6 +719,28 @@ func (s *Server) getTraces(w http.ResponseWriter, r *http.Request) {
 		To:       parseTime(q.Get("to")),
 		HasError: q.Get("hasError") == "true",
 		RootOnly: q.Get("rootOnly") == "true",
+		// services=A,B,…  — every listed service must appear in the
+		// trace. Drives the backtrace 'Traces' drill-in so the user
+		// gets only traces where caller × callee actually co-occur.
+		// Cap at 8 so a malicious URL can't blow up the HAVING.
+		RequireServices: func() []string {
+			raw := q.Get("services")
+			if raw == "" {
+				return nil
+			}
+			out := []string{}
+			for _, s := range strings.Split(raw, ",") {
+				s = strings.TrimSpace(s)
+				if s == "" {
+					continue
+				}
+				out = append(out, s)
+				if len(out) >= 8 {
+					break
+				}
+			}
+			return out
+		}(),
 		MinMs:    parseFloat(q.Get("minMs")),
 		MaxMs:    parseFloat(q.Get("maxMs")),
 		AttrKey:  q.Get("attrKey"),
@@ -3196,11 +3218,18 @@ func writeJSON(w http.ResponseWriter, v interface{}) {
 // Cache failures (Redis down, etc.) are non-fatal — we just fall through
 // to the live path and surface the error in the X-Cache header.
 func (s *Server) serveCached(w http.ResponseWriter, r *http.Request, key string, ttl time.Duration, fn func() (any, error)) {
-	if data, ok, err := s.cache.Get(r.Context(), key); err == nil && ok {
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("X-Cache", "HIT")
-		w.Write(data)
-		return
+	// ?refresh=1 forces a recompute. Useful when the underlying
+	// data has shifted (new service deployed, edges formed) and
+	// the operator doesn't want to wait for the natural TTL. The
+	// fresh result is still written so subsequent callers benefit.
+	skipRead := r.URL.Query().Get("refresh") == "1"
+	if !skipRead {
+		if data, ok, err := s.cache.Get(r.Context(), key); err == nil && ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("X-Cache", "HIT")
+			w.Write(data)
+			return
+		}
 	}
 	v, err := fn()
 	if err != nil {
@@ -3216,7 +3245,11 @@ func (s *Server) serveCached(w http.ResponseWriter, r *http.Request, key string,
 		log.Printf("[cache] set %s: %v", key, err)
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Cache", "MISS")
+	if skipRead {
+		w.Header().Set("X-Cache", "BYPASS")
+	} else {
+		w.Header().Set("X-Cache", "MISS")
+	}
 	w.Write(data)
 }
 

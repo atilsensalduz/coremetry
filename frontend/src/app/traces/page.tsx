@@ -66,6 +66,11 @@ function TracesPageInner() {
     maxMs:    searchParams.get('maxMs')   ?? '',
     hasError: searchParams.get('hasError') === 'true',
     rootOnly: searchParams.get('rootOnly') === 'true',
+    // requireServices: trace must include spans from every listed
+    // service. Driven by the backtrace 'Traces' drill-in via a
+    // ?services=A,B URL param.
+    requireServices: (searchParams.get('services') ?? '')
+      .split(',').map(s => s.trim()).filter(Boolean),
   }));
   const [draft, setDraft] = useState(filter);
   const [advFilters, setAdvFilters] = useState<FilterExpr[]>(
@@ -101,6 +106,7 @@ function TracesPageInner() {
       ['maxMs',    filter.maxMs],
       ['hasError', filter.hasError ? 'true' : ''],
       ['rootOnly', filter.rootOnly ? 'true' : ''],
+      ['services', filter.requireServices.join(',')],
       ['filters',  encodeFilters(advFilters)],
       ['cols',     extraCols.join(',')],
     ]);
@@ -148,6 +154,7 @@ function TracesPageInner() {
       maxMs: filter.maxMs || undefined,
       hasError: filter.hasError || undefined,
       rootOnly: filter.rootOnly || undefined,
+      services: filter.requireServices.length ? filter.requireServices : undefined,
       filters: advFilters.length ? JSON.stringify(advFilters) : undefined,
       extraAttrs: extraCols.length ? extraCols.join(',') : undefined,
       // "exact" only when the user explicitly asked. Pinned trace IDs
@@ -178,7 +185,10 @@ function TracesPageInner() {
     setPage(0); setFilter(draft);
   };
   const reset = () => {
-    const empty = { service: '', search: '', traceId: '', minMs: '', maxMs: '', hasError: false, rootOnly: false };
+    const empty = {
+      service: '', search: '', traceId: '', minMs: '', maxMs: '',
+      hasError: false, rootOnly: false, requireServices: [] as string[],
+    };
     setDraft(empty); setFilter(empty); setPage(0);
   };
   const toggleSort = (col: SortColumn) => {
@@ -280,6 +290,48 @@ function TracesPageInner() {
           <button onClick={apply}>Search</button>
           <button className="sec" onClick={reset}>Reset</button>
         </div>
+
+        {/* Trace-topology AND requirement: every listed service
+            must appear in the trace. Driven by the backtrace
+            'Traces' drill-in (e.g. product-service × inventory-
+            service) so the user lands on actual co-occurrence
+            traces, not all traces emitted by either side. */}
+        {filter.requireServices.length > 0 && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+            padding: '8px 12px', marginBottom: 8,
+            background: 'var(--bg2)', border: '1px solid var(--border)',
+            borderRadius: 6, fontSize: 12,
+          }}>
+            <span style={{ color: 'var(--text2)', fontWeight: 600 }}>
+              Trace must include:
+            </span>
+            {filter.requireServices.map((s) => (
+              <span key={s} style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '2px 8px', borderRadius: 4,
+                background: 'var(--bg3)', border: '1px solid var(--border)',
+                fontFamily: 'ui-monospace, monospace',
+              }}>
+                {s}
+                <button type="button" title="Remove"
+                  onClick={() => setFilter({
+                    ...filter,
+                    requireServices: filter.requireServices.filter(x => x !== s),
+                  })}
+                  style={{
+                    background: 'transparent', border: 'none', color: 'var(--text3)',
+                    cursor: 'pointer', padding: 0, fontSize: 12, lineHeight: 1,
+                  }}>×</button>
+              </span>
+            ))}
+            <button className="sec" type="button"
+              onClick={() => setFilter({ ...filter, requireServices: [] })}
+              style={{ marginLeft: 'auto', fontSize: 11 }}>
+              Clear all
+            </button>
+          </div>
+        )}
 
         {/* Advanced multi-dimension filter chips (Tempo / Dynatrace style) */}
         <FilterBuilder value={advFilters} onChange={setAdvFilters}

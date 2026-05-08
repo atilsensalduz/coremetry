@@ -440,6 +440,16 @@ type TraceFilter struct {
 	// only sub-spans landed in storage. The list view exposes this
 	// as a "Root traces" checkbox alongside "Errors only".
 	RootOnly bool
+	// RequireServices restricts the result to traces that contain
+	// spans from EVERY listed service — a trace-topology AND across
+	// service involvement. The single Service filter, in contrast,
+	// is a span-level WHERE that narrows to one service. When both
+	// are set, RequireServices takes precedence (Service is dropped)
+	// because the WHERE-narrowing approach can't co-exist with the
+	// HAVING-based fan-in check. Used by the backtrace 'Traces'
+	// drill-in to surface only traces where caller × callee
+	// actually co-occur.
+	RequireServices []string
 	MinMs    float64
 	MaxMs    float64
 	AttrKey  string
@@ -481,7 +491,11 @@ func (s *Store) GetTraces(ctx context.Context, f TraceFilter) ([]TraceRow, uint6
 	if !f.To.IsZero() {
 		wc.add("time <= ?", f.To)
 	}
-	if f.Service != "" {
+	// Span-level service narrowing only when RequireServices isn't
+	// set; with RequireServices the WHERE has to stay wide so every
+	// participant of a candidate trace is visible to the HAVING
+	// fan-in check below.
+	if f.Service != "" && len(f.RequireServices) == 0 {
 		wc.add("service_name = ?", f.Service)
 	}
 	if f.Search != "" {
@@ -510,11 +524,26 @@ func (s *Store) GetTraces(ctx context.Context, f TraceFilter) ([]TraceRow, uint6
 		f.Limit = 50
 	}
 
-	// HAVING fragment for "Root traces only" — applied after GROUP BY
-	// trace_id so it can filter on whether the root span landed.
-	havingSQL := ""
+	// HAVING fragments applied after GROUP BY trace_id:
+	//   - RootOnly: requires the root span (parent_id = '') landed
+	//   - RequireServices: each listed service must have ≥1 span in
+	//     the trace, so a (caller, callee) pair must literally
+	//     co-occur — what the backtrace 'Traces' drill-in needs.
+	havingParts := []string{}
+	havingArgs := []any{}
 	if f.RootOnly {
-		havingSQL = " HAVING countIf(parent_id = '') > 0"
+		havingParts = append(havingParts, "countIf(parent_id = '') > 0")
+	}
+	for _, svc := range f.RequireServices {
+		if svc == "" {
+			continue
+		}
+		havingParts = append(havingParts, "countIf(service_name = ?) > 0")
+		havingArgs = append(havingArgs, svc)
+	}
+	havingSQL := ""
+	if len(havingParts) > 0 {
+		havingSQL = " HAVING " + strings.Join(havingParts, " AND ")
 	}
 
 	// Total-count cost is bounded by the user's choice. Default for
@@ -535,23 +564,29 @@ func (s *Store) GetTraces(ctx context.Context, f TraceFilter) ([]TraceRow, uint6
 			"SELECT count() FROM (SELECT trace_id FROM spans %s GROUP BY trace_id%s LIMIT %d) SETTINGS max_execution_time = 30",
 			wc.sql(), havingSQL, cap,
 		)
-		if err := s.conn.QueryRow(ctx, approxSQL, wc.args...).Scan(&total); err != nil {
+		countArgs := append([]any{}, wc.args...)
+		countArgs = append(countArgs, havingArgs...)
+		if err := s.conn.QueryRow(ctx, approxSQL, countArgs...).Scan(&total); err != nil {
 			return nil, 0, false, err
 		}
 	default: // "exact" (and "" for back-compat)
-		// RootOnly forces a GROUP BY + HAVING wrapper so the count
-		// reflects only traces whose root span landed; without it
-		// count(DISTINCT trace_id) would include partial fragments
-		// that the row-level query then hides.
+		// HAVING-bearing filters (RootOnly / RequireServices) force a
+		// GROUP BY + HAVING wrapper so the count reflects only traces
+		// surviving those checks; without them count(DISTINCT trace_id)
+		// would include rows the row-level query later hides.
 		var countSQL string
-		if f.RootOnly {
+		var countArgs []any
+		if havingSQL != "" {
 			countSQL = "SELECT count() FROM (SELECT trace_id FROM spans " + wc.sql() +
 				" GROUP BY trace_id" + havingSQL + ") SETTINGS max_execution_time = 30"
+			countArgs = append(countArgs, wc.args...)
+			countArgs = append(countArgs, havingArgs...)
 		} else {
 			countSQL = "SELECT count(DISTINCT trace_id) FROM spans " + wc.sql() +
 				" SETTINGS max_execution_time = 30"
+			countArgs = wc.args
 		}
-		if err := s.conn.QueryRow(ctx, countSQL, wc.args...).Scan(&total); err != nil {
+		if err := s.conn.QueryRow(ctx, countSQL, countArgs...).Scan(&total); err != nil {
 			return nil, 0, false, err
 		}
 	}
@@ -628,10 +663,14 @@ func (s *Store) GetTraces(ctx context.Context, f TraceFilter) ([]TraceRow, uint6
 		LIMIT ? OFFSET ?
 		SETTINGS max_execution_time = 30`
 
-	// extraArgs go BEFORE wc.args because the SELECT projections come
-	// before the WHERE clause in the SQL; ? placeholders bind in order.
+	// Argument order matches placeholder order in the SQL:
+	//   1. SELECT projections (extra attribute columns)
+	//   2. WHERE  predicates (time / service / DSL filters)
+	//   3. HAVING predicates (RequireServices fan-in)
+	//   4. LIMIT / OFFSET
 	args := append([]any{}, extraArgs...)
 	args = append(args, wc.args...)
+	args = append(args, havingArgs...)
 	args = append(args, pageLimit, f.Offset)
 	rows, err := s.conn.Query(ctx, querySQL, args...)
 	if err != nil {
