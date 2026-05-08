@@ -94,7 +94,29 @@ func New(cfg config.CHConfig, ret config.RetentionConfig) (*Store, error) {
 	}
 	setup.Close()
 
-	// Connect to target database
+	// Connect to target database.
+	//
+	// Per-query memory + execution defaults. Pegged here so every
+	// statement issued through this driver inherits them — protects
+	// against any single read swallowing the whole CH heap.
+	//
+	//   max_memory_usage (4 GB)
+	//     Hard cap per query. Without it, a runaway GROUP BY /
+	//     DISTINCT on a billion-span table can spike to 15-20 GB
+	//     and trip the server-wide total — surfacing as
+	//     "memory limit (total) exceeded" (CH error 241) and
+	//     blocking unrelated reads.
+	//
+	//   max_bytes_before_external_group_by (1 GB)
+	//   max_bytes_before_external_sort     (1 GB)
+	//     Spill thresholds. When in-memory state crosses 1 GB,
+	//     CH writes to a temp file on disk. Slower but the query
+	//     finishes — vs. OOM'ing the whole pool.
+	//
+	//   distributed_aggregation_memory_efficient
+	//     Streams partial aggregates instead of buffering whole
+	//     result sets — irrelevant on single-node setups but
+	//     harmless and improves big external CH clusters.
 	conn, err := clickhouse.Open(&clickhouse.Options{
 		Addr: hosts,
 		Auth: clickhouse.Auth{Database: cfg.Database, Username: cfg.Username, Password: cfg.Password},
@@ -104,7 +126,13 @@ func New(cfg config.CHConfig, ret config.RetentionConfig) (*Store, error) {
 		MaxOpenConns:    maxConns,
 		MaxIdleConns:    maxConns / 2,
 		ConnMaxLifetime: time.Hour,
-		Settings:        clickhouse.Settings{"max_execution_time": 60},
+		Settings: clickhouse.Settings{
+			"max_execution_time":                       60,
+			"max_memory_usage":                         4_000_000_000,
+			"max_bytes_before_external_group_by":       1_000_000_000,
+			"max_bytes_before_external_sort":           1_000_000_000,
+			"distributed_aggregation_memory_efficient": 1,
+		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("connect: %w", err)
