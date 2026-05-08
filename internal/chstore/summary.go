@@ -63,7 +63,7 @@ func (s *Store) ListServiceNames(ctx context.Context, pattern string, limit, off
 	var total uint64
 	if err := s.conn.QueryRow(ctx,
 		"SELECT count(DISTINCT service_name) FROM service_summary_5m"+where+
-			" SETTINGS max_execution_time = 10",
+			" SETTINGS max_execution_time = 30",
 		args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
@@ -72,7 +72,7 @@ func (s *Store) ListServiceNames(ctx context.Context, pattern string, limit, off
 	rows, err := s.conn.Query(ctx,
 		"SELECT DISTINCT service_name FROM service_summary_5m"+where+
 			" ORDER BY service_name LIMIT ? OFFSET ?"+
-			" SETTINGS max_execution_time = 10",
+			" SETTINGS max_execution_time = 30",
 		args...)
 	if err != nil {
 		return nil, 0, err

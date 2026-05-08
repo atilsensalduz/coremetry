@@ -508,7 +508,7 @@ func (s *Store) GetTraces(ctx context.Context, f TraceFilter) ([]TraceRow, uint6
 			cap = 100
 		}
 		approxSQL := fmt.Sprintf(
-			"SELECT count() FROM (SELECT trace_id FROM spans %s GROUP BY trace_id LIMIT %d) SETTINGS max_execution_time = 15",
+			"SELECT count() FROM (SELECT trace_id FROM spans %s GROUP BY trace_id LIMIT %d) SETTINGS max_execution_time = 30",
 			wc.sql(), cap,
 		)
 		if err := s.conn.QueryRow(ctx, approxSQL, wc.args...).Scan(&total); err != nil {

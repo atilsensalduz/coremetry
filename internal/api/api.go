@@ -415,7 +415,7 @@ func (s *Server) getAttributeKeys(w http.ResponseWriter, r *http.Request) {
 			GROUP BY scope, k
 			ORDER BY c DESC
 			LIMIT ?
-			SETTINGS max_execution_time = 10`,
+			SETTINGS max_execution_time = 30`,
 			int64(since.Seconds()), int64(since.Seconds()), limit)
 		if err != nil {
 			return nil, err
@@ -497,7 +497,7 @@ func (s *Server) getAttributeValues(w http.ResponseWriter, r *http.Request) {
 				GROUP BY v
 				ORDER BY c DESC
 				LIMIT ?
-				SETTINGS max_execution_time = 10`, col, col)
+				SETTINGS max_execution_time = 30`, col, col)
 			args = []any{int64(since.Seconds()), limit}
 		} else {
 			// Array-lookup path. `has(...)` short-circuits the lookup
@@ -516,7 +516,7 @@ func (s *Server) getAttributeValues(w http.ResponseWriter, r *http.Request) {
 				HAVING v != ''
 				ORDER BY c DESC
 				LIMIT ?
-				SETTINGS max_execution_time = 10`, arrVals, arrKeys, arrKeys)
+				SETTINGS max_execution_time = 30`, arrVals, arrKeys, arrKeys)
 			args = []any{key, int64(since.Seconds()), key, limit}
 		}
 
