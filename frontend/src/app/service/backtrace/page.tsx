@@ -184,15 +184,17 @@ function BacktraceInner() {
                         {tsLong(r.lastSeenNs)}
                       </td>
                       <td>
-                        {/* Drill-in: open the trace list scoped to traces
-                            involving the caller service. /traces filters at
-                            the span level, so passing the caller surfaces
-                            traces where it appears — the user can then click
-                            into individual traces to confirm they hit the
-                            inspected service. (Caller-x-callee relational
-                            filter doesn't exist as a UI primitive yet.) */}
+                        {/* Drill-in: open the trace list scoped to the
+                            caller service. ?view=list forces the trace
+                            list — /traces lands on Aggregated by default,
+                            and the operator clicking 'Traces' wants
+                            individual traces, not buckets. (Caller-x-
+                            callee relational filter doesn't exist as a UI
+                            primitive yet, so the inspected service isn't
+                            folded into the filter — the user can confirm
+                            by opening a trace.) */}
                         <Link
-                          href={`/traces?service=${encodeURIComponent(r.callerService)}`}
+                          href={`/traces?service=${encodeURIComponent(r.callerService)}&view=list`}
                           title={`Traces emitted by ${r.callerService}`}
                           style={{
                             fontSize: 11, padding: '3px 10px',
