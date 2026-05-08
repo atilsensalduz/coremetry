@@ -308,13 +308,16 @@ func (s *Server) getServiceStructure(w http.ResponseWriter, r *http.Request) {
 	since := parseDuration(r.URL.Query().Get("since"), time.Hour)
 	samples := parseInt(r.URL.Query().Get("samples"), 50)
 
-	// 60s cache. Same reasoning as service-neighbors: top-N traces +
-	// bulk-attribute span fetch is the heaviest request on the
-	// service detail page; topology / shape doesn't shift inside a
-	// minute. A range or sample-count change still misses.
+	// 1h cache. Service call structure shifts on a deploy / weekly /
+	// monthly cadence, not minute-by-minute, so an hour-stale tree
+	// is functionally identical to a fresh one for the operator's
+	// purposes. The underlying top-N-traces + bulk-attribute fetch
+	// is the heaviest single query on the service detail page;
+	// caching for 1h collapses an entire user session into a single
+	// CH round-trip. A range or sample-count change still misses.
 	key := fmt.Sprintf("service-structure:svc=%s:since=%s:samples=%d",
 		name, since, samples)
-	s.serveCached(w, r, key, 60*time.Second, func() (any, error) {
+	s.serveCached(w, r, key, time.Hour, func() (any, error) {
 		roots, totalSpans, sampledFrom, err := s.store.AggregateServiceStructure(
 			r.Context(), name, since, samples)
 		if err != nil {
@@ -335,11 +338,13 @@ func (s *Server) getServiceStructure(w http.ResponseWriter, r *http.Request) {
 // turn. No peer.service heuristic; pure parent/child edge analysis
 // over the recent N traces.
 //
-// Result is cached for 60s — service topology doesn't shift inside
-// a one-minute window, and the underlying query (top-N traces +
-// bulk span fetch) is the most expensive thing on the service
-// detail page. Cache key folds in service / since / samples so a
-// range or sample-count change skips the cache.
+// Result is cached for 1h — the upstream / downstream service set
+// shifts on a deploy / weekly / monthly cadence, not within a
+// session, so an hour-stale list is functionally identical to a
+// fresh one. The underlying query (top-N traces + bulk span fetch)
+// is otherwise the most expensive thing on the service detail page.
+// Cache key folds in service / since / samples so a range or
+// sample-count change still misses.
 func (s *Server) getServiceNeighbors(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if name == "" {
@@ -350,7 +355,7 @@ func (s *Server) getServiceNeighbors(w http.ResponseWriter, r *http.Request) {
 
 	key := fmt.Sprintf("service-neighbors:svc=%s:since=%s:samples=%d",
 		name, since, samples)
-	s.serveCached(w, r, key, 60*time.Second, func() (any, error) {
+	s.serveCached(w, r, key, time.Hour, func() (any, error) {
 		upstream, downstream, sampledFrom, totalSpans, err := s.store.ServiceNeighbors(
 			r.Context(), name, since, samples)
 		if err != nil {
