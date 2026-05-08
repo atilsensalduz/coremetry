@@ -159,7 +159,12 @@ var defaults = Config{
 		Username: "default", MaxOpenConns: 10, DialTimeout: "5s",
 	},
 	Retention:  RetentionConfig{SpansDays: 30, LogsDays: 30, MetricsDays: 7},
-	Ingestion:  IngestionConfig{BatchSize: 10_000, BufferSize: 100_000, FlushInterval: 5 * time.Second, Workers: 4},
+	// Defaults tuned for production-grade ingest at ~1B spans/day
+	// (12k/sec average, 50k/sec burst). Workers parallelise the CH
+	// insert path so a 200ms stall on one flush doesn't queue up
+	// behind it. BufferSize 500k gives ~10s of burst headroom even
+	// when all workers are mid-flush.
+	Ingestion:  IngestionConfig{BatchSize: 10_000, BufferSize: 500_000, FlushInterval: 2 * time.Second, Workers: 8},
 	Auth: AuthConfig{
 		TokenTTL:        24 * time.Hour,
 		InitialAdmin:    "admin@coremetry.local",

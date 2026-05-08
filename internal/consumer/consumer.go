@@ -12,16 +12,25 @@ type Options struct {
 	BatchSize     int
 	BufferSize    int
 	FlushInterval time.Duration
-	Workers       int
+	// Workers is the number of parallel flushers consuming the
+	// dispatch channel. Each worker calls flushFn independently so
+	// a slow ClickHouse insert no longer back-pressures item
+	// accumulation. Defaults to 1 when unset for back-compat.
+	Workers int
 }
 
-// Consumer is a generic, channel-based batch consumer with backpressure.
-// Multiple goroutines can call Add concurrently; a single reader loop
-// accumulates items and flushes when batchSize is reached or FlushInterval fires.
+// Consumer is a generic, channel-based batch consumer with
+// backpressure plus a parallel flush stage. Producers call Add
+// concurrently → single reader loop accumulates batches → those
+// batches are handed off to a pool of `Workers` flushers via a
+// dispatch channel. Decoupling accumulation from CH insert latency
+// is critical at 1B spans/day: a 200ms CH stall must not stall the
+// goroutine reading from the OTLP receiver.
 type Consumer[T any] struct {
 	name    string
 	opts    Options
 	ch      chan T
+	flushQ  chan []T // dispatched batches awaiting a flusher
 	flushFn func(ctx context.Context, batch []T) error
 	wg      sync.WaitGroup
 	dropped atomic.Int64
@@ -54,10 +63,27 @@ func (c *Consumer[T]) Add(item T) bool {
 }
 
 func (c *Consumer[T]) Start(ctx context.Context) {
+	workers := c.opts.Workers
+	if workers < 1 {
+		workers = 1
+	}
+	// Dispatch buffer of 2× workers so the loop can stage one batch
+	// per worker plus an in-flight one without blocking on a slow
+	// flusher; deeper buffering would just delay backpressure
+	// without helping throughput.
+	c.flushQ = make(chan []T, workers*2)
+
 	c.wg.Add(1)
 	go c.loop(ctx)
+	for i := 0; i < workers; i++ {
+		c.wg.Add(1)
+		go c.flusher()
+	}
 }
 
+// loop drains ch into batches and dispatches each to flushQ. Runs
+// in its own goroutine; never calls flushFn directly so insert
+// latency cannot back-pressure the read side.
 func (c *Consumer[T]) loop(ctx context.Context) {
 	defer c.wg.Done()
 	ticker := time.NewTicker(c.opts.FlushInterval)
@@ -65,14 +91,19 @@ func (c *Consumer[T]) loop(ctx context.Context) {
 
 	batch := make([]T, 0, c.opts.BatchSize)
 
-	flush := func() {
+	dispatch := func() {
 		if len(batch) == 0 {
 			return
 		}
 		b := batch
 		batch = make([]T, 0, c.opts.BatchSize)
-		if err := c.flushFn(ctx, b); err != nil {
-			log.Printf("[consumer/%s] flush error: %v", c.name, err)
+		// Backpressure point: if every flusher is busy AND flushQ
+		// is full, this blocks until a worker frees a slot. That
+		// transitively blocks the reader on `ch`, then `Add`,
+		// which is the right surface for backpressure visibility.
+		select {
+		case c.flushQ <- b:
+		case <-ctx.Done():
 		}
 	}
 
@@ -81,31 +112,47 @@ func (c *Consumer[T]) loop(ctx context.Context) {
 		case item := <-c.ch:
 			batch = append(batch, item)
 			if len(batch) >= c.opts.BatchSize {
-				flush()
+				dispatch()
 			}
 		case <-ticker.C:
-			flush()
+			dispatch()
 		case <-ctx.Done():
-			// drain remaining
+			// drain any remaining items, then close so flushers exit.
 		drain:
 			for {
 				select {
 				case item := <-c.ch:
 					batch = append(batch, item)
 					if len(batch) >= c.opts.BatchSize {
-						flush()
+						dispatch()
 					}
 				default:
 					break drain
 				}
 			}
-			flush()
+			dispatch()
+			close(c.flushQ)
 			return
 		}
 	}
 }
 
-// Stop waits for the consumer loop to finish after context cancellation.
+// flusher reads dispatched batches and runs flushFn. Uses
+// context.Background() rather than the consumer's context so a
+// shutdown-triggered drain still gets the final batches written.
+// The 60s ClickHouse max_execution_time on the Store side keeps
+// these calls bounded.
+func (c *Consumer[T]) flusher() {
+	defer c.wg.Done()
+	for batch := range c.flushQ {
+		if err := c.flushFn(context.Background(), batch); err != nil {
+			log.Printf("[consumer/%s] flush error: %v", c.name, err)
+		}
+	}
+}
+
+// Stop waits for the consumer loop and all flushers to finish after
+// context cancellation.
 func (c *Consumer[T]) Stop() {
 	c.wg.Wait()
 	if n := c.dropped.Load(); n > 0 {
@@ -115,6 +162,7 @@ func (c *Consumer[T]) Stop() {
 
 func (c *Consumer[T]) QueueLen() int  { return len(c.ch) }
 func (c *Consumer[T]) Dropped() int64 { return c.dropped.Load() }
+
 // Accepted returns the cumulative count of items that were successfully
 // queued. Sampled twice over a known interval to compute an ingest rate.
 func (c *Consumer[T]) Accepted() int64 { return c.accepted.Load() }
