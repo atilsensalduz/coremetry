@@ -72,15 +72,16 @@ func (s *Store) InsertMetrics(ctx context.Context, pts []*MetricPoint) error {
 // Pass `since` for a relative window (now-since … now), or non-zero `from`/`to`
 // for an absolute window (overrides since).
 func (s *Store) GetServices(ctx context.Context, since time.Duration, from, to time.Time) ([]ServiceSummary, error) {
-	return s.GetServicesFiltered(ctx, since, from, to, "")
+	return s.GetServicesFiltered(ctx, since, from, to, "", 0, 0)
 }
 
 // GetServicesFiltered narrows the result to services whose name
 // matches `nameMatch` (case-insensitive substring). Used by the
 // services-page picker so a service outside the top-N still appears
 // when the user types its name. Empty `nameMatch` disables the
-// filter (legacy behaviour).
-func (s *Store) GetServicesFiltered(ctx context.Context, since time.Duration, from, to time.Time, nameMatch string) ([]ServiceSummary, error) {
+// filter (legacy behaviour). limit/offset drive page-based
+// pagination — pass limit=0 to disable the cap.
+func (s *Store) GetServicesFiltered(ctx context.Context, since time.Duration, from, to time.Time, nameMatch string, limit, offset int) ([]ServiceSummary, error) {
 	var wc whereClause
 	if !from.IsZero() {
 		wc.add("time >= ?", from)
@@ -92,6 +93,10 @@ func (s *Store) GetServicesFiltered(ctx context.Context, since time.Duration, fr
 	}
 	if nameMatch != "" {
 		wc.add("positionCaseInsensitive(service_name, ?) > 0", nameMatch)
+	}
+	limitClause := ""
+	if limit > 0 {
+		limitClause = fmt.Sprintf(" LIMIT %d OFFSET %d", limit, offset)
 	}
 	// Apdex threshold (T) — 200 ms is a common default. Frustrated boundary
 	// is 4T. Computed per-service in the same pass to avoid an extra query.
@@ -106,7 +111,7 @@ func (s *Store) GetServicesFiltered(ctx context.Context, since time.Duration, fr
 		         / nullIf(count(), 0)                   AS apdex
 		FROM spans `+wc.sql()+`
 		GROUP BY service_name
-		ORDER BY span_count DESC`,
+		ORDER BY span_count DESC`+limitClause,
 		append([]any{apdexT, apdexT, apdexT * 4}, wc.args...)...)
 	if err != nil {
 		return nil, err

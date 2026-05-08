@@ -102,7 +102,7 @@ func (s *Store) ListServiceNames(ctx context.Context, pattern string, limit, off
 // 30-second hard execution timeout via SETTINGS — this endpoint must
 // never hang the UI thread, even when the MV itself has a backlog.
 func (s *Store) GetServicesAgg(ctx context.Context, from, to time.Time, limit int) ([]ServiceSummary, error) {
-	return s.GetServicesAggFiltered(ctx, from, to, "", limit)
+	return s.GetServicesAggFiltered(ctx, from, to, "", limit, 0)
 }
 
 // GetServicesAggFiltered narrows the row set by a substring match on
@@ -110,7 +110,7 @@ func (s *Store) GetServicesAgg(ctx context.Context, from, to time.Time, limit in
 // dropdown so a service that's outside the limited top-N still
 // surfaces when the user types its name. `nameMatch` empty disables
 // the filter.
-func (s *Store) GetServicesAggFiltered(ctx context.Context, from, to time.Time, nameMatch string, limit int) ([]ServiceSummary, error) {
+func (s *Store) GetServicesAggFiltered(ctx context.Context, from, to time.Time, nameMatch string, limit, offset int) ([]ServiceSummary, error) {
 	if from.IsZero() {
 		from = time.Now().Add(-24 * time.Hour)
 	}
@@ -119,7 +119,7 @@ func (s *Store) GetServicesAggFiltered(ctx context.Context, from, to time.Time, 
 	}
 	limitClause := ""
 	if limit > 0 {
-		limitClause = fmt.Sprintf(" LIMIT %d", limit)
+		limitClause = fmt.Sprintf(" LIMIT %d OFFSET %d", limit, offset)
 	}
 	const apdexT = 200.0
 	nameClause := ""

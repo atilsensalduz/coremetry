@@ -31,9 +31,13 @@ export default function ServicesPage() {
   const [sparklines, setSparklines] = useState<Record<string, SparklineBucket[]>>({});
   const [sortBy, setSortBy] = useState<SortKey>('errorRate');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
-  // Top-N cap. 50 is the chart-wide default and covers ~95% of installs;
-  // the "Load all" link bumps it to 5000 for envs with a long tail.
-  const [limit, setLimit] = useState<number>(50);
+  // Page-based pagination — 50 services per page, ranked by span
+  // count server-side. Prev/Next walk the long tail; no 'Load all'
+  // anymore because a single fetch of 10k+ services stalls the
+  // browser and isn't useful in practice.
+  const PAGE_SIZE = 50;
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
 
   // Filters (in-memory — service list is small)
   const [serviceFilter, setServiceFilter] = useState('');
@@ -53,23 +57,33 @@ export default function ServicesPage() {
     setData(undefined);
     setSparklines({});
     const r = timeRangeToNs(range);
-    // Two-phase fetch: services list first, then sparklines scoped to
-    // ONLY those names. Without the scope the sparklines payload is
-    // one bucket array per service across all of them — multi-MB at
-    // 10k+ services. Sparkline call is fire-and-forget (non-blocking)
-    // so the table renders even if the MV is empty.
+    // Two-phase fetch: services list first, then sparklines scoped
+    // to ONLY those names. Without the scope the sparklines payload
+    // is one bucket array per service across all of them — multi-MB
+    // at 10k+ services. Sparkline call is fire-and-forget so the
+    // table renders even if the MV is empty.
     //
-    // `committedFilter` is forwarded as ?name=… so a long-tail
-    // service shows up after the operator hits Enter / clicks
-    // Search — no Load-all bump needed.
-    api.services(r, limit, committedFilter || undefined).then(svcs => {
-      setData(svcs);
-      const names = (svcs ?? []).map(s => s.name);
+    // `committedFilter` is forwarded as ?name=… so the substring
+    // search runs server-side across every service, not just the
+    // current page.
+    api.servicesPage(r, {
+      limit: PAGE_SIZE,
+      offset: page * PAGE_SIZE,
+      name: committedFilter || undefined,
+    }).then(resp => {
+      setData(resp?.services ?? []);
+      setHasMore(resp?.hasMore ?? false);
+      const names = (resp?.services ?? []).map(s => s.name);
       if (names.length > 0) {
         api.serviceSparklines(r, names).then(d => setSparklines(d ?? {})).catch(() => {});
       }
-    }).catch(() => setData(null));
-  }, [range, limit, committedFilter]);
+    }).catch(() => { setData(null); setHasMore(false); });
+  }, [range, page, committedFilter]);
+
+  // Reset to page 0 whenever the search filter or time range
+  // changes — staying on page 5 of an old result set when the
+  // operator searches for a specific service is jarring.
+  useEffect(() => { setPage(0); }, [committedFilter, range]);
 
   // Service combobox options come from the loaded data itself.
   const serviceOptions = useMemo(
@@ -110,7 +124,6 @@ export default function ServicesPage() {
     setServiceFilter(''); setCommittedFilter('');
     setErrorsOnly(false); setMinSpans(''); setMinP99('');
   };
-  const totalCount = data?.length ?? 0;
 
   // Aggregate row across the currently-visible (filtered) services.
   // Span count → sum. Error rate / avg / apdex → weighted by span count
@@ -215,17 +228,23 @@ export default function ServicesPage() {
               Errors only
             </label>
             <button className="sec" onClick={reset}>Reset</button>
-            <span style={{ color: 'var(--text3)', fontSize: 12, marginLeft: 'auto' }}>
-              {sorted?.length ?? 0} / {totalCount} services
-              {data && data.length >= limit && limit < 5000 && (
-                <>
-                  {' · '}
-                  <a href="#" onClick={e => { e.preventDefault(); setLimit(5000); }}
-                     title="Loaded the top 50 by span count — fetch the long tail too (slower)">
-                    Load all
-                  </a>
-                </>
-              )}
+            <span style={{ color: 'var(--text3)', fontSize: 12, marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+              {sorted?.length ?? 0} services on page {page + 1}
+              <button className="sec" type="button"
+                disabled={page === 0}
+                onClick={() => setPage(p => Math.max(0, p - 1))}
+                style={{ padding: '3px 10px', fontSize: 11 }}>
+                ← Prev
+              </button>
+              <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>
+                {page + 1}
+              </span>
+              <button className="sec" type="button"
+                disabled={!hasMore}
+                onClick={() => setPage(p => p + 1)}
+                style={{ padding: '3px 10px', fontSize: 11 }}>
+                Next →
+              </button>
             </span>
           </div>
         )}

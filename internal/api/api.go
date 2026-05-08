@@ -263,18 +263,25 @@ func (s *Server) getServices(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	since := parseDuration(q.Get("since"), 24*time.Hour)
 	from, to := parseTime(q.Get("from")), parseTime(q.Get("to"))
-	// Top-N cap. The default keeps pages responsive at 10s of thousands
-	// of services; the UI offers a "Load all" affordance for users who
-	// genuinely need the long tail.
+	// Page-based pagination — default page size 50, capped at 500.
+	// The UI pages forward through these chunks; there's no
+	// 'Load all' bump anymore because at 10k+ services it stalls
+	// the browser and isn't useful.
 	limit := parseInt(q.Get("limit"), 50)
-	if limit > 5000 {
-		limit = 5000
+	if limit < 1 {
+		limit = 50
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	offset := parseInt(q.Get("offset"), 0)
+	if offset < 0 {
+		offset = 0
 	}
 	// Optional case-insensitive substring match on service_name.
 	// Drives the Services-page filter dropdown: when the operator types
-	// in the picker, the table refreshes against ALL services that
-	// contain the typed substring — even ones outside the top-N
-	// limit, so a long-tail service shows up without bumping the cap.
+	// in the picker, the query searches ALL services that contain the
+	// typed substring across pages.
 	nameMatch := strings.TrimSpace(q.Get("name"))
 	if from.IsZero() {
 		from = time.Now().Add(-since)
@@ -286,13 +293,37 @@ func (s *Server) getServices(w http.ResponseWriter, r *http.Request) {
 	// shorter than ~5 min would return empty — fall through to the raw
 	// scan in that case (small window = small scan, also fast).
 	useMV := to.Sub(from) >= 5*time.Minute
-	key := fmt.Sprintf("services:mv=%t:limit=%d:since=%s:from=%s:to=%s:name=%s",
-		useMV, limit, q.Get("since"), q.Get("from"), q.Get("to"), nameMatch)
-	s.serveCached(w, r, key, 5*time.Second, func() (any, error) {
+	key := fmt.Sprintf("services:mv=%t:limit=%d:offset=%d:since=%s:from=%s:to=%s:name=%s",
+		useMV, limit, offset, q.Get("since"), q.Get("from"), q.Get("to"), nameMatch)
+	// 30s cache. The 5m-MV-backed query is already sub-second on
+	// 10k+ services, but 30s collapses every page-flip and tab
+	// switch in a session into one CH round-trip per (page,
+	// filter, range). Refresh button on the page can ?refresh=1.
+	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
+		// Fetch limit+1 so we can report hasMore without paying a
+		// separate count(DISTINCT) — at 10k+ services a count is
+		// the slowest part of the page.
+		probeLimit := limit + 1
+		var rows []chstore.ServiceSummary
+		var err error
 		if useMV {
-			return s.store.GetServicesAggFiltered(r.Context(), from, to, nameMatch, limit)
+			rows, err = s.store.GetServicesAggFiltered(r.Context(), from, to, nameMatch, probeLimit, offset)
+		} else {
+			rows, err = s.store.GetServicesFiltered(r.Context(), since, from, to, nameMatch, probeLimit, offset)
 		}
-		return s.store.GetServicesFiltered(r.Context(), since, from, to, nameMatch)
+		if err != nil {
+			return nil, err
+		}
+		hasMore := len(rows) > limit
+		if hasMore {
+			rows = rows[:limit]
+		}
+		return map[string]any{
+			"services": rows,
+			"hasMore":  hasMore,
+			"offset":   offset,
+			"limit":    limit,
+		}, nil
 	})
 }
 

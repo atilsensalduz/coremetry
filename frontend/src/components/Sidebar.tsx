@@ -18,7 +18,6 @@ const NAV = [
   { href: '/logs',       label: 'Logs',         icon: '≡' },
   { href: '/explore',    label: 'Explore',      icon: '◎' },
   { href: '/dashboards', label: 'Dashboards',   icon: '◫' },
-  { href: '/graph',      label: 'Service Graph', icon: '⬡' },
   { href: '/profiling',  label: 'Profiling',    icon: '🔥' },
   { href: '/alerts',     label: 'Alerts',       icon: '🔔' },
   { href: '/slos',       label: 'SLOs',         icon: '◉' },

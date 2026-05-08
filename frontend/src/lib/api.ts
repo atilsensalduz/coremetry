@@ -51,12 +51,25 @@ export interface RangeParams { from: number; to: number }
 export const api = {
   // `name` is an optional case-insensitive substring filter applied
   // server-side BEFORE the limit clamp, so a service in the long
-  // tail still surfaces when the user types it into the picker
-  // without forcing a Load-all (5000) fetch.
-  services:   (r: RangeParams, limit?: number, name?: string) =>
-    get<Service[] | null>(`/api/services?${qs({ ...r, limit, name })}`),
-  graph:      (r: RangeParams, service?: string) =>
-    get<ServiceEdge[] | null>(`/api/services/graph?${qs({ ...r, service })}`),
+  // tail still surfaces when the user types it into the picker.
+  // Backwards-compatible flat-array surface — unwraps the paged
+  // response shape introduced for /services. Existing callers
+  // (autocomplete pickers, slos, alerts, …) keep their array
+  // contract.
+  services: async (r: RangeParams, limit?: number, name?: string): Promise<Service[] | null> => {
+    const resp = await get<{ services: Service[]; hasMore: boolean } | null>(
+      `/api/services?${qs({ ...r, limit, name })}`);
+    return resp ? resp.services : null;
+  },
+  // Page-aware variant — returns the full {services, hasMore,
+  // offset, limit} payload so /services can drive prev/next.
+  servicesPage: (r: RangeParams, opts: { limit?: number; offset?: number; name?: string } = {}) =>
+    get<{
+      services: Service[];
+      hasMore: boolean;
+      offset: number;
+      limit: number;
+    }>(`/api/services?${qs({ ...r, ...opts })}`),
   // Coremetry meta-observability snapshot — drives /admin/stats.
   systemStats: () =>
     get<import('./types').SystemStats>('/api/admin/system-stats'),
