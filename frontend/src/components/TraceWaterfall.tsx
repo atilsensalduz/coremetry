@@ -19,6 +19,14 @@ interface Row {
   // Standard Tempo / Jaeger waterfall convention.
   ancestorContinues: boolean[];
   isLastSibling: boolean;
+  // Group annotations — populated when `groupSimilar` is on AND
+  // multiple sibling spans collapsed into this synthetic row.
+  // Drives the "×N" badge + the aggregated tooltip stats.
+  groupCount?: number;
+  groupTotalDur?: number;  // ns, sum across members
+  groupAvgDur?: number;    // ns
+  groupMaxDur?: number;    // ns
+  hasError?: boolean;      // any member errored — error stripe still wins
 }
 
 // Span-kind glyphs — case-insensitive variants of the OTel-spec values.
@@ -58,12 +66,41 @@ function categoryOf(s: SpanRow): SpanCategory | null {
   return null;
 }
 
-export function TraceWaterfall({ spans, selectedId, onSelect }: {
+export function TraceWaterfall({
+  spans, selectedId, onSelect, defaultCollapsed, groupSimilar = false,
+}: {
   spans: SpanRow[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  // When true, every span that has children starts collapsed —
+  // the user sees only the root row(s) and clicks ▶ to drill in.
+  // Used by the service-structure view so the operator scans
+  // top-level shape first instead of being faced with a 200-span
+  // waterfall on mount.
+  defaultCollapsed?: boolean;
+  // When true, sibling spans sharing the same (service, displayName)
+  // collapse to a single "×N" row whose children come from the
+  // longest member (representative subtree). Cuts noise on tight-
+  // loop patterns like N+1 DB queries — used by the service-
+  // structure waterfall, off by default in the regular trace view.
+  groupSimilar?: boolean;
 }) {
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // Memoise the parents-of-something set keyed by the spans array
+  // identity. When defaultCollapsed is on, that set becomes the
+  // initial collapsed Set; otherwise we start with an empty Set.
+  // Keys depend on spans only — re-renders that just change
+  // selectedId / nameWidth don't reset the user's expansions.
+  const initialCollapsed = useMemo(() => {
+    if (!defaultCollapsed) return new Set<string>();
+    const parents = new Set<string>();
+    for (const s of spans) if (s.parentSpanId) parents.add(s.parentSpanId);
+    return parents;
+  }, [spans, defaultCollapsed]);
+
+  const [collapsed, setCollapsed] = useState<Set<string>>(initialCollapsed);
+  // Re-sync when spans flip (a fresh trace replaces the previous
+  // one) so the new structure also opens collapsed.
+  useEffect(() => { setCollapsed(initialCollapsed); }, [initialCollapsed]);
   const [nameWidth, setNameWidth] = useState<number | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -89,17 +126,103 @@ export function TraceWaterfall({ spans, selectedId, onSelect }: {
     roots.sort((a, b) => a.startTime - b.startTime);
 
     const out: Row[] = [];
+
+    // Group sibling kids by (service, displayName) when groupSimilar
+    // is on. Each output entry represents either a single span or a
+    // group of N>1 siblings sharing the same identity. Order is
+    // chronological by the earliest member's start time so the
+    // wall-clock shape of the trace is preserved.
+    type ChildEntry = { kind: 'single'; span: SpanRow }
+                    | { kind: 'group'; members: SpanRow[]; rep: SpanRow;
+                        minStart: number; maxEnd: number;
+                        totalDur: number; maxDur: number;
+                        anyError: boolean; key: string };
+    const groupKey = (sp: SpanRow) => sp.serviceName + '\x01' + displaySpanName(sp);
+    const groupChildren = (kids: SpanRow[]): ChildEntry[] => {
+      if (!groupSimilar) {
+        return kids.map(s => ({ kind: 'single', span: s }));
+      }
+      const buckets = new Map<string, SpanRow[]>();
+      const order: string[] = [];
+      for (const k of kids) {
+        const key = groupKey(k);
+        if (!buckets.has(key)) { buckets.set(key, []); order.push(key); }
+        buckets.get(key)!.push(k);
+      }
+      // Order buckets by earliest member start time.
+      order.sort((a, b) => {
+        const aMin = buckets.get(a)!.reduce((m, x) => x.startTime < m ? x.startTime : m, Infinity);
+        const bMin = buckets.get(b)!.reduce((m, x) => x.startTime < m ? x.startTime : m, Infinity);
+        return aMin - bMin;
+      });
+      return order.map(key => {
+        const members = buckets.get(key)!;
+        if (members.length === 1) {
+          return { kind: 'single', span: members[0] };
+        }
+        let minStart = Infinity, maxEnd = -Infinity, totalDur = 0, maxDur = 0;
+        let rep = members[0]; let repDur = 0;
+        let anyError = false;
+        for (const m of members) {
+          const dur = m.endTime - m.startTime;
+          totalDur += dur;
+          if (dur > maxDur)  maxDur = dur;
+          if (dur > repDur)  { rep = m; repDur = dur; }
+          if (m.startTime < minStart) minStart = m.startTime;
+          if (m.endTime   > maxEnd)   maxEnd = m.endTime;
+          if (m.statusCode === 'error') anyError = true;
+        }
+        return { kind: 'group', members, rep, minStart, maxEnd,
+                 totalDur, maxDur, anyError, key };
+      });
+    };
+
     const dfs = (id: string, depth: number, isLast: boolean, ancestorContinues: boolean[]) => {
       const s = map.get(id); if (!s) return;
       const kids = children.get(id) ?? [];
       out.push({ span: s, depth, hasChildren: kids.length > 0, ancestorContinues, isLastSibling: isLast });
       if (collapsed.has(id)) return;
-      kids.forEach((c, i) => {
-        const last = i === kids.length - 1;
-        // children inherit the parent's ancestor-continues flags + add
-        // a flag for this depth based on whether this very subtree's
-        // root still has siblings after it.
-        dfs(c.spanId, depth + 1, last, [...ancestorContinues, !isLast]);
+      const entries = groupChildren(kids);
+      entries.forEach((entry, i) => {
+        const last = i === entries.length - 1;
+        if (entry.kind === 'single') {
+          dfs(entry.span.spanId, depth + 1, last, [...ancestorContinues, !isLast]);
+          return;
+        }
+        // Synthetic group row — represents N siblings with the same
+        // (service, displayName). Children come from the longest
+        // member's subtree (representative) so the operator still
+        // sees a typical call shape under the group.
+        const synthId = `group:${id}:${i}:${entry.key}`;
+        const repKids = children.get(entry.rep.spanId) ?? [];
+        const synthSpan: SpanRow = {
+          ...entry.rep,
+          spanId: synthId,
+          startTime: entry.minStart,
+          endTime:   entry.maxEnd,
+          // If any member errored, mark the group; otherwise inherit.
+          statusCode: entry.anyError ? 'error' : entry.rep.statusCode,
+        };
+        out.push({
+          span: synthSpan,
+          depth: depth + 1,
+          hasChildren: repKids.length > 0,
+          ancestorContinues: [...ancestorContinues, !isLast],
+          isLastSibling: last,
+          groupCount: entry.members.length,
+          groupTotalDur: entry.totalDur,
+          groupAvgDur: entry.totalDur / entry.members.length,
+          groupMaxDur: entry.maxDur,
+          hasError: entry.anyError,
+        });
+        if (collapsed.has(synthId)) return;
+        // Recurse into the rep's children directly (one level
+        // deeper than the synthetic row).
+        repKids.forEach((c, j) => {
+          const lastChild = j === repKids.length - 1;
+          dfs(c.spanId, depth + 2, lastChild,
+              [...ancestorContinues, !isLast, !last]);
+        });
       });
     };
     roots.forEach((r, i) => dfs(r.spanId, 0, i === roots.length - 1, []));
@@ -109,7 +232,7 @@ export function TraceWaterfall({ spans, selectedId, onSelect }: {
     const totalNs = maxT - minT || 1;
     const maxDepth = out.reduce((m, r) => Math.max(m, r.depth), 0);
     return { rows: out, minT, totalNs, maxDepth };
-  }, [spans, collapsed]);
+  }, [spans, collapsed, groupSimilar]);
 
   const defaultNameWidth = useMemo(() => {
     if (containerWidth <= 0) return 380;
@@ -185,7 +308,8 @@ export function TraceWaterfall({ spans, selectedId, onSelect }: {
         </div>
       </div>
 
-      {rows.map(({ span: s, depth, hasChildren, ancestorContinues, isLastSibling }) => {
+      {rows.map(({ span: s, depth, hasChildren, ancestorContinues, isLastSibling,
+                    groupCount, groupTotalDur, groupAvgDur, groupMaxDur }) => {
         const color = colorFor(s);
         const cat = categoryOf(s);
         const startPct = ((s.startTime - minT) / totalNs * 100).toFixed(4);
@@ -254,6 +378,22 @@ export function TraceWaterfall({ spans, selectedId, onSelect }: {
                 <span className="wf-name" title={s.name === displayName ? s.name : `raw: ${s.name}`}>
                   {displayName}
                 </span>
+                {/* Group multiplier — only when this row collapses
+                    N>1 sibling spans. Tooltip carries total / avg /
+                    max duration so the operator can read group cost
+                    without expanding. */}
+                {groupCount && groupCount > 1 && (
+                  <span className="wf-group"
+                        title={
+                          `${groupCount}× ${displayName}\n` +
+                          `total: ${fmtNs(groupTotalDur ?? 0)}\n` +
+                          `avg:   ${fmtNs(groupAvgDur ?? 0)}\n` +
+                          `max:   ${fmtNs(groupMaxDur ?? 0)}\n` +
+                          `representative subtree shown — click to drill into the actual trace`
+                        }>
+                    ×{groupCount}
+                  </span>
+                )}
                 {s.statusCode === 'error' && (
                   <span className="wf-err-dot" title="Error">●</span>
                 )}

@@ -339,6 +339,25 @@ tbody td { padding: 7px 12px; max-width: 320px; white-space: nowrap; overflow: h
   line-height: 1.1;
 }
 
+/* Group multiplier — appears in service-structure rows when N>1
+   sibling spans collapse to a single "×N" entry. Outlined chip in
+   accent2 so the eye finds it quickly when scanning a deep tree
+   for hot loops. */
+.wf-group {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+  padding: 0 6px;
+  margin-left: 6px;
+  border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--accent2);
+  background: rgba(56,139,253,0.10);
+  border: 1px solid rgba(56,139,253,0.35);
+  line-height: 1.5;
+}
+
 /* Span category chip — DB / HTTP / RPC / MQ. Outlined-pill instead
    of filled; same low-contrast band as the new service style so the
    row stays calm. Background transparent; border + foreground take
