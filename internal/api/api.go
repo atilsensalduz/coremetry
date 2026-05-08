@@ -308,14 +308,24 @@ func (s *Server) getServiceStructure(w http.ResponseWriter, r *http.Request) {
 	since := parseDuration(r.URL.Query().Get("since"), time.Hour)
 	samples := parseInt(r.URL.Query().Get("samples"), 50)
 
-	roots, totalSpans, sampledFrom, err := s.store.AggregateServiceStructure(
-		r.Context(), name, since, samples)
-	if err != nil { writeErr(w, err); return }
-	writeJSON(w, map[string]any{
-		"service":     name,
-		"roots":       roots,
-		"sampledFrom": sampledFrom,
-		"totalSpans":  totalSpans,
+	// 60s cache. Same reasoning as service-neighbors: top-N traces +
+	// bulk-attribute span fetch is the heaviest request on the
+	// service detail page; topology / shape doesn't shift inside a
+	// minute. A range or sample-count change still misses.
+	key := fmt.Sprintf("service-structure:svc=%s:since=%s:samples=%d",
+		name, since, samples)
+	s.serveCached(w, r, key, 60*time.Second, func() (any, error) {
+		roots, totalSpans, sampledFrom, err := s.store.AggregateServiceStructure(
+			r.Context(), name, since, samples)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"service":     name,
+			"roots":       roots,
+			"sampledFrom": sampledFrom,
+			"totalSpans":  totalSpans,
+		}, nil
 	})
 }
 
@@ -620,12 +630,15 @@ func (s *Server) getServiceGraph(w http.ResponseWriter, r *http.Request) {
 	topN := parseInt(q.Get("topN"), 300)
 	if topN < 1   { topN = 300 }
 	if topN > 5000 { topN = 5000 }
-	edges, err := s.store.GetServiceGraphTopN(r.Context(), q.Get("service"), since, from, to, topN)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	writeJSON(w, edges)
+
+	// 30s cache. /graph polls the full topology and the per-service
+	// view re-fetches on every navigation; new edges form slowly
+	// relative to that cadence.
+	key := fmt.Sprintf("service-graph:svc=%s:since=%s:from=%s:to=%s:topN=%d",
+		q.Get("service"), q.Get("since"), q.Get("from"), q.Get("to"), topN)
+	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
+		return s.store.GetServiceGraphTopN(r.Context(), q.Get("service"), since, from, to, topN)
+	})
 }
 
 func (s *Server) getOperations(w http.ResponseWriter, r *http.Request) {
@@ -725,22 +738,34 @@ func (s *Server) getTraceAggregate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f.Filters = filters
-	rows, err := s.store.GetTraceAggregate(r.Context(), f)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	writeJSON(w, rows)
+
+	// 15s cache. /traces aggregated tab is the default landing
+	// view; sort / group toggles re-call this and tend to repeat
+	// the same predicate. Filter set goes through the raw query
+	// string so the key is stable across distinct callers.
+	key := fmt.Sprintf("traces-agg:%s", r.URL.RawQuery)
+	s.serveCached(w, r, key, 15*time.Second, func() (any, error) {
+		return s.store.GetTraceAggregate(r.Context(), f)
+	})
 }
 
 func (s *Server) getTrace(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	spans, err := s.store.GetTrace(r.Context(), id)
-	if err != nil {
-		writeErr(w, err)
-		return
+	if id == "" {
+		http.Error(w, "trace id required", http.StatusBadRequest); return
 	}
-	writeJSON(w, map[string]interface{}{"traceId": id, "spans": spans})
+	// 5min cache. A trace is immutable once stored — the only thing
+	// that could change is late-arriving spans within the ingest
+	// window. The /trace?id= page is a deep-link that often gets
+	// reopened; this collapses the repeated full-trace span fetches.
+	key := "trace:" + id
+	s.serveCached(w, r, key, 5*time.Minute, func() (any, error) {
+		spans, err := s.store.GetTrace(r.Context(), id)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"traceId": id, "spans": spans}, nil
+	})
 }
 
 // createTraceSnapshot mints a public-share token for the requested
