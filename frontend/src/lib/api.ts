@@ -57,6 +57,19 @@ export const api = {
     get<Service[] | null>(`/api/services?${qs({ ...r, limit, name })}`),
   graph:      (r: RangeParams, service?: string) =>
     get<ServiceEdge[] | null>(`/api/services/graph?${qs({ ...r, service })}`),
+  // Aggregated waterfall for a service — picks the richest recent
+  // trace involving the service and returns its span list along
+  // with sampled-from / total-spans counters for the header.
+  serviceStructure: (svc: string, since = '1h', samples = 50) =>
+    get<{
+      service: string;
+      traceId?: string;
+      spans?: import('./types').SpanRow[];
+      bestSpans?: number;
+      sampledFrom: number;
+      totalSpans: number;
+    }>(`/api/services/${encodeURIComponent(svc)}/structure?since=${since}&samples=${samples}`),
+
   // services: comma-separated allow-list — server caps to 200 to keep
   // the payload small even on 10k+ service installs.
   serviceSparklines: (r: RangeParams, services?: string[]) =>

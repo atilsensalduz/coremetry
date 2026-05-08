@@ -63,7 +63,7 @@ function ExploreInner() {
 
   // ── State, hydrated from URL on first render ─────────────────────────────
   const [range, setRange] = useState<TimeRange>(
-    () => decodeRange(searchParams.get('range'), { preset: '1h' }));
+    () => decodeRange(searchParams.get('range'), { preset: '10m' }));
   const [filters, setFilters] = useState<FilterExpr[]>(
     () => decodeFilters(searchParams.get('filters')));
   const [agg, setAgg] = useState<SpanAgg>(

@@ -8,10 +8,10 @@ import { ServiceStructure } from '@/components/ServiceStructure';
 import { api } from '@/lib/api';
 import { fmtNum, timeRangeToNs } from '@/lib/utils';
 import { encodeFilters, encodeRange, buildQuery } from '@/lib/urlState';
-import type { Service, ServiceEdgeStats, Problem, TimeRange, OperationSummary } from '@/lib/types';
+import type { Service, Problem, TimeRange, OperationSummary } from '@/lib/types';
 
 const SINCE_MAP: Record<string, string> = {
-  '5m': '5m', '15m': '15m', '30m': '30m',
+  '5m': '5m', '10m': '10m', '15m': '15m', '30m': '30m',
   '1h': '1h', '3h': '3h', '6h': '6h', '12h': '12h',
   '24h': '24h', '2d': '48h', '7d': '168h', '30d': '720h',
 };
@@ -20,10 +20,8 @@ function ServiceDetailInner() {
   const searchParams = useSearchParams();
   const svc = searchParams.get('name') ?? '';
 
-  const [range, setRange] = useState<TimeRange>({ preset: '1h' });
+  const [range, setRange] = useState<TimeRange>({ preset: '10m' });
   const [info, setInfo] = useState<Service | null>(null);
-  const [callers, setCallers] = useState<ServiceEdgeStats[]>([]);
-  const [callees, setCallees] = useState<ServiceEdgeStats[]>([]);
   const [problems, setProblems] = useState<Problem[]>([]);
   const [operations, setOperations] = useState<OperationSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,18 +29,18 @@ function ServiceDetailInner() {
   useEffect(() => {
     if (!svc) return;
     setLoading(true);
-    const since = SINCE_MAP[range.preset] ?? '24h';
     const r = timeRangeToNs(range);
+    // Upstream / downstream callers + callees were removed per
+    // operator request — the ServiceStructure waterfall below shows
+    // who-calls-whom in the actual span tree, which is more
+    // informative and doesn't depend on peer.service being
+    // populated. KPI strip + operations + problems remain.
     Promise.all([
-      api.services(r),
-      api.serviceCallers(svc, since),
-      api.serviceCallees(svc, since),
+      api.services(r, undefined, svc),
       api.problems({ service: svc, limit: 50 }),
       api.serviceOperations(svc, r),
-    ]).then(([all, up, down, probs, ops]) => {
+    ]).then(([all, probs, ops]) => {
       setInfo((all ?? []).find(s => s.name === svc) ?? null);
-      setCallers(up ?? []);
-      setCallees(down ?? []);
       setProblems(probs ?? []);
       setOperations(ops ?? []);
     }).finally(() => setLoading(false));
@@ -101,24 +99,8 @@ function ServiceDetailInner() {
         {loading && <Spinner />}
         {!loading && (
           <>
-            <ServiceStructure service={svc} callers={callers} callees={callees} />
-
+            <ServiceStructure service={svc} since={SINCE_MAP[range.preset] ?? '1h'} />
             <OperationsTable service={svc} rows={operations} range={range} />
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <DependencyTable
-                title="Upstream callers"
-                hint="Services that send requests to this one"
-                icon="←"
-                rows={callers}
-                empty="No upstream callers in this window" />
-              <DependencyTable
-                title="Downstream dependencies"
-                hint="Services / backends this service calls"
-                icon="→"
-                rows={callees}
-                empty="No outgoing calls in this window" />
-            </div>
           </>
         )}
       </div>
@@ -313,55 +295,6 @@ function OpSortTh({ col, label, sort, dir, onSort, align }: {
   );
 }
 
-function DependencyTable({ title, hint, icon, rows, empty }: {
-  title: string; hint: string; icon: string;
-  rows: ServiceEdgeStats[]; empty: string;
-}) {
-  return (
-    <div>
-      <div style={{ marginBottom: 6, display: 'flex', alignItems: 'baseline', gap: 8 }}>
-        <h3 style={{ fontSize: 13, fontWeight: 700 }}>{icon} {title}</h3>
-        <span style={{ fontSize: 11, color: 'var(--text3)' }}>{hint}</span>
-      </div>
-      {rows.length === 0 ? (
-        <div className="empty" style={{ padding: 30 }}>{empty}</div>
-      ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Service</th>
-                <th style={{ textAlign: 'right' }}>Calls</th>
-                <th style={{ textAlign: 'right' }}>Err %</th>
-                <th style={{ textAlign: 'right' }}>Avg</th>
-                <th style={{ textAlign: 'right' }}>P99</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(r => (
-                <tr key={r.service}>
-                  <td>
-                    <Link href={`/service?name=${encodeURIComponent(r.service)}`} style={{ fontWeight: 600 }}>
-                      {r.service}
-                    </Link>
-                  </td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{fmtNum(r.calls)}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>
-                    <span className={`badge ${r.errorRate > 5 ? 'b-err' : r.errorRate > 0 ? 'b-warn' : 'b-ok'}`}>
-                      {r.errorRate.toFixed(1)}%
-                    </span>
-                  </td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{r.avgMs.toFixed(1)}ms</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{r.p99Ms.toFixed(1)}ms</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
 
 export default function ServiceDetailPage() {
   return (

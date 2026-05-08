@@ -40,7 +40,7 @@ const SUGGESTED_GROUPBY = [
 ];
 
 export default function MetricsPage() {
-  const [range, setRange] = useState<TimeRange>({ preset: '1h' });
+  const [range, setRange] = useState<TimeRange>({ preset: '10m' });
   const [services, setServices] = useState<Service[]>([]);
   const [metricNames, setMetricNames] = useState<MetricInfo[]>([]);
   const [service, setService] = useState('');

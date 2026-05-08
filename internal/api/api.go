@@ -99,6 +99,7 @@ func (s *Server) Start() error {
 
 	// REST API
 	mux.HandleFunc("GET /api/services", s.getServices)
+	mux.HandleFunc("GET /api/services/{name}/structure", s.getServiceStructure)
 	mux.HandleFunc("GET /api/services/graph", s.getServiceGraph)
 	mux.HandleFunc("GET /api/services/sparklines", s.getServiceSparklines)
 	mux.HandleFunc("GET /api/service-names",       s.getServiceNames)
@@ -289,6 +290,44 @@ func (s *Server) getServices(w http.ResponseWriter, r *http.Request) {
 			return s.store.GetServicesAggFiltered(r.Context(), from, to, nameMatch, limit)
 		}
 		return s.store.GetServicesFiltered(r.Context(), since, from, to, nameMatch)
+	})
+}
+
+// getServiceStructure returns the spans of a representative trace
+// involving `name` plus a "sampled from / spans used" summary —
+// drives the Grafana-Drilldown-style aggregated waterfall on the
+// service detail page. We pick the trace with the largest span
+// count from the recent N candidates rather than synthesising an
+// averaged tree; one well-chosen real trace conveys typical
+// structure honestly and lets us reuse TraceWaterfall verbatim.
+func (s *Server) getServiceStructure(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		http.Error(w, "service name required", http.StatusBadRequest); return
+	}
+	since := parseDuration(r.URL.Query().Get("since"), time.Hour)
+	samples := parseInt(r.URL.Query().Get("samples"), 50)
+
+	traceID, bestSpans, sampledFrom, totalSpans, err := s.store.ServiceStructureSample(
+		r.Context(), name, since, samples)
+	if err != nil { writeErr(w, err); return }
+	if traceID == "" {
+		writeJSON(w, map[string]any{
+			"service":      name,
+			"sampledFrom":  0,
+			"totalSpans":   0,
+		})
+		return
+	}
+	spans, err := s.store.GetTrace(r.Context(), traceID)
+	if err != nil { writeErr(w, err); return }
+	writeJSON(w, map[string]any{
+		"service":     name,
+		"traceId":     traceID,
+		"spans":       spans,
+		"bestSpans":   bestSpans,
+		"sampledFrom": sampledFrom,
+		"totalSpans":  totalSpans,
 	})
 }
 
