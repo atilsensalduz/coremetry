@@ -44,17 +44,58 @@ var httpClient = &http.Client{Timeout: 5 * time.Second}
 
 // ─── Service definitions ──────────────────────────────────────────────────────
 
-type Service struct{ Name, Host string }
+// Each service runs as a small pod fleet so traces show realistic
+// (caller_service × caller_pod) variation in the backtrace view —
+// previously every service had a single host and the consumer table
+// collapsed every caller into one row.
+type Service struct {
+	Name string
+	Pods []string
+}
 
 var services = map[string]Service{
-	"frontend":        {"frontend", "web-prod-1"},
-	"api-gateway":     {"api-gateway", "gw-prod-1"},
-	"user-service":    {"user-service", "users-prod-2"},
-	"order-service":   {"order-service", "orders-prod-1"},
-	"payment-service": {"payment-service", "pay-prod-1"},
-	"product-service": {"product-service", "products-prod-1"},
-	"cart-service":    {"cart-service", "cart-prod-1"},
-	"search-service":  {"search-service", "search-prod-1"},
+	"frontend":        {"frontend",        []string{"web-prod-1", "web-prod-2", "web-prod-3"}},
+	"api-gateway":     {"api-gateway",     []string{"gw-prod-1", "gw-prod-2", "gw-prod-3"}},
+	"user-service":    {"user-service",    []string{"users-prod-1", "users-prod-2", "users-prod-3"}},
+	"order-service":   {"order-service",   []string{"orders-prod-1", "orders-prod-2"}},
+	"payment-service": {"payment-service", []string{"pay-prod-1", "pay-prod-2"}},
+	"product-service": {"product-service", []string{"products-prod-1", "products-prod-2", "products-prod-3"}},
+	"cart-service":    {"cart-service",    []string{"cart-prod-1", "cart-prod-2"}},
+	"search-service":  {"search-service",  []string{"search-prod-1", "search-prod-2"}},
+}
+
+// User-agent pool — each trace picks one to put on the frontend's
+// client/server boundary so the backtrace view can group traffic by
+// browser / mobile app / health check / scraper.
+var userAgents = []string{
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0 Safari/537.36",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) Safari/17.4",
+	"Mozilla/5.0 (X11; Linux x86_64) Firefox/126.0",
+	"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) Mobile/15E148 Safari/604.1",
+	"CoremetryApp/2.4.1 (Android 14; Pixel 8)",
+	"curl/8.6.0",
+	"kube-probe/1.29",
+	"GoogleBot/2.1 (+http://www.google.com/bot.html)",
+}
+
+// Synthetic egress IPs for the user-facing frontend hits — looks
+// like real-world geo-distributed traffic in the consumer table.
+var browserIPs = []string{
+	"185.42.18.91", "203.0.113.42", "198.51.100.7", "104.16.249.180",
+	"172.217.18.46", "212.58.244.15", "82.165.197.208", "94.130.55.12",
+	"35.190.247.13", "13.107.42.14",
+}
+
+// podIP synthesises a deterministic 10.x.x.x address from the pod
+// name so every span resource consistently reports the same IP for
+// the same pod across the entire run.
+func podIP(pod string) string {
+	var h uint32 = 2166136261
+	for i := 0; i < len(pod); i++ {
+		h ^= uint32(pod[i])
+		h *= 16777619
+	}
+	return fmt.Sprintf("10.%d.%d.%d", (h>>16)&0xff, (h>>8)&0xff, h&0xff|1)
 }
 
 // ─── Trace builder ────────────────────────────────────────────────────────────
@@ -68,10 +109,42 @@ type Trace struct {
 	traceID []byte
 	spans   []spanInfo
 	t0      time.Time
+	// One pod pick per service for the duration of the trace, so
+	// every span emitted by the same service in this trace agrees
+	// on host.name / service.instance.id. Lazy: first reference to
+	// a service materialises its pod.
+	podOf map[string]string
+	// Per-trace browser-like client identity for the frontend's
+	// inbound edge (frontend's user request). All other inbound
+	// edges (api-gateway → user-service, order-service → payment,
+	// …) derive client.address from the parent pod's IP.
+	browserIP string
+	userAgent string
 }
 
 func NewTrace() *Trace {
-	return &Trace{traceID: randID(16), t0: time.Now()}
+	return &Trace{
+		traceID:   randID(16),
+		t0:        time.Now(),
+		podOf:     map[string]string{},
+		browserIP: browserIPs[mrand.IntN(len(browserIPs))],
+		userAgent: userAgents[mrand.IntN(len(userAgents))],
+	}
+}
+
+// pickPod returns this trace's pod for `svc`, choosing one uniformly
+// at random from the service's pool on first request.
+func (t *Trace) pickPod(svc string) string {
+	if pod, ok := t.podOf[svc]; ok {
+		return pod
+	}
+	s, ok := services[svc]
+	if !ok || len(s.Pods) == 0 {
+		t.podOf[svc] = svc + "-1"
+	} else {
+		t.podOf[svc] = s.Pods[mrand.IntN(len(s.Pods))]
+	}
+	return t.podOf[svc]
 }
 
 // Add inserts a span and returns its ID for use as a parent.
@@ -108,16 +181,53 @@ func (t *Trace) Send() error {
 	for _, si := range t.spans {
 		byService[si.service] = append(byService[si.service], si.span)
 	}
+
+	// Walk parent edges and decorate inbound (cross-service) server
+	// spans with client.address + user_agent.original. The frontend's
+	// inbound edge gets the synthetic browser IP / UA picked at trace
+	// creation; every other inbound edge gets the parent pod's
+	// deterministic IP and the same UA so the request signature
+	// flows through the call chain.
+	spanByID := map[string]spanInfo{}
+	for _, si := range t.spans {
+		spanByID[string(si.span.SpanId)] = si
+	}
+	for _, si := range t.spans {
+		// Only enrich the receiving end of a cross-service edge.
+		if si.span.Kind != tracepb.Span_SPAN_KIND_SERVER || len(si.span.ParentSpanId) == 0 {
+			continue
+		}
+		parent, ok := spanByID[string(si.span.ParentSpanId)]
+		if !ok || parent.service == si.service {
+			continue
+		}
+		var clientAddr string
+		if parent.service == "frontend" {
+			clientAddr = t.browserIP
+		} else {
+			clientAddr = podIP(t.pickPod(parent.service))
+		}
+		si.span.Attributes = append(si.span.Attributes,
+			kvStr("client.address", clientAddr),
+			kvStr("user_agent.original", t.userAgent),
+		)
+	}
+
 	var rs []*tracepb.ResourceSpans
 	for svcKey, spans := range byService {
 		s, ok := services[svcKey]
 		if !ok {
-			s = Service{Name: svcKey, Host: svcKey + "-1"}
+			s = Service{Name: svcKey, Pods: []string{svcKey + "-1"}}
 		}
+		pod := t.pickPod(svcKey)
 		rs = append(rs, &tracepb.ResourceSpans{
 			Resource: &resourcepb.Resource{Attributes: []*commonpb.KeyValue{
 				kvStr("service.name", s.Name),
-				kvStr("host.name", s.Host),
+				kvStr("host.name", pod),
+				kvStr("service.instance.id", pod),
+				kvStr("k8s.pod.name", pod),
+				kvStr("k8s.pod.ip", podIP(pod)),
+				kvStr("k8s.namespace.name", "demo"),
 				kvStr("deployment.environment", "demo"),
 				kvStr("service.version", "1.0.0"),
 			}},
@@ -351,11 +461,15 @@ func sendLog(service string, severity int32, sevText, body string, traceID, span
 	}
 	s := services[service]
 	if s.Name == "" {
-		s = Service{Name: service, Host: service + "-1"}
+		s = Service{Name: service, Pods: []string{service + "-1"}}
 	}
+	pod := s.Pods[mrand.IntN(len(s.Pods))]
 	req := &logscollpb.ExportLogsServiceRequest{ResourceLogs: []*logspb.ResourceLogs{{
 		Resource: &resourcepb.Resource{Attributes: []*commonpb.KeyValue{
-			kvStr("service.name", s.Name), kvStr("host.name", s.Host),
+			kvStr("service.name", s.Name),
+			kvStr("host.name", pod),
+			kvStr("service.instance.id", pod),
+			kvStr("k8s.pod.name", pod),
 		}},
 		ScopeLogs: []*logspb.ScopeLogs{{
 			Scope:      &commonpb.InstrumentationScope{Name: "coremetry-demo"},
@@ -620,10 +734,16 @@ func (m *metricsState) flush(startNs, nowNs uint64) []*metricspb.ResourceMetrics
 	var rms []*metricspb.ResourceMetrics
 	for svcKey, mts := range byService {
 		s, ok := services[svcKey]
-		if !ok { s = Service{Name: svcKey, Host: svcKey + "-1"} }
+		if !ok {
+			s = Service{Name: svcKey, Pods: []string{svcKey + "-1"}}
+		}
+		pod := s.Pods[mrand.IntN(len(s.Pods))]
 		rms = append(rms, &metricspb.ResourceMetrics{
 			Resource: &resourcepb.Resource{Attributes: []*commonpb.KeyValue{
-				kvStr("service.name", s.Name), kvStr("host.name", s.Host),
+				kvStr("service.name", s.Name),
+				kvStr("host.name", pod),
+				kvStr("service.instance.id", pod),
+				kvStr("k8s.pod.name", pod),
 				kvStr("deployment.environment", "demo"),
 			}},
 			ScopeMetrics: []*metricspb.ScopeMetrics{{

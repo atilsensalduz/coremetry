@@ -184,12 +184,16 @@ function BacktraceInner() {
                         {tsLong(r.lastSeenNs)}
                       </td>
                       <td>
-                        {/* Drill-in: filter the trace list by this caller service.
-                            We can't filter by pod from /traces yet, but the
-                            service filter narrows the haystack a lot. */}
+                        {/* Drill-in: open the trace list scoped to traces
+                            involving the caller service. /traces filters at
+                            the span level, so passing the caller surfaces
+                            traces where it appears — the user can then click
+                            into individual traces to confirm they hit the
+                            inspected service. (Caller-x-callee relational
+                            filter doesn't exist as a UI primitive yet.) */}
                         <Link
-                          href={`/traces?service=${encodeURIComponent(svc)}&search=${encodeURIComponent(r.callerService)}`}
-                          title="View traces from this caller"
+                          href={`/traces?service=${encodeURIComponent(r.callerService)}`}
+                          title={`Traces emitted by ${r.callerService}`}
                           style={{
                             fontSize: 11, padding: '3px 10px',
                             background: 'var(--bg3)', border: '1px solid var(--border)',
