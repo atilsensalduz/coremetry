@@ -320,12 +320,18 @@ func (e *Evaluator) measure(ctx context.Context, service, metric string, window 
 	// drives the scan and only relevant rows are aggregated. These
 	// power the production-grade DB / RPC / HTTP / MQ alert
 	// categories.
-	if where, ok := transportFilter(metric); ok {
+	//
+	// For *_rate metrics the WHERE narrows the *denominator* (the
+	// span population we're measuring against, e.g. all HTTP server
+	// spans), and the *_rate's numerator condition counts within
+	// that population (e.g. http_status >= 500). Conflating the two
+	// — narrowing WHERE by 5xx — would produce 100% trivially.
+	if where, numerator, ok := transportFilter(metric); ok {
 		op := transportOp(metric)
 		var sql string
 		switch op {
 		case "error_rate":
-			sql = `SELECT countIf(status_code='error') / nullIf(count(),0) * 100
+			sql = `SELECT countIf(` + numerator + `) * 100.0 / nullIf(count(),0)
 				FROM spans WHERE service_name=? AND time>=? AND ` + where
 		case "p50_ms", "p95_ms", "p99_ms", "avg_ms":
 			if op == "avg_ms" {
@@ -348,28 +354,40 @@ func (e *Evaluator) measure(ctx context.Context, service, metric string, window 
 	return 0, fmt.Errorf("unknown metric %q", metric)
 }
 
-// transportFilter returns the WHERE fragment that narrows a metric
-// to a specific transport / span category. The fragment never
-// references user input — only LowCardinality columns + literal
-// constants — so it's safe to concatenate.
-func transportFilter(metric string) (string, bool) {
+// transportFilter returns:
+//   - where:     denominator population predicate (WHERE narrows
+//     the span set we're measuring against)
+//   - numerator: numerator predicate for *_rate metrics (counts the
+//     "bad" rows within the population). Unused for latency/count
+//     metrics.
+//
+// All fragments are literal SQL — no user input — so they're safe
+// to concatenate.
+func transportFilter(metric string) (where, numerator string, ok bool) {
 	switch {
 	case strings.HasPrefix(metric, "http_5xx_"):
-		return "kind='server' AND http_method != '' AND http_status >= 500", true
+		return "kind='server' AND http_method != ''",
+			"http_status >= 500", true
 	case strings.HasPrefix(metric, "http_4xx_"):
-		return "kind='server' AND http_method != '' AND http_status >= 400 AND http_status < 500", true
+		return "kind='server' AND http_method != ''",
+			"http_status >= 400 AND http_status < 500", true
 	case strings.HasPrefix(metric, "http_"):
-		return "kind='server' AND http_method != ''", true
+		return "kind='server' AND http_method != ''",
+			"status_code='error'", true
 	case strings.HasPrefix(metric, "db_"):
-		return "db_system != ''", true
+		return "db_system != ''",
+			"status_code='error'", true
 	case strings.HasPrefix(metric, "rpc_"):
-		return "rpc_system != ''", true
+		return "rpc_system != ''",
+			"status_code='error'", true
 	case strings.HasPrefix(metric, "mq_publish_"):
-		return "kind='producer'", true
+		return "kind='producer'",
+			"status_code='error'", true
 	case strings.HasPrefix(metric, "mq_consume_"):
-		return "kind='consumer'", true
+		return "kind='consumer'",
+			"status_code='error'", true
 	}
-	return "", false
+	return "", "", false
 }
 
 // transportOp pulls the aggregate suffix off a transport metric:
