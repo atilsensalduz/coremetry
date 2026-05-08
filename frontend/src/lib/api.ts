@@ -49,8 +49,12 @@ async function get<T>(path: string): Promise<T> { return request<T>(path); }
 export interface RangeParams { from: number; to: number }
 
 export const api = {
-  services:   (r: RangeParams, limit?: number) =>
-    get<Service[] | null>(`/api/services?${qs({ ...r, limit })}`),
+  // `name` is an optional case-insensitive substring filter applied
+  // server-side BEFORE the limit clamp, so a service in the long
+  // tail still surfaces when the user types it into the picker
+  // without forcing a Load-all (5000) fetch.
+  services:   (r: RangeParams, limit?: number, name?: string) =>
+    get<Service[] | null>(`/api/services?${qs({ ...r, limit, name })}`),
   graph:      (r: RangeParams, service?: string) =>
     get<ServiceEdge[] | null>(`/api/services/graph?${qs({ ...r, service })}`),
   // services: comma-separated allow-list — server caps to 200 to keep

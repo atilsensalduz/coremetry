@@ -266,6 +266,12 @@ func (s *Server) getServices(w http.ResponseWriter, r *http.Request) {
 	if limit > 5000 {
 		limit = 5000
 	}
+	// Optional case-insensitive substring match on service_name.
+	// Drives the Services-page filter dropdown: when the operator types
+	// in the picker, the table refreshes against ALL services that
+	// contain the typed substring — even ones outside the top-N
+	// limit, so a long-tail service shows up without bumping the cap.
+	nameMatch := strings.TrimSpace(q.Get("name"))
 	if from.IsZero() {
 		from = time.Now().Add(-since)
 	}
@@ -276,13 +282,13 @@ func (s *Server) getServices(w http.ResponseWriter, r *http.Request) {
 	// shorter than ~5 min would return empty — fall through to the raw
 	// scan in that case (small window = small scan, also fast).
 	useMV := to.Sub(from) >= 5*time.Minute
-	key := fmt.Sprintf("services:mv=%t:limit=%d:since=%s:from=%s:to=%s",
-		useMV, limit, q.Get("since"), q.Get("from"), q.Get("to"))
+	key := fmt.Sprintf("services:mv=%t:limit=%d:since=%s:from=%s:to=%s:name=%s",
+		useMV, limit, q.Get("since"), q.Get("from"), q.Get("to"), nameMatch)
 	s.serveCached(w, r, key, 5*time.Second, func() (any, error) {
 		if useMV {
-			return s.store.GetServicesAgg(r.Context(), from, to, limit)
+			return s.store.GetServicesAggFiltered(r.Context(), from, to, nameMatch, limit)
 		}
-		return s.store.GetServices(r.Context(), since, from, to)
+		return s.store.GetServicesFiltered(r.Context(), since, from, to, nameMatch)
 	})
 }
 

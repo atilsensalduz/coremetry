@@ -41,23 +41,36 @@ export default function ServicesPage() {
   const [minSpans, setMinSpans] = useState('');
   const [minP99, setMinP99] = useState('');
 
+  // Debounce the picker-driven re-fetch so each keystroke doesn't
+  // hit ClickHouse. ~250ms is the sweet spot — fast enough to feel
+  // live, slow enough that "user-svc" doesn't fire 8 queries.
+  const [debouncedFilter, setDebouncedFilter] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedFilter(serviceFilter.trim()), 250);
+    return () => clearTimeout(t);
+  }, [serviceFilter]);
+
   useEffect(() => {
     setData(undefined);
     setSparklines({});
     const r = timeRangeToNs(range);
-    // Two-phase fetch: get the services list first, then ask for
-    // sparklines scoped to ONLY those names. Without the scope the
-    // sparklines payload is one bucket array per service across all of
-    // them — multi-MB at 10k+ services. Sparkline call is fire-and-forget
-    // (non-blocking) so the table renders even if the MV is empty.
-    api.services(r, limit).then(svcs => {
+    // Two-phase fetch: services list first, then sparklines scoped to
+    // ONLY those names. Without the scope the sparklines payload is
+    // one bucket array per service across all of them — multi-MB at
+    // 10k+ services. Sparkline call is fire-and-forget (non-blocking)
+    // so the table renders even if the MV is empty.
+    //
+    // `debouncedFilter` is forwarded as ?name=… so a long-tail
+    // service shows up the moment the operator types it into the
+    // picker — no Load-all bump needed.
+    api.services(r, limit, debouncedFilter || undefined).then(svcs => {
       setData(svcs);
       const names = (svcs ?? []).map(s => s.name);
       if (names.length > 0) {
         api.serviceSparklines(r, names).then(d => setSparklines(d ?? {})).catch(() => {});
       }
     }).catch(() => setData(null));
-  }, [range, limit]);
+  }, [range, limit, debouncedFilter]);
 
   // Service combobox options come from the loaded data itself.
   const serviceOptions = useMemo(

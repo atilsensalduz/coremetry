@@ -102,6 +102,15 @@ func (s *Store) ListServiceNames(ctx context.Context, pattern string, limit, off
 // 30-second hard execution timeout via SETTINGS — this endpoint must
 // never hang the UI thread, even when the MV itself has a backlog.
 func (s *Store) GetServicesAgg(ctx context.Context, from, to time.Time, limit int) ([]ServiceSummary, error) {
+	return s.GetServicesAggFiltered(ctx, from, to, "", limit)
+}
+
+// GetServicesAggFiltered narrows the row set by a substring match on
+// service_name *before* the GROUP BY — used by the Services page
+// dropdown so a service that's outside the limited top-N still
+// surfaces when the user types its name. `nameMatch` empty disables
+// the filter.
+func (s *Store) GetServicesAggFiltered(ctx context.Context, from, to time.Time, nameMatch string, limit int) ([]ServiceSummary, error) {
 	if from.IsZero() {
 		from = time.Now().Add(-24 * time.Hour)
 	}
@@ -113,6 +122,14 @@ func (s *Store) GetServicesAgg(ctx context.Context, from, to time.Time, limit in
 		limitClause = fmt.Sprintf(" LIMIT %d", limit)
 	}
 	const apdexT = 200.0
+	nameClause := ""
+	args := []any{from, to}
+	if nameMatch != "" {
+		// Case-insensitive substring match — matches what the
+		// service-names autocomplete does.
+		nameClause = " AND positionCaseInsensitive(service_name, ?) > 0"
+		args = append(args, nameMatch)
+	}
 	rows, err := s.conn.Query(ctx, `
 		SELECT service_name,
 		       countMerge(span_count_state)                                            AS spans,
@@ -122,11 +139,11 @@ func (s *Store) GetServicesAgg(ctx context.Context, from, to time.Time, limit in
 		       (countIfMerge(apdex_satisfied_state) + countIfMerge(apdex_tolerating_state) / 2)
 		         / nullIf(spans, 0)                                                     AS apdex
 		FROM service_summary_5m
-		WHERE time_bucket >= ? AND time_bucket <= ?
+		WHERE time_bucket >= ? AND time_bucket <= ?`+nameClause+`
 		GROUP BY service_name
 		ORDER BY spans DESC`+limitClause+`
 		SETTINGS max_execution_time = 30`,
-		from, to)
+		args...)
 	if err != nil {
 		return nil, err
 	}
