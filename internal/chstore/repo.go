@@ -491,11 +491,27 @@ func (s *Store) GetTraces(ctx context.Context, f TraceFilter) ([]TraceRow, uint6
 	if !f.To.IsZero() {
 		wc.add("time <= ?", f.To)
 	}
-	// Span-level service narrowing only when RequireServices isn't
-	// set; with RequireServices the WHERE has to stay wide so every
-	// participant of a candidate trace is visible to the HAVING
-	// fan-in check below.
-	if f.Service != "" && len(f.RequireServices) == 0 {
+	// Service narrowing — critical for the (service_name, time)
+	// primary key. At 40M traces/day we cannot afford to skip the
+	// service-level prefix.
+	//   - Single Service set:        service_name = ?
+	//   - RequireServices set:       service_name IN (?, ?, …) so we
+	//     only scan spans from the required participants. The HAVING
+	//     fan-in check works correctly off this narrowed set because
+	//     we only ever ask "does service X have ≥1 span in this
+	//     trace" — restricting to {RequireServices} doesn't drop any
+	//     row that contributes to the answer.
+	//   - Neither: full scan (existing behaviour).
+	switch {
+	case len(f.RequireServices) > 0:
+		holders := make([]string, len(f.RequireServices))
+		args := make([]any, len(f.RequireServices))
+		for i, s := range f.RequireServices {
+			holders[i] = "?"
+			args[i] = s
+		}
+		wc.add("service_name IN ("+strings.Join(holders, ",")+")", args...)
+	case f.Service != "":
 		wc.add("service_name = ?", f.Service)
 	}
 	if f.Search != "" {
