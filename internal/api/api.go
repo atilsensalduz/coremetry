@@ -101,6 +101,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/services", s.getServices)
 	mux.HandleFunc("GET /api/services/{name}/structure", s.getServiceStructure)
 	mux.HandleFunc("GET /api/services/{name}/neighbors", s.getServiceNeighbors)
+	mux.HandleFunc("GET /api/services/{name}/backtrace", s.getServiceBacktrace)
 	mux.HandleFunc("GET /api/services/graph", s.getServiceGraph)
 	mux.HandleFunc("GET /api/services/sparklines", s.getServiceSparklines)
 	mux.HandleFunc("GET /api/service-names",       s.getServiceNames)
@@ -328,6 +329,48 @@ func (s *Server) getServiceStructure(w http.ResponseWriter, r *http.Request) {
 			"roots":       roots,
 			"sampledFrom": sampledFrom,
 			"totalSpans":  totalSpans,
+		}, nil
+	})
+}
+
+// getServiceBacktrace returns the inbound-callers detail for `name`
+// over the requested window — Dynatrace-style consumer view. Each
+// row is a unique (caller service × caller host/instance × client
+// IP × user-agent) combination with RED stats, so the operator can
+// pinpoint which client is driving traffic / errors.
+//
+// 60s cache: the underlying self-join is the heaviest query in the
+// /service drill-down stack and the page is read-only / dashboard-
+// like. Pod identity / IP set is stable on a session timescale; a
+// minute-stale row is fine for "who's hammering me right now".
+func (s *Server) getServiceBacktrace(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		http.Error(w, "service name required", http.StatusBadRequest); return
+	}
+	q := r.URL.Query()
+	since := parseDuration(q.Get("since"), time.Hour)
+	from, to := parseTime(q.Get("from")), parseTime(q.Get("to"))
+	if from.IsZero() {
+		from = time.Now().Add(-since)
+	}
+	if to.IsZero() {
+		to = time.Now()
+	}
+	limit := parseInt(q.Get("limit"), 100)
+
+	key := fmt.Sprintf("service-backtrace:svc=%s:since=%s:from=%s:to=%s:limit=%d",
+		name, q.Get("since"), q.Get("from"), q.Get("to"), limit)
+	s.serveCached(w, r, key, 60*time.Second, func() (any, error) {
+		rows, err := s.store.ServiceCallers(r.Context(), name, from, to, limit)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"service": name,
+			"callers": rows,
+			"from":    from.UnixNano(),
+			"to":      to.UnixNano(),
 		}, nil
 	})
 }

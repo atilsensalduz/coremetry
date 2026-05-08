@@ -649,6 +649,25 @@ export interface NeighborStat {
   spanCount: number;
 }
 
+// One row of the inbound-callers backtrace — a unique
+// (caller service × caller pod / instance × client IP × user agent)
+// combination calling the inspected service over the window.
+export interface CallerRow {
+  callerService: string;
+  callerHost: string;
+  callerInstance: string;
+  clientAddress: string;
+  userAgent: string;
+  calls: number;
+  errors: number;
+  errorRate: number;
+  avgMs: number;
+  p50Ms: number;
+  p95Ms: number;
+  p99Ms: number;
+  lastSeenNs: number;
+}
+
 export interface AggSpanNode {
   service: string;
   operation: string;

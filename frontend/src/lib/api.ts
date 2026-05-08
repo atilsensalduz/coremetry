@@ -82,6 +82,30 @@ export const api = {
       totalSpans: number;
     }>(`/api/services/${encodeURIComponent(svc)}/neighbors?since=${since}&samples=${samples}`),
 
+  // Inbound-callers backtrace — Dynatrace-style consumer view.
+  // Returns a row per (caller service × pod/instance × client IP ×
+  // user-agent) with RED stats so the operator can pinpoint who
+  // is driving load / errors. Range can be passed either as ?since
+  // or as absolute from/to (ns).
+  serviceBacktrace: (svc: string, opts: {
+    since?: string;
+    from?: number;
+    to?: number;
+    limit?: number;
+  } = {}) => {
+    const qs = new URLSearchParams();
+    if (opts.since) qs.set('since', opts.since);
+    if (opts.from)  qs.set('from', String(opts.from));
+    if (opts.to)    qs.set('to', String(opts.to));
+    if (opts.limit) qs.set('limit', String(opts.limit));
+    return get<{
+      service: string;
+      callers?: import('./types').CallerRow[];
+      from: number;
+      to: number;
+    }>(`/api/services/${encodeURIComponent(svc)}/backtrace?${qs.toString()}`);
+  },
+
   // services: comma-separated allow-list — server caps to 200 to keep
   // the payload small even on 10k+ service installs.
   serviceSparklines: (r: RangeParams, services?: string[]) =>

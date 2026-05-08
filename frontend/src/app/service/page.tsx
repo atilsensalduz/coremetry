@@ -76,8 +76,13 @@ function ServiceDetailInner() {
               <KPI label="P99" value={`${info.p99DurationMs.toFixed(1)}ms`} />
             </>
           )}
-          <Link href={`/traces?service=${encodeURIComponent(svc)}`} style={{
+          <Link href={`/service/backtrace?name=${encodeURIComponent(svc)}`} style={{
             marginLeft: 'auto', fontSize: 12, padding: '5px 12px',
+            background: 'var(--bg3)', border: '1px solid var(--border)',
+            borderRadius: 6, color: 'var(--accent2)', textDecoration: 'none',
+          }} title="Inbound callers — service / pod / IP backtrace">↩ Backtrace</Link>
+          <Link href={`/traces?service=${encodeURIComponent(svc)}`} style={{
+            fontSize: 12, padding: '5px 12px',
             background: 'var(--bg3)', border: '1px solid var(--border)',
             borderRadius: 6, color: 'var(--accent2)', textDecoration: 'none',
           }}>⋮ View traces</Link>
