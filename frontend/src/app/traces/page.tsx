@@ -7,6 +7,7 @@ import { Combobox } from '@/components/Combobox';
 import { ServicePicker } from '@/components/ServicePicker';
 import { FilterBuilder } from '@/components/FilterBuilder';
 import { TraceVolumeHistogram } from '@/components/TraceVolumeHistogram';
+import { Pager } from '@/components/Pager';
 import { api } from '@/lib/api';
 import { tsShort, timeRangeToNs, fmtNum, rowClickHandlers } from '@/lib/utils';
 import { encodeRange, decodeRange, encodeFilters, decodeFilters, buildQuery } from '@/lib/urlState';
@@ -348,31 +349,28 @@ function TracesPageInner() {
                 </tbody>
               </table>
             </div>
-            <div className="pager">
-              <button className="sec" onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0}>← Prev</button>
-              <span>
-                Page {page + 1}
-                {' · '}
-                {total !== undefined ? (
-                  <>{total.toLocaleString()} total</>
-                ) : (
-                  <>
-                    showing {traces.length}{hasMore ? '+' : ''}
-                    {' · '}
-                    <a href="#" onClick={e => { e.preventDefault(); setShowTotal(true); }}
-                       title="Run an exact count(DISTINCT trace_id) — can be slow at scale">
-                      Show total
-                    </a>
-                  </>
-                )}
-                {' · '}sorted by <b>{sort}</b> {order}
-              </span>
-              <button className="sec"
-                onClick={() => setPage(page + 1)}
-                disabled={total !== undefined ? (page + 1) * 50 >= total : !hasMore}>
-                Next →
-              </button>
-            </div>
+            <Pager
+              page={page} pageSize={50}
+              total={total}
+              hasMore={hasMore}
+              onPage={setPage}
+              extras={
+                <>
+                  {total !== undefined ? (
+                    <>{total.toLocaleString()} total</>
+                  ) : (
+                    <>
+                      showing {traces.length}{hasMore ? '+' : ''}
+                      {' · '}
+                      <a href="#" onClick={e => { e.preventDefault(); setShowTotal(true); }}
+                         title="Run an exact count(DISTINCT trace_id) — can be slow at scale">
+                        Show total
+                      </a>
+                    </>
+                  )}
+                  {' · '}sorted by <b>{sort}</b> {order}
+                </>
+              } />
           </>
         )}
 
