@@ -8,6 +8,7 @@ import { Combobox } from '@/components/Combobox';
 import { FilterBuilder } from '@/components/FilterBuilder';
 import { MultiLineChart } from '@/components/MultiLineChart';
 import { ShareButton } from '@/components/ShareButton';
+import { ColumnManager } from '@/components/ColumnManager';
 import { api } from '@/lib/api';
 import { timeRangeToNs, fmtNum, tsLong, rowClickHandlers } from '@/lib/utils';
 import { encodeRange, decodeRange, encodeFilters, decodeFilters, buildQuery } from '@/lib/urlState';
@@ -87,6 +88,12 @@ function ExploreInner() {
   const [traceTotal, setTraceTotal] = useState(0);
   const [traceLimit, setTraceLimit] = useState(
     () => parseInt(searchParams.get('limit') ?? '50', 10) || 50);
+  // User-selected attribute columns for the traces result table.
+  // Mirrors the /traces page: 1-line header chip + per-row mono cell.
+  // Persisted to URL as ?cols=key1,key2 so saved Explore queries
+  // restore the same column set; bounded to 8 server-side.
+  const [extraCols, setExtraCols] = useState<string[]>(
+    () => (searchParams.get('cols') ?? '').split(',').map(s => s.trim()).filter(Boolean));
 
   // Advanced query mode + DSL textarea
   const [mode, setMode] = useState<'builder' | 'advanced'>(
@@ -107,12 +114,13 @@ function ExploreInner() {
       ['range',   encodeRange(range)],
       ['step',    resultMode === 'metric' && step ? step : ''],
       ['limit',   resultMode === 'traces' && traceLimit !== 50 ? traceLimit : ''],
+      ['cols',    resultMode === 'traces' ? extraCols.join(',') : ''],
     ]);
     const next = qs ? `?${qs}` : '';
     if (next !== window.location.search) {
       router.replace(`/explore${next}`, { scroll: false });
     }
-  }, [resultMode, agg, field, groupBy, filters, dsl, mode, range, step, traceLimit, router]);
+  }, [resultMode, agg, field, groupBy, filters, dsl, mode, range, step, traceLimit, extraCols, router]);
 
   // Load service options for filter value suggestions
   useEffect(() => {
@@ -151,6 +159,7 @@ function ExploreInner() {
         from, to,
         sort: 'time', order: 'desc',
         limit: traceLimit,
+        extraAttrs: extraCols.length ? extraCols.join(',') : undefined,
       })
         .then(r => { setTraces(r.traces ?? []); setTraceTotal(r.total ?? 0); })
         .catch(err => {
@@ -159,7 +168,7 @@ function ExploreInner() {
           setQueryError(msg.includes('DSL') ? msg : null);
         });
     }
-  }, [resultMode, range, filters, dsl, mode, agg, field, groupBy, step, traceLimit]);
+  }, [resultMode, range, filters, dsl, mode, agg, field, groupBy, step, traceLimit, extraCols]);
 
   const aggMeta = AGG_OPTIONS.find(o => o.v === agg)!;
   const unit = aggMeta.unit ?? '';
@@ -439,6 +448,25 @@ name ~ checkout`}
                     <TraceSortTh col="spans"       label="Spans"     sort={traceSort} dir={traceSortDir} onSort={toggleTraceSort} align="right" />
                     <TraceSortTh col="time"        label="Started"   sort={traceSort} dir={traceSortDir} onSort={toggleTraceSort} />
                     <TraceSortTh col="status"      label="Status"    sort={traceSort} dir={traceSortDir} onSort={toggleTraceSort} />
+                    {/* Same column-manager UX as /traces — adds
+                        attribute columns to the result table. */}
+                    {extraCols.map(k => (
+                      <th key={k} style={{ position: 'relative', whiteSpace: 'nowrap' }}>
+                        <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 11 }}>{k}</span>
+                        <button type="button" title="Remove column"
+                          onClick={() => setExtraCols(extraCols.filter(c => c !== k))}
+                          style={{
+                            marginLeft: 6, padding: '0 4px', fontSize: 10, lineHeight: 1,
+                            background: 'transparent', border: 'none', color: 'var(--text3)',
+                            cursor: 'pointer',
+                          }}>×</button>
+                      </th>
+                    ))}
+                    <th style={{ width: 1, whiteSpace: 'nowrap' }}>
+                      <ColumnManager
+                        cols={extraCols}
+                        onAdd={k => { if (!extraCols.includes(k) && extraCols.length < 8) setExtraCols([...extraCols, k]); }} />
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -466,6 +494,15 @@ name ~ checkout`}
                           ? <span className="badge b-err">ERROR</span>
                           : <span className="badge b-ok">OK</span>}
                       </td>
+                      {extraCols.map(k => {
+                        const v = t.extras?.[k] ?? '';
+                        return (
+                          <td key={k} className="mono" style={{ fontSize: 11, color: v ? 'var(--text2)' : 'var(--text3)', whiteSpace: 'nowrap', maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis' }} title={v || ''}>
+                            {v || '—'}
+                          </td>
+                        );
+                      })}
+                      <td />
                     </tr>
                   ))}
                 </tbody>

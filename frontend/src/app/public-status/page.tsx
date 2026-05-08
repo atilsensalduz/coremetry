@@ -65,7 +65,13 @@ export default function PublicStatusPage() {
         background: 'var(--bg1)',
       }}>
         <TelescopeIcon size={28} />
-        <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{data.title}</div>
+        {/* Title only renders when the operator set a non-default
+            value. The seeded "Service Status" placeholder + the
+            "Acme Status" sample literal stay invisible — the OTel
+            mark + URL context already identify the page. */}
+        {data.title && data.title !== 'Service Status' && data.title !== 'Acme Status' && (
+          <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{data.title}</div>
+        )}
         <span style={{ marginLeft: 'auto' }} />
         <ThemeToggle />
       </div>
