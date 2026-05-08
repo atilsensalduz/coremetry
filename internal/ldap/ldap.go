@@ -109,7 +109,7 @@ func (c *Config) Normalize() {
 		// Default that handles the three common login formats Corporate-
 		// style AD users will type:
 		//   - bare sAMAccountName  ("j.doe")
-		//   - full UPN              ("j.doe@example")
+		//   - full UPN              ("j.doe@example.com")
 		//   - mail address          ("j.doe@example.com")
 		// objectclass=person prevents matching computer / service
 		// principal accounts that may share a similar name.

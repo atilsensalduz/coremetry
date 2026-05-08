@@ -17,7 +17,7 @@ annotations:
   charts.openshift.io/name: Coremetry
   charts.openshift.io/provider: Coremetry
 maintainers:
-  - name: Jane Doe
+  - name: Coremetry Maintainers
     email: cil.cenk@gmail.com
 sources:
   - https://github.com/cilcenk/coremetry
