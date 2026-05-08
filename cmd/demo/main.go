@@ -194,8 +194,20 @@ func (t *Trace) Add(service, name string, kind tracepb.Span_SpanKind,
 }
 
 func (t *Trace) Send() error {
+	// ~15% of traces get their root span dropped before sending —
+	// simulates a real-world OTel sampler / collector dropping the
+	// entry span (or the SDK initialising mid-request). The orphan
+	// children still go out with their original parent_id pointing
+	// at the now-missing root, so the trace appears in storage as a
+	// 'root not available' fragment. Higher than realistic on
+	// purpose — lets us see the 'Root traces' filter actually
+	// excluding these in seconds rather than minutes.
+	dropRoot := mrand.IntN(100) < 15
 	byService := make(map[string][]*tracepb.Span)
 	for _, si := range t.spans {
+		if dropRoot && len(si.span.ParentSpanId) == 0 {
+			continue // skip the trace's true root
+		}
 		byService[si.service] = append(byService[si.service], si.span)
 	}
 
