@@ -41,14 +41,13 @@ export default function ServicesPage() {
   const [minSpans, setMinSpans] = useState('');
   const [minP99, setMinP99] = useState('');
 
-  // Debounce the picker-driven re-fetch so each keystroke doesn't
-  // hit ClickHouse. ~250ms is the sweet spot — fast enough to feel
-  // live, slow enough that "user-svc" doesn't fire 8 queries.
-  const [debouncedFilter, setDebouncedFilter] = useState('');
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedFilter(serviceFilter.trim()), 250);
-    return () => clearTimeout(t);
-  }, [serviceFilter]);
+  // serviceFilter is the picker's draft — typing / dropdown picks
+  // mutate it freely and the in-memory `sorted` re-filter narrows
+  // the visible rows live (cheap, client-side). The server-side
+  // re-fetch only kicks in once the operator commits via Enter or
+  // the Search button — so clicking the dropdown doesn't fan a
+  // ClickHouse query out per keystroke.
+  const [committedFilter, setCommittedFilter] = useState('');
 
   useEffect(() => {
     setData(undefined);
@@ -60,17 +59,17 @@ export default function ServicesPage() {
     // 10k+ services. Sparkline call is fire-and-forget (non-blocking)
     // so the table renders even if the MV is empty.
     //
-    // `debouncedFilter` is forwarded as ?name=… so a long-tail
-    // service shows up the moment the operator types it into the
-    // picker — no Load-all bump needed.
-    api.services(r, limit, debouncedFilter || undefined).then(svcs => {
+    // `committedFilter` is forwarded as ?name=… so a long-tail
+    // service shows up after the operator hits Enter / clicks
+    // Search — no Load-all bump needed.
+    api.services(r, limit, committedFilter || undefined).then(svcs => {
       setData(svcs);
       const names = (svcs ?? []).map(s => s.name);
       if (names.length > 0) {
         api.serviceSparklines(r, names).then(d => setSparklines(d ?? {})).catch(() => {});
       }
     }).catch(() => setData(null));
-  }, [range, limit, debouncedFilter]);
+  }, [range, limit, committedFilter]);
 
   // Service combobox options come from the loaded data itself.
   const serviceOptions = useMemo(
@@ -105,8 +104,11 @@ export default function ServicesPage() {
     return sortDir === 'desc' ? arr.reverse() : arr;
   }, [data, sortBy, sortDir, serviceFilter, errorsOnly, minSpans, minP99]);
 
+  const apply = () => setCommittedFilter(serviceFilter.trim());
+
   const reset = () => {
-    setServiceFilter(''); setErrorsOnly(false); setMinSpans(''); setMinP99('');
+    setServiceFilter(''); setCommittedFilter('');
+    setErrorsOnly(false); setMinSpans(''); setMinP99('');
   };
   const totalCount = data?.length ?? 0;
 
@@ -197,7 +199,11 @@ export default function ServicesPage() {
         {data && data.length > 0 && (
           <div className="controls">
             <ServicePicker value={serviceFilter} onChange={setServiceFilter}
-              placeholder="Service…" width={200} />
+              onEnter={apply}
+              placeholder="Service… (Enter to search)" width={220} />
+            <button onClick={apply}
+                    title="Search server-side for matching services"
+                    style={{ padding: '5px 12px', fontSize: 12 }}>Search</button>
             <input placeholder="Min spans" value={minSpans} type="number"
               onChange={e => setMinSpans(e.target.value)} style={{ width: 100 }} />
             <input placeholder="Min P99 (ms)" value={minP99} type="number"
