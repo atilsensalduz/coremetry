@@ -109,15 +109,12 @@ export function ServiceStructure({ service, since = '10m' }: {
               spans={data.spans}
               selectedId={selected}
               onSelect={setSelected}
-              // Drilldown convention — collapsed by default so the
-              // operator sees the top-level shape first; expand each
-              // row with ▶ to drill down.
-              defaultCollapsed
-              // Bucket sibling spans with the same (service, name)
-              // into a single ×N row — keeps tight loops (N+1 DB
-              // queries, parallel fetches) from drowning the
-              // structural shape. Representative subtree comes from
-              // the longest member.
+              // Inner waterfall renders fully expanded — the panel-
+              // level toggle above is the only "do I want to see
+              // this?" decision; once the operator opens it they
+              // expect the whole structure visible. Group rollup
+              // (groupSimilar) keeps the tree from getting noisy on
+              // tight loops without forcing a per-row click.
               groupSimilar />
           )}
         </div>
