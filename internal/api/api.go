@@ -669,23 +669,32 @@ func (s *Server) getAttributeValues(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getServiceGraph(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
+	// service is required: the full-topology view is unusable past
+	// ~500 services (force layout collapses, browser stalls), so
+	// /api/services/graph now refuses to compute it. The /graph
+	// page always sends a selected service; any caller without one
+	// gets a 400 instead of a 30-second multi-thousand-edge query.
+	service := q.Get("service")
+	if service == "" {
+		http.Error(w, "service query param required", http.StatusBadRequest)
+		return
+	}
 	since := parseDuration(q.Get("since"), time.Hour)
 	from, to := parseTime(q.Get("from")), parseTime(q.Get("to"))
-	// Cap the response to the top-N highest-traffic edges. At ~500+
-	// services the SPA's force-directed layout chokes on the full
-	// edge set, so the default tops out at 300 and the operator can
-	// override via ?topN= for occasional deep dives.
+	// Cap the response to the top-N highest-traffic edges for the
+	// requested service. Even one well-connected hub can fan out to
+	// hundreds of edges; default tops out at 300, override via ?topN=.
 	topN := parseInt(q.Get("topN"), 300)
 	if topN < 1   { topN = 300 }
 	if topN > 5000 { topN = 5000 }
 
-	// 30s cache. /graph polls the full topology and the per-service
-	// view re-fetches on every navigation; new edges form slowly
-	// relative to that cadence.
+	// 30s cache. The per-service neighbourhood is small and changes
+	// only when new edges form; a 30-second window collapses every
+	// re-render of the same selection into one CH round-trip.
 	key := fmt.Sprintf("service-graph:svc=%s:since=%s:from=%s:to=%s:topN=%d",
-		q.Get("service"), q.Get("since"), q.Get("from"), q.Get("to"), topN)
+		service, q.Get("since"), q.Get("from"), q.Get("to"), topN)
 	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
-		return s.store.GetServiceGraphTopN(r.Context(), q.Get("service"), since, from, to, topN)
+		return s.store.GetServiceGraphTopN(r.Context(), service, since, from, to, topN)
 	})
 }
 
