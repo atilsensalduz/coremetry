@@ -96,7 +96,7 @@ function MetricPanel({ cfg, range }: { cfg: MetricPanelConfig; range: TimeRange 
   if (error) return <PanelError msg={error} />;
   if (series === undefined) return <PanelLoading />;
   if (!series || series.length === 0) return <PanelEmpty />;
-  return <div style={{ height: 280 }}><MultiLineChart series={series} /></div>;
+  return <MultiLineChart series={series} height={280} />;
 }
 
 // ── Span metric line chart ──────────────────────────────────────────────────
@@ -119,7 +119,7 @@ function SpanMetricPanel({ cfg, range }: { cfg: SpanMetricPanelConfig; range: Ti
   if (error) return <PanelError msg={error} />;
   if (series === undefined) return <PanelLoading />;
   if (!series || series.length === 0) return <PanelEmpty />;
-  return <div style={{ height: 280 }}><MultiLineChart series={series} /></div>;
+  return <MultiLineChart series={series} height={280} />;
 }
 
 // ── Single value (last point of the series, with a sparkline) ───────────────

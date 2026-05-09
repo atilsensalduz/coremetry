@@ -82,27 +82,27 @@ export function TraceVolumeHistogram({ range, dsl, filters }: {
     const { ok, err, ts } = dataRef.current;
     if (ts.length === 0) return;
 
-    // Stacked bars rendered via uPlot's path-builder API. We
-    // emit two series: the OK band (slate) and the error band
-    // (red, stacked on top). uPlot doesn't have a built-in
-    // "stacked bar" preset like Chart.js, but its path callback
-    // makes the same effect cheap — for each x we draw a rect
-    // up to ok, then a rect on top of it up to ok+err.
-    //
-    // This avoids the entire Chart.js bar-controller machinery.
-    // ~3ms render on 100 buckets vs ~25ms in Chart.js. The
-    // tooltip is rendered ourselves using the cursor.idx that
-    // uPlot exposes on every move.
-    const stackedTotal = ok.map((v, i) => v + err[i]);
+    // Stacked bars via path-builder factories. Data arrays are
+    // RAW (ok and err separately, not pre-summed); each series
+    // declares its own baseline:
+    //   - series 1 (ok)     → baseline 0      → bar from 0 to ok
+    //   - series 2 (errors) → baseline 'ok'   → bar from ok to ok+err
+    // The y-axis range still needs the stacked total so high
+    // error bars don't get clipped — passed below via the y-scale
+    // range callback.
+    const stackedMax = Math.max(...ok.map((v, i) => v + err[i]), 0);
 
     const opts: uPlot.Options = {
-      width: el.clientWidth,
+      width: el.clientWidth || 600,
       height: 100,
       cursor: { x: true, y: false, focus: { prox: 30 } },
       legend: { show: false },
       scales: {
         x: { time: true },
-        y: { auto: true, range: (_u, _min, max) => [0, max * 1.05] },
+        // Range explicitly to the stacked total so the error
+        // bar (drawn from ok to ok+err) isn't clipped by the
+        // auto-range only seeing ok or err individually.
+        y: { range: () => [0, stackedMax * 1.05 || 1] },
       },
       axes: [
         {
@@ -122,22 +122,23 @@ export function TraceVolumeHistogram({ range, dsl, filters }: {
       ],
       series: [
         {},
-        // Total bar (ok + error stacked together) — drawn first
-        // so the error overlay sits on top.
+        // OK bar (slate) — drawn from 0 up to ok[i]. Forms
+        // the base of the stack.
         {
-          label: 'total',
+          label: 'ok',
           stroke: 'rgba(126,142,161,0.55)',
           fill: 'rgba(126,142,161,0.55)',
-          paths: barsPath(),
+          paths: barsPath(0),
           points: { show: false },
         },
-        // Error bar — only the err portion of the bucket,
-        // rendered at the TOP of the stack via custom paths.
+        // Error bar (red) — drawn from ok[i] up to ok[i]+err[i].
+        // Baseline is the OK series's data array, looked up by
+        // index 1 in u.data inside the path builder.
         {
           label: 'errors',
           stroke: '#dc4a4a',
           fill: '#dc4a4a',
-          paths: barsPath(),
+          paths: barsPath(1),
           points: { show: false },
         },
       ],
@@ -173,7 +174,10 @@ export function TraceVolumeHistogram({ range, dsl, filters }: {
       },
     };
 
-    plotRef.current = new uPlot(opts, [ts, stackedTotal, err], el);
+    // Data layout: ts (x), ok (y for slate bar), err (y for
+    // stacked red bar). The path builder for the err series
+    // reads u.data[1] (ok) as its baseline.
+    plotRef.current = new uPlot(opts, [ts, ok, err], el);
 
     const ro = new ResizeObserver(() => {
       if (plotRef.current && el) {
@@ -251,19 +255,20 @@ export function TraceVolumeHistogram({ range, dsl, filters }: {
 }
 
 // barsPath returns a uPlot path-builder factory that emits a
-// rectangle per X bucket. We don't use uPlot's bars built-in
-// because we want the same factory shared between two stacked
-// series — the second one is drawn from the y-cap of the
-// first, which the built-in doesn't support cleanly.
-function barsPath(): uPlot.Series.PathBuilder {
+// rectangle per X bucket. baselineSeriesIdx selects what y-value
+// the bar's BOTTOM sits at:
+//   0   → bottom = y(0); standalone bar
+//   1.. → bottom = y(u.data[N][i]); stacked on top of series N
+// uPlot's built-in bars preset can't easily share state between
+// stacked series, so this factory lets us build "ok bar from 0"
+// and "error bar from ok[i]" with one helper.
+function barsPath(baselineSeriesIdx: number): uPlot.Series.PathBuilder {
   return (u, sidx, idx0, idx1) => {
     const xs = u.data[0];
     const ys = u.data[sidx];
+    const baseline = baselineSeriesIdx > 0 ? u.data[baselineSeriesIdx] : null;
     const path = new Path2D();
     if (!xs || !ys) return null;
-    // Bar width: 95% of the bucket spacing so adjacent bars
-    // don't touch. uPlot exposes `valToPosX` for the
-    // logical→pixel conversion.
     const xPos = (v: number) => Math.round(u.valToPos(v, 'x', true));
     const yPos = (v: number) => Math.round(u.valToPos(v, 'y', true));
     const span = idx1 > idx0 ? xPos(xs[1] as number) - xPos(xs[0] as number) : 8;
@@ -271,9 +276,13 @@ function barsPath(): uPlot.Series.PathBuilder {
     for (let i = idx0; i <= idx1; i++) {
       const yv = ys[i];
       if (yv == null) continue;
+      const baseValue = baseline ? Number(baseline[i] ?? 0) : 0;
+      const topValue = baseValue + Number(yv);
       const xC = xPos(xs[i] as number);
-      const y0 = yPos(0);
-      const y1 = yPos(yv as number);
+      const y0 = yPos(baseValue);
+      const y1 = yPos(topValue);
+      // Skip zero-height bars to keep the canvas clean.
+      if (y0 === y1) continue;
       path.rect(xC - w / 2, y1, w, y0 - y1);
     }
     return { stroke: path, fill: path };
