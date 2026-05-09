@@ -5,9 +5,12 @@ import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { TraceWaterfall } from '@/components/TraceWaterfall';
 import { computeCriticalPath } from '@/lib/criticalPath';
+import { alignTraces } from '@/lib/spanAlign';
 import { api } from '@/lib/api';
 import { fmtNs } from '@/lib/utils';
 import type { SpanRow, TraceDetailResponse } from '@/lib/types';
+
+type CompareTab = 'split' | 'diff';
 
 // /trace/compare?a=<traceId>&b=<traceId>
 //
@@ -61,6 +64,7 @@ function Inner() {
   // typically open compare from a single trace ("Compare ↔"
   // button) and then paste the other ID into this field.
   const [bDraft, setBDraft] = useState(b);
+  const [tab, setTab] = useState<CompareTab>('split');
 
   if (!a) {
     return (
@@ -118,14 +122,33 @@ function Inner() {
         )}
 
         {b && (
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)',
-            gap: 12,
-          }}>
-            <TraceSide label="A" id={a} q={aQ} otherQ={bQ} />
-            <TraceSide label="B" id={b} q={bQ} otherQ={aQ} />
-          </div>
+          <>
+            <div className="tab-strip" style={{ marginBottom: 10 }}>
+              <button onClick={() => setTab('split')}
+                      className={tab === 'split' ? 'active' : ''}>
+                Split waterfall
+              </button>
+              <button onClick={() => setTab('diff')}
+                      className={tab === 'diff' ? 'active' : ''}>
+                Aligned diff
+              </button>
+            </div>
+
+            {tab === 'split' && (
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)',
+                gap: 12,
+              }}>
+                <TraceSide label="A" id={a} q={aQ} otherQ={bQ} />
+                <TraceSide label="B" id={b} q={bQ} otherQ={aQ} />
+              </div>
+            )}
+
+            {tab === 'diff' && (
+              <AlignedDiff aQ={aQ} bQ={bQ} />
+            )}
+          </>
         )}
       </div>
     </>
@@ -213,6 +236,132 @@ function TraceSide({ label, id, q, otherQ }: {
         </div>
       )}
       {q.isLoading && <Spinner />}
+    </div>
+  );
+}
+
+// AlignedDiff renders the per-operation delta table — the
+// payoff of trace alignment. Pairs are pre-sorted by abs
+// delta so the biggest regressions are at the top.
+//
+// Each row has a colour-coded delta cell (red = slower in B,
+// green = faster), the matched path label, and the absolute
+// duration on each side. "Only in A" / "Only in B" rows fall
+// to the bottom of the list because they're informational —
+// most useful when refactoring (operations renamed) rather
+// than performance regression.
+//
+// The list is virtual-scroll-ready in shape (fixed height
+// rows, sortable) but at the typical trace size (<1k spans
+// per side) we render straight to DOM. Future: switch to
+// VirtualList if traces routinely exceed 1k spans/side.
+function AlignedDiff({ aQ, bQ }: {
+  aQ: ReturnType<typeof useQuery<TraceDetailResponse>>;
+  bQ: ReturnType<typeof useQuery<TraceDetailResponse>>;
+}) {
+  const a: SpanRow[] = aQ.data?.spans ?? [];
+  const b: SpanRow[] = bQ.data?.spans ?? [];
+
+  const aligned = useMemo(() => {
+    if (a.length === 0 && b.length === 0) return null;
+    return alignTraces(
+      a.map(s => ({
+        spanId: s.spanId, parentId: s.parentSpanId ?? '',
+        service: s.serviceName, name: s.name,
+        startTime: s.startTime, duration: s.endTime - s.startTime,
+        statusCode: s.statusCode,
+      })),
+      b.map(s => ({
+        spanId: s.spanId, parentId: s.parentSpanId ?? '',
+        service: s.serviceName, name: s.name,
+        startTime: s.startTime, duration: s.endTime - s.startTime,
+        statusCode: s.statusCode,
+      })),
+    );
+  }, [a, b]);
+
+  if (aQ.isLoading || bQ.isLoading) return <Spinner />;
+  if (!aligned || aligned.pairs.length === 0) {
+    return (
+      <Empty icon="↔" title="No spans to align">
+        Both traces returned without spans, or one of them failed to load.
+      </Empty>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{
+        display: 'flex', gap: 16, fontSize: 12, color: 'var(--text2)',
+        marginBottom: 10, flexWrap: 'wrap',
+      }}>
+        <span>{aligned.matched} matched</span>
+        <span style={{ color: 'var(--warn)' }}>{aligned.onlyInA} only in A</span>
+        <span style={{ color: 'var(--warn)' }}>{aligned.onlyInB} only in B</span>
+        <span style={{ marginLeft: 'auto', color: 'var(--text3)' }}>
+          Sorted by absolute Δ desc · click a row to focus the path in either waterfall
+        </span>
+      </div>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Δ duration</th>
+              <th>%</th>
+              <th>Path</th>
+              <th className="num">A</th>
+              <th className="num">B</th>
+            </tr>
+          </thead>
+          <tbody>
+            {aligned.pairs.map(p => {
+              const isOnlyA = p.a && !p.b;
+              const isOnlyB = !p.a && p.b;
+              const delta = p.deltaNs;
+              const tone = delta == null
+                ? 'var(--text3)'
+                : delta > 0
+                  ? 'var(--err)'
+                  : delta < 0
+                    ? 'var(--ok)'
+                    : 'var(--text3)';
+              return (
+                <tr key={p.pathKey}>
+                  <td className="mono num" style={{ color: tone, whiteSpace: 'nowrap' }}>
+                    {delta == null
+                      ? '—'
+                      : `${delta >= 0 ? '+' : '−'}${fmtNs(Math.abs(delta))}`}
+                  </td>
+                  <td className="mono num" style={{ color: tone }}>
+                    {p.pctChange == null
+                      ? '—'
+                      : `${p.pctChange >= 0 ? '+' : ''}${(p.pctChange * 100).toFixed(0)}%`}
+                  </td>
+                  <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>
+                    {p.pathLabel}
+                    {isOnlyA && (
+                      <span className="badge b-warn" style={{ marginLeft: 6, fontSize: 9 }}>
+                        only in A
+                      </span>
+                    )}
+                    {isOnlyB && (
+                      <span className="badge b-warn" style={{ marginLeft: 6, fontSize: 9 }}>
+                        only in B
+                      </span>
+                    )}
+                  </td>
+                  <td className="num mono" style={{ color: 'var(--text2)' }}>
+                    {p.a ? fmtNs(p.a.duration) : '—'}
+                  </td>
+                  <td className="num mono" style={{ color: 'var(--text2)' }}>
+                    {p.b ? fmtNs(p.b.duration) : '—'}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
