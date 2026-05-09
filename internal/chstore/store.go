@@ -17,6 +17,15 @@ type Store struct {
 	conn driver.Conn
 	cfg  config.CHConfig
 	ret  config.RetentionConfig
+
+	// neighborProvider is the optional 1-hop topology lookup used
+	// by AttachProblemToIncident for rule 3 (cluster a new
+	// problem into an existing incident on a service that calls
+	// or is called by this one). Set via SetNeighborProvider —
+	// kept on the store so the three auto-attach call sites
+	// (evaluator, anomaly, monitor) don't need to thread it
+	// through their constructors.
+	neighborProvider NeighborProvider
 }
 
 func New(cfg config.CHConfig, ret config.RetentionConfig) (*Store, error) {

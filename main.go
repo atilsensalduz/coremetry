@@ -22,6 +22,7 @@ import (
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/config"
 	"github.com/cilcenk/coremetry/internal/consumer"
+	"github.com/cilcenk/coremetry/internal/correlator"
 	"github.com/cilcenk/coremetry/internal/evaluator"
 	"github.com/cilcenk/coremetry/internal/copilot"
 	"github.com/cilcenk/coremetry/internal/ldap"
@@ -199,6 +200,16 @@ func main() {
 	// ── Alert evaluator (background — opens & resolves problems) ─────────────
 	evalr := evaluator.New(store, time.Minute, lockImpl, notifier)
 	go evalr.Start(ctx)
+
+	// ── Topology correlator (incident auto-clustering) ─────────────────────
+	// Builds a 1-hop service adjacency map every 5 min from the
+	// service-map sample. The store consults it during
+	// AttachProblemToIncident so a payment-service timeout and an
+	// upstream api-gateway saturation alert end up under one
+	// incident the oncall drives end-to-end, instead of two.
+	corr := correlator.New(store)
+	go corr.Start(ctx)
+	store.SetNeighborProvider(corr)
 
 	// ── Anomaly detector (Watchdog-style baseline check) ─────────────────────
 	go anomaly.New(store, 2*time.Minute, lockImpl, notifier).Start(ctx)

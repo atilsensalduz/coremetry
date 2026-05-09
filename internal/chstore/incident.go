@@ -3,6 +3,7 @@ package chstore
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -185,16 +186,54 @@ func (s *Store) IncidentTimeline(ctx context.Context, incidentID string) ([]Inci
 	return out, rows.Err()
 }
 
+// NeighborProvider is a 1-hop adjacency lookup the correlator
+// passes in. Optional — when nil, only same-service grouping
+// applies (legacy behaviour).
+type NeighborProvider interface {
+	Neighbors(service string) []string
+}
+
+// SetNeighborProvider registers the topology-aware lookup the
+// auto-attach path uses for rule 3 (1-hop neighbour grouping).
+// Call once at startup with the correlator.Correlator instance;
+// nil disables topological clustering, leaving same-service
+// grouping intact. The store keeps its own reference so the
+// existing AttachProblemToIncident call sites (evaluator,
+// anomaly, monitor) don't need to thread the provider through
+// their constructors.
+func (s *Store) SetNeighborProvider(np NeighborProvider) {
+	s.neighborProvider = np
+}
+
 // AttachProblemToIncident either finds an existing OPEN incident
-// matching service + severity within `groupingWindow` and attaches the
-// problem to it, OR creates a new incident headed by this problem.
-// Idempotent — re-attaching a problem refreshes the mapping but
-// doesn't duplicate timeline events.
+// matching this problem's service or a topological neighbour
+// within `groupingWindow`, OR creates a new incident headed by
+// this problem. Idempotent.
 //
-// This is the auto-grouping rule: same service + same severity + open
-// status + started within the last 30 minutes = one incident. Tunable
-// via the constants.
+// Grouping rules (in priority order):
+//
+//  1. Already attached? Return that incident.
+//  2. Open incident with matching service in the window — even
+//     if the severities differ. Critical p99 and warning
+//     error_rate on the same service are one incident, not two.
+//  3. Open incident on a 1-hop topological neighbour of this
+//     problem's service (caller or callee in sampled traces) in
+//     the window. Catches cascading failures: an upstream
+//     saturation alert and a downstream timeout alert end up
+//     under one incident the oncall drives end-to-end.
+//  4. Else: create a new incident.
+//
+// Topology (3) requires a NeighborProvider — pass nil to fall
+// back to the rule-2 same-service-only behaviour.
 func (s *Store) AttachProblemToIncident(ctx context.Context, p Problem) (*Incident, error) {
+	return s.AttachProblemToIncidentWith(ctx, p, s.neighborProvider)
+}
+
+// AttachProblemToIncidentWith is the topology-aware variant — the
+// correlator is wired here so non-correlator call sites stay
+// untouched. The base AttachProblemToIncident calls this with
+// nil for the provider.
+func (s *Store) AttachProblemToIncidentWith(ctx context.Context, p Problem, np NeighborProvider) (*Incident, error) {
 	const groupingWindow = 30 * time.Minute
 
 	// Already attached?
@@ -205,18 +244,50 @@ func (s *Store) AttachProblemToIncident(ctx context.Context, p Problem) (*Incide
 		return s.GetIncident(ctx, existingID)
 	}
 
-	// Find a matching open incident.
+	// Rule 2: same service, ignore severity. Multiple severity
+	// levels on the same service share an incident.
 	cutoff := time.Now().Add(-groupingWindow).UTC()
 	matchRow := s.conn.QueryRow(ctx, `
 		SELECT id FROM incidents FINAL
 		WHERE status != 'resolved'
 		  AND service  = ?
-		  AND severity = ?
 		  AND started_at >= ?
 		ORDER BY started_at DESC
-		LIMIT 1`, p.Service, p.Severity, cutoff)
+		LIMIT 1`, p.Service, cutoff)
 	var matched string
 	_ = matchRow.Scan(&matched)
+
+	// topologicallyMatched marks rule-3 wins so the timeline event
+	// records "clustered via service topology" instead of the
+	// generic same-service note.
+	var topologicallyMatched bool
+
+	// Rule 3: 1-hop topological neighbour. Only consult when no
+	// same-service incident matched, since same-service is
+	// strictly more specific.
+	if matched == "" && np != nil {
+		neighbours := np.Neighbors(p.Service)
+		if len(neighbours) > 0 {
+			holders := make([]string, len(neighbours))
+			args := make([]any, 0, len(neighbours)+1)
+			for i, n := range neighbours {
+				holders[i] = "?"
+				args = append(args, n)
+			}
+			args = append(args, cutoff)
+			ngRow := s.conn.QueryRow(ctx, `
+				SELECT id FROM incidents FINAL
+				WHERE status != 'resolved'
+				  AND service IN (`+strings.Join(holders, ",")+`)
+				  AND started_at >= ?
+				ORDER BY started_at DESC
+				LIMIT 1`, args...)
+			_ = ngRow.Scan(&matched)
+			if matched != "" {
+				topologicallyMatched = true
+			}
+		}
+	}
 
 	var inc Incident
 	if matched != "" {
@@ -264,11 +335,20 @@ func (s *Store) AttachProblemToIncident(ctx context.Context, p Problem) (*Incide
 		return &inc, err
 	}
 
+	body := p.RuleName
+	if topologicallyMatched {
+		// Tag the timeline so the operator sees this incident
+		// absorbed a problem from a *neighbour* service, not the
+		// same one. Useful when triaging a cascading outage:
+		// "incident on api-gateway, but the third event was a
+		// payment-service alert clustered in via topology."
+		body = p.RuleName + " [clustered via service topology — " + p.Service + "]"
+	}
 	_ = s.AppendIncidentEvent(ctx, IncidentEvent{
 		IncidentID: inc.ID,
 		Kind:       "problem_attached",
 		Actor:      "system",
-		Body:       p.RuleName,
+		Body:       body,
 		RefID:      p.ID,
 	})
 	return &inc, nil
