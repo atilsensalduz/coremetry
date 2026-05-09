@@ -2,6 +2,7 @@ import { useEffect, useState, FormEvent } from 'react';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { useAuth } from '@/components/AuthProvider';
+import { Modal, Field, SelectField, Button, Stack } from '@/components/ui';
 import { api, type UserRow } from '@/lib/api';
 import { tsLong } from '@/lib/utils';
 
@@ -174,28 +175,44 @@ function NewUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
   };
 
   return (
-    <Modal title="New user" onClose={onClose}>
-      <form onSubmit={submit}>
-        <Field label="Email">
-          <input type="email" required autoFocus value={email}
-            onChange={e => setEmail(e.target.value)} style={{ width: '100%' }} />
-        </Field>
-        <Field label="Password (min 6 chars)">
-          <input type="password" required minLength={6} value={password}
-            onChange={e => setPassword(e.target.value)} style={{ width: '100%' }} />
-        </Field>
-        <Field label="Role">
-          <select value={role} onChange={e => setRole(e.target.value as 'admin' | 'editor' | 'viewer')}>
+    <Modal
+      open={true}
+      onClose={onClose}
+      title="New user"
+      size="sm"
+      initialFocus="input[type=email]"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" form="new-user-form" loading={busy}>Create</Button>
+        </>
+      }>
+      <form id="new-user-form" onSubmit={submit}>
+        <Stack gap={3}>
+          <Field
+            label="Email"
+            type="email"
+            required
+            value={email}
+            onChange={e => setEmail(e.target.value)} />
+          <Field
+            label="Password"
+            hint="At least 6 characters."
+            type="password"
+            required
+            minLength={6}
+            value={password}
+            onChange={e => setPassword(e.target.value)} />
+          <SelectField
+            label="Role"
+            value={role}
+            onChange={e => setRole(e.target.value as 'admin' | 'editor' | 'viewer')}>
             <option value="viewer">Viewer (read only)</option>
             <option value="editor">Editor (dashboards / monitors / alerts)</option>
             <option value="admin">Admin (full access)</option>
-          </select>
-        </Field>
-        {error && <ErrorBox>{error}</ErrorBox>}
-        <ModalActions>
-          <button type="button" className="sec" onClick={onClose}>Cancel</button>
-          <button type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create'}</button>
-        </ModalActions>
+          </SelectField>
+          {error && <ErrorBox>{error}</ErrorBox>}
+        </Stack>
       </form>
     </Modal>
   );
@@ -222,61 +239,40 @@ function ResetPasswordModal({ user, onClose, onDone }: {
   };
 
   return (
-    <Modal title={`Reset password — ${user.email}`} onClose={onClose}>
-      <form onSubmit={submit}>
-        <Field label="New password (min 6 chars)">
-          <input type="password" required minLength={6} autoFocus value={password}
-            onChange={e => setPassword(e.target.value)} style={{ width: '100%' }} />
-        </Field>
-        {error && <ErrorBox>{error}</ErrorBox>}
-        <ModalActions>
-          <button type="button" className="sec" onClick={onClose}>Cancel</button>
-          <button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Set password'}</button>
-        </ModalActions>
+    <Modal
+      open={true}
+      onClose={onClose}
+      title={`Reset password — ${user.email}`}
+      size="sm"
+      initialFocus="input[type=password]"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" form="reset-pw-form" loading={busy}>Set password</Button>
+        </>
+      }>
+      <form id="reset-pw-form" onSubmit={submit}>
+        <Stack gap={3}>
+          <Field
+            label="New password"
+            hint="At least 6 characters."
+            type="password"
+            required
+            minLength={6}
+            value={password}
+            onChange={e => setPassword(e.target.value)} />
+          {error && <ErrorBox>{error}</ErrorBox>}
+        </Stack>
       </form>
     </Modal>
   );
 }
 
-// ── Tiny modal primitives (kept inline to avoid new component files) ────────
-
-function Modal({ title, children, onClose }: {
-  title: string; children: React.ReactNode; onClose: () => void;
-}) {
-  return (
-    <div onClick={onClose} style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
-      display: 'grid', placeItems: 'center', zIndex: 100,
-    }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        width: 380, padding: 24, borderRadius: 8,
-        background: 'var(--bg2)', border: '1px solid var(--border)',
-        boxShadow: '0 12px 36px rgba(0,0,0,0.3)',
-      }}>
-        <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 14 }}>{title}</div>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label style={{ display: 'block', marginBottom: 12 }}>
-      <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 4 }}>{label}</div>
-      {children}
-    </label>
-  );
-}
-
-function ModalActions({ children }: { children: React.ReactNode }) {
-  return (
-    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 18 }}>
-      {children}
-    </div>
-  );
-}
-
+// ErrorBox is the inline form-level error styling — kept as a
+// local helper because it's used in two places in this file and
+// the global Field error slot only covers per-field errors. If a
+// third caller in another page wants the same look, lift this
+// to ui/.
 function ErrorBox({ children }: { children: React.ReactNode }) {
   return (
     <div style={{

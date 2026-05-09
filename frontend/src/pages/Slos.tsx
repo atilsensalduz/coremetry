@@ -3,6 +3,7 @@ import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { ServicePicker } from '@/components/ServicePicker';
 import { useAuth } from '@/components/AuthProvider';
+import { Modal, Field, SelectField, Button, Stack } from '@/components/ui';
 import { api } from '@/lib/api';
 import type { SLORow, SLIType } from '@/lib/types';
 
@@ -171,72 +172,71 @@ function NewSLOModal({ services, onClose, onCreated }: {
   };
 
   return (
-    <div onClick={onClose} style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
-      display: 'grid', placeItems: 'center', zIndex: 100,
-    }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        width: 420, padding: 24, borderRadius: 8,
-        background: 'var(--bg2)', border: '1px solid var(--border)',
-      }}>
-        <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 14 }}>New SLO</div>
-        <form onSubmit={submit}>
-          <Field label="Name">
-            <input required autoFocus value={name}
-              onChange={e => setName(e.target.value)} style={{ width: '100%' }} />
-          </Field>
+    <Modal
+      open={true}
+      onClose={onClose}
+      title="New SLO"
+      size="md"
+      initialFocus="input[name=name]"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" form="new-slo-form" loading={busy}>Create</Button>
+        </>
+      }>
+      <form id="new-slo-form" onSubmit={submit}>
+        <Stack gap={3}>
+          <Field
+            label="Name"
+            name="name"
+            required
+            value={name}
+            onChange={e => setName(e.target.value)} />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Field label="Service">
+            <div className="field">
+              <label className="field-label">Service</label>
               <ServicePicker value={service} onChange={setService} placeholder="…" />
-            </Field>
-            <Field label="Operation (optional)">
-              <input value={operation}
-                onChange={e => setOperation(e.target.value)} />
-            </Field>
+            </div>
+            <Field
+              label="Operation (optional)"
+              value={operation}
+              onChange={e => setOperation(e.target.value)} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Field label="SLI type">
-              <select value={sliType}
-                onChange={e => setSliType(e.target.value as SLIType)}>
-                <option value="availability">Availability</option>
-                <option value="latency">Latency</option>
-              </select>
-            </Field>
-            <Field label="Window (days)">
-              <input type="number" min={1} max={365} value={windowDays}
-                onChange={e => setWindowDays(e.target.value)} />
-            </Field>
+            <SelectField
+              label="SLI type"
+              value={sliType}
+              onChange={e => setSliType(e.target.value as SLIType)}>
+              <option value="availability">Availability</option>
+              <option value="latency">Latency</option>
+            </SelectField>
+            <Field
+              label="Window (days)"
+              type="number" min={1} max={365}
+              value={windowDays}
+              onChange={e => setWindowDays(e.target.value)} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Field label="Target % (e.g. 99.9)">
-              <input required type="number" min={0} max={100} step="0.001"
-                value={target} onChange={e => setTarget(e.target.value)} />
-            </Field>
+            <Field
+              label="Target %"
+              hint="e.g. 99.9"
+              required type="number" min={0} max={100} step="0.001"
+              value={target}
+              onChange={e => setTarget(e.target.value)} />
             {sliType === 'latency' && (
-              <Field label="Threshold (ms)">
-                <input required type="number" min={0} step="0.1"
-                  value={thresholdMs} onChange={e => setThresholdMs(e.target.value)} />
-              </Field>
+              <Field
+                label="Threshold (ms)"
+                required type="number" min={0} step="0.1"
+                value={thresholdMs}
+                onChange={e => setThresholdMs(e.target.value)} />
             )}
           </div>
           {error && (
-            <div style={{ color: 'var(--err)', fontSize: 12, marginBottom: 8 }}>{error}</div>
+            <div style={{ color: 'var(--err)', fontSize: 12 }}>{error}</div>
           )}
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button type="button" className="sec" onClick={onClose}>Cancel</button>
-            <button type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create'}</button>
-          </div>
-        </form>
-      </div>
-    </div>
+        </Stack>
+      </form>
+    </Modal>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label style={{ display: 'block', marginBottom: 12 }}>
-      <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 4 }}>{label}</div>
-      {children}
-    </label>
-  );
-}

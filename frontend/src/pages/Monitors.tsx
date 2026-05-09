@@ -2,6 +2,7 @@ import { useEffect, useState, FormEvent } from 'react';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { useAuth } from '@/components/AuthProvider';
+import { Modal, Field, SelectField, Button, Stack, Row as UiRow } from '@/components/ui';
 import { api } from '@/lib/api';
 import { tsLong } from '@/lib/utils';
 import type { Monitor, MonitorRow, MonitorResult, MonitorStats } from '@/lib/types';
@@ -250,111 +251,110 @@ function MonitorModal({ initial, onClose, onSaved }: {
   };
 
   return (
-    <div onClick={onClose} style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
-      display: 'grid', placeItems: 'center', zIndex: 100,
-    }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        width: 480, padding: 24, borderRadius: 8,
-        background: 'var(--bg2)', border: '1px solid var(--border)',
-      }}>
-        <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 14 }}>
-          {initial ? `Edit monitor — ${initial.name}` : 'New monitor'}
-        </div>
-        <form onSubmit={submit}>
-          <Field label="Name">
-            <input required autoFocus value={m.name ?? ''}
-              onChange={e => setM({ ...m, name: e.target.value })}
-              placeholder="api.example.com health" style={{ width: '100%' }} />
-          </Field>
-          <Row>
-            <Field label="Type" flex={1}>
-              <select value={m.type ?? 'http'}
+    <Modal
+      open={true}
+      onClose={onClose}
+      title={initial ? `Edit monitor — ${initial.name}` : 'New monitor'}
+      size="md"
+      initialFocus="input[name=name]"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" form="monitor-form" loading={busy}>
+            {initial ? 'Save' : 'Create'}
+          </Button>
+        </>
+      }>
+      <form id="monitor-form" onSubmit={submit}>
+        <Stack gap={3}>
+          <Field
+            label="Name"
+            name="name"
+            required
+            value={m.name ?? ''}
+            onChange={e => setM({ ...m, name: e.target.value })}
+            placeholder="api.example.com health" />
+          <UiRow gap={3}>
+            <div style={{ flex: 1 }}>
+              <SelectField
+                label="Type"
+                value={m.type ?? 'http'}
                 onChange={e => setM({ ...m, type: e.target.value as 'http' | 'heartbeat' })}>
                 <option value="http">HTTP probe</option>
                 <option value="heartbeat">Heartbeat (passive)</option>
-              </select>
-            </Field>
-            <Field label={m.type === 'heartbeat' ? 'Grace window (sec)' : 'Probe interval (sec)'} flex={1}>
-              <input required type="number" min={5} value={m.intervalSec ?? 60}
-                onChange={e => setM({ ...m, intervalSec: Number(e.target.value) })}
-                style={{ width: '100%' }} />
-            </Field>
-          </Row>
+              </SelectField>
+            </div>
+            <div style={{ flex: 1 }}>
+              <Field
+                label={m.type === 'heartbeat' ? 'Grace window (sec)' : 'Probe interval (sec)'}
+                required type="number" min={5}
+                value={m.intervalSec ?? 60}
+                onChange={e => setM({ ...m, intervalSec: Number(e.target.value) })} />
+            </div>
+          </UiRow>
           {m.type === 'http' && (
             <>
-              <Field label="URL">
-                <input required value={m.url ?? ''}
-                  onChange={e => setM({ ...m, url: e.target.value })}
-                  placeholder="https://api.example.com/health" style={{ width: '100%' }} />
-              </Field>
+              <Field
+                label="URL"
+                required
+                value={m.url ?? ''}
+                onChange={e => setM({ ...m, url: e.target.value })}
+                placeholder="https://api.example.com/health" />
 
               {/* Advanced section — Method / Expected status / Timeout
                   hidden by default to keep the basic form short. The
                   reveal toggle keeps "the simple case is one URL +
                   one interval" as the default UX. */}
-              <button type="button" onClick={() => setShowAdvanced(s => !s)}
-                style={{
-                  marginTop: 12, padding: '4px 0', background: 'transparent',
-                  border: 'none', color: 'var(--text2)', fontSize: 12,
-                  fontWeight: 600, letterSpacing: '0.3px', textTransform: 'uppercase',
-                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
-                }}>
-                <span style={{ fontSize: 9 }}>{showAdvanced ? '▼' : '▶'}</span>
+              <Button
+                variant="ghost" size="sm"
+                onClick={() => setShowAdvanced(s => !s)}
+                style={{ alignSelf: 'flex-start', textTransform: 'uppercase', letterSpacing: '0.3px' }}
+                aria-expanded={showAdvanced}
+                leftIcon={<span style={{ fontSize: 9 }}>{showAdvanced ? '▼' : '▶'}</span>}>
                 Advanced settings
-              </button>
+              </Button>
               {showAdvanced && (
-                <Row>
-                  <Field label="Method" flex={1}>
-                    <select value={m.method ?? 'GET'}
+                <UiRow gap={3}>
+                  <div style={{ flex: 1 }}>
+                    <SelectField
+                      label="Method"
+                      value={m.method ?? 'GET'}
                       onChange={e => setM({ ...m, method: e.target.value })}>
                       {['GET', 'HEAD', 'POST'].map(x => <option key={x} value={x}>{x}</option>)}
-                    </select>
-                  </Field>
-                  <Field label="Expected status" flex={1}>
-                    <input type="number" min={100} max={599} value={m.expectedStatus ?? 200}
-                      onChange={e => setM({ ...m, expectedStatus: Number(e.target.value) })}
-                      style={{ width: '100%' }} />
-                  </Field>
-                  <Field label="Timeout (sec)" flex={1}>
-                    <input type="number" min={1} max={60} value={m.timeoutSec ?? 5}
-                      onChange={e => setM({ ...m, timeoutSec: Number(e.target.value) })}
-                      style={{ width: '100%' }} />
-                  </Field>
-                </Row>
+                    </SelectField>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <Field
+                      label="Expected status"
+                      type="number" min={100} max={599}
+                      value={m.expectedStatus ?? 200}
+                      onChange={e => setM({ ...m, expectedStatus: Number(e.target.value) })} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <Field
+                      label="Timeout (sec)"
+                      type="number" min={1} max={60}
+                      value={m.timeoutSec ?? 5}
+                      onChange={e => setM({ ...m, timeoutSec: Number(e.target.value) })} />
+                  </div>
+                </UiRow>
               )}
             </>
           )}
           {m.type === 'heartbeat' && (
-            <p style={{ fontSize: 11, color: 'var(--text3)', marginTop: -4 }}>
+            <p style={{ fontSize: 11, color: 'var(--text3)' }}>
               On save you'll get a unique URL. POST or GET to it from your cron job at least every <b>{m.intervalSec}s</b>.
               If Coremetry sees no beat for longer than that, the monitor flips to <b style={{ color: 'var(--err)' }}>down</b> and the alert fires.
             </p>
           )}
-          <label style={{ display: 'flex', gap: 6, alignItems: 'center', color: 'var(--text2)', fontSize: 12, marginTop: 6 }}>
+          <label style={{ display: 'flex', gap: 6, alignItems: 'center', color: 'var(--text2)', fontSize: 12 }}>
             <input type="checkbox" checked={m.enabled ?? true}
               onChange={e => setM({ ...m, enabled: e.target.checked })} />
             Enabled
           </label>
-          {error && <div className="trp-error" style={{ marginTop: 10 }}>{error}</div>}
-          <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
-            <button type="button" className="sec" onClick={onClose}>Cancel</button>
-            <button type="submit" disabled={busy}>{busy ? 'Saving…' : initial ? 'Save' : 'Create'}</button>
-          </div>
-        </form>
-      </div>
-    </div>
+          {error && <div className="trp-error">{error}</div>}
+        </Stack>
+      </form>
+    </Modal>
   );
-}
-
-function Field({ label, children, flex }: { label: string; children: React.ReactNode; flex?: number }) {
-  return (
-    <label style={{ display: 'block', marginTop: 10, flex }}>
-      <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 3 }}>{label}</div>
-      {children}
-    </label>
-  );
-}
-function Row({ children }: { children: React.ReactNode }) {
-  return <div style={{ display: 'flex', gap: 10 }}>{children}</div>;
 }

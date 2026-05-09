@@ -5,6 +5,7 @@ import { SavedViewsBar } from '@/components/SavedViewsBar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { ServicePicker } from '@/components/ServicePicker';
 import { useAuth } from '@/components/AuthProvider';
+import { Card, Badge, Row } from '@/components/ui';
 import { api, type UserRow } from '@/lib/api';
 import { fmtNum, tsLong } from '@/lib/utils';
 import type {
@@ -498,16 +499,13 @@ function AnomalyShell({ title, hint, count, children }: {
 }) {
   if (count === 0) return null;
   return (
-    <div style={{
-      background: 'var(--bg1)', border: '1px solid var(--border)',
-      borderRadius: 8, padding: 14, marginBottom: 16,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 10 }}>
+    <Card style={{ marginBottom: 16 }}>
+      <Row gap={3} style={{ alignItems: 'baseline', marginBottom: 10 }}>
         <span style={{ fontSize: 13, fontWeight: 700 }}>{title}</span>
         <span style={{ fontSize: 11, color: 'var(--text3)' }}>{hint}</span>
-      </div>
+      </Row>
       {children}
-    </div>
+    </Card>
   );
 }
 
@@ -526,15 +524,11 @@ function TraceOpsSection({ items, onMute }: {
       count={items.length}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 10 }}>
         {items.map((a, i) => (
-          <div key={i} style={{
-            padding: 10, border: '1px solid var(--border)',
-            borderRadius: 6, background: 'var(--bg2)',
-            display: 'flex', flexDirection: 'column', gap: 4,
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Card key={i} density="tight" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <Row gap={2}>
               {a.kind === 'new_error'
-                ? <span className="badge b-warn" style={{ fontSize: 10 }}>NEW ERROR</span>
-                : <span className="badge b-err"  style={{ fontSize: 10 }}>SPIKE ×{a.ratio.toFixed(1)}</span>}
+                ? <Badge tone="warning" style={{ fontSize: 10 }}>NEW ERROR</Badge>
+                : <Badge tone="danger"  style={{ fontSize: 10 }}>SPIKE ×{a.ratio.toFixed(1)}</Badge>}
               <span style={{ fontWeight: 600, fontSize: 12 }}>{a.operation || '(unnamed)'}</span>
               <span style={{ flex: 1 }} />
               {a.sampleTraceId && (
@@ -543,7 +537,7 @@ function TraceOpsSection({ items, onMute }: {
                 </Link>
               )}
               <SnoozeButton onMute={d => onMute('trace_op', a.operation, a.service, d)} />
-            </div>
+            </Row>
             <div style={{ fontSize: 11, color: 'var(--text2)' }}>
               <Link to={`/service?name=${encodeURIComponent(a.service)}`}
                     style={{ fontFamily: 'monospace', color: 'var(--text)', textDecoration: 'none' }}>
@@ -552,7 +546,7 @@ function TraceOpsSection({ items, onMute }: {
               {' · '}{fmtNum(a.currentErrors)} errors now
               {a.baselineErrors > 0 && <> · {fmtNum(a.baselineErrors)} prev</>}
             </div>
-          </div>
+          </Card>
         ))}
       </div>
     </AnomalyShell>
@@ -621,24 +615,21 @@ function MetricSection({ items }: { items: Problem[] | undefined }) {
       count={items.length}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 10 }}>
         {items.map(p => (
-          <div key={p.id} style={{
-            padding: 10, border: '1px solid var(--border)',
-            borderRadius: 6, background: 'var(--bg2)',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <span className={`badge ${p.severity === 'critical' ? 'b-err' : 'b-warn'}`} style={{ fontSize: 10 }}>
+          <Card key={p.id} density="tight">
+            <Row gap={2} style={{ marginBottom: 4 }}>
+              <Badge tone={p.severity === 'critical' ? 'danger' : 'warning'} style={{ fontSize: 10 }}>
                 {p.severity.toUpperCase()}
-              </span>
+              </Badge>
               <span style={{ fontWeight: 600, fontSize: 12 }}>{p.metric}</span>
               <span style={{ flex: 1 }} />
               <Link to={`/service?name=${encodeURIComponent(p.service)}`} style={{ fontSize: 11, color: 'var(--accent2)' }}>
                 {p.service} ↗
               </Link>
-            </div>
+            </Row>
             <div style={{ fontSize: 11, color: 'var(--text2)' }}>
               {p.description || `value ${p.value.toFixed(2)} vs threshold ${p.threshold.toFixed(2)}`}
             </div>
-          </div>
+          </Card>
         ))}
       </div>
     </AnomalyShell>
@@ -764,29 +755,22 @@ function LogPatternsSection({ items, onMute }: {
   if (items === undefined) return null;
   if (items.length === 0) return null;
   return (
-    <div style={{
-      background: 'var(--bg1)', border: '1px solid var(--border)',
-      borderRadius: 8, padding: 14, marginBottom: 16,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 10 }}>
+    <Card style={{ marginBottom: 16 }}>
+      <Row gap={3} style={{ alignItems: 'baseline', marginBottom: 10 }}>
         <span style={{ fontSize: 13, fontWeight: 700 }}>
           Log-pattern anomalies
         </span>
         <span style={{ fontSize: 11, color: 'var(--text3)' }}>
           {items.length} pattern{items.length === 1 ? '' : 's'} changed in the last 5 min
         </span>
-      </div>
+      </Row>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 10 }}>
         {items.map((a, i) => (
-          <div key={i} style={{
-            padding: 10, border: '1px solid var(--border)',
-            borderRadius: 6, background: 'var(--bg2)',
-            display: 'flex', flexDirection: 'column', gap: 4,
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Card key={i} density="tight" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <Row gap={2}>
               {a.kind === 'new'
-                ? <span className="badge b-warn" style={{ fontSize: 10 }}>NEW</span>
-                : <span className="badge b-err"  style={{ fontSize: 10 }}>SPIKE ×{a.ratio.toFixed(1)}</span>}
+                ? <Badge tone="warning" style={{ fontSize: 10 }}>NEW</Badge>
+                : <Badge tone="danger"  style={{ fontSize: 10 }}>SPIKE ×{a.ratio.toFixed(1)}</Badge>}
               <span style={{ fontWeight: 600, fontSize: 12 }}>{a.pattern}</span>
               <span style={{ flex: 1 }} />
               {/* Drill-down to logs scoped to this service. We
@@ -795,15 +779,13 @@ function LogPatternsSection({ items, onMute }: {
                   match (multiSearchAnyCaseInsensitive on the
                   tokenbf_v1 index), and a regex like
                   "ORA-[0-9]+" never substring-matches a real log
-                  body. Operator gets the right service + can
-                  type a token themselves if they want to narrow
-                  further. */}
+                  body. */}
               <Link to={`/logs?service=${encodeURIComponent(a.service)}`}
                     style={{ fontSize: 11, color: 'var(--accent2)' }}>
                 logs ↗
               </Link>
               <SnoozeButton onMute={d => onMute('log_pattern', a.pattern, a.service, d)} />
-            </div>
+            </Row>
             <div style={{ fontSize: 11, color: 'var(--text2)' }}>
               <span style={{ fontFamily: 'monospace' }}>{a.service || 'unknown'}</span>
               {' · '}
@@ -819,9 +801,9 @@ function LogPatternsSection({ items, onMute }: {
                 {a.sample}
               </div>
             )}
-          </div>
+          </Card>
         ))}
       </div>
-    </div>
+    </Card>
   );
 }

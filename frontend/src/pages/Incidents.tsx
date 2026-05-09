@@ -4,6 +4,7 @@ import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { useAuth } from '@/components/AuthProvider';
 import { ServicePicker } from '@/components/ServicePicker';
+import { Modal, Button, Field, SelectField, TextareaField, Row } from '@/components/ui';
 import { api } from '@/lib/api';
 import { tsLong, fmtNum } from '@/lib/utils';
 import type { Incident, IncidentStatus } from '@/lib/types';
@@ -136,47 +137,54 @@ function NewIncidentModal({ onClose, onCreated }: { onClose: () => void; onCreat
     finally { setBusy(false); }
   };
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'grid', placeItems: 'center', zIndex: 100 }}>
-      <div onClick={e => e.stopPropagation()} style={{ width: 460, padding: 24, borderRadius: 8, background: 'var(--bg2)', border: '1px solid var(--border)' }}>
-        <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 14 }}>Declare incident</div>
-        <form onSubmit={submit}>
-          <Field label="Title">
-            <input required autoFocus value={i.title ?? ''} onChange={e => setI({ ...i, title: e.target.value })}
-              placeholder="Checkout service degraded — high error rate" style={{ width: '100%' }} />
-          </Field>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <Field label="Severity" flex={1}>
-              <select value={i.severity ?? 'warning'} onChange={e => setI({ ...i, severity: e.target.value as 'info' | 'warning' | 'critical' })}>
-                <option value="info">Info</option>
-                <option value="warning">Warning</option>
-                <option value="critical">Critical</option>
-              </select>
-            </Field>
-            <Field label="Service (optional)" flex={1}>
-              <ServicePicker value={i.service ?? ''} onChange={v => setI({ ...i, service: v })} placeholder="Service…" width="100%" />
-            </Field>
+    <Modal
+      open={true}
+      onClose={onClose}
+      title="Declare incident"
+      size="md"
+      initialFocus="input[name=title]"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" form="new-incident-form" loading={busy}>Declare</Button>
+        </>
+      }>
+      <form id="new-incident-form" onSubmit={submit} className="stack gap-3">
+        <Field
+          label="Title"
+          name="title"
+          required
+          value={i.title ?? ''}
+          onChange={e => setI({ ...i, title: e.target.value })}
+          placeholder="Checkout service degraded — high error rate" />
+        <Row gap={3}>
+          <div style={{ flex: 1 }}>
+            <SelectField
+              label="Severity"
+              value={i.severity ?? 'warning'}
+              onChange={e => setI({ ...i, severity: e.target.value as 'info' | 'warning' | 'critical' })}>
+              <option value="info">Info</option>
+              <option value="warning">Warning</option>
+              <option value="critical">Critical</option>
+            </SelectField>
           </div>
-          <Field label="Summary (optional)">
-            <textarea value={i.summary ?? ''} onChange={e => setI({ ...i, summary: e.target.value })}
-              rows={3} style={{ width: '100%', resize: 'vertical' }}
-              placeholder="Brief one-paragraph context for the oncall — what's the impact?" />
-          </Field>
-          {error && <div className="trp-error" style={{ marginTop: 10 }}>{error}</div>}
-          <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
-            <button type="button" className="sec" onClick={onClose}>Cancel</button>
-            <button type="submit" disabled={busy}>{busy ? 'Creating…' : 'Declare'}</button>
+          <div style={{ flex: 1 }} className="field">
+            <label className="field-label">Service (optional)</label>
+            <ServicePicker
+              value={i.service ?? ''}
+              onChange={v => setI({ ...i, service: v })}
+              placeholder="Service…"
+              width="100%" />
           </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-function Field({ label, children, flex }: { label: string; children: React.ReactNode; flex?: number }) {
-  return (
-    <label style={{ display: 'block', marginTop: 10, flex }}>
-      <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 3 }}>{label}</div>
-      {children}
-    </label>
+        </Row>
+        <TextareaField
+          label="Summary (optional)"
+          rows={3}
+          value={i.summary ?? ''}
+          onChange={e => setI({ ...i, summary: e.target.value })}
+          placeholder="Brief one-paragraph context for the oncall — what's the impact?" />
+        {error && <div className="trp-error">{error}</div>}
+      </form>
+    </Modal>
   );
 }
