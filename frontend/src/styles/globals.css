@@ -168,6 +168,20 @@ button.lg { padding: 8px 18px; font-size: 14px; }
   text-decoration: none !important;
 }
 
+/* Row-selected — applied by table pages whose row navigation
+   uses lib/useTableNav. j/k cycles the selection through the
+   visible rows; this class surfaces it visually. Left-edge
+   accent stripe so the selection reads even at a glance, and
+   the row hovers brighter than normal so it's obvious which
+   row Enter/o will open. */
+.row-selected {
+  background: rgba(56, 139, 253, 0.10) !important;  /* var(--accent) at 10% */
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+[data-theme="light"] .row-selected {
+  background: rgba(9, 105, 218, 0.08) !important;
+}
+
 /* ── Modal / dialog primitive ──────────────────────────────────
    Centred overlay with backdrop. Used by the Modal component
    (components/ui/Modal.tsx) which adds focus-trap + ESC. The

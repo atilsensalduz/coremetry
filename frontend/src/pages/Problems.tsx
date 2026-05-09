@@ -1,9 +1,10 @@
 import { Suspense, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Link } from 'react-router-dom';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { useProblems } from '@/lib/queries';
+import { useTableNav } from '@/lib/useTableNav';
 import { tsLong } from '@/lib/utils';
 import { CopilotExplain } from '@/components/CopilotExplain';
 import { IconBell, IconSparkles } from '@/components/icons';
@@ -77,6 +78,15 @@ function ProblemsPageInner() {
     else { setSortBy(col); setSortDir(NATURAL_DIR[col]); }
   };
 
+  // j/k row navigation. Enter / o opens the selected problem's
+  // service detail page (the most common drill-down). Esc
+  // clears the selection.
+  const navigate = useNavigate();
+  const nav = useTableNav<Problem>(sorted ?? [], {
+    pageId: 'problems',
+    onOpen: (p) => navigate(`/service?name=${encodeURIComponent(p.service)}`),
+  });
+
   return (
     <>
       <Topbar title="Problems" range={range} onRangeChange={setRange} />
@@ -123,10 +133,14 @@ function ProblemsPageInner() {
                 </tr>
               </thead>
               <tbody>
-                {sorted.map(p => {
+                {sorted.map((p, i) => {
                   const isAnomaly = p.ruleId?.startsWith('anomaly:');
+                  const isSelected = nav.selected === i;
                   return (
-                    <tr key={p.id}>
+                    <tr key={p.id}
+                        data-row-idx={i}
+                        className={isSelected ? 'row-selected' : undefined}
+                        onMouseEnter={() => nav.setSelected(i)}>
                       <td><SeverityBadge s={p.severity} /></td>
                       <td>
                         <Link to={`/service?name=${encodeURIComponent(p.service)}`}

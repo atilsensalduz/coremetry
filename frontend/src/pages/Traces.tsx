@@ -1,5 +1,6 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useTableNav } from '@/lib/useTableNav';
 import { Topbar } from '@/components/Topbar';
 import { SavedViewsBar } from '@/components/SavedViewsBar';
 import { Spinner, Empty } from '@/components/Spinner';
@@ -245,6 +246,17 @@ function TracesPageInner() {
   const total = data?.total;             // undefined when count was skipped
   const hasMore = data?.hasMore ?? false;
 
+  // j/k row navigation — Enter / o opens the trace detail
+  // page. Only registers when we're in `view === 'list'`
+  // since aggregate view groups rows differently.
+  const tableNav = useTableNav<typeof traces[number]>(
+    view === 'list' ? traces : [],
+    {
+      pageId: 'traces-list',
+      onOpen: (t) => navigate(`/trace?id=${t.traceId}`),
+    },
+  );
+
   // Build a DSL string the histogram can use to scope its volume +
   // error-rate query to the same predicate the table is showing. We
   // only fold in the *cheap* filters (service + hasError); free-text
@@ -433,8 +445,11 @@ function TracesPageInner() {
                   </th>
                 </tr></thead>
                 <tbody>
-                  {traces.map(t => (
+                  {traces.map((t, i) => (
                     <tr key={t.traceId}
+                        data-row-idx={i}
+                        className={tableNav.selected === i ? 'row-selected' : undefined}
+                        onMouseEnter={() => tableNav.setSelected(i)}
                         {...rowClickHandlers(`/trace?id=${t.traceId}`,
                                              () => navigate(`/trace?id=${t.traceId}`))}>
                       <td className="mono">{tsShort(t.startTime)}</td>
