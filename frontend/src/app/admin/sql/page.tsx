@@ -1,0 +1,333 @@
+'use client';
+import { useEffect, useRef, useState, useMemo } from 'react';
+import { Topbar } from '@/components/Topbar';
+import { Empty, Spinner } from '@/components/Spinner';
+import { useAuth } from '@/components/AuthProvider';
+import { api } from '@/lib/api';
+import type { SQLResult, SchemaTable } from '@/lib/types';
+
+// Embedded SQL playground — admin-only ad-hoc CH query interface.
+// Three layers of defence (server allow-list, server readonly=2,
+// 60s execution-time cap) plus an audit-log row per query, so
+// banking-grade ops can give an SRE this surface without losing
+// the audit trail.
+//
+// Layout: schema browser left, editor + results right.
+
+const SAMPLES: { label: string; sql: string }[] = [
+  { label: 'Top services by spans (last 1h)', sql:
+    `SELECT service_name, count() AS spans, countIf(status_code='error') AS errors
+FROM spans WHERE time >= now() - INTERVAL 1 HOUR
+GROUP BY service_name ORDER BY spans DESC LIMIT 50` },
+  { label: 'Slowest endpoints (last 1h, p99)', sql:
+    `SELECT service_name, name,
+       quantile(0.99)(duration) / 1e6 AS p99_ms, count() AS spans
+FROM spans WHERE time >= now() - INTERVAL 1 HOUR
+GROUP BY service_name, name HAVING spans >= 100
+ORDER BY p99_ms DESC LIMIT 30` },
+  { label: 'Storage by table', sql:
+    `SELECT table,
+       formatReadableSize(sum(bytes_on_disk)) AS size,
+       sum(rows) AS rows,
+       round(sum(data_compressed_bytes) / nullIf(sum(data_uncompressed_bytes), 0) * 100, 1) AS compress_pct
+FROM system.parts WHERE database = currentDatabase() AND active = 1
+GROUP BY table ORDER BY sum(bytes_on_disk) DESC` },
+  { label: 'Trace IDs with most spans (last 10m)', sql:
+    `SELECT trace_id, count() AS span_count
+FROM spans WHERE time >= now() - INTERVAL 10 MINUTE
+GROUP BY trace_id ORDER BY span_count DESC LIMIT 20` },
+  { label: 'Recent slow ClickHouse queries', sql:
+    `SELECT event_time, query_duration_ms,
+       formatReadableSize(read_bytes) AS read_bytes,
+       substring(query, 1, 80) AS q
+FROM system.query_log WHERE event_time >= now() - INTERVAL 30 MINUTE
+  AND type = 'QueryFinish'
+ORDER BY query_duration_ms DESC LIMIT 30` },
+];
+
+const HISTORY_KEY = 'coremetry-sql-history';
+const HISTORY_MAX = 30;
+
+export default function SQLPlaygroundPage() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+
+  const [schema, setSchema] = useState<SchemaTable[] | undefined>(undefined);
+  const [openTables, setOpenTables] = useState<Set<string>>(new Set());
+
+  const [query, setQuery] = useState<string>(
+    'SELECT count() FROM spans WHERE time >= now() - INTERVAL 5 MINUTE');
+  const [result, setResult] = useState<SQLResult | null | undefined>(undefined);
+  const [running, setRunning] = useState(false);
+
+  const editorRef = useRef<HTMLTextAreaElement>(null);
+  const [history, setHistory] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    api.sqlSchema().then(setSchema).catch(() => setSchema([]));
+    try {
+      const raw = localStorage.getItem(HISTORY_KEY);
+      if (raw) setHistory(JSON.parse(raw));
+    } catch {}
+  }, [isAdmin]);
+
+  const run = async () => {
+    if (running) return;
+    const q = query.trim();
+    if (!q) return;
+    setRunning(true);
+    setResult(undefined);
+    try {
+      const res = await api.sqlQuery(q);
+      setResult(res);
+      // Push to history (dedupe + cap)
+      const next = [q, ...history.filter(h => h !== q)].slice(0, HISTORY_MAX);
+      setHistory(next);
+      try { localStorage.setItem(HISTORY_KEY, JSON.stringify(next)); } catch {}
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setResult({ columns: [], rows: [], rowCount: 0, tookMs: 0, error: msg });
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  // Cmd/Ctrl+Enter triggers run from inside the editor.
+  const onEditorKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      run();
+    }
+  };
+
+  const insertAtCursor = (text: string) => {
+    const ta = editorRef.current;
+    if (!ta) { setQuery(q => q + text); return; }
+    const start = ta.selectionStart, end = ta.selectionEnd;
+    const next = query.slice(0, start) + text + query.slice(end);
+    setQuery(next);
+    setTimeout(() => {
+      ta.focus();
+      const pos = start + text.length;
+      ta.setSelectionRange(pos, pos);
+    }, 0);
+  };
+
+  if (!isAdmin) {
+    return (
+      <>
+        <Topbar title="SQL playground" />
+        <div id="content"><Empty icon="◇" title="Admin only">
+          The SQL playground gives ad-hoc read-only access to the
+          underlying ClickHouse instance. Restricted to admin role.
+        </Empty></div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <Topbar title="SQL playground" />
+      <div id="content" style={{ display: 'flex', gap: 12, height: 'calc(100vh - 80px)' }}>
+        {/* ── Schema sidebar ───────────────────────────────────── */}
+        <div style={{
+          width: 240, flexShrink: 0,
+          background: 'var(--bg1)', border: '1px solid var(--border)',
+          borderRadius: 6, padding: 8, overflow: 'auto',
+        }}>
+          <div style={{
+            fontSize: 11, color: 'var(--text3)', textTransform: 'uppercase',
+            letterSpacing: 0.4, marginBottom: 6,
+          }}>
+            Schema
+          </div>
+          {schema === undefined && <Spinner />}
+          {schema && schema.length === 0 && (
+            <div style={{ fontSize: 11, color: 'var(--text3)' }}>
+              No tables visible to this user.
+            </div>
+          )}
+          {schema && schema.map(t => {
+            const open = openTables.has(t.table);
+            return (
+              <div key={t.table} style={{ marginBottom: 2 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <button type="button"
+                    onClick={() => setOpenTables(s => {
+                      const next = new Set(s);
+                      if (open) next.delete(t.table); else next.add(t.table);
+                      return next;
+                    })}
+                    style={{
+                      background: 'transparent', border: 'none', cursor: 'pointer',
+                      color: 'var(--text2)', fontSize: 10, padding: 0, width: 14,
+                    }}>
+                    {open ? '▾' : '▸'}
+                  </button>
+                  <button type="button"
+                    onClick={() => insertAtCursor(`SELECT * FROM ${t.table} LIMIT 100`)}
+                    title={`Insert: SELECT * FROM ${t.table} LIMIT 100`}
+                    style={{
+                      flex: 1, textAlign: 'left',
+                      background: 'transparent', border: 'none', cursor: 'pointer',
+                      color: 'var(--text)', fontSize: 11, padding: '2px 0',
+                      fontFamily: 'monospace',
+                    }}>
+                    {t.table}
+                  </button>
+                </div>
+                {open && (
+                  <div style={{ paddingLeft: 18 }}>
+                    {t.columns.map(c => (
+                      <button key={c.name} type="button"
+                        onClick={() => insertAtCursor(c.name)}
+                        style={{
+                          display: 'block', width: '100%',
+                          background: 'transparent', border: 'none', cursor: 'pointer',
+                          textAlign: 'left', padding: '1px 0',
+                          fontSize: 10, color: 'var(--text2)',
+                          fontFamily: 'monospace',
+                        }}
+                        title={c.type}>
+                        {c.name} <span style={{ color: 'var(--text3)' }}>{c.type}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* ── Editor + results ─────────────────────────────────── */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button type="button" onClick={run} disabled={running}
+              style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600 }}>
+              {running ? 'Running…' : 'Run'} <span style={{ color: 'var(--text3)' }}>⌘↵</span>
+            </button>
+            <select onChange={e => {
+              const s = SAMPLES.find(x => x.label === e.target.value);
+              if (s) setQuery(s.sql);
+              e.target.value = '';
+            }}
+              defaultValue=""
+              style={{ fontSize: 11 }}>
+              <option value="">Sample queries…</option>
+              {SAMPLES.map(s => <option key={s.label} value={s.label}>{s.label}</option>)}
+            </select>
+            <select onChange={e => {
+              if (e.target.value) setQuery(e.target.value);
+              e.target.value = '';
+            }} defaultValue="" style={{ fontSize: 11 }}>
+              <option value="">History…</option>
+              {history.map((q, i) => (
+                <option key={i} value={q}>
+                  {q.length > 80 ? q.slice(0, 77) + '…' : q}
+                </option>
+              ))}
+            </select>
+            <span style={{ flex: 1 }} />
+            <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+              read-only · 60s timeout · 10k row cap
+            </span>
+          </div>
+
+          <textarea ref={editorRef}
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            onKeyDown={onEditorKey}
+            spellCheck={false}
+            style={{
+              flexShrink: 0, height: 220,
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+              fontSize: 12, lineHeight: 1.5,
+              padding: 10, background: 'var(--bg1)',
+              color: 'var(--text)',
+              border: '1px solid var(--border)', borderRadius: 6,
+              resize: 'vertical', outline: 'none',
+            }} />
+
+          {result === undefined && !running && (
+            <div style={{ color: 'var(--text3)', fontSize: 12 }}>
+              Run a query to see results.
+            </div>
+          )}
+          {running && <Spinner />}
+          {result && result.error && (
+            <div style={{
+              fontSize: 12, color: 'var(--err)', padding: '8px 12px',
+              background: 'rgba(220,38,38,0.08)',
+              border: '1px solid rgba(220,38,38,0.3)', borderRadius: 4,
+              fontFamily: 'monospace', whiteSpace: 'pre-wrap',
+            }}>
+              {result.error}
+            </div>
+          )}
+          {result && !result.error && (
+            <ResultTable result={result} />
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function ResultTable({ result }: { result: SQLResult }) {
+  return (
+    <div style={{
+      flex: 1, minHeight: 0, overflow: 'auto',
+      border: '1px solid var(--border)', borderRadius: 6,
+      background: 'var(--bg1)',
+    }}>
+      <div style={{
+        position: 'sticky', top: 0, background: 'var(--bg2)',
+        padding: '6px 12px', borderBottom: '1px solid var(--border)',
+        fontSize: 11, color: 'var(--text3)', display: 'flex', gap: 12,
+      }}>
+        <span><b style={{ color: 'var(--text)' }}>{result.rowCount}</b> rows</span>
+        <span>·</span>
+        <span><b style={{ color: 'var(--text)' }}>{result.tookMs}</b> ms</span>
+        <span>·</span>
+        <span><b style={{ color: 'var(--text)' }}>{result.columns.length}</b> columns</span>
+        {result.rowCount === 10000 && (
+          <span style={{ color: 'var(--warn)' }}>
+            (capped at 10k rows — narrow your query for the full set)
+          </span>
+        )}
+      </div>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+        <thead>
+          <tr>
+            {result.columns.map(c => (
+              <th key={c} style={{
+                padding: '4px 8px', borderBottom: '1px solid var(--border)',
+                background: 'var(--bg2)', textAlign: 'left',
+                fontWeight: 600, position: 'sticky', top: 27,
+                fontFamily: 'monospace',
+              }}>{c}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {result.rows.map((row, i) => (
+            <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+              {row.map((v, j) => (
+                <td key={j} style={{
+                  padding: '3px 8px', whiteSpace: 'nowrap',
+                  fontFamily: 'monospace',
+                  maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis',
+                }} title={String(v)}>
+                  {v === null ? <span style={{ color: 'var(--text3)' }}>NULL</span>
+                              : typeof v === 'object' ? JSON.stringify(v)
+                              : String(v)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}

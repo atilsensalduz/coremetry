@@ -167,6 +167,11 @@ func (s *Server) Start() error {
 	mux.HandleFunc("DELETE /api/anomalies/silences/{id}", s.deleteAnomalySilence)
 	// Audit log — admin-only read.
 	mux.HandleFunc("GET /api/admin/audit",            s.listAuditLog)
+	// SQL playground — admin only; readonly=2 + 60s cap on the
+	// CH side, allow-list of SELECT/WITH/SHOW/DESCRIBE/EXPLAIN
+	// on the application side.
+	mux.HandleFunc("POST /api/admin/sql/query",       s.execSQL)
+	mux.HandleFunc("GET  /api/admin/sql/schema",      s.sqlSchema)
 	// Saved views — per-user CRUD (server scopes by session).
 	mux.HandleFunc("GET    /api/views",     s.listSavedViews)
 	mux.HandleFunc("POST   /api/views",     s.createSavedView)

@@ -642,6 +642,21 @@ export type SortOrder = 'asc' | 'desc';
 // observed across the sampled traces; siblings repeating the exact
 // same triple collapse into a single row carrying count + avg/max
 // duration + error count.
+// SQL playground response shape.
+export interface SQLResult {
+  columns: string[];
+  rows: unknown[][];
+  rowCount: number;
+  tookMs: number;
+  error?: string;
+}
+
+export interface SchemaTable {
+  table: string;
+  engine: string;
+  columns: { name: string; type: string }[];
+}
+
 // One curated runtime / process timeseries for the infra
 // correlation panel on /service?name=…. Slot is the canonical
 // SRE bucket ("cpu" | "memory" | "rps" | "runtime"); source is

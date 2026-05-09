@@ -205,6 +205,15 @@ export const api = {
   deleteAnomalySilence: (id: string) =>
     request<void>(`/api/anomalies/silences/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
+  // SQL playground — admin only, read-only by enforcement.
+  sqlSchema: () =>
+    get<import('./types').SchemaTable[]>(`/api/admin/sql/schema`),
+  sqlQuery: (query: string) =>
+    request<import('./types').SQLResult>(`/api/admin/sql/query`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+    }),
+
   // Audit log (admin-only read).
   auditLog: (since = '24h', filters: { actor?: string; action?: string; target?: string } = {}) =>
     get<import('./types').AuditEntry[]>(`/api/admin/audit?${qs({ since, ...filters })}`),

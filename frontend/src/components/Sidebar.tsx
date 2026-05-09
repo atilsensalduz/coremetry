@@ -24,6 +24,7 @@ const NAV = [
   { href: '/monitors',   label: 'Monitors',     icon: '◉' },
   { href: '/admin/stats', label: 'System',       icon: '◐' },
   { href: '/admin/audit', label: 'Audit log',    icon: '◇' },
+  { href: '/admin/sql',   label: 'SQL playground', icon: '⌘' },
   { href: '/admin/status-page', label: 'Public Status Page', icon: '◫' },
 ];
 
