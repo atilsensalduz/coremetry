@@ -4,11 +4,30 @@
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{/*
+fullname: Bitnami-style release-vs-chart collapse. When the user
+runs `helm install coremetry charts/coremetry`, .Release.Name and
+.Chart.Name are identical, and the naive "release-chart" template
+would yield "coremetry-coremetry". Collapse to just .Release.Name
+in that case so resources are named "coremetry", "coremetry-redis",
+etc. — what every operator actually expects from this chart's
+release name.
+
+For a non-matching release name (e.g. `helm install prod
+charts/coremetry`), keep the standard "<release>-<chart>" form
+("prod-coremetry") so multiple instances in one namespace don't
+collide.
+*/}}
 {{- define "coremetry.fullname" -}}
 {{- if .Values.fullnameOverride -}}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" -}}
 {{- else -}}
-{{- printf "%s-%s" .Release.Name (include "coremetry.name" .) | trunc 63 | trimSuffix "-" -}}
+{{- $name := default .Chart.Name .Values.nameOverride -}}
+{{- if contains $name .Release.Name -}}
+{{- .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 
