@@ -166,6 +166,22 @@ export const api = {
   metricNames: (service: string)     => get<MetricInfo[] | null>(`/api/metrics/names${service ? '?service=' + encodeURIComponent(service) : ''}`),
   metrics:     (params: MetricsParams) => get<MetricPoint[] | null>(`/api/metrics?${qs(params)}`),
 
+  // Logs timeseries — Histogram aggregation routed through
+  // whichever backend is configured (CH or external ES). Powers
+  // the Logs source on /explore. 30s server-side cache.
+  logsTimeseries: (params: {
+    service?: string;
+    search?: string;
+    from?: number;
+    to?: number;
+    severity?: number;
+    traceId?: string;
+    bucketSec?: number;
+    groupBy?: string;
+  }) =>
+    get<{ name: string; points: { t: number; v: number }[] }[]>(
+      `/api/logs/timeseries?${qs(params)}`),
+
   health: ()                         => get<HealthInfo>(`/api/health`),
   status: ()                         => get<SystemStatus>(`/api/status`),
   // Build-tag — unauthenticated, so the login page can render it

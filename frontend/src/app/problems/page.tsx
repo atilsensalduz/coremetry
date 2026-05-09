@@ -1,5 +1,6 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
@@ -26,7 +27,12 @@ const NATURAL_DIR: Record<SortKey, SortDir> = {
   status:   'asc',   // open before resolved alphabetically
 };
 
-export default function ProblemsPage() {
+function ProblemsPageInner() {
+  const searchParams = useSearchParams();
+  // Optional ?service= URL filter — driven by the "View N
+  // problem(s) →" link on the service detail page so the
+  // operator lands on the same scope they were looking at.
+  const serviceFilter = searchParams.get('service') ?? '';
   const [range, setRange] = useState<TimeRange>({ preset: '15m' });
   const [statusFilter, setStatusFilter] = useState<'open' | 'all' | 'resolved'>('open');
   const [data, setData] = useState<Problem[] | null | undefined>(undefined);
@@ -35,17 +41,16 @@ export default function ProblemsPage() {
 
   useEffect(() => {
     setData(undefined);
-    api.problems({
+    const fetchOnce = () => api.problems({
       status: statusFilter === 'all' ? undefined : statusFilter,
+      service: serviceFilter || undefined,
       limit: 200,
-    }).then(d => setData(d ?? [])).catch(() => setData(null));
-    const t = setInterval(() => {
-      api.problems({ status: statusFilter === 'all' ? undefined : statusFilter, limit: 200 })
-        .then(d => setData(d ?? []))
-        .catch(() => {});
-    }, 30_000);
+    }).then(d => setData(d ?? []))
+      .catch(() => setData(null));
+    fetchOnce();
+    const t = setInterval(fetchOnce, 30_000);
     return () => clearInterval(t);
-  }, [statusFilter]);
+  }, [statusFilter, serviceFilter]);
 
   const open = data?.filter(p => p.status === 'open').length ?? 0;
   const resolved = data?.filter(p => p.status === 'resolved').length ?? 0;
@@ -165,6 +170,14 @@ export default function ProblemsPage() {
         )}
       </div>
     </>
+  );
+}
+
+export default function ProblemsPage() {
+  return (
+    <Suspense fallback={<Spinner />}>
+      <ProblemsPageInner />
+    </Suspense>
   );
 }
 

@@ -1,0 +1,109 @@
+'use client';
+import { useEffect, useState } from 'react';
+import { ExploreViz, type ExploreVizKind } from './ExploreViz';
+import { Spinner } from './Spinner';
+import { ServicePicker } from './ServicePicker';
+import { Combobox } from './Combobox';
+import { api } from '@/lib/api';
+import { timeRangeToNs } from '@/lib/utils';
+import type { ExploreSeries, MetricInfo, TimeRange } from '@/lib/types';
+
+// MetricsExplorer is the Metrics source on /explore. Picks any
+// metric name from the autocompleted list of what's actually
+// flowing for the selected service (or all services), then
+// renders the time-series via the chosen viz. Compare-period
+// overlays the previous window as faded twin series.
+export function MetricsExplorer({ range, viz, compare }: {
+  range: TimeRange;
+  viz: ExploreVizKind;
+  compare: boolean;
+}) {
+  const [service, setService] = useState('');
+  const [metric, setMetric]   = useState('');
+  const [names, setNames]     = useState<MetricInfo[]>([]);
+  const [series, setSeries]   = useState<ExploreSeries[] | null | undefined>(undefined);
+
+  useEffect(() => {
+    api.metricNames(service).then(n => setNames(n ?? []));
+  }, [service]);
+
+  useEffect(() => {
+    if (!metric) {
+      setSeries([]);
+      return;
+    }
+    setSeries(undefined);
+    const { from, to } = timeRangeToNs(range);
+
+    const fetchOne = (fromNs: number, toNs: number) => api.metrics({
+      name: metric,
+      service: service || undefined,
+      from: fromNs, to: toNs,
+      limit: 1000,
+    });
+
+    Promise.all([
+      fetchOne(from, to),
+      compare ? fetchOne(from - (to - from), from) : Promise.resolve([]),
+    ]).then(([cur, prev]) => {
+      const out: ExploreSeries[] = [];
+      // Group raw points by their attrs string so each unique
+      // label tuple becomes one series.
+      const byAttrs = new Map<string, { t: number; v: number }[]>();
+      (cur ?? []).forEach(p => {
+        const key = p.attrs || metric;
+        const list = byAttrs.get(key) ?? [];
+        list.push({ t: p.time, v: p.value });
+        byAttrs.set(key, list);
+      });
+      byAttrs.forEach((pts, name) => {
+        out.push({ name, points: pts.sort((a, b) => a.t - b.t) });
+      });
+      if (compare && prev) {
+        const shift = to - from;
+        const prevByAttrs = new Map<string, { t: number; v: number }[]>();
+        prev.forEach(p => {
+          const key = p.attrs || metric;
+          const list = prevByAttrs.get(key) ?? [];
+          list.push({ t: p.time + shift, v: p.value });
+          prevByAttrs.set(key, list);
+        });
+        prevByAttrs.forEach((pts, name) => {
+          out.push({ name: `${name} (prev)`, points: pts.sort((a, b) => a.t - b.t) });
+        });
+      }
+      setSeries(out);
+    }).catch(() => setSeries(null));
+  }, [metric, service, range, compare]);
+
+  const unit = names.find(n => n.name === metric)?.unit;
+
+  return (
+    <>
+      <div className="controls">
+        <ServicePicker value={service} onChange={setService}
+          placeholder="Service (all)…" width={200} />
+        <span style={{ color: 'var(--text2)', fontSize: 12, marginLeft: 4 }}>
+          Metric:
+        </span>
+        <Combobox value={metric} onChange={setMetric}
+          options={names.map(n => n.name)}
+          placeholder="Pick a metric…" width={300} />
+        {unit && <span style={{ color: 'var(--text3)', fontSize: 11 }}>unit: {unit}</span>}
+      </div>
+
+      {series === undefined && <Spinner />}
+      {series === null && (
+        <div style={{ color: 'var(--err)', fontSize: 12, padding: '12px 4px' }}>
+          Failed to load metric.
+        </div>
+      )}
+      {series && metric && <ExploreViz series={series} kind={viz} unit={unit} />}
+      {series && !metric && (
+        <div style={{ color: 'var(--text3)', fontSize: 12, padding: '12px 4px' }}>
+          Pick a metric to chart.
+        </div>
+      )}
+    </>
+  );
+}

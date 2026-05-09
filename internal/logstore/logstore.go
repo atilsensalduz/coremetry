@@ -58,6 +58,14 @@ type Page struct {
 type Store interface {
 	Search(ctx context.Context, f Filter) (*Page, error)
 
+	// Histogram returns one bucketed timeseries per group_value for
+	// the requested filter. Powers the Logs source in /explore — the
+	// caller sets the bucket size (e.g. 30s, 5m) and an optional
+	// `groupBy` field name (one of "service", "severity", or any
+	// attribute path the backend knows). Empty groupBy → a single
+	// "_total" series.
+	Histogram(ctx context.Context, f Filter, bucketSec int, groupBy string) ([]LogSeries, error)
+
 	// Backend returns a short identifier shown in /api/health so an operator
 	// can tell at a glance which log source is wired in.
 	Backend() string
@@ -66,4 +74,17 @@ type Store interface {
 	// to surface "logs backend is down" before the user runs into an
 	// empty-result query.
 	Ping(ctx context.Context) error
+}
+
+// LogSeries is one bucketed timeseries returned by Histogram. Name
+// is the group_value (or "_total" when grouping is off); each
+// Point.T is the bucket-start (unix ns) and V is the count.
+type LogSeries struct {
+	Name   string     `json:"name"`
+	Points []LogPoint `json:"points"`
+}
+
+type LogPoint struct {
+	T int64 `json:"t"` // unix ns, bucket start
+	V int64 `json:"v"` // count
 }

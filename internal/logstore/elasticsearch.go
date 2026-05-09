@@ -181,6 +181,107 @@ func (s *ESStore) Search(ctx context.Context, f Filter) (*Page, error) {
 	return &Page{Total: raw.Hits.Total.Value, Logs: out}, nil
 }
 
+// Histogram runs a date_histogram aggregation against ES,
+// optionally split by a terms aggregation on `groupBy`. The
+// fields used for splitting map to the configured ESFieldMap so
+// custom shipping pipelines (Vector, Filebeat, OTel ECS mode)
+// don't need the operator to re-index. Single round-trip; ES
+// handles bucketing server-side and we just stitch the response.
+func (s *ESStore) Histogram(ctx context.Context, f Filter, bucketSec int, groupBy string) ([]LogSeries, error) {
+	if bucketSec <= 0 {
+		bucketSec = 30
+	}
+	groupField := ""
+	switch groupBy {
+	case "service":
+		groupField = s.fields.Service + ".keyword"
+	case "severity":
+		groupField = s.fields.SeverityTx + ".keyword"
+	}
+
+	dateAgg := map[string]any{
+		"date_histogram": map[string]any{
+			"field":          s.fields.Timestamp,
+			"fixed_interval": fmt.Sprintf("%ds", bucketSec),
+			"min_doc_count":  0,
+		},
+	}
+	var aggs map[string]any
+	if groupField != "" {
+		aggs = map[string]any{
+			"groups": map[string]any{
+				"terms": map[string]any{
+					"field": groupField,
+					"size":  20,
+				},
+				"aggs": map[string]any{"buckets": dateAgg},
+			},
+		}
+	} else {
+		aggs = map[string]any{"buckets": dateAgg}
+	}
+
+	body, err := json.Marshal(map[string]any{
+		"size":  0,
+		"query": s.buildQuery(f),
+		"aggs":  aggs,
+	})
+	if err != nil {
+		return nil, err
+	}
+	req := esapi.SearchRequest{
+		Index: []string{s.cfg.Index},
+		Body:  bytes.NewReader(body),
+	}
+	res, err := req.Do(ctx, s.cli)
+	if err != nil {
+		return nil, fmt.Errorf("ES histogram: %w", err)
+	}
+	defer res.Body.Close()
+	if res.IsError() {
+		return nil, fmt.Errorf("ES histogram %s: %s", res.Status(), res.String())
+	}
+
+	var raw struct {
+		Aggregations map[string]any `json:"aggregations"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&raw); err != nil {
+		return nil, fmt.Errorf("decode ES histogram: %w", err)
+	}
+
+	parseBuckets := func(a any) []LogPoint {
+		root, ok := a.(map[string]any)
+		if !ok {
+			return nil
+		}
+		bs, ok := root["buckets"].([]any)
+		if !ok {
+			return nil
+		}
+		pts := make([]LogPoint, 0, len(bs))
+		for _, b := range bs {
+			bm, _ := b.(map[string]any)
+			tMs, _ := bm["key"].(float64)
+			cnt, _ := bm["doc_count"].(float64)
+			pts = append(pts, LogPoint{T: int64(tMs) * int64(time.Millisecond), V: int64(cnt)})
+		}
+		return pts
+	}
+
+	if groupField == "" {
+		return []LogSeries{{Name: "_total", Points: parseBuckets(raw.Aggregations["buckets"])}}, nil
+	}
+	groups, _ := raw.Aggregations["groups"].(map[string]any)
+	bs, _ := groups["buckets"].([]any)
+	out := make([]LogSeries, 0, len(bs))
+	for _, b := range bs {
+		bm, _ := b.(map[string]any)
+		name, _ := bm["key"].(string)
+		out = append(out, LogSeries{Name: name, Points: parseBuckets(bm["buckets"])})
+	}
+	return out, nil
+}
+
 // buildQuery constructs the ES bool/must query corresponding to a Filter.
 func (s *ESStore) buildQuery(f Filter) map[string]any {
 	must := []any{}

@@ -8,6 +8,8 @@ import { Combobox } from '@/components/Combobox';
 import { FilterBuilder } from '@/components/FilterBuilder';
 import { MultiLineChart } from '@/components/MultiLineChart';
 import { ShareButton } from '@/components/ShareButton';
+import { LogsExplorer } from '@/components/LogsExplorer';
+import { MetricsExplorer } from '@/components/MetricsExplorer';
 import { ColumnManager } from '@/components/ColumnManager';
 import { api } from '@/lib/api';
 import { timeRangeToNs, fmtNum, tsLong, rowClickHandlers } from '@/lib/utils';
@@ -57,9 +59,30 @@ const STEP_OPTIONS = [
   { v: 1800, label: '30 min' },
 ];
 
+type Source = 'spans' | 'metrics' | 'logs';
+type Viz = 'line' | 'bar' | 'topN' | 'kpi';
+
 function ExploreInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  // Data source tab — Spans is the rich legacy workspace
+  // (filters / aggregation / split-by / traces table). Metrics
+  // and Logs are simpler dedicated panels with the same range
+  // + viz picker on top so the operator can switch context
+  // without retyping. Persisted in the URL as ?source=… so a
+  // saved view restores the chosen source.
+  const [source, setSource] = useState<Source>(() => {
+    const v = searchParams.get('source');
+    return v === 'metrics' || v === 'logs' ? v : 'spans';
+  });
+  // Visualization picker — applies to the current source's
+  // result. Spans source ignores it for the traces result mode.
+  const [viz, setViz] = useState<Viz>(() => {
+    const v = searchParams.get('viz') as Viz;
+    return ['line', 'bar', 'topN', 'kpi'].includes(v) ? v : 'line';
+  });
+  const [compare, setCompare] = useState(searchParams.get('compare') === 'true');
 
   // ── State, hydrated from URL on first render ─────────────────────────────
   const [range, setRange] = useState<TimeRange>(
@@ -104,6 +127,9 @@ function ExploreInner() {
   // ── State → URL (replaceState — keeps history clean) ─────────────────────
   useEffect(() => {
     const qs = buildQuery([
+      ['source',  source !== 'spans' ? source : ''],
+      ['viz',     viz !== 'line' ? viz : ''],
+      ['compare', compare ? 'true' : ''],
       ['result',  resultMode === 'traces' ? 'traces' : ''],
       ['agg',     resultMode === 'metric' && agg !== 'count' ? agg : ''],
       ['field',   resultMode === 'metric' && field !== 'duration_ms' ? field : ''],
@@ -120,7 +146,7 @@ function ExploreInner() {
     if (next !== window.location.search) {
       router.replace(`/explore${next}`, { scroll: false });
     }
-  }, [resultMode, agg, field, groupBy, filters, dsl, mode, range, step, traceLimit, extraCols, router]);
+  }, [source, viz, compare, resultMode, agg, field, groupBy, filters, dsl, mode, range, step, traceLimit, extraCols, router]);
 
   // Load service options for filter value suggestions
   useEffect(() => {
@@ -230,13 +256,62 @@ function ExploreInner() {
     <>
       <Topbar title="Explore" range={range} onRangeChange={setRange} />
       <div id="content">
+        {/* Source tabs — Spans (rich legacy workspace), Metrics
+            (raw OTel metric_points + label split-by), Logs
+            (timeseries from CH or external ES). All three share
+            the page's range + viz picker. */}
+        <div className="controls" style={{ marginBottom: 6 }}>
+          <span style={{ color: 'var(--text2)', fontSize: 12 }}>Source:</span>
+          <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
+            {(['spans', 'metrics', 'logs'] as Source[]).map(s => (
+              <button key={s} onClick={() => setSource(s)}
+                className={source === s ? '' : 'sec'}
+                style={{
+                  borderRadius: 0,
+                  borderRight: s !== 'logs' ? '1px solid var(--border)' : 'none',
+                  textTransform: 'capitalize',
+                }}>
+                {s}
+              </button>
+            ))}
+          </div>
+          <span style={{ color: 'var(--text2)', fontSize: 12, marginLeft: 8 }}>Viz:</span>
+          <select value={viz} onChange={e => setViz(e.target.value as Viz)}>
+            <option value="line">Line</option>
+            <option value="bar">Bar</option>
+            <option value="topN">Top-N</option>
+            <option value="kpi">KPI</option>
+          </select>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 5,
+                          color: 'var(--text2)', cursor: 'pointer', fontSize: 12, marginLeft: 8 }}
+            title="Overlay the previous window of the same length as faded twin series">
+            <input type="checkbox" checked={compare}
+              onChange={e => setCompare(e.target.checked)} />
+            Compare to previous period
+          </label>
+          <span style={{ flex: 1 }} />
+          <ShareButton />
+        </div>
+
+        {/* Metrics + Logs source panels render their own
+            workspace + viz; Spans keeps its full legacy UI
+            below this fork. */}
+        {source === 'metrics' && (
+          <MetricsExplorer range={range} viz={viz} compare={compare} />
+        )}
+        {source === 'logs' && (
+          <LogsExplorer range={range} viz={viz} compare={compare} />
+        )}
+        {source !== 'spans' && null}
+
+        {source === 'spans' && (<>
+
         <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 12, color: 'var(--text2)', flex: 1 }}>
             {resultMode === 'metric'
               ? 'Build span metrics on the fly — filter spans, pick an aggregation, optionally split by attributes.'
               : 'Search raw traces with the same filter / DSL — click a row to open the waterfall.'}
           </span>
-          <ShareButton />
         </div>
 
         {/* Result mode toggle: Metric chart ⇄ Trace list (same filters drive both) */}
@@ -510,6 +585,7 @@ name ~ checkout`}
             </div>
           </>
         )}
+        </>)}
       </div>
     </>
   );

@@ -132,6 +132,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("POST /api/traces/{id}/share", s.createTraceSnapshot)
 	mux.HandleFunc("GET  /api/public/trace/{token}", s.getPublicTrace)
 	mux.HandleFunc("GET /api/logs", s.getLogs)
+	mux.HandleFunc("GET /api/logs/timeseries", s.getLogsTimeseries)
 	mux.HandleFunc("GET /api/metrics/names", s.getMetricNames)
 	mux.HandleFunc("GET /api/metrics", s.getMetrics)
 	mux.HandleFunc("GET /api/metrics/query", s.queryMetric)
@@ -1052,6 +1053,38 @@ func (s *Server) getLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]interface{}{"total": page.Total, "logs": page.Logs})
+}
+
+// getLogsTimeseries powers the Logs source on the Data Explorer
+// page. Returns one time-bucketed series per groupBy value (e.g.
+// per service / per severity), routed through whichever logstore
+// backend is wired in (CH or external ES). 30s cache absorbs
+// chart-rerender bursts as the operator tweaks dimensions.
+func (s *Server) getLogsTimeseries(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	sev, _ := strconv.Atoi(q.Get("severity"))
+	f := logstore.Filter{
+		Service:     q.Get("service"),
+		Search:      q.Get("search"),
+		From:        parseTime(q.Get("from")),
+		To:          parseTime(q.Get("to")),
+		SeverityMin: uint8(sev),
+		TraceID:     q.Get("traceId"),
+	}
+	bucketSec := parseInt(q.Get("bucketSec"), 30)
+	if bucketSec < 5 {
+		bucketSec = 5
+	}
+	if bucketSec > 86400 {
+		bucketSec = 86400
+	}
+	groupBy := strings.TrimSpace(q.Get("groupBy"))
+	key := fmt.Sprintf("logs-ts:svc=%s:sev=%d:trace=%s:from=%s:to=%s:b=%d:g=%s:q=%s",
+		f.Service, f.SeverityMin, f.TraceID, q.Get("from"), q.Get("to"),
+		bucketSec, groupBy, q.Get("search"))
+	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
+		return s.logs.Histogram(r.Context(), f, bucketSec, groupBy)
+	})
 }
 
 func (s *Server) getMetricNames(w http.ResponseWriter, r *http.Request) {

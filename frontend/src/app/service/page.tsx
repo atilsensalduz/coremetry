@@ -90,16 +90,54 @@ function ServiceDetailInner() {
         </div>
 
         {openProbs.length > 0 && (
-          <div className="trace-lock" style={{
-            borderColor: 'rgba(255,82,82,.4)', background: 'rgba(255,82,82,.06)',
+          <div style={{
+            border: '1px solid rgba(255,82,82,.4)',
+            background: 'rgba(255,82,82,.06)',
+            borderRadius: 6, padding: 12, marginBottom: 14,
           }}>
-            <span style={{ color: 'var(--err)', fontWeight: 600 }}>⚠ {openProbs.length} open problem(s)</span>
-            {openProbs.slice(0, 3).map(p => (
-              <span key={p.id} style={{ color: 'var(--text2)', fontSize: 11 }}>
-                · {p.ruleName}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <span style={{ color: 'var(--err)', fontWeight: 600 }}>
+                ! {openProbs.length} open problem{openProbs.length === 1 ? '' : 's'} on {svc}
               </span>
-            ))}
-            <Link href="/problems" style={{ marginLeft: 'auto', fontSize: 11 }}>View all →</Link>
+              <span style={{ flex: 1 }} />
+              <Link href={`/problems?service=${encodeURIComponent(svc)}`} style={{ fontSize: 11 }}>
+                View all for this service →
+              </Link>
+            </div>
+            <div style={{
+              display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 8,
+            }}>
+              {openProbs.map(p => {
+                const sevCls = p.severity === 'critical' ? 'b-err' : 'b-warn';
+                return (
+                  <div key={p.id} style={{
+                    padding: 8, borderRadius: 4,
+                    background: 'var(--bg2)', border: '1px solid var(--border)',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                      <span className={`badge ${sevCls}`} style={{ fontSize: 10 }}>
+                        {p.severity.toUpperCase()}
+                      </span>
+                      <span style={{ fontSize: 12, fontWeight: 600 }}>{p.ruleName}</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text2)' }}>
+                      <span style={{ fontFamily: 'monospace' }}>{p.metric}</span>
+                      {' = '}
+                      <b style={{ color: 'var(--err)' }}>{Number(p.value).toFixed(2)}</b>
+                      {' '}(threshold {Number(p.threshold).toFixed(2)})
+                    </div>
+                    {p.description && (
+                      <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>
+                        {p.description}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4, fontFamily: 'monospace' }}>
+                      since {new Date(p.startedAt / 1e6).toLocaleString()}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
