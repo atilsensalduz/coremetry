@@ -227,6 +227,17 @@ func Load(path string) (*Config, error) {
 	if v := os.Getenv("COREMETRY_CH_INSECURE_SKIP_VERIFY"); v == "true" || v == "1" {
 		cfg.ClickHouse.InsecureSkipVerify = true
 	}
+	// Distributed-CH overrides — env-only deployment shouldn't
+	// have to ship a config.yaml just to flip cluster mode on.
+	if v := os.Getenv("COREMETRY_CH_CLUSTER_NAME"); v != "" {
+		cfg.ClickHouse.ClusterName = v
+	}
+	if v := os.Getenv("COREMETRY_CH_REPLICA_PATH"); v != "" {
+		cfg.ClickHouse.ReplicaPath = v
+	}
+	if v := os.Getenv("COREMETRY_CH_SHARD_KEY"); v != "" {
+		cfg.ClickHouse.ShardKey = v
+	}
 	if v := os.Getenv("COREMETRY_HTTP_ADDR"); v != "" {
 		cfg.Listen.HTTP = v
 	}
