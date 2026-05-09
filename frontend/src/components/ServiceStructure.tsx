@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AggregatedStructure } from './AggregatedStructure';
+import { AggregateFlame } from './AggregateFlame';
 import { Spinner } from './Spinner';
 import { api } from '@/lib/api';
 import { fmtNum } from '@/lib/utils';
@@ -7,15 +8,26 @@ import type { AggSpanNode } from '@/lib/types';
 
 // Grafana-Drilldown-style multi-trace path-aggregated structure.
 // Each unique `(parent_path → service → operation)` triple appears
-// once with `×N` for tight loops / fan-outs; bars are proportional
-// to the average duration. The panel starts collapsed so /service
-// makes zero structure-related round-trips until the operator opens
-// it.
+// once with `×N` for tight loops / fan-outs.
+//
+// Two views over the same data:
+//   • Tree (default) — chronological waterfall-style layout with
+//     time bars. Best for "what does this service actually do
+//     end-to-end".
+//   • Flame — Datadog-signature icicle. Width = total time spent
+//     on that path (count × avgMs). Best for "where is my time
+//     going" hot-path identification across the sample.
+//
+// The panel starts collapsed so /service makes zero structure-
+// related round-trips until the operator opens it.
+type View = 'tree' | 'flame';
+
 export function ServiceStructure({ service, since = '10m' }: {
   service: string;
   since?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [view, setView] = useState<View>('tree');
   const [data, setData] = useState<{
     roots?: AggSpanNode[];
     sampledFrom: number;
@@ -77,10 +89,41 @@ export function ServiceStructure({ service, since = '10m' }: {
             </div>
           )}
           {data?.roots && data.roots.length > 0 && (
-            <AggregatedStructure roots={data.roots} />
+            <>
+              <div style={{
+                display: 'flex', gap: 6, marginBottom: 10,
+                fontSize: 12,
+              }}>
+                <ViewTab active={view === 'tree'}  onClick={() => setView('tree')}  label="Tree"
+                         hint="Chronological waterfall — what the service does end-to-end" />
+                <ViewTab active={view === 'flame'} onClick={() => setView('flame')} label="Flame"
+                         hint="Where time is actually spent — width = total time across sampled traces" />
+              </div>
+              {view === 'tree'  && <AggregatedStructure roots={data.roots} />}
+              {view === 'flame' && <AggregateFlame      roots={data.roots} />}
+            </>
           )}
         </div>
       )}
     </div>
+  );
+}
+
+function ViewTab({ active, onClick, label, hint }: {
+  active: boolean; onClick: () => void; label: string; hint: string;
+}) {
+  return (
+    <button onClick={onClick} title={hint}
+      style={{
+        padding: '4px 12px',
+        background: active ? 'var(--bg2)' : 'transparent',
+        color: active ? 'var(--text)' : 'var(--text2)',
+        border: '1px solid var(--border)',
+        borderRadius: 6,
+        cursor: 'pointer',
+        fontWeight: active ? 600 : 400,
+      }}>
+      {label}
+    </button>
   );
 }

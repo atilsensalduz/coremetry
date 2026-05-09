@@ -164,13 +164,19 @@ export function ServiceMapGraph({
         fontSize: 11, color: 'var(--text3)', flexWrap: 'wrap',
       }}>
         <span>
-          {data.nodes.length} services · {data.edges.length} edges
+          {data.nodes.filter(n => !n.kind).length} services · {data.nodes.filter(n => n.kind).length} deps
+          {' · '}{data.edges.length} edges
           {' · '}sampled {data.sampledFrom} traces ({data.totalSpans} spans)
         </span>
-        <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <Dot color="var(--ok)" />   healthy
-          <Dot color="var(--warn)" /> &gt;1% error
-          <Dot color="var(--err)" />  &gt;5% error
+        <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+            ○ service · ▢ db · ⬡ queue · ◇ external
+          </span>
+          <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+            <Dot color="var(--ok)" />   healthy
+            <Dot color="var(--warn)" /> &gt;1% err
+            <Dot color="var(--err)" />  &gt;5% err
+          </span>
         </span>
       </div>
     </div>
@@ -192,9 +198,16 @@ function NodeMark({
   const r = nodeRadius(n);
   const baseFill = n.errorRate > 0.05 ? 'var(--err)'
                  : n.errorRate > 0.01 ? 'var(--warn)'
-                 : 'var(--ok)';
+                 : n.kind ? 'var(--text3)'   // dep nodes use neutral grey when healthy
+                          : 'var(--ok)';
   const ringW = isFocus ? 2.6 : isHover ? 2.0 : 1.4;
   const fillOp = isFocus ? 0.30 : isHover ? 0.24 : 0.18;
+  // Dep nodes (db / queue / external) get a distinct shape so
+  // an operator can tell at a glance whether a node is "your
+  // code" or "your dependency". Datadog uses similar shape
+  // discrimination — circle = service, rounded square = db,
+  // hexagon = queue, diamond = external.
+  const label = displayLabel(n);
   return (
     <g style={{
          cursor: 'pointer',
@@ -204,43 +217,131 @@ function NodeMark({
        onMouseEnter={() => onHover(n.service)}
        onMouseLeave={() => onHover(null)}
        onClick={() => onSelect(n.service)}>
-      <circle cx={x} cy={y} r={r}
-              fill={baseFill} fillOpacity={fillOp}
-              stroke={baseFill} strokeWidth={ringW}
-              filter="url(#svc-shadow)" />
-      {/* Tiny inner dot for the focused node — keeps the eye
-          parked on the centre when the radial layout has
-          eight peers fanned out. */}
-      {isFocus && (
+      <DepShape kind={n.kind} cx={x} cy={y} r={r}
+                fill={baseFill} fillOpacity={fillOp}
+                stroke={baseFill} strokeWidth={ringW} />
+      {isFocus && !n.kind && (
         <circle cx={x} cy={y} r={3.2}
                 fill={baseFill} stroke="var(--bg1)" strokeWidth={1} />
+      )}
+      {/* Kind glyph at centre of dep nodes — tiny visual cue
+          that supplements the shape: 𝕊 for db, ⌬ for queue,
+          ⇗ for external. */}
+      {n.kind && (
+        <text x={x} y={y + 4}
+              textAnchor="middle" fontSize={11} fontWeight={700}
+              fill={baseFill} style={{ pointerEvents: 'none' }}>
+          {kindGlyph(n.kind)}
+        </text>
       )}
       <text x={x} y={y - r - 7}
             textAnchor="middle"
             fontSize={isFocus ? 12 : 11}
             fontWeight={isFocus || isHover ? 700 : 600}
             fill="var(--text)" style={{ pointerEvents: 'none' }}>
-        {n.service}
+        {label}
       </text>
-      <text x={x} y={y + 4}
-            textAnchor="middle"
-            fontSize={10}
-            fill="var(--text2)"
-            fontFamily="monospace"
-            style={{ pointerEvents: 'none' }}>
-        {n.spanCount.toLocaleString()}
-      </text>
+      {/* Dep nodes already display the kind glyph centrally;
+          showing both the glyph and the span count overlaps.
+          Real services keep the span count under their name. */}
+      {!n.kind && (
+        <text x={x} y={y + 4}
+              textAnchor="middle"
+              fontSize={10}
+              fill="var(--text2)"
+              fontFamily="monospace"
+              style={{ pointerEvents: 'none' }}>
+          {n.spanCount.toLocaleString()}
+        </text>
+      )}
       <title>
-        {`${n.service}\n${n.spanCount.toLocaleString()} spans · ${(n.errorRate * 100).toFixed(2)}% error\nclick to focus`}
+        {`${label}${n.kind ? ` · ${kindLabel(n.kind)}` : ''}\n` +
+         `${n.spanCount.toLocaleString()} spans · ${(n.errorRate * 100).toFixed(2)}% error\n` +
+         (n.kind ? 'dependency synthesised from db.system / peer.service' : 'click to focus')}
       </title>
     </g>
   );
 }
 
+// displayLabel — strip the synthetic prefix from dep node
+// names so the operator sees "redis" not "db:redis".
+function displayLabel(n: ServiceMapNode): string {
+  return n.subkind || n.service.replace(/^(db|queue|ext):/, '');
+}
+
+function kindGlyph(kind: string): string {
+  switch (kind) {
+    case 'db':       return '𝕊';   // database
+    case 'queue':    return '⌬';   // hexagonal — queues
+    case 'external': return '⇗';   // outbound arrow
+    default:         return '';
+  }
+}
+
+function kindLabel(kind: string): string {
+  switch (kind) {
+    case 'db':       return 'database';
+    case 'queue':    return 'queue';
+    case 'external': return 'external dependency';
+    default:         return kind;
+  }
+}
+
+// DepShape — picks the SVG primitive matching the node's kind.
+// Real services are circles. Dep nodes use distinct shapes so
+// the topology is readable at a glance.
+function DepShape({ kind, cx, cy, r, fill, fillOpacity, stroke, strokeWidth }: {
+  kind?: string;
+  cx: number; cy: number; r: number;
+  fill: string; fillOpacity: number;
+  stroke: string; strokeWidth: number;
+}) {
+  const common = {
+    fill, fillOpacity, stroke, strokeWidth,
+    filter: 'url(#svc-shadow)',
+  };
+  if (kind === 'db') {
+    // Rounded square — the canonical "datastore" glyph in
+    // architecture diagrams.
+    return (
+      <rect x={cx - r} y={cy - r} width={r * 2} height={r * 2}
+            rx={r * 0.32} ry={r * 0.32} {...common} />
+    );
+  }
+  if (kind === 'queue') {
+    // Hexagon — convention for messaging in tooling like Kiali.
+    const a = r * 1.05;
+    const pts = [
+      `${cx - a},${cy}`,
+      `${cx - a / 2},${cy - r * 0.92}`,
+      `${cx + a / 2},${cy - r * 0.92}`,
+      `${cx + a},${cy}`,
+      `${cx + a / 2},${cy + r * 0.92}`,
+      `${cx - a / 2},${cy + r * 0.92}`,
+    ].join(' ');
+    return <polygon points={pts} {...common} />;
+  }
+  if (kind === 'external') {
+    // Diamond — distinguishes "outside the OTel mesh" calls
+    // from local services and infra deps.
+    const pts = [
+      `${cx},${cy - r}`,
+      `${cx + r},${cy}`,
+      `${cx},${cy + r}`,
+      `${cx - r},${cy}`,
+    ].join(' ');
+    return <polygon points={pts} {...common} />;
+  }
+  return <circle cx={cx} cy={cy} r={r} {...common} />;
+}
+
 function nodeRadius(n: ServiceMapNode): number {
   // log scale so a 100k-span service doesn't drown out a 100-span one.
+  // Dep nodes are slightly smaller so they don't visually
+  // dominate the actual services.
   const log = Math.log10(Math.max(10, n.spanCount));
-  return Math.min(34, Math.max(15, 9 + 5 * log));
+  const base = n.kind ? 7 + 4 * log : 9 + 5 * log;
+  return Math.min(34, Math.max(13, base));
 }
 
 interface PositionedNode {

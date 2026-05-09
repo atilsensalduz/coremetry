@@ -796,6 +796,16 @@ export interface ServiceMapNode {
   service: string;
   spanCount: number;
   errorRate: number;
+  // Discriminator for synthesised infrastructure dep nodes.
+  // "" / undefined = real OTel service emitting data; "db" =
+  // database (subkind = redis / postgresql / oracle …);
+  // "queue" = messaging system (subkind = kafka / rabbitmq …);
+  // "external" = peer.service'd HTTP target outside the OTel mesh
+  // (subkind = peer.service value). Frontend renders the two
+  // shapes differently so an operator can tell at a glance
+  // whether a node is "your code" or "your dependency".
+  kind?: string;
+  subkind?: string;
 }
 
 export interface ServiceMapEdge {

@@ -69,9 +69,24 @@ export default function ServiceMapPage() {
   const callers = data && focus
     ? data.edges.filter(e => e.callee === focus).length
     : 0;
-  const callees = data && focus
-    ? data.edges.filter(e => e.caller === focus).length
-    : 0;
+  // Callee buckets — tell the operator at a glance how many of
+  // the focused service's downstreams are services vs DBs vs
+  // external deps. Reads as "calls 3 services, 2 dbs, 1 ext"
+  // in the focus header.
+  const calleeBuckets = useMemo(() => {
+    const out = { service: 0, db: 0, queue: 0, external: 0 };
+    if (!data || !focus) return out;
+    const byName = new Map<string, ServiceMapNode>(
+      data.nodes.map(n => [n.service, n] as const));
+    for (const e of data.edges) {
+      if (e.caller !== focus) continue;
+      const callee = byName.get(e.callee);
+      const kind = (callee?.kind || 'service') as keyof typeof out;
+      if (kind in out) out[kind] += 1;
+    }
+    return out;
+  }, [data, focus]);
+  const calleesTotal = calleeBuckets.service + calleeBuckets.db + calleeBuckets.queue + calleeBuckets.external;
 
   return (
     <>
@@ -99,7 +114,13 @@ export default function ServiceMapPage() {
                    color: 'var(--text)',
                  }} />
           <datalist id="svc-map-services">
-            {data?.nodes.map(n => <option key={n.service} value={n.service} />)}
+            {/* Picker only offers REAL services — synthesised
+                dep nodes (db:redis, ext:stripe, …) aren't
+                first-class focus targets. They show up in
+                the graph as neighbours of the services that
+                call them. */}
+            {data?.nodes.filter(n => !n.kind).map(n =>
+              <option key={n.service} value={n.service} />)}
           </datalist>
           {focus && (
             <button className="sec"
@@ -153,7 +174,16 @@ export default function ServiceMapPage() {
             </span>
             <Chip label="Spans"   value={fmtNum(focusNode.spanCount)} />
             <Chip label="Callers" value={`${callers}`} />
-            <Chip label="Callees" value={`${callees}`} />
+            <Chip label="Callees" value={
+              calleesTotal === 0
+                ? '0'
+                : [
+                    calleeBuckets.service  > 0 && `${calleeBuckets.service} svc`,
+                    calleeBuckets.db       > 0 && `${calleeBuckets.db} db`,
+                    calleeBuckets.queue    > 0 && `${calleeBuckets.queue} queue`,
+                    calleeBuckets.external > 0 && `${calleeBuckets.external} ext`,
+                  ].filter(Boolean).join(' · ')
+            } />
             <span style={{ flex: 1 }} />
             <span style={{ fontSize: 11, color: 'var(--text3)' }}>
               showing {focus}'s 1-hop neighbourhood — {filtered?.nodes.length ?? 0} services
