@@ -1,21 +1,33 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
-import type { ServiceMap, ServiceMapNode, ServiceMapEdge } from '@/lib/types';
+import type { ServiceMap, ServiceMapNode } from '@/lib/types';
 
-// ServiceMapGraph renders the {nodes, edges} response as an SVG
-// force-directed layout. No external lib — a tiny Verlet-style
-// physics simulation runs once on mount (until energy decays
-// below an idle threshold) and then stops, so we don't burn CPU
-// after the initial settle. Subsequent data refreshes re-seed
-// positions from the current state, so a few new edges nudge
-// the layout instead of jumping from scratch.
+// ServiceMapGraph renders {nodes, edges} as an SVG graph. Two
+// layout modes:
 //
-// Why not d3-force? Pulls in ~30kB and we only need the basic
-// charge / link / center forces. The implementation here is
-// ~80 lines and tuned for ≤300 nodes — at our sampling cap of
-// 200 traces the node count stays well below that.
-export function ServiceMapGraph({ data, height = 520 }: {
+//   • Global (focus=null): a tiny Verlet-style force simulation
+//     runs once on mount, settles, freezes — no main-thread
+//     load after the initial layout.
+//   • Focused (focus=<service>): closed-form radial layout. The
+//     focused service sits at the centre, callers fan out on
+//     the left arc, callees on the right arc. No physics needed
+//     — the geometry is decided in O(N) — so the swap is
+//     instant when the user picks a new service.
+//
+// Click-to-focus: clicking a node fires onSelectNode, letting
+// the page swap the focus without leaving the map. The "View
+// service detail →" button on the page handles navigation when
+// the operator actually wants to leave.
+//
+// Hover-highlight: hovering a node dims everything outside its
+// own 1-hop neighbourhood, mirroring Datadog / Honeycomb.
+export function ServiceMapGraph({
+  data, focus, hoverNode, onHoverNode, onSelectNode, height = 560,
+}: {
   data: ServiceMap;
+  focus: string | null;
+  hoverNode: string | null;
+  onHoverNode: (s: string | null) => void;
+  onSelectNode: (s: string) => void;
   height?: number;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -31,16 +43,45 @@ export function ServiceMapGraph({ data, height = 520 }: {
     return () => ro.disconnect();
   }, []);
 
-  const { positioned, edgeMaxTraces } = useLayout(data, width, height);
-  const edgeMaxErr = useMemo(
-    () => data.edges.reduce((m, e) => Math.max(m, e.errorCount), 0),
+  // Pre-compute neighbourhood adjacency for hover dimming.
+  const neighbours = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    for (const n of data.nodes) m.set(n.service, new Set([n.service]));
+    for (const e of data.edges) {
+      m.get(e.caller)?.add(e.callee);
+      m.get(e.callee)?.add(e.caller);
+    }
+    return m;
+  }, [data]);
+
+  // Both layouts are computed every render (force-layout
+  // memoised on data/dimensions; radial is closed-form O(N))
+  // so we can switch instantly without re-running physics.
+  // Calling the hook unconditionally keeps Rules-of-Hooks happy.
+  const forcePositioned = useForceLayout(data, width, height);
+  const positioned = focus
+    ? radialLayout(data, focus, width, height)
+    : forcePositioned;
+
+  const edgeMaxTraces = useMemo(
+    () => data.edges.reduce((m, e) => Math.max(m, e.traceCount), 0),
     [data.edges]
   );
+
+  // Which nodes count as "active" right now — a hovered node's
+  // own neighbourhood, otherwise everything. Used to dim the
+  // off-path edges/nodes.
+  const active = hoverNode ? (neighbours.get(hoverNode) ?? new Set([hoverNode])) : null;
 
   return (
     <div ref={wrapRef} style={{ width: '100%', position: 'relative' }}>
       <svg viewBox={`0 0 ${width} ${height}`}
-           style={{ width: '100%', height, display: 'block', background: 'var(--bg1)', borderRadius: 8 }}>
+           style={{
+             width: '100%', height, display: 'block',
+             background: 'var(--bg1)',
+             border: '1px solid var(--border)',
+             borderRadius: 8,
+           }}>
         <defs>
           <marker id="svc-arrow" viewBox="0 0 10 10"
                   refX="10" refY="5" markerWidth="6" markerHeight="6"
@@ -52,28 +93,38 @@ export function ServiceMapGraph({ data, height = 520 }: {
                   orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill="var(--err)" />
           </marker>
+          {/* Soft glow under nodes — restrained, just enough to
+              lift them off the background. SVG filter is GPU-
+              composited so the cost is per-pixel-once, not per
+              re-render. */}
+          <filter id="svc-shadow" x="-30%" y="-30%" width="160%" height="160%">
+            <feGaussianBlur in="SourceAlpha" stdDeviation="2.5" />
+            <feOffset dx="0" dy="1" result="off" />
+            <feComponentTransfer>
+              <feFuncA type="linear" slope="0.35" />
+            </feComponentTransfer>
+            <feMerge>
+              <feMergeNode />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
         </defs>
 
+        {/* Edges first so nodes draw on top */}
         {data.edges.map((e, i) => {
           const a = positioned[e.caller], b = positioned[e.callee];
           if (!a || !b) return null;
-          // Strokes scale with relative trace count; minimum 0.6
-          // so rare edges remain visible. Error rate flips colour
-          // to var(--err) once any callee error appears on the
-          // edge.
           const w = 0.6 + 2.6 * (e.traceCount / Math.max(1, edgeMaxTraces));
           const errorish = e.errorCount > 0;
-          // Endpoint trim — pull both ends inward by the node
-          // radius so the arrowhead lands on the circle, not the
-          // centre.
-          const ra = nodeRadius(positioned[e.caller].n);
-          const rb = nodeRadius(positioned[e.callee].n);
+          const dimmed = active && (!active.has(e.caller) || !active.has(e.callee));
+          const ra = nodeRadius(a.n);
+          const rb = nodeRadius(b.n);
           const dx = b.x - a.x, dy = b.y - a.y;
           const d  = Math.max(1, Math.hypot(dx, dy));
           const x1 = a.x + dx * ra / d, y1 = a.y + dy * ra / d;
           const x2 = b.x - dx * rb / d, y2 = b.y - dy * rb / d;
           return (
-            <g key={i}>
+            <g key={i} style={{ opacity: dimmed ? 0.12 : 1, transition: 'opacity 120ms' }}>
               <line x1={x1} y1={y1} x2={x2} y2={y2}
                     stroke={errorish ? 'var(--err)' : 'var(--text3)'}
                     strokeWidth={w}
@@ -89,67 +140,107 @@ export function ServiceMapGraph({ data, height = 520 }: {
           );
         })}
 
-        {Object.values(positioned).map(p => (
-          <NodeCircle key={p.n.service} x={p.x} y={p.y} n={p.n} />
-        ))}
+        {Object.values(positioned).map(p => {
+          const dim = active && !active.has(p.n.service);
+          const isFocus = focus === p.n.service;
+          const isHover = hoverNode === p.n.service;
+          return (
+            <NodeMark
+              key={p.n.service}
+              x={p.x} y={p.y}
+              n={p.n}
+              isFocus={isFocus}
+              isHover={isHover}
+              dim={!!dim}
+              onHover={onHoverNode}
+              onSelect={onSelectNode}
+            />
+          );
+        })}
       </svg>
 
-      {/* Legend strip below the graph */}
       <div style={{
         marginTop: 6, display: 'flex', gap: 16, alignItems: 'center',
-        fontSize: 11, color: 'var(--text3)',
+        fontSize: 11, color: 'var(--text3)', flexWrap: 'wrap',
       }}>
-        <span>{data.nodes.length} services · {data.edges.length} edges · sampled {data.sampledFrom} traces ({data.totalSpans} spans)</span>
+        <span>
+          {data.nodes.length} services · {data.edges.length} edges
+          {' · '}sampled {data.sampledFrom} traces ({data.totalSpans} spans)
+        </span>
         <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--ok)', display: 'inline-block' }} />
-          healthy
-          <span style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--warn)', display: 'inline-block', marginLeft: 8 }} />
-          &gt;1% error
-          <span style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--err)', display: 'inline-block', marginLeft: 8 }} />
-          &gt;5% error
+          <Dot color="var(--ok)" />   healthy
+          <Dot color="var(--warn)" /> &gt;1% error
+          <Dot color="var(--err)" />  &gt;5% error
         </span>
       </div>
-      {edgeMaxErr === 0 && data.edges.length > 0 && (
-        <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
-          No edge errors in the sampled window.
-        </div>
-      )}
     </div>
   );
 }
 
-function NodeCircle({ x, y, n }: { x: number; y: number; n: ServiceMapNode }) {
+function Dot({ color }: { color: string }) {
+  return <span style={{ width: 9, height: 9, borderRadius: '50%', background: color, display: 'inline-block', marginLeft: 8 }} />;
+}
+
+function NodeMark({
+  x, y, n, isFocus, isHover, dim, onHover, onSelect,
+}: {
+  x: number; y: number; n: ServiceMapNode;
+  isFocus: boolean; isHover: boolean; dim: boolean;
+  onHover: (s: string | null) => void;
+  onSelect: (s: string) => void;
+}) {
   const r = nodeRadius(n);
-  const fill = n.errorRate > 0.05 ? 'var(--err)'
-            : n.errorRate > 0.01 ? 'var(--warn)'
-            : 'var(--ok)';
+  const baseFill = n.errorRate > 0.05 ? 'var(--err)'
+                 : n.errorRate > 0.01 ? 'var(--warn)'
+                 : 'var(--ok)';
+  const ringW = isFocus ? 2.6 : isHover ? 2.0 : 1.4;
+  const fillOp = isFocus ? 0.30 : isHover ? 0.24 : 0.18;
   return (
-    <Link to={`/service?name=${encodeURIComponent(n.service)}`}>
-      <g style={{ cursor: 'pointer' }}>
-        <circle cx={x} cy={y} r={r} fill={fill} fillOpacity={0.18}
-                stroke={fill} strokeWidth={1.4} />
-        <text x={x} y={y - r - 6}
-              textAnchor="middle" fontSize={11} fontWeight={600}
-              fill="var(--text)" style={{ pointerEvents: 'none' }}>
-          {n.service}
-        </text>
-        <text x={x} y={y + 4}
-              textAnchor="middle" fontSize={10}
-              fill="var(--text2)" style={{ pointerEvents: 'none' }}>
-          {n.spanCount.toLocaleString()}
-        </text>
-        <title>
-          {`${n.service}\n${n.spanCount.toLocaleString()} spans · ${(n.errorRate * 100).toFixed(2)}% error`}
-        </title>
-      </g>
-    </Link>
+    <g style={{
+         cursor: 'pointer',
+         opacity: dim ? 0.22 : 1,
+         transition: 'opacity 120ms',
+       }}
+       onMouseEnter={() => onHover(n.service)}
+       onMouseLeave={() => onHover(null)}
+       onClick={() => onSelect(n.service)}>
+      <circle cx={x} cy={y} r={r}
+              fill={baseFill} fillOpacity={fillOp}
+              stroke={baseFill} strokeWidth={ringW}
+              filter="url(#svc-shadow)" />
+      {/* Tiny inner dot for the focused node — keeps the eye
+          parked on the centre when the radial layout has
+          eight peers fanned out. */}
+      {isFocus && (
+        <circle cx={x} cy={y} r={3.2}
+                fill={baseFill} stroke="var(--bg1)" strokeWidth={1} />
+      )}
+      <text x={x} y={y - r - 7}
+            textAnchor="middle"
+            fontSize={isFocus ? 12 : 11}
+            fontWeight={isFocus || isHover ? 700 : 600}
+            fill="var(--text)" style={{ pointerEvents: 'none' }}>
+        {n.service}
+      </text>
+      <text x={x} y={y + 4}
+            textAnchor="middle"
+            fontSize={10}
+            fill="var(--text2)"
+            fontFamily="monospace"
+            style={{ pointerEvents: 'none' }}>
+        {n.spanCount.toLocaleString()}
+      </text>
+      <title>
+        {`${n.service}\n${n.spanCount.toLocaleString()} spans · ${(n.errorRate * 100).toFixed(2)}% error\nclick to focus`}
+      </title>
+    </g>
   );
 }
 
 function nodeRadius(n: ServiceMapNode): number {
   // log scale so a 100k-span service doesn't drown out a 100-span one.
   const log = Math.log10(Math.max(10, n.spanCount));
-  return Math.min(34, Math.max(14, 8 + 5 * log));
+  return Math.min(34, Math.max(15, 9 + 5 * log));
 }
 
 interface PositionedNode {
@@ -158,19 +249,79 @@ interface PositionedNode {
   vx: number; vy: number;
 }
 
-// useLayout runs a tiny Verlet simulation: charge repulsion between
-// every pair, attractive spring on each edge, gentle pull toward
-// centre. Runs ~250 iterations on (data, width, height) change and
-// then freezes — we don't animate the simulation in real time.
-function useLayout(
+// ── Focused (radial) layout ─────────────────────────────────
+//
+// Closed-form geometry — no physics. Focused service sits at
+// the centre; callers and callees split the circle into left
+// and right halves so the "who calls me" and "who do I call"
+// directions are visually separated. Within each half, peers
+// are sorted by traffic volume (desc) so the heavy-hitter
+// edges land top-of-the-arc.
+function radialLayout(
+  data: ServiceMap, focus: string, width: number, height: number,
+): Record<string, PositionedNode> {
+  const cx = width / 2, cy = height / 2;
+  const out: Record<string, PositionedNode> = {};
+  const focusNode = data.nodes.find(n => n.service === focus);
+  if (!focusNode) return out;
+  out[focus] = { n: focusNode, x: cx, y: cy, vx: 0, vy: 0 };
+
+  const callers: { svc: string; volume: number }[] = [];
+  const callees: { svc: string; volume: number }[] = [];
+  for (const e of data.edges) {
+    if (e.callee === focus) callers.push({ svc: e.caller, volume: e.traceCount });
+    if (e.caller === focus) callees.push({ svc: e.callee, volume: e.traceCount });
+  }
+  callers.sort((a, b) => b.volume - a.volume);
+  callees.sort((a, b) => b.volume - a.volume);
+
+  const radius = Math.min(width, height) * 0.34;
+
+  // Left arc: π/2 (top) sweeping through π (left) to 3π/2 (bottom).
+  placeArc(out, data, callers.map(c => c.svc), cx, cy, radius, Math.PI / 2, 3 * Math.PI / 2);
+  // Right arc: 3π/2 (bottom) sweeping back through 2π (right) to π/2 (top).
+  // Use the same direction (so single-callee lands at the right)
+  placeArc(out, data, callees.map(c => c.svc), cx, cy, radius, -Math.PI / 2, Math.PI / 2);
+
+  return out;
+}
+
+function placeArc(
+  out: Record<string, PositionedNode>,
+  data: ServiceMap,
+  services: string[],
+  cx: number, cy: number, r: number,
+  startAngle: number, endAngle: number,
+) {
+  if (services.length === 0) return;
+  const span = endAngle - startAngle;
+  for (let i = 0; i < services.length; i++) {
+    const svc = services[i];
+    const node = data.nodes.find(n => n.service === svc);
+    if (!node) continue;
+    // Even spread, with a single peer landing at the arc midpoint.
+    const t = services.length === 1 ? 0.5 : i / (services.length - 1);
+    const angle = startAngle + span * t;
+    out[svc] = {
+      n: node,
+      x: cx + Math.cos(angle) * r,
+      y: cy + Math.sin(angle) * r,
+      vx: 0, vy: 0,
+    };
+  }
+}
+
+// ── Global (force) layout ───────────────────────────────────
+//
+// Verlet pairwise: ≤200 nodes settles in <50ms on a laptop.
+// useMemo'd by (data, width, height) so panning the view (or
+// re-renders from hover state) doesn't re-run the simulation.
+function useForceLayout(
   data: ServiceMap, width: number, height: number,
-): { positioned: Record<string, PositionedNode>; edgeMaxTraces: number } {
+): Record<string, PositionedNode> {
   return useMemo(() => {
     const cx = width / 2, cy = height / 2;
     const nodes: Record<string, PositionedNode> = {};
-    // Deterministic seed by service-name hash → repeated renders of
-    // the same data reach the same final layout, no jitter on every
-    // 30s refresh.
     data.nodes.forEach((n, i) => {
       const seed = (hash(n.service) >>> 0);
       const angle = (seed / 0xffffffff) * Math.PI * 2;
@@ -182,20 +333,17 @@ function useLayout(
         vx: 0, vy: 0,
       };
     });
-    if (data.nodes.length === 0) return { positioned: nodes, edgeMaxTraces: 0 };
+    if (data.nodes.length === 0) return nodes;
 
     const linkLen = 110;
     const k_repel = 5800;
     const k_link  = 0.045;
     const k_centre = 0.012;
     const damping = 0.86;
-    const iters = 260;
+    const iters = 220;
 
     const arr = Object.values(nodes);
-    const edgeMaxTraces = data.edges.reduce((m, e) => Math.max(m, e.traceCount), 0);
-
     for (let it = 0; it < iters; it++) {
-      // Pairwise repulsion.
       for (let i = 0; i < arr.length; i++) {
         for (let j = i + 1; j < arr.length; j++) {
           const a = arr[i], b = arr[j];
@@ -208,7 +356,6 @@ function useLayout(
           b.vx -= f * dx / d; b.vy -= f * dy / d;
         }
       }
-      // Spring along each edge.
       for (const e of data.edges) {
         const a = nodes[e.caller], b = nodes[e.callee];
         if (!a || !b) continue;
@@ -218,21 +365,18 @@ function useLayout(
         a.vx += f * dx / d; a.vy += f * dy / d;
         b.vx -= f * dx / d; b.vy -= f * dy / d;
       }
-      // Gentle centre pull so disconnected components don't drift away.
       for (const n of arr) {
         n.vx += (cx - n.x) * k_centre;
         n.vy += (cy - n.y) * k_centre;
       }
-      // Integrate.
       for (const n of arr) {
         n.vx *= damping; n.vy *= damping;
         n.x += n.vx;     n.y += n.vy;
-        // Clamp inside the viewport with a margin for label space.
-        n.x = Math.max(40, Math.min(width  - 40, n.x));
-        n.y = Math.max(40, Math.min(height - 40, n.y));
+        n.x = Math.max(46, Math.min(width  - 46, n.x));
+        n.y = Math.max(46, Math.min(height - 46, n.y));
       }
     }
-    return { positioned: nodes, edgeMaxTraces };
+    return nodes;
   }, [data, width, height]);
 }
 
