@@ -1,4 +1,3 @@
-'use client';
 import { ServicePicker } from '../ServicePicker';
 import type { DashboardVariable } from '@/lib/types';
 

@@ -1,4 +1,3 @@
-'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { Combobox } from './Combobox';
 import { api } from '@/lib/api';

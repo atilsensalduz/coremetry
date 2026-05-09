@@ -1,6 +1,5 @@
-'use client';
 import { useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
+import { Link } from 'react-router-dom';
 import type { SpanRow, ProfileRow, LogRow } from '@/lib/types';
 import { tsLong, tsShort, sevName, sevClass, displaySpanName } from '@/lib/utils';
 import { api } from '@/lib/api';
@@ -182,7 +181,7 @@ export function SpanDetail({ span, onClose }: { span: SpanRow; onClose: () => vo
         <Section title={
           <>
             Logs ({spanLogs.length})
-            <Link href={`/logs?traceId=${span.traceId}&spanId=${span.spanId}`}
+            <Link to={`/logs?traceId=${span.traceId}&spanId=${span.spanId}`}
               style={{ marginLeft: 8, fontSize: 10, fontWeight: 400, color: 'var(--accent2)' }}>
               open in Logs ↗
             </Link>
@@ -212,7 +211,7 @@ export function SpanDetail({ span, onClose }: { span: SpanRow; onClose: () => vo
         {profiles.length > 0 && (
           <Section title={`Profiles in window (${profiles.length})`}>
             {profiles.map(p => (
-              <Link key={p.profileId} href={`/profile?id=${p.profileId}`}
+              <Link key={p.profileId} to={`/profile?id=${p.profileId}`}
                 className="ps-event"
                 style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none', color: 'var(--text)' }}>
                 <span className="badge b-info">{p.profileType.toUpperCase()}</span>

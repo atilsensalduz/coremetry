@@ -1,6 +1,5 @@
-'use client';
-import Link from 'next/link';
-import { useRouter, usePathname } from 'next/navigation';
+import { Link } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { ThemeToggle } from './ThemeToggle';
@@ -49,8 +48,8 @@ const MAX_W = 360;
 const MOBILE_BP = 768;
 
 export function Sidebar() {
-  const pathname = usePathname();
-  const router = useRouter();
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
   const { user, logout } = useAuth();
   const [health, setHealth] = useState<string>('Connecting…');
   const [openProblems, setOpenProblems] = useState(0);
@@ -206,7 +205,7 @@ export function Sidebar() {
         </div>
         <div id="nav">
           {NAV.filter(n => !n.adminOnly || user?.role === 'admin').map(n => (
-            <Link key={n.href} href={n.href}
+            <Link key={n.href} to={n.href}
               className={isActive(pathname, n.href) ? 'active' : ''}
               title={!showLabels ? n.label : undefined}
               style={!showLabels ? { justifyContent: 'center', padding: '10px 0' } : undefined}>
@@ -263,10 +262,10 @@ export function Sidebar() {
               }}>
                 {user.role === 'admin' && (
                   <>
-                    <MenuItem onClick={() => { setMenuOpen(false); router.push('/users'); }}>
+                    <MenuItem onClick={() => { setMenuOpen(false); navigate('/users'); }}>
                       ◯ Manage users
                     </MenuItem>
-                    <MenuItem onClick={() => { setMenuOpen(false); router.push('/settings'); }}>
+                    <MenuItem onClick={() => { setMenuOpen(false); navigate('/settings'); }}>
                       ⚙ Settings
                     </MenuItem>
                   </>

@@ -1,4 +1,3 @@
-'use client';
 import { useMemo, useState } from 'react';
 import type { FlameNode } from '@/lib/types';
 import { hashColor } from '@/lib/utils';

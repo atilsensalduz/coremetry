@@ -1,4 +1,3 @@
-'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SpanRow } from '@/lib/types';
 import { fmtNs, hashColor, displaySpanName } from '@/lib/utils';

@@ -1,6 +1,5 @@
-'use client';
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/components/AuthProvider';
 import { api } from '@/lib/api';
 import type { SavedView } from '@/lib/types';
@@ -17,7 +16,7 @@ import type { SavedView } from '@/lib/types';
 //   - Admins can flip "shared" so everyone on the team sees it.
 //   - You can only delete your own views (admins can delete any).
 export function SavedViewsBar({ page }: { page: string }) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
 
@@ -32,7 +31,7 @@ export function SavedViewsBar({ page }: { page: string }) {
 
   const apply = (v: SavedView) => {
     const target = window.location.pathname + (v.queryString ? '?' + v.queryString : '');
-    router.push(target);
+    navigate(target);
   };
 
   const save = async () => {

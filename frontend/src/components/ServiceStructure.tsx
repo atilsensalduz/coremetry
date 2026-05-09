@@ -1,4 +1,3 @@
-'use client';
 import { useEffect, useState } from 'react';
 import { AggregatedStructure } from './AggregatedStructure';
 import { Spinner } from './Spinner';

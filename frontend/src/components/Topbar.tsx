@@ -1,4 +1,3 @@
-'use client';
 import { TimeRangePicker } from './TimeRangePicker';
 import type { TimeRange } from '@/lib/types';
 

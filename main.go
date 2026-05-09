@@ -33,7 +33,7 @@ import (
 	"github.com/cilcenk/coremetry/internal/sampling"
 )
 
-//go:embed all:frontend/out
+//go:embed all:frontend/dist
 var webFS embed.FS
 
 // Version is stamped at build time via -ldflags="-X main.Version=…".

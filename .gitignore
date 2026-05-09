@@ -18,6 +18,7 @@ go.work.sum
 vendor/
 
 # Frontend (frontend/.gitignore covers the rest)
+frontend/dist/
 frontend/out/
 frontend/.next/
 frontend/node_modules/

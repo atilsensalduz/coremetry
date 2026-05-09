@@ -1,4 +1,3 @@
-'use client';
 import { useEffect, useRef, useState } from 'react';
 import type { TimeRange } from '@/lib/types';
 import { PRESET_LABELS, PRESET_SECONDS, timeRangeLabel } from '@/lib/utils';

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Coremetry</title>
+    <meta name="description" content="Enterprise OpenTelemetry APM" />
+    <link rel="icon" href="/favicon.ico" />
+    <!--
+      Inline theme boot — applies the saved theme BEFORE first
+      paint so the operator never sees a flash of the wrong
+      palette when a session loads. Was inline in layout.tsx;
+      moves here verbatim under Vite (no SSR).
+    -->
+    <script>
+      (function() {
+        try {
+          var t = localStorage.getItem('coremetry-theme');
+          if (t !== 'light' && t !== 'dark') t = 'dark';
+          document.documentElement.setAttribute('data-theme', t);
+        } catch (e) {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

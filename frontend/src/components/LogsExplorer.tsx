@@ -1,4 +1,3 @@
-'use client';
 import { useEffect, useState } from 'react';
 import { ExploreViz, type ExploreVizKind } from './ExploreViz';
 import { Spinner } from './Spinner';

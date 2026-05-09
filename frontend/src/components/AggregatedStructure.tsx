@@ -1,4 +1,3 @@
-'use client';
 import { useMemo, useState } from 'react';
 import { hashColor, fmtNum } from '@/lib/utils';
 import type { AggSpanNode } from '@/lib/types';

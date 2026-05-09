@@ -1,4 +1,3 @@
-'use client';
 import { useEffect, useRef } from 'react';
 import {
   Chart, LineController, LineElement, PointElement, LinearScale,

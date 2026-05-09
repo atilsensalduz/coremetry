@@ -1,6 +1,5 @@
-'use client';
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
+import { Link } from 'react-router-dom';
 import { Sparkline } from './Sparkline';
 import { api } from '@/lib/api';
 import type { InfraMetricSeries } from '@/lib/types';
@@ -66,7 +65,7 @@ function InfraTile({ s, service }: { s: InfraMetricSeries; service: string }) {
   // ?source/?service/?metric on mount (see /explore page).
   const href = `/explore?source=metrics&service=${encodeURIComponent(service)}&metric=${encodeURIComponent(s.source)}`;
   return (
-    <Link href={href} title={`Open ${s.source} in metric explorer`}
+    <Link to={href} title={`Open ${s.source} in metric explorer`}
       style={{
         padding: 10, border: '1px solid var(--border)',
         borderRadius: 6, background: 'var(--bg2)',

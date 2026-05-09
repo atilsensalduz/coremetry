@@ -1,4 +1,3 @@
-'use client';
 
 // Tiny inline SVG sparkline — no chart library. Auto-scales to its own
 // y-range so a service with 5 spans/min looks just as readable as one

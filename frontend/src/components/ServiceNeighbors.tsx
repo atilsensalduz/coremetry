@@ -1,6 +1,5 @@
-'use client';
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
+import { Link } from 'react-router-dom';
 import { Spinner } from './Spinner';
 import { api } from '@/lib/api';
 import { hashColor, fmtNum } from '@/lib/utils';
@@ -166,7 +165,7 @@ function Column({ label, items, emptyText, align }: {
 function Chip({ stat }: { stat: NeighborStat }) {
   const color = hashColor(stat.service);
   return (
-    <Link href={`/service?name=${encodeURIComponent(stat.service)}`}
+    <Link to={`/service?name=${encodeURIComponent(stat.service)}`}
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 8,
             padding: '4px 10px', borderRadius: 6,

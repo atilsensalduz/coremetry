@@ -1,6 +1,5 @@
-'use client';
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { api, setUnauthorizedHandler, type AuthUser } from '@/lib/api';
 import { isPublicPath, normalizePath } from '@/lib/auth-paths';
 
@@ -20,8 +19,8 @@ export function useAuth(): AuthState {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
-  const pathname = usePathname();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -31,11 +30,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUnauthorizedHandler(() => {
       setUser(null);
       if (!isPublicPath(window.location.pathname)) {
-        router.replace('/login');
+        navigate('/login');
       }
     });
     return () => setUnauthorizedHandler(null);
-  }, [router]);
+  }, [navigate]);
 
   // On mount + on every route change, verify the cookie session.
   useEffect(() => {
@@ -52,12 +51,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (loading) return;
     const path = normalizePath(pathname ?? '');
     if (!user && !isPublicPath(path)) {
-      router.replace('/login');
+      navigate('/login');
     }
     if (user && path === '/login') {
-      router.replace('/');
+      navigate('/');
     }
-  }, [loading, user, pathname, router]);
+  }, [loading, user, pathname, navigate]);
 
   const login = useCallback(async (email: string, password: string) => {
     const res = await api.login(email, password);
@@ -67,8 +66,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(async () => {
     try { await api.logout(); } catch { /* ignore */ }
     setUser(null);
-    router.replace('/login');
-  }, [router]);
+    navigate('/login');
+  }, [navigate]);
 
   return (
     <Ctx.Provider value={{ user, loading, login, logout }}>

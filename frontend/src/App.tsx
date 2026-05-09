@@ -1,0 +1,98 @@
+import { lazy, Suspense } from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from './components/AuthProvider';
+import { AppShell } from './components/AppShell';
+import { Spinner } from './components/Spinner';
+
+// All route components are code-split via React.lazy so the
+// initial bundle stays small. The loader fallback is the
+// existing Spinner — same UX as Next.js's automatic per-route
+// chunking. Each `import('./pages/Foo')` becomes its own chunk
+// in dist/assets/.
+const Home              = lazy(() => import('./pages/Home'));
+const Login             = lazy(() => import('./pages/Login'));
+const Services          = lazy(() => import('./pages/Services'));
+const Service           = lazy(() => import('./pages/Service'));
+const ServiceBacktrace  = lazy(() => import('./pages/ServiceBacktrace'));
+const ServiceMap        = lazy(() => import('./pages/ServiceMap'));
+const Traces            = lazy(() => import('./pages/Traces'));
+const Trace             = lazy(() => import('./pages/Trace'));
+const Logs              = lazy(() => import('./pages/Logs'));
+const Metrics           = lazy(() => import('./pages/Metrics'));
+const Explore           = lazy(() => import('./pages/Explore'));
+const Dashboards        = lazy(() => import('./pages/Dashboards'));
+const Dashboard         = lazy(() => import('./pages/Dashboard'));
+const Incidents         = lazy(() => import('./pages/Incidents'));
+const Incident          = lazy(() => import('./pages/Incident'));
+const Anomalies         = lazy(() => import('./pages/Anomalies'));
+const Problems          = lazy(() => import('./pages/Problems'));
+const Alerts            = lazy(() => import('./pages/Alerts'));
+const Slos              = lazy(() => import('./pages/Slos'));
+const Monitors          = lazy(() => import('./pages/Monitors'));
+const Profiling         = lazy(() => import('./pages/Profiling'));
+const Profile           = lazy(() => import('./pages/Profile'));
+const Settings          = lazy(() => import('./pages/Settings'));
+const Users             = lazy(() => import('./pages/Users'));
+const ErrorsPage        = lazy(() => import('./pages/Errors'));
+const Status            = lazy(() => import('./pages/Status'));
+const PublicStatus      = lazy(() => import('./pages/PublicStatus'));
+const PublicTrace       = lazy(() => import('./pages/PublicTrace'));
+const AdminAudit        = lazy(() => import('./pages/AdminAudit'));
+const AdminSql          = lazy(() => import('./pages/AdminSql'));
+const AdminStats        = lazy(() => import('./pages/AdminStats'));
+const AdminStatusPage   = lazy(() => import('./pages/AdminStatusPage'));
+
+// Each lazy module's default export is the page component.
+// React Router doesn't enforce any naming convention beyond
+// "default export is a React component", so the convention is
+// preserved verbatim from the Next.js app router structure —
+// just the file paths changed.
+export default function App() {
+  return (
+    <AuthProvider>
+      <Suspense fallback={<Spinner />}>
+        <Routes>
+          <Route element={<AppShell />}>
+            <Route path="/"               element={<Home />} />
+            <Route path="/login"          element={<Login />} />
+            <Route path="/services"       element={<Services />} />
+            <Route path="/service"        element={<Service />} />
+            <Route path="/service/backtrace" element={<ServiceBacktrace />} />
+            <Route path="/service-map"    element={<ServiceMap />} />
+            <Route path="/traces"         element={<Traces />} />
+            <Route path="/trace"          element={<Trace />} />
+            <Route path="/logs"           element={<Logs />} />
+            <Route path="/metrics"        element={<Metrics />} />
+            <Route path="/explore"        element={<Explore />} />
+            <Route path="/dashboards"     element={<Dashboards />} />
+            <Route path="/dashboard"      element={<Dashboard />} />
+            <Route path="/incidents"      element={<Incidents />} />
+            <Route path="/incident"       element={<Incident />} />
+            <Route path="/anomalies"      element={<Anomalies />} />
+            <Route path="/problems"       element={<Problems />} />
+            <Route path="/alerts"         element={<Alerts />} />
+            <Route path="/slos"           element={<Slos />} />
+            <Route path="/monitors"       element={<Monitors />} />
+            <Route path="/profiling"      element={<Profiling />} />
+            <Route path="/profile"        element={<Profile />} />
+            <Route path="/settings"       element={<Settings />} />
+            <Route path="/users"          element={<Users />} />
+            <Route path="/errors"         element={<ErrorsPage />} />
+            <Route path="/status"         element={<Status />} />
+            <Route path="/public-status"  element={<PublicStatus />} />
+            <Route path="/public/trace"   element={<PublicTrace />} />
+            <Route path="/admin/audit"        element={<AdminAudit />} />
+            <Route path="/admin/sql"          element={<AdminSql />} />
+            <Route path="/admin/stats"        element={<AdminStats />} />
+            <Route path="/admin/status-page"  element={<AdminStatusPage />} />
+            {/* Unknown path → bounce to Home so navigate() never
+                hits a dead route. The AuthProvider gates whether
+                the user actually sees Home or gets redirected to
+                /login. */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
+        </Routes>
+      </Suspense>
+    </AuthProvider>
+  );
+}

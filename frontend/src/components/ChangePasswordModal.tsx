@@ -1,4 +1,3 @@
-'use client';
 import { useState, FormEvent } from 'react';
 import { api } from '@/lib/api';
 

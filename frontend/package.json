@@ -1,21 +1,24 @@
 {
   "name": "coremetry-ui",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "next": "14.2.15",
     "react": "18.3.1",
     "react-dom": "18.3.1",
+    "react-router-dom": "6.28.0",
     "chart.js": "4.4.4",
     "react-chartjs-2": "5.2.0"
   },
   "devDependencies": {
+    "vite": "5.4.10",
+    "@vitejs/plugin-react": "4.3.4",
     "typescript": "5.5.4",
     "@types/node": "20.16.5",
     "@types/react": "18.3.5",

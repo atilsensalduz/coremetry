@@ -1,6 +1,5 @@
-'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
+import { Link } from 'react-router-dom';
 import type { ServiceMap, ServiceMapNode, ServiceMapEdge } from '@/lib/types';
 
 // ServiceMapGraph renders the {nodes, edges} response as an SVG
@@ -125,7 +124,7 @@ function NodeCircle({ x, y, n }: { x: number; y: number; n: ServiceMapNode }) {
             : n.errorRate > 0.01 ? 'var(--warn)'
             : 'var(--ok)';
   return (
-    <Link href={`/service?name=${encodeURIComponent(n.service)}`}>
+    <Link to={`/service?name=${encodeURIComponent(n.service)}`}>
       <g style={{ cursor: 'pointer' }}>
         <circle cx={x} cy={y} r={r} fill={fill} fillOpacity={0.18}
                 stroke={fill} strokeWidth={1.4} />

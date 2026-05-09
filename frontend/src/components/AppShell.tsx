@@ -1,20 +1,23 @@
-'use client';
-import { usePathname } from 'next/navigation';
+import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { useAuth } from './AuthProvider';
 import { isPublicPath } from '@/lib/auth-paths';
 
-// AppShell decides whether to render the full sidebar+main layout or just
-// pass children through (login page, loading splash). Keeps the root layout
-// itself a server component so the theme boot script still runs on the
-// initial HTML.
-export function AppShell({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname() ?? '';
+// AppShell is the layout-route wrapper. React Router renders the
+// active child route inside <Outlet/>. Public pages (login,
+// public-status, public/trace) bypass the sidebar by being
+// registered OUTSIDE this layout in App.tsx — but we keep the
+// isPublicPath check as a defensive belt-and-suspenders so a
+// future route refactor that accidentally puts a public page
+// under this layout still won't render the sidebar to a
+// not-yet-authenticated visitor.
+export function AppShell() {
+  const { pathname } = useLocation();
   const { user, loading } = useAuth();
   const isPublic = isPublicPath(pathname);
 
   if (isPublic) {
-    return <>{children}</>;
+    return <Outlet />;
   }
   if (loading) {
     return (
@@ -33,7 +36,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div id="app">
       <Sidebar />
-      <div id="main">{children}</div>
+      <div id="main"><Outlet /></div>
     </div>
   );
 }

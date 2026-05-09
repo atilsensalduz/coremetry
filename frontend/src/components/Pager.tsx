@@ -1,4 +1,3 @@
-'use client';
 import { useEffect, useState, FormEvent } from 'react';
 
 // Pager — shared "← Prev / page input / Next →" strip used at the

@@ -18,7 +18,7 @@ import type {
 
 // Empty base = same origin (works in production where Go serves both UI and API).
 // In dev, Next.js rewrites /api/* to http://localhost:8088 (see next.config.mjs).
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
+const API_BASE = import.meta.env.VITE_API_BASE ?? '';
 
 // Subclass so callers (and the AuthProvider) can detect "session expired"
 // without string-matching error messages.

@@ -1,12 +1,14 @@
-# ── Stage 1: build Next.js static export ──────────────────────────────────────
+# ── Stage 1: build Vite static SPA ────────────────────────────────────────────
 FROM node:22-alpine AS frontend-builder
 WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci || npm install
 COPY frontend/ ./
+# Vite outputs to dist/ (not Next.js's out/). Stage 2 embeds it
+# via //go:embed all:frontend/dist into the Go binary.
 RUN npm run build
 
-# ── Stage 2: build Go binaries (with embedded frontend/out) ───────────────────
+# ── Stage 2: build Go binaries (with embedded frontend/dist) ──────────────────
 FROM golang:1.25-alpine AS go-builder
 # VERSION is the release tag stamped into the binary via -ldflags.
 # `docker compose build --build-arg VERSION=$(git describe --tags)`
@@ -18,7 +20,7 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-COPY --from=frontend-builder /app/frontend/out /app/frontend/out
+COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.Version=${VERSION}" -o coremetry . && \
     CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o demo ./cmd/demo
 

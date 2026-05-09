@@ -283,16 +283,16 @@ func (s *Server) Start() error {
 	// Tempo-compatible API (Grafana datasource integration)
 	s.registerTempoRoutes(mux)
 
-	// Web UI (embedded Next.js static export). Custom handler instead of
+	// Web UI (embedded Vite static SPA). Custom handler instead of
 	// http.FileServer so we can:
 	//   • Serve `<path>/index.html` directly without a 301 to `<path>/`
 	//     (the redirect breaks behind some OpenShift / load-balancer
 	//     setups where X-Forwarded-Proto isn't propagated and the
 	//     redirect Location ends up with the wrong scheme).
 	//   • Provide a SPA fallback for deep-links and unknown routes by
-	//     serving the root index.html — the Next.js client router then
-	//     mounts the right page from the current URL.
-	sub, _ := fs.Sub(s.webFS, "frontend/out")
+	//     serving the root index.html — react-router then mounts the
+	//     right page from the current URL.
+	sub, _ := fs.Sub(s.webFS, "frontend/dist")
 	mux.Handle("/", spaHandler(sub))
 
 	log.Printf("[api] HTTP listening on %s", s.addr)
@@ -3470,23 +3470,22 @@ func queueStatus(name string, q interface{ QueueLen() int; Capacity() int; Dropp
 
 // ── Middleware & helpers ───────────────────────────────────────────────────────
 
-// spaHandler serves the embedded Next.js static export. Two behaviours
+// spaHandler serves the embedded Vite static SPA. Two behaviours
 // that diverge from the stdlib http.FileServer:
 //
-//  1. For a request like `/logs` (no trailing slash) where the export
-//     contains `logs/index.html`, FileServer returns a 301 redirect to
-//     `/logs/`. Behind a TLS-terminating proxy where `X-Forwarded-Proto`
-//     isn't propagated, the redirect's Location header carries `http://`
-//     and the client either follows it back to the http virtual host
-//     (which may not exist) or hits a strict-https policy. spaHandler
-//     resolves the trailing-slash case in-process and serves the
-//     content directly — no redirect, no scheme guessing.
+//  1. Legacy fallback for the previous Next.js layout: if a
+//     request resolves to a directory containing `index.html`
+//     (the Next.js `output: 'export'` shape), serve the inner
+//     index without a 301 redirect. Vite's flat dist/ doesn't
+//     produce per-route directories, but the code stays defensive
+//     against any future packaging variant.
 //
-//  2. For an unknown path that isn't a static asset (no file extension)
-//     spaHandler falls back to the root `index.html` so the Next.js
-//     client router can mount the right page from the URL. That covers
-//     deep-links to dynamic routes that don't have a pre-rendered
-//     directory in the export.
+//  2. For an unknown path that isn't a static asset (no file
+//     extension) spaHandler falls back to the root `index.html`
+//     so react-router can mount the right page from the URL.
+//     This is the primary path for the Vite SPA — deep-links
+//     like /services or /admin/sql exist only as routes in the
+//     React Router config, never as files on disk.
 func spaHandler(root fs.FS) http.Handler {
 	const indexHTML = "index.html"
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
