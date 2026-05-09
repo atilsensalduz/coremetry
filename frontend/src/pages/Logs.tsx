@@ -1,6 +1,7 @@
 import { Suspense, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useSearchParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { Topbar } from '@/components/Topbar';
 import { SavedViewsBar } from '@/components/SavedViewsBar';
 import { Spinner, Empty } from '@/components/Spinner';
@@ -8,6 +9,7 @@ import { Combobox } from '@/components/Combobox';
 import { ServicePicker } from '@/components/ServicePicker';
 import { CopyButton } from '@/components/CopyButton';
 import { Pager } from '@/components/Pager';
+import { useLogs } from '@/lib/queries';
 import { api } from '@/lib/api';
 import { tsShort, timeRangeToNs, sevName, sevClass } from '@/lib/utils';
 import type { LogsResponse, LogRow, TimeRange } from '@/lib/types';
@@ -30,7 +32,6 @@ function LogsInner() {
     service: '', search: '', severity: 0, traceId: '', spanId: '',
   });
   const [draft, setDraft] = useState(filter);
-  const [data, setData] = useState<LogsResponse | null | undefined>(undefined);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [services, setServices] = useState<string[]>([]);
   // Live tail (HyperDX-style): poll every 2s, prepend new rows.
@@ -64,40 +65,55 @@ function LogsInner() {
       .catch(() => setServices([]));
   }, [range]);
 
-  useEffect(() => {
-    setData(undefined); setExpanded(new Set());
-    // When pinned to a trace, ignore the time range — old traces should
-    // still surface their logs even if outside the current window.
-    const useTimeRange = !filter.traceId;
-    const { from, to } = useTimeRange ? timeRangeToNs(range) : { from: undefined, to: undefined };
-    api.logs({
-      limit: 100, offset: page * 100, from, to,
-      service: filter.service || undefined,
-      search: filter.search || undefined,
-      severity: filter.severity > 0 ? filter.severity : undefined,
-      traceId: filter.traceId || undefined,
-      spanId:  filter.spanId  || undefined,
-    })
-      .then(setData).catch(() => setData(null));
-  }, [range, filter, page]);
+  // Build the params for the static-window query. When live
+  // tail is on, we don't run this query (the live useQuery
+  // below takes over instead) — `enabled: !live` gates it.
+  const useTimeRange = !filter.traceId;
+  const { from, to } = useTimeRange ? timeRangeToNs(range) : { from: undefined, to: undefined };
+  const staticQ = useLogs({
+    limit: 100, offset: page * 100, from, to,
+    service: filter.service || undefined,
+    search: filter.search || undefined,
+    severity: filter.severity > 0 ? filter.severity : undefined,
+    traceId: filter.traceId || undefined,
+    spanId:  filter.spanId  || undefined,
+  });
 
-  // ── Live tail loop ───────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!live) return;
-    const fetchTail = () => {
+  // Live-tail query — separate hook with refetchInterval so
+  // RQ owns the polling loop. The query key includes the
+  // service/search/severity filters but NOT a moving `from`/
+  // `to` (the polling fetches the latest 5 min each tick).
+  // Disabled when live=false; the static query (above) takes
+  // over in that case.
+  const liveQ = useQuery({
+    queryKey: ['logs', 'live', filter.service, filter.search, filter.severity],
+    queryFn: () => {
       const now = Date.now() * 1_000_000;
-      const from = Math.floor((Date.now() - 5 * 60_000) * 1_000_000); // last 5 min
-      api.logs({
-        limit: 200, from, to: now,
+      const fromNs = Math.floor((Date.now() - 5 * 60_000) * 1_000_000);
+      return api.logs({
+        limit: 200, from: fromNs, to: now,
         service: filter.service || undefined,
         search: filter.search || undefined,
         severity: filter.severity > 0 ? filter.severity : undefined,
-      }).then(r => setData(r)).catch(() => {});
-    };
-    fetchTail();
-    const t = setInterval(fetchTail, 2000);
-    return () => clearInterval(t);
-  }, [live, filter.service, filter.search, filter.severity]);
+      });
+    },
+    enabled: live,
+    refetchInterval: live ? 2_000 : false,
+    staleTime: 0,
+  });
+
+  // Merge: when live is on, prefer the live data; otherwise
+  // the static window result. Mirrors the previous setData
+  // behaviour where live overwrote static.
+  const dataSource = live ? liveQ : staticQ;
+  const data = dataSource.isLoading ? undefined
+    : dataSource.isError ? null
+    : dataSource.data;
+
+  // Reset expansion state when the filter / range / page
+  // changes — opening row #5 in one window doesn't translate
+  // to the next.
+  useEffect(() => { setExpanded(new Set()); }, [range, filter, page]);
 
   const apply = () => { setPage(0); setFilter(draft); };
   const reset = () => {

@@ -18,6 +18,11 @@ export {
 } from './services';
 export {
   useSystemStats, useCardinality, useSamplingSettings, useUpdateSampling,
+  useAuditLog,
+  useStatusPageConfig, useUpdateStatusPageConfig,
+  useStatusPageComponents, useCreateStatusComponent,
+  useUpdateStatusComponent, useDeleteStatusComponent,
+  useStatusPageSubscribers, useDeleteStatusSubscriber,
 } from './admin';
 export {
   useIncidents, useIncident, useIncidentEvents, useIncidentProblems,
@@ -28,4 +33,12 @@ export {
   useCreateAlertRule, useUpdateAlertRule,
   useDeleteAlertRule, useEnableAlertRule,
 } from './alerts';
+export { useLogs } from './logs';
+export {
+  useMonitors, useMonitorTimeline,
+  useCreateMonitor, useUpdateMonitor, useDeleteMonitor,
+} from './monitors';
+export {
+  useSLOs, useCreateSLO, useDeleteSLO,
+} from './slos';
 export { useEventStream } from './eventStream';

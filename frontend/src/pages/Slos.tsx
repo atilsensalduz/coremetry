@@ -4,21 +4,24 @@ import { Spinner, Empty } from '@/components/Spinner';
 import { ServicePicker } from '@/components/ServicePicker';
 import { useAuth } from '@/components/AuthProvider';
 import { Modal, Field, SelectField, Button, Stack } from '@/components/ui';
+import { useSLOs, useCreateSLO, useDeleteSLO } from '@/lib/queries';
 import { api } from '@/lib/api';
-import type { SLORow, SLIType } from '@/lib/types';
+import type { SLIType } from '@/lib/types';
 
 export default function SLOsPage() {
   const { user } = useAuth();
-  const [items, setItems] = useState<SLORow[] | null | undefined>(undefined);
   const [services, setServices] = useState<string[]>([]);
   const [showNew, setShowNew] = useState(false);
   const isAdmin = user?.role === 'admin' || user?.role === 'editor';
 
-  const refresh = () => {
-    setItems(undefined);
-    api.listSLOs().then(d => setItems(d ?? [])).catch(() => setItems(null));
-  };
-  useEffect(refresh, []);
+  // useSLOs polls every 60s + auto-invalidates on
+  // create/delete via the hook's onSuccess.
+  const slosQ = useSLOs();
+  const items = slosQ.isLoading ? undefined : slosQ.isError ? null : slosQ.data ?? [];
+  const deleteSLO = useDeleteSLO();
+
+  // Service list for the picker — one-shot lookup, not
+  // worth a hook abstraction.
   useEffect(() => {
     api.services({ from: 0, to: 0 })
       .then(s => setServices((s ?? []).map(x => x.name))).catch(() => {});
@@ -26,8 +29,7 @@ export default function SLOsPage() {
 
   const onDelete = async (id: string) => {
     if (!confirm('Delete this SLO?')) return;
-    await api.deleteSLO(id);
-    refresh();
+    await deleteSLO.mutateAsync(id);
   };
 
   return (
@@ -107,7 +109,7 @@ export default function SLOsPage() {
         {showNew && isAdmin && (
           <NewSLOModal services={services}
             onClose={() => setShowNew(false)}
-            onCreated={() => { setShowNew(false); refresh(); }} />
+            onCreated={() => setShowNew(false)} />
         )}
       </div>
     </>
@@ -147,14 +149,19 @@ function NewSLOModal({ services, onClose, onCreated }: {
   const [windowDays, setWindowDays] = useState('30');
   const [thresholdMs, setThresholdMs] = useState('500');
   const [operation, setOperation] = useState('');
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // useCreateSLO handles busy state via isPending and
+  // auto-invalidates the SLOs list on success — no manual
+  // refresh() in the parent.
+  const createSLO = useCreateSLO();
+  const busy = createSLO.isPending;
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    setBusy(true); setError(null);
+    setError(null);
     try {
-      await api.createSLO({
+      await createSLO.mutateAsync({
         name, service, sliType,
         target: parseFloat(target) / 100,
         windowDays: parseInt(windowDays || '30'),
@@ -166,8 +173,6 @@ function NewSLOModal({ services, onClose, onCreated }: {
       const msg = err instanceof Error ? err.message : String(err);
       try { setError(JSON.parse(msg.replace(/^HTTP \d+:\s*/, ''))?.error ?? msg); }
       catch { setError(msg); }
-    } finally {
-      setBusy(false);
     }
   };
 

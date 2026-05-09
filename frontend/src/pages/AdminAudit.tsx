@@ -1,10 +1,9 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { useAuth } from '@/components/AuthProvider';
-import { api } from '@/lib/api';
+import { useAuditLog } from '@/lib/queries';
 import { tsLong } from '@/lib/utils';
-import type { AuditEntry } from '@/lib/types';
 
 // /admin/audit shows the append-only audit_log: who did what, when.
 // Admin-only — the API also enforces this server-side, but the SPA
@@ -12,21 +11,23 @@ import type { AuditEntry } from '@/lib/types';
 export default function AuditPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
-  const [data, setData] = useState<AuditEntry[] | null | undefined>(undefined);
   const [actor, setActor] = useState('');
   const [action, setAction] = useState('');
   const [target, setTarget] = useState('');
   const [since, setSince] = useState('24h');
 
-  useEffect(() => {
-    if (!isAdmin) return;
-    setData(undefined);
-    api.auditLog(since, {
-      actor: actor.trim() || undefined,
-      action: action.trim() || undefined,
-      target: target.trim() || undefined,
-    }).then(d => setData(d ?? [])).catch(() => setData(null));
-  }, [isAdmin, since, actor, action, target]);
+  // useAuditLog re-keys on every filter change so each
+  // (actor, action, target, since) tuple caches separately;
+  // tabbing back to a previously viewed filter is instant.
+  const auditQ = useAuditLog(since, {
+    actor: actor.trim() || undefined,
+    action: action.trim() || undefined,
+    target: target.trim() || undefined,
+  });
+  const data = !isAdmin ? null
+    : auditQ.isLoading ? undefined
+    : auditQ.isError ? null
+    : auditQ.data ?? [];
 
   const distinctActions = useMemo(() => {
     const s = new Set<string>();

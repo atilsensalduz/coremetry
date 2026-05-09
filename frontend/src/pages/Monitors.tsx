@@ -1,11 +1,14 @@
-import { useEffect, useState, FormEvent } from 'react';
+import { useState, FormEvent } from 'react';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { useAuth } from '@/components/AuthProvider';
 import { Modal, Field, SelectField, Button, Stack, Row as UiRow } from '@/components/ui';
-import { api } from '@/lib/api';
+import {
+  useMonitors, useMonitorTimeline,
+  useCreateMonitor, useUpdateMonitor, useDeleteMonitor,
+} from '@/lib/queries';
 import { tsLong } from '@/lib/utils';
-import type { Monitor, MonitorRow, MonitorResult, MonitorStats } from '@/lib/types';
+import type { Monitor, MonitorRow, MonitorStats } from '@/lib/types';
 
 // /monitors — synthetic uptime + heartbeat dashboard.
 //
@@ -18,21 +21,16 @@ import type { Monitor, MonitorRow, MonitorResult, MonitorStats } from '@/lib/typ
 export default function MonitorsPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin' || user?.role === 'editor';
-  const [items, setItems] = useState<MonitorRow[] | null | undefined>(undefined);
   const [showNew, setShowNew] = useState(false);
   const [editing, setEditing] = useState<MonitorRow | null>(null);
   const [openTimeline, setOpenTimeline] = useState<string | null>(null);
 
-  const refresh = () => {
-    setItems(undefined);
-    api.listMonitors().then(d => setItems(d ?? [])).catch(() => setItems(null));
-  };
-  useEffect(() => {
-    refresh();
-    // Re-poll every 10s so the dashboard auto-updates as probes run.
-    const t = setInterval(refresh, 10_000);
-    return () => clearInterval(t);
-  }, []);
+  // useMonitors polls every 30s (changed from the previous
+  // 10s — the probe runner ticks on the order of minutes,
+  // so 10s was over-polling). Mutations auto-invalidate.
+  const monitorsQ = useMonitors();
+  const items = monitorsQ.isLoading ? undefined : monitorsQ.isError ? null : monitorsQ.data ?? [];
+  const deleteMonitor = useDeleteMonitor();
 
   return (
     <>
@@ -62,7 +60,7 @@ export default function MonitorsPage() {
                 onEdit={() => setEditing(m)}
                 onDelete={async () => {
                   if (!confirm(`Delete monitor "${m.name}"?`)) return;
-                  await api.deleteMonitor(m.id); refresh();
+                  await deleteMonitor.mutateAsync(m.id);
                 }}
                 onTimeline={() => setOpenTimeline(openTimeline === m.id ? null : m.id)}
                 showTimeline={openTimeline === m.id} />
@@ -73,7 +71,7 @@ export default function MonitorsPage() {
           <MonitorModal
             initial={editing}
             onClose={() => { setShowNew(false); setEditing(null); }}
-            onSaved={() => { setShowNew(false); setEditing(null); refresh(); }} />
+            onSaved={() => { setShowNew(false); setEditing(null); }} />
         )}
       </div>
     </>
@@ -194,10 +192,7 @@ function UptimeChip({ stats }: { stats: MonitorStats }) {
 }
 
 function Timeline({ monitorId }: { monitorId: string }) {
-  const [rows, setRows] = useState<MonitorResult[]>([]);
-  useEffect(() => {
-    api.monitorTimeline(monitorId, 60).then(r => setRows(r ?? [])).catch(() => setRows([]));
-  }, [monitorId]);
+  const rows = useMonitorTimeline(monitorId, 60).data ?? [];
   if (rows.length === 0) return <span style={{ fontSize: 11, color: 'var(--text3)' }}>· no history yet</span>;
   // Status-bar style — 60 little blocks, leftmost = oldest, rightmost = newest.
   const ordered = [...rows].reverse();
@@ -224,8 +219,12 @@ function MonitorModal({ initial, onClose, onSaved }: {
     type: 'http', name: '', url: '', method: 'GET',
     expectedStatus: 200, timeoutSec: 5, intervalSec: 60, enabled: true,
   });
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Mutation hooks: isPending drives the busy spinner;
+  // onSuccess invalidates the monitors list automatically.
+  const createMonitor = useCreateMonitor();
+  const updateMonitor = useUpdateMonitor();
+  const busy = createMonitor.isPending || updateMonitor.isPending;
   // Advanced section is collapsed by default for new monitors so the
   // form stays approachable; auto-expand when editing an existing
   // monitor that has non-default advanced values.
@@ -238,15 +237,13 @@ function MonitorModal({ initial, onClose, onSaved }: {
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    setBusy(true); setError(null);
+    setError(null);
     try {
-      if (initial) await api.updateMonitor(initial.id, m);
-      else         await api.createMonitor(m);
+      if (initial) await updateMonitor.mutateAsync({ id: initial.id, patch: m });
+      else         await createMonitor.mutateAsync(m);
       onSaved();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Save failed');
-    } finally {
-      setBusy(false);
     }
   };
 
