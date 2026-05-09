@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
-import { api } from '@/lib/api';
+import { useHealth, useOpenProblemCount } from '@/lib/queries';
 import { ThemeToggle } from './ThemeToggle';
 import { TelescopeIcon } from './TelescopeIcon';
 import { useAuth } from './AuthProvider';
@@ -52,8 +52,17 @@ export function Sidebar() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const [health, setHealth] = useState<string>('Connecting…');
-  const [openProblems, setOpenProblems] = useState(0);
+  // Both queries auto-poll on their own intervals (5s / 30s) and
+  // share their cache with anywhere else that consumes them.
+  // /problems and /anomalies pages will use the same cache,
+  // meaning the sidebar badge and the page row count never drift.
+  const healthQ = useHealth();
+  const openProblems = useOpenProblemCount().data ?? 0;
+  const health = healthQ.isError
+    ? 'Backend offline'
+    : healthQ.data
+      ? `Q: spans ${healthQ.data.spans_queued} · logs ${healthQ.data.logs_queued}`
+      : 'Connecting…';
   const [menuOpen, setMenuOpen] = useState(false);
   const [showChangePw, setShowChangePw] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -115,22 +124,6 @@ export function Sidebar() {
     });
     setMenuOpen(false);
   };
-
-  useEffect(() => {
-    api.health()
-      .then(h => setHealth(`Q: spans ${h.spans_queued} · logs ${h.logs_queued}`))
-      .catch(() => setHealth('Backend offline'));
-  }, []);
-
-  // Poll open-problem count every 30s for the sidebar badge
-  useEffect(() => {
-    const refresh = () => api.problems({ status: 'open', limit: 200 })
-      .then(p => setOpenProblems((p ?? []).length))
-      .catch(() => {});
-    refresh();
-    const t = setInterval(refresh, 30_000);
-    return () => clearInterval(t);
-  }, []);
 
   // Close the user menu on outside click.
   useEffect(() => {

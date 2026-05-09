@@ -1,13 +1,63 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import App from './App';
 import './styles/globals.css';
 
+// Single shared QueryClient for the whole app. Defaults tuned
+// for an internal observability dashboard:
+//
+//   staleTime 10s — most data is "live but a few seconds old is
+//     fine"; an admin tabbing between /services and /anomalies
+//     within 10s gets the same response without a refetch.
+//
+//   gcTime 5min — keep cached responses around so back/forward
+//     navigation doesn't show a spinner. The 5-min window
+//     matches the longest server-side cache (cardinality, system
+//     stats), so a stale-then-fresh swap is the worst case.
+//
+//   refetchOnWindowFocus — true. Operators tab away to fix the
+//     issue, then come back; auto-refresh on tab focus saves a
+//     manual reload and is the SRE-correct behaviour.
+//
+//   retry — 1, with delay 800ms. Network blips on a corp VPN
+//     are common; one quick retry hides them. More retries just
+//     hide a real outage.
+//
+//   refetchOnReconnect — true so a network drop+resume restores
+//     the screen state without intervention.
+//
+// Per-query overrides (refetchInterval for live polling, longer
+// staleTime for slow-moving data, etc.) live next to each
+// useXyz() hook in lib/queries/*.
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 10_000,
+      gcTime: 5 * 60_000,
+      refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
+      retry: 1,
+      retryDelay: 800,
+    },
+  },
+});
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
+      {/* Devtools mount point. Hidden in production builds via
+          import.meta.env.PROD; in dev a small floating button
+          opens the cache inspector. No bundle weight in prod
+          since the package is dev-only. */}
+      {!import.meta.env.PROD && (
+        <ReactQueryDevtools initialIsOpen={false} buttonPosition="bottom-right" />
+      )}
+    </QueryClientProvider>
   </StrictMode>
 );

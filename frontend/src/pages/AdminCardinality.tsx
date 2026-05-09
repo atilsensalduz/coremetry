@@ -1,11 +1,10 @@
-import { useEffect, useState } from 'react';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { useAuth } from '@/components/AuthProvider';
 import { Card, Badge, Stack, Row } from '@/components/ui';
-import { api } from '@/lib/api';
+import { useCardinality, keys } from '@/lib/queries';
+import { useQueryClient } from '@tanstack/react-query';
 import { fmtBytes, fmtNum } from '@/lib/utils';
-import type { CardinalityReport } from '@/lib/types';
 
 // /admin/cardinality — meta-observability dashboard answering
 // "which service / metric / label is eating my ClickHouse?".
@@ -22,16 +21,16 @@ import type { CardinalityReport } from '@/lib/types';
 // an order of magnitude in storage.
 export default function AdminCardinalityPage() {
   const { user } = useAuth();
-  const [data, setData] = useState<CardinalityReport | null | undefined>(undefined);
-  const [reloadKey, setReloadKey] = useState(0);
-
-  useEffect(() => {
-    if (!user || user.role !== 'admin') return;
-    setData(undefined);
-    api.cardinality()
-      .then(d => setData(d ?? null))
-      .catch(() => setData(null));
-  }, [user, reloadKey]);
+  const qc = useQueryClient();
+  // useQuery enabled-gated on admin role so a viewer never
+  // triggers the report (the API also enforces it, but skipping
+  // the request keeps the network tab clean for non-admins).
+  const cardinalityQ = useCardinality();
+  const data = cardinalityQ.isLoading
+    ? undefined
+    : cardinalityQ.isError
+      ? null
+      : cardinalityQ.data;
 
   if (!user) return null;
   if (user.role !== 'admin') {
@@ -57,7 +56,8 @@ export default function AdminCardinalityPage() {
             What is eating ClickHouse — top emitters across services, metrics, labels, and stored columns. 5-min server cache.
           </span>
           <span style={{ flex: 1 }} />
-          <button className="sec" onClick={() => setReloadKey(k => k + 1)}>
+          <button className="sec"
+                  onClick={() => qc.invalidateQueries({ queryKey: keys.admin.cardinality })}>
             Refresh
           </button>
         </Row>

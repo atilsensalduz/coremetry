@@ -1,9 +1,9 @@
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Link } from 'react-router-dom';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
-import { api } from '@/lib/api';
+import { useProblems } from '@/lib/queries';
 import { tsLong } from '@/lib/utils';
 import { CopilotExplain } from '@/components/CopilotExplain';
 import { IconBell, IconSparkles } from '@/components/icons';
@@ -34,22 +34,23 @@ function ProblemsPageInner() {
   const serviceFilter = searchParams.get('service') ?? '';
   const [range, setRange] = useState<TimeRange>({ preset: '15m' });
   const [statusFilter, setStatusFilter] = useState<'open' | 'all' | 'resolved'>('open');
-  const [data, setData] = useState<Problem[] | null | undefined>(undefined);
   const [sortBy, setSortBy] = useState<SortKey>('started');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
-  useEffect(() => {
-    setData(undefined);
-    const fetchOnce = () => api.problems({
-      status: statusFilter === 'all' ? undefined : statusFilter,
-      service: serviceFilter || undefined,
-      limit: 200,
-    }).then(d => setData(d ?? []))
-      .catch(() => setData(null));
-    fetchOnce();
-    const t = setInterval(fetchOnce, 30_000);
-    return () => clearInterval(t);
-  }, [statusFilter, serviceFilter]);
+  // Single useQuery replaces the previous useState/useEffect/
+  // setInterval triple. The hook handles cache, dedup, polling
+  // (30s), focus refetch, and undefined→[] mapping. isError
+  // surfaces the previous "set null on failure" state.
+  const problemsQ = useProblems({
+    status: statusFilter === 'all' ? undefined : statusFilter,
+    service: serviceFilter || undefined,
+    limit: 200,
+  });
+  const data: Problem[] | null | undefined = problemsQ.isLoading
+    ? undefined
+    : problemsQ.isError
+      ? null
+      : (problemsQ.data ?? []);
 
   const open = data?.filter(p => p.status === 'open').length ?? 0;
   const resolved = data?.filter(p => p.status === 'resolved').length ?? 0;

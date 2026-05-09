@@ -6,6 +6,13 @@ import { Spinner, Empty } from '@/components/Spinner';
 import { ServicePicker } from '@/components/ServicePicker';
 import { useAuth } from '@/components/AuthProvider';
 import { Card, Badge, Row } from '@/components/ui';
+import {
+  useLogPatternAnomalies, useTraceOpAnomalies, useMetricAnomalies,
+  useAnomalyEvents, useAnomalySilences,
+  useCreateAnomalySilence, useDeleteAnomalySilence,
+  keys,
+} from '@/lib/queries';
+import { useQueryClient } from '@tanstack/react-query';
 import { api, type UserRow } from '@/lib/api';
 import { fmtNum, tsLong } from '@/lib/utils';
 import type {
@@ -49,54 +56,43 @@ export default function AnomaliesPage() {
   // Expanded fingerprint(s) — multiple groups can be open at once for compare-and-contrast.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  // Anomaly signals — independently fetched + 30-60s cached on
-  // the server. All refresh alongside the exception inbox.
-  const [logPatterns, setLogPatterns] = useState<LogPatternAnomaly[] | undefined>(undefined);
-  const [traceOps,    setTraceOps]    = useState<TraceOpAnomaly[]    | undefined>(undefined);
-  const [metrics,     setMetrics]     = useState<Problem[]           | undefined>(undefined);
-  // Anomaly history (active + cleared from last 24h) — persisted
-  // by the background recorder so the operator can answer "did
-  // this fire today, even if it has subsided".
-  const [history, setHistory]         = useState<AnomalyEvent[]      | undefined>(undefined);
-  const [silences, setSilences]       = useState<AnomalySilence[]    | undefined>(undefined);
+  // Five independent feeds — each its own query, each its own
+  // background poll, each its own retry. Five queries replacing
+  // five useState/useEffect/setInterval triples in the previous
+  // hand-rolled refresh() coordinator.
+  const logPatterns = useLogPatternAnomalies().data;
+  const traceOps    = useTraceOpAnomalies().data;
+  const metrics     = useMetricAnomalies().data;
+  const history     = useAnomalyEvents().data;
+  const silences    = useAnomalySilences().data;
+  const createSilence = useCreateAnomalySilence();
+  const deleteSilence = useDeleteAnomalySilence();
 
-  const refreshSilences = () => {
-    api.anomalySilences().then(s => setSilences(s ?? [])).catch(() => setSilences([]));
-  };
   const onMute = async (kind: string, pattern: string, service: string, durationSec: number) => {
-    // The fingerprint is computed server-side from (kind, pattern,
-    // service); we send the raw triplet plus a placeholder
-    // fingerprint that the server overrides if mismatched. Easier
-    // than duplicating the sha1 logic on the client.
-    await api.createAnomalySilence({
+    // Fingerprint is computed server-side from (kind, pattern,
+    // service); we send the raw triplet plus a placeholder that
+    // the server overrides if mismatched. The mutation hook's
+    // onSuccess invalidates anomalies.* so every feed refreshes
+    // — no manual refresh() coordinator.
+    await createSilence.mutateAsync({
       fingerprint: `${kind}|${pattern}|${service}`,
       kind, pattern, service, durationSec,
     });
-    // Refresh: the live sections drop the muted entry on the
-    // next fetch; silences list refreshes immediately.
-    refreshSilences();
-    refresh();
   };
   const onUnmute = async (id: string) => {
-    await api.deleteAnomalySilence(id);
-    refreshSilences();
-    refresh();
+    await deleteSilence.mutateAsync(id);
   };
 
-  const refresh = () => {
+  // Exception groups inbox — separate query because it depends
+  // on tab + service filter; couldn't be folded into the shared
+  // anomaly hooks above.
+  const qc = useQueryClient();
+  const refreshExceptionGroups = () => {
     setData(undefined);
-    setLogPatterns(undefined);
-    setTraceOps(undefined);
-    setMetrics(undefined);
-    api.logPatternAnomalies().then(p => setLogPatterns(p ?? [])).catch(() => setLogPatterns([]));
-    api.traceOpAnomalies().then(t => setTraceOps(t ?? [])).catch(() => setTraceOps([]));
-    api.metricAnomalies().then(m => setMetrics(m ?? [])).catch(() => setMetrics([]));
-    api.anomalyEvents().then(h => setHistory(h ?? [])).catch(() => setHistory([]));
-    refreshSilences();
     api.exceptionGroups({ state: tab, service: service || undefined, limit: 200 })
       .then(d => setData(d ?? [])).catch(() => setData(null));
   };
-  useEffect(refresh, [tab, service]);
+  useEffect(refreshExceptionGroups, [tab, service]);
 
   useEffect(() => {
     api.services({ from: 0, to: 0 })
@@ -146,12 +142,19 @@ export default function AnomaliesPage() {
   }, [users]);
 
   const setState = async (g: ExceptionGroup, next: ExceptionGroupState) => {
-    try { await api.setExceptionGroupState(g.fingerprint, next); refresh(); }
-    catch (err) { alert(humanize(err)); }
+    try {
+      await api.setExceptionGroupState(g.fingerprint, next);
+      // Refresh the exception inbox + every anomaly feed so a
+      // state change percolates everywhere it might appear.
+      refreshExceptionGroups();
+      qc.invalidateQueries({ queryKey: keys.anomalies.all });
+    } catch (err) { alert(humanize(err)); }
   };
   const setAssignee = async (g: ExceptionGroup, userId: string) => {
-    try { await api.assignExceptionGroup(g.fingerprint, userId); refresh(); }
-    catch (err) { alert(humanize(err)); }
+    try {
+      await api.assignExceptionGroup(g.fingerprint, userId);
+      refreshExceptionGroups();
+    } catch (err) { alert(humanize(err)); }
   };
   const toggleExpand = (fp: string) => {
     setExpanded(prev => {
