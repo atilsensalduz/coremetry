@@ -19,7 +19,7 @@ import type {
 //   3. Per-table ClickHouse storage with compression ratio.
 export default function AdminStatsPage() {
   // Topbar wants a TimeRange even though this page doesn't use it.
-  const [range, setRange] = useState<TimeRange>({ preset: '24h' });
+  const [range, setRange] = useState<TimeRange>({ preset: '15m' });
   const [data, setData] = useState<SystemStats | null | undefined>(undefined);
   const [refreshTick, setRefreshTick] = useState(0);
 

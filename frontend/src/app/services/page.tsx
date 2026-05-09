@@ -26,7 +26,7 @@ const NATURAL_DIR: Record<SortKey, SortDir> = {
 
 export default function ServicesPage() {
   const router = useRouter();
-  const [range, setRange] = useState<TimeRange>({ preset: '10m' });
+  const [range, setRange] = useState<TimeRange>({ preset: '15m' });
   const [data, setData] = useState<Service[] | null | undefined>(undefined);
   const [sparklines, setSparklines] = useState<Record<string, SparklineBucket[]>>({});
   const [sortBy, setSortBy] = useState<SortKey>('errorRate');

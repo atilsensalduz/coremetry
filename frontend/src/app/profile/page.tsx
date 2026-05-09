@@ -14,7 +14,7 @@ function ProfileDetailInner() {
   const searchParams = useSearchParams();
   const id = searchParams.get('id') ?? '';
 
-  const [range, setRange] = useState<TimeRange>({ preset: '10m' });
+  const [range, setRange] = useState<TimeRange>({ preset: '15m' });
   const [data, setData] = useState<ProfileDetail | null | undefined>(undefined);
 
   useEffect(() => {

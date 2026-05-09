@@ -18,12 +18,12 @@ const NAV = [
   { href: '/logs',       label: 'Logs',         icon: '≡' },
   { href: '/explore',    label: 'Explore',      icon: '◎' },
   { href: '/dashboards', label: 'Dashboards',   icon: '◫' },
-  { href: '/profiling',  label: 'Profiling',    icon: '🔥' },
-  { href: '/alerts',     label: 'Alerts',       icon: '🔔' },
+  { href: '/profiling',  label: 'Profiling',    icon: '⌬' },
+  { href: '/alerts',     label: 'Alerts',       icon: '◊' },
   { href: '/slos',       label: 'SLOs',         icon: '◉' },
   { href: '/monitors',   label: 'Monitors',     icon: '◉' },
   { href: '/admin/stats', label: 'System',       icon: '◐' },
-  { href: '/admin/audit', label: 'Audit log',    icon: '📜' },
+  { href: '/admin/audit', label: 'Audit log',    icon: '◇' },
   { href: '/admin/status-page', label: 'Public Status Page', icon: '◫' },
 ];
 

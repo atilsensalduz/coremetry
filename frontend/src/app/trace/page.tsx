@@ -17,7 +17,7 @@ function TraceDetailInner() {
   const searchParams = useSearchParams();
   const id = searchParams.get('id') ?? '';
 
-  const [range, setRange] = useState<TimeRange>({ preset: '10m' });
+  const [range, setRange] = useState<TimeRange>({ preset: '15m' });
   const [spans, setSpans] = useState<SpanRow[] | null | undefined>(undefined);
   // selectedId + tab are URL-bound so a Share-button copy round-
   // trips: "open trace X with the rpc-call span focused on the Logs

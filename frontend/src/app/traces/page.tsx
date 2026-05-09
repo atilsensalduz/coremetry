@@ -57,7 +57,7 @@ function TracesPageInner() {
     // point for /traces. Users with longer windows tend to switch
     // explicitly anyway; defaulting to 1h was paying for a wide CH
     // scan most visitors didn't actually need.
-    () => decodeRange(searchParams.get('range'), { preset: '5m' }));
+    () => decodeRange(searchParams.get('range'), { preset: '15m' }));
   // Aggregated is the default landing tab — the most useful view for
   // an SRE arriving at /traces is "what operations are slow / errored
   // right now", not the raw flat list. The list view stays a click
@@ -93,7 +93,10 @@ function TracesPageInner() {
     minMs:    searchParams.get('minMs')   ?? '',
     maxMs:    searchParams.get('maxMs')   ?? '',
     hasError: searchParams.get('hasError') === 'true',
-    rootOnly: searchParams.get('rootOnly') === 'true',
+    // Default ON: a fresh /traces visit hides Tempo-style "root
+    // not available" partial fragments. Operator can untick to
+    // see them. URL absent = on; explicit ?rootOnly=false = off.
+    rootOnly: searchParams.get('rootOnly') !== 'false',
     // requireServices: trace must include spans from every listed
     // service. Driven by the backtrace 'Traces' drill-in via a
     // ?services=A,B URL param.
@@ -134,7 +137,9 @@ function TracesPageInner() {
       ['minMs',    filter.minMs],
       ['maxMs',    filter.maxMs],
       ['hasError', filter.hasError ? 'true' : ''],
-      ['rootOnly', filter.rootOnly ? 'true' : ''],
+      // rootOnly default flipped to ON in v0.2.72 — only emit
+      // ?rootOnly=false when the operator explicitly unticks.
+      ['rootOnly', filter.rootOnly ? '' : 'false'],
       ['services', filter.requireServices.join(',')],
       ['filters',  encodeFilters(advFilters)],
       ['cols',     extraCols.join(',')],
@@ -223,7 +228,7 @@ function TracesPageInner() {
   const reset = () => {
     const empty = {
       service: '', search: '', traceId: '', minMs: '', maxMs: '',
-      hasError: false, rootOnly: false, requireServices: [] as string[],
+      hasError: false, rootOnly: true, requireServices: [] as string[],
     };
     setDraft(empty); setFilter(empty); setPage(0);
   };

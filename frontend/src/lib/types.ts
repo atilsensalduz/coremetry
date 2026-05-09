@@ -642,6 +642,19 @@ export type SortOrder = 'asc' | 'desc';
 // observed across the sampled traces; siblings repeating the exact
 // same triple collapse into a single row carrying count + avg/max
 // duration + error count.
+// One curated runtime / process timeseries for the infra
+// correlation panel on /service?name=…. Slot is the canonical
+// SRE bucket ("cpu" | "memory" | "rps" | "runtime"); source is
+// the raw OTel metric the server actually selected (e.g.
+// jvm.cpu.recent_utilization for Java, process.runtime.cpu.
+// utilization for Go).
+export interface InfraMetricSeries {
+  metric: string; // canonical slot
+  source: string; // raw OTel metric name
+  unit: string;
+  points: { t: number; v: number }[];
+}
+
 // AnomalySilence mutes a single anomaly fingerprint until UntilAt.
 // Driven by the Snooze buttons on /anomalies; queryable via the
 // page header "X muted" indicator.

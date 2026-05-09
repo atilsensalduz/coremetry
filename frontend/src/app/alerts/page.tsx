@@ -36,7 +36,7 @@ const emptyDraft: Partial<AlertRule> = {
 };
 
 export default function AlertsPage() {
-  const [range, setRange] = useState<TimeRange>({ preset: '10m' });
+  const [range, setRange] = useState<TimeRange>({ preset: '15m' });
   const [rules, setRules] = useState<AlertRule[] | undefined>(undefined);
   const [services, setServices] = useState<string[]>([]);
   const [showForm, setShowForm] = useState(false);

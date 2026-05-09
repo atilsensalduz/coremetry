@@ -116,6 +116,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/services/{name}/structure", s.getServiceStructure)
 	mux.HandleFunc("GET /api/services/{name}/neighbors", s.getServiceNeighbors)
 	mux.HandleFunc("GET /api/services/{name}/backtrace", s.getServiceBacktrace)
+	mux.HandleFunc("GET /api/services/{name}/infra",     s.getServiceInfraMetrics)
 	mux.HandleFunc("GET /api/services/graph", s.getServiceGraph)
 	mux.HandleFunc("GET /api/services/sparklines", s.getServiceSparklines)
 	mux.HandleFunc("GET /api/service-names",       s.getServiceNames)
@@ -400,6 +401,29 @@ func (s *Server) getServiceStructure(w http.ResponseWriter, r *http.Request) {
 			"sampledFrom": sampledFrom,
 			"totalSpans":  totalSpans,
 		}, nil
+	})
+}
+
+// getServiceInfraMetrics returns curated runtime/process timeseries
+// (cpu / memory / rps / runtime-specific) for the inspected
+// service's pods. Powers the infra correlation panel on the
+// /service?name=… page so an SRE can see "p99 spiked at 14:32 →
+// pod CPU went to 95% at the same moment" in one glance.
+//
+// Performance: single CH query filtered by (service_name, time)
+// primary-key prefix + LowCardinality `metric IN (…)` over the
+// curated source list. Bucket size auto-scales to ~30 buckets
+// across the window. 30s cache absorbs the page reloads.
+func (s *Server) getServiceInfraMetrics(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		http.Error(w, "service name required", http.StatusBadRequest)
+		return
+	}
+	since := parseDuration(r.URL.Query().Get("since"), 15*time.Minute)
+	key := fmt.Sprintf("infra-metrics:svc=%s:since=%s", name, since)
+	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
+		return s.store.GetInfraMetrics(r.Context(), name, since, 0)
 	})
 }
 

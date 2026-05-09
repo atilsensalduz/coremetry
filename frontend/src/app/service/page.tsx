@@ -6,6 +6,7 @@ import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { ServiceStructure } from '@/components/ServiceStructure';
 import { ServiceNeighbors } from '@/components/ServiceNeighbors';
+import { ServiceInfra } from '@/components/ServiceInfra';
 import { api } from '@/lib/api';
 import { fmtNum, timeRangeToNs } from '@/lib/utils';
 import { encodeFilters, encodeRange, buildQuery } from '@/lib/urlState';
@@ -21,7 +22,7 @@ function ServiceDetailInner() {
   const searchParams = useSearchParams();
   const svc = searchParams.get('name') ?? '';
 
-  const [range, setRange] = useState<TimeRange>({ preset: '10m' });
+  const [range, setRange] = useState<TimeRange>({ preset: '15m' });
   const [info, setInfo] = useState<Service | null>(null);
   const [problems, setProblems] = useState<Problem[]>([]);
   const [operations, setOperations] = useState<OperationSummary[]>([]);
@@ -105,6 +106,7 @@ function ServiceDetailInner() {
         {loading && <Spinner />}
         {!loading && (
           <>
+            <ServiceInfra     service={svc} since={SINCE_MAP[range.preset] ?? '15m'} />
             <ServiceNeighbors service={svc} since={SINCE_MAP[range.preset] ?? '1h'} />
             <ServiceStructure service={svc} since={SINCE_MAP[range.preset] ?? '1h'} />
             <OperationsTable service={svc} rows={operations} range={range} />

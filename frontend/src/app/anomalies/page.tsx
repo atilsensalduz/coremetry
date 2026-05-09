@@ -522,7 +522,7 @@ function TraceOpsSection({ items, onMute }: {
   if (items === undefined) return null;
   return (
     <AnomalyShell
-      title="⚠ Trace operation anomalies"
+      title="Trace operation anomalies"
       hint={`${items.length} operation${items.length === 1 ? '' : 's'} with new or doubled error rate`}
       count={items.length}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 10 }}>
@@ -582,7 +582,7 @@ function SnoozeButton({ onMute }: { onMute: (durationSec: number) => void }) {
           background: 'var(--bg3)', border: '1px solid var(--border)',
           color: 'var(--text2)', cursor: 'pointer',
         }}>
-        🔕 Snooze
+Mute
       </button>
       {open && (
         <div style={{
@@ -617,7 +617,7 @@ function MetricSection({ items }: { items: Problem[] | undefined }) {
   if (items === undefined) return null;
   return (
     <AnomalyShell
-      title="⚠ Metric anomalies"
+      title="Metric anomalies"
       hint={`${items.length} service-level z-score deviation${items.length === 1 ? '' : 's'} open`}
       count={items.length}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 10 }}>
@@ -662,7 +662,7 @@ function SilencesSection({ items, onUnmute }: {
       display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
     }}>
       <span style={{ fontSize: 11, color: 'var(--text2)', fontWeight: 600 }}>
-        🔕 Muted ({items.length})
+Muted ({items.length})
       </span>
       {items.map(s => {
         const remaining = Math.max(0, s.untilAt / 1e6 - Date.now());
@@ -771,7 +771,7 @@ function LogPatternsSection({ items, onMute }: {
     }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 10 }}>
         <span style={{ fontSize: 13, fontWeight: 700 }}>
-          ⚠ Log-pattern anomalies
+          Log-pattern anomalies
         </span>
         <span style={{ fontSize: 11, color: 'var(--text3)' }}>
           {items.length} pattern{items.length === 1 ? '' : 's'} changed in the last 5 min

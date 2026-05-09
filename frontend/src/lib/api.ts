@@ -101,6 +101,13 @@ export const api = {
       totalSpans: number;
     }>(`/api/services/${encodeURIComponent(svc)}/neighbors?since=${since}&samples=${samples}${refresh ? '&refresh=1' : ''}`),
 
+  // Curated runtime / process timeseries (cpu / memory / rps /
+  // runtime) for the inspected service's pods. Powers the infra
+  // correlation panel on /service?name=…. 30s server-side cache.
+  serviceInfraMetrics: (svc: string, since = '15m') =>
+    get<import('./types').InfraMetricSeries[]>(
+      `/api/services/${encodeURIComponent(svc)}/infra?since=${since}`),
+
   // Inbound-callers backtrace — Dynatrace-style consumer view.
   // Returns a row per (caller service × pod/instance × client IP ×
   // user-agent) with RED stats so the operator can pinpoint who

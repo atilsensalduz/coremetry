@@ -70,7 +70,7 @@ export default function AuditPage() {
 
         {data === undefined && <Spinner />}
         {data !== undefined && data?.length === 0 && (
-          <Empty icon="📜" title="No audit entries in this range" />
+          <Empty icon="◇" title="No audit entries in this range" />
         )}
         {data && data.length > 0 && (
           <div className="table-wrap">
