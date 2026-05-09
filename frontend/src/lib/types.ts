@@ -953,6 +953,25 @@ export interface AggSpanNode {
   children?: AggSpanNode[];
 }
 
+// DBQueryStat — one row in the database query analyzer panel.
+// One per normalised DB statement seen on the service in the
+// time window (literals replaced with "?" so a hot query
+// doesn't appear as thousands of unique rows). SampleStatement
+// keeps a real example so the operator sees what literals
+// were involved without losing the aggregation.
+export interface DBQueryStat {
+  statement: string;
+  sampleStatement: string;
+  dbSystem: string;
+  count: number;
+  avgMs: number;
+  p95Ms: number;
+  p99Ms: number;
+  maxMs: number;
+  errorCount: number;
+  totalMs: number;
+}
+
 // Exemplar — single representative span looked up to bridge a
 // metric chart point to a sample trace (Datadog / Honeycomb /
 // Grafana exemplar pattern). Returned by /api/spans/exemplar.

@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { ServiceStructure } from '@/components/ServiceStructure';
+import { DBQueriesPanel } from '@/components/DBQueriesPanel';
 import { ServiceNeighbors } from '@/components/ServiceNeighbors';
 import { ServiceInfra } from '@/components/ServiceInfra';
 import { api } from '@/lib/api';
@@ -146,6 +147,9 @@ function ServiceDetailInner() {
             <ServiceInfra     service={svc} since={SINCE_MAP[range.preset] ?? '15m'} />
             <ServiceNeighbors service={svc} since={SINCE_MAP[range.preset] ?? '1h'} />
             <ServiceStructure service={svc} since={SINCE_MAP[range.preset] ?? '1h'} />
+            <DBQueriesPanel   service={svc}
+                              from={timeRangeToNs(range).from}
+                              to={timeRangeToNs(range).to} />
             <OperationsTable service={svc} rows={operations} range={range} />
           </>
         )}

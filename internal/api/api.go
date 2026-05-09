@@ -134,6 +134,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/services/{name}/backtrace", s.getServiceBacktrace)
 	mux.HandleFunc("GET /api/services/{name}/infra",     s.getServiceInfraMetrics)
 	mux.HandleFunc("GET /api/services/{name}/runtime",   s.getServiceRuntime)
+	mux.HandleFunc("GET /api/services/{name}/db-queries", s.getServiceDBQueries)
 	mux.HandleFunc("GET /api/services-runtimes",         s.getAllServiceRuntimes)
 	mux.HandleFunc("GET /api/services/graph", s.getServiceGraph)
 	mux.HandleFunc("GET /api/services/sparklines", s.getServiceSparklines)
@@ -501,6 +502,42 @@ func (s *Server) getServiceRuntime(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getAllServiceRuntimes(w http.ResponseWriter, r *http.Request) {
 	s.serveCached(w, r, "all-service-runtimes", 5*time.Minute, func() (any, error) {
 		return s.store.GetAllServiceRuntimes(r.Context())
+	})
+}
+
+// getServiceDBQueries returns the top normalised DB statements
+// for a service in a time window — Datadog-DBM style "where
+// is my query time going" view. Backed by a single CH GROUP
+// BY over normalised db_statement; sub-2s at billion-span
+// scale because the dataset is already filtered to spans that
+// actually touched a database.
+//
+// Cached 60s. The view is meant for ad-hoc investigation,
+// not realtime — a one-minute cache trades perfect freshness
+// for not re-running the regex GROUP BY on every panel
+// expand.
+func (s *Server) getServiceDBQueries(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		http.Error(w, "service name required", http.StatusBadRequest)
+		return
+	}
+	q := r.URL.Query()
+	from := parseTime(q.Get("from"))
+	to := parseTime(q.Get("to"))
+	if from.IsZero() || to.IsZero() {
+		// Sensible default: last 15 minutes. The /service
+		// detail page sets explicit `from`/`to` from its
+		// own range picker; the default just keeps the
+		// endpoint useful for direct API use.
+		to = time.Now()
+		from = to.Add(-15 * time.Minute)
+	}
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	key := fmt.Sprintf("service-db-queries:svc=%s:from=%d:to=%d:limit=%d",
+		name, from.UnixNano(), to.UnixNano(), limit)
+	s.serveCached(w, r, key, time.Minute, func() (any, error) {
+		return s.store.GetTopDBQueries(r.Context(), name, from, to, limit)
 	})
 }
 

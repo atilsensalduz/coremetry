@@ -382,6 +382,13 @@ export const api = {
   spanMetric: (params: SpanMetricParams) =>
     get<SpanMetricSeries[] | null>(`/api/spans/metric?${qs(params)}`),
 
+  // /api/services/{name}/db-queries — top normalised DB
+  // statements for a service in a time window. Powers the
+  // DB query analyzer panel on /service.
+  serviceDBQueries: (svc: string, params: { from?: number; to?: number; limit?: number }) =>
+    get<import('./types').DBQueryStat[] | null>(
+      `/api/services/${encodeURIComponent(svc)}/db-queries?${qs(params)}`),
+
   // Exemplar lookup — picks a representative trace for a metric
   // chart point. 404 means "no span matched the bucket" (the
   // user clicked outside the actual data window) — swallow it
