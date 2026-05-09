@@ -297,6 +297,60 @@ func (s *Store) migrate(ctx context.Context) error {
 		// pre-date the Grafana-style variable system.
 		`ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS variables String DEFAULT '[]' CODEC(ZSTD(3))`,
 
+		// anomaly_silences: per-fingerprint mute. Active while
+		// until_at > now(). Silenced anomalies still get recorded
+		// in anomaly_events (so the history table shows them) but
+		// are suppressed in the live sections + skip notifications.
+		`CREATE TABLE IF NOT EXISTS anomaly_silences (
+			id           String,
+			fingerprint  String,                       -- matches anomaly_events.id
+			kind         LowCardinality(String),
+			pattern      String,
+			service      LowCardinality(String),
+			created_by   String,                        -- user email
+			created_at   DateTime64(9),
+			until_at     DateTime64(9),
+			reason       String        DEFAULT '',
+			version      UInt64        DEFAULT toUnixTimestamp64Nano(now64(9))
+		) ENGINE = ReplacingMergeTree(version)
+		ORDER BY id`,
+
+		// audit_log: who did what, when. Append-only event stream.
+		// Used by admin compliance flow + the /admin/audit page.
+		// Partitioned monthly so the TTL (1 year) drops whole
+		// partitions instead of mutating rows.
+		`CREATE TABLE IF NOT EXISTS audit_log (
+			id           String,
+			time         DateTime64(9),
+			actor_id     String,                        -- user.id
+			actor_email  String,
+			actor_role   LowCardinality(String),
+			action       LowCardinality(String),       -- e.g. "alert_rule.update"
+			target_kind  LowCardinality(String),
+			target_id    String        DEFAULT '',
+			ip           String        DEFAULT '',
+			details      String        DEFAULT ''     -- JSON: before/after diff or freeform
+		) ENGINE = MergeTree()
+		PARTITION BY toYYYYMM(time)
+		ORDER BY (time, id)
+		TTL toDate(time) + INTERVAL 365 DAY`,
+
+		// saved_views: per-user named query / filter combos for
+		// /traces, /logs, /anomalies, /metrics, etc. Stored as
+		// the raw URL query string so applying a view = restoring
+		// the URL, no schema coupling between server and SPA.
+		`CREATE TABLE IF NOT EXISTS saved_views (
+			id           String,
+			owner_id     String,                        -- user.id; '' = team-shared
+			name         String,
+			page         LowCardinality(String),       -- "traces" | "logs" | "anomalies" | …
+			query_string String,                        -- raw URL search (?from=…&to=…&filter=…)
+			pinned       UInt8         DEFAULT 0,       -- pin to sidebar / topbar chip strip
+			created_at   DateTime64(9) DEFAULT now64(9),
+			version      UInt64        DEFAULT toUnixTimestamp64Nano(now64(9))
+		) ENGINE = ReplacingMergeTree(version)
+		ORDER BY id`,
+
 		// anomaly_events: persistent record of detected log-pattern
 		// + trace-op anomalies. ReplacingMergeTree(version) keeps
 		// only the latest row per id; the recorder upserts on every

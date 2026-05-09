@@ -2,6 +2,7 @@
 import { Fragment, useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { Topbar } from '@/components/Topbar';
+import { SavedViewsBar } from '@/components/SavedViewsBar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { ServicePicker } from '@/components/ServicePicker';
 import { useAuth } from '@/components/AuthProvider';
@@ -10,6 +11,7 @@ import { fmtNum, tsLong } from '@/lib/utils';
 import type {
   ExceptionGroup, ExceptionGroupState, ExceptionSample,
   LogPatternAnomaly, TraceOpAnomaly, Problem, AnomalyEvent,
+  AnomalySilence,
 } from '@/lib/types';
 
 // State buckets shown as tabs along the top of the page.
@@ -56,6 +58,30 @@ export default function AnomaliesPage() {
   // by the background recorder so the operator can answer "did
   // this fire today, even if it has subsided".
   const [history, setHistory]         = useState<AnomalyEvent[]      | undefined>(undefined);
+  const [silences, setSilences]       = useState<AnomalySilence[]    | undefined>(undefined);
+
+  const refreshSilences = () => {
+    api.anomalySilences().then(s => setSilences(s ?? [])).catch(() => setSilences([]));
+  };
+  const onMute = async (kind: string, pattern: string, service: string, durationSec: number) => {
+    // The fingerprint is computed server-side from (kind, pattern,
+    // service); we send the raw triplet plus a placeholder
+    // fingerprint that the server overrides if mismatched. Easier
+    // than duplicating the sha1 logic on the client.
+    await api.createAnomalySilence({
+      fingerprint: `${kind}|${pattern}|${service}`,
+      kind, pattern, service, durationSec,
+    });
+    // Refresh: the live sections drop the muted entry on the
+    // next fetch; silences list refreshes immediately.
+    refreshSilences();
+    refresh();
+  };
+  const onUnmute = async (id: string) => {
+    await api.deleteAnomalySilence(id);
+    refreshSilences();
+    refresh();
+  };
 
   const refresh = () => {
     setData(undefined);
@@ -66,6 +92,7 @@ export default function AnomaliesPage() {
     api.traceOpAnomalies().then(t => setTraceOps(t ?? [])).catch(() => setTraceOps([]));
     api.metricAnomalies().then(m => setMetrics(m ?? [])).catch(() => setMetrics([]));
     api.anomalyEvents().then(h => setHistory(h ?? [])).catch(() => setHistory([]));
+    refreshSilences();
     api.exceptionGroups({ state: tab, service: service || undefined, limit: 200 })
       .then(d => setData(d ?? [])).catch(() => setData(null));
   };
@@ -139,13 +166,15 @@ export default function AnomaliesPage() {
     <>
       <Topbar title="Anomalies" />
       <div id="content">
+        <SavedViewsBar page="anomalies" />
         {/* Three top-of-page anomaly streams stacked in
             descending freshness order: log patterns (raw text,
             most reactive), trace ops (per-endpoint failure
             spike), then metric (service-wide z-score). The
             traditional exception inbox sits below. */}
-        <LogPatternsSection items={logPatterns} />
-        <TraceOpsSection    items={traceOps} />
+        <SilencesSection items={silences} onUnmute={onUnmute} />
+        <LogPatternsSection items={logPatterns} onMute={onMute} />
+        <TraceOpsSection    items={traceOps}    onMute={onMute} />
         <MetricSection      items={metrics} />
 
         {/* Persistent history — every detection the recorder
@@ -486,7 +515,10 @@ function AnomalyShell({ title, hint, count, children }: {
 // TraceOpsSection lists per-(service, operation) error spikes —
 // the SRE's "which endpoint just got bad" view. Brand-new
 // failures are flagged separately from amplified existing ones.
-function TraceOpsSection({ items }: { items: TraceOpAnomaly[] | undefined }) {
+function TraceOpsSection({ items, onMute }: {
+  items: TraceOpAnomaly[] | undefined;
+  onMute: (kind: string, pattern: string, service: string, durationSec: number) => void;
+}) {
   if (items === undefined) return null;
   return (
     <AnomalyShell
@@ -511,6 +543,7 @@ function TraceOpsSection({ items }: { items: TraceOpAnomaly[] | undefined }) {
                   trace ↗
                 </Link>
               )}
+              <SnoozeButton onMute={d => onMute('trace_op', a.operation, a.service, d)} />
             </div>
             <div style={{ fontSize: 11, color: 'var(--text2)' }}>
               <Link href={`/service?name=${encodeURIComponent(a.service)}`}
@@ -524,6 +557,55 @@ function TraceOpsSection({ items }: { items: TraceOpAnomaly[] | undefined }) {
         ))}
       </div>
     </AnomalyShell>
+  );
+}
+
+// SnoozeButton: small dropdown that POSTs an anomaly_silence
+// for the given fingerprint. Emits an `onMute(durationSec)`
+// callback so the caller can refresh the list and confirm the
+// row dropped from the live view.
+function SnoozeButton({ onMute }: { onMute: (durationSec: number) => void }) {
+  const [open, setOpen] = useState(false);
+  const opts: { label: string; sec: number }[] = [
+    { label: '1 hour',  sec: 3600 },
+    { label: '8 hours', sec: 8 * 3600 },
+    { label: '24 hours', sec: 24 * 3600 },
+    { label: '7 days', sec: 7 * 24 * 3600 },
+  ];
+  return (
+    <span style={{ position: 'relative' }}>
+      <button type="button"
+        onClick={() => setOpen(o => !o)}
+        title="Mute this anomaly"
+        style={{
+          fontSize: 10, padding: '2px 8px', borderRadius: 3,
+          background: 'var(--bg3)', border: '1px solid var(--border)',
+          color: 'var(--text2)', cursor: 'pointer',
+        }}>
+        🔕 Snooze
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', top: '100%', right: 0,
+          marginTop: 4, padding: 4, borderRadius: 4, zIndex: 10,
+          background: 'var(--bg1)', border: '1px solid var(--border)',
+          boxShadow: '0 6px 18px rgba(0,0,0,0.25)',
+          display: 'flex', flexDirection: 'column', gap: 2,
+        }} onClick={e => e.stopPropagation()}>
+          {opts.map(o => (
+            <button key={o.sec} type="button"
+              onClick={() => { setOpen(false); onMute(o.sec); }}
+              style={{
+                fontSize: 11, padding: '4px 10px', textAlign: 'left',
+                background: 'transparent', border: 'none',
+                color: 'var(--text)', cursor: 'pointer', whiteSpace: 'nowrap',
+              }}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </span>
   );
 }
 
@@ -561,6 +643,56 @@ function MetricSection({ items }: { items: Problem[] | undefined }) {
         ))}
       </div>
     </AnomalyShell>
+  );
+}
+
+// SilencesSection lists currently-muted anomalies with an unmute
+// affordance. Compact strip across the top — present only when
+// at least one silence is active, otherwise hidden so the page
+// doesn't carry permanent dead space.
+function SilencesSection({ items, onUnmute }: {
+  items: AnomalySilence[] | undefined;
+  onUnmute: (id: string) => void;
+}) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div style={{
+      background: 'var(--bg2)', border: '1px solid var(--border)',
+      borderRadius: 6, padding: '8px 12px', marginBottom: 12,
+      display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+    }}>
+      <span style={{ fontSize: 11, color: 'var(--text2)', fontWeight: 600 }}>
+        🔕 Muted ({items.length})
+      </span>
+      {items.map(s => {
+        const remaining = Math.max(0, s.untilAt / 1e6 - Date.now());
+        const remainStr = remaining > 24 * 3600 * 1000
+          ? `${Math.floor(remaining / (24 * 3600 * 1000))}d`
+          : remaining > 3600 * 1000
+            ? `${Math.floor(remaining / (3600 * 1000))}h`
+            : `${Math.floor(remaining / 60000)}m`;
+        return (
+          <span key={s.id} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '2px 8px', borderRadius: 3, fontSize: 11,
+            background: 'var(--bg3)', border: '1px solid var(--border)',
+            fontFamily: 'monospace',
+          }}>
+            <span title={`${s.kind} · ${s.pattern}`}>
+              {s.pattern}
+              {s.service && <span style={{ color: 'var(--text3)' }}> @ {s.service}</span>}
+            </span>
+            <span style={{ color: 'var(--text3)' }}>{remainStr} left</span>
+            <button type="button" onClick={() => onUnmute(s.id)}
+              title="Unmute now"
+              style={{
+                background: 'transparent', border: 'none', color: 'var(--text3)',
+                cursor: 'pointer', padding: 0, fontSize: 11, lineHeight: 1,
+              }}>×</button>
+          </span>
+        );
+      })}
+    </div>
   );
 }
 
@@ -626,7 +758,10 @@ function HistorySection({ items }: { items: AnomalyEvent[] | undefined }) {
 // suppress the section entirely rather than render a "no
 // anomalies" placeholder so the eye drops straight to the
 // exception inbox below.
-function LogPatternsSection({ items }: { items: LogPatternAnomaly[] | undefined }) {
+function LogPatternsSection({ items, onMute }: {
+  items: LogPatternAnomaly[] | undefined;
+  onMute: (kind: string, pattern: string, service: string, durationSec: number) => void;
+}) {
   if (items === undefined) return null;
   if (items.length === 0) return null;
   return (
@@ -659,6 +794,7 @@ function LogPatternsSection({ items }: { items: LogPatternAnomaly[] | undefined 
                     style={{ fontSize: 11, color: 'var(--accent2)' }}>
                 logs ↗
               </Link>
+              <SnoozeButton onMute={d => onMute('log_pattern', a.pattern, a.service, d)} />
             </div>
             <div style={{ fontSize: 11, color: 'var(--text2)' }}>
               <span style={{ fontFamily: 'monospace' }}>{a.service || 'unknown'}</span>

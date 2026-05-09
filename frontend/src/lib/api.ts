@@ -184,6 +184,38 @@ export const api = {
   anomalyEvents:       (since = '24h', limit = 200) =>
     get<import('./types').AnomalyEvent[]>(`/api/anomalies/events?since=${since}&limit=${limit}`),
 
+  // Anomaly silences (mute / snooze).
+  anomalySilences:     () =>
+    get<import('./types').AnomalySilence[]>(`/api/anomalies/silences`),
+  createAnomalySilence: (body: {
+    fingerprint: string; kind: string; pattern: string;
+    service: string; reason?: string; durationSec: number;
+  }) =>
+    request<import('./types').AnomalySilence>(`/api/anomalies/silences`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  deleteAnomalySilence: (id: string) =>
+    request<void>(`/api/anomalies/silences/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  // Audit log (admin-only read).
+  auditLog: (since = '24h', filters: { actor?: string; action?: string; target?: string } = {}) =>
+    get<import('./types').AuditEntry[]>(`/api/admin/audit?${qs({ since, ...filters })}`),
+
+  // Saved views (per-user named filter combos).
+  savedViews: (page: string) =>
+    get<import('./types').SavedView[]>(`/api/views?page=${encodeURIComponent(page)}`),
+  createSavedView: (body: {
+    name: string; page: string; queryString: string;
+    pinned?: boolean; shared?: boolean;
+  }) =>
+    request<import('./types').SavedView>(`/api/views`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  deleteSavedView: (id: string) =>
+    request<void>(`/api/views/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
   // Runtime settings: data retention
   getRetention: () => get<RetentionSpec>(`/api/settings/retention`),
   putRetention: (sp: RetentionSpec) =>

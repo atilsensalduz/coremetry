@@ -160,6 +160,16 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/anomalies/trace-ops",    s.getTraceOpAnomalies)
 	mux.HandleFunc("GET /api/anomalies/metric",       s.getMetricAnomalies)
 	mux.HandleFunc("GET /api/anomalies/events",       s.getAnomalyEvents)
+	// Anomaly silencing — anyone signed in can mute (admin / editor / viewer).
+	mux.HandleFunc("GET    /api/anomalies/silences",    s.listAnomalySilences)
+	mux.HandleFunc("POST   /api/anomalies/silences",    s.createAnomalySilence)
+	mux.HandleFunc("DELETE /api/anomalies/silences/{id}", s.deleteAnomalySilence)
+	// Audit log — admin-only read.
+	mux.HandleFunc("GET /api/admin/audit",            s.listAuditLog)
+	// Saved views — per-user CRUD (server scopes by session).
+	mux.HandleFunc("GET    /api/views",     s.listSavedViews)
+	mux.HandleFunc("POST   /api/views",     s.createSavedView)
+	mux.HandleFunc("DELETE /api/views/{id}", s.deleteSavedView)
 	mux.HandleFunc("GET /api/status", s.getStatus)
 
 	// ── Public status page ────────────────────────────────────────
@@ -2977,7 +2987,19 @@ func (s *Server) getTraceOpAnomalies(w http.ResponseWriter, r *http.Request) {
 	window := parseDuration(r.URL.Query().Get("window"), 5*time.Minute)
 	key := fmt.Sprintf("anomaly:trace-ops:window=%s", window)
 	s.serveCached(w, r, key, 60*time.Second, func() (any, error) {
-		return anomaly.DetectTraceOpAnomalies(r.Context(), s.store, window)
+		hits, err := anomaly.DetectTraceOpAnomalies(r.Context(), s.store, window)
+		if err != nil {
+			return nil, err
+		}
+		muted, _ := s.store.ActiveSilencedFingerprints(r.Context())
+		out := hits[:0]
+		for _, a := range hits {
+			fp := chstore.FingerprintAnomaly("trace_op", a.Operation, a.Service)
+			if !muted[fp] {
+				out = append(out, a)
+			}
+		}
+		return out, nil
 	})
 }
 
@@ -3035,7 +3057,22 @@ func (s *Server) getLogPatternAnomalies(w http.ResponseWriter, r *http.Request) 
 	window := parseDuration(r.URL.Query().Get("window"), 5*time.Minute)
 	key := fmt.Sprintf("anomaly:log-patterns:window=%s", window)
 	s.serveCached(w, r, key, 60*time.Second, func() (any, error) {
-		return anomaly.DetectLogPatterns(r.Context(), s.store, window)
+		hits, err := anomaly.DetectLogPatterns(r.Context(), s.store, window)
+		if err != nil {
+			return nil, err
+		}
+		// Drop silenced fingerprints — operator has muted them
+		// explicitly. They still get persisted into anomaly_events
+		// by the recorder so history shows them with status.
+		muted, _ := s.store.ActiveSilencedFingerprints(r.Context())
+		out := hits[:0]
+		for _, a := range hits {
+			fp := chstore.FingerprintAnomaly("log_pattern", a.Pattern, a.Service)
+			if !muted[fp] {
+				out = append(out, a)
+			}
+		}
+		return out, nil
 	})
 }
 

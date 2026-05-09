@@ -642,6 +642,47 @@ export type SortOrder = 'asc' | 'desc';
 // observed across the sampled traces; siblings repeating the exact
 // same triple collapse into a single row carrying count + avg/max
 // duration + error count.
+// AnomalySilence mutes a single anomaly fingerprint until UntilAt.
+// Driven by the Snooze buttons on /anomalies; queryable via the
+// page header "X muted" indicator.
+export interface AnomalySilence {
+  id: string;
+  fingerprint: string;
+  kind: 'log_pattern' | 'trace_op';
+  pattern: string;
+  service: string;
+  createdBy: string;
+  createdAt: number;
+  untilAt: number;
+  reason: string;
+  active: boolean;
+}
+
+// AuditEntry — append-only audit row consumed by /admin/audit.
+export interface AuditEntry {
+  id: string;
+  time: number;
+  actorId: string;
+  actorEmail: string;
+  actorRole: string;
+  action: string;
+  targetKind: string;
+  targetId: string;
+  ip: string;
+  details: string;
+}
+
+// SavedView — per-user named filter combo for filter-heavy pages.
+export interface SavedView {
+  id: string;
+  ownerId: string;
+  name: string;
+  page: string;          // "traces" | "logs" | "anomalies" | …
+  queryString: string;
+  pinned: boolean;
+  createdAt: number;
+}
+
 // One row of the anomaly history — every log-pattern + trace-op
 // detection the recorder has observed in the requested window.
 // Status is derived in the backend query from last_seen freshness:

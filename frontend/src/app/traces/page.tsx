@@ -2,6 +2,7 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Topbar } from '@/components/Topbar';
+import { SavedViewsBar } from '@/components/SavedViewsBar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { Combobox } from '@/components/Combobox';
 import { ServicePicker } from '@/components/ServicePicker';
@@ -257,6 +258,7 @@ function TracesPageInner() {
     <>
       <Topbar title="Traces" range={range} onRangeChange={setRange} />
       <div id="content">
+        <SavedViewsBar page="traces" />
         {/* Span-volume histogram — Datadog/Honeycomb-style stacked
             bars (ok in slate, errors in red) with total / errors /
             error-rate KPI tiles on the right. Reflects the current

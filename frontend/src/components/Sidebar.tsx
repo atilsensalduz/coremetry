@@ -23,6 +23,7 @@ const NAV = [
   { href: '/slos',       label: 'SLOs',         icon: '◉' },
   { href: '/monitors',   label: 'Monitors',     icon: '◉' },
   { href: '/admin/stats', label: 'System',       icon: '◐' },
+  { href: '/admin/audit', label: 'Audit log',    icon: '📜' },
   { href: '/admin/status-page', label: 'Public Status Page', icon: '◫' },
 ];
 
