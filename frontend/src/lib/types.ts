@@ -798,6 +798,14 @@ export interface ServiceMap {
   totalSpans: number;
 }
 
+export interface SamplingSettings {
+  default: number;
+  services: Record<string, number>;
+  alwaysKeepErrors: boolean;
+  alwaysKeepRoots: boolean;
+  droppedSinceBoot: number;
+}
+
 // One row of the inbound-callers backtrace — a unique
 // (caller service × caller pod / instance × client IP × user agent)
 // combination calling the inspected service over the window.

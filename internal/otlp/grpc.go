@@ -47,7 +47,7 @@ func (s *traceGRPC) Export(_ context.Context, req *tracecollpb.ExportTraceServic
 	spans := ConvertTraces(req)
 	dropped := 0
 	for _, sp := range spans {
-		if !s.ing.Spans.Add(sp) {
+		if !s.ing.addSpan(sp) {
 			dropped++
 		}
 	}

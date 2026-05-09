@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync/atomic"
 
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -15,13 +16,20 @@ import (
 
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/consumer"
+	"github.com/cilcenk/coremetry/internal/sampling"
 )
 
-// Ingester wires the three OTLP consumers together.
+// Ingester wires the three OTLP consumers together. When a Sampler
+// is attached (non-nil), each incoming span is routed through it
+// before reaching the consumer; sampled-out spans are dropped on
+// the floor and counted in spansSampledOut for /api/health.
 type Ingester struct {
 	Spans   *consumer.Consumer[*chstore.Span]
 	Logs    *consumer.Consumer[*chstore.Log]
 	Metrics *consumer.Consumer[*chstore.MetricPoint]
+
+	sampler         *sampling.Sampler
+	spansSampledOut atomic.Uint64
 }
 
 func NewIngester(
@@ -30,6 +38,29 @@ func NewIngester(
 	metrics *consumer.Consumer[*chstore.MetricPoint],
 ) *Ingester {
 	return &Ingester{Spans: spans, Logs: logs, Metrics: metrics}
+}
+
+// SetSampler swaps in a sampling decision engine. Pass nil to
+// disable sampling (the default — keep every span). Safe to call
+// at any time; the next span uses the new sampler.
+func (ing *Ingester) SetSampler(s *sampling.Sampler) { ing.sampler = s }
+
+// SpansSampledOut is a monotonic counter of spans dropped by the
+// sampler since process start. Surfaced on /api/health alongside
+// the existing spans_dropped counter so an operator can see
+// sampling effectiveness without reading server logs.
+func (ing *Ingester) SpansSampledOut() uint64 { return ing.spansSampledOut.Load() }
+
+// addSpan applies sampling (if configured) and forwards to the
+// span consumer. Returns false if the consumer's buffer was full
+// and the span had to be dropped — same return semantics as the
+// raw Spans.Add it replaces.
+func (ing *Ingester) addSpan(sp *chstore.Span) bool {
+	if ing.sampler != nil && !ing.sampler.Decide(sp) {
+		ing.spansSampledOut.Add(1)
+		return true // sampled-out is a successful "no-op", not a failure
+	}
+	return ing.Spans.Add(sp)
 }
 
 // HTTPHandler returns an http.Handler that accepts OTLP/HTTP (protobuf + JSON).
@@ -50,7 +81,7 @@ func (ing *Ingester) handleTraces(w http.ResponseWriter, r *http.Request) {
 	spans := ConvertTraces(&req)
 	dropped := 0
 	for _, sp := range spans {
-		if !ing.Spans.Add(sp) {
+		if !ing.addSpan(sp) {
 			dropped++
 		}
 	}

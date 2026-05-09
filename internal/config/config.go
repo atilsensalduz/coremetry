@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,6 +30,54 @@ type Config struct {
 	Redis      RedisConfig     `yaml:"redis"`
 	Logs       LogsConfig      `yaml:"logs"`
 	AI         AIConfig        `yaml:"ai"`
+	Sampling   SamplingConfig  `yaml:"sampling"`
+}
+
+// SamplingConfig controls how many of the incoming spans we keep.
+// Two stages, applied in order:
+//
+//  1. Always-keep rules — spans that match override every probabilistic
+//     decision below. By default we always keep:
+//       * any span whose status_code is ERROR
+//       * any root span (parent_span_id empty) — gives us at least
+//         one entry-point row per kept-or-dropped trace, useful for
+//         RPS counting + service map sampling
+//
+//  2. Probabilistic ratio — for spans not matched above, keep with
+//     probability `Default` (per-process default) or
+//     `Services[svc]` (per-service override). The decision is
+//     consistent on trace_id, so non-root non-error spans of the
+//     same trace are kept or dropped together.
+//
+// Default config (Default=1.0, no per-service overrides) means
+// "keep everything" — sampling is opt-in. Setting Default to 0.1
+// drops 90% of healthy non-root spans while preserving 100% of
+// errors and roots. At 1B spans/day this is the storage difference
+// between affordable and not.
+type SamplingConfig struct {
+	// Default ratio applied when a service has no explicit entry
+	// in Services. Range [0, 1]. 0 = drop all probabilistic spans
+	// (errors + roots still kept). 1 = keep everything (no
+	// sampling, the default).
+	Default float64 `yaml:"default"`
+
+	// Per-service ratio override. Key is service.name resource
+	// attribute. Values follow the same [0, 1] convention. A
+	// service not listed inherits Default.
+	Services map[string]float64 `yaml:"services"`
+
+	// AlwaysKeepErrors: keep every span with status_code = ERROR
+	// regardless of ratio. Defaults to true. Setting false trades
+	// observability of failures for raw storage savings — almost
+	// never the right call, exposed for completeness.
+	AlwaysKeepErrors *bool `yaml:"always_keep_errors"`
+
+	// AlwaysKeepRoots: keep every root span. Defaults to true so
+	// the request-rate metric stays accurate even at low ratios
+	// (a sampled-out request is invisible to the spans table; the
+	// root preserves it). Setting false halves storage for
+	// hello-world workloads but breaks RPS calculations.
+	AlwaysKeepRoots *bool `yaml:"always_keep_roots"`
 }
 
 // AIConfig wires the optional AI Copilot. Two providers supported:
@@ -226,6 +275,14 @@ func Load(path string) (*Config, error) {
 	}
 	if v := os.Getenv("COREMETRY_CH_INSECURE_SKIP_VERIFY"); v == "true" || v == "1" {
 		cfg.ClickHouse.InsecureSkipVerify = true
+	}
+	// Sampling default ratio (env-friendly bootstrap; admin UI is
+	// canonical). Empty string keeps the config.yaml / built-in
+	// "keep everything" default.
+	if v := os.Getenv("COREMETRY_SAMPLING_DEFAULT"); v != "" {
+		if r, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.Sampling.Default = r
+		}
 	}
 	// Distributed-CH overrides — env-only deployment shouldn't
 	// have to ship a config.yaml just to flip cluster mode on.

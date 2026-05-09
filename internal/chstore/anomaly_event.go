@@ -64,7 +64,17 @@ func (s *Store) UpsertAnomalyEvent(ctx context.Context, e AnomalyEvent) error {
 		prevPeak = e.CurrentRatio
 	}
 
-	batch, err := s.conn.PrepareBatch(ctx, "INSERT INTO anomaly_events")
+	// Explicit column list: anomaly_events has a `version` column with a
+	// DEFAULT (toUnixTimestamp64Nano(now64(9))). The bare-form
+	// "INSERT INTO anomaly_events" requires all 11 columns; supplying
+	// 10 args trips clickhouse-go's "expected 11 arguments" error,
+	// which spammed the logs once the table grew that DEFAULT column.
+	// Naming the columns we actually populate lets the DEFAULT do its
+	// job and the recorder stays in sync without handcrafting a version
+	// value here.
+	batch, err := s.conn.PrepareBatch(ctx, `INSERT INTO anomaly_events
+		(id, kind, pattern, service, started_at, last_seen,
+		 peak_ratio, current_ratio, current_count, sample)`)
 	if err != nil {
 		return err
 	}

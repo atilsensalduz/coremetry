@@ -28,7 +28,9 @@ import (
 	"github.com/cilcenk/coremetry/internal/ldap"
 	"github.com/cilcenk/coremetry/internal/notify"
 	"github.com/cilcenk/coremetry/internal/otlp"
+	"github.com/cilcenk/coremetry/internal/config"
 	"github.com/cilcenk/coremetry/internal/profileconv"
+	"github.com/cilcenk/coremetry/internal/sampling"
 )
 
 type Server struct {
@@ -43,6 +45,7 @@ type Server struct {
 	cache       cache.Cache       // Noop when Redis isn't configured
 	notify      *notify.Notifier
 	copilot     *copilot.Service  // nil when AI key not configured
+	sampler     *sampling.Sampler // always set; Snapshot() reports current ratios
 
 	// Demo deployments only — when true, /api/auth/config returns
 	// initial admin credentials so the login page can pre-fill them.
@@ -75,10 +78,11 @@ type rateSample struct {
 	count int64
 }
 
-func NewServer(addr string, ing *otlp.Ingester, store *chstore.Store, logs logstore.Store, webFS embed.FS, authSvc *auth.Service, oidcSvc *auth.OIDCService, ldapSvc *ldap.Service, c cache.Cache, n *notify.Notifier, cop *copilot.Service) *Server {
+func NewServer(addr string, ing *otlp.Ingester, store *chstore.Store, logs logstore.Store, webFS embed.FS, authSvc *auth.Service, oidcSvc *auth.OIDCService, ldapSvc *ldap.Service, c cache.Cache, n *notify.Notifier, cop *copilot.Service, smp *sampling.Sampler) *Server {
 	return &Server{
 		addr: addr, store: store, logs: logs, ing: ing, webFS: webFS,
 		auth: authSvc, oidc: oidcSvc, ldap: ldapSvc, cache: c, notify: n, copilot: cop,
+		sampler: smp,
 		rateSamples: map[string]rateSample{},
 	}
 }
@@ -267,6 +271,8 @@ func (s *Server) Start() error {
 	mux.HandleFunc("PUT    /api/channels/{id}",       auth.RequireRole(auth.RoleAdmin, s.updateChannel))
 	mux.HandleFunc("DELETE /api/channels/{id}",       auth.RequireRole(auth.RoleAdmin, s.deleteChannel))
 	mux.HandleFunc("POST   /api/channels/{id}/test",  auth.RequireRole(auth.RoleAdmin, s.testChannel))
+	mux.HandleFunc("GET    /api/settings/sampling",   auth.RequireRole(auth.RoleAdmin, s.getSamplingSettings))
+	mux.HandleFunc("PUT    /api/settings/sampling",   auth.RequireRole(auth.RoleAdmin, s.putSamplingSettings))
 
 	// User management (admin only)
 	mux.HandleFunc("GET    /api/users",                  auth.RequireRole(auth.RoleAdmin, s.listUsers))
@@ -1839,6 +1845,74 @@ func maskedSMTP(s notify.SMTPSettings) map[string]any {
 		"configured": s.Configured(),
 	}
 }
+
+// getSamplingSettings returns the live in-memory sampler config —
+// what the ingester is actually applying right now (post-Reload),
+// not just whatever was persisted last. Includes a counter of
+// spans dropped by sampling since process start so the admin can
+// see the policy is taking effect without watching ingest rates.
+func (s *Server) getSamplingSettings(w http.ResponseWriter, r *http.Request) {
+	if s.sampler == nil {
+		writeJSON(w, map[string]any{"default": 1.0, "services": map[string]float64{}})
+		return
+	}
+	snap := s.sampler.Snapshot()
+	writeJSON(w, map[string]any{
+		"default":          snap.Default,
+		"services":         snap.Services,
+		"alwaysKeepErrors": snap.AlwaysKeepErrors != nil && *snap.AlwaysKeepErrors,
+		"alwaysKeepRoots":  snap.AlwaysKeepRoots != nil && *snap.AlwaysKeepRoots,
+		"droppedSinceBoot": s.ing.SpansSampledOut(),
+	})
+}
+
+// putSamplingSettings persists the new policy and hot-reloads the
+// in-memory sampler so the next span is judged against it. No
+// process restart needed; great for trying low ratios while
+// watching ingest cost in real time.
+func (s *Server) putSamplingSettings(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Default          float64            `json:"default"`
+		Services         map[string]float64 `json:"services"`
+		AlwaysKeepErrors *bool              `json:"alwaysKeepErrors"`
+		AlwaysKeepRoots  *bool              `json:"alwaysKeepRoots"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	cfg := samplingConfigFromBody(body.Default, body.Services, body.AlwaysKeepErrors, body.AlwaysKeepRoots)
+	if s.sampler != nil {
+		if err := s.sampler.SavePersisted(r.Context(), s.store, cfg); err != nil {
+			writeErr(w, err)
+			return
+		}
+	}
+	s.getSamplingSettings(w, r)
+}
+
+// samplingConfigFromBody is split out so the put handler can
+// build a SamplingConfig without circularly importing main.go's
+// view of the world. Pass-through with a nil-safe wrapping for
+// the bool overrides (so the admin UI can leave them undefined
+// to inherit defaults).
+func samplingConfigFromBody(def float64, svc map[string]float64, keepErr, keepRoot *bool) config.SamplingConfig {
+	return config.SamplingConfig{
+		Default:          def,
+		Services:         svc,
+		AlwaysKeepErrors: keepErr,
+		AlwaysKeepRoots:  keepRoot,
+	}
+}
+
+// keep the sampling import referenced explicitly — the field
+// declaration above pulls it in as a Server type, but Go's
+// unused-import check is package-scoped and the field type alone
+// counts as use, so this comment is the human marker rather than
+// a compiler need. (The build was failing earlier because
+// sampling.Config doesn't exist; the actual config type is
+// config.SamplingConfig.)
+var _ = sampling.New
 
 func (s *Server) getSMTPSettings(w http.ResponseWriter, r *http.Request) {
 	cfg := s.notify.SMTP(r.Context())

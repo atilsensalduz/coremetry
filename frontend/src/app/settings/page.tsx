@@ -12,7 +12,7 @@ import {
   IconMail, IconBell, IconSparkles, IconLock, IconTrash,
 } from '@/components/icons';
 
-type Tab = 'smtp' | 'channels' | 'ai' | 'ldap' | 'retention';
+type Tab = 'smtp' | 'channels' | 'ai' | 'ldap' | 'retention' | 'sampling';
 
 export default function SettingsPage() {
   const { user } = useAuth();
@@ -51,12 +51,17 @@ export default function SettingsPage() {
           <TabBtn active={tab === 'retention'} onClick={() => setTab('retention')}>
             <IconTrash /> <span style={{ marginLeft: 6 }}>Data retention</span>
           </TabBtn>
+          <TabBtn active={tab === 'sampling'} onClick={() => setTab('sampling')}>
+            <span style={{ fontFamily: 'monospace' }}>%</span>
+            <span style={{ marginLeft: 6 }}>Trace sampling</span>
+          </TabBtn>
         </div>
         {tab === 'smtp' && <SMTPTab />}
         {tab === 'channels' && <ChannelsTab />}
         {tab === 'ai' && <AITab />}
         {tab === 'ldap' && <LDAPTab />}
         {tab === 'retention' && <RetentionTab />}
+        {tab === 'sampling' && <SamplingTab />}
       </div>
     </>
   );
@@ -1244,4 +1249,154 @@ function humanize(err: unknown): string {
     if (j && typeof j.error === 'string') return j.error;
   } catch {}
   return body || msg;
+}
+
+// ── Sampling tab ────────────────────────────────────────────────────────────
+//
+// Hot-path policy editor. Default ratio applies to every service
+// that doesn't have its own override; per-service rows let the
+// admin pin a heavy service to 0.05 (drop 95%) while a low-volume
+// one runs at 1.0. AlwaysKeep* are big-stick defaults — turning
+// them off trades observability for raw storage savings, almost
+// never worth it.
+function SamplingTab() {
+  const [s, setS] = useState<import('@/lib/types').SamplingSettings | null | undefined>(undefined);
+  const [busy, setBusy] = useState(false);
+  const [newSvc, setNewSvc] = useState('');
+  const [newRatio, setNewRatio] = useState('1');
+
+  useEffect(() => {
+    api.getSampling().then(d => setS(d ?? null)).catch(() => setS(null));
+  }, []);
+
+  if (s === undefined) return <Spinner />;
+  if (s === null) {
+    return <Empty icon="!" title="Failed to load sampling settings">
+      Check that the backend is up and you have admin access.
+    </Empty>;
+  }
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const next = await api.putSampling({
+        default:          s.default,
+        services:         s.services,
+        alwaysKeepErrors: s.alwaysKeepErrors,
+        alwaysKeepRoots:  s.alwaysKeepRoots,
+      });
+      setS(next);
+    } catch (err) { alert(humanize(err)); }
+    finally { setBusy(false); }
+  };
+
+  const addOverride = () => {
+    const r = parseFloat(newRatio);
+    if (!newSvc.trim() || isNaN(r) || r < 0 || r > 1) return;
+    setS({ ...s, services: { ...s.services, [newSvc.trim()]: r } });
+    setNewSvc(''); setNewRatio('1');
+  };
+  const removeOverride = (svc: string) => {
+    const next = { ...s.services };
+    delete next[svc];
+    setS({ ...s, services: next });
+  };
+
+  return (
+    <div style={{ maxWidth: 720 }}>
+      <h3 style={{ marginTop: 0 }}>Trace sampling</h3>
+      <p style={{ color: 'var(--text2)', fontSize: 12 }}>
+        Head-sampling rules applied at OTLP ingest. Errors and root spans are
+        always kept (toggle below). Probabilistic ratio applies to the rest;
+        same trace_id always gets the same decision so partial traces don't
+        leak through.
+      </p>
+
+      <div style={{
+        background: 'var(--bg2)', border: '1px solid var(--border)',
+        borderRadius: 6, padding: 12, marginBottom: 12,
+        display: 'grid', gridTemplateColumns: '180px 1fr', gap: '10px 14px',
+        alignItems: 'center', fontSize: 13,
+      }}>
+        <label>Default ratio</label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input type="number" min={0} max={1} step={0.01}
+                 value={s.default}
+                 onChange={e => setS({ ...s, default: parseFloat(e.target.value) || 0 })}
+                 style={{ width: 100 }} />
+          <span style={{ color: 'var(--text3)', fontSize: 11 }}>
+            (0 = drop all probabilistic spans · 1 = keep everything)
+          </span>
+        </div>
+
+        <label>Always keep errors</label>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <input type="checkbox" checked={s.alwaysKeepErrors}
+                 onChange={e => setS({ ...s, alwaysKeepErrors: e.target.checked })} />
+          <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+            status_code = ERROR spans bypass the ratio
+          </span>
+        </label>
+
+        <label>Always keep roots</label>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <input type="checkbox" checked={s.alwaysKeepRoots}
+                 onChange={e => setS({ ...s, alwaysKeepRoots: e.target.checked })} />
+          <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+            parent_span_id == "" spans bypass the ratio (preserves RPS counts)
+          </span>
+        </label>
+      </div>
+
+      <h4 style={{ marginBottom: 8 }}>Per-service overrides</h4>
+      <div style={{
+        background: 'var(--bg2)', border: '1px solid var(--border)',
+        borderRadius: 6, padding: 12, marginBottom: 12,
+      }}>
+        {Object.keys(s.services).length === 0 && (
+          <div style={{ color: 'var(--text3)', fontSize: 12, marginBottom: 8 }}>
+            No overrides — every service uses the default ratio above.
+          </div>
+        )}
+        {Object.entries(s.services).map(([svc, r]) => (
+          <div key={svc} style={{
+            display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6,
+          }}>
+            <code style={{ flex: 1, fontSize: 12 }}>{svc}</code>
+            <input type="number" min={0} max={1} step={0.01}
+                   value={r}
+                   onChange={e => setS({
+                     ...s,
+                     services: { ...s.services, [svc]: parseFloat(e.target.value) || 0 },
+                   })}
+                   style={{ width: 80 }} />
+            <button className="sec" style={{ padding: '2px 8px', fontSize: 11 }}
+                    onClick={() => removeOverride(svc)}>Remove</button>
+          </div>
+        ))}
+
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          borderTop: '1px solid var(--border)', paddingTop: 10, marginTop: 8,
+        }}>
+          <input value={newSvc} onChange={e => setNewSvc(e.target.value)}
+                 placeholder="service-name" style={{ flex: 1 }} />
+          <input type="number" min={0} max={1} step={0.01}
+                 value={newRatio} onChange={e => setNewRatio(e.target.value)}
+                 style={{ width: 80 }} />
+          <button className="sec" style={{ padding: '4px 10px', fontSize: 12 }}
+                  onClick={addOverride}>Add</button>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <button onClick={save} disabled={busy}>
+          {busy ? 'Saving…' : 'Save & apply'}
+        </button>
+        <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+          Spans dropped by sampling since process boot: <b>{s.droppedSinceBoot.toLocaleString()}</b>
+        </span>
+      </div>
+    </div>
+  );
 }

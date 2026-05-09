@@ -29,6 +29,7 @@ import (
 	"github.com/cilcenk/coremetry/internal/monitor"
 	"github.com/cilcenk/coremetry/internal/notify"
 	"github.com/cilcenk/coremetry/internal/otlp"
+	"github.com/cilcenk/coremetry/internal/sampling"
 )
 
 //go:embed all:frontend/out
@@ -143,6 +144,27 @@ func main() {
 
 	// ── OTLP ingester ─────────────────────────────────────────────────────────
 	ing := otlp.NewIngester(spanConsumer, logConsumer, metricConsumer)
+
+	// ── Trace sampling (head; always-keep-errors + always-keep-roots) ──
+	// Built from cfg.Sampling. Empty config = no sampling (keep
+	// everything), so existing deployments don't change behaviour
+	// on upgrade. Setting `sampling.default: 0.1` in config or
+	// COREMETRY_SAMPLING_DEFAULT=0.1 cuts probabilistic span volume
+	// 90% while preserving every error + root span. The Sampler is
+	// hot-swappable via Reload — admin UI / API can adjust live
+	// without a process restart.
+	sampler := sampling.New(cfg.Sampling)
+	if err := sampler.LoadPersisted(ctx, store); err != nil {
+		log.Printf("[sampling] load persisted: %v", err)
+	}
+	ing.SetSampler(sampler)
+	{
+		s := sampler.Snapshot()
+		log.Printf("[sampling] default=%.2f overrides=%d keepErrors=%v keepRoots=%v",
+			s.Default, len(s.Services),
+			s.AlwaysKeepErrors != nil && *s.AlwaysKeepErrors,
+			s.AlwaysKeepRoots != nil && *s.AlwaysKeepRoots)
+	}
 
 	// ── gRPC server ───────────────────────────────────────────────────────────
 	go func() {
@@ -267,7 +289,7 @@ func main() {
 	}
 
 	// ── HTTP server (OTLP + API + UI) ─────────────────────────────────────────
-	srv := api.NewServer(cfg.Listen.HTTP, ing, store, logsStore, webFS, authSvc, oidcSvc, ldapSvc, cacheImpl, notifier, copilotSvc)
+	srv := api.NewServer(cfg.Listen.HTTP, ing, store, logsStore, webFS, authSvc, oidcSvc, ldapSvc, cacheImpl, notifier, copilotSvc, sampler)
 	srv.SetVersion(Version)
 	if cfg.Auth.DemoMode {
 		// Demo mode auto-signs the visitor in as the configured initial
