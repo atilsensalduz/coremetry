@@ -4,7 +4,15 @@ import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import App from './App';
+import { initOtel } from './lib/otel';
 import './styles/globals.css';
+
+// Initialise the OpenTelemetry browser SDK before the React
+// tree mounts so DocumentLoad spans capture the React boot
+// itself + the first fetch round-trips. initOtel is a no-op
+// when VITE_OTEL_DISABLE=1, so this is safe to call
+// unconditionally.
+initOtel();
 
 // Single shared QueryClient for the whole app. Defaults tuned
 // for an internal observability dashboard:

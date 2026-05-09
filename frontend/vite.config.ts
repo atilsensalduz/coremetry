@@ -52,6 +52,7 @@ export default defineConfig({
             if (id.includes('react-router')) return 'router';
             if (id.includes('@tanstack')) return 'tanstack';
             if (id.includes('uplot')) return 'charts';
+            if (id.includes('@opentelemetry')) return 'otel';
             return 'vendor';
           }
         },
