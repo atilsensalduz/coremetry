@@ -44,6 +44,21 @@ export function fmtNum(n: number): string {
   return String(n);
 }
 
+// Binary unit formatter — KiB / MiB / GiB / TiB. Hoisted from
+// ServiceInfra.tsx where it was duplicated locally; the
+// cardinality page also needs it for column-bytes columns.
+export function fmtBytes(n: number): string {
+  if (!n || n < 0) return '0';
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+  let i = 0;
+  let v = n;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(v < 10 ? 2 : v < 100 ? 1 : 0)} ${units[i]}`;
+}
+
 export function fmtNs(ns: number): string {
   const us = ns / 1e3, ms = ns / 1e6, s = ns / 1e9;
   if (s >= 1) return s.toFixed(2) + 's';

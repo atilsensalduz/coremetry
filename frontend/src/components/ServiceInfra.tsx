@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Sparkline } from './Sparkline';
 import { api } from '@/lib/api';
+import { fmtBytes } from '@/lib/utils';
 import type { InfraMetricSeries } from '@/lib/types';
 
 // ServiceInfra renders curated runtime / process metrics for the
@@ -137,14 +138,3 @@ function fmtValue(v: number, slot: string, unit: string): string {
   return v.toFixed(0);
 }
 
-function fmtBytes(n: number): string {
-  if (!n || n < 0) return '0';
-  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
-  let i = 0;
-  let v = n;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
-  }
-  return `${v.toFixed(v < 10 ? 2 : v < 100 ? 1 : 0)} ${units[i]}`;
-}

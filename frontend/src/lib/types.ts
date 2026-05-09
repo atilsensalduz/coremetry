@@ -798,6 +798,35 @@ export interface ServiceMap {
   totalSpans: number;
 }
 
+// CardinalityReport powers /admin/cardinality — answers "what
+// is eating my ClickHouse?" Each row carries a bytes / row count
+// figure so the operator can correlate the offender with the
+// system.parts top-tables view.
+export interface CardinalityTopRow {
+  name: string;
+  rows: number;
+}
+export interface CardinalityAttrKeyRow {
+  key: string;
+  distinctValues: number;
+  occurrences: number;
+  source: string;     // "spans" / "logs" / "metric_points"
+}
+export interface CardinalityColumnRow {
+  table: string;
+  column: string;
+  compressedBytes: number;
+  uncompressedBytes: number;
+  compressionRatio: number;
+}
+export interface CardinalityReport {
+  services: CardinalityTopRow[];
+  metrics:  CardinalityTopRow[];
+  attrKeys: CardinalityAttrKeyRow[];
+  columns:  CardinalityColumnRow[];
+  generatedAt: number;
+}
+
 export interface SamplingSettings {
   default: number;
   services: Record<string, number>;

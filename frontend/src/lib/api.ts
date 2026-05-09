@@ -74,6 +74,12 @@ export const api = {
   systemStats: () =>
     get<import('./types').SystemStats>('/api/admin/system-stats'),
 
+  // Cardinality / cost report — drives /admin/cardinality. 5-min
+  // server cache so a refresh-spamming admin doesn't trigger the
+  // attribute-key uniqExact scan repeatedly.
+  cardinality: () =>
+    get<import('./types').CardinalityReport>('/api/admin/cardinality'),
+
   // Multi-trace path-aggregated structure for a service. Returns a
   // tree of (service, operation, count, avgMs, maxMs, errorCount)
   // nodes — Grafana-Drilldown style. Each unique `(parent_path,

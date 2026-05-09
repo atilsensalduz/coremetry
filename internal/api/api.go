@@ -117,6 +117,7 @@ func (s *Server) Start() error {
 	// REST API
 	mux.HandleFunc("GET /api/services", s.getServices)
 	mux.HandleFunc("GET /api/admin/system-stats", s.getSystemStats)
+	mux.HandleFunc("GET /api/admin/cardinality",  auth.RequireRole(auth.RoleAdmin, s.getCardinality))
 	mux.HandleFunc("GET /api/services/{name}/structure", s.getServiceStructure)
 	mux.HandleFunc("GET /api/services/{name}/neighbors", s.getServiceNeighbors)
 	mux.HandleFunc("GET /api/service-map", s.getServiceMap)
@@ -376,6 +377,20 @@ func (s *Server) getServices(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getSystemStats(w http.ResponseWriter, r *http.Request) {
 	s.serveCached(w, r, "system-stats", 60*time.Second, func() (any, error) {
 		return s.store.GetSystemStats(r.Context())
+	})
+}
+
+// getCardinality returns the meta-observability "what's eating my
+// CH" report — top services / metrics / attribute keys / columns
+// by row count or storage bytes. Cached 5 min: the cardinality
+// surface changes on the order of deploys, not seconds, and the
+// queries (especially the attribute-key uniqExact) are heavier
+// than the per-table system.parts read. Admin-only because the
+// result exposes which services / metric names exist (mild
+// information leak in multi-tenant deployments).
+func (s *Server) getCardinality(w http.ResponseWriter, r *http.Request) {
+	s.serveCached(w, r, "cardinality", 5*time.Minute, func() (any, error) {
+		return s.store.GetCardinality(r.Context())
 	})
 }
 
