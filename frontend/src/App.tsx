@@ -24,7 +24,7 @@ const Dashboards        = lazy(() => import('./pages/Dashboards'));
 const Dashboard         = lazy(() => import('./pages/Dashboard'));
 const Incidents         = lazy(() => import('./pages/Incidents'));
 const Incident          = lazy(() => import('./pages/Incident'));
-const Anomalies         = lazy(() => import('./pages/Anomalies'));
+const Anomalies         = lazy(() => import('./features/anomalies'));
 const Problems          = lazy(() => import('./pages/Problems'));
 const Alerts            = lazy(() => import('./pages/Alerts'));
 const Slos              = lazy(() => import('./pages/Slos'));
