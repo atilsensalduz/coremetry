@@ -1,6 +1,11 @@
 import { useState, FormEvent } from 'react';
 import { api } from '@/lib/api';
+import { Modal, Field, Button, Stack } from '@/components/ui';
 
+// Refactored to lean on the new ui/ primitives — Modal handles
+// focus-trap + ESC + backdrop, Field carries label/hint/error
+// wiring, Button surfaces the loading state. Ten lines of
+// inline-style chrome went away; only the form logic remains.
 export function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
@@ -29,63 +34,55 @@ export function ChangePasswordModal({ onClose }: { onClose: () => void }) {
     }
   };
 
-  return (
-    <div onClick={onClose} style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
-      display: 'grid', placeItems: 'center', zIndex: 100,
-    }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        width: 360, padding: 24, borderRadius: 8,
-        background: 'var(--bg2)', border: '1px solid var(--border)',
-        boxShadow: '0 12px 36px rgba(0,0,0,0.3)',
-      }}>
-        <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 14 }}>
-          Change password
+  if (done) {
+    return (
+      <Modal open={true} onClose={onClose} title="Change password" size="sm">
+        <div style={{ color: 'var(--ok)', fontSize: 13 }}>
+          ✓ Password updated.
         </div>
+      </Modal>
+    );
+  }
 
-        {done ? (
-          <div style={{ color: 'var(--ok)', fontSize: 13 }}>
-            ✓ Password updated.
-          </div>
-        ) : (
-          <form onSubmit={submit}>
-            <Field label="Current password">
-              <input type="password" required autoFocus value={current}
-                onChange={e => setCurrent(e.target.value)} style={{ width: '100%' }} />
-            </Field>
-            <Field label="New password (min 6 chars)">
-              <input type="password" required minLength={6} value={next}
-                onChange={e => setNext(e.target.value)} style={{ width: '100%' }} />
-            </Field>
-            <Field label="Confirm new password">
-              <input type="password" required minLength={6} value={confirmPw}
-                onChange={e => setConfirmPw(e.target.value)} style={{ width: '100%' }} />
-            </Field>
-            {error && (
-              <div style={{
-                color: 'var(--err)', fontSize: 12, marginTop: 6,
-                padding: '6px 10px', background: 'rgba(220,38,38,0.08)',
-                border: '1px solid rgba(220,38,38,0.3)', borderRadius: 4,
-              }}>
-                {error}
-              </div>
-            )}
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 18 }}>
-              <button type="button" className="sec" onClick={onClose}>Cancel</button>
-              <button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Update'}</button>
-            </div>
-          </form>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label style={{ display: 'block', marginBottom: 12 }}>
-      <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 4 }}>{label}</div>
-      {children}
-    </label>
+    <Modal
+      open={true}
+      onClose={onClose}
+      title="Change password"
+      size="sm"
+      initialFocus="input[type=password]"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" form="change-pw-form" loading={busy}>Update</Button>
+        </>
+      }>
+      <form id="change-pw-form" onSubmit={submit}>
+        <Stack gap={3}>
+          <Field
+            label="Current password"
+            type="password" required value={current}
+            onChange={e => setCurrent(e.target.value)} />
+          <Field
+            label="New password"
+            hint="At least 6 characters."
+            type="password" required minLength={6} value={next}
+            onChange={e => setNext(e.target.value)} />
+          <Field
+            label="Confirm new password"
+            type="password" required minLength={6} value={confirmPw}
+            onChange={e => setConfirmPw(e.target.value)} />
+          {error && (
+            <div style={{
+              color: 'var(--err)', fontSize: 12,
+              padding: '6px 10px', background: 'rgba(220,38,38,0.08)',
+              border: '1px solid rgba(220,38,38,0.3)', borderRadius: 4,
+            }}>
+              {error}
+            </div>
+          )}
+        </Stack>
+      </form>
+    </Modal>
   );
 }
