@@ -43,7 +43,9 @@ java-demo/.mvn/
 # Logs + tmp
 *.log
 tmp/
-logs/
+# Anchored to repo root — bare `logs/` would match
+# frontend/src/app/logs/ (the Logs explorer route).
+/logs/
 
 # Helm
 charts/*.tgz

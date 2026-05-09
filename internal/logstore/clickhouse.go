@@ -89,7 +89,13 @@ func (s *CHStore) Histogram(ctx context.Context, f Filter, bucketSec int, groupB
 		args = append(args, f.Service)
 	}
 	if f.Search != "" {
-		wc += " AND positionCaseInsensitive(body, ?) > 0"
+		// multiSearchAnyCaseInsensitive uses the tokenbf_v1 index
+		// on body via the per-token bloom filter, so granules
+		// that don't contain the search substring are pruned
+		// before the row-level match runs. positionCaseInsensitive
+		// (the obvious choice) cannot use the index — at
+		// billion-log/day scale that's a full scan.
+		wc += " AND multiSearchAnyCaseInsensitive(body, [?])"
 		args = append(args, f.Search)
 	}
 	if f.SeverityMin > 0 {
@@ -101,16 +107,31 @@ func (s *CHStore) Histogram(ctx context.Context, f Filter, bucketSec int, groupB
 		args = append(args, f.TraceID)
 	}
 
+	// Top-20 groups by total count (mirrors the ES path's
+	// terms.size:20 cap). Without this a high-cardinality group
+	// like service_name with 10k+ services would return 10k ×
+	// N_buckets rows; the chart can't render that anyway.
 	sql := fmt.Sprintf(`
+		WITH top_groups AS (
+		  SELECT %s AS g, count() AS c
+		  FROM logs WHERE %s
+		  GROUP BY g
+		  ORDER BY c DESC
+		  LIMIT 20
+		)
 		SELECT %s AS g,
 		       toStartOfInterval(time, INTERVAL %d SECOND) AS bucket,
 		       count() AS c
 		FROM logs
-		WHERE %s
+		WHERE %s AND (%s) IN (SELECT g FROM top_groups)
 		GROUP BY g, bucket
 		ORDER BY g, bucket
-		LIMIT 50000
-		SETTINGS max_execution_time = 30`, groupExpr, bucketSec, wc)
+		SETTINGS max_execution_time = 30`,
+		groupExpr, wc,
+		groupExpr, bucketSec, wc, groupExpr)
+	// The IN-subquery references the same args twice (top_groups
+	// CTE + outer SELECT), so we duplicate the binding list.
+	args = append([]any{}, append(args, args...)...)
 
 	rows, err := s.store.Conn().Query(ctx, sql, args...)
 	if err != nil {

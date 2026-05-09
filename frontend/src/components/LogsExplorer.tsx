@@ -19,10 +19,22 @@ export function LogsExplorer({ range, viz, compare }: {
   compare: boolean;
 }) {
   const [service, setService] = useState('');
+  // Two-state search: `search` is what's typed (instant feedback in
+  // the input box), `committedSearch` is what actually flies to the
+  // backend. We re-key on the committed value only so a fast typist
+  // doesn't trigger one CH histogram-over-1B-rows per keystroke.
   const [search, setSearch]   = useState('');
+  const [committedSearch, setCommittedSearch] = useState('');
   const [groupBy, setGroupBy] = useState<'service' | 'severity' | ''>('severity');
   const [bucketSec, setBucketSec] = useState<number>(0); // 0 = auto
   const [series, setSeries]   = useState<ExploreSeries[] | null | undefined>(undefined);
+
+  // 400ms debounce — short enough that the chart feels live as the
+  // user pauses, long enough to absorb a typing burst.
+  useEffect(() => {
+    const t = setTimeout(() => setCommittedSearch(search), 400);
+    return () => clearTimeout(t);
+  }, [search]);
 
   useEffect(() => {
     setSeries(undefined);
@@ -33,7 +45,7 @@ export function LogsExplorer({ range, viz, compare }: {
 
     const fetchOne = (fromNs: number, toNs: number) => api.logsTimeseries({
       service: service || undefined,
-      search: search || undefined,
+      search: committedSearch || undefined,
       groupBy: groupBy || undefined,
       from: fromNs,
       to: toNs,
@@ -59,16 +71,17 @@ export function LogsExplorer({ range, viz, compare }: {
       }
       setSeries(out);
     }).catch(() => setSeries(null));
-  }, [range, service, search, groupBy, bucketSec, compare]);
+  }, [range, service, committedSearch, groupBy, bucketSec, compare]);
 
   return (
     <>
       <div className="controls">
         <ServicePicker value={service} onChange={setService}
           placeholder="Service…" width={200} />
-        <input placeholder="Body contains…"
+        <input placeholder="Body contains…  (Enter to apply)"
           value={search}
           onChange={e => setSearch(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') setCommittedSearch(search); }}
           style={{ width: 240 }} />
         <span style={{ color: 'var(--text2)', fontSize: 12, marginLeft: 4 }}>
           Group by:
