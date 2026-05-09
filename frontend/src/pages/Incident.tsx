@@ -1,12 +1,16 @@
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Link } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { useAuth } from '@/components/AuthProvider';
+import {
+  useIncident, useIncidentEvents, useIncidentProblems, keys,
+} from '@/lib/queries';
 import { api } from '@/lib/api';
 import { tsLong } from '@/lib/utils';
-import type { Incident, IncidentEvent } from '@/lib/types';
+import type { Incident } from '@/lib/types';
 
 export default function IncidentPage() {
   return <Suspense fallback={<Spinner />}><Inner /></Suspense>;
@@ -18,20 +22,34 @@ function Inner() {
   const { user } = useAuth();
   const id = sp.get('id') ?? '';
   const isAdmin = user?.role === 'admin' || user?.role === 'editor';
-  const [inc, setInc] = useState<Incident | null | undefined>(undefined);
-  const [timeline, setTimeline] = useState<IncidentEvent[]>([]);
-  const [problems, setProblems] = useState<string[]>([]);
+  const qc = useQueryClient();
+
+  // Three parallel queries — incident detail, timeline, attached
+  // problems. Each its own cache key so a timeline-only refresh
+  // (after an addNote) doesn't refetch the postmortem text.
+  const incQ = useIncident(id);
+  const timelineQ = useIncidentEvents(id);
+  const problemsQ = useIncidentProblems(id);
+  const inc = incQ.isLoading ? undefined : incQ.isError ? null : incQ.data;
+  const timeline = timelineQ.data ?? [];
+  const problems = problemsQ.data ?? [];
+
   const [note, setNote] = useState('');
   const [postmortemDraft, setPostmortemDraft] = useState('');
   const [editingPM, setEditingPM] = useState(false);
 
+  // Sync the postmortem draft with the loaded incident — only
+  // when not actively editing, so a save-in-progress doesn't
+  // get clobbered by a refetch.
+  useEffect(() => {
+    if (inc && !editingPM) setPostmortemDraft(inc.postmortem ?? '');
+  }, [inc, editingPM]);
+
   const refresh = () => {
-    if (!id) return;
-    api.getIncident(id).then(d => { setInc(d); setPostmortemDraft(d.postmortem ?? ''); }).catch(() => setInc(null));
-    api.incidentTimeline(id).then(t => setTimeline(t ?? []));
-    api.incidentProblems(id).then(p => setProblems(p ?? []));
+    qc.invalidateQueries({ queryKey: keys.incidents.one(id) });
+    qc.invalidateQueries({ queryKey: keys.incidents.events(id) });
+    qc.invalidateQueries({ queryKey: keys.incidents.problems(id) });
   };
-  useEffect(refresh, [id]);
 
   if (!id)             return <Empty icon="⚠" title="No incident selected" />;
   if (inc === undefined) return <Spinner />;

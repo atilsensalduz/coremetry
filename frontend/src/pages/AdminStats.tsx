@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
+import { useSystemStats, keys } from '@/lib/queries';
 import { api } from '@/lib/api';
 import { fmtNum, tsLong } from '@/lib/utils';
 import type {
-  SystemStats, TimeRange,
+  TimeRange,
   SystemStatus, ComponentHealth, StatusComponent,
 } from '@/lib/types';
 
@@ -19,28 +21,26 @@ import type {
 export default function AdminStatsPage() {
   // Topbar wants a TimeRange even though this page doesn't use it.
   const [range, setRange] = useState<TimeRange>({ preset: '15m' });
-  const [data, setData] = useState<SystemStats | null | undefined>(undefined);
-  const [refreshTick, setRefreshTick] = useState(0);
+  const qc = useQueryClient();
 
-  // Health probe payload — auto-refreshes every 30s independently
-  // of the heavier system-stats payload (which is 60s-cached).
-  const [status, setStatus] = useState<SystemStatus | null | undefined>(undefined);
-  useEffect(() => {
-    let cancelled = false;
-    const load = () => {
-      api.status()
-        .then(d => { if (!cancelled) setStatus(d); })
-        .catch(() => { if (!cancelled) setStatus(null); });
-    };
-    load();
-    const t = setInterval(load, 30_000);
-    return () => { cancelled = true; clearInterval(t); };
-  }, []);
+  // Health probe — its own poll cycle (30s) so a slow systemStats
+  // refetch doesn't block the freshness of the live banner.
+  const statusQ = useQuery<SystemStatus | null>({
+    queryKey: ['admin', 'status'],
+    queryFn: () => api.status(),
+    refetchInterval: 30_000,
+    staleTime: 25_000,
+  });
+  const status = statusQ.isLoading ? undefined : statusQ.isError ? null : statusQ.data;
 
-  useEffect(() => {
-    setData(undefined);
-    api.systemStats().then(setData).catch(() => setData(null));
-  }, [refreshTick]);
+  // System stats — 60s cached on the server, 60s polled on the
+  // client. Refresh button invalidates the cache via the
+  // useQueryClient handle.
+  const dataQ = useSystemStats();
+  const data = dataQ.isLoading ? undefined : dataQ.isError ? null : dataQ.data;
+  const setRefreshTick = (_n: number | ((p: number) => number)) => {
+    qc.invalidateQueries({ queryKey: keys.admin.systemStats });
+  };
 
   const histMax = useMemo(() => {
     if (!data?.history?.length) return 0;

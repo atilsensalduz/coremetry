@@ -1,11 +1,11 @@
-import { useEffect, useState, FormEvent } from 'react';
+import { useState, FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { useAuth } from '@/components/AuthProvider';
 import { ServicePicker } from '@/components/ServicePicker';
 import { Modal, Button, Field, SelectField, TextareaField, Row } from '@/components/ui';
-import { api } from '@/lib/api';
+import { useIncidents, useCreateIncident } from '@/lib/queries';
 import { tsLong, fmtNum } from '@/lib/utils';
 import type { Incident, IncidentStatus } from '@/lib/types';
 
@@ -16,20 +16,20 @@ import type { Incident, IncidentStatus } from '@/lib/types';
 export default function IncidentsPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin' || user?.role === 'editor';
-  const [items, setItems] = useState<Incident[] | null | undefined>(undefined);
   const [statusFilter, setStatusFilter] = useState<'all' | IncidentStatus>('all');
   const [serviceFilter, setServiceFilter] = useState('');
   const [showNew, setShowNew] = useState(false);
 
-  const refresh = () => {
-    setItems(undefined);
-    api.listIncidents({
-      status: statusFilter === 'all' ? '' : statusFilter,
-      service: serviceFilter || undefined,
-      limit: 200,
-    }).then(d => setItems(d ?? [])).catch(() => setItems(null));
-  };
-  useEffect(refresh, [statusFilter, serviceFilter]);
+  const incidentsQ = useIncidents({
+    status: statusFilter === 'all' ? '' : statusFilter,
+    service: serviceFilter || undefined,
+    limit: 200,
+  });
+  const items: Incident[] | null | undefined = incidentsQ.isLoading
+    ? undefined
+    : incidentsQ.isError
+      ? null
+      : incidentsQ.data ?? [];
 
   const counts = { open: 0, acknowledged: 0, resolved: 0 };
   for (const i of items ?? []) counts[i.status]++;
@@ -99,7 +99,7 @@ export default function IncidentsPage() {
           </div>
         )}
         {showNew && (
-          <NewIncidentModal onClose={() => setShowNew(false)} onCreated={() => { setShowNew(false); refresh(); }} />
+          <NewIncidentModal onClose={() => setShowNew(false)} onCreated={() => setShowNew(false)} />
         )}
       </div>
     </>
@@ -127,14 +127,17 @@ function fmtDuration(start: number, end?: number): string {
 
 function NewIncidentModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [i, setI] = useState<Partial<Incident>>({ severity: 'warning', title: '', service: '' });
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Mutation hook handles busy state + cache invalidation;
+  // onSuccess in the hook fires invalidateQueries(keys.incidents.all)
+  // so the parent list refreshes automatically.
+  const createIncident = useCreateIncident();
+  const busy = createIncident.isPending;
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    setBusy(true); setError(null);
-    try { await api.createIncident(i); onCreated(); }
+    setError(null);
+    try { await createIncident.mutateAsync(i); onCreated(); }
     catch (err: unknown) { setError(err instanceof Error ? err.message : 'Save failed'); }
-    finally { setBusy(false); }
   };
   return (
     <Modal

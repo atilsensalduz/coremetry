@@ -18,4 +18,8 @@ export {
 export {
   useSystemStats, useCardinality, useSamplingSettings, useUpdateSampling,
 } from './admin';
+export {
+  useIncidents, useIncident, useIncidentEvents, useIncidentProblems,
+  useCreateIncident, useUpdateIncident,
+} from './incidents';
 export { useEventStream } from './eventStream';

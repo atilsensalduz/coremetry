@@ -65,7 +65,7 @@ export const keys = {
 
   incidents: {
     all:         ['incidents'] as const,
-    list:        (filter: { status?: string; assignee?: string }) =>
+    list:        (filter: { status?: string; service?: string; severity?: string; limit?: number }) =>
                    ['incidents', 'list', filter] as const,
     one:         (id: string) =>
                    ['incidents', 'one', id] as const,

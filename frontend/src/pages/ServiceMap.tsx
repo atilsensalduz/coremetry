@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { ServiceMapGraph } from '@/components/ServiceMapGraph';
-import { api } from '@/lib/api';
-import type { ServiceMap, TimeRange } from '@/lib/types';
+import { useServiceMap } from '@/lib/queries';
+import type { TimeRange } from '@/lib/types';
 
 const PRESETS: { key: TimeRange['preset']; secs: number; label: string }[] = [
   { key: '5m',  secs: 300,    label: '5m'  },
@@ -23,18 +23,18 @@ const PRESETS: { key: TimeRange['preset']; secs: number; label: string }[] = [
 export default function ServiceMapPage() {
   const [range, setRange] = useState<TimeRange>({ preset: '15m' });
   const [samples, setSamples] = useState(200);
-  const [data, setData] = useState<ServiceMap | null | undefined>(undefined);
+  const since = (PRESETS.find(p => p.key === range.preset)?.secs ?? 900) + 's';
 
-  useEffect(() => {
-    setData(undefined);
-    const since = (PRESETS.find(p => p.key === range.preset)?.secs ?? 900) + 's';
-    const fetchOnce = () => api.serviceMap(since, samples)
-      .then(d => setData(d ?? { nodes: [], edges: [], sampledFrom: 0, totalSpans: 0 }))
-      .catch(() => setData(null));
-    fetchOnce();
-    const t = setInterval(fetchOnce, 30_000);
-    return () => clearInterval(t);
-  }, [range, samples]);
+  // useServiceMap polls every 30s, dedups across mounts, and
+  // shares cache with anything else asking for the same
+  // (since, samples) pair (currently nothing, but the contract
+  // is in place).
+  const mapQ = useServiceMap(since, samples);
+  const data = mapQ.isLoading
+    ? undefined
+    : mapQ.isError
+      ? null
+      : mapQ.data ?? { nodes: [], edges: [], sampledFrom: 0, totalSpans: 0 };
 
   return (
     <>
