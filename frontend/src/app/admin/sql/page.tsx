@@ -166,8 +166,8 @@ export default function SQLPlaygroundPage() {
                     {open ? '▾' : '▸'}
                   </button>
                   <button type="button"
-                    onClick={() => insertAtCursor(`SELECT * FROM ${t.table} LIMIT 100`)}
-                    title={`Insert: SELECT * FROM ${t.table} LIMIT 100`}
+                    onClick={() => setQuery(`SELECT * FROM ${t.table} LIMIT 100`)}
+                    title={`Replace editor with: SELECT * FROM ${t.table} LIMIT 100`}
                     style={{
                       flex: 1, textAlign: 'left',
                       background: 'transparent', border: 'none', cursor: 'pointer',

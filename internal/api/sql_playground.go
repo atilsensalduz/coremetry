@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"reflect"
 	"regexp"
 	"strings"
 	"time"
@@ -127,34 +128,50 @@ func (s *Server) execSQL(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
+	// The clickhouse-go driver rejects bare `*interface{}` scan
+	// destinations on String / FixedString / typed columns —
+	// "converting String to *interface {} is unsupported". We
+	// have no schema knowledge here (the operator typed the
+	// query), so we reflectively allocate a destination of the
+	// column's ScanType() ahead of every row, scan into those
+	// pointers, then dereference + JSON-friendly-ify (timestamps
+	// → RFC3339, []byte → string, big.Int → string, etc.).
 	cts := rows.ColumnTypes()
 	cols := make([]string, len(cts))
+	scanTypes := make([]reflect.Type, len(cts))
 	for i, c := range cts {
 		cols[i] = c.Name()
+		scanTypes[i] = c.ScanType()
+		if scanTypes[i] == nil {
+			// Fallback: driver couldn't infer a Go type. `string`
+			// is the safest universal target — CH will format
+			// the value through its TextEncoder.
+			scanTypes[i] = reflect.TypeOf("")
+		}
 	}
 
 	out := make([][]any, 0, 64)
 	for rows.Next() {
-		// Allocate a generic destination per row — CH driver
-		// fills concrete types via reflection.
-		dest := make([]any, len(cts))
+		// Per row: allocate concrete pointers per column's scan
+		// type. reflect.New(T) returns *T as reflect.Value;
+		// .Interface() gets the pointer back to driver-friendly
+		// `any` form for Scan().
 		ptrs := make([]any, len(cts))
-		for i := range dest {
-			ptrs[i] = &dest[i]
+		dests := make([]reflect.Value, len(cts))
+		for i := range cts {
+			v := reflect.New(scanTypes[i])
+			ptrs[i] = v.Interface()
+			dests[i] = v.Elem()
 		}
 		if err := rows.Scan(ptrs...); err != nil {
 			writeJSON(w, map[string]any{"error": err.Error()})
 			return
 		}
-		// Stringify time-like values for JSON safety; everything
-		// else passes through as-is (Go's default JSON encoder
-		// handles primitives correctly).
-		for i, v := range dest {
-			if t, ok := v.(time.Time); ok {
-				dest[i] = t.Format(time.RFC3339Nano)
-			}
+		row := make([]any, len(cts))
+		for i := range cts {
+			row[i] = jsonifyValue(dests[i].Interface())
 		}
-		out = append(out, dest)
+		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {
 		writeJSON(w, map[string]any{"error": err.Error()})
@@ -173,6 +190,39 @@ func (s *Server) execSQL(w http.ResponseWriter, r *http.Request) {
 		"rowCount": len(out),
 		"tookMs":   took.Milliseconds(),
 	})
+}
+
+// jsonifyValue normalises a CH driver scan output into a value
+// the default JSON encoder + the SPA's table renderer can both
+// handle without custom marshalling. Most Go primitives pass
+// through; the few CH-specific types (time.Time, big numbers,
+// []byte, UUIDs as [16]byte) are stringified for transport.
+//
+// Pointers are flattened to their pointee — `*string` → `string`,
+// nil → JSON null. Arrays / Maps fall through; the encoder
+// renders them as arrays / objects natively.
+func jsonifyValue(v any) any {
+	if v == nil {
+		return nil
+	}
+	rv := reflect.ValueOf(v)
+	if rv.Kind() == reflect.Ptr {
+		if rv.IsNil() {
+			return nil
+		}
+		v = rv.Elem().Interface()
+	}
+	switch x := v.(type) {
+	case time.Time:
+		return x.Format(time.RFC3339Nano)
+	case []byte:
+		return string(x)
+	case fmt.Stringer:
+		// Covers big.Int / big.Float / decimal / netip.Addr,
+		// any custom CH type that implements Stringer.
+		return x.String()
+	}
+	return v
 }
 
 // SchemaTable + SchemaColumn drive the playground's left-side
