@@ -31,6 +31,7 @@ import (
 	"github.com/cilcenk/coremetry/internal/config"
 	"github.com/cilcenk/coremetry/internal/profileconv"
 	"github.com/cilcenk/coremetry/internal/sampling"
+	"github.com/cilcenk/coremetry/internal/sse"
 )
 
 type Server struct {
@@ -46,6 +47,7 @@ type Server struct {
 	notify      *notify.Notifier
 	copilot     *copilot.Service  // nil when AI key not configured
 	sampler     *sampling.Sampler // always set; Snapshot() reports current ratios
+	bus         *sse.Broker       // in-process SSE pub/sub for live UI updates
 
 	// Demo deployments only — when true, /api/auth/config returns
 	// initial admin credentials so the login page can pre-fill them.
@@ -78,11 +80,11 @@ type rateSample struct {
 	count int64
 }
 
-func NewServer(addr string, ing *otlp.Ingester, store *chstore.Store, logs logstore.Store, webFS embed.FS, authSvc *auth.Service, oidcSvc *auth.OIDCService, ldapSvc *ldap.Service, c cache.Cache, n *notify.Notifier, cop *copilot.Service, smp *sampling.Sampler) *Server {
+func NewServer(addr string, ing *otlp.Ingester, store *chstore.Store, logs logstore.Store, webFS embed.FS, authSvc *auth.Service, oidcSvc *auth.OIDCService, ldapSvc *ldap.Service, c cache.Cache, n *notify.Notifier, cop *copilot.Service, smp *sampling.Sampler, bus *sse.Broker) *Server {
 	return &Server{
 		addr: addr, store: store, logs: logs, ing: ing, webFS: webFS,
 		auth: authSvc, oidc: oidcSvc, ldap: ldapSvc, cache: c, notify: n, copilot: cop,
-		sampler: smp,
+		sampler: smp, bus: bus,
 		rateSamples: map[string]rateSample{},
 	}
 }
@@ -118,6 +120,14 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/services", s.getServices)
 	mux.HandleFunc("GET /api/admin/system-stats", s.getSystemStats)
 	mux.HandleFunc("GET /api/admin/cardinality",  auth.RequireRole(auth.RoleAdmin, s.getCardinality))
+	// SSE event stream — long-lived connection, fans out
+	// problem.* / anomaly.* events from the in-process bus.
+	// EventSource sends the auth cookie automatically since
+	// it's same-origin; the global auth middleware enforces
+	// session validity on connection establishment.
+	if s.bus != nil {
+		mux.Handle("GET /api/events", sse.Handler(s.bus))
+	}
 	mux.HandleFunc("GET /api/services/{name}/structure", s.getServiceStructure)
 	mux.HandleFunc("GET /api/services/{name}/neighbors", s.getServiceNeighbors)
 	mux.HandleFunc("GET /api/service-map", s.getServiceMap)

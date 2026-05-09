@@ -1,6 +1,7 @@
 import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { useAuth } from './AuthProvider';
+import { useEventStream } from '@/lib/queries';
 import { isPublicPath } from '@/lib/auth-paths';
 
 // AppShell is the layout-route wrapper. React Router renders the
@@ -15,6 +16,13 @@ export function AppShell() {
   const { pathname } = useLocation();
   const { user, loading } = useAuth();
   const isPublic = isPublicPath(pathname);
+
+  // SSE event stream — opens once we're authed + outside the
+  // public surface (login, public-status). Receives
+  // problem.open / problem.resolve / anomaly.* events and
+  // invalidates the matching React Query caches so live state
+  // changes show up in <1s. Closes on logout / unmount.
+  useEventStream(!!user && !isPublic);
 
   if (isPublic) {
     return <Outlet />;

@@ -18,3 +18,4 @@ export {
 export {
   useSystemStats, useCardinality, useSamplingSettings, useUpdateSampling,
 } from './admin';
+export { useEventStream } from './eventStream';

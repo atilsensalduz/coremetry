@@ -31,6 +31,7 @@ import (
 	"github.com/cilcenk/coremetry/internal/notify"
 	"github.com/cilcenk/coremetry/internal/otlp"
 	"github.com/cilcenk/coremetry/internal/sampling"
+	"github.com/cilcenk/coremetry/internal/sse"
 )
 
 //go:embed all:frontend/dist
@@ -197,6 +198,17 @@ func main() {
 	// ── Notifier (SMTP-driven email; slack/webhook stubs) ────────────────────
 	notifier := notify.New(store)
 
+	// ── SSE event broker (in-process pub/sub) ────────────────────────────────
+	// Producers: evaluator, anomaly detector. Consumers: every
+	// browser tab open on /problems, /anomalies, /incidents.
+	// The broker auto-fans events to subscribers; React Query
+	// invalidates the relevant cache key when the client receives
+	// a kind=problem.* / anomaly.* event, so a state change reaches
+	// the UI in <1s instead of waiting up to 30s for the next
+	// poll.
+	bus := sse.NewBroker()
+	notifier.SetEventBus(bus)
+
 	// ── Alert evaluator (background — opens & resolves problems) ─────────────
 	evalr := evaluator.New(store, time.Minute, lockImpl, notifier)
 	go evalr.Start(ctx)
@@ -305,7 +317,7 @@ func main() {
 	}
 
 	// ── HTTP server (OTLP + API + UI) ─────────────────────────────────────────
-	srv := api.NewServer(cfg.Listen.HTTP, ing, store, logsStore, webFS, authSvc, oidcSvc, ldapSvc, cacheImpl, notifier, copilotSvc, sampler)
+	srv := api.NewServer(cfg.Listen.HTTP, ing, store, logsStore, webFS, authSvc, oidcSvc, ldapSvc, cacheImpl, notifier, copilotSvc, sampler, bus)
 	srv.SetVersion(Version)
 	if cfg.Auth.DemoMode {
 		// Demo mode auto-signs the visitor in as the configured initial

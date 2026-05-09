@@ -87,6 +87,15 @@ type WhatsAppChannelConfig struct {
 	To         []string `json:"to"`
 }
 
+// EventPublisher is the minimum interface we need from the SSE
+// broker. Defined here as an interface (rather than depending
+// on internal/sse directly) so the notify package stays
+// import-cycle-free — the broker can use chstore types if it
+// ever wants to without circling back.
+type EventPublisher interface {
+	Publish(kind string, payload any)
+}
+
 // Notifier is the small surface the evaluator + anomaly worker call into.
 // Construction is cheap; share one across the process.
 type Notifier struct {
@@ -95,10 +104,39 @@ type Notifier struct {
 	mu       sync.RWMutex
 	smtp     SMTPSettings
 	smtpRead time.Time // last refresh — short TTL avoids hammering CH on every alert
+
+	// bus is the optional SSE broker. When set, every problem-
+	// open / problem-resolve / anomaly fire publishes a typed
+	// event so connected browser tabs update in <1s instead of
+	// waiting for the next poll. nil = behave as before
+	// (poll-only).
+	bus EventPublisher
 }
 
 func New(store *chstore.Store) *Notifier {
 	return &Notifier{store: store}
+}
+
+// SetEventBus wires the SSE broker. Called once at startup; the
+// notifier stores the reference and publishes Problem.* events
+// from SendProblemAlert.
+func (n *Notifier) SetEventBus(bus EventPublisher) {
+	n.mu.Lock()
+	n.bus = bus
+	n.mu.Unlock()
+}
+
+// Publish surfaces the event bus to other workers (evaluator,
+// anomaly detector) that already have a Notifier reference but
+// shouldn't import the broker directly. Safe pass-through; nil
+// bus = no-op.
+func (n *Notifier) Publish(kind string, payload any) {
+	n.mu.RLock()
+	bus := n.bus
+	n.mu.RUnlock()
+	if bus != nil {
+		bus.Publish(kind, payload)
+	}
 }
 
 // SMTP returns the cached settings (read-through with 30s TTL). Safe for
@@ -156,7 +194,20 @@ func (n *Notifier) SaveSMTP(ctx context.Context, s SMTPSettings) error {
 // SendProblemAlert fans out a problem to every channel that wants this
 // severity. Errors are logged per-channel; partial failures don't abort
 // the rest.
+//
+// Also fires an SSE event so the browser-side React Query
+// caches invalidate immediately rather than waiting for the
+// next poll. Kind is "problem.open" / "problem.resolve" so the
+// client can decide what to invalidate (open events bump the
+// sidebar badge; resolve events also do, plus drop a row from
+// the open list).
 func (n *Notifier) SendProblemAlert(ctx context.Context, p chstore.Problem) {
+	switch p.Status {
+	case "open":
+		n.Publish("problem.open", p)
+	case "resolved":
+		n.Publish("problem.resolve", p)
+	}
 	channels, err := n.store.EnabledChannelsForSeverity(ctx, p.Severity)
 	if err != nil {
 		log.Printf("[notify] load channels: %v", err)
