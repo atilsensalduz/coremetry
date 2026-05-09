@@ -72,7 +72,18 @@ type ColumnRow struct {
 //     arrayJoin. 100k × ~20 attrs/row = 2M rows post-explode,
 //     uniqExact handles that sub-second.
 func (s *Store) GetCardinality(ctx context.Context) (*CardinalityReport, error) {
-	out := &CardinalityReport{GeneratedAt: time.Now().UnixNano()}
+	// Initialise every slice to empty (not nil) so Go marshals
+	// to `[]` rather than `null` when a sub-query fails or
+	// returns no rows. The frontend defensively handles `null`
+	// too, but `[]` is the correct on-the-wire shape and
+	// avoids crashing any consumer that doesn't expect null.
+	out := &CardinalityReport{
+		Services:    []TopRow{},
+		Metrics:     []TopRow{},
+		AttrKeys:    []AttrKeyRow{},
+		Columns:     []ColumnRow{},
+		GeneratedAt: time.Now().UnixNano(),
+	}
 
 	// ── Top services (24h span count) ─────────────────────────
 	if rows, err := s.conn.Query(ctx, `

@@ -73,12 +73,19 @@ export default function AdminCardinalityPage() {
             <Row gap={4} wrap>
               <Card style={{ flex: '1 1 380px', minWidth: 0 }}
                     header={<>Top services by 24h spans</>}>
-                <TopRowList rows={data.services} unit="spans" />
+                {/* Defensive `?? []` everywhere — Go marshals
+                    a nil slice as JSON null, so when one of
+                    the four sub-queries silently fails (e.g.
+                    the uniqExact attribute scan times out
+                    on a billion-span tenant), the field on
+                    the response is `null` rather than `[]`,
+                    and `.length` on that crashes the page. */}
+                <TopRowList rows={data.services ?? []} unit="spans" />
               </Card>
 
               <Card style={{ flex: '1 1 380px', minWidth: 0 }}
                     header={<>Top metrics by 24h points</>}>
-                <TopRowList rows={data.metrics} unit="points" />
+                <TopRowList rows={data.metrics ?? []} unit="points" />
               </Card>
             </Row>
 
@@ -88,11 +95,11 @@ export default function AdminCardinalityPage() {
                 — sampled from the last 100k spans of the most recent hour. High counts here = unbounded labels (user IDs, raw URLs, request IDs); the worst storage offenders.
               </span>
             </>}>
-              <AttrKeyTable rows={data.attrKeys} />
+              <AttrKeyTable rows={data.attrKeys ?? []} />
             </Card>
 
             <Card header={<>Top columns by compressed bytes</>}>
-              <ColumnTable rows={data.columns} />
+              <ColumnTable rows={data.columns ?? []} />
             </Card>
           </Stack>
         )}
