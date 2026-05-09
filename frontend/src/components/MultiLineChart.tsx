@@ -117,6 +117,84 @@ export function MultiLineChart({
       ],
       cursor: { x: true, y: true, focus: { prox: 30 } },
       legend: { show: true, live: true, markers: { width: 2 } },
+      hooks: {
+        // Grafana-style hover tooltip — the floating panel
+        // matches what Datadog / Honeycomb / Grafana all do
+        // (hover anywhere on the chart and see all series'
+        // values at that x). uPlot's native legend already
+        // updates the bottom table with `live: true`, but
+        // operators expect the panel to show up next to the
+        // cursor so they don't have to look down. Single DOM
+        // mutation per move event, no overlay canvas.
+        setCursor: [
+          (u) => {
+            const tip = el.querySelector('.uplot-tooltip') as HTMLDivElement | null;
+            if (!tip) return;
+            const idx = u.cursor.idx;
+            if (idx == null || idx < 0) {
+              tip.style.opacity = '0';
+              return;
+            }
+            const xVal = u.data[0][idx];
+            if (xVal == null) {
+              tip.style.opacity = '0';
+              return;
+            }
+            // Format X (unix seconds → HH:MM:SS).
+            const d = new Date((xVal as number) * 1000);
+            const hh = d.getHours().toString().padStart(2, '0');
+            const mm = d.getMinutes().toString().padStart(2, '0');
+            const ss = d.getSeconds().toString().padStart(2, '0');
+            // Build per-series rows. Skip null values so
+            // gaps in one series don't push down rows from
+            // others. Sort by value desc so the hottest
+            // series shows on top — same behaviour we had
+            // in the Chart.js tooltip.
+            type Row = { label: string; color: string; v: number };
+            const rows: Row[] = [];
+            for (let i = 0; i < series.length; i++) {
+              const yArr = u.data[i + 1];
+              if (!yArr) continue;
+              const v = yArr[idx];
+              if (v == null) continue;
+              const s = series[i];
+              const label = s.groupKey.length ? s.groupKey.join(' / ') : 'value';
+              rows.push({ label, color: hashColor(label), v: v as number });
+            }
+            if (rows.length === 0) {
+              tip.style.opacity = '0';
+              return;
+            }
+            rows.sort((a, b) => b.v - a.v);
+            const fmt = (n: number) =>
+              `${n.toFixed(3)}${unit ? ' ' + unit : ''}`;
+            tip.innerHTML =
+              `<div style="font-weight:600;margin-bottom:4px">${hh}:${mm}:${ss}</div>` +
+              rows.map(r =>
+                `<div style="display:flex;gap:8px;align-items:center;line-height:1.5">` +
+                  `<span style="display:inline-block;width:8px;height:8px;background:${r.color};border-radius:2px;flex-shrink:0"></span>` +
+                  `<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:240px" title="${r.label}">${r.label}</span>` +
+                  `<span style="font-family:ui-monospace,monospace;font-variant-numeric:tabular-nums">${fmt(r.v)}</span>` +
+                `</div>`,
+              ).join('');
+            tip.style.opacity = '1';
+            // Position: by default 12px right + below the
+            // cursor. If the tooltip would clip past the
+            // right edge, flip to the left side. Same flip
+            // for the bottom edge so the tooltip never goes
+            // outside the chart canvas.
+            const cw = el.clientWidth;
+            const tw = tip.offsetWidth;
+            const th = tip.offsetHeight;
+            const left = u.cursor.left ?? 0;
+            const top  = u.cursor.top  ?? 0;
+            const x = left + 12 + tw > cw ? left - tw - 12 : left + 12;
+            const y = top + 12 + th > height ? top - th - 12 : top + 12;
+            tip.style.left = `${Math.max(0, x)}px`;
+            tip.style.top  = `${Math.max(0, y)}px`;
+          },
+        ],
+      },
     };
 
     plotRef.current = new uPlot(opts, data, el);
@@ -186,14 +264,28 @@ export function MultiLineChart({
   // Container does NOT pin its height — uPlot creates a canvas
   // of `height` pixels plus a legend table beneath it, and we
   // want the component to take whatever total vertical space
-  // chart+legend need. A fixed-height container caused the
-  // legend to overflow into the next page section, surfacing
-  // as "the chart stretches downward and breaks". Callers that
-  // want a strict cap can wrap us in a container with their own
-  // overflow rules.
+  // chart+legend need.
+  //
+  // The .uplot-tooltip child is the Grafana-style floating
+  // panel updated by the setCursor hook above. opacity:0 by
+  // default; the hook flips it on when the cursor enters the
+  // chart and updates content + position on every move.
   return (
     <div ref={containerRef} style={{
       position: 'relative', width: '100%',
-    }} />
+    }}>
+      <div className="uplot-tooltip" style={{
+        position: 'absolute', pointerEvents: 'none',
+        background: 'rgba(20,24,30,0.96)',
+        border: '1px solid rgba(125,140,160,0.30)',
+        borderRadius: 4,
+        padding: '8px 10px',
+        fontSize: 11, color: 'var(--text)',
+        opacity: 0, transition: 'opacity .08s',
+        zIndex: 5,
+        boxShadow: '0 4px 14px rgba(0,0,0,0.4)',
+        maxWidth: 320,
+      }} />
+    </div>
   );
 }

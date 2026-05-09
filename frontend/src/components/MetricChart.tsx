@@ -80,6 +80,53 @@ export function MetricChart({
       ],
       cursor: { x: true, y: true, focus: { prox: 30 } },
       legend: { show: true, live: true, markers: { width: 2 } },
+      hooks: {
+        // Floating tooltip near the cursor — same UX as
+        // MultiLineChart (Grafana / Datadog style). Single
+        // series so the panel just shows one row.
+        setCursor: [
+          (u) => {
+            const tip = el.querySelector('.uplot-tooltip') as HTMLDivElement | null;
+            if (!tip) return;
+            const idx = u.cursor.idx;
+            if (idx == null || idx < 0) {
+              tip.style.opacity = '0';
+              return;
+            }
+            const xVal = u.data[0][idx];
+            const yVal = u.data[1] ? u.data[1][idx] : null;
+            if (xVal == null || yVal == null) {
+              tip.style.opacity = '0';
+              return;
+            }
+            const d = new Date((xVal as number) * 1000);
+            const hh = d.getHours().toString().padStart(2, '0');
+            const mm = d.getMinutes().toString().padStart(2, '0');
+            const ss = d.getSeconds().toString().padStart(2, '0');
+            const valStr =
+              Math.abs(yVal as number) >= 100 ? (yVal as number).toFixed(0) :
+              Math.abs(yVal as number) >= 1   ? (yVal as number).toFixed(2) :
+                                                 (yVal as number).toFixed(4);
+            tip.innerHTML =
+              `<div style="font-weight:600;margin-bottom:2px">${hh}:${mm}:${ss}</div>` +
+              `<div style="display:flex;gap:8px;align-items:center">` +
+                `<span style="display:inline-block;width:8px;height:8px;background:#388bfd;border-radius:2px"></span>` +
+                `<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${name}">${name}</span>` +
+                `<span style="font-family:ui-monospace,monospace;font-variant-numeric:tabular-nums">${valStr}</span>` +
+              `</div>`;
+            tip.style.opacity = '1';
+            const cw = el.clientWidth;
+            const tw = tip.offsetWidth;
+            const th = tip.offsetHeight;
+            const left = u.cursor.left ?? 0;
+            const top  = u.cursor.top  ?? 0;
+            const x = left + 12 + tw > cw ? left - tw - 12 : left + 12;
+            const y = top + 12 + th > height ? top - th - 12 : top + 12;
+            tip.style.left = `${Math.max(0, x)}px`;
+            tip.style.top  = `${Math.max(0, y)}px`;
+          },
+        ],
+      },
     };
 
     plotRef.current = new uPlot(opts, [xs, ys], el);
@@ -98,10 +145,23 @@ export function MetricChart({
     };
   }, [name, points, height]);
 
-  // Container width-only — the canvas is `height` pixels plus
-  // an inline legend below, total component height = canvas +
-  // legend. Pinning the container to `height` clipped (or
-  // overflowed) the legend; letting it grow naturally keeps
-  // the layout stable.
-  return <div ref={containerRef} style={{ width: '100%' }} />;
+  // Container width-only; uPlot owns the canvas height. The
+  // .uplot-tooltip child is updated by the setCursor hook
+  // above (Grafana-style floating value panel).
+  return (
+    <div ref={containerRef} style={{ position: 'relative', width: '100%' }}>
+      <div className="uplot-tooltip" style={{
+        position: 'absolute', pointerEvents: 'none',
+        background: 'rgba(20,24,30,0.96)',
+        border: '1px solid rgba(125,140,160,0.30)',
+        borderRadius: 4,
+        padding: '8px 10px',
+        fontSize: 11, color: 'var(--text)',
+        opacity: 0, transition: 'opacity .08s',
+        zIndex: 5,
+        boxShadow: '0 4px 14px rgba(0,0,0,0.4)',
+        maxWidth: 320,
+      }} />
+    </div>
+  );
 }
