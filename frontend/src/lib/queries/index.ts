@@ -13,7 +13,7 @@ export {
 } from './anomalies';
 export {
   useServices, useServiceNames, useServiceMap,
-  useServiceInfra, useServiceNeighbors,
+  useServiceInfra, useServiceNeighbors, useServiceRuntime,
 } from './services';
 export {
   useSystemStats, useCardinality, useSamplingSettings, useUpdateSampling,

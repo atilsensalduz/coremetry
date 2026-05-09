@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { keys } from './keys';
-import type { Service, ServiceMap, InfraMetricSeries, NeighborStat } from '@/lib/types';
+import type { Service, ServiceMap, InfraMetricSeries, NeighborStat, ServiceRuntime } from '@/lib/types';
 
 // /api/services + related — the topology side of the app.
 // `range` carries the time window so two pages with different
@@ -46,6 +46,18 @@ export function useServiceInfra(svc: string, since: string) {
     queryFn: async () => (await api.serviceInfraMetrics(svc, since)) ?? [],
     enabled: !!svc,
     staleTime: 30_000,
+  });
+}
+
+export function useServiceRuntime(svc: string) {
+  return useQuery<ServiceRuntime>({
+    queryKey: keys.services.runtime(svc),
+    queryFn: () => api.serviceRuntime(svc),
+    enabled: !!svc,
+    // Runtime fingerprint changes only on deploy. 5 min stale
+    // matches the server cache; longer would mean a fresh
+    // deploy takes a while to surface in the badge.
+    staleTime: 5 * 60_000,
   });
 }
 

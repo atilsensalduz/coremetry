@@ -34,6 +34,8 @@ export const keys = {
                    ['services', 'neighbors', svc, since, samples] as const,
     infra:       (svc: string, since: string) =>
                    ['services', 'infra', svc, since] as const,
+    runtime:     (svc: string) =>
+                   ['services', 'runtime', svc] as const,
     map:         (since: string, samples: number) =>
                    ['services', 'map', since, samples] as const,
     backtrace:   (svc: string, opts: { since?: string; from?: number; to?: number; limit?: number }) =>

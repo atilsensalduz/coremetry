@@ -114,6 +114,14 @@ export const api = {
     get<import('./types').InfraMetricSeries[]>(
       `/api/services/${encodeURIComponent(svc)}/infra?since=${since}`),
 
+  // Technology fingerprint — language, SDK version, runtime
+  // name + version, host, OS. Server-cached 5 min; UI shows a
+  // small "Java OpenJDK 21" / "Go 1.22" badge above the infra
+  // panel.
+  serviceRuntime: (svc: string) =>
+    get<import('./types').ServiceRuntime>(
+      `/api/services/${encodeURIComponent(svc)}/runtime`),
+
   // Global service-level topology graph — nodes + directed edges
   // derived from sampled recent traces. Powers the /service-map
   // page; 30s server-side cache.

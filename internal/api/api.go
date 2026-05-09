@@ -133,6 +133,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/service-map", s.getServiceMap)
 	mux.HandleFunc("GET /api/services/{name}/backtrace", s.getServiceBacktrace)
 	mux.HandleFunc("GET /api/services/{name}/infra",     s.getServiceInfraMetrics)
+	mux.HandleFunc("GET /api/services/{name}/runtime",   s.getServiceRuntime)
 	mux.HandleFunc("GET /api/services/graph", s.getServiceGraph)
 	mux.HandleFunc("GET /api/services/sparklines", s.getServiceSparklines)
 	mux.HandleFunc("GET /api/service-names",       s.getServiceNames)
@@ -462,6 +463,29 @@ func (s *Server) getServiceInfraMetrics(w http.ResponseWriter, r *http.Request) 
 	key := fmt.Sprintf("infra-metrics:svc=%s:since=%s", name, since)
 	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
 		return s.store.GetInfraMetrics(r.Context(), name, since, 0)
+	})
+}
+
+// getServiceRuntime returns the technology fingerprint
+// (language, SDK version, runtime name + version, host, OS)
+// for a service, derived from the latest span's resource
+// attributes. Powers the small "Java OpenJDK 21" / "Go 1.22"
+// badge above the infra panel on /service?name=… so the
+// operator immediately sees what stack they're investigating.
+//
+// Cached 5 min — the runtime changes only on deploy, no point
+// re-reading per page load. The CH lookup is microsecond-fast
+// even uncached (one row, partition-pruned + primary-key
+// prefix on service_name).
+func (s *Server) getServiceRuntime(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		http.Error(w, "service name required", http.StatusBadRequest)
+		return
+	}
+	key := fmt.Sprintf("service-runtime:svc=%s", name)
+	s.serveCached(w, r, key, 5*time.Minute, func() (any, error) {
+		return s.store.GetServiceRuntime(r.Context(), name)
 	})
 }
 

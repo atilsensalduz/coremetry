@@ -777,6 +777,21 @@ export interface NeighborStat {
   spanCount: number;
 }
 
+// Technology fingerprint of a service. Derived from OTel
+// resource attributes on the latest span. Every field is
+// optional — many SDKs only set a subset; the badge component
+// renders whatever is non-empty.
+export interface ServiceRuntime {
+  service: string;
+  language?: string;        // "go" / "java" / "dotnet" / "nodejs" / "python"
+  sdkVersion?: string;
+  runtimeName?: string;     // "OpenJDK Runtime Environment" / "go" / ".NET"
+  runtimeVersion?: string;  // "21.0.1+12" / "go1.22.5" / "8.0.4"
+  runtimeDesc?: string;
+  host?: string;
+  os?: string;
+}
+
 export interface ServiceMapNode {
   service: string;
   spanCount: number;
