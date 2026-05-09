@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/cilcenk/coremetry/internal/api"
 	"github.com/cilcenk/coremetry/internal/auth"
 	"github.com/cilcenk/coremetry/internal/cache"
+	"github.com/cilcenk/coremetry/internal/chmigrate"
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/config"
 	"github.com/cilcenk/coremetry/internal/consumer"
@@ -34,6 +36,17 @@ var webFS embed.FS
 
 func main() {
 	cfgPath := flag.String("config", "config.yaml", "Path to config file")
+
+	// Phase-2 migration flags. When --migrate-from is set, run a
+	// one-shot day-partitioned bulk copy from a remote single-node
+	// CH into this Coremetry's own ClickHouse (typically the new
+	// cluster), then exit. The web server is NOT started.
+	migrateFrom     := flag.String("migrate-from", "", "Source ClickHouse addr for one-shot data migration (e.g. 'old-ch:9000'). When set, runs migration and exits.")
+	migrateDB       := flag.String("migrate-db", "coremetry", "Source CH database for migration")
+	migrateUser     := flag.String("migrate-user", "default", "Source CH user for migration")
+	migratePass     := flag.String("migrate-pass", "", "Source CH password for migration")
+	migrateTables   := flag.String("migrate-tables", "spans,logs,metric_points,profiles", "Comma-separated tables to migrate")
+	migrateDays     := flag.Int("migrate-days", 30, "Number of trailing days to migrate")
 	flag.Parse()
 
 	cfg, err := config.Load(*cfgPath)
@@ -50,6 +63,16 @@ func main() {
 		log.Fatalf("clickhouse: %v\n\nMake sure ClickHouse is running:\n  docker run -d --name coremetry-ch -p 9000:9000 -p 8123:8123 clickhouse/clickhouse-server:24.8-alpine", err)
 	}
 	defer store.Close()
+
+	// One-shot migration: copy historical data from the source CH
+	// into the local cluster, then exit. The destination schema
+	// has already been created by chstore.New() above (which ran
+	// migrate() — possibly into Distributed-CH mode if cluster_name
+	// is set in config).
+	if *migrateFrom != "" {
+		runMigration(ctx, store, *migrateFrom, *migrateDB, *migrateUser, *migratePass, *migrateTables, *migrateDays)
+		return
+	}
 
 	// ── Batch consumers ───────────────────────────────────────────────────────
 	opts := consumer.Options{
@@ -311,4 +334,67 @@ func seedInitialAdmin(ctx context.Context, store *chstore.Store, ac config.AuthC
 	}
 	log.Printf("[auth] seeded initial admin %q (change the password via API after first login)", ac.InitialAdmin)
 	return nil
+}
+
+// runMigration is the --migrate-from one-shot path. Resolves each
+// requested table to its local-shard name (so `_local` flavour
+// in cluster mode), then runs a day-partitioned bulk copy from
+// the remote single-node CH into the destination.
+//
+// The migrator only logs progress and exits non-zero on first
+// failure — operators can re-run with the same range, the
+// idempotency check (compare counts per day) skips already-
+// finished partitions automatically.
+func runMigration(ctx context.Context, store *chstore.Store,
+	addr, db, user, pass, tables string, days int,
+) {
+	if days <= 0 {
+		log.Fatalf("[migrate] --migrate-days must be > 0")
+	}
+	tableList := []string{}
+	for _, t := range strings.Split(tables, ",") {
+		if t = strings.TrimSpace(t); t != "" {
+			tableList = append(tableList, t)
+		}
+	}
+	if len(tableList) == 0 {
+		log.Fatalf("[migrate] --migrate-tables empty")
+	}
+
+	to := time.Now().UTC().Truncate(24 * time.Hour).AddDate(0, 0, 1)
+	from := to.AddDate(0, 0, -days)
+	plans := make([]chmigrate.Plan, 0, len(tableList))
+	for _, t := range tableList {
+		// `profiles` partitions on start_time, not time — every other
+		// destination table uses `time` (kept aligned across the
+		// schema in store.go). Caller can override via flag if a
+		// future table has a different column.
+		col := "time"
+		if t == "profiles" {
+			col = "start_time"
+		}
+		plans = append(plans, chmigrate.Plan{
+			Table: t, TimeCol: col, From: from, To: to,
+		})
+	}
+
+	mig := &chmigrate.Migrator{
+		Conn: store.Conn(),
+		Source: chmigrate.SourceConfig{
+			Addr: addr, Database: db, Username: user, Password: pass,
+		},
+		LocalTable: store.LocalTableName,
+		Progress: func(day time.Time, p chmigrate.Plan, copied uint64, skipped bool) {
+			if skipped {
+				log.Printf("[migrate] %s %s: skip (%d rows already present)", p.Table, day.Format("2006-01-02"), copied)
+			} else {
+				log.Printf("[migrate] %s %s: copied %d rows", p.Table, day.Format("2006-01-02"), copied)
+			}
+		},
+	}
+	log.Printf("[migrate] %d table(s) × %d day(s) = %d operations", len(plans), days, len(plans)*days)
+	if err := mig.Run(ctx, plans); err != nil {
+		log.Fatalf("[migrate] %v", err)
+	}
+	log.Printf("[migrate] done — destination ready, you can now cut traffic over")
 }

@@ -136,20 +136,102 @@ Trade-off: row-per-shard is less even (a hot trace can grow).
 
 ## Migrating an existing single-node install
 
-Coremetry's auto-migration only creates tables that don't already
-exist. To upgrade from a populated single-node instance to
-cluster mode:
+Coremetry ships a one-shot migration mode that copies historical
+data from a populated single-node CH into the new cluster's
+Distributed tables, day by day. Idempotent — re-runs skip
+already-finished partitions automatically.
 
-1. Spin up the new CH cluster + Coremetry pointed at it (with
-   `cluster_name` set). Tables come up empty as Distributed.
-2. Use `INSERT INTO new.spans_local SELECT * FROM old.spans` per
-   shard from a one-shot job, or `clickhouse-copier` for the bulk
-   transfer.
-3. Cut traffic over by repointing the OTel collectors at the new
-   coremetry instance.
+### Runbook (zero-downtime cutover)
 
-Live in-place migration (without downtime) requires running both
-clusters dual-writing for a window — out of scope here.
+**1. Stand up the new cluster + Coremetry**
+
+Bring up the new CH cluster (4-node sharded as above) plus a
+fresh Coremetry instance pointed at it with `cluster_name` set.
+Tables come up empty as `Distributed` over `*_local`.
+
+**2. Dual-write at the OTel collector layer**
+
+Add a second OTLP exporter on every collector so live traffic
+fans out to both the old single-node Coremetry and the new
+cluster. This is a safe no-rollback step — old keeps serving,
+new starts collecting.
+
+```yaml
+# OTel collector config snippet
+exporters:
+  otlp/old:
+    endpoint: old-coremetry:4317
+  otlp/new:
+    endpoint: new-coremetry:4317
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [otlp/old, otlp/new]
+```
+
+**3. Backfill historical data**
+
+On the new Coremetry, run the one-shot migration:
+
+```bash
+coremetry --config /path/to/config.yaml \
+  --migrate-from old-ch:9000 \
+  --migrate-db   coremetry \
+  --migrate-user default \
+  --migrate-pass <old-ch-password> \
+  --migrate-tables spans,logs,metric_points,profiles \
+  --migrate-days 30
+```
+
+When `--migrate-from` is set, Coremetry runs migration mode and
+exits — it does NOT start the web server. Output:
+
+```
+[migrate] 4 table(s) × 30 day(s) = 120 operations
+[migrate] spans: 2026-04-09..2026-05-09
+[migrate] spans 2026-04-09: copied 1837412 rows
+[migrate] spans 2026-04-10: copied 1923105 rows
+...
+[migrate] done — destination ready, you can now cut traffic over
+```
+
+The bulk copy runs server-side via ClickHouse's `remote()` table
+function — data moves directly between CH instances; the
+Coremetry process only issues the SQL statement.
+
+If the run is interrupted, just re-run with the same flags. Each
+day starts with a count-comparison; matching counts are skipped
+without re-copying.
+
+**4. Verify counts match**
+
+```sql
+-- On the new cluster, against the Distributed wrapper:
+SELECT toDate(time) AS day, count() AS rows
+FROM coremetry.spans
+WHERE time >= today() - 30
+GROUP BY day ORDER BY day DESC LIMIT 10;
+
+-- Compare against the old single-node:
+-- (run the same query on old-ch, expect identical row counts)
+```
+
+**5. Cut traffic over**
+
+Drop the `otlp/old` exporter from every collector — fresh
+ingest now lands only on the new cluster. The old Coremetry can
+sit idle for a grace period before being torn down.
+
+### Coexistence rules
+
+- During the dual-write window, both Coremetry instances see the
+  same live spans but the new cluster also sees migrated history.
+- `cluster_name` only affects schema creation; it does NOT
+  change query behaviour. The new Coremetry queries Distributed
+  tables transparently while the old one queries MergeTree.
+- Cache (Redis) is keyed by request shape, not data shape, so
+  there's no migration concern on that side.
 
 ## Verifying it's working
 

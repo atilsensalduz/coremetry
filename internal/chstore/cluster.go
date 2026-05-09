@@ -66,11 +66,13 @@ func (s *Store) shardKey() string {
 	return "rand()"
 }
 
-// localTableName returns the `<name>_local` flavour when in cluster
-// mode, or the bare name otherwise. Used inside Replicated*MergeTree
-// CREATE statements; the `<name>` itself is reserved for the
-// Distributed wrapper.
-func (s *Store) localTableName(name string) string {
+// LocalTableName returns the `<name>_local` flavour when in
+// cluster mode, or the bare name otherwise. Used inside
+// Replicated*MergeTree CREATE statements; the `<name>` itself is
+// reserved for the Distributed wrapper. Also exported so external
+// callers (chmigrate, ad-hoc tools) can resolve the per-shard
+// table name without re-implementing the suffix logic.
+func (s *Store) LocalTableName(name string) string {
 	if !s.clusterMode() {
 		return name
 	}
