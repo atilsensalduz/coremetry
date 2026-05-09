@@ -1,0 +1,27 @@
+# Two ports on one service:
+#   - http (8088): Web UI + REST API + OTLP/HTTP ingest
+#   - otlp-grpc (4317): OTLP/gRPC ingest from collectors / agents
+# The Route in 08 only exposes :8088 to external traffic. gRPC
+# stays cluster-internal — agents inside the cluster use the
+# Service DNS directly. For external gRPC ingest, expose with a
+# pass-through Route or a separate LoadBalancer Service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: coremetry
+  namespace: coremetry
+  labels:
+    app.kubernetes.io/name: coremetry
+    app.kubernetes.io/component: coremetry
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8088
+      targetPort: http
+    - name: otlp-grpc
+      port: 4317
+      targetPort: otlp-grpc
+  selector:
+    app.kubernetes.io/name: coremetry
+    app.kubernetes.io/component: coremetry

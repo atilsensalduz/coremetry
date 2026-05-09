@@ -1,0 +1,40 @@
+# Coremetry config — mounted into the container at /app/config.yaml.
+# Most fields can also be overridden via COREMETRY_* env vars; the
+# ConfigMap is the canonical source of truth and the env vars are
+# escape hatches for per-environment overrides without re-rendering.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coremetry-config
+  namespace: coremetry
+data:
+  config.yaml: |
+    listen:
+      http: ":8088"
+      grpc: ":4317"
+
+    clickhouse:
+      addr: "coremetry-clickhouse:9000"
+      database: "coremetry"          # change per env (dev/staging/prod)
+      username: "default"
+      max_open_conns: 10
+      dial_timeout: "5s"
+      # cluster_name: "coremetry"    # uncomment for distributed CH
+
+    retention:
+      spans_days: 30
+      logs_days: 30
+      metrics_days: 7
+
+    ingestion:
+      # 1B spans/day target — see internal/config/config.go for
+      # rationale. Lower these for resource-constrained clusters.
+      batch_size: 10000
+      buffer_size: 500000
+      flush_interval: 2s
+      workers: 8
+
+    auth:
+      token_ttl: "24h"
+      initial_admin: "admin@coremetry.local"
+      # initial_password is sourced from the Secret, not here.

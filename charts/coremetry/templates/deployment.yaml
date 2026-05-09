@@ -50,16 +50,19 @@ spec:
               addr="{{ include "coremetry.clickhouseAddr" . }}"
               host="${addr%:*}"
               port="${addr##*:}"
-              echo "[init] waiting for clickhouse at $host:$port"
+              echo "[init] waiting for clickhouse at $host:$port (up to 120s)"
               for i in $(seq 1 60); do
                 if nc -z -w 2 "$host" "$port" 2>/dev/null; then
-                  echo "[init] clickhouse is reachable"
+                  echo "[init] clickhouse is reachable, proceeding"
                   exit 0
                 fi
-                echo "[init] not ready (attempt $i/60), sleeping 2s"
+                # Pre-startup: clickhouse may take a few seconds to
+                # open its listener — this poll line is expected
+                # noise during normal cold starts, not a failure.
+                echo "[init] clickhouse not yet listening (poll $i/60), retrying in 2s"
                 sleep 2
               done
-              echo "[init] clickhouse never became reachable" >&2
+              echo "[init] gave up after 120s — clickhouse at $host:$port never became reachable" >&2
               exit 1
       {{- with .Values.podSecurityContext }}
       securityContext: {{ toYaml . | nindent 8 }}

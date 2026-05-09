@@ -1,0 +1,73 @@
+# Redis is used as Coremetry's response cache (60s TTL on heavy
+# query endpoints). State is reconstructible — losing the Redis
+# pod just means the next request is a cache miss. Hence:
+# Deployment + ephemeral emptyDir, not StatefulSet + PVC.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: coremetry-redis
+  namespace: coremetry
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/component: redis
+spec:
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+  selector:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/component: redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coremetry-redis
+  namespace: coremetry
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/component: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+      app.kubernetes.io/component: redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis
+        app.kubernetes.io/component: redis
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          args: ["--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
+          ports:
+            - name: redis
+              containerPort: 6379
+          resources:
+            requests: { cpu: "50m",  memory: 128Mi }
+            limits:   { cpu: "500m", memory: 768Mi }
+          readinessProbe:
+            tcpSocket: { port: 6379 }
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: { port: 6379 }
+            periodSeconds: 15
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir:
+            sizeLimit: 1Gi

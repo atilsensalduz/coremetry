@@ -1,0 +1,11 @@
+# OpenShift treats Project + Namespace as the same object boundary,
+# but a Project carries display metadata and is the idiomatic unit
+# in `oc` workflows. Apply this first, or use `oc new-project
+# coremetry` and skip this file.
+apiVersion: project.openshift.io/v1
+kind: Project
+metadata:
+  name: coremetry
+  annotations:
+    openshift.io/display-name: "Coremetry APM"
+    openshift.io/description: "OpenTelemetry observability — traces, metrics, logs"

@@ -1,0 +1,9 @@
+# ServiceAccount used by the Coremetry deployment. No additional
+# roles are bound — Coremetry does not call the k8s API. The SA
+# exists so SCC bindings (e.g. `oc adm policy add-scc-to-user
+# nonroot-v2 -z coremetry`) can target a stable subject.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: coremetry
+  namespace: coremetry

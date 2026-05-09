@@ -1,0 +1,34 @@
+# OpenShift Route — TLS-edge termination at the cluster router.
+# The router presents a wildcard cert valid for *.apps.<cluster>.
+# If you have a custom hostname with your own cert, set:
+#   spec.host: coremetry.example.com
+#   spec.tls.certificate / .key / .caCertificate
+#
+# For re-encrypt (router → service over TLS), change termination
+# to "reencrypt" and provide spec.tls.destinationCACertificate.
+# For pass-through (TLS terminated by Coremetry), use
+# "passthrough" — Coremetry would need to be configured with its
+# own TLS cert in that case.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: coremetry
+  namespace: coremetry
+  labels:
+    app.kubernetes.io/name: coremetry
+    app.kubernetes.io/component: coremetry
+  annotations:
+    # Long-lived API responses (e.g. log timeseries over 7d) can
+    # exceed the default 30s router timeout under heavy CH load.
+    haproxy.router.openshift.io/timeout: "120s"
+spec:
+  to:
+    kind: Service
+    name: coremetry
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None
