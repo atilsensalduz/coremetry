@@ -1,7 +1,9 @@
-import { Outlet, useLocation } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
+import { ShortcutsHelp } from './ShortcutsHelp';
 import { useAuth } from './AuthProvider';
 import { useEventStream } from '@/lib/queries';
+import { useShortcuts } from '@/lib/keyboard';
 import { isPublicPath } from '@/lib/auth-paths';
 
 // AppShell is the layout-route wrapper. React Router renders the
@@ -14,6 +16,7 @@ import { isPublicPath } from '@/lib/auth-paths';
 // not-yet-authenticated visitor.
 export function AppShell() {
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const { user, loading } = useAuth();
   const isPublic = isPublicPath(pathname);
 
@@ -23,6 +26,30 @@ export function AppShell() {
   // invalidates the matching React Query caches so live state
   // changes show up in <1s. Closes on logout / unmount.
   useEventStream(!!user && !isPublic);
+
+  // Global navigation shortcuts (Vim/Datadog flavour). Press
+  // 'g' then a letter to jump to that page. The hook keeps its
+  // bindings alive across route changes because AppShell is
+  // the layout-route — never unmounts during navigation.
+  // Suppressed automatically when an input/textarea is focused
+  // (see lib/keyboard.ts).
+  useShortcuts(
+    [
+      { keys: 'g s', label: 'Go to Services',     group: 'Navigation', handler: () => navigate('/services') },
+      { keys: 'g m', label: 'Go to Service Map',  group: 'Navigation', handler: () => navigate('/service-map') },
+      { keys: 'g t', label: 'Go to Traces',       group: 'Navigation', handler: () => navigate('/traces') },
+      { keys: 'g l', label: 'Go to Logs',         group: 'Navigation', handler: () => navigate('/logs') },
+      { keys: 'g e', label: 'Go to Explore',      group: 'Navigation', handler: () => navigate('/explore') },
+      { keys: 'g d', label: 'Go to Dashboards',   group: 'Navigation', handler: () => navigate('/dashboards') },
+      { keys: 'g i', label: 'Go to Incidents',    group: 'Navigation', handler: () => navigate('/incidents') },
+      { keys: 'g p', label: 'Go to Problems',     group: 'Navigation', handler: () => navigate('/problems') },
+      { keys: 'g a', label: 'Go to Anomalies',    group: 'Navigation', handler: () => navigate('/anomalies') },
+      { keys: 'g x', label: 'Go to Alerts',       group: 'Navigation', handler: () => navigate('/alerts') },
+      { keys: 'g o', label: 'Go to Monitors',     group: 'Navigation', handler: () => navigate('/monitors') },
+      { keys: 'g c', label: 'Go to System stats', group: 'Navigation', handler: () => navigate('/admin/stats') },
+    ],
+    [navigate],
+  );
 
   if (isPublic) {
     return <Outlet />;
@@ -45,6 +72,10 @@ export function AppShell() {
     <div id="app">
       <Sidebar />
       <div id="main"><Outlet /></div>
+      {/* ShortcutsHelp owns its own '?' binding + the modal
+          render. Mount once at the shell so the help modal
+          is reachable from any page without per-page wiring. */}
+      <ShortcutsHelp />
     </div>
   );
 }
