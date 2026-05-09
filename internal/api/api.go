@@ -115,6 +115,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/admin/system-stats", s.getSystemStats)
 	mux.HandleFunc("GET /api/services/{name}/structure", s.getServiceStructure)
 	mux.HandleFunc("GET /api/services/{name}/neighbors", s.getServiceNeighbors)
+	mux.HandleFunc("GET /api/service-map", s.getServiceMap)
 	mux.HandleFunc("GET /api/services/{name}/backtrace", s.getServiceBacktrace)
 	mux.HandleFunc("GET /api/services/{name}/infra",     s.getServiceInfraMetrics)
 	mux.HandleFunc("GET /api/services/graph", s.getServiceGraph)
@@ -511,6 +512,24 @@ func (s *Server) getServiceNeighbors(w http.ResponseWriter, r *http.Request) {
 			"sampledFrom": sampledFrom,
 			"totalSpans":  totalSpans,
 		}, nil
+	})
+}
+
+// getServiceMap returns the global service-level topology graph
+// (nodes + directed edges) derived from sampled recent traces.
+// Mirrors the per-service ServiceNeighbors handler but globally —
+// no anchor service. Result is cached for 30s: the topology
+// changes on the order of deploys, not seconds, but operators
+// will hit the page repeatedly while reading it; a 30s cache
+// kills the redundant CH cost without making the view feel
+// stale during an active investigation.
+func (s *Server) getServiceMap(w http.ResponseWriter, r *http.Request) {
+	since := parseDuration(r.URL.Query().Get("since"), 15*time.Minute)
+	samples := parseInt(r.URL.Query().Get("samples"), 200)
+
+	key := fmt.Sprintf("service-map:since=%s:samples=%d", since, samples)
+	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
+		return s.store.GetServiceMap(r.Context(), since, samples)
 	})
 }
 

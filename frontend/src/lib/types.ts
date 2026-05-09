@@ -777,6 +777,27 @@ export interface NeighborStat {
   spanCount: number;
 }
 
+export interface ServiceMapNode {
+  service: string;
+  spanCount: number;
+  errorRate: number;
+}
+
+export interface ServiceMapEdge {
+  caller: string;
+  callee: string;
+  traceCount: number;
+  spanCount: number;
+  errorCount: number;
+}
+
+export interface ServiceMap {
+  nodes: ServiceMapNode[];
+  edges: ServiceMapEdge[];
+  sampledFrom: number;
+  totalSpans: number;
+}
+
 // One row of the inbound-callers backtrace — a unique
 // (caller service × caller pod / instance × client IP × user agent)
 // combination calling the inspected service over the window.

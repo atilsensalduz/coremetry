@@ -108,6 +108,13 @@ export const api = {
     get<import('./types').InfraMetricSeries[]>(
       `/api/services/${encodeURIComponent(svc)}/infra?since=${since}`),
 
+  // Global service-level topology graph — nodes + directed edges
+  // derived from sampled recent traces. Powers the /service-map
+  // page; 30s server-side cache.
+  serviceMap: (since = '15m', samples = 200) =>
+    get<import('./types').ServiceMap>(
+      `/api/service-map?since=${since}&samples=${samples}`),
+
   // Inbound-callers backtrace — Dynatrace-style consumer view.
   // Returns a row per (caller service × pod/instance × client IP ×
   // user-agent) with RED stats so the operator can pinpoint who
