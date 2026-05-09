@@ -382,6 +382,23 @@ export const api = {
   spanMetric: (params: SpanMetricParams) =>
     get<SpanMetricSeries[] | null>(`/api/spans/metric?${qs(params)}`),
 
+  // Exemplar lookup — picks a representative trace for a metric
+  // chart point. 404 means "no span matched the bucket" (the
+  // user clicked outside the actual data window) — swallow it
+  // and return null so the caller can show a neutral toast
+  // without surfacing a scary HTTP error.
+  spanExemplar: async (params: {
+    service: string; op?: string; from: number; to: number;
+    kind?: 'slow' | 'error' | 'any';
+  }): Promise<import('./types').SpanExemplar | null> => {
+    try {
+      return await get<import('./types').SpanExemplar>(`/api/spans/exemplar?${qs(params)}`);
+    } catch (e) {
+      if (e instanceof Error && e.message.startsWith('HTTP 404')) return null;
+      throw e;
+    }
+  },
+
   metricQuery: (params: MetricQueryParams) =>
     get<SpanMetricSeries[] | null>(`/api/metrics/query?${qs(params)}`),
   metricLabels: (metric: string, key: string, since = '24h') =>

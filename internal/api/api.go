@@ -156,6 +156,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/metrics/query", s.queryMetric)
 	mux.HandleFunc("GET /api/metrics/labels", s.getMetricLabelValues)
 	mux.HandleFunc("GET /api/spans/metric", s.spanMetric)
+	mux.HandleFunc("GET /api/spans/exemplar", s.spanExemplar)
 	mux.HandleFunc("GET /api/profiles", s.listProfiles)
 	mux.HandleFunc("GET /api/profiles/by-span", s.profilesForSpan)
 	mux.HandleFunc("GET /api/profiles/{id}", s.getProfile)
@@ -1250,6 +1251,36 @@ func (s *Server) spanMetric(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, series)
+}
+
+// spanExemplar — drill from a metric chart point to a sample
+// trace. Query: ?service=…&op=…&from=…&to=…&kind=slow|error|any
+// Returns 200 with the exemplar payload, or 404 when no span
+// matched the bucket (a bucket can have a non-zero count but
+// the user clicked outside the actual data window — clean
+// not-found is friendlier than a confusing empty 200 body).
+func (s *Server) spanExemplar(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	kind := chstore.ExemplarKind(q.Get("kind"))
+	if kind == "" {
+		kind = chstore.ExemplarSlow
+	}
+	ex, err := s.store.FindExemplar(r.Context(), chstore.ExemplarReq{
+		Service:   q.Get("service"),
+		Operation: q.Get("op"),
+		From:      parseTime(q.Get("from")),
+		To:        parseTime(q.Get("to")),
+		Kind:      kind,
+	})
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if ex == nil {
+		http.Error(w, "no exemplar found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, ex)
 }
 
 func splitNonEmpty(s string, sep rune) []string {

@@ -942,3 +942,16 @@ export interface AggSpanNode {
   avgStartMs: number;
   children?: AggSpanNode[];
 }
+
+// Exemplar — single representative span looked up to bridge a
+// metric chart point to a sample trace (Datadog / Honeycomb /
+// Grafana exemplar pattern). Returned by /api/spans/exemplar.
+export interface SpanExemplar {
+  traceId: string;
+  spanId: string;
+  service: string;
+  name: string;
+  durationNs: number;
+  statusCode: string;
+  timeUnixNs: number;
+}

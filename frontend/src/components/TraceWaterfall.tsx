@@ -305,12 +305,28 @@ export function TraceWaterfall({
           onMouseDown={onResizeStart}
           onDoubleClick={onResizeDoubleClick} />
         <div className="wf-col-bar">
-          {TICKS.map(t => (
-            <span key={`l${t}`}>
-              <span className="wf-tick-label" style={{ left: `${t * 100}%` }}>{fmtNs(t * totalNs)}</span>
-              {t > 0 && <div className="wf-vline" style={{ left: `${t * 100}%` }} />}
-            </span>
-          ))}
+          {TICKS.map(t => {
+            // Edge ticks need alignment overrides — the parent
+            // has overflow:hidden, so the default centred
+            // transform clips the trailing half of "583.45ms"
+            // on the t=1 tick (which is the trace total!) and
+            // the leading half of "0ms" on t=0. Datadog /
+            // Tempo align-left at t=0 and align-right at t=1
+            // so the edge labels stay readable in full.
+            const transform =
+              t === 0 ? 'translate(0, -50%)'
+              : t === 1 ? 'translate(-100%, -50%)'
+              : 'translate(-50%, -50%)';
+            return (
+              <span key={`l${t}`}>
+                <span className="wf-tick-label"
+                      style={{ left: `${t * 100}%`, transform }}>
+                  {fmtNs(t * totalNs)}
+                </span>
+                {t > 0 && <div className="wf-vline" style={{ left: `${t * 100}%` }} />}
+              </span>
+            );
+          })}
         </div>
       </div>
 

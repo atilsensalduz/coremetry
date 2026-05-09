@@ -11,6 +11,7 @@ import { LogsExplorer } from '@/components/LogsExplorer';
 import { MetricsExplorer } from '@/components/MetricsExplorer';
 import { ColumnManager } from '@/components/ColumnManager';
 import { api } from '@/lib/api';
+import { useExemplarFetcher } from '@/lib/queries';
 import { timeRangeToNs, fmtNum, tsLong, rowClickHandlers } from '@/lib/utils';
 import { encodeRange, decodeRange, encodeFilters, decodeFilters, buildQuery } from '@/lib/urlState';
 import type { TimeRange, FilterExpr, SpanMetricSeries, SpanAgg, TraceRow } from '@/lib/types';
@@ -122,6 +123,42 @@ function ExploreInner() {
     () => (searchParams.get('mode') === 'advanced' ? 'advanced' : 'builder'));
   const [dsl, setDsl] = useState(searchParams.get('dsl') ?? '');
   const [queryError, setQueryError] = useState<string | null>(null);
+
+  // Exemplar lookup — picks a representative trace for the
+  // current filter window so the user can drill from "this
+  // P99 spike" straight into the trace that landed at it.
+  // Only enabled when the filter pins a single service (the
+  // backend requires service for performant lookup; without
+  // it we'd be querying every row in the window).
+  const exemplarFetch = useExemplarFetcher();
+  const [exemplarBusy, setExemplarBusy] = useState<'slow' | 'error' | null>(null);
+  const [exemplarMsg, setExemplarMsg] = useState<string | null>(null);
+  const exemplarCtx = useMemo(() => extractExemplarCtx(filters, mode), [filters, mode]);
+
+  async function openExemplar(kind: 'slow' | 'error') {
+    if (!exemplarCtx) return;
+    const { from, to } = timeRangeToNs(range);
+    setExemplarBusy(kind);
+    setExemplarMsg(null);
+    try {
+      const ex = await exemplarFetch({
+        service: exemplarCtx.service,
+        op: exemplarCtx.op,
+        from, to, kind,
+      });
+      if (!ex) {
+        setExemplarMsg(kind === 'error'
+          ? 'No error trace in this window.'
+          : 'No matching trace in this window.');
+        return;
+      }
+      navigate(`/trace?id=${encodeURIComponent(ex.traceId)}#span=${encodeURIComponent(ex.spanId)}`);
+    } catch {
+      setExemplarMsg('Lookup failed — try a wider time range.');
+    } finally {
+      setExemplarBusy(null);
+    }
+  }
 
   // ── State → URL (replaceState — keeps history clean) ─────────────────────
   useEffect(() => {
@@ -461,11 +498,50 @@ name ~ checkout`}
               background: 'var(--bg1)', border: '1px solid var(--border)',
               borderRadius: 8, padding: 14,
             }}>
-              <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 8 }}>
-                <b style={{ color: 'var(--accent2)' }}>{aggMeta.label}</b>
-                {needsField(agg) && <> of <b style={{ color: 'var(--accent2)' }}>{field}</b></>}
-                {groupBy.length > 0 && <> · split by <b style={{ color: 'var(--accent2)' }}>{groupBy.join(' / ')}</b></>}
-                {' · '}{totalSeries} series · {totalPoints} points
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                fontSize: 11, color: 'var(--text2)', marginBottom: 8,
+              }}>
+                <span>
+                  <b style={{ color: 'var(--accent2)' }}>{aggMeta.label}</b>
+                  {needsField(agg) && <> of <b style={{ color: 'var(--accent2)' }}>{field}</b></>}
+                  {groupBy.length > 0 && <> · split by <b style={{ color: 'var(--accent2)' }}>{groupBy.join(' / ')}</b></>}
+                  {' · '}{totalSeries} series · {totalPoints} points
+                </span>
+                <span style={{ flex: 1 }} />
+                {/* Exemplar drill — only enabled when the filter
+                    pins one service (the lookup is service-scoped
+                    on CH for performance). The buttons jump to a
+                    representative slow / error trace for the
+                    current window — Datadog / Honeycomb / Grafana
+                    pattern; saves the operator from manually
+                    wading through /traces. */}
+                {exemplarCtx ? (
+                  <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                    {exemplarMsg && (
+                      <span style={{ color: 'var(--text3)', marginRight: 4 }}>{exemplarMsg}</span>
+                    )}
+                    <button className="sec"
+                      onClick={() => openExemplar('slow')}
+                      disabled={exemplarBusy !== null}
+                      title={`Open the slowest trace in this window for ${exemplarCtx.service}${exemplarCtx.op ? ' · ' + exemplarCtx.op : ''}`}
+                      style={{ fontSize: 11, padding: '2px 8px' }}>
+                      {exemplarBusy === 'slow' ? 'Loading…' : 'Slowest trace →'}
+                    </button>
+                    <button className="sec"
+                      onClick={() => openExemplar('error')}
+                      disabled={exemplarBusy !== null}
+                      title="Open a trace with status=error in this window"
+                      style={{ fontSize: 11, padding: '2px 8px' }}>
+                      {exemplarBusy === 'error' ? 'Loading…' : 'Error trace →'}
+                    </button>
+                  </span>
+                ) : (
+                  <span style={{ color: 'var(--text3)', fontStyle: 'italic' }}
+                        title="Add a service.name = ... filter to enable trace drill-down">
+                    add service filter to enable trace drill-down
+                  </span>
+                )}
               </div>
               <MultiLineChart series={series} unit={unit} />
             </div>
@@ -594,6 +670,33 @@ name ~ checkout`}
 
 function needsField(agg: SpanAgg): boolean {
   return !['count', 'rate', 'errors', 'error_rate'].includes(agg);
+}
+
+// extractExemplarCtx — pull (service, op) from the filter chips so
+// we can light up the "Open exemplar trace" buttons. Returns null
+// when no single service is pinned by an `=` filter; the backend
+// requires service for the lookup to fan out cheaply across the
+// (service_name, time) primary key, and a wide-open lookup would
+// regress at billion-span scale. Operation is optional — when set
+// it narrows the exemplar to a specific endpoint, otherwise the
+// slowest span anywhere in the service wins.
+function extractExemplarCtx(filters: FilterExpr[], mode: 'builder' | 'advanced'): {
+  service: string;
+  op?: string;
+} | null {
+  if (mode !== 'builder') return null;
+  let service = '';
+  let op: string | undefined;
+  for (const f of filters) {
+    // FilterExpr.v is an array; only pick single-value '=' filters
+    // for unambiguous extraction. IN with one value also counts.
+    if ((f.op !== '=' && f.op !== 'IN') || f.v.length !== 1) continue;
+    const val = f.v[0];
+    if (f.k === 'service.name' || f.k === 'resource.service.name') service = val;
+    else if (f.k === 'name' || f.k === 'span.name') op = val;
+  }
+  if (!service) return null;
+  return { service, op };
 }
 
 export default function ExplorePage() {

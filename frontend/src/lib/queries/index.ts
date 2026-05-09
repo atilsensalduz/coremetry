@@ -42,3 +42,4 @@ export {
   useSLOs, useCreateSLO, useDeleteSLO,
 } from './slos';
 export { useEventStream } from './eventStream';
+export { useExemplar, useExemplarFetcher } from './spans';

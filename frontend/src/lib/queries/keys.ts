@@ -83,6 +83,11 @@ export const keys = {
     sampling:    ['admin', 'sampling'] as const,
   },
 
+  spans: {
+    exemplar:    (svc: string, op: string, from: number, to: number, kind: string) =>
+                   ['spans', 'exemplar', svc, op, from, to, kind] as const,
+  },
+
   // The "auth" key is special — invalidating it on logout drops every
   // cached query that depends on the user, which is most of them.
   auth: {
