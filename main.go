@@ -154,6 +154,11 @@ func main() {
 	// hot-swappable via Reload — admin UI / API can adjust live
 	// without a process restart.
 	sampler := sampling.New(cfg.Sampling)
+	// Tail sampling needs a downstream sink: kept-after-buffering
+	// spans flow back through the same span consumer the head path
+	// uses. Attach BEFORE LoadPersisted so a persisted tail-enabled
+	// config spins up a working tail (not a flush-less no-op tail).
+	sampler.AttachFlush(func(sp *chstore.Span) bool { return spanConsumer.Add(sp) })
 	if err := sampler.LoadPersisted(ctx, store); err != nil {
 		log.Printf("[sampling] load persisted: %v", err)
 	}

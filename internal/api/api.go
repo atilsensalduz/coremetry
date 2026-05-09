@@ -1848,22 +1848,27 @@ func maskedSMTP(s notify.SMTPSettings) map[string]any {
 
 // getSamplingSettings returns the live in-memory sampler config —
 // what the ingester is actually applying right now (post-Reload),
-// not just whatever was persisted last. Includes a counter of
-// spans dropped by sampling since process start so the admin can
-// see the policy is taking effect without watching ingest rates.
+// not just whatever was persisted last. Includes both stages
+// (head ratios + tail buffer counters) so the admin can see the
+// policy is taking effect without watching ingest rates.
 func (s *Server) getSamplingSettings(w http.ResponseWriter, r *http.Request) {
 	if s.sampler == nil {
 		writeJSON(w, map[string]any{"default": 1.0, "services": map[string]float64{}})
 		return
 	}
 	snap := s.sampler.Snapshot()
-	writeJSON(w, map[string]any{
+	body := map[string]any{
 		"default":          snap.Default,
 		"services":         snap.Services,
 		"alwaysKeepErrors": snap.AlwaysKeepErrors != nil && *snap.AlwaysKeepErrors,
 		"alwaysKeepRoots":  snap.AlwaysKeepRoots != nil && *snap.AlwaysKeepRoots,
 		"droppedSinceBoot": s.ing.SpansSampledOut(),
-	})
+	}
+	body["tail"] = snap.Tail
+	if t := s.sampler.Tail(); t != nil {
+		body["tailStats"] = t.Stats()
+	}
+	writeJSON(w, body)
 }
 
 // putSamplingSettings persists the new policy and hot-reloads the
@@ -1876,12 +1881,26 @@ func (s *Server) putSamplingSettings(w http.ResponseWriter, r *http.Request) {
 		Services         map[string]float64 `json:"services"`
 		AlwaysKeepErrors *bool              `json:"alwaysKeepErrors"`
 		AlwaysKeepRoots  *bool              `json:"alwaysKeepRoots"`
+		Tail             *struct {
+			Enabled   bool `json:"enabled"`
+			WindowSec int  `json:"windowSec"`
+			SlowMs    int  `json:"slowMs"`
+			MaxTraces int  `json:"maxTraces"`
+		} `json:"tail"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid body", http.StatusBadRequest)
 		return
 	}
 	cfg := samplingConfigFromBody(body.Default, body.Services, body.AlwaysKeepErrors, body.AlwaysKeepRoots)
+	if body.Tail != nil {
+		cfg.Tail = config.TailSamplingConfig{
+			Enabled:   body.Tail.Enabled,
+			WindowSec: body.Tail.WindowSec,
+			SlowMs:    body.Tail.SlowMs,
+			MaxTraces: body.Tail.MaxTraces,
+		}
+	}
 	if s.sampler != nil {
 		if err := s.sampler.SavePersisted(r.Context(), s.store, cfg); err != nil {
 			writeErr(w, err)

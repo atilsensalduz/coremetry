@@ -1284,10 +1284,16 @@ function SamplingTab() {
         services:         s.services,
         alwaysKeepErrors: s.alwaysKeepErrors,
         alwaysKeepRoots:  s.alwaysKeepRoots,
+        tail:             s.tail,
       });
       setS(next);
     } catch (err) { alert(humanize(err)); }
     finally { setBusy(false); }
+  };
+
+  const updateTail = (partial: Partial<NonNullable<typeof s.tail>>) => {
+    const cur = s.tail ?? { enabled: false, windowSec: 30, slowMs: 1000, maxTraces: 200_000 };
+    setS({ ...s, tail: { ...cur, ...partial } });
   };
 
   const addOverride = () => {
@@ -1389,12 +1395,81 @@ function SamplingTab() {
         </div>
       </div>
 
+      <h4 style={{ marginBottom: 8 }}>Tail sampling (buffered)</h4>
+      <div style={{
+        background: 'var(--bg2)', border: '1px solid var(--border)',
+        borderRadius: 6, padding: 12, marginBottom: 12, fontSize: 13,
+      }}>
+        <p style={{ color: 'var(--text2)', fontSize: 12, marginTop: 0 }}>
+          Buffers each trace for the decision window, then keeps it if any
+          span had an error, the root duration exceeded the slow-trace
+          threshold, or it falls under the probabilistic ratio. Late-
+          arriving spans of decided traces follow the prior verdict.
+        </p>
+        <div style={{
+          display: 'grid', gridTemplateColumns: '180px 1fr', gap: '10px 14px',
+          alignItems: 'center',
+        }}>
+          <label>Enabled</label>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <input type="checkbox" checked={s.tail?.enabled ?? false}
+                   onChange={e => updateTail({ enabled: e.target.checked })} />
+            <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+              when on, head ratios are bypassed for traces — tail decides instead
+            </span>
+          </label>
+
+          <label>Decision window</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input type="number" min={5} max={300}
+                   value={s.tail?.windowSec ?? 30}
+                   onChange={e => updateTail({ windowSec: parseInt(e.target.value) || 30 })}
+                   style={{ width: 80 }} />
+            <span style={{ color: 'var(--text3)', fontSize: 11 }}>seconds (default 30)</span>
+          </div>
+
+          <label>Slow trace threshold</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input type="number" min={50} max={60000}
+                   value={s.tail?.slowMs ?? 1000}
+                   onChange={e => updateTail({ slowMs: parseInt(e.target.value) || 1000 })}
+                   style={{ width: 80 }} />
+            <span style={{ color: 'var(--text3)', fontSize: 11 }}>
+              ms (root duration above this = always keep)
+            </span>
+          </div>
+
+          <label>Max in-flight traces</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input type="number" min={1000} max={1_000_000} step={1000}
+                   value={s.tail?.maxTraces ?? 200_000}
+                   onChange={e => updateTail({ maxTraces: parseInt(e.target.value) || 200_000 })}
+                   style={{ width: 100 }} />
+            <span style={{ color: 'var(--text3)', fontSize: 11 }}>
+              memory bound (~5 spans × 500 B per trace)
+            </span>
+          </div>
+        </div>
+        {s.tailStats && s.tailStats.enabled && (
+          <div style={{
+            marginTop: 10, padding: 8,
+            background: 'var(--bg1)', borderRadius: 4,
+            fontFamily: 'ui-monospace, monospace', fontSize: 11, color: 'var(--text3)',
+          }}>
+            open: {s.tailStats.openTraces.toLocaleString()} traces ·
+            flushed: {s.tailStats.flushedSpans.toLocaleString()} spans ·
+            dropped: {s.tailStats.droppedSpans.toLocaleString()} spans ·
+            evicted: {s.tailStats.evictedTraces.toLocaleString()} traces
+          </div>
+        )}
+      </div>
+
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <button onClick={save} disabled={busy}>
           {busy ? 'Saving…' : 'Save & apply'}
         </button>
         <span style={{ fontSize: 11, color: 'var(--text3)' }}>
-          Spans dropped by sampling since process boot: <b>{s.droppedSinceBoot.toLocaleString()}</b>
+          Head-stage drops since boot: <b>{s.droppedSinceBoot.toLocaleString()}</b>
         </span>
       </div>
     </div>

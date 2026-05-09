@@ -55,10 +55,24 @@ func (ing *Ingester) SpansSampledOut() uint64 { return ing.spansSampledOut.Load(
 // span consumer. Returns false if the consumer's buffer was full
 // and the span had to be dropped — same return semantics as the
 // raw Spans.Add it replaces.
+//
+// Routing:
+//   - If a tail sampler is enabled, the span is buffered there
+//     and the tail's sweeper later flushes kept spans through
+//     the consumer. addSpan returns true immediately — we treat
+//     "buffered for later decision" as a successful accept.
+//   - Otherwise the head sampler decides; sampled-out spans are
+//     counted and dropped on the floor.
 func (ing *Ingester) addSpan(sp *chstore.Span) bool {
-	if ing.sampler != nil && !ing.sampler.Decide(sp) {
-		ing.spansSampledOut.Add(1)
-		return true // sampled-out is a successful "no-op", not a failure
+	if ing.sampler != nil {
+		if t := ing.sampler.Tail(); t != nil && t.Enabled() {
+			t.Add(sp)
+			return true
+		}
+		if !ing.sampler.Decide(sp) {
+			ing.spansSampledOut.Add(1)
+			return true
+		}
 	}
 	return ing.Spans.Add(sp)
 }

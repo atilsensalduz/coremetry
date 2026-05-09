@@ -78,6 +78,28 @@ type SamplingConfig struct {
 	// root preserves it). Setting false halves storage for
 	// hello-world workloads but breaks RPS calculations.
 	AlwaysKeepRoots *bool `yaml:"always_keep_roots"`
+
+	// Tail enables a buffered second-stage decision after the head
+	// stage. Tail buffers each trace's spans for `tail.window_sec`
+	// seconds, then decides keep/drop based on aggregate properties
+	// (any error → keep; root duration > slow_ms → keep; else
+	// probabilistic). Late-arriving spans of decided traces follow
+	// the prior decision. Disabled by default; head-only is fine
+	// for most deployments.
+	Tail TailSamplingConfig `yaml:"tail"`
+}
+
+// TailSamplingConfig drives the buffered second-stage decision.
+// When Enabled is false, every field is ignored and head sampling
+// alone runs (the V1 default). When Enabled is true, the head
+// sampler is bypassed for traces — the tail sampler enforces
+// AlwaysKeepErrors/AlwaysKeepRoots semantics from its parent on
+// its own.
+type TailSamplingConfig struct {
+	Enabled   bool `yaml:"enabled"     json:"enabled"`
+	WindowSec int  `yaml:"window_sec"  json:"windowSec"` // buffer duration; default 30
+	SlowMs    int  `yaml:"slow_ms"     json:"slowMs"`    // root-duration cutoff; default 1000
+	MaxTraces int  `yaml:"max_traces"  json:"maxTraces"` // memory cap; default 200000
 }
 
 // AIConfig wires the optional AI Copilot. Two providers supported:

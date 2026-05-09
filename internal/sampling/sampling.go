@@ -54,6 +54,21 @@ type Sampler struct {
 	defaultThreshold uint32
 	keepErrors       bool
 	keepRoots        bool
+
+	// lastCfg is what the live sampler is configured for; AttachFlush
+	// re-applies it to bring up the tail stage now that the consumer
+	// callback is in place. Without this, tail-enabled configs would
+	// silently drop into "configured but flush=nil → no-op" land.
+	lastCfg config.SamplingConfig
+
+	// tail is created lazily on Reload() when the cfg has Tail.Enabled
+	// set; nil otherwise. Owners pass `flushFn` (consumer.Add) so the
+	// tail sampler can push kept spans downstream after its decision
+	// window. Lifecycle: Stop()'d on Reload when transitioning
+	// enabled→disabled, replaced when transitioning disabled→enabled.
+	tail       *TailSampler
+	tailCancel func()
+	tailFlush  func(*chstore.Span) bool
 }
 
 // New builds a Sampler from config. Default ratios outside [0,1]
@@ -80,6 +95,7 @@ func New(cfg config.SamplingConfig) *Sampler {
 		services:         map[string]uint32{},
 		keepErrors:       keepErr,
 		keepRoots:        keepRoot,
+		lastCfg:          cfg,
 	}
 	for svc, r := range cfg.Services {
 		s.services[svc] = ratioToThreshold(clamp01(r))
@@ -116,7 +132,10 @@ func (s *Sampler) Decide(span *chstore.Span) bool {
 }
 
 // Reload swaps in a new config atomically. Lets the admin UI
-// adjust ratios without a process restart.
+// adjust ratios without a process restart. When the tail
+// sub-stage transitions in/out of enabled, the old TailSampler
+// (if any) is Stop()'d and a fresh one started — buffered spans
+// in the going-away tail get flushed via final sweep before exit.
 func (s *Sampler) Reload(cfg config.SamplingConfig) {
 	next := New(cfg)
 	s.mu.Lock()
@@ -125,7 +144,50 @@ func (s *Sampler) Reload(cfg config.SamplingConfig) {
 	s.services = next.services
 	s.keepErrors = next.keepErrors
 	s.keepRoots = next.keepRoots
+	s.lastCfg = cfg
+
+	// Reconcile tail: tear down any prior tail, then start fresh
+	// if the new config wants one.
+	if s.tail != nil {
+		s.tail.Stop()
+		s.tail = nil
+		if s.tailCancel != nil {
+			s.tailCancel()
+			s.tailCancel = nil
+		}
+	}
+	if cfg.Tail.Enabled && s.tailFlush != nil {
+		s.tail = NewTailSampler(cfg.Tail, s.defaultRatio, s.keepErrors, s.keepRoots, s.tailFlush)
+		ctx, cancel := context.WithCancel(context.Background())
+		s.tailCancel = cancel
+		go s.tail.Run(ctx)
+	}
 	s.mu.Unlock()
+}
+
+// AttachFlush wires the consumer.Add callback so the tail stage
+// (when enabled) has a downstream to flush kept spans into. Must
+// be called exactly once after construction, before any spans
+// hit the ingester. Re-applies the last-known config so a tail-
+// enabled boot config gets its tail stage spun up here (the
+// initial New() couldn't, since the flush callback didn't exist
+// yet).
+func (s *Sampler) AttachFlush(flush func(*chstore.Span) bool) {
+	s.mu.Lock()
+	s.tailFlush = flush
+	cfg := s.lastCfg
+	s.mu.Unlock()
+	s.Reload(cfg)
+}
+
+// Tail returns the live TailSampler (or nil when disabled). Hot
+// path: ingester checks `s.Tail() != nil` per span — fine because
+// the field write under Reload is the only mutation.
+func (s *Sampler) Tail() *TailSampler {
+	s.mu.RLock()
+	t := s.tail
+	s.mu.RUnlock()
+	return t
 }
 
 // LoadPersisted reads system_settings["sampling"] and applies it
@@ -180,6 +242,7 @@ func (s *Sampler) Snapshot() config.SamplingConfig {
 	keepErr, keepRoot := s.keepErrors, s.keepRoots
 	out.AlwaysKeepErrors = &keepErr
 	out.AlwaysKeepRoots = &keepRoot
+	out.Tail = s.lastCfg.Tail
 	return out
 }
 
