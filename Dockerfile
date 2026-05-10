@@ -32,6 +32,10 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.Version=${VERSION}
 
 # ── Stage 3: minimal runtime image ────────────────────────────────────────────
 FROM alpine:3.20
+# Re-declare VERSION inside this stage — Docker ARGs are
+# scoped per-stage, so the value passed into stage 2 isn't
+# visible here without this line.
+ARG VERSION=dev
 RUN apk add --no-cache ca-certificates tzdata && \
     # Group 0 ownership + g+rwX so OpenShift's random-UID rootless model
     # can read these files: every assigned UID is in the root group,
@@ -42,6 +46,11 @@ RUN apk add --no-cache ca-certificates tzdata && \
 WORKDIR /app
 COPY --from=go-builder /app/coremetry /app/demo ./
 COPY config.yaml .
+# Stamp VERSION into a runtime file too. main.go's init reads
+# /app/VERSION as a fallback when the linker-injection didn't
+# fire — covers the operator who forgot --build-arg in their
+# remote pipeline. Defaults to "dev" so the file always exists.
+RUN echo "${VERSION:-dev}" > /app/VERSION
 RUN chown -R nonroot:0 /app && chmod -R g+rX /app
 USER 65532
 EXPOSE 4317 8088

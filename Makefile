@@ -66,7 +66,8 @@ docker-up: .env-version
 	@grep -v '^VERSION=' .env > .env.tmp 2>/dev/null || true
 	@echo "VERSION=$(VERSION)" >> .env.tmp
 	@mv .env.tmp .env
-	@echo "[make] wrote VERSION=$(VERSION) to .env"
+	@echo "$(VERSION)" > VERSION.txt
+	@echo "[make] wrote VERSION=$(VERSION) to .env + VERSION.txt"
 
 docker-down:
 	docker compose --profile demo down

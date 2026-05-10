@@ -43,7 +43,31 @@ var webFS embed.FS
 // builds without a tag context). Surfaced on the login page so
 // operators can match a running instance to a release tag without
 // shelling in.
+//
+// Runtime fallback: if Version is still "dev" at startup we read
+// /app/VERSION (written into the image by the Dockerfile from
+// VERSION.txt in the build context). This way an operator who
+// forgets to pass --build-arg VERSION=… still gets the right
+// version on the login page as long as their build pipeline
+// produced the VERSION.txt file.
 var Version = "dev"
+
+func init() {
+	if Version != "" && Version != "dev" {
+		return
+	}
+	// Try a few well-known paths — image puts it at /app/VERSION;
+	// CWD-based dev builds may have it next to the binary.
+	for _, p := range []string{"/app/VERSION", "VERSION", "VERSION.txt"} {
+		if b, err := os.ReadFile(p); err == nil {
+			v := strings.TrimSpace(string(b))
+			if v != "" {
+				Version = v
+				return
+			}
+		}
+	}
+}
 
 func main() {
 	cfgPath := flag.String("config", "config.yaml", "Path to config file")
