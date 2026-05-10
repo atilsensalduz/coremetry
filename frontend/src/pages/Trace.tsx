@@ -8,6 +8,7 @@ import { SpanDetail } from '@/components/SpanDetail';
 import { CopyButton } from '@/components/CopyButton';
 import { CopilotExplain } from '@/components/CopilotExplain';
 import { IconLink, IconCheck, IconDownload, IconSparkles } from '@/components/icons';
+import { useShortcuts } from '@/lib/keyboard';
 import { api } from '@/lib/api';
 import { fmtNs, tsLong } from '@/lib/utils';
 import type { LogRow, SpanRow, TimeRange } from '@/lib/types';
@@ -68,6 +69,87 @@ function TraceDetailInner() {
   }
 
   const sel = spans?.find(s => s.spanId === selectedId) ?? null;
+
+  // Visible-order span list for j/k navigation. Same DFS the
+  // waterfall renders — sort all spans by parent + start
+  // time, then walk depth-first so j/k step through rows in
+  // the order an operator's eye scans them.
+  const orderedSpanIds = useMemo<string[]>(() => {
+    if (!spans || spans.length === 0) return [];
+    const byParent = new Map<string, SpanRow[]>();
+    for (const sp of spans) {
+      const pid = sp.parentSpanId || '';
+      const list = byParent.get(pid);
+      if (list) list.push(sp);
+      else byParent.set(pid, [sp]);
+    }
+    for (const list of byParent.values()) {
+      list.sort((a, b) => a.startTime - b.startTime);
+    }
+    const out: string[] = [];
+    const walk = (parentId: string) => {
+      for (const sp of byParent.get(parentId) ?? []) {
+        out.push(sp.spanId);
+        walk(sp.spanId);
+      }
+    };
+    // Roots first: any span whose parent is empty OR refers to
+    // a parent not in the trace. Sorted by start time so the
+    // order is deterministic across multi-root edge cases.
+    const ids = new Set(spans.map(s => s.spanId));
+    const roots = spans
+      .filter(s => !s.parentSpanId || !ids.has(s.parentSpanId))
+      .sort((a, b) => a.startTime - b.startTime);
+    for (const r of roots) {
+      out.push(r.spanId);
+      walk(r.spanId);
+    }
+    return out;
+  }, [spans]);
+
+  // j/k step + g g / G + Enter / Esc — the same vocabulary
+  // useTableNav installs for list pages; the waterfall has
+  // its own row layout so it gets a hand-rolled binding rather
+  // than the hook.
+  useShortcuts([
+    {
+      keys: 'j', label: 'Next span', group: 'Trace',
+      handler: () => {
+        if (orderedSpanIds.length === 0) return;
+        const i = selectedId ? orderedSpanIds.indexOf(selectedId) : -1;
+        const next = Math.min(orderedSpanIds.length - 1, i + 1);
+        setSelectedId(orderedSpanIds[next] ?? null);
+      },
+    },
+    {
+      keys: 'k', label: 'Previous span', group: 'Trace',
+      handler: () => {
+        if (orderedSpanIds.length === 0) return;
+        const i = selectedId ? orderedSpanIds.indexOf(selectedId) : 0;
+        const prev = Math.max(0, i - 1);
+        setSelectedId(orderedSpanIds[prev] ?? null);
+      },
+    },
+    {
+      keys: 'g g', label: 'Jump to first span', group: 'Trace',
+      handler: () => {
+        if (orderedSpanIds.length > 0) setSelectedId(orderedSpanIds[0]);
+      },
+    },
+    {
+      keys: 'shift+g', label: 'Jump to last span', group: 'Trace',
+      handler: () => {
+        if (orderedSpanIds.length > 0) {
+          setSelectedId(orderedSpanIds[orderedSpanIds.length - 1]);
+        }
+      },
+    },
+    {
+      keys: 'Escape', label: 'Close span detail', group: 'Trace',
+      evenInInputs: true,
+      handler: () => setSelectedId(null),
+    },
+  ], [orderedSpanIds, selectedId]);
   const root = spans?.find(s => !s.parentSpanId) ?? spans?.[0];
   const minT = spans && spans.length ? Math.min(...spans.map(s => s.startTime)) : 0;
   const maxT = spans && spans.length ? Math.max(...spans.map(s => s.endTime)) : 0;

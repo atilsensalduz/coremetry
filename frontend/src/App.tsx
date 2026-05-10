@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './components/AuthProvider';
 import { AppShell } from './components/AppShell';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { Spinner } from './components/Spinner';
 
 // All route components are code-split via React.lazy so the
@@ -51,6 +52,7 @@ const AdminStatusPage   = lazy(() => import('./pages/AdminStatusPage'));
 // just the file paths changed.
 export default function App() {
   return (
+    <ErrorBoundary>
     <AuthProvider>
       <Suspense fallback={<Spinner />}>
         <Routes>
@@ -98,5 +100,6 @@ export default function App() {
         </Routes>
       </Suspense>
     </AuthProvider>
+    </ErrorBoundary>
   );
 }
