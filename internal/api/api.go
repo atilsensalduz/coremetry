@@ -160,6 +160,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/spans/metric", s.spanMetric)
 	mux.HandleFunc("GET /api/spans/exemplar", s.spanExemplar)
 	mux.HandleFunc("GET /api/spans/heatmap", s.spanHeatmap)
+	mux.HandleFunc("GET /api/spans/bubbleup", s.spanBubbleUp)
 	mux.HandleFunc("GET /api/profiles", s.listProfiles)
 	mux.HandleFunc("GET /api/profiles/by-span", s.profilesForSpan)
 	mux.HandleFunc("GET /api/profiles/{id}", s.getProfile)
@@ -1357,6 +1358,44 @@ func (s *Server) spanHeatmap(w http.ResponseWriter, r *http.Request) {
 		q.Get("filters"), q.Get("dsl"))
 	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
 		return s.store.GetLatencyHeatmap(r.Context(), filters, from, to, timeBuckets)
+	})
+}
+
+// spanBubbleUp — Honeycomb-style "what's special about THESE
+// spans" attribute investigator. Two predicate sets:
+//   • baseline (?filters / ?dsl) — the wider population
+//   • selection (?selFilters / ?selDsl) — narrower subset
+// CH counts both sides for each (attr_key, attr_value) pair
+// and the score = selection_pct - baseline_pct surfaces the
+// values over-represented in the selection.
+//
+// 60s server cache — investigation pattern is "click → look
+// → tweak", not realtime; the cache collapses sequential
+// pivots in a single session into one round-trip.
+func (s *Server) spanBubbleUp(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	baseline, err := parseFiltersAndDSL(q.Get("filters"), q.Get("dsl"))
+	if err != nil {
+		http.Error(w, "invalid baseline DSL: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	selection, err := parseFiltersAndDSL(q.Get("selFilters"), q.Get("selDsl"))
+	if err != nil {
+		http.Error(w, "invalid selection DSL: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	from := parseTime(q.Get("from"))
+	to := parseTime(q.Get("to"))
+	if from.IsZero() || to.IsZero() {
+		to = time.Now()
+		from = to.Add(-15 * time.Minute)
+	}
+	key := fmt.Sprintf("span-bubbleup:from=%d:to=%d:f=%s:d=%s:sf=%s:sd=%s",
+		from.UnixNano(), to.UnixNano(),
+		q.Get("filters"), q.Get("dsl"),
+		q.Get("selFilters"), q.Get("selDsl"))
+	s.serveCached(w, r, key, 60*time.Second, func() (any, error) {
+		return s.store.BubbleUp(r.Context(), baseline, selection, from, to)
 	})
 }
 

@@ -7,6 +7,7 @@ import { Combobox } from '@/components/Combobox';
 import { FilterBuilder } from '@/components/FilterBuilder';
 import { MultiLineChart } from '@/components/MultiLineChart';
 import { LatencyHeatmap } from '@/components/LatencyHeatmap';
+import { BubbleUpPanel } from '@/components/BubbleUpPanel';
 import { ShareButton } from '@/components/ShareButton';
 import { LogsExplorer } from '@/components/LogsExplorer';
 import { MetricsExplorer } from '@/components/MetricsExplorer';
@@ -99,6 +100,12 @@ function ExploreInner() {
   const [step, setStep] = useState(parseInt(searchParams.get('step') ?? '0', 10) || 0);
   const [series, setSeries] = useState<SpanMetricSeries[] | null | undefined>(undefined);
   const [heatmap, setHeatmap] = useState<Heatmap | null | undefined>(undefined);
+  // BubbleUp panel — operator-driven attribute investigation.
+  // The most-recently-added filter chip becomes the
+  // "selection" predicate; everything before it is the
+  // baseline. Toggle below the chart so it doesn't fire on
+  // every render — runs lazily on first open.
+  const [showBubbleUp, setShowBubbleUp] = useState(false);
   const [services, setServices] = useState<string[]>([]);
 
   // Result mode: aggregated metrics chart, OR raw matching trace list.
@@ -703,6 +710,37 @@ name ~ checkout`}
                     ))}
                   </tbody>
                 </table>
+              </div>
+            )}
+
+            {/* BubbleUp — what's special about THESE spans?
+                Splits the active filters into baseline (all
+                but the most recent) vs selection (the most
+                recent chip). Lazy: only fetches when the
+                operator opens the panel, so adding chips
+                doesn't fire the divergence query on every
+                tweak. */}
+            {filters.length >= 2 && (
+              <div style={{ marginTop: 14 }}>
+                <button className="sec"
+                  onClick={() => setShowBubbleUp(s => !s)}
+                  style={{ fontSize: 11, padding: '3px 10px' }}
+                  title="Compare the last filter chip's selection against the rest as baseline">
+                  {showBubbleUp ? 'Hide BubbleUp' : '🫧 Investigate selection (BubbleUp)'}
+                </button>
+                {showBubbleUp && (() => {
+                  const baseline = filters.slice(0, -1);
+                  const selection = filters.slice(-1);
+                  const { from, to } = timeRangeToNs(range);
+                  return (
+                    <BubbleUpPanel
+                      baseline={baseline}
+                      selection={selection}
+                      from={from}
+                      to={to}
+                      onApplyFilter={(f) => setFilters([...filters, f])} />
+                  );
+                })()}
               </div>
             )}
           </>

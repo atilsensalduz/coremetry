@@ -958,6 +958,31 @@ export interface AggSpanNode {
   children?: AggSpanNode[];
 }
 
+// BubbleUp — Honeycomb-style attribute investigator. Compares
+// a "selection" subset (e.g. slow / failing spans, a heatmap
+// cell) against a "baseline" population and surfaces the
+// attribute values over-represented in the selection.
+// Score = selection_pct − baseline_pct (range −1..+1, sorted
+// desc); positive = over-represented; the top row is the
+// "smoking gun" attribute.
+export interface BubbleUpValue {
+  value: string;
+  selectionCount: number;
+  baselineCount: number;
+  selectionPct: number;  // 0..1
+  baselinePct: number;   // 0..1
+  score: number;         // −1..+1
+}
+export interface BubbleUpAttribute {
+  key: string;
+  values: BubbleUpValue[];
+}
+export interface BubbleUpResult {
+  selectionTotal: number;
+  baselineTotal: number;
+  attributes: BubbleUpAttribute[];
+}
+
 // LatencyHeatmap — Honeycomb-style 2D density grid.
 // Counts[time_idx][dur_idx] is the span count in the cell
 // formed by the time bucket and the (log-scale) duration bin.

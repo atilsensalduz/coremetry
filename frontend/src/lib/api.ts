@@ -394,6 +394,16 @@ export const api = {
   }) =>
     get<import('./types').LatencyHeatmap>(`/api/spans/heatmap?${qs(params)}`),
 
+  // BubbleUp — attribute divergence between selection and
+  // baseline. `filters`/`dsl` define the baseline population;
+  // `selFilters`/`selDsl` narrow it to the selection subset.
+  spanBubbleUp: (params: {
+    from?: number; to?: number;
+    filters?: string; dsl?: string;
+    selFilters?: string; selDsl?: string;
+  }) =>
+    get<import('./types').BubbleUpResult>(`/api/spans/bubbleup?${qs(params)}`),
+
   // /api/services/{name}/db-queries — top normalised DB
   // statements for a service in a time window. Powers the
   // DB query analyzer panel on /service.
