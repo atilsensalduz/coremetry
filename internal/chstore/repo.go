@@ -923,8 +923,21 @@ func (s *Store) GetTraceAggregate(ctx context.Context, f AggregateFilter) ([]Agg
 		}
 	}
 
-	// 1) Inner: per-trace summary
-	// 2) Outer: aggregate across traces per group bucket
+	// 1) Inner: per-trace summary, bounded to the 200k most
+	//    recent traces in the window. At billion-span scale a
+	//    naive GROUP BY trace_id would scan every trace_id in
+	//    the partition and aggregate all of them — for a 24h
+	//    window that's hundreds of millions of unique IDs.
+	//    The cap returns a representative top-N by recency
+	//    (the operator usually cares about "what's slow right
+	//    now" not "the worst trace last December") and keeps
+	//    the outer GROUP BY bounded too.
+	// 2) Outer: aggregate across the bounded trace set per
+	//    group bucket.
+	// SETTINGS max_execution_time = 30 protects the UI thread —
+	// a misconfigured filter that fans out across a giant
+	// window terminates with an error rather than wedging a
+	// page-load forever.
 	sql := `
 		SELECT group_key, group_extra,
 		       count()                                   AS trace_count,
@@ -948,6 +961,8 @@ func (s *Store) GetTraceAggregate(ctx context.Context, f AggregateFilter) ([]Agg
 		    FROM spans ` + wc.sql() + `
 		    GROUP BY trace_id
 		    HAVING group_key != ''
+		    ORDER BY trace_start DESC
+		    LIMIT 200000
 		)`
 
 	// Argument order matches placeholder order in the SQL:
@@ -977,7 +992,8 @@ func (s *Store) GetTraceAggregate(ctx context.Context, f AggregateFilter) ([]Agg
 	}
 	sql += `
 		ORDER BY ` + sortCol + ` ` + order + `
-		LIMIT ?`
+		LIMIT ?
+		SETTINGS max_execution_time = 30, max_threads = 8`
 	args = append(args, f.Limit)
 
 	rows, err := s.conn.Query(ctx, sql, args...)
