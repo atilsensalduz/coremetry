@@ -395,6 +395,7 @@ func (s *Store) migrate(ctx context.Context) error {
 			severity     LowCardinality(String) DEFAULT 'warning',
 			enabled      UInt8        DEFAULT 1,
 			built_in     UInt8        DEFAULT 0,
+			runbook_url  String       DEFAULT '',
 			created_at   DateTime64(9) DEFAULT now64(9),
 			version      UInt64 DEFAULT toUnixTimestamp64Nano(now64(9))
 		) ENGINE = ReplacingMergeTree(version)
@@ -671,6 +672,7 @@ func (s *Store) migrate(ctx context.Context) error {
 	// out via TTL inside the retention window.
 	alters := []string{
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider LowCardinality(String) DEFAULT 'local'`,
+		`ALTER TABLE alert_rules ADD COLUMN IF NOT EXISTS runbook_url String DEFAULT ''`,
 		`ALTER TABLE spans ADD INDEX IF NOT EXISTS idx_kind        kind        TYPE set(0)    GRANULARITY 4`,
 		`ALTER TABLE spans ADD INDEX IF NOT EXISTS idx_db_system   db_system   TYPE set(0)    GRANULARITY 4`,
 		`ALTER TABLE spans ADD INDEX IF NOT EXISTS idx_http_status http_status TYPE minmax    GRANULARITY 4`,

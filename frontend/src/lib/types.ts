@@ -380,6 +380,11 @@ export interface AlertRule {
   severity: string;     // info | warning | critical
   enabled: boolean;
   builtIn: boolean;
+  // Optional URL to the team's runbook for this rule. When set,
+  // a "Runbook ↗" button surfaces on Problem detail / alerts
+  // notifications so the oncall lands on the playbook in one
+  // click instead of digging through Confluence.
+  runbookUrl?: string;
   createdAt: number;
 }
 

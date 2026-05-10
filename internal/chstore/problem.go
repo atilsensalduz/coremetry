@@ -22,6 +22,10 @@ type AlertRule struct {
 	Severity   string  `json:"severity"`    // info | warning | critical
 	Enabled    bool    `json:"enabled"`
 	BuiltIn    bool    `json:"builtIn"`
+	// RunbookURL — optional link an oncall reaches when the
+	// rule fires. Surfaces on Problem detail + alert
+	// notifications. Empty = no runbook configured.
+	RunbookURL string  `json:"runbookUrl,omitempty"`
 	CreatedAt  int64   `json:"createdAt"`   // unix nanoseconds
 }
 
@@ -45,7 +49,8 @@ type Problem struct {
 func (s *Store) ListAlertRules(ctx context.Context) ([]AlertRule, error) {
 	rows, err := s.conn.Query(ctx, `
 		SELECT id, name, service, metric, comparator, threshold, window_sec,
-		       severity, enabled, built_in, toUnixTimestamp64Nano(created_at)
+		       severity, enabled, built_in, runbook_url,
+		       toUnixTimestamp64Nano(created_at)
 		FROM alert_rules FINAL
 		ORDER BY created_at DESC`)
 	if err != nil {
@@ -57,7 +62,8 @@ func (s *Store) ListAlertRules(ctx context.Context) ([]AlertRule, error) {
 		var r AlertRule
 		var enabled, builtIn uint8
 		if err := rows.Scan(&r.ID, &r.Name, &r.Service, &r.Metric, &r.Comparator,
-			&r.Threshold, &r.WindowSec, &r.Severity, &enabled, &builtIn, &r.CreatedAt); err != nil {
+			&r.Threshold, &r.WindowSec, &r.Severity, &enabled, &builtIn,
+			&r.RunbookURL, &r.CreatedAt); err != nil {
 			return nil, err
 		}
 		r.Enabled = enabled == 1
@@ -70,10 +76,17 @@ func (s *Store) ListAlertRules(ctx context.Context) ([]AlertRule, error) {
 func (s *Store) UpsertAlertRule(ctx context.Context, r AlertRule) error {
 	enabled := uint8(0); if r.Enabled { enabled = 1 }
 	builtIn := uint8(0); if r.BuiltIn { builtIn = 1 }
-	batch, err := s.conn.PrepareBatch(ctx, "INSERT INTO alert_rules")
+	// Explicit column list — alert_rules grew runbook_url in
+	// a later migration. Without naming the columns, the
+	// ordinal arg shape would mismatch the table layout on
+	// upgraded installs.
+	batch, err := s.conn.PrepareBatch(ctx, `INSERT INTO alert_rules
+		(id, name, service, metric, comparator, threshold, window_sec,
+		 severity, enabled, built_in, runbook_url, created_at, version)`)
 	if err != nil { return err }
 	if err := batch.Append(r.ID, r.Name, r.Service, r.Metric, r.Comparator,
 		r.Threshold, r.WindowSec, r.Severity, enabled, builtIn,
+		r.RunbookURL,
 		time.Now().UTC(), uint64(time.Now().UnixNano())); err != nil {
 		return err
 	}
@@ -102,10 +115,12 @@ func (s *Store) GetAlertRule(ctx context.Context, id string) (*AlertRule, error)
 	var enabled, builtIn uint8
 	err := s.conn.QueryRow(ctx, `
 		SELECT id, name, service, metric, comparator, threshold, window_sec,
-		       severity, enabled, built_in, toUnixTimestamp64Nano(created_at)
+		       severity, enabled, built_in, runbook_url,
+		       toUnixTimestamp64Nano(created_at)
 		FROM alert_rules FINAL WHERE id = ? LIMIT 1`, id).
 		Scan(&r.ID, &r.Name, &r.Service, &r.Metric, &r.Comparator, &r.Threshold,
-			&r.WindowSec, &r.Severity, &enabled, &builtIn, &r.CreatedAt)
+			&r.WindowSec, &r.Severity, &enabled, &builtIn,
+			&r.RunbookURL, &r.CreatedAt)
 	if err != nil { return nil, err }
 	r.Enabled = enabled == 1
 	r.BuiltIn = builtIn == 1

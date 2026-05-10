@@ -39,6 +39,53 @@ const emptyDraft: Partial<AlertRule> = {
   threshold: 5, windowSec: 300, severity: 'warning', enabled: true,
 };
 
+// Alert rule templates — Datadog "monitor templates" pattern.
+// Each is a one-click pre-fill of the new-rule form for a
+// scenario operators wire up over and over. Tweaks (specific
+// service, custom threshold) happen after the operator clicks
+// the template; the form stays editable.
+//
+// Naming convention: `{Severity} · {Scenario}` so the picker
+// reads as "what kind of problem is this watching for".
+const TEMPLATES: { id: string; label: string; description: string; draft: Partial<AlertRule> }[] = [
+  {
+    id: 'tpl-high-error-rate',
+    label: 'High error rate (>5%)',
+    description: 'Fires when a service\'s span error rate stays above 5% for 5 minutes — the canonical "something is broken" alarm.',
+    draft: { ...emptyDraft, name: 'High error rate', metric: 'error_rate', comparator: '>', threshold: 5,  windowSec: 300, severity: 'critical' },
+  },
+  {
+    id: 'tpl-warn-error-rate',
+    label: 'Warning error rate (>1%)',
+    description: 'Lower-severity counterpart — early warning before the critical alarm trips.',
+    draft: { ...emptyDraft, name: 'Elevated error rate', metric: 'error_rate', comparator: '>', threshold: 1, windowSec: 600, severity: 'warning' },
+  },
+  {
+    id: 'tpl-slow-p99',
+    label: 'Slow P99 (>1s)',
+    description: 'Tail-latency regression catcher. Most user-visible slowness lives in P99, not the median.',
+    draft: { ...emptyDraft, name: 'Slow P99 latency', metric: 'p99_ms', comparator: '>', threshold: 1000, windowSec: 600, severity: 'warning' },
+  },
+  {
+    id: 'tpl-very-slow-p99',
+    label: 'Very slow P99 (>5s)',
+    description: 'Critical latency band — typical "user is staring at a spinner" threshold.',
+    draft: { ...emptyDraft, name: 'Critical P99 latency', metric: 'p99_ms', comparator: '>', threshold: 5000, windowSec: 300, severity: 'critical' },
+  },
+  {
+    id: 'tpl-traffic-drop',
+    label: 'Service disappeared (RPS = 0)',
+    description: 'Triggers when request rate drops to zero — useful for detecting a crashed service even when no errors are emitted.',
+    draft: { ...emptyDraft, name: 'Service disappeared', metric: 'request_rate', comparator: '<', threshold: 0.01, windowSec: 300, severity: 'critical' },
+  },
+  {
+    id: 'tpl-error-burst',
+    label: 'Error burst (>100 errors in 5m)',
+    description: 'Absolute count threshold — catches a sudden spike independent of traffic ratio.',
+    draft: { ...emptyDraft, name: 'Error count burst', metric: 'error_count', comparator: '>', threshold: 100, windowSec: 300, severity: 'warning' },
+  },
+];
+
 export default function AlertsPage() {
   const [range, setRange] = useState<TimeRange>({ preset: '15m' });
   const [services, setServices] = useState<string[]>([]);
@@ -115,6 +162,35 @@ export default function AlertsPage() {
             background: 'var(--bg1)', border: '1px solid var(--border)',
             borderRadius: 8, padding: 14, marginBottom: 14,
           }}>
+            {/* Template strip — one-click pre-fill for the
+                six scenarios operators wire up over and over.
+                Picking a template populates the form below;
+                the operator can still edit any field
+                afterwards (service / threshold / window). */}
+            {!editingId && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{
+                  fontSize: 11, color: 'var(--text2)',
+                  fontWeight: 600, letterSpacing: '0.5px',
+                  textTransform: 'uppercase', marginBottom: 6,
+                }}>
+                  Start from template
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {TEMPLATES.map(t => (
+                    <button key={t.id} className="sec"
+                      onClick={() => setDraft(t.draft)}
+                      title={t.description}
+                      style={{
+                        fontSize: 11, padding: '4px 10px',
+                        borderRadius: 14,
+                      }}>
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
               <Field label="Name">
                 <input value={draft.name ?? ''}
@@ -152,6 +228,17 @@ export default function AlertsPage() {
                   onChange={e => setDraft({ ...draft, windowSec: Number(e.target.value) })}>
                   {WINDOWS.map(w => <option key={w.v} value={w.v}>{w.label}</option>)}
                 </select>
+              </Field>
+            </div>
+            {/* Runbook URL — optional. Surfaces on Problem
+                detail when the rule fires so the oncall lands
+                on the team's playbook in one click. */}
+            <div style={{ marginTop: 10 }}>
+              <Field label="Runbook URL (optional)">
+                <input value={draft.runbookUrl ?? ''}
+                  onChange={e => setDraft({ ...draft, runbookUrl: e.target.value })}
+                  placeholder="https://wiki.internal/runbook/high-error-rate"
+                  style={{ width: '100%' }} />
               </Field>
             </div>
             <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
