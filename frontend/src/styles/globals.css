@@ -395,7 +395,10 @@ tbody td { padding: 7px 12px; max-width: 320px; white-space: nowrap; overflow: h
 .wf-tick-label { position: absolute; top: 50%; transform: translate(-50%, -50%); font-size: 10px; color: var(--text2); font-family: monospace; white-space: nowrap; pointer-events: none; }
 .wf-vline { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--border); pointer-events: none; }
 /* ── Waterfall row, Tempo-style ──────────────────────────────────────── */
-.wf-row { display: flex; align-items: stretch; min-height: 26px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background .07s; position: relative; }
+/* Compact rows — Tempo's new (Grafana 11+) trace view runs at
+   ~22px so a 200-span trace fits in a screen without scrolling.
+   The previous 26px felt heavier than the rest of the app. */
+.wf-row { display: flex; align-items: stretch; min-height: 22px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background .07s; position: relative; }
 .wf-row:last-child { border-bottom: none; }
 .wf-row:hover { background: var(--bg2); }
 .wf-row.wf-sel { background: rgba(56,139,253,.10); }
@@ -404,14 +407,15 @@ tbody td { padding: 7px 12px; max-width: 320px; white-space: nowrap; overflow: h
 
 /* Critical path — spans whose chain through the DAG sums to
    the trace's wall-clock latency. Marked with a left-edge red
-   accent stripe so the operator sees at a glance which spans
-   the trace was actually waiting on. Combined with .wf-sel
-   the stripe deepens but doesn't double-stack. */
+   accent stripe ONLY — the previous version also painted a
+   1px red box-shadow around every critical-path bar, which
+   read as a "every bar is broken" red frame across the chart.
+   The left stripe alone is enough to tell the operator which
+   spans the trace was actually waiting on. */
 .wf-row.wf-critical::before {
   content: ''; position: absolute; left: 0; top: 0; bottom: 0;
   width: 2px; background: var(--err); z-index: 2;
 }
-.wf-row.wf-critical .wf-row-bar > .wf-bar { box-shadow: 0 0 0 1px var(--err) inset; }
 
 /* Service-color stripe down the left edge — Tempo's primary signal for
    identifying which service this span belongs to. Always visible, fixed
@@ -435,11 +439,13 @@ tbody td { padding: 7px 12px; max-width: 320px; white-space: nowrap; overflow: h
    gRPC spans often display their `rpc.service` (e.g. "Greeter") as
    the operation name, which used to crowd out the actual
    service.name in the row. */
-/* Service name — Tempo-style "soft underline" identifier. The
-   service name renders as plain muted text; a 2px underline in the
-   per-service hash colour (set inline) gives the scan-down-the-
-   column signal without a filled chip competing with the operation
-   name. Far easier on the eye than the previous solid-pill chip. */
+/* Service name — Tempo (Grafana 11+) style. A small filled
+   circle in the per-service hash colour precedes the name;
+   the name itself renders as plain muted text. The dot is the
+   scan-down-the-column "this is service X" signal — replaces
+   the previous bottom-border underline which competed
+   visually with the operation name and didn't survive on
+   short service names. */
 .wf-svc {
   font-size: 12px;
   font-weight: 500;
@@ -451,9 +457,17 @@ tbody td { padding: 7px 12px; max-width: 320px; white-space: nowrap; overflow: h
   text-overflow: ellipsis;
   white-space: nowrap;
   margin: 0 8px 0 4px;
-  padding-bottom: 1px;
-  border-bottom: 2px solid; /* colour set inline */
   line-height: 1.1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.wf-svc-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  /* Background colour set inline to the per-service hash colour. */
 }
 
 /* Group multiplier — appears in service-structure rows when N>1
@@ -545,30 +559,32 @@ tbody td { padding: 7px 12px; max-width: 320px; white-space: nowrap; overflow: h
 .trace-logs-sev.sev-debug  { background: rgba(139,148,158,0.18); color: var(--text2); box-shadow: inset 0 0 0 1px rgba(139,148,158,0.4); }
 .trace-logs-sev.sev-trace  { background: rgba(139,148,158,0.10); color: var(--text3); box-shadow: inset 0 0 0 1px rgba(139,148,158,0.25); }
 .wf-err-dot { color: var(--err); font-size: 11px; flex-shrink: 0; margin-left: 4px; line-height: 1; }
-.wf-kind { font-size: 11px; opacity: .65; margin-right: 2px; flex-shrink: 0; line-height: 1; }
 
 /* Tree connector lines — vertical guides for ancestor depths plus an
-   L-shape elbow joining the row to its parent. Standard Tempo / Jaeger
-   visual; helps the eye trace deep hierarchies without scanning indents
-   character by character. */
-.wf-tree-v { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--border); pointer-events: none; }
+   L-shape elbow joining the row to its parent. Tempo (Grafana 11+)
+   uses lighter dashed guides so the connectors recede behind the
+   actual content; previously these were solid 1px lines that read
+   as a heavy ladder down the row name column. */
+.wf-tree-v { position: absolute; top: 0; bottom: 0; width: 1px; border-left: 1px dashed var(--border); pointer-events: none; opacity: 0.7; }
 .wf-tree-v-empty { display: none; }
 .wf-tree-elbow {
-  position: absolute; top: 0; height: 13px; width: 12px;
+  position: absolute; top: 0; height: 11px; width: 11px;
   pointer-events: none;
-  border-left: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  border-left: 1px dashed var(--border);
+  border-bottom: 1px dashed var(--border);
   border-bottom-left-radius: 4px;
+  opacity: 0.7;
 }
 .wf-tree-elbow-last {} /* last child: same elbow shape; no extension */
 
 /* Bar lane — single solid bar, no overlays. The wait time is implicit
    from the gap between parent and children's positions, exactly the
-   way Tempo / Jaeger / Honeycomb render it. */
+   way Tempo / Jaeger / Honeycomb render it. Tempo (Grafana 11+) uses
+   flat bars (no shadow, no outline on selected) so the chart reads as
+   a clean band of colour rather than a ladder of cards. */
 .wf-row-bar { flex: 1; position: relative; }
-.wf-bar { position: absolute; top: 50%; transform: translateY(-50%); height: 14px; border-radius: 3px; min-width: 2px; display: flex; align-items: center; overflow: hidden; padding: 0 5px; transition: filter .1s, transform .1s; box-shadow: 0 1px 0 rgba(0,0,0,.2); }
+.wf-bar { position: absolute; top: 50%; transform: translateY(-50%); height: 12px; border-radius: 2px; min-width: 2px; display: flex; align-items: center; overflow: hidden; padding: 0 5px; transition: filter .1s; }
 .wf-row:hover .wf-bar { filter: brightness(1.15); }
-.wf-row.wf-sel .wf-bar { outline: 1px solid rgba(255,255,255,.4); outline-offset: 0; }
 .wf-bar-label { font-size: 10px; color: rgba(255,255,255,.92); white-space: nowrap; font-family: monospace; overflow: hidden; pointer-events: none; text-shadow: 0 1px 1px rgba(0,0,0,.25); }
 .wf-bar-label-outside { position: absolute; top: 50%; transform: translateY(-50%); font-size: 10px; color: var(--text2); font-family: monospace; pointer-events: none; white-space: nowrap; }
 

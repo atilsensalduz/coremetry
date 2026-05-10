@@ -28,17 +28,12 @@ interface Row {
   hasError?: boolean;      // any member errored — error stripe still wins
 }
 
-// Span-kind glyphs — case-insensitive variants of the OTel-spec values.
-const KIND_ICON: Record<string, string> = {
-  server:   '🖥',
-  client:   '📡',
-  producer: '📤',
-  consumer: '📥',
-  internal: '⚙',
-};
-function kindIcon(k: string): string {
-  return KIND_ICON[(k || 'internal').toLowerCase()] ?? '⚙';
-}
+// Span kind is exposed via tooltips on the row name only — we
+// used to render an emoji glyph (🖥 / 📡 / 📤 / 📥 / ⚙) per
+// row, but the visual noise added more than it surfaced (the
+// kind is rarely the operator's first question and the
+// service-name + category-chip already separate request-side
+// from infra-side spans).
 
 // Span category chip — Uptrace/SigNoz convention. The eye scans the
 // category column and immediately sees "this is a DB call vs an
@@ -385,7 +380,6 @@ export function TraceWaterfall({
                       {isCol ? '▶' : '▼'}
                     </button>
                   : <div className="wf-leaf" />}
-                <span className="wf-kind" title={s.kind || 'internal'}>{kindIcon(s.kind)}</span>
                 {/* Service identifier — Tempo-style soft underline.
                     The service name reads as plain text with a 2px
                     underline in the per-service hash colour, so the
@@ -393,8 +387,8 @@ export function TraceWaterfall({
                     survives without a high-contrast filled chip
                     competing with the operation name. */}
                 <span className="wf-svc"
-                      title={`service.name: ${s.serviceName}`}
-                      style={{ borderBottomColor: color }}>
+                      title={`service.name: ${s.serviceName}`}>
+                  <span className="wf-svc-dot" style={{ background: color }} />
                   {s.serviceName}
                 </span>
                 {cat && (
