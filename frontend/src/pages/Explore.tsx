@@ -11,7 +11,7 @@ import { LogsExplorer } from '@/components/LogsExplorer';
 import { MetricsExplorer } from '@/components/MetricsExplorer';
 import { ColumnManager } from '@/components/ColumnManager';
 import { api } from '@/lib/api';
-import { useExemplarFetcher, useServiceDeploys } from '@/lib/queries';
+import { useExemplarFetcher, useServiceDeploys, useSLOs } from '@/lib/queries';
 import { timeRangeToNs, fmtNum, tsLong, rowClickHandlers } from '@/lib/utils';
 import { encodeRange, decodeRange, encodeFilters, decodeFilters, buildQuery } from '@/lib/urlState';
 import type { TimeRange, FilterExpr, SpanMetricSeries, SpanAgg, TraceRow } from '@/lib/types';
@@ -154,6 +154,48 @@ function ExploreInner() {
       description: `${d.spanCount.toLocaleString()} spans since first seen`,
     }));
   }, [deploysQ.data]);
+
+  // SLO-derived chart thresholds. When the filter pins one
+  // service, pull every SLO for that service and convert to a
+  // horizontal threshold line whose y-value matches the chart's
+  // current `agg`:
+  //   • latency aggs (p50/p90/p95/p99/avg/max) ← thresholdMs
+  //     from the SLO's latency target
+  //   • error_rate                              ← (1 - target)
+  //     from the SLO's availability target, expressed as %
+  //   • everything else (rate / count / errors) gets no
+  //     threshold — there's no canonical SLO surface for them.
+  // Operations also match: an SLO scoped to a specific span
+  // operation only contributes when the chart's filter is on
+  // that operation (or no operation pinned, which is the
+  // service-wide view).
+  const slosQ = useSLOs();
+  const sloThresholds = useMemo(() => {
+    if (!slosQ.data || !exemplarCtx) return undefined;
+    const out: { value: number; label: string; severity: 'warn' | 'err' }[] = [];
+    for (const slo of slosQ.data) {
+      if (slo.service !== exemplarCtx.service) continue;
+      // Scoped-operation SLO only applies when the chart's
+      // operation filter matches (or is empty AND we're
+      // looking at the right agg).
+      if (slo.operation && slo.operation !== exemplarCtx.op) continue;
+      if (slo.sliType === 'latency' && /^(p\d+|avg|max)$/.test(agg)) {
+        out.push({
+          value: slo.thresholdMs,
+          label: `SLO ${(slo.target * 100).toFixed(2)}% < ${slo.thresholdMs}ms`,
+          severity: 'err',
+        });
+      } else if (slo.sliType === 'availability' && agg === 'error_rate') {
+        const errBudgetPct = (1 - slo.target) * 100;
+        out.push({
+          value: errBudgetPct,
+          label: `SLO target ${(slo.target * 100).toFixed(2)}% (err ≤ ${errBudgetPct.toFixed(2)}%)`,
+          severity: 'err',
+        });
+      }
+    }
+    return out.length > 0 ? out : undefined;
+  }, [slosQ.data, exemplarCtx, agg]);
 
   async function openExemplar(kind: 'slow' | 'error') {
     if (!exemplarCtx) return;
@@ -565,6 +607,7 @@ name ~ checkout`}
               </div>
               <MultiLineChart series={series} unit={unit}
                               deploys={deployMarkers}
+                              thresholds={sloThresholds}
                               onZoom={(fromSec, toSec) => {
                                 // Drag-zoom on the chart → update the
                                 // page's TimeRange to the selected
