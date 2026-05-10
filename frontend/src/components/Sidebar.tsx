@@ -37,6 +37,7 @@ const NAV: NavItem[] = [
   { href: '/monitors',   label: 'Monitors',     icon: '◉' },
   { href: '/admin/stats',       label: 'System',             icon: '◐' },
   { href: '/admin/cardinality', label: 'Cardinality',        icon: '◐', adminOnly: true },
+  { href: '/admin/catalog',     label: 'Service catalog',    icon: '◫', adminOnly: true },
   { href: '/admin/audit',       label: 'Audit log',          icon: '◇', adminOnly: true },
   { href: '/admin/sql',         label: 'SQL playground',     icon: '⌘', adminOnly: true },
   { href: '/admin/status-page', label: 'Public Status Page', icon: '◫', adminOnly: true },

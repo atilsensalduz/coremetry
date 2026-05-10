@@ -36,6 +36,14 @@ export default function ServicesPage() {
   // listing, server-cached 5 min. The component renders per-row
   // ServiceRuntimeBadge inside the name cell.
   const runtimes = useAllServiceRuntimes().data;
+  // Service-catalog metadata — pulled once, joined locally so
+  // operators can filter the list by SRE team / owner team
+  // and see "their" services. The endpoint is server-cached
+  // for 60s so the per-page-load cost is bounded.
+  const [catalog, setCatalog] = useState<Record<string, import('@/lib/types').ServiceMetadata>>({});
+  useEffect(() => {
+    api.servicesMetadata().then(c => setCatalog(c ?? {})).catch(() => {});
+  }, []);
   const [sortBy, setSortBy] = useState<SortKey>('errorRate');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   // Page-based pagination — 50 services per page, ranked by span
@@ -108,24 +116,32 @@ export default function ServicesPage() {
 
   // Sort runs server-side via ?sort/&dir; this only applies
   // local display filters (errors-only / min-spans / min-p99
-  // / typed substring). Server returns rows already ordered
-  // by the chosen column. Local filters narrow the visible
-  // current page only — fine because the search filter
-  // routes through `committedFilter` to the server and
-  // re-fetches.
+  // / typed substring / team match). Server returns rows
+  // already ordered by the chosen column. The substring
+  // filter also matches against catalog `ownerTeam` /
+  // `sreTeam` so an SRE can type "platform" in the picker
+  // and see every service their team owns regardless of
+  // service-name spelling.
   const sorted = useMemo(() => {
     if (!data) return data;
     const minS = parseFloat(minSpans);
     const minP = parseFloat(minP99);
     const term = serviceFilter.trim().toLowerCase();
     return data.filter(s => {
-      if (term && !s.name.toLowerCase().includes(term)) return false;
+      if (term) {
+        const md = catalog[s.name];
+        const matches =
+          s.name.toLowerCase().includes(term) ||
+          (md?.ownerTeam ?? '').toLowerCase().includes(term) ||
+          (md?.sreTeam ?? '').toLowerCase().includes(term);
+        if (!matches) return false;
+      }
       if (errorsOnly && !(s.errorCount > 0 || s.errorRate > 0)) return false;
       if (!isNaN(minS) && s.spanCount < minS) return false;
       if (!isNaN(minP) && s.p99DurationMs < minP) return false;
       return true;
     });
-  }, [data, serviceFilter, errorsOnly, minSpans, minP99]);
+  }, [data, serviceFilter, errorsOnly, minSpans, minP99, catalog]);
 
   const apply = () => setCommittedFilter(serviceFilter.trim());
 

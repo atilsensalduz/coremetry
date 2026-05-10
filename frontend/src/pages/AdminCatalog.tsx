@@ -1,0 +1,263 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Topbar } from '@/components/Topbar';
+import { Spinner, Empty } from '@/components/Spinner';
+import { TableSkeleton } from '@/components/Skeleton';
+import { useAuth } from '@/components/AuthProvider';
+import { IconShield } from '@/components/icons';
+import { api } from '@/lib/api';
+import type { ServiceMetadata } from '@/lib/types';
+
+// /admin/catalog — admin-only bulk editor for the service
+// catalog. Pulls every catalog row + every service that has
+// recent traffic, joins them locally so the operator can:
+//   • see at a glance which services are "yet to curate"
+//   • spot-edit owner team / SRE team / chat / oncall / repo
+//     across the whole catalog without bouncing into each
+//     service detail page
+//   • search by service or owner team
+//
+// We don't paginate — at ~1000 services the table scrolls
+// fine inside a max-height container, and at 5000+ services
+// the search input narrows it to a few rows anyway.
+
+type Row = {
+  service: string;
+  meta: ServiceMetadata;
+  hasTraffic: boolean;
+};
+
+export default function AdminCatalogPage() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const [rows, setRows] = useState<Row[] | null | undefined>(undefined);
+  const [search, setSearch] = useState('');
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState<ServiceMetadata | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  // Composite load — services-list (for the service set)
+  // + services-metadata (for the catalog rows). Two parallel
+  // shots; the page renders as soon as both land.
+  const reload = async () => {
+    setRows(undefined);
+    try {
+      const [svcResp, mdMap] = await Promise.all([
+        api.serviceNames(),
+        api.servicesMetadata(),
+      ]);
+      const trafficSet = new Set<string>(svcResp?.names ?? []);
+      // Include catalog rows whose service no longer has
+      // recent traffic (operator-curated history); flag them
+      // visually so it's clear they're "stale".
+      const all = new Set<string>(trafficSet);
+      for (const k of Object.keys(mdMap ?? {})) all.add(k);
+      const out: Row[] = [];
+      for (const name of all) {
+        out.push({
+          service: name,
+          meta: (mdMap ?? {})[name] ?? { service: name },
+          hasTraffic: trafficSet.has(name),
+        });
+      }
+      out.sort((a, b) => a.service.localeCompare(b.service));
+      setRows(out);
+    } catch {
+      setRows(null);
+    }
+  };
+
+  useEffect(() => { if (isAdmin) reload(); }, [isAdmin]);
+
+  const filtered = useMemo(() => {
+    if (!rows) return rows;
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(r =>
+      r.service.toLowerCase().includes(q) ||
+      (r.meta.ownerTeam ?? '').toLowerCase().includes(q) ||
+      (r.meta.sreTeam ?? '').toLowerCase().includes(q));
+  }, [rows, search]);
+
+  const startEdit = (r: Row) => {
+    setEditing(r.service);
+    setDraft({ ...r.meta, service: r.service });
+  };
+
+  const save = async () => {
+    if (!draft || !editing) return;
+    setBusy(editing);
+    try {
+      await api.putServiceMetadata(editing, draft);
+      setRows(rs => rs ? rs.map(r =>
+        r.service === editing ? { ...r, meta: { ...draft, service: editing } } : r
+      ) : rs);
+      setEditing(null);
+      setDraft(null);
+    } catch {
+      // Re-fetch on save failure so the row reflects the
+      // server's actual state instead of the stale optimistic
+      // copy.
+      reload();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  if (!user) return null;
+  if (!isAdmin) {
+    return (
+      <>
+        <Topbar title="Service catalog" />
+        <div id="content">
+          <Empty icon={<IconShield size={28} />} title="Admin access required">
+            The service catalog editor is admin-only — same gate as the rest of /admin/*.
+          </Empty>
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <Topbar title="Service catalog" />
+      <div id="content">
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 14 }}>
+          <input value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Filter by service / owner / SRE team…"
+            style={{ minWidth: 280, fontSize: 13, padding: '4px 8px' }} />
+          <span style={{ flex: 1 }} />
+          <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+            {rows ? `${rows.length} services` : 'Loading…'}
+            {' · '}
+            {rows ? `${rows.filter(r => r.meta.ownerTeam || r.meta.sreTeam).length} curated` : ''}
+          </span>
+          <button className="sec" onClick={reload}
+            style={{ fontSize: 12, padding: '4px 12px' }}>
+            Refresh
+          </button>
+        </div>
+
+        {rows === undefined && <TableSkeleton rows={12} cols={7} />}
+        {rows === null && (
+          <Empty icon="!" title="Failed to load catalog" />
+        )}
+        {filtered && filtered.length === 0 && (
+          <Empty icon="◇" title="No services match your filter" />
+        )}
+        {filtered && filtered.length > 0 && (
+          <div className="table-wrap"
+               style={{ maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' }}>
+            <table>
+              <thead style={{ position: 'sticky', top: 0, background: 'var(--bg1)', zIndex: 1 }}>
+                <tr>
+                  <th>Service</th>
+                  <th>Owner team</th>
+                  <th>SRE team</th>
+                  <th>Zoom Chat channel</th>
+                  <th>Runbook</th>
+                  <th>Oncall</th>
+                  <th>Repo</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map(r => (
+                  editing === r.service && draft
+                    ? <EditRow key={r.service}
+                        draft={draft}
+                        busy={busy === r.service}
+                        onChange={setDraft}
+                        onSave={save}
+                        onCancel={() => { setEditing(null); setDraft(null); }} />
+                    : <DisplayRow key={r.service}
+                        row={r}
+                        onEdit={() => startEdit(r)} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+function DisplayRow({ row, onEdit }: { row: Row; onEdit: () => void }) {
+  const m = row.meta;
+  const hasAny = m.ownerTeam || m.sreTeam || m.chatChannel || m.runbookUrl || m.oncallUrl || m.repository;
+  return (
+    <tr style={{ opacity: row.hasTraffic ? 1 : 0.55 }}>
+      <td className="mono">
+        <span style={{ fontWeight: 600 }}>{row.service}</span>
+        {!row.hasTraffic && (
+          <span style={{ fontSize: 10, color: 'var(--text3)', marginLeft: 6 }}>
+            no recent traffic
+          </span>
+        )}
+      </td>
+      <td>{m.ownerTeam || <em style={{ color: 'var(--text3)' }}>—</em>}</td>
+      <td>{m.sreTeam || <em style={{ color: 'var(--text3)' }}>—</em>}</td>
+      <td>{m.chatChannel || <em style={{ color: 'var(--text3)' }}>—</em>}</td>
+      <td><LinkCell url={m.runbookUrl} /></td>
+      <td><LinkCell url={m.oncallUrl} /></td>
+      <td><LinkCell url={m.repository} /></td>
+      <td>
+        <button className="sec" onClick={onEdit}
+          style={{ fontSize: 11, padding: '2px 8px' }}>
+          {hasAny ? 'Edit' : 'Add'}
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+function EditRow({ draft, busy, onChange, onSave, onCancel }: {
+  draft: ServiceMetadata;
+  busy: boolean;
+  onChange: (m: ServiceMetadata) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  const u = (patch: Partial<ServiceMetadata>) => onChange({ ...draft, ...patch });
+  return (
+    <tr style={{ background: 'var(--bg2)' }}>
+      <td className="mono"><b>{draft.service}</b></td>
+      <td><Inp v={draft.ownerTeam} on={v => u({ ownerTeam: v })} ph="payments" /></td>
+      <td><Inp v={draft.sreTeam}   on={v => u({ sreTeam: v })}   ph="platform" /></td>
+      <td><Inp v={draft.chatChannel} on={v => u({ chatChannel: v })} ph="payments-oncall" /></td>
+      <td><Inp v={draft.runbookUrl} on={v => u({ runbookUrl: v })} ph="https://wiki/runbook" /></td>
+      <td><Inp v={draft.oncallUrl}  on={v => u({ oncallUrl: v })}  ph="https://pagerduty/..." /></td>
+      <td><Inp v={draft.repository} on={v => u({ repository: v })} ph="https://github/..." /></td>
+      <td>
+        <span style={{ display: 'inline-flex', gap: 4 }}>
+          <button onClick={onSave} disabled={busy}
+            style={{ fontSize: 11, padding: '2px 8px' }}>
+            {busy ? '…' : 'Save'}
+          </button>
+          <button className="sec" onClick={onCancel} disabled={busy}
+            style={{ fontSize: 11, padding: '2px 8px' }}>
+            Cancel
+          </button>
+        </span>
+      </td>
+    </tr>
+  );
+}
+
+function Inp({ v, on, ph }: { v?: string; on: (v: string) => void; ph?: string }) {
+  return (
+    <input value={v ?? ''} placeholder={ph} onChange={e => on(e.target.value)}
+      style={{ width: '100%', minWidth: 110, fontSize: 12, padding: '2px 6px' }} />
+  );
+}
+
+function LinkCell({ url }: { url?: string }) {
+  if (!url) return <em style={{ color: 'var(--text3)' }}>—</em>;
+  return (
+    <a href={url} target="_blank" rel="noopener"
+      style={{ fontSize: 11, color: 'var(--accent2)' }}
+      title={url}>
+      open ↗
+    </a>
+  );
+}

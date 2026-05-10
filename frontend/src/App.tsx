@@ -41,6 +41,7 @@ const PublicStatus      = lazy(() => import('./pages/PublicStatus'));
 const PublicTrace       = lazy(() => import('./pages/PublicTrace'));
 const AdminAudit        = lazy(() => import('./pages/AdminAudit'));
 const AdminCardinality  = lazy(() => import('./pages/AdminCardinality'));
+const AdminCatalog      = lazy(() => import('./pages/AdminCatalog'));
 const AdminSql          = lazy(() => import('./pages/AdminSql'));
 const AdminStats        = lazy(() => import('./pages/AdminStats'));
 const AdminStatusPage   = lazy(() => import('./pages/AdminStatusPage'));
@@ -88,6 +89,7 @@ export default function App() {
             <Route path="/public/trace"   element={<PublicTrace />} />
             <Route path="/admin/audit"        element={<AdminAudit />} />
             <Route path="/admin/cardinality"  element={<AdminCardinality />} />
+            <Route path="/admin/catalog"      element={<AdminCatalog />} />
             <Route path="/admin/sql"          element={<AdminSql />} />
             <Route path="/admin/stats"        element={<AdminStats />} />
             <Route path="/admin/status-page"  element={<AdminStatusPage />} />
