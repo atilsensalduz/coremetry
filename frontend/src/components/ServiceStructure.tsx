@@ -22,12 +22,25 @@ import type { AggSpanNode } from '@/lib/types';
 // related round-trips until the operator opens it.
 type View = 'tree' | 'flame';
 
+// Scope = "what spans does the aggregation walk into".
+//   • cross    — every descendant of the focused-service entry
+//                points, including downstream service / DB /
+//                queue spans. Default; reads as "where does
+//                this service's request time end up going".
+//   • internal — clip the walk at the service boundary; the
+//                aggregation only sees spans owned by this
+//                service. Reads as "where does this service
+//                spend its OWN time, ignoring how slow the
+//                things it calls are".
+type Scope = 'cross' | 'internal';
+
 export function ServiceStructure({ service, since = '10m' }: {
   service: string;
   since?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<View>('tree');
+  const [scope, setScope] = useState<Scope>('cross');
   const [data, setData] = useState<{
     roots?: AggSpanNode[];
     sampledFrom: number;
@@ -37,10 +50,10 @@ export function ServiceStructure({ service, since = '10m' }: {
   useEffect(() => {
     if (!open || !service) return;
     setData(undefined);
-    api.serviceStructure(service, since, 50)
+    api.serviceStructure(service, since, 50, scope === 'internal')
       .then(setData)
       .catch(() => setData(null));
-  }, [open, service, since]);
+  }, [open, service, since, scope]);
 
   return (
     <div style={{
@@ -92,12 +105,23 @@ export function ServiceStructure({ service, since = '10m' }: {
             <>
               <div style={{
                 display: 'flex', gap: 6, marginBottom: 10,
-                fontSize: 12,
+                fontSize: 12, flexWrap: 'wrap', alignItems: 'center',
               }}>
                 <ViewTab active={view === 'tree'}  onClick={() => setView('tree')}  label="Tree"
                          hint="Chronological waterfall — what the service does end-to-end" />
                 <ViewTab active={view === 'flame'} onClick={() => setView('flame')} label="Flame"
                          hint="Where time is actually spent — width = total time across sampled traces" />
+                {/* Scope toggle. Same idea as Datadog APM's
+                    "service profile" vs "trace flame" split:
+                    do you want to see only this service's
+                    internal time, or include the downstream
+                    services' contribution too. */}
+                <span style={{ flex: 1 }} />
+                <span style={{ color: 'var(--text3)', fontSize: 11 }}>Scope</span>
+                <ViewTab active={scope === 'cross'}    onClick={() => setScope('cross')}    label="Cross-service"
+                         hint="Include downstream service / DB / queue spans called from this service — total round-trip cost" />
+                <ViewTab active={scope === 'internal'} onClick={() => setScope('internal')} label="Internal only"
+                         hint="Clip the walk at the service boundary — what this service does in its own process" />
               </div>
               {view === 'tree'  && <AggregatedStructure roots={data.roots} />}
               {view === 'flame' && <AggregateFlame      roots={data.roots} />}

@@ -85,13 +85,14 @@ export const api = {
   // nodes — Grafana-Drilldown style. Each unique `(parent_path,
   // service, displayName)` triple appears once with `×N` for tight
   // loops / fan-outs.
-  serviceStructure: (svc: string, since = '1h', samples = 50) =>
+  serviceStructure: (svc: string, since = '1h', samples = 50, internalOnly = false) =>
     get<{
       service: string;
       roots?: import('./types').AggSpanNode[];
       sampledFrom: number;
       totalSpans: number;
-    }>(`/api/services/${encodeURIComponent(svc)}/structure?since=${since}&samples=${samples}`),
+      internalOnly?: boolean;
+    }>(`/api/services/${encodeURIComponent(svc)}/structure?since=${since}&samples=${samples}${internalOnly ? '&internal=true' : ''}`),
 
   // Service-level upstream / downstream neighbours derived from
   // sampled trace topology. No peer.service heuristic — purely

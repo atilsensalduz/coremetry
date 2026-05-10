@@ -97,6 +97,20 @@ func (s *Store) GetSpansForTraces(ctx context.Context, traceIDs []string) ([]Spa
 // displayName)`; counts + average / max duration + error count are
 // accumulated per bucket.
 //
+// `internalOnly` controls how the DFS walks descendants of each
+// focused-service entry point:
+//   • false (default) — follow every child regardless of service.
+//     This produces a CROSS-SERVICE flame showing "what the
+//     focused service does, including the downstream RPC /
+//     queue / DB hops it calls into". Downstream service
+//     frames are coloured distinctly so the operator can tell
+//     where the time leaves the local process.
+//   • true — clip the walk at any non-focused service. Produces
+//     a SERVICE-ONLY flame: "where does this service spend its
+//     own time, ignoring how long the things it calls took".
+//     Useful when investigating a perf regression that's
+//     internal to the service rather than downstream.
+//
 // Returns:
 //   roots        — top-level nodes (multiple if sampled traces
 //                  have different root spans; chronological order
@@ -106,6 +120,7 @@ func (s *Store) GetSpansForTraces(ctx context.Context, traceIDs []string) ([]Spa
 //   sampledFrom  — trace count actually inspected.
 func (s *Store) AggregateServiceStructure(
 	ctx context.Context, service string, since time.Duration, sampleCount int,
+	internalOnly bool,
 ) (roots []*AggSpanNode, totalSpans, sampledFrom int, err error) {
 	if sampleCount <= 0 || sampleCount > 200 {
 		sampleCount = 50
@@ -241,6 +256,14 @@ func (s *Store) AggregateServiceStructure(
 				node.errCnt++
 			}
 			for _, c := range kids[sp.SpanID] {
+				// Internal-only mode clips the walk at the
+				// service boundary — anything emitted by a
+				// downstream service is excluded from the
+				// aggregation. Cross-service mode follows
+				// every child regardless.
+				if internalOnly && c.ServiceName != service {
+					continue
+				}
 				dfs(node, c)
 			}
 		}

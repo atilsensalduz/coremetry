@@ -422,6 +422,7 @@ func (s *Server) getServiceStructure(w http.ResponseWriter, r *http.Request) {
 	}
 	since := parseDuration(r.URL.Query().Get("since"), time.Hour)
 	samples := parseInt(r.URL.Query().Get("samples"), 50)
+	internalOnly := r.URL.Query().Get("internal") == "true"
 
 	// 1h cache. Service call structure shifts on a deploy / weekly /
 	// monthly cadence, not minute-by-minute, so an hour-stale tree
@@ -430,19 +431,20 @@ func (s *Server) getServiceStructure(w http.ResponseWriter, r *http.Request) {
 	// is the heaviest single query on the service detail page;
 	// caching for 1h collapses an entire user session into a single
 	// CH round-trip. A range or sample-count change still misses.
-	key := fmt.Sprintf("service-structure:svc=%s:since=%s:samples=%d",
-		name, since, samples)
+	key := fmt.Sprintf("service-structure:svc=%s:since=%s:samples=%d:int=%t",
+		name, since, samples, internalOnly)
 	s.serveCached(w, r, key, time.Hour, func() (any, error) {
 		roots, totalSpans, sampledFrom, err := s.store.AggregateServiceStructure(
-			r.Context(), name, since, samples)
+			r.Context(), name, since, samples, internalOnly)
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{
-			"service":     name,
-			"roots":       roots,
-			"sampledFrom": sampledFrom,
-			"totalSpans":  totalSpans,
+			"service":      name,
+			"roots":        roots,
+			"sampledFrom":  sampledFrom,
+			"totalSpans":   totalSpans,
+			"internalOnly": internalOnly,
 		}, nil
 	})
 }
