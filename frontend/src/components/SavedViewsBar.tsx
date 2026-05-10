@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/components/AuthProvider';
+import { useShortcuts, type Shortcut } from '@/lib/keyboard';
 import { api } from '@/lib/api';
 import type { SavedView } from '@/lib/types';
 
@@ -34,6 +35,36 @@ export function SavedViewsBar({ page }: { page: string }) {
     navigate(target);
   };
 
+  // Keyboard 1-9 → first-nine saved views. Datadog "favourites"
+  // shortcut equivalent. Order matches what the user sees: any
+  // "shared" / starred views float first, then the personal
+  // ones; the 1-9 keys map to that visible ordering. Bindings
+  // are skipped while typing in inputs (useShortcuts already
+  // handles that) so saving "1" in a name field doesn't warp
+  // the page.
+  const ordered = useMemo<SavedView[]>(() => {
+    if (!views) return [];
+    return [...views].sort((a, b) => {
+      const aShared = a.ownerId === '' ? 1 : 0;
+      const bShared = b.ownerId === '' ? 1 : 0;
+      if (aShared !== bShared) return bShared - aShared;
+      return a.name.localeCompare(b.name);
+    });
+  }, [views]);
+  const numericShortcuts = useMemo<Shortcut[]>(() => {
+    return ordered.slice(0, 9).map((v, i) => ({
+      keys: String(i + 1),
+      label: `Saved view: ${v.name}`,
+      group: 'Saved views',
+      handler: () => apply(v),
+    }));
+  // The handler closes over `navigate` (stable) and `v` (per
+  // entry); deps include the ordered list reference so a
+  // re-ordering or rename re-registers the right handlers.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ordered]);
+  useShortcuts(numericShortcuts, [numericShortcuts]);
+
   const save = async () => {
     const trimmed = name.trim();
     if (!trimmed) return;
@@ -65,7 +96,7 @@ export function SavedViewsBar({ page }: { page: string }) {
           (none yet — Save current view to pin a filter combo)
         </span>
       )}
-      {views.map(v => (
+      {ordered.map((v, i) => (
         <span key={v.id} style={{
           display: 'inline-flex', alignItems: 'center', gap: 4,
           padding: '2px 8px', borderRadius: 3,
@@ -77,9 +108,19 @@ export function SavedViewsBar({ page }: { page: string }) {
               background: 'transparent', border: 'none', cursor: 'pointer',
               color: 'var(--text)', padding: 0, fontSize: 11,
             }}
-            title={v.ownerId === '' ? 'Team-shared view' : 'Your view'}>
+            title={v.ownerId === ''
+              ? `Team-shared view${i < 9 ? ` · press ${i + 1}` : ''}`
+              : `Your view${i < 9 ? ` · press ${i + 1}` : ''}`}>
             {v.ownerId === '' && <span style={{ fontSize: 9, marginRight: 4 }}>★</span>}
             {v.name}
+            {i < 9 && (
+              <span style={{
+                fontSize: 9, color: 'var(--text3)',
+                marginLeft: 6, padding: '0 4px',
+                border: '1px solid var(--border)', borderRadius: 2,
+                fontFamily: 'ui-monospace, monospace',
+              }}>{i + 1}</span>
+            )}
           </button>
           {(v.ownerId === user?.id || isAdmin) && (
             <button type="button" onClick={() => remove(v)} title="Delete"

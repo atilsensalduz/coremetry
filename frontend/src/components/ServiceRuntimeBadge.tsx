@@ -1,4 +1,5 @@
 import type { ServiceRuntime } from '@/lib/types';
+import { LanguageIcon } from './RuntimeIcons';
 
 // Small "Java 21" / "Go 1.22.5" pill rendered next to a
 // service name. Used in two places: the infra panel header on
@@ -44,7 +45,7 @@ export function ServiceRuntimeBadge({
   return (
     <span title={titleParts.join(' · ')}
       style={{
-        display: 'inline-flex', alignItems: 'center', gap: 4,
+        display: 'inline-flex', alignItems: 'center', gap: 5,
         fontSize: compact ? 10 : 11,
         padding: compact ? '1px 6px' : '2px 8px',
         background: 'var(--bg3)', border: '1px solid var(--border)',
@@ -53,11 +54,14 @@ export function ServiceRuntimeBadge({
         whiteSpace: 'nowrap',
         ...style,
       }}>
-      {!compact && (
-        <span style={{ color: 'var(--text3)' }}>
-          {languageGlyph(rt.language)}
-        </span>
-      )}
+      {/* Brand-style runtime icon — ElasticAPM convention.
+          Monochrome SVG that inherits the badge's text colour
+          so the polyglot mesh reads as a calm strip rather
+          than a rainbow of brand hues. The shape carries the
+          language identity; colour stays unified. */}
+      <span style={{ color: 'var(--text3)', display: 'inline-flex' }}>
+        <LanguageIcon lang={rt.language} size={compact ? 11 : 13} />
+      </span>
       <span>{display}</span>
     </span>
   );
