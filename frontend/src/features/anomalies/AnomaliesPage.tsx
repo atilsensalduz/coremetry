@@ -307,6 +307,11 @@ function ProblemsSection({ serviceFilter }: { serviceFilter: string }) {
   const [statusFilter, setStatusFilter] = useState<'open' | 'all' | 'resolved'>('open');
   const [sortBy, setSortBy] = useState<PSortKey>('started');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
+  // Which row's "Why?" panel is expanded. Null = none. Single
+  // expansion at a time keeps the table compact during incident
+  // triage — the operator typically only investigates one
+  // problem at a time, switching rows replaces the panel.
+  const [explainOpen, setExplainOpen] = useState<string | null>(null);
 
   const problemsQ = useProblems({
     status: statusFilter === 'all' ? undefined : statusFilter,
@@ -399,71 +404,174 @@ function ProblemsSection({ serviceFilter }: { serviceFilter: string }) {
                 <PSortTh col="rule"     label="Rule"     sort={sortBy} dir={sortDir} onSort={toggleSort} />
                 <PSortTh col="started"  label="Started"  sort={sortBy} dir={sortDir} onSort={toggleSort} />
                 <PSortTh col="status"   label="Status"   sort={sortBy} dir={sortDir} onSort={toggleSort} />
+                <th>Why</th>
                 <th>AI</th>
               </tr>
             </thead>
             <tbody>
               {sorted.map(p => {
                 const isAnomaly = p.ruleId?.startsWith('anomaly:');
+                const isOpen = explainOpen === p.id;
                 return (
-                  <tr key={p.id}
-                      onClick={() => navigate(`/service?name=${encodeURIComponent(p.service)}`)}
-                      style={{ cursor: 'pointer' }}>
-                    <td><SeverityBadge s={p.severity} /></td>
-                    <td>
-                      <Link to={`/service?name=${encodeURIComponent(p.service)}`}
-                        onClick={e => e.stopPropagation()}
-                        style={{ fontWeight: 600 }}>
-                        {p.service}
-                      </Link>
-                    </td>
-                    <td className="mono">{p.metric}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>
-                      <b style={{ color: 'var(--err)' }}>{p.value.toFixed(2)}</b>
-                      <span style={{ color: 'var(--text3)' }}> / {p.threshold.toFixed(2)}</span>
-                    </td>
-                    <td style={{ fontSize: 12 }}>
-                      {isAnomaly && (
-                        <span className="badge b-info" style={{ marginRight: 6 }}>ANOMALY</span>
-                      )}
-                      {p.ruleName}
-                      {p.runbookUrl && (
-                        <a href={p.runbookUrl} target="_blank" rel="noopener"
+                  <Fragment key={p.id}>
+                    <tr onClick={() => navigate(`/service?name=${encodeURIComponent(p.service)}`)}
+                        style={{ cursor: 'pointer' }}>
+                      <td><SeverityBadge s={p.severity} /></td>
+                      <td>
+                        <Link to={`/service?name=${encodeURIComponent(p.service)}`}
                           onClick={e => e.stopPropagation()}
-                          title="Open team runbook"
-                          style={{
-                            marginLeft: 8, fontSize: 11,
-                            padding: '2px 8px', borderRadius: 12,
-                            background: 'rgba(56,139,253,0.10)',
-                            border: '1px solid rgba(56,139,253,0.35)',
-                            color: 'var(--accent2)', textDecoration: 'none',
-                            whiteSpace: 'nowrap',
-                          }}>
-                          Runbook ↗
-                        </a>
-                      )}
-                      {isAnomaly && (
-                        <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
-                          {p.description}
-                        </div>
-                      )}
-                    </td>
-                    <td className="mono">{tsLong(p.startedAt)}</td>
-                    <td>
-                      {p.status === 'open'
-                        ? <span className="badge b-err">OPEN</span>
-                        : <span className="badge b-ok">RESOLVED</span>}
-                    </td>
-                    <td onClick={e => e.stopPropagation()}>
-                      <CopilotExplain kind="problem" id={p.id} label={<IconSparkles />} />
-                    </td>
-                  </tr>
+                          style={{ fontWeight: 600 }}>
+                          {p.service}
+                        </Link>
+                      </td>
+                      <td className="mono">{p.metric}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>
+                        <b style={{ color: 'var(--err)' }}>{p.value.toFixed(2)}</b>
+                        <span style={{ color: 'var(--text3)' }}> / {p.threshold.toFixed(2)}</span>
+                      </td>
+                      <td style={{ fontSize: 12 }}>
+                        {isAnomaly && (
+                          <span className="badge b-info" style={{ marginRight: 6 }}>ANOMALY</span>
+                        )}
+                        {p.ruleName}
+                        {p.runbookUrl && (
+                          <a href={p.runbookUrl} target="_blank" rel="noopener"
+                            onClick={e => e.stopPropagation()}
+                            title="Open team runbook"
+                            style={{
+                              marginLeft: 8, fontSize: 11,
+                              padding: '2px 8px', borderRadius: 12,
+                              background: 'rgba(56,139,253,0.10)',
+                              border: '1px solid rgba(56,139,253,0.35)',
+                              color: 'var(--accent2)', textDecoration: 'none',
+                              whiteSpace: 'nowrap',
+                            }}>
+                            Runbook ↗
+                          </a>
+                        )}
+                        {isAnomaly && (
+                          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
+                            {p.description}
+                          </div>
+                        )}
+                      </td>
+                      <td className="mono">{tsLong(p.startedAt)}</td>
+                      <td>
+                        {p.status === 'open'
+                          ? <span className="badge b-err">OPEN</span>
+                          : <span className="badge b-ok">RESOLVED</span>}
+                      </td>
+                      <td onClick={e => e.stopPropagation()}>
+                        {/* "Why?" — toggles the causal-correlation
+                            panel below the row. Clicking again
+                            (or another row's button) closes /
+                            switches. Same data the SRE used to
+                            piece together by hand: services
+                            around the time of fire whose RED
+                            metrics swung the most. */}
+                        <button className="sec"
+                          style={{ fontSize: 11, padding: '2px 8px' }}
+                          onClick={() => setExplainOpen(isOpen ? null : p.id)}>
+                          {isOpen ? '× hide' : '? why'}
+                        </button>
+                      </td>
+                      <td onClick={e => e.stopPropagation()}>
+                        <CopilotExplain kind="problem" id={p.id} label={<IconSparkles />} />
+                      </td>
+                    </tr>
+                    {isOpen && (
+                      <tr>
+                        <td colSpan={9} style={{
+                          background: 'var(--bg1)', padding: '10px 16px',
+                          borderTop: '1px solid var(--border)',
+                        }}>
+                          <CorrelationsPanel atUnixNs={p.startedAt} service={p.service} />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 );
               })}
             </tbody>
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+// CorrelationsPanel renders the "what changed around this time"
+// causal-correlation list. Pulls /api/correlations once on first
+// expand (no live polling — the data is for a fixed point in time
+// and reads expensively). Renders a compact table: top-N services
+// sorted by composite anomaly score with their per-signal deltas
+// + pre-formatted "reasons" bullets from the server.
+function CorrelationsPanel({ atUnixNs, service }: { atUnixNs: number; service: string }) {
+  type CS = import('@/lib/types').ChangedService;
+  const [data, setData] = useState<CS[] | null | undefined>(undefined);
+  useEffect(() => {
+    setData(undefined);
+    api.correlations(atUnixNs)
+      .then(r => setData(r ?? []))
+      .catch(() => setData(null));
+  }, [atUnixNs]);
+
+  if (data === undefined) return <Spinner />;
+  if (data === null) {
+    return <div style={{ fontSize: 12, color: 'var(--err)' }}>
+      Correlation query failed. Check the server log.
+    </div>;
+  }
+  if (data.length === 0) {
+    return <div style={{ fontSize: 12, color: 'var(--text3)' }}>
+      No services in the surrounding window had notable RED-metric changes.
+      The fire may be local to <b>{service}</b> with no upstream / downstream propagation.
+    </div>;
+  }
+  return (
+    <div>
+      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>
+        Top {data.length} services that changed around this time
+        <span style={{ color: 'var(--text3)', fontWeight: 400, marginLeft: 8 }}>
+          (current 10 min vs. prior 40 min, ranked by composite score)
+        </span>
+      </div>
+      <div className="table-wrap">
+        <table>
+          <thead><tr>
+            <th style={{ width: 40 }}>#</th>
+            <th>Service</th>
+            <th>What changed</th>
+            <th className="num" style={{ width: 70 }}>Score</th>
+          </tr></thead>
+          <tbody>
+            {data.map((c, i) => (
+              <tr key={c.service}
+                  style={{ background: c.service === service ? 'rgba(220,38,38,0.06)' : undefined }}>
+                <td className="mono" style={{ color: 'var(--text3)' }}>{i + 1}</td>
+                <td>
+                  <Link to={`/service?name=${encodeURIComponent(c.service)}`}
+                        style={{ fontWeight: 600 }}>{c.service}</Link>
+                  {c.service === service && (
+                    <span style={{
+                      marginLeft: 6, fontSize: 10, padding: '1px 5px',
+                      borderRadius: 3, background: 'rgba(220,38,38,0.15)',
+                      color: 'var(--err)', fontWeight: 600,
+                    }}>SOURCE</span>
+                  )}
+                </td>
+                <td style={{ fontSize: 12, lineHeight: 1.55 }}>
+                  {c.reasons.map((r, k) => <div key={k}>{r}</div>)}
+                </td>
+                <td className="num mono" style={{
+                  fontWeight: 600,
+                  color: c.score > 50 ? 'var(--err)' : c.score > 20 ? 'var(--warn)' : 'var(--text2)',
+                }}>{c.score.toFixed(0)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

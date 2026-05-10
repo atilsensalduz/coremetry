@@ -301,6 +301,16 @@ export const api = {
   // Runtime settings: AI Copilot
   redisStats: () =>
     get<import('./types').RedisStats>(`/api/admin/redis-stats`),
+  // Causal correlations — ranked services that changed the most
+  // around `atUnixNs`. Drives the "Why did this fire?" panel on
+  // Problem rows. windowSec defaults to 10 min, baselineSec to
+  // 4× window if not passed.
+  correlations: (atUnixNs: number, windowSec?: number, baselineSec?: number) => {
+    const qs = new URLSearchParams({ at: String(atUnixNs) });
+    if (windowSec) qs.set('windowSec', String(windowSec));
+    if (baselineSec) qs.set('baselineSec', String(baselineSec));
+    return get<import('./types').ChangedService[] | null>(`/api/correlations?${qs}`);
+  },
   getAISettings: () => get<AISettings>(`/api/settings/ai`),
   putAISettings: (s: AISettingsInput) =>
     request<AISettings>(`/api/settings/ai`, {

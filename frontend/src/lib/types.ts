@@ -51,6 +51,25 @@ export interface RetentionSpec {
   profiles?: string;
 }
 
+// ChangedService — one row of the causal-correlation report (what
+// services moved the most around the time a problem fired). Powers
+// the "Why did this fire?" expandable on Problems and the future
+// Watchdog-style auto-investigation panel.
+export interface ChangedService {
+  service: string;
+  baselineRate: number;       // spans/sec, baseline window
+  currentRate: number;        // spans/sec, current window
+  rateDeltaPct: number;
+  baselineErrorRate: number;  // 0..1
+  currentErrorRate: number;
+  errDeltaPct: number;
+  baselineP99Ms: number;
+  currentP99Ms: number;
+  p99DeltaPct: number;
+  score: number;
+  reasons: string[];          // pre-formatted human bullets, render verbatim
+}
+
 // RedisStats matches cache.RedisStats — INFO + DBSIZE snapshot
 // rendered on the System page. version=="" means Redis is not
 // configured (Noop cache active); the UI shows a "wire it up for HA"

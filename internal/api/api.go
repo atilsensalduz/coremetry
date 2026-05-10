@@ -119,6 +119,7 @@ func (s *Server) Start() error {
 	// REST API
 	mux.HandleFunc("GET /api/services", s.getServices)
 	mux.HandleFunc("GET /api/admin/system-stats", s.getSystemStats)
+	mux.HandleFunc("GET /api/correlations",       s.getCorrelations)
 	mux.HandleFunc("GET /api/admin/redis-stats",  s.getRedisStats)
 	mux.HandleFunc("GET /api/admin/cardinality",  auth.RequireRole(auth.RoleAdmin, s.getCardinality))
 	// SSE event stream — long-lived connection, fans out
@@ -443,6 +444,31 @@ func (s *Server) getServices(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getSystemStats(w http.ResponseWriter, r *http.Request) {
 	s.serveCached(w, r, "system-stats", 60*time.Second, func() (any, error) {
 		return s.store.GetSystemStats(r.Context())
+	})
+}
+
+// getCorrelations is the "what changed around this time?" causal-AIOps
+// endpoint. Pass `at` (unix ns), `windowSec` (default 600), `baselineSec`
+// (default 4× window). Returns a ranked list of services whose RED
+// metrics swung the most between the baseline and current windows —
+// the operator's "what else moved when this fired" view.
+//
+// Cached 30s keyed on the parameters. The query is bounded by HAVING
+// gates + LIMIT 500 so even at 100k services the worst case is sub-
+// second; 30s cache amortises the cost across a triage session where
+// the operator clicks "Why?" multiple times in a row.
+func (s *Server) getCorrelations(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	at := parseTime(q.Get("at"))
+	if at.IsZero() {
+		at = time.Now().Add(-10 * time.Minute)
+	}
+	windowSec := parseInt(q.Get("windowSec"), 600)
+	baselineSec := parseInt(q.Get("baselineSec"), windowSec*4)
+
+	key := fmt.Sprintf("correlate:at=%d:w=%d:b=%d", at.UnixNano(), windowSec, baselineSec)
+	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
+		return s.store.GetCorrelatedChanges(r.Context(), at, windowSec, baselineSec)
 	})
 }
 
