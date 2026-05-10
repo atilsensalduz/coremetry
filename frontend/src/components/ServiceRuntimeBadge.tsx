@@ -33,6 +33,14 @@ export function ServiceRuntimeBadge({
     rt.os && `os: ${rt.os}`,
     rt.sdkVersion && `OTel SDK ${rt.sdkVersion}`,
   ].filter(Boolean) as string[];
+  // Single neutral colour for every language. The previous
+  // per-language rainbow (Go blue / Java orange / .NET purple /
+  // …) read as visual noise once a polyglot mesh of 20+
+  // services packed the /services list. Operators rarely scan
+  // by colour-coded stack — they read the label text. The
+  // glyph (◆ ◢ ⌬ ◬ ◇ …) still varies per language so the
+  // shape difference survives, but every badge is now the same
+  // muted text colour.
   return (
     <span title={titleParts.join(' · ')}
       style={{
@@ -40,19 +48,17 @@ export function ServiceRuntimeBadge({
         fontSize: compact ? 10 : 11,
         padding: compact ? '1px 6px' : '2px 8px',
         background: 'var(--bg3)', border: '1px solid var(--border)',
-        borderRadius: 12, color: 'var(--text)',
+        borderRadius: 12, color: 'var(--text2)',
         fontFamily: 'ui-monospace, monospace',
         whiteSpace: 'nowrap',
         ...style,
       }}>
       {!compact && (
-        <span style={{ color: languageColor(rt.language) }}>
+        <span style={{ color: 'var(--text3)' }}>
           {languageGlyph(rt.language)}
         </span>
       )}
-      <span style={{ color: compact ? languageColor(rt.language) : 'inherit' }}>
-        {display}
-      </span>
+      <span>{display}</span>
     </span>
   );
 }
@@ -194,19 +200,14 @@ function languageGlyph(lang?: string): string {
   }
 }
 
-function languageColor(lang?: string): string {
-  switch ((lang || '').toLowerCase()) {
-    case 'go':       return '#00ADD8';
-    case 'java':
-    case 'kotlin':   return '#f89820';
-    case 'dotnet':
-    case 'csharp':   return '#512BD4';
-    case 'nodejs':
-    case 'javascript': return '#3C873A';
-    case 'python':   return '#3776AB';
-    case 'ruby':     return '#CC342D';
-    case 'php':      return '#777BB4';
-    case 'rust':     return '#CE412B';
-    default:         return 'var(--text2)';
-  }
+// languageColor — kept for any external consumer that still
+// wants the brand hue (e.g. service-map node tinting). The
+// /services + /service detail badges no longer use it; they
+// render in var(--text2) so a polyglot mesh reads as a calm
+// list rather than a rainbow.
+function languageColor(_lang?: string): string {
+  return 'var(--text2)';
 }
+// Keep the symbol exported in case a future consumer wants it
+// back; reference it once to silence unused-warnings.
+void languageColor;
