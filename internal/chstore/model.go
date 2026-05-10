@@ -77,16 +77,23 @@ type MetricPoint struct {
 // the service detail page. Same shape as ServiceSummary but keyed by
 // span name within a single service. Apdex is computed against the same
 // 200ms threshold used by GetServices so the numbers are comparable.
+//
+// Sparkline carries a fixed-length call-rate histogram (uint64 per
+// bucket) over the same window as the aggregate row. Length is
+// SparklineBuckets (see repo.go) — the frontend renders it as an inline
+// SVG so the operator can spot a slow-burn vs. spike pattern at a glance
+// without leaving the table.
 type OperationSummary struct {
-	Name       string  `json:"name"`
-	SpanCount  uint64  `json:"spanCount"`
-	ErrorCount uint64  `json:"errorCount"`
-	ErrorRate  float64 `json:"errorRate"`
-	AvgMs      float64 `json:"avgDurationMs"`
-	P50Ms      float64 `json:"p50DurationMs"`
-	P95Ms      float64 `json:"p95DurationMs"`
-	P99Ms      float64 `json:"p99DurationMs"`
-	Apdex      float64 `json:"apdex"`
+	Name       string   `json:"name"`
+	SpanCount  uint64   `json:"spanCount"`
+	ErrorCount uint64   `json:"errorCount"`
+	ErrorRate  float64  `json:"errorRate"`
+	AvgMs      float64  `json:"avgDurationMs"`
+	P50Ms      float64  `json:"p50DurationMs"`
+	P95Ms      float64  `json:"p95DurationMs"`
+	P99Ms      float64  `json:"p99DurationMs"`
+	Apdex      float64  `json:"apdex"`
+	Sparkline  []uint64 `json:"sparkline,omitempty"`
 }
 
 type ServiceSummary struct {

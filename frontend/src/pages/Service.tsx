@@ -9,6 +9,7 @@ import { ServiceCatalogPill } from '@/components/ServiceCatalogPill';
 import { DBQueriesPanel } from '@/components/DBQueriesPanel';
 import { ServiceNeighbors } from '@/components/ServiceNeighbors';
 import { ServiceInfra } from '@/components/ServiceInfra';
+import { Sparkline } from '@/components/Sparkline';
 import { api } from '@/lib/api';
 import { fmtNum, timeRangeToNs } from '@/lib/utils';
 import { encodeFilters, encodeRange, buildQuery } from '@/lib/urlState';
@@ -254,6 +255,27 @@ function OperationsTable({ service, rows, range }: { service: string; rows: Oper
     };
   }, [rows]);
 
+  // Element-wise sum of every operation's sparkline → service-wide
+  // call-rate trend rendered on the "All" aggregate row. Uses the
+  // longest sparkline as the canvas length; shorter ones (only one
+  // bucket of activity, e.g. a single-call operation) just contribute
+  // zeros to the trailing slots.
+  const aggSparkline = useMemo(() => {
+    let len = 0;
+    for (const r of rows) {
+      if (r.sparkline && r.sparkline.length > len) len = r.sparkline.length;
+    }
+    if (len === 0) return [];
+    const out = new Array(len).fill(0);
+    for (const r of rows) {
+      if (!r.sparkline) continue;
+      for (let i = 0; i < r.sparkline.length; i++) {
+        out[i] += r.sparkline[i];
+      }
+    }
+    return out;
+  }, [rows]);
+
   const toggleSort = (col: OpSortKey) => {
     if (sortBy === col) setSortDir(d => d === 'desc' ? 'asc' : 'desc');
     else { setSortBy(col); setSortDir(OP_NATURAL_DIR[col]); }
@@ -287,6 +309,7 @@ function OperationsTable({ service, rows, range }: { service: string; rows: Oper
           <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--bg1)' }}>
             <tr>
               <OpSortTh col="name"      label="Operation"  sort={sortBy} dir={sortDir} onSort={toggleSort} />
+              <th style={{ textAlign: 'left', width: 92 }}>Trend</th>
               <OpSortTh col="spanCount" label="Calls"      sort={sortBy} dir={sortDir} onSort={toggleSort} align="right" />
               <OpSortTh col="errorRate" label="Err %"      sort={sortBy} dir={sortDir} onSort={toggleSort} align="right" />
               <OpSortTh col="avg"       label="Avg"        sort={sortBy} dir={sortDir} onSort={toggleSort} align="right" />
@@ -300,6 +323,14 @@ function OperationsTable({ service, rows, range }: { service: string; rows: Oper
             {agg && (
               <tr className="agg-row">
                 <td><span style={{ fontWeight: 700 }}>All ({rows.length})</span></td>
+                <td>
+                  {/* Aggregate trend = element-wise sum across all
+                      per-operation sparklines so the "All" row
+                      shows the service-wide call rate at a glance,
+                      using the same window + bucket boundaries as
+                      every row beneath it. */}
+                  <Sparkline values={aggSparkline} title={`total calls/bucket × ${rows.length} ops`} />
+                </td>
                 <td className="mono" style={{ textAlign: 'right' }}>{fmtNum(agg.spans)}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>
                   <span className={`badge b-${agg.errorRate > 5 ? 'err' : agg.errorRate > 0 ? 'warn' : 'ok'}`}>
@@ -317,6 +348,13 @@ function OperationsTable({ service, rows, range }: { service: string; rows: Oper
             )}
             {sorted.map(op => {
               const errCls = op.errorRate > 5 ? 'err' : op.errorRate > 0 ? 'warn' : 'ok';
+              // Tone the per-row sparkline with the same severity
+              // colour as the err-rate badge so the eye reads "this
+              // op is hot" from one glance at the trend column,
+              // before reading the numbers.
+              const sparkColor = errCls === 'err' ? 'var(--err)'
+                              : errCls === 'warn' ? 'var(--warn)'
+                              : undefined;
               return (
                 <tr key={op.name}>
                   <td>
@@ -325,6 +363,11 @@ function OperationsTable({ service, rows, range }: { service: string; rows: Oper
                       style={{ fontWeight: 500 }}
                       title="Open this operation in Explore — service + name pre-filtered"
                     >{op.name}</Link>
+                  </td>
+                  <td>
+                    <Sparkline values={op.sparkline ?? []}
+                      color={sparkColor}
+                      title={`${fmtNum(op.spanCount)} calls · click row to drill in`} />
                   </td>
                   <td className="mono" style={{ textAlign: 'right' }}>{fmtNum(op.spanCount)}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>

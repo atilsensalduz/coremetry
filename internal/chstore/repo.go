@@ -214,8 +214,16 @@ func (s *Store) GetServicesFilteredIn(ctx context.Context, since time.Duration, 
 	return out, rows.Err()
 }
 
+// SparklineBuckets is the fixed bucket count for the inline call-rate
+// sparkline on each operations-table row. 30 strikes the balance between
+// detail (a 30-min window with 1-min resolution shows minute-level
+// micro-spikes) and SVG width budget (~80px / 30 ≈ 2.7px/bucket — wide
+// enough to be readable, narrow enough to fit beside the numeric cols).
+const SparklineBuckets = 30
+
 // GetOperationSummary returns per-operation aggregates for a single
-// service: count, error rate, p50/p95/p99 latency, apdex. Drives the
+// service: count, error rate, p50/p95/p99 latency, apdex, plus a
+// fixed-length call-rate sparkline over the same window. Drives the
 // "Operations" table on the service detail page. Rows ordered by span
 // count desc so the heaviest operations surface first; the front-end
 // applies its own sort if the user clicks a column header.
@@ -224,15 +232,34 @@ func (s *Store) GetServicesFilteredIn(ctx context.Context, since time.Duration, 
 // absolute one (matches GetServices semantics). Service name is required;
 // passing "" returns all operations across all services, which is rarely
 // useful but mirrors the existing GetOperations behaviour.
+//
+// Sparkline data comes from a second query that GROUPs BY (name,
+// bucket_idx) so the worst case is `numNames × SparklineBuckets` rows
+// rather than one-row-per-span — safe at billion-span scale. The two
+// queries run sequentially (not parallel) because the cache key is
+// shared and the second one is small/fast enough that the round-trip
+// cost dominates over its execution time.
 func (s *Store) GetOperationSummary(ctx context.Context, service string, since time.Duration, from, to time.Time) ([]OperationSummary, error) {
 	var wc whereClause
+	// Resolve the absolute [winStart, winEnd] up front so the sparkline
+	// bucketing query uses the exact same window as the aggregate.
+	// Using time.Now() twice in the two query branches would skew the
+	// bucket alignment by a few milliseconds and put empty buckets at
+	// the right edge.
+	var winStart, winEnd time.Time
 	if !from.IsZero() {
-		wc.add("time >= ?", from)
+		winStart = from
 		if !to.IsZero() {
-			wc.add("time <= ?", to)
+			winEnd = to
+		} else {
+			winEnd = time.Now()
 		}
+		wc.add("time >= ?", winStart)
+		wc.add("time <= ?", winEnd)
 	} else {
-		wc.add("time >= ?", time.Now().Add(-since))
+		winEnd = time.Now()
+		winStart = winEnd.Add(-since)
+		wc.add("time >= ?", winStart)
 	}
 	if service != "" {
 		wc.add("service_name = ?", service)
@@ -274,8 +301,89 @@ func (s *Store) GetOperationSummary(ctx context.Context, service string, since t
 		}
 		out = append(out, r)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Second query: bucketed call-rate per operation. We restrict to the
+	// names already returned above so we don't waste cycles bucketing
+	// the long tail beyond the LIMIT 500. Using IN with a constructed
+	// list (rather than a subquery) keeps the query plan simple and
+	// avoids a second pass over the spans table for tail operations.
+	if len(out) == 0 {
+		return out, nil
+	}
+	winSec := int64(winEnd.Sub(winStart).Seconds())
+	if winSec <= 0 {
+		return out, nil
+	}
+	// Bucket size: enough seconds so that ⌈winSec / bucketSec⌉ ≤ SparklineBuckets.
+	// `(winSec + N - 1) / N` is integer-ceil; +1 floor guards against the
+	// degenerate case where winSec < SparklineBuckets (each row gets its
+	// own bucket and any extras are empty trailing slots).
+	bucketSec := (winSec + int64(SparklineBuckets) - 1) / int64(SparklineBuckets)
+	if bucketSec < 1 {
+		bucketSec = 1
+	}
+
+	names := make([]string, 0, len(out))
+	idxByName := make(map[string]int, len(out))
+	for i, r := range out {
+		names = append(names, r.Name)
+		idxByName[r.Name] = i
+	}
+	holders := make([]string, len(names))
+	for i := range names {
+		holders[i] = "?"
+	}
+	// Argument order must match the placeholders left-to-right:
+	// intDiv(?, ?) projects first (winStart, bucketSec), then the
+	// wc.sql() WHERE-clause args, then the IN-list names. Build it
+	// once so we don't risk a mismatch between SQL and bindings.
+	args := make([]any, 0, 2+len(wc.args)+len(names))
+	args = append(args, winStart, bucketSec)
+	args = append(args, wc.args...)
+	for _, n := range names {
+		args = append(args, n)
+	}
+
+	sparkRows, err := s.conn.Query(ctx, `
+		SELECT name,
+		       intDiv(toUInt32(time) - toUInt32(?), ?) AS bidx,
+		       count()                                 AS c
+		FROM spans `+wc.sql()+`
+		  AND name IN (`+strings.Join(holders, ",")+`)
+		GROUP BY name, bidx
+		SETTINGS max_execution_time = 15`,
+		args...)
+	if err != nil {
+		// Sparkline failure is non-fatal — return aggregates without
+		// trend column populated. Avoids breaking the whole table on a
+		// transient ClickHouse hiccup.
+		return out, nil
+	}
+	defer sparkRows.Close()
+	for sparkRows.Next() {
+		var name string
+		var bidx int64
+		var c uint64
+		if err := sparkRows.Scan(&name, &bidx, &c); err != nil {
+			continue
+		}
+		i, ok := idxByName[name]
+		if !ok {
+			continue
+		}
+		if out[i].Sparkline == nil {
+			out[i].Sparkline = make([]uint64, SparklineBuckets)
+		}
+		if bidx >= 0 && int(bidx) < SparklineBuckets {
+			out[i].Sparkline[bidx] += c
+		}
+	}
+	return out, nil
 }
+
 
 // GetOperations returns the distinct span names ("operations") seen in the
 // given window, optionally filtered by service. Ordered by call count desc,

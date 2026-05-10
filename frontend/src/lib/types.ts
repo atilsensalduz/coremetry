@@ -207,6 +207,11 @@ export interface OperationSummary {
   p95DurationMs: number;
   p99DurationMs: number;
   apdex: number;
+  // Fixed-length call-rate buckets over the same window as the
+  // aggregate (chstore.SparklineBuckets = 30). Rendered inline in
+  // the table as a small SVG so the operator can spot a slow-burn
+  // vs. spike pattern without leaving the page.
+  sparkline?: number[];
 }
 
 // One 5-minute bucket from the service_summary_5m MV — used to render
