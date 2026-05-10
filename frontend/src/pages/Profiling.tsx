@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
+import { IconFlame } from '@/components/icons';
 import { ServicePicker } from '@/components/ServicePicker';
 import { api } from '@/lib/api';
 import { tsShort, timeRangeToNs, fmtNum } from '@/lib/utils';
@@ -53,14 +54,17 @@ export default function ProfilingPage() {
               When the bundled Compose stack runs it's at port 4040;
               the link is harmless if the operator hasn't deployed it. */}
           <a href={pyroscopeURL()} target="_blank" rel="noopener" className="sec"
-             style={{ padding: '5px 12px', fontSize: 12, textDecoration: 'none', borderRadius: 6, border: '1px solid var(--border)', color: 'var(--accent2)' }}>
-            🔥 Open Pyroscope ↗
+             style={{ padding: '5px 12px', fontSize: 12, textDecoration: 'none',
+                      borderRadius: 6, border: '1px solid var(--border)',
+                      color: 'var(--accent2)',
+                      display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <IconFlame size={14} /> Open Pyroscope ↗
           </a>
         </div>
 
         {data === undefined && <Spinner />}
         {data && data.length === 0 && (
-          <Empty icon="🔥" title="No profiles yet">
+          <Empty icon={<IconFlame size={28} />} title="No profiles yet">
             The demo pushes profiles every 10s to <code>POST /v1/profiles</code>.
           </Empty>
         )}

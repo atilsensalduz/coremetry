@@ -163,3 +163,20 @@ export const IconClock = (p: IconProps) => (
     <path d="M12 7v5l3 2" />
   </Svg>
 );
+
+// IconFlame — profiling / hot-path indicator. Replaces the
+// 🔥 emoji used as a quick stand-in on Profile / SpanDetail.
+export const IconFlame = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M12 3c-1 4 1 6 2 7 1.5 1.5 2.5 3 2.5 5a4.5 4.5 0 0 1-9 0c0-1.5.5-2.5 1.5-3.5C9 12.5 12 10 12 3z" />
+    <path d="M12 13c.5 1.5 1.5 2.5 1.5 4a1.5 1.5 0 0 1-3 0c0-1 .5-1.5 1-2 .3-.3.5-.7.5-1.5z" />
+  </Svg>
+);
+
+// IconShield — security / admin gate. Replaces the 🛑 / 🔒
+// emojis used as access-denied glyphs.
+export const IconShield = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M12 3l8 3v6c0 4.5-3.5 8-8 9-4.5-1-8-4.5-8-9V6l8-3z" />
+  </Svg>
+);

@@ -152,14 +152,11 @@ function ServiceDetailInner() {
                               from={timeRangeToNs(range).from}
                               to={timeRangeToNs(range).to} />
             <OperationsTable service={svc} rows={operations} range={range} />
-            {/* RED time-series at the bottom — operator scans
-                the KPIs / problems / structure first; trend
-                charts are useful but lower-density. SLOs
-                configured for this service paint threshold
+            {/* Compact RED time-series at the bottom — RPS,
+                error rate, P99 latency. SLOs paint threshold
                 lines automatically; deploys paint vertical
-                markers; the three panels share a syncKey so
-                hovering one paints the crosshair on the
-                others. */}
+                markers; sync cursors keep the three panels
+                in lockstep. */}
             <ServiceCharts service={svc} range={range} />
           </>
         )}

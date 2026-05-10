@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { IconLink, IconCheck } from './icons';
 
 /**
  * Grafana-style share button — copies the current URL (with all encoded
@@ -30,8 +31,11 @@ export function ShareButton() {
   return (
     <button className={'share-btn' + (copied ? ' copied' : '')}
       onClick={onClick}
-      title="Copy a shareable link to this view">
-      {copied ? '✓ Link copied' : '🔗 Share'}
+      title="Copy a shareable link to this view"
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      {copied
+        ? (<><IconCheck size={13} /> Link copied</>)
+        : (<><IconLink  size={13} /> Share</>)}
     </button>
   );
 }

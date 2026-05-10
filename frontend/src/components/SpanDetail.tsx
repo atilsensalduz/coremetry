@@ -4,6 +4,7 @@ import type { SpanRow, ProfileRow, LogRow, SpanMetricSeries } from '@/lib/types'
 import { tsLong, tsShort, sevName, sevClass, displaySpanName } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { fmtSmart } from '@/lib/chartFmt';
+import { IconFlame } from './icons';
 import { CopyButton } from './CopyButton';
 
 const PANEL_MIN = 300;
@@ -289,7 +290,9 @@ export function SpanDetail({ span, onClose }: { span: SpanRow; onClose: () => vo
                 <span style={{ flex: 1, fontFamily: 'monospace', fontSize: 11 }}>
                   {tsLong(p.startTime)} {p.durationMs > 0 && `· ${(p.durationMs/1000).toFixed(1)}s`}
                 </span>
-                <span style={{ color: 'var(--accent2)' }}>🔥</span>
+                <span style={{ color: 'var(--accent2)', display: 'inline-flex' }}>
+                  <IconFlame size={14} />
+                </span>
               </Link>
             ))}
           </Section>

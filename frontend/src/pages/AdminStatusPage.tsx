@@ -2,6 +2,7 @@ import { useEffect, useState, FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
+import { IconShield } from '@/components/icons';
 import { ServicePicker } from '@/components/ServicePicker';
 import { useAuth } from '@/components/AuthProvider';
 import { api } from '@/lib/api';
@@ -21,7 +22,7 @@ export default function StatusPageAdmin() {
     return (
       <>
         <Topbar title="Status Page" />
-        <div id="content"><Empty icon="🛑" title="Admin only" /></div>
+        <div id="content"><Empty icon={<IconShield size={28} />} title="Admin only" /></div>
       </>
     );
   }

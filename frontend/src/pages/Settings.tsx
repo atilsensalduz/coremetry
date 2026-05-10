@@ -22,7 +22,7 @@ export default function SettingsPage() {
       <>
         <Topbar title="Settings" />
         <div id="content">
-          <Empty icon="🔒" title="Admin access required">
+          <Empty icon={<IconLock size={28} />} title="Admin access required">
             System settings are only available to administrators.
           </Empty>
         </div>
