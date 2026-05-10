@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Spinner } from './Spinner';
 import { api } from '@/lib/api';
 import { fmtNum } from '@/lib/utils';
-import type { DBQueryStat } from '@/lib/types';
+import { encodeFilters } from '@/lib/urlState';
+import type { DBQueryStat, FilterExpr } from '@/lib/types';
 
 // Database query analyzer — Datadog DBM-style "where is my
 // query time going" view for a single service in a time
@@ -124,6 +126,7 @@ export function DBQueriesPanel({ service, from, to }: {
                     <SortTh col="p99Ms"      label="P99"    sort={sortBy} dir={sortDir} onSort={toggleSort} />
                     <SortTh col="maxMs"      label="Max"    sort={sortBy} dir={sortDir} onSort={toggleSort} />
                     <SortTh col="errorCount" label="Errors" sort={sortBy} dir={sortDir} onSort={toggleSort} />
+                    <th></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -162,10 +165,31 @@ export function DBQueriesPanel({ service, from, to }: {
                               ? <span className={`badge ${errCls}`}>{r.errorCount} ({errPct.toFixed(1)}%)</span>
                               : <span style={{ color: 'var(--text3)' }}>0</span>}
                           </td>
+                          {/* Traces drill — link to /traces filtered by
+                              service + db.statement LIKE the normalised
+                              form. The normalised statement's "?"
+                              placeholders are converted to SQL LIKE "%"
+                              wildcards so all literal variants of the
+                              same query class show up in one search. */}
+                          <td onClick={e => e.stopPropagation()}>
+                            <Link to={tracesURL(service, r)}
+                                  className="sec"
+                                  title={`Open /traces filtered to ${service} + this query class`}
+                                  style={{
+                                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                                    fontSize: 11, padding: '2px 8px',
+                                    border: '1px solid var(--border)',
+                                    borderRadius: 4,
+                                    color: 'var(--text)', textDecoration: 'none',
+                                    fontFamily: 'inherit',
+                                  }}>
+                              Traces →
+                            </Link>
+                          </td>
                         </tr>
                         {expanded && (
                           <tr>
-                            <td colSpan={9}
+                            <td colSpan={10}
                                 style={{ background: 'var(--bg0)', padding: '12px 16px' }}>
                               <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 4 }}>
                                 Sample statement (with real literals)
@@ -246,4 +270,36 @@ function fmtMs(ms: number): string {
   if (ms >= 10)   return ms.toFixed(0) + 'ms';
   if (ms >= 1)    return ms.toFixed(1) + 'ms';
   return ms.toFixed(2) + 'ms';
+}
+
+// tracesURL — build a /traces deep link filtered to spans that
+// match this query class for the focused service. Two filters:
+//   • service.name = <svc>          (exact match)
+//   • db.statement LIKE <pattern>   (LIKE with `%` placeholders
+//                                    instead of the normalised
+//                                    `?`, so every literal
+//                                    variant of the query class
+//                                    matches)
+// Falling back to an exact match on the sample statement when
+// the normalised form is empty (some queries have no literals
+// to begin with).
+function tracesURL(service: string, r: DBQueryStat): string {
+  const filters: FilterExpr[] = [
+    { k: 'service.name', op: '=', v: [service] },
+  ];
+  const norm = (r.statement || '').trim();
+  if (norm) {
+    // Convert normalisation `?` to SQL LIKE `%`. Escape any
+    // existing `%` / `_` / `\` so they're treated as literal
+    // characters rather than additional wildcards.
+    const escaped = norm
+      .replace(/\\/g, '\\\\')
+      .replace(/%/g, '\\%')
+      .replace(/_/g, '\\_');
+    const pattern = escaped.replace(/\?/g, '%');
+    filters.push({ k: 'db.statement', op: 'LIKE', v: [pattern] });
+  } else if (r.sampleStatement) {
+    filters.push({ k: 'db.statement', op: '=', v: [r.sampleStatement] });
+  }
+  return `/traces?filters=${encodeURIComponent(encodeFilters(filters))}`;
 }

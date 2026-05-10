@@ -4,6 +4,7 @@ import 'uplot/dist/uPlot.min.css';
 import { api } from '@/lib/api';
 import type { TimeRange } from '@/lib/types';
 import { timeRangeToNs } from '@/lib/utils';
+import { fmtSmart } from '@/lib/chartFmt';
 
 // TraceVolumeHistogram renders a stacked-bar strip showing total
 // span volume bucketed across the active time range, with the error
@@ -94,7 +95,7 @@ export function TraceVolumeHistogram({ range, dsl, filters }: {
 
     const opts: uPlot.Options = {
       width: el.clientWidth || 600,
-      height: 100,
+      height: 110,
       cursor: { x: true, y: false, focus: { prox: 30 } },
       legend: { show: false },
       scales: {
@@ -107,8 +108,8 @@ export function TraceVolumeHistogram({ range, dsl, filters }: {
       axes: [
         {
           stroke: '#7d8693',
-          grid: { stroke: 'rgba(0,0,0,0)', width: 0 },
-          ticks: { stroke: 'rgba(0,0,0,0)', width: 0 },
+          grid: { stroke: 'rgba(125,140,160,0.07)', width: 1 },
+          ticks: { stroke: 'rgba(125,140,160,0.07)', width: 1 },
           font: '10px ui-monospace, monospace',
         },
         {
@@ -116,28 +117,35 @@ export function TraceVolumeHistogram({ range, dsl, filters }: {
           grid: { stroke: 'rgba(125,140,160,0.10)', width: 1 },
           ticks: { stroke: 'rgba(125,140,160,0.10)', width: 1 },
           font: '10px ui-monospace, monospace',
-          size: 35,
-          values: (_u, splits) => splits.map(v => v == null ? '' : v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v.toFixed(0)),
+          // Wider y-axis (was 35) so "12.5k" / "1.2M" labels
+          // fit without clipping. The previous 35-pixel column
+          // truncated longer counts, which the user read as
+          // "no count visible".
+          size: 50,
+          values: (_u, splits) => splits.map(v => v == null ? '' : fmtSmart(v)),
         },
       ],
       series: [
         {},
-        // OK bar (slate) — drawn from 0 up to ok[i]. Forms
-        // the base of the stack.
+        // OK bar — was 55% opacity slate which blended into
+        // the panel background and made the bars look like a
+        // faint smudge. Bumped to a more solid neutral so the
+        // bar shape is readable without competing visually
+        // with the error red on top.
         {
           label: 'ok',
-          stroke: 'rgba(126,142,161,0.55)',
-          fill: 'rgba(126,142,161,0.55)',
+          stroke: '#5b6776',
+          fill: '#5b6776',
           paths: barsPath(0),
           points: { show: false },
         },
-        // Error bar (red) — drawn from ok[i] up to ok[i]+err[i].
-        // Baseline is the OK series's data array, looked up by
-        // index 1 in u.data inside the path builder.
+        // Error bar — drawn from ok[i] up to ok[i]+err[i].
+        // Baseline is the OK series's data array, looked up
+        // by index 1 in u.data inside the path builder.
         {
           label: 'errors',
-          stroke: '#dc4a4a',
-          fill: '#dc4a4a',
+          stroke: '#e84e4e',
+          fill: '#e84e4e',
           paths: barsPath(1),
           points: { show: false },
         },
@@ -181,7 +189,7 @@ export function TraceVolumeHistogram({ range, dsl, filters }: {
 
     const ro = new ResizeObserver(() => {
       if (plotRef.current && el) {
-        plotRef.current.setSize({ width: el.clientWidth, height: 100 });
+        plotRef.current.setSize({ width: el.clientWidth, height: 110 });
       }
     });
     ro.observe(el);
@@ -223,15 +231,15 @@ export function TraceVolumeHistogram({ range, dsl, filters }: {
             <Stat label="error rate" value={errRate ? `${errRate}%` : '—'}
                   tone={stats && stats.errors > 0 ? 'err' : 'mute'} emphasised />
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--text3)' }}>
-              <span style={{ width: 8, height: 8, background: 'rgba(126,142,161,0.7)', borderRadius: 2 }} />
+              <span style={{ width: 8, height: 8, background: '#5b6776', borderRadius: 2 }} />
               ok
-              <span style={{ width: 8, height: 8, background: '#dc4a4a', borderRadius: 2, marginLeft: 6 }} />
+              <span style={{ width: 8, height: 8, background: '#e84e4e', borderRadius: 2, marginLeft: 6 }} />
               error
             </span>
           </>
         )}
       </div>
-      <div style={{ height: 100, position: 'relative' }}>
+      <div style={{ height: 110, position: 'relative' }}>
         {error && (
           <div style={{ color: 'var(--err)', fontSize: 11, padding: 8 }}>{error}</div>
         )}
@@ -274,7 +282,12 @@ function barsPath(baselineSeriesIdx: number): uPlot.Series.PathBuilder {
     const xPos = (v: number) => Math.round(u.valToPos(v, 'x', true));
     const yPos = (v: number) => Math.round(u.valToPos(v, 'y', true));
     const span = idx1 > idx0 ? xPos(xs[1] as number) - xPos(xs[0] as number) : 8;
-    const w = Math.max(2, Math.floor(span * 0.92));
+    // 75% of the bucket width — the previous 92% made bars
+    // touch each other so the chart read as one continuous
+    // smear rather than 40 distinct bars. Datadog / Grafana
+    // bar charts use a similar 0.7-0.8 range for clear bar
+    // separation.
+    const w = Math.max(2, Math.floor(span * 0.75));
     for (let i = idx0; i <= idx1; i++) {
       const yv = ys[i];
       if (yv == null) continue;
