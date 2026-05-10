@@ -2,6 +2,7 @@ import { useEffect, useState, Suspense } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTableNav } from '@/lib/useTableNav';
 import { Topbar } from '@/components/Topbar';
+import { IconSearch } from '@/components/icons';
 import { SavedViewsBar } from '@/components/SavedViewsBar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { TableSkeleton } from '@/components/Skeleton';
@@ -315,7 +316,7 @@ function TracesPageInner() {
 
           {/* Dedicated trace-id lookup — pinned right, visually separate */}
           <div className="trace-lookup" style={{ marginLeft: 'auto' }}>
-            <span className="tl-icon" aria-hidden>🔍</span>
+            <span className="tl-icon" aria-hidden><IconSearch size={14} /></span>
             <input placeholder="Trace ID (full or prefix)…"
               value={draft.traceId}
               onChange={e => setDraft({ ...draft, traceId: e.target.value })}
