@@ -33,7 +33,7 @@ export function ServiceCatalogPill({ service }: { service: string }) {
   // Empty state — no curation yet. Render a tiny CTA for
   // editors only; viewers see nothing (the rest of the page
   // works without metadata).
-  const hasAny = !!(meta.ownerTeam || meta.description || meta.repository
+  const hasAny = !!(meta.ownerTeam || meta.sreTeam || meta.description || meta.repository
     || meta.runbookUrl || meta.oncallUrl || meta.slackChannel);
 
   if (!hasAny && !editing) {
@@ -67,6 +67,9 @@ export function ServiceCatalogPill({ service }: { service: string }) {
     }}>
       {meta.ownerTeam && (
         <Pill title="Owner team">👥 {meta.ownerTeam}</Pill>
+      )}
+      {meta.sreTeam && (
+        <Pill title="SRE team">🛡 SRE: {meta.sreTeam}</Pill>
       )}
       {meta.oncallUrl && (
         <Link href={meta.oncallUrl} title="Open oncall page">📟 oncall</Link>
@@ -145,6 +148,10 @@ function CatalogEditor({ initial, onSave, onCancel }: {
       <Field label="Owner team">
         <input value={m.ownerTeam ?? ''} placeholder="payments / search / ml"
           onChange={e => update({ ownerTeam: e.target.value })} />
+      </Field>
+      <Field label="SRE team">
+        <input value={m.sreTeam ?? ''} placeholder="platform / sre-storefront"
+          onChange={e => update({ sreTeam: e.target.value })} />
       </Field>
       <Field label="Slack channel">
         <input value={m.slackChannel ?? ''} placeholder="#payments-oncall"

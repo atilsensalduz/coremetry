@@ -251,6 +251,7 @@ func (s *Store) migrate(ctx context.Context) error {
 		`CREATE TABLE IF NOT EXISTS service_metadata (
 			service       String,
 			owner_team    String DEFAULT '',
+			sre_team      String DEFAULT '',
 			description   String DEFAULT '',
 			repository    String DEFAULT '',
 			runbook_url   String DEFAULT '',
@@ -693,6 +694,7 @@ func (s *Store) migrate(ctx context.Context) error {
 	alters := []string{
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider LowCardinality(String) DEFAULT 'local'`,
 		`ALTER TABLE alert_rules ADD COLUMN IF NOT EXISTS runbook_url String DEFAULT ''`,
+		`ALTER TABLE service_metadata ADD COLUMN IF NOT EXISTS sre_team String DEFAULT ''`,
 		`ALTER TABLE spans ADD INDEX IF NOT EXISTS idx_kind        kind        TYPE set(0)    GRANULARITY 4`,
 		`ALTER TABLE spans ADD INDEX IF NOT EXISTS idx_db_system   db_system   TYPE set(0)    GRANULARITY 4`,
 		`ALTER TABLE spans ADD INDEX IF NOT EXISTS idx_http_status http_status TYPE minmax    GRANULARITY 4`,

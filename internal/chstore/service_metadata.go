@@ -21,6 +21,13 @@ import (
 type ServiceMetadata struct {
 	Service      string `json:"service"`
 	OwnerTeam    string `json:"ownerTeam,omitempty"`
+	// SRETeam is the platform / reliability team that owns
+	// the operational health of the service — typically
+	// distinct from the product owner team. Surfaces as a
+	// second chip on the catalog pill so the oncall who
+	// inherits the service knows who to escalate to for
+	// infra issues vs feature regressions.
+	SRETeam      string `json:"sreTeam,omitempty"`
 	Description  string `json:"description,omitempty"`
 	Repository   string `json:"repository,omitempty"`
 	RunbookURL   string `json:"runbookUrl,omitempty"`
@@ -37,14 +44,14 @@ func (s *Store) GetServiceMetadata(ctx context.Context, service string) (*Servic
 		return nil, nil
 	}
 	row := s.conn.QueryRow(ctx, `
-		SELECT service, owner_team, description, repository,
+		SELECT service, owner_team, sre_team, description, repository,
 		       runbook_url, oncall_url, slack_channel,
 		       toUnixTimestamp64Nano(updated_at)
 		FROM service_metadata FINAL
 		WHERE service = ?
 		LIMIT 1`, service)
 	var m ServiceMetadata
-	if err := row.Scan(&m.Service, &m.OwnerTeam, &m.Description, &m.Repository,
+	if err := row.Scan(&m.Service, &m.OwnerTeam, &m.SRETeam, &m.Description, &m.Repository,
 		&m.RunbookURL, &m.OncallURL, &m.SlackChannel, &m.UpdatedAt); err != nil {
 		// "no rows" → not yet curated; same handling pattern
 		// the rest of chstore uses.
@@ -59,7 +66,7 @@ func (s *Store) GetServiceMetadata(ctx context.Context, service string) (*Servic
 // at most a few thousand rows.
 func (s *Store) ListServiceMetadata(ctx context.Context) (map[string]ServiceMetadata, error) {
 	rows, err := s.conn.Query(ctx, `
-		SELECT service, owner_team, description, repository,
+		SELECT service, owner_team, sre_team, description, repository,
 		       runbook_url, oncall_url, slack_channel,
 		       toUnixTimestamp64Nano(updated_at)
 		FROM service_metadata FINAL`)
@@ -70,7 +77,7 @@ func (s *Store) ListServiceMetadata(ctx context.Context) (map[string]ServiceMeta
 	out := make(map[string]ServiceMetadata, 64)
 	for rows.Next() {
 		var m ServiceMetadata
-		if err := rows.Scan(&m.Service, &m.OwnerTeam, &m.Description, &m.Repository,
+		if err := rows.Scan(&m.Service, &m.OwnerTeam, &m.SRETeam, &m.Description, &m.Repository,
 			&m.RunbookURL, &m.OncallURL, &m.SlackChannel, &m.UpdatedAt); err != nil {
 			return nil, err
 		}
@@ -90,13 +97,13 @@ func (s *Store) UpsertServiceMetadata(ctx context.Context, m ServiceMetadata) er
 		return nil
 	}
 	batch, err := s.conn.PrepareBatch(ctx, `INSERT INTO service_metadata
-		(service, owner_team, description, repository,
+		(service, owner_team, sre_team, description, repository,
 		 runbook_url, oncall_url, slack_channel, updated_at, version)`)
 	if err != nil {
 		return err
 	}
 	now := time.Now()
-	if err := batch.Append(m.Service, m.OwnerTeam, m.Description, m.Repository,
+	if err := batch.Append(m.Service, m.OwnerTeam, m.SRETeam, m.Description, m.Repository,
 		m.RunbookURL, m.OncallURL, m.SlackChannel,
 		now.UTC(), uint64(now.UnixNano())); err != nil {
 		return err

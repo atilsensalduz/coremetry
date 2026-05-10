@@ -965,6 +965,11 @@ export interface AggSpanNode {
 export interface ServiceMetadata {
   service: string;
   ownerTeam?: string;
+  // SRE team — platform / reliability owners (often distinct
+  // from the product owner team). Surfaces as a second chip
+  // on the catalog pill so the oncall knows who to escalate
+  // to for infra issues vs feature regressions.
+  sreTeam?: string;
   description?: string;
   repository?: string;
   runbookUrl?: string;
