@@ -3,6 +3,7 @@ package chstore
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -71,11 +72,23 @@ func (s *Store) GetTopDBQueries(
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
+	// IMPORTANT: clickhouse-go counts every '?' in the SQL,
+	// including ones inside string literals and regex patterns,
+	// as a positional parameter. The normalisation regex would
+	// naively be `\\b[0-9]+(\\.[0-9]+)?\\b` and the replacement
+	// strings would naively be '?', but those literal '?'s blow
+	// up the placeholder count. We work around it by:
+	//   • Using `{0,1}` instead of `?` for the decimal quantifier
+	//     in the regex pattern.
+	//   • Using a sentinel `__P__` as the replacement, then
+	//     swapping it for `?` Go-side after scan so the
+	//     displayed query reads naturally.
+	const placeholder = "__P__"
 	const sql = `
 		SELECT
 			replaceRegexpAll(
-				replaceRegexpAll(db_statement, '''[^'']*''', '?'),
-				'\\b[0-9]+(\\.[0-9]+)?\\b', '?'
+				replaceRegexpAll(db_statement, '''[^'']*''', '__P__'),
+				'\\b[0-9]+(\\.[0-9]+){0,1}\\b', '__P__'
 			)                                          AS norm_stmt,
 			any(db_statement)                          AS sample_stmt,
 			any(db_system)                             AS db_system,
@@ -111,6 +124,12 @@ func (s *Store) GetTopDBQueries(
 		r.Count = int(cnt)
 		r.ErrorCount = int(errCnt)
 		r.TotalMs = float64(cnt) * r.AvgMs
+		// Swap the sentinel back to "?" so the displayed
+		// statement matches the canonical normalised form an
+		// operator expects (`SELECT * WHERE id = ?`). The
+		// sample statement is a real span, so it never carried
+		// the sentinel.
+		r.Statement = strings.ReplaceAll(r.Statement, placeholder, "?")
 		out = append(out, r)
 	}
 	return out, rows.Err()
