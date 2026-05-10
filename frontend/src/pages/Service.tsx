@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { ServiceStructure } from '@/components/ServiceStructure';
+import { ServiceCharts } from '@/components/ServiceCharts';
 import { DBQueriesPanel } from '@/components/DBQueriesPanel';
 import { ServiceNeighbors } from '@/components/ServiceNeighbors';
 import { ServiceInfra } from '@/components/ServiceInfra';
@@ -144,6 +145,13 @@ function ServiceDetailInner() {
         {loading && <Spinner />}
         {!loading && (
           <>
+            {/* Service-level RED charts up top — RPS / error
+                rate / P99 by operation. SLOs configured for
+                this service paint horizontal threshold lines
+                automatically; deploys for the visible window
+                paint dashed verticals; cursor sync makes the
+                three charts read as one synchronised view. */}
+            <ServiceCharts service={svc} range={range} />
             <ServiceInfra     service={svc} since={SINCE_MAP[range.preset] ?? '15m'} />
             <ServiceNeighbors service={svc} since={SINCE_MAP[range.preset] ?? '1h'} />
             <ServiceStructure service={svc} since={SINCE_MAP[range.preset] ?? '1h'} />
