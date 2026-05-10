@@ -22,6 +22,7 @@ const TraceCompare      = lazy(() => import('./pages/TraceCompare'));
 const Logs              = lazy(() => import('./pages/Logs'));
 const Metrics           = lazy(() => import('./pages/Metrics'));
 const Explore           = lazy(() => import('./pages/Explore'));
+const Notebook          = lazy(() => import('./pages/Notebook'));
 const Dashboards        = lazy(() => import('./pages/Dashboards'));
 const Dashboard         = lazy(() => import('./pages/Dashboard'));
 const Incidents         = lazy(() => import('./pages/Incidents'));
@@ -74,6 +75,7 @@ export default function App() {
             <Route path="/logs"           element={<Logs />} />
             <Route path="/metrics"        element={<Metrics />} />
             <Route path="/explore"        element={<Explore />} />
+            <Route path="/notebook"       element={<Notebook />} />
             <Route path="/dashboards"     element={<Dashboards />} />
             <Route path="/dashboard"      element={<Dashboard />} />
             <Route path="/incidents"      element={<Incidents />} />
