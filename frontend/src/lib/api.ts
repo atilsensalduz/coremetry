@@ -418,6 +418,23 @@ export const api = {
     get<import('./types').Deploy[] | null>(
       `/api/services/${encodeURIComponent(svc)}/deploys?${qs(params)}`),
 
+  // Service catalog — per-service owner / oncall / runbook /
+  // repo metadata. Empty rows return as `{ service }` only
+  // (no special 404 path — the UI renders an "Add metadata"
+  // CTA inline).
+  serviceMetadata: (svc: string) =>
+    get<import('./types').ServiceMetadata>(
+      `/api/services/${encodeURIComponent(svc)}/metadata`),
+  putServiceMetadata: (svc: string, m: import('./types').ServiceMetadata) =>
+    request<void>(`/api/services/${encodeURIComponent(svc)}/metadata`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(m),
+    }),
+  servicesMetadata: () =>
+    get<Record<string, import('./types').ServiceMetadata>>(
+      `/api/services-metadata`),
+
   // Exemplar lookup — picks a representative trace for a metric
   // chart point. 404 means "no span matched the bucket" (the
   // user clicked outside the actual data window) — swallow it

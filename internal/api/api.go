@@ -136,6 +136,9 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/services/{name}/runtime",   s.getServiceRuntime)
 	mux.HandleFunc("GET /api/services/{name}/db-queries", s.getServiceDBQueries)
 	mux.HandleFunc("GET /api/services/{name}/deploys", s.getServiceDeploys)
+	mux.HandleFunc("GET /api/services/{name}/metadata", s.getServiceMetadata)
+	mux.HandleFunc("PUT /api/services/{name}/metadata", auth.RequireAnyRole(editorRoles, s.putServiceMetadata))
+	mux.HandleFunc("GET /api/services-metadata", s.listServiceMetadata)
 	mux.HandleFunc("GET /api/services-runtimes",         s.getAllServiceRuntimes)
 	mux.HandleFunc("GET /api/services/graph", s.getServiceGraph)
 	mux.HandleFunc("GET /api/services/sparklines", s.getServiceSparklines)
@@ -514,6 +517,61 @@ func (s *Server) getServiceRuntime(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getAllServiceRuntimes(w http.ResponseWriter, r *http.Request) {
 	s.serveCached(w, r, "all-service-runtimes", 5*time.Minute, func() (any, error) {
 		return s.store.GetAllServiceRuntimes(r.Context())
+	})
+}
+
+// getServiceMetadata returns the catalog row for one service
+// (owner team, oncall channel, runbook URL, repo, etc.).
+// Missing rows surface as 200 with an empty payload — the
+// frontend renders an "Add metadata" CTA inline rather than
+// distinguishing "404" from "no curation yet".
+func (s *Server) getServiceMetadata(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		http.Error(w, "service name required", http.StatusBadRequest)
+		return
+	}
+	m, err := s.store.GetServiceMetadata(r.Context(), name)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if m == nil {
+		writeJSON(w, chstore.ServiceMetadata{Service: name})
+		return
+	}
+	writeJSON(w, m)
+}
+
+// putServiceMetadata edits the catalog row. Editor+ role
+// required (same as alert-rule edits). Body is the full
+// ServiceMetadata payload; missing fields clear the column —
+// last-write-wins via ReplacingMergeTree.
+func (s *Server) putServiceMetadata(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		http.Error(w, "service name required", http.StatusBadRequest)
+		return
+	}
+	var m chstore.ServiceMetadata
+	if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
+		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	m.Service = name
+	if err := s.store.UpsertServiceMetadata(r.Context(), m); err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// listServiceMetadata returns every catalog row in one shot —
+// drives the owner-team chip on the /services list without
+// fanning out N requests at billion-span scale.
+func (s *Server) listServiceMetadata(w http.ResponseWriter, r *http.Request) {
+	s.serveCached(w, r, "services-metadata", 60*time.Second, func() (any, error) {
+		return s.store.ListServiceMetadata(r.Context())
 	})
 }
 

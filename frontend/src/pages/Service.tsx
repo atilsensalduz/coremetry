@@ -5,6 +5,7 @@ import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { ServiceStructure } from '@/components/ServiceStructure';
 import { ServiceCharts } from '@/components/ServiceCharts';
+import { ServiceCatalogPill } from '@/components/ServiceCatalogPill';
 import { DBQueriesPanel } from '@/components/DBQueriesPanel';
 import { ServiceNeighbors } from '@/components/ServiceNeighbors';
 import { ServiceInfra } from '@/components/ServiceInfra';
@@ -88,6 +89,13 @@ function ServiceDetailInner() {
             background: 'var(--bg3)', border: '1px solid var(--border)',
             borderRadius: 6, color: 'var(--accent2)', textDecoration: 'none',
           }}>⋮ View traces</Link>
+        </div>
+        {/* Service catalog metadata — owner team / oncall /
+            runbook / repo. Operator-curated; falls back to a
+            single "+ Add catalog metadata" CTA when empty.
+            Editor+ role can edit inline. */}
+        <div style={{ marginBottom: 12 }}>
+          <ServiceCatalogPill service={svc} />
         </div>
 
         {openProbs.length > 0 && (

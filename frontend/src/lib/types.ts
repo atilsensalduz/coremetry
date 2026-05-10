@@ -958,6 +958,21 @@ export interface AggSpanNode {
   children?: AggSpanNode[];
 }
 
+// ServiceMetadata — operator-curated per-service catalog.
+// Owner team / oncall / runbook / repo / description; joins
+// on service name. Empty fields surface as "not yet curated"
+// CTA on the UI rather than 404.
+export interface ServiceMetadata {
+  service: string;
+  ownerTeam?: string;
+  description?: string;
+  repository?: string;
+  runbookUrl?: string;
+  oncallUrl?: string;
+  slackChannel?: string;
+  updatedAt?: number;
+}
+
 // BubbleUp — Honeycomb-style attribute investigator. Compares
 // a "selection" subset (e.g. slow / failing spans, a heatmap
 // cell) against a "baseline" population and surfaces the

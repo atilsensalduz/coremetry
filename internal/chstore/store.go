@@ -241,6 +241,26 @@ func (s *Store) migrate(ctx context.Context) error {
 		) ENGINE = ReplacingMergeTree(version)
 		ORDER BY id`,
 
+		// Service catalog metadata — operator-curated per-service
+		// info (owner team, oncall channel, runbook URL, repo,
+		// description) that the spans table doesn't carry. Joins
+		// against service_name as the primary key. Plain
+		// ReplacingMergeTree because rows change once per
+		// reorg, not per request — version is just for last-
+		// write-wins on edit.
+		`CREATE TABLE IF NOT EXISTS service_metadata (
+			service       String,
+			owner_team    String DEFAULT '',
+			description   String DEFAULT '',
+			repository    String DEFAULT '',
+			runbook_url   String DEFAULT '',
+			oncall_url    String DEFAULT '',
+			slack_channel String DEFAULT '',
+			updated_at    DateTime64(9) DEFAULT now64(9),
+			version       UInt64 DEFAULT toUnixTimestamp64Nano(now64(9))
+		) ENGINE = ReplacingMergeTree(version)
+		ORDER BY service`,
+
 		`CREATE TABLE IF NOT EXISTS system_settings (
 			key        String,
 			value      String,                          -- JSON-encoded
