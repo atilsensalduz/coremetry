@@ -69,6 +69,28 @@ type WebhookChannelConfig struct {
 	URL string `json:"url"`
 }
 
+// TeamsChannelConfig — Microsoft Teams incoming webhook. Same
+// shape as Slack at the URL level (single endpoint), different
+// payload format (Office-365 Connector / Adaptive Card JSON).
+type TeamsChannelConfig struct {
+	WebhookURL string `json:"webhookUrl"`
+}
+
+// ZoomChatChannelConfig — Zoom Chat incoming webhook. Endpoint
+// looks like https://hooks.zoom.us/v3/hooks/<id>/<token>; the
+// channel selection happens at webhook-creation time on
+// Zoom's side, not in the request payload.
+type ZoomChatChannelConfig struct {
+	WebhookURL string `json:"webhookUrl"`
+	// Optional verification token Zoom hands out alongside
+	// the webhook URL. When set we POST it as the
+	// `Authorization` header value (Zoom's docs call this
+	// "verification token"); when empty the request goes
+	// without the header — works for incoming-webhooks set
+	// up without verification.
+	VerificationToken string `json:"verificationToken,omitempty"`
+}
+
 // WhatsAppChannelConfig wraps Twilio's WhatsApp messaging API.
 //
 // AccountSid + AuthToken are the standard Twilio API credentials.
@@ -265,6 +287,10 @@ func (n *Notifier) sendOne(ctx context.Context, c chstore.NotificationChannel, p
 		// them as distinct channel types so the UI can label them
 		// correctly and operators see at a glance which is which.
 		return n.sendSlack(ctx, c, p)
+	case "teams":
+		return n.sendTeams(ctx, c, p)
+	case "zoomchat":
+		return n.sendZoomChat(ctx, c, p)
 	case "webhook":
 		return n.sendWebhook(ctx, c, p)
 	case "whatsapp":
@@ -416,6 +442,108 @@ func (n *Notifier) sendSlack(ctx context.Context, c chstore.NotificationChannel,
 		}},
 	}
 	return postJSON(ctx, sc.WebhookURL, body)
+}
+
+// ── Microsoft Teams backend (Office-365 Connector card) ────────────────────
+//
+// Teams' incoming webhook expects a `MessageCard` JSON envelope —
+// distinct from the Slack/Mattermost format. We render the same
+// fields (severity, service, metric, value, started, optional
+// runbook button) as a card with a coloured side stripe.
+func (n *Notifier) sendTeams(ctx context.Context, c chstore.NotificationChannel, p chstore.Problem) error {
+	var tc TeamsChannelConfig
+	if err := json.Unmarshal(c.Config, &tc); err != nil {
+		return fmt.Errorf("decode teams config: %w", err)
+	}
+	if tc.WebhookURL == "" {
+		return errors.New("channel has no webhook URL")
+	}
+	colour := strings.TrimPrefix(severityColor(p.Severity), "#")
+	t := time.Unix(0, p.StartedAt).UTC().Format(time.RFC3339)
+	facts := []map[string]string{
+		{"name": "Service",  "value": p.Service},
+		{"name": "Severity", "value": strings.ToUpper(p.Severity)},
+		{"name": "Metric",   "value": p.Metric},
+		{"name": "Value",    "value": fmt.Sprintf("%.2f (threshold %.2f)", p.Value, p.Threshold)},
+		{"name": "Started",  "value": t},
+	}
+	body := map[string]any{
+		"@type":      "MessageCard",
+		"@context":   "https://schema.org/extensions",
+		"summary":    fmt.Sprintf("[%s] %s — %s", strings.ToUpper(p.Severity), p.Service, p.RuleName),
+		"themeColor": colour,
+		"title":      fmt.Sprintf("[%s] %s — %s", strings.ToUpper(p.Severity), p.Service, p.RuleName),
+		"text":       p.Description,
+		"sections":   []map[string]any{{"facts": facts}},
+	}
+	if p.RunbookURL != "" {
+		body["potentialAction"] = []map[string]any{{
+			"@type": "OpenUri",
+			"name":  "Open runbook",
+			"targets": []map[string]string{
+				{"os": "default", "uri": p.RunbookURL},
+			},
+		}}
+	}
+	return postJSON(ctx, tc.WebhookURL, body)
+}
+
+// ── Zoom Chat backend ──────────────────────────────────────────────────────
+//
+// Zoom Chat's incoming webhook accepts a small JSON envelope:
+//   { "head": { "text": "<title>" },
+//     "body": [ { "type": "message", "text": "<body>" }, ... ] }
+//
+// The channel destination is decided at webhook-creation time
+// inside Zoom, not in the payload — operators paste the URL
+// (https://hooks.zoom.us/v3/hooks/<id>/<token>) into the channel
+// settings and we POST to it. The optional `Authorization`
+// header carries Zoom's verification token when present.
+func (n *Notifier) sendZoomChat(ctx context.Context, c chstore.NotificationChannel, p chstore.Problem) error {
+	var zc ZoomChatChannelConfig
+	if err := json.Unmarshal(c.Config, &zc); err != nil {
+		return fmt.Errorf("decode zoom chat config: %w", err)
+	}
+	if zc.WebhookURL == "" {
+		return errors.New("channel has no webhook URL")
+	}
+	t := time.Unix(0, p.StartedAt).UTC().Format(time.RFC3339)
+	headTxt := fmt.Sprintf("[%s] %s — %s",
+		strings.ToUpper(p.Severity), p.Service, p.RuleName)
+	bodyText := fmt.Sprintf(
+		"%s\n\n• Service: %s\n• Severity: %s\n• Metric: %s\n• Value: %.2f (threshold %.2f)\n• Started: %s",
+		p.Description, p.Service, strings.ToUpper(p.Severity),
+		p.Metric, p.Value, p.Threshold, t)
+	if p.RunbookURL != "" {
+		bodyText += "\n• Runbook: " + p.RunbookURL
+	}
+	payload := map[string]any{
+		"head": map[string]any{"text": headTxt},
+		"body": []map[string]any{
+			{"type": "message", "text": bodyText},
+		},
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("encode zoom chat payload: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", zc.WebhookURL, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if zc.VerificationToken != "" {
+		req.Header.Set("Authorization", zc.VerificationToken)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("zoom chat webhook %d", resp.StatusCode)
+	}
+	return nil
 }
 
 // ── Generic webhook backend ─────────────────────────────────────────────────

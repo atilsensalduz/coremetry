@@ -287,6 +287,7 @@ function ChannelsTab() {
 function summarizeChannel(c: NotificationChannel): string {
   if (c.type === 'email') return (c.config.recipients ?? []).join(', ') || '(none)';
   if (c.type === 'slack' || c.type === 'mattermost') return c.config.webhookUrl ?? '(no webhook)';
+  if (c.type === 'teams' || c.type === 'zoomchat') return c.config.webhookUrl ?? '(no webhook)';
   if (c.type === 'webhook') return c.config.url ?? '(no url)';
   if (c.type === 'whatsapp') return (c.config.to ?? []).join(', ') || '(no recipients)';
   return '';
@@ -307,6 +308,9 @@ function ChannelModal({ initial, onClose, onSaved }: {
   const [recipients, setRecipients] = useState((initial?.config.recipients ?? []).join(', '));
   const [webhookUrl, setWebhookUrl] = useState(initial?.config.webhookUrl ?? '');
   const [url, setUrl] = useState(initial?.config.url ?? '');
+  // Zoom Chat verification token — optional second-factor
+  // Zoom hands out alongside the webhook URL.
+  const [verificationToken, setVerificationToken] = useState(initial?.config.verificationToken ?? '');
   // WhatsApp / Twilio fields
   const [twilioSid, setTwilioSid] = useState(initial?.config.accountSid ?? '');
   const [twilioToken, setTwilioToken] = useState(initial?.config.authToken ?? '');
@@ -328,6 +332,13 @@ function ChannelModal({ initial, onClose, onSaved }: {
       } else if (type === 'slack' || type === 'mattermost') {
         if (!webhookUrl) throw new Error(`${type === 'slack' ? 'Slack' : 'Mattermost'} webhook URL is required`);
         config.webhookUrl = webhookUrl;
+      } else if (type === 'teams') {
+        if (!webhookUrl) throw new Error('Microsoft Teams webhook URL is required');
+        config.webhookUrl = webhookUrl;
+      } else if (type === 'zoomchat') {
+        if (!webhookUrl) throw new Error('Zoom Chat webhook URL is required');
+        config.webhookUrl = webhookUrl;
+        if (verificationToken) config.verificationToken = verificationToken.trim();
       } else if (type === 'webhook') {
         if (!url) throw new Error('Webhook URL is required');
         config.url = url;
@@ -375,6 +386,8 @@ function ChannelModal({ initial, onClose, onSaved }: {
                 <option value="email">Email</option>
                 <option value="slack">Slack</option>
                 <option value="mattermost">Mattermost</option>
+                <option value="teams">Microsoft Teams</option>
+                <option value="zoomchat">Zoom Chat</option>
                 <option value="webhook">Webhook (generic JSON POST)</option>
                 <option value="whatsapp">WhatsApp (via Twilio)</option>
               </select>
@@ -406,6 +419,28 @@ function ChannelModal({ initial, onClose, onSaved }: {
               <input required value={webhookUrl} placeholder="https://your-mattermost.example.com/hooks/..."
                 onChange={e => setWebhookUrl(e.target.value)} style={{ width: '100%' }} />
             </Field>
+          )}
+          {type === 'teams' && (
+            <Field label="Microsoft Teams incoming webhook URL">
+              <input required value={webhookUrl}
+                placeholder="https://outlook.office.com/webhook/..."
+                onChange={e => setWebhookUrl(e.target.value)} style={{ width: '100%' }} />
+            </Field>
+          )}
+          {type === 'zoomchat' && (
+            <>
+              <Field label="Zoom Chat incoming webhook URL">
+                <input required value={webhookUrl}
+                  placeholder="https://hooks.zoom.us/v3/hooks/<id>/<token>"
+                  onChange={e => setWebhookUrl(e.target.value)} style={{ width: '100%' }} />
+              </Field>
+              <Field label="Verification token (optional)">
+                <input value={verificationToken} type="password"
+                  placeholder="Pasted from the Zoom webhook configuration screen"
+                  onChange={e => setVerificationToken(e.target.value)}
+                  style={{ width: '100%' }} />
+              </Field>
+            </>
           )}
           {type === 'webhook' && (
             <Field label="Webhook URL (raw Problem JSON is POSTed here)">

@@ -256,6 +256,11 @@ func (s *Store) migrate(ctx context.Context) error {
 			repository    String DEFAULT '',
 			runbook_url   String DEFAULT '',
 			oncall_url    String DEFAULT '',
+			-- chat_channel was renamed from slack_channel — we
+			-- preserve the legacy column for upgraded installs
+			-- (see ALTER below) and write to the new one going
+			-- forward.
+			chat_channel  String DEFAULT '',
 			slack_channel String DEFAULT '',
 			updated_at    DateTime64(9) DEFAULT now64(9),
 			version       UInt64 DEFAULT toUnixTimestamp64Nano(now64(9))
@@ -695,6 +700,11 @@ func (s *Store) migrate(ctx context.Context) error {
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider LowCardinality(String) DEFAULT 'local'`,
 		`ALTER TABLE alert_rules ADD COLUMN IF NOT EXISTS runbook_url String DEFAULT ''`,
 		`ALTER TABLE service_metadata ADD COLUMN IF NOT EXISTS sre_team String DEFAULT ''`,
+		// chat_channel — successor to slack_channel. Existing
+		// rows with a populated slack_channel keep showing it
+		// in the UI through the read-time fallback in
+		// GetServiceMetadata; new edits write to chat_channel.
+		`ALTER TABLE service_metadata ADD COLUMN IF NOT EXISTS chat_channel String DEFAULT ''`,
 		`ALTER TABLE spans ADD INDEX IF NOT EXISTS idx_kind        kind        TYPE set(0)    GRANULARITY 4`,
 		`ALTER TABLE spans ADD INDEX IF NOT EXISTS idx_db_system   db_system   TYPE set(0)    GRANULARITY 4`,
 		`ALTER TABLE spans ADD INDEX IF NOT EXISTS idx_http_status http_status TYPE minmax    GRANULARITY 4`,

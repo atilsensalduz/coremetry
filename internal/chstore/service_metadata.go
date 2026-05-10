@@ -32,30 +32,43 @@ type ServiceMetadata struct {
 	Repository   string `json:"repository,omitempty"`
 	RunbookURL   string `json:"runbookUrl,omitempty"`
 	OncallURL    string `json:"oncallUrl,omitempty"`
-	SlackChannel string `json:"slackChannel,omitempty"`
+	// ChatChannel — Zoom Chat / Mattermost / Slack channel
+	// for the team. Renamed from slack_channel because the
+	// catalog target cluster runs on Zoom Chat; the legacy
+	// slack_channel column still backfills here on read so
+	// pre-rename rows keep showing.
+	ChatChannel  string `json:"chatChannel,omitempty"`
 	UpdatedAt    int64  `json:"updatedAt"` // unix nanoseconds
 }
 
 // GetServiceMetadata returns the catalog row for one service.
 // Missing rows return nil, nil — the page handles the empty
 // state inline (no special "404" UI needed).
+//
+// Read-time fallback: chat_channel is the new column; if a
+// pre-rename row only populated slack_channel we surface that
+// value so legacy curation doesn't disappear from the UI.
 func (s *Store) GetServiceMetadata(ctx context.Context, service string) (*ServiceMetadata, error) {
 	if service == "" {
 		return nil, nil
 	}
 	row := s.conn.QueryRow(ctx, `
 		SELECT service, owner_team, sre_team, description, repository,
-		       runbook_url, oncall_url, slack_channel,
+		       runbook_url, oncall_url, chat_channel, slack_channel,
 		       toUnixTimestamp64Nano(updated_at)
 		FROM service_metadata FINAL
 		WHERE service = ?
 		LIMIT 1`, service)
 	var m ServiceMetadata
+	var legacySlack string
 	if err := row.Scan(&m.Service, &m.OwnerTeam, &m.SRETeam, &m.Description, &m.Repository,
-		&m.RunbookURL, &m.OncallURL, &m.SlackChannel, &m.UpdatedAt); err != nil {
+		&m.RunbookURL, &m.OncallURL, &m.ChatChannel, &legacySlack, &m.UpdatedAt); err != nil {
 		// "no rows" → not yet curated; same handling pattern
 		// the rest of chstore uses.
 		return nil, nil
+	}
+	if m.ChatChannel == "" && legacySlack != "" {
+		m.ChatChannel = legacySlack
 	}
 	return &m, nil
 }
@@ -67,7 +80,7 @@ func (s *Store) GetServiceMetadata(ctx context.Context, service string) (*Servic
 func (s *Store) ListServiceMetadata(ctx context.Context) (map[string]ServiceMetadata, error) {
 	rows, err := s.conn.Query(ctx, `
 		SELECT service, owner_team, sre_team, description, repository,
-		       runbook_url, oncall_url, slack_channel,
+		       runbook_url, oncall_url, chat_channel, slack_channel,
 		       toUnixTimestamp64Nano(updated_at)
 		FROM service_metadata FINAL`)
 	if err != nil {
@@ -77,9 +90,13 @@ func (s *Store) ListServiceMetadata(ctx context.Context) (map[string]ServiceMeta
 	out := make(map[string]ServiceMetadata, 64)
 	for rows.Next() {
 		var m ServiceMetadata
+		var legacySlack string
 		if err := rows.Scan(&m.Service, &m.OwnerTeam, &m.SRETeam, &m.Description, &m.Repository,
-			&m.RunbookURL, &m.OncallURL, &m.SlackChannel, &m.UpdatedAt); err != nil {
+			&m.RunbookURL, &m.OncallURL, &m.ChatChannel, &legacySlack, &m.UpdatedAt); err != nil {
 			return nil, err
+		}
+		if m.ChatChannel == "" && legacySlack != "" {
+			m.ChatChannel = legacySlack
 		}
 		out[m.Service] = m
 	}
@@ -91,6 +108,12 @@ func (s *Store) ListServiceMetadata(ctx context.Context) (map[string]ServiceMeta
 // always stamped to now() so the operator sees fresh edit
 // times in the list. Empty `service` is a no-op (you can't
 // curate "no service").
+//
+// Writes only the new chat_channel column. The legacy
+// slack_channel column is left as-is so an upgrade-then-
+// downgrade still surfaces the original value; the next edit
+// after upgrade migrates the value into chat_channel via the
+// read-time fallback.
 func (s *Store) UpsertServiceMetadata(ctx context.Context, m ServiceMetadata) error {
 	m.Service = strings.TrimSpace(m.Service)
 	if m.Service == "" {
@@ -98,13 +121,13 @@ func (s *Store) UpsertServiceMetadata(ctx context.Context, m ServiceMetadata) er
 	}
 	batch, err := s.conn.PrepareBatch(ctx, `INSERT INTO service_metadata
 		(service, owner_team, sre_team, description, repository,
-		 runbook_url, oncall_url, slack_channel, updated_at, version)`)
+		 runbook_url, oncall_url, chat_channel, updated_at, version)`)
 	if err != nil {
 		return err
 	}
 	now := time.Now()
 	if err := batch.Append(m.Service, m.OwnerTeam, m.SRETeam, m.Description, m.Repository,
-		m.RunbookURL, m.OncallURL, m.SlackChannel,
+		m.RunbookURL, m.OncallURL, m.ChatChannel,
 		now.UTC(), uint64(now.UnixNano())); err != nil {
 		return err
 	}

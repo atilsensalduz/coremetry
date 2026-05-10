@@ -462,7 +462,7 @@ export interface SMTPSettings {
   configured?: boolean;   // server-side derived
 }
 
-export type ChannelType = 'email' | 'slack' | 'mattermost' | 'webhook' | 'whatsapp';
+export type ChannelType = 'email' | 'slack' | 'mattermost' | 'teams' | 'zoomchat' | 'webhook' | 'whatsapp';
 
 export interface NotificationChannel {
   id: string;
@@ -473,8 +473,9 @@ export interface NotificationChannel {
   // shape; whatsapp adds Twilio creds) only fill the fields they need.
   config: {
     recipients?: string[];   // email + whatsapp 'to' list
-    webhookUrl?: string;     // slack + mattermost
+    webhookUrl?: string;     // slack / mattermost / teams / zoomchat
     url?: string;            // generic webhook
+    verificationToken?: string; // zoomchat (optional auth header)
     accountSid?: string;     // whatsapp (Twilio)
     authToken?: string;      // whatsapp (Twilio)
     from?: string;           // whatsapp sender (with or without 'whatsapp:' prefix)
@@ -978,7 +979,11 @@ export interface ServiceMetadata {
   repository?: string;
   runbookUrl?: string;
   oncallUrl?: string;
-  slackChannel?: string;
+  // chatChannel — Zoom Chat / Mattermost / Slack channel for
+  // the team. Renamed from slackChannel; the backend back-
+  // fills from the legacy column on read so existing curation
+  // keeps showing.
+  chatChannel?: string;
   updatedAt?: number;
 }
 

@@ -34,7 +34,7 @@ export function ServiceCatalogPill({ service }: { service: string }) {
   // editors only; viewers see nothing (the rest of the page
   // works without metadata).
   const hasAny = !!(meta.ownerTeam || meta.sreTeam || meta.description || meta.repository
-    || meta.runbookUrl || meta.oncallUrl || meta.slackChannel);
+    || meta.runbookUrl || meta.oncallUrl || meta.chatChannel);
 
   if (!hasAny && !editing) {
     if (!isEditor) return null;
@@ -77,8 +77,8 @@ export function ServiceCatalogPill({ service }: { service: string }) {
       {meta.runbookUrl && (
         <Link href={meta.runbookUrl} title="Open runbook">📘 runbook</Link>
       )}
-      {meta.slackChannel && (
-        <Pill title="Slack channel">#{meta.slackChannel.replace(/^#/, '')}</Pill>
+      {meta.chatChannel && (
+        <Pill title="Zoom Chat channel">💬 {meta.chatChannel.replace(/^#/, '')}</Pill>
       )}
       {meta.repository && (
         <Link href={meta.repository} title="Open repository">⌥ repo</Link>
@@ -155,9 +155,9 @@ function CatalogEditor({ initial, onSave, onCancel }: {
         <input value={m.sreTeam ?? ''} placeholder="platform / sre-storefront"
           onChange={e => update({ sreTeam: e.target.value })} />
       </Field>
-      <Field label="Slack channel">
-        <input value={m.slackChannel ?? ''} placeholder="#payments-oncall"
-          onChange={e => update({ slackChannel: e.target.value })} />
+      <Field label="Zoom Chat channel">
+        <input value={m.chatChannel ?? ''} placeholder="payments-oncall"
+          onChange={e => update({ chatChannel: e.target.value })} />
       </Field>
       <Field label="Runbook URL">
         <input value={m.runbookUrl ?? ''} placeholder="https://wiki.internal/runbook/payments"
