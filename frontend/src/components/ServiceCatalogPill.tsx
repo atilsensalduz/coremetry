@@ -34,7 +34,8 @@ export function ServiceCatalogPill({ service }: { service: string }) {
   // editors only; viewers see nothing (the rest of the page
   // works without metadata).
   const hasAny = !!(meta.ownerTeam || meta.sreTeam || meta.description || meta.repository
-    || meta.runbookUrl || meta.oncallUrl || meta.chatChannel);
+    || meta.runbookUrl || meta.oncallUrl || meta.chatChannel
+    || (meta.customLinks && meta.customLinks.length > 0));
 
   if (!hasAny && !editing) {
     if (!isEditor) return null;
@@ -89,6 +90,13 @@ export function ServiceCatalogPill({ service }: { service: string }) {
       {meta.repository && (
         <Link href={meta.repository} title="Open repository">repo</Link>
       )}
+      {/* Operator-curated extras — Grafana, Kibana, Sensei,
+          internal apps. Rendered after the built-in surfaces
+          so the consistent ones (oncall / runbook / repo)
+          stay anchored on the left. */}
+      {(meta.customLinks ?? []).map((l, i) => (
+        <Link key={i} href={l.url} title={l.url}>{l.label}</Link>
+      ))}
       {isEditor && (
         <button onClick={() => setEditing(true)}
           style={{
@@ -197,6 +205,14 @@ function CatalogEditor({ initial, onSave, onCancel }: {
         <input value={m.description ?? ''} placeholder="What this service does — one line"
           onChange={e => update({ description: e.target.value })} />
       </Field>
+      {/* Custom links editor — dynamic list with add/remove.
+          Span the full grid width so the label/url inputs
+          have room. */}
+      <div style={{ gridColumn: '1 / -1' }}>
+        <CustomLinksEditor
+          links={m.customLinks ?? []}
+          onChange={ls => update({ customLinks: ls })} />
+      </div>
       <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 8, marginTop: 4 }}>
         <button onClick={submit} disabled={busy}
           style={{ fontSize: 12, padding: '4px 12px' }}>
@@ -220,5 +236,61 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       }}>{label}</span>
       {children}
     </label>
+  );
+}
+
+// CustomLinksEditor — dynamic add/remove rows for the
+// operator-curated link list. Each row has a label + url
+// input and an "×" to drop it; one trailing "+ Add link"
+// appends a fresh blank row. Empty rows are dropped
+// server-side (see UpsertServiceMetadata) so the operator
+// can leave one blank without polluting the catalog.
+function CustomLinksEditor({ links, onChange }: {
+  links: import('@/lib/types').CustomLink[];
+  onChange: (next: import('@/lib/types').CustomLink[]) => void;
+}) {
+  const set = (i: number, patch: Partial<import('@/lib/types').CustomLink>) => {
+    const next = [...links];
+    next[i] = { ...next[i], ...patch };
+    onChange(next);
+  };
+  const remove = (i: number) => onChange(links.filter((_, j) => j !== i));
+  const add = () => onChange([...links, { label: '', url: '' }]);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <span style={{
+        fontSize: 10, color: 'var(--text3)',
+        fontWeight: 600, letterSpacing: '0.4px', textTransform: 'uppercase',
+      }}>
+        Custom links
+      </span>
+      {links.map((l, i) => (
+        <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <input value={l.label}
+            placeholder="Grafana"
+            onChange={e => set(i, { label: e.target.value })}
+            style={{ width: 130 }} />
+          <input value={l.url}
+            placeholder="https://grafana.internal/d/abc"
+            onChange={e => set(i, { url: e.target.value })}
+            style={{ flex: 1 }} />
+          <button type="button" onClick={() => remove(i)}
+            title="Remove link"
+            style={{
+              fontSize: 12, color: 'var(--text3)',
+              background: 'transparent', border: 0, cursor: 'pointer',
+              padding: '0 6px',
+            }}>×</button>
+        </div>
+      ))}
+      <button type="button" onClick={add}
+        style={{
+          fontSize: 11, padding: '3px 10px', alignSelf: 'flex-start',
+          background: 'var(--bg3)', border: '1px solid var(--border)',
+          borderRadius: 4, color: 'var(--accent2)', cursor: 'pointer',
+        }}>
+        + Add link
+      </button>
+    </div>
   );
 }

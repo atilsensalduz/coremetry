@@ -262,6 +262,12 @@ func (s *Store) migrate(ctx context.Context) error {
 			-- forward.
 			chat_channel  String DEFAULT '',
 			slack_channel String DEFAULT '',
+			-- custom_links — JSON array of {label, url} entries.
+			-- Lets operators bolt on Grafana dashboards, Kibana
+			-- searches, internal apps, status pages, etc. per
+			-- service without us baking each surface in as a
+			-- column.
+			custom_links  String DEFAULT '[]',
 			updated_at    DateTime64(9) DEFAULT now64(9),
 			version       UInt64 DEFAULT toUnixTimestamp64Nano(now64(9))
 		) ENGINE = ReplacingMergeTree(version)
@@ -710,6 +716,11 @@ func (s *Store) migrate(ctx context.Context) error {
 		// in the UI through the read-time fallback in
 		// GetServiceMetadata; new edits write to chat_channel.
 		`ALTER TABLE service_metadata ADD COLUMN IF NOT EXISTS chat_channel String DEFAULT ''`,
+		// custom_links — operator-bolted-on links per service
+		// (Grafana board, Kibana saved search, internal SRE
+		// app, status page, etc.). Stored as a JSON array so
+		// the schema doesn't grow per surface.
+		`ALTER TABLE service_metadata ADD COLUMN IF NOT EXISTS custom_links String DEFAULT '[]'`,
 		// Notification routing — one column carrying a JSON
 		// blob with predicates: { "services": [...],
 		// "sreTeams": [...], "ownerTeams": [...] }. Empty /

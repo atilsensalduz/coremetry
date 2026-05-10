@@ -980,6 +980,11 @@ export interface AggSpanNode {
 // Owner team / oncall / runbook / repo / description; joins
 // on service name. Empty fields surface as "not yet curated"
 // CTA on the UI rather than 404.
+export interface CustomLink {
+  label: string;
+  url: string;
+}
+
 export interface ServiceMetadata {
   service: string;
   ownerTeam?: string;
@@ -997,6 +1002,11 @@ export interface ServiceMetadata {
   // fills from the legacy column on read so existing curation
   // keeps showing.
   chatChannel?: string;
+  // customLinks — operator-bolted-on per-service links
+  // (Grafana board, Kibana saved search, Sensei, internal
+  // SRE app, status page, etc.). Each renders as an
+  // additional chip on the catalog pill.
+  customLinks?: CustomLink[];
   updatedAt?: number;
 }
 

@@ -2,9 +2,21 @@ package chstore
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"time"
 )
+
+// CustomLink — one operator-bolted-on link per service. The
+// catalog renders these as additional chips next to the
+// built-in oncall / runbook / repo entries, so a team can
+// surface "Grafana board" / "Kibana saved search" /
+// "internal SRE dashboard" in one click without us baking
+// each surface in as a column.
+type CustomLink struct {
+	Label string `json:"label"`
+	URL   string `json:"url"`
+}
 
 // ServiceMetadata is operator-curated context for a single
 // service: owner team, oncall channel, runbook URL, repo, and
@@ -37,8 +49,12 @@ type ServiceMetadata struct {
 	// catalog target cluster runs on Zoom Chat; the legacy
 	// slack_channel column still backfills here on read so
 	// pre-rename rows keep showing.
-	ChatChannel  string `json:"chatChannel,omitempty"`
-	UpdatedAt    int64  `json:"updatedAt"` // unix nanoseconds
+	ChatChannel  string       `json:"chatChannel,omitempty"`
+	// CustomLinks — operator-bolted-on links per service
+	// (Grafana / Kibana / Sensei / status page / etc.).
+	// Stored as a JSON-encoded array in custom_links column.
+	CustomLinks  []CustomLink `json:"customLinks,omitempty"`
+	UpdatedAt    int64        `json:"updatedAt"` // unix nanoseconds
 }
 
 // GetServiceMetadata returns the catalog row for one service.
@@ -55,20 +71,28 @@ func (s *Store) GetServiceMetadata(ctx context.Context, service string) (*Servic
 	row := s.conn.QueryRow(ctx, `
 		SELECT service, owner_team, sre_team, description, repository,
 		       runbook_url, oncall_url, chat_channel, slack_channel,
+		       custom_links,
 		       toUnixTimestamp64Nano(updated_at)
 		FROM service_metadata FINAL
 		WHERE service = ?
 		LIMIT 1`, service)
 	var m ServiceMetadata
-	var legacySlack string
+	var legacySlack, customLinks string
 	if err := row.Scan(&m.Service, &m.OwnerTeam, &m.SRETeam, &m.Description, &m.Repository,
-		&m.RunbookURL, &m.OncallURL, &m.ChatChannel, &legacySlack, &m.UpdatedAt); err != nil {
+		&m.RunbookURL, &m.OncallURL, &m.ChatChannel, &legacySlack,
+		&customLinks, &m.UpdatedAt); err != nil {
 		// "no rows" → not yet curated; same handling pattern
 		// the rest of chstore uses.
 		return nil, nil
 	}
 	if m.ChatChannel == "" && legacySlack != "" {
 		m.ChatChannel = legacySlack
+	}
+	// Malformed JSON in the column collapses to an empty
+	// list rather than failing the read — operator just sees
+	// no extra links until they re-save the row.
+	if customLinks != "" && customLinks != "[]" {
+		_ = json.Unmarshal([]byte(customLinks), &m.CustomLinks)
 	}
 	return &m, nil
 }
@@ -81,6 +105,7 @@ func (s *Store) ListServiceMetadata(ctx context.Context) (map[string]ServiceMeta
 	rows, err := s.conn.Query(ctx, `
 		SELECT service, owner_team, sre_team, description, repository,
 		       runbook_url, oncall_url, chat_channel, slack_channel,
+		       custom_links,
 		       toUnixTimestamp64Nano(updated_at)
 		FROM service_metadata FINAL`)
 	if err != nil {
@@ -90,13 +115,17 @@ func (s *Store) ListServiceMetadata(ctx context.Context) (map[string]ServiceMeta
 	out := make(map[string]ServiceMetadata, 64)
 	for rows.Next() {
 		var m ServiceMetadata
-		var legacySlack string
+		var legacySlack, customLinks string
 		if err := rows.Scan(&m.Service, &m.OwnerTeam, &m.SRETeam, &m.Description, &m.Repository,
-			&m.RunbookURL, &m.OncallURL, &m.ChatChannel, &legacySlack, &m.UpdatedAt); err != nil {
+			&m.RunbookURL, &m.OncallURL, &m.ChatChannel, &legacySlack,
+			&customLinks, &m.UpdatedAt); err != nil {
 			return nil, err
 		}
 		if m.ChatChannel == "" && legacySlack != "" {
 			m.ChatChannel = legacySlack
+		}
+		if customLinks != "" && customLinks != "[]" {
+			_ = json.Unmarshal([]byte(customLinks), &m.CustomLinks)
 		}
 		out[m.Service] = m
 	}
@@ -119,15 +148,36 @@ func (s *Store) UpsertServiceMetadata(ctx context.Context, m ServiceMetadata) er
 	if m.Service == "" {
 		return nil
 	}
+	// Always serialise CustomLinks — even an empty slice
+	// produces "[]" which keeps the column shape stable
+	// (read path's `customLinks != ""` guard treats "[]" as
+	// no-op anyway). Drop entries with empty url/label so
+	// the operator's accidental blank rows don't pollute
+	// the chip strip.
+	clean := make([]CustomLink, 0, len(m.CustomLinks))
+	for _, l := range m.CustomLinks {
+		if strings.TrimSpace(l.URL) == "" || strings.TrimSpace(l.Label) == "" {
+			continue
+		}
+		clean = append(clean, CustomLink{
+			Label: strings.TrimSpace(l.Label),
+			URL:   strings.TrimSpace(l.URL),
+		})
+	}
+	clBytes, err := json.Marshal(clean)
+	if err != nil {
+		return err
+	}
 	batch, err := s.conn.PrepareBatch(ctx, `INSERT INTO service_metadata
 		(service, owner_team, sre_team, description, repository,
-		 runbook_url, oncall_url, chat_channel, updated_at, version)`)
+		 runbook_url, oncall_url, chat_channel, custom_links,
+		 updated_at, version)`)
 	if err != nil {
 		return err
 	}
 	now := time.Now()
 	if err := batch.Append(m.Service, m.OwnerTeam, m.SRETeam, m.Description, m.Repository,
-		m.RunbookURL, m.OncallURL, m.ChatChannel,
+		m.RunbookURL, m.OncallURL, m.ChatChannel, string(clBytes),
 		now.UTC(), uint64(now.UnixNano())); err != nil {
 		return err
 	}
