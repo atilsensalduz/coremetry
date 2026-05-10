@@ -159,6 +159,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/metrics/labels", s.getMetricLabelValues)
 	mux.HandleFunc("GET /api/spans/metric", s.spanMetric)
 	mux.HandleFunc("GET /api/spans/exemplar", s.spanExemplar)
+	mux.HandleFunc("GET /api/spans/heatmap", s.spanHeatmap)
 	mux.HandleFunc("GET /api/profiles", s.listProfiles)
 	mux.HandleFunc("GET /api/profiles/by-span", s.profilesForSpan)
 	mux.HandleFunc("GET /api/profiles/{id}", s.getProfile)
@@ -1324,6 +1325,39 @@ func (s *Server) spanMetric(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, series)
+}
+
+// spanHeatmap — Honeycomb-style 2D latency density. Returns a
+// fixed (time × log-duration) grid of span counts so the
+// frontend can render the cells as a colour heatmap without
+// post-processing. Same filter shape as /api/spans/metric so
+// a chart on /explore can swap its visualisation between
+// "line trend" and "heatmap" against the same predicate.
+func (s *Server) spanHeatmap(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	filters, err := parseFiltersAndDSL(q.Get("filters"), q.Get("dsl"))
+	if err != nil {
+		http.Error(w, "invalid query DSL: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	from := parseTime(q.Get("from"))
+	to := parseTime(q.Get("to"))
+	if from.IsZero() || to.IsZero() {
+		to = time.Now()
+		from = to.Add(-15 * time.Minute)
+	}
+	timeBuckets, _ := strconv.Atoi(q.Get("buckets"))
+	// Cache 30s — same posture as /api/services and the
+	// other heavy span aggregates. Two operators on the same
+	// dashboard or the same operator scrolling between viz
+	// modes hit the cached payload instead of re-firing the
+	// CH GROUP BY at billion-span scale.
+	key := fmt.Sprintf("span-heatmap:from=%d:to=%d:buckets=%d:filters=%s:dsl=%s",
+		from.UnixNano(), to.UnixNano(), timeBuckets,
+		q.Get("filters"), q.Get("dsl"))
+	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
+		return s.store.GetLatencyHeatmap(r.Context(), filters, from, to, timeBuckets)
+	})
 }
 
 // spanExemplar — drill from a metric chart point to a sample

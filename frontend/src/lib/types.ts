@@ -958,6 +958,18 @@ export interface AggSpanNode {
   children?: AggSpanNode[];
 }
 
+// LatencyHeatmap — Honeycomb-style 2D density grid.
+// Counts[time_idx][dur_idx] is the span count in the cell
+// formed by the time bucket and the (log-scale) duration bin.
+// MaxCount lets the renderer pick a colour scale without a
+// full re-scan.
+export interface LatencyHeatmap {
+  times: number[];          // unix nanoseconds, len = N time buckets
+  durationBins: number[];   // upper bound in ms per bin, len = M
+  counts: number[][];       // [N][M] grid
+  maxCount: number;
+}
+
 // Deploy — one observed (service, service.version) entry.
 // Used to paint dashed vertical "deploy marker" lines on
 // metric / latency / error charts so an operator can read at

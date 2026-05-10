@@ -1,0 +1,199 @@
+import { useEffect, useRef, useState } from 'react';
+import type { LatencyHeatmap as Heatmap } from '@/lib/types';
+import { fmtSmart } from '@/lib/chartFmt';
+
+// LatencyHeatmap — Honeycomb-style 2D density visualisation.
+// X = time (left → right), Y = log-scale latency
+// (bottom → top, slowest at top), cell colour = count.
+// Same time axis as the metric line chart so an operator
+// can flip between the two views and read the same window.
+//
+// Why canvas rather than SVG: at 60 × 28 = 1680 cells the
+// canvas paints in <1 ms; the SVG equivalent would build
+// 1680 <rect> nodes every render. Hover detection is hand-
+// rolled against the cell grid (constant-time lookup; no
+// React event listener per cell).
+
+const PALETTE = [
+  // Cool → warm gradient. First entry is the empty-cell
+  // background; last is the peak. uPlot's accent palette
+  // wouldn't read as "density" — these stops are picked from
+  // viridis-tail so the eye reads "dim → bright" as count.
+  'rgba(0,0,0,0)',          // 0 — invisible (no cell)
+  'rgba(63,140,253,0.18)',
+  'rgba(63,140,253,0.40)',
+  'rgba(56,113,213,0.65)',
+  'rgba(220,164,82,0.80)',
+  'rgba(232,78,78,0.90)',
+];
+
+export function LatencyHeatmap({ data, height = 220 }: {
+  data: Heatmap;
+  height?: number;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [hover, setHover] = useState<{
+    x: number; y: number;
+    time: number; durMs: number; count: number;
+  } | null>(null);
+
+  // Re-paint on data / dimension change. We don't memo the
+  // result — paint is fast and React re-renders when hover
+  // updates anyway.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const wrap = containerRef.current;
+    if (!canvas || !wrap) return;
+
+    const draw = () => {
+      const w = wrap.clientWidth;
+      if (!w) return;
+      // High-DPR sharp canvas: backing store is dpr× the
+      // CSS size; we draw in CSS units after a context
+      // scale. Skips the blurry render on retina screens.
+      const dpr = window.devicePixelRatio || 1;
+      canvas.style.width = w + 'px';
+      canvas.style.height = height + 'px';
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(height * dpr);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, w, height);
+
+      const cols = data.times.length;
+      const rows = data.durationBins.length;
+      if (cols === 0 || rows === 0) return;
+
+      // Reserve 56 px on the left for the y-axis labels
+      // and 22 px on the bottom for the x-axis labels.
+      const padL = 56, padB = 22, padT = 4, padR = 4;
+      const plotW = Math.max(1, w - padL - padR);
+      const plotH = Math.max(1, height - padT - padB);
+      const cellW = plotW / cols;
+      const cellH = plotH / rows;
+
+      const max = Math.max(1, data.maxCount);
+      // Logarithmic colour scale — span counts on a 24h chart
+      // can range over 4 decades; linear mapping makes the
+      // mode invisible. log(count+1)/log(max+1) → [0,1].
+      const lmax = Math.log(max + 1);
+      for (let i = 0; i < cols; i++) {
+        for (let j = 0; j < rows; j++) {
+          const c = data.counts[i]?.[j] ?? 0;
+          if (c === 0) continue;
+          const t = Math.log(c + 1) / lmax;
+          const stop = Math.min(PALETTE.length - 1,
+            Math.max(1, Math.floor(t * (PALETTE.length - 1)) + 1));
+          ctx.fillStyle = PALETTE[stop];
+          // Y-axis is inverted: row 0 (smallest latency) at the bottom.
+          const x = padL + i * cellW;
+          const y = padT + (rows - 1 - j) * cellH;
+          ctx.fillRect(x, y, Math.ceil(cellW) + 0.5, Math.ceil(cellH) + 0.5);
+        }
+      }
+
+      // Y-axis labels — pick 4 evenly-spaced rows so the
+      // axis isn't a smear of overlapping numbers.
+      const css = getComputedStyle(document.documentElement);
+      ctx.fillStyle = css.getPropertyValue('--text2').trim() || '#7d8693';
+      ctx.font = '10px ui-monospace, SFMono-Regular, monospace';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      const yLabels = 4;
+      for (let i = 0; i <= yLabels; i++) {
+        const j = Math.floor((rows - 1) * (i / yLabels));
+        const ms = data.durationBins[j];
+        const y = padT + (rows - 1 - j) * cellH + cellH / 2;
+        ctx.fillText(fmtSmart(ms, 'ms'), padL - 4, y);
+      }
+
+      // X-axis labels — first, last, and a midpoint
+      // timestamp.
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      const tFmt = (ns: number) => {
+        const d = new Date(ns / 1e6);
+        return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+      };
+      const xPos = [0, Math.floor(cols / 2), cols - 1];
+      for (const i of xPos) {
+        const x = padL + i * cellW + cellW / 2;
+        ctx.fillText(tFmt(data.times[i]), x, height - padB + 4);
+      }
+    };
+
+    draw();
+    const ro = new ResizeObserver(draw);
+    ro.observe(wrap);
+    return () => ro.disconnect();
+  }, [data, height]);
+
+  // Mouse hover → look up the cell under the cursor and
+  // surface (time, latency band, count) in the floating
+  // tooltip. Cell math mirrors the draw loop so positions
+  // line up exactly.
+  const onMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const wrap = containerRef.current;
+    if (!wrap) return;
+    const rect = (e.currentTarget as HTMLCanvasElement).getBoundingClientRect();
+    const w = rect.width;
+    const cols = data.times.length;
+    const rows = data.durationBins.length;
+    const padL = 56, padB = 22, padT = 4, padR = 4;
+    const plotW = Math.max(1, w - padL - padR);
+    const plotH = Math.max(1, height - padT - padB);
+    const cellW = plotW / cols;
+    const cellH = plotH / rows;
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    if (x < padL || y < padT || y > height - padB) {
+      setHover(null); return;
+    }
+    const col = Math.floor((x - padL) / cellW);
+    const rowFromTop = Math.floor((y - padT) / cellH);
+    const row = (rows - 1) - rowFromTop;
+    if (col < 0 || col >= cols || row < 0 || row >= rows) {
+      setHover(null); return;
+    }
+    const c = data.counts[col]?.[row] ?? 0;
+    setHover({
+      x, y,
+      time: data.times[col],
+      durMs: data.durationBins[row],
+      count: c,
+    });
+  };
+
+  return (
+    <div ref={containerRef}
+         style={{ position: 'relative', width: '100%' }}
+         onMouseLeave={() => setHover(null)}>
+      <canvas ref={canvasRef}
+              style={{ display: 'block', cursor: 'crosshair' }}
+              onMouseMove={onMouseMove} />
+      {hover && (
+        <div style={{
+          position: 'absolute', pointerEvents: 'none',
+          left: Math.min(hover.x + 10, (containerRef.current?.clientWidth ?? 800) - 200),
+          top: Math.max(0, hover.y - 36),
+          background: 'var(--bg2)',
+          border: '1px solid var(--border)',
+          borderRadius: 4, padding: '6px 9px',
+          fontSize: 11, color: 'var(--text)',
+          whiteSpace: 'nowrap', zIndex: 5,
+          fontFamily: 'ui-monospace, monospace',
+          boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
+        }}>
+          <div style={{ fontWeight: 600 }}>
+            {new Date(hover.time / 1e6).toLocaleTimeString()}
+          </div>
+          <div style={{ color: 'var(--text2)' }}>
+            ≤ {fmtSmart(hover.durMs, 'ms')} · {hover.count.toLocaleString()} spans
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

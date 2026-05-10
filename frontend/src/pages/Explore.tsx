@@ -6,6 +6,7 @@ import { Spinner, Empty } from '@/components/Spinner';
 import { Combobox } from '@/components/Combobox';
 import { FilterBuilder } from '@/components/FilterBuilder';
 import { MultiLineChart } from '@/components/MultiLineChart';
+import { LatencyHeatmap } from '@/components/LatencyHeatmap';
 import { ShareButton } from '@/components/ShareButton';
 import { LogsExplorer } from '@/components/LogsExplorer';
 import { MetricsExplorer } from '@/components/MetricsExplorer';
@@ -14,7 +15,7 @@ import { api } from '@/lib/api';
 import { useExemplarFetcher, useServiceDeploys, useSLOs } from '@/lib/queries';
 import { timeRangeToNs, fmtNum, tsLong, rowClickHandlers } from '@/lib/utils';
 import { encodeRange, decodeRange, encodeFilters, decodeFilters, buildQuery } from '@/lib/urlState';
-import type { TimeRange, FilterExpr, SpanMetricSeries, SpanAgg, TraceRow } from '@/lib/types';
+import type { TimeRange, FilterExpr, SpanMetricSeries, SpanAgg, TraceRow, LatencyHeatmap as Heatmap } from '@/lib/types';
 
 type ResultMode = 'metric' | 'traces';
 type TraceSortKey = 'traceId' | 'rootName' | 'serviceName' | 'duration' | 'spans' | 'time' | 'status';
@@ -60,7 +61,7 @@ const STEP_OPTIONS = [
 ];
 
 type Source = 'spans' | 'metrics' | 'logs';
-type Viz = 'line' | 'bar' | 'topN' | 'kpi';
+type Viz = 'line' | 'bar' | 'topN' | 'kpi' | 'heatmap';
 
 function ExploreInner() {
   const navigate = useNavigate();
@@ -80,7 +81,7 @@ function ExploreInner() {
   // result. Spans source ignores it for the traces result mode.
   const [viz, setViz] = useState<Viz>(() => {
     const v = searchParams.get('viz') as Viz;
-    return ['line', 'bar', 'topN', 'kpi'].includes(v) ? v : 'line';
+    return ['line', 'bar', 'topN', 'kpi', 'heatmap'].includes(v) ? v : 'line';
   });
   const [compare, setCompare] = useState(searchParams.get('compare') === 'true');
 
@@ -97,6 +98,7 @@ function ExploreInner() {
   const [groupDraft, setGroupDraft] = useState('');
   const [step, setStep] = useState(parseInt(searchParams.get('step') ?? '0', 10) || 0);
   const [series, setSeries] = useState<SpanMetricSeries[] | null | undefined>(undefined);
+  const [heatmap, setHeatmap] = useState<Heatmap | null | undefined>(undefined);
   const [services, setServices] = useState<string[]>([]);
 
   // Result mode: aggregated metrics chart, OR raw matching trace list.
@@ -261,20 +263,39 @@ function ExploreInner() {
     const dslArg    = mode === 'advanced' && dsl.trim() ? dsl : undefined;
 
     if (resultMode === 'metric') {
-      setSeries(undefined);
-      api.spanMetric({
-        agg, field,
-        groupBy: groupBy.join(',') || undefined,
-        filters: filterArg, dsl: dslArg,
-        from, to,
-        step: step || undefined,
-      })
-        .then(r => setSeries(r ?? []))
-        .catch(err => {
-          setSeries(null);
-          const msg = String(err?.message ?? err);
-          setQueryError(msg.includes('DSL') ? msg : null);
-        });
+      // Heatmap fetch is gated on `viz === 'heatmap'` — only
+      // pulls the 2D density payload when the operator
+      // actually has the heatmap mode selected, so the line
+      // / bar / topN / kpi modes don't pay for the extra
+      // CH GROUP BY at billion-span scale.
+      if (viz === 'heatmap') {
+        setHeatmap(undefined);
+        api.spanHeatmap({
+          filters: filterArg, dsl: dslArg,
+          from, to, buckets: 80,
+        })
+          .then(h => setHeatmap(h ?? null))
+          .catch(err => {
+            setHeatmap(null);
+            const msg = String(err?.message ?? err);
+            setQueryError(msg.includes('DSL') ? msg : null);
+          });
+      } else {
+        setSeries(undefined);
+        api.spanMetric({
+          agg, field,
+          groupBy: groupBy.join(',') || undefined,
+          filters: filterArg, dsl: dslArg,
+          from, to,
+          step: step || undefined,
+        })
+          .then(r => setSeries(r ?? []))
+          .catch(err => {
+            setSeries(null);
+            const msg = String(err?.message ?? err);
+            setQueryError(msg.includes('DSL') ? msg : null);
+          });
+      }
     } else {
       // Traces mode — same filters/DSL feed the trace search instead.
       setTraces(undefined);
@@ -292,7 +313,7 @@ function ExploreInner() {
           setQueryError(msg.includes('DSL') ? msg : null);
         });
     }
-  }, [resultMode, range, filters, dsl, mode, agg, field, groupBy, step, traceLimit, extraCols]);
+  }, [resultMode, viz, range, filters, dsl, mode, agg, field, groupBy, step, traceLimit, extraCols]);
 
   const aggMeta = AGG_OPTIONS.find(o => o.v === agg)!;
   const unit = aggMeta.unit ?? '';
@@ -379,6 +400,7 @@ function ExploreInner() {
             <option value="bar">Bar</option>
             <option value="topN">Top-N</option>
             <option value="kpi">KPI</option>
+            <option value="heatmap">Heatmap</option>
           </select>
           <label style={{ display: 'flex', alignItems: 'center', gap: 5,
                           color: 'var(--text2)', cursor: 'pointer', fontSize: 12, marginLeft: 8 }}
@@ -394,13 +416,20 @@ function ExploreInner() {
         {/* Metrics + Logs source panels render their own
             workspace + viz; Spans keeps its full legacy UI
             below this fork. */}
+        {/* Heatmap is a spans-source-only mode (per-span latency
+            distribution); the metrics + logs explorers fall back
+            to line when "heatmap" is selected at the top. */}
         {source === 'metrics' && (
-          <MetricsExplorer range={range} viz={viz} compare={compare}
+          <MetricsExplorer range={range}
+            viz={viz === 'heatmap' ? 'line' : viz}
+            compare={compare}
             initialService={searchParams.get('service') ?? ''}
             initialMetric={searchParams.get('metric') ?? ''} />
         )}
         {source === 'logs' && (
-          <LogsExplorer range={range} viz={viz} compare={compare} />
+          <LogsExplorer range={range}
+            viz={viz === 'heatmap' ? 'line' : viz}
+            compare={compare} />
         )}
         {source !== 'spans' && null}
 
@@ -547,14 +576,42 @@ name ~ checkout`}
         </div>
         )}
 
-        {/* ── Metric mode: chart + per-series summary ─────────────────────────── */}
-        {resultMode === 'metric' && series === undefined && <Spinner />}
-        {resultMode === 'metric' && series && series.length === 0 && (
+        {/* ── Metric mode · heatmap viz ───────────────────────────────────────── */}
+        {resultMode === 'metric' && viz === 'heatmap' && (
+          <>
+            {heatmap === undefined && <Spinner />}
+            {heatmap === null && (
+              <Empty icon="◎" title="No data for this query">
+                Try a wider time range or fewer filters.
+              </Empty>
+            )}
+            {heatmap && heatmap.maxCount === 0 && (
+              <Empty icon="◎" title="No spans matched in this window" />
+            )}
+            {heatmap && heatmap.maxCount > 0 && (
+              <div style={{
+                background: 'var(--bg1)', border: '1px solid var(--border)',
+                borderRadius: 8, padding: 14,
+              }}>
+                <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 8 }}>
+                  Latency density · {heatmap.times.length} time buckets ×
+                  {' '}{heatmap.durationBins.length} log-scale latency bins
+                  · peak cell {heatmap.maxCount.toLocaleString()} spans
+                </div>
+                <LatencyHeatmap data={heatmap} />
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── Metric mode · line/bar/topN/kpi viz ─────────────────────────────── */}
+        {resultMode === 'metric' && viz !== 'heatmap' && series === undefined && <Spinner />}
+        {resultMode === 'metric' && viz !== 'heatmap' && series && series.length === 0 && (
           <Empty icon="◎" title="No data for this query">
             Try a wider time range, fewer filters, or remove split keys.
           </Empty>
         )}
-        {resultMode === 'metric' && series && series.length > 0 && (
+        {resultMode === 'metric' && viz !== 'heatmap' && series && series.length > 0 && (
           <>
             <div style={{
               background: 'var(--bg1)', border: '1px solid var(--border)',

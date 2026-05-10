@@ -386,6 +386,14 @@ export const api = {
   spanMetric: (params: SpanMetricParams) =>
     get<SpanMetricSeries[] | null>(`/api/spans/metric?${qs(params)}`),
 
+  // 2D latency density grid. Same filter shape as spanMetric
+  // — a heatmap toggle on /explore swaps between "line trend"
+  // and "density" without re-typing the predicate.
+  spanHeatmap: (params: {
+    from?: number; to?: number; filters?: string; dsl?: string; buckets?: number;
+  }) =>
+    get<import('./types').LatencyHeatmap>(`/api/spans/heatmap?${qs(params)}`),
+
   // /api/services/{name}/db-queries — top normalised DB
   // statements for a service in a time window. Powers the
   // DB query analyzer panel on /service.
