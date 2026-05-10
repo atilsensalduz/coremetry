@@ -66,22 +66,28 @@ export function ServiceCatalogPill({ service }: { service: string }) {
       fontSize: 13, color: 'var(--text2)',
     }}>
       {meta.ownerTeam && (
-        <Pill title="Owner team">👥 {meta.ownerTeam}</Pill>
+        <Pill title="Owner team">
+          <Label>owner</Label> {meta.ownerTeam}
+        </Pill>
       )}
       {meta.sreTeam && (
-        <Pill title="SRE team">🛡 SRE: {meta.sreTeam}</Pill>
+        <Pill title="SRE team">
+          <Label>sre</Label> {meta.sreTeam}
+        </Pill>
       )}
       {meta.oncallUrl && (
-        <Link href={meta.oncallUrl} title="Open oncall page">📟 oncall</Link>
+        <Link href={meta.oncallUrl} title="Open oncall page">oncall</Link>
       )}
       {meta.runbookUrl && (
-        <Link href={meta.runbookUrl} title="Open runbook">📘 runbook</Link>
+        <Link href={meta.runbookUrl} title="Open runbook">runbook</Link>
       )}
       {meta.chatChannel && (
-        <Pill title="Zoom Chat channel">💬 {meta.chatChannel.replace(/^#/, '')}</Pill>
+        <Pill title="Zoom Chat channel">
+          <Label>chat</Label> {meta.chatChannel.replace(/^#/, '')}
+        </Pill>
       )}
       {meta.repository && (
-        <Link href={meta.repository} title="Open repository">⌥ repo</Link>
+        <Link href={meta.repository} title="Open repository">repo</Link>
       )}
       {isEditor && (
         <button onClick={() => setEditing(true)}
@@ -91,6 +97,22 @@ export function ServiceCatalogPill({ service }: { service: string }) {
           }}
           title="Edit catalog metadata">✎</button>
       )}
+    </span>
+  );
+}
+
+// Label — typographic prefix on a pill (e.g. "owner Bob",
+// "sre Alice"). Uppercase mini-cap reads as a discrete tag
+// rather than a sentence subject; keeps the chips compact
+// without leaning on emoji glyphs.
+function Label({ children }: { children: React.ReactNode }) {
+  return (
+    <span style={{
+      fontSize: 10, color: 'var(--text3)',
+      fontWeight: 700, letterSpacing: '0.5px',
+      textTransform: 'uppercase', marginRight: 5,
+    }}>
+      {children}
     </span>
   );
 }
