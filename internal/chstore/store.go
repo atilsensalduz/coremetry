@@ -282,6 +282,11 @@ func (s *Store) migrate(ctx context.Context) error {
 			config     String,                           -- JSON, schema depends on type
 			enabled    UInt8 DEFAULT 1,
 			min_severity LowCardinality(String) DEFAULT 'warning',  -- info | warning | critical
+			-- match_rules — JSON predicates that gate delivery
+			-- per channel: services / sreTeams / ownerTeams.
+			-- Empty / {} means "catch-all"; populated arrays
+			-- AND'd against the problem's service catalog.
+			match_rules String DEFAULT '{}',
 			created_at DateTime64(9) DEFAULT now64(9),
 			version    UInt64 DEFAULT toUnixTimestamp64Nano(now64(9))
 		) ENGINE = ReplacingMergeTree(version)
@@ -705,6 +710,13 @@ func (s *Store) migrate(ctx context.Context) error {
 		// in the UI through the read-time fallback in
 		// GetServiceMetadata; new edits write to chat_channel.
 		`ALTER TABLE service_metadata ADD COLUMN IF NOT EXISTS chat_channel String DEFAULT ''`,
+		// Notification routing — one column carrying a JSON
+		// blob with predicates: { "services": [...],
+		// "sreTeams": [...], "ownerTeams": [...] }. Empty /
+		// {} = catch-all. Same shape regardless of channel
+		// type so an admin can target any of email / slack /
+		// teams / zoomchat / webhook to a specific team.
+		`ALTER TABLE notification_channels ADD COLUMN IF NOT EXISTS match_rules String DEFAULT '{}'`,
 		`ALTER TABLE spans ADD INDEX IF NOT EXISTS idx_kind        kind        TYPE set(0)    GRANULARITY 4`,
 		`ALTER TABLE spans ADD INDEX IF NOT EXISTS idx_db_system   db_system   TYPE set(0)    GRANULARITY 4`,
 		`ALTER TABLE spans ADD INDEX IF NOT EXISTS idx_http_status http_status TYPE minmax    GRANULARITY 4`,

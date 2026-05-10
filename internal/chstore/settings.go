@@ -48,12 +48,80 @@ type NotificationChannel struct {
 	Config      json.RawMessage `json:"config"`      // type-specific
 	Enabled     bool            `json:"enabled"`
 	MinSeverity string          `json:"minSeverity"` // info | warning | critical
+	// MatchRules — routing predicates. Empty / zero-value
+	// fields mean "match anything" so the default channel
+	// stays a catch-all. Populated arrays AND together: a
+	// channel only fires when its services / sreTeams /
+	// ownerTeams ALL match the problem's service catalog.
+	MatchRules  ChannelMatchRules `json:"matchRules,omitempty"`
 	CreatedAt   int64           `json:"createdAt"`   // unix ns
+}
+
+// ChannelMatchRules — small predicate set that gates
+// delivery per channel. Each list is "OR within, AND between
+// lists":
+//   • services    = []string of literal service names
+//   • sreTeams    = []string of catalog SRE team names
+//   • ownerTeams  = []string of catalog product owner team names
+type ChannelMatchRules struct {
+	Services   []string `json:"services,omitempty"`
+	SRETeams   []string `json:"sreTeams,omitempty"`
+	OwnerTeams []string `json:"ownerTeams,omitempty"`
+}
+
+// Matches — true when the channel should fire for `service`
+// given its catalog metadata. Empty / zero-value rules
+// mean catch-all (always true).
+func (m ChannelMatchRules) Matches(service string, md *ServiceMetadata) bool {
+	if len(m.Services) > 0 {
+		hit := false
+		for _, s := range m.Services {
+			if s == service {
+				hit = true
+				break
+			}
+		}
+		if !hit {
+			return false
+		}
+	}
+	if len(m.SRETeams) > 0 {
+		if md == nil {
+			return false
+		}
+		hit := false
+		for _, t := range m.SRETeams {
+			if t == md.SRETeam {
+				hit = true
+				break
+			}
+		}
+		if !hit {
+			return false
+		}
+	}
+	if len(m.OwnerTeams) > 0 {
+		if md == nil {
+			return false
+		}
+		hit := false
+		for _, t := range m.OwnerTeams {
+			if t == md.OwnerTeam {
+				hit = true
+				break
+			}
+		}
+		if !hit {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Store) ListChannels(ctx context.Context) ([]NotificationChannel, error) {
 	rows, err := s.conn.Query(ctx, `
 		SELECT id, name, type, config, enabled, min_severity,
+		       match_rules,
 		       toUnixTimestamp64Nano(created_at)
 		FROM notification_channels FINAL
 		ORDER BY created_at DESC`)
@@ -64,9 +132,10 @@ func (s *Store) ListChannels(ctx context.Context) ([]NotificationChannel, error)
 	var out []NotificationChannel
 	for rows.Next() {
 		var c NotificationChannel
-		var config string
+		var config, matchRules string
 		var enabled uint8
-		if err := rows.Scan(&c.ID, &c.Name, &c.Type, &config, &enabled, &c.MinSeverity, &c.CreatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.Type, &config, &enabled, &c.MinSeverity,
+			&matchRules, &c.CreatedAt); err != nil {
 			return nil, err
 		}
 		if config == "" {
@@ -74,6 +143,13 @@ func (s *Store) ListChannels(ctx context.Context) ([]NotificationChannel, error)
 		}
 		c.Config = json.RawMessage(config)
 		c.Enabled = enabled != 0
+		// Match rules are stored as a JSON blob in the column;
+		// errors (malformed legacy data) collapse to the
+		// empty / catch-all value rather than dropping the
+		// whole channel.
+		if matchRules != "" {
+			_ = json.Unmarshal([]byte(matchRules), &c.MatchRules)
+		}
 		out = append(out, c)
 	}
 	return out, rows.Err()
@@ -105,13 +181,15 @@ func (s *Store) EnabledChannelsForSeverity(ctx context.Context, severity string)
 func (s *Store) GetChannel(ctx context.Context, id string) (*NotificationChannel, error) {
 	row := s.conn.QueryRow(ctx, `
 		SELECT id, name, type, config, enabled, min_severity,
+		       match_rules,
 		       toUnixTimestamp64Nano(created_at)
 		FROM notification_channels FINAL
 		WHERE id = ? LIMIT 1`, id)
 	var c NotificationChannel
-	var config string
+	var config, matchRules string
 	var enabled uint8
-	if err := row.Scan(&c.ID, &c.Name, &c.Type, &config, &enabled, &c.MinSeverity, &c.CreatedAt); err != nil {
+	if err := row.Scan(&c.ID, &c.Name, &c.Type, &config, &enabled, &c.MinSeverity,
+		&matchRules, &c.CreatedAt); err != nil {
 		if err.Error() == "sql: no rows in result set" {
 			return nil, nil
 		}
@@ -122,6 +200,9 @@ func (s *Store) GetChannel(ctx context.Context, id string) (*NotificationChannel
 	}
 	c.Config = json.RawMessage(config)
 	c.Enabled = enabled != 0
+	if matchRules != "" {
+		_ = json.Unmarshal([]byte(matchRules), &c.MatchRules)
+	}
 	return &c, nil
 }
 
@@ -138,8 +219,17 @@ func (s *Store) UpsertChannel(ctx context.Context, c NotificationChannel) error 
 	if c.CreatedAt == 0 {
 		c.CreatedAt = time.Now().UnixNano()
 	}
+	// Marshal match rules into the column. Always populate
+	// the column so the read path doesn't have to handle a
+	// "missing argument" form for the legacy rows that pre-
+	// date the column — the migration ALTER + the always-
+	// populated insert keep the shape stable.
+	mr, err := json.Marshal(c.MatchRules)
+	if err != nil {
+		return fmt.Errorf("marshal match rules: %w", err)
+	}
 	batch, err := s.conn.PrepareBatch(ctx,
-		"INSERT INTO notification_channels (id, name, type, config, enabled, min_severity)")
+		"INSERT INTO notification_channels (id, name, type, config, enabled, min_severity, match_rules)")
 	if err != nil {
 		return fmt.Errorf("prepare channels: %w", err)
 	}
@@ -147,7 +237,7 @@ func (s *Store) UpsertChannel(ctx context.Context, c NotificationChannel) error 
 	if c.Enabled {
 		en = 1
 	}
-	if err := batch.Append(c.ID, c.Name, c.Type, string(c.Config), en, c.MinSeverity); err != nil {
+	if err := batch.Append(c.ID, c.Name, c.Type, string(c.Config), en, c.MinSeverity, string(mr)); err != nil {
 		return fmt.Errorf("append channel: %w", err)
 	}
 	return batch.Send()

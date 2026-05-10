@@ -318,6 +318,12 @@ function ChannelModal({ initial, onClose, onSaved }: {
   const [waTo, setWaTo] = useState((initial?.config.to ?? []).join(', '));
   const [enabled, setEnabled] = useState(initial?.enabled ?? true);
   const [minSeverity, setMinSeverity] = useState<'info' | 'warning' | 'critical'>(initial?.minSeverity ?? 'warning');
+  // Routing predicates — comma-separated in the UI, parsed
+  // into string arrays on save. Empty / blank inputs leave
+  // the predicate unset so the channel stays a catch-all.
+  const [matchServices, setMatchServices] = useState((initial?.matchRules?.services ?? []).join(', '));
+  const [matchSREs, setMatchSREs] = useState((initial?.matchRules?.sreTeams ?? []).join(', '));
+  const [matchOwners, setMatchOwners] = useState((initial?.matchRules?.ownerTeams ?? []).join(', '));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -352,7 +358,14 @@ function ChannelModal({ initial, onClose, onSaved }: {
         config.from = waFrom.trim();
         config.to = tos;
       }
-      const payload = { name, type, config, enabled, minSeverity };
+      const splitCSL = (s: string) =>
+        s.split(/[,;\s]+/).map(x => x.trim()).filter(Boolean);
+      const matchRules = {
+        services:   splitCSL(matchServices),
+        sreTeams:   splitCSL(matchSREs),
+        ownerTeams: splitCSL(matchOwners),
+      };
+      const payload = { name, type, config, enabled, minSeverity, matchRules };
       if (initial) await api.updateChannel(initial.id, payload);
       else        await api.createChannel(payload);
       onSaved();
@@ -474,6 +487,46 @@ function ChannelModal({ initial, onClose, onSaved }: {
               </p>
             </>
           )}
+
+          {/* Routing predicates — gate this channel to a
+              subset of services / SRE teams / owner teams.
+              Empty = catch-all; populated lists AND together
+              with the existing severity threshold. Each
+              channel can pin to a specific team's Zoom Chat
+              while a "default" channel without rules still
+              fires for everything. */}
+          <details style={{ marginTop: 16, fontSize: 12, color: 'var(--text2)' }}>
+            <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
+              Routing rules (leave empty for catch-all)
+            </summary>
+            <div style={{ marginTop: 8 }}>
+              <Field label="Match services (comma-separated)">
+                <input value={matchServices}
+                  placeholder="payments, order-service"
+                  onChange={e => setMatchServices(e.target.value)}
+                  style={{ width: '100%' }} />
+              </Field>
+              <Field label="Match SRE teams (comma-separated)">
+                <input value={matchSREs}
+                  placeholder="platform, sre-storefront"
+                  onChange={e => setMatchSREs(e.target.value)}
+                  style={{ width: '100%' }} />
+              </Field>
+              <Field label="Match owner teams (comma-separated)">
+                <input value={matchOwners}
+                  placeholder="payments, ml"
+                  onChange={e => setMatchOwners(e.target.value)}
+                  style={{ width: '100%' }} />
+              </Field>
+              <p style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6 }}>
+                Predicates AND together. e.g. services=<code>payments</code> +
+                sreTeams=<code>platform</code> means "fire only when the problem
+                is on <code>payments</code> AND its catalog SRE team is
+                <code>platform</code>". Service catalog metadata is the source
+                of truth for sreTeam / ownerTeam lookup.
+              </p>
+            </div>
+          </details>
 
           <label style={{ display: 'flex', gap: 6, alignItems: 'center',
                           color: 'var(--text2)', fontSize: 12, marginTop: 6 }}>

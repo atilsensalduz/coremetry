@@ -250,7 +250,19 @@ func (n *Notifier) SendProblemAlert(ctx context.Context, p chstore.Problem) {
 	if len(channels) == 0 {
 		return
 	}
+	// Per-channel routing predicates — channels can pin to a
+	// specific service / SRE team / owner team. Empty rules
+	// mean "catch-all" (fires for every problem). We look up
+	// the service catalog row once and re-use across the
+	// channel loop so the per-channel match check is O(1).
+	var md *chstore.ServiceMetadata
+	if md2, err := n.store.GetServiceMetadata(ctx, p.Service); err == nil {
+		md = md2
+	}
 	for _, c := range channels {
+		if !c.MatchRules.Matches(p.Service, md) {
+			continue
+		}
 		if err := n.sendOne(ctx, c, p); err != nil {
 			log.Printf("[notify] %s (%s): %v", c.Name, c.Type, err)
 		}

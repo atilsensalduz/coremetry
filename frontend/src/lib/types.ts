@@ -468,6 +468,19 @@ export interface NotificationChannel {
   id: string;
   name: string;
   type: ChannelType;
+  // Routing predicates — empty / zero-value lists mean
+  // "catch-all" (fire for every problem). Populated arrays
+  // AND together; e.g. {services:["payments"],sreTeams:["platform"]}
+  // = "fire only when the problem is on `payments` AND its
+  // catalog SRE team is `platform`". Keeps the channel a
+  // first-class routing target — different teams can each
+  // wire their own Zoom Chat / email and only see their
+  // services' alerts.
+  matchRules?: {
+    services?: string[];
+    sreTeams?: string[];
+    ownerTeams?: string[];
+  };
   // Type-specific union. Optional fields keep the existing email/slack/
   // webhook callers happy; new channels (mattermost shares slack's
   // shape; whatsapp adds Twilio creds) only fill the fields they need.
