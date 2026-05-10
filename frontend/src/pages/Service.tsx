@@ -145,13 +145,6 @@ function ServiceDetailInner() {
         {loading && <Spinner />}
         {!loading && (
           <>
-            {/* Service-level RED charts up top — RPS / error
-                rate / P99 by operation. SLOs configured for
-                this service paint horizontal threshold lines
-                automatically; deploys for the visible window
-                paint dashed verticals; cursor sync makes the
-                three charts read as one synchronised view. */}
-            <ServiceCharts service={svc} range={range} />
             <ServiceInfra     service={svc} since={SINCE_MAP[range.preset] ?? '15m'} />
             <ServiceNeighbors service={svc} since={SINCE_MAP[range.preset] ?? '1h'} />
             <ServiceStructure service={svc} since={SINCE_MAP[range.preset] ?? '1h'} />
@@ -159,6 +152,15 @@ function ServiceDetailInner() {
                               from={timeRangeToNs(range).from}
                               to={timeRangeToNs(range).to} />
             <OperationsTable service={svc} rows={operations} range={range} />
+            {/* RED time-series at the bottom — operator scans
+                the KPIs / problems / structure first; trend
+                charts are useful but lower-density. SLOs
+                configured for this service paint threshold
+                lines automatically; deploys paint vertical
+                markers; the three panels share a syncKey so
+                hovering one paints the crosshair on the
+                others. */}
+            <ServiceCharts service={svc} range={range} />
           </>
         )}
       </div>

@@ -121,27 +121,24 @@ export function ServiceCharts({ service, range }: {
   return (
     <div style={{
       display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
-      gap: 12, marginBottom: 14,
+      gap: 10, marginBottom: 14,
     }}>
-      <ChartCard title="RPS by operation"
-                 subtitle="rate aggregation, grouped by span name">
+      <ChartCard title="RPS by operation">
         <MultiLineChart series={rpsSeries ?? []} unit="rps"
-                        height={220}
+                        height={140}
                         deploys={deployMarkers}
                         syncKey={syncKey} />
       </ChartCard>
-      <ChartCard title="Error rate by operation"
-                 subtitle="error_rate (%), grouped by span name">
+      <ChartCard title="Error rate by operation">
         <MultiLineChart series={errSeries ?? []} unit="%"
-                        height={220}
+                        height={140}
                         deploys={deployMarkers}
                         thresholds={errorThresholds}
                         syncKey={syncKey} />
       </ChartCard>
-      <ChartCard title="P99 latency by operation"
-                 subtitle="quantile(0.99) of duration_ms, grouped by span name">
+      <ChartCard title="P99 latency by operation">
         <MultiLineChart series={p99Series ?? []} unit="ms"
-                        height={220}
+                        height={140}
                         deploys={deployMarkers}
                         thresholds={latencyThresholds}
                         syncKey={syncKey} />
@@ -150,26 +147,22 @@ export function ServiceCharts({ service, range }: {
   );
 }
 
-function ChartCard({ title, subtitle, children }: {
+function ChartCard({ title, children }: {
   title: string;
-  subtitle?: string;
   children: React.ReactNode;
 }) {
   return (
     <div style={{
       background: 'var(--bg1)', border: '1px solid var(--border)',
-      borderRadius: 8, padding: 12,
+      borderRadius: 8, padding: 10,
       minWidth: 0, // allow flex/grid children to shrink
     }}>
-      <div style={{ marginBottom: 6 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
-          {title}
-        </div>
-        {subtitle && (
-          <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 1 }}>
-            {subtitle}
-          </div>
-        )}
+      <div style={{
+        fontSize: 11, fontWeight: 600, color: 'var(--text2)',
+        letterSpacing: '0.3px', textTransform: 'uppercase',
+        marginBottom: 4,
+      }}>
+        {title}
       </div>
       {children}
     </div>
