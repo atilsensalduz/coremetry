@@ -26,8 +26,11 @@ const Dashboards        = lazy(() => import('./pages/Dashboards'));
 const Dashboard         = lazy(() => import('./pages/Dashboard'));
 const Incidents         = lazy(() => import('./pages/Incidents'));
 const Incident          = lazy(() => import('./pages/Incident'));
-const Anomalies         = lazy(() => import('./features/anomalies'));
-const Problems          = lazy(() => import('./pages/Problems'));
+// Merged Exceptions page: exception inbox at top, problems
+// table next, anomaly streams below. /anomalies and /problems
+// are kept as silent redirects so shared links + bookmarks
+// don't 404.
+const Exceptions        = lazy(() => import('./features/anomalies'));
 const Alerts            = lazy(() => import('./pages/Alerts'));
 const Slos              = lazy(() => import('./pages/Slos'));
 const Monitors          = lazy(() => import('./pages/Monitors'));
@@ -74,8 +77,9 @@ export default function App() {
             <Route path="/dashboard"      element={<Dashboard />} />
             <Route path="/incidents"      element={<Incidents />} />
             <Route path="/incident"       element={<Incident />} />
-            <Route path="/anomalies"      element={<Anomalies />} />
-            <Route path="/problems"       element={<Problems />} />
+            <Route path="/exceptions"     element={<Exceptions />} />
+            <Route path="/anomalies"      element={<Navigate to="/exceptions" replace />} />
+            <Route path="/problems"       element={<Navigate to="/exceptions" replace />} />
             <Route path="/alerts"         element={<Alerts />} />
             <Route path="/slos"           element={<Slos />} />
             <Route path="/monitors"       element={<Monitors />} />

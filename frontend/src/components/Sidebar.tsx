@@ -22,8 +22,7 @@ type NavItem = {
 
 const NAV: NavItem[] = [
   { href: '/incidents',  label: 'Incidents',    icon: '⚠' },
-  { href: '/problems',   label: 'Problems',     icon: '!' },
-  { href: '/anomalies',  label: 'Anomalies',    icon: '⚠' },
+  { href: '/exceptions', label: 'Exceptions',   icon: '!' },
   { href: '/services',   label: 'Services',     icon: '◈' },
   { href: '/traces',     label: 'Traces',       icon: '⋮' },
   { href: '/metrics',    label: 'Metrics',      icon: '∿' },
@@ -56,8 +55,9 @@ export function Sidebar() {
   const { user, logout } = useAuth();
   // Both queries auto-poll on their own intervals (5s / 30s) and
   // share their cache with anywhere else that consumes them.
-  // /problems and /anomalies pages will use the same cache,
-  // meaning the sidebar badge and the page row count never drift.
+  // The /exceptions page consumes the same cache for its inline
+  // Problems section, so the sidebar badge and the page row
+  // count never drift.
   const healthQ = useHealth();
   const openProblems = useOpenProblemCount().data ?? 0;
   const health = healthQ.isError
@@ -208,10 +208,10 @@ export function Sidebar() {
               style={!showLabels ? { justifyContent: 'center', padding: '10px 0' } : undefined}>
               <span className="icon">{n.icon}</span>
               {showLabels && <span className="nav-label">{n.label}</span>}
-              {showLabels && n.href === '/problems' && openProblems > 0 && (
+              {showLabels && n.href === '/exceptions' && openProblems > 0 && (
                 <span className="nav-badge">{openProblems}</span>
               )}
-              {!showLabels && n.href === '/problems' && openProblems > 0 && (
+              {!showLabels && n.href === '/exceptions' && openProblems > 0 && (
                 <span className="nav-dot" title={`${openProblems} open problems`} />
               )}
             </Link>

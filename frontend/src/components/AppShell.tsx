@@ -42,8 +42,11 @@ export function AppShell() {
       { keys: 'g e', label: 'Go to Explore',      group: 'Navigation', handler: () => navigate('/explore') },
       { keys: 'g d', label: 'Go to Dashboards',   group: 'Navigation', handler: () => navigate('/dashboards') },
       { keys: 'g i', label: 'Go to Incidents',    group: 'Navigation', handler: () => navigate('/incidents') },
-      { keys: 'g p', label: 'Go to Problems',     group: 'Navigation', handler: () => navigate('/problems') },
-      { keys: 'g a', label: 'Go to Anomalies',    group: 'Navigation', handler: () => navigate('/anomalies') },
+      // 'g p' (problems) + 'g a' (anomalies) both land on the
+      // merged Exceptions page so muscle memory from either old
+      // page keeps working without re-training.
+      { keys: 'g p', label: 'Go to Exceptions',   group: 'Navigation', handler: () => navigate('/exceptions') },
+      { keys: 'g a', label: 'Go to Exceptions',   group: 'Navigation', handler: () => navigate('/exceptions') },
       { keys: 'g x', label: 'Go to Alerts',       group: 'Navigation', handler: () => navigate('/alerts') },
       { keys: 'g o', label: 'Go to Monitors',     group: 'Navigation', handler: () => navigate('/monitors') },
       { keys: 'g c', label: 'Go to System stats', group: 'Navigation', handler: () => navigate('/admin/stats') },

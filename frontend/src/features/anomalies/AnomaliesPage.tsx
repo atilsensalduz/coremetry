@@ -1,15 +1,18 @@
 import { Fragment, useEffect, useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Topbar } from '@/components/Topbar';
 import { SavedViewsBar } from '@/components/SavedViewsBar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { ServicePicker } from '@/components/ServicePicker';
 import { useAuth } from '@/components/AuthProvider';
 import { Card, Badge, Row } from '@/components/ui';
+import { CopilotExplain } from '@/components/CopilotExplain';
+import { IconBell, IconSparkles } from '@/components/icons';
 import {
   useLogPatternAnomalies, useTraceOpAnomalies, useMetricAnomalies,
   useAnomalyEvents, useAnomalySilences,
   useCreateAnomalySilence, useDeleteAnomalySilence,
+  useProblems,
   keys,
 } from '@/lib/queries';
 import { useQueryClient } from '@tanstack/react-query';
@@ -44,13 +47,28 @@ const NATURAL_DIR: Record<SortKey, SortDir> = {
   occurrences: 'desc', firstSeen: 'desc', lastSeen: 'desc', assignee: 'asc',
 };
 
-export default function AnomaliesPage() {
+// Problems-specific sort + severity ordering — kept separate from the
+// exception inbox table because the columns don't overlap.
+type PSortKey = 'severity' | 'service' | 'metric' | 'value' | 'rule' | 'started' | 'status';
+const SEV_RANK: Record<string, number> = { critical: 3, warning: 2, info: 1 };
+const P_NATURAL_DIR: Record<PSortKey, SortDir> = {
+  severity: 'desc', service: 'asc', metric: 'asc',
+  value: 'desc', rule: 'asc', started: 'desc', status: 'asc',
+};
+
+export default function ExceptionsPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin' || user?.role === 'editor';
+  // ?service= URL param pre-populates the service filter — driven
+  // by the "View N problems →" / "Errors" pills on the service
+  // detail page so the operator lands on the exact scope they
+  // were looking at without retyping it.
+  const [searchParams] = useSearchParams();
+  const initialService = searchParams.get('service') ?? '';
   const [tab, setTab] = useState<string>('open');
-  const [service, setService] = useState('');
+  const [service, setService] = useState(initialService);
   const [search, setSearch] = useState('');
-  const [services, setServices] = useState<string[]>([]);
+  const [, setServices] = useState<string[]>([]);
   const [users, setUsers] = useState<UserRow[]>([]);
   const [data, setData] = useState<ExceptionGroup[] | null | undefined>(undefined);
   // Expanded fingerprint(s) — multiple groups can be open at once for compare-and-contrast.
@@ -167,25 +185,14 @@ export default function AnomaliesPage() {
 
   return (
     <>
-      <Topbar title="Anomalies" />
+      <Topbar title="Exceptions" />
       <div id="content">
-        <SavedViewsBar page="anomalies" />
-        {/* Three top-of-page anomaly streams stacked in
-            descending freshness order: log patterns (raw text,
-            most reactive), trace ops (per-endpoint failure
-            spike), then metric (service-wide z-score). The
-            traditional exception inbox sits below. */}
-        <SilencesSection items={silences} onUnmute={onUnmute} />
-        <LogPatternsSection items={logPatterns} onMute={onMute} />
-        <TraceOpsSection    items={traceOps}    onMute={onMute} />
-        <MetricSection      items={metrics} />
+        <SavedViewsBar page="exceptions" />
 
-        {/* Persistent history — every detection the recorder
-            saw in the last 24h, with status. Lets the operator
-            answer "did this fire earlier today, even though
-            it has stopped now". */}
-        <HistorySection items={history} />
-
+        {/* ── 1. Exception inbox (top of page) ─────────────────
+            Per-group state machine the operator triages: New →
+            Ack → Resolved/Ignored. Sits at the very top because
+            it's the most actionable signal in the product. */}
         <div className="tab-strip">
           {TABS.map(t => (
             <button key={t.key} onClick={() => setTab(t.key)} title={t.hint}
@@ -311,9 +318,217 @@ export default function AnomaliesPage() {
             </table>
           </div>
         )}
+
+        {/* ── 2. Problems (firing alert rules) ─────────────────
+            Distinct from exceptions: these are threshold/SLO
+            burn / anomaly-detector alerts that the evaluator has
+            opened. Lives on the same page so the operator's
+            morning scan is one URL, not two. */}
+        <ProblemsSection serviceFilter={service} />
+
+        {/* ── 3. Anomaly streams (live signals) ────────────────
+            Below the inbox: log-pattern anomalies, trace-op
+            anomalies, metric anomalies, history of recent
+            detections. Compact cards rather than tables — these
+            are early-warning signals, not items to triage. */}
+        <SilencesSection items={silences} onUnmute={onUnmute} />
+        <LogPatternsSection items={logPatterns} onMute={onMute} />
+        <TraceOpsSection    items={traceOps}    onMute={onMute} />
+        <MetricSection      items={metrics} />
+        <HistorySection items={history} />
       </div>
     </>
   );
+}
+
+// ProblemsSection — embeds the former /problems page table inline.
+// Polls via useProblems (30s default), supports status filter +
+// column sort + j/k row nav. Single section per the merged
+// Exceptions page UX.
+function ProblemsSection({ serviceFilter }: { serviceFilter: string }) {
+  const navigate = useNavigate();
+  const [statusFilter, setStatusFilter] = useState<'open' | 'all' | 'resolved'>('open');
+  const [sortBy, setSortBy] = useState<PSortKey>('started');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
+
+  const problemsQ = useProblems({
+    status: statusFilter === 'all' ? undefined : statusFilter,
+    service: serviceFilter || undefined,
+    limit: 200,
+  });
+  const data: Problem[] | null | undefined = problemsQ.isLoading
+    ? undefined
+    : problemsQ.isError
+      ? null
+      : (problemsQ.data ?? []);
+
+  const open = data?.filter(p => p.status === 'open').length ?? 0;
+  const resolved = data?.filter(p => p.status === 'resolved').length ?? 0;
+
+  const sorted = useMemo(() => {
+    if (!data) return data;
+    const cmp = (a: Problem, b: Problem): number => {
+      switch (sortBy) {
+        case 'severity': return (SEV_RANK[a.severity] ?? 0) - (SEV_RANK[b.severity] ?? 0);
+        case 'service':  return a.service.localeCompare(b.service);
+        case 'metric':   return a.metric.localeCompare(b.metric);
+        case 'value':    return a.value - b.value;
+        case 'rule':     return a.ruleName.localeCompare(b.ruleName);
+        case 'started':  return a.startedAt - b.startedAt;
+        case 'status':   return a.status.localeCompare(b.status);
+      }
+    };
+    const arr = [...data].sort(cmp);
+    return sortDir === 'desc' ? arr.reverse() : arr;
+  }, [data, sortBy, sortDir]);
+
+  const toggleSort = (col: PSortKey) => {
+    if (sortBy === col) setSortDir(sortDir === 'desc' ? 'asc' : 'desc');
+    else { setSortBy(col); setSortDir(P_NATURAL_DIR[col]); }
+  };
+
+  // Whole section collapses when there's nothing AND filter is
+  // 'open' — no point in dead space when the operator's most-
+  // common scan finds zero firing rules.
+  if (statusFilter === 'open' && data && data.length === 0) {
+    return (
+      <div style={{ marginTop: 22, marginBottom: 12 }}>
+        <SectionHeader title="Problems" subtitle="Active alert rules + SLO burn" />
+        <Empty icon="✓" title="No open problems — all clear!">
+          The evaluator runs once per minute. Built-in rules cover error rate and P99 latency.
+        </Empty>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 22, marginBottom: 12 }}>
+      <SectionHeader title="Problems" subtitle="Active alert rules + SLO burn" />
+      <div className="controls" style={{ marginBottom: 14 }}>
+        <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
+          {(['open', 'resolved', 'all'] as const).map(s => (
+            <button key={s} onClick={() => setStatusFilter(s)}
+              className={statusFilter === s ? '' : 'sec'}
+              style={{ borderRadius: 0, borderRight: '1px solid var(--border)' }}>
+              {s.charAt(0).toUpperCase() + s.slice(1)}
+            </button>
+          ))}
+        </div>
+        <span style={{ color: 'var(--text2)', fontSize: 12 }}>
+          {open} open · {resolved} resolved
+        </span>
+        <Link to="/alerts" className="sec" style={{
+          marginLeft: 'auto', textDecoration: 'none', padding: '5px 12px',
+          border: '1px solid var(--border)', borderRadius: 6, fontSize: 12, color: 'var(--text)',
+          display: 'inline-flex', alignItems: 'center', gap: 6,
+        }}><IconBell /> <span>Manage alert rules</span></Link>
+      </div>
+
+      {data === undefined && <Spinner />}
+      {data && sorted && sorted.length === 0 && (
+        <Empty icon="✓" title={`No problems in "${statusFilter}"`}>
+          Switch the filter above to see other states.
+        </Empty>
+      )}
+      {sorted && sorted.length > 0 && (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <PSortTh col="severity" label="Severity" sort={sortBy} dir={sortDir} onSort={toggleSort} />
+                <PSortTh col="service"  label="Service"  sort={sortBy} dir={sortDir} onSort={toggleSort} />
+                <PSortTh col="metric"   label="Metric"   sort={sortBy} dir={sortDir} onSort={toggleSort} />
+                <PSortTh col="value"    label="Value"    sort={sortBy} dir={sortDir} onSort={toggleSort} align="right" />
+                <PSortTh col="rule"     label="Rule"     sort={sortBy} dir={sortDir} onSort={toggleSort} />
+                <PSortTh col="started"  label="Started"  sort={sortBy} dir={sortDir} onSort={toggleSort} />
+                <PSortTh col="status"   label="Status"   sort={sortBy} dir={sortDir} onSort={toggleSort} />
+                <th>AI</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map(p => {
+                const isAnomaly = p.ruleId?.startsWith('anomaly:');
+                return (
+                  <tr key={p.id}
+                      onClick={() => navigate(`/service?name=${encodeURIComponent(p.service)}`)}
+                      style={{ cursor: 'pointer' }}>
+                    <td><SeverityBadge s={p.severity} /></td>
+                    <td>
+                      <Link to={`/service?name=${encodeURIComponent(p.service)}`}
+                        onClick={e => e.stopPropagation()}
+                        style={{ fontWeight: 600 }}>
+                        {p.service}
+                      </Link>
+                    </td>
+                    <td className="mono">{p.metric}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>
+                      <b style={{ color: 'var(--err)' }}>{p.value.toFixed(2)}</b>
+                      <span style={{ color: 'var(--text3)' }}> / {p.threshold.toFixed(2)}</span>
+                    </td>
+                    <td style={{ fontSize: 12 }}>
+                      {isAnomaly && (
+                        <span className="badge b-info" style={{ marginRight: 6 }}>ANOMALY</span>
+                      )}
+                      {p.ruleName}
+                      {p.runbookUrl && (
+                        <a href={p.runbookUrl} target="_blank" rel="noopener"
+                          onClick={e => e.stopPropagation()}
+                          title="Open team runbook"
+                          style={{
+                            marginLeft: 8, fontSize: 11,
+                            padding: '2px 8px', borderRadius: 12,
+                            background: 'rgba(56,139,253,0.10)',
+                            border: '1px solid rgba(56,139,253,0.35)',
+                            color: 'var(--accent2)', textDecoration: 'none',
+                            whiteSpace: 'nowrap',
+                          }}>
+                          Runbook ↗
+                        </a>
+                      )}
+                      {isAnomaly && (
+                        <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
+                          {p.description}
+                        </div>
+                      )}
+                    </td>
+                    <td className="mono">{tsLong(p.startedAt)}</td>
+                    <td>
+                      {p.status === 'open'
+                        ? <span className="badge b-err">OPEN</span>
+                        : <span className="badge b-ok">RESOLVED</span>}
+                    </td>
+                    <td onClick={e => e.stopPropagation()}>
+                      <CopilotExplain kind="problem" id={p.id} label={<IconSparkles />} />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'baseline', gap: 10,
+      marginBottom: 10, paddingBottom: 6,
+      borderBottom: '1px solid var(--border)',
+    }}>
+      <span style={{ fontSize: 14, fontWeight: 700 }}>{title}</span>
+      {subtitle && (
+        <span style={{ fontSize: 11, color: 'var(--text3)' }}>{subtitle}</span>
+      )}
+    </div>
+  );
+}
+
+function SeverityBadge({ s }: { s: string }) {
+  const cls = s === 'critical' ? 'b-err' : s === 'warning' ? 'b-warn' : 'b-info';
+  return <span className={`badge ${cls}`}>{s.toUpperCase()}</span>;
 }
 
 // SamplesPanel — fetches recent occurrences for the group and lists them
@@ -479,6 +694,23 @@ function SortTh({ col, label, sort, dir, onSort, align }: {
   col: SortKey; label: string;
   sort: SortKey; dir: SortDir;
   onSort: (c: SortKey) => void;
+  align?: 'left' | 'right';
+}) {
+  const active = sort === col;
+  return (
+    <th className={`sortable${active ? ' sorted' : ''}`}
+        onClick={() => onSort(col)}
+        style={{ textAlign: align ?? 'left' }}>
+      {label}
+      <span className="sort-arrow">{active ? (dir === 'desc' ? '▼' : '▲') : '↕'}</span>
+    </th>
+  );
+}
+
+function PSortTh({ col, label, sort, dir, onSort, align }: {
+  col: PSortKey; label: string;
+  sort: PSortKey; dir: SortDir;
+  onSort: (c: PSortKey) => void;
   align?: 'left' | 'right';
 }) {
   const active = sort === col;
@@ -664,7 +896,7 @@ function SilencesSection({ items, onUnmute }: {
   return (
     <div style={{
       background: 'var(--bg2)', border: '1px solid var(--border)',
-      borderRadius: 6, padding: '8px 12px', marginBottom: 12,
+      borderRadius: 6, padding: '8px 12px', marginTop: 16, marginBottom: 12,
       display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
     }}>
       <span style={{ fontSize: 11, color: 'var(--text2)', fontWeight: 600 }}>
