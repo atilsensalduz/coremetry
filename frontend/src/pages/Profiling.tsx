@@ -22,6 +22,11 @@ export default function ProfilingPage() {
   const [ptype, setPtype] = useState('');
   const [services, setServices] = useState<string[]>([]);
   const [data, setData] = useState<ProfileRow[] | null | undefined>(undefined);
+  // Setup recipes accordion — empty/no profiles is the common
+  // first-run state, and operators end up grepping the demo source
+  // to figure out the wire format. Surfacing copy-paste snippets
+  // here turns "is profiling working?" into a 90-second exercise.
+  const [setupOpen, setSetupOpen] = useState(false);
 
   useEffect(() => {
     api.services(timeRangeToNs(range))
@@ -60,7 +65,13 @@ export default function ProfilingPage() {
                       display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <IconFlame size={14} /> Open Pyroscope ↗
           </a>
+          <button onClick={() => setSetupOpen(o => !o)} className="sec"
+                  style={{ padding: '5px 12px', fontSize: 12 }}>
+            {setupOpen ? '× Close setup' : '⌘ Setup recipes'}
+          </button>
         </div>
+
+        {setupOpen && <SetupRecipes />}
 
         {data === undefined && <Spinner />}
         {data && data.length === 0 && (
@@ -112,5 +123,275 @@ function pyroscopeURL(): string {
   const env = import.meta.env.VITE_PYROSCOPE_URL;
   if (env) return env;
   return `${window.location.protocol}//${window.location.hostname}:4040`;
+}
+
+// SetupRecipes — copy-paste continuous-profiling integration snippets
+// per language. Each recipe POSTs pprof bytes (or a wrapper that
+// converts) to /v1/profiles with the four required headers
+// (X-Coremetry-Service / Host / Profile-Type / Start-Time-Ns +
+// optional Duration-Ns). The endpoint is OTel-agnostic and accepts
+// raw bytes, so even non-Go runtimes that emit pprof through a
+// converter (py-spy → pprof, async-profiler → pprof) ship straight
+// to Coremetry without an OpenTelemetry Collector hop.
+function SetupRecipes() {
+  const endpoint = typeof window !== 'undefined'
+    ? `${window.location.protocol}//${window.location.host}`
+    : 'http://coremetry:8088';
+  const tabs: { key: string; label: string; body: React.ReactNode }[] = [
+    { key: 'go', label: 'Go', body: <GoRecipe endpoint={endpoint} /> },
+    { key: 'python', label: 'Python', body: <PythonRecipe endpoint={endpoint} /> },
+    { key: 'java', label: 'Java', body: <JavaRecipe endpoint={endpoint} /> },
+    { key: 'node', label: 'Node.js', body: <NodeRecipe endpoint={endpoint} /> },
+    { key: 'curl', label: 'curl', body: <CurlRecipe endpoint={endpoint} /> },
+  ];
+  const [active, setActive] = useState(tabs[0].key);
+  const cur = tabs.find(t => t.key === active) ?? tabs[0];
+  return (
+    <div style={{
+      marginTop: 12, marginBottom: 18, padding: 14, borderRadius: 8,
+      background: 'var(--bg1)', border: '1px solid var(--border)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 12 }}>
+        <span style={{ fontSize: 13, fontWeight: 700 }}>Wire your service</span>
+        <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+          POST pprof bytes to <code>/v1/profiles</code> · headers carry the metadata · no agent / collector required
+        </span>
+      </div>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 12,
+                    borderBottom: '1px solid var(--border)' }}>
+        {tabs.map(t => (
+          <button key={t.key} onClick={() => setActive(t.key)}
+            style={{
+              padding: '5px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              background: 'transparent', border: 'none', borderBottom: '2px solid',
+              borderColor: active === t.key ? 'var(--accent)' : 'transparent',
+              color: active === t.key ? 'var(--text)' : 'var(--text3)',
+            }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {cur.body}
+      <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text3)' }}>
+        Required headers on every push: <code>X-Coremetry-Service</code>,
+        {' '}<code>X-Coremetry-Host</code>, <code>X-Coremetry-Profile-Type</code>
+        {' '}(cpu / heap / goroutine / alloc), <code>X-Coremetry-Start-Time-Ns</code>.
+        Optional: <code>X-Coremetry-Duration-Ns</code> for sampled profiles.
+      </div>
+    </div>
+  );
+}
+
+function CodeBlock({ code, lang }: { code: string; lang: string }) {
+  const [copied, setCopied] = useState(false);
+  const onCopy = () => {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  return (
+    <div style={{ position: 'relative' }}>
+      <button onClick={onCopy} className="sec"
+        style={{
+          position: 'absolute', top: 6, right: 6, fontSize: 10, padding: '2px 8px',
+          background: 'var(--bg3)',
+        }}>
+        {copied ? '✓ copied' : 'Copy'}
+      </button>
+      <pre style={{
+        margin: 0, padding: 12, background: 'var(--bg)',
+        border: '1px solid var(--border)', borderRadius: 4,
+        fontSize: 11, lineHeight: 1.55, overflowX: 'auto',
+        fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+      }} data-lang={lang}>
+        <code>{code}</code>
+      </pre>
+    </div>
+  );
+}
+
+function GoRecipe({ endpoint }: { endpoint: string }) {
+  const code = `// runtime/pprof + tiny ticker — no extra deps.
+// Drop-in: import this package once from main.go.
+package main
+
+import (
+\t"bytes"
+\t"net/http"
+\t"os"
+\t"runtime/pprof"
+\t"time"
+)
+
+const coremetryEndpoint = "${endpoint}"
+
+func init() {
+\tservice := os.Getenv("OTEL_SERVICE_NAME")
+\thost, _ := os.Hostname()
+\tgo profileLoop(service, host)
+}
+
+func profileLoop(service, host string) {
+\tfor {
+\t\t// CPU: 30s sample window, every 60s
+\t\tvar buf bytes.Buffer
+\t\tstart := time.Now()
+\t\tif err := pprof.StartCPUProfile(&buf); err == nil {
+\t\t\ttime.Sleep(30 * time.Second)
+\t\t\tpprof.StopCPUProfile()
+\t\t\tpush(service, host, "cpu", start, 30*time.Second, buf.Bytes())
+\t\t}
+\t\t// Heap snapshot
+\t\tvar h bytes.Buffer
+\t\tpprof.WriteHeapProfile(&h)
+\t\tpush(service, host, "heap", time.Now(), 0, h.Bytes())
+\t\ttime.Sleep(30 * time.Second)
+\t}
+}
+
+func push(svc, host, kind string, start time.Time, dur time.Duration, data []byte) {
+\treq, _ := http.NewRequest("POST", coremetryEndpoint+"/v1/profiles", bytes.NewReader(data))
+\treq.Header.Set("Content-Type", "application/octet-stream")
+\treq.Header.Set("X-Coremetry-Service", svc)
+\treq.Header.Set("X-Coremetry-Host", host)
+\treq.Header.Set("X-Coremetry-Profile-Type", kind)
+\treq.Header.Set("X-Coremetry-Start-Time-Ns", itoa(start.UnixNano()))
+\tif dur > 0 {
+\t\treq.Header.Set("X-Coremetry-Duration-Ns", itoa(int64(dur)))
+\t}
+\thttp.DefaultClient.Do(req)
+}
+
+func itoa(v int64) string { return strconv.FormatInt(v, 10) }`;
+  return <CodeBlock code={code} lang="go" />;
+}
+
+function PythonRecipe({ endpoint }: { endpoint: string }) {
+  const code = `# py-spy → pprof bytes → POST. Run as a sidecar so the target
+# process needs no code change. Requires py-spy (\`pip install py-spy\`).
+#!/usr/bin/env python3
+import os, time, subprocess, requests, socket
+
+SVC      = os.environ["OTEL_SERVICE_NAME"]
+TARGET   = int(os.environ["TARGET_PID"])
+ENDPOINT = "${endpoint}/v1/profiles"
+HOST     = socket.gethostname()
+WINDOW   = 30  # seconds per CPU sample
+
+while True:
+    start_ns = time.time_ns()
+    out = "/tmp/py.pprof"
+    subprocess.run(
+        ["py-spy", "record", "-p", str(TARGET),
+         "-o", out, "-d", str(WINDOW), "--format", "raw"],
+        check=True,
+    )
+    with open(out, "rb") as f:
+        data = f.read()
+    requests.post(ENDPOINT, data=data, headers={
+        "Content-Type": "application/octet-stream",
+        "X-Coremetry-Service": SVC,
+        "X-Coremetry-Host": HOST,
+        "X-Coremetry-Profile-Type": "cpu",
+        "X-Coremetry-Start-Time-Ns": str(start_ns),
+        "X-Coremetry-Duration-Ns": str(WINDOW * 1_000_000_000),
+    })
+    time.sleep(30)`;
+  return <CodeBlock code={code} lang="python" />;
+}
+
+function JavaRecipe({ endpoint }: { endpoint: string }) {
+  const code = `# async-profiler ships pprof natively (\`-o pprof\`) since 2.9.
+# Run as a sidecar attaching to the JVM via PID, push pprof to Coremetry.
+# Requires: async-profiler binary in /opt/async-profiler.
+#!/usr/bin/env bash
+set -euo pipefail
+
+ENDPOINT="${endpoint}/v1/profiles"
+SVC="\${OTEL_SERVICE_NAME}"
+HOST="\$(hostname)"
+TARGET="\${TARGET_PID}"
+WINDOW=30
+
+while true; do
+  START_NS="\$(date +%s%N)"
+  OUT=/tmp/java.pprof
+  /opt/async-profiler/profiler.sh \\
+      -e cpu -d "\${WINDOW}" -o pprof -f "\${OUT}" "\${TARGET}"
+
+  curl -sS -X POST "\${ENDPOINT}" \\
+    -H "Content-Type: application/octet-stream" \\
+    -H "X-Coremetry-Service: \${SVC}" \\
+    -H "X-Coremetry-Host: \${HOST}" \\
+    -H "X-Coremetry-Profile-Type: cpu" \\
+    -H "X-Coremetry-Start-Time-Ns: \${START_NS}" \\
+    -H "X-Coremetry-Duration-Ns: \$((WINDOW * 1000000000))" \\
+    --data-binary "@\${OUT}"
+
+  sleep 30
+done`;
+  return <CodeBlock code={code} lang="bash" />;
+}
+
+function NodeRecipe({ endpoint }: { endpoint: string }) {
+  const code = `// pprof (npm package) writes Node.js heap + CPU profiles
+// in pprof format directly. \`npm i pprof\`.
+import * as pprof from 'pprof';
+import * as os from 'os';
+import * as http from 'http';
+
+const ENDPOINT = '${endpoint}/v1/profiles';
+const SVC      = process.env.OTEL_SERVICE_NAME!;
+const HOST     = os.hostname();
+const WINDOW_MS = 30_000;
+
+setInterval(async () => {
+  const startNs = process.hrtime.bigint();
+  // CPU profile, 30s window
+  const cpuBuf = await pprof.time.profile({ durationMillis: WINDOW_MS });
+  const cpuPprof = await pprof.encode(cpuBuf);
+  push(cpuPprof, 'cpu', startNs, BigInt(WINDOW_MS) * 1_000_000n);
+
+  // Heap snapshot — instantaneous
+  const heap = pprof.heap.profile();
+  const heapPprof = await pprof.encode(heap);
+  push(heapPprof, 'heap', process.hrtime.bigint(), 0n);
+}, 60_000);
+
+function push(data: Buffer, kind: 'cpu' | 'heap', startNs: bigint, durNs: bigint) {
+  const req = http.request(ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'X-Coremetry-Service': SVC,
+      'X-Coremetry-Host': HOST,
+      'X-Coremetry-Profile-Type': kind,
+      'X-Coremetry-Start-Time-Ns': startNs.toString(),
+      ...(durNs > 0n ? { 'X-Coremetry-Duration-Ns': durNs.toString() } : {}),
+    },
+  });
+  req.end(data);
+}`;
+  return <CodeBlock code={code} lang="typescript" />;
+}
+
+function CurlRecipe({ endpoint }: { endpoint: string }) {
+  const code = `# Smoke-test the ingest path with any pprof file you have
+# (\`go tool pprof\` produces them, \`py-spy record --format raw\` produces them,
+# async-profiler \`-o pprof\` produces them).
+
+START_NS=$(date +%s%N)
+curl -sS -X POST "${endpoint}/v1/profiles" \\
+  -H 'Content-Type: application/octet-stream' \\
+  -H 'X-Coremetry-Service: smoke-test' \\
+  -H "X-Coremetry-Host: $(hostname)" \\
+  -H 'X-Coremetry-Profile-Type: cpu' \\
+  -H "X-Coremetry-Start-Time-Ns: $START_NS" \\
+  -H 'X-Coremetry-Duration-Ns: 30000000000' \\
+  --data-binary @/path/to/profile.pprof
+
+# Then watch /profiling for the row to land within ~5 seconds.`;
+  return <CodeBlock code={code} lang="bash" />;
 }
 
