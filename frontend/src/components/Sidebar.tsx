@@ -22,7 +22,7 @@ type NavItem = {
 
 const NAV: NavItem[] = [
   { href: '/incidents',  label: 'Incidents',    icon: '⚠' },
-  { href: '/exceptions', label: 'Exceptions',   icon: '!' },
+  { href: '/problems',   label: 'Problems',     icon: '!' },
   { href: '/services',   label: 'Services',     icon: '◈' },
   { href: '/traces',     label: 'Traces',       icon: '⋮' },
   { href: '/metrics',    label: 'Metrics',      icon: '∿' },
@@ -208,10 +208,10 @@ export function Sidebar() {
               style={!showLabels ? { justifyContent: 'center', padding: '10px 0' } : undefined}>
               <span className="icon">{n.icon}</span>
               {showLabels && <span className="nav-label">{n.label}</span>}
-              {showLabels && n.href === '/exceptions' && openProblems > 0 && (
+              {showLabels && n.href === '/problems' && openProblems > 0 && (
                 <span className="nav-badge">{openProblems}</span>
               )}
-              {!showLabels && n.href === '/exceptions' && openProblems > 0 && (
+              {!showLabels && n.href === '/problems' && openProblems > 0 && (
                 <span className="nav-dot" title={`${openProblems} open problems`} />
               )}
             </Link>

@@ -767,9 +767,18 @@ func (s *Server) getServiceNeighbors(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getServiceMap(w http.ResponseWriter, r *http.Request) {
 	since := parseDuration(r.URL.Query().Get("since"), 15*time.Minute)
 	samples := parseInt(r.URL.Query().Get("samples"), 200)
+	// `?diff=24h` enables baseline-vs-current topology diffing. New
+	// services / dependencies show up flagged on the response and
+	// disappeared ones populate RemovedNodes / RemovedEdges. Empty
+	// or unparseable → no diff.
+	diffStr := r.URL.Query().Get("diff")
+	diff := parseDuration(diffStr, 0)
 
-	key := fmt.Sprintf("service-map:since=%s:samples=%d", since, samples)
+	key := fmt.Sprintf("service-map:since=%s:samples=%d:diff=%s", since, samples, diffStr)
 	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
+		if diff > 0 {
+			return s.store.GetServiceMapWithDiff(r.Context(), since, samples, diff, diffStr)
+		}
 		return s.store.GetServiceMap(r.Context(), since, samples)
 	})
 }

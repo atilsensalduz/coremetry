@@ -123,17 +123,30 @@ export function ServiceMapGraph({
           const d  = Math.max(1, Math.hypot(dx, dy));
           const x1 = a.x + dx * ra / d, y1 = a.y + dy * ra / d;
           const x2 = b.x - dx * rb / d, y2 = b.y - dy * rb / d;
+          // New-edge highlight: green stroke + heavier line so a
+          // freshly-wired dependency stands out from the steady-
+          // state grey arrows. Trumps the errorish red because a
+          // brand-new edge is itself the news, even if the first
+          // calls happened to error.
+          const strokeColor = e.isNew ? 'var(--ok)'
+                            : errorish ? 'var(--err)'
+                            : 'var(--text3)';
+          const strokeOp = e.isNew ? 0.9 : errorish ? 0.85 : 0.55;
+          const arrow = e.isNew ? 'url(#svc-arrow)' :
+                        errorish ? 'url(#svc-arrow-err)' : 'url(#svc-arrow)';
           return (
             <g key={i} style={{ opacity: dimmed ? 0.12 : 1, transition: 'opacity 120ms' }}>
               <line x1={x1} y1={y1} x2={x2} y2={y2}
-                    stroke={errorish ? 'var(--err)' : 'var(--text3)'}
-                    strokeWidth={w}
-                    opacity={errorish ? 0.85 : 0.55}
-                    markerEnd={errorish ? 'url(#svc-arrow-err)' : 'url(#svc-arrow)'}>
+                    stroke={strokeColor}
+                    strokeWidth={e.isNew ? w + 0.8 : w}
+                    strokeDasharray={e.isNew ? '4 3' : undefined}
+                    opacity={strokeOp}
+                    markerEnd={arrow}>
                 <title>
                   {`${e.caller} → ${e.callee}\n` +
                    `${e.traceCount} traces · ${e.spanCount} spans` +
-                   (errorish ? ` · ${e.errorCount} errors` : '')}
+                   (errorish ? ` · ${e.errorCount} errors` : '') +
+                   (e.isNew ? '\n[NEW since baseline]' : '')}
                 </title>
               </line>
             </g>
@@ -217,6 +230,18 @@ function NodeMark({
        onMouseEnter={() => onHover(n.service)}
        onMouseLeave={() => onHover(null)}
        onClick={() => onSelect(n.service)}>
+      {/* Pulse ring on freshly-appeared nodes — backend marks
+          isNew when topology diff is enabled. The ring sits
+          outside the regular outline and animates so the eye
+          drops to it before reading the rest of the map. */}
+      {n.isNew && (
+        <circle cx={x} cy={y} r={r + 6}
+                fill="none" stroke="var(--ok)" strokeWidth={1.5}
+                strokeOpacity={0.55}>
+          <animate attributeName="r" from={r + 2} to={r + 10} dur="1.6s" repeatCount="indefinite" />
+          <animate attributeName="stroke-opacity" from={0.7} to={0} dur="1.6s" repeatCount="indefinite" />
+        </circle>
+      )}
       <DepShape kind={n.kind} cx={x} cy={y} r={r}
                 fill={baseFill} fillOpacity={fillOp}
                 stroke={baseFill} strokeWidth={ringW} />

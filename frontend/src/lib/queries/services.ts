@@ -31,10 +31,15 @@ export function useServiceNames(q?: string) {
   });
 }
 
-export function useServiceMap(since: string, samples: number) {
+export function useServiceMap(since: string, samples: number, diff?: string) {
+  // `diff` (e.g. "24h", "1h") asks the backend to also return a
+  // baseline-vs-current topology delta. Empty string / undefined
+  // means "current snapshot only". Encoded as part of the
+  // queryKey so different diff windows don't collide in the
+  // React Query cache.
   return useQuery<ServiceMap>({
-    queryKey: keys.services.map(since, samples),
-    queryFn: () => api.serviceMap(since, samples),
+    queryKey: keys.services.map(since, samples, diff),
+    queryFn: () => api.serviceMap(since, samples, diff),
     refetchInterval: 30_000,
     staleTime: 25_000,
   });

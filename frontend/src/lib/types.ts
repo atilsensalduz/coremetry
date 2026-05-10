@@ -834,6 +834,10 @@ export interface ServiceMapNode {
   // whether a node is "your code" or "your dependency".
   kind?: string;
   subkind?: string;
+  // True when the diff endpoint reports this node didn't exist
+  // in the baseline window (e.g. yesterday's same slot). Pulses
+  // green in the graph + flagged "NEW" in the changes panel.
+  isNew?: boolean;
 }
 
 export interface ServiceMapEdge {
@@ -842,13 +846,24 @@ export interface ServiceMapEdge {
   traceCount: number;
   spanCount: number;
   errorCount: number;
+  isNew?: boolean;
 }
 
 export interface ServiceMap {
   nodes: ServiceMapNode[];
   edges: ServiceMapEdge[];
+  // Populated only when ?diff=<duration> is requested. Lists the
+  // nodes / edges present in the baseline window but missing
+  // from the current one — surfaces silently-dropped
+  // dependencies before they become an incident.
+  removedNodes?: ServiceMapNode[];
+  removedEdges?: ServiceMapEdge[];
   sampledFrom: number;
   totalSpans: number;
+  // Echoed value of the ?diff param (e.g. "24h") so the UI can
+  // label "vs yesterday" / "vs 1h ago" without the page tracking
+  // it separately.
+  baselineAgo?: string;
 }
 
 // CardinalityReport powers /admin/cardinality — answers "what

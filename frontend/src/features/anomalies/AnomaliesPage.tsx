@@ -56,7 +56,7 @@ const P_NATURAL_DIR: Record<PSortKey, SortDir> = {
   value: 'desc', rule: 'asc', started: 'desc', status: 'asc',
 };
 
-export default function ExceptionsPage() {
+export default function ProblemsPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin' || user?.role === 'editor';
   // ?service= URL param pre-populates the service filter — driven
@@ -185,14 +185,15 @@ export default function ExceptionsPage() {
 
   return (
     <>
-      <Topbar title="Exceptions" />
+      <Topbar title="Problems" />
       <div id="content">
-        <SavedViewsBar page="exceptions" />
+        <SavedViewsBar page="problems" />
 
         {/* ── 1. Exception inbox (top of page) ─────────────────
             Per-group state machine the operator triages: New →
             Ack → Resolved/Ignored. Sits at the very top because
-            it's the most actionable signal in the product. */}
+            it's the most actionable signal in the product —
+            this is the assignable queue an SRE works through. */}
         <div className="tab-strip">
           {TABS.map(t => (
             <button key={t.key} onClick={() => setTab(t.key)} title={t.hint}
@@ -319,11 +320,11 @@ export default function ExceptionsPage() {
           </div>
         )}
 
-        {/* ── 2. Problems (firing alert rules) ─────────────────
-            Distinct from exceptions: these are threshold/SLO
-            burn / anomaly-detector alerts that the evaluator has
-            opened. Lives on the same page so the operator's
-            morning scan is one URL, not two. */}
+        {/* ── 2. Alert rules (firing thresholds + SLO burn) ───
+            Distinct from the exception inbox above: these are
+            threshold/SLO burn / anomaly-detector alerts that the
+            evaluator has opened. Lives on the same page so the
+            operator's morning scan is one URL, not two. */}
         <ProblemsSection serviceFilter={service} />
 
         {/* ── 3. Anomaly streams (live signals) ────────────────
@@ -393,8 +394,8 @@ function ProblemsSection({ serviceFilter }: { serviceFilter: string }) {
   if (statusFilter === 'open' && data && data.length === 0) {
     return (
       <div style={{ marginTop: 22, marginBottom: 12 }}>
-        <SectionHeader title="Problems" subtitle="Active alert rules + SLO burn" />
-        <Empty icon="✓" title="No open problems — all clear!">
+        <SectionHeader title="Alert rules" subtitle="Threshold + SLO burn detectors" />
+        <Empty icon="✓" title="No open alerts — all clear!">
           The evaluator runs once per minute. Built-in rules cover error rate and P99 latency.
         </Empty>
       </div>
@@ -403,7 +404,7 @@ function ProblemsSection({ serviceFilter }: { serviceFilter: string }) {
 
   return (
     <div style={{ marginTop: 22, marginBottom: 12 }}>
-      <SectionHeader title="Problems" subtitle="Active alert rules + SLO burn" />
+      <SectionHeader title="Alert rules" subtitle="Threshold + SLO burn detectors" />
       <div className="controls" style={{ marginBottom: 14 }}>
         <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
           {(['open', 'resolved', 'all'] as const).map(s => (

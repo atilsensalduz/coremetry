@@ -35,6 +35,11 @@ type ServiceMapNode struct {
 	// DBSystem / Subkind carries the underlying type so the UI
 	// can show "redis" or "postgresql" rather than just "db".
 	Subkind   string `json:"subkind,omitempty"`
+	// IsNew is set by GetServiceMapWithDiff when this node didn't
+	// appear in the baseline window (e.g. yesterday's same slot).
+	// Frontend pulses these green so a freshly-deployed service or
+	// newly-discovered dependency stands out at a glance.
+	IsNew     bool   `json:"isNew,omitempty"`
 }
 
 // ServiceMapEdge is a directed call: caller → callee. Weight =
@@ -48,14 +53,29 @@ type ServiceMapEdge struct {
 	TraceCount int    `json:"traceCount"`
 	SpanCount  int    `json:"spanCount"`
 	ErrorCount int    `json:"errorCount"`
+	// IsNew is set when the (caller, callee) pair didn't appear
+	// in the baseline window. A new edge typically signals either
+	// a feature deploy that wired up a previously-decoupled service
+	// or a regression where a code path started talking to an
+	// unintended dependency.
+	IsNew      bool   `json:"isNew,omitempty"`
 }
 
 // ServiceMap is the wire format returned to the frontend.
+//
+// RemovedNodes / RemovedEdges are populated by
+// GetServiceMapWithDiff when a baseline window is supplied: they
+// list services and dependencies that were active in the baseline
+// but have stopped appearing in the current window. Useful for
+// catching "we silently dropped a downstream call" regressions.
 type ServiceMap struct {
-	Nodes        []ServiceMapNode `json:"nodes"`
-	Edges        []ServiceMapEdge `json:"edges"`
-	SampledFrom  int              `json:"sampledFrom"`  // traces actually inspected
-	TotalSpans   int              `json:"totalSpans"`   // span count across them
+	Nodes         []ServiceMapNode `json:"nodes"`
+	Edges         []ServiceMapEdge `json:"edges"`
+	RemovedNodes  []ServiceMapNode `json:"removedNodes,omitempty"`
+	RemovedEdges  []ServiceMapEdge `json:"removedEdges,omitempty"`
+	SampledFrom   int              `json:"sampledFrom"`  // traces actually inspected
+	TotalSpans    int              `json:"totalSpans"`   // span count across them
+	BaselineAgo   string           `json:"baselineAgo,omitempty"` // e.g. "24h" — echoed for UI labelling
 }
 
 // GetServiceMap derives the global service-level topology from a
@@ -83,21 +103,106 @@ type ServiceMap struct {
 func (s *Store) GetServiceMap(
 	ctx context.Context, since time.Duration, sampleCount int,
 ) (*ServiceMap, error) {
-	if since <= 0 {
-		since = 15 * time.Minute
+	end := time.Now()
+	return s.getServiceMapAt(ctx, end.Add(-since), end, sampleCount)
+}
+
+// GetServiceMapWithDiff returns the current map annotated against a
+// baseline window taken `baselineAgo` earlier. New nodes/edges (in the
+// current window but not the baseline) carry IsNew=true; nodes/edges
+// in the baseline that have disappeared land in RemovedNodes /
+// RemovedEdges so the operator can spot silent regressions ("the
+// payment service stopped calling fraud-check this morning").
+//
+// Baseline failure is non-fatal: the current map is returned without
+// diff annotations. The two queries are sequential rather than
+// parallel because the cache key is shared and the second query is
+// served from the cache 99% of the time anyway.
+func (s *Store) GetServiceMapWithDiff(
+	ctx context.Context, since time.Duration, sampleCount int,
+	baselineAgo time.Duration, baselineLabel string,
+) (*ServiceMap, error) {
+	end := time.Now()
+	cur, err := s.getServiceMapAt(ctx, end.Add(-since), end, sampleCount)
+	if err != nil {
+		return nil, err
 	}
+	if baselineAgo <= 0 {
+		return cur, nil
+	}
+	bEnd := end.Add(-baselineAgo)
+	base, err := s.getServiceMapAt(ctx, bEnd.Add(-since), bEnd, sampleCount)
+	if err != nil {
+		// Surface the current map even if the baseline window
+		// returned an error — a partial view beats a 500.
+		return cur, nil
+	}
+	annotateDiff(cur, base, baselineLabel)
+	return cur, nil
+}
+
+func annotateDiff(cur, base *ServiceMap, baselineLabel string) {
+	cur.BaselineAgo = baselineLabel
+
+	baseSvc := make(map[string]bool, len(base.Nodes))
+	for _, n := range base.Nodes {
+		baseSvc[n.Service] = true
+	}
+	type ek struct{ a, b string }
+	baseEdge := make(map[ek]bool, len(base.Edges))
+	for _, e := range base.Edges {
+		baseEdge[ek{e.Caller, e.Callee}] = true
+	}
+
+	curSvc := make(map[string]bool, len(cur.Nodes))
+	for i := range cur.Nodes {
+		n := &cur.Nodes[i]
+		curSvc[n.Service] = true
+		if !baseSvc[n.Service] {
+			n.IsNew = true
+		}
+	}
+	curEdge := make(map[ek]bool, len(cur.Edges))
+	for i := range cur.Edges {
+		e := &cur.Edges[i]
+		k := ek{e.Caller, e.Callee}
+		curEdge[k] = true
+		if !baseEdge[k] {
+			e.IsNew = true
+		}
+	}
+	for _, n := range base.Nodes {
+		if !curSvc[n.Service] {
+			cur.RemovedNodes = append(cur.RemovedNodes, n)
+		}
+	}
+	for _, e := range base.Edges {
+		k := ek{e.Caller, e.Callee}
+		if !curEdge[k] {
+			cur.RemovedEdges = append(cur.RemovedEdges, e)
+		}
+	}
+}
+
+// getServiceMapAt is the shared core: build a map for an explicit
+// [winStart, winEnd] window. The public GetServiceMap is the "current
+// window" wrapper; GetServiceMapWithDiff calls this twice (once for
+// "now", once for "baselineAgo back") to compute the topology delta.
+func (s *Store) getServiceMapAt(
+	ctx context.Context, winStart, winEnd time.Time, sampleCount int,
+) (*ServiceMap, error) {
 	if sampleCount <= 0 || sampleCount > 500 {
 		sampleCount = 200
 	}
 
 	tr, err := s.conn.Query(ctx, `
 		SELECT trace_id FROM spans
-		WHERE time >= now() - toIntervalSecond(?)
+		WHERE time >= ? AND time <= ?
 		GROUP BY trace_id
 		ORDER BY count() DESC
 		LIMIT ?
 		SETTINGS max_execution_time = 30`,
-		int64(since.Seconds()), sampleCount)
+		winStart, winEnd, sampleCount)
 	if err != nil {
 		return nil, err
 	}

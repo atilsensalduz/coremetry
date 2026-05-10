@@ -34,13 +34,58 @@ func ParseDSL(src string) ([]FilterExpr, error) {
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "//") {
 			continue
 		}
-		f, err := parseDSLLine(line)
-		if err != nil {
-			return nil, fmt.Errorf("line %d: %w", i+1, err)
+		// Tolerate ` AND ` as an inline separator. Some
+		// callers (notably the SpanDetail aggregate panel)
+		// build a multi-predicate DSL on one line; without
+		// this split, the regex captures the second predicate
+		// as a quoted value of the first. splitOutsideQuotes
+		// keeps quoted strings (which legitimately contain
+		// the word "AND") intact.
+		for j, sub := range splitDSLAnd(line) {
+			s := strings.TrimSpace(sub)
+			if s == "" {
+				continue
+			}
+			f, err := parseDSLLine(s)
+			if err != nil {
+				return nil, fmt.Errorf("line %d (clause %d): %w", i+1, j+1, err)
+			}
+			out = append(out, f)
 		}
-		out = append(out, f)
 	}
 	return out, nil
+}
+
+// splitDSLAnd splits a single DSL line on the literal " AND "
+// (case-insensitive, surrounded by whitespace) WITHOUT splitting
+// inside quoted string values. Quoting rules match the rest of
+// the DSL — double quotes only, with backslash escape.
+func splitDSLAnd(s string) []string {
+	var parts []string
+	inQuote := false
+	last := 0
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c == '\\' && i+1 < len(s):
+			i++ // skip the escaped char
+		case c == '"':
+			inQuote = !inQuote
+		case !inQuote && i+5 <= len(s) && (s[i] == ' ' || s[i] == '\t'):
+			// look ahead for " AND " (case-insensitive)
+			tail := s[i:]
+			if len(tail) >= 5 && (tail[1] == 'A' || tail[1] == 'a') &&
+				(tail[2] == 'N' || tail[2] == 'n') &&
+				(tail[3] == 'D' || tail[3] == 'd') &&
+				(tail[4] == ' ' || tail[4] == '\t') {
+				parts = append(parts, s[last:i])
+				i += 4
+				last = i + 1
+			}
+		}
+	}
+	parts = append(parts, s[last:])
+	return parts
 }
 
 // Tightened to also accept the multi-word "not in" / "not exists" forms.

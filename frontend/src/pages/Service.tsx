@@ -110,7 +110,7 @@ function ServiceDetailInner() {
                 ! {openProbs.length} open problem{openProbs.length === 1 ? '' : 's'} on {svc}
               </span>
               <span style={{ flex: 1 }} />
-              <Link to={`/exceptions?service=${encodeURIComponent(svc)}`} style={{ fontSize: 11 }}>
+              <Link to={`/problems?service=${encodeURIComponent(svc)}`} style={{ fontSize: 11 }}>
                 View all for this service →
               </Link>
             </div>

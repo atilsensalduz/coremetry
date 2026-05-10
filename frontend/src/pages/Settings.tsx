@@ -745,7 +745,7 @@ function AITab() {
           <h3 style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>What it does</h3>
           <ul style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--text)', paddingLeft: 18 }}>
             <li><b><IconSparkles /> Explain this trace</b> — on any trace detail page.</li>
-            <li><b><IconSparkles /></b> column on the <a href="/exceptions" style={{ color: 'var(--accent2)' }}>Exceptions</a> page —
+            <li><b><IconSparkles /></b> column on the <a href="/problems" style={{ color: 'var(--accent2)' }}>Problems</a> page —
               plain-language meaning + ranked likely causes + first three things to check.</li>
           </ul>
         </div>

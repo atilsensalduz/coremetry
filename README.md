@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/cilcenk/coremetry/actions/workflows/ci.yml/badge.svg)](https://github.com/cilcenk/coremetry/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/cilcenk/coremetry?display_name=tag&sort=semver)](https://github.com/cilcenk/coremetry/releases)
-[![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-orange.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Go Report Card](https://goreportcard.com/badge/github.com/cilcenk/coremetry)](https://goreportcard.com/report/github.com/cilcenk/coremetry)
 
 **Open-source, OpenTelemetry-native, enterprise-grade APM.**
@@ -361,10 +361,10 @@ go test ./...
 
 ## License
 
-[PolyForm Noncommercial 1.0.0](LICENSE).
-Free for any non-commercial use including evaluation,
-research, education, and personal projects. For commercial
-use, contact `cil.cenk@gmail.com`.
+[MIT License](LICENSE). Free for any use — commercial,
+non-commercial, modification, redistribution. SigNoz-style
+permissive licensing so banks and SaaS operators can ship
+Coremetry into production without per-seat negotiations.
 
 ---
 

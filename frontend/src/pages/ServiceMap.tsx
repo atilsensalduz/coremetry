@@ -29,14 +29,27 @@ const PRESETS: { key: TimeRange['preset']; secs: number; label: string }[] = [
 // filter happens client-side over that small payload — no
 // extra round trip — and the radial layout is closed-form
 // (no physics), so swap-in is instant.
+// Baseline comparison choices. "off" = no diff (default). The other
+// values mirror the rolling windows operators care about most: vs
+// last hour (catches deploy-time topology drift), vs yesterday
+// (canonical "is anything new today?"), vs last week (longer-term
+// dependency drift).
+const DIFF_PRESETS: { key: string; label: string }[] = [
+  { key: '',    label: 'off' },
+  { key: '1h',  label: 'vs 1h ago' },
+  { key: '24h', label: 'vs yesterday' },
+  { key: '168h', label: 'vs last week' },
+];
+
 export default function ServiceMapPage() {
   const [range, setRange] = useState<TimeRange>({ preset: '15m' });
   const [samples, setSamples] = useState(200);
   const [focus, setFocus] = useState<string>('');
   const [hoverNode, setHoverNode] = useState<string | null>(null);
+  const [diff, setDiff] = useState<string>('');
   const since = (PRESETS.find(p => p.key === range.preset)?.secs ?? 900) + 's';
 
-  const mapQ = useServiceMap(since, samples);
+  const mapQ = useServiceMap(since, samples, diff || undefined);
   const data = mapQ.isLoading
     ? undefined
     : mapQ.isError
@@ -145,6 +158,19 @@ export default function ServiceMapPage() {
 
           <span style={{ flex: 1 }} />
 
+          {/* Topology delta toggle — surfaces "what changed?".
+              When set, the backend marks new nodes / edges (in
+              the current window but not the baseline) and lists
+              ones that went missing. The summary strip below the
+              picker row renders the delta count. */}
+          <span style={{ fontSize: 12, color: 'var(--text2)' }}>Compare</span>
+          <select value={diff} onChange={e => setDiff(e.target.value)}
+                  style={{ fontSize: 12 }}>
+            {DIFF_PRESETS.map(p => (
+              <option key={p.key} value={p.key}>{p.label}</option>
+            ))}
+          </select>
+
           <span style={{ fontSize: 12, color: 'var(--text2)' }}>Samples</span>
           <select value={samples}
                   onChange={e => setSamples(Number(e.target.value))}
@@ -155,6 +181,17 @@ export default function ServiceMapPage() {
             <option value={500}>500 traces</option>
           </select>
         </div>
+
+        {/* Topology change summary — visible only when comparison
+            mode is on. Lists net delta + a small inline list of
+            the new / removed services so an operator scanning
+            the map sees "what's different" before reading the
+            graph itself. */}
+        {data && diff && (
+          <TopologyDeltaStrip data={data} baselineLabel={
+            DIFF_PRESETS.find(p => p.key === diff)?.label ?? diff
+          } />
+        )}
 
         {/* Focus header — when a service is selected, surface
             its KPIs above the graph so the operator doesn't
@@ -232,5 +269,74 @@ function Chip({ label, value }: { label: string; value: string }) {
       <span style={{ color: 'var(--text3)' }}>{label}</span>
       <span style={{ fontFamily: 'monospace', color: 'var(--text)' }}>{value}</span>
     </span>
+  );
+}
+
+// TopologyDeltaStrip surfaces topology changes between the current
+// window and the chosen baseline. Renders one chip per category
+// (new services, new dependencies, removed services, removed
+// dependencies) plus an inline preview of the names so the operator
+// gets the "what" without expanding anything. Filters out synthetic
+// dep nodes (kind="db"/"queue"/"external") — those churn naturally
+// as request paths shift, and surfacing every "we hit a new redis"
+// row drowns the real topology changes.
+function TopologyDeltaStrip({ data, baselineLabel }: { data: ServiceMap; baselineLabel: string }) {
+  const newSvcs = (data.nodes ?? []).filter(n => n.isNew && !n.kind);
+  const newDeps = (data.edges ?? []).filter(e => e.isNew);
+  const gone = (data.removedNodes ?? []).filter(n => !n.kind);
+  const goneEdges = data.removedEdges ?? [];
+  const total = newSvcs.length + newDeps.length + gone.length + goneEdges.length;
+  if (total === 0) {
+    return (
+      <div style={{
+        marginBottom: 12, padding: '8px 12px', borderRadius: 6,
+        background: 'var(--bg1)', border: '1px solid var(--border)',
+        fontSize: 12, color: 'var(--text2)',
+      }}>
+        ✓ No topology changes {baselineLabel}.
+      </div>
+    );
+  }
+  const sample = (xs: string[], n = 4) => xs.slice(0, n).join(', ') + (xs.length > n ? `, +${xs.length - n}` : '');
+  return (
+    <div style={{
+      marginBottom: 12, padding: '8px 12px', borderRadius: 6,
+      background: 'var(--bg1)', border: '1px solid var(--border)',
+      display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center', fontSize: 12,
+    }}>
+      <span style={{ fontWeight: 600 }}>Δ topology {baselineLabel}:</span>
+      {newSvcs.length > 0 && (
+        <span title={newSvcs.map(s => s.service).join('\n')}>
+          <span className="badge b-ok" style={{ marginRight: 6 }}>+{newSvcs.length} svc</span>
+          <span style={{ color: 'var(--text3)', fontFamily: 'monospace', fontSize: 11 }}>
+            {sample(newSvcs.map(s => s.service))}
+          </span>
+        </span>
+      )}
+      {newDeps.length > 0 && (
+        <span title={newDeps.map(e => `${e.caller} → ${e.callee}`).join('\n')}>
+          <span className="badge b-info" style={{ marginRight: 6 }}>+{newDeps.length} edge</span>
+          <span style={{ color: 'var(--text3)', fontFamily: 'monospace', fontSize: 11 }}>
+            {sample(newDeps.map(e => `${e.caller}→${e.callee}`))}
+          </span>
+        </span>
+      )}
+      {gone.length > 0 && (
+        <span title={gone.map(s => s.service).join('\n')}>
+          <span className="badge b-warn" style={{ marginRight: 6 }}>−{gone.length} svc</span>
+          <span style={{ color: 'var(--text3)', fontFamily: 'monospace', fontSize: 11 }}>
+            {sample(gone.map(s => s.service))}
+          </span>
+        </span>
+      )}
+      {goneEdges.length > 0 && (
+        <span title={goneEdges.map(e => `${e.caller} → ${e.callee}`).join('\n')}>
+          <span className="badge b-err" style={{ marginRight: 6 }}>−{goneEdges.length} edge</span>
+          <span style={{ color: 'var(--text3)', fontFamily: 'monospace', fontSize: 11 }}>
+            {sample(goneEdges.map(e => `${e.caller}→${e.callee}`))}
+          </span>
+        </span>
+      )}
+    </div>
   );
 }

@@ -142,9 +142,13 @@ export const api = {
   // Global service-level topology graph — nodes + directed edges
   // derived from sampled recent traces. Powers the /service-map
   // page; 30s server-side cache.
-  serviceMap: (since = '15m', samples = 200) =>
-    get<import('./types').ServiceMap>(
-      `/api/service-map?since=${since}&samples=${samples}`),
+  serviceMap: (since = '15m', samples = 200, diff?: string) => {
+    // diff is an optional "compare-to" duration (e.g. "24h"). When
+    // set, the backend returns the current topology with new /
+    // removed nodes/edges flagged against that baseline window.
+    const qs = `since=${since}&samples=${samples}` + (diff ? `&diff=${diff}` : '');
+    return get<import('./types').ServiceMap>(`/api/service-map?${qs}`);
+  },
 
   // Inbound-callers backtrace — Dynatrace-style consumer view.
   // Returns a row per (caller service × pod/instance × client IP ×

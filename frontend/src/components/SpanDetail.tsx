@@ -70,9 +70,14 @@ export function SpanDetail({ span, onClose }: { span: SpanRow; onClose: () => vo
     // the data reflects the current state of the service.
     const to   = Date.now() * 1_000_000;
     const from = to - 3600 * 1_000_000_000;
+    // ParseDSL on the server splits by newline and AND-joins each
+    // line; using a literal " AND " on one line gets treated as a
+    // single (mis-quoted) value, so the second predicate silently
+    // drops and the count comes back as 0. Newline-separate to
+    // give each predicate its own clean parse.
     const dsl =
-      `service.name = "${span.serviceName.replace(/"/g, '\\"')}"` +
-      ` AND name = "${span.name.replace(/"/g, '\\"')}"`;
+      `service.name = "${span.serviceName.replace(/"/g, '\\"')}"\n` +
+      `name = "${span.name.replace(/"/g, '\\"')}"`;
     Promise.all([
       api.spanMetric({ agg: 'count',      dsl, from, to }),
       api.spanMetric({ agg: 'error_rate', dsl, from, to }),
