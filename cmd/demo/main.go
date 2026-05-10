@@ -48,37 +48,48 @@ var httpClient = &http.Client{Timeout: 5 * time.Second}
 // (caller_service × caller_pod) variation in the backtrace view —
 // previously every service had a single host and the consumer table
 // collapsed every caller into one row.
+//
+// Runtime fingerprint (Lang / RuntimeName / RuntimeVersion /
+// RuntimeDesc) is per-service so the /services list and /service
+// detail badge surface a believable polyglot mesh — Node frontend,
+// Go gateway, Java order/payment, Python ML, etc. Without these
+// fields the spans only carry service.name, so the runtime
+// extractor finds nothing and the badge silently disappears.
 type Service struct {
-	Name string
-	Pods []string
+	Name           string
+	Pods           []string
+	Lang           string // telemetry.sdk.language
+	RuntimeName    string // process.runtime.name
+	RuntimeVersion string // process.runtime.version
+	RuntimeDesc    string // process.runtime.description
 }
 
 var services = map[string]Service{
 	// Edge / public-facing
-	"frontend":               {"frontend",               []string{"web-prod-1", "web-prod-2", "web-prod-3"}},
-	"api-gateway":            {"api-gateway",            []string{"gw-prod-1", "gw-prod-2", "gw-prod-3"}},
+	"frontend":               {"frontend",               []string{"web-prod-1", "web-prod-2", "web-prod-3"},                "nodejs", "node",  "20.11.1",  "Node.js v20.11.1"},
+	"api-gateway":            {"api-gateway",            []string{"gw-prod-1", "gw-prod-2", "gw-prod-3"},                   "go",     "go",    "1.22.5",   "go version go1.22.5 linux/amd64"},
 	// Core domain services
-	"user-service":           {"user-service",           []string{"users-prod-1", "users-prod-2", "users-prod-3"}},
-	"order-service":          {"order-service",          []string{"orders-prod-1", "orders-prod-2"}},
-	"payment-service":        {"payment-service",        []string{"pay-prod-1", "pay-prod-2"}},
-	"product-service":        {"product-service",        []string{"products-prod-1", "products-prod-2", "products-prod-3"}},
-	"cart-service":           {"cart-service",           []string{"cart-prod-1", "cart-prod-2"}},
-	"search-service":         {"search-service",         []string{"search-prod-1", "search-prod-2"}},
+	"user-service":           {"user-service",           []string{"users-prod-1", "users-prod-2", "users-prod-3"},          "go",     "go",    "1.22.5",   "go version go1.22.5 linux/amd64"},
+	"order-service":          {"order-service",          []string{"orders-prod-1", "orders-prod-2"},                        "java",   "OpenJDK Runtime Environment", "21.0.2+13", "OpenJDK 64-Bit Server VM Temurin-21.0.2+13 (build 21.0.2+13-LTS)"},
+	"payment-service":        {"payment-service",        []string{"pay-prod-1", "pay-prod-2"},                              "java",   "OpenJDK Runtime Environment", "17.0.10+7", "OpenJDK 64-Bit Server VM Temurin-17.0.10+7 (build 17.0.10+7-LTS)"},
+	"product-service":        {"product-service",        []string{"products-prod-1", "products-prod-2", "products-prod-3"}, "go",     "go",    "1.22.5",   "go version go1.22.5 linux/amd64"},
+	"cart-service":           {"cart-service",           []string{"cart-prod-1", "cart-prod-2"},                            "nodejs", "node",  "20.11.1",  "Node.js v20.11.1"},
+	"search-service":         {"search-service",         []string{"search-prod-1", "search-prod-2"},                        "rust",   "rust",  "1.78.0",   "rustc 1.78.0 (9b00956e5 2024-04-29)"},
 	// Supporting services — added so the topology fan-out reads
 	// like a real e-commerce mesh and the backtrace / graph views
 	// have meaningful caller-callee chains to inspect.
-	"inventory-service":      {"inventory-service",      []string{"inv-prod-1", "inv-prod-2", "inv-prod-3"}},
-	"recommendation-service": {"recommendation-service", []string{"rec-prod-1", "rec-prod-2"}},
-	"review-service":         {"review-service",         []string{"review-prod-1", "review-prod-2"}},
-	"pricing-service":        {"pricing-service",        []string{"pricing-prod-1", "pricing-prod-2"}},
-	"shipping-service":       {"shipping-service",       []string{"ship-prod-1", "ship-prod-2"}},
-	"fraud-service":          {"fraud-service",          []string{"fraud-prod-1", "fraud-prod-2"}},
-	"notification-service":   {"notification-service",   []string{"notif-prod-1", "notif-prod-2"}},
-	"email-service":          {"email-service",          []string{"mail-prod-1"}},
-	"sms-service":            {"sms-service",            []string{"sms-prod-1"}},
-	"analytics-service":      {"analytics-service",      []string{"analytics-prod-1", "analytics-prod-2"}},
-	"audit-service":          {"audit-service",          []string{"audit-prod-1"}},
-	"ml-service":             {"ml-service",             []string{"ml-prod-1", "ml-prod-2"}},
+	"inventory-service":      {"inventory-service",      []string{"inv-prod-1", "inv-prod-2", "inv-prod-3"},                "java",   "OpenJDK Runtime Environment", "21.0.2+13", "OpenJDK 64-Bit Server VM Temurin-21.0.2+13 (build 21.0.2+13-LTS)"},
+	"recommendation-service": {"recommendation-service", []string{"rec-prod-1", "rec-prod-2"},                              "python", "CPython", "3.12.2", "CPython 3.12.2 (main, Feb  6 2024, 20:19:44) [GCC 12.2.0]"},
+	"review-service":         {"review-service",         []string{"review-prod-1", "review-prod-2"},                        "ruby",   "ruby",  "3.3.0",    "ruby 3.3.0 (2023-12-25 revision 5124f9ac75) [x86_64-linux]"},
+	"pricing-service":        {"pricing-service",        []string{"pricing-prod-1", "pricing-prod-2"},                      "dotnet", ".NET",  "8.0.4",    ".NET 8.0.4"},
+	"shipping-service":       {"shipping-service",       []string{"ship-prod-1", "ship-prod-2"},                            "go",     "go",    "1.22.5",   "go version go1.22.5 linux/amd64"},
+	"fraud-service":          {"fraud-service",          []string{"fraud-prod-1", "fraud-prod-2"},                          "python", "CPython", "3.12.2", "CPython 3.12.2 (main, Feb  6 2024, 20:19:44) [GCC 12.2.0]"},
+	"notification-service":   {"notification-service",   []string{"notif-prod-1", "notif-prod-2"},                          "nodejs", "node",  "20.11.1",  "Node.js v20.11.1"},
+	"email-service":          {"email-service",          []string{"mail-prod-1"},                                           "nodejs", "node",  "20.11.1",  "Node.js v20.11.1"},
+	"sms-service":            {"sms-service",            []string{"sms-prod-1"},                                            "go",     "go",    "1.22.5",   "go version go1.22.5 linux/amd64"},
+	"analytics-service":      {"analytics-service",      []string{"analytics-prod-1", "analytics-prod-2"},                  "python", "CPython", "3.12.2", "CPython 3.12.2 (main, Feb  6 2024, 20:19:44) [GCC 12.2.0]"},
+	"audit-service":          {"audit-service",          []string{"audit-prod-1"},                                          "java",   "OpenJDK Runtime Environment", "17.0.10+7", "OpenJDK 64-Bit Server VM Temurin-17.0.10+7 (build 17.0.10+7-LTS)"},
+	"ml-service":             {"ml-service",             []string{"ml-prod-1", "ml-prod-2"},                                "python", "CPython", "3.12.2", "CPython 3.12.2 (main, Feb  6 2024, 20:19:44) [GCC 12.2.0]"},
 }
 
 // User-agent pool — each trace picks one to put on the frontend's
@@ -249,17 +260,42 @@ func (t *Trace) Send() error {
 			s = Service{Name: svcKey, Pods: []string{svcKey + "-1"}}
 		}
 		pod := t.pickPod(svcKey)
+		// Resource attributes — base set + per-service runtime
+		// fingerprint so the /services list and detail badge
+		// surface a believable polyglot mesh ("Go 1.22 / Java 21
+		// / Python 3.12 / Node 20 / .NET 8 / Rust 1.78 / Ruby
+		// 3.3"). Values default to empty when the service entry
+		// doesn't carry them so a future service without
+		// runtime metadata silently drops the badge instead of
+		// rendering "Unknown".
+		attrs := []*commonpb.KeyValue{
+			kvStr("service.name", s.Name),
+			kvStr("host.name", pod),
+			kvStr("service.instance.id", pod),
+			kvStr("k8s.pod.name", pod),
+			kvStr("k8s.pod.ip", podIP(pod)),
+			kvStr("k8s.namespace.name", "demo"),
+			kvStr("deployment.environment", "demo"),
+			kvStr("service.version", "1.0.0"),
+		}
+		if s.Lang != "" {
+			attrs = append(attrs,
+				kvStr("telemetry.sdk.language", s.Lang),
+				kvStr("telemetry.sdk.name", "opentelemetry"),
+				kvStr("telemetry.sdk.version", "1.30.0"),
+			)
+		}
+		if s.RuntimeName != "" {
+			attrs = append(attrs, kvStr("process.runtime.name", s.RuntimeName))
+		}
+		if s.RuntimeVersion != "" {
+			attrs = append(attrs, kvStr("process.runtime.version", s.RuntimeVersion))
+		}
+		if s.RuntimeDesc != "" {
+			attrs = append(attrs, kvStr("process.runtime.description", s.RuntimeDesc))
+		}
 		rs = append(rs, &tracepb.ResourceSpans{
-			Resource: &resourcepb.Resource{Attributes: []*commonpb.KeyValue{
-				kvStr("service.name", s.Name),
-				kvStr("host.name", pod),
-				kvStr("service.instance.id", pod),
-				kvStr("k8s.pod.name", pod),
-				kvStr("k8s.pod.ip", podIP(pod)),
-				kvStr("k8s.namespace.name", "demo"),
-				kvStr("deployment.environment", "demo"),
-				kvStr("service.version", "1.0.0"),
-			}},
+			Resource: &resourcepb.Resource{Attributes: attrs},
 			ScopeSpans: []*tracepb.ScopeSpans{{
 				Scope: &commonpb.InstrumentationScope{Name: "coremetry-demo"},
 				Spans: spans,

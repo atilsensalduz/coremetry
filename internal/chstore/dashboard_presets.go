@@ -7,13 +7,15 @@ import (
 	"log"
 )
 
-// Preset dashboards seeded into a fresh install — SRE-incident
-// perspective inspired by patterns from Datadog, Honeycomb,
-// and Dynatrace. The bundle is intentionally smaller than a
-// dump-everything-set: each dashboard answers a specific
-// operator question (Golden Signals, RED, war room, latency,
-// error hunting, infra, dependencies, database) so operators
-// jump to the right dashboard for the situation.
+// Preset dashboards seeded into a fresh install — practical
+// APM bundle (workload / runtime / store-specific) instead of
+// the previous SRE-methodology bundle (Golden Signals / USE /
+// RED). The bundle is intentionally pragmatic: each dashboard
+// answers a "what is X doing" question for a specific tier
+// (APM overview, HTTP services, databases, JVM, Kafka, etc.)
+// rather than an SRE-framework question (Golden Signals, USE,
+// RED). Operators land on the dashboard whose name matches
+// the layer they're investigating.
 //
 // Versioning: the seeded set carries an opaque version string
 // stored in system_settings under "preset_dashboards_version".
@@ -28,7 +30,7 @@ import (
 // on bundle upgrade while their renamed copy lives under its
 // new ID.
 
-const presetVersion = "sre-v1"
+const presetVersion = "apm-v1"
 
 func (s *Store) SeedPresetDashboards(ctx context.Context) error {
 	storedVersion, _ := s.GetSetting(ctx, "preset_dashboards_version")
@@ -70,14 +72,15 @@ func (s *Store) seedAndStamp(ctx context.Context) error {
 
 func presetDashboards() []Dashboard {
 	return []Dashboard{
-		presetSREGoldenSignals(),
-		presetServiceRED(),
-		presetIncidentWarRoom(),
-		presetLatencyInvestigation(),
-		presetErrorHunting(),
-		presetInfrastructure(),
+		presetAPMOverview(),
+		presetServicePerformance(),
+		presetHTTPServices(),
 		presetDatabase(),
-		presetExternalDeps(),
+		presetJavaJVM(),
+		presetNodeJS(),
+		presetGoRuntime(),
+		presetKafkaMessaging(),
+		presetErrorsExceptions(),
 	}
 }
 
@@ -195,28 +198,29 @@ func md(id, text string) panel {
 	return panel{ID: id, Type: "markdown", Title: "", Width: 4, Config: mdCfg{Text: text}}
 }
 
-// ── 1. SRE Golden Signals ───────────────────────────────────────────────────
+// ── 1. APM Overview ─────────────────────────────────────────────────────────
 //
-// Google SRE Book's four golden signals — latency, traffic,
-// errors, saturation — at the system level. The first dashboard
-// the operator opens; everything else drills deeper.
-func presetSREGoldenSignals() Dashboard {
+// Datadog APM "Services" landing-page equivalent — top-level
+// pulse for the whole application. Headline KPIs, throughput
+// + error breakdown by service, P50/P99 trends. The dashboard
+// the operator opens first to establish "is the app healthy
+// right now"; everything else drills deeper into a tier.
+func presetAPMOverview() Dashboard {
 	return dash(
-		"preset-sre-golden-signals",
-		"SRE: Golden Signals",
-		"Latency, Traffic, Errors, Saturation across the whole system. The Google SRE Book starting view — open this first when something feels off, then drill into a specific dashboard for the offending signal.",
+		"preset-apm-overview",
+		"APM Overview",
+		"Top-level pulse for the application — headline KPIs, throughput and errors by service, latency trends. Open this first; if a panel looks off, drill into the matching tier dashboard (HTTP / Database / JVM / Kafka).",
 		[]panel{
 			md("intro",
-				"**The four signals.** From [Google's SRE Book](https://sre.google/sre-book/monitoring-distributed-systems/): "+
-					"\n\n• **Latency** — time to serve a request (broken down by service below)"+
-					"\n• **Traffic** — RPS demand on the system"+
-					"\n• **Errors** — rate of failed requests"+
-					"\n• **Saturation** — how full the resources are (heap / CPU per service)"+
-					"\n\nWhen any signal trends, jump to the matching dashboard: "+
-					"[Service detail (RED)](/dashboards) for per-service drill-down, "+
-					"[Latency](/dashboards) for slow operations, "+
-					"[Errors](/dashboards) for failure modes, "+
-					"[Infrastructure](/dashboards) for resource saturation."),
+				"**APM Overview.** The 30-second health check across the whole app. "+
+					"Hover any chart for service-level detail; click a service in the "+
+					"[Services list](/services) for its full RED dashboard. Tier "+
+					"drill-downs: "+
+					"[HTTP Services](/dashboards), "+
+					"[Database Performance](/dashboards), "+
+					"[Java / JVM](/dashboards), "+
+					"[Kafka / Messaging](/dashboards), "+
+					"[Errors & Exceptions](/dashboards)."),
 
 			row("row-kpi", "Headline numbers"),
 			stat("k-rps", "Requests/sec", "rate", unit("rps"), decimals(1)),
@@ -224,17 +228,9 @@ func presetSREGoldenSignals() Dashboard {
 			stat("k-p95", "P95 latency", "p95", field("duration_ms"), unit("ms"), decimals(0)),
 			stat("k-p99", "P99 latency", "p99", field("duration_ms"), unit("ms"), decimals(0)),
 
-			row("row-latency", "Latency"),
-			line("p50-svc", "P50 by service", 2,
-				spanCfg{Agg: "p50", Field: "duration_ms", GroupBy: "service.name"}),
-			line("p99-svc", "P99 by service", 2,
-				spanCfg{Agg: "p99", Field: "duration_ms", GroupBy: "service.name"}),
-
-			row("row-traffic", "Traffic"),
-			line("rps-svc", "RPS by service", 2,
+			row("row-traffic", "Throughput"),
+			line("rps-svc", "RPS by service", 4,
 				spanCfg{Agg: "rate", GroupBy: "service.name"}),
-			line("rps-kind", "RPS by span kind", 2,
-				spanCfg{Agg: "rate", GroupBy: "kind"}),
 
 			row("row-errors", "Errors"),
 			line("err-rate-svc", "Error rate (%) by service", 2,
@@ -242,33 +238,38 @@ func presetSREGoldenSignals() Dashboard {
 			line("err-cnt-svc", "Errors/sec by service", 2,
 				spanCfg{Agg: "errors", GroupBy: "service.name"}),
 
-			row("row-saturation", "Saturation (resource pressure)"),
-			metric("cpu-svc", "CPU utilisation by service", 2,
-				metricCfg{MetricName: "process.runtime.cpu.utilization", GroupBy: "service.name"}),
-			metric("mem-svc", "Memory by service", 2,
-				metricCfg{MetricName: "process.runtime.memory.rss", GroupBy: "service.name"}),
+			row("row-latency", "Latency"),
+			line("p50-svc", "P50 by service", 2,
+				spanCfg{Agg: "p50", Field: "duration_ms", GroupBy: "service.name"}),
+			line("p99-svc", "P99 by service", 2,
+				spanCfg{Agg: "p99", Field: "duration_ms", GroupBy: "service.name"}),
+
+			row("row-slow-ops", "Slowest operations across the app"),
+			line("p99-op", "P99 by operation", 4,
+				spanCfg{Agg: "p99", Field: "duration_ms", GroupBy: "name"}),
 		},
 	)
 }
 
-// ── 2. Service Health (RED) ─────────────────────────────────────────────────
+
+// ── 2. Service Performance ──────────────────────────────────────────────────
 //
-// Tom Wilkie's RED method — Rate, Errors, Duration — applied
-// per-service via the $service variable. Pair of the Golden
-// Signals dashboard at the service granularity.
-func presetServiceRED() Dashboard {
+// Per-service RED + saturation, scoped via the $service
+// variable. Pick a service from the dropdown; every panel
+// scopes to it. The single dashboard for an oncall
+// investigating one specific service end-to-end.
+func presetServicePerformance() Dashboard {
 	const svc = `service.name = "${service}"`
 	return dash(
-		"preset-service-red",
-		"Service Health (RED)",
-		"Per-service Rate / Errors / Duration plus infrastructure saturation. Pick a service from the variable bar; every panel scopes to that service. The single dashboard for an oncall investigating a specific service.",
+		"preset-service-performance",
+		"Service Performance",
+		"Per-service RED (Rate / Errors / Duration) plus runtime saturation, scoped via $service. The dashboard for an oncall investigating one specific service end-to-end.",
 		[]panel{
 			md("intro",
-				"**RED method per service.** Pick a service from `$service` above. "+
-					"Honeycomb / Dynatrace pattern — Rate / Errors / Duration plus "+
-					"the runtime metrics that explain saturation when those signals "+
-					"degrade. For cross-service comparisons go back to "+
-					"**SRE: Golden Signals**."),
+				"**Pick a service** from `$service`. Every panel scopes to it. "+
+					"For cross-service comparisons go back to **APM Overview**. "+
+					"To zoom into a specific operation, click its line in the "+
+					"per-operation panels — the legend supports click-to-isolate."),
 
 			row("row-kpi", "Service KPIs"),
 			stat("k-rps", "RPS", "rate", unit("rps"), decimals(2), dsl(svc)),
@@ -276,157 +277,359 @@ func presetServiceRED() Dashboard {
 			stat("k-p95", "P95", "p95", field("duration_ms"), unit("ms"), decimals(0), dsl(svc)),
 			stat("k-p99", "P99", "p99", field("duration_ms"), unit("ms"), decimals(0), dsl(svc)),
 
-			row("row-rate", "Rate (request volume)"),
-			line("rps-op", "RPS by operation", 2,
+			row("row-rate", "Rate"),
+			line("rps-op", "RPS by operation", 4,
 				spanCfg{Agg: "rate", DSL: svc, GroupBy: "name"}),
-			line("rps-route", "RPS by HTTP route (if HTTP)", 2,
-				spanCfg{Agg: "rate", DSL: svc + ` AND http.method != ""`, GroupBy: "http.route"}),
 
-			row("row-errors", "Errors (failed requests)"),
+			row("row-errors", "Errors"),
 			line("err-op", "Error rate (%) by operation", 2,
 				spanCfg{Agg: "error_rate", DSL: svc, GroupBy: "name"}),
 			line("err-cnt-op", "Errors/sec by operation", 2,
 				spanCfg{Agg: "errors", DSL: svc, GroupBy: "name"}),
 
-			row("row-duration", "Duration (latency distribution)"),
+			row("row-duration", "Duration"),
 			line("p50-op", "P50 by operation", 2,
 				spanCfg{Agg: "p50", Field: "duration_ms", DSL: svc, GroupBy: "name"}),
 			line("p99-op", "P99 by operation", 2,
 				spanCfg{Agg: "p99", Field: "duration_ms", DSL: svc, GroupBy: "name"}),
 
-			row("row-saturation", "Saturation (runtime + infra)"),
-			metric("cpu", "CPU utilisation", 1,
+			row("row-saturation", "Runtime"),
+			metric("cpu", "CPU utilisation", 2,
 				metricCfg{MetricName: "process.runtime.cpu.utilization", Service: "${service}"}),
-			metric("mem", "Memory RSS", 1,
+			metric("mem", "Memory RSS", 2,
 				metricCfg{MetricName: "process.runtime.memory.rss", Service: "${service}"}),
-			metric("heap", "Heap (Go runtime)", 1,
-				metricCfg{MetricName: "process.runtime.go.mem.heap_alloc", Service: "${service}"}),
-			metric("gc", "GC pause / runtime", 1,
-				metricCfg{MetricName: "process.runtime.go.gc.duration", Service: "${service}"}),
 		},
 		dashVar{Name: "service", Label: "Service", Type: "service"},
 	)
 }
 
-// ── 3. Incident War Room ────────────────────────────────────────────────────
+// ── 3. HTTP Services ────────────────────────────────────────────────────────
 //
-// Datadog "Incident Response" / PagerDuty-style combat
-// dashboard — high-density tiles + deep links into the live
-// problem queues. Designed to be projected on a TV during an
-// outage.
-func presetIncidentWarRoom() Dashboard {
-	const errOnly = `status_code = "error"`
+// Web tier — RED for the HTTP layer. Filters on `http.method`
+// being set so only inbound HTTP work shows. Routes / status
+// codes / methods are the dimensions an HTTP-facing operator
+// thinks in.
+func presetHTTPServices() Dashboard {
+	const httpAny = `http.method != ""`
+	const httpErr = `http.method != "" AND status_code = "error"`
 	return dash(
-		"preset-incident-warroom",
-		"Incident War Room",
-		"High-density combat dashboard for an active incident. Live error rate + traffic, top services / operations driving the incident, deep links into Problems / Anomalies / Traces. Project this on a screen during an outage.",
+		"preset-http-services",
+		"HTTP Services",
+		"Web tier RED (Rate / Errors / Duration) filtered to HTTP spans. Per-route, per-status-code, per-method breakdown for the inbound API surface.",
 		[]panel{
 			md("intro",
-				"**War room.** Live state. Investigation links:"+
-					"\n\n• [Problems](/problems) — alert-rule triggered events (acknowledge / resolve)"+
-					"\n• [Anomalies](/anomalies) — detector-flagged log patterns + trace ops"+
-					"\n• [Incidents](/incidents) — auto-grouped + manually declared incidents"+
-					"\n• [Traces](/traces) — recent trace search + sample exemplars"+
-					"\n• [Service map](/service-map) — topological view, hot edges"),
+				"**HTTP layer.** Every span with `http.method` set. The status-code "+
+					"and route panels are the fastest way to see whether errors "+
+					"concentrate on a specific endpoint or a 5xx storm. Cross-"+
+					"reference with [Traces](/traces) filtered by `http.status_code:5*` "+
+					"to find sample failed requests."),
 
-			row("row-pulse", "Live pulse"),
-			stat("k-rps", "Total RPS", "rate", unit("rps"), decimals(0)),
-			stat("k-err-rate", "Error rate", "error_rate", unit("%"), decimals(2)),
-			stat("k-err-cnt", "Errors/sec", "errors", unit("eps"), decimals(1)),
-			stat("k-p99", "P99 latency", "p99", field("duration_ms"), unit("ms"), decimals(0)),
+			row("row-kpi", "HTTP KPIs"),
+			stat("k-rps", "Requests/sec", "rate", unit("rps"), decimals(1), dsl(httpAny)),
+			stat("k-err", "Error rate", "error_rate", unit("%"), decimals(2), dsl(httpAny)),
+			stat("k-p95", "P95", "p95", field("duration_ms"), unit("ms"), decimals(0), dsl(httpAny)),
+			stat("k-p99", "P99", "p99", field("duration_ms"), unit("ms"), decimals(0), dsl(httpAny)),
 
-			row("row-hot", "Hottest by errors (last window)"),
-			line("err-svc", "Errors/sec by service", 2,
-				spanCfg{Agg: "errors", GroupBy: "service.name"}),
-			line("err-op", "Errors/sec by operation", 2,
-				spanCfg{Agg: "errors", DSL: errOnly, GroupBy: "name"}),
-
-			row("row-slow", "Hottest by latency"),
-			line("p99-svc", "P99 by service", 2,
-				spanCfg{Agg: "p99", Field: "duration_ms", GroupBy: "service.name"}),
-			line("p99-op", "P99 by operation", 2,
-				spanCfg{Agg: "p99", Field: "duration_ms", GroupBy: "name"}),
-
-			row("row-status", "By HTTP status code"),
+			row("row-status", "By status code"),
 			line("rps-status", "RPS by status code", 2,
-				spanCfg{Agg: "rate", DSL: `http.method != ""`, GroupBy: "http.status_code"}),
+				spanCfg{Agg: "rate", DSL: httpAny, GroupBy: "http.status_code"}),
 			line("err-status", "Errors/sec by status code", 2,
-				spanCfg{Agg: "errors", DSL: `http.method != ""`, GroupBy: "http.status_code"}),
+				spanCfg{Agg: "errors", DSL: httpErr, GroupBy: "http.status_code"}),
+
+			row("row-route", "By route"),
+			line("rps-route", "RPS by route", 2,
+				spanCfg{Agg: "rate", DSL: httpAny, GroupBy: "http.route"}),
+			line("p99-route", "P99 by route", 2,
+				spanCfg{Agg: "p99", Field: "duration_ms", DSL: httpAny, GroupBy: "http.route"}),
+			line("err-route", "Errors/sec by route", 4,
+				spanCfg{Agg: "errors", DSL: httpErr, GroupBy: "http.route"}),
+
+			row("row-method", "By method"),
+			line("rps-method", "RPS by HTTP method", 2,
+				spanCfg{Agg: "rate", DSL: httpAny, GroupBy: "http.method"}),
+			line("p99-method", "P99 by HTTP method", 2,
+				spanCfg{Agg: "p99", Field: "duration_ms", DSL: httpAny, GroupBy: "http.method"}),
 		},
 	)
 }
 
-// ── 4. Latency Investigation ────────────────────────────────────────────────
+// ── 4. Database Performance ─────────────────────────────────────────────────
 //
-// Honeycomb-style P50/P95/P99 deep-dive. Latency is the most
-// common "silent degradation" signal — this dashboard shows
-// the same data three different ways so the operator finds
-// the slow operation regardless of which percentile shifted.
-func presetLatencyInvestigation() Dashboard {
+// Storage tier RED. Scopes to spans where db.system is set.
+// Cross-references the db-queries analyzer panel on /service
+// for slow-statement drill-down.
+func presetDatabase() Dashboard {
+	const db = `db.system != ""`
 	return dash(
-		"preset-latency-investigation",
-		"Latency Investigation",
-		"P50 / P95 / P99 across services and operations. When the SRE Golden Signals show latency rising, drill in here. Designed to surface 'a single endpoint slowed' vs 'system-wide drift'.",
+		"preset-database",
+		"Database Performance",
+		"Query rate, latency and errors broken down by db.system, db.operation and calling service. Storage tier is the most common saturation culprit.",
 		[]panel{
 			md("intro",
-				"**Latency drill-down.** P50 = typical user; P95 = unhappy user; "+
-					"P99 = tail. Cross-reference: if P50 is steady but P99 spiked, "+
-					"a small subset of requests is slow (often a database query or "+
-					"a noisy neighbour); if P50 ALSO moved, the whole service is "+
-					"degraded. Open the [Traces page](/traces) to find the actual "+
-					"slow trace exemplars."),
+				"**Database calls.** All spans with `db.system` set — PostgreSQL, "+
+					"MySQL, Redis, MongoDB, etc. After spotting a hot db.system or "+
+					"calling-service here, drill into the per-statement analyzer "+
+					"on the [Service detail](/services) page (DB queries panel) "+
+					"to find the actual slow normalised statement."),
 
-			row("row-system", "System percentiles"),
-			line("p50-sys", "P50 across all services", 2,
-				spanCfg{Agg: "p50", Field: "duration_ms"}),
-			line("p99-sys", "P99 across all services", 2,
-				spanCfg{Agg: "p99", Field: "duration_ms"}),
+			row("row-kpi", "Database KPIs"),
+			stat("k-qps", "QPS", "rate", unit("qps"), decimals(1), dsl(db)),
+			stat("k-err", "Error rate", "error_rate", unit("%"), decimals(2), dsl(db)),
+			stat("k-p95", "P95", "p95", field("duration_ms"), unit("ms"), decimals(0), dsl(db)),
+			stat("k-p99", "P99", "p99", field("duration_ms"), unit("ms"), decimals(0), dsl(db)),
 
-			row("row-by-svc", "By service"),
-			line("p50-svc", "P50 by service", 2,
-				spanCfg{Agg: "p50", Field: "duration_ms", GroupBy: "service.name"}),
-			line("p95-svc", "P95 by service", 2,
-				spanCfg{Agg: "p95", Field: "duration_ms", GroupBy: "service.name"}),
-			line("p99-svc", "P99 by service", 4,
-				spanCfg{Agg: "p99", Field: "duration_ms", GroupBy: "service.name"}),
+			row("row-throughput", "Throughput"),
+			line("rps-system", "QPS by db.system", 2,
+				spanCfg{Agg: "rate", DSL: db, GroupBy: "db.system"}),
+			line("rps-op", "QPS by db.operation", 2,
+				spanCfg{Agg: "rate", DSL: db, GroupBy: "db.operation"}),
 
-			row("row-by-op", "Slowest operations (P99)"),
-			line("p99-op", "P99 by operation", 4,
-				spanCfg{Agg: "p99", Field: "duration_ms", GroupBy: "name"}),
+			row("row-latency", "Latency"),
+			line("p95-op", "P95 by db.operation", 2,
+				spanCfg{Agg: "p95", Field: "duration_ms", DSL: db, GroupBy: "db.operation"}),
+			line("p95-svc", "P95 by calling service", 2,
+				spanCfg{Agg: "p95", Field: "duration_ms", DSL: db, GroupBy: "service.name"}),
+			line("p99-system", "P99 by db.system", 4,
+				spanCfg{Agg: "p99", Field: "duration_ms", DSL: db, GroupBy: "db.system"}),
 
-			row("row-by-kind", "By span kind"),
-			line("p99-kind", "P99 by kind (server/client/internal/db)", 2,
-				spanCfg{Agg: "p99", Field: "duration_ms", GroupBy: "kind"}),
-			line("avg-kind", "Avg by kind", 2,
-				spanCfg{Agg: "avg", Field: "duration_ms", GroupBy: "kind"}),
+			row("row-errors", "Errors"),
+			line("err-svc", "Error rate (%) by calling service", 2,
+				spanCfg{Agg: "error_rate", DSL: db, GroupBy: "service.name"}),
+			line("err-system", "Errors/sec by db.system", 2,
+				spanCfg{Agg: "errors", DSL: db, GroupBy: "db.system"}),
 		},
 	)
 }
 
-// ── 5. Error Hunting ────────────────────────────────────────────────────────
+// ── 5. Java / JVM ───────────────────────────────────────────────────────────
 //
-// Dynatrace "error analytics" inspired — multi-axis breakdown
-// of failures so the operator can answer "where do errors
-// concentrate". Pairs with the Exceptions inbox for the actual
-// stack-trace details.
-func presetErrorHunting() Dashboard {
+// Java-specific runtime dashboard. Spans filtered to
+// telemetry.sdk.language=java for the request-side panels;
+// jvm.* metrics for heap / GC / threads / classes. The two
+// halves together answer "is my JVM healthy" without bouncing
+// between dashboards.
+func presetJavaJVM() Dashboard {
+	const java = `resource.telemetry.sdk.language = "java"`
+	return dash(
+		"preset-java-jvm",
+		"Java / JVM",
+		"JVM-tier dashboard for Java services — heap, GC, threads, classes plus request-side RED filtered to language=java. Pair this with the JVM-specific runtime metrics your OTel Java agent exports.",
+		[]panel{
+			md("intro",
+				"**Java services.** Top half = request-side RED filtered to "+
+					"`telemetry.sdk.language=java`. Bottom half = JVM runtime "+
+					"metrics (`jvm.*`) auto-emitted by the OTel Java agent. "+
+					"Most common diagnosis paths: P99 spike + heap climbing → "+
+					"GC churn (look at jvm.gc.duration); P99 spike + flat heap → "+
+					"thread contention (look at jvm.thread.count + per-route P99 "+
+					"on **HTTP Services**)."),
+
+			row("row-kpi", "Java service KPIs"),
+			stat("k-rps", "RPS (Java services)", "rate", unit("rps"), decimals(1), dsl(java)),
+			stat("k-err", "Error rate", "error_rate", unit("%"), decimals(2), dsl(java)),
+			stat("k-p95", "P95", "p95", field("duration_ms"), unit("ms"), decimals(0), dsl(java)),
+			stat("k-p99", "P99", "p99", field("duration_ms"), unit("ms"), decimals(0), dsl(java)),
+
+			row("row-svc", "By Java service"),
+			line("rps-svc", "RPS by service", 2,
+				spanCfg{Agg: "rate", DSL: java, GroupBy: "service.name"}),
+			line("p99-svc", "P99 by service", 2,
+				spanCfg{Agg: "p99", Field: "duration_ms", DSL: java, GroupBy: "service.name"}),
+
+			row("row-heap", "JVM heap"),
+			metric("heap-used", "jvm.memory.heap.used by service", 2,
+				metricCfg{MetricName: "jvm.memory.heap.used", GroupBy: "service.name"}),
+			metric("heap-committed", "jvm.memory.heap.committed by service", 2,
+				metricCfg{MetricName: "jvm.memory.heap.committed", GroupBy: "service.name"}),
+
+			row("row-gc", "Garbage collection"),
+			metric("gc-duration", "jvm.gc.duration by service", 2,
+				metricCfg{MetricName: "jvm.gc.duration", GroupBy: "service.name"}),
+			metric("gc-collections", "jvm.gc.collections.count by service", 2,
+				metricCfg{MetricName: "jvm.gc.collections.count", GroupBy: "service.name"}),
+
+			row("row-threads", "Threads + classes"),
+			metric("threads", "jvm.thread.count by service", 2,
+				metricCfg{MetricName: "jvm.thread.count", GroupBy: "service.name"}),
+			metric("classes", "jvm.class.count by service", 2,
+				metricCfg{MetricName: "jvm.class.count", GroupBy: "service.name"}),
+		},
+	)
+}
+
+// ── 6. Node.js Runtime ──────────────────────────────────────────────────────
+//
+// Node-specific dashboard. Same shape as Java/JVM — request-
+// side RED filtered to language=nodejs, then nodejs.* runtime
+// metrics for event loop / memory / GC.
+func presetNodeJS() Dashboard {
+	const node = `resource.telemetry.sdk.language IN ("nodejs", "javascript")`
+	return dash(
+		"preset-nodejs",
+		"Node.js Runtime",
+		"Node-tier dashboard — request-side RED for Node services plus event-loop lag, heap and GC pressure. Most Node perf issues land on event loop saturation or heap fragmentation.",
+		[]panel{
+			md("intro",
+				"**Node.js services.** Request-side RED filtered to "+
+					"`telemetry.sdk.language IN (nodejs, javascript)` plus the "+
+					"OTel Node SDK's runtime metrics. Event-loop lag spikes are "+
+					"the canonical Node degradation; cross-reference with heap "+
+					"committed to distinguish 'I/O blocked' from 'GC stop-the-world'."),
+
+			row("row-kpi", "Node service KPIs"),
+			stat("k-rps", "RPS (Node services)", "rate", unit("rps"), decimals(1), dsl(node)),
+			stat("k-err", "Error rate", "error_rate", unit("%"), decimals(2), dsl(node)),
+			stat("k-p95", "P95", "p95", field("duration_ms"), unit("ms"), decimals(0), dsl(node)),
+			stat("k-p99", "P99", "p99", field("duration_ms"), unit("ms"), decimals(0), dsl(node)),
+
+			row("row-svc", "By Node service"),
+			line("rps-svc", "RPS by service", 2,
+				spanCfg{Agg: "rate", DSL: node, GroupBy: "service.name"}),
+			line("p99-svc", "P99 by service", 2,
+				spanCfg{Agg: "p99", Field: "duration_ms", DSL: node, GroupBy: "service.name"}),
+
+			row("row-eventloop", "Event loop"),
+			metric("eventloop-delay", "nodejs.eventloop.delay by service", 2,
+				metricCfg{MetricName: "nodejs.eventloop.delay", GroupBy: "service.name"}),
+			metric("eventloop-utilization", "nodejs.eventloop.utilization by service", 2,
+				metricCfg{MetricName: "nodejs.eventloop.utilization", GroupBy: "service.name"}),
+
+			row("row-heap", "Heap"),
+			metric("heap-used", "process.runtime.nodejs.heap.used by service", 2,
+				metricCfg{MetricName: "process.runtime.nodejs.heap.used", GroupBy: "service.name"}),
+			metric("heap-total", "process.runtime.nodejs.heap.total by service", 2,
+				metricCfg{MetricName: "process.runtime.nodejs.heap.total", GroupBy: "service.name"}),
+		},
+	)
+}
+
+// ── 7. Go Runtime ───────────────────────────────────────────────────────────
+//
+// Go-specific dashboard. Goroutines, GC pause, heap_alloc —
+// the standard runtime/pprof signals an oncall reaches for.
+func presetGoRuntime() Dashboard {
+	const goLang = `resource.telemetry.sdk.language = "go"`
+	return dash(
+		"preset-go-runtime",
+		"Go Runtime",
+		"Go-tier dashboard — goroutines, GC, heap_alloc plus request-side RED for Go services. Goroutine count climbing faster than RPS is the canonical 'leak' signal.",
+		[]panel{
+			md("intro",
+				"**Go services.** Request-side RED filtered to "+
+					"`telemetry.sdk.language=go` plus runtime metrics emitted by the "+
+					"OTel Go SDK. Two telltale patterns: goroutines climbing without "+
+					"matching RPS = leak; gc.pause climbing without matching "+
+					"heap_alloc = pressure on small allocations (look at allocs by "+
+					"alloc-rate metric)."),
+
+			row("row-kpi", "Go service KPIs"),
+			stat("k-rps", "RPS (Go services)", "rate", unit("rps"), decimals(1), dsl(goLang)),
+			stat("k-err", "Error rate", "error_rate", unit("%"), decimals(2), dsl(goLang)),
+			stat("k-p95", "P95", "p95", field("duration_ms"), unit("ms"), decimals(0), dsl(goLang)),
+			stat("k-p99", "P99", "p99", field("duration_ms"), unit("ms"), decimals(0), dsl(goLang)),
+
+			row("row-svc", "By Go service"),
+			line("rps-svc", "RPS by service", 2,
+				spanCfg{Agg: "rate", DSL: goLang, GroupBy: "service.name"}),
+			line("p99-svc", "P99 by service", 2,
+				spanCfg{Agg: "p99", Field: "duration_ms", DSL: goLang, GroupBy: "service.name"}),
+
+			row("row-goroutines", "Goroutines"),
+			metric("goroutines", "process.runtime.go.goroutines by service", 4,
+				metricCfg{MetricName: "process.runtime.go.goroutines", GroupBy: "service.name"}),
+
+			row("row-heap", "Heap"),
+			metric("heap-alloc", "process.runtime.go.mem.heap_alloc by service", 2,
+				metricCfg{MetricName: "process.runtime.go.mem.heap_alloc", GroupBy: "service.name"}),
+			metric("heap-objects", "process.runtime.go.mem.heap_objects by service", 2,
+				metricCfg{MetricName: "process.runtime.go.mem.heap_objects", GroupBy: "service.name"}),
+
+			row("row-gc", "Garbage collection"),
+			metric("gc-pause", "process.runtime.go.gc.pause_total_ns by service", 2,
+				metricCfg{MetricName: "process.runtime.go.gc.pause_total_ns", GroupBy: "service.name"}),
+			metric("gc-count", "process.runtime.go.gc.count by service", 2,
+				metricCfg{MetricName: "process.runtime.go.gc.count", GroupBy: "service.name"}),
+		},
+	)
+}
+
+// ── 8. Kafka / Messaging ────────────────────────────────────────────────────
+//
+// Messaging-tier dashboard. Filters on messaging.system to
+// scope to message-broker spans (kafka, rabbitmq, sqs, etc.);
+// per-topic + per-system breakdown.
+func presetKafkaMessaging() Dashboard {
+	const msg = `messaging.system != ""`
+	const kafka = `messaging.system = "kafka"`
+	return dash(
+		"preset-kafka-messaging",
+		"Kafka / Messaging",
+		"Producer + consumer rate, latency, and errors per messaging.system and per topic. Kafka-first but works for any broker the OTel SDKs instrument (RabbitMQ, SQS, NATS, etc.).",
+		[]panel{
+			md("intro",
+				"**Messaging tier.** Spans where `messaging.system` is set. "+
+					"Producer and consumer kinds split via `kind`. The "+
+					"`messaging.destination.name` group-by surfaces hot topics. "+
+					"Lag-by-consumer is best read from the broker's own metrics "+
+					"(kafka_consumergroup_lag) — wire those into the metric "+
+					"panels by name; they show up automatically when present."),
+
+			row("row-kpi", "Messaging KPIs"),
+			stat("k-rps", "Messages/sec", "rate", unit("msg/s"), decimals(1), dsl(msg)),
+			stat("k-err", "Error rate", "error_rate", unit("%"), decimals(2), dsl(msg)),
+			stat("k-p95", "P95", "p95", field("duration_ms"), unit("ms"), decimals(0), dsl(msg)),
+			stat("k-p99", "P99", "p99", field("duration_ms"), unit("ms"), decimals(0), dsl(msg)),
+
+			row("row-system", "By messaging.system"),
+			line("rps-system", "Rate by messaging.system", 2,
+				spanCfg{Agg: "rate", DSL: msg, GroupBy: "messaging.system"}),
+			line("p99-system", "P99 by messaging.system", 2,
+				spanCfg{Agg: "p99", Field: "duration_ms", DSL: msg, GroupBy: "messaging.system"}),
+
+			row("row-kind", "Producer vs consumer"),
+			line("rps-kind", "Rate by kind (producer / consumer)", 2,
+				spanCfg{Agg: "rate", DSL: msg, GroupBy: "kind"}),
+			line("err-kind", "Errors/sec by kind", 2,
+				spanCfg{Agg: "errors", DSL: msg, GroupBy: "kind"}),
+
+			row("row-kafka-topic", "Kafka topics (filtered to messaging.system=kafka)"),
+			line("rps-topic", "Messages/sec by topic", 2,
+				spanCfg{Agg: "rate", DSL: kafka, GroupBy: "messaging.destination.name"}),
+			line("p99-topic", "P99 by topic", 2,
+				spanCfg{Agg: "p99", Field: "duration_ms", DSL: kafka, GroupBy: "messaging.destination.name"}),
+
+			row("row-broker", "Broker metrics (auto-populated when emitted)"),
+			metric("kafka-lag", "kafka_consumergroup_lag by group", 2,
+				metricCfg{MetricName: "kafka_consumergroup_lag", GroupBy: "consumergroup"}),
+			metric("kafka-msg-in", "kafka.server.brokertopicmetrics.messagesin.rate", 2,
+				metricCfg{MetricName: "kafka.server.brokertopicmetrics.messagesin.rate", GroupBy: "topic"}),
+		},
+	)
+}
+
+// ── 9. Errors & Exceptions ──────────────────────────────────────────────────
+//
+// Error-focused multi-axis breakdown — by service, operation,
+// HTTP status, span kind. Pairs with the Exceptions inbox for
+// the actual stack-trace details.
+func presetErrorsExceptions() Dashboard {
 	const errOnly = `status_code = "error"`
 	const httpErr = `http.method != "" AND status_code = "error"`
 	return dash(
-		"preset-error-hunting",
-		"Error Hunting",
-		"Multi-axis error breakdown — by service, operation, HTTP status, and span kind. Pairs with the Exceptions inbox for actual stack-trace details. Open this when error rate trends up.",
+		"preset-errors-exceptions",
+		"Errors & Exceptions",
+		"Multi-axis error breakdown — by service, operation, HTTP status, span kind. Pairs with the Exceptions inbox for actual stack-trace details. Open this when error rate trends up.",
 		[]panel{
 			md("intro",
-				"**Where do errors live?** This dashboard shows the same error "+
-					"firehose sliced four different ways so the operator finds "+
-					"the cluster regardless of dimension. After identifying the "+
-					"hot service / operation here, jump to:"+
-					"\n\n• [Exceptions](/errors) — grouped stack traces with sample occurrences"+
-					"\n• [Anomalies](/anomalies) — log-pattern detector hits + trace-op spikes"+
-					"\n• [Traces](/traces) (filter `status_code:error`) — sample failed traces"),
+				"**Where do errors live?** Same error firehose sliced four "+
+					"different ways so the operator finds the cluster regardless "+
+					"of dimension. After identifying the hot service / operation "+
+					"here, jump to:\n\n"+
+					"• [Exceptions](/errors) — grouped stack traces with sample occurrences\n"+
+					"• [Anomalies](/anomalies) — log-pattern detector + trace-op spikes\n"+
+					"• [Traces](/traces) (filter `status_code:error`) — sample failed traces"),
 
-			row("row-rate", "Error rate trends"),
+			row("row-rate", "Error rate"),
 			stat("k-rate", "Error rate", "error_rate", unit("%"), decimals(2)),
 			stat("k-eps", "Errors/sec", "errors", unit("eps"), decimals(1)),
 			stat("k-cnt", "Total RPS", "rate", unit("rps"), decimals(0)),
@@ -450,148 +653,6 @@ func presetErrorHunting() Dashboard {
 			row("row-kind", "By span kind"),
 			line("err-kind", "Errors/sec by kind", 4,
 				spanCfg{Agg: "errors", DSL: errOnly, GroupBy: "kind"}),
-		},
-	)
-}
-
-// ── 6. Infrastructure Saturation ────────────────────────────────────────────
-//
-// Brendan Gregg's USE method — Utilisation, Saturation, Errors —
-// for resources. Reads metric_points; surfaces process-runtime
-// + container-level indicators across services.
-func presetInfrastructure() Dashboard {
-	return dash(
-		"preset-infrastructure",
-		"Infrastructure Saturation",
-		"CPU / memory / heap / GC pressure across services using the USE method (Utilisation, Saturation, Errors). Open this when latency rises but the service-level RED metrics look normal — usually means a resource is the bottleneck.",
-		[]panel{
-			md("intro",
-				"**USE method on runtime metrics.** When latency degrades but "+
-					"requests-per-second look normal, the bottleneck is usually "+
-					"a saturated resource. This dashboard surfaces the standard "+
-					"OTel runtime metrics across every service that emits them.\n\n"+
-					"Note: panels render only for services whose SDK exports the "+
-					"matching metric. Java services typically emit `jvm.*`, Go "+
-					"services emit `process.runtime.go.*`, .NET emits "+
-					"`process.runtime.dotnet.*`, Node.js emits `process.runtime.nodejs.*`."),
-
-			row("row-cpu", "CPU utilisation"),
-			metric("cpu-util", "CPU utilisation by service (process.runtime.cpu.utilization)", 4,
-				metricCfg{MetricName: "process.runtime.cpu.utilization", GroupBy: "service.name"}),
-
-			row("row-memory", "Memory saturation"),
-			metric("mem-rss", "Memory RSS by service (process.runtime.memory.rss)", 2,
-				metricCfg{MetricName: "process.runtime.memory.rss", GroupBy: "service.name"}),
-			metric("heap-go", "Go heap_alloc by service (process.runtime.go.mem.heap_alloc)", 2,
-				metricCfg{MetricName: "process.runtime.go.mem.heap_alloc", GroupBy: "service.name"}),
-			metric("heap-jvm", "JVM heap by service (jvm.memory.heap.used)", 2,
-				metricCfg{MetricName: "jvm.memory.heap.used", GroupBy: "service.name"}),
-			metric("heap-dotnet", ".NET heap by service (process.runtime.dotnet.gc.heap.size)", 2,
-				metricCfg{MetricName: "process.runtime.dotnet.gc.heap.size", GroupBy: "service.name"}),
-
-			row("row-gc", "GC pressure"),
-			metric("gc-go", "Go GC pause time by service (process.runtime.go.gc.pause_total_ns)", 2,
-				metricCfg{MetricName: "process.runtime.go.gc.pause_total_ns", GroupBy: "service.name"}),
-			metric("gc-jvm", "JVM GC duration by service (jvm.gc.duration)", 2,
-				metricCfg{MetricName: "jvm.gc.duration", GroupBy: "service.name"}),
-
-			row("row-threads", "Concurrency"),
-			metric("goroutines", "Goroutines by service (process.runtime.goroutines)", 2,
-				metricCfg{MetricName: "process.runtime.goroutines", GroupBy: "service.name"}),
-			metric("jvm-threads", "JVM threads by service (jvm.thread.count)", 2,
-				metricCfg{MetricName: "jvm.thread.count", GroupBy: "service.name"}),
-		},
-	)
-}
-
-// ── 7. Database Performance ─────────────────────────────────────────────────
-//
-// Storage layers are the most common saturation culprit. This
-// dashboard shares the same RED frame as Service Health but
-// scopes to spans where db.system is set.
-func presetDatabase() Dashboard {
-	const db = `db.system != ""`
-	return dash(
-		"preset-database",
-		"Database Performance",
-		"Query rate, latency and errors by db.system, db.operation and service. Storage is the most common saturation culprit — if latency rises but CPU stays flat, start here.",
-		[]panel{
-			md("intro",
-				"**Database calls.** All spans with `db.system` set — PostgreSQL, "+
-					"MySQL, Redis, MongoDB, etc. The per-operation P95 graph is "+
-					"the fastest way to spot a slowing query type. The per-service "+
-					"breakdown shows which app is feeling it. Combine with "+
-					"[Traces](/traces) filtered by `db.system:postgresql` to find "+
-					"the actual slow query."),
-
-			row("row-kpi", "Database KPIs"),
-			stat("k-qps", "QPS", "rate", unit("qps"), decimals(1), dsl(db)),
-			stat("k-err", "Error rate", "error_rate", unit("%"), decimals(2), dsl(db)),
-			stat("k-p95", "P95", "p95", field("duration_ms"), unit("ms"), decimals(0), dsl(db)),
-			stat("k-p99", "P99", "p99", field("duration_ms"), unit("ms"), decimals(0), dsl(db)),
-
-			row("row-throughput", "Throughput"),
-			line("rps-system", "QPS by db.system", 2,
-				spanCfg{Agg: "rate", DSL: db, GroupBy: "db.system"}),
-			line("rps-op", "QPS by db.operation", 2,
-				spanCfg{Agg: "rate", DSL: db, GroupBy: "db.operation"}),
-
-			row("row-latency", "Latency"),
-			line("p95-op", "P95 by db.operation", 2,
-				spanCfg{Agg: "p95", Field: "duration_ms", DSL: db, GroupBy: "db.operation"}),
-			line("p95-svc", "P95 by service (database calls)", 2,
-				spanCfg{Agg: "p95", Field: "duration_ms", DSL: db, GroupBy: "service.name"}),
-			line("p99-system", "P99 by db.system", 4,
-				spanCfg{Agg: "p99", Field: "duration_ms", DSL: db, GroupBy: "db.system"}),
-
-			row("row-errors", "Errors"),
-			line("err-svc", "Error rate (%) by service", 2,
-				spanCfg{Agg: "error_rate", DSL: db, GroupBy: "service.name"}),
-			line("err-system", "Errors/sec by db.system", 2,
-				spanCfg{Agg: "errors", DSL: db, GroupBy: "db.system"}),
-		},
-	)
-}
-
-// ── 8. External Dependencies ────────────────────────────────────────────────
-//
-// Datadog "Service Map" inspired — focuses on outbound (client-
-// kind) spans. When your own service-internal latency is fine
-// but request P95 is rising, the answer is usually here.
-func presetExternalDeps() Dashboard {
-	const ext = `kind = "client"`
-	return dash(
-		"preset-external-deps",
-		"External Dependencies",
-		"Outbound (client-kind) span performance by peer.service — third-party APIs and downstream services. When your own service-internal latency is fine but request P95 is rising, the answer is usually here.",
-		[]panel{
-			md("intro",
-				"**Outbound calls.** All client-kind spans. Group-by `peer.service` "+
-					"surfaces the downstream that's slowing down or erroring. "+
-					"Cross-reference with [Service map](/service-map) to see the "+
-					"hot edges in the topology graph."),
-
-			row("row-kpi", "Outbound KPIs"),
-			stat("k-rps", "Outbound RPS", "rate", unit("rps"), decimals(1), dsl(ext)),
-			stat("k-err", "Error rate", "error_rate", unit("%"), decimals(2), dsl(ext)),
-			stat("k-p95", "P95", "p95", field("duration_ms"), unit("ms"), decimals(0), dsl(ext)),
-			stat("k-p99", "P99", "p99", field("duration_ms"), unit("ms"), decimals(0), dsl(ext)),
-
-			row("row-peer", "By peer / dependency"),
-			line("rps-peer", "RPS by peer.service", 2,
-				spanCfg{Agg: "rate", DSL: ext, GroupBy: "peer.service"}),
-			line("p95-peer", "P95 by peer.service", 2,
-				spanCfg{Agg: "p95", Field: "duration_ms", DSL: ext, GroupBy: "peer.service"}),
-			line("err-peer", "Error rate (%) by peer.service", 2,
-				spanCfg{Agg: "error_rate", DSL: ext, GroupBy: "peer.service"}),
-			line("p99-peer", "P99 by peer.service", 2,
-				spanCfg{Agg: "p99", Field: "duration_ms", DSL: ext, GroupBy: "peer.service"}),
-
-			row("row-by-svc", "By calling service"),
-			line("rps-svc", "Outbound RPS by service", 2,
-				spanCfg{Agg: "rate", DSL: ext, GroupBy: "service.name"}),
-			line("p95-svc", "P95 by service", 2,
-				spanCfg{Agg: "p95", Field: "duration_ms", DSL: ext, GroupBy: "service.name"}),
 		},
 	)
 }
