@@ -202,6 +202,18 @@ func (n *Notifier) SaveSMTP(ctx context.Context, s SMTPSettings) error {
 // sidebar badge; resolve events also do, plus drop a row from
 // the open list).
 func (n *Notifier) SendProblemAlert(ctx context.Context, p chstore.Problem) {
+	// Enrich with the runbook URL — pulled from the firing
+	// alert rule (preferred) or the service catalog metadata
+	// (fallback). Done here, not at problem creation, so an
+	// operator who edits a runbook URL after a rule fires
+	// still sees the new link in the very next notification
+	// (e.g. the resolved-event message).
+	if p.RunbookURL == "" {
+		enriched := n.store.EnrichProblemsWithRunbooks(ctx, []chstore.Problem{p})
+		if len(enriched) > 0 {
+			p = enriched[0]
+		}
+	}
 	switch p.Status {
 	case "open":
 		n.Publish("problem.open", p)
@@ -307,6 +319,9 @@ func buildEmailBody(p chstore.Problem) string {
 	fmt.Fprintf(&b, "Metric:     %s\n", p.Metric)
 	fmt.Fprintf(&b, "Value:      %.2f (threshold %.2f)\n", p.Value, p.Threshold)
 	fmt.Fprintf(&b, "Started at: %s\n", t)
+	if p.RunbookURL != "" {
+		fmt.Fprintf(&b, "Runbook:    %s\n", p.RunbookURL)
+	}
 	return b.String()
 }
 
@@ -375,18 +390,28 @@ func (n *Notifier) sendSlack(ctx context.Context, c chstore.NotificationChannel,
 	}
 	color := severityColor(p.Severity)
 	t := time.Unix(0, p.StartedAt).UTC().Format(time.RFC3339)
+	fields := []map[string]any{
+		{"title": "Service",   "value": p.Service,                                       "short": true},
+		{"title": "Severity",  "value": strings.ToUpper(p.Severity),                    "short": true},
+		{"title": "Metric",    "value": p.Metric,                                        "short": true},
+		{"title": "Value",     "value": fmt.Sprintf("%.2f (threshold %.2f)", p.Value, p.Threshold), "short": true},
+		{"title": "Started",   "value": t,                                               "short": false},
+	}
+	// Runbook link as a clickable Slack mrkdwn field — the
+	// oncall on mobile lands on the playbook in one tap.
+	if p.RunbookURL != "" {
+		fields = append(fields, map[string]any{
+			"title": "Runbook",
+			"value": fmt.Sprintf("<%s|Open runbook ↗>", p.RunbookURL),
+			"short": false,
+		})
+	}
 	body := map[string]any{
 		"text": fmt.Sprintf("[%s] %s — %s", strings.ToUpper(p.Severity), p.Service, p.RuleName),
 		"attachments": []map[string]any{{
 			"color":  color,
 			"text":   p.Description,
-			"fields": []map[string]any{
-				{"title": "Service",   "value": p.Service,                                       "short": true},
-				{"title": "Severity",  "value": strings.ToUpper(p.Severity),                    "short": true},
-				{"title": "Metric",    "value": p.Metric,                                        "short": true},
-				{"title": "Value",     "value": fmt.Sprintf("%.2f (threshold %.2f)", p.Value, p.Threshold), "short": true},
-				{"title": "Started",   "value": t,                                               "short": false},
-			},
+			"fields": fields,
 			"footer": "Coremetry",
 		}},
 	}
@@ -479,11 +504,15 @@ func normaliseWhatsAppAddr(addr string) string {
 
 func buildWhatsAppText(p chstore.Problem) string {
 	t := time.Unix(0, p.StartedAt).UTC().Format("15:04 MST")
-	return fmt.Sprintf(
+	out := fmt.Sprintf(
 		"*[%s]* %s — %s\n%s\nValue: %.2f (threshold %.2f)\nStarted: %s",
 		strings.ToUpper(p.Severity), p.Service, p.RuleName,
 		p.Description, p.Value, p.Threshold, t,
 	)
+	if p.RunbookURL != "" {
+		out += "\nRunbook: " + p.RunbookURL
+	}
+	return out
 }
 
 // ── Shared HTTP-POST helper ─────────────────────────────────────────────────

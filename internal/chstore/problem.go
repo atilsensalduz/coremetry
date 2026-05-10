@@ -42,6 +42,55 @@ type Problem struct {
 	Description string  `json:"description"`
 	StartedAt   int64   `json:"startedAt"`  // unix ns
 	ResolvedAt  *int64  `json:"resolvedAt,omitempty"`
+	// RunbookURL — composed at read time from the firing
+	// alert rule (preferred) or the service catalog metadata
+	// (fallback). Not stored on the problems table; the URL
+	// is operator-curated and likely to change between when
+	// the problem opened and when an oncall reads it. NEVER
+	// scanned from CH — populated by EnrichProblems.
+	RunbookURL  string  `json:"runbookUrl,omitempty"`
+}
+
+// EnrichProblemsWithRunbooks resolves each problem's
+// RunbookURL from (a) the alert rule that fired or (b) the
+// service catalog metadata as a fallback. Two single-shot
+// queries (alert_rules + service_metadata) joined in-memory
+// against the problems slice — N+1 free regardless of the
+// problem count. Safe to call on resolved problems too;
+// the URL is contextual to the rule / service, not the
+// status.
+func (s *Store) EnrichProblemsWithRunbooks(ctx context.Context, problems []Problem) []Problem {
+	if len(problems) == 0 {
+		return problems
+	}
+	// Alert rule runbooks — keyed by rule id.
+	ruleBooks := map[string]string{}
+	if rules, err := s.ListAlertRules(ctx); err == nil {
+		for _, r := range rules {
+			if r.RunbookURL != "" {
+				ruleBooks[r.ID] = r.RunbookURL
+			}
+		}
+	}
+	// Service catalog runbooks — keyed by service name.
+	svcBooks := map[string]string{}
+	if mds, err := s.ListServiceMetadata(ctx); err == nil {
+		for svc, md := range mds {
+			if md.RunbookURL != "" {
+				svcBooks[svc] = md.RunbookURL
+			}
+		}
+	}
+	for i := range problems {
+		if u, ok := ruleBooks[problems[i].RuleID]; ok {
+			problems[i].RunbookURL = u
+			continue
+		}
+		if u, ok := svcBooks[problems[i].Service]; ok {
+			problems[i].RunbookURL = u
+		}
+	}
+	return problems
 }
 
 // ── Alert rules ───────────────────────────────────────────────────────────────

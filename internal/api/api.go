@@ -3234,7 +3234,18 @@ func (s *Server) listProblems(w http.ResponseWriter, r *http.Request) {
 	key := fmt.Sprintf("problems:status=%s:svc=%s:sev=%s:limit=%d",
 		f.Status, f.Service, f.Severity, f.Limit)
 	s.serveCached(w, r, key, 5*time.Second, func() (any, error) {
-		return s.store.ListProblems(r.Context(), f)
+		probs, err := s.store.ListProblems(r.Context(), f)
+		if err != nil {
+			return nil, err
+		}
+		// Resolve runbook URLs at read time — pulled from
+		// the firing alert rule (preferred) or service
+		// catalog metadata (fallback). Computed here, not
+		// persisted on the problems table, so an
+		// operator who edits a runbook URL sees existing
+		// open problems pick up the new link on the next
+		// refresh.
+		return s.store.EnrichProblemsWithRunbooks(r.Context(), probs), nil
 	})
 }
 

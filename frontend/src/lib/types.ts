@@ -390,6 +390,10 @@ export interface AlertRule {
 
 export interface Problem {
   id: string;
+  // Runbook URL — composed at read time on the backend from
+  // the firing alert rule (preferred) or the service catalog
+  // metadata (fallback). Empty when neither carries one.
+  runbookUrl?: string;
   ruleId: string;
   ruleName: string;
   severity: string;

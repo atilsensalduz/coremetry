@@ -158,6 +158,27 @@ function ProblemsPageInner() {
                           <span className="badge b-info" style={{ marginRight: 6 }}>ANOMALY</span>
                         )}
                         {p.ruleName}
+                        {/* Runbook chip — surfaced when the
+                            firing rule or the service catalog
+                            carries a runbook URL. Stops row-
+                            click propagation so opening the
+                            playbook doesn't also open the
+                            problem detail. */}
+                        {p.runbookUrl && (
+                          <a href={p.runbookUrl} target="_blank" rel="noopener"
+                            onClick={e => e.stopPropagation()}
+                            title="Open team runbook"
+                            style={{
+                              marginLeft: 8, fontSize: 11,
+                              padding: '2px 8px', borderRadius: 12,
+                              background: 'rgba(56,139,253,0.10)',
+                              border: '1px solid rgba(56,139,253,0.35)',
+                              color: 'var(--accent2)', textDecoration: 'none',
+                              whiteSpace: 'nowrap',
+                            }}>
+                            📘 Runbook ↗
+                          </a>
+                        )}
                         {isAnomaly && (
                           <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
                             {p.description}
