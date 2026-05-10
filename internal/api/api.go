@@ -341,6 +341,13 @@ func (s *Server) getServices(w http.ResponseWriter, r *http.Request) {
 	// in the picker, the query searches ALL services that contain the
 	// typed substring across pages.
 	nameMatch := strings.TrimSpace(q.Get("name"))
+	// Server-side sort. Without this, the client would sort the
+	// limited page locally — fine at 50 services, broken at
+	// 1000+ where every page-load fixes the same first 50 in
+	// place. The chstore layer whitelists the column → CH ORDER
+	// BY mapping; everything else falls back to span-count desc.
+	sort := strings.TrimSpace(q.Get("sort"))
+	dir := strings.TrimSpace(q.Get("dir"))
 	if from.IsZero() {
 		from = time.Now().Add(-since)
 	}
@@ -351,8 +358,8 @@ func (s *Server) getServices(w http.ResponseWriter, r *http.Request) {
 	// shorter than ~5 min would return empty — fall through to the raw
 	// scan in that case (small window = small scan, also fast).
 	useMV := to.Sub(from) >= 5*time.Minute
-	key := fmt.Sprintf("services:mv=%t:limit=%d:offset=%d:since=%s:from=%s:to=%s:name=%s",
-		useMV, limit, offset, q.Get("since"), q.Get("from"), q.Get("to"), nameMatch)
+	key := fmt.Sprintf("services:mv=%t:limit=%d:offset=%d:since=%s:from=%s:to=%s:name=%s:sort=%s:dir=%s",
+		useMV, limit, offset, q.Get("since"), q.Get("from"), q.Get("to"), nameMatch, sort, dir)
 	// 30s cache. The 5m-MV-backed query is already sub-second on
 	// 10k+ services, but 30s collapses every page-flip and tab
 	// switch in a session into one CH round-trip per (page,
@@ -365,9 +372,9 @@ func (s *Server) getServices(w http.ResponseWriter, r *http.Request) {
 		var rows []chstore.ServiceSummary
 		var err error
 		if useMV {
-			rows, err = s.store.GetServicesAggFiltered(r.Context(), from, to, nameMatch, probeLimit, offset)
+			rows, err = s.store.GetServicesAggFiltered(r.Context(), from, to, nameMatch, sort, dir, probeLimit, offset)
 		} else {
-			rows, err = s.store.GetServicesFiltered(r.Context(), since, from, to, nameMatch, probeLimit, offset)
+			rows, err = s.store.GetServicesFiltered(r.Context(), since, from, to, nameMatch, sort, dir, probeLimit, offset)
 		}
 		if err != nil {
 			return nil, err

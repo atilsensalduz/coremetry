@@ -77,6 +77,14 @@ export default function ServicesPage() {
       limit: PAGE_SIZE,
       offset: page * PAGE_SIZE,
       name: committedFilter || undefined,
+      // Sort runs server-side now — at 1000+ services a
+      // client-side sort would only re-order the current
+      // page, which made every page-load surface the same
+      // top-50 by span_count even when the operator clicked
+      // a different column. CH does the ORDER BY before the
+      // LIMIT/OFFSET, so the page reflects the global rank.
+      sort: sortBy,
+      dir: sortDir,
     }).then(resp => {
       setData(resp?.services ?? []);
       setHasMore(resp?.hasMore ?? false);
@@ -85,12 +93,12 @@ export default function ServicesPage() {
         api.serviceSparklines(r, names).then(d => setSparklines(d ?? {})).catch(() => {});
       }
     }).catch(() => { setData(null); setHasMore(false); });
-  }, [range, page, committedFilter]);
+  }, [range, page, committedFilter, sortBy, sortDir]);
 
-  // Reset to page 0 whenever the search filter or time range
-  // changes — staying on page 5 of an old result set when the
-  // operator searches for a specific service is jarring.
-  useEffect(() => { setPage(0); }, [committedFilter, range]);
+  // Reset to page 0 whenever the search filter, time range,
+  // or sort changes — staying on page 5 of an old result set
+  // when the operator re-orders is jarring.
+  useEffect(() => { setPage(0); }, [committedFilter, range, sortBy, sortDir]);
 
   // Service combobox options come from the loaded data itself.
   const serviceOptions = useMemo(
@@ -98,32 +106,26 @@ export default function ServicesPage() {
     [data]
   );
 
-  // Apply filters → sort
+  // Sort runs server-side via ?sort/&dir; this only applies
+  // local display filters (errors-only / min-spans / min-p99
+  // / typed substring). Server returns rows already ordered
+  // by the chosen column. Local filters narrow the visible
+  // current page only — fine because the search filter
+  // routes through `committedFilter` to the server and
+  // re-fetches.
   const sorted = useMemo(() => {
     if (!data) return data;
     const minS = parseFloat(minSpans);
     const minP = parseFloat(minP99);
     const term = serviceFilter.trim().toLowerCase();
-    const filtered = data.filter(s => {
+    return data.filter(s => {
       if (term && !s.name.toLowerCase().includes(term)) return false;
       if (errorsOnly && !(s.errorCount > 0 || s.errorRate > 0)) return false;
       if (!isNaN(minS) && s.spanCount < minS) return false;
       if (!isNaN(minP) && s.p99DurationMs < minP) return false;
       return true;
     });
-    const cmp = (a: Service, b: Service): number => {
-      switch (sortBy) {
-        case 'name':      return a.name.localeCompare(b.name);
-        case 'spanCount': return a.spanCount - b.spanCount;
-        case 'errorRate': return a.errorRate - b.errorRate;
-        case 'avg':       return a.avgDurationMs - b.avgDurationMs;
-        case 'p99':       return a.p99DurationMs - b.p99DurationMs;
-        case 'apdex':     return (a.apdex ?? 0) - (b.apdex ?? 0);
-      }
-    };
-    const arr = [...filtered].sort(cmp);
-    return sortDir === 'desc' ? arr.reverse() : arr;
-  }, [data, sortBy, sortDir, serviceFilter, errorsOnly, minSpans, minP99]);
+  }, [data, serviceFilter, errorsOnly, minSpans, minP99]);
 
   const apply = () => setCommittedFilter(serviceFilter.trim());
 

@@ -91,7 +91,40 @@ func (s *Store) InsertMetrics(ctx context.Context, pts []*MetricPoint) error {
 // Pass `since` for a relative window (now-since … now), or non-zero `from`/`to`
 // for an absolute window (overrides since).
 func (s *Store) GetServices(ctx context.Context, since time.Duration, from, to time.Time) ([]ServiceSummary, error) {
-	return s.GetServicesFiltered(ctx, since, from, to, "", 0, 0)
+	return s.GetServicesFiltered(ctx, since, from, to, "", "", "", 0, 0)
+}
+
+// servicesSortExpr maps a UI-side sort key to a CH ORDER BY
+// fragment for the raw-scan GetServicesFiltered path. The
+// whitelist is the only sanitisation — never interpolate the
+// raw key into SQL. `dir` is normalised to ASC / DESC; unknown
+// values fall through to DESC.
+func servicesSortExpr(sort, dir string) string {
+	col := "span_count"
+	switch sort {
+	case "name":
+		col = "service_name"
+	case "spans", "span_count":
+		col = "span_count"
+	case "errorCount", "errors", "error_count":
+		col = "error_count"
+	case "errorRate", "error_rate":
+		// Avoid div-by-zero ordering surprises by using
+		// nullIf inside the expression — services with zero
+		// spans land at the bottom on either direction.
+		col = "(error_count / nullIf(span_count, 0))"
+	case "avg", "avg_ms":
+		col = "avg_ms"
+	case "p99", "p99_ms":
+		col = "p99_ms"
+	case "apdex":
+		col = "apdex"
+	}
+	d := "DESC"
+	if dir == "asc" || dir == "ASC" {
+		d = "ASC"
+	}
+	return col + " " + d + " NULLS LAST"
 }
 
 // GetServicesFiltered narrows the result to services whose name
@@ -100,7 +133,7 @@ func (s *Store) GetServices(ctx context.Context, since time.Duration, from, to t
 // when the user types its name. Empty `nameMatch` disables the
 // filter (legacy behaviour). limit/offset drive page-based
 // pagination — pass limit=0 to disable the cap.
-func (s *Store) GetServicesFiltered(ctx context.Context, since time.Duration, from, to time.Time, nameMatch string, limit, offset int) ([]ServiceSummary, error) {
+func (s *Store) GetServicesFiltered(ctx context.Context, since time.Duration, from, to time.Time, nameMatch, sort, dir string, limit, offset int) ([]ServiceSummary, error) {
 	var wc whereClause
 	if !from.IsZero() {
 		wc.add("time >= ?", from)
@@ -130,7 +163,7 @@ func (s *Store) GetServicesFiltered(ctx context.Context, since time.Duration, fr
 		         / nullIf(count(), 0)                   AS apdex
 		FROM spans `+wc.sql()+`
 		GROUP BY service_name
-		ORDER BY span_count DESC`+limitClause,
+		ORDER BY `+servicesSortExpr(sort, dir)+limitClause,
 		append([]any{apdexT, apdexT, apdexT * 4}, wc.args...)...)
 	if err != nil {
 		return nil, err

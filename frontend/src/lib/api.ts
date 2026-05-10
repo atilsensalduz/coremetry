@@ -63,7 +63,10 @@ export const api = {
   },
   // Page-aware variant — returns the full {services, hasMore,
   // offset, limit} payload so /services can drive prev/next.
-  servicesPage: (r: RangeParams, opts: { limit?: number; offset?: number; name?: string } = {}) =>
+  servicesPage: (r: RangeParams, opts: {
+    limit?: number; offset?: number; name?: string;
+    sort?: string; dir?: 'asc' | 'desc';
+  } = {}) =>
     get<{
       services: Service[];
       hasMore: boolean;

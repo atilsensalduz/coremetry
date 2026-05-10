@@ -102,7 +102,36 @@ func (s *Store) ListServiceNames(ctx context.Context, pattern string, limit, off
 // 30-second hard execution timeout via SETTINGS — this endpoint must
 // never hang the UI thread, even when the MV itself has a backlog.
 func (s *Store) GetServicesAgg(ctx context.Context, from, to time.Time, limit int) ([]ServiceSummary, error) {
-	return s.GetServicesAggFiltered(ctx, from, to, "", limit, 0)
+	return s.GetServicesAggFiltered(ctx, from, to, "", "", "", limit, 0)
+}
+
+// servicesAggSortExpr — alias for servicesSortExpr but using
+// the column names produced by the MV-aggregation SELECT
+// (`spans` / `errs` instead of `span_count` / `error_count`).
+// Same whitelist; never interpolate the raw key.
+func servicesAggSortExpr(sort, dir string) string {
+	col := "spans"
+	switch sort {
+	case "name":
+		col = "service_name"
+	case "spans", "span_count":
+		col = "spans"
+	case "errorCount", "errors", "error_count":
+		col = "errs"
+	case "errorRate", "error_rate":
+		col = "(errs / nullIf(spans, 0))"
+	case "avg", "avg_ms":
+		col = "avg_ms"
+	case "p99", "p99_ms":
+		col = "p99_ms"
+	case "apdex":
+		col = "apdex"
+	}
+	d := "DESC"
+	if dir == "asc" || dir == "ASC" {
+		d = "ASC"
+	}
+	return col + " " + d + " NULLS LAST"
 }
 
 // GetServicesAggFiltered narrows the row set by a substring match on
@@ -110,7 +139,7 @@ func (s *Store) GetServicesAgg(ctx context.Context, from, to time.Time, limit in
 // dropdown so a service that's outside the limited top-N still
 // surfaces when the user types its name. `nameMatch` empty disables
 // the filter.
-func (s *Store) GetServicesAggFiltered(ctx context.Context, from, to time.Time, nameMatch string, limit, offset int) ([]ServiceSummary, error) {
+func (s *Store) GetServicesAggFiltered(ctx context.Context, from, to time.Time, nameMatch, sort, dir string, limit, offset int) ([]ServiceSummary, error) {
 	if from.IsZero() {
 		from = time.Now().Add(-24 * time.Hour)
 	}
@@ -141,7 +170,7 @@ func (s *Store) GetServicesAggFiltered(ctx context.Context, from, to time.Time, 
 		FROM service_summary_5m
 		WHERE time_bucket >= ? AND time_bucket <= ?`+nameClause+`
 		GROUP BY service_name
-		ORDER BY spans DESC`+limitClause+`
+		ORDER BY `+servicesAggSortExpr(sort, dir)+limitClause+`
 		SETTINGS max_execution_time = 30`,
 		args...)
 	if err != nil {
