@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -70,8 +70,20 @@ function LogsInner() {
   // Build the params for the static-window query. When live
   // tail is on, we don't run this query (the live useQuery
   // below takes over instead) — `enabled: !live` gates it.
+  //
+  // CRITICAL: `from` / `to` are computed via timeRangeToNs which
+  // reads Date.now() for non-custom presets. Without memoising,
+  // every render produces a NEW from/to (Date.now() advanced by
+  // a few ms), the React Query key hashes differently, RQ
+  // starts a fresh query and discards the previous — isLoading
+  // stays true forever and the page is stuck on the skeleton.
+  // Memoise on the range / traceId-filter so the values only
+  // refresh when the operator actually changes the inputs.
   const useTimeRange = !filter.traceId;
-  const { from, to } = useTimeRange ? timeRangeToNs(range) : { from: undefined, to: undefined };
+  const { from, to } = useMemo(
+    () => useTimeRange ? timeRangeToNs(range) : { from: undefined, to: undefined },
+    [useTimeRange, range],
+  );
   const staticQ = useLogs({
     limit: 100, offset: page * 100, from, to,
     service: filter.service || undefined,

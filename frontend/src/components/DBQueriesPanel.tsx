@@ -280,9 +280,20 @@ function fmtMs(ms: number): string {
 //                                    `?`, so every literal
 //                                    variant of the query class
 //                                    matches)
-// Falling back to an exact match on the sample statement when
-// the normalised form is empty (some queries have no literals
-// to begin with).
+// Falls back to exact match on the sample statement when the
+// normalised form is empty.
+//
+// Two URL flags pin the landing experience:
+//   • view=list      — /traces defaults to 'aggregate' (group
+//                      by op/service); db spans live deep in
+//                      the hierarchy and the aggregated view
+//                      collapses every match into one row, so
+//                      the operator sees nothing useful.
+//   • rootOnly=false — /traces defaults to "root traces only"
+//                      so a search for a DB-statement filter
+//                      finds nothing (db spans are never the
+//                      trace root). Disabling root-only lets
+//                      the search hit non-root spans.
 function tracesURL(service: string, r: DBQueryStat): string {
   const filters: FilterExpr[] = [
     { k: 'service.name', op: '=', v: [service] },
@@ -301,5 +312,9 @@ function tracesURL(service: string, r: DBQueryStat): string {
   } else if (r.sampleStatement) {
     filters.push({ k: 'db.statement', op: '=', v: [r.sampleStatement] });
   }
-  return `/traces?filters=${encodeURIComponent(encodeFilters(filters))}`;
+  const params = new URLSearchParams();
+  params.set('view', 'list');
+  params.set('rootOnly', 'false');
+  params.set('filters', encodeFilters(filters));
+  return `/traces?${params.toString()}`;
 }
