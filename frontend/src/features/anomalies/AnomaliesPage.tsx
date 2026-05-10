@@ -527,15 +527,28 @@ function TraceOpsSection({ items, onMute }: {
       count={items.length}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 10 }}>
         {items.map((a, i) => (
-          <Card key={i} density="tight" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <Row gap={2}>
+          <Card key={i} density="tight"
+                style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+            {/* Long operation names (gRPC: pkg.Service/MethodWithLongName,
+                etc.) overflowed the card and pushed the Mute /
+                trace links past the right edge. Lock the
+                operation cell to flex:1 + min-width:0 so it
+                truncates with an ellipsis instead of bleeding
+                out; the badges + actions stay anchored. */}
+            <Row gap={2} style={{ minWidth: 0 }}>
               {a.kind === 'new_error'
-                ? <Badge tone="warning" style={{ fontSize: 10 }}>NEW ERROR</Badge>
-                : <Badge tone="danger"  style={{ fontSize: 10 }}>SPIKE ×{a.ratio.toFixed(1)}</Badge>}
-              <span style={{ fontWeight: 600, fontSize: 12 }}>{a.operation || '(unnamed)'}</span>
-              <span style={{ flex: 1 }} />
+                ? <Badge tone="warning" style={{ fontSize: 10, flexShrink: 0 }}>NEW ERROR</Badge>
+                : <Badge tone="danger"  style={{ fontSize: 10, flexShrink: 0 }}>SPIKE ×{a.ratio.toFixed(1)}</Badge>}
+              <span style={{
+                fontWeight: 600, fontSize: 12,
+                flex: 1, minWidth: 0,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }} title={a.operation || '(unnamed)'}>
+                {a.operation || '(unnamed)'}
+              </span>
               {a.sampleTraceId && (
-                <Link to={`/trace?id=${a.sampleTraceId}`} style={{ fontSize: 11, color: 'var(--accent2)' }}>
+                <Link to={`/trace?id=${a.sampleTraceId}`}
+                      style={{ fontSize: 11, color: 'var(--accent2)', flexShrink: 0 }}>
                   trace ↗
                 </Link>
               )}
@@ -769,13 +782,23 @@ function LogPatternsSection({ items, onMute }: {
       </Row>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 10 }}>
         {items.map((a, i) => (
-          <Card key={i} density="tight" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <Row gap={2}>
+          <Card key={i} density="tight"
+                style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+            {/* Same overflow guard as the trace-op cards: long
+                pattern strings must truncate with ellipsis
+                rather than push the action buttons past the
+                card's right edge. */}
+            <Row gap={2} style={{ minWidth: 0 }}>
               {a.kind === 'new'
-                ? <Badge tone="warning" style={{ fontSize: 10 }}>NEW</Badge>
-                : <Badge tone="danger"  style={{ fontSize: 10 }}>SPIKE ×{a.ratio.toFixed(1)}</Badge>}
-              <span style={{ fontWeight: 600, fontSize: 12 }}>{a.pattern}</span>
-              <span style={{ flex: 1 }} />
+                ? <Badge tone="warning" style={{ fontSize: 10, flexShrink: 0 }}>NEW</Badge>
+                : <Badge tone="danger"  style={{ fontSize: 10, flexShrink: 0 }}>SPIKE ×{a.ratio.toFixed(1)}</Badge>}
+              <span style={{
+                fontWeight: 600, fontSize: 12,
+                flex: 1, minWidth: 0,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }} title={a.pattern}>
+                {a.pattern}
+              </span>
               {/* Drill-down to logs scoped to this service. We
                   intentionally do NOT pass the pattern regex as
                   ?q= because the /logs search uses substring
@@ -784,7 +807,7 @@ function LogPatternsSection({ items, onMute }: {
                   "ORA-[0-9]+" never substring-matches a real log
                   body. */}
               <Link to={`/logs?service=${encodeURIComponent(a.service)}`}
-                    style={{ fontSize: 11, color: 'var(--accent2)' }}>
+                    style={{ fontSize: 11, color: 'var(--accent2)', flexShrink: 0 }}>
                 logs ↗
               </Link>
               <SnoozeButton onMute={d => onMute('log_pattern', a.pattern, a.service, d)} />
