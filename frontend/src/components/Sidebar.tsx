@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
 import { useHealth, useOpenProblemCount } from '@/lib/queries';
 import { ThemeToggle } from './ThemeToggle';
+import { DensityToggle } from './DensityToggle';
 import { TelescopeIcon } from './TelescopeIcon';
 import { useAuth } from './AuthProvider';
 import { ChangePasswordModal } from './ChangePasswordModal';
@@ -184,6 +185,7 @@ export function Sidebar() {
           <TelescopeIcon size={22} />
           {showLabels && <span className="title">Coremetry</span>}
           <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+            {showLabels && <DensityToggle />}
             {showLabels && <ThemeToggle />}
             {!isMobile && (
               <button onClick={toggleCollapsed} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}

@@ -1080,3 +1080,31 @@ canvas { max-width: 100%; }
   #topbar { padding-left: 52px; }
   #topbar h1 { font-size: 12px; }
 }
+
+/* ── Density mode (compact) ──────────────────────────────────
+   Toggled via DensityToggle in the sidebar (sets a `data-
+   density="compact"` attribute on <html>). Each rule pulls a
+   ~25% vertical pixel out of the chrome — enough that an
+   operator on a 13" laptop fits 50% more rows / panels per
+   screen, but not so much that the layout breaks. Keep the
+   selectors narrow (only attack chrome, not content) so
+   compact mode never makes anything unreadable. */
+
+[data-density="compact"] table { font-size: 11px; }
+[data-density="compact"] thead th { padding: 4px 8px; }
+[data-density="compact"] tbody td { padding: 4px 8px; }
+
+[data-density="compact"] .controls { gap: 6px; }
+[data-density="compact"] .controls input,
+[data-density="compact"] .controls select,
+[data-density="compact"] .controls button { padding: 3px 8px; font-size: 11px; }
+
+[data-density="compact"] #content { padding: 12px 14px; }
+
+/* Service / KPI panel cards — drop the inner padding from 14
+   to 10 so the strip header sits closer to the data. */
+[data-density="compact"] .empty { padding: 24px; }
+
+/* Waterfall already runs at 22px; compact takes it to 19. */
+[data-density="compact"] .wf-row { min-height: 19px; }
+[data-density="compact"] .wf-bar { height: 11px; }
