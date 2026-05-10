@@ -33,8 +33,40 @@ dev-ui:
 # tags two images: a precise per-version `coremetry:vX.Y.Z`
 # AND `coremetry:latest` so a plain `docker pull coremetry`
 # keeps working without a version pin.
-docker-up:
+#
+# Writes VERSION into .env first so subsequent bare
+# `docker compose up` invocations (without going through
+# make) ALSO pick up the real git-describe version. Otherwise
+# the user's login footer + service.version on the OTel
+# browser SDK would silently read "dev" again any time
+# someone runs compose directly.
+docker-up: .env-version
 	docker compose --profile demo up -d --build
+	@# Belt-and-braces: docker-compose's build.tags handling
+	@# isn't 100% reliable across versions. Re-tag the freshly
+	@# built image as `coremetry:latest` so a plain `docker
+	@# pull coremetry` (no version pin) always lands on the
+	@# image the operator just built. Failure to look up the
+	@# image (cold cache) is non-fatal.
+	@IMG=$$(docker compose images coremetry --quiet 2>/dev/null | head -1); \
+	  if [ -n "$$IMG" ]; then \
+	    docker tag "$$IMG" coremetry:latest && \
+	      echo "[make] tagged $$IMG as coremetry:latest"; \
+	  fi
+
+# Idempotent: rewrites .env every invocation so a fresh git
+# tag flows through on the next `up`. Preserves any other
+# vars an operator already added (we only touch the VERSION
+# line). The dummy target name avoids collisions with the
+# .env file itself — make would otherwise treat .env as a
+# regular file dep and skip the regenerate.
+.PHONY: .env-version
+.env-version:
+	@touch .env
+	@grep -v '^VERSION=' .env > .env.tmp 2>/dev/null || true
+	@echo "VERSION=$(VERSION)" >> .env.tmp
+	@mv .env.tmp .env
+	@echo "[make] wrote VERSION=$(VERSION) to .env"
 
 docker-down:
 	docker compose --profile demo down
