@@ -155,3 +155,51 @@ func (s *Store) ComputeSLOStatus(ctx context.Context, o SLO) (*SLOStatus, error)
 	}
 	return st, nil
 }
+
+// ComputeSLOBurnRate calculates the burn rate over a SHORT
+// look-back window — used by the 2-window burn-rate alarm
+// pattern (Google SRE Workbook). The status method above runs
+// over the SLO's full rolling window (e.g. 30 days), which
+// smooths out short bursts; for alerting we want to detect
+// "currently burning fast" within the last 1h or 6h.
+//
+// Returned rate units: same as BurnRate on SLOStatus —
+// (1 − SLI_window) / (1 − target). > 1 means the budget would
+// be exhausted before the SLO window completes.
+func (s *Store) ComputeSLOBurnRate(ctx context.Context, o SLO, window time.Duration) (float64, uint64, error) {
+	if o.Service == "" {
+		return 0, 0, fmt.Errorf("slo service is required")
+	}
+	since := time.Now().Add(-window)
+	var goodExpr string
+	switch o.SLIType {
+	case SLITypeAvailability:
+		goodExpr = "countIf(status_code != 'error')"
+	case SLITypeLatency:
+		goodExpr = fmt.Sprintf("countIf(duration <= %f)", o.ThresholdMs*1e6)
+	default:
+		return 0, 0, fmt.Errorf("unknown sli_type: %s", o.SLIType)
+	}
+	q := `SELECT count() AS total, ` + goodExpr + ` AS good
+	      FROM spans
+	      WHERE service_name = ? AND time >= ?`
+	args := []any{o.Service, since}
+	if o.Operation != "" {
+		q += ` AND name = ?`
+		args = append(args, o.Operation)
+	}
+	var total, good uint64
+	if err := s.conn.QueryRow(ctx, q, args...).Scan(&total, &good); err != nil {
+		return 0, 0, err
+	}
+	if total == 0 {
+		return 0, 0, nil
+	}
+	sli := float64(good) / float64(total)
+	budget := 1.0 - o.Target
+	if budget <= 0 {
+		return 0, total, nil
+	}
+	used := 1.0 - sli
+	return used / budget, total, nil
+}

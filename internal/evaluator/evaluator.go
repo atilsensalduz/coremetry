@@ -191,6 +191,15 @@ func (e *Evaluator) evaluateAll(ctx context.Context) {
 			e.evaluateOne(ctx, r, svc)
 		}
 	}
+
+	// SLO burn-rate alarms — independent of the user-defined
+	// alert rules above. Each configured SLO gets two passes
+	// (warning + critical) using the 2-window burn-rate
+	// pattern from the Google SRE Workbook. Fires Problems on
+	// the same pipeline as everything else, so the existing
+	// notify / incident-attach / SSE wiring all picks up
+	// burn-rate breaches without additional plumbing.
+	e.evaluateSLOs(ctx)
 }
 
 func (e *Evaluator) evaluateOne(ctx context.Context, r chstore.AlertRule, service string) {
