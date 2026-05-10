@@ -268,9 +268,15 @@ function OperationsTable({ service, rows, range }: { service: string; rows: Oper
           {rows.length} distinct span name{rows.length === 1 ? '' : 's'} in {service}
         </span>
       </div>
-      <div className="table-wrap">
+      {/* Cap the operations table at 540 px tall and let it
+          scroll inside that container — at 500+ operations on
+          one service the previous full-height render put the
+          KPIs above and the rest of the page sections below
+          way out of reach. Sticky thead keeps the column
+          labels visible while scrolling. */}
+      <div className="table-wrap" style={{ maxHeight: 540, overflowY: 'auto' }}>
         <table>
-          <thead>
+          <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--bg1)' }}>
             <tr>
               <OpSortTh col="name"      label="Operation"  sort={sortBy} dir={sortDir} onSort={toggleSort} />
               <OpSortTh col="spanCount" label="Calls"      sort={sortBy} dir={sortDir} onSort={toggleSort} align="right" />
