@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
+import { TableSkeleton } from '@/components/Skeleton';
 import { ServicePicker } from '@/components/ServicePicker';
 import { Sparkline } from '@/components/Sparkline';
 import { ServiceRuntimeBadge } from '@/components/ServiceRuntimeBadge';
@@ -261,7 +262,7 @@ export default function ServicesPage() {
           </div>
         )}
 
-        {data === undefined && <Spinner />}
+        {data === undefined && <TableSkeleton rows={10} cols={7} />}
         {data !== undefined && (!data || data.length === 0) && (
           <Empty icon="⬡" title="No services yet">
             Point your OTLP exporter at the collector — <code>OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:14318</code> (HTTP) or <code>:14317</code> (gRPC).

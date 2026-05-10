@@ -4,6 +4,7 @@ import { useTableNav } from '@/lib/useTableNav';
 import { Topbar } from '@/components/Topbar';
 import { SavedViewsBar } from '@/components/SavedViewsBar';
 import { Spinner, Empty } from '@/components/Spinner';
+import { TableSkeleton } from '@/components/Skeleton';
 import { Combobox } from '@/components/Combobox';
 import { ServicePicker } from '@/components/ServicePicker';
 import { FilterBuilder } from '@/components/FilterBuilder';
@@ -408,7 +409,7 @@ function TracesPageInner() {
           }} />
 
         {/* List view */}
-        {view === 'list' && data === undefined && <Spinner />}
+        {view === 'list' && data === undefined && <TableSkeleton rows={10} cols={7} />}
         {view === 'list' && data && traces.length === 0 && <Empty icon="⋮" title="No traces found" />}
         {view === 'list' && data && traces.length > 0 && (
           <>

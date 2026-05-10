@@ -5,11 +5,13 @@ import { useQuery } from '@tanstack/react-query';
 import { Topbar } from '@/components/Topbar';
 import { SavedViewsBar } from '@/components/SavedViewsBar';
 import { Spinner, Empty } from '@/components/Spinner';
+import { TableSkeleton } from '@/components/Skeleton';
 import { Combobox } from '@/components/Combobox';
 import { ServicePicker } from '@/components/ServicePicker';
 import { CopyButton } from '@/components/CopyButton';
 import { Pager } from '@/components/Pager';
 import { useLogs } from '@/lib/queries';
+import { useTableNav } from '@/lib/useTableNav';
 import { api } from '@/lib/api';
 import { tsShort, timeRangeToNs, sevName, sevClass } from '@/lib/utils';
 import type { LogsResponse, LogRow, TimeRange } from '@/lib/types';
@@ -133,6 +135,16 @@ function LogsInner() {
   const logs = data?.logs ?? [];
   const total = data?.total ?? 0;
 
+  // j/k row navigation — same pattern as /services and /traces.
+  // Enter / o on the selected row toggles the expansion
+  // (matches the existing click behaviour), Esc clears the
+  // selection. The hook scrolls the active row into view via
+  // [data-row-idx], which we set on the LogRowR below.
+  const tableNav = useTableNav<LogRow>(logs, {
+    onOpen: (l) => toggle(l.id),
+    pageId: 'logs',
+  });
+
   return (
     <>
       <Topbar title="Logs" range={range} onRangeChange={setRange} />
@@ -172,7 +184,7 @@ function LogsInner() {
           </button>
         </div>
 
-        {data === undefined && <Spinner />}
+        {data === undefined && <TableSkeleton rows={12} cols={5} />}
         {data && logs.length === 0 && (
           filter.traceId ? (
             <Empty icon="≡" title="No logs match this trace">
@@ -198,8 +210,11 @@ function LogsInner() {
                   </tr>
                 </thead>
                 <tbody>
-                  {logs.map(l => (
-                    <LogRowR key={l.id} l={l} expanded={expanded.has(l.id)} onClick={() => toggle(l.id)} />
+                  {logs.map((l, idx) => (
+                    <LogRowR key={l.id} l={l} idx={idx}
+                             selected={tableNav.selected === idx}
+                             expanded={expanded.has(l.id)}
+                             onClick={() => { tableNav.setSelected(idx); toggle(l.id); }} />
                   ))}
                 </tbody>
               </table>
@@ -213,12 +228,16 @@ function LogsInner() {
   );
 }
 
-function LogRowR({ l, expanded, onClick }: { l: LogRow; expanded: boolean; onClick: () => void }) {
+function LogRowR({ l, idx, selected, expanded, onClick }: {
+  l: LogRow; idx: number; selected: boolean; expanded: boolean; onClick: () => void;
+}) {
   const attrs = Object.entries(l.attributes ?? {});
   const res = Object.entries(l.resourceAttributes ?? {});
   return (
     <>
-      <tr onClick={onClick}>
+      <tr onClick={onClick}
+          data-row-idx={idx}
+          className={selected ? 'row-selected' : ''}>
         <td className="mono">{tsShort(l.timestamp)}</td>
         <td><span className={sevClass(l.severity)}>{l.severityText || sevName(l.severity)}</span></td>
         <td>
