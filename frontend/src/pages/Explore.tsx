@@ -53,6 +53,42 @@ const SUGGESTED_GROUPBY = [
   'resource.host.name', 'resource.deployment.environment',
 ];
 
+// Quick-metric presets — one click swaps the (agg, field, viz)
+// triplet to a common-use shape. Saves operators from "wait,
+// which option gives me error rate per service" navigation.
+// Each preset is the answer to one of the questions operators
+// actually ask during triage. Dynatrace's metric picker pre-
+// computes these as "key metrics"; we keep them lightweight
+// (no separate column) and consistent with the existing
+// builder + DSL flow.
+type MetricPreset = {
+  key: string;
+  label: string;
+  hint: string;
+  agg: SpanAgg;
+  field: string;
+  viz: Viz;
+  // Optional split-by recommendation applied when picked from
+  // an empty / single-key split state. Operator overrides freely.
+  groupBy?: string[];
+};
+const METRIC_PRESETS: MetricPreset[] = [
+  { key: 'rps',     label: 'Requests / sec',   hint: 'Throughput (rate of all matching spans)',          agg: 'rate',       field: 'duration_ms', viz: 'line', groupBy: ['service.name'] },
+  { key: 'errpct',  label: 'Error rate %',     hint: 'Percentage of spans with status_code = error',     agg: 'error_rate', field: 'duration_ms', viz: 'line', groupBy: ['service.name'] },
+  { key: 'errcnt',  label: 'Errors / period',  hint: 'Absolute error count per bucket',                  agg: 'errors',     field: 'duration_ms', viz: 'bar',  groupBy: ['service.name'] },
+  { key: 'p99',     label: 'P99 latency',      hint: 'Tail latency — slowest 1% per bucket',             agg: 'p99',        field: 'duration_ms', viz: 'line', groupBy: ['service.name'] },
+  { key: 'p95',     label: 'P95 latency',      hint: 'Standard tail-latency SLO indicator',              agg: 'p95',        field: 'duration_ms', viz: 'line', groupBy: ['service.name'] },
+  { key: 'avglat',  label: 'Avg latency',      hint: 'Mean duration — best for noisy quantile sets',     agg: 'avg',        field: 'duration_ms', viz: 'line', groupBy: ['service.name'] },
+  { key: 'count',   label: 'Span count',       hint: 'Raw count per bucket, no normalisation',           agg: 'count',      field: 'duration_ms', viz: 'bar' },
+  { key: 'heatmap', label: 'Latency heatmap',  hint: 'Honeycomb-style 2D density (time × log-duration)', agg: 'count',      field: 'duration_ms', viz: 'heatmap' },
+];
+
+// Top-N split-by — when split is set, cap the chart to the busiest N
+// series by total count. Anything past N is silently dropped client-
+// side. Prevents the chart from drowning under 200 services on a
+// "split by service.name" with a fresh deploy. Default 10.
+const TOPN_OPTIONS = [5, 10, 20, 50];
+
 const STEP_OPTIONS = [
   { v: 0,   label: 'Auto' },
   { v: 10,  label: '10 s' },
@@ -99,7 +135,16 @@ function ExploreInner() {
     () => (searchParams.get('groupBy') ?? '').split(',').filter(Boolean));
   const [groupDraft, setGroupDraft] = useState('');
   const [step, setStep] = useState(parseInt(searchParams.get('step') ?? '0', 10) || 0);
+  // Top-N: cap the number of split-by series rendered. 0 means "all".
+  // Persists in the URL so a saved Explore view restores the cap.
+  const [topN, setTopN] = useState(
+    () => parseInt(searchParams.get('topN') ?? '10', 10) || 10);
   const [series, setSeries] = useState<SpanMetricSeries[] | null | undefined>(undefined);
+  // Compare-to-previous — second series set fetched at [from-Δ, to-Δ]
+  // and overlaid on the chart in dashed translucent style. The Δ is
+  // the current window width so "vs previous period" means apples-to-
+  // apples (last 1h vs the 1h before). Empty = no compare.
+  const [compareSeries, setCompareSeries] = useState<SpanMetricSeries[] | null | undefined>(undefined);
   const [heatmap, setHeatmap] = useState<Heatmap | null | undefined>(undefined);
   // BubbleUp panel — operator-driven attribute investigation.
   // The most-recently-added filter chip becomes the
@@ -259,6 +304,7 @@ function ExploreInner() {
       ['mode',    mode === 'advanced' ? 'advanced' : ''],
       ['range',   encodeRange(range)],
       ['step',    resultMode === 'metric' && step ? step : ''],
+      ['topN',    resultMode === 'metric' && groupBy.length > 0 && topN !== 10 ? topN : ''],
       ['limit',   resultMode === 'traces' && traceLimit !== 50 ? traceLimit : ''],
       ['cols',    resultMode === 'traces' ? extraCols.join(',') : ''],
     ]);
@@ -302,6 +348,7 @@ function ExploreInner() {
           });
       } else {
         setSeries(undefined);
+        setCompareSeries(undefined);
         api.spanMetric({
           agg, field,
           groupBy: groupBy.join(',') || undefined,
@@ -315,6 +362,25 @@ function ExploreInner() {
             const msg = String(err?.message ?? err);
             setQueryError(msg.includes('DSL') ? msg : null);
           });
+        // Compare-to-previous fan-out: same metric over the
+        // window of equal width that ended at `from`. Independent
+        // fetch so the main chart paints without waiting on the
+        // compare result; failures degrade silently to "no
+        // comparison overlay" without blocking the page.
+        if (compare) {
+          const width = to - from;
+          api.spanMetric({
+            agg, field,
+            groupBy: groupBy.join(',') || undefined,
+            filters: filterArg, dsl: dslArg,
+            from: from - width, to: from,
+            step: step || undefined,
+          })
+            .then(r => setCompareSeries(r ?? []))
+            .catch(() => setCompareSeries(null));
+        } else {
+          setCompareSeries(null);
+        }
       }
     } else {
       // Traces mode — same filters/DSL feed the trace search instead.
@@ -333,7 +399,7 @@ function ExploreInner() {
           setQueryError(msg.includes('DSL') ? msg : null);
         });
     }
-  }, [resultMode, viz, range, filters, dsl, mode, agg, field, groupBy, step, traceLimit, extraCols]);
+  }, [resultMode, viz, range, filters, dsl, mode, agg, field, groupBy, step, traceLimit, extraCols, compare]);
 
   const aggMeta = AGG_OPTIONS.find(o => o.v === agg)!;
   const unit = aggMeta.unit ?? '';
@@ -348,6 +414,63 @@ function ExploreInner() {
   };
   const removeGroupKey = (k: string) =>
     setGroupBy(groupBy.filter(x => x !== k));
+
+  // applyPreset swaps the metric stack to a preset triplet
+  // (agg / field / viz) plus the suggested split-by — but only
+  // overrides split-by when the operator hasn't already picked
+  // their own. Pickier presets respect operator intent.
+  const applyPreset = (p: MetricPreset) => {
+    setAgg(p.agg);
+    setField(p.field);
+    setViz(p.viz);
+    setResultMode('metric');
+    if (p.groupBy && groupBy.length === 0) {
+      setGroupBy(p.groupBy);
+    }
+  };
+
+  // Top-N cap: client-side trim of the heaviest series by total
+  // count. Cheaper than re-issuing the query with a server-side
+  // LIMIT (which would require teaching span_metric a per-series
+  // sort, currently absent). Heatmap mode ignores topN.
+  const cappedSeries = useMemo(() => {
+    if (!series || topN <= 0 || series.length <= topN) return series;
+    const withTotal = series.map(s => ({
+      s, total: s.points.reduce((n, p) => n + (p.value ?? 0), 0),
+    }));
+    withTotal.sort((a, b) => b.total - a.total);
+    return withTotal.slice(0, topN).map(x => x.s);
+  }, [series, topN]);
+  // Same cap applied to the compare series so the overlay matches
+  // the visible main set. We don't bother matching the SAME N
+  // names — the compare set's busiest N is the apples-to-apples
+  // "what did the previous period look like, also top-N".
+  const cappedCompare = useMemo(() => {
+    if (!compareSeries || topN <= 0 || compareSeries.length <= topN) return compareSeries;
+    const withTotal = compareSeries.map(s => ({
+      s, total: s.points.reduce((n, p) => n + (p.value ?? 0), 0),
+    }));
+    withTotal.sort((a, b) => b.total - a.total);
+    return withTotal.slice(0, topN).map(x => x.s);
+  }, [compareSeries, topN]);
+  // Combined series fed to the chart. Compare series carry a
+  // `compare: true` mark on their groupKey so the chart can
+  // render them in dashed translucent style.
+  const renderedSeries = useMemo(() => {
+    if (!cappedSeries) return cappedSeries;
+    if (!cappedCompare || cappedCompare.length === 0) return cappedSeries;
+    // Shift compare timestamps forward by the window width so
+    // both sets line up on the chart's x-axis — operator sees
+    // "now-shape vs prior-period-shape, same time slot".
+    const { from: fNow, to: tNow } = timeRangeToNs(range);
+    const widthNs = tNow - fNow;
+    const shifted = cappedCompare.map(s => ({
+      ...s,
+      groupKey: [...(s.groupKey ?? []), '(prev)'],
+      points: s.points.map(p => ({ ...p, time: p.time + widthNs })),
+    }));
+    return [...cappedSeries, ...shifted];
+  }, [cappedSeries, cappedCompare, range]);
 
   // Quick stats per series for the summary table
   // Sorted view of the trace results — pure client-side because the
@@ -510,6 +633,36 @@ function ExploreInner() {
           </div>
         </div>
 
+        {/* Quick metric presets — Dynatrace's "key metric" picker.
+            One click swaps (agg + field + viz) to a question-shaped
+            preset: rps, error rate, p99, etc. The active preset
+            is highlighted; "Custom" lights up when the current
+            triplet doesn't match any preset (operator hand-tuned). */}
+        {resultMode === 'metric' && (
+          <div className="controls" style={{ marginBottom: 6, flexWrap: 'wrap' }}>
+            <span style={{ color: 'var(--text2)', fontSize: 12 }}>Metric:</span>
+            {METRIC_PRESETS.map(p => {
+              const isActive = p.agg === agg && p.field === field && p.viz === viz;
+              return (
+                <button key={p.key} type="button"
+                  onClick={() => applyPreset(p)}
+                  title={p.hint}
+                  className={isActive ? '' : 'sec'}
+                  style={{ fontSize: 11, padding: '4px 10px' }}>
+                  {p.label}
+                </button>
+              );
+            })}
+            {!METRIC_PRESETS.some(p => p.agg === agg && p.field === field && p.viz === viz) && (
+              <span style={{ fontSize: 11, color: 'var(--text3)', fontStyle: 'italic',
+                              padding: '4px 10px',
+                              border: '1px dashed var(--border)', borderRadius: 6 }}>
+                Custom
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Aggregation + field row — only in metric mode */}
         {resultMode === 'metric' && (
           <div className="controls">
@@ -529,6 +682,16 @@ function ExploreInner() {
             <select value={step} onChange={e => setStep(Number(e.target.value))}>
               {STEP_OPTIONS.map(o => <option key={o.v} value={o.v}>{o.label}</option>)}
             </select>
+            {/* Compare-to-previous overlay toggle. When on, a second
+                fetch pulls the SAME metric over the equal-width
+                window ending at `from`; the chart draws both with
+                the previous period in dashed translucent. */}
+            <span style={{ color: 'var(--text2)', fontSize: 12, marginLeft: 4 }}>Compare:</span>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+              <input type="checkbox" checked={compare}
+                onChange={e => setCompare(e.target.checked)} />
+              prev period
+            </label>
           </div>
         )}
 
@@ -623,6 +786,25 @@ name ~ checkout`}
           {groupDraft && (
             <button className="sec" onClick={() => addGroupKey(groupDraft)}>Add</button>
           )}
+          {/* Top-N cap when split is set. Avoids drowning the chart
+              under 200 services after a fresh deploy; renders the
+              busiest N by total value across the window. */}
+          {groupBy.length > 0 && (
+            <>
+              <span style={{ color: 'var(--text2)', fontSize: 12, marginLeft: 12 }}>Top:</span>
+              <select value={topN} onChange={e => setTopN(Number(e.target.value))}>
+                {TOPN_OPTIONS.map(n => (
+                  <option key={n} value={n}>Top {n}</option>
+                ))}
+                <option value={0}>All series</option>
+              </select>
+              {series && topN > 0 && series.length > topN && (
+                <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+                  showing {topN} of {series.length} series
+                </span>
+              )}
+            </>
+          )}
         </div>
         )}
 
@@ -712,7 +894,7 @@ name ~ checkout`}
                   </span>
                 )}
               </div>
-              <MultiLineChart series={series} unit={unit}
+              <MultiLineChart series={renderedSeries ?? series} unit={unit}
                               deploys={deployMarkers}
                               thresholds={sloThresholds}
                               onZoom={(fromSec, toSec) => {
