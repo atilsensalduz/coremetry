@@ -4,6 +4,7 @@ import { Spinner, Empty } from '@/components/Spinner';
 import { useAuth } from '@/components/AuthProvider';
 import { Modal, Field, SelectField, Button, Stack } from '@/components/ui';
 import { api, type UserRow } from '@/lib/api';
+import type { Role } from '@/lib/types';
 import { tsLong } from '@/lib/utils';
 
 export default function UsersPage() {
@@ -101,9 +102,7 @@ export default function UsersPage() {
                         )}
                       </td>
                       <td>
-                        <span className={`badge ${u.role === 'admin' ? 'b-info' : u.role === 'editor' ? 'b-warn' : 'b-ok'}`}>
-                          {u.role}
-                        </span>
+                        <RoleEditor user={u} isMe={isMe} onChanged={refresh} />
                       </td>
                       <td>
                         <span style={{
@@ -294,4 +293,64 @@ function humanize(err: unknown): string {
     if (j && typeof j.error === 'string') return j.error;
   } catch {}
   return body || msg;
+}
+
+// RoleEditor renders a small inline role <select> with confirm-
+// on-change. The previous "static badge" UX meant admins had to
+// delete + recreate a user to change a role; the typical bank
+// onboarding flow is "viewer first, promote to editor / admin
+// later" so this turned into a routine annoyance.
+//
+// Last-admin and self-edit cases are gated server-side; here we
+// just surface the API error verbatim in an alert. Confirm step
+// kept short so a misclick on the dropdown doesn't immediately
+// silently demote someone.
+function RoleEditor({ user, isMe, onChanged }: {
+  user: UserRow;
+  isMe: boolean;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  const apply = async (next: Role) => {
+    if (next === user.role) return;
+    const ok = confirm(
+      `Change ${user.email}'s role from ${user.role} to ${next}?` +
+      (next === 'admin' ? '\n\nAdmins can manage users, settings, and every CRUD surface.'
+       : next === 'editor' ? '\n\nEditors can manage dashboards / monitors / alerts but not users or system settings.'
+       : '\n\nViewers are read-only.')
+    );
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await api.setUserRole(user.id, next);
+      onChanged();
+    } catch (err) {
+      alert(humanize(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <select value={user.role} disabled={busy}
+        onChange={e => apply(e.target.value as Role)}
+        style={{ fontSize: 11, padding: '2px 6px', minWidth: 90,
+                 fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+                 fontWeight: 600 }}>
+        <option value="admin">admin</option>
+        <option value="editor">editor</option>
+        <option value="viewer">viewer</option>
+      </select>
+      {isMe && (
+        <span style={{ fontSize: 10, color: 'var(--text3)',
+                       padding: '1px 5px', borderRadius: 3,
+                       border: '1px solid var(--border)' }}
+              title="You'll lock yourself out of this page if you demote yourself away from admin">
+          self
+        </span>
+      )}
+    </span>
+  );
 }

@@ -2,8 +2,8 @@ apiVersion: v2
 name: coremetry
 description: Enterprise OpenTelemetry APM — traces, metrics, logs, profiles on ClickHouse
 type: application
-version: 0.4.88
-appVersion: "0.4.88"
+version: 0.4.89
+appVersion: "0.4.89"
 home: https://github.com/cilcenk/coremetry
 keywords:
   - apm

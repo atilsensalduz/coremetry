@@ -680,6 +680,15 @@ export const api = {
     }),
   deleteUser: (id: string) =>
     request<void>(`/api/users/${id}`, { method: 'DELETE' }),
+  // setUserRole flips a user to admin / editor / viewer.
+  // Server refuses to demote the last admin so the system
+  // can't lock itself out.
+  setUserRole: (id: string, role: Role) =>
+    request<AuthUser>(`/api/users/${id}/role`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role }),
+    }),
   resetUserPassword: (id: string, password: string) =>
     request<void>(`/api/users/${id}/password`, {
       method: 'POST',

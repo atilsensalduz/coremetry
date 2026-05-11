@@ -313,6 +313,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("POST   /api/users",                  auth.RequireRole(auth.RoleAdmin, s.createUser))
 	mux.HandleFunc("DELETE /api/users/{id}",             auth.RequireRole(auth.RoleAdmin, s.deleteUser))
 	mux.HandleFunc("POST   /api/users/{id}/password",    auth.RequireRole(auth.RoleAdmin, s.resetUserPassword))
+	mux.HandleFunc("PUT    /api/users/{id}/role",        auth.RequireRole(auth.RoleAdmin, s.setUserRole))
 
 	// Tempo-compatible API (Grafana datasource integration)
 	s.registerTempoRoutes(mux)
@@ -2719,7 +2720,11 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"email and password (>=6 chars) required"}`, http.StatusBadRequest)
 		return
 	}
-	if body.Role != auth.RoleAdmin && body.Role != auth.RoleViewer {
+	if body.Role != auth.RoleAdmin && body.Role != auth.RoleEditor && body.Role != auth.RoleViewer {
+		// Pre-v0.4.89 this fell through to viewer for `editor`
+		// too — the role exists in auth.go + the SPA UI but the
+		// guard was missing editor. Operators saw their editor
+		// pick silently downgrade on save.
 		body.Role = auth.RoleViewer
 	}
 	existing, err := s.store.GetUserByEmail(r.Context(), body.Email)
@@ -2749,6 +2754,63 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{
 		"id": u.ID, "email": u.Email, "role": u.Role,
 	})
+}
+
+// setUserRole flips a user's role to one of admin / editor /
+// viewer. Same guard the deleteUser handler uses — refuses to
+// demote the last admin so the system never locks itself out.
+// Operators trying to demote themselves are allowed (handing
+// off admin to a teammate is a legitimate flow) but only when
+// there's another admin still in place.
+func (s *Server) setUserRole(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var body struct {
+		Role string `json:"role"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	role := strings.TrimSpace(body.Role)
+	if role != auth.RoleAdmin && role != auth.RoleEditor && role != auth.RoleViewer {
+		http.Error(w, `{"error":"role must be admin, editor, or viewer"}`, http.StatusBadRequest)
+		return
+	}
+	target, err := s.store.GetUserByID(r.Context(), id)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if target == nil {
+		http.Error(w, `{"error":"user not found"}`, http.StatusNotFound)
+		return
+	}
+	// No-op fast path — keeps audit log + cache from churning
+	// on the typical "operator clicked the same value" race.
+	if target.Role == role {
+		writeJSON(w, map[string]any{"id": target.ID, "email": target.Email, "role": target.Role})
+		return
+	}
+	// Last-admin guard: refuse if this change would leave the
+	// system without any admin. Same shape as deleteUser's
+	// CountAdmins gate.
+	if target.Role == auth.RoleAdmin && role != auth.RoleAdmin {
+		n, err := s.store.CountAdmins(r.Context())
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		if n <= 1 {
+			http.Error(w, `{"error":"cannot demote the last admin"}`, http.StatusBadRequest)
+			return
+		}
+	}
+	target.Role = role
+	if err := s.store.UpsertUser(r.Context(), *target); err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, map[string]any{"id": target.ID, "email": target.Email, "role": target.Role})
 }
 
 func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
