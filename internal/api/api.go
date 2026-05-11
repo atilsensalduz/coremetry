@@ -2411,7 +2411,55 @@ func (s *Server) listChannels(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
+	for i := range out {
+		out[i].Config = redactSecrets(out[i].Type, out[i].Config)
+	}
 	writeJSON(w, out)
+}
+
+// redactSecrets strips fields the UI should never see — Zoom
+// client_secret, Twilio auth_token, generic "password" / "token"
+// keys — from the channel config blob before it's serialised
+// back to the browser. Edit flow handles the "leave secret
+// empty to keep saved value" UX in updateChannel.
+//
+// Operates on the raw json.RawMessage by round-tripping through
+// a map; the config schema is unstructured by design (each
+// channel type has its own shape) so this is the cleanest way
+// to redact without per-type code paths.
+func redactSecrets(channelType string, raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return raw
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return raw
+	}
+	// Type-specific redactions first.
+	switch channelType {
+	case "zoomchat":
+		delete(m, "clientSecret")
+		delete(m, "verificationToken") // legacy field
+	case "whatsapp":
+		delete(m, "authToken")
+	}
+	// Generic safety net — any field named "password", "secret",
+	// "token", or "apiKey" gets stripped regardless of channel
+	// type so a future addition can't accidentally leak.
+	for k := range m {
+		lk := strings.ToLower(k)
+		if strings.Contains(lk, "password") ||
+			strings.Contains(lk, "secret") ||
+			strings.Contains(lk, "token") ||
+			strings.Contains(lk, "apikey") {
+			delete(m, k)
+		}
+	}
+	out, err := json.Marshal(m)
+	if err != nil {
+		return raw
+	}
+	return out
 }
 
 func (s *Server) createChannel(w http.ResponseWriter, r *http.Request) {
@@ -2450,11 +2498,65 @@ func (s *Server) updateChannel(w http.ResponseWriter, r *http.Request) {
 	}
 	c.ID = id
 	c.CreatedAt = existing.CreatedAt
+	// Preserve write-only secrets when the operator leaves them
+	// blank on edit — UI never sees them after save, so an empty
+	// field in the update body means "keep what's stored", not
+	// "clear it". Without this the first edit after a save wipes
+	// the secret silently. Per-type list mirrors redactSecrets().
+	c.Config = mergeSecrets(c.Type, existing.Config, c.Config)
 	if err := s.store.UpsertChannel(r.Context(), c); err != nil {
 		writeErr(w, err)
 		return
 	}
+	c.Config = redactSecrets(c.Type, c.Config)
 	writeJSON(w, c)
+}
+
+// mergeSecrets fills missing/empty secret fields in the incoming
+// update body from the existing saved record. Keeps the
+// "leave-blank-to-keep" UX without per-field plumbing on the
+// frontend. Symmetric with redactSecrets — what gets redacted on
+// read gets merged on write.
+func mergeSecrets(channelType string, existing, incoming json.RawMessage) json.RawMessage {
+	if len(existing) == 0 {
+		return incoming
+	}
+	var inMap, exMap map[string]any
+	if err := json.Unmarshal(incoming, &inMap); err != nil {
+		return incoming
+	}
+	if err := json.Unmarshal(existing, &exMap); err != nil {
+		return incoming
+	}
+	carry := func(field string) {
+		if v, _ := inMap[field].(string); v != "" {
+			return // operator typed a new value — use it
+		}
+		if v, ok := exMap[field]; ok {
+			inMap[field] = v
+		}
+	}
+	switch channelType {
+	case "zoomchat":
+		carry("clientSecret")
+	case "whatsapp":
+		carry("authToken")
+	}
+	// Generic catch-all for anything that smells secret.
+	for k := range exMap {
+		lk := strings.ToLower(k)
+		if strings.Contains(lk, "password") ||
+			strings.Contains(lk, "secret") ||
+			strings.Contains(lk, "token") ||
+			strings.Contains(lk, "apikey") {
+			carry(k)
+		}
+	}
+	out, err := json.Marshal(inMap)
+	if err != nil {
+		return incoming
+	}
+	return out
 }
 
 func (s *Server) deleteChannel(w http.ResponseWriter, r *http.Request) {

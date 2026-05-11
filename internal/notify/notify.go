@@ -76,18 +76,39 @@ type TeamsChannelConfig struct {
 	WebhookURL string `json:"webhookUrl"`
 }
 
-// ZoomChatChannelConfig — Zoom Chat incoming webhook. Endpoint
-// looks like https://hooks.zoom.us/v3/hooks/<id>/<token>; the
-// channel selection happens at webhook-creation time on
-// Zoom's side, not in the request payload.
+// ZoomChatChannelConfig — Zoom Chat via Server-to-Server OAuth.
+// Replaces the older incoming-webhook flow because banks want
+// the proper REST API (auditable, account-scoped, no webhook
+// URL that leaks if dumped).
+//
+// Fields are exactly what Zoom's marketplace app dialog hands
+// the admin:
+//   - AccountID:    the Zoom account UUID (Zoom calls it Account ID)
+//   - ClientID:     OAuth client_id from the Server-to-Server app
+//   - ClientSecret: OAuth client_secret (write-only after save —
+//                   the UI never echoes it back)
+//   - ChannelID:    the channel JID for the target chat channel
+//                   (Zoom's "to_channel" field on the messages API)
+//   - ToContact:    optional fallback — email of a single contact
+//                   to DM when ChannelID is empty
+//
+// On send the notifier exchanges credentials for an access
+// token via /oauth/token and POSTs the chat message to
+// /v2/chat/users/me/messages. Tokens cache for ~1h on a
+// per-(account_id, client_id) key so a burst of N alerts
+// doesn't N-times the OAuth round-trip.
 type ZoomChatChannelConfig struct {
-	WebhookURL string `json:"webhookUrl"`
-	// Optional verification token Zoom hands out alongside
-	// the webhook URL. When set we POST it as the
-	// `Authorization` header value (Zoom's docs call this
-	// "verification token"); when empty the request goes
-	// without the header — works for incoming-webhooks set
-	// up without verification.
+	AccountID    string `json:"accountId"`
+	ClientID     string `json:"clientId"`
+	ClientSecret string `json:"clientSecret"`
+	ChannelID    string `json:"channelId,omitempty"`
+	ToContact    string `json:"toContact,omitempty"`
+	// Legacy webhook fields — kept for graceful migration from
+	// pre-v0.4.78 configs. When AccountID is empty AND
+	// WebhookURL is set, sendZoomChat returns a clean
+	// "reconfigure required" error rather than silently
+	// failing. New channels never write these.
+	WebhookURL        string `json:"webhookUrl,omitempty"`
 	VerificationToken string `json:"verificationToken,omitempty"`
 }
 
@@ -133,10 +154,20 @@ type Notifier struct {
 	// waiting for the next poll. nil = behave as before
 	// (poll-only).
 	bus EventPublisher
+
+	// zoomTokens caches Server-to-Server OAuth access tokens
+	// keyed by (account_id, client_id). Lazy-allocated in New;
+	// see sendZoomChat for the cache+invalidate flow.
+	zoomTokens zoomTokenCache
 }
 
 func New(store *chstore.Store) *Notifier {
-	return &Notifier{store: store}
+	return &Notifier{
+		store: store,
+		zoomTokens: zoomTokenCache{
+			entries: map[string]zoomTokenEntry{},
+		},
+	}
 }
 
 // SetEventBus wires the SSE broker. Called once at startup; the
@@ -500,62 +531,204 @@ func (n *Notifier) sendTeams(ctx context.Context, c chstore.NotificationChannel,
 	return postJSON(ctx, tc.WebhookURL, body)
 }
 
-// ── Zoom Chat backend ──────────────────────────────────────────────────────
+// ── Zoom Chat backend (Server-to-Server OAuth) ─────────────────────────────
 //
-// Zoom Chat's incoming webhook accepts a small JSON envelope:
-//   { "head": { "text": "<title>" },
-//     "body": [ { "type": "message", "text": "<body>" }, ... ] }
+// Two-step flow:
 //
-// The channel destination is decided at webhook-creation time
-// inside Zoom, not in the payload — operators paste the URL
-// (https://hooks.zoom.us/v3/hooks/<id>/<token>) into the channel
-// settings and we POST to it. The optional `Authorization`
-// header carries Zoom's verification token when present.
+//   1. POST https://zoom.us/oauth/token?grant_type=account_credentials
+//      &account_id=<ACCOUNT_ID>  with Basic(client_id:client_secret)
+//      → { access_token, expires_in, … }
+//
+//   2. POST https://api.zoom.us/v2/chat/users/me/messages
+//      Authorization: Bearer <token>
+//      Body: { message, to_channel } or { message, to_contact }
+//
+// Token cache: per-(account_id, client_id) entry that's reused
+// for the server-stated expires_in minus 30s. A burst of N
+// alerts hits the OAuth endpoint exactly once. The cache also
+// invalidates on a 401 from the messages API and retries once
+// — covers the case where Zoom revoked the token early.
+
+// zoomTokenCache is a tiny in-process LRU keyed by
+// (account_id, client_id). One Notifier process = one cache.
+type zoomTokenCache struct {
+	mu      sync.Mutex
+	entries map[string]zoomTokenEntry
+}
+type zoomTokenEntry struct {
+	accessToken string
+	expiresAt   time.Time
+}
+
 func (n *Notifier) sendZoomChat(ctx context.Context, c chstore.NotificationChannel, p chstore.Problem) error {
 	var zc ZoomChatChannelConfig
 	if err := json.Unmarshal(c.Config, &zc); err != nil {
 		return fmt.Errorf("decode zoom chat config: %w", err)
 	}
-	if zc.WebhookURL == "" {
-		return errors.New("channel has no webhook URL")
+	if zc.AccountID == "" {
+		// Legacy webhook config → ask for migration. Returning a
+		// clean error is better than a confused 401 from the
+		// non-existent OAuth round-trip.
+		if zc.WebhookURL != "" {
+			return errors.New("Zoom Chat channel uses the legacy webhook format — please reconfigure with Account ID / Client ID / Client Secret / Channel ID (Settings → Notification channels)")
+		}
+		return errors.New("Zoom Chat channel missing Account ID")
 	}
+	if zc.ClientID == "" || zc.ClientSecret == "" {
+		return errors.New("Zoom Chat channel missing Client ID or Client Secret")
+	}
+	if zc.ChannelID == "" && zc.ToContact == "" {
+		return errors.New("Zoom Chat channel needs either a Channel ID or a contact email")
+	}
+
+	token, err := n.zoomAccessToken(ctx, zc.AccountID, zc.ClientID, zc.ClientSecret)
+	if err != nil {
+		return fmt.Errorf("zoom oauth: %w", err)
+	}
+
 	t := time.Unix(0, p.StartedAt).UTC().Format(time.RFC3339)
-	headTxt := fmt.Sprintf("[%s] %s — %s",
+	header := fmt.Sprintf("[%s] %s — %s",
 		strings.ToUpper(p.Severity), p.Service, p.RuleName)
-	bodyText := fmt.Sprintf(
-		"%s\n\n• Service: %s\n• Severity: %s\n• Metric: %s\n• Value: %.2f (threshold %.2f)\n• Started: %s",
-		p.Description, p.Service, strings.ToUpper(p.Severity),
+	msg := fmt.Sprintf(
+		"%s\n%s\n\n• Service: %s\n• Severity: %s\n• Metric: %s\n• Value: %.2f (threshold %.2f)\n• Started: %s",
+		header, p.Description, p.Service, strings.ToUpper(p.Severity),
 		p.Metric, p.Value, p.Threshold, t)
 	if p.RunbookURL != "" {
-		bodyText += "\n• Runbook: " + p.RunbookURL
+		msg += "\n• Runbook: " + p.RunbookURL
 	}
-	payload := map[string]any{
-		"head": map[string]any{"text": headTxt},
-		"body": []map[string]any{
-			{"type": "message", "text": bodyText},
-		},
+
+	payload := map[string]any{"message": msg}
+	if zc.ChannelID != "" {
+		payload["to_channel"] = zc.ChannelID
+	} else {
+		payload["to_contact"] = zc.ToContact
 	}
+
+	// First attempt with the (cached) token.
+	if err := postZoomChatMessage(ctx, token, payload); err != nil {
+		// On auth failure, drop the cached token and retry once
+		// with a freshly-minted one. Zoom can revoke tokens at
+		// any moment (admin rotated the secret, app pause, etc.)
+		// and we don't want a stale-cache window to swallow
+		// alerts silently.
+		if isAuthErr(err) {
+			n.zoomInvalidate(zc.AccountID, zc.ClientID)
+			token2, err2 := n.zoomAccessToken(ctx, zc.AccountID, zc.ClientID, zc.ClientSecret)
+			if err2 != nil {
+				return fmt.Errorf("zoom oauth retry: %w", err2)
+			}
+			return postZoomChatMessage(ctx, token2, payload)
+		}
+		return err
+	}
+	return nil
+}
+
+// zoomAccessToken returns a cached access token or fetches a new
+// one. Cache key is (account_id, client_id) — separate apps under
+// the same account hold separate tokens. Refresh threshold is 30s
+// before the server-stated expires_in so an in-flight request
+// doesn't race the expiry.
+func (n *Notifier) zoomAccessToken(ctx context.Context, accountID, clientID, clientSecret string) (string, error) {
+	cacheKey := accountID + "|" + clientID
+	n.zoomTokens.mu.Lock()
+	if e, ok := n.zoomTokens.entries[cacheKey]; ok && time.Until(e.expiresAt) > 30*time.Second {
+		tok := e.accessToken
+		n.zoomTokens.mu.Unlock()
+		return tok, nil
+	}
+	n.zoomTokens.mu.Unlock()
+
+	form := url.Values{}
+	form.Set("grant_type", "account_credentials")
+	form.Set("account_id", accountID)
+	req, err := http.NewRequestWithContext(ctx, "POST",
+		"https://zoom.us/oauth/token?"+form.Encode(), nil)
+	if err != nil {
+		return "", err
+	}
+	req.SetBasicAuth(clientID, clientSecret)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode >= 300 {
+		return "", fmt.Errorf("oauth %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var parsed struct {
+		AccessToken string `json:"access_token"`
+		ExpiresIn   int    `json:"expires_in"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return "", fmt.Errorf("decode token: %w", err)
+	}
+	if parsed.AccessToken == "" {
+		return "", errors.New("oauth response missing access_token")
+	}
+	exp := time.Now().Add(time.Duration(parsed.ExpiresIn) * time.Second)
+	if parsed.ExpiresIn == 0 {
+		// Defensive — Zoom always sets this, but if the shape
+		// changes we don't want to cache forever.
+		exp = time.Now().Add(45 * time.Minute)
+	}
+	n.zoomTokens.mu.Lock()
+	n.zoomTokens.entries[cacheKey] = zoomTokenEntry{
+		accessToken: parsed.AccessToken,
+		expiresAt:   exp,
+	}
+	n.zoomTokens.mu.Unlock()
+	return parsed.AccessToken, nil
+}
+
+func (n *Notifier) zoomInvalidate(accountID, clientID string) {
+	n.zoomTokens.mu.Lock()
+	delete(n.zoomTokens.entries, accountID+"|"+clientID)
+	n.zoomTokens.mu.Unlock()
+}
+
+func postZoomChatMessage(ctx context.Context, token string, payload map[string]any) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("encode zoom chat payload: %w", err)
+		return fmt.Errorf("encode chat payload: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, "POST", zc.WebhookURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST",
+		"https://api.zoom.us/v2/chat/users/me/messages", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if zc.VerificationToken != "" {
-		req.Header.Set("Authorization", zc.VerificationToken)
-	}
+	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("zoom chat webhook %d", resp.StatusCode)
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode >= 300 {
+		return zoomAPIError{status: resp.StatusCode, body: strings.TrimSpace(string(respBody))}
 	}
 	return nil
+}
+
+type zoomAPIError struct {
+	status int
+	body   string
+}
+
+func (e zoomAPIError) Error() string {
+	return fmt.Sprintf("zoom chat api %d: %s", e.status, e.body)
+}
+
+func isAuthErr(err error) bool {
+	var ze zoomAPIError
+	if errors.As(err, &ze) {
+		return ze.status == 401 || ze.status == 403
+	}
+	return false
 }
 
 // ── Generic webhook backend ─────────────────────────────────────────────────

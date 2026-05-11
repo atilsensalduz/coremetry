@@ -287,7 +287,16 @@ function ChannelsTab() {
 function summarizeChannel(c: NotificationChannel): string {
   if (c.type === 'email') return (c.config.recipients ?? []).join(', ') || '(none)';
   if (c.type === 'slack' || c.type === 'mattermost') return c.config.webhookUrl ?? '(no webhook)';
-  if (c.type === 'teams' || c.type === 'zoomchat') return c.config.webhookUrl ?? '(no webhook)';
+  if (c.type === 'teams') return c.config.webhookUrl ?? '(no webhook)';
+  if (c.type === 'zoomchat') {
+    // New OAuth-shape channels read the chat channel JID; legacy
+    // ones still carry the webhook URL — show whichever exists so
+    // the operator can spot which channels still need migration.
+    if (c.config.channelId) return `channel: ${c.config.channelId}`;
+    if (c.config.toContact) return `DM: ${c.config.toContact}`;
+    if (c.config.webhookUrl) return '⚠ legacy webhook — please reconfigure';
+    return '(not configured)';
+  }
   if (c.type === 'webhook') return c.config.url ?? '(no url)';
   if (c.type === 'whatsapp') return (c.config.to ?? []).join(', ') || '(no recipients)';
   return '';
@@ -308,9 +317,15 @@ function ChannelModal({ initial, onClose, onSaved }: {
   const [recipients, setRecipients] = useState((initial?.config.recipients ?? []).join(', '));
   const [webhookUrl, setWebhookUrl] = useState(initial?.config.webhookUrl ?? '');
   const [url, setUrl] = useState(initial?.config.url ?? '');
-  // Zoom Chat verification token — optional second-factor
-  // Zoom hands out alongside the webhook URL.
-  const [verificationToken, setVerificationToken] = useState(initial?.config.verificationToken ?? '');
+  // Zoom Chat Server-to-Server OAuth fields. clientSecret is
+  // write-only — the GET endpoint never echoes it back, so the
+  // initial value is always empty. Existing channels keep their
+  // secret intact unless the operator types a replacement.
+  const [zoomAccountId, setZoomAccountId] = useState(initial?.config.accountId ?? '');
+  const [zoomClientId, setZoomClientId] = useState(initial?.config.clientId ?? '');
+  const [zoomClientSecret, setZoomClientSecret] = useState('');
+  const [zoomChannelId, setZoomChannelId] = useState(initial?.config.channelId ?? '');
+  const [zoomToContact, setZoomToContact] = useState(initial?.config.toContact ?? '');
   // WhatsApp / Twilio fields
   const [twilioSid, setTwilioSid] = useState(initial?.config.accountSid ?? '');
   const [twilioToken, setTwilioToken] = useState(initial?.config.authToken ?? '');
@@ -342,9 +357,22 @@ function ChannelModal({ initial, onClose, onSaved }: {
         if (!webhookUrl) throw new Error('Microsoft Teams webhook URL is required');
         config.webhookUrl = webhookUrl;
       } else if (type === 'zoomchat') {
-        if (!webhookUrl) throw new Error('Zoom Chat webhook URL is required');
-        config.webhookUrl = webhookUrl;
-        if (verificationToken) config.verificationToken = verificationToken.trim();
+        if (!zoomAccountId.trim()) throw new Error('Zoom Account ID is required');
+        if (!zoomClientId.trim()) throw new Error('Zoom Client ID is required');
+        // Secret is required on a NEW channel; on edit, leaving it
+        // blank means "keep the saved secret" — the server detects
+        // that by passing through the existing value.
+        if (!initial && !zoomClientSecret.trim()) {
+          throw new Error('Zoom Client Secret is required');
+        }
+        if (!zoomChannelId.trim() && !zoomToContact.trim()) {
+          throw new Error('Either a Channel ID or a contact email is required');
+        }
+        config.accountId = zoomAccountId.trim();
+        config.clientId = zoomClientId.trim();
+        if (zoomClientSecret.trim()) config.clientSecret = zoomClientSecret.trim();
+        if (zoomChannelId.trim()) config.channelId = zoomChannelId.trim();
+        if (zoomToContact.trim()) config.toContact = zoomToContact.trim();
       } else if (type === 'webhook') {
         if (!url) throw new Error('Webhook URL is required');
         config.url = url;
@@ -442,17 +470,60 @@ function ChannelModal({ initial, onClose, onSaved }: {
           )}
           {type === 'zoomchat' && (
             <>
-              <Field label="Zoom Chat incoming webhook URL">
-                <input required value={webhookUrl}
-                  placeholder="https://hooks.zoom.us/v3/hooks/<id>/<token>"
-                  onChange={e => setWebhookUrl(e.target.value)} style={{ width: '100%' }} />
-              </Field>
-              <Field label="Verification token (optional)">
-                <input value={verificationToken} type="password"
-                  placeholder="Pasted from the Zoom webhook configuration screen"
-                  onChange={e => setVerificationToken(e.target.value)}
+              <div style={{
+                fontSize: 11, color: 'var(--text2)', lineHeight: 1.6,
+                padding: '8px 10px', borderRadius: 4,
+                background: 'var(--bg2)', border: '1px solid var(--border)',
+                marginBottom: 8,
+              }}>
+                Server-to-Server OAuth flow. Create a "Server-to-Server OAuth" app in the
+                Zoom App Marketplace with the <code>chat_message:write:admin</code> scope,
+                then paste its credentials below. Coremetry exchanges them for an access
+                token (~1h cache) and posts to Zoom's REST API.
+              </div>
+              <Row>
+                <Field label="Account ID" flex={1}>
+                  <input required value={zoomAccountId}
+                    placeholder="ABC1234d-XYZ..."
+                    onChange={e => setZoomAccountId(e.target.value)} style={{ width: '100%' }} />
+                </Field>
+                <Field label="Client ID" flex={1}>
+                  <input required value={zoomClientId}
+                    placeholder="from the S2S OAuth app"
+                    onChange={e => setZoomClientId(e.target.value)} style={{ width: '100%' }} />
+                </Field>
+              </Row>
+              <Field label={initial
+                  ? 'Client Secret (leave empty to keep saved value)'
+                  : 'Client Secret'}>
+                <input required={!initial} value={zoomClientSecret} type="password"
+                  placeholder={initial ? '•••••••• (unchanged)' : 'never echoed back after save'}
+                  onChange={e => setZoomClientSecret(e.target.value)}
                   style={{ width: '100%' }} />
               </Field>
+              <Field label="Channel ID (JID) — target chat channel">
+                <input value={zoomChannelId}
+                  placeholder='e.g. "1234567890abcdef@xmpp.zoom.us" — copy from Zoom channel info'
+                  onChange={e => setZoomChannelId(e.target.value)} style={{ width: '100%' }} />
+              </Field>
+              <Field label="Or DM contact email (fallback if Channel ID is empty)">
+                <input value={zoomToContact} type="email"
+                  placeholder="oncall@example.com"
+                  onChange={e => setZoomToContact(e.target.value)} style={{ width: '100%' }} />
+              </Field>
+              {/* Legacy webhook nudge — surfaces when editing a
+                  channel that still carries the pre-v0.4.78 shape. */}
+              {initial?.config.webhookUrl && !initial?.config.accountId && (
+                <div style={{
+                  fontSize: 11, color: 'var(--warn)', padding: '6px 10px',
+                  borderRadius: 4, background: 'rgba(245,158,11,0.10)',
+                  border: '1px solid rgba(245,158,11,0.30)',
+                  marginTop: 4,
+                }}>
+                  ⚠ This channel still uses the legacy webhook URL. Fill the fields
+                  above and save to migrate; the webhook URL will be cleared.
+                </div>
+              )}
             </>
           )}
           {type === 'webhook' && (

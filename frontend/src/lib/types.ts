@@ -559,9 +559,15 @@ export interface NotificationChannel {
   // shape; whatsapp adds Twilio creds) only fill the fields they need.
   config: {
     recipients?: string[];   // email + whatsapp 'to' list
-    webhookUrl?: string;     // slack / mattermost / teams / zoomchat
+    webhookUrl?: string;     // slack / mattermost / teams (legacy zoomchat for migration only)
     url?: string;            // generic webhook
-    verificationToken?: string; // zoomchat (optional auth header)
+    verificationToken?: string; // legacy zoomchat (kept so old configs still serialise; new flow ignores)
+    // Zoom Chat Server-to-Server OAuth fields.
+    accountId?: string;      // zoomchat — Zoom account UUID
+    clientId?: string;       // zoomchat — OAuth client id from the S2S app
+    clientSecret?: string;   // zoomchat — OAuth client secret (write-only; never echoed back)
+    channelId?: string;      // zoomchat — JID for the target chat channel
+    toContact?: string;      // zoomchat — fallback DM contact email
     accountSid?: string;     // whatsapp (Twilio)
     authToken?: string;      // whatsapp (Twilio)
     from?: string;           // whatsapp sender (with or without 'whatsapp:' prefix)
