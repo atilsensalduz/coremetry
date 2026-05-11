@@ -10,11 +10,11 @@ const STORAGE_KEY = 'coremetry-theme';
  * inline boot script in layout.tsx applies it pre-paint to avoid FOUC.
  */
 export function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>('dark');
+  const [theme, setTheme] = useState<Theme>('light');
 
   // Read the theme that the boot script already applied to <html>
   useEffect(() => {
-    const t = (document.documentElement.getAttribute('data-theme') as Theme | null) ?? 'dark';
+    const t = (document.documentElement.getAttribute('data-theme') as Theme | null) ?? 'light';
     setTheme(t);
   }, []);
 

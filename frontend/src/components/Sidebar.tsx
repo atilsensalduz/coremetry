@@ -132,12 +132,14 @@ export function Sidebar() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Expanded nav groups — persists to localStorage so the
   // operator's preferred layout sticks across sessions. The
-  // most-used "triage" group starts open by default; everything
-  // else collapsed so the sidebar reads at a glance. The active
-  // route's group always auto-expands regardless of stored
-  // state (see render below).
+  // top-three "incident response surface" groups (Triage,
+  // Services, Signals) start open by default since they're
+  // what an SRE hits during a fast scan; Workspaces / Alerting
+  // / System / Management stay collapsed for visual quiet. The
+  // active route's group always auto-expands regardless of
+  // stored state (see render below).
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
-    () => new Set(['navGroup.triage']));
+    () => new Set(['navGroup.triage', 'navGroup.services', 'navGroup.signals']));
   useEffect(() => {
     try {
       const raw = localStorage.getItem('coremetry-sidebar-groups');
