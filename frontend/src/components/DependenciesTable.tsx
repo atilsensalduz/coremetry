@@ -443,6 +443,21 @@ function DetailDrawer({ system, cluster, name, kind, range }: {
 // consumers / DB clients read at a glance. Empty sections render
 // a one-line placeholder so the operator sees that we did look
 // for the data and there just isn't any in this window.
+//
+// Sort headers added in v0.4.92 — sorting is client-side because
+// the backend caps the result at LIMIT 100, so a 100-row sort
+// is O(n log n) ≈ 700 comparisons on the operator's machine.
+// At enterprise scale (5k+ pods) the same cap protects: the
+// drawer always shows the top-100-by-calls cohort and the
+// operator sorts within that page, no full-fleet re-fetch
+// trip. Default sort is Calls desc so the heaviest caller
+// keeps surfacing on first paint.
+type CallerSortKey = 'service' | 'pod' | 'role' | 'calls' | 'errRate' | 'avg' | 'p99';
+const CALLER_NATURAL: Record<CallerSortKey, 'asc' | 'desc'> = {
+  service: 'asc', pod: 'asc', role: 'asc',
+  calls: 'desc', errRate: 'desc', avg: 'desc', p99: 'desc',
+};
+
 function CallerSection({ title, rows, emptyMessage, tone }: {
   title: string;
   rows: import('@/lib/types').DBCallerBreakdown[];
@@ -454,6 +469,28 @@ function CallerSection({ title, rows, emptyMessage, tone }: {
     tone === 'consumer' ? 'var(--ok)' :
     tone === 'other'    ? 'var(--text3)' :
                           'var(--accent2)';
+  const hasRole = rows.some(r => r.role);
+  const [sortBy, setSortBy] = useState<CallerSortKey>('calls');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const toggleSort = (col: CallerSortKey) => {
+    if (sortBy === col) setSortDir(d => d === 'desc' ? 'asc' : 'desc');
+    else { setSortBy(col); setSortDir(CALLER_NATURAL[col]); }
+  };
+  const sorted = useMemo(() => {
+    const arr = [...rows];
+    arr.sort((a, b) => {
+      switch (sortBy) {
+        case 'service': return a.service.localeCompare(b.service);
+        case 'pod':     return a.pod.localeCompare(b.pod);
+        case 'role':    return (a.role ?? '').localeCompare(b.role ?? '');
+        case 'calls':   return a.spanCount - b.spanCount;
+        case 'errRate': return a.errorRate - b.errorRate;
+        case 'avg':     return a.avgDurationMs - b.avgDurationMs;
+        case 'p99':     return a.p99DurationMs - b.p99DurationMs;
+      }
+    });
+    return sortDir === 'desc' ? arr.reverse() : arr;
+  }, [rows, sortBy, sortDir]);
   return (
     <div style={{ marginBottom: 14 }}>
       <div style={{
@@ -472,17 +509,19 @@ function CallerSection({ title, rows, emptyMessage, tone }: {
           <table>
             <thead style={{ position: 'sticky', top: 0, background: 'var(--bg1)', zIndex: 1 }}>
               <tr>
-                <th>Service</th>
-                <th>Pod / host</th>
-                {rows.some(r => r.role) && <th>Role</th>}
-                <th className="num">Calls</th>
-                <th className="num">Err %</th>
-                <th className="num">Avg</th>
-                <th className="num">P99</th>
+                <CallerSortTh col="service" label="Service"    sort={sortBy} dir={sortDir} onSort={toggleSort} />
+                <CallerSortTh col="pod"     label="Pod / host" sort={sortBy} dir={sortDir} onSort={toggleSort} />
+                {hasRole && (
+                  <CallerSortTh col="role" label="Role" sort={sortBy} dir={sortDir} onSort={toggleSort} />
+                )}
+                <CallerSortTh col="calls"   label="Calls"      sort={sortBy} dir={sortDir} onSort={toggleSort} align="right" />
+                <CallerSortTh col="errRate" label="Err %"      sort={sortBy} dir={sortDir} onSort={toggleSort} align="right" />
+                <CallerSortTh col="avg"     label="Avg"        sort={sortBy} dir={sortDir} onSort={toggleSort} align="right" />
+                <CallerSortTh col="p99"     label="P99"        sort={sortBy} dir={sortDir} onSort={toggleSort} align="right" />
               </tr>
             </thead>
             <tbody>
-              {rows.map((c, i) => {
+              {sorted.map((c, i) => {
                 const errCls = c.errorRate > 5 ? 'err' : c.errorRate > 0 ? 'warn' : 'ok';
                 return (
                   <tr key={`${c.service}|${c.pod}|${c.role ?? ''}|${i}`}>
@@ -495,7 +534,7 @@ function CallerSection({ title, rows, emptyMessage, tone }: {
                     <td style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text2)' }}>
                       {c.pod}
                     </td>
-                    {rows.some(r => r.role) && (
+                    {hasRole && (
                       <td>
                         {c.role && <RoleBadge role={c.role} />}
                       </td>
@@ -516,6 +555,34 @@ function CallerSection({ title, rows, emptyMessage, tone }: {
         </div>
       )}
     </div>
+  );
+}
+
+// CallerSortTh is the sortable header used inside the drawer's
+// per-(service, pod) tables. Same accessibility shape as the
+// outer-table SortHeader (aria-sort + button + Enter/Space) so
+// keyboard users can sort the breakdown.
+function CallerSortTh({ col, label, sort, dir, onSort, align }: {
+  col: CallerSortKey; label: string;
+  sort: CallerSortKey; dir: 'asc' | 'desc';
+  onSort: (c: CallerSortKey) => void;
+  align?: 'left' | 'right';
+}) {
+  const active = sort === col;
+  return (
+    <th className={`sortable${active ? ' sorted' : ''}`}
+        style={{ textAlign: align ?? 'left' }}
+        aria-sort={active ? (dir === 'desc' ? 'descending' : 'ascending') : 'none'}>
+      <button type="button" onClick={() => onSort(col)}
+        style={{
+          all: 'unset', display: 'inline-flex', alignItems: 'baseline',
+          gap: 4, width: '100%', cursor: 'pointer',
+          justifyContent: align === 'right' ? 'flex-end' : 'flex-start',
+        }}>
+        {label}
+        <span className="sort-arrow">{active ? (dir === 'desc' ? '▼' : '▲') : '↕'}</span>
+      </button>
+    </th>
   );
 }
 
