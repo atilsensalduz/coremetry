@@ -96,11 +96,19 @@ type RepeatPreset = {
   hint: string;
   groupBy: string[];
   minRepeats: number;
+  // Optional filter pins added to the chip list when the preset
+  // fires. "Chatty RPC" sets kind=client so we count caller-side
+  // outbound spans only — otherwise each duplication double-
+  // counts (3 caller client spans + 3 callee server spans → two
+  // rows for the same root issue). Filters are AND-merged with
+  // whatever the operator already has.
+  filters?: FilterExpr[];
 };
 const REPEAT_PRESETS: RepeatPreset[] = [
   { key: 'rpc',     label: 'Chatty RPC',
-    hint: '≥ 3 calls to the same (name, peer.service) inside one trace — repeated cross-service chatter',
-    groupBy: ['name', 'peer.service'], minRepeats: 3 },
+    hint: '≥ 3 client-side calls with the same (name, peer.service) — repeated outbound chatter (e.g. api-gateway calling order-service.getOrder 3× in one trace)',
+    groupBy: ['name', 'peer.service'], minRepeats: 3,
+    filters: [{ k: 'kind', op: '=', v: ['client'] }] },
   { key: 'sql',     label: 'SQL N+1',
     hint: '≥ 5 spans with the same db.statement inside one trace — classic ORM N+1',
     groupBy: ['db.statement'], minRepeats: 5 },
@@ -795,6 +803,16 @@ function ExploreInner() {
                     onClick={() => {
                       setGroupBy(p.groupBy);
                       setRepeatMin(p.minRepeats);
+                      // Append preset's filter chips de-duped
+                      // against existing operator filters so
+                      // clicking the preset twice doesn't pile
+                      // up identical chips.
+                      if (p.filters && p.filters.length > 0) {
+                        const extra = p.filters.filter(pf =>
+                          !filters.some(x => x.k === pf.k && x.op === pf.op &&
+                                              (x.v?.[0] ?? '') === (pf.v?.[0] ?? '')));
+                        if (extra.length > 0) setFilters([...filters, ...extra]);
+                      }
                     }}
                     className={active ? '' : 'sec'}
                     style={{ fontSize: 11, padding: '4px 10px' }}>
