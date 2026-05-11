@@ -8,6 +8,7 @@ import { FilterBuilder } from '@/components/FilterBuilder';
 import { MultiLineChart } from '@/components/MultiLineChart';
 import { LatencyHeatmap } from '@/components/LatencyHeatmap';
 import { BubbleUpPanel } from '@/components/BubbleUpPanel';
+import { FacetsPanel } from '@/components/FacetsPanel';
 import { ShareButton } from '@/components/ShareButton';
 import { LogsExplorer } from '@/components/LogsExplorer';
 import { MetricsExplorer } from '@/components/MetricsExplorer';
@@ -106,6 +107,18 @@ function ExploreInner() {
   // baseline. Toggle below the chart so it doesn't fire on
   // every render — runs lazily on first open.
   const [showBubbleUp, setShowBubbleUp] = useState(false);
+  // Facets panel — Datadog "trace tag explorer". Toggled on
+  // by default since it's the quickest discovery surface for
+  // operators new to a service. Persisted in localStorage so
+  // returning users keep their preference.
+  const [showFacets, setShowFacets] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    return localStorage.getItem('coremetry-explore-facets') !== '0';
+  });
+  useEffect(() => {
+    try { localStorage.setItem('coremetry-explore-facets', showFacets ? '1' : '0'); }
+    catch { /* ignore */ }
+  }, [showFacets]);
   const [services, setServices] = useState<string[]>([]);
 
   // Result mode: aggregated metrics chart, OR raw matching trace list.
@@ -448,7 +461,37 @@ function ExploreInner() {
               ? 'Build span metrics on the fly — filter spans, pick an aggregation, optionally split by attributes.'
               : 'Search raw traces with the same filter / DSL — click a row to open the waterfall.'}
           </span>
+          {/* Facets toggle — surfaces the trace tag explorer
+              panel below this row. Hidden by default would
+              defeat the discovery purpose; visible by default
+              with a one-click hide for operators who already
+              know their filter set. Persisted to localStorage. */}
+          <button className="sec" onClick={() => setShowFacets(v => !v)}
+            style={{ fontSize: 11, padding: '3px 10px' }}
+            title="Toggle the trace tag explorer (discover common values per facet)">
+            {showFacets ? '× Facets' : '◫ Facets'}
+          </button>
         </div>
+
+        {showFacets && (() => {
+          const { from, to } = timeRangeToNs(range);
+          return (
+            <div style={{ marginBottom: 12 }}>
+              <FacetsPanel from={from} to={to}
+                dsl={mode === 'advanced' ? dsl : undefined}
+                filters={filters.length > 0 ? encodeFilters(filters) : undefined}
+                onPickValue={(f) => {
+                  // Avoid duplicate chips when the operator
+                  // clicks the same value twice.
+                  if (filters.some(x => x.k === f.k && x.op === f.op &&
+                                        (x.v?.[0] ?? '') === (f.v?.[0] ?? ''))) {
+                    return;
+                  }
+                  setFilters([...filters, f]);
+                }} />
+            </div>
+          );
+        })()}
 
         {/* Result mode toggle: Metric chart ⇄ Trace list (same filters drive both) */}
         <div className="controls" style={{ marginBottom: 6 }}>

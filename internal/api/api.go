@@ -163,6 +163,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/metrics/query", s.queryMetric)
 	mux.HandleFunc("GET /api/metrics/labels", s.getMetricLabelValues)
 	mux.HandleFunc("GET /api/spans/metric", s.spanMetric)
+	mux.HandleFunc("GET /api/spans/facets", s.spanFacets)
 	mux.HandleFunc("GET /api/spans/exemplar", s.spanExemplar)
 	mux.HandleFunc("GET /api/spans/heatmap", s.spanHeatmap)
 	mux.HandleFunc("GET /api/spans/bubbleup", s.spanBubbleUp)
@@ -1450,6 +1451,40 @@ func (s *Server) getMetricLabelValues(w http.ResponseWriter, r *http.Request) {
 }
 
 // ── Span metrics (Tempo span-metrics generator + Dynatrace MDA) ──────────────
+
+// spanFacets returns top-N distinct values for each well-known tag
+// column over the supplied window + DSL filter. Powers the trace
+// facets sidebar on /explore — operator scans which tags are heavy
+// and clicks a value to add it as a filter. Datadog's "trace tag
+// explorer" pattern.
+//
+// Cached 30s on (filters, window, topValues) so an operator pivoting
+// through facet clicks doesn't pay the per-facet COUNT GROUP BY each
+// time. Cheap on its own (LowCardinality dicts on every column),
+// but the savings compound across N facet clicks.
+func (s *Server) spanFacets(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	filters, err := parseFiltersAndDSL(q.Get("filters"), q.Get("dsl"))
+	if err != nil {
+		http.Error(w, "invalid query DSL: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	from := parseTime(q.Get("from"))
+	to := parseTime(q.Get("to"))
+	if to.IsZero() {
+		to = time.Now()
+	}
+	if from.IsZero() {
+		from = to.Add(-1 * time.Hour)
+	}
+	topValues := parseInt(q.Get("topValues"), 8)
+	key := fmt.Sprintf("facets:%s:%d:%d:%d",
+		q.Get("dsl")+"|"+q.Get("filters"),
+		from.UnixNano(), to.UnixNano(), topValues)
+	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
+		return s.store.GetSpanFacets(r.Context(), filters, from, to, topValues)
+	})
+}
 
 func (s *Server) spanMetric(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()

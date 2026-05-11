@@ -299,6 +299,18 @@ export const api = {
     }),
 
   // Runtime settings: AI Copilot
+  // spanFacets — Datadog-style trace tag explorer: top-N values per
+  // well-known facet column over (window + DSL filter). Drives the
+  // /explore facets panel; click a value adds it as a filter chip.
+  spanFacets: (params: { from: number; to: number; dsl?: string; filters?: string; topValues?: number }) => {
+    const q = new URLSearchParams();
+    q.set('from', String(params.from));
+    q.set('to', String(params.to));
+    if (params.dsl) q.set('dsl', params.dsl);
+    if (params.filters) q.set('filters', params.filters);
+    if (params.topValues) q.set('topValues', String(params.topValues));
+    return get<import('./types').Facet[] | null>(`/api/spans/facets?${q}`);
+  },
   redisStats: () =>
     get<import('./types').RedisStats>(`/api/admin/redis-stats`),
   // Causal correlations — ranked services that changed the most
