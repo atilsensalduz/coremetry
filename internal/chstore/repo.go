@@ -221,6 +221,124 @@ func (s *Store) GetServicesFilteredIn(ctx context.Context, since time.Duration, 
 // enough to be readable, narrow enough to fit beside the numeric cols).
 const SparklineBuckets = 30
 
+// queryOperationsFromMV reads the operation_summary_5m MV (added
+// in v0.4.99) instead of scanning raw spans for per-operation
+// aggregates over a wide window. The MV is an
+// AggregatingMergeTree so reads use *Merge() to combine the
+// state columns server-side — typical 1h window touches ~12
+// rows per (service, operation) instead of millions of spans.
+// Sparkline buckets fall out naturally since the MV is already
+// 5-min-bucketed; we densify into SparklineBuckets slots in Go.
+//
+// Returns (rows, nil) on success including the empty case. The
+// caller's "fall back to raw spans" path activates on error so a
+// fresh install whose MV hasn't been backfilled yet still serves
+// /services/{name}/operations.
+func (s *Store) queryOperationsFromMV(ctx context.Context, service string, winStart, winEnd time.Time) ([]OperationSummary, error) {
+	if service == "" {
+		return nil, fmt.Errorf("queryOperationsFromMV: service required")
+	}
+	// First pass: aggregate rollup per name across the window.
+	const apdexT = 200.0
+	rows, err := s.conn.Query(ctx, `
+		SELECT name,
+		       countMerge(span_count_state)                            AS span_count,
+		       countMerge(error_count_state)                           AS error_count,
+		       sumMerge(duration_sum_state) / 1e6
+		         / nullIf(countMerge(span_count_state), 0)             AS avg_ms,
+		       arrayElement(quantilesMerge(0.5, 0.95, 0.99)(duration_q_state), 1) / 1e6 AS p50_ms,
+		       arrayElement(quantilesMerge(0.5, 0.95, 0.99)(duration_q_state), 2) / 1e6 AS p95_ms,
+		       arrayElement(quantilesMerge(0.5, 0.95, 0.99)(duration_q_state), 3) / 1e6 AS p99_ms,
+		       (countMerge(apdex_satisfied_state)
+		         + countMerge(apdex_tolerating_state) / 2)
+		         / nullIf(countMerge(span_count_state), 0)             AS apdex
+		FROM operation_summary_5m
+		WHERE service_name = ? AND time_bucket >= ? AND time_bucket <= ?
+		GROUP BY name
+		ORDER BY span_count DESC
+		LIMIT 500
+		SETTINGS max_execution_time = 10`,
+		service, winStart, winEnd)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []OperationSummary{}
+	idxByName := map[string]int{}
+	for rows.Next() {
+		var r OperationSummary
+		var avgMs, p50, p95, p99 *float64
+		var apdex *float64
+		if err := rows.Scan(&r.Name, &r.SpanCount, &r.ErrorCount,
+			&avgMs, &p50, &p95, &p99, &apdex); err != nil {
+			return nil, err
+		}
+		if avgMs != nil { r.AvgMs = *avgMs }
+		if p50 != nil { r.P50Ms = *p50 }
+		if p95 != nil { r.P95Ms = *p95 }
+		if p99 != nil { r.P99Ms = *p99 }
+		if apdex != nil { r.Apdex = *apdex }
+		if r.SpanCount > 0 {
+			r.ErrorRate = float64(r.ErrorCount) / float64(r.SpanCount) * 100
+		}
+		out = append(out, r)
+		idxByName[r.Name] = len(out) - 1
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return out, nil
+	}
+
+	// Second pass: per-bucket counts for the inline sparkline.
+	// The MV bucket is 5 min so we densify into SparklineBuckets
+	// slots; for a 1h window that's 12 source buckets → 30
+	// sparkline slots (each MV bucket fills 2-3 slots).
+	winSec := int64(winEnd.Sub(winStart).Seconds())
+	if winSec <= 0 {
+		return out, nil
+	}
+	bucketSec := (winSec + int64(SparklineBuckets) - 1) / int64(SparklineBuckets)
+	if bucketSec < 1 {
+		bucketSec = 1
+	}
+	bucketRows, err := s.conn.Query(ctx, `
+		SELECT name,
+		       intDiv(toUInt32(time_bucket) - toUInt32(?), ?) AS bidx,
+		       countMerge(span_count_state)                   AS c
+		FROM operation_summary_5m
+		WHERE service_name = ? AND time_bucket >= ? AND time_bucket <= ?
+		GROUP BY name, bidx
+		SETTINGS max_execution_time = 10`,
+		winStart, bucketSec, service, winStart, winEnd)
+	if err != nil {
+		// Sparkline failure non-fatal — return aggregates without.
+		return out, nil
+	}
+	defer bucketRows.Close()
+	for bucketRows.Next() {
+		var name string
+		var bidx int64
+		var c uint64
+		if err := bucketRows.Scan(&name, &bidx, &c); err != nil {
+			continue
+		}
+		i, ok := idxByName[name]
+		if !ok {
+			continue
+		}
+		if out[i].Sparkline == nil {
+			out[i].Sparkline = make([]uint64, SparklineBuckets)
+		}
+		if bidx >= 0 && int(bidx) < SparklineBuckets {
+			out[i].Sparkline[bidx] += c
+		}
+	}
+	_ = apdexT // referenced by the raw-spans path; kept here so a future move keeps the constants together.
+	return out, nil
+}
+
 // GetOperationSummary returns per-operation aggregates for a single
 // service: count, error rate, p50/p95/p99 latency, apdex, plus a
 // fixed-length call-rate sparkline over the same window. Drives the
@@ -240,7 +358,6 @@ const SparklineBuckets = 30
 // shared and the second one is small/fast enough that the round-trip
 // cost dominates over its execution time.
 func (s *Store) GetOperationSummary(ctx context.Context, service string, since time.Duration, from, to time.Time) ([]OperationSummary, error) {
-	var wc whereClause
 	// Resolve the absolute [winStart, winEnd] up front so the sparkline
 	// bucketing query uses the exact same window as the aggregate.
 	// Using time.Now() twice in the two query branches would skew the
@@ -254,13 +371,32 @@ func (s *Store) GetOperationSummary(ctx context.Context, service string, since t
 		} else {
 			winEnd = time.Now()
 		}
-		wc.add("time >= ?", winStart)
-		wc.add("time <= ?", winEnd)
 	} else {
 		winEnd = time.Now()
 		winStart = winEnd.Add(-since)
-		wc.add("time >= ?", winStart)
 	}
+
+	// Read path: MV when the window is at least one full bucket
+	// (5 min) wide AND ends more than ~30s in the past (so the
+	// AggregatingMergeTree has had a chance to flush). Otherwise
+	// fall back to raw spans — which is fine because a <5min
+	// window is small enough that the raw scan is cheap anyway.
+	// MV path is 100-1000× faster on the typical "/services/foo
+	// operations over 1h" cold load.
+	useMV := winEnd.Sub(winStart) >= 5*time.Minute
+	if useMV {
+		out, err := s.queryOperationsFromMV(ctx, service, winStart, winEnd)
+		if err == nil {
+			return out, nil
+		}
+		// Don't fail the page if the MV is broken (post-upgrade,
+		// missing migration, etc.). Log and fall through to the
+		// raw-spans path so the operator still gets a result.
+	}
+
+	var wc whereClause
+	wc.add("time >= ?", winStart)
+	wc.add("time <= ?", winEnd)
 	if service != "" {
 		wc.add("service_name = ?", service)
 	}

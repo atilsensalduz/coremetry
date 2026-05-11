@@ -779,6 +779,37 @@ func (s *Store) migrate(ctx context.Context) error {
 		 FROM spans
 		 GROUP BY service_name, time_bucket`, apdexT, apdexT, apdex4T),
 
+		// operation_summary_5m: per-(service, operation, 5min) pre-
+		// aggregation that powers the OperationsTable on the
+		// service detail page. Pre-v0.4.99 GetOperationSummary
+		// scanned raw spans GROUP BY name over the entire window,
+		// which on a billion-spans/day service detail page took
+		// ~500ms cold. Reading the MV instead drops it to single-
+		// digit ms because the projection is already pre-aggregated
+		// by name within each 5-min slot. Same aggregate states as
+		// service_summary_5m (count + error + sum/duration +
+		// quantiles + apdex satisfied/tolerating) so the read path
+		// can compute the same numeric set the raw-spans query
+		// produced, just from a much smaller dataset.
+		fmt.Sprintf(`CREATE MATERIALIZED VIEW IF NOT EXISTS operation_summary_5m
+		 ENGINE = AggregatingMergeTree
+		 PARTITION BY toDate(time_bucket)
+		 ORDER BY (service_name, name, time_bucket)
+		 TTL toDate(time_bucket) + INTERVAL 90 DAY
+		 SETTINGS index_granularity = 8192
+		 AS SELECT
+		   service_name,
+		   name,
+		   toStartOfInterval(time, INTERVAL 5 MINUTE)  AS time_bucket,
+		   countState()                                AS span_count_state,
+		   countIfState(status_code = 'error')         AS error_count_state,
+		   sumState(duration)                          AS duration_sum_state,
+		   quantilesState(0.5, 0.95, 0.99)(duration)   AS duration_q_state,
+		   countIfState(duration <= %d)                AS apdex_satisfied_state,
+		   countIfState(duration > %d AND duration <= %d) AS apdex_tolerating_state
+		 FROM spans
+		 GROUP BY service_name, name, time_bucket`, apdexT, apdexT, apdex4T),
+
 		// trace_summary_1d: per-day distinct trace count via HLL.
 		// Lets /admin/stats history show traces-per-day without a
 		// uniqExact pass over billions of rows. uniqState writes a
