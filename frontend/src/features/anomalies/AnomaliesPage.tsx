@@ -208,6 +208,19 @@ export default function ProblemsPage() {
                   return (
                     <Fragment key={g.fingerprint}>
                       <tr onClick={() => toggleExpand(g.fingerprint)}
+                        onKeyDown={(e) => {
+                          // Keyboard accessibility — pre-v0.4.79 the row
+                          // was mouse-only. Screen-reader + keyboard
+                          // users couldn't expand a group. Enter/Space
+                          // now toggles the same way as a click.
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            toggleExpand(g.fingerprint);
+                          }
+                        }}
+                        tabIndex={0}
+                        role="button"
+                        aria-expanded={open}
                         style={{ cursor: 'pointer' }}>
                         <td style={{ color: 'var(--text3)', textAlign: 'center' }}>
                           {open ? '▾' : '▸'}
@@ -755,37 +768,41 @@ function humanize(err: unknown): string {
   return body || msg;
 }
 
-function SortTh({ col, label, sort, dir, onSort, align }: {
-  col: SortKey; label: string;
-  sort: SortKey; dir: SortDir;
-  onSort: (c: SortKey) => void;
+// SortTh is the generic accessible sort-header cell. Replaces the
+// pre-v0.4.79 SortTh + PSortTh copy-paste pair (they only differed
+// in the SortKey type parameter, which Go-style generics let us
+// unify cleanly). Click + Enter + Space all toggle — operators
+// with screen readers and keyboard-only users can now sort the
+// table the same way as mouse users, which was the audit blocker.
+function SortTh<K extends string>({ col, label, sort, dir, onSort, align }: {
+  col: K; label: string;
+  sort: K; dir: SortDir;
+  onSort: (c: K) => void;
   align?: 'left' | 'right';
 }) {
   const active = sort === col;
   return (
     <th className={`sortable${active ? ' sorted' : ''}`}
+        style={{ textAlign: align ?? 'left' }}
+        aria-sort={active ? (dir === 'desc' ? 'descending' : 'ascending') : 'none'}>
+      <button type="button"
         onClick={() => onSort(col)}
-        style={{ textAlign: align ?? 'left' }}>
-      {label}
-      <span className="sort-arrow">{active ? (dir === 'desc' ? '▼' : '▲') : '↕'}</span>
+        style={{
+          all: 'unset', display: 'inline-flex', alignItems: 'baseline',
+          gap: 4, width: '100%', cursor: 'pointer',
+          justifyContent: align === 'right' ? 'flex-end' : 'flex-start',
+        }}
+        aria-label={`Sort by ${label}${active ? ` (currently ${dir === 'desc' ? 'descending' : 'ascending'})` : ''}`}>
+        {label}
+        <span className="sort-arrow">{active ? (dir === 'desc' ? '▼' : '▲') : '↕'}</span>
+      </button>
     </th>
   );
 }
 
-function PSortTh({ col, label, sort, dir, onSort, align }: {
-  col: PSortKey; label: string;
-  sort: PSortKey; dir: SortDir;
-  onSort: (c: PSortKey) => void;
-  align?: 'left' | 'right';
-}) {
-  const active = sort === col;
-  return (
-    <th className={`sortable${active ? ' sorted' : ''}`}
-        onClick={() => onSort(col)}
-        style={{ textAlign: align ?? 'left' }}>
-      {label}
-      <span className="sort-arrow">{active ? (dir === 'desc' ? '▼' : '▲') : '↕'}</span>
-    </th>
-  );
-}
+// PSortTh kept as a type-narrowed alias so the existing render
+// sites don't need to be touched — TS picks the right K.
+// Eliminating it entirely would mean retyping every call site
+// with explicit <PSortKey>; not worth the churn.
+const PSortTh = SortTh<PSortKey>;
 

@@ -560,6 +560,15 @@ type zoomTokenEntry struct {
 	expiresAt   time.Time
 }
 
+// zoomHTTPClient bounds every call to Zoom's OAuth + chat APIs.
+// Without this the default client has no timeout — a Zoom
+// regional outage would hang every alert-sending goroutine
+// indefinitely and back-pressure the evaluator's send queue.
+// 15s is generous for OAuth + a single chat POST yet still
+// short enough that the evaluator's next tick (1 min) doesn't
+// stack on a stalled batch.
+var zoomHTTPClient = &http.Client{Timeout: 15 * time.Second}
+
 func (n *Notifier) sendZoomChat(ctx context.Context, c chstore.NotificationChannel, p chstore.Problem) error {
 	var zc ZoomChatChannelConfig
 	if err := json.Unmarshal(c.Config, &zc); err != nil {
@@ -650,7 +659,7 @@ func (n *Notifier) zoomAccessToken(ctx context.Context, accountID, clientID, cli
 	req.SetBasicAuth(clientID, clientSecret)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := zoomHTTPClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -702,7 +711,7 @@ func postZoomChatMessage(ctx context.Context, token string, payload map[string]a
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := zoomHTTPClient.Do(req)
 	if err != nil {
 		return err
 	}

@@ -17,7 +17,12 @@ export function useLogPatternAnomalies() {
     queryKey: keys.anomalies.logPatterns,
     queryFn: async () => (await api.logPatternAnomalies()) ?? [],
     refetchInterval: 60_000,
-    staleTime: 50_000,
+    // staleTime matches refetchInterval so a re-mount inside the
+    // poll window doesn't fire a duplicate refetch on top of the
+    // already-scheduled background poll. Pre-v0.4.79 we had
+    // staleTime=50s < refetchInterval=60s which double-fetched
+    // any time the operator switched tabs near the 50-60s mark.
+    staleTime: 60_000,
   });
 }
 
@@ -26,7 +31,12 @@ export function useTraceOpAnomalies() {
     queryKey: keys.anomalies.traceOps,
     queryFn: async () => (await api.traceOpAnomalies()) ?? [],
     refetchInterval: 60_000,
-    staleTime: 50_000,
+    // staleTime matches refetchInterval so a re-mount inside the
+    // poll window doesn't fire a duplicate refetch on top of the
+    // already-scheduled background poll. Pre-v0.4.79 we had
+    // staleTime=50s < refetchInterval=60s which double-fetched
+    // any time the operator switched tabs near the 50-60s mark.
+    staleTime: 60_000,
   });
 }
 
@@ -35,7 +45,12 @@ export function useMetricAnomalies() {
     queryKey: keys.anomalies.metrics,
     queryFn: async () => (await api.metricAnomalies()) ?? [],
     refetchInterval: 60_000,
-    staleTime: 50_000,
+    // staleTime matches refetchInterval so a re-mount inside the
+    // poll window doesn't fire a duplicate refetch on top of the
+    // already-scheduled background poll. Pre-v0.4.79 we had
+    // staleTime=50s < refetchInterval=60s which double-fetched
+    // any time the operator switched tabs near the 50-60s mark.
+    staleTime: 60_000,
   });
 }
 
@@ -44,7 +59,12 @@ export function useAnomalyEvents() {
     queryKey: keys.anomalies.events,
     queryFn: async () => (await api.anomalyEvents()) ?? [],
     refetchInterval: 60_000,
-    staleTime: 50_000,
+    // staleTime matches refetchInterval so a re-mount inside the
+    // poll window doesn't fire a duplicate refetch on top of the
+    // already-scheduled background poll. Pre-v0.4.79 we had
+    // staleTime=50s < refetchInterval=60s which double-fetched
+    // any time the operator switched tabs near the 50-60s mark.
+    staleTime: 60_000,
   });
 }
 
@@ -53,7 +73,12 @@ export function useAnomalySilences() {
     queryKey: keys.anomalies.silences,
     queryFn: async () => (await api.anomalySilences()) ?? [],
     refetchInterval: 60_000,
-    staleTime: 50_000,
+    // staleTime matches refetchInterval so a re-mount inside the
+    // poll window doesn't fire a duplicate refetch on top of the
+    // already-scheduled background poll. Pre-v0.4.79 we had
+    // staleTime=50s < refetchInterval=60s which double-fetched
+    // any time the operator switched tabs near the 50-60s mark.
+    staleTime: 60_000,
   });
 }
 
