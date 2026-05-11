@@ -68,6 +68,37 @@ export function ServiceMapGraph({
     [data.edges]
   );
 
+  // Collapse bidirectional edges (A→B + B→A) into a single
+  // rendered line with arrowheads on both ends. Pre-v0.5.0 the
+  // two directions drew as separate overlapping lines, which
+  // visually read as one but lost the "this is bidirectional"
+  // signal. Mutual-RPC patterns (A serves B + B serves A in
+  // the same trace) are now distinguished from one-way edges
+  // by the double-headed arrow.
+  type RenderedEdge = {
+    caller: string; callee: string;
+    forward: import('@/lib/types').ServiceMapEdge;
+    reverse?: import('@/lib/types').ServiceMapEdge;
+  };
+  const renderedEdges = useMemo<RenderedEdge[]>(() => {
+    const byKey = new Map<string, RenderedEdge>();
+    for (const e of data.edges) {
+      const canon = e.caller < e.callee
+        ? `${e.caller}|${e.callee}`
+        : `${e.callee}|${e.caller}`;
+      const ex = byKey.get(canon);
+      if (!ex) {
+        byKey.set(canon, { caller: e.caller, callee: e.callee, forward: e });
+      } else {
+        // Two edges with the same canonical key → bidirectional.
+        // Mark the second one as `reverse` of the first; the
+        // renderer adds a markerStart arrow.
+        ex.reverse = e;
+      }
+    }
+    return Array.from(byKey.values());
+  }, [data.edges]);
+
   // Which nodes count as "active" right now — a hovered node's
   // own neighbourhood, otherwise everything. Used to dim the
   // off-path edges/nodes.
@@ -110,12 +141,21 @@ export function ServiceMapGraph({
           </filter>
         </defs>
 
-        {/* Edges first so nodes draw on top */}
-        {data.edges.map((e, i) => {
+        {/* Edges first so nodes draw on top. Bidirectional
+            pairs render as one line with arrowheads on both
+            ends; the title tooltip lists both directions. */}
+        {renderedEdges.map((re, i) => {
+          const e = re.forward;
+          const rev = re.reverse;
           const a = positioned[e.caller], b = positioned[e.callee];
           if (!a || !b) return null;
-          const w = 0.6 + 2.6 * (e.traceCount / Math.max(1, edgeMaxTraces));
-          const errorish = e.errorCount > 0;
+          // Combined call volume for the stroke width when
+          // bidirectional — one fat line carries the merged
+          // weight instead of two thin overlapping ones.
+          const totalTraces = e.traceCount + (rev?.traceCount ?? 0);
+          const w = 0.6 + 2.6 * (totalTraces / Math.max(1, edgeMaxTraces));
+          const errorish = e.errorCount > 0 || (rev?.errorCount ?? 0) > 0;
+          const isNew = e.isNew || rev?.isNew;
           const dimmed = active && (!active.has(e.caller) || !active.has(e.callee));
           const ra = nodeRadius(a.n);
           const rb = nodeRadius(b.n);
@@ -123,30 +163,35 @@ export function ServiceMapGraph({
           const d  = Math.max(1, Math.hypot(dx, dy));
           const x1 = a.x + dx * ra / d, y1 = a.y + dy * ra / d;
           const x2 = b.x - dx * rb / d, y2 = b.y - dy * rb / d;
-          // New-edge highlight: green stroke + heavier line so a
-          // freshly-wired dependency stands out from the steady-
-          // state grey arrows. Trumps the errorish red because a
-          // brand-new edge is itself the news, even if the first
-          // calls happened to error.
-          const strokeColor = e.isNew ? 'var(--ok)'
+          const strokeColor = isNew ? 'var(--ok)'
                             : errorish ? 'var(--err)'
                             : 'var(--text3)';
-          const strokeOp = e.isNew ? 0.9 : errorish ? 0.85 : 0.55;
-          const arrow = e.isNew ? 'url(#svc-arrow)' :
+          const strokeOp = isNew ? 0.9 : errorish ? 0.85 : 0.55;
+          const arrow = isNew ? 'url(#svc-arrow)' :
                         errorish ? 'url(#svc-arrow-err)' : 'url(#svc-arrow)';
           return (
             <g key={i} style={{ opacity: dimmed ? 0.12 : 1, transition: 'opacity 120ms' }}>
               <line x1={x1} y1={y1} x2={x2} y2={y2}
                     stroke={strokeColor}
-                    strokeWidth={e.isNew ? w + 0.8 : w}
-                    strokeDasharray={e.isNew ? '4 3' : undefined}
+                    strokeWidth={isNew ? w + 0.8 : w}
+                    strokeDasharray={isNew ? '4 3' : undefined}
                     opacity={strokeOp}
-                    markerEnd={arrow}>
+                    markerEnd={arrow}
+                    /* Reverse direction → arrowhead on the start
+                       too. SVG marker-start needs a marker that
+                       points the opposite way; the existing
+                       `svc-arrow` uses orient="auto-start-reverse"
+                       so it auto-flips for markerStart. */
+                    markerStart={rev ? arrow : undefined}>
                 <title>
                   {`${e.caller} → ${e.callee}\n` +
                    `${e.traceCount} traces · ${e.spanCount} spans` +
-                   (errorish ? ` · ${e.errorCount} errors` : '') +
-                   (e.isNew ? '\n[NEW since baseline]' : '')}
+                   (e.errorCount > 0 ? ` · ${e.errorCount} errors` : '') +
+                   (rev ? `\n\n${rev.caller} → ${rev.callee}\n` +
+                          `${rev.traceCount} traces · ${rev.spanCount} spans` +
+                          ((rev.errorCount ?? 0) > 0 ? ` · ${rev.errorCount} errors` : '')
+                        : '') +
+                   (isNew ? '\n[NEW since baseline]' : '')}
                 </title>
               </line>
             </g>

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { ServiceMapGraph } from '@/components/ServiceMapGraph';
-import { useServiceMap } from '@/lib/queries';
+import { useServiceMap, useServiceNames } from '@/lib/queries';
 import { fmtNum } from '@/lib/utils';
 import type { TimeRange, ServiceMap, ServiceMapNode } from '@/lib/types';
 
@@ -60,6 +60,25 @@ export default function ServiceMapPage() {
   const since = (PRESETS.find(p => p.key === range.preset)?.secs ?? 900) + 's';
 
   const mapQ = useServiceMap(since, samples, diff || undefined);
+  // Picker datalist source — pre-v0.5.0 the dropdown listed
+  // only services that appeared in the sampled traces. With
+  // sampleCount=200 this often dropped low-volume but
+  // important services (cron jobs, batch workers) from the
+  // selector. Pulling the canonical /api/services list means
+  // every emitting service shows in the picker, even when its
+  // map node is absent from the current sample. Falls back to
+  // map nodes if the API hiccups.
+  const namesQ = useServiceNames();
+  const allServiceNames = useMemo(() => {
+    const set = new Set<string>();
+    if (namesQ.data?.names) {
+      for (const n of namesQ.data.names) set.add(n);
+    }
+    if (mapQ.data?.nodes) {
+      for (const n of mapQ.data.nodes) if (!n.kind) set.add(n.service);
+    }
+    return Array.from(set).sort();
+  }, [namesQ.data, mapQ.data]);
   // Auto-pick a focused service on first load so the operator
   // lands on a useful 1-hop view instead of the full graph (which
   // can look like a hairball on large clusters). Picks one of the
@@ -158,6 +177,13 @@ export default function ServiceMapPage() {
                    if (match) setFocus(match.service);
                  }}
                  onFocus={() => { setPickerText(''); setPickerOpen(true); }}
+                 // Click re-opens the picker even if the input
+                 // was already focused — browsers don't fire a
+                 // fresh focus event in that case, so without
+                 // this an operator who navigates away with the
+                 // keyboard and comes back can't see the full
+                 // datalist again.
+                 onMouseDown={() => { setPickerText(''); setPickerOpen(true); }}
                  onBlur={() => {
                    setPickerOpen(false);
                    // Empty value on blur = "no commit yet" — keep
@@ -180,9 +206,11 @@ export default function ServiceMapPage() {
                 dep nodes (db:redis, ext:stripe, …) aren't
                 first-class focus targets. They show up in
                 the graph as neighbours of the services that
-                call them. */}
-            {data?.nodes.filter(n => !n.kind).map(n =>
-              <option key={n.service} value={n.service} />)}
+                call them. Pulls from /api/services so every
+                emitting service shows even when the map's
+                trace sample didn't include it. */}
+            {allServiceNames.map(n =>
+              <option key={n} value={n} />)}
           </datalist>
           {/* Clear-focus button removed in v0.4.86 — picking a
               different service from the dropdown OR clicking a

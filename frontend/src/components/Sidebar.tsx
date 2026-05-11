@@ -115,11 +115,13 @@ export function Sidebar() {
   // count never drift.
   const healthQ = useHealth();
   const openProblems = useOpenProblemCount().data ?? 0;
-  const health = healthQ.isError
-    ? 'Backend offline'
-    : healthQ.data
-      ? `Q: spans ${healthQ.data.spans_queued} · logs ${healthQ.data.logs_queued}`
-      : 'Connecting…';
+  // Footer only shows when the backend is unreachable — pre-v0.5.0
+  // it always rendered the queue depths, which on a quiet
+  // deployment read as a permanent "spans: 0 · logs: 0" line
+  // that looked like a broken status indicator rather than a
+  // live counter. Hide it when healthy; the System page is the
+  // canonical place for queue depths anyway.
+  const health = healthQ.isError ? 'Backend offline' : '';
   const [menuOpen, setMenuOpen] = useState(false);
   const [showChangePw, setShowChangePw] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -364,7 +366,7 @@ export function Sidebar() {
             )}
           </div>
         )}
-        {showLabels && <div id="nav-footer">{health}</div>}
+        {showLabels && health && <div id="nav-footer">{health}</div>}
 
         {!collapsed && !isMobile && (
           <div className="sidebar-resizer"
