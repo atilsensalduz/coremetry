@@ -56,13 +56,20 @@ nodeSelector: {}
 tolerations: []
 affinity: {}
 
+# Coremetry pod resources. Defaults target production banking-
+# adjacent workloads where alert latency matters more than tight
+# bin-packing. Burstable QoS — requests << limits so the pod
+# schedules on a moderately-loaded node but the spike capacity
+# is there when an incident lights up every panel at once.
+# Tune down on dev clusters; tune up further (cpu=8 / mem=32Gi)
+# for true high-volume (>5k spans/sec) shops.
 resources:
   requests:
-    cpu: 250m
-    memory: 512Mi
+    cpu: 500m
+    memory: 1Gi
   limits:
-    cpu: "2"
-    memory: 2Gi
+    cpu: "4"
+    memory: 16Gi
 
 service:
   type: ClusterIP
@@ -211,9 +218,15 @@ clickhouse:
     size: 20Gi
     storageClassName: ""   # empty = cluster default
     accessModes: ["ReadWriteOnce"]
+  # ClickHouse pod resources. The defaults handle ~100-500 spans/
+  # sec with the bundled MergeTree schema. At banking scale
+  # (>5k spans/sec) bump to cpu="16", memory=32Gi and provision
+  # a dedicated node pool. CH's memory usage scales with
+  # `max_memory_usage` per query + the merge buffer; the limits
+  # below allow ~1 GB headroom over the default query budget.
   resources:
-    requests: { cpu: 500m, memory: 1Gi }
-    limits:   { cpu: "2",  memory: 4Gi }
+    requests: { cpu: "1",  memory: 2Gi }
+    limits:   { cpu: "8",  memory: 16Gi }
   service:
     type: ClusterIP
     nativePort: 9000        # CH native protocol — coremetry connects here
@@ -258,9 +271,14 @@ redis:
     registry: ""          # empty = docker.io
     repository: library/redis
     tag: 7-alpine
+  # Redis sidecar (cache + distributed lock). Even a busy
+  # Coremetry rarely pushes Redis past 50 MB resident — keys are
+  # short and TTLs are seconds — but giving it room means a
+  # cardinality spike (lots of distinct dashboard keys) doesn't
+  # evict hot entries.
   resources:
-    requests: { cpu: 50m,  memory: 64Mi }
-    limits:   { cpu: 500m, memory: 256Mi }
+    requests: { cpu: 100m, memory: 128Mi }
+    limits:   { cpu: "1",  memory: 1Gi }
 
 # OTel Collector — runs as a sidecar deployment, accepts OTLP from apps,
 # forwards to coremetry over gRPC. Disable if you already operate a collector
@@ -275,9 +293,14 @@ otelCollector:
     type: ClusterIP
     grpcPort: 4317
     httpPort: 4318
+  # OTel Collector resources. At ~5k spans/sec a single collector
+  # uses ~500m CPU + 256Mi memory; the limits below leave room
+  # for a 3-5× burst (deploy event, traffic spike) before the
+  # exporter queue back-pressures. Scale collector replicas
+  # horizontally if you outgrow these.
   resources:
-    requests: { cpu: 100m, memory: 128Mi }
-    limits:   { cpu: "1",  memory: 512Mi }
+    requests: { cpu: 250m, memory: 256Mi }
+    limits:   { cpu: "2",  memory: 2Gi }
 
 # Java demo — Spring Boot e-commerce app with zero-code OTel auto-
 # instrumentation + sidecar profile pusher. Off by default; flip on for

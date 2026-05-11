@@ -1090,21 +1090,58 @@ canvas { max-width: 100%; }
    selectors narrow (only attack chrome, not content) so
    compact mode never makes anything unreadable. */
 
-[data-density="compact"] table { font-size: 11px; }
-[data-density="compact"] thead th { padding: 4px 8px; }
-[data-density="compact"] tbody td { padding: 4px 8px; }
+/* Four density steps — spacious / comfortable (default) /
+   compact / dense. The compact + dense rules below ladder
+   the same surfaces (table cells, controls, page padding,
+   waterfall rows). Tested at each step so the difference is
+   visible without breaking the layout. Default (no
+   data-density attr set, or = "comfortable") inherits the
+   base rules above this block.
 
+   Pre-v0.4.85 only "compact" existed and the diff was
+   barely visible — this set tightens compact further AND
+   adds a denser "dense" step (used by SREs on a 4K with 50
+   service rows in view) AND a "spacious" step for tablet
+   / accessibility-first operators. */
+
+/* ── Spacious — extra breathing room ─────────────────────── */
+[data-density="spacious"] table { font-size: 14px; }
+[data-density="spacious"] thead th { padding: 10px 14px; }
+[data-density="spacious"] tbody td { padding: 10px 14px; }
+[data-density="spacious"] .controls { gap: 12px; }
+[data-density="spacious"] .controls input,
+[data-density="spacious"] .controls select,
+[data-density="spacious"] .controls button { padding: 7px 12px; font-size: 13px; }
+[data-density="spacious"] #content { padding: 22px 28px; }
+[data-density="spacious"] .wf-row { min-height: 26px; }
+[data-density="spacious"] .wf-bar { height: 14px; }
+
+/* ── Compact — modest tightening ──────────────────────────── */
+[data-density="compact"] table { font-size: 11px; }
+[data-density="compact"] thead th { padding: 3px 7px; }
+[data-density="compact"] tbody td { padding: 3px 7px; }
 [data-density="compact"] .controls { gap: 6px; }
 [data-density="compact"] .controls input,
 [data-density="compact"] .controls select,
 [data-density="compact"] .controls button { padding: 3px 8px; font-size: 11px; }
-
-[data-density="compact"] #content { padding: 12px 14px; }
-
-/* Service / KPI panel cards — drop the inner padding from 14
-   to 10 so the strip header sits closer to the data. */
+[data-density="compact"] #content { padding: 10px 12px; }
 [data-density="compact"] .empty { padding: 24px; }
-
-/* Waterfall already runs at 22px; compact takes it to 19. */
-[data-density="compact"] .wf-row { min-height: 19px; }
+[data-density="compact"] .wf-row { min-height: 18px; }
 [data-density="compact"] .wf-bar { height: 11px; }
+[data-density="compact"] .badge { font-size: 9px; padding: 1px 5px; }
+
+/* ── Dense — maximum information density ─────────────────── */
+[data-density="dense"] table { font-size: 10px; }
+[data-density="dense"] thead th { padding: 2px 5px; }
+[data-density="dense"] tbody td { padding: 2px 5px; }
+[data-density="dense"] .controls { gap: 4px; }
+[data-density="dense"] .controls input,
+[data-density="dense"] .controls select,
+[data-density="dense"] .controls button { padding: 2px 6px; font-size: 10px; }
+[data-density="dense"] #content { padding: 6px 10px; }
+[data-density="dense"] .empty { padding: 18px; font-size: 11px; }
+[data-density="dense"] .wf-row { min-height: 15px; }
+[data-density="dense"] .wf-bar { height: 9px; }
+[data-density="dense"] .badge { font-size: 8px; padding: 1px 4px; }
+[data-density="dense"] h1, [data-density="dense"] h2 { font-size: 13px; }
+[data-density="dense"] h3 { font-size: 12px; }
