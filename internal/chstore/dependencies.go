@@ -29,16 +29,26 @@ type DBInstance struct {
 
 // MessagingInstance is the parallel structure for /messaging —
 // Kafka / RabbitMQ / IBM MQ / NATS / etc. Same shape as
-// DBInstance so the frontend renders both tables with a shared
-// component.
+// DBInstance plus a Cluster dimension so multi-cluster
+// deployments (e.g. "Kafka Konsolide" + "Kafka Mobile" both
+// running under the same OTel msg_system tag) show as
+// separate rows instead of one bucket.
 //
 // Destination tries to be the queue / topic name. messaging
 // SDKs in OTel populate `messaging.destination.name` as an
 // attribute; we resolve it via the attr_keys/attr_values arrays.
 // peer.service is the fallback (Kafka brokers register
 // themselves there).
+//
+// Cluster resolves in priority order:
+//   1. `server.address`              — bootstrap host (most reliable)
+//   2. `messaging.kafka.bootstrap.servers` — kafka-specific
+//   3. `messaging.kafka.cluster.name`      — newer semconv
+//   4. `peer.service`                — coarse fallback
+//   5. `(default)`                   — single-cluster install
 type MessagingInstance struct {
 	System      string   `json:"system"`      // kafka / rabbitmq / ibmmq / nats / sqs / kinesis
+	Cluster     string   `json:"cluster"`     // bootstrap host / cluster name / "(default)"
 	Destination string   `json:"destination"` // queue / topic name (resolved from messaging.destination.name or peer.service)
 	SpanCount   uint64   `json:"spanCount"`
 	ErrorCount  uint64   `json:"errorCount"`
@@ -47,6 +57,24 @@ type MessagingInstance struct {
 	P99Ms       float64  `json:"p99DurationMs"`
 	Callers     []string `json:"callers"`
 }
+
+// clusterExpr is the shared CH expression for resolving a
+// messaging cluster identifier. Kept as a constant so the
+// overview, detail, and callers query all use the exact same
+// fallback chain — different expressions would silently group
+// the same physical cluster into different rows in different
+// views.
+//
+// Deliberately NOT falling back to peer_service because that
+// column is also the destination's last-resort source; using
+// it for both would conflate "I don't know the cluster" with
+// "I don't know the destination" into one bucket.
+const clusterExpr = `coalesce(
+	nullIf(attr_values[indexOf(attr_keys, 'server.address')], ''),
+	nullIf(attr_values[indexOf(attr_keys, 'messaging.kafka.bootstrap.servers')], ''),
+	nullIf(attr_values[indexOf(attr_keys, 'messaging.kafka.cluster.name')], ''),
+	'(default)'
+)`
 
 // DBCallerBreakdown is one row of the per-(service, pod)
 // breakdown shown in the DB detail drawer. Pod is derived from
@@ -219,6 +247,7 @@ func (s *Store) GetDatabaseDetail(
 // process) plus the destination already discriminates work.
 type MessagingDetail struct {
 	System      string              `json:"system"`
+	Cluster     string              `json:"cluster"`
 	Destination string              `json:"destination"`
 	SpanCount   uint64              `json:"spanCount"`
 	ErrorCount  uint64              `json:"errorCount"`
@@ -230,7 +259,7 @@ type MessagingDetail struct {
 }
 
 func (s *Store) GetMessagingDetail(
-	ctx context.Context, system, destination string, from, to time.Time,
+	ctx context.Context, system, cluster, destination string, from, to time.Time,
 ) (*MessagingDetail, error) {
 	if system == "" {
 		return nil, nil
@@ -254,11 +283,17 @@ func (s *Store) GetMessagingDetail(
 	)`
 
 	out := &MessagingDetail{
-		System: system, Destination: destination,
+		System: system, Cluster: cluster, Destination: destination,
 		Callers: []DBCallerBreakdown{},
 		TopOps:  []DBOpStat{},
 	}
 
+	// Multi-cluster scope: when cluster is supplied AND is not
+	// the catch-all "(default)" we narrow the query to that
+	// physical cluster. "(default)" means "the implicit
+	// cluster" (spans without any cluster-discriminating
+	// attribute) — those spans match when clusterExpr resolves
+	// to '(default)' so we can use the same equality check.
 	row := s.conn.QueryRow(ctx, `
 		SELECT count(),
 		       countIf(status_code = 'error'),
@@ -266,9 +301,10 @@ func (s *Store) GetMessagingDetail(
 		       quantile(0.99)(duration) / 1e6
 		FROM spans
 		WHERE time >= ? AND time <= ? AND msg_system = ?
+		  AND `+clusterExpr+` = ?
 		  AND `+destExpr+` = ?
 		SETTINGS max_execution_time = 15`,
-		from, to, system, destination)
+		from, to, system, cluster, destination)
 	if err := row.Scan(&out.SpanCount, &out.ErrorCount, &out.AvgMs, &out.P99Ms); err != nil {
 		return nil, err
 	}
@@ -290,12 +326,13 @@ func (s *Store) GetMessagingDetail(
 		       quantile(0.99)(duration) / 1e6
 		FROM spans
 		WHERE time >= ? AND time <= ? AND msg_system = ?
+		  AND `+clusterExpr+` = ?
 		  AND `+destExpr+` = ?
 		GROUP BY service_name, pod, role
 		ORDER BY count() DESC
 		LIMIT 100
 		SETTINGS max_execution_time = 15`,
-		from, to, system, destination)
+		from, to, system, cluster, destination)
 	if err != nil {
 		return out, nil
 	}
@@ -319,12 +356,13 @@ func (s *Store) GetMessagingDetail(
 		SELECT name AS stmt, count(), avg(duration) / 1e6
 		FROM spans
 		WHERE time >= ? AND time <= ? AND msg_system = ?
+		  AND `+clusterExpr+` = ?
 		  AND `+destExpr+` = ?
 		GROUP BY stmt
 		ORDER BY count() DESC
 		LIMIT 20
 		SETTINGS max_execution_time = 15`,
-		from, to, system, destination)
+		from, to, system, cluster, destination)
 	if err != nil {
 		return out, nil
 	}
@@ -456,21 +494,27 @@ func (s *Store) GetMessaging(ctx context.Context, from, to time.Time) ([]Messagi
 	if to.IsZero() {
 		to = time.Now()
 	}
+	// Destination expression — same priority chain as
+	// MessagingInstance comment. Kept inline (not a const) since
+	// the messaging detail uses it slightly differently
+	// (compared against an exact destination string).
+	const destExpr = `coalesce(
+		nullIf(attr_values[indexOf(attr_keys, 'messaging.destination.name')], ''),
+		nullIf(attr_values[indexOf(attr_keys, 'messaging.destination')], ''),
+		nullIf(peer_service, ''),
+		'unknown'
+	)`
 	rows, err := s.conn.Query(ctx, `
 		SELECT msg_system,
-		       coalesce(
-		         nullIf(attr_values[indexOf(attr_keys, 'messaging.destination.name')], ''),
-		         nullIf(attr_values[indexOf(attr_keys, 'messaging.destination')], ''),
-		         nullIf(peer_service, ''),
-		         'unknown'
-		       ) AS destination,
+		       `+clusterExpr+` AS cluster,
+		       `+destExpr+`    AS destination,
 		       count()                                       AS span_count,
 		       countIf(status_code = 'error')                AS error_count,
 		       avg(duration) / 1e6                           AS avg_ms,
 		       quantile(0.99)(duration) / 1e6                AS p99_ms
 		FROM spans
 		WHERE time >= ? AND time <= ? AND msg_system != ''
-		GROUP BY msg_system, destination
+		GROUP BY msg_system, cluster, destination
 		ORDER BY span_count DESC
 		LIMIT 200
 		SETTINGS max_execution_time = 20`, from, to)
@@ -479,11 +523,12 @@ func (s *Store) GetMessaging(ctx context.Context, from, to time.Time) ([]Messagi
 	}
 	defer rows.Close()
 	out := []MessagingInstance{}
-	type key struct{ system, destination string }
+	type key struct{ system, cluster, destination string }
 	idxByKey := map[key]int{}
 	for rows.Next() {
 		var r MessagingInstance
-		if err := rows.Scan(&r.System, &r.Destination, &r.SpanCount, &r.ErrorCount, &r.AvgMs, &r.P99Ms); err != nil {
+		if err := rows.Scan(&r.System, &r.Cluster, &r.Destination,
+			&r.SpanCount, &r.ErrorCount, &r.AvgMs, &r.P99Ms); err != nil {
 			return nil, err
 		}
 		if r.SpanCount > 0 {
@@ -491,7 +536,7 @@ func (s *Store) GetMessaging(ctx context.Context, from, to time.Time) ([]Messagi
 		}
 		r.Callers = []string{}
 		out = append(out, r)
-		idxByKey[key{r.System, r.Destination}] = len(out) - 1
+		idxByKey[key{r.System, r.Cluster, r.Destination}] = len(out) - 1
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -502,29 +547,25 @@ func (s *Store) GetMessaging(ctx context.Context, from, to time.Time) ([]Messagi
 
 	cRows, err := s.conn.Query(ctx, `
 		SELECT msg_system,
-		       coalesce(
-		         nullIf(attr_values[indexOf(attr_keys, 'messaging.destination.name')], ''),
-		         nullIf(attr_values[indexOf(attr_keys, 'messaging.destination')], ''),
-		         nullIf(peer_service, ''),
-		         'unknown'
-		       ) AS destination,
+		       `+clusterExpr+` AS cluster,
+		       `+destExpr+`    AS destination,
 		       service_name, count() AS c
 		FROM spans
 		WHERE time >= ? AND time <= ? AND msg_system != ''
-		GROUP BY msg_system, destination, service_name
-		ORDER BY msg_system, destination, c DESC
+		GROUP BY msg_system, cluster, destination, service_name
+		ORDER BY msg_system, cluster, destination, c DESC
 		SETTINGS max_execution_time = 15`, from, to)
 	if err != nil {
 		return out, nil
 	}
 	defer cRows.Close()
 	for cRows.Next() {
-		var system, destination, svc string
+		var system, cluster, destination, svc string
 		var c uint64
-		if err := cRows.Scan(&system, &destination, &svc, &c); err != nil {
+		if err := cRows.Scan(&system, &cluster, &destination, &svc, &c); err != nil {
 			continue
 		}
-		i, ok := idxByKey[key{system, destination}]
+		i, ok := idxByKey[key{system, cluster, destination}]
 		if !ok {
 			continue
 		}

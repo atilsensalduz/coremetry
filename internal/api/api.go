@@ -864,19 +864,26 @@ func (s *Server) getMessaging(w http.ResponseWriter, r *http.Request) {
 }
 
 // getMessagingDetail is the parallel handler for queues /
-// topics. See getDatabaseDetail comment.
+// topics. Takes ?system=&cluster=&destination=&from=&to=. The
+// cluster query param defaults to "(default)" for single-
+// cluster deployments where the SPA hasn't been updated yet —
+// matches the clusterExpr fallback in the store.
 func (s *Server) getMessagingDetail(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	system := q.Get("system")
 	dest := q.Get("destination")
+	cluster := q.Get("cluster")
+	if cluster == "" {
+		cluster = "(default)"
+	}
 	if system == "" {
 		http.Error(w, `{"error":"system required"}`, http.StatusBadRequest)
 		return
 	}
 	from, to := parseFromTo(r, time.Hour)
-	key := fmt.Sprintf("msg-detail:%s:%s:%d:%d", system, dest, from.UnixNano(), to.UnixNano())
+	key := fmt.Sprintf("msg-detail:%s:%s:%s:%d:%d", system, cluster, dest, from.UnixNano(), to.UnixNano())
 	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
-		return s.store.GetMessagingDetail(r.Context(), system, dest, from, to)
+		return s.store.GetMessagingDetail(r.Context(), system, cluster, dest, from, to)
 	})
 }
 

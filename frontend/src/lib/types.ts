@@ -111,6 +111,7 @@ export interface DBDetail {
 }
 export interface MessagingDetail {
   system: string;
+  cluster: string;
   destination: string;
   spanCount: number;
   errorCount: number;
@@ -126,6 +127,12 @@ export interface MessagingDetail {
 // messaging.destination, then peer.service, then 'unknown'.
 export interface MessagingInstance {
   system: string;
+  // Physical cluster identifier — bootstrap host /
+  // messaging.kafka.cluster.name / "(default)" when no
+  // cluster-discriminating attribute is on the span. Allows a
+  // single Coremetry to track multiple Kafka / MQ clusters
+  // under the same msg_system tag.
+  cluster: string;
   destination: string;
   spanCount: number;
   errorCount: number;

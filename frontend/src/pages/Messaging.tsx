@@ -45,6 +45,7 @@ export default function MessagingPage() {
           <DependenciesTable
             rows={data.map(d => ({
               system: d.system,
+              cluster: d.cluster,
               destination: d.destination,
               spanCount: d.spanCount,
               errorCount: d.errorCount,

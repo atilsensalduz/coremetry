@@ -318,9 +318,13 @@ export const api = {
   databaseDetail: (system: string, instance: string, fromNs: number, toNs: number) =>
     get<import('./types').DBDetail | null>(
       `/api/databases/detail?system=${encodeURIComponent(system)}&instance=${encodeURIComponent(instance)}&from=${fromNs}&to=${toNs}`),
-  messagingDetail: (system: string, destination: string, fromNs: number, toNs: number) =>
+  // cluster is the bootstrap host / messaging.kafka.cluster.name
+  // — defaults to "(default)" when the SPA doesn't supply one.
+  // Multi-cluster Kafka / MQ deployments need it set so the
+  // drawer scopes to the correct physical cluster.
+  messagingDetail: (system: string, cluster: string, destination: string, fromNs: number, toNs: number) =>
     get<import('./types').MessagingDetail | null>(
-      `/api/messaging/detail?system=${encodeURIComponent(system)}&destination=${encodeURIComponent(destination)}&from=${fromNs}&to=${toNs}`),
+      `/api/messaging/detail?system=${encodeURIComponent(system)}&cluster=${encodeURIComponent(cluster)}&destination=${encodeURIComponent(destination)}&from=${fromNs}&to=${toNs}`),
   spanBreakdown: (service: string, fromNs: number, toNs: number) =>
     get<import('./types').BreakdownPoint[] | null>(
       `/api/services/${encodeURIComponent(service)}/span-breakdown?from=${fromNs}&to=${toNs}`),

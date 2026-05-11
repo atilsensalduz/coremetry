@@ -11,6 +11,11 @@ import type { TimeRange, DBDetail, MessagingDetail } from '@/lib/types';
 // table logic is otherwise identical.
 export interface DepRow {
   system: string;
+  // Messaging-only — physical cluster identifier. Empty / undefined
+  // for DB rows. Surfaced as a Cluster column when any row in
+  // the set has it populated so a Kafka deployment with one
+  // cluster doesn't gain an empty column.
+  cluster?: string;
   // EITHER instance (DB) OR destination (messaging). Both are
   // optional on the type so the caller can wire whichever it
   // has — the table renders whichever is non-empty.
@@ -24,9 +29,9 @@ export interface DepRow {
   callers: string[];
 }
 
-type SortKey = 'system' | 'name' | 'spanCount' | 'errorRate' | 'avg' | 'p99';
+type SortKey = 'system' | 'cluster' | 'name' | 'spanCount' | 'errorRate' | 'avg' | 'p99';
 const NATURAL: Record<SortKey, 'asc' | 'desc'> = {
-  system: 'asc', name: 'asc', spanCount: 'desc',
+  system: 'asc', cluster: 'asc', name: 'asc', spanCount: 'desc',
   errorRate: 'desc', avg: 'desc', p99: 'desc',
 };
 
@@ -60,6 +65,12 @@ export function DependenciesTable({
     for (const r of rows) s.add(r.system);
     return Array.from(s).sort();
   }, [rows]);
+  // Show the Cluster column only when at least one row carries
+  // a non-default cluster. Single-Kafka-cluster deployments
+  // skip the column entirely.
+  const hasClusterCol = useMemo(
+    () => rows.some(r => r.cluster && r.cluster !== '(default)'),
+    [rows]);
 
   const nameOf = (r: DepRow) => r.instance ?? r.destination ?? '';
 
@@ -69,6 +80,7 @@ export function DependenciesTable({
       if (systemFilter && r.system !== systemFilter) return false;
       if (term) {
         return r.system.toLowerCase().includes(term)
+            || (r.cluster ?? '').toLowerCase().includes(term)
             || nameOf(r).toLowerCase().includes(term)
             || r.callers.some(c => c.toLowerCase().includes(term));
       }
@@ -81,6 +93,7 @@ export function DependenciesTable({
     const cmp = (a: DepRow, b: DepRow): number => {
       switch (sortBy) {
         case 'system':    return a.system.localeCompare(b.system);
+        case 'cluster':   return (a.cluster ?? '').localeCompare(b.cluster ?? '');
         case 'name':      return nameOf(a).localeCompare(nameOf(b));
         case 'spanCount': return a.spanCount - b.spanCount;
         case 'errorRate': return a.errorRate - b.errorRate;
@@ -154,6 +167,9 @@ export function DependenciesTable({
             <tr>
               <th style={{ width: 24 }} aria-label="Expand"></th>
               <SortHeader col="system"    label="System"      sort={sortBy} dir={sortDir} onSort={toggleSort} />
+              {hasClusterCol && (
+                <SortHeader col="cluster" label="Cluster" sort={sortBy} dir={sortDir} onSort={toggleSort} />
+              )}
               <SortHeader col="name"      label={nameLabel}   sort={sortBy} dir={sortDir} onSort={toggleSort} />
               <SortHeader col="spanCount" label="Calls"       sort={sortBy} dir={sortDir} onSort={toggleSort} align="right" />
               <SortHeader col="errorRate" label="Err %"       sort={sortBy} dir={sortDir} onSort={toggleSort} align="right" />
@@ -165,7 +181,10 @@ export function DependenciesTable({
           <tbody>
             {sorted.map((r, i) => {
               const errCls = r.errorRate > 5 ? 'err' : r.errorRate > 0 ? 'warn' : 'ok';
-              const rowKey = `${r.system}|${nameOf(r)}`;
+              // Key includes cluster so two rows with the same
+              // (system, destination) but different physical
+              // Kafka clusters don't collide in expansion state.
+              const rowKey = `${r.system}|${r.cluster ?? ''}|${nameOf(r)}`;
               const isOpen = openKey === rowKey;
               return (
                 <Fragment key={`${rowKey}|${i}`}>
@@ -178,6 +197,15 @@ export function DependenciesTable({
                     <td>
                       <SystemBadge system={r.system} kind={kind} />
                     </td>
+                    {hasClusterCol && (
+                      <td style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text2)' }}>
+                        {r.cluster === '(default)' ? (
+                          <span style={{ color: 'var(--text3)' }}>—</span>
+                        ) : (
+                          r.cluster
+                        )}
+                      </td>
+                    )}
                     <td onClick={e => e.stopPropagation()}>
                       <Link to={exploreHref(r)}
                             style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 500 }}
@@ -208,12 +236,13 @@ export function DependenciesTable({
                   </tr>
                   {isOpen && (
                     <tr>
-                      <td colSpan={8} style={{
+                      <td colSpan={hasClusterCol ? 9 : 8} style={{
                         background: 'var(--bg1)', padding: '12px 16px',
                         borderTop: '1px solid var(--border)',
                       }}>
                         <DetailDrawer
                           system={r.system}
+                          cluster={r.cluster ?? '(default)'}
                           name={nameOf(r)}
                           kind={kind}
                           range={range} />
@@ -259,8 +288,12 @@ function SortHeader({ col, label, sort, dir, onSort, align }: {
 // Lazy — only fires when the row is expanded; bounded server-
 // side at LIMIT 100 callers / LIMIT 20 ops so the response stays
 // cheap even for a 50-pod fleet.
-function DetailDrawer({ system, name, kind, range }: {
+function DetailDrawer({ system, cluster, name, kind, range }: {
   system: string;
+  // Cluster identifier — only meaningful for queue/messaging
+  // rows. DB callers pass "(default)" and the backend ignores
+  // it (DB queries don't have a cluster dimension).
+  cluster: string;
   name: string;
   kind: 'db' | 'queue';
   range: TimeRange;
@@ -273,10 +306,10 @@ function DetailDrawer({ system, name, kind, range }: {
     const { from, to } = timeRangeToNs(range);
     const p = kind === 'db'
       ? api.databaseDetail(system, name, from, to)
-      : api.messagingDetail(system, name, from, to);
+      : api.messagingDetail(system, cluster, name, from, to);
     p.then(r => setData(r ?? null))
      .catch(() => setData(null));
-  }, [system, name, kind, range]);
+  }, [system, cluster, name, kind, range]);
 
   if (data === undefined) return <Spinner />;
   if (data === null) return (
