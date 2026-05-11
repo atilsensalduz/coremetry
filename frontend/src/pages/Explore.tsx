@@ -83,6 +83,35 @@ const METRIC_PRESETS: MetricPreset[] = [
   { key: 'heatmap', label: 'Latency heatmap',  hint: 'Honeycomb-style 2D density (time × log-duration)', agg: 'count',      field: 'duration_ms', viz: 'heatmap' },
 ];
 
+// REPEAT_PRESETS — one-click pick of (groupBy, minRepeats) that
+// turn the Repeats mode into a question. "SQL N+1" groups by
+// db.statement at ≥5 (typical ORM offender). "Chatty RPC"
+// groups by name+peer.service at ≥3 (matches the user's
+// example: 3 gRPC calls to the same operation in one trace
+// surface as a row). "Endpoint fan-out" groups by http.route
+// at ≥5 (a service hammering its own endpoint).
+type RepeatPreset = {
+  key: string;
+  label: string;
+  hint: string;
+  groupBy: string[];
+  minRepeats: number;
+};
+const REPEAT_PRESETS: RepeatPreset[] = [
+  { key: 'rpc',     label: 'Chatty RPC',
+    hint: '≥ 3 calls to the same (name, peer.service) inside one trace — repeated cross-service chatter',
+    groupBy: ['name', 'peer.service'], minRepeats: 3 },
+  { key: 'sql',     label: 'SQL N+1',
+    hint: '≥ 5 spans with the same db.statement inside one trace — classic ORM N+1',
+    groupBy: ['db.statement'], minRepeats: 5 },
+  { key: 'route',   label: 'Endpoint fan-out',
+    hint: '≥ 5 spans on the same http.route inside one trace — endpoint hammering itself',
+    groupBy: ['http.route'], minRepeats: 5 },
+  { key: 'op',      label: 'Same operation',
+    hint: '≥ 3 spans with the same name (operation) inside one trace — repeated work regardless of target',
+    groupBy: ['name'], minRepeats: 3 },
+];
+
 // Top-N split-by — when split is set, cap the chart to the busiest N
 // series by total count. Anything past N is silently dropped client-
 // side. Prevents the chart from drowning under 200 services on a
@@ -749,15 +778,50 @@ function ExploreInner() {
         )}
 
         {resultMode === 'repeats' && (
-          <div className="controls">
-            <span style={{ color: 'var(--text2)', fontSize: 12 }}>Min repeats:</span>
-            <select value={repeatMin} onChange={e => setRepeatMin(Number(e.target.value))}>
-              {[2, 5, 10, 20, 50, 100].map(n => <option key={n} value={n}>≥ {n}</option>)}
-            </select>
-            <span style={{ color: 'var(--text2)', fontSize: 11, marginLeft: 'auto' }}>
-              Split-by below picks the "same shape" key (e.g. db.statement for SQL N+1, peer.service for chatty RPC)
-            </span>
-          </div>
+          <>
+            {/* Preset row — one-click pick of (groupBy,
+                minRepeats) that turns the mode into a question
+                shape. Sample: "3 calls to the same gRPC
+                operation in one trace" = Chatty RPC. */}
+            <div className="controls" style={{ marginBottom: 6, flexWrap: 'wrap' }}>
+              <span style={{ color: 'var(--text2)', fontSize: 12 }}>Preset:</span>
+              {REPEAT_PRESETS.map(p => {
+                const active = p.minRepeats === repeatMin
+                  && p.groupBy.length === groupBy.length
+                  && p.groupBy.every((k, i) => groupBy[i] === k);
+                return (
+                  <button key={p.key} type="button"
+                    title={p.hint}
+                    onClick={() => {
+                      setGroupBy(p.groupBy);
+                      setRepeatMin(p.minRepeats);
+                    }}
+                    className={active ? '' : 'sec'}
+                    style={{ fontSize: 11, padding: '4px 10px' }}>
+                    {p.label}
+                  </button>
+                );
+              })}
+              {!REPEAT_PRESETS.some(p => p.minRepeats === repeatMin
+                && p.groupBy.length === groupBy.length
+                && p.groupBy.every((k, i) => groupBy[i] === k)) && (
+                <span style={{
+                  fontSize: 11, color: 'var(--text3)', fontStyle: 'italic',
+                  padding: '4px 10px',
+                  border: '1px dashed var(--border)', borderRadius: 6,
+                }}>Custom</span>
+              )}
+            </div>
+            <div className="controls">
+              <span style={{ color: 'var(--text2)', fontSize: 12 }}>Min repeats:</span>
+              <select value={repeatMin} onChange={e => setRepeatMin(Number(e.target.value))}>
+                {[2, 3, 5, 10, 20, 50, 100].map(n => <option key={n} value={n}>≥ {n}</option>)}
+              </select>
+              <span style={{ color: 'var(--text2)', fontSize: 11, marginLeft: 'auto' }}>
+                Split-by below sets the "same shape" key. Pick a preset above for one-click defaults.
+              </span>
+            </div>
+          </>
         )}
 
         {/* Mode toggle: Builder ⇄ Advanced */}
