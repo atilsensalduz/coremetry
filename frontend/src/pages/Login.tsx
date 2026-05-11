@@ -213,7 +213,12 @@ export default function LoginPage() {
         )}
 
         {/* Build version — only rendered once /api/version answers, so
-            the form doesn't reflow during initial paint. */}
+            the form doesn't reflow during initial paint. The
+            "· powered by OpenTelemetry" tag is non-removable
+            even with custom branding — it's an acknowledgement
+            of the open standard Coremetry is built on, not a
+            vendor watermark, so the branding override leaves
+            it intact. */}
         {version && (
           <div style={{
             marginTop: 18, textAlign: 'center',
@@ -222,6 +227,14 @@ export default function LoginPage() {
             letterSpacing: '0.3px',
           }}>
             {brand.appName} {version}
+            <span style={{ marginLeft: 6, color: 'var(--text3)' }}>
+              · powered by{' '}
+              <a href="https://opentelemetry.io"
+                 target="_blank" rel="noopener"
+                 style={{ color: 'var(--accent2)', textDecoration: 'none' }}>
+                OpenTelemetry
+              </a>
+            </span>
           </div>
         )}
       </form>
