@@ -53,7 +53,8 @@ export default function MessagingPage() {
               p99DurationMs: d.p99DurationMs,
               callers: d.callers ?? [],
             }))}
-            kind="queue" />
+            kind="queue"
+            range={range} />
         )}
       </div>
     </>

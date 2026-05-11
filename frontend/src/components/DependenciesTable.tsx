@@ -1,7 +1,9 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Empty } from './Spinner';
-import { fmtNum } from '@/lib/utils';
+import { Empty, Spinner } from './Spinner';
+import { api } from '@/lib/api';
+import { fmtNum, timeRangeToNs } from '@/lib/utils';
+import type { TimeRange, DBDetail, MessagingDetail } from '@/lib/types';
 
 // Row is the shape both /databases and /messaging hand to this
 // component. We type-erase the row-specific labelling (Instance
@@ -33,17 +35,25 @@ const NATURAL: Record<SortKey, 'asc' | 'desc'> = {
 // header label and the click-through DSL pre-filter so a row
 // click lands on /explore scoped to that system+instance.
 export function DependenciesTable({
-  rows, kind,
+  rows, kind, range,
 }: {
   rows: DepRow[];
   // 'db' → uses instance + filters by db.system; 'queue' → uses
   // destination + filters by messaging.system.
   kind: 'db' | 'queue';
+  // Time range — drives the detail drawer's per-(service, pod)
+  // breakdown query. Same window the parent /databases or
+  // /messaging page uses for the overview.
+  range: TimeRange;
 }) {
   const [sortBy, setSortBy] = useState<SortKey>('spanCount');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [systemFilter, setSystemFilter] = useState<string>('');
   const [search, setSearch] = useState('');
+  // Which row's drawer is open. Stores `system|name` so the
+  // drawer survives sort + filter changes (system+name are
+  // stable identifiers).
+  const [openKey, setOpenKey] = useState<string | null>(null);
 
   const systems = useMemo(() => {
     const s = new Set<string>();
@@ -142,6 +152,7 @@ export function DependenciesTable({
         <table>
           <thead>
             <tr>
+              <th style={{ width: 24 }} aria-label="Expand"></th>
               <SortHeader col="system"    label="System"      sort={sortBy} dir={sortDir} onSort={toggleSort} />
               <SortHeader col="name"      label={nameLabel}   sort={sortBy} dir={sortDir} onSort={toggleSort} />
               <SortHeader col="spanCount" label="Calls"       sort={sortBy} dir={sortDir} onSort={toggleSort} align="right" />
@@ -154,39 +165,62 @@ export function DependenciesTable({
           <tbody>
             {sorted.map((r, i) => {
               const errCls = r.errorRate > 5 ? 'err' : r.errorRate > 0 ? 'warn' : 'ok';
+              const rowKey = `${r.system}|${nameOf(r)}`;
+              const isOpen = openKey === rowKey;
               return (
-                <tr key={`${r.system}|${nameOf(r)}|${i}`}>
-                  <td>
-                    <SystemBadge system={r.system} kind={kind} />
-                  </td>
-                  <td>
-                    <Link to={exploreHref(r)}
-                          style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 500 }}
-                          title="Open in Explore (spans pre-filtered)">
-                      {nameOf(r) || <span style={{ color: 'var(--text3)' }}>(unknown)</span>}
-                    </Link>
-                  </td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{fmtNum(r.spanCount)}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>
-                    <span className={`badge b-${errCls}`}>{r.errorRate.toFixed(2)}%</span>
-                  </td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{r.avgDurationMs.toFixed(1)}ms</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{r.p99DurationMs.toFixed(1)}ms</td>
-                  <td style={{ fontSize: 11 }}>
-                    {r.callers.length === 0
-                      ? <span style={{ color: 'var(--text3)' }}>—</span>
-                      : r.callers.slice(0, 3).map((c, idx) => (
-                          <span key={c}>
-                            <Link to={`/service?name=${encodeURIComponent(c)}`}
-                                  style={{ fontFamily: 'monospace' }}>{c}</Link>
-                            {idx < Math.min(2, r.callers.length - 1) && <span style={{ color: 'var(--text3)' }}>, </span>}
-                          </span>
-                        ))}
-                    {r.callers.length > 3 && (
-                      <span style={{ color: 'var(--text3)' }}> +{r.callers.length - 3}</span>
-                    )}
-                  </td>
-                </tr>
+                <Fragment key={`${rowKey}|${i}`}>
+                  <tr onClick={() => setOpenKey(isOpen ? null : rowKey)}
+                      style={{ cursor: 'pointer',
+                               background: isOpen ? 'var(--bg2)' : undefined }}>
+                    <td style={{ color: 'var(--text3)', width: 24, textAlign: 'center' }}>
+                      {isOpen ? '▾' : '▸'}
+                    </td>
+                    <td>
+                      <SystemBadge system={r.system} kind={kind} />
+                    </td>
+                    <td onClick={e => e.stopPropagation()}>
+                      <Link to={exploreHref(r)}
+                            style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 500 }}
+                            title="Open in Explore (spans pre-filtered)">
+                        {nameOf(r) || <span style={{ color: 'var(--text3)' }}>(unknown)</span>}
+                      </Link>
+                    </td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{fmtNum(r.spanCount)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>
+                      <span className={`badge b-${errCls}`}>{r.errorRate.toFixed(2)}%</span>
+                    </td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{r.avgDurationMs.toFixed(1)}ms</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{r.p99DurationMs.toFixed(1)}ms</td>
+                    <td style={{ fontSize: 11 }} onClick={e => e.stopPropagation()}>
+                      {r.callers.length === 0
+                        ? <span style={{ color: 'var(--text3)' }}>—</span>
+                        : r.callers.slice(0, 3).map((c, idx) => (
+                            <span key={c}>
+                              <Link to={`/service?name=${encodeURIComponent(c)}`}
+                                    style={{ fontFamily: 'monospace' }}>{c}</Link>
+                              {idx < Math.min(2, r.callers.length - 1) && <span style={{ color: 'var(--text3)' }}>, </span>}
+                            </span>
+                          ))}
+                      {r.callers.length > 3 && (
+                        <span style={{ color: 'var(--text3)' }}> +{r.callers.length - 3}</span>
+                      )}
+                    </td>
+                  </tr>
+                  {isOpen && (
+                    <tr>
+                      <td colSpan={8} style={{
+                        background: 'var(--bg1)', padding: '12px 16px',
+                        borderTop: '1px solid var(--border)',
+                      }}>
+                        <DetailDrawer
+                          system={r.system}
+                          name={nameOf(r)}
+                          kind={kind}
+                          range={range} />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               );
             })}
           </tbody>
@@ -217,6 +251,183 @@ function SortHeader({ col, label, sort, dir, onSort, align }: {
         <span className="sort-arrow">{active ? (dir === 'desc' ? '▼' : '▲') : '↕'}</span>
       </button>
     </th>
+  );
+}
+
+// DetailDrawer fetches and renders the per-(service, pod) caller
+// breakdown + top operations for one (system, instance) tuple.
+// Lazy — only fires when the row is expanded; bounded server-
+// side at LIMIT 100 callers / LIMIT 20 ops so the response stays
+// cheap even for a 50-pod fleet.
+function DetailDrawer({ system, name, kind, range }: {
+  system: string;
+  name: string;
+  kind: 'db' | 'queue';
+  range: TimeRange;
+}) {
+  type D = DBDetail | MessagingDetail;
+  const [data, setData] = useState<D | null | undefined>(undefined);
+
+  useEffect(() => {
+    setData(undefined);
+    const { from, to } = timeRangeToNs(range);
+    const p = kind === 'db'
+      ? api.databaseDetail(system, name, from, to)
+      : api.messagingDetail(system, name, from, to);
+    p.then(r => setData(r ?? null))
+     .catch(() => setData(null));
+  }, [system, name, kind, range]);
+
+  if (data === undefined) return <Spinner />;
+  if (data === null) return (
+    <div style={{ fontSize: 12, color: 'var(--err)' }}>
+      Detail query failed.
+    </div>
+  );
+
+  // Worst-impact callers first — operator's first triage
+  // question is "which client is hitting this DB hardest?".
+  // We sort by spanCount × avgMs (impact, Elastic-APM style)
+  // since a 200ms call made 10k times beats a 5s call made
+  // twice for cumulative load on the backend.
+  const callers = [...data.callers].sort((a, b) =>
+    (b.spanCount * b.avgDurationMs) - (a.spanCount * a.avgDurationMs));
+
+  return (
+    <div>
+      {/* Aggregate strip on top — same numbers as the row but
+          repeated here so the drawer reads on its own when
+          screenshotted into a postmortem. */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+        gap: 10, marginBottom: 14,
+      }}>
+        <Stat label="Calls"     value={fmtNum(data.spanCount)} />
+        <Stat label="Errors"    value={fmtNum(data.errorCount)} />
+        <Stat label="Err rate"  value={`${data.errorRate.toFixed(2)}%`}
+              tone={data.errorRate > 5 ? 'err' : data.errorRate > 0 ? 'warn' : 'ok'} />
+        <Stat label="Avg"       value={`${data.avgDurationMs.toFixed(1)} ms`} />
+        <Stat label="P99"       value={`${data.p99DurationMs.toFixed(1)} ms`} />
+      </div>
+
+      {/* Per-(service, pod) breakdown — the SRE's "which client
+          is shouting at this DB / queue" answer. Sorted by impact
+          (spanCount × avgMs) so the heaviest cumulative consumer
+          surfaces first. */}
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6,
+                       color: 'var(--text2)' }}>
+          By client {kind === 'db' ? '(service + pod)' : '(producer / consumer + pod)'} · {callers.length} {callers.length === 1 ? 'row' : 'rows'}
+        </div>
+        {callers.length === 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--text3)' }}>
+            No callers in this window.
+          </div>
+        ) : (
+          <div className="table-wrap" style={{ maxHeight: 320, overflowY: 'auto' }}>
+            <table>
+              <thead style={{ position: 'sticky', top: 0, background: 'var(--bg1)', zIndex: 1 }}>
+                <tr>
+                  <th>Service</th>
+                  <th>Pod / host</th>
+                  <th className="num">Calls</th>
+                  <th className="num">Err %</th>
+                  <th className="num">Avg</th>
+                  <th className="num">P99</th>
+                </tr>
+              </thead>
+              <tbody>
+                {callers.map((c, i) => {
+                  const errCls = c.errorRate > 5 ? 'err' : c.errorRate > 0 ? 'warn' : 'ok';
+                  return (
+                    <tr key={`${c.service}|${c.pod}|${i}`}>
+                      <td>
+                        <Link to={`/service?name=${encodeURIComponent(c.service)}`}
+                              style={{ fontFamily: 'monospace', fontSize: 12 }}>
+                          {c.service}
+                        </Link>
+                      </td>
+                      <td style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text2)' }}>
+                        {c.pod}
+                      </td>
+                      <td className="num mono">{fmtNum(c.spanCount)}</td>
+                      <td className="num mono">
+                        <span className={`badge b-${errCls}`} style={{ fontSize: 9 }}>
+                          {c.errorRate.toFixed(2)}%
+                        </span>
+                      </td>
+                      <td className="num mono">{c.avgDurationMs.toFixed(1)}ms</td>
+                      <td className="num mono">{c.p99DurationMs.toFixed(1)}ms</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Top operations — for DBs the first 80 chars of
+          db_statement (collapses unparameterised SQL); for
+          messaging the span name (publish / consume / process). */}
+      {data.topOps.length > 0 && (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6,
+                         color: 'var(--text2)' }}>
+            {kind === 'db'
+              ? `Top ${data.topOps.length} statements (first 80 chars)`
+              : `Top ${data.topOps.length} operations`}
+          </div>
+          <div className="table-wrap" style={{ maxHeight: 240, overflowY: 'auto' }}>
+            <table>
+              <thead style={{ position: 'sticky', top: 0, background: 'var(--bg1)', zIndex: 1 }}>
+                <tr>
+                  <th>{kind === 'db' ? 'Statement' : 'Operation'}</th>
+                  <th className="num">Count</th>
+                  <th className="num">Avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.topOps.map((o, i) => (
+                  <tr key={i}>
+                    <td style={{
+                      fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+                      fontSize: 11, wordBreak: 'break-word', maxWidth: 600,
+                    }}>{o.statement || <span style={{ color: 'var(--text3)' }}>(empty)</span>}</td>
+                    <td className="num mono">{fmtNum(o.count)}</td>
+                    <td className="num mono">{o.avgDurationMs.toFixed(1)}ms</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Stat({ label, value, tone }: {
+  label: string; value: string; tone?: 'ok' | 'warn' | 'err';
+}) {
+  const color = tone === 'err' ? 'var(--err)'
+              : tone === 'warn' ? 'var(--warn)'
+              : tone === 'ok'  ? 'var(--ok)'
+              : 'var(--text)';
+  return (
+    <div style={{
+      padding: '8px 10px', borderRadius: 4,
+      background: 'var(--bg2)', border: '1px solid var(--border)',
+    }}>
+      <div style={{
+        fontSize: 9, color: 'var(--text3)',
+        textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600,
+      }}>{label}</div>
+      <div style={{ fontSize: 16, fontWeight: 700, color,
+                     fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>
+        {value}
+      </div>
+    </div>
   );
 }
 

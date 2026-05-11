@@ -2,6 +2,7 @@ package chstore
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
@@ -45,6 +46,283 @@ type MessagingInstance struct {
 	AvgMs       float64  `json:"avgDurationMs"`
 	P99Ms       float64  `json:"p99DurationMs"`
 	Callers     []string `json:"callers"`
+}
+
+// DBCallerBreakdown is one row of the per-(service, pod)
+// breakdown shown in the DB detail drawer. Pod is derived from
+// resource.host.name on the calling span — k8s pod name on
+// Kubernetes deployments, VM hostname elsewhere. Same shape
+// works for the messaging detail drawer below.
+type DBCallerBreakdown struct {
+	Service    string  `json:"service"`
+	Pod        string  `json:"pod"`
+	SpanCount  uint64  `json:"spanCount"`
+	ErrorCount uint64  `json:"errorCount"`
+	ErrorRate  float64 `json:"errorRate"`
+	AvgMs      float64 `json:"avgDurationMs"`
+	P99Ms      float64 `json:"p99DurationMs"`
+}
+
+// DBOpStat is one row of the top-operations table in the DB
+// detail drawer. Statement is truncated to 80 chars server-side
+// so a 4 KB SQL string doesn't bloat the JSON envelope.
+type DBOpStat struct {
+	Statement string  `json:"statement"`
+	Count     uint64  `json:"count"`
+	AvgMs     float64 `json:"avgDurationMs"`
+}
+
+// DBDetail is the full payload for /api/databases/detail. The
+// frontend renders it as a three-section drawer: time-series
+// (call rate), per-(service, pod) breakdown, top operations.
+type DBDetail struct {
+	System     string              `json:"system"`
+	Instance   string              `json:"instance"`
+	SpanCount  uint64              `json:"spanCount"`
+	ErrorCount uint64              `json:"errorCount"`
+	ErrorRate  float64             `json:"errorRate"`
+	AvgMs      float64             `json:"avgDurationMs"`
+	P99Ms      float64             `json:"p99DurationMs"`
+	Callers    []DBCallerBreakdown `json:"callers"`
+	TopOps     []DBOpStat          `json:"topOps"`
+}
+
+// GetDatabaseDetail returns per-(service, pod) breakdown + top
+// operations for one (db_system, instance) tuple. Driven by the
+// detail drawer on /databases. Two bounded GROUP BYs (LIMIT
+// 100 and LIMIT 20) keep the query cheap even on multi-billion
+// span tables; the same idx_db_system + service_name primary
+// key prune that powers the overview applies here.
+func (s *Store) GetDatabaseDetail(
+	ctx context.Context, system, instance string, from, to time.Time,
+) (*DBDetail, error) {
+	if system == "" {
+		return nil, nil
+	}
+	if from.IsZero() {
+		from = time.Now().Add(-1 * time.Hour)
+	}
+	if to.IsZero() {
+		to = time.Now()
+	}
+	// instance == "unknown" maps to "peer_service is empty"; the
+	// instance string is otherwise compared verbatim against
+	// peer_service so a typo in the URL doesn't accidentally
+	// match more spans than intended.
+	instancePredicate := "peer_service = ?"
+	instanceArg := instance
+	if instance == "unknown" {
+		instancePredicate = "(peer_service = '' OR peer_service IS NULL)"
+		instanceArg = ""
+	}
+
+	out := &DBDetail{System: system, Instance: instance}
+
+	// Aggregate stats for the (system, instance) pair.
+	row := s.conn.QueryRow(ctx, `
+		SELECT count(),
+		       countIf(status_code = 'error'),
+		       avg(duration) / 1e6,
+		       quantile(0.99)(duration) / 1e6
+		FROM spans
+		WHERE time >= ? AND time <= ? AND db_system = ? AND `+instancePredicate+`
+		SETTINGS max_execution_time = 15`,
+		append([]any{from, to, system}, argIfNeeded(instancePredicate, instanceArg)...)...)
+	if err := row.Scan(&out.SpanCount, &out.ErrorCount, &out.AvgMs, &out.P99Ms); err != nil {
+		return nil, err
+	}
+	if out.SpanCount > 0 {
+		out.ErrorRate = float64(out.ErrorCount) / float64(out.SpanCount) * 100
+	}
+
+	// Per-(service, pod) breakdown. host_name carries the
+	// resource.host.name set by the OTel SDK; for k8s deployments
+	// that's the pod name, which is what operators want to see.
+	rows, err := s.conn.Query(ctx, `
+		SELECT service_name,
+		       coalesce(nullIf(host_name, ''), '(unknown)') AS pod,
+		       count(), countIf(status_code = 'error'),
+		       avg(duration) / 1e6,
+		       quantile(0.99)(duration) / 1e6
+		FROM spans
+		WHERE time >= ? AND time <= ? AND db_system = ? AND `+instancePredicate+`
+		GROUP BY service_name, pod
+		ORDER BY count() DESC
+		LIMIT 100
+		SETTINGS max_execution_time = 15`,
+		append([]any{from, to, system}, argIfNeeded(instancePredicate, instanceArg)...)...)
+	if err != nil {
+		return out, nil // partial result fine — overview-only mode
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var b DBCallerBreakdown
+		if err := rows.Scan(&b.Service, &b.Pod, &b.SpanCount, &b.ErrorCount, &b.AvgMs, &b.P99Ms); err != nil {
+			continue
+		}
+		if b.SpanCount > 0 {
+			b.ErrorRate = float64(b.ErrorCount) / float64(b.SpanCount) * 100
+		}
+		out.Callers = append(out.Callers, b)
+	}
+
+	// Top operations — first 80 chars of db_statement. We collapse
+	// duplicate SQL by truncating because real-world SQL has
+	// inline parameters (`SELECT … WHERE id = 17`) that explode
+	// the cardinality; 80 chars catches the SELECT / UPDATE /
+	// INSERT prefix + table name which is what an SRE actually
+	// pivots on.
+	opRows, err := s.conn.Query(ctx, `
+		SELECT substring(db_statement, 1, 80) AS stmt,
+		       count(), avg(duration) / 1e6
+		FROM spans
+		WHERE time >= ? AND time <= ? AND db_system = ? AND `+instancePredicate+`
+		  AND db_statement != ''
+		GROUP BY stmt
+		ORDER BY count() DESC
+		LIMIT 20
+		SETTINGS max_execution_time = 15`,
+		append([]any{from, to, system}, argIfNeeded(instancePredicate, instanceArg)...)...)
+	if err != nil {
+		return out, nil
+	}
+	defer opRows.Close()
+	for opRows.Next() {
+		var op DBOpStat
+		if err := opRows.Scan(&op.Statement, &op.Count, &op.AvgMs); err != nil {
+			continue
+		}
+		op.Statement = strings.TrimSpace(op.Statement)
+		out.TopOps = append(out.TopOps, op)
+	}
+	return out, nil
+}
+
+// MessagingDetail mirrors DBDetail for queues / topics. Op stats
+// here are per-(operation name) since messaging spans don't
+// carry a SQL-equivalent; the operation (send / receive /
+// process) plus the destination already discriminates work.
+type MessagingDetail struct {
+	System      string              `json:"system"`
+	Destination string              `json:"destination"`
+	SpanCount   uint64              `json:"spanCount"`
+	ErrorCount  uint64              `json:"errorCount"`
+	ErrorRate   float64             `json:"errorRate"`
+	AvgMs       float64             `json:"avgDurationMs"`
+	P99Ms       float64             `json:"p99DurationMs"`
+	Callers     []DBCallerBreakdown `json:"callers"` // same shape — service / pod / RED
+	TopOps      []DBOpStat          `json:"topOps"`  // statement = span name (send / receive / process)
+}
+
+func (s *Store) GetMessagingDetail(
+	ctx context.Context, system, destination string, from, to time.Time,
+) (*MessagingDetail, error) {
+	if system == "" {
+		return nil, nil
+	}
+	if from.IsZero() {
+		from = time.Now().Add(-1 * time.Hour)
+	}
+	if to.IsZero() {
+		to = time.Now()
+	}
+	// Destination resolution mirrors the overview: try
+	// messaging.destination.name → messaging.destination →
+	// peer.service. We pass the same destination string back as
+	// the constraint by reconstructing the coalesce expression
+	// in the WHERE.
+	destExpr := `coalesce(
+		nullIf(attr_values[indexOf(attr_keys, 'messaging.destination.name')], ''),
+		nullIf(attr_values[indexOf(attr_keys, 'messaging.destination')], ''),
+		nullIf(peer_service, ''),
+		'unknown'
+	)`
+
+	out := &MessagingDetail{System: system, Destination: destination}
+
+	row := s.conn.QueryRow(ctx, `
+		SELECT count(),
+		       countIf(status_code = 'error'),
+		       avg(duration) / 1e6,
+		       quantile(0.99)(duration) / 1e6
+		FROM spans
+		WHERE time >= ? AND time <= ? AND msg_system = ?
+		  AND `+destExpr+` = ?
+		SETTINGS max_execution_time = 15`,
+		from, to, system, destination)
+	if err := row.Scan(&out.SpanCount, &out.ErrorCount, &out.AvgMs, &out.P99Ms); err != nil {
+		return nil, err
+	}
+	if out.SpanCount > 0 {
+		out.ErrorRate = float64(out.ErrorCount) / float64(out.SpanCount) * 100
+	}
+
+	rows, err := s.conn.Query(ctx, `
+		SELECT service_name,
+		       coalesce(nullIf(host_name, ''), '(unknown)') AS pod,
+		       count(), countIf(status_code = 'error'),
+		       avg(duration) / 1e6,
+		       quantile(0.99)(duration) / 1e6
+		FROM spans
+		WHERE time >= ? AND time <= ? AND msg_system = ?
+		  AND `+destExpr+` = ?
+		GROUP BY service_name, pod
+		ORDER BY count() DESC
+		LIMIT 100
+		SETTINGS max_execution_time = 15`,
+		from, to, system, destination)
+	if err != nil {
+		return out, nil
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var b DBCallerBreakdown
+		if err := rows.Scan(&b.Service, &b.Pod, &b.SpanCount, &b.ErrorCount, &b.AvgMs, &b.P99Ms); err != nil {
+			continue
+		}
+		if b.SpanCount > 0 {
+			b.ErrorRate = float64(b.ErrorCount) / float64(b.SpanCount) * 100
+		}
+		out.Callers = append(out.Callers, b)
+	}
+
+	// Top operations — for messaging the span name is the
+	// useful pivot (e.g. "publish kafka.orders" / "consume
+	// kafka.orders"). No truncation needed; OTel span names
+	// are short by spec.
+	opRows, err := s.conn.Query(ctx, `
+		SELECT name AS stmt, count(), avg(duration) / 1e6
+		FROM spans
+		WHERE time >= ? AND time <= ? AND msg_system = ?
+		  AND `+destExpr+` = ?
+		GROUP BY stmt
+		ORDER BY count() DESC
+		LIMIT 20
+		SETTINGS max_execution_time = 15`,
+		from, to, system, destination)
+	if err != nil {
+		return out, nil
+	}
+	defer opRows.Close()
+	for opRows.Next() {
+		var op DBOpStat
+		if err := opRows.Scan(&op.Statement, &op.Count, &op.AvgMs); err != nil {
+			continue
+		}
+		out.TopOps = append(out.TopOps, op)
+	}
+	return out, nil
+}
+
+// argIfNeeded returns []any{arg} when the predicate contains a
+// "?" placeholder, otherwise nil. Lets the detail queries share
+// one SQL string between "instance = ?" and the special
+// "(peer_service = '' OR IS NULL)" no-arg branch.
+func argIfNeeded(predicate string, arg string) []any {
+	if strings.Contains(predicate, "?") {
+		return []any{arg}
+	}
+	return nil
 }
 
 // GetDatabases returns one row per (db_system, peer_service)

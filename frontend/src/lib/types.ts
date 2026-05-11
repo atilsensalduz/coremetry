@@ -68,6 +68,55 @@ export interface DBInstance {
   callers: string[];
 }
 
+// DBCallerBreakdown — one row of the per-(service, pod)
+// breakdown shown in the DB / messaging detail drawer. Pod is
+// the resource.host.name on the calling span — k8s pod name on
+// Kubernetes, VM hostname elsewhere.
+export interface DBCallerBreakdown {
+  service: string;
+  pod: string;
+  spanCount: number;
+  errorCount: number;
+  errorRate: number;
+  avgDurationMs: number;
+  p99DurationMs: number;
+}
+
+// DBOpStat — one top-operations row. For DBs the Statement is
+// the first 80 chars of db_statement (so unparameterised SQL
+// collapses). For messaging it's the span name (publish /
+// consume / process).
+export interface DBOpStat {
+  statement: string;
+  count: number;
+  avgDurationMs: number;
+}
+
+// DBDetail / MessagingDetail — full payloads for the drawer
+// behind a /databases or /messaging row click.
+export interface DBDetail {
+  system: string;
+  instance: string;
+  spanCount: number;
+  errorCount: number;
+  errorRate: number;
+  avgDurationMs: number;
+  p99DurationMs: number;
+  callers: DBCallerBreakdown[];
+  topOps: DBOpStat[];
+}
+export interface MessagingDetail {
+  system: string;
+  destination: string;
+  spanCount: number;
+  errorCount: number;
+  errorRate: number;
+  avgDurationMs: number;
+  p99DurationMs: number;
+  callers: DBCallerBreakdown[];
+  topOps: DBOpStat[];
+}
+
 // MessagingInstance — same structure for queues / topics. The
 // destination field tries messaging.destination.name first, then
 // messaging.destination, then peer.service, then 'unknown'.

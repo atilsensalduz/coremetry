@@ -50,7 +50,8 @@ export default function DatabasesPage() {
               p99DurationMs: d.p99DurationMs,
               callers: d.callers ?? [],
             }))}
-            kind="db" />
+            kind="db"
+            range={range} />
         )}
       </div>
     </>

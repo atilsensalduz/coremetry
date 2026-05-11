@@ -312,6 +312,15 @@ export const api = {
   messaging: (fromNs: number, toNs: number) =>
     get<import('./types').MessagingInstance[] | null>(
       `/api/messaging?from=${fromNs}&to=${toNs}`),
+  // Detail drawers — per-(service, pod) caller breakdown + top
+  // operations for one (system, instance) tuple. Drives the
+  // row-click drawer on /databases and /messaging.
+  databaseDetail: (system: string, instance: string, fromNs: number, toNs: number) =>
+    get<import('./types').DBDetail | null>(
+      `/api/databases/detail?system=${encodeURIComponent(system)}&instance=${encodeURIComponent(instance)}&from=${fromNs}&to=${toNs}`),
+  messagingDetail: (system: string, destination: string, fromNs: number, toNs: number) =>
+    get<import('./types').MessagingDetail | null>(
+      `/api/messaging/detail?system=${encodeURIComponent(system)}&destination=${encodeURIComponent(destination)}&from=${fromNs}&to=${toNs}`),
   spanBreakdown: (service: string, fromNs: number, toNs: number) =>
     get<import('./types').BreakdownPoint[] | null>(
       `/api/services/${encodeURIComponent(service)}/span-breakdown?from=${fromNs}&to=${toNs}`),

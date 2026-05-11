@@ -134,7 +134,9 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/services/{name}/neighbors", s.getServiceNeighbors)
 	mux.HandleFunc("GET /api/service-map", s.getServiceMap)
 	mux.HandleFunc("GET /api/databases",  s.getDatabases)
+	mux.HandleFunc("GET /api/databases/detail", s.getDatabaseDetail)
 	mux.HandleFunc("GET /api/messaging",  s.getMessaging)
+	mux.HandleFunc("GET /api/messaging/detail", s.getMessagingDetail)
 	mux.HandleFunc("GET /api/services/{name}/backtrace", s.getServiceBacktrace)
 	mux.HandleFunc("GET /api/services/{name}/infra",     s.getServiceInfraMetrics)
 	mux.HandleFunc("GET /api/services/{name}/runtime",   s.getServiceRuntime)
@@ -831,6 +833,26 @@ func (s *Server) getDatabases(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// getDatabaseDetail returns the drawer payload for one
+// (db_system, instance) pair — per-(service, pod) caller
+// breakdown plus the top db_statement prefixes. Cached 30s.
+// Distinct cache keys per (system, instance, window) so the
+// row click is sub-100ms warm cache.
+func (s *Server) getDatabaseDetail(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	system := q.Get("system")
+	instance := q.Get("instance")
+	if system == "" {
+		http.Error(w, `{"error":"system required"}`, http.StatusBadRequest)
+		return
+	}
+	from, to := parseFromTo(r, time.Hour)
+	key := fmt.Sprintf("db-detail:%s:%s:%d:%d", system, instance, from.UnixNano(), to.UnixNano())
+	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
+		return s.store.GetDatabaseDetail(r.Context(), system, instance, from, to)
+	})
+}
+
 // getMessaging is the parallel handler for queues / topics
 // (Kafka / RabbitMQ / IBM MQ / etc.). Same caching semantics.
 func (s *Server) getMessaging(w http.ResponseWriter, r *http.Request) {
@@ -838,6 +860,23 @@ func (s *Server) getMessaging(w http.ResponseWriter, r *http.Request) {
 	key := fmt.Sprintf("messaging:from=%d:to=%d", from.UnixNano(), to.UnixNano())
 	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
 		return s.store.GetMessaging(r.Context(), from, to)
+	})
+}
+
+// getMessagingDetail is the parallel handler for queues /
+// topics. See getDatabaseDetail comment.
+func (s *Server) getMessagingDetail(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	system := q.Get("system")
+	dest := q.Get("destination")
+	if system == "" {
+		http.Error(w, `{"error":"system required"}`, http.StatusBadRequest)
+		return
+	}
+	from, to := parseFromTo(r, time.Hour)
+	key := fmt.Sprintf("msg-detail:%s:%s:%d:%d", system, dest, from.UnixNano(), to.UnixNano())
+	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
+		return s.store.GetMessagingDetail(r.Context(), system, dest, from, to)
 	})
 }
 

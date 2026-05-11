@@ -155,13 +155,12 @@ export default function ServiceMapPage() {
             {data?.nodes.filter(n => !n.kind).map(n =>
               <option key={n.service} value={n.service} />)}
           </datalist>
-          {focus && (
-            <button className="sec"
-              onClick={() => setFocus('')}
-              style={{ fontSize: 12, padding: '3px 10px' }}>
-              ← Clear focus
-            </button>
-          )}
+          {/* Clear-focus button removed in v0.4.86 — picking a
+              different service from the dropdown OR clicking a
+              node in the graph already replaces the focus, so
+              the separate Clear button was redundant. Operators
+              who want the full hairball back can clear the
+              input manually. */}
           {focus && focusNode && (
             <Link to={`/service?name=${encodeURIComponent(focus)}`}
                   className="sec"
