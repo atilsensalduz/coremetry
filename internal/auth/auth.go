@@ -145,11 +145,15 @@ func SkipPath(method, path string) bool {
 		"/api/auth/oidc/start",
 		"/api/auth/oidc/callback",
 		"/api/health",
-		"/api/version",
-		// /api/branding is public so the login page (which renders
-		// before the operator has a session) can pull the custom
-		// logo + strings. Write side is admin-gated separately.
-		"/api/branding":
+		"/api/version":
+		return true
+	}
+	// /api/branding is public on GET so the login page (which
+	// renders before the operator has a session) can pull the
+	// custom logo + strings. PUT goes through auth + admin gate
+	// — match method explicitly so we don't accidentally let
+	// unauthenticated writes through.
+	if path == "/api/branding" && method == http.MethodGet {
 		return true
 	}
 	if strings.HasPrefix(path, "/v1/traces") ||

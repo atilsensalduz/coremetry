@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
@@ -50,6 +50,26 @@ export default function ServiceMapPage() {
   const since = (PRESETS.find(p => p.key === range.preset)?.secs ?? 900) + 's';
 
   const mapQ = useServiceMap(since, samples, diff || undefined);
+  // Auto-pick a focused service on first load so the operator
+  // lands on a useful 1-hop view instead of the full graph (which
+  // can look like a hairball on large clusters). Picks one of the
+  // top-3 busiest real services (by spanCount) at random — that
+  // way refreshes don't pin the same demo service, but the picks
+  // stay relevant. Only fires once per session per visit; manual
+  // selection / Clear focus disables further auto-picks.
+  const [autoFocused, setAutoFocused] = useState(false);
+  useEffect(() => {
+    if (autoFocused || focus || !mapQ.data || mapQ.data.nodes.length === 0) return;
+    const real = mapQ.data.nodes
+      .filter(n => !n.kind)
+      .sort((a, b) => b.spanCount - a.spanCount)
+      .slice(0, 3);
+    if (real.length > 0) {
+      const pick = real[Math.floor(Math.random() * real.length)];
+      setFocus(pick.service);
+      setAutoFocused(true);
+    }
+  }, [mapQ.data, autoFocused, focus]);
   const data = mapQ.isLoading
     ? undefined
     : mapQ.isError
