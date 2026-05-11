@@ -145,7 +145,11 @@ func SkipPath(method, path string) bool {
 		"/api/auth/oidc/start",
 		"/api/auth/oidc/callback",
 		"/api/health",
-		"/api/version":
+		"/api/version",
+		// /api/branding is public so the login page (which renders
+		// before the operator has a session) can pull the custom
+		// logo + strings. Write side is admin-gated separately.
+		"/api/branding":
 		return true
 	}
 	if strings.HasPrefix(path, "/v1/traces") ||

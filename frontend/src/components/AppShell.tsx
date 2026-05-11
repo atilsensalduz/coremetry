@@ -5,6 +5,7 @@ import { useAuth } from './AuthProvider';
 import { useEventStream } from '@/lib/queries';
 import { useShortcuts } from '@/lib/keyboard';
 import { isPublicPath } from '@/lib/auth-paths';
+import { useBranding } from '@/lib/branding';
 
 // AppShell is the layout-route wrapper. React Router renders the
 // active child route inside <Outlet/>. Public pages (login,
@@ -19,6 +20,11 @@ export function AppShell() {
   const navigate = useNavigate();
   const { user, loading } = useAuth();
   const isPublic = isPublicPath(pathname);
+  // Subscribe so a saved branding update (from Settings) flows
+  // through document.title + --accent immediately. Return value
+  // unused here — applyBranding() inside the hook is the
+  // side-effect we care about at shell level.
+  useBranding();
 
   // SSE event stream — opens once we're authed + outside the
   // public surface (login, public-status). Receives

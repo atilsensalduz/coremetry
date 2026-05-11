@@ -329,6 +329,16 @@ export const api = {
     if (baselineSec) qs.set('baselineSec', String(baselineSec));
     return get<import('./types').ChangedService[] | null>(`/api/correlations?${qs}`);
   },
+  // Branding overlay — public GET (login page reads pre-auth),
+  // admin-only PUT. The save endpoint accepts up to 256 KB so a
+  // pasted logo data URI fits.
+  getBranding: () =>
+    get<import('./branding').BrandingSettings>(`/api/branding`),
+  putBranding: (b: import('./branding').BrandingSettings) =>
+    request<import('./branding').BrandingSettings>('/api/branding', {
+      method: 'PUT',
+      body: JSON.stringify(b),
+    }),
   getAISettings: () => get<AISettings>(`/api/settings/ai`),
   putAISettings: (s: AISettingsInput) =>
     request<AISettings>(`/api/settings/ai`, {

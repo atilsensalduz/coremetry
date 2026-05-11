@@ -3,9 +3,14 @@ import { useAuth } from '@/components/AuthProvider';
 import { TelescopeIcon } from '@/components/TelescopeIcon';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { api, type AuthConfigResponse } from '@/lib/api';
+import { useBranding } from '@/lib/branding';
 
 export default function LoginPage() {
   const { login } = useAuth();
+  // Admin-set branding overlay (logo, login title, button label,
+  // username field label, footer line). Falls back to the
+  // bundled defaults for any field left empty.
+  const brand = useBranding();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -88,20 +93,35 @@ export default function LoginPage() {
         boxShadow: '0 12px 36px rgba(0,0,0,0.25)',
       }}>
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <div style={{
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            width: 64, height: 64, borderRadius: 16,
-            background: 'rgba(66,92,199,0.12)',
-            border: '1px solid rgba(66,92,199,0.35)',
-          }}>
-            <TelescopeIcon size={40} />
-          </div>
+          {brand.logoDataUri ? (
+            // Admin-uploaded bank/company logo. Rendered as an
+            // <img> so PNG/SVG/JPG all work via the data URI.
+            // Capped height to match the bundled mark's footprint.
+            <img src={brand.logoDataUri} alt={brand.appName}
+                 style={{ maxHeight: 64, maxWidth: 200, objectFit: 'contain' }} />
+          ) : (
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              width: 64, height: 64, borderRadius: 16,
+              background: 'rgba(66,92,199,0.12)',
+              border: '1px solid rgba(66,92,199,0.35)',
+            }}>
+              <TelescopeIcon size={40} />
+            </div>
+          )}
           <div style={{ fontSize: 22, fontWeight: 700, marginTop: 10, letterSpacing: '0.5px' }}>
-            Coremetry
+            {brand.appName}
           </div>
           <div style={{ color: 'var(--text3)', fontSize: 11, marginTop: 4 }}>
-            Sign in to continue
+            {brand.loginTitle === `Sign in to ${brand.appName}`
+              ? 'Sign in to continue'
+              : brand.loginTitle}
           </div>
+          {brand.loginSubtitle && (
+            <div style={{ color: 'var(--text2)', fontSize: 12, marginTop: 8, lineHeight: 1.5 }}>
+              {brand.loginSubtitle}
+            </div>
+          )}
         </div>
 
         {demoEnabled && (
@@ -149,7 +169,9 @@ export default function LoginPage() {
         )}
 
         <label style={{ display: 'block', fontSize: 12, color: 'var(--text2)', marginBottom: 4 }}>
-          {ldapEnabled ? 'Username or email' : 'Email'}
+          {ldapEnabled
+            ? (brand.usernameLabel === 'Email' ? 'Username or email' : brand.usernameLabel)
+            : brand.usernameLabel}
         </label>
         <input type={ldapEnabled ? 'text' : 'email'} autoComplete="username" required autoFocus
           value={email} onChange={e => setEmail(e.target.value)}
@@ -174,8 +196,17 @@ export default function LoginPage() {
 
         <button type="submit" disabled={busy}
           style={{ width: '100%', padding: '8px 12px' }}>
-          {busy ? 'Signing in…' : 'Sign in'}
+          {busy ? 'Signing in…' : brand.signInButtonLabel}
         </button>
+
+        {brand.footerText && (
+          <div style={{
+            marginTop: 14, textAlign: 'center',
+            fontSize: 11, color: 'var(--text2)', lineHeight: 1.5,
+          }}>
+            {brand.footerText}
+          </div>
+        )}
 
         {/* Build version — only rendered once /api/version answers, so
             the form doesn't reflow during initial paint. */}
@@ -186,7 +217,7 @@ export default function LoginPage() {
             fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
             letterSpacing: '0.3px',
           }}>
-            Coremetry {version}
+            {brand.appName} {version}
           </div>
         )}
       </form>
