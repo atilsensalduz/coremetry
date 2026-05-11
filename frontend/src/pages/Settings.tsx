@@ -298,8 +298,11 @@ function summarizeChannel(c: NotificationChannel): string {
     // New OAuth-shape channels read the chat channel JID; legacy
     // ones still carry the webhook URL — show whichever exists so
     // the operator can spot which channels still need migration.
-    if (c.config.channelId) return `channel: ${c.config.channelId}`;
-    if (c.config.toContact) return `DM: ${c.config.toContact}`;
+    // Proxy hosts get appended in parens so the list view shows
+    // a non-default routing target without expanding the row.
+    const proxy = c.config.apiBaseUrl ? ` via ${c.config.apiBaseUrl}` : '';
+    if (c.config.channelId) return `channel: ${c.config.channelId}${proxy}`;
+    if (c.config.toContact) return `DM: ${c.config.toContact}${proxy}`;
     if (c.config.webhookUrl) return '⚠ legacy webhook — please reconfigure';
     return '(not configured)';
   }
@@ -332,6 +335,11 @@ function ChannelModal({ initial, onClose, onSaved }: {
   const [zoomClientSecret, setZoomClientSecret] = useState('');
   const [zoomChannelId, setZoomChannelId] = useState(initial?.config.channelId ?? '');
   const [zoomToContact, setZoomToContact] = useState(initial?.config.toContact ?? '');
+  // Optional proxy / sandbox host overrides. Empty → public
+  // Zoom defaults (api.zoom.us + zoom.us). Banks routing
+  // outbound traffic through a corporate gateway fill these.
+  const [zoomAPIBaseURL, setZoomAPIBaseURL] = useState(initial?.config.apiBaseUrl ?? '');
+  const [zoomOAuthBaseURL, setZoomOAuthBaseURL] = useState(initial?.config.oauthBaseUrl ?? '');
   // WhatsApp / Twilio fields
   const [twilioSid, setTwilioSid] = useState(initial?.config.accountSid ?? '');
   const [twilioToken, setTwilioToken] = useState(initial?.config.authToken ?? '');
@@ -379,6 +387,8 @@ function ChannelModal({ initial, onClose, onSaved }: {
         if (zoomClientSecret.trim()) config.clientSecret = zoomClientSecret.trim();
         if (zoomChannelId.trim()) config.channelId = zoomChannelId.trim();
         if (zoomToContact.trim()) config.toContact = zoomToContact.trim();
+        if (zoomAPIBaseURL.trim()) config.apiBaseUrl = zoomAPIBaseURL.trim();
+        if (zoomOAuthBaseURL.trim()) config.oauthBaseUrl = zoomOAuthBaseURL.trim();
       } else if (type === 'webhook') {
         if (!url) throw new Error('Webhook URL is required');
         config.url = url;
@@ -517,6 +527,33 @@ function ChannelModal({ initial, onClose, onSaved }: {
                   placeholder="oncall@example.com"
                   onChange={e => setZoomToContact(e.target.value)} style={{ width: '100%' }} />
               </Field>
+              {/* Optional API + OAuth host overrides — proxy /
+                  sandbox use cases. Leave empty for public Zoom. */}
+              <details style={{ marginTop: 4 }}>
+                <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--text2)' }}>
+                  Advanced: proxy / sandbox host overrides
+                </summary>
+                <div style={{ paddingTop: 8 }}>
+                  <Row>
+                    <Field label="API base URL (chat messages)" flex={1}>
+                      <input value={zoomAPIBaseURL}
+                        placeholder="https://api.zoom.us (default)"
+                        onChange={e => setZoomAPIBaseURL(e.target.value)} style={{ width: '100%' }} />
+                    </Field>
+                    <Field label="OAuth base URL (token exchange)" flex={1}>
+                      <input value={zoomOAuthBaseURL}
+                        placeholder="https://zoom.us (default)"
+                        onChange={e => setZoomOAuthBaseURL(e.target.value)} style={{ width: '100%' }} />
+                    </Field>
+                  </Row>
+                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, lineHeight: 1.5 }}>
+                    Banks routing outbound traffic through a corporate gateway can point both
+                    fields at their proxy. Endpoint paths stay the same
+                    (<code>/v2/chat/users/me/messages</code> and <code>/oauth/token</code>) —
+                    only the host changes. Leave empty to hit Zoom's public hosts.
+                  </div>
+                </div>
+              </details>
               {/* Legacy webhook nudge — surfaces when editing a
                   channel that still carries the pre-v0.4.78 shape. */}
               {initial?.config.webhookUrl && !initial?.config.accountId && (

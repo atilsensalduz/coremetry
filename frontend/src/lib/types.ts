@@ -568,6 +568,8 @@ export interface NotificationChannel {
     clientSecret?: string;   // zoomchat — OAuth client secret (write-only; never echoed back)
     channelId?: string;      // zoomchat — JID for the target chat channel
     toContact?: string;      // zoomchat — fallback DM contact email
+    apiBaseUrl?: string;     // zoomchat — optional proxy host for api.zoom.us (chat messages)
+    oauthBaseUrl?: string;   // zoomchat — optional proxy host for zoom.us (OAuth token)
     accountSid?: string;     // whatsapp (Twilio)
     authToken?: string;      // whatsapp (Twilio)
     from?: string;           // whatsapp sender (with or without 'whatsapp:' prefix)

@@ -103,6 +103,20 @@ type ZoomChatChannelConfig struct {
 	ClientSecret string `json:"clientSecret"`
 	ChannelID    string `json:"channelId,omitempty"`
 	ToContact    string `json:"toContact,omitempty"`
+	// APIBaseURL overrides the default `https://api.zoom.us` for
+	// the chat messages endpoint. Optional — empty keeps the
+	// public Zoom API. Banks routing outbound traffic through a
+	// corporate proxy (api.zoom.us isn't directly reachable from
+	// the perimeter) point this at their proxy host. Test
+	// environments do the same for mock servers.
+	APIBaseURL string `json:"apiBaseUrl,omitempty"`
+	// OAuthBaseURL overrides the default `https://zoom.us` for
+	// the OAuth token endpoint. Same use case as APIBaseURL but
+	// the OAuth host differs from the API host in Zoom's
+	// deployment, so it's a separate knob. Most proxies expose
+	// both — operators typically fill both fields with the same
+	// prefix or leave both empty.
+	OAuthBaseURL string `json:"oauthBaseUrl,omitempty"`
 	// Legacy webhook fields — kept for graceful migration from
 	// pre-v0.4.78 configs. When AccountID is empty AND
 	// WebhookURL is set, sendZoomChat returns a clean
@@ -590,7 +604,7 @@ func (n *Notifier) sendZoomChat(ctx context.Context, c chstore.NotificationChann
 		return errors.New("Zoom Chat channel needs either a Channel ID or a contact email")
 	}
 
-	token, err := n.zoomAccessToken(ctx, zc.AccountID, zc.ClientID, zc.ClientSecret)
+	token, err := n.zoomAccessToken(ctx, zc.AccountID, zc.ClientID, zc.ClientSecret, zc.OAuthBaseURL)
 	if err != nil {
 		return fmt.Errorf("zoom oauth: %w", err)
 	}
@@ -614,7 +628,7 @@ func (n *Notifier) sendZoomChat(ctx context.Context, c chstore.NotificationChann
 	}
 
 	// First attempt with the (cached) token.
-	if err := postZoomChatMessage(ctx, token, payload); err != nil {
+	if err := postZoomChatMessage(ctx, token, payload, zc.APIBaseURL); err != nil {
 		// On auth failure, drop the cached token and retry once
 		// with a freshly-minted one. Zoom can revoke tokens at
 		// any moment (admin rotated the secret, app pause, etc.)
@@ -622,11 +636,11 @@ func (n *Notifier) sendZoomChat(ctx context.Context, c chstore.NotificationChann
 		// alerts silently.
 		if isAuthErr(err) {
 			n.zoomInvalidate(zc.AccountID, zc.ClientID)
-			token2, err2 := n.zoomAccessToken(ctx, zc.AccountID, zc.ClientID, zc.ClientSecret)
+			token2, err2 := n.zoomAccessToken(ctx, zc.AccountID, zc.ClientID, zc.ClientSecret, zc.OAuthBaseURL)
 			if err2 != nil {
 				return fmt.Errorf("zoom oauth retry: %w", err2)
 			}
-			return postZoomChatMessage(ctx, token2, payload)
+			return postZoomChatMessage(ctx, token2, payload, zc.APIBaseURL)
 		}
 		return err
 	}
@@ -638,7 +652,7 @@ func (n *Notifier) sendZoomChat(ctx context.Context, c chstore.NotificationChann
 // the same account hold separate tokens. Refresh threshold is 30s
 // before the server-stated expires_in so an in-flight request
 // doesn't race the expiry.
-func (n *Notifier) zoomAccessToken(ctx context.Context, accountID, clientID, clientSecret string) (string, error) {
+func (n *Notifier) zoomAccessToken(ctx context.Context, accountID, clientID, clientSecret, oauthBaseURL string) (string, error) {
 	cacheKey := accountID + "|" + clientID
 	n.zoomTokens.mu.Lock()
 	if e, ok := n.zoomTokens.entries[cacheKey]; ok && time.Until(e.expiresAt) > 30*time.Second {
@@ -651,8 +665,16 @@ func (n *Notifier) zoomAccessToken(ctx context.Context, accountID, clientID, cli
 	form := url.Values{}
 	form.Set("grant_type", "account_credentials")
 	form.Set("account_id", accountID)
+	// OAuth host override — `https://zoom.us` is the public
+	// default; banks fronting Zoom with a corporate proxy point
+	// this at their gateway. Trailing slash trimmed so we don't
+	// emit a double slash before /oauth/token.
+	base := strings.TrimRight(oauthBaseURL, "/")
+	if base == "" {
+		base = "https://zoom.us"
+	}
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		"https://zoom.us/oauth/token?"+form.Encode(), nil)
+		base+"/oauth/token?"+form.Encode(), nil)
 	if err != nil {
 		return "", err
 	}
@@ -699,13 +721,21 @@ func (n *Notifier) zoomInvalidate(accountID, clientID string) {
 	n.zoomTokens.mu.Unlock()
 }
 
-func postZoomChatMessage(ctx context.Context, token string, payload map[string]any) error {
+func postZoomChatMessage(ctx context.Context, token string, payload map[string]any, apiBaseURL string) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("encode chat payload: %w", err)
 	}
+	// API host override — `https://api.zoom.us` is the public
+	// default. Proxy / sandbox deployments point this at their
+	// gateway. Trailing slash trimmed so we don't emit a double
+	// slash before /v2/chat/...
+	base := strings.TrimRight(apiBaseURL, "/")
+	if base == "" {
+		base = "https://api.zoom.us"
+	}
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		"https://api.zoom.us/v2/chat/users/me/messages", bytes.NewReader(body))
+		base+"/v2/chat/users/me/messages", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
