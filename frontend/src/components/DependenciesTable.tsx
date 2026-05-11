@@ -285,13 +285,35 @@ function DetailDrawer({ system, name, kind, range }: {
     </div>
   );
 
+  // Defensive null-coalesce — pre-v0.4.87 the backend returned
+  // null for empty slices (Go nil → JSON null), which crashed
+  // [...data.callers]. The store now emits [] but we keep the
+  // guard in case the cache returns a stale payload across an
+  // upgrade.
+  const allCallers = data.callers ?? [];
+  const allTopOps  = data.topOps ?? [];
+
   // Worst-impact callers first — operator's first triage
   // question is "which client is hitting this DB hardest?".
   // We sort by spanCount × avgMs (impact, Elastic-APM style)
   // since a 200ms call made 10k times beats a 5s call made
   // twice for cumulative load on the backend.
-  const callers = [...data.callers].sort((a, b) =>
+  const callers = [...allCallers].sort((a, b) =>
     (b.spanCount * b.avgDurationMs) - (a.spanCount * a.avgDurationMs));
+
+  // For messaging detail we split Producers / Consumers visually
+  // — the SRE's "who's publishing" and "who's consuming"
+  // questions are different (publisher is usually the load
+  // generator, consumer is where back-pressure shows up).
+  const producers = kind === 'queue'
+    ? callers.filter(c => c.role === 'producer')
+    : [];
+  const consumers = kind === 'queue'
+    ? callers.filter(c => c.role === 'consumer')
+    : [];
+  const otherClients = kind === 'queue'
+    ? callers.filter(c => c.role && c.role !== 'producer' && c.role !== 'consumer')
+    : callers;
 
   return (
     <div>
@@ -313,70 +335,46 @@ function DetailDrawer({ system, name, kind, range }: {
       {/* Per-(service, pod) breakdown — the SRE's "which client
           is shouting at this DB / queue" answer. Sorted by impact
           (spanCount × avgMs) so the heaviest cumulative consumer
-          surfaces first. */}
-      <div style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6,
-                       color: 'var(--text2)' }}>
-          By client {kind === 'db' ? '(service + pod)' : '(producer / consumer + pod)'} · {callers.length} {callers.length === 1 ? 'row' : 'rows'}
-        </div>
-        {callers.length === 0 ? (
-          <div style={{ fontSize: 12, color: 'var(--text3)' }}>
-            No callers in this window.
-          </div>
-        ) : (
-          <div className="table-wrap" style={{ maxHeight: 320, overflowY: 'auto' }}>
-            <table>
-              <thead style={{ position: 'sticky', top: 0, background: 'var(--bg1)', zIndex: 1 }}>
-                <tr>
-                  <th>Service</th>
-                  <th>Pod / host</th>
-                  <th className="num">Calls</th>
-                  <th className="num">Err %</th>
-                  <th className="num">Avg</th>
-                  <th className="num">P99</th>
-                </tr>
-              </thead>
-              <tbody>
-                {callers.map((c, i) => {
-                  const errCls = c.errorRate > 5 ? 'err' : c.errorRate > 0 ? 'warn' : 'ok';
-                  return (
-                    <tr key={`${c.service}|${c.pod}|${i}`}>
-                      <td>
-                        <Link to={`/service?name=${encodeURIComponent(c.service)}`}
-                              style={{ fontFamily: 'monospace', fontSize: 12 }}>
-                          {c.service}
-                        </Link>
-                      </td>
-                      <td style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text2)' }}>
-                        {c.pod}
-                      </td>
-                      <td className="num mono">{fmtNum(c.spanCount)}</td>
-                      <td className="num mono">
-                        <span className={`badge b-${errCls}`} style={{ fontSize: 9 }}>
-                          {c.errorRate.toFixed(2)}%
-                        </span>
-                      </td>
-                      <td className="num mono">{c.avgDurationMs.toFixed(1)}ms</td>
-                      <td className="num mono">{c.p99DurationMs.toFixed(1)}ms</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+          surfaces first. For messaging we split Producers /
+          Consumers since they answer different questions. */}
+      {kind === 'queue' ? (
+        <>
+          <CallerSection
+            title={`Publishers · ${producers.length} ${producers.length === 1 ? 'row' : 'rows'}`}
+            rows={producers}
+            emptyMessage="No producer spans for this destination in the window."
+            tone="producer" />
+          <CallerSection
+            title={`Consumers · ${consumers.length} ${consumers.length === 1 ? 'row' : 'rows'}`}
+            rows={consumers}
+            emptyMessage="No consumer spans for this destination in the window."
+            tone="consumer" />
+          {otherClients.length > 0 && (
+            <CallerSection
+              title={`Other clients · ${otherClients.length}`}
+              rows={otherClients}
+              emptyMessage=""
+              tone="other" />
+          )}
+        </>
+      ) : (
+        <CallerSection
+          title={`By client (service + pod) · ${callers.length} ${callers.length === 1 ? 'row' : 'rows'}`}
+          rows={callers}
+          emptyMessage="No callers in this window."
+          tone="db" />
+      )}
 
       {/* Top operations — for DBs the first 80 chars of
           db_statement (collapses unparameterised SQL); for
           messaging the span name (publish / consume / process). */}
-      {data.topOps.length > 0 && (
+      {allTopOps.length > 0 && (
         <div>
           <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6,
                          color: 'var(--text2)' }}>
             {kind === 'db'
-              ? `Top ${data.topOps.length} statements (first 80 chars)`
-              : `Top ${data.topOps.length} operations`}
+              ? `Top ${allTopOps.length} statements (first 80 chars)`
+              : `Top ${allTopOps.length} operations`}
           </div>
           <div className="table-wrap" style={{ maxHeight: 240, overflowY: 'auto' }}>
             <table>
@@ -388,7 +386,7 @@ function DetailDrawer({ system, name, kind, range }: {
                 </tr>
               </thead>
               <tbody>
-                {data.topOps.map((o, i) => (
+                {allTopOps.map((o, i) => (
                   <tr key={i}>
                     <td style={{
                       fontFamily: 'ui-monospace, SFMono-Regular, monospace',
@@ -404,6 +402,104 @@ function DetailDrawer({ system, name, kind, range }: {
         </div>
       )}
     </div>
+  );
+}
+
+// CallerSection renders one labelled table of (service, pod) rows
+// with their RED metrics. Tone colours the header so producers /
+// consumers / DB clients read at a glance. Empty sections render
+// a one-line placeholder so the operator sees that we did look
+// for the data and there just isn't any in this window.
+function CallerSection({ title, rows, emptyMessage, tone }: {
+  title: string;
+  rows: import('@/lib/types').DBCallerBreakdown[];
+  emptyMessage: string;
+  tone: 'producer' | 'consumer' | 'other' | 'db';
+}) {
+  const dotColor =
+    tone === 'producer' ? 'var(--accent2)' :
+    tone === 'consumer' ? 'var(--ok)' :
+    tone === 'other'    ? 'var(--text3)' :
+                          'var(--accent2)';
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 6,
+        fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text2)',
+      }}>
+        <span aria-hidden style={{
+          width: 8, height: 8, borderRadius: 2, background: dotColor,
+        }} />
+        {title}
+      </div>
+      {rows.length === 0 ? (
+        emptyMessage && <div style={{ fontSize: 12, color: 'var(--text3)' }}>{emptyMessage}</div>
+      ) : (
+        <div className="table-wrap" style={{ maxHeight: 320, overflowY: 'auto' }}>
+          <table>
+            <thead style={{ position: 'sticky', top: 0, background: 'var(--bg1)', zIndex: 1 }}>
+              <tr>
+                <th>Service</th>
+                <th>Pod / host</th>
+                {rows.some(r => r.role) && <th>Role</th>}
+                <th className="num">Calls</th>
+                <th className="num">Err %</th>
+                <th className="num">Avg</th>
+                <th className="num">P99</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((c, i) => {
+                const errCls = c.errorRate > 5 ? 'err' : c.errorRate > 0 ? 'warn' : 'ok';
+                return (
+                  <tr key={`${c.service}|${c.pod}|${c.role ?? ''}|${i}`}>
+                    <td>
+                      <Link to={`/service?name=${encodeURIComponent(c.service)}`}
+                            style={{ fontFamily: 'monospace', fontSize: 12 }}>
+                        {c.service}
+                      </Link>
+                    </td>
+                    <td style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text2)' }}>
+                      {c.pod}
+                    </td>
+                    {rows.some(r => r.role) && (
+                      <td>
+                        {c.role && <RoleBadge role={c.role} />}
+                      </td>
+                    )}
+                    <td className="num mono">{fmtNum(c.spanCount)}</td>
+                    <td className="num mono">
+                      <span className={`badge b-${errCls}`} style={{ fontSize: 9 }}>
+                        {c.errorRate.toFixed(2)}%
+                      </span>
+                    </td>
+                    <td className="num mono">{c.avgDurationMs.toFixed(1)}ms</td>
+                    <td className="num mono">{c.p99DurationMs.toFixed(1)}ms</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RoleBadge({ role }: { role: string }) {
+  const r = role.toLowerCase();
+  const tone =
+    r === 'producer' ? { bg: 'rgba(56,139,253,0.15)', fg: 'var(--accent2)' } :
+    r === 'consumer' ? { bg: 'rgba(63,185,80,0.15)',  fg: 'var(--ok)' } :
+    r === 'client'   ? { bg: 'var(--bg3)',            fg: 'var(--text2)' } :
+                       { bg: 'var(--bg3)',            fg: 'var(--text3)' };
+  return (
+    <span style={{
+      fontSize: 10, padding: '1px 6px', borderRadius: 3, fontWeight: 600,
+      fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+      background: tone.bg, color: tone.fg,
+      textTransform: 'uppercase', letterSpacing: '.5px',
+    }}>{role}</span>
   );
 }
 

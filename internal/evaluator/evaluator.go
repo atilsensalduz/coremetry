@@ -79,63 +79,72 @@ func (e *Evaluator) runIfLeader(ctx context.Context) {
 
 // ── Built-in rules ───────────────────────────────────────────────────────────
 //
-// These ship out of the box — auto-applied to every service detected in
-// the last 24 hours. Users can disable them via the UI.
-
+// Curated for banking-realistic baseline workloads — Coremetry's primary
+// target. Pre-v0.4.87 we shipped 15 rules with sub-second thresholds
+// (DB P99 >500ms, HTTP P99 >1s, etc.) which fired constantly on a real
+// banking stack where Oracle calls + multi-hop transaction services
+// routinely run 800ms-2s in steady state. That alarm fatigue erodes
+// trust in every other alert.
+//
+// New shape (7 rules, all critical-only):
+//   1. Error rate sustained >15% / 5 min          — service-wide breakdown
+//   2. HTTP 5xx rate >5% / 5 min                  — user-visible failures
+//   3. HTTP P99 >5s / 5 min                       — SLO-violating slow
+//   4. DB error rate >5% / 5 min                  — datastore actually down
+//   5. DB P99 >5s / 5 min                         — datastore actually slow
+//   6. RPC error rate >10% / 5 min                — inter-service breakdown
+//   7. MQ consume processing P99 >2 min / 5 min   — actual consumer lag
+//
+// Warning-tier rules are intentionally removed — operators define their
+// own service-specific warnings (lower thresholds, per-route gates) via
+// the UI when they have the SLO context to set them correctly. The
+// built-ins now act as a "really wrong" floor instead of a default
+// noise generator.
 var builtins = []chstore.AlertRule{
-	// ── Spans-wide, all-transport ─────────────────────────────────
-	{ID: "builtin-error-rate-5pct",  Name: "High error rate (>5% over 5 min)",
-		Metric: "error_rate", Comparator: ">", Threshold: 5,  WindowSec: 5 * 60,
-		Severity: "warning",  Enabled: true, BuiltIn: true},
+	// Service-wide error rate. 15% is the "something is clearly
+	// failing" floor — normal failed-card-transactions noise
+	// stays well below. Below 15% is service-specific tuning
+	// territory; we don't guess.
 	{ID: "builtin-error-rate-15pct", Name: "Critical error rate (>15% over 5 min)",
 		Metric: "error_rate", Comparator: ">", Threshold: 15, WindowSec: 5 * 60,
 		Severity: "critical", Enabled: true, BuiltIn: true},
-	{ID: "builtin-p99-2s",           Name: "High P99 latency (>2s over 5 min)",
-		Metric: "p99_ms",     Comparator: ">", Threshold: 2000, WindowSec: 5 * 60,
-		Severity: "warning",  Enabled: true, BuiltIn: true},
 
-	// ── HTTP server-side ──────────────────────────────────────────
-	{ID: "builtin-http-5xx-1pct",    Name: "HTTP 5xx rate >1% (5 min)",
-		Metric: "http_5xx_rate", Comparator: ">", Threshold: 1,  WindowSec: 5 * 60,
-		Severity: "warning",  Enabled: true, BuiltIn: true},
-	{ID: "builtin-http-5xx-5pct",    Name: "Critical HTTP 5xx rate >5% (5 min)",
+	// HTTP server-side. 5xx >5% means an actual outage from the
+	// caller's perspective; user transactions are failing.
+	{ID: "builtin-http-5xx-5pct",    Name: "HTTP 5xx rate >5% (5 min)",
 		Metric: "http_5xx_rate", Comparator: ">", Threshold: 5,  WindowSec: 5 * 60,
 		Severity: "critical", Enabled: true, BuiltIn: true},
-	{ID: "builtin-http-p99-1s",      Name: "HTTP P99 >1s (5 min)",
-		Metric: "http_p99_ms",   Comparator: ">", Threshold: 1000, WindowSec: 5 * 60,
-		Severity: "warning",  Enabled: true, BuiltIn: true},
-	{ID: "builtin-http-p99-3s",      Name: "Critical HTTP P99 >3s (5 min)",
-		Metric: "http_p99_ms",   Comparator: ">", Threshold: 3000, WindowSec: 5 * 60,
+	// HTTP latency. P99 >5s in a banking call chain is SLO-
+	// violating territory regardless of which service. Below
+	// that is service-specific.
+	{ID: "builtin-http-p99-5s",      Name: "HTTP P99 latency >5s (5 min)",
+		Metric: "http_p99_ms",   Comparator: ">", Threshold: 5000, WindowSec: 5 * 60,
 		Severity: "critical", Enabled: true, BuiltIn: true},
 
-	// ── Database (postgres / mysql / mongo / redis / elasticsearch) ─
-	{ID: "builtin-db-error-1pct",    Name: "DB error rate >1% (5 min)",
-		Metric: "db_error_rate", Comparator: ">", Threshold: 1,  WindowSec: 5 * 60,
-		Severity: "warning",  Enabled: true, BuiltIn: true},
-	{ID: "builtin-db-p99-500ms",     Name: "DB P99 latency >500ms (5 min)",
-		Metric: "db_p99_ms",     Comparator: ">", Threshold: 500, WindowSec: 5 * 60,
-		Severity: "warning",  Enabled: true, BuiltIn: true},
-	{ID: "builtin-db-p99-2s",        Name: "Critical DB P99 latency >2s (5 min)",
-		Metric: "db_p99_ms",     Comparator: ">", Threshold: 2000, WindowSec: 5 * 60,
+	// Database. Banking DBs (Oracle, Mongo, MS SQL) routinely
+	// run 500ms-1s P99 with locks + indexes warming up — a 500ms
+	// threshold fired every morning. 5s is when the DB is
+	// actually broken (lock storm, undersized, network blip).
+	{ID: "builtin-db-error-5pct",    Name: "DB error rate >5% (5 min)",
+		Metric: "db_error_rate", Comparator: ">", Threshold: 5,  WindowSec: 5 * 60,
+		Severity: "critical", Enabled: true, BuiltIn: true},
+	{ID: "builtin-db-p99-5s",        Name: "DB P99 latency >5s (5 min)",
+		Metric: "db_p99_ms",     Comparator: ">", Threshold: 5000, WindowSec: 5 * 60,
 		Severity: "critical", Enabled: true, BuiltIn: true},
 
-	// ── RPC (gRPC / Thrift / etc.) ────────────────────────────────
-	{ID: "builtin-rpc-error-5pct",   Name: "RPC error rate >5% (5 min)",
-		Metric: "rpc_error_rate", Comparator: ">", Threshold: 5, WindowSec: 5 * 60,
-		Severity: "warning",  Enabled: true, BuiltIn: true},
-	{ID: "builtin-rpc-p99-1s",       Name: "RPC P99 latency >1s (5 min)",
-		Metric: "rpc_p99_ms",     Comparator: ">", Threshold: 1000, WindowSec: 5 * 60,
-		Severity: "warning",  Enabled: true, BuiltIn: true},
+	// Inter-service RPC. 10% error rate at the RPC layer (already
+	// retried + circuit-broken in modern stacks) indicates a real
+	// downstream outage — much higher signal than HTTP.
+	{ID: "builtin-rpc-error-10pct",  Name: "RPC error rate >10% (5 min)",
+		Metric: "rpc_error_rate", Comparator: ">", Threshold: 10, WindowSec: 5 * 60,
+		Severity: "critical", Enabled: true, BuiltIn: true},
 
-	// ── Message queue (Kafka producers + consumers) ───────────────
-	{ID: "builtin-mq-publish-err-5pct", Name: "MQ publish error rate >5% (5 min)",
-		Metric: "mq_publish_error_rate", Comparator: ">", Threshold: 5, WindowSec: 5 * 60,
-		Severity: "warning",  Enabled: true, BuiltIn: true},
-	{ID: "builtin-mq-consume-err-5pct", Name: "MQ consume error rate >5% (5 min)",
-		Metric: "mq_consume_error_rate", Comparator: ">", Threshold: 5, WindowSec: 5 * 60,
-		Severity: "warning",  Enabled: true, BuiltIn: true},
-	{ID: "builtin-mq-consume-p99-30s",  Name: "MQ consume P99 >30s — processing lag (5 min)",
-		Metric: "mq_consume_p99_ms",     Comparator: ">", Threshold: 30000, WindowSec: 5 * 60,
+	// Message-queue consumer lag. 2 minutes processing P99 on a
+	// Kafka / IBM MQ consumer is real back-pressure — events are
+	// piling up. Producer errors fold into the error_rate rule
+	// at the top so we don't double-page.
+	{ID: "builtin-mq-consume-p99-2m", Name: "MQ consume P99 >2 min — consumer lag (5 min)",
+		Metric: "mq_consume_p99_ms",  Comparator: ">", Threshold: 120000, WindowSec: 5 * 60,
 		Severity: "critical", Enabled: true, BuiltIn: true},
 }
 

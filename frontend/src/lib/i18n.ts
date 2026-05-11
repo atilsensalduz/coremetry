@@ -15,6 +15,15 @@ export type Lang = 'en' | 'tr';
 type Catalog = Record<string, string>;
 
 const EN: Catalog = {
+  // Sidebar group headings
+  'navGroup.triage':      'Triage',
+  'navGroup.services':    'Services',
+  'navGroup.signals':     'Signals',
+  'navGroup.workspaces':  'Workspaces',
+  'navGroup.alerting':    'Alerting',
+  'navGroup.system':      'System',
+  'navGroup.management':  'Management',
+
   // Sidebar
   'nav.incidents':   'Incidents',
   'nav.problems':    'Problems',
@@ -95,6 +104,15 @@ const EN: Catalog = {
 };
 
 const TR: Catalog = {
+  // Sidebar group headings
+  'navGroup.triage':     'Olay yönetimi',
+  'navGroup.services':   'Servisler',
+  'navGroup.signals':    'Sinyaller',
+  'navGroup.workspaces': 'Çalışma alanları',
+  'navGroup.alerting':   'Alarm yönetimi',
+  'navGroup.system':     'Sistem',
+  'navGroup.management': 'Yönetim',
+
   // Sidebar
   'nav.incidents':   'Olaylar',
   'nav.problems':    'Sorunlar',

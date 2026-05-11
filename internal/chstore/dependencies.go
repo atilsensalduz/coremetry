@@ -53,9 +53,16 @@ type MessagingInstance struct {
 // resource.host.name on the calling span — k8s pod name on
 // Kubernetes deployments, VM hostname elsewhere. Same shape
 // works for the messaging detail drawer below.
+//
+// Role is populated only by the messaging detail (span.kind
+// promoted into the row: "producer" / "consumer" / "client" /
+// "server" / "internal"). For DB rows it's empty since DB
+// calls are always CLIENT-kind by OTel convention; the column
+// would always read the same.
 type DBCallerBreakdown struct {
 	Service    string  `json:"service"`
 	Pod        string  `json:"pod"`
+	Role       string  `json:"role,omitempty"`
 	SpanCount  uint64  `json:"spanCount"`
 	ErrorCount uint64  `json:"errorCount"`
 	ErrorRate  float64 `json:"errorRate"`
@@ -116,7 +123,15 @@ func (s *Store) GetDatabaseDetail(
 		instanceArg = ""
 	}
 
-	out := &DBDetail{System: system, Instance: instance}
+	// Initialize empty slices so the JSON marshal emits [] rather
+	// than null — the SPA's drawer does `[...data.callers]` /
+	// `data.topOps.length` and a null spread / null property
+	// access crashes the page boundary.
+	out := &DBDetail{
+		System: system, Instance: instance,
+		Callers: []DBCallerBreakdown{},
+		TopOps:  []DBOpStat{},
+	}
 
 	// Aggregate stats for the (system, instance) pair.
 	row := s.conn.QueryRow(ctx, `
@@ -238,7 +253,11 @@ func (s *Store) GetMessagingDetail(
 		'unknown'
 	)`
 
-	out := &MessagingDetail{System: system, Destination: destination}
+	out := &MessagingDetail{
+		System: system, Destination: destination,
+		Callers: []DBCallerBreakdown{},
+		TopOps:  []DBOpStat{},
+	}
 
 	row := s.conn.QueryRow(ctx, `
 		SELECT count(),
@@ -257,16 +276,22 @@ func (s *Store) GetMessagingDetail(
 		out.ErrorRate = float64(out.ErrorCount) / float64(out.SpanCount) * 100
 	}
 
+	// Messaging breakdown groups by kind too so producers and
+	// consumers surface as separate rows even when they share
+	// service + pod (a service that both publishes to one topic
+	// and consumes from another, common in event-driven
+	// architectures). The frontend renders a role badge per row.
 	rows, err := s.conn.Query(ctx, `
 		SELECT service_name,
 		       coalesce(nullIf(host_name, ''), '(unknown)') AS pod,
+		       coalesce(nullIf(kind, ''), 'client')         AS role,
 		       count(), countIf(status_code = 'error'),
 		       avg(duration) / 1e6,
 		       quantile(0.99)(duration) / 1e6
 		FROM spans
 		WHERE time >= ? AND time <= ? AND msg_system = ?
 		  AND `+destExpr+` = ?
-		GROUP BY service_name, pod
+		GROUP BY service_name, pod, role
 		ORDER BY count() DESC
 		LIMIT 100
 		SETTINGS max_execution_time = 15`,
@@ -277,7 +302,7 @@ func (s *Store) GetMessagingDetail(
 	defer rows.Close()
 	for rows.Next() {
 		var b DBCallerBreakdown
-		if err := rows.Scan(&b.Service, &b.Pod, &b.SpanCount, &b.ErrorCount, &b.AvgMs, &b.P99Ms); err != nil {
+		if err := rows.Scan(&b.Service, &b.Pod, &b.Role, &b.SpanCount, &b.ErrorCount, &b.AvgMs, &b.P99Ms); err != nil {
 			continue
 		}
 		if b.SpanCount > 0 {

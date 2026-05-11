@@ -75,6 +75,10 @@ export interface DBInstance {
 export interface DBCallerBreakdown {
   service: string;
   pod: string;
+  // Role is set only for messaging breakdowns (span.kind:
+  // producer / consumer / client / server / internal). Empty
+  // string for DB rows since DB spans are always CLIENT.
+  role?: string;
   spanCount: number;
   errorCount: number;
   errorRate: number;

@@ -24,30 +24,76 @@ type NavItem = {
 // NavItem labels are i18n keys; the actual label is resolved
 // from the t() catalog at render time so a language switch
 // surfaces immediately.
-const NAV: NavItem[] = [
-  { href: '/incidents',  label: 'nav.incidents',   icon: '⚠' },
-  { href: '/problems',   label: 'nav.problems',    icon: '!' },
-  { href: '/anomalies',  label: 'nav.anomalies',   icon: '⚠' },
-  { href: '/services',   label: 'nav.services',    icon: '◈' },
-  { href: '/databases',  label: 'nav.databases',   icon: '⛁' },
-  { href: '/messaging',  label: 'nav.messaging',   icon: '⌬' },
-  { href: '/traces',     label: 'nav.traces',      icon: '⋮' },
-  { href: '/metrics',    label: 'nav.metrics',     icon: '∿' },
-  { href: '/logs',       label: 'nav.logs',        icon: '≡' },
-  { href: '/explore',    label: 'nav.explore',     icon: '◎' },
-  { href: '/notebook',   label: 'nav.notebook',    icon: '◰' },
-  { href: '/dashboards', label: 'nav.dashboards',  icon: '◫' },
-  { href: '/profiling',  label: 'nav.profiling',   icon: '⌬' },
-  { href: '/alerts',     label: 'nav.alerts',      icon: '◊' },
-  { href: '/service-map', label: 'nav.serviceMap', icon: '◉' },
-  { href: '/slos',       label: 'nav.slos',        icon: '◉' },
-  { href: '/monitors',   label: 'nav.monitors',    icon: '◉' },
-  { href: '/admin/stats',       label: 'nav.system',      icon: '◐' },
-  { href: '/admin/cardinality', label: 'nav.cardinality', icon: '◐', adminOnly: true },
-  { href: '/admin/catalog',     label: 'nav.catalog',     icon: '◫', adminOnly: true },
-  { href: '/admin/audit',       label: 'nav.audit',       icon: '◇', adminOnly: true },
-  { href: '/admin/sql',         label: 'nav.sql',         icon: '⌘', adminOnly: true },
-  { href: '/admin/status-page', label: 'nav.statusPage',  icon: '◫', adminOnly: true },
+type NavGroup = {
+  // Group heading i18n key. Empty = ungrouped (no heading line).
+  titleKey: string;
+  items: NavItem[];
+};
+
+// Grouped layout — pre-v0.4.87 the sidebar was 24 flat entries
+// which made it hard to scan during a fast triage. Groups
+// follow the operator's actual workflow: triage first (left
+// of the eye), then the services / signals they investigate
+// with, then the meta-operations (alerts, admin).
+const NAV_GROUPS: NavGroup[] = [
+  {
+    titleKey: 'navGroup.triage',
+    items: [
+      { href: '/incidents', label: 'nav.incidents', icon: '⚠' },
+      { href: '/problems',  label: 'nav.problems',  icon: '!' },
+      { href: '/anomalies', label: 'nav.anomalies', icon: '⚠' },
+    ],
+  },
+  {
+    titleKey: 'navGroup.services',
+    items: [
+      { href: '/services',    label: 'nav.services',   icon: '◈' },
+      { href: '/service-map', label: 'nav.serviceMap', icon: '◉' },
+      { href: '/databases',   label: 'nav.databases',  icon: '⛁' },
+      { href: '/messaging',   label: 'nav.messaging',  icon: '⌬' },
+    ],
+  },
+  {
+    titleKey: 'navGroup.signals',
+    items: [
+      { href: '/traces',     label: 'nav.traces',    icon: '⋮' },
+      { href: '/metrics',    label: 'nav.metrics',   icon: '∿' },
+      { href: '/logs',       label: 'nav.logs',      icon: '≡' },
+      { href: '/profiling',  label: 'nav.profiling', icon: '⌬' },
+    ],
+  },
+  {
+    titleKey: 'navGroup.workspaces',
+    items: [
+      { href: '/explore',    label: 'nav.explore',    icon: '◎' },
+      { href: '/notebook',   label: 'nav.notebook',   icon: '◰' },
+      { href: '/dashboards', label: 'nav.dashboards', icon: '◫' },
+    ],
+  },
+  {
+    titleKey: 'navGroup.alerting',
+    items: [
+      { href: '/alerts',   label: 'nav.alerts',   icon: '◊' },
+      { href: '/monitors', label: 'nav.monitors', icon: '◉' },
+      { href: '/slos',     label: 'nav.slos',     icon: '◉' },
+    ],
+  },
+  {
+    titleKey: 'navGroup.system',
+    items: [
+      { href: '/admin/stats',       label: 'nav.system',      icon: '◐' },
+      { href: '/admin/cardinality', label: 'nav.cardinality', icon: '◐', adminOnly: true },
+    ],
+  },
+  {
+    titleKey: 'navGroup.management',
+    items: [
+      { href: '/admin/catalog',     label: 'nav.catalog',    icon: '◫', adminOnly: true },
+      { href: '/admin/audit',       label: 'nav.audit',      icon: '◇', adminOnly: true },
+      { href: '/admin/sql',         label: 'nav.sql',        icon: '⌘', adminOnly: true },
+      { href: '/admin/status-page', label: 'nav.statusPage', icon: '◫', adminOnly: true },
+    ],
+  },
 ];
 
 const SIDEBAR_WIDTH_KEY     = 'coremetry-sidebar-w';
@@ -84,6 +130,32 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Expanded nav groups — persists to localStorage so the
+  // operator's preferred layout sticks across sessions. The
+  // most-used "triage" group starts open by default; everything
+  // else collapsed so the sidebar reads at a glance. The active
+  // route's group always auto-expands regardless of stored
+  // state (see render below).
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
+    () => new Set(['navGroup.triage']));
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('coremetry-sidebar-groups');
+      if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) setExpandedGroups(new Set(arr));
+      }
+    } catch { /* ignore */ }
+  }, []);
+  const toggleGroup = (k: string) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k); else next.add(k);
+      try { localStorage.setItem('coremetry-sidebar-groups', JSON.stringify([...next])); }
+      catch { /* ignore */ }
+      return next;
+    });
+  };
   useEffect(() => {
     const w = parseInt(localStorage.getItem(SIDEBAR_WIDTH_KEY) ?? '', 10);
     if (Number.isFinite(w) && w >= MIN_W && w <= MAX_W) setWidth(w);
@@ -210,21 +282,25 @@ export function Sidebar() {
           </span>
         </div>
         <div id="nav">
-          {NAV.filter(n => !n.adminOnly || user?.role === 'admin').map(n => (
-            <Link key={n.href} to={n.href}
-              className={isActive(pathname, n.href) ? 'active' : ''}
-              title={!showLabels ? t(n.label) : undefined}
-              style={!showLabels ? { justifyContent: 'center', padding: '10px 0' } : undefined}>
-              <span className="icon">{n.icon}</span>
-              {showLabels && <span className="nav-label">{t(n.label)}</span>}
-              {showLabels && n.href === '/problems' && openProblems > 0 && (
-                <span className="nav-badge">{openProblems}</span>
-              )}
-              {!showLabels && n.href === '/problems' && openProblems > 0 && (
-                <span className="nav-dot" title={`${openProblems} open problems`} />
-              )}
-            </Link>
-          ))}
+          {NAV_GROUPS.map(group => {
+            const items = group.items.filter(n => !n.adminOnly || user?.role === 'admin');
+            if (items.length === 0) return null;
+            // Active route auto-expands its group so the operator
+            // never loses the highlight when navigating.
+            const groupActive = items.some(n => isActive(pathname, n.href));
+            const isOpen = expandedGroups.has(group.titleKey) || groupActive;
+            return (
+              <NavGroupBlock key={group.titleKey}
+                titleKey={group.titleKey}
+                items={items}
+                isOpen={isOpen}
+                onToggle={() => toggleGroup(group.titleKey)}
+                showLabels={showLabels}
+                pathname={pathname}
+                openProblems={openProblems}
+                t={t} />
+            );
+          })}
         </div>
         {user && (
           <div ref={menuRef} id="user-menu" style={{
@@ -299,6 +375,76 @@ export function Sidebar() {
         )}
       </nav>
     </>
+  );
+}
+
+// NavGroupBlock renders one collapsible group — a small header
+// row with chevron + group name, then the child Link rows when
+// expanded. When the sidebar is in collapsed (icon-only) mode
+// we hide the header line and just render every group's
+// children stacked since the chevron interaction makes no
+// sense at 56px wide.
+function NavGroupBlock({
+  titleKey, items, isOpen, onToggle, showLabels, pathname, openProblems, t,
+}: {
+  titleKey: string;
+  items: NavItem[];
+  isOpen: boolean;
+  onToggle: () => void;
+  showLabels: boolean;
+  pathname: string;
+  openProblems: number;
+  t: (key: string) => string;
+}) {
+  // Icon-only sidebar: skip the group header (no place for it),
+  // render every link inline. Operator still navigates by icon
+  // memory in this mode.
+  if (!showLabels) {
+    return (
+      <>
+        {items.map(n => (
+          <Link key={n.href} to={n.href}
+            className={isActive(pathname, n.href) ? 'active' : ''}
+            title={t(n.label)}
+            style={{ justifyContent: 'center', padding: '10px 0' }}>
+            <span className="icon">{n.icon}</span>
+            {n.href === '/problems' && openProblems > 0 && (
+              <span className="nav-dot" title={`${openProblems} open problems`} />
+            )}
+          </Link>
+        ))}
+      </>
+    );
+  }
+  return (
+    <div className="nav-group">
+      <button type="button"
+        onClick={onToggle}
+        className="nav-group-header"
+        aria-expanded={isOpen}
+        style={{
+          display: 'flex', alignItems: 'center', width: '100%',
+          padding: '8px 14px 4px', background: 'transparent', border: 'none',
+          color: 'var(--text3)', fontSize: 10, fontWeight: 700,
+          letterSpacing: '0.6px', textTransform: 'uppercase',
+          cursor: 'pointer', textAlign: 'left',
+        }}>
+        <span style={{ width: 14, display: 'inline-block', color: 'var(--text3)' }}>
+          {isOpen ? '▾' : '▸'}
+        </span>
+        <span>{t(titleKey)}</span>
+      </button>
+      {isOpen && items.map(n => (
+        <Link key={n.href} to={n.href}
+          className={isActive(pathname, n.href) ? 'active' : ''}>
+          <span className="icon">{n.icon}</span>
+          <span className="nav-label">{t(n.label)}</span>
+          {n.href === '/problems' && openProblems > 0 && (
+            <span className="nav-badge">{openProblems}</span>
+          )}
+        </Link>
+      ))}
+    </div>
   );
 }
 
