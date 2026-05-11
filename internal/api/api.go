@@ -133,6 +133,8 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/services/{name}/structure", s.getServiceStructure)
 	mux.HandleFunc("GET /api/services/{name}/neighbors", s.getServiceNeighbors)
 	mux.HandleFunc("GET /api/service-map", s.getServiceMap)
+	mux.HandleFunc("GET /api/databases",  s.getDatabases)
+	mux.HandleFunc("GET /api/messaging",  s.getMessaging)
 	mux.HandleFunc("GET /api/services/{name}/backtrace", s.getServiceBacktrace)
 	mux.HandleFunc("GET /api/services/{name}/infra",     s.getServiceInfraMetrics)
 	mux.HandleFunc("GET /api/services/{name}/runtime",   s.getServiceRuntime)
@@ -815,6 +817,47 @@ func (s *Server) getServiceNeighbors(w http.ResponseWriter, r *http.Request) {
 // will hit the page repeatedly while reading it; a 30s cache
 // kills the redundant CH cost without making the view feel
 // stale during an active investigation.
+// getDatabases returns one row per (db_system, instance) tuple
+// observed in span traffic over the supplied window. Drives the
+// /databases overview — Dynatrace's "Technologies → Databases"
+// equivalent. Cached 30s on the window so a fleet of operators
+// scanning the page during morning triage doesn't hammer CH with
+// duplicate GROUP BYs.
+func (s *Server) getDatabases(w http.ResponseWriter, r *http.Request) {
+	from, to := parseFromTo(r, time.Hour)
+	key := fmt.Sprintf("databases:from=%d:to=%d", from.UnixNano(), to.UnixNano())
+	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
+		return s.store.GetDatabases(r.Context(), from, to)
+	})
+}
+
+// getMessaging is the parallel handler for queues / topics
+// (Kafka / RabbitMQ / IBM MQ / etc.). Same caching semantics.
+func (s *Server) getMessaging(w http.ResponseWriter, r *http.Request) {
+	from, to := parseFromTo(r, time.Hour)
+	key := fmt.Sprintf("messaging:from=%d:to=%d", from.UnixNano(), to.UnixNano())
+	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
+		return s.store.GetMessaging(r.Context(), from, to)
+	})
+}
+
+// parseFromTo unpacks the standard ?from=&to= unix-ns pair with
+// a `default` window when either is missing. Both handlers above
+// share the same shape so we lift the helper rather than
+// repeating the parse-with-defaults dance per endpoint.
+func parseFromTo(r *http.Request, defaultWindow time.Duration) (time.Time, time.Time) {
+	q := r.URL.Query()
+	to := parseTime(q.Get("to"))
+	if to.IsZero() {
+		to = time.Now()
+	}
+	from := parseTime(q.Get("from"))
+	if from.IsZero() {
+		from = to.Add(-defaultWindow)
+	}
+	return from, to
+}
+
 func (s *Server) getServiceMap(w http.ResponseWriter, r *http.Request) {
 	since := parseDuration(r.URL.Query().Get("since"), 15*time.Minute)
 	samples := parseInt(r.URL.Query().Get("samples"), 200)

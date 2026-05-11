@@ -51,6 +51,37 @@ export interface RetentionSpec {
   profiles?: string;
 }
 
+// DBInstance — one row of /databases (Dynatrace "Technologies →
+// Databases" equivalent). Distinct (db_system, instance) seen in
+// span traffic over the window, with RED-metrics + the top-5
+// callers. The system + instance discriminate the actual physical
+// DB while the callers list answers "which services depend on
+// this DB" without leaving the page.
+export interface DBInstance {
+  system: string;
+  instance: string;
+  spanCount: number;
+  errorCount: number;
+  errorRate: number;
+  avgDurationMs: number;
+  p99DurationMs: number;
+  callers: string[];
+}
+
+// MessagingInstance — same structure for queues / topics. The
+// destination field tries messaging.destination.name first, then
+// messaging.destination, then peer.service, then 'unknown'.
+export interface MessagingInstance {
+  system: string;
+  destination: string;
+  spanCount: number;
+  errorCount: number;
+  errorRate: number;
+  avgDurationMs: number;
+  p99DurationMs: number;
+  callers: string[];
+}
+
 // BreakdownPoint — one bucket of the Elastic-APM-style "span
 // breakdown" stacked-area chart. Cumulative ms of duration
 // grouped by span category for the service detail page.

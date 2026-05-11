@@ -25,6 +25,8 @@ const NAV: NavItem[] = [
   { href: '/problems',   label: 'Problems',     icon: '!' },
   { href: '/anomalies',  label: 'Anomalies',    icon: '⚠' },
   { href: '/services',   label: 'Services',     icon: '◈' },
+  { href: '/databases',  label: 'Databases',    icon: '⛁' },
+  { href: '/messaging',  label: 'Messaging',    icon: '⌬' },
   { href: '/traces',     label: 'Traces',       icon: '⋮' },
   { href: '/metrics',    label: 'Metrics',      icon: '∿' },
   { href: '/logs',       label: 'Logs',         icon: '≡' },

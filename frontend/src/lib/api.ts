@@ -302,6 +302,16 @@ export const api = {
   // spanBreakdown — Elastic-APM-style "where does this service
   // spend its time?" stacked-area data. Per-bucket cumulative ms
   // grouped by span category (db / queue / http / kind).
+  // /databases overview — one row per (db_system, instance) over
+  // the window. Drives the Dynatrace-style Databases page.
+  databases: (fromNs: number, toNs: number) =>
+    get<import('./types').DBInstance[] | null>(
+      `/api/databases?from=${fromNs}&to=${toNs}`),
+  // /messaging overview — parallel shape for queues / topics
+  // (Kafka / RabbitMQ / IBM MQ / NATS / etc.).
+  messaging: (fromNs: number, toNs: number) =>
+    get<import('./types').MessagingInstance[] | null>(
+      `/api/messaging?from=${fromNs}&to=${toNs}`),
   spanBreakdown: (service: string, fromNs: number, toNs: number) =>
     get<import('./types').BreakdownPoint[] | null>(
       `/api/services/${encodeURIComponent(service)}/span-breakdown?from=${fromNs}&to=${toNs}`),

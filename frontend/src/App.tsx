@@ -23,6 +23,8 @@ const Logs              = lazy(() => import('./pages/Logs'));
 const Metrics           = lazy(() => import('./pages/Metrics'));
 const Explore           = lazy(() => import('./pages/Explore'));
 const Notebook          = lazy(() => import('./pages/Notebook'));
+const Databases         = lazy(() => import('./pages/Databases'));
+const Messaging         = lazy(() => import('./pages/Messaging'));
 const Dashboards        = lazy(() => import('./pages/Dashboards'));
 const Dashboard         = lazy(() => import('./pages/Dashboard'));
 const Incidents         = lazy(() => import('./pages/Incidents'));
@@ -76,6 +78,8 @@ export default function App() {
             <Route path="/metrics"        element={<Metrics />} />
             <Route path="/explore"        element={<Explore />} />
             <Route path="/notebook"       element={<Notebook />} />
+            <Route path="/databases"      element={<Databases />} />
+            <Route path="/messaging"      element={<Messaging />} />
             <Route path="/dashboards"     element={<Dashboards />} />
             <Route path="/dashboard"      element={<Dashboard />} />
             <Route path="/incidents"      element={<Incidents />} />
