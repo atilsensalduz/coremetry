@@ -273,6 +273,27 @@ func main() {
 	if err := seedInitialAdmin(ctx, store, cfg.Auth); err != nil {
 		log.Printf("[auth] seed initial admin: %v", err)
 	}
+	// ── Trusted-header auth (oauth2-proxy / IAP / Cloudflare Access)
+	// When enabled, identity headers from an upstream proxy take
+	// the place of OIDC. Refuses to boot if trusted_proxies is
+	// empty — header-spoofing hole.
+	if cfg.Auth.TrustedHeader.Enabled {
+		err := authSvc.EnableTrustedHeader(
+			auth.TrustedHeaderOptions{
+				Enabled:       true,
+				EmailHeader:   cfg.Auth.TrustedHeader.EmailHeader,
+				UserHeader:    cfg.Auth.TrustedHeader.UserHeader,
+				GroupsHeader:  cfg.Auth.TrustedHeader.GroupsHeader,
+				AutoProvision: cfg.Auth.TrustedHeader.AutoProvision,
+				DefaultRole:   cfg.Auth.TrustedHeader.DefaultRole,
+			},
+			cfg.Auth.TrustedHeader.TrustedProxies,
+			&trustedHeaderUserStore{store: store},
+		)
+		if err != nil {
+			log.Fatalf("[auth] trusted-header init: %v", err)
+		}
+	}
 
 	// ── Seed SRE preset dashboards (only on a fresh install) ────────────────
 	// Idempotent + non-destructive — checks for any existing dashboard
@@ -539,4 +560,32 @@ func runMigration(ctx context.Context, store *chstore.Store,
 		log.Fatalf("[migrate] %v", err)
 	}
 	log.Printf("[migrate] done — destination ready, you can now cut traffic over")
+}
+
+// trustedHeaderUserStore adapts *chstore.Store onto the
+// auth.UserLookup interface so the auth package doesn't take a
+// hard dependency on chstore (and the resulting import cycle).
+// The two methods translate the chstore.User shape to/from the
+// minimal auth.LookupUser triple the trusted-header path needs.
+type trustedHeaderUserStore struct{ store *chstore.Store }
+
+func (s *trustedHeaderUserStore) GetUserByEmail(ctx context.Context, email string) (*auth.LookupUser, error) {
+	u, err := s.store.GetUserByEmail(ctx, email)
+	if err != nil || u == nil {
+		return nil, err
+	}
+	return &auth.LookupUser{ID: u.ID, Email: u.Email, Role: u.Role}, nil
+}
+
+func (s *trustedHeaderUserStore) UpsertUser(ctx context.Context, u auth.LookupUser) error {
+	// Auto-provisioned users get no password — OIDC pattern.
+	// PasswordHash empty + AuthProvider="trusted" means local
+	// password login is refused for the row; logout / re-login
+	// always re-hits the trusted-header path.
+	return s.store.UpsertUser(ctx, chstore.User{
+		ID:           u.ID,
+		Email:        u.Email,
+		Role:         u.Role,
+		AuthProvider: "trusted",
+	})
 }

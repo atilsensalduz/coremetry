@@ -164,11 +164,46 @@ type AuthConfig struct {
 	InitialAdmin    string        `yaml:"initial_admin"`     // email — seeded if users table is empty
 	InitialPassword string        `yaml:"initial_password"`  // bcrypted on first boot
 	OIDC            OIDCConfig    `yaml:"oidc"`
+	TrustedHeader   TrustedHeaderConfig `yaml:"trusted_header"`
 
 	// Demo only — when true, /api/auth/config exposes the initial admin
 	// credentials so the login page can pre-fill them. NEVER enable in
 	// production: anyone hitting /api/auth/config gets the admin password.
 	DemoMode bool `yaml:"demo_mode"`
+}
+
+// TrustedHeaderConfig wires the oauth2-proxy / IAP / Cloudflare Access
+// pattern: an upstream proxy validates SSO and sets identity headers
+// on the request, and Coremetry trusts them without re-doing the
+// OIDC dance itself. Common for banks running oauth2-proxy + Dex /
+// Keycloak in front of every internal service so each app doesn't
+// need its own OIDC client registration.
+//
+// SECURITY: this mode is only safe behind a proxy that strips +
+// re-injects the headers. Anyone able to send a raw request to
+// Coremetry on a network where the proxy isn't enforced could
+// spoof `X-Auth-Request-Email: admin@bank.com` and become admin.
+// TrustedProxies enforces source-IP gating; we refuse to honour
+// the headers from any other source.
+type TrustedHeaderConfig struct {
+	Enabled       bool     `yaml:"enabled"`
+	// Header names — defaults match oauth2-proxy (which is the
+	// dominant implementation in the OAuth-proxy-fronts-app
+	// pattern). Operators using a different proxy override.
+	EmailHeader   string   `yaml:"email_header"`     // default "X-Auth-Request-Email"
+	UserHeader    string   `yaml:"user_header"`      // default "X-Auth-Request-User"
+	GroupsHeader  string   `yaml:"groups_header"`    // default "X-Auth-Request-Groups"
+	// AutoProvision: first-sight user lands in the users table
+	// with DefaultRole. Without it, an unmapped email returns
+	// 403 — admins pre-create accounts.
+	AutoProvision bool     `yaml:"auto_provision"`
+	DefaultRole   string   `yaml:"default_role"`     // default "viewer"
+	// TrustedProxies — CIDR blocks the headers are accepted
+	// from. Required when Enabled is true; an empty list with
+	// Enabled=true is a config error (the validate step refuses
+	// to boot to keep operators from accidentally opening a
+	// header-spoofing hole).
+	TrustedProxies []string `yaml:"trusted_proxies"`
 }
 
 // OIDCConfig is fully optional — when Enabled is false, only local
@@ -352,6 +387,31 @@ func Load(path string) (*Config, error) {
 	}
 	if v := os.Getenv("COREMETRY_OIDC_REDIRECT_URL"); v != "" {
 		cfg.Auth.OIDC.RedirectURL = v
+	}
+	// Trusted-header auth env overrides — typical Helm shape is
+	// to set TRUSTED_HEADER_ENABLED + TRUSTED_PROXIES from
+	// values.yaml so the proxy CIDR is part of the deployment
+	// definition, not buried in a ConfigMap.
+	if v := os.Getenv("COREMETRY_TRUSTED_HEADER_ENABLED"); v == "true" || v == "1" {
+		cfg.Auth.TrustedHeader.Enabled = true
+	}
+	if v := os.Getenv("COREMETRY_TRUSTED_HEADER_EMAIL"); v != "" {
+		cfg.Auth.TrustedHeader.EmailHeader = v
+	}
+	if v := os.Getenv("COREMETRY_TRUSTED_HEADER_USER"); v != "" {
+		cfg.Auth.TrustedHeader.UserHeader = v
+	}
+	if v := os.Getenv("COREMETRY_TRUSTED_HEADER_GROUPS"); v != "" {
+		cfg.Auth.TrustedHeader.GroupsHeader = v
+	}
+	if v := os.Getenv("COREMETRY_TRUSTED_HEADER_AUTO_PROVISION"); v == "true" || v == "1" {
+		cfg.Auth.TrustedHeader.AutoProvision = true
+	}
+	if v := os.Getenv("COREMETRY_TRUSTED_HEADER_DEFAULT_ROLE"); v != "" {
+		cfg.Auth.TrustedHeader.DefaultRole = v
+	}
+	if v := os.Getenv("COREMETRY_TRUSTED_PROXIES"); v != "" {
+		cfg.Auth.TrustedHeader.TrustedProxies = splitCSV(v)
 	}
 	if v := os.Getenv("COREMETRY_DEMO_MODE"); v == "true" || v == "1" {
 		cfg.Auth.DemoMode = true

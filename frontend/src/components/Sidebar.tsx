@@ -424,9 +424,14 @@ function NavGroupBlock({
         aria-expanded={isOpen}
         style={{
           display: 'flex', alignItems: 'center', width: '100%',
-          padding: '8px 14px 4px', background: 'transparent', border: 'none',
-          color: 'var(--text3)', fontSize: 10, fontWeight: 700,
-          letterSpacing: '0.6px', textTransform: 'uppercase',
+          // Pre-v0.4.90 these read at fontSize 10 which got
+          // visually lost between the brand row and the link
+          // icons. Bumped to 12 + tightened the gap so the
+          // groupings actually anchor the eye during a fast
+          // triage scan.
+          padding: '10px 14px 4px', background: 'transparent', border: 'none',
+          color: 'var(--text2)', fontSize: 12, fontWeight: 700,
+          letterSpacing: '0.5px', textTransform: 'uppercase',
           cursor: 'pointer', textAlign: 'left',
         }}>
         <span style={{ width: 14, display: 'inline-block', color: 'var(--text3)' }}>

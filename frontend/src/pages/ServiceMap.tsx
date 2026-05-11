@@ -138,6 +138,15 @@ export default function ServiceMapPage() {
                  placeholder="select a service…"
                  value={focus}
                  onChange={e => setFocus(e.target.value)}
+                 // Pre-v0.4.90 a focused service made the input
+                 // an exact-match against the datalist, which
+                 // browsers fold into "only this one option" —
+                 // operators reported they couldn't pick a
+                 // different service. onFocus clears + onClick
+                 // selects so the next keystroke (or Backspace +
+                 // type) opens the full picker again.
+                 onFocus={e => e.currentTarget.select()}
+                 onClick={e => e.currentTarget.select()}
                  style={{
                    minWidth: 240, fontSize: 13,
                    padding: '4px 8px',
