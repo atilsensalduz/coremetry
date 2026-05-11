@@ -45,6 +45,16 @@ export default function ServiceMapPage() {
   const [range, setRange] = useState<TimeRange>({ preset: '15m' });
   const [samples, setSamples] = useState(200);
   const [focus, setFocus] = useState<string>('');
+  // Picker input has its own state separate from focus so the
+  // user can type to filter the datalist without immediately
+  // re-focusing the graph on a partial match. Commit to focus
+  // happens on selection / blur — pre-v0.4.93 the input was
+  // bound directly to focus, which made every keystroke
+  // re-trigger the graph layout AND the datalist filtered to
+  // an exact match (browser dropdown then only showed that
+  // one option, blocking further selection).
+  const [pickerText, setPickerText] = useState<string>('');
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [hoverNode, setHoverNode] = useState<string | null>(null);
   const [diff, setDiff] = useState<string>('');
   const since = (PRESETS.find(p => p.key === range.preset)?.secs ?? 900) + 's';
@@ -135,18 +145,28 @@ export default function ServiceMapPage() {
               all just work. */}
           <label style={{ fontSize: 12, color: 'var(--text2)' }}>Focus</label>
           <input list="svc-map-services"
-                 placeholder="select a service…"
-                 value={focus}
-                 onChange={e => setFocus(e.target.value)}
-                 // Pre-v0.4.90 a focused service made the input
-                 // an exact-match against the datalist, which
-                 // browsers fold into "only this one option" —
-                 // operators reported they couldn't pick a
-                 // different service. onFocus clears + onClick
-                 // selects so the next keystroke (or Backspace +
-                 // type) opens the full picker again.
-                 onFocus={e => e.currentTarget.select()}
-                 onClick={e => e.currentTarget.select()}
+                 placeholder={focus || 'select a service…'}
+                 value={pickerOpen ? pickerText : focus}
+                 onChange={e => {
+                   setPickerText(e.target.value);
+                   // Commit immediately when the typed value
+                   // matches a service exactly — picking from
+                   // the datalist drops the typed string in
+                   // verbatim and the operator expects the
+                   // graph to re-focus right away.
+                   const match = data?.nodes.find(n => !n.kind && n.service === e.target.value);
+                   if (match) setFocus(match.service);
+                 }}
+                 onFocus={() => { setPickerText(''); setPickerOpen(true); }}
+                 onBlur={() => {
+                   setPickerOpen(false);
+                   // Empty value on blur = "no commit yet" — keep
+                   // the existing focus. Typed value that doesn't
+                   // match a service = also keep existing focus so
+                   // a partial entry doesn't wipe the view.
+                   const match = data?.nodes.find(n => !n.kind && n.service === pickerText);
+                   if (match) setFocus(match.service);
+                 }}
                  style={{
                    minWidth: 240, fontSize: 13,
                    padding: '4px 8px',
