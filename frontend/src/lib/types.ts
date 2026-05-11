@@ -51,6 +51,21 @@ export interface RetentionSpec {
   profiles?: string;
 }
 
+// RepeatedSpanRow — one row of the "N+1 / fan-out finder" view.
+// Each row is a (trace, group-by-values) pair where the same
+// span shape occurred Count times within the same trace.
+// Surfaces "I called the same SQL 50× in one request" or
+// "ServiceA → ServiceB happened 30× in one trace" patterns.
+export interface RepeatedSpanRow {
+  traceId: string;
+  service: string;
+  rootName: string;
+  groupValues: string[];
+  count: number;
+  totalDurationMs: number;
+  startedAt: number;
+}
+
 // DBInstance — one row of /databases (Dynatrace "Technologies →
 // Databases" equivalent). Distinct (db_system, instance) seen in
 // span traffic over the window, with RED-metrics + the top-5

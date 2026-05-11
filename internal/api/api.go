@@ -186,6 +186,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/metrics/labels", s.getMetricLabelValues)
 	mux.HandleFunc("GET /api/spans/metric", s.spanMetric)
 	mux.HandleFunc("GET /api/spans/facets", s.spanFacets)
+	mux.HandleFunc("GET /api/spans/repeats", s.spanRepeats)
 	mux.HandleFunc("GET /api/spans/exemplar", s.spanExemplar)
 	mux.HandleFunc("GET /api/spans/heatmap", s.spanHeatmap)
 	mux.HandleFunc("GET /api/spans/bubbleup", s.spanBubbleUp)
@@ -1597,6 +1598,37 @@ func (s *Server) spanFacets(w http.ResponseWriter, r *http.Request) {
 		from.UnixNano(), to.UnixNano(), topValues)
 	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
 		return s.store.GetSpanFacets(r.Context(), filters, from, to, topValues)
+	})
+}
+
+// spanRepeats — "find requests where the same span shape happened
+// N+ times" view. Powers the Explore "Repeats" result mode: the
+// operator picks a group-by (db.statement, name+peer.service,
+// http.route, …) plus a minimum repeat count, gets back a ranked
+// list of (trace_id, group-by-values, count). Classic N+1 query
+// detector + chatty-RPC finder.
+//
+// Cached 30s per param tuple; the underlying GROUP BY is partition-
+// pruned + bounded at LIMIT 200 inside the store.
+func (s *Server) spanRepeats(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	filters, err := parseFiltersAndDSL(q.Get("filters"), q.Get("dsl"))
+	if err != nil {
+		http.Error(w, "invalid query DSL: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	from, to := parseFromTo(r, time.Hour)
+	groupBy := splitNonEmpty(q.Get("groupBy"), ',')
+	minRepeats := parseInt(q.Get("minRepeats"), 5)
+	limit := parseInt(q.Get("limit"), 200)
+	key := fmt.Sprintf("repeats:%s:%s:%s:%d:%d:%d:%d",
+		q.Get("dsl"), q.Get("filters"), strings.Join(groupBy, ","),
+		minRepeats, limit, from.UnixNano(), to.UnixNano())
+	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
+		return s.store.QueryRepeatedSpans(r.Context(), chstore.RepeatedSpanFilter{
+			Filters: filters, GroupBy: groupBy, MinRepeats: minRepeats,
+			From: from, To: to, Limit: limit,
+		})
 	})
 }
 

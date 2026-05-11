@@ -19,7 +19,7 @@ import { timeRangeToNs, fmtNum, tsLong, rowClickHandlers } from '@/lib/utils';
 import { encodeRange, decodeRange, encodeFilters, decodeFilters, buildQuery } from '@/lib/urlState';
 import type { TimeRange, FilterExpr, SpanMetricSeries, SpanAgg, TraceRow, LatencyHeatmap as Heatmap } from '@/lib/types';
 
-type ResultMode = 'metric' | 'traces';
+type ResultMode = 'metric' | 'traces' | 'repeats';
 type TraceSortKey = 'traceId' | 'rootName' | 'serviceName' | 'duration' | 'spans' | 'time' | 'status';
 
 // Each column's natural starting direction when first selected: time
@@ -169,7 +169,19 @@ function ExploreInner() {
   // Result mode: aggregated metrics chart, OR raw matching trace list.
   // Same filter/DSL drives both — different backend endpoint per mode.
   const [resultMode, setResultMode] = useState<ResultMode>(
-    () => (searchParams.get('result') === 'traces' ? 'traces' : 'metric'));
+    () => {
+      const r = searchParams.get('result');
+      if (r === 'traces' || r === 'repeats') return r;
+      return 'metric';
+    });
+  // Repeat-finder state — minimum same-shape occurrences per
+  // trace before a row surfaces. Pre-v0.4.96 the only way to
+  // find N+1 patterns was per-trace eyeballing; default 5 is
+  // the "actually noisy" threshold (2-3× duplicates are common
+  // and not worth paging on).
+  const [repeatMin, setRepeatMin] = useState(
+    () => parseInt(searchParams.get('minRepeats') ?? '5', 10) || 5);
+  const [repeats, setRepeats] = useState<import('@/lib/types').RepeatedSpanRow[] | null | undefined>(undefined);
   const [traces, setTraces] = useState<TraceRow[] | null | undefined>(undefined);
   // Client-side sort for the traces result table — page-size is small
   // (default 50, max 500) so we don't need a server roundtrip per click.
@@ -382,7 +394,7 @@ function ExploreInner() {
           setCompareSeries(null);
         }
       }
-    } else {
+    } else if (resultMode === 'traces') {
       // Traces mode — same filters/DSL feed the trace search instead.
       setTraces(undefined);
       api.traces({
@@ -398,8 +410,27 @@ function ExploreInner() {
           const msg = String(err?.message ?? err);
           setQueryError(msg.includes('DSL') ? msg : null);
         });
+    } else {
+      // Repeats mode — find (trace_id, group-by) pairs where the
+      // same span shape occurred >= repeatMin times. Defaults to
+      // grouping by db.statement, the most common N+1 source;
+      // operator can flip to peer.service / name / http.route via
+      // the split-by chips.
+      setRepeats(undefined);
+      api.spanRepeats({
+        filters: filterArg, dsl: dslArg,
+        from, to,
+        groupBy: groupBy.length ? groupBy : ['db.statement'],
+        minRepeats: repeatMin,
+      })
+        .then(r => setRepeats(r ?? []))
+        .catch(err => {
+          setRepeats(null);
+          const msg = String(err?.message ?? err);
+          setQueryError(msg.includes('DSL') ? msg : null);
+        });
     }
-  }, [resultMode, viz, range, filters, dsl, mode, agg, field, groupBy, step, traceLimit, extraCols, compare]);
+  }, [resultMode, viz, range, filters, dsl, mode, agg, field, groupBy, step, traceLimit, extraCols, compare, repeatMin]);
 
   const aggMeta = AGG_OPTIONS.find(o => o.v === agg)!;
   const unit = aggMeta.unit ?? '';
@@ -616,7 +647,11 @@ function ExploreInner() {
           );
         })()}
 
-        {/* Result mode toggle: Metric chart ⇄ Trace list (same filters drive both) */}
+        {/* Result mode toggle: Metric chart / Trace list / Repeats
+            finder (all driven by the same filter + window).
+            Repeats mode answers "which traces have the same span
+            shape happening >= N times" — N+1 detector + chatty-
+            RPC finder. */}
         <div className="controls" style={{ marginBottom: 6 }}>
           <span style={{ color: 'var(--text2)', fontSize: 12 }}>Show:</span>
           <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
@@ -627,8 +662,14 @@ function ExploreInner() {
             </button>
             <button onClick={() => setResultMode('metric')}
               className={resultMode === 'metric' ? '' : 'sec'}
-              style={{ borderRadius: 0 }}>
+              style={{ borderRadius: 0, borderRight: '1px solid var(--border)' }}>
               ∿ Metric
+            </button>
+            <button onClick={() => setResultMode('repeats')}
+              className={resultMode === 'repeats' ? '' : 'sec'}
+              title="Find traces where the same span shape repeats N+ times (N+1 / chatty-RPC detector)"
+              style={{ borderRadius: 0 }}>
+              ⟳ Repeats
             </button>
           </div>
         </div>
@@ -703,6 +744,18 @@ function ExploreInner() {
             </select>
             <span style={{ color: 'var(--text2)', fontSize: 12, marginLeft: 'auto' }}>
               Sorted by start time desc
+            </span>
+          </div>
+        )}
+
+        {resultMode === 'repeats' && (
+          <div className="controls">
+            <span style={{ color: 'var(--text2)', fontSize: 12 }}>Min repeats:</span>
+            <select value={repeatMin} onChange={e => setRepeatMin(Number(e.target.value))}>
+              {[2, 5, 10, 20, 50, 100].map(n => <option key={n} value={n}>≥ {n}</option>)}
+            </select>
+            <span style={{ color: 'var(--text2)', fontSize: 11, marginLeft: 'auto' }}>
+              Split-by below picks the "same shape" key (e.g. db.statement for SQL N+1, peer.service for chatty RPC)
             </span>
           </div>
         )}
@@ -1050,6 +1103,73 @@ name ~ checkout`}
                         );
                       })}
                       <td />
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+
+        {/* ── Repeats mode: N+1 / fan-out finder ──────────────── */}
+        {resultMode === 'repeats' && repeats === undefined && <Spinner />}
+        {resultMode === 'repeats' && repeats && repeats.length === 0 && (
+          <Empty icon="⟳" title="No repeated span shapes found">
+            No trace has the same (group-by) shape repeating ≥ {repeatMin} times in this window.
+            Try lowering the threshold or switching the split-by (e.g. <code>name</code> + <code>peer.service</code> for chatty RPC, <code>http.route</code> for endpoint fan-out).
+          </Empty>
+        )}
+        {resultMode === 'repeats' && repeats && repeats.length > 0 && (
+          <>
+            <div style={{ marginBottom: 6, fontSize: 12, color: 'var(--text2)' }}>
+              {repeats.length} trace{repeats.length === 1 ? '' : 's'} with ≥ {repeatMin} repeats of the same span shape — heaviest at the top.
+            </div>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Trace</th>
+                    <th>Service · root</th>
+                    <th>Repeated shape ({groupBy.length ? groupBy.join(' + ') : 'db.statement'})</th>
+                    <th className="num">Repeats</th>
+                    <th className="num">Total time</th>
+                    <th>Started</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {repeats.map((r, i) => (
+                    <tr key={`${r.traceId}|${i}`}
+                        onClick={() => navigate(`/trace?id=${r.traceId}`)}
+                        style={{ cursor: 'pointer' }}>
+                      <td>
+                        <Link to={`/trace?id=${r.traceId}`}
+                              onClick={e => e.stopPropagation()}
+                              style={{ fontFamily: 'monospace', fontSize: 11 }}>
+                          {r.traceId.slice(0, 12)}…
+                        </Link>
+                      </td>
+                      <td style={{ fontSize: 12 }}>
+                        <span style={{ fontWeight: 600 }}>{r.service || '—'}</span>
+                        {r.rootName && (
+                          <span style={{ color: 'var(--text3)' }}> · {r.rootName}</span>
+                        )}
+                      </td>
+                      <td style={{
+                        fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+                        fontSize: 11, color: 'var(--text2)',
+                        maxWidth: 520, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      }} title={(r.groupValues ?? []).join(' · ')}>
+                        {(r.groupValues ?? []).filter(Boolean).join(' · ') ||
+                          <span style={{ color: 'var(--text3)' }}>(empty)</span>}
+                      </td>
+                      <td className="num mono" style={{ fontWeight: 700,
+                        color: r.count >= 50 ? 'var(--err)' : r.count >= 20 ? 'var(--warn)' : 'var(--text)' }}>
+                        {fmtNum(r.count)}
+                      </td>
+                      <td className="num mono">{r.totalDurationMs.toFixed(1)}ms</td>
+                      <td className="mono" style={{ fontSize: 11, color: 'var(--text3)' }}>
+                        {tsLong(r.startedAt)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

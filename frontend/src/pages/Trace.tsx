@@ -205,11 +205,24 @@ function TraceDetailInner() {
                     Critical path · {fmtNs(criticalPath.totalNs)}
                   </label>
                 )}
+                {/* Compare button — bumped to primary-accent in
+                    v0.4.96 because the secondary-style version
+                    blended into the action chip row and
+                    operators kept asking "how do I diff two
+                    traces". Same destination, just visually
+                    promoted. */}
                 <Link to={`/trace/compare?a=${encodeURIComponent(id)}`}
-                      className="sec"
-                      title="Compare this trace with another (side-by-side)"
-                      style={{ fontSize: 12, padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 6 }}>
-                  Compare ↔
+                      title="Compare this trace side-by-side with another (operation-level diff)"
+                      style={{
+                        fontSize: 12, padding: '4px 12px',
+                        display: 'inline-flex', alignItems: 'center', gap: 6,
+                        textDecoration: 'none', fontWeight: 600,
+                        background: 'rgba(56,139,253,0.15)',
+                        color: 'var(--accent2)',
+                        border: '1px solid rgba(56,139,253,0.45)',
+                        borderRadius: 6,
+                      }}>
+                  ↔ Compare trace
                 </Link>
                 <SharePopover traceId={id} />
                 <button className="sec"
