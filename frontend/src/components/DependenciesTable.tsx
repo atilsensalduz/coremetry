@@ -1,9 +1,20 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Empty, Spinner } from './Spinner';
+import { MultiLineChart } from './MultiLineChart';
 import { api } from '@/lib/api';
 import { fmtNum, timeRangeToNs } from '@/lib/utils';
-import type { TimeRange, DBDetail, MessagingDetail, OracleMetrics } from '@/lib/types';
+import type { TimeRange, DBDetail, MessagingDetail, OracleMetrics, SpanMetricSeries } from '@/lib/types';
+
+// OracleDrill — what the user clicked on. Carries enough state
+// to build a metricQuery against /api/metrics/query and label
+// the drill-down modal.
+type OracleDrill = {
+  metric: string;                    // e.g. 'oracledb.sessions.usage'
+  label: string;                     // human-readable for the modal title
+  unit?: string;                     // ms / % / bytes — feeds the chart's fmtSmart
+  filters?: { key: string; op: '='; value: string }[]; // tablespace_name=SYSTEM etc.
+};
 
 // Row is the shape both /databases and /messaging hand to this
 // component. We type-erase the row-specific labelling (Instance
@@ -613,26 +624,64 @@ function RoleBadge({ role }: { role: string }) {
   );
 }
 
-function Stat({ label, value, tone }: {
+function Stat({ label, value, tone, onClick }: {
   label: string; value: string; tone?: 'ok' | 'warn' | 'err';
+  onClick?: () => void;
 }) {
   const color = tone === 'err' ? 'var(--err)'
               : tone === 'warn' ? 'var(--warn)'
               : tone === 'ok'  ? 'var(--ok)'
               : 'var(--text)';
+  // When clickable we render the tile as a button so the
+  // operator gets keyboard + screen-reader treatment for free,
+  // a subtle hover state, and an arrow affordance in the
+  // corner to telegraph the drill-down.
+  const inner = (
+    <>
+      <div style={{
+        fontSize: 9, color: 'var(--text3)',
+        textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600,
+        display: 'flex', alignItems: 'center', gap: 4,
+      }}>
+        {label}
+        {onClick && (
+          <span aria-hidden style={{ marginLeft: 'auto', opacity: 0.5 }}>↗</span>
+        )}
+      </div>
+      <div style={{ fontSize: 16, fontWeight: 700, color,
+                     fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>
+        {value}
+      </div>
+    </>
+  );
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick}
+        title="Open metric chart"
+        style={{
+          all: 'unset', display: 'block', cursor: 'pointer',
+          padding: '8px 10px', borderRadius: 4,
+          background: 'var(--bg2)', border: '1px solid var(--border)',
+          transition: 'border-color 0.12s, background 0.12s',
+        }}
+        onMouseEnter={e => {
+          e.currentTarget.style.borderColor = 'var(--accent2)';
+          e.currentTarget.style.background = 'var(--bg3)';
+        }}
+        onMouseLeave={e => {
+          e.currentTarget.style.borderColor = 'var(--border)';
+          e.currentTarget.style.background = 'var(--bg2)';
+        }}>
+        {inner}
+      </button>
+    );
+  }
   return (
     <div style={{
       padding: '8px 10px', borderRadius: 4,
       background: 'var(--bg2)', border: '1px solid var(--border)',
     }}>
-      <div style={{
-        fontSize: 9, color: 'var(--text3)',
-        textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600,
-      }}>{label}</div>
-      <div style={{ fontSize: 16, fontWeight: 700, color,
-                     fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>
-        {value}
-      </div>
+      {inner}
     </div>
   );
 }
@@ -684,6 +733,11 @@ function SystemBadge({ system, kind }: { system: string; kind: 'db' | 'queue' })
 // isn't actually online yet.
 function OraclePanel({ instance, range }: { instance: string; range: TimeRange }) {
   const [data, setData] = useState<OracleMetrics | null | undefined>(undefined);
+  // Drill-down modal state. null when closed; an OracleDrill when
+  // the operator clicked a tile / wait class / tablespace row.
+  // The modal queries /api/metrics/query for the metric over the
+  // same window the panel is showing.
+  const [drill, setDrill] = useState<OracleDrill | null>(null);
   useEffect(() => {
     setData(undefined);
     const { from, to } = timeRangeToNs(range);
@@ -691,6 +745,9 @@ function OraclePanel({ instance, range }: { instance: string; range: TimeRange }
       .then(r => setData(r ?? null))
       .catch(() => setData(null));
   }, [instance, range]);
+
+  const tsFilters = (name: string) =>
+    [{ key: 'tablespace_name' as const, op: '=' as const, value: name }];
 
   return (
     <div style={{
@@ -716,15 +773,6 @@ function OraclePanel({ instance, range }: { instance: string; range: TimeRange }
                   textTransform: 'uppercase', letterSpacing: '.5px',
                 }}>{data.status}</span>
         )}
-        {data && data.synthetic && (
-          <span title="No oracledb.* metric_points found for this window — values shown are deterministic synthetic placeholders. Wire the OpenTelemetry oracledb receiver to populate."
-                style={{
-                  fontSize: 9, padding: '1px 6px', borderRadius: 3,
-                  background: 'rgba(245,179,67,0.15)', color: 'var(--warn)',
-                  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
-                  textTransform: 'uppercase', letterSpacing: '.5px',
-                }}>demo data</span>
-        )}
         <span style={{
           marginLeft: 'auto', fontSize: 10, color: 'var(--text3)',
           fontWeight: 400, fontFamily: 'ui-monospace, SFMono-Regular, monospace',
@@ -747,30 +795,49 @@ function OraclePanel({ instance, range }: { instance: string; range: TimeRange }
               usage={data.sessions.usage} limit={data.sessions.limit}
               sub={data.sessions.active > 0 || data.sessions.inactive > 0
                 ? `${fmtNum(data.sessions.active)} active · ${fmtNum(data.sessions.inactive)} idle`
-                : undefined} />
+                : undefined}
+              onClick={() => setDrill({ metric: 'oracledb.sessions.usage', label: 'Sessions' })} />
             <GaugeStat label="Processes"
-              usage={data.processes.usage} limit={data.processes.limit} />
-            <Stat label="Logical reads/s"  value={fmtNum(data.logicalReadsPerSec)} />
+              usage={data.processes.usage} limit={data.processes.limit}
+              onClick={() => setDrill({ metric: 'oracledb.processes.usage', label: 'Processes' })} />
+            <Stat label="Logical reads/s"  value={fmtNum(data.logicalReadsPerSec)}
+              onClick={() => setDrill({ metric: 'oracledb.logical_reads', label: 'Logical reads', unit: '/s' })} />
             <Stat label="Physical reads/s" value={fmtNum(data.physicalReadsPerSec)}
-                  tone={data.physicalReadsPerSec > data.logicalReadsPerSec * 0.05 ? 'warn' : undefined} />
+                  tone={data.physicalReadsPerSec > data.logicalReadsPerSec * 0.05 ? 'warn' : undefined}
+                  onClick={() => setDrill({ metric: 'oracledb.physical_reads', label: 'Physical reads', unit: '/s' })} />
             <Stat label="Cache hit"        value={`${data.cacheHitPct.toFixed(1)}%`}
-                  tone={data.cacheHitPct < 95 ? 'warn' : 'ok'} />
+                  tone={data.cacheHitPct < 95 ? 'warn' : 'ok'}
+                  onClick={() => setDrill({ metric: 'oracledb.physical_reads', label: 'Physical vs logical reads (cache hit)', unit: '/s' })} />
             <Stat label="Row-lock waits/s" value={data.rowLockWaitsPerSec.toFixed(2)}
                   tone={data.rowLockWaitsPerSec > 1 ? 'err'
-                       : data.rowLockWaitsPerSec > 0.2 ? 'warn' : 'ok'} />
-            <Stat label="Executions/s"     value={fmtNum(data.executionsPerSec)} />
-            <Stat label="Commits/s"        value={fmtNum(data.userCommitsPerSec)} />
+                       : data.rowLockWaitsPerSec > 0.2 ? 'warn' : 'ok'}
+                  onClick={() => setDrill({ metric: 'oracledb.row_lock_waits', label: 'Row-lock waits', unit: '/s' })} />
+            <Stat label="Executions/s"     value={fmtNum(data.executionsPerSec)}
+                  onClick={() => setDrill({ metric: 'oracledb.executions', label: 'Executions', unit: '/s' })} />
+            <Stat label="Commits/s"        value={fmtNum(data.userCommitsPerSec)}
+                  onClick={() => setDrill({ metric: 'oracledb.user_commits', label: 'User commits', unit: '/s' })} />
             <Stat label="Rollbacks/s"      value={fmtNum(data.userRollbacksPerSec)}
-                  tone={data.userRollbacksPerSec > data.userCommitsPerSec * 0.05 ? 'warn' : undefined} />
-            <Stat label="Hard parses/s"    value={fmtNum(data.hardParsesPerSec)} />
-            <Stat label="Parse calls/s"    value={fmtNum(data.parseCallsPerSec)} />
-            <Stat label="CPU time"         value={`${data.cpuTimeSec.toFixed(0)}s`} />
-            <Stat label="SGA"              value={fmtBytes(data.sgaMemoryBytes)} />
-            <Stat label="PGA memory"       value={fmtBytes(data.pgaMemoryBytes)} />
+                  tone={data.userRollbacksPerSec > data.userCommitsPerSec * 0.05 ? 'warn' : undefined}
+                  onClick={() => setDrill({ metric: 'oracledb.user_rollbacks', label: 'User rollbacks', unit: '/s' })} />
+            <Stat label="Hard parses/s"    value={fmtNum(data.hardParsesPerSec)}
+                  onClick={() => setDrill({ metric: 'oracledb.hard_parses', label: 'Hard parses', unit: '/s' })} />
+            <Stat label="Parse calls/s"    value={fmtNum(data.parseCallsPerSec)}
+                  onClick={() => setDrill({ metric: 'oracledb.parse_calls', label: 'Parse calls', unit: '/s' })} />
+            <Stat label="CPU time"         value={`${data.cpuTimeSec.toFixed(0)}s`}
+                  onClick={() => setDrill({ metric: 'oracledb.cpu_time', label: 'CPU time', unit: 's' })} />
+            <Stat label="SGA"              value={fmtBytes(data.sgaMemoryBytes)}
+                  onClick={() => setDrill({ metric: 'oracledb.sga_max_size', label: 'SGA size', unit: 'B' })} />
+            <Stat label="PGA memory"       value={fmtBytes(data.pgaMemoryBytes)}
+                  onClick={() => setDrill({ metric: 'oracledb.pga_memory', label: 'PGA memory', unit: 'B' })} />
           </div>
 
           {data.waitClasses.length > 0 && (
-            <WaitClassesBar waits={data.waitClasses} />
+            <WaitClassesBar waits={data.waitClasses}
+              onClickClass={cls => setDrill({
+                metric: `oracledb.wait_time.${cls}`,
+                label: `Wait time · ${cls}`,
+                unit: 's',
+              })} />
           )}
 
           {data.topSQL.length > 0 && (
@@ -789,33 +856,130 @@ function OraclePanel({ instance, range }: { instance: string; range: TimeRange }
                 {[...data.tablespaces]
                   .sort((a, b) => b.usedPct - a.usedPct)
                   .map(t => (
-                    <TablespaceBar key={t.name} ts={t} />
+                    <TablespaceBar key={t.name} ts={t}
+                      onClick={() => setDrill({
+                        metric: 'oracledb.tablespace_size.usage',
+                        label: `Tablespace · ${t.name}`,
+                        unit: 'B',
+                        filters: tsFilters(t.name),
+                      })} />
                   ))}
               </div>
             </div>
           )}
         </>
       )}
+
+      {drill && (
+        <OracleMetricDrillModal
+          drill={drill}
+          range={range}
+          onClose={() => setDrill(null)} />
+      )}
     </div>
   );
 }
 
-function GaugeStat({ label, usage, limit, sub }: {
+// OracleMetricDrillModal renders a time-series chart for one
+// metric over the panel's current window. Same MultiLineChart
+// the services / dashboards use, so an operator who already
+// reads our other charts gets identical mechanics (hover
+// crosshair, axis formatting, legend). Filters ride through
+// to /api/metrics/query so a tablespace row chart only shows
+// that tablespace's usage, not every tablespace's blended.
+function OracleMetricDrillModal({ drill, range, onClose }: {
+  drill: OracleDrill;
+  range: TimeRange;
+  onClose: () => void;
+}) {
+  const [series, setSeries] = useState<SpanMetricSeries[] | null | undefined>(undefined);
+  useEffect(() => {
+    setSeries(undefined);
+    const { from, to } = timeRangeToNs(range);
+    const filterArg = drill.filters && drill.filters.length > 0
+      ? JSON.stringify(drill.filters)
+      : undefined;
+    api.metricQuery({
+      name: drill.metric,
+      filters: filterArg,
+      agg: 'avg',
+      from, to,
+    })
+      .then(r => setSeries(r ?? []))
+      .catch(() => setSeries(null));
+  }, [drill, range]);
+
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
+      display: 'grid', placeItems: 'center', zIndex: 200,
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width: 880, maxWidth: '94vw', maxHeight: '88vh', overflow: 'auto',
+        padding: 20, borderRadius: 8,
+        background: 'var(--bg2)', border: '1px solid var(--border)',
+      }}>
+        <div style={{
+          display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 14,
+        }}>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>{drill.label}</div>
+          <code style={{
+            fontSize: 11, color: 'var(--text3)',
+            fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+          }}>{drill.metric}</code>
+          {drill.filters && drill.filters.length > 0 && (
+            <span style={{ fontSize: 10, color: 'var(--text3)' }}>
+              {drill.filters.map(f => `${f.key} ${f.op} "${f.value}"`).join(' · ')}
+            </span>
+          )}
+          <span style={{ marginLeft: 'auto' }}>
+            <Link to={`/explore?metric=${encodeURIComponent(drill.metric)}&result=metric`}
+                  style={{ fontSize: 11, marginRight: 12 }}>
+              Open in Explore →
+            </Link>
+            <button className="sec" onClick={onClose} style={{ fontSize: 12 }}>Close</button>
+          </span>
+        </div>
+        {series === undefined && <Spinner />}
+        {series === null && (
+          <div style={{ fontSize: 12, color: 'var(--err)' }}>
+            Failed to load metric series.
+          </div>
+        )}
+        {series && series.length === 0 && (
+          <Empty icon="◯" title="No data points">
+            No metric_points found for <code>{drill.metric}</code> in this window.
+            Wire the OracleDB receiver against this instance to populate.
+          </Empty>
+        )}
+        {series && series.length > 0 && (
+          <MultiLineChart series={series} unit={drill.unit} height={360} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function GaugeStat({ label, usage, limit, sub, onClick }: {
   label: string; usage: number; limit: number; sub?: string;
+  onClick?: () => void;
 }) {
   const pct = limit > 0 ? (usage / limit) * 100 : 0;
   const tone: 'ok' | 'warn' | 'err' =
     pct >= 90 ? 'err' : pct >= 75 ? 'warn' : 'ok';
   const fill = tone === 'err' ? 'var(--err)' : tone === 'warn' ? 'var(--warn)' : 'var(--ok)';
-  return (
-    <div style={{
-      padding: '8px 10px', borderRadius: 4,
-      background: 'var(--bg2)', border: '1px solid var(--border)',
-    }}>
+  const inner = (
+    <>
       <div style={{
         fontSize: 9, color: 'var(--text3)',
         textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600,
-      }}>{label}</div>
+        display: 'flex', alignItems: 'center',
+      }}>
+        {label}
+        {onClick && (
+          <span aria-hidden style={{ marginLeft: 'auto', opacity: 0.5 }}>↗</span>
+        )}
+      </div>
       <div style={{
         fontSize: 14, fontWeight: 700,
         fontFamily: 'ui-monospace, SFMono-Regular, monospace',
@@ -837,6 +1001,36 @@ function GaugeStat({ label, usage, limit, sub }: {
           fontFamily: 'ui-monospace, SFMono-Regular, monospace',
         }}>{sub}</div>
       )}
+    </>
+  );
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick}
+        title="Open metric chart"
+        style={{
+          all: 'unset', display: 'block', cursor: 'pointer',
+          padding: '8px 10px', borderRadius: 4,
+          background: 'var(--bg2)', border: '1px solid var(--border)',
+          transition: 'border-color 0.12s, background 0.12s',
+        }}
+        onMouseEnter={e => {
+          e.currentTarget.style.borderColor = 'var(--accent2)';
+          e.currentTarget.style.background = 'var(--bg3)';
+        }}
+        onMouseLeave={e => {
+          e.currentTarget.style.borderColor = 'var(--border)';
+          e.currentTarget.style.background = 'var(--bg2)';
+        }}>
+        {inner}
+      </button>
+    );
+  }
+  return (
+    <div style={{
+      padding: '8px 10px', borderRadius: 4,
+      background: 'var(--bg2)', border: '1px solid var(--border)',
+    }}>
+      {inner}
     </div>
   );
 }
@@ -847,7 +1041,10 @@ function GaugeStat({ label, usage, limit, sub }: {
 // in Oracle's reference Grafana dashboard. Sum of perSec
 // across classes is the total wait pressure: a 1.0 result
 // means one concurrent client fully blocked on the DB.
-function WaitClassesBar({ waits }: { waits: { name: string; perSec: number }[] }) {
+function WaitClassesBar({ waits, onClickClass }: {
+  waits: { name: string; perSec: number }[];
+  onClickClass?: (cls: string) => void;
+}) {
   const total = waits.reduce((a, w) => a + w.perSec, 0);
   // Stable, semantic colour-per-class. user_io is the heaviest
   // typical class so we give it the most-visible blue; commit
@@ -890,12 +1087,14 @@ function WaitClassesBar({ waits }: { waits: { name: string; perSec: number }[] }
         {waits.map(w => {
           const pct = (w.perSec / total) * 100;
           if (pct < 0.5) return null; // suppress sub-pixel slivers
+          const handleClick = onClickClass ? () => onClickClass(w.name) : undefined;
           return (
             <div key={w.name}
-              title={`${w.name}: ${w.perSec.toFixed(3)} s/s (${pct.toFixed(1)}%)`}
+              onClick={handleClick}
+              title={`${w.name}: ${w.perSec.toFixed(3)} s/s (${pct.toFixed(1)}%)${handleClick ? ' · click to chart' : ''}`}
               style={{
                 width: `${pct}%`, background: colorOf(w.name),
-                cursor: 'help',
+                cursor: handleClick ? 'pointer' : 'help',
               }} />
           );
         })}
@@ -906,23 +1105,44 @@ function WaitClassesBar({ waits }: { waits: { name: string; perSec: number }[] }
         {waits
           .filter(w => w.perSec > 0)
           .slice(0, 8)
-          .map(w => (
-            <span key={w.name} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 4,
-              color: 'var(--text2)',
-            }}>
-              <span style={{
-                width: 8, height: 8, borderRadius: 2,
-                background: colorOf(w.name),
-              }} />
-              <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>
-                {w.name}
+          .map(w => {
+            const handleClick = onClickClass ? () => onClickClass(w.name) : undefined;
+            const labelInner = (
+              <>
+                <span style={{
+                  width: 8, height: 8, borderRadius: 2,
+                  background: colorOf(w.name),
+                }} />
+                <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>
+                  {w.name}
+                </span>
+                <span style={{ color: 'var(--text3)' }}>
+                  {w.perSec.toFixed(2)}
+                </span>
+              </>
+            );
+            if (handleClick) {
+              return (
+                <button key={w.name} type="button" onClick={handleClick}
+                  title={`Chart wait time · ${w.name}`}
+                  style={{
+                    all: 'unset', cursor: 'pointer',
+                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                    color: 'var(--text2)',
+                  }}>
+                  {labelInner}
+                </button>
+              );
+            }
+            return (
+              <span key={w.name} style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+                color: 'var(--text2)',
+              }}>
+                {labelInner}
               </span>
-              <span style={{ color: 'var(--text3)' }}>
-                {w.perSec.toFixed(2)}
-              </span>
-            </span>
-          ))}
+            );
+          })}
       </div>
     </div>
   );
@@ -974,15 +1194,16 @@ function TopSQLTable({ rows }: { rows: { sql: string; elapsedSec: number; execut
   );
 }
 
-function TablespaceBar({ ts }: {
+function TablespaceBar({ ts, onClick }: {
   ts: { name: string; usedBytes: number; maxBytes: number; usedPct: number };
+  onClick?: () => void;
 }) {
   const tone: 'ok' | 'warn' | 'err' =
     ts.usedPct >= 90 ? 'err' : ts.usedPct >= 75 ? 'warn' : 'ok';
   const fill = tone === 'err' ? 'var(--err)' : tone === 'warn' ? 'var(--warn)' : 'var(--ok)';
-  return (
+  const inner = (
     <div style={{
-      display: 'grid', gridTemplateColumns: '120px 1fr 90px 60px', gap: 10,
+      display: 'grid', gridTemplateColumns: '120px 1fr 90px 60px 18px', gap: 10,
       alignItems: 'center', fontSize: 11,
       fontFamily: 'ui-monospace, SFMono-Regular, monospace',
     }}>
@@ -1001,8 +1222,28 @@ function TablespaceBar({ ts }: {
         color: tone === 'ok' ? 'var(--text2)' : fill,
         textAlign: 'right', fontWeight: 600,
       }}>{ts.usedPct.toFixed(1)}%</span>
+      <span aria-hidden style={{
+        color: 'var(--text3)', textAlign: 'right',
+        opacity: onClick ? 0.7 : 0,
+      }}>↗</span>
     </div>
   );
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick}
+        title={`Open ${ts.name} usage chart`}
+        style={{
+          all: 'unset', display: 'block', cursor: 'pointer',
+          padding: '3px 6px', borderRadius: 3,
+          transition: 'background 0.12s',
+        }}
+        onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg3)')}
+        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+        {inner}
+      </button>
+    );
+  }
+  return inner;
 }
 
 function fmtBytes(v: number): string {
