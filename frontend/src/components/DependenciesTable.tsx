@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Empty, Spinner } from './Spinner';
 import { api } from '@/lib/api';
 import { fmtNum, timeRangeToNs } from '@/lib/utils';
-import type { TimeRange, DBDetail, MessagingDetail } from '@/lib/types';
+import type { TimeRange, DBDetail, MessagingDetail, OracleMetrics } from '@/lib/types';
 
 // Row is the shape both /databases and /messaging hand to this
 // component. We type-erase the row-specific labelling (Instance
@@ -365,6 +365,16 @@ function DetailDrawer({ system, cluster, name, kind, range }: {
         <Stat label="P99"       value={`${data.p99DurationMs.toFixed(1)} ms`} />
       </div>
 
+      {/* Oracle-specific drill-down — only renders when the system
+          is oracle. Reads the oracledb-receiver-flavoured metrics
+          panel (sessions / processes / counters / tablespaces).
+          The backend serves synthetic numbers with synthetic=true
+          when no receiver data exists in the window so the panel
+          still renders during integration setup. */}
+      {kind === 'db' && system.toLowerCase() === 'oracle' && (
+        <OraclePanel instance={name} range={range} />
+      )}
+
       {/* Per-(service, pod) breakdown — the SRE's "which client
           is shouting at this DB / queue" answer. Sorted by impact
           (spanCount × avgMs) so the heaviest cumulative consumer
@@ -664,4 +674,174 @@ function SystemBadge({ system, kind }: { system: string; kind: 'db' | 'queue' })
       {system}
     </span>
   );
+}
+
+// OraclePanel renders the OracleDB-receiver drill-down. Fetches
+// `/api/databases/oracle?instance=…` and shows a KPI grid +
+// tablespace usage bars. When the backend has no real
+// oracledb.* points it returns synthetic=true and a "demo data"
+// chip is rendered so the operator knows the integration
+// isn't actually online yet.
+function OraclePanel({ instance, range }: { instance: string; range: TimeRange }) {
+  const [data, setData] = useState<OracleMetrics | null | undefined>(undefined);
+  useEffect(() => {
+    setData(undefined);
+    const { from, to } = timeRangeToNs(range);
+    api.oracleMetrics(instance, from, to)
+      .then(r => setData(r ?? null))
+      .catch(() => setData(null));
+  }, [instance, range]);
+
+  return (
+    <div style={{
+      marginTop: 6, marginBottom: 14, padding: 12, borderRadius: 6,
+      background: 'rgba(216,72,57,0.05)',
+      border: '1px solid rgba(216,72,57,0.25)',
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10,
+        fontSize: 12, fontWeight: 700, color: '#d84839',
+      }}>
+        <span style={{ fontSize: 13 }}>⛁</span>
+        OracleDB receiver
+        {data && data.synthetic && (
+          <span title="No oracledb.* metric_points found for this window — values shown are deterministic synthetic placeholders. Wire the OpenTelemetry oracledb receiver to populate."
+                style={{
+                  fontSize: 9, padding: '1px 6px', borderRadius: 3,
+                  background: 'rgba(245,179,67,0.15)', color: 'var(--warn)',
+                  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+                  textTransform: 'uppercase', letterSpacing: '.5px',
+                }}>demo data</span>
+        )}
+        <span style={{
+          marginLeft: 'auto', fontSize: 10, color: 'var(--text3)',
+          fontWeight: 400, fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+        }}>
+          instance: {instance || '(unknown)'}
+        </span>
+      </div>
+
+      {data === undefined && <Spinner />}
+      {data === null && (
+        <div style={{ fontSize: 12, color: 'var(--err)' }}>Oracle metrics query failed.</div>
+      )}
+      {data && (
+        <>
+          <div style={{
+            display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+            gap: 8, marginBottom: 12,
+          }}>
+            <GaugeStat label="Sessions"
+              usage={data.sessions.usage} limit={data.sessions.limit} />
+            <GaugeStat label="Processes"
+              usage={data.processes.usage} limit={data.processes.limit} />
+            <Stat label="Logical reads/s"  value={fmtNum(data.logicalReadsPerSec)} />
+            <Stat label="Physical reads/s" value={fmtNum(data.physicalReadsPerSec)}
+                  tone={data.physicalReadsPerSec > data.logicalReadsPerSec * 0.05 ? 'warn' : undefined} />
+            <Stat label="Cache hit"        value={`${data.cacheHitPct.toFixed(1)}%`}
+                  tone={data.cacheHitPct < 95 ? 'warn' : 'ok'} />
+            <Stat label="Executions/s"     value={fmtNum(data.executionsPerSec)} />
+            <Stat label="Commits/s"        value={fmtNum(data.userCommitsPerSec)} />
+            <Stat label="Rollbacks/s"      value={fmtNum(data.userRollbacksPerSec)}
+                  tone={data.userRollbacksPerSec > data.userCommitsPerSec * 0.05 ? 'warn' : undefined} />
+            <Stat label="Hard parses/s"    value={fmtNum(data.hardParsesPerSec)} />
+            <Stat label="Parse calls/s"    value={fmtNum(data.parseCallsPerSec)} />
+            <Stat label="CPU time"         value={`${data.cpuTimeSec.toFixed(0)}s`} />
+            <Stat label="PGA memory"       value={fmtBytes(data.pgaMemoryBytes)} />
+          </div>
+
+          {data.tablespaces.length > 0 && (
+            <div>
+              <div style={{
+                fontSize: 11, fontWeight: 700, marginBottom: 6, color: 'var(--text2)',
+                textTransform: 'uppercase', letterSpacing: 0.4,
+              }}>
+                Tablespaces ({data.tablespaces.length})
+              </div>
+              <div style={{ display: 'grid', gap: 4 }}>
+                {[...data.tablespaces]
+                  .sort((a, b) => b.usedPct - a.usedPct)
+                  .map(t => (
+                    <TablespaceBar key={t.name} ts={t} />
+                  ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function GaugeStat({ label, usage, limit }: { label: string; usage: number; limit: number }) {
+  const pct = limit > 0 ? (usage / limit) * 100 : 0;
+  const tone: 'ok' | 'warn' | 'err' =
+    pct >= 90 ? 'err' : pct >= 75 ? 'warn' : 'ok';
+  const fill = tone === 'err' ? 'var(--err)' : tone === 'warn' ? 'var(--warn)' : 'var(--ok)';
+  return (
+    <div style={{
+      padding: '8px 10px', borderRadius: 4,
+      background: 'var(--bg2)', border: '1px solid var(--border)',
+    }}>
+      <div style={{
+        fontSize: 9, color: 'var(--text3)',
+        textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600,
+      }}>{label}</div>
+      <div style={{
+        fontSize: 14, fontWeight: 700,
+        fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+        marginBottom: 4,
+      }}>
+        {fmtNum(usage)} <span style={{ color: 'var(--text3)', fontWeight: 400 }}>/ {fmtNum(limit)}</span>
+      </div>
+      <div style={{
+        height: 4, background: 'var(--bg3)', borderRadius: 2, overflow: 'hidden',
+      }}>
+        <div style={{
+          width: `${Math.min(100, pct)}%`, height: '100%', background: fill,
+          transition: 'width 0.2s',
+        }} />
+      </div>
+    </div>
+  );
+}
+
+function TablespaceBar({ ts }: {
+  ts: { name: string; usedBytes: number; maxBytes: number; usedPct: number };
+}) {
+  const tone: 'ok' | 'warn' | 'err' =
+    ts.usedPct >= 90 ? 'err' : ts.usedPct >= 75 ? 'warn' : 'ok';
+  const fill = tone === 'err' ? 'var(--err)' : tone === 'warn' ? 'var(--warn)' : 'var(--ok)';
+  return (
+    <div style={{
+      display: 'grid', gridTemplateColumns: '120px 1fr 90px 60px', gap: 10,
+      alignItems: 'center', fontSize: 11,
+      fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+    }}>
+      <span style={{ color: 'var(--text)', fontWeight: 600 }}>{ts.name}</span>
+      <div style={{
+        height: 6, background: 'var(--bg3)', borderRadius: 3, overflow: 'hidden',
+      }}>
+        <div style={{
+          width: `${Math.min(100, ts.usedPct)}%`, height: '100%', background: fill,
+        }} />
+      </div>
+      <span style={{ color: 'var(--text2)', textAlign: 'right' }}>
+        {fmtBytes(ts.usedBytes)} / {fmtBytes(ts.maxBytes)}
+      </span>
+      <span style={{
+        color: tone === 'ok' ? 'var(--text2)' : fill,
+        textAlign: 'right', fontWeight: 600,
+      }}>{ts.usedPct.toFixed(1)}%</span>
+    </div>
+  );
+}
+
+function fmtBytes(v: number): string {
+  if (!isFinite(v) || v <= 0) return '0 B';
+  if (v >= 1e12) return (v / 1e12).toFixed(2) + ' TB';
+  if (v >= 1e9)  return (v / 1e9).toFixed(2)  + ' GB';
+  if (v >= 1e6)  return (v / 1e6).toFixed(1)  + ' MB';
+  if (v >= 1e3)  return (v / 1e3).toFixed(1)  + ' kB';
+  return v.toFixed(0) + ' B';
 }

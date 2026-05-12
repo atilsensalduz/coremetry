@@ -325,6 +325,13 @@ export const api = {
   messagingDetail: (system: string, cluster: string, destination: string, fromNs: number, toNs: number) =>
     get<import('./types').MessagingDetail | null>(
       `/api/messaging/detail?system=${encodeURIComponent(system)}&cluster=${encodeURIComponent(cluster)}&destination=${encodeURIComponent(destination)}&from=${fromNs}&to=${toNs}`),
+  // Oracle DB receiver drill-down — sessions, processes, cumulative
+  // counter rates, tablespace usage. Backend falls back to
+  // deterministic synthetic data when the oracledb receiver
+  // isn't wired (Synthetic=true in the payload).
+  oracleMetrics: (instance: string, fromNs: number, toNs: number) =>
+    get<import('./types').OracleMetrics | null>(
+      `/api/databases/oracle?instance=${encodeURIComponent(instance)}&from=${fromNs}&to=${toNs}`),
   spanBreakdown: (service: string, fromNs: number, toNs: number) =>
     get<import('./types').BreakdownPoint[] | null>(
       `/api/services/${encodeURIComponent(service)}/span-breakdown?from=${fromNs}&to=${toNs}`),

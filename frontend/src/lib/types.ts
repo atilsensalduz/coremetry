@@ -137,6 +137,32 @@ export interface MessagingDetail {
   topOps: DBOpStat[];
 }
 
+// OracleMetrics — payload of /api/databases/oracle. Mirrors the
+// oracledb receiver's metric shape: gauges with limit, derived
+// per-second rates, and a per-tablespace usage table. When the
+// receiver isn't wired up, backend fills these with deterministic
+// synthetic values and flips synthetic=true so the UI shows a
+// "demo data" badge.
+export interface OracleMetrics {
+  instance: string;
+  synthetic: boolean;
+  windowSeconds: number;
+  sessions:  { usage: number; limit: number };
+  processes: { usage: number; limit: number };
+  cpuTimeSec: number;
+  pgaMemoryBytes: number;
+  logicalReadsPerSec: number;
+  physicalReadsPerSec: number;
+  cacheHitPct: number;
+  hardParsesPerSec: number;
+  parseCallsPerSec: number;
+  executionsPerSec: number;
+  userCommitsPerSec: number;
+  userRollbacksPerSec: number;
+  transactionsPerSec: number;
+  tablespaces: { name: string; usedBytes: number; maxBytes: number; usedPct: number }[];
+}
+
 // MessagingInstance — same structure for queues / topics. The
 // destination field tries messaging.destination.name first, then
 // messaging.destination, then peer.service, then 'unknown'.

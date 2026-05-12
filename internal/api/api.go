@@ -153,6 +153,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/service-map", s.getServiceMap)
 	mux.HandleFunc("GET /api/databases",  s.getDatabases)
 	mux.HandleFunc("GET /api/databases/detail", s.getDatabaseDetail)
+	mux.HandleFunc("GET /api/databases/oracle", s.getOracleMetrics)
 	mux.HandleFunc("GET /api/messaging",  s.getMessaging)
 	mux.HandleFunc("GET /api/messaging/detail", s.getMessagingDetail)
 	mux.HandleFunc("GET /api/services/{name}/backtrace", s.getServiceBacktrace)
@@ -870,6 +871,21 @@ func (s *Server) getDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 	key := fmt.Sprintf("db-detail:%s:%s:%d:%d", system, instance, from.UnixNano(), to.UnixNano())
 	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
 		return s.store.GetDatabaseDetail(r.Context(), system, instance, from, to)
+	})
+}
+
+// getOracleMetrics returns the OracleDB-receiver drill-down for
+// one instance — sessions/processes utilisation, cumulative
+// counter rates, tablespace usage. Falls back to deterministic
+// synthetic data (flagged Synthetic=true in the payload) when
+// no oracledb.* metric_points exist in the window so the panel
+// still renders during integration setup.
+func (s *Server) getOracleMetrics(w http.ResponseWriter, r *http.Request) {
+	instance := r.URL.Query().Get("instance")
+	from, to := parseFromTo(r, time.Hour)
+	key := fmt.Sprintf("oracle:%s:%d:%d", instance, from.UnixNano(), to.UnixNano())
+	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
+		return s.store.GetOracleMetrics(r.Context(), instance, from, to)
 	})
 }
 
