@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { Topbar } from '@/components/Topbar';
 import { Spinner } from '@/components/Spinner';
 import { DependenciesTable } from '@/components/DependenciesTable';
@@ -8,20 +9,24 @@ import type { TimeRange, DBInstance } from '@/lib/types';
 
 // /databases — Dynatrace-style top-level Database technologies
 // overview. One row per (db_system, instance) the platform's
-// services have called over the chosen window. Same SRE
-// question the Services page answers for live applications:
-// "which deps are heavy, which are slow, which are erroring".
+// services have called over the chosen window.
+//
+// Fetch is via useQuery with keepPreviousData so:
+//   • revisits land instantly on the cached snapshot
+//   • range changes re-render with the old data still
+//     visible until the new payload arrives (no full
+//     spinner flash on every range tweak)
+//   • the 30s server-side cache aligns with our 30s staleTime
+//     so refetches almost always hit the warm backend slot
 export default function DatabasesPage() {
   const [range, setRange] = useState<TimeRange>({ preset: '1h' });
-  const [data, setData] = useState<DBInstance[] | null | undefined>(undefined);
-
-  useEffect(() => {
-    setData(undefined);
-    const { from, to } = timeRangeToNs(range);
-    api.databases(from, to)
-      .then(r => setData(r ?? []))
-      .catch(() => setData(null));
-  }, [range]);
+  const { from, to } = timeRangeToNs(range);
+  const q = useQuery({
+    queryKey: ['databases', from, to],
+    queryFn: () => api.databases(from, to).then(r => r ?? []),
+    staleTime: 30_000,
+    placeholderData: keepPreviousData,
+  });
 
   return (
     <>
@@ -32,15 +37,15 @@ export default function DatabasesPage() {
           Derived from spans with a populated <code>db.system</code> attribute.
           {' '}Click a row to drill into matching traces.
         </div>
-        {data === undefined && <Spinner />}
-        {data === null && (
+        {q.isPending && <Spinner />}
+        {q.isError && (
           <div style={{ color: 'var(--err)', fontSize: 12 }}>
             Failed to load databases overview.
           </div>
         )}
-        {data && (
+        {q.data && (
           <DependenciesTable
-            rows={data.map(d => ({
+            rows={(q.data as DBInstance[]).map(d => ({
               system: d.system,
               instance: d.instance,
               spanCount: d.spanCount,

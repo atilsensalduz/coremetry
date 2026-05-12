@@ -350,8 +350,67 @@ func (s *Server) Start() error {
 	sub, _ := fs.Sub(s.webFS, "frontend/dist")
 	mux.Handle("/", spaHandler(sub))
 
+	// Pre-warm the dependencies caches in the background. The
+	// /databases and /messaging pages run two heavy GROUP BYs
+	// against billions of spans; doing that synchronously on the
+	// first operator's request gives them a 3-5s wait. We refresh
+	// the default-window (1h) result every 25s so the cache (TTL
+	// 30s) is always hot. Operators using a non-default range
+	// (15m, 24h, custom) still pay the cold-load cost — but the
+	// morning-triage default lands instantly.
+	go s.warmDependenciesCache()
+
 	log.Printf("[api] HTTP listening on %s", s.addr)
 	return http.ListenAndServe(s.addr, cors(s.auth.Middleware(mux)))
+}
+
+// warmDependenciesCache primes the databases / messaging caches
+// for the default 1h window on a 25s loop. Stays inside the 30s
+// cache TTL so the cache is never seen empty by an operator
+// request. Errors are logged but don't stop the loop — a
+// transient CH blip shouldn't disable warming permanently.
+func (s *Server) warmDependenciesCache() {
+	const (
+		tick      = 25 * time.Second
+		ttl       = 30 * time.Second
+		warmWin   = time.Hour
+		queryBudg = 20 * time.Second
+	)
+	// Delay first refresh so we don't compete with boot-time DDL
+	// migrations for CH bandwidth on a cold start.
+	time.Sleep(5 * time.Second)
+	warm := func(label, key string, fn func(ctx context.Context) (any, error)) {
+		ctx, cancel := context.WithTimeout(context.Background(), queryBudg)
+		defer cancel()
+		// Skip the upstream call if the cache is already warm —
+		// keeps CH idle when an operator's request just populated
+		// it within the last few seconds.
+		if _, ok, _ := s.cache.Get(ctx, key); ok {
+			return
+		}
+		v, err := fn(ctx)
+		if err != nil {
+			log.Printf("[warm] %s: %v", label, err)
+			return
+		}
+		data, err := json.Marshal(v)
+		if err != nil {
+			log.Printf("[warm] %s marshal: %v", label, err)
+			return
+		}
+		if err := s.cache.Set(ctx, key, data, ttl); err != nil {
+			log.Printf("[warm] %s set: %v", label, err)
+		}
+	}
+	for {
+		to := time.Now()
+		from := to.Add(-warmWin)
+		warm("databases", "databases:"+cacheBucket(from, to),
+			func(ctx context.Context) (any, error) { return s.store.GetDatabases(ctx, from, to) })
+		warm("messaging", "messaging:"+cacheBucket(from, to),
+			func(ctx context.Context) (any, error) { return s.store.GetMessaging(ctx, from, to) })
+		time.Sleep(tick)
+	}
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
@@ -848,7 +907,7 @@ func (s *Server) getServiceNeighbors(w http.ResponseWriter, r *http.Request) {
 // duplicate GROUP BYs.
 func (s *Server) getDatabases(w http.ResponseWriter, r *http.Request) {
 	from, to := parseFromTo(r, time.Hour)
-	key := fmt.Sprintf("databases:from=%d:to=%d", from.UnixNano(), to.UnixNano())
+	key := "databases:" + cacheBucket(from, to)
 	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
 		return s.store.GetDatabases(r.Context(), from, to)
 	})
@@ -868,7 +927,7 @@ func (s *Server) getDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	from, to := parseFromTo(r, time.Hour)
-	key := fmt.Sprintf("db-detail:%s:%s:%d:%d", system, instance, from.UnixNano(), to.UnixNano())
+	key := fmt.Sprintf("db-detail:%s:%s:%s", system, instance, cacheBucket(from, to))
 	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
 		return s.store.GetDatabaseDetail(r.Context(), system, instance, from, to)
 	})
@@ -883,7 +942,7 @@ func (s *Server) getDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getOracleMetrics(w http.ResponseWriter, r *http.Request) {
 	instance := r.URL.Query().Get("instance")
 	from, to := parseFromTo(r, time.Hour)
-	key := fmt.Sprintf("oracle:%s:%d:%d", instance, from.UnixNano(), to.UnixNano())
+	key := fmt.Sprintf("oracle:%s:%s", instance, cacheBucket(from, to))
 	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
 		return s.store.GetOracleMetrics(r.Context(), instance, from, to)
 	})
@@ -893,7 +952,7 @@ func (s *Server) getOracleMetrics(w http.ResponseWriter, r *http.Request) {
 // (Kafka / RabbitMQ / IBM MQ / etc.). Same caching semantics.
 func (s *Server) getMessaging(w http.ResponseWriter, r *http.Request) {
 	from, to := parseFromTo(r, time.Hour)
-	key := fmt.Sprintf("messaging:from=%d:to=%d", from.UnixNano(), to.UnixNano())
+	key := "messaging:" + cacheBucket(from, to)
 	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
 		return s.store.GetMessaging(r.Context(), from, to)
 	})
@@ -917,10 +976,28 @@ func (s *Server) getMessagingDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	from, to := parseFromTo(r, time.Hour)
-	key := fmt.Sprintf("msg-detail:%s:%s:%s:%d:%d", system, cluster, dest, from.UnixNano(), to.UnixNano())
+	key := fmt.Sprintf("msg-detail:%s:%s:%s:%s", system, cluster, dest, cacheBucket(from, to))
 	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
 		return s.store.GetMessagingDetail(r.Context(), system, cluster, dest, from, to)
 	})
+}
+
+// cacheBucket returns a key fragment with from/to snapped to a
+// 30-second grid. Stops the dependencies / messaging caches
+// from missing on every page load because the relative-time
+// preset (`?range=1h`) produces a brand-new `to=now` value at
+// nanosecond resolution every request. Two operators hitting
+// the page within the same 30s window now share one upstream
+// query instead of forcing two full CH scans.
+//
+// The cost is up to 30s of staleness on the to boundary — same
+// staleness we already accept via the 30s TTL on the cache
+// itself, so this is purely upside.
+func cacheBucket(from, to time.Time) string {
+	const grid = 30 * time.Second
+	fb := from.Truncate(grid).UnixNano()
+	tb := to.Truncate(grid).UnixNano()
+	return fmt.Sprintf("%d_%d", fb, tb)
 }
 
 // parseFromTo unpacks the standard ?from=&to= unix-ns pair with

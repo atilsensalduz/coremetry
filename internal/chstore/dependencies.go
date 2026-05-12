@@ -451,6 +451,11 @@ func (s *Store) GetDatabases(ctx context.Context, from, to time.Time) ([]DBInsta
 	// trimmed in Go to top-5 so a 100-caller DB doesn't blow up
 	// the response. Could be done with topK aggregate but the
 	// readability tradeoff isn't worth it at this row count.
+	// LIMIT 1000 caps the worst-case fan-out at scale: 200 (db,
+	// instance) rows × 100 calling services = 20k otherwise. We
+	// only render top-5 per row in the table; the remaining rows
+	// are wasted bytes on the wire. 1000 keeps the per-row top-5
+	// faithful even when 50 distinct services hit one DB.
 	cRows, err := s.conn.Query(ctx, `
 		SELECT db_system,
 		       coalesce(nullIf(peer_service, ''), 'unknown') AS instance,
@@ -459,6 +464,7 @@ func (s *Store) GetDatabases(ctx context.Context, from, to time.Time) ([]DBInsta
 		WHERE time >= ? AND time <= ? AND db_system != ''
 		GROUP BY db_system, instance, service_name
 		ORDER BY db_system, instance, c DESC
+		LIMIT 1000
 		SETTINGS max_execution_time = 15`, from, to)
 	if err != nil {
 		return out, nil // partial result is fine — callers are optional
@@ -545,6 +551,8 @@ func (s *Store) GetMessaging(ctx context.Context, from, to time.Time) ([]Messagi
 		return out, nil
 	}
 
+	// LIMIT 1000 — same rationale as GetDatabases. We only show
+	// top-5 per row; the rest is wire-byte waste.
 	cRows, err := s.conn.Query(ctx, `
 		SELECT msg_system,
 		       `+clusterExpr+` AS cluster,
@@ -554,6 +562,7 @@ func (s *Store) GetMessaging(ctx context.Context, from, to time.Time) ([]Messagi
 		WHERE time >= ? AND time <= ? AND msg_system != ''
 		GROUP BY msg_system, cluster, destination, service_name
 		ORDER BY msg_system, cluster, destination, c DESC
+		LIMIT 1000
 		SETTINGS max_execution_time = 15`, from, to)
 	if err != nil {
 		return out, nil

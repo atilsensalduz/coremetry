@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { Topbar } from '@/components/Topbar';
 import { Spinner } from '@/components/Spinner';
 import { DependenciesTable } from '@/components/DependenciesTable';
@@ -9,21 +10,21 @@ import type { TimeRange, MessagingInstance } from '@/lib/types';
 // /messaging — top-level queue / topic technologies overview.
 // Kafka brokers, RabbitMQ vhosts, IBM MQ queues, NATS subjects,
 // SQS / Kinesis streams — anything OTel's messaging.system
-// semconv touches. Derived from spans with the messaging
-// attribute set; destination resolved from
-// messaging.destination.name → messaging.destination →
-// peer.service in that priority order.
+// semconv touches.
+//
+// useQuery + keepPreviousData: revisits land instantly, range
+// changes paint the old data underneath while the new payload
+// fetches. staleTime aligns with the backend's 30s cache TTL
+// so most refetches hit the warm slot.
 export default function MessagingPage() {
   const [range, setRange] = useState<TimeRange>({ preset: '1h' });
-  const [data, setData] = useState<MessagingInstance[] | null | undefined>(undefined);
-
-  useEffect(() => {
-    setData(undefined);
-    const { from, to } = timeRangeToNs(range);
-    api.messaging(from, to)
-      .then(r => setData(r ?? []))
-      .catch(() => setData(null));
-  }, [range]);
+  const { from, to } = timeRangeToNs(range);
+  const q = useQuery({
+    queryKey: ['messaging', from, to],
+    queryFn: () => api.messaging(from, to).then(r => r ?? []),
+    staleTime: 30_000,
+    placeholderData: keepPreviousData,
+  });
 
   return (
     <>
@@ -35,15 +36,15 @@ export default function MessagingPage() {
           {' '}<code>messaging.system</code> attribute. Click a row to drill into
           matching traces.
         </div>
-        {data === undefined && <Spinner />}
-        {data === null && (
+        {q.isPending && <Spinner />}
+        {q.isError && (
           <div style={{ color: 'var(--err)', fontSize: 12 }}>
             Failed to load messaging overview.
           </div>
         )}
-        {data && (
+        {q.data && (
           <DependenciesTable
-            rows={data.map(d => ({
+            rows={(q.data as MessagingInstance[]).map(d => ({
               system: d.system,
               cluster: d.cluster,
               destination: d.destination,
