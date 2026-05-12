@@ -150,6 +150,7 @@ func (s *Server) Start() error {
 		mux.Handle("GET /api/events", sse.Handler(s.bus))
 	}
 	mux.HandleFunc("GET /api/services/{name}/structure", s.getServiceStructure)
+	mux.HandleFunc("GET /api/services/{name}/clusters",  s.getServiceClusterBreakdown)
 	mux.HandleFunc("GET /api/services/{name}/neighbors", s.getServiceNeighbors)
 	mux.HandleFunc("GET /api/service-map", s.getServiceMap)
 	mux.HandleFunc("GET /api/databases",  s.getDatabases)
@@ -636,6 +637,22 @@ func (s *Server) getCardinality(w http.ResponseWriter, r *http.Request) {
 // triple collapse into a single node carrying count + avg/max
 // duration + error count, so a tight loop or fan-out shows up once
 // with `×N` rather than as N visually identical bars.
+// getServiceClusterBreakdown returns per-cluster RED stats for
+// one service. Cached 30s on the (service, window) tuple so
+// quick range toggles share one query.
+func (s *Server) getServiceClusterBreakdown(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	from, to := parseFromTo(r, time.Hour)
+	key := fmt.Sprintf("service-clusters:%s:%s", name, cacheBucket(from, to))
+	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
+		rows, err := s.store.GetServiceClusterBreakdown(r.Context(), name, from, to)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"clusters": rows}, nil
+	})
+}
+
 func (s *Server) getServiceStructure(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if name == "" {

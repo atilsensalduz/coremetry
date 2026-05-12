@@ -70,7 +70,12 @@ export default function ServicesPage() {
   // server-side via the resource/attr coalesce chain. Banks
   // running tens of clusters need this to triage by-region or
   // by-tier (prod vs canary vs DR).
-  const [cluster, setCluster] = useState('');
+  // Init cluster from `?cluster=` so a link from the Service
+  // detail's per-cluster breakdown lands on the filtered list.
+  const [cluster, setCluster] = useState(() => {
+    const p = new URLSearchParams(window.location.search);
+    return p.get('cluster') ?? '';
+  });
   const [clusterOptions, setClusterOptions] = useState<string[]>([]);
 
   // serviceFilter is the picker's draft — typing / dropdown picks

@@ -117,6 +117,18 @@ export interface DBOpStat {
   avgDurationMs: number;
 }
 
+// ServiceClusterStat — one row of the per-cluster RED
+// breakdown on the Service detail page. Surfaced only when a
+// service's traffic spans more than one cluster.
+export interface ServiceClusterStat {
+  cluster: string;
+  spanCount: number;
+  errorCount: number;
+  errorRate: number;
+  avgDurationMs: number;
+  p99DurationMs: number;
+}
+
 // DBDetail / MessagingDetail — full payloads for the drawer
 // behind a /databases or /messaging row click.
 export interface DBDetail {

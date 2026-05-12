@@ -89,6 +89,11 @@ export const api = {
   // selector on the service detail page.
   clusters: (fromNs: number, toNs: number) =>
     get<{ clusters: string[] }>(`/api/clusters?from=${fromNs}&to=${toNs}`),
+  // Per-cluster RED breakdown for one service. Used by the
+  // Service detail page when traffic spans 2+ clusters.
+  serviceClusters: (svc: string, fromNs: number, toNs: number) =>
+    get<{ clusters: import('./types').ServiceClusterStat[] } | null>(
+      `/api/services/${encodeURIComponent(svc)}/clusters?from=${fromNs}&to=${toNs}`),
   // Coremetry meta-observability snapshot — drives /admin/stats.
   systemStats: () =>
     get<import('./types').SystemStats>('/api/admin/system-stats'),

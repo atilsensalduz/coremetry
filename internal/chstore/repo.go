@@ -193,6 +193,74 @@ func (s *Store) ListClusters(ctx context.Context, from, to time.Time) ([]string,
 	return out, nil
 }
 
+// ServiceClusterStat is one row of the per-cluster breakdown
+// rendered on the Service detail page when traffic comes from
+// more than one k8s/openshift cluster. Same numeric set the
+// services-list row carries (span count, error rate, p99) plus
+// the cluster identifier so an SRE can spot "same service is
+// slow only on cluster-eu-prod" at a glance.
+type ServiceClusterStat struct {
+	Cluster    string  `json:"cluster"`
+	SpanCount  uint64  `json:"spanCount"`
+	ErrorCount uint64  `json:"errorCount"`
+	ErrorRate  float64 `json:"errorRate"`
+	AvgMs      float64 `json:"avgDurationMs"`
+	P99Ms      float64 `json:"p99DurationMs"`
+}
+
+// GetServiceClusterBreakdown returns RED stats per cluster for
+// one service in the window. The aggregation is over raw spans
+// because the service MV doesn't carry the cluster dim; the
+// filter on service_name is selective enough that this stays
+// fast (one service's slice of spans, not the whole table).
+//
+// Returns an empty slice when the service has zero traffic in
+// the window — the SPA renders "no cluster breakdown" in that
+// case rather than blanking the panel.
+func (s *Store) GetServiceClusterBreakdown(
+	ctx context.Context, service string, from, to time.Time,
+) ([]ServiceClusterStat, error) {
+	if service == "" {
+		return nil, nil
+	}
+	if from.IsZero() {
+		from = time.Now().Add(-1 * time.Hour)
+	}
+	if to.IsZero() {
+		to = time.Now()
+	}
+	rows, err := s.conn.Query(ctx, `
+		SELECT `+clusterDeriveExpr+` AS cluster,
+		       count()                          AS span_count,
+		       countIf(status_code = 'error')   AS error_count,
+		       avg(duration) / 1e6              AS avg_ms,
+		       quantile(0.99)(duration) / 1e6   AS p99_ms
+		FROM spans
+		WHERE time >= ? AND time <= ? AND service_name = ?
+		GROUP BY cluster
+		HAVING cluster != ''
+		ORDER BY span_count DESC
+		LIMIT 50
+		SETTINGS max_execution_time = 10`,
+		from, to, service)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ServiceClusterStat{}
+	for rows.Next() {
+		var r ServiceClusterStat
+		if err := rows.Scan(&r.Cluster, &r.SpanCount, &r.ErrorCount, &r.AvgMs, &r.P99Ms); err != nil {
+			continue
+		}
+		if r.SpanCount > 0 {
+			r.ErrorRate = float64(r.ErrorCount) / float64(r.SpanCount) * 100
+		}
+		out = append(out, r)
+	}
+	return out, nil
+}
+
 // GetServicesFiltered narrows the result to services whose name
 // matches `nameMatch` (case-insensitive substring). Used by the
 // services-page picker so a service outside the top-N still appears

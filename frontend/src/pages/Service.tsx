@@ -158,6 +158,12 @@ function ServiceDetailInner() {
             <ServiceInfra     service={svc} since={SINCE_MAP[range.preset] ?? '15m'} />
             <ServiceNeighbors service={svc} since={SINCE_MAP[range.preset] ?? '1h'} />
             <ServiceStructure service={svc} since={SINCE_MAP[range.preset] ?? '1h'} />
+            {/* Per-cluster RED breakdown. Renders only when the
+                service has traffic from 2+ k8s/openshift clusters.
+                Lets an operator spot "same service, different
+                performance per cluster" without a per-cluster
+                pivot in Explore. */}
+            <ServiceClusterBreakdown service={svc} range={range} />
             {/* Span breakdown — Elastic-APM "where does this
                 service spend its time?" stacked-area view sits
                 above the DB / operations tables so the operator
@@ -479,5 +485,132 @@ export default function ServiceDetailPage() {
     <Suspense fallback={<Spinner />}>
       <ServiceDetailInner />
     </Suspense>
+  );
+}
+
+// ServiceClusterBreakdown — sortable RED stats per cluster the
+// service emitted spans from. Renders silently when there's
+// only one cluster (or none), so single-cluster operators don't
+// see noise. Click a row to pivot to /services?cluster=<name>
+// scoped to that one cluster. The sort defaults to spanCount
+// desc so the heaviest cluster lands at top — usually what an
+// operator triaging "is this service slow?" wants first.
+type ClusterSortKey = 'cluster' | 'calls' | 'errRate' | 'avg' | 'p99';
+function ServiceClusterBreakdown({ service, range }: {
+  service: string;
+  range: import('@/lib/types').TimeRange;
+}) {
+  const [data, setData] = useState<import('@/lib/types').ServiceClusterStat[] | null | undefined>(undefined);
+  const [sortBy, setSortBy] = useState<ClusterSortKey>('calls');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  useEffect(() => {
+    setData(undefined);
+    const { from, to } = timeRangeToNs(range);
+    api.serviceClusters(service, from, to)
+      .then(r => setData(r?.clusters ?? []))
+      .catch(() => setData(null));
+  }, [service, range]);
+
+  const sorted = useMemo(() => {
+    if (!data) return data;
+    const arr = [...data];
+    arr.sort((a, b) => {
+      switch (sortBy) {
+        case 'cluster': return a.cluster.localeCompare(b.cluster);
+        case 'calls':   return a.spanCount - b.spanCount;
+        case 'errRate': return a.errorRate - b.errorRate;
+        case 'avg':     return a.avgDurationMs - b.avgDurationMs;
+        case 'p99':     return a.p99DurationMs - b.p99DurationMs;
+      }
+    });
+    return sortDir === 'desc' ? arr.reverse() : arr;
+  }, [data, sortBy, sortDir]);
+
+  // Silent when fewer than 2 clusters — single-cluster (or
+  // zero-cluster, e.g. SDK without resource attrs) deployments
+  // don't need the panel. Loading / error states stay quiet
+  // for the same reason.
+  if (!sorted || sorted.length < 2) return null;
+
+  const toggleSort = (col: ClusterSortKey) => {
+    if (sortBy === col) {
+      setSortDir(d => (d === 'desc' ? 'asc' : 'desc'));
+    } else {
+      setSortBy(col);
+      setSortDir(col === 'cluster' ? 'asc' : 'desc');
+    }
+  };
+
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{
+        fontSize: 11, fontWeight: 700, marginBottom: 6, color: 'var(--text2)',
+        textTransform: 'uppercase', letterSpacing: 0.4,
+      }}>
+        Per-cluster breakdown <span style={{
+          fontWeight: 400, color: 'var(--text3)', textTransform: 'none',
+        }}>· {sorted.length} clusters</span>
+      </div>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <ClusterTh col="cluster" label="Cluster" sort={sortBy} dir={sortDir} onSort={toggleSort} />
+              <ClusterTh col="calls"   label="Calls"   sort={sortBy} dir={sortDir} onSort={toggleSort} align="right" />
+              <ClusterTh col="errRate" label="Err %"   sort={sortBy} dir={sortDir} onSort={toggleSort} align="right" />
+              <ClusterTh col="avg"     label="Avg"     sort={sortBy} dir={sortDir} onSort={toggleSort} align="right" />
+              <ClusterTh col="p99"     label="P99"     sort={sortBy} dir={sortDir} onSort={toggleSort} align="right" />
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map(c => {
+              const errCls = c.errorRate > 5 ? 'err' : c.errorRate > 0 ? 'warn' : 'ok';
+              return (
+                <tr key={c.cluster}>
+                  <td>
+                    <Link to={`/services?cluster=${encodeURIComponent(c.cluster)}`}
+                          style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12 }}
+                          title={`Filter /services to cluster ${c.cluster}`}>
+                      {c.cluster}
+                    </Link>
+                  </td>
+                  <td className="num mono">{fmtNum(c.spanCount)}</td>
+                  <td className="num mono">
+                    <span className={`badge b-${errCls}`}>{c.errorRate.toFixed(2)}%</span>
+                  </td>
+                  <td className="num mono">{c.avgDurationMs.toFixed(1)}ms</td>
+                  <td className="num mono">{c.p99DurationMs.toFixed(1)}ms</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function ClusterTh({ col, label, sort, dir, onSort, align }: {
+  col: ClusterSortKey; label: string;
+  sort: ClusterSortKey; dir: 'asc' | 'desc';
+  onSort: (c: ClusterSortKey) => void;
+  align?: 'left' | 'right';
+}) {
+  const active = sort === col;
+  return (
+    <th className={`sortable${active ? ' sorted' : ''}`}
+        style={{ textAlign: align ?? 'left' }}
+        aria-sort={active ? (dir === 'desc' ? 'descending' : 'ascending') : 'none'}>
+      <button type="button" onClick={() => onSort(col)}
+        style={{
+          all: 'unset', display: 'inline-flex', alignItems: 'baseline',
+          gap: 4, width: '100%', cursor: 'pointer',
+          justifyContent: align === 'right' ? 'flex-end' : 'flex-start',
+        }}>
+        {label}
+        <span className="sort-arrow">{active ? (dir === 'desc' ? '▼' : '▲') : '↕'}</span>
+      </button>
+    </th>
   );
 }
