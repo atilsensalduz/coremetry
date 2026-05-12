@@ -9,24 +9,30 @@ type User struct {
 	ID           string `json:"id"`
 	Email        string `json:"email"`
 	PasswordHash string `json:"-"`
-	Role         string `json:"role"`         // admin | viewer
+	Role         string `json:"role"`         // admin | editor | viewer
 	Disabled     bool   `json:"disabled"`
 	AuthProvider string `json:"authProvider"` // local | oidc — drives "Change password" UI
-	CreatedAt    int64  `json:"createdAt"`    // unix nanoseconds
+	// Team — free-text grouping the admin picks (e.g. "platform-sre",
+	// "fraud", "payments"). Backed by a LowCardinality column so
+	// repeated values are cheap. Empty when unassigned; the
+	// users-list UI groups "Unassigned" separately so an admin
+	// can see who still needs labelling.
+	Team      string `json:"team"`
+	CreatedAt int64  `json:"createdAt"` // unix nanoseconds
 }
 
 // GetUserByEmail returns the latest version of a user (ReplacingMergeTree FINAL).
 // Returns (nil, nil) when no row matches — callers treat that as "unknown user".
 func (s *Store) GetUserByEmail(ctx context.Context, email string) (*User, error) {
 	row := s.conn.QueryRow(ctx, `
-		SELECT id, email, password_hash, role, disabled, auth_provider,
+		SELECT id, email, password_hash, role, disabled, auth_provider, team,
 		       toUnixTimestamp64Nano(created_at)
 		FROM users FINAL
 		WHERE email = ? AND disabled = 0
 		LIMIT 1`, email)
 	var u User
 	var disabled uint8
-	if err := row.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &disabled, &u.AuthProvider, &u.CreatedAt); err != nil {
+	if err := row.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &disabled, &u.AuthProvider, &u.Team, &u.CreatedAt); err != nil {
 		// clickhouse-go returns sql.ErrNoRows analogue; surface as nil/nil.
 		if err.Error() == "sql: no rows in result set" {
 			return nil, nil
@@ -39,14 +45,14 @@ func (s *Store) GetUserByEmail(ctx context.Context, email string) (*User, error)
 
 func (s *Store) GetUserByID(ctx context.Context, id string) (*User, error) {
 	row := s.conn.QueryRow(ctx, `
-		SELECT id, email, password_hash, role, disabled, auth_provider,
+		SELECT id, email, password_hash, role, disabled, auth_provider, team,
 		       toUnixTimestamp64Nano(created_at)
 		FROM users FINAL
 		WHERE id = ? AND disabled = 0
 		LIMIT 1`, id)
 	var u User
 	var disabled uint8
-	if err := row.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &disabled, &u.AuthProvider, &u.CreatedAt); err != nil {
+	if err := row.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &disabled, &u.AuthProvider, &u.Team, &u.CreatedAt); err != nil {
 		if err.Error() == "sql: no rows in result set" {
 			return nil, nil
 		}
@@ -66,7 +72,7 @@ func (s *Store) CountUsers(ctx context.Context) (int64, error) {
 }
 
 func (s *Store) UpsertUser(ctx context.Context, u User) error {
-	batch, err := s.conn.PrepareBatch(ctx, "INSERT INTO users (id, email, password_hash, role, disabled, auth_provider)")
+	batch, err := s.conn.PrepareBatch(ctx, "INSERT INTO users (id, email, password_hash, role, disabled, auth_provider, team)")
 	if err != nil {
 		return fmt.Errorf("prepare users: %w", err)
 	}
@@ -78,7 +84,7 @@ func (s *Store) UpsertUser(ctx context.Context, u User) error {
 	if provider == "" {
 		provider = "local"
 	}
-	if err := batch.Append(u.ID, u.Email, u.PasswordHash, u.Role, dis, provider); err != nil {
+	if err := batch.Append(u.ID, u.Email, u.PasswordHash, u.Role, dis, provider, u.Team); err != nil {
 		return fmt.Errorf("append user: %w", err)
 	}
 	return batch.Send()
@@ -88,7 +94,7 @@ func (s *Store) UpsertUser(ctx context.Context, u User) error {
 // hidden — they're effectively deleted from the UI's perspective.
 func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
 	rows, err := s.conn.Query(ctx, `
-		SELECT id, email, password_hash, role, disabled, auth_provider,
+		SELECT id, email, password_hash, role, disabled, auth_provider, team,
 		       toUnixTimestamp64Nano(created_at)
 		FROM users FINAL
 		WHERE disabled = 0
@@ -101,7 +107,7 @@ func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
 	for rows.Next() {
 		var u User
 		var disabled uint8
-		if err := rows.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &disabled, &u.AuthProvider, &u.CreatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &disabled, &u.AuthProvider, &u.Team, &u.CreatedAt); err != nil {
 			return nil, err
 		}
 		u.Disabled = disabled != 0
@@ -135,6 +141,22 @@ func (s *Store) UpdatePassword(ctx context.Context, userID, newHash string) erro
 		return fmt.Errorf("user not found")
 	}
 	u.PasswordHash = newHash
+	return s.UpsertUser(ctx, *u)
+}
+
+// SetUserTeam updates the user's team label. Re-uses the
+// upsert pipeline so ReplacingMergeTree picks up the new row
+// as the latest version. Empty string clears the assignment
+// (the UI groups those under "Unassigned").
+func (s *Store) SetUserTeam(ctx context.Context, userID, team string) error {
+	u, err := s.GetUserByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if u == nil {
+		return fmt.Errorf("user not found")
+	}
+	u.Team = team
 	return s.UpsertUser(ctx, *u)
 }
 

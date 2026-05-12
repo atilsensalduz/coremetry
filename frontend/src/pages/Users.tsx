@@ -1,4 +1,4 @@
-import { useEffect, useState, FormEvent } from 'react';
+import { useEffect, useMemo, useState, FormEvent } from 'react';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { useAuth } from '@/components/AuthProvider';
@@ -46,14 +46,45 @@ export default function UsersPage() {
     }
   };
 
+  // Team filter — pulled from the loaded user list (every
+  // distinct non-empty team) plus a synthetic "Unassigned"
+  // bucket. Free-text filter so admins typing a partial team
+  // name (e.g. "platform") narrow the list as they type.
+  const [teamFilter, setTeamFilter] = useState('');
+  const teamOptions = useMemo(() => {
+    const set = new Set<string>();
+    (users ?? []).forEach(u => u.team && set.add(u.team));
+    return Array.from(set).sort();
+  }, [users]);
+  const filteredUsers = useMemo(() => {
+    if (!users) return users;
+    if (!teamFilter) return users;
+    if (teamFilter === '__unassigned__') {
+      return users.filter(u => !u.team);
+    }
+    return users.filter(u => u.team === teamFilter);
+  }, [users, teamFilter]);
+
   return (
     <>
       <Topbar title="Users" />
       <div id="content">
         <div className="controls">
           <button onClick={() => setShowNew(true)}>+ New user</button>
+          {teamOptions.length > 0 && (
+            <select value={teamFilter}
+              onChange={e => setTeamFilter(e.target.value)}
+              title="Filter by team — pulled from the active users' team labels"
+              style={{ minWidth: 160 }}>
+              <option value="">All teams ({teamOptions.length})</option>
+              <option value="__unassigned__">Unassigned</option>
+              {teamOptions.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          )}
           <span style={{ color: 'var(--text3)', fontSize: 12, marginLeft: 'auto' }}>
-            {users?.length ?? 0} users
+            {filteredUsers?.length ?? 0}
+            {teamFilter && users && filteredUsers && filteredUsers.length !== users.length
+              ? ` of ${users.length}` : ''} users
           </span>
         </div>
 
@@ -80,13 +111,14 @@ export default function UsersPage() {
                 <tr>
                   <th>Email</th>
                   <th>Role</th>
+                  <th>Team</th>
                   <th>Provider</th>
                   <th>Created</th>
                   <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {users.map(u => {
+                {(filteredUsers ?? []).map(u => {
                   const isMe = me?.id === u.id;
                   const isOIDC = u.authProvider === 'oidc';
                   return (
@@ -103,6 +135,9 @@ export default function UsersPage() {
                       </td>
                       <td>
                         <RoleEditor user={u} isMe={isMe} onChanged={refresh} />
+                      </td>
+                      <td>
+                        <TeamEditor user={u} suggestions={teamOptions} onChanged={refresh} />
                       </td>
                       <td>
                         <span style={{
@@ -157,6 +192,7 @@ function NewUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<'admin' | 'editor' | 'viewer'>('viewer');
+  const [team, setTeam] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -164,7 +200,7 @@ function NewUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
     e.preventDefault();
     setBusy(true); setError(null);
     try {
-      await api.createUser(email.trim(), password, role);
+      await api.createUser(email.trim(), password, role, team.trim());
       onCreated();
     } catch (err) {
       setError(humanize(err));
@@ -210,6 +246,11 @@ function NewUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
             <option value="editor">Editor (dashboards / monitors / alerts)</option>
             <option value="admin">Admin (full access)</option>
           </SelectField>
+          <Field
+            label="Team (optional)"
+            hint="Free-text grouping for the user list — e.g. platform-sre, fraud, payments."
+            value={team}
+            onChange={e => setTeam(e.target.value)} />
           {error && <ErrorBox>{error}</ErrorBox>}
         </Stack>
       </form>
@@ -352,5 +393,100 @@ function RoleEditor({ user, isMe, onChanged }: {
         </span>
       )}
     </span>
+  );
+}
+
+// TeamEditor — inline team-label editor with autocomplete
+// against existing team values. Click the chip to edit;
+// commit on blur or Enter. Empty value clears the team
+// (back to "Unassigned"). datalist suggestions help admins
+// pick a consistent team name across users rather than
+// fat-fingering variants of the same team.
+function TeamEditor({ user, suggestions, onChanged }: {
+  user: UserRow;
+  suggestions: string[];
+  onChanged: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(user.team ?? '');
+  const [busy, setBusy] = useState(false);
+  const dlId = `team-opts-${user.id}`;
+
+  // Keep value in sync if the row's team changes via another
+  // path (e.g. refresh after sibling edit).
+  useEffect(() => { setValue(user.team ?? ''); }, [user.team]);
+
+  const commit = async () => {
+    const next = value.trim();
+    if (next === (user.team ?? '')) {
+      setEditing(false);
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.setUserTeam(user.id, next);
+      onChanged();
+    } catch (err) {
+      alert(humanize(err));
+      setValue(user.team ?? '');
+    } finally {
+      setBusy(false);
+      setEditing(false);
+    }
+  };
+
+  if (!editing) {
+    if (!user.team) {
+      return (
+        <button type="button" onClick={() => setEditing(true)}
+          style={{
+            all: 'unset', cursor: 'pointer',
+            fontSize: 10, color: 'var(--text3)',
+            border: '1px dashed var(--border)', borderRadius: 3,
+            padding: '1px 6px',
+          }}
+          title="Assign a team">
+          + assign team
+        </button>
+      );
+    }
+    return (
+      <button type="button" onClick={() => setEditing(true)}
+        style={{
+          all: 'unset', cursor: 'pointer',
+          fontSize: 11, fontWeight: 600,
+          fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+          color: 'var(--accent2)',
+          background: 'rgba(56,139,253,0.10)',
+          border: '1px solid rgba(56,139,253,0.30)',
+          borderRadius: 3, padding: '1px 8px',
+        }}
+        title="Click to edit team">
+        {user.team}
+      </button>
+    );
+  }
+
+  return (
+    <>
+      <input value={value}
+        list={dlId}
+        autoFocus
+        disabled={busy}
+        onChange={e => setValue(e.target.value)}
+        onBlur={commit}
+        onKeyDown={e => {
+          if (e.key === 'Enter') commit();
+          if (e.key === 'Escape') { setValue(user.team ?? ''); setEditing(false); }
+        }}
+        placeholder="team name"
+        style={{
+          fontSize: 11, padding: '2px 6px', minWidth: 120,
+          fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+        }} />
+      <datalist id={dlId}>
+        {suggestions.map(t => <option key={t} value={t} />)}
+      </datalist>
+    </>
   );
 }

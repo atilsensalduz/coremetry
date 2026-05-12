@@ -347,6 +347,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("DELETE /api/users/{id}",             auth.RequireRole(auth.RoleAdmin, s.deleteUser))
 	mux.HandleFunc("POST   /api/users/{id}/password",    auth.RequireRole(auth.RoleAdmin, s.resetUserPassword))
 	mux.HandleFunc("PUT    /api/users/{id}/role",        auth.RequireRole(auth.RoleAdmin, s.setUserRole))
+	mux.HandleFunc("PUT    /api/users/{id}/team",        auth.RequireRole(auth.RoleAdmin, s.setUserTeam))
 
 	// Tempo-compatible API (Grafana datasource integration)
 	s.registerTempoRoutes(mux)
@@ -3038,6 +3039,7 @@ func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 			"id": u.ID, "email": u.Email, "role": u.Role,
 			"disabled":     u.Disabled,
 			"authProvider": provider,
+			"team":         u.Team,
 			"createdAt":    u.CreatedAt,
 		})
 	}
@@ -3049,12 +3051,14 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		Email    string `json:"email"`
 		Password string `json:"password"`
 		Role     string `json:"role"`
+		Team     string `json:"team"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid body", http.StatusBadRequest)
 		return
 	}
 	body.Email = strings.ToLower(strings.TrimSpace(body.Email))
+	body.Team = strings.TrimSpace(body.Team)
 	if body.Email == "" || len(body.Password) < 6 {
 		http.Error(w, `{"error":"email and password (>=6 chars) required"}`, http.StatusBadRequest)
 		return
@@ -3085,14 +3089,35 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		Email:        body.Email,
 		PasswordHash: hash,
 		Role:         body.Role,
+		Team:         body.Team,
 	}
 	if err := s.store.UpsertUser(r.Context(), u); err != nil {
 		writeErr(w, err)
 		return
 	}
 	writeJSON(w, map[string]interface{}{
-		"id": u.ID, "email": u.Email, "role": u.Role,
+		"id": u.ID, "email": u.Email, "role": u.Role, "team": u.Team,
 	})
+}
+
+// setUserTeam updates the team label on a user. Empty body
+// team clears the assignment so the SPA can use the same
+// endpoint for both rename and unassign flows.
+func (s *Server) setUserTeam(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var body struct {
+		Team string `json:"team"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	body.Team = strings.TrimSpace(body.Team)
+	if err := s.store.SetUserTeam(r.Context(), id, body.Team); err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, map[string]string{"team": body.Team})
 }
 
 // setUserRole flips a user's role to one of admin / editor /

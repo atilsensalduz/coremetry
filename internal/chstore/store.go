@@ -709,6 +709,11 @@ func (s *Store) migrate(ctx context.Context) error {
 	// out via TTL inside the retention window.
 	alters := []string{
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider LowCardinality(String) DEFAULT 'local'`,
+		// team — operator-curated grouping (e.g. "platform-sre",
+		// "fraud", "payments"). LowCardinality because each
+		// install has tens to low-hundreds of teams; values
+		// repeat heavily across the user list.
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS team LowCardinality(String) DEFAULT ''`,
 		`ALTER TABLE alert_rules ADD COLUMN IF NOT EXISTS runbook_url String DEFAULT ''`,
 		`ALTER TABLE service_metadata ADD COLUMN IF NOT EXISTS sre_team String DEFAULT ''`,
 		// chat_channel — successor to slack_channel. Existing

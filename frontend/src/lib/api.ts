@@ -721,11 +721,11 @@ export const api = {
 
   // ── User management (admin) ──────────────────────────────────────────────
   listUsers: () => get<UserRow[] | null>('/api/users'),
-  createUser: (email: string, password: string, role: Role) =>
+  createUser: (email: string, password: string, role: Role, team?: string) =>
     request<AuthUser>('/api/users', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, role }),
+      body: JSON.stringify({ email, password, role, team: team ?? '' }),
     }),
   deleteUser: (id: string) =>
     request<void>(`/api/users/${id}`, { method: 'DELETE' }),
@@ -737,6 +737,13 @@ export const api = {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ role }),
+    }),
+  // setUserTeam updates the team label. Empty string clears.
+  setUserTeam: (id: string, team: string) =>
+    request<{ team: string }>(`/api/users/${id}/team`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ team }),
     }),
   resetUserPassword: (id: string, password: string) =>
     request<void>(`/api/users/${id}/password`, {
@@ -750,6 +757,7 @@ export interface AuthUser { id: string; email: string; role: string; }
 export interface UserRow extends AuthUser {
   disabled: boolean;
   authProvider: string;  // 'local' | 'oidc'
+  team: string;          // free-text grouping label, '' when unassigned
   createdAt: number;     // unix ns
 }
 export interface LoginResponse {
