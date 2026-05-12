@@ -29,6 +29,19 @@ export function ServicePicker({
   const [opts, setOpts] = useState<string[]>([]);
   const [total, setTotal] = useState(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Remembers what the user typed character-by-character. When
+  // onChange fires with a value that jumps to an exact match of
+  // a known option, we infer it came from a datalist click
+  // (browsers fire an input event with the full option value,
+  // no dedicated `select` event). Lets us auto-commit on pick
+  // without re-firing on every keystroke through a name like
+  // "orders" that's a prefix of "orders-api".
+  const lastValueRef = useRef(value);
+  // Holds the freshest options list so the click-detection
+  // logic sees current names even when the state hasn't
+  // re-rendered yet (the useEffect that updates opts runs
+  // after the synchronous onChange).
+  const optsRef = useRef<string[]>([]);
 
   // Debounced server fetch keyed off the typed value. Empty value → load
   // top-200 (alphabetical). Updates the datalist options so the browser's
@@ -37,11 +50,32 @@ export function ServicePicker({
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       api.serviceNames(value, 200)
-        .then(r => { setOpts(r.names); setTotal(r.total); })
-        .catch(() => { setOpts([]); setTotal(0); });
+        .then(r => {
+          setOpts(r.names);
+          optsRef.current = r.names;
+          setTotal(r.total);
+        })
+        .catch(() => { setOpts([]); optsRef.current = []; setTotal(0); });
     }, 180);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [value]);
+
+  const handleChange = (next: string) => {
+    const prev = lastValueRef.current;
+    lastValueRef.current = next;
+    onChange(next);
+    // Datalist-pick heuristic: a single onChange event jumped
+    // the value to an exact match of a known option AND the
+    // jump wasn't a single character (= not the user typing).
+    // Multi-char jumps almost always come from a click on the
+    // dropdown row. Schedule onEnter for the next tick so the
+    // parent has applied the state from onChange first.
+    const exact = optsRef.current.includes(next);
+    const jumped = Math.abs(next.length - prev.length) > 1 || (next.length > 0 && prev === '');
+    if (exact && jumped && onEnter) {
+      setTimeout(onEnter, 0);
+    }
+  };
 
   const truncated = total > opts.length;
 
@@ -51,7 +85,7 @@ export function ServicePicker({
         list={listId}
         value={value}
         placeholder={placeholder}
-        onChange={e => onChange(e.target.value)}
+        onChange={e => handleChange(e.target.value)}
         onKeyDown={e => e.key === 'Enter' && onEnter?.()}
         autoComplete="off"
         spellCheck={false}
