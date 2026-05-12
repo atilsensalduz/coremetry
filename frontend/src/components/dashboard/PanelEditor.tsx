@@ -148,7 +148,7 @@ function SpanMetricFields({ cfg, onChange }: {
     onChange({ ...cfg, [k]: v });
   return (
     <>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
         <Field label="Aggregation">
           <select value={cfg.agg ?? 'count'} onChange={e => update('agg', e.target.value)}>
             {SPAN_AGGS.map(a => <option key={a} value={a}>{a}</option>)}
@@ -157,6 +157,16 @@ function SpanMetricFields({ cfg, onChange }: {
         <Field label="Field (for percentiles)">
           <input value={cfg.field ?? 'duration_ms'} placeholder="duration_ms"
             onChange={e => update('field', e.target.value)} />
+        </Field>
+        <Field label="Visualization">
+          <select value={cfg.viz ?? 'line'}
+            onChange={e => update('viz', e.target.value as SpanMetricPanelConfig['viz'])}>
+            <option value="line">Line</option>
+            <option value="bar">Bar</option>
+            <option value="stacked-bar">Stacked bar</option>
+            <option value="area">Area</option>
+            <option value="stacked-area">Stacked area</option>
+          </select>
         </Field>
       </div>
       <Field label="Group by (comma-sep keys)">

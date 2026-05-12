@@ -7,6 +7,7 @@ import type {
 import { timeRangeToNs, substituteVars } from '@/lib/utils';
 import { fmtSmart } from '@/lib/chartFmt';
 import { MultiLineChart } from '../MultiLineChart';
+import { DashboardViz } from '../DashboardViz';
 import { Spinner } from '../Spinner';
 
 // PanelRenderer dispatches on panel.type. Self-contained — fetches its
@@ -124,7 +125,14 @@ function SpanMetricPanel({ cfg, range, syncKey }: { cfg: SpanMetricPanelConfig; 
   if (error) return <PanelError msg={error} />;
   if (series === undefined) return <PanelLoading />;
   if (!series || series.length === 0) return <PanelEmpty />;
-  return <MultiLineChart series={series} height={280} syncKey={syncKey} />;
+  // Dispatch on the configured viz. 'line' (default) keeps the
+  // existing uPlot multi-line path; everything else routes
+  // through the small SVG-based DashboardViz component.
+  const viz = cfg.viz ?? 'line';
+  if (viz === 'line') {
+    return <MultiLineChart series={series} height={280} syncKey={syncKey} />;
+  }
+  return <DashboardViz series={series} viz={viz} height={280} />;
 }
 
 // ── Single value with prior-period delta + sparkline ──────────────────────

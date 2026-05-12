@@ -121,6 +121,22 @@ function Inner() {
     setDraft({ ...draft, panels: panels.filter(p => p.id !== id) });
     setEditingPanel(null);
   };
+  // Reorder by drop: move srcId to immediately before targetId.
+  // No-op when src === target. Used by the drag-and-drop
+  // handlers wired below the panel render block.
+  const movePanel = (srcId: string, targetId: string) => {
+    if (srcId === targetId) return;
+    const srcIdx = panels.findIndex(p => p.id === srcId);
+    const tgtIdx = panels.findIndex(p => p.id === targetId);
+    if (srcIdx < 0 || tgtIdx < 0) return;
+    const next = [...panels];
+    const [moved] = next.splice(srcIdx, 1);
+    // After splicing out src, target index might shift left by 1
+    // if src came before it.
+    const insertAt = srcIdx < tgtIdx ? tgtIdx - 1 : tgtIdx;
+    next.splice(insertAt, 0, moved);
+    setDraft({ ...draft, panels: next });
+  };
   const save = async () => {
     setBusy(true);
     try {
@@ -206,6 +222,7 @@ function Inner() {
             editing={editing}
             onEditPanel={setEditingPanel}
             onDeletePanel={deletePanel}
+            onMovePanel={movePanel}
             dashboardId={id} />
         )}
 
@@ -278,7 +295,7 @@ function normalizePanels(raw: unknown): Panel[] {
 // not persisted across reloads (matches Grafana's default behaviour;
 // add a localStorage layer if users start asking for it).
 function DashboardGrid({
-  panels, range, vars, editing, onEditPanel, onDeletePanel, dashboardId,
+  panels, range, vars, editing, onEditPanel, onDeletePanel, onMovePanel, dashboardId,
 }: {
   panels: Panel[];
   range: TimeRange;
@@ -286,12 +303,17 @@ function DashboardGrid({
   editing: boolean;
   onEditPanel: (id: string) => void;
   onDeletePanel: (id: string) => void;
+  onMovePanel: (srcId: string, targetId: string) => void;
   // Cursor-sync key passed to every chart panel — every chart on
   // the dashboard hovers in lockstep so the operator reads 8
   // panels as one view.
   dashboardId: string;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // ID of the panel currently being dragged-over so we can render a
+  // visual drop indicator. Drag-source id rides on dataTransfer, no
+  // need to mirror it into state.
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
 
   // Bucket panels into row groups.
   type RowGroup = { rowPanel: Panel | null; key: string; panels: Panel[] };
@@ -345,16 +367,53 @@ function DashboardGrid({
                 marginTop: g.rowPanel ? 8 : 0,
               }}>
                 {g.panels.map(p => (
-                  <div key={p.id} style={{
-                    gridColumn: `span ${Math.max(1, Math.min(4, p.width))}`,
-                    background: 'var(--bg2)', border: '1px solid var(--border)',
-                    borderRadius: 6, padding: 10,
-                    position: 'relative',
-                  }}>
+                  <div key={p.id}
+                    draggable={editing}
+                    onDragStart={e => {
+                      if (!editing) return;
+                      e.dataTransfer.setData('text/panel-id', p.id);
+                      e.dataTransfer.effectAllowed = 'move';
+                    }}
+                    onDragOver={e => {
+                      if (!editing) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                      if (dropTarget !== p.id) setDropTarget(p.id);
+                    }}
+                    onDragLeave={() => {
+                      if (dropTarget === p.id) setDropTarget(null);
+                    }}
+                    onDrop={e => {
+                      if (!editing) return;
+                      e.preventDefault();
+                      const srcId = e.dataTransfer.getData('text/panel-id');
+                      setDropTarget(null);
+                      if (srcId && srcId !== p.id) onMovePanel(srcId, p.id);
+                    }}
+                    onDragEnd={() => setDropTarget(null)}
+                    style={{
+                      gridColumn: `span ${Math.max(1, Math.min(4, p.width))}`,
+                      background: 'var(--bg2)',
+                      border: dropTarget === p.id
+                        ? '1px dashed var(--accent)'
+                        : '1px solid var(--border)',
+                      borderRadius: 6, padding: 10,
+                      position: 'relative',
+                      cursor: editing ? 'grab' : 'default',
+                      opacity: 1,
+                      transition: 'border-color 0.1s',
+                    }}>
                     <div style={{
                       display: 'flex', alignItems: 'center', marginBottom: 6,
                       fontSize: 12, color: 'var(--text2)',
                     }}>
+                      {editing && (
+                        <span title="Drag to reorder"
+                          style={{
+                            color: 'var(--text3)', fontSize: 14, marginRight: 6,
+                            cursor: 'grab', userSelect: 'none',
+                          }}>⋮⋮</span>
+                      )}
                       <span style={{ fontWeight: 600, color: 'var(--text)' }}>{p.title}</span>
                       {editing && (
                         <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>

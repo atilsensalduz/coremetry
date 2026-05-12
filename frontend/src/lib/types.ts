@@ -764,7 +764,14 @@ export interface SpanMetricPanelConfig {
   dsl?: string;            // multi-line DSL (AND-joined)
   filters?: string;        // JSON FilterExpr[]
   step?: number;
+  // Visualization shape. Grafana-style: 'line' is the default,
+  // 'bar' / 'stacked-bar' for discrete buckets (good for counts
+  // per period), 'area' / 'stacked-area' for cumulative-style
+  // breakdown (e.g. % of time spent per category). Stacked
+  // variants only meaningful with a group-by.
+  viz?: PanelVizType;
 }
+export type PanelVizType = 'line' | 'bar' | 'stacked-bar' | 'area' | 'stacked-area';
 export interface StatPanelConfig {
   source: 'metric' | 'spanmetric';
   metric?: MetricPanelConfig;
