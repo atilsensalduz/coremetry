@@ -742,6 +742,27 @@ func (s *Store) migrate(ctx context.Context) error {
 	}
 	for _, q := range alters {
 		if err := s.execDDL(ctx, q); err != nil {
+			// Skip-index ALTERs against a Distributed engine return
+			// CH error 48 ("Alter of type 'ADD_INDEX' is not
+			// supported by storage Distributed"). That happens when
+			// the operator points Coremetry at a cluster but didn't
+			// set chstore.cluster_name, so adaptDDL can't rewrite
+			// to <table>_local ON CLUSTER. These indexes are pure
+			// query-time optimisations; missing them slows some
+			// scans but never breaks correctness, so we log and
+			// continue instead of crash-looping the pod. The
+			// operator can run them by hand against the per-shard
+			// local tables.
+			if isClusterUnsupportedAlter(err) {
+				log.Printf("[chstore] skip-index alter not supported on Distributed engine (config.clickhouse.cluster_name not set?). Skipping: %.80s", q)
+				continue
+			}
+			// Column ALTERs (auth_provider, runbook_url, etc.) on
+			// pre-existing tables that were created by an older
+			// version are idempotent via IF NOT EXISTS. A genuine
+			// failure here (DDL syntax error, permissions) still
+			// crashes — we only soften the specific Distributed
+			// limitation.
 			return fmt.Errorf("alter table: %w", err)
 		}
 	}

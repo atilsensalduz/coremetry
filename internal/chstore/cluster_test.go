@@ -85,6 +85,43 @@ func TestAdaptDDL_MV(t *testing.T) {
 	}
 }
 
+// TestIsClusterUnsupportedAlter — locks the exact substring we
+// recognise so a future code-gen change to the CH client error
+// format can't silently make the migration fatal again.
+//
+// Background: a multi-host CH deployment with externally-managed
+// Distributed schema (operator didn't set cluster_name in our
+// config) raises CH code 48 when our migration tries to add a
+// skip index to the Distributed engine. We soften that into a
+// warning — but only for that exact error.
+func TestIsClusterUnsupportedAlter(t *testing.T) {
+	cases := []struct {
+		err  string
+		want bool
+	}{
+		{"code: 48, message: Alter of type 'ADD_INDEX' is not supported by storage Distributed", true},
+		{"is not supported by storage Distributed", true},
+		// Unrelated DDL failures must still bubble up — we don't
+		// want to swallow real schema bugs.
+		{"code: 60, message: Table doesn't exist", false},
+		{"permission denied", false},
+		{"", false},
+	}
+	for _, c := range cases {
+		var e error
+		if c.err != "" {
+			e = errString(c.err)
+		}
+		if got := isClusterUnsupportedAlter(e); got != c.want {
+			t.Errorf("isClusterUnsupportedAlter(%q) = %v, want %v", c.err, got, c.want)
+		}
+	}
+}
+
+type errString string
+
+func (e errString) Error() string { return string(e) }
+
 // TestAdaptDDL_AlterTable: an ALTER hits the local table, no
 // Distributed wrapper needed.
 func TestAdaptDDL_AlterTable(t *testing.T) {

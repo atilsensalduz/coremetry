@@ -231,6 +231,23 @@ func (s *Store) execDDL(ctx context.Context, sql string) error {
 	return nil
 }
 
+// isClusterUnsupportedAlter recognises the ClickHouse error
+// signature for an ALTER that the Distributed engine refuses to
+// proxy. Callers softening this into a warning need a precise
+// match so we don't accidentally swallow unrelated DDL failures
+// (column type mismatch, permission denial, etc.).
+//
+// CH reports it as code 48 "NOT_IMPLEMENTED" with the literal
+// "is not supported by storage Distributed" tail — that string
+// is stable across at least 22.x → 24.x server versions.
+func isClusterUnsupportedAlter(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "is not supported by storage Distributed")
+}
+
 // identifyDDLTarget pulls the target table/view name out of a DDL
 // string. Returns (name, "table"|"altertable"|"mv") on a match,
 // ("", "") otherwise so the caller can pass through untouched.
