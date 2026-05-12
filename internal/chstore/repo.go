@@ -1152,7 +1152,10 @@ func (s *Store) GetTraces(ctx context.Context, f TraceFilter) ([]TraceRow, uint6
 		GROUP BY trace_id` + havingSQL + `
 		ORDER BY ` + sortCol + ` ` + order + `
 		LIMIT ? OFFSET ?
-		SETTINGS max_execution_time = 30`
+		SETTINGS
+		  max_execution_time = 60,
+		  optimize_read_in_order = 1,
+		  optimize_aggregation_in_order = 1`
 
 	// Argument order matches placeholder order in the SQL:
 	//   1. SELECT projections (extra attribute columns)

@@ -222,10 +222,21 @@ function TracesPageInner() {
     }).then(setAgg).catch(() => setAgg(null));
   }, [view, range, groupBy, groupAttr, aggSort, aggOrder, filter, advFilters]);
 
-  const apply = () => {
+  // apply commits the draft as the live filter. When called
+  // with `overrideService` the picked value overrides whatever
+  // draft.service currently holds — sidesteps the setState
+  // race when ServicePicker auto-commits after a datalist
+  // pick (its onChange + onEnter fire in adjacent microtasks
+  // before React flushes the draft update).
+  const apply = (overrideService?: string) => {
     const tid = draft.traceId.trim().toLowerCase();
     if (/^[0-9a-f]{32}$/.test(tid)) { navigate(`/trace?id=${tid}`); return; }
-    setPage(0); setFilter(draft);
+    const next = overrideService != null
+      ? { ...draft, service: overrideService }
+      : draft;
+    setPage(0);
+    if (overrideService != null) setDraft(next);
+    setFilter(next);
   };
   const reset = () => {
     const empty = {
@@ -326,16 +337,17 @@ function TracesPageInner() {
                 onClick={() => { setDraft({ ...draft, traceId: '' });
                                  setFilter({ ...filter, traceId: '' }); }}>✕</button>
             )}
-            <button className="tl-go" type="button" onClick={apply}>Go</button>
+            <button className="tl-go" type="button" onClick={() => apply()}>Go</button>
           </div>
         </div>
 
         {/* Filters (shared between views) */}
         <div className="controls">
           <ServicePicker value={draft.service} onChange={v => setDraft({ ...draft, service: v })}
-            placeholder="Service…" width={170} onEnter={apply} />
+            placeholder="Service…" width={170}
+            onEnter={(v) => apply(v)} />
           <Combobox value={draft.search} onChange={v => setDraft({ ...draft, search: v })}
-            options={operations} placeholder="Operation…" width={240} onEnter={apply} />
+            options={operations} placeholder="Operation…" width={240} onEnter={() => apply()} />
           <input placeholder="Min ms" value={draft.minMs} onChange={e => setDraft({ ...draft, minMs: e.target.value })}
             type="number" style={{ width: 72 }} />
           <input placeholder="Max ms" value={draft.maxMs} onChange={e => setDraft({ ...draft, maxMs: e.target.value })}
@@ -350,7 +362,7 @@ function TracesPageInner() {
             <input type="checkbox" checked={draft.rootOnly} onChange={e => setDraft({ ...draft, rootOnly: e.target.checked })} />
             Root traces
           </label>
-          <button onClick={apply}>Search</button>
+          <button onClick={() => apply()}>Search</button>
           <button className="sec" onClick={reset}>Reset</button>
         </div>
 

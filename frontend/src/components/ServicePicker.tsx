@@ -23,7 +23,17 @@ export function ServicePicker({
   onChange: (v: string) => void;
   placeholder?: string;
   width?: number | string;
-  onEnter?: () => void;
+  // onEnter fires when the operator either presses Enter or
+  // picks an option from the datalist. When triggered by a
+  // datalist pick the freshly-selected value is passed as the
+  // argument so the parent can commit without waiting for
+  // setState() to settle — the previous setTimeout-based
+  // commit raced React's state update on multi-step pages
+  // (Traces.tsx → draft → filter), leaving the actual fetch
+  // running with the prior service. Keyboard Enter passes
+  // undefined; the parent should read the latest input value
+  // from its own state.
+  onEnter?: (value?: string) => void;
 }) {
   const listId = useId();
   const [opts, setOpts] = useState<string[]>([]);
@@ -73,7 +83,11 @@ export function ServicePicker({
     const exact = optsRef.current.includes(next);
     const jumped = Math.abs(next.length - prev.length) > 1 || (next.length > 0 && prev === '');
     if (exact && jumped && onEnter) {
-      setTimeout(onEnter, 0);
+      // Pass the picked value through so the parent can
+      // commit immediately, sidestepping React's setState
+      // batching (parent's draft hasn't propagated yet when
+      // this fires in the next microtask).
+      setTimeout(() => onEnter(next), 0);
     }
   };
 
@@ -86,7 +100,7 @@ export function ServicePicker({
         value={value}
         placeholder={placeholder}
         onChange={e => handleChange(e.target.value)}
-        onKeyDown={e => e.key === 'Enter' && onEnter?.()}
+        onKeyDown={e => e.key === 'Enter' && onEnter?.(undefined)}
         autoComplete="off"
         spellCheck={false}
         title={
