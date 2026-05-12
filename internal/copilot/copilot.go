@@ -475,6 +475,40 @@ fix hint or first investigation step.
 
 Be terse and direct — the operator is debugging in real time.`
 
+// systemIncident — used when the operator hits "Explain" on an
+// incident detail or row. Incidents are higher-level than
+// problems: they bundle multiple firings + a timeline; the
+// model should reason about the WHOLE event rather than a
+// single rule firing.
+const systemIncident = `You are a senior SRE assistant inside an APM tool. The operator
+opened an Incident — a grouped event that bundles one or more
+related Problems + observations. Given the incident's title,
+service, severity, timeline summary, and any attached problems,
+explain in 3-5 bullets: (1) what's happening in plain language,
+(2) the most plausible blast radius (services / clusters /
+customers likely affected), (3) the first three coordination /
+investigation actions for the oncall, (4) a one-line "should this
+escalate to SEV-1?" call when severity warrants.
+
+Be terse — this lands on a pager call. No preamble, no headers.`
+
+// systemAnomaly — used on log-pattern / trace-op anomaly
+// events. Different shape than Problem (no rule fired; pattern
+// just exceeded baseline).
+const systemAnomaly = `You are a senior SRE assistant inside an APM tool. The operator
+opened an Anomaly — a pattern that started occurring more often
+than its baseline. The signal isn't a hard alert; it's a
+"something has changed" notice. Given the pattern, service, and
+ratio, explain in 3-4 bullets: (1) what this anomaly pattern
+typically indicates, (2) whether this kind of pattern is usually
+benign or actionable, (3) the first thing to look at to confirm
+intent vs incident, (4) one related metric/log query to run
+next.
+
+Be terse — operator triage context. No preamble.`
+
 func SystemPromptTrace() string     { return systemTrace }
 func SystemPromptProblem() string   { return systemProblem }
 func SystemPromptException() string { return systemException }
+func SystemPromptIncident() string  { return systemIncident }
+func SystemPromptAnomaly() string   { return systemAnomaly }

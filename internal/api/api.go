@@ -273,6 +273,8 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET    /api/copilot/config",            s.copilotConfig)
 	mux.HandleFunc("POST   /api/copilot/explain-trace/{id}", s.copilotExplainTrace)
 	mux.HandleFunc("POST   /api/copilot/explain-problem/{id}", s.copilotExplainProblem)
+	mux.HandleFunc("POST   /api/copilot/explain-incident/{id}", s.copilotExplainIncident)
+	mux.HandleFunc("POST   /api/copilot/explain-anomaly/{id}", s.copilotExplainAnomaly)
 
 	// ── Incident management ───────────────────────────────────────
 	mux.HandleFunc("GET    /api/incidents",                 s.listIncidents)
@@ -3745,6 +3747,121 @@ func (s *Server) copilotExplainProblem(w http.ResponseWriter, r *http.Request) {
 	out, err := s.copilot.Explain(r.Context(), copilot.SystemPromptProblem(), user)
 	if err != nil { writeErr(w, err); return }
 	writeJSON(w, map[string]string{"explanation": out})
+}
+
+// copilotExplainIncident fetches an Incident (plus its attached
+// problems for context) and asks the model for a SEV-grade
+// triage summary: what's happening, blast radius, first three
+// coordination actions, escalate-or-not call. Distinct from
+// explain-problem because incidents bundle multiple firings —
+// the LLM needs the wider scope to call escalation correctly.
+func (s *Server) copilotExplainIncident(w http.ResponseWriter, r *http.Request) {
+	if !s.copilot.Configured() {
+		http.Error(w, "AI copilot not configured", http.StatusServiceUnavailable)
+		return
+	}
+	id := r.PathValue("id")
+	inc, err := s.store.GetIncident(r.Context(), id)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if inc == nil {
+		http.Error(w, "incident not found", http.StatusNotFound)
+		return
+	}
+	// Pull attached problems so the prompt carries the actual
+	// signals that opened the incident, not just the title.
+	// Two-stage lookup: IncidentProblems returns IDs only;
+	// resolve full rows via a bounded ListProblems pass.
+	// Capped at 8 to keep the prompt size reasonable.
+	pIDs, _ := s.store.IncidentProblems(r.Context(), id)
+	wantIDs := map[string]bool{}
+	for i, pid := range pIDs {
+		if i >= 8 {
+			break
+		}
+		wantIDs[pid] = true
+	}
+	var probs []chstore.Problem
+	if len(wantIDs) > 0 {
+		all, _ := s.store.ListProblems(r.Context(), chstore.ProblemFilter{Limit: 2000})
+		for i := range all {
+			if wantIDs[all[i].ID] {
+				probs = append(probs, all[i])
+			}
+		}
+	}
+	var probLines string
+	for _, p := range probs {
+		probLines += fmt.Sprintf(
+			"  • [%s] %s — %s: value=%.2f threshold=%.2f\n",
+			strings.ToUpper(p.Severity), p.Service, p.RuleName, p.Value, p.Threshold)
+	}
+	user := fmt.Sprintf(
+		"Incident: %s\nService: %s\nSeverity: %s\nStatus: %s\nSummary: %s\nAttached problems (%d):\n%s",
+		inc.Title, inc.Service, inc.Severity, inc.Status, inc.Summary, len(probs), probLines,
+	)
+	out, err := s.copilot.Explain(r.Context(), copilot.SystemPromptIncident(), user)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, map[string]string{"explanation": out})
+}
+
+// copilotExplainAnomaly handles log-pattern / trace-op anomaly
+// rows. Different model prompt — anomalies are soft signals
+// ("something changed") so the response should help an
+// operator decide whether to act, not assume something is
+// broken.
+func (s *Server) copilotExplainAnomaly(w http.ResponseWriter, r *http.Request) {
+	if !s.copilot.Configured() {
+		http.Error(w, "AI copilot not configured", http.StatusServiceUnavailable)
+		return
+	}
+	id := r.PathValue("id")
+	// ListAnomalyEvents is bounded; for a single-id lookup we
+	// scan the recent window. Anomalies have short retention
+	// (30d) so the universe is small.
+	events, err := s.store.ListAnomalyEvents(r.Context(), chstore.ListAnomalyEventsFilter{
+		SinceNs: time.Now().Add(-30 * 24 * time.Hour).UnixNano(),
+		Limit:   2000,
+	})
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	var ev *chstore.AnomalyEvent
+	for i := range events {
+		if events[i].ID == id {
+			ev = &events[i]
+			break
+		}
+	}
+	if ev == nil {
+		http.Error(w, "anomaly not found", http.StatusNotFound)
+		return
+	}
+	user := fmt.Sprintf(
+		"Anomaly kind: %s\nPattern: %s\nService: %s\nPeak ratio: %.2fx baseline\nCurrent ratio: %.2fx\nCurrent count: %d\nSample: %s",
+		ev.Kind, ev.Pattern, ev.Service,
+		ev.PeakRatio, ev.CurrentRatio, ev.CurrentCount,
+		truncate(ev.Sample, 600),
+	)
+	out, err := s.copilot.Explain(r.Context(), copilot.SystemPromptAnomaly(), user)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, map[string]string{"explanation": out})
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }
 
 // ── Incident management ─────────────────────────────────────────────────────

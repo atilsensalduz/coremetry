@@ -453,6 +453,10 @@ export const api = {
     request<{ explanation: string }>(`/api/copilot/explain-trace/${id}`, { method: 'POST' }),
   copilotExplainProblem: (id: string) =>
     request<{ explanation: string }>(`/api/copilot/explain-problem/${id}`, { method: 'POST' }),
+  copilotExplainIncident: (id: string) =>
+    request<{ explanation: string }>(`/api/copilot/explain-incident/${id}`, { method: 'POST' }),
+  copilotExplainAnomaly: (id: string) =>
+    request<{ explanation: string }>(`/api/copilot/explain-anomaly/${id}`, { method: 'POST' }),
 
   // Public status page admin
   statusPageGetConfig:    () => get<StatusPageConfig>(`/api/status-page/config`),

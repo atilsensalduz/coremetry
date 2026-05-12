@@ -223,6 +223,19 @@ function Inner() {
             onEditPanel={setEditingPanel}
             onDeletePanel={deletePanel}
             onMovePanel={movePanel}
+            onZoom={(fromUnixSec, toUnixSec) => {
+              // Dynatrace-style click-drag-to-zoom: dragging a
+              // horizontal range on any panel updates the
+              // dashboard's time range so every panel re-fetches
+              // for the new window. Without this the chart
+              // visually zoomed but the metric queries still
+              // covered the full original window — confusing.
+              setRange({
+                preset: 'custom',
+                fromMs: Math.round(fromUnixSec * 1000),
+                toMs: Math.round(toUnixSec * 1000),
+              });
+            }}
             dashboardId={id} />
         )}
 
@@ -295,7 +308,7 @@ function normalizePanels(raw: unknown): Panel[] {
 // not persisted across reloads (matches Grafana's default behaviour;
 // add a localStorage layer if users start asking for it).
 function DashboardGrid({
-  panels, range, vars, editing, onEditPanel, onDeletePanel, onMovePanel, dashboardId,
+  panels, range, vars, editing, onEditPanel, onDeletePanel, onMovePanel, onZoom, dashboardId,
 }: {
   panels: Panel[];
   range: TimeRange;
@@ -304,6 +317,11 @@ function DashboardGrid({
   onEditPanel: (id: string) => void;
   onDeletePanel: (id: string) => void;
   onMovePanel: (srcId: string, targetId: string) => void;
+  // onZoom propagates a chart's drag-to-zoom selection up to
+  // the dashboard so the rest of the panels re-fetch for the
+  // new range. Receives unix-seconds bounds, parent owns the
+  // TimeRange state.
+  onZoom?: (fromUnixSec: number, toUnixSec: number) => void;
   // Cursor-sync key passed to every chart panel — every chart on
   // the dashboard hovers in lockstep so the operator reads 8
   // panels as one view.
@@ -425,7 +443,8 @@ function DashboardGrid({
                       )}
                     </div>
                     <PanelRenderer panel={p} range={range} vars={vars}
-                                   syncKey={`dashboard:${dashboardId}`} />
+                                   syncKey={`dashboard:${dashboardId}`}
+                                   onZoom={onZoom} />
                   </div>
                 ))}
               </div>

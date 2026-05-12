@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { useAuth } from '@/components/AuthProvider';
+import { CopilotExplain } from '@/components/CopilotExplain';
 import {
   useIncident, useIncidentEvents, useIncidentProblems, keys,
 } from '@/lib/queries';
@@ -91,6 +92,13 @@ function Inner() {
             <span style={{ color: 'var(--text3)', fontSize: 12 }}>· {inc.assignee}</span>
           )}
           <span style={{ marginLeft: 'auto' }} />
+          {/* Davis-style triage summary on demand — feeds the
+              incident title + service + attached problems to
+              the LLM, returns "what's happening / blast
+              radius / first three actions / escalate?" in
+              one bullet block. Self-hides when the copilot
+              isn't configured. */}
+          <CopilotExplain kind="incident" id={inc.id} />
           {isAdmin && inc.status === 'open' && (
             <button onClick={ack}>Acknowledge</button>
           )}

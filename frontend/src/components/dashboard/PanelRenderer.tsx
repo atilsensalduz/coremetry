@@ -13,7 +13,7 @@ import { Spinner } from '../Spinner';
 // PanelRenderer dispatches on panel.type. Self-contained — fetches its
 // own data, re-fetches when `range` changes. Errors are surfaced inline
 // instead of crashing the whole dashboard.
-export function PanelRenderer({ panel, range, vars, syncKey }: {
+export function PanelRenderer({ panel, range, vars, syncKey, onZoom }: {
   panel: Panel;
   range: TimeRange;
   // Resolved values for the dashboard's variables (Grafana-style
@@ -26,12 +26,17 @@ export function PanelRenderer({ panel, range, vars, syncKey }: {
   // on the page hovers in lockstep — Datadog / Grafana dashboard
   // pattern that turns 8 disconnected charts into one view.
   syncKey?: string;
+  // onZoom — drag-to-zoom callback from the underlying chart.
+  // Parent (Dashboard.tsx) re-points the global TimeRange so
+  // every panel re-fetches for the new window. Receives unix
+  // seconds.
+  onZoom?: (fromUnixSec: number, toUnixSec: number) => void;
 }) {
   switch (panel.type) {
     case 'metric':
-      return <MetricPanel cfg={applyVarsToMetric(panel.config as MetricPanelConfig, vars)} range={range} syncKey={syncKey} />;
+      return <MetricPanel cfg={applyVarsToMetric(panel.config as MetricPanelConfig, vars)} range={range} syncKey={syncKey} onZoom={onZoom} />;
     case 'spanmetric':
-      return <SpanMetricPanel cfg={applyVarsToSpan(panel.config as SpanMetricPanelConfig, vars)} range={range} syncKey={syncKey} />;
+      return <SpanMetricPanel cfg={applyVarsToSpan(panel.config as SpanMetricPanelConfig, vars)} range={range} syncKey={syncKey} onZoom={onZoom} />;
     case 'stat':
       return <StatPanel cfg={applyVarsToStat(panel.config as StatPanelConfig, vars)} range={range} />;
     case 'markdown':
@@ -85,7 +90,10 @@ function applyVarsToStat(cfg: StatPanelConfig, vars?: Record<string, string>): S
 
 // ── Metric line chart ───────────────────────────────────────────────────────
 
-function MetricPanel({ cfg, range, syncKey }: { cfg: MetricPanelConfig; range: TimeRange; syncKey?: string }) {
+function MetricPanel({ cfg, range, syncKey, onZoom }: {
+  cfg: MetricPanelConfig; range: TimeRange; syncKey?: string;
+  onZoom?: (fromUnixSec: number, toUnixSec: number) => void;
+}) {
   const [series, setSeries] = useState<SpanMetricSeries[] | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
 
@@ -102,12 +110,15 @@ function MetricPanel({ cfg, range, syncKey }: { cfg: MetricPanelConfig; range: T
   if (error) return <PanelError msg={error} />;
   if (series === undefined) return <PanelLoading />;
   if (!series || series.length === 0) return <PanelEmpty />;
-  return <MultiLineChart series={series} height={280} syncKey={syncKey} />;
+  return <MultiLineChart series={series} height={280} syncKey={syncKey} onZoom={onZoom} />;
 }
 
 // ── Span metric line chart ──────────────────────────────────────────────────
 
-function SpanMetricPanel({ cfg, range, syncKey }: { cfg: SpanMetricPanelConfig; range: TimeRange; syncKey?: string }) {
+function SpanMetricPanel({ cfg, range, syncKey, onZoom }: {
+  cfg: SpanMetricPanelConfig; range: TimeRange; syncKey?: string;
+  onZoom?: (fromUnixSec: number, toUnixSec: number) => void;
+}) {
   const [series, setSeries] = useState<SpanMetricSeries[] | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
 
@@ -130,7 +141,7 @@ function SpanMetricPanel({ cfg, range, syncKey }: { cfg: SpanMetricPanelConfig; 
   // through the small SVG-based DashboardViz component.
   const viz = cfg.viz ?? 'line';
   if (viz === 'line') {
-    return <MultiLineChart series={series} height={280} syncKey={syncKey} />;
+    return <MultiLineChart series={series} height={280} syncKey={syncKey} onZoom={onZoom} />;
   }
   return <DashboardViz series={series} viz={viz} height={280} />;
 }

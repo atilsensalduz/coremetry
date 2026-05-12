@@ -7,11 +7,16 @@ import { IconSparkles } from './icons';
 // reply inline beneath the button. Self-hides when the copilot is
 // not configured (no API key on the server).
 //
-// Two subject types share this component to avoid a button per call site:
-//   - kind="trace"   → POST /api/copilot/explain-trace/{id}
-//   - kind="problem" → POST /api/copilot/explain-problem/{id}
+// Four subject types share this component to avoid a button per call site:
+//   - kind="trace"    → POST /api/copilot/explain-trace/{id}
+//   - kind="problem"  → POST /api/copilot/explain-problem/{id}
+//   - kind="incident" → POST /api/copilot/explain-incident/{id}
+//   - kind="anomaly"  → POST /api/copilot/explain-anomaly/{id}
+// Each endpoint uses a kind-specific system prompt so the model's
+// answers match the operator's question (single rule firing vs
+// grouped event vs soft pattern shift).
 export function CopilotExplain({ kind, id, label }: {
-  kind: 'trace' | 'problem';
+  kind: 'trace' | 'problem' | 'incident' | 'anomaly';
   id: string;
   label?: React.ReactNode;
 }) {
@@ -29,9 +34,10 @@ export function CopilotExplain({ kind, id, label }: {
   const run = async () => {
     setBusy(true); setError(null); setText(null);
     try {
-      const r = kind === 'trace'
-        ? await api.copilotExplainTrace(id)
-        : await api.copilotExplainProblem(id);
+      const r = kind === 'trace'    ? await api.copilotExplainTrace(id)
+              : kind === 'problem'  ? await api.copilotExplainProblem(id)
+              : kind === 'incident' ? await api.copilotExplainIncident(id)
+              :                       await api.copilotExplainAnomaly(id);
       setText(r.explanation);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Explain failed');

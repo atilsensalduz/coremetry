@@ -13,6 +13,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, Badge, Row } from '@/components/ui';
 import { ClusterChips } from '@/components/ClusterChips';
+import { CopilotExplain } from '@/components/CopilotExplain';
 import {
   useLogPatternAnomalies, useTraceOpAnomalies, useMetricAnomalies,
   useAnomalyEvents, useAnomalySilences,
@@ -265,6 +266,7 @@ function HistorySection({ items }: { items: AnomalyEvent[] | undefined }) {
             <th className="num">Peak ×</th>
             <th>Started</th>
             <th>Last seen</th>
+            <th style={{ width: 70 }}>AI</th>
           </tr></thead>
           <tbody>
             {items.map(e => (
@@ -288,6 +290,9 @@ function HistorySection({ items }: { items: AnomalyEvent[] | undefined }) {
                 <td className="num mono">{e.peakRatio.toFixed(1)}</td>
                 <td className="mono" style={{ fontSize: 11, color: 'var(--text3)' }}>{tsLong(e.startedAt)}</td>
                 <td className="mono" style={{ fontSize: 11 }}>{tsLong(e.lastSeen)}</td>
+                <td>
+                  <CopilotExplain kind="anomaly" id={e.id} label="AI" />
+                </td>
               </tr>
             ))}
           </tbody>
