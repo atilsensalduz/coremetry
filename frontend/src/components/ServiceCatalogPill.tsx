@@ -67,14 +67,10 @@ export function ServiceCatalogPill({ service }: { service: string }) {
       fontSize: 13, color: 'var(--text2)',
     }}>
       {meta.ownerTeam && (
-        <Pill title="Owner team">
-          <Label>owner</Label> {meta.ownerTeam}
-        </Pill>
+        <TeamPill label="owner" team={meta.ownerTeam} title="Owner team — click to see members" />
       )}
       {meta.sreTeam && (
-        <Pill title="SRE team">
-          <Label>sre</Label> {meta.sreTeam}
-        </Pill>
+        <TeamPill label="sre" team={meta.sreTeam} title="SRE team — click to see members" />
       )}
       {meta.oncallUrl && (
         <Link href={meta.oncallUrl} title="Open oncall page">oncall</Link>
@@ -292,5 +288,107 @@ function CustomLinksEditor({ links, onChange }: {
         + Add link
       </button>
     </div>
+  );
+}
+
+// TeamPill — a team chip that opens a popover listing the
+// Coremetry users whose `team` field matches. Bridges the
+// service catalog's free-text team label to the admin-curated
+// user.team values so a service owner can be reached in one
+// click. Lazily fetches the member list only when the popover
+// opens.
+function TeamPill({ label, team, title }: {
+  label: string;
+  team: string;
+  title: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [members, setMembers] = useState<
+    { id: string; email: string; role: string }[] | null | undefined
+  >(undefined);
+
+  useEffect(() => {
+    if (!open) return;
+    if (members !== undefined) return;
+    api.usersByTeam(team)
+      .then(r => setMembers(r ?? []))
+      .catch(() => setMembers(null));
+  }, [open, team, members]);
+
+  // Close on outside click. Cheap document listener — only
+  // mounted while the popover is open.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (!t.closest?.(`[data-team-pill="${team}"]`)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open, team]);
+
+  return (
+    <span data-team-pill={team} style={{ position: 'relative', display: 'inline-block' }}>
+      <button type="button" onClick={() => setOpen(o => !o)}
+        title={title}
+        style={{
+          all: 'unset', cursor: 'pointer',
+          padding: '2px 8px', borderRadius: 999,
+          background: 'var(--bg3)', border: '1px solid var(--border)',
+          fontSize: 12, lineHeight: 1.4,
+        }}>
+        <span style={{
+          fontSize: 10, textTransform: 'uppercase', color: 'var(--text3)',
+          letterSpacing: 0.5, marginRight: 4,
+        }}>{label}</span>
+        {team}
+        <span style={{ color: 'var(--text3)', marginLeft: 4 }}>▾</span>
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', top: '110%', left: 0, zIndex: 50,
+          minWidth: 220, maxWidth: 320,
+          background: 'var(--bg1)', border: '1px solid var(--border)',
+          borderRadius: 6, padding: 8, boxShadow: '0 6px 18px rgba(0,0,0,0.35)',
+        }}>
+          <div style={{
+            fontSize: 10, color: 'var(--text3)',
+            textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6,
+          }}>{label} · {team}</div>
+          {members === undefined && (
+            <div style={{ fontSize: 12, color: 'var(--text3)' }}>Loading…</div>
+          )}
+          {members === null && (
+            <div style={{ fontSize: 12, color: 'var(--err)' }}>Lookup failed.</div>
+          )}
+          {members && members.length === 0 && (
+            <div style={{ fontSize: 12, color: 'var(--text3)', fontStyle: 'italic' }}>
+              No Coremetry users tagged with team "{team}". Admin → Users to
+              assign team labels.
+            </div>
+          )}
+          {members && members.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {members.map(m => (
+                <a key={m.id} href={`mailto:${m.email}`}
+                  style={{
+                    fontSize: 12, color: 'var(--text)', textDecoration: 'none',
+                    display: 'flex', justifyContent: 'space-between',
+                    padding: '3px 6px', borderRadius: 3,
+                    background: 'var(--bg2)',
+                  }}
+                  title={`Email ${m.email}`}>
+                  <span style={{ fontFamily: 'ui-monospace, monospace' }}>{m.email}</span>
+                  <span style={{
+                    fontSize: 9, color: 'var(--text3)',
+                    textTransform: 'uppercase', letterSpacing: 0.4,
+                  }}>{m.role}</span>
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </span>
   );
 }

@@ -345,6 +345,12 @@ func (s *Server) Start() error {
 
 	// User management (admin only)
 	mux.HandleFunc("GET    /api/users",                  auth.RequireRole(auth.RoleAdmin, s.listUsers))
+	// Per-team membership lookup — readable by any
+	// authenticated user (not admin-only). Drives the
+	// owner-team / SRE-team chip popover on /service?name=…
+	// Returns email + role + team only; password hash is
+	// never serialised regardless.
+	mux.HandleFunc("GET    /api/users/by-team",          s.listUsersByTeam)
 	mux.HandleFunc("POST   /api/users",                  auth.RequireRole(auth.RoleAdmin, s.createUser))
 	mux.HandleFunc("DELETE /api/users/{id}",             auth.RequireRole(auth.RoleAdmin, s.deleteUser))
 	mux.HandleFunc("POST   /api/users/{id}/password",    auth.RequireRole(auth.RoleAdmin, s.resetUserPassword))
@@ -3022,6 +3028,35 @@ func (s *Server) testChannel(w http.ResponseWriter, r *http.Request) {
 }
 
 // ── User management (admin only) ─────────────────────────────────────────────
+
+// listUsersByTeam returns the active Coremetry users whose
+// team label matches ?team=. Powers the owner-team / SRE-team
+// chip popover on /service?name=… so an operator can see who
+// to ping without leaving the page. Read-only directory data
+// (email + role + team) — never includes hashes or auth
+// provider details.
+func (s *Server) listUsersByTeam(w http.ResponseWriter, r *http.Request) {
+	team := strings.TrimSpace(r.URL.Query().Get("team"))
+	if team == "" {
+		writeJSON(w, []map[string]any{})
+		return
+	}
+	users, err := s.store.ListUsersByTeam(r.Context(), team)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	out := make([]map[string]any, 0, len(users))
+	for _, u := range users {
+		out = append(out, map[string]any{
+			"id":    u.ID,
+			"email": u.Email,
+			"role":  u.Role,
+			"team":  u.Team,
+		})
+	}
+	writeJSON(w, out)
+}
 
 func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := s.store.ListUsers(r.Context())

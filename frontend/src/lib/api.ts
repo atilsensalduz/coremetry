@@ -725,6 +725,14 @@ export const api = {
 
   // ── User management (admin) ──────────────────────────────────────────────
   listUsers: () => get<UserRow[] | null>('/api/users'),
+  // List active users whose team matches. Returns a slim
+  // directory shape (no password hash, no auth provider) and
+  // is open to any authenticated user (not admin-gated).
+  // Used by the team chips on the Service detail page so an
+  // operator can see who's on the owning team in a popover.
+  usersByTeam: (team: string) =>
+    get<{ id: string; email: string; role: string; team: string }[] | null>(
+      `/api/users/by-team?team=${encodeURIComponent(team)}`),
   createUser: (email: string, password: string, role: Role, team?: string) =>
     request<AuthUser>('/api/users', {
       method: 'POST',

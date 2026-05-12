@@ -116,6 +116,39 @@ func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
 	return out, rows.Err()
 }
 
+// ListUsersByTeam returns every active user whose team field
+// matches the requested label (case-insensitive). Drives the
+// /service?name=… page's "owner team members" popover so an
+// operator viewing a service can see who to ping. Bounded list
+// (users < 10k in any realistic install) so no LIMIT; ordering
+// by email keeps the popover deterministic across refreshes.
+func (s *Store) ListUsersByTeam(ctx context.Context, team string) ([]User, error) {
+	if team == "" {
+		return nil, nil
+	}
+	rows, err := s.conn.Query(ctx, `
+		SELECT id, email, password_hash, role, disabled, auth_provider, team,
+		       toUnixTimestamp64Nano(created_at)
+		FROM users FINAL
+		WHERE disabled = 0 AND lower(team) = lower(?)
+		ORDER BY email`, team)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []User
+	for rows.Next() {
+		var u User
+		var disabled uint8
+		if err := rows.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &disabled, &u.AuthProvider, &u.Team, &u.CreatedAt); err != nil {
+			return nil, err
+		}
+		u.Disabled = disabled != 0
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
 // CountAdmins is used to reject the "disable / demote the last admin"
 // case before it can lock everyone out.
 func (s *Store) CountAdmins(ctx context.Context) (int64, error) {
