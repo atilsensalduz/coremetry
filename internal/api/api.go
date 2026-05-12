@@ -325,6 +325,14 @@ func (s *Server) Start() error {
 	mux.HandleFunc("PUT    /api/channels/{id}",       auth.RequireRole(auth.RoleAdmin, s.updateChannel))
 	mux.HandleFunc("DELETE /api/channels/{id}",       auth.RequireRole(auth.RoleAdmin, s.deleteChannel))
 	mux.HandleFunc("POST   /api/channels/{id}/test",  auth.RequireRole(auth.RoleAdmin, s.testChannel))
+	// Zoom-specific helper: list channels the configured S2S
+	// OAuth app can see, so admins pick a Channel ID from a
+	// searchable list instead of pasting JIDs by hand. POST
+	// because we need the un-redacted client secret in the body
+	// for un-saved configurations (and we don't want secrets in
+	// the URL query string).
+	mux.HandleFunc("POST   /api/channels/zoom/list-channels",
+		auth.RequireRole(auth.RoleAdmin, s.listZoomChannels))
 	mux.HandleFunc("GET    /api/settings/sampling",   auth.RequireRole(auth.RoleAdmin, s.getSamplingSettings))
 	mux.HandleFunc("PUT    /api/settings/sampling",   auth.RequireRole(auth.RoleAdmin, s.putSamplingSettings))
 
@@ -2803,6 +2811,106 @@ func (s *Server) deleteChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+// listZoomChannels powers the Settings page's "List my channels"
+// helper. Body shape mirrors what the form already collects:
+//   - inline credentials (accountId / clientId / clientSecret /
+//     optional oauthBaseURL / apiBaseURL) for an un-saved
+//     channel the admin is still configuring, OR
+//   - channelId of an already-saved Zoom Chat channel — we
+//     read its stored secrets server-side so the admin doesn't
+//     need to re-type the redacted client_secret.
+//
+// Walks Zoom's pagination up to 1000 channels and returns the
+// full list (id / jid / name / type). Frontend renders a
+// searchable picker on top. Read-only operation; no state
+// changes regardless of which path executes.
+func (s *Server) listZoomChannels(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		// "Edit existing channel" path.
+		ChannelID string `json:"existingChannelId,omitempty"`
+		// "Configuring new channel" path — inline credentials.
+		AccountID    string `json:"accountId,omitempty"`
+		ClientID     string `json:"clientId,omitempty"`
+		ClientSecret string `json:"clientSecret,omitempty"`
+		OAuthBaseURL string `json:"oauthBaseUrl,omitempty"`
+		APIBaseURL   string `json:"apiBaseUrl,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, `{"error":"invalid body"}`, http.StatusBadRequest)
+		return
+	}
+
+	accID, cliID, cliSec := body.AccountID, body.ClientID, body.ClientSecret
+	oauthBase, apiBase := body.OAuthBaseURL, body.APIBaseURL
+
+	// Existing-channel path: look up stored config so the admin
+	// doesn't have to re-type the redacted clientSecret.
+	if body.ChannelID != "" {
+		c, err := s.store.GetChannel(r.Context(), body.ChannelID)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		if c == nil || c.Type != "zoomchat" {
+			http.Error(w, `{"error":"zoom channel not found"}`, http.StatusNotFound)
+			return
+		}
+		var cfg struct {
+			AccountID    string `json:"accountId"`
+			ClientID     string `json:"clientId"`
+			ClientSecret string `json:"clientSecret"`
+			OAuthBaseURL string `json:"oauthBaseUrl"`
+			APIBaseURL   string `json:"apiBaseUrl"`
+		}
+		if err := json.Unmarshal(c.Config, &cfg); err == nil {
+			if accID == "" {
+				accID = cfg.AccountID
+			}
+			if cliID == "" {
+				cliID = cfg.ClientID
+			}
+			if cliSec == "" {
+				cliSec = cfg.ClientSecret
+			}
+			if oauthBase == "" {
+				oauthBase = cfg.OAuthBaseURL
+			}
+			if apiBase == "" {
+				apiBase = cfg.APIBaseURL
+			}
+		}
+	}
+
+	if accID == "" || cliID == "" || cliSec == "" {
+		http.Error(w, `{"error":"accountId, clientId and clientSecret required (or pass existingChannelId to reuse a saved channel's credentials)"}`, http.StatusBadRequest)
+		return
+	}
+
+	// Cap wall-clock so an unresponsive Zoom doesn't hang the
+	// admin's request — the picker can show a clean timeout
+	// message and the admin can retry.
+	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+	defer cancel()
+	channels, err := s.notify.ListZoomChannels(ctx, accID, cliID, cliSec, oauthBase, apiBase)
+	if err != nil {
+		// Even on error we may have a partial list (page cap or
+		// late-page failure). Return both so the UI can render
+		// what we have alongside the warning.
+		http.Error(w, fmt.Sprintf(`{"error":%q,"channels":%s}`,
+			err.Error(), mustMarshal(channels)), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, map[string]any{"channels": channels})
+}
+
+func mustMarshal(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "[]"
+	}
+	return string(b)
 }
 
 func (s *Server) testChannel(w http.ResponseWriter, r *http.Request) {

@@ -81,6 +81,12 @@ export interface DBInstance {
   avgDurationMs: number;
   p99DurationMs: number;
   callers: string[];
+  // Source: empty / 'spans' = derived from application traffic
+  // (the default). 'receiver' = discovered via an OpenTelemetry
+  // database receiver (e.g. oracledb) with no application spans
+  // yet — RED stats are zero, drill-down opens the receiver
+  // panel directly.
+  source?: 'spans' | 'receiver';
 }
 
 // DBCallerBreakdown — one row of the per-(service, pod)
@@ -145,7 +151,11 @@ export interface MessagingDetail {
 // "demo data" badge.
 export interface OracleMetrics {
   instance: string;
-  synthetic: boolean;
+  // synthetic: previously flagged demo fallback. Removed in
+  // v0.5.8 — backend now returns zeros (and status=down) when
+  // the receiver isn't shipping. Field kept optional for one
+  // release for backwards compat with cached responses.
+  synthetic?: boolean;
   windowSeconds: number;
   status: 'up' | 'down';
   sessions:  { usage: number; limit: number; active: number; inactive: number };

@@ -54,6 +54,7 @@ export default function DatabasesPage() {
               avgDurationMs: d.avgDurationMs,
               p99DurationMs: d.p99DurationMs,
               callers: d.callers ?? [],
+              source: d.source,
             }))}
             kind="db"
             range={range} />

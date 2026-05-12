@@ -38,6 +38,10 @@ export interface DepRow {
   avgDurationMs: number;
   p99DurationMs: number;
   callers: string[];
+  // source: where the row came from. 'receiver' rows are
+  // surfaced with a badge and zero RED stats — the drill-down
+  // panel (e.g. OracleDB receiver) is the actionable surface.
+  source?: 'spans' | 'receiver';
 }
 
 type SortKey = 'system' | 'cluster' | 'name' | 'spanCount' | 'errorRate' | 'avg' | 'p99';
@@ -207,6 +211,18 @@ export function DependenciesTable({
                     </td>
                     <td>
                       <SystemBadge system={r.system} kind={kind} />
+                      {r.source === 'receiver' && (
+                        <span title="Discovered via OpenTelemetry database receiver (oracledb / postgres / mysql / …). No application spans yet — drill down to see receiver metrics directly."
+                              style={{
+                                marginLeft: 6, fontSize: 9, padding: '1px 6px',
+                                borderRadius: 3, fontWeight: 600,
+                                background: 'rgba(56,139,253,0.15)',
+                                color: 'var(--accent2)',
+                                fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+                                textTransform: 'uppercase', letterSpacing: '.5px',
+                                verticalAlign: 'middle',
+                              }}>via receiver</span>
+                      )}
                     </td>
                     {hasClusterCol && (
                       <td style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text2)' }}>

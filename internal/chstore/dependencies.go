@@ -25,6 +25,13 @@ type DBInstance struct {
 	AvgMs      float64  `json:"avgDurationMs"`
 	P99Ms      float64  `json:"p99DurationMs"`
 	Callers    []string `json:"callers"`    // top-5 calling services
+	// Source telegraphs the data origin. Empty / "spans" =
+	// span-derived (the historical default). "receiver" = the
+	// row was discovered via the OpenTelemetry oracledb (or
+	// similar) receiver and has no application traffic, so the
+	// RED stats are zero and the click-through to the
+	// receiver-specific panel is the actionable surface.
+	Source     DBSource `json:"source,omitempty"`
 }
 
 // MessagingInstance is the parallel structure for /messaging —
@@ -396,6 +403,21 @@ func argIfNeeded(predicate string, arg string) []any {
 //
 // Top-5 callers per row come from a paired groupArray + LIMIT
 // in a subquery — single query trip, no per-row fan-out.
+// DBSource is the data-origin tag on a DBInstance. We surface it
+// to the operator so a row whose stats come from receiver-only
+// metrics (no application spans yet) is visibly distinct from a
+// row backed by real application traffic. Pre-v0.5.8 the
+// /databases list was span-only; some Oracle deployments are
+// monitored via the OpenTelemetry oracledb receiver but never
+// touched by an instrumented service — they'd vanish entirely
+// from the page despite having rich panel data.
+type DBSource string
+
+const (
+	DBSourceSpans    DBSource = ""         // default — derived from spans (back-compat)
+	DBSourceReceiver DBSource = "receiver" // from oracledb.* metric_points only
+)
+
 func (s *Store) GetDatabases(ctx context.Context, from, to time.Time) ([]DBInstance, error) {
 	if from.IsZero() {
 		from = time.Now().Add(-1 * time.Hour)
@@ -483,6 +505,78 @@ func (s *Store) GetDatabases(ctx context.Context, from, to time.Time) ([]DBInsta
 		if len(out[i].Callers) < 5 && svc != "" {
 			out[i].Callers = append(out[i].Callers, svc)
 		}
+	}
+
+	// OracleDB receiver discovery — pull every distinct Oracle
+	// instance that emitted oracledb.* metric_points in the window
+	// but doesn't already have a span-derived row. These appear
+	// with Source="receiver" and zero RED stats; the operator
+	// clicks through to the rich OracleDB panel (sessions /
+	// wait-classes / tablespaces) which reads the same metrics.
+	// Without this, Oracle DBs monitored purely via the receiver
+	// (a common setup — the DBA-team manages monitoring; the app
+	// team doesn't have a span SDK in place) wouldn't appear on
+	// /databases at all.
+	// Build an "already covered" predicate from the span-derived
+	// keys we just inserted, so the receiver pass can skip Oracle
+	// instances that already appear above.
+	covered := func(system, instance string) bool {
+		_, ok := idxByKey[key{system, instance}]
+		return ok
+	}
+	if receiverOnly, err := s.discoverOracleReceiverInstances(ctx, from, to, covered); err == nil {
+		out = append(out, receiverOnly...)
+	}
+	return out, nil
+}
+
+// discoverOracleReceiverInstances returns one DBInstance per
+// distinct Oracle instance seen in oracledb.* metric_points in
+// the window that isn't already covered by a span-derived row.
+// The instance identifier can ride on either an `instance` /
+// `oracledb.instance.name` attr (newer receivers) or a
+// `service.name` resource key (older setups), so we coalesce
+// across both. Empty / `(unknown)` rows are dropped — a missing
+// instance label gives the operator no actionable handle.
+func (s *Store) discoverOracleReceiverInstances(
+	ctx context.Context, from, to time.Time,
+	alreadyCovered func(system, instance string) bool,
+) ([]DBInstance, error) {
+	q := `
+		SELECT coalesce(
+			nullIf(attr_values[indexOf(attr_keys, 'oracledb.instance.name')], ''),
+			nullIf(attr_values[indexOf(attr_keys, 'instance')], ''),
+			nullIf(res_values[indexOf(res_keys, 'service.name')], ''),
+			''
+		) AS inst
+		FROM metric_points
+		WHERE time >= ? AND time <= ?
+		  AND startsWith(metric, 'oracledb.')
+		GROUP BY inst
+		HAVING inst != ''
+		ORDER BY inst
+		LIMIT 100
+		SETTINGS max_execution_time = 8`
+	rows, err := s.conn.Query(ctx, q, from, to)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []DBInstance{}
+	for rows.Next() {
+		var inst string
+		if err := rows.Scan(&inst); err != nil {
+			continue
+		}
+		if alreadyCovered != nil && alreadyCovered("oracle", inst) {
+			continue
+		}
+		out = append(out, DBInstance{
+			System:   "oracle",
+			Instance: inst,
+			Source:   DBSourceReceiver,
+			Callers:  []string{},
+		})
 	}
 	return out, nil
 }

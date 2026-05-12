@@ -2,8 +2,6 @@ package chstore
 
 import (
 	"context"
-	"hash/fnv"
-	"math"
 	"strings"
 	"time"
 )
@@ -257,13 +255,14 @@ func (s *Store) GetOracleMetrics(
 		out.Tablespaces = tspaces
 	}
 
-	// Detect "no real data" — if every numeric field is zero
-	// AND tablespace list is empty, the receiver isn't wired
-	// up. Fall back to synthetic.
-	if isOracleEmpty(out) {
-		fillSynthetic(out, instance)
-		out.Synthetic = true
-	}
+	// No real-data fallback: when the operator hasn't wired the
+	// oracledb receiver, every field stays zero and the panel
+	// renders an empty state instead of fake numbers. Earlier
+	// versions filled synthetic placeholders — removed at
+	// operator request: a demo-data panel was misleading more
+	// often than it was helpful (operators read it as "the
+	// integration is working but the DB is quiet" when it
+	// really meant "the receiver isn't talking yet").
 
 	// Derive cache hit % from logical / physical reads. Never
 	// trust user-typed math: if logical is zero, hit % is
@@ -425,116 +424,8 @@ func oracleInstanceClause(withInstance bool) string {
 	)`
 }
 
-func isOracleEmpty(o *OracleMetrics) bool {
-	if len(o.Tablespaces) > 0 {
-		return false
-	}
-	return o.Sessions.Usage == 0 && o.Sessions.Limit == 0 &&
-		o.Processes.Usage == 0 && o.PGAMemoryBytes == 0 &&
-		o.LogicalReadsPS == 0 && o.PhysicalReadsPS == 0 &&
-		o.ExecutionsPS == 0 && o.UserCommitsPS == 0 &&
-		o.TransactionsPS == 0
-}
-
-// fillSynthetic populates o with plausible, deterministic
-// values seeded from the instance name. Same instance string
-// produces the same numbers across reloads — the operator's
-// eye gets a stable preview rather than randomness that makes
-// the UI look broken.
-//
-// Values are calibrated to read like a moderately busy OLTP
-// Oracle instance (a couple hundred sessions, ~30k logical
-// reads/sec, ~1% physical/logical ratio).
-func fillSynthetic(o *OracleMetrics, instance string) {
-	seed := oracleSeed(instance)
-	rnd := func(min, max float64) float64 {
-		seed = seed*1103515245 + 12345
-		f := float64(seed&0x7fffffff) / float64(0x7fffffff)
-		return min + f*(max-min)
-	}
-	sessionsLimit := math.Round(rnd(150, 400))
-	processesLimit := math.Round(rnd(200, 500))
-	usage := math.Round(sessionsLimit * rnd(0.25, 0.75))
-	active := math.Round(usage * rnd(0.10, 0.45)) // 10-45% actively running
-	o.Sessions = OracleSessions{
-		Usage:    usage,
-		Limit:    sessionsLimit,
-		Active:   active,
-		Inactive: usage - active,
-	}
-	o.Processes = OracleGaugeWithCap{
-		Usage: math.Round(processesLimit * rnd(0.30, 0.65)),
-		Limit: processesLimit,
-	}
-	o.Status = "up"
-	o.CPUTimeSec = rnd(40, 280) * (o.WindowSeconds / 60)
-	o.PGAMemoryBytes = rnd(1.5, 6.5) * 1024 * 1024 * 1024
-	o.SGAMemoryBytes = rnd(4, 24) * 1024 * 1024 * 1024
-	o.LogicalReadsPS = rnd(15000, 60000)
-	o.PhysicalReadsPS = o.LogicalReadsPS * rnd(0.005, 0.03)
-	o.HardParsesPS = rnd(2, 25)
-	o.ParseCallsPS = rnd(100, 800)
-	o.ExecutionsPS = rnd(400, 3500)
-	o.UserCommitsPS = rnd(20, 220)
-	o.RollbacksPS = o.UserCommitsPS * rnd(0.005, 0.04)
-	o.TransactionsPS = o.UserCommitsPS + o.RollbacksPS
-	o.RowLockWaitsPS = rnd(0.0, 0.8) // 0..0.8 sec/sec wait — healthy range
-
-	// Wait classes — 10 canonical Oracle classes ordered by what's
-	// typically the heaviest on a healthy OLTP workload. Values
-	// are scaled to one another so the distribution reads
-	// plausibly (user I/O > commit > network > others).
-	classes := []struct {
-		name string
-		hi   float64
-	}{
-		{"user_io",       rnd(0.8, 4.0)},
-		{"commit",        rnd(0.3, 1.5)},
-		{"network",       rnd(0.2, 1.0)},
-		{"concurrency",   rnd(0.05, 0.6)},
-		{"system_io",     rnd(0.1, 0.4)},
-		{"application",   rnd(0.0, 0.3)},
-		{"configuration", rnd(0.0, 0.2)},
-		{"scheduler",     rnd(0.0, 0.15)},
-		{"cluster",       rnd(0.0, 0.10)},
-		{"other",         rnd(0.0, 0.25)},
-	}
-	for _, c := range classes {
-		o.WaitClasses = append(o.WaitClasses, OracleWaitClass{Name: c.name, PerSec: c.hi})
-	}
-
-	// Top SQL — plausible OLTP shapes, sorted by elapsed.
-	stmts := []string{
-		"SELECT /*+ INDEX(o ORDERS_PK) */ * FROM orders o WHERE customer_id = :1 AND status = 'PENDING' ORDER BY created_at DESC",
-		"UPDATE inventory SET available_qty = available_qty - :1 WHERE sku = :2",
-		"INSERT INTO audit_log (event_id, actor, payload, ts) VALUES (:1, :2, :3, SYSTIMESTAMP)",
-		"SELECT COUNT(*) FROM positions WHERE account_id = :1 AND value > :2",
-		"MERGE INTO balances b USING (SELECT :1 acct, :2 amt FROM dual) s ON (b.acct = s.acct) WHEN MATCHED THEN UPDATE SET b.bal = b.bal + s.amt",
-	}
-	for i, sqlText := range stmts {
-		execs := uint64(math.Round(rnd(50, 12000)))
-		avgMs := rnd(0.4, 80) / float64(i+1) // decreasing — heaviest first
-		o.TopSQL = append(o.TopSQL, OracleSQL{
-			SQL:          sqlText,
-			Executions:   execs,
-			AvgElapsedMs: avgMs,
-			ElapsedSec:   float64(execs) * avgMs / 1000,
-		})
-	}
-
-	// Synthetic tablespaces — a typical Oracle DB has SYSTEM /
-	// SYSAUX / USERS / TEMP / UNDOTBS1 at minimum.
-	for _, name := range []string{"SYSTEM", "SYSAUX", "USERS", "UNDOTBS1", "TEMP"} {
-		maxBytes := rnd(2, 32) * 1024 * 1024 * 1024
-		used := maxBytes * rnd(0.20, 0.85)
-		o.Tablespaces = append(o.Tablespaces, OracleTablespace{
-			Name:      name,
-			UsedBytes: used,
-			MaxBytes:  maxBytes,
-			UsedPct:   (used / maxBytes) * 100,
-		})
-	}
-}
+// (Synthetic-fallback helpers removed in v0.5.8 — empty receiver
+// state now renders an "no data" panel instead of fake numbers.)
 
 // queryOracleSessionsByStatus reads `oracledb_sessions_value`-style
 // points keyed on the `status` attribute. Returns (active,
@@ -697,10 +588,4 @@ func (s *Store) queryOracleTopSQL(
 		})
 	}
 	return out, nil
-}
-
-func oracleSeed(s string) uint64 {
-	h := fnv.New64a()
-	h.Write([]byte(s))
-	return h.Sum64()
 }

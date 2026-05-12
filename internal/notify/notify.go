@@ -792,6 +792,92 @@ func isAuthErr(err error) bool {
 	return false
 }
 
+// ZoomChannel is one row of the channel-picker list the
+// Settings UI uses to help operators pick a Channel ID without
+// memorising JIDs. Mirrors Zoom's /chat/users/me/channels API
+// shape — we only surface the fields a human needs to
+// disambiguate one channel from another.
+type ZoomChannel struct {
+	ID   string `json:"id"`   // short id (rarely useful — included so the operator can search by it)
+	JID  string `json:"jid"`  // the value that goes into `to_channel` on the messages API
+	Name string `json:"name"` // human-readable channel name
+	Type int    `json:"type"` // 1=DM, 2=Group, 3=Public Channel, 4=Private Channel
+}
+
+// ListZoomChannels fetches every channel the configured S2S
+// OAuth app can see — walks the channels endpoint's pagination
+// (page_size=50, next_page_token) until exhausted or a sane
+// cap is hit. Used by the Settings UI's "List my channels"
+// helper so the operator picks from a searchable list instead
+// of pasting JIDs by hand.
+//
+// Caps:
+//   - 20 pages of 50 = 1000 channels max. Large Zoom workspaces
+//     can have thousands, but past 1000 the picker becomes
+//     unusable anyway and we'd rather fail loud than return a
+//     truncated list silently. The error message instructs the
+//     operator to narrow scope (use a less-privileged service
+//     account or filter on the receiving end).
+//   - 25s overall wall-clock — context cancel breaks the loop
+//     so an unresponsive Zoom doesn't hang the request.
+func (n *Notifier) ListZoomChannels(
+	ctx context.Context, accountID, clientID, clientSecret, oauthBaseURL, apiBaseURL string,
+) ([]ZoomChannel, error) {
+	token, err := n.zoomAccessToken(ctx, accountID, clientID, clientSecret, oauthBaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("zoom oauth: %w", err)
+	}
+	base := strings.TrimRight(apiBaseURL, "/")
+	if base == "" {
+		base = "https://api.zoom.us"
+	}
+	out := []ZoomChannel{}
+	nextToken := ""
+	const (
+		maxPages = 20
+		pageSize = 50
+	)
+	for page := 0; page < maxPages; page++ {
+		if err := ctx.Err(); err != nil {
+			return out, err
+		}
+		u := fmt.Sprintf("%s/v2/chat/users/me/channels?page_size=%d", base, pageSize)
+		if nextToken != "" {
+			u += "&next_page_token=" + nextToken
+		}
+		req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+		if err != nil {
+			return out, err
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := zoomHTTPClient.Do(req)
+		if err != nil {
+			return out, fmt.Errorf("zoom list channels: %w", err)
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+		resp.Body.Close()
+		if resp.StatusCode >= 300 {
+			return out, fmt.Errorf("zoom list channels %d: %s",
+				resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+		var parsed struct {
+			Channels      []ZoomChannel `json:"channels"`
+			NextPageToken string        `json:"next_page_token"`
+		}
+		if err := json.Unmarshal(body, &parsed); err != nil {
+			return out, fmt.Errorf("decode channels: %w", err)
+		}
+		out = append(out, parsed.Channels...)
+		if parsed.NextPageToken == "" {
+			return out, nil
+		}
+		nextToken = parsed.NextPageToken
+	}
+	// Hit the page cap — tell the operator so they know the
+	// list is truncated.
+	return out, fmt.Errorf("more than %d channels available — picker truncated; use a narrower service account or paste the JID directly", maxPages*pageSize)
+}
+
 // ── Generic webhook backend ─────────────────────────────────────────────────
 //
 // Posts the raw chstore.Problem JSON so the receiver can route however it
