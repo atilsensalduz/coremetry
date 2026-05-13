@@ -335,10 +335,12 @@ func (s *ESStore) buildQuery(f Filter) map[string]any {
 	// `s.fields.TraceID` configured override is included too so
 	// a fully custom field still works.
 	if f.TraceID != "" {
-		must = append(must, traceTermsAny(s.fields.TraceID, strings.ToLower(f.TraceID), "trace"))
+		must = append(must, traceTermsAny(s.fields.TraceID, s.fields.Body,
+			strings.ToLower(f.TraceID), "trace"))
 	}
 	if f.SpanID != "" {
-		must = append(must, traceTermsAny(s.fields.SpanID, strings.ToLower(f.SpanID), "span"))
+		must = append(must, traceTermsAny(s.fields.SpanID, s.fields.Body,
+			strings.ToLower(f.SpanID), "span"))
 	}
 	if f.Service != "" {
 		must = append(must, map[string]any{
@@ -489,14 +491,19 @@ func flatten(prefix string, src map[string]any, dst map[string]string, skip map[
 
 // traceTermsAny builds a bool/should clause that matches the
 // given hex id against every common field name shape used by
-// log shippers — plus the configured `configured` override.
-// kind is "trace" or "span"; we derive the four common spellings
-// from it (kind.id / kindId / TitleId / kind_id).
+// log shippers — plus a match against the message body for
+// pipelines that don't extract the ID into a structured field
+// (the ID is just embedded in the line text like
+// "[trace_id=abc] processing..."). kind is "trace" or "span";
+// we derive the four common spellings from it.
 //
 // Returns a shape ready to plug into a `must` array. One non-
-// empty branch wins; non-existent fields contribute nothing to
-// score and short-circuit cheaply against the inverted index.
-func traceTermsAny(configured, value, kind string) map[string]any {
+// empty branch wins; non-existent fields contribute nothing
+// to score and short-circuit cheaply against the inverted
+// index. The body match uses `match` (analyzed) so the
+// hex token gets picked out of brackets / punctuation by
+// the standard analyzer.
+func traceTermsAny(configured, body, value, kind string) map[string]any {
 	// Build the candidate set with the configured field first
 	// (operator's explicit override wins on conflict) and the
 	// four common shapes after. Dedupe via a tiny set so we
@@ -511,7 +518,7 @@ func traceTermsAny(configured, value, kind string) map[string]any {
 		title + "Id", // TraceId / SpanId    (OTel default)
 	}
 	seen := map[string]bool{}
-	should := make([]any, 0, len(candidates))
+	should := make([]any, 0, len(candidates)+1)
 	for _, c := range candidates {
 		if c == "" || seen[c] {
 			continue
@@ -519,6 +526,16 @@ func traceTermsAny(configured, value, kind string) map[string]any {
 		seen[c] = true
 		should = append(should, map[string]any{
 			"term": map[string]any{c: value},
+		})
+	}
+	if body != "" {
+		// Body match — catches "[trace_id=abc123] msg…" lines
+		// where the shipping pipeline never split the ID into
+		// its own field. Analyzed match so the standard analyzer
+		// tokenises around brackets / equals / spaces and the
+		// hex id lands as its own term.
+		should = append(should, map[string]any{
+			"match": map[string]any{body: value},
 		})
 	}
 	return map[string]any{
