@@ -283,6 +283,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("POST   /api/copilot/explain-incident/{id}", s.copilotExplainIncident)
 	mux.HandleFunc("POST   /api/copilot/explain-anomaly/{id}", s.copilotExplainAnomaly)
 	mux.HandleFunc("POST   /api/copilot/explain-service",      s.copilotExplainServiceHealth)
+	mux.HandleFunc("POST   /api/copilot/runbook/{id}",         s.copilotRunbook)
 
 	// ── Incident management ───────────────────────────────────────
 	mux.HandleFunc("GET    /api/incidents",                 s.listIncidents)
@@ -4235,6 +4236,87 @@ func (s *Server) copilotExplainServiceHealth(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	writeJSON(w, map[string]string{"explanation": out})
+}
+
+// copilotRunbook generates a numbered, actionable runbook for
+// an open Problem, anchored in past resolved instances of the
+// same rule on the same service. Distinct from
+// explain-problem — explain gives context bullets, runbook
+// gives an executable checklist. The past-resolutions context
+// (time-to-resolve, value at fire) lets the model bias step
+// order: if similar issues consistently resolved in <5 min,
+// lead with the fastest path that worked before; if they
+// dragged past 30 min, surface escalation up front.
+//
+// Caps at 8 past instances to keep the prompt bounded — the
+// most-recent 8 carry the freshest pattern.
+func (s *Server) copilotRunbook(w http.ResponseWriter, r *http.Request) {
+	if !s.copilot.Configured() {
+		http.Error(w, "AI copilot not configured", http.StatusServiceUnavailable)
+		return
+	}
+	id := r.PathValue("id")
+	probs, err := s.store.ListProblems(r.Context(), chstore.ProblemFilter{Limit: 1000})
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	var p *chstore.Problem
+	for i := range probs {
+		if probs[i].ID == id {
+			p = &probs[i]
+			break
+		}
+	}
+	if p == nil {
+		http.Error(w, "problem not found", http.StatusNotFound)
+		return
+	}
+	similar, _ := s.store.FindSimilarResolvedProblems(r.Context(), p.Service, p.RuleID, 8)
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Current problem (status %s):\n", p.Status)
+	fmt.Fprintf(&sb,
+		"  Service: %s\n  Metric: %s\n  Value: %.2f (threshold %.2f)\n  Severity: %s\n  Rule: %s\n  Description: %s\n",
+		p.Service, p.Metric, p.Value, p.Threshold, p.Severity, p.RuleName, p.Description)
+
+	if len(similar) > 0 {
+		fmt.Fprintf(&sb, "\nPast resolved instances of this rule on this service (%d, most recent first):\n", len(similar))
+		var totalTTR time.Duration
+		var ttrSeen int
+		for _, sp := range similar {
+			ttr := "unknown"
+			if sp.ResolvedAt != nil {
+				d := time.Unix(0, *sp.ResolvedAt).Sub(time.Unix(0, sp.StartedAt))
+				ttr = d.Round(time.Minute).String()
+				totalTTR += d
+				ttrSeen++
+			}
+			fmt.Fprintf(&sb,
+				"  • opened %s — peak value %.2f (sev %s) — resolved in %s\n",
+				time.Unix(0, sp.StartedAt).Format("2006-01-02 15:04"),
+				sp.Value, sp.Severity, ttr,
+			)
+		}
+		if ttrSeen > 0 {
+			avg := totalTTR / time.Duration(ttrSeen)
+			fmt.Fprintf(&sb,
+				"\nAverage time-to-resolve across past instances: %s\n",
+				avg.Round(time.Minute))
+		}
+	} else {
+		sb.WriteString("\nNo past resolved instances of this exact rule on this service — use first-principles reasoning grounded in the metric + service.\n")
+	}
+
+	out, err := s.copilot.Explain(r.Context(), copilot.SystemPromptRunbook(), sb.String())
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, map[string]any{
+		"explanation":  out,
+		"similarCount": len(similar),
+	})
 }
 
 // ── Incident management ─────────────────────────────────────────────────────

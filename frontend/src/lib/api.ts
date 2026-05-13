@@ -461,6 +461,9 @@ export const api = {
     request<{ explanation: string }>(
       `/api/copilot/explain-service?service=${encodeURIComponent(service)}&from=${fromNs}&to=${toNs}`,
       { method: 'POST' }),
+  copilotRunbook: (id: string) =>
+    request<{ explanation: string; similarCount: number }>(
+      `/api/copilot/runbook/${id}`, { method: 'POST' }),
 
   // Public status page admin
   statusPageGetConfig:    () => get<StatusPageConfig>(`/api/status-page/config`),

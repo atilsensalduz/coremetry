@@ -91,10 +91,32 @@ func (s *Store) SetRetention(ctx context.Context, sp RetentionSpec, actor string
 			return fmt.Errorf("bad retention for %s: %w", p.key, err)
 		}
 		ttl := fmt.Sprintf(p.ttlExpr, interval)
-		// Apply to the live table. ALTER MODIFY TTL is online — does
-		// not lock the table, takes effect at next merge cycle.
-		if err := s.conn.Exec(ctx,
-			fmt.Sprintf("ALTER TABLE %s MODIFY TTL %s", p.table, ttl)); err != nil {
+		// Apply to the live table. ALTER MODIFY TTL is online —
+		// doesn't lock the table — but CH defaults to
+		// materialize_ttl_after_modify=1 which synchronously
+		// re-evaluates TTL across every existing partition
+		// during the ALTER. On a banking-scale spans table that
+		// blocks the HTTP request for minutes → gateway 504. We
+		// disable that step so the ALTER just updates table
+		// metadata and returns immediately; the new TTL still
+		// takes effect on the next merge cycle which CH runs
+		// every ~10 min, with no user-visible difference apart
+		// from the operator's request completing in <1s.
+		//
+		// alter_sync=0 makes the ALTER fire-and-forget on
+		// ReplicatedMergeTree clusters too: we don't wait for
+		// other replicas to acknowledge the metadata change.
+		// Each replica will pick it up via the replication log
+		// within seconds — but we don't block the operator on
+		// network latency.
+		stmt := fmt.Sprintf(
+			"ALTER TABLE %s MODIFY TTL %s SETTINGS materialize_ttl_after_modify = 0, alter_sync = 0",
+			p.table, ttl)
+		// execDDL routes through adaptDDL so cluster-mode installs
+		// ALTER the `_local` shard tables with ON CLUSTER instead
+		// of touching only the Distributed wrapper (which has no
+		// TTL). Single-node mode runs the SQL unchanged.
+		if err := s.execDDL(ctx, stmt); err != nil {
 			return fmt.Errorf("apply TTL on %s: %w", p.table, err)
 		}
 		// Persist the override.

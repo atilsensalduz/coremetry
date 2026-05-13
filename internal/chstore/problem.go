@@ -294,6 +294,48 @@ func (s *Store) ListProblems(ctx context.Context, f ProblemFilter) ([]Problem, e
 	return out, rows.Err()
 }
 
+// FindSimilarResolvedProblems returns up to `limit` resolved
+// problems matching the given service + rule_id, ordered most
+// recent first. Used by the runbook AI to anchor LLM
+// suggestions in actually-resolved-before incidents rather
+// than generic SRE wisdom. We require status='resolved' so the
+// model sees only outcomes it can learn from — open problems
+// have no time-to-resolve signal yet.
+func (s *Store) FindSimilarResolvedProblems(ctx context.Context, service, ruleID string, limit int) ([]Problem, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+	rows, err := s.conn.Query(ctx, `
+		SELECT id, rule_id, rule_name, severity, service, metric,
+		       value, threshold, status, description,
+		       toUnixTimestamp64Nano(started_at),
+		       resolved_at
+		FROM problems FINAL
+		WHERE service = ? AND rule_id = ? AND status = 'resolved'
+		ORDER BY started_at DESC
+		LIMIT ?`, service, ruleID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Problem
+	for rows.Next() {
+		var p Problem
+		var resolvedAt *time.Time
+		if err := rows.Scan(&p.ID, &p.RuleID, &p.RuleName, &p.Severity, &p.Service,
+			&p.Metric, &p.Value, &p.Threshold, &p.Status, &p.Description,
+			&p.StartedAt, &resolvedAt); err != nil {
+			return nil, err
+		}
+		if resolvedAt != nil {
+			ns := resolvedAt.UnixNano()
+			p.ResolvedAt = &ns
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) FindOpenProblem(ctx context.Context, ruleID, service string) (*Problem, error) {
 	var p Problem
 	var resolvedAt *time.Time

@@ -420,6 +420,7 @@ function ProblemsSection({ serviceFilter }: { serviceFilter: string }) {
                 <PSortTh col="status"   label="Status"   sort={sortBy} dir={sortDir} onSort={toggleSort} />
                 <th>Why</th>
                 <th>AI</th>
+                <th>Runbook</th>
               </tr>
             </thead>
             <tbody>
@@ -493,10 +494,20 @@ function ProblemsSection({ serviceFilter }: { serviceFilter: string }) {
                       <td onClick={e => e.stopPropagation()}>
                         <CopilotExplain kind="problem" id={p.id} label={<IconSparkles />} />
                       </td>
+                      <td onClick={e => e.stopPropagation()}>
+                        {/* Runbook AI — anchored in past resolved
+                            instances of the same rule on this
+                            service. Distinct mental model from the
+                            AI explain cell: that one gives 3-5
+                            context bullets, this one gives a
+                            numbered, actionable checklist. */}
+                        <CopilotExplain kind="runbook" id={p.id}
+                          label={<><IconSparkles /> <span style={{ fontSize: 11 }}>Runbook</span></>} />
+                      </td>
                     </tr>
                     {isOpen && (
                       <tr>
-                        <td colSpan={9} style={{
+                        <td colSpan={10} style={{
                           background: 'var(--bg1)', padding: '10px 16px',
                           borderTop: '1px solid var(--border)',
                         }}>

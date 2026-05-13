@@ -7,7 +7,7 @@ import { IconSparkles } from './icons';
 // reply inline beneath the button. Self-hides when the copilot is
 // not configured (no API key on the server).
 //
-// Five subject types share this component to avoid a button per call site:
+// Six subject types share this component to avoid a button per call site:
 //   - kind="trace"          → POST /api/copilot/explain-trace/{id}
 //   - kind="problem"        → POST /api/copilot/explain-problem/{id}
 //   - kind="incident"       → POST /api/copilot/explain-incident/{id}
@@ -16,10 +16,14 @@ import { IconSparkles } from './icons';
 //                             ↑ takes (id=service, fromNs, toNs) instead of an
 //                               ID lookup, because the prompt needs the live
 //                               RED series for the current window.
+//   - kind="runbook"        → POST /api/copilot/runbook/{id}
+//                             ↑ same id shape as problem, but the model output
+//                               is a numbered, actionable checklist anchored
+//                               in past resolved instances of the same rule.
 // Each endpoint uses a kind-specific system prompt so the model's
 // answers match the operator's question.
 export function CopilotExplain({ kind, id, label, fromNs, toNs }: {
-  kind: 'trace' | 'problem' | 'incident' | 'anomaly' | 'service-health';
+  kind: 'trace' | 'problem' | 'incident' | 'anomaly' | 'service-health' | 'runbook';
   id: string;
   label?: React.ReactNode;
   // Only used when kind === 'service-health'. Ignored otherwise.
@@ -29,6 +33,7 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs }: {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [text, setText] = useState<string | null>(null);
+  const [meta, setMeta] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -38,14 +43,25 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs }: {
   if (enabled !== true) return null;
 
   const run = async () => {
-    setBusy(true); setError(null); setText(null);
+    setBusy(true); setError(null); setText(null); setMeta(null);
     try {
-      const r = kind === 'trace'          ? await api.copilotExplainTrace(id)
-              : kind === 'problem'        ? await api.copilotExplainProblem(id)
-              : kind === 'incident'       ? await api.copilotExplainIncident(id)
-              : kind === 'anomaly'        ? await api.copilotExplainAnomaly(id)
-              :                             await api.copilotExplainServiceHealth(id, fromNs ?? 0, toNs ?? 0);
-      setText(r.explanation);
+      if (kind === 'runbook') {
+        const r = await api.copilotRunbook(id);
+        setText(r.explanation);
+        // Surface the "based on N past resolutions" hint so the
+        // operator knows whether the steps are grounded in
+        // real history or first-principles.
+        setMeta(r.similarCount > 0
+          ? `Based on ${r.similarCount} past resolved instance${r.similarCount === 1 ? '' : 's'} of this rule on this service.`
+          : `No past resolutions found — first-principles only.`);
+      } else {
+        const r = kind === 'trace'          ? await api.copilotExplainTrace(id)
+                : kind === 'problem'        ? await api.copilotExplainProblem(id)
+                : kind === 'incident'       ? await api.copilotExplainIncident(id)
+                : kind === 'anomaly'        ? await api.copilotExplainAnomaly(id)
+                :                             await api.copilotExplainServiceHealth(id, fromNs ?? 0, toNs ?? 0);
+        setText(r.explanation);
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Explain failed');
     } finally {
@@ -78,8 +94,13 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs }: {
         }}>
           <div style={{ fontSize: 10, color: 'var(--accent2)', marginBottom: 6, fontWeight: 700, letterSpacing: '.5px',
                         display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            <IconSparkles size={11} /> COPILOT
+            <IconSparkles size={11} /> {kind === 'runbook' ? 'RUNBOOK' : 'COPILOT'}
           </div>
+          {meta && (
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 8, fontStyle: 'italic' }}>
+              {meta}
+            </div>
+          )}
           {text}
         </div>
       )}
