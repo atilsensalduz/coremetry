@@ -136,11 +136,28 @@ func (s *ESStore) Search(ctx context.Context, f Filter) (*Page, error) {
 	}
 
 	query := s.buildQuery(f)
+	// `unmapped_type` makes the sort fail-safe: if the
+	// configured timestamp field doesn't exist in the index
+	// mapping (the shipping pipeline writes a differently-named
+	// timestamp), ES would otherwise raise "No mapping found
+	// for [@timestamp] in order to sort on" and return zero
+	// hits even when the query body matched documents. Treating
+	// the field as `date` makes docs without that field sort to
+	// the end with null values rather than erroring the whole
+	// search — operator sees the trace-scoped logs in best-
+	// effort time order instead of a silent empty tab.
 	body, err := json.Marshal(map[string]any{
 		"query": query,
-		"sort":  []any{map[string]any{s.fields.Timestamp: map[string]string{"order": "desc"}}},
-		"from":  from,
-		"size":  limit,
+		"sort": []any{
+			map[string]any{
+				s.fields.Timestamp: map[string]any{
+					"order":         "desc",
+					"unmapped_type": "date",
+				},
+			},
+		},
+		"from":             from,
+		"size":             limit,
 		"track_total_hits": true,
 	})
 	if err != nil {
