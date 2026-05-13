@@ -104,14 +104,90 @@ export function ServiceMapGraph({
   // off-path edges/nodes.
   const active = hoverNode ? (neighbours.get(hoverNode) ?? new Set([hoverNode])) : null;
 
+  // Pan/zoom state. Identity = full graph in view. Scale > 1
+  // zooms in, scale < 1 zooms out. (vx, vy) is the upper-left
+  // corner of the visible region in graph coordinates.
+  // Operators on banking-scale clusters (100+ services,
+  // 500+ edges) need to read individual labels in the dense
+  // areas without losing global context; the closed-form
+  // radial layout still snaps to focus mode for the
+  // hierarchical view, but plain pan+zoom is the fast way to
+  // explore everything else.
+  const [view, setView] = useState({ vx: 0, vy: 0, scale: 1 });
+  // Reset on data identity change so a new fetch doesn't
+  // strand the operator on an off-screen viewport.
+  useEffect(() => { setView({ vx: 0, vy: 0, scale: 1 }); }, [data, focus]);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const panRef = useRef<{ startX: number; startY: number; vx: number; vy: number } | null>(null);
+
+  const onWheel = (e: React.WheelEvent<SVGSVGElement>) => {
+    e.preventDefault();
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    // Anchor zoom around the cursor so the point under the
+    // operator's eye stays put — Figma / Miro convention.
+    const cursorX = ((e.clientX - rect.left) / rect.width)  * (width  / view.scale) + view.vx;
+    const cursorY = ((e.clientY - rect.top)  / rect.height) * (height / view.scale) + view.vy;
+    // Logarithmic zoom rate — matches typical trackpads.
+    const delta = -e.deltaY * 0.0015;
+    const nextScale = Math.max(0.25, Math.min(6, view.scale * (1 + delta)));
+    // Re-compute upper-left so cursor stays anchored.
+    const nextVx = cursorX - ((e.clientX - rect.left) / rect.width)  * (width  / nextScale);
+    const nextVy = cursorY - ((e.clientY - rect.top)  / rect.height) * (height / nextScale);
+    setView({ vx: nextVx, vy: nextVy, scale: nextScale });
+  };
+  const onMouseDownPan = (e: React.MouseEvent<SVGSVGElement>) => {
+    // Only middle-click or space-modified drag pans; left-click
+    // remains for node hit-testing. Right-click ignored so the
+    // browser context menu stays available.
+    if (e.button !== 1 && !(e.button === 0 && (e.shiftKey || e.altKey))) return;
+    e.preventDefault();
+    panRef.current = { startX: e.clientX, startY: e.clientY, vx: view.vx, vy: view.vy };
+  };
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!panRef.current) return;
+      const dx = (e.clientX - panRef.current.startX) * (width  / view.scale) / Math.max(1, svgRef.current?.clientWidth  ?? width);
+      const dy = (e.clientY - panRef.current.startY) * (height / view.scale) / Math.max(1, svgRef.current?.clientHeight ?? height);
+      setView(v => ({ ...v, vx: panRef.current!.vx - dx, vy: panRef.current!.vy - dy }));
+    };
+    const onUp = () => { panRef.current = null; };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup',   onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup',   onUp);
+    };
+  }, [width, height, view.scale]);
+
+  const resetView = () => setView({ vx: 0, vy: 0, scale: 1 });
+  const canReset = view.scale !== 1 || view.vx !== 0 || view.vy !== 0;
+
   return (
     <div ref={wrapRef} style={{ width: '100%', position: 'relative' }}>
-      <svg viewBox={`0 0 ${width} ${height}`}
+      {canReset && (
+        <button onClick={resetView}
+          title="Reset zoom + pan"
+          style={{
+            position: 'absolute', top: 8, right: 8, zIndex: 2,
+            fontSize: 11, padding: '3px 8px',
+            background: 'var(--bg2)', border: '1px solid var(--border)',
+            borderRadius: 4, color: 'var(--text2)',
+            cursor: 'pointer',
+          }}>
+          Reset · {Math.round(view.scale * 100)}%
+        </button>
+      )}
+      <svg ref={svgRef}
+           viewBox={`${view.vx} ${view.vy} ${width / view.scale} ${height / view.scale}`}
+           onWheel={onWheel}
+           onMouseDown={onMouseDownPan}
            style={{
              width: '100%', height, display: 'block',
              background: 'var(--bg1)',
              border: '1px solid var(--border)',
              borderRadius: 8,
+             cursor: panRef.current ? 'grabbing' : 'default',
            }}>
         <defs>
           <marker id="svc-arrow" viewBox="0 0 10 10"
