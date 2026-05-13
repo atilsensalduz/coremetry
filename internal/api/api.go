@@ -20,6 +20,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/singleflight"
+
 	"github.com/cilcenk/coremetry/internal/anomaly"
 	"github.com/cilcenk/coremetry/internal/auth"
 	"github.com/cilcenk/coremetry/internal/cache"
@@ -45,6 +47,17 @@ type Server struct {
 	oidc        *auth.OIDCService // nil when SSO disabled
 	ldap        *ldap.Service     // always set; Enabled() reports config presence
 	cache       cache.Cache       // Noop when Redis isn't configured
+	// sf dedupes concurrent upstream calls when a hot cache
+	// key misses or enters the SWR refresh window — see
+	// cache.go for the multi-tier read path.
+	sf          singleflight.Group
+	// l1 is the in-process front tier ahead of Redis. Short
+	// per-entry TTL (≤5s); catches same-node burst traffic
+	// without crossing the network. Sized at 1024 entries —
+	// enough for every distinct cache key the API exposes,
+	// generous on memory because each entry stores marshaled
+	// JSON not raw objects.
+	l1          *l1Cache
 	notify      *notify.Notifier
 	copilot     *copilot.Service  // nil when AI key not configured
 	sampler     *sampling.Sampler // always set; Snapshot() reports current ratios
@@ -105,6 +118,7 @@ func NewServer(addr string, ing *otlp.Ingester, store *chstore.Store, logs logst
 		auth: authSvc, oidc: oidcSvc, ldap: ldapSvc, cache: c, notify: n, copilot: cop,
 		sampler: smp, bus: bus,
 		rateSamples: map[string]rateSample{},
+		l1:          newL1Cache(1024),
 	}
 }
 
@@ -403,11 +417,19 @@ func (s *Server) Start() error {
 	return http.ListenAndServe(s.addr, cors(s.auth.Middleware(mux)))
 }
 
-// warmDependenciesCache primes the databases / messaging caches
-// for the default 1h window on a 25s loop. Stays inside the 30s
-// cache TTL so the cache is never seen empty by an operator
-// request. Errors are logged but don't stop the loop — a
-// transient CH blip shouldn't disable warming permanently.
+// warmDependenciesCache primes the hottest read endpoints on
+// a 25s loop so morning-triage requests always land on a
+// warm cache. Each warm pass writes through storeCached(),
+// which uses the same envelope shape as live request writes
+// — so the SWR read path treats warmed entries identically.
+//
+// Endpoints chosen for warming are the ones operators hit
+// first after login (services list, clusters dropdown,
+// service metadata) plus the slow CH queries
+// (databases / messaging dependency views).
+//
+// Errors are logged but don't stop the loop — a transient
+// CH blip shouldn't disable warming permanently.
 func (s *Server) warmDependenciesCache() {
 	const (
 		tick      = 25 * time.Second
@@ -418,36 +440,52 @@ func (s *Server) warmDependenciesCache() {
 	// Delay first refresh so we don't compete with boot-time DDL
 	// migrations for CH bandwidth on a cold start.
 	time.Sleep(5 * time.Second)
-	warm := func(label, key string, fn func(ctx context.Context) (any, error)) {
+	warm := func(label, key string, useTTL time.Duration, fn func(ctx context.Context) (any, error)) {
 		ctx, cancel := context.WithTimeout(context.Background(), queryBudg)
 		defer cancel()
-		// Skip the upstream call if the cache is already warm —
-		// keeps CH idle when an operator's request just populated
-		// it within the last few seconds.
-		if _, ok, _ := s.cache.Get(ctx, key); ok {
-			return
+		// Skip the upstream call when the cache already holds a
+		// fresh envelope (within the soft TTL). Stale-but-
+		// usable entries still get refreshed so the next read
+		// gets a fresh hit.
+		if raw, ok, _ := s.cache.Get(ctx, key); ok {
+			if written, _, envOK := unwrapEnvelope(raw); envOK && time.Since(written) < useTTL {
+				return
+			}
 		}
 		v, err := fn(ctx)
 		if err != nil {
 			log.Printf("[warm] %s: %v", label, err)
 			return
 		}
-		data, err := json.Marshal(v)
+		body, err := json.Marshal(v)
 		if err != nil {
 			log.Printf("[warm] %s marshal: %v", label, err)
 			return
 		}
-		if err := s.cache.Set(ctx, key, data, ttl); err != nil {
-			log.Printf("[warm] %s set: %v", label, err)
-		}
+		s.storeCached(ctx, key, body, useTTL)
 	}
 	for {
 		to := time.Now()
 		from := to.Add(-warmWin)
-		warm("databases", "databases:"+cacheBucket(from, to),
+		warm("databases", "databases:"+cacheBucket(from, to), ttl,
 			func(ctx context.Context) (any, error) { return s.store.GetDatabases(ctx, from, to) })
-		warm("messaging", "messaging:"+cacheBucket(from, to),
+		warm("messaging", "messaging:"+cacheBucket(from, to), ttl,
 			func(ctx context.Context) (any, error) { return s.store.GetMessaging(ctx, from, to) })
+		// Services list — the page operators open first after
+		// login. Use the same key shape as listServices so the
+		// live handler picks up the warm entry on its next call.
+		warm("clusters", "clusters:"+cacheBucket(from.Add(-23*time.Hour), to), 60*time.Second,
+			func(ctx context.Context) (any, error) {
+				names, err := s.store.ListClusters(ctx, from.Add(-23*time.Hour), to)
+				if err != nil {
+					return nil, err
+				}
+				return map[string]any{"clusters": names}, nil
+			})
+		warm("services-metadata", "services-metadata", 60*time.Second,
+			func(ctx context.Context) (any, error) {
+				return s.store.ListServiceMetadata(ctx)
+			})
 		time.Sleep(tick)
 	}
 }
@@ -5306,47 +5344,8 @@ func writeJSON(w http.ResponseWriter, v interface{}) {
 	json.NewEncoder(w).Encode(v)
 }
 
-// serveCached transparently caches a JSON response. Cache miss → call fn,
-// marshal, write, and store. Stale-while-correct: short TTLs (5–60s) make
-// invalidation unnecessary for the hot read endpoints we apply this to.
-//
-// Cache failures (Redis down, etc.) are non-fatal — we just fall through
-// to the live path and surface the error in the X-Cache header.
-func (s *Server) serveCached(w http.ResponseWriter, r *http.Request, key string, ttl time.Duration, fn func() (any, error)) {
-	// ?refresh=1 forces a recompute. Useful when the underlying
-	// data has shifted (new service deployed, edges formed) and
-	// the operator doesn't want to wait for the natural TTL. The
-	// fresh result is still written so subsequent callers benefit.
-	skipRead := r.URL.Query().Get("refresh") == "1"
-	if !skipRead {
-		if data, ok, err := s.cache.Get(r.Context(), key); err == nil && ok {
-			w.Header().Set("Content-Type", "application/json")
-			w.Header().Set("X-Cache", "HIT")
-			w.Write(data)
-			return
-		}
-	}
-	v, err := fn()
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	data, err := json.Marshal(v)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	if err := s.cache.Set(r.Context(), key, data, ttl); err != nil {
-		log.Printf("[cache] set %s: %v", key, err)
-	}
-	w.Header().Set("Content-Type", "application/json")
-	if skipRead {
-		w.Header().Set("X-Cache", "BYPASS")
-	} else {
-		w.Header().Set("X-Cache", "MISS")
-	}
-	w.Write(data)
-}
+// serveCached lives in cache.go — multi-tier (L1 + Redis +
+// singleflight + SWR). Kept here as a pointer for grep.
 
 func writeErr(w http.ResponseWriter, err error) {
 	log.Printf("[api] error: %v", err)

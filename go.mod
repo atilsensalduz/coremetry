@@ -5,12 +5,15 @@ go 1.25.0
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.26.0
 	github.com/coreos/go-oidc/v3 v3.18.0
+	github.com/elastic/go-elasticsearch/v8 v8.19.5
+	github.com/go-ldap/ldap/v3 v3.4.13
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/pprof v0.0.0-20260402051712-545e8a4df936
 	github.com/redis/go-redis/v9 v9.19.0
 	go.opentelemetry.io/proto/otlp v1.3.1
 	golang.org/x/crypto v0.50.0
 	golang.org/x/oauth2 v0.36.0
+	golang.org/x/sync v0.20.0
 	google.golang.org/grpc v1.64.0
 	google.golang.org/protobuf v1.34.2
 	gopkg.in/yaml.v3 v3.0.1
@@ -22,12 +25,10 @@ require (
 	github.com/andybalholm/brotli v1.1.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/elastic/elastic-transport-go/v8 v8.9.0 // indirect
-	github.com/elastic/go-elasticsearch/v8 v8.19.5 // indirect
 	github.com/go-asn1-ber/asn1-ber v1.5.8-0.20250403174932-29230038a667 // indirect
 	github.com/go-faster/city v1.0.1 // indirect
 	github.com/go-faster/errors v0.7.1 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
-	github.com/go-ldap/ldap/v3 v3.4.13 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
