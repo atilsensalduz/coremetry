@@ -379,7 +379,7 @@ tbody td { padding: 7px 12px; max-width: 320px; white-space: nowrap; overflow: h
 
 /* Waterfall */
 #wf-outer { background: var(--bg1); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; font-size: 12px; }
-.wf-header { display: flex; position: sticky; top: 0; z-index: 10; background: var(--bg2); border-bottom: 2px solid var(--border); height: 30px; user-select: none; }
+.wf-header { display: flex; position: sticky; top: 0; z-index: 10; background: var(--bg2); border-bottom: 2px solid var(--border); height: 42px; user-select: none; }
 .wf-col-name { flex-shrink: 0; padding: 0 10px; display: flex; align-items: center; border-right: 1px solid var(--border); font-size: 10px; font-weight: 700; color: var(--text2); text-transform: uppercase; letter-spacing: .06em; }
 .wf-col-bar { flex: 1; position: relative; overflow: hidden; }
 .wf-resizer {

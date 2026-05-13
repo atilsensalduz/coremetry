@@ -2,6 +2,17 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SpanRow } from '@/lib/types';
 import { fmtNs, hashColor, displaySpanName } from '@/lib/utils';
 
+// HH:MM:SS.mmm wall-clock formatter for the waterfall ruler +
+// per-span tooltips. Locked to the browser's local timezone so
+// the value matches whatever clock the operator's logs already
+// show; UTC would require a mental shift mid-incident.
+function fmtClock(ns: number): string {
+  const d = new Date(ns / 1e6);
+  const pad2 = (n: number) => n.toString().padStart(2, '0');
+  const pad3 = (n: number) => n.toString().padStart(3, '0');
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}.${pad3(d.getMilliseconds())}`;
+}
+
 const TICKS = [0, 0.25, 0.5, 0.75, 1];
 const NAME_MIN = 160;
 const NAME_MAX = 800;
@@ -312,11 +323,29 @@ export function TraceWaterfall({
               t === 0 ? 'translate(0, -50%)'
               : t === 1 ? 'translate(-100%, -50%)'
               : 'translate(-50%, -50%)';
+            const offsetNs = t * totalNs;
             return (
               <span key={`l${t}`}>
                 <span className="wf-tick-label"
-                      style={{ left: `${t * 100}%`, transform }}>
-                  {fmtNs(t * totalNs)}
+                      style={{ left: `${t * 100}%`, transform,
+                               display: 'inline-flex',
+                               flexDirection: 'column',
+                               alignItems: t === 0 ? 'flex-start'
+                                         : t === 1 ? 'flex-end'
+                                         : 'center',
+                               lineHeight: 1.1 }}
+                      title={`Absolute: ${fmtClock(minT + offsetNs)}  ·  Offset: +${fmtNs(offsetNs)}`}>
+                  {/* Absolute wall-clock — small, top line.
+                      Operators correlate with logs / dashboards
+                      that all show real time, not "+150ms". */}
+                  <span style={{ fontSize: 10, opacity: 0.7,
+                                 fontVariantNumeric: 'tabular-nums' }}>
+                    {fmtClock(minT + offsetNs)}
+                  </span>
+                  {/* Relative offset — primary label, same look
+                      as before so the bar-layout scan still
+                      anchors on it. */}
+                  <span>{fmtNs(offsetNs)}</span>
                 </span>
                 {t > 0 && <div className="wf-vline" style={{ left: `${t * 100}%` }} />}
               </span>
@@ -430,7 +459,12 @@ export function TraceWaterfall({
               ))}
               <div
                 className="wf-bar"
-                title={`${displayName}\n${s.serviceName}\n${fmtNs(dur)} (${durMs.toFixed(2)}ms)`}
+                title={
+                  `${displayName}\n${s.serviceName}\n` +
+                  `start: ${fmtClock(s.startTime)}  (+${fmtNs(s.startTime - minT)})\n` +
+                  `end:   ${fmtClock(s.endTime)}\n` +
+                  `dur:   ${fmtNs(dur)} (${durMs.toFixed(2)}ms)`
+                }
                 style={{ left: `${startPct}%`, width: `${widthPct}%`, background: color }}
               >
                 {labelInside && <span className="wf-bar-label">{fmtNs(dur)}</span>}
