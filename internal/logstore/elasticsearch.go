@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -205,6 +206,18 @@ func (s *ESStore) Search(ctx context.Context, f Filter) (*Page, error) {
 	out := make([]*LogRecord, 0, len(raw.Hits.Hits))
 	for _, h := range raw.Hits.Hits {
 		out = append(out, s.mapHit(h.ID, h.Source))
+	}
+	// Diagnostic: when a trace/span ID search returns zero
+	// hits, log the exact request body + index hit. The
+	// operator can grep server logs for "[es-debug]" to see
+	// what Coremetry actually asked for vs what direct curl
+	// returns — pinpointing field-shape / format mismatches
+	// without us blindly shipping more candidate field names.
+	// Only logs the empty-result case so steady-state traffic
+	// stays quiet.
+	if raw.Hits.Total.Value == 0 && (f.TraceID != "" || f.SpanID != "") {
+		log.Printf("[es-debug] zero hits for trace_id=%q span_id=%q index=%q query=%s",
+			f.TraceID, f.SpanID, s.cfg.Index, string(body))
 	}
 	return &Page{Total: raw.Hits.Total.Value, Logs: out}, nil
 }
