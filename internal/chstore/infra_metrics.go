@@ -130,7 +130,8 @@ func (s *Store) GetInfraMetrics(ctx context.Context, service string, since, buck
 		  AND time >= ?
 		  AND metric IN (`+strings.Join(holders, ",")+`)
 		GROUP BY metric, bucket
-		ORDER BY metric, bucket`, args...)
+		ORDER BY metric, bucket
+		SETTINGS optimize_skip_unused_shards = 1`, args...)
 	if err != nil {
 		return nil, err
 	}

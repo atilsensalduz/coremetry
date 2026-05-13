@@ -105,7 +105,8 @@ func (s *Store) GetTopDBQueries(
 		GROUP BY norm_stmt
 		ORDER BY (cnt * avg_ms) DESC
 		LIMIT ?
-		SETTINGS max_execution_time = 30`
+		SETTINGS max_execution_time = 30,
+		         optimize_skip_unused_shards = 1`
 	rows, err := s.conn.Query(ctx, sql, service, from, to, limit)
 	if err != nil {
 		return nil, fmt.Errorf("query db queries: %w", err)

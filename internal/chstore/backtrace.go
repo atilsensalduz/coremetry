@@ -86,7 +86,9 @@ func (s *Store) ServiceCallers(
 		GROUP BY caller_service, caller_host, caller_instance, client_address, user_agent
 		ORDER BY calls DESC
 		LIMIT ?
-		SETTINGS max_execution_time = 30, join_use_nulls = 0`,
+		SETTINGS max_execution_time = 30,
+		         join_use_nulls = 0,
+		         optimize_skip_unused_shards = 1`,
 		service, from, to,
 		from, to, service,
 		limit,

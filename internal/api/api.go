@@ -3721,7 +3721,15 @@ func (s *Server) svcOperationSummary(w http.ResponseWriter, r *http.Request) {
 	from, to := parseTime(q.Get("from")), parseTime(q.Get("to"))
 	key := fmt.Sprintf("svc-ops:svc=%s:since=%s:from=%s:to=%s",
 		svc, q.Get("since"), q.Get("from"), q.Get("to"))
-	s.serveCached(w, r, key, 15*time.Second, func() (any, error) {
+	// 30s TTL — operation set changes on deploys (minutes
+	// apart), not seconds. With the SWR tier in cache.go, a
+	// 30s soft TTL still gives 90s of stale-but-usable
+	// fallback before a hard miss; net effect is the
+	// operator never sees a cold-load delay on this endpoint
+	// during normal traffic. Pre-v0.5.58 this was 15s which
+	// half-the-time forced an upstream re-fetch the operator
+	// would never notice if it was stale.
+	s.serveCached(w, r, key, 30*time.Second, func() (any, error) {
 		return s.store.GetOperationSummary(r.Context(), svc, since, from, to)
 	})
 }

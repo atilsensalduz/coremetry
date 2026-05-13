@@ -62,7 +62,8 @@ func (s *Store) GetServiceDeploys(
 		HAVING version != ''
 		ORDER BY first_seen_ns ASC
 		LIMIT 50
-		SETTINGS max_execution_time = 15`
+		SETTINGS max_execution_time = 15,
+		         optimize_skip_unused_shards = 1`
 	rows, err := s.conn.Query(ctx, sql, service, from, to)
 	if err != nil {
 		return nil, fmt.Errorf("query deploys: %w", err)

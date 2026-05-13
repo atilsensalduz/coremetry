@@ -46,7 +46,8 @@ func (s *Store) ServiceNeighbors(
 		GROUP BY trace_id
 		ORDER BY count() DESC
 		LIMIT ?
-		SETTINGS max_execution_time = 30`,
+		SETTINGS max_execution_time = 30,
+		         optimize_skip_unused_shards = 1`,
 		service, int64(since.Seconds()), sampleCount)
 	if err != nil {
 		return nil, nil, 0, 0, err

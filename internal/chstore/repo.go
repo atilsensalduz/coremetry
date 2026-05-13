@@ -1348,7 +1348,8 @@ func (s *Store) getTracesFromMV(ctx context.Context, f TraceFilter) ([]TraceRow,
 			SETTINGS
 			  max_execution_time = 15,
 			  optimize_read_in_order = 1,
-			  optimize_aggregation_in_order = 1`,
+			  optimize_aggregation_in_order = 1,
+			  optimize_skip_unused_shards = 1`,
 			f.Service, f.From, f.To, stage1Limit)
 		if err != nil {
 			return nil, 0, false, fmt.Errorf("stage1: %w", err)
