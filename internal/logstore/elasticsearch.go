@@ -427,11 +427,21 @@ func (s *ESStore) mapHit(id string, src map[string]any) *LogRecord {
 			r.Timestamp = t.UnixNano()
 		}
 	}
-	r.TraceID = readPath(src, s.fields.TraceID)
-	r.SpanID  = readPath(src, s.fields.SpanID)
-	r.ServiceName = readPath(src, s.fields.Service)
-	r.Body = readPath(src, s.fields.Body)
-	r.SeverityText = readPath(src, s.fields.SeverityTx)
+	r.TraceID = readPathAny(src, s.fields.TraceID,
+		"trace.id", "trace_id", "traceId", "TraceId")
+	r.SpanID = readPathAny(src, s.fields.SpanID,
+		"span.id", "span_id", "spanId", "SpanId")
+	// Service column on the Logs page kept coming up blank for
+	// operators whose pipelines ship a flat `service_name`
+	// instead of the OTel ECS `service.name`. Read the
+	// configured path first; if empty, walk the four common
+	// shapes any shipper might emit.
+	r.ServiceName = readPathAny(src, s.fields.Service,
+		"service.name", "service_name", "serviceName", "ServiceName")
+	r.Body = readPathAny(src, s.fields.Body,
+		"message", "Body", "body", "log.message", "log")
+	r.SeverityText = readPathAny(src, s.fields.SeverityTx,
+		"log.level", "level", "severity", "severity_text", "SeverityText")
 
 	if s.fields.SeverityNo != "" {
 		if v := readPath(src, s.fields.SeverityNo); v != "" {
@@ -455,6 +465,31 @@ func (s *ESStore) mapHit(id string, src map[string]any) *LogRecord {
 	}
 	flatten("", src, r.Attributes, skip)
 	return r
+}
+
+// readPathAny tries the configured `primary` path first, then
+// walks `fallbacks` in order until one yields a non-empty
+// value. Lets the LogRecord mapper survive shipping pipelines
+// that emit a different field shape than the OTel ECS default
+// (snake_case service_name, PascalCase TraceId, etc.) without
+// asking every operator to override the Fields map by hand.
+//
+// Empty primary still works — operator can leave it unset
+// and we'll hit the fallback list, picking whichever shape
+// their docs actually carry.
+func readPathAny(src map[string]any, primary string, fallbacks ...string) string {
+	if v := readPath(src, primary); v != "" {
+		return v
+	}
+	for _, p := range fallbacks {
+		if p == primary {
+			continue
+		}
+		if v := readPath(src, p); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // readPath fetches a value from a map by dotted path, returning the
