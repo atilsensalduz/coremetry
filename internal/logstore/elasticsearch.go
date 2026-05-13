@@ -316,21 +316,29 @@ func (s *ESStore) buildQuery(f Filter) map[string]any {
 			"range": map[string]any{s.fields.Timestamp: rng},
 		})
 	}
-	// trace_id / span_id correlation — single-document keyword lookup, the
-	// hottest predicate. `term` is the cheapest possible ES op against a
-	// keyword field (no analysis, no scoring), and the OTel Collector ES
-	// exporter in ECS mode maps both as keyword by default. If an
-	// operator's pipeline maps these as `text`, override
-	// `Fields.TraceID` to the .keyword multi-field (e.g. "trace.id.keyword").
+	// trace_id / span_id correlation — single-document keyword
+	// lookup, the hottest predicate. Different shipping
+	// pipelines settle on different field names:
+	//
+	//   OTel ECS mode      → "trace.id"    (nested {trace:{id:…}})
+	//   OTel default       → "TraceId"     (PascalCase from attribs)
+	//   Filebeat / vector  → "trace_id"    (snake_case)
+	//   Custom JSON parsers → "traceId"    (camelCase)
+	//
+	// We don't know which one applies until we see a doc, and
+	// asking every operator to configure the field name is a
+	// papercut. Cheap solution: bool/should over all four
+	// common shapes. ES short-circuits term lookups against
+	// non-existent fields (no terms in the inverted index for
+	// that path → match nothing for that branch), so the
+	// overhead vs a single-field term is negligible. The
+	// `s.fields.TraceID` configured override is included too so
+	// a fully custom field still works.
 	if f.TraceID != "" {
-		must = append(must, map[string]any{
-			"term": map[string]any{s.fields.TraceID: strings.ToLower(f.TraceID)},
-		})
+		must = append(must, traceTermsAny(s.fields.TraceID, strings.ToLower(f.TraceID), "trace"))
 	}
 	if f.SpanID != "" {
-		must = append(must, map[string]any{
-			"term": map[string]any{s.fields.SpanID: strings.ToLower(f.SpanID)},
-		})
+		must = append(must, traceTermsAny(s.fields.SpanID, strings.ToLower(f.SpanID), "span"))
 	}
 	if f.Service != "" {
 		must = append(must, map[string]any{
@@ -476,6 +484,48 @@ func flatten(prefix string, src map[string]any, dst map[string]string, skip map[
 			continue
 		}
 		dst[full] = toString(v)
+	}
+}
+
+// traceTermsAny builds a bool/should clause that matches the
+// given hex id against every common field name shape used by
+// log shippers — plus the configured `configured` override.
+// kind is "trace" or "span"; we derive the four common spellings
+// from it (kind.id / kindId / TitleId / kind_id).
+//
+// Returns a shape ready to plug into a `must` array. One non-
+// empty branch wins; non-existent fields contribute nothing to
+// score and short-circuit cheaply against the inverted index.
+func traceTermsAny(configured, value, kind string) map[string]any {
+	// Build the candidate set with the configured field first
+	// (operator's explicit override wins on conflict) and the
+	// four common shapes after. Dedupe via a tiny set so we
+	// don't emit duplicate clauses when the configured value
+	// already equals one of the defaults.
+	title := strings.ToUpper(kind[:1]) + kind[1:] // "trace" → "Trace"
+	candidates := []string{
+		configured,
+		kind + ".id", // trace.id / span.id  (ECS)
+		kind + "_id", // trace_id / span_id  (snake)
+		kind + "Id",  // traceId / spanId    (camel)
+		title + "Id", // TraceId / SpanId    (OTel default)
+	}
+	seen := map[string]bool{}
+	should := make([]any, 0, len(candidates))
+	for _, c := range candidates {
+		if c == "" || seen[c] {
+			continue
+		}
+		seen[c] = true
+		should = append(should, map[string]any{
+			"term": map[string]any{c: value},
+		})
+	}
+	return map[string]any{
+		"bool": map[string]any{
+			"should":               should,
+			"minimum_should_match": 1,
+		},
 	}
 }
 
