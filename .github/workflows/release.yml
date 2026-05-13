@@ -18,6 +18,14 @@ jobs:
   docker:
     name: Build + push Docker image
     runs-on: ubuntu-latest
+    # continue-on-error: a failed Docker push (typically a
+    # GHCR write_package permission_denied when the orphan
+    # package from a prior repo deletion blocks the new
+    # repo's GITHUB_TOKEN) shouldn't kill the rest of the
+    # release. Helm chart + GitHub Release entry still ship,
+    # and a maintainer can re-run the Docker step manually
+    # once the package linkage is fixed.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -60,6 +68,8 @@ jobs:
     # Independent of the main coremetry image so a Java-only change doesn't
     # rebuild the Go binary, and vice versa.
     runs-on: ubuntu-latest
+    # Same continue-on-error rationale as the main docker job.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -93,8 +103,16 @@ jobs:
 
   helm:
     name: Package + publish Helm chart (OCI)
-    needs: docker
+    # Helm chart push doesn't depend on the Docker image
+    # being on GHCR — the chart references an image tag but
+    # the registry resolves it at deploy time. Decoupling
+    # lets the chart ship even when Docker hits the orphan-
+    # package permission issue.
     runs-on: ubuntu-latest
+    # Helm OCI push goes to the same GHCR registry, so it can
+    # trip the same orphan-package permission issue. Allow it
+    # to fail without killing the GitHub Release step.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
         with:
@@ -128,7 +146,14 @@ jobs:
 
   release:
     name: GitHub Release
-    needs: [docker, helm]
+    # No `needs:` — docker / helm can both fail without
+    # blocking the GitHub Release notes entry. The notes
+    # reference the expected image / chart URLs; if those
+    # didn't actually publish, a maintainer re-runs the
+    # specific failing job after fixing GHCR permissions.
+    # `if: always()` ensures we run even when upstream jobs
+    # in the same workflow failed.
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
