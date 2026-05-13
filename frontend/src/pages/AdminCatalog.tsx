@@ -219,28 +219,83 @@ function EditRow({ draft, busy, onChange, onSave, onCancel }: {
   onCancel: () => void;
 }) {
   const u = (patch: Partial<ServiceMetadata>) => onChange({ ...draft, ...patch });
+  // AI suggest state — only used when the operator clicks the
+  // ✨ button. Hint = the reasoning + confidence the model
+  // returned so the operator can sanity-check the pre-fill.
+  const [aiBusy, setAiBusy]   = useState(false);
+  const [aiHint, setAiHint]   = useState<string | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  const aiSuggest = async () => {
+    setAiBusy(true); setAiError(null); setAiHint(null);
+    try {
+      const r = await api.copilotSuggestServiceTags(draft.service);
+      if (!r.suggestions) {
+        setAiError(r.note ?? 'No suggestions returned.');
+        return;
+      }
+      // Only fill fields the operator hasn't already typed —
+      // never overwrite their judgement. Description goes into
+      // the catalog row; criticality + reasoning surface as a
+      // hint line below but aren't persisted (no column yet).
+      const s = r.suggestions;
+      u({
+        ownerTeam:   draft.ownerTeam   || s.ownerTeam || '',
+        sreTeam:     draft.sreTeam     || s.sreTeam   || '',
+        description: draft.description || s.description || '',
+      });
+      const parts: string[] = [];
+      if (s.confidence)  parts.push(`${s.confidence} confidence`);
+      if (s.criticality) parts.push(`tier: ${s.criticality}`);
+      if (s.reasoning)   parts.push(s.reasoning);
+      setAiHint(parts.join(' · '));
+    } catch (e: unknown) {
+      setAiError(e instanceof Error ? e.message : 'Suggest failed');
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
   return (
-    <tr style={{ background: 'var(--bg2)' }}>
-      <td className="mono"><b>{draft.service}</b></td>
-      <td><Inp v={draft.ownerTeam} on={v => u({ ownerTeam: v })} ph="payments" /></td>
-      <td><Inp v={draft.sreTeam}   on={v => u({ sreTeam: v })}   ph="platform" /></td>
-      <td><Inp v={draft.chatChannel} on={v => u({ chatChannel: v })} ph="payments-oncall" /></td>
-      <td><Inp v={draft.runbookUrl} on={v => u({ runbookUrl: v })} ph="https://wiki/runbook" /></td>
-      <td><Inp v={draft.oncallUrl}  on={v => u({ oncallUrl: v })}  ph="https://pagerduty/..." /></td>
-      <td><Inp v={draft.repository} on={v => u({ repository: v })} ph="https://github/..." /></td>
-      <td>
-        <span style={{ display: 'inline-flex', gap: 4 }}>
-          <button onClick={onSave} disabled={busy}
-            style={{ fontSize: 11, padding: '2px 8px' }}>
-            {busy ? '…' : 'Save'}
-          </button>
-          <button className="sec" onClick={onCancel} disabled={busy}
-            style={{ fontSize: 11, padding: '2px 8px' }}>
-            Cancel
-          </button>
-        </span>
-      </td>
-    </tr>
+    <>
+      <tr style={{ background: 'var(--bg2)' }}>
+        <td className="mono"><b>{draft.service}</b></td>
+        <td><Inp v={draft.ownerTeam} on={v => u({ ownerTeam: v })} ph="payments" /></td>
+        <td><Inp v={draft.sreTeam}   on={v => u({ sreTeam: v })}   ph="platform" /></td>
+        <td><Inp v={draft.chatChannel} on={v => u({ chatChannel: v })} ph="payments-oncall" /></td>
+        <td><Inp v={draft.runbookUrl} on={v => u({ runbookUrl: v })} ph="https://wiki/runbook" /></td>
+        <td><Inp v={draft.oncallUrl}  on={v => u({ oncallUrl: v })}  ph="https://pagerduty/..." /></td>
+        <td><Inp v={draft.repository} on={v => u({ repository: v })} ph="https://github/..." /></td>
+        <td>
+          <span style={{ display: 'inline-flex', gap: 4 }}>
+            <button className="sec" onClick={aiSuggest} disabled={busy || aiBusy}
+              title="Auto-fill owner / SRE team / description from this service's recent telemetry"
+              style={{ fontSize: 11, padding: '2px 8px', color: 'var(--accent2)' }}>
+              {aiBusy ? '…' : '✨ AI'}
+            </button>
+            <button onClick={onSave} disabled={busy}
+              style={{ fontSize: 11, padding: '2px 8px' }}>
+              {busy ? '…' : 'Save'}
+            </button>
+            <button className="sec" onClick={onCancel} disabled={busy}
+              style={{ fontSize: 11, padding: '2px 8px' }}>
+              Cancel
+            </button>
+          </span>
+        </td>
+      </tr>
+      {(aiHint || aiError) && (
+        <tr style={{ background: 'var(--bg2)' }}>
+          <td colSpan={8} style={{
+            fontSize: 11, paddingTop: 0, paddingBottom: 8,
+            color: aiError ? 'var(--err)' : 'var(--text3)',
+            fontStyle: 'italic',
+          }}>
+            {aiError ?? `✨ ${aiHint}`}
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 

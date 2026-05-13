@@ -466,6 +466,20 @@ export const api = {
   copilotRunbook: (id: string) =>
     request<{ explanation: string; similarCount: number }>(
       `/api/copilot/runbook/${id}`, { method: 'POST' }),
+  copilotSuggestServiceTags: (service: string) =>
+    request<{
+      suggestions: {
+        ownerTeam?:   string;
+        sreTeam?:     string;
+        description?: string;
+        criticality?: string;
+        confidence?:  string;
+        reasoning?:   string;
+      } | null;
+      raw?: string;
+      note?: string;
+    }>(`/api/copilot/suggest-service-tags?service=${encodeURIComponent(service)}`,
+       { method: 'POST' }),
 
   // Public status page admin
   statusPageGetConfig:    () => get<StatusPageConfig>(`/api/status-page/config`),

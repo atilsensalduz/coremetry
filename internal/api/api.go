@@ -304,6 +304,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("POST   /api/copilot/explain-anomaly/{id}", s.copilotExplainAnomaly)
 	mux.HandleFunc("POST   /api/copilot/explain-service",      s.copilotExplainServiceHealth)
 	mux.HandleFunc("POST   /api/copilot/runbook/{id}",         s.copilotRunbook)
+	mux.HandleFunc("POST   /api/copilot/suggest-service-tags", auth.RequireAnyRole(editorRoles, s.copilotSuggestServiceTags))
 
 	// ── Incident management ───────────────────────────────────────
 	mux.HandleFunc("GET    /api/incidents",                 s.listIncidents)
@@ -4399,6 +4400,151 @@ func (s *Server) copilotRunbook(w http.ResponseWriter, r *http.Request) {
 		"explanation":  out,
 		"similarCount": len(similar),
 	})
+}
+
+// copilotSuggestServiceTags assembles a compact fingerprint of
+// one service (runtime, top operations, downstream callees,
+// cluster footprint, recent deploys) and asks the model to
+// propose catalog entries — owner team, SRE team, one-line
+// description, criticality. Result is a single JSON object the
+// AdminCatalog UI can pre-fill into the edit form before the
+// operator saves.
+//
+// Editor-role gated (same as PUT /api/services/{name}/metadata)
+// — non-editors can read the catalog but can't apply
+// suggestions, so they don't need to call this endpoint.
+//
+// Failure modes:
+//   • Service has no recent spans → fingerprint is sparse but
+//     the model still produces a sensible "low confidence"
+//     guess from the name alone.
+//   • Model returns prose instead of JSON → we surface a
+//     "no suggestions available" rather than poisoning the
+//     form with non-JSON garbage.
+func (s *Server) copilotSuggestServiceTags(w http.ResponseWriter, r *http.Request) {
+	if !s.copilot.Configured() {
+		http.Error(w, "AI copilot not configured", http.StatusServiceUnavailable)
+		return
+	}
+	service := strings.TrimSpace(r.URL.Query().Get("service"))
+	if service == "" {
+		http.Error(w, "service required", http.StatusBadRequest)
+		return
+	}
+
+	// Pull fingerprint signals in parallel — none of them depend
+	// on each other and each is one bounded CH query. Soft-fail
+	// per signal so a CH blip on (say) the deploys query doesn't
+	// erase the whole prompt.
+	type sig struct {
+		runtime  *chstore.ServiceRuntime
+		clusters []string
+		callees  []chstore.ServiceEdgeStats
+		deploys  []chstore.Deploy
+		ops      []string
+	}
+	var got sig
+	since := 24 * time.Hour
+	got.runtime, _ = s.store.GetServiceRuntime(r.Context(), service)
+	if m, err := s.store.GetServiceClusterMap(r.Context(), since); err == nil {
+		got.clusters = m[service]
+	}
+	got.callees, _ = s.store.CalleesOf(r.Context(), service, since)
+	if len(got.callees) > 5 {
+		got.callees = got.callees[:5]
+	}
+	got.deploys, _ = s.store.GetServiceDeploys(r.Context(),
+		service, time.Now().Add(-since), time.Now())
+	if len(got.deploys) > 3 {
+		got.deploys = got.deploys[:3]
+	}
+	// Top span operations — direct CH read, cheap because
+	// service_name prefixes the spans primary key.
+	if rows, err := s.store.Conn().Query(r.Context(), `
+		SELECT name, count() AS c
+		FROM spans
+		WHERE service_name = ? AND time >= now() - INTERVAL 24 HOUR
+		GROUP BY name ORDER BY c DESC LIMIT 10
+		SETTINGS max_execution_time = 5`, service); err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var name string
+			var c uint64
+			if err := rows.Scan(&name, &c); err == nil && name != "" {
+				got.ops = append(got.ops, name)
+			}
+		}
+	}
+
+	// Build the user prompt — compact JSON-ish so the model
+	// sees structured signals without token bloat.
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "service: %q\n", service)
+	if got.runtime != nil {
+		fmt.Fprintf(&sb, "runtime: language=%q sdk=%q runtime=%q os=%q host=%q\n",
+			got.runtime.Language, got.runtime.SDKVersion,
+			got.runtime.RuntimeName, got.runtime.OS, got.runtime.Host)
+	}
+	if len(got.clusters) > 0 {
+		fmt.Fprintf(&sb, "clusters: %v\n", got.clusters)
+	}
+	if len(got.ops) > 0 {
+		fmt.Fprintf(&sb, "top_operations (24h): %v\n", got.ops)
+	}
+	if len(got.callees) > 0 {
+		sb.WriteString("downstream_callees:\n")
+		for _, c := range got.callees {
+			fmt.Fprintf(&sb, "  - %s (calls=%d err=%.1f%% p99=%.0fms)\n",
+				c.Service, c.Calls, c.ErrorRate, c.P99Ms)
+		}
+	}
+	if len(got.deploys) > 0 {
+		sb.WriteString("recent_versions: ")
+		for i, d := range got.deploys {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(d.Version)
+		}
+		sb.WriteString("\n")
+	}
+
+	out, err := s.copilot.Explain(r.Context(),
+		copilot.SystemPromptServiceTags(), sb.String())
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	// Parse the model's JSON envelope. Find the first { and
+	// last } — defensive against the model adding markdown
+	// fences despite the "NO preamble" instruction.
+	parsed := extractServiceTagsJSON(out)
+	if parsed == nil {
+		writeJSON(w, map[string]any{
+			"suggestions": nil,
+			"raw":         out,
+			"note":        "Model didn't return a JSON object — review the raw text manually.",
+		})
+		return
+	}
+	writeJSON(w, map[string]any{"suggestions": parsed})
+}
+
+// extractServiceTagsJSON pulls the first {...} block out of a
+// model reply and decodes it as a free-shape map. Tolerates
+// markdown ``` fences and stray trailing prose. nil when the
+// reply has no recognisable JSON object.
+func extractServiceTagsJSON(s string) map[string]any {
+	start := strings.IndexByte(s, '{')
+	end := strings.LastIndexByte(s, '}')
+	if start < 0 || end <= start {
+		return nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(s[start:end+1]), &m); err != nil {
+		return nil
+	}
+	return m
 }
 
 // ── Incident management ─────────────────────────────────────────────────────

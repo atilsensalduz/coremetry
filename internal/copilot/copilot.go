@@ -584,3 +584,57 @@ func SystemPromptIncident() string      { return systemIncident }
 func SystemPromptAnomaly() string       { return systemAnomaly }
 func SystemPromptServiceHealth() string { return systemServiceHealth }
 func SystemPromptRunbook() string       { return systemRunbook }
+
+// systemServiceTags — used when the operator hits "AI suggest"
+// on a row in the service catalog editor. Given the service's
+// runtime fingerprint, sample operations, callees, and cluster
+// names, the model proposes owner team / SRE team / one-line
+// description / criticality.
+//
+// The reply MUST be a single JSON object so the UI can pre-fill
+// the edit form directly. Any prose outside the object trips
+// JSON parsing and the operator just sees "no suggestions" —
+// safer than letting bad output land in the live form.
+const systemServiceTags = `You are a senior platform engineer onboarding into a new
+distributed system. Given a single service's name, runtime
+fingerprint, top operations, downstream dependencies, and
+cluster footprint, propose a curation entry for the service
+catalog.
+
+Output a SINGLE JSON object with these fields (omit / empty
+when you can't reasonably infer):
+
+  {
+    "ownerTeam":    "<short slug or team handle>",
+    "sreTeam":      "<short slug — platform / infra team>",
+    "description":  "<one-line plain-English purpose>",
+    "criticality":  "<tier1 | tier2 | tier3>",
+    "confidence":   "<high | medium | low>",
+    "reasoning":    "<one short sentence: what signal drove the call>"
+  }
+
+Inference rules:
+
+  • Service name + operation patterns dominate the team
+    guess. "payments-api" with operations like "POST /charge"
+    is payments-domain; "auth-svc" with "/login /refresh"
+    is identity / platform-auth.
+  • Strong DB dependency on a single domain (Postgres
+    "orders" schema, Kafka topic "payments.*") narrows
+    further.
+  • Public-traffic services (api-gateway, bff-*, frontend
+    egress) → tier1 by default unless evidence says
+    otherwise.
+  • Internal-only backends with no upstream callers AND
+    low span volume → tier3.
+  • Java / Spring naming patterns hint at typical bank
+    org structures; Go services often platform / infra.
+  • confidence=high only when at least two signals agree.
+
+Never make up team slugs you can't justify from the data.
+Empty fields beat fabricated ones — the operator reviews
+the suggestion before saving.
+
+NO preamble, NO trailing prose. Just the JSON object.`
+
+func SystemPromptServiceTags() string   { return systemServiceTags }
