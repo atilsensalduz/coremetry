@@ -1369,6 +1369,31 @@ function LDAPTab() {
                    placeholder="(member={{userDN}})" style={{ width: '100%' }} />
           </Field2>
         </Row>
+        <Row>
+          <label style={{
+            display: 'flex', alignItems: 'flex-start', gap: 8,
+            fontSize: 12, cursor: 'pointer', padding: '8px 0',
+          }}>
+            <input type="checkbox"
+              checked={!!cfg.skipMemberOfFetch}
+              onChange={e => update({ skipMemberOfFetch: e.target.checked })}
+              style={{ marginTop: 2 }} />
+            <span>
+              <span style={{ fontWeight: 600 }}>
+                Skip memberOf in user search (AD MaxValRange / 1MB workaround)
+              </span>
+              <span style={{ display: 'block', color: 'var(--text3)', fontSize: 11, marginTop: 2, lineHeight: 1.5 }}>
+                Set when users with very large nested-group memberships trip
+                AD's <code>MaxValRange</code> (1500) or <code>MaxReceiveBuffer</code>
+                (~1MB) caps and login fails with "size limit" / "1MB area" /
+                <code>LDAP_ADMIN_LIMIT_EXCEEDED</code>. Drops the
+                <code>memberOf</code> attribute from the user search; the
+                separate group search (above) then becomes the authoritative
+                role source. <b>Requires Group search base + filter to be set.</b>
+              </span>
+            </span>
+          </label>
+        </Row>
 
         {/* ── Section 4: Role mapping ────────────────────────────────── */}
         <SectionTitle>Group → role mapping</SectionTitle>

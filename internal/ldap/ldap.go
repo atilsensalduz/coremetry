@@ -60,6 +60,19 @@ type Config struct {
 	// Group lookup
 	GroupSearchBase string `json:"groupSearchBase"`
 	GroupFilter     string `json:"groupFilter"` // {{userDN}} placeholder
+	// SkipMemberOfFetch drops `memberOf` from the user-search
+	// attribute list. AD enforces MaxValRange (default 1500)
+	// and MaxReceiveBuffer (1MB on some configs); a senior
+	// user with thousands of nested group memberships trips
+	// these and the login fails with LDAP_ADMIN_LIMIT_EXCEEDED
+	// or a 1MB-cap error. Skipping memberOf moves the
+	// authoritative membership lookup to the separate
+	// GroupSearchBase + GroupFilter pass (LDAP_MATCHING_RULE_IN_CHAIN
+	// recurses through nested groups cleanly), which pulls
+	// only DN values without the per-user attribute bloat.
+	// Required pre-req: GroupSearchBase must be set; otherwise
+	// the auth fall-through has nothing to derive roles from.
+	SkipMemberOfFetch bool `json:"skipMemberOfFetch"`
 
 	// Role assignment
 	DefaultRole  string             `json:"defaultRole"`  // role for users without group match
@@ -375,12 +388,22 @@ func findUser(conn *goldap.Conn, c Config, username string) (*LDAPUser, error) {
 	if !strings.Contains(c.UserSearchFilter, "{{username}}") {
 		log.Printf("[ldap] WARN: userSearchFilter has no {{username}} placeholder — auto-wrapping with sAMAccountName/UPN/mail OR clause. Set the filter to e.g. (sAMAccountName={{username}}) to silence this.")
 	}
-	log.Printf("[ldap] user search baseDN=%q filter=%s", c.BaseDN, filter)
+	// Attribute list — request the well-known identity fields
+	// plus memberOf for downstream role mapping. Operators who
+	// have hit AD's MaxValRange / MaxReceiveBuffer (1MB) cap on
+	// users with very large memberOf collections can set
+	// SkipMemberOfFetch in the LDAP settings to drop memberOf
+	// here and rely purely on the separate group-search pass.
+	attrs := []string{"dn", c.UserAttribute, c.EmailAttribute, c.DisplayAttribute}
+	if !c.SkipMemberOfFetch {
+		attrs = append(attrs, "memberOf")
+	}
+	log.Printf("[ldap] user search baseDN=%q filter=%s attrs=%v", c.BaseDN, filter, attrs)
 	req := goldap.NewSearchRequest(
 		c.BaseDN, goldap.ScopeWholeSubtree, goldap.NeverDerefAliases,
 		50, 30, false,
 		filter,
-		[]string{"dn", c.UserAttribute, c.EmailAttribute, c.DisplayAttribute, "memberOf"},
+		attrs,
 		nil,
 	)
 	res, err := conn.Search(req)

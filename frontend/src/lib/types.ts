@@ -415,6 +415,11 @@ export interface LDAPConfig {
   displayAttribute: string;
   groupSearchBase: string;
   groupFilter: string;
+  // Workaround toggle for AD's MaxValRange / MaxReceiveBuffer
+  // caps — drops memberOf from the user-search attrs so the
+  // separate group search is authoritative. Required when
+  // senior users with thousands of nested groups can't log in.
+  skipMemberOfFetch?: boolean;
   defaultRole: Role;
   groupRoleMap: LDAPGroupRoleMapping[];
 }
