@@ -749,6 +749,15 @@ export interface Problem {
   // k8s/openshift clusters the firing service was active in
   // around the problem time — read-time enriched.
   clusters?: string[];
+  // Most recent service.version deploy observed in the 30 min
+  // before this problem opened, or undefined. Surfaced as a
+  // "deployed v1.2 · 6m before" tag so operators see the
+  // "regression coincides with deploy" pattern instantly.
+  recentDeploy?: {
+    version: string;
+    timeUnixNs: number;
+    ageSeconds: number;
+  };
 }
 
 export interface ServiceEdgeStats {

@@ -58,6 +58,26 @@ type Problem struct {
 	// chips so the oncall sees "this fires on eu-west AND
 	// eu-central" at a glance.
 	Clusters []string `json:"clusters,omitempty"`
+	// RecentDeploy — most recent observed service.version
+	// transition for this service in the window leading up
+	// to the problem firing, or nil. The AI explain /
+	// runbook prompts use this signal to ask "did a deploy
+	// just happen?", and the UI surfaces it as a small
+	// "deployed v1.2.3 · 6 min before" tag next to the
+	// problem row. Populated at READ time from spans (NOT
+	// stored on the problems table) — the deploy might be
+	// confirmed retroactively after the row was written.
+	RecentDeploy *RecentDeploy `json:"recentDeploy,omitempty"`
+}
+
+// RecentDeploy is the compact deploy signal attached to a
+// firing Problem. AgeSeconds = problem.StartedAt - deploy.time,
+// rounded — positive means deploy was BEFORE the problem
+// (the typical correlate-with-incident case).
+type RecentDeploy struct {
+	Version    string `json:"version"`
+	TimeUnixNs int64  `json:"timeUnixNs"`
+	AgeSeconds int64  `json:"ageSeconds"`
 }
 
 // EnrichProblemsWithClusters fills each problem's Clusters
@@ -116,6 +136,122 @@ func (s *Store) EnrichAnomaliesWithClusters(ctx context.Context, events []Anomal
 		}
 	}
 	return events
+}
+
+// EnrichProblemsWithDeploys attaches the most recent
+// observed service.version deploy that happened up to
+// `lookback` before each problem's started_at. Single bulk
+// CH query covers every service across every problem in the
+// slice — N+1 free regardless of problem count. Soft-fails:
+// CH error returns the slice unchanged rather than blocking
+// the page render.
+//
+// Mechanism: one GROUP BY over spans for the union of
+// involved services in [min(started)-lookback, max(started)],
+// then per-problem in-memory match against the highest
+// first_seen time ≤ that problem's started_at.
+func (s *Store) EnrichProblemsWithDeploys(ctx context.Context, problems []Problem, lookback time.Duration) []Problem {
+	if len(problems) == 0 {
+		return problems
+	}
+	// Distinct services + global time window across the page.
+	services := map[string]struct{}{}
+	var minStarted, maxStarted int64
+	for i, p := range problems {
+		if p.Service == "" {
+			continue
+		}
+		services[p.Service] = struct{}{}
+		if i == 0 || p.StartedAt < minStarted {
+			minStarted = p.StartedAt
+		}
+		if p.StartedAt > maxStarted {
+			maxStarted = p.StartedAt
+		}
+	}
+	if len(services) == 0 {
+		return problems
+	}
+	svcList := make([]any, 0, len(services))
+	for s := range services {
+		svcList = append(svcList, s)
+	}
+	from := time.Unix(0, minStarted).Add(-lookback)
+	to := time.Unix(0, maxStarted)
+
+	// Build positional placeholders for the IN clause.
+	holders := ""
+	for i := range svcList {
+		if i > 0 {
+			holders += ","
+		}
+		holders += "?"
+	}
+	sql := `
+		SELECT service_name,
+		       res_values[indexOf(res_keys, 'service.version')] AS version,
+		       toUnixTimestamp64Nano(min(time))                 AS first_seen_ns
+		FROM spans
+		WHERE service_name IN (` + holders + `)
+		  AND time >= ? AND time <= ?
+		  AND has(res_keys, 'service.version')
+		GROUP BY service_name, version
+		HAVING version != ''
+		ORDER BY service_name, first_seen_ns ASC
+		SETTINGS max_execution_time = 10`
+	args := append([]any{}, svcList...)
+	args = append(args, from, to)
+	rows, err := s.conn.Query(ctx, sql, args...)
+	if err != nil {
+		return problems
+	}
+	defer rows.Close()
+	// Map: service → []deploy{version, ns} ordered ascending.
+	type d struct {
+		version string
+		ns      int64
+	}
+	byService := map[string][]d{}
+	for rows.Next() {
+		var svc, ver string
+		var ns int64
+		if err := rows.Scan(&svc, &ver, &ns); err != nil {
+			return problems
+		}
+		byService[svc] = append(byService[svc], d{ver, ns})
+	}
+	if err := rows.Err(); err != nil {
+		return problems
+	}
+	lookbackNs := int64(lookback)
+	for i := range problems {
+		list := byService[problems[i].Service]
+		if len(list) == 0 {
+			continue
+		}
+		// Find latest deploy with ns ≤ problem.StartedAt and
+		// ns ≥ problem.StartedAt-lookback. List is asc, so
+		// walk from the end.
+		var pick *d
+		for j := len(list) - 1; j >= 0; j-- {
+			if list[j].ns > problems[i].StartedAt {
+				continue
+			}
+			if list[j].ns < problems[i].StartedAt-lookbackNs {
+				break
+			}
+			pick = &list[j]
+			break
+		}
+		if pick != nil {
+			problems[i].RecentDeploy = &RecentDeploy{
+				Version:    pick.version,
+				TimeUnixNs: pick.ns,
+				AgeSeconds: (problems[i].StartedAt - pick.ns) / 1e9,
+			}
+		}
+	}
+	return problems
 }
 
 // EnrichProblemsWithRunbooks resolves each problem's

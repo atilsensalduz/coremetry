@@ -465,6 +465,27 @@ function ProblemsSection({ serviceFilter }: { serviceFilter: string }) {
                             Runbook ↗
                           </a>
                         )}
+                        {p.recentDeploy && (
+                          // Deploy correlation tag — shows the
+                          // service.version that landed in the 30 min
+                          // before the problem fired. The classic
+                          // "regression coincided with deploy" signal
+                          // in a single chip. Amber so it visually
+                          // codes as "warning, look here".
+                          <span
+                            onClick={e => e.stopPropagation()}
+                            title={`service.version=${p.recentDeploy.version} first seen ${fmtAge(p.recentDeploy.ageSeconds)} before this problem opened`}
+                            style={{
+                              marginLeft: 8, fontSize: 11,
+                              padding: '2px 8px', borderRadius: 12,
+                              background: 'rgba(250,204,21,0.10)',
+                              border: '1px solid rgba(250,204,21,0.40)',
+                              color: 'var(--warn, #facc15)',
+                              whiteSpace: 'nowrap',
+                            }}>
+                            ⬇ {p.recentDeploy.version} · {fmtAge(p.recentDeploy.ageSeconds)} before
+                          </span>
+                        )}
                         {isAnomaly && (
                           <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
                             {p.description}
@@ -818,4 +839,14 @@ function SortTh<K extends string>({ col, label, sort, dir, onSort, align }: {
 // Eliminating it entirely would mean retyping every call site
 // with explicit <PSortKey>; not worth the churn.
 const PSortTh = SortTh<PSortKey>;
+
+// fmtAge — compact "Nm" / "Nh" / "Ns" formatter for the deploy
+// correlation tag. ageSeconds is always positive (deploy was
+// before problem) but be defensive.
+function fmtAge(sec: number): string {
+  const s = Math.max(0, Math.round(sec));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.round(s / 60)}m`;
+  return `${Math.round(s / 3600)}h`;
+}
 

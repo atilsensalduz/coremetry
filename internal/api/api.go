@@ -4037,10 +4037,21 @@ func (s *Server) copilotExplainProblem(w http.ResponseWriter, r *http.Request) {
 	if p == nil {
 		http.Error(w, "problem not found", http.StatusNotFound); return
 	}
+	// Attach deploy correlation for the explain prompt — the
+	// "regression right after a deploy" pattern is the single
+	// highest-signal cause hint the model should consider first.
+	enriched := s.store.EnrichProblemsWithDeploys(r.Context(),
+		[]chstore.Problem{*p}, 30*time.Minute)
+	p = &enriched[0]
 	user := fmt.Sprintf(
 		"Service: %s\nMetric: %s\nValue: %.2f (threshold %.2f)\nSeverity: %s\nRule: %s\nDescription: %s",
 		p.Service, p.Metric, p.Value, p.Threshold, p.Severity, p.RuleName, p.Description,
 	)
+	if p.RecentDeploy != nil {
+		user += fmt.Sprintf(
+			"\n\nRecent deploy: service.version=%q first seen %d seconds before this problem opened. Consider whether this regression coincides with that deploy.",
+			p.RecentDeploy.Version, p.RecentDeploy.AgeSeconds)
+	}
 	out, err := s.copilot.Explain(r.Context(), copilot.SystemPromptProblem(), user)
 	if err != nil { writeErr(w, err); return }
 	writeJSON(w, map[string]string{"explanation": out})
@@ -4332,12 +4343,24 @@ func (s *Server) copilotRunbook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	similar, _ := s.store.FindSimilarResolvedProblems(r.Context(), p.Service, p.RuleID, 8)
+	// Deploy correlation — same enrichment the problem list
+	// shows, threaded into the runbook prompt so the model
+	// can lead with "rollback the recent deploy" when the
+	// timing is suspicious.
+	enriched := s.store.EnrichProblemsWithDeploys(r.Context(),
+		[]chstore.Problem{*p}, 30*time.Minute)
+	p = &enriched[0]
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Current problem (status %s):\n", p.Status)
 	fmt.Fprintf(&sb,
 		"  Service: %s\n  Metric: %s\n  Value: %.2f (threshold %.2f)\n  Severity: %s\n  Rule: %s\n  Description: %s\n",
 		p.Service, p.Metric, p.Value, p.Threshold, p.Severity, p.RuleName, p.Description)
+	if p.RecentDeploy != nil {
+		fmt.Fprintf(&sb,
+			"\nRecent deploy: service.version=%q first seen %d seconds before this problem opened — strong signal that step 1 should be \"check / roll back this deploy\".\n",
+			p.RecentDeploy.Version, p.RecentDeploy.AgeSeconds)
+	}
 
 	if len(similar) > 0 {
 		fmt.Fprintf(&sb, "\nPast resolved instances of this rule on this service (%d, most recent first):\n", len(similar))
@@ -4667,6 +4690,17 @@ func (s *Server) listProblems(w http.ResponseWriter, r *http.Request) {
 		// silently on error so a transient blip doesn't
 		// blank the page.
 		probs = s.store.EnrichProblemsWithClusters(r.Context(), probs, time.Hour)
+		// Deploy correlation — attach the most recent
+		// service.version deploy within 30 min before each
+		// problem fired. UI renders a "deployed vX.Y · 6m
+		// before" tag so the operator immediately sees the
+		// classic "regression coincided with deploy" pattern
+		// without scrolling to the deploy markers panel.
+		// 30 min covers most "rollout finished, started
+		// receiving traffic, broke things" windows; longer
+		// causal chains stay invisible to keep the signal
+		// strong.
+		probs = s.store.EnrichProblemsWithDeploys(r.Context(), probs, 30*time.Minute)
 		return probs, nil
 	})
 }
