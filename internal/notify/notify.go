@@ -417,8 +417,29 @@ func (n *Notifier) SendProblemAlert(ctx context.Context, p chstore.Problem) {
 	if md2, err := n.store.GetServiceMetadata(ctx, p.Service); err == nil {
 		md = md2
 	}
+	// Enrich the in-memory problem with its cluster set so the
+	// new ChannelMatchRules.Clusters predicate (v0.5.63) has
+	// something to match against. The evaluator-fired path
+	// passes us a freshly-constructed Problem with empty
+	// Clusters; one bulk lookup is cheap and shared across the
+	// channel loop. Soft-fail: on CH error we just leave
+	// p.Clusters empty and cluster-scoped channels silently
+	// don't match (same as a problem on a service that
+	// genuinely has no cluster attr).
+	if len(p.Clusters) == 0 {
+		enriched := n.store.EnrichProblemsWithClusters(ctx,
+			[]chstore.Problem{p}, time.Hour)
+		if len(enriched) > 0 {
+			p = enriched[0]
+		}
+	}
+	in := chstore.MatchInput{
+		Service:  p.Service,
+		Metadata: md,
+		Clusters: p.Clusters,
+	}
 	for _, c := range channels {
-		if !c.MatchRules.Matches(p.Service, md) {
+		if !c.MatchRules.MatchesProblem(in) {
 			continue
 		}
 		if err := n.sendOne(ctx, c, p); err != nil {

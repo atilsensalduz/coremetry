@@ -579,6 +579,9 @@ function ChannelModal({ initial, onClose, onSaved }: {
   const [matchServices, setMatchServices] = useState((initial?.matchRules?.services ?? []).join(', '));
   const [matchSREs, setMatchSREs] = useState((initial?.matchRules?.sreTeams ?? []).join(', '));
   const [matchOwners, setMatchOwners] = useState((initial?.matchRules?.ownerTeams ?? []).join(', '));
+  const [matchClusters, setMatchClusters] = useState((initial?.matchRules?.clusters ?? []).join(', '));
+  const [matchQuietHours, setMatchQuietHours] = useState(initial?.matchRules?.quietHours ?? '');
+  const [matchQuietHoursTz, setMatchQuietHoursTz] = useState(initial?.matchRules?.quietHoursTz ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -632,9 +635,12 @@ function ChannelModal({ initial, onClose, onSaved }: {
       const splitCSL = (s: string) =>
         s.split(/[,;\s]+/).map(x => x.trim()).filter(Boolean);
       const matchRules = {
-        services:   splitCSL(matchServices),
-        sreTeams:   splitCSL(matchSREs),
-        ownerTeams: splitCSL(matchOwners),
+        services:     splitCSL(matchServices),
+        sreTeams:     splitCSL(matchSREs),
+        ownerTeams:   splitCSL(matchOwners),
+        clusters:     splitCSL(matchClusters),
+        quietHours:   matchQuietHours.trim(),
+        quietHoursTz: matchQuietHoursTz.trim(),
       };
       const payload = { name, type, config, enabled, minSeverity, matchRules };
       if (initial) await api.updateChannel(initial.id, payload);
@@ -888,12 +894,37 @@ function ChannelModal({ initial, onClose, onSaved }: {
                   onChange={e => setMatchOwners(e.target.value)}
                   style={{ width: '100%' }} />
               </Field>
+              <Field label="Match k8s/openshift clusters (comma-separated)">
+                <input value={matchClusters}
+                  placeholder="prod-eu-west, prod-eu-central"
+                  onChange={e => setMatchClusters(e.target.value)}
+                  style={{ width: '100%' }} />
+              </Field>
+              <div style={{ display: 'grid',
+                            gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <Field label="Quiet hours (HH:MM-HH:MM, may cross midnight)">
+                  <input value={matchQuietHours}
+                    placeholder="22:00-07:00"
+                    onChange={e => setMatchQuietHours(e.target.value)}
+                    style={{ width: '100%' }} />
+                </Field>
+                <Field label="Quiet hours timezone (IANA, default UTC)">
+                  <input value={matchQuietHoursTz}
+                    placeholder="Europe/Istanbul"
+                    onChange={e => setMatchQuietHoursTz(e.target.value)}
+                    style={{ width: '100%' }} />
+                </Field>
+              </div>
               <p style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6 }}>
-                Predicates AND together. e.g. services=<code>payments</code> +
-                sreTeams=<code>platform</code> means "fire only when the problem
-                is on <code>payments</code> AND its catalog SRE team is
-                <code>platform</code>". Service catalog metadata is the source
-                of truth for sreTeam / ownerTeam lookup.
+                Predicates AND together — every non-empty rule must match.
+                e.g. services=<code>payments</code> +
+                clusters=<code>prod-eu-west</code> +
+                quietHours=<code>22:00-07:00</code> means "fire only on the
+                payments service in eu-west, AND only outside the 10pm–7am
+                window". Service catalog metadata is the source of truth for
+                sreTeam / ownerTeam lookup; clusters come from the problem's
+                enriched cluster list (k8s.cluster.name or
+                openshift.cluster.name resource attrs).
               </p>
             </div>
           </details>

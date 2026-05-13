@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -63,15 +65,89 @@ type NotificationChannel struct {
 //   • services    = []string of literal service names
 //   • sreTeams    = []string of catalog SRE team names
 //   • ownerTeams  = []string of catalog product owner team names
+//   • clusters    = []string of k8s/openshift cluster names —
+//     matches against the problem's enriched cluster list
+//     (typically populated by EnrichProblemsWithClusters
+//     before the channel fan-out)
+//   • quietHours  = "HH:MM-HH:MM" window during which the
+//     channel does NOT fire. Empty = always-on. The window
+//     may cross midnight (e.g. "22:00-07:00"); evaluated in
+//     QuietHoursTz which defaults to UTC.
+//   • quietHoursTz = IANA timezone for quietHours (e.g.
+//     "Europe/Istanbul"). Empty = UTC.
+//
+// Common operator patterns this supports:
+//   • "Pager rota only for prod-eu-west during business hrs":
+//     clusters=[prod-eu-west], quietHours="00:00-08:00",
+//     quietHoursTz="Europe/Istanbul"
+//   • "Staging channel — staging cluster only":
+//     clusters=[prod-staging]
+//   • "Weekend on-call inbox":
+//     ownerTeams=[payments], quietHours empty
 type ChannelMatchRules struct {
-	Services   []string `json:"services,omitempty"`
-	SRETeams   []string `json:"sreTeams,omitempty"`
-	OwnerTeams []string `json:"ownerTeams,omitempty"`
+	Services     []string `json:"services,omitempty"`
+	SRETeams     []string `json:"sreTeams,omitempty"`
+	OwnerTeams   []string `json:"ownerTeams,omitempty"`
+	Clusters     []string `json:"clusters,omitempty"`
+	QuietHours   string   `json:"quietHours,omitempty"`
+	QuietHoursTz string   `json:"quietHoursTz,omitempty"`
 }
 
-// Matches — true when the channel should fire for `service`
-// given its catalog metadata. Empty / zero-value rules
-// mean catch-all (always true).
+// MatchInput bundles the runtime signals Matches needs. We
+// pass a struct instead of growing the arg list every time we
+// add a predicate; existing call sites switched to use it via
+// MatchesProblem below.
+type MatchInput struct {
+	Service  string
+	Metadata *ServiceMetadata
+	Clusters []string  // problem.Clusters after enrichment
+	Now      time.Time // override for tests; zero = time.Now()
+}
+
+// MatchesProblem evaluates every predicate against a Problem's
+// runtime signals. Empty / zero-value rules mean catch-all
+// (always true); the predicate's job is to PROVE the channel
+// should be silenced, otherwise we fire.
+func (m ChannelMatchRules) MatchesProblem(in MatchInput) bool {
+	if !m.Matches(in.Service, in.Metadata) {
+		return false
+	}
+	if len(m.Clusters) > 0 {
+		if len(in.Clusters) == 0 {
+			return false
+		}
+		hit := false
+		for _, c := range m.Clusters {
+			for _, pc := range in.Clusters {
+				if c == pc {
+					hit = true
+					break
+				}
+			}
+			if hit {
+				break
+			}
+		}
+		if !hit {
+			return false
+		}
+	}
+	if m.QuietHours != "" {
+		now := in.Now
+		if now.IsZero() {
+			now = time.Now()
+		}
+		if isInQuietWindow(now, m.QuietHours, m.QuietHoursTz) {
+			return false
+		}
+	}
+	return true
+}
+
+// Matches retains the pre-v0.5.63 signature so existing
+// callers that only need service / catalog matching keep
+// compiling. New code paths thread MatchInput through
+// MatchesProblem.
 func (m ChannelMatchRules) Matches(service string, md *ServiceMetadata) bool {
 	if len(m.Services) > 0 {
 		hit := false
@@ -116,6 +192,56 @@ func (m ChannelMatchRules) Matches(service string, md *ServiceMetadata) bool {
 		}
 	}
 	return true
+}
+
+// isInQuietWindow parses "HH:MM-HH:MM" and returns true when
+// `now` (in the configured timezone) falls inside the
+// window. Windows that span midnight (start > end) are
+// supported — operators with after-hours rotas need them.
+// Malformed input returns false so a typo doesn't silence
+// the channel forever.
+func isInQuietWindow(now time.Time, window, tz string) bool {
+	loc := time.UTC
+	if tz != "" {
+		if l, err := time.LoadLocation(tz); err == nil {
+			loc = l
+		}
+	}
+	now = now.In(loc)
+	parts := strings.SplitN(window, "-", 2)
+	if len(parts) != 2 {
+		return false
+	}
+	startH, startM, ok1 := parseHHMM(parts[0])
+	endH, endM, ok2 := parseHHMM(parts[1])
+	if !ok1 || !ok2 {
+		return false
+	}
+	nowMin := now.Hour()*60 + now.Minute()
+	startMin := startH*60 + startM
+	endMin := endH*60 + endM
+	if startMin <= endMin {
+		return nowMin >= startMin && nowMin < endMin
+	}
+	// Crosses midnight: in-window if now ≥ start OR now < end.
+	return nowMin >= startMin || nowMin < endMin
+}
+
+func parseHHMM(s string) (int, int, bool) {
+	s = strings.TrimSpace(s)
+	parts := strings.SplitN(s, ":", 2)
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+	h, err := strconv.Atoi(parts[0])
+	if err != nil || h < 0 || h > 23 {
+		return 0, 0, false
+	}
+	m, err := strconv.Atoi(parts[1])
+	if err != nil || m < 0 || m > 59 {
+		return 0, 0, false
+	}
+	return h, m, true
 }
 
 func (s *Store) ListChannels(ctx context.Context) ([]NotificationChannel, error) {

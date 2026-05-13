@@ -833,6 +833,9 @@ export interface NotificationChannel {
     services?: string[];
     sreTeams?: string[];
     ownerTeams?: string[];
+    clusters?: string[];
+    quietHours?: string;    // "HH:MM-HH:MM"; window may cross midnight
+    quietHoursTz?: string;  // IANA tz; empty = UTC
   };
   // Type-specific union. Optional fields keep the existing email/slack/
   // webhook callers happy; new channels (mattermost shares slack's
