@@ -517,38 +517,29 @@ tbody td { padding: 7px 12px; max-width: 320px; white-space: nowrap; overflow: h
   display: grid;
   grid-template-columns: 110px 64px 160px 1fr auto;
   gap: 10px;
-  align-items: baseline;
+  align-items: flex-start;
   padding: 6px 10px;
   border-bottom: 1px solid var(--border);
   font-size: 12px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  white-space: nowrap;
-  overflow: hidden;
 }
 .trace-logs-row:hover { background: var(--bg2); }
-.trace-logs-ts  { color: var(--text2); }
-.trace-logs-svc { color: var(--accent2); overflow: hidden; text-overflow: ellipsis; }
+.trace-logs-ts  { color: var(--text2); white-space: nowrap; }
+.trace-logs-svc { color: var(--accent2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Message column — wraps fully by default so stack traces,
+   JSON bodies, multi-line SQL are visible in one read with
+   no extra click. min-width: 0 unlocks the grid track so the
+   wrap actually happens (otherwise the 1fr column collapses
+   to the longest unbreakable token's width). overflow-wrap:
+   anywhere is the aggressive sibling of break-word — it
+   breaks even a 5kB single-token blob (base64 payload, long
+   trace IDs in raw URLs) instead of forcing horizontal
+   overflow. */
 .trace-logs-msg {
   color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: pre;
-}
-/* Expanded row — drop the single-line crop so a long log
-   line (stack trace, JSON body, multi-line SQL) renders in
-   full. The grid still applies, but the message cell wraps
-   and the row grows vertically to fit. */
-.trace-logs-row.is-expanded {
-  white-space: normal;
-  overflow: visible;
-  align-items: flex-start;
-  background: var(--bg2);
-}
-.trace-logs-row.is-expanded .trace-logs-msg {
-  overflow: visible;
-  text-overflow: clip;
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 .trace-logs-span {
   font-size: 10px;

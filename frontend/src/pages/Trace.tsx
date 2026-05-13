@@ -330,13 +330,6 @@ function TabBtn({ active, onClick, children }: {
 // span_id shown as a smaller tag so the operator can correlate
 // "this log line belongs to that span".
 function TraceLogsPanel({ logs }: { logs: LogRow[] | null | undefined }) {
-  // Track which rows the operator expanded. Default compact
-  // (ellipsis at ~1 line); click toggles to full-content
-  // wrapped — needed because real log lines (stack traces,
-  // JSON request bodies, SQL with bind params) often run
-  // hundreds of chars and the operator can't piece together
-  // what failed without seeing all of it.
-  const [expanded, setExpanded] = useState<Set<number>>(new Set());
   if (logs === undefined) return <Spinner />;
   if (logs === null) return <Empty icon="⚠" title="Failed to load logs" />;
   if (logs.length === 0) {
@@ -346,17 +339,13 @@ function TraceLogsPanel({ logs }: { logs: LogRow[] | null | undefined }) {
   }
   // Ascending chronological order — easier to read with the trace
   // waterfall above mentally lined up to the same timeline.
+  //
+  // Rows wrap natively (CSS .trace-logs-msg: pre-wrap +
+  // overflow-wrap: anywhere) so a long stack trace / JSON
+  // body / multi-line SQL renders in full without a click —
+  // operators kept asking "where's the rest of the line" and
+  // a click-to-expand model added friction without value.
   const sorted = [...logs].sort((a, b) => a.timestamp - b.timestamp);
-  const toggle = (i: number) => {
-    setExpanded(prev => {
-      const next = new Set(prev);
-      next.has(i) ? next.delete(i) : next.add(i);
-      return next;
-    });
-  };
-  // Operator might want "expand all" without 200 individual
-  // clicks — provide a small toolbar above the list.
-  const allOpen = expanded.size === sorted.length && sorted.length > 0;
   return (
     <div className="trace-logs">
       <div style={{
@@ -365,28 +354,16 @@ function TraceLogsPanel({ logs }: { logs: LogRow[] | null | undefined }) {
         fontSize: 11, color: 'var(--text3)',
       }}>
         <span>{sorted.length} log line{sorted.length === 1 ? '' : 's'}</span>
-        <span style={{ flex: 1 }} />
-        <button className="sec"
-          onClick={() => setExpanded(allOpen
-            ? new Set()
-            : new Set(sorted.map((_, i) => i)))}
-          style={{ fontSize: 11, padding: '1px 8px' }}>
-          {allOpen ? 'Collapse all' : 'Expand all'}
-        </button>
       </div>
       {sorted.map((l, i) => {
         const sev = l.severityText || severityFromNumber(l.severity);
         const sevCls = severityClass(sev);
-        const isOpen = expanded.has(i);
         return (
-          <div key={i}
-            className={`trace-logs-row${isOpen ? ' is-expanded' : ''}`}
-            onClick={() => toggle(i)}
-            style={{ cursor: 'pointer' }}>
+          <div key={i} className="trace-logs-row">
             <span className="trace-logs-ts" title={tsLong(l.timestamp)}>{fmtClock(l.timestamp)}</span>
             <span className={`trace-logs-sev ${sevCls}`}>{sev || 'info'}</span>
             <span className="trace-logs-svc">{l.serviceName || '—'}</span>
-            <span className="trace-logs-msg" title={isOpen ? undefined : l.body}>{l.body}</span>
+            <span className="trace-logs-msg">{l.body}</span>
             {l.spanId && (
               <span className="trace-logs-span" title={`span_id: ${l.spanId}`}>
                 {l.spanId.slice(0, 12)}
