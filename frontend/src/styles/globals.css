@@ -534,6 +534,22 @@ tbody td { padding: 7px 12px; max-width: 320px; white-space: nowrap; overflow: h
   text-overflow: ellipsis;
   white-space: pre;
 }
+/* Expanded row — drop the single-line crop so a long log
+   line (stack trace, JSON body, multi-line SQL) renders in
+   full. The grid still applies, but the message cell wraps
+   and the row grows vertically to fit. */
+.trace-logs-row.is-expanded {
+  white-space: normal;
+  overflow: visible;
+  align-items: flex-start;
+  background: var(--bg2);
+}
+.trace-logs-row.is-expanded .trace-logs-msg {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .trace-logs-span {
   font-size: 10px;
   color: var(--text3);
