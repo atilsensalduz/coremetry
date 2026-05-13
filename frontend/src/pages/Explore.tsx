@@ -20,6 +20,18 @@ import { encodeRange, decodeRange, encodeFilters, decodeFilters, buildQuery } fr
 import type { TimeRange, FilterExpr, SpanMetricSeries, SpanAgg, TraceRow, LatencyHeatmap as Heatmap } from '@/lib/types';
 
 type ResultMode = 'metric' | 'traces' | 'repeats';
+
+// BubbleUpMode — chooses the (baseline, selection) predicate
+// pair for the BubbleUp investigator.
+//   off     — panel hidden, no fetch
+//   errors  — selection = status_code='error'
+//   slow1s  — selection = duration_ms > 1000
+//   slow5s  — selection = duration_ms > 5000
+//   custom  — selection = the last filter chip the user added;
+//             everything before it is the baseline. Legacy
+//             behaviour for power users who already know the
+//             "stage 2 chips" trick.
+type BubbleUpMode = 'off' | 'errors' | 'slow1s' | 'slow5s' | 'custom';
 type TraceSortKey = 'traceId' | 'rootName' | 'serviceName' | 'duration' | 'spans' | 'time' | 'status';
 
 // Each column's natural starting direction when first selected: time
@@ -188,7 +200,12 @@ function ExploreInner() {
   // "selection" predicate; everything before it is the
   // baseline. Toggle below the chart so it doesn't fire on
   // every render — runs lazily on first open.
-  const [showBubbleUp, setShowBubbleUp] = useState(false);
+  // BubbleUp mode selector — replaces the old single-boolean
+  // showBubbleUp. Lets the operator pick a preset selection
+  // (errors / slow > 1s / slow > 5s) without manually staging
+  // 2 filter chips. 'custom' falls back to the legacy
+  // "last chip is the selection" behaviour.
+  const [bubbleMode, setBubbleMode] = useState<BubbleUpMode>('off');
   // Facets panel — Datadog "trace tag explorer". Toggled on
   // by default since it's the quickest discovery surface for
   // operators new to a service. Persisted in localStorage so
@@ -1080,29 +1097,82 @@ name ~ checkout`}
                 operator opens the panel, so adding chips
                 doesn't fire the divergence query on every
                 tweak. */}
-            {filters.length >= 2 && (
-              <div style={{ marginTop: 14 }}>
-                <button className="sec"
-                  onClick={() => setShowBubbleUp(s => !s)}
-                  style={{ fontSize: 11, padding: '3px 10px' }}
-                  title="Compare the last filter chip's selection against the rest as baseline">
-                  {showBubbleUp ? 'Hide BubbleUp' : '🫧 Investigate selection (BubbleUp)'}
-                </button>
-                {showBubbleUp && (() => {
-                  const baseline = filters.slice(0, -1);
-                  const selection = filters.slice(-1);
-                  const { from, to } = timeRangeToNs(range);
+            {/* BubbleUp — Honeycomb-style "what's special about
+                THESE spans?" investigator. Three entry-points:
+                   • Errors  — selection = status_code='error'
+                   • Slow    — selection = duration > <threshold>
+                   • Custom  — last filter chip is the selection
+                The two presets are the day-1 questions an SRE
+                asks; they used to be gated behind a manual
+                "add two filter chips" trick that few discovered.
+                Now they're one click and run immediately. */}
+            <div style={{ marginTop: 14 }}>
+              <div style={{
+                display: 'inline-flex', gap: 4, alignItems: 'center',
+              }}>
+                <span style={{
+                  fontSize: 10, color: 'var(--text3)',
+                  textTransform: 'uppercase', letterSpacing: 0.4,
+                  marginRight: 4,
+                }}>🫧 Investigate</span>
+                {(['off', 'errors', 'slow1s', 'slow5s', 'custom'] as BubbleUpMode[]).map(m => {
+                  const label = m === 'off'    ? 'off'
+                              : m === 'errors' ? 'errors'
+                              : m === 'slow1s' ? 'slow (>1s)'
+                              : m === 'slow5s' ? 'slow (>5s)'
+                              :                  'custom (last chip)';
+                  const disabled = m === 'custom' && filters.length < 2;
                   return (
-                    <BubbleUpPanel
-                      baseline={baseline}
-                      selection={selection}
-                      from={from}
-                      to={to}
-                      onApplyFilter={(f) => setFilters([...filters, f])} />
+                    <button key={m} type="button"
+                      disabled={disabled}
+                      onClick={() => setBubbleMode(m)}
+                      title={disabled
+                        ? 'Add 2+ filter chips and pick this to compare the last chip as selection'
+                        : (m === 'off' ? 'Hide BubbleUp panel' : `Run BubbleUp with ${label} as selection`)}
+                      style={{
+                        all: 'unset', cursor: disabled ? 'not-allowed' : 'pointer',
+                        fontSize: 11, padding: '3px 9px', borderRadius: 3,
+                        fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+                        background: bubbleMode === m ? 'var(--accent2)' : 'var(--bg2)',
+                        color: bubbleMode === m ? 'var(--bg)'
+                             : disabled ? 'var(--text3)' : 'var(--text2)',
+                        border: `1px solid ${bubbleMode === m ? 'var(--accent2)' : 'var(--border)'}`,
+                        fontWeight: bubbleMode === m ? 600 : 400,
+                        opacity: disabled ? 0.5 : 1,
+                      }}>{label}</button>
                   );
-                })()}
+                })}
               </div>
-            )}
+              {bubbleMode !== 'off' && (() => {
+                const { from, to } = timeRangeToNs(range);
+                // Construct (baseline, selection) per mode.
+                // Errors / slow presets: baseline = everything
+                // in the current filter chips; selection adds
+                // the predicate on top.
+                let baseline = filters;
+                let selection: typeof filters = [];
+                if (bubbleMode === 'errors') {
+                  selection = [{ k: 'status_code', op: '=', v: ['error'] }];
+                } else if (bubbleMode === 'slow1s') {
+                  selection = [{ k: 'duration_ms', op: '>', v: ['1000'] }];
+                } else if (bubbleMode === 'slow5s') {
+                  selection = [{ k: 'duration_ms', op: '>', v: ['5000'] }];
+                } else if (bubbleMode === 'custom') {
+                  // legacy behaviour — last chip is the
+                  // selection, the rest is the baseline.
+                  baseline = filters.slice(0, -1);
+                  selection = filters.slice(-1);
+                }
+                return (
+                  <BubbleUpPanel
+                    baseline={baseline}
+                    selection={selection}
+                    from={from}
+                    to={to}
+                    onApplyFilter={(f) => setFilters([...filters, f])} />
+                );
+              })()}
+            </div>
           </>
         )}
 
