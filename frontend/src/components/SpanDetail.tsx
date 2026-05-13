@@ -36,14 +36,21 @@ export function SpanDetail({ span, onClose }: { span: SpanRow; onClose: () => vo
       .catch(() => setProfiles([]));
   }, [span.spanId, span.serviceName, span.startTime, span.endTime]);
 
-  // Trace-to-logs: fetch logs attached to this exact span
+  // Trace-to-logs: fetch logs for the whole trace, not just
+  // this span. Span-scoped filtering missed logs from sibling /
+  // child spans an operator typically wants to see together
+  // when triaging — and many spans don't have any directly-
+  // attached log line, leaving the panel empty even though the
+  // trace has plenty of logs. Same result the trace-detail
+  // Logs tab shows, just lifted into the side panel for the
+  // span the operator is hovering on.
   const [spanLogs, setSpanLogs] = useState<LogRow[]>([]);
   useEffect(() => {
-    if (!span.spanId) { setSpanLogs([]); return; }
-    api.logs({ traceId: span.traceId, spanId: span.spanId, limit: 50 })
+    if (!span.traceId) { setSpanLogs([]); return; }
+    api.logs({ traceId: span.traceId, limit: 50 })
       .then(r => setSpanLogs(r.logs ?? []))
       .catch(() => setSpanLogs([]));
-  }, [span.spanId, span.traceId]);
+  }, [span.traceId]);
 
   // ── Resize handle ────────────────────────────────────────────────────────
   // Panel width persists in localStorage so navigating away and back
@@ -182,7 +189,7 @@ export function SpanDetail({ span, onClose }: { span: SpanRow; onClose: () => vo
         <Section title={
           <>
             Logs ({spanLogs.length})
-            <Link to={`/logs?traceId=${span.traceId}&spanId=${span.spanId}`}
+            <Link to={`/logs?traceId=${span.traceId}`}
               style={{ marginLeft: 8, fontSize: 10, fontWeight: 400, color: 'var(--accent2)' }}>
               open in Logs ↗
             </Link>
