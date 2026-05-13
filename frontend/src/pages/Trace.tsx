@@ -36,6 +36,16 @@ function TraceDetailInner() {
   useEffect(() => {
     if (!id) return;
     setSpans(undefined);
+    // Reset logs too so the next Logs-tab open re-fetches.
+    // Without this, navigating from one trace to another
+    // (React Router preserves component state across
+    // searchParams changes) kept the previous trace's logs
+    // result — including a stale empty array, which fooled
+    // the `logs !== undefined` guard in the next effect
+    // into skipping the fetch entirely. The operator saw
+    // "no logs for this trace" even when the log was
+    // exactly the one they'd clicked from /logs to get here.
+    setLogs(undefined);
     api.trace(id).then(d => setSpans(d.spans ?? [])).catch(() => setSpans(null));
   }, [id]);
 
