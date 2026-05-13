@@ -51,10 +51,40 @@ function TraceDetailInner() {
 
   useEffect(() => {
     if (tab !== 'logs' || !id || logs !== undefined) return;
-    api.logs({ traceId: id, limit: 500 })
+    // Wait for spans to load — they give us the trace's time
+    // bounds, which we send to the logs backend as a narrow
+    // range filter. Without this the ES query has to scan the
+    // full retention; with it ES prunes partitions to the few
+    // minutes around the trace, dropping query time from
+    // seconds to tens of ms (the trick Grafana's "trace to
+    // logs" datasource uses for sub-second speed).
+    //
+    // spans === undefined means still loading; null means
+    // load failed and we should fall through with no time
+    // bound (best-effort instead of blocking on a sibling
+    // signal).
+    if (spans === undefined) return;
+    let from: number | undefined;
+    let to: number | undefined;
+    if (spans && spans.length > 0) {
+      let minTs = Infinity, maxTs = -Infinity;
+      for (const sp of spans) {
+        if (sp.startTime < minTs) minTs = sp.startTime;
+        const end = sp.endTime || sp.startTime;
+        if (end > maxTs) maxTs = end;
+      }
+      // ±5 min buffer absorbs clock skew between the app
+      // emitting the trace and the log shipper writing to
+      // ES, plus end-of-trace logs that fire after the root
+      // span returned.
+      const bufferNs = 5 * 60 * 1_000_000_000;
+      from = minTs - bufferNs;
+      to   = maxTs + bufferNs;
+    }
+    api.logs({ traceId: id, from, to, limit: 500 })
       .then(r => setLogs(r.logs ?? []))
       .catch(() => setLogs(null));
-  }, [tab, id, logs]);
+  }, [tab, id, logs, spans]);
 
   // Mirror selectedId + tab to the URL via replaceState so the Share
   // button captures the current view exactly. We don't push history
