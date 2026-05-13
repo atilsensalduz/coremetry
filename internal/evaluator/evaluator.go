@@ -256,7 +256,17 @@ func (e *Evaluator) evaluateOne(ctx context.Context, r chstore.AlertRule, servic
 				log.Printf("[evaluator] incident attach: %v", err)
 			}
 			// Fan out to user channels (email/slack/etc). Fire-and-forget
-			// so a flaky SMTP doesn't block the eval loop.
+			// so a flaky SMTP doesn't block the eval loop. When a
+			// maintenance window is active for this (service,
+			// severity) at firing time, skip the notification —
+			// the Problem itself still opens + auto-resolves so
+			// the post-window timeline review is intact, only
+			// the live channel spam is suppressed.
+			// Notifier internally consults the maintenance-windows
+			// table and skips fan-out when an active window matches
+			// (service, severity). Problem itself still opens +
+			// resolves normally — only the live channel spam is
+			// suppressed.
 			if e.notifier != nil {
 				go e.notifier.SendProblemAlert(context.Background(), p)
 			}

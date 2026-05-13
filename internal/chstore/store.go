@@ -343,6 +343,31 @@ func (s *Store) migrate(ctx context.Context) error {
 		// pre-date the Grafana-style variable system.
 		`ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS variables String DEFAULT '[]' CODEC(ZSTD(3))`,
 
+		// maintenance_windows: operator-declared time ranges that
+		// suppress alert notifications + auto-incident attach.
+		// Match-mode is one of:
+		//   • service = '*'             → global silence
+		//   • service = '<exact name>'  → single-service silence
+		//   • service ends with '*'     → prefix match
+		// Active while start_at <= now() <= end_at. Problems
+		// still open + auto-resolve normally; only the
+		// notification fan-out is skipped, so the operator can
+		// review what happened during the window via the
+		// /anomalies + /incidents pages after the fact.
+		`CREATE TABLE IF NOT EXISTS maintenance_windows (
+			id          String,
+			service     String,                       -- '*', exact, or 'name*' prefix
+			severity    LowCardinality(String) DEFAULT '*',  -- '*', 'info', 'warning', 'critical'
+			start_at    DateTime64(9),
+			end_at      DateTime64(9),
+			reason      String        DEFAULT '',
+			created_by  String        DEFAULT '',
+			created_at  DateTime64(9) DEFAULT now64(9),
+			disabled    UInt8         DEFAULT 0,
+			version     UInt64        DEFAULT toUnixTimestamp64Nano(now64(9))
+		) ENGINE = ReplacingMergeTree(version)
+		ORDER BY id`,
+
 		// anomaly_silences: per-fingerprint mute. Active while
 		// until_at > now(). Silenced anomalies still get recorded
 		// in anomaly_events (so the history table shows them) but

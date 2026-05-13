@@ -733,6 +733,25 @@ export const api = {
   usersByTeam: (team: string) =>
     get<{ id: string; email: string; role: string; team: string }[] | null>(
       `/api/users/by-team?team=${encodeURIComponent(team)}`),
+
+  // Maintenance windows — admin-only CRUD. While active,
+  // notifications matching (service, severity) are silenced;
+  // problems still open + auto-resolve as usual so the
+  // post-window timeline review is intact.
+  listMaintenanceWindows: (includeDisabled = false) =>
+    get<MaintenanceWindow[] | null>(
+      `/api/maintenance-windows${includeDisabled ? '?all=1' : ''}`),
+  createMaintenanceWindow: (body: {
+    service: string; severity?: string;
+    startAt: number; endAt: number; reason?: string;
+  }) =>
+    request<MaintenanceWindow>('/api/maintenance-windows', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  deleteMaintenanceWindow: (id: string) =>
+    request<void>(`/api/maintenance-windows/${id}`, { method: 'DELETE' }),
   createUser: (email: string, password: string, role: Role, team?: string) =>
     request<AuthUser>('/api/users', {
       method: 'POST',
@@ -764,6 +783,18 @@ export const api = {
       body: JSON.stringify({ password }),
     }),
 };
+
+export interface MaintenanceWindow {
+  id: string;
+  service: string;         // '*', exact name, or 'name*' prefix
+  severity: string;        // '*' | 'info' | 'warning' | 'critical'
+  startAt: number;         // unix ns
+  endAt: number;           // unix ns
+  reason: string;
+  createdBy: string;
+  createdAt: number;
+  disabled: boolean;
+}
 
 export interface AuthUser { id: string; email: string; role: string; }
 export interface UserRow extends AuthUser {

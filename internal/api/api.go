@@ -332,6 +332,14 @@ func (s *Server) Start() error {
 	mux.HandleFunc("PUT    /api/channels/{id}",       auth.RequireRole(auth.RoleAdmin, s.updateChannel))
 	mux.HandleFunc("DELETE /api/channels/{id}",       auth.RequireRole(auth.RoleAdmin, s.deleteChannel))
 	mux.HandleFunc("POST   /api/channels/{id}/test",  auth.RequireRole(auth.RoleAdmin, s.testChannel))
+	// Maintenance windows — admin-only CRUD. While an active
+	// window matches a problem's (service, severity), the
+	// notifier skips the live fan-out. Problems still open +
+	// auto-resolve so the post-window timeline review is
+	// intact; only the channel spam is suppressed.
+	mux.HandleFunc("GET    /api/maintenance-windows",      auth.RequireRole(auth.RoleAdmin, s.listMaintenanceWindows))
+	mux.HandleFunc("POST   /api/maintenance-windows",      auth.RequireRole(auth.RoleAdmin, s.createMaintenanceWindow))
+	mux.HandleFunc("DELETE /api/maintenance-windows/{id}", auth.RequireRole(auth.RoleAdmin, s.deleteMaintenanceWindow))
 	// Zoom-specific helper: list channels the configured S2S
 	// OAuth app can see, so admins pick a Channel ID from a
 	// searchable list instead of pasting JIDs by hand. POST
@@ -3025,6 +3033,83 @@ func (s *Server) testChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]string{"status": "sent"})
+}
+
+// ── Maintenance windows ─────────────────────────────────────────────────────
+//
+// Admin-only CRUD over an operator-declared time range during
+// which alert notifications are suppressed. The evaluator
+// checks the windows on each firing; problems still open +
+// auto-resolve as usual, only the live channel fan-out
+// (Slack / email / Zoom / etc.) is skipped. Post-window the
+// /anomalies + /incidents pages still show the full timeline,
+// so review of "what happened during the deploy?" works
+// normally.
+
+func (s *Server) listMaintenanceWindows(w http.ResponseWriter, r *http.Request) {
+	includeDisabled := r.URL.Query().Get("all") == "1"
+	rows, err := s.store.ListMaintenanceWindows(r.Context(), includeDisabled)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	if rows == nil {
+		rows = []chstore.MaintenanceWindow{}
+	}
+	writeJSON(w, rows)
+}
+
+func (s *Server) createMaintenanceWindow(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Service  string `json:"service"`
+		Severity string `json:"severity"`
+		StartAt  int64  `json:"startAt"`
+		EndAt    int64  `json:"endAt"`
+		Reason   string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, `{"error":"invalid body"}`, http.StatusBadRequest)
+		return
+	}
+	body.Service = strings.TrimSpace(body.Service)
+	if body.Service == "" {
+		http.Error(w, `{"error":"service required (use '*' for global)"}`, http.StatusBadRequest)
+		return
+	}
+	if body.EndAt <= body.StartAt {
+		http.Error(w, `{"error":"endAt must be after startAt"}`, http.StatusBadRequest)
+		return
+	}
+	if body.Severity == "" {
+		body.Severity = "*"
+	}
+	creator := ""
+	if u := auth.FromContext(r.Context()); u != nil {
+		creator = u.Email
+	}
+	mw := chstore.MaintenanceWindow{
+		ID:        newID(10),
+		Service:   body.Service,
+		Severity:  body.Severity,
+		StartAt:   body.StartAt,
+		EndAt:     body.EndAt,
+		Reason:    body.Reason,
+		CreatedBy: creator,
+	}
+	if err := s.store.UpsertMaintenanceWindow(r.Context(), mw); err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, mw)
+}
+
+func (s *Server) deleteMaintenanceWindow(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.store.DeleteMaintenanceWindow(r.Context(), id); err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // ── User management (admin only) ─────────────────────────────────────────────

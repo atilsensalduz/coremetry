@@ -197,6 +197,36 @@ type Notifier struct {
 	// detail page. Empty disables the link — back-compat
 	// for deployments that haven't wired it yet.
 	publicURL string
+
+	// mwMu guards the maintenance-windows cache. Refreshed
+	// lazily on each SendProblemAlert when older than 30s —
+	// the window-list size stays small (<100 even on busy
+	// stacks) and the table is read-heavy, so per-tick caching
+	// avoids hammering CH from a flap-prone evaluator while
+	// keeping suppression accurate to within 30s of an admin
+	// adding / extending a window.
+	mwMu   sync.Mutex
+	mwAt   time.Time
+	mwList []chstore.MaintenanceWindow
+}
+
+// maintenanceSilenced reports whether any active maintenance
+// window matches (service, severity, now). Refreshes the
+// cached list when older than 30s so a freshly-created
+// window takes effect quickly without per-firing CH load.
+func (n *Notifier) maintenanceSilenced(ctx context.Context, service, severity string) bool {
+	n.mwMu.Lock()
+	defer n.mwMu.Unlock()
+	if time.Since(n.mwAt) > 30*time.Second {
+		fresh, err := n.store.ListMaintenanceWindows(ctx, false)
+		if err != nil {
+			log.Printf("[notify] maintenance windows fetch: %v", err)
+		} else {
+			n.mwList = fresh
+		}
+		n.mwAt = time.Now()
+	}
+	return chstore.IsMaintenanceActive(n.mwList, service, severity, time.Now())
 }
 
 // SetPublicURL configures the deep-link base for notification
@@ -359,6 +389,16 @@ func (n *Notifier) SendProblemAlert(ctx context.Context, p chstore.Problem) {
 		n.Publish("problem.open", p)
 	case "resolved":
 		n.Publish("problem.resolve", p)
+	}
+	// Maintenance windows — skip the live channel fan-out when
+	// an active window matches (service, severity). Done after
+	// the SSE Publish so the in-UI live feed still updates;
+	// only the external channels (Slack / email / Zoom / etc.)
+	// are silenced. Cached 30s so repeated firings during a
+	// 1h window don't hammer CH.
+	if n.maintenanceSilenced(ctx, p.Service, p.Severity) {
+		log.Printf("[notify] maintenance window active — skipping channel fan-out: %s · %s", p.Service, p.RuleName)
+		return
 	}
 	channels, err := n.store.EnabledChannelsForSeverity(ctx, p.Severity)
 	if err != nil {
