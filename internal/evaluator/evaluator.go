@@ -209,6 +209,15 @@ func (e *Evaluator) evaluateAll(ctx context.Context) {
 	// notify / incident-attach / SSE wiring all picks up
 	// burn-rate breaches without additional plumbing.
 	e.evaluateSLOs(ctx)
+
+	// Escalation sweep — bump severity on problems that have
+	// been open past the configured threshold without
+	// acknowledgement. Refires SendProblemAlert with the new
+	// severity so the next-tier channels (typically
+	// "critical-only" oncall pages) light up. Run after the
+	// main evaluate pass so a problem freshly opened this
+	// tick doesn't get checked twice.
+	e.escalateStaleProblems(ctx)
 }
 
 func (e *Evaluator) evaluateOne(ctx context.Context, r chstore.AlertRule, service string) {
@@ -291,6 +300,96 @@ func (e *Evaluator) evaluateOne(ctx context.Context, r chstore.AlertRule, servic
 			log.Printf("[evaluator] PROBLEM RESOLVED: %s · %s", service, r.Metric)
 		}
 	}
+}
+
+// Escalation thresholds — how long a problem can stay open at
+// each severity before the sweep bumps it up a tier. Chosen
+// for the bank-oncall flow:
+//
+//   • info → warning after 15 min — gives a heads-up that
+//     should have been triaged but wasn't.
+//   • warning → critical after 30 min — paging-grade signal
+//     that no human has acknowledged in half an hour.
+//   • critical stays critical (no further tier).
+//
+// Measured from started_at, so a freshly-opened critical
+// stays at critical naturally (it has nowhere higher to go),
+// and an info opened 45 min ago lands at critical on the
+// first sweep after restart.
+const (
+	escalateInfoToWarningAfter     = 15 * time.Minute
+	escalateWarningToCriticalAfter = 30 * time.Minute
+)
+
+// escalateStaleProblems walks every open problem and bumps
+// severity when it's lingered past the threshold. Per-tier
+// guards mean each problem escalates at most twice end-to-end
+// (info → warning → critical); the comparison is against the
+// original started_at so an "info opened 45 min ago" goes
+// straight to critical on the first sweep.
+//
+// Refires SendProblemAlert after writing the new severity so
+// the next-tier channels (typically severity-gated to
+// "critical only" for the on-call pager) light up.
+// Acknowledged / resolved problems are skipped — only "open"
+// status enters the sweep.
+func (e *Evaluator) escalateStaleProblems(ctx context.Context) {
+	problems, err := e.store.ListProblems(ctx, chstore.ProblemFilter{
+		Status: "open",
+		Limit:  500,
+	})
+	if err != nil {
+		log.Printf("[evaluator] escalation sweep: list problems: %v", err)
+		return
+	}
+	now := time.Now()
+	for i := range problems {
+		p := problems[i]
+		openFor := now.Sub(time.Unix(0, p.StartedAt))
+		next := nextSeverity(p.Severity, openFor)
+		if next == "" || next == p.Severity {
+			continue
+		}
+		old := p.Severity
+		p.Severity = next
+		if err := e.store.UpsertProblem(ctx, p); err != nil {
+			log.Printf("[evaluator] escalate %s/%s: %v", p.Service, p.RuleID, err)
+			continue
+		}
+		log.Printf("[evaluator] ESCALATED %s · %s · open %s · %s → %s",
+			p.Service, p.RuleName, openFor.Round(time.Minute), old, next)
+		// Refire so severity-gated channels (e.g. an oncall
+		// pager that only subscribes to critical) get the
+		// notification. SendProblemAlert publishes the SSE
+		// event too, so live operator UIs pick up the
+		// severity bump immediately.
+		if e.notifier != nil {
+			go e.notifier.SendProblemAlert(context.Background(), p)
+		}
+	}
+}
+
+// nextSeverity returns the new severity for a problem that's
+// been open for `openFor`, or "" / unchanged when no
+// escalation applies. The check is one-directional and
+// idempotent: a problem already at critical never returns
+// a higher tier; one that hasn't crossed any threshold yet
+// returns "".
+func nextSeverity(cur string, openFor time.Duration) string {
+	switch strings.ToLower(cur) {
+	case "info":
+		if openFor >= escalateWarningToCriticalAfter {
+			return "critical"
+		}
+		if openFor >= escalateInfoToWarningAfter {
+			return "warning"
+		}
+	case "warning":
+		if openFor >= escalateWarningToCriticalAfter {
+			return "critical"
+		}
+	}
+	return ""
 }
 
 // measure runs the per-service metric query for the given window.
