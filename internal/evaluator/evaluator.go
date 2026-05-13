@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -218,6 +219,14 @@ func (e *Evaluator) evaluateAll(ctx context.Context) {
 	// main evaluate pass so a problem freshly opened this
 	// tick doesn't get checked twice.
 	e.escalateStaleProblems(ctx)
+
+	// Anomaly auto-promotion — convert strong, sustained
+	// anomaly events into first-class Problems so the
+	// existing alert pipeline picks them up. Threshold-driven
+	// so noise stays in /anomalies; only the patterns the
+	// detector keeps re-firing with a real ratio become
+	// pageable.
+	e.promoteStrongAnomalies(ctx)
 }
 
 func (e *Evaluator) evaluateOne(ctx context.Context, r chstore.AlertRule, service string) {
@@ -367,6 +376,149 @@ func (e *Evaluator) escalateStaleProblems(ctx context.Context) {
 			go e.notifier.SendProblemAlert(context.Background(), p)
 		}
 	}
+}
+
+// Anomaly auto-promotion thresholds. Tuned conservatively so
+// only sustained, high-ratio anomalies become pageable — the
+// noisy patterns (one-off spikes, low-count blips, freshly-
+// detected events without continuity) stay on the /anomalies
+// page where the operator can triage them manually.
+//
+//   • peakRatio ≥ promoteMinPeakRatio
+//     baseline-relative magnitude. 5× means the pattern is
+//     occurring at least 5× more than its rolling baseline.
+//   • duration since started_at ≥ promoteMinSustained
+//     filters out one-tick flares.
+//   • currentCount ≥ promoteMinCount
+//     ensures a non-trivial absolute volume (a 100× ratio on
+//     2 occurrences is meaningless).
+//
+// Promoted problems get rule_id = "anomaly-auto:<fingerprint>"
+// so the same anomaly re-promoted on a later tick lands on
+// the same Problem row (no duplicate noise). When the
+// anomaly clears (last_seen ages out of the "active" window)
+// the row stays "open" — operators ack it the same way as
+// any other Problem.
+const (
+	promoteMinPeakRatio  = 5.0
+	promoteMinSustained  = 5 * time.Minute
+	promoteMinCount      = uint64(10)
+	promoteAnomalyRuleID = "anomaly-auto:"
+)
+
+// promoteStrongAnomalies converts strong, sustained
+// AnomalyEvents into first-class Problems so the existing
+// notify / incident-attach / SSE wiring picks them up. The
+// thresholds above gate which events qualify. Idempotent —
+// a re-promotion on a later sweep hits the same problem id
+// and just bumps its last-seen via UpsertProblem.
+//
+// Severity ladder:
+//   • peakRatio ≥ 10  → warning  (the standard auto-promote tier)
+//   • peakRatio ≥ 20  → critical (genuine "wake someone")
+//
+// The escalation sweep above can still bump these higher
+// over time if the operator doesn't ack.
+func (e *Evaluator) promoteStrongAnomalies(ctx context.Context) {
+	events, err := e.store.ListAnomalyEvents(ctx, chstore.ListAnomalyEventsFilter{
+		// Last hour is enough — the detector re-emits every
+		// tick, so anything that should be a Problem will be
+		// in this window. Wider lookback would just re-touch
+		// already-promoted rows.
+		SinceNs: time.Now().Add(-1 * time.Hour).UnixNano(),
+		Limit:   500,
+	})
+	if err != nil {
+		log.Printf("[evaluator] anomaly promotion: list events: %v", err)
+		return
+	}
+	now := time.Now()
+	for _, ev := range events {
+		if ev.Status != "active" {
+			continue
+		}
+		if ev.PeakRatio < promoteMinPeakRatio {
+			continue
+		}
+		if ev.CurrentCount < promoteMinCount {
+			continue
+		}
+		if now.Sub(time.Unix(0, ev.StartedAt)) < promoteMinSustained {
+			continue
+		}
+		sev := "warning"
+		if ev.PeakRatio >= 20 {
+			sev = "critical"
+		}
+		ruleID := promoteAnomalyRuleID + ev.ID
+		// Re-use the existing open Problem row when one is
+		// in flight for the same fingerprint — keeps the
+		// notify channel from refiring on every sweep.
+		isNew := false
+		open, _ := e.store.FindOpenProblem(ctx, ruleID, ev.Service)
+		if open == nil {
+			isNew = true
+		}
+		desc := truncate(
+			"Auto-promoted from anomaly: "+ev.Kind+" / "+ev.Pattern+
+				" (peak ratio "+formatFloat(ev.PeakRatio, 1)+
+				"×, count "+formatUint(ev.CurrentCount)+")",
+			480,
+		)
+		var startedAt int64
+		var id string
+		if open != nil {
+			id = open.ID
+			startedAt = open.StartedAt
+		} else {
+			id = ruleID + ":" + ev.Service
+			startedAt = ev.StartedAt
+		}
+		p := chstore.Problem{
+			ID:          id,
+			RuleID:      ruleID,
+			RuleName:    "Anomaly · " + ev.Pattern,
+			Severity:    sev,
+			Service:     ev.Service,
+			Metric:      "anomaly_ratio",
+			Value:       ev.PeakRatio,
+			Threshold:   promoteMinPeakRatio,
+			Status:      "open",
+			Description: desc,
+			StartedAt:   startedAt,
+		}
+		if err := e.store.UpsertProblem(ctx, p); err != nil {
+			log.Printf("[evaluator] anomaly promote %s/%s: %v",
+				ev.Service, ev.ID, err)
+			continue
+		}
+		if isNew {
+			log.Printf("[evaluator] AUTO-PROMOTED anomaly %s · %s · ratio %.1fx → %s",
+				ev.Service, ev.Pattern, ev.PeakRatio, sev)
+			if e.notifier != nil {
+				go e.notifier.SendProblemAlert(context.Background(), p)
+			}
+		}
+	}
+}
+
+// formatFloat / formatUint — tiny helpers used by promotion
+// description so we don't pull fmt.Sprintf into the hot path
+// (the rest of the file works in strconv-style for the same
+// reason). One alloc each, no formatting locale weirdness.
+func formatFloat(v float64, prec int) string {
+	return strconv.FormatFloat(v, 'f', prec, 64)
+}
+func formatUint(v uint64) string { return strconv.FormatUint(v, 10) }
+
+// truncate caps a description at n bytes so a runaway pattern
+// label (e.g. a 30KB log message captured as the anomaly
+// pattern) doesn't bloat the problems table row.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n-1] + "…"
 }
 
 // nextSeverity returns the new severity for a problem that's
