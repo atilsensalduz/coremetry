@@ -563,24 +563,23 @@ func (s *Store) GetDatabases(ctx context.Context, from, to time.Time) ([]DBInsta
 
 	// Receiver-discovery — pull every distinct DB instance that
 	// emitted database-receiver metric_points (oracledb.*,
-	// postgresql.*, mysql.*, redis.*) in the window but doesn't
-	// already have a span-derived row. These appear with
-	// Source="receiver" and zero RED stats; the operator clicks
-	// through to the engine-specific panel which reads the
-	// rich metrics directly. Without this, DBs monitored purely
-	// via the receiver (DBA-team monitoring, no app-side SDK)
-	// wouldn't appear on /databases at all.
-	covered := func(system, instance string) bool {
-		_, ok := idxByKey[key{system, instance}]
-		return ok
-	}
+	// postgresql.*, mysql.*, redis.*) in the window. Receiver
+	// rows are emitted ADDITIVELY — even when the same instance
+	// also has span traffic, we surface a separate row tagged
+	// Source="receiver" so the frontend can split it into the
+	// "DB receiver instances" panel. Operators with both
+	// app-side spans and DBA-team receivers on the same DB
+	// want to see both views; the receiver panel surfaces the
+	// rich engine-specific drill-down (sessions / wait classes
+	// / tablespaces / buffer pool / etc.) that the span data
+	// can't.
 	for _, prefix := range []struct{ metric, system string }{
 		{"oracledb.", "oracle"},
 		{"postgresql.", "postgresql"},
 		{"mysql.", "mysql"},
 		{"redis.", "redis"},
 	} {
-		extra, err := s.discoverReceiverInstances(ctx, from, to, prefix.metric, prefix.system, covered)
+		extra, err := s.discoverReceiverInstances(ctx, from, to, prefix.metric, prefix.system, nil)
 		if err != nil {
 			continue
 		}
