@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -146,9 +147,19 @@ func (s *ESStore) Search(ctx context.Context, f Filter) (*Page, error) {
 		return nil, err
 	}
 
+	tru := true
 	req := esapi.SearchRequest{
 		Index: []string{s.cfg.Index},
 		Body:  bytes.NewReader(body),
+		// Treat "no matching index" / "one shard unavailable" as 0
+		// hits instead of 404. Without these, an operator pointing
+		// the read backend at a freshly-provisioned ES cluster
+		// (no logs shipped yet) sees a 404 in the UI and assumes
+		// Coremetry is broken — when really ES just has nothing
+		// to search. Kibana applies the same defaults for the
+		// Discover view.
+		AllowNoIndices:    &tru,
+		IgnoreUnavailable: &tru,
 	}
 	res, err := req.Do(ctx, s.cli)
 	if err != nil {
@@ -156,7 +167,7 @@ func (s *ESStore) Search(ctx context.Context, f Filter) (*Page, error) {
 	}
 	defer res.Body.Close()
 	if res.IsError() {
-		return nil, fmt.Errorf("ES search %s: %s", res.Status(), res.String())
+		return nil, parseESError("search", res, s.cfg.Index)
 	}
 
 	var raw struct {
@@ -229,9 +240,15 @@ func (s *ESStore) Histogram(ctx context.Context, f Filter, bucketSec int, groupB
 	if err != nil {
 		return nil, err
 	}
+	tru := true
 	req := esapi.SearchRequest{
 		Index: []string{s.cfg.Index},
 		Body:  bytes.NewReader(body),
+		// Same forgiveness as Search — no matching index → 0
+		// buckets rather than a 404. Keeps the panel rendering
+		// "no data" instead of a scary error toast.
+		AllowNoIndices:    &tru,
+		IgnoreUnavailable: &tru,
 	}
 	res, err := req.Do(ctx, s.cli)
 	if err != nil {
@@ -239,7 +256,7 @@ func (s *ESStore) Histogram(ctx context.Context, f Filter, bucketSec int, groupB
 	}
 	defer res.Body.Close()
 	if res.IsError() {
-		return nil, fmt.Errorf("ES histogram %s: %s", res.Status(), res.String())
+		return nil, parseESError("histogram", res, s.cfg.Index)
 	}
 
 	var raw struct {
@@ -460,6 +477,50 @@ func flatten(prefix string, src map[string]any, dst map[string]string, skip map[
 		}
 		dst[full] = toString(v)
 	}
+}
+
+// parseESError pulls a human-readable reason from a non-2xx ES
+// response. ES wraps real failures in an envelope like
+//
+//	{"error":{"type":"index_not_found_exception",
+//	          "reason":"no such index [logs-otel-default]"},
+//	 "status":404}
+//
+// res.String() dumps the lot — the type is buried mid-line — so
+// we surface the reason cleanly. For 404 specifically we append
+// a "check the index pattern in your config" hint because that's
+// the canonical operator footgun (typo in the configured index
+// name, or pointing at a brand-new ES that hasn't seen logs yet).
+//
+// Falls back to res.Status() + raw body when the envelope shape
+// isn't what we expect (older ES, transport-level errors).
+func parseESError(op string, res *esapi.Response, configuredIndex string) error {
+	var parsed struct {
+		Error struct {
+			Type      string `json:"type"`
+			Reason    string `json:"reason"`
+			IndexUUID string `json:"index_uuid"`
+			Index     string `json:"index"`
+		} `json:"error"`
+		Status int `json:"status"`
+	}
+	body, _ := io.ReadAll(res.Body)
+	if json.Unmarshal(body, &parsed) == nil && parsed.Error.Reason != "" {
+		switch {
+		case res.StatusCode == 404 && parsed.Error.Type == "index_not_found_exception":
+			return fmt.Errorf(
+				"ES %s: index %q not found — check `logs.elasticsearch.index` in your config (current value %q). Run `curl <es>/_cat/indices?v=true` against your cluster to see what's available",
+				op, parsed.Error.Index, configuredIndex)
+		case res.StatusCode == 401 || res.StatusCode == 403:
+			return fmt.Errorf(
+				"ES %s: %s (status %d) — check API key / username + password and that the credential has read access to %q",
+				op, parsed.Error.Reason, res.StatusCode, configuredIndex)
+		default:
+			return fmt.Errorf("ES %s %d: %s (%s)",
+				op, res.StatusCode, parsed.Error.Reason, parsed.Error.Type)
+		}
+	}
+	return fmt.Errorf("ES %s %s: %s", op, res.Status(), string(body))
 }
 
 // stringToInt64ID is a 64-bit FNV-1a so React keys stay numeric. Not a
