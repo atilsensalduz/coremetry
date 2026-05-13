@@ -673,6 +673,19 @@ export const api = {
     request<void>(`/api/dashboards/${id}`, { method: 'DELETE' }),
 
   alertRules: () => get<AlertRule[] | null>('/api/alert-rules'),
+  alertBaseline: (params: { service?: string; metric: string; comparator?: string }) => {
+    const qs = new URLSearchParams();
+    if (params.service)    qs.set('service',    params.service);
+    qs.set('metric', params.metric);
+    if (params.comparator) qs.set('comparator', params.comparator);
+    return get<{
+      metric: string; service: string;
+      p50: number; p95: number; p99: number;
+      max: number; mean: number;
+      sampleCount: number; windowSec: number;
+      suggestedWarning: number; suggestedCritical: number;
+    }>(`/api/alert-rules/baseline?${qs.toString()}`);
+  },
   createAlertRule: (rule: Partial<AlertRule>) =>
     request<AlertRule>('/api/alert-rules', {
       method: 'POST',
