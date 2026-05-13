@@ -20,9 +20,15 @@ import type { SpanMetricSeries, TimeRange } from '@/lib/types';
 // crosshair on the other two — Datadog dashboard convention,
 // turns the three panels into one synchronised view.
 
-export function ServiceCharts({ service, range }: {
+export function ServiceCharts({ service, range, onZoom }: {
   service: string;
   range: TimeRange;
+  // onZoom — drag-to-select range on any of the three RED
+  // panels propagates up; parent (Service.tsx) replaces the
+  // page TimeRange so every chart + the operations table
+  // re-fetch for the selected window. Same shape uPlot
+  // emits (unix seconds).
+  onZoom?: (fromUnixSec: number, toUnixSec: number) => void;
 }) {
   // Memoise the time bounds so a render doesn't churn the
   // query keys (same trick the Logs page uses — Date.now() in
@@ -223,7 +229,8 @@ export function ServiceCharts({ service, range }: {
                           syncKey={syncKey}
                           compareSeries={rpsPrev ?? undefined}
                           compareOffsetNs={compareOffsetNs}
-                          compareLabel={compareLabel} />
+                          compareLabel={compareLabel}
+                          onZoom={onZoom} />
         </ChartCard>
         <ChartCard title="Error rate by operation">
           <MultiLineChart series={errSeries ?? []} unit="%"
@@ -233,7 +240,8 @@ export function ServiceCharts({ service, range }: {
                           syncKey={syncKey}
                           compareSeries={errPrev ?? undefined}
                           compareOffsetNs={compareOffsetNs}
-                          compareLabel={compareLabel} />
+                          compareLabel={compareLabel}
+                          onZoom={onZoom} />
         </ChartCard>
         <ChartCard title="P99 latency by operation">
           <MultiLineChart series={p99Series ?? []} unit="ms"
@@ -243,7 +251,8 @@ export function ServiceCharts({ service, range }: {
                           syncKey={syncKey}
                           compareSeries={p99Prev ?? undefined}
                           compareOffsetNs={compareOffsetNs}
-                          compareLabel={compareLabel} />
+                          compareLabel={compareLabel}
+                          onZoom={onZoom} />
         </ChartCard>
       </div>
     </div>

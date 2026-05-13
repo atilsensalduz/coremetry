@@ -190,7 +190,19 @@ function ServiceDetailInner() {
                 lines automatically; deploys paint vertical
                 markers; sync cursors keep the three panels
                 in lockstep. */}
-            <ServiceCharts service={svc} range={range} />
+            <ServiceCharts service={svc} range={range}
+              onZoom={(fromUnixSec, toUnixSec) => {
+                // Dynatrace-style drag-to-zoom on any RED
+                // panel — selecting a range narrows the
+                // page's TimeRange so every chart + the
+                // operations table re-fetch for that window.
+                // Same pattern v0.5.23 wired on dashboards.
+                setRange({
+                  preset: 'custom',
+                  fromMs: Math.round(fromUnixSec * 1000),
+                  toMs: Math.round(toUnixSec * 1000),
+                });
+              }} />
           </>
         )}
       </div>

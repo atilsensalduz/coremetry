@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"embed"
+	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -177,6 +178,12 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/attribute-values",    s.getAttributeValues)
 	mux.HandleFunc("GET /api/operations", s.getOperations)
 	mux.HandleFunc("GET /api/traces", s.getTraces)
+	// CSV export — same filter shape as /api/traces but streams
+	// the result as a downloadable CSV. Cap raised to 10k rows
+	// (vs the UI's 50/page) since auditors / postmortem flows
+	// usually want a fuller slice. Content-Disposition is set
+	// so the browser triggers a download rather than rendering.
+	mux.HandleFunc("GET /api/traces/export.csv", s.exportTracesCSV)
 	mux.HandleFunc("GET /api/traces/aggregate", s.getTraceAggregate)
 	mux.HandleFunc("GET /api/traces/{id}", s.getTrace)
 	// Public-share endpoints — POST mints a token (any signed-in
@@ -1521,6 +1528,115 @@ func (s *Server) getTraces(w http.ResponseWriter, r *http.Request) {
 		resp["total"] = total
 	}
 	writeJSON(w, resp)
+}
+
+// exportTracesCSV serves the current /traces filter set as a
+// downloadable CSV. Two operator workflows ask for this on
+// every install:
+//   • postmortem authors who want to paste rows into the
+//     incident doc / postmortem template
+//   • auditors who need a flat artifact of "what hit service
+//     X over the last 24h"
+//
+// Same filter shape as /api/traces (we just rebuild the
+// TraceFilter the same way) so the operator can configure
+// the view in the UI then click Download and get exactly
+// what's on screen — no separate query syntax to learn.
+//
+// Row cap is 10k (vs the UI's 50/page) — auditors usually
+// want a fuller slice, but we stop short of a full table
+// dump to keep the response sub-30s on a billion-span
+// table.
+func (s *Server) exportTracesCSV(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	limit := parseInt(q.Get("limit"), 10000)
+	if limit < 1 {
+		limit = 10000
+	}
+	if limit > 50000 {
+		limit = 50000
+	}
+	f := chstore.TraceFilter{
+		Service:  q.Get("service"),
+		Search:   q.Get("search"),
+		TraceID:  strings.ToLower(strings.TrimSpace(q.Get("traceId"))),
+		From:     parseTime(q.Get("from")),
+		To:       parseTime(q.Get("to")),
+		HasError: q.Get("hasError") == "true",
+		RootOnly: q.Get("rootOnly") == "true",
+		MinMs:    parseFloat(q.Get("minMs")),
+		MaxMs:    parseFloat(q.Get("maxMs")),
+		AttrKey:  q.Get("attrKey"),
+		AttrVal:  q.Get("attrVal"),
+		Sort:     q.Get("sort"),
+		Order:    q.Get("order"),
+		Limit:    limit,
+		Offset:   0,
+		CountMode: "skip",
+	}
+	filters, ferr := parseFiltersAndDSL(q.Get("filters"), q.Get("dsl"))
+	if ferr != nil {
+		http.Error(w, "invalid query DSL: "+ferr.Error(), http.StatusBadRequest)
+		return
+	}
+	f.Filters = filters
+	if extras := q.Get("extraAttrs"); extras != "" {
+		for _, k := range strings.Split(extras, ",") {
+			k = strings.TrimSpace(k)
+			if k == "" || !isSafeAttrKey(k) {
+				continue
+			}
+			f.ExtraAttrs = append(f.ExtraAttrs, k)
+			if len(f.ExtraAttrs) >= 8 {
+				break
+			}
+		}
+	}
+
+	rows, _, _, err := s.store.GetTraces(r.Context(), f)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+
+	fname := fmt.Sprintf("coremetry-traces-%s.csv", time.Now().UTC().Format("20060102-150405"))
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+fname+`"`)
+	w.Header().Set("Cache-Control", "no-store")
+
+	cw := csv.NewWriter(w)
+	header := []string{
+		"trace_id", "started_at", "duration_ms", "span_count",
+		"root_service", "root_operation", "has_error",
+	}
+	for _, k := range f.ExtraAttrs {
+		header = append(header, k)
+	}
+	if err := cw.Write(header); err != nil {
+		return
+	}
+	for _, t := range rows {
+		hasErr := "false"
+		if t.HasError {
+			hasErr = "true"
+		}
+		rec := []string{
+			t.TraceID,
+			time.Unix(0, t.StartTime).UTC().Format(time.RFC3339Nano),
+			fmt.Sprintf("%.3f", t.DurationMs),
+			fmt.Sprintf("%d", t.SpanCount),
+			t.ServiceName,
+			t.RootName,
+			hasErr,
+		}
+		for _, k := range f.ExtraAttrs {
+			rec = append(rec, t.Extras[k])
+		}
+		if err := cw.Write(rec); err != nil {
+			return
+		}
+	}
+	cw.Flush()
 }
 
 func (s *Server) getTraceAggregate(w http.ResponseWriter, r *http.Request) {

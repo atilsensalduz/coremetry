@@ -364,6 +364,43 @@ function TracesPageInner() {
           </label>
           <button onClick={() => apply()}>Search</button>
           <button className="sec" onClick={reset}>Reset</button>
+          {/* CSV export — same filter set as the live table.
+              Pulls up to 10k rows (cap raised from the UI's
+              50/page) so postmortem authors + auditors get a
+              fuller slice without manually paginating. Build
+              the query string from the committed `filter`
+              state, not `draft`, so a half-typed change in
+              the picker doesn't leak into the download. */}
+          <a className="sec"
+            href={`/api/traces/export.csv?${(() => {
+              const { from, to } = timeRangeToNs(range);
+              const p = new URLSearchParams();
+              p.set('from', String(from));
+              p.set('to', String(to));
+              if (filter.service)  p.set('service',  filter.service);
+              if (filter.search)   p.set('search',   filter.search);
+              if (filter.traceId)  p.set('traceId',  filter.traceId);
+              if (filter.minMs)    p.set('minMs',    filter.minMs);
+              if (filter.maxMs)    p.set('maxMs',    filter.maxMs);
+              if (filter.hasError) p.set('hasError', 'true');
+              if (filter.rootOnly) p.set('rootOnly', 'true');
+              if (filter.requireServices.length) p.set('services', filter.requireServices.join(','));
+              if (advFilters.length) p.set('filters', JSON.stringify(advFilters));
+              if (extraCols.length)  p.set('extraAttrs', extraCols.join(','));
+              if (sort)  p.set('sort', sort);
+              if (order) p.set('order', order);
+              return p.toString();
+            })()}`}
+            download
+            title="Download up to 10k matching traces as CSV (postmortem / audit use)"
+            style={{
+              padding: '5px 10px', fontSize: 12,
+              textDecoration: 'none',
+              border: '1px solid var(--border)', borderRadius: 4,
+              color: 'var(--accent2)', background: 'var(--bg2)',
+            }}>
+            ⬇ CSV
+          </a>
         </div>
 
         {/* Trace-topology AND requirement: every listed service
