@@ -58,6 +58,10 @@ type Server struct {
 	// generous on memory because each entry stores marshaled
 	// JSON not raw objects.
 	l1          *l1Cache
+	// stats records per-tier hit counts and hottest keys so
+	// the System page can show whether the multi-tier cache
+	// is doing useful work. Exposed via /api/admin/cache-stats.
+	stats       *cacheStats
 	notify      *notify.Notifier
 	copilot     *copilot.Service  // nil when AI key not configured
 	sampler     *sampling.Sampler // always set; Snapshot() reports current ratios
@@ -119,6 +123,7 @@ func NewServer(addr string, ing *otlp.Ingester, store *chstore.Store, logs logst
 		sampler: smp, bus: bus,
 		rateSamples: map[string]rateSample{},
 		l1:          newL1Cache(1024),
+		stats:       newCacheStats(),
 	}
 }
 
@@ -155,6 +160,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/admin/system-stats", s.getSystemStats)
 	mux.HandleFunc("GET /api/correlations",       s.getCorrelations)
 	mux.HandleFunc("GET /api/admin/redis-stats",  s.getRedisStats)
+	mux.HandleFunc("GET /api/admin/cache-stats",  auth.RequireRole(auth.RoleAdmin, s.getCacheStats))
 	mux.HandleFunc("GET /api/admin/cardinality",  auth.RequireRole(auth.RoleAdmin, s.getCardinality))
 	// SSE event stream — long-lived connection, fans out
 	// problem.* / anomaly.* events from the in-process bus.
@@ -679,6 +685,21 @@ func (s *Server) getRedisStats(w http.ResponseWriter, r *http.Request) {
 		}
 		return s.cache.Stats(r.Context())
 	})
+}
+
+// getCacheStats surfaces the multi-tier cache (L1 + Redis +
+// singleflight + SWR) effectiveness counters: per-tier hit
+// totals since process start, the hottest 20 cache keys, and
+// the in-process L1 fill ratio. Drives the API-cache panel on
+// AdminStats so the operator can verify the tier is doing
+// useful work post-deploy.
+//
+// NOT itself cached — we'd be polluting the stats with its
+// own access pattern. Admin-only because it exposes the
+// internal cache key shape (mild info leak in multi-tenant
+// deployments).
+func (s *Server) getCacheStats(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, s.stats.snapshot(s.l1))
 }
 
 // getCardinality returns the meta-observability "what's eating my

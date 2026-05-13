@@ -9,7 +9,7 @@ import { fmtNum, tsLong } from '@/lib/utils';
 import type {
   TimeRange,
   SystemStatus, ComponentHealth, StatusComponent,
-  RedisStats,
+  RedisStats, CacheStats,
 } from '@/lib/types';
 
 // Coremetry "what's inside" page. Three sections stacked top-to-
@@ -50,6 +50,18 @@ export default function AdminStatsPage() {
     staleTime: 7_000,
   });
   const redis = redisQ.isLoading ? undefined : redisQ.isError ? null : redisQ.data;
+
+  // API multi-tier cache stats — 10s poll so the operator can
+  // watch hit-rate move under load. Server doesn't cache this
+  // endpoint (would pollute its own counters).
+  const cacheStatsQ = useQuery<CacheStats>({
+    queryKey: ['admin', 'cache-stats'],
+    queryFn: () => api.cacheStats(),
+    refetchInterval: 10_000,
+    staleTime: 7_000,
+  });
+  const cacheStats = cacheStatsQ.isLoading ? undefined
+    : cacheStatsQ.isError ? null : cacheStatsQ.data;
   const setRefreshTick = (_n: number | ((p: number) => number)) => {
     qc.invalidateQueries({ queryKey: keys.admin.systemStats });
   };
@@ -196,6 +208,9 @@ export default function AdminStatsPage() {
 
             {/* ── Redis cache live status ─────────────────────────── */}
             <RedisPanel data={redis} />
+
+            {/* ── API multi-tier cache effectiveness ──────────────── */}
+            <ApiCachePanel data={cacheStats} />
 
             {/* ── Per-table storage ───────────────────────────────── */}
             <div style={{
@@ -526,6 +541,160 @@ function RedisPanel({ data }: { data: RedisStats | null | undefined }) {
              sub={evicting ? 'maxmemory pressure' : undefined} />
         <KPI label="Expired"       value={fmtNum(data.expiredKeys)} />
       </div>
+    </div>
+  );
+}
+
+// ApiCachePanel renders the multi-tier API cache effectiveness:
+// per-tier hit distribution as a stacked bar, KPI tiles for the
+// computed hit rate / total requests / L1 fill, and the top
+// 20 hottest keys. Polled every 10s so the operator can see
+// the cache warming up after a deploy. Self-hides with a
+// "cache idle" tile when no requests have been served yet
+// (fresh process, no traffic).
+const TIER_ORDER = ['HIT-L1', 'HIT', 'STALE', 'HIT-LEGACY', 'MISS', 'BYPASS'] as const;
+const TIER_COLOR: Record<string, string> = {
+  'HIT-L1':     '#4ade80', // green — best, no network
+  'HIT':        '#22d3ee', // teal — Redis fresh
+  'STALE':      '#facc15', // amber — served stale, refresh fired
+  'HIT-LEGACY': '#94a3b8', // grey — pre-envelope entry
+  'MISS':       '#f87171', // red — upstream hit
+  'BYPASS':     '#a78bfa', // purple — operator forced refresh
+};
+function ApiCachePanel({ data }: { data: CacheStats | null | undefined }) {
+  if (data === undefined) {
+    return (
+      <div style={{
+        background: 'var(--bg1)', border: '1px solid var(--border)',
+        borderRadius: 8, padding: 14, marginBottom: 18,
+      }}>
+        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10 }}>
+          API cache <span style={{ color: 'var(--text3)', fontWeight: 400 }}>· loading…</span>
+        </div>
+        <Spinner />
+      </div>
+    );
+  }
+  if (data === null) {
+    return (
+      <div style={{
+        background: 'var(--bg1)', border: '1px solid var(--border)',
+        borderRadius: 8, padding: 14, marginBottom: 18,
+      }}>
+        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10 }}>
+          API cache <span style={{ color: 'var(--err)', fontWeight: 400 }}>· probe failed</span>
+        </div>
+      </div>
+    );
+  }
+  const counts = data.counts || {};
+  const total = TIER_ORDER.reduce((acc, t) => acc + (counts[t] ?? 0), 0);
+  const hits = ['HIT-L1', 'HIT', 'STALE', 'HIT-LEGACY']
+    .reduce((acc, t) => acc + (counts[t] ?? 0), 0);
+  const hitRate = total > 0 ? (hits / total) * 100 : 0;
+  const sinceMs = (Date.now() * 1_000_000 - data.sinceUnixNano) / 1_000_000;
+  return (
+    <div style={{
+      background: 'var(--bg1)', border: '1px solid var(--border)',
+      borderRadius: 8, padding: 14, marginBottom: 18,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 12 }}>
+        <span style={{ fontSize: 12, fontWeight: 600 }}>API cache</span>
+        <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+          L1 · Redis · singleflight · SWR — since {fmtUptime(Math.floor(sinceMs / 1000))} ago
+        </span>
+      </div>
+
+      {total === 0 ? (
+        <div style={{ fontSize: 12, color: 'var(--text2)' }}>
+          No cached endpoints served yet since process start. Hit any
+          dashboard / services page to populate.
+        </div>
+      ) : (
+        <>
+          {/* KPI tiles */}
+          <div style={{
+            display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+            gap: 10, marginBottom: 14,
+          }}>
+            <KPI label="Hit rate" value={`${hitRate.toFixed(1)}%`}
+              cls={hitRate < 50 ? 'warn' : undefined}
+              sub={hitRate < 50 ? 'cold cache — most requests miss' : undefined} />
+            <KPI label="Total requests" value={fmtNum(total)} />
+            <KPI label="L1 (in-process)" value={`${data.l1Size} / ${data.l1Cap}`}
+              sub={data.l1Size >= data.l1Cap ? 'at cap — eviction active' : undefined} />
+            <KPI label="Stale refreshes" value={fmtNum(counts['STALE'] ?? 0)}
+              sub="served immediately + background refresh fired" />
+          </div>
+
+          {/* Stacked tier-distribution bar */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{
+              display: 'flex', height: 14, borderRadius: 4, overflow: 'hidden',
+              border: '1px solid var(--border)',
+            }}>
+              {TIER_ORDER.map(tier => {
+                const n = counts[tier] ?? 0;
+                const pct = total > 0 ? (n / total) * 100 : 0;
+                if (pct === 0) return null;
+                return (
+                  <div key={tier} title={`${tier}: ${fmtNum(n)} (${pct.toFixed(1)}%)`}
+                    style={{ width: `${pct}%`, background: TIER_COLOR[tier] }} />
+                );
+              })}
+            </div>
+            <div style={{
+              display: 'flex', flexWrap: 'wrap', gap: 12,
+              fontSize: 11, color: 'var(--text2)', marginTop: 8,
+            }}>
+              {TIER_ORDER.map(tier => {
+                const n = counts[tier] ?? 0;
+                if (n === 0) return null;
+                const pct = total > 0 ? (n / total) * 100 : 0;
+                return (
+                  <span key={tier} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{
+                      display: 'inline-block', width: 10, height: 10,
+                      borderRadius: 2, background: TIER_COLOR[tier],
+                    }} />
+                    <span style={{ fontFamily: 'ui-monospace, monospace' }}>{tier}</span>
+                    <span style={{ color: 'var(--text3)' }}>
+                      {fmtNum(n)} · {pct.toFixed(1)}%
+                    </span>
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Top hot keys */}
+          {data.topKeys && data.topKeys.length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text2)', marginBottom: 6 }}>
+                Hottest cache keys
+              </div>
+              <div className="table-wrap">
+                <table style={{ fontSize: 12 }}>
+                  <thead><tr>
+                    <th>Key</th>
+                    <th className="num" style={{ width: 100 }}>Hits</th>
+                  </tr></thead>
+                  <tbody>
+                    {data.topKeys.map(k => (
+                      <tr key={k.key}>
+                        <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>
+                          {k.key}
+                        </td>
+                        <td className="num">{fmtNum(k.hits)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

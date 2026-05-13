@@ -364,6 +364,18 @@ export interface RedisStats {
   expiredKeys: number;
 }
 
+// CacheStats matches api.CacheStatsSnapshot — per-tier hit
+// counters and hottest keys for the multi-tier API cache (L1 +
+// Redis + singleflight + SWR). counts keys: HIT-L1, HIT,
+// STALE, HIT-LEGACY, MISS, BYPASS.
+export interface CacheStats {
+  sinceUnixNano: number;
+  counts: Record<string, number>;
+  topKeys: { key: string; hits: number }[];
+  l1Size: number;
+  l1Cap: number;
+}
+
 // AI Copilot config edited from Settings. apiKey is write-only — the
 // GET response never includes it; hasKey is the masked indicator.
 // baseUrl is provider-specific (only "openai" reads it) and is the

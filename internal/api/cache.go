@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"sort"
 	"sync"
 	"time"
 
@@ -160,6 +161,7 @@ func (s *Server) serveCached(w http.ResponseWriter, r *http.Request, key string,
 	if !skipRead {
 		// ── L1 ────────────────────────────────────────────────
 		if data, ok := s.l1.get(key); ok {
+			s.stats.record("HIT-L1", key)
 			writeCacheHit(w, "HIT-L1", data)
 			return
 		}
@@ -172,6 +174,7 @@ func (s *Server) serveCached(w http.ResponseWriter, r *http.Request, key string,
 					// freshness window (capped) so future
 					// burst reads on this node skip Redis too.
 					s.l1.set(key, body, minDur(ttl-age, l1TTL))
+					s.stats.record("HIT", key)
 					writeCacheHit(w, "HIT", body)
 					return
 				}
@@ -181,6 +184,7 @@ func (s *Server) serveCached(w http.ResponseWriter, r *http.Request, key string,
 					// singleflight so concurrent stale hits
 					// share one upstream call).
 					go s.refreshKey(key, ttl, fn)
+					s.stats.record("STALE", key)
 					writeCacheHit(w, "STALE", body)
 					return
 				}
@@ -189,6 +193,7 @@ func (s *Server) serveCached(w http.ResponseWriter, r *http.Request, key string,
 				// Legacy entry (no envelope). Serve as-is and
 				// let Redis TTL evict it; new writes go
 				// through the envelope path.
+				s.stats.record("HIT-LEGACY", key)
 				writeCacheHit(w, "HIT-LEGACY", raw)
 				return
 			}
@@ -211,8 +216,10 @@ func (s *Server) serveCached(w http.ResponseWriter, r *http.Request, key string,
 	s.storeCached(r.Context(), key, body, ttl)
 	w.Header().Set("Content-Type", "application/json")
 	if skipRead {
+		s.stats.record("BYPASS", key)
 		w.Header().Set("X-Cache", "BYPASS")
 	} else {
+		s.stats.record("MISS", key)
 		w.Header().Set("X-Cache", "MISS")
 	}
 	w.Write(body)
@@ -274,4 +281,101 @@ func (s *Server) refreshKey(key string, ttl time.Duration, fn func() (any, error
 type cacheTier struct {
 	sf singleflight.Group
 	l1 *l1Cache
+}
+
+// cacheStats records per-tier hit counts and the hottest keys
+// since process start. Surfaces on /api/admin/cache-stats so
+// the System page can show whether the multi-tier cache is
+// actually doing useful work in production.
+//
+// Memory is bounded: tier counts is fixed (6 strings),
+// keyHits is capped at 4096 keys with the lowest-count entry
+// evicted on insertion to keep working-set-sized.
+type cacheStats struct {
+	mu      sync.Mutex
+	counts  map[string]int64
+	keyHits map[string]int64
+	started time.Time
+}
+
+const cacheStatsKeyCap = 4096
+
+func newCacheStats() *cacheStats {
+	return &cacheStats{
+		counts:  map[string]int64{},
+		keyHits: map[string]int64{},
+		started: time.Now(),
+	}
+}
+
+// record bumps the tier counter and (for hit tiers only)
+// the per-key counter. Misses don't update keyHits because a
+// missing key isn't yet "hot" — it's a cold one.
+func (cs *cacheStats) record(tier, key string) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	cs.counts[tier]++
+	switch tier {
+	case "HIT-L1", "HIT", "STALE":
+		cs.keyHits[key]++
+		if len(cs.keyHits) > cacheStatsKeyCap {
+			// Evict the smallest-count entry. Linear scan;
+			// O(n) but n is bounded at 4096 and this only
+			// runs on the rare overflow.
+			var minKey string
+			var minCount int64 = -1
+			for k, v := range cs.keyHits {
+				if minCount < 0 || v < minCount {
+					minKey, minCount = k, v
+				}
+			}
+			delete(cs.keyHits, minKey)
+		}
+	}
+}
+
+// CacheStatsSnapshot is the wire shape for the admin endpoint.
+// Counts is a tier → hit count map; TopKeys is a sorted slice
+// of the most-frequently-served keys (capped at 20).
+type CacheStatsSnapshot struct {
+	SinceUnixNano int64            `json:"sinceUnixNano"`
+	Counts        map[string]int64 `json:"counts"`
+	TopKeys       []CacheKeyHit    `json:"topKeys"`
+	L1Size        int              `json:"l1Size"`
+	L1Cap         int              `json:"l1Cap"`
+}
+
+type CacheKeyHit struct {
+	Key  string `json:"key"`
+	Hits int64  `json:"hits"`
+}
+
+func (cs *cacheStats) snapshot(l1 *l1Cache) CacheStatsSnapshot {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	out := CacheStatsSnapshot{
+		SinceUnixNano: cs.started.UnixNano(),
+		Counts:        make(map[string]int64, len(cs.counts)),
+	}
+	for k, v := range cs.counts {
+		out.Counts[k] = v
+	}
+	// Sort keys by hit count desc, take top 20. Cheap on the
+	// bounded map; runs on admin requests not hot path.
+	keys := make([]CacheKeyHit, 0, len(cs.keyHits))
+	for k, v := range cs.keyHits {
+		keys = append(keys, CacheKeyHit{Key: k, Hits: v})
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i].Hits > keys[j].Hits })
+	if len(keys) > 20 {
+		keys = keys[:20]
+	}
+	out.TopKeys = keys
+	if l1 != nil {
+		l1.mu.Lock()
+		out.L1Size = len(l1.entries)
+		out.L1Cap = l1.cap
+		l1.mu.Unlock()
+	}
+	return out
 }

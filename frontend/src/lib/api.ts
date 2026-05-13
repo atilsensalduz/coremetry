@@ -391,6 +391,8 @@ export const api = {
   },
   redisStats: () =>
     get<import('./types').RedisStats>(`/api/admin/redis-stats`),
+  cacheStats: () =>
+    get<import('./types').CacheStats>(`/api/admin/cache-stats`),
   // Causal correlations — ranked services that changed the most
   // around `atUnixNs`. Drives the "Why did this fire?" panel on
   // Problem rows. windowSec defaults to 10 min, baselineSec to
