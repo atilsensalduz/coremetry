@@ -641,6 +641,17 @@ export const api = {
 
   serviceOperations: (svc: string, r: RangeParams) =>
     get<OperationSummary[] | null>(`/api/services/${encodeURIComponent(svc)}/operations?${qs(r)}`),
+  // serviceBundle — single round trip that returns the three
+  // panels the Service detail mount needs (KPI summary,
+  // recent problems, operations table). Server fans out to
+  // CH in parallel goroutines; cached 15s. Replaces the
+  // legacy three-call Promise.all on Service.tsx mount.
+  serviceBundle: (svc: string, r: RangeParams) =>
+    get<{
+      service:    Service | null;
+      problems:   import('./types').Problem[] | null;
+      operations: OperationSummary[] | null;
+    }>(`/api/services/${encodeURIComponent(svc)}/bundle?${qs(r)}`),
   serviceCallers: (svc: string, since: string) =>
     get<ServiceEdgeStats[] | null>(`/api/services/${encodeURIComponent(svc)}/callers?since=${since}`),
   serviceCallees: (svc: string, since: string) =>

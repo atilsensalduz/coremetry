@@ -37,20 +37,25 @@ function ServiceDetailInner() {
     if (!svc) return;
     setLoading(true);
     const r = timeRangeToNs(range);
-    // Upstream / downstream callers + callees were removed per
-    // operator request — the ServiceStructure waterfall below shows
-    // who-calls-whom in the actual span tree, which is more
-    // informative and doesn't depend on peer.service being
-    // populated. KPI strip + operations + problems remain.
-    Promise.all([
-      api.services(r, undefined, svc),
-      api.problems({ service: svc, limit: 50 }),
-      api.serviceOperations(svc, r),
-    ]).then(([all, probs, ops]) => {
-      setInfo((all ?? []).find(s => s.name === svc) ?? null);
-      setProblems(probs ?? []);
-      setOperations(ops ?? []);
-    }).finally(() => setLoading(false));
+    // Single bundled fetch — the backend fans out KPI lookup,
+    // problems list, and operations table to CH in parallel
+    // goroutines and ships one JSON response, cached 15s. Net
+    // effect at billion-span scale: 3 network round trips +
+    // 3 serial CH cold-cache costs collapse into 1 round trip
+    // and 1 parallel CH window. Heatmap / RED charts / cluster
+    // breakdown stay separate; they own their own time-window
+    // semantics (compare period, lazy mount) the bundle can't
+    // bake in without coupling.
+    api.serviceBundle(svc, r)
+      .then(b => {
+        setInfo(b?.service ?? null);
+        setProblems(b?.problems ?? []);
+        setOperations(b?.operations ?? []);
+      })
+      .catch(() => {
+        setInfo(null); setProblems([]); setOperations([]);
+      })
+      .finally(() => setLoading(false));
   }, [svc, range]);
 
   if (!svc) {

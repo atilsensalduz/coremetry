@@ -170,6 +170,7 @@ func (s *Server) Start() error {
 	if s.bus != nil {
 		mux.Handle("GET /api/events", sse.Handler(s.bus))
 	}
+	mux.HandleFunc("GET /api/services/{name}/bundle",    s.getServiceBundle)
 	mux.HandleFunc("GET /api/services/{name}/structure", s.getServiceStructure)
 	mux.HandleFunc("GET /api/services/{name}/clusters",  s.getServiceClusterBreakdown)
 	mux.HandleFunc("GET /api/services/{name}/neighbors", s.getServiceNeighbors)
@@ -738,6 +739,103 @@ func (s *Server) getServiceClusterBreakdown(w http.ResponseWriter, r *http.Reque
 			return nil, err
 		}
 		return map[string]any{"clusters": rows}, nil
+	})
+}
+
+// getServiceBundle fans out the THREE queries the Service
+// detail page used to fire from the frontend on mount —
+// services list (just to find this one's KPI row), problems
+// for the service, and the operation summary — and returns
+// them as a single JSON response. Cuts the network round-
+// trip count from 3 → 1 and pulls the CH-side latencies into
+// parallel goroutines (vs sequential awaits at billion-span
+// scale where each query is the cold-cache cost).
+//
+// Cached 15s with SWR so subsequent operator clicks land
+// instantly. Failure of any single sub-query degrades that
+// field to null in the response (matches the frontend's
+// existing tolerance for partial loads) instead of failing
+// the whole bundle.
+//
+// Heatmap / RED charts / cluster breakdown stay separate —
+// they have their own time-window semantics (compare period,
+// lazy mount) the bundle can't bake in without coupling.
+func (s *Server) getServiceBundle(w http.ResponseWriter, r *http.Request) {
+	svc := r.PathValue("name")
+	if svc == "" {
+		http.Error(w, "service name required", http.StatusBadRequest)
+		return
+	}
+	q := r.URL.Query()
+	since := parseDuration(q.Get("since"), 24*time.Hour)
+	from, to := parseTime(q.Get("from")), parseTime(q.Get("to"))
+	if from.IsZero() {
+		from = time.Now().Add(-since)
+	}
+	if to.IsZero() {
+		to = time.Now()
+	}
+
+	key := fmt.Sprintf("svc-bundle:svc=%s:since=%s:from=%s:to=%s",
+		svc, q.Get("since"), q.Get("from"), q.Get("to"))
+	s.serveCached(w, r, key, 15*time.Second, func() (any, error) {
+		type result struct {
+			Service    *chstore.ServiceSummary    `json:"service"`
+			Problems   []chstore.Problem          `json:"problems"`
+			Operations []chstore.OperationSummary `json:"operations"`
+		}
+		out := &result{}
+
+		// Fan out in parallel — each branch sets its slot of
+		// the result struct under its own goroutine. Errors
+		// log + leave the field at zero value (nil slice or
+		// pointer) so a single CH blip on one query doesn't
+		// blank the whole panel. WaitGroup keeps the
+		// goroutines bounded to this request's lifetime.
+		var wg sync.WaitGroup
+		wg.Add(3)
+
+		go func() {
+			defer wg.Done()
+			list, err := s.store.GetServicesAggFiltered(r.Context(), from, to,
+				svc, "spanCount", "desc", 1, 0)
+			if err != nil {
+				log.Printf("[svc-bundle] services %s: %v", svc, err)
+				return
+			}
+			for i := range list {
+				if list[i].Name == svc {
+					out.Service = &list[i]
+					return
+				}
+			}
+		}()
+
+		go func() {
+			defer wg.Done()
+			probs, err := s.store.ListProblems(r.Context(), chstore.ProblemFilter{
+				Service: svc,
+				Limit:   50,
+			})
+			if err != nil {
+				log.Printf("[svc-bundle] problems %s: %v", svc, err)
+				return
+			}
+			out.Problems = probs
+		}()
+
+		go func() {
+			defer wg.Done()
+			ops, err := s.store.GetOperationSummary(r.Context(), svc, since, from, to)
+			if err != nil {
+				log.Printf("[svc-bundle] operations %s: %v", svc, err)
+				return
+			}
+			out.Operations = ops
+		}()
+
+		wg.Wait()
+		return out, nil
 	})
 }
 
