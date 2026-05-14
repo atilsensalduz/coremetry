@@ -496,6 +496,31 @@ func (s *Server) warmDependenciesCache() {
 			func(ctx context.Context) (any, error) {
 				return s.store.ListServiceMetadata(ctx)
 			})
+		// /services landing page — first page, default sort
+		// (errorRate desc), no filters, default 15-min window.
+		// Same key shape as getServices builds via cacheBucket,
+		// so the operator's very first click after each warmer
+		// tick lands on a HIT-L1 instead of waiting for the MV
+		// scan. The bucket also extends slightly into the
+		// future so the next request a few seconds later still
+		// matches the same key.
+		landingFrom := to.Add(-15 * time.Minute)
+		landingKey := fmt.Sprintf(
+			"services:mv=true:limit=50:offset=0:bucket=%s:name=:sort=errorRate:dir=desc:ot=:st=:cl=",
+			cacheBucket(landingFrom, to))
+		warm("services-landing", landingKey, 30*time.Second,
+			func(ctx context.Context) (any, error) {
+				list, err := s.store.GetServicesAggFiltered(ctx,
+					landingFrom, to, "", "errorRate", "desc", 50, 0)
+				if err != nil {
+					return nil, err
+				}
+				return map[string]any{
+					"services": list,
+					"hasMore":  len(list) == 50,
+					"offset":   0,
+				}, nil
+			})
 		time.Sleep(tick)
 	}
 }
@@ -575,8 +600,16 @@ func (s *Server) getServices(w http.ResponseWriter, r *http.Request) {
 	// over the window, but bounded by the filter so the cost
 	// stays proportional to the chosen cluster's traffic.
 	useMV := to.Sub(from) >= 5*time.Minute && cluster == ""
-	key := fmt.Sprintf("services:mv=%t:limit=%d:offset=%d:since=%s:from=%s:to=%s:name=%s:sort=%s:dir=%s:ot=%s:st=%s:cl=%s",
-		useMV, limit, offset, q.Get("since"), q.Get("from"), q.Get("to"), nameMatch, sort, dir, ownerTeam, sreTeam, cluster)
+	// Bucket from/to to 30s alignment for the cache key. The
+	// raw `q.Get("from")` is wall-clock ns and changes every
+	// request, so the legacy key was effectively per-request
+	// — cache HIT rate ≈ 0 even at 30s TTL. cacheBucket
+	// aligns timestamps to the same 30s window every operator
+	// hitting in that window sees, so back-to-back clicks
+	// land on a HIT instead of a cold MV scan.
+	bucket := cacheBucket(from, to)
+	key := fmt.Sprintf("services:mv=%t:limit=%d:offset=%d:bucket=%s:name=%s:sort=%s:dir=%s:ot=%s:st=%s:cl=%s",
+		useMV, limit, offset, bucket, nameMatch, sort, dir, ownerTeam, sreTeam, cluster)
 	// 30s cache. The 5m-MV-backed query is already sub-second on
 	// 10k+ services, but 30s collapses every page-flip and tab
 	// switch in a session into one CH round-trip per (page,

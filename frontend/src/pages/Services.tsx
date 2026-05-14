@@ -86,19 +86,16 @@ export default function ServicesPage() {
   // ClickHouse query out per keystroke.
   const [committedFilter, setCommittedFilter] = useState('');
 
-  // Lazy-load gate. Mount renders an empty placeholder until the
-  // operator commits a filter / team / cluster pick OR hits
-  // "Show all services". This shaves the unfiltered "every
-  // service in the cluster" cold-load (multi-second on banking-
-  // scale installs) off the page-open critical path — by the
-  // time the operator's eye reads the filter inputs the cluster
-  // dropdown options have already arrived; they pick something
-  // concrete and the heavy query runs once with the right
-  // narrowing.
-  const [hasLoaded, setHasLoaded] = useState(false);
+  // First-page fetch fires on mount. The v0.5.64 lazy-load gate
+  // was removed in v0.5.72 because operators wanted the same
+  // "top-N by span count" landing view every other APM ships —
+  // a list view that doesn't render anything until the operator
+  // commits a filter felt broken. The MV-backed page query
+  // (service_summary_5m + 30s server cache + SWR) returns the
+  // first 50 services in <300ms even on billion-span installs;
+  // pagination handles the long tail without scaling cost.
 
   useEffect(() => {
-    if (!hasLoaded) return;
     setData(undefined);
     setSparklines({});
     const r = timeRangeToNs(range);
@@ -138,14 +135,7 @@ export default function ServicesPage() {
         api.serviceSparklines(r, names).then(d => setSparklines(d ?? {})).catch(() => {});
       }
     }).catch(() => { setData(null); setHasMore(false); });
-  }, [hasLoaded, range, page, committedFilter, sortBy, sortDir, ownerTeam, sreTeam, cluster]);
-
-  // Any deliberate filter commit (team / cluster / search) also
-  // flips the lazy gate so subsequent useEffect deps actually
-  // fire the fetch. setHasLoaded is a no-op when already true.
-  useEffect(() => {
-    if (committedFilter || ownerTeam || sreTeam || cluster) setHasLoaded(true);
-  }, [committedFilter, ownerTeam, sreTeam, cluster]);
+  }, [range, page, committedFilter, sortBy, sortDir, ownerTeam, sreTeam, cluster]);
 
   // Reset to page 0 whenever the search filter, time range,
   // sort, or team / cluster filter changes — staying on page 5
@@ -408,20 +398,8 @@ export default function ServicesPage() {
           </div>
         )}
 
-        {!hasLoaded && (
-          <Empty icon="⬡" title="Apply a filter to load services">
-            Pick an owner team, SRE team, cluster, or type a service name —
-            then hit Search. Or click below to fetch the global top-N.
-            <div style={{ marginTop: 14 }}>
-              <button onClick={() => setHasLoaded(true)}
-                style={{ fontSize: 12, padding: '6px 14px' }}>
-                Show all services
-              </button>
-            </div>
-          </Empty>
-        )}
-        {hasLoaded && data === undefined && <TableSkeleton rows={10} cols={7} />}
-        {hasLoaded && data !== undefined && (!data || data.length === 0) && (
+        {data === undefined && <TableSkeleton rows={10} cols={7} />}
+        {data !== undefined && (!data || data.length === 0) && (
           <Empty icon="⬡" title="No services yet">
             Point your OTLP exporter at the collector — <code>OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:14318</code> (HTTP) or <code>:14317</code> (gRPC).
           </Empty>

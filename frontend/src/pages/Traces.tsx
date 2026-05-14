@@ -116,23 +116,13 @@ function TracesPageInner() {
   const [data, setData] = useState<TracesResponse | null | undefined>(undefined);
   const [agg, setAgg] = useState<AggregateRow[] | null | undefined>(undefined);
 
-  // Lazy-load gate. Mount renders an empty placeholder until the
-  // operator applies a filter (search / service pick / time
-  // shorter than the default, etc.) or clicks "Load now". A
-  // filter-less /traces fetch on cold cache scans a huge slice
-  // of recent spans even with the v0.5.46/52 MV fast-path, so
-  // letting the operator narrow first cuts the typical
-  // page-open cost in half.
-  //
-  // A URL-arriving filter (search / service / traceId param)
-  // counts as a commit and pre-flips the gate, so deep-links
-  // from problems / dashboards still land on an active result.
-  const initialHasFilter =
-    !!searchParams.get('service') ||
-    !!searchParams.get('search')  ||
-    !!searchParams.get('traceId') ||
-    !!searchParams.get('hasError');
-  const [hasLoaded, setHasLoaded] = useState(initialHasFilter);
+  // The v0.5.64 lazy-load gate was removed in v0.5.72 because
+  // operators wanted /traces to look like every other APM —
+  // landing immediately on a populated first page, not on a
+  // "click to load" placeholder. The MV fast-paths added in
+  // v0.5.46 / v0.5.52 + the 30s bucketed cache mean the
+  // unfiltered default-window query lands sub-second on
+  // billion-span installs.
 
   // ── State → URL ────────────────────────────────────────────────────────────
   // Mirror everything that affects the rendered list to the URL so the
@@ -193,7 +183,7 @@ function TracesPageInner() {
 
   // ── List fetch ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (view !== 'list' || !hasLoaded) return;
+    if (view !== 'list') return;
     setData(undefined);
     const tid = filter.traceId.trim().toLowerCase();
     const useTimeRange = tid.length === 0;
@@ -215,11 +205,11 @@ function TracesPageInner() {
       // skip the toggle — count of 1 is implicit.
       count: showTotal && !tid ? 'exact' : 'skip',
     }).then(setData).catch(() => setData(null));
-  }, [hasLoaded, view, range, sort, order, page, filter, advFilters, extraCols, showTotal]);
+  }, [view, range, sort, order, page, filter, advFilters, extraCols, showTotal]);
 
   // ── Aggregate fetch ────────────────────────────────────────────────────────
   useEffect(() => {
-    if (view !== 'aggregate' || !hasLoaded) return;
+    if (view !== 'aggregate') return;
     setAgg(undefined);
     const { from, to } = timeRangeToNs(range);
     // groupBy = 'attr' is the special "use the custom attribute
@@ -238,7 +228,7 @@ function TracesPageInner() {
       maxMs: filter.maxMs || undefined,
       filters: advFilters.length ? JSON.stringify(advFilters) : undefined,
     }).then(setAgg).catch(() => setAgg(null));
-  }, [hasLoaded, view, range, groupBy, groupAttr, aggSort, aggOrder, filter, advFilters]);
+  }, [view, range, groupBy, groupAttr, aggSort, aggOrder, filter, advFilters]);
 
   // apply commits the draft as the live filter. When called
   // with `overrideService` the picked value overrides whatever
@@ -255,10 +245,6 @@ function TracesPageInner() {
     setPage(0);
     if (overrideService != null) setDraft(next);
     setFilter(next);
-    // Deliberate commit — flips the lazy gate so the fetch
-    // effects above run on this and every subsequent filter
-    // change.
-    setHasLoaded(true);
   };
   const reset = () => {
     const empty = {
@@ -480,28 +466,9 @@ function TracesPageInner() {
             'db.system': ['postgresql', 'mysql', 'redis', 'mongodb', 'elasticsearch'],
           }} />
 
-        {/* Lazy gate — either view is empty until the operator
-            applies a filter (or clicks Search). Sliced before the
-            view branches so the same placeholder serves both.
-            Deep-link arrivals from problems / dashboards pre-flip
-            hasLoaded via initialHasFilter so they land on a
-            populated table immediately. */}
-        {!hasLoaded && (
-          <Empty icon="⋮" title="Apply a filter to load traces">
-            Pick a service / operation, type a search term, paste a trace ID,
-            or set a time range — then hit Search. Or load anyway:
-            <div style={{ marginTop: 14 }}>
-              <button onClick={() => setHasLoaded(true)}
-                style={{ fontSize: 12, padding: '6px 14px' }}>
-                Show recent traces
-              </button>
-            </div>
-          </Empty>
-        )}
-
         {/* List view */}
-        {hasLoaded && view === 'list' && data === undefined && <TableSkeleton rows={10} cols={7} />}
-        {hasLoaded && view === 'list' && data && traces.length === 0 && <Empty icon="⋮" title="No traces found" />}
+        {view === 'list' && data === undefined && <TableSkeleton rows={10} cols={7} />}
+        {view === 'list' && data && traces.length === 0 && <Empty icon="⋮" title="No traces found" />}
         {view === 'list' && data && traces.length > 0 && (
           <>
             <div className="table-wrap">
@@ -592,9 +559,9 @@ function TracesPageInner() {
         )}
 
         {/* Aggregate view */}
-        {hasLoaded && view === 'aggregate' && agg === undefined && <Spinner />}
-        {hasLoaded && view === 'aggregate' && agg && agg.length === 0 && <Empty icon="∑" title="No groups in this window" />}
-        {hasLoaded && view === 'aggregate' && agg && agg.length > 0 && (
+        {view === 'aggregate' && agg === undefined && <Spinner />}
+        {view === 'aggregate' && agg && agg.length === 0 && <Empty icon="∑" title="No groups in this window" />}
+        {view === 'aggregate' && agg && agg.length > 0 && (
           <>
             <div className="table-wrap">
               <table>
