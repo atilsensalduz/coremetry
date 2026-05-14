@@ -402,33 +402,19 @@ func (e *Evaluator) escalateStaleProblems(ctx context.Context) {
 	}
 }
 
-// Anomaly auto-promotion thresholds. Tuned conservatively so
-// only sustained, high-ratio anomalies become pageable — the
-// noisy patterns (one-off spikes, low-count blips, freshly-
-// detected events without continuity) stay on the /anomalies
-// page where the operator can triage them manually.
-//
-//   • peakRatio ≥ promoteMinPeakRatio
-//     baseline-relative magnitude. 5× means the pattern is
-//     occurring at least 5× more than its rolling baseline.
-//   • duration since started_at ≥ promoteMinSustained
-//     filters out one-tick flares.
-//   • currentCount ≥ promoteMinCount
-//     ensures a non-trivial absolute volume (a 100× ratio on
-//     2 occurrences is meaningless).
-//
 // Promoted problems get rule_id = "anomaly-auto:<fingerprint>"
 // so the same anomaly re-promoted on a later tick lands on
 // the same Problem row (no duplicate noise). When the
 // anomaly clears (last_seen ages out of the "active" window)
 // the row stays "open" — operators ack it the same way as
 // any other Problem.
-const (
-	promoteMinPeakRatio  = 5.0
-	promoteMinSustained  = 5 * time.Minute
-	promoteMinCount      = uint64(10)
-	promoteAnomalyRuleID = "anomaly-auto:"
-)
+//
+// Promotion thresholds were hard-coded until v0.5.71; they
+// now come from chstore.AnomalyPromotionConfig saved under
+// system_settings. Defaults match the legacy constants so
+// installs that never visit the settings page keep the
+// v0.5.59 behaviour.
+const promoteAnomalyRuleID = "anomaly-auto:"
 
 // promoteStrongAnomalies converts strong, sustained
 // AnomalyEvents into first-class Problems so the existing
@@ -444,6 +430,15 @@ const (
 // The escalation sweep above can still bump these higher
 // over time if the operator doesn't ack.
 func (e *Evaluator) promoteStrongAnomalies(ctx context.Context) {
+	// Pull config from the store. Soft-fails to defaults
+	// internally so a CH blip never accidentally disables
+	// promotion in a long-running evaluator.
+	cfg := e.store.GetAnomalyPromotion(ctx)
+	if !cfg.Enabled {
+		return
+	}
+	minSustained := time.Duration(cfg.MinSustainedSec) * time.Second
+
 	events, err := e.store.ListAnomalyEvents(ctx, chstore.ListAnomalyEventsFilter{
 		// Last hour is enough — the detector re-emits every
 		// tick, so anything that should be a Problem will be
@@ -461,13 +456,13 @@ func (e *Evaluator) promoteStrongAnomalies(ctx context.Context) {
 		if ev.Status != "active" {
 			continue
 		}
-		if ev.PeakRatio < promoteMinPeakRatio {
+		if ev.PeakRatio < cfg.MinPeakRatio {
 			continue
 		}
-		if ev.CurrentCount < promoteMinCount {
+		if ev.CurrentCount < cfg.MinCount {
 			continue
 		}
-		if now.Sub(time.Unix(0, ev.StartedAt)) < promoteMinSustained {
+		if now.Sub(time.Unix(0, ev.StartedAt)) < minSustained {
 			continue
 		}
 		sev := "warning"
@@ -506,7 +501,7 @@ func (e *Evaluator) promoteStrongAnomalies(ctx context.Context) {
 			Service:     ev.Service,
 			Metric:      "anomaly_ratio",
 			Value:       ev.PeakRatio,
-			Threshold:   promoteMinPeakRatio,
+			Threshold:   cfg.MinPeakRatio,
 			Status:      "open",
 			Description: desc,
 			StartedAt:   startedAt,
