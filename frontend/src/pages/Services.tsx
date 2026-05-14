@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
@@ -283,6 +283,24 @@ export default function ServicesPage() {
   const goToService = (svc: string) =>
     navigate(`/service?name=${encodeURIComponent(svc)}`);
 
+  // Per-session hover-prefetch dedupe. Once a service has
+  // been hover-prefetched for the current (range) the L1 +
+  // Redis tiers stay warm well past the cache TTL so we
+  // don't need to refire on every mouseenter — that would
+  // hammer CH when the operator drags across 50 rows. Reset
+  // whenever the range changes (keys the L1 differently).
+  const prefetchedRef = useRef<Set<string>>(new Set());
+  useEffect(() => { prefetchedRef.current = new Set(); }, [range]);
+  const prefetchService = (name: string) => {
+    if (prefetchedRef.current.has(name)) return;
+    prefetchedRef.current.add(name);
+    const r = timeRangeToNs(range);
+    // Fire-and-forget — the response just warms the cache.
+    // Catch swallows errors so a transient blip doesn't show
+    // up in the console on hover.
+    api.serviceBundle(name, r).catch(() => {});
+  };
+
   // j/k row navigation. Enter / o opens the service detail.
   const tableNav = useTableNav<Service>(sorted ?? [], {
     pageId: 'services',
@@ -474,7 +492,18 @@ export default function ServicesPage() {
                       <tr key={s.name}
                           data-row-idx={i}
                           className={isSelected ? 'row-selected' : undefined}
-                          onMouseEnter={() => tableNav.setSelected(i)}
+                          onMouseEnter={() => {
+                            tableNav.setSelected(i);
+                            // Hover prefetch — fire the bundle
+                            // query for this service so by the
+                            // time the operator clicks the row
+                            // the L1 + Redis tiers are warm and
+                            // the detail page mount lands on a
+                            // HIT-L1. Dedupe via a Set so a
+                            // mouse drag across 10 rows fires 10
+                            // requests, not 100.
+                            prefetchService(s.name);
+                          }}
                           {...rowClickHandlers(`/service?name=${encodeURIComponent(s.name)}`,
                                                () => goToService(s.name))}>
                         <td>
