@@ -281,8 +281,9 @@ function TraceDetailInner() {
         {spans && spans.length === 0 && <Empty icon="⋮" title="Trace not found" />}
         {spans && spans.length > 0 && (
           <>
-            <div style={{ marginBottom: 10 }}>
+            <div style={{ marginBottom: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <CopilotExplain kind="trace" id={id} label={<><IconSparkles /> <span style={{ marginLeft: 6 }}>Explain this trace</span></>} />
+              <CompareTracesButton aId={id} />
             </div>
 
             {/* Trace vs Logs (Uptrace-style) — uses the shared
@@ -361,6 +362,99 @@ function TraceLogsPanel({ logs }: { logs: LogRow[] | null | undefined }) {
 // here for the legacy custom .trace-logs grid. After v0.5.62
 // the panel renders through the shared <LogTable> which
 // handles all of that itself, so the helpers are gone.
+
+// CompareTracesButton — opens an inline form asking for a
+// second trace ID, then calls /api/copilot/compare-traces.
+// Renders the model's diff explanation underneath in the
+// same panel style as CopilotExplain so the trace-detail
+// chrome stays visually consistent. Self-hides when the
+// copilot isn't configured (same gate CopilotExplain uses).
+function CompareTracesButton({ aId }: { aId: string }) {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [open, setOpen] = useState(false);
+  const [bId, setBId] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [text, setText] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.copilotConfig().then(c => setEnabled(c.enabled)).catch(() => setEnabled(false));
+  }, []);
+  if (enabled !== true) return null;
+
+  const submit = async () => {
+    const b = bId.trim().toLowerCase().replace(/^0x/, '');
+    if (!/^[0-9a-f]{16,32}$/.test(b)) {
+      setError('Trace ID must be 16-32 hex characters.');
+      return;
+    }
+    if (b === aId.toLowerCase()) {
+      setError('Pick a DIFFERENT trace to compare with.');
+      return;
+    }
+    setBusy(true); setError(null); setText(null);
+    try {
+      const r = await api.copilotCompareTraces(aId, b);
+      setText(r.explanation);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Compare failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} className="sec"
+        style={{ padding: '5px 12px', fontSize: 12, color: 'var(--accent2)',
+                 display: 'inline-flex', alignItems: 'center', gap: 6 }}
+        title="Diff this trace against another by ID — model explains why they diverged">
+        <IconSparkles /> <span>Compare with…</span>
+      </button>
+    );
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <input value={bId}
+          onChange={e => setBId(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') submit(); }}
+          placeholder="Other trace ID (hex)"
+          className="mono"
+          style={{ width: 320, fontSize: 12 }} />
+        <button onClick={submit} disabled={busy}
+          style={{ padding: '5px 12px', fontSize: 12 }}>
+          {busy ? 'Thinking…' : 'Compare'}
+        </button>
+        <button onClick={() => { setOpen(false); setText(null); setError(null); }}
+          className="sec" style={{ padding: '5px 10px', fontSize: 12 }}>
+          Cancel
+        </button>
+      </div>
+      {error && (
+        <div style={{
+          padding: 10, borderRadius: 6, fontSize: 12,
+          background: 'rgba(255,82,82,.10)', color: 'var(--err)',
+          border: '1px solid rgba(255,82,82,.25)', maxWidth: 720,
+        }}>{error}</div>
+      )}
+      {text && (
+        <div style={{
+          padding: 12, borderRadius: 6, fontSize: 13, lineHeight: 1.5,
+          background: 'rgba(56,139,253,.08)',
+          border: '1px solid rgba(56,139,253,.25)',
+          color: 'var(--text)', whiteSpace: 'pre-wrap', maxWidth: 720,
+        }}>
+          <div style={{ fontSize: 10, color: 'var(--accent2)', marginBottom: 6, fontWeight: 700, letterSpacing: '.5px',
+                        display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <IconSparkles size={11} /> COMPARE
+          </div>
+          {text}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function TraceDetailPage() {
   return (

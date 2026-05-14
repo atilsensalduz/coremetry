@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -309,6 +310,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("POST   /api/copilot/explain-anomaly/{id}", s.copilotExplainAnomaly)
 	mux.HandleFunc("POST   /api/copilot/explain-service",      s.copilotExplainServiceHealth)
 	mux.HandleFunc("POST   /api/copilot/runbook/{id}",         s.copilotRunbook)
+	mux.HandleFunc("POST   /api/copilot/compare-traces",       s.copilotCompareTraces)
 	mux.HandleFunc("POST   /api/copilot/suggest-service-tags", auth.RequireAnyRole(editorRoles, s.copilotSuggestServiceTags))
 
 	// ── Incident management ───────────────────────────────────────
@@ -4680,6 +4682,205 @@ func (s *Server) copilotRunbook(w http.ResponseWriter, r *http.Request) {
 		"explanation":  out,
 		"similarCount": len(similar),
 	})
+}
+
+// copilotCompareTraces takes two trace IDs, computes a
+// structured diff (root summaries, per-shared-operation
+// latency delta, services-only-in-one, error footprint), and
+// asks the model to explain WHY the two diverged. Tailored
+// for the typical incident workflow "today's slow trace vs
+// yesterday's fast one" — the model surfaces the single
+// biggest contributor without re-narrating the raw diff.
+//
+// Failure modes:
+//   • Either trace not found → 404 with the missing id.
+//   • Both traces identical (same ID typed twice) → still
+//     valid; the model will say "essentially the same".
+func (s *Server) copilotCompareTraces(w http.ResponseWriter, r *http.Request) {
+	if !s.copilot.Configured() {
+		http.Error(w, "AI copilot not configured", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		AID string `json:"aId"`
+		BID string `json:"bId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	aID := strings.TrimSpace(strings.ToLower(body.AID))
+	bID := strings.TrimSpace(strings.ToLower(body.BID))
+	if aID == "" || bID == "" {
+		http.Error(w, "both aId and bId are required", http.StatusBadRequest)
+		return
+	}
+
+	aSpans, err := s.store.GetTrace(r.Context(), aID)
+	if err != nil || len(aSpans) == 0 {
+		http.Error(w, "trace A not found: "+aID, http.StatusNotFound)
+		return
+	}
+	bSpans, err := s.store.GetTrace(r.Context(), bID)
+	if err != nil || len(bSpans) == 0 {
+		http.Error(w, "trace B not found: "+bID, http.StatusNotFound)
+		return
+	}
+
+	user := buildCompareTracesPrompt(aID, aSpans, bID, bSpans)
+	out, err := s.copilot.Explain(r.Context(),
+		copilot.SystemPromptCompareTraces(), user)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, map[string]string{"explanation": out})
+}
+
+// buildCompareTracesPrompt produces the structured-diff user
+// prompt the model consumes. Kept in api.go (not copilot/) so
+// the spans-table shape (SpanRow fields) doesn't leak into
+// the copilot package's dependencies.
+func buildCompareTracesPrompt(aID string, aSpans []chstore.SpanRow,
+	bID string, bSpans []chstore.SpanRow) string {
+
+	summarise := func(traceID string, spans []chstore.SpanRow) (svc, op string, durMs float64, errCount int) {
+		minT := int64(0)
+		maxT := int64(0)
+		for i, sp := range spans {
+			if i == 0 || sp.StartTime < minT {
+				minT = sp.StartTime
+			}
+			if sp.EndTime > maxT {
+				maxT = sp.EndTime
+			}
+			if sp.StatusCode == "error" {
+				errCount++
+			}
+			if sp.ParentSpanID == "" || sp.ParentSpanID == "0000000000000000" {
+				svc = sp.ServiceName
+				op = sp.Name
+			}
+		}
+		durMs = float64(maxT-minT) / 1e6
+		_ = traceID
+		return
+	}
+
+	// Per-(service, op) summary across each trace — used for
+	// the latency-delta ranking AND the "only in A / only in
+	// B" diff.
+	type key struct{ svc, op string }
+	type bucket struct {
+		count    int
+		totalMs  float64
+		maxMs    float64
+		hasError bool
+	}
+	bucketsOf := func(spans []chstore.SpanRow) map[key]*bucket {
+		out := map[key]*bucket{}
+		for _, sp := range spans {
+			k := key{sp.ServiceName, sp.Name}
+			b := out[k]
+			if b == nil {
+				b = &bucket{}
+				out[k] = b
+			}
+			b.count++
+			d := float64(sp.EndTime-sp.StartTime) / 1e6
+			b.totalMs += d
+			if d > b.maxMs {
+				b.maxMs = d
+			}
+			if sp.StatusCode == "error" {
+				b.hasError = true
+			}
+		}
+		return out
+	}
+	aB := bucketsOf(aSpans)
+	bB := bucketsOf(bSpans)
+
+	type delta struct {
+		k       key
+		aMs, bMs float64
+		dMs     float64
+	}
+	var deltas []delta
+	for k, ab := range aB {
+		if bb, ok := bB[k]; ok {
+			deltas = append(deltas, delta{k, ab.totalMs, bb.totalMs, bb.totalMs - ab.totalMs})
+		}
+	}
+	sort.Slice(deltas, func(i, j int) bool {
+		return abs(deltas[i].dMs) > abs(deltas[j].dMs)
+	})
+	if len(deltas) > 10 {
+		deltas = deltas[:10]
+	}
+
+	// Only-in-A and only-in-B — the structural diff, not just
+	// timing. Cap each list at 10 to keep the prompt bounded.
+	var onlyA, onlyB []string
+	for k, ab := range aB {
+		if _, in := bB[k]; !in {
+			onlyA = append(onlyA, fmt.Sprintf("%s · %s (count=%d, totalMs=%.0f)",
+				k.svc, k.op, ab.count, ab.totalMs))
+		}
+	}
+	for k, bb := range bB {
+		if _, in := aB[k]; !in {
+			onlyB = append(onlyB, fmt.Sprintf("%s · %s (count=%d, totalMs=%.0f)",
+				k.svc, k.op, bb.count, bb.totalMs))
+		}
+	}
+	if len(onlyA) > 10 {
+		onlyA = onlyA[:10]
+	}
+	if len(onlyB) > 10 {
+		onlyB = onlyB[:10]
+	}
+
+	aSvc, aOp, aDur, aErr := summarise(aID, aSpans)
+	bSvc, bOp, bDur, bErr := summarise(bID, bSpans)
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Trace A: id=%s root=%s/%s spans=%d duration=%.0fms errors=%d\n",
+		aID, aSvc, aOp, len(aSpans), aDur, aErr)
+	fmt.Fprintf(&sb, "Trace B: id=%s root=%s/%s spans=%d duration=%.0fms errors=%d\n",
+		bID, bSvc, bOp, len(bSpans), bDur, bErr)
+	if aDur > 0 {
+		pct := (bDur - aDur) / aDur * 100
+		fmt.Fprintf(&sb, "Wall-clock delta: B vs A = %+.0fms (%+.1f%%)\n", bDur-aDur, pct)
+	}
+
+	if len(deltas) > 0 {
+		sb.WriteString("\nTop operations by absolute latency delta (B - A):\n")
+		for _, d := range deltas {
+			fmt.Fprintf(&sb, "  • %s · %s — A=%.0fms B=%.0fms (Δ %+.0fms)\n",
+				d.k.svc, d.k.op, d.aMs, d.bMs, d.dMs)
+		}
+	}
+	if len(onlyA) > 0 {
+		sb.WriteString("\nOnly in trace A:\n")
+		for _, s := range onlyA {
+			fmt.Fprintf(&sb, "  • %s\n", s)
+		}
+	}
+	if len(onlyB) > 0 {
+		sb.WriteString("\nOnly in trace B:\n")
+		for _, s := range onlyB {
+			fmt.Fprintf(&sb, "  • %s\n", s)
+		}
+	}
+	return sb.String()
+}
+
+func abs(f float64) float64 {
+	if f < 0 {
+		return -f
+	}
+	return f
 }
 
 // copilotSuggestServiceTags assembles a compact fingerprint of

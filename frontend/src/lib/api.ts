@@ -481,6 +481,12 @@ export const api = {
   copilotRunbook: (id: string) =>
     request<{ explanation: string; similarCount: number }>(
       `/api/copilot/runbook/${id}`, { method: 'POST' }),
+  copilotCompareTraces: (aId: string, bId: string) =>
+    request<{ explanation: string }>(`/api/copilot/compare-traces`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ aId, bId }),
+    }),
   copilotSuggestServiceTags: (service: string) =>
     request<{
       suggestions: {
