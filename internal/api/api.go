@@ -291,6 +291,8 @@ func (s *Server) Start() error {
 	// ── Runtime settings (admin) ───────────────────────────────────
 	mux.HandleFunc("GET /api/settings/retention", auth.RequireRole(auth.RoleAdmin, s.getRetention))
 	mux.HandleFunc("PUT /api/settings/retention", auth.RequireRole(auth.RoleAdmin, s.putRetention))
+	mux.HandleFunc("GET /api/settings/anomaly-promotion", auth.RequireRole(auth.RoleAdmin, s.getAnomalyPromotion))
+	mux.HandleFunc("PUT /api/settings/anomaly-promotion", auth.RequireRole(auth.RoleAdmin, s.putAnomalyPromotion))
 	mux.HandleFunc("GET /api/settings/ai",        auth.RequireRole(auth.RoleAdmin, s.getAISettings))
 	mux.HandleFunc("PUT /api/settings/ai",        auth.RequireRole(auth.RoleAdmin, s.putAISettings))
 	mux.HandleFunc("GET  /api/settings/ldap",        auth.RequireRole(auth.RoleAdmin, s.getLDAPSettings))
@@ -4149,6 +4151,45 @@ func (s *Server) putRetention(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err); return
 	}
 	writeJSON(w, sp)
+}
+
+// getAnomalyPromotion returns the live anomaly auto-promotion
+// config (peak ratio / sustained / count thresholds + enable
+// flag). Defaults are baked in chstore so a never-edited
+// install gets the v0.5.59 behaviour back from the GET.
+func (s *Server) getAnomalyPromotion(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, s.store.GetAnomalyPromotion(r.Context()))
+}
+
+// putAnomalyPromotion validates + persists a new config and
+// the next evaluator tick picks it up on its own (the sweep
+// reads the store fresh each pass). Bounds-check the
+// thresholds so a typo doesn't disable the feature
+// silently — fail loud rather than save zero values that
+// patch back to defaults on next read.
+func (s *Server) putAnomalyPromotion(w http.ResponseWriter, r *http.Request) {
+	var c chstore.AnomalyPromotionConfig
+	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if c.MinPeakRatio < 1 || c.MinPeakRatio > 1000 {
+		http.Error(w, "minPeakRatio must be between 1 and 1000", http.StatusBadRequest)
+		return
+	}
+	if c.MinSustainedSec < 60 || c.MinSustainedSec > 24*3600 {
+		http.Error(w, "minSustainedSec must be between 60 and 86400", http.StatusBadRequest)
+		return
+	}
+	if c.MinCount == 0 || c.MinCount > 1_000_000 {
+		http.Error(w, "minCount must be between 1 and 1000000", http.StatusBadRequest)
+		return
+	}
+	if err := s.store.SaveAnomalyPromotion(r.Context(), c); err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, c)
 }
 
 // ── AI Copilot ──────────────────────────────────────────────────────────────

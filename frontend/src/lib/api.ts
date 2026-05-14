@@ -314,6 +314,21 @@ export const api = {
       body: JSON.stringify(sp),
     }),
 
+  // Runtime settings: anomaly auto-promotion thresholds.
+  // Server-side defaults match the legacy v0.5.59 constants
+  // so an install that never PUTs the endpoint keeps the
+  // pre-tunable behaviour.
+  getAnomalyPromotion: () =>
+    get<{ enabled: boolean; minPeakRatio: number; minSustainedSec: number; minCount: number }>(
+      `/api/settings/anomaly-promotion`),
+  putAnomalyPromotion: (c: {
+    enabled: boolean; minPeakRatio: number; minSustainedSec: number; minCount: number;
+  }) =>
+    request<typeof c>(`/api/settings/anomaly-promotion`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(c),
+    }),
+
   // Runtime settings: AI Copilot
   // spanBreakdown — Elastic-APM-style "where does this service
   // spend its time?" stacked-area data. Per-bucket cumulative ms
