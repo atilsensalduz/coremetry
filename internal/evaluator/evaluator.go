@@ -101,43 +101,36 @@ func (e *Evaluator) runIfLeader(ctx context.Context) {
 // the UI when they have the SLO context to set them correctly. The
 // built-ins now act as a "really wrong" floor instead of a default
 // noise generator.
+// Slimmed to four floor alerts after v0.5.67 — operators kept
+// asking why three near-duplicate "X error rate >Y%" rules
+// were firing at once on the same incident. The kept four
+// each cover a distinct failure surface; the dropped three
+// are overlaps (HTTP-5xx / DB-error / RPC-error all roll up
+// into the service-wide error_rate rule).
 var builtins = []chstore.AlertRule{
 	// Service-wide error rate. 15% is the "something is clearly
 	// failing" floor — normal failed-card-transactions noise
 	// stays well below. Below 15% is service-specific tuning
-	// territory; we don't guess.
+	// territory; we don't guess. Subsumes HTTP-5xx, DB-error,
+	// and RPC-error sub-rates (all flow into this metric).
 	{ID: "builtin-error-rate-15pct", Name: "Critical error rate (>15% over 5 min)",
 		Metric: "error_rate", Comparator: ">", Threshold: 15, WindowSec: 5 * 60,
 		Severity: "critical", Enabled: true, BuiltIn: true},
 
-	// HTTP server-side. 5xx >5% means an actual outage from the
-	// caller's perspective; user transactions are failing.
-	{ID: "builtin-http-5xx-5pct",    Name: "HTTP 5xx rate >5% (5 min)",
-		Metric: "http_5xx_rate", Comparator: ">", Threshold: 5,  WindowSec: 5 * 60,
-		Severity: "critical", Enabled: true, BuiltIn: true},
 	// HTTP latency. P99 >5s in a banking call chain is SLO-
 	// violating territory regardless of which service. Below
 	// that is service-specific.
-	{ID: "builtin-http-p99-5s",      Name: "HTTP P99 latency >5s (5 min)",
-		Metric: "http_p99_ms",   Comparator: ">", Threshold: 5000, WindowSec: 5 * 60,
+	{ID: "builtin-http-p99-5s", Name: "HTTP P99 latency >5s (5 min)",
+		Metric: "http_p99_ms", Comparator: ">", Threshold: 5000, WindowSec: 5 * 60,
 		Severity: "critical", Enabled: true, BuiltIn: true},
 
-	// Database. Banking DBs (Oracle, Mongo, MS SQL) routinely
-	// run 500ms-1s P99 with locks + indexes warming up — a 500ms
-	// threshold fired every morning. 5s is when the DB is
-	// actually broken (lock storm, undersized, network blip).
-	{ID: "builtin-db-error-5pct",    Name: "DB error rate >5% (5 min)",
-		Metric: "db_error_rate", Comparator: ">", Threshold: 5,  WindowSec: 5 * 60,
-		Severity: "critical", Enabled: true, BuiltIn: true},
-	{ID: "builtin-db-p99-5s",        Name: "DB P99 latency >5s (5 min)",
-		Metric: "db_p99_ms",     Comparator: ">", Threshold: 5000, WindowSec: 5 * 60,
-		Severity: "critical", Enabled: true, BuiltIn: true},
-
-	// Inter-service RPC. 10% error rate at the RPC layer (already
-	// retried + circuit-broken in modern stacks) indicates a real
-	// downstream outage — much higher signal than HTTP.
-	{ID: "builtin-rpc-error-10pct",  Name: "RPC error rate >10% (5 min)",
-		Metric: "rpc_error_rate", Comparator: ">", Threshold: 10, WindowSec: 5 * 60,
+	// Database latency. Banking DBs (Oracle, Mongo, MS SQL)
+	// routinely run 500ms-1s P99 with locks + indexes warming
+	// up — a 500ms threshold fired every morning. 5s is when
+	// the DB is actually broken (lock storm, undersized,
+	// network blip).
+	{ID: "builtin-db-p99-5s", Name: "DB P99 latency >5s (5 min)",
+		Metric: "db_p99_ms", Comparator: ">", Threshold: 5000, WindowSec: 5 * 60,
 		Severity: "critical", Enabled: true, BuiltIn: true},
 
 	// Message-queue consumer lag. 2 minutes processing P99 on a
@@ -145,8 +138,21 @@ var builtins = []chstore.AlertRule{
 	// piling up. Producer errors fold into the error_rate rule
 	// at the top so we don't double-page.
 	{ID: "builtin-mq-consume-p99-2m", Name: "MQ consume P99 >2 min — consumer lag (5 min)",
-		Metric: "mq_consume_p99_ms",  Comparator: ">", Threshold: 120000, WindowSec: 5 * 60,
+		Metric: "mq_consume_p99_ms", Comparator: ">", Threshold: 120000, WindowSec: 5 * 60,
 		Severity: "critical", Enabled: true, BuiltIn: true},
+}
+
+// deprecatedBuiltinIDs lists IDs that USED TO be in the
+// builtins slice. On boot we silently auto-disable any of
+// them still enabled in the operator's alert_rules table so
+// they stop generating noise on upgrade. Operator can
+// re-enable from the UI if they actually want the rule;
+// nothing is deleted (preserves any custom edits like
+// runbookURL on the rule itself).
+var deprecatedBuiltinIDs = []string{
+	"builtin-http-5xx-5pct",  // subsumed by error_rate
+	"builtin-db-error-5pct",  // subsumed by error_rate
+	"builtin-rpc-error-10pct", // subsumed by error_rate
 }
 
 func (e *Evaluator) seedBuiltinRules(ctx context.Context) error {
@@ -155,9 +161,12 @@ func (e *Evaluator) seedBuiltinRules(ctx context.Context) error {
 		return err
 	}
 	have := make(map[string]bool)
+	byID := make(map[string]chstore.AlertRule, len(existing))
 	for _, r := range existing {
 		have[r.ID] = true
+		byID[r.ID] = r
 	}
+	// Seed any new builtins that aren't in the table yet.
 	for _, r := range builtins {
 		if have[r.ID] {
 			continue
@@ -166,6 +175,21 @@ func (e *Evaluator) seedBuiltinRules(ctx context.Context) error {
 		if err := e.store.UpsertAlertRule(ctx, r); err != nil {
 			log.Printf("[evaluator] seed %s: %v", r.ID, err)
 		}
+	}
+	// Auto-disable rules that USED TO be builtins but were
+	// removed in a later release. Skips rules the operator
+	// already disabled (idempotent) and never deletes, so any
+	// runbookURL / threshold customisation survives the upgrade.
+	for _, id := range deprecatedBuiltinIDs {
+		r, ok := byID[id]
+		if !ok || !r.Enabled {
+			continue
+		}
+		if err := e.store.SetAlertRuleEnabled(ctx, id, false); err != nil {
+			log.Printf("[evaluator] deprecate %s: %v", id, err)
+			continue
+		}
+		log.Printf("[evaluator] disabled deprecated builtin %s (subsumed by error_rate)", id)
 	}
 	return nil
 }
