@@ -5569,6 +5569,22 @@ func actorOf(r *http.Request) string {
 	return "anonymous"
 }
 
+// auditFrom builds a partially-filled AuditEntry from the
+// request context — actor id / email / role + the originating
+// IP — and lets the caller fill the action / target slots. The
+// timestamp + entry id are set by AppendAudit. Best-effort: an
+// anonymous request just gets empty actor fields, the audit row
+// still writes.
+func (s *Server) auditFrom(r *http.Request) chstore.AuditEntry {
+	e := chstore.AuditEntry{IP: clientIP(r)}
+	if c := auth.FromContext(r.Context()); c != nil {
+		e.ActorID = c.UserID
+		e.ActorEmail = c.Email
+		e.ActorRole = c.Role
+	}
+	return e
+}
+
 // ── Synthetic monitors ──────────────────────────────────────────────────────
 
 func (s *Server) listMonitors(w http.ResponseWriter, r *http.Request) {

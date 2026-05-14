@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useBranding } from './branding';
 
 // Tiny in-repo i18n. No external dependency — the SPA's
@@ -196,13 +197,66 @@ const TR: Catalog = {
 
 const CATALOGS: Record<Lang, Catalog> = { en: EN, tr: TR };
 
-// useT returns a translator scoped to the current branding
-// language. Hook so a language change (admin saves new
-// branding → invalidateBranding fires → useBranding re-renders)
-// flows through every consumer without a manual reload.
+// User-level language override. Stored in localStorage so it
+// survives reloads without a server round trip and so unauthed
+// pages (the public-trace viewer, the login screen) can also
+// honour the picked language. When unset, the branding-level
+// language wins — operators who never touch the picker get the
+// org default they always had.
+const USER_LANG_KEY = 'coremetry.lang';
+const USER_LANG_EVENT = 'coremetry:lang-change';
+
+function readUserLang(): Lang | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const v = window.localStorage.getItem(USER_LANG_KEY);
+    if (v === 'tr' || v === 'en') return v;
+  } catch { /* private mode etc. — silent */ }
+  return null;
+}
+
+// useUserLang subscribes to localStorage + the same-tab
+// USER_LANG_EVENT. The storage listener fires on OTHER tabs;
+// the custom event fires within the current tab where the
+// picker was clicked, so both paths flow back to every
+// useT consumer immediately.
+export function useUserLang(): Lang | null {
+  const [lang, setLang] = useState<Lang | null>(() => readUserLang());
+  useEffect(() => {
+    const handler = () => setLang(readUserLang());
+    window.addEventListener(USER_LANG_EVENT, handler);
+    window.addEventListener('storage', handler);
+    return () => {
+      window.removeEventListener(USER_LANG_EVENT, handler);
+      window.removeEventListener('storage', handler);
+    };
+  }, []);
+  return lang;
+}
+
+// setUserLang persists the choice + broadcasts the same-tab
+// event so every useT consumer re-renders without a manual
+// reload. Passing null clears the override (falls back to
+// branding).
+export function setUserLang(lang: Lang | null): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (lang) window.localStorage.setItem(USER_LANG_KEY, lang);
+    else window.localStorage.removeItem(USER_LANG_KEY);
+    window.dispatchEvent(new Event(USER_LANG_EVENT));
+  } catch { /* private mode etc. — silent */ }
+}
+
+// useT returns a translator scoped to the effective language.
+// Priority: user-picked (localStorage) → branding default →
+// English fallback. Hook so any of those layers changing
+// (admin saves new branding → invalidateBranding fires; user
+// clicks the picker → USER_LANG_EVENT fires) flows through
+// every consumer without a manual reload.
 export function useT(): (key: string) => string {
   const brand = useBranding();
-  const lang: Lang = brand.language === 'tr' ? 'tr' : 'en';
+  const userLang = useUserLang();
+  const lang: Lang = userLang ?? (brand.language === 'tr' ? 'tr' : 'en');
   const cat = CATALOGS[lang];
   return (key: string) => cat[key] ?? EN[key] ?? key;
 }

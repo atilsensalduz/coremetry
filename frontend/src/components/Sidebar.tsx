@@ -5,6 +5,7 @@ import { useHealth, useOpenProblemCount } from '@/lib/queries';
 import { useT } from '@/lib/i18n';
 import { ThemeToggle } from './ThemeToggle';
 import { DensityToggle } from './DensityToggle';
+import { LangToggle } from './LangToggle';
 import { TelescopeIcon } from './TelescopeIcon';
 import { useAuth } from './AuthProvider';
 import { ChangePasswordModal } from './ChangePasswordModal';
@@ -271,6 +272,7 @@ export function Sidebar() {
           <TelescopeIcon size={22} />
           {showLabels && <span className="title">Coremetry</span>}
           <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+            {showLabels && <LangToggle />}
             {showLabels && <DensityToggle />}
             {showLabels && <ThemeToggle />}
             {!isMobile && (
