@@ -487,6 +487,13 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ aId, bId }),
     }),
+  copilotExplainSLO: (id: string) =>
+    request<{
+      explanation: string;
+      status: import('./types').SLOStatus | null;
+      fastBurn: number;
+      slowBurn: number;
+    }>(`/api/copilot/explain-slo/${id}`, { method: 'POST' }),
   copilotDeployImpact: (body: {
     service: string; version: string;
     deployTimeNs: number; windowSec?: number;

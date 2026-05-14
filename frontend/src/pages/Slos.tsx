@@ -95,7 +95,8 @@ export default function SLOsPage() {
                         : <span className="badge b-err">Breached</span>}
                     </td>
                     {isAdmin && (
-                      <td>
+                      <td style={{ display: 'flex', gap: 6 }}>
+                        <BurnExplainButton sloId={o.id} />
                         <button className="sec" onClick={() => onDelete(o.id)}>Delete</button>
                       </td>
                     )}
@@ -242,6 +243,72 @@ function NewSLOModal({ services, onClose, onCreated }: {
         </Stack>
       </form>
     </Modal>
+  );
+}
+
+// BurnExplainButton — feeds the SLO's current status + fast
+// + slow burn-rate samples to /api/copilot/explain-slo and
+// renders the model's verdict inline. Self-hides when the
+// copilot isn't configured (same gate the other CopilotExplain
+// surfaces use). Operator clicks → modal with budget
+// trajectory + recommended first investigation.
+function BurnExplainButton({ sloId }: { sloId: string }) {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [resp, setResp] = useState<Awaited<ReturnType<typeof api.copilotExplainSLO>> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.copilotConfig().then(c => setEnabled(c.enabled)).catch(() => setEnabled(false));
+  }, []);
+  if (enabled !== true) return null;
+
+  const run = async () => {
+    setBusy(true); setError(null); setResp(null); setOpen(true);
+    try {
+      const r = await api.copilotExplainSLO(sloId);
+      setResp(r);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Explain failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <button onClick={run} disabled={busy} className="sec"
+        title="Ask copilot whether this SLO's budget is on track or burning fast"
+        style={{ fontSize: 12, padding: '4px 10px', color: 'var(--accent2)' }}>
+        ✨ Explain burn
+      </button>
+      {open && (
+        <Modal open={open} onClose={() => setOpen(false)} title="SLO burn analysis">
+          {busy && <Spinner />}
+          {error && <div style={{ color: 'var(--err)', fontSize: 12 }}>{error}</div>}
+          {resp && (
+            <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+              <div style={{
+                display: 'flex', gap: 12, fontSize: 11,
+                color: 'var(--text3)', marginBottom: 10,
+                fontFamily: 'ui-monospace, monospace',
+              }}>
+                <span>fast burn: {resp.fastBurn.toFixed(2)}×</span>
+                <span>slow burn: {resp.slowBurn.toFixed(2)}×</span>
+                {resp.status && (
+                  <>
+                    <span>SLI: {(resp.status.sli * 100).toFixed(3)}%</span>
+                    <span>budget: {(resp.status.budgetRemaining * 100).toFixed(2)}%</span>
+                  </>
+                )}
+              </div>
+              <div style={{ whiteSpace: 'pre-wrap' }}>{resp.explanation}</div>
+            </div>
+          )}
+        </Modal>
+      )}
+    </>
   );
 }
 

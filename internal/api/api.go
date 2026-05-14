@@ -313,6 +313,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("POST   /api/copilot/runbook/{id}",         s.copilotRunbook)
 	mux.HandleFunc("POST   /api/copilot/compare-traces",       s.copilotCompareTraces)
 	mux.HandleFunc("POST   /api/copilot/deploy-impact",        s.copilotDeployImpact)
+	mux.HandleFunc("POST   /api/copilot/explain-slo/{id}",     s.copilotExplainSLO)
 	mux.HandleFunc("POST   /api/copilot/suggest-service-tags", auth.RequireAnyRole(editorRoles, s.copilotSuggestServiceTags))
 
 	// ── Incident management ───────────────────────────────────────
@@ -5036,6 +5037,67 @@ func (s *Server) copilotDeployImpact(w http.ResponseWriter, r *http.Request) {
 		"before":      before,
 		"after":       after,
 		"newOps":      newOps,
+	})
+}
+
+// copilotExplainSLO drives the "Explain burn" button on the
+// /slos page. Fetches the SLO definition + current SLI status
+// + fast/slow burn-rate samples (5 min and 1 hr — the
+// Google SRE Workbook multi-burn-rate windows) and asks the
+// model whether the budget is on track, burning fast, or
+// already breached.
+func (s *Server) copilotExplainSLO(w http.ResponseWriter, r *http.Request) {
+	if !s.copilot.Configured() {
+		http.Error(w, "AI copilot not configured", http.StatusServiceUnavailable)
+		return
+	}
+	id := r.PathValue("id")
+	slo, err := s.store.GetSLO(r.Context(), id)
+	if err != nil || slo == nil {
+		http.Error(w, "SLO not found", http.StatusNotFound)
+		return
+	}
+	status, _ := s.store.ComputeSLOStatus(r.Context(), *slo)
+	// Two-window burn samples — Workbook multi-burn-rate
+	// pattern. Fast window catches sudden cliff drops; slow
+	// window catches steady drift that wouldn't trip the fast
+	// alarm but eats the budget over hours.
+	fastRate, fastTotal, _ := s.store.ComputeSLOBurnRate(r.Context(), *slo, 5*time.Minute)
+	slowRate, slowTotal, _ := s.store.ComputeSLOBurnRate(r.Context(), *slo, 1*time.Hour)
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "SLO: %s (service=%s)\n", slo.Name, slo.Service)
+	switch slo.SLIType {
+	case "latency":
+		fmt.Fprintf(&sb, "Type: latency, threshold=%.0fms\n", slo.ThresholdMs)
+	default:
+		fmt.Fprintf(&sb, "Type: %s\n", slo.SLIType)
+	}
+	fmt.Fprintf(&sb, "Target: %.3f%% over %d-day rolling window\n",
+		slo.Target*100, slo.WindowDays)
+	if slo.Operation != "" {
+		fmt.Fprintf(&sb, "Scope: operation=%q\n", slo.Operation)
+	}
+	if status != nil {
+		fmt.Fprintf(&sb,
+			"Current: SLI=%.3f%% (%d good / %d total) · budget remaining=%.2f%% · long-window burn=%.2f · healthy=%v\n",
+			status.SLI*100, status.Good, status.Total,
+			status.BudgetRemaining*100, status.BurnRate, status.Healthy)
+	}
+	fmt.Fprintf(&sb, "Fast burn (5 min): rate=%.2f, n=%d\n", fastRate, fastTotal)
+	fmt.Fprintf(&sb, "Slow burn (1 hr):  rate=%.2f, n=%d\n", slowRate, slowTotal)
+
+	out, err := s.copilot.Explain(r.Context(),
+		copilot.SystemPromptSLOBurn(), sb.String())
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, map[string]any{
+		"explanation": out,
+		"status":      status,
+		"fastBurn":    fastRate,
+		"slowBurn":    slowRate,
 	})
 }
 

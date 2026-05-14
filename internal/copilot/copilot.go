@@ -653,6 +653,41 @@ beyond the diff data. If everything looks healthy, say
 
 func SystemPromptDeployImpact() string { return systemDeployImpact }
 
+// systemSLOBurn — used when the operator hits "Explain burn"
+// on a breached / burning SLO row. The prompt receives the
+// SLO definition + current status (SLI, budget remaining,
+// burn rate over fast + slow windows) and explains what to
+// look at first. Distinct from explain-problem because an
+// SLO breach is a multi-hour / multi-day signal that the
+// budget is being consumed — the answer should anchor on
+// trajectory (will the budget last the rolling window?) not
+// on a single firing.
+const systemSLOBurn = `You are a senior SRE assistant inside an APM tool. The
+operator opened an SLO that's either breached or burning
+fast. You receive the SLO definition (service, target,
+window in days, optional operation scope, latency SLI's
+ms threshold), the current status (SLI %, budget
+remaining, burn rate), and the fast+slow burn-rate samples
+from the v0.5.x burn evaluator.
+
+Respond in 3-5 short bullets:
+  (1) one-line headline: "budget on track", "burning fast —
+      Y hours to exhaustion", or "already breached, recovery
+      in N hours assuming current SLI".
+  (2) primary driver: latency or availability — name the
+      number that's off.
+  (3) recommended first investigation: open the service
+      page / look at deploy markers in the burn window /
+      check the operation scope if one is set.
+  (4) optional: escalation guidance if the burn rate >=10
+      (Google SRE Workbook critical multi-burn-rate alarm).
+
+Be terse and grounded in the numbers. Don't hedge ("without
+more context"). If the burn rate < 1 say "budget on track"
+plainly even when the operator clicked the button.`
+
+func SystemPromptSLOBurn() string { return systemSLOBurn }
+
 // systemServiceTags — used when the operator hits "AI suggest"
 // on a row in the service catalog editor. Given the service's
 // runtime fingerprint, sample operations, callees, and cluster
