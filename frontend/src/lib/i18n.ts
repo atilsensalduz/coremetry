@@ -58,7 +58,8 @@ const EN: Catalog = {
   'login.signInWith':  'Sign in with',
   'login.orLocal':     'or sign in locally',
   'login.signInToContinue': 'Sign in to continue',
-  'login.invalid':     'Invalid email or password',
+  'login.invalid':     'Invalid username or password',
+  'login.invalidHint': 'If you pasted from a document, a hyphen-minus (-) may have been replaced with a similar character (–, —, hidden whitespace). Try typing the password by hand.',
 
   // Common buttons
   'btn.save':    'Save',
@@ -147,7 +148,8 @@ const TR: Catalog = {
   'login.signInWith':  'Şununla giriş yap:',
   'login.orLocal':     'veya yerel hesapla giriş yap',
   'login.signInToContinue': 'Devam etmek için giriş yapın',
-  'login.invalid':     'Geçersiz e-posta veya parola',
+  'login.invalid':     'Geçersiz kullanıcı adı veya parola',
+  'login.invalidHint': 'Parolayı bir dokümandan kopyaladıysanız tire (-) yerine başka bir karakter (–, —, gizli boşluk) yapışmış olabilir; tekrar elle yazıp deneyin.',
 
   // Common buttons
   'btn.save':    'Kaydet',

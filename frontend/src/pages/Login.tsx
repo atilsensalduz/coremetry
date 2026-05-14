@@ -192,7 +192,15 @@ export default function LoginPage() {
             padding: '6px 10px', background: 'rgba(220,38,38,0.08)',
             border: '1px solid rgba(220,38,38,0.3)', borderRadius: 4,
           }}>
-            {error}
+            <div>{error}</div>
+            {error === t('login.invalid') && (
+              <div style={{
+                marginTop: 6, fontSize: 11, fontWeight: 400,
+                color: 'var(--text2)',
+              }}>
+                {t('login.invalidHint')}
+              </div>
+            )}
           </div>
         )}
 
