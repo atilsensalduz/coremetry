@@ -13,7 +13,19 @@ import { Spinner } from '../Spinner';
 // PanelRenderer dispatches on panel.type. Self-contained — fetches its
 // own data, re-fetches when `range` changes. Errors are surfaced inline
 // instead of crashing the whole dashboard.
-export function PanelRenderer({ panel, range, vars, syncKey, onZoom }: {
+// PanelDataOverride lets a parent (Dashboard.tsx) pre-fetch
+// all panels' data in one bundle round-trip and pass each
+// result down so the individual panel components skip their
+// own fetch. When series is null AND error is undefined the
+// override is treated as "not yet bundled — fall through to
+// the panel's own fetch path" so partial bundles don't
+// blank out the entire grid.
+export type PanelDataOverride = {
+  series?: SpanMetricSeries[] | null;
+  error?: string;
+} | undefined;
+
+export function PanelRenderer({ panel, range, vars, syncKey, onZoom, dataOverride }: {
   panel: Panel;
   range: TimeRange;
   // Resolved values for the dashboard's variables (Grafana-style
@@ -31,12 +43,19 @@ export function PanelRenderer({ panel, range, vars, syncKey, onZoom }: {
   // every panel re-fetches for the new window. Receives unix
   // seconds.
   onZoom?: (fromUnixSec: number, toUnixSec: number) => void;
+  // Pre-fetched data from the dashboard bundle endpoint. When
+  // provided, MetricPanel / SpanMetricPanel use it instead of
+  // firing their own /api/{metrics,spans}/metric round trip.
+  // Stat + markdown panels stay independent — they have their
+  // own time-window semantics (stat doubles the window for the
+  // prior-period delta) or no data at all.
+  dataOverride?: PanelDataOverride;
 }) {
   switch (panel.type) {
     case 'metric':
-      return <MetricPanel cfg={applyVarsToMetric(panel.config as MetricPanelConfig, vars)} range={range} syncKey={syncKey} onZoom={onZoom} />;
+      return <MetricPanel cfg={applyVarsToMetric(panel.config as MetricPanelConfig, vars)} range={range} syncKey={syncKey} onZoom={onZoom} dataOverride={dataOverride} />;
     case 'spanmetric':
-      return <SpanMetricPanel cfg={applyVarsToSpan(panel.config as SpanMetricPanelConfig, vars)} range={range} syncKey={syncKey} onZoom={onZoom} />;
+      return <SpanMetricPanel cfg={applyVarsToSpan(panel.config as SpanMetricPanelConfig, vars)} range={range} syncKey={syncKey} onZoom={onZoom} dataOverride={dataOverride} />;
     case 'stat':
       return <StatPanel cfg={applyVarsToStat(panel.config as StatPanelConfig, vars)} range={range} />;
     case 'markdown':
@@ -59,7 +78,7 @@ function expand(s: string | undefined, vars?: Record<string, string>): string | 
   return substituteVars(s, vars);
 }
 
-function applyVarsToMetric(cfg: MetricPanelConfig, vars?: Record<string, string>): MetricPanelConfig {
+export function applyVarsToMetric(cfg: MetricPanelConfig, vars?: Record<string, string>): MetricPanelConfig {
   if (!vars) return cfg;
   return {
     ...cfg,
@@ -70,7 +89,7 @@ function applyVarsToMetric(cfg: MetricPanelConfig, vars?: Record<string, string>
   };
 }
 
-function applyVarsToSpan(cfg: SpanMetricPanelConfig, vars?: Record<string, string>): SpanMetricPanelConfig {
+export function applyVarsToSpan(cfg: SpanMetricPanelConfig, vars?: Record<string, string>): SpanMetricPanelConfig {
   if (!vars) return cfg;
   return {
     ...cfg,
@@ -90,14 +109,32 @@ function applyVarsToStat(cfg: StatPanelConfig, vars?: Record<string, string>): S
 
 // ── Metric line chart ───────────────────────────────────────────────────────
 
-function MetricPanel({ cfg, range, syncKey, onZoom }: {
+function MetricPanel({ cfg, range, syncKey, onZoom, dataOverride }: {
   cfg: MetricPanelConfig; range: TimeRange; syncKey?: string;
   onZoom?: (fromUnixSec: number, toUnixSec: number) => void;
+  dataOverride?: PanelDataOverride;
 }) {
   const [series, setSeries] = useState<SpanMetricSeries[] | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
 
+  // If the parent has supplied bundled data, route it through
+  // local state shape and skip the per-panel fetch entirely.
+  // Falls through to own-fetch when dataOverride is undefined
+  // OR when the bundle returned neither series nor error for
+  // this panel (e.g. the panel was added after the bundle
+  // request was built — rare but real during edit flow).
+  const hasOverride = dataOverride && (dataOverride.series !== undefined || dataOverride.error);
   useEffect(() => {
+    if (hasOverride) {
+      if (dataOverride!.error) {
+        setSeries(undefined);
+        setError(dataOverride!.error);
+      } else {
+        setSeries(dataOverride!.series ?? []);
+        setError(null);
+      }
+      return;
+    }
     if (!cfg.metricName) { setError('Configure a metric name'); return; }
     setSeries(undefined); setError(null);
     const { from, to } = timeRangeToNs(range);
@@ -105,7 +142,7 @@ function MetricPanel({ cfg, range, syncKey, onZoom }: {
       name: cfg.metricName, service: cfg.service, agg: cfg.agg,
       groupBy: cfg.groupBy, from, to, step: cfg.step,
     }).then(s => setSeries(s ?? [])).catch(e => setError(e.message));
-  }, [JSON.stringify(cfg), range]);
+  }, [JSON.stringify(cfg), range, hasOverride, JSON.stringify(dataOverride)]);
 
   if (error) return <PanelError msg={error} />;
   if (series === undefined) return <PanelLoading />;
@@ -115,14 +152,26 @@ function MetricPanel({ cfg, range, syncKey, onZoom }: {
 
 // ── Span metric line chart ──────────────────────────────────────────────────
 
-function SpanMetricPanel({ cfg, range, syncKey, onZoom }: {
+function SpanMetricPanel({ cfg, range, syncKey, onZoom, dataOverride }: {
   cfg: SpanMetricPanelConfig; range: TimeRange; syncKey?: string;
   onZoom?: (fromUnixSec: number, toUnixSec: number) => void;
+  dataOverride?: PanelDataOverride;
 }) {
   const [series, setSeries] = useState<SpanMetricSeries[] | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
 
+  const hasOverride = dataOverride && (dataOverride.series !== undefined || dataOverride.error);
   useEffect(() => {
+    if (hasOverride) {
+      if (dataOverride!.error) {
+        setSeries(undefined);
+        setError(dataOverride!.error);
+      } else {
+        setSeries(dataOverride!.series ?? []);
+        setError(null);
+      }
+      return;
+    }
     if (!cfg.agg) { setError('Configure an aggregation'); return; }
     setSeries(undefined); setError(null);
     const { from, to } = timeRangeToNs(range);
@@ -131,7 +180,7 @@ function SpanMetricPanel({ cfg, range, syncKey, onZoom }: {
       filters: cfg.filters, dsl: cfg.dsl,
       from, to, step: cfg.step,
     }).then(s => setSeries(s ?? [])).catch(e => setError(e.message));
-  }, [JSON.stringify(cfg), range]);
+  }, [JSON.stringify(cfg), range, hasOverride, JSON.stringify(dataOverride)]);
 
   if (error) return <PanelError msg={error} />;
   if (series === undefined) return <PanelLoading />;

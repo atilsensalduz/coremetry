@@ -3,12 +3,16 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { useAuth } from '@/components/AuthProvider';
-import { PanelRenderer } from '@/components/dashboard/PanelRenderer';
+import { PanelRenderer, applyVarsToMetric, applyVarsToSpan, type PanelDataOverride } from '@/components/dashboard/PanelRenderer';
 import { PanelEditor, defaultConfig } from '@/components/dashboard/PanelEditor';
 import { VariablesBar } from '@/components/dashboard/VariablesBar';
 import type { DashboardVariable } from '@/lib/types';
 import { api } from '@/lib/api';
-import type { Dashboard, Panel, PanelType, TimeRange } from '@/lib/types';
+import type {
+  Dashboard, Panel, PanelType, TimeRange,
+  MetricPanelConfig, SpanMetricPanelConfig,
+} from '@/lib/types';
+import { timeRangeToNs } from '@/lib/utils';
 
 // Wrapper handles the Suspense requirement of useSearchParams() in App
 // Router with static export.
@@ -93,6 +97,63 @@ function Inner() {
       return Array.isArray(parsed) ? parsed : [];
     } catch { return []; }
   }, [doc?.variables]);
+
+  // Bundled panel data — v0.5.81 perf nudge. Instead of every
+  // metric / spanmetric panel firing its own /api/{metrics,
+  // spans}/metric round trip on mount, the dashboard page
+  // fires a single POST /api/dashboards/data carrying ALL the
+  // panel queries; the server fans them out to CH in parallel
+  // goroutines and returns the results keyed by panel id. Each
+  // PanelRenderer reads its slot via the dataOverride prop and
+  // skips its own fetch. Browser concurrency cap stops mattering;
+  // server-side wall-clock = max(panel queries) instead of sum.
+  //
+  // Falls back gracefully — when bundlePanelData has no entry
+  // for a panel (e.g. a panel added mid-edit) the renderer
+  // does its own fetch.
+  const [bundlePanelData, setBundlePanelData] = useState<Record<string, PanelDataOverride>>({});
+  const bundleablePanels = useMemo(() => {
+    const list = doc?.panels;
+    if (!list) return [];
+    const panels = normalizePanels(list);
+    return panels.filter(p => p.type === 'metric' || p.type === 'spanmetric');
+  }, [doc?.panels]);
+  // Re-fire the bundle whenever the panel set, the time range,
+  // or any variable value changes. Each of those re-keys the
+  // server-side cache anyway, so we want the bundle aligned.
+  useEffect(() => {
+    if (bundleablePanels.length === 0) {
+      setBundlePanelData({});
+      return;
+    }
+    let cancelled = false;
+    const { from, to } = timeRangeToNs(range);
+    const requests = bundleablePanels.map(p => {
+      if (p.type === 'metric') {
+        const cfg = applyVarsToMetric(p.config as MetricPanelConfig, varValues);
+        return {
+          id: p.id, type: 'metric' as const,
+          name: cfg.metricName, service: cfg.service,
+          agg: cfg.agg,
+          groupBy: cfg.groupBy ? cfg.groupBy.split(',').map(s => s.trim()).filter(Boolean) : undefined,
+          step: cfg.step,
+          filters: cfg.filters,
+        };
+      }
+      const cfg = applyVarsToSpan(p.config as SpanMetricPanelConfig, varValues);
+      return {
+        id: p.id, type: 'spanMetric' as const,
+        agg: cfg.agg, field: cfg.field,
+        groupBy: cfg.groupBy ? cfg.groupBy.split(',').map(s => s.trim()).filter(Boolean) : undefined,
+        filters: cfg.filters, dsl: cfg.dsl,
+        step: cfg.step,
+      };
+    });
+    api.dashboardData({ from, to, requests })
+      .then(out => { if (!cancelled) setBundlePanelData(out as Record<string, PanelDataOverride>); })
+      .catch(() => { if (!cancelled) setBundlePanelData({}); });
+    return () => { cancelled = true; };
+  }, [bundleablePanels, range, varValues]);
 
   if (!id) return <Empty icon="◫" title="No dashboard selected" />;
   if (doc === undefined) return <Spinner />;
@@ -236,7 +297,8 @@ function Inner() {
                 toMs: Math.round(toUnixSec * 1000),
               });
             }}
-            dashboardId={id} />
+            dashboardId={id}
+            bundlePanelData={bundlePanelData} />
         )}
 
         {editingPanelObj && (
@@ -308,7 +370,7 @@ function normalizePanels(raw: unknown): Panel[] {
 // not persisted across reloads (matches Grafana's default behaviour;
 // add a localStorage layer if users start asking for it).
 function DashboardGrid({
-  panels, range, vars, editing, onEditPanel, onDeletePanel, onMovePanel, onZoom, dashboardId,
+  panels, range, vars, editing, onEditPanel, onDeletePanel, onMovePanel, onZoom, dashboardId, bundlePanelData,
 }: {
   panels: Panel[];
   range: TimeRange;
@@ -326,6 +388,11 @@ function DashboardGrid({
   // the dashboard hovers in lockstep so the operator reads 8
   // panels as one view.
   dashboardId: string;
+  // Pre-fetched panel data keyed by panel id (v0.5.81 bundle).
+  // Each metric / spanmetric PanelRenderer reads its slot and
+  // skips its own fetch. Missing entries fall through to the
+  // panel's own fetch path.
+  bundlePanelData: Record<string, PanelDataOverride>;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   // ID of the panel currently being dragged-over so we can render a
@@ -444,7 +511,8 @@ function DashboardGrid({
                     </div>
                     <PanelRenderer panel={p} range={range} vars={vars}
                                    syncKey={`dashboard:${dashboardId}`}
-                                   onZoom={onZoom} />
+                                   onZoom={onZoom}
+                                   dataOverride={bundlePanelData[p.id]} />
                   </div>
                 ))}
               </div>

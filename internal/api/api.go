@@ -221,6 +221,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/metrics/labels", s.getMetricLabelValues)
 	mux.HandleFunc("GET /api/spans/metric", s.spanMetric)
 	mux.HandleFunc("POST /api/spans/metric-batch", s.spanMetricBatch)
+	mux.HandleFunc("POST /api/dashboards/data",    s.dashboardsData)
 	mux.HandleFunc("GET /api/spans/facets", s.spanFacets)
 	mux.HandleFunc("GET /api/spans/repeats", s.spanRepeats)
 	mux.HandleFunc("GET /api/spans/exemplar", s.spanExemplar)
@@ -2267,6 +2268,140 @@ func (s *Server) spanMetricBatch(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
+	writeJSON(w, out)
+}
+
+// dashboardsData multiplexes N panel data requests into one
+// HTTP round trip. Each request describes ONE dashboard
+// panel's underlying query (metric_points read, span_metric
+// aggregation, or a stat-tile probe); the handler dispatches
+// each to the appropriate store method in its own goroutine,
+// collects results into a map keyed by the request id, and
+// returns them all at once.
+//
+// Why this exists: a 10-panel dashboard used to fire 10
+// separate /api/metrics/query or /api/spans/metric round
+// trips on mount. With HTTP/1.1 the browser caps at ~6
+// concurrent connections so the last 4 panels stalled.
+// Even on HTTP/2 the TLS / cookie / cors overhead per
+// request hurt at billion-span scale. One bundle endpoint
+// gives the frontend parallel server-side dispatch + one
+// network round trip; the underlying store helpers still
+// hit their own L1 / Redis caches so the warm path is
+// unchanged.
+//
+// Per-panel error stays per-panel: a CH blip on one query
+// returns { error } in that slot, the others render fine.
+//
+// Request body:
+//
+//	{ "from": <unix ns>, "to": <unix ns>,
+//	  "requests": [
+//	    { "id": "p1", "type": "metric",
+//	      "name": "...", "service": "...", "agg": "...",
+//	      "groupBy": [...], "step": 60 },
+//	    { "id": "p2", "type": "spanMetric",
+//	      "agg": "p99", "field": "duration_ms",
+//	      "filters": "<json>", "dsl": "...",
+//	      "groupBy": [...], "step": 60 },
+//	  ] }
+//
+// Response:
+//
+//	{ "p1": { "series": [...], "error": null },
+//	  "p2": { "series": [...], "error": "..." } }
+func (s *Server) dashboardsData(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		From     int64 `json:"from"`
+		To       int64 `json:"to"`
+		Requests []struct {
+			ID      string `json:"id"`
+			Type    string `json:"type"`
+			// metric
+			Name    string `json:"name"`
+			Service string `json:"service"`
+			// shared
+			Agg     string   `json:"agg"`
+			Field   string   `json:"field"`
+			GroupBy []string `json:"groupBy"`
+			Step    int      `json:"step"`
+			// span metric
+			Filters json.RawMessage `json:"filters"`
+			DSL     string          `json:"dsl"`
+		} `json:"requests"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if len(body.Requests) == 0 {
+		writeJSON(w, map[string]any{})
+		return
+	}
+	if len(body.Requests) > 50 {
+		http.Error(w, "too many requests (max 50 per bundle)", http.StatusBadRequest)
+		return
+	}
+	from := time.Unix(0, body.From)
+	to := time.Unix(0, body.To)
+
+	type slot struct {
+		Series []chstore.SpanMetricSeries `json:"series,omitempty"`
+		Error  string                     `json:"error,omitempty"`
+	}
+	out := make(map[string]*slot, len(body.Requests))
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	for _, req := range body.Requests {
+		req := req
+		out[req.ID] = &slot{}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			var series []chstore.SpanMetricSeries
+			var err error
+			switch req.Type {
+			case "metric":
+				// metric_points read — same shape the
+				// /api/metrics/query handler builds.
+				series, err = s.store.QueryMetric(r.Context(), chstore.MetricQueryFilter{
+					Name:        req.Name,
+					Service:     req.Service,
+					Aggregation: req.Agg,
+					GroupBy:     req.GroupBy,
+					From:        from,
+					To:          to,
+					StepSeconds: req.Step,
+				})
+			case "spanMetric":
+				filters, ferr := parseFiltersAndDSL(string(req.Filters), req.DSL)
+				if ferr != nil {
+					err = ferr
+					break
+				}
+				series, err = s.store.QuerySpanMetric(r.Context(), chstore.SpanMetricFilter{
+					Filters:     filters,
+					Aggregation: req.Agg,
+					Field:       req.Field,
+					GroupBy:     req.GroupBy,
+					From:        from,
+					To:          to,
+					StepSeconds: req.Step,
+				})
+			default:
+				err = fmt.Errorf("unknown panel type %q", req.Type)
+			}
+			mu.Lock()
+			if err != nil {
+				out[req.ID].Error = err.Error()
+			} else {
+				out[req.ID].Series = series
+			}
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
 	writeJSON(w, out)
 }
 

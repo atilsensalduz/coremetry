@@ -569,6 +569,40 @@ export const api = {
   spanMetric: (params: SpanMetricParams) =>
     get<SpanMetricSeries[] | null>(`/api/spans/metric?${qs(params)}`),
 
+  // dashboardData — N panel requests in one HTTP round trip.
+  // Server fans out to CH in parallel goroutines and returns
+  // results keyed by request id. Each panel's underlying
+  // store query still hits its own L1 + Redis cache so the
+  // warm path is unchanged; the win is the network + the
+  // server-side parallelism instead of N serial fetches
+  // capped by the browser's concurrent-connection limit.
+  dashboardData: (body: {
+    from: number; to: number;
+    requests: Array<{
+      id: string; type: 'metric' | 'spanMetric';
+      name?: string; service?: string;
+      agg?: string; field?: string;
+      groupBy?: string[]; step?: number;
+      filters?: string; dsl?: string;
+    }>;
+  }) =>
+    request<Record<string, { series?: SpanMetricSeries[] | null; error?: string }>>(
+      `/api/dashboards/data`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: body.from,
+          to: body.to,
+          // server takes filters as raw JSON; if a request
+          // already has a stringified JSON pass it through,
+          // else send undefined.
+          requests: body.requests.map(r => ({
+            ...r,
+            filters: r.filters ? JSON.parse(r.filters) : undefined,
+          })),
+        }),
+      }),
+
   // spanMetricBatch — N aggregations over the SAME span
   // selection in one CH pass. Used by Service detail charts
   // (rate + error_rate + p99 share a WHERE) to drop cold-load
