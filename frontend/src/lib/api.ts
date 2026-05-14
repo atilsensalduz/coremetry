@@ -487,6 +487,20 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ aId, bId }),
     }),
+  copilotDeployImpact: (body: {
+    service: string; version: string;
+    deployTimeNs: number; windowSec?: number;
+  }) =>
+    request<{
+      explanation: string;
+      before: { count: number; rps: number; errorRate: number; p99Ms: number; avgMs: number };
+      after:  { count: number; rps: number; errorRate: number; p99Ms: number; avgMs: number };
+      newOps: string[];
+    }>(`/api/copilot/deploy-impact`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
   copilotSuggestServiceTags: (service: string) =>
     request<{
       suggestions: {

@@ -311,6 +311,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("POST   /api/copilot/explain-service",      s.copilotExplainServiceHealth)
 	mux.HandleFunc("POST   /api/copilot/runbook/{id}",         s.copilotRunbook)
 	mux.HandleFunc("POST   /api/copilot/compare-traces",       s.copilotCompareTraces)
+	mux.HandleFunc("POST   /api/copilot/deploy-impact",        s.copilotDeployImpact)
 	mux.HandleFunc("POST   /api/copilot/suggest-service-tags", auth.RequireAnyRole(editorRoles, s.copilotSuggestServiceTags))
 
 	// ── Incident management ───────────────────────────────────────
@@ -4735,6 +4736,172 @@ func (s *Server) copilotCompareTraces(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]string{"explanation": out})
+}
+
+// copilotDeployImpact compares before/after windows around a
+// specific service.version transition and asks the model
+// whether the deploy was clean, degraded a signal, or
+// introduced a regression. Drives the "Explain latest deploy"
+// button on the Service detail page — the post-deploy
+// "should I walk away?" check that operators kept running
+// manually by eyeballing the RED chart shoulders.
+//
+// Body:
+//
+//	{ "service": "...", "version": "v1.2.3",
+//	  "deployTimeNs": <unix ns>,
+//	  "windowSec":    <seconds; default 600> }
+//
+// Returns { explanation, before, after }. Frontend renders
+// the explanation as the headline and the raw before/after
+// numbers as a small chip row so the operator can
+// fact-check the model.
+func (s *Server) copilotDeployImpact(w http.ResponseWriter, r *http.Request) {
+	if !s.copilot.Configured() {
+		http.Error(w, "AI copilot not configured", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Service      string `json:"service"`
+		Version      string `json:"version"`
+		DeployTimeNs int64  `json:"deployTimeNs"`
+		WindowSec    int    `json:"windowSec"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if body.Service == "" || body.DeployTimeNs == 0 {
+		http.Error(w, "service and deployTimeNs are required", http.StatusBadRequest)
+		return
+	}
+	if body.WindowSec <= 0 {
+		body.WindowSec = 600 // 10 min default — covers a typical canary bake
+	}
+	if body.WindowSec > 6*3600 {
+		body.WindowSec = 6 * 3600
+	}
+
+	deployT := time.Unix(0, body.DeployTimeNs)
+	beforeStart := deployT.Add(-time.Duration(body.WindowSec) * time.Second)
+	afterEnd := deployT.Add(time.Duration(body.WindowSec) * time.Second)
+
+	type stats struct {
+		Count      uint64  `json:"count"`
+		RPS        float64 `json:"rps"`
+		ErrorRate  float64 `json:"errorRate"`
+		P99Ms      float64 `json:"p99Ms"`
+		AvgMs      float64 `json:"avgMs"`
+	}
+	// One CH pass with quantileIf gates so we get before +
+	// after side-by-side without two scans.
+	row := s.store.Conn().QueryRow(r.Context(), `
+		SELECT
+		  countIf(time < ?)                                        AS bef_count,
+		  countIf(time >= ?)                                       AS aft_count,
+		  countIf(time < ?  AND status_code = 'error')             AS bef_err,
+		  countIf(time >= ? AND status_code = 'error')             AS aft_err,
+		  quantileIf(0.99)(duration, time < ?)  / 1e6              AS bef_p99,
+		  quantileIf(0.99)(duration, time >= ?) / 1e6              AS aft_p99,
+		  avgIf(duration,            time < ?)  / 1e6              AS bef_avg,
+		  avgIf(duration,            time >= ?) / 1e6              AS aft_avg
+		FROM spans
+		WHERE service_name = ? AND time >= ? AND time <= ?
+		SETTINGS max_execution_time = 15,
+		         optimize_skip_unused_shards = 1`,
+		deployT, deployT,
+		deployT, deployT,
+		deployT, deployT,
+		deployT, deployT,
+		body.Service, beforeStart, afterEnd)
+
+	var befCount, aftCount, befErr, aftErr uint64
+	var befP99, aftP99, befAvg, aftAvg float64
+	if err := row.Scan(&befCount, &aftCount, &befErr, &aftErr,
+		&befP99, &aftP99, &befAvg, &aftAvg); err != nil {
+		writeErr(w, err)
+		return
+	}
+	mkStats := func(c, e uint64, p99, avg float64) stats {
+		out := stats{
+			Count: c,
+			RPS:   float64(c) / float64(body.WindowSec),
+			P99Ms: p99,
+			AvgMs: avg,
+		}
+		if c > 0 {
+			out.ErrorRate = float64(e) / float64(c) * 100
+		}
+		return out
+	}
+	before := mkStats(befCount, befErr, befP99, befAvg)
+	after := mkStats(aftCount, aftErr, aftP99, aftAvg)
+
+	// New operations — the set that appeared in `after` but
+	// not in `before`. Capped at 10 for the prompt; the chip
+	// row also shows the count.
+	opsRows, err := s.store.Conn().Query(r.Context(), `
+		WITH
+		  groupArrayIf(name, time < ? AND name != '')   AS bef_ops,
+		  groupArrayIf(name, time >= ? AND name != '')  AS aft_ops
+		SELECT arrayDistinct(arrayFilter(x -> NOT has(bef_ops, x), aft_ops)) AS new_ops
+		FROM spans
+		WHERE service_name = ? AND time >= ? AND time <= ?
+		SETTINGS max_execution_time = 10,
+		         optimize_skip_unused_shards = 1`,
+		deployT, deployT, body.Service, beforeStart, afterEnd)
+	var newOps []string
+	if err == nil {
+		defer opsRows.Close()
+		if opsRows.Next() {
+			_ = opsRows.Scan(&newOps)
+		}
+	}
+	if len(newOps) > 10 {
+		newOps = newOps[:10]
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Service: %s\n", body.Service)
+	if body.Version != "" {
+		fmt.Fprintf(&sb, "Deploy version: %s\n", body.Version)
+	}
+	fmt.Fprintf(&sb, "Deploy time: %s (windows ±%ds)\n\n",
+		deployT.UTC().Format(time.RFC3339), body.WindowSec)
+	fmt.Fprintf(&sb,
+		"Before: %d spans @ %.2f rps, %.2f%% errors, p99 %.0fms, avg %.0fms\n",
+		before.Count, before.RPS, before.ErrorRate, before.P99Ms, before.AvgMs)
+	fmt.Fprintf(&sb,
+		"After:  %d spans @ %.2f rps, %.2f%% errors, p99 %.0fms, avg %.0fms\n",
+		after.Count, after.RPS, after.ErrorRate, after.P99Ms, after.AvgMs)
+	if before.P99Ms > 0 {
+		fmt.Fprintf(&sb, "P99 delta: %+.0fms (%+.1f%%)\n",
+			after.P99Ms-before.P99Ms,
+			(after.P99Ms-before.P99Ms)/before.P99Ms*100)
+	}
+	if before.ErrorRate > 0 || after.ErrorRate > 0 {
+		fmt.Fprintf(&sb, "Error-rate delta: %+.2f pp\n",
+			after.ErrorRate-before.ErrorRate)
+	}
+	if len(newOps) > 0 {
+		sb.WriteString("New operations (after only):\n")
+		for _, op := range newOps {
+			fmt.Fprintf(&sb, "  • %s\n", op)
+		}
+	}
+
+	out, err := s.copilot.Explain(r.Context(),
+		copilot.SystemPromptDeployImpact(), sb.String())
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, map[string]any{
+		"explanation": out,
+		"before":      before,
+		"after":       after,
+		"newOps":      newOps,
+	})
 }
 
 // buildCompareTracesPrompt produces the structured-diff user

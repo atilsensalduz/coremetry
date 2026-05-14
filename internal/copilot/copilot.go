@@ -621,6 +621,38 @@ say so plainly.`
 
 func SystemPromptCompareTraces() string { return systemCompareTraces }
 
+// systemDeployImpact — used when the operator hits "Explain
+// latest deploy" on a service detail page. The prompt
+// receives a before/after RED-metric diff anchored on a
+// specific service.version transition + the new operations
+// that appeared after the deploy, and explains in plain
+// language whether the deploy was clean, degraded one signal,
+// or introduced a regression. Designed for the
+// post-deploy "is this safe to walk away from?" check.
+const systemDeployImpact = `You are a senior SRE assistant inside an APM tool. The
+operator deployed version X of a service and wants to know
+the impact. You receive RED metrics (rate, error_rate,
+P99 latency) over equal-length windows before and after the
+first-seen timestamp of the deploy, plus the set of
+operations that appeared in the after-window but not the
+before-window.
+
+Respond in 3-5 short bullets:
+  (1) one-line headline: "clean deploy", "minor regression
+      on X metric", or "rollback candidate — Y is broken",
+  (2) the single metric with the biggest delta — name it
+      with the absolute delta and the % change,
+  (3) if new operations appeared, the most likely one to
+      be the culprit (high-volume, error-heavy, or both),
+  (4) recommended next step: keep deployed, watch X, or
+      roll back. Anchor it to the data.
+
+Be terse and grounded in the numbers. Don't speculate
+beyond the diff data. If everything looks healthy, say
+"clean deploy" plainly.`
+
+func SystemPromptDeployImpact() string { return systemDeployImpact }
+
 // systemServiceTags — used when the operator hits "AI suggest"
 // on a row in the service catalog editor. Given the service's
 // runtime fingerprint, sample operations, callees, and cluster

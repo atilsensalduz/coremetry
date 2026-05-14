@@ -241,6 +241,14 @@ export function ServiceCharts({ service, range, onZoom }: {
           fromNs={from}
           toNs={to}
           label={<><IconSparkles /> <span>AI triage</span></>} />
+        {/* Deploy impact AI — only renders when at least one
+            deploy marker landed in the visible window; the
+            button targets the LATEST deploy (max timeUnixNs)
+            because that's the one operators most often want
+            to validate post-rollout. */}
+        <DeployImpactButton
+          service={service}
+          deploys={deploysQ.data ?? []} />
       </div>
       <div style={{
         display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
@@ -303,6 +311,96 @@ function ChartCard({ title, children }: {
         {title}
       </div>
       {children}
+    </div>
+  );
+}
+
+// DeployImpactButton — feeds the most recent deploy in the
+// visible window through /api/copilot/deploy-impact and
+// renders the model's headline + raw before/after RED chips
+// inline. Operator hits this AFTER a rollout to validate
+// the deploy was clean before walking away. Self-hides when
+// no deploys are in the window OR the copilot isn't
+// configured (same gate CopilotExplain uses).
+function DeployImpactButton({ service, deploys }: {
+  service: string;
+  deploys: import('@/lib/types').Deploy[];
+}) {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [resp, setResp] = useState<Awaited<ReturnType<typeof api.copilotDeployImpact>> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.copilotConfig().then(c => setEnabled(c.enabled)).catch(() => setEnabled(false));
+  }, []);
+  if (enabled !== true) return null;
+  if (!deploys.length) return null;
+
+  // Latest deploy in the window — operators want the most
+  // recent rollout most often.
+  const latest = deploys.reduce((m, d) => d.timeUnixNs > m.timeUnixNs ? d : m, deploys[0]);
+
+  const run = async () => {
+    setBusy(true); setError(null); setResp(null);
+    try {
+      const r = await api.copilotDeployImpact({
+        service,
+        version: latest.version,
+        deployTimeNs: latest.timeUnixNs,
+        windowSec: 600,
+      });
+      setResp(r);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Deploy impact failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ display: 'inline-flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
+      <button onClick={run} disabled={busy} className="sec"
+        style={{ padding: '5px 12px', fontSize: 12, color: 'var(--accent2)',
+                 display: 'inline-flex', alignItems: 'center', gap: 6 }}
+        title={`Compare ±10 min around the latest deploy (${latest.version})`}>
+        <IconSparkles /> <span>{busy ? 'Thinking…' : `Explain deploy ${latest.version}`}</span>
+      </button>
+      {error && (
+        <div style={{
+          padding: 10, borderRadius: 6, fontSize: 12,
+          background: 'rgba(255,82,82,.10)', color: 'var(--err)',
+          border: '1px solid rgba(255,82,82,.25)', maxWidth: 720,
+        }}>{error}</div>
+      )}
+      {resp && (
+        <div style={{
+          padding: 12, borderRadius: 6, fontSize: 13, lineHeight: 1.5,
+          background: 'rgba(56,139,253,.08)',
+          border: '1px solid rgba(56,139,253,.25)',
+          color: 'var(--text)', whiteSpace: 'pre-wrap', maxWidth: 720,
+        }}>
+          <div style={{ fontSize: 10, color: 'var(--accent2)', marginBottom: 6, fontWeight: 700, letterSpacing: '.5px',
+                        display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <IconSparkles size={11} /> DEPLOY IMPACT · {latest.version}
+          </div>
+          <div style={{
+            display: 'flex', gap: 12, fontSize: 11,
+            color: 'var(--text3)', marginBottom: 8,
+            fontFamily: 'ui-monospace, monospace',
+          }}>
+            <span>before: {resp.before.rps.toFixed(2)} rps · {resp.before.errorRate.toFixed(2)}% err · p99 {resp.before.p99Ms.toFixed(0)}ms</span>
+            <span>→</span>
+            <span>after: {resp.after.rps.toFixed(2)} rps · {resp.after.errorRate.toFixed(2)}% err · p99 {resp.after.p99Ms.toFixed(0)}ms</span>
+          </div>
+          {resp.newOps?.length > 0 && (
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 8 }}>
+              new ops: {resp.newOps.slice(0, 5).join(', ')}{resp.newOps.length > 5 ? ` (+${resp.newOps.length - 5} more)` : ''}
+            </div>
+          )}
+          {resp.explanation}
+        </div>
+      )}
     </div>
   );
 }
