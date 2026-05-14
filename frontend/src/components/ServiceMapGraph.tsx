@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ServiceMap, ServiceMapNode } from '@/lib/types';
+import { hashColor } from '@/lib/utils';
 
 // ServiceMapGraph renders {nodes, edges} as an SVG graph. Two
 // layout modes:
@@ -362,6 +363,29 @@ function NodeMark({
           <animate attributeName="r" from={r + 2} to={r + 10} dur="1.6s" repeatCount="indefinite" />
           <animate attributeName="stroke-opacity" from={0.7} to={0} dur="1.6s" repeatCount="indefinite" />
         </circle>
+      )}
+      {/* Cluster ring — thin coloured outline keyed by the
+          node's enriched cluster name. Stable hashColor on the
+          cluster string so every node in prod-eu-west picks
+          the same hue regardless of service. Multi-cluster
+          services get a neutral dashed ring so the operator
+          spots them at a glance. Dep nodes (db / queue / ext)
+          skip the ring — they're synthesised, not in a cluster
+          themselves. */}
+      {!n.kind && n.cluster && n.cluster !== 'multi' && (
+        <circle cx={x} cy={y} r={r + 3}
+                fill="none"
+                stroke={hashColor(n.cluster)}
+                strokeWidth={1.5}
+                strokeOpacity={0.85} />
+      )}
+      {!n.kind && n.cluster === 'multi' && (
+        <circle cx={x} cy={y} r={r + 3}
+                fill="none"
+                stroke="var(--text3)"
+                strokeWidth={1.5}
+                strokeDasharray="3 2"
+                strokeOpacity={0.75} />
       )}
       <DepShape kind={n.kind} cx={x} cy={y} r={r}
                 fill={baseFill} fillOpacity={fillOp}

@@ -4,7 +4,7 @@ import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { ServiceMapGraph } from '@/components/ServiceMapGraph';
 import { useServiceMap, useServiceNames } from '@/lib/queries';
-import { fmtNum } from '@/lib/utils';
+import { fmtNum, hashColor } from '@/lib/utils';
 import type { TimeRange, ServiceMap, ServiceMapNode } from '@/lib/types';
 
 const PRESETS: { key: TimeRange['preset']; secs: number; label: string }[] = [
@@ -308,6 +308,40 @@ export default function ServiceMapPage() {
             </>
           )}
         </div>
+
+        {/* Cluster colour legend — decodes the node rings the
+            graph draws (one stable hue per cluster name via
+            hashColor + a dashed grey for multi-cluster
+            services). Single-cluster installs and the focus
+            view skip the legend since the chrome adds no
+            information there. */}
+        {clusterOptions.length > 1 && !focus && (
+          <div style={{
+            display: 'flex', flexWrap: 'wrap', gap: 10,
+            marginTop: 6, marginBottom: 8,
+            fontSize: 11, color: 'var(--text2)',
+          }}>
+            <span style={{ color: 'var(--text3)' }}>Cluster ring:</span>
+            {clusterOptions.map(c => (
+              <span key={c} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <span style={{
+                  display: 'inline-block', width: 12, height: 12,
+                  borderRadius: '50%', border: `1.5px solid ${hashColor(c)}`,
+                  background: 'transparent',
+                }} />
+                {c}
+              </span>
+            ))}
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <span style={{
+                display: 'inline-block', width: 12, height: 12,
+                borderRadius: '50%', border: '1.5px dashed var(--text3)',
+                background: 'transparent',
+              }} />
+              multi-cluster
+            </span>
+          </div>
+        )}
 
         {/* Topology change summary — visible only when comparison
             mode is on. Lists net delta + a small inline list of
