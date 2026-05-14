@@ -842,8 +842,9 @@ canvas { max-width: 100%; }
 
 /* Density + theme toggle pill group in the topbar */
 .topbar-prefs { display: flex; align-items: center; flex-shrink: 0; }
-.topbar-prefs .theme-toggle:first-child { border-radius: 6px 0 0 6px; border-right: none; }
-.topbar-prefs .theme-toggle:last-child  { border-radius: 0 6px 6px 0; }
+.topbar-prefs .theme-toggle { border-radius: 0; border-right: none; }
+.topbar-prefs .theme-toggle:first-child { border-radius: 6px 0 0 6px; }
+.topbar-prefs .theme-toggle:last-child  { border-radius: 0 6px 6px 0; border-right: 1px solid var(--border); }
 .topbar-prefs .theme-toggle:hover { position: relative; z-index: 1; }
 /* Vertical separator between the time-range picker and the pref group */
 .topbar-prefs-sep { width: 1px; height: 20px; background: var(--border); flex-shrink: 0; margin: 0 8px; }

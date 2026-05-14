@@ -1,4 +1,5 @@
 import { TimeRangePicker } from './TimeRangePicker';
+import { LangToggle } from './LangToggle';
 import { DensityToggle } from './DensityToggle';
 import { ThemeToggle } from './ThemeToggle';
 import type { TimeRange } from '@/lib/types';
@@ -18,6 +19,7 @@ export function Topbar({ title, range, onRangeChange }: {
       )}
       {range && <div className="topbar-prefs-sep" />}
       <div className="topbar-prefs">
+        <LangToggle />
         <DensityToggle />
         <ThemeToggle />
       </div>
