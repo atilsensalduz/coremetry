@@ -428,17 +428,24 @@ function NavGroupBlock({
         aria-expanded={isOpen}
         style={{
           display: 'flex', alignItems: 'center', width: '100%',
-          // Pre-v0.4.90 these read at fontSize 10 which got
-          // visually lost between the brand row and the link
-          // icons. Bumped to 12 + tightened the gap so the
-          // groupings actually anchor the eye during a fast
-          // triage scan.
-          padding: '10px 14px 4px', background: 'transparent', border: 'none',
+          // Mirror the link rows' geometry so the header
+          // title lines up with the labels below — same
+          // 16px left padding, same 10px gap, same 16px
+          // icon column. Without this the header text sat
+          // 14px left of every link label and the eye read
+          // it as a misalignment during fast triage scans.
+          padding: '10px 16px 4px',
+          gap: 10,
+          background: 'transparent', border: 'none',
           color: 'var(--text2)', fontSize: 12, fontWeight: 700,
           letterSpacing: '0.5px', textTransform: 'uppercase',
           cursor: 'pointer', textAlign: 'left',
         }}>
-        <span style={{ width: 14, display: 'inline-block', color: 'var(--text3)' }}>
+        <span style={{
+          width: 16, display: 'inline-block', textAlign: 'center',
+          color: 'var(--text3)',
+          flexShrink: 0,
+        }}>
           {isOpen ? '▾' : '▸'}
         </span>
         <span>{t(titleKey)}</span>
