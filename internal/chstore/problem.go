@@ -472,6 +472,12 @@ func (s *Store) FindSimilarResolvedProblems(ctx context.Context, service, ruleID
 	return out, rows.Err()
 }
 
+// FindOpenProblem returns the latest unresolved problem for
+// (rule, service). "Unresolved" covers both `open` (default
+// pageable state) and `acknowledged` (operator saw it, muted
+// notifications, problem still in flight) — so the v0.5.83
+// bulk-ack flow doesn't accidentally make the evaluator open
+// a duplicate Problem row on the next tick.
 func (s *Store) FindOpenProblem(ctx context.Context, ruleID, service string) (*Problem, error) {
 	var p Problem
 	var resolvedAt *time.Time
@@ -481,7 +487,7 @@ func (s *Store) FindOpenProblem(ctx context.Context, ruleID, service string) (*P
 		       toUnixTimestamp64Nano(started_at),
 		       resolved_at
 		FROM problems FINAL
-		WHERE rule_id = ? AND service = ? AND status = 'open'
+		WHERE rule_id = ? AND service = ? AND status IN ('open', 'acknowledged')
 		ORDER BY started_at DESC LIMIT 1`, ruleID, service).
 		Scan(&p.ID, &p.RuleID, &p.RuleName, &p.Severity, &p.Service,
 			&p.Metric, &p.Value, &p.Threshold, &p.Status, &p.Description,
@@ -492,6 +498,46 @@ func (s *Store) FindOpenProblem(ctx context.Context, ruleID, service string) (*P
 		p.ResolvedAt = &ns
 	}
 	return &p, nil
+}
+
+// AcknowledgeProblems flips a batch of problems to status=
+// "acknowledged". Idempotent — already-resolved problems
+// are silently skipped (you can't ack a resolved row,
+// nothing to mute). The evaluator's auto-resolve path
+// still flips them to "resolved" once the threshold
+// stops firing, which is the right answer for an ack'd
+// problem too.
+func (s *Store) AcknowledgeProblems(ctx context.Context, ids []string, actor string) (int, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	// Fetch the rows we want to flip. ListProblems with a
+	// bounded Limit is the cheap path; the ids list is
+	// bounded by the bulk-action UI cap (50). Filter to
+	// non-resolved here so we don't accidentally re-open a
+	// resolved row by upsert.
+	all, err := s.ListProblems(ctx, ProblemFilter{Limit: 1000})
+	if err != nil {
+		return 0, err
+	}
+	want := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		want[id] = true
+	}
+	count := 0
+	for i := range all {
+		p := all[i]
+		if !want[p.ID] || p.Status == "resolved" || p.Status == "acknowledged" {
+			continue
+		}
+		p.Status = "acknowledged"
+		if err := s.UpsertProblem(ctx, p); err != nil {
+			return count, err
+		}
+		count++
+	}
+	_ = actor // future: audit log entry per acknowledge
+	return count, nil
 }
 
 func (s *Store) UpsertProblem(ctx context.Context, p Problem) error {

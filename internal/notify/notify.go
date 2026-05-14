@@ -389,6 +389,8 @@ func (n *Notifier) SendProblemAlert(ctx context.Context, p chstore.Problem) {
 		n.Publish("problem.open", p)
 	case "resolved":
 		n.Publish("problem.resolve", p)
+	case "acknowledged":
+		n.Publish("problem.acknowledge", p)
 	}
 	// Maintenance windows — skip the live channel fan-out when
 	// an active window matches (service, severity). Done after
@@ -398,6 +400,15 @@ func (n *Notifier) SendProblemAlert(ctx context.Context, p chstore.Problem) {
 	// 1h window don't hammer CH.
 	if n.maintenanceSilenced(ctx, p.Service, p.Severity) {
 		log.Printf("[notify] maintenance window active — skipping channel fan-out: %s · %s", p.Service, p.RuleName)
+		return
+	}
+	// Acknowledged — operator already saw this problem and
+	// muted it. The evaluator's per-tick refresh path passes
+	// the same Problem back through SendProblemAlert; without
+	// this gate the channel fan-out would re-fire every tick.
+	// Resolution events still go through (status=resolved
+	// short-circuits this branch on its own).
+	if p.Status == "acknowledged" {
 		return
 	}
 	channels, err := n.store.EnabledChannelsForSeverity(ctx, p.Severity)

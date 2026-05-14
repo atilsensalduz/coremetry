@@ -487,6 +487,12 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ aId, bId }),
     }),
+  acknowledgeProblems: (ids: string[]) =>
+    request<{ acknowledged: number }>(`/api/problems/acknowledge`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    }),
   copilotExplainSLO: (id: string) =>
     request<{
       explanation: string;

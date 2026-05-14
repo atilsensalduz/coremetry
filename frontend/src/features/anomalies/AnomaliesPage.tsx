@@ -327,6 +327,13 @@ function ProblemsSection({ serviceFilter }: { serviceFilter: string }) {
   // inside the drawer alongside the rule details + deploy
   // chip + AI buttons in one consolidated triage surface.
   const [drawerProblemId, setDrawerProblemId] = useState<string | null>(null);
+  // Bulk-select state (v0.5.83). Operators can multi-select
+  // problems and acknowledge them in one POST — typical
+  // workflow during a fan-out incident where 20 alerts fire
+  // from the same root cause and the oncall wants to mute
+  // them all once they've started fixing.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
   // Esc closes the drawer — standard incident-triage muscle
   // memory across other APM tools.
   useEffect(() => {
@@ -492,11 +499,59 @@ function ProblemsSection({ serviceFilter }: { serviceFilter: string }) {
           Switch the filter above to see other states.
         </Empty>
       )}
+      {sorted && sorted.length > 0 && selectedIds.size > 0 && (
+        <div style={{
+          padding: '8px 12px', marginBottom: 8,
+          borderRadius: 6, background: 'var(--bg2)',
+          border: '1px solid var(--accent2)',
+          display: 'flex', alignItems: 'center', gap: 10,
+          fontSize: 12,
+        }}>
+          <span style={{ color: 'var(--accent2)', fontWeight: 600 }}>
+            {selectedIds.size} selected
+          </span>
+          <button onClick={() => setSelectedIds(new Set())}
+            className="sec" style={{ fontSize: 11, padding: '3px 8px' }}>
+            Clear
+          </button>
+          <span style={{ flex: 1 }} />
+          <button disabled={bulkBusy}
+            onClick={async () => {
+              if (bulkBusy) return;
+              setBulkBusy(true);
+              try {
+                await api.acknowledgeProblems([...selectedIds]);
+                setSelectedIds(new Set());
+                problemsQ.refetch();
+              } catch {
+                // toast surface lives globally; swallow here
+              } finally {
+                setBulkBusy(false);
+              }
+            }}
+            style={{ fontSize: 12, padding: '4px 12px' }}>
+            {bulkBusy ? 'Acknowledging…' : 'Acknowledge'}
+          </button>
+        </div>
+      )}
       {sorted && sorted.length > 0 && (
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
+                <th style={{ width: 28 }}>
+                  <input type="checkbox"
+                    checked={sorted.length > 0 && sorted.every(p => selectedIds.has(p.id))}
+                    onChange={e => {
+                      if (e.target.checked) {
+                        setSelectedIds(new Set(sorted.map(p => p.id)));
+                      } else {
+                        setSelectedIds(new Set());
+                      }
+                    }}
+                    onClick={e => e.stopPropagation()}
+                    title="Select all visible" />
+                </th>
                 <PSortTh col="severity" label="Severity" sort={sortBy} dir={sortDir} onSort={toggleSort} />
                 <PSortTh col="service"  label="Service"  sort={sortBy} dir={sortDir} onSort={toggleSort} />
                 <PSortTh col="metric"   label="Metric"   sort={sortBy} dir={sortDir} onSort={toggleSort} />
@@ -514,6 +569,18 @@ function ProblemsSection({ serviceFilter }: { serviceFilter: string }) {
                   <tr key={p.id}
                       onClick={() => navigate(`/service?name=${encodeURIComponent(p.service)}`)}
                       style={{ cursor: 'pointer' }}>
+                      <td onClick={e => e.stopPropagation()}>
+                        <input type="checkbox"
+                          checked={selectedIds.has(p.id)}
+                          onChange={e => {
+                            setSelectedIds(prev => {
+                              const next = new Set(prev);
+                              if (e.target.checked) next.add(p.id);
+                              else next.delete(p.id);
+                              return next;
+                            });
+                          }} />
+                      </td>
                       <td><SeverityBadge s={p.severity} /></td>
                       <td>
                         <Link to={`/service?name=${encodeURIComponent(p.service)}`}
@@ -577,9 +644,9 @@ function ProblemsSection({ serviceFilter }: { serviceFilter: string }) {
                       </td>
                       <td className="mono">{tsLong(p.startedAt)}</td>
                       <td>
-                        {p.status === 'open'
-                          ? <span className="badge b-err">OPEN</span>
-                          : <span className="badge b-ok">RESOLVED</span>}
+                        {p.status === 'open' && <span className="badge b-err">OPEN</span>}
+                        {p.status === 'acknowledged' && <span className="badge b-warn">ACK</span>}
+                        {p.status === 'resolved' && <span className="badge b-ok">RESOLVED</span>}
                       </td>
                       <td onClick={e => e.stopPropagation()}>
                         {/* Triage — opens the right-side drawer

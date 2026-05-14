@@ -241,6 +241,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET    /api/services/{name}/callers",  s.svcCallers)
 	mux.HandleFunc("GET    /api/services/{name}/callees",  s.svcCallees)
 	mux.HandleFunc("GET    /api/problems",                  s.listProblems)
+	mux.HandleFunc("POST   /api/problems/acknowledge",      auth.RequireAnyRole(editorRoles, s.acknowledgeProblems))
 	mux.HandleFunc("GET    /api/alert-rules",               s.listAlertRules)
 	mux.HandleFunc("POST   /api/alert-rules",               auth.RequireAnyRole(editorRoles, s.createAlertRule))
 	mux.HandleFunc("PUT    /api/alert-rules/{id}",          auth.RequireAnyRole(editorRoles, s.updateAlertRule))
@@ -5694,6 +5695,40 @@ func (s *Server) listProblems(w http.ResponseWriter, r *http.Request) {
 		probs = s.store.EnrichProblemsWithDeploys(r.Context(), probs, 30*time.Minute)
 		return probs, nil
 	})
+}
+
+// acknowledgeProblems flips a batch of problems to
+// status=acknowledged. Notifier checks for that status and
+// skips channel fan-out so subsequent evaluator refreshes
+// don't re-page on the same problem; the row stays "in
+// flight" in the UI until the evaluator auto-resolves it
+// (threshold no longer breached) or the operator manually
+// edits the rule.
+//
+// Editor-role gated. The operator that triggers it is
+// recorded for audit (future surface).
+func (s *Server) acknowledgeProblems(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		IDs []string `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if len(body.IDs) == 0 {
+		http.Error(w, "ids list required", http.StatusBadRequest)
+		return
+	}
+	if len(body.IDs) > 200 {
+		http.Error(w, "max 200 ids per bulk acknowledge", http.StatusBadRequest)
+		return
+	}
+	n, err := s.store.AcknowledgeProblems(r.Context(), body.IDs, actorOf(r))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, map[string]any{"acknowledged": n})
 }
 
 func (s *Server) listAlertRules(w http.ResponseWriter, r *http.Request) {
