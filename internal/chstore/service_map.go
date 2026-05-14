@@ -40,6 +40,17 @@ type ServiceMapNode struct {
 	// Frontend pulses these green so a freshly-deployed service or
 	// newly-discovered dependency stands out at a glance.
 	IsNew     bool   `json:"isNew,omitempty"`
+	// Cluster — the k8s/openshift cluster this service ran in
+	// during the sampled window. Populated server-side via
+	// GetServiceClusterMap as a read-time enrichment so the
+	// frontend can group / colour / filter the map by cluster
+	// without an N+1 lookup. Empty when the SDK didn't ship a
+	// cluster resource attribute. "multi" when the service
+	// spans more than one cluster in the window — frontend
+	// renders these with a distinct chip so an operator
+	// scanning a topology hairball still spots the boundary
+	// crossings.
+	Cluster   string `json:"cluster,omitempty"`
 }
 
 // ServiceMapEdge is a directed call: caller → callee. Weight =
@@ -378,6 +389,27 @@ func (s *Store) getServiceMapAt(
 			TraceCount: len(edgeTraces[k]),
 		})
 	}
+	// Cluster enrichment — one batch query against the spans
+	// table grouped by (service_name, cluster) over the same
+	// window. Pinned services get the single cluster name,
+	// services spanning > 1 cluster get "multi" so the
+	// frontend can chip them differently. Soft-fails on CH
+	// error — the map still renders, just without cluster
+	// chips.
+	if cm, err := s.GetServiceClusterMap(ctx, winEnd.Sub(winStart)); err == nil {
+		for i := range out.Nodes {
+			cs := cm[out.Nodes[i].Service]
+			switch len(cs) {
+			case 0:
+				// no cluster info
+			case 1:
+				out.Nodes[i].Cluster = cs[0]
+			default:
+				out.Nodes[i].Cluster = "multi"
+			}
+		}
+	}
+
 	// Stable order so the frontend layout doesn't jitter between
 	// 30s polls when nodes are tied.
 	sort.Slice(out.Nodes, func(i, j int) bool { return out.Nodes[i].Service < out.Nodes[j].Service })

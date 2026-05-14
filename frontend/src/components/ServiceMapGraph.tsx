@@ -403,6 +403,7 @@ function NodeMark({
       <title>
         {`${label}${n.kind ? ` · ${kindLabel(n.kind)}` : ''}\n` +
          `${n.spanCount.toLocaleString()} spans · ${(n.errorRate * 100).toFixed(2)}% error\n` +
+         (n.cluster ? `cluster: ${n.cluster}\n` : '') +
          (n.kind ? 'dependency synthesised from db.system / peer.service' : 'click to focus')}
       </title>
     </g>

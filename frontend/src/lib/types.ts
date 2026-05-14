@@ -1208,6 +1208,11 @@ export interface ServiceMapNode {
   // in the baseline window (e.g. yesterday's same slot). Pulses
   // green in the graph + flagged "NEW" in the changes panel.
   isNew?: boolean;
+  // k8s/openshift cluster this service ran in during the
+  // sampled window. Read-time enriched server-side. Empty
+  // for SDKs that don't ship cluster resource attrs;
+  // "multi" when the service spans more than one cluster.
+  cluster?: string;
 }
 
 export interface ServiceMapEdge {

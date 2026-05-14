@@ -105,25 +105,56 @@ export default function ServiceMapPage() {
       ? null
       : mapQ.data ?? { nodes: [], edges: [], sampledFrom: 0, totalSpans: 0 };
 
+  // Cluster filter — when non-empty, narrows the graph to
+  // nodes whose enriched cluster matches. "multi" services
+  // count as a match for ANY cluster pick so a frontend
+  // running in eu-west AND eu-central isn't hidden from
+  // both views. Empty = show everything (default).
+  const [clusterPick, setClusterPick] = useState<string>('');
+  const clusterOptions = useMemo(() => {
+    if (!data) return [] as string[];
+    const set = new Set<string>();
+    for (const n of data.nodes) {
+      if (n.cluster && n.cluster !== 'multi') set.add(n.cluster);
+    }
+    return [...set].sort();
+  }, [data]);
+
   // Filter to the 1-hop neighbourhood of the focused service
   // (focused + every direct caller + every direct callee).
+  // Then apply the cluster filter on top.
   // Edges are kept iff both endpoints survived. Memoised so
   // hover-induced re-renders don't recompute.
   const filtered = useMemo<ServiceMap | undefined>(() => {
     if (!data) return undefined;
-    if (!focus) return data;
-    const keep = new Set<string>([focus]);
-    for (const e of data.edges) {
-      if (e.caller === focus) keep.add(e.callee);
-      if (e.callee === focus) keep.add(e.caller);
+    let nodes = data.nodes;
+    let edges = data.edges;
+    if (focus) {
+      const keep = new Set<string>([focus]);
+      for (const e of data.edges) {
+        if (e.caller === focus) keep.add(e.callee);
+        if (e.callee === focus) keep.add(e.caller);
+      }
+      nodes = nodes.filter(n => keep.has(n.service));
+      edges = edges.filter(e => keep.has(e.caller) && keep.has(e.callee));
+    }
+    if (clusterPick) {
+      const inCluster = (svc: string) => {
+        const n = nodes.find(x => x.service === svc);
+        if (!n) return false;
+        return n.cluster === clusterPick || n.cluster === 'multi' || !n.cluster;
+      };
+      nodes = nodes.filter(n =>
+        n.cluster === clusterPick || n.cluster === 'multi' || !n.cluster);
+      edges = edges.filter(e => inCluster(e.caller) && inCluster(e.callee));
     }
     return {
-      nodes:    data.nodes.filter(n => keep.has(n.service)),
-      edges:    data.edges.filter(e => keep.has(e.caller) && keep.has(e.callee)),
+      nodes,
+      edges,
       sampledFrom: data.sampledFrom,
       totalSpans:  data.totalSpans,
     };
-  }, [data, focus]);
+  }, [data, focus, clusterPick]);
 
   const focusNode: ServiceMapNode | undefined = focus && data
     ? data.nodes.find(n => n.service === focus)
@@ -256,6 +287,26 @@ export default function ServiceMapPage() {
             <option value={200}>200 traces</option>
             <option value={500}>500 traces</option>
           </select>
+
+          {/* Cluster filter — narrows the rendered graph to a
+              single k8s/openshift cluster's nodes (multi-cluster
+              services are kept on every view since their slice
+              of traffic spans the filter target too). Hidden
+              when zero clusters were enriched — single-cluster
+              installs don't need the chrome. */}
+          {clusterOptions.length > 0 && (
+            <>
+              <span style={{ fontSize: 12, color: 'var(--text2)' }}>Cluster</span>
+              <select value={clusterPick}
+                      onChange={e => setClusterPick(e.target.value)}
+                      style={{ fontSize: 12, maxWidth: 220 }}>
+                <option value="">All clusters</option>
+                {clusterOptions.map(c => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </>
+          )}
         </div>
 
         {/* Topology change summary — visible only when comparison
