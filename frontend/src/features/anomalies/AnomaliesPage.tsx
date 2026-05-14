@@ -321,6 +321,36 @@ function ProblemsSection({ serviceFilter }: { serviceFilter: string }) {
   const [statusFilter, setStatusFilter] = useState<'open' | 'all' | 'resolved'>('open');
   const [sortBy, setSortBy] = useState<PSortKey>('started');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
+  // Severity filter — multi-select chip row above the table.
+  // Persisted to localStorage so an operator who keeps the
+  // "critical only" filter stays at that scope across page
+  // reloads (typical incident workflow). Default: all three on.
+  const [sevSet, setSevSet] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem('problems.sev');
+      if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr) && arr.length > 0) return new Set(arr);
+      }
+    } catch { /* ignore */ }
+    return new Set(['critical', 'warning', 'info']);
+  });
+  const toggleSev = (s: string) => {
+    setSevSet(prev => {
+      const next = new Set(prev);
+      if (next.has(s)) {
+        // Don't let the operator clear all three — that
+        // empties the table and looks broken. Last
+        // selected stays on.
+        if (next.size === 1) return prev;
+        next.delete(s);
+      } else {
+        next.add(s);
+      }
+      try { localStorage.setItem('problems.sev', JSON.stringify([...next])); } catch { /* ignore */ }
+      return next;
+    });
+  };
   // Which row's "Why?" panel is expanded. Null = none. Single
   // expansion at a time keeps the table compact during incident
   // triage — the operator typically only investigates one
@@ -343,6 +373,9 @@ function ProblemsSection({ serviceFilter }: { serviceFilter: string }) {
 
   const sorted = useMemo(() => {
     if (!data) return data;
+    // Apply severity-chip filter before sort so the visible
+    // row count under the chips matches what's rendered.
+    const filtered = data.filter(p => sevSet.has(p.severity));
     const cmp = (a: Problem, b: Problem): number => {
       switch (sortBy) {
         case 'severity': return (SEV_RANK[a.severity] ?? 0) - (SEV_RANK[b.severity] ?? 0);
@@ -354,9 +387,17 @@ function ProblemsSection({ serviceFilter }: { serviceFilter: string }) {
         case 'status':   return a.status.localeCompare(b.status);
       }
     };
-    const arr = [...data].sort(cmp);
+    const arr = [...filtered].sort(cmp);
     return sortDir === 'desc' ? arr.reverse() : arr;
-  }, [data, sortBy, sortDir]);
+  }, [data, sortBy, sortDir, sevSet]);
+
+  // Counts per severity for the chip labels — operator sees
+  // "critical (3)" instead of guessing how many would land.
+  const sevCounts = useMemo(() => {
+    const counts = { critical: 0, warning: 0, info: 0 } as Record<string, number>;
+    for (const p of data ?? []) counts[p.severity] = (counts[p.severity] ?? 0) + 1;
+    return counts;
+  }, [data]);
 
   const toggleSort = (col: PSortKey) => {
     if (sortBy === col) setSortDir(sortDir === 'desc' ? 'asc' : 'desc');
@@ -393,6 +434,36 @@ function ProblemsSection({ serviceFilter }: { serviceFilter: string }) {
         <span style={{ color: 'var(--text2)', fontSize: 12 }}>
           {open} open · {resolved} resolved
         </span>
+        {/* Severity chip filter — multi-select toggle. Counts
+            reflect the unfiltered status-tab result so the
+            operator sees how many would land if they toggle a
+            chip back on. At least one chip stays on at all
+            times (toggleSev guard) — empty table looks
+            broken. */}
+        <div style={{ display: 'flex', gap: 4 }}>
+          {(['critical', 'warning', 'info'] as const).map(s => {
+            const on = sevSet.has(s);
+            const colour = s === 'critical' ? 'var(--err)'
+                         : s === 'warning'  ? 'var(--warn)'
+                         : 'var(--accent2)';
+            return (
+              <button key={s} onClick={() => toggleSev(s)}
+                title={on ? `Hide ${s}` : `Show ${s} only — click again to add`}
+                style={{
+                  all: 'unset', cursor: 'pointer',
+                  fontSize: 11, padding: '2px 8px', borderRadius: 12,
+                  fontFamily: 'ui-monospace, monospace',
+                  border: `1px solid ${on ? colour : 'var(--border)'}`,
+                  background: on ? colour : 'transparent',
+                  color: on ? 'var(--bg)' : 'var(--text3)',
+                  fontWeight: on ? 600 : 400,
+                  textTransform: 'uppercase', letterSpacing: 0.4,
+                }}>
+                {s} ({sevCounts[s] ?? 0})
+              </button>
+            );
+          })}
+        </div>
         <Link to="/alerts" className="sec" style={{
           marginLeft: 'auto', textDecoration: 'none', padding: '5px 12px',
           border: '1px solid var(--border)', borderRadius: 6, fontSize: 12, color: 'var(--text)',
