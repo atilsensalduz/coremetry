@@ -321,6 +321,23 @@ function ProblemsSection({ serviceFilter }: { serviceFilter: string }) {
   const [statusFilter, setStatusFilter] = useState<'open' | 'all' | 'resolved'>('open');
   const [sortBy, setSortBy] = useState<PSortKey>('started');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
+  // Triage drawer state — id of the problem currently shown
+  // in the right-side panel. Replaces the v0.5.x inline "Why?"
+  // expansion; the same causal-correlation panel now lives
+  // inside the drawer alongside the rule details + deploy
+  // chip + AI buttons in one consolidated triage surface.
+  const [drawerProblemId, setDrawerProblemId] = useState<string | null>(null);
+  // Esc closes the drawer — standard incident-triage muscle
+  // memory across other APM tools.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && drawerProblemId) {
+        setDrawerProblemId(null);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [drawerProblemId]);
   // Severity filter — multi-select chip row above the table.
   // Persisted to localStorage so an operator who keeps the
   // "critical only" filter stays at that scope across page
@@ -351,11 +368,9 @@ function ProblemsSection({ serviceFilter }: { serviceFilter: string }) {
       return next;
     });
   };
-  // Which row's "Why?" panel is expanded. Null = none. Single
-  // expansion at a time keeps the table compact during incident
-  // triage — the operator typically only investigates one
-  // problem at a time, switching rows replaces the panel.
-  const [explainOpen, setExplainOpen] = useState<string | null>(null);
+  // (Pre-v0.5.80 inline "Why?" expansion lived here; the
+  // same correlation panel is now embedded inside the
+  // triage drawer.)
 
   const problemsQ = useProblems({
     status: statusFilter === 'all' ? undefined : statusFilter,
@@ -489,19 +504,16 @@ function ProblemsSection({ serviceFilter }: { serviceFilter: string }) {
                 <PSortTh col="rule"     label="Rule"     sort={sortBy} dir={sortDir} onSort={toggleSort} />
                 <PSortTh col="started"  label="Started"  sort={sortBy} dir={sortDir} onSort={toggleSort} />
                 <PSortTh col="status"   label="Status"   sort={sortBy} dir={sortDir} onSort={toggleSort} />
-                <th>Why</th>
-                <th>AI</th>
-                <th>Runbook</th>
+                <th>Triage</th>
               </tr>
             </thead>
             <tbody>
               {sorted.map(p => {
                 const isAnomaly = p.ruleId?.startsWith('anomaly:');
-                const isOpen = explainOpen === p.id;
                 return (
-                  <Fragment key={p.id}>
-                    <tr onClick={() => navigate(`/service?name=${encodeURIComponent(p.service)}`)}
-                        style={{ cursor: 'pointer' }}>
+                  <tr key={p.id}
+                      onClick={() => navigate(`/service?name=${encodeURIComponent(p.service)}`)}
+                      style={{ cursor: 'pointer' }}>
                       <td><SeverityBadge s={p.severity} /></td>
                       <td>
                         <Link to={`/service?name=${encodeURIComponent(p.service)}`}
@@ -570,51 +582,166 @@ function ProblemsSection({ serviceFilter }: { serviceFilter: string }) {
                           : <span className="badge b-ok">RESOLVED</span>}
                       </td>
                       <td onClick={e => e.stopPropagation()}>
-                        {/* "Why?" — toggles the causal-correlation
-                            panel below the row. Clicking again
-                            (or another row's button) closes /
-                            switches. Same data the SRE used to
-                            piece together by hand: services
-                            around the time of fire whose RED
-                            metrics swung the most. */}
+                        {/* Triage — opens the right-side drawer
+                            consolidating rule details + causal
+                            correlation + AI explain + runbook
+                            AI in one panel. Replaces the v0.5.x
+                            inline "Why?" expansion and the
+                            scattered per-cell AI buttons. */}
                         <button className="sec"
-                          style={{ fontSize: 11, padding: '2px 8px' }}
-                          onClick={() => setExplainOpen(isOpen ? null : p.id)}>
-                          {isOpen ? '× hide' : '? why'}
+                          style={{ fontSize: 11, padding: '2px 8px',
+                                   color: 'var(--accent2)',
+                                   border: '1px solid var(--accent2)',
+                                   borderRadius: 4 }}
+                          onClick={() => setDrawerProblemId(p.id)}>
+                          Triage ▶
                         </button>
                       </td>
-                      <td onClick={e => e.stopPropagation()}>
-                        <CopilotExplain kind="problem" id={p.id} label={<IconSparkles />} />
-                      </td>
-                      <td onClick={e => e.stopPropagation()}>
-                        {/* Runbook AI — anchored in past resolved
-                            instances of the same rule on this
-                            service. Distinct mental model from the
-                            AI explain cell: that one gives 3-5
-                            context bullets, this one gives a
-                            numbered, actionable checklist. */}
-                        <CopilotExplain kind="runbook" id={p.id}
-                          label={<><IconSparkles /> <span style={{ fontSize: 11 }}>Runbook</span></>} />
-                      </td>
                     </tr>
-                    {isOpen && (
-                      <tr>
-                        <td colSpan={10} style={{
-                          background: 'var(--bg1)', padding: '10px 16px',
-                          borderTop: '1px solid var(--border)',
-                        }}>
-                          <CorrelationsPanel atUnixNs={p.startedAt} service={p.service} />
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
                 );
               })}
             </tbody>
           </table>
         </div>
       )}
+      {drawerProblemId && data && (() => {
+        const p = data.find(x => x.id === drawerProblemId);
+        if (!p) return null;
+        return <TriageDrawer problem={p} onClose={() => setDrawerProblemId(null)} />;
+      })()}
     </div>
+  );
+}
+
+// TriageDrawer — right-side slide-in panel consolidating
+// everything an oncall needs to triage one problem: severity
+// + service + cluster + recent deploy + rule details +
+// causal correlation + AI explain + runbook AI. Replaces the
+// pre-v0.5.80 inline "Why?" expansion and the per-cell AI
+// buttons; the operator stays on the list page, the drawer
+// owns the focused view. Click backdrop or hit Escape to
+// close.
+function TriageDrawer({ problem, onClose }: {
+  problem: Problem;
+  onClose: () => void;
+}) {
+  const isAnomaly = problem.ruleId?.startsWith('anomaly:');
+  return (
+    <>
+      <div onClick={onClose}
+        style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)',
+          zIndex: 30, animation: 'fadeIn 120ms ease-out',
+        }} />
+      <div style={{
+        position: 'fixed', right: 0, top: 0, bottom: 0,
+        width: 'min(560px, 100vw)',
+        background: 'var(--bg)', borderLeft: '1px solid var(--border)',
+        boxShadow: '-4px 0 24px rgba(0,0,0,0.3)',
+        zIndex: 31, overflowY: 'auto',
+        animation: 'slideInRight 180ms ease-out',
+      }}>
+        <div style={{
+          padding: '14px 18px', borderBottom: '1px solid var(--border)',
+          display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <SeverityBadge s={problem.severity} />
+          <Link to={`/service?name=${encodeURIComponent(problem.service)}`}
+            style={{ fontWeight: 700, fontSize: 14 }}>
+            {problem.service}
+          </Link>
+          <ClusterChips clusters={problem.clusters} />
+          <span style={{ flex: 1 }} />
+          <button onClick={onClose} className="sec"
+            title="Close (Esc)"
+            style={{ fontSize: 14, padding: '2px 10px' }}>×</button>
+        </div>
+
+        <div style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 11, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Rule</div>
+            <div style={{ fontSize: 13 }}>
+              {isAnomaly && <span className="badge b-info" style={{ marginRight: 6 }}>ANOMALY</span>}
+              {problem.ruleName}
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 12 }}>
+            <div>
+              <div style={{ color: 'var(--text3)' }}>Metric</div>
+              <div className="mono">{problem.metric}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text3)' }}>Value / Threshold</div>
+              <div className="mono">
+                <b style={{ color: 'var(--err)' }}>{problem.value.toFixed(2)}</b>
+                <span style={{ color: 'var(--text3)' }}> / {problem.threshold.toFixed(2)}</span>
+              </div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text3)' }}>Started</div>
+              <div className="mono">{tsLong(problem.startedAt)}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text3)' }}>Status</div>
+              <div>
+                {problem.status === 'open'
+                  ? <span className="badge b-err">OPEN</span>
+                  : <span className="badge b-ok">RESOLVED</span>}
+              </div>
+            </div>
+          </div>
+
+          {problem.recentDeploy && (
+            <div style={{
+              padding: '8px 12px', borderRadius: 6,
+              background: 'rgba(250,204,21,0.10)',
+              border: '1px solid rgba(250,204,21,0.40)',
+              fontSize: 12, color: 'var(--text)',
+            }}>
+              <div style={{ fontWeight: 600, marginBottom: 2 }}>⬇ Recent deploy correlation</div>
+              <div>
+                service.version=<code>{problem.recentDeploy.version}</code> first seen{' '}
+                <b>{fmtAge(problem.recentDeploy.ageSeconds)}</b> before this problem opened.
+              </div>
+            </div>
+          )}
+
+          {problem.description && !isAnomaly && (
+            <div style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.5 }}>
+              {problem.description}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {problem.runbookUrl && (
+              <a href={problem.runbookUrl} target="_blank" rel="noopener"
+                style={{
+                  fontSize: 12, padding: '4px 12px', borderRadius: 4,
+                  background: 'rgba(56,139,253,0.10)',
+                  border: '1px solid rgba(56,139,253,0.35)',
+                  color: 'var(--accent2)', textDecoration: 'none',
+                }}>
+                Runbook ↗
+              </a>
+            )}
+            <CopilotExplain kind="problem" id={problem.id}
+              label={<><IconSparkles /> <span>Explain</span></>} />
+            <CopilotExplain kind="runbook" id={problem.id}
+              label={<><IconSparkles /> <span>Runbook AI</span></>} />
+          </div>
+
+          <div style={{ marginTop: 4 }}>
+            <div style={{
+              fontSize: 11, color: 'var(--text3)',
+              textTransform: 'uppercase', letterSpacing: 0.4,
+              marginBottom: 6,
+            }}>What changed around the fire</div>
+            <CorrelationsPanel atUnixNs={problem.startedAt} service={problem.service} />
+          </div>
+        </div>
+      </div>
+    </>
   );
 }
 

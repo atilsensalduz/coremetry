@@ -1156,3 +1156,16 @@ canvas { max-width: 100%; }
 [data-density="dense"] .badge { font-size: 8px; padding: 1px 4px; }
 [data-density="dense"] h1, [data-density="dense"] h2 { font-size: 13px; }
 [data-density="dense"] h3 { font-size: 12px; }
+
+/* Slide-in animations for the /problems triage drawer (v0.5.80)
+   and any future right-side panel. fadeIn covers the backdrop,
+   slideInRight covers the drawer body. Short 120-180ms so the
+   incident-response page doesn't feel laggy. */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
