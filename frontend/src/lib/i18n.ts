@@ -24,6 +24,7 @@ const EN: Catalog = {
   'navGroup.alerting':    'Alerting',
   'navGroup.system':      'System',
   'navGroup.management':  'Management',
+  'navGroup.community':   'Community',
 
   // Sidebar
   'nav.inbox':       'Inbox',
@@ -58,6 +59,7 @@ const EN: Catalog = {
   'nav.sql':         'SQL playground',
   'nav.query':       'Query (DQL)',
   'nav.statusPage':  'Public Status Page',
+  'nav.feedback':    'Feedback',
 
   // Login
   'login.signIn':      'Sign in',
@@ -157,6 +159,8 @@ const TR: Catalog = {
   'nav.sql':         'SQL editörü',
   'nav.query':       'Sorgu (DQL)',
   'nav.statusPage':  'Genel Durum Sayfası',
+  'nav.feedback':    'Geri bildirim',
+  'navGroup.community': 'Topluluk',
 
   // Login
   'login.signIn':      'Giriş yap',
