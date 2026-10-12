@@ -77,14 +77,17 @@ func TestTraceErrHistSpanSQLGolden(t *testing.T) {
 	f := histFilter(chipFunctionCode)
 	f.Service, f.Env = "svc-a", "prod"
 	wc := traceErrBothWhere(f, "")
-	wantWhere := "WHERE time >= ? AND time <= ? AND service_name = ? AND deploy_env = ? AND attr_values[indexOf(attr_keys, ?)] = ? AND status_code = 'error'"
+	// v0.10.1155 — servisliyken özel çip (function_code) trace'i seçer:
+	// servis span'i ile aynı span'de değil, yarı-birleşimde.
+	wantWhere := "WHERE time >= ? AND time <= ? AND service_name = ? AND deploy_env = ? AND trace_id GLOBAL IN (SELECT trace_id FROM spans WHERE time >= ? AND time <= ? AND attr_values[indexOf(attr_keys, ?)] = ? ORDER BY time DESC LIMIT ?) AND status_code = 'error'"
 	if wc.sql() != wantWhere {
 		t.Fatalf("WHERE:\n got %s\nwant %s", wc.sql(), wantWhere)
 	}
 	// Pencere başı listenin 5 dk hizasıyla (buildGetTracesWhere) — şerit
 	// eskiden çıplak from kullanıyordu; hizalı dilimdeki satırlar listede
 	// görünüp şeritte yoktu.
-	wantArgs := []any{histFrom.Truncate(5 * time.Minute), histFrom.Add(time.Hour), "svc-a", "prod", "function_code", "KYC0001"}
+	wantArgs := []any{histFrom.Truncate(5 * time.Minute), histFrom.Add(time.Hour), "svc-a", "prod",
+		histFrom.Add(-traceRowRepairLead), histFrom.Add(time.Hour).Add(traceRowRepairLead), "function_code", "KYC0001", traceChipSetMax}
 	if !reflect.DeepEqual(wc.args, wantArgs) {
 		t.Fatalf("args:\n got %#v\nwant %#v", wc.args, wantArgs)
 	}
