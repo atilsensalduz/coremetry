@@ -3468,6 +3468,19 @@ Ctrl+B olarak değişti (aç/kapa semantiği composerEdit saf testlerinde pinli)
 `htmlToMarkdown.test.ts` 5000 seviyeli iç içe HTML CI'da 5 sn'yi aştı → 1500 seviye + 30 sn tavan.
 Ürün kodu değişmedi.
 
+## 2026-10-12 — Traces: servis + özel attribute çipi trace düzeyinde (v0.10.1155, PR #72) → yayın v0.10.1156
+
+PR #72 (Atıl Sensalduz) main'e birleşti ama etiketlenmemişti; 1156 bu değişikliği yayınlar.
+Sorun: /traces'te servis seçili + `function_code = …` gibi özel attribute çipi 0 trace dönüyordu;
+kod aynı trace'te BAŞKA servisin span'inde, servis WHERE'i o span'leri önceden düşürüyordu.
+Düzeltme (`internal/chstore/repo.go` buildGetTracesWhere): servis daraltması + zaman penceresi
+varken özel span attribute çipleri çip başına `trace_id GLOBAL IN (SELECT trace_id FROM spans
+WHERE <pencere ±5 dk> AND <çip> ORDER BY time DESC LIMIT 300000)` olur; servis PK öneki kalır,
+kimlik anahtarları (tipli kolonlar, op_group, route/name shape, stmt hash, resource) span
+düzeyinde kalır; OR/iç içe grup ve pencere­siz istekler eski şekilde. İnceleme: alt sorgu zaman
+sınırlı ve tavanlı (sınırsız tarama yok), regresyon testi `trace_service_chip_test.go`; CI
+(vet/build/test/audit) yeşil. Sonuç kümesi eskisinin üst kümesi.
+
 ## 2026-10-02 — Log deseni anomalisi: servis adı olmadan da loglara geçiş (v0.10.1062)
 
 **Operatör (prod, ES):** servissiz log deseni anomalisinde "Ne yapabilirim" yalnız "servis adı taşımıyor"
