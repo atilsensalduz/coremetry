@@ -2186,6 +2186,24 @@ func buildGetTracesWhere(f TraceFilter, clusterExpr string) whereClause {
 	// düzeyi — filtersTraceLevel / traceLevelFilterHaving). Arama yokken WHERE
 	// kalır (terfi kolonu / kvh indeksi budar). Span-düzeyi problar
 	// forceFiltersInWhere ile eski şekli ister.
+	// v0.10.1155 — servis daraltması varken özel attribute çipi trace'i
+	// SEÇER (bkz. splitServiceChips): eşleşen span herhangi bir serviste
+	// olabilir. Çip başına ayrı yarı-birleşim — iki çip farklı span'lerde
+	// olabilir (traceLevelFilterHaving ile aynı kural). Kalan çipler aşağıda.
+	if semi, _, ok := splitServiceChips(f); ok {
+		for _, fe := range semi {
+			var inner whereClause
+			inner.add("time >= ?", f.From.Add(-traceRowRepairLead))
+			inner.add("time <= ?", f.To.Add(traceRowRepairLead))
+			ApplyFiltersWith(&inner, []FilterExpr{fe}, pm)
+			if len(inner.conds) < 3 { // derlenemedi (ApplyFilters loglar)
+				continue
+			}
+			wc.add("trace_id GLOBAL IN (SELECT trace_id FROM spans "+inner.sql()+
+				" ORDER BY time DESC LIMIT ?)", append(inner.args, traceChipSetMax)...)
+		}
+		f = spanChipFilter(f)
+	}
 	if !filtersTraceLevel(f) || f.forceFiltersInWhere {
 		if f.FilterRoot != nil {
 			ApplyFilterGroupWith(&wc, *f.FilterRoot, pm)
@@ -2194,6 +2212,90 @@ func buildGetTracesWhere(f TraceFilter, clusterExpr string) whereClause {
 		}
 	}
 	return wc
+}
+
+// traceChipSetMax — servis + çip yarı-birleşiminin küme tavanı (en yeni M
+// eşleşen span). traceErrJoinSetMax ile aynı bütçe: sınırsız GLOBAL IN
+// (v0.10.238'in 241 sınıfı) yok.
+const traceChipSetMax = traceErrJoinSetMax
+
+// traceScopedChipKey — SAF (v0.10.1155): çip anahtarı trace'i mi seçer
+// (özel span attribute'u — dizi ya da span kapsamlı terfi kolonu:
+// function_code / channel_code / function_id …) yoksa span'in KİMLİĞİ mi
+// (tipli kolon: name / http.route / status …, op_group, route_shape,
+// resource kapsamı: k8s.* / host)? Kimlik anahtarı servisle aynı span'de
+// kalır: "servis X + POST /login" X'in span'idir.
+func traceScopedChipKey(key string) bool {
+	if strings.HasPrefix(key, "resource.") {
+		return false
+	}
+	k := strings.TrimPrefix(key, "span.")
+	switch k {
+	case OpGroupFilterKey, RouteShapeFilterKey, NameShapeFilterKey, StmtHashFilterKey:
+		return false
+	}
+	if _, ok := wellKnown[k]; ok {
+		return false
+	}
+	if _, ok := wellKnownResource[k]; ok {
+		return false
+	}
+	for _, a := range promotedAttrs {
+		if !a.res {
+			continue
+		}
+		for _, rk := range a.keys {
+			if rk == k {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// splitServiceChips — SAF (v0.10.1155, operator-reported: servis seçili +
+// `function_code = …` çipi → 0 trace, ama tablonun function_code kolonu o
+// değeri gösteriyor). Servis WHERE'i (service_name = ?) ve çip aynı span'de
+// AND'leniyordu; prod'da fonksiyon kodunu BAŞKA servisin span'i taşıyor,
+// kolon ise trace'in herhangi bir span'inden okunuyor (TraceExtras). Çipi
+// HAVING'e taşımak yetmez — servis WHERE'i öteki servislerin span'lerini
+// önceden düşürür. Servis daraltması (Service / RequireServices) varken özel
+// attribute çipleri (semi) `trace_id GLOBAL IN (zaman sınırlı, tavanlı alt
+// sorgu)` olur: servis PK öneki kalır, satır servisin span'lerinden kurulur
+// (servis anlamı v0.5.440), çip yalnız trace'i seçer. Kalan (rest) kimlik
+// çipleri eski yolda. Pencere yoksa (sınırsız alt sorgu olurdu), OR/iç içe
+// grupta ve span-düzeyi problarda ok=false → eski şekil.
+func splitServiceChips(f TraceFilter) (semi, rest []FilterExpr, ok bool) {
+	if f.forceFiltersInWhere || f.From.IsZero() || f.To.IsZero() {
+		return nil, nil, false
+	}
+	if f.Service == "" && len(f.RequireServices) == 0 {
+		return nil, nil, false
+	}
+	filters := f.Filters
+	if f.FilterRoot != nil {
+		if !f.FilterRoot.isFlatAnd() {
+			return nil, nil, false
+		}
+		filters = f.FilterRoot.Filters
+	}
+	for _, fe := range filters {
+		if traceScopedChipKey(fe.Key) {
+			semi = append(semi, fe)
+		} else {
+			rest = append(rest, fe)
+		}
+	}
+	return semi, rest, len(semi) > 0
+}
+
+// spanChipFilter — SAF: yarı-birleşime giden çipler çıkarılmış süzgeç
+// (yalnız span-düzeyi kalanlar). Yarı-birleşim yoksa f aynen.
+func spanChipFilter(f TraceFilter) TraceFilter {
+	if _, rest, ok := splitServiceChips(f); ok {
+		f.Filters, f.FilterRoot = rest, nil
+	}
+	return f
 }
 
 // tracesSpillSettings spills the raw trace-list GROUP BY trace_id + ORDER BY to
@@ -3663,6 +3765,7 @@ const traceHasErrorHaving = "max(if(status_code = 'error', 1, 0)) = 1"
 // filtersTraceLevel — v0.10.341: arama + çip birlikteyse çipler HAVING'de
 // trace düzeyi. SAF.
 func filtersTraceLevel(f TraceFilter) bool {
+	f = spanChipFilter(f) // v0.10.1155 — yarı-birleşim çipleri HAVING'e gitmez
 	if f.Search == "" {
 		return false
 	}
@@ -3678,6 +3781,7 @@ func filtersTraceLevel(f TraceFilter) bool {
 // (NoPromoted saygılı). Derlenemeyen çip atlanır ve loglanır (ApplyFilters
 // sözleşmesi; API sınırı zaten reddeder, v0.10.118).
 func traceLevelFilterHaving(f TraceFilter) ([]string, []any) {
+	f = spanChipFilter(f) // v0.10.1155 — yarı-birleşim çipleri WHERE'de
 	pm := promotedCols()
 	if f.NoPromoted {
 		pm = nil
