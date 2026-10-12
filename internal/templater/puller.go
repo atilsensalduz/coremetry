@@ -87,7 +87,7 @@ func (p *Puller) Start(ctx context.Context) {
 	}
 }
 
-func (p *Puller) tick(ctx context.Context) {
+func (p *Puller) tick(parent context.Context) {
 	if !p.leader.IsLeader() {
 		return
 	}
@@ -96,7 +96,7 @@ func (p *Puller) tick(ctx context.Context) {
 	// pod can't pile up against the process-lifetime ctx (no-op on CH,
 	// which self-terminates; bounds the ES hang that double-loads the
 	// cluster alongside api-side traffic).
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
 
 	now := time.Now()
@@ -140,8 +140,12 @@ func (p *Puller) tick(ctx context.Context) {
 
 	clusters := p.drain.Snapshot()
 	saved := 0
+	// v0.10.1157 — toplu yazım + ayrı bütçe: ES örneği 30 sn'lik tik
+	// bağlamını tüketse de yazım kendi 20 sn'siyle koşar (kökten iptal
+	// yine geçer); küme başına 2 gidiş-dönüş yerine iki sorgu.
+	ts := make([]chstore.LogTemplate, 0, len(clusters))
 	for _, c := range clusters {
-		t := chstore.LogTemplate{
+		ts = append(ts, chstore.LogTemplate{
 			ID:         c.ID,
 			Template:   c.TemplateString(),
 			FirstSeen:  c.FirstSeen,
@@ -149,13 +153,15 @@ func (p *Puller) tick(ctx context.Context) {
 			TotalCount: c.Count,
 			Services:   c.Services,
 			Sample:     c.Sample,
-		}
-		if err := p.store.UpsertLogTemplate(ctx, t); err != nil {
-			log.Printf("[templater] upsert template %s: %v", c.ID, err)
-			continue
-		}
-		saved++
+		})
 	}
+	wctx, wcancel := context.WithTimeout(parent, 20*time.Second)
+	if err := p.store.UpsertLogTemplates(wctx, ts); err != nil {
+		log.Printf("[templater] upsert %d templates: %v", len(ts), err)
+	} else {
+		saved = len(ts)
+	}
+	wcancel()
 	stats := p.drain.Stats()
 	log.Printf("[templater] tick: sampled=%d skipped_sensitive=%d clusters=%d saved=%d nodes=%d overflow_hits=%d reset_count=%d",
 		len(page.Logs), skipped, len(clusters), saved,

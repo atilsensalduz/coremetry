@@ -3481,6 +3481,20 @@ düzeyinde kalır; OR/iç içe grup ve pencere­siz istekler eski şekilde. İnc
 sınırlı ve tavanlı (sınırsız tarama yok), regresyon testi `trace_service_chip_test.go`; CI
 (vet/build/test/audit) yeşil. Sonuç kümesi eskisinin üst kümesi.
 
+## 2026-10-12 — Templater: log_templates yazımı toplu + ayrı bütçe ("context deadline exceeded") (v0.10.1157)
+
+Prod'da coremetry-worker'da `clickhouse.batch INSERT INTO log_templates` span'leri 2µs'de
+"context deadline exceeded" ile ERROR düşüyordu. Kök neden (`internal/templater/puller.go` tick):
+her turda 30 sn'lik TEK bağlam önce ES log örneğine, sonra küme başına
+`UpsertLogTemplate`'e gidiyordu; o da şablon başına bir `SELECT first_seen … FINAL` + bir INSERT
+yapıyordu (2N gidiş-dönüş). Bütçe bitince kalan şablonların yazımı daha başlamadan düşüyor,
+last_seen tazelenmiyor, trace'ler hata gürültüsüyle doluyordu.
+Düzeltme: yeni `chstore.UpsertLogTemplates` aynı semantiği (first_seen yapışkan, yalnız geriye)
+İKİ sorguda kurar — 1000'lik parçalarla tek `SELECT id, min(first_seen) … FINAL WHERE id IN (?)
+GROUP BY id LIMIT ? SETTINGS max_execution_time = 10` + tek batch INSERT (tek version). Yazım tik
+bağlamından değil süreç bağlamından türeyen kendi 20 sn bütçesiyle koşar (kök iptal yine geçer).
+Tek şablon `UpsertLogTemplate` başka çağıranlar için duruyor.
+
 ## 2026-10-02 — Log deseni anomalisi: servis adı olmadan da loglara geçiş (v0.10.1062)
 
 **Operatör (prod, ES):** servissiz log deseni anomalisinde "Ne yapabilirim" yalnız "servis adı taşımıyor"
