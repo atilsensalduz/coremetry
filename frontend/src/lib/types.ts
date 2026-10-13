@@ -7722,6 +7722,8 @@ export interface RolloutsResult {
 // /databases/slow-queries — operator-facing answer to "what
 // query class is burning the most DB time across the whole
 // install?".
+/** v0.10.1162 — GET /api/databases/statements: bir veritabanının TÜM ifadeleri, sayfalı. */
+export interface DBStatementsPage { rows: SlowQueryRow[]; hasMore: boolean }
 export interface SlowQueryRow extends DBQueryStat {
   service: string;
   // stmtHash is inherited from DBQueryStat since v0.9.963 — both catalogs

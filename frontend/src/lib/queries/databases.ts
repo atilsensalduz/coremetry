@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import type { SlowQueryRow } from '@/lib/types';
+import type { SlowQueryRow, DBStatementsPage } from '@/lib/types';
 
 // Global slow-query catalog (v0.5.165) for /databases/slow-queries.
 // One row per (service, normalised statement) ordered by total
@@ -12,6 +12,16 @@ export function useSlowQueries(params: {
   return useQuery<SlowQueryRow[]>({
     queryKey: ['databases', 'slow-queries', params],
     queryFn: async () => (await api.slowQueries(params)) ?? [],
+  });
+}
+
+// v0.10.1162 — bir veritabanının TÜM ifadeleri (sayfalı + aranabilir).
+export function useDBStatements(params: {
+  from?: number; to?: number; db_system?: string; db_name?: string; q?: string; limit?: number; offset?: number;
+}) {
+  return useQuery<DBStatementsPage>({
+    queryKey: ['databases', 'statements', params],
+    queryFn: async () => (await api.dbStatements(params)) ?? { rows: [], hasMore: false },
   });
 }
 

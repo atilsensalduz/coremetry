@@ -1,7 +1,8 @@
 import { lazy, Suspense, useMemo } from 'react';
 import { rowActivation } from '@/lib/a11y'; // v0.10.455 (dış denetim D3 dilim 3)
 import { msSyncKey } from '@/lib/chart/syncNamespace';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
+import { navHref } from '@/lib/navHref';
 import { Turtle } from 'lucide-react';
 import { Card, PanelTitle, StatTile } from '@/components/ui';
 import { Spinner } from '@/components/Spinner';
@@ -491,6 +492,10 @@ export function DatabaseStatementsSection({
   // veriyle başarısız yenileme) eskisi gibi tablonun üstünde kutu — satırlar
   // kalır, hata gizlenmez.
   const hasRows = (rows ?? []).length > 0;
+  const { search } = useLocation();
+  const allStatementsHref = navHref(
+    `/databases/slow-queries?dbsys=${encodeURIComponent(refObj.system)}${refObj.dbName ? `&dbname=${encodeURIComponent(refObj.dbName)}` : ''}`,
+    search);
   const tableState: Omit<DataTableStateProps<SlowQueryRow>, 'dt'> =
     pending ? { kind: 'loading', skeletonRows: 5 }
     : error ? { kind: 'error', onRetry, message: errorMessage ? `İfade listesi okunamadı: ${errorMessage}` : undefined }
@@ -525,6 +530,11 @@ export function DatabaseStatementsSection({
           not an idle database.
         </QueryError>
       )}
+      {/* v0.10.1162 — bu liste ilk 10; tamamı (aranabilir, sayfalı, satır
+          başına Traces bağlantılı) ifade sayfasında, aynı kapsamla. */}
+      <div style={{ textAlign: 'right', fontSize: 12, marginBottom: 6 }}>
+        <Link to={allStatementsHref}>Tüm sorgular →</Link>
+      </div>
       <div className="table-wrap">
         <table {...dt.tableProps}>
           <DataTableColgroup dt={dt} />

@@ -162,6 +162,29 @@ func slowQueriesUseMV(hasCol bool, from, to time.Time) bool {
 // ClickHouse would resolve the WHERE identifier to the SELECT alias and
 // reject the query with code 184 (the v0.8.362 incident).
 func slowQueriesGlobalMVSQL(where string) string {
+	return slowQueriesMVHead(where) + `
+		ORDER BY total_ms DESC
+		LIMIT ?
+		SETTINGS max_execution_time = 25`
+}
+
+// dbStatementsMVSQL — v0.10.1162: aynı okuma, SAYFALI (bir veritabanının TÜM
+// ifadeleri). Arama HAVING'de (örnek SQL'de büyük/küçük harfsiz alt-dize);
+// sıra kararlı olsun diye toplam süreden sonra kimlik (sayfa sınırında satır
+// yinelenmez / atlanmaz). Bağ sırası: where…, [arama], limit, offset.
+func dbStatementsMVSQL(where string, withSearch bool) string {
+	having := ""
+	if withSearch {
+		having = `
+		HAVING positionCaseInsensitiveUTF8(sample_stmt, ?) > 0`
+	}
+	return slowQueriesMVHead(where) + having + `
+		ORDER BY total_ms DESC, stmt_hash, service_name
+		LIMIT ? OFFSET ?
+		SETTINGS max_execution_time = 25`
+}
+
+func slowQueriesMVHead(where string) string {
 	return `
 		SELECT
 			service_name,
@@ -181,10 +204,91 @@ func slowQueriesGlobalMVSQL(where string) string {
 			arrayElement(quantilesTDigestMerge(0.5, 0.95, 0.99)(duration_q_state), 3) / 1e6 AS p99_ms,
 			maxMerge(duration_max_state) / 1e6          AS max_ms
 		FROM db_statement_summary_5m ` + where + `
-		GROUP BY service_name, stmt_hash
-		ORDER BY total_ms DESC
-		LIMIT ?
-		SETTINGS max_execution_time = 25`
+		GROUP BY service_name, stmt_hash`
+}
+
+// DBStatementsPage — GET /api/databases/statements cevabı (v0.10.1162).
+type DBStatementsPage struct {
+	Rows    []SlowQueryRow `json:"rows"`
+	HasMore bool           `json:"hasMore"`
+}
+
+const (
+	dbStatementsMaxLimit  = 200
+	dbStatementsMaxOffset = 20000
+	dbStatementsRawCap    = 500 // ham yolun (MV yok / <5 dk pencere) tek okuma tavanı
+)
+
+// ClampDBStatementsPage — SAF: sayfa sınırları (önbellek anahtarı da bunları kullanır).
+func ClampDBStatementsPage(limit, offset int) (int, int) {
+	if limit <= 0 || limit > dbStatementsMaxLimit {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > dbStatementsMaxOffset {
+		offset = dbStatementsMaxOffset
+	}
+	return limit, offset
+}
+
+// pageDBStatements — SAF: ham yol satırlarını (zaten toplam süreye göre sıralı)
+// arar ve sayfalar. HasMore yalnız eldeki kümeye göre: ham yol 500'de tavanlı.
+func pageDBStatements(rows []SlowQueryRow, search string, limit, offset int) DBStatementsPage {
+	if q := strings.ToLower(strings.TrimSpace(search)); q != "" {
+		kept := rows[:0:0]
+		for _, r := range rows {
+			if strings.Contains(strings.ToLower(r.SampleStatement), q) || strings.Contains(strings.ToLower(r.Statement), q) {
+				kept = append(kept, r)
+			}
+		}
+		rows = kept
+	}
+	out := DBStatementsPage{Rows: []SlowQueryRow{}}
+	if offset >= len(rows) {
+		return out
+	}
+	end := offset + limit
+	if end > len(rows) {
+		end = len(rows)
+	}
+	out.Rows = append(out.Rows, rows[offset:end]...)
+	out.HasMore = end < len(rows)
+	return out
+}
+
+// GetDBStatements — v0.10.1162 — bir veritabanının TÜM ifadeleri, sayfalı +
+// aranabilir (operatör: "sadece slow queries değil, tüm sorgulara ulaşayım").
+// GetSlowQueriesGlobal ile aynı MV okuması ve aynı satır şekli; fark sayfa ve
+// arama. limit+1 okunur → HasMore sayım sorgusu olmadan bilinir.
+func (s *Store) GetDBStatements(
+	ctx context.Context, from, to time.Time, dbSystem, dbName, search string, limit, offset int,
+) (DBStatementsPage, error) {
+	limit, offset = ClampDBStatementsPage(limit, offset)
+	search = strings.TrimSpace(search)
+	if !slowQueriesUseMV(s.hasDBStmtHashCol, from, to) {
+		rows, err := s.GetSlowQueriesGlobal(ctx, from, to, dbSystem, dbName, dbStatementsRawCap)
+		if err != nil {
+			return DBStatementsPage{}, err
+		}
+		return pageDBStatements(rows, search, limit, offset), nil
+	}
+	rows, err := s.getSlowQueriesGlobalMV(ctx, from, to, dbSystem, dbName, limit+1, &dbStmtPage{search: search, offset: offset})
+	if err != nil {
+		return DBStatementsPage{}, err
+	}
+	out := DBStatementsPage{Rows: rows}
+	if len(rows) > limit {
+		out.Rows, out.HasMore = rows[:limit], true
+	}
+	return out, nil
+}
+
+// dbStmtPage — getSlowQueriesGlobalMV'nin sayfalı kipi (nil = eski tek sayfa).
+type dbStmtPage struct {
+	search string
+	offset int
 }
 
 func (s *Store) GetSlowQueriesGlobal(
@@ -200,7 +304,7 @@ func (s *Store) GetSlowQueriesGlobal(
 	// installs where the db_stmt_hash column couldn't land (external
 	// Distributed cluster with cluster_name unset — probe-driven).
 	if slowQueriesUseMV(s.hasDBStmtHashCol, from, to) {
-		return s.getSlowQueriesGlobalMV(ctx, from, to, dbSystem, dbName, limit)
+		return s.getSlowQueriesGlobalMV(ctx, from, to, dbSystem, dbName, limit, nil)
 	}
 	const placeholder = "__P__"
 	var wc whereClause
@@ -256,7 +360,7 @@ func (s *Store) GetSlowQueriesGlobal(
 // safeF on every merged float: TDigest/aggregate merges can yield NaN on
 // edge-case states and encoding/json rejects NaN (the v0.5.301 500-class).
 func (s *Store) getSlowQueriesGlobalMV(
-	ctx context.Context, from, to time.Time, dbSystem, dbName string, limit int,
+	ctx context.Context, from, to time.Time, dbSystem, dbName string, limit int, page *dbStmtPage,
 ) ([]SlowQueryRow, error) {
 	// Snap the window start DOWN to the MV's 5-minute grid so a rolling
 	// window covers whole buckets (the GetDBTrends trick — an unaligned
@@ -282,6 +386,14 @@ func (s *Store) getSlowQueriesGlobalMV(
 	}
 	sql := slowQueriesGlobalMVSQL(wc.sql())
 	args := append(wc.args, limit)
+	if page != nil { // v0.10.1162 — sayfalı + aranabilir kip
+		sql = dbStatementsMVSQL(wc.sql(), page.search != "")
+		args = wc.args
+		if page.search != "" {
+			args = append(args, page.search)
+		}
+		args = append(args, limit, page.offset)
+	}
 	rows, err := s.conn.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query slow queries (mv): %w", err)

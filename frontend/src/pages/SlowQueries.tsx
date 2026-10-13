@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { rowActivation } from '@/lib/a11y'; // v0.10.455 (dış denetim D3 dilim 3)
 import { SavedViewsBar } from '@/components/SavedViewsBar';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
@@ -8,7 +8,8 @@ import { Button } from '@/components/ui';
 // `api` importu KALKTI (v0.9.1137): sayfanın tek doğrudan çağrısı
 // api.copilotExplainSlowQuery'ydi ve o insight kartına devredildi. Satır
 // verisi useSlowQueries üzerinden (React Query) geliyor.
-import { useSlowQueries } from '@/lib/queries';
+import { useDBStatements } from '@/lib/queries';
+import { Pager } from '@/components/Pager';
 import { timeRangeToNs, fmtNum } from '@/lib/utils';
 import { slowQueryTracesHref } from '@/pages/slowqueries/tracesHref';
 import { useUrlRange, DEFAULT_RANGE_PRESET } from '@/lib/useUrlRange';
@@ -83,6 +84,8 @@ const SLOW_COLS: ColumnDef<SlowQueryRow>[] = [
 // Sorted by total wall-clock time (count × avg ms) because that's
 // what's actually worth fixing. A 5ms query running a million
 // times beats a 5s query running once.
+const PAGE_SIZE = 200;
+
 export default function SlowQueriesPage() {
   const [range, setRange] = useUrlRange(DEFAULT_RANGE_PRESET);
   // v0.9.399 (desen paritesi) — aynı filtre çifti /databases'te URL'de
@@ -91,35 +94,61 @@ export default function SlowQueriesPage() {
   const [sqParams, setSqParams] = useSearchParams();
   const dbSystem = sqParams.get('dbsys') ?? '';
   const dbName = sqParams.get('dbname') ?? '';
+  // v0.10.1162 — operatör: "sadece slow queries değil, bir veritabanının TÜM
+  // sorgularına ulaşabilmeliyim". Liste zaten eşiksizdi (toplam süreye göre
+  // sıralı her ifade) ama ilk 200'de bitiyordu ve aranamıyordu: `q` örnek
+  // SQL'de sunucu tarafı arama, `page` sunucu sayfası (URL'de).
+  const q = sqParams.get('q') ?? '';
+  const page = Math.max(0, Math.floor(Number(sqParams.get('page')) || 0));
+  // Süzgeç değişince sayfa başa döner (bayat sayfa boş liste gösterirdi).
   const setUrlParam = (k: string, v: string) => setSqParams(prev => {
     const next = new URLSearchParams(prev);
     if (v) next.set(k, v); else next.delete(k);
+    if (k !== 'page') next.delete('page');
     return next;
   }, { replace: true });
+  const setPage = (p: number) => setUrlParam('page', p > 0 ? String(p) : '');
+  const [qText, setQText] = useState(q);
+  const qTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(qTimer.current), []);
+  const onSearch = (v: string) => {
+    setQText(v);
+    window.clearTimeout(qTimer.current);
+    qTimer.current = window.setTimeout(() => setUrlParam('q', v.trim()), 300);
+  };
   const setDbSystem = (v: string) => setUrlParam('dbsys', v);
   const setDbName = (v: string) => setUrlParam('dbname', v);
   // v0.10.954 — "Clear" düğmesi ve tablo içi "Filtreleri temizle" AYNI eylem,
   // TEK URL yazımı: iki ayrı setUrlParam çağrısı aynı render'ın bayat
   // searchParams'ından türüyordu ve ikinci yazım ilkini geri alıyordu
   // (dbsys silinmiyordu).
-  const clearFilters = () => setSqParams(prev => {
-    const next = new URLSearchParams(prev);
-    next.delete('dbsys');
-    next.delete('dbname');
-    return next;
-  }, { replace: true });
+  const clearFilters = () => {
+    window.clearTimeout(qTimer.current);
+    setQText('');
+    setSqParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.delete('dbsys');
+      next.delete('dbname');
+      next.delete('q');
+      next.delete('page');
+      return next;
+    }, { replace: true });
+  };
   const dbSystemRef = useRef<HTMLSelectElement>(null);
   // Bounds memoized on [range] so the query key stays stable across
   // renders (the v0.5.184 incident shape).
   const { from, to } = useMemo(() => timeRangeToNs(range), [range]);
-  const rowsQ = useSlowQueries({
+  const rowsQ = useDBStatements({
     from, to,
     db_system: dbSystem || undefined,
     db_name: dbName || undefined,
-    limit: 200,
+    q: q || undefined,
+    limit: PAGE_SIZE,
+    offset: page * PAGE_SIZE,
   });
   const rows: SlowQueryRow[] | null | undefined =
-    rowsQ.isPending ? undefined : rowsQ.isError ? null : rowsQ.data ?? [];
+    rowsQ.isPending ? undefined : rowsQ.isError ? null : rowsQ.data?.rows ?? [];
+  const hasMore = rowsQ.data?.hasMore ?? false;
   const [expanded, setExpanded] = useState<string | null>(null);
   const systems = rows
     ? Array.from(new Set(rows.map(r => r.dbSystem).filter(Boolean))).sort()
@@ -167,7 +196,7 @@ export default function SlowQueriesPage() {
   const tableState: Omit<DataTableStateProps<SlowQueryRow>, 'dt'> =
     rows === undefined ? { kind: 'loading' }
     : rows === null ? { kind: 'error' }
-    : (dbSystem || dbName) ? { kind: 'no-match', onClearFilters: clearFilters, returnFocusRef: dbSystemRef }
+    : (dbSystem || dbName || q) ? { kind: 'no-match', onClearFilters: clearFilters, returnFocusRef: dbSystemRef }
     : {
         kind: 'empty',
         message: "Bu pencerede DB span'i yok — ya trafik yok ya da enstrümante uygulamalar db.statement özniteliği yaymadı.",
@@ -203,7 +232,10 @@ export default function SlowQueriesPage() {
             <option value="">All db names</option>
             {dbNames.map(d => <option key={d} value={d}>{d}</option>)}
           </select>
-          {(dbSystem || dbName) && (
+          <input type="search" value={qText} onChange={e => onSearch(e.target.value)}
+            placeholder="SQL içinde ara…" aria-label="Search statements"
+            style={{ fontSize: 12, padding: '3px 8px', minWidth: 200 }} />
+          {(dbSystem || dbName || q) && (
             <Button variant="secondary" size="sm"
               onClick={clearFilters}>Clear</Button>
           )}
@@ -326,19 +358,12 @@ export default function SlowQueriesPage() {
             </tbody>
           </table>
         </div>
-        {/* v0.9.1018 — TAVAN BEYANI. Bu sayfa sabit `limit: 200` ile
-            çekiyor ve bunu bugüne kadar SÖYLEMİYORDU: 200 satırlık bir
-            tablo, 200'den fazla yavaş sorgusu olan bir sistemde "hepsi
-            bu" gibi okunuyordu. v0.9.1014'ün `count` sözleşmesiyle aynı
-            dürüstlük kuralı — sayı tavana dayandıysa ekran söyler.
-            Sayfalama YOK ve bu bilinçli: en yavaş 200 sorgu zaten
-            kuyruğun ta kendisi; 201.'yi görmek için doğru hamle
-            pencereyi ya da servisi daraltmak. */}
-        {rows && rows.length >= 200 && (
-          <div className="pager" style={{ color: 'var(--text3)' }}>
-            en yavaş 200 sorgu gösteriliyor — tavana dayandı; daha fazlası
-            için pencereyi veya servisi daraltın
-          </div>
+        {/* v0.10.1162 — tavan beyanı (v0.9.1018: "en yavaş 200, daha fazlası
+            için daralt") yerine sunucu sayfalaması: 201. ifade de ulaşılır.
+            Sıra sunucuda toplam süreye göre; kolon sıralaması yüklü sayfanın
+            içinde kalır. */}
+        {rows && (page > 0 || hasMore) && (
+          <Pager mode="offset" count="skip" page={page} pageSize={PAGE_SIZE} hasMore={hasMore} onPage={setPage} />
         )}
 
       </PageShell>

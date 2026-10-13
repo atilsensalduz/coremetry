@@ -1241,6 +1241,10 @@ export const api = {
   // time. Optional db_system narrows to one engine.
   slowQueries: (params: { from?: number; to?: number; db_system?: string; db_name?: string; limit?: number }) =>
     get<import('./types').SlowQueryRow[]>(`/api/databases/slow-queries?${qs(params)}`),
+  // v0.10.1162 — bir veritabanının TÜM ifadeleri: slow-queries ile aynı satır
+  // şekli, sayfalı (limit/offset) + örnek SQL'de arama (q).
+  dbStatements: (params: { from?: number; to?: number; db_system?: string; db_name?: string; q?: string; limit?: number; offset?: number }) =>
+    get<import('./types').DBStatementsPage>(`/api/databases/statements?${qs(params)}`),
   // v0.8.378 — statement detail drill-down (Stage-2 slice D2). One
   // payload with per-section null tolerance, keyed on the v0.8.375
   // stmt_hash decimal string; compare=prior adds prior* fields to the
