@@ -6,6 +6,7 @@ import { useQueries } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { LinkButton, IconButton, SectionHead, Button } from '@/components/ui';
 import { StatTile } from '@/components/ui/StatTile';
+import { PodRing } from '@/pages/clusters/PodRing';
 import { Spinner, Empty } from '@/components/Spinner';
 import { useDataTable, DataTableHead, DataTableColgroup, DataTableCell, DataTableState, type ColumnDef, type DataTableStateProps } from '@/components/ui/DataTable';
 import { MetricArea } from '@/pages/clusters/MetricArea';
@@ -369,7 +370,12 @@ export function ServiceInfraTab({ service, range, onZoom, onZoomReset }: {
                         hücresi entity linki, tıkı satıra ulaşmaz. Seçim durumu AT'ye satırdaki
                         aria-pressed ile. */}
                     <td className="mono" title={sel ? 'Kapsamı kaldırmak için tıkla' : 'Bu cluster\'a daralt'}>{r.namespace || '—'}</td>
-                    <td className="num">{r.phaseKnown ? `${r.running} / ${r.pods}` : fmtNum(r.pods)}</td>
+                    {/* v0.10.1161 — pod sayısı halka içinde (OpenShift deseni); eksik
+                        varsa "running / toplam" metni halkanın solunda kalır. */}
+                    <td className="num">
+                      {r.phaseKnown && r.running < r.pods && <span style={{ marginRight: 6 }}>{r.running} / {r.pods}</span>}
+                      <PodRing total={r.pods} running={r.running} failing={r.failing} phaseKnown={r.phaseKnown} />
+                    </td>
                     <td className="num">{fmtCores(r.cpuCores)}</td>
                     <td className="num">{fmtBytes(r.memBytes)}</td>
                     <td className="num" title={r.restarts == null ? 'kube-state-metrics görünmüyor' : undefined}>
@@ -398,7 +404,10 @@ export function ServiceInfraTab({ service, range, onZoom, onZoomReset }: {
         {showRows && (
         <div className="stat-grid">
           <StatTile label={kpi.phaseKnown ? 'Running pods' : 'Pods'} onClick={goToPods} title="Pods sekmesine git">
-            {kpi.phaseKnown ? `${fmtNum(kpi.running)} / ${fmtNum(kpi.pods)}` : fmtNum(kpi.pods)}
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <PodRing total={kpi.pods} running={kpi.running} failing={kpi.failing} phaseKnown={kpi.phaseKnown} size={40} />
+              {kpi.phaseKnown && kpi.running < kpi.pods && <span>{fmtNum(kpi.running)} / {fmtNum(kpi.pods)}</span>}
+            </span>
             <span className="stat-sub">{kpi.phaseKnown
               ? (kpi.pods - kpi.running > 0 ? `${fmtNum(kpi.pods - kpi.running)} not running` : 'all pods healthy')
               : 'status unknown — kube-state-metrics not visible'}</span>
