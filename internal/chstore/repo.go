@@ -2188,19 +2188,12 @@ func buildGetTracesWhere(f TraceFilter, clusterExpr string) whereClause {
 	// forceFiltersInWhere ile eski şekli ister.
 	// v0.10.1155 — servis daraltması varken özel attribute çipi trace'i
 	// SEÇER (bkz. splitServiceChips): eşleşen span herhangi bir serviste
-	// olabilir. Çip başına ayrı yarı-birleşim — iki çip farklı span'lerde
-	// olabilir (traceLevelFilterHaving ile aynı kural). Kalan çipler aşağıda.
+	// olabilir; çipler farklı span'lerde olabilir. Kalan çipler aşağıda.
+	// v0.10.1158 — çip başına AYRI tavanlı küme geniş çipi kesiyordu; artık
+	// tek iç içe zincir, en küçük küme en içte (trace_chip_rank.go).
 	if semi, _, ok := splitServiceChips(f); ok {
-		for _, fe := range semi {
-			var inner whereClause
-			inner.add("time >= ?", f.From.Add(-traceRowRepairLead))
-			inner.add("time <= ?", f.To.Add(traceRowRepairLead))
-			ApplyFiltersWith(&inner, []FilterExpr{fe}, pm)
-			if len(inner.conds) < 3 { // derlenemedi (ApplyFilters loglar)
-				continue
-			}
-			wc.add("trace_id GLOBAL IN (SELECT trace_id FROM spans "+inner.sql()+
-				" ORDER BY time DESC LIMIT ?)", append(inner.args, traceChipSetMax)...)
+		if cond, cargs := semiJoinChain(f, semi, pm); cond != "" {
+			wc.add(cond, cargs...)
 		}
 		f = spanChipFilter(f)
 	}
@@ -2476,6 +2469,7 @@ func (s *Store) GetTraces(ctx context.Context, f TraceFilter) ([]TraceRow, uint6
 	// timestamps, so partition pruning + the trace_id bloom compose.
 	// v0.10.124 — MV boşluğu (sihirbaz henüz doldurmadıysa) ham yola düşürür.
 	f.MVGap = s.TraceMVGap(ctx, f.From, f.To)
+	f = s.rankServiceChips(ctx, f) // v0.10.1158 — en küçük çip kümesi en içte
 	if tracesMVEligible(f) && countModeAllowsMV(f.CountMode) {
 		f.Explain.note("path=mv (search/filters/env/cluster yok, pencere ≥ 5m)")
 		out, total, hasMore, err := s.getTracesFromMV(ctx, f)

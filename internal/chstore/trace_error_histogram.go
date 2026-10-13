@@ -322,6 +322,7 @@ func (s *Store) TraceErrorHistogram(ctx context.Context, f TraceFilter, stepSec 
 	if !TraceErrorHistogramEligible(f) {
 		return out, fmt.Errorf("trace error histogram: süzgeç uygun değil (Errors + span-düzeyi çip ya da yalnız servis / ortam / küme; arama / süre / services yok)")
 	}
+	f = s.rankServiceChips(ctx, f) // v0.10.1158 — listeyle aynı zincir sırası
 	stepNs := int64(out.Step) * int64(time.Second)
 	fromNs := f.From.UnixNano()
 	if traceErrScopeOnlyEligible(f) {
