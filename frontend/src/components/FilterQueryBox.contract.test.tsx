@@ -134,6 +134,27 @@ describe('FilterQueryBox', () => {
     expect(onChange).toHaveBeenCalledWith([{ k: 'http.route', op: 'EXISTS', v: [] }]);
   });
 
+  // v0.10.1160 — Operator-reported: op'u değiştirmek için çipi kaldırıp yeniden
+  // eklemek gerekiyordu. Op'a tık op listesini açar; değer korunur.
+  it('çipin op\'una tık op listesini açar; seçilen op değeri koruyarak yerinde yazılır', () => {
+    const onChange = vi.fn();
+    const el = render(<FilterQueryBox value={two} onChange={onChange} />);
+    const pick = (chip: number, title: string) => {
+      act(() => { (el.querySelectorAll('.fq-chip .fq-o')[chip] as HTMLElement).click(); });
+      const opt = Array.from(el.querySelectorAll('.fq-ops [role="option"]')).find(o => o.getAttribute('title') === title) as HTMLElement;
+      act(() => { opt.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true })); });
+    };
+    pick(0, '!=');
+    expect(onChange).toHaveBeenLastCalledWith([{ ...two[0], op: '!=' }, two[1]]);
+    pick(1, 'NOT IN');
+    expect(onChange).toHaveBeenLastCalledWith([two[0], { ...two[1], op: 'NOT IN' }]);
+    // Liste → tek değerli op: sessizce değer atmaz, değer adımını eldeki metinle açar.
+    onChange.mockClear();
+    pick(1, '=');
+    expect(onChange).not.toHaveBeenCalled();
+    expect((el.querySelector('.fq-input') as HTMLInputElement).value).toBe('MOBILE, WEB');
+  });
+
   it('metrik modu (v0.10.270): anahtarlar metricAttrKeys, değerler metricLabels, sayım çubuğu yok', async () => {
     const onChange = vi.fn();
     const el = render(<FilterQueryBox value={[]} onChange={onChange} metricName="http_requests_total" metricService="api" />);

@@ -38,6 +38,8 @@ interface Draft {
   text: string;
   /** Düzenlenen çipin indeksi (Backspace / tık ile açıldıysa). */
   editing?: number;
+  /** v0.10.1160 — çipin op'una tıklandı: yalnız op değişir, değer korunur. */
+  keep?: string[];
 }
 
 interface ValueRow { value: string; count: number }
@@ -189,6 +191,25 @@ export function FilterQueryBox({ value, onChange, suggestedValues, quick = [], r
     inputRef.current?.focus();
   };
 
+  // v0.10.1160 — Operator-reported: op'u değiştirmek için çipi kaldırıp yeniden
+  // eklemek gerekiyordu (her tık değer adımını açıyordu). Op'a tık op listesini
+  // açar; seçilen op çipin değeriyle yerinde yazılır.
+  const editChipOp = (i: number) => {
+    const f = value[i];
+    if (!f) return;
+    setDraft({ step: 'op', k: f.k, op: f.op, text: '', editing: i, keep: f.v });
+    inputRef.current?.focus();
+  };
+
+  const pickOp = (d: Draft, op: FilterOp) => {
+    if (!OP_NEEDS_VALUE[op]) { commit({ k: d.k, op, v: [] }, d.editing); return; }
+    const keep = d.keep ?? [];
+    const isList = op === 'IN' || op === 'NOT IN';
+    if (keep.length > 0 && (isList || keep.length === 1)) { commit({ k: d.k, op, v: keep }, d.editing); return; }
+    // Değer yok (∃ → =) ya da liste tek değerli op'a iniyor: değer adımı, eldeki metinle.
+    setDraft({ ...d, step: 'value', op, text: keep.join(', '), keep: undefined });
+  };
+
   const advance = () => {
     if (!draft) return;
     if (draft.step === 'key') {
@@ -200,9 +221,7 @@ export function FilterQueryBox({ value, onChange, suggestedValues, quick = [], r
       return;
     }
     if (draft.step === 'op') {
-      const op = opMatches[hi] ?? opFromShorthand(draft.text) ?? '=';
-      if (!OP_NEEDS_VALUE[op]) { commit({ k: draft.k, op, v: [] }, draft.editing); return; }
-      setDraft({ ...draft, step: 'value', op, text: '' });
+      pickOp(draft, opMatches[hi] ?? opFromShorthand(draft.text) ?? '=');
       return;
     }
     // value
@@ -267,7 +286,7 @@ export function FilterQueryBox({ value, onChange, suggestedValues, quick = [], r
             {/* v0.10.1093 — görünen metin chipDisplay'den (db_stmt_hash →
                 "statement #…"); title ve düzenleme ham değeri taşır. */}
             <span className="fq-k" onClick={e => { e.stopPropagation(); editChip(i); }}>{d.key}</span>
-            {d.op && <span className="fq-o mono" onClick={e => { e.stopPropagation(); editChip(i); }}>{d.op}</span>}
+            {d.op && <span className="fq-o mono" title="Operatörü değiştir" onClick={e => { e.stopPropagation(); editChipOp(i); }}>{d.op}</span>}
             {OP_NEEDS_VALUE[f.op] && (
               <span className="fq-v" onClick={e => { e.stopPropagation(); editChip(i); }}>
                 {d.value}
@@ -325,7 +344,7 @@ export function FilterQueryBox({ value, onChange, suggestedValues, quick = [], r
                   <div key={op} id={`${listId}-${i}`} role="option" aria-selected={i === hi}
                     className={i === hi ? 'fq-op sel mono' : 'fq-op mono'} title={op}
                     onMouseEnter={() => setHi(i)}
-                    onMouseDown={e => { e.preventDefault(); setHi(i); if (!OP_NEEDS_VALUE[op]) commit({ k: draft.k, op, v: [] }, draft.editing); else setDraft({ ...draft, step: 'value', op, text: '' }); }}>
+                    onMouseDown={e => { e.preventDefault(); setHi(i); pickOp(draft, op); }}>
                     {OP_SHORT[op]}{OP_SHORT[op] !== op ? <span className="fq-oplong"> {op}</span> : null}
                   </div>
                 ))}
