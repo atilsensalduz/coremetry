@@ -40,7 +40,11 @@ func containsU32(xs []uint32, v uint32) bool {
 // wikiHitSource — SAF: wiki isabetinin kaynak kaydı (çip + bağlam numarası
 // AYNI anahtardan).
 func wikiHitSource(h wiki.Hit) chatSource {
-	return chatSource{Doc: "Wiki · " + h.Title, Ref: h.URL, Chunk: h.Idx + 1, Score: h.Score}
+	label := "Wiki · "
+	if h.WikiID == wiki.LocalWikiID { // v0.10.1163 — yüklenen belge wiki indeksinden gelir
+		label = "Belge · "
+	}
+	return chatSource{Doc: label + h.Title, Ref: h.URL, Chunk: h.Idx + 1, Score: h.Score}
 }
 
 // wikiHitSources — SAF: isabetlerin kaynak kayıtları (sıra korunur).

@@ -71,6 +71,12 @@ func (s *Server) postWikiPurge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	st := ws.MarkPurged(ctx)
+	// v0.10.1163 — temizlik yüklenen belgeleri de sildi; kaynakları duruyor, geri yaz.
+	go func() {
+		bctx, bcancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer bcancel()
+		s.ragWikiBackfill(bctx)
+	}()
 	s.audit(r, "wiki.purge", "wiki", "index", `{"tables":["wiki_pages","wiki_chunks"]}`)
 	writeJSON(w, map[string]any{"purged": true, "status": wikiStatusOf(st)})
 }

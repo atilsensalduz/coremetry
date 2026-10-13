@@ -477,7 +477,8 @@ func (s *Service) syncPass(ctx context.Context, cfg Config, api API, st *Status)
 	// ve tavana takılınmadıysa (tavan sonrası wiki'ler hiç gezilmedi).
 	if listingClean && !st.Truncated {
 		for _, m := range existing {
-			if !seenWiki[m.WikiID] {
+			// v0.10.1163 — yüklenen belgeler DevOps listesinde olmaz; süpürülmez.
+			if !seenWiki[m.WikiID] && m.WikiID != LocalWikiID {
 				if err := s.store.DeleteWikiPage(ctx, m); err == nil {
 					st.Deleted++
 				}

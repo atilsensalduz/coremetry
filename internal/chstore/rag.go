@@ -100,6 +100,33 @@ func (s *Store) ReplaceDocumentChunks(ctx context.Context, chunks []RagChunk) er
 		chunks[0].DocID, uint32(len(chunks)))
 }
 
+// RagDocumentText — v0.10.1163: dokümanın metni, parçaları sırayla
+// birleştirerek (wiki indeksine aktarım için; parçalar örtüşmez).
+func (s *Store) RagDocumentText(ctx context.Context, docID string) (string, error) {
+	rows, err := s.conn.Query(ctx, `
+		SELECT content FROM rag_chunks FINAL
+		WHERE doc_id = ?
+		ORDER BY chunk_idx
+		LIMIT 20000
+		SETTINGS max_execution_time = 10`, docID)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	var b strings.Builder
+	for rows.Next() {
+		var c string
+		if err := rows.Scan(&c); err != nil {
+			return "", err
+		}
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(c)
+	}
+	return b.String(), rows.Err()
+}
+
 // DeleteRagDocument — dokümanı tamamen kaldırır (admin, audit'li).
 func (s *Store) DeleteRagDocument(ctx context.Context, docID string) error {
 	return s.conn.Exec(ctx, `ALTER TABLE `+s.mutationTarget("rag_chunks")+` DELETE WHERE doc_id = ?`, docID)

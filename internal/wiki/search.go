@@ -188,30 +188,33 @@ func (s *Service) SearchWith(ctx context.Context, query, project string, o Searc
 	var hits []Hit
 	if cfg.EffectiveMode() == ModeLive {
 		res.Mode, res.LiveOnly = "live", true
-		if o.Live != LiveOnWeak {
+		// v0.10.1163 — canlı modda DevOps sayfaları indekste yok ama yüklenen
+		// belgeler var: yalnız o kaynak indeksten okunur (hata = belgesiz devam).
+		var local []Hit
+		if project == "" || IsLocalProject(project) {
+			local, _, _, _ = s.indexHits(ctx, query, LocalProject, terms, o)
+		}
+		if o.Live != LiveOnWeak && len(local) == 0 {
 			return res, nil
 		}
-		live, d := s.liveSearch(ctx, query, project, terms, Stats{}, cfg, false)
-		hits = applyLive(&res, nil, live, d)
+		if o.Live == LiveOnWeak && !IsLocalProject(project) {
+			live, d := s.liveSearch(ctx, query, project, terms, Stats{}, cfg, false)
+			hits = applyLive(&res, nil, live, d)
+		}
+		if len(local) > 0 {
+			hits = append(hits, local...)
+			sortHits(hits)
+		}
 	} else {
-		st, err := s.store.WikiTermStats(ctx, ExpandTerms(terms), project)
+		var st Stats
+		var hybrid bool
+		var err error
+		hits, st, hybrid, err = s.indexHits(ctx, query, project, terms, o)
 		if err != nil {
 			return res, err
 		}
-		if st.N > 0 {
-			cands, err := s.store.WikiCandidates(ctx, NewCandidateQuery(terms, st), project, candidateLimit)
-			if err != nil {
-				return res, err
-			}
-			hits = RankLexical(cands, st, terms)
-			if emb := s.embedderOrNil(); emb != nil && !o.NoSemantic {
-				if vecs, err := emb(ctx, []string{query}); err == nil && len(vecs) == 1 && len(vecs[0]) > 0 {
-					if sem, err := s.store.WikiSemantic(ctx, vecs[0], project, semanticK); err == nil && len(sem) > 0 {
-						hits = Blend(hits, sem, DefaultLexicalWeight)
-						res.Mode = "hybrid"
-					}
-				}
-			}
+		if hybrid {
+			res.Mode = "hybrid"
 		}
 		hits = filterScope(hits, cfg)
 		res.Stale = indexStale(s.Status(ctx, false), cfg, s.now())
@@ -226,6 +229,30 @@ func (s *Service) SearchWith(ctx context.Context, query, project string, o Searc
 	}
 	res.Hits = hits
 	return res, nil
+}
+
+// indexHits — yerel indeks okuması: lexical adaylar + (embedding varsa ve
+// istenmişse) semantik karışım. project "" = tüm kaynaklar.
+func (s *Service) indexHits(ctx context.Context, query, project string, terms []string, o SearchOptions) ([]Hit, Stats, bool, error) {
+	st, err := s.store.WikiTermStats(ctx, ExpandTerms(terms), project)
+	if err != nil || st.N == 0 {
+		return nil, st, false, err
+	}
+	cands, err := s.store.WikiCandidates(ctx, NewCandidateQuery(terms, st), project, candidateLimit)
+	if err != nil {
+		return nil, st, false, err
+	}
+	hits := RankLexical(cands, st, terms)
+	hybrid := false
+	if emb := s.embedderOrNil(); emb != nil && !o.NoSemantic {
+		if vecs, err := emb(ctx, []string{query}); err == nil && len(vecs) == 1 && len(vecs[0]) > 0 {
+			if sem, err := s.store.WikiSemantic(ctx, vecs[0], project, semanticK); err == nil && len(sem) > 0 {
+				hits = Blend(hits, sem, DefaultLexicalWeight)
+				hybrid = true
+			}
+		}
+	}
+	return hits, st, hybrid, nil
 }
 
 // applyLive — canlı denemenin sonucunu çıktıya katar.
@@ -692,6 +719,10 @@ func (s *Service) ReadPage(ctx context.Context, project, wiki, path string) (*Pa
 	cfg := s.Config()
 	if !cfg.ProjectAllowed(project) {
 		return nil, ErrOutOfScope
+	}
+	// v0.10.1163 — yüklenen belge her modda depodan (DevOps'ta karşılığı yok).
+	if IsLocalProject(project) {
+		return s.store.GetWikiPage(ctx, LocalProject, LocalWikiID, path)
 	}
 	liveMode := cfg.EffectiveMode() == ModeLive
 	if liveMode {

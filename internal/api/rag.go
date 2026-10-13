@@ -233,6 +233,7 @@ func (s *Server) ragIngestDocumentHashed(ctx context.Context, docID, name, sourc
 	if err := s.store.ReplaceDocumentChunks(ctx, chunks); err != nil {
 		return 0, err
 	}
+	s.wikiIndexDoc(ctx, name, sourceRef, text) // v0.10.1163 — tek indeks
 	return len(chunks), nil
 }
 
@@ -242,10 +243,12 @@ func (s *Server) deleteRAGDocument(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "id required", http.StatusBadRequest)
 		return
 	}
+	docName := s.ragDocName(r.Context(), id) // silmeden ÖNCE: wiki indeksi ada göre anahtarlı
 	if err := s.store.DeleteRagDocument(r.Context(), id); err != nil {
 		writeErr(w, err)
 		return
 	}
+	s.wikiDeleteDoc(r.Context(), docName)
 	s.audit(r, "rag.delete", "rag_document", id, "{}")
 	writeJSON(w, map[string]bool{"ok": true})
 }
@@ -316,6 +319,10 @@ func (s *Server) ragChatAnswer(ctx context.Context, emit func(string, any), msgs
 	if !ragOn && wikiKB() == nil {
 		return false, false
 	}
+	// v0.10.1163 — tek indeks: wiki araması bu çağırana açıksa yüklenen
+	// belgeler de oradan gelir (ragWikiHits); rag_chunks ayrıca taranmaz
+	// (aynı belge iki kez kaynak olmasın). Wiki kapalıysa eski yol aynen.
+	docsViaWiki := wikiDocsActive(ctx)
 	question := lastUserText(msgs)
 	if strings.TrimSpace(question) == "" {
 		return false, false
@@ -331,7 +338,7 @@ func (s *Server) ragChatAnswer(ctx context.Context, emit func(string, any), msgs
 	// uygulanmaz; TopKRagChunksByContent zaten ≥1 terim eşleşenleri döner =
 	// alaka kapısı, alakasız soru 0 hit → chat serbest-tool döngüsüne düşer).
 	var hits []chstore.RagHit
-	if ragOn && s.rag.Ready() {
+	if ragOn && !docsViaWiki && s.rag.Ready() {
 		if qEmb, err := s.rag.Embed(ctx, []string{question}); err == nil && len(qEmb) == 1 {
 			if h, e := s.store.TopKRagChunks(ctx, qEmb[0], topK); e == nil &&
 				len(h) > 0 && h[0].Score >= ragScoreFloor {
@@ -341,7 +348,7 @@ func (s *Server) ragChatAnswer(ctx context.Context, emit func(string, any), msgs
 			log.Printf("[rag] soru embed: %v — keyword'e düşülüyor", err)
 		}
 	}
-	if ragOn && len(hits) == 0 {
+	if ragOn && !docsViaWiki && len(hits) == 0 {
 		// Keyword floor (v0.9.162 review): en iyi hit terimlerin ≥yarısını
 		// whole-token içermiyorsa alaka zayıf → grounding yapma, serbest
 		// döngüye bırak (tesadüfi tek-terim eşleşmesi chat'i kaçırmasın).
@@ -534,7 +541,11 @@ func (s *Server) StartRAGSync(ctx context.Context, lock cache.Lock) {
 	leader := cache.NewLeaderHolder(lock, "coremetry:lock:rag-sync", cache.LeaderTTL(interval))
 	leader.Start(ctx)
 	tick := func() {
-		if !leader.IsLeader() || !s.rag.Enabled() || len(s.rag.Snapshot().Sources) == 0 {
+		if !leader.IsLeader() {
+			return
+		}
+		s.ragWikiBackfill(ctx) // v0.10.1163 — eksik belgeleri wiki indeksine aktar
+		if !s.rag.Enabled() || len(s.rag.Snapshot().Sources) == 0 {
 			return
 		}
 		s.ragSyncPass(ctx)

@@ -167,7 +167,8 @@ func cleanList(in []string) []string {
 
 // ProjectAllowed — SAF: proje izin listesinde mi (boş liste = hepsi).
 func (c Config) ProjectAllowed(project string) bool {
-	if len(c.Projects) == 0 {
+	if len(c.Projects) == 0 || IsLocalProject(project) { // v0.10.1163 — yüklenen belgeler hep kapsamda
+
 		return true
 	}
 	for _, p := range c.Projects {
@@ -183,7 +184,7 @@ func (c Config) WikiAllowed(project, wikiName string) bool {
 	if !c.ProjectAllowed(project) {
 		return false
 	}
-	if len(c.Wikis) == 0 {
+	if len(c.Wikis) == 0 || IsLocalProject(project) {
 		return true
 	}
 	full := strings.TrimSpace(project) + "/" + strings.TrimSpace(wikiName)
