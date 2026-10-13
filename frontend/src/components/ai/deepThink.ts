@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 
 // deepThink.ts — v0.10.1150 "Derin düşün": composer'daki Derin anahtarı.
 // Durum kullanıcı başına localStorage'da (chatProfileStore / composerTools ile
-// aynı anahtar biçimi). 2026-10-10 (operatör): VARSAYILAN AÇIK — kayıt yoksa
-// (ya da depolama atarsa) açık; kayıtlı '0' (kullanıcı kapattı) korunur.
+// aynı anahtar biçimi). v0.10.1164 (operatör, 2026-10-13: "hız için"):
+// VARSAYILAN KAPALI — kayıt yoksa (ya da depolama atarsa) kapalı; kayıtlı '1'
+// (kullanıcı kendisi açtı) korunur. (2026-10-10 – 1163 arası varsayılan açıktı.)
 // Anahtar depolamasız da bellekte çalışır. Açıkken istek gövdesine context.deep: true
 // gider (internal/api/chat_deep.go); kapalıyken gövde bayt bayt eski.
 //
@@ -20,9 +21,9 @@ export function deepThinkKey(user: string | undefined | null): string {
 
 export function readDeepThink(user: string | undefined | null): boolean {
   try {
-    return window.localStorage.getItem(deepThinkKey(user)) !== '0';
+    return window.localStorage.getItem(deepThinkKey(user)) === '1';
   } catch {
-    return true;
+    return false;
   }
 }
 
