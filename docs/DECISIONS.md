@@ -3481,6 +3481,23 @@ düzeyinde kalır; OR/iç içe grup ve pencere­siz istekler eski şekilde. İnc
 sınırlı ve tavanlı (sınırsız tarama yok), regresyon testi `trace_service_chip_test.go`; CI
 (vet/build/test/audit) yeşil. Sonuç kümesi eskisinin üst kümesi.
 
+## 2026-10-13 — Traces: özel çipler tek zincir, en küçük küme en içte (v0.10.1158, PR #73) → yayın v0.10.1159
+
+PR #73 (Atıl Sensalduz) main'e birleşti ama etiketlenmemişti; 1159 bu değişikliği yayınlar.
+Sorun (operatör, prod): servis seçili + `error.type = java.net.SocketTimeoutException` +
+`server.address = <bağımlılık>`, 12 saat → liste yalnız son ~30 dk'yı gösteriyor; 4 saat önceki
+6 trace şeritte var, listede yok. Kök neden: 1155 her özel çipi AYRI bir `trace_id GLOBAL IN (…)`
+yarı-birleşimine koyuyordu, her biri en yeni 300k span'le tavanlı; geniş çipin kümesi tavana çarpıp
+son ~30 dk'ya kesiliyor, AND kesişimi eski trace'leri sessizce düşürüyordu.
+Düzeltme (`internal/chstore/trace_chip_rank.go`): çipler TEK iç içe zincir, en küçük küme en içte;
+her dış seviye kendi çipini yalnız içteki trace'lerde arar (idx_trace bloom), tavana çarpmaz.
+"En küçük" ölçülür, tahmin edilmez: çip başına paralel tavanlı sayım (`traceErrCount`, tavan+1'de
+durur) store girişlerinde (`GetTraces`, `TraceErrorHistogram`) bir kez koşar; prob hatası sırayı
+aynen bırakır, listeyi düşürmez. En küçük küme bile tavandaysa `RankedWithin` ile ilan edilir —
+sessiz kesme yok. Her seviye zaman sınırlı + LIMIT'li kalır. İnceleme: regresyon testi
+`TestSemiJoinChainSmallestInnermost` (mutasyon kontrollü); yerel kapılar (build/vet/test/
+golangci-lint/audit) yeşil. Bedel: çok çipli istekte çip başına bir ek sayım sorgusu.
+
 ## 2026-10-12 — Templater: log_templates yazımı toplu + ayrı bütçe ("context deadline exceeded") (v0.10.1157)
 
 Prod'da coremetry-worker'da `clickhouse.batch INSERT INTO log_templates` span'leri 2µs'de
