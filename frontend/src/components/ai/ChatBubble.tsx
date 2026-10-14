@@ -22,11 +22,12 @@ import { buildLinkPolicy, classifyLink, EMPTY_POLICY, hostOf, toAppPath, UNVERIF
 import { parseStepPreview, fmtPreviewBytes } from './stepPreview';
 import { DisclosureButton } from '@/components/ui/DisclosureButton';
 import { Chip } from '@/components/ui/Chip';
+import { Badge } from '@/components/ui/Badge'; // v0.10.1170 — kaynak türü rozeti
 import { Brain } from 'lucide-react'; // v0.10.1150 — "Derin" rozeti
 import { summarizeSteps, parseToolError, previewFirstLine, visibleRows, isDeadlineError, fmtMs, VISIBLE_ROWS, sourceStates, stateUnknown, stepRunning, toolErrorLabel } from './toolSteps';
 import { StateBadges } from './StateBadges'; // v0.10.948 — paylaşılan durum rozetleri
 import { chatLinkTargetProps, useChatLinkNewTab } from './chatLinkTarget'; // v0.10.1125 — /cosre yeni sekme
-import { sourceChips, type SourceChip } from './sourceChips'; // v0.10.1127 — hedef başına tek kaynak çipi
+import { sourceChips, SOURCE_KIND_LABEL, type SourceChip } from './sourceChips'; // v0.10.1127 — hedef başına tek kaynak çipi
 
 // ChatBubble — bir sohbet turunun ÇİZİMİ. v0.9.479'da CopilotChat.tsx'ten
 // buraya taşındı: AI çekmecesi içindeki sohbet (AIDrawer) aynı balonu
@@ -775,6 +776,7 @@ function SourceList({ chips }: { chips: readonly SourceChip[] }) {
             ) : (
               <span className="cm-sources__t">{c.name}</span>
             )}
+            {c.kind && <Badge tone="neutral" title="Kaynak türü">{SOURCE_KIND_LABEL[c.kind]}</Badge>}
             {c.host && <span className="cm-sources__host">{c.host}</span>}
           </li>
         ))}

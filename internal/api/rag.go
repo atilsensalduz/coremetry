@@ -370,7 +370,7 @@ func (s *Server) ragChatAnswer(ctx context.Context, emit func(string, any), msgs
 	// aynı anahtar ve sıra; aynı doküman/sayfanın parçaları aynı numara).
 	sources := make([]chatSource, 0, len(hits)+len(wikiHits))
 	for _, h := range hits {
-		sources = append(sources, chatSource{Doc: h.DocName, Ref: h.SourceRef, Chunk: h.ChunkIdx + 1, Score: h.Score})
+		sources = append(sources, chatSource{Doc: h.DocName, Ref: h.SourceRef, Chunk: h.ChunkIdx + 1, Score: h.Score, Kind: ragSourceKind(h.Source)})
 	}
 	for _, h := range wikiHits {
 		sources = append(sources, wikiHitSource(h))

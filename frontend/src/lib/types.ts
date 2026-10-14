@@ -7049,6 +7049,8 @@ export interface RagSource {
   label?: string;
   /** v0.10.1127 — birleşen parçaların bölüm numaraları (ipucu "§1, §3"). */
   sections?: number[];
+  /** v0.10.1170 — kaynak türü rozeti; eski cevaplarda yok. */
+  kind?: 'upload' | 'wiki' | 'url';
 }
 
 // ChatAnswerLink (v0.9.419) — guided cevabın altındaki derin-link çipi;

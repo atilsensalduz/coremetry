@@ -451,7 +451,7 @@ func summaryCandidates(raw string) []string {
 }
 
 func wikiRecSource(rec *wiki.PageRecord) chatSource {
-	return chatSource{Doc: "Wiki · " + rec.Title, Ref: rec.URL, Chunk: 1, Score: 1}
+	return chatSource{Doc: "Wiki · " + rec.Title, Ref: rec.URL, Chunk: 1, Score: 1, Kind: wikiSourceKind(rec.WikiID, rec.URL)}
 }
 
 // wikiRecLinks — SAF: sayfaların çipleri (sıra korunur → önceki sayfa ilk).

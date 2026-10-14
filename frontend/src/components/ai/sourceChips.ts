@@ -19,7 +19,14 @@ export interface SourceChip {
   n: number;
   name: string;
   host: string;
+  /** v0.10.1170 — kaynak türü (rozet); bilinmiyorsa yok. */
+  kind?: 'upload' | 'wiki' | 'url';
 }
+
+/** v0.10.1170 — rozet metni (Türkçe). */
+export const SOURCE_KIND_LABEL: Record<NonNullable<SourceChip['kind']>, string> = {
+  upload: 'yükleme', wiki: 'wiki', url: 'url',
+};
 
 const WIKI_PREFIX = 'Wiki · ';
 const hostOfRef = (u?: string) => /^https?:\/\/([^/?#\s]+)/i.exec(u ?? '')?.[1].toLowerCase() ?? '';
@@ -33,6 +40,7 @@ function targetKey(s: RagSource): string {
 
 export function sourceChips(sources: readonly RagSource[] | undefined): SourceChip[] {
   const out: (SourceChip & { score: number; sections: number[]; doc: string })[] = [];
+  const knownKind = (k?: string): SourceChip['kind'] => (k === 'upload' || k === 'wiki' || k === 'url' ? k : undefined);
   const at = new Map<string, number>();
   for (const s of sources ?? []) {
     const k = targetKey(s);
@@ -45,7 +53,7 @@ export function sourceChips(sources: readonly RagSource[] | undefined): SourceCh
       continue;
     }
     at.set(k, out.length);
-    out.push({ key: k, label: '', href: safeHref(s.ref), title: '', n: 0, name: '', host: '', score: s.score, sections: [...secs], doc: s.doc });
+    out.push({ key: k, label: '', href: safeHref(s.ref), title: '', n: 0, name: '', host: '', score: s.score, sections: [...secs], doc: s.doc, kind: knownKind(s.kind) });
   }
   return out.map((c, i) => ({
     key: c.key,
@@ -55,5 +63,6 @@ export function sourceChips(sources: readonly RagSource[] | undefined): SourceCh
     n: i + 1,
     name: c.doc.startsWith(WIKI_PREFIX) ? c.doc.slice(WIKI_PREFIX.length) : c.doc,
     host: hostOfRef(c.href),
+    kind: c.kind,
   }));
 }

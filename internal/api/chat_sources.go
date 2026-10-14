@@ -26,6 +26,35 @@ type chatSource struct {
 	Label string  `json:"label"`
 	// Sections — birleşen parçaların bölüm numaraları (ilk görülme sırası).
 	Sections []uint32 `json:"sections,omitempty"`
+	// Kind — v0.10.1170: kaynak türü rozeti (upload | wiki | url).
+	Kind string `json:"kind,omitempty"`
+}
+
+// Kaynak türleri (FE rozeti, sourceChips.ts).
+const (
+	chatSourceUpload = "upload"
+	chatSourceWiki   = "wiki"
+	chatSourceURL    = "url"
+)
+
+// wikiSourceKind — SAF: wiki indeksinden gelen kaynağın türü. Yüklenen
+// belgeler (v0.10.1163 tek indeks) adresliyse url kaynağıdır, değilse yükleme.
+func wikiSourceKind(wikiID, url string) string {
+	if wikiID != wiki.LocalWikiID {
+		return chatSourceWiki
+	}
+	if strings.TrimSpace(url) != "" {
+		return chatSourceURL
+	}
+	return chatSourceUpload
+}
+
+// ragSourceKind — SAF: rag_chunks kaynağı (source = upload | url).
+func ragSourceKind(source string) string {
+	if source == chatSourceURL {
+		return chatSourceURL
+	}
+	return chatSourceUpload
 }
 
 func containsU32(xs []uint32, v uint32) bool {
@@ -44,7 +73,7 @@ func wikiHitSource(h wiki.Hit) chatSource {
 	if h.WikiID == wiki.LocalWikiID { // v0.10.1163 — yüklenen belge wiki indeksinden gelir
 		label = "Belge · "
 	}
-	return chatSource{Doc: label + h.Title, Ref: h.URL, Chunk: h.Idx + 1, Score: h.Score}
+	return chatSource{Doc: label + h.Title, Ref: h.URL, Chunk: h.Idx + 1, Score: h.Score, Kind: wikiSourceKind(h.WikiID, h.URL)}
 }
 
 // wikiHitSources — SAF: isabetlerin kaynak kayıtları (sıra korunur).
