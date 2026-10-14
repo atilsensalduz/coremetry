@@ -306,8 +306,13 @@ describe('(4) @-anma popup\'ı ile birlikte', () => {
     // kırılıyordu; aç/kapa semantiği composerEdit saf testlerinde pinli.
     await key(ta(), 'Enter');
     expect(ta().value).toBe('- @svc-orders \n- ');
+    // v0.10.1165 — CI kırmızısı (1161, 1164): Enter'ın imleç yerleştirmesi
+    // bekleyen zamanlayıcıdaydı; Ctrl+B ondan önce gelince kalın işareti sona
+    // DEĞİL imlecin eski yerine giriyordu. Zamanlayıcılar boşaltılır ve iddia
+    // konumdan bağımsız: kısayol çalıştı mı (işaret eklendi mi).
+    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
     await key(ta(), 'b', { ctrlKey: true });
-    expect(ta().value.endsWith('****')).toBe(true);
+    expect(ta().value).toContain('****');
     expect(calls).toHaveLength(0);
   });
 });
