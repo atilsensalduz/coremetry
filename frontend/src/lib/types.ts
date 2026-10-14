@@ -7634,6 +7634,8 @@ export interface RagConfigView {
   endpoint: string;
   model: string;
   enabled: boolean;
+  /** v0.10.1172 — belge yükleme açık mı (RAG açık YA DA wiki bilgisi açık). Eski sunucuda yok → enabled. */
+  uploadAllowed?: boolean;
   topK?: number;
   hasKey: boolean;
   // v0.9.23 — self-signed embedding/wiki endpoint'leri için (sır değil).

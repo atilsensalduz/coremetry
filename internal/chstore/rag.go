@@ -75,6 +75,10 @@ func (s *Store) ReplaceDocumentChunks(ctx context.Context, chunks []RagChunk) er
 	if len(chunks) == 0 {
 		return nil
 	}
+	oldN, err := s.ragChunkCount(ctx, chunks[0].DocID) // v0.10.1172 — kuyruk mezar taşları için
+	if err != nil {
+		return err
+	}
 	version := uint64(time.Now().UnixNano())
 	ctx2 := asyncInsertCtx(ctx)
 	batch, err := s.conn.PrepareBatch(ctx2, `INSERT INTO rag_chunks
@@ -92,12 +96,11 @@ func (s *Store) ReplaceDocumentChunks(ctx context.Context, chunks []RagChunk) er
 	if err := batch.Send(); err != nil {
 		return err
 	}
-	// Kuyruk temizliği: yeni chunk sayısının ötesindeki eski satırlar.
-	// Düşük hacimli state tablosunda hafif mutation kabul edilebilir
-	// (ALTER DELETE burada nadir ve sınırlı — upload/senkron anı).
-	return s.conn.Exec(ctx, `ALTER TABLE `+s.mutationTarget("rag_chunks")+` DELETE
-		WHERE doc_id = ? AND chunk_idx >= ?`,
-		chunks[0].DocID, uint32(len(chunks)))
+	// Kuyruk temizliği: yeni chunk sayısının ötesindeki eski satırlar
+	// MEZAR TAŞIYLA (v0.10.1172) — eskiden ALTER … DELETE mutasyonuydu;
+	// kümede ON CLUSTER kuyruğu zaman aşımına düşüp yüklemeyi hatalı
+	// gösterebiliyordu.
+	return s.ragTombstones(ctx, chunks[0].DocID, uint32(len(chunks)), oldN)
 }
 
 // RagDocumentText — v0.10.1163: dokümanın metni, parçaları sırayla
@@ -105,7 +108,7 @@ func (s *Store) ReplaceDocumentChunks(ctx context.Context, chunks []RagChunk) er
 func (s *Store) RagDocumentText(ctx context.Context, docID string) (string, error) {
 	rows, err := s.conn.Query(ctx, `
 		SELECT content FROM rag_chunks FINAL
-		WHERE doc_id = ?
+		WHERE doc_id = ? AND doc_name != ''
 		ORDER BY chunk_idx
 		LIMIT 20000
 		SETTINGS max_execution_time = 10`, docID)
@@ -128,8 +131,49 @@ func (s *Store) RagDocumentText(ctx context.Context, docID string) (string, erro
 }
 
 // DeleteRagDocument — dokümanı tamamen kaldırır (admin, audit'li).
+//
+// v0.10.1172 — mutasyon (ALTER … DELETE, kümede ON CLUSTER) yerine MEZAR
+// TAŞI: aynı (doc_id, chunk_idx) anahtarına daha yüksek version'lı boş
+// satır (doc_name=”); ReplacingMergeTree FINAL onu seçer, okumalar
+// doc_name != ” ile eler. Operatör-bildirimi: belge silerken hata
+// (dağıtık kümede ON CLUSTER DDL kuyruğu zaman aşımı). Arka plan
+// birleşmesi satırları zamanla tekleştirir.
 func (s *Store) DeleteRagDocument(ctx context.Context, docID string) error {
-	return s.conn.Exec(ctx, `ALTER TABLE `+s.mutationTarget("rag_chunks")+` DELETE WHERE doc_id = ?`, docID)
+	n, err := s.ragChunkCount(ctx, docID)
+	if err != nil {
+		return err
+	}
+	return s.ragTombstones(ctx, docID, 0, n)
+}
+
+// ragChunkCount — canlı parça sayısı (en yüksek idx + 1; mezar taşları hariç).
+func (s *Store) ragChunkCount(ctx context.Context, docID string) (uint32, error) {
+	var n uint64
+	err := s.conn.QueryRow(ctx, `
+		SELECT toUInt64(if(count() = 0, 0, max(chunk_idx) + 1)) FROM rag_chunks FINAL
+		WHERE doc_id = ? AND doc_name != ''
+		SETTINGS max_execution_time = 10`, docID).Scan(&n)
+	return uint32(n), err
+}
+
+// ragTombstones — [from, to) parçalarına mezar taşı (boş satır, yeni version).
+func (s *Store) ragTombstones(ctx context.Context, docID string, from, to uint32) error {
+	if from >= to {
+		return nil
+	}
+	batch, err := s.conn.PrepareBatch(asyncInsertCtx(ctx), `INSERT INTO rag_chunks
+		(doc_id, doc_name, source, source_ref, uploaded_by, chunk_idx, content, embedding, source_hash, updated_at, version)`)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	version := uint64(now.UnixNano())
+	for i := from; i < to; i++ {
+		if err := batch.Append(docID, "", "", "", "", i, "", []float32{}, "", now, version); err != nil {
+			return err
+		}
+	}
+	return batch.Send()
 }
 
 // ListRagDocuments — katalog: doküman başına chunk sayısı + boyut.
@@ -139,6 +183,7 @@ func (s *Store) ListRagDocuments(ctx context.Context) ([]RagDocument, error) {
 		       anyLast(uploaded_by), count() AS chunks, sum(length(content)) AS bytes,
 		       toUnixTimestamp64Nano(max(updated_at)), anyLast(source_hash)
 		FROM rag_chunks FINAL
+		WHERE doc_name != '' -- v0.10.1172 mezar taşları hariç
 		GROUP BY doc_id
 		ORDER BY doc_id
 		LIMIT 1000
@@ -166,7 +211,7 @@ const ragTopKSQL = `
 		SELECT doc_id, doc_name, source, source_ref, chunk_idx, content,
 		       1 - cosineDistance(embedding, ?) AS score
 		FROM rag_chunks FINAL
-		WHERE length(embedding) = length(?)
+		WHERE length(embedding) = length(?) AND doc_name != ''
 		ORDER BY score DESC
 		LIMIT ?
 		SETTINGS max_execution_time = 10`
@@ -262,6 +307,7 @@ func (s *Store) TopKRagChunksByContent(ctx context.Context, query string, k int)
 	q := `SELECT doc_id, doc_name, source, source_ref, chunk_idx, content, score FROM (
 		SELECT doc_id, doc_name, source, source_ref, chunk_idx, content, ` + scoreExpr + ` AS score
 		FROM rag_chunks FINAL
+		WHERE doc_name != ''
 	) WHERE score > 0
 	ORDER BY score DESC, chunk_idx ASC
 	LIMIT ?

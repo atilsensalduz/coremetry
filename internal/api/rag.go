@@ -83,7 +83,21 @@ func maskedRAGConfig(c rag.Config) map[string]any {
 }
 
 func (s *Server) getRAGConfig(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, maskedRAGConfig(s.rag.Snapshot()))
+	out := maskedRAGConfig(s.rag.Snapshot())
+	out["uploadAllowed"] = s.ragUploadAllowed() // v0.10.1172
+	writeJSON(w, out)
+}
+
+// ragUploadAllowed — v0.10.1172 (operatör-bildirimi: "yükle butonu
+// çıkmıyor"): belge yüklemek RAG anahtarı kapalıyken de mümkün olmalı —
+// v0.10.1163'ten beri belgeler wiki indeksinden aranıyor (tek indeks).
+// RAG açık YA DA wiki bilgisi açıksa yükleme serbest.
+func (s *Server) ragUploadAllowed() bool {
+	if s.rag != nil && s.rag.Enabled() {
+		return true
+	}
+	w := wikiKB()
+	return w != nil && w.Enabled()
 }
 
 func (s *Server) putRAGConfig(w http.ResponseWriter, r *http.Request) {
@@ -156,8 +170,8 @@ func (s *Server) listRAGDocuments(w http.ResponseWriter, r *http.Request) {
 // endpoint'i yoksa doküman text-only girer (keyword retrieval), yükleme
 // bloklanmaz (review: eski Ready() kapısı text-only ingest'i erişilmez yapmıştı).
 func (s *Server) uploadRAGDocument(w http.ResponseWriter, r *http.Request) {
-	if !s.rag.Enabled() {
-		http.Error(w, "RAG etkin değil (Settings → AI → RAG)", http.StatusServiceUnavailable)
+	if !s.ragUploadAllowed() {
+		http.Error(w, "RAG da wiki bilgisi de kapalı (Ayarlar → Knowledge)", http.StatusServiceUnavailable)
 		return
 	}
 	name, text, err := readRAGUpload(r)

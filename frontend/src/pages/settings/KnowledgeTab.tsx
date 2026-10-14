@@ -90,6 +90,8 @@ export function KnowledgeTab() {
 
   if (cfg === undefined) return <Spinner />;
   if (cfg === null) return <Empty icon="📄" title="RAG ayarları yüklenemedi" />;
+  // v0.10.1172 — yükleme RAG kapalıyken de açık olabilir (wiki tek indeks).
+  const uploadOn = cfg.uploadAllowed ?? cfg.enabled;
 
   // v0.10.954 — tablo standardı T12: doküman listesinin yükleniyor / hata /
   // boş hâli tablonun İÇİNDE, başlık durur (RAG ayar kapısı yukarıda kalır).
@@ -300,13 +302,13 @@ export function KnowledgeTab() {
         <input ref={fileRef} type="file" accept=".md,.txt,.pdf,.xlsx,.csv" style={{ display: 'none' }}
                onChange={e => { const f = e.target.files?.[0]; if (f) void upload(f); }} />
         <Button variant="secondary" size="sm" type="button"
-          disabled={busy || !cfg.enabled}
+          disabled={busy || !uploadOn}
           title={cfg.endpoint ? 'md / txt / pdf / xlsx / csv yükle (≤5MB; tabloda her satır ayrı kayıt)' : 'md / txt / pdf / xlsx / csv yükle (≤5MB; tabloda her satır ayrı kayıt) — keyword modu, embedding yok'}
           onClick={() => fileRef.current?.click()}>
           ⬆ Doküman yükle
         </Button>
         <Button variant="secondary" size="sm" type="button"
-          disabled={busy || !cfg.enabled}
+          disabled={busy || !uploadOn}
           title="Tarayıcıdan (OneNote / wiki) kopyalanan metni yapıştır — dosya/token gerekmez"
           onClick={() => setPasteOpen(o => !o)}>
           📋 Metin yapıştır
@@ -322,7 +324,7 @@ export function KnowledgeTab() {
             style={{ padding: '8px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text)', fontSize: 13, fontFamily: 'inherit', resize: 'vertical' }} />
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <Button variant="primary" size="sm" type="button"
-              disabled={busy || !cfg.enabled || !pasteName.trim() || !pasteText.trim()}
+              disabled={busy || !uploadOn || !pasteName.trim() || !pasteText.trim()}
               onClick={() => void pasteDoc()}>
               Ekle
             </Button>
