@@ -23,7 +23,7 @@ import { groupConversations, sidebarTitle } from './chatHistoryGroups';
 // kaydırırken yapışkan, satır yüksekliği --cosre-row-h (38px). Kurallar
 // globals.css "CoSRE tip ölçeği" bölümünde.
 export function CosreSidebar({
-  threads, error, activeId, collapsed, mobileOpen, onNew, onOpen, onDelete, onCloseMobile, nowMs,
+  threads, error, activeId, collapsed, mobileOpen, onNew, onOpen, onDelete, onShare, onCloseMobile, nowMs,
 }: {
   threads: AiConversationSummary[] | undefined;
   error?: string;
@@ -33,6 +33,8 @@ export function CosreSidebar({
   onNew: () => void;
   onOpen: (t: AiConversationSummary) => void;
   onDelete: (t: AiConversationSummary) => void;
+  /** v0.10.1167 — salt-okunur paylaşım bağlantısı (verilmezse düğme yok). */
+  onShare?: (t: AiConversationSummary) => void;
   onCloseMobile: () => void;
   /** test dikişi — gruplamanın "şimdi"si */
   nowMs?: number;
@@ -74,6 +76,10 @@ export function CosreSidebar({
                       onClick={() => onOpen(t)} title={t.title}>
                       <span className="cosre-side__title">{sidebarTitle(t.title)}</span>
                     </Button>
+                    {onShare && (
+                      <Button variant="ghost" size="xs" className="cosre-side__del"
+                        onClick={() => onShare(t)} aria-label={`${t.title} konuşmasını paylaş`} title="Salt-okunur bağlantıyı kopyala">🔗</Button>
+                    )}
                     <Button variant="ghost-danger" size="xs" className="cosre-side__del"
                       onClick={() => onDelete(t)} aria-label={`${t.title} konuşmasını sil`} title="Konuşmayı sil">✕</Button>
                   </li>

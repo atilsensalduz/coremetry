@@ -1390,6 +1390,13 @@ export const api = {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
+  // v0.10.1167 — salt-okunur paylaşım bağlantısı (ai_conversation_share.go).
+  shareAiConversation: (id: string) =>
+    request<import('./types').AiConversationShare>(`/api/ai/conversations/${encodeURIComponent(id)}/share`, { method: 'POST' }),
+  unshareAiConversation: (id: string) =>
+    request<void>(`/api/ai/conversations/${encodeURIComponent(id)}/share`, { method: 'DELETE' }),
+  sharedAiConversation: (id: string, token: string) =>
+    get<import('./types').AiSharedConversation>(`/api/ai/shared/${encodeURIComponent(id)}?t=${encodeURIComponent(token)}`),
   deleteAiConversation: (id: string) =>
     request<void>(`/api/ai/conversations/${encodeURIComponent(id)}`,
       { method: 'DELETE' }),

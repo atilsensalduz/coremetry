@@ -76,6 +76,8 @@ const Profiling         = lazy(() => import('./pages/Profiling'));
 const AIObservability   = lazy(() => import('./pages/AIObservability'));
 // v0.10.1125 — /cosre: bağımsız, kromsuz CoSRE sohbet sayfası (AppShell dalı: lib/cosrePage.ts).
 const CoSRE             = lazy(() => import('./pages/CoSRE'));
+// v0.10.1167 — paylaşılan sohbet, salt-okunur (kromlu normal sayfa).
+const CoSREShared       = lazy(() => import('./pages/CoSREShared'));
 const Profile           = lazy(() => import('./pages/Profile'));
 const Settings          = lazy(() => import('./pages/Settings'));
 const Users             = lazy(() => import('./pages/Users'));
@@ -205,6 +207,7 @@ export default function App() {
             <Route path="/profiling"      element={<Profiling />} />
             <Route path="/ai"             element={<AIObservability />} />
             <Route path="/cosre"          element={<CoSRE />} />
+            <Route path="/cosre/shared/:id" element={<CoSREShared />} />
             <Route path="/profile"        element={<Profile />} />
             {/* v0.8.13 — Settings decomposed into a /settings/:section area. */}
             <Route path="/settings"          element={<Navigate to="/settings/smtp" replace />} />

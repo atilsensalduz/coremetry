@@ -106,6 +106,9 @@ type aiChatBlob struct {
 	Context *agentctx.PageContext `json:"context,omitempty"`
 	// UpdatedAt — unix ns; satırın created_at'iyle aynı damga.
 	UpdatedAt int64 `json:"updatedAt"`
+	// ShareToken — v0.10.1167: salt-okunur paylaşım bağlantısının sırrı
+	// (ai_conversation_share.go). Boş = paylaşılmıyor. Her upsert taşır.
+	ShareToken string `json:"shareToken,omitempty"`
 }
 
 // aiConversationSummary — liste yanıtı. MESAJ GÖVDESİ TAŞIMAZ: çekmece
@@ -487,10 +490,11 @@ func (s *Server) upsertAIConversation(w http.ResponseWriter, r *http.Request) {
 		existingTitle, pinned, existingBlob = cur.Name, cur.Pinned, cur.QueryString
 	}
 	blob := aiChatBlob{
-		Messages:  msgs,
-		Subject:   clampChatRunes(body.Subject, aiChatMaxSubjectRunes),
-		Context:   resolveChatContext(body.Context, existingBlob, aiChatMaxContextBytes), // v0.10.944
-		UpdatedAt: now,
+		ShareToken: carriedShareToken(existingBlob), // v0.10.1167 — tüm satır değişir, paylaşım taşınır
+		Messages:   msgs,
+		Subject:    clampChatRunes(body.Subject, aiChatMaxSubjectRunes),
+		Context:    resolveChatContext(body.Context, existingBlob, aiChatMaxContextBytes), // v0.10.944
+		UpdatedAt:  now,
 	}
 	fitted, raw, err := fitChatBlob(blob, aiChatMaxMessages, aiChatMaxBlobBytes)
 	if err != nil {

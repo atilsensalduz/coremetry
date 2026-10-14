@@ -7274,6 +7274,17 @@ export interface AiConversationSummary {
 
 // AiConversation (v0.9.1139) — tekil okuma + kaydetme yanıtı; turların
 // kendisini taşır. `id` SUNUCU tarafından basılır, istemci devralır.
+/** v0.10.1167 — salt-okunur paylaşılan sohbet (GET /api/ai/shared/{id}?t=). */
+export interface AiSharedConversation {
+  id: string;
+  title: string;
+  updatedAt: number;
+  subject?: string;
+  messages: { role: string; text: string }[];
+  readOnly: boolean;
+}
+/** v0.10.1167 — POST /api/ai/conversations/{id}/share cevabı (path = uygulama içi yol). */
+export interface AiConversationShare { id: string; token: string; path: string }
 export interface AiConversation {
   id: string;
   title: string;

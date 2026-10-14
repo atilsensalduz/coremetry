@@ -414,6 +414,18 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
     }
   };
 
+  // v0.10.1167 — salt-okunur paylaşım bağlantısı panoya.
+  const shareThread = async (t: AiConversationSummary) => {
+    try {
+      const r = await api.shareAiConversation(t.id);
+      const url = `${window.location.origin}${r.path}`;
+      try { await navigator.clipboard.writeText(url); toast.success('Salt-okunur bağlantı panoya kopyalandı'); }
+      catch { toast.info(`Salt-okunur bağlantı: ${url}`, 10000); }
+    } catch (e) {
+      toast.error(`Paylaşılamadı: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
   const removeThread = async (t: AiConversationSummary) => {
     if (!await confirm({
       title: 'Konuşma silinsin mi?',
@@ -689,6 +701,10 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
                     title={`${t.messages} mesaj`}>
                     {tsRel(t.updatedAt)} · {t.messages}
                   </span>
+                  <Button variant="ghost" size="xs"
+                    onClick={() => void shareThread(t)}
+                    aria-label={`${t.title} konuşmasını paylaş`}
+                    title="Salt-okunur bağlantıyı kopyala">🔗</Button>
                   <Button variant="ghost-danger" size="xs"
                     onClick={() => void removeThread(t)}
                     aria-label={`${t.title} konuşmasını sil`}
@@ -914,6 +930,7 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
               onNew={() => { startNew(); setSideMobile(false); }}
               onOpen={t => { setSideMobile(false); void openThread(t); }}
               onDelete={t => void removeThread(t)}
+              onShare={t => void shareThread(t)}
               onCloseMobile={() => setSideMobile(false)} />
             <main className="cosre-page__body">
               {bodyNode}
