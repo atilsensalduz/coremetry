@@ -119,7 +119,84 @@ func (s *Server) ragWikiHits(ctx context.Context, question string) []wiki.Hit {
 	if err != nil {
 		return nil
 	}
-	return ragWikiSelect(res.Hits)
+	hits := res.Hits
+	// v0.10.1175 — yüklenen belgeler (envanter tabloları, JSON/YAML kayıtları):
+	// ayrı yerel arama, belge başına daha çok satır (genel arama sayfa başına 2).
+	if loc, lerr := w.SearchWith(ctx, question, wiki.LocalProject, wiki.SearchOptions{Limit: ragLocalDocLimit, PerPage: ragLocalDocLimit, Live: wiki.LiveOff, NoSemantic: true}); lerr == nil {
+		hits = appendNewHits(hits, loc.Hits)
+	}
+	return ragWikiSelectIDs(hits, identifierTerms(question))
+}
+
+// v0.10.1175 — Operator-reported: RAG'e yüklenen Excel'den "hostname ↔
+// appname" soruları bulunamıyordu. Kök neden (yerel ölçüm): "srvappl01 hangi
+// uygulama" sorgusunun terimleri [srvappl01 uygulama]; satırda kolon adı
+// "AppName" olduğu için "uygulama" geçmez, terim kapsamı ~yarıda kalır ve
+// skor ragWikiFloor (0.5) altına düşer — satır hostname'i birebir taşısa da
+// atılır. Ayrıca genel arama sayfa başına 2 parça aldığından bir envanter
+// belgesinden en çok 2 parça gelirdi. Çözüm: (1) yüklenen belgeler için ayrı
+// yerel arama, belge başına ragLocalDocLimit parça; (2) KİMLİK BİÇİMLİ terim
+// (rakam ya da - . _ içeren, ≥4 harf: hostname, uygulama kodu, IP) parçada
+// birebir geçiyorsa isabet kapsam tabanına takılmaz.
+const (
+	ragLocalDocLimit = 12
+	ragIDHitsMax     = 12
+)
+
+// identifierTerms — SAF: sorgudaki kimlik biçimli terimler (küçük harf).
+func identifierTerms(question string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, t := range wiki.QueryTerms(question) {
+		t = strings.ToLower(t)
+		if len([]rune(t)) < 4 || seen[t] || !strings.ContainsAny(t, "0123456789-._") {
+			continue
+		}
+		seen[t] = true
+		out = append(out, t)
+	}
+	return out
+}
+
+// appendNewHits — SAF: b'deki, a'da olmayan (parça kimliğiyle) isabetler sona.
+func appendNewHits(a, b []wiki.Hit) []wiki.Hit {
+	seen := make(map[string]bool, len(a))
+	for _, x := range a {
+		seen[x.Key()] = true
+	}
+	out := append([]wiki.Hit(nil), a...)
+	for _, x := range b {
+		if !seen[x.Key()] {
+			seen[x.Key()] = true
+			out = append(out, x)
+		}
+	}
+	return out
+}
+
+// ragWikiSelectIDs — SAF: kimliği birebir taşıyan isabetler önce (taban
+// uygulanmaz, en çok ragIDHitsMax), ardından normal seçim.
+func ragWikiSelectIDs(h []wiki.Hit, ids []string) []wiki.Hit {
+	var idHits []wiki.Hit
+	if len(ids) > 0 {
+		for _, x := range h {
+			low := strings.ToLower(x.Text)
+			for _, id := range ids {
+				if strings.Contains(low, id) {
+					idHits = append(idHits, x)
+					break
+				}
+			}
+			if len(idHits) >= ragIDHitsMax {
+				break
+			}
+		}
+	}
+	sel := ragWikiSelect(h)
+	if len(idHits) == 0 {
+		return sel
+	}
+	return appendNewHits(idHits, sel)
 }
 
 // ragWikiSelect — SAF: en iyi skor taban altındaysa hiç; değilse taban/2
