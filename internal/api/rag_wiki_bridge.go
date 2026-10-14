@@ -60,9 +60,17 @@ func (s *Server) ragDocName(ctx context.Context, docID string) string {
 // içerik değişimi zaten yükleme anında yazılır.
 func (s *Server) ragWikiBackfill(ctx context.Context) {
 	w := wikiKB()
-	if w == nil {
+	if w == nil || s.store == nil {
 		return
 	}
+	// v0.10.1166 — arka plan en-iyi-çaba işi süreci düşüremez: 1163'te wiki
+	// temizliğinden sonra başlatılan goroutine, deposu bağlı olmayan sunucuda
+	// (test kurulumu) nil bağlantıda panikleyip tüm paketi düşürdü (CI).
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[wiki] belge aktarımı panikledi (atlandı): %v", r)
+		}
+	}()
 	docs, err := s.store.ListRagDocuments(ctx)
 	if err != nil || len(docs) == 0 {
 		return
