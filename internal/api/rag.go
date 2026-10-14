@@ -274,8 +274,8 @@ func readRAGUpload(r *http.Request) (name, text string, err error) {
 	}
 	defer f.Close()
 	low := strings.ToLower(hdr.Filename)
-	if !strings.HasSuffix(low, ".md") && !strings.HasSuffix(low, ".txt") && !strings.HasSuffix(low, ".pdf") {
-		return "", "", fmt.Errorf(".md / .txt / .pdf kabul edilir (%s)", hdr.Filename)
+	if !strings.HasSuffix(low, ".md") && !strings.HasSuffix(low, ".txt") && !strings.HasSuffix(low, ".pdf") && !rag.IsTableFile(low) {
+		return "", "", fmt.Errorf(".md / .txt / .pdf / .xlsx / .csv kabul edilir (%s)", hdr.Filename)
 	}
 	b, err := io.ReadAll(io.LimitReader(f, ragMaxUploadBytes+1))
 	if err != nil {
@@ -283,6 +283,17 @@ func readRAGUpload(r *http.Request) (name, text string, err error) {
 	}
 	if len(b) > ragMaxUploadBytes {
 		return "", "", fmt.Errorf("dosya %dMB tavanını aşıyor", ragMaxUploadBytes>>20)
+	}
+	// v0.10.1171 — tablo dosyası (.xlsx / .csv): her satır başlıklarıyla ayrı paragraf (rag/table.go).
+	if rag.IsTableFile(low) {
+		text, terr := rag.TableToText(hdr.Filename, b)
+		if terr != nil {
+			return "", "", terr
+		}
+		if strings.TrimSpace(text) == "" {
+			return "", "", fmt.Errorf("tabloda başlık satırından sonra dolu satır yok")
+		}
+		return hdr.Filename, text, nil
 	}
 	// PDF (v0.9.175) — metin katmanını çıkar; taranmış/görüntü PDF (metin yok)
 	// açıkça reddedilir (OCR desteklenmiyor). rag.LooksLikePDF %PDF- magic'i de
