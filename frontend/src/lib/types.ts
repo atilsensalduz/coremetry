@@ -7630,6 +7630,8 @@ export interface WikiPagesPage {
   mode?: WikiMode;
 }
 
+/** v0.10.1173 — arkada indekslenen ya da başarısız belge (yükleyen pod'un belleği). */
+export interface RagPendingDoc { docId: string; docName: string; state: 'indexing' | 'failed'; error?: string; at: number }
 export interface RagConfigView {
   endpoint: string;
   model: string;

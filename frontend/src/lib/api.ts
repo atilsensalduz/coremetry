@@ -2324,11 +2324,11 @@ export const api = {
       body: JSON.stringify(c),
     }),
   listRagDocuments: () =>
-    get<{ documents: import('./types').RagDocument[]; ready: boolean }>('/api/rag/documents'),
+    get<{ documents: import('./types').RagDocument[]; ready: boolean; pending?: import('./types').RagPendingDoc[] }>('/api/rag/documents'),
   uploadRagDocument: (file: File) => {
     const fd = new FormData();
     fd.append('file', file);
-    return request<{ docId: string; chunks: number }>('/api/rag/documents', {
+    return request<{ docId: string; chunks: number; status?: 'indexing' }>('/api/rag/documents', {
       method: 'POST', body: fd,
     });
   },
@@ -2336,7 +2336,7 @@ export const api = {
   // JSON {name,text} yolu; readRAGUpload). OneNote/wiki gibi tarayıcıdan
   // kopyalanan içerik için — dosya/token/connector gerekmez (v0.9.176).
   uploadRagText: (name: string, text: string) =>
-    request<{ docId: string; chunks: number }>('/api/rag/documents', {
+    request<{ docId: string; chunks: number; status?: 'indexing' }>('/api/rag/documents', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, text }),
     }),

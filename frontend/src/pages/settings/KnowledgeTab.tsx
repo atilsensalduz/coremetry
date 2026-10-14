@@ -53,6 +53,8 @@ export function KnowledgeTab() {
   const confirm = useConfirm();
   const [cfg, setCfg] = useState<import('@/lib/types').RagConfigView | null | undefined>(undefined);
   const [docs, setDocs] = useState<import('@/lib/types').RagDocument[] | null | undefined>(undefined);
+  // v0.10.1173 — arkada indekslenen / başarısız belgeler (sunucu belleği).
+  const [pending, setPending] = useState<import('@/lib/types').RagPendingDoc[]>([]);
   const [apiKey, setApiKey] = useState('');
   const [sources, setSources] = useState<SourceRow[]>([]);
   const [busy, setBusy] = useState(false);
@@ -84,9 +86,17 @@ export function KnowledgeTab() {
         hasHeader: s0.authHeader === '********',
       })));
     }).catch(() => setCfg(null));
-    api.listRagDocuments().then(r => setDocs(r.documents)).catch(() => setDocs(null));
+    api.listRagDocuments().then(r => { setDocs(r.documents); setPending(r.pending ?? []); }).catch(() => setDocs(null));
   };
   useEffect(load, []);
+  // v0.10.1173 — indeksleme sürerken liste 10 sn'de bir yenilenir (sekme gizliyken durur).
+  const indexing = pending.some(p => p.state === 'indexing');
+  useEffect(() => {
+    if (!indexing) return;
+    const t = window.setInterval(() => { if (!document.hidden) load(); }, 10_000);
+    return () => window.clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load kararlı değil ama okuduğu her şey setter
+  }, [indexing]);
 
   if (cfg === undefined) return <Spinner />;
   if (cfg === null) return <Empty icon="📄" title="RAG ayarları yüklenemedi" />;
@@ -137,7 +147,9 @@ export function KnowledgeTab() {
     setBusy(true); setMsg(null);
     try {
       const r = await api.uploadRagDocument(f);
-      setMsg({ kind: 'ok', text: `${f.name}: ${r.chunks} parça indekslendi.` });
+      setMsg({ kind: 'ok', text: r.status === 'indexing'
+        ? `${f.name} alındı — arkada indeksleniyor; liste bitince güncellenir.`
+        : `${f.name}: ${r.chunks} parça indekslendi.` });
       load();
     } catch (e) {
       setMsg({ kind: 'err', text: e instanceof Error ? e.message : String(e) });
@@ -152,7 +164,9 @@ export function KnowledgeTab() {
     setBusy(true); setMsg(null);
     try {
       const r = await api.uploadRagText(name, text);
-      setMsg({ kind: 'ok', text: `${name}: ${r.chunks} parça indekslendi.` });
+      setMsg({ kind: 'ok', text: r.status === 'indexing'
+        ? `${name} alındı — arkada indeksleniyor; liste bitince güncellenir.`
+        : `${name}: ${r.chunks} parça indekslendi.` });
       setPasteName(''); setPasteText(''); setPasteOpen(false);
       load();
     } catch (e) {
@@ -314,6 +328,16 @@ export function KnowledgeTab() {
           📋 Metin yapıştır
         </Button>
       </div>
+      {/* v0.10.1173 — arkada indekslenen / başarısız belgeler. */}
+      {pending.length > 0 && (
+        <div style={{ marginTop: 8, display: 'grid', gap: 4, fontSize: 12 }} aria-live="polite">
+          {pending.map(p => (
+            <div key={p.docId} style={{ color: p.state === 'failed' ? 'var(--err)' : 'var(--text2)' }}>
+              {p.state === 'failed' ? `✕ ${p.docName}: indekslenemedi — ${p.error ?? 'bilinmeyen hata'}` : `⏳ ${p.docName}: indeksleniyor…`}
+            </div>
+          ))}
+        </div>
+      )}
       {pasteOpen && (
         <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 640 }}>
           <input value={pasteName} onChange={e => setPasteName(e.target.value)}

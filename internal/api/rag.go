@@ -161,7 +161,8 @@ func (s *Server) listRAGDocuments(w http.ResponseWriter, r *http.Request) {
 	}
 	// ready = semantik (embed) hazır; enabled = RAG açık (text-only keyword
 	// modu dahil, v0.9.162). Frontend enabled && !ready → "keyword modu" hint'i.
-	writeJSON(w, map[string]any{"documents": docs, "ready": s.rag.Ready(), "enabled": s.rag.Enabled()})
+	writeJSON(w, map[string]any{"documents": docs, "ready": s.rag.Ready(), "enabled": s.rag.Enabled(),
+		"pending": ragPendingList(time.Now())}) // v0.10.1173 — arkada indekslenen / başarısız
 }
 
 // uploadRAGDocument — multipart (file alanı, md/txt) veya JSON
@@ -190,14 +191,18 @@ func (s *Server) uploadRAGDocument(w http.ResponseWriter, r *http.Request) {
 		email = c.Email
 	}
 	docID := ragDocID(name)
-	n, err := s.ragIngestDocument(r.Context(), docID, name, "upload", "", email, text)
-	if err != nil {
-		writeErr(w, err)
+	// v0.10.1173 — indeksleme arkada (rag_ingest_async.go): istemcinin 60 sn
+	// tavanı büyük belgede doluyordu ve iptal edilen istek yazımı yarıda kesiyordu.
+	if len(rag.ChunkText(text)) == 0 {
+		http.Error(w, "dokümandan metin çıkarılamadı", http.StatusBadRequest)
 		return
 	}
+	s.ragIngestInBackground(docID, name, "upload", "", email, text)
 	s.audit(r, "rag.upload", "rag_document", docID,
-		fmt.Sprintf(`{"name":%q,"chunks":%d,"bytes":%d}`, name, n, len(text)))
-	writeJSON(w, map[string]any{"docId": docID, "chunks": n})
+		fmt.Sprintf(`{"name":%q,"bytes":%d,"async":true}`, name, len(text)))
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	writeJSON(w, map[string]any{"docId": docID, "chunks": 0, "status": "indexing"})
 }
 
 // ragIngestDocument — chunk → embed → replace. Crawler (v2) da aynı
@@ -234,7 +239,7 @@ func (s *Server) ragIngestDocumentHashed(ctx context.Context, docID, name, sourc
 	// Embed başarısızlığı upload'ı ARTIK bloklamaz (operatör-bildirimi). bge-m3
 	// gelince yeniden yükleme embedding'i doldurur (aynı doc_id → RMT devralır).
 	embs := embedOrTextOnly(pieces,
-		s.rag != nil && s.rag.Ready(),
+		s.ragEmbedChunks(), // v0.10.1173 — wiki açıkken embed wiki indeksinde
 		func(p []string) ([][]float32, error) { return s.rag.Embed(ctx, p) })
 	chunks := make([]chstore.RagChunk, len(pieces))
 	for i := range pieces {
