@@ -29,7 +29,7 @@ import (
 // endpoint'i yapılandırılmamışsa tüm yol sessizce kapalıdır.
 
 const (
-	ragMaxUploadBytes = 5 << 20 // 5MB/doc
+	ragMaxUploadBytes = 25 << 20 // 25MB/doc (v0.10.1174: 5MB'a çarpan xlsx/pdf'ler; indeksleme arkada)
 	ragMaxDocs        = 200
 	// ragScoreFloor — en iyi chunk bu kosinüs benzerliğinin altındaysa
 	// soru doküman sorusu DEĞİLDİR; serbest döngüye düşülür.
@@ -282,7 +282,7 @@ func readRAGUpload(r *http.Request) (name, text string, err error) {
 		if strings.TrimSpace(body.Name) == "" || strings.TrimSpace(body.Text) == "" {
 			return "", "", fmt.Errorf("name ve text zorunlu")
 		}
-		return strings.TrimSpace(body.Name), body.Text, nil
+		return strings.TrimSpace(body.Name), rag.AppendFencedStructure(body.Text), nil // v0.10.1174
 	}
 	if err := r.ParseMultipartForm(ragMaxUploadBytes); err != nil {
 		return "", "", fmt.Errorf("upload %dMB tavanını aşıyor", ragMaxUploadBytes>>20)
@@ -293,8 +293,8 @@ func readRAGUpload(r *http.Request) (name, text string, err error) {
 	}
 	defer f.Close()
 	low := strings.ToLower(hdr.Filename)
-	if !strings.HasSuffix(low, ".md") && !strings.HasSuffix(low, ".txt") && !strings.HasSuffix(low, ".pdf") && !rag.IsTableFile(low) {
-		return "", "", fmt.Errorf(".md / .txt / .pdf / .xlsx / .csv kabul edilir (%s)", hdr.Filename)
+	if !strings.HasSuffix(low, ".md") && !strings.HasSuffix(low, ".txt") && !strings.HasSuffix(low, ".pdf") && !rag.IsTableFile(low) && !rag.IsStructuredFile(low) {
+		return "", "", fmt.Errorf(".md / .txt / .pdf / .xlsx / .csv / .json / .yaml kabul edilir (%s)", hdr.Filename)
 	}
 	b, err := io.ReadAll(io.LimitReader(f, ragMaxUploadBytes+1))
 	if err != nil {
@@ -302,6 +302,14 @@ func readRAGUpload(r *http.Request) (name, text string, err error) {
 	}
 	if len(b) > ragMaxUploadBytes {
 		return "", "", fmt.Errorf("dosya %dMB tavanını aşıyor", ragMaxUploadBytes>>20)
+	}
+	// v0.10.1174 — JSON / YAML: anahtar yollu kayıtlar (rag/structured.go).
+	if rag.IsStructuredFile(low) {
+		text, serr := rag.StructuredToText(hdr.Filename, b)
+		if serr != nil {
+			return "", "", serr
+		}
+		return hdr.Filename, text, nil
 	}
 	// v0.10.1171 — tablo dosyası (.xlsx / .csv): her satır başlıklarıyla ayrı paragraf (rag/table.go).
 	if rag.IsTableFile(low) {
@@ -327,7 +335,8 @@ func readRAGUpload(r *http.Request) (name, text string, err error) {
 		}
 		return hdr.Filename, text, nil
 	}
-	return hdr.Filename, string(b), nil
+	// v0.10.1174 — md / txt içindeki ```yaml / ```json blokları kayıtlarıyla zenginleşir.
+	return hdr.Filename, rag.AppendFencedStructure(string(b)), nil
 }
 
 // ragDocID — ad-türevli deterministik id: aynı adla yeniden yükleme
