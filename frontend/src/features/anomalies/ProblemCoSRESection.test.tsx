@@ -11,6 +11,9 @@ vi.mock('@/lib/api', () => ({
     problemConversations: vi.fn(async (id: string) => id === 'p-1'
       ? [{ id: 'c1', title: 'Ödeme gecikmesi', updatedAt: 1, messages: 4, link: { kind: 'problem', id: 'p-1' } }]
       : []),
+    problemNotes: vi.fn(async (id: string) => id === 'p-1'
+      ? [{ id: 'n1', problemId: 'p-1', text: 'CoSRE bulgusu (get_problem): hata oranı %12', by: 'a@b', at: 1 }]
+      : []),
   },
 }));
 
@@ -41,6 +44,7 @@ describe('ProblemCoSRESection', () => {
     const a = el.querySelector('a');
     expect(a?.textContent).toBe('Ödeme gecikmesi');
     expect(a?.getAttribute('href')).toBe('/cosre?chat=c1');
+    expect(el.textContent).toContain('CoSRE bulgusu (get_problem): hata oranı %12');
   });
   it('bağlı konuşma yoksa boş durum', async () => {
     const el = await render('p-2');

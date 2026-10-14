@@ -1402,6 +1402,13 @@ export const api = {
     request<{ id: string; link?: import('./types').AiConversationLink }>(`/api/ai/conversations/${encodeURIComponent(id)}/link`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(link),
     }),
+  // v0.10.1169 — CoSRE bulgusu probleme not (editör+; jeton sunucudan, metni imzalar).
+  saveProblemNote: (problemId: string, body: { token: string; text: string; tool: string }) =>
+    request<import('./types').ProblemNote>(`/api/problems/${encodeURIComponent(problemId)}/notes`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    }),
+  problemNotes: (problemId: string) =>
+    get<import('./types').ProblemNote[]>(`/api/problems/${encodeURIComponent(problemId)}/notes`),
   // v0.10.1168 — çağıranın bu probleme bağlı konuşmaları.
   problemConversations: (problemId: string) =>
     get<import('./types').AiConversationSummary[]>(`/api/problems/${encodeURIComponent(problemId)}/conversations`),

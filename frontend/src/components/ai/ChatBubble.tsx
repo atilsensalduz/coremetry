@@ -6,7 +6,8 @@ import { chartBlocks, mergeBlockLinks, traceListBlocks } from '@/lib/chatBlocks'
 import { ChatTraceList } from './ChatTraceList'; // v0.10.688 — trace_list bloğu
 import { evidenceBlocks } from '@/lib/chatEvidence'; // v0.10.558
 import { EvidenceCard } from './EvidenceCard';
-import { parseAction, actionVisible, applyActionHref } from '@/lib/pageActions';
+import { parseAction, actionVisible, applyActionHref, parseProblemNoteAction } from '@/lib/pageActions';
+import { ProblemNoteButton } from './ProblemNoteButton';
 import { Button } from '@/components/ui/Button';
 import type { ChatTurn, ChatStepDetail, ChatTypedBlock } from '@/lib/types';
 import { traceHref } from '@/lib/traceHref';
@@ -907,6 +908,9 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
             {/* v0.10.542 — action bloğu: yalnız tool sonucundan (sunucu chat_actions.go),
                 yalnız hedef sayfa açıkken; URL birleşimi + replace:true, yeni sekme yok. */}
             {!turn.pending && (turn.blocks ?? []).filter(b => b.type === 'action').map(b => {
+              // v0.10.1169 — "probleme not" aksiyonu (sunucu, tool sonucundan).
+              const note = parseProblemNoteAction(b.payload);
+              if (note) return <div key={b.id} style={{ marginTop: 6 }}><ProblemNoteButton action={note} /></div>;
               const a = parseAction(b.payload);
               if (!a || !actionVisible(a, loc.pathname)) return null;
               return (

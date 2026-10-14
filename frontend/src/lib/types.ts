@@ -7273,6 +7273,8 @@ export interface AiConversationSummary {
   /** v0.10.1168 — bağlı problem / servis (elle ya da bağlamdan türemiş). */
   link?: AiConversationLink;
 }
+/** v0.10.1169 — problem notu (internal/api/problem_notes.go). at = unix ns. */
+export interface ProblemNote { id: string; problemId: string; text: string; tool?: string; by?: string; at: number }
 /** v0.10.1168 — Go aynası: internal/api/ai_conversation_link.go aiChatLink. */
 export interface AiConversationLink { kind: 'problem' | 'service'; id: string; manual?: boolean }
 

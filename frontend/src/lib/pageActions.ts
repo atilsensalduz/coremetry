@@ -31,3 +31,20 @@ export function applyActionHref(a: ApplyAction, pathname: string, search: string
   if (!actionVisible(a, pathname)) return null;
   return mergeOpenHref(a.href, pathname, search);
 }
+
+// v0.10.1169 — "Bulguyu probleme not olarak kaydet": sunucu YALNIZ başarılı
+// tool sonucundan üretir (chat_actions.go problemNoteAction); metin + jeton
+// sunucudan gelir, istemci değiştiremez (jeton metni imzalar).
+export interface ProblemNoteAction { kind: 'problem_note'; problemId: string; text: string; token: string; tool: string; label: string }
+
+export function parseProblemNoteAction(payload: unknown): ProblemNoteAction | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const p = payload as Partial<ProblemNoteAction>;
+  if (p.kind !== 'problem_note' || typeof p.problemId !== 'string' || !p.problemId
+    || typeof p.text !== 'string' || !p.text || typeof p.token !== 'string' || !p.token) return null;
+  return {
+    kind: 'problem_note', problemId: p.problemId, text: p.text, token: p.token,
+    tool: typeof p.tool === 'string' ? p.tool : '',
+    label: typeof p.label === 'string' && p.label ? p.label : 'Bulguyu probleme not olarak kaydet',
+  };
+}

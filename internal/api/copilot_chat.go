@@ -562,6 +562,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	// v0.10.29 — döngü boyunca çağrılan araçlar; cevabın altındaki
 	// deterministik "Kaynak:" künyesini besliyor (chat_source_note.go).
 	var calledTools []string
+	noteOffered := false // v0.10.1169 — tur başına en çok bir "probleme not" aksiyonu
 	// v0.10.1050 — okunan kodun MASKELİ özetleri (ai_calls örneği; kod yok).
 	var codeReads []string
 	// v0.10.948 — trace takibinin sayı denetimi kanıtı: sunucu bağlamı + operatör
@@ -852,6 +853,14 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 			// kırpılır; rozet oradan okunamayabilir). chat_step_sources.go.
 			// Bir kez çözülür: künye ve çip aynı sonucu kullanır.
 			srcs := stepSourceStatuses(tr.Content)
+			// v0.10.1169 — problem sayfasında başarılı tool sonucu → "probleme not" aksiyonu
+			// (yalnız sunucu tarafı türetim; chat_actions.go problemNoteAction).
+			if !tr.IsError && !noteOffered && pageCtx != nil && !stepSourcesAllFailed(srcs) {
+				if noteAct, ok := s.problemNoteAction(ctx, pageCtx.ProblemID, tc.Name, tr.Content); ok {
+					noteOffered = true
+					emit("block", blockSeq.Next(blocks.TypeAction, noteAct))
+				}
+			}
 			if !tr.IsError && !stepSourcesAllFailed(srcs) {
 				// v0.10.53 — künyeye YALNIZ buradan: araç vardı, çalıştı, veri döndürdü.
 				// v0.10.944 — kaynak hatası artık Go hatası değil, source.state'li

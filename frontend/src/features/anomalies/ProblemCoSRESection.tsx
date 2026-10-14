@@ -13,6 +13,7 @@ export function ProblemCoSRESection({ problemId }: { problemId: string }) {
   return (
     <Sect title="CoSRE sohbetleri" sub="bu probleme bağlı konuşmalarınız" collapsible defaultOpen={false}>
       <ConversationList problemId={problemId} />
+      <NoteList problemId={problemId} />
     </Sect>
   );
 }
@@ -37,5 +38,30 @@ function ConversationList({ problemId }: { problemId: string }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+// v0.10.1169 — CoSRE'den kaydedilen bulgular (ekipçe görünür notlar).
+function NoteList({ problemId }: { problemId: string }) {
+  const q = useQuery({
+    queryKey: ['problem-notes', problemId],
+    queryFn: () => api.problemNotes(problemId),
+    staleTime: 30_000,
+  });
+  if (q.isPending) return <Spinner />;
+  if (q.isError) return <Empty icon="⚠" title="Notlar okunamadı" compact>{q.error instanceof Error ? q.error.message : ''}</Empty>;
+  if (!q.data?.length) return null;
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 4 }}>Kaydedilen bulgular</div>
+      <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 6 }}>
+        {q.data.map(n => (
+          <li key={n.id} style={{ fontSize: 12.5, borderLeft: '2px solid var(--border)', paddingLeft: 8 }}>
+            <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{n.text}</div>
+            <div style={{ color: 'var(--text3)', fontSize: 11 }}>{n.by ? `${n.by} · ` : ''}{tsRel(n.at)}</div>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
