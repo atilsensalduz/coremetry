@@ -5,6 +5,7 @@ import { rolloutEvidenceHref } from '@/lib/rolloutRow';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Users } from 'lucide-react';
 import { api } from '@/lib/api';
+import { ProblemCoSRESection } from './ProblemCoSRESection';
 import { keys, useServicesMetadata } from '@/lib/queries';
 import { fmtFixed, fmtNum } from '@/lib/utils';
 import { Spinner, Empty } from '@/components/Spinner';
@@ -949,6 +950,7 @@ export function AlertProblemDetail({ problem, isAdmin, onBack, onChanged }: {
       {/* v0.10.562 — deterministik insight şeridi (şüpheli · ilk anomali ·
           rollout · daha önce); ilk ekranın üstünde, sormadan dolar. */}
       <ProblemInsightStrip problemId={problem.id} />
+      <ProblemCoSRESection problemId={problem.id} />
       {/* v0.9.983 (D5.1 / A2) — aynı gerekçe: bildirim linkinden gelen
           operatörün telefonda gördüğü İLK ekran bu (RootCausePanel + AI
           özeti solda, offender listesi sağda). */}

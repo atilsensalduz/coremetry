@@ -109,6 +109,9 @@ type aiChatBlob struct {
 	// ShareToken — v0.10.1167: salt-okunur paylaşım bağlantısının sırrı
 	// (ai_conversation_share.go). Boş = paylaşılmıyor. Her upsert taşır.
 	ShareToken string `json:"shareToken,omitempty"`
+	// Link — v0.10.1168: konuşmanın bağlı olduğu problem / servis
+	// (ai_conversation_link.go). Elle bağlanmadıysa bağlamdan türer.
+	Link *aiChatLink `json:"link,omitempty"`
 }
 
 // aiConversationSummary — liste yanıtı. MESAJ GÖVDESİ TAŞIMAZ: çekmece
@@ -120,6 +123,8 @@ type aiConversationSummary struct {
 	UpdatedAt int64  `json:"updatedAt"` // unix ns (FE tsRel)
 	Messages  int    `json:"messages"`  // mesaj SAYISI
 	Subject   string `json:"subject,omitempty"`
+	// Link — v0.10.1168: bağlı problem / servis (yoksa yok).
+	Link *aiChatLink `json:"link,omitempty"`
 }
 
 // aiConversation — tekil okuma + upsert yanıtı (mesajlarla birlikte).
@@ -302,6 +307,9 @@ func metaToSummary(m chstore.SavedViewMeta) aiConversationSummary {
 	sum := aiConversationSummary{
 		ID: m.ID, Title: m.Name, UpdatedAt: m.CreatedAt,
 		Messages: m.BlobMessages, Subject: m.BlobSubject,
+	}
+	if m.BlobLinkKind != "" && m.BlobLinkID != "" {
+		sum.Link = &aiChatLink{Kind: m.BlobLinkKind, ID: m.BlobLinkID}
 	}
 	if m.BlobUpdatedAt > 0 {
 		sum.UpdatedAt = m.BlobUpdatedAt
@@ -496,6 +504,7 @@ func (s *Server) upsertAIConversation(w http.ResponseWriter, r *http.Request) {
 		Context:    resolveChatContext(body.Context, existingBlob, aiChatMaxContextBytes), // v0.10.944
 		UpdatedAt:  now,
 	}
+	blob.Link = resolveChatLink(carriedChatLink(existingBlob), blob.Context) // v0.10.1168
 	fitted, raw, err := fitChatBlob(blob, aiChatMaxMessages, aiChatMaxBlobBytes)
 	if err != nil {
 		writeJSONError(w, http.StatusRequestEntityTooLarge, err.Error())

@@ -1397,6 +1397,14 @@ export const api = {
     request<void>(`/api/ai/conversations/${encodeURIComponent(id)}/share`, { method: 'DELETE' }),
   sharedAiConversation: (id: string, token: string) =>
     get<import('./types').AiSharedConversation>(`/api/ai/shared/${encodeURIComponent(id)}?t=${encodeURIComponent(token)}`),
+  // v0.10.1168 — konuşmayı probleme / servise elle bağla (boş = elle bağı kaldır).
+  linkAiConversation: (id: string, link: { kind: '' | 'problem' | 'service'; id: string }) =>
+    request<{ id: string; link?: import('./types').AiConversationLink }>(`/api/ai/conversations/${encodeURIComponent(id)}/link`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(link),
+    }),
+  // v0.10.1168 — çağıranın bu probleme bağlı konuşmaları.
+  problemConversations: (problemId: string) =>
+    get<import('./types').AiConversationSummary[]>(`/api/problems/${encodeURIComponent(problemId)}/conversations`),
   deleteAiConversation: (id: string) =>
     request<void>(`/api/ai/conversations/${encodeURIComponent(id)}`,
       { method: 'DELETE' }),

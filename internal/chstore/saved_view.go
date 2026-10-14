@@ -207,6 +207,9 @@ type SavedViewMeta struct {
 	BlobUpdatedAt int64  // unix ns; 0 = blob taşımıyor (created_at kullan)
 	BlobMessages  int    // messages dizisinin uzunluğu
 	BlobSubject   string // çekmece öznesi (?ai= kodeği)
+	// v0.10.1168 — konuşmanın bağlı olduğu problem / servis (link.kind / link.id).
+	BlobLinkKind string
+	BlobLinkID   string
 }
 
 // savedViewMetaSQL — saf; saved_view_meta_test.go pinler. LIMIT bağlı
@@ -215,7 +218,9 @@ const savedViewMetaSQL = `
 	SELECT id, name, pinned, created_at,
 	       JSONExtractInt(query_string, 'updatedAt')    AS blob_updated,
 	       JSONLength(query_string, 'messages')         AS blob_msgs,
-	       JSONExtractString(query_string, 'subject')   AS blob_subject
+	       JSONExtractString(query_string, 'subject')   AS blob_subject,
+	       JSONExtractString(query_string, 'link', 'kind') AS blob_link_kind,
+	       JSONExtractString(query_string, 'link', 'id')   AS blob_link_id
 	FROM saved_views FINAL
 	WHERE name != '' AND page = ? AND owner_id = ?
 	ORDER BY created_at DESC
@@ -246,7 +251,7 @@ func (s *Store) ListSavedViewMeta(ctx context.Context, ownerID, page string, lim
 		var blobUpdated int64
 		var blobMsgs uint64
 		if err := rows.Scan(&m.ID, &m.Name, &pinned, &createdAt,
-			&blobUpdated, &blobMsgs, &m.BlobSubject); err != nil {
+			&blobUpdated, &blobMsgs, &m.BlobSubject, &m.BlobLinkKind, &m.BlobLinkID); err != nil {
 			return nil, err
 		}
 		m.Pinned = pinned == 1

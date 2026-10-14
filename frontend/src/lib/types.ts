@@ -7270,7 +7270,11 @@ export interface AiConversationSummary {
   updatedAt: number; // unix ns (tsRel)
   messages: number;  // mesaj SAYISI
   subject?: string;
+  /** v0.10.1168 — bağlı problem / servis (elle ya da bağlamdan türemiş). */
+  link?: AiConversationLink;
 }
+/** v0.10.1168 — Go aynası: internal/api/ai_conversation_link.go aiChatLink. */
+export interface AiConversationLink { kind: 'problem' | 'service'; id: string; manual?: boolean }
 
 // AiConversation (v0.9.1139) — tekil okuma + kaydetme yanıtı; turların
 // kendisini taşır. `id` SUNUCU tarafından basılır, istemci devralır.

@@ -43,8 +43,8 @@ func TestSavedViewMetaSQL(t *testing.T) {
 	// Gövdenin KENDİSİ tele binemez: SELECT listesi query_string'i ancak
 	// JSON fonksiyonlarının İÇİNDE görebilir.
 	sel := savedViewMetaSQL[:strings.Index(savedViewMetaSQL, "FROM")]
-	if n := strings.Count(sel, "query_string"); n != 3 {
-		t.Errorf("SELECT'te query_string %d kez geçiyor, üçü de JSON fonksiyonu "+
+	if n := strings.Count(sel, "query_string"); n != 5 { // v0.10.1168: +link.kind, +link.id
+		t.Errorf("SELECT'te query_string %d kez geçiyor, beşi de JSON fonksiyonu "+
 			"içinde olmalı — çıplak bir geçiş 64 KB gövdeyi geri getirir", n)
 	}
 }
