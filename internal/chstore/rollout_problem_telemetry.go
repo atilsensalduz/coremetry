@@ -206,3 +206,50 @@ func (s *Store) ArgoCDMapperWorkloads(ctx context.Context, from, to time.Time) (
 	}
 	return out, capped, nil
 }
+
+// RevisionFirstSpans — v0.10.1212: v2 rollout satırlarına "trafik geçti"
+// zamanı. workload_revision_activity_1m'den (MV — ham span DEĞİL) verilen
+// (cluster, ns, workload, revision) anahtarlarının ilk span zamanı; geniş
+// IN süzgeci + Go'da tam anahtar eşlemesi. Pencere zorunlu.
+func (s *Store) RevisionFirstSpans(ctx context.Context, refs []WorkloadRevisionRef, from, to time.Time) (map[WorkloadRevisionRef]time.Time, error) {
+	out := map[WorkloadRevisionRef]time.Time{}
+	if len(refs) == 0 {
+		return out, nil
+	}
+	want := map[WorkloadRevisionRef]bool{}
+	var wls, revs []string
+	seenW, seenR := map[string]bool{}, map[string]bool{}
+	for _, r := range refs {
+		want[r] = true
+		if !seenW[r.Workload] {
+			seenW[r.Workload] = true
+			wls = append(wls, r.Workload)
+		}
+		if !seenR[r.Revision] {
+			seenR[r.Revision] = true
+			revs = append(revs, r.Revision)
+		}
+	}
+	rows, err := s.conn.Query(ctx, `
+		SELECT cluster, k8s_namespace, workload, revision, minMerge(first_seen_state) AS first
+		FROM workload_revision_activity_1m
+		WHERE bucket >= ? AND bucket < ? AND workload IN (?) AND revision IN (?)
+		GROUP BY cluster, k8s_namespace, workload, revision
+		LIMIT 5000
+		SETTINGS max_execution_time = 10`, chDateTime64Arg(from), chDateTime64Arg(to), wls, revs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var r WorkloadRevisionRef
+		var first time.Time
+		if err := rows.Scan(&r.Cluster, &r.Namespace, &r.Workload, &r.Revision, &first); err != nil {
+			return nil, err
+		}
+		if want[r] {
+			out[r] = first
+		}
+	}
+	return out, rows.Err()
+}

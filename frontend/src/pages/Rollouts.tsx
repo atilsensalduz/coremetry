@@ -42,7 +42,7 @@ import { keys, useRollouts, useRolloutStats, useRolloutRuns, useEntityClusters }
 import { RolloutDrawer } from '@/components/RolloutDrawer';
 import { tracesPivotHref } from '@/lib/pivotHref';
 import { entityHref } from '@/lib/entityHref';
-import { rolloutKey, statusTone, statusLabel, statusTitle, rolloutDurationSec, shortRevision, imageDiff, encodeRolloutParam, decodeRolloutParam, rolloutTracesFilters, rolloutChangeKind, changeKindLabel, changeKindTitle, changeKindTone, replicaSummary } from '@/lib/rolloutRow';
+import { rolloutKey, statusTone, statusLabel, statusTitle, rolloutDurationSec, shortRevision, imageDiff, encodeRolloutParam, decodeRolloutParam, rolloutTracesFilters, rolloutChangeKind, changeKindLabel, changeKindTitle, changeKindTone, replicaSummary, rolloutTimingHint } from '@/lib/rolloutRow';
 import type { RolloutStats, WorkloadRollout } from '@/lib/types';
 
 const STATUSES = ['', 'in_progress', 'completed', 'rolled_back', 'superseded', 'stalled'] as const;
@@ -231,7 +231,10 @@ export default function RolloutsPage() {
                         onClick={e => { if ((e.target as HTMLElement).closest('a, button')) return; setParam('rollout', encodeRolloutParam(r)); }}>
                         {/* v0.10.945 — zaman damgası mono kalır (S2 yalnız sayıyı kapsar); kolon
                             `numeric` olduğundan DataTableCell `num` basar ve mono'yu nötrlerdi. */}
-                        <td className="mono" title={fmtDateTime(new Date(r.startedAt))}>{tsCompact(r.startedAt * 1e6)}</td>
+                        <td className="mono" title={rolloutTimingTitle(r)}>
+                          {tsCompact(r.startedAt * 1e6)}
+                          {rolloutTimingHint(r) && <div className="field-hint">{rolloutTimingHint(r)}</div>}
+                        </td>
                         <DataTableCell dt={dt} col="workload" row={r} title={`${cname} / ${r.namespace} / ${r.workload}`}>
                           <Link to={wlHref} className="sec">{r.workload}</Link>
                           <span className="field-hint"> · {r.namespace}</span>
@@ -349,4 +352,12 @@ function StatsPanel({ st, clusterName }: { st: NonNullable<ReturnType<typeof use
       </div>
     </>
   );
+}
+
+// v0.10.1212 — başladı / hazır / trafik tam zamanları (hücre title'ı).
+function rolloutTimingTitle(r: WorkloadRollout): string {
+  const ln = [`Başladı: ${fmtDateTime(new Date(r.startedAt))}`];
+  if (r.podsReadyAt) ln.push(`Pod'lar hazır: ${fmtDateTime(new Date(r.podsReadyAt))}`);
+  if (r.firstSpanAt) ln.push(`Trafik yeni sürüme geçti (ilk span): ${fmtDateTime(new Date(r.firstSpanAt))}`);
+  return ln.join('\n');
 }

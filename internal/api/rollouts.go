@@ -113,6 +113,9 @@ func (s *Server) listRollouts(w http.ResponseWriter, r *http.Request) {
 			rows = []chstore.RolloutRow{}
 		}
 		s.attachProblemsCaused(ctx, rows) // v0.10.244 — D4 feed rozeti (hata = rozet yok)
+		if src == rollout.SourceV2 {
+			s.attachV2Traffic(ctx, rows, from, to) // v0.10.1212 — "trafik geçti" (rollouts_v2_traffic.go)
+		}
 		resp := map[string]any{"rollouts": rows, "from": from.UnixMilli(), "to": to.UnixMilli(), "limit": limit}
 		if src == rollout.SourceV2 {
 			resp["v2"] = true // v0.10.984 — FE v2 kolon setini seçer (eklemeli; v1'de anahtar yok)

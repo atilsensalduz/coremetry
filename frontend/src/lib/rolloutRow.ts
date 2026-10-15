@@ -9,6 +9,7 @@
 // kodeki parça sayısıyla ayırır: 5 → workload_rollouts (eski bağlantılar
 // TTL'e dek çalışır), 6 → rollout_events.
 import type { WorkloadRollout } from './types';
+import { fmtDurShort } from './utils';
 
 /** v0.10.984 — satır rollout_events'ten mi (6 parçalı kimlik taşıyor mu). */
 export function isV2Rollout(r: { generation?: number; incarnationAt?: number }): boolean {
@@ -269,4 +270,16 @@ export function rolloutEvidenceHref(ev: { clusterId: string; namespace: string; 
 export function replicaSummary(r: Pick<WorkloadRollout, 'updatedReplicas' | 'availableReplicas' | 'specReplicas'> & { generation?: number; incarnationAt?: number }): string | null {
   if (!isV2Rollout(r)) return null;
   return `${r.updatedReplicas ?? 0}/${r.availableReplicas ?? 0}/${r.specReplicas ?? 0}`;
+}
+
+// v0.10.1212 — "Başladı" hücresinin altı: hazır (pods ready) ve trafik (yeni
+// revizyonun ilk span'i) başlangıca göre gecikme. Boş/öncesi değerler atlanır.
+export function rolloutTimingHint(r: Pick<WorkloadRollout, 'startedAt'> & { podsReadyAt?: number; firstSpanAt?: number }): string {
+  const parts: string[] = [];
+  const rel = (t?: number) => (t && t >= r.startedAt - 60_000 ? fmtDurShort(Math.max(0, t - r.startedAt) / 1000) : null);
+  const ready = rel(r.podsReadyAt);
+  if (ready) parts.push(`hazır +${ready}`);
+  const traffic = rel(r.firstSpanAt);
+  if (traffic) parts.push(`trafik +${traffic}`);
+  return parts.join(' · ');
 }

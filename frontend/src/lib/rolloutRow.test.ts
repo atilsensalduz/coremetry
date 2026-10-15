@@ -1,6 +1,6 @@
 // rolloutRow.test.ts — v0.10.201 sözleşmesi (rolloutRow.ts başlığı).
 import { describe, it, expect } from 'vitest';
-import { rolloutKey, upsertRollouts, statusTone, rolloutDurationSec, shortRevision, imageDiff, rolloutTracesFilters, rolloutEvidenceHref, decodeRolloutParam, rolloutPlaceLabel } from './rolloutRow';
+import { rolloutKey, upsertRollouts, statusTone, rolloutDurationSec, shortRevision, imageDiff, rolloutTracesFilters, rolloutEvidenceHref, decodeRolloutParam, rolloutPlaceLabel, rolloutTimingHint } from './rolloutRow';
 import type { WorkloadRollout } from './types';
 
 const base: WorkloadRollout = {
@@ -187,3 +187,12 @@ describe('rolloutPlaceLabel (v0.10.338)', () => {
   });
 });
 
+
+// v0.10.1212 — başladı hücresi ipucu: hazır / trafik gecikmesi.
+describe('rolloutTimingHint', () => {
+  const t0 = 1_700_000_000_000;
+  it('both', () => expect(rolloutTimingHint({ startedAt: t0, podsReadyAt: t0 + 90_000, firstSpanAt: t0 + 180_000 })).toBe('hazır +2m · trafik +3m'));
+  it('empty when unset', () => expect(rolloutTimingHint({ startedAt: t0, podsReadyAt: 0, firstSpanAt: 0 })).toBe(''));
+  it('skips stale span from before start', () => expect(rolloutTimingHint({ startedAt: t0, firstSpanAt: t0 - 3_600_000 })).toBe(''));
+  it('clock skew within slack → +0s', () => expect(rolloutTimingHint({ startedAt: t0, firstSpanAt: t0 - 5_000 })).toBe('trafik +0s'));
+});
