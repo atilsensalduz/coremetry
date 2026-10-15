@@ -2594,6 +2594,9 @@ export interface ClusterNodeRow {
   // v0.9.10 — node network rate (node-exporter; absent = not exposed).
   netInBps?: number;
   netOutBps?: number;
+  // Node başına çalışan pod sayısı (cAdvisor, yedek kube_pod_info;
+  // cluster namespace filtresine tabi). Yok = ölçülemedi; 0 gerçek değer.
+  pods?: number;
 }
 export interface ClusterNodesResponse {
   cluster: string;

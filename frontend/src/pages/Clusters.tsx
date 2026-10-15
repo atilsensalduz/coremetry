@@ -62,6 +62,9 @@ const NODE_COLS: ColumnDef<ClusterNodeRow>[] = [
   { id: 'cluster',  label: 'Cluster', sortValue: r => r.cluster,  naturalDir: 'asc', width: 130, tone: () => 'muted' },
   { id: 'node',     label: 'Node',    sortValue: r => r.node,     naturalDir: 'asc', width: 260 },
   { id: 'role',     label: 'Role',    sortValue: r => r.role ?? '', naturalDir: 'asc', width: 90 },
+  // Node başına çalışan pod (best-effort; ölçülemezse '—', 0 gerçek değer).
+  // Sıralamada bilinmeyen en alta: -1.
+  { id: 'pods',     label: 'Pods',    sortValue: r => r.pods ?? -1, numeric: true, width: 70 },
   { id: 'cpuCores', label: 'CPU',     sortValue: r => r.cpuCores, numeric: true, width: 90 },
   { id: 'cpuPct',   label: 'CPU %',   sortValue: r => r.cpuPct ?? 0, numeric: true, width: 80, tone: r => pctTone(r.cpuPct) },
   { id: 'memBytes', label: 'Memory',  sortValue: r => r.memBytes, numeric: true, width: 100 },
@@ -831,6 +834,7 @@ export default function ClustersPage() {
                             <td>{r.role
                               ? <span className="badge b-gray">{r.role}</span>
                               : <span style={{ color: 'var(--text3)' }}>—</span>}</td>
+                            <DataTableCell dt={ndt} col="pods" row={r} value={r.pods == null ? '—' : fmtNum(r.pods)} />
                             <DataTableCell dt={ndt} col="cpuCores" row={r} value={fmtCores(r.cpuCores)} />
                             <DataTableCell dt={ndt} col="cpuPct" row={r} value={r.cpuPct ? r.cpuPct.toFixed(0) : '—'} />
                             <DataTableCell dt={ndt} col="memBytes" row={r} value={fmtBytes(r.memBytes)} />

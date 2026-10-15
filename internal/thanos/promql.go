@@ -186,6 +186,24 @@ func nodeCPUCountQuery() string {
 // haliyle eşleşir. kube-state-metrics yoksa satır adı instance kalır.
 const nodeInfoQuery = `kube_node_info`
 
+// nodePodCountQuery — node başına ÇALIŞAN pod sayısı (BEST-EFFORT).
+// Kaynak, summary/namespace pod sayılarıyla AYNI aile (cAdvisor
+// container_cpu_usage_seconds_total) → üç sayı tutarlı; nsFilter'a tabi
+// (cluster'ın namespace kalkanı). cAdvisor `node` label'ı taşımıyorsa
+// (scrape relabel'ına bağlı) boş döner → nodePodInfoCountQuery.
+func nodePodCountQuery(nsFilter string) string {
+	return fmt.Sprintf(
+		`count by (node) (count by (node, namespace, pod) (container_cpu_usage_seconds_total{container!="",pod!="",node!=""%s}))`,
+		nsMatcher(nsFilter))
+}
+
+// nodePodInfoCountQuery — yedek: kube-state-metrics kube_pod_info'nun
+// `node` label'ı (zamanlanmış her pod; tamamlanmış Job pod'ları dahil
+// olabilir — birincil kaynak yoksa).
+func nodePodInfoCountQuery(nsFilter string) string {
+	return fmt.Sprintf(`count by (node) (kube_pod_info{node!=""%s})`, nsMatcher(nsFilter))
+}
+
 // ── cluster-summary queries (v0.8.586, redesign audit §3.1) ─────
 //
 // Genel görünüm kartları için SKALER cevaplı sorgular — topk'li tam

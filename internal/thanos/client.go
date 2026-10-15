@@ -1263,6 +1263,9 @@ type NodeRow struct {
 	NetOutBps float64 `json:"netOutBps,omitempty"`
 	// v0.9.37 (B4) — rol (heatmap dot + Nodes tab); kube_node_role.
 	Role string `json:"role,omitempty"`
+	// Node başına çalışan pod sayısı (best-effort; nil = ölçülemedi, 0 ≠
+	// bilinmiyor). nodePodCountQuery, yoksa nodePodInfoCountQuery.
+	Pods *int `json:"pods,omitempty"`
 }
 
 // instanceHost — "10.0.1.5:9100" → "10.0.1.5" (kube_node_info
@@ -1367,6 +1370,9 @@ func (s *Service) NodeMetrics(ctx context.Context, c ClusterConfig) ([]NodeRow, 
 		}
 	}
 
+	// Best-effort: node başına pod sayısı (node adı anahtarlı).
+	podsByNode := s.nodePodCounts(ctx, c)
+
 	out := make([]NodeRow, 0, len(byInst))
 	for inst, a := range byInst {
 		// Yalnız best-effort serisi taşıyan anahtarlar gürültü
@@ -1388,9 +1394,42 @@ func (s *Service) NodeMetrics(ctx context.Context, c ClusterConfig) ([]NodeRow, 
 			row.CPUPct = clampPct(a.cpuUsed / a.cores * 100)
 		}
 		row.Role = roleByNode[name] // ad kube_node_info ile eşleştiyse
+		if n, ok := podsByNode[name]; ok {
+			row.Pods = &n
+		}
 		out = append(out, row)
 	}
 	return out, nil
+}
+
+// nodePodCounts — node adı → pod sayısı (best-effort). cAdvisor ailesi
+// boş/hatalıysa kube_pod_info yedeği; ikisi de yoksa boş harita (hücre "—").
+func (s *Service) nodePodCounts(ctx context.Context, c ClusterConfig) map[string]int {
+	for _, q := range []string{nodePodCountQuery(c.NamespaceFilter), nodePodInfoCountQuery(c.NamespaceFilter)} {
+		series, err := s.doQuery(ctx, c, "/api/v1/query", url.Values{"query": {q}})
+		if err != nil {
+			continue
+		}
+		if m := podCountsByNode(series); len(m) > 0 {
+			return m
+		}
+	}
+	return map[string]int{}
+}
+
+// podCountsByNode — SAF: `count by (node)` vektörü → node → sayı.
+func podCountsByNode(series []promSeries) map[string]int {
+	out := map[string]int{}
+	for _, ser := range series {
+		node := ser.Metric["node"]
+		if node == "" {
+			continue
+		}
+		if v, ok := sampleValue(ser.Value); ok && v >= 0 {
+			out[node] = int(v + 0.5)
+		}
+	}
+	return out
 }
 
 // PodTrend returns per-bucket CPU + memory for ONE pod (drawer
