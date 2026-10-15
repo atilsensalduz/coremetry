@@ -36,12 +36,12 @@ func TestDocRowsCellValueMatch(t *testing.T) {
 		strict bool
 		want   []string // beklenen satırların ilk hücreleri
 	}{
-		{"CCFWKAPP sunucusunun ip adresi nedir", true, []string{"CCFWKAPP"}},           // rakamsız hostname (1183 kök neden)
-		{"ccfwkapp hangi ortamda", false, []string{"CCFWKAPP"}},                        // küçük harf: gevşek kipte
-		{"srvappl01 hangi uygulama", true, []string{"srvappl01.corp.local"}},           // kimlik alt-dize
-		{"ATM ürününün sorumlusu kim", true, []string{"ATM"}},                           // tek kelimelik ürün
-		{"çağrı merkezi ivr sorumlusu", false, []string{"Çağrı Merkezi IVR"}},           // katlanmış çok kelime
-		{"prod ortamındaki sunucular", false, nil},                                      // yaygın değer satır seçmez
+		{"CCFWKAPP sunucusunun ip adresi nedir", true, []string{"CCFWKAPP"}},  // rakamsız hostname (1183 kök neden)
+		{"ccfwkapp hangi ortamda", false, []string{"CCFWKAPP"}},               // küçük harf: gevşek kipte
+		{"srvappl01 hangi uygulama", true, []string{"srvappl01.corp.local"}},  // kimlik alt-dize
+		{"ATM ürününün sorumlusu kim", true, []string{"ATM"}},                 // tek kelimelik ürün
+		{"çağrı merkezi ivr sorumlusu", false, []string{"Çağrı Merkezi IVR"}}, // katlanmış çok kelime
+		{"prod ortamındaki sunucular", false, nil},                            // yaygın değer satır seçmez
 	}
 	for _, c := range cases {
 		rows, _ := matchDocRows(chunks, c.q, c.strict)
