@@ -388,10 +388,22 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	// (chat_disambig_rescue.go). Kapı kapalıyken ctx/emit aynen döner.
 	ctx, emit = s.armDisambigRescue(ctx, emit, req.Messages, wikiTC)
 
-	if handled, gok := s.copilotChatGuided(ctx, emit, req.Messages, req.Context.Service, req.Context.Operation, req.Context.Explain, req.Context.RangeS, req.Context.Trace, req.Context.Env, anchorTo, req.Context.TzOffsetMin, req.Context.Tz); handled {
-		cspan.tier("guided", gok)
-		emit("done", map[string]bool{"ok": gok})
+	// CoSRE operasyon tespiti Faz 2 (chat_operation_prefetch.go) — mesajda
+	// katalogdaki bir operasyon adı varsa model çağrılmadan trace/RED/Oracle
+	// getirilir ve serbest döngüye tool kaydı olarak verilir; çok eşleşmede
+	// seçim çipleri. Eşleşme yoksa opPre nil ve akış bayt bayt eski.
+	opPre, opHandled := s.chatOperationPrefetch(ctx, emit, req.Messages, int64(req.Context.RangeS), anchorTo)
+	if opHandled {
+		cspan.tier("operation", true)
+		emit("done", map[string]bool{"ok": true})
 		return
+	}
+	if opPre == nil {
+		if handled, gok := s.copilotChatGuided(ctx, emit, req.Messages, req.Context.Service, req.Context.Operation, req.Context.Explain, req.Context.RangeS, req.Context.Trace, req.Context.Env, anchorTo, req.Context.TzOffsetMin, req.Context.Tz); handled {
+			cspan.tier("guided", gok)
+			emit("done", map[string]bool{"ok": gok})
+			return
+		}
 	}
 
 	// v0.9.479 — AI çekmecesi sohbeti: ekrandaki açıklama bağlam olarak
@@ -425,7 +437,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 		pagePath, pageTraceID = pageCtx.Path, pageCtx.TraceID
 	}
 	traceSubj, isTraceFollowUp := drawerTraceFollowUp(req.Context.Explain, req.Context.Subject, pageTraceID)
-	if !isTraceFollowUp {
+	if !isTraceFollowUp && opPre == nil {
 		// v0.10.1053 — exception takibinin tek araçlı kod döngüsü bu alışverişin
 		// audit'ini, span'ını, tavanını kullanır (chat_exception_followup.go).
 		drawerEnv := drawerLoopEnv{r: r, span: cspan, exchangeMax: exchangeMax, started: chatT0}
@@ -569,7 +581,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 		return strings.TrimRight(text, "\n") + "\n" + strings.Join(chartBlocks, "")
 	}
 
-	conv := req.Messages
+	conv := opPre.seed(req.Messages) // operasyon ön-getirmesi varsa tool kaydı (nil → aynen)
 	// Taşma yeniden denemesi TEK sefer: ikinci bir deneme aynı duvara
 	// bir çağrı daha yakar (kod-explain'in `hb == block` kontrolüyle
 	// aynı gerekçe).

@@ -177,7 +177,7 @@ func tierBlock(src string, start int) string {
 // Açıklaması henüz gelmemiş Geçmiş devralması kapıya page.traceId == özne ile girer.
 const (
 	traceFollowUpGate  = "traceSubj, isTraceFollowUp := drawerTraceFollowUp(req.Context.Explain, req.Context.Subject, pageTraceID)"
-	traceFollowUpBlock = "if !isTraceFollowUp {"
+	traceFollowUpBlock = "if !isTraceFollowUp && opPre == nil {" // operasyon ön-getirmesi de orta kademeleri atlar
 )
 
 // TestTraceFollowUpGateSkipsMiddleTiers — v0.10.948: trace/span takibi

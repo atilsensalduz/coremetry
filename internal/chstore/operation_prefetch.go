@@ -1,0 +1,119 @@
+package chstore
+
+// operation_prefetch.go — CoSRE operasyon tespiti Faz 2: eşleşen operasyonun
+// sohbet öncesi okumaları. RED MV'den (span adı → operation_summary_5m;
+// fonksiyon kodu → rollup_spans_wide, kurulmamışsa ölçülmedi), Oracle
+// teknik hataları TRACEID ile (oracle_error_log bloom index'i).
+
+import (
+	"context"
+	"time"
+)
+
+// OpRED — bir pencerenin istek sayısı / hata / p99.
+type OpRED struct {
+	Calls    uint64  `json:"calls"`
+	Errors   uint64  `json:"errors"`
+	P99Ms    float64 `json:"p99Ms"`
+	Measured bool    `json:"measured"`
+}
+
+// ErrorRate — SAF: 0..1.
+func (r OpRED) ErrorRate() float64 {
+	if r.Calls == 0 {
+		return 0
+	}
+	return float64(r.Errors) / float64(r.Calls)
+}
+
+// SpanOperationRED — operation_summary_5m'den tek pencere (servis boşsa tüm servisler).
+func (s *Store) SpanOperationRED(ctx context.Context, service, name string, from, to time.Time) (OpRED, error) {
+	q := `SELECT countMerge(span_count_state), countMerge(error_count_state),
+	             arrayElement(quantilesTDigestMerge(0.5, 0.95, 0.99)(duration_q_state), 3) / 1e6
+	      FROM operation_summary_5m
+	      WHERE name = ? AND time_bucket >= ? AND time_bucket < ?`
+	args := []any{name, from, to}
+	if service != "" {
+		q += " AND service_name = ?"
+		args = append(args, service)
+	}
+	q += " SETTINGS max_execution_time = 5"
+	var r OpRED
+	var p99 float64
+	if err := s.telemetryReadConn().QueryRow(ctx, q, args...).Scan(&r.Calls, &r.Errors, &p99); err != nil {
+		return OpRED{}, err
+	}
+	if p99 == p99 { // NaN (boş pencere) korunmaz
+		r.P99Ms = p99
+	}
+	r.Measured = true
+	return r, nil
+}
+
+// FunctionCodeRED — rollup ailesinden fonksiyon kodu toplamı; p99 = kova
+// p99'larının en yükseği (yaklaşık, üst sınır). Rollup yoksa Measured=false.
+func (s *Store) FunctionCodeRED(ctx context.Context, codes []string, from, to time.Time) (OpRED, error) {
+	var out OpRED
+	plan, err := PickRollup(RollupQuery{From: from, To: to, MaxDataPoints: 60, Dims: []string{"function_code"}}, time.Now())
+	if err != nil {
+		return out, nil
+	}
+	if ready, rerr := s.RollupTableReady(ctx, plan.Table); rerr != nil || !ready {
+		return out, nil
+	}
+	for _, c := range codes {
+		series, _, err := s.QueryRollupRED(ctx, plan, RollupSeriesFilter{Function: c}, from, to)
+		if err != nil {
+			return OpRED{}, err
+		}
+		for _, se := range series {
+			for _, p := range se.Points {
+				out.Calls += p.Calls
+				out.Errors += p.Errors
+				if p.P99Ms > out.P99Ms {
+					out.P99Ms = p.P99Ms
+				}
+			}
+		}
+	}
+	out.Measured = true
+	return out, nil
+}
+
+// OracleErrorCount — TRACEID birleşiminden kod başına sayı + örnek mesaj.
+type OracleErrorCount struct {
+	Code    string `json:"code"`
+	Count   uint64 `json:"count"`
+	Sample  string `json:"sample"`
+	Channel string `json:"channel,omitempty"`
+}
+
+// OracleErrorsForTraces — verilen trace'lere bağlı Oracle hata satırları,
+// kod başına (error_code boşsa external_code). ≤10 kod.
+func (s *Store) OracleErrorsForTraces(ctx context.Context, traceIDs []string, from, to time.Time) ([]OracleErrorCount, error) {
+	if len(traceIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := s.conn.Query(ctx, `
+		SELECT if(error_code != '', error_code, external_code) AS code, count() AS n,
+		       substring(any(body), 1, 240), anyHeavy(channel_code)
+		FROM oracle_error_log
+		WHERE time >= ? AND time < ? AND trace_id IN (?)
+		GROUP BY code
+		ORDER BY n DESC
+		LIMIT 10
+		SETTINGS max_execution_time = 5`, from, to, traceIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []OracleErrorCount
+	for rows.Next() {
+		var c OracleErrorCount
+		if err := rows.Scan(&c.Code, &c.Count, &c.Sample, &c.Channel); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
