@@ -151,6 +151,22 @@ func logTemplateEvidence(ctx context.Context, store logTemplateLister, subject s
 		return out, nil
 	}
 	fromNs, toNs := LogTemplateEvidenceWindow(startedNs)
+	return logTemplateEvidenceWindowed(ctx, store, subject, services, startedNs, fromNs, toNs)
+}
+
+// LogTemplateEvidenceInWindow — v0.10.1213 (CoSRE log hataları): aynı aile
+// süzgeçli "yeni şablon" seçimi, problem başlangıcı yerine verilen
+// [fromNs, toNs) penceresinde; OffsetSec fromNs'e göre.
+func LogTemplateEvidenceInWindow(ctx context.Context, store logTemplateLister, subject string, services []string, fromNs, toNs int64) ([]LogTemplateEvidence, error) {
+	services = LogTemplateEvidenceServices(subject, services)
+	if len(services) == 0 || fromNs <= 0 || toNs <= fromNs {
+		return []LogTemplateEvidence{}, nil
+	}
+	return logTemplateEvidenceWindowed(ctx, store, subject, services, fromNs, fromNs, toNs)
+}
+
+func logTemplateEvidenceWindowed(ctx context.Context, store logTemplateLister, subject string, services []string, startedNs, fromNs, toNs int64) ([]LogTemplateEvidence, error) {
+	out := []LogTemplateEvidence{}
 	tmpls, err := store.ListLogTemplates(ctx, evidenceCandidatesFilter(services, fromNs, toNs))
 	if err != nil {
 		return nil, err

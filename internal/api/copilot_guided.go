@@ -3412,7 +3412,13 @@ func (s *Server) guidedLogErrorsBundle(ctx context.Context, emit func(string, an
 		sample = renderLogSampleTR(recs, fb, service)
 	}
 	emitGuidedStepResult(emit, nSamp, "recent_error_logs", sample, serr)
-	src := fmt.Sprintf("son %d hata logu örneklemi + severity histogramı + hata pattern tespitleri (son %s)", guidedLogSampleN, fmtAgoTR(rangeS))
+	nTpl := emitGuidedStep(emit, "new_log_templates", `{"service":"`+service+`"}`)
+	tpls, tsvcs, terr := s.guidedNewLogTemplates(ctx, service, recs, from, to)
+	if terr == nil {
+		sample += renderNewLogTemplatesTR(tpls, tsvcs, rangeS)
+	}
+	emitGuidedStepResult(emit, nTpl, "new_log_templates", renderNewLogTemplatesTR(tpls, tsvcs, rangeS), terr)
+	src := fmt.Sprintf("son %d hata logu örneklemi + yeni log şablonları + severity histogramı + hata pattern tespitleri (son %s)", guidedLogSampleN, fmtAgoTR(rangeS))
 	if env != "" {
 		src += "; ortam filtresi uygulanamadı (log verisi ortam boyutu taşımıyor)"
 	}

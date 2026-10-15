@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cilcenk/coremetry/internal/anomaly"
 	"github.com/cilcenk/coremetry/internal/logstore"
 )
 
@@ -39,5 +40,19 @@ func TestGroupAndRenderLogSample(t *testing.T) {
 	}
 	if !strings.Contains(renderLogSampleTR(nil, true, "svc"), "seviyesiz") {
 		t.Fatal("fallback label")
+	}
+}
+
+func TestSampleServicesAndTemplatesRender(t *testing.T) {
+	recs := []*logstore.LogRecord{{ServiceName: "b"}, {ServiceName: "a"}, {ServiceName: "b"}, {ServiceName: "c"}}
+	if got := strings.Join(sampleServices(recs, 2), ","); got != "b,a" {
+		t.Fatalf("got %s", got)
+	}
+	if renderNewLogTemplatesTR(nil, []string{""}, 3600) != "" {
+		t.Fatal("no service → empty")
+	}
+	out := renderNewLogTemplatesTR([]anomaly.LogTemplateEvidence{{Service: "a", TotalCount: 7, Template: "GRPC <*> off", Sample: "GRPC x off"}}, []string{"a"}, 3600)
+	if !strings.Contains(out, "- [a] ×7 GRPC <*> off — örnek: GRPC x off") {
+		t.Fatal(out)
 	}
 }

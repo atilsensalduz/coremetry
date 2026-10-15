@@ -15,11 +15,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cilcenk/coremetry/internal/anomaly"
 	"github.com/cilcenk/coremetry/internal/logstore"
 )
 
 const (
-	guidedLogSampleN      = 200
+	guidedLogSampleN      = 500
 	guidedLogSampleGroups = 8
 	guidedLogSampleBody   = 240
 )
@@ -184,4 +185,66 @@ func fmtDurTR(d time.Duration) string {
 	default:
 		return fmt.Sprintf("%.1f sa", d.Hours())
 	}
+}
+
+// sampleServices — SAF: örneklemde en çok satır üreten servisler (en çok max).
+func sampleServices(recs []*logstore.LogRecord, max int) []string {
+	n := map[string]int{}
+	for _, r := range recs {
+		if r != nil && r.ServiceName != "" {
+			n[r.ServiceName]++
+		}
+	}
+	out := make([]string, 0, len(n))
+	for k := range n {
+		out = append(out, k)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if n[out[i]] != n[out[j]] {
+			return n[out[i]] > n[out[j]]
+		}
+		return out[i] < out[j]
+	})
+	if len(out) > max {
+		out = out[:max]
+	}
+	return out
+}
+
+// guidedNewLogTemplates — v0.10.1213: pencerede İLK KEZ görülen Drain
+// şablonları (aile süzgeçli, problem kanıtıyla aynı seçim). Örneklem son
+// dakikaları görür; bu okuma pencerenin tamamını. Servis verilmediyse
+// örneklemin baskın servisleri.
+func (s *Server) guidedNewLogTemplates(ctx context.Context, service string, recs []*logstore.LogRecord, from, to time.Time) ([]anomaly.LogTemplateEvidence, []string, error) {
+	if s.store == nil {
+		return nil, nil, fmt.Errorf("şablon deposu yok")
+	}
+	svcs := []string{service}
+	if service == "" {
+		svcs = sampleServices(recs, anomaly.LogTemplateEvidenceMaxServices)
+	}
+	ts, err := anomaly.LogTemplateEvidenceInWindow(ctx, s.store, service, svcs, from.UnixNano(), to.UnixNano())
+	return ts, svcs, err
+}
+
+// renderNewLogTemplatesTR — SAF.
+func renderNewLogTemplatesTR(ts []anomaly.LogTemplateEvidence, svcs []string, rangeS int64) string {
+	var b strings.Builder
+	if len(svcs) == 0 || (len(svcs) == 1 && svcs[0] == "") {
+		return ""
+	}
+	fmt.Fprintf(&b, "Pencerede ilk kez görülen log şablonları (son %s, %s): ", fmtAgoTR(rangeS), strings.Join(svcs, ", "))
+	if len(ts) == 0 {
+		b.WriteString("yok.\n")
+		return b.String()
+	}
+	b.WriteString("\n")
+	for _, t := range ts {
+		fmt.Fprintf(&b, "- [%s] ×%d %s", t.Service, t.TotalCount, t.Template)
+		if t.Sample != "" {
+			fmt.Fprintf(&b, " — örnek: %s", t.Sample)
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
 }
