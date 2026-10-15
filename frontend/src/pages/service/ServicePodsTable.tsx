@@ -169,11 +169,13 @@ export function ServicePodsTable({ dt, view, service, range, effNs, effDeploy, c
                         aria-expanded={expandable ? open : undefined}
                         className={many ? 'cv-row' : undefined}>
                         <td className="mono sticky-left"
-                          title={`${r.cluster} / ${r.namespace || '?'} / ${r.pod}`} onClick={e => e.stopPropagation()}>
+                          title={`${r.cluster} / ${r.namespace || '?'} / ${r.pod}`}
+                          // v0.10.1210 (operatör: "üzerine basınca açılsın") — hücrenin boşluğu
+                          // ve ok da satırı açar; yalnız pod adı bağlantısı pod sayfasına gider.
+                          onClick={e => { if ((e.target as HTMLElement).closest('a')) e.stopPropagation(); }}>
                           {/* v0.10.943 — satır title'ı (T7) kalktı; açılır satırın açıklaması işarete, durumu aria-expanded'a taşındı (§3.10). */}
                           {expandable && <span className="pods-caret" aria-hidden="true"
-                            title={open ? 'Metrikleri gizle' : 'Metrikleri göster · JVM · GC · datasource'}
-                            onClick={() => setOpenKey(open ? null : r.key)}>{open ? '▾' : '▸'}</span>}
+                            title={open ? 'Metrikleri gizle' : 'Metrikleri göster'}>{open ? '▾' : '▸'}</span>}
                           <Link to={podHref(r)} className="row-link">{r.pod}</Link>
                           {live === 'gone' && <Badge tone="danger" style={{ marginLeft: 6 }} title={`Artık mevcut değil · son görülme ${fmtDateTime(new Date(r.entity!.entity!.lastSeen))}`}>gone</Badge>}
                           {live === 'stale' && <Badge tone="warning" style={{ marginLeft: 6 }} title="Son senkronda görülmedi">stale</Badge>}
@@ -203,7 +205,7 @@ export function ServicePodsTable({ dt, view, service, range, effNs, effDeploy, c
                         </td>
                         <td className="mono" onClick={e => e.stopPropagation()}>
                           {r.workload
-                            ? <Link to={entityHref({ type: 'workload', id: r.workload.id, name: r.workload.name, namespace: r.workload.namespace, clusterId: r.workload.clusterId }, { range })} className="sec">{r.workload.kind}/{r.workload.name}</Link>
+                            ? <Link to={entityHref({ type: 'workload', id: r.workload.id, name: r.workload.name, namespace: r.workload.namespace, clusterId: r.workload.clusterId }, { range })} className="sec" title={`${r.workload.kind}/${r.workload.name}`}>{r.workload.name}</Link>
                             : <span className="field-hint">{r.entity?.entity?.parentId?.startsWith('ns:') ? '(no workload)' : '—'}</span>}
                         </td>
                         <td className="num">{r.cpuCores != null ? fmtCores(r.cpuCores) : '—'}</td>

@@ -15,6 +15,14 @@ import { PodInlineResourceCharts } from './PodInlineResourceCharts';
 // (['jmx-metrics', cluster, ns, deploy]) → aynı cluster'da ek fetch yok.
 // "Tam detay → /pod" tam sayfaya gider (onFull). Fetch yalnız açılınca
 // (bileşen ancak o zaman mount olur = fetch-on-expand).
+// jmxTitle — v0.10.1210 (operatör: "BFF'lerde JVM/JBoss yazmaya gerek yok, onlar
+// Spring Boot"): başlık keşfedilen metriklerden — JMX yoksa kaynak kullanımı,
+// JBoss/WildFly metriği varsa JBoss, aksi hâlde yalnız JVM. SAF.
+export function jmxTitle(metrics: string[]): string {
+  if (metrics.length === 0) return 'Pod kaynak kullanımı';
+  return metrics.some(m => /jboss|wildfly|undertow/i.test(m)) ? 'JBoss / JVM (JMX)' : 'JVM (JMX)';
+}
+
 export function PodJmxInline({ cluster, ns, deploy, pod, cFrom, cTo, onFull }: {
   cluster: string;
   ns: string;
@@ -47,7 +55,7 @@ export function PodJmxInline({ cluster, ns, deploy, pod, cFrom, cTo, onFull }: {
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text2)' }}>
-          JVM / JBoss (JMX) · <span className="mono">{pod}</span>
+          {jmxTitle(metrics)} · <span className="mono">{pod}</span>
         </span>
         <Button variant="accent" size="sm" onClick={onFull}
           title="Tam pod detayı (RED + infra + JMX)">
