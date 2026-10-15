@@ -2996,6 +2996,25 @@ func canonicalTables(sd, ld, md int) []string {
 		ORDER BY (day, tool)
 		TTL day + INTERVAL 180 DAY`,
 
+		// cosre_operation_catalog — CoSRE operasyon tespiti Faz 1: sohbette
+		// yazılan operasyon adını eşlemek için HAZIR katalog (sohbet anında
+		// ham span taranmaz). span: operation_summary_5m (servis × ad);
+		// oracle: oracle_error_log operation_code + fonksiyon kodları. Son
+		// 24 sa'lik toplamlar 10 dk'da bir yeniden yazılır → RMT(version),
+		// ORDER BY dedup anahtarı; partition YOK; 30 g görülmeyen düşer.
+		`CREATE TABLE IF NOT EXISTS cosre_operation_catalog (
+			operation      String,
+			source         LowCardinality(String),
+			service        String DEFAULT '',
+			function_codes Array(String),
+			last_seen      DateTime64(3),
+			call_count     UInt64 DEFAULT 0,
+			error_count    UInt64 DEFAULT 0,
+			version        UInt64 DEFAULT toUnixTimestamp64Nano(now64(9))
+		) ENGINE = ReplacingMergeTree(version)
+		ORDER BY (source, operation, service)
+		TTL toDate(last_seen) + INTERVAL 30 DAY`,
+
 		// cosre_answer_grounding — CoSRE öğrenme Faz 4: çevrimdışı öz-
 		// değerlendirme. Gece örneklenen cevabın her iddiası, turda okunan
 		// tool çıktılarına karşı self-hosted modelle etiketlenir. Yeniden
