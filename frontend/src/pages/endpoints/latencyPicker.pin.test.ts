@@ -23,3 +23,12 @@ describe('endpoint gecikme seçicisi', () => {
     expect(src).toContain("aria-label=\"Gecikme yüzdeliği\"");
   });
 });
+
+// v0.10.1201 (operatör) — kırılımda deployment.environment değeri sayfayı süzer.
+import { withEnvParam } from './detailSections';
+describe('kırılımdan ortam süzgeci', () => {
+  it('env yazılır, diğer parametreler korunur', () => {
+    expect(withEnvParam('?service=a&path=%2Fx&range=3h', 'ocpy-prod')).toBe('?service=a&path=%2Fx&range=3h&env=ocpy-prod');
+    expect(withEnvParam('?env=old&service=a', 'ocpy-prod')).toBe('?env=ocpy-prod&service=a');
+  });
+});

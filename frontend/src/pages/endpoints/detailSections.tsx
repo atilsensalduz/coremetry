@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { Card, PanelTitle, SectionUnavailable } from '@/components/ui';
 import { Spinner, Empty } from '@/components/Spinner';
 import {
@@ -324,6 +324,13 @@ export function FailingTracesSection({ detail }: { detail: EndpointDetail }) {
   );
 }
 
+// withEnvParam — SAF: mevcut sorguya ?env= yazar (diğer parametreler korunur).
+export function withEnvParam(search: string, env: string): string {
+  const n = new URLSearchParams(search);
+  n.set('env', env);
+  return `?${n.toString()}`;
+}
+
 // ENDPOINT_SPLIT_DIMS mirrors the backend whitelist
 // (chstore.EndpointSplitDims — endpoints_detail.go). Keep in lockstep:
 // an id missing there 400s loudly with the allowed list.
@@ -356,6 +363,7 @@ const SPLIT_COLS: DataTableColumn<EndpointSplitValue>[] = [
 export function SplitSection({ refObj, from, to, env, cluster }: {
   refObj: EndpointRef; from: number; to: number; env?: string; cluster?: string;
 }) {
+  const loc = useLocation();
   // v0.9.1085 (operatör isteği): "break down by kısmında
   // deployment.environment varsa default o kalsın" — boyut listede
   // olduğu sürece sayfa onunla açılır (tek sınırlı split sorgusu peşin
@@ -421,7 +429,13 @@ export function SplitSection({ refObj, from, to, env, cluster }: {
                 const errCls = r.errorRate >= 5 ? 'b-err' : r.errorRate >= 1 ? 'b-warn' : 'b-gray';
                 return (
                   <tr key={`${r.value}|${i}`}>
-                    <td className="mono" title={functionCodeTitle(r.value, fnDict)}>{functionCodeLabel(r.value, fnDict)}</td>
+                    <td className="mono" title={functionCodeTitle(r.value, fnDict)}>
+                      {/* v0.10.1201 (operatör: deployment ile süz) — env değeri sayfayı
+                          o ortama daraltır (?env=, Topbar ortam seçicisiyle aynı süzgeç). */}
+                      {by === 'deployment.environment' && r.value
+                        ? <Link to={withEnvParam(loc.search, r.value)} title={`Sayfayı ${r.value} ortamına daralt`}>{r.value}</Link>
+                        : functionCodeLabel(r.value, fnDict)}
+                    </td>
                     <td className="num">{fmtNum(r.calls)}</td>
                     <td className="num">{fmtNum(r.errors)}</td>
                     <td className="num">
