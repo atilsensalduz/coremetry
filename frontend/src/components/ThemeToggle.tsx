@@ -1,19 +1,10 @@
 import { useEffect, useState } from 'react';
-import { setRaw } from '@/lib/storage';
 import { IconButton } from '@/components/ui/IconButton';
 
 // v0.8.268 — third palette: 'redhat' (PatternFly-flavoured light +
 // OpenShift-style dark nav; operator: "tasarım Red Hat ürünlerine
 // benzeyebilir"). The toggle cycles dark → light → redhat.
-type Theme = 'dark' | 'light' | 'redhat';
-
-const STORAGE_KEY = 'coremetry-theme';
-
-const NEXT: Record<Theme, Theme> = { dark: 'light', light: 'redhat', redhat: 'dark' };
-const GLYPH: Record<Theme, string> = { dark: '☾', light: '☀', redhat: '⬢' };
-const LABEL: Record<Theme, string> = {
-  dark: 'Dark', light: 'Light', redhat: 'Red Hat',
-};
+import { cycleTheme, currentTheme, THEME_LABEL as LABEL, THEME_NEXT as NEXT, THEME_GLYPH as GLYPH, type Theme } from '@/lib/theme';
 
 /**
  * Cycles the palette by setting the `data-theme` attribute on
@@ -26,17 +17,9 @@ export function ThemeToggle() {
   const [theme, setTheme] = useState<Theme>('redhat');
 
   // Read the theme that the boot script already applied to <html>
-  useEffect(() => {
-    const t = document.documentElement.getAttribute('data-theme');
-    setTheme(t === 'dark' || t === 'light' ? t : 'redhat');
-  }, []);
+  useEffect(() => { setTheme(currentTheme()); }, []);
 
-  const toggle = () => {
-    const next = NEXT[theme];
-    setTheme(next);
-    document.documentElement.setAttribute('data-theme', next);
-    setRaw(STORAGE_KEY, next);
-  };
+  const toggle = () => { setTheme(cycleTheme()); };
 
   // v0.10.924 — buton bütünlüğü Faz 2: IconButton (ghost, md = 28px kare).
   // `.theme-toggle` kalıyor: .topbar-prefs üçlüsünü tek bitişik grup yapan

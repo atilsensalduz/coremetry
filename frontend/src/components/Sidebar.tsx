@@ -15,6 +15,7 @@ import {
 import { navHref } from '@/lib/navHref';
 import { useAuth } from './AuthProvider';
 import { ChangePasswordModal } from './ChangePasswordModal';
+import { cycleTheme, currentTheme, THEME_LABEL } from '@/lib/theme';
 import { Wordmark } from './Wordmark';
 import { MenuItem, IconButton, DisclosureButton } from '@/components/ui';
 
@@ -514,9 +515,16 @@ export function Sidebar() {
                     </MenuItem>
                   </>
                 )}
-                <MenuItem icon="⚿" onClick={() => { setMenuOpen(false); setShowChangePw(true); }}>
-                  {t('user.changePassword')}
+                {/* v0.10.1177 (operatör): viewer'a şifre değiştirme gösterilmez —
+                    menüde yalnız tema + çıkış. Tema satırı her rolde. */}
+                <MenuItem icon="◐" onClick={() => { cycleTheme(); setMenuOpen(false); }}>
+                  Tema: {THEME_LABEL[currentTheme()]}
                 </MenuItem>
+                {user.role !== 'viewer' && (
+                  <MenuItem icon="⚿" onClick={() => { setMenuOpen(false); setShowChangePw(true); }}>
+                    {t('user.changePassword')}
+                  </MenuItem>
+                )}
                 <MenuItem icon="⏻" onClick={() => { setMenuOpen(false); logout(); }}>
                   {t('user.signOut')}
                 </MenuItem>
