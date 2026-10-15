@@ -59,7 +59,7 @@
 //     doğru çağrının koşulu, orada kazanılan bayt yanlış argümanla
 //     harcanan bir tura değmez.
 //
-// Tool catalogue (67 tools; v0.10.1207 — 66 → 67: business_code.go resolve_business_code, salt okuma; v0.10.1189 — 65 → 66: similar_incidents.go, vaka hafızası (onaylı önce), salt okuma; v0.10.1133 — 64 → 65: oracle_operation.go resolve_oracle_operation, salt okuma, sohbette yalnız etkin Oracle kaynağı varken; v0.10.1122 — 62 → 64: wiki_tools.go search_wiki / read_wiki_page, yalnız uygulama içi sohbet ve yalnız wiki bilgisi açık + DevOps bağlıyken; v0.10.1050 — 61 → 62: source_code.go read_source_code, yalnız uygulama içi sohbet ve yalnız DevOps bağlıyken; v0.10.993 — 60 → 61: bubble_up.go, yalnız dış MCP; v0.10.944 — 57 → 60: logs_tools.go list_log_fields, metrics_tools.go list_metric_labels, compare_periods.go; search_logs / query_metric / get_trace yeni dosyalarında; v0.10.809 — 56 → 57: product_guide.go; v0.10.559 — 54 → 56: knowledge_tools.go get_runbook / search_knowledge; v0.10.556 — 52 → 54: signal_tools.go log_patterns / cluster_metric; v0.10.555 — 48 → 52: problem_tools.go get_problem / get_correlation_evidence / similar_problems / get_capabilities; v0.10.545 — 47 → 48: list_deployments.go; v0.10.478 — 44 → 47: context_tools.go; v0.10.475 — 43 → 44: build_link.go; v0.10.474 — 42 → 43: trace_stats.go; v0.10.472 — 40 → 42: attr_discovery.go; v0.10.469 — 39 → 40: resolve_entity.go; v0.10.468 — 36 → 39: entity_catalog.go list_namespaces / list_workloads / list_pods; sayım v0.9.1050'de düzeltildi — blok
+// Tool catalogue (68 tools; v0.10.1208 — 67 → 68: search_code.go, koşullu + yalnız sohbet; v0.10.1207 — 66 → 67: business_code.go resolve_business_code, salt okuma; v0.10.1189 — 65 → 66: similar_incidents.go, vaka hafızası (onaylı önce), salt okuma; v0.10.1133 — 64 → 65: oracle_operation.go resolve_oracle_operation, salt okuma, sohbette yalnız etkin Oracle kaynağı varken; v0.10.1122 — 62 → 64: wiki_tools.go search_wiki / read_wiki_page, yalnız uygulama içi sohbet ve yalnız wiki bilgisi açık + DevOps bağlıyken; v0.10.1050 — 61 → 62: source_code.go read_source_code, yalnız uygulama içi sohbet ve yalnız DevOps bağlıyken; v0.10.993 — 60 → 61: bubble_up.go, yalnız dış MCP; v0.10.944 — 57 → 60: logs_tools.go list_log_fields, metrics_tools.go list_metric_labels, compare_periods.go; search_logs / query_metric / get_trace yeni dosyalarında; v0.10.809 — 56 → 57: product_guide.go; v0.10.559 — 54 → 56: knowledge_tools.go get_runbook / search_knowledge; v0.10.556 — 52 → 54: signal_tools.go log_patterns / cluster_metric; v0.10.555 — 48 → 52: problem_tools.go get_problem / get_correlation_evidence / similar_problems / get_capabilities; v0.10.545 — 47 → 48: list_deployments.go; v0.10.478 — 44 → 47: context_tools.go; v0.10.475 — 43 → 44: build_link.go; v0.10.474 — 42 → 43: trace_stats.go; v0.10.472 — 40 → 42: attr_discovery.go; v0.10.469 — 39 → 40: resolve_entity.go; v0.10.468 — 36 → 39: entity_catalog.go list_namespaces / list_workloads / list_pods; sayım v0.9.1050'de düzeltildi — blok
 // v0.6.5'te kalmıştı, get_problem_root_cause/render_chart sayılmıyordu;
 // v0.9.1227'de get_operation_health ile 33; v0.9.1233'te
 // get_exception_samples ile 34; v0.9.1244'te list_teams +
@@ -231,6 +231,9 @@ type Deps struct {
 	// v0.10.1050 — read_source_code okuyucusu (source_code.go; api/chat_source_code.go
 	// doldurur). nil = DevOps bağlantısı yok → ChatToolList aracı HİÇ sunmaz.
 	SourceCode SourceCodeReader
+	// v0.10.1208 — search_code (search_code.go; api/chat_code_search.go). nil =
+	// DevOps ya da Code Search kapalı → sohbete SUNULMAZ.
+	CodeSearch CodeSearcher
 	// v0.10.1122 — search_wiki / read_wiki_page okuyucusu (wiki_tools.go; api
 	// doldurur). nil = wiki bilgisi kapalı ya da DevOps yok → ChatToolList
 	// araçları HİÇ sunmaz; dış MCP'de hiç kayıtlı değiller (chatOnlyTools).
@@ -383,6 +386,7 @@ func ToolList(d Deps) []mcp.Tool {
 		// (source_code.go). SOHBET-YALNIZ ve KOŞULLU (DevOps bağlıysa sunulur);
 		// stack taşıyan örneklerin hemen yanında ki model frame'i görünce okuyucuyu
 		// da görsün.
+		searchCodeTool(d), // v0.10.1208 — Code Search (koşullu, yalnız sohbet)
 		readSourceCodeTool(d),
 		// v0.9.1092 (Faz 4) — "o anda başka ne değişti" (MV okuması).
 		getCorrelatedChangesTool(d),
@@ -444,7 +448,7 @@ func ToolList(d Deps) []mcp.Tool {
 // v0.10.1050 — read_source_code: kaynak kodu dış istemciye açmak operatörün
 // onayladığı kapsamın dışında ("kod tarayıcıya gitmez" sözleşmesi sohbet içi).
 // v0.10.1122 — search_wiki / read_wiki_page: wiki içeriği MCP üzerinden dışarı çıkmaz.
-var chatOnlyTools = map[string]bool{"set_context": true, "get_context": true, "clear_context": true, SourceCodeToolName: true,
+var chatOnlyTools = map[string]bool{"set_context": true, "get_context": true, "clear_context": true, SourceCodeToolName: true, SearchCodeToolName: true,
 	WikiSearchToolName: true, WikiReadToolName: true}
 
 // chatOffered — v0.10.1050 — KOŞULLU sohbet araçları: bağımlılığı
@@ -454,6 +458,8 @@ func chatOffered(d Deps, name string) bool {
 	switch name {
 	case SourceCodeToolName:
 		return d.SourceCode != nil
+	case SearchCodeToolName:
+		return d.CodeSearch != nil
 	case WikiSearchToolName, WikiReadToolName:
 		return d.Wiki != nil
 	case OracleOperationToolName: // v0.10.1133

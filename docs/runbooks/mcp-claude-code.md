@@ -79,6 +79,10 @@ v0.10.1207'de 67 oldu: `resolve_business_code` — kanal kodu, fonksiyon kodu
 servislere çözer (servis başına çağrı/hata); belirsizde `ambiguous=true`.
 Salt okumadır.
 
+v0.10.1208'de 68 oldu: `search_code` — servisin deposunda Azure DevOps Code
+Search (yalnız uygulama içi sohbet; DevOps + Code Search açıkken). Dış MCP
+yüzeyi değişmedi.
+
 ### "Benim servislerim" MCP'de YOK (bilinçli)
 
 Takım tool'ları takım ADIYLA çalışır. Sebep yukarıdaki sınırın

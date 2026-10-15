@@ -273,6 +273,15 @@ type searchCodeResponse struct {
 		Versions []struct {
 			BranchName string `json:"branchName"`
 		} `json:"versions"`
+		// Matches — v0.10.1208 (search_code): içerik isabetleri. Satır /
+		// kod parçası sunucu sürümüne göre gelmeyebilir (0 / "" = yok).
+		Matches struct {
+			Content []struct {
+				CharOffset  int    `json:"charOffset"`
+				Line        int    `json:"line"`
+				CodeSnippet string `json:"codeSnippet"`
+			} `json:"content"`
+		} `json:"matches"`
 	} `json:"results"`
 }
 

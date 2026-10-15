@@ -59,6 +59,7 @@ func (s *Server) mcpDeps() mcptools.Deps {
 		// v0.10.1050 — read_source_code (chat_source_code.go); DevOps yoksa nil →
 		// araç sohbete sunulmaz. Dış MCP'de araç hiç kayıtlı değil (chatOnlyTools).
 		SourceCode: s.sourceCodeReaderOrNil(),
+		CodeSearch: s.codeSearcherOrNil(), // v0.10.1208 — search_code
 		// v0.10.1122 — search_wiki / read_wiki_page (chat_wiki.go); wiki kapalı ya
 		// da DevOps yoksa nil → araçlar sohbete sunulmaz; dış MCP'de hiç yok.
 		Wiki: s.wikiSourceOrNil(),

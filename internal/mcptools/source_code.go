@@ -138,7 +138,7 @@ type sourceCodeResult struct {
 func readSourceCodeTool(d Deps) mcp.Tool {
 	return mcp.Tool{
 		Name:             SourceCodeToolName,
-		ShortDescription: "Konuşmanın konusundaki servisin (trace'teki servisler ya da exception'ın servisi) deposundan TEK kaynak dosyanın numaralı satırlarını oku (çalışan sürüm, yoksa dal). Kod sorulunca ya da cevap alıntılanmamış koda dayanınca çağır; dosya/satırı stack'ten al. Çok aday dönerse daha belirgin file ver.",
+		ShortDescription: "Konudaki servisin deposundan TEK dosyanın numaralı satırlarını oku (çalışan sürüm, yoksa dal). Kod sorulunca çağır; dosya/satır stack'ten ya da search_code'dan. Çok aday dönerse daha belirgin file ver.",
 		MinRole:          SourceCodeMinRole,
 		Description: "Read a numbered window of ONE source file from the repository of a service in the subject under discussion — a service of the trace, or the exception's group / stack-printing service — (DevOps), at the running version's commit when the subject reveals it, else the configured branch order. " +
 			"Use when the operator asks about code or the answer needs code that is not already quoted; take service, file and line from the evidence (stack frames, the previous explanation). " +

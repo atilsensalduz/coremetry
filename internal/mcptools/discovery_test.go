@@ -567,7 +567,8 @@ func TestDiscoveryToolsGroupedNearConsumers(t *testing.T) {
 	// v0.10.1133 — 64 → 65: oracle_operation.go resolve_oracle_operation (salt okuma; sohbette koşullu — etkin Oracle kaynağı; MinRole "", REST eşi GET /api/oracle/operations kapısız).
 	// v0.10.1189 — 65 → 66: similar_incidents (CoSRE öğrenme Faz 3, vaka hafızası; salt okuma, REST eşi GET /api/cases/lookup kapısız → MinRole ""; onaysız taslak confirmed:false + uyarı).
 	// v0.10.1207 — 66 → 67: resolve_business_code (kanal/fonksiyon kodu, operasyon, endpoint → servis; salt okuma, REST eşi yok → MinRole "").
-	if len(tools) != 67 { // v0.10.944 — 57 → 60: list_log_fields / list_metric_labels / compare_periods (CoSRE araştırma asistanı; üçü de viewer, REST eşleri /api/logs/fields, /api/metrics label okumaları ve servis RED kıyası kapısız)
+	// v0.10.1208 — 67 → 68: search_code (Azure DevOps Code Search, servisin deposunda; koşullu + yalnız sohbet, salt okuma).
+	if len(tools) != 68 { // v0.10.944 — 57 → 60: list_log_fields / list_metric_labels / compare_periods (CoSRE araştırma asistanı; üçü de viewer, REST eşleri /api/logs/fields, /api/metrics label okumaları ve servis RED kıyası kapısız)
 		t.Errorf("katalog %d tool — sayı değiştiyse tools.go başlığındaki sayım yorumunu, "+
 			"api/mcp_authz_test.go'daki duruş notunu ve docs/runbooks/mcp-claude-code.md'yi de güncelle", len(tools))
 	}
