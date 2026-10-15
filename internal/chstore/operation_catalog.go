@@ -6,6 +6,7 @@ package chstore
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -19,6 +20,17 @@ const spanOperationCatalogSQL = `
 	FROM operation_summary_5m
 	WHERE time_bucket >= ? AND name != ''
 	GROUP BY service_name, name
+	LIMIT 500000
+	SETTINGS max_execution_time = 25`
+
+// endpointCatalogSQL — SAF: spanmetrics_1m'den (servis × http_route) son 24 sa
+// (resolve_business_code endpoint ekseni). Ham span DEĞİL.
+const endpointCatalogSQL = `
+	INSERT INTO cosre_operation_catalog (operation, source, service, function_codes, last_seen, call_count, error_count)
+	SELECT http_route, 'endpoint', service_name, [], max(time_bucket), countMerge(calls_state), countMerge(error_state)
+	FROM spanmetrics_1m
+	WHERE time_bucket >= ? AND http_route != ''
+	GROUP BY service_name, http_route
 	LIMIT 500000
 	SETTINGS max_execution_time = 25`
 
@@ -50,6 +62,9 @@ func oracleOperationCatalogSQL(nCodeSources int) string {
 func (s *Store) RefreshOperationCatalog(ctx context.Context, codeSources []string, now time.Time) (spanErr, oracleErr error) {
 	from := chDateTime64Arg(now.Add(-operationCatalogWindow))
 	spanErr = s.conn.Exec(ctx, spanOperationCatalogSQL, from)
+	if err := s.conn.Exec(ctx, endpointCatalogSQL, from); err != nil && spanErr == nil {
+		spanErr = fmt.Errorf("endpoint catalog: %w", err)
+	}
 	args := make([]any, 0, len(codeSources)+1)
 	for _, id := range codeSources {
 		args = append(args, id)

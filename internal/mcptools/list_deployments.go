@@ -146,7 +146,7 @@ func ListDeploymentsWindow(ctx context.Context, d Deps, a ListDeploymentsArgs, f
 func listDeploymentsTool(d Deps) mcp.Tool {
 	return mcp.Tool{
 		Name:             "list_deployments",
-		ShortDescription: "Pencerede NE DEPLOY EDİLDİ: cluster/namespace/servis daraltmalı; span-çıkarımlı deploy + operatör olayı + K8s rollout tek listede (source etiketli). 'Neden arttı' sorusunda hata penceresiyle çağır.",
+		ShortDescription: "Pencerede NE DEPLOY EDİLDİ (span + operatör olayı + K8s rollout, kaynak etiketli). 'Neden arttı' sorusunda hata penceresiyle çağır.",
 		Description: "List what changed in a time window: inferred deploys (service.version transitions), operator deploy events and Kubernetes rollouts, " +
 			"merged newest-first with a `source` tag. Narrow by cluster and/or namespace (rollouts carry them; inferred deploys do NOT, so a namespace-only " +
 			"question is answered from rollouts and the payload says so in `scope`/`notes`) or by exact service. This is the shortest path for " +

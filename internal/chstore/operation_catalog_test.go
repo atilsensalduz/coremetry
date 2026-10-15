@@ -24,3 +24,17 @@ func TestOperationCatalogSQL(t *testing.T) {
 		t.Error("kod kaynağı yoksa yalnız attribute ifadesi")
 	}
 }
+
+// Endpoint ekseni spanmetrics_1m'in GERÇEK kolonlarını okur (time_bucket,
+// calls_state, error_state) — "ts" yazımı prod'da UNKNOWN_IDENTIFIER olurdu
+// ve endpoint ekseni sessizce boş kalırdı.
+func TestEndpointCatalogSQLColumns(t *testing.T) {
+	for _, want := range []string{"FROM spanmetrics_1m", "WHERE time_bucket >= ?", "max(time_bucket)", "countMerge(calls_state)", "countMerge(error_state)", "LIMIT", "max_execution_time"} {
+		if !strings.Contains(endpointCatalogSQL, want) {
+			t.Errorf("endpointCatalogSQL %q içermiyor", want)
+		}
+	}
+	if strings.Contains(endpointCatalogSQL, " ts") || strings.Contains(endpointCatalogSQL, "(ts)") {
+		t.Error("spanmetrics_1m'de ts kolonu yok")
+	}
+}

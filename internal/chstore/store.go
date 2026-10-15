@@ -4966,6 +4966,9 @@ func (s *Store) migrate(ctx context.Context) error {
 	} else {
 		log.Println("[chstore] rollout terfi kolonları eksik — workload_revision_activity_1m MV ATLANDI (dış Distributed'da 0012 sihirbazı)")
 	}
+	// CoSRE iş kodu çözümleme (business_code.go): kod ifadeleri attr dizilerinden
+	// (promoted kolona bağlı değil) → koşulsuz.
+	mvs = append(mvs, businessCodeMVDDL())
 
 	for _, q := range mvs {
 		// Skip the operation_group_summary_5m MV when op_group isn't on the

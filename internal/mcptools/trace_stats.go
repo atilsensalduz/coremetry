@@ -98,7 +98,7 @@ func aggregateDeepLink(f chstore.AggregateFilter, from, to time.Time) string {
 func traceStatsTool(d Deps) mcp.Tool {
 	return mcp.Tool{
 		Name:             "trace_stats",
-		ShortDescription: "Trace istatistiği: grup başına (operasyon/servis/durum/attribute) trace sayısı, dakika başı, hata oranı, p50/p95/p99. 'hata var mı / ne kadar yavaş' için ham trace'ten ÖNCE bunu çağır.",
+		ShortDescription: "Trace istatistiği: grup başına sayı, hata oranı, p50/p95/p99. 'Hata var mı / ne kadar yavaş' için ham trace'ten ÖNCE çağır.",
 		Description: "Aggregate traces in a scope instead of listing them: per group (operation | service | status | attr=<group_attr>) trace count, per-minute rate, error count and " +
 			"rate, avg/p50/p95/p99/max latency (ms). Far cheaper than search_traces for 'are there errors', 'how slow is X', 'which endpoint is worst' — call it FIRST, " +
 			"then search_traces only for the specific traces you need. Same filter contract and gate as search_traces: filters[] keys from describe_attributes only, " +
