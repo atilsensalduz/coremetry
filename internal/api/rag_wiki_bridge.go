@@ -99,3 +99,13 @@ func (s *Server) ragWikiBackfill(ctx context.Context) {
 		log.Printf("[wiki] %d yüklenen belge wiki indeksine aktarıldı", n)
 	}
 }
+
+// hasLocalDocHit — SAF: isabetlerde yüklenen belge var mı (v0.10.1176).
+func hasLocalDocHit(h []wiki.Hit) bool {
+	for _, x := range h {
+		if x.WikiID == wiki.LocalWikiID {
+			return true
+		}
+	}
+	return false
+}

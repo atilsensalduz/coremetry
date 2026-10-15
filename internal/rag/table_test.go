@@ -55,3 +55,11 @@ func TestTableXLSXSharedAndInlineStrings(t *testing.T) {
 		t.Fatal("xlsxColumn")
 	}
 }
+
+func TestParseTableRowsRoundTrip(t *testing.T) {
+	text, _ := TableToText("x.csv", []byte("A,B\n1,iki: üç\n,\n4,5\n"))
+	rows := ParseTableRows(text + "\nserbest metin satırı")
+	if len(rows) != 2 || rows[0].Row != 2 || rows[0].Cells[1].Key != "B" || rows[0].Cells[1].Val != "iki: üç" || rows[1].Row != 4 {
+		t.Fatalf("%+v", rows)
+	}
+}

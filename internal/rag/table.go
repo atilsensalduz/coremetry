@@ -369,3 +369,43 @@ func xlsxCellValue(c xlsxCell, shared []string) string {
 	}
 	return c.V
 }
+
+// ── v0.10.1176 — satır metnini geri okuma (tablo satırı kademesi) ──
+
+// TableCell / TableRow — rowsToText'in yazdığı satırın ayrıştırılmış hâli.
+type TableCell struct{ Key, Val string }
+type TableRow struct {
+	Sheet string
+	Row   int
+	Cells []TableCell
+}
+
+// ParseTableRows — SAF: parça metnindeki "Sayfa · satır N — K: v · K: v"
+// satırları. Biçime uymayan satır atlanır.
+func ParseTableRows(text string) []TableRow {
+	var out []TableRow
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		i := strings.Index(line, " · satır ")
+		j := strings.Index(line, tableRowHeaderSep)
+		if i <= 0 || j <= i {
+			continue
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(line[i+len(" · satır ") : j]))
+		if err != nil {
+			continue
+		}
+		r := TableRow{Sheet: line[:i], Row: n}
+		for _, part := range strings.Split(line[j+len(tableRowHeaderSep):], tableCellSeparator) {
+			k, v, ok := strings.Cut(part, ": ")
+			if !ok || strings.TrimSpace(k) == "" {
+				continue
+			}
+			r.Cells = append(r.Cells, TableCell{Key: strings.TrimSpace(k), Val: strings.TrimSpace(v)})
+		}
+		if len(r.Cells) > 0 {
+			out = append(out, r)
+		}
+	}
+	return out
+}

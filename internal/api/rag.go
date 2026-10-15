@@ -402,6 +402,25 @@ func (s *Server) ragChatAnswer(ctx context.Context, emit func(string, any), msgs
 	if len(hits) == 0 && len(wikiHits) == 0 {
 		return false, false
 	}
+	// v0.10.1176 — yüklenen belge isabeti varsa wiki gibi oku: parça
+	// anlatımı yerine belgeyi bul → sayfanın tamamını (model penceresi
+	// bütçesiyle) normal modele okut (wikiNarratedAnswer, açık wiki kademesiyle
+	// aynı yol). Operatör: embedding parçalarıyla cevap bulunamıyordu.
+	if docsViaWiki && hasLocalDocHit(wikiHits) {
+		if w := wikiKB(); w != nil {
+			emitGuidedContextStep(emit, "yüklenen belgeler")
+			ans, used, err := s.wikiNarratedAnswer(ctx, w, question, wikiPriorTurns(msgs), wikiHits, emit)
+			if err != nil {
+				emit("error", map[string]string{"error": err.Error()})
+				return true, false
+			}
+			if text, _ := ans["text"].(string); !wikiDeclined(text) {
+				s.rememberWikiAnswer(ctx, text, wikiPageRefs(used))
+			}
+			emit("answer", ans)
+			return true, true
+		}
+	}
 
 	var b strings.Builder
 	// v0.10.1127 (inceleme F6): kaynak listesi ÖNCE kurulur; bağlam blok

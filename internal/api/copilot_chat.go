@@ -368,6 +368,15 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 		emit("done", map[string]bool{"ok": wok})
 		return
 	}
+	// v0.10.1176 — yüklenen Excel / CSV'de kimliğin birebir satırları (chat_doc_rows.go):
+	// guided'dan ÖNCE ki uygulama kodu telemetriye kaçmasın; telemetri sinyalinde çekilir.
+	if wikiTierAllowed(wikiTC) {
+		if handled, dok := s.docRowsAnswer(ctx, emit, req.Messages); handled {
+			cspan.tier("doc-rows", dok)
+			emit("done", map[string]bool{"ok": dok})
+			return
+		}
+	}
 	// v0.10.1126 — netleştirme kurtarması: guided/niyet yolu YALNIZ "hangisini
 	// kastettin?" ile bitecekse ve wiki bu çağırana açıksa önce wiki denenir
 	// (chat_disambig_rescue.go). Kapı kapalıyken ctx/emit aynen döner.

@@ -150,13 +150,15 @@ const (
 	TierGuided = "guided"
 	TierDrawer = "drawer"
 	TierRAG    = "rag"
-	TierIntent = "intent"
-	TierLoop   = "loop"
-	TierOther  = "other"
+	// TierDocRows — v0.10.1176: yüklenen Excel / CSV'de birebir satır araması (api/chat_doc_rows.go).
+	TierDocRows = "doc-rows"
+	TierIntent  = "intent"
+	TierLoop    = "loop"
+	TierOther   = "other"
 )
 
 var tiers = map[string]bool{TierScope: true, TierWiki: true, TierGuided: true, TierDrawer: true,
-	TierRAG: true, TierIntent: true, TierLoop: true, TierOther: true}
+	TierRAG: true, TierIntent: true, TierLoop: true, TierOther: true, TierDocRows: true}
 
 // KnownTier — kademe adı kayıtlı mı (api kaynak testi copilotChat'in
 // cspan.tier(...) adlarını buna karşı denetler).
