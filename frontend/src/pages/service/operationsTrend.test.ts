@@ -14,7 +14,9 @@ describe('Operations trend hücresi (v0.10.697)', () => {
     expect(src).not.toContain('SPARK_W');
     expect(src).not.toContain("setOpFocus('errors'); setOpDetail(op);");
   });
-  it('kolon genişliği tek grafiğe göre (200)', () => {
-    expect(src).toContain("{ id: 'trend',     label: 'Trend',     width: 200 }");
+  // v0.10.1179 — trend kolonu artanı emer (taban 200), grafik kolona yayılır.
+  it('trend kolonu esner (taban 200), grafik kolon genişliğinde', () => {
+    expect(src).toContain("{ id: 'trend',     label: 'Trend',     flex: true, minWidth: 200 }");
+    expect(src).toContain('width={trendW}');
   });
 });

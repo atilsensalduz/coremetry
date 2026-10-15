@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { trendSparkWidth, nextOpDetail } from './operationsTableLayout';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { SegmentedControl } from '@/components/ui';
@@ -72,7 +73,10 @@ const TREND_C = {
 const opText = (r: OperationRow) => opDisplayName(r.name, r.route);
 
 const OP_COLS: DataTableColumn<OperationRow>[] = [
-  { id: 'name',      label: 'Operation', sortValue: r => opText(r),         naturalDir: 'asc', flex: true },
+  // v0.10.1179 (operatör, prod: "operation isminden sonra çok büyük boşluk") —
+  // artan genişliği Operation DEĞİL Trend emer (grafik kolona yayılır, aşağıda
+  // trendW); Operation sabit genişlikte, uzun ad kırpılır (title tam ad).
+  { id: 'name',      label: 'Operation', sortValue: r => opText(r),         naturalDir: 'asc', width: 420, minWidth: 220 },
   // v0.9.347 — Trend hücresi ÜÇE bölündü (calls · errors · p99).
   //
   // Operatör: "doğrudan sparkline olarak göstersek ve üzerine tıklayınca
@@ -86,14 +90,15 @@ const OP_COLS: DataTableColumn<OperationRow>[] = [
   // v0.9.498 — 190px üç sparkline'a yetmiyordu (3×80 + boşluk ≈ 250) ve
   // hangisinin hangi metrik olduğunu söyleyen hiçbir şey yoktu. Genişlik
   // gerçek içeriğe çekildi, her mini grafiğe renk lekesi + etiket eklendi.
-  { id: 'trend',     label: 'Trend',     width: 200 },
+  { id: 'trend',     label: 'Trend',     flex: true, minWidth: 200 },
   { id: 'impact',    label: 'Impact',    sortValue: r => impactOf(r),       numeric: true,      width: 130 },
-  { id: 'spanCount', label: 'Calls',     sortValue: r => r.spanCount,       numeric: true,      width: 96 },
-  { id: 'errorRate', label: 'Err %',     sortValue: r => r.errorRate,       numeric: true,      width: 84 },
-  { id: 'avg',       label: 'Avg',       sortValue: r => r.avgDurationMs,   numeric: true,      width: 84 },
-  { id: 'p50',       label: 'P50',       numeric: true,                     width: 84 },
-  { id: 'p95',       label: 'P95',       numeric: true,                     width: 84 },
-  { id: 'p99',       label: 'P99',       sortValue: r => r.p99DurationMs,   numeric: true,      width: 84 },
+  // v0.10.1179 — süre kolonları "1234.5ms" ve başlık + sıralama oku sığsın diye genişledi (kırpılıyordu).
+  { id: 'spanCount', label: 'Calls',     sortValue: r => r.spanCount,       numeric: true,      width: 104 },
+  { id: 'errorRate', label: 'Err %',     sortValue: r => r.errorRate,       numeric: true,      width: 92 },
+  { id: 'avg',       label: 'Avg',       sortValue: r => r.avgDurationMs,   numeric: true,      width: 100 },
+  { id: 'p50',       label: 'P50',       numeric: true,                     width: 100 },
+  { id: 'p95',       label: 'P95',       numeric: true,                     width: 100 },
+  { id: 'p99',       label: 'P99',       sortValue: r => r.p99DurationMs,   numeric: true,      width: 100 },
   // v0.9.69 — Apdex kolonu operatör isteğiyle kalktı (klasik düzen
   // korunur, yalnız bu kolon eksik); skor detay modalında yaşamaya
   // devam edebilir gerekirse.
@@ -160,6 +165,16 @@ export function OperationsTable({ service, rows, range, preset, onWiden, normali
   // sparkline + companion errors/p99 sparklines added in the
   // same release.
   const [opDetail, setOpDetail] = useState<OperationRow | null>(null);
+  // v0.10.1179 — trend grafiği kolonun genişliğine yayılır (kolon artanı emer).
+  const [trendW, setTrendW] = useState(TREND_W);
+  const trendHeadRef = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const th = trendHeadRef.current?.closest('th');
+    if (!th || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => setTrendW(trendSparkWidth(th.clientWidth)));
+    ro.observe(th);
+    return () => ro.disconnect();
+  }, []);
   // v0.9.347 — tıklanan sparkline hangi metrikse detay onunla açılıyor.
   const [opFocus, setOpFocus] = useState<OpMetricKey>('calls');
 
@@ -404,7 +419,7 @@ export function OperationsTable({ service, rows, range, preset, onWiden, normali
               eşleme tablo boyunca sabit. Renk lekeleri satırdaki
               sparkline renkleriyle birebir. */}
           <DataTableHead dt={dt} renderLabel={c => c.id === 'trend' ? (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+            <span ref={trendHeadRef} style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
               <span>Trend</span>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: 400 }}>
                 {([['Calls', TREND_C.calls], ['Errors', TREND_C.errors], ['P99', TREND_C.p99]] as const).map(([lbl, col]) => (
@@ -568,9 +583,11 @@ export function OperationsTable({ service, rows, range, preset, onWiden, normali
                         errors · p99, son soluk satır "tıkla: grafik". Erişilebilir
                         ad aria-label'da; tık davranışı aynı. */}
                     <Button variant="ghost" size="xs" style={{ padding: '1px 2px', border: 0 }}
-                      onClick={e => { e.stopPropagation(); setOpFocus('calls'); setOpDetail(op); }}
-                      aria-label={`${opText(op)} — trend grafiğini aç`}>
-                      <TrendSpark calls={op.sparkline ?? []} errors={op.errorsSparkline ?? []} p99={op.p99Sparkline ?? []} width={TREND_W}
+                      // v0.10.1179 (operatör: "tekrar basınca kapanmıyor") — aynı satıra ikinci tık kapatır.
+                      onClick={e => { e.stopPropagation(); setOpFocus('calls'); setOpDetail(cur => nextOpDetail(cur, op)); }}
+                      aria-expanded={!!opDetail && opRowKey(opDetail) === opRowKey(op)}
+                      aria-label={`${opText(op)} — trend grafiğini ${opDetail && opRowKey(opDetail) === opRowKey(op) ? 'kapat' : 'aç'}`}>
+                      <TrendSpark calls={op.sparkline ?? []} errors={op.errorsSparkline ?? []} p99={op.p99Sparkline ?? []} width={trendW}
                         fromMs={trendWin.fromMs} toMs={trendWin.toMs} hint="tıkla: grafik" />
                     </Button>
                   </td>
