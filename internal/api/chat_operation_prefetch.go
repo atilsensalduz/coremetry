@@ -25,6 +25,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/cilcenk/coremetry/internal/ai/agent/blocks"
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/copilot"
 )
@@ -266,19 +267,23 @@ func (p *opPrefetch) summary() string {
 	return b.String()
 }
 
-// opTracesHref — SAF: filtreli Traces sayfası (servis + operasyon / kod).
+// opTracesHref — SAF: filtreli Traces sayfası; Traces'in URL sözleşmesi
+// (frontend lib/urlState.ts): range=custom:<fromMs>-<toMs>, op=<ad>,
+// service=, filters=<JSON FilterExpr dizisi>, hasError.
 func opTracesHref(t opTarget, spanKey string, from, to time.Time) string {
-	q := []string{fmt.Sprintf("from=%d", from.UnixMilli()), fmt.Sprintf("to=%d", to.UnixMilli())}
+	q := url.Values{}
+	q.Set("range", fmt.Sprintf("custom:%d-%d", from.UnixMilli(), to.UnixMilli()))
 	switch {
 	case t.HasSpan:
-		q = append(q, "operation="+url.QueryEscape(t.Name))
+		q.Set("op", t.Name)
 		if len(t.Services) == 1 {
-			q = append(q, "service="+url.QueryEscape(t.Services[0]))
+			q.Set("service", t.Services[0])
 		}
 	case len(t.Codes) > 0 && spanKey != "":
-		q = append(q, "filter="+url.QueryEscape(spanKey+"="+t.Codes[0]))
+		f, _ := json.Marshal([]chstore.FilterExpr{{Key: spanKey, Op: "=", Values: []string{t.Codes[0]}}}) // {"k","op","v"} — FE FilterExpr
+		q.Set("filters", string(f))
 	}
-	return "/traces?" + strings.Join(q, "&")
+	return "/traces?" + q.Encode()
 }
 
 // mergeErrorsFirst — SAF: tekilleştirilmiş birleşim; önce hatalılar, sonra süre.
@@ -397,5 +402,8 @@ func (s *Server) chatOperationPrefetch(ctx context.Context, emit func(string, an
 	}
 	p.TracesHref = opTracesHref(t, sc.SpanKey, from, to)
 	emitGuidedStepResult(emit, n, opPrefetchTool, p.summary(), nil)
+	// Faz 3 — sohbet kartı (metrikler, hatalı trace'ler, Oracle kodları,
+	// filtreli Traces linki). seq yüksek: döngünün kendi blokları (b1…) önce.
+	emit("block", map[string]any{"id": "op-prefetch", "type": blocks.TypeOperation, "seq": 1000, "final": true, "payload": p})
 	return p, false
 }

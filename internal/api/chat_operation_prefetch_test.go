@@ -55,11 +55,11 @@ func TestOpTargetFor(t *testing.T) {
 	if !tg.HasSpan || !tg.HasOra || !reflect.DeepEqual(tg.Services, []string{"pay"}) || !reflect.DeepEqual(tg.Codes, []string{"SAMP05"}) {
 		t.Fatalf("%+v", tg)
 	}
-	if h := opTracesHref(tg, "FUNCTION_CODE", time.Unix(0, 0), time.Unix(60, 0)); !strings.Contains(h, "operation=DIGITAL_PAYMENT_EFT") || !strings.Contains(h, "service=pay") {
+	if h := opTracesHref(tg, "FUNCTION_CODE", time.Unix(0, 0), time.Unix(60, 0)); !strings.Contains(h, "op=DIGITAL_PAYMENT_EFT") || !strings.Contains(h, "service=pay") {
 		t.Errorf("span kaynağında ad + servis süzgeci: %s", h)
 	}
 	ora := opTargetFor("ATM_CORE_PIN_CHANGE", opCands)
-	if h := opTracesHref(ora, "FUNCTION_CODE", time.Unix(0, 0), time.Unix(60, 0)); !strings.Contains(h, "filter=FUNCTION_CODE%3DSAMP01") {
+	if h := opTracesHref(ora, "FUNCTION_CODE", time.Unix(0, 0), time.Unix(60, 0)); !strings.Contains(h, "filters=%5B%7B%22k%22%3A%22FUNCTION_CODE%22") || !strings.Contains(h, "range=custom%3A0-60000") {
 		t.Errorf("Oracle kaynağında fonksiyon kodu süzgeci: %s", h)
 	}
 }

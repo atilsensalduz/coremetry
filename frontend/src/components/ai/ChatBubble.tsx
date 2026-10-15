@@ -2,12 +2,13 @@ import { Component, Fragment, createContext, memo, useContext, useMemo, useRef, 
 import { chatErrorText } from './chatErrorText';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { AIFeedbackButtons } from './AIFeedbackButtons';
-import { chartBlocks, mergeBlockLinks, traceListBlocks } from '@/lib/chatBlocks';
+import { chartBlocks, mergeBlockLinks, traceListBlocks, operationBlocks } from '@/lib/chatBlocks';
 import { ChatTraceList } from './ChatTraceList'; // v0.10.688 — trace_list bloğu
 import { evidenceBlocks } from '@/lib/chatEvidence'; // v0.10.558
 import { EvidenceCard } from './EvidenceCard';
 import { parseAction, actionVisible, applyActionHref, parseProblemNoteAction } from '@/lib/pageActions';
 import { ProblemNoteButton } from './ProblemNoteButton';
+import { OperationCard } from './OperationCard';
 import { Button } from '@/components/ui/Button';
 import type { ChatTurn, ChatStepDetail, ChatTypedBlock, CosreSignalKind } from '@/lib/types';
 import { api } from '@/lib/api';
@@ -932,6 +933,8 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
             {!turn.pending && evidenceBlocks(turn.blocks).map((ev, i) => <EvidenceCard key={`ev-${i}`} ev={ev} />)}
             {/* v0.10.688 — endpoint trace listesi: deterministik tablo (D6), satır = trace linki */}
             {!turn.pending && traceListBlocks(turn.blocks).map((tl, i) => <ChatTraceList key={`tl-${i}`} tl={tl} />)}
+            {/* Operasyon adı ön-getirmesi — metrikler, hatalı trace'ler, Oracle kodları (chat_operation_prefetch.go) */}
+            {operationBlocks(turn.blocks).map((op, i) => <OperationCard key={`op-${i}`} op={op} />)}
             {/* v0.10.542 — action bloğu: yalnız tool sonucundan (sunucu chat_actions.go),
                 yalnız hedef sayfa açıkken; URL birleşimi + replace:true, yeni sekme yok. */}
             {!turn.pending && (turn.blocks ?? []).filter(b => b.type === 'action').map(b => {

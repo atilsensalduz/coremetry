@@ -7112,7 +7112,22 @@ export interface ExplainTraceAnswer extends ExplainAnswerBase {
 // (ChatMessage) + yalnız UI'ın bildiği alanlar. İKİ yüzey paylaşır —
 // global CoSRE penceresi (CopilotChat) ve AI çekmecesi içindeki sohbet
 // (AIDrawer) — bu yüzden bileşen dosyasında değil burada yaşar.
-export type ChatBlockType = 'text' | 'table' | 'chart' | 'trace_list' | 'link' | 'action' | 'evidence';
+export type ChatBlockType = 'text' | 'table' | 'chart' | 'trace_list' | 'link' | 'action' | 'evidence' | 'operation';
+// ChatOperationPayload — operasyon adı ön-getirmesinin kartı (internal/api/
+// chat_operation_prefetch.go opPrefetch). measured=false → RED ölçülemedi.
+export interface ChatOperationRED { calls: number; errors: number; p99Ms: number; measured: boolean }
+export interface ChatOperationPayload {
+  operation: string;
+  matchKind: string;
+  services?: string[];
+  functionCodes?: string[];
+  rangeS: number;
+  current: ChatOperationRED;
+  previous: ChatOperationRED;
+  traces: Array<{ traceId: string; service: string; durationMs: number; error: boolean }> | null;
+  oracleErrors: Array<{ code: string; count: number; sample: string; channel?: string }> | null;
+  tracesHref: string;
+}
 /** chart bloğunun gövdesi — components/cosreChartSpec.ts CosreChartSpec ile aynı alanlar (Go guidedChartSpec). */
 export interface CosreChartSpecLike { title?: string; service: string; operation?: string; agg: string; unit?: string; rangeS?: number; groupBy?: string; fromNs?: number; toNs?: number; compare?: { kind?: string; shiftS: number }; source?: 'span' | 'metric' }
 export interface ChatTypedBlock { id: string; type: ChatBlockType; seq: number; final: boolean; payload: unknown }

@@ -21,6 +21,8 @@ const (
 	TypeLink      = "link"
 	TypeAction    = "action"
 	TypeEvidence  = "evidence"
+	// TypeOperation — operasyon adı ön-getirmesinin kartı (api/chat_operation_prefetch.go).
+	TypeOperation = "operation"
 )
 
 // Sequencer — bir turn içinde blok kimliği/sırası. SAF: emit'e verilecek
