@@ -3404,11 +3404,19 @@ func (s *Server) guidedLogErrorsBundle(ctx context.Context, emit func(string, an
 	}
 	nPat := emitGuidedStep(emit, "log_patterns", "")
 	pats, perr := s.guidedServicePatterns(ctx, service, rangeS) // v0.10.557 — ortak yardımcı
-	src := fmt.Sprintf("log severity histogramı + hata pattern tespitleri (son %s)", fmtAgoTR(rangeS))
+	// v0.10.1213 — asıl kanıt: en yeni ~200 hata satırının şablon grupları.
+	nSamp := emitGuidedStep(emit, "recent_error_logs", `{"service":"`+service+`","limit":200}`)
+	recs, fb, serr := s.guidedRecentErrorSample(ctx, service, from, to)
+	sample := ""
+	if serr == nil {
+		sample = renderLogSampleTR(recs, fb, service)
+	}
+	emitGuidedStepResult(emit, nSamp, "recent_error_logs", sample, serr)
+	src := fmt.Sprintf("son %d hata logu örneklemi + severity histogramı + hata pattern tespitleri (son %s)", guidedLogSampleN, fmtAgoTR(rangeS))
 	if env != "" {
 		src += "; ortam filtresi uygulanamadı (log verisi ortam boyutu taşımıyor)"
 	}
-	ev := guidedEnvlessNoteTR("log verisi", env) +
+	ev := guidedEnvlessNoteTR("log verisi", env) + sample +
 		renderLogErrorsEvidenceTR(series, pats, service, rangeS)
 	// v0.9.1229 — iki okuma TEK bloğa akıyor (renderer severity dağılımını
 	// ve pattern eşleşmelerini birlikte kuruyor), o yüzden blok iki çipe de
