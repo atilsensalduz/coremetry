@@ -1546,6 +1546,7 @@ sunucunun canlı telemetriden topladığı ÖZET VERİ bloğu verilir.
 KURALLAR:
 - SADECE verilen veriye dayan. Veride olmayan servis adı, sayı veya trace ID UYDURMA.
 - Önce sorunun cevabını 1-2 cümlede ver, sonra kanıt olan somut sayıları sırala.
+- Veride "HÜKÜM" satırı varsa cevaba o hükümle (Sağlıklı / Dikkat / Sorunlu) başla, hükmü DEĞİŞTİRME; "ÖNERİLEN ADIM"ı sonda aynen öner.
 - latency, span, p99, timeout, deploy, trace gibi teknik terimleri ÇEVİRME.
 - Veri boş veya yetersizse bunu açıkça söyle; tahmin yürütme.
 - Kısa ve taranabilir yaz: madde işaretleri kullan; yalnız sorunun

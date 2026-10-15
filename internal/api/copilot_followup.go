@@ -366,9 +366,12 @@ func guidedAnswerLinkTargets(route guidedRoute) []guidedAnswerLink {
 	svcQ := url.QueryEscape(svc)
 	switch route.Intent {
 	case guidedServiceHealth:
+		// Sağlık özeti (2026-10-15, operatör: "kullanıcıyı yönlendirsin") —
+		// hükmün kanıt sayfaları tek tık; otomatik geçiş YOK.
 		return []guidedAnswerLink{
 			{Label: svc + " · Overview", Href: "/service?name=" + svcQ},
-			{Label: "Trace'ler", Href: "/traces?service=" + svcQ},
+			{Label: "Hatalı trace'ler", Href: "/traces?service=" + svcQ + "&hasError=true"},
+			{Label: "Loglar (error)", Href: "/logs?service=" + svcQ + "&severity=17"},
 		}
 	case guidedProblems:
 		if svc != "" {

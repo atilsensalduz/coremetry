@@ -91,15 +91,15 @@ func TestLinkWindowConstructors(t *testing.T) {
 }
 
 // TestGuidedAnswerLinksCarryWindow — sarmalayıcı gerçekten uyguluyor mu.
-// guidedServiceHealth iki link döndürür (/service + /traces), ikisi de
-// zaman eksenli.
+// guidedServiceHealth üç link döndürür (/service + hatalı /traces + error
+// /logs — sağlık özeti, 2026-10-15), hepsi zaman eksenli.
 func TestGuidedAnswerLinksCarryWindow(t *testing.T) {
 	now := time.UnixMilli(1_700_000_000_000)
 	links := guidedAnswerLinks(
 		guidedRoute{Intent: guidedServiceHealth, Service: "payments"},
 		linkWindowBetween(now.Add(-time.Hour), now))
-	if len(links) != 2 {
-		t.Fatalf("iki link beklenirdi: %+v", links)
+	if len(links) != 3 {
+		t.Fatalf("üç link beklenirdi: %+v", links)
 	}
 	for _, l := range links {
 		if !hasQueryKey(l.Href, "range") {
@@ -109,7 +109,7 @@ func TestGuidedAnswerLinksCarryWindow(t *testing.T) {
 	// Aynı rota penceresiz çağrıldığında href'ler eski hâlinde kalmalı —
 	// pencere uygulaması başka hiçbir şeyi değiştirmiyor.
 	plain := guidedAnswerLinks(guidedRoute{Intent: guidedServiceHealth, Service: "payments"}, noLinkWindow())
-	if plain[0].Href != "/service?name=payments" || plain[1].Href != "/traces?service=payments" {
+	if plain[0].Href != "/service?name=payments" || plain[1].Href != "/traces?service=payments&hasError=true" || plain[2].Href != "/logs?service=payments&severity=17" {
 		t.Errorf("penceresiz hâl değişti: %+v", plain)
 	}
 }

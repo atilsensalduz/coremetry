@@ -2391,13 +2391,49 @@ func (s *Server) guidedServiceHealthBundle(ctx context.Context, emit func(string
 	// telemetriden çizer (LLM değil, spanMetricBatch). Servis-sağlık
 	// headline'ı = error_rate. Blok görsel olarak dokümana gömülü değildir;
 	// eski istemci parse edemezse düz metin olarak görünür (zararsız).
+	// Servis sağlık özeti (2026-10-15) — hatalı trace'ler + error logları
+	// + deterministik hüküm; hüküm kanıtın BAŞINA yazılır.
+	nTr := emitGuidedStep(emit, "trace_search", withEnvArg(`{"service":"`+service+`","hasError":true,"limit":5}`, env))
+	tf := traceSearchFilter(service, env, "", false, from, to)
+	tf.HasError, tf.Limit, tf.Sort = true, 5, "time"
+	errTraces := 0
+	if rows, _, _, terr := s.store.GetTraces(ctx, tf); terr == nil {
+		errTraces = len(rows)
+		at := b.Len()
+		if len(rows) == 0 {
+			b.WriteString("Hatalı trace yok.\n")
+		} else {
+			b.WriteString("Son hatalı trace'ler:\n")
+			for _, r := range rows {
+				fmt.Fprintf(&b, "- %s · %s · %.0f ms\n", r.TraceID, r.RootName, r.DurationMs)
+			}
+		}
+		emitGuidedStepResult(emit, nTr, "trace_search", guidedStepSegment(&b, at), nil)
+	} else {
+		emitGuidedStepResult(emit, nTr, "trace_search", "", terr)
+	}
+	if logEv, _, lerr := s.guidedLogErrorsBundle(ctx, emit, service, env, from, to, rangeS); lerr == nil && strings.TrimSpace(logEv) != "" {
+		b.WriteString(logEv)
+	}
+	openN := 0
+	if perr == nil {
+		openN = len(probs)
+	}
+	vl, vr, vn := serviceHealthVerdict(cx.Current, cx.Baseline, cx.curErr, openN, errTraces)
+	verdict := renderServiceHealthVerdictTR(vl, vr, vn)
+	nV := emitGuidedStep(emit, "health_verdict", `{"service":"`+service+`"}`)
+	emitGuidedStepResult(emit, nV, "health_verdict", verdict, nil)
+	body := b.String()
+	b.Reset()
+	b.WriteString(verdict)
+	b.WriteString(body)
 	b.WriteString(chartFence(guidedChartSpec{Title: service + " · error_rate", Service: service, Agg: "error_rate", RangeS: rangeS}))
 	// CoSRE Faz-2 — ikinci deterministik kart: p99 latency. Guided yol
 	// tool çağrısı yapamayan küçük modelde (gemma4) de zengin görsel
 	// versin diye server iki kart basar; serbest döngüdeki eşdeğeri
 	// render_chart tool'udur (copilot_chat.go).
 	b.WriteString(chartFence(guidedChartSpec{Title: service + " · p99", Service: service, Agg: "p99", RangeS: rangeS}))
-	src := fmt.Sprintf("SLO durumu + servis RED özeti + baseline + en sık hatalar + deploy işaretçileri + açık problemler + grafikler (son %s)", fmtAgoTR(rangeS))
+	src := fmt.Sprintf("SLO durumu + deterministik sağlık hükmü + servis RED özeti + baseline + en sık hatalar + deploy işaretçileri + açık problemler + hatalı trace'ler + error logları + grafikler (son %s)", fmtAgoTR(rangeS))
 	if env != "" {
 		src += fmt.Sprintf("; RED tüm ortamlar, problemler ortam: %s", env)
 	}
