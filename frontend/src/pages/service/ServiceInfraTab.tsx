@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { Fragment, useMemo, useRef, useState } from 'react';
 import { thanosMaxDataPoints } from '@/lib/chartStep';
 import { clampSuffix } from '@/lib/thanosWindow';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -21,6 +21,7 @@ import { useEntityEnabled, useClusters } from '@/lib/queries';
 import { summarizeInfraClusters, podTotals, pctOfLimit, clusterStatus, mergeClusterSeries, limitThreshold, type InfraClusterRow } from './infraClusters';
 import type { TimeRange } from '@/lib/types';
 import { ServiceKafkaClientsPanel } from './ServiceKafkaClientsPanel'; // v0.10.552
+import { InlineClusterPods } from './InlineClusterPods';
 
 // ServiceInfraTab — servis detayının Infrastructure sekmesi. CLUSTER-SEVİYESİ
 // altyapı: Clusters tablosu (seçili satır = kapsam, ?icluster), KPI şeridi
@@ -358,7 +359,8 @@ export function ServiceInfraTab({ service, range, onZoom, onZoomReset }: {
                 const sel = effCluster === r.cluster;
                 const st = clusterStatus(r);
                 return (
-                  <tr key={r.cluster} {...rp}
+                  <Fragment key={r.cluster}>
+                  <tr {...rp}
                       className={[rp.className, sel ? 'row-selected' : ''].filter(Boolean).join(' ') || undefined}
                       aria-pressed={sel}
                       {...rowActivation(() => setICluster(sel ? '' : r.cluster))}>
@@ -391,6 +393,15 @@ export function ServiceInfraTab({ service, range, onZoom, onZoomReset }: {
                       )}
                     </DataTableCell>
                   </tr>
+                  {/* 2026-10-15 (operatör) — seçili cluster'ın pod'ları satırın altında. */}
+                  {sel && (
+                    <tr>
+                      <td colSpan={CL_COLS.length}>
+                        <InlineClusterPods pods={rows.filter(p => p.cluster === r.cluster)} range={range} service={service} />
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
             </tbody>
