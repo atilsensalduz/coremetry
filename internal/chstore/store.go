@@ -2892,6 +2892,61 @@ func canonicalTables(sd, ld, md int) []string {
 		ORDER BY exchange_id
 		TTL toDate(created_at) + INTERVAL 90 DAY`,
 
+		// cosre_interactions — CoSRE öğrenme Faz 1: TUR BAŞINA bir satır.
+		// ai_calls model çağrısını, audit_log tool çağrısını (exchange'siz,
+		// tipsiz JSON), saved_views konuşmayı tutuyordu; turun kendisi
+		// (konuşma/tur no, sayfa bağlamı, çağrılan tool'lar + çıktıları,
+		// model, ttft, retry/boş/kanıtsız bayrakları) tek yerde yoktu.
+		// Örtük sinyal (Faz 2), vaka hafızası (Faz 3) ve çevrimdışı
+		// dayanak denetimi (Faz 4) bu satırı okur — tool_output, modelin
+		// gördüğü kanıtın 4 KB önizlemesi (clipStepPreview tavanı).
+		// Append-only telemetri → MergeTree; aylık partition (ai_calls
+		// emsali); exchange_id nokta-araması için bloom skip index.
+		// tool_* dizileri paralel (aynı uzunluk). 180 g TTL (operatör).
+		`CREATE TABLE IF NOT EXISTS cosre_interactions (
+			exchange_id     String,
+			conversation_id String DEFAULT '',
+			turn            UInt16 DEFAULT 0,
+			created_at      DateTime64(3) DEFAULT now64(3) CODEC(Delta, ZSTD(3)),
+			user_id         String DEFAULT '',
+			user_email      String DEFAULT '',
+			tier            LowCardinality(String) DEFAULT '',
+			surface         LowCardinality(String) DEFAULT '',
+			page            LowCardinality(String) DEFAULT '',
+			service         String DEFAULT '',
+			problem_id      String DEFAULT '',
+			trace_id        String DEFAULT '',
+			exception_id    String DEFAULT '',
+			question        String DEFAULT '' CODEC(ZSTD(3)),
+			answer          String DEFAULT '' CODEC(ZSTD(3)),
+			answer_chars    UInt32 DEFAULT 0,
+			tool_name       Array(LowCardinality(String)),
+			tool_origin     Array(LowCardinality(String)),
+			tool_args       Array(String) CODEC(ZSTD(3)),
+			tool_ms         Array(UInt32),
+			tool_ok         Array(UInt8),
+			tool_error      Array(String) CODEC(ZSTD(3)),
+			tool_bytes      Array(UInt32),
+			tool_output     Array(String) CODEC(ZSTD(3)),
+			model           LowCardinality(String) DEFAULT '',
+			model_calls     UInt16 DEFAULT 0,
+			input_tokens    UInt32 DEFAULT 0,
+			output_tokens   UInt32 DEFAULT 0,
+			ttft_ms         UInt32 DEFAULT 0 CODEC(T64, ZSTD(3)),
+			total_ms        UInt32 DEFAULT 0 CODEC(T64, ZSTD(3)),
+			status          LowCardinality(String) DEFAULT 'ok',
+			error_msg       String DEFAULT '',
+			attempt         LowCardinality(String) DEFAULT '',
+			deep            UInt8 DEFAULT 0,
+			empty_answer    UInt8 DEFAULT 0,
+			no_evidence     UInt8 DEFAULT 0,
+			INDEX idx_exchange exchange_id TYPE bloom_filter(0.01) GRANULARITY 4,
+			INDEX idx_problem problem_id TYPE bloom_filter(0.01) GRANULARITY 4
+		) ENGINE = MergeTree
+		PARTITION BY toYYYYMM(created_at)
+		ORDER BY (created_at, tier)
+		TTL toDate(created_at) + INTERVAL 180 DAY`,
+
 		// v0.9.1193 (AI Faz 5.1) — 👎'nin YORUMU. "Faydasız" tek başına
 		// madencilik için zayıf sinyal: /ai negatif paneli hangi soru
 		// şekillerinin kötü cevap aldığını gösteriyor ama NEDEN kötü

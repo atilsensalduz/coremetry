@@ -105,10 +105,11 @@ func (s *Service) ChatWithTools(ctx context.Context, system string, msgs []ChatM
 // başlangıcı; sıfır değer DurationMs'i 0 bırakır (eski davranış). Sohbet
 // döngüsü en pahalı yüzeyken /ai gecikme KPI'ları onu 0 sayıyordu.
 func (s *Service) RecordUsage(ctx context.Context, started time.Time, inTok, outTok, cachedTok uint32, status, errMsg, promptSample, respSample string) {
+	provider, model, baseURL := s.profileIdentity(ctx) // v0.10.175 — kullanılan profil
+	notifyCallSink(ctx, model, inTok, outTok)          // Faz 1 — cosre_interactions
 	if s.recorder == nil {
 		return
 	}
-	provider, model, baseURL := s.profileIdentity(ctx) // v0.10.175 — kullanılan profil
 	meta := MetaFromContext(ctx)
 	rec := CallRecord{
 		CreatedAt:      time.Now(),

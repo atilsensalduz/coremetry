@@ -166,6 +166,9 @@ type chatRequest struct {
 		// Deep (v0.10.1150, chat_deep.go) — composer'ın "Derin düşün" anahtarı.
 		// Yokken/false iken her yol bayt bayt eski.
 		Deep bool `json:"deep,omitempty"`
+		// Attempt (CoSRE öğrenme Faz 1) — istemcinin beyanı: retry | regenerate |
+		// edit; boş = yeni soru. cosre_interactions.attempt (örtük sinyal).
+		Attempt string `json:"attempt,omitempty"`
 	} `json:"context,omitempty"`
 }
 
@@ -281,7 +284,10 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	// her kademe ve erken dönüş dahil (LLM'siz cevaplar da). emit sarmalanır
 	// ki cevap/hata metni okunsun; closure son ctx'i (profil/derin) görür.
 	xch := newChatExchange(exchangeID, lastUserText(req.Messages), dm.On, chatT0)
+	xch.setInteraction(req.Context.Conversation, chatUserTurns(req.Messages), req.Context.Attempt,
+		agentctx.Sanitize(req.Context.Page), req.Context.Service, req.Context.Trace) // Faz 1 — cosre_interactions
 	ctx = withChatExchange(ctx, xch)
+	ctx = copilot.WithCallSink(ctx, xch.noteModelCall)
 	emit = xch.tap(emit)
 	defer func() { s.recordChatExchange(ctx, xch, cspan) }()
 	if dm.On {

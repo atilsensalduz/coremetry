@@ -178,7 +178,7 @@ describe('Derin düşün kablolaması', () => {
   it('useChatThread opts.deep → copilotChat son argüman; cevap turu deep işaretli', () => {
     const src = read('./useChatThread.ts');
     expect(src).toMatch(/deep\?: boolean;/);
-    expect(src).toMatch(/o\.deep \|\| undefined\)/);
+    expect(src).toMatch(/o\.deep \|\| undefined,[\s\S]{0,120}so\?\.attempt\)/); // CoSRE Faz 1 — deneme beyanı en sonda
     expect(src).toMatch(/\.\.\.\(o\.deep \? \{ deep: true \} : \{\}\)/);
   });
   it('iki kabuk da hook\'u thread\'e ve composer\'a geçirir (akarken devre dışı)', () => {

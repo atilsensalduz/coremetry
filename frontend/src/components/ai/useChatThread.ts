@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { appendChatBlock } from '@/lib/chatBlocks';
-import type { AiConversation, PageContext } from '@/lib/types';
+import type { AiConversation, ChatAttempt, PageContext } from '@/lib/types';
 import type { ChatMessage, ChatTurn } from '@/lib/types';
 import { capPageContext } from '@/lib/traceAiContext';
 import { isAbortError, settleStoppedTurn, settleTruncatedTurn } from './chatAbort';
@@ -115,6 +115,8 @@ export interface ChatSendOpts {
   parsed?: ParsedChatInput;
   /** yeni cevabın taşıyacağı önceki cevaplar (yeniden üret). */
   alternatives?: ChatTurn[];
+  /** CoSRE öğrenme Faz 1 — sunucuya giden deneme beyanı (yeni soru = yok). */
+  attempt?: ChatAttempt;
 }
 
 export function useChatThread(opts: ChatThreadOpts = {}) {
@@ -303,7 +305,8 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
         o.page || undefined, o.pinnedPage || undefined, // v0.10.539 — sayfa bağlamı + pin
         wikiRefs.length > 0 ? wikiRefs : undefined, // v0.10.1134 — wiki takip sorusu
         parsed.scope, parsed.command, // v0.10.1138 — yapısal @-kapsam + /komut
-        o.deep || undefined); // v0.10.1150 — Derin düşün (kapalıyken gövdede yok)
+        o.deep || undefined, // v0.10.1150 — Derin düşün (kapalıyken gövdede yok)
+        so?.attempt); // Faz 1 — retry/regenerate/edit beyanı
       // v0.10.648 — terminal olaysız EOF: tur asılı kalmasın (chatAbort.ts).
       patchLast(settleTruncatedTurn);
     } catch (err) {
@@ -414,7 +417,7 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
     const trimmed = dropFailedTail(turnsRef.current);
     turnsRef.current = trimmed;
     setTurns(trimmed);
-    void send(q);
+    void send(q, { attempt: 'retry' });
   }, [send]);
 
   const stop = useCallback(() => {
@@ -433,7 +436,7 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
     if (!r) return;
     turnsRef.current = r.base;
     setTurns(r.base);
-    void send(r.question, { parsed: r.parsed, alternatives: r.alternatives });
+    void send(r.question, { parsed: r.parsed, alternatives: r.alternatives, attempt: 'regenerate' });
   }, [send]);
 
   // v0.10.1138 — son kullanıcı mesajını düzenle: o mesaj ve SONRASI düşer,
@@ -450,7 +453,7 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
     turnsRef.current = base;
     setTurns(base);
     // v0.10.1139 — yalnız AÇIKÇA seçilenler devralınır; biçim-eşleşmesi yine biçim-eşleşmesi.
-    void send(q, { chosen: [...pickedServices(ts[i].scope), ...(chosen ?? [])] });
+    void send(q, { chosen: [...pickedServices(ts[i].scope), ...(chosen ?? [])], attempt: 'edit' });
     return true;
   }, [send]);
 

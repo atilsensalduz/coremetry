@@ -7225,6 +7225,10 @@ export interface ChatScope {
   shaped?: string[];
 }
 /** v0.10.1138 — mesaj başı eğik komutları (context.command). */
+// CoSRE öğrenme Faz 1 — istemcinin deneme beyanı (chat context.attempt;
+// internal/api/chat_exchange.go normalizeChatAttempt). Yeni soru = yok.
+export type ChatAttempt = 'retry' | 'regenerate' | 'edit';
+
 export type ChatCommand = 'wiki' | 'trace' | 'rca' | 'logs' | 'help';
 
 /** v0.10.773 — start-sends cevabı düğüm başına (komut düğüm-yerel). error = ilk hata; hosts kısmi başarıyı taşır. */

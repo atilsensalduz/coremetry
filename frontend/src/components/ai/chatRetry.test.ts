@@ -40,7 +40,7 @@ describe('BAĞLANMA (kaynak pinleri)', () => {
     // olduğundan ref de aynı anda kırpılmalı, yoksa soru geçmişte iki kez.
     const i = hook.indexOf('turnsRef.current = trimmed');
     expect(i).toBeGreaterThan(-1);
-    expect(i).toBeLessThan(hook.indexOf('void send(q)', i));
+    expect(i).toBeLessThan(hook.indexOf("void send(q, { attempt: 'retry' })", i)); // CoSRE Faz 1 — deneme beyanı
     expect(hook).toMatch(/return \{[^}]*\bretry\b[^}]*\}/);
   });
   it('iki yüzey de son hatalı tura onRetry geçirir', () => {
@@ -53,5 +53,19 @@ describe('BAĞLANMA (kaynak pinleri)', () => {
     const b = src('./ChatBubble.tsx');
     expect(b).toContain('onRetry?: () => void');
     expect(b).toContain('↺ Yeniden dene');
+  });
+});
+
+// CoSRE öğrenme Faz 1 — üç yeniden-gönderim yolu sunucuya beyanını taşır
+// (cosre_interactions.attempt; örtük olumsuz sinyal). Yeni soru beyansız.
+describe('deneme beyanı (attempt)', () => {
+  const src = (f: string) => readFileSync(new URL(f, import.meta.url), 'utf8');
+  it('retry / regenerate / edit kendi beyanıyla gönderir; api gövdeye koyar', () => {
+    const hook = src('./useChatThread.ts');
+    expect(hook).toContain("void send(q, { attempt: 'retry' })");
+    expect(hook).toMatch(/alternatives: r\.alternatives, attempt: 'regenerate' \}/);
+    expect(hook).toMatch(/attempt: 'edit' \}\)/);
+    const api = src('../../lib/api.ts');
+    expect(api).toContain('...(contextAttempt ? { attempt: contextAttempt } : {})');
   });
 });

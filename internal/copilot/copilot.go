@@ -790,6 +790,7 @@ func (s *Service) recordNarration(ctx context.Context, started time.Time,
 	}
 	// v0.10.114 — gözlemci RECORDER'DAN BAĞIMSIZ ve SENKRON: span
 	// attribute'ları çağıranın elindeki span kapanmadan yazılmalı.
+	notifyCallSink(ctx, model, inputTokens, outputTokens) // Faz 1 — cosre_interactions
 	if meta.Observe != nil {
 		u := Usage{Provider: provider, Model: model, Status: "ok",
 			InputTokens: inputTokens, OutputTokens: outputTokens, CachedTokens: cachedTokens,
