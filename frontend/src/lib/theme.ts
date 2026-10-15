@@ -8,7 +8,7 @@ const STORAGE_KEY = 'coremetry-theme';
 export const THEME_NEXT: Record<Theme, Theme> = { dark: 'light', light: 'redhat', redhat: 'dark' };
 export const THEME_GLYPH: Record<Theme, string> = { dark: '☾', light: '☀', redhat: '⬢' };
 const LABEL: Record<Theme, string> = {
-  dark: 'Dark', light: 'Light', redhat: 'Red Hat',
+  dark: 'Dark', light: 'Light', redhat: 'Kurumsal', // v0.10.1178 (operatör): "Red Hat" adı görünmesin; iç anahtar 'redhat' aynı
 };
 
 /** v0.10.1177 — kullanıcı menüsü de aynı döngüyü kullanır (Sidebar). */
