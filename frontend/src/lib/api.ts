@@ -1276,6 +1276,14 @@ export const api = {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
+  // CoSRE öğrenme Faz 3 — vaka kartı (taslak/onaylı) ve tek düğmeli onay (editor+).
+  incidentCase: (source: 'problem' | 'exception', id: string) =>
+    get<import('./types').IncidentCaseLookup>(`/api/cases/lookup?${qs({ source, id })}`),
+  confirmIncidentCase: (caseId: string, body: { finalCause: string; category: string; resolution: string }) =>
+    request<{ case: import('./types').IncidentCase }>(`/api/cases/${encodeURIComponent(caseId)}/confirm`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
   // CoSRE öğrenme Faz 2 — örtük sinyal (kopya, link/kanıt tıkı, probleme not).
   // Ateşle-unut: keepalive (SPA gezinmesinde istek düşmesin), hata yutulur —
   // sinyal kaybı kullanıcı eylemini ASLA bozmaz.

@@ -844,6 +844,7 @@ func main() {
 		go store.StartRetentionEnforcer(ctx, time.Hour, lockImpl)
 		go store.StartAIChatSweeper(ctx, time.Hour, lockImpl)          // v0.10.561 — saved_views(page='ai-chat') süpürücüsü
 		go cosrelearn.StartQualityJob(ctx, store, lockImpl, time.Hour) // CoSRE öğrenme Faz 2 — gece kalite puanı
+		go cosrelearn.StartCaseBuilder(ctx, store, lockImpl)           // CoSRE öğrenme Faz 3 — vaka taslakları
 	}
 
 	// ── Optional OIDC ─────────────────────────────────────────────────────────

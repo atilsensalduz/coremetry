@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/cilcenk/coremetry/internal/ai/assemble"
+	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/copilot"
 )
 
@@ -421,7 +422,14 @@ func (s *Server) drawerSubjectEvidence(ctx context.Context, subj drawerSubject, 
 		if !ok {
 			return "", exceptionCodeScopeFrom(nil, in)
 		}
-		return clampDrawerEvidence(in.User, in.LogsBlock), exceptionCodeScopeFrom(g, in)
+		// CoSRE öğrenme Faz 3 — aynı servis / aynı hata kodunda geçmiş vakalar
+		// (onaylı önce; onaysız "olgu değil" işaretli). Kanıt tavanının DIŞINDA
+		// eklenir: kırpma vakaları yemesin, blok kendi tavanlı (≤3 vaka).
+		ev := clampDrawerEvidence(in.User, in.LogsBlock)
+		if ev != "" && g != nil {
+			ev += s.pastCasesBlock(ectx, g.Service, []string{g.Type}, chstore.CaseIDFor("exception", g.Fingerprint))
+		}
+		return ev, exceptionCodeScopeFrom(g, in)
 	}
 	return "", nil
 }

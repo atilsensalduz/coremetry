@@ -7228,6 +7228,47 @@ export interface ChatScope {
   shaped?: string[];
 }
 /** v0.10.1138 — mesaj başı eğik komutları (context.command). */
+// CoSRE öğrenme Faz 3 — vaka hafızası (internal/chstore/incident_cases.go).
+// Taslak olgu DEĞİLDİR; nihai alanları yalnız insan onayı doldurur.
+export interface IncidentCase {
+  caseId: string;
+  source: 'problem' | 'exception';
+  sourceId: string;
+  title: string;
+  service: string;
+  severity?: string;
+  openedAt: string;
+  closedAt: string;
+  errorCodes: string[] | null;
+  functionCodes: string[] | null;
+  channelCodes: string[] | null;
+  errRateBefore: number;
+  errRateDuring: number;
+  p99BeforeMs: number;
+  p99DuringMs: number;
+  rateBefore: number;
+  rateDuring: number;
+  deployInWindow: boolean;
+  deployVersion?: string;
+  suggestedCause: string;
+  suggestedSource?: string;
+  finalCause: string;
+  category: string;
+  resolution: string;
+  /** -1 bilinmiyor, 0 yanlış, 1 doğru (CoSRE önerisi nihai nedenle örtüştü mü). */
+  cosreCorrect: number;
+  correctNote?: string;
+  status: 'draft' | 'confirmed';
+  provenance: string;
+  createdAt: string;
+  confirmedBy?: string;
+  confirmedAt: string;
+}
+export interface IncidentCaseLookup {
+  case: IncidentCase | null;
+  categories: string[];
+}
+
 // CoSRE öğrenme Faz 2 — istemcinin örtük sinyalleri (POST /api/ai/signal;
 // internal/cosrelearn ClientSignalKinds). Türetilenler sunucuda hesaplanır.
 export type CosreSignalKind = 'copy' | 'link_click' | 'evidence_click' | 'problem_note';

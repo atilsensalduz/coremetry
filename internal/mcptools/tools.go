@@ -59,7 +59,7 @@
 //     doğru çağrının koşulu, orada kazanılan bayt yanlış argümanla
 //     harcanan bir tura değmez.
 //
-// Tool catalogue (65 tools; v0.10.1133 — 64 → 65: oracle_operation.go resolve_oracle_operation, salt okuma, sohbette yalnız etkin Oracle kaynağı varken; v0.10.1122 — 62 → 64: wiki_tools.go search_wiki / read_wiki_page, yalnız uygulama içi sohbet ve yalnız wiki bilgisi açık + DevOps bağlıyken; v0.10.1050 — 61 → 62: source_code.go read_source_code, yalnız uygulama içi sohbet ve yalnız DevOps bağlıyken; v0.10.993 — 60 → 61: bubble_up.go, yalnız dış MCP; v0.10.944 — 57 → 60: logs_tools.go list_log_fields, metrics_tools.go list_metric_labels, compare_periods.go; search_logs / query_metric / get_trace yeni dosyalarında; v0.10.809 — 56 → 57: product_guide.go; v0.10.559 — 54 → 56: knowledge_tools.go get_runbook / search_knowledge; v0.10.556 — 52 → 54: signal_tools.go log_patterns / cluster_metric; v0.10.555 — 48 → 52: problem_tools.go get_problem / get_correlation_evidence / similar_problems / get_capabilities; v0.10.545 — 47 → 48: list_deployments.go; v0.10.478 — 44 → 47: context_tools.go; v0.10.475 — 43 → 44: build_link.go; v0.10.474 — 42 → 43: trace_stats.go; v0.10.472 — 40 → 42: attr_discovery.go; v0.10.469 — 39 → 40: resolve_entity.go; v0.10.468 — 36 → 39: entity_catalog.go list_namespaces / list_workloads / list_pods; sayım v0.9.1050'de düzeltildi — blok
+// Tool catalogue (66 tools; v0.10.1189 — 65 → 66: similar_incidents.go, vaka hafızası (onaylı önce), salt okuma; v0.10.1133 — 64 → 65: oracle_operation.go resolve_oracle_operation, salt okuma, sohbette yalnız etkin Oracle kaynağı varken; v0.10.1122 — 62 → 64: wiki_tools.go search_wiki / read_wiki_page, yalnız uygulama içi sohbet ve yalnız wiki bilgisi açık + DevOps bağlıyken; v0.10.1050 — 61 → 62: source_code.go read_source_code, yalnız uygulama içi sohbet ve yalnız DevOps bağlıyken; v0.10.993 — 60 → 61: bubble_up.go, yalnız dış MCP; v0.10.944 — 57 → 60: logs_tools.go list_log_fields, metrics_tools.go list_metric_labels, compare_periods.go; search_logs / query_metric / get_trace yeni dosyalarında; v0.10.809 — 56 → 57: product_guide.go; v0.10.559 — 54 → 56: knowledge_tools.go get_runbook / search_knowledge; v0.10.556 — 52 → 54: signal_tools.go log_patterns / cluster_metric; v0.10.555 — 48 → 52: problem_tools.go get_problem / get_correlation_evidence / similar_problems / get_capabilities; v0.10.545 — 47 → 48: list_deployments.go; v0.10.478 — 44 → 47: context_tools.go; v0.10.475 — 43 → 44: build_link.go; v0.10.474 — 42 → 43: trace_stats.go; v0.10.472 — 40 → 42: attr_discovery.go; v0.10.469 — 39 → 40: resolve_entity.go; v0.10.468 — 36 → 39: entity_catalog.go list_namespaces / list_workloads / list_pods; sayım v0.9.1050'de düzeltildi — blok
 // v0.6.5'te kalmıştı, get_problem_root_cause/render_chart sayılmıyordu;
 // v0.9.1227'de get_operation_health ile 33; v0.9.1233'te
 // get_exception_samples ile 34; v0.9.1244'te list_teams +
@@ -405,6 +405,7 @@ func ToolList(d Deps) []mcp.Tool {
 		getProblemTool(d),
 		getCorrelationEvidenceTool(d),
 		similarProblemsTool(d),
+		similarIncidentsTool(d), // CoSRE öğrenme Faz 3 — vaka hafızası
 		getCapabilitiesTool(d),
 		// v0.10.556 (Faz 4b) — signal_tools.go: log desenleri + Thanos trend aynası.
 		logPatternsTool(d),

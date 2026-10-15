@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Users } from 'lucide-react';
 import { api } from '@/lib/api';
 import { ProblemCoSRESection } from './ProblemCoSRESection';
+import { IncidentCaseCard } from './IncidentCaseCard';
 import { keys, useServicesMetadata } from '@/lib/queries';
 import { fmtFixed, fmtNum } from '@/lib/utils';
 import { Spinner, Empty } from '@/components/Spinner';
@@ -591,6 +592,8 @@ export function ProblemDetail({ group, isAdmin, onBack, onChanged }: {
         <AIExplainButton subject={{ kind: 'exception', id: group.fingerprint }} emphasis="strong"
           label={<><IconSparkles /> <span style={{ marginLeft: 6 }}>Explain root cause</span></>} />
       </div>
+      {/* CoSRE öğrenme Faz 3 — çözülmüş grubun vaka kaydı (taslak → tek tık onay). */}
+      <IncidentCaseCard source="exception" sourceId={group.fingerprint} />
 
       {/* v0.9.432 (operatör kararı) — AIAnalysisPanel bu sayfadan
           KALDIRILDI: "Explain root cause" (v0.9.414, exception'a özgü
@@ -951,6 +954,8 @@ export function AlertProblemDetail({ problem, isAdmin, onBack, onChanged }: {
           rollout · daha önce); ilk ekranın üstünde, sormadan dolar. */}
       <ProblemInsightStrip problemId={problem.id} />
       <ProblemCoSRESection problemId={problem.id} />
+      {/* CoSRE öğrenme Faz 3 — kapanmış problemin vaka kaydı (taslak → tek tık onay). */}
+      <IncidentCaseCard source="problem" sourceId={problem.id} />
       {/* v0.9.983 (D5.1 / A2) — aynı gerekçe: bildirim linkinden gelen
           operatörün telefonda gördüğü İLK ekran bu (RootCausePanel + AI
           özeti solda, offender listesi sağda). */}

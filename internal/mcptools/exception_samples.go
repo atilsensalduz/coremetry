@@ -171,7 +171,7 @@ type getExceptionSamplesArgs struct {
 func getExceptionSamplesTool(d Deps) mcp.Tool {
 	return mcp.Tool{
 		Name:             "get_exception_samples",
-		ShortDescription: "Bir istisna grubunun GERÇEK oluşumları: stacktrace, mesaj ve trace_id. list_exception_groups'un devamı — grup sayı verir, bu stack'i ve trace pivotunu verir. Örnek başına stack taşır, varsayılan 3 satır.",
+		ShortDescription: "Bir istisna grubunun GERÇEK oluşumları: stacktrace, mesaj, trace_id. list_exception_groups'un devamı; varsayılan 3 satır.",
 		Description: "Fetch real occurrences of ONE exception group (by fingerprint): stacktrace, per-occurrence message, service, operation, and the trace_id to pivot with. " +
 			"This is the second half of the exception chain and the only tool that carries a stack: use it right after list_exception_groups (which returns counts and fingerprints but NO stack and NO trace id), " +
 			"then take trace_id into get_trace / get_logs_for_trace to see what the request was doing when it threw. " +

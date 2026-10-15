@@ -69,6 +69,11 @@ kapısız). Yalnız TAM ad eşleşmesi kod verir; alt-dize isabetleri `near_name
 olarak döner ve otomatik aranmaz. Etkin Oracle kaynağı yoksa `enabled:false`
 döner; uygulama içi sohbette araç o durumda hiç sunulmaz.
 
+v0.10.1189'da kayıt defteri 66 oldu: `similar_incidents` — CoSRE'nin vaka
+hafızasından (kapanan Problem / çözülen exception grubu) benzer geçmiş olayları
+döndürür; insan ONAYLI vakalar önce, onaysız taslak `confirmed:false` + uyarı ile.
+Salt okumadır.
+
 ### "Benim servislerim" MCP'de YOK (bilinçli)
 
 Takım tool'ları takım ADIYLA çalışır. Sebep yukarıdaki sınırın

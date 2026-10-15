@@ -287,8 +287,9 @@ func TestAllShippedToolsAreViewerLevel(t *testing.T) {
 	// değil), oturum kullanıcısına ve wiki bilgisi açık + DevOps bağlıyken; MinRole "" (viewer).
 	// v0.10.1133 — 64 → 65: resolve_oracle_operation — REST eşi GET /api/oracle/operations rol kapısız → MinRole "";
 	// salt okuma (oracle_error_log kopyası), dış MCP'de kayıtlı, sohbette yalnız etkin Oracle kaynağı varken.
-	if len(tools) != 65 { // v0.10.944 — 57 → 60: list_log_fields / list_metric_labels / compare_periods (CoSRE araştırma asistanı; üçü de viewer, REST eşleri /api/logs/fields, /api/metrics label okumaları ve servis RED kıyası kapısız)
-		t.Errorf("katalog %d tool (65 bekleniyordu) — yeni tool'un REST eşinin kapısını (auth.RequireRole/"+
+	// v0.10.1189 — 65 → 66: similar_incidents (CoSRE öğrenme Faz 3, vaka hafızası; salt okuma, REST eşi GET /api/cases/lookup kapısız → MinRole ""; onaysız taslak confirmed:false + uyarı).
+	if len(tools) != 66 { // v0.10.944 — 57 → 60: list_log_fields / list_metric_labels / compare_periods (CoSRE araştırma asistanı; üçü de viewer, REST eşleri /api/logs/fields, /api/metrics label okumaları ve servis RED kıyası kapısız)
+		t.Errorf("katalog %d tool (66 bekleniyordu) — yeni tool'un REST eşinin kapısını (auth.RequireRole/"+
 			"RequireAnyRole) kontrol et, MinRole'ü ona eşitle, sonra bu sayıyı güncelle", len(tools))
 	}
 	for _, tool := range tools {

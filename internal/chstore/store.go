@@ -2996,6 +2996,49 @@ func canonicalTables(sd, ld, md int) []string {
 		ORDER BY (day, tool)
 		TTL day + INTERVAL 180 DAY`,
 
+		// incident_cases — CoSRE öğrenme Faz 3: vaka hafızası. Kapanan her
+		// Problem / çözülen exception grubu için bir TASLAK (sinyaller +
+		// CoSRE'nin önerdiği neden); insan Problem UI'da onaylayınca
+		// final_cause/category/resolution + confirmed_by/at yazılır.
+		// Onaylanmamış hiçbir satır OLGU değildir (similar_incidents
+		// "unconfirmed" işaretler). Durum değişir → RMT(version), ORDER BY
+		// case_id; partition YOK (P1); TTL YOK (bilgi tabanı).
+		`CREATE TABLE IF NOT EXISTS incident_cases (
+			case_id          String,
+			source           LowCardinality(String),
+			source_id        String,
+			title            String DEFAULT '' CODEC(ZSTD(3)),
+			service          String DEFAULT '',
+			severity         LowCardinality(String) DEFAULT '',
+			opened_at        DateTime64(3),
+			closed_at        DateTime64(3),
+			error_codes      Array(String),
+			function_codes   Array(String),
+			channel_codes    Array(String),
+			err_rate_before  Float64 DEFAULT 0,
+			err_rate_during  Float64 DEFAULT 0,
+			p99_before_ms    Float64 DEFAULT 0,
+			p99_during_ms    Float64 DEFAULT 0,
+			rate_before      Float64 DEFAULT 0,
+			rate_during      Float64 DEFAULT 0,
+			deploy_in_window UInt8 DEFAULT 0,
+			deploy_version   String DEFAULT '',
+			suggested_cause  String DEFAULT '' CODEC(ZSTD(3)),
+			suggested_source LowCardinality(String) DEFAULT '',
+			final_cause      String DEFAULT '' CODEC(ZSTD(3)),
+			category         LowCardinality(String) DEFAULT '',
+			resolution       String DEFAULT '' CODEC(ZSTD(3)),
+			cosre_correct    Int8 DEFAULT -1,
+			correct_note     String DEFAULT '' CODEC(ZSTD(3)),
+			status           LowCardinality(String) DEFAULT 'draft',
+			provenance       String DEFAULT '',
+			created_at       DateTime64(3) DEFAULT now64(3),
+			confirmed_by     String DEFAULT '',
+			confirmed_at     DateTime64(3) DEFAULT toDateTime64(0, 3),
+			version          UInt64 DEFAULT toUnixTimestamp64Nano(now64(9))
+		) ENGINE = ReplacingMergeTree(version)
+		ORDER BY case_id`,
+
 		// v0.9.1193 (AI Faz 5.1) — 👎'nin YORUMU. "Faydasız" tek başına
 		// madencilik için zayıf sinyal: /ai negatif paneli hangi soru
 		// şekillerinin kötü cevap aldığını gösteriyor ama NEDEN kötü
