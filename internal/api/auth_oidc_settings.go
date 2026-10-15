@@ -197,6 +197,31 @@ func (s *Server) oidcLoginFail(w http.ResponseWriter, r *http.Request, err error
 	if len(class) > 200 {
 		class = class[:200]
 	}
-	log.Printf("[oidc] callback failed: class=%s", class)
-	s.oidcFail(w, r, oidcLoginFailedMsg)
+	// v0.10.1197 (operatör-bildirimi: "Keycloak akışı başarılı ama uygulama
+	// login'e geri atıyor") — tanı için ayrıntılı hata loga, sınıf + ipucu
+	// ekrana (operatör kararı: güvenlik önceliği değil, teşhis önce).
+	log.Printf("[oidc] callback failed: class=%s err=%s", class, clipBytes(errString(err), 600))
+	s.oidcFail(w, r, oidcLoginFailMessage(class))
+}
+
+// oidcLoginFailMessage — SAF: giriş sayfası metni = genel cümle + kod +
+// sınıfa özgü ipucu (kimin neye bakacağı).
+func oidcLoginFailMessage(class string) string {
+	hint := map[string]string{
+		"token_exchange":      "kod→token değişimi başarısız: client secret, redirect_url (Keycloak'taki Valid redirect URI ile birebir) ya da Coremetry→Keycloak TLS/ağ erişimini kontrol edin",
+		"id_token_verify":     "id_token doğrulanamadı: issuer URL'i token'daki iss ile birebir olmalı (iç/dış adres farkı, sondaki / ), sunucu saatleri senkron olmalı",
+		"id_token_missing":    "IdP id_token döndürmedi: istemcide openid scope'u açık olmalı",
+		"nonce_mismatch":      "nonce uyuşmadı: giriş çerezleri kaybolmuş olabilir (eski sekme / farklı alan adı) — yeniden deneyin",
+		"claims_decode":       "token claim'leri okunamadı",
+		"email_missing":       "token'da e-posta yok: Keycloak'ta email mapper'ı ekleyin ya da kullanıcı adıyla eşleştirmeyi açın",
+		"email_unverified":    "e-posta doğrulanmamış (email_verified=false): Keycloak'ta doğrulayın ya da güvenilir alan adı ayarını açın",
+		"email_invalid":       "token'daki e-posta geçersiz",
+		"email_domain_denied": "e-posta alan adı izinli listede değil (Settings › SSO › allowed domains)",
+		"not_configured":      "SSO yapılandırılmamış",
+	}[class]
+	msg := oidcLoginFailedMsg + " (kod: " + class + ")"
+	if hint != "" {
+		msg += " — " + hint
+	}
+	return msg
 }
