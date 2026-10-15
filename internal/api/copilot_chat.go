@@ -371,7 +371,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	// v0.10.1176 — yüklenen Excel / CSV'de kimliğin birebir satırları (chat_doc_rows.go):
 	// guided'dan ÖNCE ki uygulama kodu telemetriye kaçmasın; telemetri sinyalinde çekilir.
 	if wikiTierAllowed(wikiTC) {
-		if handled, dok := s.docRowsAnswer(ctx, emit, req.Messages); handled {
+		if handled, dok := s.docRowsAnswer(ctx, emit, req.Messages, true); handled {
 			cspan.tier("doc-rows", dok)
 			emit("done", map[string]bool{"ok": dok})
 			return

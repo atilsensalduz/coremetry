@@ -22,6 +22,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/cilcenk/coremetry/internal/copilot"
 	"github.com/cilcenk/coremetry/internal/rag"
@@ -41,39 +42,161 @@ type docRowMatch struct {
 	rag.TableRow
 }
 
-// matchDocRows — SAF: parçalardan, hücresinde kimliklerden biri geçen
-// satırlar (belge + sayfa + satır tekil), en çok docRowsMax.
-func matchDocRows(chunks []docRowChunk, ids []string) []docRowMatch {
-	var out []docRowMatch
+// v0.10.1183 — Operator-reported: sunucu / fonksiyon envanteri Excel'lerinde
+// bilgi hâlâ bulunamıyordu. Ölçüm: hostname'lerin çoğu rakam / tire taşımaz
+// (CCFWKAPP, MCCREPORT) → 1176'nın "kimlik biçimli terim" kapısı onları hiç
+// aramıyordu; ayrıca soru terimleri katlanmış (çağrı → cagri), hücre metni
+// değil. Yeni kural: sorudaki kelime / ifade bir HÜCRE DEĞERİNE (katlanmış,
+// kelime sınırlı) birebir eşitse satır eşleşir; kimlik biçimli terim hücrede
+// alt-dize olarak da eşleşir (srvappl01 ↔ srvappl01.corp.local). 50'den çok
+// satırda geçen değer (PROD, Hayır, Şube) yaygın sayılıp atlanır.
+//
+// strict (guided'dan ÖNCE çalışan erken kademe): yalnız güçlü işaret —
+// kimlik biçimli ya da TAMAMI BÜYÜK HARF (≥3) yazılmış kelime veya ≥2
+// kelimelik hücre ifadesi. Gevşek kip doküman adımında (guided eşleşmedikten
+// sonra) her eşleşmeyi kabul eder; genel sohbet sorusu böylece erken
+// kademeye kaçmaz.
+
+// rowNeedle — sorudan aday kelime (ham yazım, katlanmış, güçlü mü).
+type rowNeedle struct {
+	raw, folded string
+	strong      bool
+}
+
+// rowNeedles — SAF: arama adayları (en çok 8). Durak kelimeler QueryTerms'le elenir.
+func rowNeedles(question string) []rowNeedle {
+	keep := map[string]bool{}
+	for _, t := range wiki.QueryTerms(question) {
+		keep[t] = true
+	}
+	var out []rowNeedle
 	seen := map[string]bool{}
-	for _, c := range chunks {
-		for _, r := range rag.ParseTableRows(c.Text) {
-			if !rowHasID(r, ids) {
-				continue
-			}
-			k := fmt.Sprintf("%s\x00%s\x00%d", c.Title, r.Sheet, r.Row)
-			if seen[k] {
-				continue
-			}
-			seen[k] = true
-			out = append(out, docRowMatch{Doc: c.Title, URL: c.URL, TableRow: r})
-			if len(out) >= docRowsMax {
-				return out
-			}
+	for _, w := range strings.FieldsFunc(question, func(r rune) bool {
+		return !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '.' || r == '_' || r == '\'')
+	}) {
+		if i := strings.IndexRune(w, '\''); i >= 0 {
+			w = w[:i] // CCFWKAPP'in → CCFWKAPP
+		}
+		w = strings.Trim(w, ".-_")
+		f := wiki.Fold(w)
+		if len([]rune(w)) < 3 || seen[f] {
+			continue
+		}
+		ident := strings.ContainsAny(f, "0123456789-._")
+		if !keep[f] && !ident {
+			continue
+		}
+		seen[f] = true
+		out = append(out, rowNeedle{raw: w, folded: f, strong: ident || isAllCaps(w)})
+		if len(out) >= 8 {
+			break
 		}
 	}
 	return out
 }
 
+func isAllCaps(w string) bool {
+	letters := 0
+	for _, r := range w {
+		if unicode.IsLetter(r) {
+			if !unicode.IsUpper(r) {
+				return false
+			}
+			letters++
+		}
+	}
+	return letters >= 3
+}
+
+// foldWords — SAF: katlanmış, kelime ayraçları tek boşluk, iki uçta boşluk.
+func foldWords(s string) string {
+	parts := strings.FieldsFunc(wiki.Fold(s), func(r rune) bool {
+		return !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '.' || r == '_')
+	})
+	return " " + strings.Join(parts, " ") + " "
+}
+
 type docRowChunk struct{ Title, URL, Text string }
 
-func rowHasID(r rag.TableRow, ids []string) bool {
-	for _, c := range r.Cells {
-		low := strings.ToLower(c.Val)
-		for _, id := range ids {
-			if strings.Contains(low, id) {
-				return true
+// matchDocRows — SAF: eşleşen satırlar (belge + sayfa + satır tekil, ≤docRowsMax)
+// ve eşleşmeyi taşıyan değerler.
+func matchDocRows(chunks []docRowChunk, question string, strict bool) ([]docRowMatch, []string) {
+	needles := rowNeedles(question)
+	if len(needles) == 0 {
+		return nil, nil
+	}
+	fq := foldWords(question)
+	type cand struct {
+		m    docRowMatch
+		vals []string
+	}
+	var cands []cand
+	count := map[string]int{}
+	seen := map[string]bool{}
+	for _, c := range chunks {
+		for _, r := range rag.ParseTableRows(c.Text) {
+			k := fmt.Sprintf("%s\x00%s\x00%d", c.Title, r.Sheet, r.Row)
+			if seen[k] {
+				continue
 			}
+			seen[k] = true
+			var vals []string
+			for _, cell := range r.Cells {
+				fv := foldWords(cell.Val)
+				v := strings.TrimSpace(fv)
+				if len([]rune(v)) < 3 {
+					continue
+				}
+				matched := ""
+				if strings.Contains(fq, fv) && (!strict || strings.Contains(v, " ") || needleStrongIn(needles, v)) {
+					matched = v
+				}
+				for _, n := range needles {
+					if matched == "" && strings.ContainsAny(n.folded, "0123456789-._") && strings.Contains(v, n.folded) {
+						matched = n.folded
+					}
+				}
+				if matched != "" && !containsStr(vals, matched) {
+					vals = append(vals, matched)
+				}
+			}
+			if len(vals) == 0 {
+				continue
+			}
+			for _, v := range vals {
+				count[v]++
+			}
+			cands = append(cands, cand{m: docRowMatch{Doc: c.Title, URL: c.URL, TableRow: r}, vals: vals})
+		}
+	}
+	var out []docRowMatch
+	var used []string
+	for _, cd := range cands {
+		ok := false
+		for _, v := range cd.vals {
+			if count[v] <= docRowsMax { // yaygın değer (PROD, Hayır) satır seçmez
+				ok = true
+				if !containsStr(used, v) {
+					used = append(used, v)
+				}
+			}
+		}
+		if ok {
+			out = append(out, cd.m)
+			if len(out) >= docRowsMax {
+				break
+			}
+		}
+	}
+	return out, used
+}
+
+// needleStrongIn — SAF: hücre değeri güçlü bir aday kelimeyi kelime olarak içeriyor mu.
+func needleStrongIn(needles []rowNeedle, v string) bool {
+	pv := " " + v + " "
+	for _, n := range needles {
+		if n.strong && strings.Contains(pv, " "+n.folded+" ") {
+			return true
 		}
 	}
 	return false
@@ -146,25 +269,43 @@ func mapStr(xs []string, f func(string) string) []string {
 	return out
 }
 
-// docRowsAnswer — kademe. handled=false → olay yok, akış aynen sürer.
-func (s *Server) docRowsAnswer(ctx context.Context, emit func(string, any), msgs []copilot.ChatMessage) (handled, ok bool) {
+// docRowsAnswer — kademe (strict: erken kademe; değil: doküman adımı).
+// handled=false → olay yok, akış aynen sürer.
+func (s *Server) docRowsAnswer(ctx context.Context, emit func(string, any), msgs []copilot.ChatMessage, strict bool) (handled, ok bool) {
 	if !wikiDocsActive(ctx) || s.store == nil {
 		return false, false
 	}
 	question := lastUserText(msgs)
-	ids := identifierTerms(question)
-	if len(ids) == 0 || s.wikiWeakCueVetoed(ctx, question) {
+	needles := rowNeedles(question)
+	if len(needles) == 0 || (strict && s.wikiWeakCueVetoed(ctx, question)) {
 		return false, false
 	}
-	found, err := s.store.LocalDocChunksMatching(ctx, wiki.LocalWikiID, ids, docRowsChunkLimit)
-	if err != nil || len(found) == 0 {
-		return false, false
+	if strict {
+		strong := false
+		for _, n := range needles {
+			strong = strong || n.strong
+		}
+		if !strong && len(needles) < 2 {
+			return false, false
+		}
 	}
-	chunks := make([]docRowChunk, len(found))
-	for i, c := range found {
-		chunks[i] = docRowChunk{Title: c.Title, URL: c.URL, Text: c.Text}
+	// Aday başına ayrı okuma: OR'lu tek sorgu yaygın kelimeyle tavanı doldurup
+	// nadir değeri kaçırabilirdi. Ham yazım (katlanmamış) — saklı metin katlanmaz.
+	var chunks []docRowChunk
+	seenChunk := map[string]bool{}
+	for _, n := range needles {
+		found, err := s.store.LocalDocChunksMatching(ctx, wiki.LocalWikiID, []string{n.raw}, docRowsChunkLimit)
+		if err != nil {
+			continue
+		}
+		for _, c := range found {
+			if k := c.Path + "\x00" + c.Text; !seenChunk[k] {
+				seenChunk[k] = true
+				chunks = append(chunks, docRowChunk{Title: c.Title, URL: c.URL, Text: c.Text})
+			}
+		}
 	}
-	rows := matchDocRows(chunks, ids)
+	rows, vals := matchDocRows(chunks, question, strict)
 	if len(rows) == 0 {
 		return false, false
 	}
@@ -183,7 +324,7 @@ func (s *Server) docRowsAnswer(ctx context.Context, emit func(string, any), msgs
 		sources = append(sources, chatSource{Doc: "Belge · " + r.Doc, Ref: r.URL, Chunk: 1, Score: 1, Kind: kind})
 	}
 	emit("answer", map[string]any{
-		"text": docRowsMarkdown(ids, rows), "exchangeId": copilot.MetaFromContext(ctx).ExchangeID,
+		"text": docRowsMarkdown(vals, rows), "exchangeId": copilot.MetaFromContext(ctx).ExchangeID,
 		"sources": dedupeChatSources(sources), "links": []guidedAnswerLink{}, "allowedLinks": []string{},
 	})
 	return true, true

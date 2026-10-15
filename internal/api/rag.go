@@ -362,6 +362,13 @@ func (s *Server) ragChatAnswer(ctx context.Context, emit func(string, any), msgs
 	// belgeler de oradan gelir (ragWikiHits); rag_chunks ayrıca taranmaz
 	// (aynı belge iki kez kaynak olmasın). Wiki kapalıysa eski yol aynen.
 	docsViaWiki := wikiDocsActive(ctx)
+	// v0.10.1183 — guided eşleşmedi: yüklenen tablolarda gevşek satır araması
+	// (sorudaki kelime bir hücre değerine birebir eşitse satırlar tabloyla).
+	if docsViaWiki {
+		if h, dok := s.docRowsAnswer(ctx, emit, msgs, false); h {
+			return true, dok
+		}
+	}
 	question := lastUserText(msgs)
 	if strings.TrimSpace(question) == "" {
 		return false, false
