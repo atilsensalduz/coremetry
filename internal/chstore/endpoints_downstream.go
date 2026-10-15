@@ -188,7 +188,13 @@ func (s *Store) walkEndpointEdges(
 	rows, err := s.conn.Query(ctx, fmt.Sprintf(`
 		SELECT span_id, parent_id, service_name, db_system, kind,
 		       duration / 1e6 AS dur_ms,
-		       status_code = 'error' AS is_err
+		       status_code = 'error' AS is_err,
+		       coalesce(nullIf(peer_service, ''),
+		                nullIf(attr_values[indexOf(attr_keys, 'server.address')], ''),
+		                nullIf(attr_values[indexOf(attr_keys, 'net.peer.name')], ''),
+		                nullIf(attr_values[indexOf(attr_keys, 'http.host')], ''), '') AS peer,
+		       attr_values[indexOf(attr_keys, 'rpc.service')] AS rpc_service,
+		       msg_system
 		FROM spans
 		WHERE trace_id IN (%s)
 		  AND time >= ? AND time <= ?
@@ -199,12 +205,115 @@ func (s *Store) walkEndpointEdges(
 		return nil, fmt.Errorf("endpoint downstream walk: %w", err)
 	}
 	defer rows.Close()
+	var spans []walkSpan
+	for rows.Next() {
+		var w walkSpan
+		var isErr uint8
+		if serr := rows.Scan(&w.sid, &w.pid, &w.svc, &w.dbSys, &w.kind, &w.durMs, &isErr, &w.peer, &w.rpcSvc, &w.msgSys); serr != nil {
+			return nil, serr
+		}
+		w.err = isErr != 0
+		spans = append(spans, w)
+	}
+	if rerr := rows.Err(); rerr != nil {
+		return nil, fmt.Errorf("endpoint downstream walk: %w", rerr)
+	}
+	down, callers, backends, childMs := foldEndpointEdges(q.Service, spans, entrySpanIDs)
 
-	down := map[string]*edgeAcc{}
-	callers := map[string]*edgeAcc{}
-	backends := map[string]*edgeAcc{}
-	var childMs float64
+	// self = the route's own time minus what its edges accounted
+	// for. Parallel children overlap, so the subtraction can go
+	// negative; clamp at zero and let the UI explain why it can.
+	if self := out.TotalMs - childMs; self > 0 {
+		down["self"] = &edgeAcc{kind: "self", calls: uint64(len(traceIDs)), sumMs: self}
+	}
 
+	out.Downstream = finishEdges(down)
+	out.Callers = finishEdges(callers)
+	out.Backends = finishEdges(backends)
+	return out, nil
+}
+
+// walkSpan — ikinci geçişin bir span'i.
+type walkSpan struct {
+	sid, pid, svc, dbSys, kind, peer, rpcSvc, msgSys string
+	durMs                                            float64
+	err                                              bool
+}
+
+// isExitSpan — SAF: route servisinin DIŞINA çıkan span mı (DB / broker /
+// client çağrısı ya da başka servisin span'i). Aynı servisin iç span'leri
+// çıkış değildir — zamanları route'un kendi zamanı (self) sayılır.
+func isExitSpan(w walkSpan, routeService string) bool {
+	return w.dbSys != "" || w.msgSys != "" || w.kind == "client" || w.kind == "producer" || w.svc != routeService
+}
+
+// edgeName — SAF: çıkış span'inin kenar adı + türü. Aynı servisten dış
+// çağrı (S3 / HTTP) servis adıyla DEĞİL hedefiyle adlanır (v0.10.1196,
+// operatör: "Amazon S3 entegrasyonu IP bilgisiyle gösterilebilir mi").
+func edgeName(w walkSpan, routeService string) (string, string) {
+	switch {
+	case w.dbSys != "":
+		return w.dbSys, "db"
+	case w.msgSys != "":
+		return w.msgSys, "messaging"
+	case w.svc != routeService:
+		return w.svc, "service"
+	}
+	name := w.peer
+	if w.rpcSvc != "" {
+		name = w.rpcSvc
+		if w.peer != "" {
+			name += " (" + w.peer + ")"
+		}
+	}
+	if name == "" {
+		name = "external (adres yok)"
+	}
+	return name, "external"
+}
+
+// foldEndpointEdges — SAF (v0.10.1196, operatör-bildirimi): kenarlar =
+// route span'inin altında, aradaki her span route servisinin İÇ span'i
+// olan İLK çıkış span'leri (iç sarmalayıcı span'ler düzleşir — eskiden
+// "cm-get-service service" satırı S3 çağrısını ve iç işi yutuyordu).
+// backends = YALNIZ aşağı akış kenarlarının İÇİNDEKİ (derinlik ≥2) DB /
+// broker zamanı: eskiden trace'in TÜM span'leri taranıyordu (route'un
+// altında olmayan kardeş dallar → uygulamada olmayan db2/couchbase/mssql)
+// ve doğrudan DB çağrısı iki listede birden çıkıyordu (redis çift).
+func foldEndpointEdges(routeService string, spans []walkSpan, entry map[string]struct{}) (down, callers, backends map[string]*edgeAcc, childMs float64) {
+	down, callers, backends = map[string]*edgeAcc{}, map[string]*edgeAcc{}, map[string]*edgeAcc{}
+	byID := make(map[string]*walkSpan, len(spans))
+	for i := range spans {
+		byID[spans[i].sid] = &spans[i]
+	}
+	// pathState: 0 = route altında değil, 1 = route altında + yol iç span'lerden,
+	// 2 = route altında + yolda bir çıkış kenarı var (aşağı akış içi).
+	memo := map[string]int{}
+	var state func(sid string, depth int) int
+	state = func(sid string, depth int) int {
+		if v, ok := memo[sid]; ok {
+			return v
+		}
+		w := byID[sid]
+		if w == nil || depth > 256 {
+			return 0
+		}
+		var v int
+		if _, isEntry := entry[w.pid]; isEntry {
+			v = 1
+		} else if p := byID[w.pid]; p != nil {
+			switch ps := state(p.sid, depth+1); {
+			case ps == 0:
+				v = 0
+			case ps == 2 || isExitSpan(*p, routeService):
+				v = 2
+			default:
+				v = 1
+			}
+		}
+		memo[sid] = v
+		return v
+	}
 	add := func(m map[string]*edgeAcc, name, kind string, ms float64, isErr bool) {
 		if name == "" {
 			return
@@ -221,62 +330,27 @@ func (s *Store) walkEndpointEdges(
 			a.errs++
 		}
 	}
-
-	for rows.Next() {
-		var sid, pid, svc, dbSys, kind string
-		var durMs float64
-		var isErr uint8
-		if serr := rows.Scan(&sid, &pid, &svc, &dbSys, &kind, &durMs, &isErr); serr != nil {
-			return nil, serr
+	for i := range spans {
+		w := spans[i]
+		if _, isEntry := entry[w.sid]; isEntry {
+			continue // route'un kendi span'i paydadır, kenar değil
 		}
-		if _, isEntry := entrySpanIDs[sid]; isEntry {
-			continue // the route's own span is the denominator, not an edge
-		}
-		// Backend time at ANY depth. Collected before the direct-child
-		// test so a DB call that IS a direct child appears in both
-		// views — correctly: once as the share it occupies, once in the
-		// backend breakdown. The two lists answer different questions
-		// and are never summed together.
-		if dbSys != "" {
-			add(backends, dbSys, "db", durMs, isErr != 0)
-		}
-		if _, parentIsEntry := entrySpanIDs[pid]; parentIsEntry {
-			// A DIRECT child of the route's span: this is where the
-			// route's time actually went. Grandchildren are deliberately
-			// excluded — counting them would double-count time already
-			// inside a child's duration.
-			name, k := svc, "service"
-			switch {
-			case dbSys != "":
-				name, k = dbSys, "db"
-			case kind == "producer" || kind == "consumer":
-				k = "messaging"
+		switch st := state(w.sid, 0); {
+		case st == 1 && isExitSpan(w, routeService):
+			name, k := edgeName(w, routeService)
+			add(down, name, k, w.durMs, w.err)
+			childMs += w.durMs
+		case st == 2 && (w.dbSys != "" || w.msgSys != ""):
+			name := w.dbSys
+			if name == "" {
+				name = w.msgSys
 			}
-			add(down, name, k, durMs, isErr != 0)
-			childMs += durMs
-			continue
-		}
-		if _, childIsEntry := entrySpanIDs[sid]; !childIsEntry && pid == "" {
-			// A root span in a sampled trace that is NOT our route: the
-			// caller side. Recorded by service.
-			add(callers, svc, "service", durMs, isErr != 0)
+			add(backends, name, "db", w.durMs, w.err)
+		case st == 0 && w.pid == "":
+			add(callers, w.svc, "service", w.durMs, w.err)
 		}
 	}
-	if rerr := rows.Err(); rerr != nil {
-		return nil, fmt.Errorf("endpoint downstream walk: %w", rerr)
-	}
-
-	// self = the route's own time minus what its children accounted
-	// for. Parallel children overlap, so the subtraction can go
-	// negative; clamp at zero and let the UI explain why it can.
-	if self := out.TotalMs - childMs; self > 0 {
-		down["self"] = &edgeAcc{kind: "self", calls: uint64(len(traceIDs)), sumMs: self}
-	}
-
-	out.Downstream = finishEdges(down)
-	out.Callers = finishEdges(callers)
-	out.Backends = finishEdges(backends)
-	return out, nil
+	return down, callers, backends, childMs
 }
 
 // edgeAcc accumulates one edge's sampled spans.

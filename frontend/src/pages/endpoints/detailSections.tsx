@@ -483,7 +483,7 @@ export function WhereTheTimeGoesSection({ refObj, from, to, env, cluster }: {
   return (
     <Card header={
       <PanelTitle
-        sub={d && d.sampledFrom > 0 ? `sample of the ${d.sampledFrom} slowest traces` : undefined}>
+        sub={d && d.sampledFrom > 0 ? `sample of the ${d.sampledFrom} slowest traces — tail p99s, not the route's window p99` : undefined}>
         Where the time goes
       </PanelTitle>
     }>
@@ -509,6 +509,9 @@ export function WhereTheTimeGoesSection({ refObj, from, to, env, cluster }: {
         const pct = total > 0 ? (e.shareMs / total) * 100 : 0;
         const tone = e.kind === 'self' ? 'var(--text3)'
           : e.kind === 'db' ? dbTone : 'var(--accent2)';
+        // v0.10.1196 — paralel çağrılar toplamı route süresini aşabilir;
+        // yüzde 100'de kesilir, ipucu nedenini söyler (eski "106%").
+        const overlap = pct > 100;
         return (
           <div key={`${e.kind}/${e.name}`} style={{ marginBottom: 5 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, fontSize: 11.5 }}>
@@ -521,11 +524,13 @@ export function WhereTheTimeGoesSection({ refObj, from, to, env, cluster }: {
               {e.errors > 0 && (
                 <span style={{ color: 'var(--err)' }}>{e.errors} err</span>
               )}
-              <span style={{ color: 'var(--text2)', fontVariantNumeric: 'tabular-nums' }}>
-                p99 {e.p99Ms.toFixed(0)}ms
+              <span style={{ color: 'var(--text2)', fontVariantNumeric: 'tabular-nums' }}
+                title="p99 over the sampled slowest traces (the tail), so it is higher than the route's window p99 above">
+                tail p99 {e.p99Ms.toFixed(0)}ms
               </span>
-              <span style={{ color: 'var(--text)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-                {pct.toFixed(0)}%
+              <span style={{ color: 'var(--text)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}
+                title={overlap ? 'Parallel calls: their summed time exceeds the route span' : undefined}>
+                {overlap ? '100%+' : `${pct.toFixed(0)}%`}
               </span>
             </div>
             <div style={{
@@ -543,8 +548,8 @@ export function WhereTheTimeGoesSection({ refObj, from, to, env, cluster }: {
       {d && d.backends.length > 0 && (
         <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px dashed var(--divider)' }}>
           <div style={{ fontSize: 10.5, color: 'var(--text3)', marginBottom: 4 }}
-            title="Database and broker time found ANYWHERE beneath this route, including inside the services above. Shown separately because that time is already counted in its parent's share — adding the two lists together would count the same milliseconds twice.">
-            of which, in backends (any depth)
+            title="Database and broker time found INSIDE the downstream services above (beneath this route only). Direct database calls of this route are already listed above. Already counted in the parent's share — the two lists are never summed.">
+            of which, inside downstream services
           </div>
           {d.backends.map(b => (
             <div key={b.name} style={{
@@ -554,7 +559,7 @@ export function WhereTheTimeGoesSection({ refObj, from, to, env, cluster }: {
               <span className="mono" style={{ color: dbTone }}>{b.name}</span>
               <span style={{ flex: 1 }} />
               <span style={{ color: 'var(--text2)', fontVariantNumeric: 'tabular-nums' }}>
-                {b.calls} calls · p99 {b.p99Ms.toFixed(0)}ms
+                {b.calls} calls · tail p99 {b.p99Ms.toFixed(0)}ms
               </span>
               <span style={{ color: 'var(--text)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
                 {total > 0 ? ((b.shareMs / total) * 100).toFixed(0) : 0}%

@@ -5923,7 +5923,7 @@ export interface EndpointsListResponse {
 // must never read as a window-wide measurement.
 export interface EndpointEdge {
   name: string;
-  /** service | db | messaging | self — drives the icon, no re-derivation. */
+  /** service | db | messaging | external (v0.10.1196, S3/HTTP hedefi) | self — drives the icon. */
   kind: string;
   calls: number;
   avgMs: number;
