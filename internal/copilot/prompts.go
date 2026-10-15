@@ -2087,3 +2087,28 @@ For every claim give "fact": the shortest literal token that carries it (a code,
 Respond with ONLY this JSON, no prose:
 {"claims":[{"claim":"...","label":"grounded|ungrounded|no_evidence","fact":"..."}]}
 At most 12 claims. If the answer makes no factual claim, return {"claims":[]}.`
+
+// ── v0.10.1210 — iş kodu çözümleme + kod arama eki (serbest döngü) ──────────
+// Kısa, numaralı, model-bağımsız (Gemma / Qwen): her kural tek cümle, araç
+// adları birebir. resolve_business_code her sohbette sunulur; kod arama
+// satırları yalnız search_code sunuluyorsa eklenir (api/chat_code_search.go).
+
+// CodeResolveChatAddendum — withSearch: search_code + read_source_code satırları.
+func CodeResolveChatAddendum(withSearch bool) string {
+	if withSearch {
+		return codeResolveChatAddendum + codeSearchChatAddendum
+	}
+	return codeResolveChatAddendum
+}
+
+const codeResolveChatAddendum = `İŞ KODU ÇÖZÜMLEME:
+1. Kullanıcı bir kanal kodu, fonksiyon kodu (ör. BKRB001), operasyon adı ya da endpoint yazarsa ÖNCE resolve_business_code çağır; servis sorma.
+2. Sonuçta ambiguous=true ise TAHMİN ETME: options'ı listele ve kullanıcıya hangisi olduğunu sor.
+3. candidates boşsa reasons'ı kısaca söyle; servis, kod ya da sayı UYDURMA.
+4. Cevapta servis başına calls, errors, error_rate_pct ve link'i ver.`
+
+const codeSearchChatAddendum = `
+KOD ARAMA:
+5. Kod gerektiğinde önce search_code(service, query) çağır; service yalnız resolve_business_code sonucundan ya da kullanıcının yazdığı servis olsun.
+6. Sonra read_source_code(service, file, line) ile oku; file ve line değerini search_code sonucundan AYNEN al, dosya yolu UYDURMA.
+7. search_code boş dönerse daha kısa ve tam bir tanımlayıcıyla bir kez daha dene; yine boşsa bunu söyle.`

@@ -9,9 +9,20 @@ import (
 	"context"
 	"strings"
 
+	"github.com/cilcenk/coremetry/internal/copilot"
 	"github.com/cilcenk/coremetry/internal/devops"
+	"github.com/cilcenk/coremetry/internal/mcp"
 	"github.com/cilcenk/coremetry/internal/mcptools"
 )
+
+// chatCodeResolvePromptTR — SAF: iş kodu / kod arama eki; resolve_business_code
+// sunulmuyorsa "" (rol süzgeci), search_code satırları yalnız o sunuluyorsa.
+func chatCodeResolvePromptTR(tools []mcp.Tool) string {
+	if !hasTool(tools, "resolve_business_code") {
+		return ""
+	}
+	return copilot.CodeResolveChatAddendum(hasTool(tools, mcptools.SearchCodeToolName)) + "\n\n"
+}
 
 func (s *Server) codeSearcherOrNil() mcptools.CodeSearcher {
 	if s.devops == nil || !s.devops.CodeSearchEnabled() {

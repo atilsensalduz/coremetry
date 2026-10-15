@@ -1,0 +1,88 @@
+{
+  "schema": "coremetry.evalset/1",
+  "cases": [
+    {
+      "id": "bizcode-function-code-single",
+      "surface": "ChatCodeResolve",
+      "why": "fonksiyon kodu tek servise çözüldü: servis, sayılar ve link cevapta; başka servis uydurulmaz",
+      "user": "BKRB001 hangi serviste, hata var mı?\n\n[resolve_business_code sonucu] {\"query\":\"BKRB001\",\"ambiguous\":false,\"candidates\":[{\"kind\":\"function_code\",\"value\":\"BKRB001\",\"match\":\"exact\",\"window\":\"son 24 sa\",\"services\":[{\"service\":\"bsa-card-core\",\"calls\":1138786,\"errors\":2277,\"error_rate_pct\":0.2}],\"link\":\"/traces?service=bsa-card-core\"}],\"reasons\":[]}",
+      "expect": {
+        "mustContain": ["bsa-card-core"],
+        "keyFacts": ["BKRB001", "0.2"],
+        "expectedTools": ["resolve_business_code"],
+        "knownEntities": ["bsa-card-core"],
+        "maxUnknownEntities": 0,
+        "maxLatencyMs": 30000
+      }
+    },
+    {
+      "id": "bizcode-channel-code",
+      "surface": "ChatCodeResolve",
+      "why": "kanal kodu çözümü: kanal kodu ve servis cevapta",
+      "user": "060203 kanalından gelen istekler hangi servise gidiyor?\n\n[resolve_business_code sonucu] {\"query\":\"060203\",\"ambiguous\":false,\"candidates\":[{\"kind\":\"channel_code\",\"value\":\"060203\",\"match\":\"exact\",\"window\":\"son 24 sa\",\"services\":[{\"service\":\"mobile-bff\",\"calls\":52340,\"errors\":0,\"error_rate_pct\":0}],\"link\":\"/traces?service=mobile-bff\"}],\"reasons\":[]}",
+      "expect": {
+        "mustContain": ["mobile-bff"],
+        "keyFacts": ["060203"],
+        "expectedTools": ["resolve_business_code"],
+        "knownEntities": ["mobile-bff"],
+        "maxUnknownEntities": 0,
+        "maxLatencyMs": 30000
+      }
+    },
+    {
+      "id": "bizcode-typo-operation",
+      "surface": "ChatCodeResolve",
+      "why": "yazım hatalı operasyon adı bulanık eşleşti: doğru ad cevapta, kullanıcının yazdığı hatalı ad 'bulunamadı' denmez",
+      "user": "ATM_CORE_PIN_CHANGEE ne durumda?\n\n[resolve_business_code sonucu] {\"query\":\"ATM_CORE_PIN_CHANGEE\",\"ambiguous\":false,\"candidates\":[{\"kind\":\"operation\",\"value\":\"ATM_CORE_PIN_CHANGE\",\"match\":\"fuzzy\",\"window\":\"son 24 sa (katalog)\",\"services\":[{\"service\":\"bsa-atm-core-prod\",\"calls\":8812,\"errors\":441,\"error_rate_pct\":5}],\"link\":\"/traces?service=bsa-atm-core-prod\"}],\"reasons\":[]}",
+      "expect": {
+        "mustContain": ["ATM_CORE_PIN_CHANGE", "bsa-atm-core-prod"],
+        "keyFacts": ["5"],
+        "mustNotContain": ["bulunamadı"],
+        "expectedTools": ["resolve_business_code"],
+        "knownEntities": ["bsa-atm-core-prod"],
+        "maxUnknownEntities": 0,
+        "maxLatencyMs": 30000
+      }
+    },
+    {
+      "id": "bizcode-endpoint",
+      "surface": "ChatCodeResolve",
+      "why": "endpoint parçası çözümü: route ve servis cevapta",
+      "user": "file/stream/s3 endpoint'i kimin?\n\n[resolve_business_code sonucu] {\"query\":\"file/stream/s3\",\"ambiguous\":false,\"candidates\":[{\"kind\":\"endpoint\",\"value\":\"/get/v{version}/file/stream/s3\",\"match\":\"substring\",\"window\":\"son 24 sa (katalog)\",\"services\":[{\"service\":\"cm-get-service\",\"calls\":40960,\"errors\":0,\"error_rate_pct\":0}],\"link\":\"/traces?service=cm-get-service\"}],\"reasons\":[]}",
+      "expect": {
+        "mustContain": ["cm-get-service"],
+        "keyFacts": ["file/stream/s3"],
+        "expectedTools": ["resolve_business_code"],
+        "knownEntities": ["cm-get-service"],
+        "maxUnknownEntities": 0,
+        "maxLatencyMs": 30000
+      }
+    },
+    {
+      "id": "bizcode-ambiguous-multi-service",
+      "surface": "ChatCodeResolve",
+      "why": "kod üç serviste: tahmin yok, seçenekler sayılır ve hangisi diye sorulur",
+      "user": "INV0181 neden yavaş?\n\n[resolve_business_code sonucu] {\"query\":\"INV0181\",\"ambiguous\":true,\"options\":[\"inv-gateway\",\"inv-core\",\"inv-batch\"],\"candidates\":[{\"kind\":\"function_code\",\"value\":\"INV0181\",\"match\":\"exact\",\"window\":\"son 24 sa\",\"services\":[{\"service\":\"inv-gateway\",\"calls\":500000,\"errors\":10,\"error_rate_pct\":0},{\"service\":\"inv-core\",\"calls\":280000,\"errors\":5,\"error_rate_pct\":0},{\"service\":\"inv-batch\",\"calls\":5000,\"errors\":0,\"error_rate_pct\":0}]}],\"reasons\":[\"INV0181 3 serviste görülüyor — tahmin etme, hangi servis olduğunu sor ya da hepsini say\"]}",
+      "expect": {
+        "mustContain": ["inv-gateway", "inv-core", "inv-batch", "?"],
+        "expectedTools": ["resolve_business_code"],
+        "knownEntities": ["inv-gateway", "inv-core", "inv-batch"],
+        "maxUnknownEntities": 0,
+        "maxLatencyMs": 30000
+      }
+    },
+    {
+      "id": "bizcode-no-match",
+      "surface": "ChatCodeResolve",
+      "why": "eşleşme yok: servis uydurulmaz, neden söylenir",
+      "user": "ZZQ9999 hangi serviste?\n\n[resolve_business_code sonucu] {\"query\":\"ZZQ9999\",\"ambiguous\":false,\"candidates\":[],\"reasons\":[\"\\\"ZZQ9999\\\" için channel_code / function_code / operation / endpoint ekseninde eşleşme yok\"]}",
+      "expect": {
+        "mustContain": ["ZZQ9999"],
+        "expectedTools": ["resolve_business_code"],
+        "knownEntities": [],
+        "maxUnknownEntities": 0,
+        "maxLatencyMs": 30000
+      }
+    }
+  ]
+}

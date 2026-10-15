@@ -814,7 +814,7 @@ func TestExceptionFollowUpWiring(t *testing.T) {
 		"copilot.WithNoToolCalls(tctx2)",
 		"clampToolResultForModel(tr.Content)",
 		"Span: env.span.tool,",
-		"sourceCodeToolsFor(toolsForRole(catalog, role), true, c)",
+		"sourceCodeToolsFor(toolsForRole(catalog, role), true, c, false)",
 		"anomaly.BuildExceptionExplainInput(ctx, s.store, s.logs, g, loc)",
 		"codeService: in.CodeService(g.Service), codeVersion: in.StackVersion,",
 	} {

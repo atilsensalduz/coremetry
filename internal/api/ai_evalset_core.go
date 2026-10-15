@@ -231,6 +231,8 @@ func evalSystemPrompt(surface string) (string, bool) {
 		return copilot.SystemPromptGeneralChat(), true
 	case "Chat":
 		return copilot.SystemPromptChat(), true
+	case "ChatCodeResolve": // v0.10.1210 — iş kodu / kod arama eki (serbest döngü prompt'u + ek)
+		return copilot.SystemPromptChatAgentLoop() + copilot.CodeResolveChatAddendum(true) + "\n\n" + copilot.SystemPromptChat(), true
 	case "IntentClassify":
 		return copilot.SystemPromptIntentClassify(), true
 	}
@@ -403,6 +405,16 @@ var evalProductionLabels = map[string]string{
 }
 
 func evalProductionLabel(surface string) string { return evalProductionLabels[surface] }
+
+// evalProfileLabel — model profili seçimi: ChatCodeResolve (v0.10.1210) canlıda
+// serbest sohbet döngüsünün ("chat") ekidir, aynı profille koşar. Etiket
+// tablosunda DEĞİL (👎 export geri dönüşümü Chat'e düşmeli).
+func evalProfileLabel(surface string) string {
+	if surface == "ChatCodeResolve" {
+		return evalProductionLabel("Chat")
+	}
+	return evalProductionLabel(surface)
+}
 
 // evalSurfaceSchema — v0.10.940 (JSON eşitliği): üretimin bu yüzeyde
 // gönderdiği şema. Önceden CLI yalnız IntentClassify'a şema veriyordu;
@@ -949,7 +961,7 @@ func (s *Server) evalAppVersion() string {
 // evalProfileFor — yüzeyin üretimde gideceği profil (kimlik + anahtarsız
 // görünüm). copilot nil ise boş.
 func (s *Server) evalProfileFor(surface string) (id, label, provider, model, baseURL string) {
-	id = s.copilot.SurfaceProfileID(evalProductionLabel(surface))
+	id = s.copilot.SurfaceProfileID(evalProfileLabel(surface))
 	label, provider, model, baseURL, _ = s.copilot.ProfileView(id)
 	return id, label, provider, model, baseURL
 }

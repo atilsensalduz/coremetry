@@ -70,9 +70,11 @@ var promptVersionRegistry = map[string]string{
 	"systemChatRoundCapAddendum": systemChatRoundCapAddendum, // v0.10.806
 	"chatDeepAddendum":           chatDeepAddendum,           // v0.10.1150 — Derin düşün üslubu
 	"chatDeepLoopBudget":         chatDeepLoopBudget,         // v0.10.1150 — Derin düşün araç bütçesi
-	"sourceCodeChatAddendum":     sourceCodeChatAddendum,     // v0.10.1050 — read_source_code sunulunca
-	"wikiChatAddendum":           wikiChatAddendum,           // v0.10.1122 — search_wiki / read_wiki_page sunulunca
-	"systemChatAgentLoop":        systemChatAgentLoop,        // v0.10.482
+	"sourceCodeChatAddendum":     sourceCodeChatAddendum,
+	"codeResolveChatAddendum":    codeResolveChatAddendum, // v0.10.1210
+	"codeSearchChatAddendum":     codeSearchChatAddendum,  // v0.10.1210     // v0.10.1050 — read_source_code sunulunca
+	"wikiChatAddendum":           wikiChatAddendum,        // v0.10.1122 — search_wiki / read_wiki_page sunulunca
+	"systemChatAgentLoop":        systemChatAgentLoop,     // v0.10.482
 	"systemIntentClassify":       systemIntentClassify,
 	"IntentNoInstructionLine":    IntentNoInstructionLine,
 	"systemGeneralChat":          systemGeneralChat,

@@ -172,7 +172,7 @@ func exceptionCodeTools(catalog []mcp.Tool, c *auth.Claims) []mcp.Tool {
 		role = c.Role
 	}
 	var out []mcp.Tool
-	for _, t := range sourceCodeToolsFor(toolsForRole(catalog, role), true, c) {
+	for _, t := range sourceCodeToolsFor(toolsForRole(catalog, role), true, c, false) {
 		if t.Name == mcptools.SourceCodeToolName {
 			out = append(out, t)
 		}

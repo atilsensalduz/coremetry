@@ -664,7 +664,7 @@ func TestCopilotChatWiresSourceCodeMasks(t *testing.T) {
 	}
 	src := string(b)
 	for _, want := range []string{
-		"tools = sourceCodeToolsFor(tools, isTraceFollowUp, c)",
+		"tools = sourceCodeToolsFor(tools, isTraceFollowUp, c, codeScope)",
 		"preview, truncated := chatStepPreview(tc.Name, tr.Content, tr.IsError)",
 		"fuEvidence.WriteString(chatFollowUpEvidence(tc.Name, oc.Content))",
 		"chatPromptSample(lastUserText(req.Messages), codeReads)",

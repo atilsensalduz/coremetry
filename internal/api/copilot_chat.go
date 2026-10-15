@@ -487,7 +487,13 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	// v0.10.1050 — read_source_code YALNIZ panel trace takibinde ve oturum
 	// kullanıcısına (API token'ı değil); bağımsız döngüde dış MCP araçlarının
 	// yanında sunulmaz (chat_source_code.go). Katalog/spec/prompt bundan kurulur.
-	tools = sourceCodeToolsFor(tools, isTraceFollowUp, c)
+	// v0.10.1209 — genel sohbet: search_code sunuluyorsa ve dış MCP araçları
+	// yoksa read_source_code da (yalnız bu turda çözülen servisler).
+	codeScope := !isTraceFollowUp && hasTool(tools, mcptools.SearchCodeToolName) && !(s.mcpClient != nil && s.mcpClient.Configured())
+	tools = sourceCodeToolsFor(tools, isTraceFollowUp, c, codeScope)
+	if codeScope {
+		ctx = withResolvedCodeScope(ctx)
+	}
 	// v0.10.88 (dilim ③) — DIŞ MCP tool'ları yerli kataloğun yanına. Aynı
 	// toolsForRole süzgeci, aynı spec şekli; döngü dış/yerli ayrımını görmez.
 	// Katalog Registry'nin 5 dk TTL'li önbelleğinden gelir; sunucu erişilemezse
@@ -688,6 +694,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 		traceFollowUpPromptTR(traceFU, req.Context.Explain) + // v0.10.948 — boşsa ""
 		chatSourceCodePromptTR(tools) + // v0.10.1050 — read_source_code sunulmuyorsa ""
 		chatWikiPromptTR(tools) + // v0.10.1122 — wiki araçları sunulmuyorsa ""
+		chatCodeResolvePromptTR(tools) + // v0.10.1210 — iş kodu / kod arama eki
 		dm.loopPrefix() + // v0.10.1150 — Derin kapalıyken ""
 		withAddressee(addressee, copilot.SystemPromptChat())
 	if isTraceFollowUp {
@@ -708,6 +715,11 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	// bilinmeyen ad, tekrar muhafızı, kapsam (bugün kısıtsız), 20 s bütçe,
 	// JSON'lama, ToolErrorJSON, ai.tool span'ı ve audit satırı orada; döngü
 	// yalnız Outcome'u yayınlar (çip, kanıt, köprü) ve konuşmaya ekler.
+	if rs := resolvedCodeScopeFrom(ctx); rs != nil {
+		for n, h := range byName {
+			byName[n] = rs.wrap(n, h)
+		}
+	}
 	if chatLoopHandlerSeam != nil { // v0.10.948 — yalnız testte dolu
 		for n, h := range byName {
 			byName[n] = chatLoopHandlerSeam(n, h)

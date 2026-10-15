@@ -94,8 +94,13 @@ func sourceCodeCallerAllowed(c *auth.Claims) bool {
 // Sunulma: panel takibi (trace/span serbest döngüsü; v0.10.1053 — exception
 // çekmecesinin tek araçlı döngüsü de) + oturum kullanıcısı (rol ve DevOps
 // kapıları zaten tools'a uygulandı).
-func sourceCodeToolsFor(tools []mcp.Tool, panelFollowUp bool, c *auth.Claims) []mcp.Tool {
-	if panelFollowUp && sourceCodeCallerAllowed(c) {
+//
+// v0.10.1209 (operatör onayı): genel sohbette de sunulur — search_code
+// sunuluyorsa (resolvedCode) ve dış MCP araçları yoksa; okuma o zaman yalnız
+// AYNI turda search_code / resolve_business_code'un döndürdüğü servislere
+// (resolvedCodeScope, readSourceCode).
+func sourceCodeToolsFor(tools []mcp.Tool, panelFollowUp bool, c *auth.Claims, resolvedCode bool) []mcp.Tool {
+	if (panelFollowUp || resolvedCode) && sourceCodeCallerAllowed(c) {
 		return tools
 	}
 	out := make([]mcp.Tool, 0, len(tools))
@@ -136,6 +141,14 @@ func (s *Server) readSourceCode(ctx context.Context, req mcptools.SourceCodeRequ
 	// KAPSAM: servis sohbetin trace öznesinde geçmeli.
 	sub, _ := ctx.Value(sourceSubjectKey{}).(*sourceSubject)
 	if sub == nil {
+		// v0.10.1209 — genel sohbet: aynı turda bir araç sonucunun döndürdüğü servis.
+		if rs := resolvedCodeScopeFrom(ctx); rs != nil {
+			if rs.has(svc) {
+				return s.readScopedSource(ctx, req, "", "search_code / resolve_business_code ile çözülen servis (dal ucu)"), nil
+			}
+			out.Outcome, out.Reason = devops.SourceOutOfScope, "servis bu turda çözülmedi — önce search_code ya da resolve_business_code ile servisi bulun"
+			return out, nil
+		}
 		out.Outcome, out.Reason = devops.SourceOutOfScope, "kod yalnız panelde incelenen trace'in servisleri için okunur — bu sohbette trace öznesi yok"
 		return out, nil
 	}
