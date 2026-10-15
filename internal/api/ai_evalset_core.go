@@ -55,6 +55,12 @@ type evalExpect struct {
 	// kümesi + kanıt-ID atıf oranı (K2'den geçen / atıf yapılan).
 	Verdicts                []string `json:"verdicts,omitempty"`
 	MinEvidenceCitationRate *float64 `json:"minEvidenceCitationRate,omitempty"`
+	// CoSRE öğrenme Faz 4 (cosre_quality_evalset.go) — örtük kalite
+	// dışa aktarımının alanları. keyFacts mustContain gibi sınanır (harf
+	// duyarsız alt-dize); expectedTools bilgi amaçlı — tek çağrılı evalset
+	// yüzeyleri tool koşmaz, sınama serbest döngü koşucusunun işi.
+	ExpectedTools []string `json:"expectedTools,omitempty"`
+	KeyFacts      []string `json:"keyFacts,omitempty"`
 }
 
 type evalCase struct {
@@ -259,6 +265,11 @@ func scoreEvalCase(c evalCase, system, answer string, err error) (fails []string
 			fails = append(fails, "forbidden: "+m)
 		}
 	}
+	for _, f := range c.Expect.KeyFacts {
+		if !strings.Contains(low, strings.ToLower(f)) {
+			fails = append(fails, "missing fact: "+f)
+		}
+	}
 	sys, user := evalCaseInput(c, system)
 	unknown = int(rca.CountUnknownEntities(rca.LowerKnownSet(c.Expect.KnownEntities...), sys+"\n"+user, answer))
 	if c.Expect.MaxUnknownEntities != nil && unknown > *c.Expect.MaxUnknownEntities {
@@ -292,7 +303,7 @@ func evalRubricInput(c evalCase, answer string, err error, unknown int, rca bool
 		Err:            err,
 		UnknownCount:   unknown,
 		MaxUnknown:     maxUnknown,
-		MustContain:    c.Expect.MustContain,
+		MustContain:    append(append([]string{}, c.Expect.MustContain...), c.Expect.KeyFacts...),
 		MustNotContain: c.Expect.MustNotContain,
 		ExpectTurkish:  !evalJSONSurface(c.Surface) && !rca,
 	}

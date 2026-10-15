@@ -140,11 +140,13 @@ func TestDueDays(t *testing.T) {
 }
 
 type fakeStore struct {
-	rows    []chstore.CosreInteraction
-	answers []chstore.CosreAnswerQuality
-	tools   []chstore.CosreToolQuality
-	from    time.Time
-	to      time.Time
+	ground   []chstore.CosreGroundingInput
+	grounded []chstore.CosreGrounding
+	rows     []chstore.CosreInteraction
+	answers  []chstore.CosreAnswerQuality
+	tools    []chstore.CosreToolQuality
+	from     time.Time
+	to       time.Time
 }
 
 func (f *fakeStore) ListCosreInteractionsForScoring(_ context.Context, from, to time.Time) ([]chstore.CosreInteraction, error) {
@@ -185,4 +187,21 @@ func TestRunQualityDayScoresOnlyThatDay(t *testing.T) {
 	if !st.to.After(day.Add(24 * time.Hour)) {
 		t.Errorf("takip turu için pencere gün sonunu aşmalı: %v", st.to)
 	}
+}
+
+func (f *fakeStore) ListCosreForGrounding(context.Context, time.Time, time.Time, int) ([]chstore.CosreGroundingInput, error) {
+	return f.ground, nil
+}
+func (f *fakeStore) InsertCosreGrounding(_ context.Context, r []chstore.CosreGrounding) error {
+	f.grounded = r
+	return nil
+}
+func (f *fakeStore) UngroundedExchanges(context.Context, time.Time, time.Time) (map[string]bool, error) {
+	out := map[string]bool{}
+	for _, g := range f.grounded {
+		if g.Ungrounded > 0 {
+			out[g.ExchangeID] = true
+		}
+	}
+	return out, nil
 }

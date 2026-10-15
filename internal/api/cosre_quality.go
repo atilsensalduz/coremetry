@@ -34,6 +34,8 @@ const cosreSignalDetailMax = 512
 func (s *Server) registerCosreQualityRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/ai/signal", s.postCosreSignal)
 	mux.HandleFunc("GET /api/ai/quality", auth.RequireRole(auth.RoleAdmin, s.getCosreQuality))
+	// Faz 4 — en kötü cevaplardan regresyon vakası dosyası (cosre_quality_evalset.go).
+	mux.HandleFunc("GET /api/ai/quality/evalset", auth.RequireRole(auth.RoleAdmin, s.exportCosreQualityEvalset))
 }
 
 type cosreSignalRequest struct {

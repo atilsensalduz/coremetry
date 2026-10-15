@@ -51,7 +51,9 @@ func promptRegistry() map[string]promptClass {
 		"Problem":           classDirective,
 		"Exception":         classDirective,
 		"ExceptionWithCode": classDirective,
-		"OracleException":   classDirective, // v0.10.1100 — Oracle hata grubu (span değil)
+		"OracleException":   classDirective,  // v0.10.1100 — Oracle hata grubu (span değil)
+		"CaseCompare":       classStructured, // CoSRE öğrenme Faz 3 — ilk kelime EVET/HAYIR/KISMEN parse edilir
+		"GroundingJudge":    classStructured, // CoSRE öğrenme Faz 4 — iddia JSON'u parse edilir
 		"Incident":          classDirective,
 		"Anomaly":           classDirective,
 		"ServiceHealth":     classDirective,
@@ -123,6 +125,7 @@ func promptTexts() map[string]string {
 		"Postmortem": SystemPromptPostmortem(), "RunbookUpdate": SystemPromptRunbookUpdate(),
 		"NLToQuery": SystemPromptNLToQuery(), "CHQueryOptimize": SystemPromptCHQueryOptimize(),
 		"ServiceTags": SystemPromptServiceTags(), "OracleException": SystemPromptOracleException(),
+		"CaseCompare": SystemPromptCaseCompare(), "GroundingJudge": SystemPromptGroundingJudge(),
 	}
 }
 

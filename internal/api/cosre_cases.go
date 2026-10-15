@@ -25,6 +25,7 @@ import (
 
 	"github.com/cilcenk/coremetry/internal/auth"
 	"github.com/cilcenk/coremetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/copilot"
 	"github.com/cilcenk/coremetry/internal/cosrelearn"
 )
 
@@ -139,17 +140,13 @@ func (s *Server) judgeSuggestion(ctx context.Context, suggested, final string) (
 	// (TestNoInlineCopilotGates): onay modelsiz de yazılır.
 	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	out, err := s.copilotExplainSurface(cctx, "cosre-case-compare", caseCompareSystem,
+	out, err := s.copilotExplainSurface(cctx, "cosre-case-compare", copilot.SystemPromptCaseCompare(),
 		"ÖNERİLEN NEDEN:\n"+suggested+"\n\nNİHAİ NEDEN (insan onaylı):\n"+final)
 	if err != nil {
 		return -1, "karşılaştırma başarısız: " + clipBytes(err.Error(), 200)
 	}
 	return parseCaseVerdict(out)
 }
-
-const caseCompareSystem = `Bir olay sonrası iki metni karşılaştırıyorsun: CoSRE'nin ÖNERDİĞİ neden ve insanın onayladığı NİHAİ neden.
-Önerilen neden, nihai nedenle aynı kök nedeni (aynı bileşen ve aynı arıza türü) işaret ediyor mu?
-İlk satıra YALNIZ şu kelimelerden birini yaz: EVET, HAYIR, KISMEN. İkinci satıra tek cümlelik gerekçe.`
 
 // parseCaseVerdict — SAF: modelin ilk kelimesi → 1 / 0 / -1 (kısmen ve
 // anlaşılmayan cevap "bilinmiyor"; yanlış sayılmaz).

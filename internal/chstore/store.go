@@ -2996,6 +2996,27 @@ func canonicalTables(sd, ld, md int) []string {
 		ORDER BY (day, tool)
 		TTL day + INTERVAL 180 DAY`,
 
+		// cosre_answer_grounding — CoSRE öğrenme Faz 4: çevrimdışı öz-
+		// değerlendirme. Gece örneklenen cevabın her iddiası, turda okunan
+		// tool çıktılarına karşı self-hosted modelle etiketlenir. Yeniden
+		// koşu aynı satırı değiştirir → RMT(version), ORDER BY exchange_id,
+		// partition YOK (P1); 180 g TTL (cosre_interactions ile aynı).
+		`CREATE TABLE IF NOT EXISTS cosre_answer_grounding (
+			exchange_id  String,
+			created_at   DateTime64(3),
+			judged_at    DateTime64(3) DEFAULT now64(3),
+			verdict      LowCardinality(String),
+			claims       UInt16 DEFAULT 0,
+			grounded     UInt16 DEFAULT 0,
+			ungrounded   UInt16 DEFAULT 0,
+			no_evidence  UInt16 DEFAULT 0,
+			details      String DEFAULT '' CODEC(ZSTD(3)),
+			model        LowCardinality(String) DEFAULT '',
+			version      UInt64 DEFAULT toUnixTimestamp64Nano(now64(9))
+		) ENGINE = ReplacingMergeTree(version)
+		ORDER BY exchange_id
+		TTL toDate(created_at) + INTERVAL 180 DAY`,
+
 		// incident_cases — CoSRE öğrenme Faz 3: vaka hafızası. Kapanan her
 		// Problem / çözülen exception grubu için bir TASLAK (sinyaller +
 		// CoSRE'nin önerdiği neden); insan Problem UI'da onaylayınca

@@ -2061,3 +2061,28 @@ tek sonraki adım.
 // SystemPromptChatAgentLoop — serbest döngünün ajan çekirdeği (copilot_chat.go
 // loopPrompt'unun başına gider; systemChat'i yeniden yazmaz).
 func SystemPromptChatAgentLoop() string { return systemChatAgentLoop }
+
+// ── CoSRE öğrenme (Faz 3/4) — arka plan hakem çağrıları ─────────────────
+
+// SystemPromptCaseCompare — vaka onayı: CoSRE'nin önerdiği neden insanın
+// onayladığı nihai nedenle örtüşüyor mu (api/cosre_cases.go).
+func SystemPromptCaseCompare() string { return systemCaseCompare }
+
+const systemCaseCompare = `Bir olay sonrası iki metni karşılaştırıyorsun: CoSRE'nin ÖNERDİĞİ neden ve insanın onayladığı NİHAİ neden.
+Önerilen neden, nihai nedenle aynı kök nedeni (aynı bileşen ve aynı arıza türü) işaret ediyor mu?
+İlk satıra YALNIZ şu kelimelerden birini yaz: EVET, HAYIR, KISMEN. İkinci satıra tek cümlelik gerekçe.`
+
+// SystemPromptGroundingJudge — çevrimdışı öz-değerlendirme: cevaptaki her
+// iddia, turda okunan tool çıktılarına dayanıyor mu (internal/cosrelearn).
+func SystemPromptGroundingJudge() string { return systemGroundingJudge }
+
+const systemGroundingJudge = `You audit an observability assistant's answer against the tool outputs it read in that turn.
+Split the ANSWER into its factual claims (numbers, names, codes, causes, time statements). Ignore greetings, advice and next-step suggestions.
+Label each claim:
+- "grounded": stated or directly computable from the TOOL OUTPUTS.
+- "ungrounded": contradicts the outputs, or names an entity / number / cause that the outputs do not contain.
+- "no_evidence": the outputs neither support nor contradict it (e.g. general knowledge, or no tool output at all).
+For every claim give "fact": the shortest literal token that carries it (a code, number with unit, service or operation name), copied from the answer.
+Respond with ONLY this JSON, no prose:
+{"claims":[{"claim":"...","label":"grounded|ungrounded|no_evidence","fact":"..."}]}
+At most 12 claims. If the answer makes no factual claim, return {"claims":[]}.`

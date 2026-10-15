@@ -842,9 +842,8 @@ func main() {
 	// natural fit.
 	if mode.worker {
 		go store.StartRetentionEnforcer(ctx, time.Hour, lockImpl)
-		go store.StartAIChatSweeper(ctx, time.Hour, lockImpl)          // v0.10.561 — saved_views(page='ai-chat') süpürücüsü
-		go cosrelearn.StartQualityJob(ctx, store, lockImpl, time.Hour) // CoSRE öğrenme Faz 2 — gece kalite puanı
-		go cosrelearn.StartCaseBuilder(ctx, store, lockImpl)           // CoSRE öğrenme Faz 3 — vaka taslakları
+		go store.StartAIChatSweeper(ctx, time.Hour, lockImpl) // v0.10.561 — saved_views(page='ai-chat') süpürücüsü
+		go cosrelearn.StartCaseBuilder(ctx, store, lockImpl)  // CoSRE öğrenme Faz 3 — vaka taslakları
 	}
 
 	// ── Optional OIDC ─────────────────────────────────────────────────────────
@@ -989,6 +988,17 @@ func main() {
 		log.Printf("[copilot] load persisted config: %v", err)
 	}
 	cfgRefresh.Add("copilot", func(ctx context.Context) error { return copilotSvc.LoadPersisted(ctx, store) })
+	// CoSRE öğrenme Faz 2+4 — gece kalite puanı; önce örneklem self-hosted
+	// hakeme (yapılandırılmış AI profili; ai_calls'a "cosre-selfeval" düşer).
+	if mode.worker {
+		judge := func(jctx context.Context, system, user string) (string, error) {
+			if !copilotSvc.Active() {
+				return "", fmt.Errorf("AI yapılandırılmamış")
+			}
+			return copilotSvc.Explain(copilot.WithMeta(jctx, copilot.CallMeta{Surface: "cosre-selfeval", UserID: "system"}), system, user)
+		}
+		go cosrelearn.StartQualityJob(ctx, store, lockImpl, time.Hour, judge, copilotSvc.ActiveModel)
+	}
 	// v0.9.136 (scale-audit 2026-07-20) — RAG hydration + refresh were
 	// mis-nested INSIDE the copilot-error branch, so on the normal path
 	// (copilot loads fine) operator RAG config saved via the UI never

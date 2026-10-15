@@ -1317,20 +1317,11 @@ export const api = {
       `/api/ai/feedback/negative${rangeS ? `?rangeS=${rangeS}` : ''}`),
   // v0.10.423 — 👎 → evalset (JSON ek dosya; sunucu dosya yazmaz, operatör
   // indirir ve internal/copilot/evalset/ altına elle alır). exportConfig deseni.
-  aiEvalsetExport: async (rangeS?: number): Promise<void> => {
-    const r = await fetch(API_BASE + `/api/ai/evalset/export${rangeS ? `?rangeS=${rangeS}` : ''}`, { credentials: 'include' });
-    if (r.status === 401) { onUnauthorized?.(); throw new UnauthorizedError(); }
-    if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
-    const blob = await r.blob();
-    let fname = 'coremetry-evalset.json';
-    const m = /filename="([^"]+)"/.exec(r.headers.get('content-disposition') ?? '');
-    if (m) fname = m[1];
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = fname;
-    document.body.appendChild(a); a.click();
-    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 0);
-  },
+  aiEvalsetExport: async (rangeS?: number): Promise<void> =>
+    downloadEvalset(`/api/ai/evalset/export${rangeS ? `?rangeS=${rangeS}` : ''}`),
+  // CoSRE öğrenme Faz 4 — en kötü cevaplardan regresyon vakası dosyası.
+  cosreQualityEvalset: async (days: 7 | 30 = 7): Promise<void> =>
+    downloadEvalset(`/api/ai/quality/evalset?days=${days}`),
   // v0.10.940 — Settings › CoSRE › Değerlendirme: evalset'i SUNUCUDA koşturan
   // panel (internal/api/ai_evalset_runs.go; hepsi admin, POST ayrıca
   // requireCopilot → AI kapalıyken 503). Okumalar signal alır: sekme/çekmece
@@ -4343,6 +4334,23 @@ export interface MetricsParams {
 
 // amp — v0.10.201: qs() çıktısını mevcut sorgu dizesine '&' ile ekler (boşsa hiçbir şey).
 function amp(q: string): string { return q ? '&' + q : ''; }
+
+// downloadEvalset — evalset JSON ek dosyasını indirir (iki dışa aktarım ucu
+// aynı sözleşme: Content-Disposition dosya adı, 401 → oturum akışı).
+async function downloadEvalset(path: string): Promise<void> {
+  const r = await fetch(API_BASE + path, { credentials: 'include' });
+  if (r.status === 401) { onUnauthorized?.(); throw new UnauthorizedError(); }
+  if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+  const blob = await r.blob();
+  let fname = 'coremetry-evalset.json';
+  const m = /filename="([^"]+)"/.exec(r.headers.get('content-disposition') ?? '');
+  if (m) fname = m[1];
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = fname;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 0);
+}
 
 function qs(params: Record<string, unknown> | object): string {
   const u = new URLSearchParams();

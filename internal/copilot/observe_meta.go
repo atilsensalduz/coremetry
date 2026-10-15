@@ -55,6 +55,8 @@ var promptVersionRegistry = map[string]string{
 	"DataNotInstruction":         DataNotInstruction,
 	"systemGuidedChat":           systemGuidedChat,
 	"systemDrawerChat":           systemDrawerChat,
+	"systemCaseCompare":          systemCaseCompare,
+	"systemGroundingJudge":       systemGroundingJudge,
 	"systemRAGChat":              systemRAGChat,
 	"ChatAnswerStyle":            ChatAnswerStyle,       // v0.10.1137 — ortak sohbet cevap biçimi
 	"systemWikiChat":             systemWikiChat,        // v0.10.1124

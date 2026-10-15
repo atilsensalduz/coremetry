@@ -18,6 +18,7 @@ type QualityStore interface {
 	InsertCosreAnswerQuality(ctx context.Context, rows []chstore.CosreAnswerQuality) error
 	InsertCosreToolQuality(ctx context.Context, rows []chstore.CosreToolQuality) error
 	CosreQualityDayDone(ctx context.Context, day time.Time) (bool, error)
+	GroundingStore // Faz 4 — çevrimdışı dayanak denetimi puanlamadan ÖNCE
 }
 
 const (
@@ -47,7 +48,22 @@ func DueDays(now time.Time) []time.Time {
 // RunQualityDay — bir günün cevap + tool puanlarını hesaplayıp yazar.
 // Yeniden koşmak güvenli (RMT dedup anahtarları).
 func RunQualityDay(ctx context.Context, st QualityStore, day time.Time) (answers, tools int, err error) {
+	return RunQualityDayWithJudge(ctx, st, nil, "", day)
+}
+
+// RunQualityDayWithJudge — önce örneklem hakeme (Faz 4; judge nil → atlanır),
+// sonra puan: dayanaksız cevaplar SigUngrounded alır.
+func RunQualityDayWithJudge(ctx context.Context, st QualityStore, judge Judge, model string, day time.Time) (answers, tools int, err error) {
 	from, to := day, day.Add(24*time.Hour)
+	if j, u, gerr := RunGrounding(ctx, st, judge, model, from, to); gerr != nil {
+		log.Printf("[cosre-grounding] %s: %v", day.Format("2006-01-02"), gerr)
+	} else if j > 0 {
+		log.Printf("[cosre-grounding] %s: %d cevap denetlendi, %d dayanaksız", day.Format("2006-01-02"), j, u)
+	}
+	ungrounded, uerr := st.UngroundedExchanges(ctx, from, to)
+	if uerr != nil {
+		ungrounded = nil // okunamadı → işaret yok (puan düşürmek için kanıt gerekir)
+	}
 	all, err := st.ListCosreInteractionsForScoring(ctx, from, to.Add(followUpSlack))
 	if err != nil {
 		return 0, 0, err
@@ -72,7 +88,7 @@ func RunQualityDay(ctx context.Context, st QualityStore, day time.Time) (answers
 	if err != nil {
 		return 0, 0, err
 	}
-	derived := DeriveSignals(Inputs{Interactions: all, Signals: sigs, Feedback: fb, Resolved: resolved})
+	derived := DeriveSignals(Inputs{Interactions: all, Signals: sigs, Feedback: fb, Resolved: resolved, Ungrounded: ungrounded})
 	var dayRows []chstore.CosreInteraction
 	for _, r := range all {
 		if !r.CreatedAt.Before(from) && r.CreatedAt.Before(to) {
@@ -92,7 +108,8 @@ func RunQualityDay(ctx context.Context, st QualityStore, day time.Time) (answers
 
 // StartQualityJob — worker'da saatte bir, Redis lider kilidiyle; hazır ve
 // işlenmemiş günleri (koşu işareti yok) puanlar.
-func StartQualityJob(ctx context.Context, st QualityStore, lock cache.Lock, interval time.Duration) {
+// judge nil → Faz 4 hakemi atlanır (model yapılandırılmamış).
+func StartQualityJob(ctx context.Context, st QualityStore, lock cache.Lock, interval time.Duration, judge Judge, model func() string) {
 	if interval <= 0 {
 		interval = time.Hour
 	}
@@ -111,8 +128,12 @@ func StartQualityJob(ctx context.Context, st QualityStore, lock cache.Lock, inte
 			if done {
 				continue
 			}
-			rctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-			a, t, err := RunQualityDay(rctx, st, d)
+			rctx, cancel := context.WithTimeout(ctx, 75*time.Minute) // hakem: ≤40 çağrı × ≤90 s
+			m := ""
+			if model != nil {
+				m = model()
+			}
+			a, t, err := RunQualityDayWithJudge(rctx, st, judge, m, d)
 			cancel()
 			if err != nil {
 				log.Printf("[cosre-quality] %s: %v", d.Format("2006-01-02"), err)

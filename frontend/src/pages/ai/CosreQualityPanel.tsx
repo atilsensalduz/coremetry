@@ -5,6 +5,7 @@
 // Sunucu LIMIT 20: kayıt listesi, useDataTable; initialSort yok (sunucu sırası).
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { Button } from '@/components/ui';
 import { tsLong, fmtNum } from '@/lib/utils';
 import type { CosreWorstAnswer, CosreWorstTool } from '@/lib/types';
 import { useDataTable, DataTableHead, DataTableColgroup, DataTableCell, DataTableState, type ColumnDef, type DataTableStateProps } from '@/components/ui/DataTable';
@@ -54,7 +55,14 @@ export function CosreQualityPanel() {
     <div className="card" style={{ marginTop: 16 }}>
       <div className="ov-card-h">
         <h3>En kötü cevaplar</h3>
-        <span className="ov-sub">son 7 gün — örtük sinyallerden gece puanı (👍/👎 yalnız ek ağırlık)</span>
+        <span className="ov-sub">son 7 gün — örtük sinyallerden gece puanı (👍/👎 yalnız ek ağırlık, "dayanaksız iddia" gece hakeminden)</span>
+        {answers && answers.length > 0 && (
+          <Button variant="secondary" size="sm" style={{ marginLeft: 'auto' }}
+            onClick={() => { api.cosreQualityEvalset(7).catch(() => { /* hata: indirme olmaz, sayfa bozulmaz */ }); }}
+            title="Bu cevapları coremetry.evalset/1 regresyon vakası olarak indir (soru, beklenen tool'lar, anahtar olgular — repoya almadan önce gözden geçir)">
+            ↓ Evalset (JSON)
+          </Button>
+        )}
       </div>
       <div className="ov-card-b">
         <div className="table-wrap">
