@@ -120,6 +120,9 @@ type OIDCClaims struct {
 	EmailVerified bool   `json:"email_verified"`
 	Subject       string `json:"-"`
 	Nonce         string `json:"-"`
+	// RawIDToken — v0.10.1192: IdP oturumunu kapatmak için logout'ta
+	// end_session_endpoint'e id_token_hint olarak gider (oidc_logout.go).
+	RawIDToken string `json:"-"`
 	// ClaimRole — v0.10.1110: roleFromClaim açıkken permissions claim'inden
 	// çözülen rol ("" = claim yok/boş/tanınmayan → rol değişmez);
 	// ClaimRoleSource "access_token" | "id_token" | "".
@@ -218,6 +221,7 @@ func (o *OIDCService) Exchange(ctx context.Context, code, codeVerifier, expected
 			return nil, err
 		}
 		cl.ClaimRole, cl.ClaimRoleSource = o.claimRole(ctx, c, tok.AccessToken, idTok)
+		cl.RawIDToken = rawID
 		return cl, nil
 	}
 	dec := decideOIDCEmail(raw.EmailVerified, raw.Email, c.cfg.AllowedDomains, c.trustUnverifiedEmail)
@@ -233,6 +237,7 @@ func (o *OIDCService) Exchange(ctx context.Context, code, codeVerifier, expected
 	// yalnız ÇÖZÜLÜR; depoya yazım callback'te (api auth_permissions.go
 	// oidcLoginUser — yalnız düşürür).
 	cl.ClaimRole, cl.ClaimRoleSource = o.claimRole(ctx, c, tok.AccessToken, idTok)
+	cl.RawIDToken = rawID
 	return cl, nil
 }
 

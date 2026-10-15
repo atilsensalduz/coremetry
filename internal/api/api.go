@@ -5879,14 +5879,6 @@ func (s *Server) serveUserPhoto(w http.ResponseWriter, r *http.Request, userID s
 	_, _ = w.Write(u.Photo)
 }
 
-func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{
-		Name: auth.CookieName, Value: "", Path: "/",
-		HttpOnly: true, MaxAge: -1,
-	})
-	writeJSON(w, map[string]string{"status": "ok"})
-}
-
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	c := auth.FromContext(r.Context())
 	if c == nil {
@@ -6396,6 +6388,7 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 		Expires:  exp,
 		MaxAge:   int(s.auth.TTL().Seconds()),
 	})
+	s.setOIDCLogoutHint(w, claims.RawIDToken, exp)           // v0.10.1192 — IdP çıkışı (auth_logout.go)
 	http.Redirect(w, r, oidcNextTarget(r), http.StatusFound) // v0.10.1123 — süzülmüş ?next= yoksa "/"
 }
 

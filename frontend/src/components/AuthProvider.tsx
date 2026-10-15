@@ -117,9 +117,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(res.user);
   }, []);
 
+  // v0.10.1192 (operatör-bildirimi) — SSO oturumunda IdP oturumu da kapanır:
+  // sunucunun döndürdüğü end_session adresine TAM sayfa gidilir (Keycloak
+  // oturumu sonlandırıp /login'e geri yollar). Yerel girişte eski davranış.
   const logout = useCallback(async () => {
-    try { await api.logout(); } catch { /* ignore */ }
+    let redirect: string | undefined;
+    try { redirect = (await api.logout())?.redirect; } catch { /* ignore */ }
     setUser(null);
+    if (redirect && /^https?:\/\//.test(redirect)) {
+      window.location.assign(redirect);
+      return;
+    }
     navigate('/login');
   }, [navigate]);
 

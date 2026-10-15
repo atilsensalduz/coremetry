@@ -3527,7 +3527,9 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
     }),
-  logout: () => request<void>('/api/auth/logout', { method: 'POST' }),
+  // v0.10.1192 — SSO girişinde sunucu IdP çıkış adresini `redirect` ile döner
+  // (Keycloak end_session_endpoint); yerel girişte yalnız status.
+  logout: () => request<{ status: string; redirect?: string }>('/api/auth/logout', { method: 'POST' }),
   me:     () => request<AuthUser>('/api/auth/me'),
   changeOwnPassword: (currentPassword: string, newPassword: string) =>
     request<void>('/api/auth/password', {
