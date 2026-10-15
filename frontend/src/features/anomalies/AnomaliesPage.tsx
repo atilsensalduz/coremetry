@@ -599,7 +599,7 @@ export default function ProblemsPage() {
               <>
                 <span title={spreadOff ? spreadOffFloorTitle(defFloor) : defaultFloorTitle(defFloor, floorMeta.spreadWindowMin)}>
                   {/* v0.10.949 — regressed istisnası her iki dilde (yayılımdan bağımsız, operatör kararı 2026-09-26). */}
-                  Showing <b style={{ color: 'var(--text2)' }}>{defFloor}+</b> groups{spreadOff ? ' and regressed groups' : <>, regressed groups and groups seen in ≥2 services at the same time{floorMeta.spreadWindowMin ? ` (±${floorMeta.spreadWindowMin} min)` : ''}</>}
+                  Showing <b style={{ color: 'var(--text2)' }}>{defFloor}+</b> groups{spreadOff ? ' and regressed groups' : <>, regressed groups and groups (2+ occurrences) seen in ≥2 services at the same time{floorMeta.spreadWindowMin ? ` (±${floorMeta.spreadWindowMin} min)` : ''}</>}
                   {floorMeta.floorDefault === true && (floorMeta.hiddenByMinOcc ?? 0) > 0 && <> · <b style={{ color: 'var(--text2)' }}>{floorMeta.hiddenByMinOcc}</b> {spreadOff ? 'hidden' : <>groups below {defFloor}, single service, hidden</>}</>}
                 </span>
                 <Button variant="ghost" size="sm" onClick={() => setMinOcc(0)}>show all</Button>

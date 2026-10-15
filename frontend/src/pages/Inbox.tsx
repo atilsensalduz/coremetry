@@ -1072,7 +1072,7 @@ export default function InboxPage() {
               // v0.10.949 — regressed istisnası her iki dilde de (yayılımdan bağımsız).
               <>
                 <span title={spreadOff ? spreadOffFloorTitle(effFloor) : defaultFloorTitle(effFloor, spreadWin)}>
-                  Showing <b style={{ color: 'var(--text2)' }}>{effFloor}+</b> groups{spreadOff ? ' and regressed groups' : <>, regressed groups and groups seen in ≥2 services at the same time{spreadWin ? ` (±${spreadWin} min)` : ''}</>}
+                  Showing <b style={{ color: 'var(--text2)' }}>{effFloor}+</b> groups{spreadOff ? ' and regressed groups' : <>, regressed groups and groups (2+ occurrences) seen in ≥2 services at the same time{spreadWin ? ` (±${spreadWin} min)` : ''}</>}
                   {floorLive && hiddenByMinOcc > 0 && <> · <b style={{ color: 'var(--text2)' }}>{hiddenByMinOcc}</b> {spreadOff ? 'hidden' : <>groups below {effFloor}, single service, hidden</>}</>}
                   {!spreadOff && keptBySpread > 0 && <> · <b style={{ color: 'var(--text2)' }}>{keptBySpread}</b> multi-service groups shown although below {effFloor}</>}
                   {keptRegressed > 0 && <> · <b style={{ color: 'var(--text2)' }}>{keptRegressed}</b> regressed groups shown although below {effFloor}</>}

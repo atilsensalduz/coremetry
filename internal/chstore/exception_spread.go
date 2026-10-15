@@ -313,6 +313,9 @@ func (sp *ExceptionSpread) Of(fp string) (SpreadInfo, bool) {
 	return info, true
 }
 
+// SpreadExemptMinOcc — yayılım istisnasının alt sınırı (tek oluşum hiç muaf değil).
+const SpreadExemptMinOcc = 2
+
 // ExemptBelow — tabanın ALTINDA kalan ama yayılımı ≥2 olan parmak izleri,
 // last_seen DESC (eşitlikte parmak izi ASC), en çok SpreadExemptCap. Kırpma
 // anlık görüntü başına bir kez loglanır. floor 0 → nil (taban yok, istisna
@@ -327,7 +330,11 @@ func (sp *ExceptionSpread) ExemptBelow(floor uint64) []string {
 	}
 	var c []cand
 	for fp, info := range sp.by {
-		if info.Services >= 2 && info.Occurrences < floor {
+		// v0.10.1202 (operatör: "1 tane exception varsa listelenmesin
+		// demiştik") — yayılım istisnası tek oluşumlu grubu kurtarmaz:
+		// v0.10.740'ın "singleton düşer" kararı 949'un çok-servis
+		// istisnasının altında da geçerli.
+		if info.Services >= 2 && info.Occurrences >= SpreadExemptMinOcc && info.Occurrences < floor {
 			c = append(c, cand{fp, info.LastSeen})
 		}
 	}

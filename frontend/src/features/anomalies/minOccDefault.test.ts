@@ -31,7 +31,7 @@ describe('varsayılan occurrence tabanı (v0.10.740 → v0.10.949)', () => {
     it(`${name}: varsayılan kip param yokluğu; istisna şeridi ve satır işareti var; "5+ only" yok`, () => {
       expect(src).toContain("const floorDefault = searchParams.get('minOcc') === null;");
       expect(src).toContain('minOcc > 0 && floorDefault ? (');
-      expect(src).toContain('groups seen in ≥2 services at the same time');
+      expect(src).toContain('groups (2+ occurrences) seen in ≥2 services at the same time');
       expect(src).toContain('single service, hidden');
       expect(src).toContain('spreadTitle(spread.n, spread.partners,');
       expect(src).not.toContain('5+ only');
@@ -46,7 +46,7 @@ describe('varsayılan occurrence tabanı (v0.10.740 → v0.10.949)', () => {
   // yayılım açık da kapalı da söyler, Inbox tutulan regressed sayısını yazar.
   it('regressed istisnası şeritte: iki sayfa da söyler; Inbox keptRegressed yalnız varsayılan-kip yanıtından', () => {
     for (const src of [anom, inbox]) {
-      expect(src).toContain("{spreadOff ? ' and regressed groups' : <>, regressed groups and groups seen in ≥2 services");
+      expect(src).toContain("{spreadOff ? ' and regressed groups' : <>, regressed groups and groups (2+ occurrences) seen in ≥2 services");
     }
     expect(inbox).toContain('const keptRegressed = floorLive ? (inboxQ.data?.keptRegressed ?? 0) : 0;');
     expect(inbox).toContain('regressed groups shown although below {effFloor}');

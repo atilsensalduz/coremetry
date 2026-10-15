@@ -219,14 +219,14 @@ func TestComputeExceptionSpread(t *testing.T) {
 
 func TestExceptionSpreadExemptBelow(t *testing.T) {
 	sp := NewExceptionSpread(map[string]SpreadInfo{
-		"old":   {Services: 2, Occurrences: 1, LastSeen: 10},
+		"old":   {Services: 2, Occurrences: 1, LastSeen: 10}, // v0.10.1202: tek oluşum çok serviste de muaf DEĞİL
 		"new":   {Services: 3, Occurrences: 4, LastSeen: 30},
 		"mid":   {Services: 2, Occurrences: 2, LastSeen: 20},
 		"above": {Services: 2, Occurrences: 5, LastSeen: 40}, // tabanda: istisnaya gerek yok
 		"solo":  {Services: 1, Occurrences: 1, LastSeen: 50}, // tek servis: istisna yok
 	}, false)
-	if got := sp.ExemptBelow(5); !reflect.DeepEqual(got, []string{"new", "mid", "old"}) {
-		t.Fatalf("ExemptBelow(5)=%v, want tabanın altındakiler last_seen DESC", got)
+	if got := sp.ExemptBelow(5); !reflect.DeepEqual(got, []string{"new", "mid"}) {
+		t.Fatalf("ExemptBelow(5)=%v, want tabanın altındaki ≥2 oluşumlular last_seen DESC", got)
 	}
 	if got := sp.ExemptBelow(0); got != nil {
 		t.Fatalf("taban 0 → nil, got %v", got)
@@ -241,7 +241,7 @@ func TestExceptionSpreadExemptBelow(t *testing.T) {
 
 	big := map[string]SpreadInfo{}
 	for i := 0; i < SpreadExemptCap+10; i++ {
-		big[fmt.Sprintf("fp%05d", i)] = SpreadInfo{Services: 2, Occurrences: 1, LastSeen: int64(i)}
+		big[fmt.Sprintf("fp%05d", i)] = SpreadInfo{Services: 2, Occurrences: 2, LastSeen: int64(i)}
 	}
 	got := NewExceptionSpread(big, false).ExemptBelow(5)
 	if len(got) != SpreadExemptCap || got[0] != fmt.Sprintf("fp%05d", SpreadExemptCap+9) {
