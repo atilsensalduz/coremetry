@@ -28,3 +28,10 @@ export function cycleTheme(): Theme {
   return next;
 }
 
+
+/** v0.10.1182 — seçilen temayı doğrudan uygular (kullanıcı menüsünün yan menüsü). */
+export const THEMES: readonly Theme[] = ['dark', 'light', 'redhat'];
+export function applyTheme(t: Theme): void {
+  document.documentElement.setAttribute('data-theme', t);
+  setRaw(STORAGE_KEY, t);
+}

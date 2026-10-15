@@ -15,7 +15,7 @@ import {
 import { navHref } from '@/lib/navHref';
 import { useAuth } from './AuthProvider';
 import { ChangePasswordModal } from './ChangePasswordModal';
-import { cycleTheme, currentTheme, THEME_LABEL } from '@/lib/theme';
+import { applyTheme, currentTheme, THEMES, THEME_LABEL } from '@/lib/theme';
 import { Wordmark } from './Wordmark';
 import { MenuItem, IconButton, DisclosureButton } from '@/components/ui';
 
@@ -218,6 +218,7 @@ export function Sidebar() {
   // canonical place for queue depths anyway.
   const health = healthQ.isError ? 'Backend offline' : '';
   const [menuOpen, setMenuOpen] = useState(false);
+  const [themeOpen, setThemeOpen] = useState(false); // v0.10.1182 — tema yan menüsü
   const [showChangePw, setShowChangePw] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -517,9 +518,31 @@ export function Sidebar() {
                 )}
                 {/* v0.10.1177 (operatör): viewer'a şifre değiştirme gösterilmez —
                     menüde yalnız tema + çıkış. Tema satırı her rolde. */}
-                <MenuItem icon="◐" onClick={() => { cycleTheme(); setMenuOpen(false); }}>
-                  Tema: {THEME_LABEL[currentTheme()]}
-                </MenuItem>
+                {/* v0.10.1182 (operatör: "sürekli basmak gerekiyor, başa dönüyor") —
+                    döngü yerine yana açılan seçim: üzerine gelince / tıklayınca
+                    üç tema, geçerli olan işaretli, tek tıkla uygulanır. */}
+                <div style={{ position: 'relative' }}
+                  onMouseEnter={() => setThemeOpen(true)} onMouseLeave={() => setThemeOpen(false)}>
+                  <MenuItem icon="◐" aria-haspopup="menu" aria-expanded={themeOpen}
+                    onClick={() => setThemeOpen(o => !o)}>
+                    Tema: {THEME_LABEL[currentTheme()]} <span aria-hidden style={{ marginLeft: 'auto', color: 'var(--text3)' }}>▸</span>
+                  </MenuItem>
+                  {themeOpen && (
+                    <div role="menu" aria-label="Tema seç" style={{
+                      position: 'absolute', left: '100%', bottom: 0, marginLeft: 4, minWidth: 140,
+                      background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 6,
+                      boxShadow: '0 8px 24px rgba(0,0,0,0.3)', padding: 4, zIndex: 'var(--z-dropdown)',
+                    }}>
+                      {THEMES.map(th => (
+                        <MenuItem key={th} role="menuitemradio" aria-checked={currentTheme() === th}
+                          icon={currentTheme() === th ? '✓' : ''}
+                          onClick={() => { applyTheme(th); setThemeOpen(false); setMenuOpen(false); }}>
+                          {THEME_LABEL[th]}
+                        </MenuItem>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 {user.role !== 'viewer' && (
                   <MenuItem icon="⚿" onClick={() => { setMenuOpen(false); setShowChangePw(true); }}>
                     {t('user.changePassword')}
