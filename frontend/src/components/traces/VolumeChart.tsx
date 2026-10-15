@@ -5,8 +5,8 @@
 // TimeChart. ok-span bars (accent) with the error share overlaid red at the
 // bottom + a response-time line (p95 default, selectable). Drag to brush a time range.
 //
-// v0.9.843 → v0.10.268 → v0.10.656 (operatör): SÜRE çizgisi SOL eksende,
-// SPAN/TRACE SAYISI (bar'lar) SAĞ eksende. Eşleme + biçimlendirici
+// v0.9.843 → v0.10.268 → v0.10.656 → v0.10.1180 (operatör): SPAN/TRACE
+// SAYISI (bar'lar) SOL eksende, SÜRE çizgisi SAĞ eksende. Eşleme + biçimlendirici
 // sözleşmesi volumeSeries.ts'te, tablo-testli.
 
 import { useMemo } from 'react';
@@ -95,15 +95,17 @@ export function VolumeChart({
           // birimler ipucu + lejant için: sol süre (ms → fmtSmart "1.3s"),
           // sağ sayım (tam sayı). Eksen biçimleyicisi (fmtLeft) aynen; boş
           // birim ipucuyu k-sonekli sayıya düşürüyordu.
-          leftUnit="ms"
-          rightUnit="count"
+          leftUnit="count"
+          rightUnit="ms"
           onBrush={onBrush}
           onZoomReset={onZoomReset}
           // v0.10.656 (operatör) — SÜRE sol eksende (fmtLeft = ms/s
           // biçimlendirici), SAYIM sağ eksende (fmtRight verilmez → TimeChart'ın
           // kısaltması "30.9k"). Biçimlendirici eksenle birlikte taşındı
           // (sayıya "ms" yazma tuzağı, v0.10.268 dersi).
-          fmtLeft={fmtVolumeDuration}
+          // v0.10.1180 (operatör: "solda adet, sağda süre") — eksenler yer
+          // değiştirdi; süre biçimleyicisi sağ eksene taşındı (sayım varsayılan kısaltma).
+          fmtRight={fmtVolumeDuration}
           xRange={xRange}
           // v0.10.321 (operatör, prod ekran görüntüsü: "Series paneli kapalı
           // olsun. Shrink mode gelsin.") — lejant VARSAYILAN KAPALI: şerit

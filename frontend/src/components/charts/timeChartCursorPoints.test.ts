@@ -40,10 +40,10 @@ describe('y ekseni oluğu ölçülür, sabit değil (v0.10.1102)', () => {
   });
 });
 
-describe('VolumeChart eksen biçimlendiricisi süreyle birlikte taşındı (v0.10.656)', () => {
+describe('VolumeChart eksen biçimlendiricisi süreyle birlikte taşındı (v0.10.656 → v0.10.1180)', () => {
   const src = readFileSync(new URL('../traces/VolumeChart.tsx', import.meta.url), 'utf8');
-  it('fmtLeft = süre biçimlendiricisi; fmtRight verilmez (sayı kısaltması)', () => {
-    expect(src).toContain('fmtLeft={fmtVolumeDuration}');
-    expect(src).not.toContain('fmtRight={fmtVolumeDuration}');
+  it('fmtRight = süre biçimlendiricisi (süre sağ eksende); fmtLeft verilmez (sayı kısaltması)', () => {
+    expect(src).toContain('fmtRight={fmtVolumeDuration}');
+    expect(src).not.toContain('fmtLeft={fmtVolumeDuration}');
   });
 });

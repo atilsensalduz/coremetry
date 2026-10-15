@@ -8,11 +8,12 @@ import { fmtSmart } from '@/lib/chartFmt';
 import { sortedTooltipRows } from '@/lib/chart/tooltipModel';
 
 describe('VolumeChart birimleri', () => {
-  it('kaynak: sol eksen ms, sağ eksen count; eksen biçimleyicisi duruyor', () => {
+  it('kaynak: sol eksen count, sağ eksen ms; süre biçimleyicisi sağda (v0.10.1180)', () => {
     const src = readFileSync(resolve(__dirname, 'VolumeChart.tsx'), 'utf8');
-    expect(src).toContain('leftUnit="ms"');
-    expect(src).toContain('rightUnit="count"');
-    expect(src).toContain('fmtLeft={fmtVolumeDuration}');
+    // v0.10.1180 — sayım sol, süre sağ.
+    expect(src).toContain('leftUnit="count"');
+    expect(src).toContain('rightUnit="ms"');
+    expect(src).toContain('fmtRight={fmtVolumeDuration}');
   });
   it('ipucu satırı: 1300 ms → 1.3s, 830 ms → 830ms; sayım 39 → 39, 1234 → 1.23k', () => {
     const rows = sortedTooltipRows([

@@ -27,9 +27,9 @@ describe('buildVolumeSeries — eksen eşlemesi (v0.10.656: süre SOL, sayı SA�
 
   // TABLO: seri → beklenen eksen. Takasın TEK kaynağı bu.
   it.each([
-    ['total', 'right', 'bar'],  // span sayısı → SAĞ
-    ['error', 'right', 'bar'],  // span sayısı → SAĞ
-    ['rt', 'left', 'line'],     // SÜRE → SOL
+    ['total', 'left', 'bar'],   // span sayısı → SOL (v0.10.1180)
+    ['error', 'left', 'bar'],   // span sayısı → SOL
+    ['rt', 'right', 'line'],    // SÜRE → SAĞ
   ] as const)('%s serisi %s eksende ve %s tipinde', (key, axis, type) => {
     const s = byKey(cfg, key);
     expect(s.axis).toBe(axis);

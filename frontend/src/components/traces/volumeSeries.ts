@@ -82,11 +82,11 @@ export function buildVolumeSeries(
   // (Traces.tsx şerit filtresi) — istek ≈ trace.
   const series: TimeChartSeries[] = [
     // v0.9.843 — bar'lar SAĞ eksende (span sayısı).
-    { key: 'total', label: unit, data: total, color: 'var(--accent)', type: 'bar', axis: 'right' },
-    { key: 'error', label: 'error ' + unit, data: err, color: statusColor('error'), type: 'bar', axis: 'right' },
+    { key: 'total', label: unit, data: total, color: 'var(--accent)', type: 'bar', axis: 'left' },
+    { key: 'error', label: 'error ' + unit, data: err, color: statusColor('error'), type: 'bar', axis: 'left' },
     // v0.9.73 — kalın çizgi + nokta: seyrek p50 örnekleri artık okunur.
-    // v0.9.843 — süre SOL eksende (Grafana düzeni).
-    { key: 'rt', label: `response time (${stripStatLabel(stat)})` /* v0.10.663 (operatör): "5-kova ort." ibaresi kalktı; yumuşatma penceresi ipucuda değil, davranışta */, data: p50s, color: 'var(--orange)', type: 'line', axis: 'left', width: 2, pointsShow: t.length < 20 },
+    // v0.9.843 — süre SOL eksende (Grafana düzeni). v0.10.1180 (operatör): SAYIM sol, SÜRE SAĞ.
+    { key: 'rt', label: `response time (${stripStatLabel(stat)})` /* v0.10.663 (operatör): "5-kova ort." ibaresi kalktı; yumuşatma penceresi ipucuda değil, davranışta */, data: p50s, color: 'var(--orange)', type: 'line', axis: 'right', width: 2, pointsShow: t.length < 20 },
   ];
   return { times: t, series, bucketMin: Math.max(1, dt) };
 }
