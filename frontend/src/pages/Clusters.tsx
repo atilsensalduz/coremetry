@@ -362,8 +362,10 @@ export default function ClustersPage() {
   // v0.9.35 (B2/F4) — CPU/Mem area chart'ları, per-kart Total/By-node
   // toggle (local UI state; fetch toggle'a göre). Pencere sayfa
   // range'i (server 6h clamp).
-  const [cpuByNode, setCpuByNode] = useState(false);
-  const [memByNode, setMemByNode] = useState(false);
+  // Operatör isteği (2026-10-15): varsayılan "By node" — toplam çizgisi hangi
+  // node'un dolduğunu söylemiyordu; Total tek tıkla duruyor.
+  const [cpuByNode, setCpuByNode] = useState(true);
+  const [memByNode, setMemByNode] = useState(true);
   const cpuTrendQ = useQuery({
     queryKey: ['cluster-res-trend', clusterParam, 'cpu', cpuByNode, rangeFrom, rangeTo],
     queryFn: () => api.clusterResourceTrend(clusterParam, 'cpu', cpuByNode, rangeFrom, rangeTo),
