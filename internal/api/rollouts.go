@@ -324,6 +324,7 @@ func (s *Server) putRolloutSettings(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusServiceUnavailable, "ayar deposu bağlı değil")
 		return
 	}
+	in = rollout.NormalizePutSource(in) // v0.10.1211 — admin PUT'u bilinçli seçimdir
 	if err := s.rolloutCfg.SavePersisted(r.Context(), st, in); err != nil {
 		writeErr(w, err)
 		return

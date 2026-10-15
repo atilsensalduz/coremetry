@@ -169,7 +169,15 @@ func TestResolvedV2Defaults(t *testing.T) {
 	want := V2Resolved{Source: SourceV1, DetectorInterval: 30 * time.Second, StuckAfter: 10 * time.Minute, IgnoreScale: true,
 		Kinds: []string{"Deployment", "StatefulSet", "DaemonSet"}, InitialEvents: true,
 		ObservedGenWaitTicks: 10, IncarnationAbsentTicks: 3, KnownRevisionsMax: 32}
-	for name, in := range map[string]Settings{"boş blob": {}, "DefaultSettings": DefaultSettings()} {
+	// v0.10.1211 — yeni kurulum varsayılanı v2; ham boş blob çözümü v1 kalır
+	// (yüklenen blob önce migrateSource'tan geçer, TestSourceMigrationV2Default).
+	wantDefault := want
+	wantDefault.Source = SourceV2
+	for name, c := range map[string]struct {
+		in   Settings
+		want V2Resolved
+	}{"boş blob": {Settings{}, want}, "DefaultSettings": {DefaultSettings(), wantDefault}} {
+		in, want := c.in, c.want
 		if got := in.ResolvedV2(); !v2Equal(got, want) {
 			t.Fatalf("%s:\n got %+v\nwant %+v", name, got, want)
 		}
@@ -185,7 +193,7 @@ func v2Equal(a, b V2Resolved) bool { return reflect.DeepEqual(a, b) }
 
 func TestResolvedV2Clamps(t *testing.T) {
 	f, tr := false, true
-	d := DefaultSettings().ResolvedV2()
+	d := Settings{}.ResolvedV2() // ham çözüm tabanı (v0.10.1211: DefaultSettings artık v2)
 	mod := func(fn func(*V2Resolved)) V2Resolved {
 		r := d
 		r.Kinds = append([]string(nil), d.Kinds...)
@@ -305,5 +313,24 @@ func TestV2FieldsRoundTripAndOldBlob(t *testing.T) {
 	}
 	if got := o.ResolvedV2(); !v2Equal(got, DefaultSettings().ResolvedV2()) || !o.Resolved().Enabled {
 		t.Fatalf("eski blob v2 varsayılanlarıyla yüklenmeli: %+v", got)
+	}
+}
+
+// v0.10.1211 (operatör: "direkt v2 uygula, olmazsa geri alırız") — eski blob
+// (eski "Etkinleştir" düğmesi varsayılanla "v1" yazıyordu) v2'ye geçer;
+// sonraki bilinçli v1 seçimi (geri alma) korunur.
+func TestSourceMigrationV2Default(t *testing.T) {
+	if got := migrateSource(Settings{Enabled: true, Source: SourceV1}); got.ResolvedV2().Source != SourceV2 || got.SourceRev != CurrentSourceRev {
+		t.Errorf("eski blob v2'ye geçmeli: %+v", got)
+	}
+	back := NormalizePutSource(Settings{Enabled: true, Source: SourceV1})
+	if got := migrateSource(back); got.ResolvedV2().Source != SourceV1 {
+		t.Errorf("bilinçli v1 (geri alma) korunmalı: %+v", got)
+	}
+	if got := NormalizePutSource(Settings{}); got.Source != SourceV2 || got.SourceRev != CurrentSourceRev {
+		t.Errorf("kaynaksız PUT varsayılan v2: %+v", got)
+	}
+	if DefaultSettings().ResolvedV2().Source != SourceV2 {
+		t.Error("yeni kurulum varsayılanı v2")
 	}
 }

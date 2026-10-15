@@ -47,6 +47,12 @@ type Settings struct {
 	// varsayılan) | "v2" (rollout_events; v0.10.984 P2.3 bağladı — enabled
 	// ile birlikte: api/rollouts_v2_read.go).
 	Source string `json:"source,omitempty"`
+	// SourceRev — v0.10.1211 (operatör: "düğme yapma, direkt v2 uygula, olmazsa
+	// geri alırız"): kaynak kararının sürümü. 0 = v0.10.1211 öncesi blob — eski
+	// "Etkinleştir" düğmesi varsayılanlarla "v1" yazıyordu, bu bir SEÇİM değil;
+	// yüklemede v2'ye geçirilir (migrateSource). ≥1 = bilinçli seçim, aynen.
+	// Geri alma: PUT {"source":"v1","sourceRev":1}.
+	SourceRev int `json:"sourceRev,omitempty"`
 	// DetectorIntervalS — KSM dedektör tiki, saniye (karar 8: 30; 10–300).
 	DetectorIntervalS int `json:"detectorIntervalS,omitempty"`
 	// StuckAfter — progressing → stuck zamanlayıcısı (§4.5; "10m", 2m–6h).
@@ -177,7 +183,7 @@ func DefaultSettings() Settings {
 	t := true
 	return Settings{Enabled: false, Interval: "60s", Bucket: "5m", Threshold: 10, Hysteresis: 2, ExitHysteresis: 6, OverlapMax: "30m", Lookback: "6h", StalledMin: "10m",
 		// v0.10.957 — v2 varsayılanları (GET `defaults`; ResolvedV2 buradan okur).
-		Source: SourceV1, DetectorIntervalS: 30, StuckAfter: "10m", IgnoreScale: &t, Kinds: append([]string(nil), v2Kinds...),
+		Source: SourceV2, SourceRev: CurrentSourceRev, DetectorIntervalS: 30, StuckAfter: "10m", IgnoreScale: &t, Kinds: append([]string(nil), v2Kinds...),
 		InitialEvents: &t, ObservedGenWaitTicks: 10, IncarnationAbsentTicks: 3, KnownRevisionsMax: 32}
 }
 
@@ -338,6 +344,28 @@ func (s *SettingsService) Configure(cfg Settings) {
 	s.mu.Unlock()
 }
 
+// CurrentSourceRev — kaynak kararının güncel sürümü (v0.10.1211: v2 varsayılan).
+const CurrentSourceRev = 1
+
+// migrateSource — SAF: SourceRev < 1 olan (eski) blob v2'ye geçer; bilinçli
+// seçim (SourceRev ≥ 1) dokunulmaz.
+func migrateSource(cfg Settings) Settings {
+	if cfg.SourceRev < CurrentSourceRev {
+		cfg.Source, cfg.SourceRev = SourceV2, CurrentSourceRev
+	}
+	return cfg
+}
+
+// NormalizePutSource — SAF: admin PUT'u kaynak kararını BİLİNÇLİ yapar
+// (SourceRev = güncel); kaynak boş gönderildiyse varsayılan v2.
+func NormalizePutSource(in Settings) Settings {
+	if strings.TrimSpace(in.Source) == "" {
+		in.Source = SourceV2
+	}
+	in.SourceRev = CurrentSourceRev
+	return in
+}
+
 // applyLoaded — SAF: kalıcı blob canlı ayardan YENİ ya da eşitse alınır
 // (eski pod'un bayat blobu daha yeni admin PUT'unu ezmesin).
 func applyLoaded(cur, loaded Settings) Settings {
@@ -362,6 +390,7 @@ func (s *SettingsService) LoadPersisted(ctx context.Context, store settingsStore
 	if err := json.Unmarshal(raw, &cfg); err != nil {
 		return fmt.Errorf("rollout settings decode: %w", err)
 	}
+	cfg = migrateSource(cfg)
 	s.mu.Lock()
 	s.cfg = applyLoaded(s.cfg, cfg)
 	s.mu.Unlock()

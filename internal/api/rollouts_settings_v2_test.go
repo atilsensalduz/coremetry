@@ -69,7 +69,8 @@ func TestRolloutSettingsV2GetResolved(t *testing.T) {
 			t.Errorf("v1 resolved anahtarı kayboldu: %s", k)
 		}
 	}
-	want := map[string]any{"source": "v1", "detectorIntervalSec": float64(30), "stuckAfterSec": float64(600), "ignoreScale": true,
+	// v0.10.1211 — varsayılan kaynak v2 (operatör kararı).
+	want := map[string]any{"source": "v2", "detectorIntervalSec": float64(30), "stuckAfterSec": float64(600), "ignoreScale": true,
 		"initialEvents": true, "observedGenWaitTicks": float64(10), "incarnationAbsentTicks": float64(3), "knownRevisionsMax": float64(32)}
 	for k, v := range want {
 		if res[k] != v {
@@ -79,7 +80,7 @@ func TestRolloutSettingsV2GetResolved(t *testing.T) {
 	if kinds, _ := json.Marshal(res["kinds"]); string(kinds) != `["Deployment","StatefulSet","DaemonSet"]` {
 		t.Errorf("resolved.kinds = %s", kinds)
 	}
-	if m["defaults"]["source"] != "v1" || m["defaults"]["detectorIntervalS"] != float64(30) || m["defaults"]["stuckAfter"] != "10m" {
+	if m["defaults"]["source"] != "v2" || m["defaults"]["detectorIntervalS"] != float64(30) || m["defaults"]["stuckAfter"] != "10m" {
 		t.Errorf("defaults v2 varsayılanlarını taşımalı: %v", m["defaults"])
 	}
 }
