@@ -7,7 +7,7 @@ package chstore
 import "testing"
 
 func TestFoldEndpointEdges(t *testing.T) {
-	entry := map[string]struct{}{"E": {}}
+	entry := map[string]float64{"E": 800}
 	spans := []walkSpan{
 		{sid: "R", svc: "gateway", durMs: 900},                                    // kök (çağıran)
 		{sid: "E", pid: "R", svc: "cm-get-service", durMs: 800},                   // route
@@ -18,7 +18,7 @@ func TestFoldEndpointEdges(t *testing.T) {
 		{sid: "ORA", pid: "A", svc: "account", kind: "client", dbSys: "oracle", durMs: 40},
 		{sid: "X", pid: "R", svc: "gateway", kind: "client", dbSys: "db2", durMs: 30}, // route DIŞI kardeş dal
 	}
-	down, callers, backends, childMs := foldEndpointEdges("cm-get-service", spans, entry)
+	down, callers, backends, childMs, selfDurs := foldEndpointEdges("cm-get-service", spans, entry)
 	if down["cm-get-service"] != nil {
 		t.Error("iç span servis adıyla kenar olmamalı")
 	}
@@ -34,6 +34,10 @@ func TestFoldEndpointEdges(t *testing.T) {
 	if backends["oracle"] == nil || backends["redis"] != nil || backends["db2"] != nil {
 		t.Errorf("backends yalnız aşağı akış içi (oracle): %+v", backends)
 	}
+	// self = 800 − (600 S3 + 2 redis + 50 account) = 148 (trace başına)
+	if len(selfDurs) != 1 || selfDurs[0] != 148 {
+		t.Errorf("self trace başına: %v", selfDurs)
+	}
 	if callers["gateway"] == nil {
 		t.Error("kök çağıran")
 	}
@@ -48,5 +52,18 @@ func TestEdgeNameFallbacks(t *testing.T) {
 	}
 	if n, k := edgeName(walkSpan{svc: "a", msgSys: "kafka", kind: "producer"}, "a"); n != "kafka" || k != "messaging" {
 		t.Errorf("%s %s", n, k)
+	}
+}
+
+func TestSelfClampsParallel(t *testing.T) {
+	entry := map[string]float64{"E1": 100, "E2": 100}
+	spans := []walkSpan{
+		{sid: "E1", svc: "a", durMs: 100}, {sid: "E2", svc: "a", durMs: 100},
+		{sid: "c1", pid: "E1", svc: "b", durMs: 90}, {sid: "c2", pid: "E1", svc: "b", durMs: 90}, // paralel: 180 > 100
+		{sid: "c3", pid: "E2", svc: "b", durMs: 30},
+	}
+	_, _, _, _, self := foldEndpointEdges("a", spans, entry)
+	if len(self) != 2 || self[0] != 0 || self[1] != 70 {
+		t.Fatalf("%v", self)
 	}
 }

@@ -126,7 +126,7 @@ func (s *Store) EndpointWhereTheTimeGoes(
 // latency chart.
 func (s *Store) sampleEndpointTraces(
 	ctx context.Context, q EndpointDetailQuery,
-) (traceIDs []string, totalMs float64, entrySpanIDs map[string]struct{}, err error) {
+) (traceIDs []string, totalMs float64, entrySpanIDs map[string]float64, err error) {
 	wc := s.endpointDetailWhere(q)
 	rows, qerr := s.conn.Query(ctx, `
 		SELECT trace_id, span_id, duration / 1e6 AS dur_ms
@@ -140,7 +140,7 @@ func (s *Store) sampleEndpointTraces(
 		return nil, 0, nil, fmt.Errorf("endpoint downstream sample: %w", qerr)
 	}
 	defer rows.Close()
-	entrySpanIDs = map[string]struct{}{}
+	entrySpanIDs = map[string]float64{} // span_id → süre (ms); self trace başına bundan
 	seen := map[string]struct{}{}
 	for rows.Next() {
 		var tid, sid string
@@ -148,7 +148,7 @@ func (s *Store) sampleEndpointTraces(
 		if serr := rows.Scan(&tid, &sid, &dur); serr != nil {
 			return nil, 0, nil, serr
 		}
-		entrySpanIDs[sid] = struct{}{}
+		entrySpanIDs[sid] = dur
 		totalMs += dur
 		if _, dup := seen[tid]; dup {
 			// One trace can hit the same route twice (a retry, a loop).
@@ -174,7 +174,7 @@ func (s *Store) sampleEndpointTraces(
 // so a trace that started just before the window still resolves whole.
 func (s *Store) walkEndpointEdges(
 	ctx context.Context, q EndpointDetailQuery,
-	traceIDs []string, entrySpanIDs map[string]struct{},
+	traceIDs []string, entrySpanIDs map[string]float64,
 	out *EndpointDownstream,
 ) (*EndpointDownstream, error) {
 	holders := make([]string, len(traceIDs))
@@ -218,13 +218,20 @@ func (s *Store) walkEndpointEdges(
 	if rerr := rows.Err(); rerr != nil {
 		return nil, fmt.Errorf("endpoint downstream walk: %w", rerr)
 	}
-	down, callers, backends, childMs := foldEndpointEdges(q.Service, spans, entrySpanIDs)
+	down, callers, backends, _, selfDurs := foldEndpointEdges(q.Service, spans, entrySpanIDs)
 
 	// self = the route's own time minus what its edges accounted
-	// for. Parallel children overlap, so the subtraction can go
-	// negative; clamp at zero and let the UI explain why it can.
-	if self := out.TotalMs - childMs; self > 0 {
-		down["self"] = &edgeAcc{kind: "self", calls: uint64(len(traceIDs)), sumMs: self}
+	// for, PER route span. Parallel children overlap, so the subtraction
+	// can go negative; clamp at zero.
+	// v0.10.1198 (operatör-bildirimi: "self neden 0ms") — self artık route
+	// span'i BAŞINA (süre − altındaki kenarlar, ≥0): tail p99 bu diziden.
+	// Eskiden tek bir toplamdı ve dizi boştu → p99 her zaman 0 ms.
+	var selfSum float64
+	for _, d := range selfDurs {
+		selfSum += d
+	}
+	if selfSum > 0 {
+		down["self"] = &edgeAcc{kind: "self", calls: uint64(len(selfDurs)), sumMs: selfSum, durs: selfDurs}
 	}
 
 	out.Downstream = finishEdges(down)
@@ -280,7 +287,7 @@ func edgeName(w walkSpan, routeService string) (string, string) {
 // broker zamanı: eskiden trace'in TÜM span'leri taranıyordu (route'un
 // altında olmayan kardeş dallar → uygulamada olmayan db2/couchbase/mssql)
 // ve doğrudan DB çağrısı iki listede birden çıkıyordu (redis çift).
-func foldEndpointEdges(routeService string, spans []walkSpan, entry map[string]struct{}) (down, callers, backends map[string]*edgeAcc, childMs float64) {
+func foldEndpointEdges(routeService string, spans []walkSpan, entry map[string]float64) (down, callers, backends map[string]*edgeAcc, childMs float64, selfDurs []float64) {
 	down, callers, backends = map[string]*edgeAcc{}, map[string]*edgeAcc{}, map[string]*edgeAcc{}
 	byID := make(map[string]*walkSpan, len(spans))
 	for i := range spans {
@@ -289,6 +296,7 @@ func foldEndpointEdges(routeService string, spans []walkSpan, entry map[string]s
 	// pathState: 0 = route altında değil, 1 = route altında + yol iç span'lerden,
 	// 2 = route altında + yolda bir çıkış kenarı var (aşağı akış içi).
 	memo := map[string]int{}
+	entryOf := map[string]string{} // span → altında olduğu route span'i
 	var state func(sid string, depth int) int
 	state = func(sid string, depth int) int {
 		if v, ok := memo[sid]; ok {
@@ -301,6 +309,7 @@ func foldEndpointEdges(routeService string, spans []walkSpan, entry map[string]s
 		var v int
 		if _, isEntry := entry[w.pid]; isEntry {
 			v = 1
+			entryOf[sid] = w.pid
 		} else if p := byID[w.pid]; p != nil {
 			switch ps := state(p.sid, depth+1); {
 			case ps == 0:
@@ -310,10 +319,14 @@ func foldEndpointEdges(routeService string, spans []walkSpan, entry map[string]s
 			default:
 				v = 1
 			}
+			if v != 0 {
+				entryOf[sid] = entryOf[p.sid]
+			}
 		}
 		memo[sid] = v
 		return v
 	}
+	edgeMsByEntry := map[string]float64{}
 	add := func(m map[string]*edgeAcc, name, kind string, ms float64, isErr bool) {
 		if name == "" {
 			return
@@ -340,6 +353,7 @@ func foldEndpointEdges(routeService string, spans []walkSpan, entry map[string]s
 			name, k := edgeName(w, routeService)
 			add(down, name, k, w.durMs, w.err)
 			childMs += w.durMs
+			edgeMsByEntry[entryOf[w.sid]] += w.durMs
 		case st == 2 && (w.dbSys != "" || w.msgSys != ""):
 			name := w.dbSys
 			if name == "" {
@@ -350,7 +364,15 @@ func foldEndpointEdges(routeService string, spans []walkSpan, entry map[string]s
 			add(callers, w.svc, "service", w.durMs, w.err)
 		}
 	}
-	return down, callers, backends, childMs
+	for sid, dur := range entry {
+		self := dur - edgeMsByEntry[sid]
+		if self < 0 {
+			self = 0 // paralel çağrılar route süresini aşabilir
+		}
+		selfDurs = append(selfDurs, self)
+	}
+	sort.Float64s(selfDurs)
+	return down, callers, backends, childMs, selfDurs
 }
 
 // edgeAcc accumulates one edge's sampled spans.
