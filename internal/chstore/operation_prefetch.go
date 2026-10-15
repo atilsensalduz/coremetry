@@ -40,7 +40,7 @@ func (s *Store) SpanOperationRED(ctx context.Context, service, name string, from
 	q += " SETTINGS max_execution_time = 5"
 	var r OpRED
 	var p99 float64
-	if err := s.telemetryReadConn().QueryRow(ctx, q, args...).Scan(&r.Calls, &r.Errors, &p99); err != nil {
+	if err := s.conn.QueryRow(ctx, q, args...).Scan(&r.Calls, &r.Errors, &p99); err != nil {
 		return OpRED{}, err
 	}
 	if p99 == p99 { // NaN (boş pencere) korunmaz
