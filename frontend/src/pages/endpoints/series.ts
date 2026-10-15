@@ -26,6 +26,7 @@ import type { EndpointRow, SpanMetricSeries, TimeRange } from '@/lib/types';
  */
 export function bucketsToSeries(row: EndpointRow, range: TimeRange): {
   calls: SpanMetricSeries[]; errors: SpanMetricSeries[]; p99: SpanMetricSeries[];
+  p50: SpanMetricSeries[]; p95: SpanMetricSeries[];
 } {
   const { from, to } = timeRangeToNs(range);
   const calls = row.sparkline ?? [];
@@ -33,7 +34,7 @@ export function bucketsToSeries(row: EndpointRow, range: TimeRange): {
   const p99s = row.p99Sparkline ?? [];
   const n = Math.max(calls.length, errs.length, p99s.length);
   if (n === 0 || to <= from) {
-    return { calls: [], errors: [], p99: [] };
+    return { calls: [], errors: [], p99: [], p50: [], p95: [] };
   }
   const bucketNs = (to - from) / n;
   const bucketSec = bucketNs / 1e9;
@@ -47,9 +48,14 @@ export function bucketsToSeries(row: EndpointRow, range: TimeRange): {
     value: (calls[i] ?? 0) > 0 ? (v / calls[i]) * 100 : 0,
   }));
   const p99Points = p99s.map((v, i) => ({ time: timeAtBucket(i), value: v }));
+  // v0.10.1199 — gecikme seçicisi: aynı kovalardan p50 / p95 (eski sunucu boş).
+  const qSeries = (vals: number[] | undefined, key: string): SpanMetricSeries[] =>
+    vals && vals.length ? [{ groupKey: [key], points: vals.map((v, i) => ({ time: timeAtBucket(i), value: v })) }] : [];
   return {
     calls: calls.length ? [{ groupKey: ['calls'], points: rpsPoints }] : [],
     errors: errs.length ? [{ groupKey: ['errors'], points: errPctPoints }] : [],
     p99: p99s.length ? [{ groupKey: ['p99 ms'], points: p99Points }] : [],
+    p50: qSeries(row.p50Sparkline, 'p50 ms'),
+    p95: qSeries(row.p95Sparkline, 'p95 ms'),
   };
 }

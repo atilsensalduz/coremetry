@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo } from 'react';
+import { lazy, Suspense, useMemo, type ReactNode } from 'react';
 import { msSyncKey } from '@/lib/chart/syncNamespace';
 import { Spinner } from '@/components/Spinner';
 import { timeRangeToNs } from '@/lib/utils';
@@ -23,7 +23,7 @@ const CorePanelMultiLazy = lazy(() =>
 
 export function MetricTile({
   label, big, sub, subCls, series, unit, role, storageKey, range,
-  emptyLabel, onZoom, onZoomReset, regions, chartLabel,
+  emptyLabel, onZoom, onZoomReset, regions, chartLabel, chartPicker,
 }: {
   label: string; big: string; sub: string; subCls?: string;
   /** v0.10.1094 — grafik başlığı/serisi tile etiketinden ayrıysa (ör. tile
@@ -43,6 +43,8 @@ export function MetricTile({
   // EventMarkers söküldü: karo başına ayrı /api/events fetch'i (3 karo =
   // 3 istek) + grafiğin x-scale'inden habersiz mutlak-konum çizgiler.
   regions?: ChartTimeRegion[];
+  /** v0.10.1199 — grafik üstünde seçici (gecikme kartı: p50/p95/p99). */
+  chartPicker?: ReactNode;
 }) {
   const bounds = useMemo(() => {
     if (!range) return null;
@@ -67,6 +69,7 @@ export function MetricTile({
         fontSize: 11, marginBottom: 8,
         color: subCls === 'err' ? 'var(--err)' : subCls === 'warn' ? 'var(--warn)' : 'var(--text3)',
       }}>{sub}</div>
+      {chartPicker && <div style={{ marginBottom: 6 }}>{chartPicker}</div>}
       <div style={{ position: 'relative' }}>
         <Suspense fallback={<div style={{ height: 140, display: 'grid', placeItems: 'center' }}><Spinner /></div>}>
           <CorePanelMultiLazy

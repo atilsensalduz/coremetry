@@ -3,7 +3,7 @@ import { DEFAULT_RANGE_PRESET } from '@/lib/useUrlRange';
 import { Link, useSearchParams } from 'react-router-dom';
 import { navHref } from '@/lib/navHref';
 import { Topbar } from '@/components/Topbar';
-import { Card, LinkButton, StatTile } from '@/components/ui';
+import { Card, LinkButton, SegmentedControl, StatTile } from '@/components/ui';
 import { Spinner, Empty } from '@/components/Spinner';
 import { TrendDelta } from '@/components/TrendDelta';
 import { useEndpoints, useEndpointDetail, useOperatorEvents } from '@/lib/queries';
@@ -138,8 +138,16 @@ export default function EndpointDetailPage() {
     detailQ.isPending ? undefined : detailQ.isError ? null : detailQ.data;
 
   const series = useMemo(
-    () => (row ? bucketsToSeries(row, range) : { calls: [], errors: [], p99: [] }),
+    () => (row ? bucketsToSeries(row, range) : { calls: [], errors: [], p99: [], p50: [], p95: [] }),
     [row, range]);
+  // v0.10.1199 (operatör: "avg latency kısmında p50 p95 de seçilebilsin") —
+  // grafik yüzdeliği URL'de (?lat=p50|p95; varsayılan p99, URL'e yazılmaz).
+  const latQ = params.get('lat') === 'p50' ? 'p50' : params.get('lat') === 'p95' ? 'p95' : 'p99';
+  const setLatQ = (v: string) => setParams(prev => {
+    const n = new URLSearchParams(prev);
+    if (v === 'p99') n.delete('lat'); else n.set('lat', v);
+    return n;
+  }, { replace: true });
 
   if (!refObj) {
     return (
@@ -274,10 +282,14 @@ export default function EndpointDetailPage() {
               yer değiştirsin") — büyük sayı ORTALAMA, alt satır p99. Kova
               serisi hâlâ p99 (MV'de avg sparkline yok), grafik başlığı
               bunu söyler. */}
-          <MetricTile label="Avg latency" chartLabel="P99 latency" storageKey="p99"
+          <MetricTile label="Avg latency" chartLabel={`${latQ.toUpperCase()} latency`} storageKey={latQ}
             big={row ? `${row.avgMs.toFixed(0)} ms` : '—'}
-            sub={row ? `p99 ${row.p99Ms.toFixed(0)} ms` : 'no row in window'}
-            series={series.p99} unit="ms"
+            sub={row ? `${latQ} ${((latQ === 'p50' ? row.p50Ms : latQ === 'p95' ? row.p95Ms : row.p99Ms) ?? 0).toFixed(0)} ms` : 'no row in window'}
+            chartPicker={
+              <SegmentedControl size="sm" aria-label="Gecikme yüzdeliği" value={latQ} onChange={setLatQ}
+                options={[{ value: 'p50', label: 'p50' }, { value: 'p95', label: 'p95' }, { value: 'p99', label: 'p99' }]} />
+            }
+            series={series[latQ]} unit="ms"
             range={range} regions={eventRegions}
             emptyLabel={row ? undefined : 'endpoint not in the current window'}
             onZoom={handleZoom} onZoomReset={handleZoomReset} />

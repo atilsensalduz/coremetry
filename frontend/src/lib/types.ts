@@ -5857,6 +5857,9 @@ export interface EndpointRow {
   // that had no spans.
   errorsSparkline?: number[];
   p99Sparkline?: number[];
+  // v0.10.1199 — Endpoint detayı gecikme seçicisi (aynı kovalar).
+  p50Sparkline?: number[];
+  p95Sparkline?: number[];
   // v0.5.403 — HTTP status class counts. Drives the "Status"
   // column on /endpoints so the operator reads 2xx/4xx/5xx
   // distribution without drilling into traces. Zero values

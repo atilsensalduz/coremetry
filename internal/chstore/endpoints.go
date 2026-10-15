@@ -79,8 +79,11 @@ type EndpointRow struct {
 	// shape as Sparkline; one float per bucket. Both fields
 	// share the bucket boundaries of Sparkline so the modal can
 	// drive them off a single time axis.
-	ErrorsSparkline []float64         `json:"errorsSparkline,omitempty"`
-	P99Sparkline    []float64         `json:"p99Sparkline,omitempty"`
+	ErrorsSparkline []float64 `json:"errorsSparkline,omitempty"`
+	P99Sparkline    []float64 `json:"p99Sparkline,omitempty"`
+	// v0.10.1199 — Endpoint detayının gecikme seçicisi (p50/p95/p99).
+	P50Sparkline    []float64         `json:"p50Sparkline,omitempty"`
+	P95Sparkline    []float64         `json:"p95Sparkline,omitempty"`
 	StatusBreakdown map[string]uint64 `json:"statusBreakdown,omitempty"`
 	// v0.5.403 — HTTP status class counts for the (service, path)
 	// over the window. Source: http.status_code attr. Server-side
@@ -547,7 +550,7 @@ func (s *Store) GetEndpointsMV(ctx context.Context, q EndpointsQuery) ([]Endpoin
 		where += " AND positionCaseInsensitive(" + dimCol + ", ?) > 0"
 		args = append(args, q.Search)
 	}
-	args = append(args, nBuckets, nBuckets, nBuckets, q.Limit)
+	args = append(args, nBuckets, nBuckets, nBuckets, nBuckets, nBuckets, q.Limit)
 
 	sql := `
 		WITH per_bucket AS (
@@ -558,6 +561,9 @@ func (s *Store) GetEndpointsMV(ctx context.Context, q EndpointsQuery) ([]Endpoin
 		         countIfMerge(error_state)                        AS bv_err,
 		         sumMerge(duration_sum_state)                     AS bv_sum_dur,
 		         arrayElement(quantilesTDigestMerge(0.5, 0.9, 0.95, 0.99)(duration_q_state), 4) / 1e6 AS bv_p99,
+		         -- v0.10.1199 (operatör: "avg latency'de p50/p95 de seçilebilsin")
+		         arrayElement(quantilesTDigestMerge(0.5, 0.9, 0.95, 0.99)(duration_q_state), 1) / 1e6 AS bv_p50,
+		         arrayElement(quantilesTDigestMerge(0.5, 0.9, 0.95, 0.99)(duration_q_state), 3) / 1e6 AS bv_p95,
 		         quantilesTDigestMergeState(0.5, 0.9, 0.95, 0.99)(duration_q_state) AS q_state,
 		         -- v0.9.310 (brief N3) — exemplar trace ids, two-level
 		         -- merge like q_state above. NO new scan: the same MV
@@ -594,6 +600,14 @@ func (s *Store) GetEndpointsMV(ctx context.Context, q EndpointsQuery) ([]Endpoin
 		         toFloat64(coalesce(arrayElement(groupArray(bv_p99), indexOf(groupArray(b), i)), 0)),
 		         range(0, ?)
 		       )                                                AS p99_sparkline,
+		       arrayMap(i ->
+		         toFloat64(coalesce(arrayElement(groupArray(bv_p50), indexOf(groupArray(b), i)), 0)),
+		         range(0, ?)
+		       )                                                AS p50_sparkline,
+		       arrayMap(i ->
+		         toFloat64(coalesce(arrayElement(groupArray(bv_p95), indexOf(groupArray(b), i)), 0)),
+		         range(0, ?)
+		       )                                                AS p95_sparkline,
 		       argMaxMerge(slow_ex_state)                       AS slow_trace_id,
 		       argMaxIfMerge(err_ex_state)                      AS error_trace_id
 		FROM per_bucket
@@ -611,11 +625,11 @@ func (s *Store) GetEndpointsMV(ctx context.Context, q EndpointsQuery) ([]Endpoin
 	for rows.Next() {
 		var r EndpointRow
 		var errRate, avgMs, p50Ms, p90Ms, p95Ms, p99Ms *float64
-		var sparkline, errorsSparkline, p99Sparkline []float64
+		var sparkline, errorsSparkline, p99Sparkline, p50Sparkline, p95Sparkline []float64
 		if err := rows.Scan(
 			&r.Service, &r.Path,
 			&r.Calls, &r.Errors, &errRate, &avgMs, &p50Ms, &p90Ms, &p95Ms, &p99Ms,
-			&sparkline, &errorsSparkline, &p99Sparkline,
+			&sparkline, &errorsSparkline, &p99Sparkline, &p50Sparkline, &p95Sparkline,
 			&r.SlowTraceID, &r.ErrorTraceID,
 		); err != nil {
 			return nil, err
@@ -630,6 +644,7 @@ func (s *Store) GetEndpointsMV(ctx context.Context, q EndpointsQuery) ([]Endpoin
 		r.Sparkline = sparkline
 		r.ErrorsSparkline = errorsSparkline
 		r.P99Sparkline = p99Sparkline
+		r.P50Sparkline, r.P95Sparkline = p50Sparkline, p95Sparkline
 		out = append(out, r)
 	}
 	if err := rows.Err(); err != nil {
@@ -850,7 +865,7 @@ func (s *Store) getEndpointsRaw(ctx context.Context, q EndpointsQuery) ([]Endpoi
 	allArgs = append(allArgs, args...)
 	// Three sparkline arrayMaps, each parameterised by
 	// sparkBuckets → three ? placeholders for range(0, ?).
-	allArgs = append(allArgs, sparkBuckets, sparkBuckets, sparkBuckets, limit)
+	allArgs = append(allArgs, sparkBuckets, sparkBuckets, sparkBuckets, sparkBuckets, sparkBuckets, limit)
 	// v0.5.403 — http.status_code class breakdown. Read once into
 	// per-row `sc` so the four countIf clauses don't re-evaluate
 	// the attr_values[indexOf(…)] expression each time (CH does
@@ -884,6 +899,8 @@ func (s *Store) getEndpointsRaw(ctx context.Context, q EndpointsQuery) ([]Endpoi
 		         countIf(` + statusExpr + ` BETWEEN 500 AND 599) AS bv_5xx,
 		         sum(duration)                                   AS bv_sum_dur,
 		         quantileTDigest(0.99)(duration) / 1e6           AS bv_p99,
+		         quantileTDigest(0.5)(duration) / 1e6            AS bv_p50,
+		         quantileTDigest(0.95)(duration) / 1e6           AS bv_p95,
 		         -- v0.9.305 — aile 0.9'u İÇERECEK şekilde genişletildi. MV
 		         -- yolu zaten (0.5, 0.9, 0.95, 0.99) üretiyordu; ham yol 3'lü
 		         -- kalsaydı P90 kolonu ya boş kalır ya da KAYMIŞ bir ordinal
@@ -923,7 +940,15 @@ func (s *Store) getEndpointsRaw(ctx context.Context, q EndpointsQuery) ([]Endpoi
 		       arrayMap(i ->
 		         toFloat64(coalesce(arrayElement(groupArray(bv_p99), indexOf(groupArray(b), i)), 0)),
 		         range(0, ?)
-		       )                                                AS p99_sparkline
+		       )                                                AS p99_sparkline,
+		       arrayMap(i ->
+		         toFloat64(coalesce(arrayElement(groupArray(bv_p50), indexOf(groupArray(b), i)), 0)),
+		         range(0, ?)
+		       )                                                AS p50_sparkline,
+		       arrayMap(i ->
+		         toFloat64(coalesce(arrayElement(groupArray(bv_p95), indexOf(groupArray(b), i)), 0)),
+		         range(0, ?)
+		       )                                                AS p95_sparkline
 		FROM per_bucket
 		GROUP BY service_name, path
 		` + endpointsOrderBy(q.Sort, q.Dir) + `
@@ -939,12 +964,12 @@ func (s *Store) getEndpointsRaw(ctx context.Context, q EndpointsQuery) ([]Endpoi
 	for rows.Next() {
 		var r EndpointRow
 		var avgMs, p50Ms, p90Ms, p95Ms, p99Ms, errRate *float64
-		var sparkline, errorsSparkline, p99Sparkline []float64
+		var sparkline, errorsSparkline, p99Sparkline, p50Sparkline, p95Sparkline []float64
 		if err := rows.Scan(
 			&r.Service, &r.Path, &r.Method,
 			&r.Calls, &r.Errors, &errRate, &avgMs, &p50Ms, &p90Ms, &p95Ms, &p99Ms,
 			&r.Http2xx, &r.Http3xx, &r.Http4xx, &r.Http5xx,
-			&sparkline, &errorsSparkline, &p99Sparkline,
+			&sparkline, &errorsSparkline, &p99Sparkline, &p50Sparkline, &p95Sparkline,
 		); err != nil {
 			return nil, err
 		}
@@ -958,6 +983,7 @@ func (s *Store) getEndpointsRaw(ctx context.Context, q EndpointsQuery) ([]Endpoi
 		r.Sparkline = sparkline
 		r.ErrorsSparkline = errorsSparkline
 		r.P99Sparkline = p99Sparkline
+		r.P50Sparkline, r.P95Sparkline = p50Sparkline, p95Sparkline
 		out = append(out, r)
 	}
 	return out, rows.Err()
