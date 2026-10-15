@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import { DEFAULT_RANGE_PRESET } from '@/lib/useUrlRange';
 import { Link, useSearchParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/lib/api';
 import { navHref } from '@/lib/navHref';
 import { Topbar } from '@/components/Topbar';
 import { Card, LinkButton, SegmentedControl, StatTile } from '@/components/ui';
@@ -85,6 +87,21 @@ export default function EndpointDetailPage() {
   const canEditRules = user?.role === 'admin' || user?.role === 'editor';
   const [alertOpen, setAlertOpen] = useState(false);
   const { from, to } = useMemo(() => timeRangeToNs(range), [range]);
+  // v0.10.1200 (operatör: "cluster seçilebilse") — servisin pencerede
+  // görülen cluster'ları (servis-sınırlı küçük liste, sunucu uç); seçim
+  // ?cluster= — sayfanın her bölümü zaten bu parametreyle daralıyor.
+  const clustersQ = useQuery({
+    queryKey: ['endpoint-service-clusters', refObj?.service ?? '', Math.floor(from / 6e10), Math.floor(to / 6e10)],
+    queryFn: () => api.serviceClusters(refObj?.service ?? '', from, to),
+    enabled: !!refObj?.service,
+    staleTime: 60_000,
+  });
+  const clusterOptions = (clustersQ.data?.clusters ?? []).map(c => c.cluster).filter(Boolean);
+  const setCluster = (v: string) => setParams(prev => {
+    const n = new URLSearchParams(prev);
+    if (v) n.set('cluster', v); else n.delete('cluster');
+    return n;
+  }, { replace: true });
   // v0.9.1044 (Ş3 paritesi) — operatör olayları TEK fetch'te; üç RED
   // karosu aynı chart-içi bölge dizisini paylaşır (eski hâl: karo başına
   // DOM-overlay EventMarkers = 3 ayrı /api/events isteği).
@@ -199,6 +216,13 @@ export default function EndpointDetailPage() {
               env/cluster the row was computed under; saying so is the
               other half of the fix, because an unlabelled narrowing is
               the same class of lie in the opposite direction. */}
+          {(clusterOptions.length > 1 || cluster) && (
+            <select aria-label="Cluster" value={cluster} onChange={e => setCluster(e.target.value)}
+              style={{ fontSize: 11 }} title="Bu endpoint'in görüldüğü cluster'lar — sayfanın tüm bölümleri daralır">
+              <option value="">Tüm cluster'lar</option>
+              {[...new Set([...(cluster ? [cluster] : []), ...clusterOptions])].map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          )}
           {(env || cluster) && (
             <span className="badge b-info" style={{ fontSize: 10 }}
               title="Everything on this page covers only this scope — the same slice the table row's numbers came from.">

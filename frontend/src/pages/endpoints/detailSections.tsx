@@ -525,8 +525,8 @@ export function WhereTheTimeGoesSection({ refObj, from, to, env, cluster }: {
                 <span style={{ color: 'var(--err)' }}>{e.errors} err</span>
               )}
               <span style={{ color: 'var(--text2)', fontVariantNumeric: 'tabular-nums' }}
-                title="p99 over the sampled slowest traces (the tail), so it is higher than the route's window p99 above">
-                tail p99 {e.p99Ms.toFixed(0)}ms
+                title="avg / p99 over the sampled slowest traces (the tail), so they are higher than the route's window values above">
+                avg {e.avgMs.toFixed(0)}ms · tail p99 {e.p99Ms.toFixed(0)}ms
               </span>
               <span style={{ color: 'var(--text)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}
                 title={overlap ? 'Parallel calls: their summed time exceeds the route span' : undefined}>
@@ -559,7 +559,7 @@ export function WhereTheTimeGoesSection({ refObj, from, to, env, cluster }: {
               <span className="mono" style={{ color: dbTone }}>{b.name}</span>
               <span style={{ flex: 1 }} />
               <span style={{ color: 'var(--text2)', fontVariantNumeric: 'tabular-nums' }}>
-                {b.calls} calls · tail p99 {b.p99Ms.toFixed(0)}ms
+                {b.calls} calls · avg {b.avgMs.toFixed(0)}ms · tail p99 {b.p99Ms.toFixed(0)}ms
               </span>
               <span style={{ color: 'var(--text)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
                 {total > 0 ? ((b.shareMs / total) * 100).toFixed(0) : 0}%
