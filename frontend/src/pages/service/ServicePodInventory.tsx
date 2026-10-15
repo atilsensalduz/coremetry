@@ -1,13 +1,8 @@
 import { useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
 import { useDataTable, type DataTableStateProps } from '@/components/ui/DataTable';
 import { IconButton, SectionHead, Row, SegmentedControl } from '@/components/ui';
 import { Badge } from '@/components/ui/Badge';
-import { RuntimeCharts, familyOf } from './RuntimeCharts';
-import { HeapBaselineCard } from './HeapBaselineCard'; // v0.10.887 — paritesi #4 dilim 1
-import { PodResourceCharts } from './PodResourceCharts';
 import { ServicePodsTable } from './ServicePodsTable';
 import { useServicePods } from './useServicePods';
 import { useEntityEnabled, useEntityServicePods } from '@/lib/queries';
@@ -52,8 +47,6 @@ const POD_COLS: DataTableColumn<MergedPodRow>[] = [
   { id: 'act',      label: '',            width: 170 },
 ];
 
-const FAMILY_LABEL: Record<string, string> = { jvm: 'JVM', dotnet: '.NET', go: 'Go' };
-
 function ChainStrip({ chain, range, nameOf }: { chain: ServicePodsChainItem[]; range: TimeRange; nameOf: (cid: string) => string }) {
   return (
     <Row gap={3} wrap>
@@ -86,12 +79,18 @@ function ChainStrip({ chain, range, nameOf }: { chain: ServicePodsChainItem[]; r
   );
 }
 
-export function ServicePodsTab({ service, range, onZoom, onZoomReset }: {
+// ServicePodInventory — v0.10.1206 (operatör: "çok cluster'lı projelerde Pods
+// sayfası kötü görünüyor; Infrastructure'da tıklayınca inline görsünler, Pods
+// sekmesi kalksın"): eski Pods sekmesinin pod envanteri, Infrastructure'ın
+// seçili cluster satırının altında `cluster` ile süzülü çizilir. Runtime /
+// JMX grafikleri ServiceRuntimeSection'a (Infrastructure'ın altı) taşındı.
+export function ServicePodInventory({ service, range, cluster, excludeClusters }: {
   service: string;
   range: TimeRange;
-  onZoom?: (fromUnixSec: number, toUnixSec: number) => void;
-  // Grafana-parite M1 — çift-tık: Service.tsx zoom geri-yığınını pop eder.
-  onZoomReset?: () => void;
+  /** Infrastructure satırının cluster adı — yalnız o cluster'ın pod'ları (düz kip). */
+  cluster?: string;
+  /** Bu cluster'lar DIŞINDAKİ pod'lar (Thanos tablosunda olmayan, span'lerin gördüğü). */
+  excludeClusters?: string[];
 }) {
   const [params, setParams] = useSearchParams();
   const rangeParam = params.get('range');
@@ -117,29 +116,31 @@ export function ServicePodsTab({ service, range, onZoom, onZoomReset }: {
     // uzunluk + tazelik yeter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [entityEnabled, entityQ.data, th.rows.length, th.podsUpdatedAt, entityClusters]);
-  const rows = useMemo(() => filterBySource(merged, source), [merged, source]);
+  const rows = useMemo(() => {
+    const r = filterBySource(merged, source);
+    if (cluster) return r.filter(p => p.cluster === cluster);
+    if (excludeClusters) {
+      const ex = new Set(excludeClusters);
+      return r.filter(p => !ex.has(p.cluster));
+    }
+    return r;
+    // excludeClusters kimliği her render yeni dizi; içerik anahtarı yeter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [merged, source, cluster, (excludeClusters ?? []).join('|')]);
   const clusterCount = new Set(rows.map(r => r.cluster)).size;
   const dt = useDataTable<MergedPodRow>({
     storageKey: 'service-pods-v2', columns: POD_COLS, rows,
     initialSort: { id: 'cpu', dir: 'desc' },
   });
 
-  // v0.9.546 — dil-runtime ailesi var mı? RuntimeCharts ile AYNI RQ
-  // anahtarı, yani ek istek yok (cache'ten dolar). Aile yoksa aşağıda
-  // Thanos kaynak grafikleri devreye giriyor.
-  const runtimeQ = useQuery({
-    queryKey: ['svc-runtime', service],
-    queryFn: () => api.serviceRuntime(service),
-    enabled: !!service, staleTime: 300_000,
-  });
-  const runtimeFamily = familyOf(runtimeQ.data?.language);
 
   const entityPending = entityEnabled && entityQ.isPending;
   const thanosPending = th.metaQ.isPending || th.sourcesPending || (th.rows.length === 0 && th.podsPending);
   const pending = rows.length === 0 && (entityPending || thanosPending);
   const ago = th.podsUpdatedAt ? fmtAgoNs(th.podsUpdatedAt * 1e6) : '';
   const refetchAll = () => { th.refetchPods(); if (entityEnabled) void entityQ.refetch(); };
-  const chain = entityQ.data?.chain ?? [];
+  // Cluster satırı içinde zincir şeridi yok: bağlam satırın kendisi.
+  const chain = cluster ? [] : entityQ.data?.chain ?? [];
 
   // v0.10.973 — tablo standardı T12 (tarif P6): Spinner / "Pod metrikleri
   // okunamadı" / "No pods matched" kutuları tablonun İÇİNE; tablo ve başlığı
@@ -176,9 +177,18 @@ export function ServicePodsTab({ service, range, onZoom, onZoomReset }: {
     }
     : { kind: 'empty', message: 'Eşleşen pod yok', detail: podsDiag };
 
+  // Hariç tutma kipi (Thanos dışı pod'lar) boşsa bölüm hiç çizilmez.
+  if (excludeClusters && rows.length === 0) return null;
+  if (cluster) {
+    return (
+      <ServicePodsTable dt={dt} view="flat" service={service} range={range}
+        effNs={th.effNs} effDeploy={th.effDeploy} cFrom={th.cFrom} cTo={th.cTo} rangeParam={rangeParam}
+        state={podsState} />
+    );
+  }
   return (
     <>
-      <SectionHead id="pods-sec" title="Pods"
+      <SectionHead id="pods-sec" title={excludeClusters ? "Diğer cluster'larda span'lerin gördüğü pod'lar" : 'Pods'}
         source={entityEnabled ? 'entity_seen_5m ∪ Thanos · kube-state' : 'Thanos · kube-state'}
         badges={<>
           {/* v0.10.924 — buton bütünlüğü Faz 2: iki elle `.seg-mini` grubu →
@@ -228,38 +238,10 @@ export function ServicePodsTab({ service, range, onZoom, onZoomReset }: {
         </>} />
       {chain.length > 0 && <div style={{ marginBottom: 8 }}><ChainStrip chain={chain} range={range} nameOf={nameOf} /></div>}
 
-      <ServicePodsTable dt={dt} view={view} service={service} range={range}
+      <ServicePodsTable dt={dt} view={cluster ? 'flat' : view} service={service} range={range}
         effNs={th.effNs} effDeploy={th.effDeploy} cFrom={th.cFrom} cTo={th.cTo} rangeParam={rangeParam}
         state={podsState} />
 
-      {/* OTel dil-runtime (heap/GC/threads by pod) — servis-scoped, her zaman;
-          Thanos'tan tamamen bağımsız. */}
-      <SectionHead id="runtime-sec" title="Runtime" source="OTel · metric_points"
-        badges={<>
-          {runtimeFamily && <span className="badge b-info">{FAMILY_LABEL[runtimeFamily] ?? runtimeFamily}</span>}
-          <span className="badge b-gray" title="Bu bölümün kaynağı: OTel runtime metrikleri (ClickHouse) — Thanos düşse de burası çalışır.">Thanos&#39;tan bağımsız</span>
-        </>}
-        meta={runtimeQ.data?.language ? <span className="mono">{runtimeQ.data.language}</span> : undefined} />
-      <RuntimeCharts service={service} from={th.from} to={th.to} onZoom={onZoom} onZoomReset={onZoomReset} hideHeader />
-      {/* v0.10.887 (paritesi #4 dilim 1, Onay 2026-09-23) — yalnız JVM: heap-after-GC pod
-          başına adaptif bant; problem açmaz; JVM pod / metrik yoksa kart yok. */}
-      {runtimeFamily === 'jvm' && (
-        <HeapBaselineCard service={service} from={th.from} to={th.to} onZoom={onZoom} onZoomReset={onZoomReset} />
-      )}
-      {!runtimeQ.isPending && !runtimeFamily && (
-        <div className="kc-line" title="Dil-runtime ailesi tanınmıyor (Node.js, Python ya da dil raporlanmıyor) — yerine pod başına Thanos kaynak grafikleri.">
-          ◌ runtime ailesi yok{runtimeQ.data?.language ? ` (${runtimeQ.data.language})` : ''} — aşağıda Thanos kaynak grafikleri
-        </div>
-      )}
-
-      {/* v0.9.546 — dil-runtime ailesi TANINMIYORSA pod başına CPU/bellek/ağ
-          (Thanos deploy-trend byPod). Aile VARSA çizilmez — iki kaynak yan
-          yana aynı şeyi göstermesin. */}
-      {!runtimeFamily && (
-        <PodResourceCharts service={service} cluster={th.clustersWithPods[0] ?? ''}
-          ns={th.effNs} deploy={th.effDeploy} cFrom={th.cFrom} cTo={th.cTo} clamped={th.clamped}
-          onZoom={onZoom} onZoomReset={onZoomReset} />
-      )}
     </>
   );
 }

@@ -1134,7 +1134,7 @@ export function AlertProblemDetail({ problem, isAdmin, onBack, onChanged }: {
                 }
                 if (!pod || pod === problem.service) return null;
                 return (
-                  <Link to={serviceHref(problem.service, { range: probWindow, tab: 'pods', params: { jpod: pod } })}
+                  <Link to={serviceHref(problem.service, { range: probWindow, tab: 'infra', params: { jpod: pod } })}
                     className="pb-pill"
                     style={{ textDecoration: 'none', color: 'var(--accent2)' }}
                     title="Bu podun JMX/runtime grafikleri (Pods sekmesi, pod daraltmalı)">

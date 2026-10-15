@@ -36,7 +36,7 @@ const SUBJECT_SURFACES = [
 const ALLOWED: { file: string; needle: string; why: string }[] = [
   {
     file: 'features/anomalies/ProblemDetail.tsx',
-    needle: "tab: 'pods', params: { jpod: pod }",
+    needle: "tab: 'infra', params: { jpod: pod }",
     why: 'pod pill yalnız problem.pod doluyken çizilir; o alanı SADECE ' +
       'runtime denetimleri yazar ve onların Service\'i v0.9.401\'den beri ' +
       'gerçek bir servis adıdır. db özneli satırda pod boş → dal koşmaz.',

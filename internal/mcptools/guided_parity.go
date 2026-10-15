@@ -856,7 +856,7 @@ func podHealthPayload(data PodHealthData, windowS int) map[string]any {
 			}
 			body["note"] = "Say plainly that no JVM heap metric is flowing; do NOT infer heap pressure from anything else here."
 		}
-		body["next"] = "Bir pod dolu görünüyorsa o servisin envanteri için service arg'ıyla tekrar çağır; sürekli baskı problem açtıysa list_problems; GC duraklamaları /services Pods sekmesinde."
+		body["next"] = "Bir pod dolu görünüyorsa o servisin envanteri için service arg'ıyla tekrar çağır; sürekli baskı problem açtıysa list_problems; GC duraklamaları servis sayfasının Infrastructure sekmesinin altında (Runtime)."
 		return body
 	}
 	body["service"] = data.Service

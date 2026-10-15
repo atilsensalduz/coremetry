@@ -209,13 +209,13 @@ var productGuide = []GuideTopic{
 		Keywords: []string{"pod", "pods", "cluster", "kubernetes", "k8s", "restart", "cpu", "bellek", "memory", "namespace", "workload", "oom"},
 		Steps: []string{
 			"Clusters sayfası cluster → namespace → workload → pod ağacı; Pod sayfası restart, CPU ve bellek eğrilerini gösterir.",
-			"Servis sayfasının Pods sekmesi {svc} servisinin pod'larını cluster'a göre listeler.",
+			"Servis sayfasının Infrastructure sekmesinde {svc} servisinin cluster'ları listelenir; bir cluster satırına tıklayınca pod'ları satırın altında açılır, runtime (heap/GC) grafikleri sayfanın altında.",
 			"Bana \"{svc} pod'ları nasıl\" ya da \"shop namespace'indeki servisler\" diyebilirsin.",
 		},
 		Links: func(svc, _ string) []GuideLink {
 			out := []GuideLink{{Label: "Clusters", Href: "/clusters"}}
 			if svc != "" {
-				out = append(out, svcLink(svc, "Pods", "pods"))
+				out = append(out, svcLink(svc, "Infrastructure", "infra"))
 			}
 			return out
 		},

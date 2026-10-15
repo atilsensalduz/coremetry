@@ -587,7 +587,7 @@ func guidedAnswerLinkTargets(route guidedRoute) []guidedAnswerLink {
 		return []guidedAnswerLink{{Label: "Exceptions", Href: "/inbox?kind=exception"}}
 	case guidedPodHealth:
 		if svc != "" {
-			return []guidedAnswerLink{{Label: svc + " · Pods", Href: "/service?name=" + svcQ + "&tab=pods"}}
+			return []guidedAnswerLink{{Label: svc + " · Infrastructure", Href: "/service?name=" + svcQ + "&tab=infra"}}
 		}
 		return nil
 	case guidedShiftSummary:

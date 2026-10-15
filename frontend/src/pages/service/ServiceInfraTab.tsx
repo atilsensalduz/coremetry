@@ -21,7 +21,8 @@ import { useEntityEnabled, useClusters } from '@/lib/queries';
 import { summarizeInfraClusters, podTotals, pctOfLimit, clusterStatus, mergeClusterSeries, limitThreshold, type InfraClusterRow } from './infraClusters';
 import type { TimeRange } from '@/lib/types';
 import { ServiceKafkaClientsPanel } from './ServiceKafkaClientsPanel'; // v0.10.552
-import { InlineClusterPods } from './InlineClusterPods';
+import { ServicePodInventory } from './ServicePodInventory';
+import { ServiceRuntimeSection } from './ServiceRuntimeSection';
 
 // ServiceInfraTab — servis detayının Infrastructure sekmesi. CLUSTER-SEVİYESİ
 // altyapı: Clusters tablosu (seçili satır = kapsam, ?icluster), KPI şeridi
@@ -118,7 +119,10 @@ export function ServiceInfraTab({ service, range, onZoom, onZoomReset }: {
   // ad sessizce yok sayılmaz, rozet "Topbar" der yalnız eşleşince).
   const icluster = params.get('icluster') ?? '';
   const topbarCluster = params.get('cluster') ?? '';
-  const effCluster = icluster || (clustersWithPods.includes(topbarCluster) ? topbarCluster : '');
+  // v0.10.1206 — ?jpod= (problem / etkilenen varlık bağlantısı) o pod'un cluster'ını açar.
+  const jpod = params.get('jpod') ?? '';
+  const jpodCluster = jpod ? rows.find(p => p.pod === jpod)?.cluster ?? '' : '';
+  const effCluster = icluster || jpodCluster || (clustersWithPods.includes(topbarCluster) ? topbarCluster : '');
   const setICluster = (c: string) => setParams(prev => {
     const next = new URLSearchParams(prev);
     if (c) next.set('icluster', c); else next.delete('icluster');
@@ -205,11 +209,11 @@ export function ServiceInfraTab({ service, range, onZoom, onZoomReset }: {
     setFlash(key);
     window.setTimeout(() => setFlash(''), 1400);
   };
-  const goToPods = () => setParams(prev => {
-    const next = new URLSearchParams(prev);
-    next.set('tab', 'pods');
-    return next;
-  }, { replace: true }); // setTab/setICluster deseni — history kirletme (v0.9.159 review)
+  // v0.10.1206 — Pods sekmesi yok: karo tıkı en işlek cluster'ı açar (inline pod'lar).
+  const goToPods = () => {
+    if (!effCluster && clusterRows[0]) setICluster(clusterRows[0].cluster);
+    document.getElementById('infra-clusters')?.scrollIntoView({ block: 'start' });
+  };
   const flashStyle = (key: string): React.CSSProperties => ({
     outline: flash === key ? '2px solid var(--accent)' : '2px solid transparent',
     outlineOffset: 4, borderRadius: 8, transition: 'outline-color .35s',
@@ -220,14 +224,9 @@ export function ServiceInfraTab({ service, range, onZoom, onZoomReset }: {
   // her iki sekmede mount etmişti → tekrar). Infra = Thanos metrikleri;
   // ad-regex eşleşmeyince boş durum Pods sekmesine işaret eder (F5).
   const { enabled: entityEnabled } = useEntityEnabled();
-  const podsTabHref = `/service?${new URLSearchParams({ name: service, tab: 'pods' }).toString()}`;
   const entityHint = entityEnabled
-    ? <> Entity katmanı (span'lerin gördüğü pod'lar) <Link to={podsTabHref} className="sec">Pods sekmesinde</Link>.</>
+    ? <> Span&#39;lerin gördüğü (entity) pod&#39;lar <a href="#pods-sec" className="sec">tablonun altında</a>.</>
     : null;
-  // Pods → satır eylemi: sayfanın mevcut parametreleriyle (range korunur).
-  const podsTabWithParams = (() => {
-    const n = new URLSearchParams(params); n.set('tab', 'pods'); return `/service?${n.toString()}`;
-  })();
   const tracesFor = (c: string) => tracesPivotHref({
     window: { fromNs: from, toNs: to }, view: 'list', rootOnly: false, service, cluster: c,
   });
@@ -385,8 +384,8 @@ export function ServiceInfraTab({ service, range, onZoom, onZoomReset }: {
                     </td>
                     <td><span className={`badge b-${st.tone}`}>{st.text}</span></td>
                     <DataTableCell dt={dt} col="act" row={r} onClick={e => e.stopPropagation()}>
-                      <Link to={podsTabWithParams} className="accent" style={{ fontSize: 11, padding: '2px 8px' }}
-                        title="Pods sekmesi (cluster'a göre gruplu)">Pods →</Link>
+                      <Button variant="secondary" size="sm" onClick={() => setICluster(sel ? '' : r.cluster)}
+                        aria-expanded={sel} title="Bu cluster'ın pod'larını satırın altında göster">{sel ? 'Pods ▴' : 'Pods ▾'}</Button>
                       {spanClusters.includes(r.cluster) && (
                         <Link to={tracesFor(r.cluster)} className="accent" style={{ fontSize: 11, padding: '2px 8px' }}
                           title="Bu cluster'ın span'leri">Traces →</Link>
@@ -397,7 +396,7 @@ export function ServiceInfraTab({ service, range, onZoom, onZoomReset }: {
                   {sel && (
                     <tr>
                       <td colSpan={CL_COLS.length}>
-                        <InlineClusterPods pods={rows.filter(p => p.cluster === r.cluster)} range={range} service={service} />
+                        <ServicePodInventory service={service} range={range} cluster={r.cluster} />
                       </td>
                     </tr>
                   )}
@@ -414,7 +413,7 @@ export function ServiceInfraTab({ service, range, onZoom, onZoomReset }: {
             `span.stat-sub` (blok CSS'te): düğme içine `div` konamaz. */}
         {showRows && (
         <div className="stat-grid">
-          <StatTile label={kpi.phaseKnown ? 'Running pods' : 'Pods'} onClick={goToPods} title="Pods sekmesine git">
+          <StatTile label={kpi.phaseKnown ? 'Running pods' : 'Pods'} onClick={goToPods} title="Cluster pod listesini aç">
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
               <PodRing total={kpi.pods} running={kpi.running} failing={kpi.failing} phaseKnown={kpi.phaseKnown} size={40} />
               {kpi.phaseKnown && kpi.running < kpi.pods && <span>{fmtNum(kpi.running)} / {fmtNum(kpi.pods)}</span>}
@@ -437,7 +436,7 @@ export function ServiceInfraTab({ service, range, onZoom, onZoomReset }: {
               ? `limit ${fmtBytes(kpi.memLimitBytes)} · %${memPct}`
               : 'limit bilinmiyor'}</span>
           </StatTile>
-          <StatTile label="Restarts (toplam)" tone={restartTone} onClick={goToPods} title="Pods sekmesine git">
+          <StatTile label="Restarts (toplam)" tone={restartTone} onClick={goToPods} title="Cluster pod listesini aç">
             {kpi.restarts == null ? '—' : fmtNum(kpi.restarts)}
             <span className="stat-sub">{kpi.restarts == null
               ? 'kube-state-metrics görünmüyor'
@@ -463,7 +462,7 @@ export function ServiceInfraTab({ service, range, onZoom, onZoomReset }: {
                   </span>
                 )}
               </>}
-              actions={<Link to={podsTabWithParams} title="Pod başına kırılım Pods sekmesinde">Pod başına → Pods</Link>} />
+              actions={<a href="#runtime-sec" title="Pod başına kırılım sayfanın altında (Runtime)">Pod başına ↓</a>} />
             <div className="grid-2" style={{ display: 'grid', gap: 14 }}>
               <div ref={cpuChartRef} style={flashStyle('cpu')}>
                 <ChartSlot q={aggCpu}>
@@ -533,6 +532,11 @@ export function ServiceInfraTab({ service, range, onZoom, onZoomReset }: {
   return (
     <>
       {thanosBody}
+      {/* v0.10.1206 — Thanos tablosunda olmayan cluster'larda span'lerin gördüğü pod'lar. */}
+      {entityEnabled && <ServicePodInventory service={service} range={range} excludeClusters={clusterRows.map(c => c.cluster)} />}
+      <ServiceRuntimeSection service={service}
+        th={{ from, to, clustersWithPods, effNs, effDeploy, cFrom, cTo, clamped }}
+        onZoom={onZoom} onZoomReset={onZoomReset} />
       <ServiceKafkaClientsPanel service={service} range={range} onZoom={onZoom} onZoomReset={onZoomReset} />
     </>
   );

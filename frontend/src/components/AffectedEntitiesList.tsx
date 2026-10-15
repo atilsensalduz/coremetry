@@ -51,7 +51,7 @@ function EntityPill({ e, service, window: win }: { e: AffectedEntity; service?: 
     return <Link to={serviceHref(e.id, { range: win })} className="pb-pill" title={title} style={{ textDecoration: 'none', color: 'var(--accent2)' }}>{label} →</Link>;
   }
   if (e.kind === 'pod' && service) {
-    return <Link to={serviceHref(service, { range: win, tab: 'pods', params: { jpod: e.id } })} className="pb-pill" title={title} style={{ textDecoration: 'none', color: 'var(--accent2)' }}>{label} →</Link>;
+    return <Link to={serviceHref(service, { range: win, tab: 'infra', params: { jpod: e.id } })} className="pb-pill" title={title} style={{ textDecoration: 'none', color: 'var(--accent2)' }}>{label} →</Link>;
   }
   return <span className="pb-pill" title={title}>{label}</span>;
 }

@@ -123,4 +123,4 @@ func renderPodHealthEvidenceTR(data mcptools.PodHealthData) (string, string, err
 // guidedPodRestartNoteTR — iki modun paylaştığı dürüstlük altbilgisi:
 // restart sayısı ve pod fazı OTel runtime metriklerinde YOK (KSM/Thanos
 // ister), model bunu bilmezse uydurur.
-const guidedPodRestartNoteTR = "Not: restart sayıları ve pod fazı kube-state-metrics/Thanos ister — servis sayfasının Pods sekmesinde.\n"
+const guidedPodRestartNoteTR = "Not: restart sayıları ve pod fazı kube-state-metrics/Thanos ister — servis sayfasının Infrastructure sekmesinde (cluster satırına tıklayın).\n"

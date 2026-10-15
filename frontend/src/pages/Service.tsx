@@ -14,7 +14,6 @@ import { envDSL } from '@/lib/entrySpans';
 import { ServiceOverview } from './service/Overview';
 import { ServiceLogsTab, ServiceTopologyTab } from './service/ServiceSignalTabs';
 import { ServiceInfraTab } from './service/ServiceInfraTab';
-import { ServicePodsTab } from './service/ServicePodsTab';
 import { ServiceGitOpsTab } from './service/ServiceGitOpsTab'; // v0.10.981
 import { OperationsTable } from './service/OperationsTable';
 import { expandBareVerbRows, routeRowsForBundle } from './service/operationRoutes'; // v0.10.1023
@@ -57,7 +56,7 @@ import { PageShell } from '@/components/ui/PageShell';
 // already lands on the same service-scoped /traces page (where the column is
 // sortable). A stale ?tab=traces link redirects there rather than 404ing to
 // the default tab.
-type ServiceTab = 'overview' | 'operations' | 'details' | 'logs' | 'topology' | 'infra' | 'pods' | 'gitops';
+type ServiceTab = 'overview' | 'operations' | 'details' | 'logs' | 'topology' | 'infra' | 'gitops';
 
 // v0.10.929 (K5) — /service başlık noktası. Sağlıklı hâl nötr halka
 // (`.ov-dot.green` globals'ta artık soluk --border-strong halkası; ad tarihsel),
@@ -165,8 +164,9 @@ function ServiceDetailInner() {
     : tabParam === 'details' ? 'details'
     : tabParam === 'logs' ? 'logs'
     : tabParam === 'topology' ? 'topology'
-    : tabParam === 'infra' ? 'infra'
-    : (tabParam === 'pods' || tabParam === 'metrics') ? 'pods'
+    // v0.10.1206 — Pods sekmesi Infrastructure'a katıldı (cluster satırında
+    // inline pod'lar + altta runtime); eski ?tab=pods / ?tab=metrics oraya.
+    : (tabParam === 'infra' || tabParam === 'pods' || tabParam === 'metrics') ? 'infra'
     : tabParam === 'gitops' ? 'gitops'
     : 'overview';
   // v0.9.212 — a bookmarked ?tab=traces would otherwise land silently on
@@ -560,10 +560,6 @@ function ServiceDetailInner() {
             {tab === 'topology' && <ServiceTopologyTab service={svc} range={range} />}
             {tab === 'infra' && <ServiceInfraTab service={svc} range={range}
               onZoom={handleZoom} onZoomReset={handleZoomReset} />}
-            {/* v0.9.158 — "Pods" sekmesi (eski Metrics): cluster açılır pod
-                grupları + JVM/JBoss JMX panelleri + OTel runtime çizelgeleri. */}
-            {tab === 'pods' && <ServicePodsTab service={svc} range={range}
-              onZoom={handleZoom} onZoomReset={handleZoomReset} />}
             {/* v0.10.981 — GitOps: Argo uygulamaları (argocd_app_info) + servisin
                 rollout'ları (workload_rollouts). Kendi sabit pencereleri var
                 (iş yükü 24 sa, rollout 7 gün); sayfa aralığını okumaz. */}
@@ -810,7 +806,6 @@ function TabStrip({ tab, onChange, opCount }: {
     { key: 'operations', label: 'Operations', hint: opCount > 0 ? `${opCount}` : undefined },
     { key: 'details',    label: 'Details' },
     { key: 'infra',      label: 'Infrastructure' },
-    { key: 'pods',       label: 'Pods' },
     { key: 'gitops',     label: 'GitOps' }, // v0.10.981
     { key: 'topology',   label: 'Topology' },
     { key: 'logs',       label: 'Logs' },

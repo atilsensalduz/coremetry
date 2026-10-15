@@ -147,7 +147,7 @@ func TestRenderPodHealthEvidenceTRFleetMode(t *testing.T) {
 		"- billing / billing-7c9: heap %93\n" +
 		"- checkout / checkout-1a2: heap %41\n" +
 		"… ve 3 pod daha (hepsi daha az dolu).\n" +
-		"Not: restart sayıları ve pod fazı kube-state-metrics/Thanos ister — servis sayfasının Pods sekmesinde.\n"
+		"Not: restart sayıları ve pod fazı kube-state-metrics/Thanos ister — servis sayfasının Infrastructure sekmesinde (cluster satırına tıklayın).\n"
 	if got != want {
 		t.Errorf("filo metni değişti:\n--- gelen ---\n%s\n--- beklenen ---\n%s", got, want)
 	}
@@ -184,7 +184,7 @@ func TestRenderPodHealthEvidenceTRServiceMode(t *testing.T) {
 		"- pod-hot: CANLI, cpu %87, bellek 1500MB\n" +
 		"JVM heap doluluğu (son 10 dk ortalaması):\n" +
 		"- pod-hot: heap %89 (889MB / 1000MB -Xmx)\n" +
-		"Not: restart sayıları ve pod fazı kube-state-metrics/Thanos ister — servis sayfasının Pods sekmesinde.\n"
+		"Not: restart sayıları ve pod fazı kube-state-metrics/Thanos ister — servis sayfasının Infrastructure sekmesinde (cluster satırına tıklayın).\n"
 	if got != want {
 		t.Errorf("servis metni değişti:\n--- gelen ---\n%s\n--- beklenen ---\n%s", got, want)
 	}

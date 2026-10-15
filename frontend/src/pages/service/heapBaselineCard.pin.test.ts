@@ -7,7 +7,7 @@ import { heapBandSentence, HEAP_STATUS } from './HeapBaselineCard';
 import type { HeapBaselinePod } from '@/lib/types';
 
 const src = readFileSync(resolve(__dirname, 'HeapBaselineCard.tsx'), 'utf8');
-const tab = readFileSync(resolve(__dirname, 'ServicePodsTab.tsx'), 'utf8');
+const tab = readFileSync(resolve(__dirname, 'ServiceRuntimeSection.tsx'), 'utf8');
 
 describe('HeapBaselineCard — dürüstlük pinleri', () => {
   it('boş küme → kart yok; hata tek satır; bant thresholds ile; odaklı pod hep çizilir; problem açmaz', () => {

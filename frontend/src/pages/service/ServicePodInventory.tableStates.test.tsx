@@ -46,7 +46,7 @@ vi.mock('./RuntimeCharts', () => ({ RuntimeCharts: () => null, familyOf: () => n
 vi.mock('./HeapBaselineCard', () => ({ HeapBaselineCard: () => null }));
 vi.mock('./PodResourceCharts', () => ({ PodResourceCharts: () => null }));
 
-import { ServicePodsTab } from './ServicePodsTab';
+import { ServicePodInventory } from './ServicePodInventory';
 
 function thStub(over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -91,7 +91,7 @@ async function mount(url = '/service?name=orders&tab=pods'): Promise<HTMLElement
     root.render(
       <QueryClientProvider client={qc}>
         <MemoryRouter initialEntries={[url]}>
-          <ServicePodsTab service="orders" range={{ preset: '1h' }} />
+          <ServicePodInventory service="orders" range={{ preset: '1h' }} />
           <LocProbe />
         </MemoryRouter>
       </QueryClientProvider>,

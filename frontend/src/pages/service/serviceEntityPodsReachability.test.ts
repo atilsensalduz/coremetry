@@ -18,20 +18,23 @@ const read = (f: string) => readFileSync(join(__dirname, f), 'utf8');
 const strip = (s: string) => s.replace(/^\s*\/\/.*$/gm, '').replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
 
 describe('Pods tek tablo — entity erişilebilirliği (v0.10.145 → 149 → 720 → 972)', () => {
-  it('Infra tab does NOT mount the pods table (it lives in the Pods tab only) but points at it', () => {
+  // v0.10.1206 — Pods sekmesi kalktı: envanter Infrastructure'da seçili cluster
+  // satırının altında + Thanos dışı (yalnız span'lerin gördüğü) pod'lar altta.
+  it('Infra tab mounts the pod inventory inline per cluster + entity-only remainder', () => {
     const src = strip(read('ServiceInfraTab.tsx'));
     expect(src).not.toContain('<ServicePodsTable');
     expect(src).not.toContain('<ServiceEntityPods');
-    expect(src).toMatch(/entityHint/);
-    expect(src).toMatch(/tab: 'pods'/);
+    expect(src).toContain('<ServicePodInventory service={service} range={range} cluster={r.cluster} />');
+    expect(src).toContain('excludeClusters={clusterRows.map(c => c.cluster)}');
+    expect(src).not.toMatch(/tab: 'pods'/);
   });
   it("Pods tab: entity hook Thanos'tan bağımsız, birleşik küme, boş durum yalnız birleşik küme boşken", () => {
-    const src = strip(read('ServicePodsTab.tsx'));
+    const src = strip(read('ServicePodInventory.tsx'));
     const tbl = strip(read('ServicePodsTable.tsx'));
     expect(src).toContain("useEntityServicePods(service, '', win, entityEnabled)");
     expect(src).toContain('mergePods(entityEnabled ? (entityQ.data?.pods ?? []) : [], th.rows, nameOf)');
     // dt birleşik (ve kaynak süzgeçli) kümeden kurulur; tablonun satırları o.
-    expect(src).toContain('const rows = useMemo(() => filterBySource(merged, source), [merged, source]);');
+    expect(src).toContain('const r = filterBySource(merged, source);');
     expect(src).toMatch(/useDataTable<MergedPodRow>\(\{\s*storageKey: 'service-pods-v2', columns: POD_COLS, rows,/);
     // Boş durum tablonun içinde, eski "No pods matched" kutusunun yerine.
     expect(src).toContain("message: 'Eşleşen pod yok'");
@@ -51,7 +54,7 @@ describe('Pods tek tablo — entity erişilebilirliği (v0.10.145 → 149 → 72
     expect(src).not.toContain("position: 'sticky'");
   });
   it('tablo: yapışık Pod sütunu, kaynak rozeti, ?jpod tüketimi, grup başlığı eylemleri', () => {
-    const tab = read('ServicePodsTab.tsx');
+    const tab = read('ServicePodInventory.tsx');
     const tbl = read('ServicePodsTable.tsx');
     expect(tab).toContain('stickyLeft: true');
     expect(tab).toContain("storageKey: 'service-pods-v2'");

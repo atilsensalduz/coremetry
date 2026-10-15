@@ -20,7 +20,7 @@ describe('Infra dilim 1 — Clusters tablosu', () => {
     expect(infra).toContain("sel ? 'row-selected' : ''");
   });
   it("Topbar ?cluster= yalnız Thanos adıyla birebir eşleşince kapsam; rozet kaynağı söyler", () => {
-    expect(infra).toContain("const effCluster = icluster || (clustersWithPods.includes(topbarCluster) ? topbarCluster : '')");
+    expect(infra).toContain("const effCluster = icluster || jpodCluster || (clustersWithPods.includes(topbarCluster) ? topbarCluster : '')"); // v0.10.1206 — ?jpod= kendi cluster'ını açar
     expect(infra).toContain("kapsam: {effCluster}{icluster ? '' : ' · Topbar'}");
   });
   it('cluster hücresi entity linki; Traces → yalnız span cluster adı da görülüyorsa', () => {
@@ -52,7 +52,7 @@ describe('Infra dilim 1 — KPI, grafik hatası, HAProxy', () => {
     const grid = strip.slice(0, strip.indexOf('</div>'));
     expect((grid.match(/<StatTile /g) ?? []).length).toBe(4);
     expect((grid.match(/ onClick=/g) ?? []).length).toBe(4);
-    expect(infra).toContain('onClick={goToPods} title="Pods sekmesine git"');
+    expect(infra).toContain('onClick={goToPods} title="Cluster pod listesini aç"'); // v0.10.1206 — Pods sekmesi yok
     expect(infra).toContain(`onClick={() => scrollToChart('cpu')} title="CPU grafiğine git"`);
     expect(infra).toContain(`onClick={() => scrollToChart('mem')} title="Memory grafiğine git"`);
     expect(infra).not.toContain('className="stat-click"');

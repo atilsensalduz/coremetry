@@ -60,6 +60,8 @@ vi.mock('@/lib/api', async (importOriginal) => {
   };
 });
 vi.mock('./ServiceKafkaClientsPanel', () => ({ ServiceKafkaClientsPanel: () => null }));
+// v0.10.1206 — runtime bölümü (uPlot, modül yüklemede matchMedia) bu testin konusu değil.
+vi.mock('./ServiceRuntimeSection', () => ({ ServiceRuntimeSection: () => null }));
 vi.mock('@/pages/clusters/MetricArea', () => ({ MetricArea: () => null }));
 
 import { ServiceInfraTab } from './ServiceInfraTab';
@@ -146,14 +148,14 @@ describe('ServiceInfraTab — pod envanteri durumları Clusters tablosunun için
     expect(el.textContent).not.toContain('No pods matched');
   });
 
-  it('eşleşme yok + entity açık: Pods sekmesi bağlantısı AYNI hücrede (P-1 detail)', async () => {
+  it('eşleşme yok + entity açık: entity pod bağlantısı AYNI hücrede (P-1 detail; v0.10.1206 sayfa-içi)', async () => {
     m.entity = true;
     const el = await mount();
     const row = stateRow(el)!;
     expect(row.dataset.dtState).toBe('empty');
     const link = row.querySelector('a');
-    expect(link?.textContent).toBe('Pods sekmesinde');
-    expect(link?.getAttribute('href')).toContain('tab=pods');
+    expect(link?.textContent).toBe('tablonun altında');
+    expect(link?.getAttribute('href')).toBe('#pods-sec');
     // Bağlantı durum hücresinin içinde, tablonun dışında değil.
     expect(row.querySelectorAll('td').length).toBe(1);
     expect(row.querySelector('[data-dt-state-detail]')?.contains(link!)).toBe(true);
@@ -168,7 +170,7 @@ describe('ServiceInfraTab — pod envanteri durumları Clusters tablosunun için
     expect(row.textContent).toContain("Pod envanteri okunamadı: c1 cluster'ı sorguya yanıt vermedi");
     expect(row.textContent).not.toContain(DATA_TABLE_STATE_TEXT.empty);
     expect(row.textContent).not.toContain('Eşleşen pod yok');
-    expect(row.querySelector('a')?.textContent).toBe('Pods sekmesinde');
+    expect(row.querySelector('a')?.textContent).toBe('tablonun altında');
     expect(el.textContent).toContain('1 cluster yanıt vermedi');
     // Hiçbir cluster yanıt vermedi → arama koşmadı; "denendi · adlandırmayı
     // kontrol et" cümlesi burada yanlış olurdu (G5-1).
