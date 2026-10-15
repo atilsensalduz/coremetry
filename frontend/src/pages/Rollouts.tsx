@@ -60,7 +60,8 @@ const STATUSES = ['', 'in_progress', 'completed', 'rolled_back', 'superseded', '
 // öncelikle gizlenir ("+N sütun"): önce Not / Kaynak / Span / Tür, sonra Süre
 // ve Revizyon; Workload esneyen kimlik kolonu.
 const COLS: ColumnDef<WorkloadRollout>[] = [
-  { id: 'status', label: 'Durum', width: 120, minWidth: 96, priority: 1 },
+  // v0.10.1205 (operatör) — zaman EN BAŞTA, durum onun eski yerinde.
+  { id: 'started', label: 'Başladı', width: 136, minWidth: 128, numeric: true, priority: 1 }, // v0.10.1068 — yılsız damga (tsCompact), tam damga title'da
   { id: 'workload', label: 'Workload', flex: true, minWidth: 180, priority: 1 },
   // v0.10.565 (operatör-raporlu): cluster adı Workload hücresinin SONUNDA
   // soluk ek olarak duruyordu ve 300px kolonda ellipsis'e kurban gidiyordu
@@ -71,7 +72,7 @@ const COLS: ColumnDef<WorkloadRollout>[] = [
   { id: 'change', label: 'Değişiklik', width: 130, minWidth: 100, priority: 2 }, // v0.10.234 — imaj değişti mi (Deployment) / aynı mı (config)
   { id: 'revision', label: 'Revizyon', width: 150, minWidth: 120, mono: true, priority: 3 },
   { id: 'image', label: 'İmaj (eski → yeni)', width: 300, minWidth: 170, mono: true, priority: 2 },
-  { id: 'started', label: 'Başladı', width: 136, minWidth: 128, numeric: true, priority: 2 }, // v0.10.1068 — yılsız damga (tsCompact), tam damga title'da
+  { id: 'status', label: 'Durum', width: 120, minWidth: 96, priority: 2 },
   { id: 'dur', label: 'Süre', width: 90, minWidth: 64, numeric: true, priority: 3 },
   { id: 'spans', label: 'Span', width: 90, minWidth: 64, numeric: true, priority: 4 },
   { id: 'problems', label: 'Problem', width: 90, minWidth: 64, numeric: true, priority: 2 }, // v0.10.244 — D4: başlangıçtan beri açık problemler (çekmece sayımı)
@@ -128,8 +129,8 @@ export default function RolloutsPage() {
   // v0.10.984 — iki kanca da her render'da çağrılır (kanca sırası sabit);
   // görünen tablo sunucunun kaynağına göre seçilir, öteki boş satırla durur.
   const v2 = listQ.data?.v2 === true;
-  const dtV1 = useDataTable<WorkloadRollout>({ storageKey: 'rollouts-live', columns: COLS, rows: v2 ? [] : rows, serverSort: true });
-  const dtV2 = useDataTable<WorkloadRollout>({ storageKey: 'rollouts-live-v2', columns: COLS_V2, rows: v2 ? rows : [], serverSort: true });
+  const dtV1 = useDataTable<WorkloadRollout>({ storageKey: 'rollouts-live-t1', columns: COLS, rows: v2 ? [] : rows, serverSort: true });
+  const dtV2 = useDataTable<WorkloadRollout>({ storageKey: 'rollouts-live-v2-t1', columns: COLS_V2, rows: v2 ? rows : [], serverSort: true });
   const dt = v2 ? dtV2 : dtV1;
   const [enabling, setEnabling] = useState(false);
   const [enableErr, setEnableErr] = useState('');
@@ -228,7 +229,9 @@ export default function RolloutsPage() {
                         // v0.10.933 (tablo standardı T2) — elle onClick: imleç + hover bu işaretle (globals.css)
                         data-row-action
                         onClick={e => { if ((e.target as HTMLElement).closest('a, button')) return; setParam('rollout', encodeRolloutParam(r)); }}>
-                        <DataTableCell dt={dt} col="status" row={r}><Badge tone={statusTone(r.status)} title={[statusTitle(r.status, v2), r.completedAt ? `tamamlandı ${fmtDateTime(new Date(r.completedAt))}` : ''].filter(Boolean).join(' · ') || undefined}>{statusLabel(r.status)}</Badge></DataTableCell>
+                        {/* v0.10.945 — zaman damgası mono kalır (S2 yalnız sayıyı kapsar); kolon
+                            `numeric` olduğundan DataTableCell `num` basar ve mono'yu nötrlerdi. */}
+                        <td className="mono" title={fmtDateTime(new Date(r.startedAt))}>{tsCompact(r.startedAt * 1e6)}</td>
                         <DataTableCell dt={dt} col="workload" row={r} title={`${cname} / ${r.namespace} / ${r.workload}`}>
                           <Link to={wlHref} className="sec">{r.workload}</Link>
                           <span className="field-hint"> · {r.namespace}</span>
@@ -240,9 +243,7 @@ export default function RolloutsPage() {
                         <DataTableCell dt={dt} col="revision" row={r} title={r.revision || undefined}>{r.revision ? shortRevision(r.revision, r.workload) : '—'}{r.prevRevision ? <span className="field-hint"> ← {shortRevision(r.prevRevision, r.workload)}</span> : null}</DataTableCell>
                         {v2 && <DataTableCell dt={dt} col="gen" row={r} title="nesil · güncel/hazır/istenen replika (KSM)">{fmtNum(r.generation ?? 0)}<span className="field-hint"> · {replicaSummary(r)}</span></DataTableCell>}
                         <DataTableCell dt={dt} col="image" row={r} title={r.image || undefined}>{imageDiff(r)}</DataTableCell>
-                        {/* v0.10.945 — zaman damgası mono kalır (S2 yalnız sayıyı kapsar); kolon
-                            `numeric` olduğundan DataTableCell `num` basar ve mono'yu nötrlerdi. */}
-                        <td className="mono" title={fmtDateTime(new Date(r.startedAt))}>{tsCompact(r.startedAt * 1e6)}</td>
+                        <DataTableCell dt={dt} col="status" row={r}><Badge tone={statusTone(r.status)} title={[statusTitle(r.status, v2), r.completedAt ? `tamamlandı ${fmtDateTime(new Date(r.completedAt))}` : ''].filter(Boolean).join(' · ') || undefined}>{statusLabel(r.status)}</Badge></DataTableCell>
                         <DataTableCell dt={dt} col="dur" row={r} value={fmtDurShort(rolloutDurationSec(r, Date.now()))} />
                         {!v2 && <DataTableCell dt={dt} col="spans" row={r} value={fmtNum(r.spanCount)} />}
                         <DataTableCell dt={dt} col="problems" row={r}>{r.problemsCaused
