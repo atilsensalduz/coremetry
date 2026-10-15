@@ -131,6 +131,30 @@ func (c *capRecorder) RecordCall(_ context.Context, rec copilot.CallRecord) {
 	c.done <- struct{}{}
 }
 
+// waitFor — v0.10.1181 (CI kırmızısı, 1180 Release kapısı): koşula uyan kayıt
+// gelene dek bekler (en çok 10 sn). wait(n) "ilk n kayıt"tı; kayıtlar ayrı
+// goroutine'lerden geldiği için aranan satır n'den sonra gelebiliyordu ve
+// test yük altında ara ara düşüyordu.
+func (c *capRecorder) waitFor(t *testing.T, ok func(copilot.CallRecord) bool) bool {
+	t.Helper()
+	deadline := time.After(10 * time.Second)
+	for {
+		c.mu.Lock()
+		for _, r := range c.recs {
+			if ok(r) {
+				c.mu.Unlock()
+				return true
+			}
+		}
+		c.mu.Unlock()
+		select {
+		case <-c.done:
+		case <-deadline:
+			return false
+		}
+	}
+}
+
 func (c *capRecorder) wait(t *testing.T, n int) []copilot.CallRecord {
 	t.Helper()
 	for i := 0; i < n; i++ {

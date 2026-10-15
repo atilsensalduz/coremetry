@@ -508,12 +508,9 @@ func TestExceptionFollowUpFallsBackToNarration(t *testing.T) {
 			if done := framesOf(frames, "done"); len(done) != 1 || done[0]["ok"] != true {
 				t.Fatalf("done: %v", done)
 			}
-			sawLoopErr := false
-			for _, r := range rec.wait(t, 2) {
-				if r.Surface == exceptionCodeSurface && r.Status == "error" {
-					sawLoopErr = true
-				}
-			}
+			sawLoopErr := rec.waitFor(t, func(r copilot.CallRecord) bool {
+				return r.Surface == exceptionCodeSurface && r.Status == "error"
+			})
 			if !sawLoopErr {
 				t.Fatal("döngünün ai_calls satırı status=error ile kalmalı (/ai arızayı görsün)")
 			}
