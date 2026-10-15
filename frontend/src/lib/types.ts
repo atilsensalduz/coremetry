@@ -7225,6 +7225,43 @@ export interface ChatScope {
   shaped?: string[];
 }
 /** v0.10.1138 — mesaj başı eğik komutları (context.command). */
+// CoSRE öğrenme Faz 2 — istemcinin örtük sinyalleri (POST /api/ai/signal;
+// internal/cosrelearn ClientSignalKinds). Türetilenler sunucuda hesaplanır.
+export type CosreSignalKind = 'copy' | 'link_click' | 'evidence_click' | 'problem_note';
+
+// GET /api/ai/quality — gece kalite puanı (internal/chstore/cosre_quality.go).
+export interface CosreWorstAnswer {
+  exchangeId: string;
+  createdAt: string;
+  tier: string;
+  score: number;
+  positives: number;
+  negatives: number;
+  reasons: string[];
+  question: string;
+  answer: string;
+  userEmail?: string;
+  page?: string;
+  service?: string;
+  problemId?: string;
+  model?: string;
+  tools: string[];
+}
+export interface CosreWorstTool {
+  tool: string;
+  calls: number;
+  successRate: number;
+  avgMs: number;
+  p95Ms: number;
+  rephraseRate: number;
+  score: number;
+}
+export interface CosreQualityView {
+  days: number;
+  answers: CosreWorstAnswer[];
+  tools: CosreWorstTool[];
+}
+
 // CoSRE öğrenme Faz 1 — istemcinin deneme beyanı (chat context.attempt;
 // internal/api/chat_exchange.go normalizeChatAttempt). Yeni soru = yok.
 export type ChatAttempt = 'retry' | 'regenerate' | 'edit';

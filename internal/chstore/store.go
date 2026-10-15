@@ -2947,6 +2947,55 @@ func canonicalTables(sd, ld, md int) []string {
 		ORDER BY (created_at, tier)
 		TTL toDate(created_at) + INTERVAL 180 DAY`,
 
+		// cosre_signals — CoSRE öğrenme Faz 2: cevaba bağlı ÖRTÜK sinyal
+		// (istemci: copy / link_click / evidence_click / problem_note).
+		// Türetilen sinyaller (yeniden sorma, iptal, tool hatası, kanıtsız…)
+		// burada DEĞİL: gece işi cosre_interactions'tan hesaplar. Append-only.
+		`CREATE TABLE IF NOT EXISTS cosre_signals (
+			exchange_id String,
+			created_at  DateTime64(3) DEFAULT now64(3) CODEC(Delta, ZSTD(3)),
+			user_email  String DEFAULT '',
+			kind        LowCardinality(String),
+			detail      String DEFAULT '' CODEC(ZSTD(3)),
+			INDEX idx_exchange exchange_id TYPE bloom_filter(0.01) GRANULARITY 4
+		) ENGINE = MergeTree
+		PARTITION BY toYYYYMM(created_at)
+		ORDER BY (created_at, kind)
+		TTL toDate(created_at) + INTERVAL 180 DAY`,
+
+		// cosre_answer_quality — Faz 2 gece puanı, cevap başına. Yeniden
+		// hesap (geç gelen sinyal / tekrar koşu) aynı satırı değiştirir →
+		// RMT(version), ORDER BY = dedup anahtarı, partition YOK (P1).
+		// created_at = turun zamanı (pencere filtresi + TTL).
+		`CREATE TABLE IF NOT EXISTS cosre_answer_quality (
+			exchange_id String,
+			created_at  DateTime64(3),
+			tier        LowCardinality(String) DEFAULT '',
+			score       Float32,
+			positives   UInt8 DEFAULT 0,
+			negatives   UInt8 DEFAULT 0,
+			reasons     Array(LowCardinality(String)),
+			version     UInt64 DEFAULT toUnixTimestamp64Nano(now64(9))
+		) ENGINE = ReplacingMergeTree(version)
+		ORDER BY exchange_id
+		TTL toDate(created_at) + INTERVAL 180 DAY`,
+
+		// cosre_tool_quality — Faz 2 gece puanı, gün × tool. RMT(version),
+		// ORDER BY (day, tool) dedup anahtarı; partition YOK (P1).
+		`CREATE TABLE IF NOT EXISTS cosre_tool_quality (
+			day       Date,
+			tool      LowCardinality(String),
+			calls     UInt32,
+			ok_calls  UInt32,
+			sum_ms    UInt64,
+			p95_ms    UInt32,
+			rephrased UInt32,
+			score     Float32,
+			version   UInt64 DEFAULT toUnixTimestamp64Nano(now64(9))
+		) ENGINE = ReplacingMergeTree(version)
+		ORDER BY (day, tool)
+		TTL day + INTERVAL 180 DAY`,
+
 		// v0.9.1193 (AI Faz 5.1) — 👎'nin YORUMU. "Faydasız" tek başına
 		// madencilik için zayıf sinyal: /ai negatif paneli hangi soru
 		// şekillerinin kötü cevap aldığını gösteriyor ama NEDEN kötü

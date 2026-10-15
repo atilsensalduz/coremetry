@@ -6,6 +6,7 @@ import { Button, Drawer, DrawerSection, SegmentedControl } from '@/components/ui
 import { api } from '@/lib/api';
 import { cachedPctLabel } from './ai/cachedTokens';
 import { ExchangesPanel } from './ai/ExchangesPanel';
+import { CosreQualityPanel } from './ai/CosreQualityPanel';
 import { useUrlRange } from '@/lib/useUrlRange';
 import { rcaPctText, rcaEngineTone, rcaSatisfactionText, rcaBucketLabel, rcaBucketSatisfaction, rcaCalibrationNote } from './ai/rcaQualityView';
 import type { RCAVerdictQuality, AIBudgetStatus, NegativeFeedbackCall } from '@/lib/types';
@@ -405,6 +406,7 @@ export default function AIObservabilityPage() {
         <RCAQualityPanel range={range} />
         <RouterGapsPanel />
         <NegativeFeedbackPanel />
+        <CosreQualityPanel /> {/* CoSRE öğrenme Faz 2 — örtük sinyal gece puanı */}
 
         {open && <CallDrawer call={open} rates={rates} onClose={() => setOpen(null)} />}
       </PageShell>

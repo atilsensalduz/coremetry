@@ -1,4 +1,4 @@
-import { Component, Fragment, createContext, memo, useContext, useMemo, useState, type ErrorInfo, type ReactNode } from 'react';
+import { Component, Fragment, createContext, memo, useContext, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
 import { chatErrorText } from './chatErrorText';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { AIFeedbackButtons } from './AIFeedbackButtons';
@@ -9,7 +9,8 @@ import { EvidenceCard } from './EvidenceCard';
 import { parseAction, actionVisible, applyActionHref, parseProblemNoteAction } from '@/lib/pageActions';
 import { ProblemNoteButton } from './ProblemNoteButton';
 import { Button } from '@/components/ui/Button';
-import type { ChatTurn, ChatStepDetail, ChatTypedBlock } from '@/lib/types';
+import type { ChatTurn, ChatStepDetail, ChatTypedBlock, CosreSignalKind } from '@/lib/types';
+import { api } from '@/lib/api';
 import { traceHref } from '@/lib/traceHref';
 import { isPlainLeftClick } from '@/lib/a11y'; // v0.10.1105
 import { CosreChart, type CosreChartSpec } from '@/components/CosreChart';
@@ -832,6 +833,17 @@ class BubbleBoundary extends Component<{ turn: ChatTurn; children: ReactNode }, 
   }
 }
 
+// useCosreSignal — CoSRE öğrenme Faz 2: cevaba bağlı örtük sinyal, tür başına
+// bir kez. exchangeId yoksa (arşivden gelen tur) hiçbir şey gönderilmez.
+function useCosreSignal(exchangeId: string | undefined) {
+  const sent = useRef<Set<CosreSignalKind>>(new Set());
+  return (kind: CosreSignalKind, detail?: string) => {
+    if (!exchangeId || sent.current.has(kind)) return;
+    sent.current.add(kind);
+    api.aiSignal(exchangeId, kind, detail);
+  };
+}
+
 // v0.10.1137 inceleme — React.memo: akış sırasında yalnız SON tur değişir
 // (useChatThread patchLast diğer turların kimliğini korur); tamamlanmış
 // balonlar yeniden çizilmez, çözücü yalnız akan mesajda koşar.
@@ -852,10 +864,23 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
   // DÜZ sol tık yakalanır. v0.10.1125 — /cosre'de (yeni sekme kipi) yakalanmaz.
   const newTab = useChatLinkNewTab();
   const linkProps = chatLinkTargetProps(newTab);
-  const onBodyClick = useChatNavClick(newTab);
+  const navClick = useChatNavClick(newTab);
+  // CoSRE öğrenme Faz 2 — örtük olumlu sinyal (kopya, link, kanıt, not);
+  // balon başına tür başına bir kez (tekrar tık ağırlığı şişirmesin).
+  const signal = useCosreSignal(turn.exchangeId);
+  const onBodyClick = (e: React.MouseEvent) => {
+    const a = (e.target as HTMLElement).closest?.('a[href]');
+    if (a) signal('link_click', a.getAttribute('href') ?? undefined);
+    navClick(e);
+  };
+  const openEvidence = (i: number | null) => {
+    if (i != null) signal('evidence_click');
+    setEvId(i);
+  };
   // v0.10.1137 — kopya DÜZ METİN: markdown işaretleri düşer, linkler adresleriyle.
   const copy = () => {
     navigator.clipboard?.writeText(chatPlainText(turn.text ?? '')).then(() => {
+      signal('copy');
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1400);
     }).catch(() => {});
@@ -895,7 +920,7 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
       </div>
       <div onClick={onBodyClick} className="cm-msg-ai" style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
         {/* v0.10.1137 — adımlar tek açılırda (akarken açık, bitince kapanır). */}
-        {hasSteps && <StepsDisclosure turn={turn} evId={evId} setEvId={setEvId} initialOpen={stepsOpen} />}
+        {hasSteps && <StepsDisclosure turn={turn} evId={evId} setEvId={openEvidence} initialOpen={stepsOpen} />}
         {turn.text ? (
           // `turn.pending` çözücüye GEÇİYOR: yarım tablo satırı / kapanmamış
           // çit kararı ona bağlı (chatMarkdown.ts); imleç de son metnin içinde.
@@ -912,7 +937,7 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
             {!turn.pending && (turn.blocks ?? []).filter(b => b.type === 'action').map(b => {
               // v0.10.1169 — "probleme not" aksiyonu (sunucu, tool sonucundan).
               const note = parseProblemNoteAction(b.payload);
-              if (note) return <div key={b.id} style={{ marginTop: 6 }}><ProblemNoteButton action={note} /></div>;
+              if (note) return <div key={b.id} style={{ marginTop: 6 }}><ProblemNoteButton action={note} onSaved={() => signal('problem_note')} /></div>;
               const a = parseAction(b.payload);
               if (!a || !actionVisible(a, loc.pathname)) return null;
               return (
@@ -954,7 +979,8 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
       {/* Derin-link çipleri (v0.9.419; v0.10.546 etiketli "Aç →" satırı). Dış
           URL <a target=_blank> (v0.9.709), iç link SPA <Link>. */}
       {!!effLinks.length && !turn.pending && !turn.error && (
-        <div className="ai-links" role="group" aria-label="İlgili sayfalar">
+        <div className="ai-links" role="group" aria-label="İlgili sayfalar"
+          onClickCapture={e => { const a = (e.target as HTMLElement).closest?.('a[href]'); if (a) signal('link_click', a.getAttribute('href') ?? undefined); }}>
           <span className="ai-links__cap">Aç →</span>
           {effLinks.map((l, i) => (
             /^https?:/i.test(l.href) ? (

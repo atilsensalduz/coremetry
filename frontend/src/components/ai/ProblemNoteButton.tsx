@@ -7,13 +7,15 @@ import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import type { ProblemNoteAction } from '@/lib/pageActions';
 
-export function ProblemNoteButton({ action }: { action: ProblemNoteAction }) {
+// onSaved — CoSRE öğrenme Faz 2: başarılı kayıt cevabın olumlu örtük sinyali.
+export function ProblemNoteButton({ action, onSaved }: { action: ProblemNoteAction; onSaved?: () => void }) {
   const [state, setState] = useState<'idle' | 'busy' | 'done'>('idle');
   const save = async () => {
     setState('busy');
     try {
       await api.saveProblemNote(action.problemId, { token: action.token, text: action.text, tool: action.tool });
       setState('done');
+      onSaved?.();
       toast.success('Bulgu probleme not olarak kaydedildi');
     } catch (e) {
       setState('idle');

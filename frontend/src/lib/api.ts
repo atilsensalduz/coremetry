@@ -1276,6 +1276,19 @@ export const api = {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
+  // CoSRE öğrenme Faz 2 — örtük sinyal (kopya, link/kanıt tıkı, probleme not).
+  // Ateşle-unut: keepalive (SPA gezinmesinde istek düşmesin), hata yutulur —
+  // sinyal kaybı kullanıcı eylemini ASLA bozmaz.
+  aiSignal: (exchangeId: string, kind: import('./types').CosreSignalKind, detail?: string): void => {
+    fetch(API_BASE + '/api/ai/signal', {
+      method: 'POST', credentials: 'include', keepalive: true,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(detail ? { exchangeId, kind, detail } : { exchangeId, kind }),
+    }).catch(() => { /* sinyal kaybı sessiz */ });
+  },
+  // CoSRE öğrenme Faz 2 — haftanın en kötü cevapları + tool'ları (admin).
+  cosreQuality: (days: 7 | 30 = 7) =>
+    get<import('./types').CosreQualityView>(`/api/ai/quality?days=${days}`),
   // v0.9.423 — 👎 madenciliği: düşük puanlı cevaplar prompt örnekleriyle.
   // v0.9.549 — guided router'ın yakalayamadığı sorular (serbest tool
   // döngüsüne düşenler). days sabit basamak: cache anahtarına giriyor.

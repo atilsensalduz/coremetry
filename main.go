@@ -34,6 +34,7 @@ import (
 	"github.com/cilcenk/coremetry/internal/consumer"
 	"github.com/cilcenk/coremetry/internal/copilot"
 	"github.com/cilcenk/coremetry/internal/correlator"
+	"github.com/cilcenk/coremetry/internal/cosrelearn"
 	"github.com/cilcenk/coremetry/internal/devops"
 	"github.com/cilcenk/coremetry/internal/elasticml"
 	"github.com/cilcenk/coremetry/internal/entity"
@@ -841,7 +842,8 @@ func main() {
 	// natural fit.
 	if mode.worker {
 		go store.StartRetentionEnforcer(ctx, time.Hour, lockImpl)
-		go store.StartAIChatSweeper(ctx, time.Hour, lockImpl) // v0.10.561 — saved_views(page='ai-chat') süpürücüsü
+		go store.StartAIChatSweeper(ctx, time.Hour, lockImpl)          // v0.10.561 — saved_views(page='ai-chat') süpürücüsü
+		go cosrelearn.StartQualityJob(ctx, store, lockImpl, time.Hour) // CoSRE öğrenme Faz 2 — gece kalite puanı
 	}
 
 	// ── Optional OIDC ─────────────────────────────────────────────────────────
