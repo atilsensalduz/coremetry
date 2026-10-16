@@ -43,3 +43,12 @@ func TestFunctionCodeShapeScanTypes(t *testing.T) {
 		t.Fatal("len int32 değişkene taranmalı, doğrudan int alana değil")
 	}
 }
+
+// v0.10.1242 — topoloji düğüm adları operasyon okumasını hiç koşmaz.
+func TestIsTopologyNodeName(t *testing.T) {
+	for n, want := range map[string]bool{"db:oracle@uakb01_uat": true, "queue:kafka:orders": true, "ext:api.example.test": true, "checkout": false, "dbproxy": false, "": false} {
+		if IsTopologyNodeName(n) != want {
+			t.Errorf("%q: %v bekleniyordu", n, want)
+		}
+	}
+}

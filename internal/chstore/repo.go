@@ -1424,7 +1424,21 @@ func operationsUseMV(window time.Duration, env string) bool {
 // OperationSummary.Name field carries the op_group value in that mode, so
 // the scanner, sparkline, and frontend are unchanged. normalized=false is
 // byte-for-byte the pre-rel-B behaviour.
+// IsTopologyNodeName — SAF: topoloji toplayıcısının sanal düğüm adları
+// ("db:<sys>@<host>", "queue:…", "ext:…"); hiçbir span'in service_name'i
+// bu biçimde değildir (decodeNodeName, internal/api/servicegraph.go).
+func IsTopologyNodeName(name string) bool {
+	return strings.HasPrefix(name, "db:") || strings.HasPrefix(name, "queue:") || strings.HasPrefix(name, "ext:")
+}
+
 func (s *Store) GetOperationSummary(ctx context.Context, service string, since time.Duration, from, to time.Time, normalized bool, env string) ([]OperationSummary, error) {
+	// v0.10.1242 — operatör log'u: "service=db:oracle@… MV path empty —
+	// falling through to raw spans" ~20 dk'da bir. Topoloji düğüm adları
+	// (db:/queue:/ext:) span service_name'i DEĞİL; iki yol da tanım gereği
+	// boş, ham tarama boşuna koşuyordu. Sonuç aynı (boş), sorgu yok.
+	if IsTopologyNodeName(service) {
+		return []OperationSummary{}, nil
+	}
 	// v0.8.186 — when op_group isn't on the spans table (external Distributed
 	// install where the ALTER couldn't reach spans_local), BOTH normalized
 	// branches reference op_group: the MV path reads the now-absent
