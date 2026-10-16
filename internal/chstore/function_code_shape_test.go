@@ -31,3 +31,15 @@ func TestEndpointSampleOrder(t *testing.T) {
 		t.Error("random hash sırası olmalı")
 	}
 }
+
+// v0.10.1241 — operatör: "Ölç" HTTP 500 ("converting Int32 to *int is
+// unsupported"). SQL toInt32(length(...)) döndürür; tarama hedefi int32 olmalı.
+func TestFunctionCodeShapeScanTypes(t *testing.T) {
+	src := mustReadSource(t, "function_code_shape.go")
+	if !strings.Contains(functionCodeShapeSQL("t", "ts", "c", "count()"), "toInt32(length(c)) AS len") {
+		t.Fatal("len sütunu Int32 olarak seçilmeli")
+	}
+	if !strings.Contains(src, "var n int32") || strings.Contains(src, "&r.Len,") {
+		t.Fatal("len int32 değişkene taranmalı, doğrudan int alana değil")
+	}
+}

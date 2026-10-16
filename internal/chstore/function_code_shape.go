@@ -67,9 +67,11 @@ func (s *Store) FunctionCodeShapeStats(ctx context.Context, now time.Time) (Func
 	for rows.Next() {
 		var r FunctionCodeShapeRow
 		var ok uint8
-		if err := rows.Scan(&ok, &r.Len, &r.Distinct, &r.Spans, &r.Example); err != nil {
+		var n int32 // v0.10.1241 — toInt32(length(…)); *int'e taranamaz (operatör: HTTP 500)
+		if err := rows.Scan(&ok, &n, &r.Distinct, &r.Spans, &r.Example); err != nil {
 			return out, err
 		}
+		r.Len = int(n)
 		r.Conforms = ok == 1
 		out.Rows = append(out.Rows, r)
 	}
