@@ -11,7 +11,7 @@ import { Chip } from '@/components/ui/Chip';
 import { IconButton } from '@/components/ui/IconButton';
 import { Drawer } from '@/components/ui/Drawer';
 import { useConfirm } from '@/components/ui/ConfirmDialog';
-import { useOpenCriticalCount, useProblems } from '@/lib/queries';
+import { useOpenCriticalCount, useInbox } from '@/lib/queries';
 import { useAuth } from '@/components/AuthProvider';
 import { useUrlRange } from '@/lib/useUrlRange';
 import { useUrlEnv } from '@/lib/useUrlEnv';
@@ -100,10 +100,11 @@ const STARTERS = [
   'Takımımın servisleri nasıl?',
   // v0.10.702 (operatör: "ilk sohbet önerileri zenginleşsin") — iki çip
   // daha; ikisi de LLM'siz yönlenir (copilot_starters_test pinler).
-  'Takımımın açık problemleri?',
+  // v0.10.1249 (operatör) — "açık problemleri" yerine takım exception'ları
+  // (takım süzgeçli Exceptions linki + kısa özet); filo geneli "son 1 saatteki
+  // log hataları" çok servisli kurulumda anlamsızdı, çıkarıldı.
   "Takımımın exception'ları?",
   "En yavaş trace'ler?",
-  'Son 1 saatteki log hataları?',
 ];
 
 // CoSRE markası — v0.10.498 (operatör: "direkt OpenTelemetry iconu olsun";
@@ -449,9 +450,13 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
   // taşır: copilot açık, pencere açık, ve henüz konuşma başlamamış —
   // yani sorgu SADECE karşılama gerçekten ekrandayken koşar. Kapalı
   // pencerede ya da sohbet ortasında tek istek bile gitmez.
-  const p1q = useProblems({ status: 'open', priority: ['P1'], limit: 50 },
+  // v0.10.1249 (operatör: "hep 2 açık P1 var, hatalı") — kaynak Inbox: P1
+  // orada okuma anında, Inbox kurallarıyla (exception dışı türler P3,
+  // kazanılmış exception P1'i) hesaplanıyor. /api/problems'ın ham önceliği
+  // Inbox'ın göstermediği P1'leri sayıyordu; iki ekran iki sayı söylüyordu.
+  const p1q = useInbox({ status: 'open', prio: 'P1', limit: 50 },
     { enabled: enabled === true && open && turns.length === 0 });
-  const p1s = p1q.data?.items;
+  const p1s = useMemo(() => p1q.data?.items.map(it => ({ service: it.service, startedAt: it.startedAt })), [p1q.data]);
 
 
   // v0.10.650 — yalnız dipteyken yapış (stickToBottom.ts); soru gönderimi pin'ler.
@@ -742,7 +747,9 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
                 </div>
                 {greetStatus(p1s) && (
                   <div style={{ marginBottom: 6, color: p1s && p1s.length > 0 ? 'var(--err)' : 'var(--text2)' }}>
-                    {greetStatus(p1s)}
+                    {p1s && p1s.length > 0
+                      ? <Link to="/inbox?prio=P1" style={{ color: 'inherit' }} title="Inbox'ta P1'leri aç">{greetStatus(p1s)}</Link>
+                      : greetStatus(p1s)}
                   </div>
                 )}
                 {/* v0.9.579 (operatör: "çıkar") — HAZIR SORU ÇİPLERİ

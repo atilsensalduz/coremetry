@@ -43,10 +43,14 @@ describe('başlangıç çipleri', () => {
   });
 
   // v0.10.702 — eklenen iki konu.
-  it('açık problemler ve log hataları çipleri var', () => {
+  // v0.10.1249 (operatör) — "açık problemleri" yerine takım exception'ları;
+  // filo geneli "son 1 saatteki log hataları" çok servisli kurulumda
+  // anlamsızdı, çıkarıldı. Geri gelmesin.
+  it("takım exception'ları var; açık problemler ve filo log hataları yok", () => {
     const joined = starters.join(' | ').toLowerCase();
-    expect(joined).toContain('problem');
-    expect(joined).toContain('log hata');
+    expect(joined).toContain("exception'ları");
+    expect(joined).not.toContain('açık problemleri');
+    expect(joined).not.toContain('log hata');
   });
 
   // Operatörün adıyla istediği üç soru.
@@ -72,5 +76,15 @@ describe('follow-up listesi', () => {
 
   it('follow-up listesi boşalmadı', () => {
     expect(followups.length).toBeGreaterThan(0);
+  });
+});
+
+// v0.10.1249 (operatör: "hep 2 açık P1 var, hatalı") — karşılama P1'i Inbox'ın
+// okuma-anı önceliğinden sayar (/api/problems ham önceliği değil) ve Inbox'a bağlar.
+describe('karşılama P1 kaynağı', () => {
+  it('useInbox prio=P1, yalnız karşılama ekrandayken; tıkı Inbox P1', () => {
+    expect(src).toContain("useInbox({ status: 'open', prio: 'P1', limit: 50 },");
+    expect(src).not.toContain("useProblems({ status: 'open', priority: ['P1']");
+    expect(src).toContain('<Link to="/inbox?prio=P1"');
   });
 });

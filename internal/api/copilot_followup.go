@@ -106,6 +106,10 @@ var followUpFillable = map[guidedIntent]bool{
 // logları?"). HER öneri guided router'da kendi başına yönlenen bir
 // şekildedir (testte pinli) — çipe tıklamak asla serbest döngüye
 // düşürmez. Deterministik; LLM'e sorulmaz.
+// v0.10.1249 (operatör): "Takımımın açık problemleri?" → "Takımımın
+// exception'ları?" (takım süzgeçli Exceptions linki + sayı); filo geneli
+// "Son 1 saatteki log hataları?" önerilerden çıktı — çok servisli kurulumda
+// anlamlı değil (soru elle yazılırsa yine çalışır).
 func guidedSuggestions(route guidedRoute) []string {
 	svc := route.Service
 	// v0.9.1134 — "hangi takım?" turu HER ŞEYDEN önce: bundle takım
@@ -144,7 +148,7 @@ func guidedSuggestions(route guidedRoute) []string {
 		if svc != "" {
 			return []string{svc + " sağlığı nasıl?", svc + " hata logları?", svc + " en yavaş trace'ler?"}
 		}
-		return []string{"Takımımın açık problemleri?", "En yavaş trace'ler?", "Son 1 saatteki log hataları?"}
+		return []string{"Takımımın exception'ları?", "En yavaş trace'ler?", "Takımımın servisleri nasıl?"}
 	case guidedSlowTraces:
 		if svc != "" {
 			return []string{svc + " sağlığı nasıl?", svc + " hata logları?", svc + " son deploy etkisi?"}
@@ -226,7 +230,7 @@ func guidedSuggestions(route guidedRoute) []string {
 	case guidedFanout: // v0.10.439 (D4)
 		return []string{route.PairFrom + "'dan " + route.PairTo + "'ye giden istekler", route.PairTo + " sağlığı nasıl?", route.PairTo + " en yavaş trace'ler?"}
 	case guidedFamilyHealth:
-		return []string{"Açık problemler?", "En yavaş trace'ler?", "Son 1 saatteki log hataları?"}
+		return []string{"Açık problemler?", "En yavaş trace'ler?", "Takımımın exception'ları?"}
 	case guidedMyServices:
 		// v0.9.651 (operatör: "takımıma ait servisleri listeledikten
 		// sonra SEÇECEĞİ servisle ilgili hatalar / logları / en yavaş
@@ -254,9 +258,9 @@ func guidedSuggestions(route guidedRoute) []string {
 				}
 				out = append(out, sv+" sağlığı nasıl?")
 			}
-			return append(out, "Takımımın açık problemleri?")
+			return append(out, "Takımımın exception'ları?")
 		}
-		return []string{"Takımımın açık problemleri?", "En yavaş trace'ler?"}
+		return []string{"Takımımın exception'ları?", "En yavaş trace'ler?"}
 	case guidedMyProblems:
 		return []string{"Takımımın servisleri nasıl?", "Takımımın exception'ları?", "En yavaş trace'ler?"}
 	// v0.9.1134 — takım listesinden sonraki doğal adım EN KÖTÜ servise
@@ -276,7 +280,7 @@ func guidedSuggestions(route guidedRoute) []string {
 	// v0.9.650 — exception cevabından sonraki doğal adımlar: aynı takımın
 	// açık PROBLEM'leri (farklı yüzey, aynı kapsam) ve servis sağlığı.
 	case guidedMyExceptions:
-		return []string{"Takımımın açık problemleri?", "Takımımın servisleri nasıl?"}
+		return []string{"Takımımın servisleri nasıl?", "En yavaş trace'ler?"}
 	case guidedPodHealth:
 		if svc != "" {
 			return []string{svc + " sağlığı nasıl?", svc + " hata logları?", svc + " son deploy etkisi?"}
@@ -294,7 +298,7 @@ func guidedSuggestions(route guidedRoute) []string {
 		}
 		return nil
 	case guidedDBHealth:
-		return []string{"En yavaş trace'ler?", "Açık problemler?", "Son 1 saatteki log hataları?"}
+		return []string{"En yavaş trace'ler?", "Açık problemler?", "Takımımın exception'ları?"}
 	case guidedMessagingHealth:
 		return []string{"En yavaş trace'ler?", "Açık problemler?"}
 	}

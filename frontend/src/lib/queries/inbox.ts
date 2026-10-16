@@ -79,8 +79,10 @@ export function useInbox(filter: {
   // yani anahtarın parçası olmak ZORUNDA — filter nesnesi anahtarın
   // kendisi olduğu için burada olması yeterli.
   subject?: SubjectLane;
-}) {
+}, opts: { enabled?: boolean } = {}) {
   return useQuery<InboxPage>({
+    // v0.10.1249 — enabled: CoSRE karşılaması yalnız ekrandayken sorar.
+    enabled: opts.enabled ?? true,
     queryKey: ['inbox', 'list', filter],
     // v0.9.221 — the endpoint returns { items, total, truncated } now; a null
     // body normalises to an empty, non-truncated page so callers never branch
