@@ -54,3 +54,21 @@ func TestGuidedDeployMinLookback(t *testing.T) {
 		t.Fatalf("taban %v", guidedDeployMinLookback)
 	}
 }
+
+// v0.10.1251 — "bff" önekle tek servise (bff-asset-management) çözülüyordu;
+// kelime başka servislerde tam ad parçasıysa aile yoluna düşer.
+func TestSharedSegmentTokenIsFamily(t *testing.T) {
+	svcs := []string{"bff-asset-management-prod", "mobile-overview-bff-prod", "mobile-crm-bff-prod", "checkout"}
+	for _, q := range []string{"bff sorununu incelemek için nereye bakmalıyım?", "bff'ler nasıl?"} {
+		r := routeGuidedIntent(q, svcs, nil, nil, "")
+		if r.Service == "bff-asset-management-prod" || len(r.Family) < 3 {
+			t.Errorf("%q → svc=%q fam=%v, aile bekleniyordu", q, r.Service, r.Family)
+		}
+	}
+	if r := routeGuidedIntent("checkout nasıl", svcs, nil, nil, ""); r.Service != "checkout" {
+		t.Errorf("tekil servis bozuldu: %+v", r)
+	}
+	if serviceSegmentHits("bff", svcs) != 2 || serviceSegmentHits("crm", svcs) != 1 {
+		t.Error("segment sayımı")
+	}
+}

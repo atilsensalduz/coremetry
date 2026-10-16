@@ -704,11 +704,34 @@ func extractServiceEntity(msg string, services, envs []string) string {
 				break
 			}
 		}
-		if n == 1 {
+		// v0.10.1251 (operatör: "hep bff-asset-management çıkıyor ama
+		// mobile-overview-bff, mobile-crm-bff gibi çok daha fazla bff var") —
+		// tek ÖNEK eşleşmesi, kelime başka servislerde de TAM AD PARÇASI
+		// olarak geçiyorsa servis değil AİLEDİR: çözülmez, aile / aday yolu
+		// devralır ("bff'ler nasıl" → bff ailesi, "bff sorunu" → adaylar).
+		if n == 1 && serviceSegmentHits(t, services) < 2 {
 			return match
 		}
 	}
 	return ""
+}
+
+// serviceSegmentHits — SAF: tokenın tam ad parçası (-/_/. ile ayrılmış)
+// olarak geçtiği servis sayısı (2'de durur).
+func serviceSegmentHits(tok string, services []string) int {
+	n := 0
+	for _, svc := range services {
+		for _, seg := range strings.FieldsFunc(strings.ToLower(svc), func(r rune) bool { return r == '-' || r == '_' || r == '.' }) {
+			if seg == tok {
+				n++
+				break
+			}
+		}
+		if n >= 2 {
+			return n
+		}
+	}
+	return n
 }
 
 // extractEnvEntity matches the message against the LIVE environment
