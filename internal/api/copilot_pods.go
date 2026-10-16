@@ -63,6 +63,21 @@ func (s *Server) guidedPodHealthBundle(ctx context.Context, emit func(string, an
 	// ikinci çip var, filo modunda nInst=0 ve kanıt sessizce düşer).
 	emitGuidedStepResult(emit, nHeap, "jvm_heap_usage", ev, rerr)
 	emitGuidedStepResult(emit, nInst, "service_instances", ev, rerr)
+	// v0.10.1250 (operatör: OTel envanteri "0 pod" derken Infrastructure
+	// sekmesi pod'ları Thanos'ta buluyordu) — servis modunda Thanos pod
+	// envanteri + HTTP metrikleri (VM) grafik kartları da eklenir.
+	if service != "" {
+		nTh := emitGuidedStep(emit, "thanos_pods", `{"service":`+jsonStr(service)+`}`)
+		tev := renderThanosPodsTR(s.guidedThanosPods(ctx, service), service)
+		emitGuidedStepResult(emit, nTh, "thanos_pods", tev, nil)
+		if tev != "" {
+			ev += tev
+			src += " + Thanos pod envanteri (kube-state)"
+			rerr = nil // Thanos kanıtı tek başına cevap sayılır
+		}
+		ev += podHTTPChartFences(service, int64(to.Sub(from).Seconds()))
+		src += " + HTTP metrikleri (VictoriaMetrics)"
+	}
 	return ev, src, rerr
 }
 

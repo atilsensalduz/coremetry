@@ -3348,14 +3348,19 @@ type guidedDeployRef struct {
 // zoom yapıp "son deploy neydi" diye sorduğunda BUGÜNÜN deploy'ları
 // dönüyor ve cevap DÜNÜN penceresi diye etiketleniyordu — v0.10.50'de
 // serbest döngüde düzeltilen kusurun guided'daki ikizi.
+// guidedDeployMinLookback — deploy sorusunun en kısa geriye bakışı.
+const guidedDeployMinLookback = 24 * time.Hour
+
 func (s *Server) guidedDeployBundle(ctx context.Context, emit func(string, any), service, env string, rangeS int64, anchorTo time.Time) (string, string, error) {
 	// Deploy questions imply a wider horizon than the default 30m chat
 	// window — "son deploy" is rarely in the last half hour. Floor the
 	// lookback at 6h, cap 24h (GetRecentDeploys scales its CH timeout
 	// with the window).
+	// v0.10.1250 (operatör: "24 saati search et") — taban 6 sa → 24 sa:
+	// 12 saatlik sohbet penceresinde "son deploy" sabahki deploy'u kaçırıyordu.
 	lookback := time.Duration(rangeS) * time.Second
-	if lookback < 6*time.Hour {
-		lookback = 6 * time.Hour
+	if lookback < guidedDeployMinLookback {
+		lookback = guidedDeployMinLookback
 	}
 	var refs []guidedDeployRef
 	nRecent := emitGuidedStep(emit, "recent_deploys", `{"service":"`+service+`"}`)
