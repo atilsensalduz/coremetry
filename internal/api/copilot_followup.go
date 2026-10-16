@@ -148,7 +148,7 @@ func guidedSuggestions(route guidedRoute) []string {
 		if svc != "" {
 			return []string{svc + " sağlığı nasıl?", svc + " hata logları?", svc + " en yavaş trace'ler?"}
 		}
-		return []string{"Takımımın exception'ları?", "En yavaş trace'ler?", "Takımımın servisleri nasıl?"}
+		return []string{"Takımımın exception'ları?", "Takımımın en hatalı servisleri?", "Takımımın servisleri nasıl?"}
 	case guidedSlowTraces:
 		if svc != "" {
 			return []string{svc + " sağlığı nasıl?", svc + " hata logları?", svc + " son deploy etkisi?"}
@@ -158,17 +158,17 @@ func guidedSuggestions(route guidedRoute) []string {
 		if svc != "" {
 			return []string{svc + " sağlığı nasıl?", svc + " en yavaş trace'ler?", svc + " hata logları?"}
 		}
-		return []string{"Açık problemler?", "En yavaş trace'ler?"}
+		return []string{"Açık problemler?", "Takımımın en hatalı servisleri?"}
 	case guidedLogErrors:
 		if svc != "" {
 			return []string{svc + " teknik hataları?", svc + " sağlığı nasıl?", svc + " en yavaş trace'ler?"}
 		}
-		return []string{"Açık problemler?", "En yavaş trace'ler?"}
+		return []string{"Açık problemler?", "Takımımın en hatalı servisleri?"}
 	case guidedLogField: // v0.10.433 (D5)
 		if svc != "" {
 			return []string{svc + " hata logları?", svc + " sağlığı nasıl?", svc + " en yavaş trace'ler?"}
 		}
-		return []string{"Açık problemler?", "En yavaş trace'ler?"}
+		return []string{"Açık problemler?", "Takımımın en hatalı servisleri?"}
 	case guidedNamespaceServices: // v0.10.470 (F2-3) — handler kendi çiplerini basar; burada güvenli varsayılan
 		return []string{"Namespace'leri listele", "Açık problemler?"}
 	case guidedFamilyTraces: // v0.10.465 (D2) — üye başına drill-down (≤3 üye)
@@ -184,7 +184,7 @@ func guidedSuggestions(route guidedRoute) []string {
 			}
 		}
 		if len(out) == 0 {
-			return []string{"Açık problemler?", "En yavaş trace'ler?"}
+			return []string{"Açık problemler?", "Takımımın en hatalı servisleri?"}
 		}
 		return out
 	case guidedFindEntity: // v0.10.463 (D1) — kart: eylem çipleri; liste: bulunan adlar (çıplak ad → kart)
@@ -192,17 +192,17 @@ func guidedSuggestions(route guidedRoute) []string {
 			if len(route.TeamServices) > 0 {
 				return route.TeamServices
 			}
-			return []string{"Açık problemler?", "En yavaş trace'ler?"}
+			return []string{"Açık problemler?", "Takımımın en hatalı servisleri?"}
 		}
 		if svc != "" {
 			return []string{svc + " sağlığı nasıl?", svc + " en yavaş trace'ler?", svc + " hata logları?", svc + " sayfasını aç"}
 		}
-		return []string{"Açık problemler?", "En yavaş trace'ler?"}
+		return []string{"Açık problemler?", "Takımımın en hatalı servisleri?"}
 	case guidedOpenPage: // v0.10.434 (D7b)
 		if svc != "" {
 			return []string{svc + " sağlığı nasıl?", svc + " teknik hataları?", svc + " hata logları?"}
 		}
-		return []string{"Açık problemler?", "En yavaş trace'ler?"}
+		return []string{"Açık problemler?", "Takımımın en hatalı servisleri?"}
 	case guidedPairRequests: // v0.10.436 (D2a)
 		out := []string{route.PairFrom + " sağlığı nasıl?", route.PairFrom + " en yavaş trace'ler?"}
 		if route.PairToKind == "service" && route.PairTo != "" {
@@ -213,7 +213,7 @@ func guidedSuggestions(route guidedRoute) []string {
 		if svc != "" {
 			return []string{svc + " en yavaş trace'ler?", svc + " hata logları?", svc + " sağlığı nasıl?"}
 		}
-		return []string{"En yavaş trace'ler?", "Açık problemler?"}
+		return []string{"Takımımın en hatalı servisleri?", "Açık problemler?"}
 	case guidedWindowCompare: // v0.10.437 (D6)
 		if svc != "" {
 			return []string{svc + " sağlığı nasıl?", svc + " en yavaş trace'ler?", svc + " son deploy etkisi?"}
@@ -230,7 +230,7 @@ func guidedSuggestions(route guidedRoute) []string {
 	case guidedFanout: // v0.10.439 (D4)
 		return []string{route.PairFrom + "'dan " + route.PairTo + "'ye giden istekler", route.PairTo + " sağlığı nasıl?", route.PairTo + " en yavaş trace'ler?"}
 	case guidedFamilyHealth:
-		return []string{"Açık problemler?", "En yavaş trace'ler?", "Takımımın exception'ları?"}
+		return []string{"Açık problemler?", "Takımımın en hatalı servisleri?", "Takımımın exception'ları?"}
 	case guidedMyServices:
 		// v0.9.651 (operatör: "takımıma ait servisleri listeledikten
 		// sonra SEÇECEĞİ servisle ilgili hatalar / logları / en yavaş
@@ -260,9 +260,9 @@ func guidedSuggestions(route guidedRoute) []string {
 			}
 			return append(out, "Takımımın exception'ları?")
 		}
-		return []string{"Takımımın exception'ları?", "En yavaş trace'ler?"}
+		return []string{"Takımımın exception'ları?", "Takımımın en hatalı servisleri?"}
 	case guidedMyProblems:
-		return []string{"Takımımın servisleri nasıl?", "Takımımın exception'ları?", "En yavaş trace'ler?"}
+		return []string{"Takımımın servisleri nasıl?", "Takımımın exception'ları?", "Takımımın en hatalı servisleri?"}
 	// v0.9.1134 — takım listesinden sonraki doğal adım EN KÖTÜ servise
 	// inmek. TeamServices hata oranına göre sıralı geliyor, yani [0] en
 	// kötü; my_services'in v0.9.651 dersini izliyor (jenerik çip operatörü
@@ -276,14 +276,24 @@ func guidedSuggestions(route guidedRoute) []string {
 			}
 			return out
 		}
-		return []string{"Açık problemler?", "En yavaş trace'ler?"}
+		return []string{"Açık problemler?", "Takımımın en hatalı servisleri?"}
 	// v0.9.650 — exception cevabından sonraki doğal adımlar: aynı takımın
 	// açık PROBLEM'leri (farklı yüzey, aynı kapsam) ve servis sağlığı.
 	case guidedMyExceptions:
-		return []string{"Takımımın servisleri nasıl?", "En yavaş trace'ler?"}
+		return []string{"Takımımın servisleri nasıl?", "Takımımın en hatalı servisleri?"}
 	case guidedServiceExceptions:
 		if svc != "" {
 			return []string{svc + " sağlığı nasıl?", svc + " hata logları?", svc + " en yavaş trace'ler?"}
+		}
+		return nil
+	case guidedTopErrorServices, guidedMyTopErrors: // v0.10.1256 — ikinci adım: operasyonlar
+		if out := topErrorFollowups(route.TeamServices); len(out) > 0 {
+			return out
+		}
+		return []string{"Takımımın exception'ları?"}
+	case guidedTopErrorOps:
+		if svc != "" {
+			return []string{svc + " teknik hataları?", svc + " hata logları?", svc + " sağlığı nasıl?"}
 		}
 		return nil
 	case guidedPodHealth:
@@ -292,7 +302,7 @@ func guidedSuggestions(route guidedRoute) []string {
 		}
 		return []string{"Açık problemler?", "Takımımın servisleri nasıl?"}
 	case guidedShiftSummary:
-		return []string{"Açık problemler?", "En yavaş trace'ler?", "Takımımın servisleri nasıl?"}
+		return []string{"Açık problemler?", "Takımımın en hatalı servisleri?", "Takımımın servisleri nasıl?"}
 	// v0.9.1142 — kimlik çözüldüyse doğal adım O SERVİSE inmek. Servis
 	// rotaya bundle tarafından yazılıyor (log kaydının servisi); yazılmadıysa
 	// (kimlik bulunamadı) jenerik çip vermiyoruz — cevabın konusu tek bir
@@ -303,9 +313,9 @@ func guidedSuggestions(route guidedRoute) []string {
 		}
 		return nil
 	case guidedDBHealth:
-		return []string{"En yavaş trace'ler?", "Açık problemler?", "Takımımın exception'ları?"}
+		return []string{"Takımımın en hatalı servisleri?", "Açık problemler?", "Takımımın exception'ları?"}
 	case guidedMessagingHealth:
-		return []string{"En yavaş trace'ler?", "Açık problemler?"}
+		return []string{"Takımımın en hatalı servisleri?", "Açık problemler?"}
 	}
 	return nil
 }
@@ -584,6 +594,11 @@ func guidedAnswerLinkTargets(route guidedRoute) []guidedAnswerLink {
 	case guidedServiceExceptions:
 		if svc != "" {
 			return []guidedAnswerLink{{Label: svc + " · Exceptions", Href: "/problems?service=" + svcQ}}
+		}
+		return nil
+	case guidedTopErrorOps: // v0.10.1256
+		if svc != "" {
+			return []guidedAnswerLink{{Label: svc + " · Operations", Href: "/service?name=" + svcQ + "&tab=operations"}}
 		}
 		return nil
 	case guidedMyExceptions:

@@ -90,3 +90,28 @@ func TestServiceExceptionsRoute(t *testing.T) {
 		t.Fatal(out)
 	}
 }
+
+// v0.10.1256 — "en yavaş trace'ler" yerine hata sıralaması akışı.
+func TestTopErrorRoutes(t *testing.T) {
+	svcs := []string{"checkout", "payment"}
+	cases := map[string]guidedIntent{
+		"En hatalı servisler?":              guidedTopErrorServices,
+		"Takımımın en hatalı servisleri?":   guidedMyTopErrors,
+		"checkout en hatalı operasyonları?": guidedTopErrorOps,
+	}
+	for q, want := range cases {
+		if r := routeGuidedIntent(q, svcs, nil, nil, ""); r.Intent != want {
+			t.Errorf("%q → %s, want %s", q, r.Intent, want)
+		}
+	}
+	if r := routeGuidedIntent("checkout hataları", svcs, nil, nil, ""); r.Intent == guidedTopErrorOps || r.Intent == guidedTopErrorServices {
+		t.Error("sıralama sinyali olmadan hata sorusu sıralamaya kaymamalı")
+	}
+	out := renderTopErrorsTR("Filoda en hatalı servisler", []chstore.ErrorRank{{Name: "a", Spans: 200, Errors: 5}}, 3600, "servis")
+	if !strings.Contains(out, "- a: 5 hata / 200 istek (%2.50)") {
+		t.Fatal(out)
+	}
+	if got := topErrorFollowups([]string{"a", "b", "c", "d"}); len(got) != 3 || got[0] != "a en hatalı operasyonları?" {
+		t.Fatalf("takip: %v", got)
+	}
+}

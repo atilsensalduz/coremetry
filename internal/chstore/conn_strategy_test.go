@@ -189,6 +189,7 @@ func TestTelemetryReadConnCallSurface(t *testing.T) {
 		"function_code_services.go": true,
 		"function_code_shape.go":    true, // v0.10.1227 — biçim ölçümü: rollup/spans telemetri SELECT
 		"fleet_errors.go":           true, // v0.10.1255 — service_summary_5m filo hata sayısı
+		"top_errors.go":             true, // v0.10.1256 — service/operation_summary_5m hata sıralaması
 		"db_errors.go":              true, // v0.10.1020 — db_caller_summary_5m + spans (hata kırılımı)
 		"external_seasonal.go":      true, // metric_points — dış seri mevsimsel dilim (Influx D6, v0.10.231)
 		"dbstmt_detail.go":          true, // db_statement_summary_5m / spans

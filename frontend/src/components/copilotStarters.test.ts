@@ -58,7 +58,9 @@ describe('başlangıç çipleri', () => {
     const joined = starters.join(' | ').toLowerCase();
     expect(joined).toContain('takımım');
     expect(joined).toContain('exception');
-    expect(joined).toContain('yavaş');
+    // v0.10.1256 (operatör) — filo "en yavaş trace'ler" yerine takımın en hatalı servisleri.
+    expect(joined).toContain('en hatalı servis');
+    expect(joined).not.toContain('yavaş');
   });
 
   // Operatör: "son deploy etkisine gerek yok".

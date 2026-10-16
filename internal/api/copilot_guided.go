@@ -108,6 +108,11 @@ const (
 	guidedMyExceptions guidedIntent = "my_exceptions"
 	// v0.10.1252 — tek servisin teknik hataları (exception grupları).
 	guidedServiceExceptions guidedIntent = "service_exceptions"
+	// v0.10.1256 — hata sıralaması: en hatalı servisler (filo/takım) ve bir
+	// servisin en hatalı operasyonları.
+	guidedTopErrorServices guidedIntent = "top_error_services"
+	guidedMyTopErrors      guidedIntent = "my_top_errors"
+	guidedTopErrorOps      guidedIntent = "top_error_operations"
 	// v0.9.376 (operatör istegi, SRE perspektifi) — pod/JVM sağlığı:
 	// servisliyse instance listesi + JVM heap; servissizse filo-geneli
 	// heap doluluk sıralaması. Veri CH'den (OTel runtime metrikleri) —
@@ -1250,6 +1255,9 @@ func routeGuidedIntentOpts(raw string, services, envs, teams []string, ctxServic
 		if hasExceptionWord(toks) {
 			return guidedRoute{Intent: guidedMyExceptions, Env: env}
 		}
+		if hasTopErrorSignal(toks) { // v0.10.1256 — "takımımın en hatalı servisleri"
+			return guidedRoute{Intent: guidedMyTopErrors, Env: env}
+		}
 		if hasProblemSignal(toks) || hasErrorSignal(toks) {
 			return guidedRoute{Intent: guidedMyProblems, Env: env}
 		}
@@ -1330,6 +1338,11 @@ func routeGuidedIntentOpts(raw string, services, envs, teams []string, ctxServic
 	// servisli exception sorusu sağlığa değil exception gruplarına.
 	case svc != "" && hasServiceExceptionSignal(toks):
 		return guidedRoute{Intent: guidedServiceExceptions, Service: svc, Env: env}
+	// v0.10.1256 — "X en hatalı operasyonları" / "en hatalı servisler".
+	case svc != "" && hasTopErrorSignal(toks) && hasOperationWord(toks):
+		return guidedRoute{Intent: guidedTopErrorOps, Service: svc, Env: env}
+	case svc == "" && len(family) == 0 && hasTopErrorSignal(toks) && hasServiceWord(toks):
+		return guidedRoute{Intent: guidedTopErrorServices, Env: env}
 	case svc != "" && (hasHealthDomainSignal(toks) || hasErrorSignal(toks) ||
 		(hasHealthSignal(toks) && !(svcFromCtx && hasHowToShape(toks)))):
 		return guidedRoute{Intent: guidedServiceHealth, Service: svc, Env: env}
@@ -1889,6 +1902,14 @@ func (s *Server) runGuidedRoute(ctx context.Context, emit func(string, any), rou
 		evidence, sources, err = s.guidedMyTeamBundle(ctx, emit, "exceptions", &route, from, to, rangeS)
 	case guidedServiceExceptions:
 		evidence, sources, err = s.guidedServiceExceptionsBundle(ctx, emit, route.Service, from, to)
+	case guidedTopErrorServices:
+		var rows []chstore.ErrorRank
+		evidence, sources, rows, err = s.guidedTopErrorServicesFleet(ctx, emit, from, to)
+		route.TeamServices = errorRankNames(rows)
+	case guidedMyTopErrors:
+		evidence, sources, err = s.guidedMyTeamBundle(ctx, emit, "top_errors", &route, from, to, rangeS)
+	case guidedTopErrorOps:
+		evidence, sources, err = s.guidedTopErrorOpsBundle(ctx, emit, route.Service, from, to)
 	case guidedTeamServices:
 		evidence, sources, err = s.guidedTeamServicesBundle(ctx, emit, &route, from, to, rangeS)
 	case guidedPodHealth:
@@ -2682,6 +2703,18 @@ func (s *Server) guidedMyTeamBundle(ctx context.Context, emit func(string, any),
 		emitGuidedStepResult(emit, nRC, "root_cause_hypotheses", guidedStepSegment(&b, atProb), nil)
 		src := fmt.Sprintf("takım: %s (%d servis) — açık problemler + triage önceliği + kök-neden hipotezleri", u.Team, len(svcs)+trimmed)
 		return b.String(), src, nil
+	}
+	if mode == "top_errors" { // v0.10.1256
+		n := emitGuidedStep(emit, "top_error_services", fmt.Sprintf(`{"teamServices":%d}`, len(svcs)))
+		rows, terr := s.store.TopErrorServices(ctx, from, to, svcs, topErrorRows)
+		if terr != nil {
+			emitGuidedStepResult(emit, n, "top_error_services", "", terr)
+			return "", "", terr
+		}
+		ev := renderTopErrorsTR("Takımın en hatalı servisleri", rows, rangeS, "servis")
+		emitGuidedStepResult(emit, n, "top_error_services", ev, nil)
+		route.TeamServices = errorRankNames(rows) // takip çipleri için sıralı
+		return header + ev, fmt.Sprintf("takım: %s — servis hata sıralaması (service_summary_5m)", u.Team), nil
 	}
 	if mode == "exceptions" {
 		// v0.9.650 (operatör: "Takımıma ait servislerin hataları
@@ -4101,4 +4134,13 @@ func (s *Server) guidedWindowCompareBundle(ctx context.Context, emit func(string
 	}
 	ev, src := windowCompareEvidenceTR(route.Service, route.Env, scoped, route.Windows, reds, loc)
 	return ev, src, nil
+}
+
+// errorRankNames — SAF: sıralı adlar (takip çipleri).
+func errorRankNames(rows []chstore.ErrorRank) []string {
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, r.Name)
+	}
+	return out
 }

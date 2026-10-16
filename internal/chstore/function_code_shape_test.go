@@ -62,3 +62,17 @@ func TestFleetErrorCountSQL(t *testing.T) {
 		}
 	}
 }
+
+// v0.10.1256 — hata sıralaması MV'den, sınırlı.
+func TestTopErrorSQL(t *testing.T) {
+	for _, q := range []string{topErrorServicesSQL(0), topErrorServicesSQL(2), topErrorOpsSQL()} {
+		for _, want := range []string{"time_bucket >= ? AND time_bucket < ?", "LIMIT ?", "max_execution_time", "_summary_5m"} {
+			if !strings.Contains(q, want) {
+				t.Errorf("%q içermiyor: %s", want, q)
+			}
+		}
+	}
+	if !strings.Contains(topErrorServicesSQL(2), "service_name IN (?,?)") || strings.Contains(topErrorServicesSQL(0), " IN (") {
+		t.Error("servis süzgeci")
+	}
+}

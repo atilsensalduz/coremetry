@@ -105,7 +105,9 @@ const STARTERS = [
   // (takım süzgeçli Exceptions linki + kısa özet); filo geneli "son 1 saatteki
   // log hataları" çok servisli kurulumda anlamsızdı, çıkarıldı.
   "Takımımın exception'ları?",
-  "En yavaş trace'ler?",
+  // v0.10.1256 (operatör) — filo geneli "en yavaş trace'ler" anlamsızdı:
+  // takımın en hatalı servisleri, oradan operasyonlarına.
+  "Takımımın en hatalı servisleri?",
 ];
 
 // CoSRE markası — v0.10.498 (operatör: "direkt OpenTelemetry iconu olsun";
