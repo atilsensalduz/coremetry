@@ -79,12 +79,12 @@ describe('follow-up listesi', () => {
   });
 });
 
-// v0.10.1249 (operatör: "hep 2 açık P1 var, hatalı") — karşılama P1'i Inbox'ın
-// okuma-anı önceliğinden sayar (/api/problems ham önceliği değil) ve Inbox'a bağlar.
-describe('karşılama P1 kaynağı', () => {
-  it('useInbox prio=P1, yalnız karşılama ekrandayken; tıkı Inbox P1', () => {
-    expect(src).toContain("useInbox({ status: 'open', prio: 'P1', limit: 50 },");
-    expect(src).not.toContain("useProblems({ status: 'open', priority: ['P1']");
-    expect(src).toContain('<Link to="/inbox?prio=P1"');
+// v0.10.1255 (operatör: "P1 yerine son 1 saatteki exception / hata sayısı") —
+// karşılama /api/cosre/greeting'ten okur, yalnız karşılama ekrandayken; tıkı Exceptions.
+describe('karşılama durum satırı', () => {
+  it('cosreGreeting; P1 sorgusu yok; Exceptions linki', () => {
+    expect(src).toContain("queryFn: () => api.cosreGreeting(),");
+    expect(src).not.toContain("prio: 'P1'");
+    expect(src).toContain('<Link to="/problems"');
   });
 });

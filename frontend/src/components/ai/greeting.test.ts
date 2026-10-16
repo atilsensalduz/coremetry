@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { greetHello, greetStatus, agoTR, newestP1 } from './greeting';
+import { greetHello, greetErrors, agoTR } from './greeting';
 
 // v0.9.528 — karşılama saf olduğu için sözleşmesi burada pinli.
 // Kritik nokta: karşılama bir İDDİA taşıyor ("3 açık P1 var"). Yanlış
@@ -20,48 +20,6 @@ describe('greetHello', () => {
   });
 });
 
-describe('greetStatus', () => {
-  it('YÜKLENİRKEN boş döner — "P1 yok" yanlış iddia olurdu', () => {
-    expect(greetStatus(undefined, NOW)).toBe('');
-  });
-
-  it('gerçekten sıfırsa bunu açıkça söyler', () => {
-    expect(greetStatus([], NOW)).toBe('Şu an açık P1 yok — sistem sakin görünüyor.');
-  });
-
-  it('tek P1 tekil dille anlatılır', () => {
-    expect(greetStatus([{ service: 'payment-api', startedAt: nsAgo(12) }], NOW))
-      .toBe('1 açık P1 var: payment-api, 12 dk önce.');
-  });
-
-  it('çoklu P1: sayı + EN YENİSİ', () => {
-    const got = greetStatus([
-      { service: 'checkout', startedAt: nsAgo(90) },
-      { service: 'payment-api', startedAt: nsAgo(12) },
-      { service: 'auth', startedAt: nsAgo(300) },
-    ], NOW);
-    expect(got).toBe('3 açık P1 var — en yenisi payment-api, 12 dk önce.');
-  });
-
-  it('en yeniyi bulmak için giriş SIRASINA güvenmez', () => {
-    // Sunucu sıralaması değişirse (öncelik, sonra süre…) karşılama
-    // sessizce yanlış servisi göstermemeli.
-    const got = greetStatus([
-      { service: 'eski', startedAt: nsAgo(500) },
-      { service: 'yeni', startedAt: nsAgo(3) },
-    ], NOW);
-    expect(got).toContain('yeni');
-    expect(got).not.toContain('eski');
-  });
-
-  it('servissiz uyarıda ad uydurmaz', () => {
-    expect(greetStatus([{ startedAt: nsAgo(5) }], NOW)).toBe('1 açık P1 var — 5 dk önce.');
-    expect(greetStatus([{ startedAt: nsAgo(5) }, { startedAt: nsAgo(50) }], NOW))
-      .toBe('2 açık P1 var — en yenisi 5 dk önce.');
-  });
-});
-
-
 describe('agoTR', () => {
   it('her birim ayrı ayrı doğru — birim karışması tekrar eden hata sınıfı', () => {
     expect(agoTR(nsAgo(0.2), NOW)).toBe('az önce');
@@ -79,19 +37,13 @@ describe('agoTR', () => {
   });
 });
 
-describe('newestP1', () => {
-  it('tek elemanlı listede onu döner', () => {
-    const one = { service: 'a', startedAt: nsAgo(5) };
-    expect(newestP1([one])).toBe(one);
-  });
-});
-
 // v0.10.1254 — sayı Inbox toplamından (liste limit'le kırpılır).
-describe('greetStatus toplam', () => {
-  it('total listeden büyükse onu söyler', () => {
-    const now = 1_700_000_000_000;
-    const p = [{ service: 'a', startedAt: (now - 60_000) * 1e6 }];
-    expect(greetStatus(p, now, 137)).toMatch(/^137 açık P1 var — en yenisi a,/);
-    expect(greetStatus(p, now, 0)).toMatch(/^1 açık P1 var: a/);
+
+// v0.10.1255 — karşılama: son 1 saat hata + exception grubu (P1 yerine).
+describe('greetErrors', () => {
+  it('yüklenmeden boş, sıfırda sakin, değerde sayılar', () => {
+    expect(greetErrors(undefined)).toBe('');
+    expect(greetErrors({ errors1h: 0, exceptionGroups1h: 0 })).toMatch(/hata yok/);
+    expect(greetErrors({ errors1h: 12345, exceptionGroups1h: 87 })).toBe(`Son 1 saatte ${(12345).toLocaleString('tr-TR')} hata · 87 exception grubu`);
   });
 });

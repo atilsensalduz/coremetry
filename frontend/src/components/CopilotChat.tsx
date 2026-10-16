@@ -11,7 +11,8 @@ import { Chip } from '@/components/ui/Chip';
 import { IconButton } from '@/components/ui/IconButton';
 import { Drawer } from '@/components/ui/Drawer';
 import { useConfirm } from '@/components/ui/ConfirmDialog';
-import { useOpenCriticalCount, useInbox } from '@/lib/queries';
+import { useOpenCriticalCount } from '@/lib/queries';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/components/AuthProvider';
 import { useUrlRange } from '@/lib/useUrlRange';
 import { useUrlEnv } from '@/lib/useUrlEnv';
@@ -43,7 +44,7 @@ import { AI_DRAWER_WIDTH } from './ai/answerCard'; // v0.10.461
 import { AIDrawerBody } from './ai/AIDrawerBody'; // v0.10.483 — ✨ Explain gövdesi aynı çekmecede
 import { useAiSubject } from './ai/useAiSubject';
 import { aiSubjectSubtitle, aiSubjectTitle, formatAiParam, parseAiParam } from '@/lib/aiSubject';
-import { greetHello, greetStatus } from './ai/greeting';
+import { greetHello, greetErrors } from './ai/greeting';
 import type { AiConversation, AiConversationSummary } from '@/lib/types';
 import { traceContextFromPage, useTraceAiContext } from '@/lib/traceAiContext'; // v0.10.944
 import { TraceContextStrip } from './ai/TraceContextStrip'; // v0.10.944
@@ -450,16 +451,16 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
   // taşır: copilot açık, pencere açık, ve henüz konuşma başlamamış —
   // yani sorgu SADECE karşılama gerçekten ekrandayken koşar. Kapalı
   // pencerede ya da sohbet ortasında tek istek bile gitmez.
-  // v0.10.1249 (operatör: "hep 2 açık P1 var, hatalı") — kaynak Inbox: P1
-  // orada okuma anında, Inbox kurallarıyla (exception dışı türler P3,
-  // kazanılmış exception P1'i) hesaplanıyor. /api/problems'ın ham önceliği
-  // Inbox'ın göstermediği P1'leri sayıyordu; iki ekran iki sayı söylüyordu.
-  const p1q = useInbox({ status: 'open', prio: 'P1', limit: 50 },
-    { enabled: enabled === true && open && turns.length === 0 });
-  // v0.10.1254 — "en yenisi" SON GÖRÜLMEYE göre (kazanılmış exception P1'i
-  // aylar önce açılmış olabilir; "77 gün önce" yanıltıyordu); sayı Inbox toplamı.
-  const p1s = useMemo(() => p1q.data?.items.map(it => ({ service: it.service, startedAt: it.lastSeen || it.startedAt })), [p1q.data]);
-  const p1Total = p1q.data?.total;
+  // v0.10.1255 (operatör: "P1 yerine son 1 saatteki exception / hata sayısı")
+  // — filo hata (MV) + aktif exception grubu; yalnız karşılama ekrandayken.
+  const greetQ = useQuery({
+    queryKey: ['cosre-greeting'],
+    queryFn: () => api.cosreGreeting(),
+    enabled: enabled === true && open && turns.length === 0,
+    staleTime: 60_000,
+  });
+  const greetLine = greetErrors(greetQ.data ?? undefined);
+  const greetAlert = !!greetQ.data && (greetQ.data.errors1h > 0 || greetQ.data.exceptionGroups1h > 0);
 
 
   // v0.10.650 — yalnız dipteyken yapış (stickToBottom.ts); soru gönderimi pin'ler.
@@ -619,14 +620,17 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
               )}
               {/* v0.10.1137 — /cosre'de geçmiş sol kenar çubuğunda; düğme yalnız çekmecede. */}
               {!isPage && (
-                <Button variant="ghost" size="sm" onClick={() => setShowHistory(h => !h)}
+                <Button variant="ghost" size="sm" className="cm-head-btn" onClick={() => setShowHistory(h => !h)}
                   aria-expanded={showHistory}
                   title="Konuşma geçmişi">🕘 Geçmiş</Button>
               )}
               {!isPage && (
-                <Button variant="ghost" size="sm" onClick={() => setExpanded(e => !e)}
-                  title={expanded ? 'Daralt' : 'Genişlet'}>
-                  {expanded ? '⊟' : '⤢'}</Button>
+                // v0.10.1255 (operatör: "tam ekrana geç daha belirgin olabilir") —
+                // yalnız ikon değil, etiketli düğme.
+                <Button variant="secondary" size="sm" className="cm-head-btn" onClick={() => setExpanded(e => !e)}
+                  aria-pressed={expanded}
+                  title={expanded ? 'Çekmeceyi daralt' : 'Çekmeceyi tam ekran yap'}>
+                  {expanded ? '⊟ Daralt' : '⤢ Tam ekran'}</Button>
               )}
               {!subject && turns.length > 0 && (
                 <Button variant="secondary" size="sm" onClick={startNew}
@@ -748,11 +752,11 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
                 <div className="cm-greet__hello">
                   {greetHello(user?.firstName)}
                 </div>
-                {greetStatus(p1s, undefined, p1Total) && (
-                  <div className={`cm-greet__status${p1s && p1s.length > 0 ? ' is-alert' : ''}`}>
-                    {p1s && p1s.length > 0
-                      ? <Link to="/inbox?prio=P1" style={{ color: 'inherit' }} title="Inbox'ta P1'leri aç">{greetStatus(p1s, undefined, p1Total)}</Link>
-                      : greetStatus(p1s, undefined, p1Total)}
+                {greetLine && (
+                  <div className={`cm-greet__status${greetAlert ? ' is-alert' : ''}`}>
+                    {greetAlert
+                      ? <Link to="/problems" style={{ color: 'inherit' }} title="Exceptions sayfasını aç">{greetLine}</Link>
+                      : greetLine}
                   </div>
                 )}
                 {/* v0.9.579 (operatör: "çıkar") — HAZIR SORU ÇİPLERİ

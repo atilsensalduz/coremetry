@@ -5608,3 +5608,9 @@ tbody td.tpm-more-cell { color: var(--text2); }
   font-size: 16px; line-height: 1; display: inline-flex; align-items: center; justify-content: center;
 }
 .cosre-root .cm-followups { justify-content: flex-start; }
+
+/* v0.10.1255 (operatör: "Ask CoSRE / Geçmiş daha büyük yazabilir") — çekmece
+   başlığında özne ve eylem düğmeleri gövde boyunda (meta küçüktü). */
+.cosre-root .cosre-head__meta { font-size: var(--cosre-fs-body); }
+.cosre-root .cm-head-btn,
+.cosre-root .cm-fullpage { font-size: var(--cosre-fs-body); white-space: nowrap; }

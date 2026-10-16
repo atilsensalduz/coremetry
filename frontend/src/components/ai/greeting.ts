@@ -16,11 +16,6 @@
 
 import { agoTR } from '@/lib/utils';
 
-export interface GreetingP1 {
-  service?: string;
-  startedAt: number; // unix ns
-}
-
 /** Hitap satırı. Ad yoksa isimsiz — uydurma ada göre hitap etmeyiz. */
 export function greetHello(firstName?: string): string {
   const n = (firstName || '').trim();
@@ -28,32 +23,15 @@ export function greetHello(firstName?: string): string {
 }
 
 /**
- * Durum satırı. `undefined` = henüz yüklenmedi; o hâlde BOŞ döner —
- * yüklenirken "açık P1 yok" demek yanlış bir iddia olurdu ve operatör
- * onu okuyup sohbeti kapatabilir.
+ * Durum satırı — v0.10.1255 (operatör: P1 yerine "son 1 saatteki exception /
+ * hata sayısı"). `undefined` = henüz yüklenmedi → BOŞ (yüklenirken "hata yok"
+ * demek yanlış iddia olurdu).
  */
-// v0.10.1254 — total: Inbox'ın gerçek toplamı (liste limit'le kırpılır;
-// "50 açık P1" sınırın kendisiydi). Verilmezse liste uzunluğu.
-export function greetStatus(p1s: GreetingP1[] | undefined, nowMs = Date.now(), total?: number): string {
-  if (!p1s) return '';
-  const count = typeof total === 'number' && total >= p1s.length ? total : p1s.length;
-  if (count === 0) return 'Şu an açık P1 yok — sistem sakin görünüyor.';
-
-  const newest = newestP1(p1s);
-  const ago = agoTR(newest.startedAt, nowMs);
-  const svc = (newest.service || '').trim();
-
-  if (count === 1) {
-    return svc ? `1 açık P1 var: ${svc}, ${ago}.` : `1 açık P1 var — ${ago}.`;
-  }
-  return svc
-    ? `${count} açık P1 var — en yenisi ${svc}, ${ago}.`
-    : `${count} açık P1 var — en yenisi ${ago}.`;
-}
-
-/** En yeni P1 — sıralamaya GÜVENMEZ, çağıran listeyi nasıl aldıysa. */
-export function newestP1(p1s: GreetingP1[]): GreetingP1 {
-  return p1s.reduce((a, b) => (b.startedAt > a.startedAt ? b : a));
+export function greetErrors(stats: { errors1h: number; exceptionGroups1h: number } | undefined): string {
+  if (!stats) return '';
+  if (stats.errors1h === 0 && stats.exceptionGroups1h === 0) return 'Son 1 saatte hata yok — sistem sakin görünüyor.';
+  const n = (v: number) => v.toLocaleString('tr-TR');
+  return `Son 1 saatte ${n(stats.errors1h)} hata · ${n(stats.exceptionGroups1h)} exception grubu`;
 }
 
 
