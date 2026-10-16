@@ -10,8 +10,9 @@ const src = readFileSync(resolve(__dirname, 'Overview.tsx'), 'utf8');
 describe('Overview önceki-dönem hayaleti', () => {
   it('tek panelde ghostItems (failure), metrik paneller hayaletsiz', () => {
     expect(src.split('ghostItems={').length - 1).toBe(1);
-    const i = src.indexOf('ghostItems={failureGhost}');
-    expect(i).toBeGreaterThan(src.indexOf('storageKey="ov-throughput-failure-v2"'));
+    // v0.10.1253 — HTTP Status (metrik) görünümünde hayalet yok; yalnız OK/Errors.
+    const i = src.indexOf('ghostItems={showHttpStatus ? undefined : failureGhost}');
+    expect(i).toBeGreaterThan(src.indexOf("'ov-throughput-failure-v2'"));
   });
   it('ghost sorguları yalnız compare açıkken; Details ile aynı tohum', () => {
     expect(src.split('enabled: ghostEnabled').length - 1).toBe(2);

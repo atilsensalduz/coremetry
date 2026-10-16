@@ -332,3 +332,22 @@ export const HTTP_INSTANT_IDS: ReadonlySet<string> = new Set([
   'tTotal', 'tRps', 'tAvg', 'tP95', 'tP99', 'tErr5', 'tErr4',
   'dtTotal', 'dtRps', 'dtAvg', 'dtP95', 'dtP99', 'dtErr5', 'dtErr4',
 ]);
+
+// v0.10.1253 (operatör: Overview'da "Failure rate · metrik" yerine HTTP
+// status; yalnız sınıflar değil kodlar) — status KODU başına istek hızı.
+export function statusCodeRateQuery(app: string, windowSec: number): string {
+  return `sum by (http_response_status_code) (rate(${SC}${serverSel({ app })}[${rateWindow(windowSec)}]))`;
+}
+
+/** Kod serileri: ad = kod, sıra 2xx→5xx (kod artan); renk tokenı sınıftan. */
+export function statusCodeSeries(series: SpanMetricSeries[] | null | undefined): { series: SpanMetricSeries[]; tokens: Map<string, string> } {
+  const out = relabel(series, '{{http_response_status_code}}')
+    .filter(s => s.groupKey[0] && s.groupKey[0] !== '—')
+    .sort((a, b) => a.groupKey[0].localeCompare(b.groupKey[0]));
+  const tokens = new Map<string, string>();
+  for (const s of out) {
+    const tok = HTTP_SERIES_TOKENS[`${s.groupKey[0].charAt(0)}xx`];
+    if (tok) tokens.set(s.groupKey[0], tok);
+  }
+  return { series: out, tokens };
+}

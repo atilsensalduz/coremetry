@@ -1,3 +1,4 @@
+import { statusCodeRateQuery, statusCodeSeries, HTTP_METRICS_POINTS } from '@/lib/httpMetrics';
 import { encodeRange } from '@/lib/urlState';
 import { useId, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -258,6 +259,18 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
   // Otomatik kipte metrik yoksa span: sorgu bitene dek metrik varsayılır
   // (karolar zaten yükleniyor). Zorlanmış metrikte (?src=metric) hep metrik.
   const metricMode = explicitSrc ?? (metricRedQ.data ? !!metricRedQ.data.metricExists : !metricRedQ.isError);
+  // v0.10.1253 (operatör) — metrik kipinde "Failure rate" yerine HTTP status
+  // KODU başına istek hızı (VictoriaMetrics, HTTP Metrics sekmesiyle aynı
+  // metrik). Seri yoksa (HTTP semconv metriği yayınlanmıyor) eski OK/Errors.
+  const httpStatusQ = useQuery({
+    queryKey: ['ov-http-status', service, from, to],
+    queryFn: () => api.httpMetricsPromql({ query: statusCodeRateQuery(service, Math.max(60, (to - from) / 1e9)), from, to, maxDataPoints: HTTP_METRICS_POINTS }),
+    enabled: metricMode,
+    staleTime: 30_000,
+    retry: false,
+  });
+  const httpStatus = useMemo(() => statusCodeSeries(httpStatusQ.data), [httpStatusQ.data]);
+  const showHttpStatus = metricMode && httpStatus.series.length > 0;
   const metricAutoFellBack = explicitSrc === null && !!metricRedQ.data && !metricRedQ.data.metricExists;
   const metricRedGhostQ = useQuery({
     queryKey: ['service-metric-red', service, from - compareOff, to - compareOff, redMdp, env],
@@ -1132,15 +1145,17 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
                eşiğini geri isteyen operatör için ayrı bir dilim. */
             <Suspense key="failure-rate-v2" fallback={<Spinner />}>
               <CorePanelMultiLazy
-                title={metricMode ? 'Failure rate · metrik' : scopedChartTitle('Failure rate · trace', usingAllSpans)}
+                title={showHttpStatus ? 'HTTP Status · metrik' : metricMode ? 'Failure rate · metrik' : scopedChartTitle('Failure rate · trace', usingAllSpans)}
                 menuExtra={doorway}
-                storageKey="ov-throughput-failure-v2" height={200} unit="reqps" xRange={xRange}
-                loading={latStatus === 'loading'}
-                ghostItems={failureGhost}
-                items={[
-                  { name: 'OK', role: 'success', series: throughput[0]?.series ?? [] },
-                  { name: 'Errors', role: 'error', series: throughput[1]?.series ?? [] },
-                ]}
+                storageKey={showHttpStatus ? 'ov-http-status-v1' : 'ov-throughput-failure-v2'} height={200} unit="reqps" xRange={xRange}
+                loading={latStatus === 'loading' || (metricMode && httpStatusQ.isPending)}
+                ghostItems={showHttpStatus ? undefined : failureGhost}
+                items={showHttpStatus
+                  ? httpStatus.series.map(sr => ({ name: sr.groupKey[0], role: 'data' as const, color: `var(${httpStatus.tokens.get(sr.groupKey[0]) ?? '--text3'})`, series: [sr] }))
+                  : [
+                    { name: 'OK', role: 'success', series: throughput[0]?.series ?? [] },
+                    { name: 'Errors', role: 'error', series: throughput[1]?.series ?? [] },
+                  ]}
                 regions={chartRegions} onRegionClick={onRegionClick}
                 onZoom={onZoom} onZoomReset={onZoomReset} syncKey={chartSync}
               />

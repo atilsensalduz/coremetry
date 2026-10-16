@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { httpQueries, serverSel, promStr, rateWindow, seriesLabels, legendOf, relabel, scalarOf, barsOf, mergeTable, filterOptions, fmtCount, fmtRatio, fmtSeconds, latencyTone, errorRatioTone, clientErrorTone, sliTone, httpSeriesColors, heatmapFromBuckets, donutSlices, sparkValues } from './httpMetrics';
+import { httpQueries, serverSel, promStr, rateWindow, seriesLabels, legendOf, relabel, scalarOf, barsOf, mergeTable, filterOptions, fmtCount, fmtRatio, fmtSeconds, latencyTone, errorRatioTone, clientErrorTone, sliTone, httpSeriesColors, heatmapFromBuckets, donutSlices, sparkValues, statusCodeRateQuery, statusCodeSeries } from './httpMetrics';
 import type { SpanMetricSeries } from './types';
 
 // v0.10.1244 — HTTP Metrics sekmesi (Grafana panosu → VictoriaMetrics).
@@ -113,5 +113,16 @@ describe('heatmap / donut / spark', () => {
   it('spark değerleri, NaN → null', () => {
     expect(sparkValues([ser({}, [1, NaN, 3])])).toEqual([1, null, 3]);
     expect(sparkValues(undefined)).toEqual([]);
+  });
+});
+
+// v0.10.1253 — Overview HTTP status kodu paneli.
+describe('status kodu serileri', () => {
+  it('sorgu ve kod bazlı seriler, sınıf renk tokenı', () => {
+    expect(statusCodeRateQuery('shop', 1800)).toBe('sum by (http_response_status_code) (rate(http_server_request_duration_seconds_count{service_name="shop"}[60s]))');
+    const r = statusCodeSeries([ser({ http_response_status_code: '500' }, [1]), ser({ http_response_status_code: '200' }, [9]), ser({}, [3])]);
+    expect(r.series.map(s => s.groupKey[0])).toEqual(['200', '500']);
+    expect(r.tokens.get('200')).toBe('--ok');
+    expect(r.tokens.get('500')).toBe('--err');
   });
 });

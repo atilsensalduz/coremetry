@@ -1,0 +1,16 @@
+import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+// v0.10.1253 — Overview metrik kipinde Failure rate yerine HTTP status kodları
+// (VM); HTTP metriği yoksa eski OK/Errors paneline düşer.
+const src = readFileSync(resolve(__dirname, 'Overview.tsx'), 'utf8');
+
+describe('Overview HTTP Status paneli', () => {
+  it('metrik kipinde status kodu sorgusu, başlık ve geri düşüş', () => {
+    expect(src).toContain('statusCodeRateQuery(service,');
+    expect(src).toContain("enabled: metricMode,");
+    expect(src).toContain("title={showHttpStatus ? 'HTTP Status · metrik' : metricMode ? 'Failure rate · metrik'");
+    expect(src).toMatch(/const showHttpStatus = metricMode && httpStatus\.series\.length > 0;/);
+  });
+});
