@@ -32,20 +32,23 @@ export function greetHello(firstName?: string): string {
  * yüklenirken "açık P1 yok" demek yanlış bir iddia olurdu ve operatör
  * onu okuyup sohbeti kapatabilir.
  */
-export function greetStatus(p1s: GreetingP1[] | undefined, nowMs = Date.now()): string {
+// v0.10.1254 — total: Inbox'ın gerçek toplamı (liste limit'le kırpılır;
+// "50 açık P1" sınırın kendisiydi). Verilmezse liste uzunluğu.
+export function greetStatus(p1s: GreetingP1[] | undefined, nowMs = Date.now(), total?: number): string {
   if (!p1s) return '';
-  if (p1s.length === 0) return 'Şu an açık P1 yok — sistem sakin görünüyor.';
+  const count = typeof total === 'number' && total >= p1s.length ? total : p1s.length;
+  if (count === 0) return 'Şu an açık P1 yok — sistem sakin görünüyor.';
 
   const newest = newestP1(p1s);
   const ago = agoTR(newest.startedAt, nowMs);
   const svc = (newest.service || '').trim();
 
-  if (p1s.length === 1) {
+  if (count === 1) {
     return svc ? `1 açık P1 var: ${svc}, ${ago}.` : `1 açık P1 var — ${ago}.`;
   }
   return svc
-    ? `${p1s.length} açık P1 var — en yenisi ${svc}, ${ago}.`
-    : `${p1s.length} açık P1 var — en yenisi ${ago}.`;
+    ? `${count} açık P1 var — en yenisi ${svc}, ${ago}.`
+    : `${count} açık P1 var — en yenisi ${ago}.`;
 }
 
 /** En yeni P1 — sıralamaya GÜVENMEZ, çağıran listeyi nasıl aldıysa. */

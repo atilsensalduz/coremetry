@@ -85,3 +85,13 @@ describe('newestP1', () => {
     expect(newestP1([one])).toBe(one);
   });
 });
+
+// v0.10.1254 — sayı Inbox toplamından (liste limit'le kırpılır).
+describe('greetStatus toplam', () => {
+  it('total listeden büyükse onu söyler', () => {
+    const now = 1_700_000_000_000;
+    const p = [{ service: 'a', startedAt: (now - 60_000) * 1e6 }];
+    expect(greetStatus(p, now, 137)).toMatch(/^137 açık P1 var — en yenisi a,/);
+    expect(greetStatus(p, now, 0)).toMatch(/^1 açık P1 var: a/);
+  });
+});

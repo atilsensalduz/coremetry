@@ -5561,3 +5561,50 @@ tbody td.tpm-more-cell { color: var(--text2); }
   /* 2026-10-10 — telefon: model hapı/etiketi yalnız ikon (tam id tooltip/aria-label'da). */
   .cm-model-pill__name, .cm-model-pill__caret, .cm-model-label__name { display: none; }
 }
+
+/* ── v0.10.1254 — CoSRE "Claude chat gibi profesyonel" (operatör) ─────────
+   Yalnız sunum: boş sohbet dikeyde/yatayda ortalı, büyük sakin karşılama
+   (sistem serif ailesi; dış font yok), P1 durumu rozet, yetenekler sessiz
+   ızgara, çipler ortalı; composer tek yuvarlak kart (metin üstte, araçlar
+   altta), gönder yuvarlak ↑. Renkler token. */
+.cm-thread__col:has(> .cm-greet) { min-height: 100%; justify-content: center; }
+.cosre-root .cm-greet { display: flex; flex-direction: column; align-items: center; text-align: center; gap: var(--cosre-s3); padding: var(--cosre-s5) 0; }
+.cosre-root .cm-greet__hello {
+  margin: 0; color: var(--text); font-family: ui-serif, Georgia, 'Times New Roman', serif;
+  font-size: 30px; line-height: 1.2; font-weight: 400; letter-spacing: -0.01em;
+}
+.cosre-root .cm-greet__status {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 12px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--bg1); color: var(--text2); font-size: var(--cosre-fs-small);
+}
+.cosre-root .cm-greet__status.is-alert { color: var(--err); border-color: color-mix(in srgb, var(--err) 35%, var(--border)); background: color-mix(in srgb, var(--err) 6%, var(--bg1)); }
+.cosre-root .cm-greet__status a { text-decoration: none; }
+.cosre-root .cm-greet__status a:hover { text-decoration: underline; }
+.cosre-root .cm-greet__ask { color: var(--text2); font-size: var(--cosre-fs-body); }
+.cosre-root .cm-greet .cosre-cap {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--cosre-s2);
+  width: 100%; max-width: 640px; text-align: left;
+}
+.cosre-root .cm-greet .cosre-cap__row {
+  justify-content: flex-start; white-space: normal; text-align: left; height: auto; min-height: 44px;
+  padding: var(--cosre-s2) var(--cosre-s3); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  background: var(--bg1); color: var(--text2);
+}
+.cosre-root .cm-greet .cosre-cap__row:hover { border-color: var(--accent); color: var(--text); background: var(--bg1); }
+.cosre-root .cm-greet__chips { display: flex; gap: var(--cosre-s2); flex-wrap: wrap; justify-content: center; max-width: 640px; }
+
+/* Composer: tek kart, metin üstte, araç satırı altta. */
+.cosre-root .cm-composer__box {
+  flex-direction: column; align-items: stretch; gap: var(--cosre-s1);
+  padding: var(--cosre-s2) var(--cosre-s2) var(--cosre-s2) var(--cosre-s4);
+  border-radius: 18px; box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 6%, transparent), 0 4px 18px color-mix(in srgb, var(--text) 7%, transparent);
+}
+.cosre-root .cm-composer__box .chat-composer-field { width: 100%; }
+.cosre-root .cm-composer__input { min-height: 44px; padding: var(--cosre-s2) 0 0; }
+.cosre-root .cm-composer__actions { width: 100%; justify-content: flex-end; }
+.cosre-root .cm-composer__actions .cm-deep-pill { margin-right: auto; }
+.cosre-root .cm-send {
+  width: 32px; height: 32px; min-width: 32px; padding: 0; border-radius: 999px;
+  font-size: 16px; line-height: 1; display: inline-flex; align-items: center; justify-content: center;
+}
+.cosre-root .cm-followups { justify-content: flex-start; }

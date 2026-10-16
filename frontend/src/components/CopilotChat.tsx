@@ -456,7 +456,10 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
   // Inbox'ın göstermediği P1'leri sayıyordu; iki ekran iki sayı söylüyordu.
   const p1q = useInbox({ status: 'open', prio: 'P1', limit: 50 },
     { enabled: enabled === true && open && turns.length === 0 });
-  const p1s = useMemo(() => p1q.data?.items.map(it => ({ service: it.service, startedAt: it.startedAt })), [p1q.data]);
+  // v0.10.1254 — "en yenisi" SON GÖRÜLMEYE göre (kazanılmış exception P1'i
+  // aylar önce açılmış olabilir; "77 gün önce" yanıltıyordu); sayı Inbox toplamı.
+  const p1s = useMemo(() => p1q.data?.items.map(it => ({ service: it.service, startedAt: it.lastSeen || it.startedAt })), [p1q.data]);
+  const p1Total = p1q.data?.total;
 
 
   // v0.10.650 — yalnız dipteyken yapış (stickToBottom.ts); soru gönderimi pin'ler.
@@ -745,11 +748,11 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
                 <div className="cm-greet__hello">
                   {greetHello(user?.firstName)}
                 </div>
-                {greetStatus(p1s) && (
-                  <div style={{ marginBottom: 6, color: p1s && p1s.length > 0 ? 'var(--err)' : 'var(--text2)' }}>
+                {greetStatus(p1s, undefined, p1Total) && (
+                  <div className={`cm-greet__status${p1s && p1s.length > 0 ? ' is-alert' : ''}`}>
                     {p1s && p1s.length > 0
-                      ? <Link to="/inbox?prio=P1" style={{ color: 'inherit' }} title="Inbox'ta P1'leri aç">{greetStatus(p1s)}</Link>
-                      : greetStatus(p1s)}
+                      ? <Link to="/inbox?prio=P1" style={{ color: 'inherit' }} title="Inbox'ta P1'leri aç">{greetStatus(p1s, undefined, p1Total)}</Link>
+                      : greetStatus(p1s, undefined, p1Total)}
                   </div>
                 )}
                 {/* v0.9.579 (operatör: "çıkar") — HAZIR SORU ÇİPLERİ
@@ -761,13 +764,13 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
                     kaldırılmıştı (v0.9.562).
                     Cevap SONRASI follow-up çipleri KALDI: onlar bir menü
                     değil, o cevaba bağlı sıradaki adım. */}
-                <div style={{ marginBottom: 6 }}>Sana nasıl yardımcı olabilirim?</div>
+                <div className="cm-greet__ask">Sana nasıl yardımcı olabilirim?</div>
                 {/* v0.10.1128 (operatör) — "neler yapabilirim" ipucu: yalnız
                     boş sohbette; tıklama örnek soruyu composer'a DOLDURUR. */}
                 <CosreCapabilities wiki={wikiOn} onPrefill={prefill} />
                 {/* v0.9.652 — başlangıç çipleri (operatör isteği). Gerekçe
                     ve v0.9.579 ile ilişkisi STARTERS tanımında. */}
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <div className="cm-greet__chips">
                   {/* v0.9.653 — EKRANDAKİ özne, statik çiplerden ÖNCE.
                       Operatör bir trace'e bakarken sohbeti açtığında
                       elindeki bağlam kaybolup ona takımının servisleri
@@ -900,8 +903,10 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
                 Durdur
               </Button>
             ) : (
-              <Button variant="primary" type="submit" disabled={!input.trim()}>
-                Gönder
+              // v0.10.1254 (operatör: "Claude chat gibi profesyonel") — yuvarlak ↑ gönder.
+              <Button variant="primary" type="submit" disabled={!input.trim()} className="cm-send"
+                title="Gönder (Enter)">
+                <span aria-hidden="true">↑</span><span className="sr-only">Gönder</span>
               </Button>
             )}
               </>} />
