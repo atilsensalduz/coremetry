@@ -495,6 +495,15 @@ function TraceDetailInner() {
                   params={{ traceId: id, range: logsRangeParam(logWin?.from, logWin?.to) }}
                   title="Logs correlated to this trace_id"
                   label="≡ Logs" variant="secondary" />
+                {/* v0.10.1240 (operatör onayı; v0.10.347 Correlate kararının yerine
+                    tek düğme) — kök servisin metrikleri, trace penceresinde. */}
+                {root?.serviceName && (
+                  <DrillButton to="/metrics"
+                    params={{ service: root.serviceName, editor: '0', range: logsRangeParam(logWin?.from, logWin?.to) }}
+                    carry={['env']}
+                    title={`${root.serviceName} metrikleri — bu trace'in zaman penceresinde`}
+                    label="∿ Metrics" variant="secondary" />
+                )}
                 {/* v0.10.347 (operatör) — "Correlate ◆" düğmesi ve pivot çekmecesi
                     KALDIRILDI ("trace'te correlate özelliğine gerek yok"). Loglar
                     "≡ Logs" ile, metrikler servis sayfasıyla ulaşılır. */}
