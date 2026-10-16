@@ -45,6 +45,11 @@ import type { Service, Problem, OperationSummary, OperationRoutesFor, SLORow, Ti
 import { QueryError } from '@/components/QueryError';
 import type { DataTableStateProps } from '@/components/ui/DataTable';
 import { PageShell } from '@/components/ui/PageShell';
+import { withPivotCtx, pivotCtxFromSearch, type PivotDim } from '@/lib/pivotContext';
+
+// v0.10.1231 — servis sayfasından traces/logs/endpoints pivotları ekrandaki
+// env + cluster'ı taşır (önce yalnız endpoints env'i taşıyordu).
+const SERVICE_PIVOT_CARRY: readonly PivotDim[] = ['env', 'cluster'];
 
 // v0.9.257 — SINCE_MAP deleted: it had no remaining reader here, and the
 // dormant copy is how the divergence spread (pages/service/Overview.tsx
@@ -175,7 +180,8 @@ function ServiceDetailInner() {
   useEffect(() => {
     if (tabParam !== 'traces' || !svc) return;
     navigate(
-      `/traces?service=${encodeURIComponent(svc)}&range=${encodeRange(range)}`,
+      withPivotCtx(`/traces?service=${encodeURIComponent(svc)}&range=${encodeRange(range)}`,
+        pivotCtxFromSearch(window.location.search), { carry: SERVICE_PIVOT_CARRY }),
       { replace: true },
     );
   }, [tabParam, svc, range, navigate]);
@@ -495,10 +501,10 @@ function ServiceDetailInner() {
             <DrillButton to="/service/backtrace" params={{ name: svc }}
               title="Inbound callers — service / pod / IP backtrace"
               label="↩ Backtrace" />
-            <DrillButton to="/traces" params={{ service: svc }} range={range}
+            <DrillButton to="/traces" params={{ service: svc }} range={range} carry={SERVICE_PIVOT_CARRY}
               title="Raw traces filtered to this service"
               label="⋮ Traces" />
-            <DrillButton to="/logs" params={{ service: svc }} range={range}
+            <DrillButton to="/logs" params={{ service: svc }} range={range} carry={SERVICE_PIVOT_CARRY}
               title="Logs filtered to this service"
               label="≡ Logs" />
             {/* v0.9.309 (brief N6d) — /endpoints had NO contextual way
@@ -509,7 +515,7 @@ function ServiceDetailInner() {
                 ROUTE of it". env rides along for the same reason it
                 rides every other pivot since v0.9.307: a link must ask
                 the question the screen it left was asking. */}
-            <DrillButton to="/endpoints" params={{ service: svc, env: env || undefined }} range={range}
+            <DrillButton to="/endpoints" params={{ service: svc }} range={range} carry={SERVICE_PIVOT_CARRY}
               title="Per-route RED for this service — calls, errors, P50/P90/P95/P99 and spread per endpoint"
               label="⇄ Endpoints" />
             <DrillButton to="/problems" params={{ service: svc }}

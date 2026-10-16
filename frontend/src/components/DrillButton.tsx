@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import type { TimeRange } from '@/lib/types';
 import { encodeRange } from '@/lib/urlState';
+import { usePivotCtx, withPivotCtx, type PivotDim } from '@/lib/pivotContext';
 
 // DrillButton (v0.5.463) — uniform "view in X" cross-page navigation
 // chip. The ad-hoc <Link to={`/traces?service=...`}> + hand-rolled
@@ -38,6 +39,9 @@ interface DrillButtonProps {
   // button look so a drill chip sits flush with other `.sec` buttons in a
   // toolbar (operator-reported: trace-detail Logs vs Share were mismatched).
   variant?: 'primary' | 'subtle' | 'secondary';
+  // v0.10.1231 — geçerli sayfanın bağlamından taşınacak boyutlar (env,
+  // cluster, …; lib/pivotContext). params'ta açıkça verilen ezilmez.
+  carry?: readonly PivotDim[];
 }
 
 function buildSearch(params: Record<string, string | number | boolean | undefined | null> | undefined): string {
@@ -50,11 +54,13 @@ function buildSearch(params: Record<string, string | number | boolean | undefine
   return parts.join('&');
 }
 
-export function DrillButton({ to, label, range, params, title, variant = 'primary' }: DrillButtonProps) {
+export function DrillButton({ to, label, range, params, title, variant = 'primary', carry }: DrillButtonProps) {
+  const ctx = usePivotCtx();
   const merged: Record<string, string | number | boolean | undefined | null> = { ...(params ?? {}) };
   if (range) merged.range = encodeRange(range);
   const search = buildSearch(merged);
-  const href = search ? `${to}?${search}` : to;
+  const base = search ? `${to}?${search}` : to;
+  const href = carry && carry.length ? withPivotCtx(base, ctx, { carry }) : base;
   if (variant === 'secondary') {
     // Shared `.sec` look — identical size/style to other secondary buttons
     // (Share, export) so a drill chip reads as one design language in a toolbar.

@@ -49,7 +49,7 @@ function decodeToken(raw: string): string {
 }
 
 /** The absolute replacement for a `range=` value, or null to leave it alone. */
-function frozenRangeValue(value: string, nowMs: number): string | null {
+export function frozenRangeValue(value: string, nowMs: number): string | null {
   const r = decodeRange(value, UNRESOLVED);
   // The resolvable set is "the 11 presets ∪ custom" — decodeRange already
   // turned a well-formed `custom:` token into absolute bounds resolveRangeMs
