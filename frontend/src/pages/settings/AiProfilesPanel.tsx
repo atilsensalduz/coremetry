@@ -9,7 +9,7 @@ import { useDataTable, DataTableHead, DataTableColgroup, DataTableCell, type Col
 import { api } from '@/lib/api';
 import type { AIModelProfile, AIModelProfileInput, AIProfilesPayload, AIProvider, AIProfileTestResult, AIThinking, Role } from '@/lib/types';
 import { Field2, FlashBox, Row } from './shared';
-import { slugifyProfileId, PROFILE_ID_RE, tuningSummary, endpointLabel, profileUsable, PROFILE_ROLES, rolesSummary, toggleRole, defaultRolesWarning, DEFAULT_ROLES_WARNING } from './aiProfiles';
+import { slugifyProfileId, PROFILE_ID_RE, tuningSummary, endpointLabel, profileUsable, PROFILE_ROLES, rolesSummary, toggleRole, defaultRolesWarning, DEFAULT_ROLES_WARNING, formatHeaderLines, parseHeaderLines } from './aiProfiles';
 
 // v0.10.1139 — varsayılan profilin rol kısıtı uyarısı (FlashBox'ın uyarı tonu).
 function RolesWarning({ text }: { text: string }) {
@@ -36,14 +36,15 @@ const COLS: ColumnDef<AIModelProfile>[] = [
   { id: 'actions',  label: 'Eylemler',  kind: 'actions', width: 340, minWidth: 340 },
 ];
 
-type Draft = { id: string; label: string; provider: AIProvider; baseUrl: string; apiKey: string; model: string; skipTls: boolean; maxTokens: string; temperature: string; timeoutS: string; thinking: AIThinking; description: string; roles: Role[]; deep: boolean };
-const emptyDraft = (): Draft => ({ id: '', label: '', provider: 'openai', baseUrl: '', apiKey: '', model: '', skipTls: false, maxTokens: '', temperature: '', timeoutS: '', thinking: '', description: '', roles: [], deep: false });
+type Draft = { id: string; label: string; provider: AIProvider; baseUrl: string; apiKey: string; model: string; skipTls: boolean; maxTokens: string; temperature: string; timeoutS: string; thinking: AIThinking; description: string; roles: Role[]; deep: boolean; headers: string };
+const emptyDraft = (): Draft => ({ id: '', label: '', provider: 'openai', baseUrl: '', apiKey: '', model: '', skipTls: false, maxTokens: '', temperature: '', timeoutS: '', thinking: '', description: '', roles: [], deep: false, headers: '' });
 const draftOf = (p: AIModelProfile): Draft => ({
   id: p.id, label: p.label ?? '', provider: p.provider, baseUrl: p.baseUrl ?? '', apiKey: '', model: p.model ?? '', skipTls: !!p.skipTls,
   maxTokens: p.maxTokens ? String(p.maxTokens) : '', temperature: p.temperature === undefined || p.temperature === null ? '' : String(p.temperature), timeoutS: p.timeoutS ? String(p.timeoutS) : '',
   thinking: p.thinking ?? '',
   description: p.description ?? '', roles: p.roles ?? [], // v0.10.1138
   deep: !!p.deep, // v0.10.1150
+  headers: formatHeaderLines(p.headers), // v0.10.1238
 });
 
 export function AiProfilesPanel({ payload, onChange }: { payload: AIProfilesPayload; onChange: (p: AIProfilesPayload) => void }) {
@@ -70,6 +71,8 @@ export function AiProfilesPanel({ payload, onChange }: { payload: AIProfilesPayl
     if (!draft) return;
     const id = isNew ? (draft.id || slugifyProfileId(draft.label)) : draft.id;
     if (!PROFILE_ID_RE.test(id)) { setMsg({ kind: 'err', text: 'Kimlik [a-z0-9][a-z0-9_-]{0,39} olmalı (etiketten türetilir, düzenlenebilir).' }); return; }
+    const hdr = parseHeaderLines(draft.headers); // v0.10.1238
+    if ('error' in hdr) { setMsg({ kind: 'err', text: hdr.error }); return; }
     const body: AIModelProfileInput = {
       label: draft.label.trim() || undefined, provider: draft.provider, baseUrl: draft.baseUrl.trim() || undefined,
       apiKey: draft.apiKey || undefined, model: draft.model.trim() || undefined, skipTls: draft.skipTls,
@@ -80,6 +83,7 @@ export function AiProfilesPanel({ payload, onChange }: { payload: AIProfilesPayl
       description: draft.description.trim() || undefined, // v0.10.1138 — sohbet seçicisindeki kısa açıklama
       roles: draft.roles, // v0.10.1138 — boş = herkes (sunucu üçü de seçiliyse boşa indirir)
       deep: draft.deep, // v0.10.1150 — "Derin düşün" profili (tek; sunucu öncekini düşürür)
+      headers: hdr.headers, // v0.10.1238 — tam liste; boş = hepsi silinir
     };
     await run(() => api.putAIProfile(id, body), isNew ? `Profil eklendi: ${id}` : `Profil güncellendi: ${id}`);
     setDraft(null);
@@ -196,6 +200,10 @@ export function AiProfilesPanel({ payload, onChange }: { payload: AIProfilesPayl
               <input type="checkbox" checked={draft.deep} onChange={e => setDraft({ ...draft, deep: e.target.checked })} /> Derin düşün profili
             </label>
             <Field2 label="API anahtarı" hint={isNew ? 'Yerel endpoint için boş bırakılabilir' : 'Boş = mevcut anahtar korunur'}><input type="password" autoComplete="new-password" value={draft.apiKey} onChange={e => setDraft({ ...draft, apiKey: e.target.value })} /></Field2>
+            {/* v0.10.1238 — geçit yönlendirmesi vb. için her LLM isteğine eklenen başlıklar; auth başlıkları sunucuda reddedilir */}
+            <Field2 label="Ek HTTP başlıkları" hint="Satır başına «Ad: değer», ör. x-cluster: test-v2 — bu profilin her LLM isteğine eklenir. Authorization / api-key / Content-Type verilemez.">
+              <textarea className="mono" rows={3} value={draft.headers} onChange={e => setDraft({ ...draft, headers: e.target.value })} placeholder="x-cluster: test-v2" spellCheck={false} />
+            </Field2>
             {draft.provider === 'openai' && <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, marginBottom: 12 }}><input type="checkbox" checked={draft.skipTls} onChange={e => setDraft({ ...draft, skipTls: e.target.checked })} /> TLS doğrulamasını atla (öz-imzalı yerel uç)</label>}
             <Row>
               <Field2 label="Max tokens" small hint="boş = küresel"><input value={draft.maxTokens} onChange={e => setDraft({ ...draft, maxTokens: e.target.value })} inputMode="numeric" /></Field2>

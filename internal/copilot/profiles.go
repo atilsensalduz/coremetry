@@ -30,6 +30,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/cilcenk/coremetry/internal/ai/modelcaps"
+	"github.com/cilcenk/coremetry/internal/ai/provider"
 	"net/http"
 	"regexp"
 	"sort"
@@ -75,6 +76,10 @@ type ModelProfile struct {
 	// yine geçerli; geçmezse sessizce mevcut model). Tek profil işaretli olur:
 	// UpsertProfile yenisini işaretleyince diğerlerinden düşürür.
 	Deep bool `json:"deep,omitempty"`
+	// Headers — v0.10.1238: bu profilin her LLM isteğine eklenen HTTP
+	// başlıkları (ör. geçit yönlendirmesi `x-cluster: test-v2`). Auth/sürüm
+	// başlıklarını ezemez (provider.ValidateHeaders ayrılmış adları reddeder).
+	Headers map[string]string `json:"headers,omitempty"`
 }
 
 // ErrProfileForbidden — çağıranın rolü profili seçemez (API 403'e çevirir).
@@ -109,12 +114,25 @@ func sameStrings(a, b []string) bool {
 	return true
 }
 
+func sameHeaders(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if bv, ok := b[k]; !ok || bv != v {
+			return false
+		}
+	}
+	return true
+}
+
 // sameProfile — Temperature işaretçi olduğu için == kullanılamaz.
 func sameProfile(a, b ModelProfile) bool {
 	if a.ID != b.ID || a.Label != b.Label || a.Provider != b.Provider || a.BaseURL != b.BaseURL ||
 		a.APIKey != b.APIKey || a.Model != b.Model || a.SkipTLS != b.SkipTLS ||
 		a.MaxTokens != b.MaxTokens || a.TimeoutS != b.TimeoutS || a.Thinking != b.Thinking ||
-		a.Description != b.Description || !sameStrings(a.Roles, b.Roles) || a.Deep != b.Deep {
+		a.Description != b.Description || !sameStrings(a.Roles, b.Roles) || a.Deep != b.Deep ||
+		!sameHeaders(a.Headers, b.Headers) {
 		return false
 	}
 	if (a.Temperature == nil) != (b.Temperature == nil) {
@@ -180,6 +198,9 @@ func ValidateProfile(p ModelProfile) error {
 	}
 	if len([]rune(p.Description)) > 120 {
 		return errors.New("description ≤ 120 karakter")
+	}
+	if err := provider.ValidateHeaders(p.Headers); err != nil {
+		return err
 	}
 	seen := map[string]bool{}
 	for _, r := range p.Roles {

@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -57,6 +58,8 @@ type aiProfileView struct {
 	Description string   `json:"description,omitempty"`
 	Roles       []string `json:"roles,omitempty"`
 	Deep        bool     `json:"deep,omitempty"` // v0.10.1150 — "Derin düşün" profili
+	// v0.10.1238 — her LLM isteğine eklenen başlıklar (yalnız admin görür).
+	Headers map[string]string `json:"headers,omitempty"`
 }
 
 func aiProfileViews(profiles []copilot.ModelProfile, defaultID string) []aiProfileView {
@@ -66,7 +69,7 @@ func aiProfileViews(profiles []copilot.ModelProfile, defaultID string) []aiProfi
 			ID: p.ID, Label: p.Label, Provider: p.Provider, BaseURL: p.BaseURL, Model: p.Model, SkipTLS: p.SkipTLS,
 			HasKey: p.APIKey != "", MaxTokens: p.MaxTokens, Temperature: p.Temperature, TimeoutS: p.TimeoutS,
 			Thinking: p.Thinking, Default: p.ID == defaultID,
-			Description: p.Description, Roles: p.Roles, Deep: p.Deep,
+			Description: p.Description, Roles: p.Roles, Deep: p.Deep, Headers: p.Headers,
 		})
 	}
 	return out
@@ -121,6 +124,8 @@ func (s *Server) putAIProfile(w http.ResponseWriter, r *http.Request) {
 		Description string   `json:"description"` // v0.10.1138 — seçicideki kısa açıklama
 		Roles       []string `json:"roles"`       // v0.10.1138 — boş = herkes
 		Deep        bool     `json:"deep"`        // v0.10.1150 — "Derin düşün" profili (tek)
+		// v0.10.1238 — ek HTTP başlıkları; tam liste (gönderilmeyen = silinir).
+		Headers map[string]string `json:"headers"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "geçersiz JSON: "+err.Error())
@@ -134,6 +139,7 @@ func (s *Server) putAIProfile(w http.ResponseWriter, r *http.Request) {
 		Description: strings.TrimSpace(in.Description),
 		Roles:       normalizeProfileRoles(in.Roles),
 		Deep:        in.Deep,
+		Headers:     normalizeProfileHeaders(in.Headers),
 	}
 	if err := copilot.ValidateProfile(p); err != nil {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
@@ -145,7 +151,7 @@ func (s *Server) putAIProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	s.publishConfigReload(r.Context(), "ai")
 	s.audit(r, "settings.ai.profile.upsert", "settings", id,
-		fmt.Sprintf("provider=%s model=%s baseUrl=%s hasKey=%v roles=%s", p.Provider, p.Model, p.BaseURL, in.APIKey != "", profileRolesAudit(p.Roles))+profileDeepAudit(p.Deep))
+		fmt.Sprintf("provider=%s model=%s baseUrl=%s hasKey=%v roles=%s", p.Provider, p.Model, p.BaseURL, in.APIKey != "", profileRolesAudit(p.Roles))+profileDeepAudit(p.Deep)+profileHeadersAudit(p.Headers))
 	writeJSON(w, s.aiProfilesPayload())
 }
 
@@ -165,6 +171,36 @@ func normalizeProfileRoles(in []string) []string {
 		return nil
 	}
 	return out
+}
+
+// normalizeProfileHeaders — v0.10.1238, SAF: ad ve değer kırpılır, adı boş
+// satır atılır; boş sonuç nil (blob'da alan hiç yazılmaz).
+func normalizeProfileHeaders(in map[string]string) map[string]string {
+	var out map[string]string
+	for k, v := range in {
+		if k = strings.TrimSpace(k); k == "" {
+			continue
+		}
+		if out == nil {
+			out = map[string]string{}
+		}
+		out[k] = strings.TrimSpace(v)
+	}
+	return out
+}
+
+// profileHeadersAudit — v0.10.1238, SAF: audit satırına yalnız başlık ADLARI
+// (sıralı); değerler geçit jetonu olabilir. Başlıksız satır bayt bayt eski.
+func profileHeadersAudit(h map[string]string) string {
+	if len(h) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(h))
+	for k := range h {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	return " headers=" + strings.Join(names, ",")
 }
 
 // profileDeepAudit — v0.10.1150, SAF: derin profil işareti audit satırına

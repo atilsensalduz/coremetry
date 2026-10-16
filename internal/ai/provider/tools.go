@@ -154,6 +154,7 @@ func ChatAnthropicTools(ctx context.Context, cfg Config, req ChatRequest) (ChatR
 	if err != nil {
 		return ChatResponse{}, err
 	}
+	applyHeaders(httpReq.Header, cfg.Headers)
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("X-API-Key", cfg.APIKey)
 	httpReq.Header.Set("Anthropic-Version", anthropicVersion)
@@ -350,6 +351,7 @@ func chatOpenAIShape(ctx context.Context, cfg Config, req ChatRequest,
 	if err != nil {
 		return ChatResponse{}, err
 	}
+	applyHeaders(httpReq.Header, cfg.Headers)
 	for k, v := range hdrs {
 		httpReq.Header.Set(k, v)
 	}

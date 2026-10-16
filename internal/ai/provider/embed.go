@@ -109,6 +109,7 @@ func DoEmbeddings(ctx context.Context, cfg Config, req EmbedRequest) (EmbedRespo
 	if err != nil {
 		return EmbedResponse{}, err
 	}
+	applyHeaders(httpReq.Header, cfg.Headers)
 	httpReq.Header.Set("Content-Type", "application/json")
 	if cfg.APIKey != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+cfg.APIKey)
