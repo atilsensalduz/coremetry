@@ -1,3 +1,4 @@
+import { usePivotCtx, withPivotCtx } from '@/lib/pivotContext';
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { DataTableHead, DataTableColgroup, DataTableState, type DataTable, type DataTableStateProps } from '@/components/ui/DataTable';
@@ -64,6 +65,7 @@ export function ServicePodsTable({ dt, view, service, range, effNs, effDeploy, c
    */
   state?: Omit<DataTableStateProps<MergedPodRow>, 'dt' | 'leading' | 'trailing'>;
 }) {
+  const pctx = usePivotCtx();
   const [params, setParams] = useSearchParams();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [openKey, setOpenKey] = useState<string | null>(null);
@@ -101,11 +103,14 @@ export function ServicePodsTable({ dt, view, service, range, effNs, effDeploy, c
     pod: r.pod, cluster: r.cluster, namespace: r.namespace || undefined, service, deploy: effDeploy, range: rangeParam, from: 'pods',
   });
   const podFilters = (r: MergedPodRow) => JSON.stringify([{ k: 'k8s.pod.name', op: '=', v: [r.pod] }]);
-  const tracesHref = (r: MergedPodRow) =>
+  // v0.10.1233 — env ekrandan taşınır (cluster satırın kendisinden).
+  const tracesHref = (r: MergedPodRow) => withPivotCtx(
     `/traces?service=${encodeURIComponent(service)}&filters=${encodeURIComponent(podFilters(r))}` +
-    `${r.entity?.cluster ? `&cluster=${encodeURIComponent(r.entity.cluster)}` : ''}${rangeParam ? `&range=${encodeURIComponent(rangeParam)}` : ''}`;
-  const clusterTracesHref = (c: string) =>
-    `/traces?service=${encodeURIComponent(service)}&cluster=${encodeURIComponent(c)}${rangeParam ? `&range=${encodeURIComponent(rangeParam)}` : ''}`;
+    `${r.entity?.cluster ? `&cluster=${encodeURIComponent(r.entity.cluster)}` : ''}${rangeParam ? `&range=${encodeURIComponent(rangeParam)}` : ''}`,
+    pctx, { carry: ['env'] });
+  const clusterTracesHref = (c: string) => withPivotCtx(
+    `/traces?service=${encodeURIComponent(service)}&cluster=${encodeURIComponent(c)}${rangeParam ? `&range=${encodeURIComponent(rangeParam)}` : ''}`,
+    pctx, { carry: ['env'] });
   const infraHref = (c: string) => {
     const n = new URLSearchParams(params); n.set('tab', 'infra'); n.set('icluster', c); n.delete('jpod');
     return `/service?${n.toString()}`;

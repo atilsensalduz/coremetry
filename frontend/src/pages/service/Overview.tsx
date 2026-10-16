@@ -1,3 +1,4 @@
+import { encodeRange } from '@/lib/urlState';
 import { useId, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -453,7 +454,7 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
       + `&agg=${opts.agg}`
       + (opts.by ? `&by=${encodeURIComponent(opts.by)}` : '')
       + (opts.unit ? `&unit=${encodeURIComponent(opts.unit)}` : '')
-      + (r ? `&range=${encodeURIComponent(r)}` : '');
+      + `&range=${encodeURIComponent(r || encodeRange(range))}`; // v0.10.1233 — sayfa aralığı (URL'de yoksa da)
   };
   const rtExploreHref = () => metricsHref({
     by: 'http.route', metric: metricName, agg: 'avg',

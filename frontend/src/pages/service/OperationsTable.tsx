@@ -1,3 +1,4 @@
+import { usePivotCtx, withPivotCtx } from '@/lib/pivotContext';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { trendSparkWidth, nextOpDetail } from './operationsTableLayout';
 import { Link, useNavigate } from 'react-router-dom';
@@ -131,6 +132,7 @@ export function OperationsTable({ service, rows, range, preset, onWiden, normali
   onToggleNormalized: (v: boolean) => void;
   loading: boolean;
 }) {
+  const pctx = usePivotCtx(); // v0.10.1233 — env + cluster pivotlara taşınır
   // v0.5.374 — client-side filter. At 500+ operations on a
   // monolith service the scroll-then-eyeball loop fails;
   // typing narrows live with no server round-trip.
@@ -208,8 +210,9 @@ export function OperationsTable({ service, rows, range, preset, onWiden, normali
   // listesi bugünküyle aynı (yalnız ad).
   // v0.10.1115 — Normalized kipte satır bir op_group ŞEKLİ: çip `op_group =`
   // (`name = <şekil>` hiçbir span adına eşit değildi → boş liste).
-  const opHref = (op: OperationRow) =>
-    `/traces?service=${encodeURIComponent(service)}&filters=${encodeURIComponent(encodeFilters(opTraceFilters(op, !!op.splitResidual, normalized)))}&range=${encodeURIComponent(encodeRange(range))}&view=list&rootOnly=false`; // v0.8.488 — kesin isim filtresi (search değil)
+  const opHref = (op: OperationRow) => withPivotCtx(
+    `/traces?service=${encodeURIComponent(service)}&filters=${encodeURIComponent(encodeFilters(opTraceFilters(op, !!op.splitResidual, normalized)))}&range=${encodeURIComponent(encodeRange(range))}&view=list&rootOnly=false`,
+    pctx, { carry: ['env', 'cluster'] }); // v0.8.488 — kesin isim filtresi (search değil)
 
   // v0.8.416 (Tempo-parity T4) — row → the operation-scoped Details
   // view (?op=, v0.8.414/415): RED triple with the percentile band +
@@ -693,6 +696,7 @@ function OperationMetricPanel({
   onZoom?: (fromUnixSec: number, toUnixSec: number) => void;
   onZoomReset?: () => void;
 }) {
+  const pctx = usePivotCtx(); // v0.10.1233
   // Madde 4 sweep — EventMarkers overlay penceresi (Endpoints MetricTile
   // emsali): deploy/incident dikey çizgileri "p99 spike deploy'dan mı"
   // sorusunu modal'dan çıkmadan yanıtlar.
@@ -736,11 +740,11 @@ function OperationMetricPanel({
   // v0.10.1115 — Normalized kipte `op_group = <şekil>`.
   const opFilters = opTraceFilters(op, !!op.splitResidual, normalized);
   const opLabel = opDisplayName(op.name, op.route);
-  const tracesHref =
+  const tracesHref = withPivotCtx(
     `/traces?service=${encodeURIComponent(service)}` +
     `&filters=${encodeURIComponent(encodeFilters(opFilters))}` +
     `&range=${encodeURIComponent(encodeRange(range))}` +
-    `&view=list&rootOnly=false`;
+    `&view=list&rootOnly=false`, pctx, { carry: ['env', 'cluster'] });
 
   // v0.8.x — drill from this popup to /explore, operation-scoped.
   // Mirrors the v0.6.55 /services sparkline→/explore pattern
