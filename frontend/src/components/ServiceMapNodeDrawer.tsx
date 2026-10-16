@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 import { serviceHref } from '@/lib/serviceHref';
 import { tracesPivotHref } from '@/lib/pivotHref';
 import { logsHref } from '@/lib/logsUrl';
+import { windowRangeParam } from '@/lib/urlState';
 import { fmtNum, fmtFixed } from '@/lib/utils';
 import type { TimeRange } from '@/lib/types';
 
@@ -105,7 +106,7 @@ export function ServiceMapNodeDrawer({ service, range, fromNs, toNs, onClose }: 
                 Error traces
               </Link>
               <Link className="sec" style={{ textDecoration: 'none' }}
-                to={`/endpoints?service=${encodeURIComponent(service)}`}
+                to={`/endpoints?service=${encodeURIComponent(service)}&range=${encodeURIComponent(windowRangeParam(win))}`}
                 title="Servisin rota-bazlı RED tablosu">
                 Endpoints
               </Link>

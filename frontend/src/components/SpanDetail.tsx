@@ -292,7 +292,7 @@ export function SpanDetail({ span, onClose, logsFrom, logsTo, serviceLinks = tru
             linkli + kopyalı), altta geniş bölümler. Eski "Info" ve düz "Resource"
             bölümleri buraya eridi. */}
         <div className="kiosk-span__facts">
-          <span><b>Service:</b> {serviceLinks ? <Link to={serviceHref(span.serviceName)}>{span.serviceName}</Link> : span.serviceName}</span>
+          <span><b>Service:</b> {serviceLinks ? <Link to={serviceHref(span.serviceName, { range: spanLinkCtx.window })}>{span.serviceName}</Link> : span.serviceName}</span>
           {endpointLink && <span><b>Endpoint:</b> <Link to={endpointLink.href} title="Bu endpoint'in sayfasını aç">{endpointLink.label}</Link></span>}
           <span><b>Duration:</b> {span.durationMs.toFixed(3)} ms{traceSpans && traceSpans.length > 0 && (() => {
             const self = selfTimeMs(span, traceSpans);
