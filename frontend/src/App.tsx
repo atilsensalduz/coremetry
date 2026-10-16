@@ -113,6 +113,12 @@ function TopologyRedirect() {
   const loc = useLocation();
   return <Navigate to={`/service-map${loc.search}`} replace />;
 }
+// v0.10.1217 — emekli rotalar (/deploys, /exceptions, /errors) statik
+// Navigate'le sorgu dizesini atıyordu; paylaşılan link filtresiz açılıyordu.
+function QueryRedirect({ to }: { to: string }) {
+  const loc = useLocation();
+  return <Navigate to={`${to}${loc.search}`} replace />;
+}
 // v0.10.201 — /deployment-report emekli: eski linkler (?since=&owner=&sre=)
 // sorgu dizesiyle /rollouts'a iner (TopologyRedirect deseni; statik Navigate
 // paylaşılan linki boş sayfaya düşürürdü).
@@ -178,7 +184,7 @@ export default function App() {
             <Route path="/databases"      element={<Databases />} />
             <Route path="/database"       element={<DatabaseDetail />} />
             {/* v0.10.209 — /deploys emekli (Ö17 karar 11): filo geçmişi /rollouts */}
-            <Route path="/deploys"        element={<Navigate to="/rollouts" replace />} />
+            <Route path="/deploys"        element={<QueryRedirect to="/rollouts" />} />
             <Route path="/databases/slow-queries" element={<SlowQueries />} />
             <Route path="/databases/statement" element={<StatementDetail />} />
             <Route path="/external"       element={<External />} />
@@ -198,7 +204,7 @@ export default function App() {
             <Route path="/anomalies"      element={<Anomalies />} />
             <Route path="/rollouts"          element={<Rollouts />} />
             <Route path="/deployment-report" element={<DeploymentReportRedirect />} />
-            <Route path="/exceptions"     element={<Navigate to="/problems" replace />} />
+            <Route path="/exceptions"     element={<QueryRedirect to="/problems" />} />
             <Route path="/alerts"         element={<Alerts />} />
             <Route path="/watchers"       element={<Watchers />} />
             <Route path="/slos"           element={<Slos />} />
@@ -216,7 +222,7 @@ export default function App() {
             {/* v0.8.482 — /errors eski linkleri tek atlamada /problems'a iner
                 (önceden 13 satırlık Spinner'lı redirect sayfası + ayrı chunk'tı;
                 /status v457 emsali). */}
-            <Route path="/errors"         element={<Navigate to="/problems" replace />} />
+            <Route path="/errors"         element={<QueryRedirect to="/problems" />} />
             {/* v0.8.457 — eski /status yer imleri tek atlamada /system/stats'e
                 iner (önceden Status.tsx → /admin/stats → AdminRedirect üç duraktı). */}
             <Route path="/status"         element={<Navigate to="/system/stats" replace />} />

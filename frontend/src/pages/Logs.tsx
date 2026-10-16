@@ -974,12 +974,12 @@ function LogsInner() {
             return (
               <a href={href} target="_blank" rel="noopener"
                 className="sec"
-                title="Open the current filter slice in Kibana Discover"
+                title="Open the current filter slice in Elastic Discover"
                 style={{
                   flexShrink: 0, fontSize: 12, padding: '5px 12px',
                   textDecoration: 'none', color: 'var(--accent2)',
                 }}>
-                ↗ Discover in Kibana
+                ↗ Discover in Elastic
               </a>
             );
           })()}
