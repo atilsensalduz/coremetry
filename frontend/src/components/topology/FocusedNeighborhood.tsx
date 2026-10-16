@@ -1,3 +1,4 @@
+import { usePivotCtx, withPivotCtx } from '@/lib/pivotContext';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -147,6 +148,7 @@ export function FocusedNeighborhood({ range, focus, hops, errorsOnly, onHops, on
   onRecenter: (svc: string) => void;
   onClear: () => void;
 }) {
+  const pctx = usePivotCtx(); // v0.10.1237
   const { from, to } = useMemo(() => timeRangeToNs(range), [range]);
   // v0.9.226 — Structure/Flow toggle kaldırıldı (operatör: "sadece flow
   // olan yeterli"). Tek görünüm: MV-kenarlı akış grafiği.
@@ -402,7 +404,7 @@ export function FocusedNeighborhood({ range, focus, hops, errorsOnly, onHops, on
                   "içeren" der — doğrudan kenar garantisi yok. */}
               {hoverNode.name !== focus && (
                 <Link
-                  to={`/traces?services=${encodeURIComponent(focus)},${encodeURIComponent(hoverNode.name)}&range=${encodeRange(range)}&view=list&rootOnly=false`}
+                  to={withPivotCtx(`/traces?services=${encodeURIComponent(focus)},${encodeURIComponent(hoverNode.name)}&range=${encodeRange(range)}&view=list&rootOnly=false`, pctx, { carry: ['env'] })}
                   title="İki servisi birlikte içeren trace'ler — doğrudan kenar garantisi değil"
                   style={{ fontSize: 11, textDecoration: 'none' }}>
                   Traces ({focus} ∧ {hoverNode.name}) →

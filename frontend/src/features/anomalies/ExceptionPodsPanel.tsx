@@ -12,6 +12,7 @@
 // ellipsis + title (CLAUDE.md tuzağı: fixed + nowrap + küçük genişlik
 // sessizce kırpar → min/max + ellipsis + title), sayısal kolonlar sabit dar.
 // Kart genişliği ne olursa olsun yatay kaydırma yok.
+import { usePivotCtx, withPivotCtx } from '@/lib/pivotContext';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
@@ -31,6 +32,7 @@ import { windowRangeParam } from '@/lib/urlState';
 const PODS_SHOW = 8;
 
 export function ExceptionPodsPanel({ fingerprint, service, groupOccurrences }: { fingerprint: string; service: string; groupOccurrences: number }) {
+  const pctx = usePivotCtx(); // v0.10.1237 — env pivota taşınır
   const { enabled } = useEntityEnabled();
   const q = useQuery({
     queryKey: ['exc-pods', fingerprint],
@@ -92,7 +94,7 @@ export function ExceptionPodsPanel({ fingerprint, service, groupOccurrences }: {
                   const podHref = cid && !r.hostOnly ? entityHref({ type: 'pod', id: `pod:${cid}/${r.namespace}/${r.pod}`, name: r.pod, namespace: r.namespace, clusterId: cid }, { range, at: atMs, clusterName: r.clusterName, service }) : null;
                   const nodeHref = cid && r.node ? entityHref({ type: 'node', id: `node:${cid}/${r.node}`, name: r.node, clusterId: cid }, { range, at: atMs, clusterName: r.clusterName }) : null;
                   const filters = encodeURIComponent(JSON.stringify([{ k: 'k8s.pod.name', op: '=', v: [r.pod] }]));
-                  const tracesHref = `/traces?service=${encodeURIComponent(service)}&filters=${filters}&cluster=${encodeURIComponent(r.cluster)}&hasError=true${rangeParam ? `&range=${encodeURIComponent(rangeParam)}` : ''}`;
+                  const tracesHref = withPivotCtx(`/traces?service=${encodeURIComponent(service)}&filters=${filters}&cluster=${encodeURIComponent(r.cluster)}&hasError=true${rangeParam ? `&range=${encodeURIComponent(rangeParam)}` : ''}`, pctx, { carry: ['env'] }); // v0.10.1237
                   const share = (100 * r.occurrences) / denom;
                   return (
                     <tr key={`${r.cluster}/${r.namespace}/${r.pod}`}>

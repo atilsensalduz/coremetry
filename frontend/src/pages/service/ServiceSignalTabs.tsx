@@ -1,3 +1,4 @@
+import { usePivotCtx, withPivotCtx } from '@/lib/pivotContext';
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Pager } from '@/components/Pager';
 import { useQuery } from '@tanstack/react-query';
@@ -337,6 +338,7 @@ const DEFAULT_TOPOLOGY_HOPS = 2;
 
 // ── Topology: tiered pill-card neighbourhood (shared TopologyPillGraph) ──
 export function ServiceTopologyTab({ service, range }: { service: string; range: TimeRange }) {
+  const pctx = usePivotCtx(); // v0.10.1237
   const navigate = useNavigate();
   const rangeParam = encodeRange(range);
   // v0.8.93 — render the SAME focused topology as the /topology page
@@ -395,7 +397,7 @@ export function ServiceTopologyTab({ service, range }: { service: string; range:
           onHops={setHops}
           onErrorsOnly={setErrorsOnly}
           onRecenter={(s) => navigate(serviceHref(s, { range, tab: 'topology' }))}
-          onClear={() => navigate(`/topology?range=${rangeParam}`)}
+          onClear={() => navigate(withPivotCtx(`/topology?range=${rangeParam}`, pctx, { carry: ['env'] }))}
         />
       </div>
     </div>
