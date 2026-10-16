@@ -4,6 +4,7 @@ package auth
 // end_session_endpoint + id_token_hint + client_id + post_logout_redirect_uri.
 
 import (
+	"context"
 	"net/url"
 	"testing"
 )
@@ -41,5 +42,31 @@ func TestLogoutURLDisabled(t *testing.T) {
 	var o OIDCService
 	if o.LogoutURL("x") != "" {
 		t.Error("SSO kapalıyken IdP çıkışı yok")
+	}
+}
+
+// v0.10.1243 — operatör: logout sonrası SSO şifre sormadan geri alıyordu.
+// LogoutURL adresi provider.Claims()'ten okuyordu; ağsız kurulan sağlayıcıda
+// Claims hep hata → hep "" (IdP oturumu kapanmıyordu). Gerçek keşif yolu.
+func TestLogoutURLFromDiscovery(t *testing.T) {
+	idp := newFakeIdP(t)
+	o := newDevService(t, newFakeOIDCStore())
+	if _, err := o.SaveSettings(context.Background(), validInput(idp.URL)); err != nil {
+		t.Fatalf("kayıt: %v", err)
+	}
+	got := o.LogoutURL("eyJ.a.b")
+	u, err := url.Parse(got)
+	if err != nil || got == "" {
+		t.Fatalf("IdP çıkış adresi boş/bozuk: %q", got)
+	}
+	if u.Path != "/logout" || u.Query().Get("id_token_hint") != "eyJ.a.b" || u.Query().Get("client_id") != "coremetry" {
+		t.Fatalf("beklenmeyen adres: %s", got)
+	}
+}
+
+func TestValidEndSession(t *testing.T) {
+	p := oidcNetPolicy{}
+	if validEndSession("", p) != "" || validEndSession("https://kc/logout#x", p) != "" || validEndSession("::bad", p) != "" {
+		t.Error("boş / parçalı / bozuk adres düşürülmeli")
 	}
 }

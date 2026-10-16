@@ -465,7 +465,11 @@ type OIDCDiscovery struct {
 	// UnsupportedScopes — istenen ama IdP'nin scopes_supported listesinde
 	// olmayan kapsamlar (liste yayınlanmışsa). Uyarıdır, hata değil.
 	UnsupportedScopes []string `json:"unsupportedScopes,omitempty"`
-	signingAlgs       []string
+	// EndSessionEndpoint — v0.10.1243: RP-Initiated Logout ucu (isteğe bağlı).
+	// Sağlayıcı ProviderConfig'ten ağsız kurulduğu için provider.Claims()
+	// keşif belgesini TAŞIMIYOR — logout adresi buradan okunur.
+	EndSessionEndpoint string `json:"endSessionEndpoint,omitempty"`
+	signingAlgs        []string
 }
 
 // oidcNetError — keşif hatası. Error() TEK genel cümle (iç-ağ yoklaması
@@ -516,6 +520,20 @@ func checkDiscoveryURLs(d *OIDCDiscovery, p oidcNetPolicy) error {
 	return nil
 }
 
+// validEndSession — SAF: logout ucu isteğe bağlı; politika dışı / bozuk
+// adres keşfi düşürmez, yalnız "" döner (yerel çıkış). Sorgu serbest
+// (BuildOIDCLogoutURL korur), parça yasak.
+func validEndSession(v string, p oidcNetPolicy) string {
+	if v == "" {
+		return ""
+	}
+	u, err := url.Parse(v)
+	if err != nil || p.checkURL(u) != nil || u.Fragment != "" {
+		return ""
+	}
+	return v
+}
+
 // discoverOIDC — issuer'ın /.well-known/openid-configuration belgesini
 // okur ve doğrular.
 func discoverOIDC(ctx context.Context, cli *http.Client, issuer string, p oidcNetPolicy) (*OIDCDiscovery, error) {
@@ -554,6 +572,7 @@ func discoverOIDC(ctx context.Context, cli *http.Client, issuer string, p oidcNe
 		JWKSURL     string   `json:"jwks_uri"`
 		Scopes      []string `json:"scopes_supported"`
 		Algs        []string `json:"id_token_signing_alg_values_supported"`
+		EndSession  string   `json:"end_session_endpoint"`
 	}
 	if err := json.Unmarshal(body, &doc); err != nil {
 		return nil, netErr("bad_json")
@@ -572,6 +591,7 @@ func discoverOIDC(ctx context.Context, cli *http.Client, issuer string, p oidcNe
 	if err := checkDiscoveryURLs(out, p); err != nil {
 		return nil, err
 	}
+	out.EndSessionEndpoint = validEndSession(clipField(doc.EndSession), p)
 	for _, sc := range doc.Scopes {
 		if len(out.ScopesSupported) >= oidcMaxScopesListed {
 			break

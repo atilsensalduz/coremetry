@@ -158,6 +158,7 @@ func newFakeIdPServe(t *testing.T, start func(http.Handler) *httptest.Server) *f
 				"token_endpoint": f.URL + "/token", "userinfo_endpoint": f.URL + "/userinfo",
 				"jwks_uri": f.URL + "/jwks", "scopes_supported": []string{"openid", "email", "profile"},
 				"id_token_signing_alg_values_supported": []string{"RS256", "none"},
+				"end_session_endpoint":                  f.URL + "/logout", // v0.10.1243
 			}
 			if huge {
 				doc["padding"] = strings.Repeat("x", oidcMaxDiscoveryBytes+10)

@@ -18,16 +18,14 @@ import (
 // end_session_endpoint ilan etmiyorsa "" (yalnız yerel çıkış).
 func (o *OIDCService) LogoutURL(idToken string) string {
 	c := o.client()
-	if c == nil || c.provider == nil {
+	// v0.10.1243 — operatör: logout sonrası SSO sessizce geri alıyordu. Adres
+	// provider.Claims()'ten okunuyordu; ağsız ProviderConfig sağlayıcısında
+	// Claims her zaman hata döner → hep "" (yalnız yerel çıkış). Kaynak artık
+	// kendi keşfimiz (OIDCDiscovery.EndSessionEndpoint).
+	if c == nil || c.disc == nil || c.disc.EndSessionEndpoint == "" {
 		return ""
 	}
-	var meta struct {
-		EndSession string `json:"end_session_endpoint"`
-	}
-	if err := c.provider.Claims(&meta); err != nil || meta.EndSession == "" {
-		return ""
-	}
-	return BuildOIDCLogoutURL(meta.EndSession, idToken, c.cfg.ClientID, postLogoutRedirect(o.publicURL, c.cfg.RedirectURL))
+	return BuildOIDCLogoutURL(c.disc.EndSessionEndpoint, idToken, c.cfg.ClientID, postLogoutRedirect(o.publicURL, c.cfg.RedirectURL))
 }
 
 // postLogoutRedirect — SAF: <public URL>/login; public URL yoksa callback
