@@ -22,7 +22,8 @@ import { api } from '@/lib/api';
 import { fmtNum, fmtFixed, timeRangeToNs, rowClickHandlers, tsLong, fmtAgoNs } from '@/lib/utils';
 import { teamOptionsCI } from '@/lib/teamOptions';
 import { encodeRange, encodeFilters, buildQuery } from '@/lib/urlState';
-import { servicesFilterSearch, servicesFilterFromSearch } from '@/lib/servicesFilterParams';
+import { useUrlParams } from '@/lib/urlParams';
+import { SERVICES_URL_SPEC, SERVICES_FILTERS_EMPTY } from '@/lib/servicesUrlSpec';
 import { useUrlRange, DEFAULT_RANGE_PRESET } from '@/lib/useUrlRange';
 import { useUrlEnv } from '@/lib/useUrlEnv';
 import { useUrlPage } from '@/lib/useUrlPage';
@@ -150,99 +151,49 @@ export default function ServicesPage() {
   const [total, setTotal] = useState<number | null>(null);
 
   // Filters (in-memory — service list is small)
-  // v0.10.1216 — dört filtre mount'ta URL'den (yazıcının tersi); öncesi boş
-  // başlayıp yazıcı efektiyle paylaşılan linkin parametrelerini siliyordu.
-  const [initFilters] = useState(() => servicesFilterFromSearch(window.location.search));
-  const [serviceFilter, setServiceFilter] = useState(initFilters.committedFilter);
-  const [errorsOnly, setErrorsOnly] = useState(initFilters.errorsOnly);
-  const [minSpans, setMinSpans] = useState(initFilters.minSpans);
-  const [minP99, setMinP99] = useState(initFilters.minP99);
-  // Server-side team filters — resolved through the catalog
-  // and applied as a service_name IN (...) allowlist on the
-  // backend so the filter is correct across pages, not just
-  // the visible 50.
-  // v0.9.1135 — ?ownerTeam=/?sreTeam= tek-yön URL init'i (cluster/
-  // namespace emsalinin aynısı, aşağıda). v0.9.1134'ün bulgusu: bu iki
-  // filtre sunucuya gidiyordu ama URL'den HİÇ okunmuyordu — takım-
-  // filtreli derin link ölü-param sınıfıydı (guided chat'in takım
-  // linki bu yüzden düz /services basıyor; owner/SRE tarafı katalogda
-  // işaretlenince o link de filtreli terfi edecek).
-  const [ownerTeam, setOwnerTeam] = useState(() => {
-    const p = new URLSearchParams(window.location.search);
-    return p.get('ownerTeam') ?? '';
-  });
-  const [sreTeam, setSreTeam] = useState(() => {
-    const p = new URLSearchParams(window.location.search);
-    return p.get('sreTeam') ?? '';
-  });
-  // Cluster filter — narrows the list to services whose spans
-  // emitted from the selected k8s / openshift cluster. Resolved
-  // server-side via the resource/attr coalesce chain. Banks
-  // running tens of clusters need this to triage by-region or
-  // by-tier (prod vs canary vs DR).
-  // Init cluster from `?cluster=` so a link from the Service
-  // detail's per-cluster breakdown lands on the filtered list.
-  const [cluster, setCluster] = useState(() => {
-    const p = new URLSearchParams(window.location.search);
-    return p.get('cluster') ?? '';
-  });
+  // v0.10.1229 (paylaşılabilir URL, Faz 1-B) — filtreler URL'den TÜRETİLİR
+  // (useUrlParams); yerel kopya yok, dolayısıyla paylaşılan link, yenileme,
+  // geri/ileri ve kayıtlı görünüm kendiliğinden uygulanır. Eski yazıcı efekti
+  // ve mount okuyucusu (v0.9.1336 / v0.10.1216) kaldırıldı. Param adları aynı.
+  // Server-side takım filtreleri katalogdan service_name IN (...) olarak
+  // uygulanır; cluster span'lerin cluster'ına daraltır; namespace
+  // service_metadata'dan (v0.9.189).
+  const [uf, setUf] = useUrlParams(SERVICES_URL_SPEC);
+  const committedFilter = uf.q;
+  const errorsOnly = uf.err;
+  const minSpans = uf.minSpans;
+  const minP99 = uf.minP99;
+  const ownerTeam = uf.ownerTeam;
+  const sreTeam = uf.sreTeam;
+  const cluster = uf.cluster;
+  const namespace = uf.namespace;
+  const setErrorsOnly = (v: boolean) => setUf({ err: v });
+  const setMinSpans = (v: string) => setUf({ minSpans: v });
+  const setMinP99 = (v: string) => setUf({ minP99: v });
+  const setOwnerTeam = (v: string) => setUf({ ownerTeam: v });
+  const setSreTeam = (v: string) => setUf({ sreTeam: v });
+  const setCluster = (v: string) => setUf({ cluster: v });
+  const setNamespace = (v: string) => setUf({ namespace: v });
   const [clusterOptions, setClusterOptions] = useState<string[]>([]);
-  // Namespace filter (v0.9.189) — derived service namespace
-  // (service.namespace / k8s.namespace.name via service_metadata).
-  // Init from ?namespace= for deep-links, same one-way URL read as cluster.
-  const [namespace, setNamespace] = useState(() => {
-    const p = new URLSearchParams(window.location.search);
-    return p.get('namespace') ?? '';
-  });
   const [namespaceOptions, setNamespaceOptions] = useState<string[]>([]);
 
-  // serviceFilter is the picker's draft — typing / dropdown picks
-  // mutate it freely and the in-memory `sorted` re-filter narrows
-  // the visible rows live (cheap, client-side). The server-side
-  // re-fetch only kicks in once the operator commits via Enter or
-  // the Search button — so clicking the dropdown doesn't fan a
-  // ClickHouse query out per keystroke.
-  const [committedFilter, setCommittedFilter] = useState(initFilters.committedFilter);
-
-  // v0.9.1336 (denetim K5) — FİLTRELER URL'E YAZILIYOR.
-  //
-  // Öncesi: dördü (ownerTeam/sreTeam/cluster/namespace) URL'den yalnız
-  // MOUNT'ta okunuyordu ve geri HİÇ yazılmıyordu; dördü (arama, errors-only,
-  // minSpans, minP99) hiç URL görmüyordu. Sonuç: Copy link ve yenileme
-  // operatörün kurduğu daraltmayı kaybediyordu. Bu, bu deponun tek-yön-okuma
-  // sınıfı ve ÜÇ KEZ gemiye gitti (v0.8.256 problems, v0.8.265 service-map,
-  // v0.8.267 anomalies); üstelik yukarıdaki v0.9.1135 şerhi kendi vakasını
-  // zaten "ölü-param sınıfı" diye adlandırmış.
-  //
-  // Yazım `rebuildPreserving` ile: efekt YALNIZ kendi sekiz parametresine
-  // sahip, tanımadığı her şeyi (page, sort `s_*`, ai, env, range) olduğu gibi
-  // taşır. `page` bilhassa önemli — setPage onu ham `window.location.search`
-  // üzerinden yazıyor ve bu efekt onu sahiplenmediği için silmiyor.
-  //
-  // `window.location.search` okunuyor, router'ın `prev`i DEĞİL: aynı
-  // gerekçe satır 119-123'te yazılı — ham yazımlardan sonra `prev` bayat bir
-  // alt küme olabiliyor ve yabancı paramları sessizce silerdi.
-  //
-  // KAPSAM, açıkça: bu tek YÖNLÜ eksiği kapatıyor (state → URL). URL → state
-  // geri-import'u (tarayıcı ileri/geri tuşları filtreleri geri yüklesin)
-  // BİLİNÇLİ olarak dışarıda: onun için sig-guard gerekiyor (Logs.tsx
-  // `urlSig`/`lastUrlSigRef`, v0.8.253) yoksa alakasız bir range yazımı
-  // yerel filtreleri siler. Bugünkü davranış geri tuşunda da aynı kalıyor,
-  // yani regresyon yok — eksik olan Copy link/yenileme ve o kapandı.
-  // Parametre haritası lib/servicesFilterParams.ts'te ve SAF — burada satır
-  // içi bir kopya tutmak, testin ürünü değil kendi ikizini koruması demekti
-  // (v0.9.1334'te düzeltilen "test edilmiş ama ulaşılamaz" sınıfı).
+  // serviceFilter — seçicinin TASLAĞI (yazarken satırlar yerelde canlı
+  // daralır); sunucu sorgusu yalnız commit'te (Enter / Ara / 350 ms boşta).
+  // Commit edilen değer URL'deki `q`. Dış değişim (geri/ileri, link) taslağı
+  // günceller; kendi commit'imizin yankısı lastQRef ile ayırt edilir, yoksa
+  // yazmaya devam eden metni ezerdi.
+  const [serviceFilter, setServiceFilter] = useState(uf.q);
+  const lastQRef = useRef(uf.q);
   useEffect(() => {
-    const next = servicesFilterSearch(window.location.search, {
-      committedFilter, errorsOnly, minSpans, minP99,
-      ownerTeam, sreTeam, cluster, namespace,
-    });
-    // Karşılaştırma ŞART: efekt her render'da koşuyor ve setSearchParams'ı
-    // koşulsuz çağırmak sonsuz döngü kurardı.
-    if (next === window.location.search.replace(/^\?/, '')) return;
-    setSearchParams(() => new URLSearchParams(next), { replace: true });
-  }, [committedFilter, errorsOnly, minSpans, minP99,
-      ownerTeam, sreTeam, cluster, namespace, setSearchParams]);
+    if (uf.q === lastQRef.current) return;
+    lastQRef.current = uf.q;
+    setServiceFilter(uf.q);
+  }, [uf.q]);
+  const setCommittedFilter = (v: string) => {
+    if (v === lastQRef.current) return;
+    lastQRef.current = v;
+    setUf({ q: v });
+  };
 
   // Sort runs server-side via ?sort/&dir; this only applies
   // local display filters (errors-only / min-spans / min-p99
@@ -459,10 +410,12 @@ export default function ServicesPage() {
     return () => clearTimeout(t);
   }, [serviceFilter]);
 
+  // Tek URL yazımı (ardışık yazımlar birbirini geri almasın). cluster /
+  // namespace Reset'te KORUNUR (önceki davranış).
   const reset = () => {
-    setServiceFilter(''); setCommittedFilter('');
-    setErrorsOnly(false); setMinSpans(''); setMinP99('');
-    setOwnerTeam(''); setSreTeam('');
+    setServiceFilter('');
+    lastQRef.current = '';
+    setUf({ ...SERVICES_FILTERS_EMPTY, cluster, namespace });
   };
 
   // Distinct team values from the catalog — feeds the two
