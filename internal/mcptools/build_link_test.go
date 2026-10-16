@@ -81,3 +81,32 @@ func TestBuildLinkToolArgs(t *testing.T) {
 		t.Error("page zorunlu")
 	}
 }
+
+// v0.10.1222 — tekil varlık sayfaları; sözleşmeler frontend üreticileriyle aynı.
+func TestBuildLinkEntityPages(t *testing.T) {
+	rng := "custom:1000-2000"
+	cases := []struct {
+		a    buildLinkArgs
+		want string
+	}{
+		{buildLinkArgs{Page: "problem", ProblemID: "p-1"}, "/problems?problem=p-1"},
+		{buildLinkArgs{Page: "exception", Fingerprint: "abc"}, "/problems?exc=abc"},
+		{buildLinkArgs{Page: "incident", IncidentID: "i-9"}, "/incident?id=i-9"},
+		{buildLinkArgs{Page: "endpoint", Service: "shop", Path: "/api/orders/{id}", Signature: true, Env: "prod"}, "/endpoint?cluster=c-1&env=prod&path=%2Fapi%2Forders%2F%7Bid%7D&range=custom%3A1000-2000&service=shop&sig=1"},
+		{buildLinkArgs{Page: "statement", StmtHash: "123", DBSystem: "my sql"}, "/databases/statement?range=custom%3A1000-2000&stmt=123%7Cmy%2520sql"},
+		{buildLinkArgs{Page: "topic", MsgSystem: "kafka", Cluster: "b1", Destination: "orders"}, "/messaging/topic?cluster=b1&destination=orders&range=custom%3A1000-2000&system=kafka"},
+		{buildLinkArgs{Page: "rollouts", Namespace: "shop"}, "/rollouts?cluster=c-1&namespace=shop&range=custom%3A1000-2000"},
+	}
+	for _, c := range cases {
+		h, err := buildLink(c.a, "c-1", nil, rng)
+		if err != nil || h != c.want {
+			t.Errorf("%s: got %q err=%v, want %q", c.a.Page, h, err, c.want)
+		}
+	}
+	for _, bad := range []buildLinkArgs{{Page: "problem"}, {Page: "exception"}, {Page: "incident"}, {Page: "endpoint", Service: "x"},
+		{Page: "statement", StmtHash: "0"}, {Page: "statement", StmtHash: "abc"}, {Page: "topic", MsgSystem: "kafka"}} {
+		if _, err := buildLink(bad, "", nil, rng); err == nil {
+			t.Errorf("%+v: hata bekleniyordu", bad)
+		}
+	}
+}

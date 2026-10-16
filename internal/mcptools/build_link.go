@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/cilcenk/coremetry/internal/chstore"
@@ -40,9 +41,26 @@ type buildLinkArgs struct {
 	Tab        string         `json:"tab,omitempty"`
 	RangeS     int            `json:"range_s,omitempty"`
 	Preset     string         `json:"preset,omitempty"` // "30m" gibi göreli; boş = mutlak pencere
+	// v0.10.1222 — tekil varlık sayfaları.
+	ProblemID   string `json:"problem_id,omitempty"`
+	Fingerprint string `json:"fingerprint,omitempty"`
+	IncidentID  string `json:"incident_id,omitempty"`
+	Path        string `json:"path,omitempty"`
+	Signature   bool   `json:"signature,omitempty"`
+	StmtHash    string `json:"stmt_hash,omitempty"`
+	DBSystem    string `json:"db_system,omitempty"`
+	MsgSystem   string `json:"messaging_system,omitempty"`
+	Destination string `json:"destination,omitempty"`
 }
 
-var buildLinkPages = map[string]bool{"traces": true, "trace": true, "logs": true, "service": true, "pod": true, "clusters": true, "endpoints": true, "problems": true}
+var buildLinkPages = map[string]bool{"traces": true, "trace": true, "logs": true, "service": true, "pod": true, "clusters": true, "endpoints": true, "problems": true,
+	"problem": true, "exception": true, "incident": true, "endpoint": true, "statement": true, "topic": true, "rollouts": true}
+
+// buildLinkPageList — hata metni + şema enum'u (tek kaynak).
+var buildLinkPageList = []string{"traces", "trace", "logs", "service", "pod", "clusters", "endpoints", "problems",
+	"problem", "exception", "incident", "endpoint", "statement", "topic", "rollouts"}
+
+var stmtHashRe = regexp.MustCompile(`^[0-9]{1,20}$`)
 
 // linkClusterID — cluster ref → Remote Cluster id (yoksa verilen değer).
 func linkClusterID(d Deps, ref string) (id, name string) {
@@ -65,7 +83,7 @@ func linkClusterID(d Deps, ref string) (id, name string) {
 func buildLink(a buildLinkArgs, clusterID string, filters []chstore.FilterExpr, rangeParam string) (string, error) {
 	page := strings.ToLower(strings.TrimSpace(a.Page))
 	if !buildLinkPages[page] {
-		return "", fmt.Errorf("page %q: traces | trace | logs | service | pod | clusters | endpoints | problems", a.Page)
+		return "", fmt.Errorf("page %q: %s", a.Page, strings.Join(buildLinkPageList, " | "))
 	}
 	q := url.Values{}
 	set := func(k, v string) {
@@ -150,6 +168,62 @@ func buildLink(a buildLinkArgs, clusterID string, filters []chstore.FilterExpr, 
 	case "problems":
 		set("service", a.Service)
 		withRange = false
+	// v0.10.1222 — tekil varlıklar; sözleşmeler frontend üreticileriyle aynı
+	// (ProblemDetail ?problem=, AnomaliesPage ?exc=, Incident ?id=,
+	// endpointDetailHref, stmtDetailHref, messagingTopicHref, Rollouts).
+	case "problem":
+		if strings.TrimSpace(a.ProblemID) == "" {
+			return "", fmt.Errorf("problem sayfası problem_id ister")
+		}
+		path = "/problems"
+		q.Set("problem", strings.TrimSpace(a.ProblemID))
+		withRange = false
+	case "exception":
+		if strings.TrimSpace(a.Fingerprint) == "" {
+			return "", fmt.Errorf("exception sayfası fingerprint ister")
+		}
+		path = "/problems"
+		q.Set("exc", strings.TrimSpace(a.Fingerprint))
+		withRange = false
+	case "incident":
+		if strings.TrimSpace(a.IncidentID) == "" {
+			return "", fmt.Errorf("incident sayfası incident_id ister")
+		}
+		q.Set("id", strings.TrimSpace(a.IncidentID))
+		withRange = false
+	case "endpoint":
+		if a.Service == "" || a.Path == "" {
+			return "", fmt.Errorf("endpoint sayfası service + path ister")
+		}
+		q.Set("service", a.Service)
+		q.Set("path", a.Path)
+		if a.Signature {
+			q.Set("sig", "1")
+		}
+		set("env", a.Env)
+		set("cluster", clusterID)
+	case "statement":
+		h := strings.TrimSpace(a.StmtHash)
+		if !stmtHashRe.MatchString(h) || strings.Trim(h, "0") == "" {
+			return "", fmt.Errorf("statement sayfası stmt_hash ister (ondalık uint64)")
+		}
+		path = "/databases/statement"
+		v := h
+		if sys := strings.TrimSpace(a.DBSystem); sys != "" {
+			v += "|" + strings.ReplaceAll(url.QueryEscape(sys), "+", "%20") // encodeURIComponent eşdeğeri
+		}
+		q.Set("stmt", v)
+	case "topic":
+		if a.MsgSystem == "" || a.Destination == "" {
+			return "", fmt.Errorf("topic sayfası messaging_system + destination ister")
+		}
+		path = "/messaging/topic"
+		q.Set("system", a.MsgSystem)
+		q.Set("cluster", strings.TrimSpace(a.Cluster)) // broker cluster'ı — Remote Cluster id DEĞİL
+		q.Set("destination", a.Destination)
+	case "rollouts":
+		set("cluster", clusterID)
+		set("namespace", a.Namespace)
 	}
 	if withRange && rangeParam != "" {
 		q.Set("range", rangeParam)
@@ -166,8 +240,10 @@ var buildLinkPresets = map[string]bool{"5m": true, "15m": true, "30m": true, "1h
 func buildLinkTool(d Deps) mcp.Tool {
 	return mcp.Tool{
 		Name:             "build_link",
-		ShortDescription: "Coremetry UI deep-link'i üretir (traces / trace / logs / service / pod / clusters / endpoints / problems) — süzgeç + pencere önceden dolu. Cevabın sonuna KOY; URL uydurma.",
+		ShortDescription: "Coremetry UI deep-link'i üretir (liste sayfaları + tekil problem / exception / incident / endpoint / statement / topic / rollouts) — süzgeç + pencere önceden dolu. Cevabın sonuna KOY; URL uydurma.",
 		Description: "Build a Coremetry UI deep-link with the filters, scope and time window pre-filled so the operator continues in the product with one click. " +
+			"Single-entity pages (v0.10.1222): problem (problem_id), exception (fingerprint), incident (incident_id), endpoint (service + path, signature=true when the path is an ID-collapsed template row, env, cluster), " +
+			"statement (stmt_hash = decimal statement hash, db_system), topic (messaging_system + cluster = broker cluster + destination), rollouts (cluster, namespace). " +
 			"Pages: traces (service, search, filters[], errors_only, min_ms/max_ms, env, cluster, sort, group_by/group_attr → aggregate view), trace (trace_id, span_id, tab), " +
 			"logs (query=KQL, service, cluster, severity or errors_only, trace_id/span_id, env), service (service, tab), pod (cluster, namespace, pod), clusters (cluster, namespace, " +
 			"tab=overview|pods|nodes), endpoints (service, search), problems (service). The window is written as range=custom:<fromMs>-<toMs> from range_s (default 1800) — " +
@@ -176,27 +252,36 @@ func buildLinkTool(d Deps) mcp.Tool {
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"page":        map[string]any{"type": "string", "enum": []string{"traces", "trace", "logs", "service", "pod", "clusters", "endpoints", "problems"}, "description": "Target page; each page reads only its own params — trace needs trace_id, service needs service, pod needs pod."},
-				"service":     map[string]any{"type": "string", "description": "Exact service name (traces, logs, service, pod, clusters, endpoints, problems)."},
-				"namespace":   map[string]any{"type": "string", "description": "pod / clusters; on traces it becomes a k8s.namespace.name filter."},
-				"cluster":     map[string]any{"type": "string", "description": "Remote Cluster id / name / span value."},
-				"pod":         map[string]any{"type": "string", "description": "pod page: pod name (with cluster + namespace)."},
-				"trace_id":    map[string]any{"type": "string", "description": "trace page (required) or logs: 32-hex trace id."},
-				"span_id":     map[string]any{"type": "string", "description": "trace / logs: 16-hex span id."},
-				"env":         map[string]any{"type": "string", "description": "traces / logs / service: deploy_env value."},
-				"search":      map[string]any{"type": "string", "description": "traces/endpoints free text."},
-				"query":       map[string]any{"type": "string", "description": "logs KQL."},
-				"filters":     map[string]any{"type": "array", "description": "traces: attribute filters as in search_traces.", "items": map[string]any{"type": "object"}},
-				"errors_only": map[string]any{"type": "boolean", "description": "traces: error traces only; logs: severity ≥ 17 when severity is empty."},
-				"min_ms":      map[string]any{"type": "number", "description": "traces: lower duration bound (ms)."},
-				"max_ms":      map[string]any{"type": "number", "description": "traces: upper duration bound (ms)."},
-				"sort":        map[string]any{"type": "string", "enum": []string{"time", "duration"}, "description": "traces: time = newest, duration = slowest (descending)."},
-				"group_by":    map[string]any{"type": "string", "description": "traces aggregate view: operation | service | status | attr."},
-				"group_attr":  map[string]any{"type": "string", "description": "traces aggregate view with group_by=attr: the attribute key."},
-				"severity":    map[string]any{"type": "integer", "description": "logs: OTel severity floor (17 = error)."},
-				"tab":         map[string]any{"type": "string", "description": "service: overview|operations|logs|topology|infra|pods; trace: trace|logs; clusters: overview|pods|nodes."},
-				"range_s":     map[string]any{"type": "integer", "minimum": 60, "maximum": 604800, "description": "Window seconds ending at the chat anchor. Default 1800, max 604800 (7d); for a longer link use preset (e.g. 30d)."},
-				"preset":      map[string]any{"type": "string", "description": "Relative preset instead of an absolute window: 5m,15m,30m,1h,3h,6h,12h,24h,2d,7d,30d."},
+				"page":             map[string]any{"type": "string", "enum": buildLinkPageList, "description": "Target page; each page reads only its own params — trace needs trace_id, service needs service, pod needs pod."},
+				"service":          map[string]any{"type": "string", "description": "Exact service name (traces, logs, service, pod, clusters, endpoints, problems)."},
+				"namespace":        map[string]any{"type": "string", "description": "pod / clusters; on traces it becomes a k8s.namespace.name filter."},
+				"cluster":          map[string]any{"type": "string", "description": "Remote Cluster id / name / span value."},
+				"pod":              map[string]any{"type": "string", "description": "pod page: pod name (with cluster + namespace)."},
+				"trace_id":         map[string]any{"type": "string", "description": "trace page (required) or logs: 32-hex trace id."},
+				"span_id":          map[string]any{"type": "string", "description": "trace / logs: 16-hex span id."},
+				"env":              map[string]any{"type": "string", "description": "traces / logs / service: deploy_env value."},
+				"search":           map[string]any{"type": "string", "description": "traces/endpoints free text."},
+				"query":            map[string]any{"type": "string", "description": "logs KQL."},
+				"filters":          map[string]any{"type": "array", "description": "traces: attribute filters as in search_traces.", "items": map[string]any{"type": "object"}},
+				"errors_only":      map[string]any{"type": "boolean", "description": "traces: error traces only; logs: severity ≥ 17 when severity is empty."},
+				"min_ms":           map[string]any{"type": "number", "description": "traces: lower duration bound (ms)."},
+				"max_ms":           map[string]any{"type": "number", "description": "traces: upper duration bound (ms)."},
+				"sort":             map[string]any{"type": "string", "enum": []string{"time", "duration"}, "description": "traces: time = newest, duration = slowest (descending)."},
+				"group_by":         map[string]any{"type": "string", "description": "traces aggregate view: operation | service | status | attr."},
+				"group_attr":       map[string]any{"type": "string", "description": "traces aggregate view with group_by=attr: the attribute key."},
+				"severity":         map[string]any{"type": "integer", "description": "logs: OTel severity floor (17 = error)."},
+				"tab":              map[string]any{"type": "string", "description": "service: overview|operations|logs|topology|infra|pods; trace: trace|logs; clusters: overview|pods|nodes."},
+				"range_s":          map[string]any{"type": "integer", "minimum": 60, "maximum": 604800, "description": "Window seconds ending at the chat anchor. Default 1800, max 604800 (7d); for a longer link use preset (e.g. 30d)."},
+				"problem_id":       map[string]any{"type": "string", "description": "problem page: Problem id (from list_problems)."},
+				"fingerprint":      map[string]any{"type": "string", "description": "exception page: exception group fingerprint."},
+				"incident_id":      map[string]any{"type": "string", "description": "incident page: incident id."},
+				"path":             map[string]any{"type": "string", "description": "endpoint page: route/path as listed (e.g. /api/orders/{id})."},
+				"signature":        map[string]any{"type": "boolean", "description": "endpoint page: true when path is an ID-collapsed signature row."},
+				"stmt_hash":        map[string]any{"type": "string", "description": "statement page: decimal statement hash."},
+				"db_system":        map[string]any{"type": "string", "description": "statement page: db.system (e.g. oracle, postgresql)."},
+				"messaging_system": map[string]any{"type": "string", "description": "topic page: messaging.system (e.g. kafka)."},
+				"destination":      map[string]any{"type": "string", "description": "topic page: topic/queue name."},
+				"preset":           map[string]any{"type": "string", "description": "Relative preset instead of an absolute window: 5m,15m,30m,1h,3h,6h,12h,24h,2d,7d,30d."},
 			},
 			"required": []string{"page"},
 		},
