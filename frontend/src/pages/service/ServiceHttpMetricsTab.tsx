@@ -20,7 +20,7 @@ import { fmtSmart } from '@/lib/chartFmt';
 import { useUrlParams, strParam } from '@/lib/urlParams';
 import {
   httpQueries, relabel, scalarOf, barsOf, bucketDistribution, mergeTable, filterOptions,
-  HTTP_METRICS_POINTS, type BarRow,
+  HTTP_METRICS_POINTS, fmtCount, fmtRatio, fmtSeconds, type BarRow,
 } from '@/lib/httpMetrics';
 import type { TimeRange, SpanMetricSeries } from '@/lib/types';
 
@@ -28,9 +28,11 @@ const FILTER_SPEC = { hroute: strParam(), hmethod: strParam() };
 
 type Row = Record<string, string | number | null>;
 
-const pct = (v: number | null) => (v === null ? '—' : `%${(v * 100).toFixed(2)}`);
-const sec = (v: number | null) => (v === null ? '—' : fmtSmart(v, 's'));
-const num = (v: number | null, d = 0) => (v === null ? '—' : v.toLocaleString('tr-TR', { maximumFractionDigits: d }));
+// v0.10.1245 — eksik hücre (undefined) / NaN güvenli (lib/httpMetrics fmt*).
+type Cell = number | string | null | undefined;
+const pct = (v: Cell) => fmtRatio(v);
+const sec = (v: Cell) => fmtSeconds(v, n => fmtSmart(n, 's'));
+const num = (v: Cell, d = 0) => fmtCount(v, d);
 
 function cols(keyCols: Array<{ id: string; label: string }>, prefix: string): ColumnDef<Row>[] {
   const n = (r: Row, k: string) => (typeof r[k] === 'number' ? (r[k] as number) : -1);
@@ -147,13 +149,13 @@ export function ServiceHttpMetricsTab({ service, range }: { service: string; ran
             : dt.sortedRows.map(r => (
               <tr key={keys.map(k => r[k]).join('|')}>
                 {keys.map(k => <DataTableCell key={k} dt={dt} col={k} row={r} value={String(r[k] ?? '')}><span className="dt-trunc">{String(r[k] ?? '') || '—'}</span></DataTableCell>)}
-                <DataTableCell dt={dt} col={`${prefix}Total`} row={r}>{num(r[`${prefix}Total`] as number | null)}</DataTableCell>
+                <DataTableCell dt={dt} col={`${prefix}Total`} row={r}>{num(r[`${prefix}Total`] )}</DataTableCell>
                 <DataTableCell dt={dt} col={`${prefix}Rps`} row={r}>{num(r[`${prefix}Rps`] as number | null, 2)}</DataTableCell>
-                <DataTableCell dt={dt} col={`${prefix}Avg`} row={r}>{sec(r[`${prefix}Avg`] as number | null)}</DataTableCell>
-                <DataTableCell dt={dt} col={`${prefix}P95`} row={r}>{sec(r[`${prefix}P95`] as number | null)}</DataTableCell>
-                <DataTableCell dt={dt} col={`${prefix}P99`} row={r}>{sec(r[`${prefix}P99`] as number | null)}</DataTableCell>
-                <DataTableCell dt={dt} col={`${prefix}Err5`} row={r}>{pct(r[`${prefix}Err5`] as number | null)}</DataTableCell>
-                <DataTableCell dt={dt} col={`${prefix}Err4`} row={r}>{pct(r[`${prefix}Err4`] as number | null)}</DataTableCell>
+                <DataTableCell dt={dt} col={`${prefix}Avg`} row={r}>{sec(r[`${prefix}Avg`] )}</DataTableCell>
+                <DataTableCell dt={dt} col={`${prefix}P95`} row={r}>{sec(r[`${prefix}P95`] )}</DataTableCell>
+                <DataTableCell dt={dt} col={`${prefix}P99`} row={r}>{sec(r[`${prefix}P99`] )}</DataTableCell>
+                <DataTableCell dt={dt} col={`${prefix}Err5`} row={r}>{pct(r[`${prefix}Err5`] )}</DataTableCell>
+                <DataTableCell dt={dt} col={`${prefix}Err4`} row={r}>{pct(r[`${prefix}Err4`] )}</DataTableCell>
               </tr>
             ))}
         </tbody>

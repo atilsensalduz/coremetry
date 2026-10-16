@@ -136,10 +136,14 @@ export function legendOf(tpl: string, labels: Record<string, string>): string {
 
 /** Serileri lejant şablonuyla yeniden adlandırır (grafik bileşeni groupKey'i basar). */
 export function relabel(series: SpanMetricSeries[] | null | undefined, tpl: string, scale = 1): SpanMetricSeries[] {
-  return (series ?? []).map(s => ({
-    groupKey: [legendOf(tpl, seriesLabels(s)) || '—'],
-    points: scale === 1 ? s.points : s.points.map(p => ({ time: p.time, value: p.value * scale })),
-  }));
+  // v0.10.1245 — Go nil dilimi `points: null` gelebilir; boş say.
+  return (series ?? []).map(s => {
+    const pts = s.points ?? [];
+    return {
+      groupKey: [legendOf(tpl, seriesLabels(s)) || '—'],
+      points: scale === 1 ? pts : pts.map(p => ({ time: p.time, value: p.value * scale })),
+    };
+  });
 }
 
 /** Serinin son geçerli değeri (null = veri yok). */
@@ -225,4 +229,21 @@ export function filterOptions(series: SpanMetricSeries[] | null | undefined): { 
     if (l.http_request_method) methods.add(l.http_request_method);
   }
   return { routes: [...routes].sort(), methods: [...methods].sort() };
+}
+
+// v0.10.1245 — operatör (prod): sekme "Cannot read properties of undefined
+// (reading 'toLocaleString')" ile düştü. Tablo satırında bir sütunun serisi
+// yoksa değer undefined geliyordu; biçimlendiriciler yalnız null'a bakıyordu.
+// Saf ve toleranslı: null / undefined / NaN / Infinity → "—".
+type MaybeNum = number | string | null | undefined;
+const finite = (v: MaybeNum): v is number => typeof v === 'number' && Number.isFinite(v);
+
+export function fmtCount(v: MaybeNum, digits = 0): string {
+  return finite(v) ? v.toLocaleString('tr-TR', { maximumFractionDigits: digits }) : '—';
+}
+export function fmtRatio(v: MaybeNum): string {
+  return finite(v) ? `%${(v * 100).toFixed(2)}` : '—';
+}
+export function fmtSeconds(v: MaybeNum, fmt: (n: number) => string): string {
+  return finite(v) ? fmt(v) : '—';
 }

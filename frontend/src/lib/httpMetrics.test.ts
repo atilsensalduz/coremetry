@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { httpQueries, serverSel, promStr, rateWindow, seriesLabels, legendOf, relabel, scalarOf, barsOf, bucketDistribution, mergeTable, filterOptions } from './httpMetrics';
+import { httpQueries, serverSel, promStr, rateWindow, seriesLabels, legendOf, relabel, scalarOf, barsOf, bucketDistribution, mergeTable, filterOptions, fmtCount, fmtRatio, fmtSeconds } from './httpMetrics';
 import type { SpanMetricSeries } from './types';
 
 // v0.10.1244 — HTTP Metrics sekmesi (Grafana panosu → VictoriaMetrics).
@@ -60,5 +60,25 @@ describe('etiket ve dönüşümler', () => {
   it('süzgeç seçenekleri, "none" route hariç', () => {
     expect(filterOptions([ser({ http_route: '/b', http_request_method: 'POST' }, [1]), ser({ http_route: 'none', http_request_method: 'GET' }, [1])]))
       .toEqual({ routes: ['/b'], methods: ['GET', 'POST'] });
+  });
+});
+
+// v0.10.1245 — prod: eksik tablo hücresi (undefined) sekmeyi düşürüyordu.
+describe('biçimlendiriciler eksik değere dayanıklı', () => {
+  it.each([undefined, null, NaN, Infinity, ''])('%s → —', v => {
+    expect(fmtCount(v as never)).toBe('—');
+    expect(fmtRatio(v as never)).toBe('—');
+    expect(fmtSeconds(v as never, n => String(n))).toBe('—');
+  });
+  it('değerler biçimlenir', () => {
+    expect(fmtRatio(0.0123)).toBe('%1.23');
+    expect(fmtSeconds(0.2, n => `${n}s`)).toBe('0.2s');
+    expect(fmtCount(1234, 0)).toBe((1234).toLocaleString('tr-TR'));
+  });
+});
+
+describe('relabel null noktalara dayanıklı (v0.10.1245)', () => {
+  it('points: null → boş', () => {
+    expect(relabel([{ groupKey: ['a="1"'], points: null as never }], '{{a}}', 100)).toEqual([{ groupKey: ['1'], points: [] }]);
   });
 });
