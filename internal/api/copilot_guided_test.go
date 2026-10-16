@@ -953,3 +953,19 @@ func TestQueueWordNeedsBacklogWord(t *testing.T) {
 		}
 	}
 }
+
+// v0.10.1225 — operatör: ekran servisi + "nasıl kurabilirim" sağlığa düşüyordu.
+func TestHowToNotServiceHealthFromCtx(t *testing.T) {
+	svcs := []string{"bsa-channel-internetflow-prod"}
+	ctx := "bsa-channel-internetflow-prod"
+	for _, q := range []string{"Github copilot nasıl kurabilirim", "vpn nasıl yapılır", "how to install copilot"} {
+		if r := routeGuidedIntent(q, svcs, nil, nil, ctx); r.Intent == guidedServiceHealth {
+			t.Errorf("%q → service_health olmamalı", q)
+		}
+	}
+	for _, q := range []string{"durumu nasıl", "nasıl gidiyor", "analiz et"} {
+		if r := routeGuidedIntent(q, svcs, nil, nil, ctx); r.Intent != guidedServiceHealth {
+			t.Errorf("%q → service_health bekleniyordu, %s", q, r.Intent)
+		}
+	}
+}

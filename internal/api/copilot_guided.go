@@ -388,6 +388,28 @@ func hasHealthSignal(tokens []string) bool {
 	return hasHealthDomainSignal(tokens) || tokenHasPrefix(tokens, "durum", "nasıl", "iyi", "analiz", "analy", "incele")
 }
 
+// hasHowToShape — v0.10.1225, SAF: nasıl-yapılır sorusu ("nasıl kurabilirim",
+// "nasıl yapılır", "how to install"). Telemetri sağlığı değil, bilgi isteği.
+func hasHowToShape(tokens []string) bool {
+	if tokenHasPrefix(tokens, "kurulum", "kurmak", "install", "setup") {
+		return true
+	}
+	if !tokenHasPrefix(tokens, "nasıl", "how") {
+		return false
+	}
+	for _, t := range tokens {
+		for _, suf := range []string{"bilirim", "bilir", "ilir", "ılır", "ulur", "ülür", "malıyım", "meliyim", "abilir", "ebilir"} {
+			if len(t) > len(suf)+1 && strings.HasSuffix(t, suf) {
+				return true
+			}
+		}
+		if t == "to" {
+			return true
+		}
+	}
+	return false
+}
+
 // hasHealthDomainSignal (v0.10.819) — hasHealthSignal'ın ALAN yarısı: generic
 // "durum/nasıl/iyi" dışarıda ("Amerikan başkanı nasıl seçilir" sağlık sinyali
 // değildir). hasHealthSignal bayt-bayt aynı davranır; off_topic vetosu bunu okur.
@@ -1134,10 +1156,12 @@ func routeGuidedIntentOpts(raw string, services, envs, teams []string, ctxServic
 	// başka servisi kastediyorsa context ezmez). Aile yakalandıysa da
 	// ELLEMEZ — "mobile bff'ler" sorusu checkout sayfasında checkout'a
 	// daralmamalı.
+	svcFromCtx := false
 	if svc == "" && len(family) == 0 && ctxService != "" {
 		for _, s := range services {
 			if s == ctxService {
 				svc = ctxService
+				svcFromCtx = true
 				break
 			}
 		}
@@ -1273,7 +1297,12 @@ func routeGuidedIntentOpts(raw string, services, envs, teams []string, ctxServic
 		return guidedRoute{Intent: guidedFamilyHealth, Env: env, Family: family}
 	case hasProblemSignal(toks):
 		return guidedRoute{Intent: guidedProblems, Service: svc, Env: env}
-	case svc != "" && (hasHealthSignal(toks) || hasErrorSignal(toks)):
+	// v0.10.1225 — operatör: servis sayfasında "Github copilot nasıl
+	// kurabilirim" sayfa servisinin sağlık cevabına düşüyordu (genel "nasıl"
+	// + ekran servisi). Servis yalnız ekrandan geliyorsa ve soru nasıl-yapılır
+	// şeklindeyse genel sağlık jetonu yetmez — soru ajana/wiki'ye gider.
+	case svc != "" && (hasHealthDomainSignal(toks) || hasErrorSignal(toks) ||
+		(hasHealthSignal(toks) && !(svcFromCtx && hasHowToShape(toks)))):
 		return guidedRoute{Intent: guidedServiceHealth, Service: svc, Env: env}
 	case hasErrorSignal(toks):
 		return guidedRoute{Intent: guidedProblems, Env: env}
