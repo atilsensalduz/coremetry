@@ -5,9 +5,8 @@ package auth
 // IdP (Keycloak) oturumu açık kaldığı için sonraki SSO girişi sessizce
 // yeniden içeri alıyordu. OIDC RP-Initiated Logout: keşif belgesindeki
 // end_session_endpoint'e id_token_hint + client_id + post_logout_redirect_uri
-// ile yönlendirilir. post_logout_redirect_uri IdP istemcisinde
-// "Valid post logout redirect URIs" altında tanımlı olmalı (yoksa IdP hata
-// sayfası gösterir) — değer: <public URL>/login.
+// ile yönlendirilir. v0.10.1246: post_logout_redirect_uri = giriş için zaten
+// kayıtlı callback adresi (kurum dokümanı 3.5); IdP'de ek tanım gerekmez.
 
 import (
 	"net/url"
@@ -28,19 +27,18 @@ func (o *OIDCService) LogoutURL(idToken string) string {
 	return BuildOIDCLogoutURL(c.disc.EndSessionEndpoint, idToken, c.cfg.ClientID, postLogoutRedirect(o.publicURL, c.cfg.RedirectURL))
 }
 
-// postLogoutRedirect — SAF: <public URL>/login; public URL yoksa callback
-// adresinin kökeni (redirect_url zorunlu alan, her kurulumda dolu).
-func postLogoutRedirect(publicURL, redirectURL string) string {
-	base := strings.TrimRight(strings.TrimSpace(publicURL), "/")
-	if base == "" {
-		if u, err := url.Parse(redirectURL); err == nil && u.Scheme != "" && u.Host != "" {
-			base = u.Scheme + "://" + u.Host
-		}
-	}
-	if base == "" {
+// postLogoutRedirect — SAF. v0.10.1246 (operatör, prod Keycloak: "Invalid
+// redirect uri"): <public URL>/login IdP istemcisinde KAYITLI DEĞİLDİ.
+// Kurum dokümanı (3.5 Logout) çıkış dönüşü olarak giriş için zaten kayıtlı
+// redirect URI'yi ister — yani callback adresi; ek IdP tanımı gerekmez.
+// Callback parametresiz gelişi sessizce /login'e çevirir (api auth_logout.go).
+// publicURL artık kullanılmıyor; imza çağıranlar için korunur.
+func postLogoutRedirect(_ string, redirectURL string) string {
+	u, err := url.Parse(strings.TrimSpace(redirectURL))
+	if err != nil || u.Scheme == "" || u.Host == "" {
 		return ""
 	}
-	return base + "/login"
+	return u.String()
 }
 
 // BuildOIDCLogoutURL — SAF: end_session adresine sorgu parametreleri

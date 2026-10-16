@@ -27,9 +27,11 @@ func TestBuildOIDCLogoutURL(t *testing.T) {
 
 func TestPostLogoutRedirect(t *testing.T) {
 	cases := map[[2]string]string{
-		{"https://cm.example/", "https://x/api/auth/oidc/callback"}: "https://cm.example/login",
-		{"", "https://cm.bank:8443/api/auth/oidc/callback"}:         "https://cm.bank:8443/login",
-		{"", ""}: "",
+		// v0.10.1246 — dönüş = kayıtlı callback (IdP'de ek tanım yok).
+		{"https://cm.example/", "https://x/api/auth/oidc/callback"}: "https://x/api/auth/oidc/callback",
+		{"", "https://cm.bank:8443/api/auth/oidc/callback"}:         "https://cm.bank:8443/api/auth/oidc/callback",
+		{"", ""}:          "",
+		{"", "/relative"}: "",
 	}
 	for in, want := range cases {
 		if got := postLogoutRedirect(in[0], in[1]); got != want {

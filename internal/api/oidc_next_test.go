@@ -147,7 +147,13 @@ func TestOIDCCallbackClearsNextCookieOnFailure(t *testing.T) {
 		}
 		w := httptest.NewRecorder()
 		e.s.oidcCallback(w, req)
-		if loc := w.Header().Get("Location"); !strings.HasPrefix(loc, "/login/?error=") {
+		loc := w.Header().Get("Location")
+		// v0.10.1246 — parametresiz callback = IdP çıkış dönüşü: hatasız /login.
+		if path == "/api/auth/oidc/callback" {
+			if loc != "/login" {
+				t.Fatalf("%s: Location %q, /login bekleniyordu", path, loc)
+			}
+		} else if !strings.HasPrefix(loc, "/login/?error=") {
 			t.Fatalf("%s: Location %q", path, loc)
 		}
 		for _, name := range []string{oidcStateCookie, oidcNonceCookie, oidcVerifierCookie, oidcNextCookie} {

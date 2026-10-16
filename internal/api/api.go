@@ -6317,7 +6317,7 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	code := q.Get("code")
 	stateGot := q.Get("state")
 	if code == "" || stateGot == "" {
-		s.oidcFail(w, r, "missing code or state")
+		s.oidcMissingCode(w, r) // v0.10.1246 — parametresiz = IdP çıkış dönüşü → /login
 		return
 	}
 

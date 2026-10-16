@@ -50,3 +50,16 @@ func TestOIDCLogoutHintSkipsOversizedToken(t *testing.T) {
 }
 
 func timeNowPlusHour() time.Time { return time.Now().Add(time.Hour) }
+
+// v0.10.1246 — Keycloak çıkışı callback'e parametresiz döner → sessizce /login.
+func TestOIDCPostLogoutReturn(t *testing.T) {
+	if !isPostLogoutReturn("") || isPostLogoutReturn("code=x&state=y") || isPostLogoutReturn("error=access_denied") {
+		t.Fatal("yalnız parametresiz callback çıkış dönüşüdür")
+	}
+	s := &Server{}
+	w := httptest.NewRecorder()
+	s.oidcMissingCode(w, httptest.NewRequest("GET", "/api/auth/oidc/callback", nil))
+	if w.Code != http.StatusFound || w.Header().Get("Location") != "/login" {
+		t.Fatalf("code=%d loc=%q", w.Code, w.Header().Get("Location"))
+	}
+}

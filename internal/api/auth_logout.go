@@ -9,6 +9,7 @@ package api
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/cilcenk/coremetry/internal/auth"
@@ -58,3 +59,17 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, logoutResponse(ssoURL))
 }
+
+// oidcMissingCode — v0.10.1246: callback'e code/state gelmedi. Hiç sorgu
+// parametresi yoksa bu IdP çıkışından (post_logout_redirect_uri = callback)
+// dönüştür: sessizce /login (hata mesajı yok). Aksi eski davranış (oidcFail).
+func (s *Server) oidcMissingCode(w http.ResponseWriter, r *http.Request) {
+	if isPostLogoutReturn(r.URL.RawQuery) {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+	s.oidcFail(w, r, "missing code or state")
+}
+
+// isPostLogoutReturn — SAF: parametresiz callback (Keycloak çıkış dönüşü).
+func isPostLogoutReturn(rawQuery string) bool { return strings.TrimSpace(rawQuery) == "" }
