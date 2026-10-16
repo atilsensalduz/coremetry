@@ -22,7 +22,7 @@ import { fmtSmart } from '@/lib/chartFmt';
 import { useUrlParams, strParam } from '@/lib/urlParams';
 import {
   httpQueries, relabel, scalarOf, barsOf, mergeTable, filterOptions,
-  HTTP_METRICS_POINTS, fmtCount, fmtRatio, fmtSeconds, type BarRow,
+  HTTP_METRICS_POINTS, HTTP_INSTANT_IDS, fmtCount, fmtRatio, fmtSeconds, type BarRow,
   latencyTone, errorRatioTone, clientErrorTone, sliTone, httpSeriesColors, heatmapFromBuckets, donutSlices, sparkValues, HTTP_SERIES_TOKENS,
 } from '@/lib/httpMetrics';
 import type { TimeRange, SpanMetricSeries } from '@/lib/types';
@@ -104,8 +104,8 @@ export function ServiceHttpMetricsTab({ service, range }: { service: string; ran
   const all = [...ids.map(id => ({ id, expr: queries[id] })), { id: 'opts', expr: optsExpr }];
   const results = useQueries({
     queries: all.map(q => ({
-      queryKey: ['http-metrics', q.expr, win.from, win.to],
-      queryFn: () => api.httpMetricsPromql({ query: q.expr, from: win.from, to: win.to, maxDataPoints: HTTP_METRICS_POINTS }),
+      queryKey: ['http-metrics', q.expr, win.from, win.to, HTTP_INSTANT_IDS.has(q.id)],
+      queryFn: () => api.httpMetricsPromql({ query: q.expr, from: win.from, to: win.to, maxDataPoints: HTTP_METRICS_POINTS, ...(HTTP_INSTANT_IDS.has(q.id) ? { instant: '1' as const } : {}) }),
       staleTime: 30_000,
       retry: false,
     })),
@@ -158,7 +158,8 @@ export function ServiceHttpMetricsTab({ service, range }: { service: string; ran
       </Card>
     );
   };
-  const bars = (title: string, rows: BarRow[], fmt: (v: number) => string, loading?: boolean) => {
+  // v0.10.1248 — gradient=true: Grafana bargauge (gradient mod, değer renkli).
+  const bars = (title: string, rows: BarRow[], fmt: (v: number) => string, loading?: boolean, gradient = false) => {
     const max = rows[0]?.value ?? 0;
     const top = Math.max(...rows.map(r => r.value), 0);
     return (
@@ -169,11 +170,11 @@ export function ServiceHttpMetricsTab({ service, range }: { service: string; ran
               <div key={r.label} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 8, fontSize: 12 }}>
                 <div style={{ minWidth: 0 }}>
                   <div className="mono dt-trunc" title={r.label}>{r.label}</div>
-                  <div style={{ height: 4, background: 'var(--bg2)', borderRadius: 2 }}>
-                    <div style={{ width: `${(top || max) > 0 ? (r.value / (top || max)) * 100 : 0}%`, height: 4, background: 'var(--accent2)', borderRadius: 2 }} />
+                  <div style={{ height: gradient ? 10 : 4, background: 'var(--bg2)', borderRadius: 2 }}>
+                    <div style={{ width: `${(top || max) > 0 ? (r.value / (top || max)) * 100 : 0}%`, height: gradient ? 10 : 4, background: gradient ? 'linear-gradient(90deg, var(--info), var(--purple))' : 'var(--accent2)', borderRadius: 2 }} />
                   </div>
                 </div>
-                <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(r.value)}</span>
+                <span style={{ fontVariantNumeric: 'tabular-nums', color: gradient ? 'var(--purple)' : undefined, fontWeight: gradient ? 600 : undefined }}>{fmt(r.value)}</span>
               </div>
             ))}
           </div>
@@ -274,7 +275,7 @@ export function ServiceHttpMetricsTab({ service, range }: { service: string; ran
         <HttpStat label="Bağlantı Hataları" value={num(scalarOf(data.dConnErr))} tone={(scalarOf(data.dConnErr) ?? 0) > 0 ? 'err' : 'ok'} />
       </div>
       <div style={grid(420)}>
-        {bars('Downstream Servisler (RPS)', barsOf(data.dRateByAddr, 'server_address', 15), v => `${num(v, 2)} req/s`, pending('dRateByAddr'))}
+        {bars('Downstream Servisler (RPS)', barsOf(data.dBars, 'server_address', 30).map(r => ({ ...r, label: `→ ${r.label}` })), v => `${num(v, 2)} req/s`, pending('dBars'), true)}
         {chart('Request Rate (Downstream bazında)', 'dRateByAddr', '→ {{server_address}}', 'req/s')}
         {chart('P95 Latency (Downstream bazında)', 'dP95ByAddr', '→ {{server_address}}', 's')}
         {chart('Inbound P95 vs Downstream P95', 'p95', `Inbound (${service})`, 's', 1, [{ id: 'dP95ByAddr', tpl: '→ {{server_address}}' }])}

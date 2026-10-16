@@ -88,7 +88,7 @@ export function httpQueries(s: HttpScope, windowSec: number): Record<string, str
     err5ByRoute: `sum by (http_route, http_request_method, http_response_status_code) (${rate(SC, 'http_response_status_code=~"5.."')}) > 0`,
     err4ByRoute: `sum by (http_route, http_request_method, http_response_status_code) (${rate(SC, 'http_response_status_code=~"4.."')}) > 0`,
     // Endpoint özeti
-    tRps: `sum by (${byMR}) (${rate(SC)})`,
+    tRps: `sum by (${byMR}) (rate(${SC}${sel()}[5m]))`, // panodaki gibi [5m]
     tTotal: `sum by (${byMR}) (${inc(SC)})`,
     tAvg: `sum by (${byMR}) (${inc(SS)}) / sum by (${byMR}) (${inc(SC)})`,
     tP95: `histogram_quantile(0.95, sum by (le, ${byMR}) (${inc(SB)}))`,
@@ -105,7 +105,8 @@ export function httpQueries(s: HttpScope, windowSec: number): Record<string, str
     dErrByAddr: `sum by (server_address) (${crate(CC, 'http_response_status_code=~"5..|"')}) / sum by (server_address) (${crate(CC)})`,
     dErrTypes: `sum by (server_address, error_type) (${crate(CC, 'error_type!=""')}) > 0`,
     dtTotal: `sum by (${byDM}) (${cinc(CC)})`,
-    dtRps: `sum by (${byDM}) (${crate(CC)})`,
+    dtRps: `sum by (${byDM}) (rate(${CC}${csel()}[5m]))`,
+    dBars: `sort_desc(sum by (server_address) (rate(${CC}${csel()}[5m])))`, // bargauge (instant)
     dtAvg: `sum by (${byDM}) (${cinc(CS)}) / sum by (${byDM}) (${cinc(CC)})`,
     dtP95: `histogram_quantile(0.95, sum by (le, ${byDM}) (${cinc(CB)}))`,
     dtP99: `histogram_quantile(0.99, sum by (le, ${byDM}) (${cinc(CB)}))`,
@@ -319,3 +320,15 @@ export function donutSlices(rows: BarRow[]): DonutSlice[] {
 export function sparkValues(series: SpanMetricSeries[] | null | undefined): (number | null)[] {
   return (series?.[0]?.points ?? []).map(p => (Number.isFinite(p.value) ? p.value : null));
 }
+
+/**
+ * v0.10.1248 — Grafana'nın ANLIK (instant) sorguyla okuduğu paneller: stat
+ * toplamı, pasta, tablo, bağlantı hataları, downstream bargauge. Bunlar
+ * /api/v1/query ile `to` anında değerlendirilir (range sorgusunun son
+ * noktası bir adım geride kalıyordu).
+ */
+export const HTTP_INSTANT_IDS: ReadonlySet<string> = new Set([
+  'total', 'topRoutes', 'statusCodes', 'dConnErr', 'dBars',
+  'tTotal', 'tRps', 'tAvg', 'tP95', 'tP99', 'tErr5', 'tErr4',
+  'dtTotal', 'dtRps', 'dtAvg', 'dtP95', 'dtP99', 'dtErr5', 'dtErr4',
+]);

@@ -394,3 +394,35 @@ func (s *Service) QueryPromQLRange(ctx context.Context, query string, from, to t
 	}
 	return out, nil
 }
+
+// QueryPromQLInstant — v0.10.1248 (HTTP Metrics Grafana paritesi): sorgu tek
+// anda (`at`) değerlendirilir, /api/v1/query. Grafana stat/pie/tablo panelleri
+// [$__range] toplamlarını anlık sorguyla okur; range sorgusunun son noktası
+// bir adım geride kalıyordu. Her seri tek nokta (Time = at). Sorgu VM'e
+// OLDUĞU GİBİ gider (QueryPromQLRange ile aynı gerekçe).
+func (s *Service) QueryPromQLInstant(ctx context.Context, query string, at time.Time) ([]chstore.SpanMetricSeries, error) {
+	cfg, err := s.ready()
+	if err != nil {
+		return nil, err
+	}
+	q := strings.TrimSpace(query)
+	if q == "" {
+		return nil, fmt.Errorf("query is required")
+	}
+	if at.IsZero() {
+		at = time.Now()
+	}
+	series, err := promapi.QuerySeries(ctx, s.request("/api/v1/query", url.Values{"query": {q}, "time": {promTime(at)}}, cfg))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]chstore.SpanMetricSeries, 0, len(series))
+	for _, sr := range series {
+		row := chstore.SpanMetricSeries{GroupKey: labelSetGroupKey(sr.Metric)}
+		if _, v, ok := promapi.Sample(sr.Value); ok {
+			row.Points = []chstore.SpanMetricPoint{{Time: at.UnixNano(), Value: v}}
+		}
+		out = append(out, row)
+	}
+	return out, nil
+}

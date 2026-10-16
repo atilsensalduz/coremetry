@@ -3072,7 +3072,7 @@ export const api = {
   // hâlâ ön-parse ediyor ve sözdizimi hatası temiz bir 400 dönüyor.
   // v0.10.1244 — servis HTTP Metrics sekmesi: kaynak VictoriaMetrics'e SABİT
   // (operatör: pano VM'den okunsun); sayfanın deneme kaynağı seçimi uygulanmaz.
-  httpMetricsPromql: (params: { query: string; from: number; to: number; maxDataPoints: number }) =>
+  httpMetricsPromql: (params: { query: string; from: number; to: number; maxDataPoints: number; instant?: '1' }) =>
     get<SpanMetricSeries[] | null>(withMetricSource(`/api/metrics/promql?${qs(params)}`, 'vm')),
   metricPromql: (params: { query: string; from?: number; to?: number; step?: number; maxDataPoints?: number }) =>
     get<SpanMetricSeries[] | null>(withMetricSource(`/api/metrics/promql?${qs({ maxDataPoints: 1500, ...params })}`)),

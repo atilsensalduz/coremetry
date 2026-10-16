@@ -14,6 +14,8 @@ import { resolveVar } from '@/lib/chart/resolveVar';
 import { seriesRoleColor, type SeriesRole } from '@/lib/chart/seriesRole';
 import { isolateSeriesVisibility, toggleSeriesVisibility } from '@/lib/chart/legendVisibility';
 import type { SeriesStat } from '@/lib/chart/legendStats';
+import { useState } from 'react';
+import { legendOrder, nextLegendSort, type LegendSort, type LegendSortKey } from '@/lib/chart/legendSort';
 
 export interface PanelLegendRow { name: string; stat: SeriesStat }
 
@@ -36,6 +38,18 @@ export function PanelLegend({
   fmtCell: (i: number, v: number | null) => string;
   sumAdditive: boolean;
 }) {
+  // v0.10.1248 — sütun başlığı tıkı sıralar (Grafana legend sortBy). Yalnız
+  // görüntü sırası; renk/görünürlük orijinal indeksle kalır.
+  const [sort, setSort] = useState<LegendSort | null>(null);
+  const order = legendOrder(stats, sort);
+  const head = (key: LegendSortKey, label: string, left = false) => (
+    <th className={left ? undefined : 'num'} style={left ? { textAlign: 'left' } : undefined}
+      aria-sort={sort?.key === key ? (sort.desc ? 'descending' : 'ascending') : 'none'}>
+      <Button variant="ghost" size="xs" onClick={() => setSort(cur => nextLegendSort(cur, key))}>
+        {label}{sort?.key === key ? (sort.desc ? ' ▼' : ' ▲') : ''}
+      </Button>
+    </th>
+  );
   return (
     <div style={{ fontSize: 11 }}>
       <Button variant="secondary" size="xs"
@@ -46,13 +60,13 @@ export function PanelLegend({
         <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', marginTop: 4 }}>
           <thead><tr>
-            <th style={{ textAlign: 'left' }}>Seri</th>
-            <th className="num">Son</th><th className="num">Min</th>
-            <th className="num">Maks</th><th className="num">Ort</th>
-            <th className="num">Toplam</th>
+            {head('name', 'Seri', true)}
+            {head('last', 'Son')}{head('min', 'Min')}
+            {head('max', 'Maks')}{head('mean', 'Ort')}
+            {head('sum', 'Toplam')}
           </tr></thead>
           <tbody>
-            {stats.map((s, i) => (
+            {order.map(i => stats[i]).map((s, k) => { const i = order[k]; return (
               <tr key={`${i}:${s.name}`}
                 tabIndex={0}
                 // eslint-disable-next-line ui/no-raw-button -- lejant <tr>'si satır boyu tık hedefi; Enter=izole / Boşluk=gizle AYRI eylem (rowKeyboard tek eylemli), <tr> bir button atomu olamaz
@@ -99,7 +113,7 @@ export function PanelLegend({
                 <td className="num">{fmtCell(i, s.stat.mean)}</td>
                 <td className="num">{sumAdditive ? fmtCell(i, s.stat.sum) : '—'}</td>
               </tr>
-            ))}
+            ); })}
           </tbody>
         </table>
         </div>

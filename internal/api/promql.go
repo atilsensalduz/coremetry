@@ -95,6 +95,19 @@ func (s *Server) queryPromQL(w http.ResponseWriter, r *http.Request) {
 		from = to.Add(-1 * time.Hour)
 	}
 
+	// v0.10.1248 — ?instant=1: anlık sorgu (`to` anında), yalnız VM kaynağı.
+	if q.Get("instant") == "1" {
+		vm, ok := src.(vmMetricSource)
+		if !ok {
+			writePromQLError(w, http.StatusBadRequest, "instant=1 yalnız VictoriaMetrics kaynağında (metricsrc=vm)")
+			return
+		}
+		ikey := fmt.Sprintf("promql-instant:src=%s:q=%s:at=%d", src.Name(), query, to.Unix()/30)
+		s.serveCached(w, r, ikey, 30*time.Second, func(ctx context.Context) (any, error) {
+			return vm.QueryPromQLInstant(ctx, query, to)
+		})
+		return
+	}
 	key := fmt.Sprintf("promql:src=%s:q=%s:step=%d:mdp=%d:from=%d:to=%d",
 		src.Name(), query, step, maxDP, from.Unix()/60, to.Unix()/60)
 	s.serveCached(w, r, key, 30*time.Second, func(ctx context.Context) (any, error) {

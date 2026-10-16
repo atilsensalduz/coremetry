@@ -563,6 +563,13 @@ func (v vmMetricSource) QueryMetricHistogram(ctx context.Context, f chstore.Metr
 // backends.
 func (vmMetricSource) ValidatePromQL(string) error { return nil }
 
+// QueryPromQLInstant — v0.10.1248: yalnız VM kaynağında (handler tür
+// denetimiyle seçer; CH değerlendiricisinin anlık yolu yok).
+func (v vmMetricSource) QueryPromQLInstant(ctx context.Context, query string, at time.Time) ([]chstore.SpanMetricSeries, error) {
+	out, err := v.svc.QueryPromQLInstant(ctx, query, at)
+	return out, upstream(err)
+}
+
 func (v vmMetricSource) QueryPromQLRange(ctx context.Context, query string, from, to time.Time, stepSeconds, maxDataPoints int) ([]chstore.SpanMetricSeries, error) {
 	out, err := v.svc.QueryPromQLRange(ctx, query, from, to, stepSeconds, maxDataPoints)
 	return out, upstream(err)

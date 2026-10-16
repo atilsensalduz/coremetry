@@ -1164,3 +1164,29 @@ func int64sEqual(a, b []int64) bool {
 	}
 	return true
 }
+
+// v0.10.1248 — anlık sorgu: /api/v1/query, time = at, vektör → tek noktalı seri.
+func TestQueryPromQLInstant(t *testing.T) {
+	var path, gotTime, gotQ string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path, gotTime, gotQ = r.URL.Path, r.URL.Query().Get("time"), r.URL.Query().Get("query")
+		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[
+			{"metric":{"http_route":"/a"},"value":[1700003600,"42"]},
+			{"metric":{"http_route":"/b"},"value":[1700003600,"NaN"]}
+		]}}`))
+	}))
+	defer srv.Close()
+	s := New()
+	s.Configure(Settings{BaseURL: srv.URL, AllowUnfilteredPercentiles: true})
+	at := time.Unix(1_700_003_600, 0)
+	out, err := s.QueryPromQLInstant(context.Background(), `sum by (http_route) (increase(m[3600s]))`, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/api/v1/query" || gotTime == "" || gotQ != `sum by (http_route) (increase(m[3600s]))` {
+		t.Fatalf("istek: path=%s time=%s q=%s", path, gotTime, gotQ)
+	}
+	if len(out) != 2 || len(out[0].Points) != 1 || out[0].Points[0].Value != 42 || out[0].Points[0].Time != at.UnixNano() || len(out[1].Points) != 0 {
+		t.Fatalf("eşleme: %+v", out)
+	}
+}
