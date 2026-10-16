@@ -16,11 +16,11 @@ import { Drawer, DrawerSection, Badge, KeyValue, KeyValueRow } from '@/component
 import { RecurringMarker } from '@/features/anomalies/RecurringMarker'; // v0.10.1049
 import { Spinner, Empty } from '@/components/Spinner';
 import { serviceHref } from '@/lib/serviceHref';
-import { fmtDateTime, fmtNum } from '@/lib/utils';
+import { fmtDateTime, fmtNum, fmtDurShort } from '@/lib/utils';
 import { useRolloutDetail, useEntityClusters } from '@/lib/queries';
 import { CopyButton } from '@/components/CopyButton';
 import { useDataTable, DataTableHead, DataTableColgroup, DataTableCell, DataTableState, type ColumnDef } from '@/components/ui/DataTable';
-import { statusTone, statusLabel, statusTitle, shortRevision, imageDiff, imageRef, rolloutChangeKind, changeKindLabel, changeKindTitle, changeKindTone, rolloutPlaceLabel, isV2Rollout, replicaSummary } from '@/lib/rolloutRow';
+import { statusTone, statusLabel, statusTitle, shortRevision, imageDiff, imageRef, rolloutChangeKind, changeKindLabel, changeKindTitle, changeKindTone, rolloutPlaceLabel, isV2Rollout, replicaSummary, rolloutTimeline } from '@/lib/rolloutRow';
 import type { RolloutIdParam } from '@/lib/rolloutRow';
 import type { ServiceReportSection } from '@/lib/types';
 
@@ -90,6 +90,23 @@ export function RolloutDrawer({ id, onClose }: { id: RolloutIdParam; onClose: ()
               <KeyValueRow k="imaj" mono v={<>{imageRef(r.prevImage, r.prevImageTag)} → <b>{curImage}</b> {curImage !== '—' && <CopyButton value={curImage} title="İmajı (repo:tag) kopyala" />}</>} />
               {(r.images?.length ?? 0) > 1 && <KeyValueRow k="tüm imajlar" mono v={(r.images ?? []).join(', ')} />}
               <KeyValueRow k="zaman" v={<span className="field-hint">başladı {fmtDateTime(new Date(r.startedAt))}{r.completedAt > 0 ? ` · tamamlandı ${fmtDateTime(new Date(r.completedAt))}` : ''}{r.detectedBy ? ` · kaynak ${r.detectedBy}` : ''}</span>} />
+            </KeyValue>
+          </DrawerSection>
+        );
+      })()}
+      {d && (() => {
+        // v0.10.1223 — zaman çizelgesi: RS → pod'lar hazır → ilk span → bitiş.
+        const steps = rolloutTimeline(d.rollout);
+        if (steps.length < 2) return null;
+        return (
+          <DrawerSection title="Zaman çizelgesi">
+            <KeyValue>
+              {steps.map(st => (
+                <KeyValueRow key={st.key} k={st.label} v={<>
+                  {fmtDateTime(new Date(st.at))}
+                  {st.key !== 'start' && <span className="field-hint"> · +{fmtDurShort(st.offsetSec)}</span>}
+                </>} />
+              ))}
             </KeyValue>
           </DrawerSection>
         );

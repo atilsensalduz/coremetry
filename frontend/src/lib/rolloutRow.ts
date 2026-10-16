@@ -283,3 +283,28 @@ export function rolloutTimingHint(r: Pick<WorkloadRollout, 'startedAt'> & { pods
   if (traffic) parts.push(`trafik +${traffic}`);
   return parts.join(' · ');
 }
+
+// v0.10.1223 — çekmece zaman çizelgesi: başladı → pod'lar hazır → ilk span
+// (trafik) → bitiş (tamamlandı / takıldı / geri alındı). Boş ya da başlangıçtan
+// 60 sn'den eski değerler atlanır (bayat alan); zaman sırasıyla.
+export interface RolloutTimelineStep { key: string; label: string; at: number; offsetSec: number }
+
+export function rolloutTimeline(r: Pick<WorkloadRollout, 'startedAt' | 'status'> & Partial<Pick<WorkloadRollout,
+  'podsReadyAt' | 'firstSpanAt' | 'completedAt' | 'succeededAt' | 'stuckAt' | 'finishedAt' | 'v2Status'>>): RolloutTimelineStep[] {
+  if (!r.startedAt) return [];
+  const raw: Array<[string, string, number | undefined]> = [
+    ['start', 'Başladı (yeni ReplicaSet)', r.startedAt],
+    ['ready', "Pod'lar hazır", r.podsReadyAt],
+    ['traffic', 'Trafik yeni sürümde (ilk span)', r.firstSpanAt],
+  ];
+  if (r.stuckAt) raw.push(['stuck', 'Takıldı', r.stuckAt]);
+  const rolledBack = r.status === 'rolled_back' || r.v2Status === 'rolled_back';
+  const end = r.succeededAt || r.completedAt || (rolledBack ? r.finishedAt : 0);
+  if (end) raw.push(['end', rolledBack ? 'Geri alındı' : 'Tamamlandı (eski sürüm devreden çıktı)', end]);
+  const out: RolloutTimelineStep[] = [];
+  for (const [key, label, at] of raw) {
+    if (!at || at < r.startedAt - 60_000) continue;
+    out.push({ key, label, at, offsetSec: Math.max(0, (at - r.startedAt) / 1000) });
+  }
+  return out.sort((a, b) => a.at - b.at || (a.key === 'start' ? -1 : b.key === 'start' ? 1 : 0));
+}

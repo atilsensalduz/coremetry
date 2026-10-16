@@ -1,6 +1,6 @@
 // rolloutRow.test.ts — v0.10.201 sözleşmesi (rolloutRow.ts başlığı).
 import { describe, it, expect } from 'vitest';
-import { rolloutKey, upsertRollouts, statusTone, rolloutDurationSec, shortRevision, imageDiff, rolloutTracesFilters, rolloutEvidenceHref, decodeRolloutParam, rolloutPlaceLabel, rolloutTimingHint } from './rolloutRow';
+import { rolloutKey, upsertRollouts, statusTone, rolloutDurationSec, shortRevision, imageDiff, rolloutTracesFilters, rolloutEvidenceHref, decodeRolloutParam, rolloutPlaceLabel, rolloutTimingHint, rolloutTimeline } from './rolloutRow';
 import type { WorkloadRollout } from './types';
 
 const base: WorkloadRollout = {
@@ -195,4 +195,22 @@ describe('rolloutTimingHint', () => {
   it('empty when unset', () => expect(rolloutTimingHint({ startedAt: t0, podsReadyAt: 0, firstSpanAt: 0 })).toBe(''));
   it('skips stale span from before start', () => expect(rolloutTimingHint({ startedAt: t0, firstSpanAt: t0 - 3_600_000 })).toBe(''));
   it('clock skew within slack → +0s', () => expect(rolloutTimingHint({ startedAt: t0, firstSpanAt: t0 - 5_000 })).toBe('trafik +0s'));
+});
+
+// v0.10.1223 — rollout zaman çizelgesi.
+describe('rolloutTimeline', () => {
+  const s = 1_700_000_000_000;
+  it('sıralı adımlar, bayat ve boş atlanır', () => {
+    const t = rolloutTimeline({ startedAt: s, status: 'completed', podsReadyAt: s + 120_000, firstSpanAt: s + 60_000, succeededAt: s + 300_000, stuckAt: 0 });
+    expect(t.map(x => x.key)).toEqual(['start', 'traffic', 'ready', 'end']);
+    expect(t[3].offsetSec).toBe(300);
+    expect(rolloutTimeline({ startedAt: s, status: 'completed', podsReadyAt: s - 3_600_000 }).map(x => x.key)).toEqual(['start']);
+  });
+  it('geri alma bitişi finishedAt, takılma adımı', () => {
+    const t = rolloutTimeline({ startedAt: s, status: 'rolled_back', stuckAt: s + 600_000, finishedAt: s + 900_000 });
+    expect(t.map(x => x.label)).toEqual(['Başladı (yeni ReplicaSet)', 'Takıldı', 'Geri alındı']);
+  });
+  it('başlangıç yoksa boş', () => {
+    expect(rolloutTimeline({ startedAt: 0, status: '' })).toEqual([]);
+  });
 });
