@@ -17,7 +17,8 @@
 // Range is the SINGLE-source-of-truth via useUrlRange; timeRangeToNs(range)
 // only ever runs inside a useMemo([range]) (the v0.5.184 trap).
 
-import { useEffect, useMemo, useRef, useState, Suspense, Fragment } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense, Fragment } from 'react';
+import { ownedParamSig, nextUrlRemountKey, type UrlKeyState } from '@/lib/urlRemountKey';
 import { DEFAULT_RANGE_PRESET } from '@/lib/useUrlRange';
 import { rowActivation } from '@/lib/a11y';
 import { attrKeyWindowParams } from '@/lib/attrKeyWindow';
@@ -235,7 +236,7 @@ function HeaderStat({ label, value, tone, title }: { label: string; value: strin
   );
 }
 
-function TracesPageInner() {
+function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => void }) {
   const navigate = useNavigate();
   // v0.10.219 — satır Link'i listenin O ANKİ URL'sini state olarak taşır;
   // /trace breadcrumb'ı onunla geri döner (lib/traceBackHref.ts).
@@ -530,9 +531,10 @@ function TracesPageInner() {
     ]);
     const target = qs ? `?${qs}` : '';
     if (typeof window !== 'undefined' && target !== window.location.search) {
+      onSelfWrite(target); // v0.10.1218 — kendi yankımız remount etmesin
       navigate(`/traces${target}`, { preventScrollReset: true, replace: true });
     }
-  }, [range, env, view, viz, sort, order, page, groupBy, groupAttr, aggSort, aggOrder, debouncedHaving, filter, advFilters, advGroupParam, extraCols, colsOwned, navigate]);
+  }, [range, env, view, viz, sort, order, page, groupBy, groupAttr, aggSort, aggOrder, debouncedHaving, filter, advFilters, advGroupParam, extraCols, colsOwned, navigate, onSelfWrite]);
 
   // ── List fetch ───────────────────────────────────────────────────────────
   // v0.9.636 — pencere TEK yerde hizalanıyor: liste, hacim şeridi ve
@@ -1951,10 +1953,28 @@ function fmtPerMin(n: number): string {
   return `${n.toFixed(2)}/m`;
 }
 
+// v0.10.1218 — Traces URL'i mount başına bir kez okuyor; sayfa açıkken gelen
+// dış değişim (saved view, derin link, geri/ileri) eski state'le eziliyordu.
+// Sahip olunan paramların imzası key'e katılır; kendi yazımımız bildirilir
+// ve remount etmez (exploreRouteKey deseni, lib/urlRemountKey.ts).
+// range/env/cluster/s_* canlı okunuyor — imzada YOK.
+const TRACES_OWNED_PARAMS = [
+  'view', 'viz', 'rt', 'sort', 'order', 'page', 'groupBy', 'groupAttr', 'aggSort', 'aggOrder',
+  'having', 'service', 'search', 'op', 'traceId', 'minMs', 'maxMs', 'hasError', 'rootOnly',
+  'services', 'filters', 'filterGroup', 'cols',
+] as const;
+
 export default function TracesPage() {
+  const { search } = useLocation();
+  const selfWriteSigRef = useRef<string | null>(null);
+  const keyRef = useRef<UrlKeyState | null>(null);
+  const onSelfWrite = useCallback((next: string) => {
+    selfWriteSigRef.current = ownedParamSig(next, TRACES_OWNED_PARAMS);
+  }, []);
+  keyRef.current = nextUrlRemountKey(keyRef.current, ownedParamSig(search, TRACES_OWNED_PARAMS), selfWriteSigRef.current);
   return (
     <Suspense fallback={<Spinner />}>
-      <TracesPageInner />
+      <TracesPageInner key={keyRef.current.key} onSelfWrite={onSelfWrite} />
     </Suspense>
   );
 }
