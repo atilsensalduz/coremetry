@@ -1,3 +1,4 @@
+import { savedViewTooLarge } from '@/lib/savedViewLimits';
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -129,6 +130,8 @@ export function SavedViewsBar({ page, right }: {
     if (!trimmed) return;
     // Strip leading '?' so the server stores a stable search string.
     const qs = window.location.search.replace(/^\?/, '');
+    const tooLarge = savedViewTooLarge(qs); // v0.10.1236 — sunucu tavanıyla aynı
+    if (tooLarge) { toast.error(tooLarge); return; }
     try {
       await api.createSavedView({ name: trimmed, page, queryString: qs, shared });
       setName('');

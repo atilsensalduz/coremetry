@@ -432,6 +432,12 @@ func (s *Server) createSavedView(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, msg, http.StatusBadRequest)
 		return
 	}
+	// v0.10.1236 — URL programı: sorgu dizesi tavanı (8 KiB; proxy/tarayıcı
+	// sınırlarının altında, paylaşılan link açılabilsin).
+	if msg := savedViewSizeRejection(body.QueryString); msg != "" {
+		http.Error(w, msg, http.StatusBadRequest)
+		return
+	}
 	claims := auth.FromContext(r.Context())
 	owner := ""
 	if claims != nil {
@@ -506,6 +512,18 @@ func (s *Server) deleteSavedView(w http.ResponseWriter, r *http.Request) {
 func savedViewCreateRejection(page string) string {
 	if chstore.IsSystemSavedViewPage(page) {
 		return fmt.Sprintf("reserved page %q: sistem durumudur, genel kayıtlı-görünüm ucundan yazılamaz (kendi ucunu kullanın)", page)
+	}
+	return ""
+}
+
+// SavedViewQueryMax — kayıtlı görünüm sorgu dizesi tavanı (bayt). Frontend
+// lib/savedViewLimits.ts aynı değeri taşır.
+const SavedViewQueryMax = 8192
+
+// savedViewSizeRejection — v0.10.1236, SAF.
+func savedViewSizeRejection(qs string) string {
+	if len(qs) > SavedViewQueryMax {
+		return fmt.Sprintf("görünüm çok büyük: sorgu dizesi %d bayt, en çok %d — filtreleri azaltın", len(qs), SavedViewQueryMax)
 	}
 	return ""
 }

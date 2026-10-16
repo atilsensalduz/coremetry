@@ -172,3 +172,13 @@ func TestSavedViewHandlersCheckSystemPagesBeforeStore(t *testing.T) {
 		}
 	}
 }
+
+// v0.10.1236 — kayıtlı görünüm sorgu dizesi tavanı.
+func TestSavedViewSizeRejection(t *testing.T) {
+	if savedViewSizeRejection(strings.Repeat("a", SavedViewQueryMax)) != "" {
+		t.Error("tavana eşit kabul edilmeli")
+	}
+	if savedViewSizeRejection(strings.Repeat("a", SavedViewQueryMax+1)) == "" {
+		t.Error("tavan üstü reddedilmeli")
+	}
+}
