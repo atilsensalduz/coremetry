@@ -36,6 +36,14 @@ export const intParam = (def = 0): ParamCodec<number> => ({
   encode: v => (v === def || !Number.isFinite(v) || v < 0 ? '' : String(Math.floor(v))),
 });
 
+/** Sabit sayı kümesi (ör. örneklem 50/100/200/500); küme dışı → varsayılan. */
+export function intOneOfParam(values: readonly number[], def: number): ParamCodec<number> {
+  return {
+    decode: raw => (raw !== null && /^\d{1,9}$/.test(raw) && values.includes(Number(raw)) ? Number(raw) : def),
+    encode: v => (v === def || !values.includes(v) ? '' : String(v)),
+  };
+}
+
 /** Sabit küme; küme dışı değer varsayılana düşer. */
 export function enumParam<T extends string>(values: readonly T[], def: T): ParamCodec<T> {
   return {

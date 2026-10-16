@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readUrlParams, writeUrlParams, strParam, boolParam, intParam, enumParam, csvParam, type ParamSpec } from './urlParams';
+import { readUrlParams, writeUrlParams, intOneOfParam, strParam, boolParam, intParam, enumParam, csvParam, type ParamSpec } from './urlParams';
 
 // v0.10.1229 — ortak URL↔state yardımcısı (Faz 1-A).
 interface V { q: string; err: boolean; page: number; view: 'list' | 'agg'; svcs: string[] }
@@ -28,5 +28,21 @@ describe('urlParams', () => {
   it('spec dışı yama anahtarı yok sayılır', () => {
     const sp = writeUrlParams(new URLSearchParams(), SPEC, { nope: 'x' } as unknown as Partial<V>);
     expect(sp.toString()).toBe('');
+  });
+});
+
+// v0.10.1234 — sabit sayı kümesi codec'i (Topology samples/topn).
+describe('intOneOfParam', () => {
+  const c = intOneOfParam([50, 100, 200, 500], 200);
+  it('küme içi okunur, dışı varsayılana düşer', () => {
+    expect(c.decode('500')).toBe(500);
+    expect(c.decode('123')).toBe(200);
+    expect(c.decode(null)).toBe(200);
+    expect(c.decode('abc')).toBe(200);
+  });
+  it('varsayılan ve küme dışı yazılmaz', () => {
+    expect(c.encode(200)).toBe('');
+    expect(c.encode(7)).toBe('');
+    expect(c.encode(50)).toBe('50');
   });
 });

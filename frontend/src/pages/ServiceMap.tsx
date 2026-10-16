@@ -1,3 +1,4 @@
+import { useUrlParams, intOneOfParam, strParam } from '@/lib/urlParams';
 import { useEffect, useMemo, useState } from 'react';
 import { seriesColor } from '@/lib/chartFmt';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -47,9 +48,22 @@ const DIFF_PRESETS: { key: string; label: string }[] = [
   { key: '168h', label: 'vs last week' },
 ];
 
+
+const TOPO_URL_SPEC = {
+  samples: intOneOfParam([50, 100, 200, 500], 200),
+  diff: strParam(),
+  topn: intOneOfParam([0, 50, 100, 250, 500], 0),
+  tcluster: strParam(),
+};
 export default function ServiceMapPage() {
   const [range, setRange] = useUrlRange(DEFAULT_RANGE_PRESET);
-  const [samples, setSamples] = useState(200);
+  // v0.10.1234 (paylaşılabilir URL, Faz 1-B) — samples / compare / topN /
+  // cluster seçimleri URL'den türetilir (önce yerel state'ti; paylaşılan
+  // link ve geri/ileri varsayılana dönüyordu). Param adları: samples, diff,
+  // topn, tcluster (global ?cluster= ile karışmasın).
+  const [tu, setTu] = useUrlParams(TOPO_URL_SPEC);
+  const samples = tu.samples;
+  const setSamples = (v: number) => setTu({ samples: v });
   // v0.8.219 — /topology was folded into /service-map; honour its ?focus=<svc>
   // deep-link (from Endpoints / service tabs / the redirect) by seeding focus
   // from the URL. The auto-pick effect below skips when focus is already set.
@@ -73,11 +87,13 @@ export default function ServiceMapPage() {
   // v0.9.226 — Structure/Flow toggle kaldırıldı (operatör: "sadece flow
   // olan yeterli"). Sayfa tek görünüm: MV-kenarlı akış grafiği.
   const [hoverNode, setHoverNode] = useState<string | null>(null);
-  const [diff, setDiff] = useState<string>('');
+  const diff = DIFF_PRESETS.some(p => p.key === tu.diff) ? tu.diff : '';
+  const setDiff = (v: string) => setTu({ diff: v });
   // Overview cap (v0.8.215): bound the rendered graph to the heaviest N services
   // so the whole-production map isn't an unreadable hairball. 0 = no cap (full
   // sampled graph). Server-side prune — the browser never receives the long tail.
-  const [topN, setTopN] = useState(0);
+  const topN = tu.topn;
+  const setTopN = (v: number) => setTu({ topn: v });
   // v0.9.616 — pencere PAYLAŞILAN rangeToSince'dan.
   //
   // Öncesi 5 girdilik YEREL bir tablodan çözülüyordu ve tabloda
@@ -202,7 +218,8 @@ export default function ServiceMapPage() {
   // count as a match for ANY cluster pick so a frontend
   // running in eu-west AND eu-central isn't hidden from
   // both views. Empty = show everything (default).
-  const [clusterPick, setClusterPick] = useState<string>('');
+  const clusterPick = tu.tcluster;
+  const setClusterPick = (v: string) => setTu({ tcluster: v });
   const clusterOptions = useMemo(() => {
     if (!data) return [] as string[];
     const set = new Set<string>();
