@@ -4,6 +4,7 @@ import { Badge, Button, Field, useConfirm } from '@/components/ui';
 import { api } from '@/lib/api';
 import { useSettingsLoad, SettingsLoadError, ConfigStatusBanner } from './shared';
 import { fmtDateTime } from '@/lib/utils';
+import { FunctionCodeShapePanel } from './FunctionCodeShapePanel';
 import type { DevOpsFlavor, DevOpsResolveDryRun, DevOpsTestResult, SchemaCatalogSummary } from '@/lib/types';
 
 // DevOpsTab — Azure DevOps Server / TFS bağlantısı (v0.9.829),
@@ -679,6 +680,7 @@ export function DevOpsTab() {
           {schemaMsg && <span style={{ fontSize: 12, color: schemaMsg.kind === 'ok' ? 'var(--ok)' : 'var(--err)' }}>{schemaMsg.text}</span>}
         </div>
       </form>
+      <FunctionCodeShapePanel />
     </div>
   );
 }

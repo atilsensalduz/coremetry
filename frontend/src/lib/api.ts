@@ -3847,6 +3847,9 @@ export const api = {
       body: JSON.stringify({ cluster }), timeoutMs: 200_000,
     }),
   // v0.10.306 — 0014 attribute hash indeksi sihirbazı (admin_attr_index.go; 0013 aynası).
+  // v0.10.1226 — function_code biçim ölçümü (admin, 5 dk önbellek).
+  functionCodeShape: () =>
+    get<import('./types').FunctionCodeShapeReport>('/api/admin/function-code-shape'),
   attrIndexStatus: () =>
     get<import('./types').AttrIndexStatusResult>('/api/admin/attr-index/status'),
   attrIndexPreflight: () =>

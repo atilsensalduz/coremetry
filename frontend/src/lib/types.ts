@@ -9372,3 +9372,7 @@ export interface ArgoCDCandidate { id: string; hubClusterId: string; name: strin
 export interface ArgoCDDiscoverRequest { hubClusterId: string; injectClusterLabel?: boolean }
 export interface ArgoCDDiscoverResult { hubClusterId: string; hubName: string; injectClusterLabel: boolean; window: { start: number; end: number }; candidates: ArgoCDCandidate[]; jobsTruncated: boolean; incomplete?: boolean; countsIncomplete?: boolean; warnings?: string[]; calls: number; saved: false }
 export interface ArgoCDDiscoverError { error: string; errorType?: string; upstreamStatus?: number; hubClusterId?: string } // guardrail | timeout | unavailable | unauthorized (v0.10.978: hub Thanos 401/403, HTTP 502 stays; upstreamStatus = hub's code) | internal | bad_data | execution | response_too_large; 429 has only {error}
+
+/** GET /api/admin/function-code-shape (v0.10.1226) — function_code biçim ölçümü (son 1 saat). */
+export interface FunctionCodeShapeRow { conforms: boolean; len: number; distinct: number; spans: number; example: string }
+export interface FunctionCodeShapeReport { source: 'rollup' | 'spans' | ''; from: number; to: number; rows: FunctionCodeShapeRow[] }
