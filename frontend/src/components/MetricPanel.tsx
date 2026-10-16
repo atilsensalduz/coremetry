@@ -1,3 +1,4 @@
+import { absoluteShareHref } from '@/lib/shareUrl';
 import { useEffect, useRef, useState } from 'react';
 import { useEscLayer } from '@/lib/escLayer';
 import type { ReactNode, KeyboardEvent } from 'react';
@@ -150,7 +151,8 @@ export function MetricPanel(props: MetricPanelProps) {
         // mutlak konumluydu (top:6/right:6) ve devredilmiş modda panelin
         // başlık satırındaki ⋯'ün TAM ÜSTÜNE düşüyordu. Tek kanal, iki
         // modda da görünür; v0.8.550'nin kuralı aynen: yalnız gerçek kopya.
-        void copyToClipboard(window.location.origin + href).then(ok => {
+        // v0.10.1235 — panel linki de aralığı sabitler (göreli '1h' alıcıda kayardı).
+        void copyToClipboard(absoluteShareHref(window.location.origin + href, Date.now())).then(ok => {
           if (!ok) return;
           setLinkCopied(true);
           setTimeout(() => setLinkCopied(false), 1500);

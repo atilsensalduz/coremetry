@@ -1,3 +1,4 @@
+import { absoluteShareHref } from '@/lib/shareUrl';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TabStrip } from '@/components/ui/TabStrip'; // v0.10.457 (D5 dilim B)
 import { useEscLayer } from '@/lib/escLayer';
@@ -1070,7 +1071,8 @@ function SharePopover({ traceId }: { traceId: string }) {
   // Flash is 1500ms to match every other copy surface (was 2000).
   const copyInternal = async () => {
     if (typeof window === 'undefined') return;
-    if (!await copyToClipboard(window.location.href)) return;
+    // v0.10.1235 — göreli aralık sabitlenir (ShareButton sözleşmesi).
+    if (!await copyToClipboard(absoluteShareHref(window.location.href, Date.now()))) return;
     setInternalCopied(true);
     setTimeout(() => setInternalCopied(false), 1500);
   };
