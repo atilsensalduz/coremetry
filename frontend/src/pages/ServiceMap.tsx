@@ -63,6 +63,13 @@ export default function ServiceMapPage() {
   // the auto-pick effect below replaces it once the map proves it's gone.
   const [focus, setFocus] = useState<string>(
     () => searchParams.get('focus') ?? getRaw(STORAGE_KEYS.topoFocus) ?? '');
+  // v0.10.1220 — dış ?focus= değişimini içe al (commitFocus state+URL'i
+  // birlikte yazar → yankı no-op). Param yokken hatırlanan seçim kalır.
+  const urlFocus = searchParams.get('focus') ?? '';
+  useEffect(() => {
+    if (urlFocus && urlFocus !== focus) setFocus(urlFocus);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- yalnız URL değişiminde
+  }, [urlFocus]);
   // v0.9.226 — Structure/Flow toggle kaldırıldı (operatör: "sadece flow
   // olan yeterli"). Sayfa tek görünüm: MV-kenarlı akış grafiği.
   const [hoverNode, setHoverNode] = useState<string | null>(null);

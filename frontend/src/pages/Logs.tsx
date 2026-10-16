@@ -346,6 +346,13 @@ function LogsInner() {
   // since v0.7.83, but only the Context modal ever asked; the list had
   // no control. In the URL so a shared link reproduces the order.
   const [asc, setAsc] = useState(() => searchParams.get('asc') === '1');
+  // v0.10.1220 — dış URL değişimi (geri/ileri, kayıtlı görünüm) yönü de
+  // içe alır; toggleAsc state'i ve URL'i birlikte yazdığı için yankı no-op.
+  const urlAsc = searchParams.get('asc') === '1';
+  useEffect(() => {
+    if (urlAsc !== asc) { setAsc(urlAsc); resetPaging(); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- yalnız URL değişiminde
+  }, [urlAsc]);
   // Flipping direction MUST reset paging: the keyset cursor is a strict
   // inequality tied to its direction, so a token minted newest-first is
   // meaningless oldest-first. The backend drops a mismatched token

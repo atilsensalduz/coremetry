@@ -104,6 +104,11 @@ export function ServiceLogsTab({ service, range, windowNs, onZoom, onZoomReset }
   const urlLvl = (lparams.get('llvl') as 'all' | Lvl | null) ?? 'all';
   const [searchInput, setSearchInput] = useState(urlLq);
   const [search, setSearch] = useState(urlLq);
+  // v0.10.1220 — dış ?lq= değişimini içe al (gönderim ikisini birlikte yazar).
+  useEffect(() => {
+    if (urlLq !== search) { setSearch(urlLq); setSearchInput(urlLq); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- yalnız URL değişiminde
+  }, [urlLq]);
   const lvl: 'all' | Lvl = urlLvl;
   const setLvl = (v: 'all' | Lvl) => setLparams(prev => {
     const next = new URLSearchParams(prev);

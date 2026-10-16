@@ -110,11 +110,19 @@ export default function SlowQueriesPage() {
   const setPage = (p: number) => setUrlParam('page', p > 0 ? String(p) : '');
   const [qText, setQText] = useState(q);
   const qTimer = useRef<number | undefined>(undefined);
+  // v0.10.1220 — dış URL değişimini içe al; kendi (debounce'lu) yazımımızın
+  // yankısı lastQRef ile ayırt edilir, yoksa yazmaya devam eden metni ezerdi.
+  const lastQRef = useRef(q);
+  useEffect(() => {
+    if (q === lastQRef.current) return;
+    lastQRef.current = q;
+    setQText(q);
+  }, [q]);
   useEffect(() => () => window.clearTimeout(qTimer.current), []);
   const onSearch = (v: string) => {
     setQText(v);
     window.clearTimeout(qTimer.current);
-    qTimer.current = window.setTimeout(() => setUrlParam('q', v.trim()), 300);
+    qTimer.current = window.setTimeout(() => { lastQRef.current = v.trim(); setUrlParam('q', v.trim()); }, 300);
   };
   const setDbSystem = (v: string) => setUrlParam('dbsys', v);
   const setDbName = (v: string) => setUrlParam('dbname', v);

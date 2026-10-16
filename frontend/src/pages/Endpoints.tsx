@@ -184,6 +184,12 @@ export default function EndpointsPage() {
   // spanmetrics_1m MV has no env dim — same trade-off as cluster).
   const [env] = useUrlEnv();
   const [search, setSearch] = useState(() => params.get('search') ?? '');
+  // v0.10.1220 — dış URL değişimini içe al (yazım eşzamanlı → yankı no-op).
+  const urlSearch = params.get('search') ?? '';
+  useEffect(() => {
+    if (urlSearch !== search) setSearch(urlSearch);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- yalnız URL değişiminde
+  }, [urlSearch]);
   // "/" focuses this filter via the shared table keyboard-nav.
   const searchRef = useRef<HTMLInputElement>(null);
   const cluster = params.get('cluster') ?? '';
