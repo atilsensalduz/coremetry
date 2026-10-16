@@ -3070,6 +3070,10 @@ export const api = {
   // OLDUĞU GİBİ VM'e gider (ön-doğrulama parser'ı yok), yani MetricsQL
   // uzantıları da geçer. CH yolunda internal/promql'in PromQL alt kümesi
   // hâlâ ön-parse ediyor ve sözdizimi hatası temiz bir 400 dönüyor.
+  // v0.10.1244 — servis HTTP Metrics sekmesi: kaynak VictoriaMetrics'e SABİT
+  // (operatör: pano VM'den okunsun); sayfanın deneme kaynağı seçimi uygulanmaz.
+  httpMetricsPromql: (params: { query: string; from: number; to: number; maxDataPoints: number }) =>
+    get<SpanMetricSeries[] | null>(withMetricSource(`/api/metrics/promql?${qs(params)}`, 'vm')),
   metricPromql: (params: { query: string; from?: number; to?: number; step?: number; maxDataPoints?: number }) =>
     get<SpanMetricSeries[] | null>(withMetricSource(`/api/metrics/promql?${qs({ maxDataPoints: 1500, ...params })}`)),
   // v0.8.356 — sort/dir: server-side global ordering (whitelisted

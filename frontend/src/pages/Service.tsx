@@ -45,6 +45,7 @@ import type { Service, Problem, OperationSummary, OperationRoutesFor, SLORow, Ti
 import { QueryError } from '@/components/QueryError';
 import type { DataTableStateProps } from '@/components/ui/DataTable';
 import { PageShell } from '@/components/ui/PageShell';
+import { ServiceHttpMetricsTab } from './service/ServiceHttpMetricsTab';
 import { withPivotCtx, pivotCtxFromSearch, type PivotDim } from '@/lib/pivotContext';
 
 // v0.10.1231 — servis sayfasından traces/logs/endpoints pivotları ekrandaki
@@ -61,7 +62,7 @@ const SERVICE_PIVOT_CARRY: readonly PivotDim[] = ['env', 'cluster'];
 // already lands on the same service-scoped /traces page (where the column is
 // sortable). A stale ?tab=traces link redirects there rather than 404ing to
 // the default tab.
-type ServiceTab = 'overview' | 'operations' | 'details' | 'logs' | 'topology' | 'infra' | 'gitops';
+type ServiceTab = 'overview' | 'operations' | 'details' | 'logs' | 'topology' | 'infra' | 'gitops' | 'http';
 
 // v0.10.929 (K5) — /service başlık noktası. Sağlıklı hâl nötr halka
 // (`.ov-dot.green` globals'ta artık soluk --border-strong halkası; ad tarihsel),
@@ -173,6 +174,7 @@ function ServiceDetailInner() {
     // inline pod'lar + altta runtime); eski ?tab=pods / ?tab=metrics oraya.
     : (tabParam === 'infra' || tabParam === 'pods' || tabParam === 'metrics') ? 'infra'
     : tabParam === 'gitops' ? 'gitops'
+    : tabParam === 'http' ? 'http' // v0.10.1244 — HTTP Metrics (VictoriaMetrics)
     : 'overview';
   // v0.9.212 — a bookmarked ?tab=traces would otherwise land silently on
   // Overview, which reads as "my link broke". Send it where the tab used to
@@ -570,6 +572,7 @@ function ServiceDetailInner() {
                 rollout'ları (workload_rollouts). Kendi sabit pencereleri var
                 (iş yükü 24 sa, rollout 7 gün); sayfa aralığını okumaz. */}
             {tab === 'gitops' && <ServiceGitOpsTab service={svc} />}
+            {tab === 'http' && <ServiceHttpMetricsTab service={svc} range={range} />}
             {/* v0.9.63 — v0.9.62'nin sekme-tepesi RED üçlüsü OPERATÖR
                 KARARIYLA geri alındı ("gereksiz olmuş"): grafikler
                 Details'te (Performance) yaşar, Operations sekmesi
@@ -813,6 +816,7 @@ function TabStrip({ tab, onChange, opCount }: {
     { key: 'details',    label: 'Details' },
     { key: 'infra',      label: 'Infrastructure' },
     { key: 'gitops',     label: 'GitOps' }, // v0.10.981
+    { key: 'http',       label: 'HTTP Metrics' }, // v0.10.1244
     { key: 'topology',   label: 'Topology' },
     { key: 'logs',       label: 'Logs' },
   ];
