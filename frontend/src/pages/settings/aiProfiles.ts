@@ -61,3 +61,23 @@ export function endpointLabel(provider: AIProvider, baseUrl?: string): string {
 export function profileUsable(p: Pick<AIModelProfile, 'provider' | 'hasKey' | 'baseUrl'>): boolean {
   return p.hasKey || (p.provider === 'openai' && !!p.baseUrl?.trim());
 }
+
+/** v0.10.1238 — ek başlıklar textarea'sı: satır başına "Ad: değer". */
+export function formatHeaderLines(h: Record<string, string> | undefined): string {
+  return Object.entries(h ?? {}).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}: ${v}`).join('\n');
+}
+
+/** parseHeaderLines — SAF: boş satırlar atlanır; ilk ':' ad/değer ayırır; adsız ya da ':'sız satır hata. */
+export function parseHeaderLines(text: string): { headers: Record<string, string> } | { error: string } {
+  const headers: Record<string, string> = {};
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const at = line.indexOf(':');
+    const name = at > 0 ? line.slice(0, at).trim() : '';
+    if (!name) return { error: `Başlık satırı ${i + 1}: "Ad: değer" biçiminde olmalı` };
+    headers[name] = line.slice(at + 1).trim();
+  }
+  return { headers };
+}

@@ -74,6 +74,7 @@ func DoGitHub(ctx context.Context, cfg Config, req Request) (Response, error) {
 	if err != nil {
 		return Response{}, err
 	}
+	applyHeaders(httpReq.Header, cfg.Headers)
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 	// Entegrasyon header'ları: editör kimliği gibi görünüyorlar ama kapı

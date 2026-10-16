@@ -96,6 +96,7 @@ func DoOpenAI(ctx context.Context, cfg Config, req Request) (Response, error) {
 	if err != nil {
 		return Response{}, err
 	}
+	applyHeaders(httpReq.Header, cfg.Headers)
 	httpReq.Header.Set("Content-Type", "application/json")
 	if cfg.APIKey != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+cfg.APIKey)

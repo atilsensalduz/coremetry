@@ -24,7 +24,11 @@
 // hangi response_format'ın basılacağı buranın işi.
 package provider
 
-import "net/http"
+import (
+	"fmt"
+	"net/http"
+	"strings"
+)
 
 // JSON zorlama basamakları. DoOpenAI üçünü de basar; hangi basamağın
 // deneneceğine ve reddedilince bir alta inileceğine copilot.Service
@@ -105,6 +109,64 @@ type Config struct {
 	APIKey     string
 	Model      string
 	HTTPClient *http.Client
+	// Headers — v0.10.1238: profilin ek HTTP başlıkları (ör. geçidin
+	// yönlendirdiği `x-cluster: test-v2`). Her istekte çekirdek
+	// başlıklardan ÖNCE basılır, yani auth/sürüm başlıklarını ezemez;
+	// ayrılmış adları ValidateHeaders zaten reddeder. nil = değişmez.
+	Headers map[string]string
+}
+
+// MaxHeaders — profil başına ek başlık tavanı.
+const MaxHeaders = 20
+
+// reservedHeaders — taşıyıcının kendi bastığı ya da net/http'nin yönettiği
+// adlar (kanonik biçim). Ek başlık bunları taşıyamaz: Authorization'ı ezmek
+// auth'u sessizce kırar, Content-Length/Host'u ezmek isteği bozar.
+var reservedHeaders = map[string]bool{
+	"Authorization": true, "Api-Key": true, "X-Api-Key": true, "Anthropic-Version": true,
+	"Content-Type": true, "Content-Length": true, "Accept": true, "Host": true,
+	"Transfer-Encoding": true, "Connection": true,
+}
+
+// ValidateHeaders — SAF: ad RFC 7230 token'ı, ayrılmış değil, tekrarsız
+// (büyük/küçük harf duyarsız); değer CR/LF/NUL içermez (başlık enjeksiyonu).
+func ValidateHeaders(h map[string]string) error {
+	if len(h) > MaxHeaders {
+		return fmt.Errorf("en fazla %d ek başlık", MaxHeaders)
+	}
+	seen := map[string]bool{}
+	for k, v := range h {
+		if k == "" || len(k) > 100 || strings.IndexFunc(k, notTokenRune) >= 0 {
+			return fmt.Errorf("geçersiz başlık adı %q", k)
+		}
+		c := http.CanonicalHeaderKey(k)
+		if reservedHeaders[c] {
+			return fmt.Errorf("%s başlığı ayrılmış; ek başlık olarak verilemez", c)
+		}
+		if seen[c] {
+			return fmt.Errorf("başlık tekrar ediyor (%s)", c)
+		}
+		seen[c] = true
+		if len(v) > 1024 || strings.ContainsAny(v, "\r\n\x00") {
+			return fmt.Errorf("%s başlığının değeri geçersiz (≤1024, satır sonu yok)", c)
+		}
+	}
+	return nil
+}
+
+func notTokenRune(r rune) bool {
+	if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+		return false
+	}
+	return !strings.ContainsRune("!#$%&'*+-.^_`|~", r)
+}
+
+// applyHeaders — Config.Headers'ı isteğe basar. Çağrı yerleri bunu çekirdek
+// Header.Set'lerden ÖNCE yapar: çakışmada çekirdek kazanır (headers_test.go).
+func applyHeaders(h http.Header, extra map[string]string) {
+	for k, v := range extra {
+		h.Set(k, v)
+	}
 }
 
 // applyExtraBody — Request.ExtraBody'yi gövdeye ekler; var olan (çekirdek)

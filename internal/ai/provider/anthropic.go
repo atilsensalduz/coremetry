@@ -95,6 +95,7 @@ func DoAnthropic(ctx context.Context, cfg Config, req Request) (Response, error)
 	if err != nil {
 		return Response{}, err
 	}
+	applyHeaders(httpReq.Header, cfg.Headers)
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("X-API-Key", cfg.APIKey)
 	httpReq.Header.Set("Anthropic-Version", anthropicVersion)

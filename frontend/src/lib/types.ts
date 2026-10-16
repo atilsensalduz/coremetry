@@ -1607,6 +1607,8 @@ export interface AIModelProfile {
   roles?: Role[];
   /** v0.10.1150 — "Derin düşün" profili (tek; sohbette Derin açıkken, açık seçim yoksa) */
   deep?: boolean;
+  /** v0.10.1238 — her LLM isteğine eklenen HTTP başlıkları (ör. x-cluster) */
+  headers?: Record<string, string>;
 }
 /** v0.10.1138 — /api/copilot/config profil seçeneği (sırsız: id/label/model/açıklama). */
 export interface CopilotProfileOption { id: string; label?: string; model?: string; description?: string }
@@ -1627,6 +1629,7 @@ export interface AIModelProfileInput {
   description?: string; // v0.10.1138
   roles?: Role[];       // v0.10.1138 — boş = herkes
   deep?: boolean;       // v0.10.1150 — "Derin düşün" profili (tek)
+  headers?: Record<string, string>; // v0.10.1238 — tam liste; gönderilmeyen başlık silinir
 }
 export interface AIProfilesPayload { profiles: AIModelProfile[]; defaultProfile: string; surfaceMap: AISurfaceMap }
 export interface AIProfileTestResult { ok: boolean; ms: number; profile: string; error?: string; sample?: string }

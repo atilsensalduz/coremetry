@@ -1,6 +1,6 @@
 // aiProfiles.test.ts — v0.10.176 sözleşmesi.
 import { describe, it, expect } from 'vitest';
-import { slugifyProfileId, PROFILE_ID_RE, tuningSummary, endpointLabel, profileUsable, defaultRolesWarning, DEFAULT_ROLES_WARNING } from './aiProfiles';
+import { slugifyProfileId, PROFILE_ID_RE, tuningSummary, endpointLabel, profileUsable, defaultRolesWarning, DEFAULT_ROLES_WARNING, parseHeaderLines, formatHeaderLines } from './aiProfiles';
 
 describe('aiProfiles yardımcıları', () => {
   it('slug: Türkçe harfler, boşluk, sınır; sunucu regex\'iyle uyumlu', () => {
@@ -42,5 +42,23 @@ describe('defaultRolesWarning', () => {
     expect(defaultRolesWarning([{ default: true }])).toBeNull();
     expect(defaultRolesWarning([])).toBeNull();
     expect(DEFAULT_ROLES_WARNING).toContain('profilsiz istekler yine bu profille çalışır');
+  });
+});
+
+// v0.10.1238 — profilin ek LLM başlıkları textarea'sı.
+describe('parseHeaderLines / formatHeaderLines', () => {
+  it('satır başına Ad: değer; boş satır atlanır; değerdeki ":" korunur', () => {
+    expect(parseHeaderLines('x-cluster: test-v2\n\n  X-Url : http://a:1 ')).toEqual({ headers: { 'x-cluster': 'test-v2', 'X-Url': 'http://a:1' } });
+    expect(parseHeaderLines('')).toEqual({ headers: {} });
+  });
+  it('":"sız ya da adsız satır hata verir', () => {
+    expect(parseHeaderLines('x-cluster test-v2')).toEqual({ error: expect.stringContaining('satırı 1') });
+    expect(parseHeaderLines('a: 1\n: v')).toEqual({ error: expect.stringContaining('satırı 2') });
+  });
+  it('format → parse gidiş-dönüş', () => {
+    const h = { 'x-b': '2', 'x-cluster': 'test-v2' };
+    expect(formatHeaderLines(h)).toBe('x-b: 2\nx-cluster: test-v2');
+    expect(parseHeaderLines(formatHeaderLines(h))).toEqual({ headers: h });
+    expect(formatHeaderLines(undefined)).toBe('');
   });
 });

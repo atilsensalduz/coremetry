@@ -55,6 +55,7 @@ func (s *Service) callSnapshot(ctx context.Context) (cfg provider.Config, req pr
 		APIKey:     p.APIKey,
 		Model:      model,
 		HTTPClient: s.clientForLocked(rt),
+		Headers:    p.Headers, // v0.10.1238 — salt okunur; SetProfiles bütün haritayı değiştirir
 	}
 	maxTok := s.tuneMaxTokensLocked()
 	if p.MaxTokens > 0 {
