@@ -100,6 +100,7 @@ func TestRouteGuidedIntent(t *testing.T) {
 		// (b) service health — needs a live-list entity.
 		{"health turkish smoke", "checkout servisi yavaş mı", guidedServiceHealth, "checkout-service", ""},
 		{"health turkish sağlık", "payment-service sağlığı nasıl", guidedServiceHealth, "payment-service", ""},
+		{"v0.10.1215 analiz et → servis sağlığı (log örneklemli)", "payment-service servisini analiz et", guidedServiceHealth, "payment-service", ""},
 		{"health english", "is payment-service healthy", guidedServiceHealth, "payment-service", ""},
 		{"health suffixed name wins", "mobile-bff-uat sağlığı nasıl", guidedServiceHealth, "mobile-bff-uat", ""},
 		{"health base name not shadowed", "mobile-bff yavaş mı", guidedServiceHealth, "mobile-bff", ""},

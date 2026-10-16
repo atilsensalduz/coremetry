@@ -385,7 +385,7 @@ func hasProblemSignal(tokens []string) bool {
 }
 
 func hasHealthSignal(tokens []string) bool {
-	return hasHealthDomainSignal(tokens) || tokenHasPrefix(tokens, "durum", "nasıl", "iyi")
+	return hasHealthDomainSignal(tokens) || tokenHasPrefix(tokens, "durum", "nasıl", "iyi", "analiz", "analy", "incele")
 }
 
 // hasHealthDomainSignal (v0.10.819) — hasHealthSignal'ın ALAN yarısı: generic
