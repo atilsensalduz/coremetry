@@ -37,6 +37,11 @@ describe('/service sade palet — K5 artıkları (v0.10.929)', () => {
   it("var(--ok) yalnız Overview'daki OK throughput serisi (veri)", () => {
     for (const f of files) {
       const hits = read(f).split('\n').filter(l => l.includes('var(--ok)'));
+      // v0.10.1247 — İSTİSNA (operatör, 2026-10-16: HTTP Metrics "Grafana ile
+      // birebir"): Grafana stat/gauge/tablo hücreleri sağlıklı değeri yeşil
+      // zeminle gösterir. Yalnız bu dosya; sekmenin kendisi token adını
+      // şablonla basar (var(--${tone})), K5 kuralı diğer /service yüzeylerinde aynen.
+      if (f === 'httpMetricsViz.tsx') continue;
       if (f === 'Overview.tsx') {
         expect(hits.length, f).toBe(1);
         expect(hits[0]).toMatch(/const okLine: ChartLine = .*label: 'OK'/);

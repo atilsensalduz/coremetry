@@ -107,6 +107,8 @@ export interface MultiLineChartProps {
   // addan (seriesRoleColor). Trace › Metrics seçili pod paneli JVM çizgilerini
   // Bellek / CPU / çip ile aynı çakışmasız atamayla boyar (tek pod = tek renk).
   seriesColors?: ReadonlyMap<string, string>;
+  /** v0.10.1247 — lejant (Ortalama/Maks/Son tablosu) varsayılan açık. */
+  legendDefaultOpen?: boolean;
 }
 
 // v0.9.760 (operatör: "Endpoint/Database sayfalarındaki chartlar da yeni
@@ -120,7 +122,7 @@ export function MultiLineChart(props: MultiLineChartProps) {
   const {
     series, unit, height = 320, deploys, thresholds, regions, syncKey,
     onZoom, onZoomReset, onCursorTime, xRange, legendStorageKey, defaultHidden,
-    compareSeries, onBucketClick, logScale, zeroBase, maxSeries, seriesColors,
+    compareSeries, onBucketClick, logScale, zeroBase, maxSeries, seriesColors, legendDefaultOpen,
   } = props;
   // v0.9.807 — "others" katlaması. v0.9.789'da v2 kapısı açılırken bu adım
   // atlanmıştı: v1 gövdesi >N seriyi katlarken v2 yolu HEPSİNİ çiziyordu
@@ -162,6 +164,7 @@ export function MultiLineChart(props: MultiLineChartProps) {
         xRange={xRange}
         logScale={logScale}
         zeroBase={zeroBase}
+        legendDefaultOpen={legendDefaultOpen}
         regions={[
           ...(regions ?? []),
           ...(deploys ?? []).map(d => ({

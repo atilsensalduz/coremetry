@@ -9,7 +9,7 @@
 //   $route/$method  → seçiliyse tam eşitlik, değilse süzgeç yok
 //   $__rate_interval→ rateWindow(step)
 //   $__range        → pencere saniyesi (range sorgusunun SON noktası okunur)
-import type { SpanMetricSeries } from './types';
+import type { SpanMetricSeries, LatencyHeatmap as HeatmapData } from './types';
 
 export interface HttpScope { app: string; route?: string; method?: string }
 
@@ -83,7 +83,7 @@ export function httpQueries(s: HttpScope, windowSec: number): Record<string, str
     // Gecikme
     p50: q(0.5), p90: q(0.9), p99: q(0.99),
     p95ByRoute: q(0.95, `le, ${byMR}`),
-    buckets: `sum by (le) (${inc(SB)})`,
+    heatmap: `sum by (le) (increase(${SB}${sel()}[${R}]))`, // v0.10.1247 — panodaki heatmap
     // Hatalar
     err5ByRoute: `sum by (http_route, http_request_method, http_response_status_code) (${rate(SC, 'http_response_status_code=~"5.."')}) > 0`,
     err4ByRoute: `sum by (http_route, http_request_method, http_response_status_code) (${rate(SC, 'http_response_status_code=~"4.."')}) > 0`,
@@ -174,30 +174,6 @@ export function barsOf(series: SpanMetricSeries[] | null | undefined, labelKey: 
   return rows.sort((a, b) => b.value - a.value).slice(0, max);
 }
 
-/** Birikimli histogram kovaları (le) → kova başına sayı (heatmap yerine dağılım). */
-export function bucketDistribution(series: SpanMetricSeries[] | null | undefined): BarRow[] {
-  const cum: { le: number; label: string; v: number }[] = [];
-  for (const s of series ?? []) {
-    const raw = seriesLabels(s).le;
-    const v = lastValue(s);
-    if (raw === undefined || v === null) continue;
-    const le = raw === '+Inf' ? Infinity : Number(raw);
-    if (Number.isNaN(le)) continue;
-    cum.push({ le, label: raw, v });
-  }
-  cum.sort((a, b) => a.le - b.le);
-  const out: BarRow[] = [];
-  let prev = 0;
-  let prevLabel = '0';
-  for (const b of cum) {
-    const n = Math.max(0, b.v - prev);
-    out.push({ label: b.le === Infinity ? `> ${prevLabel}s` : `≤ ${b.label}s`, value: n });
-    prev = Math.max(prev, b.v);
-    prevLabel = b.label;
-  }
-  return out;
-}
-
 /** Tablo birleştirme: anahtar etiketlere göre her sorgunun son değeri bir sütun. */
 export function mergeTable(
   cols: Record<string, SpanMetricSeries[] | null | undefined>, keys: readonly string[],
@@ -246,4 +222,100 @@ export function fmtRatio(v: MaybeNum): string {
 }
 export function fmtSeconds(v: MaybeNum, fmt: (n: number) => string): string {
   return finite(v) ? fmt(v) : '—';
+}
+
+// v0.10.1247 — Grafana paritesi: panodaki eşikler ve sabit seri renkleri.
+// Renk yalnız sapan değerde (CLAUDE.md tablo standardı): yeşil = renksiz.
+export type HttpTone = 'err' | 'warn' | undefined;
+const fin = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+/** Gecikme (s): panoda P95/P99 eşikleri 0,5 sn sarı, 1 sn kırmızı. */
+export function latencyTone(v: unknown): HttpTone {
+  return !fin(v) ? undefined : v >= 1 ? 'err' : v >= 0.5 ? 'warn' : undefined;
+}
+/** Hata oranı (0–1): %1 sarı, %5 kırmızı (5xx ve 4xx sütunları). */
+export function errorRatioTone(v: unknown): HttpTone {
+  return !fin(v) ? undefined : v >= 0.05 ? 'err' : v >= 0.01 ? 'warn' : undefined;
+}
+/** 4xx stat kartı: %5 sarı, %15 kırmızı (panodaki "4xx Oranı" eşiği). */
+export function clientErrorTone(v: unknown): HttpTone {
+  return !fin(v) ? undefined : v >= 0.15 ? 'err' : v >= 0.05 ? 'warn' : undefined;
+}
+/** SLI < 500ms (0–1): %99 altı sarı, %95 altı kırmızı. */
+export function sliTone(v: unknown): HttpTone {
+  return !fin(v) ? undefined : v < 0.95 ? 'err' : v < 0.99 ? 'warn' : undefined;
+}
+
+/** Sabit seri renkleri (CSS token adı): status sınıfları ve yüzdelikler. */
+export const HTTP_SERIES_TOKENS: Readonly<Record<string, string>> = {
+  '2xx': '--ok', '3xx': '--info', '4xx': '--orange', '5xx': '--err',
+  p50: '--ok', p90: '--warn', p95: '--orange', p99: '--err',
+};
+
+/** Token → çözülmüş renk haritası (resolve: CSS değişkeni okuyucu). */
+export function httpSeriesColors(names: readonly string[], resolve: (token: string) => string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const n of names) {
+    const tok = HTTP_SERIES_TOKENS[n];
+    if (!tok) continue;
+    const c = resolve(tok).trim();
+    if (c) out.set(n, c);
+  }
+  return out;
+}
+
+// v0.10.1247 — Grafana birebir: heatmap / donut / stat sparkline yardımcıları.
+
+/**
+ * Birikimli kova serileri (`sum by (le) (increase(bucket[R]))`, range) →
+ * LatencyHeatmap matrisi: zaman × kova, hücre = o adımda O kovaya düşen istek
+ * (birikimli farkı). le saniye → ms; +Inf taşma kovası overflowTop.
+ */
+export function heatmapFromBuckets(series: SpanMetricSeries[] | null | undefined): HeatmapData | null {
+  const buckets: { le: number; byT: Map<number, number> }[] = [];
+  const times = new Set<number>();
+  for (const s of series ?? []) {
+    const raw = seriesLabels(s).le;
+    if (raw === undefined) continue;
+    const le = raw === '+Inf' ? Infinity : Number(raw);
+    if (Number.isNaN(le)) continue;
+    const byT = new Map<number, number>();
+    for (const p of s.points ?? []) {
+      if (!Number.isFinite(p.value)) continue;
+      byT.set(p.time, p.value);
+      times.add(p.time);
+    }
+    buckets.push({ le, byT });
+  }
+  if (buckets.length === 0 || times.size === 0) return null;
+  buckets.sort((a, b) => a.le - b.le);
+  const ts = [...times].sort((a, b) => a - b);
+  const overflowTop = buckets[buckets.length - 1].le === Infinity;
+  const finite = buckets.filter(b => b.le !== Infinity);
+  const topFinite = finite.length ? finite[finite.length - 1].le : 1;
+  const durationBins = buckets.map(b => (b.le === Infinity ? topFinite * 2 : b.le) * 1000);
+  let maxCount = 0;
+  const counts = ts.map(t => {
+    let prev = 0;
+    return buckets.map(b => {
+      const cum = b.byT.get(t) ?? prev;
+      const n = Math.max(0, cum - prev);
+      prev = Math.max(prev, cum);
+      if (n > maxCount) maxCount = n;
+      return n;
+    });
+  });
+  return { times: ts, durationBins, counts, maxCount, overflowTop, countNoun: 'istek' } as HeatmapData;
+}
+
+export interface DonutSlice { label: string; value: number; pct: number }
+
+/** Çubuk satırları → donut dilimleri (yüzde toplamı 100). */
+export function donutSlices(rows: BarRow[]): DonutSlice[] {
+  const total = rows.reduce((a, r) => a + r.value, 0);
+  return rows.map(r => ({ label: r.label, value: r.value, pct: total > 0 ? (r.value / total) * 100 : 0 }));
+}
+
+/** Stat kartı trend çizgisi: ilk serinin değerleri (yoksa boş). */
+export function sparkValues(series: SpanMetricSeries[] | null | undefined): (number | null)[] {
+  return (series?.[0]?.points ?? []).map(p => (Number.isFinite(p.value) ? p.value : null));
 }

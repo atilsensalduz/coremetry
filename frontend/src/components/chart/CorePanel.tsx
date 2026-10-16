@@ -145,6 +145,10 @@ export type PanelData =
   | { state: 'ready'; frames: DataFrame[]; partial?: string };
 
 export interface CorePanelProps {
+  // v0.10.1247 — lejant varsayılan AÇIK (Grafana paritesi: HTTP Metrics
+  // sekmesi). Verilmezse v0.9.743 kararı: varsayılan kapalı. Kullanıcının
+  // kayıtlı tercihi her iki durumda da kazanır.
+  legendDefaultOpen?: boolean;
   // Görünen başlık. BOŞ ya da yalnız boşluk → başlık öğesi HİÇ çizilmez
   // (v0.10.978): görsel başlığı kendi kabuğunda taşıyan çağıranlar
   // (MultiLineChart, PanelRenderer, QueryPanel, MetricQueryEditor,
@@ -311,7 +315,7 @@ function fullNameOf(frame: { meta?: { custom?: Record<string, unknown> } } | und
 }
 
 export function CorePanel({
-  title, ariaLabel, data, height = 200, roles, colors, onZoom, onZoomReset, syncKey, logScale, zeroBase, storageKey,
+  title, ariaLabel, data, height = 200, roles, colors, onZoom, onZoomReset, syncKey, logScale, zeroBase, storageKey, legendDefaultOpen,
   thresholds, regions, queryText,
   defaultHidden, xRange, note, onExpandClick, exemplars, onExemplarClick, onRegionClick, regionClickHint,
   onBucketClick, hiddenNames, hideLegend, onCursorTime, dashed, viz = 'line',
@@ -1113,8 +1117,8 @@ export function CorePanel({
     // v0.9.743 (operatör): Series lejantı VARSAYILAN KAPALI gelir —
     // kullanıcı isterse açar; localStorage'daki kullanıcı tercihi
     // (stored) her zaman kazanır.
-    setLegendOpen(!resolveLegendCollapsed(stored, true, n, 6));
-  }, [aligned.names.length, storageKey]);
+    setLegendOpen(!resolveLegendCollapsed(stored, !legendDefaultOpen, n, 6));
+  }, [aligned.names.length, storageKey, legendDefaultOpen]);
   const toggleLegend = () => {
     legendTouchedRef.current = true;
     setLegendOpen(o => {

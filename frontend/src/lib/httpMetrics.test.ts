@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { httpQueries, serverSel, promStr, rateWindow, seriesLabels, legendOf, relabel, scalarOf, barsOf, bucketDistribution, mergeTable, filterOptions, fmtCount, fmtRatio, fmtSeconds } from './httpMetrics';
+import { httpQueries, serverSel, promStr, rateWindow, seriesLabels, legendOf, relabel, scalarOf, barsOf, mergeTable, filterOptions, fmtCount, fmtRatio, fmtSeconds, latencyTone, errorRatioTone, clientErrorTone, sliTone, httpSeriesColors, heatmapFromBuckets, donutSlices, sparkValues } from './httpMetrics';
 import type { SpanMetricSeries } from './types';
 
 // v0.10.1244 — HTTP Metrics sekmesi (Grafana panosu → VictoriaMetrics).
@@ -43,10 +43,6 @@ describe('etiket ve dönüşümler', () => {
   it('çubuklar azalan, sıfırlar atılır', () => {
     expect(barsOf([ser({ r: 'a' }, [1]), ser({ r: 'b' }, [5]), ser({ r: 'c' }, [0])], 'r')).toEqual([{ label: 'b', value: 5 }, { label: 'a', value: 1 }]);
   });
-  it('birikimli kovalar → kova başına', () => {
-    const d = bucketDistribution([ser({ le: '+Inf' }, [10]), ser({ le: '0.1' }, [6]), ser({ le: '0.5' }, [9])]);
-    expect(d).toEqual([{ label: '≤ 0.1s', value: 6 }, { label: '≤ 0.5s', value: 3 }, { label: '> 0.5s', value: 1 }]);
-  });
   it('tablo birleştirme anahtarlara göre', () => {
     const rows = mergeTable({
       total: [ser({ http_request_method: 'GET', http_route: '/a' }, [10])],
@@ -80,5 +76,42 @@ describe('biçimlendiriciler eksik değere dayanıklı', () => {
 describe('relabel null noktalara dayanıklı (v0.10.1245)', () => {
   it('points: null → boş', () => {
     expect(relabel([{ groupKey: ['a="1"'], points: null as never }], '{{a}}', 100)).toEqual([{ groupKey: ['1'], points: [] }]);
+  });
+});
+
+// v0.10.1247 — Grafana eşikleri ve sabit renkler.
+describe('Grafana eşikleri', () => {
+  it('gecikme 0,5 / 1 sn', () => {
+    expect([0.2, 0.5, 1.2, undefined].map(latencyTone)).toEqual([undefined, 'warn', 'err', undefined]);
+  });
+  it('hata oranı %1 / %5; 4xx kartı %5 / %15; SLI %99 / %95', () => {
+    expect([0.001, 0.02, 0.06].map(errorRatioTone)).toEqual([undefined, 'warn', 'err']);
+    expect([0.01, 0.06, 0.2].map(clientErrorTone)).toEqual([undefined, 'warn', 'err']);
+    expect([0.999, 0.97, 0.9, null].map(sliTone)).toEqual([undefined, 'warn', 'err', undefined]);
+  });
+  it('sabit renkler yalnız bilinen adlara, çözülemeyen token atlanır', () => {
+    const m = httpSeriesColors(['2xx', '5xx', 'GET /a', 'p99'], t => (t === '--err' ? '#f00' : t === '--ok' ? '#0f0' : ''));
+    expect([...m.entries()]).toEqual([['2xx', '#0f0'], ['5xx', '#f00'], ['p99', '#f00']]);
+  });
+});
+
+// v0.10.1247 — Grafana birebir yardımcıları.
+describe('heatmap / donut / spark', () => {
+  const b = (le: string, vals: number[]) => ser({ le }, vals);
+  it('birikimli kovalar → zaman × kova matrisi, +Inf taşma', () => {
+    const h = heatmapFromBuckets([b('+Inf', [10, 4]), b('0.1', [6, 1]), b('0.5', [9, 4])])!;
+    expect(h.durationBins).toEqual([100, 500, 1000]);
+    expect(h.counts).toEqual([[6, 3, 1], [1, 3, 0]]);
+    expect(h.maxCount).toBe(6);
+    expect(h.overflowTop).toBe(true);
+    expect(heatmapFromBuckets([])).toBeNull();
+  });
+  it('donut yüzdeleri', () => {
+    expect(donutSlices([{ label: 'a', value: 3 }, { label: 'b', value: 1 }]).map(d => d.pct)).toEqual([75, 25]);
+    expect(donutSlices([{ label: 'a', value: 0 }])[0].pct).toBe(0);
+  });
+  it('spark değerleri, NaN → null', () => {
+    expect(sparkValues([ser({}, [1, NaN, 3])])).toEqual([1, null, 3]);
+    expect(sparkValues(undefined)).toEqual([]);
   });
 });
