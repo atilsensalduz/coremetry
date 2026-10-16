@@ -75,8 +75,8 @@ func endpointDetailKey(service, path string, sig bool, from, to time.Time, env, 
 // v0.9.311 (brief N4) — "Where the time goes". Snapped to the same
 // minute bucket as its siblings so a drawer re-open inside the TTL
 // doesn't re-run TWO raw-spans passes.
-func endpointDownstreamKey(service, path string, sig bool, from, to time.Time, env, cluster string) string {
-	return fmt.Sprintf("endpoints-downstream:sp=%s:sig=%v:env=%s:clu=%s:from=%d:to=%d",
+func endpointDownstreamKey(service, path string, sig bool, from, to time.Time, env, cluster, sample string) string {
+	return fmt.Sprintf("endpoints-downstream:smp=%s:sp=%s:sig=%v:env=%s:clu=%s:from=%d:to=%d", sample,
 		endpointKeyDigest(service, path), sig, env, cluster,
 		pivotMinuteBucket(from), pivotMinuteBucket(to))
 }
@@ -284,12 +284,16 @@ func (s *Server) getEndpointDownstream(w http.ResponseWriter, r *http.Request) {
 	env := strings.TrimSpace(q.Get("env"))
 	cluster := strings.TrimSpace(q.Get("cluster"))
 
-	key := endpointDownstreamKey(service, path, sig, from, to, env, cluster)
+	sample := ""
+	if q.Get("sample") == chstore.EndpointSampleRandom {
+		sample = chstore.EndpointSampleRandom
+	}
+	key := endpointDownstreamKey(service, path, sig, from, to, env, cluster, sample)
 	s.serveCached(w, r, key, 60*time.Second, func(ctx context.Context) (any, error) {
 		return s.store.EndpointWhereTheTimeGoes(ctx, chstore.EndpointDetailQuery{
 			Service: service, Path: path, BySignature: sig,
 			From: from, To: to,
-			Env: env, Cluster: cluster,
+			Env: env, Cluster: cluster, Sample: sample,
 		})
 	})
 }

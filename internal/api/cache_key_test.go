@@ -195,3 +195,11 @@ func TestServicesLandingWarmKeyMatchesHandler(t *testing.T) {
 		t.Errorf("görüntü süzgeci eki anahtarda yok: %s", warm)
 	}
 }
+
+// v0.10.1228 — downstream anahtarı örneklem türünü hash'ler (yavaş/rastgele karışmaz).
+func TestEndpointDownstreamKeySample(t *testing.T) {
+	f, to := time.Unix(1000, 0), time.Unix(2000, 0)
+	if endpointDownstreamKey("s", "/p", false, f, to, "", "", "") == endpointDownstreamKey("s", "/p", false, f, to, "", "", "random") {
+		t.Fatal("örneklem türü anahtarda olmalı")
+	}
+}

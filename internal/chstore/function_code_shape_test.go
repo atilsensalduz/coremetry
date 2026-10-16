@@ -21,3 +21,13 @@ func TestFunctionCodeShapeSQL(t *testing.T) {
 		}
 	}
 }
+
+// v0.10.1228 — "Where the time goes" örneklem sırası.
+func TestEndpointSampleOrder(t *testing.T) {
+	if endpointSampleOrder("") != "duration DESC" || endpointSampleOrder("x") != "duration DESC" {
+		t.Error("varsayılan en yavaş olmalı")
+	}
+	if endpointSampleOrder(EndpointSampleRandom) != "cityHash64(trace_id)" {
+		t.Error("random hash sırası olmalı")
+	}
+}

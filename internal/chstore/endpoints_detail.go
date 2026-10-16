@@ -51,6 +51,10 @@ type EndpointDetailQuery struct {
 	// scope costs a conjunct, not a schema change.
 	Env     string
 	Cluster string
+	// Sample (v0.10.1228) — yalnız "Where the time goes" örneklemi:
+	// "" = en yavaş trace'ler (varsayılan, kuyruk), "random" = pencereden
+	// tarafsız örnek (cityHash64(trace_id) sırası) — tipik dağılım.
+	Sample string
 }
 
 // endpointRoutePred appends the route-scoping predicate for q.Path.

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import { Card, PanelTitle, SectionUnavailable } from '@/components/ui';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
+import { Card, PanelTitle, SectionUnavailable, SegmentedControl } from '@/components/ui';
 import { Spinner, Empty } from '@/components/Spinner';
 import {
   useDataTable, DataTableHead, DataTableColgroup, DataTableState, type DataTableStateProps,
@@ -480,12 +480,23 @@ export function SplitSection({ refObj, from, to, env, cluster }: {
 export function WhereTheTimeGoesSection({ refObj, from, to, env, cluster }: {
   refObj: EndpointRef; from: number; to: number; env?: string; cluster?: string;
 }) {
+  // v0.10.1228 — örneklem: en yavaş (kuyruk, varsayılan) | rastgele (tipik).
+  // URL'de (?wtg=random), paylaşılan link aynı örneği açar.
+  const [sp, setSp] = useSearchParams();
+  const random = sp.get('wtg') === 'random';
+  const setRandom = (v: boolean) => setSp(prev => {
+    const n = new URLSearchParams(prev);
+    if (v) n.set('wtg', 'random'); else n.delete('wtg');
+    return n;
+  }, { replace: true });
   const q = useEndpointDownstream({
     service: refObj.service, path: refObj.path, from, to,
     ...(refObj.sig ? { sig: '1' as const } : {}),
     ...(env ? { env } : {}),
     ...(cluster ? { cluster } : {}),
+    ...(random ? { sample: 'random' as const } : {}),
   });
+  const p99Label = random ? 'p99' : 'tail p99';
   const d = q.data;
   const rows = d?.downstream ?? [];
   const total = d?.totalMs ?? 0;
@@ -497,7 +508,14 @@ export function WhereTheTimeGoesSection({ refObj, from, to, env, cluster }: {
   return (
     <Card header={
       <PanelTitle
-        sub={d && d.sampledFrom > 0 ? `sample of the ${d.sampledFrom} slowest traces — tail p99s, not the route's window p99` : undefined}>
+        sub={d && d.sampledFrom > 0 ? (random
+          ? `random sample of ${d.sampledFrom} traces — typical split, comparable to the route's window p99`
+          : `sample of the ${d.sampledFrom} slowest traces — tail p99s, not the route's window p99`) : undefined}
+        right={
+          <SegmentedControl size="sm" value={random ? 'random' : 'slow'} onChange={v => setRandom(v === 'random')}
+            options={[{ value: 'slow', label: 'En yavaş' }, { value: 'random', label: 'Rastgele' }]}
+            aria-label="Örneklem türü" />
+        }>
         Where the time goes
       </PanelTitle>
     }>
@@ -540,7 +558,7 @@ export function WhereTheTimeGoesSection({ refObj, from, to, env, cluster }: {
               )}
               <span style={{ color: 'var(--text2)', fontVariantNumeric: 'tabular-nums' }}
                 title="avg / p99 over the sampled slowest traces (the tail), so they are higher than the route's window values above">
-                avg {e.avgMs.toFixed(0)}ms · tail p99 {e.p99Ms.toFixed(0)}ms
+                avg {e.avgMs.toFixed(0)}ms · {p99Label} {e.p99Ms.toFixed(0)}ms
               </span>
               <span style={{ color: 'var(--text)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}
                 title={overlap ? 'Parallel calls: their summed time exceeds the route span' : undefined}>
@@ -573,7 +591,7 @@ export function WhereTheTimeGoesSection({ refObj, from, to, env, cluster }: {
               <span className="mono" style={{ color: dbTone }}>{b.name}</span>
               <span style={{ flex: 1 }} />
               <span style={{ color: 'var(--text2)', fontVariantNumeric: 'tabular-nums' }}>
-                {b.calls} calls · avg {b.avgMs.toFixed(0)}ms · tail p99 {b.p99Ms.toFixed(0)}ms
+                {b.calls} calls · avg {b.avgMs.toFixed(0)}ms · {p99Label} {b.p99Ms.toFixed(0)}ms
               </span>
               <span style={{ color: 'var(--text)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
                 {total > 0 ? ((b.shareMs / total) * 100).toFixed(0) : 0}%

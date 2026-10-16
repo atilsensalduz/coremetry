@@ -20,8 +20,9 @@ import (
 // question with a structural sample.
 func TestDownstreamSamplesBySlowest(t *testing.T) {
 	src := mustReadSource(t, "endpoints_downstream.go")
-	if !strings.Contains(src, "ORDER BY duration DESC") {
-		t.Fatal("the trace sample must be ordered by DURATION — sampling by span count answers a structural question with a latency chart")
+	// v0.10.1228 — sıra endpointSampleOrder'dan; VARSAYILAN hâlâ süre (kuyruk).
+	if !strings.Contains(src, "ORDER BY `+endpointSampleOrder(q.Sample)+`") || endpointSampleOrder("") != "duration DESC" {
+		t.Fatal("the trace sample must be ordered by DURATION by default — sampling by span count answers a structural question with a latency chart")
 	}
 	if strings.Contains(src, "ORDER BY count() DESC") {
 		t.Fatal("neighbors.go's count-ordered sampling leaked in; it biases toward fat traces, not slow ones")

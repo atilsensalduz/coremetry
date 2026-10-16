@@ -3098,7 +3098,7 @@ export const api = {
   // v0.9.311 (brief N4) — "Where the time goes". SAMPLED over the
   // route's slowest traces; two raw-spans passes behind a 60s server
   // cache, so this is fetch-on-open and never polled.
-  endpointDownstream: (params: { service: string; path: string; from: number; to: number; sig?: '1'; env?: string; cluster?: string }, signal?: AbortSignal) =>
+  endpointDownstream: (params: { service: string; path: string; from: number; to: number; sig?: '1'; env?: string; cluster?: string; sample?: 'random' }, signal?: AbortSignal) =>
     get<EndpointDownstream>(`/api/endpoints/downstream?${qs(params)}`, signal),
   // v0.9.839 — "Who calls this endpoint" (operator ask). Same columns
   // as the /databases caller table. SAMPLED: no MV pairs route with

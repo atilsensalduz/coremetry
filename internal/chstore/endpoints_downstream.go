@@ -117,6 +117,19 @@ func (s *Store) EndpointWhereTheTimeGoes(
 	return s.walkEndpointEdges(ctx, q, ids, entryIDs, out)
 }
 
+// endpointSampleOrder — SAF: örneklem sırası. random → trace kimliğinin
+// hash'i (pencereden deterministik, tarafsız örnek; aynı pencere aynı sonuç
+// → önbellek tutarlı), aksi en yavaş önce.
+func endpointSampleOrder(sample string) string {
+	if sample == EndpointSampleRandom {
+		return "cityHash64(trace_id)"
+	}
+	return "duration DESC"
+}
+
+// EndpointSampleRandom — Sample değeri (v0.10.1228).
+const EndpointSampleRandom = "random"
+
 // sampleEndpointTraces picks the route's SLOWEST traces in the window.
 //
 // Ordering by duration rather than by span count (the neighbors.go
@@ -131,7 +144,7 @@ func (s *Store) sampleEndpointTraces(
 	rows, qerr := s.conn.Query(ctx, `
 		SELECT trace_id, span_id, duration / 1e6 AS dur_ms
 		FROM spans `+wc.sql()+`
-		ORDER BY duration DESC
+		ORDER BY `+endpointSampleOrder(q.Sample)+`
 		LIMIT ?
 		SETTINGS max_execution_time = 10,
 		         `+s.shardSkipSetting()+s.heavyScanSpill(),
