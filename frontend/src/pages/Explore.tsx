@@ -20,10 +20,10 @@ import { api } from '@/lib/api';
 import { heatmapBucketCount } from '@/lib/chartStep';
 import { timeRangeToNs, fmtNum, fmtClock } from '@/lib/utils';
 import { raceGuard } from '@/lib/raceGuard';
-import { encodeRange, decodeRange, encodeFilters, decodeFilters, buildQuery, rebuildPreserving } from '@/lib/urlState';
-import { storedRangeString, DEFAULT_RANGE_PRESET } from '@/lib/useUrlRange';
+import { encodeRange, encodeFilters, decodeFilters, buildQuery, rebuildPreserving } from '@/lib/urlState';
+import { useUrlRange, DEFAULT_RANGE_PRESET } from '@/lib/useUrlRange';
 import { pushZoom, popZoom } from '@/lib/chart/zoomHistory';
-import type { TimeRange, FilterExpr, LatencyHeatmap as Heatmap } from '@/lib/types';
+import type { FilterExpr, LatencyHeatmap as Heatmap } from '@/lib/types';
 import {
   REPEAT_PRESETS, STEP_OPTIONS,
   type ResultMode, type Source,
@@ -106,8 +106,11 @@ function ExploreInner({ onSelfWrite }: {
     if (r === 'traces' || r === 'repeats') return r;
     return 'metric';
   });
-  const [range, setRange] = useState<TimeRange>(
-    () => decodeRange(searchParams.get('range') ?? storedRangeString(), { preset: DEFAULT_RANGE_PRESET }));
+  // v0.10.1219 — aralık URL'den CANLI (useUrlRange). Yerel kopya iken
+  // yalnız-aralık değişimi (geri/ileri, link) remount etmiyor (imza range'i
+  // hashlemiyor) ve state→URL efekti eski aralığı geri yazıyordu; oturum
+  // aralığı da hiç kaydedilmiyordu.
+  const [range, setRange] = useUrlRange(DEFAULT_RANGE_PRESET);
 
   // Legacy viz passthrough for the metrics/logs source panels only — the
   // spans builder has its own ExploreViz inside BuilderState.
