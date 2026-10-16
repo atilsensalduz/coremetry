@@ -22,7 +22,7 @@ import { api } from '@/lib/api';
 import { fmtNum, fmtFixed, timeRangeToNs, rowClickHandlers, tsLong, fmtAgoNs } from '@/lib/utils';
 import { teamOptionsCI } from '@/lib/teamOptions';
 import { encodeRange, encodeFilters, buildQuery } from '@/lib/urlState';
-import { servicesFilterSearch } from '@/lib/servicesFilterParams';
+import { servicesFilterSearch, servicesFilterFromSearch } from '@/lib/servicesFilterParams';
 import { useUrlRange, DEFAULT_RANGE_PRESET } from '@/lib/useUrlRange';
 import { useUrlEnv } from '@/lib/useUrlEnv';
 import { useUrlPage } from '@/lib/useUrlPage';
@@ -150,10 +150,13 @@ export default function ServicesPage() {
   const [total, setTotal] = useState<number | null>(null);
 
   // Filters (in-memory — service list is small)
-  const [serviceFilter, setServiceFilter] = useState('');
-  const [errorsOnly, setErrorsOnly] = useState(false);
-  const [minSpans, setMinSpans] = useState('');
-  const [minP99, setMinP99] = useState('');
+  // v0.10.1216 — dört filtre mount'ta URL'den (yazıcının tersi); öncesi boş
+  // başlayıp yazıcı efektiyle paylaşılan linkin parametrelerini siliyordu.
+  const [initFilters] = useState(() => servicesFilterFromSearch(window.location.search));
+  const [serviceFilter, setServiceFilter] = useState(initFilters.committedFilter);
+  const [errorsOnly, setErrorsOnly] = useState(initFilters.errorsOnly);
+  const [minSpans, setMinSpans] = useState(initFilters.minSpans);
+  const [minP99, setMinP99] = useState(initFilters.minP99);
   // Server-side team filters — resolved through the catalog
   // and applied as a service_name IN (...) allowlist on the
   // backend so the filter is correct across pages, not just
@@ -199,7 +202,7 @@ export default function ServicesPage() {
   // re-fetch only kicks in once the operator commits via Enter or
   // the Search button — so clicking the dropdown doesn't fan a
   // ClickHouse query out per keystroke.
-  const [committedFilter, setCommittedFilter] = useState('');
+  const [committedFilter, setCommittedFilter] = useState(initFilters.committedFilter);
 
   // v0.9.1336 (denetim K5) — FİLTRELER URL'E YAZILIYOR.
   //

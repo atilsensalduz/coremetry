@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { servicesFilterParams, servicesFilterSearch,
+import { servicesFilterParams, servicesFilterSearch, servicesFilterFromSearch,
          type ServicesFilterState } from './servicesFilterParams';
 
 // v0.9.1336 regresyonu (denetim K5) — /services filtreleri URL'e yazılmıyordu.
@@ -67,5 +67,20 @@ describe('yabancı parametreler KORUNUYOR', () => {
     const f = { ...EMPTY, cluster: 'prod', ownerTeam: 'core-banking' };
     const once = servicesFilterSearch('page=3&ai=1', f);
     expect(servicesFilterSearch(once, f)).toBe(once);
+  });
+});
+
+// v0.10.1216 — operatör: paylaşılan /services linki filtreleri kaybediyordu.
+describe('servicesFilterFromSearch', () => {
+  it('yazıcıyla round-trip', () => {
+    const f = { committedFilter: 'pay', errorsOnly: true, minSpans: '100', minP99: '250',
+      ownerTeam: '', sreTeam: '', cluster: '', namespace: '' };
+    const qs = servicesFilterSearch('page=2', f);
+    expect(servicesFilterFromSearch(qs)).toEqual({ committedFilter: 'pay', errorsOnly: true, minSpans: '100', minP99: '250' });
+    // okunan state yazıcıya geri verilince URL değişmez (silme döngüsü yok)
+    expect(servicesFilterSearch(qs, { ...f, ...servicesFilterFromSearch(qs) })).toBe(qs);
+  });
+  it('bozuk/eksik → varsayılan', () => {
+    expect(servicesFilterFromSearch('err=yes&minSpans=abc&minP99=-5')).toEqual({ committedFilter: '', errorsOnly: false, minSpans: '', minP99: '' });
   });
 });

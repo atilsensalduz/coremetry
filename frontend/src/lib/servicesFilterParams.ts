@@ -58,3 +58,23 @@ export function servicesFilterSearch(
 ): string {
   return rebuildPreserving(prevSearch, servicesFilterParams(f));
 }
+
+/**
+ * servicesFilterFromSearch — v0.10.1216: yazıcının TERSİ (operatör: paylaşılan
+ * /services linki q/err/minSpans/minP99'u kaybediyordu). Dört filtre URL'e
+ * yazılıyor ama mount'ta okunmuyordu; boş başlangıç state'i yazıcı efektini
+ * tetikleyip parametreleri SİLİYORDU. Bilinmeyen/bozuk değer → varsayılan.
+ */
+export function servicesFilterFromSearch(search: string): Pick<ServicesFilterState, 'committedFilter' | 'errorsOnly' | 'minSpans' | 'minP99'> {
+  const p = new URLSearchParams(search);
+  const num = (k: string) => {
+    const v = (p.get(k) ?? '').trim();
+    return /^\d+(\.\d+)?$/.test(v) ? v : '';
+  };
+  return {
+    committedFilter: (p.get('q') ?? '').trim(),
+    errorsOnly: p.get('err') === '1',
+    minSpans: num('minSpans'),
+    minP99: num('minP99'),
+  };
+}
