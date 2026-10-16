@@ -1,3 +1,4 @@
+import { useUrlParams, strParam, csvParam, intParam } from '@/lib/urlParams';
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { TabStrip } from '@/components/ui/TabStrip'; // v0.10.456 (D5)
 import { rowActivation } from '@/lib/a11y'; // v0.10.451 (dış denetim D3 kalan)
@@ -121,6 +122,9 @@ function excEmptyMessage(tab: string): string {
   return `${head} — ${why}`;
 }
 
+
+// v0.10.1232 — exception listesinin URL sözleşmesi (useUrlParams).
+const EXC_URL_SPEC = { q: strParam(), exception: csvParam(), page: intParam(0) };
 export default function ProblemsPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin' || user?.role === 'editor';
@@ -211,18 +215,28 @@ export default function ProblemsPage() {
       if (v > 0) p.set('page', String(v)); else p.delete('page');
       return p;
     }, { replace: true });
-  const [search, setSearch] = useState('');
   // v0.8.318 — search commits debounced and runs SERVER-side (q=): the old
   // client filter only searched the loaded 50-row page, so matches on
   // other pages read as "no results".
-  const [committedSearch, setCommittedSearch] = useState('');
+  // v0.10.1232 (paylaşılabilir URL, Faz 1-B) — commit edilen arama ve açık
+  // satırlar URL'de (?q=, ?exception=a,b) ve oradan TÜRETİLİR: paylaşılan
+  // link / geri-ileri / kayıtlı görünüm aynı listeyi açar. Taslak yerel;
+  // kendi commit'imizin yankısı lastQRef ile ayırt edilir.
+  const [ux, setUx] = useUrlParams(EXC_URL_SPEC);
+  const committedSearch = ux.q;
+  const [search, setSearch] = useState(ux.q);
+  const lastQRef = useRef(ux.q);
+  useEffect(() => {
+    if (ux.q === lastQRef.current) return;
+    lastQRef.current = ux.q;
+    setSearch(ux.q);
+  }, [ux.q]);
   useEffect(() => {
     const t = window.setTimeout(() => {
-      setCommittedSearch(prev => {
-        const next = search.trim();
-        if (next !== prev) setPage(0);
-        return next;
-      });
+      const next = search.trim();
+      if (next === lastQRef.current) return;
+      lastQRef.current = next;
+      setUx({ q: next, page: 0 }); // tek yazım: arama değişince 1. sayfa
     }, 300);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -252,10 +266,7 @@ export default function ProblemsPage() {
   // Expanded fingerprint(s) — multiple groups can be open at once for compare-and-contrast.
   // Seed with any ?exception=<fingerprint> the URL carries so a
   // deep-link (e.g. from /inbox) lands with the right row open.
-  const [expanded, setExpanded] = useState<Set<string>>(() => {
-    const fp = searchParams.get('exception');
-    return new Set(fp ? [fp] : []);
-  });
+  const expanded = useMemo(() => new Set(ux.exception), [ux.exception]);
   // Selected group for the full in-page detail view (null = list).
   const [detail, setDetail] = useState<ExceptionGroup | null>(null);
   // v0.8.443 (operator-reported): a specific exception-group problem
@@ -451,12 +462,8 @@ export default function ProblemsPage() {
     } catch (err) { alert(humanize(err)); }
   };
   const toggleExpand = (fp: string) => {
-    setExpanded(prev => {
-      const next = new Set(prev);
-      if (next.has(fp)) next.delete(fp);
-      else next.add(fp);
-      return next;
-    });
+    const next = ux.exception.includes(fp) ? ux.exception.filter(x => x !== fp) : [...ux.exception, fp];
+    setUx({ exception: next });
   };
 
   // Full in-page exception-group detail (prototype design-parity). Clicking a
