@@ -161,7 +161,7 @@ func guidedSuggestions(route guidedRoute) []string {
 		return []string{"Açık problemler?", "En yavaş trace'ler?"}
 	case guidedLogErrors:
 		if svc != "" {
-			return []string{svc + " problemleri?", svc + " sağlığı nasıl?", svc + " en yavaş trace'ler?"}
+			return []string{svc + " teknik hataları?", svc + " sağlığı nasıl?", svc + " en yavaş trace'ler?"}
 		}
 		return []string{"Açık problemler?", "En yavaş trace'ler?"}
 	case guidedLogField: // v0.10.433 (D5)
@@ -200,7 +200,7 @@ func guidedSuggestions(route guidedRoute) []string {
 		return []string{"Açık problemler?", "En yavaş trace'ler?"}
 	case guidedOpenPage: // v0.10.434 (D7b)
 		if svc != "" {
-			return []string{svc + " sağlığı nasıl?", svc + " problemleri?", svc + " hata logları?"}
+			return []string{svc + " sağlığı nasıl?", svc + " teknik hataları?", svc + " hata logları?"}
 		}
 		return []string{"Açık problemler?", "En yavaş trace'ler?"}
 	case guidedPairRequests: // v0.10.436 (D2a)
@@ -270,7 +270,7 @@ func guidedSuggestions(route guidedRoute) []string {
 	case guidedTeamServices:
 		if len(route.TeamServices) > 0 {
 			worst := route.TeamServices[0]
-			out := []string{worst + " sağlığı nasıl?", worst + " problemleri?", worst + " en yavaş trace'ler?"}
+			out := []string{worst + " sağlığı nasıl?", worst + " teknik hataları?", worst + " en yavaş trace'ler?"}
 			if len(route.TeamServices) > 1 {
 				out = append(out, route.TeamServices[1]+" sağlığı nasıl?")
 			}
@@ -281,6 +281,11 @@ func guidedSuggestions(route guidedRoute) []string {
 	// açık PROBLEM'leri (farklı yüzey, aynı kapsam) ve servis sağlığı.
 	case guidedMyExceptions:
 		return []string{"Takımımın servisleri nasıl?", "En yavaş trace'ler?"}
+	case guidedServiceExceptions:
+		if svc != "" {
+			return []string{svc + " sağlığı nasıl?", svc + " hata logları?", svc + " en yavaş trace'ler?"}
+		}
+		return nil
 	case guidedPodHealth:
 		if svc != "" {
 			return []string{svc + " sağlığı nasıl?", svc + " hata logları?", svc + " son deploy etkisi?"}
@@ -576,6 +581,11 @@ func guidedAnswerLinkTargets(route guidedRoute) []guidedAnswerLink {
 			links = append(links, l)
 		}
 		return links
+	case guidedServiceExceptions:
+		if svc != "" {
+			return []guidedAnswerLink{{Label: svc + " · Exceptions", Href: "/problems?service=" + svcQ}}
+		}
+		return nil
 	case guidedMyExceptions:
 		// Exceptions sekmesi Inbox'ta tür süzgeciyle açılıyor.
 		//
@@ -766,6 +776,8 @@ func askServiceChip(intent guidedIntent, svc string) string {
 		return svc + " kafka gecikmesi nasıl?"
 	case guidedProblems:
 		return svc + " problemleri?"
+	case guidedServiceExceptions: // v0.10.1252
+		return svc + " teknik hataları?"
 	}
 	return svc + " sağlığı nasıl?"
 }

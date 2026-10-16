@@ -106,6 +106,8 @@ const (
 	// span'lerden gruplanan ham hata. my_problems ikincisini
 	// kapsamıyordu.
 	guidedMyExceptions guidedIntent = "my_exceptions"
+	// v0.10.1252 — tek servisin teknik hataları (exception grupları).
+	guidedServiceExceptions guidedIntent = "service_exceptions"
 	// v0.9.376 (operatör istegi, SRE perspektifi) — pod/JVM sağlığı:
 	// servisliyse instance listesi + JVM heap; servissizse filo-geneli
 	// heap doluluk sıralaması. Veri CH'den (OTel runtime metrikleri) —
@@ -1324,6 +1326,10 @@ func routeGuidedIntentOpts(raw string, services, envs, teams []string, ctxServic
 	// kurabilirim" sayfa servisinin sağlık cevabına düşüyordu (genel "nasıl"
 	// + ekran servisi). Servis yalnız ekrandan geliyorsa ve soru nasıl-yapılır
 	// şeklindeyse genel sağlık jetonu yetmez — soru ajana/wiki'ye gider.
+	// v0.10.1252 (operatör: "problem yerine exceptions / teknik hatalar") —
+	// servisli exception sorusu sağlığa değil exception gruplarına.
+	case svc != "" && hasServiceExceptionSignal(toks):
+		return guidedRoute{Intent: guidedServiceExceptions, Service: svc, Env: env}
 	case svc != "" && (hasHealthDomainSignal(toks) || hasErrorSignal(toks) ||
 		(hasHealthSignal(toks) && !(svcFromCtx && hasHowToShape(toks)))):
 		return guidedRoute{Intent: guidedServiceHealth, Service: svc, Env: env}
@@ -1881,6 +1887,8 @@ func (s *Server) runGuidedRoute(ctx context.Context, emit func(string, any), rou
 		evidence, sources, err = s.guidedMyTeamBundle(ctx, emit, "problems", &route, from, to, rangeS)
 	case guidedMyExceptions:
 		evidence, sources, err = s.guidedMyTeamBundle(ctx, emit, "exceptions", &route, from, to, rangeS)
+	case guidedServiceExceptions:
+		evidence, sources, err = s.guidedServiceExceptionsBundle(ctx, emit, route.Service, from, to)
 	case guidedTeamServices:
 		evidence, sources, err = s.guidedTeamServicesBundle(ctx, emit, &route, from, to, rangeS)
 	case guidedPodHealth:

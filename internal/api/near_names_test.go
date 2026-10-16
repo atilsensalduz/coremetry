@@ -86,7 +86,7 @@ func TestRouteGuidedIntentAsksOnAmbiguousService(t *testing.T) {
 // (çıplak ad kapıdan geçmez — çipe tıklamak serbest döngüye düşmez).
 func TestAskServiceChipsRoundTrip(t *testing.T) {
 	services := []string{"checkout-service", "payment-service"}
-	for _, intent := range []guidedIntent{guidedServiceHealth, guidedRootCause, guidedSlowTraces, guidedDeployImpact, guidedLogErrors, guidedPodHealth, guidedDBHealth, guidedMessagingHealth, guidedProblems} {
+	for _, intent := range []guidedIntent{guidedServiceHealth, guidedRootCause, guidedSlowTraces, guidedDeployImpact, guidedLogErrors, guidedPodHealth, guidedDBHealth, guidedMessagingHealth, guidedProblems, guidedServiceExceptions} {
 		chip := askServiceChip(intent, "checkout-service")
 		r := routeGuidedIntent(chip, services, nil, nil, "")
 		if r.Intent != intent || r.Service != "checkout-service" {

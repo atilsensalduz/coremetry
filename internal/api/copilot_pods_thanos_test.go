@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/thanos"
 )
 
@@ -70,5 +71,22 @@ func TestSharedSegmentTokenIsFamily(t *testing.T) {
 	}
 	if serviceSegmentHits("bff", svcs) != 2 || serviceSegmentHits("crm", svcs) != 1 {
 		t.Error("segment sayımı")
+	}
+}
+
+// v0.10.1252 — servisli exception / teknik hata sorusu exception gruplarına gider.
+func TestServiceExceptionsRoute(t *testing.T) {
+	svcs := []string{"bsa-mobile-login-prod"}
+	for _, q := range []string{"bsa-mobile-login-prod teknik hataları?", "bsa-mobile-login-prod exception'ları?", "bsa-mobile-login-prod istisnaları"} {
+		if r := routeGuidedIntent(q, svcs, nil, nil, ""); r.Intent != guidedServiceExceptions || r.Service != "bsa-mobile-login-prod" {
+			t.Errorf("%q → %+v", q, r)
+		}
+	}
+	if r := routeGuidedIntent("bsa-mobile-login-prod hata logları?", svcs, nil, nil, ""); r.Intent == guidedServiceExceptions {
+		t.Error("log hatası sorusu exception'a kaymamalı")
+	}
+	out := renderServiceExceptionsTR("s", []chstore.ExceptionRow{{Type: "java.net.SocketTimeoutException", Count: 7, Message: "Read timed out"}}, 3600)
+	if !strings.Contains(out, "1 grup, toplam 7 kez") || !strings.Contains(out, "SocketTimeoutException · 7 kez · Read timed out") {
+		t.Fatal(out)
 	}
 }
