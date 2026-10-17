@@ -230,6 +230,66 @@ func TestOpenAIStreamAccumThinkOnlySalvage(t *testing.T) {
 	}
 }
 
+// v0.10.1304 — Explain akışı Gemma düşünce bloğunu hiç göstermez. Eski
+// kapı yalnız BAŞTAKİ <think>'i tanıyordu: Gemma kanal bloğu (etiketi
+// parça sınırında bölünmüş hâliyle) canlıda ham akıyordu.
+func TestOpenAIStreamAccumGemmaChannelGate(t *testing.T) {
+	a := &openAIStreamAccum{}
+	deltas := feedAll(a, []string{
+		`data: {"choices":[{"delta":{"content":"<|chan"}}]}`,
+		`data: {"choices":[{"delta":{"content":"nel>thought plan<chan"}}]}`,
+		`data: {"choices":[{"delta":{"content":"nel|>Cevap."}}]}`,
+		`data: [DONE]`,
+	})
+	if tail := a.flushGate(); tail != "" {
+		deltas = append(deltas, tail)
+	}
+	if got := strings.Join(deltas, "|"); got != "Cevap." {
+		t.Fatalf("deltas = %q; yalnız \"Cevap.\" akmalıydı (düşünce de etiket de değil)", got)
+	}
+	final, trailing, err := a.finishOpenAI()
+	if err != nil || final != "Cevap." || trailing != "" {
+		t.Fatalf("finish = (%q,%q,%v); want (\"Cevap.\",\"\",nil)", final, trailing, err)
+	}
+}
+
+// v0.10.1304 — ortadaki <think> da gizli: eski kapı ilk görünür metinden
+// sonra kapıyı açık bırakıyordu, sonraki blok ham akıyordu.
+func TestOpenAIStreamAccumMidStreamThinkGate(t *testing.T) {
+	a := &openAIStreamAccum{}
+	deltas := feedAll(a, []string{
+		`data: {"choices":[{"delta":{"content":"Özet: "}}]}`,
+		`data: {"choices":[{"delta":{"content":"<think>gizli not"}}]}`,
+		`data: {"choices":[{"delta":{"content":"</think>yavaş."}}]}`,
+		`data: [DONE]`,
+	})
+	if got := strings.Join(deltas, ""); strings.Contains(got, "gizli") || !strings.HasSuffix(got, "yavaş.") {
+		t.Fatalf("deltas = %q; düşünce akmamalı, cevap akmalı", deltas)
+	}
+}
+
+// v0.10.1304 — etiket öneki olabilecek kuyruk ("<") tutulur; akış o
+// kuyrukla biterse finish'ten ÖNCE boşalır, kaybolmaz.
+func TestOpenAIStreamAccumHeldTailFlushes(t *testing.T) {
+	rt := &streamRT{body: sse(
+		`{"choices":[{"delta":{"content":"p95 <"},"finish_reason":"stop"}]}`,
+		`[DONE]`,
+	)}
+	cfg := Config{BaseURL: "http://llm.invalid/v1", HTTPClient: newStreamClient(rt)}
+	var deltas []string
+	resp, err := StreamOpenAI(context.Background(), cfg, Request{System: "s", User: "u"},
+		func(d string) { deltas = append(deltas, d) })
+	if err != nil {
+		t.Fatalf("StreamOpenAI: %v", err)
+	}
+	if got := strings.Join(deltas, "|"); got != "p95 |<" {
+		t.Fatalf("deltas = %q; tutulan \"<\" akış sonunda ayrı parça olarak gelmeli", got)
+	}
+	if resp.Text != "p95 <" {
+		t.Fatalf("Text = %q", resp.Text)
+	}
+}
+
 func TestOpenAIStreamAccumLengthBudgetError(t *testing.T) {
 	a := &openAIStreamAccum{}
 	feedAll(a, []string{
@@ -277,6 +337,28 @@ func TestAnthropicStreamAccum(t *testing.T) {
 	final, trailing, err := a.finishAnthropic()
 	if err != nil || final != "Sorun redis." || trailing != "" {
 		t.Fatalf("finish = (%q,%q,%v); want (\"Sorun redis.\",\"\",nil)", final, trailing, err)
+	}
+}
+
+// TestAnthropicStreamAccumGemmaGate — v0.10.1304: anthropic biriktiricisinin
+// kapısı yoktu; text_delta'ya gömülü düşünce (Gemma'yı Messages şekliyle
+// sunan vekil) ham akıyordu.
+func TestAnthropicStreamAccumGemmaGate(t *testing.T) {
+	a := &anthropicStreamAccum{}
+	var deltas []string
+	for _, txt := range []string{"<|chan", "nel>thought plan<chan", "nel|>Sorun ", "redis."} {
+		if d := a.feed(`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"` + txt + `"}}`); d != "" {
+			deltas = append(deltas, d)
+		}
+	}
+	if tail := a.flushGate(); tail != "" {
+		deltas = append(deltas, tail)
+	}
+	if got := strings.Join(deltas, "|"); got != "Sorun |redis." {
+		t.Fatalf("deltas = %q; yalnız cevap akmalı", got)
+	}
+	if !a.emitted {
+		t.Fatal("emitted=false — finish cevabı ikinci kez trailing olarak yollardı")
 	}
 }
 

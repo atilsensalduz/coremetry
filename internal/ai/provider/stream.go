@@ -146,13 +146,11 @@ const (
 
 // openAIStreamAccum bir OpenAI-compat SSE akışını biriktirir. feed()
 // ham satırları tüketir ve YAYINLANACAK içerik parçasını döndürür
-// ("" = yayınlanacak bir şey yok: çerçeve, reasoning, tutulan think).
+// ("" = yayınlanacak bir şey yok: çerçeve, reasoning, tutulan düşünce).
 type openAIStreamAccum struct {
 	content   strings.Builder // TÜM ham content parçaları, son kurtarma için
 	reasoning strings.Builder // delta.reasoning_content / delta.reasoning — biriktirilir, ASLA yayınlanmaz
-	gateBuf   strings.Builder // satır-içi <think> öneki belirsizken tutulan içerik
-	gateOpen  bool            // içerik canlı yayına açıldı
-	inThink   bool            // satır-içi <think>…</think> bloğu tutuluyor
+	gate      liveThinkGate   // v0.10.1304 — <think> + Gemma kanal bloğu, akışın HER yerinde (live_think_gate.go)
 	emitted   bool            // en az bir parça dışarı verildi
 	sawData   bool            // en az bir çözümlenebilir data olayı (ilk-bayt hatası dedektörü)
 	done      bool            // [DONE] görüldü
@@ -220,47 +218,25 @@ func (a *openAIStreamAccum) feed(line string) string {
 		return ""
 	}
 	a.content.WriteString(c.Delta.Content)
-	return a.gate(c.Delta.Content)
+	// v0.10.1304 — eski kapı yalnız BAŞTAKİ <think>'i tanıyordu; Gemma
+	// <|channel>thought bloğu ve ortadaki <think> ham akıyordu. Ham içerik
+	// a.content'te durduğu için son kurtarma her hâlükârda onu görür.
+	d := a.gate.Feed(c.Delta.Content)
+	if d != "" {
+		a.emitted = true
+	}
+	return d
 }
 
-// gate, BAŞTAKİ satır-içi <think>…</think> bloğunu canlı akıştan
-// gizler (--reasoning-parser'sız bir vLLM düşünceyi content'e gömer).
-// İçerik önek belirsizliği çözülene dek tutulur: think değilse boşalt
-// ve sonrasını yayınla; think ise kapanış etiketine dek sessizce tut,
-// sonra kuyruğu yayınla. Tutulan/ham içerik a.content'te durduğu için
-// son kurtarma her hâlükârda onu görür.
-func (a *openAIStreamAccum) gate(d string) string {
-	if a.gateOpen {
+// flushGate akış sonunda kapının tuttuğu etiket-öneki kuyruğunu döndürür
+// (finishOpenAI'den ÖNCE çağrılır — yoksa "p95 <" cevabının "<"'i
+// canlıda kaybolur ve trailing kararı yanlış emitted'e bakar).
+func (a *openAIStreamAccum) flushGate() string {
+	tail := a.gate.Flush()
+	if tail != "" {
 		a.emitted = true
-		return d
 	}
-	a.gateBuf.WriteString(d)
-	buf := a.gateBuf.String()
-	if !a.inThink {
-		trimmed := strings.TrimLeft(buf, " \t\r\n")
-		switch {
-		case trimmed == "":
-			return "" // şimdilik yalnız boşluk — tutmaya devam
-		case len(trimmed) < len(thinkOpen) && strings.HasPrefix(thinkOpen, trimmed):
-			return "" // hâlâ "<think>" olabilir — tutmaya devam
-		case !strings.HasPrefix(trimmed, thinkOpen):
-			a.gateOpen = true
-			a.gateBuf.Reset()
-			a.emitted = true
-			return buf // think bloğu değil — tutulanı boşalt
-		}
-		a.inThink = true
-	}
-	if i := strings.Index(buf, thinkClose); i >= 0 {
-		a.gateOpen, a.inThink = true, false
-		a.gateBuf.Reset()
-		after := buf[i+len(thinkClose):]
-		if after != "" {
-			a.emitted = true
-		}
-		return after
-	}
-	return "" // hâlâ think bloğunun içinde
+	return tail
 }
 
 // finishOpenAI son cevabı v0.8.384 kurtarma zinciriyle çözer ve
@@ -297,6 +273,7 @@ func (a *openAIStreamAccum) finishOpenAI() (final, trailing string, err error) {
 type anthropicStreamAccum struct {
 	content   strings.Builder
 	reasoning strings.Builder // thinking_delta — biriktirilir, ASLA yayınlanmaz
+	gate      liveThinkGate   // v0.10.1304 — text_delta'ya gömülü düşünce (Gemma vekilleri)
 	emitted   bool
 	sawData   bool
 	errMsg    string // error olayının yükü
@@ -347,8 +324,12 @@ func (a *anthropicStreamAccum) feed(line string) string {
 		case "text_delta":
 			if ev.Delta.Text != "" {
 				a.content.WriteString(ev.Delta.Text)
-				a.emitted = true
-				return ev.Delta.Text
+				// v0.10.1304 — eskiden kapısızdı: gömülü düşünce ham akıyordu.
+				d := a.gate.Feed(ev.Delta.Text)
+				if d != "" {
+					a.emitted = true
+				}
+				return d
 			}
 		case "thinking_delta":
 			a.reasoning.WriteString(ev.Delta.Thinking)
@@ -366,6 +347,15 @@ func (a *anthropicStreamAccum) feed(line string) string {
 		}
 	}
 	return ""
+}
+
+// flushGate — openAIStreamAccum.flushGate ile aynı sözleşme.
+func (a *anthropicStreamAccum) flushGate() string {
+	tail := a.gate.Flush()
+	if tail != "" {
+		a.emitted = true
+	}
+	return tail
 }
 
 func (a *anthropicStreamAccum) finishAnthropic() (final, trailing string, err error) {
@@ -504,6 +494,10 @@ func StreamOpenAI(ctx context.Context, cfg Config, req Request, onDelta func(str
 		// ulaştı); hatayı yüzeye çıkar.
 		return usage, fmt.Errorf("openai-compat stream read: %w", scanErr)
 	}
+	// v0.10.1304 — tutulan etiket-öneki kuyruğu finish'ten ÖNCE boşalır.
+	if tail := acc.flushGate(); tail != "" && onDelta != nil {
+		onDelta(tail)
+	}
 	final, trailing, ferr := acc.finishOpenAI()
 	if ferr != nil {
 		return usage, ferr
@@ -605,6 +599,9 @@ func StreamAnthropic(ctx context.Context, cfg Config, req Request, onDelta func(
 	usage := Response{InputTokens: acc.inTokens, OutputTokens: acc.outTokens, CachedTokens: acc.cached}
 	if scanErr != nil {
 		return usage, fmt.Errorf("anthropic stream read: %w", scanErr)
+	}
+	if tail := acc.flushGate(); tail != "" && onDelta != nil { // v0.10.1304
+		onDelta(tail)
 	}
 	final, trailing, ferr := acc.finishAnthropic()
 	if ferr != nil {

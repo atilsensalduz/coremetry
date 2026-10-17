@@ -52,8 +52,9 @@ import (
 // keeps its existing "answer is the source of truth" contract; the
 // deltas are a pure progressive-rendering bonus. onDelta may be nil.
 // Reasoning output (delta.reasoning_content / delta.reasoning /
-// inline <think> blocks / Anthropic thinking_delta) is buffered
-// silently and never streamed; if the model emits ONLY reasoning, the
+// inline <think> or Gemma channel-thought blocks ANYWHERE in content —
+// v0.10.1304, provider/live_think_gate.go — / Anthropic thinking_delta)
+// is buffered silently and never streamed; if the model emits ONLY reasoning, the
 // salvaged answer (v0.8.384 chain) is emitted as one final delta.
 func (s *Service) StreamText(ctx context.Context, systemPrompt, userPrompt string, onDelta func(string)) (string, error) {
 	if !s.activeFor(ctx, true) { // v0.10.175 — çözülen profilin kimliği (#1)

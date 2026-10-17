@@ -1,6 +1,8 @@
 package provider
 
 import (
+	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -125,6 +127,34 @@ func TestGemmaThoughtNeverReachesFinalAnswer(t *testing.T) {
 			}
 			if r.visible() != want {
 				t.Fatalf("parça=%d: görünen %q, beklenen %q", n, r.visible(), want)
+			}
+		}
+	})
+	// v0.10.1304 — explain/guided/drawer/intent'in AKAN yolu (StreamOpenAI →
+	// copilot.StreamText). Eski kapı yalnız baştaki <think>'i tanıdığı için
+	// Gemma bloğu canlıda ham akıyordu; nihai metin doğruydu, delta'lar değil.
+	t.Run("explain akışı (StreamOpenAI): delta'lar düşünce taşımaz", func(t *testing.T) {
+		for n := 1; n <= len([]rune(content)); n++ {
+			var payloads []string
+			for _, c := range splitRunes(content, n) {
+				raw, _ := json.Marshal(c)
+				payloads = append(payloads, `{"choices":[{"delta":{"content":`+string(raw)+`}}]}`)
+			}
+			payloads = append(payloads, `{"choices":[{"delta":{},"finish_reason":"stop"}]}`, `[DONE]`)
+			rt := &streamRT{body: sse(payloads...)}
+			cfg := Config{BaseURL: "http://llm.invalid/v1", HTTPClient: newStreamClient(rt)}
+			var deltas []string
+			resp, err := StreamOpenAI(context.Background(), cfg, Request{System: "s", User: "u"},
+				func(d string) { deltas = append(deltas, d) })
+			if err != nil {
+				t.Fatalf("parça=%d: %v", n, err)
+			}
+			joined := strings.Join(deltas, "")
+			if strings.Contains(joined, "thought") || strings.Contains(joined, "bakmalıyım") {
+				t.Fatalf("parça=%d: düşünce akışta yayınlandı: %q", n, deltas)
+			}
+			if joined != want || resp.Text != want {
+				t.Fatalf("parça=%d: delta'lar %q, Text %q; beklenen %q", n, joined, resp.Text, want)
 			}
 		}
 	})

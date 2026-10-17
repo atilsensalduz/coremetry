@@ -114,9 +114,10 @@ func TestSalvageChainHasExactlyOneImplementation(t *testing.T) {
 //   - Gemma açılış etiketi literal'i yalnız o tabloda (toolcall_text.go'nun
 //     ayrı regex'i v0.10.1285'te kalktı).
 //
-// stream.go'nun artımlı SSE kapısı (strings.Index + thinkClose) KASITLI
-// olarak ayrı bir mekanizma (yalnız baştaki <think>, geri alma yok) ve
-// bu kapıya takılmaz; nihai metni yine SalvageAnswer → StripThinking.
+// v0.10.1304 — stream.go'nun eski ayrı kapısı (yalnız baştaki <think>)
+// kalktı; tek-atış akış da artık aynı makineyi kullanır
+// (live_think_gate.go → thinkStripper). Nihai metin yine SalvageAnswer →
+// StripThinking.
 func TestThinkStripIdiomLivesInOneFile(t *testing.T) {
 	files := scanNonTestGoFiles(t)
 	const thinkStream = "internal/ai/provider/think_stream.go"

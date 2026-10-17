@@ -105,6 +105,46 @@ func TestStreamTextOpenAISSE(t *testing.T) {
 	}
 }
 
+// TestStreamTextGemmaThoughtNeverStreams — v0.10.1304: Explain akışı
+// Gemma düşünce bloğunu hiç göstermez. Eski sağlayıcı kapısı yalnız
+// BAŞTAKİ <think>'i tanıyordu; etiketi parça sınırında bölünmüş Gemma
+// kanal bloğu (ve ortadaki <think>) explain/guided/drawer/intent
+// panellerine ham akıyordu.
+func TestStreamTextGemmaThoughtNeverStreams(t *testing.T) {
+	chunks := []string{
+		"<|chan", "nel>thought checkout p95'e ", "bakmalıyım<chan", `nel|>\n\nÖzet: `, // JSON kaçışlı satır sonu
+		"<think>gizli not</think>", "checkout p95 1.8s.",
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, c := range chunks {
+			fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"%s\"}}]}\n\n", c)
+		}
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer srv.Close()
+	s := New("openai", "", "gemma-4")
+	s.Configure("openai", "", "gemma-4", srv.URL, false, true)
+
+	var deltas []string
+	out, err := s.StreamText(context.Background(), "sys", "user", func(d string) { deltas = append(deltas, d) })
+	if err != nil {
+		t.Fatalf("StreamText: %v", err)
+	}
+	joined := strings.Join(deltas, "")
+	for _, leak := range []string{"thought", "bakmalıyım", "gizli", "<|chan", "<chan"} {
+		if strings.Contains(joined, leak) {
+			t.Fatalf("delta'larda %q: %q", leak, deltas)
+		}
+	}
+	if !strings.HasSuffix(joined, "checkout p95 1.8s.") {
+		t.Fatalf("deltas = %q; cevap canlı akmalıydı", deltas)
+	}
+	if out != "checkout p95 1.8s." {
+		t.Fatalf("out = %q; nihai cevap buffered kuralıyla soyulmuş olmalı", out)
+	}
+}
+
 func TestStreamTextOpenAIFallbackOn400CachesVerdict(t *testing.T) {
 	// A vLLM-build-style endpoint: 400 on stream:true, fine buffered.
 	var reqBodies [][]byte
