@@ -40,6 +40,30 @@
 // kıstırılır (o durumda aynı sütun kenarı oluşabilir).
 //
 // (Dosya/işlev adı "bfs" tarihsel: perf belgeleri bu yolu anıyor.)
+//
+// v0.10.1269 — operatör 2026-10-17: çok sütun atlayan kenarlar düğümlerin
+// arkasından geçiyordu. Sugiyama'nın standart çaresi: k>1 sütun atlayan her
+// İLERİ kenar için ara sütunlara k−1 SANAL (dummy) nokta konur; sanal
+// noktalar şerit hücresinde gerçek düğümlerle birlikte barycenter
+// sıralamasına girer ve kendi satır yuvasını alır → aynı sütundaki gerçek
+// düğümle asla çakışmaz (hücre içi aralık = satır aralığı). Çıktı
+// `routes` ("caller|callee" → ara noktalar); bileşen kenarı bu noktalardan
+// geçen yatay-tanjantlı kübik zincir olarak çizer (lib/topoArrow edgePathD).
+//  • ŞERİT: sanal nokta KAYNAĞIN şeridinde yaşar. Şeritler yatay, sütunlar
+//    dikey; şerit değiştirme yalnız iki sütun ARASINDA olur (orada düğüm
+//    yok). Kaynak şeridinde kalan zincir tek bir dikey geçişle (son
+//    segment, hedef sütununa girerken) hedef şeridine iner — yol en kısa
+//    sınıfta (tek şerit geçişi), şeritler çakışmaz, çağrı çağıranın
+//    namespace'inde okunur. Hedef şeridi de tek geçiş verirdi ama
+//    şeritler arası kenarların çoğu grupsuz bağımlılıklara iner
+//    (v0.10.1268 kuralı) → tüm sanal satırlar grupsuz şeridi şişirirdi.
+//    Grupsuz şerit hiç seçilmez: alttadır, iki uzun dikey geçiş üretir.
+//  • Geri kenarlar (döngü) rota almaz — eski tek eğri, noktalı desen.
+//  • TAVAN: toplam sanal nokta ≤ maxDummies (varsayılan min(3000,
+//    max(200, 4×N))). Aşılırsa kenarlar açıklık ↑ sırasıyla elenir: en
+//    KISA olanlar önce rota alır (aynı bütçeyle en çok kenar düzelir),
+//    en uzunlar eski tek eğriye düşer. Sıra (açıklık, caller, callee)
+//    adı → deterministik.
 
 export interface LayoutNode { service: string; spanCount: number }
 export interface LayoutEdge { caller: string; callee: string }
@@ -48,7 +72,8 @@ export interface LayoutBand {
   key: string | null;
   y0: number;
   y1: number;
-  /** şeridin en kalabalık sütunundaki düğüm sayısı */
+  /** şeridin en kalabalık sütunundaki satır sayısı (v0.10.1269: sanal
+   *  noktalar — uzun kenarların ara yuvaları — dahil) */
   rows: number;
   /** şeritteki TÜM düğümler (bağımlılıklar dahil); başlık servis sayısı
    *  için lib/topoBands bandServiceCounts kullanılır. */
@@ -64,6 +89,10 @@ export interface LayoutResult {
   bands: LayoutBand[];
   /** döngü kırmak için ters sayılan kenarlar, "caller|callee" */
   backEdges: Set<string>;
+  /** v0.10.1269 — >1 sütun atlayan ileri kenarın ara noktaları (her ara
+   *  sütunda bir tane, soldan sağa), "caller|callee". Kısa kenar, geri
+   *  kenar ve tavan dışı kalan kenar burada YOK (tek eğri). */
+  routes: Map<string, { x: number; y: number }[]>;
 }
 export interface LayoutOptions {
   bandOf?: (service: string) => string | undefined;
@@ -71,6 +100,8 @@ export interface LayoutOptions {
   /** v0.10.1265 — odak düğümü: şeridi EN ÜSTTE (grupsuzsa grupsuz şerit
    *  öne alınır), kendi sütun hücresinde İLK satırda. */
   pin?: string;
+  /** v0.10.1269 — toplam sanal nokta tavanı (varsayılan dummyCap(N)). */
+  maxDummies?: number;
 }
 
 export const MAX_LAYERS = 40;
@@ -81,6 +112,10 @@ export const BAND_GAP = 14;
 const PAD_X = 110;
 const COL_MIN_W = 180;
 const STRETCH_MAX = 1.6;           // boş alan varsa satır aralığı en çok ×1.6 açılır
+
+/** v0.10.1269 — varsayılan sanal nokta tavanı: min(3000, max(200, 4×N)). */
+export const DUMMY_CAP_ABS = 3000;
+export const dummyCap = (n: number) => Math.min(DUMMY_CAP_ABS, Math.max(200, 4 * n));
 
 const cmpStr = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
@@ -170,6 +205,51 @@ export function bfsBarycenterLayout(
   let L = 1;
   for (let i = 0; i < N; i++) if (layer[i] + 1 > L) L = layer[i] + 1;
 
+  // ── 2b. sanal noktalar (v0.10.1269) ─────────────────────────────────
+  // Aday: açıklığı >1 olan ileri kenar. Açıklık ↑, sonra (u, v) indeksi
+  // (ad sırası) — tavan dolunca kalan (daha uzun) kenarlar rota almaz.
+  const cand: number[] = []; // [u, v, span] üçlüleri düz dizi
+  for (let u = 0; u < N; u++) for (const v of fOut[u]) {
+    const sp = layer[v] - layer[u];
+    if (sp > 1) cand.push(u, v, sp);
+  }
+  const ci = Array.from({ length: cand.length / 3 }, (_, k) => k);
+  ci.sort((p, q) => (cand[p * 3 + 2] - cand[q * 3 + 2]) || (cand[p * 3] - cand[q * 3]) || (cand[p * 3 + 1] - cand[q * 3 + 1]));
+  const cap = Math.max(0, opts.maxDummies ?? dummyCap(N));
+  const routed: number[] = []; // aday indeksleri, dummy sırası
+  let D = 0;
+  for (const k of ci) {
+    const need = cand[k * 3 + 2] - 1;
+    if (D + need > cap) break; // sıralı: sonrakiler de sığmaz
+    routed.push(k); D += need;
+  }
+  routed.sort((p, q) => p - q); // (u, v) sırası → dummy indeksleri deterministik
+  const V = N + D;
+  // süpürme komşuluğu: gerçek düğümler fIn/fOut kopyası, rotalı kenarda
+  // uç komşu yerine zincirin ilk/son sanal noktası.
+  const sOut: number[][] = new Array(V);
+  const sIn: number[][] = new Array(V);
+  for (let i = 0; i < N; i++) { sOut[i] = fOut[i].slice(); sIn[i] = fIn[i].slice(); }
+  const vLayer = new Int32Array(V);
+  vLayer.set(layer);
+  const ownerOf = new Int32Array(V); // sanal nokta → kaynak düğüm (şerit)
+  const chains: { u: number; v: number; first: number }[] = [];
+  let next = N;
+  for (const k of routed) {
+    const u = cand[k * 3], v = cand[k * 3 + 1], sp = cand[k * 3 + 2];
+    const first = next;
+    for (let s = 1; s < sp; s++) {
+      const d = next++;
+      vLayer[d] = layer[u] + s;
+      ownerOf[d] = u;
+      sIn[d] = [s === 1 ? u : d - 1];
+      sOut[d] = [s === sp - 1 ? v : d + 1];
+    }
+    sOut[u][sOut[u].indexOf(v)] = first;
+    sIn[v][sIn[v].indexOf(u)] = next - 1;
+    chains.push({ u, v, first });
+  }
+
   // ── 3. şeritler ──────────────────────────────────────────────────────
   const keyOf: (string | null)[] = names.map(s => opts.bandOf?.(s) ?? null);
   const named = new Map<string, number>(); // ad → üye sayısı
@@ -213,13 +293,17 @@ export function bfsBarycenterLayout(
   const B = order.length;
   const bandIdx = new Map<string | null, number>();
   order.forEach((k, i) => bandIdx.set(k, i));
-  const bandOfNode = Int32Array.from(keyOf, k => bandIdx.get(k)!);
+  const bandOfNode = new Int32Array(V);
+  for (let i = 0; i < N; i++) bandOfNode[i] = bandIdx.get(keyOf[i])!;
+  for (let d = N; d < V; d++) bandOfNode[d] = bandOfNode[ownerOf[d]]; // kaynağın şeridi
 
-  // hücreler: cells[b][c] — başlangıç sırası ad (indeks artan)
+  // hücreler: cells[b][c] — başlangıç sırası ad (indeks artan), sanal
+  // noktalar gerçeklerden sonra. Satır sayısı sanal satırları da sayar.
   const cells: number[][][] = Array.from({ length: B }, () => Array.from({ length: L }, () => []));
-  for (let i = 0; i < N; i++) cells[bandOfNode[i]][layer[i]].push(i);
+  for (let i = 0; i < V; i++) cells[bandOfNode[i]][vLayer[i]].push(i);
   const rows = cells.map(bc => Math.max(1, ...bc.map(c => c.length)));
-  const members = cells.map(bc => bc.reduce((s, c) => s + c.length, 0));
+  const members = new Array<number>(B).fill(0);
+  for (let i = 0; i < N; i++) members[bandOfNode[i]]++;
 
   const anyNamed = named.size > 0;
   const padTop = (b: number) => (!anyNamed ? 0 : order[b] === null ? UNGROUPED_PAD : BAND_PAD_TOP);
@@ -245,7 +329,7 @@ export function bfsBarycenterLayout(
   }
 
   // ── 4. sütun içi barycenter (şerit hücresi içinde) ──────────────────
-  const y = new Float64Array(N);
+  const y = new Float64Array(V);
   const place = (b: number, list: number[]) => {
     const off = (rows[b] - list.length) / 2;
     list.forEach((i, k) => { y[i] = rowTop[b] + (off + k + 0.5) * pitch; });
@@ -256,7 +340,7 @@ export function bfsBarycenterLayout(
   };
   for (let b = 0; b < B; b++) for (let c = 0; c < L; c++) { pinFront(cells[b][c]); place(b, cells[b][c]); }
 
-  const bary = new Float64Array(N);
+  const bary = new Float64Array(V);
   const sweep = (c: number, nb: number[][]) => {
     for (let b = 0; b < B; b++) {
       const list = cells[b][c];
@@ -273,18 +357,25 @@ export function bfsBarycenterLayout(
       place(b, list);
     }
   };
-  for (let c = 1; c < L; c++) sweep(c, fIn);
-  for (let c = L - 2; c >= 0; c--) sweep(c, fOut);
-  for (let c = 1; c < L; c++) sweep(c, fIn);
+  for (let c = 1; c < L; c++) sweep(c, sIn);
+  for (let c = L - 2; c >= 0; c--) sweep(c, sOut);
+  for (let c = 1; c < L; c++) sweep(c, sIn);
 
   // ── 5. x ve çıktı ────────────────────────────────────────────────────
   const lw = Math.max(width, PAD_X * 2 + (L - 1) * COL_MIN_W);
   const colW = L > 1 ? (lw - PAD_X * 2) / (L - 1) : 0;
+  const xOf = (l: number) => (L === 1 ? lw / 2 : PAD_X + l * colW);
   const pos = new Map<string, { x: number; y: number }>();
   const layerMap = new Map<string, number>();
   for (let i = 0; i < N; i++) {
-    pos.set(names[i], { x: L === 1 ? lw / 2 : PAD_X + layer[i] * colW, y: y[i] });
+    pos.set(names[i], { x: xOf(layer[i]), y: y[i] });
     layerMap.set(names[i], layer[i]);
   }
-  return { pos, lw, lh, layer: layerMap, bands, backEdges };
+  const routes = new Map<string, { x: number; y: number }[]>();
+  for (const { u, v, first } of chains) {
+    const pts: { x: number; y: number }[] = [];
+    for (let d = first, n = layer[v] - layer[u] - 1; n > 0; d++, n--) pts.push({ x: xOf(vLayer[d]), y: y[d] });
+    routes.set(`${names[u]}|${names[v]}`, pts);
+  }
+  return { pos, lw, lh, layer: layerMap, bands, backEdges, routes };
 }

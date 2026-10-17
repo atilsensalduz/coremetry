@@ -5,7 +5,7 @@ import { bfsBarycenterLayout } from '@/lib/topoBfsLayout';
 import type { ServiceMap, ServiceMapNode, ServiceMapEdge } from '@/lib/types';
 import { isMessagingDep, fmtNum } from '@/lib/utils';
 import { edgeWeights } from '@/lib/edgeWeight';
-import { edgeArrow } from '@/lib/topoArrow';
+import { edgePathD, pathArrow, type TopoPt } from '@/lib/topoArrow';
 import { fitViewport, readableFit, zoomAt, zoomRange, type Viewport } from '@/lib/topoViewport';
 import { depPillLinesMap } from '@/lib/topoLabels';
 import { Button } from '@/components/ui/Button';
@@ -37,6 +37,10 @@ import { serviceBands, dependencyBands, bandServiceCounts } from '@/lib/topoBand
 //     birbirini çağıran servis yok; açık namespace'ler tam genişlikte
 //     yatay şerit (lib/topoBfsLayout.ts). Döngüyü kapatan geri kenar
 //     sağdan sola, noktalı desenle çizilir.
+//   • v0.10.1269: >1 sütun atlayan ileri kenar, yerleşimin ara sütun
+//     noktalarından (`routes`) geçen yatay-tanjantlı kübik zincirdir —
+//     ara düğümlerin arkasından geçmez. Ok, offset-path ve RED chip'i aynı
+//     yolu okur (chip yolun orta noktasında).
 //
 // CSS bağımlılıkları globals.css'te zaten mevcut: .topo, .topo-edges,
 // .topo-node (+ .focus/.dim), .topo-name, .topo-sub, .topo-dot,
@@ -238,15 +242,32 @@ export function TopologyFlowGraph({
     return { bandNs: all, svcCount: bandServiceCounts(svc) };
   }, [data.nodes, data.edges, metaQ.data, focusNs]);
 
-  const { positioned, layoutW, layoutH, bands, backEdges } = useMemo(() => {
+  const { positioned, layoutW, layoutH, bands, backEdges, routes } = useMemo(() => {
     // v0.10.133 — komşuluk indeksi, O(E + n log n) (perf probe 500/20k).
     // v0.10.1261 — katman + şerit; aynı karmaşıklık sınıfı.
-    const { pos, lw, lh, bands: bs, backEdges: be } = bfsBarycenterLayout(
+    const { pos, lw, lh, bands: bs, backEdges: be, routes: rt } = bfsBarycenterLayout(
       data.nodes, data.edges, width, height, ROW_PITCH,
       { bandOf: s => bandNs.get(s), firstBand: focusNs, pin: focus ?? undefined },
     );
-    return { positioned: pos, layoutW: lw, layoutH: lh, bands: bs, backEdges: be };
+    return { positioned: pos, layoutW: lw, layoutH: lh, bands: bs, backEdges: be, routes: rt };
   }, [data, width, height, bandNs, focusNs, focus]);
+
+  // v0.10.1269 — operatör 2026-10-17: çok sütun atlayan kenarlar düğümlerin
+  // arkasından geçiyordu. Her çizilen kenarın nokta dizisi (a, ara sütun
+  // noktaları, b) ve path `d`si bir kez hesaplanır; çizgi, ok offset-path'i,
+  // ok yedek konumu ve RED chip'i (yolun ortası) AYNI geometriyi okur.
+  // Çift yönlü çizgide ileri yön geri kenar olabilir — o zaman ters yönün
+  // rotası tersine çevrilerek kullanılır. Rota yoksa iki nokta = eski eğri.
+  const edgeGeom = useMemo(() => renderedEdges.map(re => {
+    const e = re.forward;
+    const a = positioned.get(e.caller), b = positioned.get(e.callee);
+    if (!a || !b) return null;
+    const fwd = routes.get(`${e.caller}|${e.callee}`);
+    const rev = !fwd && re.reverse ? routes.get(`${re.reverse.caller}|${re.reverse.callee}`) : undefined;
+    const mid = fwd ?? (rev ? [...rev].reverse() : []);
+    const pts: TopoPt[] = [a, ...mid, b];
+    return { pts, d: edgePathD(pts) };
+  }), [renderedEdges, positioned, routes]);
 
   // ── v0.8.296 — zoom/pan viewport ─────────────────────────────────────
   // Transform matematiği pure seam'de (lib/topoViewport.ts, vitest-pinli).
@@ -368,8 +389,9 @@ export function TopologyFlowGraph({
         ))}
         {renderedEdges.map((re, i) => {
           const e = re.forward;
-          const a = positioned.get(e.caller), b = positioned.get(e.callee);
-          if (!a || !b) return null;
+          const g = edgeGeom[i];
+          if (!g) return null;
+          const { pts, d } = g;
           const t = (weightOf(e) + weightOf(re.reverse)) / edgeMax;
           const w = 1 + 2.2 * t;
           const errorish = e.errorCount > 0 || (re.reverse?.errorCount ?? 0) > 0;
@@ -378,7 +400,6 @@ export function TopologyFlowGraph({
           // hover mavisi > nötr — hatalı kenar hover'da kırmızı KALIR.
           const hot = hoverNode && (e.caller === hoverNode || e.callee === hoverNode);
           const dimmed = active && (!active.has(e.caller) || !active.has(e.callee));
-          const mx = (a.x + b.x) / 2;
           // Demet sayıları yön başına tutulur (fold sonrası key'ler yönlü);
           // çift yönlü çizgide ters yönün demeti de raporlanır.
           const fwdBundle = bundled.get(`${e.caller}|${e.callee}`) ?? 0;
@@ -401,13 +422,15 @@ export function TopologyFlowGraph({
           // t=0.78 kolon boşluğunda görünür ve t=0.5'teki RED chip'iyle
           // çakışmaz. Çift yönlü kenar kaynak ucunda (t=0.22) ters ok alır.
           // Boyut kenar kalınlığıyla ölçekli; pointer-events yok (dekor).
-          const arrows = [edgeArrow(a, b, 0.78)];
-          if (re.reverse) arrows.push(edgeArrow(a, b, 0.22, true));
+          // v0.10.1269 — rotalı kenarda ok yolun kendisi üzerinde (pathArrow;
+          // iki noktada edgeArrow'un aynısı).
+          const arrows = [pathArrow(pts, 0.78)];
+          if (re.reverse) arrows.push(pathArrow(pts, 0.22, true));
           const as = 3.2 + 1.6 * (hot ? w + 0.8 : w);
           return (
             <g key={i}>
             <path
-              d={`M ${a.x} ${a.y} C ${mx} ${a.y}, ${mx} ${b.y}, ${b.x} ${b.y}`}
+              d={d}
               fill="none"
               stroke={stroke}
               strokeWidth={hot ? w + 0.8 : w}
@@ -436,7 +459,7 @@ export function TopologyFlowGraph({
                 style={{
                   transition: 'opacity 120ms, fill 120ms',
                   ['--ax' as string]: ar.x, ['--ay' as string]: ar.y, ['--aa' as string]: `${ar.angle}deg`,
-                  offsetPath: `path("M ${a.x} ${a.y} C ${mx} ${a.y}, ${mx} ${b.y}, ${b.x} ${b.y}")`,
+                  offsetPath: `path("${d}")`,
                   ['--arw-dur' as string]: `${(2.8 - 1.8 * t).toFixed(2)}s`,
                   ['--arw-delay' as string]: `-${(((i * 37) % 100) / 100 * (2.8 - 1.8 * t)).toFixed(2)}s`,
                 }} />
@@ -475,8 +498,8 @@ export function TopologyFlowGraph({
       {renderedEdges.map((re, i) => {
         const e = re.forward;
         if (e.p99Ms == null) return null;
-        const a = positioned.get(e.caller), b = positioned.get(e.callee);
-        if (!a || !b) return null;
+        const g = edgeGeom[i];
+        if (!g) return null;
         const hot = hoverNode && (e.caller === hoverNode || e.callee === hoverNode);
         const dimmed = active && (!active.has(e.caller) || !active.has(e.callee));
         if (dimmed || (!labelAlways && !hot)) return null;
@@ -487,9 +510,12 @@ export function TopologyFlowGraph({
         const dPct = e.priorP99Ms && e.priorP99Ms > 0
           ? ((e.p99Ms ?? 0) - e.priorP99Ms) / e.priorP99Ms * 100
           : null;
+        // v0.10.1269 — chip yolun ORTA noktasında (rotalı kenarda düz
+        // a–b ortası düğüm üstüne düşebilirdi; iki noktada aynı yer).
+        const m = pathArrow(g.pts, 0.5);
         return (
           <div key={`chip-${i}`} className={'topo-chip' + (hot ? ' hot' : '')}
-            style={{ left: (a.x + b.x) / 2, top: (a.y + b.y) / 2 }}>
+            style={{ left: m.x, top: m.y }}>
             {fmtNum(Math.round(e.rate ?? 0))}/dk · p99 {fmtMs(e.p99Ms)}
             {errPct >= 1 && <span className="chip-err"> · {errPct.toFixed(1)}% err</span>}
             {dPct != null && Math.abs(dPct) >= 5 && (

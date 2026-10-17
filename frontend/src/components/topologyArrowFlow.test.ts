@@ -45,8 +45,16 @@ describe('topoloji ok akışı (v0.10.729)', () => {
   it('bileşen: sınıf + yol + süre + indeksten türeyen gecikme; statik transform ÖZNİTELİĞİ yok', () => {
     expect(src).toContain("className={j === 0 ? 'topo-edge-arrow' : 'topo-edge-arrow rev'}");
     // Yol satır içinde: kenarın d'si ile AYNI eğri (ok çizgiden ayrılmasın).
-    expect(src).toContain("offsetPath: `path(\"M ${a.x} ${a.y} C ${mx} ${a.y}, ${mx} ${b.y}, ${b.x} ${b.y}\")`");
-    expect(src).toContain("d={`M ${a.x} ${a.y} C ${mx} ${a.y}, ${mx} ${b.y}, ${b.x} ${b.y}`}");
+    // v0.10.1269 — sözleşme bilerek değişti: d artık tek eğri dizesi değil,
+    // yerleşimin ara noktalarından (routes) geçen zincir; çizgi ve ok AYNI
+    // `d` değişkenini okur (edgePathD, lib/topoArrow — iki noktada eski
+    // dizenin birebir aynısı, topoArrow.test.ts pinler).
+    expect(src).toContain('return { pts, d: edgePathD(pts) };');
+    expect(src).toContain('d={d}');
+    expect(src).toContain('offsetPath: `path("${d}")`,');
+    // Ok yedek konumu da aynı yoldan (pathArrow), düz a→b eğrisinden değil.
+    expect(src).toContain('const arrows = [pathArrow(pts, 0.78)];');
+    expect(src).not.toMatch(/edgeArrow\(a, b/);
     expect(src).toContain("['--arw-dur' as string]: `${(2.8 - 1.8 * t).toFixed(2)}s`");
     expect(src).toMatch(/--arw-delay[^\n]*i \* 37/);
     // Ok artık transform ÖZNİTELİĞİ taşımıyor (offset-path ile çakışırdı).

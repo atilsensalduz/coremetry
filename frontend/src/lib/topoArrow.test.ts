@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { edgeArrow } from './topoArrow';
+import { edgeArrow, edgePathD, pathArrow } from './topoArrow';
 
 // v0.9.1032 — topoloji kenar oku matematiği. Kenar şekli
 // TopologyFlowGraph ile sözleşmeli (M a C (mx,a.y) (mx,b.y) b);
@@ -45,5 +45,32 @@ describe('edgeArrow (v0.9.1032)', () => {
     expect(Number.isFinite(r.angle)).toBe(true);
     expect(r.x).toBeCloseTo(5, 9);
     expect(r.y).toBeCloseTo(5, 9);
+  });
+});
+
+// v0.10.1269 — operatör 2026-10-17: çok sütun atlayan kenarlar düğümlerin
+// arkasından geçiyordu. Kenar yolu artık nokta zinciri (edgePathD); iki
+// noktada eski tek eğri dizesi BİREBİR korunur.
+describe('edgePathD / pathArrow (v0.10.1269)', () => {
+  it('iki nokta: eski "M a C (mx,a.y) (mx,b.y) b" dizesinin aynısı', () => {
+    const a = { x: 10, y: 20 }, b = { x: 210, y: 80 };
+    expect(edgePathD([a, b])).toBe('M 10 20 C 110 20, 110 80, 210 80');
+  });
+  it('ara noktalı yol her noktadan yatay tanjantla geçer', () => {
+    const d = edgePathD([{ x: 0, y: 0 }, { x: 100, y: 50 }, { x: 200, y: 50 }]);
+    expect(d).toBe('M 0 0 C 50 0, 50 50, 100 50 C 150 50, 150 50, 200 50');
+  });
+  it('pathArrow iki noktada edgeArrow ile aynı', () => {
+    const a = { x: 0, y: 0 }, b = { x: 100, y: 40 };
+    expect(pathArrow([a, b], 0.78)).toEqual(edgeArrow(a, b, 0.78));
+    expect(pathArrow([a, b], 0.22, true)).toEqual(edgeArrow(a, b, 0.22, true));
+  });
+  it('pathArrow çok noktada: t=0.5 orta segmentte, ara noktada yatay', () => {
+    const pts = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 200, y: 0 }, { x: 300, y: 0 }];
+    const m = pathArrow(pts, 0.5);
+    expect(m.x).toBeCloseTo(150, 5);
+    expect(m.angle).toBeCloseTo(0, 5);
+    const end = pathArrow(pts, 0.9);
+    expect(end.x).toBeGreaterThan(200);
   });
 });
