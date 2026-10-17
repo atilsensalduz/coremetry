@@ -771,11 +771,11 @@ func listLogFieldsTool(d Deps) mcp.Tool {
 						rf := logRoleFieldList(m)
 						rows, matched := logFieldRows(logstore.ListFieldsResult{Fields: rf, Total: len(rf)}, a.Pattern, limit, m)
 						st := sourcestate.Result(logsSource, backend, sourcestate.Outcome{Returned: len(rows), Limit: limit, Truncated: matched > len(rows)}).
-							WithNote("tam alan listesi alınamadı: GET _mapping index-metadata yetkisi (view_index_metadata) istiyor, anahtarda yok — yalnız field_caps rol keşfi raporlandı; log araması (search_logs) bundan etkilenmez", true)
+							WithNote(mcp.ToolsetText(ctx, "tam alan listesi alınamadı: GET _mapping index-metadata yetkisi (view_index_metadata) istiyor, anahtarda yok — yalnız field_caps rol keşfi raporlandı; log araması (⟦search_logs|query_logs⟧) bundan etkilenmez"), true) // v0.10.1302
 						return envelope(rows, matched, 0, false, m.Labels(), st), nil
 					}
 					st := sourcestate.FromError(logsSource, backend, err).
-						WithNote("reddedilen alan metadata'sı (GET _mapping / field_caps) olabilir; log araması yalnız doküman okuma yetkisi ister — log kaynağını erişilemez saymadan search_logs'u dene", false)
+						WithNote(mcp.ToolsetText(ctx, "reddedilen alan metadata'sı (GET _mapping / field_caps) olabilir; log araması yalnız doküman okuma yetkisi ister — log kaynağını erişilemez saymadan ⟦search_logs|query_logs⟧'u dene"), false) // v0.10.1302
 					return envelope(nil, 0, 0, false, m.Labels(), st), nil
 				}
 				st := sourcestate.FromError(logsSource, backend, err)

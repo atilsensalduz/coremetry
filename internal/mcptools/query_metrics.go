@@ -224,7 +224,7 @@ func (q qmReq) echo() map[string]any {
 func queryMetricsTool(d Deps) mcp.Tool {
 	return mcp.Tool{
 		Name:             "query_metrics",
-		ShortDescription: "Aile ile metrik, PromQL yok: red/latency/throughput/errors, jvm_heap/jvm_gc, pod_cpu/pod_memory/pod_restarts (Thanos). Adla metrik: query_metric.",
+		ShortDescription: "Aile ile metrik, PromQL yok: red/latency/throughput/errors, jvm_heap/jvm_gc, pod_cpu/pod_memory/pod_restarts (Thanos).⟦ Adla metrik: query_metric.|⟧", // v0.10.1302 — ⟦full|simple⟧
 		Description: "Family-based metric read — NO PromQL, NO metric names. Pick `family` and the server builds the query " +
 			"from a fixed template and routes it: red|latency|throughput|errors → the service Overview's HTTP metric RED from " +
 			"VictoriaMetrics when it is the metric store (falls back to span-derived RED from ClickHouse, with a warning, when VM " +

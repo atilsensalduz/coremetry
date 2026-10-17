@@ -318,8 +318,9 @@ func TestChatSpecFilterWiredToRole(t *testing.T) {
 	}
 	src := string(b)
 	// v0.10.993 — sohbet ChatToolList okur (dış-yalnız araçlar hariç); ToolList'e dönerse bubble_up sohbete sızar.
-	if !strings.Contains(src, "toolsForRole(mcptools.ChatToolList(") || strings.Contains(src, "mcptools.ToolList(") {
-		t.Error("sohbet tool kümesi role göre SÜZÜLMÜYOR ya da tam kataloğu okuyor — toolsForRole(mcptools.ChatToolList(...), role) bekleniyor")
+	// v0.10.1302 — araç setine göre ChatToolListFor (ChatToolList'in süzülmüş hâli).
+	if !strings.Contains(src, "toolsForRole(mcptools.ChatToolListFor(") || strings.Contains(src, "mcptools.ToolList(") {
+		t.Error("sohbet tool kümesi role göre SÜZÜLMÜYOR ya da tam kataloğu okuyor — toolsForRole(mcptools.ChatToolListFor(...), role) bekleniyor")
 	}
 	idxFilter := strings.Index(src, "toolsForRole(")
 	idxByName := strings.Index(src, "byName[t.Name] = t.Handler")

@@ -74,6 +74,20 @@ type chatExchange struct {
 	// önce sabitlediği kimlik (noteFinalCall). tap bunu `answer` olayına
 	// isteğe bağlı `callId` olarak ekler → 👍/👎 somut çağrıya bağlanır.
 	finalCallID string
+
+	// v0.10.1302 — serbest döngünün koştuğu araç seti (full | simple);
+	// guided / niyet / LLM'siz kademeler "" bırakır.
+	toolset string
+}
+
+// setToolset — v0.10.1302: serbest döngü kataloğunu kurarken çağrılır.
+func (x *chatExchange) setToolset(ts string) {
+	if x == nil {
+		return
+	}
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	x.toolset = ts
 }
 
 // setInteraction — istek bağlamı (konuşma, tur no, sayfa, istemci denemesi).
@@ -449,6 +463,7 @@ func buildCosreInteraction(x *chatExchange, tier string, m copilot.CallMeta, sta
 		Model:       x.model, ModelCalls: x.modelCalls, InputTokens: x.inTok, OutputTokens: x.outTok,
 		Status: status, ErrorMsg: clipBytes(msg, cosreToolErrMax),
 		Attempt: x.attempt, Deep: x.deep,
+		Toolset:     x.toolset, // v0.10.1302
 		EmptyAnswer: answer == "",
 		NoEvidence:  answerAdmitsNoEvidence(answer),
 	}

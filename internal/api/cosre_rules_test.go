@@ -235,7 +235,7 @@ func TestMemoryTierBeforeGuided(t *testing.T) {
 	}
 	src := stripGoCommentsAPI(string(b))
 	order := []string{"s.chatScopeTier(ctx, emit, &rq)", "s.chatMemoryTier(ctx, emit, &blockSeq,", "s.wikiChatAnswer(ctx, emit,",
-		"s.copilotChatGuided(ctx, emit,", "s.copilotChatIntent(ctx, emit,", "toolsForRole(mcptools.ChatToolList("}
+		"s.copilotChatGuided(ctx, emit,", "s.copilotChatIntent(ctx, emit,", "toolsForRole(mcptools.ChatToolListFor("} // v0.10.1302
 	last := -1
 	for _, m := range order {
 		i := strings.Index(src, m)

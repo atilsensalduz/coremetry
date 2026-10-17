@@ -57,6 +57,9 @@ type CosreInteraction struct {
 	Deep           bool
 	EmptyAnswer    bool
 	NoEvidence     bool
+	// Toolset — v0.10.1302: serbest döngünün araç seti (full | simple); guided /
+	// niyet / LLM'siz kademeler "". Kolon iki-boot sözleşmesiyle (probe).
+	Toolset string
 }
 
 const cosreInteractionsBaseCols = `exchange_id, conversation_id, turn, created_at, user_id, user_email,
@@ -71,26 +74,62 @@ const cosreInteractionsBaseCols = `exchange_id, conversation_id, turn, created_a
 // false okur ve INSERT kolonu ANMAZ — iki-boot sözleşmesi, ai_calls emsali).
 var cosreInteractionsEvidenceCol atomic.Bool
 
+// cosreInteractionsToolsetCol — v0.10.1302 toolset kolonu (aynı sözleşme).
+var cosreInteractionsToolsetCol atomic.Bool
+
 // CosreInteractionsEvidenceCol — kolon bayrağı (test/teşhis).
 func CosreInteractionsEvidenceCol() bool { return cosreInteractionsEvidenceCol.Load() }
 
-// probeCosreInteractionsEvidenceColumn — INSERT hedefi cosre_interactions'ta
-// (küme kipinde Distributed) tool_evidence var mı.
-func (s *Store) probeCosreInteractionsEvidenceColumn(ctx context.Context) bool {
-	var n uint64
-	err := s.conn.QueryRow(ctx,
-		`SELECT count() FROM system.columns
-		 WHERE database = currentDatabase() AND table = 'cosre_interactions' AND name = 'tool_evidence'`).Scan(&n)
-	ok := err == nil && n > 0
-	cosreInteractionsEvidenceCol.Store(ok)
-	return ok
+// CosreInteractionsToolsetCol — v0.10.1302 kolon bayrağı (test/teşhis).
+func CosreInteractionsToolsetCol() bool { return cosreInteractionsToolsetCol.Load() }
+
+// cosreInteractionsOptionalCols — iki-boot sözleşmeli kolonlar (probe sırası).
+var cosreInteractionsOptionalCols = []string{"tool_evidence", "toolset"}
+
+// probeCosreInteractionsColumns — INSERT hedefi cosre_interactions'ta (küme
+// kipinde Distributed) iki-boot kolonları var mı; v0.10.1302'den beri TEK
+// system.columns sorgusu, kolon başına bir bayrak. Hata → hepsi false
+// (INSERT kolonları anmaz; güvenli yön).
+func (s *Store) probeCosreInteractionsColumns(ctx context.Context) {
+	have := map[string]bool{}
+	rows, err := s.conn.Query(ctx,
+		`SELECT name FROM system.columns
+		 WHERE database = currentDatabase() AND table = 'cosre_interactions' AND name IN ('tool_evidence', 'toolset')`)
+	if err == nil {
+		for rows.Next() {
+			var name string
+			if rows.Scan(&name) == nil {
+				have[name] = true
+			}
+		}
+		if rows.Err() != nil {
+			have = map[string]bool{}
+		}
+		_ = rows.Close()
+	}
+	cosreInteractionsEvidenceCol.Store(have["tool_evidence"])
+	cosreInteractionsToolsetCol.Store(have["toolset"])
 }
 
-// cosreInteractionsInsertSQL — SAF: kolon listesi bayrağa göre.
-func cosreInteractionsInsertSQL(evidence bool) string {
+// cosreInteractionCols — INSERT'in iki-boot kolon bayrakları.
+type cosreInteractionCols struct {
+	Evidence bool // v0.10.1280 tool_evidence
+	Toolset  bool // v0.10.1302 toolset
+}
+
+func loadCosreInteractionCols() cosreInteractionCols {
+	return cosreInteractionCols{Evidence: cosreInteractionsEvidenceCol.Load(), Toolset: cosreInteractionsToolsetCol.Load()}
+}
+
+// cosreInteractionsInsertSQL — SAF: kolon listesi bayraklara göre (sıra:
+// tool_evidence, toolset — cosreInteractionArgs ile aynı).
+func cosreInteractionsInsertSQL(c cosreInteractionCols) string {
 	cols := cosreInteractionsBaseCols
-	if evidence {
+	if c.Evidence {
 		cols += ", tool_evidence"
+	}
+	if c.Toolset {
+		cols += ", toolset"
 	}
 	return "INSERT INTO cosre_interactions (\n\t" + cols + ")"
 }
@@ -104,8 +143,9 @@ func b2u8(b bool) uint8 {
 
 // cosreInteractionArgs — SAF: satırın INSERT argümanları; tool dizileri
 // paralel ve her zaman aynı uzunlukta.
-// v0.10.1280 — evidence=true iken son arg paralel tool_evidence dizisi.
-func cosreInteractionArgs(r CosreInteraction, evidence bool) []any {
+// v0.10.1280 — Evidence iken paralel tool_evidence dizisi; v0.10.1302 —
+// Toolset iken en sonda toolset dizgesi.
+func cosreInteractionArgs(r CosreInteraction, c cosreInteractionCols) []any {
 	n := len(r.Tools)
 	names, origins, args := make([]string, n), make([]string, n), make([]string, n)
 	ms, bytes := make([]uint32, n), make([]uint32, n)
@@ -132,8 +172,11 @@ func cosreInteractionArgs(r CosreInteraction, evidence bool) []any {
 		r.Model, r.ModelCalls, r.InputTokens, r.OutputTokens, r.TTFTMs, r.TotalMs,
 		status, r.ErrorMsg, r.Attempt, b2u8(r.Deep), b2u8(r.EmptyAnswer), b2u8(r.NoEvidence),
 	}
-	if evidence {
+	if c.Evidence {
 		out = append(out, evs)
+	}
+	if c.Toolset {
+		out = append(out, r.Toolset)
 	}
 	return out
 }
@@ -143,7 +186,7 @@ func (s *Store) InsertCosreInteractions(ctx context.Context, rows []CosreInterac
 	if s == nil || len(rows) == 0 {
 		return nil
 	}
-	ev := cosreInteractionsEvidenceCol.Load()
+	ev := loadCosreInteractionCols()
 	batch, err := s.conn.PrepareBatch(ctx, cosreInteractionsInsertSQL(ev))
 	if err != nil {
 		return err

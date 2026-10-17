@@ -21,7 +21,7 @@ var contextFieldProps = map[string]any{
 	"pod":         map[string]any{"type": "string"},
 	"range_s":     map[string]any{"type": "integer", "minimum": 60, "maximum": 604800, "description": "Window seconds; every reading tool caps at 7d (604800)."},
 	"errors_only": map[string]any{"type": "boolean"},
-	"filters":     map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "chstore FilterExpr[] ({k,op,v}) — search_traces'in filters_applied çıktısını aynen geç."},
+	"filters":     map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "chstore FilterExpr[] ({k,op,v}) — ⟦search_traces|trace_stats⟧'in filters_applied çıktısını aynen geç."}, // v0.10.1302
 	"search_text": map[string]any{"type": "string"},
 }
 

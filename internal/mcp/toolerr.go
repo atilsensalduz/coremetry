@@ -157,7 +157,7 @@ var toolErrPolicy = map[string]struct {
 			"aynı tool'u tekrar çağırma; cevap beklenmiyor"},
 	ToolErrUnauthorized: {false,
 		"kaynak yetki reddetti (401/403) — tekrar deneme; bu kaynağın kapsam DIŞI kaldığını SÖYLE, " +
-			"kanıta başka bir tool ile ulaş (ör. log yoksa get_trace / query_metric)"},
+			"kanıta başka bir tool ile ulaş (ör. log yoksa get_trace / query_metrics)"}, // v0.10.1302 — iki araç setinde de görünen araç
 }
 
 // ClassifyToolError — bir handler hatasını sözleşmeye çevirir. SAF:

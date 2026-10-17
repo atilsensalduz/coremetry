@@ -739,7 +739,7 @@ func logHistEmptyReasons(service string) []string {
 	}
 	out = append(out,
 		"the query is narrower than you think — with the Elasticsearch backend it is a query_string with AND as the default operator, so every term must match",
-		"the backend returned nothing because it was slow: this response shape carries NO partial flag, so confirm with search_logs (its response does) before concluding the logs are quiet")
+		"the backend returned nothing because it was slow: this response shape carries NO partial flag, so confirm with ⟦search_logs (its response does)|query_logs over the same window (its evidence reports the backend state)⟧ before concluding the logs are quiet") // v0.10.1302 — ⟦full|simple⟧
 	return out
 }
 
@@ -773,7 +773,8 @@ func logHistogramPayload(service, query, backend string, windowS, bucketS int, s
 		body["reasons"] = logHistEmptyReasons(service)
 		body["note"] = "Say plainly that no matching log line was found in this window; do NOT report zero errors as proof the service is healthy."
 	}
-	body["next"] = "Zirve kovadaki satırları görmek için search_logs (aynı service/query + severity_min=17); desen kırılımı için list_exception_groups; trace'e geçmek için search_traces."
+	// v0.10.1302 — ⟦full|simple⟧; handler ctx'e göre basar (renderToolsetFields).
+	body["next"] = "Zirve kovadaki satırları görmek için ⟦search_logs (aynı service/query + severity_min=17)|query_logs (aynı service + severity=error, zirve penceresi)⟧; desen kırılımı için list_exception_groups; trace'e geçmek için ⟦search_traces|query_traces⟧."
 	return body
 }
 
@@ -804,7 +805,7 @@ type getLogHistogramArgs struct {
 func getLogHistogramTool(d Deps) mcp.Tool {
 	return mcp.Tool{
 		Name:             "get_log_histogram",
-		ShortDescription: "Log HACMİNİN zaman serisi, severity bandlarına ayrık — 'hata ne zaman başladı', 'artış mı sabit mi'. search_logs SATIR verir, bu ŞEKİL. Boş kova = eşleşme yok.",
+		ShortDescription: "Log HACMİNİN zaman serisi, severity bandlarına ayrık — 'hata ne zaman başladı', 'artış mı sabit mi'. ⟦search_logs|query_logs⟧ SATIR verir, bu ŞEKİL. Boş kova = eşleşme yok.", // v0.10.1302 — ⟦full|simple⟧
 		Description: "Log VOLUME over time, split into canonical severity bands — the SHAPE question search_logs cannot answer, because that tool returns " +
 			"rows and this one returns a time series: 'when did the errors start', 'is this a spike or steady state', 'did the flood stop after the deploy'. " +
 			"Bands are ERROR (FATAL folds into it), WARN, INFO, DEBUG, TRACE and OTHER (a level outside the vocabulary, or a document with no severity " +
@@ -892,6 +893,7 @@ func getLogHistogramTool(d Deps) mcp.Tool {
 				return nil, err
 			}
 			out := logHistogramPayload(service, query, d.LogStore.Backend(), windowS, bucketS, series)
+			renderToolsetFields(ctx, out, "next", "reasons") // v0.10.1302 — ⟦full|simple⟧ ctx'e göre
 			if env != "" {
 				// Histogram dönüş şekli "uygulanmadı" bayrağı taşımıyor (v0.9.288);
 				// dürüstlük alan eşlemesinden: env rolünün alanı var mı.

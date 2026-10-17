@@ -66,6 +66,13 @@ const shortDescMinBytes = 60
 // ölçülen +150 B → 9846 B) → tavan 9.95 KB (+150 B, 50 B'a yukarı).
 const shortCatalogMaxBytes = 9950
 
+// shortCatalogSimpleMaxBytes — v0.10.1302: simple araç seti varyantının
+// (küçük model; simpleHiddenTools gizli, ⟦full|simple⟧ işaretleri simple
+// tarafıyla) kompakt toplamı. Ölçülen: 9344 B (full 9854 B; dört gizli
+// aracın metni −~510 B, işaretlerin simple tarafı +~0) → tavan 9.5 KB (+150 B,
+// 50 B'a yukarı; full'un kuralı). Simple < full ayrıca zorlanır.
+const shortCatalogSimpleMaxBytes = 9500
+
 // shortCatalogConditionalMaxBytes — v0.10.1050: KOŞULLU sohbet araçlarının
 // (chatOffered; bugün yalnız read_source_code, DevOps bağlıyken) kompakt
 // toplamının AYRI tavanı. Koşulsuz katalog 9.1 KB'ta kalır (her kurulumun her
@@ -82,13 +89,18 @@ const shortCatalogConditionalMaxBytes = 820
 // TAMLIK — her tool'un kompakt metni olmalı. Yeni bir tool kompakt
 // açıklamasız gemiye giremez (mcp.Tool.ChatDescription() tam metne
 // düşerdi: güvenli ama pahalı, ve sessiz).
+//
+// v0.10.1302 — araç seti varyantları: kompakt metin ⟦full|simple⟧ işareti
+// taşıyabilir; boy kuralları İŞLENMİŞ metne (iki varyant) uygulanır ve bütçe
+// varyant başına sayılır (full: ChatToolList, simple: eksi simpleHiddenTools).
 func TestEveryToolHasShortDescription(t *testing.T) {
 	tools := ToolList(Deps{})
 	if len(tools) < 30 {
 		t.Fatalf("katalog beklenmedik biçimde küçük (%d) — test yanlış şeyi ölçüyor olabilir", len(tools))
 	}
-	totalShort, totalFull, conditional := 0, 0, 0
+	totalShort, totalSimple, totalFull, conditional := 0, 0, 0, 0
 	for _, tl := range tools {
+		full, simple := tl.ChatDescriptionFor(false), tl.ChatDescriptionFor(true)
 		// v0.10.993 — BÜTÇE sohbetin her tur ödediği katalogdur: dış-yalnız
 		// araçlar (externalOnlyTools; ChatToolList'te yok) toplama girmez.
 		// Alan kuralları (dolu, tavan/taban, Türkçe) onlar için de geçerli.
@@ -96,35 +108,46 @@ func TestEveryToolHasShortDescription(t *testing.T) {
 		switch {
 		case externalOnlyTools[tl.Name]:
 		case !chatOffered(Deps{}, tl.Name):
-			conditional += len(tl.ShortDescription)
+			conditional += len(full)
 		default:
-			totalShort += len(tl.ShortDescription)
+			totalShort += len(full)
 			totalFull += len(tl.Description)
+			if !simpleHiddenTools[tl.Name] {
+				totalSimple += len(simple)
+			}
 		}
 		if tl.ShortDescription == "" {
 			t.Errorf("%s: ShortDescription BOŞ — sohbet yolu bu tool için her tur tam metni ödüyor", tl.Name)
 			continue
 		}
-		if n := len(tl.ShortDescription); n > shortDescMaxBytes {
-			t.Errorf("%s: kompakt açıklama %d B (tavan %d) — tam metin yapıştırılmış olabilir", tl.Name, n, shortDescMaxBytes)
-		}
-		if n := len(tl.ShortDescription); n < shortDescMinBytes {
-			t.Errorf("%s: kompakt açıklama %d B (taban %d) — hangi soruyu cevapladığını ve komşusundan farkını söylemeli", tl.Name, n, shortDescMinBytes)
-		}
-		if len(tl.ShortDescription) >= len(tl.Description) {
-			t.Errorf("%s: kompakt açıklama tam metinden kısa DEĞİL (%d ≥ %d)", tl.Name, len(tl.ShortDescription), len(tl.Description))
-		}
-		if !utf8.ValidString(tl.ShortDescription) {
-			t.Errorf("%s: kompakt açıklama geçerli UTF-8 değil", tl.Name)
+		for variant, txt := range map[string]string{"full": full, "simple": simple} {
+			if n := len(txt); n > shortDescMaxBytes {
+				t.Errorf("%s (%s): kompakt açıklama %d B (tavan %d) — tam metin yapıştırılmış olabilir", tl.Name, variant, n, shortDescMaxBytes)
+			}
+			if n := len(txt); n < shortDescMinBytes {
+				t.Errorf("%s (%s): kompakt açıklama %d B (taban %d) — hangi soruyu cevapladığını ve komşusundan farkını söylemeli", tl.Name, variant, n, shortDescMinBytes)
+			}
+			if len(txt) >= len(tl.Description) {
+				t.Errorf("%s (%s): kompakt açıklama tam metinden kısa DEĞİL (%d ≥ %d)", tl.Name, variant, len(txt), len(tl.Description))
+			}
+			if !utf8.ValidString(txt) {
+				t.Errorf("%s (%s): kompakt açıklama geçerli UTF-8 değil", tl.Name, variant)
+			}
 		}
 		// ChatDescription() kompakt metni SEÇMELİ — alan var ama
-		// okunmuyorsa kazanç sıfır.
-		if got := tl.ChatDescription(); got != tl.ShortDescription {
-			t.Errorf("%s: ChatDescription() kompakt metni döndürmüyor", tl.Name)
+		// okunmuyorsa kazanç sıfır. v0.10.1302: işaretler çözülmüş full hâli.
+		if got := tl.ChatDescription(); got != full || got != mcp.RenderToolsetMarkers(tl.ShortDescription, false) {
+			t.Errorf("%s: ChatDescription() kompakt metnin full hâlini döndürmüyor", tl.Name)
 		}
 	}
 	if totalShort > shortCatalogMaxBytes {
-		t.Errorf("kompakt katalog %d B — tavan %d B (diyet eriyor)", totalShort, shortCatalogMaxBytes)
+		t.Errorf("kompakt katalog (full) %d B — tavan %d B (diyet eriyor)", totalShort, shortCatalogMaxBytes)
+	}
+	if totalSimple > shortCatalogSimpleMaxBytes {
+		t.Errorf("kompakt katalog (simple) %d B — tavan %d B", totalSimple, shortCatalogSimpleMaxBytes)
+	}
+	if totalSimple >= totalShort {
+		t.Errorf("simple katalog (%d B) full'dan (%d B) küçük değil — gizleme kazanç getirmiyor", totalSimple, totalShort)
 	}
 	if conditional > shortCatalogConditionalMaxBytes {
 		t.Errorf("koşullu araçların kompakt toplamı %d B — tavan %d B", conditional, shortCatalogConditionalMaxBytes)
@@ -134,7 +157,7 @@ func TestEveryToolHasShortDescription(t *testing.T) {
 	if totalShort*2 >= totalFull {
 		t.Errorf("kompakt katalog (%d B) tam kataloğun (%d B) yarısından küçük değil", totalShort, totalFull)
 	}
-	t.Logf("katalog: %d tool, tam %d B → kompakt %d B (+ koşullu %d B)", len(tools), totalFull, totalShort, conditional)
+	t.Logf("katalog: %d tool, tam %d B → kompakt full %d B / simple %d B (+ koşullu %d B)", len(tools), totalFull, totalShort, totalSimple, conditional)
 }
 
 // ChatDescription() BOŞKEN tam metne düşer — güvenli yön. Tamlık kapısı
@@ -208,18 +231,22 @@ func TestMCPToolsListServesFullDescriptions(t *testing.T) {
 // Türkçe ve modele iki dilli katalog vermek küçük modelde ek yük.
 // Kapı kaba ama ısırır: her metin en az bir Türkçe'ye özgü harf ya da
 // Türkçe bir bağlaç taşımalı.
+// v0.10.1302 — iki varyant da (⟦full|simple⟧ işlenmiş) Türkçe olmalı.
 func TestShortDescriptionsAreTurkish(t *testing.T) {
 	markers := []string{"ı", "ş", "ğ", "ü", "ö", "ç", "İ", " ile ", " için ", " ve "}
 	for _, tl := range ToolList(Deps{}) {
-		hit := false
-		for _, m := range markers {
-			if strings.Contains(tl.ShortDescription, m) {
-				hit = true
-				break
+		for _, simple := range []bool{false, true} {
+			txt := tl.ChatDescriptionFor(simple)
+			hit := false
+			for _, m := range markers {
+				if strings.Contains(txt, m) {
+					hit = true
+					break
+				}
 			}
-		}
-		if !hit {
-			t.Errorf("%s: kompakt açıklama Türkçe görünmüyor: %q", tl.Name, tl.ShortDescription)
+			if !hit {
+				t.Errorf("%s (simple=%v): kompakt açıklama Türkçe görünmüyor: %q", tl.Name, simple, txt)
+			}
 		}
 	}
 }

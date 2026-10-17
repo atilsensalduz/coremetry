@@ -169,13 +169,13 @@ func resolveOracleOperationTool(d Deps) mcp.Tool {
 				return nil, fmt.Errorf("invalid argument: name %d–%d karakter olmalı", oracleOpNameMin, oracleOpNameMax)
 			}
 			if d.OracleOps == nil || !d.OracleOps.Enabled() {
-				return oracleOperationResult(name, OracleOpResolution{Matches: []OracleOpMatch{}, NearNames: []string{}}), nil
+				return renderToolsetFields(ctx, oracleOperationResult(name, OracleOpResolution{Matches: []OracleOpMatch{}, NearNames: []string{}}), "hint"), nil
 			}
 			res, err := d.OracleOps.ResolveOracleOperation(ctx, name)
 			if err != nil {
 				return nil, err
 			}
-			return oracleOperationResult(name, res), nil
+			return renderToolsetFields(ctx, oracleOperationResult(name, res), "hint"), nil // v0.10.1302
 		},
 	}
 }
@@ -209,7 +209,10 @@ func oracleOperationResult(name string, r OracleOpResolution) map[string]any {
 	case !r.Enabled:
 		out["hint"] = "Oracle kaynağı yapılandırılmamış ya da kapalı — çeviri yapılamaz; bunu söyle, kod UYDURMA."
 	case len(matches) > 0:
-		out["hint"] = "search_traces'i KOD BAŞINA filters=[{key: span_key, op: eq, value: kod}] ile çağır (servis gerekmez; başarılı + hatalı tüm trace'ler). Trace çıkmazsa latest_trace_id son hata trace'idir."
+		// v0.10.1302 — ⟦full|simple⟧: simple katalogda search_traces yok; query_traces
+		// operation=<ad> ile servissiz koşar ve adı aynı fonksiyon koduna çevirir
+		// (translateOperationSearch). Handler ctx'e göre basar (mcp.ToolsetText).
+		out["hint"] = "⟦search_traces'i KOD BAŞINA filters=[{key: span_key, op: eq, value: kod}] ile çağır (servis gerekmez; başarılı + hatalı tüm trace'ler)|query_traces'i operation = bu sonucun name değeriyle çağır (servis gerekmez; ad aynı fonksiyon kodu süzgecine çevrilir, başarılı + hatalı trace'ler; yalnız hatalılar için status=error)⟧. Trace çıkmazsa latest_trace_id son hata trace'idir."
 	case len(near) > 0:
 		out["hint"] = "Tam eşleşme yok. near_names'i \"bunu mu demek istediniz\" diye sun; onlarla kendiliğinden arama YAPMA."
 	default:

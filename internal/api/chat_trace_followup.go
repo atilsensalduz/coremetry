@@ -112,6 +112,10 @@ type traceFollowUp struct {
 	// görmeden cevaplanıyordu. Sunucu kurar (traceFollowUpEvents), modelden
 	// çıkarılmaz.
 	Events string
+	// Simple — v0.10.1302: serbest döngü simple araç setinde (küçük model;
+	// serbest-sorgu araçları gizli). Takip talimatı ve pencere satırı gizli
+	// araçların yerine yapısal karşılıklarını anar (copilot.ToolsetText).
+	Simple bool
 }
 
 // traceFollowUpPage — v0.10.948 — page yalnız AYNI trace'i kanıtlıyorsa (traceId == özne); boş traceId de uyuşmazlık.
@@ -225,9 +229,9 @@ func traceFollowUpPromptTR(tf *traceFollowUp, explain string) string {
 	if tf.From.IsZero() && tf.TraceFrom.IsZero() {
 		// v0.10.948 — pencere yoksa araçların 1800 s varsayılanı trace'in
 		// dışını okurdu; önce trace'in kendi kapsamı getirilir.
-		b.WriteString(traceFollowUpWindowUnknown + "\n")
+		b.WriteString(copilot.ToolsetText(traceFollowUpWindowUnknown, tf.Simple) + "\n") // v0.10.1302
 	}
-	out := strings.TrimRight(b.String(), "\n") + copilot.TraceFollowUpAddendum()
+	out := strings.TrimRight(b.String(), "\n") + copilot.TraceFollowUpAddendumFor(tf.Simple) // v0.10.1302 — araç setine göre
 	// v0.10.1147 — span exception özeti (VERİ bloğu, çitli): talimattan sonra,
 	// önceki açıklamadan önce. Sayı denetiminin tohumuna da girer (açıklamasız
 	// çağrı) — mesajdaki değerler temellenir.

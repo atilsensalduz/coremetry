@@ -198,13 +198,15 @@ func TestBubbleUpIsExternalOnly(t *testing.T) {
 		t.Errorf("dış MCP %d tool kaydetmeli (bubble_up dahil), kayıtlı %d", want, got)
 	}
 	// Sohbet yolları tam kataloğu DEĞİL ChatToolList'i okur (kaynak pini).
+	// v0.10.1302 — serbest döngü araç setine göre ChatToolListFor okur
+	// (ChatToolList'in süzülmüş hâli; bubble_up yine yok).
 	for _, f := range []string{"../api/copilot_chat.go"} {
 		b, err := os.ReadFile(f)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if src := string(b); !strings.Contains(src, "mcptools.ChatToolList(s.mcpDeps())") || strings.Contains(src, "mcptools.ToolList(") {
-			t.Errorf("%s ChatToolList okumalı", f)
+		if src := string(b); !strings.Contains(src, "mcptools.ChatToolListFor(s.mcpDeps(), toolset)") || strings.Contains(src, "mcptools.ToolList(") {
+			t.Errorf("%s ChatToolListFor okumalı", f)
 		}
 	}
 }

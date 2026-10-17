@@ -1587,6 +1587,8 @@ export interface AISettings {
 export type AIIntentClassify = 'off' | 'on' | 'on_no_loop';
 /** v0.10.534 (modelcaps) — profil düşünme anahtarı: '' dokunma, off/on ailenin gövde anahtarına çevrilir (Qwen3). */
 export type AIThinking = '' | 'off' | 'on';
+/** v0.10.1302 — CoSRE araç seti: '' otomatik (model adı ≤12B → simple, aksi/bilinmeyen → full), simple = serbest-sorgu araçları gizli, full = tam katalog. */
+export type AIToolset = '' | 'simple' | 'full';
 export interface AIModelProfile {
   id: string;
   label?: string;
@@ -1600,6 +1602,9 @@ export interface AIModelProfile {
   temperature?: number | null;
   timeoutS?: number;
   thinking?: AIThinking; // v0.10.534
+  toolset?: AIToolset; // v0.10.1302 — ayarın kendisi; yok = otomatik
+  /** v0.10.1302 — yürürlükteki araç seti (otomatik kural dahil; sunucu çözer) */
+  effectiveToolset?: Exclude<AIToolset, ''>;
   default?: boolean;
   /** v0.10.1138 — sohbet model seçicisindeki kısa açıklama */
   description?: string;
@@ -1626,6 +1631,7 @@ export interface AIModelProfileInput {
   temperature?: number | null;
   timeoutS?: number;
   thinking?: AIThinking; // v0.10.534
+  toolset?: AIToolset;  // v0.10.1302 — '' otomatik | simple | full
   description?: string; // v0.10.1138
   roles?: Role[];       // v0.10.1138 — boş = herkes
   deep?: boolean;       // v0.10.1150 — "Derin düşün" profili (tek)

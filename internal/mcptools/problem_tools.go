@@ -417,10 +417,10 @@ func capabilitiesFrom(d Deps) map[string]Capability {
 	}
 	if d.MetricsName != nil {
 		n := d.MetricsName()
-		caps["metrics"] = Capability{Enabled: true, Detail: "query_metric / list_metric_names read " + n}
+		caps["metrics"] = Capability{Enabled: true, Detail: "⟦query_metric|query_metrics⟧ / list_metric_names read " + n} // v0.10.1302 — handler basar
 		caps["victoriametrics"] = Capability{Enabled: n == "vm", Detail: "metric source: " + n}
 	} else {
-		caps["metrics"] = Capability{Enabled: true, Detail: "query_metric reads ClickHouse metric_points (no VM probe wired)"}
+		caps["metrics"] = Capability{Enabled: true, Detail: "⟦query_metric|query_metrics⟧ reads ClickHouse metric_points (no VM probe wired)"} // v0.10.1302
 	}
 	if d.LogStore != nil {
 		caps["logs"] = Capability{Enabled: true, Detail: "backend " + d.LogStore.Backend()}
@@ -455,6 +455,10 @@ func getCapabilitiesTool(d Deps) mcp.Tool {
 		InputSchema:      map[string]any{"type": "object", "properties": map[string]any{}},
 		Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			caps := capabilitiesFrom(d)
+			for k, c := range caps { // v0.10.1302 — ⟦full|simple⟧ işaretleri ctx'e göre
+				c.Detail, c.Reason = mcp.ToolsetText(ctx, c.Detail), mcp.ToolsetText(ctx, c.Reason)
+				caps[k] = c
+			}
 			enabled := make([]string, 0, len(caps))
 			disabled := make([]string, 0, len(caps))
 			for k, c := range caps {

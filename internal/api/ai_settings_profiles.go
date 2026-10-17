@@ -28,6 +28,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cilcenk/coremetry/internal/ai/modelcaps"
 	"github.com/cilcenk/coremetry/internal/auth"
 	"github.com/cilcenk/coremetry/internal/copilot"
 )
@@ -53,7 +54,12 @@ type aiProfileView struct {
 	Temperature *float64 `json:"temperature,omitempty"`
 	TimeoutS    int      `json:"timeoutS,omitempty"`
 	Thinking    string   `json:"thinking,omitempty"` // v0.10.534 (modelcaps): "" | off | on
-	Default     bool     `json:"default,omitempty"`
+	// v0.10.1302 — CoSRE araç seti: Toolset ayarın kendisi ("" otomatik |
+	// simple | full); EffectiveToolset otomatik kuralın sonucu dahil yürürlükteki
+	// değer (rozet için; model adından, modelcaps.ResolveToolset).
+	Toolset          string `json:"toolset,omitempty"`
+	EffectiveToolset string `json:"effectiveToolset"`
+	Default          bool   `json:"default,omitempty"`
 	// v0.10.1138 — sohbet seçicisinin kısa açıklaması + rol allowlist'i (boş = herkes).
 	Description string   `json:"description,omitempty"`
 	Roles       []string `json:"roles,omitempty"`
@@ -69,6 +75,7 @@ func aiProfileViews(profiles []copilot.ModelProfile, defaultID string) []aiProfi
 			ID: p.ID, Label: p.Label, Provider: p.Provider, BaseURL: p.BaseURL, Model: p.Model, SkipTLS: p.SkipTLS,
 			HasKey: p.APIKey != "", MaxTokens: p.MaxTokens, Temperature: p.Temperature, TimeoutS: p.TimeoutS,
 			Thinking: p.Thinking, Default: p.ID == defaultID,
+			Toolset: p.Toolset, EffectiveToolset: modelcaps.ResolveToolset(p.Toolset, p.Model), // v0.10.1302
 			Description: p.Description, Roles: p.Roles, Deep: p.Deep, Headers: p.Headers,
 		})
 	}
@@ -108,39 +115,50 @@ func resolveLegacyAPIKey(in, current string, clear bool) string {
 	return in
 }
 
-func (s *Server) putAIProfile(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimSpace(r.PathValue("id"))
-	var in struct {
-		Label       string   `json:"label"`
-		Provider    string   `json:"provider"`
-		BaseURL     string   `json:"baseUrl"`
-		APIKey      string   `json:"apiKey"`
-		Model       string   `json:"model"`
-		SkipTLS     bool     `json:"skipTls"`
-		MaxTokens   int      `json:"maxTokens"`
-		Temperature *float64 `json:"temperature"`
-		TimeoutS    int      `json:"timeoutS"`
-		Thinking    string   `json:"thinking"`    // v0.10.534
-		Description string   `json:"description"` // v0.10.1138 — seçicideki kısa açıklama
-		Roles       []string `json:"roles"`       // v0.10.1138 — boş = herkes
-		Deep        bool     `json:"deep"`        // v0.10.1150 — "Derin düşün" profili (tek)
-		// v0.10.1238 — ek HTTP başlıkları; tam liste (gönderilmeyen = silinir).
-		Headers map[string]string `json:"headers"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "geçersiz JSON: "+err.Error())
-		return
-	}
-	p := copilot.ModelProfile{
+// aiProfileInput — PUT /api/settings/ai/profiles/{id} gövdesi.
+type aiProfileInput struct {
+	Label       string   `json:"label"`
+	Provider    string   `json:"provider"`
+	BaseURL     string   `json:"baseUrl"`
+	APIKey      string   `json:"apiKey"`
+	Model       string   `json:"model"`
+	SkipTLS     bool     `json:"skipTls"`
+	MaxTokens   int      `json:"maxTokens"`
+	Temperature *float64 `json:"temperature"`
+	TimeoutS    int      `json:"timeoutS"`
+	Thinking    string   `json:"thinking"`    // v0.10.534
+	Toolset     string   `json:"toolset"`     // v0.10.1302 — "" otomatik | simple | full
+	Description string   `json:"description"` // v0.10.1138 — seçicideki kısa açıklama
+	Roles       []string `json:"roles"`       // v0.10.1138 — boş = herkes
+	Deep        bool     `json:"deep"`        // v0.10.1150 — "Derin düşün" profili (tek)
+	// v0.10.1238 — ek HTTP başlıkları; tam liste (gönderilmeyen = silinir).
+	Headers map[string]string `json:"headers"`
+}
+
+// aiProfileFromInput — SAF: gövdeden profil (kırpma + normalizasyon;
+// doğrulama ValidateProfile'da).
+func aiProfileFromInput(id string, in aiProfileInput) copilot.ModelProfile {
+	return copilot.ModelProfile{
 		ID: id, Label: strings.TrimSpace(in.Label), Provider: strings.TrimSpace(in.Provider), BaseURL: strings.TrimSpace(in.BaseURL),
 		APIKey: in.APIKey, Model: strings.TrimSpace(in.Model), SkipTLS: in.SkipTLS,
 		MaxTokens: in.MaxTokens, Temperature: in.Temperature, TimeoutS: in.TimeoutS,
 		Thinking:    strings.TrimSpace(in.Thinking),
+		Toolset:     strings.TrimSpace(in.Toolset), // v0.10.1302
 		Description: strings.TrimSpace(in.Description),
 		Roles:       normalizeProfileRoles(in.Roles),
 		Deep:        in.Deep,
 		Headers:     normalizeProfileHeaders(in.Headers),
 	}
+}
+
+func (s *Server) putAIProfile(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	var in aiProfileInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "geçersiz JSON: "+err.Error())
+		return
+	}
+	p := aiProfileFromInput(id, in)
 	if err := copilot.ValidateProfile(p); err != nil {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
@@ -150,8 +168,7 @@ func (s *Server) putAIProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.publishConfigReload(r.Context(), "ai")
-	s.audit(r, "settings.ai.profile.upsert", "settings", id,
-		fmt.Sprintf("provider=%s model=%s baseUrl=%s hasKey=%v roles=%s", p.Provider, p.Model, p.BaseURL, in.APIKey != "", profileRolesAudit(p.Roles))+profileDeepAudit(p.Deep)+profileHeadersAudit(p.Headers))
+	s.audit(r, "settings.ai.profile.upsert", "settings", id, aiProfileUpsertAudit(p, in.APIKey != ""))
 	writeJSON(w, s.aiProfilesPayload())
 }
 
@@ -201,6 +218,21 @@ func profileHeadersAudit(h map[string]string) string {
 	}
 	sort.Strings(names)
 	return " headers=" + strings.Join(names, ",")
+}
+
+// aiProfileUpsertAudit — SAF: profil upsert audit ayrıntısı. v0.10.1302 —
+// açık araç seti " toolset=simple|full" eki (otomatikte satır bayt bayt eski).
+func aiProfileUpsertAudit(p copilot.ModelProfile, hasKey bool) string {
+	return fmt.Sprintf("provider=%s model=%s baseUrl=%s hasKey=%v roles=%s", p.Provider, p.Model, p.BaseURL, hasKey, profileRolesAudit(p.Roles)) +
+		profileDeepAudit(p.Deep) + profileToolsetAudit(p.Toolset) + profileHeadersAudit(p.Headers)
+}
+
+// profileToolsetAudit — v0.10.1302, SAF: açık araç seti ayarı; otomatik "".
+func profileToolsetAudit(toolset string) string {
+	if toolset == "" {
+		return ""
+	}
+	return " toolset=" + toolset
 }
 
 // profileDeepAudit — v0.10.1150, SAF: derin profil işareti audit satırına

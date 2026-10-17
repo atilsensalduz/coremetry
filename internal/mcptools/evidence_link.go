@@ -168,7 +168,8 @@ func EvidenceHref(tool string, ev cosreEvidence, req map[string]any) string {
 	service := reqString(req, "service")
 	switch tool {
 	case queryTracesName:
-		if service == "" {
+		_, coded := reqFilterExpr(req, qtCodeFilterKey)
+		if service == "" && !coded { // v0.10.1302 — servissiz kod süzgeci de bağlanır
 			return ""
 		}
 		f := chstore.TraceFilter{

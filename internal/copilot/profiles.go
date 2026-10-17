@@ -64,6 +64,10 @@ type ModelProfile struct {
 	// anahtarı biliniyorsa (Qwen3: chat_template_kwargs.enable_thinking)
 	// gövdeye iner; bilinmiyorsa bir kez uyarılır, gövde değişmez.
 	Thinking string `json:"thinking,omitempty"`
+	// Toolset — v0.10.1302 (modelcaps): CoSRE sohbet kataloğu "" otomatik
+	// (model adı ≤12B → simple, aksi/bilinmeyen → full) | "simple" (serbest-
+	// sorgu araçları gizli) | "full". Çözüm: (*Service).ToolsetFor.
+	Toolset string `json:"toolset,omitempty"`
 	// Description — v0.10.1138: sohbet model seçicisindeki kısa açıklama
 	// ("Hızlı, kısa cevaplar"); sır değil, /api/copilot/config'e girer.
 	Description string `json:"description,omitempty"`
@@ -130,7 +134,7 @@ func sameHeaders(a, b map[string]string) bool {
 func sameProfile(a, b ModelProfile) bool {
 	if a.ID != b.ID || a.Label != b.Label || a.Provider != b.Provider || a.BaseURL != b.BaseURL ||
 		a.APIKey != b.APIKey || a.Model != b.Model || a.SkipTLS != b.SkipTLS ||
-		a.MaxTokens != b.MaxTokens || a.TimeoutS != b.TimeoutS || a.Thinking != b.Thinking ||
+		a.MaxTokens != b.MaxTokens || a.TimeoutS != b.TimeoutS || a.Thinking != b.Thinking || a.Toolset != b.Toolset ||
 		a.Description != b.Description || !sameStrings(a.Roles, b.Roles) || a.Deep != b.Deep ||
 		!sameHeaders(a.Headers, b.Headers) {
 		return false
@@ -195,6 +199,9 @@ func ValidateProfile(p ModelProfile) error {
 	}
 	if !modelcaps.ValidThinking(p.Thinking) {
 		return errors.New("thinking boş, 'off' ya da 'on' olmalı")
+	}
+	if !modelcaps.ValidToolset(p.Toolset) { // v0.10.1302
+		return errors.New("toolset boş (otomatik), 'simple' ya da 'full' olmalı")
 	}
 	if len([]rune(p.Description)) > 120 {
 		return errors.New("description ≤ 120 karakter")
@@ -540,6 +547,21 @@ func (s *Service) MaxTokensFor(ctx context.Context) int {
 		maxTok = p.MaxTokens
 	}
 	return deepMaxTokensFor(ctx, maxTok, p.Model) // v0.10.1150 — Derin kapalıyken aynen
+}
+
+// ToolsetFor — v0.10.1302: çağrının ÇÖZÜLEN profilinde (WithProfile —
+// sohbet model seçicisi ve Derin profili — > yüzey haritası > grup kardeşi >
+// varsayılan) yürürlükteki CoSRE araç seti: açık ayar, boşsa model adından
+// otomatik kural (modelcaps.DefaultToolset). nil servis → "full" (bugünkü
+// katalog). MaxTokensFor'un kardeşi.
+func (s *Service) ToolsetFor(ctx context.Context) string {
+	if s == nil {
+		return modelcaps.ToolsetFull
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	p := s.resolveProfileLocked(ctx).cfg
+	return modelcaps.ResolveToolset(p.Toolset, p.Model)
 }
 
 // DefaultMaxTokens — küresel varsayılan completion bütçesi (AI yokken de).

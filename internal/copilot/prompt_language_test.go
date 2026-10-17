@@ -82,20 +82,22 @@ func promptRegistry() map[string]promptClass {
 		// buraya taşındı: metin artık Türkçe yazılmış. ChatRoundCap aynı
 		// döngünün tur-tavanı hâli; sicile girmesiyle copilot_chat.go'daki
 		// satır-içi İngilizce ek de dil kapısının kapsamına girdi.
-		"Chat":             classTurkishNative,
-		"IntentClassify":   classTurkishNative, // v0.10.172 — JSON çıktı, Türkçe talimat (RCAVerdict emsali)
-		"GeneralChat":      classTurkishNative, // v0.10.194 — none → genel bilgi cevabı (tool'suz)
-		"ChatRoundCap":     classTurkishNative,
-		"ChatAgentLoop":    classTurkishNative, // v0.10.482 — telemetri ajanı çekirdek döngüsü (Ek A, Türkçe/kısa)
-		"ShiftSummary":     classTurkishNative,
-		"AlertNoise":       classTurkishNative,
-		"LogPatterns":      classTurkishNative,
-		"LogSpike":         classTurkishNative, // v0.10.1284 — AI SRE Faz 1a, sabit dört bölüm + tek örnek
-		"LogLine":          classTurkishNative, // v0.10.1291 — ✨ log satırı, sabit dört bölüm + tek örnek
-		"SREInvestigation": classTurkishNative, // v0.10.1287 — AI SRE Faz 1b, sabit dört bölüm + tek örnek + veri çerçevesi
-		"RuleProposal":     classTurkishNative, // v0.10.1289 — "bunu hatırla" tek cümlelik kural önerisi + tek örnek + veri çerçevesi
-		"Postmortem":       classTurkishNative, // Faz 5.4 — markdown taslak, Türkçe talimat
-		"RunbookUpdate":    classTurkishNative, // Faz 5.5 — güncelleme önerisi bloğu
+		"Chat":           classTurkishNative,
+		"IntentClassify": classTurkishNative, // v0.10.172 — JSON çıktı, Türkçe talimat (RCAVerdict emsali)
+		"GeneralChat":    classTurkishNative, // v0.10.194 — none → genel bilgi cevabı (tool'suz)
+		"ChatRoundCap":   classTurkishNative,
+		"ChatAgentLoop":  classTurkishNative, // v0.10.482 — telemetri ajanı çekirdek döngüsü (Ek A, Türkçe/kısa)
+		// v0.10.1302 — simple araç seti varyantı (SystemPromptChatAgentLoopFor(true)).
+		"ChatAgentLoop.simple": classTurkishNative,
+		"ShiftSummary":         classTurkishNative,
+		"AlertNoise":           classTurkishNative,
+		"LogPatterns":          classTurkishNative,
+		"LogSpike":             classTurkishNative, // v0.10.1284 — AI SRE Faz 1a, sabit dört bölüm + tek örnek
+		"LogLine":              classTurkishNative, // v0.10.1291 — ✨ log satırı, sabit dört bölüm + tek örnek
+		"SREInvestigation":     classTurkishNative, // v0.10.1287 — AI SRE Faz 1b, sabit dört bölüm + tek örnek + veri çerçevesi
+		"RuleProposal":         classTurkishNative, // v0.10.1289 — "bunu hatırla" tek cümlelik kural önerisi + tek örnek + veri çerçevesi
+		"Postmortem":           classTurkishNative, // Faz 5.4 — markdown taslak, Türkçe talimat
+		"RunbookUpdate":        classTurkishNative, // Faz 5.5 — güncelleme önerisi bloğu
 		// ── Makine-parse edilen çıktı
 		"NLToQuery":       classStructured,
 		"CHQueryOptimize": classStructured,
@@ -120,7 +122,8 @@ func promptTexts() map[string]string {
 		"GeneralChat":    SystemPromptGeneralChat(),
 		"DrawerChat":     SystemPromptDrawerChat(), "Chat": SystemPromptChat(),
 		"ChatRoundCap": SystemPromptChatRoundCap(), "ChatAgentLoop": SystemPromptChatAgentLoop(),
-		"RCAVerdict": SystemPromptRCAVerdict(), "ServiceAnalysis": SystemPromptServiceAnalysis(),
+		"ChatAgentLoop.simple": SystemPromptChatAgentLoopFor(true), // v0.10.1302
+		"RCAVerdict":           SystemPromptRCAVerdict(), "ServiceAnalysis": SystemPromptServiceAnalysis(),
 		"RAGChat": SystemPromptRAGChat(), "ShiftSummary": SystemPromptShiftSummary(),
 		"WikiChat":     SystemPromptWikiChat(),
 		"WikiFollowUp": SystemPromptWikiFollowUp(),
@@ -310,6 +313,13 @@ func TestPromptRegistryCoversEveryAccessor(t *testing.T) {
 		}
 	}
 	for name := range reg {
+		// v0.10.1302 — "<ad>.simple" araç seti varyantı: tabanın accessor'ı yeter.
+		if base, ok := strings.CutSuffix(name, ".simple"); ok {
+			if !found[base] {
+				t.Errorf("sicilde %s varyantı var ama SystemPrompt%s accessor'ı yok", name, base)
+			}
+			continue
+		}
 		if !found[name] {
 			t.Errorf("sicilde SystemPrompt%s var ama prompts.go'da accessor'ı yok", name)
 		}

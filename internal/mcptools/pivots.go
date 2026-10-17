@@ -100,7 +100,7 @@ func getLogsForTraceTool(d Deps) mcp.Tool {
 			"properties": map[string]any{
 				"trace_id": map[string]any{
 					"type":        "string",
-					"description": "32-char hex trace ID (as returned by get_trace / get_exemplar_traces / search_logs).",
+					"description": "32-char hex trace ID (as returned by get_trace / get_exemplar_traces / ⟦search_logs|query_traces⟧).", // v0.10.1302
 				},
 				"span_id": map[string]any{
 					"type":        "string",
@@ -292,7 +292,7 @@ func getExemplarTracesTool(d Deps) mcp.Tool {
 			"properties": map[string]any{
 				"metric": map[string]any{
 					"type":        "string",
-					"description": "OTel metric name the spike is on (as used by query_metric, e.g. 'http.server.request.duration').",
+					"description": "OTel metric name the spike is on (⟦as used by query_metric, |⟧e.g. 'http.server.request.duration').", // v0.10.1302
 				},
 				"service": map[string]any{
 					"type":        "string",

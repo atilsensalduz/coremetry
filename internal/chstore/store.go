@@ -4340,6 +4340,11 @@ func (s *Store) migrate(ctx context.Context) error {
 		// satır", tool_* dizilerine paralel). Append-only MergeTree; aynı iki-boot
 		// sözleşmesi (ayrı probe). Geri alma: DROP COLUMN.
 		`ALTER TABLE cosre_interactions ADD COLUMN IF NOT EXISTS tool_evidence Array(String) CODEC(ZSTD(3))`,
+		// v0.10.1302 — CoSRE: modele göre araç seti. Serbest döngünün koştuğu
+		// katalog varyantı (full | simple; guided/niyet ''), telemetri için.
+		// Kapalı küme (3 değer) → LowCardinality güvenli. Aynı iki-boot
+		// sözleşmesi (probeCosreInteractionsColumns). Geri alma: DROP COLUMN.
+		`ALTER TABLE cosre_interactions ADD COLUMN IF NOT EXISTS toolset LowCardinality(String) DEFAULT ''`,
 		// v0.8.20 — drop the dead topology-mute setting. The
 		// "Mute on topology" chip was removed from the service detail
 		// page in v0.8.19; this migration removes the now-orphaned
@@ -4882,9 +4887,9 @@ func (s *Store) migrate(ctx context.Context) error {
 	registerAttrIndex(s.probeAttrIndex(ctx))
 	// v0.10.409 — ai_calls genişletilmiş kolon probe'u (iki-boot).
 	s.probeAICallsColumns(ctx)
-	s.probeAICallsCachedColumn(ctx)             // v0.10.807
-	s.probeAIFeedbackCallColumns(ctx)           // v0.10.1280
-	s.probeCosreInteractionsEvidenceColumn(ctx) // v0.10.1280
+	s.probeAICallsCachedColumn(ctx)      // v0.10.807
+	s.probeAIFeedbackCallColumns(ctx)    // v0.10.1280
+	s.probeCosreInteractionsColumns(ctx) // v0.10.1280 tool_evidence; v0.10.1302 + toolset
 
 	// v0.10.127 — entity_seen MV'leri k8s_pod terfi kolonunu OKUR; kolon
 	// yoksa (dış Distributed: repairPromotedAttrCols atlandı, ya da DDL

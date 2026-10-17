@@ -100,9 +100,10 @@ func TestChatLoopWiresCatalogAndResultBudget(t *testing.T) {
 		t.Fatalf("copilot_chat.go okunamadı: %v", err)
 	}
 	src := stripGoComments(string(b))
-	if !strings.Contains(src, "Description: t.ChatDescription()") {
-		t.Error("sohbet spec'i KOMPAKT kataloğu kullanmıyor — " +
-			"copilot.ToolSpec{… Description: t.ChatDescription() …} bekleniyor")
+	// v0.10.1302 — yerli araçlar araç setine göre ChatDescriptionFor (⟦full|simple⟧).
+	if !strings.Contains(src, "Description: t.ChatDescriptionFor(simpleTools)") {
+		t.Error("sohbet spec'i KOMPAKT kataloğu araç setine göre kullanmıyor — " +
+			"copilot.ToolSpec{… Description: t.ChatDescriptionFor(simpleTools) …} bekleniyor")
 	}
 	if strings.Contains(src, "Description: t.Description") {
 		t.Error("tam İngilizce açıklama hâlâ spec'e giriyor — her tur ~24 KB")

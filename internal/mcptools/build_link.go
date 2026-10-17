@@ -265,7 +265,7 @@ func buildLinkTool(d Deps) mcp.Tool {
 				"env":              map[string]any{"type": "string", "description": "traces / logs / service: deploy_env value."},
 				"search":           map[string]any{"type": "string", "description": "traces/endpoints free text."},
 				"query":            map[string]any{"type": "string", "description": "logs KQL."},
-				"filters":          map[string]any{"type": "array", "description": "traces: attribute filters as in search_traces.", "items": map[string]any{"type": "object"}},
+				"filters":          map[string]any{"type": "array", "description": "traces: attribute filters as in ⟦search_traces|trace_stats⟧.", "items": map[string]any{"type": "object"}},
 				"errors_only":      map[string]any{"type": "boolean", "description": "traces: error traces only; logs: severity ≥ 17 when severity is empty."},
 				"min_ms":           map[string]any{"type": "number", "description": "traces: lower duration bound (ms)."},
 				"max_ms":           map[string]any{"type": "number", "description": "traces: upper duration bound (ms)."},

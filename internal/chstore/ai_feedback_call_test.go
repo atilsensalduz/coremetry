@@ -102,7 +102,7 @@ func TestAIFeedbackInsertBranches(t *testing.T) {
 func TestAIFeedbackProbeTargetsInsertTable(t *testing.T) {
 	for file, want := range map[string]string{
 		"ai_feedback.go":        "table = 'ai_feedback' AND name IN ('call_id', 'reason')",
-		"cosre_interactions.go": "table = 'cosre_interactions' AND name = 'tool_evidence'",
+		"cosre_interactions.go": "table = 'cosre_interactions' AND name IN ('tool_evidence', 'toolset')", // v0.10.1302 — tek probe
 	} {
 		src := readFileT(t, file)
 		if !strings.Contains(src, want) {
@@ -115,7 +115,7 @@ func TestAIFeedbackProbeTargetsInsertTable(t *testing.T) {
 	// Probe'lar boot'ta ve ertelenen DDL sonrası yeniden koşar.
 	for _, f := range []string{"store.go", "ddl_defer.go"} {
 		src := readFileT(t, f)
-		for _, call := range []string{"probeAIFeedbackCallColumns(ctx)", "probeCosreInteractionsEvidenceColumn(ctx)"} {
+		for _, call := range []string{"probeAIFeedbackCallColumns(ctx)", "probeCosreInteractionsColumns(ctx)"} {
 			if !strings.Contains(src, call) {
 				t.Errorf("%s %s çağırmıyor", f, call)
 			}

@@ -189,6 +189,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cilcenk/coremetry/internal/ai/modelcaps"
 	"github.com/cilcenk/coremetry/internal/anomaly"
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/logstore"
@@ -573,11 +574,60 @@ func ChatToolList(d Deps) []mcp.Tool {
 	return out
 }
 
+// simpleHiddenTools — v0.10.1302 — CoSRE: modele göre araç seti (küçük
+// modelde serbest-sorgu araçları gizli; operatör kararı 2026-10-17). simple
+// varyantta (profil ayarı ya da ≤12B otomatik kuralı; copilot.ToolsetFor)
+// sohbet bu dördünü görmez; yapısal karşılıkları kalır:
+//
+//	query_metric       → query_metrics (aile tabanlı, PromQL/ad yok)
+//	search_logs        → query_logs (sorgu dili yok)
+//	search_traces      → query_traces (servis + durum + sıralama)
+//	list_metric_labels → — (yalnız query_metric'i besliyordu)
+//
+// list_metric_names, trace_stats, describe_attributes/find_attribute_by_value,
+// cluster_metric KALIR (telemetriden sonra aday). Register (dış MCP) ve
+// guided/niyet kademeleri etkilenmez; gizli ada çağrı byName'de yoktur →
+// "unknown tool".
+var simpleHiddenTools = map[string]bool{
+	"query_metric":       true,
+	"search_logs":        true,
+	"search_traces":      true,
+	"list_metric_labels": true,
+}
+
+// ChatToolListFor — v0.10.1302: araç setine göre sohbet kataloğu. toolset
+// "simple" → ChatToolList eksi simpleHiddenTools (sıra aynı); başka her değer
+// (full, "", bilinmeyen) → ChatToolList aynen. Serbest döngü bunu okur
+// (api/copilot_chat.go; kaynak pini mcptools/bubble_up_test.go).
+func ChatToolListFor(d Deps, toolset string) []mcp.Tool {
+	all := ChatToolList(d)
+	if toolset != modelcaps.ToolsetSimple {
+		return all
+	}
+	out := make([]mcp.Tool, 0, len(all))
+	for _, t := range all {
+		if !simpleHiddenTools[t.Name] {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// WithToolset — v0.10.1302: serbest döngünün araç setini araç YÜRÜTMESİNE
+// taşır (ctx). simple iken araç sonuçlarındaki ve şemalardaki ⟦full|simple⟧
+// işaretleri simple tarafıyla basılır (mcp.ToolsetText); işaretsiz ctx (dış
+// MCP, guided/niyet ön-getirmeleri) full kalır.
+func WithToolset(ctx context.Context, toolset string) context.Context {
+	return mcp.WithSimpleToolset(ctx, toolset == modelcaps.ToolsetSimple)
+}
+
 func Register(srv *mcp.Server, d Deps) {
 	for _, t := range ToolList(d) {
 		if chatOnlyTools[t.Name] {
 			continue
 		}
+		// v0.10.1302 — dış istemci şemayı full varyantla görür (işaret sızmaz).
+		t.InputSchema = mcp.RenderSchemaToolsetMarkers(t.InputSchema, false)
 		srv.RegisterTool(t)
 	}
 	// v0.6.6 — resources: pinned references the LLM can attach
@@ -1607,4 +1657,24 @@ func (d Deps) runtimePods() chstore.RuntimePodReader {
 		return d.RuntimePods
 	}
 	return d.Store
+}
+
+// renderToolsetFields — v0.10.1302: sonuç gövdesindeki işaretli metin
+// alanlarını (string ya da []string) ctx'in araç setine göre basar; gövdeyi
+// yerinde günceller ve döndürür. Saf üreticiler (ör. oracleOperationResult)
+// işaretli metni taşır, handler basar — tek mekanizma mcp.ToolsetText.
+func renderToolsetFields(ctx context.Context, body map[string]any, keys ...string) map[string]any {
+	for _, k := range keys {
+		switch v := body[k].(type) {
+		case string:
+			body[k] = mcp.ToolsetText(ctx, v)
+		case []string:
+			out := make([]string, len(v))
+			for i, s := range v {
+				out[i] = mcp.ToolsetText(ctx, s)
+			}
+			body[k] = out
+		}
+	}
+	return body
 }

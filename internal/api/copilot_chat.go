@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cilcenk/coremetry/internal/ai/assemble"
+	"github.com/cilcenk/coremetry/internal/ai/modelcaps"
 	"github.com/cilcenk/coremetry/internal/auth"
 	"github.com/cilcenk/coremetry/internal/copilot"
 	"github.com/cilcenk/coremetry/internal/mcp"
@@ -494,7 +495,20 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	if c != nil {
 		role = c.Role
 	}
-	tools := toolsForRole(mcptools.ChatToolList(s.mcpDeps()), role) // v0.10.993 — dış-yalnız araçlar (bubble_up) hariç
+	// v0.10.1302 — CoSRE: modele göre araç seti. Çözülen profil (model seçicisi /
+	// Derin profili WithProfile ile ctx'te) simple ise serbest-sorgu araçları
+	// (query_metric / search_logs / search_traces / list_metric_labels) bu turda
+	// sunulmaz; byName de bu listeden kurulur → gizli ad "unknown tool". Katalog
+	// metni (ChatDescriptionFor) ve döngü prompt'u aynı varyantı okur; etkileşim
+	// satırı (cosre_interactions.toolset) hangi varyantın koştuğunu kaydeder.
+	toolset := s.copilot.ToolsetFor(ctx)
+	simpleTools := toolset == modelcaps.ToolsetSimple
+	xch.setToolset(toolset)
+	// Araç YÜRÜTMESİ de aynı varyantı görsün: sonuç ipuçları / notlar / hata
+	// metinlerindeki ⟦full|simple⟧ işaretleri ctx'ten basılır (exec.Call bu
+	// ctx'ten türer); dış MCP istemcisi işaretsiz ctx ile full kalır.
+	ctx = mcptools.WithToolset(ctx, toolset)
+	tools := toolsForRole(mcptools.ChatToolListFor(s.mcpDeps(), toolset), role) // v0.10.993 — dış-yalnız araçlar (bubble_up) hariç
 	// v0.10.1050 — read_source_code YALNIZ panel trace takibinde ve oturum
 	// kullanıcısına (API token'ı değil); bağımsız döngüde dış MCP araçlarının
 	// yanında sunulmaz (chat_source_code.go). Katalog/spec/prompt bundan kurulur.
@@ -557,7 +571,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 		byName[t.Name] = t.Handler
 		toolSchemas[t.Name] = t.InputSchema
 		specs = append(specs, copilot.ToolSpec{
-			Name: t.Name, Description: t.ChatDescription(), InputSchema: t.InputSchema,
+			Name: t.Name, Description: t.ChatDescriptionFor(simpleTools), InputSchema: mcp.RenderSchemaToolsetMarkers(t.InputSchema, simpleTools), // v0.10.1302 — ⟦full|simple⟧
 		})
 	}
 	// Dış MCP araçları (yukarıda kuruldu) yerli kataloğun ardına; bütçe
@@ -700,6 +714,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	fuHadExplain := isTraceFollowUp && strings.TrimSpace(req.Context.Explain) != ""
 	if isTraceFollowUp {
 		tf := buildTraceFollowUp(traceSubj, pageCtx, loopEnv, req.Context.RangeS, anchorTo, time.Now())
+		tf.Simple = simpleTools // v0.10.1302 — takip talimatı araç setine göre
 		// v0.10.1147 — ilk cevabın span exception özeti takibe de (aynı okuma,
 		// aynı blok; explain_trace_events.go). Okunamazsa "" ve takip aynen.
 		tf.Events = s.traceFollowUpEvents(ctx, tf.TraceID)
@@ -727,7 +742,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	if label := cosreRulesStepLabel(rulesN); label != "" {
 		emit("step", map[string]string{"label": label})
 	}
-	loopPrompt := copilot.SystemPromptChatAgentLoop() + // v0.10.482 — telemetri ajanı çekirdek döngüsü (Ek A)
+	loopPrompt := copilot.SystemPromptChatAgentLoopFor(simpleTools) + // v0.10.482 — telemetri ajanı çekirdek döngüsü (Ek A); v0.10.1302 — araç setine göre
 		screenContextPreambleTR(screenCtx) +
 		agentctx.PreambleTR(pageCtx, pinnedCtx) + // v0.10.539 — sayfa bağlamı (pin önce)
 		chatContextPreambleTR(cst.ctx) + // v0.10.478 — aktif sohbet bağlamı (Ek A ACTIVE_CONTEXT)

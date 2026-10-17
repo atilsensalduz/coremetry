@@ -19,6 +19,8 @@
 // const'u tanımlamak YAPISAL kapıya takılır (promptOwnership testi).
 package copilot
 
+import "strings"
+
 // ── Prompt helpers (pre-baked so handlers don't have to compose) ────────────
 
 // AnswerInTurkish is appended to every PROSE copilot surface
@@ -165,6 +167,13 @@ olmayan ayrıntıyı (principal, komut, config anahtarı) uydurma.`
 // TraceFollowUpAddendum — v0.10.948: çekmecedeki trace/span sohbetinde serbest araç
 // döngüsünün sistem mesajına eklenen inceleme talimatı.
 func TraceFollowUpAddendum() string { return traceFollowUpAddendum }
+
+// TraceFollowUpAddendumFor — v0.10.1302: araç setine göre takip talimatı.
+// simple katalogda (küçük model) serbest-sorgu araçları sunulmaz; talimat
+// onların yapısal karşılıklarını anar (ToolsetText). full = bayt bayt eski.
+func TraceFollowUpAddendumFor(simple bool) string {
+	return ToolsetText(traceFollowUpAddendum, simple)
+}
 
 // systemSpan — focused per-span explain (v0.5.144). Inputs are
 // the target span + parent + immediate children + any error
@@ -2304,6 +2313,37 @@ adım; linki sunucu ekler.
 // SystemPromptChatAgentLoop — serbest döngünün ajan çekirdeği (copilot_chat.go
 // loopPrompt'unun başına gider; systemChat'i yeniden yazmaz).
 func SystemPromptChatAgentLoop() string { return systemChatAgentLoop }
+
+// SystemPromptChatAgentLoopFor — v0.10.1302 (CoSRE: modele göre araç seti):
+// simple katalogda adım 4'ün serbest-sorgu araçları yapısal karşılıklarıyla
+// anılır; full = SystemPromptChatAgentLoop() bayt bayt.
+func SystemPromptChatAgentLoopFor(simple bool) string {
+	return ToolsetText(systemChatAgentLoop, simple)
+}
+
+// simpleToolsetReplacer — v0.10.1302: simple araç setinde GİZLİ olan dört
+// serbest-sorgu aracının (mcptools.simpleHiddenTools) adını sohbetin gördüğü
+// yapısal karşılığa çevirir. Sıra yüklü: strings.Replacer aynı konumda
+// argüman sırasıyla eşler — uzun kalıp önce, "query_metrics" kimlik eşlemesi
+// "query_metric"ten önce (yoksa "query_metricss" doğardı).
+var simpleToolsetReplacer = strings.NewReplacer(
+	"list_metric_labels, ardından query_metric", "query_metrics",
+	"query_metrics", "query_metrics",
+	"query_metric", "query_metrics",
+	"search_traces", "query_traces",
+	"search_logs", "query_logs",
+	"list_metric_labels", "query_metrics",
+)
+
+// ToolsetText — v0.10.1302, SAF: prompt metninin araç setine göre hâli.
+// simple=false → metin aynen (full katalog). api'nin çalışma-zamanı ekleri
+// (trace takibi pencere satırı) aynı çeviriyi buradan alır.
+func ToolsetText(s string, simple bool) string {
+	if !simple {
+		return s
+	}
+	return simpleToolsetReplacer.Replace(s)
+}
 
 // ── CoSRE öğrenme (Faz 3/4) — arka plan hakem çağrıları ─────────────────
 

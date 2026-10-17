@@ -332,7 +332,7 @@ type listClustersArgs struct {
 func listClustersTool(d Deps) mcp.Tool {
 	return mcp.Tool{
 		Name:             "list_clusters",
-		ShortDescription: "Telemetride görülen k8s/OpenShift cluster adları. search_logs'a `cluster` vermeden önce çağır — tahmin edilen ad sessizce sıfır log döndürür. Pencere bilinçli 1 saat.",
+		ShortDescription: "Telemetride görülen k8s/OpenShift cluster adları. ⟦search_logs|query_logs⟧'a `cluster` vermeden önce çağır — tahmin edilen ad sessizce sıfır log döndürür. Pencere bilinçli 1 saat.", // v0.10.1302 — ⟦full|simple⟧
 		Description: "List the k8s / OpenShift cluster names observed in telemetry. Use this before passing `cluster` to search_logs, " +
 			"and to answer 'which clusters are we running in' — a guessed cluster name silently returns zero logs. " +
 			"Enumeration is deliberately bounded to the most recent HOUR even if you ask for more (the cluster set is infra-stable, and a wider " +

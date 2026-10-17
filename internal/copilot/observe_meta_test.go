@@ -40,6 +40,13 @@ func TestPromptVersionRegistryCoversEveryPrompt(t *testing.T) {
 		}
 	}
 	for name := range promptVersionRegistry {
+		// v0.10.1302 — "<const>.simple" araç seti varyantı: tabanı const olmalı.
+		if base, ok := strings.CutSuffix(name, ".simple"); ok {
+			if !seen[base] {
+				t.Errorf("kayıttaki %s varyantının tabanı %s prompts.go'da const değil", name, base)
+			}
+			continue
+		}
 		if !seen[name] {
 			t.Errorf("kayıttaki %s prompts.go'da const değil", name)
 		}

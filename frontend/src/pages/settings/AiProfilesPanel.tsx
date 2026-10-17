@@ -7,7 +7,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Button, ButtonGroup, Badge, Modal, SelectField, useConfirm } from '@/components/ui';
 import { useDataTable, DataTableHead, DataTableColgroup, DataTableCell, type ColumnDef } from '@/components/ui/DataTable';
 import { api } from '@/lib/api';
-import type { AIModelProfile, AIModelProfileInput, AIProfilesPayload, AIProvider, AIProfileTestResult, AIThinking, Role } from '@/lib/types';
+import type { AIModelProfile, AIModelProfileInput, AIProfilesPayload, AIProvider, AIProfileTestResult, AIThinking, AIToolset, Role } from '@/lib/types';
 import { Field2, FlashBox, Row } from './shared';
 import { slugifyProfileId, PROFILE_ID_RE, tuningSummary, endpointLabel, profileUsable, PROFILE_ROLES, rolesSummary, toggleRole, defaultRolesWarning, DEFAULT_ROLES_WARNING, formatHeaderLines, parseHeaderLines } from './aiProfiles';
 
@@ -36,12 +36,13 @@ const COLS: ColumnDef<AIModelProfile>[] = [
   { id: 'actions',  label: 'Eylemler',  kind: 'actions', width: 340, minWidth: 340 },
 ];
 
-type Draft = { id: string; label: string; provider: AIProvider; baseUrl: string; apiKey: string; model: string; skipTls: boolean; maxTokens: string; temperature: string; timeoutS: string; thinking: AIThinking; description: string; roles: Role[]; deep: boolean; headers: string };
-const emptyDraft = (): Draft => ({ id: '', label: '', provider: 'openai', baseUrl: '', apiKey: '', model: '', skipTls: false, maxTokens: '', temperature: '', timeoutS: '', thinking: '', description: '', roles: [], deep: false, headers: '' });
+type Draft = { id: string; label: string; provider: AIProvider; baseUrl: string; apiKey: string; model: string; skipTls: boolean; maxTokens: string; temperature: string; timeoutS: string; thinking: AIThinking; toolset: AIToolset; description: string; roles: Role[]; deep: boolean; headers: string };
+const emptyDraft = (): Draft => ({ id: '', label: '', provider: 'openai', baseUrl: '', apiKey: '', model: '', skipTls: false, maxTokens: '', temperature: '', timeoutS: '', thinking: '', toolset: '', description: '', roles: [], deep: false, headers: '' });
 const draftOf = (p: AIModelProfile): Draft => ({
   id: p.id, label: p.label ?? '', provider: p.provider, baseUrl: p.baseUrl ?? '', apiKey: '', model: p.model ?? '', skipTls: !!p.skipTls,
   maxTokens: p.maxTokens ? String(p.maxTokens) : '', temperature: p.temperature === undefined || p.temperature === null ? '' : String(p.temperature), timeoutS: p.timeoutS ? String(p.timeoutS) : '',
   thinking: p.thinking ?? '',
+  toolset: p.toolset ?? '', // v0.10.1302
   description: p.description ?? '', roles: p.roles ?? [], // v0.10.1138
   deep: !!p.deep, // v0.10.1150
   headers: formatHeaderLines(p.headers), // v0.10.1238
@@ -80,6 +81,7 @@ export function AiProfilesPanel({ payload, onChange }: { payload: AIProfilesPayl
       temperature: draft.temperature === '' ? undefined : Number(draft.temperature),
       timeoutS: draft.timeoutS ? Number(draft.timeoutS) : undefined,
       thinking: draft.thinking || undefined,
+      toolset: draft.toolset, // v0.10.1302 — '' = otomatik (gönderilir: eski açık ayar temizlenebilsin)
       description: draft.description.trim() || undefined, // v0.10.1138 — sohbet seçicisindeki kısa açıklama
       roles: draft.roles, // v0.10.1138 — boş = herkes (sunucu üçü de seçiliyse boşa indirir)
       deep: draft.deep, // v0.10.1150 — "Derin düşün" profili (tek; sunucu öncekini düşürür)
@@ -127,6 +129,8 @@ export function AiProfilesPanel({ payload, onChange }: { payload: AIProfilesPayl
                       {!!p.roles?.length && <span className="badge b-gray" title="Sohbette bu profili açıkça seçebilen roller">{rolesSummary(p.roles)}</span>}
                       {/* v0.10.1150 — sohbette "Derin" açıkken (açık seçim yoksa) bu profil */}
                       {p.deep && <span className="badge b-gray" title="Derin düşün profili: sohbette Derin açıkken ve model açıkça seçilmemişken kullanılır">derin</span>}
+                      {/* v0.10.1302 — CoSRE araç seti: yalnız basit katalogda görünür (açık ayar ya da ≤12B otomatik) */}
+                      {p.effectiveToolset === 'simple' && <span className="badge b-gray" title={p.toolset === 'simple' ? 'Araç seti: basit (açık ayar) — CoSRE sohbetinde serbest-sorgu araçları (query_metric, search_logs, search_traces, list_metric_labels) gizli' : 'Araç seti: basit (otomatik — model adı ≤12B) — CoSRE sohbetinde serbest-sorgu araçları gizli'}>basit</span>}
                     </div>
                   </DataTableCell>
                   <DataTableCell dt={dt} col="provider" row={p}><span className="badge b-gray">{p.provider}</span></DataTableCell>
@@ -221,6 +225,14 @@ export function AiProfilesPanel({ payload, onChange }: { payload: AIProfilesPayl
                 <option value="on">açık</option>
               </SelectField>
             )}
+            {/* v0.10.1302 — CoSRE araç seti: küçük modelde serbest-sorgu araçları gizlenir;
+                dış MCP sunucusu ve guided/niyet kademeleri etkilenmez. */}
+            <SelectField label="Araç seti" value={draft.toolset} onChange={e => setDraft({ ...draft, toolset: e.target.value as AIToolset })}
+              hint="CoSRE sohbetinin bu profille gördüğü araçlar. Basit: query_metric / search_logs / search_traces / list_metric_labels gizli, yapısal query_metrics / query_logs / query_traces kalır (küçük model için). Otomatik: model adında ≤12B boyut varsa basit, aksi hâlde tam.">
+              <option value="">otomatik (model adına göre, ≤12B basit)</option>
+              <option value="simple">basit</option>
+              <option value="full">tam</option>
+            </SelectField>
           </form>
         )}
       </Modal>

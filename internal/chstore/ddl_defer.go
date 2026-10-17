@@ -155,8 +155,8 @@ func (s *Store) reprobePromotedAttrs() {
 		if !AIFeedbackCallCols() { // v0.10.1280
 			s.probeAIFeedbackCallColumns(ctx)
 		}
-		if !CosreInteractionsEvidenceCol() { // v0.10.1280
-			s.probeCosreInteractionsEvidenceColumn(ctx)
+		if !CosreInteractionsEvidenceCol() || !CosreInteractionsToolsetCol() { // v0.10.1280; v0.10.1302 + toolset
+			s.probeCosreInteractionsColumns(ctx)
 		}
 		// v0.10.1049 — anomaly_events bölüm kolonları (episode_count,
 		// first_started_at). ai_calls'tan farkı: sayaç BİRİKİMLİ, bayrak false

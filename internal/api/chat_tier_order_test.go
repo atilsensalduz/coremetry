@@ -54,7 +54,7 @@ var tierMarkers = []struct{ name, marker string }{
 	{"guided (canlı telemetri)", "s.copilotChatGuided(ctx, emit,"},
 	{"drawer (ekrandaki açıklama)", "s.copilotChatDrawer(ctx, emit,"},
 	{"RAG (yüklü dokümanlar)", "s.ragChatAnswer(ctx, emit,"},
-	{"serbest tool döngüsü", "toolsForRole(mcptools.ChatToolList("},
+	{"serbest tool döngüsü", "toolsForRole(mcptools.ChatToolListFor("}, // v0.10.1302 — araç setine göre
 }
 
 func TestChatTierOrderIsPinned(t *testing.T) {

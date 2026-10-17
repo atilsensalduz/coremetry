@@ -114,7 +114,7 @@ func traceStatsTool(d Deps) mcp.Tool {
 				"cluster":     map[string]any{"type": "string", "description": "Remote Cluster id / name / span value."},
 				"env":         map[string]any{"type": "string", "description": "deploy_env value."},
 				"search":      map[string]any{"type": "string", "description": "Free-text match on span/operation names."},
-				"filters":     map[string]any{"type": "array", "description": "Attribute filters as in search_traces ({key, op, value|values}).", "items": map[string]any{"type": "object"}},
+				"filters":     map[string]any{"type": "array", "description": "Attribute filters ⟦as in search_traces|— keys from describe_attributes / find_attribute_by_value⟧ ({key, op, value|values}).", "items": map[string]any{"type": "object"}},
 				"errors_only": map[string]any{"type": "boolean", "description": "Only traces with ≥1 error span."},
 				"min_ms":      map[string]any{"type": "number", "description": "Only traces slower than this (ms)."},
 				"max_ms":      map[string]any{"type": "number", "description": "Only traces faster than this (ms)."},

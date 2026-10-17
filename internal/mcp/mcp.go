@@ -297,11 +297,10 @@ type Tool struct {
 // defteri orada).
 //
 // SAF — tablo testli.
+// v0.10.1302 — ShortDescription araç seti işaretleri (⟦full|simple⟧)
+// taşıyabilir; ChatDescription full tarafı verir (ChatDescriptionFor).
 func (t Tool) ChatDescription() string {
-	if t.ShortDescription != "" {
-		return t.ShortDescription
-	}
-	return t.Description
+	return t.ChatDescriptionFor(false)
 }
 
 // ToolHandler runs one tools/call invocation. Returns a value

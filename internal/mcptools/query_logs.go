@@ -90,7 +90,7 @@ type qlRow struct {
 func queryLogsTool(d Deps) mcp.Tool {
 	return mcp.Tool{
 		Name:             "query_logs",
-		ShortDescription: "Log oku, sorgu dili yok: service, severity any|warn|error, düz text, trace_id; ≤50 satır. Lucene sorgusu: search_logs.",
+		ShortDescription: "Log oku, sorgu dili yok: service, severity any|warn|error, düz text, trace_id; ≤50 satır.⟦ Lucene sorgusu: search_logs.|⟧", // v0.10.1302 — ⟦full|simple⟧
 		Description: "Read log records with a structured request — NO query language. `text` is a plain substring/phrase: " +
 			"the server strips quotes/backslashes/control chars and searches it as ONE literal phrase (field:value, AND/OR, " +
 			"wildcards are NOT interpreted). severity any|warn|error (OTel ≥13 / ≥17). Args: service (required unless trace_id), " +
