@@ -1,4 +1,4 @@
-import { statusCodeRateQuery, statusCodeSeries, HTTP_METRICS_POINTS } from '@/lib/httpMetrics';
+import { statusCodeRateQuery, statusCodeSeries, totalRequestsQuery, scalarOf, HTTP_METRICS_POINTS } from '@/lib/httpMetrics';
 import { encodeRange } from '@/lib/urlState';
 import { useId, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -271,6 +271,17 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
   });
   const httpStatus = useMemo(() => statusCodeSeries(httpStatusQ.data), [httpStatusQ.data]);
   const showHttpStatus = metricMode && httpStatus.series.length > 0;
+  // v0.10.1259 (operatör: "Failure rate yerine toplam istek sayısı") — metrik
+  // kipinde hata oranı hesaplanamıyorsa (durum etiketi yok, "—") karo
+  // penceredeki TOPLAM isteği gösterir (VM anlık sorgu, HTTP Metrics'le aynı).
+  const totalReqQ = useQuery({
+    queryKey: ['ov-http-total', service, from, to],
+    queryFn: () => api.httpMetricsPromql({ query: totalRequestsQuery(service, Math.max(60, (to - from) / 1e9)), from, to, maxDataPoints: HTTP_METRICS_POINTS, instant: '1' }),
+    enabled: metricMode,
+    staleTime: 30_000,
+    retry: false,
+  });
+  const totalReq = scalarOf(totalReqQ.data);
   const metricAutoFellBack = explicitSrc === null && !!metricRedQ.data && !metricRedQ.data.metricExists;
   const metricRedGhostQ = useQuery({
     queryKey: ['service-metric-red', service, from - compareOff, to - compareOff, redMdp, env],
@@ -930,7 +941,10 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
             Failure rate grafiğinin Errors çizgisiyle aynı renk. Oran 0 da
             olsa şerit aynıdır; sağlık/sapma dili delta sınıfında (.ov-delta). */}
         <MetricPanel compact menuOnly title="Failure rate" metricQuery={mkFailureRate('stat')}>
-          <KpiTile lab="Failure rate" val={metricErrorsUnknown ? '—' : `${errorRatePct.toFixed(2)}%`} accent="var(--err)" spark={vals(lat?.error_rate)} delta={computeDelta(vals(lat?.error_rate))} goodWhenUp={false} note={latScopeNote} />
+          {metricErrorsUnknown && totalReq !== null
+            ? <KpiTile lab="Toplam istek" val={new Intl.NumberFormat('tr-TR', { notation: 'compact', maximumFractionDigits: 1 }).format(totalReq)}
+                accent="var(--info)" spark={metricRpsSeries} note={`Seçili pencerede toplam istek: ${totalReq.toLocaleString('tr-TR', { maximumFractionDigits: 0 })} (HTTP metrikleri)`} />
+            : <KpiTile lab="Failure rate" val={metricErrorsUnknown ? '—' : `${errorRatePct.toFixed(2)}%`} accent="var(--err)" spark={vals(lat?.error_rate)} delta={computeDelta(vals(lat?.error_rate))} goodWhenUp={false} note={latScopeNote} />}
         </MetricPanel>
         {/* v0.9.483 (operatör: "bence response time mediana da gerek yok") —
             "Response time · median" karosu kaldırıldı; P99 karo olarak kalıyor.

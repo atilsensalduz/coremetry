@@ -13,4 +13,10 @@ describe('Overview HTTP Status paneli', () => {
     expect(src).toContain("title={showHttpStatus ? 'HTTP Status · metrik' : metricMode ? 'Failure rate · metrik'");
     expect(src).toMatch(/const showHttpStatus = metricMode && httpStatus\.series\.length > 0;/);
   });
+  // v0.10.1259 — hata oranı hesaplanamıyorsa karo toplam isteği gösterir.
+  it('Failure rate "—" yerine Toplam istek', () => {
+    expect(src).toContain('{metricErrorsUnknown && totalReq !== null');
+    expect(src).toContain('<KpiTile lab="Toplam istek"');
+    expect(src).toContain("instant: '1'");
+  });
 });

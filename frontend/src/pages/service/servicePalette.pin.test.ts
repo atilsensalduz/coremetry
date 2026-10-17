@@ -87,6 +87,8 @@ describe('/service sade palet — K5 artıkları (v0.10.929)', () => {
     expect(accents).toEqual([
       ['rtLabel', 'var(--orange)'],
       ['tputLabel', 'var(--accent)'],
+      // v0.10.1259 — hata oranı yokken (metrik modu) aynı yuvada Toplam istek; --info seri kimliği.
+      ['Toplam', 'var(--info)'],
       ['Failure', 'var(--err)'],
     ]);
     // Gerekçe yorumu kaynakta durur (yorum soyulmadan okunur).

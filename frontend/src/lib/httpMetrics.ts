@@ -308,3 +308,8 @@ export function statusCodeSeries(series: SpanMetricSeries[] | null | undefined):
   }
   return { series: out, tokens };
 }
+
+// v0.10.1259 — Overview "Toplam istek" karosu: penceredeki toplam (anlık sorgu).
+export function totalRequestsQuery(app: string, windowSec: number): string {
+  return `sum(increase(${SC}${serverSel({ app })}[${Math.max(60, Math.round(windowSec))}s]))`;
+}

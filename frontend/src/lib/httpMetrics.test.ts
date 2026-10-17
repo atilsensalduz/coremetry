@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { httpQueries, serverSel, promStr, rateWindow, seriesLabels, legendOf, relabel, scalarOf, barsOf, mergeTable, filterOptions, fmtCount, fmtRatio, fmtSeconds, latencyTone, errorRatioTone, clientErrorTone, sliTone, httpSeriesColors, donutSlices, sparkValues, statusCodeRateQuery, statusCodeSeries } from './httpMetrics';
+import { httpQueries, serverSel, promStr, rateWindow, seriesLabels, legendOf, relabel, scalarOf, barsOf, mergeTable, filterOptions, fmtCount, fmtRatio, fmtSeconds, latencyTone, errorRatioTone, clientErrorTone, sliTone, httpSeriesColors, donutSlices, sparkValues, statusCodeRateQuery, statusCodeSeries, totalRequestsQuery } from './httpMetrics';
 import type { SpanMetricSeries } from './types';
 
 // v0.10.1244 — HTTP Metrics sekmesi (Grafana panosu → VictoriaMetrics).
@@ -115,5 +115,12 @@ describe('status kodu serileri', () => {
     expect(r.series.map(s => s.groupKey[0])).toEqual(['200', '500']);
     expect(r.tokens.get('200')).toBe('--ok');
     expect(r.tokens.get('500')).toBe('--err');
+  });
+});
+
+// v0.10.1259 — Overview toplam istek karosu sorgusu.
+describe('totalRequestsQuery', () => {
+  it('pencere toplamı', () => {
+    expect(totalRequestsQuery('shop', 10800)).toBe('sum(increase(http_server_request_duration_seconds_count{service_name="shop"}[10800s]))');
   });
 });
