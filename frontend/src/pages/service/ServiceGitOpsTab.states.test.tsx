@@ -151,8 +151,10 @@ describe('ServiceGitOpsTab', () => {
     expect(appT.textContent).toContain('p-shop-checkout-prod-e');
     expect(appT.textContent).toContain('OutOfSync');
     expect(appT.textContent).toContain('tahmini %70');
-    expect(appT.textContent).toContain('2 başarılı · 1 başarısız');
-    expect(appT.textContent).toContain('prod-east / shop');
+    // v0.10.1263 — Senkron (24 sa) ve Hedef kolonları kaldırıldı (operatör 2026-10-17).
+    expect(appT.textContent).not.toContain('Senkron');
+    expect(appT.textContent).not.toContain('Hedef');
+    expect(appT.textContent).not.toContain('2 başarılı · 1 başarısız');
     expect(appT.textContent).toContain('git.example/shop/deploy');
     expect(roT.textContent).toContain('tamamlandı');
     expect(roT.textContent).toContain('1.4.1 → 1.4.2');

@@ -36,8 +36,8 @@ import {
   encodeRolloutParam, rolloutChangeKind, changeKindLabel, changeKindTitle, changeKindTone,
 } from '@/lib/rolloutRow';
 import {
-  appsForWorkload, syncTone, healthTone, matchLabel, matchTitle, syncsSummary, syncsTotal,
-  syncsFailed, repoShort, autoSyncLabel, argoSourceBadge, argoSourceMeta,
+  appsForWorkload, syncTone, healthTone, matchLabel, matchTitle,
+  repoShort, autoSyncLabel, argoSourceBadge, argoSourceMeta,
 } from '@/lib/serviceGitOps';
 import type { ArgoServiceApp, ServiceGitOpsResponse, WorkloadRollout } from '@/lib/types';
 
@@ -53,8 +53,8 @@ const APP_COLS: ColumnDef<ArgoServiceApp>[] = [
   { id: 'sync', label: 'Sync', width: 110, minWidth: 90, naturalDir: 'asc', sortValue: a => a.syncStatus ?? '' },
   { id: 'health', label: 'Health', width: 110, minWidth: 90, naturalDir: 'asc', sortValue: a => a.healthStatus ?? '' },
   { id: 'auto', label: 'Autosync', width: 96, minWidth: 90, priority: 3, naturalDir: 'asc', sortValue: a => autoSyncLabel(a.autoSync) },
-  { id: 'syncs', label: 'Senkron (24 sa)', width: 170, minWidth: 120, sortValue: a => syncsTotal(a.syncs24h), tone: a => (syncsFailed(a.syncs24h) ? 'err' : undefined) },
-  { id: 'dest', label: 'Hedef', width: 200, minWidth: 140, naturalDir: 'asc', sortValue: a => `${a.destClusterId ?? ''}/${a.destNamespace ?? ''}` },
+  // v0.10.1263 — "Senkron (24 sa)" ve "Hedef" kolonları KALDIRILDI (operatör
+  // 2026-10-17: "Senkron ve hedef kolonlarına gerek yok").
   { id: 'match', label: 'Eşleme', width: 110, minWidth: 90, priority: 3, sortValue: a => a.confidence, tone: a => (a.match === 'manual' ? undefined : 'muted') },
   { id: 'workloads', label: 'İş yükü', width: 200, minWidth: 120, naturalDir: 'asc', sortValue: a => a.workloads.map(w => w.workload).join(',') },
   { id: 'instance', label: 'Argo örneği', width: 160, minWidth: 110, priority: 3, naturalDir: 'asc', sortValue: a => a.instanceName || a.instanceId || a.instanceNamespace || '', tone: () => 'muted' },
@@ -139,10 +139,6 @@ function ArgoSection({ d, pending, err, onRetry, clusterName }: {
                 <DataTableCell dt={dt} col="sync" row={a}><Badge tone={syncTone(a.syncStatus)}>{a.syncStatus || '—'}</Badge></DataTableCell>
                 <DataTableCell dt={dt} col="health" row={a}><Badge tone={healthTone(a.healthStatus)}>{a.healthStatus || '—'}</Badge></DataTableCell>
                 <DataTableCell dt={dt} col="auto" row={a} value={autoSyncLabel(a.autoSync)} />
-                <DataTableCell dt={dt} col="syncs" row={a} value={syncsSummary(a.syncs24h)} />
-                <DataTableCell dt={dt} col="dest" row={a}
-                  title={a.destServer ? `${a.destServer}${a.destClusterId ? '' : ' (Remote Cluster apiServerUrls ile eşleşmedi)'}` : undefined}
-                  value={`${a.destClusterId ? clusterName(a.destClusterId) : (a.destServer ? '?' : '—')} / ${a.destNamespace || '—'}`} />
                 <DataTableCell dt={dt} col="match" row={a} title={matchTitle(a)} value={matchLabel(a)} />
                 <DataTableCell dt={dt} col="workloads" row={a}
                   value={a.workloads.map(w => `${w.workload} (${clusterName(w.clusterId)})`).join(', ')} />
