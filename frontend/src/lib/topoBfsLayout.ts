@@ -17,6 +17,8 @@
 //     uzun, bant kesen kenarlar üretirdi.
 //  2. NS ŞERİTLERİ — `bandOf` verilirse her AÇIK namespace tam genişlikte
 //     yatay bir şerittir; üyeler şerit içinde katman sütunlarına oturur.
+//     (v0.10.1268: üyelik çağıranda — lib/topoBands.ts; tek namespace'ten
+//     çağrılan bağımlılık da o şeride düşer. Çekirdek jenerik kalır.)
 //     Şeritler üst üste dizilir, ASLA çakışmaz; şeridi olmayanlar (dış
 //     bağımlılıklar, namespace'siz servisler, katlı süper-düğümler) en
 //     alttaki "grupsuz" şeritte. Şerit yüksekliği = şeridin en kalabalık
@@ -48,6 +50,8 @@ export interface LayoutBand {
   y1: number;
   /** şeridin en kalabalık sütunundaki düğüm sayısı */
   rows: number;
+  /** şeritteki TÜM düğümler (bağımlılıklar dahil); başlık servis sayısı
+   *  için lib/topoBands bandServiceCounts kullanılır. */
   members: number;
 }
 export interface LayoutResult {

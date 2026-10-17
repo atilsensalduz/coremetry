@@ -16,6 +16,7 @@ import {
   foldTopology, defaultCollapsed, parseNsFold, encodeNsFold,
   isNsNode, nsOfNodeId,
 } from '@/lib/topoFold';
+import { serviceBands, dependencyBands, bandServiceCounts } from '@/lib/topoBands';
 
 // TopologyFlowGraph — prototipteki "pill düğüm + akış animasyonlu
 // bezier kenar" topoloji görünümü. (Öncülü ServiceMapGraph'ın props
@@ -224,22 +225,18 @@ export function TopologyFlowGraph({
   // Şerit üyeliği hull kuralının aynısı: kind'lı bağımlılık ve katlı
   // süper-düğüm serbest; namespace'i grafta ≥2 servisle temsil edilen
   // servis o namespace'in şeridine girer.
-  const bandNs = useMemo(() => {
+  // v0.10.1268 — operatör 2026-10-17: tek namespace'in bağımlılıkları o
+  // namespace şeridinde. Tüm çağıranları aynı adlı şeritte olan db/queue/ext
+  // o şeride girer; karışık/grupsuz çağıranlı olan grupsuz kalır. Saf
+  // çekirdek + testler: lib/topoBands(.test).ts. Başlık sayısı (`svcCount`)
+  // yalnız servisleri sayar — bağımlılık "N svc"yi şişirmez.
+  const { bandNs, svcCount } = useMemo(() => {
     const meta = metaQ.data ?? {};
-    const m = new Map<string, string>();
-    const counts = new Map<string, number>();
-    for (const node of data.nodes) {
-      if (node.kind || isNsNode(node.service)) continue;
-      const ns = meta[node.service]?.namespace;
-      if (!ns) continue;
-      m.set(node.service, ns);
-      counts.set(ns, (counts.get(ns) ?? 0) + 1);
-    }
-    // v0.10.1265 — odaklı servisin namespace'i tek üyeyle de şerit olur
-    // (operatör: "kendi namespace gözükmüyor").
-    for (const [svc, ns] of m) if ((counts.get(ns) ?? 0) < 2 && ns !== focusNs) m.delete(svc);
-    return m;
-  }, [data.nodes, metaQ.data, focusNs]);
+    const svc = serviceBands(data.nodes, s => meta[s]?.namespace || undefined, focusNs);
+    const all = new Map(svc);
+    for (const [dep, ns] of dependencyBands(data.nodes, data.edges, svc)) all.set(dep, ns);
+    return { bandNs: all, svcCount: bandServiceCounts(svc) };
+  }, [data.nodes, data.edges, metaQ.data, focusNs]);
 
   const { positioned, layoutW, layoutH, bands, backEdges } = useMemo(() => {
     // v0.10.133 — komşuluk indeksi, O(E + n log n) (perf probe 500/20k).
@@ -331,14 +328,14 @@ export function TopologyFlowGraph({
       .filter((b): b is typeof b & { key: string } => b.key !== null)
       .map(b => ({
         ns: b.key,
-        n: b.members,
+        n: svcCount.get(b.key) ?? 0,
         x: INSET,
         y: b.y0,
         w: layoutW - 2 * INSET,
         h: b.y1 - b.y0,
         color: nsColor.get(b.key) ?? 'var(--accent)',
       }));
-  }, [bands, layoutW, nsColor]);
+  }, [bands, layoutW, nsColor, svcCount]);
 
   // Yoğunluk kapısı (ServiceGraph slice-4 kuralının aynısı): az kenarlı
   // grafikte chip'ler hep açık, kalabalıkta yalnız hover'da.
