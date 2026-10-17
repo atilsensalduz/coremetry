@@ -44,6 +44,9 @@ var systemSavedViewPages = map[string]struct{}{
 	// (drain / enqueuer) ve POST /api/problems/{id}/investigation (editor+,
 	// denetimli) yazar.
 	SREInvestigationPage: {},
+	// v0.10.1301 — AI SRE Faz 5 değerlendirme koşuları; yalnız POST
+	// /api/sre/eval/runs (admin, denetimli) ve sre drain'i yazar.
+	SREEvalPage: {},
 }
 
 // IsSystemSavedViewPage — SAF: page bir sistem sayfası mı (systemSavedViewPages).

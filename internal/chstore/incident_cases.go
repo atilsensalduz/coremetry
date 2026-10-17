@@ -145,6 +145,60 @@ func (s *Store) GetIncidentCase(ctx context.Context, caseID string) (*IncidentCa
 	return &c, nil
 }
 
+// IncidentCaseQuery — ListIncidentCases süzgeci (v0.10.1301, AI SRE Faz 5).
+// Status ve Source zorunlu; pencere opened_at üzerinde [From, To).
+type IncidentCaseQuery struct {
+	Status string
+	Source string
+	From   time.Time
+	To     time.Time
+	Limit  int
+}
+
+// IncidentCaseListMax — ListIncidentCases tavanı.
+const IncidentCaseListMax = 200
+
+// listIncidentCasesSQL — SAF: sınırlı vaka listesi (en yeni açılış önce).
+// incident_cases küçük bilgi tabanı (ORDER BY case_id, partition/TTL yok) —
+// FINAL + pencere + LIMIT + max_execution_time yine de zorunlu.
+func listIncidentCasesSQL(q IncidentCaseQuery) (string, []any) {
+	limit := q.Limit
+	if limit <= 0 || limit > IncidentCaseListMax {
+		limit = IncidentCaseListMax
+	}
+	return "SELECT " + strings.ReplaceAll(incidentCaseCols, "\n", " ") + `
+		FROM incident_cases FINAL
+		WHERE status = ? AND source = ? AND opened_at >= ? AND opened_at < ?
+		ORDER BY opened_at DESC
+		LIMIT ?
+		SETTINGS max_execution_time = 5`,
+		[]any{q.Status, q.Source, chDateTime64Arg(q.From), chDateTime64Arg(q.To), limit}
+}
+
+// ListIncidentCases — v0.10.1301 (AI SRE Faz 5 değerlendirmesi): durum +
+// kaynak + açılış penceresine göre vakalar. Değerlendirme yalnız
+// status=confirmed (insan onaylı) okur — taslak olgu değildir.
+func (s *Store) ListIncidentCases(ctx context.Context, q IncidentCaseQuery) ([]IncidentCase, error) {
+	if q.Status == "" || q.Source == "" {
+		return nil, fmt.Errorf("incident cases: status ve source zorunlu")
+	}
+	sql, args := listIncidentCasesSQL(q)
+	rows, err := s.conn.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []IncidentCase{}
+	for rows.Next() {
+		c, err := scanIncidentCase(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // ExistingCaseIDs — verilen kimliklerden zaten kurulmuş olanlar.
 func (s *Store) ExistingCaseIDs(ctx context.Context, ids []string) (map[string]bool, error) {
 	out := map[string]bool{}

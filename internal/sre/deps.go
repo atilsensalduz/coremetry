@@ -204,6 +204,12 @@ func depsStep(req depsRequest, res depsResult) (Step, []Finding) {
 		st.State = StepPartial
 	}
 	st.Summary = truncRunes(strings.Join(parts, "; "), 500)
+	// v0.10.1301 — üç okuma da OKUNDU ve üçü de boş: pencere rollup'ların
+	// saklamasının dışında (ya da servis o an hiç trafik almadı). Okunamadı ≠ yok.
+	if failed == 0 && len(res.edges) == 0 && len(res.changes) == 0 && (res.blast == nil || len(res.blast.Callers) == 0) {
+		st.NoData = true
+		st.Summary = truncRunes("veri yok: "+st.Summary, 500)
+	}
 	if raw, err := json.Marshal(p); err == nil && len(raw) <= maxStepPayload {
 		st.Payload = raw
 	}

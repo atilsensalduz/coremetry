@@ -1671,6 +1671,7 @@ func main() {
 			PodID: clusterSvc.MyID(), Version: Version, Mode: mode.name,
 			IdleExit: idleExitFor(mode), Publish: srv.PublishSRE,
 			Copilot: copilotSvc, // v0.10.1287 — Faz 1b anlatımı (arka plan AI kapıları)
+			Eval:    store,      // v0.10.1301 — Faz 5: tekrar özetleri değerlendirme koşusu satırına
 		})
 	}
 	// v0.6.4 — Model Context Protocol server. Wired on api/all

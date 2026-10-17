@@ -1397,6 +1397,16 @@ export const api = {
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   // v0.10.1282 — AI SRE kuyruk / rol durumu (5 s cache).
   sreStatus: (signal?: AbortSignal) => get<import('./types').SREStatus>(`/api/sre/status`, signal),
+  // v0.10.1301 — AI SRE Faz 5 değerlendirmesi: koşular (15 s cache), koşu
+  // detayı, admin başlatma (audit sre.eval.run), 👎 inceleme adayları (admin).
+  sreEvalRuns: (signal?: AbortSignal) => get<import('./types').SREEvalRunsResponse>(`/api/sre/eval/runs`, signal),
+  sreEvalRun: (id: string, signal?: AbortSignal) =>
+    get<import('./types').SREEvalRun>(`/api/sre/eval/runs/${encodeURIComponent(id)}`, signal),
+  startSREEval: (body: { from: number; to: number; limit: number }) =>
+    request<import('./types').SREEvalRun>(`/api/sre/eval/runs`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  sreEvalReview: (days: number, signal?: AbortSignal) =>
+    get<import('./types').SREEvalReviewResponse>(`/api/sre/eval/review?days=${days}`, signal),
   // v0.10.1286 — AI SRE ayarı (admin; PUT audit settings.sre_agent.update).
   sreSettings: (signal?: AbortSignal) => get<import('./types').SRESettings>(`/api/settings/sre`, signal),
   putSRESettings: (c: import('./types').SRESettings) =>

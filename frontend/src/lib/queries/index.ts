@@ -76,6 +76,7 @@ export {
 export { useRollouts, useRolloutStats, useRolloutRuns, useRolloutDetail, useServiceGitOps } from './rollouts'; // v0.10.201/203, v0.10.981
 export { useTablePrefs } from './prefs'; // v0.10.248 — kalıcı sütun tercihi
 export { useBlastRadiusBatch } from './problems'; // v0.10.260 — inbox toplu blast-radius
+export { useSREEvalRuns, useSREEvalRun, useSREEvalReview } from './sreEval'; // v0.10.1301 — AI SRE Faz 5 değerlendirmesi
 export { useStackFrameLinks } from './devops'; // v0.10.581 — tıklanabilir stack frame
 export * from './copilot'; // v0.10.702 — CoSRE veri çipleri
 export { useTraceRootDef, useSaveTraceRootDef } from './traceRootDef'; // v0.10.733 — kök tanımı

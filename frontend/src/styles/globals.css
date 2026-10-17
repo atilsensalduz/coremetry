@@ -5708,3 +5708,10 @@ tbody td.tpm-more-cell { color: var(--text2); }
 .cosre-rules__formactions { display: flex; gap: var(--sp-3); }
 .cosre-rules__bar { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
 .cosre-rules__count { font-size: var(--fs-xs); color: var(--text3); }
+
+/* v0.10.1301 — AI SRE Faz 5 değerlendirme paneli (/ai › SREEvalPanel). */
+.sre-eval { margin-top: var(--sp-8); }
+.sre-eval-sec { margin-top: var(--sp-6); }
+.sre-eval-form { margin-bottom: var(--sp-6); }
+.sre-eval-form .row { align-items: flex-end; }
+.sre-eval-hyp { margin-right: var(--sp-2); }

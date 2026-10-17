@@ -156,6 +156,13 @@ func (s *Store) StartAIChatSweeper(ctx context.Context, interval time.Duration, 
 		case n > 0:
 			log.Printf("[sre-sweep] %d araştırma satırı silindi (son yazım < %s)", n, cutoff.UTC().Format(time.RFC3339))
 		}
+		// v0.10.1301 — değerlendirme koşuları (page='sre-eval'): 180 gün.
+		evalCut := time.Now().Add(-SREEvalRetention)
+		if n, err := s.SweepSREEvalRuns(ctx, evalCut); err != nil {
+			log.Printf("[sre-sweep] eval: %v", err)
+		} else if n > 0 {
+			log.Printf("[sre-sweep] %d değerlendirme koşusu silindi (son yazım < %s)", n, evalCut.UTC().Format(time.RFC3339))
+		}
 	}
 	runOnce()
 	runSRE()

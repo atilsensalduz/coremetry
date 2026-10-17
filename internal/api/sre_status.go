@@ -74,6 +74,10 @@ func (s *Server) PublishSRE(kind string, payload any) {
 		if id, _ := m["problemId"].(string); id != "" {
 			s.cacheInvalidate(ctx, sreInvestigationKey(id))
 		}
+		if run, _ := m["evalRun"].(string); run != "" { // v0.10.1301 — değerlendirme koşusu ilerledi
+			s.cacheInvalidate(ctx, sreEvalRunKey(run))
+			s.cacheInvalidate(ctx, sreEvalRunsKey)
+		}
 	}
 	s.cacheInvalidate(ctx, sreStatusKey)
 	if s.bus != nil {
@@ -159,7 +163,7 @@ func queuePosition(rows []chstore.SavedView, problemID string) int {
 		}
 	}
 	for i, inv := range sre.OrderQueued(invs) {
-		if inv.ProblemID == problemID {
+		if inv.QueueKey() == problemID { // v0.10.1301 — değerlendirme tekrarı (aynı problemId) canlı sırayı göstermez
 			return i + 1
 		}
 	}

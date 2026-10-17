@@ -9783,6 +9783,101 @@ export interface SREEnqueueResult {
   created: boolean;
   reason?: string;
 }
+// v0.10.1301 — AI SRE Faz 5: geçmiş problemlerle doğruluk ölçümü. Go:
+// sre.EvalHyp / EvalCoverage / EvalCase / EvalRun / EvalScore / EvalLive,
+// api.sreEvalRunItem (EvalRun + score düz), api.sreEvalListResponse,
+// chstore.SREReviewDownvote, api.sreEvalReviewResponse. Doğruluk etiketi
+// YALNIZ onaylı incident_cases; 👎 listesi inceleme adayı, puan girdisi değil.
+export type SREEvalCaseState = 'queued' | 'running' | 'done' | 'partial' | 'error' | 'skipped' | 'unmapped';
+export interface SREEvalHyp {
+  kind: SREHypothesisKind;
+  category: string;
+  score: number; // 0..1
+  band: SREHypothesisBand;
+  /** hipotezin öznesi (bağımlılık / DB / dış servis düğümü ya da problemin servisi). */
+  subject?: string;
+}
+export interface SREEvalCoverage {
+  data: number;
+  noData: number;
+  failed: number;
+  noDataSteps?: string[];
+}
+export interface SREEvalCase {
+  caseId: string;
+  problemId: string;
+  displayId?: string;
+  service: string;
+  /** beklenen — onaylı vakanın kategorisi. */
+  category: string;
+  finalCause: string;
+  startedAt: number; // unix ns — çıpa
+  state: SREEvalCaseState;
+  reason?: string;
+  top?: SREEvalHyp[];
+  coverage?: SREEvalCoverage;
+  finishedAt?: number;
+}
+export interface SREEvalLive {
+  runs: number;
+  p50Ms: number | null;
+  p90Ms: number | null;
+}
+export interface SREEvalScore {
+  cases: number;
+  pending: number;
+  unmapped: number;
+  skipped: number;
+  errored: number;
+  noData: number;
+  scored: number;
+  top1Hits: number;
+  top3Hits: number;
+  top1Acc: number | null; // 0..1; payda 0 → null
+  top3Acc: number | null;
+  entityScored: number;
+  entityHits: number;
+  entityAcc: number | null;
+  coveragePct: number | null; // 0..100
+  live: SREEvalLive;
+}
+export interface SREEvalRun {
+  runId: string;
+  state: 'running' | 'done';
+  from: number; // unix ns
+  to: number;
+  limit: number;
+  by?: string;
+  createdAt: number;
+  finishedAt?: number;
+  found: number;
+  /** yalnız GET /api/sre/eval/runs/{id} ve POST cevabında. */
+  cases?: SREEvalCase[];
+  score: SREEvalScore;
+}
+export interface SREEvalRunsResponse {
+  runs: SREEvalRun[];
+  live: SREEvalLive;
+  categories: Record<string, string>;
+  unmapped: Record<string, string>;
+  enabled: boolean;
+}
+export interface SREReviewDownvote {
+  exchangeId: string;
+  callId?: string;
+  surface: string;
+  createdAt: number; // unix ns
+  userEmail?: string;
+  reason?: string;
+  comment?: string;
+  prompt?: string;
+  response?: string;
+}
+export interface SREEvalReviewResponse {
+  days: number;
+  items: SREReviewDownvote[];
+  note: string;
+}
 // v0.10.1286 — Go: sre.Settings — GET/PUT /api/settings/sre (admin;
 // system_settings["sre_agent"]). Sunucu NormalizeSettings'ten geçirir: 0 =
 // varsayılan, aralık dışı tavana kırpılır (sınırlar: settings/sreSettingsForm.ts).

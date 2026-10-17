@@ -35,11 +35,17 @@ var runtimeDirs = []string{"../copilot", "../mcptools", "../sre", "../anomaly", 
 var readerNeedles = []string{
 	"AIFeedbackVerdictsSince", "ListCosreAnswerQuality", "ListCosreToolQuality",
 	"CosreAnswerQuality(", "CosreToolQuality(",
+	// v0.10.1301 — AI SRE Faz 5: sre-* 👎 inceleme listesi. YALNIZ /ai inceleme
+	// yüzeyi okur; değerlendirme puanı (internal/sre scoreEval) okumaz.
+	"ListSREReviewDownvotes",
 }
 
 var reviewSurfaces = map[string]bool{
 	"ai_feedback.go": true, "rag_curate.go": true, "rag.go": true,
 	"ai_quality.go": true, "cosre_quality.go": true, "ai_exchanges.go": true,
+	// v0.10.1301 — api/sre_eval.go: değerlendirme panelinin "incelemeye değer"
+	// 👎 listesi (admin, salt-okunur liste; etiket / puan girdisi değil).
+	"sre_eval.go": true,
 }
 
 func TestVotesNeverReachRuntimeDecisions(t *testing.T) {

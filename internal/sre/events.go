@@ -153,6 +153,7 @@ func nodeStep(nc mcptools.NodeCheck, err error) (Step, []Finding) {
 		return st, nil
 	}
 	st.State = sectionStepState(nc.Section.State)
+	st.NoData = nc.Section.State == "empty" // v0.10.1301
 	st.Summary = truncRunes(nc.Section.Summary, 400)
 	if nc.Section.Note != "" {
 		st.Summary = truncRunes(st.Summary+" ("+nc.Section.Note+")", 500)

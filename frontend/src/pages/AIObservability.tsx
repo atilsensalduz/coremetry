@@ -7,6 +7,7 @@ import { api } from '@/lib/api';
 import { cachedPctLabel } from './ai/cachedTokens';
 import { ExchangesPanel } from './ai/ExchangesPanel';
 import { CosreQualityPanel } from './ai/CosreQualityPanel';
+import { SREEvalPanel } from './ai/SREEvalPanel'; // v0.10.1301 — AI SRE Faz 5 doğruluk ölçümü
 import { useUrlRange } from '@/lib/useUrlRange';
 import { rcaPctText, rcaEngineTone, rcaSatisfactionText, rcaBucketLabel, rcaBucketSatisfaction, rcaCalibrationNote } from './ai/rcaQualityView';
 import type { RCAVerdictQuality, AIBudgetStatus, NegativeFeedbackCall } from '@/lib/types';
@@ -407,6 +408,7 @@ export default function AIObservabilityPage() {
         <RouterGapsPanel />
         <NegativeFeedbackPanel />
         <CosreQualityPanel /> {/* CoSRE öğrenme Faz 2 — örtük sinyal gece puanı */}
+        <SREEvalPanel /> {/* v0.10.1301 — AI SRE Faz 5: geçmiş problemlerle doğruluk (onaylı vakalar; 👎 yalnız inceleme) */}
 
         {open && <CallDrawer call={open} rates={rates} onClose={() => setOpen(null)} />}
       </PageShell>

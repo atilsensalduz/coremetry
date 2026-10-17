@@ -63,10 +63,11 @@ func save(ctx context.Context, st QueueStore, inv Investigation) error {
 	if err != nil {
 		return err
 	}
-	return st.PutSREInvestigation(ctx, inv.ProblemID, inv.State, body, inv.EnqueuedAt)
+	return st.PutSREInvestigation(ctx, inv.QueueKey(), inv.State, body, inv.EnqueuedAt)
 }
 
-// Load — problemin kaydı (yoksa ya da sahteyse ok=false).
+// Load — kuyruk anahtarının kaydı (yoksa ya da sahteyse ok=false). Canlı
+// kayıt anahtarı problemId'dir; tekrar işi QueueKey (v0.10.1301).
 func Load(ctx context.Context, st QueueStore, problemID string) (Investigation, bool, error) {
 	v, err := st.GetSREInvestigation(ctx, problemID)
 	if err != nil || v == nil {
@@ -128,7 +129,8 @@ func Enqueue(ctx context.Context, st QueueStore, req EnqueueRequest, cfg Setting
 		// çıkar; doğrulama ayrıca önceki koşunun adımlarını + gerçeklerini
 		// taşır: yalnız hipotezin adımları yeniden okunur (verifyForced).
 		inv.Hypotheses = cur.Hypotheses
-		inv.Recommendations = cur.Recommendations // v0.10.1293 — öneri işaretleri (ack / dismissed) de sağ çıkar
+		inv.Recommendations = cur.Recommendations     // v0.10.1293 — öneri işaretleri (ack / dismissed) de sağ çıkar
+		inv.FirstHypothesisAt = cur.FirstHypothesisAt // v0.10.1301 — ilk hipoteze varış ilk koşunun anıdır
 		if req.Kind == KindVerify {
 			inv.Hypothesis = req.Hypothesis
 			inv.Steps, inv.Findings, inv.Facts = cur.Steps, cur.Findings, cur.Facts
@@ -173,4 +175,65 @@ func anchorFor(startNs int64, now time.Time) Anchor {
 		to = from.Add(time.Minute)
 	}
 	return Anchor{From: from.UnixNano(), To: to.UnixNano()}
+}
+
+// replayAsOfDelay — v0.10.1301: tekrarın "şimdi"si problem başlangıcından bu
+// kadar sonra. Gerekçe: otomatik üretici yalnız ≤15 dk'lık problemi kuyruğa
+// alır (candidateMaxAge) — canlı bir araştırmanın görebileceği en geç an.
+// Daha geç bir an tekrara canlının asla görmediği veriyi verirdi (iyimser
+// ölçüm); başlangıcın kendisi ise belirtinin ilk dakikalarını keserdi.
+const replayAsOfDelay = candidateMaxAge
+
+// ReplayRequest — bir değerlendirme vakasının tekrar işi.
+type ReplayRequest struct {
+	RunID            string
+	CaseID           string
+	ProblemID        string
+	DisplayID        string
+	Service          string
+	Env              string
+	Priority         string
+	ProblemStartedAt int64 // unix ns — çıpa (problemin StartedAt'i)
+	By               string
+	Now              time.Time
+}
+
+// replayInvestigation — SAF: tekrar işinin kuyruk kaydı. Çıpa problemin
+// başlangıcına göre [başlangıç − 15 dk, başlangıç + replayAsOfDelay].
+func replayInvestigation(req ReplayRequest) Investigation {
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
+	asOf := time.Unix(0, req.ProblemStartedAt).Add(replayAsOfDelay)
+	return Investigation{
+		ProblemID: req.ProblemID, DisplayID: req.DisplayID, Service: req.Service, Env: req.Env,
+		Kind: KindReplay, State: StateQueued, Priority: req.Priority, Run: 1,
+		EnqueuedAt: now.UnixNano(), RequestBy: req.By, ProblemAt: req.ProblemStartedAt,
+		EvalRun: req.RunID, CaseID: req.CaseID, AsOf: asOf.UnixNano(),
+		Anchor: anchorFor(req.ProblemStartedAt, asOf),
+	}
+}
+
+// EnqueueReplay — v0.10.1301: değerlendirme vakasını Kind=replay olarak
+// kuyruğa alır. Satır KENDİ anahtarında (QueueKey) — canlı kayda dokunmaz.
+// Aynı (koşu, problem) zaten varsa no-op. Kuyruk payını (MaxQueue/2) çağıran
+// (StartEvalRun) hesaplar; burada yalnız açık/kapalı kapısı.
+func EnqueueReplay(ctx context.Context, st QueueStore, req ReplayRequest, cfg Settings) (bool, error) {
+	if !cfg.IsEnabled() {
+		return false, ErrDisabled
+	}
+	if req.RunID == "" || req.ProblemID == "" || req.Service == "" || req.ProblemStartedAt <= 0 {
+		return false, ErrInvalid
+	}
+	inv := replayInvestigation(req)
+	if _, ok, err := Load(ctx, st, inv.QueueKey()); err != nil {
+		return false, err
+	} else if ok {
+		return false, nil
+	}
+	if err := save(ctx, st, inv); err != nil {
+		return false, err
+	}
+	return true, nil
 }

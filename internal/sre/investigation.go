@@ -79,6 +79,10 @@ type Step struct {
 	// "Explore'da aç" href'i dahil; ≤6). Bulgunun EvidenceRefs'i
 	// "evidences[i]" → bu dizinin i'nci kalemi (Finding.Step adımında).
 	Evidence []mcptools.ChatEvidence `json:"evidence,omitempty"`
+	// NoData — v0.10.1301 (Faz 5): okuyucu baktı, pencerede veri YOK ("veri
+	// yok: …" — saklama dışı / örneklenmemiş / hiç gelmemiş). Okunamadı
+	// (StepError) ≠ yok; değerlendirmenin kapsam ölçüsü buradan sayar.
+	NoData bool `json:"noData,omitempty"`
 }
 
 // Finding — sıralı bulgu (0a: servis taramasının bulguları).
@@ -151,6 +155,27 @@ type Investigation struct {
 	// bağlantısı); ajan hiçbir şeyi uygulamaz. Operatör işareti (ack /
 	// dismissed) yeniden koşuda kimliğe göre taşınır (recommend.go).
 	Recommendations []Recommendation `json:"recommendations,omitempty"`
+	// v0.10.1301 (Faz 5) — değerlendirme. Kind=replay işinin koşusu + vakası;
+	// AsOf = tekrarın "şimdi"si (problem başlangıcı + replayAsOfDelay; plan
+	// pencereleri bu ana göre kurulur, bugünün verisi sızmaz). Tekrar işi kendi
+	// kuyruk anahtarında yaşar (QueueKey) — canlı kaydı ASLA ezmez.
+	EvalRun string `json:"evalRun,omitempty"`
+	CaseID  string `json:"caseId,omitempty"`
+	AsOf    int64  `json:"asOf,omitempty"` // unix ns
+	// FirstHypothesisAt — canlı koşuda hipotez kartlarının İLK hesaplandığı an
+	// (unix ns; yeniden koşuda taşınır). İlk hipoteze varış süresi =
+	// FirstHypothesisAt − ProblemAt (değerlendirme paneli p50/p90).
+	FirstHypothesisAt int64 `json:"firstHypothesisAt,omitempty"`
+}
+
+// QueueKey — v0.10.1301: kuyruk anahtarı (satır kimliği
+// chstore.SREInvestigationID(QueueKey()), iş kilidi, uçuş haritası). Canlı
+// kayıt = problemId; tekrar işi = "replay-<runId>-<problemId>" (ayrı satır).
+func (inv Investigation) QueueKey() string {
+	if inv.Kind == KindReplay && inv.EvalRun != "" {
+		return chstore.SREReplayKey(inv.EvalRun, inv.ProblemID)
+	}
+	return inv.ProblemID
 }
 
 // step — ada göre adım (yoksa nil).
@@ -291,6 +316,8 @@ func Encode(inv Investigation) (string, error) {
 
 // Decode — SAF: satır → kayıt. Gövdedeki problemId satır kimliğiyle
 // eşleşmiyorsa ok=false (başka yoldan yazılmış sahte satır kayıt sayılmaz).
+// v0.10.1301: kimlik QueueKey'den — tekrar satırı canlı kayıt olarak, canlı
+// satır tekrar olarak çözülemez.
 func Decode(v chstore.SavedView) (Investigation, bool) {
 	var inv Investigation
 	if v.Page != chstore.SREInvestigationPage || v.OwnerID != "" {
@@ -299,7 +326,7 @@ func Decode(v chstore.SavedView) (Investigation, bool) {
 	if err := json.Unmarshal([]byte(v.QueryString), &inv); err != nil || inv.ProblemID == "" {
 		return Investigation{}, false
 	}
-	if v.ID != chstore.SREInvestigationID(inv.ProblemID) {
+	if v.ID != chstore.SREInvestigationID(inv.QueueKey()) {
 		return Investigation{}, false
 	}
 	// name kolonu otoritedir (yazım tek satırda ikisini birlikte taşır).

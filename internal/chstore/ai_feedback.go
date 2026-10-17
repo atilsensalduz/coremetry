@@ -238,6 +238,90 @@ func (s *Store) ListNegativeFeedbackCalls(ctx context.Context, from, to time.Tim
 	return out, rows.Err()
 }
 
+// SREReviewDownvote — v0.10.1301 (AI SRE Faz 5): sre-* yüzeyli bir AI
+// çağrısına verilmiş 👎. YALNIZ İNCELEME ADAYI ("incelemeye değer") —
+// operatör kuralı "oylara çok güvenmeyelim": değerlendirmenin doğruluk
+// etiketi DEĞİL, puanlamanın girdisi DEĞİL (doğruluk = onaylı incident_cases).
+// Okuyucusu yalnız /ai inceleme yüzeyi (api/sre_eval.go); internal/sre bu
+// okuyucuyu çağırmaz (cosrelearn TestVotesNeverReachRuntimeDecisions).
+type SREReviewDownvote struct {
+	ExchangeID string `json:"exchangeId"`
+	CallID     string `json:"callId,omitempty"`
+	Surface    string `json:"surface"`
+	CreatedAt  int64  `json:"createdAt"` // unix ns
+	UserEmail  string `json:"userEmail,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+	Comment    string `json:"comment,omitempty"`
+	Prompt     string `json:"prompt,omitempty"`   // ≤600 karakter
+	Response   string `json:"response,omitempty"` // ≤600 karakter
+}
+
+// SREReviewDownvotesMax — inceleme listesi tavanı.
+const SREReviewDownvotesMax = 100
+
+// sreReviewDownvotesSQL — SAF: 👎 (verdict = −1) ⋈ ai_calls (call_id = id,
+// adım 8 / v0.10.1280) yüzey sre-* ile. Sağ taraf pencereli alt sorgu (ai_calls
+// MergeTree, aylık partition): oy çağrıdan sonra gelir, çağrı penceresi oy
+// penceresinin 7 gün öncesinden başlar. callCols=false (iki-boot: call_id
+// kolonu henüz yok) → join yok, oyun kendi yüzeyi süzülür.
+func sreReviewDownvotesSQL(callCols bool) string {
+	if !callCols {
+		return `
+		SELECT f.exchange_id, '' AS call_id, f.surface, toUnixTimestamp64Nano(f.created_at), f.user_email,
+		       '' AS reason, f.comment, '' AS prompt, '' AS response
+		FROM ai_feedback AS f FINAL
+		WHERE f.verdict = -1 AND startsWith(f.surface, 'sre-')
+		  AND f.created_at >= toDateTime64(?, 9, 'UTC') AND f.created_at <= toDateTime64(?, 9, 'UTC')
+		ORDER BY f.created_at DESC
+		LIMIT ?
+		SETTINGS max_execution_time = 10`
+	}
+	return `
+		SELECT f.exchange_id, f.call_id, c.surface, toUnixTimestamp64Nano(f.created_at), f.user_email,
+		       f.reason, f.comment, substring(c.prompt_sample, 1, 600), substring(c.response_sample, 1, 600)
+		FROM ai_feedback AS f FINAL
+		INNER JOIN (
+			SELECT id, surface, prompt_sample, response_sample
+			FROM ai_calls
+			WHERE startsWith(surface, 'sre-')
+			  AND created_at >= toDateTime64(?, 9, 'UTC') AND created_at <= toDateTime64(?, 9, 'UTC')
+			LIMIT 100000
+		) AS c ON c.id = f.call_id
+		WHERE f.verdict = -1 AND f.call_id != ''
+		  AND f.created_at >= toDateTime64(?, 9, 'UTC') AND f.created_at <= toDateTime64(?, 9, 'UTC')
+		ORDER BY f.created_at DESC
+		LIMIT ?
+		SETTINGS max_execution_time = 10`
+}
+
+// ListSREReviewDownvotes — v0.10.1301: [from, to] içindeki sre-* 👎'leri
+// (≤100). İnceleme listesi; hiçbir karar / puan bunu okumaz.
+func (s *Store) ListSREReviewDownvotes(ctx context.Context, from, to time.Time, limit int) ([]SREReviewDownvote, error) {
+	if limit <= 0 || limit > SREReviewDownvotesMax {
+		limit = SREReviewDownvotesMax
+	}
+	cc := aiFeedbackCallCols.Load()
+	args := []any{chDateTime64Arg(from), chDateTime64Arg(to), limit}
+	if cc {
+		args = []any{chDateTime64Arg(from.Add(-7 * 24 * time.Hour)), chDateTime64Arg(to), chDateTime64Arg(from), chDateTime64Arg(to), limit}
+	}
+	rows, err := s.conn.Query(ctx, sreReviewDownvotesSQL(cc), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []SREReviewDownvote{}
+	for rows.Next() {
+		var r SREReviewDownvote
+		if err := rows.Scan(&r.ExchangeID, &r.CallID, &r.Surface, &r.CreatedAt, &r.UserEmail,
+			&r.Reason, &r.Comment, &r.Prompt, &r.Response); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // NegativeFeedbackCallByExchange — v0.10.431: tek 👎 satırının NOKTA
 // okuması (evalset export ?exchangeId=). Eskiden export son 200 satırlık
 // pencereyi çekip Go'da süzüyordu: 7 günden eski ya da 201. satırdaki bir

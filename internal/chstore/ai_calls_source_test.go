@@ -176,6 +176,9 @@ var aiCallsReaderDecisions = map[string]string{
 	"ListNegativeFeedbackCalls":      "point",
 	"NegativeFeedbackCallByExchange": "point",
 	"ListKBCandidates":               "point",
+	// v0.10.1301 — AI SRE Faz 5 👎 inceleme listesi: ai_feedback sürer (call_id ⋈
+	// ai_calls, yüzey sre-*); agregat değil, evalset satırı eşleşemez.
+	"sreReviewDownvotesSQL": "point",
 }
 
 var aiCallsReadRe = regexp.MustCompile(`(?i)\b(from|join)\s+ai_calls\b`)

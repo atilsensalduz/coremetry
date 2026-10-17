@@ -64,6 +64,10 @@ type DrainDeps struct {
 	// (*copilot.Service; arka plan AI kapıları narrate.go). nil = anlatım yok
 	// ("AI özeti yok (otomatik AI kapalı)").
 	Copilot Narrator
+	// Eval — v0.10.1301 (Faz 5): değerlendirme koşusu satırı (sre-eval). nil =
+	// tekrar işleri koşar ama özetleri koşu satırına birleştirilmez (okuma ucu
+	// tekrar satırlarından uzlaştırır).
+	Eval EvalRunStore
 
 	// Test dikişleri.
 	Now           func() time.Time
@@ -229,7 +233,7 @@ func (dr *drainer) tick(ctx context.Context) bool {
 		if inv.State == StateQueued {
 			busy = true
 		}
-		if inv.State == StateRunning && !mine[inv.ProblemID] && staleClaim(inv, now) {
+		if inv.State == StateRunning && !mine[inv.QueueKey()] && staleClaim(inv, now) {
 			dr.reclaim(ctx, inv, cfg)
 		}
 	}
@@ -262,7 +266,7 @@ func reclaimable(inv Investigation, lockHeld bool, now time.Time, maxAttempts in
 }
 
 func (dr *drainer) reclaim(ctx context.Context, inv Investigation, cfg Settings) {
-	key := itemLockKey(inv.ProblemID)
+	key := itemLockKey(inv.QueueKey())
 	ok, err := dr.d.Lock.TryAcquire(ctx, key, itemLease)
 	if err != nil {
 		dr.logErr("reclaim kilidi", err)
@@ -286,8 +290,11 @@ func (dr *drainer) reclaim(ctx context.Context, inv Investigation, cfg Settings)
 		dr.logErr("reclaim yazımı", err)
 		return
 	}
-	log.Printf("[sre] %s sahipsiz kaldı (pod=%s) → %s", inv.ProblemID, prevPod, inv.State)
+	log.Printf("[sre] %s sahipsiz kaldı (pod=%s) → %s", inv.QueueKey(), prevPod, inv.State)
 	dr.publish(inv)
+	if fail {
+		dr.recordEval(inv) // v0.10.1301 — tavanı dolan tekrar işi koşu satırında "error"
+	}
 }
 
 // pickWork — SAF: alınacak queued işler. Uçuştakiler hariç; sıra OrderQueued;
@@ -298,7 +305,7 @@ func pickWork(invs []Investigation, inflight map[string]bool, free int) []Invest
 	}
 	var q []Investigation
 	for _, inv := range invs {
-		if !inflight[inv.ProblemID] {
+		if !inflight[inv.QueueKey()] {
 			q = append(q, inv)
 		}
 	}
@@ -310,8 +317,9 @@ func pickWork(invs []Investigation, inflight map[string]bool, free int) []Invest
 }
 
 // OrderQueued — SAF: yalnız queued kayıtlar, drain'in alış sırasıyla: elle
-// istek (manual / verify) → P1 → P2 → diğer; eşitlikte en eski kuyruk girişi önce. Durum ucu
-// "N. sırada" bilgisini aynı sıradan okur.
+// istek (manual / verify) → P1 → P2 → diğer → değerlendirme tekrarı (replay,
+// v0.10.1301 — canlı işlerin HEPSİNDEN sonra); eşitlikte en eski kuyruk
+// girişi önce. Durum ucu "N. sırada" bilgisini aynı sıradan okur.
 func OrderQueued(invs []Investigation) []Investigation {
 	var q []Investigation
 	for _, inv := range invs {
@@ -322,6 +330,9 @@ func OrderQueued(invs []Investigation) []Investigation {
 	rank := func(inv Investigation) int {
 		if inv.Kind == KindManual || inv.Kind == KindVerify { // v0.10.1288 — doğrulama da operatör isteği
 			return 0
+		}
+		if inv.Kind == KindReplay { // v0.10.1301 — geçmiş vaka tekrarı en düşük öncelik
+			return 4
 		}
 		switch inv.Priority {
 		case "P1":
@@ -343,13 +354,18 @@ func OrderQueued(invs []Investigation) []Investigation {
 
 func (dr *drainer) publish(inv Investigation) {
 	if dr.d.Publish != nil {
-		dr.d.Publish(EventKind, map[string]any{"problemId": inv.ProblemID, "state": inv.State})
+		payload := map[string]any{"problemId": inv.ProblemID, "state": inv.State}
+		if inv.Kind == KindReplay && inv.EvalRun != "" {
+			payload["evalRun"] = inv.EvalRun // v0.10.1301 — okuma ucu koşu önbelleğini düşürür
+		}
+		dr.d.Publish(EventKind, payload)
 	}
 }
 
 // claim — işi kilitle, durumu running yaz, yürütücüyü başlat.
 func (dr *drainer) claim(ctx context.Context, inv Investigation, cfg Settings) {
-	key := itemLockKey(inv.ProblemID)
+	qk := inv.QueueKey()
+	key := itemLockKey(qk)
 	ok, err := dr.d.Lock.TryAcquire(ctx, key, itemLease)
 	if err != nil || !ok {
 		if err != nil {
@@ -360,7 +376,7 @@ func (dr *drainer) claim(ctx context.Context, inv Investigation, cfg Settings) {
 	release := func() { _ = dr.d.Lock.Release(context.WithoutCancel(ctx), key) }
 	// Kilit altında yeniden oku: liste ile kilit arasında başka bir pod işi
 	// bitirmiş olabilir.
-	cur, found, err := Load(ctx, dr.d.Store, inv.ProblemID)
+	cur, found, err := Load(ctx, dr.d.Store, qk)
 	if err != nil || !found || cur.State != StateQueued {
 		release()
 		return
@@ -382,7 +398,7 @@ func (dr *drainer) claim(ctx context.Context, inv Investigation, cfg Settings) {
 	fctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	fl := &flight{cancel: cancel}
 	dr.mu.Lock()
-	dr.inflight[cur.ProblemID] = fl
+	dr.inflight[qk] = fl
 	dr.mu.Unlock()
 	dr.wg.Add(1)
 	go dr.execute(fctx, fl, cur, cfg, key)
@@ -393,7 +409,7 @@ func (dr *drainer) execute(fctx context.Context, fl *flight, inv Investigation, 
 	defer fl.cancel()
 	defer func() {
 		dr.mu.Lock()
-		delete(dr.inflight, inv.ProblemID)
+		delete(dr.inflight, inv.QueueKey())
 		dr.mu.Unlock()
 	}()
 	wctx := func() (context.Context, context.CancelFunc) {
@@ -416,7 +432,7 @@ func (dr *drainer) execute(fctx context.Context, fl *flight, inv Investigation, 
 				return
 			case <-t.C:
 				if ok, err := dr.d.Lock.Refresh(fctx, key, itemLease); err == nil && !ok {
-					log.Printf("[sre] %s: iş kilidi kaybedildi", inv.ProblemID)
+					log.Printf("[sre] %s: iş kilidi kaybedildi", inv.QueueKey())
 				}
 			}
 		}
@@ -458,6 +474,7 @@ func (dr *drainer) execute(fctx context.Context, fl *flight, inv Investigation, 
 		return
 	}
 	dr.drained.Add(1)
+	dr.recordEval(work) // v0.10.1301 — tekrar işinin özeti koşu satırına (kilitli birleştirme)
 	dr.publish(work)
 }
 

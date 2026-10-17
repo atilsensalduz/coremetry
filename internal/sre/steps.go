@@ -77,6 +77,10 @@ func sweepStep(res mcptools.SweepResult, err error) (Step, []Finding, []string) 
 	if len(res.Verdict.Reasons) > 0 {
 		sum += ": " + strings.Join(res.Verdict.Reasons, "; ")
 	}
+	if res.Empty { // v0.10.1301 — hiçbir bölümde veri yok (saklama dışı pencere): dürüst "veri yok: …"
+		st.NoData = true
+		sum = firstNonEmpty(res.Message, "veri yok: taramanın hiçbir bölümünde veri bulunamadı")
+	}
 	st.Summary = truncRunes(sum, 600)
 	findings := make([]Finding, 0, len(res.Findings))
 	for i, f := range res.Findings {
@@ -193,6 +197,7 @@ func pivotStep(res mcptools.PivotResult, err error, via string) (Step, []Finding
 	if res.Partial {
 		st.State = StepPartial
 	}
+	st.NoData = res.Empty // v0.10.1301 — trace / halkalar saklama dışı
 	st.Evidence = evidenceOf(mcptools.PivotFromTraceName, res)
 	refs := hopRefs(st.Evidence)
 	switch {
@@ -252,6 +257,7 @@ func spikeStep(res mcptools.LogSpikeResult, err error) (Step, []Finding) {
 	if res.Partial {
 		st.State = StepPartial
 	}
+	st.NoData = res.Empty // v0.10.1301 — pencerede log yok
 	st.Evidence = evidenceOf(mcptools.ExplainLogSpikeName, res)
 	refs := hopRefs(st.Evidence)
 	hm := func(ms int64) string { return time.UnixMilli(ms).UTC().Format("15:04") }

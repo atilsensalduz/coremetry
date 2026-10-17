@@ -6107,3 +6107,52 @@ TestOrchestratorReadOnly `EnrichProblemsWithRunbooks`'u okuma
 zenginleştirmesi olarak kabul eder. Oylar okunmaz (mevcut ratchet). Öneri
 hipotez skoruna / plana girmez; `chkArgo` kontrolü hâlâ "okunmuyor" (Argo
 yalnız öneri metnine girer).
+
+## 2026-10-17 — AI SRE Faz 5: geçmiş problemlerle doğruluk ölçümü (v0.10.1301)
+
+**Karar:** doğruluk etiketi YALNIZ onaylı `incident_cases` (status=confirmed:
+FinalCause + Category). Admin `POST /api/sre/eval/runs {from, to, limit≤50}`
+(audit `sre.eval.run`) penceredeki onaylı PROBLEM vakalarını
+(`ListIncidentCases`, FINAL + sınırlı) okur; kategorisi bir hipotez türüne
+eşlenen her vaka için `Kind=replay` kuyruk işi açar. İş KENDİ anahtarında
+(`QueueKey` = "replay-<runId>-<problemId>" → satır `sre-replay-…`): kuyruğun
+claim / kira / reclaim / SIGTERM mekanizması aynen işler, canlı kayıt
+`sre-<problemId>` ASLA yazılmaz (TestReplayDoesNotOverwriteLive). Alış sırası
+canlı işlerin hepsinden sonra; kuyruk payı MaxQueue/2 (tekrar canlıyı "kuyruk
+dolu"ya itemez); bitmemiş taze koşu varken yenisi 409.
+
+Tekrar problemin `StartedAt`'ine çıpalanır; planın "şimdi"si `AsOf` =
+başlangıç + 15 dk (otomatik üreticinin aday yaşı tavanı — canlının görebileceği
+en geç an; daha geç an iyimser ölçüm olurdu). Anlatım ve öneri ATLANIR:
+`Score` SAF ve LLM'den bağımsız, öneriler bugünün runbook / Argo durumunu
+okurdu; 50 vakalık koşu `sre_agent.maxLLMCallsPerHour` (30) bütçesini canlı
+araştırmaların elinden alırdı → tekrar 0 LLM çağrısı yapar (bütçe aynı sayaç;
+ileride anlatım açılırsa aynı tavana tabi).
+
+Sonuç: biten tekrarın ÖZETİ (beklenen kategori, ilk 3 hipotez + özne, kapsam)
+koşu satırına (`saved_views` page `sre-eval`, id `sre-eval-<runId>`, sistem
+sayfası, ≤64 KB, liste ≤200, 180 gün) koşu başına Redis kilidiyle birleşir;
+kaybolan birleştirme okumada tekrar satırlarından SAF uzlaştırılır. Neden vaka
+başına satır değil: ≤50 özet tek satıra rahat sığar, liste okuması koşu başına
+bir satır kalır; tam tekrar kaydı kuyruk satırında 30 gün durur.
+
+Saklaması dolmuş pencerede okuyucular "veri yok" döner — adımda `NoData`
+bayrağı (tarama / pivot / log artışı `Empty`, bağımlılık üç okuma da boş, node
+`empty`); kapsam = veri döndüren telemetri adımı payı (deploy / olay hariç:
+orada yokluk çoğunlukla gerçek). Kapsamı 0 olan vaka isabet paydasına girmez.
+
+SAF `scoreEval(evalInput{Cases, Live})`: top-1 / top-3 (tür → kategori,
+`hypothesisTable` tek kaynak; `infra`, `data`, `noise`, `other` gerekçeli
+eşlenmez — TestHypKindCategoryMap), varlık eşleşmesi (en olası hipotezin öznesi
+— bağımlılık / DB / dış servis düğümü ya da problemin servisi — normalize
+FinalCause'da sözcük sınırıyla), kapsam %, canlı koşularda ilk hipoteze varış
+p50/p90 (`FirstHypothesisAt` yeni alan; yeniden koşuda taşınır; eski kayıtta
+yalnız ilk koşunun bitişi).
+
+**Oylar ("oylara çok güvenmeyelim"):** sre-* yüzeyli çağrılara verilmiş 👎
+(adım 8 `call_id` ⋈ ai_calls) `/api/sre/eval/review` (admin) ile YALNIZ
+"incelemeye değer" adayı olarak gösterilir — etiket değil, puan girdisi değil.
+`ListSREReviewDownvotes` cosrelearn TestVotesNeverReachRuntimeDecisions
+iğnesi; tek okuyucusu `api/sre_eval.go` (inceleme yüzeyi). TestEvalIgnoresFeedback
+evalInput'un (iç içe) oy alanı taşımadığını ve eval.go'nun oy okuyucusu
+anmadığını pinler.

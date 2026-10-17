@@ -136,6 +136,22 @@ func readersFrom(d mcptools.Deps, n Narrator, c cache.Cache, now func() time.Tim
 	return r
 }
 
+// ReplayNarrationText — tekrar işinin özet metni (anlatım çağrısı yapılmaz).
+const ReplayNarrationText = "AI özeti yok (değerlendirme tekrarı — puanlama anlatım kullanmaz)"
+
+// replayPlanNow — SAF: tekrarın planlama anı. AsOf yoksa (eski satır)
+// başlangıç + replayAsOfDelay; hiçbir zaman duvar saatinden ileri değil.
+func replayPlanNow(inv Investigation, wall time.Time) time.Time {
+	at := time.Unix(0, inv.AsOf)
+	if inv.AsOf <= 0 && inv.ProblemAt > 0 {
+		at = time.Unix(0, inv.ProblemAt).Add(replayAsOfDelay)
+	}
+	if inv.AsOf <= 0 && inv.ProblemAt <= 0 || at.After(wall) {
+		return wall
+	}
+	return at
+}
+
 // problemDeployLookback — okuma zenginleştirmesinin deploy penceresi (api
 // problem_enrich.go / mcptools guided_parity.go ile aynı 30 dk).
 const problemDeployLookback = 30 * time.Minute
@@ -209,12 +225,21 @@ func runInvestigation(ctx context.Context, rd readers, inv *Investigation, check
 		}
 		cancel()
 	}
-	inv.Anchor = anchorFor(inv.ProblemAt, t0)
+	// v0.10.1301 (Faz 5) — tekrar (Kind=replay): planın "şimdi"si AsOf
+	// (problem başlangıcı + replayAsOfDelay), duvar saati DEĞİL — pencereler
+	// problemin StartedAt'ine çıpalanır, bugünün verisi tekrara sızmaz. Adım
+	// süreleri / tazelik yine duvar saatiyle (t0).
+	replay := inv.Kind == KindReplay
+	planNow := t0
+	if replay {
+		planNow = replayPlanNow(*inv, t0)
+	}
+	inv.Anchor = anchorFor(inv.ProblemAt, planNow)
 	verify := ""
 	if inv.Kind == KindVerify && IsHypothesisKind(inv.Hypothesis) {
 		verify = inv.Hypothesis
 	}
-	specs := planSteps(p, hyp, planInput{Env: inv.Env, Priority: inv.Priority, Anchor: inv.Anchor, StartNs: inv.ProblemAt, Now: t0,
+	specs := planSteps(p, hyp, planInput{Env: inv.Env, Priority: inv.Priority, Anchor: inv.Anchor, StartNs: inv.ProblemAt, Now: planNow,
 		Verify: verify, ProblemID: inv.ProblemID})
 	inv.Anchor.Families = anomaly.PlanFamilies(p)
 	inv.Anchor.Symptom = symptomOf(inv.Anchor.Families)
@@ -272,6 +297,23 @@ func runInvestigation(ctx context.Context, rd readers, inv *Investigation, check
 	// Hipotezler + zaman çizelgesi: SAF, okuma yok; operatör işaretleri taşınır.
 	ev := evidenceFrom(inv)
 	inv.Hypotheses = carryHuman(Score(ev), inv.Hypotheses)
+	if replay {
+		inv.Timeline = buildTimeline(ev, inv.ProblemID, planNow)
+		// v0.10.1301 — tekrar: öneri YOK (bugünün runbook / Argo durumunu
+		// okurdu; puanlama yalnız hipotez sırasına bakar) ve anlatım YOK:
+		// skor LLM'den bağımsız (Score SAF), çağrı yalnız saatlik AI bütçesini
+		// (sre_agent.maxLLMCallsPerHour) canlı araştırmaların elinden alırdı.
+		// Sıfır LLM çağrısı → bütçeye 0 düşer.
+		checkpoint(inv)
+		if !fresh(inv.step(stepSummary), t0) {
+			inv.Summary = &Narration{Text: ReplayNarrationText, At: now().UnixNano(), Gated: true, Reason: "değerlendirme tekrarı"}
+			apply(stepOutcome{step: Step{Name: stepSummary, State: StepSkipped, Summary: ReplayNarrationText, At: now().UnixNano()}})
+		}
+		return
+	}
+	if inv.FirstHypothesisAt == 0 && len(inv.Hypotheses) > 0 {
+		inv.FirstHypothesisAt = now().UnixNano() // v0.10.1301 — ilk hipoteze varış (değerlendirme p50/p90)
+	}
 	inv.Timeline = buildTimeline(ev, inv.ProblemID, now())
 	// v0.10.1293 (Faz 4) — öneriler: YALNIZ METİN; anlatımdan ÖNCE (girdisine
 	// ≤2 öneri girer). Operatör işaretleri kimliğe göre taşınır.

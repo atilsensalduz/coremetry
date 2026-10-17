@@ -93,6 +93,10 @@ export const keys = {
   sre: {
     all:    ['sre'] as const,
     status: ['sre', 'status'] as const,
+    // v0.10.1301 — değerlendirme (Faz 5); SSE 'sre.investigation' sre dalını düşürür.
+    evalRuns: ['sre', 'eval', 'runs'] as const,
+    evalRun:  (id: string) => ['sre', 'eval', 'run', id] as const,
+    evalReview: (days: number) => ['sre', 'eval', 'review', days] as const,
   },
 
   anomalies: {
