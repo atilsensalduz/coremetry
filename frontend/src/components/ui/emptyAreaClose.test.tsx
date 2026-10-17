@@ -39,7 +39,8 @@ describe('isEmptyAreaClick', () => {
     expect(isEmptyAreaClick(h.querySelector('#in'), h.querySelector('#panel'))).toBe(false);
   });
   it.each([
-    ['link', '<a href="/x"><span id="t">a</span></a>'],
+    // href="#x": spaLinks ratchet'i SPA rotasına giden çıplak <a href="/…"> arar; bu yalnız DOM fikstürü.
+    ['link', '<a href="#x"><span id="t">a</span></a>'],
     ['düğme', '<button><span id="t">b</span></button>'],
     ['girdi', '<input id="t" />'],
     ['tablo satırı', '<table><tbody><tr><td id="t">c</td></tr></tbody></table>'],
