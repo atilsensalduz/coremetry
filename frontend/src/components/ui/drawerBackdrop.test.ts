@@ -25,8 +25,9 @@ describe('Drawer overlay kipi', () => {
     expect(drawer).toContain('{backdrop && (');
   });
 
-  // Overlay yoksa "dışarı tıkla kapat" da yok: sayfayla çalışmak
-  // sohbeti kapatmamalı. Esc/✕ her iki kipte de çalışıyor.
+  // Overlay yoksa her dış tıklama kapatmaz: sayfayla çalışmak sohbeti
+  // kapatmamalı. v0.10.1296 — yalnız BOŞ alana tıklama kapatır
+  // (closeOnEmptyClick; emptyAreaClose.test.ts). Esc/✕ her iki kipte de çalışıyor.
   it('kapatma yolları duruyor', () => {
     // v0.9.950 (E2/Ö28) — Esc artık KATMAN yığınından geliyor. Eski pin
     // elle yazılmış document dinleyicisini arıyordu; o dinleyici Ö28'in

@@ -1049,6 +1049,7 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
         <Drawer
           onClose={closeDrawer}
           backdrop={false}
+          closeOnEmptyClick
           width={AI_DRAWER_WIDTH}
           bodyStyle={{ display: 'flex', flexDirection: 'column', padding: 0 }}
           header={headerNode}>

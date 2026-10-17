@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useFocusTrap } from './useFocusTrap';
 import { useEscLayer } from '@/lib/escLayer';
+import { isEmptyAreaClick } from './emptyAreaClose';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { Sparkline } from '@/components/Sparkline';
@@ -11,7 +12,7 @@ import { Sparkline } from '@/components/Sparkline';
 // olup Drawer'da eksik kalan ayağı. İçerik (bölümler, tablolar,
 // trendler) çağıranda kalır. İlk migrasyon External + Hosts (bayt-bayt
 // aynı kopyalar); kalan 5 çekmece yüzeyi kendi sürümlerinde taşınır.
-export function Drawer({ onClose, header, width = 560, backdrop = true, bodyStyle, children, ariaLabel = 'Detay çekmecesi' }: {
+export function Drawer({ onClose, header, width = 560, backdrop = true, closeOnEmptyClick = false, bodyStyle, children, ariaLabel = 'Detay çekmecesi' }: {
   onClose: () => void;
   // Başlık satırının sol tarafı (ad + rozetler); ✕ butonunu kabuk koyar.
   header: React.ReactNode;
@@ -30,6 +31,9 @@ export function Drawer({ onClose, header, width = 560, backdrop = true, bodyStyl
   backdrop?: boolean;
   // bodyStyle — gövde düzenini çağıran devralabilir (sohbet kendi
   // dikey flex'ini kuruyor: kaydıran tur listesi + sabit composer).
+  // v0.10.1296 — perdesiz kipte (backdrop=false) BOŞ alana tıklayınca kapat.
+  // Etkileşimli öğelere tıklama sohbeti açık bırakır (emptyAreaClose.ts).
+  closeOnEmptyClick?: boolean;
   bodyStyle?: React.CSSProperties;
   /** v0.10.389 — ekran okuyucu diyalog adı; başlık ReactNode olduğu için ayrı. */
   ariaLabel?: string;
@@ -46,6 +50,24 @@ export function Drawer({ onClose, header, width = 560, backdrop = true, bodyStyl
   // v0.10.389 (dış skill denetimi D2) — perde açıkken Tab çekmecede kalır
   // (Modal ile ortak kanca); sohbet kipi (backdrop=false) serbest.
   useFocusTrap(panelRef, backdrop);
+
+  // v0.10.1296 (operatör 2026-10-17) — perdesiz çekmecede boş alana tıklama
+  // kapatır. Metin seçimi (sürükleyerek kopyalama) kapatmaz; dinleyici bir
+  // tık sonra bağlanır ki çekmeceyi AÇAN tıklama onu hemen kapatmasın.
+  // onClose çağıranda her render yeniden üretilebilir; dinleyiciyi her
+  // render'da yeniden bağlamamak için ref'ten okunur.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    if (backdrop || !closeOnEmptyClick) return;
+    const onClick = (e: MouseEvent) => {
+      if (e.button !== 0 || e.defaultPrevented) return;
+      if ((window.getSelection()?.toString() ?? '') !== '') return;
+      if (isEmptyAreaClick(e.target, panelRef.current)) onCloseRef.current();
+    };
+    const t = setTimeout(() => document.addEventListener('click', onClick), 0);
+    return () => { clearTimeout(t); document.removeEventListener('click', onClick); };
+  }, [backdrop, closeOnEmptyClick]);
 
   // mK1 (v0.9.927) — odak taşıma + kaydırma kilidi YALNIZ perde kipinde.
   //
