@@ -167,7 +167,12 @@ func DeriveSignals(in Inputs) map[string][]string {
 // turnSignals — SAF: tek turun kendinden okunan sinyaller.
 func turnSignals(r chstore.CosreInteraction) []string {
 	var out []string
-	if r.Status == "error" {
+	switch r.Status {
+	case "aborted":
+		// v0.10.1280 — sonuç artık "aborted" olarak yazılıyor (istemci cevap
+		// gelmeden gitti); eski satırlar aşağıdaki "context canceled" dalında.
+		out = append(out, SigAbandon)
+	case "error":
 		msg := strings.ToLower(r.ErrorMsg)
 		switch {
 		case strings.Contains(msg, "context canceled"):
@@ -177,7 +182,7 @@ func turnSignals(r chstore.CosreInteraction) []string {
 		default:
 			out = append(out, SigError)
 		}
-	} else {
+	default:
 		if r.EmptyAnswer {
 			out = append(out, SigEmpty)
 		}

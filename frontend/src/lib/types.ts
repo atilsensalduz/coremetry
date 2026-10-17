@@ -3103,6 +3103,9 @@ export interface NegativeFeedbackCall {
   // asıl sinyali: prompt neyin sorulduğunu, yorum neyin EKSİK olduğunu
   // söyler.
   comment?: string;
+  /** v0.10.1280 — hazır neden + oylanan çağrının kimliği. */
+  reason?: AIFeedbackReason;
+  callId?: string;
 }
 
 // KBCandidate (v0.9.1195, AI Faz 5.2) — 👍 almış, henüz KB'ye alınmamış
@@ -3183,7 +3186,8 @@ export interface AIExchange {
   deep?: boolean;
   question: string;
   answer?: string;
-  status: 'ok' | 'error';
+  /** v0.10.1280 — `aborted`: istemci cevap gelmeden ayrıldı (arıza değil). */
+  status: 'ok' | 'error' | 'aborted';
   errorMsg?: string;
   durationMs: number;
   userId?: string;
@@ -3196,7 +3200,19 @@ export interface AIExchange {
   calls: AIExchangeCall[];
   feedback?: 1 | -1;
   feedbackComment?: string;
+  /** v0.10.1280 — 👎'nin hazır nedeni ve oyun bağlandığı çağrı (calls[].id). */
+  feedbackReason?: AIFeedbackReason;
+  feedbackCallId?: string;
+  /** v0.10.1280 — konuşma arşivi (/cosre?chat=<id>, sahibine açılır) + tur no. */
+  conversationId?: string;
+  turn?: number;
 }
+
+/** v0.10.1280 — 👎 hazır nedenleri (Go: chstore.AIFeedbackReasons; kapalı küme). */
+export type AIFeedbackReason = 'wrong' | 'incomplete' | 'irrelevant';
+
+/** v0.10.1280 — /api/ai/exchanges `?feedback=` süzgeci; '' = hepsi. */
+export type AIExchangeFeedbackFilter = '' | 'down' | 'up' | 'rated';
 
 /** v0.10.940 — /api/ai/{stats,series,calls} `?source=`. Parametre YOK =
  *  üretim (evalset koşularının `evalset-*` yüzeyli satırları HARİÇ); `evalset`
@@ -7277,6 +7293,8 @@ export interface ChatTurn extends ChatMessage {
    */
   stopped?: boolean;
   exchangeId?: string;
+  /** v0.10.1280 — cevabı üreten ai_calls satırı (answer.callId); arşiv taşımaz. */
+  callId?: string;
   /** v0.10.1150 — cevap "Derin düşün" açıkken istendi (adım satırında rozet). Arşiv taşımaz. */
   deep?: boolean;
   verdict?: 1 | -1;
@@ -7559,7 +7577,9 @@ export type ChatStreamEvent =
   // evidenceSpanIds / cached (v0.10.453) — trace açıklaması Explain çekirdeğinden:
   // kanıt span'leri ve önbellek isabeti (sohbet ile ✨ Explain aynı cevabı paylaşır).
   // evidence (v0.10.1272) — alışverişin kanıt çipleri (step-result.evidence'ların listesi).
-  | { kind: 'answer'; text: string; exchangeId?: string; sources?: RagSource[]; suggestions?: string[]; links?: ChatAnswerLink[]; open?: string; evidenceSpanIds?: string[]; cached?: boolean; allowedLinks?: string[]; evidence?: ChatQueryEvidence[] }
+  // callId (v0.10.1280, CoSRE adım 8) — cevabı ÜRETEN ai_calls satırının id'si;
+  // 👍/👎 onu da gönderir (somut çağrıya bağlanır). Eski sunucu / LLM'siz cevap göndermez.
+  | { kind: 'answer'; text: string; exchangeId?: string; callId?: string; sources?: RagSource[]; suggestions?: string[]; links?: ChatAnswerLink[]; open?: string; evidenceSpanIds?: string[]; cached?: boolean; allowedLinks?: string[]; evidence?: ChatQueryEvidence[] }
   // v0.10.541 (Faz 3.3a) — tipli blok: model yalnız metin üretir; chart/link
   // (ileride trace_list/table/action/evidence) deterministik, tool sonucundan.
   | { kind: 'block'; id: string; type: ChatBlockType; seq: number; final: boolean; payload: unknown }

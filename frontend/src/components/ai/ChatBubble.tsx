@@ -1060,7 +1060,7 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
           </Button>
           {/* v0.10.537 — paylaşılan atom: 👎'de yorum kutusu (arşivden gelen
               turn exchangeId taşımaz → atom hiç çizilmez, chatPersist sözleşmesi). */}
-          {!!turn.exchangeId && <AIFeedbackButtons exchangeId={turn.exchangeId} key={turn.exchangeId} />}
+          {!!turn.exchangeId && <AIFeedbackButtons exchangeId={turn.exchangeId} callId={turn.callId} key={turn.exchangeId} />}
           {/* v0.10.1138 — yeniden üret: yalnız son cevapta, akarken kapalı. */}
           {onRegenerate && (
             <Button variant="ghost" size="sm" onClick={onRegenerate} disabled={busy}

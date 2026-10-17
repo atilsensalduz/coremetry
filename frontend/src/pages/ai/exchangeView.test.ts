@@ -4,6 +4,9 @@ import type { AIExchange } from '@/lib/types';
 import {
   NO_LLM_LABEL, exchangeCallsSummary, exchangeFeedbackLabel, exchangeModelLabel,
   exchangeTierLabel, exchangeTokensLabel, exchangeUsedLLM,
+  AI_EXCHANGES_QUERY_FIELDS, aiExchangesQueryKey, aiExchangesRequestParams,
+  exchangeConversationHref, exchangeFeedbackCounts, exchangeStatusBadge,
+  parseExchangeFeedbackFilter, type AIExchangesQueryParams,
 } from './exchangeView';
 
 const base: AIExchange = {
@@ -53,5 +56,59 @@ describe('exchangeView', () => {
     expect(exchangeFeedbackLabel({ feedback: 1 })).toBe('👍');
     expect(exchangeFeedbackLabel({ feedback: -1 })).toBe('👎');
     expect(exchangeFeedbackLabel({})).toBe('—');
+  });
+});
+
+// ── v0.10.1280 — CoSRE adım 8: /ai 👍/👎 süzgeci + arşiv bağı ─────────────
+
+describe('aiExchangesQueryKey — anahtar isteğin TÜM girdilerini taşır', () => {
+  const base: AIExchangesQueryParams = { from: 1, to: 2, limit: 200, feedback: '' };
+  it('her alan anahtar listesinde (yeni girdi unutulamaz)', () => {
+    // Örnek nesnenin HER alanı listede olmalı: tip bir alan kazanıp liste
+    // kazanmazsa bu kırmızı (anahtar o girdiyi görmezdi).
+    expect([...AI_EXCHANGES_QUERY_FIELDS].sort()).toEqual(Object.keys(base).sort());
+  });
+  it.each([
+    ['from', { from: 9 }],
+    ['to', { to: 9 }],
+    ['limit', { limit: 50 }],
+    ['feedback', { feedback: 'down' }],
+  ] as const)('%s değişince anahtar değişir', (_name, patch) => {
+    const a = JSON.stringify(aiExchangesQueryKey(base));
+    const b = JSON.stringify(aiExchangesQueryKey({ ...base, ...patch } as AIExchangesQueryParams));
+    expect(b).not.toBe(a);
+  });
+  it('aynı girdiler aynı anahtar', () => {
+    expect(aiExchangesQueryKey({ ...base })).toEqual(aiExchangesQueryKey(base));
+  });
+  it('süzgeç yoksa istek feedback alanı TAŞIMAZ (eski gövde); varsa taşır', () => {
+    expect('feedback' in aiExchangesRequestParams(base)).toBe(false);
+    expect(aiExchangesRequestParams({ ...base, feedback: 'down' }).feedback).toBe('down');
+  });
+});
+
+describe('exchange 👍/👎 görünümü', () => {
+  it('süzgeç URL değeri kapalı kümeye', () => {
+    expect(parseExchangeFeedbackFilter('down')).toBe('down');
+    expect(parseExchangeFeedbackFilter('up')).toBe('up');
+    expect(parseExchangeFeedbackFilter('rated')).toBe('rated');
+    expect(parseExchangeFeedbackFilter('DOWN')).toBe('');
+    expect(parseExchangeFeedbackFilter(null)).toBe('');
+  });
+  it('👎 hazır nedeni oyun yanında', () => {
+    expect(exchangeFeedbackLabel({ feedback: -1, feedbackReason: 'incomplete' })).toBe('👎 eksik');
+    expect(exchangeFeedbackLabel({ feedback: 1, feedbackReason: 'wrong' })).toBe('👍');
+  });
+  it('sayım', () => {
+    expect(exchangeFeedbackCounts([{ feedback: 1 }, { feedback: -1 }, { feedback: -1 }, {}])).toEqual({ up: 1, down: 2 });
+  });
+  it('sonuç rozeti: iptal arıza rengi almaz', () => {
+    expect(exchangeStatusBadge({ status: 'ok' })).toEqual({ label: 'ok', cls: 'b-gray' });
+    expect(exchangeStatusBadge({ status: 'aborted' })).toEqual({ label: 'iptal', cls: 'b-warn' });
+    expect(exchangeStatusBadge({ status: 'error' })).toEqual({ label: 'hata', cls: 'b-err' });
+  });
+  it('arşiv bağı yalnız konuşma kimliği varken', () => {
+    expect(exchangeConversationHref({ conversationId: 'a b' })).toBe('/cosre?chat=a%20b');
+    expect(exchangeConversationHref({})).toBeNull();
   });
 });

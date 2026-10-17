@@ -39,6 +39,16 @@ type aiFeedbackRequest struct {
 	// oy flip'i operatörün yazdığı metni sessizce silerdi
 	// (ReplacingMergeTree tam-satır replace).
 	Comment *string `json:"comment"`
+	// CallID (v0.10.1280, CoSRE adım 8) — cevabı üreten ai_calls satırı
+	// (sohbet `answer` olayının opsiyonel `callId`'si). Bir exchange'in
+	// birden çok çağrısı olabildiği için oy SOMUT çağrıya bağlanır. Pointer
+	// ve preserve sözleşmesi comment'le aynı: alan yoksa (eski istemci, düz
+	// oy tıkı) saklanan kimlik korunur; eski istemci exchange düzeyinde oy
+	// vermeye devam eder.
+	CallID *string `json:"callId"`
+	// Reason (v0.10.1280) — 👎'nin hazır nedeni (chstore.AIFeedbackReasons:
+	// wrong | incomplete | irrelevant). nil → korunur, "" → temizlenir.
+	Reason *string `json:"reason"`
 }
 
 // aiFeedbackMaxIDLen bounds the exchangeId a client can post. The
@@ -64,6 +74,48 @@ func normalizeFeedbackComment(c *string) (val string, preserve bool, err error) 
 		return "", false, fmt.Errorf("comment en fazla %d karakter olabilir", aiFeedbackMaxCommentRunes)
 	}
 	return v, false, nil
+}
+
+// normalizeFeedbackCallID — SAF (v0.10.1280): nil → preserve; dolu → ai_calls
+// kimlik biçimi (hex, ≤ aiFeedbackMaxIDLen). Biçim dışı kimlik 400: dedup
+// anahtarı olmasa da satıra serbest blob yazdırmayalım. Var olduğu
+// DOĞRULANMAZ — ai_calls yazımı asenkron (RecordUsage gorutini), henüz
+// inmemiş satırı reddetmek oyu düşürürdü (surface çözümünün aynı gerekçesi).
+func normalizeFeedbackCallID(c *string) (val string, preserve bool, err error) {
+	if c == nil {
+		return "", true, nil
+	}
+	v := strings.TrimSpace(*c)
+	if v == "" {
+		return "", true, nil // boş kimlik bilgi taşımaz: saklananı silmesin
+	}
+	if len(v) > aiFeedbackMaxIDLen {
+		return "", false, errors.New("callId too long")
+	}
+	for _, r := range v {
+		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f') {
+			return "", false, errors.New("callId must be lowercase hex")
+		}
+	}
+	return v, false, nil
+}
+
+// normalizeFeedbackReason — SAF (v0.10.1280): nil → preserve; "" → temizle;
+// kapalı küme dışı → hata.
+func normalizeFeedbackReason(r *string) (val string, preserve bool, err error) {
+	if r == nil {
+		return "", true, nil
+	}
+	v := strings.TrimSpace(*r)
+	if v == "" {
+		return "", false, nil
+	}
+	for _, ok := range chstore.AIFeedbackReasons {
+		if v == ok {
+			return v, false, nil
+		}
+	}
+	return "", false, fmt.Errorf("reason must be one of %s", strings.Join(chstore.AIFeedbackReasons, ", "))
 }
 
 // validateAIFeedback is the pure request gate — split out so the
@@ -97,17 +149,28 @@ func (s *Server) postAIFeedback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	comment, preserve, cerr := normalizeFeedbackComment(req.Comment)
+	comment, keepComment, cerr := normalizeFeedbackComment(req.Comment)
 	if cerr != nil {
 		http.Error(w, cerr.Error(), http.StatusBadRequest)
 		return
 	}
-	if preserve {
-		// Gövde yorum taşımıyor (düz oy tıkı): saklananı taşı — tam-satır
-		// replace yorumlu satırı yoksa yorumsuz sürümle ezerdi. Soft-fail:
-		// okuma düşerse yorum kaybı, oy POST'unu düşürmekten ucuz.
-		if stored, serr := s.store.AIFeedbackCommentByExchange(r.Context(), req.ExchangeID); serr == nil {
-			comment = stored
+	callID, keepCall, kerr := normalizeFeedbackCallID(req.CallID)
+	if kerr != nil {
+		http.Error(w, kerr.Error(), http.StatusBadRequest)
+		return
+	}
+	reason, keepReason, rerr := normalizeFeedbackReason(req.Reason)
+	if rerr != nil {
+		http.Error(w, rerr.Error(), http.StatusBadRequest)
+		return
+	}
+	if keepComment || keepCall || keepReason {
+		// Gövde bir alanı taşımıyor (düz oy tıkı, eski istemci): saklananı
+		// taşı — tam-satır replace aksi hâlde yorumu/nedeni/çağrı bağını
+		// boş sürümle ezerdi. Soft-fail: okuma düşerse alan kaybı, oy
+		// POST'unu düşürmekten ucuz.
+		if stored, serr := s.store.AIFeedbackStoredByExchange(r.Context(), req.ExchangeID); serr == nil {
+			comment, reason, callID = mergeStoredFeedback(stored, comment, reason, callID, keepComment, keepReason, keepCall)
 		}
 	}
 	surface, err := s.store.AICallSurfaceByExchange(r.Context(), req.ExchangeID)
@@ -125,11 +188,28 @@ func (s *Server) postAIFeedback(w http.ResponseWriter, r *http.Request) {
 		Verdict:    req.Verdict,
 		Comment:    comment,
 		UserEmail:  email,
+		CallID:     callID,
+		Reason:     reason,
 	}); err != nil {
 		writeErr(w, err)
 		return
 	}
 	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// mergeStoredFeedback — SAF (v0.10.1280): gövdenin göndermediği (keep*)
+// alanlar saklanandan; gönderilenler gövdeden. Tablo-testli.
+func mergeStoredFeedback(stored chstore.AIFeedbackStored, comment, reason, callID string, keepComment, keepReason, keepCall bool) (string, string, string) {
+	if keepComment {
+		comment = stored.Comment
+	}
+	if keepReason {
+		reason = stored.Reason
+	}
+	if keepCall {
+		callID = stored.CallID
+	}
+	return comment, reason, callID
 }
 
 // listNegativeAIFeedback (v0.9.423, CoSRE fikir #6) — 👎 madenciliği:
@@ -143,7 +223,7 @@ func (s *Server) listNegativeAIFeedback(w http.ResponseWriter, r *http.Request) 
 			rangeS = int64(n)
 		}
 	}
-	key := fmt.Sprintf("ai:negfb:v2:range=%d", rangeS) // v0.10.423 — satır exchangeId kazandı
+	key := fmt.Sprintf("ai:negfb:v3:range=%d:cc=%t", rangeS, chstore.AIFeedbackCallCols()) // v0.10.423 — satır exchangeId kazandı; v0.10.1280 reason/callId (şekil + bayrak)
 	s.serveCached(w, r, key, 60*time.Second, func(ctx context.Context) (any, error) {
 		to := time.Now()
 		from := to.Add(-time.Duration(rangeS) * time.Second)

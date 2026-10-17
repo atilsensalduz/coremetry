@@ -42,7 +42,7 @@ func TestChatExchangeCapturesInteraction(t *testing.T) {
 	t0 := time.Now().Add(-500 * time.Millisecond)
 	x := newChatExchange("ex1", "Bu neden oluyor?", false, t0)
 	x.setInteraction("conv1", 2, "regenerate", &agentctx.PageContext{Page: "exception", ExceptionID: "eg9", Service: "svc-a"}, "ctx-svc", "tr1")
-	x.noteModelCall("gemma4-31b", 1657, 174)
+	x.noteModelCall(copilot.CallNote{Model: "gemma4-31b", InputTokens: 1657, OutputTokens: 174})
 
 	var seen []string
 	emit := x.tap(withStepIDs(func(kind string, _ any) { seen = append(seen, kind) }))

@@ -413,11 +413,15 @@ func TestChatExchangeOutcome(t *testing.T) {
 		{"LLM'siz cevap, iptal sonrası", nil, "", true, context.Canceled, "ok"},
 		{"akışta hata", nil, "model zaman aşımı", false, nil, "error"},
 		{"kademe başarısız", errors.New("wiki kademesi başarısız"), "", true, nil, "error"},
-		{"istemci gitti, cevap yok", nil, "", false, context.Canceled, "error"},
+		// v0.10.1280 — CoSRE adım 8: istemci cevap gelmeden gitti = "aborted"
+		// (arıza değil); döngünün yazdığı iptal cümlesi sonucu "error"a çevirmez.
+		{"istemci gitti, cevap yok", nil, "", false, context.Canceled, "aborted"},
+		{"istemci gitti, döngü iptal cümlesi yazdı", nil, "istek iptal edildi", false, context.Canceled, "aborted"},
+		{"alışveriş tavanı, cevap yok", nil, "", false, context.DeadlineExceeded, "error"},
 	}
 	for _, c := range cases {
 		st, msg := chatExchangeOutcome(c.tierErr, c.emitted, c.answered, c.ctxErr)
-		if st != c.want || (st == "error") != (msg != "") {
+		if st != c.want || (st != "ok") != (msg != "") {
 			t.Errorf("%s: %q %q", c.name, st, msg)
 		}
 	}

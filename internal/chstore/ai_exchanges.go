@@ -17,6 +17,8 @@ package chstore
 //	3. bu köklerin 👍/👎'ları (ai_feedback FINAL).
 //
 // Yeni tablo / kolon YOK; saklama ai_calls'ın 90 g TTL'i, örnekler 4 KB.
+// v0.10.1280 — 4. okuma: köklerin konuşma kimliği (cosre_interactions,
+// soft-fail) + 👍/👎 süzgeci (ai_feedback GLOBAL IN alt sorgusu).
 
 import (
 	"context"
@@ -51,7 +53,7 @@ type AIExchange struct {
 	Deep       bool   `json:"deep,omitempty"`
 	Question   string `json:"question"`
 	Answer     string `json:"answer,omitempty"`
-	Status     string `json:"status"` // ok | error
+	Status     string `json:"status"` // ok | error | aborted (v0.10.1280)
 	ErrorMsg   string `json:"errorMsg,omitempty"`
 	DurationMs uint32 `json:"durationMs"` // turun tamamı
 	UserID     string `json:"userId,omitempty"`
@@ -65,6 +67,32 @@ type AIExchange struct {
 	Calls        []AIExchangeCall `json:"calls"`
 	Feedback     int8             `json:"feedback,omitempty"` // 1 | -1; 0 = oylanmadı
 	FeedbackNote string           `json:"feedbackComment,omitempty"`
+	// v0.10.1280 (CoSRE adım 8) — 👎'nin hazır nedeni ve oyun bağlandığı
+	// ai_calls satırı (Calls içindeki id; boş = exchange düzeyinde oy).
+	FeedbackReason string `json:"feedbackReason,omitempty"`
+	FeedbackCallID string `json:"feedbackCallId,omitempty"`
+	// ConversationID / Turn — cosre_interactions'tan (istemcinin kalıcı
+	// konuşma kimliği; /cosre?chat=<id> arşivi). Boş = ilk tur ya da kayıt
+	// henüz inmedi / süpürüldü.
+	ConversationID string `json:"conversationId,omitempty"`
+	Turn           uint16 `json:"turn,omitempty"`
+}
+
+// Etkileşim listesinin 👍/👎 süzgeci (v0.10.1280). "" = hepsi.
+const (
+	AIExchangeFeedbackDown  = "down"  // yalnız 👎 (operatörün inceleme kuyruğu)
+	AIExchangeFeedbackUp    = "up"    // yalnız 👍
+	AIExchangeFeedbackRated = "rated" // oylanmış her tur
+)
+
+// NormalizeAIExchangeFeedback — SAF: bilinmeyen değer "" (hepsi); süzgeç
+// kümesi kapalı kalır (bind'a giden verdict koşulu buradan türer).
+func NormalizeAIExchangeFeedback(v string) string {
+	switch v {
+	case AIExchangeFeedbackDown, AIExchangeFeedbackUp, AIExchangeFeedbackRated:
+		return v
+	}
+	return ""
 }
 
 // ListAIExchangesParams — pencere + tavan (sıfır değerler: son 24 sa, 100).
@@ -72,6 +100,8 @@ type ListAIExchangesParams struct {
 	From  time.Time
 	To    time.Time
 	Limit int
+	// Feedback — v0.10.1280: NormalizeAIExchangeFeedback kümesi.
+	Feedback string
 }
 
 const (
@@ -90,22 +120,59 @@ const aiCallsTurnCond = "startsWith(surface, '" + aisurface.TurnPrefix + "')"
 // aiExchangeRootExpr — exchange_id'nin kökü (aisurface.ExchangeRoot'un SQL ikizi).
 const aiExchangeRootExpr = "splitByChar('" + aisurface.ExchangeSep + "', exchange_id)[1]"
 
+// aiExchangeFeedbackVerdictCond — SAF: süzgecin verdict koşulu (sabit
+// literal; kullanıcı girdisi SQL'e gitmez, kapalı kümeden türer).
+func aiExchangeFeedbackVerdictCond(fb string) string {
+	switch fb {
+	case AIExchangeFeedbackDown:
+		return "verdict = -1"
+	case AIExchangeFeedbackUp:
+		return "verdict = 1"
+	case AIExchangeFeedbackRated:
+		return "verdict != 0"
+	}
+	return ""
+}
+
 // aiExchangeTurnsSQL — SAF: pencere içindeki etkileşim satırları. profile_id
-// yalnız genişletilmiş kolonlar varken (iki-boot sözleşmesi). Bind: from, to, limit.
-func aiExchangeTurnsSQL(ext bool) string {
+// yalnız genişletilmiş kolonlar varken (iki-boot sözleşmesi). Bind: from, to,
+// [fbFrom — süzgeç varken], limit.
+//
+// v0.10.1280 — 👍/👎 süzgeci: kökü ai_feedback'te (FINAL — son oy) eşleşen
+// turlar. Süzgeç LIMIT'ten ÖNCE: "son 200 turdan 👎 olanlar" değil "pencerenin
+// 👎 turları". Alt sorgu GLOBAL (make audit CHECK 5: dağıtıkta GLOBAL'siz
+// IN alt sorguyu her shard'da ayrı koşar) ve zaman sınırlı — oy turdan
+// SONRA verilir, alt sınır pencerenin başı.
+func aiExchangeTurnsSQL(ext bool, fb string) string {
 	cols := `exchange_id, toUnixTimestamp64Nano(created_at), surface, status, error_msg,
 		       duration_ms, user_id, user_email, prompt_sample, response_sample`
 	if ext {
 		cols += `, profile_id`
 	}
+	fbCond := ""
+	if vc := aiExchangeFeedbackVerdictCond(fb); vc != "" {
+		fbCond = `
+		  AND ` + aiExchangeRootExpr + ` GLOBAL IN (
+		      SELECT exchange_id FROM ai_feedback FINAL
+		      WHERE ` + vc + ` AND created_at >= toDateTime64(?, 9, 'UTC'))`
+	}
 	return `SELECT ` + cols + `
 		FROM ai_calls
 		WHERE created_at >= toDateTime64(?, 9, 'UTC')
 		  AND created_at <  toDateTime64(?, 9, 'UTC')
-		  AND ` + aiCallsTurnCond + `
+		  AND ` + aiCallsTurnCond + fbCond + `
 		ORDER BY created_at DESC
 		LIMIT ?
 		SETTINGS max_execution_time = 10`
+}
+
+// aiExchangeTurnsArgs — SAF: aiExchangeTurnsSQL'in bind sırası.
+func aiExchangeTurnsArgs(p ListAIExchangesParams) []any {
+	args := []any{chDateTime64Arg(p.From), chDateTime64Arg(p.To)}
+	if aiExchangeFeedbackVerdictCond(p.Feedback) != "" {
+		args = append(args, chDateTime64Arg(p.From))
+	}
+	return append(args, p.Limit)
 }
 
 // aiExchangeCallsSQL — SAF: verilen köklerin model çağrıları. Üretim kaynak
@@ -124,12 +191,36 @@ func aiExchangeCallsSQL() string {
 		SETTINGS max_execution_time = 10`
 }
 
-// aiExchangeFeedbackSQL — köklerin son 👍/👎'ı (küçük state tablosu, FINAL).
-const aiExchangeFeedbackSQL = `SELECT exchange_id, verdict, comment
+// aiExchangeFeedbackSQL — SAF: köklerin son 👍/👎'ı (küçük state tablosu,
+// FINAL). v0.10.1280 — neden + çağrı kimliği yalnız kolonlar varken (iki-boot).
+func aiExchangeFeedbackSQL(callCols bool) string {
+	cols := `exchange_id, verdict, comment`
+	if callCols {
+		cols += `, reason, call_id`
+	}
+	return `SELECT ` + cols + `
 		FROM ai_feedback FINAL
 		WHERE exchange_id IN (?)
 		LIMIT ?
 		SETTINGS max_execution_time = 5`
+}
+
+// aiExchangeConversationSQL — v0.10.1280: köklerin konuşma kimliği + tur no
+// (cosre_interactions; exchange_id bloom indeksli, zaman sınırlı, LIMIT).
+// Bind: from, to, roots, limit.
+const aiExchangeConversationSQL = `SELECT exchange_id, conversation_id, turn
+		FROM cosre_interactions
+		WHERE created_at >= toDateTime64(?, 9, 'UTC')
+		  AND created_at <  toDateTime64(?, 9, 'UTC')
+		  AND exchange_id IN (?)
+		LIMIT ?
+		SETTINGS max_execution_time = 5`
+
+// aiExchangeConv — birleşimin konuşma girdisi.
+type aiExchangeConv struct {
+	ConversationID string
+	Turn           uint16
+}
 
 // aiTurnRow / aiExchangeChild / aiExchangeVerdict — birleşimin girdileri.
 type aiTurnRow struct {
@@ -148,12 +239,15 @@ type aiExchangeChild struct {
 type aiExchangeVerdict struct {
 	Verdict int8
 	Comment string
+	Reason  string // v0.10.1280
+	CallID  string // v0.10.1280
 }
 
 // assembleAIExchanges — SAF: etkileşim satırları + çağrılar + oylar →
 // etkileşimler (satır sırası korunur; aynı köke ikinci etkileşim satırı
 // yok sayılır). Token ve model yalnız gerçek model çağrılarından.
-func assembleAIExchanges(turns []aiTurnRow, calls []aiExchangeChild, fb map[string]aiExchangeVerdict) []AIExchange {
+// v0.10.1280 — conv: kök → konuşma kimliği/tur no (nil olabilir).
+func assembleAIExchanges(turns []aiTurnRow, calls []aiExchangeChild, fb map[string]aiExchangeVerdict, conv map[string]aiExchangeConv) []AIExchange {
 	byRoot := map[string][]AIExchangeCall{}
 	for _, c := range calls {
 		byRoot[c.Root] = append(byRoot[c.Root], c.Call)
@@ -188,6 +282,10 @@ func assembleAIExchanges(turns []aiTurnRow, calls []aiExchangeChild, fb map[stri
 		}
 		if v, ok := fb[root]; ok {
 			ex.Feedback, ex.FeedbackNote = v.Verdict, v.Comment
+			ex.FeedbackReason, ex.FeedbackCallID = v.Reason, v.CallID
+		}
+		if c, ok := conv[root]; ok {
+			ex.ConversationID, ex.Turn = c.ConversationID, c.Turn
 		}
 		out = append(out, ex)
 	}
@@ -220,8 +318,9 @@ func (s *Store) ListAIExchanges(ctx context.Context, p ListAIExchangesParams) ([
 	if p.From.IsZero() {
 		p.From = p.To.Add(-24 * time.Hour)
 	}
+	p.Feedback = NormalizeAIExchangeFeedback(p.Feedback)
 	ext := aiCallsExtended.Load()
-	rows, err := s.conn.Query(ctx, aiExchangeTurnsSQL(ext), chDateTime64Arg(p.From), chDateTime64Arg(p.To), p.Limit)
+	rows, err := s.conn.Query(ctx, aiExchangeTurnsSQL(ext, p.Feedback), aiExchangeTurnsArgs(p)...)
 	if err != nil {
 		return nil, err
 	}
@@ -273,14 +372,19 @@ func (s *Store) ListAIExchanges(ctx context.Context, p ListAIExchangesParams) ([
 		return nil, err
 	}
 	fb := map[string]aiExchangeVerdict{}
-	fRows, err := s.conn.Query(ctx, aiExchangeFeedbackSQL, roots, len(roots))
+	cc := aiFeedbackCallCols.Load()
+	fRows, err := s.conn.Query(ctx, aiExchangeFeedbackSQL(cc), roots, len(roots))
 	if err != nil {
 		return nil, err
 	}
 	for fRows.Next() {
 		var id string
 		var v aiExchangeVerdict
-		if err := fRows.Scan(&id, &v.Verdict, &v.Comment); err != nil {
+		dest := []any{&id, &v.Verdict, &v.Comment}
+		if cc {
+			dest = append(dest, &v.Reason, &v.CallID)
+		}
+		if err := fRows.Scan(dest...); err != nil {
 			fRows.Close()
 			return nil, err
 		}
@@ -290,5 +394,28 @@ func (s *Store) ListAIExchanges(ctx context.Context, p ListAIExchangesParams) ([
 	if err := fRows.Err(); err != nil {
 		return nil, err
 	}
-	return assembleAIExchanges(turns, calls, fb), nil
+	return assembleAIExchanges(turns, calls, fb, s.aiExchangeConversations(ctx, cFrom, cTo, roots)), nil
+}
+
+// aiExchangeConversations — v0.10.1280: köklerin konuşma kimliği. SOFT-FAIL:
+// arşiv bağı süs, listenin kendisi değil — okuma düşerse bağlar boş kalır
+// (tablo süpürülmüş / kısa saklama / dağıtıkta henüz yok).
+func (s *Store) aiExchangeConversations(ctx context.Context, from, to time.Time, roots []string) map[string]aiExchangeConv {
+	out := map[string]aiExchangeConv{}
+	rows, err := s.conn.Query(ctx, aiExchangeConversationSQL, chDateTime64Arg(from), chDateTime64Arg(to), roots, len(roots))
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var c aiExchangeConv
+		if err := rows.Scan(&id, &c.ConversationID, &c.Turn); err != nil {
+			return out
+		}
+		if c.ConversationID != "" {
+			out[id] = c
+		}
+	}
+	return out
 }

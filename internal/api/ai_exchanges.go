@@ -22,6 +22,9 @@ func (s *Server) listAIExchanges(w http.ResponseWriter, r *http.Request) {
 		From:  parseTime(q.Get("from")),
 		To:    parseTime(q.Get("to")),
 		Limit: parseInt(q.Get("limit"), 100),
+		// v0.10.1280 (CoSRE adım 8) — 👍/👎 süzgeci (down | up | rated; başka
+		// değer = hepsi). Operatörün "yalnız 👎" inceleme görünümü.
+		Feedback: chstore.NormalizeAIExchangeFeedback(q.Get("feedback")),
 	}
 	rows, err := s.store.ListAIExchanges(r.Context(), p)
 	if err != nil {

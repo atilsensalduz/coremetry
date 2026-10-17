@@ -746,6 +746,10 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 
+	// v0.10.1280 (CoSRE adım 8) — döngünün TEK ai_calls satırı cevaptan SONRA
+	// yazılır (RecordUsage, aşağıda); cevap olayının callId'si o satırla
+	// eşleşsin diye kimlik ŞİMDİ basılır ve iki yere de aynı değer gider.
+	loopCallID := copilot.NewCallID()
 	// v0.10.1150 — tavanlar deepMode'dan: kapalıyken chatMaxToolCalls/Rounds.
 	maxCalls, maxRounds := dm.toolCalls(), dm.toolRounds()
 	callsLeft := maxCalls
@@ -820,6 +824,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 			for _, l := range s.answerRequestIDLinks(ctx, finalText, req.Context.Service) {
 				links = mergeToolLinks(links, l)
 			}
+			xch.noteFinalCall(loopCallID) // v0.10.1280 — answer.callId
 			emit("answer", withAnswerEvidence(chatAnswerEvent(finalText, exchangeID, links,
 				answerOpenHref(lastUserText(req.Messages), loopOpen)), loopEvidence))
 			break
@@ -1120,6 +1125,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 				for _, l := range s.answerRequestIDLinks(ctx, finalText, req.Context.Service) {
 					links = mergeToolLinks(links, l)
 				}
+				xch.noteFinalCall(loopCallID) // v0.10.1280 — answer.callId
 				emit("answer", withAnswerEvidence(chatAnswerEvent(finalText, exchangeID, links,
 					answerOpenHref(lastUserText(req.Messages), loopOpen)), loopEvidence))
 			}
@@ -1136,7 +1142,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	cspan.finish(totalIn, totalOut, totalCached, lastErr) // v0.10.425 — span ve satır aynı toplamlar
 	// v0.10.1050 — read_source_code okunduysa örneğe maskeli "[kod: …]" özetleri
 	// eklenir (explain yolunun sözleşmesi); okunmadıysa bayt bayt eski örnek.
-	s.copilot.RecordUsage(ctx, chatT0, totalIn, totalOut, totalCached, status, errMsg, chatPromptSample(lastUserText(req.Messages), codeReads), finalText)
+	s.copilot.RecordUsage(copilot.WithCallID(ctx, loopCallID), chatT0, totalIn, totalOut, totalCached, status, errMsg, chatPromptSample(lastUserText(req.Messages), codeReads), finalText)
 
 	emit("done", map[string]bool{"ok": lastErr == nil})
 }

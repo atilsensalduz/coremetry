@@ -28,6 +28,8 @@ package api
 
 import (
 	"context"
+	"errors"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -36,6 +38,7 @@ import (
 	"github.com/cilcenk/coremetry/internal/ai/aisurface"
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/copilot"
+	"github.com/cilcenk/coremetry/internal/mcptools"
 )
 
 // chatExchange — bir CoSRE turunun etkileşim durumu. tap birden çok
@@ -65,6 +68,12 @@ type chatExchange struct {
 	modelCalls   uint16
 	inTok        uint32
 	outTok       uint32
+
+	// v0.10.1280 (CoSRE adım 8) — cevabı ÜRETEN ai_calls satırı: kökle
+	// (alt-rol değil) kaydedilen SON model çağrısı ya da döngülerin cevaptan
+	// önce sabitlediği kimlik (noteFinalCall). tap bunu `answer` olayına
+	// isteğe bağlı `callId` olarak ekler → 👍/👎 somut çağrıya bağlanır.
+	finalCallID string
 }
 
 // setInteraction — istek bağlamı (konuşma, tur no, sayfa, istemci denemesi).
@@ -102,20 +111,73 @@ func normalizeChatAttempt(a string) string {
 }
 
 // noteModelCall — copilot.CallSink: turdaki her model çağrısı (son model kazanır).
-func (x *chatExchange) noteModelCall(model string, in, out uint32) {
+// v0.10.1280 — kökle kaydedilen çağrının kimliği cevabın çağrısı adayıdır;
+// yardımcı/işaret satırları ("kök:rol") cevap üretmez, aday olmaz.
+func (x *chatExchange) noteModelCall(n copilot.CallNote) {
 	if x == nil {
 		return
 	}
 	x.mu.Lock()
 	defer x.mu.Unlock()
-	if model != "" {
-		x.model = model
+	if n.Model != "" {
+		x.model = n.Model
 	}
 	if x.modelCalls < 65535 {
 		x.modelCalls++
 	}
-	x.inTok += in
-	x.outTok += out
+	x.inTok += n.InputTokens
+	x.outTok += n.OutputTokens
+	if n.CallID != "" && n.ExchangeID != "" && n.ExchangeID == x.root {
+		x.finalCallID = n.CallID
+	}
+}
+
+// noteFinalCall — v0.10.1280: toplu satırını cevaptan SONRA yazan döngüler
+// (serbest döngü, exception kod döngüsü) kimliği önceden basar
+// (copilot.NewCallID) ve cevabı yayınlamadan hemen önce buraya bildirir;
+// aynı kimlik copilot.WithCallID ile RecordUsage'a geçer.
+func (x *chatExchange) noteFinalCall(id string) {
+	if x == nil || id == "" {
+		return
+	}
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	x.finalCallID = id
+}
+
+// answerWithCallID — SAF: `answer` yükünün callId'li KOPYASI. Yalnız yük bu
+// turun exchangeId'sini taşıyorsa (oylanabilir cevap) ve kimlik biliniyorsa;
+// aksi hâlde yük AYNEN döner. Kopya: çağıranın haritası değişmez.
+func answerWithCallID(v any, root, callID string) any {
+	if callID == "" || root == "" {
+		return v
+	}
+	switch m := v.(type) {
+	case map[string]any:
+		if xid, _ := m["exchangeId"].(string); xid != root {
+			return v
+		}
+		if _, has := m["callId"]; has {
+			return v
+		}
+		out := make(map[string]any, len(m)+1)
+		for k, val := range m {
+			out[k] = val
+		}
+		out["callId"] = callID
+		return out
+	case map[string]string:
+		if m["exchangeId"] != root || m["callId"] != "" {
+			return v
+		}
+		out := make(map[string]string, len(m)+1)
+		for k, val := range m {
+			out[k] = val
+		}
+		out["callId"] = callID
+		return out
+	}
+	return v
 }
 
 // noteStep — tool çipi (step olayı, kimlik damgalandıktan SONRA). Etiket
@@ -178,6 +240,56 @@ func (x *chatExchange) noteStepResult(v any, now time.Time) {
 	} else if at, has := x.stepAt[i]; has {
 		t.Ms = uint32(now.Sub(at).Milliseconds())
 	}
+	t.Evidence = stepEvidenceSummary(m["evidence"], m["evidenceList"]) // v0.10.1280
+}
+
+// cosreToolEvidenceMax — çip başına kanıt özetinin bayt tavanı.
+const cosreToolEvidenceMax = 256
+
+// stepEvidenceSummary — SAF (v0.10.1280): step-result kanıtının KOMPAKT
+// özeti — kalem başına "kaynak[#hop]:satır" (satır yoksa seri "s<N>", ikisi
+// de yoksa "?"), virgülle. Sorgu metni, pencere, href gibi hacimli alanlar
+// BİLEREK yok: cosre_interactions turun izini tutar, kanıtın kopyasını değil
+// (tam kanıt tool_output önizlemesinde ve canlı çipte). Liste varsa listeden
+// (bileşik araç), yoksa tek kalemden; kanıtsız çip "".
+func stepEvidenceSummary(single, list any) string {
+	var evs []mcptools.ChatEvidence
+	switch l := list.(type) {
+	case []mcptools.ChatEvidence:
+		evs = l
+	}
+	if len(evs) == 0 {
+		switch e := single.(type) {
+		case mcptools.ChatEvidence:
+			evs = []mcptools.ChatEvidence{e}
+		case *mcptools.ChatEvidence:
+			if e != nil {
+				evs = []mcptools.ChatEvidence{*e}
+			}
+		}
+	}
+	if len(evs) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(evs))
+	for _, e := range evs {
+		src := e.Source
+		if src == "" {
+			src = e.Tool
+		}
+		if e.Hop != "" {
+			src += "#" + e.Hop
+		}
+		n := "?"
+		switch {
+		case e.Rows != nil:
+			n = strconv.Itoa(*e.Rows)
+		case e.Series != nil:
+			n = "s" + strconv.Itoa(*e.Series)
+		}
+		parts = append(parts, src+":"+n)
+	}
+	return clipBytes(strings.Join(parts, ","), cosreToolEvidenceMax)
 }
 
 // eventInt — SAF: SSE yükündeki sayı (int / int64 / float64).
@@ -237,6 +349,7 @@ func (x *chatExchange) tap(emit func(string, any)) func(string, any) {
 			if x.firstOut.IsZero() {
 				x.firstOut = now
 			}
+			v = answerWithCallID(v, x.root, x.finalCallID) // v0.10.1280 — opsiyonel callId
 			x.mu.Unlock()
 		case "delta":
 			x.mu.Lock()
@@ -273,10 +386,19 @@ func eventField(v any, key string) string {
 }
 
 // chatExchangeOutcome — SAF: turun sonucu. Kademe başarısızsa (chatSpan.err)
-// ya da akışa hata olayı düştüyse "error"; cevap yokken istek iptal olduysa
-// (istemci gitti / alışveriş tavanı) yine "error" — sessiz kayıp sayılmaz.
+// ya da akışa hata olayı düştüyse "error"; cevap yokken alışveriş tavanı
+// dolduysa (deadline) yine "error" — sessiz kayıp sayılmaz.
+//
+// v0.10.1280 (CoSRE adım 8) — "aborted": cevap gelmeden İSTEMCİ GİTTİ
+// (context.Canceled). Arıza değil, operatörün kararı (durdur / sekme
+// kapandı); "error" sayılınca /ai hata oranını ve örtük sinyalleri
+// şişiriyordu. Döngü iptalde akışa kendi hata cümlesini yazdığı için bu dal
+// yayınlanan hatadan ÖNCE bakılır. Cevap yayınlandıysa iptal sonucu
+// değiştirmez (ok).
 func chatExchangeOutcome(tierErr error, emittedErr string, answered bool, ctxErr error) (status, msg string) {
 	switch {
+	case !answered && errors.Is(ctxErr, context.Canceled):
+		return "aborted", ctxErr.Error()
 	case emittedErr != "":
 		return "error", emittedErr
 	case tierErr != nil:

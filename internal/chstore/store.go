@@ -4323,6 +4323,23 @@ func (s *Store) migrate(ctx context.Context) error {
 		// gövde olarak döner ve frontend gövdesiz satırı çizmez.
 		`ALTER TABLE rca_verdicts ADD COLUMN IF NOT EXISTS body String DEFAULT '' CODEC(ZSTD(3))`,
 		`ALTER TABLE rca_verdicts ADD COLUMN IF NOT EXISTS source LowCardinality(String) DEFAULT ''`,
+		// v0.10.1280 (CoSRE adım 8) — 👍/👎 somut ai_calls satırına bağlanır:
+		// call_id = cevabı üreten (son anlatım) çağrının ai_calls.id'si; boş =
+		// eski istemci / LLM'siz cevap (exchange düzeyinde oy). reason = 👎'nin
+		// hazır nedeni (wrong | incomplete | irrelevant; kapalı küme → LC).
+		// ORDER BY exchange_id DEĞİŞMEZ (dedup anahtarı): bir cevaba bir oy.
+		// Tam-satır replace: her yazıcı iki kolonu da taşır, flip'te
+		// korunmaları API'nin preserve yolu (comment emsali). Düşük hacimli
+		// state tablosu → ADD COLUMN IF NOT EXISTS güvenli sınıf; küme kipinde
+		// ertelenirse INSERT probe görene dek kolonları anmaz (iki-boot).
+		// Geri alma: kolonlar DEFAULT'lu ve okuyucular bayrağa bağlı — DROP
+		// COLUMN yeterli, veri kaybı yalnız bu iki alan.
+		`ALTER TABLE ai_feedback ADD COLUMN IF NOT EXISTS call_id String DEFAULT ''`,
+		`ALTER TABLE ai_feedback ADD COLUMN IF NOT EXISTS reason LowCardinality(String) DEFAULT ''`,
+		// v0.10.1280 — cosre_interactions: çip başına kanıt ÖZETİ ("kaynak[#hop]:
+		// satır", tool_* dizilerine paralel). Append-only MergeTree; aynı iki-boot
+		// sözleşmesi (ayrı probe). Geri alma: DROP COLUMN.
+		`ALTER TABLE cosre_interactions ADD COLUMN IF NOT EXISTS tool_evidence Array(String) CODEC(ZSTD(3))`,
 		// v0.8.20 — drop the dead topology-mute setting. The
 		// "Mute on topology" chip was removed from the service detail
 		// page in v0.8.19; this migration removes the now-orphaned
@@ -4865,7 +4882,9 @@ func (s *Store) migrate(ctx context.Context) error {
 	registerAttrIndex(s.probeAttrIndex(ctx))
 	// v0.10.409 — ai_calls genişletilmiş kolon probe'u (iki-boot).
 	s.probeAICallsColumns(ctx)
-	s.probeAICallsCachedColumn(ctx) // v0.10.807
+	s.probeAICallsCachedColumn(ctx)             // v0.10.807
+	s.probeAIFeedbackCallColumns(ctx)           // v0.10.1280
+	s.probeCosreInteractionsEvidenceColumn(ctx) // v0.10.1280
 
 	// v0.10.127 — entity_seen MV'leri k8s_pod terfi kolonunu OKUR; kolon
 	// yoksa (dış Distributed: repairPromotedAttrCols atlandı, ya da DDL

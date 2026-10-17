@@ -194,6 +194,10 @@ type Recorder interface {
 // (OpenAI + Anthropic both ship usage data; some Ollama versions
 // don't — those stay 0).
 type CallRecord struct {
+	// ID (v0.10.1280) — ai_calls.id; copilot çağrı bitince basar (NewCallID)
+	// ki sohbet cevabı hangi satırın ürettiğini taşıyabilsin. Boşsa
+	// InsertAICall basar (eski davranış).
+	ID        string
 	CreatedAt time.Time
 	Surface   string
 	// ExchangeID (v0.8.399) — correlation key for operator feedback:
@@ -790,7 +794,9 @@ func (s *Service) recordNarration(ctx context.Context, started time.Time,
 	}
 	// v0.10.114 — gözlemci RECORDER'DAN BAĞIMSIZ ve SENKRON: span
 	// attribute'ları çağıranın elindeki span kapanmadan yazılmalı.
-	notifyCallSink(ctx, model, inputTokens, outputTokens) // Faz 1 — cosre_interactions
+	callID := NewCallID() // v0.10.1280 — kimlik kayıttan ÖNCE (cevaba bağlanır)
+	notifyCallSink(ctx, CallNote{CallID: callID, ExchangeID: meta.ExchangeID, Model: model,
+		InputTokens: inputTokens, OutputTokens: outputTokens}) // Faz 1 — cosre_interactions
 	if meta.Observe != nil {
 		u := Usage{Provider: provider, Model: model, Status: "ok",
 			InputTokens: inputTokens, OutputTokens: outputTokens, CachedTokens: cachedTokens,
@@ -813,6 +819,7 @@ func (s *Service) recordNarration(ctx context.Context, started time.Time,
 		logPrompt = meta.PromptLogOverride
 	}
 	rec := CallRecord{
+		ID:             callID,
 		CreatedAt:      started,
 		Surface:        meta.Surface,
 		ExchangeID:     meta.ExchangeID,

@@ -32,9 +32,13 @@ func TestDeriveSignals(t *testing.T) {
 	g.ProblemID = "p1"
 	h := turn("h", "", 0, "")
 	h.EmptyAnswer = true
+	// v0.10.1280 — CoSRE adım 8: yeni sonuç değeri "aborted" de terk sinyali
+	// (boş cevap bayrağı iptalde ayrıca sayılmaz).
+	k := turn("k", "c5", 0, "y")
+	k.Status, k.ErrorMsg, k.EmptyAnswer = "aborted", "context canceled", true
 
 	got := DeriveSignals(Inputs{
-		Interactions: []chstore.CosreInteraction{d, c, b, a, e, f, g, h},
+		Interactions: []chstore.CosreInteraction{d, c, b, a, e, f, g, h, k},
 		Signals: []chstore.CosreSignal{
 			{ExchangeID: "d", Kind: SigCopy}, {ExchangeID: "d", Kind: SigCopy},
 			{ExchangeID: "d", Kind: "bogus"}, {ExchangeID: "zz", Kind: SigCopy},
@@ -50,6 +54,7 @@ func TestDeriveSignals(t *testing.T) {
 		"f": {SigAbandon},
 		"g": {SigProblemResolved, SigThumbsUp},
 		"h": {SigEmpty},
+		"k": {SigAbandon},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got  %v\nwant %v", got, want)

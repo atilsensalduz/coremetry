@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { api } from '@/lib/api';
+import type { AIFeedbackReason } from '@/lib/types';
+import { FEEDBACK_REASONS } from '@/lib/aiFeedbackReasons';
 import { Button } from '@/components/ui/Button';
+import { Chip } from '@/components/ui/Chip';
 import { IconButton } from '@/components/ui/IconButton';
 
 // AIFeedbackButtons — tek-atış ✨ Explain cevaplarının 👍/👎 rayı
@@ -29,7 +32,14 @@ import { IconButton } from '@/components/ui/IconButton';
 //
 // Oy, exchangeId'ye BAĞLI tutuluyor: "Yeniden sor" taze bir kimlik
 // üretir ve eski cevabın oyu yeni cevabın üstünde kalamaz.
-export function AIFeedbackButtons({ exchangeId }: { exchangeId?: string }) {
+//
+// v0.10.1280 (CoSRE adım 8) — `callId`: cevabı üreten ai_calls satırı
+// (sohbetin answer.callId'si). Verilirse HER POST onu taşır → oy somut
+// çağrıya bağlanır; verilmezse gövde bayt bayt eski (exchange düzeyinde oy;
+// ✨ Explain yüzeyleri ve eski sunucu). 👎 panelinde hazır neden çipleri
+// (yanlış / eksik / alakasız): tık neden + oyu birlikte gönderir, seçili
+// çipe ikinci tık nedeni temizler (''); yorum kutusu aynen yerinde.
+export function AIFeedbackButtons({ exchangeId, callId }: { exchangeId?: string; callId?: string }) {
   const [rated, setRated] = useState<{ xid: string; verdict: 1 | -1 } | null>(null);
   // Türetilmiş: kimlik değiştiğinde sıfırlama efekti GEREKMEZ (ve
   // efektle sıfırlamak bir render geciktirir — eski oy bir kare boyunca
@@ -42,8 +52,14 @@ export function AIFeedbackButtons({ exchangeId }: { exchangeId?: string }) {
   const [note, setNote] = useState<{ xid: string; text: string; sent: string | null }>({ xid: '', text: '', sent: null });
   const noteText = note.xid === exchangeId ? note.text : '';
   const noteSent = note.xid === exchangeId ? note.sent : null;
+  // v0.10.1280 — seçili hazır neden; kimliğe bağlı (oy/yorumla aynı gerekçe).
+  const [picked, setPicked] = useState<{ xid: string; reason: AIFeedbackReason } | null>(null);
+  const reason = picked && picked.xid === exchangeId ? picked.reason : null;
 
   if (!exchangeId) return null;
+  // callId yalnız VARSA gövdeye girer: alanı hiç göndermemek sunucuda
+  // saklanan bağı korur (preserve), eski gövdeyle bayt bayt aynı kalır.
+  const call = callId ? { callId } : {};
 
   const rate = (v: 1 | -1) => {
     if (verdict === v) return; // aynı oya ikinci tık: no-op
@@ -51,7 +67,7 @@ export function AIFeedbackButtons({ exchangeId }: { exchangeId?: string }) {
     setRated({ xid: exchangeId, verdict: v });
     // Yorum alanı BİLEREK gönderilmiyor: alan yoksa sunucu saklananı
     // korur (preserve sözleşmesi). 👎→👍 flip'i yazılmış yorumu silmez.
-    api.postAIFeedback({ exchangeId, verdict: v }).catch(() => {
+    api.postAIFeedback({ exchangeId, verdict: v, ...call }).catch(() => {
       setRated(prior ? { xid: exchangeId, verdict: prior } : null);
     });
   };
@@ -61,9 +77,20 @@ export function AIFeedbackButtons({ exchangeId }: { exchangeId?: string }) {
     if (!text || verdict !== -1) return;
     // Yorum, oyla BİRLİKTE tam gövde olarak gider (tam-satır replace):
     // verdict -1 zaten seçili, tekrar göndermek sunucuda değişiklik değil.
-    api.postAIFeedback({ exchangeId, verdict: -1, comment: text })
+    api.postAIFeedback({ exchangeId, verdict: -1, comment: text, ...call })
       .then(() => setNote({ xid: exchangeId, text, sent: text }))
       .catch(() => setNote({ xid: exchangeId, text, sent: null }));
+  };
+
+  // v0.10.1280 — hazır neden: seçili çipe ikinci tık temizler (''). İyimser +
+  // hata hâlinde önceki seçime dönüş (oy rayının sözleşmesi).
+  const pickReason = (r: AIFeedbackReason) => {
+    if (verdict !== -1) return;
+    const prior = picked;
+    const next = reason === r ? null : r;
+    setPicked(next ? { xid: exchangeId, reason: next } : null);
+    api.postAIFeedback({ exchangeId, verdict: -1, reason: next ?? '', ...call })
+      .catch(() => setPicked(prior));
   };
 
   return (
@@ -79,6 +106,17 @@ export function AIFeedbackButtons({ exchangeId }: { exchangeId?: string }) {
       {/* Kutu yalnız 👎 SEÇİLİYKEN: 👍'ye neden sormak anket olurdu; 👎'nin
           nedeni ise /ai madenciliğinin asıl sinyali. Opsiyonel — kutuyu boş
           bırakmak oyu geçersiz kılmaz. */}
+      {verdict === -1 && (
+        <div role="group" aria-label="Faydasız oyunun hazır nedeni"
+          style={{ display: 'inline-flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+          {FEEDBACK_REASONS.map(r => (
+            <Chip key={r.value} size="xs" pill active={reason === r.value}
+              title={r.title} onClick={() => pickReason(r.value)}>
+              {r.label}
+            </Chip>
+          ))}
+        </div>
+      )}
       {verdict === -1 && (
         <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', maxWidth: 420 }}>
           <textarea

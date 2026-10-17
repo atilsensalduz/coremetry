@@ -106,12 +106,17 @@ func (s *Service) ChatWithTools(ctx context.Context, system string, msgs []ChatM
 // döngüsü en pahalı yüzeyken /ai gecikme KPI'ları onu 0 sayıyordu.
 func (s *Service) RecordUsage(ctx context.Context, started time.Time, inTok, outTok, cachedTok uint32, status, errMsg, promptSample, respSample string) {
 	provider, model, baseURL := s.profileIdentity(ctx) // v0.10.175 — kullanılan profil
-	notifyCallSink(ctx, model, inTok, outTok)          // Faz 1 — cosre_interactions
+	meta := MetaFromContext(ctx)
+	// v0.10.1280 — kimlik ctx'te sabitlendiyse (WithCallID: döngü cevabı bu
+	// satırdan önce yayınladı ve kimliği taşıdı) o, yoksa taze.
+	callID := callIDFor(ctx)
+	notifyCallSink(ctx, CallNote{CallID: callID, ExchangeID: meta.ExchangeID, Model: model,
+		InputTokens: inTok, OutputTokens: outTok}) // Faz 1 — cosre_interactions
 	if s.recorder == nil {
 		return
 	}
-	meta := MetaFromContext(ctx)
 	rec := CallRecord{
+		ID:             callID,
 		CreatedAt:      time.Now(),
 		Surface:        meta.Surface,
 		ExchangeID:     meta.ExchangeID,
@@ -158,6 +163,7 @@ func (s *Service) RecordExchange(ctx context.Context, started time.Time, status,
 		created = time.Now()
 	}
 	rec := CallRecord{
+		ID:             NewCallID(),
 		CreatedAt:      created,
 		Surface:        meta.Surface,
 		ExchangeID:     meta.ExchangeID,
@@ -170,9 +176,14 @@ func (s *Service) RecordExchange(ctx context.Context, started time.Time, status,
 		PromptSample:   truncForSample(question),
 		ResponseSample: truncForSample(answer),
 	}
-	if status == "error" {
+	switch status {
+	case "error":
 		rec.ErrorMsg = truncErr(errMsg)
 		rec.ErrorClass = ClassifyAIErrorText(errMsg)
+	case "aborted":
+		// v0.10.1280 — istemci cevap gelmeden ayrıldı: arıza değil, hata
+		// sınıfı da yok; neden metni yine görünür.
+		rec.ErrorMsg = truncErr(errMsg)
 	}
 	rec.ProfileID = s.profileID(ctx)
 	s.emitRecord(rec)

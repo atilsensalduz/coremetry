@@ -2,8 +2,12 @@ package api
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/cilcenk/coremetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/copilot"
 )
 
 // v0.8.399 — AI answer feedback (thumbs up/down). Pins the pure
@@ -97,4 +101,65 @@ func TestNormalizeFeedbackComment(t *testing.T) {
 			t.Fatal("tavan+1 reddedilmeliydi")
 		}
 	})
+}
+
+// ── v0.10.1280 — CoSRE adım 8: kalıcılık + geri bildirim → ai_calls ─────
+//
+// Oy artık somut ai_calls satırına bağlanır (callId) ve 👎 hazır neden taşır
+// (reason). Geriye uyum: callId'siz eski istemci gövdesi AYNEN kabul edilir
+// (exchange düzeyinde oy) ve saklanan bağı/nedeni/yorumu SİLMEZ.
+func TestAIFeedbackPayloadWithAndWithoutCallID(t *testing.T) {
+	stored := chstore.AIFeedbackStored{Comment: "eski yorum", Reason: "wrong", CallID: "aaaa1111bbbb2222cccc3333"}
+	cases := []struct {
+		name                    string
+		body                    string
+		wantErr                 bool
+		wantComment, wantReason string
+		wantCall                string
+	}{
+		{"eski istemci: yalnız exchangeId + verdict → hepsi korunur",
+			`{"exchangeId":"x1","verdict":1}`, false, "eski yorum", "wrong", "aaaa1111bbbb2222cccc3333"},
+		{"yeni istemci: callId + reason",
+			`{"exchangeId":"x1","verdict":-1,"callId":"0123456789abcdef01234567","reason":"incomplete"}`, false, "eski yorum", "incomplete", "0123456789abcdef01234567"},
+		{"neden temizlenir, callId boş dize korunur",
+			`{"exchangeId":"x1","verdict":-1,"callId":"","reason":""}`, false, "eski yorum", "", "aaaa1111bbbb2222cccc3333"},
+		{"yorum + neden birlikte",
+			`{"exchangeId":"x1","verdict":-1,"comment":"span eksik","reason":"irrelevant"}`, false, "span eksik", "irrelevant", "aaaa1111bbbb2222cccc3333"},
+		{"küme dışı neden → 400", `{"exchangeId":"x1","verdict":-1,"reason":"bad"}`, true, "", "", ""},
+		{"hex olmayan callId → 400", `{"exchangeId":"x1","verdict":-1,"callId":"<script>"}`, true, "", "", ""},
+		{"büyük harf callId → 400", `{"exchangeId":"x1","verdict":-1,"callId":"ABCDEF"}`, true, "", "", ""},
+		{"uzun callId → 400", `{"exchangeId":"x1","verdict":-1,"callId":"` + strings.Repeat("a", aiFeedbackMaxIDLen+1) + `"}`, true, "", "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var req aiFeedbackRequest
+			if err := json.Unmarshal([]byte(c.body), &req); err != nil {
+				t.Fatal(err)
+			}
+			if err := validateAIFeedback(req.ExchangeID, req.Verdict); err != nil {
+				t.Fatalf("taban kapısı: %v", err)
+			}
+			comment, keepC, err1 := normalizeFeedbackComment(req.Comment)
+			call, keepK, err2 := normalizeFeedbackCallID(req.CallID)
+			reason, keepR, err3 := normalizeFeedbackReason(req.Reason)
+			gotErr := err1 != nil || err2 != nil || err3 != nil
+			if gotErr != c.wantErr {
+				t.Fatalf("hata %v/%v/%v, beklenen hata=%v", err1, err2, err3, c.wantErr)
+			}
+			if c.wantErr {
+				return
+			}
+			comment, reason, call = mergeStoredFeedback(stored, comment, reason, call, keepC, keepR, keepK)
+			if comment != c.wantComment || reason != c.wantReason || call != c.wantCall {
+				t.Errorf("birleşim = (%q, %q, %q); beklenen (%q, %q, %q)", comment, reason, call, c.wantComment, c.wantReason, c.wantCall)
+			}
+		})
+	}
+	// Sunucunun bastığı her çağrı kimliği kapıdan geçer (copilot.NewCallID).
+	for i := 0; i < 50; i++ {
+		id := copilot.NewCallID()
+		if v, _, err := normalizeFeedbackCallID(&id); err != nil || v != id {
+			t.Fatalf("basılmış kimlik %q reddedildi: %v", id, err)
+		}
+	}
 }

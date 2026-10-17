@@ -2314,6 +2314,7 @@ type aiCallRecorder struct {
 
 func (r aiCallRecorder) RecordCall(ctx context.Context, c copilot.CallRecord) {
 	row := chstore.AICall{
+		ID:             c.ID, // v0.10.1280 — copilot basar; boşsa InsertAICall
 		CreatedAt:      c.CreatedAt.UnixNano(),
 		Surface:        c.Surface,
 		ExchangeID:     c.ExchangeID,

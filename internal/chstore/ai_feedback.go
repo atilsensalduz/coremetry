@@ -2,6 +2,7 @@ package chstore
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"github.com/cilcenk/coremetry/internal/ai/aisurface"
@@ -27,6 +28,55 @@ type AIFeedback struct {
 	Comment   string `json:"comment,omitempty"`
 	UserEmail string `json:"userEmail,omitempty"` // who rated (full fidelity, house policy)
 	CreatedAt int64  `json:"createdAt"`           // unix ns
+	// CallID (v0.10.1280, CoSRE adım 8) — oylanan cevabı ÜRETEN ai_calls
+	// satırının id'si (bir exchange'in birden çok çağrısı olabilir: araç
+	// turları, sınıflandırıcı, anlatım). Boş = exchange düzeyinde oy (eski
+	// istemci, LLM'siz cevap). Tam-satır replace: her Upsert taşır.
+	CallID string `json:"callId,omitempty"`
+	// Reason (v0.10.1280) — 👎'nin hazır nedeni: AIFeedbackReasons kümesi.
+	Reason string `json:"reason,omitempty"`
+}
+
+// AIFeedbackReasons — 👎 hazır nedenlerinin KAPALI kümesi (tel değeri →
+// arayüz etiketi "yanlış" / "eksik" / "alakasız"). LowCardinality kolonu
+// bu yüzden sınırlı kalır; küme dışı değer API'de 400.
+var AIFeedbackReasons = []string{"wrong", "incomplete", "irrelevant"}
+
+// aiFeedbackCallCols — v0.10.1280 call_id + reason kolonları INSERT
+// hedefinde var mı (boot probe, iki-boot sözleşmesi: küme kipinde ALTER
+// ertelenir, ilk boot false okur → INSERT/SELECT iki kolonu ANMAZ).
+var aiFeedbackCallCols atomic.Bool
+
+// AIFeedbackCallCols — okuyucu/yazıcı bayrağı.
+func AIFeedbackCallCols() bool { return aiFeedbackCallCols.Load() }
+
+// probeAIFeedbackCallColumns — iki kolon da INSERT hedefinde görünüyorsa true.
+func (s *Store) probeAIFeedbackCallColumns(ctx context.Context) bool {
+	var n uint64
+	err := s.conn.QueryRow(ctx,
+		`SELECT count() FROM system.columns
+		 WHERE database = currentDatabase() AND table = 'ai_feedback' AND name IN ('call_id', 'reason')`).Scan(&n)
+	ok := err == nil && n >= 2
+	aiFeedbackCallCols.Store(ok)
+	return ok
+}
+
+// aiFeedbackInsertSQL / aiFeedbackInsertArgs — SAF: kolon listesi bayrağa
+// göre; SQL kolon sayısı == arg sayısı (ai_feedback_call_test pinler).
+func aiFeedbackInsertSQL(callCols bool) string {
+	cols := `exchange_id, surface, verdict, comment, user_email, created_at`
+	if callCols {
+		cols += `, call_id, reason`
+	}
+	return `INSERT INTO ai_feedback (` + cols + `)`
+}
+
+func aiFeedbackInsertArgs(f AIFeedback, created time.Time, callCols bool) []any {
+	args := []any{f.ExchangeID, f.Surface, f.Verdict, f.Comment, f.UserEmail, created}
+	if callCols {
+		args = append(args, f.CallID, f.Reason)
+	}
+	return args
 }
 
 // UpsertAIFeedback inserts a verdict row. ReplacingMergeTree dedup by
@@ -38,12 +88,12 @@ func (s *Store) UpsertAIFeedback(ctx context.Context, f AIFeedback) error {
 	if f.CreatedAt > 0 {
 		created = time.Unix(0, f.CreatedAt).UTC()
 	}
-	batch, err := s.conn.PrepareBatch(ctx, `INSERT INTO ai_feedback
-		(exchange_id, surface, verdict, comment, user_email, created_at)`)
+	cc := aiFeedbackCallCols.Load()
+	batch, err := s.conn.PrepareBatch(ctx, aiFeedbackInsertSQL(cc))
 	if err != nil {
 		return err
 	}
-	if err := batch.Append(f.ExchangeID, f.Surface, f.Verdict, f.Comment, f.UserEmail, created); err != nil {
+	if err := batch.Append(aiFeedbackInsertArgs(f, created, cc)...); err != nil {
 		return err
 	}
 	return batch.Send()
@@ -132,6 +182,27 @@ type NegativeFeedbackCall struct {
 	// asıl sinyali: prompt neyin SORULDUĞUNU, yorum neyin EKSİK olduğunu
 	// söyler.
 	Comment string `json:"comment,omitempty"`
+	// v0.10.1280 — hazır neden + oylanan çağrının kimliği (varsa).
+	Reason string `json:"reason,omitempty"`
+	CallID string `json:"callId,omitempty"`
+}
+
+// negFeedbackCols — SAF: 👎 okumalarının kolon listesi (bayrakla call_id/reason).
+func negFeedbackCols(callCols bool) string {
+	cols := `f.exchange_id, f.surface, toUnixTimestamp64Nano(f.created_at), f.user_email,
+		       c.prompt_sample, c.response_sample, f.comment`
+	if callCols {
+		cols += `, f.reason, f.call_id`
+	}
+	return cols
+}
+
+func negFeedbackScan(r *NegativeFeedbackCall, callCols bool) []any {
+	dest := []any{&r.ExchangeID, &r.Surface, &r.CreatedAt, &r.UserEmail, &r.Prompt, &r.Response, &r.Comment}
+	if callCols {
+		dest = append(dest, &r.Reason, &r.CallID)
+	}
+	return dest
 }
 
 // ListNegativeFeedbackCalls (v0.9.423, CoSRE fikir #6) — pencere içindeki
@@ -143,9 +214,9 @@ func (s *Store) ListNegativeFeedbackCalls(ctx context.Context, from, to time.Tim
 	if limit <= 0 || limit > 200 {
 		limit = 100
 	}
+	cc := aiFeedbackCallCols.Load()
 	rows, err := s.conn.Query(ctx, `
-		SELECT f.exchange_id, f.surface, toUnixTimestamp64Nano(f.created_at), f.user_email,
-		       c.prompt_sample, c.response_sample, f.comment
+		SELECT `+negFeedbackCols(cc)+`
 		FROM ai_feedback AS f FINAL
 		LEFT JOIN ai_calls AS c ON c.exchange_id = f.exchange_id
 		WHERE f.verdict = -1 AND f.created_at >= ? AND f.created_at <= ?
@@ -159,7 +230,7 @@ func (s *Store) ListNegativeFeedbackCalls(ctx context.Context, from, to time.Tim
 	var out []NegativeFeedbackCall
 	for rows.Next() {
 		var r NegativeFeedbackCall
-		if err := rows.Scan(&r.ExchangeID, &r.Surface, &r.CreatedAt, &r.UserEmail, &r.Prompt, &r.Response, &r.Comment); err != nil {
+		if err := rows.Scan(negFeedbackScan(&r, cc)...); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -176,9 +247,9 @@ func (s *Store) NegativeFeedbackCallByExchange(ctx context.Context, exchangeID s
 	if exchangeID == "" {
 		return nil, nil
 	}
+	cc := aiFeedbackCallCols.Load()
 	rows, err := s.conn.Query(ctx, `
-		SELECT f.exchange_id, f.surface, toUnixTimestamp64Nano(f.created_at), f.user_email,
-		       c.prompt_sample, c.response_sample, f.comment
+		SELECT `+negFeedbackCols(cc)+`
 		FROM ai_feedback AS f FINAL
 		LEFT JOIN ai_calls AS c ON c.exchange_id = f.exchange_id
 		WHERE f.exchange_id = ? AND f.verdict = -1
@@ -192,40 +263,52 @@ func (s *Store) NegativeFeedbackCallByExchange(ctx context.Context, exchangeID s
 		return nil, rows.Err()
 	}
 	var r NegativeFeedbackCall
-	if err := rows.Scan(&r.ExchangeID, &r.Surface, &r.CreatedAt, &r.UserEmail, &r.Prompt, &r.Response, &r.Comment); err != nil {
+	if err := rows.Scan(negFeedbackScan(&r, cc)...); err != nil {
 		return nil, err
 	}
 	return &r, nil
 }
 
-// AIFeedbackCommentByExchange — flip'te yorumun KORUNMASI için nokta
-// okuma (v0.9.1193). ReplacingMergeTree tam-satır replace: yorum
-// göndermeyen bir re-rate (👎→👍 ya da başka yüzeyden tık) yeni sürümü
-// yorumsuz yazar ve FINAL yorumlu satırı DÜŞÜRÜRDÜ — operatörün yazdığı
-// metin bir tık yüzünden kaybolurdu. API, gövdede comment alanı HİÇ
-// yoksa saklananı buradan taşır. Küçük state tablosu, FINAL nokta
-// okuması; soft-fail çağıranda (yorum kaybı, POST düşürmekten ucuz).
-func (s *Store) AIFeedbackCommentByExchange(ctx context.Context, exchangeID string) (string, error) {
+// AIFeedbackStored — flip'te taşınan alanlar (v0.10.1280: yorum + neden + çağrı).
+type AIFeedbackStored struct {
+	Comment string
+	Reason  string
+	CallID  string
+}
+
+// AIFeedbackStoredByExchange — v0.10.1280 (v0.9.1193 yorum-koruma okumasının
+// genişlemesi); tam-satır replace'te gövdenin göndermediği HER alan
+// saklanandan taşınır (yorum, hazır neden, çağrı kimliği). Kolonlar yoksa
+// (iki-boot) yalnız yorum. Satır yoksa sıfır değer.
+func (s *Store) AIFeedbackStoredByExchange(ctx context.Context, exchangeID string) (AIFeedbackStored, error) {
+	var out AIFeedbackStored
 	if exchangeID == "" {
-		return "", nil
+		return out, nil
+	}
+	cc := aiFeedbackCallCols.Load()
+	cols := `comment`
+	if cc {
+		cols += `, reason, call_id`
 	}
 	rows, err := s.conn.Query(ctx, `
-		SELECT comment FROM ai_feedback FINAL
+		SELECT `+cols+` FROM ai_feedback FINAL
 		WHERE exchange_id = ?
 		LIMIT 1
 		SETTINGS max_execution_time = 5`, exchangeID)
 	if err != nil {
-		return "", err
+		return out, err
 	}
 	defer rows.Close()
 	if rows.Next() {
-		var c string
-		if err := rows.Scan(&c); err != nil {
-			return "", err
+		dest := []any{&out.Comment}
+		if cc {
+			dest = append(dest, &out.Reason, &out.CallID)
 		}
-		return c, nil
+		if err := rows.Scan(dest...); err != nil {
+			return AIFeedbackStored{}, err
+		}
 	}
-	return "", rows.Err()
+	return out, rows.Err()
 }
 
 // ── KB terfi kuyruğu (v0.9.1195, AI Faz 5.2) ───────────────────────────

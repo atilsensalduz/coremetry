@@ -14,7 +14,7 @@ import (
 
 func TestAIExchangeSQLShapes(t *testing.T) {
 	for _, ext := range []bool{false, true} {
-		q := aiExchangeTurnsSQL(ext)
+		q := aiExchangeTurnsSQL(ext, "")
 		if !strings.Contains(q, "startsWith(surface, 'cosre-turn')") || strings.Contains(q, "NOT startsWith(surface, 'cosre-turn')") {
 			t.Errorf("etkileşim okuması yalnız etkileşim satırlarını seçmeli:\n%s", q)
 		}
@@ -37,8 +37,14 @@ func TestAIExchangeSQLShapes(t *testing.T) {
 	if n := strings.Count(c, "?"); n != 4 {
 		t.Errorf("calls: %d bind, beklenen 4 (from, to, roots, limit)", n)
 	}
-	if !strings.Contains(aiExchangeFeedbackSQL, "ai_feedback FINAL") || strings.Count(aiExchangeFeedbackSQL, "?") != 2 {
-		t.Errorf("geri bildirim okuması: %s", aiExchangeFeedbackSQL)
+	for _, cc := range []bool{false, true} {
+		f := aiExchangeFeedbackSQL(cc)
+		if !strings.Contains(f, "ai_feedback FINAL") || strings.Count(f, "?") != 2 {
+			t.Errorf("geri bildirim okuması: %s", f)
+		}
+		if strings.Contains(f, "call_id") != cc || strings.Contains(f, "reason") != cc {
+			t.Errorf("cc=%v: call_id/reason yalnız kolon bayrağıyla seçilmeli:\n%s", cc, f)
+		}
 	}
 	// SQL kök ifadesi Go kodeğiyle aynı ayırıcıyı kullanır.
 	if !strings.Contains(aiExchangeRootExpr, "'"+aisurface.ExchangeSep+"'") {
@@ -69,7 +75,7 @@ func TestAssembleAIExchanges(t *testing.T) {
 		{Root: c, Call: AIExchangeCall{ID: "5", Surface: aisurface.ChatGuided, Model: "gemma4", InputTokens: 400, OutputTokens: 80, Status: "error"}},
 	}
 	fb := map[string]aiExchangeVerdict{a: {Verdict: 1}, b: {Verdict: -1, Comment: "liste eksik"}}
-	got := assembleAIExchanges(turns, calls, fb)
+	got := assembleAIExchanges(turns, calls, fb, nil)
 	if len(got) != 3 {
 		t.Fatalf("etkileşim sayısı %d, beklenen 3: %+v", len(got), got)
 	}

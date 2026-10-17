@@ -152,6 +152,12 @@ func (s *Store) reprobePromotedAttrs() {
 		if !AICallsCachedCol() { // v0.10.807
 			s.probeAICallsCachedColumn(ctx)
 		}
+		if !AIFeedbackCallCols() { // v0.10.1280
+			s.probeAIFeedbackCallColumns(ctx)
+		}
+		if !CosreInteractionsEvidenceCol() { // v0.10.1280
+			s.probeCosreInteractionsEvidenceColumn(ctx)
+		}
 		// v0.10.1049 — anomaly_events bölüm kolonları (episode_count,
 		// first_started_at). ai_calls'tan farkı: sayaç BİRİKİMLİ, bayrak false
 		// kaldıkça bu pod'un her yazımı onu DEFAULT'a geri yazar — o yüzden

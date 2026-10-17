@@ -1,18 +1,21 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useMemo, type CSSProperties } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { rowActivation } from '@/lib/a11y';
 import { timeRangeToNs, tsCompact, tsLong, fmtNum } from '@/lib/utils';
-import type { AIExchange, AIExchangeCall, TimeRange } from '@/lib/types';
-import { Drawer, DrawerSection } from '@/components/ui';
+import type { AIExchange, AIExchangeCall, AIExchangeFeedbackFilter, TimeRange } from '@/lib/types';
+import { Drawer, DrawerSection, SegmentedControl } from '@/components/ui';
 import { KeyValue } from '@/components/ui/KeyValue';
 import {
   useDataTable, DataTableHead, DataTableColgroup, DataTableCell, DataTableState,
   type ColumnDef, type DataTableStateProps,
 } from '@/components/ui/DataTable';
 import {
-  NO_LLM_LABEL, exchangeCallsSummary, exchangeFeedbackLabel, exchangeModelLabel,
-  exchangeTierLabel, exchangeTokensLabel, exchangeUsedLLM,
+  NO_LLM_LABEL, EXCHANGE_FEEDBACK_FILTERS, aiExchangesQueryKey, aiExchangesRequestParams,
+  exchangeCallsSummary, exchangeConversationHref, exchangeFeedbackCounts, exchangeFeedbackLabel,
+  exchangeModelLabel, exchangeStatusBadge, exchangeTierLabel, exchangeTokensLabel, exchangeUsedLLM,
+  parseExchangeFeedbackFilter, type AIExchangesQueryParams,
 } from './exchangeView';
 
 // ExchangesPanel — v0.10.1153 (operatör, prod: "/ai her CoSRE etkileşimini
@@ -27,6 +30,11 @@ import {
 // Sunucu LIMIT 200 (kayıt listesi, useDataTable; satır > 100 olabilir →
 // content-visibility). Çekmece seçimi URL'de (?exchange=, replace) — liste
 // pencere değişince yeniden okunur, seçili tur listede yoksa çekmece kapanır.
+//
+// v0.10.1280 (CoSRE adım 8) — 👍/👎 süzgeci (`?fb=down` = operatörün inceleme
+// kuyruğu; sunucu tarafında, LIMIT'ten önce), görünen satırların 👍/👎 sayımı,
+// 👎'nin hazır nedeni, oyun bağlandığı alt çağrı ve konuşma arşivi bağı.
+// Sorgu anahtarı isteğin TÜM girdilerinden (aiExchangesQueryKey).
 
 const LIMIT = 200;
 
@@ -46,7 +54,7 @@ const COLS: ColumnDef<AIExchange>[] = [
   { id: 'duration', label: 'Süre', sortValue: x => x.durationMs, numeric: true, width: 90, minWidth: 70, priority: 2 },
   { id: 'tokens', label: 'Token (gir / çık)', sortValue: x => x.inputTokens + x.outputTokens, numeric: true, width: 130, minWidth: 90, priority: 2, tone: () => 'faint' },
   { id: 'status', label: 'Sonuç', sortValue: x => x.status, naturalDir: 'asc', width: 85, minWidth: 70, priority: 1 },
-  { id: 'feedback', label: 'Oy', sortValue: x => x.feedback ?? 0, numeric: true, width: 60, minWidth: 50, priority: 2 },
+  { id: 'feedback', label: 'Oy', sortValue: x => x.feedback ?? 0, numeric: true, width: 100, minWidth: 60, priority: 2 },
   { id: 'user', label: 'Kullanıcı', sortValue: x => x.userEmail || x.userId || '', naturalDir: 'asc', width: 170, minWidth: 100, priority: 3, tone: () => 'faint' },
 ];
 
@@ -59,25 +67,34 @@ const CALL_COLS: ColumnDef<AIExchangeCall>[] = [
 ];
 
 export function ExchangesPanel({ range, onOpenCall }: { range: TimeRange; onOpenCall: (id: string) => void }) {
-  const [rows, setRows] = useState<AIExchange[] | null | undefined>(undefined);
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedId = searchParams.get('exchange') ?? '';
+  const feedback = parseExchangeFeedbackFilter(searchParams.get('fb'));
   const setSelected = (id: string) => setSearchParams(prev => {
     const p = new URLSearchParams(prev);
     if (id) p.set('exchange', id);
     else p.delete('exchange');
     return p;
   }, { replace: true });
+  // v0.10.1280 — süzgeç URL'de (paylaşılan link aynı görünümü açar).
+  const setFeedback = (v: AIExchangeFeedbackFilter) => setSearchParams(prev => {
+    const p = new URLSearchParams(prev);
+    if (v) p.set('fb', v);
+    else p.delete('fb');
+    return p;
+  }, { replace: true });
 
-  useEffect(() => {
-    let cancelled = false;
-    setRows(undefined);
+  // timeRangeToNs yalnız memo içinde (v0.5.184): pencere değişmedikçe sabit.
+  const params = useMemo<AIExchangesQueryParams>(() => {
     const { from, to } = timeRangeToNs(range);
-    api.aiExchanges({ from, to, limit: LIMIT })
-      .then(r => { if (!cancelled) setRows(r ?? []); })
-      .catch(() => { if (!cancelled) setRows(null); });
-    return () => { cancelled = true; };
-  }, [range]);
+    return { from, to, limit: LIMIT, feedback };
+  }, [range, feedback]);
+  const q = useQuery({
+    queryKey: aiExchangesQueryKey(params),
+    queryFn: () => api.aiExchanges(aiExchangesRequestParams(params)).then(r => r ?? []),
+    staleTime: 15_000,
+  });
+  const rows: AIExchange[] | null | undefined = q.isPending ? undefined : q.isError ? null : q.data;
 
   const dt = useDataTable<AIExchange>({
     storageKey: 'ai-exchanges', columns: COLS, rows: rows ?? [],
@@ -86,8 +103,11 @@ export function ExchangesPanel({ range, onOpenCall }: { range: TimeRange; onOpen
   const state: Omit<DataTableStateProps<AIExchange>, 'dt'> =
     rows === undefined ? { kind: 'loading' }
     : rows === null ? { kind: 'error' }
-    : { kind: 'empty', message: 'Bu pencerede CoSRE etkileşimi yok — CoSRE penceresinde ya da bir AI çekmecesinde soru sorulunca burada görünür.' };
+    : feedback
+      ? { kind: 'empty', message: 'Bu pencerede bu oyu alan CoSRE turu yok — süzgeci "Tümü"ne alın ya da pencereyi genişletin.' }
+      : { kind: 'empty', message: 'Bu pencerede CoSRE etkileşimi yok — CoSRE penceresinde ya da bir AI çekmecesinde soru sorulunca burada görünür.' };
   const noLLM = useMemo(() => (rows ?? []).filter(x => !exchangeUsedLLM(x)).length, [rows]);
+  const votes = useMemo(() => exchangeFeedbackCounts(rows ?? []), [rows]);
   const selected = selectedId ? (rows ?? []).find(x => x.exchangeId === selectedId) : undefined;
 
   return (
@@ -97,11 +117,15 @@ export function ExchangesPanel({ range, onOpenCall }: { range: TimeRange; onOpen
         <span className="ov-sub">
           her kullanıcı turu bir satır — LLM'siz cevaplar dahil; alt çağrılar satırın çekmecesinde
         </span>
-        {rows && rows.length > 0 && (
-          <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text3)' }}>
-            {fmtNum(rows.length)} tur · {fmtNum(noLLM)} {NO_LLM_LABEL}
-          </span>
-        )}
+        <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 10, alignItems: 'center' }}>
+          {rows && rows.length > 0 && (
+            <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+              {fmtNum(rows.length)} tur · {fmtNum(noLLM)} {NO_LLM_LABEL} · 👍 {fmtNum(votes.up)} · 👎 {fmtNum(votes.down)}
+            </span>
+          )}
+          <SegmentedControl size="sm" aria-label="Geri bildirim süzgeci"
+            value={feedback} onChange={setFeedback} options={EXCHANGE_FEEDBACK_FILTERS} />
+        </span>
       </div>
       <div className="ov-card-b">
         <div className="table-wrap">
@@ -120,9 +144,7 @@ export function ExchangesPanel({ range, onOpenCall }: { range: TimeRange; onOpen
                   <DataTableCell dt={dt} col="duration" row={x} value={`${fmtNum(x.durationMs)} ms`} />
                   <DataTableCell dt={dt} col="tokens" row={x} value={exchangeTokensLabel(x)} />
                   <DataTableCell dt={dt} col="status" row={x}>
-                    {x.status === 'ok'
-                      ? <span className="badge b-gray">ok</span>
-                      : <span className="badge b-err" title={x.errorMsg}>hata</span>}
+                    <StatusBadge ex={x} />
                   </DataTableCell>
                   <DataTableCell dt={dt} col="feedback" row={x} value={exchangeFeedbackLabel(x)} />
                   <DataTableCell dt={dt} col="user" row={x} value={x.userEmail || x.userId || null} />
@@ -142,12 +164,18 @@ export function ExchangesPanel({ range, onOpenCall }: { range: TimeRange; onOpen
   );
 }
 
+function StatusBadge({ ex }: { ex: AIExchange }) {
+  const b = exchangeStatusBadge(ex);
+  return <span className={`badge ${b.cls}`} title={ex.errorMsg || undefined}>{b.label}</span>;
+}
+
 function ExchangeDrawer({ ex, onClose, onOpenCall }: { ex: AIExchange; onClose: () => void; onOpenCall: (id: string) => void }) {
   const callDt = useDataTable<AIExchangeCall>({ storageKey: 'ai-exchange-calls', columns: CALL_COLS, rows: ex.calls ?? [] });
+  const convHref = exchangeConversationHref(ex);
   return (
     <Drawer onClose={onClose} width={680} header={
       <>
-        <span className={`badge ${ex.status === 'ok' ? 'b-gray' : 'b-err'}`}>{ex.status === 'ok' ? 'ok' : 'hata'}</span>
+        <StatusBadge ex={ex} />
         <span style={{ fontWeight: 700, fontSize: 13 }}>{exchangeTierLabel(ex)}</span>
         {!exchangeUsedLLM(ex) && <span className="badge b-gray">{NO_LLM_LABEL}</span>}
       </>
@@ -161,7 +189,15 @@ function ExchangeDrawer({ ex, onClose, onOpenCall }: { ex: AIExchange; onClose: 
           { k: 'Süre', v: `${fmtNum(ex.durationMs)} ms` },
           { k: 'Token (gir / çık)', v: exchangeTokensLabel(ex) },
           { k: 'Geri bildirim', v: ex.feedbackComment ? `${exchangeFeedbackLabel(ex)} — ${ex.feedbackComment}` : exchangeFeedbackLabel(ex) },
+          // v0.10.1280 — oyun bağlandığı ai_calls satırı (boş = exchange düzeyinde oy).
+          { k: 'Oylanan çağrı', v: ex.feedbackCallId || null, mono: true },
           { k: 'Kullanıcı', v: ex.userEmail || ex.userId || null },
+          {
+            k: 'Konuşma',
+            v: convHref
+              ? <Link to={convHref} title="Konuşma arşivi yalnız sahibine açılır">{ex.turn ? `${ex.turn}. tur · arşivi aç` : 'arşivi aç'}</Link>
+              : null,
+          },
           { k: 'Exchange', v: ex.exchangeId, mono: true },
         ]} />
         {ex.errorMsg && (
@@ -185,7 +221,14 @@ function ExchangeDrawer({ ex, onClose, onOpenCall }: { ex: AIExchange; onClose: 
                   ? <DataTableState dt={callDt} kind="empty" message={`${NO_LLM_LABEL} — bu tur model çağırmadan cevaplandı.`} />
                   : callDt.sortedRows.map(c => (
                     <tr key={c.id} className="cv-row" {...rowActivation(() => onOpenCall(c.id))}>
-                      <DataTableCell dt={callDt} col="surface" row={c} value={c.llm ? c.surface : `${c.surface} (işaret)`} />
+                      <DataTableCell dt={callDt} col="surface" row={c}>
+                        {c.llm ? c.surface : `${c.surface} (işaret)`}
+                        {/* v0.10.1280 — oyun bağlandığı çağrı (cevabı üreten satır) */}
+                        {ex.feedbackCallId === c.id && ex.feedback && (
+                          <span className={`badge ${ex.feedback === -1 ? 'b-err' : 'b-ok'}`} style={{ marginLeft: 6 }}
+                            title="Geri bildirim bu çağrıya bağlı">{exchangeFeedbackLabel(ex)}</span>
+                        )}
+                      </DataTableCell>
                       <DataTableCell dt={callDt} col="model" row={c} value={c.model || null} />
                       <DataTableCell dt={callDt} col="duration" row={c} value={`${fmtNum(c.durationMs)} ms`} />
                       <DataTableCell dt={callDt} col="tokens" row={c} value={c.llm ? `${c.inputTokens} / ${c.outputTokens}` : '—'} />

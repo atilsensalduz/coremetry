@@ -305,8 +305,12 @@ func (s *Server) exceptionCodeLoop(ctx context.Context, emit func(string, any), 
 		}
 		emit("error", map[string]string{"error": chatCancelledMessageTR(ctx.Err(), env.exchangeMax)})
 	}
+	// v0.10.1280 — döngü satırı cevaptan SONRA yazılır; kimlik önceden basılır
+	// (copilot_chat.go serbest döngü emsali) ki answer.callId o satırı göstersin.
+	loopCallID := copilot.NewCallID()
 	answer := func(modelText string) {
 		finalText = exceptionCodeAnswerTR(modelText, evidenceKind, calledTools)
+		chatExchangeFrom(ctx).noteFinalCall(loopCallID)
 		emit("answer", chatAnswerEvent(finalText, meta.ExchangeID, s.answerRequestIDLinks(ctx, finalText, ctxService), ""))
 	}
 
@@ -424,7 +428,7 @@ func (s *Server) exceptionCodeLoop(ctx context.Context, emit func(string, any), 
 		spanErr = nil
 	}
 	env.span.finish(totalIn, totalOut, totalCached, spanErr)
-	s.copilot.RecordUsage(ctx, env.started, totalIn, totalOut, totalCached, status, errMsg,
+	s.copilot.RecordUsage(copilot.WithCallID(ctx, loopCallID), env.started, totalIn, totalOut, totalCached, status, errMsg,
 		chatPromptSample(lastUserText(msgs), codeReads), finalText)
 	return lastErr == nil, fallback
 }

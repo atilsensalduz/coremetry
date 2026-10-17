@@ -293,7 +293,7 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
           // önsözü / düşünce bloğu); metin yeniden başlar. `answer` yine otoriter.
           patchLast(t => ({ ...t, text: applyChatDelta(t.text, e) }));
         } else if (e.kind === 'answer') {
-          patchLast(t => ({ ...t, text: e.text, exchangeId: e.exchangeId, sources: e.sources, suggestions: e.suggestions, links: e.links, allowedLinks: e.allowedLinks, evidence: e.evidence, pending: false })); // v0.10.1137 — link doğrulama listesi; v0.10.1272 — kanıt çipleri
+          patchLast(t => ({ ...t, text: e.text, exchangeId: e.exchangeId, callId: e.callId, sources: e.sources, suggestions: e.suggestions, links: e.links, allowedLinks: e.allowedLinks, evidence: e.evidence, pending: false })); // v0.10.1137 — link doğrulama listesi; v0.10.1272 — kanıt çipleri; v0.10.1280 — callId (👍/👎 → ai_calls)
           // v0.10.434 (D7b) — yalnız uygulama-içi (kök-göreli) href; dış adres asla.
           if (e.open && e.open.startsWith('/') && !e.open.startsWith('//')) o.onOpen?.(e.open);
         } else if (e.kind === 'error') {

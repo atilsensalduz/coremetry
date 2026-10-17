@@ -97,8 +97,16 @@ func (w *cosreInteractionWriter) run() {
 	}
 }
 
+// cosreInteractionSeam — v0.10.1280 TEST DİKİŞİ (prod'da nil): kademe
+// kapsama testi gerçek copilotChat'in ürettiği satırı CH'siz yakalar
+// (chat_exchange_tiers_test.go). Doluyken satır kuyruğa da gider (store varsa).
+var cosreInteractionSeam func(chstore.CosreInteraction)
+
 // enqueueCosreInteraction — süreç başına tek yazıcı (ilk turda başlar).
 func (s *Server) enqueueCosreInteraction(r chstore.CosreInteraction) {
+	if cosreInteractionSeam != nil {
+		cosreInteractionSeam(r)
+	}
 	if s == nil || s.store == nil {
 		return
 	}

@@ -1262,7 +1262,8 @@ export const api = {
     get<import('./types').AICall>(`/api/ai/calls/${encodeURIComponent(id)}`),
   // v0.10.1153 — CoSRE etkileşimleri: her tur bir satır (LLM'siz dahil),
   // altında model çağrıları. Önbelleksiz (yeni tur hemen görünür).
-  aiExchanges: (params: { from?: number; to?: number; limit?: number }) =>
+  // v0.10.1280 — `feedback`: 👍/👎 süzgeci (down = yalnız 👎); yoksa hepsi.
+  aiExchanges: (params: { from?: number; to?: number; limit?: number; feedback?: import('./types').AIExchangeFeedbackFilter }) =>
     get<import('./types').AIExchange[]>(`/api/ai/exchanges?${qs(params)}`),
   aiStats: (params: { from?: number; to?: number; source?: import('./types').AICallSource }) =>
     get<import('./types').AIStats>(`/api/ai/stats?${qs(params)}`),
@@ -1271,7 +1272,10 @@ export const api = {
   // v0.8.399 — thumbs up/down on an AI answer. exchangeId comes from
   // the chat SSE answer event; re-posting the same id replaces the
   // verdict (user changed their mind).
-  postAIFeedback: (body: { exchangeId: string; verdict: 1 | -1; comment?: string }) =>
+  // v0.10.1280 — `callId`: cevabı üreten ai_calls satırı (answer.callId; yoksa
+  // exchange düzeyinde oy — eski davranış); `reason`: 👎 hazır nedeni.
+  // Gönderilmeyen alan sunucuda KORUNUR (preserve), '' temizler.
+  postAIFeedback: (body: { exchangeId: string; verdict: 1 | -1; comment?: string; callId?: string; reason?: import('./types').AIFeedbackReason | '' }) =>
     request<{ ok: boolean }>(`/api/ai/feedback`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
