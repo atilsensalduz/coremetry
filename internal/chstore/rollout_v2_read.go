@@ -146,9 +146,11 @@ func rolloutV2Where(f RolloutFilter, from, to time.Time) (string, []any) {
 const rolloutV2OrderKey = "cluster_id, namespace, workload_kind, workload, incarnation_at, generation"
 
 // rolloutV2ListSQL — SAF: akış (§10.6 Feed). Bağlar: where + LIMIT.
-func rolloutV2ListSQL(where string) string {
+// v0.10.1267 — ORDER BY f.Sort/f.Dir'den beyaz listeyle (rolloutOrderBy),
+// LIMIT'ten ÖNCE; varsayılan started_at DESC bayt bayt aynı.
+func rolloutV2ListSQL(where string, f RolloutFilter) string {
 	return `SELECT ` + rolloutV2EventCols + ` FROM rollout_events FINAL WHERE ` + where + `
-		ORDER BY started_at DESC, ` + rolloutV2OrderKey + ` LIMIT ? SETTINGS max_execution_time = 10`
+		ORDER BY ` + rolloutOrderBy(f.Sort, f.Dir, rolloutV2OrderKey) + ` LIMIT ? SETTINGS max_execution_time = 10`
 }
 
 // rolloutV2ByIDSQL — SAF: tekil (tam anahtar = ORDER BY). Bağlar: 6.
@@ -207,7 +209,7 @@ func (s *Store) rolloutV2Rows(ctx context.Context, what, sql string, args ...any
 func (s *Store) RolloutV2List(ctx context.Context, f RolloutFilter, from, to time.Time, limit int) ([]RolloutRow, error) {
 	limit = clampRolloutLimit(limit, 200, 1000)
 	where, args := rolloutV2Where(f, from, to)
-	return s.rolloutV2Rows(ctx, "list", rolloutV2ListSQL(where), append(args, limit)...)
+	return s.rolloutV2Rows(ctx, "list", rolloutV2ListSQL(where, f), append(args, limit)...)
 }
 
 // RolloutV2ByID — v0.10.984 — tekil (nil = yok).

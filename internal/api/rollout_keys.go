@@ -23,9 +23,15 @@ import (
 // v0.10.1262 — dışlanan namespace desenleri de anahtarda (ayrı özet: desen
 // listesi serbest metin, ayraç saldırısına kapalı kalsın); PUT zaten
 // "rollouts:" önekini süpürür ama öteki pod'lar config reload'la gelir.
+//
+// v0.10.1267 — sıralama (sort.dir) da anahtarda: aynı süzgeç farklı ORDER
+// BY + LIMIT ile FARKLI 200 satır döndürür. Normal biçimden (sabit sözlük,
+// serbest metin değil) — çağıran NormalizeRolloutSort'tan geçirir; burada
+// da geçirilir ki boş/ham değerle çağrı varsayılanla aynı girdiye düşsün.
 func rolloutsListKey(src string, f chstore.RolloutFilter, limit int, from, to time.Time) string {
-	return fmt.Sprintf("rollouts:list:src=%s:%s:x=%s:lim=%d:w=%s",
-		src, fnvStr(f.ClusterID, f.Namespace, f.Workload, f.Status, f.Kind), rolloutExcludeDigest(f.ExcludeNamespaces), limit, cacheBucket(from, to))
+	sort, dir := chstore.NormalizeRolloutSort(f.Sort, f.Dir)
+	return fmt.Sprintf("rollouts:list:src=%s:%s:x=%s:s=%s.%s:lim=%d:w=%s",
+		src, fnvStr(f.ClusterID, f.Namespace, f.Workload, f.Status, f.Kind), rolloutExcludeDigest(f.ExcludeNamespaces), sort, dir, limit, cacheBucket(from, to))
 }
 
 // rolloutExcludeDigest — v0.10.1262 — SAF: desen kümesinin sıra-bağımsız özeti

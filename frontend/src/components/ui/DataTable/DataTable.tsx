@@ -247,7 +247,7 @@ export interface DataTableServer {
   onSort?: (s: SortState) => void;
 }
 
-export function useDataTable<T>({ storageKey, columns: declaredColumns, rows, initialSort, persistSort = true, sortIds, serverSort, onSortChange, urlSortFallback, onOpen, searchRef, columnModel, selection: selectionOpt, server, getRowHref, rowLinkReplace = false }: {
+export function useDataTable<T>({ storageKey, columns: declaredColumns, rows, initialSort, persistSort = true, sortIds, sortUrlKey, sortUrlOmitInitial = false, serverSort, onSortChange, urlSortFallback, onOpen, searchRef, columnModel, selection: selectionOpt, server, getRowHref, rowLinkReplace = false }: {
   storageKey: string;
   columns: ColumnDef<T>[];
   rows: T[];
@@ -275,6 +275,18 @@ export function useDataTable<T>({ storageKey, columns: declaredColumns, rows, in
   // yalnız GÖRÜNÜR kolonları verir ve gizli bir kolona göre sıralama bilerek
   // yaşar. Küme verilmeyen 67 tablo bayt bayt eski davranışta kalır.
   sortIds?: readonly string[];
+  // sortUrlKey (v0.10.1267) — sıralamanın URL parametre adı (varsayılan
+  // `s_<storageKey>`). Aynı mantıksal tabloyu İKİ storageKey'le (ayrı
+  // genişlik setleri) çizen bir sayfa (Rollouts v1/v2 kolon seti) tek
+  // paylaşılabilir parametrede buluşur ve sayfa sunucu sorgusunu doğrudan
+  // URL'den türetir (`?sort=namespace.asc`).
+  sortUrlKey?: string;
+  // sortUrlOmitInitial (v0.10.1267) — `initialSort`a eşit sıralama URL'ye
+  // YAZILMAZ (parametre silinir: varsayılan görünümün linki temiz) ve
+  // parametresiz bir URL'ye gelen geri/ileri durumu `initialSort`a döndürür.
+  // persistSort:false ile kullanılır (yoksa parametresizlik localStorage
+  // demektir ve bu geri dönüş uygulanmaz).
+  sortUrlOmitInitial?: boolean;
   /** v0.10.249 — sıra/gizli modeli (lib/columnModel). Genişlik imzası bildirilen kolonlardan. */
   columnModel?: { value: ColumnModel | null; onChange?: (next: ColumnModel) => void };
   /** v0.10.249 — satır seçimi; getRowId zorunlu (indeks anahtarı sıralamada kırılır). */
@@ -330,7 +342,7 @@ export function useDataTable<T>({ storageKey, columns: declaredColumns, rows, in
   // localStorage. Widths stay localStorage-only (per-browser ergonomics, not
   // view state worth sharing).
   const [searchParams, setSearchParams] = useSearchParams();
-  const urlKey = `s_${storageKey}`;
+  const urlKey = sortUrlKey ?? `s_${storageKey}`;
   const urlSort = searchParams.get(urlKey);
   // v0.10.831 — `sortIds` OPT-IN ve kimlik BURADA TÜRETİLMEZ.
   //
@@ -374,6 +386,11 @@ export function useDataTable<T>({ storageKey, columns: declaredColumns, rows, in
     setItem(widthLSKey, { sig: layoutSig, widths: colWidths, ...(forcedShownArr.length ? { shown: forcedShownArr } : {}) });
   }, [colWidths, forcedShownArr, widthLSKey, layoutSig]);
 
+  // v0.10.1267 — ilkel değerler: sayfalar initialSort'u satır içi nesne
+  // olarak geçebiliyor; nesneyi bağımlılığa koymak setSort'u her render'da
+  // yeniden üretirdi.
+  const initSortId = initialSort?.id;
+  const initSortDir = initialSort?.dir;
   // Apply a sort to state + URL, then notify the page (serverSort pages
   // re-fetch off this — or off the returned `sort`, same thing).
   const setSort = useCallback((s: SortState) => {
@@ -381,14 +398,16 @@ export function useDataTable<T>({ storageKey, columns: declaredColumns, rows, in
     persist(s); // v0.10.831 — kalıcılık yalnız BURADA (gerçek bir eylem)
     setSearchParams(prev => {
       const next = new URLSearchParams(prev);
-      const v = formatSortParam(s);
+      // v0.10.1267 — sortUrlOmitInitial: varsayılan sıra URL'ye yazılmaz.
+      const isInitial = sortUrlOmitInitial && initSortId !== undefined && s.id === initSortId && s.dir === initSortDir;
+      const v = isInitial ? null : formatSortParam(s);
       if (v) next.set(urlKey, v);
       else next.delete(urlKey);
       return next;
     }, { replace: true });
     onSortChange?.(s);
     server?.onSort?.(s);
-  }, [setSearchParams, urlKey, onSortChange, server, persist]);
+  }, [setSearchParams, urlKey, onSortChange, server, persist, sortUrlOmitInitial, initSortId, initSortDir]);
 
   // Back/forward — or an inbound shared link — changes the URL sort: restore
   // it into state. Guarded to fire only on a genuine difference, which also
@@ -405,7 +424,10 @@ export function useDataTable<T>({ storageKey, columns: declaredColumns, rows, in
   // Kalıcılık burada ÇAĞRILMIYOR — gelen bir link operatörün kişisel
   // varsayılanı değildir.
   useEffect(() => {
-    const fromUrl = parseSortParam(urlSort);
+    // v0.10.1267 — sortUrlOmitInitial + persistSort:false: parametresiz URL
+    // = varsayılan sıra (yazarken sildiğimiz değerin okuma ikizi).
+    const fromUrl = parseSortParam(urlSort)
+      ?? (urlSort === null && sortUrlOmitInitial && !persistSort && initialSort ? initialSort : null);
     const valid = fromUrl && sortIdKnown(fromUrl.id, sortIds) ? fromUrl : null;
     if (valid && (valid.id !== sort.id || valid.dir !== sort.dir)) {
       setSortState(valid);

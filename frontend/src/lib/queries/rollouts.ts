@@ -12,6 +12,8 @@ import type { RolloutIdParam } from '../rolloutRow';
 export interface RolloutListParams {
   from: number; to: number; // ns
   cluster?: string; namespace?: string; workload?: string; status?: string; kind?: string; limit?: number;
+  // v0.10.1267 — sunucu sıralaması (lib/rolloutSort.ts); varsayılanda yok.
+  sort?: string; dir?: 'asc' | 'desc';
 }
 
 export function useRollouts(p: RolloutListParams, enabled = true) {

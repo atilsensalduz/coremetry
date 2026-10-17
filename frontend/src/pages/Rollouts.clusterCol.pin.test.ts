@@ -30,7 +30,9 @@ describe('Rollouts cluster kolonu', () => {
   });
   // v0.10.1262 — operatör 2026-10-17: "workload ve namespace ayrı kolonlarda
   // yazılabilir". Namespace Workload'dan hemen sonra kendi kolonunda; workload
-  // hücresi artık namespace eki taşımaz. sortValue YOK (serverSort tablo).
+  // hücresi artık namespace eki taşımaz. v0.10.1267 (operatör 2026-10-17):
+  // sortValue VAR ama yalnız SUNUCU sıralamasının işareti (serverSort +
+  // sortIds; ORDER BY chstore rolloutOrderBy'da) — istemci sıralaması değil.
   it('namespace kendi kolonunda, workload ile cluster arasında', () => {
     const w = src.indexOf("{ id: 'workload', label: 'Workload'");
     const n = src.indexOf("{ id: 'namespace', label: 'Namespace'");
@@ -40,6 +42,15 @@ describe('Rollouts cluster kolonu', () => {
     expect(src).toContain('<DataTableCell dt={dt} col="namespace" row={r} value={r.namespace} />');
     expect(src).not.toContain('<span className="field-hint"> · {r.namespace}</span>');
     const col = src.slice(n, c);
-    expect(col).not.toMatch(/sortValue/);
+    expect(col).toMatch(/sortValue/);
+  });
+  // v0.10.1267 — sıralanabilir kolonlar TAM OLARAK sunucunun sözlüğü
+  // (started/workload/namespace/cluster); öteki kolonlarda sortValue yok ve
+  // tablo serverSort (kesik sayfayı istemcide sıralamak yalan söyler — T3).
+  it('yalnız sunucu-sıralanabilir kolonlar sortValue taşır', () => {
+    const cols = src.slice(src.indexOf('const COLS: ColumnDef'), src.indexOf('const COLS_V2'));
+    const sortable = [...cols.matchAll(/\{ id: '([a-z]+)'[^\n]*sortValue/g)].map(m => m[1]).sort();
+    expect(sortable).toEqual(['cluster', 'namespace', 'started', 'workload']);
+    expect(src).toMatch(/serverSort: true, initialSort: ROLLOUT_SORT_DEFAULT, persistSort: false, sortIds: ROLLOUT_SORT_IDS/);
   });
 });

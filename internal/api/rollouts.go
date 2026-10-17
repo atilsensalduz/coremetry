@@ -4,7 +4,7 @@ package api
 //
 // api.go BÜYÜMEYECEK kuralı: rota ailesi burada, api.go tek satır.
 //
-//	GET /api/rollouts?from&to&cluster&namespace&workload&status&kind&limit   viewer — olay listesi (FINAL, started_at DESC)
+//	GET /api/rollouts?from&to&cluster&namespace&workload&status&kind&limit&sort&dir   viewer — olay listesi (FINAL; varsayılan started_at DESC, v0.10.1267 sort/dir)
 //	GET /api/rollout?cluster=&namespace=&workload=&revision=&startedAt=       viewer — tekil (bileşik kimlik → ?id= yerine açık anahtar; entities.go:40 emsali)
 //	GET /api/rollouts/stats?from&to&cluster&namespace&topN                    viewer — agregat sekmesi (deploy sıklığı, rollback oranı, ort. süre, en çok rollback)
 //	GET /api/rollouts/runs                                                     viewer — son reconciler koşuları
@@ -103,6 +103,12 @@ func (s *Server) listRollouts(w http.ResponseWriter, r *http.Request) {
 	// dışla (LIMIT gürültüye harcanmasın); açık ?namespace= süzgeci kazanır.
 	excl := s.rolloutExcludeNamespaces()
 	f.ExcludeNamespaces = rollout.EffectiveNamespaceExclude(excl, f.Namespace)
+	// v0.10.1267 (operatör 2026-10-17) — sunucu sıralaması: ?sort ∈
+	// {started, namespace, workload, cluster}, ?dir ∈ {asc, desc}. Dosyanın
+	// kötü-parametre geleneği (limit kelepçesi) gibi tanınmayan değer 400
+	// değil VARSAYILANA düşer; normalize ANAHTARDAN ÖNCE (bozuk ?sort= ayrı
+	// önbellek girdisi basmasın). SQL'e beyaz listeden sabit ifade gider.
+	f.Sort, f.Dir = chstore.NormalizeRolloutSort(q.Get("sort"), q.Get("dir"))
 	limit := parseInt(q.Get("limit"), rolloutListLimitDefault)
 	if limit <= 0 {
 		limit = rolloutListLimitDefault

@@ -181,7 +181,7 @@ export const keys = {
   rollouts: {
     all:     ['rollouts'] as const,
     listAll: ['rollouts', 'list'] as const,
-    list:  (p: { from: number; to: number; cluster?: string; namespace?: string; workload?: string; status?: string; kind?: string; limit?: number }) =>
+    list:  (p: { from: number; to: number; cluster?: string; namespace?: string; workload?: string; status?: string; kind?: string; limit?: number; sort?: string; dir?: string }) =>
              ['rollouts', 'list', p] as const,
     stats: (p: { from: number; to: number; cluster?: string; namespace?: string; topN?: number }) => ['rollouts', 'stats', p] as const,
     runs:  () => ['rollouts', 'runs'] as const,

@@ -3325,8 +3325,9 @@ export const api = {
   evaluatorHealth: () => get<EvaluatorHealth>('/api/problems/evaluator'),
 
   // v0.10.201 — ROLLOUTS (rollouts.go). Liste/istatistik signal taşır (cancellation.test.ts).
-  rollouts: (p: { from: number; to: number; cluster?: string; namespace?: string; workload?: string; status?: string; kind?: string; limit?: number }, signal?: AbortSignal) =>
-    get<import('./types').RolloutListResponse>(`/api/rollouts?from=${p.from}&to=${p.to}${amp(qs({ cluster: p.cluster, namespace: p.namespace, workload: p.workload, status: p.status, kind: p.kind, limit: p.limit }))}`, signal),
+  // v0.10.1267 — sort/dir: sunucu sıralaması (beyaz liste; yoksa started_at DESC).
+  rollouts: (p: { from: number; to: number; cluster?: string; namespace?: string; workload?: string; status?: string; kind?: string; limit?: number; sort?: string; dir?: string }, signal?: AbortSignal) =>
+    get<import('./types').RolloutListResponse>(`/api/rollouts?from=${p.from}&to=${p.to}${amp(qs({ cluster: p.cluster, namespace: p.namespace, workload: p.workload, status: p.status, kind: p.kind, limit: p.limit, sort: p.sort, dir: p.dir }))}`, signal),
   rolloutStats: (p: { from: number; to: number; cluster?: string; namespace?: string; topN?: number }, signal?: AbortSignal) =>
     get<import('./types').RolloutStats>(`/api/rollouts/stats?from=${p.from}&to=${p.to}${amp(qs({ cluster: p.cluster, namespace: p.namespace, topN: p.topN }))}`, signal),
   // admin ucu (koşu hatası ham CH dizesi taşıyabilir); sunucu camelCase/ms yazar

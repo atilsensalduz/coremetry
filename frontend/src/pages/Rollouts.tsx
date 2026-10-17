@@ -7,9 +7,13 @@
 // (eventInvalidations.ts → keys.rollouts.listAll); satırlar snapshot
 // refetch'iyle gelir, 15 s poll SSE kaybının emniyeti; pencere refreshTick'le
 // yürür (Dashboard emsali — mount'ta donmuş `to` canlı sekmeyi öldürür).
-// Tablo SUNUCU sıralı (started_at DESC + LIMIT): istemci sıralaması kesik
-// sayfada yalan söyler → serverSort (resize-only, Services emsali).
-// URL = kaynak: ?tab, ?status, ?cluster, ?namespace (debounce), ?range.
+// Tablo SUNUCU sıralı (ORDER BY + LIMIT): istemci sıralaması kesik sayfada
+// yalan söyler → serverSort. v0.10.1267 (operatör 2026-10-17): Başladı /
+// Workload / Namespace / Cluster başlıkları GERÇEK sunucu sıralamasını sürer
+// (?sort=<id>.<dir>, varsayılan started.desc URL'de yok; lib/rolloutSort.ts);
+// öteki kolonlar sıralanmaz. Canlılık sıralamayı bozmaz: SSE olayı satır
+// EKLEMEZ, yalnız listAll'ı geçersiz kılar → aynı sort'la yeniden çekilir.
+// URL = kaynak: ?tab, ?status, ?cluster, ?namespace (debounce), ?range, ?sort.
 // Bayrak kapalı → 404 {disabled:true} SENTİNELİ (hata değil; entities emsali)
 // → Empty + admin için tek tık Enable (mevcut ayarları EZMEDEN: read-modify-write).
 // Koşu durumu (runs) admin ucu: viewer'da hiç sorulmaz (403 döngüsü olmasın).
@@ -43,12 +47,15 @@ import { RolloutDrawer } from '@/components/RolloutDrawer';
 import { tracesPivotHref } from '@/lib/pivotHref';
 import { entityHref } from '@/lib/entityHref';
 import { rolloutKey, statusTone, statusLabel, statusTitle, rolloutDurationSec, shortRevision, imageDiff, encodeRolloutParam, decodeRolloutParam, rolloutTracesFilters, rolloutChangeKind, changeKindLabel, changeKindTitle, changeKindTone, replicaSummary, rolloutTimingHint, parseNamespacePatterns, invalidNamespacePatterns, namespaceExcluded } from '@/lib/rolloutRow';
+import { ROLLOUT_SORT_DEFAULT, ROLLOUT_SORT_IDS, ROLLOUT_SORT_URL_KEY, parseRolloutSort, rolloutSortApiParams } from '@/lib/rolloutSort';
 import type { RolloutStats, WorkloadRollout } from '@/lib/types';
 
 const STATUSES = ['', 'in_progress', 'completed', 'rolled_back', 'superseded', 'stalled'] as const;
 
-// Sunucu sıralı sayfa: sortValue YOK (kesik 200 satırı sıralamak yanıltır —
-// dataTable.ts serverSort sözleşmesi; Services emsali).
+// Sunucu sıralı sayfa: sortValue yalnız SUNUCUNUN sıralayabildiği kolonlarda
+// (v0.10.1267 — serverSort kipinde erişimci hiç çağrılmaz; sıralanabilir
+// işaret + naturalDir taşıyıcısı). Ötekilerde YOK: kesik 200 satırı istemcide
+// sıralamak yanıltır (dataTable.ts serverSort sözleşmesi; T3).
 // v0.10.205 — operatör bildirimi: prod'da (uzun workload/imaj adları) fit
 // kolonları 48px tabanına kadar ezdi, hücreler ve BAŞLIKLAR ortadan
 // kırpıldı ("KA…", "SP…"). minWidth tabanı = fit'in ezemeyeceği okunabilir
@@ -61,19 +68,19 @@ const STATUSES = ['', 'in_progress', 'completed', 'rolled_back', 'superseded', '
 // ve Revizyon; Workload esneyen kimlik kolonu.
 const COLS: ColumnDef<WorkloadRollout>[] = [
   // v0.10.1205 (operatör) — zaman EN BAŞTA, durum onun eski yerinde.
-  { id: 'started', label: 'Başladı', width: 136, minWidth: 128, numeric: true, priority: 1 }, // v0.10.1068 — yılsız damga (tsCompact), tam damga title'da
-  { id: 'workload', label: 'Workload', flex: true, minWidth: 180, priority: 1 },
+  { id: 'started', label: 'Başladı', width: 136, minWidth: 128, numeric: true, priority: 1, sortValue: r => r.startedAt, naturalDir: 'desc' }, // v0.10.1068 — yılsız damga (tsCompact), tam damga title'da
+  { id: 'workload', label: 'Workload', flex: true, minWidth: 180, priority: 1, sortValue: r => r.workload, naturalDir: 'asc' },
   // v0.10.1262 (operatör 2026-10-17: "workload ve namespace ayrı kolonlarda
   // yazılabilir") — namespace Workload hücresinin soluk eki değil, kendi
-  // kolonu: ayrı genişletilir (genişlik storageKey'de kalıcı). sortValue YOK:
-  // tablo serverSort (started_at DESC + LIMIT) — kesik sayfayı istemcide
-  // sıralamak yalan söyler ve serverSort'ta başlık sahte-sıralanabilir olurdu (T3).
-  { id: 'namespace', label: 'Namespace', width: 190, minWidth: 120, priority: 1 },
+  // kolonu: ayrı genişletilir (genişlik storageKey'de kalıcı). v0.10.1267 —
+  // sıralanabilir, ama SUNUCUDA (ORDER BY namespace, started_at DESC … LIMIT).
+  { id: 'namespace', label: 'Namespace', width: 190, minWidth: 120, priority: 1, sortValue: r => r.namespace, naturalDir: 'asc' },
   // v0.10.565 (operatör-raporlu): cluster adı Workload hücresinin SONUNDA
   // soluk ek olarak duruyordu ve 300px kolonda ellipsis'e kurban gidiyordu
   // ("workload · ns · c…"). Kendi kolonu: her zaman okunur, ayrı
   // genişletilebilir, üstteki Cluster süzgeciyle aynı adı gösterir.
-  { id: 'cluster', label: 'Cluster', width: 150, minWidth: 110, priority: 2 },
+  // v0.10.1267 — sunucu cluster_id'ye (EffectiveID) göre sıralar; ad çoğunlukla id'dir.
+  { id: 'cluster', label: 'Cluster', width: 150, minWidth: 110, priority: 2, sortValue: r => r.clusterId, naturalDir: 'asc' },
   { id: 'kind', label: 'Tür', width: 100, minWidth: 64, priority: 4 },
   { id: 'change', label: 'Değişiklik', width: 130, minWidth: 100, priority: 2 }, // v0.10.234 — imaj değişti mi (Deployment) / aynı mı (config)
   { id: 'revision', label: 'Revizyon', width: 150, minWidth: 120, mono: true, priority: 3 },
@@ -104,6 +111,10 @@ export default function RolloutsPage() {
   const status = sp.get('status') ?? '';
   const cluster = sp.get('cluster') ?? '';
   const ns = sp.get('namespace') ?? '';
+  // v0.10.1267 — sunucu sırası doğrudan URL'den (tek kaynak; tanınmayan →
+  // varsayılan). Hook başlık tıklamasında aynı parametreyi yazar.
+  const sortParam = sp.get(ROLLOUT_SORT_URL_KEY);
+  const srvSort = useMemo(() => rolloutSortApiParams(parseRolloutSort(sortParam)), [sortParam]);
   const setParam = (k: string, v: string) => setSp(prev => { const n = new URLSearchParams(prev); if (v) n.set(k, v); else n.delete(k); return n; }, { replace: true });
   // Pencere canlı yürür (Dashboard refreshTick emsali): donmuş `to` yeni
   // rollout'u sonsuza dek dışarıda bırakırdı. custom (elle) pencere sabit.
@@ -128,15 +139,20 @@ export default function RolloutsPage() {
   const clustersQ = useEntityClusters();
   const clusters = clustersQ.data?.clusters ?? [];
   const clusterName = (id: string) => clusters.find(c => c.id === id)?.name ?? id;
-  const listQ = useRollouts({ from, to, cluster: cluster || undefined, namespace: ns || undefined, status: status || undefined, limit: 200 }, tab === 'live');
+  const listQ = useRollouts({ from, to, cluster: cluster || undefined, namespace: ns || undefined, status: status || undefined, limit: 200, ...srvSort }, tab === 'live');
   const statsQ = useRolloutStats({ from, to, cluster: cluster || undefined, namespace: ns || undefined, topN: 10 }, tab === 'stats');
   const runsQ = useRolloutRuns(isAdmin); // admin ucu: viewer'da 403 döngüsü açma
   const rows = useMemo(() => listQ.data?.rollouts ?? [], [listQ.data]);
   // v0.10.984 — iki kanca da her render'da çağrılır (kanca sırası sabit);
   // görünen tablo sunucunun kaynağına göre seçilir, öteki boş satırla durur.
   const v2 = listQ.data?.v2 === true;
-  const dtV1 = useDataTable<WorkloadRollout>({ storageKey: 'rollouts-live-t1', columns: COLS, rows: v2 ? [] : rows, serverSort: true });
-  const dtV2 = useDataTable<WorkloadRollout>({ storageKey: 'rollouts-live-v2-t1', columns: COLS_V2, rows: v2 ? rows : [], serverSort: true });
+  // v0.10.1267 — sıra iki kancada da AYNI URL parametresinde (sortUrlKey):
+  // kaynak çevrilince paylaşılan link aynı sırayı açar; kişisel kayıt yok
+  // (persistSort:false — varsayılan "en yeni önce"), varsayılan URL'de yok.
+  const sortOpts = { serverSort: true, initialSort: ROLLOUT_SORT_DEFAULT, persistSort: false, sortIds: ROLLOUT_SORT_IDS,
+    sortUrlKey: ROLLOUT_SORT_URL_KEY, sortUrlOmitInitial: true } as const;
+  const dtV1 = useDataTable<WorkloadRollout>({ storageKey: 'rollouts-live-t1', columns: COLS, rows: v2 ? [] : rows, ...sortOpts });
+  const dtV2 = useDataTable<WorkloadRollout>({ storageKey: 'rollouts-live-v2-t1', columns: COLS_V2, rows: v2 ? rows : [], ...sortOpts });
   const dt = v2 ? dtV2 : dtV1;
   const [enabling, setEnabling] = useState(false);
   const [enableErr, setEnableErr] = useState('');

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cilcenk/coremetry/internal/rollout"
@@ -282,6 +283,80 @@ type RolloutFilter struct {
 	// (rollout.NamespaceExcludeRegex). Çağıran açık Namespace süzgecinde
 	// boş geçer (rollout.EffectiveNamespaceExclude).
 	ExcludeNamespaces []string
+	// Sort / Dir — v0.10.1267 (operatör 2026-10-17): Canlı listenin SUNUCU
+	// sıralaması. Sort ∈ RolloutSortIDs, Dir ∈ {asc, desc}; tanınmayan değer
+	// varsayılana düşer (NormalizeRolloutSort). SQL'e ASLA ham girmez —
+	// rolloutOrderBy beyaz listeden sabit ifade seçer. Liste dışı okumalar
+	// (stats, tail, workloads) yok sayar.
+	Sort, Dir string
+}
+
+// Rollout listesi sıralama kimlikleri — v0.10.1267. API `?sort=` ile FE
+// kolon kimlikleri (Rollouts.tsx COLS) aynı sözlük.
+const (
+	RolloutSortStarted   = "started"
+	RolloutSortNamespace = "namespace"
+	RolloutSortWorkload  = "workload"
+	RolloutSortCluster   = "cluster"
+)
+
+// rolloutSortCols — v0.10.1267 — BEYAZ LİSTE: sıralama kimliği → sabit kolon
+// ifadesi. v1 (workload_rollouts) ve v2 (rollout_events) tablolarında aynı
+// adla var. started burada değil (varsayılan dal: started_at kendisi).
+var rolloutSortCols = map[string]string{
+	RolloutSortNamespace: "namespace",
+	RolloutSortWorkload:  "workload",
+	RolloutSortCluster:   "cluster_id",
+}
+
+// NormalizeRolloutSort — v0.10.1267 — SAF: (sort, dir) → geçerli çift.
+// Tanınmayan sort → started (+ onun varsayılan yönü desc); tanınmayan dir →
+// kolonun doğal yönü (started desc, metin kolonları asc). API anahtarı ve
+// SQL bu normal biçimden üretilir (bozuk ?sort= ayrı önbellek girdisi
+// basamaz).
+func NormalizeRolloutSort(sort, dir string) (string, string) {
+	sort = strings.ToLower(strings.TrimSpace(sort))
+	dir = strings.ToLower(strings.TrimSpace(dir))
+	if _, ok := rolloutSortCols[sort]; !ok {
+		if sort != RolloutSortStarted {
+			sort, dir = RolloutSortStarted, ""
+		}
+	}
+	if dir != "asc" && dir != "desc" {
+		if sort == RolloutSortStarted {
+			dir = "desc"
+		} else {
+			dir = "asc"
+		}
+	}
+	return sort, dir
+}
+
+// rolloutOrderBy — v0.10.1267 — SAF: ORDER BY gövdesi (anahtar kelimesiz).
+// Birincil kolon beyaz listeden; ardından deterministik eşitlik kırıcı
+// `started_at DESC` ve tablonun kimlik kuyruğu (keyTail — toplam sıra, LIMIT
+// sınırında sayfa kararlı). Varsayılan (started desc) bugünkü ifadeyle
+// bayt bayt aynı.
+func rolloutOrderBy(sort, dir, keyTail string) string {
+	sort, dir = NormalizeRolloutSort(sort, dir)
+	d := "DESC"
+	if dir == "asc" {
+		d = "ASC"
+	}
+	if col, ok := rolloutSortCols[sort]; ok {
+		return col + " " + d + ", started_at DESC, " + keyTail
+	}
+	return "started_at " + d + ", " + keyTail
+}
+
+// rolloutV1OrderKey — workload_rollouts kimlik kuyruğu (ORDER BY anahtarı).
+const rolloutV1OrderKey = "cluster_id, namespace, workload, revision"
+
+// rolloutListSQL — v0.10.1267 — SAF: v1 akış sorgusu (ORDER BY LIMIT'ten
+// ÖNCE; rolloutV2ListSQL ikizi). Bağlar: where + LIMIT.
+func rolloutListSQL(where string, f RolloutFilter) string {
+	return `SELECT ` + rolloutRowCols + ` FROM workload_rollouts FINAL WHERE ` + where + `
+		ORDER BY ` + rolloutOrderBy(f.Sort, f.Dir, rolloutV1OrderKey) + ` LIMIT ? SETTINGS max_execution_time = 10`
 }
 
 // addNamespaceExclude — v0.10.1262 — SAF: dışlama koşulunu WHERE'e ekler
@@ -369,13 +444,13 @@ func clampRolloutLimit(limit, def, max int) int {
 }
 
 // RolloutList — FINAL, started_at DESC + kimlik (toplam sıra), LIMIT (store
-// kelepçeler: 1..1000, varsayılan 200).
+// kelepçeler: 1..1000, varsayılan 200). v0.10.1267: f.Sort/f.Dir beyaz
+// listeli sıralama (rolloutOrderBy), LIMIT'ten önce.
 func (s *Store) RolloutList(ctx context.Context, f RolloutFilter, from, to time.Time, limit int) ([]RolloutRow, error) {
 	limit = clampRolloutLimit(limit, 200, 1000)
 	where, args := rolloutWhere(f, from, to)
 	args = append(args, limit)
-	rows, err := s.conn.Query(ctx, `SELECT `+rolloutRowCols+` FROM workload_rollouts FINAL WHERE `+where+`
-		ORDER BY started_at DESC, cluster_id, namespace, workload, revision LIMIT ? SETTINGS max_execution_time = 10`, args...)
+	rows, err := s.conn.Query(ctx, rolloutListSQL(where, f), args...)
 	if err != nil {
 		return nil, fmt.Errorf("rollout list: %w", err)
 	}

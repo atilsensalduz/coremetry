@@ -47,7 +47,7 @@ func TestRolloutV2ReadPathSQLShape(t *testing.T) {
 		t.Fatalf("boş süzgeç yalnız pencere: %s %v", w2, a2)
 	}
 
-	list := rolloutV2ListSQL(where)
+	list := rolloutV2ListSQL(where, RolloutFilter{})
 	mustContainAll(t, "akış", list, "FROM rollout_events FINAL WHERE started_at >=",
 		"ORDER BY started_at DESC, cluster_id, namespace, workload_kind, workload, incarnation_at, generation",
 		"LIMIT ?", "max_execution_time = 10")
