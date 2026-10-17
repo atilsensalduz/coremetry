@@ -104,6 +104,7 @@ const (
 	aiChatEvidenceQueryMax = 2 << 10
 	aiChatEvidenceFieldMax = 200
 	aiChatEvidenceHrefMax  = 4096
+	aiChatEvidenceHopMax   = 32 // v0.10.1275 — hop adı (trace|pods|jvm|logs|op_baseline)
 )
 
 // sanitizeChatEvidence — istemcinin geri gönderdiği kanıt listesini arşivlenebilir
@@ -125,7 +126,8 @@ func sanitizeChatEvidence(in []mcptools.ChatEvidence) []mcptools.ChatEvidence {
 		e.Env = clampChatRunes(e.Env, aiChatEvidenceFieldMax)
 		e.Cluster = clampChatRunes(e.Cluster, aiChatEvidenceFieldMax)
 		e.Query = clampChatRunes(e.Query, aiChatEvidenceQueryMax)
-		e.CtxApplied = sanitizeScopeApplied(e.CtxApplied) // v0.10.1274
+		e.CtxApplied = sanitizeScopeApplied(e.CtxApplied)   // v0.10.1274
+		e.Hop = clampChatRunes(e.Hop, aiChatEvidenceHopMax) // v0.10.1275 — bileşik kanıtın halkası
 		if !strings.HasPrefix(e.Href, "/") || strings.HasPrefix(e.Href, "//") ||
 			strings.HasPrefix(e.Href, "/\\") || len(e.Href) > aiChatEvidenceHrefMax {
 			e.Href = ""

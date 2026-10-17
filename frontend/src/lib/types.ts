@@ -7069,6 +7069,11 @@ export interface ChatQueryEvidence {
   ref?: string;
   /** v0.10.1274 — sunucunun bu çağrıya ekrandan koyduğu kapsam; yoksa ekran kapsamı uygulanmadı. */
   ctxApplied?: ChatCtxApplied;
+  /**
+   * v0.10.1275 (CoSRE adım 6) — bileşik aracın (pivot_from_trace) zincir halkası:
+   * trace | pods | jvm | logs | op_baseline. Atomik araçta yok; çip "Trace › Pod" etiketi bundan.
+   */
+  hop?: string;
 }
 
 /**
@@ -7100,7 +7105,8 @@ export interface ChatEvidenceChartPayload {
   window: { fromNs: number; toNs: number };
   series: ChatEvidenceChartSeries[]; truncated?: boolean;
 }
-export type ChatEvidenceColumnKind = 'time' | 'num' | 'severity' | 'trace' | 'text';
+// v0.10.1275 — 'level': crit/warn/ok rozeti (eski istemci düz metin çizer).
+export type ChatEvidenceColumnKind = 'time' | 'num' | 'severity' | 'trace' | 'text' | 'level';
 export interface ChatEvidenceTablePayload {
   title: string; evidenceRef: string; deepLink?: string;
   columns: { key: string; label: string; kind: ChatEvidenceColumnKind | string }[];
@@ -7525,6 +7531,8 @@ export interface ChatStepDetail {
   sources?: ChatStepSourceState[];
   /** v0.10.1272 — kanıt zarflı aracın kanıtı (kaynak · sorgu · pencere · satır · süre + href). */
   evidence?: ChatQueryEvidence;
+  /** v0.10.1275 — bileşik aracın hop başına kanıtları (yalnız >1 kalemde; ilki = evidence). */
+  evidenceList?: ChatQueryEvidence[];
   /** v0.10.1273 — aracın evresi (Metrik/Log/Trace…); cevabın üstündeki akış kırıntısı bundan. */
   phase?: string;
   /** v0.10.1274 — ekrandan uygulanan kapsam (step-result.ctxApplied); eski sunucu göndermez. */
@@ -7539,7 +7547,8 @@ export type ChatStreamEvent =
   // skipped (v0.10.944, Faz B sunucusu) — çağrı yürütülmedi; süre ölçüm değildir.
   // sources (v0.10.944) — sunucunun TAM çıktıdan okuduğu kaynak durumları (kırpık önizlemeden bağımsız).
   // evidence (v0.10.1272) — query_metrics/traces/logs kanıtı; eski sunucu göndermez.
-  | { kind: 'step-result'; i: number; tool: string; ok: boolean; preview: string; truncated: boolean; bytes: number; href?: string; durationMs?: number; skipped?: boolean; sources?: ChatStepSourceState[]; evidence?: ChatQueryEvidence; ctxApplied?: ChatCtxApplied }
+  // evidenceList (v0.10.1275) — bileşik aracın (pivot_from_trace) hop kanıtları; yalnız >1 kalemde.
+  | { kind: 'step-result'; i: number; tool: string; ok: boolean; preview: string; truncated: boolean; bytes: number; href?: string; durationMs?: number; skipped?: boolean; sources?: ChatStepSourceState[]; evidence?: ChatQueryEvidence; evidenceList?: ChatQueryEvidence[]; ctxApplied?: ChatCtxApplied }
   // reset (v0.10.1273) — o ana dek akan metin geri alınır (tool'lu turun önsözü / düşünce bloğu); `text` yerine geçer.
   | { kind: 'delta'; text: string; reset?: boolean }
   // suggestions (v0.9.411) — guided cevabın rotasından türetilen

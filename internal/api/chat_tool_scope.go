@@ -108,7 +108,14 @@ func buildToolScreenScope(sc ChatScreenContext, page, pinned *agentctx.PageConte
 
 // traceInjectTools — trace_id enjeksiyonunun izinli olduğu araçlar.
 // get_logs_for_trace doğası gereği trace'e bağlı (deixis gerekmez).
-var traceInjectTools = map[string]bool{"query_logs": true, "get_logs_for_trace": true}
+// v0.10.1275 — pivot_from_trace da trace'e bağlı (deixis gerekmez): ekranda
+// seçili trace varsa pivot onu açar; servis verilmişse trace eklenmez.
+var traceInjectTools = map[string]bool{"query_logs": true, "get_logs_for_trace": true, mcptools.PivotFromTraceName: true}
+
+// serviceInjectTools — v0.10.1275: servisi ZORUNLU tutmayan ama servis
+// sayfasında servise kapsanması gereken araçlar (pivot_from_trace: trace_id
+// YA DA service ister; servis sayfasında trace yoksa en yavaş trace o servisten).
+var serviceInjectTools = map[string]bool{mcptools.PivotFromTraceName: true}
 
 // applyScreenContext — SAF. args JSON nesnesi değilse aynen döner.
 func applyScreenContext(tool string, args json.RawMessage, schema map[string]any, sc toolScreenScope, now time.Time) (json.RawMessage, mcptools.ScopeApplied) {
@@ -129,7 +136,7 @@ func applyScreenContext(tool string, args json.RawMessage, schema map[string]any
 	// trace_id önce: kimlik taşıyan çağrı diğer enjeksiyonları kapatır.
 	if sc.TraceID != "" && traceInjectTools[tool] && has("trace_id") &&
 		argStr(m, "trace_id") == "" && argStr(m, "service") == "" &&
-		(tool == "get_logs_for_trace" || sc.TraceAsked) {
+		(tool == "get_logs_for_trace" || tool == mcptools.PivotFromTraceName || sc.TraceAsked) {
 		m["trace_id"] = sc.TraceID
 		applied.TraceID = sc.TraceID
 		changed = true
@@ -152,7 +159,7 @@ func applyScreenContext(tool string, args json.RawMessage, schema map[string]any
 		}
 	}
 
-	if sc.Service != "" && !hasTrace && has("service") && schemaRequires(schema, "service") {
+	if sc.Service != "" && !hasTrace && has("service") && (schemaRequires(schema, "service") || serviceInjectTools[tool]) {
 		switch got := argStr(m, "service"); {
 		case got == "":
 			m["service"] = sc.Service

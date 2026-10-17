@@ -91,6 +91,18 @@ env, cluster, rows|series, durationMs} taşır; boş sonuç `empty=true` +
 (çözülemezse `error.code=needs_cluster`). Salt okuma; sohbet + dış MCP. Eski
 `query_metric` / `search_traces` / `search_logs` korunur.
 
+v0.10.1275'te 72 oldu: `pivot_from_trace` (CoSRE adım 6) — trace → pod'ları
+(Thanos, cluster eşlemeli) → aynı pod'ların JVM heap/GC'si (OTel; JMX
+sorulmaz) → trace'in logları → kritik yol operasyonunun kendi p99'u, TEK
+deterministik çağrıda (15 sn bütçe, halka başına tavan). `trace_id` ya da
+`service` (+ operation/env/window/pick; en yavaş trace seçilir, ≤5 aday).
+Zincir kopmaz: her halka `state` (ok|empty|partial|unmapped|degraded|error|
+timeout|skipped) + notu taşır; `findings` ≤5, `playbook{symptom, families,
+checked}`; halka başına `evidences[]` (ilki `evidence`). Salt okuma.
+`get_problem_root_cause` artık her cevapta `playbook{families, source:
+stored|on_demand|none, checked}` döndürür; `investigate:true` saklı denetim
+izi yoksa aileleri son 60 dk'da canlı okur — hipoteze yazılmaz.
+
 ### "Benim servislerim" MCP'de YOK (bilinçli)
 
 Takım tool'ları takım ADIYLA çalışır. Sebep yukarıdaki sınırın

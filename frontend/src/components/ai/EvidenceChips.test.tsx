@@ -12,7 +12,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { EvidenceChips } from './EvidenceChips';
 import { ChatBubble } from './ChatBubble';
-import { evidenceChipParts, evidenceDefaultOpen, evidenceChartGroups } from './evidenceChip';
+import { evidenceChipParts, evidenceDefaultOpen, evidenceChartGroups, evidenceHopLabel, evidenceLevelTone, stepEvidenceItems } from './evidenceChip';
 import { persistMessages, restoreTurns } from './chatPersist';
 import { evidenceBlocksByRef, traceListBlocks } from '@/lib/chatBlocks';
 import type { ChatQueryEvidence, ChatTypedBlock, ChatTurn } from '@/lib/types';
@@ -177,5 +177,62 @@ describe('arşiv (chatPersist) — kanıt çipleri geri yüklenir', () => {
     ]);
     expect(msgs).toEqual([{ role: 'user', text: 'soru' }, { role: 'assistant', text: 'cevap', evidence: [evLogs] }, { role: 'assistant', text: 'düz' }]);
     expect(restoreTurns(msgs)[1].evidence).toEqual([evLogs]);
+  });
+});
+
+// v0.10.1275 — CoSRE adım 6: sinyaller arası pivot (trace → pod → JVM → log) + playbook.
+describe('EvidenceChips — bileşik kanıt listesi (pivot_from_trace)', () => {
+  const hopEv = (hop: string, source: string, ref: string): ChatQueryEvidence => ({
+    tool: 'pivot_from_trace', source, query: 'q', queryKind: 'summary', window: W, durationMs: 5, hop, ref,
+    href: hop === 'trace' ? '/trace?id=' + 'a'.repeat(32) : '/pod?pod=co-1',
+  });
+  const list = [hopEv('trace', 'ClickHouse', 'ev7'), hopEv('pods', 'Thanos', 'ev7.1'), hopEv('jvm', 'VictoriaMetrics', 'ev7.2')];
+
+  it('hop etiketi: Trace, Trace › Pod; atomik kanıtta yok', () => {
+    expect(evidenceHopLabel('trace')).toBe('Trace');
+    expect(evidenceHopLabel('pods')).toBe('Trace › Pod');
+    expect(evidenceHopLabel('op_baseline')).toBe('Trace › Operasyon');
+    expect(evidenceHopLabel(undefined)).toBe('');
+    expect(evidenceChipParts(list[1])[0]).toBe('Trace › Pod');
+    expect(evidenceChipParts(evLogs)[0]).not.toContain('Trace');
+  });
+
+  it('adım: evidenceList varsa liste, eski olay yalnız evidence', () => {
+    expect(stepEvidenceItems({ evidence: list[0], evidenceList: list })).toHaveLength(3);
+    expect(stepEvidenceItems({ evidence: evLogs })).toEqual([evLogs]);
+    expect(stepEvidenceItems({})).toEqual([]);
+  });
+
+  it('liste çipleri çizilir, hop etiketleriyle', async () => {
+    await mount(<EvidenceChips items={list} />);
+    const chips = host.querySelectorAll('.cm-evidence__chip');
+    expect(chips.length).toBe(3);
+    expect(chips[1].textContent).toContain('Trace › Pod');
+    expect(chips[2].textContent).toContain('Trace › JVM');
+  });
+
+  it('ChatBubble: adımın evidenceList listesi cevap çipleri olur (answer.evidence yoksa)', () => {
+    const h = renderToStaticMarkup(<MemoryRouter><ChatBubble turn={{
+      role: 'assistant', text: 'yarım', steps: ['pivot_from_trace'],
+      stepDetails: [{ i: 7, tool: 'pivot_from_trace', ok: true, preview: '{}', evidence: list[0], evidenceList: list }],
+    }} /></MemoryRouter>);
+    expect((h.match(/cm-evidence__chip/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect(h).toContain('Trace › Pod');
+  });
+
+  it('level sütunu: crit/warn rozet, ok düz metin', async () => {
+    expect(evidenceLevelTone('crit')).toBe('danger');
+    expect(evidenceLevelTone('warn')).toBe('warning');
+    expect(evidenceLevelTone('ok')).toBeNull();
+    const jvmBlocks: ChatTypedBlock[] = [{ id: 'j', type: 'table', seq: 1, final: true, payload: {
+      title: 'JVM', evidenceRef: 'ev7.2', columns: [{ key: 'pod', label: 'Pod', kind: 'text' }, { key: 'level', label: 'Seviye', kind: 'level' }],
+      rows: [['co-1', 'crit'], ['co-2', 'warn'], ['co-3', 'ok']],
+    } }];
+    await mount(<EvidenceChips items={[list[2]]} blocks={evidenceBlocksByRef(jvmBlocks)} defaultOpen="last" />);
+    const table = host.querySelector('.cm-evblk__table')!;
+    expect(table.querySelector('.badge.b-err')?.textContent).toBe('kritik');
+    expect(table.querySelector('.badge.b-warn')?.textContent).toBe('uyarı');
+    expect(table.textContent).toContain('normal');
+    expect(table.querySelectorAll('.badge').length).toBe(2);
   });
 });

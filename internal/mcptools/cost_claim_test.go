@@ -90,6 +90,11 @@ var mvCostClaims = map[string]string{
 	// açıklama koşulu söylüyor (search_traces ile aynı okuyucu).
 	"query_traces": "service_summary_5m / service_env_summary_5m (toplam, koşulsuz) + GetTraces " +
 		"(trace_summary_5m koşullu, ham yol LIMIT + max_execution_time); açıklama koşulu söylüyor",
+	// v0.10.1275 — pivot_from_trace: yalnız op_baseline halkası ön-toplam okur
+	// (GetOperationSummary → operation_summary_5m, env YOK — açıklama söylüyor);
+	// diğer halkalar trace-id / pod kapsamlı (GetTrace PK, Thanos pod seçicisi,
+	// LogsForTrace, JVM pod okuması).
+	"pivot_from_trace": "op_baseline → operation_summary_5m, no env; other hops trace-id/pod scoped",
 	"trace_stats": "trace_summary_5m — GetTraceAggregate MV yolu koşullu (service/operation, süzgeçsiz); " +
 		"süzgeçli çağrı search_traces kapısıyla kelepçeli ham yol, açıklama koşulu söylüyor",
 }

@@ -314,7 +314,7 @@ func TestChatWiresToolScreenScope(t *testing.T) {
 		"oc := exec.Call(ctx, tc.Name, cargs)",
 		`stepEv["ctxApplied"] = scopeApplied`,
 		"annotateEnvBlind(tr.Content, scopeApplied.EnvNotApplied, scopeApplied.ScreenEnv)",
-		"withEvidenceScope(stepEv, ev, scopeApplied)",
+		"withEvidenceListScope(stepEv, evs, scopeApplied)", // v0.10.1275 — çok-kanıtlı zarf
 	} {
 		if !strings.Contains(src, must) {
 			t.Errorf("kablolama eksik: %s", must)

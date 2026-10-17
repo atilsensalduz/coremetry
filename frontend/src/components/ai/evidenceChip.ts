@@ -1,4 +1,4 @@
-import type { ChatQueryEvidence, ChatEvidenceChartPayload, ChatCtxApplied } from '@/lib/types';
+import type { ChatQueryEvidence, ChatEvidenceChartPayload, ChatCtxApplied, ChatStepDetail } from '@/lib/types';
 import type { CorePanelMultiItem } from '@/components/chart/corePanelEntry';
 import type { EvidenceBlockView } from '@/lib/chatBlocks';
 import type { Tone } from '@/components/ui/Badge';
@@ -45,9 +45,35 @@ export function ctxAppliedLabel(ca?: ChatCtxApplied): string {
   return out.join(' · ');
 }
 
+const HOP_LABEL: Record<string, string> = {
+  trace: 'Trace', pods: 'Pod', jvm: 'JVM', logs: 'Log', op_baseline: 'Operasyon',
+};
+
+/**
+ * evidenceHopLabel — v0.10.1275 (CoSRE adım 6): bileşik kanıtın halka etiketi.
+ * Zincir trace'ten başlar: trace halkası "Trace", diğerleri "Trace › Pod" gibi.
+ * Atomik kanıt (hop yok) ''. Bilinmeyen halka adı olduğu gibi.
+ */
+export function evidenceHopLabel(hop?: string): string {
+  if (!hop) return '';
+  const l = HOP_LABEL[hop] ?? hop;
+  return hop === 'trace' ? l : `Trace › ${l}`;
+}
+
+/**
+ * stepEvidenceItems — v0.10.1275: adımın kanıt listesi. Yeni sunucu bileşik
+ * araçta `evidenceList` (ilki = evidence) gönderir; eski olay yalnız `evidence`.
+ */
+export function stepEvidenceItems(d: Pick<ChatStepDetail, 'evidence' | 'evidenceList'>): ChatQueryEvidence[] {
+  if (d.evidenceList?.length) return d.evidenceList;
+  return d.evidence ? [d.evidence] : [];
+}
+
 /** Kaynak dışındaki parçalar (sıra sabit; boş olan atlanır). */
 export function evidenceChipParts(ev: ChatQueryEvidence): string[] {
   const parts: string[] = [];
+  const hop = evidenceHopLabel(ev.hop); // v0.10.1275 — bileşik kanıtın halkası önce
+  if (hop) parts.push(hop);
   const win = evidenceWindowLabel(ev.window);
   if (win) parts.push(win);
   const scope = [ev.env, ev.cluster].filter(Boolean).join('/');
@@ -118,6 +144,28 @@ export function evidenceCellText(v: unknown, kind: string): string {
   if (v == null || v === '') return '—';
   if (kind === 'num' && typeof v === 'number') return String(Number(v.toPrecision(4)));
   return String(v);
+}
+
+/**
+ * evidenceLevelTone — v0.10.1275: `level` sütunu (crit/warn/ok). Yalnız sapan
+ * değer renk alır (tablo standardı): ok → null (düz metin).
+ */
+export function evidenceLevelTone(level: string): Tone | null {
+  switch (level.toLowerCase()) {
+    case 'crit': return 'danger';
+    case 'warn': return 'warning';
+    default: return null;
+  }
+}
+
+/** `level` sütununun Türkçe etiketi. */
+export function evidenceLevelLabel(level: string): string {
+  switch (level.toLowerCase()) {
+    case 'crit': return 'kritik';
+    case 'warn': return 'uyarı';
+    case 'ok': return 'normal';
+    default: return level;
+  }
 }
 
 /** Log seviyesi rozeti: yalnız sapan seviye renk alır (tablo standardı). */

@@ -31,7 +31,7 @@ import { StateBadges } from './StateBadges'; // v0.10.948 — paylaşılan durum
 import { chatLinkTargetProps, useChatLinkNewTab } from './chatLinkTarget'; // v0.10.1125 — /cosre yeni sekme
 import { sourceChips, SOURCE_KIND_LABEL, type SourceChip } from './sourceChips'; // v0.10.1127 — hedef başına tek kaynak çipi
 import { EvidenceChips } from './EvidenceChips'; // v0.10.1272 — kanıt çipleri + Explore'da aç
-import { ctxAppliedLabel } from './evidenceChip'; // v0.10.1274 — ekran kapsamı künyesi
+import { ctxAppliedLabel, stepEvidenceItems } from './evidenceChip'; // v0.10.1274 — ekran kapsamı künyesi; v0.10.1275 — hop listesi
 import { phaseTrail } from './phaseTrail'; // v0.10.1273 — Metrik → Log → Trace kırıntısı
 
 // ChatBubble — bir sohbet turunun ÇİZİMİ. v0.9.479'da CopilotChat.tsx'ten
@@ -571,7 +571,8 @@ function ToolEvidence({ d }: { d: ChatStepDetail }) {
         </div>
       )}
       {/* v0.10.1272 — kanıt zarflı aracın çipi (kaynak · pencere · satır · süre; tıkla = Explore'da aç). */}
-      {d.evidence && <EvidenceChips items={[d.evidence]} blocks={evBlocks} defaultOpen="none" className="cm-evidence--step" />}
+      {/* v0.10.1275 — bileşik araç (pivot_from_trace): hop başına çip listesi; eski olay yalnız evidence taşır. */}
+      {d.evidence && <EvidenceChips items={stepEvidenceItems(d)} blocks={evBlocks} defaultOpen="none" className="cm-evidence--step" />}
       {/* v0.9.1228 — çağrının ürün görünümü: sunucunun K4-denetimli
           haritasından gelir (model metninden asla), yoksa çizilmez.
           v0.10.1272 — kanıt çipi aynı href'i taşıyorsa ikinci bağlantı çizilmez. */}
@@ -941,7 +942,7 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
   // v0.10.1272 — cevabın kanıt çipleri: answer.evidence (arşivden de gelir);
   // yoksa (hata ile biten tur) adımların kendi kanıtları.
   const answerEvidence = useMemo<ChatQueryEvidence[]>(
-    () => turn.evidence ?? (turn.stepDetails ?? []).flatMap(d => (d.evidence ? [d.evidence] : [])),
+    () => turn.evidence ?? (turn.stepDetails ?? []).flatMap(stepEvidenceItems),
     [turn.evidence, turn.stepDetails],
   );
   const evBlocks = useMemo(() => evidenceBlocksByRef(turn.blocks), [turn.blocks]);

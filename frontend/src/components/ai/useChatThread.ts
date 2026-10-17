@@ -282,7 +282,7 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
             ...t,
             stepDetails: (t.stepDetails ?? []).map(d =>
               d.i === e.i
-                ? { ...d, ok: e.ok, preview: e.preview, truncated: e.truncated, bytes: e.bytes, href: e.href, durationMs: e.durationMs, skipped: e.skipped || undefined, sources: e.sources, evidence: e.evidence, ctxApplied: e.ctxApplied } // v0.10.1274 — ekran kapsamı künyesi; v0.10.944 — tam çıktıdan kaynak durumu; v0.10.1272 — kanıt çipi
+                ? { ...d, ok: e.ok, preview: e.preview, truncated: e.truncated, bytes: e.bytes, href: e.href, durationMs: e.durationMs, skipped: e.skipped || undefined, sources: e.sources, evidence: e.evidence, evidenceList: e.evidenceList, ctxApplied: e.ctxApplied } // v0.10.1274 — ekran kapsamı künyesi; v0.10.944 — tam çıktıdan kaynak durumu; v0.10.1272 — kanıt çipi; v0.10.1275 — hop kanıt listesi
                 : d),
           }));
         } else if (e.kind === 'block') {

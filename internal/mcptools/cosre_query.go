@@ -110,7 +110,23 @@ type cosreResult struct {
 	Warnings []string       `json:"warnings,omitempty"`
 	Request  map[string]any `json:"request"`
 	Evidence *cosreEvidence `json:"evidence,omitempty"`
-	Data     any            `json:"data,omitempty"`
+	// Evidences — v0.10.1275 (CoSRE adım 6): bileşik aracın hop başına
+	// kanıtları; `evidence` hep listenin İLKİ (eski okuyucu tek çip görür).
+	// Atomik araçlarda boş (omitempty — bayt-bayt eski zarf).
+	Evidences []cosreHopEvidence `json:"evidences,omitempty"`
+	Data      any                `json:"data,omitempty"`
+}
+
+// cosreHopEvidence — v0.10.1275: çok-kanıtlı zarfın tek kalemi. Hop =
+// zincirdeki halka (trace|pods|jvm|logs|op_baseline…); As = href eşlemesinin
+// anahtarı (EvidenceHref: query_traces|query_metrics|query_logs|trace|pod);
+// Request = o eşlemenin istediği normalize argümanlar. Gömülü cosreEvidence
+// JSON'da düz alanlar olarak yazılır.
+type cosreHopEvidence struct {
+	Hop     string         `json:"hop"`
+	As      string         `json:"as"`
+	Request map[string]any `json:"request,omitempty"`
+	cosreEvidence
 }
 
 func cosreFail(tool string, req map[string]any, warnings []string, code, msg string) cosreResult {

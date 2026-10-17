@@ -864,6 +864,16 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 			// v0.10.948 — İPTAL her çağrıdan ÖNCE denetlenir: Executor.Call ilk iş
 			// ctx'e bakar (Kind cancelled, handler çağrılmaz); turun kalanları da
 			// aynı yoldan yürütülmeden geçer ve döngü aşağıda biter.
+			// v0.10.1275 — bileşik araç ilerlemesi: etiket-yalnız `step {label, phase}`
+			// (ekran-bağlamı çipiyle aynı şekil). Kanca handler'ın KOORDİNATÖR
+			// goroutine'inden çağrılır (executor senkron) — emit tek goroutine'de kalır.
+			// Gölge ctx bu turun gövdesiyle sınırlı; kanca yalnız bileşik araçta.
+			ctx := ctx
+			if mcptools.IsCompositeEvidenceTool(tc.Name) {
+				ctx = mcptools.WithProgress(ctx, func(phase, label string) {
+					emit("step", chatProgressStep(phase, label))
+				})
+			}
 			oc := exec.Call(ctx, tc.Name, cargs)
 			if !oc.Executed {
 				// bilinmeyen ad / tekrar muhafızı / kapsam reddi / iptal:
@@ -994,10 +1004,14 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 			}
 			// v0.10.1272 — kanıt çipi: sonuçtaki evidence + "Explore'da aç" href'i.
 			// Veri sohbet içinde de: aynı sonuçtan chart/trace_list/table bloğu (ek sorgu yok).
-			if ev, ok := attachStepEvidence(stepEv, tc.Name, tr.Content); ok {
-				ev = withEvidenceScope(stepEv, ev, scopeApplied) // v0.10.1274
-				loopEvidence = mergeChatEvidence(loopEvidence, ev)
-				if b, ok := mcptools.ToolResultBlock(tc.Name, tr.Content, ev); ok {
+			// v0.10.1275 — çok-kanıtlı zarf: bileşik araç (pivot_from_trace) hop başına
+			// çip + blok taşır; atomik araçta liste tek kalem (eski gövde aynen).
+			if evs := attachStepEvidenceList(stepEv, tc.Name, tr.Content); len(evs) > 0 {
+				evs = withEvidenceListScope(stepEv, evs, scopeApplied) // v0.10.1274
+				for _, ev := range evs {
+					loopEvidence = mergeChatEvidence(loopEvidence, ev)
+				}
+				for _, b := range mcptools.ToolResultBlocks(tc.Name, tr.Content, evs) {
 					emit("block", blockSeq.Next(b.Type, b.Payload))
 				}
 			}

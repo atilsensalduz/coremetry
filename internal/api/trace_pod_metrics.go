@@ -226,24 +226,12 @@ func (s *Server) getTracePodMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 	mdp := tracePodMDP(q.Get("mdp"))
 
-	unmapped := func(thanosOn bool, reason string) {
+	// 2–4. Eşleme (v0.10.1275: pivot_from_trace'in pod halkasıyla ORTAK —
+	// tracePodClusterFor).
+	c, thanosOn, reason := s.tracePodClusterFor(cv)
+	if !thanosOn || reason != "" {
 		writeJSON(w, &tracePodMetricsResponse{Thanos: thanosOn, ClusterValue: cv,
 			UnmappedReason: reason, Pods: []thanos.TracePodSeries{}})
-	}
-	// 2. Thanos hiç yok → sekme metrik kolonlarını gizler.
-	if s.thanos == nil || !s.thanos.HasEnabledClusters() {
-		unmapped(false, "")
-		return
-	}
-	// 3. Span'ler cluster özniteliği taşımıyor.
-	if cv == "" {
-		unmapped(true, "no_cluster_value")
-		return
-	}
-	// 4. Değer hiçbir kayda bağlı değil ya da bağlı kayıt kapalı.
-	c, ok := thanos.SpanClusterOwner(s.thanos.CurrentSettings(), cv)
-	if !ok || !c.Enabled {
-		unmapped(true, "no_remote_cluster")
 		return
 	}
 	// 5. Seçici uzunluğu — FE parçalayıcısı aynı tavanla böler; buraya
@@ -259,30 +247,55 @@ func (s *Server) getTracePodMetrics(w http.ResponseWriter, r *http.Request) {
 	s.serveCached(w, r, key, tracePodMetricsTTL(to, now), func(ctx context.Context) (any, error) {
 		// Kapalı gelen ctx KULLANILIR (SWR tazelemesi kendi ctx'iyle koşar,
 		// v0.8.319).
-		qctx, cancel := context.WithTimeout(ctx, tracePodMetricsTimeout)
-		defer cancel()
-		res, err := s.thanos.TracePodMetrics(qctx, c, refs, from, to, mdp)
-		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) || errors.Is(qctx.Err(), context.DeadlineExceeded) {
-				secs := int(math.Ceil(tracePodMetricsTimeout.Seconds()))
-				return nil, fmt.Errorf("%w: %s: Thanos %d sn içinde yanıt vermedi (zaman aşımı)", errUpstream, c.Name, secs)
-			}
-			if errors.Is(err, context.Canceled) {
-				return nil, err // istemci gitti → writeErr 499
-			}
-			return nil, fmt.Errorf("%w: %s: %v", errUpstream, c.Name, err)
-		}
-		pods := res.Pods
-		if pods == nil {
-			pods = []thanos.TracePodSeries{}
-		}
-		return &tracePodMetricsResponse{
-			Thanos: true, ClusterValue: cv, Mapped: true,
-			Cluster: &tracePodCluster{ID: c.EffectiveID(), Name: c.Name},
-			Start:   res.Start, Step: res.Step, Points: res.Points, Instant: res.Instant,
-			Pods: pods,
-		}, nil
+		return s.computeTracePodMetrics(ctx, c, cv, refs, from, to, mdp)
 	})
+}
+
+// tracePodClusterFor — v0.10.1275: span cluster değeri → Remote Cluster kaydı.
+// thanosOn=false: hiç etkin cluster yok (sekme metrik kolonlarını gizler).
+// reason: "no_cluster_value" (span'ler cluster taşımıyor) | "no_remote_cluster"
+// (değer hiçbir kayda bağlı değil ya da kayıt kapalı) | "" (eşlendi). Uç ve
+// pivot_from_trace'in pod halkası AYNI kuralı okur.
+func (s *Server) tracePodClusterFor(cv string) (thanos.ClusterConfig, bool, string) {
+	if s.thanos == nil || !s.thanos.HasEnabledClusters() {
+		return thanos.ClusterConfig{}, false, ""
+	}
+	if strings.TrimSpace(cv) == "" {
+		return thanos.ClusterConfig{}, true, "no_cluster_value"
+	}
+	c, ok := thanos.SpanClusterOwner(s.thanos.CurrentSettings(), cv)
+	if !ok || !c.Enabled {
+		return thanos.ClusterConfig{}, true, "no_remote_cluster"
+	}
+	return c, true, ""
+}
+
+// computeTracePodMetrics — v0.10.1275: önbellek dolum fonksiyonu (uç ve
+// pivot halkası aynı anahtara aynı gövdeyi yazar). Hata asla önbelleğe girmez.
+func (s *Server) computeTracePodMetrics(ctx context.Context, c thanos.ClusterConfig, cv string, refs []thanos.TracePodRef, from, to time.Time, mdp int) (*tracePodMetricsResponse, error) {
+	qctx, cancel := context.WithTimeout(ctx, tracePodMetricsTimeout)
+	defer cancel()
+	res, err := s.thanos.TracePodMetrics(qctx, c, refs, from, to, mdp)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(qctx.Err(), context.DeadlineExceeded) {
+			secs := int(math.Ceil(tracePodMetricsTimeout.Seconds()))
+			return nil, fmt.Errorf("%w: %s: Thanos %d sn içinde yanıt vermedi (zaman aşımı)", errUpstream, c.Name, secs)
+		}
+		if errors.Is(err, context.Canceled) {
+			return nil, err // istemci gitti → writeErr 499
+		}
+		return nil, fmt.Errorf("%w: %s: %v", errUpstream, c.Name, err)
+	}
+	pods := res.Pods
+	if pods == nil {
+		pods = []thanos.TracePodSeries{}
+	}
+	return &tracePodMetricsResponse{
+		Thanos: true, ClusterValue: cv, Mapped: true,
+		Cluster: &tracePodCluster{ID: c.EffectiveID(), Name: c.Name},
+		Start:   res.Start, Step: res.Step, Points: res.Points, Instant: res.Instant,
+		Pods: pods,
+	}, nil
 }
 
 // parseTracePodWindow — v0.10.968 — SAF: from/to unix ns, İKİSİ de zorunlu

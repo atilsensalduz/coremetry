@@ -492,3 +492,51 @@ func truncate(s string, n int) string {
 	}
 	return s[:n] + "…"
 }
+
+// ── v0.10.1275 (CoSRE adım 6) — playbook'un dışa açık yüzü ─────────────────
+//
+// pivot_from_trace (mcptools) ve get_problem_root_cause'un `playbook` alanı
+// AYNI saf dallanmayı okur: ikinci bir "hangi sinyale bakılır" tablosu yok.
+// Hiçbiri KALICI YAZMAZ — derin kanıtı yalnız sentezleyici yazar
+// (rootcause_worker.go, tek yazıcı kuralı); burada okunan kanıt çağıranın
+// cevabında kalır.
+
+// PlanFamilies — problemin investigationPlan'ı, aile adları olarak. SAF.
+func PlanFamilies(p chstore.Problem) []string {
+	plan := investigationPlan(p)
+	out := make([]string, 0, len(plan))
+	for _, f := range plan {
+		out = append(out, string(f))
+	}
+	return out
+}
+
+// symptomMetric — belirti → planın anladığı metrik adı (sentetik problem).
+var symptomMetric = map[string]string{
+	"latency":    "p99",
+	"error":      "error_rate",
+	"down":       "down",
+	"saturation": "heap",
+}
+
+// SymptomPlan — belirti (latency|error|down|saturation) için aynı plan; bir
+// problem satırı olmadan (ör. tek bir trace'in şekli) sorulur. Bilinmeyen
+// belirti → nil. SAF.
+func SymptomPlan(symptom string) []string {
+	m, ok := symptomMetric[strings.ToLower(strings.TrimSpace(symptom))]
+	if !ok {
+		return nil
+	}
+	return PlanFamilies(chstore.Problem{Metric: m})
+}
+
+// GatherDeepEvidenceOnDemand — sentezleyicinin derin okumasının İSTEĞE BAĞLI
+// eşi (get_problem_root_cause investigate:true). Aynı plan, aynı sınırlı
+// okumalar; sonuç YALNIZ döndürülür, hipoteze yazılmaz. Plan boşsa boş kanıt.
+func GatherDeepEvidenceOnDemand(ctx context.Context, store *chstore.Store, rt chstore.RuntimePodReader, p chstore.Problem, from, to time.Time) chstore.DeepEvidence {
+	plan := investigationPlan(p)
+	if len(plan) == 0 || store == nil {
+		return chstore.DeepEvidence{}
+	}
+	return gatherDeepEvidence(ctx, store, rt, p, plan, from, to)
+}

@@ -30,6 +30,7 @@ var stepPhaseByTool = map[string]string{
 	"find_trace_by_request_id": "Trace", "find_trace_by_span": "Trace",
 	"get_exemplar_traces": "Trace", "get_linked_traces": "Trace", "trace_stats": "Trace",
 	"compare_traces": "Trace", "bubble_up": "Trace", "explain_trace": "Trace",
+	"pivot_from_trace": "Trace", // v0.10.1275 — CoSRE adım 6: trace → pod → JVM → log
 	// Sağlık (servis / operasyon / veritabanı / kuyruk / SLO)
 	"get_service_health": "Sağlık", "get_operation_health": "Sağlık", "get_db_health": "Sağlık",
 	"get_messaging_health": "Sağlık", "list_slo_status": "Sağlık", "explain_service_health": "Sağlık",
@@ -54,6 +55,17 @@ var stepPhaseByTool = map[string]string{
 
 // stepPhaseTR — aracın evresi; bilinmeyen ad "".
 func stepPhaseTR(tool string) string { return stepPhaseByTool[tool] }
+
+// chatProgressStep — v0.10.1275: bileşik aracın ilerleme satırı. Etiket-yalnız
+// `step` olayı ({label} + isteğe bağlı phase) — araç adı / `i` YOK: şeffaflık
+// paneli onu araç çağrısı saymaz, eski istemci düz etiket çizer. Saf.
+func chatProgressStep(phase, label string) map[string]string {
+	m := map[string]string{"label": label}
+	if phase != "" {
+		m["phase"] = phase
+	}
+	return m
+}
 
 // chatDeltaPayload — akan turun `delta` olayı. `reset` İSTEĞE BAĞLI ve yalnız
 // true iken yazılır: o ana dek akan metin geri alınır (tool'lu turun önsözü

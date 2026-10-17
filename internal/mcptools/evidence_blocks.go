@@ -267,3 +267,69 @@ func evBlockTitle(tool string, req map[string]any) string {
 	}
 	return scope + " · " + what
 }
+
+// compositeBlockMax — v0.10.1275: bileşik aracın sohbet içi blok tavanı.
+const compositeBlockMax = 6
+
+// ToolResultBlocks — v0.10.1275 (CoSRE adım 6): kanıt listesi → sohbet blokları.
+// Atomik araç → ToolResultBlock (ilk kanıtla; tek blok). Bileşik araç → sonucun
+// `data.blocks[{hop,type,payload}]`'ı; her yükün evidenceRef/deepLink'i AYNI
+// hop'un kanıtından yeniden yazılır (çip ↔ blok bağı sunucuda kurulur, aracın
+// yazdığı değer güvenilmez). Eşleşen kanıtı (ya da ref'i) olmayan blok düşer —
+// bağsız blok çipsiz kalır ve hiç açılamazdı. Tavan compositeBlockMax. SAF.
+func ToolResultBlocks(tool, content string, evs []ChatEvidence) []EvidenceBlock {
+	if evidenceTools[tool] {
+		if len(evs) == 0 {
+			return nil
+		}
+		if b, ok := ToolResultBlock(tool, content, evs[0]); ok {
+			return []EvidenceBlock{b}
+		}
+		return nil
+	}
+	if !compositeEvidenceTools[tool] || len(evs) == 0 {
+		return nil
+	}
+	var r struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			Blocks []struct {
+				Hop     string         `json:"hop"`
+				Type    string         `json:"type"`
+				Payload map[string]any `json:"payload"`
+			} `json:"blocks"`
+		} `json:"data"`
+	}
+	if json.Unmarshal([]byte(content), &r) != nil {
+		return nil
+	}
+	byHop := make(map[string]ChatEvidence, len(evs))
+	for _, ev := range evs {
+		if _, seen := byHop[ev.Hop]; !seen && ev.Hop != "" && ev.Ref != "" {
+			byHop[ev.Hop] = ev
+		}
+	}
+	var out []EvidenceBlock
+	for _, b := range r.Data.Blocks {
+		if len(out) >= compositeBlockMax {
+			break
+		}
+		ev, ok := byHop[b.Hop]
+		if !ok || b.Payload == nil {
+			continue
+		}
+		switch b.Type {
+		case blocks.TypeTraceList, blocks.TypeTable, blocks.TypeChart:
+		default:
+			continue
+		}
+		p := make(map[string]any, len(b.Payload)+2)
+		for k, v := range b.Payload {
+			p[k] = v
+		}
+		p["evidenceRef"] = ev.Ref
+		p["deepLink"] = ev.Href // "" = Explore bağlantısı yok (trace_list alanı zorunlu tutar)
+		out = append(out, EvidenceBlock{Type: b.Type, Payload: p})
+	}
+	return out
+}

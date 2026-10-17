@@ -64,13 +64,69 @@ type ChatEvidence struct {
 	// CtxApplied (v0.10.1274) — sunucunun bu çağrıya ekrandan koyduğu kapsam
 	// (env/servis/pencere/trace); boşsa yazılmaz. api attach eder.
 	CtxApplied *ScopeApplied `json:"ctxApplied,omitempty"`
+	// Hop (v0.10.1275, CoSRE adım 6) — bileşik aracın (pivot_from_trace)
+	// zincir halkası: trace|pods|jvm|logs|op_baseline. Atomik araçta boş
+	// (omitempty — eski çip şekli aynen); FE "Trace › Pod" etiketini bundan kurar.
+	Hop string `json:"hop,omitempty"`
 }
 
 // evidenceTools — kanıt zarfı taşıyan araçlar (adım 2'nin üçü).
 var evidenceTools = map[string]bool{queryMetricsName: true, queryTracesName: true, queryLogsName: true}
 
-// IsEvidenceTool — aracın sonucu kanıt zarfı taşır mı.
-func IsEvidenceTool(tool string) bool { return evidenceTools[tool] }
+// compositeEvidenceTools — v0.10.1275: hop başına kanıt LİSTESİ (`evidences`)
+// taşıyan bileşik araçlar.
+var compositeEvidenceTools = map[string]bool{PivotFromTraceName: true}
+
+// compositeEvidenceMax — bileşik aracın çip tavanı (hop sayısının üstü).
+const compositeEvidenceMax = 6
+
+// IsEvidenceTool — aracın sonucu kanıt zarfı taşır mı (atomik ya da bileşik).
+func IsEvidenceTool(tool string) bool { return evidenceTools[tool] || compositeEvidenceTools[tool] }
+
+// IsCompositeEvidenceTool — v0.10.1275: araç bileşik mi (sohbet ilerleme
+// kancasını yalnız bunlara koyar).
+func IsCompositeEvidenceTool(tool string) bool { return compositeEvidenceTools[tool] }
+
+// ToolResultEvidenceList — v0.10.1275: aracın HAM sonucundan kanıt LİSTESİ.
+// Atomik query_* → tek kalemli liste (ToolResultEvidence ile bayt-aynı kalem);
+// bileşik → `evidences` sırasıyla, tavan compositeEvidenceMax, her kalemin
+// href'i kendi eşlemesinden (EvidenceHref(As, …, Request)). Kanıt yok → false.
+// SAF.
+func ToolResultEvidenceList(tool, content string) ([]ChatEvidence, bool) {
+	if evidenceTools[tool] {
+		ev, ok := ToolResultEvidence(tool, content)
+		if !ok {
+			return nil, false
+		}
+		return []ChatEvidence{ev}, true
+	}
+	if !compositeEvidenceTools[tool] {
+		return nil, false
+	}
+	var r struct {
+		Tool      string             `json:"tool"`
+		Evidences []cosreHopEvidence `json:"evidences"`
+	}
+	if err := json.Unmarshal([]byte(content), &r); err != nil || (r.Tool != "" && r.Tool != tool) {
+		return nil, false
+	}
+	out := make([]ChatEvidence, 0, min(len(r.Evidences), compositeEvidenceMax))
+	for _, h := range r.Evidences {
+		if len(out) >= compositeEvidenceMax {
+			break
+		}
+		if h.Source == "" {
+			continue
+		}
+		ev := h.cosreEvidence
+		out = append(out, ChatEvidence{
+			Tool: tool, Source: ev.Source, Query: ev.Query, QueryKind: ev.QueryKind, Window: ev.Window,
+			Env: ev.Env, Cluster: ev.Cluster, Rows: ev.Rows, Series: ev.Series, DurationMs: ev.DurationMs,
+			Href: EvidenceHref(h.As, ev, h.Request), Hop: h.Hop,
+		})
+	}
+	return out, len(out) > 0
+}
 
 // ToolResultEvidence — aracın HAM JSON sonucundan kanıt + href. Kanıt zarfı
 // taşımayan araç, çözülemeyen içerik ya da kanıtsız sonuç → ok=false. Saf.
@@ -145,6 +201,21 @@ func EvidenceHref(tool string, ev cosreEvidence, req map[string]any) string {
 			Page: "logs", Query: reqString(req, "text"), Service: service, Severity: sev,
 			TraceID: traceID, Env: ev.Env,
 		}, ev.Cluster, rangeParam)
+	case "trace":
+		// v0.10.1275 — bileşik kanıtın trace halkası: Trace sayfası, aynı pencere.
+		tid := reqString(req, "trace_id")
+		if tid == "" {
+			return ""
+		}
+		return evidenceBuildLink(buildLinkArgs{Page: "trace", TraceID: tid}, "", rangeParam)
+	case "pod":
+		// v0.10.1275 — pod halkası: Pod sayfası (cluster = Remote Cluster kimliği).
+		pod := reqString(req, "pod")
+		if pod == "" {
+			return ""
+		}
+		return evidenceBuildLink(buildLinkArgs{Page: "pod", Pod: pod, Namespace: reqString(req, "namespace"), Service: service},
+			reqString(req, "cluster"), rangeParam)
 	case queryMetricsName:
 		family := reqString(req, "family")
 		if ev.Source == evSourceThanos {

@@ -56,7 +56,9 @@ const shortDescMinBytes = 60
 // küçük modelin yapısal giriş yolu; 145 + 127 + 122 = 394 B) → ~9.46 KB; tavan
 // 9.5 KB. Bilinçli artış: eski üçlü (query_metric / search_traces / search_logs)
 // MCP sözleşmesi olarak kalıyor; sohbetten çıkarılmaları ayrı bir karar.
-const shortCatalogMaxBytes = 9500
+// v0.10.1275 — 72 tool: pivot_from_trace (CoSRE adım 6, trace → pod → JVM → log
+// tek çağrıda; ölçülen +133 B → 9570 B) → tavan 9.65 KB (+150 B, 50 B'a yukarı).
+const shortCatalogMaxBytes = 9650
 
 // shortCatalogConditionalMaxBytes — v0.10.1050: KOŞULLU sohbet araçlarının
 // (chatOffered; bugün yalnız read_source_code, DevOps bağlıyken) kompakt

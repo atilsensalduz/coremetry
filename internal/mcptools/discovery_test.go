@@ -569,7 +569,8 @@ func TestDiscoveryToolsGroupedNearConsumers(t *testing.T) {
 	// v0.10.1207 — 66 → 67: resolve_business_code (kanal/fonksiyon kodu, operasyon, endpoint → servis; salt okuma, REST eşi yok → MinRole "").
 	// v0.10.1208 — 67 → 68: search_code (Azure DevOps Code Search, servisin deposunda; koşullu + yalnız sohbet, salt okuma).
 	// v0.10.1271 — 68 → 71: query_metrics / query_traces / query_logs (CoSRE adım 2; aile/enum tabanlı, kanıt zarflı; salt okuma, REST eşi yok → MinRole ""; sohbet + dış MCP).
-	if len(tools) != 71 { // v0.10.944 — 57 → 60: list_log_fields / list_metric_labels / compare_periods (CoSRE araştırma asistanı; üçü de viewer, REST eşleri /api/logs/fields, /api/metrics label okumaları ve servis RED kıyası kapısız)
+	// v0.10.1275 — 71 → 72: pivot_from_trace (CoSRE adım 6; trace → pod → JVM → log + playbook, tek deterministik bileşik çağrı; salt okuma, REST eşi GET /api/trace-pods/metrics kapısız → MinRole ""; sohbet + dış MCP).
+	if len(tools) != 72 { // v0.10.944 — 57 → 60: list_log_fields / list_metric_labels / compare_periods (CoSRE araştırma asistanı; üçü de viewer, REST eşleri /api/logs/fields, /api/metrics label okumaları ve servis RED kıyası kapısız)
 		t.Errorf("katalog %d tool — sayı değiştiyse tools.go başlığındaki sayım yorumunu, "+
 			"api/mcp_authz_test.go'daki duruş notunu ve docs/runbooks/mcp-claude-code.md'yi de güncelle", len(tools))
 	}

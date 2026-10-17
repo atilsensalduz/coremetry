@@ -14,6 +14,7 @@ import { ChatTraceList } from './ChatTraceList';
 import {
   evidenceChipParts, evidenceChipText, evidenceHref, evidenceKindLabel, evidenceWindowFull,
   evidenceChartGroups, evidenceDefaultOpen, evidenceCellText, evidenceSeverityTone,
+  evidenceLevelTone, evidenceLevelLabel,
 } from './evidenceChip';
 
 // EvidenceChips — v0.10.1272 (CoSRE adım 3/8): kanıt çipleri + sohbet içi veri
@@ -167,6 +168,12 @@ function EvidenceTable({ p }: { p: ChatEvidenceTablePayload }) {
                 }
                 if (c.kind === 'time' && typeof v === 'number') {
                   return <td key={c.key} className="mono" title={fmtDateTime(v)}>{fmtClock(v)}</td>;
+                }
+                if (c.kind === 'level') {
+                  // v0.10.1275 — crit/warn rozet; ok düz metin (yalnız sapan değer renk alır).
+                  const raw = String(v ?? '');
+                  const tone = evidenceLevelTone(raw);
+                  return <td key={c.key}>{tone ? <Badge tone={tone}>{evidenceLevelLabel(raw)}</Badge> : (raw ? evidenceLevelLabel(raw) : '—')}</td>;
                 }
                 if (c.kind === 'severity') {
                   const tone = evidenceSeverityTone(String(v ?? ''));

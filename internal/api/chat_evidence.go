@@ -29,8 +29,9 @@ import (
 )
 
 // chatEvidenceMax — cevap başına kanıt çipi tavanı (çağrı bütçesi 6–12; Derin
-// kipte bile şerit taşmasın).
-const chatEvidenceMax = 8
+// kipte bile şerit taşmasın). v0.10.1275 — 8 → 12: bileşik araç (pivot_from_trace)
+// tek çağrıda ≤6 hop çipi taşır; iki atomik + bir pivot sığsın.
+const chatEvidenceMax = 12
 
 // attachStepEvidence — araç sonucu kanıt zarfı taşıyorsa step-result gövdesine
 // `evidence` (ve boşsa `href`) yazar. Saf (yalnız stepEv'i değiştirir).
@@ -48,6 +49,52 @@ func attachStepEvidence(stepEv map[string]any, tool, content string) (mcptools.C
 		stepEv["href"] = ev.Href
 	}
 	return ev, true
+}
+
+// attachStepEvidenceList — v0.10.1275 (CoSRE adım 6): çok-kanıtlı zarf.
+// Atomik araç → tek kalem (attachStepEvidence ile aynı gövde); bileşik araç →
+// hop başına kalem. Ref'ler adım kimliğinden: ilk "ev<i>", sonrakiler
+// "ev<i>.<k>". GERİYE UYUM: `evidence` hep İLK kalem (eski istemci tek çip
+// görür); `evidenceList` YALNIZ >1 kalemde yazılır. Saf (yalnız stepEv).
+func attachStepEvidenceList(stepEv map[string]any, tool, content string) []mcptools.ChatEvidence {
+	evs, ok := mcptools.ToolResultEvidenceList(tool, content)
+	if !ok || len(evs) == 0 {
+		return nil
+	}
+	if i, has := eventInt(stepEv["i"]); has && i > 0 {
+		for k := range evs {
+			if k == 0 {
+				evs[k].Ref = fmt.Sprintf("ev%d", i)
+			} else {
+				evs[k].Ref = fmt.Sprintf("ev%d.%d", i, k)
+			}
+		}
+	}
+	stepEv["evidence"] = evs[0]
+	if len(evs) > 1 {
+		stepEv["evidenceList"] = evs
+	}
+	if _, set := stepEv["href"]; !set && evs[0].Href != "" {
+		stepEv["href"] = evs[0].Href
+	}
+	return evs
+}
+
+// withEvidenceListScope — v0.10.1275: ekran-kapsamı künyesi listenin her
+// kalemine; step-result gövdesi de güncellenir. Boş künye → dokunulmaz. Saf.
+func withEvidenceListScope(stepEv map[string]any, evs []mcptools.ChatEvidence, sa mcptools.ScopeApplied) []mcptools.ChatEvidence {
+	if sa.Empty() || len(evs) == 0 {
+		return evs
+	}
+	for k := range evs {
+		c := sa
+		evs[k].CtxApplied = &c
+	}
+	stepEv["evidence"] = evs[0]
+	if len(evs) > 1 {
+		stepEv["evidenceList"] = evs
+	}
+	return evs
 }
 
 // withEvidenceScope — v0.10.1274: kanıt çipine ekran-kapsamı künyesi (boşsa

@@ -73,6 +73,10 @@ func (s *Server) mcpDeps() mcptools.Deps {
 		// v0.10.1133 — resolve_oracle_operation (oracle_op_resolve.go); Enabled canlı,
 		// etkin Oracle kaynağı yoksa araç sohbete sunulmaz.
 		OracleOps: oracleOpSource{s},
+		// v0.10.1275 (CoSRE adım 6) — pivot_from_trace: pod halkası (Thanos; eşleme
+		// GET /api/trace-pods/metrics ile ortak) + bileşik araç önbelleği (cachedJSON).
+		TracePods: s.mcpTracePodsOrNil(),
+		Memo:      s.mcpMemo,
 		CopilotModel: func() string {
 			if s.copilot == nil || !s.copilot.Configured() {
 				return ""

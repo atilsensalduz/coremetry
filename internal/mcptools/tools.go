@@ -59,7 +59,9 @@
 //     doğru çağrının koşulu, orada kazanılan bayt yanlış argümanla
 //     harcanan bir tura değmez.
 //
-// Tool catalogue (71 tools; v0.10.1271 — 68 → 71: query_metrics.go / query_traces.go /
+// Tool catalogue (72 tools; v0.10.1275 — 71 → 72: pivot_trace.go pivot_from_trace (CoSRE adım 6,
+// trace → pod → JVM → log + playbook, tek deterministik bileşik çağrı, hop başına kanıt; salt okuma, sohbet + MCP);
+// v0.10.1271 — 68 → 71: query_metrics.go / query_traces.go /
 // query_logs.go (CoSRE adım 2, aile/enum tabanlı, kanıt zarflı; sohbet + MCP, salt okuma);
 // v0.10.1208 — 67 → 68: search_code.go, koşullu + yalnız sohbet; v0.10.1207 — 66 → 67: business_code.go resolve_business_code, salt okuma; v0.10.1189 — 65 → 66: similar_incidents.go, vaka hafızası (onaylı önce), salt okuma; v0.10.1133 — 64 → 65: oracle_operation.go resolve_oracle_operation, salt okuma, sohbette yalnız etkin Oracle kaynağı varken; v0.10.1122 — 62 → 64: wiki_tools.go search_wiki / read_wiki_page, yalnız uygulama içi sohbet ve yalnız wiki bilgisi açık + DevOps bağlıyken; v0.10.1050 — 61 → 62: source_code.go read_source_code, yalnız uygulama içi sohbet ve yalnız DevOps bağlıyken; v0.10.993 — 60 → 61: bubble_up.go, yalnız dış MCP; v0.10.944 — 57 → 60: logs_tools.go list_log_fields, metrics_tools.go list_metric_labels, compare_periods.go; search_logs / query_metric / get_trace yeni dosyalarında; v0.10.809 — 56 → 57: product_guide.go; v0.10.559 — 54 → 56: knowledge_tools.go get_runbook / search_knowledge; v0.10.556 — 52 → 54: signal_tools.go log_patterns / cluster_metric; v0.10.555 — 48 → 52: problem_tools.go get_problem / get_correlation_evidence / similar_problems / get_capabilities; v0.10.545 — 47 → 48: list_deployments.go; v0.10.478 — 44 → 47: context_tools.go; v0.10.475 — 43 → 44: build_link.go; v0.10.474 — 42 → 43: trace_stats.go; v0.10.472 — 40 → 42: attr_discovery.go; v0.10.469 — 39 → 40: resolve_entity.go; v0.10.468 — 36 → 39: entity_catalog.go list_namespaces / list_workloads / list_pods; sayım v0.9.1050'de düzeltildi — blok
 // v0.6.5'te kalmıştı, get_problem_root_cause/render_chart sayılmıyordu;
@@ -141,6 +143,7 @@
 //
 // Cross-signal pivot tools (v0.8.333, pivots.go):
 //   - get_logs_for_trace
+//   - pivot_from_trace (v0.10.1275, pivot_trace.go — bileşik zincir)
 //   - get_exemplar_traces
 //   - get_linked_traces
 //   - get_metrics_for_span
@@ -179,6 +182,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cilcenk/coremetry/internal/anomaly"
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/logstore"
 	"github.com/cilcenk/coremetry/internal/mcp"
@@ -256,6 +260,14 @@ type Deps struct {
 	// v0.10.1274 — env → servis üyeliği (screen_scope.go resolveEnvMembers);
 	// yalnız test dikişi. nil → Store.EnvMemberServices (mcpDeps doldurmaz).
 	EnvMembers func(ctx context.Context, env string) ([]string, error)
+	// v0.10.1275 (CoSRE adım 6) — pivot_from_trace'in pod halkası (Thanos
+	// TracePodMetrics; cluster eşlemesi GET /api/trace-pods/metrics ile aynı,
+	// api/mcp_trace_pods.go). nil = Thanos yok → halka dürüst skipped.
+	TracePods TracePodReader
+	// v0.10.1275 — bileşik araç önbelleği (api cachedJSON: L1 → L2 + SWR +
+	// singleflight). fn'in bool'u false → gövde döner ama SAKLANMAZ (kısmi
+	// sonuç). nil = önbelleksiz (testler, doğrudan Deps kurulumu).
+	Memo func(ctx context.Context, key string, ttl time.Duration, fn func(context.Context) (any, bool, error)) ([]byte, error)
 }
 
 // MetricSource is the metric-read half of Deps, satisfied by
@@ -448,6 +460,9 @@ func ToolList(d Deps) []mcp.Tool {
 		// v0.8.333 — cross-signal pivot tools (pivots.go, pivot Phase 4):
 		// trace↔log↔metric moves at MCP/copilot parity with the UI.
 		getLogsForTraceTool(d),
+		// v0.10.1275 (CoSRE adım 6) — trace → pod → JVM → log zinciri tek
+		// deterministik çağrıda (pivot_trace.go); trace→log pivotunun hemen ardında.
+		pivotFromTraceTool(d),
 		getExemplarTracesTool(d),
 		getLinkedTracesTool(d),
 		getMetricsForSpanTool(d),
@@ -795,19 +810,69 @@ func listServicesTool(d Deps) mcp.Tool {
 
 type getProblemRootCauseArgs struct {
 	ProblemID string `json:"problem_id"`
+	// v0.10.1275 (CoSRE adım 6) — saklı derin kanıt yoksa playbook'u CANLI koş
+	// (anomaly.GatherDeepEvidenceOnDemand); sonuç YALNIZ cevapta, kalıcı yazılmaz.
+	Investigate bool `json:"investigate,omitempty"`
+}
+
+// rootCauseOnDemandBudget — investigate:true canlı okumasının bütçesi.
+const rootCauseOnDemandBudget = 15 * time.Second
+
+// rootCauseEvidenceWindow — canlı okumanın penceresi; sentezleyicinin kanıt
+// penceresiyle (anomaly/fusion.go evidenceWindow) aynı.
+const rootCauseEvidenceWindow = 3600
+
+// rootCausePlaybook — v0.10.1275: get_problem_root_cause'un `playbook` alanı.
+type rootCausePlaybook struct {
+	Families []string                `json:"families"`
+	Source   string                  `json:"source"` // stored | on_demand | none
+	Checked  []chstore.CheckedSignal `json:"checked"`
+	Note     string                  `json:"note,omitempty"`
+}
+
+// buildRootCausePlaybook — SAF karar: saklı denetim izi varsa o (stored);
+// yoksa investigate + plan + okuyucu → canlı (on_demand); aksi none + neden.
+// gather yalnız on_demand dalında çağrılır; hiçbir dal yazmaz.
+func buildRootCausePlaybook(families []string, stored *chstore.DeepEvidence, investigate bool, gather func() chstore.DeepEvidence) rootCausePlaybook {
+	if families == nil {
+		families = []string{}
+	}
+	pb := rootCausePlaybook{Families: families, Source: "none", Checked: []chstore.CheckedSignal{}}
+	switch {
+	case stored != nil && len(stored.Checked) > 0:
+		pb.Source, pb.Checked = "stored", stored.Checked
+	case len(families) == 0:
+		pb.Note = "bu problem şekli için derin playbook yok (trafik/hacim kuralı ya da bilinmeyen metrik)"
+	case !investigate:
+		pb.Note = "saklı derin kanıt yok; investigate:true ile aileler şimdi canlı okunur (kalıcı yazılmaz)"
+	case gather == nil:
+		pb.Note = "canlı okuma yapılamadı: ClickHouse okuyucusu bağlı değil"
+	default:
+		de := gather()
+		pb.Source = "on_demand"
+		if len(de.Checked) > 0 {
+			pb.Checked = de.Checked
+		}
+		pb.Note = "son 60 dakikada canlı okundu; hipoteze YAZILMADI"
+	}
+	return pb
 }
 
 func getProblemRootCauseTool(d Deps) mcp.Tool {
 	return mcp.Tool{
 		Name:             "get_problem_root_cause",
 		ShortDescription: "Bir Problem'in sentezlenmiş kök-neden hipotezi: baş şüpheli, güven skoru, aday sıralaması, ilgili deploy. checked'de found=false olan sinyali ASLA sebep gösterme.",
-		Description:      "Return Coremetry's synthesized root-cause hypothesis for a Problem: the #1 suspect service, a confidence score (0-1, honestly low when evidence is thin), the full ranked list of candidate causes (each with a blended score and the topology hop-path from the anchor), and the recent deploy the correlator weighted (if any). This is the SAME correlation intelligence the UI shows on the problem row — call it after list_problems to answer 'what caused problem X?' without manually cross-referencing deploys, error spikes, and downstream timeouts. Read-only and cheap (one pre-computed lookup). Returns computed=false when the worker has not synthesized a hypothesis for this problem yet.\n\nWhen the anchor was a P1, the result also carries the INVESTIGATION: `checked` lists every signal family the worker actually inspected (pods/saturation, logs, exceptions, business dimensions) with found=true/false, and `business` breaks the failure down by channel/function code. A `checked` entry with found=false means that family was inspected and nothing was found; it is not evidence for a cause. When every entry is found=false the honest answer is 'evidence insufficient'.",
+		Description:      "Return Coremetry's synthesized root-cause hypothesis for a Problem: the #1 suspect service, a confidence score (0-1, honestly low when evidence is thin), the full ranked list of candidate causes (each with a blended score and the topology hop-path from the anchor), and the recent deploy the correlator weighted (if any). This is the SAME correlation intelligence the UI shows on the problem row — call it after list_problems to answer 'what caused problem X?' without manually cross-referencing deploys, error spikes, and downstream timeouts. Read-only and cheap (one pre-computed lookup). Returns computed=false when the worker has not synthesized a hypothesis for this problem yet.\n\nWhen the anchor was a P1, the result also carries the INVESTIGATION: `checked` lists every signal family the worker actually inspected (pods/saturation, logs, exceptions, business dimensions) with found=true/false, and `business` breaks the failure down by channel/function code. A `checked` entry with found=false means that family was inspected and nothing was found; it is not evidence for a cause. When every entry is found=false the honest answer is 'evidence insufficient'.\n\nEvery result carries `playbook{families, source: stored|on_demand|none, checked}`: the signal families this problem shape calls for. With investigate=true and no stored investigation the families are read live over the last 60 minutes (bounded, ≤15 s) and returned only — never persisted.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"problem_id": map[string]any{
 					"type":        "string",
 					"description": "The Problem id (the 'id' field from list_problems) or its display id 'P-xxxxx'. Required.",
+				},
+				"investigate": map[string]any{
+					"type":        "boolean",
+					"description": "When no stored investigation exists, run the problem's signal-family playbook live over the last 60 minutes (≤15 s; returned only, never persisted). Default false.",
 				},
 			},
 			// v0.9.1050 — []any → []string: telde aynı ama tools_test'in
@@ -833,11 +898,39 @@ func getProblemRootCauseTool(d Deps) mcp.Tool {
 			if err != nil {
 				return nil, err
 			}
+			// v0.10.1275 (CoSRE adım 6) — playbook her cevapta: aileler problemin
+			// şeklinden (anomaly.PlanFamilies), denetim izi saklıysa ondan, yoksa
+			// investigate:true ile canlı. Kalıcı yazım YOK (tek yazıcı: sentezleyici).
+			var families []string
+			var prob *chstore.Problem
+			if p, perr := d.Store.GetProblem(ctx, pid); perr == nil && p != nil {
+				prob = p
+				families = anomaly.PlanFamilies(*p)
+			}
+			var stored *chstore.DeepEvidence
+			if h != nil {
+				stored = h.Deep
+			}
+			var gather func() chstore.DeepEvidence
+			if prob != nil {
+				gather = func() chstore.DeepEvidence {
+					gctx, cancel := context.WithTimeout(ctx, rootCauseOnDemandBudget)
+					defer cancel()
+					from, to := rangeWindow(ctx, rootCauseEvidenceWindow)
+					var rt chstore.RuntimePodReader
+					if d.RuntimePods != nil {
+						rt = d.RuntimePods
+					}
+					return anomaly.GatherDeepEvidenceOnDemand(gctx, d.Store, rt, *prob, from, to)
+				}
+			}
+			playbook := buildRootCausePlaybook(families, stored, a.Investigate, gather)
 			if h == nil {
 				return map[string]any{
 					"problemId": a.ProblemID,
 					"computed":  false,
 					"note":      "No root-cause hypothesis synthesized yet — the correlator worker computes these shortly after a problem opens. Retry later, or investigate manually with list_problems / get_service_health.",
+					"playbook":  playbook,
 				}, nil
 			}
 			out := map[string]any{
@@ -850,6 +943,7 @@ func getProblemRootCauseTool(d Deps) mcp.Tool {
 				"candidates":   h.Candidates,
 				"recentDeploy": h.RecentDeploy,
 				"computedAt":   h.ComputedAt,
+				"playbook":     playbook,
 			}
 			// v0.9.1061 — temsilî trace MCP'ye de iner. v0.9.1057 kolonu
 			// ekledi ama bu handler struct'ı serialize etmiyor, map'i elle

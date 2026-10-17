@@ -158,6 +158,19 @@ func tracePodQueries(refs []TracePodRef, nsFilter string) (tracePodQuerySet, boo
 	}, truncated
 }
 
+// TracePodQueryText — v0.10.1275 (CoSRE adım 6): TracePodMetrics'in ÇALIŞAN
+// iki range ifadesi (R1 CPU, R2 bellek), satır başına bir — kanıt çipi için
+// (pivot_from_trace pod halkası). Cluster matcher'ı doQuery enjekte eder; bu
+// metin onu taşımaz (sorgu kaydı = seçici + aile). Seçici tavanı aşılırsa "".
+// SAF.
+func TracePodQueryText(refs []TracePodRef, nsFilter string) string {
+	qs, truncated := tracePodQueries(refs, nsFilter)
+	if truncated || len(refs) == 0 {
+		return ""
+	}
+	return qs.CPU + "\n" + qs.Mem
+}
+
 // tracePodWindow — v0.10.968 — SAF kova ızgarası. step = stepForWindowMDP
 // (±5/±15 dk → 15 s, ±60 dk → 60 s @ mdp 120); start = from adıma AŞAĞI
 // hizalı; son kova = to adıma aşağı hizalı; points = (son-start)/step + 1.
