@@ -53,16 +53,6 @@ func TestIsTopologyNodeName(t *testing.T) {
 	}
 }
 
-// v0.10.1255 — filo hata sayısı MV'den, sınırlı.
-func TestFleetErrorCountSQL(t *testing.T) {
-	q := fleetErrorCountSQL()
-	for _, want := range []string{"FROM service_summary_5m", "time_bucket >= ? AND time_bucket < ?", "LIMIT 1", "max_execution_time"} {
-		if !strings.Contains(q, want) {
-			t.Errorf("sorgu %q içermiyor", want)
-		}
-	}
-}
-
 // v0.10.1256 — hata sıralaması MV'den, sınırlı.
 func TestTopErrorSQL(t *testing.T) {
 	for _, q := range []string{topErrorServicesSQL(0), topErrorServicesSQL(2), topErrorOpsSQL()} {

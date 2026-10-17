@@ -85,8 +85,16 @@ describe('follow-up listesi', () => {
 // karşılama /api/cosre/greeting'ten okur, yalnız karşılama ekrandayken; tıkı Exceptions.
 describe('karşılama durum satırı', () => {
   it('cosreGreeting; P1 sorgusu yok; Exceptions linki', () => {
-    expect(src).toContain("queryFn: () => api.cosreGreeting(),");
+    expect(src).toContain("queryFn: () => api.cosreGreeting(env),");
     expect(src).not.toContain("prio: 'P1'");
-    expect(src).toContain('<Link to="/problems"');
+    expect(src).toContain('<Link to={greetHref(env)}');
+  });
+  // v0.10.1278 — operatör 2026-10-17: CoSRE karşılaması tüm hatalı span'leri
+  // sayıyordu ve global env'i yok sayıyordu. Env sorguya VE anahtara girer
+  // (anahtarsız env = başka ortamın önbelleği), tanımlar title'da.
+  it('global env sorguya ve queryKey\'e girer; tanım tooltip\'i', () => {
+    expect(src).toContain("queryKey: ['cosre-greeting', env],");
+    expect(src).toContain('title={greetTitle}');
+    expect(src).not.toContain('errors1h');
   });
 });

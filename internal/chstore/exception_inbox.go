@@ -838,6 +838,40 @@ func (s *Store) CountExceptionGroups(ctx context.Context, f ExceptionGroupFilter
 	return int64(n), nil
 }
 
+// recentExceptionGroupCountsSQL — SAF (v0.10.1278, operatör 2026-10-17: CoSRE
+// karşılamasındaki "812 exception grubu" resolved grupları da sayıyordu ve
+// oluşum gibi okunuyordu). Tek FINAL okuması, iki sayı:
+//   - açık  = state IN ('new','acknowledged','regressed') (buildExceptionGroupWhere
+//     "open" kovası — Exceptions sayfasıyla AYNI tanım; resolved/ignored dışarıda)
+//     VE son pencerede görülmüş (last_seen >= from);
+//   - yeni  = bunların içinden first_seen >= from (açığın alt kümesi; satır
+//     "37 açık (5 yeni)" diye okunur).
+//
+// wc buildExceptionGroupWhere(State:"open", ActiveFromNs:from, Services:…)
+// çıktısıdır; ilk bağ argümanı yeni-eşiği (first_seen) olarak SELECT'e girer.
+func recentExceptionGroupCountsSQL(where string) string {
+	return `SELECT count() AS open_groups,
+		       countIf(first_seen >= fromUnixTimestamp64Nano(?)) AS new_groups
+		FROM exception_groups FINAL ` + where + `
+		LIMIT 1
+		SETTINGS max_execution_time = 10`
+}
+
+// RecentExceptionGroupCounts — son pencerede görülen AÇIK grup sayısı ve
+// bunlardan pencerede DOĞANLAR. services nil = kısıt yok; boş olmayan küme
+// `service IN (…)` (ortam üyeleri — Exceptions sayfasının env kuralı).
+func (s *Store) RecentExceptionGroupCounts(ctx context.Context, from time.Time, services []string) (open, fresh uint64, err error) {
+	wc := recentExceptionGroupWhere(from, services)
+	args := append([]any{from.UnixNano()}, wc.args...)
+	err = s.conn.QueryRow(ctx, recentExceptionGroupCountsSQL(wc.sql()), args...).Scan(&open, &fresh)
+	return open, fresh, err
+}
+
+// recentExceptionGroupWhere — SAF: karşılamanın grup süzgeci (testler pinler).
+func recentExceptionGroupWhere(from time.Time, services []string) whereClause {
+	return buildExceptionGroupWhere(ExceptionGroupFilter{State: "open", ActiveFromNs: from.UnixNano(), Services: services})
+}
+
 // SetExceptionGroupState handles all explicit user-driven transitions.
 // `resolved` stamps resolved_at; transitioning out of resolved clears it.
 // exResolveGrace is how long a resolve holds before a still-firing fingerprint

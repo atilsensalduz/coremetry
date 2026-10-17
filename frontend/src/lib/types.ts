@@ -9357,6 +9357,23 @@ export type PageId =
   | 'login' | 'public-trace' | 'public-status' | 'design' | 'cosre' | 'unknown';
 /** Kodek bağımsız filtre: op FilterOp ya da EXISTS / NOT EXISTS. */
 export interface PageFilter { k: string; op: string; v: string[] }
+
+/**
+ * GET /api/cosre/greeting — v0.10.1278 (operatör 2026-10-17: eski sayı tüm
+ * hatalı span'lerdi). failedRequests1h = hatalı GİRİŞ isteği (server+consumer);
+ * openExceptionGroups1h = açık (new/ack/regressed) ve son 1 saatte görülen
+ * grup; newExceptionGroups1h = bunlardan son 1 saatte doğan. env "" = tüm
+ * ortamlar; envApplied / exceptionsEnvApplied ortamın gerçekten uygulanıp
+ * uygulanmadığı (internal/api/cosre_greeting.go).
+ */
+export interface CosreGreeting {
+  failedRequests1h: number;
+  openExceptionGroups1h: number;
+  newExceptionGroups1h: number;
+  env: string;
+  envApplied: boolean;
+  exceptionsEnvApplied: boolean;
+}
 export interface PageContext {
   page: PageId;
   path: string;

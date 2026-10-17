@@ -3071,7 +3071,9 @@ export const api = {
   // uzantıları da geçer. CH yolunda internal/promql'in PromQL alt kümesi
   // hâlâ ön-parse ediyor ve sözdizimi hatası temiz bir 400 dönüyor.
   // v0.10.1255 — CoSRE karşılaması: son 1 saat filo hata + exception grubu sayısı.
-  cosreGreeting: () => get<{ errors1h: number; exceptionGroups1h: number }>('/api/cosre/greeting'),
+  // v0.10.1278 — hatalı GİRİŞ isteği + açık/yeni grup; global env (''=tümü).
+  cosreGreeting: (env = '') =>
+    get<import('./types').CosreGreeting>(`/api/cosre/greeting${env ? `?env=${encodeURIComponent(env)}` : ''}`),
   // v0.10.1244 — servis HTTP Metrics sekmesi: kaynak VictoriaMetrics'e SABİT
   // (operatör: pano VM'den okunsun); sayfanın deneme kaynağı seçimi uygulanmaz.
   httpMetricsPromql: (params: { query: string; from: number; to: number; maxDataPoints: number; instant?: '1' }) =>

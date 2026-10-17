@@ -46,7 +46,7 @@ import { AI_DRAWER_WIDTH } from './ai/answerCard'; // v0.10.461
 import { AIDrawerBody } from './ai/AIDrawerBody'; // v0.10.483 — ✨ Explain gövdesi aynı çekmecede
 import { useAiSubject } from './ai/useAiSubject';
 import { aiSubjectSubtitle, aiSubjectTitle, formatAiParam, parseAiParam } from '@/lib/aiSubject';
-import { greetHello, greetErrors } from './ai/greeting';
+import { greetHello, greetErrors, greetHref, greetTooltip } from './ai/greeting';
 import type { AiConversation, AiConversationSummary } from '@/lib/types';
 import { traceContextFromPage, useTraceAiContext } from '@/lib/traceAiContext'; // v0.10.944
 import { TraceContextStrip } from './ai/TraceContextStrip'; // v0.10.944
@@ -473,14 +473,18 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
   // pencerede ya da sohbet ortasında tek istek bile gitmez.
   // v0.10.1255 (operatör: "P1 yerine son 1 saatteki exception / hata sayısı")
   // — filo hata (MV) + aktif exception grubu; yalnız karşılama ekrandayken.
+  // v0.10.1278 (operatör 2026-10-17: sayı tüm hatalı span'lerdi) — hatalı
+  // GİRİŞ isteği + açık/yeni exception grubu; global env (Topbar'la aynı
+  // useUrlEnv kaynağı) sorguya VE anahtara girer.
   const greetQ = useQuery({
-    queryKey: ['cosre-greeting'],
-    queryFn: () => api.cosreGreeting(),
+    queryKey: ['cosre-greeting', env],
+    queryFn: () => api.cosreGreeting(env),
     enabled: enabled === true && open && turns.length === 0,
     staleTime: 60_000,
   });
   const greetLine = greetErrors(greetQ.data ?? undefined);
-  const greetAlert = !!greetQ.data && (greetQ.data.errors1h > 0 || greetQ.data.exceptionGroups1h > 0);
+  const greetTitle = greetTooltip(greetQ.data ?? undefined);
+  const greetAlert = !!greetQ.data && (greetQ.data.failedRequests1h > 0 || greetQ.data.openExceptionGroups1h > 0);
 
 
   // v0.10.650 — yalnız dipteyken yapış (stickToBottom.ts); soru gönderimi pin'ler.
@@ -773,9 +777,9 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
                   {greetHello(user?.firstName)}
                 </div>
                 {greetLine && (
-                  <div className={`cm-greet__status${greetAlert ? ' is-alert' : ''}`}>
+                  <div className={`cm-greet__status${greetAlert ? ' is-alert' : ''}`} title={greetTitle}>
                     {greetAlert
-                      ? <Link to="/problems" style={{ color: 'inherit' }} title="Exceptions sayfasını aç">{greetLine}</Link>
+                      ? <Link to={greetHref(env)} style={{ color: 'inherit' }}>{greetLine}</Link>
                       : greetLine}
                   </div>
                 )}
