@@ -4,9 +4,12 @@ package mcptools
 // SAF sınıflandırma + puanlama yarısı (I/O yok; tablo testli).
 //
 // Eşik kaynakları (yeni eşik UYDURULMAZ, ASSUMPTION olanı işaretli):
-//   - operasyon / fonksiyon: internal/healthverdict.Row — servis HÜKMÜ ile aynı
-//     hata (+1/+5 puan, mutlak %5) ve p99 (+%25, 2× ve ≥200 ms) eşikleri; hacim
-//     tabanı > 100 span.
+//   - operasyon / fonksiyon: internal/healthverdict.RowSplit — servis HÜKMÜ ile
+//     aynı hata (+1/+5 puan, mutlak %5) eşikleri; gecikme LatencyLevel
+//     (v0.10.1299: iki pencerede ≥300 span, cari p99 ≥100 ms, uyarı +%25 VE
+//     ≥+50 ms VE kova oynaklığı dışında, kritik 2× ve ≥200 ms); operasyon
+//     gecikme adayı ham span doğrulamasıyla bulgu olur (service_sweep_latency.go);
+//     hacim tabanı > 100 span.
 //   - JVM heap / GC: GetRuntimeAlerts (classifyJVM, pivot_trace.go ile ortak).
 //   - pod CPU / bellek % limit: 85 uyarı / 90 kritik (evaluator/db_capacity.go
 //     emsali; pivot_trace.go ile aynı sabitler).
@@ -72,23 +75,64 @@ type sweepCand struct {
 	Reasons   []string
 	Impact    float64
 	Hop       string // kanıt halkası (ops | functions | pods | jvm)
+	// v0.10.1299 — operasyon/fonksiyon satırının kollu hükmü (gecikme kolu
+	// ham span'le doğrulanır; doğrulanmazsa YALNIZ o kol düşer). nil = pod/JVM.
+	row *healthverdict.RowVerdict
+	// latThrMs — doğrulama eşiği (max(baseline p99 × (1+LatWarnRel), LatMinP99Ms));
+	// latTotal — etki payının paydası (yeniden puanlamada).
+	latThrMs    float64
+	latTotal    uint64
+	latSpans    uint64
+	basePriorMs float64
 }
 
 // classifyOpRow — SAF: operasyon satırı → aday. share = satırın servis
 // çağrılarındaki payı (0..1); etki = pay × (hata artışı puanı + 5 × (p99 katı − 1)).
+// v0.10.1299: cur/prior p99 PENCERE düzeyi birleşik tDigest (operation_summary_5m
+// quantilesTDigestMerge); oynaklık kolu önceki pencerenin 5 dk kova p99'ları
+// (PriorP99Sparkline) — healthverdict.LatencyLevel.
 func classifyOpRow(op chstore.OperationSummary, totalSpans uint64) sweepCand {
 	cur := healthverdict.RED{Spans: op.SpanCount, ErrorRate: op.ErrorRate, P99Ms: op.P99Ms}
 	base := healthverdict.RED{Spans: op.PriorSpanCount, ErrorRate: op.PriorErrorRate, P99Ms: op.PriorP99Ms}
-	level, reasons, errD, mult := healthverdict.Row(cur, base, op.HasPrior)
-	return sweepCand{Kind: sweepKindOperation, Name: op.Name, Level: level, Reasons: reasons,
-		Impact: sweepREDImpact(op.SpanCount, totalSpans, errD, mult), Hop: sweepHopOps}
+	v := healthverdict.RowSplit(cur, base, op.HasPrior, op.PriorP99Sparkline)
+	return sweepCandFromRow(sweepKindOperation, op.Name, sweepHopOps, v, op.SpanCount, totalSpans, op.PriorP99Ms)
 }
 
-// classifyFnRow — SAF: fonksiyon (FUNCTION_CODE) satırı → aday.
-func classifyFnRow(code string, cur, base healthverdict.RED, hasBase bool, totalCalls uint64) sweepCand {
-	level, reasons, errD, mult := healthverdict.Row(cur, base, hasBase)
-	return sweepCand{Kind: sweepKindFunction, Name: code, Level: level, Reasons: reasons,
-		Impact: sweepREDImpact(cur.Spans, totalCalls, errD, mult), Hop: sweepHopFunctions}
+// classifyFnRow — SAF: fonksiyon (FUNCTION_CODE) satırı → aday. Geniş rollup'ın
+// p99'u 20'lik sabit histogram KESTİRİMİ (±%15-30, /clickhouse-schema §6):
+// gecikme kolu ASLA kritik değildir (kritik → uyarı) ve gerekçe "kova
+// kestirimi" der. priorBuckets = önceki pencerenin kova p99'ları.
+func classifyFnRow(code string, cur, base healthverdict.RED, hasBase bool, totalCalls uint64, priorBuckets []float64) sweepCand {
+	v := healthverdict.RowSplit(cur, base, hasBase, priorBuckets)
+	if v.LatLevel != levelOK {
+		if v.LatLevel == levelCrit {
+			v.LatLevel = levelWarn
+		}
+		v.LatReason += " (kova kestirimi, yaklaşık)"
+		v.Compose()
+	}
+	return sweepCandFromRow(sweepKindFunction, code, sweepHopFunctions, v, cur.Spans, totalCalls, base.P99Ms)
+}
+
+// sweepCandFromRow — SAF: kollu hüküm → aday (etki = pay × (hata artışı + 5 ×
+// (p99 katı − 1))).
+func sweepCandFromRow(kind, name, hop string, v healthverdict.RowVerdict, spans, total uint64, baseP99 float64) sweepCand {
+	c := sweepCand{Kind: kind, Name: name, Hop: hop, row: &v, latTotal: total, latSpans: spans, basePriorMs: baseP99}
+	c.applyRow()
+	if v.LatLevel != levelOK {
+		c.latThrMs = healthverdict.CorroborationThresholdMs(baseP99)
+	}
+	return c
+}
+
+// applyRow — adayın seviye/gerekçe/etkisini kollu hükümden yeniden kurar.
+func (c *sweepCand) applyRow() {
+	if c.row == nil {
+		return
+	}
+	c.row.Compose()
+	c.Level, c.Reasons = c.row.Level, c.row.Reasons
+	c.Impact = sweepREDImpact(c.latSpans, c.latTotal, c.row.ErrDelta, c.row.P99Mult)
 }
 
 func sweepREDImpact(spans, total uint64, errDelta, p99Mult float64) float64 {

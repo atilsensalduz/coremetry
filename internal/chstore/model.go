@@ -208,6 +208,11 @@ type OperationSummary struct {
 	PriorP99Ms           float64  `json:"priorP99DurationMs,omitempty"`
 	PriorSparkline       []uint64 `json:"priorSparkline,omitempty"`
 	PriorErrorsSparkline []uint64 `json:"priorErrorsSparkline,omitempty"`
+	// PriorP99Sparkline — v0.10.1299: önceki pencerenin kova p99'ları
+	// (MV yolunda 5 dk kova). YALNIZ süreç içi tüketici (CoSRE taraması
+	// gürültü kolu, healthverdict.BucketNoise) — JSON'a çıkmaz: Operations
+	// tablosu yanıtı 500 satır × 120 nokta büyümesin.
+	PriorP99Sparkline []float64 `json:"-"`
 }
 
 type ServiceSummary struct {

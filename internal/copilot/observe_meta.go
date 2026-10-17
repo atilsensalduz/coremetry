@@ -57,6 +57,7 @@ var promptVersionRegistry = map[string]string{
 	"systemServiceAnalysis":      systemServiceAnalysis,
 	"DataNotInstruction":         DataNotInstruction,
 	"systemGuidedChat":           systemGuidedChat,
+	"latencyEvidenceRule":        latencyEvidenceRule, // v0.10.1299 — guided / serbest döngü / AI SRE ortak kuralı
 	"systemDrawerChat":           systemDrawerChat,
 	"systemCaseCompare":          systemCaseCompare,
 	"systemGroundingJudge":       systemGroundingJudge,

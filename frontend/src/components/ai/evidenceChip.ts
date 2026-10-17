@@ -48,6 +48,7 @@ export function ctxAppliedLabel(ca?: ChatCtxApplied): string {
 
 const HOP_LABEL: Record<string, string> = {
   trace: 'Trace', pods: 'Pod', jvm: 'JVM', logs: 'Log', op_baseline: 'Operasyon',
+  corroborate: 'Ham span doğrulaması', // v0.10.1299 — service_health_sweep gecikme adayı
 };
 
 /**
@@ -129,10 +130,15 @@ export function evidenceChartGroups(p: ChatEvidenceChartPayload): { unit: string
   for (const s of p.series ?? []) {
     if (!Array.isArray(s.points) || s.points.length === 0) continue;
     const name = s.group ? `${s.name} · ${s.group}` : s.name;
+    // v0.10.1299 — style: 'dashed' → kesikli referans çizgisi (önceki pencere
+    // p99'u), 'secondary' → soluk ikincil çizgi (p50 birincil, p99 ikincil).
+    const role: CorePanelMultiItem['role'] = s.name === 'error_rate' || s.name === 'errors'
+      ? 'error' : s.style === 'secondary' ? 'muted' : 'data';
     const item: CorePanelMultiItem = {
       name,
-      role: s.name === 'error_rate' || s.name === 'errors' ? 'error' : 'data',
+      role,
       series: [{ groupKey: [name], points: s.points.map(([t, v]) => ({ time: t * 1e6, value: v })) }],
+      ...(s.style === 'dashed' ? { dashed: true } : {}),
     };
     const u = s.unit ?? '';
     byUnit.set(u, [...(byUnit.get(u) ?? []), item]);

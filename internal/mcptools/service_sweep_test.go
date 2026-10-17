@@ -52,8 +52,8 @@ func baseSweepReaders() sweepReaders {
 		problems: func(context.Context, chstore.ProblemFilter) ([]chstore.Problem, error) { return nil, nil },
 		ops: func(context.Context, string, time.Time, time.Time) ([]chstore.OperationSummary, error) {
 			return []chstore.OperationSummary{
-				{Name: "GET /ok", SpanCount: 5000, ErrorRate: 0.1, P99Ms: 100, HasPrior: true, PriorErrorRate: 0.1, PriorP99Ms: 100},
-				{Name: "POST /pay", SpanCount: 3000, ErrorRate: 9, P99Ms: 900, HasPrior: true, PriorErrorRate: 0.5, PriorP99Ms: 200,
+				{Name: "GET /ok", SpanCount: 5000, ErrorRate: 0.1, P99Ms: 100, HasPrior: true, PriorSpanCount: 5000, PriorErrorRate: 0.1, PriorP99Ms: 100},
+				{Name: "POST /pay", SpanCount: 3000, ErrorRate: 9, P99Ms: 900, HasPrior: true, PriorSpanCount: 3000, PriorErrorRate: 0.5, PriorP99Ms: 200,
 					P99Sparkline: []float64{200, 900}, ErrorsSparkline: []uint64{1, 50}},
 				{Name: "GET /rare", SpanCount: 50, ErrorRate: 60, P99Ms: 9000, HasPrior: true, PriorErrorRate: 0, PriorP99Ms: 10},
 			}, nil

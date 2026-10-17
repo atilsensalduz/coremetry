@@ -103,6 +103,10 @@ type PodFacts struct {
 	// Desenler — yalnız derin taramada (P1 / doğrulama); "" = okunmadı.
 	PatternsState string   `json:"patternsState,omitempty"`
 	NewPatterns   []string `json:"newPatterns,omitempty"` // ≤3
+	// v0.10.1299 — taramanın operasyon gecikme adayları ve ham span ile
+	// DOĞRULANANLAR (chkP99Up: doğrulanan yoksa p99 artışı "olası" → 0).
+	LatencyCandidates   int `json:"latencyCandidates,omitempty"`
+	LatencyCorroborated int `json:"latencyCorroborated,omitempty"`
 }
 
 // EdgeFact — aşağı akış kenarı (servis, db:, ext:, q: düğümleri).
@@ -118,6 +122,10 @@ type SubjectChange struct {
 	RateDeltaPct float64 `json:"rateDeltaPct"`
 	P99DeltaPct  float64 `json:"p99DeltaPct"`
 	ErrDeltaPct  float64 `json:"errDeltaPct"`
+	// v0.10.1299 — mutlak p99'lar (chkP99Up'ın healthverdict tabanları için;
+	// eski kayıtta 0 → tabanlar sağlanmamış sayılır, kontrol 0 döner).
+	CurP99Ms  float64 `json:"curP99Ms,omitempty"`
+	BaseP99Ms float64 `json:"baseP99Ms,omitempty"`
 }
 
 // DepsFacts — bağımlılık adımı.
@@ -249,6 +257,8 @@ func podFactsOf(res mcptools.SweepResult) *PodFacts {
 	out := &PodFacts{PodsState: sectionState(res, "pods"), JVMState: sectionState(res, "jvm"), PatternsState: sectionState(res, "patterns")}
 	out.Pods = res.Scanned.Pods
 	out.JVMPods = res.Scanned.JVMPods
+	out.LatencyCandidates = res.Scanned.LatencyCandidates
+	out.LatencyCorroborated = res.Scanned.LatencyCorroborated
 	best := -1.0
 	for _, p := range res.Data.Pods {
 		before := best
@@ -298,7 +308,8 @@ func depsFactsOf(req depsRequest, res depsResult) *DepsFacts {
 	if res.chgErr == nil {
 		for _, c := range chstore.MarkCorrelationCauses(res.changes, req.Service, res.edges, res.edgeErr == nil) {
 			if c.Service == req.Service {
-				out.Subject = &SubjectChange{RateDeltaPct: round2(c.RateDeltaPct), P99DeltaPct: round2(c.P99DeltaPct), ErrDeltaPct: round2(c.ErrDeltaPct)}
+				out.Subject = &SubjectChange{RateDeltaPct: round2(c.RateDeltaPct), P99DeltaPct: round2(c.P99DeltaPct), ErrDeltaPct: round2(c.ErrDeltaPct),
+					CurP99Ms: round2(c.CurrentP99Ms), BaseP99Ms: round2(c.BaselineP99Ms)}
 				continue
 			}
 			if c.CauseEligible && len(out.Causes) < depsCausesMax {

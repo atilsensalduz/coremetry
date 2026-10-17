@@ -107,9 +107,9 @@ const (
 // op_baseline eşikleri — servis hükmüyle AYNI kaynak (v0.10.1276:
 // internal/healthverdict; önceden api hvP99* aynasıydı). Trace'in op süresi / op p99.
 const (
-	pivotOpWarnMult = 1 + healthverdict.P99WarnRel
-	pivotOpCritMult = healthverdict.P99CritMult
-	pivotOpCritMin  = healthverdict.P99CritMin
+	pivotOpWarnMult = 1 + healthverdict.LatWarnRel
+	pivotOpCritMult = healthverdict.LatCritMult
+	pivotOpCritMin  = healthverdict.LatCritMinMs
 )
 
 // Pod doygunluk eşikleri (% limit) — evaluator/db_capacity.go 85/90 emsali.
@@ -1656,11 +1656,18 @@ func pivotRunOp(ctx context.Context, r pivotReaders, pc pivotCtx) hopOutcome {
 }
 
 // pivotOpLevel — SAF: trace'teki op süresi / op p99 → seviye + kat.
+// v0.10.1299 — oran anlamı korunur, ama mutlak tabanlar (healthverdict.
+// LatencyFloorsMet: süre ≥ 100 ms VE süre − p99 ≥ 50 ms) geçilmeden seviye
+// yükselmez: 3 ms'lik bir DB çağrısının 2 ms p99'a göre "1.5×" olması bulgu
+// değildir (operatör 2026-10-17).
 func pivotOpLevel(spanMs, p99 float64) (string, float64) {
 	if p99 <= 0 {
 		return levelOK, 0
 	}
 	mult := math.Round(10*spanMs/p99) / 10
+	if !healthverdict.LatencyFloorsMet(spanMs, p99) {
+		return levelOK, mult
+	}
 	switch {
 	case spanMs/p99 >= pivotOpCritMult && spanMs >= pivotOpCritMin:
 		return levelCrit, mult

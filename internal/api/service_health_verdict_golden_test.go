@@ -2,6 +2,13 @@ package api
 
 // v0.10.1276 — CoSRE adım 7: servis sağlık taraması (pod / operasyon / fonksiyon + sorunluların logları)
 //
+// v0.10.1299 — operatör 2026-10-17: 5 dk p99 gürültüsü yanlış bulgu üretiyordu.
+// BİLİNÇLİ golden değişikliği: gecikme kolu healthverdict.LatencyLevel
+// kapılarından geçer (iki pencerede ≥ 300 span, cari p99 ≥ 100 ms, uyarı için
+// fark ≥ 50 ms). Eski satırların hepsi aynı kaldı (900/1000 span, fark ≥ 60 ms);
+// son üç satır yeni: 2 → 3 ms (+%50), 250 span'lik pencere ve +30 ms'lik fark
+// eskiden "Dikkat"ti, şimdi "Sağlıklı" + neden puanlanmadığı.
+//
 // Servis sağlık hükmü internal/healthverdict'e
 // taşındı (service_health_sweep aynı eşikleri okur). Bu golden, taşımadan
 // ÖNCEKİ uygulamanın çıktısıdır: serviceHealthVerdict + render bayt-bayt aynı
@@ -33,6 +40,10 @@ func TestServiceHealthVerdictUnchanged(t *testing.T) {
 		{aiRED{}, aiRED{}, nil, 0, 0, "HÜKÜM (deterministik eşik, model değil): Veri yok — bu pencerede span verisi okunamadı.\nÖNERİLEN ADIM: Zaman aralığını genişletin ya da servis adını kontrol edin.\n"},
 		{aiRED{Spans: 5}, aiRED{}, errors.New("timeout"), 0, 0, "HÜKÜM (deterministik eşik, model değil): Veri yok — bu pencerede span verisi okunamadı.\nÖNERİLEN ADIM: Zaman aralığını genişletin ya da servis adını kontrol edin.\n"},
 		{aiRED{Spans: 900, ErrorRate: 3, P99Ms: 450}, aiRED{Spans: 1000, ErrorRate: 1, P99Ms: 200}, nil, 0, 2, "HÜKÜM (deterministik eşik, model değil): Sorunlu — hata oranı %3.00, baseline'dan +2.0 puan; p99 450 ms (baseline 200 ms, 2.2×).\nÖNERİLEN ADIM: Önce \"Hatalı trace'ler\" bağlantısından en yeni hatalı trace'i açın, ardından o trace'in loglarına bakın.\n"},
+		// v0.10.1299 — yeni satırlar (eskiden üçü de "Dikkat").
+		{aiRED{Spans: 900, ErrorRate: 0.5, P99Ms: 3}, aiRED{Spans: 1000, ErrorRate: 0.5, P99Ms: 2}, nil, 0, 0, "HÜKÜM (deterministik eşik, model değil): Sağlıklı — hata oranı %0.50 — baseline içinde; p99 3 ms (+%50) — 100 ms altı, gecikme puanlanmaz.\nÖNERİLEN ADIM: Şu an aksiyon gerekmiyor.\n"},
+		{aiRED{Spans: 250, ErrorRate: 0.5, P99Ms: 600}, aiRED{Spans: 250, ErrorRate: 0.5, P99Ms: 200}, nil, 0, 0, "HÜKÜM (deterministik eşik, model değil): Sağlıklı — hata oranı %0.50 — baseline içinde; p99 600 ms (+%200) — p99 kıyası yok (hacim < 300 span).\nÖNERİLEN ADIM: Şu an aksiyon gerekmiyor.\n"},
+		{aiRED{Spans: 900, ErrorRate: 0.5, P99Ms: 130}, aiRED{Spans: 1000, ErrorRate: 0.5, P99Ms: 100}, nil, 0, 0, "HÜKÜM (deterministik eşik, model değil): Sağlıklı — hata oranı %0.50 — baseline içinde; p99 130 ms (+%30) — fark 30 ms < 50 ms, puanlanmadı.\nÖNERİLEN ADIM: Şu an aksiyon gerekmiyor.\n"},
 	}
 	for i, c := range cases {
 		l, r, n := serviceHealthVerdict(c.cur, c.base, c.err, c.probs, c.tr)

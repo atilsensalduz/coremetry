@@ -1381,6 +1381,7 @@ func (s *Store) GetOperationSummaryCompared(ctx context.Context, service string,
 		cur[i].PriorP99Ms = p.P99Ms
 		cur[i].PriorSparkline = p.Sparkline
 		cur[i].PriorErrorsSparkline = p.ErrorsSparkline
+		cur[i].PriorP99Sparkline = p.P99Sparkline // v0.10.1299 — gürültü kolu (json:"-")
 	}
 	return cur, nil
 }

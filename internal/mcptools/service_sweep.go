@@ -104,6 +104,7 @@ const (
 	sweepHopLogs      = "logs"
 	sweepHopCode      = "code"
 	sweepHopPatterns  = "patterns"
+	sweepHopCorrob    = "corroborate" // v0.10.1299 — gecikme adaylarının ham span doğrulaması
 )
 
 // Fonksiyon verisinin kaynağı.
@@ -217,6 +218,10 @@ type SweepScanned struct {
 	FunctionsSource string `json:"functionsSource"` // rollup | spans | none
 	JVMPods         int    `json:"jvmPods"`
 	Clusters        int    `json:"clusters"`
+	// v0.10.1299 — operasyon gecikme adayları ve ham span ile doğrulananlar
+	// (AI SRE chkP99Up bunu okur: aday var ama doğrulanan yok → bilinmez).
+	LatencyCandidates   int `json:"latencyCandidates,omitempty"`
+	LatencyCorroborated int `json:"latencyCorroborated,omitempty"`
 }
 
 // SweepLogs — bulgunun logları (evre 2).
@@ -273,6 +278,9 @@ type sweepOpRow struct {
 	PriorP99Ms     float64 `json:"priorP99Ms,omitempty"`
 	Level          string  `json:"level"`
 	Reason         string  `json:"reason,omitempty"`
+	// Corroboration — v0.10.1299: gecikme adayının ham span doğrulaması
+	// (confirmed | rejected | unverified); "" = gecikme adayı değildi.
+	Corroboration string `json:"corroboration,omitempty"`
 }
 
 type sweepFnRow struct {
@@ -362,6 +370,11 @@ type sweepReaders struct {
 	// deploys — v0.10.1287: deploy kontrolünün okuyucusu (list_deployments ile
 	// AYNI gövde, ListDeploymentsWindow). nil = bölüm skipped.
 	deploys func(ctx context.Context, service string, from, to time.Time) ([]ChangeRow, string, error)
+	// v0.10.1299 — gecikme adayının ham span doğrulaması + operasyon grafiğinin
+	// ince (spanmetrics_1m) serisi. nil = doğrulama yok (aday "olası" kalır) /
+	// 5 dk sparkline.
+	slowSpans func(ctx context.Context, service, op string, thrMs float64, curFrom, curTo, priorFrom time.Time) (chstore.SlowSpanCorroboration, error)
+	opLatency func(ctx context.Context, service, op string, from, to time.Time, stepSec int) ([]chstore.OpLatencyPoint, error)
 }
 
 func sweepReadersFrom(d Deps) sweepReaders {
@@ -397,7 +410,9 @@ func sweepReadersFrom(d Deps) sweepReaders {
 			if err != nil {
 				return nil, err
 			}
-			rows, _, err := st.QueryRollupRED(ctx, plan, chstore.RollupSeriesFilter{Service: service, GroupBy: "function_code", MaxGroups: sweepFnGroups}, from, to)
+			// v0.10.1299 — WindowTotals: kod başına PENCERE birleşik histogram
+			// (kova p99 ortalaması değil) + kova serisi (grafik + oynaklık).
+			rows, _, err := st.QueryRollupRED(ctx, plan, chstore.RollupSeriesFilter{Service: service, GroupBy: "function_code", MaxGroups: sweepFnGroups, WindowTotals: true}, from, to)
 			return rows, err
 		}
 		r.fnSpans = func(ctx context.Context, service string, from, to time.Time) ([]chstore.BusinessSlice, error) {
@@ -420,6 +435,8 @@ func sweepReadersFrom(d Deps) sweepReaders {
 		r.deploys = func(ctx context.Context, service string, from, to time.Time) ([]ChangeRow, string, error) {
 			return deployCheckRows(ctx, d, service, from, to)
 		}
+		r.slowSpans = st.SlowSpanCorroborate
+		r.opLatency = st.OperationLatencySeries
 	}
 	return r
 }
@@ -459,6 +476,11 @@ type sweepOutcome struct {
 	k8sNotes   []string
 	k8sWaitOK  bool
 	k8sWaitAsk bool
+	// v0.10.1299 — ops bölümü: doğrulanan gecikme adaylarının ham sayımları
+	// (grafiğin yavaş-istek serisi) + sayaçlar.
+	corrob          map[string]chstore.SlowSpanCorroboration
+	corrobCands     int
+	corrobConfirmed int
 }
 
 // ReadServiceSweep — taramanın tamamı. Hata yalnız çağıran iptal ettiğinde
@@ -595,6 +617,12 @@ wait:
 		byName[outs[i].section.Name] = &outs[i]
 	}
 
+	// ── gecikme adaylarının ham span doğrulaması (v0.10.1299) ─────────
+	corrobOut := sweepCorroborate(ctx, r, req, byName[sweepHopOps], deadline)
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return SweepResult{}, ctx.Err()
+	}
+
 	// ── puanla ─────────────────────────────────────────────────────────
 	var cands []sweepCand
 	for _, o := range outs {
@@ -604,13 +632,18 @@ wait:
 	res.FindingsHasMore = more
 
 	// ── evre 2: sorunluların logları (+ derin kip) ─────────────────────
+	waitCharts := sweepStartOpCharts(ctx, r, req, findings, deadline) // v0.10.1299 — evre 2 ile paralel
 	p2 := sweepPhase2(ctx, r, req, findings, byName[sweepHopOps], deadline)
+	opCharts := waitCharts()
 	if errors.Is(ctx.Err(), context.Canceled) {
 		return SweepResult{}, ctx.Err()
 	}
 
 	// ── birleştir ──────────────────────────────────────────────────────
 	all := append(append([]sweepOutcome(nil), outs...), p2.outcomes...)
+	if corrobOut != nil {
+		all = append(all, *corrobOut)
+	}
 	hopRef := map[string]string{}
 	anyData := false
 	for i := range all {
@@ -648,6 +681,11 @@ wait:
 			f.EvidenceRefs = append(f.EvidenceRefs, ref)
 		}
 		if l, ok := p2.logs[i]; ok {
+			// v0.10.1299 — bulgunun (modele / anlatıma giden) satırları gövde
+			// ÖNİZLEMESİ; ham satırlar yalnız açılır log tablosunda (p2.logRowsByFinding).
+			lc := *l
+			lc.Rows = sweepPreviewRows(l.Rows)
+			l = &lc
 			f.Logs = l
 			if ref, ok := hopRef[sweepHopLogs]; ok && l.State == hopOK {
 				f.EvidenceRefs = append(f.EvidenceRefs, ref)
@@ -690,6 +728,8 @@ wait:
 		sc.Functions += o.scannedFns
 		sc.JVMPods += o.scannedJVM
 		sc.Clusters += o.clusters
+		sc.LatencyCandidates += o.corrobCands
+		sc.LatencyCorroborated += o.corrobConfirmed
 		if o.fnSource != "" {
 			sc.FunctionsSource = o.fnSource
 		}
@@ -709,7 +749,7 @@ wait:
 	}
 	res.Data.CodeFunctions = p2.code
 	res.Data.Patterns = p2.patterns
-	res.Data.Blocks = sweepBlocks(req, res, byName[sweepHopOps], byName[sweepHopFunctions], p2.logRowsByFinding)
+	res.Data.Blocks = sweepBlocks(req, res, byName[sweepHopOps], byName[sweepHopFunctions], p2.logRowsByFinding, opCharts)
 	res.OK = true
 	if !anyData {
 		res.Empty = true
@@ -747,6 +787,8 @@ func sweepSectionLabelTR(n string) string {
 		return "kod fonksiyonları (örneklem)"
 	case sweepHopPatterns:
 		return "log desenleri"
+	case sweepHopCorrob:
+		return "gecikme doğrulaması (ham span)"
 	}
 	return n
 }
@@ -948,6 +990,7 @@ func sweepRunFunctions(ctx context.Context, r sweepReaders, req SweepRequest) sw
 			o.fnSource = sweepFnSourceRollup
 			o.fnSeries = map[string]chstore.RollupSeries{}
 			curAgg, priorAgg := sweepRollupAgg(cur), sweepRollupAgg(prior)
+			priorBuckets := sweepRollupBucketP99(prior)
 			for _, s := range cur {
 				o.fnSeries[s.Group] = s
 			}
@@ -956,9 +999,9 @@ func sweepRunFunctions(ctx context.Context, r sweepReaders, req SweepRequest) sw
 				total += a.Spans
 			}
 			ev := cosreEvidence{Source: evSourceCH, QueryKind: evKindSummary, DurationMs: elapsed(), Window: evWin(req.From, req.To),
-				Query: fmt.Sprintf("QueryRollupRED FROM rollup_spans_wide_* WHERE service_name = %s GROUP BY function_code (≤%d grup, kova p99 kestirimi; + önceki eş pencere) — env yok",
+				Query: fmt.Sprintf("QueryRollupRED FROM rollup_spans_wide_* WHERE service_name = %s GROUP BY GROUPING SETS ((tb, function_code), (function_code)) (≤%d grup; p99 = pencere birleşik histogram kestirimi; + önceki eş pencere) — env yok",
 					sqlQuote(req.Service), sweepFnGroups), Rows: intPtr(len(curAgg))}
-			o.sweepFnFinish(req, curAgg, priorAgg, perr == nil, total, notes)
+			o.sweepFnFinish(req, curAgg, priorAgg, priorBuckets, perr == nil, total, notes)
 			o.evidences = append(o.evidences, cosreHopEvidence{Hop: sweepHopFunctions, As: queryTracesName, Request: map[string]any{"service": req.Service}, cosreEvidence: ev})
 			return o
 		}
@@ -993,7 +1036,7 @@ func sweepRunFunctions(ctx context.Context, r sweepReaders, req SweepRequest) sw
 	ev.Rows = intPtr(len(rows))
 	evh.cosreEvidence = ev
 	notes = append(notes, "ham span kırılımı (ilk 8 kod, hataya göre); baseline ve p99 yok — yalnız mutlak hata eşiği (≥%5)")
-	o.sweepFnFinish(req, agg, nil, false, total, notes)
+	o.sweepFnFinish(req, agg, nil, nil, false, total, notes)
 	if len(rows) == 0 {
 		o.fnSource = sweepFnSourceNone
 	}
@@ -1002,13 +1045,13 @@ func sweepRunFunctions(ctx context.Context, r sweepReaders, req SweepRequest) sw
 }
 
 // sweepFnFinish — fonksiyon satırları + adaylar + bölüm özeti (iki kaynak ortak).
-func (o *sweepOutcome) sweepFnFinish(req SweepRequest, cur, prior map[string]healthverdict.RED, priorOK bool, total uint64, notes []string) {
+func (o *sweepOutcome) sweepFnFinish(req SweepRequest, cur, prior map[string]healthverdict.RED, priorBuckets map[string][]float64, priorOK bool, total uint64, notes []string) {
 	crit, warn := 0, 0
 	for _, code := range sortedKeys(cur) {
 		c := cur[code]
 		b, has := prior[code]
 		has = has && priorOK && b.Spans > 0
-		cand := classifyFnRow(code, c, b, has, total)
+		cand := classifyFnRow(code, c, b, has, total, priorBuckets[code])
 		switch cand.Level {
 		case levelCrit:
 			crit++
@@ -1044,8 +1087,10 @@ func (o *sweepOutcome) sweepFnFinish(req SweepRequest, cur, prior map[string]hea
 	o.section.Summary = fmt.Sprintf("%d fonksiyon kodu tarandı (%s): %d kritik, %d uyarı", len(cur), o.fnSource, crit, warn)
 }
 
-// sweepRollupAgg — SAF: rollup serileri → kod başına RED (çağrılar toplanır,
-// p99 çağrı-ağırlıklı kova ortalaması — yaklaşık, kanıtta söylenir).
+// sweepRollupAgg — SAF: rollup serileri → kod başına RED. v0.10.1299: p99
+// PENCERE düzeyi birleşik kestirim (RollupSeries.Total — 20'lik histogramın
+// tüm pencere toplamından); Total yoksa (eski okuyucu / test sahtesi) çağrı-
+// ağırlıklı kova ortalamasına düşer — bir p99 değildir, yalnız geri dönüş.
 func sweepRollupAgg(series []chstore.RollupSeries) map[string]healthverdict.RED {
 	out := map[string]healthverdict.RED{}
 	for _, s := range series {
@@ -1060,11 +1105,31 @@ func sweepRollupAgg(series []chstore.RollupSeries) map[string]healthverdict.RED 
 			p99w += p.P99Ms * float64(p.Calls)
 		}
 		r := healthverdict.RED{Spans: calls}
+		if s.Total != nil {
+			calls, errs = s.Total.Calls, s.Total.Errors
+			r.Spans = calls
+		}
 		if calls > 0 {
 			r.ErrorRate = round4(100 * float64(errs) / float64(calls))
 			r.P99Ms = round4(p99w / float64(calls))
+			if s.Total != nil {
+				r.P99Ms = round4(s.Total.P99Ms)
+			}
 		}
 		out[s.Group] = r
+	}
+	return out
+}
+
+// sweepRollupBucketP99 — SAF: kod başına kova p99 dizisi (oynaklık kolu).
+func sweepRollupBucketP99(series []chstore.RollupSeries) map[string][]float64 {
+	out := map[string][]float64{}
+	for _, s := range series {
+		for _, p := range s.Points {
+			if p.Calls > 0 {
+				out[s.Group] = append(out[s.Group], p.P99Ms)
+			}
+		}
 	}
 	return out
 }
@@ -1681,11 +1746,12 @@ func sweepFindingLogs(ctx context.Context, r sweepReaders, req SweepRequest, f S
 		return out, evh
 	}
 	out.State = hopOK
-	first := strings.Join(strings.Fields(out.Rows[0].Body), " ")
+	// v0.10.1299 — ham JSON gövde anlatıma basılmaz: kısa insan satırı.
+	first := LogBodyPreview(out.Rows[0].Body, sweepBodyRunes)
 	if traceID != "" {
-		out.Summary = fmt.Sprintf("hatalı trace %s: %d log (%d ERROR+); ilki: %s", traceID[:8], len(recs), errN, truncateRunes(first, 120))
+		out.Summary = fmt.Sprintf("hatalı trace %s: %d log (%d ERROR+); ilki: %s", traceID[:8], len(recs), errN, first)
 	} else {
-		out.Summary = fmt.Sprintf("%d ERROR+ log; ilki: %s", len(recs), truncateRunes(first, 120))
+		out.Summary = fmt.Sprintf("%d ERROR+ log; ilki: %s", len(recs), first)
 	}
 	return out, evh
 }
@@ -1695,7 +1761,7 @@ func sweepFindingLogs(ctx context.Context, r sweepReaders, req SweepRequest, f S
 // sweepBlocks — ≤6 blok: özet tablosu (Bulgu · Tür · Seviye · Gerekçe), sonra
 // bulgu sırasıyla operasyon/fonksiyon grafiği, pod tablosu, JVM tablosu, log
 // tablosu. Ek sorgu yok (sonucun kendi satırları).
-func sweepBlocks(req SweepRequest, res SweepResult, ops, fns *sweepOutcome, logRows map[int][]qlRow) []pivotBlock {
+func sweepBlocks(req SweepRequest, res SweepResult, ops, fns *sweepOutcome, logRows map[int][]qlRow, opCharts map[string][]chstore.OpLatencyPoint) []pivotBlock {
 	out := []pivotBlock{}
 	add := func(b pivotBlock) {
 		if len(out) < sweepMaxBlocks {
@@ -1721,12 +1787,26 @@ func sweepBlocks(req SweepRequest, res SweepResult, ops, fns *sweepOutcome, logR
 				continue
 			}
 			for _, op := range ops.ops {
-				if op.Name == f.Name {
-					if c, ok := sweepSparkChart(f.Name, op, req.From, req.To); ok {
-						add(pivotBlock{Hop: sweepHopOps, Type: blocks.TypeChart, Payload: c})
-					}
-					break
+				if op.Name != f.Name {
+					continue
 				}
+				// v0.10.1299 — ince (1 dk tabanlı) seri varsa o; yoksa 5 dk sparkline.
+				var corr *chstore.SlowSpanCorroboration
+				if cr, ok := ops.corrob[f.Name]; ok {
+					corr = &cr
+				}
+				c, ok := EvChartPayload{}, false
+				if pts := opCharts[f.Name]; len(pts) > 0 {
+					step, _ := sweepChartStep(req.To.Sub(req.From))
+					c, ok = sweepOpLatencyChart(f.Name, pts, step, op.PriorP99Ms, corr, win)
+				}
+				if !ok {
+					c, ok = sweepSparkChart(f.Name, op, req.From, req.To)
+				}
+				if ok {
+					add(pivotBlock{Hop: sweepHopOps, Type: blocks.TypeChart, Payload: c})
+				}
+				break
 			}
 		case sweepKindFunction:
 			if fns == nil || fns.fnSeries == nil {
@@ -1788,35 +1868,6 @@ func sweepBlocks(req SweepRequest, res SweepResult, ops, fns *sweepOutcome, logR
 	return out
 }
 
-// sweepSparkChart — operasyonun p99 + hata sparkline'ı (aynı SparklineBuckets
-// ızgarası, pencereye eşit aralıklı) → veri taşıyan grafik.
-func sweepSparkChart(name string, op chstore.OperationSummary, from, to time.Time) (EvChartPayload, bool) {
-	c := EvChartPayload{Title: name + " · p99 / hata", Window: EvBlockWindow{FromNs: from.UnixNano(), ToNs: to.UnixNano()}, Series: []EvChartSeries{}}
-	step := func(n int) float64 {
-		if n <= 0 {
-			return 0
-		}
-		return float64(to.Sub(from).Milliseconds()) / float64(n)
-	}
-	if n := len(op.P99Sparkline); n > 0 {
-		s := EvChartSeries{Name: "p99", Unit: "ms", Points: [][2]float64{}}
-		st := step(n)
-		for i, v := range op.P99Sparkline {
-			s.Points = append(s.Points, [2]float64{float64(from.UnixMilli()) + float64(i)*st, round4(v)})
-		}
-		c.Series = append(c.Series, sweepTrimSeries(s))
-	}
-	if n := len(op.ErrorsSparkline); n > 0 {
-		s := EvChartSeries{Name: "errors", Unit: "count", Points: [][2]float64{}}
-		st := step(n)
-		for i, v := range op.ErrorsSparkline {
-			s.Points = append(s.Points, [2]float64{float64(from.UnixMilli()) + float64(i)*st, float64(v)})
-		}
-		c.Series = append(c.Series, sweepTrimSeries(s))
-	}
-	return c, len(c.Series) > 0
-}
-
 // sweepRollupChart — fonksiyon kodunun rollup serisi (p99 kestirimi + hata).
 func sweepRollupChart(code string, s chstore.RollupSeries, win EvBlockWindow) (EvChartPayload, bool) {
 	c := EvChartPayload{Title: "FUNCTION_CODE " + code + " · p99 / hata", Window: win, Series: []EvChartSeries{}}
@@ -1870,8 +1921,10 @@ func serviceHealthSweepTool(d Deps) mcp.Tool {
 			"EVERY operation (operation summary pre-aggregate, current + prior; no env), every FUNCTION_CODE (wide rollup when available, " +
 			"else a bounded raw-span breakdown LIMIT 8, max_execution_time 5; no env), the service's pods across its mapped Thanos clusters " +
 			"(CPU/memory % of limit, phase, last termination, restart INCREASE in the window) and its pods' JVM heap/GC (last 10 min). " +
-			"Rows are judged with the SAME deterministic thresholds as the service verdict (errors +1/+5 pts or ≥5%, p99 +25% / 2× and ≥200 ms, " +
-			"volume floor >100 spans; pods 85/90% of limit, OOMKilled or not Running = crit, ≥1 restart warn, ≥3 crit; JVM per runtime alerts). " +
+			"Rows are judged with the SAME deterministic thresholds as the service verdict (errors +1/+5 pts or ≥5%; latency on window-merged p99 " +
+			"only when both windows have ≥300 spans and current p99 ≥100 ms: warn +25% AND ≥+50 ms AND outside the prior window's bucket " +
+			"dispersion, crit 2× and ≥200 ms; an operation latency candidate becomes a finding only when raw spans corroborate it — otherwise " +
+			"it is reported as not corroborated / 'olası'; volume floor >100 spans; pods 85/90% of limit, OOMKilled or not Running = crit, ≥1 restart warn, ≥3 crit; JVM per runtime alerts). " +
 			"The top findings (3, or 5 with deep=true; top_n ≤8) are ranked by level then impact, and THEIR logs are read: pod/JVM → that pod's " +
 			"ERROR+ logs; operation/function → the newest error trace's logs. deep=true also samples code.function/code.namespace on the error/slow " +
 			"spans of the top problem operations (≤5000 spans, labelled sampled) and new/spiking log patterns. Two extra checks always run: deploys " +

@@ -173,8 +173,9 @@ func TestHypothesisTable(t *testing.T) {
 		// traffic_surge
 		{HypTrafficSurge, "doğrular: hız +120%, p99 +60%, çağıran sıçradı", func() Evidence {
 			ev := baseEv(symptomLatency, stepDeps)
-			ev.Facts.Deps = &DepsFacts{TopologyOK: true, ChangesOK: true, Subject: &SubjectChange{RateDeltaPct: 120, P99DeltaPct: 60},
+			ev.Facts.Deps = &DepsFacts{TopologyOK: true, ChangesOK: true, Subject: &SubjectChange{RateDeltaPct: 120, P99DeltaPct: 60, CurP99Ms: 800, BaseP99Ms: 500},
 				Causes: []depsCause{{Service: "web", Relation: chstore.RelationUpstream, Direction: chstore.ChangeWorse}}}
+			ev.Facts.Pods = &PodFacts{PodsState: "ok", LatencyCandidates: 1, LatencyCorroborated: 1} // v0.10.1299 — ham span doğruladı
 			return ev
 		}(), 0.90, BandHigh, "1,1,1"},
 		{HypTrafficSurge, "çürütür: hız düz, p99 düşük", func() Evidence {
@@ -632,5 +633,35 @@ func TestFactsEncodeCap(t *testing.T) {
 	}
 	if len(inv.Timeline) != 400 {
 		t.Fatal("Encode çağıranın kaydına dokunmamalı")
+	}
+}
+
+// v0.10.1299 — operatör 2026-10-17: 5 dk p99 gürültüsü yanlış bulgu üretiyordu.
+// chkP99Up: göreli artış + mutlak tabanlar (≥ 100 ms, ≥ +50 ms) + ham span
+// doğrulaması; doğrulanmamış MV p99 farkı "olası" → 0.
+func TestChkP99UpFloorsAndCorroboration(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		sc   SubjectChange
+		pods *PodFacts
+		want int
+		in   string
+	}{
+		{"3 ms vs 2 ms (+%50) tabanın altında", SubjectChange{P99DeltaPct: 50, CurP99Ms: 3, BaseP99Ms: 2}, &PodFacts{LatencyCorroborated: 1}, 0, "pratik eşik altı"},
+		{"300 vs 200 ms doğrulandı", SubjectChange{P99DeltaPct: 50, CurP99Ms: 300, BaseP99Ms: 200}, &PodFacts{LatencyCandidates: 1, LatencyCorroborated: 1}, 1, "ham span doğruladı"},
+		{"300 vs 200 ms doğrulanmadı", SubjectChange{P99DeltaPct: 50, CurP99Ms: 300, BaseP99Ms: 200}, &PodFacts{LatencyCandidates: 2}, 0, "olası"},
+		{"300 vs 200 ms tarama yok", SubjectChange{P99DeltaPct: 50, CurP99Ms: 300, BaseP99Ms: 200}, nil, 0, "olası"},
+		{"eski kayıt: mutlak değer yok", SubjectChange{P99DeltaPct: 60}, &PodFacts{LatencyCorroborated: 1}, 0, "pratik eşik altı"},
+		{"düşüş çürütür", SubjectChange{P99DeltaPct: -10, CurP99Ms: 180, BaseP99Ms: 200}, nil, -1, "artmadı"},
+		{"+%10 eşik altı", SubjectChange{P99DeltaPct: 10, CurP99Ms: 220, BaseP99Ms: 200}, nil, 0, "eşik +%25"},
+	} {
+		ev := baseEv(symptomLatency, stepDeps)
+		sc := c.sc
+		ev.Facts.Deps = &DepsFacts{TopologyOK: true, ChangesOK: true, Subject: &sc}
+		ev.Facts.Pods = c.pods
+		got, why, _ := chkP99Up(ev)
+		if got != c.want || !strings.Contains(why, c.in) {
+			t.Errorf("%s: %d %q (beklenen %d, %q)", c.name, got, why, c.want, c.in)
+		}
 	}
 }

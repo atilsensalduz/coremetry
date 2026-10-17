@@ -25,6 +25,7 @@ package sre
 import (
 	"context"
 	"fmt"
+	"github.com/cilcenk/coremetry/internal/healthverdict"
 	"math"
 	"sort"
 	"strings"
@@ -863,14 +864,23 @@ func chkP99Up(ev Evidence) (int, string, string) {
 	if ev.Facts.Deps == nil || ev.Facts.Deps.Subject == nil {
 		return 0, "servisin p99 değişimi okunamadı", ref
 	}
-	p := ev.Facts.Deps.Subject.P99DeltaPct
+	sc := ev.Facts.Deps.Subject
+	p := sc.P99DeltaPct
 	switch {
-	case p >= 25:
-		return 1, fmt.Sprintf("p99 %+.0f%%", p), ref
 	case p <= 0:
 		return -1, fmt.Sprintf("p99 artmadı (%+.0f%%)", p), ref
+	case p < 100*healthverdict.LatWarnRel:
+		return 0, fmt.Sprintf("p99 %+.0f%% (eşik +%%25)", p), ref
+	case !healthverdict.LatencyFloorsMet(sc.CurP99Ms, sc.BaseP99Ms):
+		// v0.10.1299 — göreli artış mutlak tabanı geçmedi (≥ 100 ms ve ≥ +50 ms).
+		return 0, fmt.Sprintf("p99 %+.0f%% ama %.0f ms → %.0f ms — pratik eşik altı (≥ %.0f ms ve ≥ +%.0f ms)",
+			p, sc.BaseP99Ms, sc.CurP99Ms, healthverdict.LatMinP99Ms, healthverdict.LatWarnDeltaMs), ref
+	case ev.Facts.Pods == nil || ev.Facts.Pods.LatencyCorroborated == 0:
+		// v0.10.1299 — MV p99 farkı tek başına OLASI sinyal; ham span doğrulaması
+		// (servis taramasının gecikme adayları) yoksa bilinmez.
+		return 0, fmt.Sprintf("p99 %+.0f%% (%.0f → %.0f ms) ama ham span doğrulaması yok — olası", p, sc.BaseP99Ms, sc.CurP99Ms), ref
 	}
-	return 0, fmt.Sprintf("p99 %+.0f%% (eşik +%%25)", p), ref
+	return 1, fmt.Sprintf("p99 %+.0f%% (%.0f → %.0f ms; %d operasyonda ham span doğruladı)", p, sc.BaseP99Ms, sc.CurP99Ms, ev.Facts.Pods.LatencyCorroborated), ref
 }
 
 func chkUpstreamSurge(ev Evidence) (int, string, string) {

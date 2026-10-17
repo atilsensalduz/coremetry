@@ -75,6 +75,12 @@ type RollupSeriesFilter struct {
 	// MaxGroups: GroupBy'lı sorguda tutulacak en kalabalık grup sayısı;
 	// 0 → 20. Kesme yanıtta truncated=true olarak İFŞA edilir.
 	MaxGroups int
+	// WindowTotals — v0.10.1299: her grubun PENCERE düzeyi birleşik satırı
+	// (RollupSeries.Total) da gelsin. Aynı tarama, GROUPING SETS: kova
+	// başına satırlar + grup başına tüm pencerenin state birleşimi (tDigest
+	// merge / 20'lik histogram toplamı → kestirim). Kova p99'larının
+	// ortalaması bir p99 DEĞİLDİR (CoSRE taraması 5 dk p99 gürültüsü).
+	WindowTotals bool
 }
 
 var rollupCols = map[string]string{
@@ -96,6 +102,9 @@ type RollupPoint struct {
 type RollupSeries struct {
 	Group  string        `json:"group,omitempty"`
 	Points []RollupPoint `json:"points"`
+	// Total — WindowTotals istendiğinde grubun tüm pencere birleşimi
+	// (TS = 0); aksi nil.
+	Total *RollupPoint `json:"total,omitempty"`
 }
 
 // rollupREDSQL — okuma SQL'ini kurar. Saf (Store'suz) — rollup_read_test.go
@@ -148,6 +157,16 @@ func rollupREDSQL(plan RollupPlan, f RollupSeriesFilter, from, to time.Time) (st
 		args = append(args, args[:]...) // iç sorgu aynı bind'ları SQL sırasında tekrar ister
 	}
 
+	groupClause := "GROUP BY tb" + grpBy
+	if f.WindowTotals {
+		// v0.10.1299 — toplam satırında tb = 0 (GROUPING SETS'in dışarıda
+		// kalan anahtarı varsayılan değeri alır; gerçek kova asla epoch 0).
+		if f.GroupBy != "" {
+			groupClause = "GROUP BY GROUPING SETS ((tb, grp), (grp))"
+		} else {
+			groupClause = "GROUP BY GROUPING SETS ((tb), ())"
+		}
+	}
 	inner := fmt.Sprintf(`
 		SELECT
 			toInt64(toUnixTimestamp(toStartOfInterval(ts, INTERVAL %d SECOND))) AS tb,
@@ -158,8 +177,8 @@ func rollupREDSQL(plan RollupPlan, f RollupSeriesFilter, from, to time.Time) (st
 			%%s
 		FROM %s
 		WHERE %s%s
-		GROUP BY tb%s`,
-		plan.StepSeconds, grpSel, plan.Table, whereSQL, topFilter, grpBy)
+		%s`,
+		plan.StepSeconds, grpSel, plan.Table, whereSQL, topFilter, groupClause)
 
 	var sql string
 	switch plan.QuantileMode {
@@ -239,6 +258,11 @@ func (s *Store) QueryRollupRED(ctx context.Context, plan RollupPlan, f RollupSer
 			sr = &RollupSeries{Group: grp}
 			byGroup[grp] = sr
 			order = append(order, grp)
+		}
+		if f.WindowTotals && tb == 0 {
+			tot := p
+			sr.Total = &tot
+			continue
 		}
 		sr.Points = append(sr.Points, p)
 	}

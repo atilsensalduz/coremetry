@@ -55,7 +55,17 @@ type EvChartSeries struct {
 	Group  string       `json:"group,omitempty"`
 	Unit   string       `json:"unit"`
 	Points [][2]float64 `json:"points"`
+	// Style — v0.10.1299, İSTEĞE BAĞLI: "dashed" (referans çizgisi, ör. önceki
+	// pencere p99'u) | "secondary" (soluk ikincil çizgi, ör. p50'nin yanında
+	// p99). Alanı tanımayan eski istemci düz çizer.
+	Style string `json:"style,omitempty"`
 }
+
+// Seri stilleri (EvChartSeries.Style).
+const (
+	evStyleDashed    = "dashed"
+	evStyleSecondary = "secondary"
+)
 
 // EvChartRegion — v0.10.1284 (explain_log_spike): grafiğin x-bölgesi (taban /
 // artış penceresi). İSTEĞE BAĞLI: alanı tanımayan eski istemci yok sayar.

@@ -145,6 +145,18 @@ describe('EvidenceChips — sohbet içi blok (operatör eki)', () => {
     expect(groups.map(g => [g.unit, g.items.length])).toEqual([['req/s', 1], ['ms', 2]]);
     expect(groups[0].items[0].series[0].points[0]).toEqual({ time: 1000 * 1e6, value: 1 });
   });
+  // v0.10.1299 — operatör 2026-10-17: 5 dk p99 gürültüsü yanlış bulgu üretiyordu.
+  // Operasyon grafiği: p50 birincil, p99 ikincil (soluk), önceki pencere p99'u kesikli.
+  it('seri stili: secondary → muted rol, dashed → kesikli; stilsiz eski seri aynen', () => {
+    const [ms] = evidenceChartGroups({ title: 't', evidenceRef: 'e', window: { fromNs: 0, toNs: 1 }, series: [
+      { name: 'p50', unit: 'ms', points: [[1000, 4]] },
+      { name: 'p99', unit: 'ms', style: 'secondary', points: [[1000, 9]] },
+      { name: 'önceki pencere p99', unit: 'ms', style: 'dashed', points: [[1000, 7]] },
+    ] }).map(g => g.items);
+    expect(ms.map(i => [i.name, i.role, !!i.dashed])).toEqual([
+      ['p50', 'data', false], ['p99', 'muted', false], ['önceki pencere p99', 'data', true],
+    ]);
+  });
 });
 
 describe('ChatBubble — kanıt çipleri ve eski olaylar', () => {

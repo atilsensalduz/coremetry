@@ -7115,7 +7115,15 @@ export interface ChatCtxApplied {
  * noktalar [unixMs, değer]. `table`: sohbet kanıt tablosu (≤50 satır).
  * İkisi de `evidenceRef` ile çipe bağlı; `deepLink` = Explore'da aç.
  */
-export interface ChatEvidenceChartSeries { name: string; group?: string; unit: string; points: [number, number][] }
+export interface ChatEvidenceChartSeries {
+  name: string; group?: string; unit: string; points: [number, number][];
+  /**
+   * v0.10.1299 — isteğe bağlı çizim stili: 'dashed' = referans çizgisi (önceki
+   * pencere p99'u), 'secondary' = soluk ikincil çizgi (p50'nin yanında p99).
+   * Eski sunucu göndermez → düz çizgi.
+   */
+  style?: 'dashed' | 'secondary' | string;
+}
 /** v0.10.1284 — grafik x-bölgesi (explain_log_spike: taban / artış). Tone FE token'ına eşlenir. */
 export interface ChatEvidenceChartRegion { fromMs: number; toMs: number; label?: string; tone?: 'err' | 'warn' | 'muted' | string }
 export interface ChatEvidenceChartPayload {

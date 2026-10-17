@@ -36,6 +36,7 @@ func sweepSectionLineTR(sec mcptools.SweepSection) string {
 	label := map[string]string{
 		"red": "servis RED", "problems": "açık problemler", "ops": "operasyonlar", "functions": "fonksiyonlar",
 		"pods": "pod'lar", "jvm": "JVM", "logs": "sorunluların logları", "code": "kod fonksiyonları (örneklem)", "patterns": "log desenleri",
+		"corroborate": "gecikme doğrulaması (ham span)", // v0.10.1299
 	}[sec.Name]
 	if label == "" {
 		label = sec.Name
@@ -96,7 +97,8 @@ func renderSweepEvidenceTR(sw mcptools.SweepResult) string {
 					if k >= 2 {
 						break
 					}
-					fmt.Fprintf(&b, "   · %s %s\n", l.Severity, truncRunes(strings.Join(strings.Fields(l.Body), " "), 200))
+					// v0.10.1299 — ham JSON değil kısa insan satırı (ham gövde açılır tabloda).
+					fmt.Fprintf(&b, "   · %s %s\n", l.Severity, mcptools.LogBodyPreview(l.Body, 200))
 				}
 			}
 		}
