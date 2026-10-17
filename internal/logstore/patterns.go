@@ -93,6 +93,15 @@ func JoinPatternBaseline(cur *PatternsResult, base *PatternsResult) {
 	}
 }
 
+// patternsPageWantsCursor — v0.10.1303 SAF: bu sayfanın ardından bir sayfa
+// daha okunacak mı? remaining = tavana kalan satır, pageLimit = bu sayfanın
+// boyu. Kalan bu sayfaya sığıyorsa imleç kullanılmayacak demektir —
+// Filter.WantCursor sözleşmesi: kullanmayacağın imleci ilan etme (ES PIT
+// açar/tutar). Son sayfada false: ES gelen imleçteki PIT'i hemen kapatır.
+func patternsPageWantsCursor(remaining, pageLimit int) bool {
+	return remaining > pageLimit
+}
+
 // PatternsResult — gruplar + örnekleme dürüstlüğü.
 type PatternsResult struct {
 	Groups []SignatureGroup `json:"groups"`
@@ -131,6 +140,15 @@ func GroupBySignature(ctx context.Context, st Store, f Filter, limit int) (*Patt
 // GroupBySignatureN — v0.10.452 (C1, ES maliyeti): örnek tavanı çağırandan.
 // Problem detayındaki log kanıtı 500 satırla yetinir (1 ES sayfası; 2000 =
 // 4 sayfa). 1..PatternsSampleCap'e kıstırılır.
+//
+// v0.10.1303 — imleç (ES'te point-in-time) YALNIZ arkasından bir sayfa daha
+// okunacaksa istenir (patternsPageWantsCursor). Önceden her sayfa
+// WantCursor=true gidiyordu: tek sayfalık çağıranlar (desen açıklaması,
+// Trend tabanı, explain_log_spike — sampleCap ≤ patternsPageSize) her
+// çağrıda PIT açtırıyor (+1 istek) ve dolu sayfa döndüğü için PIT'i 2 dk
+// tutturuyordu; çok sayfalı okumanın SON sayfası da aynı sızıntıyı
+// yapıyordu. Karar burada, çağıran bayrak geçmez: kaç sayfa okunacağını
+// yalnız bu döngü bilir.
 func GroupBySignatureN(ctx context.Context, st Store, f Filter, limit, sampleCap int) (*PatternsResult, error) {
 	if st == nil {
 		return nil, fmt.Errorf("log store not configured")
@@ -146,7 +164,6 @@ func GroupBySignatureN(ctx context.Context, st Store, f Filter, limit, sampleCap
 	}
 	f.LeanSource = true // v0.10.500 (A4) — örnekleme yalnız body/zaman/severity okur
 	f.Offset, f.Cursor, f.Ascending = 0, "", false
-	f.WantCursor = true
 	type acc struct {
 		g    SignatureGroup
 		svcs map[string]int64
@@ -162,6 +179,7 @@ func GroupBySignatureN(ctx context.Context, st Store, f Filter, limit, sampleCap
 		if remaining < f.Limit {
 			f.Limit = remaining
 		}
+		f.WantCursor = patternsPageWantsCursor(remaining, f.Limit)
 		page, err := st.Search(ctx, f)
 		if err != nil {
 			return nil, err

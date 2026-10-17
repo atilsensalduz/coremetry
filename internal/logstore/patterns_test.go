@@ -15,6 +15,7 @@ type pagedStore struct {
 	rows    []*LogRecord
 	calls   int
 	lastLim int
+	wants   []bool // v0.10.1303 — her sayfanın WantCursor'u
 	err     error
 }
 
@@ -24,9 +25,7 @@ func (p *pagedStore) Search(_ context.Context, f Filter) (*Page, error) {
 	if p.err != nil {
 		return nil, p.err
 	}
-	if !f.WantCursor {
-		return nil, errors.New("WantCursor beklenmiyordu")
-	}
+	p.wants = append(p.wants, f.WantCursor)
 	start := 0
 	if f.Cursor != "" {
 		fmt.Sscanf(f.Cursor, "c%d", &start)
@@ -36,7 +35,9 @@ func (p *pagedStore) Search(_ context.Context, f Filter) (*Page, error) {
 		end = len(p.rows)
 	}
 	pg := &Page{Total: len(p.rows), Logs: p.rows[start:end]}
-	if end < len(p.rows) && end-start == f.Limit {
+	// Gerçek backend'ler gibi: imleç YALNIZ ilan edilince basılır (CH
+	// next="" / ES PIT yok); gelen imleç her durumda tüketilir.
+	if f.WantCursor && end < len(p.rows) && end-start == f.Limit {
 		pg.NextCursor = fmt.Sprintf("c%d", end)
 	}
 	return pg, nil

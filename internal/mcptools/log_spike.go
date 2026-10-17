@@ -199,16 +199,6 @@ type logSpikeReaders struct {
 	now        func() time.Time
 }
 
-// spikeNoCursorStore — desen örneklemesi TEK sayfa (500 satır) okur; imleç
-// ilan etmek ES'te PIT açtırır (+1 istek, 2 dk segment tutma). Örneklem
-// tek sayfaya sığdığı için imleç istenmez (Filter.WantCursor sözleşmesi).
-type spikeNoCursorStore struct{ logstore.Store }
-
-func (s spikeNoCursorStore) Search(ctx context.Context, f logstore.Filter) (*logstore.Page, error) {
-	f.WantCursor = false
-	return s.Store.Search(ctx, f)
-}
-
 func logSpikeReadersFrom(d Deps) logSpikeReaders {
 	r := logSpikeReaders{now: wallNow, mapping: func(context.Context) logstore.FieldMapping {
 		return logstore.FieldMapping{Roles: map[string]logstore.FieldResolution{}}
@@ -226,7 +216,9 @@ func logSpikeReadersFrom(d Deps) logSpikeReaders {
 		return logstore.FieldStatsMany(ctx, st, f, fields, limit)
 	}
 	r.patterns = func(ctx context.Context, f logstore.Filter, limit, sample int) (*logstore.PatternsResult, error) {
-		return logstore.GroupBySignatureN(ctx, spikeNoCursorStore{st}, f, limit, sample)
+		// v0.10.1303 — 500 satır = tek sayfa: GroupBySignatureN imleç/PIT
+		// istemez (eski spikeNoCursorStore sarmalayıcısı paylaşılan kurala döndü).
+		return logstore.GroupBySignatureN(ctx, st, f, limit, sample)
 	}
 	r.search = func(ctx context.Context, f logstore.Filter, timeout time.Duration) (*logstore.Page, error) {
 		return logstore.SearchWithTimeout(ctx, st, f, timeout)
