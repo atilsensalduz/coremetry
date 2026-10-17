@@ -605,6 +605,9 @@ func TestSummaryOfAndRenderSaved(t *testing.T) {
 // v0.10.1288 — + Enrich*: chstore'un OKUMA zenginleştirmeleri
 // (EnrichProblemsForRead: deploy → öncelik, satıra yazmaz; terfi Problem'inin
 // bölüm alanları deploy hipotezinin "düzenli yinelenme" çürütmesine girer).
+// v0.10.1293 — + EnrichProblemsWithRunbooks (Faz 4 öneri okuması: kural →
+// servis kataloğu runbook bağlantısı, kopya dilimde; satıra yazmaz). Paket
+// geneli kardeşi TestSRENoMutatingCalls (guardrails_test.go).
 func TestOrchestratorReadOnly(t *testing.T) {
 	fset := token.NewFileSet()
 	af, err := parser.ParseFile(fset, "orchestrator.go", nil, 0)
@@ -621,7 +624,7 @@ func TestOrchestratorReadOnly(t *testing.T) {
 			seen++
 			name := sel.Sel.Name
 			if !(strings.HasPrefix(name, "Get") || strings.HasPrefix(name, "Find") || strings.HasPrefix(name, "List") || strings.HasPrefix(name, "Count") ||
-				strings.HasPrefix(name, "EnrichProblemsFor")) {
+				strings.HasPrefix(name, "EnrichProblemsFor") || name == "EnrichProblemsWithRunbooks") {
 				t.Errorf("%s: st.%s — orkestratör yalnız okur", fset.Position(sel.Pos()), name)
 			}
 		}

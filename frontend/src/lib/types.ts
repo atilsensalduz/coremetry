@@ -9673,6 +9673,25 @@ export interface SREInvestigation {
   hypothesis?: SREHypothesisKind;
   hypotheses?: SREHypothesis[];
   timeline?: SRETimelineEvent[];
+  /** v0.10.1293 — Faz 4: öneriler (YALNIZ METİN; ajan hiçbir şeyi uygulamaz). */
+  recommendations?: SRERecommendation[];
+}
+// v0.10.1293 — Go: sre.Recommendation (AI SRE Faz 4: yalnız öneri — runbook
+// eşleme + geri alma metni). state: ajan hiçbir şeyi uygulamaz; ack =
+// operatörün "Uygulandı" beyanı, dismissed = "Ele" (yalnız etiket).
+export type SRERecommendationState = 'öneri — uygulanmadı' | 'ack' | 'dismissed';
+export interface SRERecommendation {
+  id: string;
+  text: string;
+  rationale: string;
+  hypothesisKind?: SREHypothesisKind;
+  /** url: UI yolu (/runbook?id=…&problemId=…) ya da problemin dış runbook bağlantısı; id yok = dış bağlantı. */
+  runbook?: { id?: string; title: string; url: string };
+  argo?: { app: string; status: string; prevRevision?: string };
+  rollout?: { workload: string; from: string; to: string };
+  state: SRERecommendationState;
+  ackBy?: string;
+  ackAt?: number; // unix ns
 }
 // v0.10.1288 — Go: sre.Hypothesis (SAF Score; LLM / oy / operatör işareti skora girmez).
 export type SREHypothesisKind = 'deploy' | 'config' | 'saturation' | 'dependency' | 'external' | 'db_slow' | 'traffic_surge' | 'code_regression';

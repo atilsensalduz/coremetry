@@ -361,7 +361,8 @@ func TestNeverWritesHypothesisTable(t *testing.T) {
 	writer := regexp.MustCompile(`^(Upsert|Insert|Write|Save|Put|Set|Update|Mark|Delete|Append|Store|Persist|Replace|Resolve|Ack)\w*(Hypothes|RootCause|DeepEvidence|Deep|Problem|Priority|Verdict|Incident)`)
 	sqlWrite := regexp.MustCompile(`(?i)(insert\s+into|alter\s+table|delete\s+from|update)\s+(root_cause_hypotheses|problems|rca_verdicts|incident_problems)`)
 	files, _ := filepath.Glob("*.go")
-	files = append(files, "../api/sre_hypothesis.go", "../api/sre_status.go", "../api/sre_investigation_chat.go")
+	files = append(files, "../api/sre_hypothesis.go", "../api/sre_status.go", "../api/sre_investigation_chat.go",
+		"../api/sre_recommendation.go", "../api/sre_argo.go") // v0.10.1293 — Faz 4 uçları
 	fset := token.NewFileSet()
 	scanned := 0
 	for _, f := range files {

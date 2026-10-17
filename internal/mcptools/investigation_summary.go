@@ -26,6 +26,18 @@ type InvestigationSummary struct {
 	// hipotezi (skor sıralı). Model skoru değiştirmez; "doğrula" önerisi
 	// yalnız sunucunun tıklanır aksiyon bloğundan (sre_hypothesis) gelir.
 	Hypotheses []InvestigationHypothesis `json:"hypotheses,omitempty"`
+	// Recommendations — v0.10.1293 (AI SRE Faz 4): ajanın ≤2 önerisi. YALNIZ
+	// METİN: ajan hiçbir şeyi uygulamaz; runbook'u insan açar ve çalıştırır.
+	Recommendations []InvestigationRecommendation `json:"recommendations,omitempty"`
+}
+
+// InvestigationRecommendation — get_problem.investigation.recommendations[i]
+// (v0.10.1293). State "öneri — uygulanmadı" | ack | dismissed (operatör işareti).
+type InvestigationRecommendation struct {
+	Text      string `json:"text"`
+	Rationale string `json:"rationale,omitempty"`
+	Runbook   string `json:"runbook,omitempty"` // runbook başlığı (insan açar)
+	State     string `json:"state"`
 }
 
 // InvestigationHypothesis — get_problem.investigation.hypotheses[i].
@@ -45,6 +57,9 @@ const investigationFindingsMax = 3
 
 // investigationHypothesesMax — sohbete giden hipotez tavanı (kartla aynı).
 const investigationHypothesesMax = 3
+
+// investigationRecommendationsMax — v0.10.1293: sohbete giden öneri tavanı.
+const investigationRecommendationsMax = 2
 
 // problemInvestigationField — Deps.Investigation'dan get_problem alanı.
 // Okuyucu yok / kayıt yok / okuma hatası → ok=false (alan yazılmaz; hata
@@ -67,6 +82,9 @@ func problemInvestigationField(ctx context.Context, d Deps, problemID string) (*
 	out.Summary = truncateRunes(out.Summary, 1200)
 	if len(out.Hypotheses) > investigationHypothesesMax {
 		out.Hypotheses = out.Hypotheses[:investigationHypothesesMax]
+	}
+	if len(out.Recommendations) > investigationRecommendationsMax {
+		out.Recommendations = out.Recommendations[:investigationRecommendationsMax]
 	}
 	if out.At > 0 && out.AtISO == "" {
 		out.AtISO = time.Unix(0, out.At).UTC().Format(time.RFC3339)

@@ -67,6 +67,13 @@ type readers struct {
 	// YALNIZ anlatım girdisine (narrate.go); skor / plan / kontrol okumaz
 	// (TestRulesNeverReachScoring).
 	rules func() []cosrerules.Rule
+	// v0.10.1293 (Faz 4) — öneri okumaları (recommend.go): etkin runbook
+	// listesi, problemin runbook bağlantısı (EnrichProblemsWithRunbooks: kural →
+	// servis kataloğu; OKUMA zenginleştirmesi, satıra yazmaz) ve TEMBEL Argo
+	// durumu (Deps.ArgoApps; yalnız geri alma adayı / konfigürasyon önerisi).
+	runbooks   func(ctx context.Context) ([]chstore.Runbook, error)
+	runbookURL func(ctx context.Context, p chstore.Problem) string
+	argo       func(ctx context.Context, service string) ([]mcptools.ArgoAppStatus, error)
 }
 
 // readersFrom — üretim okuyucuları: srv.MCPDeps() (sohbetle aynı kurucu).
@@ -116,7 +123,16 @@ func readersFrom(d mcptools.Deps, n Narrator, c cache.Cache, now func() time.Tim
 			return mcptools.ReadProblemWindowEvents(ctx, d, service, from, to, limit)
 		}
 		r.incident = st.GetProblemIncident
+		// v0.10.1293 — öneri okumaları (yalnız Get/List/okuma zenginleştirmesi).
+		r.runbooks = st.ListRunbooks
+		r.runbookURL = func(ctx context.Context, p chstore.Problem) string {
+			if ps := st.EnrichProblemsWithRunbooks(ctx, []chstore.Problem{p}); len(ps) == 1 {
+				return ps[0].RunbookURL
+			}
+			return ""
+		}
 	}
+	r.argo = d.ArgoApps // v0.10.1293 — nil = Argo eki yok
 	return r
 }
 
@@ -257,6 +273,9 @@ func runInvestigation(ctx context.Context, rd readers, inv *Investigation, check
 	ev := evidenceFrom(inv)
 	inv.Hypotheses = carryHuman(Score(ev), inv.Hypotheses)
 	inv.Timeline = buildTimeline(ev, inv.ProblemID, now())
+	// v0.10.1293 (Faz 4) — öneriler: YALNIZ METİN; anlatımdan ÖNCE (girdisine
+	// ≤2 öneri girer). Operatör işaretleri kimliğe göre taşınır.
+	inv.Recommendations = carryRecState(recommend(ctx, rd, inv, p), inv.Recommendations)
 	checkpoint(inv)
 	if forced[stepSummary] || !fresh(inv.step(stepSummary), t0) || inv.Summary == nil {
 		apply(stepOutcome{step: narrate(ctx, rd, inv, p, now), findings: groups[stepSummary]})

@@ -257,6 +257,7 @@ func renderInvestigationTR(inv Investigation, p chstore.Problem, loc *time.Locat
 		}
 	}
 	b.WriteString(renderHypothesesTR(inv.Hypotheses))
+	b.WriteString(renderRecommendationsTR(inv.Recommendations)) // v0.10.1293 — ≤2 öneri, bulgulardan önce
 	if len(inv.Findings) == 0 {
 		b.WriteString("BULGULAR: yok — okunan bölümlerde eşik aşan bulgu çıkmadı\n")
 	} else {

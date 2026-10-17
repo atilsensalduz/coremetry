@@ -128,6 +128,7 @@ func Enqueue(ctx context.Context, st QueueStore, req EnqueueRequest, cfg Setting
 		// çıkar; doğrulama ayrıca önceki koşunun adımlarını + gerçeklerini
 		// taşır: yalnız hipotezin adımları yeniden okunur (verifyForced).
 		inv.Hypotheses = cur.Hypotheses
+		inv.Recommendations = cur.Recommendations // v0.10.1293 — öneri işaretleri (ack / dismissed) de sağ çıkar
 		if req.Kind == KindVerify {
 			inv.Hypothesis = req.Hypothesis
 			inv.Steps, inv.Findings, inv.Facts = cur.Steps, cur.Findings, cur.Facts

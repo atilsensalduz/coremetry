@@ -283,6 +283,23 @@ type Deps struct {
 	// özeti (get_problem `investigation`; api/mcp_deps.go sre kaydından doldurur).
 	// Tip burada: sre → mcptools importu var, ters yön döngü olurdu. nil = yok.
 	Investigation func(ctx context.Context, problemID string) (*InvestigationSummary, error)
+	// v0.10.1293 (AI SRE Faz 4) — servisin Argo CD uygulamalarının SALT-OKUNUR
+	// senkron / sağlık durumu (api/sre_argo.go: GET /api/services/{name}/gitops
+	// ile AYNI kurucu, buildServiceGitOps — eşleyici tablosu ya da canlı sorgu).
+	// Servis → Argo eşlemesi api katmanında; internal/sre api'yi import edemez,
+	// bu dar okuma dikişi tek köprü. Yalnız öneri metnine girer (geri alma
+	// önerisinin "Argo: OutOfSync" eki); hipotez skoruna girmez. nil = yok.
+	ArgoApps func(ctx context.Context, service string) ([]ArgoAppStatus, error)
+}
+
+// ArgoAppStatus — v0.10.1293: Deps.ArgoApps satırı (uygulama + durum + iş
+// yükleri). Revizyon geçmişi Argo metriklerinde yok — geri alma hedefi rollout
+// satırından gelir.
+type ArgoAppStatus struct {
+	App       string   `json:"app"`
+	Sync      string   `json:"sync,omitempty"`   // Synced | OutOfSync | Unknown
+	Health    string   `json:"health,omitempty"` // Healthy | Degraded | Progressing …
+	Workloads []string `json:"workloads,omitempty"`
 }
 
 // MetricSource is the metric-read half of Deps, satisfied by

@@ -1390,6 +1390,11 @@ export const api = {
   markProblemHypothesis: (id: string, kind: import('./types').SREHypothesisKind, body: { state: 'dismissed' | 'confirmed'; note?: string }) =>
     request<import('./types').SREHypothesis>(`/api/problems/${encodeURIComponent(id)}/investigation/hypotheses/${encodeURIComponent(kind)}`,
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  // v0.10.1293 — AI SRE öneri işareti "Uygulandı" (ack) / "Ele" (dismissed) — editor+,
+  // audit sre.recommendation.ack; yalnız etiket, sunucu hiçbir şeyi uygulamaz.
+  ackProblemRecommendation: (id: string, rid: string, body: { state: 'ack' | 'dismissed' }) =>
+    request<import('./types').SRERecommendation>(`/api/problems/${encodeURIComponent(id)}/investigation/recommendations/${encodeURIComponent(rid)}`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   // v0.10.1282 — AI SRE kuyruk / rol durumu (5 s cache).
   sreStatus: (signal?: AbortSignal) => get<import('./types').SREStatus>(`/api/sre/status`, signal),
   // v0.10.1286 — AI SRE ayarı (admin; PUT audit settings.sre_agent.update).

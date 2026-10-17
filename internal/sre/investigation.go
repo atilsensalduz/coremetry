@@ -147,6 +147,10 @@ type Investigation struct {
 	Hypotheses []Hypothesis    `json:"hypotheses,omitempty"`
 	Timeline   []TimelineEvent `json:"timeline,omitempty"`
 	Facts      *Facts          `json:"facts,omitempty"`
+	// v0.10.1293 (Faz 4) — öneriler: YALNIZ METİN (+ insanın açacağı runbook
+	// bağlantısı); ajan hiçbir şeyi uygulamaz. Operatör işareti (ack /
+	// dismissed) yeniden koşuda kimliğe göre taşınır (recommend.go).
+	Recommendations []Recommendation `json:"recommendations,omitempty"`
 }
 
 // step — ada göre adım (yoksa nil).
@@ -204,6 +208,10 @@ func Encode(inv Investigation) (string, error) {
 		f := *inv.Facts
 		inv.Facts = &f
 	}
+	inv.Recommendations = append([]Recommendation(nil), inv.Recommendations...) // v0.10.1293
+	if len(inv.Recommendations) > RecommendationsMax {
+		inv.Recommendations = inv.Recommendations[:RecommendationsMax]
+	}
 	for i := range inv.Steps {
 		if len(inv.Steps[i].Payload) > maxStepPayload {
 			inv.Steps[i].Payload = nil
@@ -258,6 +266,9 @@ func Encode(inv Investigation) (string, error) {
 				inv.Steps[i].EvidenceRefs = nil
 			}
 			inv.Error = truncRunes(inv.Error, 400)
+			for i := range inv.Recommendations { // v0.10.1293
+				inv.Recommendations[i].Rationale = truncRunes(inv.Recommendations[i].Rationale, 160)
+			}
 			if inv.Summary != nil {
 				inv.Summary.Text = truncRunes(inv.Summary.Text, 2000)
 			}

@@ -46,6 +46,7 @@ func SummaryOf(inv Investigation) mcptools.InvestigationSummary {
 		out.Summary = inv.Summary.Text
 	}
 	out.Hypotheses = summaryHypotheses(inv.Hypotheses)
+	out.Recommendations = summaryRecommendations(inv.Recommendations) // v0.10.1293 — ≤2, elenen düşer
 	return out
 }
 

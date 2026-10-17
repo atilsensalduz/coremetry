@@ -7,6 +7,9 @@
 //     (ProblemInvestigationCards; sentezleyici kopyası orada AYRI motor kutusu);
 //   - bulgular + her bulgunun kanıt çipleri (EvidenceChips — sorgu künyesi +
 //     "Explore'da aç");
+//   - v0.10.1293: öneri kartları (ProblemInvestigationRecommendations — her
+//     kart "öneri — uygulanmadı"; "Runbook'u aç" runbook sayfasına problemId
+//     ile gider, çalıştırmayı insan başlatır; Uygulandı / Ele yalnız etiket);
 //   - "Sohbette sor": CoSRE'yi problem kapsamıyla açar (coremetry:ai-ask).
 // 0a kaydı (tek `sweep` adımı) bugünkü tek satır özetle çizilir.
 //
@@ -18,6 +21,7 @@ import { Badge, Button } from '@/components/ui';
 import { agoTR, tsLong } from '@/lib/utils';
 import type { SREInvestigation } from '@/lib/types';
 import { ProblemInvestigationCards } from './ProblemInvestigationCards';
+import { ProblemInvestigationRecommendations } from './ProblemInvestigationRecommendations';
 import {
   STEP_LABEL, askInChatQuestion, findingEvidence, findingKindLabel, fmtStepDuration, orderedSteps, stepStateView,
 } from './investigationResultView';
@@ -83,6 +87,7 @@ export function InvestigationResult({ inv, canEdit = false }: { inv: SREInvestig
           </div>
         ))}
       <ProblemInvestigationCards inv={inv} canEdit={canEdit} />
+      <ProblemInvestigationRecommendations inv={inv} canEdit={canEdit} />
       {inv.findings.length > 0 && (
         <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 6 }}>
           {inv.findings.map(f => (

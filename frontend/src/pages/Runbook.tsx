@@ -60,6 +60,10 @@ function Inner() {
   const { user } = useAuth();
   const canEdit = user?.role === 'admin' || user?.role === 'editor';
   const id = sp.get('id') ?? '';
+  // v0.10.1293 — AI SRE önerisinden gelen "Runbook'u aç": çalıştırma bu
+  // probleme bağlanır (POST execute {problemId}; mevcut runbook.execute
+  // audit'i). Çalıştırmayı yine İNSAN başlatır — sayfa kendiliğinden koşmaz.
+  const problemId = (sp.get('problemId') ?? '').trim();
 
   const rbQ = useRunbook(id);
   const updateRb = useUpdateRunbook();
@@ -126,7 +130,7 @@ function Inner() {
     setErr(null);
     try {
       if (dirty) await save(); // the run snapshots the latest steps, so persist first
-      const ex = await executeRb.mutateAsync({ id });
+      const ex = await executeRb.mutateAsync({ id, problemId: problemId || undefined });
       if (ex?.id) navigate(`/runbook-exec?id=${encodeURIComponent(ex.id)}`);
     } catch (e) { setErr(`Run failed: ${e instanceof Error ? e.message : String(e)}`); }
   };
@@ -157,6 +161,12 @@ function Inner() {
         {err && (
           <div style={{ background: 'var(--bg1)', border: '1px solid var(--err)', color: 'var(--err)', borderRadius: 6, padding: '8px 12px', marginBottom: 10, fontSize: 13 }}>
             {err} <Button variant="secondary" size="sm" style={{ marginLeft: 8 }} onClick={() => setErr(null)}>dismiss</Button>
+          </div>
+        )}
+        {problemId && (
+          <div className="cm-callout" style={{ marginBottom: 10 }}>
+            Bu çalıştırma <span className="mono">{problemId}</span> problemine bağlanacak (AI SRE önerisi).
+            Ajan hiçbir şeyi çalıştırmaz — <b>Run</b> ile siz başlatırsınız.
           </div>
         )}
         <div className="row" style={{ alignItems: 'center', gap: 12, marginBottom: 10 }}>

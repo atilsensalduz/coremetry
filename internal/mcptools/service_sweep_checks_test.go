@@ -237,14 +237,17 @@ func TestGetProblemIncludesInvestigation(t *testing.T) {
 	d := Deps{Investigation: func(_ context.Context, id string) (*InvestigationSummary, error) {
 		switch id {
 		case "p1":
-			return &InvestigationSummary{At: at, State: "done", Findings: []string{"a", "b", "c", "d"}, Summary: "Ne oldu: x"}, nil
+			return &InvestigationSummary{At: at, State: "done", Findings: []string{"a", "b", "c", "d"}, Summary: "Ne oldu: x",
+				// v0.10.1293 — öneriler sohbete ≤2.
+				Recommendations: []InvestigationRecommendation{{Text: "r1", State: "öneri — uygulanmadı"}, {Text: "r2"}, {Text: "r3"}}}, nil
 		case "p2":
 			return nil, errors.New("ch down")
 		}
 		return nil, nil
 	}}
 	got, ok := problemInvestigationField(context.Background(), d, "p1")
-	if !ok || got.State != "done" || len(got.Findings) != 3 || got.Summary != "Ne oldu: x" || got.AtISO != "2026-10-17T14:05:00Z" {
+	if !ok || got.State != "done" || len(got.Findings) != 3 || got.Summary != "Ne oldu: x" || got.AtISO != "2026-10-17T14:05:00Z" ||
+		len(got.Recommendations) != 2 || got.Recommendations[0].Text != "r1" {
 		t.Fatalf("alan: %+v %v", got, ok)
 	}
 	for _, id := range []string{"p2", "p3", ""} {

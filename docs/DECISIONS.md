@@ -6068,3 +6068,42 @@ TestOrchestratorReadOnly). Oylar okunmaz; işaret skora girmez
 **Ertelenen:** Argo CD senkron durumu (config kartında "okunmuyor" kontrolü,
 ağırlık 0.20 hep 0); DB p99 tabanı (kenar ortalaması yaklaşık); ext-down
 problem öznesi (kaynak adı) ↔ topoloji `ext:` düğümü eşlemesi yalnız birebir ad.
+
+## 2026-10-17 — AI SRE Faz 4: yalnız öneri (runbook eşleme + geri alma metni) (v0.10.1293)
+
+**Karar (operatör kuralı: RECOMMENDATION ONLY):** ajanın araştırması ≤6
+öneri kartı taşır (`internal/sre/recommend.go`): operatörün elemediği,
+bandı ≥ orta ilk ≤3 hipotez için gerçeklerden türeyen tek cümle + gerekçe,
+ardından SAF `matchRunbooks` ile ≤3 runbook — sıra Problem.RunbookURL (kural →
+servis kataloğu; okuma zenginleştirmesi `EnrichProblemsWithRunbooks`) → etkin
+runbook'ların `service:<svc>` / `cause:<tür|kategori>` / `rule:<önek>`
+etiketleri → başlık jetonu örtüşmesi ≥0.5. Geri alma YALNIZ METİN: deploy
+adımının zaten okuduğu ListDeploymentsWindow satırlarından (başlangıcın
+−60/+5 dk'sındaki en yeni, önceki sürümü bilinen, geri alınmamış satır) —
+"checkout rev 42 → rev 41 geri alma değerlendirilebilir (Argo: OutOfSync) —
+kararı ve uygulamayı insan verir". Argo eki dar okuma dikişi
+`mcptools.Deps.ArgoApps` ile (api/sre_argo.go → GitOps sekmesinin
+`buildServiceGitOps` kurucusu; internal/sre api'yi import etmez) ve TEMBEL:
+yalnız geri alma adayı / konfigürasyon önerisi varken. Argo metrikleri revizyon
+geçmişi taşımadığından `PrevRevision` rollout satırının önceki sürümüdür.
+Her kart "öneri — uygulanmadı" rozeti taşır; "Runbook'u aç" mevcut runbook
+sayfasına `?problemId=` ile gider, çalıştırmayı insan başlatır (mevcut
+`runbook.execute` audit'i, execution problemId'li). "Uygulandı / Ele" =
+POST /api/problems/{id}/investigation/recommendations/{rid}
+{state: ack|dismissed} (editor+, audit `sre.recommendation.ack`) — yalnız
+etiket, yeniden koşuda kimliğe göre taşınır. get_problem
+`investigation.recommendations` ve anlatım girdisi ("AJAN ÖNERİLERİ") elenmemiş
+ilk ≤2 öneriyi taşır (bulgular yine en sonda).
+
+**Korkuluklar:** TestSRENoMutatingCalls (internal/sre'de
+Upsert/Insert/Delete/Mark/Update/Set/Append/Resolve/Ack/Execute çağrısı yok;
+izin listesi alıcı-duyarlı ve gerekçeli: SAF `chstore.MarkCorrelationCauses`,
+süreç-içi `SetSettings`, coremetry:sre:* Redis koordinasyon anahtarları; tek
+kalıcı yazım `queue.go save → PutSREInvestigation`), TestSREImports (net/http,
+internal/agent, internal/api, k8sjobs, srelaunch, k8s istemcisi yok —
+doğrudan importlar), TestSRENeverUpsertsProblemsOrPriority (paket + api
+sre_* uçları), TestRecommendationIsTextOnly, TestMatchRunbooks;
+TestOrchestratorReadOnly `EnrichProblemsWithRunbooks`'u okuma
+zenginleştirmesi olarak kabul eder. Oylar okunmaz (mevcut ratchet). Öneri
+hipotez skoruna / plana girmez; `chkArgo` kontrolü hâlâ "okunmuyor" (Argo
+yalnız öneri metnine girer).
