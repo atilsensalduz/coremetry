@@ -101,6 +101,7 @@ func (s *Service) runRangeQueryDetailed(ctx context.Context, cfg Settings, q str
 		"end":   {promTime(f.To)},
 		"step":  {strconv.Itoa(step) + "s"},
 	}
+	recordQuery(ctx, q) // v0.10.1271 — kanıt çipi (yalnız kaydedici takılıysa)
 	res, err := promapi.QuerySeriesMeta(ctx, s.request("/api/v1/query_range", params, cfg))
 	if err != nil {
 		return QueryDetail{}, err

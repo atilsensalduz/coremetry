@@ -1073,3 +1073,19 @@ func (s *Store) ServiceEnvWindowRED(ctx context.Context, service, env string, fr
 	}
 	return out, nil
 }
+
+// ServiceWindowREDSQL — v0.10.1271 (CoSRE adım 2): ServiceWindowRED /
+// ServiceEnvWindowRED'in ÇALIŞAN SQL metni (bind'li). query_traces'in kanıt
+// çipi okunan sorguyu birebir göstersin diye dışa açık; okumanın kendisi
+// değişmedi. env=true → service_env_summary_5m (bind sırası service, env,
+// from, to); aksi hâlde service_summary_5m (service, from, to).
+func ServiceWindowREDSQL(env bool) string {
+	if env {
+		return serviceEnvWindowREDSQL()
+	}
+	return serviceWindowREDSQL()
+}
+
+// AlignBucketStart — v0.10.1271: alignBucketStart'ın dışa açık ikizi (kanıt
+// çipindeki bind değeri okumanın gerçekten kullandığı kova başı olsun).
+func AlignBucketStart(t time.Time) time.Time { return alignBucketStart(t) }

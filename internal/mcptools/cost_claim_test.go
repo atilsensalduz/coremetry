@@ -83,6 +83,13 @@ var mvCostClaims = map[string]string{
 	// gruplaması + süzgeç/env/cluster/search YOK + pencere ≥5 dk iken
 	// (repo.go:4055 kapısı, doğrudan izlendi); aksi hâlde sınırlı ham
 	// GROUP BY trace_id ve açıklama bunu SÖYLÜYOR (kapı + kelepçe).
+	// v0.10.1271 — servis toplamı ServiceWindowRED / ServiceEnvWindowRED → FROM
+	// service_summary_5m / service_env_summary_5m (koşulsuz MV, SQL kanıtta birebir;
+	// env ön-toplamı pencereyi kapsamıyorsa toplam ATLANIR, ham yola düşmez). Örnek
+	// liste GetTraces: trace_summary_5m UYGUN OLDUĞUNDA, aksi hâlde sınırlı ham yol —
+	// açıklama koşulu söylüyor (search_traces ile aynı okuyucu).
+	"query_traces": "service_summary_5m / service_env_summary_5m (toplam, koşulsuz) + GetTraces " +
+		"(trace_summary_5m koşullu, ham yol LIMIT + max_execution_time); açıklama koşulu söylüyor",
 	"trace_stats": "trace_summary_5m — GetTraceAggregate MV yolu koşullu (service/operation, süzgeçsiz); " +
 		"süzgeçli çağrı search_traces kapısıyla kelepçeli ham yol, açıklama koşulu söylüyor",
 }

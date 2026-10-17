@@ -59,7 +59,9 @@
 //     doğru çağrının koşulu, orada kazanılan bayt yanlış argümanla
 //     harcanan bir tura değmez.
 //
-// Tool catalogue (68 tools; v0.10.1208 — 67 → 68: search_code.go, koşullu + yalnız sohbet; v0.10.1207 — 66 → 67: business_code.go resolve_business_code, salt okuma; v0.10.1189 — 65 → 66: similar_incidents.go, vaka hafızası (onaylı önce), salt okuma; v0.10.1133 — 64 → 65: oracle_operation.go resolve_oracle_operation, salt okuma, sohbette yalnız etkin Oracle kaynağı varken; v0.10.1122 — 62 → 64: wiki_tools.go search_wiki / read_wiki_page, yalnız uygulama içi sohbet ve yalnız wiki bilgisi açık + DevOps bağlıyken; v0.10.1050 — 61 → 62: source_code.go read_source_code, yalnız uygulama içi sohbet ve yalnız DevOps bağlıyken; v0.10.993 — 60 → 61: bubble_up.go, yalnız dış MCP; v0.10.944 — 57 → 60: logs_tools.go list_log_fields, metrics_tools.go list_metric_labels, compare_periods.go; search_logs / query_metric / get_trace yeni dosyalarında; v0.10.809 — 56 → 57: product_guide.go; v0.10.559 — 54 → 56: knowledge_tools.go get_runbook / search_knowledge; v0.10.556 — 52 → 54: signal_tools.go log_patterns / cluster_metric; v0.10.555 — 48 → 52: problem_tools.go get_problem / get_correlation_evidence / similar_problems / get_capabilities; v0.10.545 — 47 → 48: list_deployments.go; v0.10.478 — 44 → 47: context_tools.go; v0.10.475 — 43 → 44: build_link.go; v0.10.474 — 42 → 43: trace_stats.go; v0.10.472 — 40 → 42: attr_discovery.go; v0.10.469 — 39 → 40: resolve_entity.go; v0.10.468 — 36 → 39: entity_catalog.go list_namespaces / list_workloads / list_pods; sayım v0.9.1050'de düzeltildi — blok
+// Tool catalogue (71 tools; v0.10.1271 — 68 → 71: query_metrics.go / query_traces.go /
+// query_logs.go (CoSRE adım 2, aile/enum tabanlı, kanıt zarflı; sohbet + MCP, salt okuma);
+// v0.10.1208 — 67 → 68: search_code.go, koşullu + yalnız sohbet; v0.10.1207 — 66 → 67: business_code.go resolve_business_code, salt okuma; v0.10.1189 — 65 → 66: similar_incidents.go, vaka hafızası (onaylı önce), salt okuma; v0.10.1133 — 64 → 65: oracle_operation.go resolve_oracle_operation, salt okuma, sohbette yalnız etkin Oracle kaynağı varken; v0.10.1122 — 62 → 64: wiki_tools.go search_wiki / read_wiki_page, yalnız uygulama içi sohbet ve yalnız wiki bilgisi açık + DevOps bağlıyken; v0.10.1050 — 61 → 62: source_code.go read_source_code, yalnız uygulama içi sohbet ve yalnız DevOps bağlıyken; v0.10.993 — 60 → 61: bubble_up.go, yalnız dış MCP; v0.10.944 — 57 → 60: logs_tools.go list_log_fields, metrics_tools.go list_metric_labels, compare_periods.go; search_logs / query_metric / get_trace yeni dosyalarında; v0.10.809 — 56 → 57: product_guide.go; v0.10.559 — 54 → 56: knowledge_tools.go get_runbook / search_knowledge; v0.10.556 — 52 → 54: signal_tools.go log_patterns / cluster_metric; v0.10.555 — 48 → 52: problem_tools.go get_problem / get_correlation_evidence / similar_problems / get_capabilities; v0.10.545 — 47 → 48: list_deployments.go; v0.10.478 — 44 → 47: context_tools.go; v0.10.475 — 43 → 44: build_link.go; v0.10.474 — 42 → 43: trace_stats.go; v0.10.472 — 40 → 42: attr_discovery.go; v0.10.469 — 39 → 40: resolve_entity.go; v0.10.468 — 36 → 39: entity_catalog.go list_namespaces / list_workloads / list_pods; sayım v0.9.1050'de düzeltildi — blok
 // v0.6.5'te kalmıştı, get_problem_root_cause/render_chart sayılmıyordu;
 // v0.9.1227'de get_operation_health ile 33; v0.9.1233'te
 // get_exception_samples ile 34; v0.9.1244'te list_teams +
@@ -238,6 +240,15 @@ type Deps struct {
 	// doldurur). nil = wiki bilgisi kapalı ya da DevOps yok → ChatToolList
 	// araçları HİÇ sunmaz; dış MCP'de hiç kayıtlı değiller (chatOnlyTools).
 	Wiki WikiSource
+	// v0.10.1271 — query_metrics'in aile yönlendiricisi (*metricsrc.Resolver;
+	// api/mcp_deps.go doldurur). nil = Thanos/VM yok: span RED aileleri yine
+	// ClickHouse'tan okunur, pod_* aileleri dürüst not_configured döner.
+	MetricRouter MetricRouter
+	// v0.10.1271 — Service Overview METRİK kipinin RED okuması (api
+	// buildServiceMetricRED + endpointsMetricIdentity; api/mcp_deps.go doldurur).
+	// query_metrics red/latency/throughput/errors aileleri metricsrc VM derken
+	// bunu okur; nil = yok → ClickHouse span RED.
+	ServiceMetricRED ServiceMetricREDReader
 	// v0.10.1133 — resolve_oracle_operation çözümleyicisi (oracle_operation.go;
 	// api/oracle_op_resolve.go doldurur). nil ya da Enabled()=false = etkin
 	// Oracle kaynağı yok → sohbete SUNULMAZ; dış MCP'de araç dürüst enabled=false döner.
@@ -328,6 +339,10 @@ func ToolList(d Deps) []mcp.Tool {
 		listAnomaliesTool(d),
 		// v0.10.944 (CoSRE araştırma asistanı) — search_logs kaynak durumlu sürüm
 		// + list_log_fields: alan adı VARSAYILMAZ, canlı log arka ucundan okunur.
+		// v0.10.1271 (CoSRE adım 2) — sorgu dilsiz log okuma (metin düz ifade olarak
+		// süzülür); search_logs'un ÖNÜNDE ki küçük model önce yapısal yolu görsün
+		// (search_logs ↔ get_log_histogram komşuluğu korunur).
+		queryLogsTool(d),
 		searchLogsV2Tool(d),
 		listLogFieldsTool(d),
 		// v0.9.1141 (Faz 3.2) — search_logs'un `cluster` arg'ının eşi;
@@ -355,6 +370,8 @@ func ToolList(d Deps) []mcp.Tool {
 		resolveOracleOperationTool(d),
 		// v0.9.1087 (Faz 4) — id'siz giriş: trace ID'yi BULMANIN yolu.
 		searchTracesTool(d),
+		// v0.10.1271 (CoSRE adım 2) — yapısal trace örneklemesi (enum'lu, kanıt zarflı).
+		queryTracesTool(d),
 		// v0.10.474 (Faz 3, F3-3) — ham listeden ÖNCE sayı: trace_stats (trace_stats.go), aramanın hemen yanında.
 		traceStatsTool(d),
 		// v0.9.1141 (Faz 3.2) — trace ID'ye İKİNCİ giriş: yapıştırılan
@@ -367,6 +384,9 @@ func ToolList(d Deps) []mcp.Tool {
 		findTraceByRequestIDTool(d),
 		// v0.9.1089 (Faz 4) — SLO durum+yörünge; tükenme uydurması biter.
 		listSLOStatusTool(d),
+		// v0.10.1271 (CoSRE adım 2) — aile tabanlı, PromQL'siz metrik okuma;
+		// serbest adlı query_metric'in hemen önünde ki küçük model önce bunu görsün.
+		queryMetricsTool(d),
 		queryMetricInvestigateTool(d), // v0.10.944 — etiket eşlemeli query_metric (metrics_tools.go)
 		// v0.9.1090 (Faz 4) — query_metric'in eşi: ad uydurmayı bitirir.
 		listMetricNamesTool(d),

@@ -12,7 +12,6 @@ package api
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -27,27 +26,10 @@ const (
 	thanosPodsListMax    = 8
 )
 
-var podEnvSuffixes = []string{"-prod", "-int", "-uat", "-prep"}
-
-// thanosServicePodRegex — SAF; frontend pages/clusters/podWorkload.ts
-// servicePodRegex ile birebir (Infrastructure sekmesiyle aynı pod kümesi).
+// thanosServicePodRegex — SAF; v0.10.1271'den beri thanos.ServicePodRegex'e
+// delege eder (query_metrics aracı aynı pod kümesini kullanır).
 func thanosServicePodRegex(service, deploy string) string {
-	stripped := service
-	for _, suf := range podEnvSuffixes {
-		if len(service) > len(suf) && strings.HasSuffix(service, suf) {
-			stripped = strings.TrimSuffix(service, suf)
-			break
-		}
-	}
-	seen := map[string]bool{}
-	var cands []string
-	for _, c := range []string{deploy, service, stripped} {
-		if c != "" && !seen[c] {
-			seen[c] = true
-			cands = append(cands, regexp.QuoteMeta(c))
-		}
-	}
-	return "(" + strings.Join(cands, "|") + ")-.*"
+	return thanos.ServicePodRegex(service, deploy)
 }
 
 type thanosPodsResult struct {

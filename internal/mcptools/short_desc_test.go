@@ -52,7 +52,11 @@ const shortDescMinBytes = 60
 // yetmiyor.
 // v0.10.809 — 57 tool (product_guide, 74 B): 9.07 KB; tavan 9.1 KB (tool
 // başına ~160 B ortalama korunuyor; yeni tool eklerken uzunları kırp).
-const shortCatalogMaxBytes = 9100
+// v0.10.1271 — 71 tool: query_metrics / query_traces / query_logs (CoSRE adım 2,
+// küçük modelin yapısal giriş yolu; 145 + 127 + 122 = 394 B) → ~9.46 KB; tavan
+// 9.5 KB. Bilinçli artış: eski üçlü (query_metric / search_traces / search_logs)
+// MCP sözleşmesi olarak kalıyor; sohbetten çıkarılmaları ayrı bir karar.
+const shortCatalogMaxBytes = 9500
 
 // shortCatalogConditionalMaxBytes — v0.10.1050: KOŞULLU sohbet araçlarının
 // (chatOffered; bugün yalnız read_source_code, DevOps bağlıyken) kompakt

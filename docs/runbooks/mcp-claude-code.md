@@ -83,6 +83,14 @@ v0.10.1208'de 68 oldu: `search_code` — servisin deposunda Azure DevOps Code
 Search (yalnız uygulama içi sohbet; DevOps + Code Search açıkken). Dış MCP
 yüzeyi değişmedi.
 
+v0.10.1271'de 71 oldu: `query_metrics` / `query_traces` / `query_logs` (CoSRE
+adım 2) — PromQL/SQL/sorgu dili YAZILMAZ; aile/enum tabanlı yapısal istek,
+sunucu sabit şablondan kurar. Her sonuç `evidence` {source, query, window,
+env, cluster, rows|series, durationMs} taşır; boş sonuç `empty=true` +
+"veri yok: …". pod_cpu/pod_memory/pod_restarts Thanos'tan, cluster kapsamlı
+(çözülemezse `error.code=needs_cluster`). Salt okuma; sohbet + dış MCP. Eski
+`query_metric` / `search_traces` / `search_logs` korunur.
+
 ### "Benim servislerim" MCP'de YOK (bilinçli)
 
 Takım tool'ları takım ADIYLA çalışır. Sebep yukarıdaki sınırın

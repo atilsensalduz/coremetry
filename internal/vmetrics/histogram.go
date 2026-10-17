@@ -96,6 +96,7 @@ func (s *Service) QueryMetricHistogram(ctx context.Context, f chstore.MetricQuer
 		"end":   {promTime(f.To)},
 		"step":  {strconv.Itoa(step) + "s"},
 	}
+	recordQuery(ctx, q) // v0.10.1271 — kanıt çipi
 	series, err := promapi.QuerySeries(ctx, s.request("/api/v1/query_range", params, cfg))
 	if err != nil {
 		return nil, err
@@ -364,6 +365,7 @@ func (s *Service) QueryPromQLRange(ctx context.Context, query string, from, to t
 		"end":   {promTime(to)},
 		"step":  {strconv.Itoa(step) + "s"},
 	}
+	recordQuery(ctx, q) // v0.10.1271 — kanıt çipi
 	series, err := promapi.QuerySeries(ctx, s.request("/api/v1/query_range", params, cfg))
 	if err != nil {
 		return nil, err

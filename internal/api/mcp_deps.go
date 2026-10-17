@@ -27,6 +27,7 @@ import (
 	"github.com/cilcenk/coremetry/internal/mcptools"
 	"github.com/cilcenk/coremetry/internal/metricsrc"
 	"github.com/cilcenk/coremetry/internal/thanos"
+	"github.com/cilcenk/coremetry/internal/vmetrics"
 )
 
 // mcpDeps — tool kataloğunun ve ortak veri katmanının kapandığı
@@ -39,12 +40,17 @@ import (
 // yani buradaki atamayı unutmak operatörün seçimini SESSİZCE iptal
 // eder — mcp_deps_test.go tam olarak bunu ısırıyor.
 func (s *Server) mcpDeps() mcptools.Deps {
+	router := metricsrc.New(metricsrc.Backends{VM: s.vmetrics, CH: s.store, Thanos: s.thanos})
 	return mcptools.Deps{
 		Store: s.store, LogStore: s.logs, Metrics: s.metricSource(),
+		// v0.10.1271 (CoSRE adım 2) — query_metrics'in aile yönlendiricisi; RuntimePods
+		// ile AYNI çözümleyici (tek karar noktası).
+		MetricRouter:     router,
+		ServiceMetricRED: s.mcpServiceMetricRED, // v0.10.1271 — Overview metrik kipi RED
 		// JVM heap VM birincil backend'ini İKİ yolda da izler (eskiden yalnız
 		// main.go'nun dış literalinde vardı; sohbet CH-only okuyordu).
 		// v0.10.1270 — VM/CH seçimi metricsrc çözümleyicisinde (tek karar noktası).
-		RuntimePods: metricsrc.New(metricsrc.Backends{VM: s.vmetrics, CH: s.store, Thanos: s.thanos}).RuntimePods(),
+		RuntimePods: router.RuntimePods(),
 		// v0.10.468 (Faz 2, F2-1) — varlık kataloğu tool'ları: etkin Remote
 		// Cluster'lar + entity_layer bayrağı (nil-güvenli; her ikisi de
 		// yoksa tool'lar dürüst disabled/boş döner).
@@ -166,4 +172,38 @@ func (m mcpClusterMetrics) NetworkTrend(ctx context.Context, cluster string, fro
 	qctx, cancel := mcpThanosCtx(ctx)
 	defer cancel()
 	return m.s.thanos.NetworkTrend(qctx, cfg, from, to)
+}
+
+// mcpServiceMetricRED — v0.10.1271 (CoSRE adım 2): query_metrics'in uygulama/
+// HTTP RED aileleri için Service Overview METRİK kipinin AYNI okuması
+// (endpointsMetricIdentity + buildServiceMetricRED; rateWindow Overview
+// varsayılanı 180 s). Seam settings-güdümlü s.metricSource() — VM/CH kararı
+// metricsrc'de. Çalışan MetricsQL vmetrics.QueryRecorder ile toplanır (kanıt
+// çipi). Önbellek YOK: araç bütçesi kendi zaman aşımını taşır, sonuç modele
+// gider (cache anahtarı HTTP ucunun).
+func (s *Server) mcpServiceMetricRED(ctx context.Context, service, env string, from, to time.Time, mdp int) (mcptools.MetricREDResult, error) {
+	src := s.metricSource()
+	rec := &vmetrics.QueryRecorder{}
+	ctx = vmetrics.WithQueryRecorder(ctx, rec)
+	out := mcptools.MetricREDResult{Source: src.Name()}
+	id, ok := s.endpointsMetricIdentity(ctx, src, service, env)
+	if !ok {
+		out.Tried = id.Tried
+		out.Queries = rec.Queries()
+		return out, nil
+	}
+	p := serviceMetricREDPlan{Service: service, From: from, To: to, Mdp: mdp, RateWin: 180, Env: env}
+	resp, err := buildServiceMetricRED(ctx, src, id, p)
+	out.Queries = rec.Queries()
+	if err != nil {
+		return out, err
+	}
+	out.Found = resp.MetricExists
+	out.Metric = resp.Metric
+	out.Series = resp.Series
+	out.ErrorsUnknown = resp.ErrorsUnknown
+	out.LatencyUnitKnown = resp.LatencyUnitKnown
+	out.EnvApplied = env == "" || !resp.EnvAmbiguous
+	out.Partial = resp.Partial
+	return out, nil
 }
