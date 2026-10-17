@@ -2,14 +2,13 @@
 // Grafana panosunun servis sekmesi hâli. Kaynak VictoriaMetrics'e SABİT
 // (api.httpMetricsPromql, ?metricsrc=vm); sorgular panodakiyle aynı
 // (lib/httpMetrics.ts). Pano → Coremetry eşlemesi: stat → StatTile, zaman
-// serisi → MultiLineChart (uPlot), pasta → çubuk listesi, heatmap → kova
+// serisi → MultiLineChart (uPlot), pasta → SVG donut (v0.10.1258: heatmap kaldırıldı), kova
 // dağılımı (yalnız uPlot kuralı), tablo → useDataTable. Route / method
 // süzgeçleri URL'de (?hroute, ?hmethod), seçenekler süzgeçsiz route serisinden.
 // Yalnız sekme açıkken sorgu atılır (30 sn sunucu önbelleği).
 import { useMemo, type ReactNode } from 'react';
 import { useQueries } from '@tanstack/react-query';
 import { Card, PanelTitle, SectionHead, SelectField } from '@/components/ui';
-import { LatencyHeatmap } from '@/components/LatencyHeatmap';
 import { HttpStat, HttpGauge, HttpDonut } from './httpMetricsViz';
 import { Spinner, Empty } from '@/components/Spinner';
 import { MultiLineChart } from '@/components/MultiLineChart';
@@ -23,7 +22,7 @@ import { useUrlParams, strParam } from '@/lib/urlParams';
 import {
   httpQueries, relabel, scalarOf, barsOf, mergeTable, filterOptions,
   HTTP_METRICS_POINTS, HTTP_INSTANT_IDS, fmtCount, fmtRatio, fmtSeconds, type BarRow,
-  latencyTone, errorRatioTone, clientErrorTone, sliTone, httpSeriesColors, heatmapFromBuckets, donutSlices, sparkValues, HTTP_SERIES_TOKENS,
+  latencyTone, errorRatioTone, clientErrorTone, sliTone, httpSeriesColors, donutSlices, sparkValues, HTTP_SERIES_TOKENS,
 } from '@/lib/httpMetrics';
 import type { TimeRange, SpanMetricSeries } from '@/lib/types';
 import { useThemeTick } from '@/lib/useThemeTick';
@@ -142,7 +141,6 @@ export function ServiceHttpMetricsTab({ service, range }: { service: string; ran
   }
 
   const pending = (id: string) => results[ids.indexOf(id)]?.isPending;
-  const heat = heatmapFromBuckets(data.heatmap);
   const chart = (title: string, id: string, tpl: string, unit: string, scale = 1, extra?: { id: string; tpl: string }[]) => {
     const series = [
       ...relabel(data[id], tpl, scale),
@@ -208,10 +206,11 @@ export function ServiceHttpMetricsTab({ service, range }: { service: string; ran
       </table>
     </div>
   );
-  const donut = (title: string, rows: BarRow[], id: string, colorOf?: (l: string) => string | undefined) => (
+  // v0.10.1258 — onSelect: dilim/lejant tıkı (route pastası route süzgecini uygular).
+  const donut = (title: string, rows: BarRow[], id: string, colorOf?: (l: string) => string | undefined, onSelect?: (label: string) => void) => (
     <Card header={<PanelTitle>{title}</PanelTitle>}>
       {pending(id) ? <Spinner /> : rows.length === 0 ? <div className="field-hint">Bu pencerede veri yok.</div>
-        : <HttpDonut slices={donutSlices(rows)} fmt={v => compact(v)} colorOf={colorOf} />}
+        : <HttpDonut slices={donutSlices(rows)} fmt={v => compact(v)} colorOf={colorOf} onSelect={onSelect} />}
     </Card>
   );
   const grid = (min: number) => ({ display: 'grid', gap: 12, gridTemplateColumns: `repeat(auto-fit, minmax(${min}px, 1fr))`, marginBottom: 14 });
@@ -243,7 +242,8 @@ export function ServiceHttpMetricsTab({ service, range }: { service: string; ran
       <SectionHead title="Trafik" />
       <div style={grid(420)}>
         {chart('Request Rate (Route bazında)', 'rateByRoute', '{{http_request_method}} {{http_route}}', 'req/s')}
-        {donut('İstek Dağılımı (Route, Top 10)', barsOf(data.topRoutes, 'http_route'), 'topRoutes')}
+        {donut('İstek Dağılımı (Route, Top 10)', barsOf(data.topRoutes, 'http_route'), 'topRoutes', undefined,
+          r => setF({ hroute: f.hroute === r ? '' : r }))}
         {chart('HTTP Status Sınıfları', 'statusClass', '{{cls}}', 'req/s')}
         {donut('Status Code Dağılımı', barsOf(data.statusCodes, 'http_response_status_code', 20), 'statusCodes', statusCodeColor)}
       </div>
@@ -253,9 +253,6 @@ export function ServiceHttpMetricsTab({ service, range }: { service: string; ran
         {chart('Latency Yüzdelikleri (p50 / p90 / p95 / p99)', 'p50', 'p50', 's', 1,
           [{ id: 'p90', tpl: 'p90' }, { id: 'p95', tpl: 'p95' }, { id: 'p99', tpl: 'p99' }])}
         {chart('P95 Latency (Route bazında)', 'p95ByRoute', '{{http_request_method}} {{http_route}}', 's')}
-        <Card header={<PanelTitle>Latency Dağılımı (Heatmap)</PanelTitle>} style={{ gridColumn: '1 / -1' }}>
-          {pending('heatmap') ? <Spinner /> : heat ? <LatencyHeatmap data={heat} height={240} /> : <div className="field-hint">Bu pencerede veri yok.</div>}
-        </Card>
       </div>
 
       <SectionHead title="Hatalar" />

@@ -9,7 +9,7 @@
 //   $route/$method  → seçiliyse tam eşitlik, değilse süzgeç yok
 //   $__rate_interval→ rateWindow(step)
 //   $__range        → pencere saniyesi (range sorgusunun SON noktası okunur)
-import type { SpanMetricSeries, LatencyHeatmap as HeatmapData } from './types';
+import type { SpanMetricSeries } from './types';
 
 export interface HttpScope { app: string; route?: string; method?: string }
 
@@ -83,7 +83,6 @@ export function httpQueries(s: HttpScope, windowSec: number): Record<string, str
     // Gecikme
     p50: q(0.5), p90: q(0.9), p99: q(0.99),
     p95ByRoute: q(0.95, `le, ${byMR}`),
-    heatmap: `sum by (le) (increase(${SB}${sel()}[${R}]))`, // v0.10.1247 — panodaki heatmap
     // Hatalar
     err5ByRoute: `sum by (http_route, http_request_method, http_response_status_code) (${rate(SC, 'http_response_status_code=~"5.."')}) > 0`,
     err4ByRoute: `sum by (http_route, http_request_method, http_response_status_code) (${rate(SC, 'http_response_status_code=~"4.."')}) > 0`,
@@ -264,49 +263,7 @@ export function httpSeriesColors(names: readonly string[], resolve: (token: stri
   return out;
 }
 
-// v0.10.1247 — Grafana birebir: heatmap / donut / stat sparkline yardımcıları.
-
-/**
- * Birikimli kova serileri (`sum by (le) (increase(bucket[R]))`, range) →
- * LatencyHeatmap matrisi: zaman × kova, hücre = o adımda O kovaya düşen istek
- * (birikimli farkı). le saniye → ms; +Inf taşma kovası overflowTop.
- */
-export function heatmapFromBuckets(series: SpanMetricSeries[] | null | undefined): HeatmapData | null {
-  const buckets: { le: number; byT: Map<number, number> }[] = [];
-  const times = new Set<number>();
-  for (const s of series ?? []) {
-    const raw = seriesLabels(s).le;
-    if (raw === undefined) continue;
-    const le = raw === '+Inf' ? Infinity : Number(raw);
-    if (Number.isNaN(le)) continue;
-    const byT = new Map<number, number>();
-    for (const p of s.points ?? []) {
-      if (!Number.isFinite(p.value)) continue;
-      byT.set(p.time, p.value);
-      times.add(p.time);
-    }
-    buckets.push({ le, byT });
-  }
-  if (buckets.length === 0 || times.size === 0) return null;
-  buckets.sort((a, b) => a.le - b.le);
-  const ts = [...times].sort((a, b) => a - b);
-  const overflowTop = buckets[buckets.length - 1].le === Infinity;
-  const finite = buckets.filter(b => b.le !== Infinity);
-  const topFinite = finite.length ? finite[finite.length - 1].le : 1;
-  const durationBins = buckets.map(b => (b.le === Infinity ? topFinite * 2 : b.le) * 1000);
-  let maxCount = 0;
-  const counts = ts.map(t => {
-    let prev = 0;
-    return buckets.map(b => {
-      const cum = b.byT.get(t) ?? prev;
-      const n = Math.max(0, cum - prev);
-      prev = Math.max(prev, cum);
-      if (n > maxCount) maxCount = n;
-      return n;
-    });
-  });
-  return { times: ts, durationBins, counts, maxCount, overflowTop, countNoun: 'istek' } as HeatmapData;
-}
+// v0.10.1247 — Grafana birebir: donut / stat sparkline yardımcıları (heatmap v0.10.1258'de kaldırıldı).
 
 export interface DonutSlice { label: string; value: number; pct: number }
 

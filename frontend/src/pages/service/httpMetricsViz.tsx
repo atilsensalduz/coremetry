@@ -5,7 +5,9 @@
 //   gauge (SLI)                                    → HttpGauge
 //   piechart (donut + tablo lejant: değer, %)      → HttpDonut
 // Renkler tema token'larından (globals.css); sabit hex yok.
+import { useState } from 'react';
 import { Sparkline } from '@/components/Sparkline';
+import { Button } from '@/components/ui';
 import { seriesPalette, inkOn } from '@/lib/chartFmt';
 import type { DonutSlice, HttpTone } from '@/lib/httpMetrics';
 
@@ -79,23 +81,37 @@ export function HttpGauge({ label, ratio, tone, text }: { label: string; ratio: 
   );
 }
 
-/** Grafana piechart (donut) + tablo lejant (değer, yüzde). */
-export function HttpDonut({ slices, fmt, colorOf }: {
+/**
+ * Grafana piechart (donut) + tablo lejant (değer, yüzde).
+ * v0.10.1258 (operatör: "pasta dilimleri tıklanamıyor, tooltip yok") —
+ * dilim ya da lejant satırı üzerine gelince öne çıkar, merkezde ad / değer /
+ * yüzde yazar; `onSelect` verilirse tık (ve Enter) seçer. Klavye: satırlar
+ * odaklanabilir (lejant satırı ui Button atomu).
+ */
+export function HttpDonut({ slices, fmt, colorOf, onSelect }: {
   slices: DonutSlice[]; fmt: (v: number) => string; colorOf?: (label: string, i: number) => string | undefined;
+  onSelect?: (label: string) => void;
 }) {
+  const [hover, setHover] = useState<number | null>(null);
   const pal = seriesPalette();
   const color = (l: string, i: number) => colorOf?.(l, i) || pal[i % pal.length];
   const R = 42, C = 2 * Math.PI * R;
+  const active = hover !== null ? slices[hover] : null;
   let acc = 0;
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 180px) minmax(0, 1fr)', gap: 12, alignItems: 'center' }}>
-      <svg viewBox="0 0 120 120" style={{ width: '100%', display: 'block' }} role="img" aria-label="Dağılım">
+      <svg viewBox="0 0 120 120" style={{ width: '100%', display: 'block' }} role="img" aria-label="Dağılım"
+        onMouseLeave={() => setHover(null)}>
         <g transform="rotate(-90 60 60)">
           {slices.map((s, i) => {
             const len = (s.pct / 100) * C;
             const el = (
-              <circle key={s.label} cx={60} cy={60} r={R} fill="none" stroke={color(s.label, i)} strokeWidth={18}
-                strokeDasharray={`${len} ${C - len}`} strokeDashoffset={-acc}>
+              <circle key={s.label} cx={60} cy={60} r={R} fill="none" stroke={color(s.label, i)}
+                strokeWidth={hover === i ? 24 : 18} opacity={hover === null || hover === i ? 1 : 0.35}
+                strokeDasharray={`${len} ${C - len}`} strokeDashoffset={-acc}
+                style={{ cursor: onSelect ? 'pointer' : 'default', transition: 'stroke-width .12s, opacity .12s' }}
+                onMouseEnter={() => setHover(i)}
+                onClick={onSelect ? () => onSelect(s.label) : undefined}>
                 <title>{`${s.label}: ${fmt(s.value)} (%${s.pct.toFixed(1)})`}</title>
               </circle>
             );
@@ -103,21 +119,47 @@ export function HttpDonut({ slices, fmt, colorOf }: {
             return el;
           })}
         </g>
-        {slices[0] && slices[0].pct >= 8 && (
+        {active ? (
+          <>
+            <text x={60} y={56} textAnchor="middle" fontSize={11} fontWeight={600} fill="var(--text)">%{active.pct.toFixed(1)}</text>
+            <text x={60} y={70} textAnchor="middle" fontSize={8} fill="var(--text2)">{fmt(active.value)}</text>
+          </>
+        ) : slices[0] && slices[0].pct >= 8 && (
           <text x={60} y={64} textAnchor="middle" fontSize={12} fontWeight={600} fill="var(--text)">%{slices[0].pct.toFixed(0)}</text>
         )}
       </svg>
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto auto', columnGap: 10, rowGap: 3, fontSize: 12, alignItems: 'center' }}>
-        {slices.map((s, i) => (
-          <div key={s.label} style={{ display: 'contents' }}>
-            <span className="mono dt-trunc" title={s.label} style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
-              <span aria-hidden="true" style={{ flex: '0 0 auto', width: 10, height: 3, borderRadius: 1, background: color(s.label, i) }} />
-              <span className="dt-trunc">{s.label}</span>
-            </span>
-            <span style={{ fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>{fmt(s.value)}</span>
-            <span style={{ fontVariantNumeric: 'tabular-nums', textAlign: 'right', color: 'var(--text2)' }}>%{s.pct.toFixed(0)}</span>
+      <div style={{ display: 'grid', gap: 2, fontSize: 12, minWidth: 0 }}>
+        {active && (
+          <div className="mono dt-trunc" title={active.label} style={{ fontSize: 11, color: 'var(--text)', fontWeight: 600, marginBottom: 2 }}>
+            {active.label}
           </div>
-        ))}
+        )}
+        {slices.map((s, i) => {
+          const row = (
+            <span style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto auto', columnGap: 10, alignItems: 'center', width: '100%' }}>
+              <span className="mono" title={s.label} style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
+                <span aria-hidden="true" style={{ flex: '0 0 auto', width: 10, height: 3, borderRadius: 1, background: color(s.label, i) }} />
+                <span className="dt-trunc">{s.label}</span>
+              </span>
+              <span style={{ fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>{fmt(s.value)}</span>
+              <span style={{ fontVariantNumeric: 'tabular-nums', textAlign: 'right', color: 'var(--text2)' }}>%{s.pct.toFixed(0)}</span>
+            </span>
+          );
+          return onSelect ? (
+            <Button key={s.label} variant="ghost" size="xs" onClick={() => onSelect(s.label)}
+              onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}
+              onFocus={() => setHover(i)} onBlur={() => setHover(null)}
+              title={`${s.label} — süzgeç olarak uygula`}
+              style={{ justifyContent: 'stretch', textAlign: 'left', background: hover === i ? 'var(--bg2)' : undefined }}>
+              {row}
+            </Button>
+          ) : (
+            <div key={s.label} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}
+              style={{ padding: '2px 4px', borderRadius: 3, background: hover === i ? 'var(--bg2)' : undefined }}>
+              {row}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { httpQueries, serverSel, promStr, rateWindow, seriesLabels, legendOf, relabel, scalarOf, barsOf, mergeTable, filterOptions, fmtCount, fmtRatio, fmtSeconds, latencyTone, errorRatioTone, clientErrorTone, sliTone, httpSeriesColors, heatmapFromBuckets, donutSlices, sparkValues, statusCodeRateQuery, statusCodeSeries } from './httpMetrics';
+import { httpQueries, serverSel, promStr, rateWindow, seriesLabels, legendOf, relabel, scalarOf, barsOf, mergeTable, filterOptions, fmtCount, fmtRatio, fmtSeconds, latencyTone, errorRatioTone, clientErrorTone, sliTone, httpSeriesColors, donutSlices, sparkValues, statusCodeRateQuery, statusCodeSeries } from './httpMetrics';
 import type { SpanMetricSeries } from './types';
 
 // v0.10.1244 — HTTP Metrics sekmesi (Grafana panosu → VictoriaMetrics).
@@ -97,15 +97,6 @@ describe('Grafana eşikleri', () => {
 
 // v0.10.1247 — Grafana birebir yardımcıları.
 describe('heatmap / donut / spark', () => {
-  const b = (le: string, vals: number[]) => ser({ le }, vals);
-  it('birikimli kovalar → zaman × kova matrisi, +Inf taşma', () => {
-    const h = heatmapFromBuckets([b('+Inf', [10, 4]), b('0.1', [6, 1]), b('0.5', [9, 4])])!;
-    expect(h.durationBins).toEqual([100, 500, 1000]);
-    expect(h.counts).toEqual([[6, 3, 1], [1, 3, 0]]);
-    expect(h.maxCount).toBe(6);
-    expect(h.overflowTop).toBe(true);
-    expect(heatmapFromBuckets([])).toBeNull();
-  });
   it('donut yüzdeleri', () => {
     expect(donutSlices([{ label: 'a', value: 3 }, { label: 'b', value: 1 }]).map(d => d.pct)).toEqual([75, 25]);
     expect(donutSlices([{ label: 'a', value: 0 }])[0].pct).toBe(0);

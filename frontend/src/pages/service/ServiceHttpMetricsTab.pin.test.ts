@@ -20,12 +20,12 @@ describe('HTTP Metrics sekmesi', () => {
 // v0.10.1247 — Grafana birebir: panel tipleri ve grafik davranışı.
 describe('HTTP Metrics Grafana paritesi', () => {
   const tab = read('ServiceHttpMetricsTab.tsx');
-  it('stat / gauge / donut / heatmap / tablo hücreleri', () => {
+  it('stat / gauge / donut / tablo hücreleri; heatmap yok (v0.10.1258)', () => {
     expect(tab).toContain('<HttpStat label="P95 Latency"');
     expect(tab).toContain('<HttpGauge label="SLI: < 500ms"');
     expect(tab).toContain("donut('İstek Dağılımı (Route, Top 10)'");
     expect(tab).toContain("donut('Status Code Dağılımı'");
-    expect(tab).toContain('<LatencyHeatmap data={heat}');
+    expect(tab).not.toContain('LatencyHeatmap');
     expect(tab).toContain('<GaugeCell');
     expect(tab).toContain('<ToneCell');
   });
