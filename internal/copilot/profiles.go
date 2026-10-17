@@ -740,8 +740,10 @@ const (
 )
 
 var surfaceGroups = map[string][]string{
-	SurfaceGroupIntent:     {"chat-intent", "chat-intent-none", "chat-offtopic"}, // none/off_topic satırı da aynı profille yazılır (#6, v0.10.819)
-	SurfaceGroupBackground: {"problem-auto-explain", "exception-auto-explain"},
+	SurfaceGroupIntent: {"chat-intent", "chat-intent-none", "chat-offtopic"}, // none/off_topic satırı da aynı profille yazılır (#6, v0.10.819)
+	// v0.10.1287 — AI SRE araştırma anlatımı da arka plan çağrısı: Ayarlar'daki
+	// "arka plan" profili onu da taşır (kayıtlı eski haritada kardeş geri düşüşü).
+	SurfaceGroupBackground: {"problem-auto-explain", "exception-auto-explain", "sre-investigation"},
 }
 
 // ProbeProfile — bağlantı yoklaması: ana anahtar KAPALIYKEN ve varsayılan

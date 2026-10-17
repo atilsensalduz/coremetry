@@ -82,17 +82,18 @@ func promptRegistry() map[string]promptClass {
 		// buraya taşındı: metin artık Türkçe yazılmış. ChatRoundCap aynı
 		// döngünün tur-tavanı hâli; sicile girmesiyle copilot_chat.go'daki
 		// satır-içi İngilizce ek de dil kapısının kapsamına girdi.
-		"Chat":           classTurkishNative,
-		"IntentClassify": classTurkishNative, // v0.10.172 — JSON çıktı, Türkçe talimat (RCAVerdict emsali)
-		"GeneralChat":    classTurkishNative, // v0.10.194 — none → genel bilgi cevabı (tool'suz)
-		"ChatRoundCap":   classTurkishNative,
-		"ChatAgentLoop":  classTurkishNative, // v0.10.482 — telemetri ajanı çekirdek döngüsü (Ek A, Türkçe/kısa)
-		"ShiftSummary":   classTurkishNative,
-		"AlertNoise":     classTurkishNative,
-		"LogPatterns":    classTurkishNative,
-		"LogSpike":       classTurkishNative, // v0.10.1284 — AI SRE Faz 1a, sabit dört bölüm + tek örnek
-		"Postmortem":     classTurkishNative, // Faz 5.4 — markdown taslak, Türkçe talimat
-		"RunbookUpdate":  classTurkishNative, // Faz 5.5 — güncelleme önerisi bloğu
+		"Chat":             classTurkishNative,
+		"IntentClassify":   classTurkishNative, // v0.10.172 — JSON çıktı, Türkçe talimat (RCAVerdict emsali)
+		"GeneralChat":      classTurkishNative, // v0.10.194 — none → genel bilgi cevabı (tool'suz)
+		"ChatRoundCap":     classTurkishNative,
+		"ChatAgentLoop":    classTurkishNative, // v0.10.482 — telemetri ajanı çekirdek döngüsü (Ek A, Türkçe/kısa)
+		"ShiftSummary":     classTurkishNative,
+		"AlertNoise":       classTurkishNative,
+		"LogPatterns":      classTurkishNative,
+		"LogSpike":         classTurkishNative, // v0.10.1284 — AI SRE Faz 1a, sabit dört bölüm + tek örnek
+		"SREInvestigation": classTurkishNative, // v0.10.1287 — AI SRE Faz 1b, sabit dört bölüm + tek örnek + veri çerçevesi
+		"Postmortem":       classTurkishNative, // Faz 5.4 — markdown taslak, Türkçe talimat
+		"RunbookUpdate":    classTurkishNative, // Faz 5.5 — güncelleme önerisi bloğu
 		// ── Makine-parse edilen çıktı
 		"NLToQuery":       classStructured,
 		"CHQueryOptimize": classStructured,
@@ -123,8 +124,9 @@ func promptTexts() map[string]string {
 		"WikiFollowUp": SystemPromptWikiFollowUp(),
 		"WikiSelect":   SystemPromptWikiSelect(), "RAGChatWiki": SystemPromptRAGChatWiki(),
 		"AlertNoise": SystemPromptAlertNoise(), "LogPatterns": SystemPromptLogPatterns(),
-		"LogSpike":   SystemPromptLogSpike(),
-		"Postmortem": SystemPromptPostmortem(), "RunbookUpdate": SystemPromptRunbookUpdate(),
+		"LogSpike":         SystemPromptLogSpike(),
+		"SREInvestigation": SystemPromptSREInvestigation(), // v0.10.1287
+		"Postmortem":       SystemPromptPostmortem(), "RunbookUpdate": SystemPromptRunbookUpdate(),
 		"NLToQuery": SystemPromptNLToQuery(), "CHQueryOptimize": SystemPromptCHQueryOptimize(),
 		"ServiceTags": SystemPromptServiceTags(), "OracleException": SystemPromptOracleException(),
 		"CaseCompare": SystemPromptCaseCompare(), "GroundingJudge": SystemPromptGroundingJudge(),

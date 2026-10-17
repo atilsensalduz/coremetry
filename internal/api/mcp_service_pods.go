@@ -34,7 +34,7 @@ func (s *Server) mcpServicePodsOrNil() mcptools.ServicePodsFunc {
 	return s.mcpServicePods
 }
 
-func (s *Server) mcpServicePods(ctx context.Context, service string, refs []string, from, to time.Time) (mcptools.ServicePodsResult, error) {
+func (s *Server) mcpServicePods(ctx context.Context, service string, refs []string, from, to time.Time, opt mcptools.ServicePodsOpts) (mcptools.ServicePodsResult, error) {
 	var out mcptools.ServicePodsResult
 	if s.thanos == nil || !s.thanos.HasEnabledClusters() {
 		return out, nil
@@ -76,7 +76,7 @@ func (s *Server) mcpServicePods(ctx context.Context, service string, refs []stri
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			out.Clusters[i] = s.mcpServicePodsCluster(ctx, c, re, window, offset)
+			out.Clusters[i] = s.mcpServicePodsCluster(ctx, c, re, window, offset, opt)
 		}(i, c)
 	}
 	wg.Wait()
@@ -84,7 +84,7 @@ func (s *Server) mcpServicePods(ctx context.Context, service string, refs []stri
 }
 
 // mcpServicePodsCluster — tek cluster'ın okuması (yalnız kendi dönüşüne yazar).
-func (s *Server) mcpServicePodsCluster(ctx context.Context, c thanos.ClusterConfig, re string, window, offset time.Duration) mcptools.ServicePodsCluster {
+func (s *Server) mcpServicePodsCluster(ctx context.Context, c thanos.ClusterConfig, re string, window, offset time.Duration, opt mcptools.ServicePodsOpts) mcptools.ServicePodsCluster {
 	cl := mcptools.ServicePodsCluster{ID: c.EffectiveID(), Name: c.Name}
 	start := time.Now()
 	cctx, cancel := context.WithTimeout(ctx, thanosPodsPerCluster)
@@ -113,6 +113,20 @@ func (s *Server) mcpServicePodsCluster(ctx context.Context, c thanos.ClusterConf
 				cl.Restarts[smp.Labels["namespace"]+"\x00"+smp.Labels["pod"]] = smp.Value
 			}
 			cl.RestartsOK = true
+		}
+	}
+	// v0.10.1287 (AI SRE Faz 1b, k8s kontrolü) — şu anki bekleme sebebi
+	// (CrashLoopBackOff / ImagePullBackOff …); aynı pod seçicisi + cluster'ın
+	// namespace kalkanı, anlık. Okunamazsa WaitingOK=false ("okunamadı ≠ yok").
+	if opt.WaitingReasons && len(rows) > 0 {
+		wq := thanos.PodWaitingReasonQuery(c.NamespaceFilter, re)
+		cl.Query += "\n" + wq
+		if samples, werr := s.thanos.InstantSamples(cctx, c, wq); werr == nil {
+			cl.Waiting = make(map[string]string, len(samples))
+			for _, smp := range samples {
+				cl.Waiting[smp.Labels["namespace"]+"\x00"+smp.Labels["pod"]] = smp.Labels["reason"]
+			}
+			cl.WaitingOK = true
 		}
 	}
 	cl.DurationMs = time.Since(start).Milliseconds()

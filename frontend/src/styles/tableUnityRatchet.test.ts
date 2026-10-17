@@ -53,7 +53,7 @@ const CEILINGS = {
    *  birleşik satır modeli, replika kararı çok satırlı hücre, dar kartta
    *  ingest pod özeti, düzenlenebilir gün seçici, ön kontrolde küme başına
    *  kapsama). */
-  rawTable: 48, // v0.10.973 — dilim 6: 48 → 47; v0.10.1272 — 47 → 48: MUAF sohbet kanıt tablosu (ai/EvidenceChips — query_logs / query_metrics satırları, ≤50 sabit satır, `.cm-md-table`; ChatTraceList emsali, T1 sohbet muafı)
+  rawTable: 49, // v0.10.973 — dilim 6: 48 → 47; v0.10.1272 — 47 → 48: MUAF sohbet kanıt tablosu (ai/EvidenceChips — query_logs / query_metrics satırları, ≤50 sabit satır, `.cm-md-table`; ChatTraceList emsali, T1 sohbet muafı; v0.10.1287 — 48 → 49: GEREKÇELİ STATİK (T1) anomalies/InvestigationResult AI SRE adım tablosu — ≤6 sabit satır, boru hattı sırası, sıralanmaz)
   /** T5 — `<td style={…}>`: hücre görünümü sınıfa/sütun tanımına taşınır.
    *  v0.10.977 — dilim 7 (son): 69 → 60 — settings/ 7 (LdapTab 3,
    *  LdapUserPicker 4) taban `tbody td` ritmine indi, ProblemDetail 2

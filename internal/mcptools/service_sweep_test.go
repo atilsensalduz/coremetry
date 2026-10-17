@@ -66,7 +66,7 @@ func baseSweepReaders() sweepReaders {
 		},
 		clusterValues: func(context.Context, string, time.Time, time.Time) ([]string, error) { return []string{"prod-a"}, nil },
 		clusters:      func() []ClusterRef { return []ClusterRef{{ID: "c1", Name: "prod-a", SpanValues: []string{"prod-a"}}} },
-		servicePods: func(_ context.Context, _ string, refs []string, _, _ time.Time) (ServicePodsResult, error) {
+		servicePods: func(_ context.Context, _ string, refs []string, _, _ time.Time, _ ServicePodsOpts) (ServicePodsResult, error) {
 			return ServicePodsResult{Thanos: true, PodRegex: "(checkout)-.*", Clusters: []ServicePodsCluster{{
 				ID: "c1", Name: "prod-a", Query: "PodMetrics", RestartsOK: true,
 				Rows: []thanos.PodRow{
@@ -236,7 +236,7 @@ func TestFunctionsSourceFallback(t *testing.T) {
 func TestSweepPartial(t *testing.T) {
 	ctx := context.Background()
 	r := baseSweepReaders()
-	r.servicePods = func(context.Context, string, []string, time.Time, time.Time) (ServicePodsResult, error) {
+	r.servicePods = func(context.Context, string, []string, time.Time, time.Time, ServicePodsOpts) (ServicePodsResult, error) {
 		return ServicePodsResult{}, errors.New("thanos: connection refused")
 	}
 	r.logs = &syncLogStore{err: fmt.Errorf("es: %w", logstore.ErrBackendSlow)}

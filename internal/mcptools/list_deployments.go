@@ -46,8 +46,11 @@ type ChangeRow struct {
 	Workload   string `json:"workload,omitempty"`
 	Service    string `json:"service,omitempty"`
 	Version    string `json:"version,omitempty"` // sürüm / revizyon / imaj etiketi
-	Status     string `json:"status,omitempty"`
-	SpanCount  int64  `json:"span_count,omitempty"`
+	// PrevVersion — v0.10.1287: rollout'un önceki revizyonu / imaj etiketi
+	// (deploy kontrolünün "1.4.2←1.4.1" gerekçesi); inferred/event'te yok.
+	PrevVersion string `json:"prev_version,omitempty"`
+	Status      string `json:"status,omitempty"`
+	SpanCount   int64  `json:"span_count,omitempty"`
 }
 
 // mergeChanges — SAF birleşim: inferred/event (servis-düzeyi) + rollout
@@ -75,13 +78,13 @@ func mergeChanges(inferred []chstore.RecentDeployEntry, rollouts []chstore.Rollo
 		if service != "" && r.Workload != service {
 			continue
 		}
-		ver := r.Revision
+		ver, prev := r.Revision, r.PrevRevision
 		if r.ImageTag != "" {
-			ver = r.ImageTag
+			ver, prev = r.ImageTag, r.PrevImageTag
 		}
 		rows = append(rows, ChangeRow{
 			Source: "rollout", TimeUnixNs: r.StartedAt.UnixNano(), TimeISO: r.StartedAt.UTC().Format(time.RFC3339),
-			Cluster: r.ClusterID, Namespace: r.Namespace, Workload: r.Workload, Version: ver, Status: r.Status, SpanCount: r.SpanCount,
+			Cluster: r.ClusterID, Namespace: r.Namespace, Workload: r.Workload, Version: ver, PrevVersion: prev, Status: r.Status, SpanCount: r.SpanCount,
 		})
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].TimeUnixNs > rows[j].TimeUnixNs })

@@ -125,6 +125,10 @@ type ServicePodsCluster struct {
 	Rows       []thanos.PodRow    // PodMetrics (anlık: CPU/bellek/limit %/faz/son sonlanma)
 	Restarts   map[string]float64 // "namespace\x00pod" → penceredeki restart artışı
 	RestartsOK bool               // restart artışı okundu mu (değilse puanlanmaz)
+	// v0.10.1287 (AI SRE Faz 1b, k8s kontrolü) — "namespace\x00pod" → şu anki
+	// bekleme sebebi (thanos.PodWaitingReasonQuery; yalnız opt.WaitingReasons).
+	Waiting    map[string]string
+	WaitingOK  bool // bekleme sebebi okundu mu (değilse k8s bölümü "okunamadı" der)
 	Truncated  bool
 	Err        string // okunamadıysa neden
 	DurationMs int64
@@ -137,9 +141,15 @@ type ServicePodsResult struct {
 	Clusters []ServicePodsCluster
 }
 
+// ServicePodsOpts — v0.10.1287: isteğe bağlı ek okumalar. WaitingReasons =
+// k8s kontrolü (bekleme sebebi; cluster başına +1 anlık sorgu).
+type ServicePodsOpts struct {
+	WaitingReasons bool
+}
+
 // ServicePodsFunc — servis pod'larının Thanos okuması; clusterRefs boş = tüm
 // etkin cluster'lar (adaptör tavanlar). nil = Thanos yok (bölüm skipped).
-type ServicePodsFunc func(ctx context.Context, service string, clusterRefs []string, from, to time.Time) (ServicePodsResult, error)
+type ServicePodsFunc func(ctx context.Context, service string, clusterRefs []string, from, to time.Time, opt ServicePodsOpts) (ServicePodsResult, error)
 
 // SweepRequest — normalize argümanlar. From/To sıfırsa pencere ctx
 // çıpasından kurulur.
@@ -151,6 +161,12 @@ type SweepRequest struct {
 	Deep         bool
 	TopN         int  // 0 → standart 3 / derin 5; tavan 8
 	SkipPatterns bool // guided: log desenleri okunmaz
+	// Checks — v0.10.1287 (AI SRE Faz 1b; follow-up B): ek kontroller
+	// (service_sweep_checks.go). nil = standart (deploys + k8s); boş dilim =
+	// hiçbiri. AI SRE orkestratörü deploy'u kendi adımında okur → [k8s].
+	Checks []string
+	// Anchor — deploy kontrolünün çıpası (problem başlangıcı); sıfır → To.
+	Anchor time.Time
 }
 
 // ── çıktı ───────────────────────────────────────────────────────────────
@@ -312,6 +328,9 @@ type sweepReaders struct {
 	logs          logstore.Store
 	searchTraces  func(ctx context.Context, f chstore.TraceFilter) ([]chstore.TraceRow, uint64, bool, error)
 	patterns      func(ctx context.Context, window time.Duration) ([]anomaly.LogPatternAnomaly, error)
+	// deploys — v0.10.1287: deploy kontrolünün okuyucusu (list_deployments ile
+	// AYNI gövde, ListDeploymentsWindow). nil = bölüm skipped.
+	deploys func(ctx context.Context, service string, from, to time.Time) ([]ChangeRow, string, error)
 }
 
 func sweepReadersFrom(d Deps) sweepReaders {
@@ -367,6 +386,9 @@ func sweepReadersFrom(d Deps) sweepReaders {
 		}
 		r.runtimeAlerts = st.GetRuntimeAlerts
 		r.searchTraces = st.GetTraces
+		r.deploys = func(ctx context.Context, service string, from, to time.Time) ([]ChangeRow, string, error) {
+			return deployCheckRows(ctx, d, service, from, to)
+		}
 	}
 	return r
 }
@@ -400,6 +422,12 @@ type sweepOutcome struct {
 	scannedFns   int
 	scannedJVM   int
 	anyDataFound bool
+	// v0.10.1287 — k8s kontrolünün girdisi (pods bölümü doldurur) + bekleme
+	// sebebi okunamayan cluster notları.
+	k8s        []K8sPodState
+	k8sNotes   []string
+	k8sWaitOK  bool
+	k8sWaitAsk bool
 }
 
 // ReadServiceSweep — taramanın tamamı. Hata yalnız çağıran iptal ettiğinde
@@ -464,6 +492,12 @@ func runServiceSweep(ctx context.Context, r sweepReaders, req SweepRequest, warn
 		{sweepHopPods, "Altyapı", sweepCapPods, func(c context.Context) sweepOutcome { return sweepRunPods(c, r, req) }},
 		{sweepHopJVM, "Metrik", sweepCapJVM, func(c context.Context) sweepOutcome { return sweepRunJVM(c, r, req, alerts) }},
 	}
+	checks := sweepChecksOf(req)
+	if checks[SweepCheckDeploys] { // v0.10.1287 — deploy kontrolü (list_deployments okuyucusu)
+		jobs = append(jobs, job{sweepHopDeploys, "Değişiklik", sweepCapDeploys, func(c context.Context) sweepOutcome {
+			return sweepRunDeploys(c, r, req.Service, sweepAnchor(req), req.To)
+		}})
+	}
 	reportProgress(ctx, "Sağlık", "taranıyor: "+req.Service+" — RED · problemler · operasyonlar · fonksiyonlar · pod'lar · JVM")
 	outs := make([]sweepOutcome, len(jobs))
 	got := make([]bool, len(jobs))
@@ -512,6 +546,17 @@ wait:
 	for i, j := range jobs {
 		if !got[i] {
 			outs[i] = sweepOutcome{section: SweepSection{Name: j.name, State: hopTimeout, Summary: "süre bütçesi doldu — bölüm bitmedi"}, failed: true}
+		}
+	}
+	// v0.10.1287 — k8s kontrolü: pods bölümünün okuduğu satırlardan (ayrı okuma
+	// yok); pod adayıyla aynı pod'un k8s gerekçeleri o adaya katılır.
+	if checks[SweepCheckK8s] {
+		for i := range outs {
+			if outs[i].section.Name == sweepHopPods {
+				k8s := sweepK8sOutcome(&outs[i])
+				outs = append(outs, k8s)
+				break
+			}
 		}
 	}
 	byName := map[string]*sweepOutcome{}
@@ -1048,7 +1093,9 @@ func sweepRunPods(ctx context.Context, r sweepReaders, req SweepRequest) sweepOu
 			refs = append(refs, firstNonEmpty(c.ID, c.Name))
 		}
 	}
-	res, err := r.servicePods(ctx, req.Service, refs, req.From, req.To)
+	ask := sweepChecksOf(req)[SweepCheckK8s]
+	o.k8sWaitAsk = ask
+	res, err := r.servicePods(ctx, req.Service, refs, req.From, req.To, ServicePodsOpts{WaitingReasons: ask})
 	if err != nil {
 		o.failed = true
 		o.section.State, o.section.Summary = sweepFailState(err), cosreErrMsg("pod'lar okunamadı", err)
@@ -1080,6 +1127,13 @@ func sweepRunPods(ctx context.Context, r sweepReaders, req SweepRequest) sweepOu
 		if cl.Truncated {
 			notes = append(notes, "cluster "+cl.Name+": pod listesi Thanos tavanına takıldı")
 		}
+		if ask && len(cl.Rows) > 0 { // v0.10.1287 — k8s kontrolü bekleme sebebi
+			if cl.WaitingOK {
+				o.k8sWaitOK = true
+			} else {
+				o.k8sNotes = append(o.k8sNotes, "cluster "+cl.Name+": bekleme sebebi okunamadı (okunamadı ≠ yok)")
+			}
+		}
 		var worst *sweepCand
 		for _, row := range cl.Rows {
 			if row.Cluster == "" {
@@ -1090,6 +1144,12 @@ func sweepRunPods(ctx context.Context, r sweepReaders, req SweepRequest) sweepOu
 				v := cl.Restarts[row.Namespace+"\x00"+row.Pod]
 				rs = &v
 			}
+			st := K8sPodState{Cluster: row.Cluster, ClusterID: cl.ID, Namespace: row.Namespace, Pod: row.Pod, Phase: row.Phase,
+				LastTermReason: row.LastTermReason, RestartsWindow: rs}
+			if cl.WaitingOK {
+				st.WaitingReason = cl.Waiting[row.Namespace+"\x00"+row.Pod]
+			}
+			o.k8s = append(o.k8s, st)
 			c := classifySweepPod(row, rs)
 			c.ClusterID = cl.ID
 			switch c.Level {
@@ -1287,6 +1347,12 @@ func sweepPhase2(ctx context.Context, r sweepReaders, req SweepRequest, findings
 	if r.logs != nil {
 		for i := range findings {
 			f := findings[i]
+			if f.Kind == sweepKindDeploy {
+				// v0.10.1287 — deploy bulgusunun "logu" yok (ad bir sürüm/rollout,
+				// operasyon değil); okuma yapılmaz, bütçe harcanmaz.
+				p.logs[i] = &SweepLogs{State: hopSkipped, Summary: "deploy bulgusu — log okunmaz"}
+				continue
+			}
 			tasks = append(tasks, task{"logs", i, func(c context.Context) res {
 				l, ev := sweepFindingLogs(c, r, req, f)
 				return res{kind: "logs", i: i, logs: l, ev: ev}
@@ -1338,6 +1404,8 @@ func sweepPhase2(ctx context.Context, r sweepReaders, req SweepRequest, findings
 			logSec.State, logSec.Summary = hopSkipped, "log arka ucu yapılandırılmamış"
 		case len(findings) == 0:
 			logSec.State, logSec.Summary = hopSkipped, "sorunlu bulgu yok — log okunmadı"
+		default: // v0.10.1287 — yalnız deploy bulguları (logsuz tür)
+			logSec.State, logSec.Summary = hopSkipped, "yalnız deploy bulgusu — log okunmadı"
 		}
 		finish()
 		return p
@@ -1490,7 +1558,7 @@ func sweepFindingLogs(ctx context.Context, r sweepReaders, req SweepRequest, f S
 	traceID := ""
 	elapsed := stopwatch()
 	switch f.Kind {
-	case sweepKindPod, sweepKindJVM:
+	case sweepKindPod, sweepKindJVM, sweepKindK8s: // v0.10.1287 — k8s bulgusu da bir pod
 		lf = logstore.Filter{Service: req.Service, Pod: f.Name, SeverityMin: qlOTelErrorFloor, Limit: sweepLogFetch, From: req.From, To: req.To}
 		page, err = logstore.SearchWithTimeout(ctx, r.logs, lf, sweepCapLogs)
 	default:
@@ -1767,7 +1835,11 @@ func serviceHealthSweepTool(d Deps) mcp.Tool {
 			"volume floor >100 spans; pods 85/90% of limit, OOMKilled or not Running = crit, ≥1 restart warn, ≥3 crit; JVM per runtime alerts). " +
 			"The top findings (3, or 5 with deep=true; top_n ≤8) are ranked by level then impact, and THEIR logs are read: pod/JVM → that pod's " +
 			"ERROR+ logs; operation/function → the newest error trace's logs. deep=true also samples code.function/code.namespace on the error/slow " +
-			"spans of the top problem operations (≤5000 spans, labelled sampled) and new/spiking log patterns. Budget 15 s; every section reports " +
+			"spans of the top problem operations (≤5000 spans, labelled sampled) and new/spiking log patterns. Two extra checks always run: deploys " +
+			"(the list_deployments reader — span version transitions, deploy events, Kubernetes rollouts — 2 h before the window end, ≤10 rows; " +
+			"a change within −60/+5 min of it is a warning, a stalled/rolled-back rollout critical; deploys never change problem priority) and k8s " +
+			"(the same pod read plus kube-state-metrics waiting reasons: CrashLoopBackOff/ImagePullBackOff/ErrImagePull/CreateContainerConfigError " +
+			"critical, OOMKilled only with a restart in the window, Pending/Failed warn; Kubernetes Events are not ingested). Budget 15 s; every section reports " +
 			"state ok|empty|partial|error|timeout|skipped with a note ('veri yok' = looked, nothing; error/degraded = could not read). " +
 			"verdict{label Sağlıklı|Dikkat|Sorunlu|Veri yok, reasons, next}; evidence per section. Read-only. Use for 'servisi tara / genel sağlığı / " +
 			"pod, operasyon, fonksiyon hepsine bak'; for a quick RED number use get_service_health, for one trace use pivot_from_trace.",
@@ -1799,19 +1871,53 @@ func serviceHealthSweepTool(d Deps) mcp.Tool {
 			if r.runtimeAlerts != nil {
 				alerts = r.runtimeAlerts(ctx)
 			}
-			key := sweepCacheKey(req, clusters, alerts) + ":w=" + fnvHex(warnings...)
-			body, err := d.Memo(ctx, key, sweepCacheTTL, func(c context.Context) (any, bool, error) {
-				res, err := runServiceSweep(c, r, req, warnings)
-				if err != nil {
-					return nil, false, err
-				}
-				// Kısmi / hatalı sonuç saklanmaz (v0.10.1119 kuralı).
-				return res, res.OK && !res.Partial && res.Error == nil, nil
-			})
+			body, err := sweepMemo(ctx, d, r, req, clusters, alerts, warnings)
 			if err != nil {
 				return nil, err
 			}
 			return json.RawMessage(body), nil
 		},
 	}
+}
+
+// sweepMemo — aracın önbellekli yürütmesi; v0.10.1287'den beri AI SRE
+// orkestratörü de AYNI anahtarla çağırır (ReadServiceSweepCached) → drain'in
+// taraması, aynı istekle gelen sohbet çağrısına önbellek isabeti olur.
+func sweepMemo(ctx context.Context, d Deps, r sweepReaders, req SweepRequest, clusters []ClusterRef, alerts chstore.RuntimeAlertConfig, warnings []string) ([]byte, error) {
+	key := sweepCacheKey(req, clusters, alerts) + ":w=" + fnvHex(warnings...)
+	return d.Memo(ctx, key, sweepCacheTTL, func(c context.Context) (any, bool, error) {
+		res, err := runServiceSweep(c, r, req, warnings)
+		if err != nil {
+			return nil, false, err
+		}
+		// Kısmi / hatalı sonuç saklanmaz (v0.10.1119 kuralı).
+		return res, res.OK && !res.Partial && res.Error == nil, nil
+	})
+}
+
+// ReadServiceSweepCached — v0.10.1287 (AI SRE Faz 1b): ReadServiceSweep'in
+// Deps.Memo'lu eşi (Memo yoksa doğrudan). Sohbet aracıyla aynı anahtar (uyarı
+// yok) — drain'in sonucu sohbetin önbelleğini tohumlar.
+func ReadServiceSweepCached(ctx context.Context, d Deps, req SweepRequest) (SweepResult, error) {
+	r := sweepReadersFrom(d)
+	if d.Memo == nil {
+		return runServiceSweep(ctx, r, req, nil)
+	}
+	var clusters []ClusterRef
+	if d.Clusters != nil {
+		clusters = d.Clusters()
+	}
+	alerts := chstore.DefaultRuntimeAlerts()
+	if r.runtimeAlerts != nil {
+		alerts = r.runtimeAlerts(ctx)
+	}
+	body, err := sweepMemo(ctx, d, r, req, clusters, alerts, nil)
+	if err != nil {
+		return SweepResult{}, err
+	}
+	var out SweepResult
+	if err := json.Unmarshal(body, &out); err != nil {
+		return SweepResult{}, fmt.Errorf("sweep cache decode: %w", err)
+	}
+	return out, nil
 }

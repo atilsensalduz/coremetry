@@ -1,0 +1,244 @@
+package sre
+
+// deps.go — v0.10.1287 (AI SRE Faz 1b): bağımlılık adımı. Üç MV okuması
+// paralel (adım tavanı 8 s):
+//
+//	aşağı akış    GetServiceGraphTopN(servis, pencere, 20) — topology_edges_5m
+//	              (ServiceNeighbors DEĞİL: ham spans)
+//	korelasyon    GetCorrelatedChangesMVTop(başlangıç, w, 4w, havuz 50) +
+//	              MarkCorrelationCauses (kenar + yön kuralı; causeEligible)
+//	yukarı akış   GetBlastRadiusBatch([servis]) — service_callers_5m
+//
+// Bulgu = YALNIZ "olası neden" uygun korele servis (kenarı doğrulanmış aşağı
+// akış kötüleşmesi / trafik kaybı ya da yukarı akış yük sıçraması; ≤3, uyarı).
+// Korelasyon nedensellik değildir — gerekçe bunu söyler. Topoloji okunamazsa
+// hiçbir satır uygun değildir (kenarsız yayılım iddiası yok).
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/cilcenk/coremetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/mcptools"
+)
+
+const depsCausesMax = 3
+
+// depsPayload — adım yükü.
+type depsPayload struct {
+	Downstream []depsEdge   `json:"downstream"`
+	Causes     []depsCause  `json:"causes"`
+	Callers    int          `json:"callers"`
+	Cascading  int          `json:"cascading"`
+	Upstream   []depsCaller `json:"upstream,omitempty"`
+}
+
+type depsEdge struct {
+	Target    string  `json:"target"`
+	Calls     uint64  `json:"calls"`
+	ErrorRate float64 `json:"errorRate"`
+	AvgMs     float64 `json:"avgMs"`
+}
+
+type depsCause struct {
+	Service   string `json:"service"`
+	Relation  string `json:"relation"`
+	Direction string `json:"direction"`
+}
+
+type depsCaller struct {
+	Service        string  `json:"service"`
+	RPS            float64 `json:"rps"`
+	ErrorRate      float64 `json:"errorRate"`
+	HasOpenProblem bool    `json:"hasOpenProblem,omitempty"`
+}
+
+// relationTR — SAF.
+func relationTR(r string) string {
+	switch r {
+	case chstore.RelationDownstream:
+		return "aşağı akış bağımlılığı (servis onu çağırıyor)"
+	case chstore.RelationUpstream:
+		return "yukarı akış çağıran (servisi çağırıyor)"
+	case chstore.RelationBoth:
+		return "iki yönlü bağımlılık"
+	}
+	return "bağlantı doğrulanamadı"
+}
+
+// depsResult — üç okumanın ham sonucu (SAF birleştirici girdisi).
+type depsResult struct {
+	edges   []chstore.ServiceEdge
+	edgeErr error
+	changes []chstore.ChangedService
+	chgErr  error
+	blast   *chstore.BlastRadius
+	blstErr error
+}
+
+// runDeps — adım (okumalar paralel, birleştirme SAF depsStep).
+func runDeps(ctx context.Context, rd readers, req depsRequest) (Step, []Finding) {
+	var res depsResult
+	var wg sync.WaitGroup
+	durs := make([]int64, 3)
+	if rd.graph != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s := time.Now()
+			res.edges, res.edgeErr = rd.graph(ctx, req.Service, req.From, req.To)
+			durs[0] = time.Since(s).Milliseconds()
+		}()
+	} else {
+		res.edgeErr = fmt.Errorf("topoloji okuyucusu bağlı değil")
+	}
+	if rd.changes != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s := time.Now()
+			res.changes, res.chgErr = rd.changes(ctx, req.At, req.WindowSec)
+			durs[1] = time.Since(s).Milliseconds()
+		}()
+	} else {
+		res.chgErr = fmt.Errorf("korelasyon okuyucusu bağlı değil")
+	}
+	if rd.blast != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s := time.Now()
+			m, err := rd.blast(ctx, []string{req.Service}, req.From, req.To)
+			durs[2] = time.Since(s).Milliseconds()
+			if err != nil {
+				res.blstErr = err
+				return
+			}
+			if br, ok := m[req.Service]; ok {
+				res.blast = &br
+			}
+		}()
+	} else {
+		res.blstErr = fmt.Errorf("blast radius okuyucusu bağlı değil")
+	}
+	wg.Wait()
+	st, f := depsStep(req, res)
+	st.Evidence = depsEvidence(req, res, durs)
+	return st, f
+}
+
+// depsStep — SAF: üç okuma → adım + bulgular.
+func depsStep(req depsRequest, res depsResult) (Step, []Finding) {
+	st := Step{Name: stepDeps}
+	var parts []string
+	failed := 0
+	p := depsPayload{Downstream: []depsEdge{}, Causes: []depsCause{}}
+	if res.edgeErr != nil {
+		failed++
+		parts = append(parts, "topoloji okunamadı")
+	} else {
+		for _, e := range res.edges {
+			if e.Source == req.Service && e.Target != req.Service && len(p.Downstream) < 10 {
+				p.Downstream = append(p.Downstream, depsEdge{Target: e.Target, Calls: e.CallCount, ErrorRate: round2(e.ErrorRate), AvgMs: round2(e.AvgMs)})
+			}
+		}
+		parts = append(parts, fmt.Sprintf("%d aşağı akış bağımlılığı", len(p.Downstream)))
+	}
+	var findings []Finding
+	if res.chgErr != nil {
+		failed++
+		parts = append(parts, "korele değişiklikler okunamadı")
+	} else {
+		marked := chstore.MarkCorrelationCauses(res.changes, req.Service, res.edges, res.edgeErr == nil)
+		var names []string
+		for _, c := range marked {
+			if !c.CauseEligible {
+				continue
+			}
+			if len(findings) >= depsCausesMax {
+				break
+			}
+			reasons := []string{relationTR(c.Relation) + " — korelasyon, nedensellik değil"}
+			for i, r := range c.Reasons {
+				if i >= 2 {
+					break
+				}
+				reasons = append(reasons, r)
+			}
+			findings = append(findings, Finding{Kind: "dependency", Name: c.Service, Level: "warn", Reasons: reasons,
+				EvidenceRefs: []string{"evidences[1]"}, Step: stepDeps})
+			p.Causes = append(p.Causes, depsCause{Service: c.Service, Relation: c.Relation, Direction: c.Direction})
+			names = append(names, c.Service)
+		}
+		if len(names) > 0 {
+			parts = append(parts, fmt.Sprintf("olası neden %d (%s)", len(names), strings.Join(names, ", ")))
+		} else {
+			parts = append(parts, "olası neden olabilecek korele bağımlılık yok")
+		}
+	}
+	if res.blstErr != nil {
+		failed++
+		parts = append(parts, "çağıranlar okunamadı")
+	} else if res.blast != nil {
+		p.Callers, p.Cascading = res.blast.TotalCallers, res.blast.CascadingCallers
+		for i, c := range res.blast.Callers {
+			if i >= 5 {
+				break
+			}
+			p.Upstream = append(p.Upstream, depsCaller{Service: c.Service, RPS: round2(c.RPS), ErrorRate: round2(c.ErrorRate), HasOpenProblem: c.HasOpenProblem})
+		}
+		parts = append(parts, fmt.Sprintf("%d çağıran (%d'inde açık problem)", p.Callers, p.Cascading))
+	} else {
+		parts = append(parts, "çağıran yok")
+	}
+	switch failed {
+	case 0:
+		st.State = StepOK
+	case 3:
+		st.State = StepError
+	default:
+		st.State = StepPartial
+	}
+	st.Summary = truncRunes(strings.Join(parts, "; "), 500)
+	if raw, err := json.Marshal(p); err == nil && len(raw) <= maxStepPayload {
+		st.Payload = raw
+	}
+	return st, findings
+}
+
+// depsEvidence — SAF: üç okumanın künyesi (sorgu özeti + pencere + satır).
+func depsEvidence(req depsRequest, res depsResult, durs []int64) []mcptools.ChatEvidence {
+	win := mcptools.EvidenceWindow{FromMs: req.From.UnixMilli(), ToMs: req.To.UnixMilli()}
+	n := func(k int) *int { return &k }
+	at := req.At.UTC().Format(time.RFC3339)
+	out := []mcptools.ChatEvidence{
+		{Tool: "get_topology", Source: "ClickHouse", QueryKind: "summary", Window: win, DurationMs: durs[0],
+			Query: fmt.Sprintf("GetServiceGraphTopN FROM topology_edges_5m WHERE service = '%s' (≤%d kenar, çağrı sayısına göre)", req.Service, depsGraphTopN)},
+		{Tool: "get_correlated_changes", Source: "ClickHouse", QueryKind: "summary", DurationMs: durs[1],
+			Window: mcptools.EvidenceWindow{FromMs: req.At.UnixMilli(), ToMs: req.At.Add(time.Duration(req.WindowSec) * time.Second).UnixMilli()},
+			Query:  fmt.Sprintf("GetCorrelatedChangesMVTop at=%s pencere %d s, taban 4× (service_summary_5m) + MarkCorrelationCauses (kenar + yön)", at, req.WindowSec)},
+		{Tool: "get_blast_radius", Source: "ClickHouse", QueryKind: "summary", Window: win, DurationMs: durs[2],
+			Query: fmt.Sprintf("GetBlastRadiusBatch FROM service_callers_5m WHERE service = '%s' (+ açık problem eşlemesi)", req.Service)},
+	}
+	if res.edgeErr == nil {
+		out[0].Rows = n(len(res.edges))
+	}
+	if res.chgErr == nil {
+		out[1].Rows = n(len(res.changes))
+	}
+	if res.blstErr == nil && res.blast != nil {
+		out[2].Rows = n(len(res.blast.Callers))
+	}
+	return out
+}
+
+func round2(v float64) float64 {
+	if v != v { // NaN
+		return 0
+	}
+	return float64(int64(v*100+0.5)) / 100
+}

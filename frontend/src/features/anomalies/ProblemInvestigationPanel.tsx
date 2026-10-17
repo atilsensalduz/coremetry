@@ -22,6 +22,8 @@ import { toast } from '@/lib/toast';
 import { agoTR, tsLong } from '@/lib/utils';
 import type { ProblemInvestigationResponse, SREInvestigation, SREStatus } from '@/lib/types';
 import { Sect } from './detailSections';
+// v0.10.1287 — Faz 1b sonuç gövdesi (adım tablosu, bulgular + kanıt, AI özeti, Sohbette sor).
+import { InvestigationResult } from './InvestigationResult';
 import { SRE_SETTINGS_PATH, sreRoleMissing } from './sreInvestigationView';
 
 const STATE_LABEL: Record<string, { label: string; tone: Tone }> = {
@@ -132,31 +134,6 @@ function StateBody({ data, status }: { data: ProblemInvestigationResponse; statu
 }
 
 function Result({ inv }: { inv: SREInvestigation }) {
-  const sweep = inv.steps.find(s => s.name === 'sweep');
-  return (
-    <div style={{ display: 'grid', gap: 8, fontSize: 13 }}>
-      {inv.error && <div className="cm-callout is-caution" role="alert">{inv.error}</div>}
-      {sweep?.summary && (
-        <div><b>Servis taraması ({inv.service}):</b> {sweep.summary}</div>
-      )}
-      {sweep && sweep.state !== 'ok' && !inv.error && (
-        <div style={{ color: 'var(--text3)' }}>Tarama {sweep.state === 'partial' ? 'kısmi tamamlandı' : 'tamamlanamadı'}.</div>
-      )}
-      {inv.findings.length > 0 && (
-        <ul style={{ margin: 0, paddingLeft: 18 }}>
-          {inv.findings.map(f => (
-            <li key={`${f.kind}:${f.name}`}>
-              <span className="mono">{f.name}</span>{' '}
-              <span style={{ color: 'var(--text3)' }}>({f.kind} · {f.level})</span>
-              {f.reasons && f.reasons.length > 0 && <> — {f.reasons.join('; ')}</>}
-            </li>
-          ))}
-        </ul>
-      )}
-      <div style={{ color: 'var(--text3)', fontSize: 12 }}>
-        Öneri niteliğinde — hiçbir değişiklik uygulanmadı.
-        {inv.kind === 'manual' && inv.requestBy ? ` İsteyen: ${inv.requestBy}.` : ''}
-      </div>
-    </div>
-  );
+  // v0.10.1287 — gövde InvestigationResult'ta (0a tek-adım kaydı da orada çizilir).
+  return <InvestigationResult inv={inv} />;
 }

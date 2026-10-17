@@ -94,3 +94,19 @@ func PodFamilyQuery(family, nsFilter, podRe string, window, offset time.Duration
 	}
 	return fmt.Sprintf("topk(%d, sum by (namespace, pod) (%s))", limit, inner), nil
 }
+
+// PodWaitingReasonQuery — v0.10.1287 (AI SRE Faz 1b, k8s kontrolü): servis
+// pod'larının ŞU ANKİ bekleme sebebi (CrashLoopBackOff / ImagePullBackOff /
+// ErrImagePull / CreateContainerConfigError …). KSM serisi
+// kube_pod_container_status_waiting_reason (namespace, pod, container, reason)
+// etiketli; `== 1` ŞART (podLastTermQuery gerekçesi: KSM sebep dışı reason
+// serilerini de 0 değerle basar), container ekseni max by ile katlanır.
+// Seçici envanter sorgularıyla AYNI yardımcılar (podMatcher / nsMatcher —
+// değer çerçevesi escapeLabelValue ile kaçışlanır); cluster matcher'ı
+// çağıranın doQuery yolunda enjekte edilir. Kubernetes Events ingest
+// edilmiyor — yalnız KSM durumu okunur. SAF.
+func PodWaitingReasonQuery(nsFilter, podRe string) string {
+	return fmt.Sprintf(
+		`max by (namespace, pod, reason) (kube_pod_container_status_waiting_reason{%s%s} == 1)`,
+		podMatcher(podRe), nsMatcher(nsFilter))
+}

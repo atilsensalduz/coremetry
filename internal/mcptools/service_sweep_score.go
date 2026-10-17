@@ -169,7 +169,10 @@ func sweepJVMCand(row pivotJVMRow) sweepCand {
 
 // sweepKindOrder — eşit seviye + etkide tür sırası (altyapı önce: pod sorunu
 // operasyonları da sürükler).
-var sweepKindOrder = map[string]int{sweepKindPod: 0, sweepKindJVM: 1, sweepKindOperation: 2, sweepKindFunction: 3}
+// v0.10.1287 — k8s (bekleme sebebi / pencerede OOM) ve deploy (başlangıca
+// yakın rollout) altyapının da önünde: follow-up B sırası "crit önce, sonra
+// k8s > deploy"; mevcut pod > JVM > operasyon > fonksiyon sırası korunur.
+var sweepKindOrder = map[string]int{sweepKindK8s: -2, sweepKindDeploy: -1, sweepKindPod: 0, sweepKindJVM: 1, sweepKindOperation: 2, sweepKindFunction: 3}
 
 // scoreFindings — SAF: yalnız ok OLMAYAN adaylar; sıra seviye → etki (azalan)
 // → tür → ad. topN'e kırpılır; ikinci dönüş kırpıldı mı. Rank 1'den.
@@ -260,6 +263,10 @@ func sweepKindTR(k string) string {
 		return "operasyon"
 	case sweepKindFunction:
 		return "fonksiyon"
+	case sweepKindK8s: // v0.10.1287
+		return "Kubernetes"
+	case sweepKindDeploy:
+		return "deploy"
 	}
 	return k
 }
@@ -276,8 +283,9 @@ func sweepCacheKey(req SweepRequest, clusters []ClusterRef, alerts chstore.Runti
 	}
 	sort.Strings(cs)
 	ab, _ := json.Marshal(alerts)
+	// v0.10.1287 — kontroller (sıralı, nil ≠ boş) + deploy çıpası anahtarda.
 	return "sweep:v1:" + fnvHex(req.Service, req.Env, req.Window,
 		fmt.Sprint(req.From.Unix()/30), fmt.Sprint(req.To.Unix()/30),
 		fmt.Sprint(req.Deep), fmt.Sprint(req.TopN), fmt.Sprint(req.SkipPatterns),
-		string(ab), fnvHex(cs...))
+		string(ab), fnvHex(cs...), sweepChecksKey(req), fmt.Sprint(sweepAnchor(req).Unix()/30))
 }

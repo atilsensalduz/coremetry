@@ -2364,6 +2364,11 @@ func (s *Server) guidedRootCauseBundle(ctx context.Context, emit func(string, an
 		blk := renderProblemsEvidenceTR(probs, service, env, evidenceAsOf(to), probTotal)
 		emitGuidedStepResult(emit, nRC, "root_cause_hypotheses", blk, nil)
 		b.WriteString(blk)
+		// v0.10.1287 (AI SRE Faz 1b) — problemin kayıtlı AI SRE araştırması:
+		// aynı okumaları yeniden koşmadan bulgular + özet ("KAYITLI ARAŞTIRMA").
+		if saved := s.guidedSavedInvestigationTR(ctx, probs); saved != "" {
+			b.WriteString("\n" + saved)
+		}
 	} else if probErr != nil {
 		// v0.10.944 — okuma hatası "problem yok" değil (service_context ile aynı sınıf).
 		emitGuidedStepResult(emit, nProb, "list_problems", "", probErr)

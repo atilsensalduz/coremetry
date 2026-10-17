@@ -5996,3 +5996,34 @@ TestVotesNeverReachRuntimeDecisions `../sre`'yi tarar).
 **Reddedilen:** kuyruğu root_cause_hypotheses ya da problems kolonlarında
 tutmak (tek yazıcıları başka, /aiops §6); drain'i worker'da koşmak; idle exit'i
 Deployment'ta açık bırakmak (çıkış = restart döngüsü).
+
+## 2026-10-17 — AI SRE Faz 1b: araştırma orkestratörü (v0.10.1287)
+
+**Karar:** drain'in tek `sweep` adımı tam plana genişledi (`internal/sre`
+plan.go / orchestrator.go): SAF `planSteps` (anomaly.PlanFamilies → belirti)
+→ dalga 1 paralel `sweep` (P1'de derin; `Checks=[k8s]`) · `deploys`
+(list_deployments okuyucusu, çıpa = problem başlangıcı, −60/+5 dk uyarı,
+stalled/rolled_back kritik) · `deps` (topology_edges_5m aşağı akış +
+GetCorrelatedChangesMVTop + MarkCorrelationCauses + GetBlastRadiusBatch;
+ServiceNeighbors değil) → dalga 2 paralel `pivot` (hipotezin temsilci
+trace'i, yoksa spanmetrics rollup exemplar'ı, yoksa pivotun kendi seçimi) ·
+`log_spike` (explain_log_spike süreç içi) → TEK anlatım çağrısı (yüzey
+`sre-investigation`, `SystemPromptSREInvestigation`). Her adım checkpoint;
+başarısız adım koşuyu kesmez (kısmi); taze ok adım resume'da atlanır. Okumalar
+sohbetle aynı çekirdek + aynı Memo anahtarı (drain sohbetin önbelleğini
+tohumlar). Sohbet yeniden kullanımı: get_problem `investigation{at, state,
+findings≤3, summary}`, guided kök-neden demetinde "KAYITLI ARAŞTIRMA (HH:MM)".
+service_health_sweep standart kontrolleri: deploys + k8s (follow-up B).
+
+**LLM bütçesi:** araştırma başına ≤1 çağrı; arka plan kapıları AutoExplain +
+kota beklemesi + `sre_agent.maxLLMCallsPerHour` (varsayılan 30, Redis +
+bellek sayacı); kapalı kapıda çağrı yok, özet "AI özeti yok (otomatik AI
+kapalı)" + neden.
+
+**Neden / sınır:** yalnız öneri — orkestratör mağazadan yalnız Get/Find okur
+(TestOrchestratorReadOnly); deploy bulgusu önceliğe karışmaz (fresh deploy
+tetikleyicisi yok); sentezleyici hipotezi salt-okunur kopya (SynthRef).
+
+**Ertelenen:** Argo CD Degraded/OutOfSync notu (servis → uygulama eşlemesi api
+katmanında), node / gürültülü komşu kontrolü (Faz 2), log_patterns kontrolü
+(explain_log_spike karşılıyor).

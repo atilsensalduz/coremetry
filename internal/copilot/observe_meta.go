@@ -49,7 +49,8 @@ var promptVersionRegistry = map[string]string{
 	"systemShiftSummary":         systemShiftSummary,
 	"systemAlertNoise":           systemAlertNoise,
 	"systemLogPatterns":          systemLogPatterns,
-	"systemLogSpike":             systemLogSpike, // v0.10.1284 — AI SRE Faz 1a
+	"systemLogSpike":             systemLogSpike,         // v0.10.1284 — AI SRE Faz 1a
+	"systemSREInvestigation":     systemSREInvestigation, // v0.10.1287 — AI SRE Faz 1b
 	"systemPostmortem":           systemPostmortem,
 	"systemRunbookUpdate":        systemRunbookUpdate,
 	"systemServiceAnalysis":      systemServiceAnalysis,

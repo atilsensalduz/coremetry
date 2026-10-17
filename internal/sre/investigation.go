@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/cilcenk/coremetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/mcptools"
 )
 
 // Durumlar (name kolonu).
@@ -49,6 +50,10 @@ const (
 	// maxFindings — kayıtta tutulan en çok bulgu.
 	maxFindings = 8
 	maxWarnings = 10
+	// maxStepEvidence — v0.10.1287: adım başına saklanan kanıt künyesi.
+	maxStepEvidence = 6
+	// maxEvidenceQuery — künyedeki sorgu metninin rune tavanı.
+	maxEvidenceQuery = 600
 )
 
 // Anchor — araştırmanın penceresi.
@@ -56,6 +61,8 @@ type Anchor struct {
 	From    int64  `json:"from"` // unix ns
 	To      int64  `json:"to"`   // unix ns
 	Symptom string `json:"symptom,omitempty"`
+	// Families — v0.10.1287: anomaly.PlanFamilies (planın belirti aileleri).
+	Families []string `json:"families,omitempty"`
 }
 
 // Step — tek okuma adımı (önbellek anahtarlı, idempotent; resume ok adımı
@@ -68,6 +75,10 @@ type Step struct {
 	At           int64           `json:"at"` // unix ns, adımın bittiği an
 	EvidenceRefs []string        `json:"evidenceRefs,omitempty"`
 	Payload      json.RawMessage `json:"payload,omitempty"`
+	// Evidence — v0.10.1287: adımın kanıt künyeleri (sohbet çipiyle aynı şekil,
+	// "Explore'da aç" href'i dahil; ≤6). Bulgunun EvidenceRefs'i
+	// "evidences[i]" → bu dizinin i'nci kalemi (Finding.Step adımında).
+	Evidence []mcptools.ChatEvidence `json:"evidence,omitempty"`
 }
 
 // Finding — sıralı bulgu (0a: servis taramasının bulguları).
@@ -77,6 +88,28 @@ type Finding struct {
 	Level        string   `json:"level"`
 	Reasons      []string `json:"reasons,omitempty"`
 	EvidenceRefs []string `json:"evidenceRefs,omitempty"`
+	// Step — v0.10.1287: bulguyu üreten adım (EvidenceRefs o adımın Evidence'ına
+	// bakar). 0a kayıtlarında boş = sweep.
+	Step string `json:"step,omitempty"`
+}
+
+// Narration — v0.10.1287: araştırmanın AI anlatımı (tek LLM çağrısı). Gated =
+// arka plan AI kapısı kapalıydı; Text o zaman dürüst sabit cümle.
+type Narration struct {
+	Text   string `json:"text"`
+	Model  string `json:"model,omitempty"`
+	At     int64  `json:"at"` // unix ns
+	Gated  bool   `json:"gated,omitempty"`
+	Reason string `json:"reason,omitempty"` // kapı nedeni (kapalı / kota / saatlik tavan / yapılandırılmamış)
+}
+
+// SynthRef — v0.10.1287: kök-neden sentezleyicisinin hipotezinin SALT-OKUNUR
+// kopyası (GetHypothesis; root_cause_hypotheses'a yazılmaz — tek yazıcı
+// sentezleyici, /aiops §6).
+type SynthRef struct {
+	TopSuspect string  `json:"topSuspect,omitempty"`
+	Confidence float64 `json:"confidence"`
+	ComputedAt int64   `json:"computedAt"` // unix ns
 }
 
 // Investigation — saved_views query_string gövdesi.
@@ -103,6 +136,9 @@ type Investigation struct {
 	Findings   []Finding `json:"findings"`
 	Error      string    `json:"error,omitempty"`
 	Warnings   []string  `json:"warnings,omitempty"`
+	// v0.10.1287 (Faz 1b) — anlatım + sentezleyici kopyası.
+	Summary  *Narration `json:"summary,omitempty"`
+	SynthRef *SynthRef  `json:"synthRef,omitempty"`
 }
 
 // step — ada göre adım (yoksa nil).
@@ -140,9 +176,26 @@ func Encode(inv Investigation) (string, error) {
 	if len(inv.Warnings) > maxWarnings {
 		inv.Warnings = inv.Warnings[:maxWarnings]
 	}
+	// v0.10.1287 — çağıranın kaydına dokunma: küçültme adımları dilim
+	// elemanlarını yerinde değiştirir (checkpoint canlı kaydı kodluyor).
+	inv.Steps = append(make([]Step, 0, len(inv.Steps)), inv.Steps...)
+	for i := range inv.Steps {
+		inv.Steps[i].Evidence = append([]mcptools.ChatEvidence(nil), inv.Steps[i].Evidence...)
+	}
+	inv.Findings = append(make([]Finding, 0, len(inv.Findings)), inv.Findings...)
+	if inv.Summary != nil {
+		n := *inv.Summary
+		inv.Summary = &n
+	}
 	for i := range inv.Steps {
 		if len(inv.Steps[i].Payload) > maxStepPayload {
 			inv.Steps[i].Payload = nil
+		}
+		if len(inv.Steps[i].Evidence) > maxStepEvidence {
+			inv.Steps[i].Evidence = inv.Steps[i].Evidence[:maxStepEvidence]
+		}
+		for j := range inv.Steps[i].Evidence {
+			inv.Steps[i].Evidence[j].Query = truncRunes(inv.Steps[i].Evidence[j].Query, maxEvidenceQuery)
 		}
 	}
 	shrink := []func(){
@@ -152,6 +205,11 @@ func Encode(inv Investigation) (string, error) {
 			}
 		},
 		func() { inv.Warnings = nil },
+		func() { // v0.10.1287 — kanıt künyeleri (sorgu metinleri) düşer
+			for i := range inv.Steps {
+				inv.Steps[i].Evidence = nil
+			}
+		},
 		func() {
 			if len(inv.Findings) > 3 {
 				inv.Findings = inv.Findings[:3]
@@ -169,6 +227,9 @@ func Encode(inv Investigation) (string, error) {
 				inv.Steps[i].EvidenceRefs = nil
 			}
 			inv.Error = truncRunes(inv.Error, 400)
+			if inv.Summary != nil {
+				inv.Summary.Text = truncRunes(inv.Summary.Text, 2000)
+			}
 		},
 	}
 	for i := 0; ; i++ {

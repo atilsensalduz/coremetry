@@ -99,8 +99,12 @@ var mvCostClaims = map[string]string{
 	// (operation_summary_5m, şimdiki + önceki, env YOK — açıklama söylüyor); RED
 	// service_summary_5m / service_env_summary_5m; fonksiyonlar geniş rollup varsa
 	// o, yoksa sınırlı ham span kırılımı (açıklama koşulu söylüyor).
+	// v0.10.1287 — deploy kontrolü list_deployments okuyucusu (ListDeploymentsWindow:
+	// span sürüm geçişi + events + rollouts) — ön-toplam İDDİASI yok, açıklama
+	// okuyucuyu adıyla söylüyor; k8s kontrolü Thanos (pod seçicisi, anlık).
 	"service_health_sweep": "ops → operation_summary_5m, no env; functions → wide rollup if applied, " +
-		"else bounded raw spans (LIMIT 8, max_execution_time 5)",
+		"else bounded raw spans (LIMIT 8, max_execution_time 5); deploys → list_deployments reader " +
+		"(ListDeploymentsWindow, no pre-aggregate claim); k8s → Thanos KSM waiting reason (instant)",
 	"trace_stats": "trace_summary_5m — GetTraceAggregate MV yolu koşullu (service/operation, süzgeçsiz); " +
 		"süzgeçli çağrı search_traces kapısıyla kelepçeli ham yol, açıklama koşulu söylüyor",
 }

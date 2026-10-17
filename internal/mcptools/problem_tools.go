@@ -112,7 +112,7 @@ func getProblemTool(d Deps) mcp.Tool {
 	return mcp.Tool{
 		Name:             "get_problem",
 		ShortDescription: "Tek Problem'in tam kaydı (id): özne, ölçü/eşik, durum, atanan, süre, deploy.",
-		Description:      "Return ONE Problem by id with every field the problem drawer shows: subject (service or DB subject + kind), rule, metric/value/threshold/comparator, status, pod, assignee, startedAt/resolvedAt (+durationS when resolved), runbook URL, clusters, owner/SRE teams and the recent deploy the opener recorded. Use after list_problems (or when the user pastes a problem id / link) before get_problem_root_cause or get_correlation_evidence. Read-only, one lookup. Returns found=false when the id does not exist. The description is truncated to 600 characters.",
+		Description:      "Return ONE Problem by id with every field the problem drawer shows: subject (service or DB subject + kind), rule, metric/value/threshold/comparator, status, pod, assignee, startedAt/resolvedAt (+durationS when resolved), runbook URL, clusters, owner/SRE teams, the recent deploy the opener recorded and, when the AI SRE agent investigated it, investigation{at, state, findings ≤3, summary} (read the findings before re-running the same sweeps). Use after list_problems (or when the user pastes a problem id / link) before get_problem_root_cause or get_correlation_evidence. Read-only, one lookup. Returns found=false when the id does not exist. The description is truncated to 600 characters.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -152,6 +152,11 @@ func getProblemTool(d Deps) mcp.Tool {
 				out["confidence"] = h.Confidence
 			} else {
 				out["hypothesisComputed"] = false
+			}
+			// v0.10.1287 — kayıtlı AI SRE araştırması (varsa): sohbet aynı okumaları
+			// yeniden koşmadan bulguları ve özeti görür.
+			if inv, ok := problemInvestigationField(ctx, d, p.ID); ok {
+				out["investigation"] = inv
 			}
 			return out, nil
 		},

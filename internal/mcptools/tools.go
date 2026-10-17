@@ -279,6 +279,10 @@ type Deps struct {
 	// PodMetrics + penceredeki restart artışı; api/mcp_service_pods.go,
 	// guidedThanosPods ile aynı pod seçicisi). nil = Thanos yok → bölüm skipped.
 	ServicePods ServicePodsFunc
+	// v0.10.1287 (AI SRE Faz 1b) — problemin kayıtlı AI SRE araştırmasının
+	// özeti (get_problem `investigation`; api/mcp_deps.go sre kaydından doldurur).
+	// Tip burada: sre → mcptools importu var, ters yön döngü olurdu. nil = yok.
+	Investigation func(ctx context.Context, problemID string) (*InvestigationSummary, error)
 }
 
 // MetricSource is the metric-read half of Deps, satisfied by

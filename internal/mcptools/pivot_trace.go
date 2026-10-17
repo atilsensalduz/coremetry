@@ -1830,19 +1830,51 @@ func pivotFromTraceTool(d Deps) mcp.Tool {
 			if r.runtimeAlerts != nil {
 				alerts = r.runtimeAlerts(ctx)
 			}
-			key := pivotCacheKey(req, clusters, alerts) + ":w=" + fnvHex(warnings...)
-			body, err := d.Memo(ctx, key, pivotCacheTTL, func(c context.Context) (any, bool, error) {
-				res, err := runTracePivot(c, r, req, warnings)
-				if err != nil {
-					return nil, false, err
-				}
-				// Kısmi / hatalı sonuç saklanmaz (v0.10.1119 kuralı).
-				return res, res.OK && !res.Partial && res.Error == nil, nil
-			})
+			body, err := pivotMemo(ctx, d, r, req, clusters, alerts, warnings)
 			if err != nil {
 				return nil, err
 			}
 			return json.RawMessage(body), nil
 		},
 	}
+}
+
+// pivotMemo — aracın önbellekli yürütmesi (v0.10.1287'den beri AI SRE
+// orkestratörü de aynı anahtarla — RunTracePivotCached).
+func pivotMemo(ctx context.Context, d Deps, r pivotReaders, req PivotRequest, clusters []ClusterRef, alerts chstore.RuntimeAlertConfig, warnings []string) ([]byte, error) {
+	key := pivotCacheKey(req, clusters, alerts) + ":w=" + fnvHex(warnings...)
+	return d.Memo(ctx, key, pivotCacheTTL, func(c context.Context) (any, bool, error) {
+		res, err := runTracePivot(c, r, req, warnings)
+		if err != nil {
+			return nil, false, err
+		}
+		// Kısmi / hatalı sonuç saklanmaz (v0.10.1119 kuralı).
+		return res, res.OK && !res.Partial && res.Error == nil, nil
+	})
+}
+
+// RunTracePivotCached — v0.10.1287 (AI SRE Faz 1b): RunTracePivot'un
+// Deps.Memo'lu eşi (Memo yoksa doğrudan); sohbet aracıyla aynı anahtar.
+func RunTracePivotCached(ctx context.Context, d Deps, req PivotRequest) (PivotResult, error) {
+	r := pivotReadersFrom(d)
+	if d.Memo == nil {
+		return runTracePivot(ctx, r, req, nil)
+	}
+	var clusters []ClusterRef
+	if d.Clusters != nil {
+		clusters = d.Clusters()
+	}
+	alerts := chstore.DefaultRuntimeAlerts()
+	if r.runtimeAlerts != nil {
+		alerts = r.runtimeAlerts(ctx)
+	}
+	body, err := pivotMemo(ctx, d, r, req, clusters, alerts, nil)
+	if err != nil {
+		return PivotResult{}, err
+	}
+	var out PivotResult
+	if err := json.Unmarshal(body, &out); err != nil {
+		return PivotResult{}, fmt.Errorf("pivot cache decode: %w", err)
+	}
+	return out, nil
 }

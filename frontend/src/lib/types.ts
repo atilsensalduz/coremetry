@@ -9565,6 +9565,8 @@ export interface SREInvestigationStep {
   durationMs: number;
   at: number; // unix ns
   evidenceRefs?: string[];
+  // v0.10.1287 — Faz 1b: adımın kanıt künyeleri (sohbet çipiyle aynı şekil, ≤6).
+  evidence?: ChatQueryEvidence[];
 }
 export interface SREInvestigationFinding {
   kind: string;
@@ -9572,6 +9574,8 @@ export interface SREInvestigationFinding {
   level: string;
   reasons?: string[];
   evidenceRefs?: string[];
+  /** v0.10.1287 — bulguyu üreten adım (evidenceRefs "evidences[i]" o adımın evidence'ına bakar); yok = sweep. */
+  step?: string;
 }
 export interface SREInvestigation {
   problemId: string;
@@ -9591,11 +9595,28 @@ export interface SREInvestigation {
   sharedFrom?: string;
   requestBy?: string;
   problemStartedAt: number;
-  anchor: { from: number; to: number; symptom?: string };
+  anchor: { from: number; to: number; symptom?: string; families?: string[] }; // v0.10.1287 — families
   steps: SREInvestigationStep[];
   findings: SREInvestigationFinding[];
   error?: string;
   warnings?: string[];
+  // v0.10.1287 — Faz 1b: AI anlatımı + sentezleyici hipotezinin salt-okunur kopyası.
+  summary?: SRENarration;
+  synthRef?: SRESynthRef;
+}
+// v0.10.1287 — Go: sre.Narration (tek LLM çağrısı; gated = arka plan AI kapısı kapalı).
+export interface SRENarration {
+  text: string;
+  model?: string;
+  at: number; // unix ns
+  gated?: boolean;
+  reason?: string;
+}
+// v0.10.1287 — Go: sre.SynthRef (root_cause_hypotheses okunur, yazılmaz).
+export interface SRESynthRef {
+  topSuspect?: string;
+  confidence: number; // 0..1
+  computedAt: number; // unix ns
 }
 // Go: api.problemInvestigationResponse — GET /api/problems/{id}/investigation.
 export interface ProblemInvestigationResponse {

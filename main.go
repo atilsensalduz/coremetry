@@ -1664,6 +1664,7 @@ func main() {
 			Deps: srv.MCPDeps(), Store: store, Cache: cacheImpl, Lock: lockImpl,
 			PodID: clusterSvc.MyID(), Version: Version, Mode: mode.name,
 			IdleExit: idleExitFor(mode), Publish: srv.PublishSRE,
+			Copilot: copilotSvc, // v0.10.1287 — Faz 1b anlatımı (arka plan AI kapıları)
 		})
 	}
 	// v0.6.4 — Model Context Protocol server. Wired on api/all

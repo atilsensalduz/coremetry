@@ -33,6 +33,7 @@ Tüm döngüler `if mode.worker` (`main.go:652,1221,1251`) + Redis lider kilidi
 | Rollout reconciler | `main.go:1124` | ayar | rollout olayları → RCA girdisi |
 | Synthetic monitor | `monitor/runner.go:32` | tik | problems (monitor:*) |
 | AI SRE üreticisi (v0.10.1282) | `sre/enqueuer.go` `coremetry:lock:sre-enqueue` (worker; tüketici `sre` rolü/all, iş başına kilit) | 30 s | YALNIZ saved_views(page='sre-investigation') — problems'a YAZMAZ |
+| AI SRE drain + orkestratör (v0.10.1282 / v0.10.1287) | `sre/drain.go` iş başına `coremetry:lock:sre-item:<id>` (yalnız `sre` rolü / all; lider kilidi YOK — iş kilidi) → `sre/orchestrator.go` plan (`plan.go` planSteps/pickExemplar) · dalga 1 tarama+k8s / deploy / bağımlılık · dalga 2 pivot / log artışı · TEK anlatım (`narrate.go`, AutoExplain + kota + `sre_agent.maxLLMCallsPerHour` kapıları) | 5 s yoklama, iş 90 s | YALNIZ kendi kaydı (saved_views sre-investigation); problems / root_cause_hypotheses / öncelik OKUR, yazmaz (`TestEnqueueNeverUpsertsProblems`, `TestOrchestratorReadOnly`) |
 
 **Evaluator tik sırası** (`evaluator.go:452-622`): kurallar → SLO → DB kapasite
 → DB yavaş ifade → DB sağlığı (`db-health`, v0.10.1073) → yaygın yavaşlama (`svc-slowdown`, v0.10.1091) → runtime → paylaşılan exception patlaması → ölümcül
@@ -433,6 +434,7 @@ de notification_log'a, v0.9.1344). Her üretici paketi kendi önekini pinler
 | Exception explain | `BuildExceptionExplainInput` `exception_context.go:298` (örnek trace + loglar `sampleTraceEvidence` → `trace_evidence.go`) → `assembleExceptionPrompt` :509 (damga operatör diliminde, v0.10.745) | `SystemPromptException` :225 |
 | RCA düzyazı / hüküm | `rootcause.go:411,476`; `rca_verdict.go:144` | `SystemPromptRCAVerdict` :841 |
 | Insight kartı | `api/insight.go:78` — deterministik yarı AI kapalıyken de çalışır | — |
+| AI SRE araştırma anlatımı (v0.10.1287, arka plan, yüzey `sre-investigation`) | `sre/narrate.go` `renderInvestigationTR` (≤4 KB, bulgular EN SONDA; golden `TestRenderInvestigationTRGolden`) | `SystemPromptSREInvestigation` (dört bölüm + tek örnek + `DataNotInstruction`) |
 
 Tüm sistem promptları TEK dosyada (`internal/copilot/prompts.go`); açıklama
 affordance'ı `s.copilotExplain(r, …)` üzerinden, `s.copilot.Explain` DOĞRUDAN
@@ -509,7 +511,7 @@ v0.10.1072 — inbox istisna listesi taşıdığı için).
 ## 14. Sayım tabanları
 
 - 21 saklanan kural-id ailesi (v0.10.1073 `db-health:`, v0.10.1091 `svc-slowdown:` dahil) + 2 notify-only = `internal/{anomaly,evaluator,monitor}` test-dışı dosyalarda `RuleID:` / `ruleID :=`.
-- 13 arka plan döngüsü = AIOps paketleri + `main.go`'da `NewLeaderHolder` / `time.NewTicker` sahipleri.
+- 15 arka plan döngüsü = AIOps paketleri + `main.go`'da `NewLeaderHolder` / `time.NewTicker` sahipleri (v0.10.1287: 13 → 15 — AI SRE üreticisi + drain/orkestratör; Job başlatıcı operatör kararıyla yok).
 - 7 ayar anahtarı = `internal/chstore/{anomaly_tracked,anomaly_sensitivity,anomaly_promotion,problem_priority,problem_escalation,exception_triage,selfhealth}.go` içindeki `const *Key`.
 - 12 state tablosu = `store.go`'da problems|anomaly_*|root_cause_hypotheses|rca_verdicts|incident*|exception_groups|events|notification_log CREATE'leri.
 - Kaynak: `docs/DECISIONS.md:385-436` (Anomali/Problems kararları), `docs/INCIDENTS.md:285-299`, planlar `docs/plans/spec-anomaly-clustering.md`, `anomaly-rootcause.md`.

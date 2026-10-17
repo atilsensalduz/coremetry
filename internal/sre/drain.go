@@ -60,6 +60,10 @@ type DrainDeps struct {
 	IdleExit time.Duration // 0 = asla çıkma
 	// Publish — SSE (bus.Publish; köprü api pod'larına taşır). nil olabilir.
 	Publish func(kind string, payload any)
+	// Copilot — v0.10.1287 (Faz 1b): araştırmanın TEK anlatım çağrısı
+	// (*copilot.Service; arka plan AI kapıları narrate.go). nil = anlatım yok
+	// ("AI özeti yok (otomatik AI kapalı)").
+	Copilot Narrator
 
 	// Test dikişleri.
 	Now           func() time.Time
@@ -96,10 +100,11 @@ func StartDrain(ctx context.Context, d DrainDeps) <-chan struct{} {
 		d.ShutdownGrace = defaultGrace
 	}
 	if d.Runner == nil {
-		deps := d.Deps
+		// v0.10.1287 — Faz 1b orkestratörü (plan → iki dalga → tek anlatım).
+		rd := readersFrom(d.Deps, d.Copilot, d.Cache, d.Now)
 		now := d.Now
 		d.Runner = func(rctx context.Context, inv *Investigation, cp func(*Investigation)) {
-			runSteps(rctx, deps, inv, cp, now)
+			runInvestigation(rctx, rd, inv, cp, now)
 		}
 	}
 	if d.Mode == "" {
