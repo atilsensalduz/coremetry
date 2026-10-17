@@ -2105,6 +2105,15 @@ export const api = {
   // CALLER's: one request per cluster so each rides its own cache
   // slot and fails independently (audit §6).
   clusterSources: () => get<{ clusters: string[] }>(`/api/clusters/sources`),
+  // ── v0.10.1306 — PromQL konsolu range sorgusu (editor+, audit promql.query);
+  // /metrics PromQL sekmesi src=thanos. POST form: sorgu 8 KiB'a kadar,
+  // URL'de proxy sınırına takılır (promql_console_routes.go "NEDEN GET VE POST").
+  promqlQueryRange: (p: { query: string; start: number; end: number; step?: number; cluster: string }, signal?: AbortSignal) =>
+    request<import('./types').PromQLConsoleResponse>('/api/promql/query_range', {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: qs(p), signal,
+    }),
+  // ── /v0.10.1306 ──
   clusterNodes: (cluster: string) =>
     get<ClusterNodesResponse>(`/api/clusters/nodes?cluster=${encodeURIComponent(cluster)}`),
   clusterSummary: (cluster: string) =>
@@ -3147,8 +3156,11 @@ export const api = {
   // (operatör: pano VM'den okunsun); sayfanın deneme kaynağı seçimi uygulanmaz.
   httpMetricsPromql: (params: { query: string; from: number; to: number; maxDataPoints: number; instant?: '1' }) =>
     get<SpanMetricSeries[] | null>(withMetricSource(`/api/metrics/promql?${qs(params)}`, 'vm')),
-  metricPromql: (params: { query: string; from?: number; to?: number; step?: number; maxDataPoints?: number }) =>
-    get<SpanMetricSeries[] | null>(withMetricSource(`/api/metrics/promql?${qs({ maxDataPoints: 1500, ...params })}`)),
+  // v0.10.1306 — `src` (/metrics PromQL sekmesi ?src=vm|ch): bu TEK isteği o
+  // backend'e sabitler (aynı metricsrc değeri); yoksa sayfa URL'inin
+  // ?metricsrc= denemesi / kurulum varsayılanı. signal: sekme/pencere değişince iptal.
+  metricPromql: ({ src, ...params }: { query: string; from?: number; to?: number; step?: number; maxDataPoints?: number; src?: import('./metricSource').MetricSourceParam }, signal?: AbortSignal) =>
+    get<SpanMetricSeries[] | null>(withMetricSource(`/api/metrics/promql?${qs({ maxDataPoints: 1500, ...params })}`, src), signal),
   // v0.8.356 — sort/dir: server-side global ordering (whitelisted
   // backend-side; ORDER BY runs before the LIMIT so "top by p95" is
   // the true global top-N, not the top-N-by-calls page reordered).

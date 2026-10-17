@@ -26,9 +26,17 @@ package mcptools
 //	query_metrics · jvm_* (VM|CH)         → /service Infrastructure (runtime bölümü)
 //	query_metrics · Thanos pod_*          → /service Infrastructure (servis varsa),
 //	                                        yoksa /clusters?cluster=<ad>&section=pods.
-//	                                        PromQL konsolunun (internal/thanos/console.go)
-//	                                        frontend sayfası YOK — sorguyu URL'den
-//	                                        alan bir PromQL sayfası bulunmuyor.
+//
+// v0.10.1306 — PromQL EDİTÖRÜ önce gelir: kanıt `promql` türündeyse ve sorgu
+// metni elimizdeyse (VictoriaMetrics ya da cluster'ı bilinen Thanos), çip
+// /metrics?editor=1&tab=promql&promql=…&src=vm|thanos[&cluster=]&range=…
+// açar — operatör aracın koştuğu SORGUNUN KENDİSİNİ görür ve düzenler
+// (promqlEditorHref). VM kanıtında Query birden çok ifadenin "\n" ile
+// birleşimi (query_metrics.go qmRunApp) → ilk boş olmayan satır. Thanos
+// kanıtında Query zaten cluster matcher'lı (ScopedQuery); konsol
+// EffectiveQuery'yi yeniden uygular ve enjeksiyon idempotent
+// (internal/thanos/cluster_matcher.go). Sorgu yok, Thanos'ta cluster yok ya
+// da sorgu 8 KiB'ı (maxPromQLQueryLen) aşıyor → yukarıdaki eski eşleme.
 //
 // Pencere daima mutlak `range=custom:<fromMs>-<toMs>` (build_link sözleşmesi).
 // Eşleme kurulamazsa (servis yok, pencere bozuk) "" — çip yine çizilir,
@@ -224,6 +232,10 @@ func EvidenceHref(tool string, ev cosreEvidence, req map[string]any) string {
 		return evidenceBuildLink(buildLinkArgs{Page: "pod", Pod: pod, Namespace: reqString(req, "namespace"), Service: service},
 			reqString(req, "cluster"), rangeParam)
 	case queryMetricsName:
+		// v0.10.1306 — sorgunun kendisi PromQL editöründe (servis dallarından önce).
+		if href := promqlEditorHref(ev, rangeParam); href != "" {
+			return href
+		}
 		family := reqString(req, "family")
 		if ev.Source == evSourceThanos {
 			if service == "" {
@@ -246,6 +258,59 @@ func EvidenceHref(tool string, ev cosreEvidence, req map[string]any) string {
 			src = "metric"
 		}
 		return withQueryParam(evidenceBuildLink(buildLinkArgs{Page: "service", Service: service, Tab: "overview", Env: ev.Env}, "", rangeParam), "src", src)
+	}
+	return ""
+}
+
+// promqlEditorMaxLen — internal/api maxPromQLQueryLen'in aynası: hem
+// /api/metrics/promql (VM) hem konsol /api/promql/query_range 8 KiB'ı aşan
+// sorguyu reddeder; reddedilecek bir sorguyu editöre taşımak yerine eski
+// eşleme (v0.10.1306).
+const promqlEditorMaxLen = 8192
+
+// promqlEditorHref — v0.10.1306, SAF: promql kanıtı → /metrics PromQL editörü.
+// VM → src=vm, Query'nin ilk boş olmayan satırı; Thanos → src=thanos +
+// cluster (ev.Cluster, ad — konsol ClusterByRef ile id ya da ad çözer),
+// cluster yoksa "". Boş / 8 KiB üstü sorgu ya da başka kaynak → "" (çağıran
+// eski eşlemeye düşer). Kodlama url.Values'tan; elle birleştirme yok.
+func promqlEditorHref(ev cosreEvidence, rangeParam string) string {
+	if ev.QueryKind != evKindPromQL {
+		return ""
+	}
+	var src, q, cluster string
+	switch ev.Source {
+	case evSourceVM:
+		src, q = "vm", firstNonEmptyLine(ev.Query)
+	case evSourceThanos:
+		cluster = strings.TrimSpace(ev.Cluster)
+		if cluster == "" {
+			return ""
+		}
+		src, q = "thanos", strings.TrimSpace(ev.Query)
+	default:
+		return ""
+	}
+	if q == "" || len(q) > promqlEditorMaxLen {
+		return ""
+	}
+	v := url.Values{}
+	v.Set("editor", "1")
+	v.Set("tab", "promql")
+	v.Set("promql", q)
+	v.Set("src", src)
+	if cluster != "" {
+		v.Set("cluster", cluster)
+	}
+	v.Set("range", rangeParam)
+	return "/metrics?" + v.Encode()
+}
+
+// firstNonEmptyLine — ilk boş olmayan satır (kırpılmış); yoksa "".
+func firstNonEmptyLine(s string) string {
+	for _, line := range strings.Split(s, "\n") {
+		if t := strings.TrimSpace(line); t != "" {
+			return t
+		}
 	}
 	return ""
 }

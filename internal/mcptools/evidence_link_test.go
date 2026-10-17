@@ -12,6 +12,7 @@ package mcptools
 import (
 	"encoding/json"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -106,6 +107,59 @@ func TestEvidenceHref(t *testing.T) {
 			wantPath:   "/clusters",
 			wantParams: map[string]string{"cluster": "ocp b", "section": "pods", "range": rng},
 		},
+		// v0.10.1306 — promql kanıtı sorgu metniyle → PromQL editörü.
+		{
+			name: "metrics · VictoriaMetrics promql → /metrics editör (ilk satır, src=vm)",
+			tool: queryMetricsName,
+			ev: cosreEvidence{Source: evSourceVM, QueryKind: evKindPromQL, Window: win, Env: "prod",
+				Query: "\n  sum(rate(http_server_requests_total{service=\"checkout\"}[5m]))  \nsum(rate(http_server_errors_total[5m]))"},
+			req:      map[string]any{"family": "red", "service": "checkout", "env": "prod"},
+			wantPath: "/metrics",
+			wantParams: map[string]string{"editor": "1", "tab": "promql", "src": "vm", "range": rng,
+				"promql": `sum(rate(http_server_requests_total{service="checkout"}[5m]))`},
+		},
+		{
+			name: "metrics · Thanos promql + cluster → /metrics editör (src=thanos&cluster=)",
+			tool: queryMetricsName,
+			ev: cosreEvidence{Source: evSourceThanos, QueryKind: evKindPromQL, Window: win, Cluster: "ocp-a",
+				Query: `sum by (pod) (rate(container_cpu_usage_seconds_total{cluster="ocp-a",namespace="shop"}[5m]))`},
+			req:      map[string]any{"family": "pod_cpu", "service": "orders", "cluster": "ocp-a"},
+			wantPath: "/metrics",
+			wantParams: map[string]string{"editor": "1", "tab": "promql", "src": "thanos", "cluster": "ocp-a", "range": rng,
+				"promql": `sum by (pod) (rate(container_cpu_usage_seconds_total{cluster="ocp-a",namespace="shop"}[5m]))`},
+		},
+		{
+			name:       "metrics · Thanos promql cluster'sız → eski /service infra",
+			tool:       queryMetricsName,
+			ev:         cosreEvidence{Source: evSourceThanos, QueryKind: evKindPromQL, Window: win, Query: `up{job="x"}`},
+			req:        map[string]any{"family": "pod_cpu", "service": "orders"},
+			wantPath:   "/service",
+			wantParams: map[string]string{"name": "orders", "tab": "infra", "range": rng},
+		},
+		{
+			name:       "metrics · Thanos promql > 8 KiB → eski /service infra",
+			tool:       queryMetricsName,
+			ev:         cosreEvidence{Source: evSourceThanos, QueryKind: evKindPromQL, Window: win, Cluster: "ocp-a", Query: "up" + strings.Repeat(" ", 8191) + "+1"},
+			req:        map[string]any{"family": "pod_cpu", "service": "orders", "cluster": "ocp-a"},
+			wantPath:   "/service",
+			wantParams: map[string]string{"name": "orders", "tab": "infra", "range": rng},
+		},
+		{
+			name:       "metrics · VM promql ilk satırı > 8 KiB → eski Overview metrik kipi",
+			tool:       queryMetricsName,
+			ev:         cosreEvidence{Source: evSourceVM, QueryKind: evKindPromQL, Window: win, Query: "sum(" + strings.Repeat("a", 8192) + ")"},
+			req:        map[string]any{"family": "red", "service": "checkout"},
+			wantPath:   "/service",
+			wantParams: map[string]string{"name": "checkout", "tab": "overview", "src": "metric", "range": rng},
+		},
+		{
+			name:       "metrics · VM summary türü (jvm) sorgu metniyle bile → Infrastructure",
+			tool:       queryMetricsName,
+			ev:         cosreEvidence{Source: evSourceVM, QueryKind: evKindSummary, Window: win, Query: "jvm_heap · VictoriaMetrics"},
+			req:        map[string]any{"family": "jvm_heap", "service": "orders"},
+			wantPath:   "/service",
+			wantParams: map[string]string{"name": "orders", "tab": "infra", "range": rng},
+		},
 		// Kurulamayan eşlemeler: "" (çip tıklanmaz).
 		{name: "traces servissiz", tool: queryTracesName, ev: cosreEvidence{Source: evSourceCH, Window: win}, req: map[string]any{}},
 		{name: "logs servis/trace yok", tool: queryLogsName, ev: cosreEvidence{Source: evSourceES, Window: win}, req: map[string]any{"text": "x"}},
@@ -155,6 +209,31 @@ func TestEvidenceHrefEncodes(t *testing.T) {
 	}
 	if u.Query().Get("service") != "a&b" || u.Query().Get("q") != "x#y z" || u.Fragment != "" {
 		t.Fatalf("kodlama bozuk: %s", got)
+	}
+}
+
+// v0.10.1306 — PromQL editör href'i: sorgudaki { } " \n & # + boşluk
+// url.Values ile kodlanır; çözülen `promql` değeri sorgunun BAYT-AYNI
+// hâli (Thanos'ta satır sonu korunur), href tek parça (fragment yok).
+func TestEvidenceHrefPromQLEncodes(t *testing.T) {
+	q := "sum by (pod) (\n  rate(x{a=\"b&c\", re=~\"d#e f\"}[5m])\n)"
+	ev := cosreEvidence{Source: evSourceThanos, QueryKind: evKindPromQL, Query: q, Cluster: "ocp b&c",
+		Window: EvidenceWindow{FromMs: 1000, ToMs: 2000}}
+	got := EvidenceHref(queryMetricsName, ev, map[string]any{"family": "pod_cpu"})
+	u, err := url.Parse(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Path != "/metrics" || u.Fragment != "" || u.Query().Get("promql") != q ||
+		u.Query().Get("cluster") != "ocp b&c" || u.Query().Get("range") != "custom:1000-2000" {
+		t.Fatalf("kodlama bozuk: %s", got)
+	}
+	// VM: çok satırlı Query → yalnız ilk dolu satır, kırpılmış.
+	ev = cosreEvidence{Source: evSourceVM, QueryKind: evKindPromQL, Query: "  \n\t{__name__=\"a\"} \nb",
+		Window: EvidenceWindow{FromMs: 1000, ToMs: 2000}}
+	u, err = url.Parse(EvidenceHref(queryMetricsName, ev, map[string]any{"family": "red", "service": "s"}))
+	if err != nil || u.Query().Get("promql") != `{__name__="a"}` || u.Query().Get("src") != "vm" || u.Query().Has("cluster") {
+		t.Fatalf("VM ilk satır: %v %s", err, u)
 	}
 }
 

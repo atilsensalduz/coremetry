@@ -85,3 +85,4 @@ export {
 } from './aiEval'; // v0.10.940 — Settings › CoSRE › Değerlendirme (evalset paneli)
 export { useOracleFunctionCodes } from './oracleFunctionCodes'; // v0.10.1003 — fonksiyon kodu → Oracle operasyon adı sözlüğü
 export { useProblemVerdicts, useSetProblemVerdict, useSetProblemVerdictPolicy } from './problemVerdicts'; // v0.10.1015 — Problems sekmesinde öğretme
+export { usePromqlConsoleRange } from './promql'; // v0.10.1306 — /metrics PromQL sekmesi Thanos yolu

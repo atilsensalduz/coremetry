@@ -287,6 +287,14 @@ func stripComments(expr string, track bool) (string, []int) {
 // matcher'ı başa koyar: `{}` → `{m}`, `{a="b"}` → `{m,a="b"}`. Kapanış
 // yoksa sentetik `}` EKLENMEZ: geçersiz girdi geçersiz kalır (Prometheus
 // reddeder), enjeksiyonla "onarılmaz". Sonraki indeksi döndürür.
+//
+// v0.10.1306 — İDEMPOTENT: seçici m'nin TA KENDİSİNİ (aynı ad, `=`, aynı
+// değer; dize dışı boşluk farkı yok sayılır) zaten taşıyorsa ikinci kopya
+// eklenmez. Kanıt çipi Thanos sorgusunu zaten kapsamlanmış (ScopedQuery)
+// hâliyle PromQL editörüne taşır, konsol EffectiveQuery'yi yeniden uygular;
+// çift `cluster="x",cluster="x"` zararsız ama okunaksızdı. Güvenlik: yalnız
+// TAM eşit matcher atlatır — `!=`, `=~`, başka değer ya da başka ad yine
+// enjeksiyon alır (eksik matcher veri sızdırır, fazlası zararsız).
 func injectBraces(w *rewriter, src string, i int, m string) int {
 	k := i + 1
 	for k < len(src) && src[k] != '}' {
@@ -303,6 +311,10 @@ func injectBraces(w *rewriter, src string, i int, m string) int {
 	for b > a && isPromSpace(src[b-1]) {
 		b--
 	}
+	if k < len(src) && selectorHasMatcher(src[a:b], m) {
+		w.src(src, i, k+1)
+		return k + 1
+	}
 	w.src(src, i, i+1)
 	w.lit(m)
 	if a < b {
@@ -314,6 +326,40 @@ func injectBraces(w *rewriter, src string, i int, m string) int {
 		return k + 1
 	}
 	return k
+}
+
+// selectorHasMatcher — v0.10.1306, SAF: süslü parantez İÇERİĞİ (body) m
+// matcher'ını aynen içeriyor mu. body dize-bilinçli olarak üst düzey
+// virgüllerden bölünür, her parça dize DIŞI boşluklarından arındırılıp m ile
+// bayt-bayt kıyaslanır (`cluster = "x"` ≡ `cluster="x"`; dize içindeki
+// boşluk ve virgül korunur).
+func selectorHasMatcher(body, m string) bool {
+	var cur []byte
+	flush := func() bool {
+		eq := string(cur) == m
+		cur = cur[:0]
+		return eq
+	}
+	for j := 0; j < len(body); {
+		c := body[j]
+		switch {
+		case isQuote(c):
+			e, _ := stringEnd(body, j)
+			cur = append(cur, body[j:e]...)
+			j = e
+		case c == ',':
+			if flush() {
+				return true
+			}
+			j++
+		case isPromSpace(c):
+			j++
+		default:
+			cur = append(cur, c)
+			j++
+		}
+	}
+	return flush()
 }
 
 // injectMatcher — withClusterMatcher'ın çekirdeği: m HAZIR matcher metni

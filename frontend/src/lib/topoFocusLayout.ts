@@ -18,8 +18,12 @@
 // odak dikey ortada, komşu sütun kenarı TEK yumuşak eğri, sütun başına
 // "+N more", namespace renkle (şerit yok). Global harita katmanlı kalır.
 //
-//  • SÜTUN = assignFocusColumns (değişmedi). x = PAD_X + (col + H)·COL_W,
+//  • SÜTUN = assignFocusColumns (değişmedi). x = PAD_X + (col + HL)·COL_W,
 //    COL_W = pil genişliği (170) + oluk (110) = 280; ASLA gerilmez.
+//  • GENİŞLİK (v0.10.1306): her taraf KENDİ hop sayısı kadar sütun —
+//    HL = en dış çağıran sütunu, HR = en dış bağımlılık sütunu ("+N more"
+//    dahil); lw = (HL+HR)·COL_W + 2·PAD_X. Simetrik grafta eskisiyle bayt
+//    bayt aynı; asimetrikte odak ortada değil, açılışta viewport ortalar.
 //  • KENAR SINIFI (cu → cv): flow cv = cu+1 · peer cu = cv · skip cv−cu ≥ 2 ·
 //    back cv < cu. Çift yönlü çift soldan sağa yönünden sınıflanır.
 //  • SIRA (dışa doğru geçişler, O(E + n log n)): ±1 sütunu bloklar —
@@ -92,6 +96,8 @@ export interface FocusLayoutResult {
   lw: number;
   lh: number;
   focusPt: { x: number; y: number };
+  /** v0.10.1306 — her tarafın gerçek sütun sayısı: left = çağıran, right = bağımlılık */
+  hops: { left: number; right: number };
   /** "caller|callee" → geometri (her iki ucu yerleşen her girdi kenarı) */
   edges: Map<string, FocusEdgeGeom>;
   columns: FocusColumn[];
@@ -112,8 +118,28 @@ export function pairClass(cu: number, cv: number, hasReverse: boolean): EdgeClas
   return hasReverse && cv < cu ? classifyEdge(cv, cu) : classifyEdge(cu, cv);
 }
 
-export function xOfCol(col: number, H: number): number {
-  return PAD_X + (col + H) * COL_W;
+/** hl = sol (çağıran) tarafın sütun sayısı — odak x'i PAD_X + hl·COL_W. */
+export function xOfCol(col: number, hl: number): number {
+  return PAD_X + (col + hl) * COL_W;
+}
+
+// v0.10.1306 — operatör 2026-10-17: servis Topology sekmesinde hop'u az olan
+// tarafa boş 280 px sütun ayrılıyordu. Artık o taraf hiç yer almıyor; çağıran
+// hiç yoksa (giriş noktası ya da çağıranlar enstrümante değil) odağın soluna,
+// başlık satırına tek soluk not düşülür — boşluk "eksik veri" diye okunmasın.
+export const NO_CALLERS_LABEL = 'Çağıran yok (enstrümante değil)';
+const EMPTY_HDR_LEFT = 8;        // içerik sol kenarından pay
+const EMPTY_HDR_FOCUS_GAP = 24;  // "ODAK" başlığının yarısı + boşluk
+const EMPTY_HDR_MIN_W = 96;      // iki satıra kırılmış metnin sığdığı en dar alan
+
+/**
+ * Çağıran tarafı boşsa (hops.left === 0) soluk başlığın yeri: sol kenar x ve
+ * genişlik w (başlık satırında, "Odak" başlığının solunda). Yer yoksa null.
+ */
+export function noCallersHeader(r: Pick<FocusLayoutResult, 'hops' | 'focusPt'>): { x: number; w: number } | null {
+  if (r.hops.left !== 0) return null;
+  const w = r.focusPt.x - EMPTY_HDR_LEFT - EMPTY_HDR_FOCUS_GAP;
+  return w >= EMPTY_HDR_MIN_W ? { x: EMPTY_HDR_LEFT, w } : null;
 }
 
 // İkincil kenar (peer/skip/back) varsayılanı: GİZLİ (null). Operatör soluk
@@ -238,13 +264,18 @@ export function focusColumnLayout(input: FocusLayoutInput): FocusLayoutResult {
   const col = (s: string) => (s === focus ? 0 : colOf.get(s)!);
   const traffic = (s: string) => info.get(s)!.spanCount;
 
-  let H = 0;
+  // v0.10.1306 — her tarafın kendi derinliği ("+N more" düğümleri dahil);
+  // H = ikisinin büyüğü yalnız ±k döngülerinin üst sınırı.
+  let HL = 0, HR = 0;
   const byCol = new Map<number, string[]>();
   for (const s of names) {
     const c = col(s);
-    if (Math.abs(c) > H) H = Math.abs(c);
+    if (-c > HL) HL = -c;
+    if (c > HR) HR = c;
     (byCol.get(c) ?? byCol.set(c, []).get(c)!).push(s);
   }
+  const H = Math.max(HL, HR);
+  const hopsOf = (side: number) => (side < 0 ? HL : HR);
 
   // yönlü kenar kümesi + iç (flow) komşuluk: inner.get(v) = odağa doğru
   // komşu sütundaki flow komşuları; outer = tersi. Ad sıralı, tekil.
@@ -326,6 +357,7 @@ export function focusColumnLayout(input: FocusLayoutInput): FocusLayoutResult {
   };
   const orderOuter = () => {
     for (let k = 2; k <= H; k++) for (const side of [-1, 1]) {
+      if (k > hopsOf(side)) continue;
       const c = side * k;
       const list = byCol.get(c);
       if (!list) continue;
@@ -384,10 +416,12 @@ export function focusColumnLayout(input: FocusLayoutInput): FocusLayoutResult {
     if (half > Y) Y = half;
   }
   for (let k = 2; k <= H; k++) for (const side of [-1, 1]) {
+    if (k > hopsOf(side)) continue;
     const n = byCol.get(side * k)?.length ?? 0;
     if (n > 0) Y = Math.max(Y, (n - 1) * pitch / 2);
   }
   for (let k = 2; k <= H; k++) for (const side of [-1, 1]) {
+    if (k > hopsOf(side)) continue;
     const list = order.get(side * k);
     if (!list) continue;
     const desired: number[] = [];
@@ -405,21 +439,22 @@ export function focusColumnLayout(input: FocusLayoutInput): FocusLayoutResult {
 
   const yShift = Y + PAD_Y;
   const lh = 2 * yShift;
-  const lw = 2 * H * COL_W + 2 * PAD_X;
+  // v0.10.1306 — eskiden 2·H·COL_W: az hop'lu tarafa boş sütun ayrılıyordu.
+  const lw = (HL + HR) * COL_W + 2 * PAD_X;
   const pos = new Map<string, { x: number; y: number }>();
-  for (const s of names) pos.set(s, { x: xOfCol(col(s), H), y: yRel.get(s)! + yShift });
+  for (const s of names) pos.set(s, { x: xOfCol(col(s), HL), y: yRel.get(s)! + yShift });
   const focusPt = pos.get(focus)!;
 
   // ── sütun özetleri ────────────────────────────────────────────────────
   const columns: FocusColumn[] = [];
   const extent = new Map<number, { top: number; bottom: number }>();
-  for (let c = -H; c <= H; c++) {
+  for (let c = -HL; c <= HR; c++) {
     const list = order.get(c);
     if (!list || list.length === 0) continue;
     let top = Infinity, bottom = -Infinity;
     for (const s of list) { const y = pos.get(s)!.y; if (y < top) top = y; if (y > bottom) bottom = y; }
     extent.set(c, { top, bottom });
-    columns.push({ col: c, x: xOfCol(c, H), count: list.filter(s => !isMore(s)).length, top, bottom });
+    columns.push({ col: c, x: xOfCol(c, HL), count: list.filter(s => !isMore(s)).length, top, bottom });
   }
 
   // ── ns ayraçları: ±1'de ≥2 üyeli bitişik servis koşuları ──────────────
@@ -432,7 +467,7 @@ export function focusColumnLayout(input: FocusLayoutInput): FocusLayoutResult {
       const ys = b.map(s => pos.get(s)!.y);
       brackets.push({
         ns, col: side, side,
-        x: xOfCol(side, H) + side * (HALF_PILL + 8),
+        x: xOfCol(side, HL) + side * (HALF_PILL + 8),
         y0: Math.min(...ys) - pitch / 2 + 6,
         y1: Math.max(...ys) + pitch / 2 - 6,
       });
@@ -471,7 +506,7 @@ export function focusColumnLayout(input: FocusLayoutInput): FocusLayoutResult {
         const score = h * 1e6 + Math.abs(c - mid) * 1e3 + Math.abs(c);
         if (score < best) { best = score; m = c; }
       }
-      const lx = xOfCol(m, H);
+      const lx = xOfCol(m, HL);
       const mean = (a.y + b.y) / 2;
       const ex = extent.get(m);
       let ly = mean;
@@ -498,5 +533,5 @@ export function focusColumnLayout(input: FocusLayoutInput): FocusLayoutResult {
     });
   }
 
-  return { pos, lw, lh, focusPt, edges, columns, brackets };
+  return { pos, lw, lh, focusPt, hops: { left: HL, right: HR }, edges, columns, brackets };
 }

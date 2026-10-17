@@ -31,6 +31,14 @@ import { Button } from '@/components/ui/Button';
 import { Modal, SegmentedControl } from '@/components/ui';
 import { useAuth } from '@/components/AuthProvider';
 import { toast } from '@/lib/toast';
+// v0.10.1306 — PromQL sekmesi URL'den (kanıt çipi deep link'i) + Thanos yolu.
+import {
+  applyPromqlParams, decodePromqlParams, promqlSig,
+  type PromqlParams, type PromqlSrc, type PromqlView,
+} from '@/pages/metricsPromqlUrl';
+import { METRIC_SOURCE_LABELS } from '@/lib/metricSource';
+import { promConsoleError, promMatrixToSeries } from '@/lib/promMatrix';
+import { usePromqlConsoleRange } from '@/lib/queries/promql';
 import type { MetricInfo, SpanMetricSeries, FilterExpr, TimeRange, Panel, DashboardSummary } from '@/lib/types';
 
 // MetricQueryEditor (v0.7.126 — UX query editor, step 1) — a thin Grafana-
@@ -120,6 +128,8 @@ interface MQQuery {
 // the TimeSeriesPanel. viz selects the render mode (line / area / bars /
 // stacked); the panel's own interactive legend table replaces the bolt-on.
 const VIZ_MODES: TSMode[] = ['line', 'area', 'bars', 'stacked'];
+// v0.10.1306 — PromQL kaynak seçicisinin değerleri ('' = 'default').
+type SrcOpt = 'default' | 'vm' | 'ch' | 'thanos';
 interface MQModel { queries: MQQuery[]; topN: number; logScale: boolean; unit: string; viz: TSMode; }
 
 const TOPN_DEFAULT = 12;
@@ -565,12 +575,21 @@ export function MetricQueryEditor({ range }: { range: TimeRange }) {
   const navigate = useNavigate();
   const [model, setModel] = useState<MQModel>(() =>
     decodeModel(searchParams.get('mq')) ?? EMPTY_MODEL());
-  const [view, setView] = useState<'builder' | 'code' | 'promql'>('builder');
-  const [codeText, setCodeText] = useState('');
+  // v0.10.1306 — sekme / PromQL metni / kaynak / cluster URL'den TOHUMLANIR
+  // (kanıt çipi: /metrics?editor=1&tab=promql&promql=…&src=…&cluster=…) ve
+  // aşağıdaki efektle GERİ yazılır. Tohum bir kez okunur (lazy state).
+  const [urlInit] = useState(() => decodePromqlParams(searchParams));
+  const [view, setView] = useState<PromqlView>(urlInit.tab);
+  const [codeText, setCodeText] = useState(() => (urlInit.tab === 'code' ? generateDSL(model) : ''));
   const [codeErr, setCodeErr] = useState<string | null>(null);
   // PromQL mode (v0.9.116, F4 Phase 5) — raw PromQL text → /api/metrics/promql.
-  const [promqlText, setPromqlText] = useState('');
-  const [promqlQ, setPromqlQ] = useState('');
+  const [promqlText, setPromqlText] = useState(urlInit.promql);
+  // Tohum debounce'u beklemez: deep link açılır açılmaz koşar.
+  const [promqlQ, setPromqlQ] = useState(urlInit.promql.trim());
+  // v0.10.1306 — kaynak: '' varsayılan backend | vm | ch (aynı metricsrc
+  // değeri, yalnız bu isteğe) | thanos (editor+ konsolu, cluster zorunlu).
+  const [promqlSrc, setPromqlSrc] = useState<PromqlSrc>(urlInit.src);
+  const [promqlCluster, setPromqlCluster] = useState(urlInit.cluster);
   // PromQL autocomplete (v0.9.766 Faz 1 + v0.9.771 Faz 2) — imlecin altındaki
   // token'ı SUNUCUDA arar (picker disiplini: eager katalog YASAK). İki mod tek
   // kutu: süslü parantez DIŞINDA metrik adı (sugTok), İÇİNDE label anahtarı /
@@ -615,6 +634,36 @@ export function MetricQueryEditor({ range }: { range: TimeRange }) {
     return () => clearTimeout(t);
   }, [promqlText]);
 
+  // v0.10.1306 — PromQL sekmesi ⇄ URL (/frontend-conventions §4). Yazım:
+  // debounce'lu sorgu + sekme + kaynak + cluster, replace:true, yabancı
+  // paramlar korunur; yazılan imza önceden saklanır ki içe aktarma kendi
+  // yazımımızı no-op saysın. İçe aktarma İMZA-KORUMALI (Logs.tsx
+  // lastUrlSigRef deseni, v0.8.253): range / mq yazımı imzayı değiştirmez,
+  // yazılan sorgu silinmez; yalnız DIŞARIDAN gelen değişiklik (başka bir
+  // kanıt çipi, geri/ileri) durumu ezer.
+  const lastUrlSigRef = useRef(promqlSig(urlInit));
+  useEffect(() => {
+    const st: PromqlParams = { tab: view, promql: promqlQ, src: promqlSrc, cluster: promqlCluster };
+    const sig = promqlSig(decodePromqlParams(applyPromqlParams(new URLSearchParams(), st)));
+    if (sig === lastUrlSigRef.current) return;
+    lastUrlSigRef.current = sig;
+    setSearchParams(prev => applyPromqlParams(prev, st), { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- v0.10.1306: setSearchParams kimliği her navigasyonda yenilenir
+  }, [view, promqlQ, promqlSrc, promqlCluster]);
+  useEffect(() => {
+    const p = decodePromqlParams(searchParams);
+    const sig = promqlSig(p);
+    if (sig === lastUrlSigRef.current) return;
+    lastUrlSigRef.current = sig;
+    if (p.tab === 'code') { setCodeText(generateDSL(model)); setCodeErr(null); }
+    setView(p.tab);
+    setPromqlText(p.promql);
+    setPromqlQ(p.promql.trim());
+    setPromqlSrc(p.src);
+    setPromqlCluster(p.cluster);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- v0.10.1306: yalnız URL değişimi içe aktarır
+  }, [searchParams]);
+
   // --- PromQL autocomplete (v0.9.766 + v0.9.771) --------------------------
   // Effect deps PRIMİTİF: imleç kayınca (obje kimliği değişse de) aranan şey
   // aynı kaldığı sürece yeniden fetch YOK.
@@ -623,8 +672,11 @@ export function MetricQueryEditor({ range }: { range: TimeRange }) {
   const labelMetric = sugCtx?.metric ?? '';
   const labelKey = sugCtx?.key ?? '';
   const labelPartial = sugCtx?.partial ?? '';
+  // v0.10.1306 — Thanos kaynağında öneri YOK: liste OTel metrik deposundan
+  // (CH/VM) gelir, Thanos'taki adları önermek yanıltırdı.
+  const sugOff = view !== 'promql' || promqlSrc === 'thanos';
   useEffect(() => {
-    if (view !== 'promql') { setSug([]); return; }
+    if (sugOff) { setSug([]); return; }
     let alive = true;
     // — Faz 2: süslü içi. Anahtar fazında partial'a uzunluk kısıtı YOK: `{`
     //   yazar yazmaz metriğin TÜM anahtarları listelenir (Grafana davranışı).
@@ -644,7 +696,7 @@ export function MetricQueryEditor({ range }: { range: TimeRange }) {
         .catch(() => { if (alive) setSug([]); });
     }, 250);
     return () => { alive = false; clearTimeout(t); };
-  }, [sugQ, view, labelPhase, labelMetric, labelKey, labelPartial]);
+  }, [sugQ, sugOff, labelPhase, labelMetric, labelKey, labelPartial]);
 
   // Öneri uygulandıktan sonra imleci eklenen adın sonuna koy. Layout
   // effect: React yeni değeri commit ETTİKTEN sonra, boyanmadan önce.
@@ -656,7 +708,7 @@ export function MetricQueryEditor({ range }: { range: TimeRange }) {
   }, [caretTo]);
 
   const sugList = sug.slice(0, 8); // kutu en fazla 8 satır
-  const sugOpen = view === 'promql' && (sugTok != null || sugCtx != null) && sugList.length > 0;
+  const sugOpen = !sugOff && (sugTok != null || sugCtx != null) && sugList.length > 0;
   // Kutunun başlığı hangi modda olduğumuzu söyler — aynı kutu üç farklı şey
   // önerdiği için "bu ne listesi?" sorusu görünür cevaplanmalı.
   const sugHint = sugCtx ? (sugCtx.phase === 'key' ? 'label' : `değer: ${sugCtx.key}`) : '';
@@ -740,10 +792,15 @@ export function MetricQueryEditor({ range }: { range: TimeRange }) {
 
   // PromQL fetch — only when the PromQL tab is active + a query is typed. No
   // retry: a syntax/eval error is a user error, not a transient failure.
+  // v0.10.1306 — src=thanos ve cluster seçiliyse Thanos konsolu; aksi hâlde
+  // /api/metrics/promql (src=vm|ch o isteği backend'e sabitler).
+  const thanosSel = promqlSrc === 'thanos';
+  const isThanos = thanosSel && !!promqlCluster;
+  const storeSrc = promqlSrc === 'vm' || promqlSrc === 'ch' ? promqlSrc : undefined;
   const promqlRes = useQuery({
-    queryKey: ['mqe-promql', from, to, promqlQ] as const,
-    queryFn: () => api.metricPromql({ query: promqlQ, from, to }),
-    enabled: view === 'promql' && !!promqlQ && from > 0,
+    queryKey: ['mqe-promql', from, to, promqlQ, storeSrc ?? ''] as const,
+    queryFn: ({ signal }) => api.metricPromql({ query: promqlQ, from, to, src: storeSrc }, signal),
+    enabled: view === 'promql' && !thanosSel && !!promqlQ && from > 0,
     staleTime: 30_000,
     retry: false,
   });
@@ -754,6 +811,38 @@ export function MetricQueryEditor({ range }: { range: TimeRange }) {
     })),
     [promqlRes.data],
   );
+
+  // v0.10.1306 — Thanos yolu. Konsol editor+ (RequireAnyRole) ister: viewer
+  // rolünde istek HİÇ atılmaz (bilinen 403), sorgu salt-okunur görünür;
+  // sunucu yine 403 dönerse aynı kilit durumu.
+  const thanosClustersQ = useQuery({
+    queryKey: ['cluster-sources'],
+    queryFn: () => api.clusterSources(),
+    staleTime: 60_000,
+    enabled: view === 'promql',
+  });
+  const thanosClusters = useMemo(() => {
+    const names = thanosClustersQ.data?.clusters ?? [];
+    // URL'den gelen cluster listede yoksa (id ile gelmiş ya da liste yüklenmedi) seçenek olarak kalsın.
+    return promqlCluster && !names.includes(promqlCluster) ? [promqlCluster, ...names] : names;
+  }, [thanosClustersQ.data, promqlCluster]);
+  const viewerOnly = !!user?.role && !canEdit;
+  const thanosRes = usePromqlConsoleRange({
+    query: promqlQ, cluster: promqlCluster,
+    start: Math.floor(from / 1e9), end: Math.ceil(to / 1e9),
+  }, view === 'promql' && isThanos && !viewerOnly && !!promqlQ && from > 0);
+  const thanosErr = thanosRes.error ? promConsoleError(thanosRes.error) : null;
+  const thanosForbidden = thanosSel && (viewerOnly || thanosErr?.status === 403);
+  const thanosSeries: TSSeries[] = useMemo(
+    () => promMatrixToSeries(thanosRes.data?.data?.result),
+    [thanosRes.data],
+  );
+  const thanosMeta = isThanos ? thanosRes.data?.meta : undefined;
+  const thanosWarnings = isThanos ? [...(thanosRes.data?.warnings ?? []), ...(thanosRes.data?.infos ?? [])] : [];
+  const pickSrc = (v: PromqlSrc) => {
+    setPromqlSrc(v);
+    if (v === 'thanos' && !promqlCluster && thanosClusters.length) setPromqlCluster(thanosClusters[0]);
+  };
 
   // Combine all enabled queries' series into one overlay: relabel each
   // series to "<query>: key=value, key=value", cap to top-N BY AREA (biggest
@@ -870,12 +959,15 @@ export function MetricQueryEditor({ range }: { range: TimeRange }) {
   // Effective chart inputs — the PromQL tab feeds its own fetch into the same
   // TimeSeriesPanel; builder/code tabs use the multi-query overlay.
   const isPromql = view === 'promql';
-  const chartSeries = isPromql ? promqlSeries : series;
+  const chartSeries = isPromql ? (thanosSel ? thanosSeries : promqlSeries) : series;
   const chartLoading = isPromql
-    ? (promqlRes.isFetching && promqlSeries.length === 0)
+    ? (thanosSel ? (thanosRes.isFetching && thanosSeries.length === 0) : (promqlRes.isFetching && promqlSeries.length === 0))
     : (anyLoading && series.length === 0);
+  const promqlErrMsg = thanosSel
+    ? (thanosErr ? thanosErr.message : null)
+    : (promqlRes.error ? (promqlRes.error instanceof Error ? promqlRes.error.message : String(promqlRes.error)) : null);
   const chartErrMsg = isPromql
-    ? (promqlRes.error ? (promqlRes.error instanceof Error ? promqlRes.error.message : String(promqlRes.error)) : null)
+    ? promqlErrMsg
     : (anyError ? (anyError.error instanceof Error ? anyError.error.message : String(anyError.error)) : null);
   const chartEmpty = isPromql ? !promqlQ : noMetric;
 
@@ -1010,14 +1102,40 @@ export function MetricQueryEditor({ range }: { range: TimeRange }) {
         </div>
       ) : (
         <div className="mqe-code">
+          {/* v0.10.1306 — kaynak: varsayılan | VM | CH | Thanos (yalnız
+              /api/clusters/sources cluster döndürürse ya da URL thanos dediyse). */}
+          <div className="row row-wrap gap-2">
+            <SegmentedControl<SrcOpt> size="sm" aria-label="PromQL kaynağı"
+              value={promqlSrc || 'default'}
+              onChange={v => pickSrc(v === 'default' ? '' : v)}
+              options={[
+                { value: 'default', label: 'Varsayılan', title: 'Kurulumun metrik backend’i (Settings)' },
+                { value: 'vm', label: METRIC_SOURCE_LABELS.vm },
+                { value: 'ch', label: METRIC_SOURCE_LABELS.ch },
+                ...(thanosClusters.length || promqlSrc === 'thanos'
+                  ? [{ value: 'thanos' as const, label: 'Thanos', title: 'PromQL konsolu (editör+), her koşu denetim kaydına yazılır' }]
+                  : []),
+              ]} />
+            {promqlSrc === 'thanos' && (
+              <select className="mqe-agg" aria-label="Thanos cluster" value={promqlCluster}
+                onChange={e => setPromqlCluster(e.target.value)}>
+                {!promqlCluster && <option value="">cluster seç…</option>}
+                {thanosClusters.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            )}
+          </div>
           <div style={{ position: 'relative' }}>
             <textarea spellCheck={false} value={promqlText} ref={promqlRef}
+              readOnly={thanosForbidden}
+              aria-label="PromQL sorgusu"
               onChange={e => { setPromqlText(e.target.value); syncSug(e.target.value, e.target.selectionStart ?? e.target.value.length, true); }}
               onSelect={e => syncSug(e.currentTarget.value, e.currentTarget.selectionStart ?? 0)}
               onKeyDown={onPromqlKey}
               onBlur={() => window.setTimeout(closeSug, 120)}
               rows={3}
-              placeholder={'histogram_quantile(0.95, http.server.duration)\nsum by (service.name) (rate(http.server.duration[5m]))'} />
+              placeholder={promqlSrc === 'thanos'
+                ? 'sum by (pod) (rate(container_cpu_usage_seconds_total{namespace="shop"}[5m]))'
+                : 'histogram_quantile(0.95, http.server.duration)\nsum by (service.name) (rate(http.server.duration[5m]))'} />
             {sugOpen && (
               <div className="card" role="listbox" style={{
                 position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 'var(--z-dropdown)',
@@ -1046,11 +1164,22 @@ export function MetricQueryEditor({ range }: { range: TimeRange }) {
             )}
           </div>
           <div className="mqe-code-foot">
-            {promqlRes.error
-              ? <span className="mqe-code-err">⚠ {promqlRes.error instanceof Error ? promqlRes.error.message : String(promqlRes.error)}</span>
-              : <span className="mqe-hint">PromQL over the OTel metric store — selectors, rate()/increase(), histogram_quantile(0.5/0.95/0.99, …), sum/avg/min/max by(…). Dotted OTel names (http.server.duration) and {'{service.name="checkout"}'} matchers.</span>}
+            {promqlErrMsg && !thanosForbidden
+              ? <span className="mqe-code-err">⚠ {promqlErrMsg}</span>
+              : isThanos
+                ? <span className="mqe-hint">PromQL — Thanos konsolu ({promqlCluster}). Cluster matcher’ını sunucu ekler; her koşu denetim kaydına yazılır.</span>
+                : <span className="mqe-hint">PromQL over the OTel metric store — selectors, rate()/increase(), histogram_quantile(0.5/0.95/0.99, …), sum/avg/min/max by(…). Dotted OTel names (http.server.duration) and {'{service.name="checkout"}'} matchers.</span>}
           </div>
-          <LabelBrowser cursorMetric={lbMetric} onApply={applyMatcher} />
+          {/* v0.10.1306 — Thanos'a GERÇEKTEN giden ifade + sunucu uyarıları. */}
+          {thanosMeta && (
+            <div className="mqe-code-foot ov-sub">
+              {thanosMeta.series}{thanosMeta.truncated ? ` / ${thanosMeta.totalSeries}` : ''} seri
+              {thanosMeta.step ? ` · step ${thanosMeta.step}s` : ''} · {thanosMeta.durationMs} ms ·{' '}
+              koşan sorgu: <span className="mono">{thanosMeta.effectiveQuery}</span>
+            </div>
+          )}
+          {thanosWarnings.map(w => <div key={w} className="mqe-code-foot mqe-code-err">⚠ {w}</div>)}
+          {!thanosSel && <LabelBrowser cursorMetric={lbMetric} onApply={applyMatcher} />}
         </div>
       )}
 
@@ -1062,7 +1191,16 @@ export function MetricQueryEditor({ range }: { range: TimeRange }) {
             {unit ? ` · ${unit}` : ''}
           </span>
         </div>
-        {chartEmpty ? (
+        {isPromql && thanosForbidden ? (
+          <Empty icon="🔒" title="PromQL konsolu editör+ rolü ister">
+            Thanos sorgusu yalnız editör ve admin rolleriyle koşar (her koşu denetim kaydına yazılır).
+            Sorgu yukarıda salt-okunur — kopyalayıp yetkili biriyle paylaşabilirsin.
+          </Empty>
+        ) : isPromql && thanosSel && !promqlCluster ? (
+          <Empty icon="∅" title="Thanos cluster seç">
+            Sorgu seçilen cluster’ın Thanos Querier’ında koşar; cluster matcher’ını sunucu ekler.
+          </Empty>
+        ) : chartEmpty ? (
           isPromql ? (
             <Empty icon="📈" title="Type a PromQL query">
               <p>e.g. <span className="mono">histogram_quantile(0.95, http.server.duration)</span> or <span className="mono">sum by (service.name) (rate(http.server.duration[5m]))</span>.</p>

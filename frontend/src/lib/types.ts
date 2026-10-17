@@ -2516,6 +2516,34 @@ export interface ClusterSourcesResponse {
   entries?: ClusterSourceEntry[];
 }
 
+// ── v0.10.1306 — PromQL konsolu range cevabı (/metrics PromQL sekmesi, src=thanos) ──
+/** v0.10.1306 — Prometheus range matrisinin tek serisi: values [unixSaniye, "değer"]. */
+export interface PromMatrixSample {
+  metric: Record<string, string>;
+  values: [number, string][];
+}
+/** v0.10.1306 — api.promqlQueryMeta (promql_console_handlers.go). step/requestedStep saniye. */
+export interface PromQLConsoleMeta {
+  clusterId: string;
+  effectiveQuery: string;
+  step?: number;
+  stepRaised: boolean;
+  requestedStep?: number;
+  series: number;
+  totalSeries: number;
+  truncated: boolean;
+  durationMs: number;
+}
+/** v0.10.1306 — api.promqlQueryResponse: GET|POST /api/promql/query_range (editor+). */
+export interface PromQLConsoleResponse {
+  status: string;
+  data: { resultType: string; result: PromMatrixSample[] | null };
+  warnings?: string[];
+  infos?: string[];
+  meta: PromQLConsoleMeta;
+}
+// ── /v0.10.1306 ──
+
 // One (cluster, namespace, pod) sample from a remote cluster's
 // Thanos Querier. CPU is CORES (not the 0-1 ratio HostRow uses);
 // pct fields are 0/absent when the cluster doesn't expose

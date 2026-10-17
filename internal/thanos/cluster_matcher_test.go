@@ -60,12 +60,12 @@ func TestWithClusterMatcherGolden(t *testing.T) {
 	}
 }
 
-// Her PromQL şablonu enjeksiyondan geçince çıplak metrik kalmamalı ve
-// her seçici matcher taşımalı. Şablon listesi promql.go'nun tamamı —
-// yeni şablon eklenince buraya da eklenir (bareSelectorCount kapısı
-// eksik olanı yakalar).
-func TestEveryPromQLTemplateGetsClusterMatcher(t *testing.T) {
-	templates := map[string]string{
+// promqlTemplateTable — promql.go'nun bütün şablonları; yeni şablon
+// eklenince buraya da eklenir (bareSelectorCount kapısı eksik olanı
+// yakalar). v0.10.1306: TestWithClusterMatcherIdempotent de bu tabloyu
+// kullanır.
+func promqlTemplateTable() map[string]string {
+	return map[string]string{
 		"podCPUQuery":               podCPUQuery("ns.*", ""),
 		"podMemQuery":               podMemQuery("", "api-.*"),
 		"podLimitQuery":             podLimitQuery("cpu", "ns", ""),
@@ -115,6 +115,12 @@ func TestEveryPromQLTemplateGetsClusterMatcher(t *testing.T) {
 		"jmxDiscoveryQuery":         jmxDiscoveryQuery("ns", "dep"),
 		"jmxTrendQuery":             jmxTrendQuery("ns", "dep", "jvm_memory_used_bytes", true, "pod-1"),
 	}
+}
+
+// Her PromQL şablonu enjeksiyondan geçince çıplak metrik kalmamalı ve
+// her seçici matcher taşımalı.
+func TestEveryPromQLTemplateGetsClusterMatcher(t *testing.T) {
+	templates := promqlTemplateTable()
 	for name, expr := range templates {
 		t.Run(name, func(t *testing.T) {
 			if expr == "" {
@@ -128,10 +134,10 @@ func TestEveryPromQLTemplateGetsClusterMatcher(t *testing.T) {
 			if strings.Count(got, `cluster="p1"`) != strings.Count(got, "{") {
 				t.Fatalf("her seçici matcher taşımalı (%d matcher / %d seçici):\n%s", strings.Count(got, `cluster="p1"`), strings.Count(got, "{"), got)
 			}
-			// Enjeksiyon idempotent değil ama tekrar edilmemeli — yeniden
-			// koşum ikinci matcher eklerse çağıran çift geçirmiş demektir.
-			if withClusterMatcher(got, "cluster", "p1") == got {
-				t.Fatal("ikinci geçiş aynı çıktıyı verdi — enjeksiyon hiç olmamış gibi")
+			// v0.10.1306 — enjeksiyon İDEMPOTENT (TestWithClusterMatcherIdempotent):
+			// ikinci geçiş çıktıyı değiştirmez.
+			if again := withClusterMatcher(got, "cluster", "p1"); again != got {
+				t.Fatalf("ikinci geçiş çıktıyı değiştirdi:\n%s\n→ %s", got, again)
 			}
 		})
 	}
@@ -408,4 +414,51 @@ func FuzzWithClusterMatcher(f *testing.F) {
 			t.Fatalf("dize dışı # kaldı: %q → %q", in, out)
 		}
 	})
+}
+
+// v0.10.1306 — kanıt çipi Thanos sorgusunu ZATEN kapsamlanmış (ScopedQuery)
+// hâliyle /metrics PromQL editörüne taşır; konsol cluster.EffectiveQuery'yi
+// yeniden uygular. Enjeksiyon idempotent olmalı: her şablon ve konsol
+// biçimleri için f(f(x)) == f(x). Tam eşit OLMAYAN matcher (başka değer,
+// `!=`, `=~`, başka ad) yine enjeksiyon alır — fazla matcher zararsız,
+// eksik matcher başka cluster'ın verisini sızdırır.
+func TestWithClusterMatcherIdempotent(t *testing.T) {
+	const label, value = "cluster", "p1"
+	for name, expr := range promqlTemplateTable() {
+		if expr == "" {
+			continue
+		}
+		t.Run(name, func(t *testing.T) {
+			once := withClusterMatcher(expr, label, value)
+			if twice := withClusterMatcher(once, label, value); twice != once {
+				t.Fatalf("idempotent değil:\n bir: %s\n iki: %s", once, twice)
+			}
+		})
+	}
+	cases := []struct{ name, in, want string }{
+		{"zaten kapsamlı", `x{cluster="p1"}`, `x{cluster="p1"}`},
+		{"boşluklu eşdeğer", `x{ a="b" , cluster = "p1" }`, `x{ a="b" , cluster = "p1" }`},
+		{"başka değer → enjekte", `x{cluster="p2"}`, `x{cluster="p1",cluster="p2"}`},
+		{"!= → enjekte", `x{cluster!="p1"}`, `x{cluster="p1",cluster!="p1"}`},
+		{"=~ → enjekte", `x{cluster=~"p1"}`, `x{cluster="p1",cluster=~"p1"}`},
+		{"dize içindeki matcher metni sayılmaz", `x{a="cluster=\"p1\""}`, `x{cluster="p1",a="cluster=\"p1\""}`},
+		{"karışık: biri kapsamlı biri çıplak", `x{cluster="p1"} / y`, `x{cluster="p1"} / y{cluster="p1"}`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := withClusterMatcher(c.in, label, value); got != c.want {
+				t.Fatalf("\n girdi: %s\n alınan: %s\n beklenen: %s", c.in, got, c.want)
+			}
+		})
+	}
+	// Kaynak haritası atlanan seçicide de tam: her çıktı baytı girdi ofsetine bağlı.
+	out, pos := injectMatcher(`x{cluster="p1"}`, matcherText(label, value), true)
+	if len(pos) != len(out) {
+		t.Fatalf("harita uzunluğu %d, çıktı %d", len(pos), len(out))
+	}
+	for k, p := range pos {
+		if p != k {
+			t.Fatalf("pos[%d]=%d, beklenen %d (atlanan seçici özdeş kopyalanmalı)", k, p, k)
+		}
+	}
 }
