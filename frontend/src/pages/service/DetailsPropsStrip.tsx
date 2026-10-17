@@ -1,8 +1,13 @@
 import { useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useServiceRollouts7d } from '@/lib/queries/services';
+import { useServiceGitOps } from '@/lib/queries/rollouts';
+import { imageRef } from '@/lib/rolloutRow';
+import { runtimeLabel, newestRollout } from './detailsProps';
 import { api } from '@/lib/api';
-import { timeRangeToNs, tsRel, rangeToSince } from '@/lib/utils';
+import { tsRel, rangeToSince, fmtDateTime } from '@/lib/utils';
+import { serviceHref } from '@/lib/serviceHref';
 import type { TimeRange } from '@/lib/types';
 
 // DetailsPropsStrip — v0.8.370 (operator-approved mockup): the
@@ -26,7 +31,6 @@ function Prop({ k, children }: { k: string; children: React.ReactNode }) {
 }
 
 export function DetailsPropsStrip({ service, range }: { service: string; range: TimeRange }) {
-  const { from, to } = useMemo(() => timeRangeToNs(range), [range]);
 
   const runtimeQ = useQuery({
     queryKey: ['svc-runtime', service],
@@ -37,20 +41,11 @@ export function DetailsPropsStrip({ service, range }: { service: string; range: 
   // Bonus: Version çipi artık 7 güne bakıyor — varsayılan 30dk pencerede
   // sürüm-değiştiren rollout neredeyse hiç olmadığı için çip hiç çıkmıyordu.
   const rolloutsQ = useServiceRollouts7d(service);
-  const clustersQ = useQuery({
-    queryKey: ['svc-clusters', service, from, to],
-    queryFn: () => api.serviceClusters(service, from, to),
-    enabled: !!service, staleTime: STALE, retry: false,
-  });
-  // v0.8.383 (env-separation 0c) — which deployment environments this
-  // service emitted from in the window (the operator's "same
-  // mobile-bff in int/uat/prep" case). Bounded per-service GROUP BY
-  // deploy_env server-side, 60s cached; drops out like every group.
-  const envsQ = useQuery({
-    queryKey: ['svc-envs', service, from, to],
-    queryFn: () => api.serviceEnvironments(service, from, to),
-    enabled: !!service, staleTime: STALE, retry: false,
-  });
+  // v0.10.1257 (operatör: "envanter ve cluster kısmına gerek yok; Java
+  // versiyon, image ve son deploy yazsın") — Envs/Clusters çıktı (aşağıdaki
+  // Clusters bölümü zaten aynı bilgiyi taşıyor); image + son deploy GitOps
+  // sekmesiyle AYNI rollout okumasından (tek cache girdisi).
+  const gitopsQ = useServiceGitOps(service);
   // v0.9.261 — was `range.preset` straight through. The preset vocabulary
   // includes '2d' / '7d' / '30d', which Go's time.ParseDuration rejects, so
   // internal/api.parseDuration fell back to this endpoint's 15-MINUTE default:
@@ -65,23 +60,23 @@ export function DetailsPropsStrip({ service, range }: { service: string; range: 
 
   const rt = runtimeQ.data;
   const tech = rt?.language
-    ? `${rt.language}${rt.runtimeVersion ? ' · ' + rt.runtimeVersion : ''}${rt.sdkVersion ? ' · otel ' + rt.sdkVersion : ''}`
+    ? `${runtimeLabel(rt.language, rt.runtimeName, rt.runtimeVersion)}${rt.sdkVersion ? ' · otel ' + rt.sdkVersion : ''}`
     : null;
+  const lastRollout = useMemo(() => newestRollout(gitopsQ.data?.rollouts.rows ?? []), [gitopsQ.data]);
+  const image = lastRollout ? imageRef(lastRollout.image, lastRollout.imageTag) : '';
   const rollouts = rolloutsQ.data?.rollouts ?? [];
   // v0.8.405 — the header chip means "the new code shipped": key it
   // on the last VERSION-CHANGING rollout, not a restart/reschedule.
   const deploys = rollouts.filter(r => r.kind !== 'restart' && r.versionAfter);
   const last = deploys.length ? deploys[deploys.length - 1] : null;
   const version = last?.versionAfter || null;
-  const clusters = (clustersQ.data?.clusters ?? []).map(c => c.cluster).filter(c => c && c !== '(default)');
-  const envs = envsQ.data?.environments ?? [];
   // v0.9.374 — "Pods" ŞU AN yaşayanlar: strip'te 28 okuyan operatör güncel
   // replika sayısı anlar; 7g penceresinde bu "hafta boyunca var olmuş her
   // pod"du (günlük deploy'lu 4-replika servis 28+ gösteriyordu). `up`
   // (2dk tazelik) zaten wire'da — sıfır yeni sorgu.
   const pods = instancesQ.data?.filter(i => i.up).length ?? 0;
 
-  if (!tech && !version && clusters.length === 0 && envs.length === 0 && pods === 0) return null;
+  if (!tech && !version && !lastRollout && pods === 0) return null;
 
   const chip: React.CSSProperties = {
     border: '1px solid var(--border)', borderRadius: 3, background: 'var(--bg2)',
@@ -106,15 +101,17 @@ export function DetailsPropsStrip({ service, range }: { service: string; range: 
           )}
         </Prop>
       )}
-      {envs.length > 0 && (
-        <Prop k="Envs">
-          {envs.map(e => <span key={e} style={{ ...chip, marginRight: 4 }}>{e}</span>)}
+      {image && image !== '—' && (
+        <Prop k="Image">
+          <span className="mono" title={image}>{image.length > 60 ? '…' + image.slice(-60) : image}</span>
         </Prop>
       )}
-      {clusters.length > 0 && (
-        <Prop k="Clusters">
-          {clusters.slice(0, 4).map(c => <span key={c} style={{ ...chip, marginRight: 4 }}>{c}</span>)}
-          {clusters.length > 4 && <span style={{ color: 'var(--text3)', fontSize: 11 }}>+{clusters.length - 4}</span>}
+      {lastRollout && (
+        <Prop k="Son deploy">
+          <Link to={serviceHref(service, { tab: 'gitops' })} style={{ ...chip, textDecoration: 'none' }}
+            title={`${fmtDateTime(new Date(lastRollout.startedAt))} — GitOps sekmesinde rollout'lar`}>
+            {tsRel(lastRollout.startedAt * 1e6)}
+          </Link>
         </Prop>
       )}
       {pods > 0 && <Prop k="Pods"><span className="mono">{pods}</span></Prop>}
