@@ -15,6 +15,7 @@ const TIER_LABELS: Record<string, string> = {
   intent: 'Niyet sınıflandırıcı',
   'doc-rows': 'Doküman satırı',
   operation: 'Operasyon seçimi',
+  memory: 'Hafıza (kurallar)', // v0.10.1289 — "bunu hatırla" (chat_memory.go)
   loop: 'Serbest döngü',
   other: 'Diğer',
 };

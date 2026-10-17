@@ -6,7 +6,7 @@
 // ile URL birleşimi + replace:true navigate: yeni sekme yok, sayfa URL'yi
 // kaynak-of-truth olarak yeniden okur (frontend-conventions §4).
 import { mergeOpenHref } from './openHref';
-import type { SREHypothesisKind } from './types';
+import type { CosreRuleScope, CosreRuleScopeKind, SREHypothesisKind } from './types';
 
 export interface ApplyAction { kind: 'apply'; href: string; label: string }
 
@@ -67,5 +67,65 @@ export function parseSREHypothesisAction(payload: unknown): SREHypothesisAction 
   return {
     kind: 'sre_hypothesis', problemId: p.problemId, hypothesis: p.hypothesis,
     label: typeof p.label === 'string' && p.label ? p.label : 'Hipotezi doğrula',
+  };
+}
+
+// v0.10.1289 — "bunu hatırla" onay kartı: sunucunun hafıza kademesi üretir
+// (chat_memory.go cosreRuleAction). Öneri metni + varsayılan kapsam +
+// seçenekler; HİÇBİR ŞEY kaydedilmez — kart metni/kapsamı düzenletir, yalnız
+// "Kaydet" tıkı POST /api/ai/rules çağırır (editör+, audit). canSave=false
+// (viewer) → düğme gerekçesiyle kapalı.
+export interface CosreRuleScopeOption extends CosreRuleScope { label: string }
+export interface CosreRuleAction {
+  kind: 'cosre_rule';
+  text: string;
+  scope: CosreRuleScope;
+  scopeOptions: CosreRuleScopeOption[];
+  canSave: boolean;
+  reason?: string;
+  label: string;
+}
+
+const RULE_SCOPE_KINDS: readonly CosreRuleScopeKind[] = ['global', 'service', 'team'];
+
+function parseRuleScope(v: unknown): CosreRuleScope | null {
+  if (!v || typeof v !== 'object') return null;
+  const o = v as { kind?: unknown; value?: unknown };
+  if (typeof o.kind !== 'string' || !RULE_SCOPE_KINDS.includes(o.kind as CosreRuleScopeKind)) return null;
+  const value = typeof o.value === 'string' ? o.value : '';
+  if (o.kind !== 'global' && !value) return null;
+  return o.kind === 'global' ? { kind: 'global' } : { kind: o.kind as CosreRuleScopeKind, value };
+}
+
+export function cosreRuleScopeKey(sc: CosreRuleScope): string {
+  return `${sc.kind}:${(sc.value ?? '').toLowerCase()}`;
+}
+
+export function parseCosreRuleAction(payload: unknown): CosreRuleAction | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const p = payload as Record<string, unknown>;
+  if (p.kind !== 'cosre_rule' || typeof p.text !== 'string') return null;
+  const scope = parseRuleScope(p.scope) ?? { kind: 'global' as const };
+  const opts: CosreRuleScopeOption[] = [];
+  const seen = new Set<string>();
+  const push = (sc: CosreRuleScope, label: unknown) => {
+    const k = cosreRuleScopeKey(sc);
+    if (seen.has(k)) return;
+    seen.add(k);
+    opts.push({ ...sc, label: typeof label === 'string' && label ? label : (sc.kind === 'global' ? 'genel' : `${sc.kind === 'service' ? 'servis' : 'takım'} ${sc.value}`) });
+  };
+  if (Array.isArray(p.scopeOptions)) {
+    for (const o of p.scopeOptions) {
+      const sc = parseRuleScope(o);
+      if (sc) push(sc, (o as { label?: unknown }).label);
+    }
+  }
+  push(scope, undefined);
+  push({ kind: 'global' }, 'genel');
+  return {
+    kind: 'cosre_rule', text: p.text, scope, scopeOptions: opts,
+    canSave: p.canSave === true,
+    reason: typeof p.reason === 'string' && p.reason ? p.reason : undefined,
+    label: typeof p.label === 'string' && p.label ? p.label : 'Kuralı kaydet',
   };
 }

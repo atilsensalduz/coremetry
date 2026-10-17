@@ -16,3 +16,18 @@ export function useCopilotStarters(enabled: boolean, rangeS = 3600): CopilotStar
   });
   return q.data?.starters ?? [];
 }
+
+// v0.10.1289 — CoSRE operatör kuralları (GET /api/ai/rules, her rol). Yalnız
+// panel / modal açıkken (enabled); sunucu önbelleği yok, staleTime 30 s
+// (süreç-içi yenileme aralığı). Yazımdan sonra çağıran anahtarı geçersizler.
+export const COSRE_RULES_KEY = ['copilot', 'rules'] as const;
+
+export function useCosreRules(enabled = true) {
+  return useQuery({
+    queryKey: COSRE_RULES_KEY,
+    queryFn: ({ signal }) => api.cosreRules(signal),
+    enabled,
+    staleTime: 30_000,
+    retry: false,
+  });
+}

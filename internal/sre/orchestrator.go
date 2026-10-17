@@ -27,6 +27,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cilcenk/coremetry/internal/ai/cosrerules"
 	"github.com/cilcenk/coremetry/internal/anomaly"
 	"github.com/cilcenk/coremetry/internal/cache"
 	"github.com/cilcenk/coremetry/internal/chstore"
@@ -62,6 +63,10 @@ type readers struct {
 	narrator Narrator
 	budget   *llmBudget
 	settings func() Settings
+	// rules — v0.10.1289: operatör kuralları (nil → chstore.CurrentCosreRules).
+	// YALNIZ anlatım girdisine (narrate.go); skor / plan / kontrol okumaz
+	// (TestRulesNeverReachScoring).
+	rules func() []cosrerules.Rule
 }
 
 // readersFrom — üretim okuyucuları: srv.MCPDeps() (sohbetle aynı kurucu).

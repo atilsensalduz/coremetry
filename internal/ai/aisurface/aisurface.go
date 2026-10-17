@@ -43,6 +43,10 @@ const (
 	RAGChat = "rag-chat"
 	// ExplainTraceChat — sohbette trace sorusu (Explain çekirdeği, sohbet içi).
 	ExplainTraceChat = "explain-trace:chat"
+	// ChatRule — v0.10.1289: "bunu hatırla" → son soru + cevaptan tek cümlelik
+	// kural önerisi (hafıza kademesi, api/chat_memory.go). Öneri kaydedilmez;
+	// operatör onay kartında düzenleyip kaydeder.
+	ChatRule = "chat-rule"
 )
 
 // Role — bir sohbet yüzeyinin alışverişteki yeri.
@@ -92,6 +96,10 @@ var registry = []Spec{
 	{Label: WikiSelect, Role: RoleSubCall},
 	{Label: RAGChat, Role: RoleAnswer},
 	{Label: ExplainTraceChat, Role: RoleAnswer, Eval: "Trace"},
+	// v0.10.1289 — kural önerisi cevabın kendisi (RoleAnswer); KB'ye terfi
+	// edemez (kanıt değil, öneri) ve evalset vakası olamaz (girdi sohbetin
+	// son turundan istek anında kurulur).
+	{Label: ChatRule, Role: RoleAnswer, NoKB: true},
 }
 
 // Lookup — etiketin kaydı.
@@ -155,12 +163,15 @@ const (
 	TierIntent  = "intent"
 	// TierOperation — operasyon adı çoklu eşleşti, seçim çipleriyle bitti (api/chat_operation_prefetch.go).
 	TierOperation = "operation"
-	TierLoop      = "loop"
-	TierOther     = "other"
+	// TierMemory — v0.10.1289: "bunu hatırla" / "hangi kuralları biliyorsun" (api/chat_memory.go).
+	TierMemory = "memory"
+	TierLoop   = "loop"
+	TierOther  = "other"
 )
 
 var tiers = map[string]bool{TierScope: true, TierWiki: true, TierGuided: true, TierDrawer: true,
-	TierRAG: true, TierIntent: true, TierLoop: true, TierOther: true, TierDocRows: true, TierOperation: true}
+	TierRAG: true, TierIntent: true, TierLoop: true, TierOther: true, TierDocRows: true, TierOperation: true,
+	TierMemory: true}
 
 // KnownTier — kademe adı kayıtlı mı (api kaynak testi copilotChat'in
 // cspan.tier(...) adlarını buna karşı denetler).

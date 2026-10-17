@@ -357,6 +357,17 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 		req.Messages, req.Context.Service, req.Context.Env = rq.Msgs, rq.Service, rq.Env
 	}
 
+	// v0.10.1289 — hafıza kademesi (chat_memory.go): "hatırla: …", "bunu
+	// hatırla", "hangi kuralları biliyorsun". Kapsam kademesinin HEMEN ardından
+	// (doğrulanmış @-kapsam ctx'te → kuralın varsayılan kapsamı), wiki / guided /
+	// niyet / döngüden önce. Hiçbir şey kaydetmez: onay kartı (action
+	// cosre_rule) tık bekler. Eşleşme yoksa akış bayt bayt eski.
+	if handled, mok := s.chatMemoryTier(ctx, emit, &blockSeq, memoryTierReq{Msgs: req.Messages, CtxService: req.Context.Service}); handled {
+		cspan.tier("memory", mok)
+		emit("done", map[string]bool{"ok": mok})
+		return
+	}
+
 	// v0.10.1124 — AÇIK wiki sorusu ("runbook'u nedir", "wikide nasıl
 	// anlatılıyor") guided'dan ÖNCE: servis adı taşıyan wiki sorusu telemetri
 	// anlatımına kaçıyordu (chat_wiki_tier.go). İşaretsiz soru bayt bayt eski.
@@ -702,10 +713,22 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 		scopeTrace = traceFU.TraceID
 	}
 	toolScope := buildToolScreenScope(screenCtx, pageCtx, pinnedCtx, scopeTrace, lastUserText(req.Messages))
+	// v0.10.1289 — operatör kuralları (cosre_rules_prompt.go): bağlama uyan ≤5
+	// kural çitli veri bloğu + ek olarak sohbet bağlamı önsözünün ARKASINA;
+	// araç argümanlarına / router'a girmez. Kural yoksa prompt bayt bayt eski.
+	rulesSvc := req.Context.Service
+	if rulesSvc == "" {
+		rulesSvc = cst.ctx.Service
+	}
+	rulesBlock, rulesN := s.cosreRulesBlock(ctx, rulesSvc)
+	if label := cosreRulesStepLabel(rulesN); label != "" {
+		emit("step", map[string]string{"label": label})
+	}
 	loopPrompt := copilot.SystemPromptChatAgentLoop() + // v0.10.482 — telemetri ajanı çekirdek döngüsü (Ek A)
 		screenContextPreambleTR(screenCtx) +
 		agentctx.PreambleTR(pageCtx, pinnedCtx) + // v0.10.539 — sayfa bağlamı (pin önce)
 		chatContextPreambleTR(cst.ctx) + // v0.10.478 — aktif sohbet bağlamı (Ek A ACTIVE_CONTEXT)
+		cosreRulesLoopPromptTR(rulesBlock) + // v0.10.1289 — kural yoksa ""
 		traceFollowUpPromptTR(traceFU, req.Context.Explain) + // v0.10.948 — boşsa ""
 		chatSourceCodePromptTR(tools) + // v0.10.1050 — read_source_code sunulmuyorsa ""
 		chatWikiPromptTR(tools) + // v0.10.1122 — wiki araçları sunulmuyorsa ""

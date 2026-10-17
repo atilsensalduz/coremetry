@@ -320,6 +320,13 @@ async function insightStream(path: string, opts: InsightStreamOpts): Promise<Ins
 // v0.8.413 — heavy, deliberate admin actions (telemetry purge) may
 // legitimately outlive the 60s default; callers pass timeoutMs to
 // keep the connection open while the server works.
+// v0.10.1289 — kural yazımının başlıkları (rev → If-Match).
+function cosreRuleHeaders(rev?: number): Record<string, string> {
+  const h: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (typeof rev === 'number') h['If-Match'] = `"${rev}"`;
+  return h;
+}
+
 async function request<T>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
   const timeoutMs = init?.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   // v0.9.603 (traces D2) — çağıranın signal'i ile timeout BİRLİKTE çalışır.
@@ -1434,6 +1441,22 @@ export const api = {
   linkAiConversation: (id: string, link: { kind: '' | 'problem' | 'service'; id: string }) =>
     request<{ id: string; link?: import('./types').AiConversationLink }>(`/api/ai/conversations/${encodeURIComponent(id)}/link`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(link),
+    }),
+  // v0.10.1289 — CoSRE operatör kuralları (GET her rol; yazım editör+, audit).
+  // rev verilirse If-Match olarak gider: bayat liste 409 döner (HTTP 409: …).
+  cosreRules: (signal?: AbortSignal) =>
+    get<import('./types').CosreRulesPayload>('/api/ai/rules', signal),
+  createCosreRule: (body: import('./types').CosreRuleInput, rev?: number) =>
+    request<import('./types').CosreRuleMutation>('/api/ai/rules', {
+      method: 'POST', headers: cosreRuleHeaders(rev), body: JSON.stringify(body),
+    }),
+  updateCosreRule: (id: string, body: import('./types').CosreRuleInput, rev?: number) =>
+    request<import('./types').CosreRuleMutation>(`/api/ai/rules/${encodeURIComponent(id)}`, {
+      method: 'PUT', headers: cosreRuleHeaders(rev), body: JSON.stringify(body),
+    }),
+  deleteCosreRule: (id: string, rev?: number) =>
+    request<import('./types').CosreRuleMutation>(`/api/ai/rules/${encodeURIComponent(id)}`, {
+      method: 'DELETE', headers: cosreRuleHeaders(rev),
     }),
   // v0.10.1169 — CoSRE bulgusu probleme not (editör+; jeton sunucudan, metni imzalar).
   saveProblemNote: (problemId: string, body: { token: string; text: string; tool: string }) =>

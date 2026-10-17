@@ -69,6 +69,29 @@ func TestEveryTierRecordsCosreInteraction(t *testing.T) {
 			},
 		},
 		{
+			// v0.10.1289 — hafıza kademesi: açık metin → onay kartı, model yok.
+			name: "hafıza (hatırla:) — LLM'siz", tier: aisurface.TierMemory,
+			setup: noLLM,
+			body: func() map[string]any {
+				return map[string]any{"messages": []map[string]any{{"role": "user", "text": "hatırla: checkout'ta 02:00 batch'i 5xx üretir"}}}
+			},
+		},
+		{
+			// v0.10.1289 — "bunu hatırla": son soru + cevaptan tek kural önerisi (chat-rule).
+			name: "hafıza (bunu hatırla) — LLM'li", tier: aisurface.TierMemory,
+			setup: func(t *testing.T) *loopLLM {
+				return &loopLLM{srv: newMatrixProvider(t).srv}
+			},
+			body: func() map[string]any {
+				return map[string]any{"messages": []map[string]any{
+					{"role": "user", "text": "checkout neden gece 02:00'de 5xx veriyor?"},
+					{"role": "assistant", "text": "02:00–02:20 arası checkout-batch işi çalışıyor; bu pencerede POST /pay %3 hata veriyor."},
+					{"role": "user", "text": "bunu hatırla"},
+				}}
+			},
+			wantModel: true, wantCall: true,
+		},
+		{
 			name: "guided (self_meta) — LLM'siz", tier: aisurface.TierGuided,
 			setup: noLLM,
 			body: func() map[string]any {

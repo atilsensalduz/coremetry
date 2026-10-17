@@ -9,6 +9,7 @@ import { AiBudgetPanel } from './AiBudgetPanel'; // v0.10.411
 import { AiChatRetentionPanel } from './AiChatRetentionPanel'; // v0.10.561
 import { AiEvalPanel } from './AiEvalPanel'; // v0.10.940
 import { EVAL_URL_PARAMS } from './aiEval';
+import { CosreRulesPanel } from '@/components/ai/CosreRulesPanel'; // v0.10.1289
 import { tuningToForm, tuningToWire } from './aiTuning';
 import { IconSparkles } from '@/components/icons';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -25,17 +26,24 @@ import { Link, useSearchParams } from 'react-router-dom';
 // /api/ai/evalset/… uçlarına dayanıyor. Neden yeni bir /settings bölümü
 // (slug) DEĞİL: evalset CoSRE'nin bir alt konusu; ayrı bölüm hem tabIndex
 // hem TAB_COMPS'ta yer açar ve operatörü iki yerde "AI ayarı" aratırdı.
-type AiTabKey = 'provider' | 'eval';
+// v0.10.1289 — üçüncü sekme "Kurallar" (`?tab=rules`): CoSRE operatör
+// kuralları (CosreRulesPanel; /cosre kenar çubuğundaki modalla aynı panel).
+// Ayarlar admin-only olduğu için burada düzenleme açık.
+type AiTabKey = 'provider' | 'eval' | 'rules';
+
+function aiTabFromParam(v: string | null): AiTabKey {
+  return v === 'eval' || v === 'rules' ? v : 'provider';
+}
 
 export function AITab() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const tab: AiTabKey = searchParams.get('tab') === 'eval' ? 'eval' : 'provider';
+  const tab: AiTabKey = aiTabFromParam(searchParams.get('tab'));
   const setTab = (t: AiTabKey) =>
     setSearchParams(prev => {
       const p = new URLSearchParams(prev);
-      if (t === 'eval') p.set('tab', 'eval');
-      else {
-        p.delete('tab');
+      if (t !== 'provider') p.set('tab', t);
+      else p.delete('tab');
+      if (t !== 'eval') {
         // Değerlendirmenin koşu/vaka/kıyas parametreleri o sekmenin;
         // dönüşte bayat bir ?case= çekmeceyi kendiliğinden açmasın.
         for (const k of EVAL_URL_PARAMS) p.delete(k);
@@ -45,8 +53,8 @@ export function AITab() {
   return (
     <>
       <TabStrip ariaLabel="CoSRE ayar sekmeleri" value={tab} onChange={setTab}
-        tabs={[{ key: 'provider', label: 'Sağlayıcı ve profiller' }, { key: 'eval', label: 'Değerlendirme' }]} />
-      {tab === 'eval' ? <AiEvalPanel /> : <AiProviderSettings />}
+        tabs={[{ key: 'provider', label: 'Sağlayıcı ve profiller' }, { key: 'eval', label: 'Değerlendirme' }, { key: 'rules', label: 'Kurallar' }]} />
+      {tab === 'eval' ? <AiEvalPanel /> : tab === 'rules' ? <CosreRulesPanel canEdit storageKey="settings-cosre-rules" /> : <AiProviderSettings />}
     </>
   );
 }

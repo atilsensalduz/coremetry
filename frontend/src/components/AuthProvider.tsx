@@ -33,6 +33,12 @@ export function useAuthUserId(): string | undefined {
   return useContext(Ctx)?.user?.id;
 }
 
+/** v0.10.1289 — sağlayıcısız ağaçta atmayan rol okuması (CoSRE kuralları
+ *  modalı: viewer salt-okunur). Sağlayıcı yoksa undefined. */
+export function useAuthRole(): string | undefined {
+  return useContext(Ctx)?.user?.role;
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const { pathname, search, hash } = useLocation();

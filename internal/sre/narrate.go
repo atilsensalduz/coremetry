@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cilcenk/coremetry/internal/ai/cosrerules"
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/copilot"
 	"github.com/cilcenk/coremetry/internal/rca"
@@ -100,8 +101,18 @@ func narrate(ctx context.Context, rd readers, inv *Investigation, p chstore.Prob
 			return rca.CountUnknownEntities(rca.LowerKnownSet(known...), prompt, answer)
 		},
 	})
+	// v0.10.1289 — operatör kuralları: bağlama (servis, sahip takım) uyan ≤5
+	// kural çitli veri bloğu olarak paketin SONUNA, ek sistem mesajının önüne
+	// (DataNotInstruction sonda kalır). Kural yoksa iki metin de bayt bayt eski.
+	// Kurallar yalnız ANLATIMA girer: Score / planSteps / kontroller onları
+	// görmez (TestRulesNeverReachScoring).
+	system := copilot.SystemPromptSREInvestigation()
+	if block := narrationRulesBlock(rd, p, tzdefault.Location()); block != "" {
+		system = copilot.CosreRulesAddendum() + "\n\n" + system
+		user += "\n" + block + "\n"
+	}
 	rd.budget.inc(ctx)
-	text, err := rd.narrator.Explain(nctx, copilot.SystemPromptSREInvestigation(), user)
+	text, err := rd.narrator.Explain(nctx, system, user)
 	text = strings.TrimSpace(text)
 	if err != nil || text == "" {
 		msg := "boş cevap"
@@ -114,6 +125,24 @@ func narrate(ctx context.Context, rd readers, inv *Investigation, p chstore.Prob
 	inv.Summary = &Narration{Text: truncRunes(text, 4000), Model: rd.narrator.ActiveModel(), At: now().UnixNano()}
 	st.State, st.Summary = StepOK, truncRunes(firstLine(text), 300)
 	return finish()
+}
+
+// narrationRulesBlock — anlatıma girecek kural bloğu ("" = yok). Bağlam:
+// problemin servisi + sahip takımı (EnrichProblemsWithTeams doldurduysa);
+// arka plan çağrısında kullanıcı takımı yoktur.
+func narrationRulesBlock(rd readers, p chstore.Problem, loc *time.Location) string {
+	var rules []cosrerules.Rule
+	if rd.rules != nil {
+		rules = rd.rules()
+	} else {
+		rules = chstore.CurrentCosreRules().Rules
+	}
+	if len(rules) == 0 {
+		return ""
+	}
+	picked, omitted := cosrerules.Relevant(rules, cosrerules.Context{Service: p.Service, Team: p.OwnerTeam},
+		cosrerules.PromptMaxRules, cosrerules.PromptMaxBytes)
+	return cosrerules.BlockTR(picked, omitted, loc)
 }
 
 func firstLine(s string) string {

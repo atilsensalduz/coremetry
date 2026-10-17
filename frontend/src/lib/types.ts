@@ -7387,6 +7387,47 @@ export interface IncidentCaseLookup {
   categories: string[];
 }
 
+// v0.10.1289 — CoSRE operatör kuralları ("bunu hatırla"). Go aynası:
+// internal/ai/cosrerules Rule / Scope / Doc ve internal/api/cosre_rules.go
+// cosreRulesResponse. Damgalar unix ns.
+export type CosreRuleScopeKind = 'global' | 'service' | 'team';
+export interface CosreRuleScope {
+  kind: CosreRuleScopeKind;
+  value?: string;
+}
+export interface CosreRule {
+  id: string;
+  text: string;
+  scope: CosreRuleScope;
+  author: string;
+  authorEmail?: string;
+  createdAt: number;
+  updatedAt?: number;
+  updatedBy?: string;
+}
+export interface CosreRulesLimits {
+  maxRules: number;
+  maxPerScope: number;
+  minText: number;
+  maxText: number;
+}
+/** GET /api/ai/rules */
+export interface CosreRulesPayload {
+  rules: CosreRule[];
+  rev: number;
+  limits: CosreRulesLimits;
+}
+/** POST/PUT/DELETE /api/ai/rules[/{id}] — yazımdan sonra güncel liste. */
+export interface CosreRuleMutation {
+  rule: CosreRule;
+  rev: number;
+  rules: CosreRule[];
+}
+export interface CosreRuleInput {
+  text: string;
+  scope: CosreRuleScope;
+}
+
 // CoSRE öğrenme Faz 2 — istemcinin örtük sinyalleri (POST /api/ai/signal;
 // internal/cosrelearn ClientSignalKinds). Türetilenler sunucuda hesaplanır.
 export type CosreSignalKind = 'copy' | 'link_click' | 'evidence_click' | 'problem_note';

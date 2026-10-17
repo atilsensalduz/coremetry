@@ -1024,6 +1024,12 @@ func main() {
 		log.Printf("[sre] load persisted settings: %v", err)
 	}
 	cfgRefresh.Add("sre-agent", func(ctx context.Context) error { return sre.LoadSettings(ctx, store) })
+	// v0.10.1289 — CoSRE operatör kuralları (system_settings cosre_rules) HER
+	// rolde: sohbet (api) ve AI SRE anlatımı (sre/all) model çağrısına ekler.
+	if err := store.LoadCosreRules(ctx); err != nil {
+		log.Printf("[cosre-rules] load persisted rules: %v", err)
+	}
+	cfgRefresh.Add("cosre-rules", store.LoadCosreRules)
 	// CoSRE öğrenme Faz 2+4 — gece kalite puanı; önce örneklem self-hosted
 	// hakeme (yapılandırılmış AI profili; ai_calls'a "cosre-selfeval" düşer).
 	if mode.worker {

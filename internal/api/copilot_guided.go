@@ -2027,10 +2027,21 @@ func (s *Server) runGuidedRoute(ctx context.Context, emit func(string, any), rou
 	// önce klamplanır); guided ikinci bir kaynak kurmaz, yalnız kendi dar
 	// bütçesini (guidedHistoryMaxRunes) uygular — kanıt geçmişten önce
 	// gelir. Geçmiş yoksa metin yine bayt-bayt eskisidir.
-	user := guidedNarrationUser(question, evidence, explain, msgs)
+	// v0.10.1289 — operatör kuralları (cosre_rules_prompt.go): çitli blok VERİ
+	// bölümünün sonuna, ek sistem mesajının önüne (DataNotInstruction sonda
+	// kalır). Kural yoksa iki metin de bayt bayt eski.
+	rulesSvc := route.Service
+	if rulesSvc == "" {
+		rulesSvc = ctxService
+	}
+	rulesBlock, rulesN := s.cosreRulesBlock(ctx, rulesSvc)
+	if label := cosreRulesStepLabel(rulesN); label != "" {
+		emitGuidedContextStep(emit, label)
+	}
+	user := guidedNarrationUser(question, evidence+cosreRulesDataSuffix(rulesBlock), explain, msgs)
 	// v0.9.528 Faz 2 — kiminle konuşulduğu prompt'un başına girer
 	// (ctx'ten; ön-söz boşsa metin bayt-bayt eskisi).
-	raw, exErr := s.copilotStreamSurface(ctx, "chat-guided", withAddressee(addresseeFromCtx(ctx), guidedNarrationPrompt(route.Intent)), user, func(delta string) {
+	raw, exErr := s.copilotStreamSurface(ctx, "chat-guided", withAddressee(addresseeFromCtx(ctx), cosreRulesSystemPrefix(rulesBlock)+guidedNarrationPrompt(route.Intent)), user, func(delta string) {
 		emit("delta", map[string]string{"text": delta})
 	})
 	if exErr != nil {

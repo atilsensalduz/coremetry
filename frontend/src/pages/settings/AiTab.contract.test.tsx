@@ -19,6 +19,7 @@ const api = vi.hoisted(() => ({
   aiEvalsetCompare: vi.fn(async (..._a: unknown[]) => ({})),
   aiEvalsetStartRun: vi.fn(async (..._a: unknown[]) => ({})),
   aiEvalsetCancelRun: vi.fn(async (..._a: unknown[]) => ({ ok: true })),
+  cosreRules: vi.fn(async (..._a: unknown[]) => ({ rules: [], rev: 0, limits: { maxRules: 200, maxPerScope: 20, minText: 8, maxText: 200 } })),
 }));
 vi.mock('@/lib/api', () => ({ api }));
 
@@ -67,6 +68,21 @@ describe('AITab — sekmeler', () => {
     expect(tab(el, 'Değerlendirme').getAttribute('aria-selected')).toBe('true');
     expect(el.textContent).toContain('Değerlendirme (evalset)');
     expect(el.textContent).not.toContain('Ayarlar okunamadı');
+  });
+
+  // v0.10.1289 — üçüncü sekme Kurallar (?tab=rules); ayar okuması düşse de açılır.
+  it('Kurallar sekmesi ?tab=rules ile açılır, panel kendi ucuna dayanır', async () => {
+    const el = render('/settings/ai?tab=rules&run=ev-1');
+    await tick();
+    expect(tab(el, 'Kurallar').getAttribute('aria-selected')).toBe('true');
+    expect(el.querySelector('[data-testid="cosre-rules-panel"]')).not.toBeNull();
+    expect(el.textContent).toContain('Henüz kural yok');
+    act(() => { tab(el, 'Değerlendirme').click(); });
+    await tick();
+    expect(where).toBe('/settings/ai?tab=eval&run=ev-1');
+    act(() => { tab(el, 'Kurallar').click(); });
+    await tick();
+    expect(where).toBe('/settings/ai?tab=rules');
   });
 
   it('ilk sekmeye dönüş tab + run/case/cmp siler, yabancı parametre kalır', async () => {

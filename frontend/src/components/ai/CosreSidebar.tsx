@@ -3,8 +3,11 @@ import type { AiConversationSummary } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
 import { SearchField } from '@/components/ui/SearchField';
+import { Modal } from '@/components/ui/Modal';
 import { Empty, Spinner } from '@/components/Spinner';
+import { useAuthRole } from '@/components/AuthProvider';
 import { groupConversations, sidebarTitle } from './chatHistoryGroups';
+import { CosreRulesPanel } from './CosreRulesPanel';
 
 // CosreSidebar — v0.10.1137 (operatör: "geçmiş Claude'daki gibi solda"): /cosre
 // sayfasının kalıcı sol kenar çubuğu. Veri, olay ve silme yolu "🕘 Geçmiş"
@@ -40,6 +43,11 @@ export function CosreSidebar({
   nowMs?: number;
 }) {
   const [q, setQ] = useState('');
+  // v0.10.1289 — "Kurallar" modalı (her rol; viewer salt-okunur). Panel ve
+  // okuması YALNIZ modal açıkken bağlanır (aç-üzerine-getir).
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const role = useAuthRole();
+  const canEditRules = role === 'admin' || role === 'editor';
   const groups = useMemo(() => groupConversations(threads, nowMs ?? Date.now(), q), [threads, nowMs, q]);
   const cls = ['cosre-side', collapsed ? 'is-collapsed' : '', mobileOpen ? 'is-open' : ''].filter(Boolean).join(' ');
   return (
@@ -88,7 +96,14 @@ export function CosreSidebar({
             </section>
           ))}
         </div>
+        <div className="cosre-side__foot">
+          <Button variant="ghost" size="sm" className="cosre-side__rules" onClick={() => setRulesOpen(true)}
+            title="CoSRE'nin hatırladığı operatör kuralları">🧠 Kurallar</Button>
+        </div>
       </nav>
+      <Modal open={rulesOpen} onClose={() => setRulesOpen(false)} title="CoSRE kuralları" size="lg">
+        {rulesOpen && <CosreRulesPanel canEdit={canEditRules} storageKey="cosre-page-rules" />}
+      </Modal>
     </>
   );
 }

@@ -6,9 +6,10 @@ import { chartBlocks, mergeBlockLinks, traceListBlocks, operationBlocks, evidenc
 import { ChatTraceList } from './ChatTraceList'; // v0.10.688 — trace_list bloğu
 import { evidenceBlocks } from '@/lib/chatEvidence'; // v0.10.558
 import { EvidenceCard } from './EvidenceCard';
-import { parseAction, actionVisible, applyActionHref, parseProblemNoteAction, parseSREHypothesisAction } from '@/lib/pageActions';
+import { parseAction, actionVisible, applyActionHref, parseProblemNoteAction, parseSREHypothesisAction, parseCosreRuleAction } from '@/lib/pageActions';
 import { ProblemNoteButton } from './ProblemNoteButton';
 import { SREHypothesisButton } from './SREHypothesisButton';
+import { CosreRuleConfirm } from './CosreRuleConfirm';
 import { OperationCard } from './OperationCard';
 import { Button } from '@/components/ui/Button';
 import type { ChatTurn, ChatStepDetail, ChatTypedBlock, CosreSignalKind, ChatQueryEvidence } from '@/lib/types';
@@ -992,6 +993,9 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
               // v0.10.1288 — "hipotezi doğrula" (sunucu, get_problem sonucundan; tık-only).
               const hyp = parseSREHypothesisAction(b.payload);
               if (hyp) return <div key={b.id} style={{ marginTop: 6 }}><SREHypothesisButton action={hyp} /></div>;
+              // v0.10.1289 — "bunu hatırla" onay kartı (sunucu hafıza kademesi; tık-only kayıt).
+              const rule = parseCosreRuleAction(b.payload);
+              if (rule) return <CosreRuleConfirm key={b.id} action={rule} />;
               const a = parseAction(b.payload);
               if (!a || !actionVisible(a, loc.pathname)) return null;
               return (

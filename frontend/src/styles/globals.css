@@ -5568,6 +5568,8 @@ tbody td.tpm-more-cell { color: var(--text2); }
 .cosre-side__search .sf-input { width: 100%; min-height: 34px; font-size: var(--cosre-fs-ui); }
 .cosre-side__list { flex: 1; overflow-y: auto; padding: 0 var(--cosre-s2) var(--cosre-s4); }
 .cosre-side__state { padding: var(--cosre-s2) var(--cosre-s3); }
+.cosre-side__foot { flex: none; padding: var(--cosre-s2) var(--cosre-s3); border-top: 1px solid var(--divider); }
+.cosre-side .cosre-side__rules { width: 100%; justify-content: flex-start; font-size: var(--cosre-fs-ui); }
 .cosre-side__group { margin-top: var(--cosre-s2); }
 /* Grup başlığı: 12px soluk meta, kaydırırken yapışkan (zemin = çubuk zemini) */
 .cosre-side__gh {
@@ -5665,3 +5667,18 @@ tbody td.tpm-more-cell { color: var(--text2); }
 .cosre-root .cosre-head__meta { font-size: var(--cosre-fs-body); }
 .cosre-root .cm-head-btn,
 .cosre-root .cm-fullpage { font-size: var(--cosre-fs-body); white-space: nowrap; }
+
+/* v0.10.1289 — CoSRE operatör kuralları: sohbetin "bunu hatırla" onay kartı
+   (CosreRuleConfirm) ve kural listesi paneli (CosreRulesPanel: Ayarlar ›
+   CoSRE › Kurallar + /cosre "Kurallar" modalı). */
+.cosre-rule-card { margin-top: var(--sp-4); padding: var(--sp-4) var(--sp-5); border: 1px solid var(--divider); border-radius: var(--radius-sm); background: var(--bg1); display: flex; flex-direction: column; gap: var(--sp-3); max-width: 560px; }
+.cosre-rule-card__title { font-weight: 600; font-size: var(--fs-sm); }
+.cosre-rule-card__actions { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
+.cosre-rule-card__reason { font-size: var(--fs-xs); color: var(--text3); }
+.cosre-rules { display: flex; flex-direction: column; gap: var(--sp-4); min-width: 0; }
+.cosre-rules__intro { margin: 0; font-size: var(--fs-sm); color: var(--text2); }
+.cosre-rules__form { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-4); border: 1px solid var(--divider); border-radius: var(--radius-sm); }
+.cosre-rules__scope { display: flex; gap: var(--sp-4); flex-wrap: wrap; align-items: flex-end; }
+.cosre-rules__formactions { display: flex; gap: var(--sp-3); }
+.cosre-rules__bar { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
+.cosre-rules__count { font-size: var(--fs-xs); color: var(--text3); }

@@ -16,6 +16,7 @@ func TestTurnLabelRoundTrip(t *testing.T) {
 		{TierGuided, "service_health", false, "cosre-turn:guided/service_health", TierGuided, "service_health"},
 		{TierWiki, "", true, "cosre-turn:wiki+deep", TierWiki, ""},
 		{TierIntent, "root_cause", true, "cosre-turn:intent/root_cause+deep", TierIntent, "root_cause"},
+		{TierMemory, "", false, "cosre-turn:memory", TierMemory, ""}, // v0.10.1289
 		// Bilinmeyen kademe → other; kurala uymayan rota düşer (kardinalite).
 		{"bogus", "Service Health", false, "cosre-turn:other", TierOther, ""},
 		{TierLoop, "a:b", false, "cosre-turn:loop", TierLoop, ""},
@@ -81,7 +82,8 @@ func TestRegistryDerivedLists(t *testing.T) {
 	if got := RouterGapLabels(); len(got) != 2 || got[0] != Chat || got[1] != ChatIntentNone {
 		t.Errorf("RouterGapLabels = %v", got)
 	}
-	if got := NoKBLabels(); len(got) != 1 || got[0] != ChatGeneral {
+	// v0.10.1289 — kural önerisi (chat-rule) da KB adayı olamaz.
+	if got := NoKBLabels(); len(got) != 2 || got[0] != ChatGeneral || got[1] != ChatRule {
 		t.Errorf("NoKBLabels = %v", got)
 	}
 	if IsLLMCall(ChatOffTopic) || IsLLMCall(ChatIntentNone) || !IsLLMCall(WikiSelect) || !IsLLMCall("explain-problem") {
