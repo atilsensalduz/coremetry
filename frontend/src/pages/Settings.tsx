@@ -21,6 +21,7 @@ import { TeamRoutingTab } from './settings/TeamRoutingTab';
 import { ApiTokensTab } from './settings/ApiTokensTab';
 import { MaintenanceTab } from './settings/MaintenanceTab';
 import { AITab } from './settings/AiTab';
+import { AiSreTab } from './settings/AiSreTab';
 import { KnowledgeTab } from './settings/KnowledgeTab';
 import { TempoTab } from './settings/TempoTab';
 import { MetricsBackendTab } from './settings/MetricsBackendTab';
@@ -66,6 +67,7 @@ const TAB_COMPS: Record<string, ComponentType> = {
   'api-tokens': ApiTokensTab,
   'maintenance': MaintenanceTab,
   'ai': AITab,
+  'ai-sre': AiSreTab,
   'knowledge': KnowledgeTab,
   'tempo': TempoTab,
   'metrics-backend': MetricsBackendTab,

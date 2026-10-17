@@ -8,3 +8,7 @@ import type { SREStatus } from '@/lib/types';
 export function sreRoleMissing(s: SREStatus | undefined): boolean {
   return !!s && s.queueDepth > 0 && !s.roleSeen && s.launcher !== 'inprocess';
 }
+
+/** v0.10.1286 — AI SRE ayar ekranı (Settings → AI SRE, admin). "Kapalı"
+ *  bandı operatörü API'ye değil buraya yönlendirir. */
+export const SRE_SETTINGS_PATH = '/settings/ai-sre';

@@ -1379,6 +1379,10 @@ export const api = {
     request<import('./types').SREEnqueueResult>(`/api/problems/${encodeURIComponent(id)}/investigation`, { method: 'POST' }),
   // v0.10.1282 — AI SRE kuyruk / rol durumu (5 s cache).
   sreStatus: (signal?: AbortSignal) => get<import('./types').SREStatus>(`/api/sre/status`, signal),
+  // v0.10.1286 — AI SRE ayarı (admin; PUT audit settings.sre_agent.update).
+  sreSettings: (signal?: AbortSignal) => get<import('./types').SRESettings>(`/api/settings/sre`, signal),
+  putSRESettings: (c: import('./types').SRESettings) =>
+    request<import('./types').SRESettings>(`/api/settings/sre`, { method: 'PUT', body: JSON.stringify(c) }),
   // v0.10.561 — sohbet arşivi saklama süresi (admin).
   aiChatRetention: () => get<import('./types').AIChatRetention>(`/api/ai/chat-retention`),
   putAIChatRetention: (c: import('./types').AIChatRetention) =>

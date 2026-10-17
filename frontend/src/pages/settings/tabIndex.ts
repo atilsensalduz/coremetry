@@ -13,6 +13,7 @@ export const SETTINGS_TAB_INDEX: SettingsTabRef[] = [
   { slug: 'api-tokens', label: 'API Tokens' },
   { slug: 'maintenance', label: 'Maintenance windows' },
   { slug: 'ai', label: 'CoSRE' },
+  { slug: 'ai-sre', label: 'AI SRE' }, // v0.10.1286
   { slug: 'knowledge', label: 'Knowledge (RAG)' },
   { slug: 'tempo', label: 'Tempo backend' },
   { slug: 'metrics-backend', label: 'Metrik backend’i' },

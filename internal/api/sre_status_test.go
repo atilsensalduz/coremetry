@@ -199,6 +199,9 @@ func TestSREStatusRoles(t *testing.T) {
 	st.problems["p2"] = chstore.Problem{ID: "p2", Service: "cart", Status: "open", RuleID: "r"}
 	if w := sreDo(mux, "POST", "/api/problems/p2/investigation", "", auth.RoleEditor); w.Code != http.StatusConflict {
 		t.Fatalf("kapalıyken POST = %d", w.Code)
+	} else if b := w.Body.String(); !strings.Contains(b, "/settings/ai-sre") || strings.Contains(b, "/api/settings/sre") {
+		// v0.10.1286 — operatörü API'ye değil ayar ekranına yollar.
+		t.Fatalf("kapalı mesajı ayar ekranını göstermeli: %s", b)
 	}
 	_ = json.Unmarshal(sreDo(mux, "GET", "/api/sre/status", "", auth.RoleViewer).Body.Bytes(), &status)
 	if status.Enabled {

@@ -22,7 +22,7 @@ import { toast } from '@/lib/toast';
 import { agoTR, tsLong } from '@/lib/utils';
 import type { ProblemInvestigationResponse, SREInvestigation, SREStatus } from '@/lib/types';
 import { Sect } from './detailSections';
-import { sreRoleMissing } from './sreInvestigationView';
+import { SRE_SETTINGS_PATH, sreRoleMissing } from './sreInvestigationView';
 
 const STATE_LABEL: Record<string, { label: string; tone: Tone }> = {
   none: { label: 'araştırılmadı', tone: 'neutral' },
@@ -79,7 +79,12 @@ export function ProblemInvestigationPanel({ problemId }: { problemId: string }) 
     <Sect title="AI SRE araştırması"
       sub={<span><Badge tone={st.tone}>{st.label}</Badge>{inv?.finishedAt ? <span title={tsLong(inv.finishedAt)}> · {agoTR(inv.finishedAt)}</span> : null}</span>}>
       {!data.enabled && (
-        <div className="cm-callout" role="status">AI SRE kapalı — yeni araştırma açılmaz (yönetici ayarı: sre_agent).</div>
+        <div className="cm-callout" role="status">
+          AI SRE kapalı — yeni araştırma açılmaz.{' '}
+          {user?.role === 'admin'
+            ? <Link to={SRE_SETTINGS_PATH}>Ayarlar → AI SRE</Link>
+            : 'Yönetici Ayarlar → AI SRE bölümünden açabilir.'}
+        </div>
       )}
       <StateBody data={data} status={status.data} />
       {showButton && (

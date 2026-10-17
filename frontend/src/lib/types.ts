@@ -9630,3 +9630,23 @@ export interface SREEnqueueResult {
   created: boolean;
   reason?: string;
 }
+// v0.10.1286 — Go: sre.Settings — GET/PUT /api/settings/sre (admin;
+// system_settings["sre_agent"]). Sunucu NormalizeSettings'ten geçirir: 0 =
+// varsayılan, aralık dışı tavana kırpılır (sınırlar: settings/sreSettingsForm.ts).
+export type SREPriority = 'P1' | 'P2' | 'P3';
+export interface SRESettings {
+  /** yok = açık (varsayılan). */
+  enabled?: boolean;
+  /** yok = varsayılan [P1, P2]; [] = otomatik kuyruk KAPALI (elle "Araştır" çalışır). */
+  autoPriorities?: SREPriority[];
+  maxPerTick: number;
+  maxPerHour: number;
+  serviceCooldownMin: number;
+  maxConcurrent: number;
+  itemBudgetSec: number;
+  maxAttempts: number;
+  maxQueue: number;
+  maxLLMCallsPerHour: number;
+  updatedBy?: string;
+  updatedAt?: number; // unix ns
+}

@@ -219,7 +219,7 @@ func (s *Server) postProblemInvestigation(w http.ResponseWriter, r *http.Request
 	}, sre.CurrentSettings())
 	switch {
 	case errors.Is(err, sre.ErrDisabled):
-		writeJSONError(w, http.StatusConflict, "AI SRE kapalı (system_settings sre_agent — admin PUT /api/settings/sre)")
+		writeJSONError(w, http.StatusConflict, "AI SRE kapalı — yönetici Ayarlar → AI SRE (/settings/ai-sre) bölümünden açabilir")
 		return
 	case errors.Is(err, sre.ErrQueueFull):
 		writeJSONError(w, http.StatusTooManyRequests, "kuyruk dolu — sre rolü koşuyor mu?")

@@ -100,6 +100,18 @@ describe('ProblemInvestigationPanel', () => {
     expect(el.textContent).toContain('AI SRE kapalı');
     expect(el.textContent).toContain('henüz araştırılmadı');
     expect(el.querySelector('button')).toBeNull();
+    // v0.10.1286 — bant operatörü API'ye değil ayar ekranına yollar.
+    expect(el.querySelector('a')?.getAttribute('href')).toBe('/settings/ai-sre');
+    expect(el.textContent).not.toContain('/api/');
+    expect(el.textContent).not.toContain('sre_agent');
+  });
+
+  it('kapalı bandı viewer\'a bağlantı değil yönlendirme cümlesi gösterir (v0.10.1286)', async () => {
+    m.role = 'viewer';
+    m.inv.p5 = { state: 'none', enabled: false };
+    const el = await render('p5');
+    expect(el.textContent).toContain('Yönetici Ayarlar → AI SRE bölümünden açabilir.');
+    expect(el.querySelector('a[href="/settings/ai-sre"]')).toBeNull();
   });
 
   it('paylaşılan kayıt diğer problemin araştırmasına bağlanır', async () => {
