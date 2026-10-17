@@ -102,20 +102,54 @@ func TestSalvageChainHasExactlyOneImplementation(t *testing.T) {
 }
 
 // TestThinkStripIdiomLivesInOneFile — imza adı değiştirilerek ikinci
-// bir kopya açılabilir; bu kapı DEYİMİ sayıyor: "son </think> sonrasını
-// al". stream.go'nun artımlı SSE kapısı (strings.Index + thinkClose)
-// KASITLI olarak ayrı bir mekanizma — akış sırasında tampon içinde
-// arıyor, tam metin üstünde değil — ve bu kapıya takılmaz.
+// bir kopya açılabilir; bu kapı DEYİMİ sayıyor.
+//
+// v0.10.1285 — eski deyim ("son </think> sonrasını al":
+// strings.LastIndex(s, "</think>")) tamponlu yolun AYRI yazılışıydı ve
+// Gemma kanal bloğunu tanımadığı için akıştan ayrıştı. Kural artık
+// think_stream.go'daki etiket tablosu + durum makinesi; tamponlu
+// StripThinking onu çağırır. Kapı üç şeyi pinler:
+//   - eski deyim HİÇBİR non-test dosyada yok (geri gelirse iki yazılış);
+//   - etiket tablosu (thinkTagPairs) tek dosyada tanımlı;
+//   - Gemma açılış etiketi literal'i yalnız o tabloda (toolcall_text.go'nun
+//     ayrı regex'i v0.10.1285'te kalktı).
+//
+// stream.go'nun artımlı SSE kapısı (strings.Index + thinkClose) KASITLI
+// olarak ayrı bir mekanizma (yalnız baştaki <think>, geri alma yok) ve
+// bu kapıya takılmaz; nihai metni yine SalvageAnswer → StripThinking.
 func TestThinkStripIdiomLivesInOneFile(t *testing.T) {
 	files := scanNonTestGoFiles(t)
-	var hits []string
-	for path, src := range files {
-		if strings.Contains(src, `strings.LastIndex(s, "</think>")`) {
-			hits = append(hits, path)
+	const thinkStream = "internal/ai/provider/think_stream.go"
+	for _, c := range []struct {
+		needle string
+		want   []string // izinli dosyalar (boş = hiçbiri)
+	}{
+		{`strings.LastIndex(s, "</think>")`, nil},
+		{"var thinkTagPairs = ", []string{thinkStream}},
+		{`"<|channel>thought"`, []string{thinkStream}},
+		{"<\\|channel>thought", nil}, // regex yazılışı (eski gemmaThoughtRe)
+	} {
+		var hits []string
+		for path, src := range files {
+			if strings.Contains(src, c.needle) {
+				hits = append(hits, path)
+			}
+		}
+		ok := len(hits) == len(c.want)
+		for i := range hits {
+			if !ok {
+				break
+			}
+			ok = strings.HasSuffix(hits[i], c.want[i])
+		}
+		if !ok {
+			t.Errorf("%s: %d dosyada (%v), want %v", c.needle, len(hits), hits, c.want)
 		}
 	}
-	if len(hits) != 1 || !strings.HasSuffix(hits[0], "internal/ai/provider/salvage.go") {
-		t.Errorf("`son </think>` deyimi %d dosyada (%v), want yalnız internal/ai/provider/salvage.go", len(hits), hits)
+	// StripThinking makineye bağlı kalmalı — gövde yeniden elle yazılırsa
+	// parite testi davranışı yakalar ama niyet burada okunur.
+	if src := files["../../../internal/ai/provider/salvage.go"]; !strings.Contains(src, "thinkVisible(s)") {
+		t.Error("StripThinking artık thinkVisible'ı çağırmıyor — tamponlu ve akan düşünce kuralı yeniden ayrıştı")
 	}
 }
 

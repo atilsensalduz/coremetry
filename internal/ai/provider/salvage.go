@@ -25,26 +25,40 @@ import (
 // Bunların hepsi kullanıcıya BOŞ panel olarak yansıyordu.
 
 // StripThinking, bazı yerel reasoning modellerinin content'e gömdüğü
-// <think>…</think> bloğunu atar; SON </think> sonrasını döndürür.
-// Blok yoksa yalnız trim eder.
+// düşünce bloklarını atar ve görünür cevabı (trim'li) döndürür.
+//
+// v0.10.1285 — kural artık AKIŞ soyucusuyla (think_stream.go
+// thinkStripper) TEK yazılış: tam metin tek parça olarak aynı durum
+// makinesinden geçer. Önceki yazılış yalnız "son </think> sonrası"ydı;
+// Gemma kanal bloğunu (`<|channel>thought … <channel|>`) ve kapanmamış
+// bloğu tanımıyordu — akış gizlerken tamponlu yol (ve akışın sonundaki
+// `answer` uzlaştırması) düşünceyi nihai cevaba geri koyuyordu.
+// Anlam (thinkTagPairs):
+//   - <think>…</think> ve <|channel>thought…<channel|> içi düşer;
+//   - </think> kapanışı (ya da açılışsız </think>) ÖNCESİNDEKİ her şeyi
+//     de atar (eski "son </think> sonrası" kuralı);
+//   - kapanmamış blok gizli kalır (cevap bütçe sonunda kesildi).
 func StripThinking(s string) string {
-	if i := strings.LastIndex(s, "</think>"); i != -1 {
-		s = s[i+len("</think>"):]
-	}
-	return strings.TrimSpace(s)
+	return strings.TrimSpace(thinkVisible(s))
 }
 
-// ThinkingContent, İLK <think>…</think> bloğunun İÇİNİ döndürür —
-// StripThinking hiçbir şey bırakmadığında son çare. Bazı modeller
-// yalnız düşünce bloğu üretir ve o düşünce genelde açıklamanın
-// kendisidir; kurtarmak, isteği başarısız saymaktan iyidir.
+// ThinkingContent, İLK düşünce bloğunun (<think> ya da Gemma
+// <|channel>thought) İÇİNİ döndürür — StripThinking hiçbir şey
+// bırakmadığında son çare. Bazı modeller yalnız düşünce bloğu üretir ve
+// o düşünce genelde açıklamanın kendisidir; kurtarmak, isteği başarısız
+// saymaktan iyidir.
 func ThinkingContent(s string) string {
-	open := strings.Index(s, "<think>")
-	if open == -1 {
+	at, pair := -1, thinkTagPair{}
+	for _, p := range thinkTagPairs {
+		if i := strings.Index(s, p.open); i >= 0 && (at < 0 || i < at) {
+			at, pair = i, p
+		}
+	}
+	if at < 0 {
 		return ""
 	}
-	rest := s[open+len("<think>"):]
-	if c := strings.Index(rest, "</think>"); c != -1 {
+	rest := s[at+len(pair.open):]
+	if c := strings.Index(rest, pair.close); c != -1 {
 		rest = rest[:c]
 	}
 	return strings.TrimSpace(rest)

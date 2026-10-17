@@ -501,10 +501,13 @@ func parseOpenAIToolsChat(respBody []byte, label string, offered []string) (Chat
 	// salvaged — metin modelin DÜŞÜNCESİNDEN geliyor; sonda işaretlenir
 	// (salvage.go v0.10.66: explain yolunun SalvageAnswer'ıyla aynı kural).
 	salvaged := false
-	// Satır-içi <think> bloğu (reasoning parser'sız sunucuda Qwen3 sınıfı)
-	// soyulur — explain yolu SalvageAnswer'ın 1. basamağıyla aynı. İçerik
-	// YALNIZ düşünceyse ve tool çağrısı yoksa 3. basamak: düşüncenin içi.
-	if strings.Contains(out.Text, "</think>") {
+	// Satır-içi düşünce bloğu (reasoning parser'sız sunucuda Qwen3 sınıfı
+	// <think>, Gemma <|channel>thought) soyulur — explain yolu
+	// SalvageAnswer'ın 1. basamağıyla aynı. İçerik YALNIZ düşünceyse ve
+	// tool çağrısı yoksa 3. basamak: düşüncenin içi. v0.10.1285: kapı
+	// eskiden yalnız "</think>" arıyordu — Gemma bloğu ve kapanmamış blok
+	// nihai cevaba (ve akışın Finish uzlaştırmasına) ham biniyordu.
+	if hasThinkTag(out.Text) {
 		if st := StripThinking(out.Text); st != "" {
 			out.Text = st
 		} else if len(msg.ToolCalls) == 0 {

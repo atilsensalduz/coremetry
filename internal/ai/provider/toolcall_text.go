@@ -36,9 +36,8 @@ var (
 		regexp.MustCompile(`(?s)<start_function_call>\s*(.*?)\s*<end_function_call>`),
 		regexp.MustCompile("(?s)```(?:json|tool_call|tool_code|python)?\\s*\\n?(.*?)```"),
 	}
-	gemmaThoughtRe = regexp.MustCompile(`(?s)<\|channel>thought.*?<channel\|>`)
-	textCallIdent  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]{0,80}$`)
-	pythonicCall   = regexp.MustCompile(`(?s)^\s*(?:call:\s*)?([A-Za-z_][A-Za-z0-9_.-]{0,80})\s*\((.*)\)\s*$`)
+	textCallIdent = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]{0,80}$`)
+	pythonicCall  = regexp.MustCompile(`(?s)^\s*(?:call:\s*)?([A-Za-z_][A-Za-z0-9_.-]{0,80})\s*\((.*)\)\s*$`)
 )
 
 // ParseTextToolCalls — content içindeki çağrıları ayrıştırır. known boş
@@ -48,9 +47,10 @@ var (
 // adı kabul eder: uydurma ad Executor'da sözleşmeyle düzeltilir. ok=false:
 // hiçbir çağrı çözülemedi (çağıran metni cevap sayar).
 func ParseTextToolCalls(content string, known []string) (calls []ToolCall, rest string, ok bool) {
-	// Gemma kanal token'lı düşünce bloğu (<|channel>thought … <channel|>) —
-	// StripThinking yalnız <think> tanır; iki biçim de soyulur.
-	body := StripThinking(gemmaThoughtRe.ReplaceAllString(content, ""))
+	// Düşünce blokları (<think>, Gemma <|channel>thought … <channel|>) önce
+	// soyulur — v0.10.1285'ten beri StripThinking iki biçimi de tanır (tek
+	// etiket tablosu: think_stream.go thinkTagPairs).
+	body := StripThinking(content)
 	if strings.TrimSpace(body) == "" {
 		return nil, content, false
 	}

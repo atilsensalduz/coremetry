@@ -280,14 +280,14 @@ func TestParseOpenAIChat_SalvageChain(t *testing.T) {
 			wantText: "düşünce cevabın ta kendisi",
 		},
 		{
-			// KAPANMAMIŞ blok: </think> yok ⇒ StripThinking hiçbir şey
-			// soymaz ve metin OLDUĞU GİBİ geçer — açılış etiketi dahil.
-			// Bu, copilot.go'daki ikizinin bugünkü davranışı; parity
-			// dilimi davranış DEĞİŞTİRMEZ, taşır. (Etiketin UI'ya
-			// sızması ayrı bir ürün kararı — buraya iliştirilmedi.)
-			name:     "kapanmamış think bloğu olduğu gibi geçer (eski davranış pinli)",
+			// KAPANMAMIŞ blok (v0.10.1285): eskiden metin açılış etiketi
+			// dahil OLDUĞU GİBİ geçiyordu. Artık akış soyucusuyla aynı
+			// kural: kapanmamış blok gizli → görünür cevap yok → 3.
+			// basamak (bloğun içi, İŞARETLİ). Etiket UI'ya sızmaz ve
+			// metin nihai cevap kılığına girmez.
+			name:     "kapanmamış think bloğu: içi işaretli kurtarılır, etiket sızmaz",
 			body:     `{"choices":[{"message":{"content":"<think>yarım kalmış düşünce"},"finish_reason":"length"}]}`,
-			wantText: "<think>yarım kalmış düşünce",
+			wantText: "yarım kalmış düşünce",
 		},
 		{
 			name:    "finish_reason=length + hiç içerik ⇒ bütçe teşhisi",

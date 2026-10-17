@@ -16,13 +16,15 @@ import "strings"
 //     parçaları geri alır). Ortadaki tek düşünce bloğu da bu yüzden
 //     güvenli: blok kapanınca öncesi geri alınır.
 //
-// Gemma kanal biçimi (`<|channel>thought … <channel|>`) da gizlenir —
-// buffered nihai metin onu soymuyor; burada GİZLEMEK muhafazakâr yön
-// (ekrana fazladan bir şey çıkmaz, `answer` metni zaten otoriter).
+// Gemma kanal biçimi (`<|channel>thought … <channel|>`) da gizlenir.
 //
 // Kapanmamış blok (akış `<think>…` ortasında bitti): içi gizli kalır.
-// Buffered metin onu ham bırakırdı; `answer` otoriter, akışta göstermemek
-// yine muhafazakâr yön.
+//
+// v0.10.1285 — buffered yol AYNI makineyi kullanır (thinkVisible →
+// StripThinking): eskiden buffered metin Gemma bloğunu ve kapanmamış
+// bloğu ham bırakıyordu; akış gizlerken `answer` uzlaştırması düşünceyi
+// geri getiriyordu. Etiket tablosu (thinkTagPairs) iki yolun TEK
+// kaynağı; parite think_parity_test.go'da her bölme noktasında çivili.
 
 type thinkTagPair struct {
 	open, close string
@@ -103,6 +105,24 @@ func (t *thinkStripper) Flush() string {
 	out := t.buf
 	t.buf = ""
 	return out
+}
+
+// thinkVisible — tam metnin (tek parça) görünür kısmı: buffered yolun
+// düşünce kuralı. Tek Feed içinde reset görünür tamponu zaten temizler.
+func thinkVisible(s string) string {
+	var t thinkStripper
+	out, _ := t.Feed(s)
+	return out + t.Flush()
+}
+
+// hasThinkTag — metin bir düşünce etiketi (açılış ya da </think>) taşıyor mu.
+func hasThinkTag(s string) bool {
+	for _, tag := range thinkWatchTags() {
+		if strings.Contains(s, tag) {
+			return true
+		}
+	}
+	return false
 }
 
 func thinkWatchTags() []string {
