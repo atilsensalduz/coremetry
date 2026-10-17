@@ -10,7 +10,10 @@ const hook = readFileSync(resolve(__dirname, 'ai', 'useChatThread.ts'), 'utf8');
 describe('sayfa bağlamı kablolaması', () => {
   it('CopilotChat → useChatThread({ page }) → api.copilotChat(…, page, pinnedPage)', () => {
     expect(shell).toContain('pageContext(loc.pathname, loc.search)');
-    expect(shell).toMatch(/useChatThread\(\{[\s\S]*?\n\s+page,/);
+    // v0.10.1274 — bağlam alanları screenReqCtx'te toplanır (bağlam şeridi
+    // çıkarmaları uygulanır) ve hook'a ...reqCtx ile yayılır.
+    expect(shell).toMatch(/const screenReqCtx = useMemo<ChatRequestContext>\(\(\) => \(\{[\s\S]*?\n\s+page,/);
+    expect(shell).toMatch(/useChatThread\(\{\s*\.\.\.reqCtx,/);
     expect(hook).toContain('o.page || undefined, o.pinnedPage || undefined');
   });
 });

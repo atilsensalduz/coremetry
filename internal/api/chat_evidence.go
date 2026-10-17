@@ -50,6 +50,18 @@ func attachStepEvidence(stepEv map[string]any, tool, content string) (mcptools.C
 	return ev, true
 }
 
+// withEvidenceScope — v0.10.1274: kanıt çipine ekran-kapsamı künyesi (boşsa
+// dokunmaz); step-result.evidence de güncellenir. Saf.
+func withEvidenceScope(stepEv map[string]any, ev mcptools.ChatEvidence, sa mcptools.ScopeApplied) mcptools.ChatEvidence {
+	if sa.Empty() {
+		return ev
+	}
+	c := sa
+	ev.CtxApplied = &c
+	stepEv["evidence"] = ev
+	return ev
+}
+
 // mergeChatEvidence — çağrı sırasıyla biriken kanıt; tavan chatEvidenceMax. Saf.
 func mergeChatEvidence(acc []mcptools.ChatEvidence, ev mcptools.ChatEvidence) []mcptools.ChatEvidence {
 	if len(acc) >= chatEvidenceMax {

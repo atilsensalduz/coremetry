@@ -31,6 +31,7 @@ import { StateBadges } from './StateBadges'; // v0.10.948 — paylaşılan durum
 import { chatLinkTargetProps, useChatLinkNewTab } from './chatLinkTarget'; // v0.10.1125 — /cosre yeni sekme
 import { sourceChips, SOURCE_KIND_LABEL, type SourceChip } from './sourceChips'; // v0.10.1127 — hedef başına tek kaynak çipi
 import { EvidenceChips } from './EvidenceChips'; // v0.10.1272 — kanıt çipleri + Explore'da aç
+import { ctxAppliedLabel } from './evidenceChip'; // v0.10.1274 — ekran kapsamı künyesi
 import { phaseTrail } from './phaseTrail'; // v0.10.1273 — Metrik → Log → Trace kırıntısı
 
 // ChatBubble — bir sohbet turunun ÇİZİMİ. v0.9.479'da CopilotChat.tsx'ten
@@ -560,6 +561,13 @@ function ToolEvidence({ d }: { d: ChatStepDetail }) {
       {d.args && d.args !== '{}' && (
         <div className="mono" style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 4, wordBreak: 'break-all' }}>
           {d.tool}({d.args})
+        </div>
+      )}
+      {/* v0.10.1274 — sunucunun ekrandan koyduğu kapsam (kanıt çipi yoksa burada; varsa çipin içinde). */}
+      {!d.evidence && ctxAppliedLabel(d.ctxApplied) && (
+        <div className="cell-hint" title={d.ctxApplied?.envNotApplied ? `env uygulanmadı: ${d.ctxApplied.envNotApplied}` : undefined}
+          style={{ marginBottom: 4 }}>
+          kapsam · {ctxAppliedLabel(d.ctxApplied)}
         </div>
       )}
       {/* v0.10.1272 — kanıt zarflı aracın çipi (kaynak · pencere · satır · süre; tıkla = Explore'da aç). */}

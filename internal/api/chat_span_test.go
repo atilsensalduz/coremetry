@@ -152,7 +152,7 @@ func TestChatSpanWiring(t *testing.T) {
 	}
 	// v0.10.536 — araç span'ı tools.Executor'ın Span kancasından (executor_test.go
 	// sarmayı ve bayt+ok kapanışını pinler); sohbet kancayı cspan.tool ile verir.
-	if !strings.Contains(b, "Span: cspan.tool,") || !strings.Contains(b, "exec.Call(ctx, tc.Name, tc.Input)") {
+	if !strings.Contains(b, "Span: cspan.tool,") || !strings.Contains(b, "exec.Call(ctx, tc.Name, cargs)") {
 		t.Fatal("araç span'ı Executor kancasına bağlı değil")
 	}
 	for _, tier := range []string{`cspan.tier("guided"`, `cspan.tier("drawer"`, `cspan.tier("rag"`, `cspan.tier("intent"`} {

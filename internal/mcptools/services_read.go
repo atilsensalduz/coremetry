@@ -116,3 +116,15 @@ func resolveServiceFuzzy(ctx context.Context, d Deps, phrase string) (exact stri
 	exact, candidates = ResolveServiceAmong(phrase, names, 8)
 	return exact, candidates, nil
 }
+
+// ReadServiceEnvRED — v0.10.1274: tek servisin TEK ortamdaki RED'i (guided
+// servis-sağlık demeti için; get_service_health ile AYNI okuma yolu — env
+// verildiğinde sınırlı ham span taraması). found=false: servis bu ortamda
+// bu pencerede span üretmedi.
+func ReadServiceEnvRED(ctx context.Context, d Deps, service, env string, from, to time.Time) (chstore.ServiceSummary, bool, error) {
+	rows, _, err := readServicesIn(ctx, d, from, to, []string{service}, env, 1)
+	if err != nil || len(rows) == 0 {
+		return chstore.ServiceSummary{}, false, err
+	}
+	return rows[0], true, nil
+}

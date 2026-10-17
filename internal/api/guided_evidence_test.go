@@ -171,8 +171,10 @@ func TestGuidedRCBundleEnvNoteAndProbErr(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(src)
-	for _, fnName := range []string{"guidedRootCauseBundle(", "guidedServiceHealthBundle("} {
-		i := strings.Index(body, "func (s *Server) "+fnName)
+	// v0.10.1274 — sağlık demeti ortam RED'ini AYRI okur; "tüm ortamlar" notu
+	// saf guidedEnvREDLineTR'de (chat_tool_scope_test.go pinler).
+	for _, fnName := range []string{"(s *Server) guidedRootCauseBundle(", "guidedEnvREDLineTR("} {
+		i := strings.Index(body, "func "+fnName)
 		j := strings.Index(body[i:], "\nfunc ")
 		if fn := body[i : i+j]; !strings.Contains(fn, "tüm ortamların toplamı") {
 			t.Errorf("%s RED'in tüm ortamların toplamı olduğunu söylemeli", fnName)

@@ -72,6 +72,11 @@ func TestGuidedParityToolsRegistered(t *testing.T) {
 func TestGuidedParityToolsDeclareNoEnvArg(t *testing.T) {
 	tools := ToolList(Deps{})
 	for _, name := range guidedParityToolNames {
+		if name == "list_problem_window_events" {
+			// v0.10.1274 — env KAZANDI (servis üyeliği, Go'da EnvScopeKeepsRow;
+			// ikinci okuma şekli yok). Pin: aşağıdaki şema testi.
+			continue
+		}
 		props := schemaProps(t, toolByName(t, tools, name))
 		if _, has := props["env"]; has {
 			t.Errorf("%s: env arg'ı eklenmiş — get_db_health'te MV'yi diskalifiye eder (ham spans), "+
@@ -209,7 +214,7 @@ func TestGetPodHealthSchemaDeclaresSplitWindow(t *testing.T) {
 
 func TestListProblemWindowEventsSchemaDeclaresResolvedInclusion(t *testing.T) {
 	tool := toolByName(t, ToolList(Deps{}), "list_problem_window_events")
-	for _, want := range []string{"RESOLVED ONES INCLUDED", "list_problems", "No env argument"} {
+	for _, want := range []string{"RESOLVED ONES INCLUDED", "list_problems", "service-scoped"} {
 		if !strings.Contains(tool.Description, want) {
 			t.Errorf("açıklama %q demiyor — bu tool'un list_problems'ten FARKI (zaman ikizi) ve env yokluğu açıkça yazılmalı", want)
 		}
@@ -694,7 +699,7 @@ func TestGuidedParityHandlersReturnViaPurePayloads(t *testing.T) {
 		"return dbHealthPayload(data, windowS), nil",
 		"return messagingHealthPayload(data, windowS), nil",
 		"return podHealthPayload(data, windowS), nil",
-		"return problemWindowPayload(data, service, windowS), nil",
+		"out := problemWindowPayload(data, service, windowS)", // v0.10.1274 — env künyesi sonra
 	} {
 		if !strings.Contains(src, want) {
 			t.Errorf("handler saf üreticiden dönmüyor — bekleniyor: %s", want)
@@ -765,9 +770,10 @@ func TestReadPodHealthKeepsHeapWindowLive(t *testing.T) {
 // etiket basar (v0.9.553/554 sınıfı).
 func TestReadProblemWindowEventsRunsEnrichChain(t *testing.T) {
 	src := guidedParitySource(t)
-	i := strings.Index(src, "func ReadProblemWindowEvents(")
+	// v0.10.1274 — gövde env-kapsamlı ikize taşındı; ReadProblemWindowEvents ona delege eder.
+	i := strings.Index(src, "func readProblemWindowEventsScoped(")
 	if i < 0 {
-		t.Fatal("ReadProblemWindowEvents bulunamadı")
+		t.Fatal("readProblemWindowEventsScoped bulunamadı")
 	}
 	body := src[i:]
 	if end := strings.Index(body, "\n}\n"); end > 0 {

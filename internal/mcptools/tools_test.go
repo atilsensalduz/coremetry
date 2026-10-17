@@ -46,6 +46,12 @@ func TestEnvArgAdditive(t *testing.T) {
 		"list_problems":      {"status", "service", "severity", "priority", "limit"},
 		"list_services":      {"name_contains", "range_s", "limit"},
 		"get_service_health": {"service", "range_s"},
+		// v0.10.1274 — CoSRE adım 5: env-kör listeden çıkanlar (servis-üyeliği
+		// env kapsamı ya da log backend env alanı; sonuç uygulamayı söyler).
+		"list_anomalies":             {"service", "range_s", "limit"},
+		"list_deploys":               {"service", "range_s", "limit"},
+		"list_problem_window_events": {"service", "range_s", "limit"},
+		"get_log_histogram":          {"service", "query", "range_s", "buckets"},
 	}
 	for name, keep := range withEnv {
 		t.Run(name, func(t *testing.T) {
@@ -97,46 +103,33 @@ func TestEnvArgAdditive(t *testing.T) {
 	// okumaya bağlıyor (logstore.Filter.Env / etiket eşlemesi) ve UYGULANAMADIĞINDA
 	// bunu sonucun source.state=partial + notuyla RAPOR ediyor — bu testin
 	// itirazı "rapor edilemeyen yarım destek"ti, o artık yok.
+	// v0.10.1274 — env-kör küme artık TEK kayıt defterinden
+	// (screen_scope.go envBlindReasons): her satır gerekçesiyle, sohbet
+	// katmanı aynı gerekçeyi "env uygulanmadı: …" notu olarak sonuca yazar.
+	// Bilinçli olarak sabit liste: kayıt defterinden bir ad SESSİZCE düşerse
+	// (ya da yeni ad gerekçesiz eklenirse) bu test konuşur.
+	//   ÇIKANLAR (env kazandı): list_anomalies, list_deploys,
+	//   list_problem_window_events (servis üyeliği), get_log_histogram
+	//   (logstore.Filter.Env + env_applied).
+	//   KALANLAR: kimlik-çapalı aramalar (get_trace, get_logs_for_trace,
+	//   get_exemplar_traces, get_linked_traces, get_metrics_for_span,
+	//   find_trace_by_span, find_trace_by_request_id), render_chart,
+	//   list_operations (MV'de env yok), get_topology (env yalnız etiket,
+	//   dedup ortamları birleştiriyor), get_blast_radius (env kolonu yok),
+	//   get_db_health / get_messaging_health / get_pod_health.
 	envBlind := []string{
-		"list_anomalies", "get_trace",
-		"get_logs_for_trace", "get_exemplar_traces", "get_linked_traces",
-		"get_metrics_for_span",
-		// CoSRE Faz-2 — render_chart's spanMetricBatch read (frontend)
-		// has no env conjunct; an env property here would promise a
-		// filter the chart can't apply.
-		"render_chart",
-		// v0.9.1141 (Faz 3.2) — keşif tool'ları, tool BAŞINA gözden
-		// geçirildi (küme üyeliği mekanik değil):
-		//   - list_operations: okuması operation_summary_5m ve o MV'de
-		//     deploy_env YOK (operationsUseMV env'i görünce MV'yi
-		//     diskalifiye eder, operation_env_test.go) → env arg'ı
-		//     uygulanamayacak bir filtre vaat ederdi.
-		//   - list_deploys: deploy işaretçileri env boyutu taşımıyor
-		//     (guidedDeployBundle bunu kanıtta açıkça söyler).
-		//   - find_trace_by_span: id-çapalı nokta araması.
-		// list_environments/list_clusters bilinçli olarak BU LİSTEDE DEĞİL:
-		// onlar env/cluster boyutunun KENDİSİNİ listeler; oraya env arg'ı
-		// eklenirse bu tarama değil TestCatalogueToolsDeclareNoRangeArg
-		// komşuluğundaki şema testleri konuşur.
-		"list_operations", "list_deploys", "find_trace_by_span",
-		// v0.9.1142 — find_trace_by_request_id: kimlik-çapalı nokta
-		// araması VE okuması logstore.Search (search_logs gibi env
-		// uygulayamıyor). İki bağımsız sebep, aynı sonuç.
-		"find_trace_by_request_id",
-		// v0.9.1146 (Faz 3.3) — analiz tool'ları, yine tool BAŞINA ve üçü
-		// FARKLI sebeple env'siz:
-		//   - get_topology: topology_edges_5m'de parent_env/child_env VAR
-		//     ama GÖSTERİM amaçlı; env ORDER BY'da olmadığı için aynı adlı
-		//     servis ortamlar arasında dedup'ta BİRLEŞİYOR (v0.5.410) —
-		//     okuma süzemez, arg uygulanamayacak bir filtre vaat ederdi.
-		//     Annotation kenar satırında ifşa ediliyor, filtre olarak değil.
-		//   - get_blast_radius: service_callers_5m'de env KOLONU yok.
-		//   - get_log_histogram: logstore.Filter.Env var ama ES'te alan
-		//     keşfi düşerse filtre sessizce uygulanmıyor ve Histogram'ın
-		//     dönüş şekli ([]LogSeries) "uygulanmadı" bayrağını TAŞIYAMIYOR
-		//     (v0.9.288'de partial de aynı yüzden taşınamadı). Burada bir
-		//     env arg'ı = rapor edilemeyen yarım destek.
-		"get_topology", "get_blast_radius", "get_log_histogram",
+		"get_trace", "get_logs_for_trace", "get_exemplar_traces", "get_linked_traces",
+		"get_metrics_for_span", "find_trace_by_span", "find_trace_by_request_id",
+		"render_chart", "list_operations", "get_topology", "get_blast_radius",
+		"get_db_health", "get_messaging_health", "get_pod_health",
+	}
+	if got := EnvBlindTools(); len(got) != len(envBlind) {
+		t.Fatalf("envBlindReasons %d araç, ratchet %d — listeyi bilinçli güncelle", len(got), len(envBlind))
+	}
+	for _, name := range envBlind {
+		if r, ok := EnvBlindReason(name); !ok || strings.TrimSpace(r) == "" {
+			t.Fatalf("%s: env-kör kayıt defterinde gerekçesiz/yok", name)
+		}
 	}
 	for _, name := range envBlind {
 		tool := toolByName(t, tools, name)

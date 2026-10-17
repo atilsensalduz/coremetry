@@ -485,7 +485,7 @@ func TestDiscoveryHandlersReturnViaPurePayloads(t *testing.T) {
 		"return operationsPayload(service, names, total), nil",
 		"return environmentsPayload(names, total, a.Pattern), nil",
 		"return clustersPayload(names, windowS), nil",
-		"return deploysPayload(rows, now, windowS, limit, storeCapped), nil",
+		"out := deploysPayload(rows, now, windowS, limit, storeCapped)", // v0.10.1274 — env künyesi sonra damgalanır
 		"return spanLookupPayload(spanID, traceID, windowS), nil",
 	} {
 		if !strings.Contains(src, want) {

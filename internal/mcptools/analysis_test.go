@@ -700,7 +700,9 @@ func TestAnalysisHandlersReturnViaPurePayloads(t *testing.T) {
 	for _, want := range []string{
 		"return topologyPayload(service, windowS, rows, trimmed), nil",
 		"return blastRadiusPayload(br, windowS), nil",
-		"return logHistogramPayload(service, query, d.LogStore.Backend(), windowS, bucketS, series), nil",
+		// v0.10.1274 — env künyesi saf üreticinin çıktısına damgalanır.
+		"out := logHistogramPayload(service, query, d.LogStore.Backend(), windowS, bucketS, series)",
+		"logHistEnvStamp(out, env,",
 	} {
 		if !strings.Contains(src, want) {
 			t.Errorf("handler saf üreticiden dönmüyor — bekleniyor: %s", want)
@@ -754,8 +756,10 @@ func TestGetLogHistogramPassesDerivedBucketAndSeverity(t *testing.T) {
 	if !strings.Contains(call, `bucketS, "severity")`) {
 		t.Errorf("Histogram çağrısı türetilmiş kova + severity kırılımı geçmiyor: %q", call)
 	}
-	if strings.Contains(call, "Env:") {
-		t.Error("logstore.Filter'a Env geçilmiş — bu dönüş şekli 'env uygulanmadı' bayrağını TAŞIYAMAZ (v0.9.288 sınıfı)")
+	// v0.10.1274 — Env artık geçiliyor: dönüş şekli bayrak taşımasa da
+	// "uygulandı mı" alan eşlemesinden (logHistEnvStamp, env_applied) söylenir.
+	if !strings.Contains(call, "Env:     env,") {
+		t.Error("logstore.Filter'a Env geçilmiyor — env argümanı sessiz no-op olur")
 	}
 }
 

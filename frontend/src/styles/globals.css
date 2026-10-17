@@ -5337,6 +5337,8 @@ tbody td.tpm-more-cell { color: var(--text2); }
 .cm-fullpage[aria-disabled="true"] { opacity: .5; pointer-events: none; }
 /* v0.10.1138 — composer altındaki kapsam çipleri (@-anmalar, /komut). */
 .cm-scope-chips { display: flex; flex-wrap: wrap; gap: var(--sp-1); padding: var(--sp-1) var(--sp-3) 0; }
+/* v0.10.1274 — aktif bağlam şeridi (ChatContextBar): kapsam çipleriyle aynı ritim. */
+.cm-context-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1); padding: var(--sp-1) var(--sp-3) 0; }
 
 /* Akış: "Düşünüyor…" parıltısı */
 .cm-thinking { display: inline-block; color: var(--text3); background: linear-gradient(90deg, var(--text3) 0%, var(--text) 50%, var(--text3) 100%); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: cm-shimmer 1.6s linear infinite; }

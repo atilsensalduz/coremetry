@@ -1,4 +1,4 @@
-import type { ChatQueryEvidence, ChatEvidenceChartPayload } from '@/lib/types';
+import type { ChatQueryEvidence, ChatEvidenceChartPayload, ChatCtxApplied } from '@/lib/types';
 import type { CorePanelMultiItem } from '@/components/chart/corePanelEntry';
 import type { EvidenceBlockView } from '@/lib/chatBlocks';
 import type { Tone } from '@/components/ui/Badge';
@@ -25,6 +25,26 @@ export function evidenceWindowFull(w: ChatQueryEvidence['window']): string {
   return `${fmtDateTime(w.fromMs)} – ${fmtDateTime(w.toMs)}`;
 }
 
+/**
+ * ctxAppliedLabel — v0.10.1274: ekran kapsamı künyesinin kısa metni
+ * ("ekrandan: env prod · 1h"; model farklı env verdiyse "env uat (ekran prod)";
+ * env'siz araçta "env uygulanmadı"). Künye boşsa ''.
+ */
+export function ctxAppliedLabel(ca?: ChatCtxApplied): string {
+  if (!ca) return '';
+  const inj: string[] = [];
+  if (ca.env) inj.push(`env ${ca.env}`);
+  if (ca.service) inj.push(`servis ${ca.service}`);
+  if (ca.rangeS && ca.rangeS > 0) inj.push(fmtDurShort(ca.rangeS));
+  if (ca.traceId) inj.push(`trace ${ca.traceId.slice(0, 8)}`);
+  const out: string[] = [];
+  if (inj.length) out.push(`ekrandan: ${inj.join(', ')}`);
+  if (ca.envKept) out.push(`env ${ca.envKept}${ca.screenEnv ? ` (ekran ${ca.screenEnv})` : ''}`);
+  if (ca.serviceKept) out.push(`servis ${ca.serviceKept} (modelin seçimi)`);
+  if (ca.envNotApplied) out.push('env uygulanmadı');
+  return out.join(' · ');
+}
+
 /** Kaynak dışındaki parçalar (sıra sabit; boş olan atlanır). */
 export function evidenceChipParts(ev: ChatQueryEvidence): string[] {
   const parts: string[] = [];
@@ -35,6 +55,8 @@ export function evidenceChipParts(ev: ChatQueryEvidence): string[] {
   if (typeof ev.rows === 'number') parts.push(`${ev.rows} satır`);
   else if (typeof ev.series === 'number') parts.push(`${ev.series} seri`);
   if (typeof ev.durationMs === 'number') parts.push(fmtMs(ev.durationMs));
+  const ca = ctxAppliedLabel(ev.ctxApplied); // v0.10.1274 — hangi kapsamın kullanıldığı
+  if (ca) parts.push(ca);
   return parts;
 }
 

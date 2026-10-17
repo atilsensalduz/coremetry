@@ -50,8 +50,8 @@ package mcptools
 //     de listede olur (vardiya sorusunun doğru cevabı budur). Varsayılan
 //     12h = guided'ın vardiya varsayılanı.
 //
-// ENV ARG KARARI (v0.8.398 sözleşmesi) — tool BAŞINA, dördünde de YOK
-// ama dört FARKLI sebeple:
+// ENV ARG KARARI (v0.8.398 sözleşmesi) — tool BAŞINA; üçünde YOK, üç
+// FARKLI sebeple:
 //
 //   - get_db_health: DatabasesQuery.Env VAR ama MV'yi DİSKALİFİYE eder
 //     (getDatabasesRaw'a düşer, ham spans taraması). Arg'ı kabul etmek
@@ -64,11 +64,13 @@ package mcptools
 //   - get_pod_health: ServiceInstances(service, from, to) ve
 //     JVMHeapPodUsage(from, to) okumalarının env conjunct'ı yok; satırlar
 //     pod/host kimliğiyle gruplanıyor.
-//   - list_problem_window_events: list_problems'in env'i ProblemFilter
-//     üzerinden SERVİS-kapsamlı çözülüyor (env_members); pencere okuması
-//     ise filtreyi hiç almayan ODAKLI bir sorgu (problem.go:1521). Arg
-//     eklemek ya ikinci bir okuma şekli ya da sessiz no-op olurdu.
-//     ASİMETRİ BİLİNÇLİ ve tool açıklamasında yazılı.
+//   - list_problem_window_events: v0.10.1274'te env KAZANDI — pencere
+//     okuması filtre almıyor ama satırlar Go'da chstore.EnvScopeKeepsRow
+//     ile (list_problems'in servis-üyeliği semantiği, global + db öznesi
+//     geçer) sayaçlardan ÖNCE süzülüyor; ikinci okuma şekli yok.
+//
+// Kalan üçünün sonucuna, ekranda somut env seçiliyken sohbet katmanı
+// "env uygulanmadı: <sebep>" notu ekler (screen_scope.go envBlindReasons).
 //
 // MinRole "" (viewer tabanı) — dördü de salt-okunur ve REST eşleri
 // kapısız: GET /api/databases, GET /api/messaging,
@@ -1087,14 +1089,38 @@ func problemWindowData(probs []chstore.Problem, fromNs int64, limit int) Problem
 // Zenginleştirme atlanamaz: Priority bir CH kolonu değil okuma anı
 // hesabıdır ve boş kalırsa tüketici tier'ı uydurur (v0.9.553/554).
 func ReadProblemWindowEvents(ctx context.Context, d Deps, service string, from, to time.Time, limit int) (ProblemWindowData, error) {
+	return readProblemWindowEventsScoped(ctx, d, service, envScope{}, from, to, limit)
+}
+
+// readProblemWindowEventsScoped — v0.10.1274: aynı okuma + servis-üyeliği env
+// kapsamı. Süzme sayaçlar kurulmadan ÖNCE (problemWindowData), yani opened/
+// resolved/still_open da kapsamlı; kural /problems ve /inbox'ınkiyle aynı
+// (chstore.EnvScopeKeepsRow: global kural + db öznesi her zaman geçer).
+func readProblemWindowEventsScoped(ctx context.Context, d Deps, service string, es envScope, from, to time.Time, limit int) (ProblemWindowData, error) {
 	probs, err := d.Store.ListProblemWindowEvents(ctx, service, from, to)
 	if err != nil {
 		return ProblemWindowData{}, err
 	}
+	probs = envScopeProblems(probs, es)
 	if len(probs) > 0 {
 		probs = d.Store.EnrichProblemsForRead(ctx, probs, mcpDeployLookback)
 	}
 	return problemWindowData(probs, from.UnixNano(), limit), nil
+}
+
+// envScopeProblems — servis-üyeliği env kapsamı (saf, tablo testli).
+func envScopeProblems(probs []chstore.Problem, es envScope) []chstore.Problem {
+	if !es.Applied {
+		return probs
+	}
+	members := es.memberSet()
+	out := probs[:0:0]
+	for _, p := range probs {
+		if chstore.EnvScopeKeepsRow(p.Service, p.Kind, members) {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // problemWindowEmptyReasons — pencerede hiç olay yok.
@@ -1148,6 +1174,7 @@ func problemWindowPayload(data ProblemWindowData, service string, windowS int) m
 
 type listProblemWindowEventsArgs struct {
 	Service string `json:"service,omitempty"`
+	Env     string `json:"env,omitempty"` // v0.10.1274 — servis-üyeliği env kapsamı
 	RangeS  int    `json:"range_s,omitempty"`
 	Limit   int    `json:"limit,omitempty"`
 }
@@ -1164,7 +1191,8 @@ func listProblemWindowEventsTool(d Deps) mcp.Tool {
 			"here matches the UI — never re-derive a tier yourself. " +
 			"Use it to open an incident narrative, then get_problem_root_cause for the why and list_deploys for what changed. " +
 			"COST: one bounded state-table read, cheap. BOUNDS: 500 events store-side; store_capped=true means every counter is a lower bound. " +
-			"No env argument: this focused read takes no filter (list_problems' env is service-scoped via a different query path). " +
+			"`env` is service-scoped like list_problems' (problems carry no env dimension): rows of services that ran in that env plus global and " +
+			"database-subject rules; counters are scoped the same way. " +
 			"An empty window is NOT an error — a quiet shift is the normal case, and you get reasons.",
 		InputSchema: map[string]any{
 			"type": "object",
@@ -1173,6 +1201,10 @@ func listProblemWindowEventsTool(d Deps) mcp.Tool {
 					"type": "string",
 					"description": "Exact service name (from list_services) to narrow to one service. Empty = fleet-wide, INCLUDING global " +
 						"(service-less) rules — narrowing to a service drops those.",
+				},
+				"env": map[string]any{
+					"type":        "string",
+					"description": "Deployment environment (deploy_env, e.g. 'int', 'uat', 'prep'). Service-scoped (env_scope=service_membership). Empty = all environments.",
 				},
 				"range_s": map[string]any{
 					"type":    "integer",
@@ -1190,8 +1222,8 @@ func listProblemWindowEventsTool(d Deps) mcp.Tool {
 			},
 		},
 		// Salt-okunur; aynı okumanın canlı tüketicileri GET /api/annotations
-		// ve /shift sayfası, ikisi de viewer'a açık. Env arg'ı YOK —
-		// gerekçe açıklamada ve dosya başlığında.
+		// ve /shift sayfası, ikisi de viewer'a açık. v0.10.1274 — env arg'ı
+		// servis-üyeliğiyle (dosya başlığındaki eski "YOK" kararının kapanışı).
 		MinRole: "",
 		Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var a listProblemWindowEventsArgs
@@ -1203,11 +1235,14 @@ func listProblemWindowEventsTool(d Deps) mcp.Tool {
 			service := strings.TrimSpace(a.Service)
 			windowS := pwWindowS(a.RangeS)
 			from, to := rangeWindow(ctx, windowS)
-			data, err := ReadProblemWindowEvents(ctx, d, service, from, to, clampLimit(a.Limit, pwDefaultRows, pwMaxRows))
+			es := resolveEnvMembers(ctx, d, a.Env)
+			data, err := readProblemWindowEventsScoped(ctx, d, service, es, from, to, clampLimit(a.Limit, pwDefaultRows, pwMaxRows))
 			if err != nil {
 				return nil, err
 			}
-			return problemWindowPayload(data, service, windowS), nil
+			out := problemWindowPayload(data, service, windowS)
+			es.stamp(out)
+			return out, nil
 		},
 	}
 }

@@ -407,8 +407,25 @@ func deployRows(in []deployRow, now time.Time, limit int) []deployRow {
 	return out
 }
 
+// deployEnvFetchCap — env süzgeçli filo okumasının üst sınırı (GetRecentDeploys
+// 2000'e dek kabul eder; tool tavanı 100 × 4).
+const deployEnvFetchCap = 400
+
+// deployFetchLimit — env süzgeci okumadan sonra uygulanacaksa daha geniş
+// dilim çekilir. Saf, tablo testli.
+func deployFetchLimit(limit int, envApplied bool) int {
+	if !envApplied {
+		return limit
+	}
+	if f := limit * 4; f < deployEnvFetchCap {
+		return f
+	}
+	return deployEnvFetchCap
+}
+
 type listDeploysArgs struct {
 	Service string `json:"service,omitempty"`
+	Env     string `json:"env,omitempty"` // v0.10.1274 — servis-üyeliği env kapsamı
 	RangeS  int    `json:"range_s,omitempty"`
 	Limit   int    `json:"limit,omitempty"`
 }
@@ -424,7 +441,8 @@ func listDeploysTool(d Deps) mcp.Tool {
 			"It does NOT compute before/after impact — call get_deploy_diff for that. impact_ready=false means the deploy is younger than the " +
 			"10-minute comparison window, so get_deploy_diff's 'after' side is still filling and its deltas would mislead. " +
 			"Placeholder versions (0.0.1-SNAPSHOT, 'latest', 'dev'…) are filtered out store-side, so a pod restart is not listed as a deploy. " +
-			"Deploy markers carry NO env dimension — do not claim a rollout was env-scoped. " +
+			"Deploy markers carry NO env dimension: `env` narrows SERVICE-SCOPED (services that ran in that env; env_scope=service_membership) — " +
+			"never claim the rollout itself happened in that env. " +
 			"Lookback floors at 6h (deploy questions are rarely answered by the last 30 minutes); window_s reports what was used.",
 		InputSchema: map[string]any{
 			"type": "object",
@@ -432,6 +450,10 @@ func listDeploysTool(d Deps) mcp.Tool {
 				"service": map[string]any{
 					"type":        "string",
 					"description": "Exact service name (from list_services) for one service's rollout history. Empty = fleet-wide 'what changed'.",
+				},
+				"env": map[string]any{
+					"type":        "string",
+					"description": "Deployment environment (deploy_env, e.g. 'int', 'uat', 'prep'). Service-scoped: keeps deploys of services that ran in that env. Empty = all environments.",
 				},
 				"range_s": map[string]any{
 					"type":        "integer",
@@ -475,6 +497,15 @@ func listDeploysTool(d Deps) mcp.Tool {
 			// Sessiz tavan bırakmamak için has_more'a girer.
 			storeCapped := false
 			service := strings.TrimSpace(a.Service)
+			// v0.10.1274 — env servis üyeliğiyle (deploy işaretçisi env taşımaz).
+			es := resolveEnvMembers(ctx, d, a.Env)
+			members := es.memberSet()
+			if service != "" && es.Applied && !members[service] {
+				// Servis bu ortamda koşmuyor: okuma yapılmaz, dürüst boş.
+				out := deploysPayload(nil, now, windowS, limit, false)
+				es.stamp(out)
+				return out, nil
+			}
 			if service != "" {
 				deps, err := d.Store.GetServiceDeploys(ctx, service, now.Add(-lookback), now)
 				if err != nil {
@@ -488,19 +519,28 @@ func listDeploysTool(d Deps) mcp.Tool {
 					})
 				}
 			} else {
-				deps, err := d.Store.GetRecentDeploys(ctx, lookback, limit)
+				// env kapsamında süzme okumadan SONRA (deploy okumasının servis
+				// yuvası yok): sayfayı doldurabilmek için 4× (≤ deployEnvFetchCap)
+				// çekilir; tavana dayanırsa has_more söyler.
+				fetch := deployFetchLimit(limit, es.Applied)
+				deps, err := d.Store.GetRecentDeploys(ctx, lookback, fetch)
 				if err != nil {
 					return nil, err
 				}
-				storeCapped = len(deps) >= limit
+				storeCapped = len(deps) >= fetch
 				for _, dep := range deps {
+					if es.Applied && !members[dep.Service] {
+						continue
+					}
 					rows = append(rows, deployRow{
 						Service: dep.Service, Version: dep.Version,
 						TimeUnixNs: dep.FirstSeenNs, SpanCount: int64(dep.SpanCount),
 					})
 				}
 			}
-			return deploysPayload(rows, now, windowS, limit, storeCapped), nil
+			out := deploysPayload(rows, now, windowS, limit, storeCapped)
+			es.stamp(out)
+			return out, nil
 		},
 	}
 }

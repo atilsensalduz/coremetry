@@ -61,6 +61,9 @@ type ChatEvidence struct {
 	// Ref — çipin sohbet içi bloğuna bağı (blok yükündeki evidenceRef aynı
 	// değer; sunucu adım kimliğinden kurar: "ev<i>"). Boş = bloksuz kanıt.
 	Ref string `json:"ref,omitempty"`
+	// CtxApplied (v0.10.1274) — sunucunun bu çağrıya ekrandan koyduğu kapsam
+	// (env/servis/pencere/trace); boşsa yazılmaz. api attach eder.
+	CtxApplied *ScopeApplied `json:"ctxApplied,omitempty"`
 }
 
 // evidenceTools — kanıt zarfı taşıyan araçlar (adım 2'nin üçü).

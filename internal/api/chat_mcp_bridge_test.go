@@ -191,10 +191,10 @@ func TestMcpBridgeIsReachable(t *testing.T) {
 	}
 	s := string(src)
 	for needle, why := range map[string]string{
-		"externalChatTools(":                "dış tool köprüsü döngüden çağrılmıyor — ölü yol",
-		"exec.Call(ctx, tc.Name, tc.Input)": "tekrar muhafızı (tools.Executor) yürütme yolunda değil", // v0.10.536
-		"s.mcpClient.Registry().Call":       "çağrılar Registry üzerinden gitmiyor",
-		`"mcp.call", "mcp_server"`:          "dış çağrı audit izi düşmüş",
+		"externalChatTools(":             "dış tool köprüsü döngüden çağrılmıyor — ölü yol",
+		"exec.Call(ctx, tc.Name, cargs)": "tekrar muhafızı (tools.Executor) yürütme yolunda değil", // v0.10.536; v0.10.1274 — ekran kapsamlı argüman
+		"s.mcpClient.Registry().Call":    "çağrılar Registry üzerinden gitmiyor",
+		`"mcp.call", "mcp_server"`:       "dış çağrı audit izi düşmüş",
 		// v0.10.948 — trace takibi yalnız yerli salt-okur katalog (Faz B gereksinim 7).
 		"!isTraceFollowUp && s.mcpClient != nil": "dış MCP tool'ları trace takibine sızıyor — yazma yetkisi denetlenmiyor",
 	} {

@@ -253,6 +253,9 @@ type Deps struct {
 	// api/oracle_op_resolve.go doldurur). nil ya da Enabled()=false = etkin
 	// Oracle kaynağı yok → sohbete SUNULMAZ; dış MCP'de araç dürüst enabled=false döner.
 	OracleOps OracleOpSource
+	// v0.10.1274 — env → servis üyeliği (screen_scope.go resolveEnvMembers);
+	// yalnız test dikişi. nil → Store.EnvMemberServices (mcpDeps doldurmaz).
+	EnvMembers func(ctx context.Context, env string) ([]string, error)
 }
 
 // MetricSource is the metric-read half of Deps, satisfied by
@@ -1096,6 +1099,7 @@ func listProblemsTool(d Deps) mcp.Tool {
 
 type listAnomaliesArgs struct {
 	Service string `json:"service,omitempty"`
+	Env     string `json:"env,omitempty"` // v0.10.1274 — servis-üyeliği env kapsamı
 	RangeS  int    `json:"range_s,omitempty"`
 	Limit   int    `json:"limit,omitempty"`
 }
@@ -1103,12 +1107,13 @@ type listAnomaliesArgs struct {
 func listAnomaliesTool(d Deps) mcp.Tool {
 	return mcp.Tool{
 		Name:             "list_anomalies",
-		ShortDescription: "Son anomali olayları — 'baseline'a göre bir şey değişti' bildirimleri, sert alarm değil. Servis filtresi YAKLAŞIK: boş sonuç 'bu serviste yok' demek DEĞİLDİR.",
-		Description:      "List recent anomaly events (log-pattern + trace-op + ML detectors). Anomalies are 'something changed against baseline' notices — not hard alerts. Use this when investigating a service whose RED metrics look normal but the operator suspects a behavior shift. NOTE: the service filter is APPROXIMATE — a wider fleet slice is fetched and post-filtered, so an empty result for one service means 'none in the fetched slice', not a proven zero; do not state 'this service has no anomalies' as certain.",
+		ShortDescription: "Son anomali olayları — 'baseline'a göre bir şey değişti' bildirimleri, sert alarm değil. service/env ile daralt (env servis üyeliğiyle).",
+		Description:      "List recent anomaly events (log-pattern + trace-op + ML detectors). Anomalies are 'something changed against baseline' notices — not hard alerts. Use this when investigating a service whose RED metrics look normal but the operator suspects a behavior shift. The service and env filters are applied in SQL before the limit; env is service-scoped (anomaly rows have no env column) and the result says so.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"service": map[string]any{"type": "string", "description": "Exact service name. Approximate filter (see tool description). Empty = whole fleet."},
+				"service": map[string]any{"type": "string", "description": "Exact service name. Applied in SQL before the limit. Empty = whole fleet."},
+				"env":     map[string]any{"type": "string", "description": "Deployment environment (deploy_env, e.g. 'int', 'uat', 'prep'). Anomaly events carry no env dimension, so this is SERVICE-SCOPED: only services that ran in that env (env_scope=service_membership in the result). Empty = all environments."},
 				"range_s": map[string]any{"type": "integer", "minimum": 0, "maximum": 604800, "description": "Lookback seconds. Default 3600 (1h)."},
 				"limit":   map[string]any{"type": "integer", "minimum": 1, "maximum": 200, "description": "Default 25."},
 			},
@@ -1126,36 +1131,28 @@ func listAnomaliesTool(d Deps) mcp.Tool {
 			}
 			from, _ := rangeWindow(ctx, rs)
 			lim := clampLimit(a.Limit, 25, 200)
-			// ListAnomalyEventsFilter has no Service slot — when
-			// the LLM asks for one we fetch a wider slice (4x the
-			// asked limit, capped) and post-filter. Sufficient for
-			// the use case (one service inside a 1h window rarely
-			// produces more than the cap).
-			fetchLim := lim
-			if a.Service != "" {
-				fetchLim = clampLimit(lim*4, 100, 200)
-			}
-			rows, err := d.Store.ListAnomalyEvents(ctx, chstore.ListAnomalyEventsFilter{
-				SinceNs: from.UnixNano(),
-				Limit:   fetchLim,
-			})
+			// v0.10.1274 — servis ve env SQL'de (Services yuvası, v0.9.353):
+			// eski yol filonun 4×'ini çekip Go'da süzüyordu (LIMIT'ten SONRA
+			// süzme sınıfı — boş sonuç "bu serviste yok" demek değildi).
+			es := resolveEnvMembers(ctx, d, a.Env)
+			rows, err := d.Store.ListAnomalyEvents(ctx, anomalyToolFilter(from.UnixNano(), lim, a.Service, es))
 			if err != nil {
 				return nil, err
 			}
-			if a.Service != "" {
-				filtered := rows[:0]
-				for _, r := range rows {
-					if r.Service == a.Service {
-						filtered = append(filtered, r)
-						if len(filtered) >= lim {
-							break
-						}
-					}
-				}
-				rows = filtered
-			}
-			return map[string]any{"anomalies": rows, "count": len(rows), "has_more": len(rows) >= lim}, nil // v0.10.407 — sayfa doluysa "hepsi bu" değil (CoSRE denetimi M3)
+			res := map[string]any{"anomalies": rows, "count": len(rows), "has_more": len(rows) >= lim} // v0.10.407 — sayfa doluysa "hepsi bu" değil (CoSRE denetimi M3)
+			es.stamp(res)
+			return res, nil
 		},
+	}
+}
+
+// anomalyToolFilter — list_anomalies'in store filtresi (saf, tablo testli):
+// servis ve env-üyeliği Services yuvasında KESİŞİR; ikisi de yoksa nil.
+func anomalyToolFilter(sinceNs int64, limit int, service string, es envScope) chstore.ListAnomalyEventsFilter {
+	return chstore.ListAnomalyEventsFilter{
+		SinceNs:  sinceNs,
+		Limit:    limit,
+		Services: scopeServices(service, es),
 	}
 }
 

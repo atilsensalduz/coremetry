@@ -777,8 +777,25 @@ func logHistogramPayload(service, query, backend string, windowS, bucketS int, s
 	return body
 }
 
+// logHistEnvStamp — env künyesi (saf, tablo testli): alan gerçekten bulunduysa
+// env_applied=true; yoksa false + not; eşleme doğrulanamadıysa "unverified".
+func logHistEnvStamp(body map[string]any, env string, r logstore.FieldResolution) {
+	body["env"] = env
+	switch {
+	case r.Real():
+		body["env_applied"] = true
+	case r.Source == logstore.FieldNone:
+		body["env_applied"] = false
+		body["env_note"] = "env uygulanamadı: log arka ucunda ortam alanı bulunamadı — sayılar tüm ortamların toplamı"
+	default:
+		body["env_applied"] = "unverified"
+		body["env_note"] = "env alanı doğrulanamadı — sayıların ortama daraltıldığı kesin değil"
+	}
+}
+
 type getLogHistogramArgs struct {
 	Service string `json:"service,omitempty"`
+	Env     string `json:"env,omitempty"` // v0.10.1274 — logstore.Filter.Env
 	Query   string `json:"query,omitempty"`
 	RangeS  int    `json:"range_s,omitempty"`
 	Buckets int    `json:"buckets,omitempty"`
@@ -798,13 +815,18 @@ func getLogHistogramTool(d Deps) mcp.Tool {
 			"SPARSE: buckets with zero matches are OMITTED, so a missing bucket means 'nothing matched', not 'no data'. " +
 			"PARTIALITY: this shape carries NO partial flag — on a slow or shard-degraded backend a DIP can be the timeout rather than a traffic drop. If a " +
 			"dip carries your conclusion, confirm it with search_logs over the dip's own window (≤24 h), whose `source` reports partial/timeout/unreachable with notes. " +
-			"This tool has no environment argument and its counts are NOT env-scoped — narrow by service here; search_logs does accept env/cluster/namespace/pod when the question is environment-specific.",
+			"`env` narrows the counts to one deployment environment through the log backend's env field; env_applied reports whether that field was " +
+			"found (false = counts are NOT env-scoped, say so).",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"service": map[string]any{
 					"type":        "string",
 					"description": "Exact service name (from list_services). Empty = the whole estate's log volume, which is the right call for 'is anything flooding right now'.",
+				},
+				"env": map[string]any{
+					"type":        "string",
+					"description": "Deployment environment (e.g. 'int', 'uat', 'prep') applied before bucketing via the backend's env field. Empty = all environments.",
 				},
 				"query": map[string]any{
 					"type": "string",
@@ -853,8 +875,10 @@ func getLogHistogramTool(d Deps) mcp.Tool {
 			// kanonik (v0.8.377) ve tool'un vaadi bu kırılım. Serbest
 			// bir groupBy, ES'te yalnız "service" ile eşleşiyor ve geri
 			// kalan her değer sessizce tek `_total` serisine düşerdi.
+			env := strings.TrimSpace(a.Env)
 			series, err := d.LogStore.Histogram(ctx, logstore.Filter{
 				Service: service,
+				Env:     env,
 				Search:  query,
 				From:    from,
 				To:      to,
@@ -867,7 +891,13 @@ func getLogHistogramTool(d Deps) mcp.Tool {
 				}
 				return nil, err
 			}
-			return logHistogramPayload(service, query, d.LogStore.Backend(), windowS, bucketS, series), nil
+			out := logHistogramPayload(service, query, d.LogStore.Backend(), windowS, bucketS, series)
+			if env != "" {
+				// Histogram dönüş şekli "uygulanmadı" bayrağı taşımıyor (v0.9.288);
+				// dürüstlük alan eşlemesinden: env rolünün alanı var mı.
+				logHistEnvStamp(out, env, logFieldMapping(ctx, d.LogStore, true).Role(logstore.RoleEnv))
+			}
+			return out, nil
 		},
 	}
 }

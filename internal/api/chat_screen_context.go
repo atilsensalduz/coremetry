@@ -90,8 +90,11 @@ func screenContextPreambleTR(c ChatScreenContext) string {
 	if c.Empty() {
 		return ""
 	}
+	// v0.10.1274 — KISALDI: kapsamı artık SUNUCU araç argümanlarına koyuyor
+	// (chat_tool_scope.go applyScreenContext); önsöz yalnız ne olduğunu ve
+	// farklı kapsamın nasıl isteneceğini söyler (küçük model: az talimat).
 	var b strings.Builder
-	b.WriteString("EKRAN BAĞLAMI — operatör ŞU AN buna bakıyor:\n")
+	b.WriteString("EKRAN BAĞLAMI (operatör şu an buna bakıyor; sunucu bunu argüman vermediğin araçlara kendisi uygular):\n")
 	if s := strings.TrimSpace(c.Service); s != "" {
 		fmt.Fprintf(&b, "- servis: %s\n", s)
 	}
@@ -102,24 +105,17 @@ func screenContextPreambleTR(c ChatScreenContext) string {
 		fmt.Fprintf(&b, "- ortam: %s\n", e)
 	}
 	if c.RangeS > 0 {
-		// ⚠ Bu satır prompt'taki "aksini söylemedikçe 1800 kullan"
-		// kuralını EZMEK zorunda; ezmezse model iki çelişik talimat
-		// alır ve küçük model çelişkide genelde İLK gördüğünü izler.
-		fmt.Fprintf(&b, "- zaman aralığı: %s (range_s=%d) — tool çağrılarında "+
-			"varsayılan 1800 YERİNE BUNU kullan\n", fmtRangeTR(c.RangeS), c.RangeS)
+		// ⚠ Prompt'taki "aksini söylemedikçe 1800" kuralını EZER (küçük model
+		// çelişkide ilk gördüğünü izler).
+		fmt.Fprintf(&b, "- zaman aralığı: %s (range_s=%d; 1800 YERİNE bu)\n", fmtRangeTR(c.RangeS), c.RangeS)
 	}
 	if c.Anchored {
-		// ⚠ v0.10.33 — MUTLAK PENCERE. Operatör geçmişe zoom yaptıysa
-		// "son N saat" ifadesi YANILTICI olur: cevap bugünü değil, o
-		// pencereyi anlatmalı. Model bunu bilmeden aynı uzunlukta ama
-		// BUGÜNKÜ veriyi okur ve sayılar gerçek olduğu için hata sessiz
-		// kalır.
+		// ⚠ v0.10.33 — MUTLAK PENCERE: cevap "şimdi"yi değil o pencereyi anlatır.
 		fmt.Fprintf(&b, "- ⚠ pencere GEÇMİŞE sabitlenmiş: %s'de BİTİYOR, "+
 			"\"şimdi\" DEĞİL. Cevabı o ana göre yaz.\n",
 			c.AnchorTo.UTC().Format("2006-01-02 15:04 UTC"))
 	}
-	b.WriteString("Soru AKSİNİ SÖYLEMEDİKÇE tool argümanlarında bu değerleri kullan; " +
-		"operatör açıkça daha geniş bir kapsam isterse (ör. \"tüm servisler\") onu izle.\n\n")
+	b.WriteString("Soru AKSİNİ SÖYLEMEDİKÇE bu kapsam geçerli; başka ortam/servis/pencere sorulursa argümanda açıkça yaz.\n\n")
 	return b.String()
 }
 

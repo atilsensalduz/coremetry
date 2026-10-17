@@ -125,6 +125,7 @@ func sanitizeChatEvidence(in []mcptools.ChatEvidence) []mcptools.ChatEvidence {
 		e.Env = clampChatRunes(e.Env, aiChatEvidenceFieldMax)
 		e.Cluster = clampChatRunes(e.Cluster, aiChatEvidenceFieldMax)
 		e.Query = clampChatRunes(e.Query, aiChatEvidenceQueryMax)
+		e.CtxApplied = sanitizeScopeApplied(e.CtxApplied) // v0.10.1274
 		if !strings.HasPrefix(e.Href, "/") || strings.HasPrefix(e.Href, "//") ||
 			strings.HasPrefix(e.Href, "/\\") || len(e.Href) > aiChatEvidenceHrefMax {
 			e.Href = ""
@@ -138,6 +139,25 @@ func sanitizeChatEvidence(in []mcptools.ChatEvidence) []mcptools.ChatEvidence {
 		return nil
 	}
 	return out
+}
+
+// sanitizeScopeApplied — v0.10.1274: kanıtın ekran-kapsamı künyesi istemciden
+// geri geldiğinde metin alanları kırpılır; boş künye düşer. Saf.
+func sanitizeScopeApplied(in *mcptools.ScopeApplied) *mcptools.ScopeApplied {
+	if in == nil {
+		return nil
+	}
+	c := *in
+	for _, f := range []*string{&c.Env, &c.Service, &c.TraceID, &c.EnvKept, &c.ServiceKept, &c.ScreenEnv, &c.EnvNotApplied} {
+		*f = clampChatRunes(*f, aiChatEvidenceFieldMax)
+	}
+	if c.RangeS < 0 {
+		c.RangeS = 0
+	}
+	if c.Empty() {
+		return nil
+	}
+	return &c
 }
 
 // aiChatBlob — query_string kolonunda yaşayan gövde.

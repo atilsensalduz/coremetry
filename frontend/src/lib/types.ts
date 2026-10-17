@@ -7067,6 +7067,25 @@ export interface ChatQueryEvidence {
   href?: string;
   /** v0.10.1272 — sohbet içi bloğa bağ (blok yükünün `evidenceRef`i); yoksa bloksuz kanıt. */
   ref?: string;
+  /** v0.10.1274 — sunucunun bu çağrıya ekrandan koyduğu kapsam; yoksa ekran kapsamı uygulanmadı. */
+  ctxApplied?: ChatCtxApplied;
+}
+
+/**
+ * ChatCtxApplied — v0.10.1274 (CoSRE adım 5): sunucunun araç argümanına
+ * EKRANDAN koyduğu (env/service/rangeS/traceId), modelin açıkça farklı verip
+ * korunan (envKept/serviceKept, ekrandaki screenEnv) ya da env'siz araçta
+ * uygulanamayan (envNotApplied) kapsam. Go aynası: mcptools.ScopeApplied.
+ */
+export interface ChatCtxApplied {
+  env?: string;
+  service?: string;
+  rangeS?: number;
+  traceId?: string;
+  envKept?: string;
+  serviceKept?: string;
+  screenEnv?: string;
+  envNotApplied?: string;
 }
 
 /**
@@ -7508,6 +7527,8 @@ export interface ChatStepDetail {
   evidence?: ChatQueryEvidence;
   /** v0.10.1273 — aracın evresi (Metrik/Log/Trace…); cevabın üstündeki akış kırıntısı bundan. */
   phase?: string;
+  /** v0.10.1274 — ekrandan uygulanan kapsam (step-result.ctxApplied); eski sunucu göndermez. */
+  ctxApplied?: ChatCtxApplied;
 }
 
 export type ChatStreamEvent =
@@ -7518,7 +7539,7 @@ export type ChatStreamEvent =
   // skipped (v0.10.944, Faz B sunucusu) — çağrı yürütülmedi; süre ölçüm değildir.
   // sources (v0.10.944) — sunucunun TAM çıktıdan okuduğu kaynak durumları (kırpık önizlemeden bağımsız).
   // evidence (v0.10.1272) — query_metrics/traces/logs kanıtı; eski sunucu göndermez.
-  | { kind: 'step-result'; i: number; tool: string; ok: boolean; preview: string; truncated: boolean; bytes: number; href?: string; durationMs?: number; skipped?: boolean; sources?: ChatStepSourceState[]; evidence?: ChatQueryEvidence }
+  | { kind: 'step-result'; i: number; tool: string; ok: boolean; preview: string; truncated: boolean; bytes: number; href?: string; durationMs?: number; skipped?: boolean; sources?: ChatStepSourceState[]; evidence?: ChatQueryEvidence; ctxApplied?: ChatCtxApplied }
   // reset (v0.10.1273) — o ana dek akan metin geri alınır (tool'lu turun önsözü / düşünce bloğu); `text` yerine geçer.
   | { kind: 'delta'; text: string; reset?: boolean }
   // suggestions (v0.9.411) — guided cevabın rotasından türetilen

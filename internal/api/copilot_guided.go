@@ -2431,6 +2431,21 @@ func (s *Server) guidedProblemsBundle(ctx context.Context, emit func(string, any
 	return evidence, src, nil
 }
 
+// guidedEnvREDLineTR — SAF (v0.10.1274): servis-sağlık demetinin ortam RED
+// satırı. Okuma hatası "veri yok" demez (hata ≠ boş); bulunamama ortamda span
+// olmadığını söyler. Alt satır kıyas bloğunun tüm ortamlar olduğunu belirtir.
+func guidedEnvREDLineTR(env string, rangeS int64, w chstore.ServiceSummary, found bool, err error) string {
+	tail := "Aşağıdaki kıyas/deploy/komşu bloğu tüm ortamların toplamı (servis bağlamı ortam kırılımı yapmıyor); açık problemler bu ortama daraltıldı.\n"
+	switch {
+	case err != nil:
+		return fmt.Sprintf("Ortam %q RED'i OKUNAMADI (%s) — bu 'trafik yok' DEMEK DEĞİL.\n", env, sourcestate.Classify(err)) + tail
+	case !found:
+		return fmt.Sprintf("Ortam %q: bu pencerede (son %s) bu servisten span YOK.\n", env, fmtAgoTR(rangeS)) + tail
+	}
+	return fmt.Sprintf("Ortam %q RED (son %s): %d span, hata oranı %%%.2f, p99 %.0f ms.\n",
+		env, fmtAgoTR(rangeS), w.SpanCount, w.ErrorRate, w.P99Ms) + tail
+}
+
 // (b) "service X sağlığı/health/slow" → the analyze-service context
 // bundle (buildServiceContext + renderServiceSnapshot, reused
 // verbatim) + the service's open problems with root-cause.
@@ -2444,7 +2459,11 @@ func (s *Server) guidedServiceHealthBundle(ctx context.Context, emit func(string
 	nCtx := emitGuidedStep(emit, "service_context", `{"service":"`+service+`"}`)
 	cx := s.buildServiceContext(ctx, service, from, to)
 	if env != "" {
-		fmt.Fprintf(&b, "Not: RED değerleri tüm ortamların toplamı (servis bağlamı ortam kırılımı yapmıyor); açık problemler %q ortamına daraltıldı.\n", env)
+		// v0.10.1274 — ortam RED'i AYRI bir okumayla (get_service_health'in yolu):
+		// servis bağlamı (kıyas + deploy + komşular) ortam kırılımı yapmıyor,
+		// ama başlık sayıları artık ekrandaki ortamdan.
+		ew, found, eerr := mcptools.ReadServiceEnvRED(ctx, s.mcpDeps(), service, env, from, to)
+		b.WriteString(guidedEnvREDLineTR(env, rangeS, ew, found, eerr))
 	}
 	atSnap := b.Len()
 	b.WriteString(renderServiceSnapshot(cx))

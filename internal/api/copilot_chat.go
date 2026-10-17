@@ -539,8 +539,12 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	// Şemalar bilinçli olarak DOKUNULMADAN kalıyor: arg adları ve
 	// varsayılan/tavan şerhleri doğru ÇAĞRININ koşulu — orada kazanılan
 	// bayt, yanlış argümanla harcanan bir tura değmez.
+	// v0.10.1274 — ekran kapsamı enjeksiyonunun şema haritası: YALNIZ yerli
+	// araçlar (dış MCP argümanlarına dokunulmaz; chat_tool_scope.go).
+	toolSchemas := make(map[string]map[string]any, len(tools))
 	for _, t := range tools {
 		byName[t.Name] = t.Handler
+		toolSchemas[t.Name] = t.InputSchema
 		specs = append(specs, copilot.ToolSpec{
 			Name: t.Name, Description: t.ChatDescription(), InputSchema: t.InputSchema,
 		})
@@ -690,6 +694,13 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 		// span'lerinden çözer (chat_source_code.go; tembel, alışveriş başına bir okuma).
 		ctx = withSourceSubject(ctx, tf.TraceID, tf.SpanID)
 	}
+	// v0.10.1274 — ekran kapsamı ARAÇLARA (chat_tool_scope.go): env/servis/
+	// pencere/trace argümanı model vermediyse sunucu koyar, künyesi çipte.
+	scopeTrace := req.Context.Trace
+	if traceFU != nil {
+		scopeTrace = traceFU.TraceID
+	}
+	toolScope := buildToolScreenScope(screenCtx, pageCtx, pinnedCtx, scopeTrace, lastUserText(req.Messages))
 	loopPrompt := copilot.SystemPromptChatAgentLoop() + // v0.10.482 — telemetri ajanı çekirdek döngüsü (Ek A)
 		screenContextPreambleTR(screenCtx) +
 		agentctx.PreambleTR(pageCtx, pinnedCtx) + // v0.10.539 — sayfa bağlamı (pin önce)
@@ -846,11 +857,14 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 			// Kayıt artık başarılı çalıştırmadan SONRA (aşağıda). Çip yine
 			// burada çıkıyor: operatör modelin NE DENEDİĞİNİ görmeli,
 			// başarısız denemeler dâhil — o ayrı bir soru.
-			stepN = emitStepChip(emit, tc.Name, string(tc.Input))
+			// v0.10.1274 — ekran kapsamı argümana (deterministik); çip GERÇEKTEN
+			// çalışan argümanı gösterir, tekrar muhafızı da onu anahtarlar.
+			cargs, scopeApplied := applyScreenContext(tc.Name, tc.Input, toolSchemas[tc.Name], toolScope, time.Now())
+			stepN = emitStepChip(emit, tc.Name, string(cargs))
 			// v0.10.948 — İPTAL her çağrıdan ÖNCE denetlenir: Executor.Call ilk iş
 			// ctx'e bakar (Kind cancelled, handler çağrılmaz); turun kalanları da
 			// aynı yoldan yürütülmeden geçer ve döngü aşağıda biter.
-			oc := exec.Call(ctx, tc.Name, tc.Input)
+			oc := exec.Call(ctx, tc.Name, cargs)
 			if !oc.Executed {
 				// bilinmeyen ad / tekrar muhafızı / kapsam reddi / iptal:
 				// yürütülmedi, süre yazılmaz (v0.10.161 — Σ süre hesaplanabilir
@@ -871,7 +885,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 			if isTraceFollowUp {
 				// v0.10.948 — sayı denetiminin kanıtı: YALNIZ yürüyen çağrı, argümanı
 				// ve TAM çıktısı (modele giden kırpık kopya değil).
-				fuEvidence.Write(tc.Input)
+				fuEvidence.Write(cargs)
 				fuEvidence.WriteByte('\n')
 				// v0.10.1050 — read_source_code'dan YALNIZ referans satırı (kod sayıyı temellendirmez).
 				fuEvidence.WriteString(chatFollowUpEvidence(tc.Name, oc.Content))
@@ -892,6 +906,10 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			tr := copilot.ToolResult{CallID: tc.ID, Name: tc.Name, IsError: oc.IsError, Content: oc.Content}
+			if !tr.IsError && scopeApplied.EnvNotApplied != "" {
+				// v0.10.1274 — env-kör araç: model sonucu ekran env'ine daraltılmış sanmasın.
+				tr.Content = annotateEnvBlind(tr.Content, scopeApplied.EnvNotApplied, scopeApplied.ScreenEnv)
+			}
 			// v0.10.944 — kaynak durumu çıktının TAMAMINDAN (önizleme 4 KB'ta
 			// kırpılır; rozet oradan okunamayabilir). chat_step_sources.go.
 			// Bir kez çözülür: künye ve çip aynı sonucu kullanır.
@@ -920,6 +938,9 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 				"i": stepN, "tool": tc.Name, "ok": !tr.IsError,
 				"preview": preview, "truncated": truncated, "bytes": len(tr.Content),
 				"durationMs": toolDur.Milliseconds(),
+			}
+			if !scopeApplied.Empty() {
+				stepEv["ctxApplied"] = scopeApplied // v0.10.1274 — opsiyonel; eski FE yok sayar
 			}
 			// v0.10.944 — denetlenmiş çıktı (nil değil) boş olsa da gönderilir:
 			// `sources: []` "okundu, durum yok" demek; eksik alan FE'de "eski
@@ -974,6 +995,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 			// v0.10.1272 — kanıt çipi: sonuçtaki evidence + "Explore'da aç" href'i.
 			// Veri sohbet içinde de: aynı sonuçtan chart/trace_list/table bloğu (ek sorgu yok).
 			if ev, ok := attachStepEvidence(stepEv, tc.Name, tr.Content); ok {
+				ev = withEvidenceScope(stepEv, ev, scopeApplied) // v0.10.1274
 				loopEvidence = mergeChatEvidence(loopEvidence, ev)
 				if b, ok := mcptools.ToolResultBlock(tc.Name, tr.Content, ev); ok {
 					emit("block", blockSeq.Next(b.Type, b.Payload))

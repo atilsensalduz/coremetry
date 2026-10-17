@@ -35,6 +35,8 @@ import { ModelPicker } from './ai/ModelPicker'; // v0.10.1138 — kompakt "model
 import { useChatProfile } from './ai/chatProfileStore'; // v0.10.1138 — kullanıcı başına seçim
 import { useDeepThink } from './ai/deepThink'; // v0.10.1150 — "Derin düşün"
 import { hasDrawerContext, parseChatInput, removeToken, scopeChips, scopeForRequest } from './ai/chatScope'; // v0.10.1138 — @/ kapsamı
+import { ChatContextBar } from './ai/ChatContextBar'; // v0.10.1274 — aktif bağlam şeridi
+import { applyContextExclusions, contextBarItems, shouldResetExclusions, type ChatRequestContext, type ContextKey } from './ai/chatContextScope';
 import { answerVersion, canRegenerate, lastUserIndex } from './ai/chatRegenerate'; // v0.10.1138
 import { cosreFullPageHref } from './ai/drawerFullPage'; // v0.10.1138 — "Tam sayfada aç"
 import { isPlainLeftClick } from '@/lib/a11y';
@@ -282,17 +284,27 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
   // persist: true — KALICILIK YALNIZ BURADA (v0.9.1139, Faz 4.1).
   // AI çekmecesindeki özne sohbeti efemer kalıyor; gerekçe
   // useChatThread'in dosya başında.
+  // v0.10.1274 (CoSRE adım 5) — bağlam şeridi: gönderilecek kapsam composer'ın
+  // üstünde görünür; ✕ ile çıkarılan öğe BU KONUŞMA için istekten düşer
+  // (chatContextScope.ts: düz alan + sayfa ikizi). Env Topbar'ın global
+  // seçicisinden (useUrlEnv, aynı URL/sticky kaynağı) — "Tüm ortamlar" = ''.
+  const [ctxExcluded, setCtxExcluded] = useState<ReadonlySet<ContextKey>>(() => new Set());
+  const screenReqCtx = useMemo<ChatRequestContext>(() => ({
+    // v0.10.540 — pin varken eski alanlar pinden (boş alan = kapsamsız, ekrandan DEĞİL).
+    service: pinnedLegacy ? (pinnedLegacy.service ?? '') : currentService,
+    operation: pinnedLegacy ? (pinnedLegacy.operation ?? '') : currentOp,
+    rangeS: pinnedLegacy ? pinnedLegacy.rangeS : rangeS,
+    toMs: pinnedLegacy ? pinnedLegacy.toMs : toMs,
+    trace: pinnedLegacy ? (pinnedLegacy.trace ?? '') : currentTrace,
+    env: pinnedLegacy ? (pinnedLegacy.env ?? '') : env,
+    page, // v0.10.539 — sayfa bağlamı protokolü (lib/pageContext, her turda)
+    pinnedPage: pinned ?? undefined, // v0.10.540 — sabitlenmiş bağlam
+  }), [pinnedLegacy, currentService, currentOp, rangeS, toMs, currentTrace, env, page, pinned]);
+  const reqCtx = useMemo(() => applyContextExclusions(screenReqCtx, ctxExcluded), [screenReqCtx, ctxExcluded]);
+  const ctxItems = useMemo(() => contextBarItems(reqCtx), [reqCtx]);
   const { turns, busy, send, retry, regenerate, editLast, stop, clear, load, flushSave, conversationId, last, showFollowups } =
     useChatThread({
-      // v0.10.540 — pin varken eski alanlar pinden (boş alan = kapsamsız, ekrandan DEĞİL).
-      service: pinnedLegacy ? (pinnedLegacy.service ?? '') : currentService,
-      operation: pinnedLegacy ? (pinnedLegacy.operation ?? '') : currentOp,
-      rangeS: pinnedLegacy ? pinnedLegacy.rangeS : rangeS,
-      toMs: pinnedLegacy ? pinnedLegacy.toMs : toMs,
-      trace: pinnedLegacy ? (pinnedLegacy.trace ?? '') : currentTrace,
-      env: pinnedLegacy ? (pinnedLegacy.env ?? '') : env,
-      page, // v0.10.539 — sayfa bağlamı protokolü (lib/pageContext, her turda)
-      pinnedPage: pinned ?? undefined, // v0.10.540 — sabitlenmiş bağlam
+      ...reqCtx,
       profile: profile || undefined,
       deep, // v0.10.1150 — açıkken context.deep: true
       // v0.10.1138 — sunucu seçili profili reddetti (rolüne kapalı / silinmiş) → varsayılana dön.
@@ -314,6 +326,12 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
   // konuşma değişince / yenilemede kaybolmaz, gönderimde silinir. (Konuşma
   // kimliği useChatThread'den geldiği için durum onun ALTINDA kurulur.)
   const draft = useComposerDraft('chat', conversationId);
+  // v0.10.1274 — çıkarmalar konuşmaya bağlı: başka konuşmaya geçince sıfır.
+  const prevConvRef = useRef(conversationId);
+  useEffect(() => {
+    if (shouldResetExclusions(prevConvRef.current, conversationId)) setCtxExcluded(new Set());
+    prevConvRef.current = conversationId;
+  }, [conversationId]);
   const input = draft.value;
   const setInput = draft.setValue;
   // v0.10.687 — D4 ad tamamlama: imleç konumu + aday listesi (sunucu araması).
@@ -916,6 +934,9 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
               </Button>
             )}
               </>} />
+            {/* v0.10.1274 — aktif bağlam şeridi: sunucu bu kapsamı araçlara uygular; ✕ bu konuşmadan çıkarır. */}
+            <ChatContextBar items={ctxItems}
+              onRemove={k => setCtxExcluded(prev => new Set(prev).add(k))} />
             {/* v0.10.1138 — yapısal kapsam çipleri: gönderimde context.scope/command olarak gider. */}
             {composerChips.length > 0 && (
               <div className="cm-scope-chips" aria-label="Mesaj kapsamı">
