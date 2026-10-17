@@ -127,6 +127,12 @@ export function foldTopology(
 // folded and the header/super-node click writes the explicit state.
 export const AUTO_FOLD_MIN_GRAPH = 30; // service nodes (kind'd deps excluded)
 export const AUTO_FOLD_MIN_MEMBERS = 8;
+// v0.10.1305 — Genel servis haritası: >150 servisli haritada namespace'e
+// indirgenmiş genel bakış açılır: ≥3 üyeli HER namespace katlı (tek tek
+// açılır; graf köşesindeki "Tümünü aç" ?nsfold=- yazar). 30–150 arası eski
+// kural (yalnız ≥8 üyeli büyük namespace'ler).
+export const AUTO_FOLD_ALL_GRAPH = 150;
+export const AUTO_FOLD_ALL_MIN_MEMBERS = 3;
 
 export function defaultCollapsed(
   data: ServiceMap,
@@ -141,8 +147,9 @@ export function defaultCollapsed(
     if (ns) counts.set(ns, (counts.get(ns) ?? 0) + 1);
   }
   if (serviceNodes <= AUTO_FOLD_MIN_GRAPH) return new Set();
+  const min = serviceNodes > AUTO_FOLD_ALL_GRAPH ? AUTO_FOLD_ALL_MIN_MEMBERS : AUTO_FOLD_MIN_MEMBERS;
   return new Set([...counts.entries()]
-    .filter(([, c]) => c >= AUTO_FOLD_MIN_MEMBERS)
+    .filter(([, c]) => c >= min)
     .map(([ns]) => ns));
 }
 

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   foldTopology, defaultCollapsed, parseNsFold, encodeNsFold,
   nsNodeId, isNsNode, nsOfNodeId,
-  AUTO_FOLD_MIN_GRAPH, AUTO_FOLD_MIN_MEMBERS,
+  AUTO_FOLD_MIN_GRAPH, AUTO_FOLD_MIN_MEMBERS, AUTO_FOLD_ALL_GRAPH, AUTO_FOLD_ALL_MIN_MEMBERS,
 } from './topoFold';
 import type { ServiceMap, ServiceMapEdge, ServiceMapNode } from './types';
 
@@ -117,6 +117,27 @@ describe('defaultCollapsed', () => {
     ];
     const out = defaultCollapsed(map(nodes, []), lookup);
     expect(out).toEqual(new Set(['x', 'z']));
+  });
+
+  // v0.10.1305 — >150 servis: namespace'e indirgenmiş genel bakış.
+  it('>150 servis: ≥3 üyeli HER namespace katlı, 2 üyeli açık', () => {
+    const nodes = [
+      ...bigNs('big', AUTO_FOLD_ALL_GRAPH - 3),      // folds
+      ...bigNs('three', AUTO_FOLD_ALL_MIN_MEMBERS),   // folds (yeni kural)
+      ...bigNs('two', AUTO_FOLD_ALL_MIN_MEMBERS - 1), // stays
+      node('db-1', { kind: 'db' }),
+    ];
+    expect(nodes.filter(n => !n.kind).length).toBeGreaterThan(AUTO_FOLD_ALL_GRAPH);
+    expect(defaultCollapsed(map(nodes, []), lookup)).toEqual(new Set(['big', 'three']));
+  });
+
+  it('tam 150 servis: eski kural (yalnız ≥8 üyeli)', () => {
+    const nodes = [
+      ...bigNs('big', AUTO_FOLD_ALL_GRAPH - AUTO_FOLD_ALL_MIN_MEMBERS),
+      ...bigNs('three', AUTO_FOLD_ALL_MIN_MEMBERS),
+      node('db-1', { kind: 'db' }), // kind'lı düğüm sayılmaz
+    ];
+    expect(defaultCollapsed(map(nodes, []), lookup)).toEqual(new Set(['big']));
   });
 });
 

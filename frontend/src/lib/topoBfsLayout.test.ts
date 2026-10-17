@@ -12,8 +12,13 @@
 //   lib/topoFocusLayout(.test).ts'te.)
 //   • yalıtık düğümler yerleşir; aynı sütunda düğümler satır aralığıyla ayrık
 //   • determinizm — aynı girdi ve KARIŞTIRILMIŞ girdi aynı çıktıyı verir
+//   • v0.10.1305 — sütun SABİT 240 px (görünüm genişliğinden bağımsız), satır
+//     aralığı asla gerilmez, şerit hücreleri üstten hizalı, alan içerikten
 import { describe, it, expect } from 'vitest';
-import { bfsBarycenterLayout, MAX_LAYERS, type LayoutResult } from './topoBfsLayout';
+import {
+  bfsBarycenterLayout, MAX_LAYERS, COL_W_GLOBAL, PAD_X_GLOBAL, PAD_Y_GLOBAL, BAND_PAD_TOP,
+  type LayoutResult,
+} from './topoBfsLayout';
 
 type Node = { service: string; spanCount: number };
 type Edge = { caller: string; callee: string };
@@ -249,20 +254,63 @@ describe('determinizm', () => {
 });
 
 describe('sınır durumları', () => {
-  it('boş graf', () => {
+  // v0.10.1305 — alan içerikten: görünüm (800×600) artık yerleşimi büyütmez.
+  it('boş graf: tek boş satırlık alan', () => {
     const r = run([], []);
     expect(r.pos.size).toBe(0);
-    expect(r.lw).toBe(800);
-    expect(r.lh).toBe(600);
+    expect(r.lw).toBe(2 * PAD_X_GLOBAL);
+    expect(r.lh).toBe(2 * PAD_Y_GLOBAL + PITCH);
   });
-  it('tek düğüm ortada', () => {
+  it('tek düğüm sol üstte (görünüm ortası değil)', () => {
     const r = run(N('solo'), []);
-    expect(r.pos.get('solo')).toEqual({ x: 400, y: 300 });
+    expect(r.pos.get('solo')).toEqual({ x: PAD_X_GLOBAL, y: PAD_Y_GLOBAL + PITCH / 2 });
   });
   it('yerleşim alanı içerikle büyür (kalabalık sütun)', () => {
     const many = N('root', ...Array.from({ length: 30 }, (_, i) => `c${i}`));
     const r = run(many, many.slice(1).map(n => ({ caller: 'root', callee: n.service })));
     expect(r.lh).toBeGreaterThanOrEqual(30 * PITCH);
     expectNoOverlapInColumns(r);
+  });
+});
+
+// v0.10.1305 — Genel servis haritası: sabit sütun, düz zincir, statik kenar.
+describe('sabit sütun + gerilmeyen satır (v0.10.1305)', () => {
+  const nodes = N('gw', 'a', 'b', 'c');
+  const edges = E('gw>a', 'a>b', 'b>c');
+
+  it('sütunlar sabit 240 px (width 800 vs 3000 aynı lw ve x)', () => {
+    const narrow = bfsBarycenterLayout(nodes, edges, 800, 600, PITCH);
+    const wide = bfsBarycenterLayout(nodes, edges, 3000, 600, PITCH);
+    expect(wide.lw).toBe(narrow.lw);
+    expect(narrow.lw).toBe(2 * PAD_X_GLOBAL + 3 * COL_W_GLOBAL);
+    expect([...wide.pos.entries()]).toEqual([...narrow.pos.entries()]);
+    ['gw', 'a', 'b', 'c'].forEach((s, l) => expect(narrow.pos.get(s)!.x).toBe(PAD_X_GLOBAL + l * COL_W_GLOBAL));
+  });
+
+  it('opts.colW sütun aralığını değiştirir', () => {
+    const r = bfsBarycenterLayout(nodes, edges, 800, 600, PITCH, { colW: 300 });
+    expect(r.pos.get('a')!.x - r.pos.get('gw')!.x).toBe(300);
+  });
+
+  it('satır aralığı asla gerilmez (yükseklik 600 vs 5000 aynı lh, pitch aynen)', () => {
+    const fan = N('root', 'x', 'y', 'z');
+    const fe = E('root>x', 'root>y', 'root>z');
+    const short = bfsBarycenterLayout(fan, fe, 800, 600, PITCH);
+    const tall = bfsBarycenterLayout(fan, fe, 800, 5000, PITCH);
+    expect(tall.lh).toBe(short.lh);
+    expect(short.lh).toBe(2 * PAD_Y_GLOBAL + 3 * PITCH);
+    const ys = ['x', 'y', 'z'].map(s => short.pos.get(s)!.y).sort((a, b) => a - b);
+    expect(ys[1] - ys[0]).toBe(PITCH);
+    expect(ys[2] - ys[1]).toBe(PITCH);
+  });
+
+  it('şerit içi hücreler üstten hizalı (tek düğümlü sütun şeridin ilk satırında)', () => {
+    // ns "a": a1 → (a2, a3, a4) — 3 satırlık şerit; a1 tek başına sütun 0'da.
+    const r = bfsBarycenterLayout(N('a1', 'a2', 'a3', 'a4'), E('a1>a2', 'a1>a3', 'a1>a4'), 800, 600, PITCH,
+      { bandOf: () => 'a' });
+    const b = r.bands[0];
+    expect(b.rows).toBe(3);
+    expect(r.pos.get('a1')!.y).toBe(b.y0 + BAND_PAD_TOP + PITCH / 2);
+    expect(b.y0).toBe(PAD_Y_GLOBAL);
   });
 });

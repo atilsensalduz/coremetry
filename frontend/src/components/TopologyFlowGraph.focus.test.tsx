@@ -78,10 +78,21 @@ describe('TopologyFlowGraph — odak sütun kipi (v0.10.1294)', () => {
     expect(html).toMatch(/class="topo-edge-flow live"/);
   });
 
-  it('global yol (columns yok) eski sınıflarda', () => {
+  // v0.10.1305 — Genel servis haritası: animate varsayılanı 'hover' → global
+  // yol da durağan kenarlı (anim-hover); odak sınıfları yok.
+  it('global yol (columns yok): odak sınıfı yok, varsayılan durağan (anim-hover)', () => {
     const html = renderToString(wrap(
       <TopologyFlowGraph data={data} focus={null} hoverNode={null} onHoverNode={() => {}} onSelectNode={() => {}} dropMessaging={false} />));
     expect(html).not.toContain('focus-cols');
-    expect(html).not.toContain('anim-hover');
+    expect(html).toContain('anim-hover');
+    expect(html).not.toMatch(/class="topo-edge-flow[^"]*live/);
+  });
+
+  it('global yol: hover ±2 hop yolu vurgular (reachPath), yoldaki kenar akar', () => {
+    // c → f → a → k: hover a → c (2 hop yukarı) ve k yolda; c→f kenarı canlı.
+    const html = renderToString(wrap(
+      <TopologyFlowGraph data={data} focus={null} hoverNode="a" onHoverNode={() => {}} onSelectNode={() => {}} dropMessaging={false} />));
+    const live = [...html.matchAll(/<path[^>]*class="topo-edge-flow[^"]*live"[^>]*>\s*<title>([^<→]+)→/g)].map(m => m[1].trim());
+    expect(live).toContain('c'); // c → f: 2-hop çağıran zinciri (1-hop değil)
   });
 });

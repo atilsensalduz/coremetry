@@ -83,6 +83,33 @@ export function edgePathD(pts: readonly TopoPt[]): string {
   return d;
 }
 
+// ── v0.10.1305 — şerit yolu (genel harita, düzleştirilmiş zincir) ────────
+// lib/topoBfsLayout zincir düzleştirmesinden sonra uzun kenarın ara noktaları
+// çoğunlukla AYNI y'de: yol a → w1 kübik (yatay tanjant), w1 … wk düz L,
+// wk → b kübik. En çok iki büküm; y'si farklı ardışık ara noktalar (düzleşme
+// olmadıysa) edgePathD'nin yatay-tanjantlı kübiğiyle bağlanır. Geometri
+// edgePathD ile BİREBİR aynı (eşit y'li yatay-tanjant kübik = doğru parçası)
+// → pathArrow ok/chip konumu değişmeden geçerli.
+
+/** a → w1 … wk → b şerit yolunun SVG `d` dizesi. */
+export function lanePathD(pts: readonly TopoPt[]): string {
+  if (pts.length <= 2) return edgePathD(pts);
+  const p0 = pts[0];
+  let d = `M ${r2(p0.x)} ${r2(p0.y)}`;
+  const last = pts.length - 1;
+  for (let i = 1; i <= last; i++) {
+    const p = pts[i - 1], q = pts[i];
+    const inner = i > 1 && i < last; // ara nokta → ara nokta
+    if (inner && Math.abs(q.y - p.y) < 0.01) {
+      d += ` L ${r2(q.x)} ${r2(q.y)}`;
+      continue;
+    }
+    const mx = r2((p.x + q.x) / 2);
+    d += ` C ${mx} ${r2(p.y)}, ${mx} ${r2(q.y)}, ${r2(q.x)} ${r2(q.y)}`;
+  }
+  return d;
+}
+
 /**
  * pathArrow — çok noktalı yolun t ∈ [0,1] noktası + akış açısı. t, kiriş
  * uzunluğuyla ağırlıklı segmente dağıtılır (CSS offset-distance yüzdesine

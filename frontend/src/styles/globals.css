@@ -3808,6 +3808,8 @@ button.cosre-cap__row > .row { align-items: flex-start; min-width: 0; }
 .topo-legend-ns { width: 3px; height: 10px; border-radius: 1px; display: inline-block; }
 .topo-tb-check { display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-sm); color: var(--text2); cursor: pointer; }
 .topo-tb-count { font-size: var(--fs-xs); color: var(--text3); }
+/* v0.10.1305 — genel harita: katlı namespace sayısı + "Tümünü aç" (sol alt — genel kipte lejant yok; sol üst ilk şerit başlığıyla çakışırdı). */
+.topo-foldbar { position: absolute; left: 10px; bottom: 10px; z-index: var(--z-sticky-foot); display: flex; align-items: center; gap: var(--sp-3); padding: 2px 4px 2px 8px; font-size: var(--fs-2xs); color: var(--text3); background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .topo-lg-edge { display: inline-flex; align-items: center; gap: 4px; }
 .topo-lg-line { stroke: var(--border-strong); stroke-width: 1.6; }
 .topo-lg-line.back { stroke-dasharray: 2 6; }

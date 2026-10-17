@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ROW_PITCH } from '@/lib/topoLayout';
-import { bfsBarycenterLayout } from '@/lib/topoBfsLayout';
+import { bfsBarycenterLayout, routeKind } from '@/lib/topoBfsLayout';
+import { reachPath } from '@/lib/topoReach';
 import type { ServiceMap, ServiceMapNode, ServiceMapEdge } from '@/lib/types';
 import { isMessagingDep, fmtNum } from '@/lib/utils';
 import { edgeWeights } from '@/lib/edgeWeight';
-import { edgePathD, pathArrow, cubicD, cubicArrow, type TopoPt, type EdgeArrow } from '@/lib/topoArrow';
+import { edgePathD, lanePathD, pathArrow, cubicD, cubicArrow, type TopoPt, type EdgeArrow } from '@/lib/topoArrow';
 import { fitViewport, readableFit, zoomAt, zoomRange, READABLE_MIN_K, type Viewport } from '@/lib/topoViewport';
 import { depPillLinesMap } from '@/lib/topoLabels';
 import { Button } from '@/components/ui/Button';
@@ -55,6 +56,16 @@ import {
 //     YOK — bayat ?nsfold= yok sayılır, yeniden yazılmaz). animate="hover":
 //     akış kenarları durağan düz çizgi, kesik akış yalnız hover/yol vurgusunda.
 //
+//   • v0.10.1305 — Genel servis haritası: sabit sütun, düz zincir, statik
+//     kenar. Global yerleşim sütunları sabit 240 px (görünüme gerilmez),
+//     şerit hücreleri üstten hizalı, uzun kenar zinciri düzleştirilir
+//     (lib/topoBfsLayout routeKind: 'single' → tek eğri, 'lane' → lanePathD).
+//     animate varsayılanı artık 'hover' (her çağıran): kenarlar durağan,
+//     kesik akış yalnız vurguda. Genel haritada hover YOL vurgusu
+//     (lib/topoReach reachPath: ±2 hop, ileri kenarlar, ≤60 düğüm). >150
+//     servisli haritada ≥3 üyeli her namespace katlı açılır (lib/topoFold
+//     AUTO_FOLD_ALL_GRAPH); "Tümünü aç" ?nsfold=- yazar.
+//
 // CSS bağımlılıkları globals.css'te zaten mevcut: .topo, .topo-edges,
 // .topo-node (+ .focus/.dim), .topo-name, .topo-sub, .topo-dot,
 // @keyframes topo-edge-flow. Tek ekleme (aşağıya bakın):
@@ -69,7 +80,7 @@ const NEW_EDGE_DASH = '12 4';
 
 export function TopologyFlowGraph({
   data: rawData, focus, hoverNode, onHoverNode, onSelectNode, height = 560,
-  dropMessaging = true, columns, animate = 'always', showSecondary = false, onExpandColumn, legend,
+  dropMessaging = true, columns, animate = 'hover', showSecondary = false, onExpandColumn, legend,
 }: {
   data: ServiceMap;
   focus: string | null;
@@ -169,6 +180,8 @@ export function TopologyFlowGraph({
     return p;
   }, { replace: true });
   const collapseNs = (ns: string) => writeFold(new Set([...collapsed, ns]));
+  // v0.10.1305 — "Tümünü aç": boş küme '-' (açık "hiçbiri katlı değil").
+  const expandAll = () => writeFold(new Set());
   const expandNs = (ns: string) => {
     const c = new Set(collapsed);
     c.delete(ns);
@@ -227,13 +240,6 @@ export function TopologyFlowGraph({
   // render edilen HER düğüm için kayıt taşır — fallback yalnız bayat
   // id durumunda tetiklenirdi, güvenle null'a iner.
   const oneHop = hoverNode ? (neighbours.get(hoverNode) ?? null) : null;
-  // v0.10.1294 — yol vurgusu (odak kipi): hover edilen düğümden odağa giden
-  // flow zinciri (2-hop → ±1 ebeveyn → odak). Hover başına bir BFS (≤61 düğüm).
-  const path = useMemo(
-    () => (focusMode && hoverNode && oneHop ? focusPath(hoverNode, data.edges, columns!) : null),
-    [focusMode, hoverNode, oneHop, data.edges, columns],
-  );
-  const active = oneHop && path ? new Set([...oneHop, ...path.nodes]) : oneHop;
 
   // ── Katmanlı + namespace şeritli yerleşim ───────────────────────────
   // v0.10.1261 (operatör 2026-10-17: "aynı sütunda birbirini çağıran
@@ -286,11 +292,24 @@ export function TopologyFlowGraph({
     // v0.10.133 — komşuluk indeksi, O(E + n log n) (perf probe 500/20k).
     // v0.10.1261 — katman + şerit; aynı karmaşıklık sınıfı.
     const { pos, lw, lh, bands: bs, backEdges: be, routes: rt } = bfsBarycenterLayout(
-      data.nodes, data.edges, width, height, ROW_PITCH,
+      data.nodes, data.edges, 0, 0, ROW_PITCH,
       { bandOf: s => bandNs.get(s) },
     );
     return { positioned: pos, layoutW: lw, layoutH: lh, bands: bs, backEdges: be, routes: rt };
-  }, [focusLayout, data, width, height, bandNs]);
+    // v0.10.1305 — yerleşim içerikten (sabit sütun); width/height verilmez →
+    // pencere yeniden boyutlanınca 500/20k yeniden yerleşmez.
+  }, [focusLayout, data, bandNs]);
+
+  // v0.10.1294 — yol vurgusu (odak kipi): hover edilen düğümden odağa giden
+  // flow zinciri (2-hop → ±1 ebeveyn → odak). Hover başına bir BFS (≤61 düğüm).
+  // v0.10.1305 — genel haritada da yol: reachPath (±2 hop, ileri kenarlar,
+  // ≤60 düğüm; lib/topoReach).
+  const path = useMemo(() => {
+    if (!hoverNode || !oneHop) return null;
+    if (focusMode) return focusPath(hoverNode, data.edges, columns!);
+    return reachPath(hoverNode, data.edges, backEdges);
+  }, [focusMode, hoverNode, oneHop, data.edges, columns, backEdges]);
+  const active = oneHop && path ? new Set([...oneHop, ...path.nodes]) : oneHop;
 
   // v0.10.1269 — operatör 2026-10-17: çok sütun atlayan kenarlar düğümlerin
   // arkasından geçiyordu. Her çizilen kenarın nokta dizisi (a, ara sütun
@@ -316,7 +335,13 @@ export function TopologyFlowGraph({
     const rev = !fwd && re.reverse ? routes.get(`${re.reverse.caller}|${re.reverse.callee}`) : undefined;
     const mid = fwd ?? (rev ? [...rev].reverse() : []);
     const pts: TopoPt[] = [a, ...mid, b];
-    return { pts, d: edgePathD(pts) };
+    // v0.10.1305 — düzleşmiş zincir a→b doğrusuna yakınsa tek eğri; değilse
+    // şerit yolu (≤2 büküm). pts çizilen yolla aynı → ok/chip aynı geometri.
+    if (routeKind(pts, ROW_PITCH) === 'single') {
+      const two: TopoPt[] = [a, b];
+      return { pts: two, d: edgePathD(two) };
+    }
+    return { pts, d: lanePathD(pts) };
   }), [renderedEdges, positioned, routes, focusLayout]);
 
   // ── v0.8.296 — zoom/pan viewport ─────────────────────────────────────
@@ -363,7 +388,7 @@ export function TopologyFlowGraph({
   const [panning, setPanning] = useState(false);
   const panRef = useRef<{ px: number; py: number } | null>(null);
   const onPointerDown = (e: React.PointerEvent) => {
-    if ((e.target as HTMLElement).closest('.topo-node, .topo-zoomctl, .topo-nshdr, .topo-more')) return;
+    if ((e.target as HTMLElement).closest('.topo-node, .topo-zoomctl, .topo-nshdr, .topo-more, .topo-foldbar')) return;
     panRef.current = { px: e.clientX, py: e.clientY };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     setPanning(true);
@@ -446,7 +471,7 @@ export function TopologyFlowGraph({
       onPointerUp={endPan}
       onPointerCancel={endPan}
       onDoubleClick={e => {
-        if ((e.target as HTMLElement).closest('.topo-node, .topo-zoomctl, .topo-nshdr, .topo-more')) return;
+        if ((e.target as HTMLElement).closest('.topo-node, .topo-zoomctl, .topo-nshdr, .topo-more, .topo-foldbar')) return;
         const r = e.currentTarget.getBoundingClientRect();
         const cx = e.clientX - r.left, cy = e.clientY - r.top;
         setVp(v => zoomAt(v, cx, cy, 1.5, kMin, kMax));
@@ -752,6 +777,19 @@ export function TopologyFlowGraph({
               <span className="topo-legend-ns" style={{ background: l.color }} />{l.ns}
             </span>
           ))}
+        </div>
+      )}
+
+      {/* v0.10.1305 — katlı namespace sayısı + "Tümünü aç" (transform DIŞINDA,
+          sol alt). >150 servisli haritada otomatik katlama her ≥3 üyeli
+          namespace'i katlar; buradan tek tıkla ?nsfold=- (hiçbiri katlı değil). */}
+      {!focusMode && groups.length > 0 && (
+        <div className="topo-foldbar">
+          <span>{groups.length} namespace katlı</span>
+          <Button variant="ghost" size="xs" onClick={() => { onHoverNode(null); expandAll(); }}
+            title="Katlı tüm namespace'leri aç (?nsfold=-)">
+            Tümünü aç
+          </Button>
         </div>
       )}
 

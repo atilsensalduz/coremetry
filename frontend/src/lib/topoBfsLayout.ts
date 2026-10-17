@@ -67,6 +67,28 @@
 //    KISA olanlar önce rota alır (aynı bütçeyle en çok kenar düzelir),
 //    en uzunlar eski tek eğriye düşer. Sıra (açıklık, caller, callee)
 //    adı → deterministik.
+//
+// v0.10.1305 — Genel servis haritası: sabit sütun, düz zincir, statik kenar
+// (operatör 2026-10-17). Üç kök neden:
+//  • GERİLME — sütun aralığı görünüm genişliğine yayılıyordu (lw =
+//    max(width, …), colW = (lw−2·PAD_X)/(L−1)) ve boş yükseklikte satır
+//    aralığı ×1.6'ya açılıyordu; 3 sütunlu harita geniş ekranda 600 px
+//    aralıklı, kenarlar uzun yatay çizgilerdi. Şimdi sütun SABİT
+//    COL_W_GLOBAL = 240 px (x = PAD_X + l·colW), satır aralığı asla
+//    gerilmez; yerleşim alanı İÇERİKTEN (width/height parametreleri imza
+//    uyumu için duruyor, kullanılmıyor) — viewport sığdırır.
+//  • BOŞ SATIRLAR — şerit hücreleri en kalabalık sütunun yüksekliğinde
+//    ortalanıyordu; tek düğümlü sütun şeridin ortasında yüzüyordu. Hücreler
+//    artık ÜSTTEN hizalı; şerit başlık payı 26→22, şerit arası 14→10.
+//  • S-ZİNCİR — sanal noktalar her sütunda bağımsız sıralandığından uzun
+//    kenar sütundan sütuna satır değiştiriyordu. 4b DÜZLEŞTİRME geçişi:
+//    zincir başına (a) uçların ortası yLine, olmazsa (b) mevcut ara nokta
+//    y'lerinin medyanı denenir; ara nokta yalnız o sütundaki HER gerçek
+//    düğümden ≥ satır aralığı uzakta ve kendi şeridinin satır bandında
+//    kalıyorsa taşınır (ikili arama, O(D·log n)). Ara noktalar birbiriyle
+//    aynı şeridi paylaşabilir (bilerek tolere). routeKind: bütün ara
+//    noktalar a→b doğrusuna satır aralığının yarısından yakınsa 'single'
+//    (bileşen tek eğri çizer), değilse 'lane' (lib/topoArrow lanePathD).
 
 export interface LayoutNode { service: string; spanCount: number }
 export interface LayoutEdge { caller: string; callee: string }
@@ -102,16 +124,20 @@ export interface LayoutOptions {
   firstBand?: string;
   /** v0.10.1269 — toplam sanal nokta tavanı (varsayılan dummyCap(N)). */
   maxDummies?: number;
+  /** v0.10.1305 — sabit sütun aralığı (varsayılan COL_W_GLOBAL). */
+  colW?: number;
 }
 
 export const MAX_LAYERS = 40;
-export const BAND_PAD_TOP = 26;    // şerit başlığı (.topo-nshdr) payı
+export const BAND_PAD_TOP = 22;    // şerit başlığı (.topo-nshdr) payı (v0.10.1305: 26→22)
 export const BAND_PAD_BOTTOM = 8;
 export const UNGROUPED_PAD = 6;    // başlıksız grupsuz şerit (adlı şeritler varken)
-export const BAND_GAP = 14;
-const PAD_X = 110;
-const COL_MIN_W = 180;
-const STRETCH_MAX = 1.6;           // boş alan varsa satır aralığı en çok ×1.6 açılır
+export const BAND_GAP = 10;        // v0.10.1305: 14→10
+/** v0.10.1305 — sabit sütun aralığı; görünüm genişliğine GERİLMEZ. */
+export const COL_W_GLOBAL = 240;
+export const PAD_X_GLOBAL = 110;
+/** v0.10.1305 — yerleşim alanının üst/alt payı (içerik yüksekliği + 2·PAD_Y). */
+export const PAD_Y_GLOBAL = 12;
 
 /** v0.10.1269 — varsayılan sanal nokta tavanı: min(3000, max(200, 4×N)). */
 export const DUMMY_CAP_ABS = 3000;
@@ -119,8 +145,25 @@ export const dummyCap = (n: number) => Math.min(DUMMY_CAP_ABS, Math.max(200, 4 *
 
 const cmpStr = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
+/** v0.10.1305 — rota sınıfı. pts = [a, …ara noktalar, b]. Her ara nokta a→b
+ *  doğrusuna pitch/2'den yakınsa 'single' (tek eğri yeter, ara düğüm yok),
+ *  değilse 'lane' (ara noktalardan geçen şerit yolu). */
+export function routeKind(pts: readonly { x: number; y: number }[], pitch: number): 'single' | 'lane' {
+  if (pts.length <= 2) return 'single';
+  const a = pts[0], b = pts[pts.length - 1];
+  const dx = b.x - a.x;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const p = pts[i];
+    const yl = dx === 0 ? a.y : a.y + (b.y - a.y) * ((p.x - a.x) / dx);
+    if (Math.abs(p.y - yl) >= pitch / 2) return 'lane';
+  }
+  return 'single';
+}
+
+// width/height: v0.10.1305'ten beri KULLANILMIYOR (yerleşim içerikten,
+// sütun sabit) — çağıranlar ve testler kırılmasın diye imzada duruyor.
 export function bfsBarycenterLayout(
-  nodes: LayoutNode[], edges: LayoutEdge[], width: number, height: number, rowPitch: number,
+  nodes: LayoutNode[], edges: LayoutEdge[], _width: number, _height: number, rowPitch: number,
   opts: LayoutOptions = {},
 ): LayoutResult {
   // ── indeksleme (ada göre sıralı → girdi sırasından bağımsız) ─────────
@@ -307,13 +350,11 @@ export function bfsBarycenterLayout(
   let fixed = 0, totalRows = 0;
   for (let b = 0; b < B; b++) { fixed += padTop(b) + padBot(b); totalRows += rows[b]; }
   fixed += BAND_GAP * (B - 1);
-  let pitch = rowPitch;
-  if (fixed + totalRows * pitch < height) {
-    pitch = Math.min(rowPitch * STRETCH_MAX, (height - fixed) / totalRows);
-  }
+  // v0.10.1305 — satır aralığı ASLA gerilmez; yükseklik içerikten.
+  const pitch = rowPitch;
   const total = fixed + totalRows * pitch;
-  const lh = Math.max(height, total);
-  let cursor = (lh - total) / 2;
+  const lh = total + 2 * PAD_Y_GLOBAL;
+  let cursor = PAD_Y_GLOBAL;
   const bands: LayoutBand[] = [];
   const rowTop = new Float64Array(B);
   for (let b = 0; b < B; b++) {
@@ -326,9 +367,9 @@ export function bfsBarycenterLayout(
 
   // ── 4. sütun içi barycenter (şerit hücresi içinde) ──────────────────
   const y = new Float64Array(V);
+  // v0.10.1305 — hücre şeridin ÜSTÜNE hizalı (eski: ortalı → boş satırlar).
   const place = (b: number, list: number[]) => {
-    const off = (rows[b] - list.length) / 2;
-    list.forEach((i, k) => { y[i] = rowTop[b] + (off + k + 0.5) * pitch; });
+    list.forEach((i, k) => { y[i] = rowTop[b] + (k + 0.5) * pitch; });
   };
   for (let b = 0; b < B; b++) for (let c = 0; c < L; c++) place(b, cells[b][c]);
 
@@ -352,10 +393,50 @@ export function bfsBarycenterLayout(
   for (let c = L - 2; c >= 0; c--) sweep(c, sOut);
   for (let c = 1; c < L; c++) sweep(c, sIn);
 
+  // ── 4b. zincir düzleştirme (v0.10.1305) ─────────────────────────────
+  // Sütun başına gerçek düğüm y'leri sıralı; ara nokta t'ye ancak o
+  // sütundaki her gerçek düğümden ≥ pitch uzaksa ve kendi şeridinin satır
+  // bandında kalıyorsa taşınır. Sıra = rota sırası → deterministik.
+  if (chains.length > 0) {
+    const realY: number[][] = Array.from({ length: L }, () => []);
+    for (let i = 0; i < N; i++) realY[layer[i]].push(y[i]);
+    for (const col of realY) col.sort((p, q) => p - q);
+    const EPS = 1e-9;
+    const clearOf = (c: number, t: number) => {
+      const col = realY[c];
+      let lo = 0, hi = col.length;
+      while (lo < hi) { const m = (lo + hi) >> 1; if (col[m] < t) lo = m + 1; else hi = m; }
+      if (lo < col.length && col[lo] - t < pitch - EPS) return false;
+      if (lo > 0 && t - col[lo - 1] < pitch - EPS) return false;
+      return true;
+    };
+    const fits = (first: number, n: number, b: number, t: number) => {
+      const lo = rowTop[b] + 0.5 * pitch - EPS, hi = rowTop[b] + (rows[b] - 0.5) * pitch + EPS;
+      if (t < lo || t > hi) return false;
+      for (let d = first; d < first + n; d++) if (!clearOf(vLayer[d], t)) return false;
+      return true;
+    };
+    const ys: number[] = [];
+    for (const { u, v, first } of chains) {
+      const n = layer[v] - layer[u] - 1;
+      const b = bandOfNode[first];
+      let t = (y[u] + y[v]) / 2;
+      if (!fits(first, n, b, t)) {
+        ys.length = 0;
+        for (let d = first; d < first + n; d++) ys.push(y[d]);
+        ys.sort((p, q) => p - q);
+        t = n % 2 ? ys[n >> 1] : (ys[n / 2 - 1] + ys[n / 2]) / 2;
+        if (!fits(first, n, b, t)) continue;
+      }
+      for (let d = first; d < first + n; d++) y[d] = t;
+    }
+  }
+
   // ── 5. x ve çıktı ────────────────────────────────────────────────────
-  const lw = Math.max(width, PAD_X * 2 + (L - 1) * COL_MIN_W);
-  const colW = L > 1 ? (lw - PAD_X * 2) / (L - 1) : 0;
-  const xOf = (l: number) => (L === 1 ? lw / 2 : PAD_X + l * colW);
+  // v0.10.1305 — sabit sütun; alan içerikten (görünüm genişliğine gerilmez).
+  const colW = opts.colW ?? COL_W_GLOBAL;
+  const lw = PAD_X_GLOBAL * 2 + (L - 1) * colW;
+  const xOf = (l: number) => PAD_X_GLOBAL + l * colW;
   const pos = new Map<string, { x: number; y: number }>();
   const layerMap = new Map<string, number>();
   for (let i = 0; i < N; i++) {

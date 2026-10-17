@@ -50,7 +50,10 @@ describe('topoloji ok akışı (v0.10.729)', () => {
     // yerleşimin ara noktalarından (routes) geçen zincir; çizgi ve ok AYNI
     // `d` değişkenini okur (edgePathD, lib/topoArrow — iki noktada eski
     // dizenin birebir aynısı, topoArrow.test.ts pinler).
-    expect(src).toContain('return { pts, d: edgePathD(pts) };');
+    // v0.10.1305 — genel harita: routeKind 'single' → iki nokta (pts da iki
+    // nokta, ok/chip aynı eğriden), 'lane' → lanePathD (aynı pts zinciri).
+    expect(src).toContain('return { pts: two, d: edgePathD(two) };');
+    expect(src).toContain('return { pts, d: lanePathD(pts) };');
     expect(src).toContain('d={d}');
     expect(src).toContain('offsetPath: `path("${d}")`,');
     // Ok yedek konumu da aynı yoldan (pathArrow), düz a→b eğrisinden değil.

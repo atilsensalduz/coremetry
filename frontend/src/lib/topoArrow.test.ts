@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { edgeArrow, edgePathD, pathArrow, cubicD, cubicArrow } from './topoArrow';
+import { edgeArrow, edgePathD, lanePathD, pathArrow, cubicD, cubicArrow } from './topoArrow';
 
 // v0.9.1032 — topoloji kenar oku matematiği. Kenar şekli
 // TopologyFlowGraph ile sözleşmeli (M a C (mx,a.y) (mx,b.y) b);
@@ -95,5 +95,24 @@ describe('cubicArrow / cubicD (v0.10.1294)', () => {
     expect(m.y).toBeCloseTo(32, 9);
     expect(Math.abs(m.angle)).toBeCloseTo(90, 6);
     expect(cubicD(a, { x: cx, y: 0 }, { x: cx, y: 64 }, b)).toMatch(/^M 85 0 C [\d.]+ 0, [\d.]+ 64, 85 64$/);
+  });
+});
+
+// v0.10.1305 — Genel servis haritası: düzleştirilmiş zincirin şerit yolu.
+describe('lanePathD (v0.10.1305)', () => {
+  const bends = (d: string) => (d.match(/C /g) ?? []).length;
+  it('aynı y\'li ara noktalar: giriş kübiği + düz L + çıkış kübiği → ≤2 büküm', () => {
+    const pts = [{ x: 0, y: 0 }, { x: 240, y: 100 }, { x: 480, y: 100 }, { x: 720, y: 100 }, { x: 960, y: 20 }];
+    const d = lanePathD(pts);
+    expect(bends(d)).toBeLessThanOrEqual(2);
+    expect(d).toBe('M 0 0 C 120 0, 120 100, 240 100 L 480 100 L 720 100 C 840 100, 840 20, 960 20');
+  });
+  it('y\'si farklı ara noktalar yatay-tanjantlı kübikle bağlanır (edgePathD ile aynı)', () => {
+    const pts = [{ x: 0, y: 0 }, { x: 240, y: 100 }, { x: 480, y: 150 }, { x: 720, y: 0 }];
+    expect(lanePathD(pts)).toBe(edgePathD(pts));
+  });
+  it('2 nokta: edgePathD\'nin aynısı', () => {
+    const pts = [{ x: 0, y: 0 }, { x: 240, y: 60 }];
+    expect(lanePathD(pts)).toBe(edgePathD(pts));
   });
 });

@@ -4,14 +4,15 @@
 // Sugiyama sanal noktaları (lib/topoBfsLayout `routes`). Çivilenen
 // değişmezler:
 //   • uzun ileri kenarın her ara noktası kendi ara sütununun x'inde, sırayla
-//   • hiçbir ara nokta aynı sütundaki gerçek düğüme satır aralığının
-//     yarısından yakın değil (ve ara noktalar birbirine de)
+//   • hiçbir ara nokta aynı sütundaki gerçek düğüme satır aralığından
+//     yakın değil (v0.10.1305: ara noktalar birbiriyle şerit PAYLAŞABİLİR —
+//     zincir düzleştirmesi bilerek tolere eder)
 //   • kısa kenar (1 sütun) ve geri kenar rota almaz
 //   • tavan: toplam sanal nokta ≤ maxDummies; önce kısa kenarlar rota alır
 //   • determinizm (karıştırılmış girdi dahil)
 //   • şeritler çakışmaz, üyeler ve sanal noktalar kendi şeridinde
 import { describe, it, expect } from 'vitest';
-import { bfsBarycenterLayout, dummyCap, type LayoutResult, type LayoutOptions } from './topoBfsLayout';
+import { bfsBarycenterLayout, dummyCap, routeKind, type LayoutResult, type LayoutOptions } from './topoBfsLayout';
 
 type Node = { service: string; spanCount: number };
 type Edge = { caller: string; callee: string };
@@ -84,7 +85,8 @@ function expectRouteInvariants(r: LayoutResult, edges: Edge[]) {
     expect(pts.length).toBe(span(r, k) - 1);
     pts.forEach((p, i) => expect(p.x).toBe(cx.get(l0 + 1 + i)));
   }
-  // aynı sütunda gerçek düğüm + ara noktalar: en az satır aralığı/2 ayrık
+  // aynı sütunda gerçek düğüm ↔ (gerçek | ara nokta): en az satır aralığı.
+  // v0.10.1305 — ara nokta ↔ ara nokta serbest (düzleştirilmiş şerit paylaşımı).
   const byX = new Map<number, { y: number; real: boolean }[]>();
   const add = (x: number, y: number, real: boolean) =>
     (byX.get(x) ?? byX.set(x, []).get(x)!).push({ y, real });
@@ -92,12 +94,11 @@ function expectRouteInvariants(r: LayoutResult, edges: Edge[]) {
   for (const pts of r.routes.values()) for (const p of pts) add(p.x, p.y, false);
   for (const col of byX.values()) {
     col.sort((a, b) => a.y - b.y);
-    for (let i = 1; i < col.length; i++) {
-      if (!col[i].real && !col[i - 1].real) {
-        expect(col[i].y - col[i - 1].y).toBeGreaterThanOrEqual(PITCH / 2);
-      } else {
-        expect(col[i].y - col[i - 1].y).toBeGreaterThanOrEqual(PITCH - 1e-9);
-      }
+    const reals = col.filter(p => p.real).map(p => p.y);
+    for (let i = 1; i < reals.length; i++) expect(reals[i] - reals[i - 1]).toBeGreaterThanOrEqual(PITCH - 1e-9);
+    for (const p of col) {
+      if (p.real) continue;
+      for (const ry of reals) expect(Math.abs(p.y - ry)).toBeGreaterThanOrEqual(PITCH - 1e-9);
     }
   }
 }
@@ -110,8 +111,10 @@ describe('sanal noktalar — uzun kenar rotası', () => {
     expect(pts).toHaveLength(2);
     expect(pts[0].x).toBe(r.pos.get('b')!.x);
     expect(pts[1].x).toBe(r.pos.get('c')!.x);
-    expect(Math.abs(pts[0].y - r.pos.get('b')!.y)).toBeGreaterThanOrEqual(PITCH / 2);
-    expect(Math.abs(pts[1].y - r.pos.get('c')!.y)).toBeGreaterThanOrEqual(PITCH / 2);
+    expect(Math.abs(pts[0].y - r.pos.get('b')!.y)).toBeGreaterThanOrEqual(PITCH);
+    expect(Math.abs(pts[1].y - r.pos.get('c')!.y)).toBeGreaterThanOrEqual(PITCH);
+    // v0.10.1305 — düzleştirme: iki ara nokta AYNI şeritte (S-zincir yok)
+    expect(pts[0].y).toBe(pts[1].y);
     expectRouteInvariants(r, edges);
   });
 
@@ -222,5 +225,79 @@ describe('şeritler + sanal noktalar', () => {
     }
     for (const b of r.bands) expect(b.y1 - b.y0).toBeGreaterThanOrEqual(b.rows * PITCH);
     expectRouteInvariants(r, g.edges);
+  });
+});
+
+// v0.10.1305 — Genel servis haritası: zincir düzleştirme + routeKind.
+describe('zincir düzleştirme (v0.10.1305)', () => {
+  const chainPts = (r: LayoutResult, k: string) => {
+    const [u, v] = k.split('|');
+    return [r.pos.get(u)!, ...r.routes.get(k)!, r.pos.get(v)!];
+  };
+
+  it('yol üstü boşsa ara noktalar uçların hizasına oturur → routeKind single', () => {
+    // z→a, z→p, p→q→s→d: d sütun 4'te; a (sütun 1) → d üç sütun atlar. Ara
+    // sütunlardaki gerçek düğümler (q, s) ikinci satırda → a→d ilk satırda düz.
+    const edges = E('z>a', 'z>p', 'p>q', 'q>s', 's>d', 'a>d');
+    const r = run(N('a', 'd', 'p', 'q', 's', 'z'), edges);
+    const pts = chainPts(r, 'a|d');
+    expect(pts).toHaveLength(4);
+    expect(pts.every(p => p.y === pts[0].y)).toBe(true);
+    expect(routeKind(pts, PITCH)).toBe('single');
+    expectRouteInvariants(r, edges);
+  });
+
+  it('yol tıkalıysa (ne uç hizası ne medyan serbest) ara noktalar yerinde kalır', () => {
+    // a→d: sütun 1'de x a'nın satırında, q alt satırda → hiçbir ortak y serbest değil.
+    const edges = E('p>q', 'q>s', 's>d', 'a>d', 'a>x', 'p>y');
+    const r = run(N('a', 'd', 'p', 'q', 's', 'x', 'y'), edges);
+    const pts = chainPts(r, 'a|d');
+    expect(routeKind(pts, PITCH)).toBe('lane');
+    expectRouteInvariants(r, edges);
+  });
+
+  it('a→b→c→d + a→d: yol üstünde b/c var → ara noktalar ortak şeritte, routeKind lane', () => {
+    const edges = E('a>b', 'b>c', 'c>d', 'a>d');
+    const r = run(N('a', 'b', 'c', 'd'), edges);
+    const pts = chainPts(r, 'a|d');
+    expect(pts[1].y).toBe(pts[2].y);
+    expect(routeKind(pts, PITCH)).toBe('lane');
+  });
+
+  it('routeKind: düz/yakın → single, sapan → lane, 2 nokta → single', () => {
+    const a = { x: 0, y: 0 }, b = { x: 300, y: 30 };
+    expect(routeKind([a, b], PITCH)).toBe('single');
+    expect(routeKind([a, { x: 100, y: 10 }, { x: 200, y: 20 }, b], PITCH)).toBe('single');
+    expect(routeKind([a, { x: 100, y: 10 + PITCH / 2 }, b], PITCH)).toBe('lane');
+    expect(routeKind([a, { x: 100, y: 10 - PITCH }, b], PITCH)).toBe('lane');
+  });
+
+  it('düzleştirme asla gerçek düğüme satır aralığından yakın değil (300 DAG + şeritli 160)', () => {
+    const g = synthDag(300, 3);
+    expectRouteInvariants(run(g.nodes, g.edges), g.edges);
+    const h = synthDag(160, 3, 7);
+    const bandOf = (s: string) => (Number(s.slice(1)) % 4 === 0 ? undefined : `ns${Number(s.slice(1)) % 4}`);
+    expectRouteInvariants(run(h.nodes, h.edges, { bandOf }), h.edges);
+  });
+
+  it('düzleştirme gerçekten çalışır: 300 DAG zincirlerinin çoğu tek şeritte', () => {
+    const g = synthDag(300, 3);
+    const r = run(g.nodes, g.edges);
+    let flat = 0, multi = 0;
+    for (const pts of r.routes.values()) {
+      if (pts.length < 2) continue;
+      multi++;
+      if (pts.every(p => p.y === pts[0].y)) flat++;
+    }
+    expect(multi).toBeGreaterThan(10);
+    expect(flat / multi).toBeGreaterThan(0.5);
+  });
+
+  it('determinizm: düzleştirilmiş rotalar karıştırılmış girdide aynı', () => {
+    const g = synthDag(200, 3, 4242);
+    const snap = (r: LayoutResult) => JSON.stringify([...r.routes.entries()].sort(([a], [b]) => (a < b ? -1 : 1)));
+    const a = snap(run(g.nodes, g.edges));
+    expect(snap(run(g.nodes, g.edges))).toBe(a);
+    expect(snap(run(shuffled(g.nodes, 11), shuffled(g.edges, 13)))).toBe(a);
   });
 });
