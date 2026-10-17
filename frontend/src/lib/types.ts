@@ -7506,17 +7506,21 @@ export interface ChatStepDetail {
   sources?: ChatStepSourceState[];
   /** v0.10.1272 — kanıt zarflı aracın kanıtı (kaynak · sorgu · pencere · satır · süre + href). */
   evidence?: ChatQueryEvidence;
+  /** v0.10.1273 — aracın evresi (Metrik/Log/Trace…); cevabın üstündeki akış kırıntısı bundan. */
+  phase?: string;
 }
 
 export type ChatStreamEvent =
   // v0.10.161 — `tool`suz etiket adımları da gelir (ekran bağlamı / pencere
   // çapası / taşma yeniden denemesi: {label}); şeffaflık paneli onları saymaz.
-  | { kind: 'step'; i?: number; tool?: string; label?: string; args?: string; origin?: string }
+  // phase (v0.10.1273) — aracın insan-okur evresi ("Metrik"/"Log"/"Trace"…); eski sunucu ve bilinmeyen araç göndermez.
+  | { kind: 'step'; i?: number; tool?: string; label?: string; args?: string; origin?: string; phase?: string }
   // skipped (v0.10.944, Faz B sunucusu) — çağrı yürütülmedi; süre ölçüm değildir.
   // sources (v0.10.944) — sunucunun TAM çıktıdan okuduğu kaynak durumları (kırpık önizlemeden bağımsız).
   // evidence (v0.10.1272) — query_metrics/traces/logs kanıtı; eski sunucu göndermez.
   | { kind: 'step-result'; i: number; tool: string; ok: boolean; preview: string; truncated: boolean; bytes: number; href?: string; durationMs?: number; skipped?: boolean; sources?: ChatStepSourceState[]; evidence?: ChatQueryEvidence }
-  | { kind: 'delta'; text: string }
+  // reset (v0.10.1273) — o ana dek akan metin geri alınır (tool'lu turun önsözü / düşünce bloğu); `text` yerine geçer.
+  | { kind: 'delta'; text: string; reset?: boolean }
   // suggestions (v0.9.411) — guided cevabın rotasından türetilen
   // konuya-duyarlı takip önerileri; yoksa frontend statik listesine düşer.
   // links (v0.9.419) — rotadan türetilen deterministik derin linkler.

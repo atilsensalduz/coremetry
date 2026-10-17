@@ -746,7 +746,8 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	emit("step", map[string]string{"label": chatBudgetLabelTR(maxCalls, maxRounds)})
 	for round := 0; round < maxRounds; round++ {
 		tctx, endTurn := cspan.turn(ctx, round, overflowRetried) // v0.10.425 — ai.chat.turn
-		turn, err := s.copilot.ChatWithTools(tctx, loopPrompt, conv, specs)
+		// v0.10.1273 — final turun metni canlı akar (chat_step_phase.go chatLoopTurn).
+		turn, err := s.chatLoopTurn(tctx, loopPrompt, conv, specs, emit)
 		endTurn(turn.InputTokens, turn.OutputTokens, turn.CachedTokens, err)
 		if turn.ToolCallsFromText {
 			// v0.10.545 — sunucu tool_calls üretmedi, çağrı metinden ayrıştırıldı:
@@ -1039,7 +1040,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 			// şekilde (boş dizi) kalır — provider.ChatRequest.NoToolCalls.
 			capPrompt := loopPrompt + copilot.ChatRoundCapAddendum()
 			tctx2, endTurn2 := cspan.turn(ctx, round, false) // v0.10.425 — tur tavanı da bir tur
-			turn2, err2 := s.copilot.ChatWithTools(copilot.WithNoToolCalls(tctx2), capPrompt, conv, specs)
+			turn2, err2 := s.chatLoopTurn(copilot.WithNoToolCalls(tctx2), capPrompt, conv, specs, emit)
 			endTurn2(turn2.InputTokens, turn2.OutputTokens, turn2.CachedTokens, err2)
 			totalIn += turn2.InputTokens
 			totalCached += turn2.CachedTokens

@@ -300,10 +300,9 @@ func TestTraceFollowUpLoopCarriesTraceContext(t *testing.T) {
 	if len(calls) != 2 {
 		t.Fatalf("model %d kez çağrıldı, 2 bekleniyordu (araç turu + cevap) — çekmece anlatımı/niyet sınıflandırıcısı araya girmiş olabilir", len(calls))
 	}
+	// v0.10.1273 — serbest döngü de AKAR (stream:true); çekmece anlatımını
+	// ayıran artık araç kataloğunun varlığı (anlatım araçsız tek çağrıdır).
 	for i, b := range calls {
-		if st, _ := b["stream"].(bool); st {
-			t.Errorf("çağrı %d akan (stream) — tek-çağrılı çekmece anlatımı koştu", i)
-		}
 		if tools, _ := b["tools"].([]any); len(tools) == 0 {
 			t.Errorf("çağrı %d araç kataloğu taşımıyor — serbest döngü değil", i)
 		}
@@ -346,8 +345,19 @@ func TestTraceFollowUpLoopCarriesTraceContext(t *testing.T) {
 	if strings.Contains(joined, "ekrandaki AI açıklaması") {
 		t.Error("çekmece anlatımı kademesi koştu (bağlam çipi)")
 	}
-	if len(framesOf(frames, "delta")) != 0 {
-		t.Error("delta çerçevesi — serbest döngü buffered; akan anlatım koşmuş olabilir")
+	// v0.10.1273 — serbest döngü final turunu akıtır; sahte uç SSE değil JSON
+	// döndüğünden akış buffered'a düşer ve metin TEK delta olarak gelir. Araç
+	// turu metin yayınlamaz; deltaların birleşimi otoriter answer'ın önekidir.
+	var streamed strings.Builder
+	for _, f := range framesOf(frames, "delta") {
+		if r, _ := f["reset"].(bool); r {
+			streamed.Reset()
+		}
+		txt, _ := f["text"].(string)
+		streamed.WriteString(txt)
+	}
+	if ans := framesOf(frames, "answer"); len(ans) != 1 || !strings.HasPrefix(ans[0]["text"].(string), streamed.String()) || streamed.Len() == 0 {
+		t.Errorf("delta birleşimi (%q) answer metninin öneki değil", streamed.String())
 	}
 	res := framesOf(frames, "step-result")
 	if len(res) != 2 {
@@ -766,8 +776,8 @@ func TestTraceFollowUpLoopSpanSubjectWithoutWindow(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatalf("model %d kez çağrıldı, 1 bekleniyordu", len(calls))
 	}
-	if st, _ := calls[0]["stream"].(bool); st || len(llmToolNames(calls[0])) == 0 {
-		t.Fatal("çekmece anlatımı koştu (akan / araçsız çağrı) — span takibi döngüye gitmedi")
+	if len(llmToolNames(calls[0])) == 0 { // v0.10.1273 — döngü de akar; ayırt edici araç kataloğu
+		t.Fatal("çekmece anlatımı koştu (araçsız çağrı) — span takibi döngüye gitmedi")
 	}
 	if strings.Contains(strings.Join(stepLabels(frames), "\n"), "ekrandaki AI açıklaması") {
 		t.Error("çekmece anlatımı kademesi koştu (bağlam çipi)")
@@ -993,8 +1003,8 @@ func TestTraceFollowUpLoopResumedWithoutExplain(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatalf("model %d kez çağrıldı, 1 bekleniyordu", len(calls))
 	}
-	if st, _ := calls[0]["stream"].(bool); st || len(llmToolNames(calls[0])) == 0 {
-		t.Fatal("açıklamasız devralma döngüye gitmedi (akan / araçsız çağrı)")
+	if len(llmToolNames(calls[0])) == 0 { // v0.10.1273 — döngü de akar; ayırt edici araç kataloğu
+		t.Fatal("açıklamasız devralma döngüye gitmedi (araçsız çağrı)")
 	}
 	sys := llmSystem(calls[0])
 	for _, want := range []string{"AKTİF BAĞLAM", "- trace_id: " + tfTrace, strings.TrimSpace(copilot.TraceFollowUpAddendum())} {

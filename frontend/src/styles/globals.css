@@ -5309,6 +5309,9 @@ tbody td.tpm-more-cell { color: var(--text2); }
 .cm-deep-badge { display: inline-flex; align-items: center; gap: 3px; padding: 0 var(--sp-2); border-radius: 999px; font-size: var(--fs-2xs); line-height: 1.6; color: var(--accent2); background: var(--accent-soft); }
 .cm-how__body { margin-top: var(--sp-3); padding: var(--sp-4) var(--sp-5); border-left: 2px solid var(--divider); font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text2); }
 .cm-how__body .cm-steps { font-family: inherit; }
+/* v0.10.1273 — evre kırıntısı: "Metrik → Log → Trace" (cevabın üstünde, sessiz). */
+.cm-phase-trail { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); margin: 0 0 var(--sp-4); font-size: var(--fs-2xs); min-width: 0; }
+.cm-phase-trail__sep { color: var(--text3); }
 
 /* Kaynaklar */
 .cm-sources { margin-top: var(--sp-6); padding-top: var(--sp-4); border-top: 1px solid var(--divider); font-size: var(--fs-sm); }

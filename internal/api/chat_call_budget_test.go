@@ -50,7 +50,8 @@ func TestChatLoopEnforcesCallBudget(t *testing.T) {
 		"maxCalls, maxRounds := dm.toolCalls(), dm.toolRounds()",
 		"callsLeft := maxCalls",
 		"round == maxRounds-1 || callsLeft <= 0",
-		"ChatWithTools(copilot.WithNoToolCalls(tctx2), capPrompt, conv, specs)",
+		// v0.10.1273 — tur akan ikizden (chatLoopTurn → ChatWithToolsStream).
+		"chatLoopTurn(copilot.WithNoToolCalls(tctx2), capPrompt, conv, specs, emit)",
 	} {
 		if !strings.Contains(src, want) {
 			t.Errorf("copilot_chat.go %q içermiyor", want)

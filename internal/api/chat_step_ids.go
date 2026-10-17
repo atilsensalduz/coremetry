@@ -83,6 +83,9 @@ func emitStepChipOrigin(emit func(string, any), tool, args, origin string) int {
 	if origin != "" {
 		m["origin"] = origin
 	}
+	if p := stepPhaseTR(tool); p != "" {
+		m["phase"] = p // v0.10.1273 — isteğe bağlı evre (chat_step_phase.go)
+	}
 	emit("step", m)
 	if i, ok := m["i"].(int); ok {
 		return i

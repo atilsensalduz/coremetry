@@ -302,11 +302,18 @@ func ChatOpenAITools(ctx context.Context, cfg Config, req ChatRequest) (ChatResp
 	if cfg.HTTPClient == nil {
 		return ChatResponse{}, errors.New("provider: nil HTTPClient — timeout ve TLS-skip ayarları onun içinde yaşıyor")
 	}
+	url, hdrs, toolChoiceNone := openAIToolsEndpoint(cfg)
+	return chatOpenAIShape(ctx, cfg, req, url, hdrs, defaultModel, labelOpenAI, toolChoiceNone)
+}
+
+// openAIToolsEndpoint — openai-compat tool'lu turun ucu + header'ları; buffered
+// ve akan (v0.10.1273, tools_stream.go) ikiz TEK yazılıştan okur.
+func openAIToolsEndpoint(cfg Config) (url string, hdrs map[string]string, toolChoiceNone bool) {
 	base := cfg.BaseURL
 	if base == "" {
 		base = defaultBaseURL
 	}
-	hdrs := map[string]string{"Content-Type": "application/json"}
+	hdrs = map[string]string{"Content-Type": "application/json"}
 	if cfg.APIKey != "" {
 		hdrs["Authorization"] = "Bearer " + cfg.APIKey
 		// Çıplak api-key ikizi vLLM/KServe tarzı geçitler için —
@@ -315,9 +322,8 @@ func ChatOpenAITools(ctx context.Context, cfg Config, req ChatRequest) (ChatResp
 	}
 	// tool_choice "none" yalnız barındırılan OpenAI'de (boş tools dizisini
 	// reddediyor); yerel uçların tool_choice desteği doğrulanmadı → bugünkü şekil.
-	return chatOpenAIShape(ctx, cfg, req,
-		strings.TrimRight(base, "/")+"/chat/completions", hdrs,
-		defaultModel, labelOpenAI, strings.TrimRight(base, "/") == defaultBaseURL)
+	return strings.TrimRight(base, "/") + "/chat/completions", hdrs,
+		strings.TrimRight(base, "/") == defaultBaseURL
 }
 
 // ChatGitHubTools tek bir tool'lu Copilot turu yürütür.
@@ -364,13 +370,17 @@ func chatOpenAIShape(ctx context.Context, cfg Config, req ChatRequest,
 	if resp.StatusCode >= 300 {
 		return ChatResponse{}, &HTTPError{Provider: label, Status: resp.StatusCode, Body: strings.TrimSpace(string(respBody))}
 	}
-	// Metin-gömülü çağrı geri düşüşü yalnız tool SUNULMUŞKEN: tur-tavanı
-	// turunda çağrı-şekilli metin cevabın parçasıdır.
-	offered := toolNames(req.Tools)
+	return parseOpenAIToolsChat(respBody, label, offeredTextCalls(req))
+}
+
+// offeredTextCalls — metin-gömülü çağrı geri düşüşü yalnız tool SUNULMUŞKEN:
+// tur-tavanı turunda çağrı-şekilli metin cevabın parçasıdır. Buffered ve
+// akan yol (tools_stream.go) aynı listeyi kullanır.
+func offeredTextCalls(req ChatRequest) []string {
 	if req.NoToolCalls {
-		offered = nil
+		return nil
 	}
-	return parseOpenAIToolsChat(respBody, label, offered)
+	return toolNames(req.Tools)
 }
 
 func toolNames(ts []ToolSpec) []string {

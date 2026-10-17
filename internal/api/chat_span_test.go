@@ -146,8 +146,9 @@ func TestChatSpanWiring(t *testing.T) {
 	if n := strings.Count(b, "cspan.turn(ctx, round,"); n != 2 {
 		t.Fatalf("iki ChatWithTools yeri de tur span'ı açmalı, %d", n)
 	}
-	if n := strings.Count(b, "s.copilot.ChatWithTools("); n != 2 {
-		t.Fatalf("ChatWithTools çağrı sayısı değişti (%d) — tur span'ı eşlemesini güncelle", n)
+	// v0.10.1273 — turlar akan ikizden (chatLoopTurn → ChatWithToolsStream).
+	if n := strings.Count(b, "s.chatLoopTurn("); n != 2 {
+		t.Fatalf("chatLoopTurn çağrı sayısı değişti (%d) — tur span'ı eşlemesini güncelle", n)
 	}
 	// v0.10.536 — araç span'ı tools.Executor'ın Span kancasından (executor_test.go
 	// sarmayı ve bayt+ok kapanışını pinler); sohbet kancayı cspan.tool ile verir.

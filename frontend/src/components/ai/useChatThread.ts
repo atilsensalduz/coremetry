@@ -7,6 +7,7 @@ import { capPageContext } from '@/lib/traceAiContext';
 import { isAbortError, settleStoppedTurn, settleTruncatedTurn } from './chatAbort';
 import { failedQuestion, dropFailedTail } from './chatRetry';
 import { prevWikiRefs } from './chatWikiRefs';
+import { applyChatDelta } from './phaseTrail';
 import { hasDrawerContext, parseChatInput, pickedServices, scopeForRequest, type ParsedChatInput } from './chatScope';
 import { ChatRequestError } from '@/lib/api';
 import { lastUserIndex, regenerateBase } from './chatRegenerate';
@@ -269,7 +270,7 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
             steps: [...(t.steps ?? []), e.tool ?? e.label ?? ''],
             stepDetails: e.i == null
               ? t.stepDetails
-              : [...(t.stepDetails ?? []), { i: e.i, tool: e.tool ?? '', label: e.label, args: e.args, origin: e.origin }],
+              : [...(t.stepDetails ?? []), { i: e.i, tool: e.tool ?? '', label: e.label, args: e.args, origin: e.origin, ...(e.phase ? { phase: e.phase } : {}) }], // v0.10.1273 — evre
           }));
         } else if (e.kind === 'step-result') {
           // Sonuç, `i` ile kendi çipine yazılır. Eşleşme bulunamazsa
@@ -288,7 +289,9 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
           // v0.10.541 — tipli blok (chart/link/…): metinden bağımsız biriktirilir.
           patchLast(t => ({ ...t, blocks: appendChatBlock(t.blocks, { id: e.id, type: e.type, seq: e.seq, final: e.final, payload: e.payload }) }));
         } else if (e.kind === 'delta') {
-          patchLast(t => ({ ...t, text: (t.text ?? '') + e.text }));
+          // v0.10.1273 — `reset`: sunucu o ana dek akanı geri aldı (tool'lu turun
+          // önsözü / düşünce bloğu); metin yeniden başlar. `answer` yine otoriter.
+          patchLast(t => ({ ...t, text: applyChatDelta(t.text, e) }));
         } else if (e.kind === 'answer') {
           patchLast(t => ({ ...t, text: e.text, exchangeId: e.exchangeId, sources: e.sources, suggestions: e.suggestions, links: e.links, allowedLinks: e.allowedLinks, evidence: e.evidence, pending: false })); // v0.10.1137 — link doğrulama listesi; v0.10.1272 — kanıt çipleri
           // v0.10.434 (D7b) — yalnız uygulama-içi (kök-göreli) href; dış adres asla.

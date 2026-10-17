@@ -31,6 +31,7 @@ import { StateBadges } from './StateBadges'; // v0.10.948 — paylaşılan durum
 import { chatLinkTargetProps, useChatLinkNewTab } from './chatLinkTarget'; // v0.10.1125 — /cosre yeni sekme
 import { sourceChips, SOURCE_KIND_LABEL, type SourceChip } from './sourceChips'; // v0.10.1127 — hedef başına tek kaynak çipi
 import { EvidenceChips } from './EvidenceChips'; // v0.10.1272 — kanıt çipleri + Explore'da aç
+import { phaseTrail } from './phaseTrail'; // v0.10.1273 — Metrik → Log → Trace kırıntısı
 
 // ChatBubble — bir sohbet turunun ÇİZİMİ. v0.9.479'da CopilotChat.tsx'ten
 // buraya taşındı: AI çekmecesi içindeki sohbet (AIDrawer) aynı balonu
@@ -768,6 +769,25 @@ function StepsDisclosure({ turn, evId, setEvId, initialOpen }: {
   );
 }
 
+// PhaseTrail — v0.10.1273 (CoSRE adım 4): turun soruşturma akışı
+// ("Metrik → Log → Trace"), cevabın ÜSTÜNDE, akarken canlı büyür. Halkalar
+// sunucunun çip başına bastığı `phase`ten (phaseTrail.ts); evre yoksa
+// (eski sunucu, arşivden geri yüklenen tur) hiç çizilmez.
+export function PhaseTrail({ details }: { details: readonly ChatStepDetail[] | undefined }) {
+  const phases = useMemo(() => phaseTrail(details), [details]);
+  if (phases.length === 0) return null;
+  return (
+    <div className="cm-phase-trail" aria-label={`Soruşturma akışı: ${phases.join(' → ')}`}>
+      {phases.map((p, i) => (
+        <Fragment key={`${i}-${p}`}>
+          {i > 0 && <span className="cm-phase-trail__sep" aria-hidden="true">→</span>}
+          <Badge tone="neutral">{p}</Badge>
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
 // SourceList — v0.10.1137: "Kaynak n" çip satırı yerine cevabın altında
 // numaralı "Kaynaklar" listesi (başlık + host); 3'ten fazlası katlanır.
 // Numara = metindeki [n] atfı = sunucunun bağlam numarası.
@@ -938,6 +958,8 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
       <div onClick={onBodyClick} className="cm-msg-ai" style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
         {/* v0.10.1137 — adımlar tek açılırda (akarken açık, bitince kapanır). */}
         {hasSteps && <StepsDisclosure turn={turn} evId={evId} setEvId={openEvidence} initialOpen={stepsOpen} />}
+        {/* v0.10.1273 — evre kırıntısı (Metrik → Log → Trace), cevabın üstünde, canlı. */}
+        <PhaseTrail details={turn.stepDetails} />
         {turn.text ? (
           // `turn.pending` çözücüye GEÇİYOR: yarım tablo satırı / kapanmamış
           // çit kararı ona bağlı (chatMarkdown.ts); imleç de son metnin içinde.

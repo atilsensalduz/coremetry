@@ -133,6 +133,31 @@ func (s *Service) streamFallback(fe *aiprov.StreamFallbackError, provider, baseU
 	parseOneShot func([]byte) (string, uint32, uint32, error),
 	buffered func() (string, uint32, uint32, error)) (string, uint32, uint32, error) {
 
+	wrap := func(f func() (string, uint32, uint32, error)) (textOut, error) {
+		o, in, out, err := f()
+		return textOut{o, in, out}, err
+	}
+	r, err := streamFallbackPolicy(s, fe, provider, baseURL, model,
+		func(b []byte) (textOut, error) {
+			return wrap(func() (string, uint32, uint32, error) { return parseOneShot(b) })
+		},
+		func() (textOut, error) { return wrap(buffered) })
+	return r.text, r.in, r.out, err
+}
+
+// textOut — anlatım yolunun (StreamText) üçlüsü, genel politikadan geçerken.
+type textOut struct {
+	text    string
+	in, out uint32
+}
+
+// streamFallbackPolicy — KARARIN tek yazılışı (v0.10.1273: anlatım ve
+// tool'lu tur akışı aynı politikayı paylaşır; sonuç tipi çağırana göre).
+// provider, karar önbelleğinin anahtar önekidir: tool'lu tur kendi önekini
+// verir ki "tool'lu akış yok" kararı anlatım akışını kapatmasın.
+func streamFallbackPolicy[T any](s *Service, fe *aiprov.StreamFallbackError, provider, baseURL, model string,
+	parseOneShot func([]byte) (T, error), buffered func() (T, error)) (T, error) {
+
 	switch fe.Stage {
 	case aiprov.StageConnect:
 		log.Printf("[copilot] stream unsupported, buffered fallback (%s connect: %v)", fe.Provider, fe.Err)
@@ -153,16 +178,16 @@ func (s *Service) streamFallback(fe *aiprov.StreamFallbackError, provider, baseU
 		// akış desteği değil isteğin/hesabın/modelin kendisidir (kredi, bağlam
 		// taşması, model adı); kalıcı "akış yok" kararı sonraki her anlatımı
 		// süreç ömrü boyunca buffered'a (akışsız) mahkûm ederdi.
-		out, pt, ct, err := buffered()
+		out, err := buffered()
 		if err != nil {
 			log.Printf("[copilot] %s %d: akış ve buffered ikisi de başarısız — akış kararı YAZILMADI (%.200s)",
 				fe.Provider, fe.Status, strings.TrimSpace(string(fe.Body)))
-			return out, pt, ct, err
+			return out, err
 		}
 		s.markStreamUnsupported(provider, baseURL, model)
 		log.Printf("[copilot] stream unsupported, buffered fallback (%s %d: %.200s — verdict cached)",
 			fe.Provider, fe.Status, strings.TrimSpace(string(fe.Body)))
-		return out, pt, ct, nil
+		return out, nil
 	default: // VerdictFallbackOnce — geçici, karar YAZILMAZ
 		log.Printf("[copilot] stream unsupported, buffered fallback (%s %d transient: %.200s)",
 			fe.Provider, fe.Status, strings.TrimSpace(string(fe.Body)))
