@@ -181,7 +181,10 @@ func EvidenceHref(tool string, ev cosreEvidence, req map[string]any) string {
 		if reqString(req, "sort_by") == qtSortSlowest {
 			f.Sort = "duration"
 		}
-		if op := reqString(req, "operation"); op != "" {
+		if cf, ok := reqFilterExpr(req, qtCodeFilterKey); ok {
+			// v0.10.1297 — operasyon adı fonksiyon koduna çevrildi: link de kodla.
+			f.Filters = []chstore.FilterExpr{cf}
+		} else if op := reqString(req, "operation"); op != "" {
 			// query_traces'in uyguladığı süzgecin AYNISI (name = operation).
 			f.Filters = []chstore.FilterExpr{{Key: "name", Op: "=", Values: []string{op}}}
 		}
@@ -272,6 +275,28 @@ func withQueryParam(href, k, v string) string {
 }
 
 // reqString — normalize edilmiş istekten dize (JSON'dan gelen sayı da metne).
+// reqFilterExpr — v0.10.1297, SAF: istekteki süzgeç (FilterExpr ya da JSON'dan
+// çözülmüş map); anahtar/değer boşsa ya da süzgeç geçersizse ok=false.
+func reqFilterExpr(req map[string]any, k string) (chstore.FilterExpr, bool) {
+	v, ok := req[k]
+	if !ok || v == nil {
+		return chstore.FilterExpr{}, false
+	}
+	var f chstore.FilterExpr
+	if fe, isFE := v.(chstore.FilterExpr); isFE {
+		f = fe
+	} else {
+		b, err := json.Marshal(v)
+		if err != nil || json.Unmarshal(b, &f) != nil {
+			return chstore.FilterExpr{}, false
+		}
+	}
+	if f.Key == "" || len(f.Values) == 0 || chstore.ValidateFilters([]chstore.FilterExpr{f}) != nil {
+		return chstore.FilterExpr{}, false
+	}
+	return f, true
+}
+
 func reqString(req map[string]any, k string) string {
 	switch v := req[k].(type) {
 	case string:

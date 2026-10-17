@@ -240,15 +240,18 @@ var buildLinkPresets = map[string]bool{"5m": true, "15m": true, "30m": true, "1h
 func buildLinkTool(d Deps) mcp.Tool {
 	return mcp.Tool{
 		Name:             "build_link",
-		ShortDescription: "Coremetry UI deep-link'i üretir (liste sayfaları + tekil problem / exception / incident / endpoint / statement / topic / rollouts) — süzgeç + pencere önceden dolu. Cevabın sonuna KOY; URL uydurma.",
+		ShortDescription: "Coremetry UI deep-link'i (liste + tekil problem / exception / incident / endpoint / statement / topic / rollouts), süzgeç + pencere dolu. Link cevabın altına çip olur: metne URL/host/araç çıktısı YAZMA.",
 		Description: "Build a Coremetry UI deep-link with the filters, scope and time window pre-filled so the operator continues in the product with one click. " +
 			"Single-entity pages (v0.10.1222): problem (problem_id), exception (fingerprint), incident (incident_id), endpoint (service + path, signature=true when the path is an ID-collapsed template row, env, cluster), " +
 			"statement (stmt_hash = decimal statement hash, db_system), topic (messaging_system + cluster = broker cluster + destination), rollouts (cluster, namespace). " +
 			"Pages: traces (service, search, filters[], errors_only, min_ms/max_ms, env, cluster, sort, group_by/group_attr → aggregate view), trace (trace_id, span_id, tab), " +
 			"logs (query=KQL, service, cluster, severity or errors_only, trace_id/span_id, env), service (service, tab), pod (cluster, namespace, pod), clusters (cluster, namespace, " +
 			"tab=overview|pods|nodes), endpoints (service, search), problems (service). The window is written as range=custom:<fromMs>-<toMs> from range_s (default 1800) — " +
-			"or a preset when `preset` is given (5m…30d). Returns a root-relative href (e.g. /traces?…): prefix the base URL of the Coremetry install this MCP server " +
-			"belongs to when you show it. Build Coremetry links only through this tool, because hand-written URLs miss the parameter names each page actually reads.",
+			"or a preset when `preset` is given (5m…30d). Returns a root-relative `href` (e.g. /traces?…) and, only when the install's public URL is configured, an absolute `url`: " +
+			"show `url` when present, otherwise `href` exactly as returned — never invent or guess a host/domain. " +
+			"On page=traces a `search` that is an Oracle operation name (UPPER_CASE_WITH_UNDERSCORES) with an exact match is replaced by the FUNCTION_CODE filter " +
+			"(operation names are not on spans; `operation_translated` says so). " +
+			"Build Coremetry links only through this tool, because hand-written URLs miss the parameter names each page actually reads.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -301,6 +304,15 @@ func buildLinkTool(d Deps) mcp.Tool {
 				}
 				filters = append(filters, fe)
 			}
+			// v0.10.1297 — operasyon adı span'lerde yok: search → fonksiyon kodu süzgeci.
+			var translated *OperationSearchTranslation
+			if strings.EqualFold(strings.TrimSpace(a.Page), "traces") {
+				if tr, ok := translateOperationSearch(ctx, d.OracleOps, a.Search); ok {
+					a.Search = ""
+					filters = append(filters, tr.Filter())
+					translated = &tr
+				}
+			}
 			if a.Namespace != "" && strings.EqualFold(strings.TrimSpace(a.Page), "traces") {
 				filters = append(filters, chstore.FilterExpr{Key: "k8s.namespace.name", Op: "=", Values: []string{strings.TrimSpace(a.Namespace)}})
 			}
@@ -325,7 +337,33 @@ func buildLinkTool(d Deps) mcp.Tool {
 			if err != nil {
 				return nil, err
 			}
-			return map[string]any{"href": href, "page": strings.ToLower(strings.TrimSpace(a.Page)), "range": rangeParam}, nil
+			out := map[string]any{"href": href, "page": strings.ToLower(strings.TrimSpace(a.Page)), "range": rangeParam}
+			if d.PublicURL != nil {
+				if abs := absoluteAppLink(d.PublicURL(), href); abs != "" {
+					out["url"] = abs
+				}
+			}
+			if translated != nil {
+				out["operation_translated"] = translated
+			}
+			return out, nil
 		},
 	}
+}
+
+// absoluteAppLink — v0.10.1297, SAF: kök-göreli href → kurulumun PUBLIC_URL'i
+// altında mutlak link. base http(s) şema + host taşımıyorsa ya da href kök-
+// göreli değilse (protokol-göreli // ya da /\ dahil) "" — host ASLA uydurulmaz,
+// sabit bir dış alan adı (coremetry.io gibi) hiçbir dalda yazılmaz. base'in
+// yol öneki (ters proxy alt yolu) korunur.
+func absoluteAppLink(base, href string) string {
+	base = strings.TrimSpace(base)
+	if base == "" || !strings.HasPrefix(href, "/") || strings.HasPrefix(href, "//") || strings.HasPrefix(href, "/\\") {
+		return ""
+	}
+	u, err := url.Parse(base)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return ""
+	}
+	return strings.ToLower(u.Scheme) + "://" + u.Host + strings.TrimRight(u.Path, "/") + href
 }

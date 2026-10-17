@@ -54,7 +54,7 @@ func searchTracesTool(d Deps) mcp.Tool {
 			"Honesty envelope: has_more (page full), ranked_within (duration sort ranked inside the newest-N slice only), " +
 			"narrowed_from_iso (window was halved under resource pressure — the answer covers LESS than you asked). " +
 			"ATTRIBUTE FILTERS (filters[]): keys MUST come from describe_attributes / find_attribute_by_value — never invent one; a filter requires a scope " +
-			"(service, namespace or cluster). Filtered searches are the slow path, so the window is clamped: indexed keys ≤ 6h, non-indexed keys ≤ 1h, " +
+			"(service, namespace or cluster; a FUNCTION_CODE / CHANNEL_CODE equality filter is itself a scope). Filtered searches are the slow path, so the window is clamped: indexed keys ≤ 6h, non-indexed keys ≤ 1h, " +
 			"sort=duration with filters ≤ 1h, ≤ 50 rows; without attribute filters a namespace/cluster scope is still a raw scan and is clamped to ≤ 24h. " +
 			"window_clamped_reason says when. `deep_link` reproduces the exact search in the Traces UI (root-relative, same rule as build_link).",
 		InputSchema: map[string]any{
@@ -66,7 +66,7 @@ func searchTracesTool(d Deps) mcp.Tool {
 				},
 				"search": map[string]any{
 					"type":        "string",
-					"description": "Free-text match on span/operation names inside the trace. Empty = no text filter.",
+					"description": "Free-text match on span/operation names inside the trace. Empty = no text filter. An Oracle operation name (UPPER_CASE_WITH_UNDERSCORES) with an exact match is searched by its FUNCTION_CODE instead (operation_translated).",
 				},
 				"errors_only": map[string]any{
 					"type":        "boolean",
@@ -134,7 +134,21 @@ func searchTracesTool(d Deps) mcp.Tool {
 				}
 				filters = append(filters, fe)
 			}
-			userFilters := len(filters) // v0.10.491 — kapı yalnız operatör süzgeçlerine bakar
+			// v0.10.1297 — fonksiyon/kanal kodu eşitliği terfi kolonuna iner (guided ve
+			// ön-getirme kapsamsız koşar): kapsam çipi sayılır, kapı servis istemez.
+			filters = partitionScopeFilters(filters)
+			userFilters := 0 // v0.10.491 — kapı yalnız operatör süzgeçlerine bakar
+			for userFilters < len(filters) && !isBusinessCodeScopeFilter(filters[userFilters]) {
+				userFilters++
+			}
+			// v0.10.1297 — operasyon adı span'lerde yok: search → fonksiyon kodu süzgeci.
+			search := a.Search
+			translated, isTranslated := translateOperationSearch(ctx, d.OracleOps, search)
+			if isTranslated {
+				search = ""
+				filters = append(filters, translated.Filter())
+			}
+			bizScope := len(filters) > userFilters // kod süzgeci servis kadar dar bir kapsamdır
 			ns := strings.TrimSpace(a.Namespace)
 			if ns != "" {
 				filters = append(filters, chstore.FilterExpr{Key: "k8s.namespace.name", Op: "=", Values: []string{ns}})
@@ -157,7 +171,7 @@ func searchTracesTool(d Deps) mcp.Tool {
 			if err := chstore.ValidateFilters(filters); err != nil {
 				return nil, fmt.Errorf("filters: %w", err)
 			}
-			hasScope := strings.TrimSpace(a.Service) != "" || ns != "" || clusterVal != "" || strings.TrimSpace(a.Cluster) != ""
+			hasScope := strings.TrimSpace(a.Service) != "" || ns != "" || clusterVal != "" || strings.TrimSpace(a.Cluster) != "" || bizScope
 			gate, err := applySearchGate(a.RangeS, clampLimit(a.Limit, 20, 50), filters[:userFilters], hasScope, sortBy == "duration", chstore.AttrIndexAvailable(), len(filters)-userFilters)
 			if err != nil {
 				return nil, err
@@ -167,7 +181,7 @@ func searchTracesTool(d Deps) mcp.Tool {
 			var ranked int
 			var narrowed time.Time
 			f := chstore.TraceFilter{
-				Service: a.Service, Search: a.Search,
+				Service: a.Service, Search: search,
 				From: from, To: to,
 				HasError: a.ErrorsOnly, RootOnly: a.RootOnly,
 				Sort: sortBy, Order: "desc",
@@ -191,6 +205,9 @@ func searchTracesTool(d Deps) mcp.Tool {
 			}
 			if len(filters) > 0 {
 				out["filters_applied"] = filters
+			}
+			if isTranslated {
+				out["operation_translated"] = translated
 			}
 			if gate.Reason != "" {
 				out["window_clamped_reason"] = gate.Reason
@@ -231,4 +248,20 @@ func searchTracesSource(returned, limit int, hasMore bool, ranked int, from, to 
 		st = st.WithNote("kaynak baskısıyla pencere daraltıldı; yalnız "+narrowed.UTC().Format(time.RFC3339)+" sonrası tarandı", true)
 	}
 	return st
+}
+
+// partitionScopeFilters — v0.10.1297, SAF: operatör süzgeçleri önde, fonksiyon/
+// kanal kodu kapsam süzgeçleri (isBusinessCodeScopeFilter) sonda; göreli sıra
+// korunur. Kapı yalnız öndeki dilime bakar (applySearchGate filters[:user]).
+func partitionScopeFilters(in []chstore.FilterExpr) []chstore.FilterExpr {
+	out := make([]chstore.FilterExpr, 0, len(in))
+	var scope []chstore.FilterExpr
+	for _, f := range in {
+		if isBusinessCodeScopeFilter(f) {
+			scope = append(scope, f)
+			continue
+		}
+		out = append(out, f)
+	}
+	return append(out, scope...)
 }

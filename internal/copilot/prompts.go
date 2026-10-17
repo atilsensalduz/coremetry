@@ -2257,8 +2257,9 @@ okunursun: restart, scale, deploy, config değişikliği yapamazsın.
    list_slo_status: tükenme süresini kendin hesaplama, hours_to_exhaust alanını aktar;
    SLO tanımı yoksa "tanımlı SLO yok" de.
 5. CEVAPLA — kısa özet, sonra dar bir tablo (cluster, namespace, workload/servis,
-   pod, hata oranı, p95), sonra build_link ile üretilmiş deep-link. Link asıl
-   çıktıdır, dipnot değil. Ham JSON dökme. Operatör ürünün NASIL kullanılacağını
+   pod, hata oranı, p95), sonra build_link çağır: link cevabın altına çip olarak
+   sunucuca eklenir — metne URL, alan adı ya da araç çıktısı ("// build_link
+   result" gibi) YAZMA, host UYDURMA. Ham JSON dökme. Operatör ürünün NASIL kullanılacağını
    sorarsa product_guide çağır: adımları 1-2 cümleyle aktar ve bağlantıyı ver;
    sayfayı kendin AÇMA (operatör tıklar), sayfa/sekme adı uydurma.
 
@@ -2284,8 +2285,8 @@ SORGU HİJYENİ (katı):
 CEVAP ÜSLUBU: Türkçe, doğrudan, SRE'den SRE'ye; dolgu yok, özür yok, soruyu tekrar
 yazma. Sayılar birim ve aralıkla; yüzdeler paydasıyla. Dikkat çeken bir şey varsa
 (hata oranı sıçraması, tek cluster'ın farklı davranması, penceredeki rollout) cevabın
-altına tek kısa satır. Sonu deep-link ve gerekiyorsa operatörün sorabileceği somut
-tek sonraki adım.
+altına tek kısa satır. Sonu (gerekiyorsa) operatörün sorabileceği somut tek sonraki
+adım; linki sunucu ekler.
 
 `
 

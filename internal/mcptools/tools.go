@@ -290,6 +290,10 @@ type Deps struct {
 	// bu dar okuma dikişi tek köprü. Yalnız öneri metnine girer (geri alma
 	// önerisinin "Argo: OutOfSync" eki); hipotez skoruna girmez. nil = yok.
 	ArgoApps func(ctx context.Context, service string) ([]ArgoAppStatus, error)
+	// v0.10.1297 (operatör 2026-10-17: model linke coremetry.io yazdı) — kurulumun
+	// COREMETRY_PUBLIC_URL origin'i ("" = yapılandırılmamış). build_link yalnız bu
+	// doluysa mutlak `url` döner; boşken yalnız kök-göreli `href` — host UYDURULMAZ.
+	PublicURL func() string
 }
 
 // ArgoAppStatus — v0.10.1293: Deps.ArgoApps satırı (uygulama + durum + iş

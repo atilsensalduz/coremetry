@@ -296,17 +296,11 @@ func (s *Server) guidedTraceSearchBundle(ctx context.Context, emit func(string, 
 	return guidedTraceSearchRun(ctx, emit, route, from, to, rangeS, s.traceSearchIO())
 }
 
-// oracleOpNameRe — v0.10.1133: Oracle operasyon adı ŞEKLİ (büyük harf, rakam,
-// alt çizgi; ≥6). Yalnız şekil kapısı: çözümleyiciye gitmeye değer mi.
-var oracleOpNameRe = regexp.MustCompile(`^[A-Z0-9_]{6,}$`)
-
-// looksLikeOracleOperation — SAF: en az bir harf ve bir alt çizgi şart (salt
-// rakam bir kimlik ya da süre, "SAMP01" gibi tek kelime bir kod; operasyon
-// adı değil).
-func looksLikeOracleOperation(s string) bool {
-	s = strings.TrimSpace(s)
-	return oracleOpNameRe.MatchString(s) && strings.Contains(s, "_") && strings.ContainsAny(s, "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
-}
+// looksLikeOracleOperation — v0.10.1133 şekil kapısı (büyük harf, rakam, alt
+// çizgi; ≥6; en az bir harf + bir alt çizgi). v0.10.1297: tek kural
+// mcptools'ta — build_link / search_traces'in operasyon adı çevirisi aynı
+// kapıyı kullanır.
+func looksLikeOracleOperation(s string) bool { return mcptools.LooksLikeOracleOperation(s) }
 
 func guidedTraceSearchRun(ctx context.Context, emit func(string, any), route *guidedRoute, from, to time.Time, rangeS int64, io traceSearchIO) (string, string, error) {
 	errorsOnly := route.TraceErrorsOnly // v0.10.479 (F4-2) — "sadece hatalı olanlar" takibi
@@ -722,8 +716,5 @@ func renderPairEvidenceTR(route guidedRoute, matched, others []chstore.ServiceTo
 // oracleCodeFilter — v0.10.1133, SAF: çevrilmiş aramanın tek süzgeç çipi
 // (link + sohbet bağlamı); tek kod "=", birden çok kod "IN".
 func oracleCodeFilter(key string, codes []string) chstore.FilterExpr {
-	if len(codes) == 1 {
-		return chstore.FilterExpr{Key: key, Op: "=", Values: []string{codes[0]}}
-	}
-	return chstore.FilterExpr{Key: key, Op: "IN", Values: append([]string(nil), codes...)}
+	return mcptools.OracleCodeFilter(key, codes)
 }

@@ -86,6 +86,8 @@ func (s *Server) mcpDeps() mcptools.Deps {
 		// v0.10.1293 (AI SRE Faz 4) — geri alma önerisinin Argo eki (sre_argo.go;
 		// GitOps sekmesiyle aynı kurucu, salt okuma).
 		ArgoApps: s.mcpArgoApps,
+		// v0.10.1297 — build_link mutlak `url`'i yalnız PUBLIC_URL doluyken (host uydurulmaz).
+		PublicURL: s.publicBaseURL,
 		CopilotModel: func() string {
 			if s.copilot == nil || !s.copilot.Configured() {
 				return ""

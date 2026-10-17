@@ -57,6 +57,9 @@ type qtBackends struct {
 	traces    func(ctx context.Context, f chstore.TraceFilter) ([]chstore.TraceRow, uint64, bool, error)
 	windowRED func(ctx context.Context, service, env string, from, to time.Time) (chstore.ServiceWindowRED, error)
 	envCovers func(ctx context.Context, from time.Time) bool
+	// oracleOps — v0.10.1297: operation bir Oracle operasyon adıysa (span'lerde
+	// yok) fonksiyon kodu süzgecine çevirir; nil = çeviri yok.
+	oracleOps OracleOpSource
 }
 
 func qtBackendsFrom(d Deps) qtBackends {
@@ -72,6 +75,7 @@ func qtBackendsFrom(d Deps) qtBackends {
 		}
 		b.envCovers = st.EnvSummaryCovers
 	}
+	b.oracleOps = d.OracleOps
 	return b
 }
 
@@ -193,7 +197,13 @@ func runQueryTraces(ctx context.Context, b qtBackends, raw json.RawMessage) (cos
 	}
 
 	var filters []chstore.FilterExpr
-	if operation != "" {
+	if tr, ok := translateOperationSearch(ctx, b.oracleOps, operation); ok {
+		// v0.10.1297 — operasyon adı span'lerde yok: name süzgeci sıfır trace
+		// bulurdu; fonksiyon kodu süzgeci (kanıt href'i de aynısını taşır).
+		filters = append(filters, tr.Filter())
+		req[qtCodeFilterKey] = tr.Filter()
+		req["operation_translated"] = tr
+	} else if operation != "" {
 		filters = append(filters, chstore.FilterExpr{Key: "name", Op: "=", Values: []string{operation}})
 	}
 	gate, err := applySearchGate(int(to.Sub(from)/time.Second), limit, filters, true, sortBy == qtSortSlowest, chstore.AttrIndexAvailable())
@@ -327,3 +337,7 @@ func qtListQueryText(f chstore.TraceFilter) string {
 	return fmt.Sprintf("-- örnekler: GetTraces[trace_summary_5m → spans] WHERE %s ORDER BY %s DESC LIMIT %d",
 		strings.Join(where, " AND "), f.Sort, f.Limit)
 }
+
+// qtCodeFilterKey — normalize istekte çevrilmiş operasyonun kod süzgeci
+// (EvidenceHref name süzgeci yerine bunu yazar).
+const qtCodeFilterKey = "code_filter"

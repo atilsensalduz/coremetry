@@ -28,6 +28,7 @@ import (
 	"github.com/cilcenk/coremetry/internal/ai/agent/blocks"
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/copilot"
+	"github.com/cilcenk/coremetry/internal/mcptools"
 )
 
 const (
@@ -189,6 +190,10 @@ type opPrefetch struct {
 	Oracle     []chstore.OracleErrorCount `json:"oracleErrors"`
 	TracesHref string                     `json:"tracesHref"`
 	argsJSON   string
+	// codeKey — v0.10.1297: operasyon span'lerde yok, köprü fonksiyon kodu
+	// (Oracle katalog satırı) → span anahtarının yazımı; "" = span operasyonu
+	// ya da kod yok (döngü linkleri yeniden yazılmaz).
+	codeKey string
 }
 
 type opTraceRow struct {
@@ -280,9 +285,59 @@ func opTracesHref(t opTarget, spanKey string, from, to time.Time) string {
 			q.Set("service", t.Services[0])
 		}
 	case len(t.Codes) > 0 && spanKey != "":
-		f, _ := json.Marshal([]chstore.FilterExpr{{Key: spanKey, Op: "=", Values: []string{t.Codes[0]}}}) // {"k","op","v"} — FE FilterExpr
+		// v0.10.1297 — TÜM kodlar (tek kod "=", çoğu "IN"); eskiden yalnız ilki.
+		f, _ := json.Marshal([]chstore.FilterExpr{mcptools.OracleCodeFilter(spanKey, t.Codes)}) // {"k","op","v"} — FE FilterExpr
 		q.Set("filters", string(f))
 	}
+	return "/traces?" + q.Encode()
+}
+
+// rewriteSearchHref — v0.10.1297: ön-getirme operasyonu fonksiyon koduyla
+// çözdüyse, döngünün bu operasyonun ADIYLA kurduğu /traces?search=<ad>
+// linkleri (build_link çipi, search_traces deep_link'i → answer.open) kod
+// süzgecine çevrilir. nil / span operasyonu → href aynen.
+func (p *opPrefetch) rewriteSearchHref(href string) string {
+	if p == nil || p.codeKey == "" || len(p.Codes) == 0 {
+		return href
+	}
+	return opSearchHrefToCodeFilter(href, p.Operation, p.codeKey, p.Codes)
+}
+
+// opSearchHrefToCodeFilter — SAF (tablo testli): /traces?…search=<op>… →
+// search düşer, filters'a kod süzgeci eklenir (aynı anahtarda süzgeç zaten
+// varsa eklenmez); diğer paramlar (range, service, sort…) korunur. search
+// operasyon adı değilse, href /traces değilse ya da filters çözülemiyorsa
+// href aynen döner.
+func opSearchHrefToCodeFilter(href, op, key string, codes []string) string {
+	if !strings.HasPrefix(href, "/traces?") || strings.TrimSpace(op) == "" || key == "" || len(codes) == 0 {
+		return href
+	}
+	u, err := url.Parse(href)
+	if err != nil {
+		return href
+	}
+	q := u.Query()
+	if !strings.EqualFold(strings.TrimSpace(q.Get("search")), strings.TrimSpace(op)) {
+		return href
+	}
+	var fs []chstore.FilterExpr
+	if raw := q.Get("filters"); raw != "" {
+		if json.Unmarshal([]byte(raw), &fs) != nil {
+			return href
+		}
+	}
+	has := false
+	for _, f := range fs {
+		if strings.EqualFold(f.Key, key) {
+			has = true
+		}
+	}
+	if !has {
+		fs = append(fs, mcptools.OracleCodeFilter(key, codes))
+	}
+	b, _ := json.Marshal(fs)
+	q.Del("search")
+	q.Set("filters", string(b))
 	return "/traces?" + q.Encode()
 }
 
@@ -401,6 +456,9 @@ func (s *Server) chatOperationPrefetch(ctx context.Context, emit func(string, an
 		p.Oracle, _ = s.store.OracleErrorsForTraces(pctx, ids, from, to)
 	}
 	p.TracesHref = opTracesHref(t, sc.SpanKey, from, to)
+	if !t.HasSpan && len(t.Codes) > 0 && sc.SpanKey != "" {
+		p.codeKey = sc.SpanKey // v0.10.1297 — döngü linkleri kod süzgecine çevrilir
+	}
 	emitGuidedStepResult(emit, n, opPrefetchTool, p.summary(), nil)
 	// Faz 3 — sohbet kartı (metrikler, hatalı trace'ler, Oracle kodları,
 	// filtreli Traces linki). seq yüksek: döngünün kendi blokları (b1…) önce.

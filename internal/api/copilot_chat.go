@@ -840,7 +840,8 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 			// v0.10.948 — trace takibinde iki deterministik ek (chat_trace_followup.go):
 			// kanıtta olmayan sayı uyarısı ve önceki açıklamayı adlandıran künye.
 			// Takip değilse ikisi de bayt-bayt eski künye.
-			finalText = appendCharts(turn.Text) + traceFollowUpNumericWarning(isTraceFollowUp, turn.Text, fuEvidence.String()) +
+			// v0.10.1297 — model metnindeki uydurma host / araç yankısı süzgeci (chat_answer_links.go).
+			finalText = appendCharts(sanitizeAnswerLinks(turn.Text, loopLinks, s.publicBaseURL(), chatToolNameSet(toolSchemas))) + traceFollowUpNumericWarning(isTraceFollowUp, turn.Text, fuEvidence.String()) +
 				traceFollowUpSourceNoteTR(fuHadExplain, calledTools, chatSourceNoteTR(calledTools))
 			// v0.9.709 (operatör-bildirimi) — cevaptaki request_id'ler log
 			// köprüsü çipi olur; altyapı (links + ChatBubble çipleri)
@@ -1010,6 +1011,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 				// arg-türevi köprünün yerine geçer; sohbet cevabı `open` ile
 				// arkadaki sayfayı da oraya götürebilir.
 				if l, ok := toolResultDeepLink(tc.Name, tr.Content); ok {
+					l.Href = opPre.rewriteSearchHref(l.Href) // v0.10.1297 — operasyon adı → kod süzgeci
 					stepEv["href"] = l.Href
 					loopLinks = mergeToolLinks(loopLinks, l)
 					loopOpen = nextLoopOpen(loopOpen, tc.Name, l.Href)
@@ -1020,6 +1022,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 				} else if l, ok := buildLinkResultLink(tc.Name, tr.Content); ok {
 					// build_link'in href'i: model metninde tıklanamaz, çip olur.
 					// open YAZILMAZ — build_link sayfayı kendiliğinden değiştirmez.
+					l.Href = opPre.rewriteSearchHref(l.Href) // v0.10.1297 — operasyon adı → kod süzgeci
 					stepEv["href"] = l.Href
 					loopLinks = mergeToolLinks(loopLinks, l)
 					emit("block", blockSeq.Next(blocks.TypeLink, l))
@@ -1152,7 +1155,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 				// tavana ancak tur tur araç çağırarak varılıyor. Yani atıfın
 				// en anlamlı olduğu cevap, tek atıfsız cevaptı.
 				// v0.10.948 — iki çıkış tek sözleşme: sayı denetimi ve takip künyesi burada da.
-				finalText = appendCharts(turn2.Text) + traceFollowUpNumericWarning(isTraceFollowUp, turn2.Text, fuEvidence.String()) +
+				finalText = appendCharts(sanitizeAnswerLinks(turn2.Text, loopLinks, s.publicBaseURL(), chatToolNameSet(toolSchemas))) + traceFollowUpNumericWarning(isTraceFollowUp, turn2.Text, fuEvidence.String()) +
 					traceFollowUpSourceNoteTR(fuHadExplain, calledTools, chatSourceNoteTR(calledTools))
 				// v0.9.709 (operatör-bildirimi) — cevaptaki request_id'ler log
 				// köprüsü çipi olur. v0.9.1228 — tool köprüleri de burada:

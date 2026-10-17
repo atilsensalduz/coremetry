@@ -27,12 +27,16 @@ import (
 // başlık yazılmaz ve geçer.
 type corsPolicy struct {
 	allowed map[string]struct{} // normalizeOrigin edilmiş origin'ler
+	// publicURL — v0.10.1297: COREMETRY_PUBLIC_URL (kırpılmış; "" = yok).
+	// build_link'in mutlak `url`'i ve sohbet cevabının link süzgeci
+	// (chat_answer_links.go) "kendi kurulumumuz" kararını buradan verir.
+	publicURL string
 }
 
 // newCORSPolicy — SAF: liste + PublicURL origin'i (parse edilemeyen/boş
 // girdiler sessizce düşer; "*" allowlist değildir, yok sayılır).
 func newCORSPolicy(origins []string, publicURL string) corsPolicy {
-	p := corsPolicy{allowed: map[string]struct{}{}}
+	p := corsPolicy{allowed: map[string]struct{}{}, publicURL: strings.TrimSpace(publicURL)}
 	for _, o := range append(append([]string{}, origins...), publicURL) {
 		if n := normalizeOrigin(o); n != "" {
 			p.allowed[n] = struct{}{}
@@ -119,4 +123,12 @@ func (p corsPolicy) requireOrigin(h http.HandlerFunc) http.HandlerFunc {
 // SetAllowedOrigins — main.go: COREMETRY_ALLOWED_ORIGINS + COREMETRY_PUBLIC_URL.
 func (s *Server) SetAllowedOrigins(origins []string, publicURL string) {
 	s.cors = newCORSPolicy(origins, publicURL)
+}
+
+// publicBaseURL — v0.10.1297: kurulumun COREMETRY_PUBLIC_URL'i ("" = yapılandırılmamış).
+func (s *Server) publicBaseURL() string {
+	if s == nil {
+		return ""
+	}
+	return s.cors.publicURL
 }
