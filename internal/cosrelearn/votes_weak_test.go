@@ -1,0 +1,64 @@
+package cosrelearn
+
+// v0.10.1281 — operatör 2026-10-17: "oylara çok güvenmeyelim".
+//
+// İki değişmez:
+//  1. 👍/👎 ağırlığı, gözlenen davranış sinyallerinin en zayıfından bile
+//     büyük olamaz (oy seyrek ve öznel; davranış ölçülür).
+//  2. Oylar ve onlardan türeyen kalite puanları ÇALIŞMA ZAMANI kararlarına
+//     (sohbet yönlendirme, araç seçimi, prompt, AI SRE hipotez puanı)
+//     okunmaz — yalnız ölçüm/inceleme yüzeylerinde görünür.
+
+import (
+	"math"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestVotesWeighLessThanObservedSignals(t *testing.T) {
+	vote := math.Max(math.Abs(Weight[SigThumbsUp]), math.Abs(Weight[SigThumbsDown]))
+	observed := []string{SigCopy, SigProblemNote, SigProblemResolved, SigRephrase, SigRegenerate, SigAbandon, SigTimeout, SigError, SigEmpty, SigNoEvidence, SigUngrounded}
+	for _, k := range observed {
+		if math.Abs(Weight[k]) < vote {
+			t.Errorf("oy ağırlığı %.2f, gözlenen %q (%.2f) sinyalinden büyük olamaz", vote, k, Weight[k])
+		}
+	}
+}
+
+// runtimeDirs — karar veren paketler; buralarda kalite puanı / oy okuyucusu
+// çağrılmamalı. ai_feedback.go (yazma + /ai listesi) ve rag_curate.go (admin
+// KB aday listesi, insan onaylı) ölçüm/inceleme yüzeyidir, hariç.
+var runtimeDirs = []string{"../copilot", "../mcptools", "../sre", "../anomaly", "../api"}
+
+var readerNeedles = []string{
+	"AIFeedbackVerdictsSince", "ListCosreAnswerQuality", "ListCosreToolQuality",
+	"CosreAnswerQuality(", "CosreToolQuality(",
+}
+
+var reviewSurfaces = map[string]bool{
+	"ai_feedback.go": true, "rag_curate.go": true, "rag.go": true,
+	"ai_quality.go": true, "cosre_quality.go": true, "ai_exchanges.go": true,
+}
+
+func TestVotesNeverReachRuntimeDecisions(t *testing.T) {
+	for _, dir := range runtimeDirs {
+		files, _ := filepath.Glob(filepath.Join(dir, "*.go"))
+		for _, f := range files {
+			base := filepath.Base(f)
+			if strings.HasSuffix(base, "_test.go") || reviewSurfaces[base] {
+				continue
+			}
+			b, err := os.ReadFile(f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, n := range readerNeedles {
+				if strings.Contains(string(b), n) {
+					t.Errorf("%s: %q — oy/kalite puanı çalışma zamanı kararına okunmamalı (ölçüm yüzeyiyse reviewSurfaces'a gerekçeyle ekle)", f, n)
+				}
+			}
+		}
+	}
+}

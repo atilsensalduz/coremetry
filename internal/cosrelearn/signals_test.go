@@ -186,7 +186,7 @@ func TestRunQualityDayScoresOnlyThatDay(t *testing.T) {
 	if err != nil || n != 1 || len(st.answers) != 1 || st.answers[0].ExchangeID != "a" {
 		t.Fatalf("n=%d err=%v answers=%+v", n, err, st.answers)
 	}
-	if st.answers[0].Score != 0.1 || st.answers[0].Reasons[0] != SigThumbsDown {
+	if st.answers[0].Score != 0.35 || st.answers[0].Reasons[0] != SigThumbsDown { // v0.10.1281: 0.5 − 0.15
 		t.Errorf("👎 puanı: %+v", st.answers[0])
 	}
 	if !st.to.After(day.Add(24 * time.Hour)) {

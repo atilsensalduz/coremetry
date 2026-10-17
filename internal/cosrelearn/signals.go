@@ -52,7 +52,9 @@ var Weight = map[string]float64{
 	SigEvidenceClick:   0.10,
 	SigProblemNote:     0.30,
 	SigProblemResolved: 0.25,
-	SigThumbsUp:        0.30,
+	// v0.10.1281 (operatör 2026-10-17: "oylara çok güvenmeyelim") — 👍/👎
+	// seyrek ve öznel; gözlenen davranış sinyallerinin ALTINDA tartılır.
+	SigThumbsUp: 0.10,
 
 	SigRephrase:   -0.30,
 	SigRegenerate: -0.30,
@@ -64,7 +66,7 @@ var Weight = map[string]float64{
 	SigToolError:  -0.10, // tool başına, toplam en çok iki kez
 	SigEmpty:      -0.50,
 	SigNoEvidence: -0.25,
-	SigThumbsDown: -0.40,
+	SigThumbsDown: -0.15, // v0.10.1281 — bkz. SigThumbsUp notu
 	SigUngrounded: -0.30,
 }
 
