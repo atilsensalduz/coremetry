@@ -235,19 +235,21 @@ export function TopologyFlowGraph({
       m.set(node.service, ns);
       counts.set(ns, (counts.get(ns) ?? 0) + 1);
     }
-    for (const [svc, ns] of m) if ((counts.get(ns) ?? 0) < 2) m.delete(svc);
+    // v0.10.1265 — odaklı servisin namespace'i tek üyeyle de şerit olur
+    // (operatör: "kendi namespace gözükmüyor").
+    for (const [svc, ns] of m) if ((counts.get(ns) ?? 0) < 2 && ns !== focusNs) m.delete(svc);
     return m;
-  }, [data.nodes, metaQ.data]);
+  }, [data.nodes, metaQ.data, focusNs]);
 
   const { positioned, layoutW, layoutH, bands, backEdges } = useMemo(() => {
     // v0.10.133 — komşuluk indeksi, O(E + n log n) (perf probe 500/20k).
     // v0.10.1261 — katman + şerit; aynı karmaşıklık sınıfı.
     const { pos, lw, lh, bands: bs, backEdges: be } = bfsBarycenterLayout(
       data.nodes, data.edges, width, height, ROW_PITCH,
-      { bandOf: s => bandNs.get(s), firstBand: focusNs },
+      { bandOf: s => bandNs.get(s), firstBand: focusNs, pin: focus ?? undefined },
     );
     return { positioned: pos, layoutW: lw, layoutH: lh, bands: bs, backEdges: be };
-  }, [data, width, height, bandNs, focusNs]);
+  }, [data, width, height, bandNs, focusNs, focus]);
 
   // ── v0.8.296 — zoom/pan viewport ─────────────────────────────────────
   // Transform matematiği pure seam'de (lib/topoViewport.ts, vitest-pinli).

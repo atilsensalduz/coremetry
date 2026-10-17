@@ -64,6 +64,9 @@ export interface LayoutResult {
 export interface LayoutOptions {
   bandOf?: (service: string) => string | undefined;
   firstBand?: string;
+  /** v0.10.1265 — odak düğümü: şeridi EN ÜSTTE (grupsuzsa grupsuz şerit
+   *  öne alınır), kendi sütun hücresinde İLK satırda. */
+  pin?: string;
 }
 
 export const MAX_LAYERS = 40;
@@ -198,7 +201,11 @@ export function bfsBarycenterLayout(
     }
   }
   const hasUngrouped = keyOf.some(k => k === null);
-  if (hasUngrouped || order.length === 0) order.push(null);
+  const pinIdx = opts.pin !== undefined ? names.indexOf(opts.pin) : -1;
+  // v0.10.1265 — odak grupsuzsa grupsuz şerit EN ÜSTE (operatör: "orijinal
+  // servis en altta çıkıyor").
+  if (pinIdx >= 0 && keyOf[pinIdx] === null) order.unshift(null);
+  else if (hasUngrouped || order.length === 0) order.push(null);
   const B = order.length;
   const bandIdx = new Map<string | null, number>();
   order.forEach((k, i) => bandIdx.set(k, i));
@@ -239,7 +246,11 @@ export function bfsBarycenterLayout(
     const off = (rows[b] - list.length) / 2;
     list.forEach((i, k) => { y[i] = rowTop[b] + (off + k + 0.5) * pitch; });
   };
-  for (let b = 0; b < B; b++) for (let c = 0; c < L; c++) place(b, cells[b][c]);
+  const pinFront = (list: number[]) => {
+    const k = pinIdx >= 0 ? list.indexOf(pinIdx) : -1;
+    if (k > 0) { list.splice(k, 1); list.unshift(pinIdx); }
+  };
+  for (let b = 0; b < B; b++) for (let c = 0; c < L; c++) { pinFront(cells[b][c]); place(b, cells[b][c]); }
 
   const bary = new Float64Array(N);
   const sweep = (c: number, nb: number[][]) => {
@@ -254,6 +265,7 @@ export function bfsBarycenterLayout(
         bary[i] = s / ns.length;
       }
       list.sort((p, q) => (bary[p] - bary[q]) || (y[p] - y[q]) || p - q);
+      pinFront(list);
       place(b, list);
     }
   };
