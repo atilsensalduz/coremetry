@@ -13,6 +13,10 @@ import { tsLong, sevName, sevClass } from '@/lib/utils';
 import type { DataTableColumn } from '@/lib/dataTable';
 import type { LogRow } from '@/lib/types';
 import { traceHref } from '@/lib/traceHref';
+import { logLineSubjectOf } from '@/lib/logLineSubject'; // v0.10.1291 — ✨ log satırı
+import { AIExplainButton } from './ai/AIExplainButton';
+import { useInAiDrawer } from './ai/aiDrawerContext';
+import { IconSparkles } from './icons';
 import { Button, IconButton, KeyValue, KeyValueRow } from '@/components/ui';
 
 // Column model (Discover revamp step 3): Time is fixed left, Message
@@ -347,6 +351,19 @@ export function LogTable({
   );
 }
 
+// LogLineExplain — v0.10.1291: açılan satırın ✨'i. AI çekmecesinin açıklama
+// kipinde GİZLİ (açık özneyi değiştirirdi); özne kurulamıyorsa (servis/zaman
+// yok) çizilmez. Ayrı bileşen: router kancaları yalnız açılan satırda koşar.
+function LogLineExplain({ l }: { l: LogRow }) {
+  const inDrawer = useInAiDrawer();
+  const subject = useMemo(() => logLineSubjectOf(l), [l]);
+  if (inDrawer || !subject) return null;
+  return (
+    <AIExplainButton subject={subject} size="sm" title="Bu log satırını AI ile açıkla (sağ çekmece)"
+      label={<><IconSparkles /> <span>Açıkla</span></>} />
+  );
+}
+
 function LogRow({
   l, idx, tableId, cols, colIds, highlightTerms, hideTraceColumn, selected, expanded, onClick, extraExpanded,
   onFilterAdd, onFilterExclude, onToggleColumn, onTracePeek, onContextOpen, permalink, wrap,
@@ -581,6 +598,9 @@ function LogRow({
                   ≡ View ±50 surrounding context
                 </Button>
               )}
+              {/* v0.10.1291 — ✨ satırı açıkla (sunucu logstore'dan yeniden okur);
+                  span-event / Oracle satırları logstore'da yok → buton yok. */}
+              {!l.origin && <LogLineExplain l={l} />}
               {/* v0.9.1248 — kalıcı doküman linki (Kibana artığı): yalnız
                   /logs geçirir; ts+id çifti mevcut context ucuyla çözülür. */}
               {permalink && (

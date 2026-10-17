@@ -4186,6 +4186,8 @@ thead th:hover .th-remove, .th-remove:focus-visible { opacity: 1; }
 }
 /* v0.10.688 — sohbette trace listesi bloğu (ChatTraceList). */
 .cm-trace-list { margin-top: var(--sp-3); overflow-x: auto; }
+/* v0.10.1291 — sohbet tablolarının satır başı ✨ sütunu (RowExplainCell): dar, satırı büyütmez. */
+.cm-md-table th.cm-row-ai, .cm-md-table td.cm-row-ai { width: 1%; white-space: nowrap; padding-left: var(--sp-1); padding-right: var(--sp-1); }
 .cm-trace-list__more { margin-top: var(--sp-2); font-size: var(--fs-xs); }
 .cm-md-table tbody td {
   padding: 5px 8px; max-width: none;

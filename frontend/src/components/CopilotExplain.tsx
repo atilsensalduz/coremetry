@@ -38,6 +38,8 @@ import { OracleExplainContextLine } from '@/features/anomalies/OracleExplainCont
 //                             ↑ takes (id=service, fromNs, toNs) instead of an
 //                               ID lookup, because the prompt needs the live
 //                               RED series for the current window.
+//   - kind="log"            → POST /api/copilot/explain-log {tsNs, service, pod, traceId, hash}
+//                             (v0.10.1291 — tek log satırı; `logLine` prop'u)
 //   - kind="runbook"        → POST /api/copilot/runbook/{id}
 //                             ↑ same id shape as problem, but the model output
 //                               is a numbered, actionable checklist anchored
@@ -51,7 +53,7 @@ import { OracleExplainContextLine } from '@/features/anomalies/OracleExplainCont
 // prompt'a ekler. Varsayılan KAPALI. Kod GELMEZSE cevabın başında tek
 // satır dürüst not, geldiyse altında hangi depo/branş/dosya okunduğu.
 // Kodun kendisi tarayıcıya inmez — yalnız künyesi.
-export function CopilotExplain({ kind, id, label, fromNs, toNs, spanId, auto, onEvidence, onEvidenceTraces, onAnswer }: {
+export function CopilotExplain({ kind, id, label, fromNs, toNs, spanId, logLine, auto, onEvidence, onEvidenceTraces, onAnswer }: {
   kind: AIKind;
   id: string;
   label?: React.ReactNode;
@@ -79,6 +81,9 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs, spanId, auto, on
   // v0.10.1065 — kind === 'trace' için gönderilen `?span=` (v0.10.948 inceleme
   // odağı; v0.10.1036'dan beri sunucu yok sayıyordu) inceleme hattıyla kalktı.
   spanId?: string;
+  // v0.10.1291 — yalnız kind === 'log': satırın kimliği (aiSubject `log`);
+  // id = servis. Sunucu satırı logstore üzerinden yeniden okur.
+  logLine?: { tsNs: string; pod: string; traceId: string; hash: string };
 }) {
   // v0.9.477 — config artık paylaşılan, modül düzeyinde cache'lenen hook'tan
   // geliyor (satır başına bir istek atan eski mount-içi fetch yerine).
@@ -249,6 +254,7 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs, spanId, auto, on
                 : kind === 'problem'        ? await api.copilotExplainProblem(id, opts)
                 : kind === 'incident'       ? await api.copilotExplainIncident(id, opts)
                 : kind === 'anomaly'        ? await api.copilotExplainAnomaly(id, opts)
+                : kind === 'log'            ? await api.copilotExplainLog({ service: id, tsNs: logLine?.tsNs ?? '', pod: logLine?.pod ?? '', traceId: logLine?.traceId ?? '', hash: logLine?.hash ?? '' }, opts)
                 :                             await api.copilotExplainServiceHealth(id, fromNs ?? 0, toNs ?? 0, opts);
         applyText(r.explanation);
         setLinks(r.links);

@@ -25,6 +25,9 @@ const (
 	SigProblemNote     = "problem_note"
 	SigProblemResolved = "problem_resolved"
 	SigThumbsUp        = "thumbs_up"
+	// SigFollowupClick — v0.10.1291: operatör cevabın KURAL-türevli takip
+	// çipine tıkladı (chat_followup_chips.go). Gözlenen davranış, oy değil.
+	SigFollowupClick = "followup_click"
 
 	SigRephrase   = "rephrase"
 	SigRegenerate = "regenerate"
@@ -43,6 +46,7 @@ const (
 // ClientSignalKinds — istemcinin POST edebileceği kapalı küme.
 var ClientSignalKinds = map[string]bool{
 	SigCopy: true, SigLinkClick: true, SigEvidenceClick: true, SigProblemNote: true,
+	SigFollowupClick: true,
 }
 
 // Weight — sinyalin puana katkısı (taban 0.5, sonuç [0,1]).
@@ -55,6 +59,14 @@ var Weight = map[string]float64{
 	// v0.10.1281 (operatör 2026-10-17: "oylara çok güvenmeyelim") — 👍/👎
 	// seyrek ve öznel; gözlenen davranış sinyallerinin ALTINDA tartılır.
 	SigThumbsUp: 0.10,
+	// v0.10.1291 — takip çipi tıkı: gözlenen davranış ama ÇİFT anlamlı
+	// (cevap ilerlemeye değer bulundu YA DA cevap yetmedi, bir sonraki adım
+	// arandı). Bu yüzden en zayıf olumlu sinyal: link/kanıt tıkının (0.10)
+	// yarısı ve 👍'nin (0.10) altında. Oy testi (TestVotesWeighLessThan-
+	// ObservedSignals) onu "güçlü gözlenen" listesine KATMAZ — eşiği oyları
+	// aşağı çekmeye zorlamasın; kendi pini TestFollowupClickIsWeakObserved.
+	// Çalışma zamanı kararına okunmaz (yalnız gece kalite puanı).
+	SigFollowupClick: 0.05,
 
 	SigRephrase:   -0.30,
 	SigRegenerate: -0.30,
@@ -131,10 +143,18 @@ func DeriveSignals(in Inputs) map[string][]string {
 			add(id, SigUngrounded)
 		}
 	}
+	// v0.10.1291 — takip çipinden gelen sonraki soru "yeniden sorma" DEĞİL:
+	// metni bizim kuralımız üretti, benzerliği cevabın kusuru sayılmaz.
+	chipped := map[string]bool{}
+	for _, g := range in.Signals {
+		if g.Kind == SigFollowupClick {
+			chipped[g.ExchangeID] = true
+		}
+	}
 	for _, conv := range conversations(in.Interactions) {
 		for i, r := range conv {
 			if i+1 < len(conv) {
-				if k := followUpSignal(r, conv[i+1]); k != "" {
+				if k := followUpSignal(r, conv[i+1]); k != "" && !(k == SigRephrase && chipped[r.ExchangeID]) {
 					add(r.ExchangeID, k)
 				}
 				continue

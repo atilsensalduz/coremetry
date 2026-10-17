@@ -22,7 +22,9 @@ import { syncChatParam } from '@/lib/chatUrl';
 import { Empty, Spinner } from './Spinner';
 import { ChatBubble } from './ai/ChatBubble';
 import { TraceExplainNudge } from './ai/TraceExplainNudge';
-import { useChatThread } from './ai/useChatThread';
+import { useChatThread, type ChatSendOpts } from './ai/useChatThread';
+import { FollowupChips } from './ai/FollowupChips'; // v0.10.1291 — kural-türevli takip çipleri
+import { InAiDrawerContext } from './ai/aiDrawerContext'; // v0.10.1291 — çekmecede satır ✨ gizli
 import { useStickToBottomState } from './ai/stickToBottom'; // v0.10.1137 — atBottom → "↓ En alta"
 import { CosreSidebar } from './ai/CosreSidebar'; // v0.10.1137 — /cosre sol kenar çubuğu
 import { readSidebarCollapsed, writeSidebarCollapsed } from './ai/chatHistoryGroups';
@@ -551,6 +553,12 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
     setInput(''); setChosen([]); pinBottom();
     void send(text, { chosen: picked });
   };
+  // v0.10.1291 — takip çipi: composer seçimleri TAŞINMAZ; çipin kendi kapsamı
+  // (followups.scope/command) gider, yoksa düz metin (eski çip davranışı).
+  const askChip = (text: string, so?: ChatSendOpts) => {
+    setInput(''); setChosen([]); pinBottom();
+    void send(text, so);
+  };
   const acceptCompletion = (item: CompletionItem | undefined) => {
     if (!completion.cq || !item) return;
     const r = applyCompletion(input, completion.cq, item);
@@ -754,10 +762,13 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
               çekmece sohbeti (AIDrawerBody). key: özne değişince sıfırlanır. */}
           {subject ? (
             <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--sp-7)' }}>
+              {/* v0.10.1291 — açıklama kipi: satır başı ✨'ler gizlenir (aiDrawerContext). */}
+              <InAiDrawerContext.Provider value={true}>
               <AIDrawerBody key={formatAiParam(subject)} subject={subject} onClose={closeDrawer}
                 traceCtx={drawerTraceCtx}
                 resume={resumeFor && !resumeFor.consumed ? resumeFor.conv : null}
                 onResumed={markResumed} />
+              </InAiDrawerContext.Provider>
             </div>
           ) : (<>
           {/* Messages */}
@@ -866,11 +877,12 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
           {/* Follow-up çipleri (v0.9.163; v0.9.411 konuya-duyarlı) —
               guided cevap kendi rotasından öneri getirirse onlar,
               yoksa statik drill-down listesi. */}
+          {/* v0.10.1291 — kural-türevli followups (araç sonuçlarından, kapsamlı) önce;
+              tık metni + yapısal kapsamı gönderir (FollowupChips). */}
           {showFollowups && (
             <div className="cm-followups">
-              {(last.suggestions?.length ? last.suggestions : FOLLOWUPS).map(q => (
-                <Chip key={q} pill onClick={() => submit(q)}>↳ {q}</Chip>
-              ))}
+              <FollowupChips followups={last.followups} suggestions={last.suggestions} fallback={FOLLOWUPS}
+                exchangeId={last.exchangeId} onAsk={askChip} />
             </div>
           )}
 

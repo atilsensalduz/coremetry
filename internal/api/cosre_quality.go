@@ -3,7 +3,8 @@ package api
 // cosre_quality.go — CoSRE öğrenme Faz 2.
 //
 //   POST /api/ai/signal   — istemcinin örtük sinyali (copy / link_click /
-//                           evidence_click / problem_note). Kimliği doğrulanmış
+//                           evidence_click / problem_note / followup_click
+//                           — v0.10.1291). Kimliği doğrulanmış
 //                           her kullanıcı (sohbet edebilen sinyal üretir; 👍/👎
 //                           ucu emsal). Sinyal kullanıcı içeriği değil, telemetri:
 //                           audit satırı YAZILMAZ (her kopya tıkı audit_log'u

@@ -34,6 +34,12 @@ const CASES: Array<{ name: string; subject: AISubject; param: string }> = [
     subject: { kind: 'log-spike', id: 'ns:checkout', fromNs: 1000, toNs: 2000, mode: 'sel', env: 'prod', q: 'level:error AND "timeout"', level: 'error' },
     param: 'log-spike:ns%3Acheckout:1000:2000:sel:prod:level%3Aerror%20AND%20%22timeout%22:error',
   },
+  {
+    // v0.10.1291 — tek log satırı; sunucu kodeği mcptools.LogLineSubject ile bayt-aynı.
+    name: 'log',
+    subject: { kind: 'log', id: 'pay ments', tsNs: '1700000000123000000', pod: 'pod:1', traceId: '0af7651916cd43dd8448eb211c80319c', hash: 'ca29aa39' },
+    param: 'log:1700000000123000000:pay%20ments:pod%3A1:0af7651916cd43dd8448eb211c80319c:ca29aa39',
+  },
 ];
 
 describe('formatAiParam / parseAiParam round-trip', () => {
@@ -285,5 +291,33 @@ describe('log-spike öznesi', () => {
     const s: AISubject = { kind: 'log-spike', id: '', fromNs: 5, toNs: 9, mode: 'sel', env: '', q: '', level: 'error' };
     expect(aiSubjectTitle(s, 'tr')).toBe('Log artışını açıkla');
     expect(aiSubjectSubtitle(s, 'tr')).toBe('tüm servisler · seçili aralık · ERROR');
+  });
+});
+
+// v0.10.1291 — `log` öznesi (tek log satırı ✨). Zaman METİN kalır: 1.7e18
+// JS sayısına sığmaz; bozuk parça → null (yanlış satırı açıklamaktansa hiç).
+describe('log öznesi', () => {
+  it('pod ve trace boş olabilir', () => {
+    const s: AISubject = { kind: 'log', id: 'checkout', tsNs: '1700000000123456789', pod: '', traceId: '', hash: '0000abcd' };
+    expect(formatAiParam(s)).toBe('log:1700000000123456789:checkout:::0000abcd');
+    expect(parseAiParam('log:1700000000123456789:checkout:::0000abcd')).toEqual(s);
+  });
+  it('zaman basamakları korunur (2^53 üstü)', () => {
+    const back = parseAiParam('log:1700000000123456789:a:::0000abcd');
+    expect(back && back.kind === 'log' ? back.tsNs : '').toBe('1700000000123456789');
+  });
+  it.each([
+    ['servissiz', 'log:1700000000123456789::p::0000abcd'],
+    ['zaman sayı değil', 'log:17e17:a:::0000abcd'],
+    ['sıfır zaman', 'log:0:a:::0000abcd'],
+    ['kötü trace', 'log:1:a::xyz:0000abcd'],
+    ['kötü özet', 'log:1:a:::abc'],
+    ['eksik segment', 'log:1:a::'],
+    ['fazla segment', 'log:1:a:::0000abcd:x'],
+  ])('%s → null', (_n, raw) => expect(parseAiParam(raw)).toBeNull());
+  it('başlık + alt satır', () => {
+    const s: AISubject = { kind: 'log', id: 'checkout', tsNs: '1', pod: 'checkout-7f9', traceId: '', hash: '0000abcd' };
+    expect(aiSubjectTitle(s, 'tr')).toBe('Log satırını açıkla');
+    expect(aiSubjectSubtitle(s, 'tr')).toBe('checkout · checkout-7f9');
   });
 });

@@ -62,3 +62,24 @@ func TestVotesNeverReachRuntimeDecisions(t *testing.T) {
 		}
 	}
 }
+
+// v0.10.1291 — takip çipi tıkı (followup_click) gözlenen davranıştır ama çift
+// anlamlıdır (cevap yetti → ilerle / yetmedi → başka yere bak). Pin: olumlu,
+// ≤0.10, link/kanıt tıkından büyük değil ve 👍'den büyük değil — oy testinin
+// "gözlenen" listesine girmez ki oy ağırlıklarını aşağı çekmeye zorlamasın.
+func TestFollowupClickIsWeakObserved(t *testing.T) {
+	w := Weight[SigFollowupClick]
+	switch {
+	case w <= 0:
+		t.Fatalf("followup_click ağırlığı %.2f — olumlu olmalı", w)
+	case w > 0.10:
+		t.Errorf("followup_click ağırlığı %.2f > 0.10", w)
+	case w > Weight[SigLinkClick] || w > Weight[SigEvidenceClick]:
+		t.Errorf("followup_click (%.2f) link/kanıt tıkından ağır olamaz", w)
+	case w > Weight[SigThumbsUp]:
+		t.Errorf("followup_click (%.2f) 👍'den ağır olamaz", w)
+	}
+	if !ClientSignalKinds[SigFollowupClick] {
+		t.Error("followup_click istemci sinyali olarak kabul edilmeli")
+	}
+}

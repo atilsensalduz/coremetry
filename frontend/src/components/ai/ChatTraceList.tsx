@@ -3,6 +3,8 @@ import { traceHref } from '@/lib/traceHref';
 import { tsShort } from '@/lib/utils';
 import type { ChatTraceListPayload } from '@/lib/types';
 import { chatLinkTargetProps, useChatLinkNewTab } from './chatLinkTarget'; // v0.10.1125 — /cosre yeni sekme
+import { RowExplainCell, RowExplainHead } from './RowExplainCell'; // v0.10.1291 — satır ✨ trace
+import { useRowExplain } from './rowExplain';
 
 // ChatTraceList — v0.10.688 (endpoint_traces.go trace_list bloğu; D6 "trace
 // listesi cevabı"): LLM anlatımı yok, deterministik tablo. Satır = trace
@@ -11,12 +13,15 @@ import { chatLinkTargetProps, useChatLinkNewTab } from './chatLinkTarget'; // v0
 // görünümü olmasın.
 export function ChatTraceList({ tl }: { tl: ChatTraceListPayload }) {
   const linkProps = chatLinkTargetProps(useChatLinkNewTab());
+  // v0.10.1291 — satır ✨ trace (mevcut `trace` explain'i); AI çekmecesinin
+  // açıklama kipinde gizli.
+  const rowAi = useRowExplain(tl.traces.length > 0);
   if (tl.traces.length === 0) return null;
   return (
     <div className="cm-trace-list">
       <table className="cm-md-table">
         <thead>
-          <tr><th>Başlangıç</th><th>Servis</th><th>İşlem</th><th className="num">Süre</th><th className="num">Span</th><th>Durum</th></tr>
+          <tr><th>Başlangıç</th><th>Servis</th><th>İşlem</th><th className="num">Süre</th><th className="num">Span</th><th>Durum</th>{rowAi && <RowExplainHead />}</tr>
         </thead>
         <tbody>
           {tl.traces.map(t => (
@@ -29,6 +34,7 @@ export function ChatTraceList({ tl }: { tl: ChatTraceListPayload }) {
               <td className="num">{t.spanCount}</td>
               {/* v0.10.929 (K5) — sağlıklı trace nötr: yalnız ERROR rozeti; OK ekran okuyucuya (Traces emsali). */}
               <td>{t.hasError ? <span className="badge b-err">ERROR</span> : <span className="sr-only">OK</span>}</td>
+              {rowAi && <RowExplainCell subject={{ kind: 'trace', id: t.traceId }} title="Bu trace'i AI ile açıkla" />}
             </tr>
           ))}
         </tbody>

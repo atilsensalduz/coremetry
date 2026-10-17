@@ -58,6 +58,7 @@ function subjectRef(s: AISubject): string {
     case 'incident':       return `incident ${s.id}`;
     case 'anomaly':        return `anomali ${s.id}`;
     case 'runbook':        return `runbook (problem ${s.id})`;
+    case 'log':            return `log satırı (servis ${s.id}${s.pod ? ' · pod ' + s.pod : ''} · zaman ${s.tsNs} ns${s.traceId ? ' · trace ' + s.traceId : ''})`; // v0.10.1291
   }
 }
 
@@ -87,6 +88,7 @@ export function aiSubjectQuestion(kind: AIKind, id: string): string {
     case 'service-health': return `${id} servisinin sağlığı nasıl?`;
     case 'charts':         return `${id} grafiklerinde bu pencerede ne oldu?`;
     case 'log-spike':      return `${id || 'Tüm servislerin'} log artışını ne açıklıyor?`;
+    case 'log':            return `${id} servisinin bu log satırı ne anlama geliyor?`; // v0.10.1291
     case 'problem':        return `Bu problemin kök nedeni ne? (problem ${id})`;
     case 'runbook':        return `${id} runbook'unun adımlarını özetle`;
     case 'anomaly':        return `Bu anomaliyi açıkla (${id})`;
@@ -116,6 +118,10 @@ export function drawerFollowups(s: AISubject): string[] {
   }
   if (s.kind === 'log-spike' && s.id) {
     return [`${s.id} hata logları?`, `${s.id} son deploy etkisi?`, 'Hangi kanıta dayanıyorsun?'];
+  }
+  // v0.10.1291 — log satırı: servis adını taşıyan şekiller guided router'da yönlenir.
+  if (s.kind === 'log') {
+    return [`${s.id} hata logları?`, ...(s.traceId ? [`${s.traceId} trace'ini açıkla`] : []), 'Nasıl düzeltirim?'];
   }
   return ['Bu neden oluyor?', 'Nasıl düzeltirim?', 'Hangi kanıta dayanıyorsun?'];
 }

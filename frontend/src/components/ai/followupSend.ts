@@ -1,0 +1,9 @@
+// followupSend — v0.10.1291: FollowupChips'in saf yardımcısı (vitest node).
+import type { ChatFollowup } from '@/lib/types';
+import type { ChatSendOpts } from './useChatThread';
+
+/** followupSendOpts — SAF: çipin kapsamı/komutu → send ikinci argümanı (yoksa undefined: istek gövdesi eski). */
+export function followupSendOpts(f: ChatFollowup): ChatSendOpts | undefined {
+  if (!f.scope && !f.command) return undefined;
+  return { parsed: { ...(f.scope ? { scope: f.scope } : {}), ...(f.command ? { command: f.command } : {}) } };
+}

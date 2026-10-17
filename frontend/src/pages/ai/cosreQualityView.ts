@@ -6,6 +6,7 @@ const REASON_LABEL: Record<string, string> = {
   link_click: 'link tıklandı',
   evidence_click: 'kanıt açıldı',
   problem_note: 'probleme not',
+  followup_click: 'takip çipi', // v0.10.1291
   problem_resolved: 'problem çözüldü',
   thumbs_up: '👍',
   rephrase: 'yeniden soruldu',
@@ -22,7 +23,7 @@ const REASON_LABEL: Record<string, string> = {
   ungrounded: 'dayanaksız iddia',
 };
 
-const POSITIVE = new Set(['copy', 'link_click', 'evidence_click', 'problem_note', 'problem_resolved', 'thumbs_up']);
+const POSITIVE = new Set(['copy', 'link_click', 'evidence_click', 'problem_note', 'followup_click', 'problem_resolved', 'thumbs_up']);
 
 export function reasonLabel(kind: string): string {
   return REASON_LABEL[kind] ?? kind;

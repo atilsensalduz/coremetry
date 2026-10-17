@@ -612,6 +612,9 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	var calledTools []string
 	noteOffered := false // v0.10.1169 — tur başına en çok bir "probleme not" aksiyonu
 	hypOffered := false  // v0.10.1288 — tur başına en çok bir "hipotezi doğrula" aksiyonu
+	// v0.10.1291 — kural-türevli takip çiplerinin olguları (chat_followup_chips.go);
+	// yalnız başarılı, veri döndüren araç sonuçlarından toplanır.
+	var fuFacts []followupFact
 	// v0.10.1050 — okunan kodun MASKELİ özetleri (ai_calls örneği; kod yok).
 	var codeReads []string
 	// v0.10.948 — trace takibinin sayı denetimi kanıtı: sunucu bağlamı + operatör
@@ -849,8 +852,8 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 				links = mergeToolLinks(links, l)
 			}
 			xch.noteFinalCall(loopCallID) // v0.10.1280 — answer.callId
-			emit("answer", withAnswerEvidence(chatAnswerEvent(finalText, exchangeID, links,
-				answerOpenHref(lastUserText(req.Messages), loopOpen)), loopEvidence))
+			emit("answer", withAnswerFollowups(withAnswerEvidence(chatAnswerEvent(finalText, exchangeID, links,
+				answerOpenHref(lastUserText(req.Messages), loopOpen)), loopEvidence), s.chatLoopFollowups(ctx, fuFacts, req.Messages, pageCtx))) // v0.10.1291
 			break
 		}
 		// Record the assistant's tool-call turn, then execute each
@@ -974,6 +977,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 				// v0.10.944 — kaynak hatası artık Go hatası değil, source.state'li
 				// başarılı sonuç; tüm kaynakları hata sınıfındaysa veri yok, künyeye girmez.
 				calledTools = append(calledTools, tc.Name)
+				fuFacts = append(fuFacts, followupFactsFromTool(tc.Name, cargs, tr.Content)...) // v0.10.1291
 			}
 			// v0.10.1050 — read_source_code'un başarılı sonucu tele YALNIZ referans
 			// olarak çıkar (chat_source_code.go chatStepPreview; kod modele gider).
@@ -1158,8 +1162,8 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 					links = mergeToolLinks(links, l)
 				}
 				xch.noteFinalCall(loopCallID) // v0.10.1280 — answer.callId
-				emit("answer", withAnswerEvidence(chatAnswerEvent(finalText, exchangeID, links,
-					answerOpenHref(lastUserText(req.Messages), loopOpen)), loopEvidence))
+				emit("answer", withAnswerFollowups(withAnswerEvidence(chatAnswerEvent(finalText, exchangeID, links,
+					answerOpenHref(lastUserText(req.Messages), loopOpen)), loopEvidence), s.chatLoopFollowups(ctx, fuFacts, req.Messages, pageCtx))) // v0.10.1291
 			}
 			break // tavan turu son turdur (tur ya da çağrı tavanı)
 		}

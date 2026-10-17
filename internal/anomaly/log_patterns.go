@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"math"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -293,6 +294,52 @@ func LogPatternSpecByName(name string) (logstore.PatternSpec, bool) {
 		}
 	}
 	return logstore.PatternSpec{}, false
+}
+
+// MatchLogPatternName — v0.10.1291 (CoSRE ✨ log satırı): tek bir gövdenin
+// düştüğü küratörlü desenin ADI ("" = hiçbiri). Dedektörün AYNI tanımı:
+// küçük harfli token ön süzgeci (CH multiSearchAnyCaseInsensitive aynası),
+// sonra regex (RE2 — CH match() ile aynı aile). Liste sırası = öncelik
+// (ilk eşleşen). Derlenemeyen regex sessizce atlanır (ad uydurulmaz).
+func MatchLogPatternName(body string) string {
+	if body == "" {
+		return ""
+	}
+	low := strings.ToLower(body)
+	res := compiledLogPatterns()
+	for i, p := range patterns {
+		if res[i] == nil {
+			continue
+		}
+		hit := len(p.Tokens) == 0
+		for _, t := range p.Tokens {
+			if strings.Contains(low, t) {
+				hit = true
+				break
+			}
+		}
+		if hit && res[i].MatchString(body) {
+			return p.Name
+		}
+	}
+	return ""
+}
+
+var (
+	logPatternREOnce sync.Once
+	logPatternRE     []*regexp.Regexp
+)
+
+func compiledLogPatterns() []*regexp.Regexp {
+	logPatternREOnce.Do(func() {
+		logPatternRE = make([]*regexp.Regexp, len(patterns))
+		for i, p := range patterns {
+			if re, err := regexp.Compile(p.Regex); err == nil {
+				logPatternRE[i] = re
+			}
+		}
+	})
+	return logPatternRE
 }
 
 // DetectLogPatterns runs each pattern against the raw `logs` CH

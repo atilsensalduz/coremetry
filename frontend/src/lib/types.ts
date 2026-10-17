@@ -7130,6 +7130,26 @@ export interface ChatEvidenceTablePayload {
   title: string; evidenceRef: string; deepLink?: string;
   columns: { key: string; label: string; kind: ChatEvidenceColumnKind | string }[];
   rows: (string | number | null)[][]; truncated?: boolean;
+  /**
+   * v0.10.1291 — rows ile PARALEL satır başına ✨ öznesi (`log:` kodeği,
+   * lib/aiSubject.ts); '' = o satırda buton yok. Yalnız log satırı tabloları
+   * (query_logs, log artışı örnekleri) taşır; eski sunucu göndermez.
+   */
+  rowSubjects?: string[];
+}
+
+/**
+ * v0.10.1291 — kural-türevli takip çipi (internal/api/chat_followup_chips.go
+ * chatFollowup). Metin çipi tıklanınca `text` yeni mesaj olarak, `scope` /
+ * `command` yapısal kapsam olarak gider; `action` doluysa çip mesaj GÖNDERMEZ,
+ * aksiyonu çalıştırır (bugün yalnız sre_hypothesis — editor+, tık-only).
+ */
+export interface ChatFollowup {
+  text: string;
+  kind: 'slow' | 'errors' | 'pod' | 'trace' | 'deploy' | 'hypothesis' | string;
+  scope?: ChatScope;
+  command?: ChatCommand;
+  action?: { kind: 'sre_hypothesis'; problemId: string; hypothesis: string; label: string };
 }
 
 // One streamed event from the chat SSE. `step` = a tool the model
@@ -7305,6 +7325,8 @@ export interface ChatTurn extends ChatMessage {
   // v0.9.411 — sunucunun rotadan türettiği konuya-duyarlı takip
   // önerileri; varsa statik liste yerine bunlar çizilir.
   suggestions?: string[];
+  /** v0.10.1291 — araç sonuçlarından KURALLA türeyen takip çipleri (kapsamlı); varsa suggestions yerine. Arşiv taşımaz. */
+  followups?: ChatFollowup[];
   // v0.9.419 — rotadan türetilen derin-link çipleri.
   links?: ChatAnswerLink[];
   /**
@@ -7430,7 +7452,7 @@ export interface CosreRuleInput {
 
 // CoSRE öğrenme Faz 2 — istemcinin örtük sinyalleri (POST /api/ai/signal;
 // internal/cosrelearn ClientSignalKinds). Türetilenler sunucuda hesaplanır.
-export type CosreSignalKind = 'copy' | 'link_click' | 'evidence_click' | 'problem_note';
+export type CosreSignalKind = 'copy' | 'link_click' | 'evidence_click' | 'problem_note' | 'followup_click'; // v0.10.1291 — takip çipi
 
 // GET /api/ai/quality — gece kalite puanı (internal/chstore/cosre_quality.go).
 export interface CosreWorstAnswer {
@@ -7623,7 +7645,8 @@ export type ChatStreamEvent =
   // evidence (v0.10.1272) — alışverişin kanıt çipleri (step-result.evidence'ların listesi).
   // callId (v0.10.1280, CoSRE adım 8) — cevabı ÜRETEN ai_calls satırının id'si;
   // 👍/👎 onu da gönderir (somut çağrıya bağlanır). Eski sunucu / LLM'siz cevap göndermez.
-  | { kind: 'answer'; text: string; exchangeId?: string; callId?: string; sources?: RagSource[]; suggestions?: string[]; links?: ChatAnswerLink[]; open?: string; evidenceSpanIds?: string[]; cached?: boolean; allowedLinks?: string[]; evidence?: ChatQueryEvidence[] }
+  // followups (v0.10.1291) — kural-türevli takip çipleri (internal/api/chat_followup_chips.go); suggestions yalnız metinlerini taşır (eski istemci).
+  | { kind: 'answer'; text: string; exchangeId?: string; callId?: string; sources?: RagSource[]; suggestions?: string[]; followups?: ChatFollowup[]; links?: ChatAnswerLink[]; open?: string; evidenceSpanIds?: string[]; cached?: boolean; allowedLinks?: string[]; evidence?: ChatQueryEvidence[] }
   // v0.10.541 (Faz 3.3a) — tipli blok: model yalnız metin üretir; chart/link
   // (ileride trace_list/table/action/evidence) deterministik, tool sonucundan.
   | { kind: 'block'; id: string; type: ChatBlockType; seq: number; final: boolean; payload: unknown }

@@ -2615,6 +2615,12 @@ export const api = {
   copilotExplainAnomaly: (id: string, opts?: ExplainStreamOpts) =>
     explainCall<import('./types').ExplainAnswerBase>(
       `/api/copilot/explain-anomaly/${id}`, { method: 'POST' }, opts),
+  // v0.10.1291 — tek log satırı ✨: sunucu satırı logstore üzerinden (ES ya da
+  // CH) YENİDEN okur; tsNs ondalık METİN (2^53 sınırı). Akan gövde (deliverExplain).
+  copilotExplainLog: (line: { tsNs: string; service: string; pod: string; traceId: string; hash: string }, opts?: ExplainStreamOpts) =>
+    explainCall<import('./types').ExplainAnswerBase>(
+      '/api/copilot/explain-log',
+      { method: 'POST', body: JSON.stringify(line), headers: { 'Content-Type': 'application/json' } }, opts),
   copilotExplainServiceHealth: (service: string, fromNs: number, toNs: number, opts?: ExplainStreamOpts) =>
     explainCall<import('./types').ExplainAnswerBase>(
       `/api/copilot/explain-service?service=${encodeURIComponent(service)}&from=${fromNs}&to=${toNs}`,

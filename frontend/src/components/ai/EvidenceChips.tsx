@@ -11,6 +11,8 @@ import { traceHref } from '@/lib/traceHref';
 import { fmtClock, fmtDateTime } from '@/lib/utils';
 import { chatLinkTargetProps, useChatLinkNewTab } from './chatLinkTarget';
 import { ChatTraceList } from './ChatTraceList';
+import { RowExplainCell, RowExplainHead } from './RowExplainCell'; // v0.10.1291
+import { rowSubjectOf, useRowExplain } from './rowExplain';
 import {
   evidenceChipParts, evidenceChipText, evidenceHref, evidenceKindLabel, evidenceWindowFull,
   evidenceChartGroups, evidenceDefaultOpen, evidenceCellText, evidenceSeverityTone,
@@ -156,11 +158,14 @@ function EvidenceChart({ p }: { p: ChatEvidenceChartPayload }) {
 // tablosuyla çizer (sohbetteki blokla bayt-aynı görünüm; yeni tablo türü yok).
 export function EvidenceTable({ p }: { p: ChatEvidenceTablePayload }) {
   const linkProps = chatLinkTargetProps(useChatLinkNewTab());
+  // v0.10.1291 — satır ✨ (log satırı açıkla): yalnız sunucu özne verdiyse ve
+  // AI çekmecesinin açıklama kipinde değilken (RowExplainCell).
+  const rowAi = useRowExplain(!!p.rowSubjects?.some(Boolean));
   return (
     <div className="cm-md-tw cm-evblk__table">
       <table className="cm-md-table">
         <thead>
-          <tr>{p.columns.map(c => <th key={c.key} className={c.kind === 'num' ? 'num' : undefined}>{c.label}</th>)}</tr>
+          <tr>{p.columns.map(c => <th key={c.key} className={c.kind === 'num' ? 'num' : undefined}>{c.label}</th>)}{rowAi && <RowExplainHead />}</tr>
         </thead>
         <tbody>
           {p.rows.map((r, i) => (
@@ -190,6 +195,7 @@ export function EvidenceTable({ p }: { p: ChatEvidenceTablePayload }) {
                   </td>
                 );
               })}
+              {rowAi && <RowExplainCell subject={rowSubjectOf(p.rowSubjects?.[i])} title="Bu log satırını AI ile açıkla" />}
             </tr>
           ))}
         </tbody>

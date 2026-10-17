@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router-dom';
 import { DrawerSection } from '@/components/ui/Drawer';
 import { CopilotExplain } from '@/components/CopilotExplain';
 import { Button } from '@/components/ui/Button';
-import { Chip } from '@/components/ui/Chip';
 import { aiSubjectSubtitle, aiSubjectTitle, formatAiParam, type AISubject } from '@/lib/aiSubject';
 import { emitAiEvidence, emitAiFocus, scrollToAttr } from './aiEvents';
 import { ChatBubble } from './ChatBubble';
@@ -14,7 +13,8 @@ import { Spinner } from '@/components/Spinner';
 // öznesinde öder (öteki özneler ve jsdom testleri uPlot'u hiç yüklemez).
 const LogSpikeExplainBody = lazy(() => import('./LogSpikeExplainBody').then(m => ({ default: m.LogSpikeExplainBody })));
 import { aiSubjectQuestion, buildExplainContext, drawerFollowups } from './drawerChat';
-import { useChatThread } from './useChatThread';
+import { useChatThread, type ChatSendOpts } from './useChatThread';
+import { FollowupChips } from './FollowupChips'; // v0.10.1291
 import { useStickToBottom } from './stickToBottom';
 import { ChatComposer } from './ChatComposer'; // v0.10.1145 — CoSRE penceresiyle AYNI composer
 import { useComposerDraft } from './composerDraft'; // v0.10.1145 — özne başına taslak
@@ -115,6 +115,8 @@ export function AIDrawerBody({ subject, onClose, traceCtx, resume, onResumed }: 
         spanId={subject.kind === 'span' ? subject.spanId : undefined}
         fromNs={subject.kind === 'service-health' ? subject.fromNs : undefined}
         toNs={subject.kind === 'service-health' ? subject.toNs : undefined}
+        // v0.10.1291 — `log` öznesi: satırın kimliği (sunucu yeniden okur).
+        logLine={subject.kind === 'log' ? { tsNs: subject.tsNs, pod: subject.pod, traceId: subject.traceId, hash: subject.hash } : undefined}
         // v0.9.408 / v0.9.414 kanıt sözleşmesi: çekmece kanıtı sayfaya duyurur —
         // waterfall satırları ve exception örnek-trace satırları `.wf-evidence`
         // ile kutulanmaya devam eder (çekmece kapansa da kutular kalır).
@@ -278,6 +280,8 @@ function AIDrawerChat({ subject, explainText, resumed = false, spanIds, traceIds
   const pinBottom = useStickToBottom(endRef, [turns]);
 
   const submit = (text: string) => { setInput(''); pinBottom(); void send(text); };
+  // v0.10.1291 — takip çipi: çipin yapısal kapsamı (followups.scope/command) eşlik eder.
+  const askChip = (text: string, so?: ChatSendOpts) => { setInput(''); pinBottom(); void send(text, so); };
 
   // Bağlam kurulamadıysa (yalnız-boşluk cevap) sohbeti hiç açma —
   // bağlamsız sohbet operatör raporundaki hatanın ta kendisiydi.
@@ -288,7 +292,9 @@ function AIDrawerChat({ subject, explainText, resumed = false, spanIds, traceIds
   // Çipler: sunucu rotadan öneri gönderdiyse onlar (v0.9.411), yoksa
   // özneye göre üretilen liste — global chat'in filo çipleri burada
   // konu dışı kalırdı.
-  const chips = last?.suggestions?.length ? last.suggestions : drawerFollowups(subject);
+  // v0.10.1291 — kural-türevli followups (araç sonuçlarından) bunların da önünde
+  // (FollowupChips); tık metni + yapısal kapsamı gönderir.
+  const fallbackChips = drawerFollowups(subject);
   const showChips = turns.length === 0 || showFollowups;
 
   return (
@@ -308,9 +314,8 @@ function AIDrawerChat({ subject, explainText, resumed = false, spanIds, traceIds
 
         {showChips && (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: turns.length ? 8 : 0 }}>
-            {chips.map(q => (
-              <Chip key={q} pill onClick={() => submit(q)} disabled={busy}>↳ {q}</Chip>
-            ))}
+            <FollowupChips followups={turns.length ? last?.followups : undefined} suggestions={turns.length ? last?.suggestions : undefined}
+              fallback={fallbackChips} exchangeId={last?.exchangeId} disabled={busy} onAsk={askChip} />
           </div>
         )}
 

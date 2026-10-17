@@ -95,6 +95,12 @@ type EvTablePayload struct {
 	Columns     []EvTableColumn `json:"columns"`
 	Rows        [][]any         `json:"rows"`
 	Truncated   bool            `json:"truncated,omitempty"`
+	// RowSubjects — v0.10.1291: Rows ile PARALEL satır başına ✨ öznesi
+	// (log_line_subject.go `log:` kodeği; "" = o satırda buton yok). Yalnız
+	// log satırı tablolarında (query_logs, explain_log_spike örnekleri);
+	// alanı tanımayan eski istemci yok sayar. Tool çıktısına GİRMEZ — blok
+	// kurulurken sonuçtan türetilir (model bayt ödemez).
+	RowSubjects []string `json:"rowSubjects,omitempty"`
 }
 
 // EvTraceRow / EvTraceListPayload — `trace_list` (api/endpoint_traces.go
@@ -179,7 +185,9 @@ func ToolResultBlock(tool, content string, ev ChatEvidence) (EvidenceBlock, bool
 				src = l.Service
 			}
 			p.Rows = append(p.Rows, []any{l.TsMs, l.Severity, src, truncateRunes(l.Body, evBlockBodyRunes-1), l.TraceID})
+			p.RowSubjects = append(p.RowSubjects, LogLineSubject(l.TsMs*1e6, firstNonEmpty(l.Service, reqString(r.Request, "service")), l.Pod, l.TraceID, l.Body))
 		}
+		p.RowSubjects = compactRowSubjects(p.RowSubjects)
 		return EvidenceBlock{Type: blocks.TypeTable, Payload: p}, true
 	case queryMetricsName:
 		var d struct {
@@ -302,9 +310,11 @@ func ToolResultBlocks(tool, content string, evs []ChatEvidence) []EvidenceBlock 
 		return nil
 	}
 	var r struct {
-		OK   bool `json:"ok"`
-		Data struct {
-			Blocks []struct {
+		OK      bool           `json:"ok"`
+		Request map[string]any `json:"request"`
+		Data    struct {
+			Samples []qlRow `json:"samples"` // v0.10.1291 — explain_log_spike örnek satırları (✨ öznesi)
+			Blocks  []struct {
 				Hop     string         `json:"hop"`
 				Type    string         `json:"type"`
 				Payload map[string]any `json:"payload"`
@@ -340,7 +350,32 @@ func ToolResultBlocks(tool, content string, evs []ChatEvidence) []EvidenceBlock 
 		}
 		p["evidenceRef"] = ev.Ref
 		p["deepLink"] = ev.Href // "" = Explore bağlantısı yok (trace_list alanı zorunlu tutar)
+		if tool == ExplainLogSpikeName && b.Hop == logSpikeHopSamples && b.Type == blocks.TypeTable {
+			if subj := spikeSampleSubjects(r.Data.Samples, reqString(r.Request, "service")); subj != nil {
+				p["rowSubjects"] = subj
+			}
+		}
 		out = append(out, EvidenceBlock{Type: b.Type, Payload: p})
 	}
 	return out
+}
+
+// spikeSampleSubjects — v0.10.1291: log artışı örnek satırlarının ✨ özneleri
+// (blok satırlarıyla aynı sıra — logSpikeBlocks örnekleri sırayla yazar).
+func spikeSampleSubjects(samples []qlRow, reqService string) []string {
+	out := make([]string, 0, len(samples))
+	for _, l := range samples {
+		out = append(out, LogLineSubject(l.TsMs*1e6, firstNonEmpty(l.Service, reqService), l.Pod, l.TraceID, l.Body))
+	}
+	return compactRowSubjects(out)
+}
+
+// compactRowSubjects — hiçbir satırın öznesi yoksa alan hiç yazılmaz.
+func compactRowSubjects(s []string) []string {
+	for _, v := range s {
+		if v != "" {
+			return s
+		}
+	}
+	return nil
 }

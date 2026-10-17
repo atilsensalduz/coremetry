@@ -335,6 +335,7 @@ var explainStreamWired = []string{
 	"copilotExplainException",
 	"copilotRunbook",
 	"runbookUpdateSuggest", // v0.9.1198 Faz 5.5
+	"copilotExplainLog",    // v0.10.1291 — ✨ log satırı
 }
 
 // explainStreamDeferred — bilinçli olarak buffered kalan POST

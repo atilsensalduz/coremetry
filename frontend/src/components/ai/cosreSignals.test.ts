@@ -14,6 +14,11 @@ describe('örtük sinyal kablolaması', () => {
     expect(b.match(/signal\('link_click'/g)?.length).toBe(2); // gövde linkleri + "Aç →" çipleri
     expect(b).toContain('setEvId={openEvidence}');
   });
+  it('v0.10.1291 — takip çipi tıkı followup_click gönderir (yalnız sunucu çipleri)', () => {
+    const f = src('./FollowupChips.tsx');
+    expect(f).toContain("api.aiSignal(exchangeId, 'followup_click', detail)");
+    expect(f).toContain("if (server) signal('guided')");
+  });
   it('sinyal ateşle-unut ve keepalive', () => {
     const api = src('../../lib/api.ts');
     expect(api).toMatch(/aiSignal: [\s\S]{0,200}keepalive: true/);

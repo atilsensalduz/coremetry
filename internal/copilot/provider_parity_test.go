@@ -393,7 +393,7 @@ func TestProviderPathCoversEverySurface(t *testing.T) {
 	surfaces := []string{
 		"explain-charts", "explain-trace", "explain-span", "explain-problem",
 		"explain-incident", "explain-anomaly", "explain-service", "explain-shift",
-		"explain-alert-noise", "explain-log-patterns", "explain-log-spike", "runbook", "compare-traces",
+		"explain-alert-noise", "explain-log-patterns", "explain-log-spike", "explain-log", "runbook", "compare-traces",
 		"deploy-impact", "explain-slo", "explain-slow-query", "explain-exception",
 		"rootcause-verdict", "problem-auto-explain", "exception-auto-explain",
 		"chat-guided", "",
