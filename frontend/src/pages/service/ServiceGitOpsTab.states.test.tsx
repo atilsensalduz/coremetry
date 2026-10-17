@@ -91,7 +91,7 @@ describe('ServiceGitOpsTab', () => {
   // rozet bloğu yok; iş yükleri tablolarda. Veri tablolar için gerekli
   // (cluster adı, "iş yükü yok" boş durumu), eşlenemeyen cluster notu Argo
   // bölümünde.
-  it('ayrı "İş yükleri" bloğu yok; iş yükü tablonun kolonunda', () => {
+  it('ayrı "İş yükleri" bloğu ve İş yükü kolonu yok (v0.10.1290)', () => {
     h.q = { ...h.q, isPending: false, data: base({
       unmappedClusters: ['dc-x'],
       argo: { configured: true, hubs: [], otherInNamespace: 0, apps: [{
@@ -102,7 +102,8 @@ describe('ServiceGitOpsTab', () => {
     expect(el.querySelector('#gitops-workloads')).toBeNull();
     expect(el.textContent).not.toContain('İş yükleri');
     expect(el.querySelectorAll('section').length).toBe(2);
-    expect(el.querySelector('table')?.textContent).toContain('checkout (prod-east)');
+    // v0.10.1290 — İş yükü kolonu kaldırıldı (operatör 2026-10-17).
+    expect(el.querySelector('table')?.textContent).not.toContain('checkout (prod-east)');
     expect(el.querySelector('#gitops-argo')?.closest('section')?.textContent)
       .toContain('Remote Cluster kaydına eşlenemeyen span cluster değerleri atlandı: dc-x');
   });
@@ -150,7 +151,10 @@ describe('ServiceGitOpsTab', () => {
     const [appT, roT] = Array.from(el.querySelectorAll('table'));
     expect(appT.textContent).toContain('p-shop-checkout-prod-e');
     expect(appT.textContent).toContain('OutOfSync');
-    expect(appT.textContent).toContain('tahmini %70');
+    // v0.10.1290 — Eşleme (tahmini %70) ve İş yükü kolonları kaldırıldı (operatör 2026-10-17).
+    expect(appT.textContent).not.toContain('tahmini');
+    expect(appT.textContent).not.toContain('Eşleme');
+    expect(appT.textContent).not.toContain('İş yükü');
     // v0.10.1263 — Senkron (24 sa) ve Hedef kolonları kaldırıldı (operatör 2026-10-17).
     expect(appT.textContent).not.toContain('Senkron');
     expect(appT.textContent).not.toContain('Hedef');

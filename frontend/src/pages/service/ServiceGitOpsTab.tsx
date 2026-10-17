@@ -36,7 +36,7 @@ import {
   encodeRolloutParam, rolloutChangeKind, changeKindLabel, changeKindTitle, changeKindTone,
 } from '@/lib/rolloutRow';
 import {
-  appsForWorkload, syncTone, healthTone, matchLabel, matchTitle,
+  appsForWorkload, syncTone, healthTone,
   repoShort, autoSyncLabel, argoSourceBadge, argoSourceMeta,
 } from '@/lib/serviceGitOps';
 import type { ArgoServiceApp, ServiceGitOpsResponse, WorkloadRollout } from '@/lib/types';
@@ -55,8 +55,9 @@ const APP_COLS: ColumnDef<ArgoServiceApp>[] = [
   { id: 'auto', label: 'Autosync', width: 96, minWidth: 90, priority: 3, naturalDir: 'asc', sortValue: a => autoSyncLabel(a.autoSync) },
   // v0.10.1263 — "Senkron (24 sa)" ve "Hedef" kolonları KALDIRILDI (operatör
   // 2026-10-17: "Senkron ve hedef kolonlarına gerek yok").
-  { id: 'match', label: 'Eşleme', width: 110, minWidth: 90, priority: 3, sortValue: a => a.confidence, tone: a => (a.match === 'manual' ? undefined : 'muted') },
-  { id: 'workloads', label: 'İş yükü', width: 200, minWidth: 120, naturalDir: 'asc', sortValue: a => a.workloads.map(w => w.workload).join(',') },
+  // v0.10.1290 — "Eşleme" (tahmini %70) ve "İş yükü" kolonları KALDIRILDI
+  // (operatör 2026-10-17: "tahmini yazıyor ona gerek yok; iş yükü sütunu da
+  // gereksiz").
   { id: 'instance', label: 'Argo örneği', width: 160, minWidth: 110, priority: 3, naturalDir: 'asc', sortValue: a => a.instanceName || a.instanceId || a.instanceNamespace || '', tone: () => 'muted' },
   { id: 'repo', label: 'Repo', width: 240, minWidth: 140, priority: 3, mono: true, truncate: 'middle', naturalDir: 'asc', sortValue: a => a.repo ?? '' },
 ];
@@ -84,14 +85,14 @@ export function ServiceGitOpsTab({ service }: { service: string }) {
   }, [d]);
   return (
     <div>
-      <ArgoSection d={d} pending={q.isPending} err={err} onRetry={() => { void q.refetch(); }} clusterName={clusterName} />
+      <ArgoSection d={d} pending={q.isPending} err={err} onRetry={() => { void q.refetch(); }} />
       <RolloutsSection d={d} pending={q.isPending} err={err} onRetry={() => { void q.refetch(); }} clusterName={clusterName} />
     </div>
   );
 }
 
-function ArgoSection({ d, pending, err, onRetry, clusterName }: {
-  d?: ServiceGitOpsResponse; pending: boolean; err: Error | null; onRetry: () => void; clusterName: (id: string) => string;
+function ArgoSection({ d, pending, err, onRetry }: {
+  d?: ServiceGitOpsResponse; pending: boolean; err: Error | null; onRetry: () => void;
 }) {
   const rows = useMemo(() => d?.argo.apps ?? [], [d]);
   const dt = useDataTable<ArgoServiceApp>({ storageKey: 'service-gitops-apps', columns: APP_COLS, rows });
@@ -139,9 +140,6 @@ function ArgoSection({ d, pending, err, onRetry, clusterName }: {
                 <DataTableCell dt={dt} col="sync" row={a}><Badge tone={syncTone(a.syncStatus)}>{a.syncStatus || '—'}</Badge></DataTableCell>
                 <DataTableCell dt={dt} col="health" row={a}><Badge tone={healthTone(a.healthStatus)}>{a.healthStatus || '—'}</Badge></DataTableCell>
                 <DataTableCell dt={dt} col="auto" row={a} value={autoSyncLabel(a.autoSync)} />
-                <DataTableCell dt={dt} col="match" row={a} title={matchTitle(a)} value={matchLabel(a)} />
-                <DataTableCell dt={dt} col="workloads" row={a}
-                  value={a.workloads.map(w => `${w.workload} (${clusterName(w.clusterId)})`).join(', ')} />
                 <DataTableCell dt={dt} col="instance" row={a} value={a.instanceName || a.instanceId || a.instanceNamespace || '—'} />
                 <DataTableCell dt={dt} col="repo" row={a} value={repoShort(a.repo)} title={a.repo || undefined} />
               </tr>
@@ -193,11 +191,11 @@ function RolloutsSection({ d, pending, err, onRetry, clusterName }: {
                   <DataTableCell dt={dt} col="change" row={r}><Badge tone={changeKindTone(k)} title={changeKindTitle(k)}>{changeKindLabel(k)}</Badge></DataTableCell>
                   <DataTableCell dt={dt} col="image" row={r} title={r.image || undefined} value={imageDiff(r)} />
                   <DataTableCell dt={dt} col="argo" row={r}
-                    title={own.length ? own.map(a => `${a.name} · ${matchLabel(a)} · autosync ${autoSyncLabel(a.autoSync)}`).join('\n') : 'Bu iş yüküne eşlenen Argo uygulaması yok'}>
+                    title={own.length ? own.map(a => `${a.name} · autosync ${autoSyncLabel(a.autoSync)}`).join('\n') : 'Bu iş yüküne eşlenen Argo uygulaması yok'}>
                     {own.length === 0 ? <span className="field-hint">—</span> : (
                       <>
                         {own[0].name}
-                        <span className="field-hint"> · {own[0].autoSync === undefined ? matchLabel(own[0]) : own[0].autoSync ? 'autosync' : 'elle sync'}{own.length > 1 ? ` · +${own.length - 1}` : ''}</span>
+                        <span className="field-hint"> · {own[0].autoSync === undefined ? '' : own[0].autoSync ? 'autosync' : 'elle sync'}{own.length > 1 ? ` · +${own.length - 1}` : ''}</span>
                       </>
                     )}
                   </DataTableCell>
