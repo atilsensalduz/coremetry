@@ -127,8 +127,16 @@ type ServicePodsCluster struct {
 	RestartsOK bool               // restart artışı okundu mu (değilse puanlanmaz)
 	// v0.10.1287 (AI SRE Faz 1b, k8s kontrolü) — "namespace\x00pod" → şu anki
 	// bekleme sebebi (thanos.PodWaitingReasonQuery; yalnız opt.WaitingReasons).
-	Waiting    map[string]string
-	WaitingOK  bool // bekleme sebebi okundu mu (değilse k8s bölümü "okunamadı" der)
+	Waiting   map[string]string
+	WaitingOK bool // bekleme sebebi okundu mu (değilse k8s bölümü "okunamadı" der)
+	// v0.10.1288 (AI SRE Faz 2, tembel node kontrolü; yalnız opt.Nodes):
+	// "namespace\x00pod" → node (kube_pod_info), node'ların CPU baskısı + en
+	// işlek pod'ları. NodesOK = node okuması koştu (pod→node eşlemesi boşsa
+	// Nodes boş: "node etiketi yok"); NodeErr = baskı okunamadı.
+	PodNodes   map[string]string
+	Nodes      []NodePressure
+	NodesOK    bool
+	NodeErr    string
 	Truncated  bool
 	Err        string // okunamadıysa neden
 	DurationMs int64
@@ -145,6 +153,29 @@ type ServicePodsResult struct {
 // k8s kontrolü (bekleme sebebi; cluster başına +1 anlık sorgu).
 type ServicePodsOpts struct {
 	WaitingReasons bool
+	// Nodes — v0.10.1288 (AI SRE Faz 2): TEMBEL node / gürültülü komşu
+	// kontrolü. Pod metrikleri (PodMetrics / restart) OKUNMAZ; yalnız
+	// kube_pod_info → node (≤3), node CPU % allocatable, o node'lardaki en
+	// işlek 5 pod (thanos.PodNodeQuery / NodeCPUPressureQuery /
+	// NodeTopPodsQuery). Yalnız doygunluk hipotezi isterse (internal/sre).
+	Nodes bool
+}
+
+// NodePressure — v0.10.1288: bir node'un CPU baskısı (allocatable'ın %'si)
+// ve en işlek pod'ları. Service = pod servisin kendi pod'u (komşu değil).
+type NodePressure struct {
+	Cluster string       `json:"cluster,omitempty"`
+	Node    string       `json:"node"`
+	CPUPct  *float64     `json:"cpuPct,omitempty"` // nil = okunamadı
+	TopPods []NodeTopPod `json:"topPods,omitempty"`
+}
+
+// NodeTopPod — node'daki işlek pod (CPU, node allocatable'ının %'si).
+type NodeTopPod struct {
+	Namespace string  `json:"namespace,omitempty"`
+	Pod       string  `json:"pod"`
+	Pct       float64 `json:"pct"`
+	Service   bool    `json:"service,omitempty"`
 }
 
 // ServicePodsFunc — servis pod'larının Thanos okuması; clusterRefs boş = tüm
@@ -1060,16 +1091,10 @@ func sweepMappedClusters(vals []string, all []ClusterRef) []ClusterRef {
 	return mapped
 }
 
-func sweepRunPods(ctx context.Context, r sweepReaders, req SweepRequest) sweepOutcome {
-	o := sweepOutcome{section: SweepSection{Name: sweepHopPods}}
-	var all []ClusterRef
-	if r.clusters != nil {
-		all = r.clusters()
-	}
-	if r.servicePods == nil || len(all) == 0 {
-		o.section.State, o.section.Summary = hopSkipped, "Thanos Remote Cluster yapılandırılmamış — pod CPU/bellek/restart okunamaz"
-		return o
-	}
+// sweepPodClusterRefs — pod okumasının cluster referansları: servisin
+// span'lerinde eşlenen cluster'lar, yoksa etkinlerin ilk sweepAllClusterMax'ı
+// (+ notlar). v0.10.1288: tembel node kontrolü (ReadNodeCheck) aynı kümeyi okur.
+func sweepPodClusterRefs(ctx context.Context, r sweepReaders, req SweepRequest, all []ClusterRef) ([]string, []string) {
 	var notes []string
 	var refs []string
 	if r.clusterValues != nil {
@@ -1093,6 +1118,20 @@ func sweepRunPods(ctx context.Context, r sweepReaders, req SweepRequest) sweepOu
 			refs = append(refs, firstNonEmpty(c.ID, c.Name))
 		}
 	}
+	return refs, notes
+}
+
+func sweepRunPods(ctx context.Context, r sweepReaders, req SweepRequest) sweepOutcome {
+	o := sweepOutcome{section: SweepSection{Name: sweepHopPods}}
+	var all []ClusterRef
+	if r.clusters != nil {
+		all = r.clusters()
+	}
+	if r.servicePods == nil || len(all) == 0 {
+		o.section.State, o.section.Summary = hopSkipped, "Thanos Remote Cluster yapılandırılmamış — pod CPU/bellek/restart okunamaz"
+		return o
+	}
+	refs, notes := sweepPodClusterRefs(ctx, r, req, all)
 	ask := sweepChecksOf(req)[SweepCheckK8s]
 	o.k8sWaitAsk = ask
 	res, err := r.servicePods(ctx, req.Service, refs, req.From, req.To, ServicePodsOpts{WaitingReasons: ask})

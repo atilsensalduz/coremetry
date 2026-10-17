@@ -112,7 +112,7 @@ func getProblemTool(d Deps) mcp.Tool {
 	return mcp.Tool{
 		Name:             "get_problem",
 		ShortDescription: "Tek Problem'in tam kaydı (id): özne, ölçü/eşik, durum, atanan, süre, deploy.",
-		Description:      "Return ONE Problem by id with every field the problem drawer shows: subject (service or DB subject + kind), rule, metric/value/threshold/comparator, status, pod, assignee, startedAt/resolvedAt (+durationS when resolved), runbook URL, clusters, owner/SRE teams, the recent deploy the opener recorded and, when the AI SRE agent investigated it, investigation{at, state, findings ≤3, summary} (read the findings before re-running the same sweeps). Use after list_problems (or when the user pastes a problem id / link) before get_problem_root_cause or get_correlation_evidence. Read-only, one lookup. Returns found=false when the id does not exist. The description is truncated to 600 characters.",
+		Description:      "Return ONE Problem by id with every field the problem drawer shows: subject (service or DB subject + kind), rule, metric/value/threshold/comparator, status, pod, assignee, startedAt/resolvedAt (+durationS when resolved), runbook URL, clusters, owner/SRE teams, the recent deploy the opener recorded and, when the AI SRE agent investigated it, investigation{at, state, findings ≤3, summary, hypotheses ≤3 — code-scored kind/band/score, do not re-score} (read the findings before re-running the same sweeps). Use after list_problems (or when the user pastes a problem id / link) before get_problem_root_cause or get_correlation_evidence. Read-only, one lookup. Returns found=false when the id does not exist. The description is truncated to 600 characters.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

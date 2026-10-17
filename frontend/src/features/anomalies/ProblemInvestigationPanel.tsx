@@ -2,6 +2,7 @@
 // AI SRE ajanının araştırma kaydı: kuyruk sırası, "Araştırılıyor…", sonuç
 // (servis taraması hükmü + bulgular + yaş) ve editor için "Araştır / Yeniden
 // araştır". Ajan YALNIZ öneri üretir; burada hiçbir eylem bir şeyi değiştirmez.
+// v0.10.1288 (Faz 2) — sonuç gövdesinde hipotez kartları + zaman çizelgesi.
 //
 // Veri: GET /api/problems/{id}/investigation (10 s cache); yoklama yalnız iş
 // kuyrukta / koşarken (10 s, gizli sekmede durur); değişim SSE
@@ -88,7 +89,7 @@ export function ProblemInvestigationPanel({ problemId }: { problemId: string }) 
             : 'Yönetici Ayarlar → AI SRE bölümünden açabilir.'}
         </div>
       )}
-      <StateBody data={data} status={status.data} />
+      <StateBody data={data} status={status.data} canEdit={canEdit} />
       {showButton && (
         <div style={{ marginTop: 10 }}>
           <Button variant="secondary" size="sm" onClick={enqueue} loading={busy}>
@@ -100,7 +101,7 @@ export function ProblemInvestigationPanel({ problemId }: { problemId: string }) 
   );
 }
 
-function StateBody({ data, status }: { data: ProblemInvestigationResponse; status?: SREStatus }) {
+function StateBody({ data, status, canEdit }: { data: ProblemInvestigationResponse; status?: SREStatus; canEdit: boolean }) {
   const inv = data.investigation;
   switch (data.state) {
     case 'none':
@@ -129,11 +130,12 @@ function StateBody({ data, status }: { data: ProblemInvestigationResponse; statu
         </div>
       );
     default:
-      return inv ? <Result inv={inv} /> : null;
+      return inv ? <Result inv={inv} canEdit={canEdit} /> : null;
   }
 }
 
-function Result({ inv }: { inv: SREInvestigation }) {
+function Result({ inv, canEdit }: { inv: SREInvestigation; canEdit: boolean }) {
   // v0.10.1287 — gövde InvestigationResult'ta (0a tek-adım kaydı da orada çizilir).
-  return <InvestigationResult inv={inv} />;
+  // v0.10.1288 — editor hipotez kartlarında Doğrula / Ele / Onayla görür.
+  return <InvestigationResult inv={inv} canEdit={canEdit} />;
 }

@@ -52,9 +52,16 @@ type readers struct {
 	exemplar   func(ctx context.Context, req chstore.ExemplarReq) (*chstore.Exemplar, error)
 	pivot      func(ctx context.Context, req mcptools.PivotRequest) (mcptools.PivotResult, error)
 	spike      func(ctx context.Context, req mcptools.LogSpikeRequest) (mcptools.LogSpikeResult, error)
-	narrator   Narrator
-	budget     *llmBudget
-	settings   func() Settings
+	// v0.10.1288 (Faz 2) — okuma zenginleştirmesi (deploy → öncelik; terfi
+	// Problem'inin bölüm alanları), olaylar (ReadProblemWindowEvents), incident
+	// bağlanması, tembel node kontrolü.
+	enrich   func(ctx context.Context, probs []chstore.Problem) []chstore.Problem
+	events   func(ctx context.Context, service string, from, to time.Time, limit int) (mcptools.ProblemWindowData, error)
+	incident func(ctx context.Context, problemID string) (string, int64, error)
+	node     func(ctx context.Context, service string, from, to time.Time) (mcptools.NodeCheck, error)
+	narrator Narrator
+	budget   *llmBudget
+	settings func() Settings
 }
 
 // readersFrom — üretim okuyucuları: srv.MCPDeps() (sohbetle aynı kurucu).
@@ -71,6 +78,9 @@ func readersFrom(d mcptools.Deps, n Narrator, c cache.Cache, now func() time.Tim
 		},
 		spike: func(ctx context.Context, req mcptools.LogSpikeRequest) (mcptools.LogSpikeResult, error) {
 			return mcptools.RunLogSpike(ctx, d, req)
+		},
+		node: func(ctx context.Context, service string, from, to time.Time) (mcptools.NodeCheck, error) {
+			return mcptools.ReadNodeCheck(ctx, d, service, from, to)
 		},
 		narrator: n,
 		budget:   newLLMBudget(c, now),
@@ -91,15 +101,58 @@ func readersFrom(d mcptools.Deps, n Narrator, c cache.Cache, now func() time.Tim
 		}
 		r.blast = st.GetBlastRadiusBatch
 		r.exemplar = st.FindExemplarRollup
+		// v0.10.1288 — OKUMA zenginleştirmesi (yazım yok; chstore
+		// "EnrichProblemsForRead": deploy → öncelik), olaylar (sohbetin
+		// list_problem_window_events okuması) ve incident bağlanması.
+		r.enrich = func(ctx context.Context, probs []chstore.Problem) []chstore.Problem {
+			return st.EnrichProblemsForRead(ctx, probs, problemDeployLookback)
+		}
+		r.events = func(ctx context.Context, service string, from, to time.Time, limit int) (mcptools.ProblemWindowData, error) {
+			return mcptools.ReadProblemWindowEvents(ctx, d, service, from, to, limit)
+		}
+		r.incident = st.GetProblemIncident
 	}
 	return r
 }
+
+// problemDeployLookback — okuma zenginleştirmesinin deploy penceresi (api
+// problem_enrich.go / mcptools guided_parity.go ile aynı 30 dk).
+const problemDeployLookback = 30 * time.Minute
 
 // stepOutcome — bir adımın kayda girecek çıktısı.
 type stepOutcome struct {
 	step     Step
 	findings []Finding
 	warnings []string
+	facts    *Facts // v0.10.1288 — adımın yapısal gerçekleri (skor girdisi)
+}
+
+// hasFacts — SAF: adımın gerçek parçası kayıtta var mı (1b kaydında yok →
+// adım yeniden koşar; skor eksik girdiyle hesaplanmasın).
+func hasFacts(f *Facts, step string) bool {
+	if step == stepSummary {
+		return true
+	}
+	if f == nil {
+		return false
+	}
+	switch step {
+	case stepSweep:
+		return f.Pods != nil
+	case stepDeploys:
+		return f.Deploys != nil
+	case stepDeps:
+		return f.Deps != nil
+	case stepPivot:
+		return f.Pivot != nil
+	case stepLogSpike:
+		return f.Spike != nil
+	case stepEvents:
+		return f.Events != nil
+	case stepNode:
+		return f.Node != nil
+	}
+	return false
 }
 
 // fresh — SAF: adım bu koşuda yeniden koşmadan kullanılabilir mi.
@@ -118,6 +171,11 @@ func runInvestigation(ctx context.Context, rd readers, inv *Investigation, check
 			if p.Service == "" {
 				p.Service = inv.Service
 			}
+			if rd.enrich != nil { // okuma zenginleştirmesi: terfi Problem'inin bölüm alanları
+				if ps := rd.enrich(c, []chstore.Problem{p}); len(ps) == 1 {
+					p = ps[0]
+				}
+			}
 		}
 		cancel()
 	}
@@ -131,9 +189,35 @@ func runInvestigation(ctx context.Context, rd readers, inv *Investigation, check
 		cancel()
 	}
 	inv.Anchor = anchorFor(inv.ProblemAt, t0)
-	specs := planSteps(p, hyp, planInput{Env: inv.Env, Priority: inv.Priority, Anchor: inv.Anchor, StartNs: inv.ProblemAt, Now: t0})
+	verify := ""
+	if inv.Kind == KindVerify && IsHypothesisKind(inv.Hypothesis) {
+		verify = inv.Hypothesis
+	}
+	specs := planSteps(p, hyp, planInput{Env: inv.Env, Priority: inv.Priority, Anchor: inv.Anchor, StartNs: inv.ProblemAt, Now: t0,
+		Verify: verify, ProblemID: inv.ProblemID})
 	inv.Anchor.Families = anomaly.PlanFamilies(p)
 	inv.Anchor.Symptom = symptomOf(inv.Anchor.Families)
+	if inv.Facts == nil {
+		inv.Facts = &Facts{}
+	}
+	inv.Facts.Problem = problemFactsOf(p)
+	forced := map[string]bool{}
+	if verify != "" {
+		forced = verifyForced(verify)
+	}
+	// reuse — adım bu koşuda yeniden okunmaz: normal koşuda 10 dk'dan taze
+	// ok/skipped; doğrulamada hipotezin ZORLADIĞI adımlar dışında önceki
+	// koşunun (hatasız) adımları. Gerçek parçası olmayan adım (1b kaydı) koşar.
+	reuse := func(name string) bool {
+		prev := inv.step(name)
+		if prev == nil || !hasFacts(inv.Facts, name) {
+			return false
+		}
+		if verify != "" {
+			return !forced[name] && prev.State != StepError
+		}
+		return fresh(prev, t0)
+	}
 
 	groups := groupFindings(inv.Findings)
 	apply := func(o stepOutcome) {
@@ -142,19 +226,34 @@ func runInvestigation(ctx context.Context, rd readers, inv *Investigation, check
 		if o.step.Name == stepSweep && o.step.State != StepError {
 			inv.Warnings = o.warnings
 		}
+		inv.Facts.merge(o.facts)
 		inv.Findings = mergeFindings(groups)
 		checkpoint(inv)
 	}
 	for _, wave := range []int{1, 2} {
 		var batch []StepSpec
 		for _, s := range specs {
-			if s.Wave == wave && !fresh(inv.step(s.Name), t0) {
+			if s.Wave == wave && !reuse(s.Name) {
+				if s.Name == stepEvents && s.Events != nil {
+					er := *s.Events
+					er.Targets = eventTargets(inv.Facts.Deps)
+					s.Events = &er
+				}
 				batch = append(batch, s)
 			}
 		}
 		runWave(ctx, rd, inv.Service, batch, now, apply)
 	}
-	if !fresh(inv.step(stepSummary), t0) || inv.Summary == nil {
+	// Dalga 3 — TEMBEL node kontrolü: yalnız doygunluk hipotezi isterse.
+	if !reuse(stepNode) && ctx.Err() == nil && needsNodeCheck(evidenceFrom(inv), verify) {
+		runWave(ctx, rd, inv.Service, []StepSpec{nodeSpec(inv.Service, inv.Anchor)}, now, apply)
+	}
+	// Hipotezler + zaman çizelgesi: SAF, okuma yok; operatör işaretleri taşınır.
+	ev := evidenceFrom(inv)
+	inv.Hypotheses = carryHuman(Score(ev), inv.Hypotheses)
+	inv.Timeline = buildTimeline(ev, inv.ProblemID, now())
+	checkpoint(inv)
+	if forced[stepSummary] || !fresh(inv.step(stepSummary), t0) || inv.Summary == nil {
 		apply(stepOutcome{step: narrate(ctx, rd, inv, p, now), findings: groups[stepSummary]})
 	}
 }
@@ -211,20 +310,28 @@ func execStep(ctx context.Context, rd readers, service string, s StepSpec) stepO
 		}
 		res, err := rd.sweep(ctx, *s.Sweep)
 		st, f, w := sweepStep(res, err)
-		return stepOutcome{step: st, findings: f, warnings: w}
+		o := stepOutcome{step: st, findings: f, warnings: w}
+		if err == nil && res.OK {
+			o.facts = &Facts{Pods: podFactsOf(res)}
+		}
+		return o
 	case stepDeploys:
 		if rd.deploys == nil {
 			return skippedOutcome(s.Name, "deploy okuyucusu bağlı değil")
 		}
 		dc, err := rd.deploys(ctx, service, s.DeployAnchor, s.DeployTo)
-		st, f := deployStep(dc, err)
-		return stepOutcome{step: st, findings: f}
+		ds, f := deployStep(dc, err)
+		o := stepOutcome{step: ds, findings: f}
+		if err == nil && ds.State != StepError {
+			o.facts = &Facts{Deploys: deployFactsOf(dc)}
+		}
+		return o
 	case stepDeps:
 		if s.Deps == nil {
 			return skippedOutcome(s.Name, "bağımlılık isteği yok")
 		}
-		st, f := runDeps(ctx, rd, *s.Deps)
-		return stepOutcome{step: st, findings: f}
+		st, f, df := runDeps(ctx, rd, *s.Deps)
+		return stepOutcome{step: st, findings: f, facts: &Facts{Deps: df}}
 	case stepPivot:
 		if rd.pivot == nil || s.Pivot == nil {
 			return skippedOutcome(s.Name, "pivot okuyucusu bağlı değil")
@@ -243,14 +350,38 @@ func execStep(ctx context.Context, rd readers, service string, s StepSpec) stepO
 		}
 		res, err := rd.pivot(ctx, req)
 		st, f := pivotStep(res, err, via)
-		return stepOutcome{step: st, findings: f}
+		o := stepOutcome{step: st, findings: f}
+		if err == nil && res.OK && res.Error == nil {
+			o.facts = &Facts{Pivot: pivotFactsOf(res)}
+		}
+		return o
 	case stepLogSpike:
 		if rd.spike == nil || s.Spike == nil {
 			return skippedOutcome(s.Name, "log okuyucusu bağlı değil")
 		}
 		res, err := rd.spike(ctx, *s.Spike)
 		st, f := spikeStep(res, err)
-		return stepOutcome{step: st, findings: f}
+		o := stepOutcome{step: st, findings: f}
+		if err == nil && res.OK && res.Error == nil {
+			o.facts = &Facts{Spike: spikeFactsOf(s.Spike, res)}
+		}
+		return o
+	case stepEvents:
+		if rd.events == nil || s.Events == nil {
+			return skippedOutcome(s.Name, "olay okuyucusu bağlı değil")
+		}
+		return runEvents(ctx, rd, *s.Events)
+	case stepNode:
+		if rd.node == nil || s.Node == nil {
+			return skippedOutcome(s.Name, "node okuyucusu bağlı değil")
+		}
+		nc, err := rd.node(ctx, s.Node.Service, s.Node.From, s.Node.To)
+		st, f := nodeStep(nc, err)
+		o := stepOutcome{step: st, findings: f}
+		if err == nil {
+			o.facts = &Facts{Node: nodeFactsOf(nc)}
+		}
+		return o
 	}
 	return skippedOutcome(s.Name, "bilinmeyen adım")
 }
@@ -278,11 +409,11 @@ func groupFindings(in []Finding) map[string][]Finding {
 // türleri, log artışı).
 var findingKindRank = map[string]int{
 	"k8s": 0, "deploy": 1, "pod": 2, "jvm": 3, "operation": 4, "function": 5,
-	"dependency": 6, "trace": 7, "log": 8,
+	"dependency": 6, "trace": 7, "log": 8, "node": 9,
 }
 
 // stepRank — aynı tür + seviyede adım sırası.
-var stepRank = map[string]int{stepSweep: 0, stepDeploys: 1, stepDeps: 2, stepPivot: 3, stepLogSpike: 4}
+var stepRank = map[string]int{stepSweep: 0, stepDeploys: 1, stepDeps: 2, stepPivot: 3, stepLogSpike: 4, stepEvents: 5, stepNode: 6}
 
 // mergeFindings — SAF: adım bulguları → kayıt bulguları (≤8). Sıra: seviye
 // (crit > warn > diğer) → tür → adım → adımın kendi sırası. Aynı (tür, ad)

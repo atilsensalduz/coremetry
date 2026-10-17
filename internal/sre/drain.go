@@ -310,7 +310,7 @@ func pickWork(invs []Investigation, inflight map[string]bool, free int) []Invest
 }
 
 // OrderQueued — SAF: yalnız queued kayıtlar, drain'in alış sırasıyla: elle
-// istek → P1 → P2 → diğer; eşitlikte en eski kuyruk girişi önce. Durum ucu
+// istek (manual / verify) → P1 → P2 → diğer; eşitlikte en eski kuyruk girişi önce. Durum ucu
 // "N. sırada" bilgisini aynı sıradan okur.
 func OrderQueued(invs []Investigation) []Investigation {
 	var q []Investigation
@@ -320,7 +320,7 @@ func OrderQueued(invs []Investigation) []Investigation {
 		}
 	}
 	rank := func(inv Investigation) int {
-		if inv.Kind == KindManual {
+		if inv.Kind == KindManual || inv.Kind == KindVerify { // v0.10.1288 — doğrulama da operatör isteği
 			return 0
 		}
 		switch inv.Priority {

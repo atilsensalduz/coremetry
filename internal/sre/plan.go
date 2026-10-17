@@ -13,6 +13,7 @@ package sre
 // çağrısı (summary). Adım adları önbellek anahtarıdır (resume).
 
 import (
+	"strings"
 	"time"
 
 	"github.com/cilcenk/coremetry/internal/anomaly"
@@ -28,6 +29,11 @@ const (
 	stepPivot    = "pivot"
 	stepLogSpike = "log_spike"
 	stepSummary  = "summary"
+	// v0.10.1288 (Faz 2): olaylar (alarmlar + aşağı akış db:/ext: problemleri +
+	// incident bağlanması; dalga 2, bağımlılık adımının kenarlarına bakar) ve
+	// TEMBEL node kontrolü (dalga 3; yalnız doygunluk hipotezi isterse).
+	stepEvents = "events"
+	stepNode   = "node"
 )
 
 // Adım tavanları (tasarım: dalga 1 15/3/8 s, dalga 2 15/15 s, anlatım 45 s;
@@ -40,6 +46,8 @@ const (
 	capPivot    = 17 * time.Second
 	capLogSpike = 15 * time.Second
 	capSummary  = 45 * time.Second
+	capEvents   = 5 * time.Second
+	capNode     = 7 * time.Second
 )
 
 // Belirtiler (anomaly.SymptomPlan sözlüğü).
@@ -65,6 +73,75 @@ type StepSpec struct {
 	Pivot    *mcptools.PivotRequest
 	Exemplar *chstore.ExemplarReq
 	Spike    *mcptools.LogSpikeRequest
+	// v0.10.1288 — olaylar / node adımlarının penceresi.
+	Events *eventsRequest
+	Node   *nodeRequest
+}
+
+// eventsRequest — olaylar adımının girdisi. Targets (aşağı akış db:/ext:
+// düğümleri, ≤3) dalga 2 başında bağımlılık adımının gerçeklerinden dolar.
+type eventsRequest struct {
+	Service   string
+	ProblemID string
+	From, To  time.Time
+	Targets   []string
+}
+
+// nodeRequest — tembel node kontrolünün girdisi.
+type nodeRequest struct {
+	Service  string
+	From, To time.Time
+}
+
+// eventsTargetsMax — olaylar adımının okuduğu en çok aşağı akış düğümü.
+const eventsTargetsMax = 3
+
+// eventTargets — SAF: aşağı akış db:/ext: düğümleri (çağrı sırası, ≤3).
+func eventTargets(df *DepsFacts) []string {
+	if df == nil {
+		return nil
+	}
+	var out []string
+	for _, e := range df.Edges {
+		if (strings.HasPrefix(e.Target, "db:") || strings.HasPrefix(e.Target, "ext:")) && len(out) < eventsTargetsMax {
+			out = append(out, e.Target)
+		}
+	}
+	return out
+}
+
+// verifyForced — SAF: doğrulama koşusunda hipotez için YENİDEN okunan
+// adımlar (+ anlatım). Kalan adımların gerçekleri önceki koşudan gelir.
+func verifyForced(kind string) map[string]bool {
+	m := map[string]bool{stepSummary: true}
+	add := func(ns ...string) {
+		for _, n := range ns {
+			m[n] = true
+		}
+	}
+	switch kind {
+	case HypDeploy:
+		add(stepDeploys, stepSweep, stepLogSpike)
+	case HypConfig:
+		add(stepDeploys, stepEvents)
+	case HypSaturation:
+		add(stepSweep, stepNode)
+	case HypDependency:
+		add(stepDeps, stepPivot, stepEvents)
+	case HypExternal, HypDBSlow:
+		add(stepDeps, stepPivot, stepEvents)
+	case HypTrafficSurge:
+		add(stepDeps, stepSweep)
+	case HypCodeRegression:
+		add(stepSweep, stepLogSpike, stepPivot, stepDeploys)
+	}
+	return m
+}
+
+// verifyDeep — SAF: doğrulamada tarama derin mi (desen + kod örneklemi:
+// deploy / konfigürasyon / kod gerilemesi hipotezleri yeni desene bakar).
+func verifyDeep(kind string) bool {
+	return kind == HypDeploy || kind == HypConfig || kind == HypCodeRegression
 }
 
 // depsRequest — bağımlılık adımının girdisi.
@@ -104,6 +181,11 @@ type planInput struct {
 	Anchor   Anchor // [başlangıç − 15 dk, min(now, başlangıç + 30 dk)]
 	StartNs  int64  // problem başlangıcı (unix ns; 0 → çıpa başı + 15 dk)
 	Now      time.Time
+	// v0.10.1288 — doğrulama koşusunun hipotezi ("" = normal koşu). Derin
+	// okumalar: tarama derin (verifyDeep), pivot / log artışı belirti
+	// gerektirmese de eklenir (hipotez onlara bakar).
+	Verify    string
+	ProblemID string
 }
 
 // planSteps — SAF: problem + (varsa) sentezleyici hipotezi → adımlar.
@@ -122,16 +204,28 @@ func planSteps(p chstore.Problem, hyp *chstore.RootCauseHypothesis, in planInput
 	svc := p.Service
 	steps := []StepSpec{
 		{Name: stepSweep, Wave: 1, Cap: capSweep, Sweep: &mcptools.SweepRequest{
-			Service: svc, Env: in.Env, From: from, To: to, Deep: in.Priority == "P1",
+			Service: svc, Env: in.Env, From: from, To: to, Deep: in.Priority == "P1" || verifyDeep(in.Verify),
 			Checks: []string{mcptools.SweepCheckK8s}, Anchor: start,
 		}},
 		{Name: stepDeploys, Wave: 1, Cap: capDeploys, DeployAnchor: start, DeployTo: in.Now.UTC()},
 		{Name: stepDeps, Wave: 1, Cap: capDeps, Deps: &depsRequest{Service: svc, From: from, To: to, At: start, WindowSec: depsWindowSec(start, to)}},
 	}
-	if pr, ex, ok := pickExemplar(p, hyp, sym, in); ok {
+	forced := map[string]bool{}
+	if in.Verify != "" {
+		forced = verifyForced(in.Verify)
+	}
+	pickSym := sym
+	if forced[stepPivot] && pickSym != symptomError && pickSym != symptomDown && pickSym != symptomLatency {
+		// doğrulama: belirti trace'e inmese de hipotez kritik yola bakar.
+		pickSym = symptomLatency
+		if in.Verify == HypCodeRegression {
+			pickSym = symptomError
+		}
+	}
+	if pr, ex, ok := pickExemplar(p, hyp, pickSym, in); ok {
 		steps = append(steps, StepSpec{Name: stepPivot, Wave: 2, Cap: capPivot, Pivot: &pr, Exemplar: ex})
 	}
-	logs := sym == symptomError || sym == symptomDown
+	logs := sym == symptomError || sym == symptomDown || forced[stepLogSpike]
 	for _, f := range fam {
 		if f == "logs" || f == "exceptions" {
 			logs = true
@@ -146,7 +240,40 @@ func planSteps(p chstore.Problem, hyp *chstore.RootCauseHypothesis, in planInput
 			Service: svc, Env: in.Env, Level: level, SpikeFrom: from, SpikeTo: to,
 		}})
 	}
+	// v0.10.1288 — olaylar: [başlangıç − 60 dk, şimdi] (zaman çizelgesi + dış
+	// servis / DB hipotezleri). Hedefler dalga 2 başında dolar.
+	evFrom, evTo := eventsWindow(in.StartNs, in.Now)
+	steps = append(steps, StepSpec{Name: stepEvents, Wave: 2, Cap: capEvents, Events: &eventsRequest{
+		Service: svc, ProblemID: firstNonEmpty(in.ProblemID, p.ID), From: evFrom, To: evTo,
+	}})
 	return steps
+}
+
+// nodeSpec — tembel node adımı (dalga 3; needsNodeCheck karar verir).
+func nodeSpec(service string, a Anchor) StepSpec {
+	return StepSpec{Name: stepNode, Wave: 3, Cap: capNode, Node: &nodeRequest{
+		Service: service, From: time.Unix(0, a.From).UTC(), To: time.Unix(0, a.To).UTC(),
+	}}
+}
+
+// needsNodeCheck — SAF: doygunluk hipotezi node okumasına ihtiyaç duyuyor mu.
+// Doğrulamada (Verify=saturation) her zaman; aksi hâlde pod'lar okunabildiyse
+// ve pod kanıtı doygunluğu ZATEN doğrulamıyorsa: belirti gecikme / doygunluk
+// (kendi pod'u rahat ama node'u boğan gürültülü komşu) ya da pod kanıtı
+// belirsiz. Thanos yoksa (pod bölümü skipped) okuma da boş döner — koşmaz.
+func needsNodeCheck(ev Evidence, verify string) bool {
+	if verify == HypSaturation {
+		return true
+	}
+	pf := ev.Facts.Pods
+	if pf == nil || (pf.PodsState != "ok" && pf.PodsState != "partial") || pf.Pods == 0 {
+		return false
+	}
+	o, _, _ := chkPodLimits(ev)
+	if o > 0 {
+		return false
+	}
+	return ev.Symptom == symptomLatency || ev.Symptom == symptomSaturation || o == 0
 }
 
 // depsWindowSec — SAF: korelasyon penceresi (başlangıç → pencere sonu, 5..30 dk).

@@ -5,6 +5,7 @@ package api
 //   GET  /api/sre/status                  → {enabled, launcher, roleSeen, pods[], queueDepth, running}
 //   GET  /api/problems/{id}/investigation → {state none|queued|running|done|partial|shared|error, position?, investigation?}
 //   POST /api/problems/{id}/investigation → elle "Araştır / Yeniden araştır" (editor+, audit problem.investigation.enqueue)
+//        v0.10.1288: gövde {kind:"verify", hypothesis:"<tür>"} → "Doğrula" (hipotezin derin okumaları)
 //   GET  /api/settings/sre                → sre_agent ayarı (admin)
 //   PUT  /api/settings/sre                → (admin, audit settings.sre_agent.update)
 //
@@ -21,6 +22,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -194,6 +196,30 @@ func (s *Server) getProblemInvestigation(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) postProblemInvestigation(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("id"))
+	// v0.10.1288 — isteğe bağlı gövde: {kind:"verify", hypothesis} = "Doğrula".
+	// Boş gövde = bugünkü elle yeniden araştırma.
+	var body struct {
+		Kind       string `json:"kind"`
+		Hypothesis string `json:"hypothesis"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		writeJSONError(w, http.StatusBadRequest, "geçersiz JSON: "+err.Error())
+		return
+	}
+	kind := sre.KindManual
+	switch strings.TrimSpace(body.Kind) {
+	case "", sre.KindManual:
+	case sre.KindVerify:
+		if !sre.IsHypothesisKind(body.Hypothesis) {
+			writeJSONError(w, http.StatusBadRequest, "bilinmeyen hipotez türü")
+			return
+		}
+		kind = sre.KindVerify
+	default:
+		writeJSONError(w, http.StatusBadRequest, "kind yalnız manual | verify")
+		return
+	}
 	st := sreStoreOf(s)
 	p, err := st.GetProblem(r.Context(), id)
 	if err != nil {
@@ -214,8 +240,8 @@ func (s *Server) postProblemInvestigation(w http.ResponseWriter, r *http.Request
 		by = c.Email
 	}
 	res, err := sre.Enqueue(r.Context(), st, sre.EnqueueRequest{
-		ProblemID: p.ID, DisplayID: enriched.DisplayID, Service: p.Service, Kind: sre.KindManual,
-		Priority: enriched.Priority, ProblemStartedAt: p.StartedAt, By: by,
+		ProblemID: p.ID, DisplayID: enriched.DisplayID, Service: p.Service, Kind: kind,
+		Priority: enriched.Priority, ProblemStartedAt: p.StartedAt, By: by, Hypothesis: body.Hypothesis,
 	}, sre.CurrentSettings())
 	switch {
 	case errors.Is(err, sre.ErrDisabled):
@@ -232,7 +258,11 @@ func (s *Server) postProblemInvestigation(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if res.Created {
-		details, _ := json.Marshal(map[string]any{"state": res.State, "service": p.Service})
+		det := map[string]any{"state": res.State, "service": p.Service, "kind": kind}
+		if kind == sre.KindVerify {
+			det["hypothesis"] = body.Hypothesis
+		}
+		details, _ := json.Marshal(det)
 		s.audit(r, "problem.investigation.enqueue", "problem", p.ID, string(details))
 		s.PublishSRE(sre.EventKind, map[string]any{"problemId": p.ID, "state": res.State})
 	}

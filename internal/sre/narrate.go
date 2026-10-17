@@ -139,6 +139,10 @@ func stepLabelTR(n string) string {
 		return "log artışı"
 	case stepSummary:
 		return "AI özeti"
+	case stepEvents:
+		return "olaylar"
+	case stepNode:
+		return "node baskısı"
 	}
 	return n
 }
@@ -223,6 +227,7 @@ func renderInvestigationTR(inv Investigation, p chstore.Problem, loc *time.Locat
 			b.WriteString("SENTEZLEYİCİ: belirgin şüpheli yok\n")
 		}
 	}
+	b.WriteString(renderHypothesesTR(inv.Hypotheses))
 	if len(inv.Findings) == 0 {
 		b.WriteString("BULGULAR: yok — okunan bölümlerde eşik aşan bulgu çıkmadı\n")
 	} else {
@@ -256,4 +261,62 @@ func capBytes(s string, max int) string {
 		cut--
 	}
 	return s[:cut] + "…\n"
+}
+
+// humanTR — operatör işaretinin kısa etiketi.
+func humanTR(h Hypothesis) string {
+	if h.HumanState == nil {
+		return ""
+	}
+	switch h.HumanState.State {
+	case MarkDismissed:
+		return " (operatör eledi)"
+	case MarkConfirmed:
+		return " (operatör onayladı)"
+	}
+	return ""
+}
+
+// renderHypothesesTR — SAF (v0.10.1288): anlatım girdisinin hipotez satırları.
+// Skor KODDAN gelir; model yalnız anabilir (prompt: "skoru değiştirme").
+// En olası = operatörün elemediği ilk kart; düşük bantta "belirgin hipotez yok".
+func renderHypothesesTR(hs []Hypothesis) string {
+	if len(hs) == 0 {
+		return ""
+	}
+	top := -1
+	for i, h := range hs {
+		if h.HumanState == nil || h.HumanState.State != MarkDismissed {
+			top = i
+			break
+		}
+	}
+	var b strings.Builder
+	switch {
+	case top < 0:
+		b.WriteString("AJAN HİPOTEZİ: operatör tüm hipotezleri eledi\n")
+	case hs[top].Band == BandLow:
+		fmt.Fprintf(&b, "AJAN HİPOTEZİ (kod skoru): belirgin hipotez yok — en yüksek %s %s %.2f\n", hs[top].Label, hs[top].Band, hs[top].Score)
+	default:
+		h := hs[top]
+		fmt.Fprintf(&b, "AJAN HİPOTEZİ (kod skoru): %s — %s %.2f%s", h.Label, h.Band, h.Score, humanTR(h))
+		for _, c := range h.Checks {
+			if c.Outcome > 0 {
+				b.WriteString(" — " + truncRunes(oneLine(c.Reason), 160))
+				break
+			}
+		}
+		b.WriteString("\n")
+	}
+	var others []string
+	for i, h := range hs {
+		if i == top || len(others) >= HypothesesShown-1 {
+			continue
+		}
+		others = append(others, fmt.Sprintf("%s %s %.2f%s", h.Label, h.Band, h.Score, humanTR(h)))
+	}
+	if len(others) > 0 {
+		b.WriteString("DİĞER HİPOTEZLER: " + strings.Join(others, " · ") + "\n")
+	}
+	return b.String()
 }

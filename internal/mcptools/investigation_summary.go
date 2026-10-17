@@ -22,10 +22,29 @@ type InvestigationSummary struct {
 	Findings   []string `json:"findings"`
 	Summary    string   `json:"summary,omitempty"`
 	SharedFrom string   `json:"sharedFrom,omitempty"`
+	// Hypotheses — v0.10.1288 (AI SRE Faz 2): ajanın KOD skorlu en olası ≤3
+	// hipotezi (skor sıralı). Model skoru değiştirmez; "doğrula" önerisi
+	// yalnız sunucunun tıklanır aksiyon bloğundan (sre_hypothesis) gelir.
+	Hypotheses []InvestigationHypothesis `json:"hypotheses,omitempty"`
+}
+
+// InvestigationHypothesis — get_problem.investigation.hypotheses[i].
+type InvestigationHypothesis struct {
+	Kind     string   `json:"kind"`
+	Label    string   `json:"label"`
+	Category string   `json:"category"`
+	Score    float64  `json:"score"`
+	Band     string   `json:"band"`               // yüksek | orta | düşük
+	Support  []string `json:"support,omitempty"`  // doğrulayan kontrollerin gerekçeleri (≤2)
+	Against  []string `json:"against,omitempty"`  // çürüten kontrollerin gerekçeleri (≤2)
+	Operator string   `json:"operator,omitempty"` // dismissed | confirmed (operatör işareti; skoru değiştirmez)
 }
 
 // investigationFindingsMax — sohbete giden bulgu tavanı.
 const investigationFindingsMax = 3
+
+// investigationHypothesesMax — sohbete giden hipotez tavanı (kartla aynı).
+const investigationHypothesesMax = 3
 
 // problemInvestigationField — Deps.Investigation'dan get_problem alanı.
 // Okuyucu yok / kayıt yok / okuma hatası → ok=false (alan yazılmaz; hata
@@ -46,6 +65,9 @@ func problemInvestigationField(ctx context.Context, d Deps, problemID string) (*
 		out.Findings = []string{}
 	}
 	out.Summary = truncateRunes(out.Summary, 1200)
+	if len(out.Hypotheses) > investigationHypothesesMax {
+		out.Hypotheses = out.Hypotheses[:investigationHypothesesMax]
+	}
 	if out.At > 0 && out.AtISO == "" {
 		out.AtISO = time.Unix(0, out.At).UTC().Format(time.RFC3339)
 	}

@@ -9603,6 +9603,47 @@ export interface SREInvestigation {
   // v0.10.1287 — Faz 1b: AI anlatımı + sentezleyici hipotezinin salt-okunur kopyası.
   summary?: SRENarration;
   synthRef?: SRESynthRef;
+  // v0.10.1288 — Faz 2: hipotez kartları (kod skoru, azalan; kartta ilk 3),
+  // zaman çizelgesi (≤30), doğrulama koşusunun hipotezi. `facts` (skorun
+  // girdisi) FE'de okunmaz.
+  hypothesis?: SREHypothesisKind;
+  hypotheses?: SREHypothesis[];
+  timeline?: SRETimelineEvent[];
+}
+// v0.10.1288 — Go: sre.Hypothesis (SAF Score; LLM / oy / operatör işareti skora girmez).
+export type SREHypothesisKind = 'deploy' | 'config' | 'saturation' | 'dependency' | 'external' | 'db_slow' | 'traffic_surge' | 'code_regression';
+export type SREHypothesisBand = 'yüksek' | 'orta' | 'düşük';
+export interface SREHypothesisCheck {
+  name: string;
+  outcome: -1 | 0 | 1; // +1 doğrular · −1 çürütür · 0 bilinmiyor
+  weight: number;
+  reason: string;
+  /** "<adım>" ya da "<adım>.evidences[i]" — adımın kanıt çipi. */
+  evidenceRef?: string;
+}
+export interface SREHumanState {
+  state: 'dismissed' | 'confirmed';
+  note?: string;
+  by?: string;
+  at: number; // unix ns
+}
+export interface SREHypothesis {
+  kind: SREHypothesisKind;
+  category: string; // incident_cases kategorisi
+  label: string;
+  score: number; // 0..1
+  band: SREHypothesisBand;
+  prior: number;
+  checks: SREHypothesisCheck[];
+  humanState?: SREHumanState;
+}
+// v0.10.1288 — Go: sre.TimelineEvent.
+export type SRETimelineKind = 'problem_start' | 'deploy' | 'spike_start' | 'first_error' | 'alert' | 'alert_resolved' | 'incident_attach';
+export interface SRETimelineEvent {
+  at: number; // unix ns
+  kind: SRETimelineKind;
+  label: string;
+  ref?: string;
 }
 // v0.10.1287 — Go: sre.Narration (tek LLM çağrısı; gated = arka plan AI kapısı kapalı).
 export interface SRENarration {

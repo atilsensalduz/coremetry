@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // InvestigationResult.test.tsx — v0.10.1287 (AI SRE Faz 1b): adım tablosu
-// (sabit sıra, ≤6), bulgu kanıt çipleri, AI özeti / kapalı kapı cümlesi,
+// (sabit sıra, ≤8 — v0.10.1288 olaylar + node), bulgu kanıt çipleri, AI özeti / kapalı kapı cümlesi,
 // "Sohbette sor" → coremetry:ai-ask (problem kapsamı).
 import { describe, it, expect, afterEach } from 'vitest';
 import { act } from 'react';
@@ -102,7 +102,10 @@ describe('InvestigationResult', () => {
     expect(findingEvidence(inv, inv.findings[0]).map(e => e.hop)).toEqual(['ops']);
     expect(findingEvidence(inv, inv.findings[1]).map(e => e.hop)).toEqual(['deploys']);
     expect(findingEvidence(inv, { kind: 'pod', name: 'x', level: 'warn', evidenceRefs: ['evidences[1]'] }).map(e => e.hop)).toEqual(['pods']);
-    expect(orderedSteps([...inv.steps, { name: 'x', state: 'ok', durationMs: 0, at: 0 }]).length).toBe(6);
+    // v0.10.1288 — + olaylar, node: tavan 8, bilinmeyen adım sona düşer.
+    const eight = orderedSteps([{ name: 'x', state: 'ok', durationMs: 0, at: 0 }, ...inv.steps,
+      { name: 'node', state: 'ok', durationMs: 0, at: 0 }, { name: 'events', state: 'ok', durationMs: 0, at: 0 }]);
+    expect(eight.map(s => s.name)).toEqual(['sweep', 'deploys', 'deps', 'pivot', 'log_spike', 'events', 'node', 'summary']);
     expect(stepStateView('ok').tone).toBeNull();
     expect(stepStateView('error').tone).toBe('danger');
     expect(fmtStepDuration(0)).toBe('—');

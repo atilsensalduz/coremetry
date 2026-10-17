@@ -23,7 +23,8 @@ package mcptools
 //
 // Argo CD Degraded/OutOfSync notu (B tasarımı) bu dilimde YOK: servis → Argo
 // uygulaması eşlemesi api katmanında (argocd eşleme kenarları); mcptools'tan
-// okunamıyor. Node / gürültülü komşu kontrolü Faz 2'de.
+// okunamıyor. Node / gürültülü komşu kontrolü v0.10.1288'de TEMBEL ve ayrı:
+// service_sweep_node.go ReadNodeCheck (yalnız AI SRE, doygunluk hipotezi isterse).
 
 import (
 	"context"

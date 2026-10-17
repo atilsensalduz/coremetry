@@ -600,6 +600,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	// deterministik "Kaynak:" künyesini besliyor (chat_source_note.go).
 	var calledTools []string
 	noteOffered := false // v0.10.1169 — tur başına en çok bir "probleme not" aksiyonu
+	hypOffered := false  // v0.10.1288 — tur başına en çok bir "hipotezi doğrula" aksiyonu
 	// v0.10.1050 — okunan kodun MASKELİ özetleri (ai_calls örneği; kod yok).
 	var codeReads []string
 	// v0.10.948 — trace takibinin sayı denetimi kanıtı: sunucu bağlamı + operatör
@@ -935,6 +936,14 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 				if noteAct, ok := s.problemNoteAction(ctx, pageCtx.ProblemID, tc.Name, tr.Content); ok {
 					noteOffered = true
 					emit("block", blockSeq.Next(blocks.TypeAction, noteAct))
+				}
+			}
+			// v0.10.1288 — get_problem sonucundaki ajan hipotezi → tık-only "doğrula"
+			// aksiyonu (yalnız sunucu tarafı türetim; chat_actions.go sreHypothesisAction).
+			if !tr.IsError && !hypOffered && pageCtx != nil {
+				if hypAct, ok := s.sreHypothesisAction(ctx, pageCtx.ProblemID, tc.Name, tr.Content); ok {
+					hypOffered = true
+					emit("block", blockSeq.Next(blocks.TypeAction, hypAct))
 				}
 			}
 			if !tr.IsError && !stepSourcesAllFailed(srcs) {

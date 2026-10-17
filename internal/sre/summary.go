@@ -45,6 +45,32 @@ func SummaryOf(inv Investigation) mcptools.InvestigationSummary {
 	if inv.Summary != nil && !inv.Summary.Gated {
 		out.Summary = inv.Summary.Text
 	}
+	out.Hypotheses = summaryHypotheses(inv.Hypotheses)
+	return out
+}
+
+// summaryHypotheses — SAF (v0.10.1288): kartın ilk ≤3 hipotezi → sohbet
+// özeti (destek / karşı gerekçeler ≤2'şer, operatör işareti).
+func summaryHypotheses(hs []Hypothesis) []mcptools.InvestigationHypothesis {
+	var out []mcptools.InvestigationHypothesis
+	for i, h := range hs {
+		if i >= HypothesesShown {
+			break
+		}
+		x := mcptools.InvestigationHypothesis{Kind: h.Kind, Label: h.Label, Category: h.Category, Score: h.Score, Band: h.Band}
+		for _, c := range h.Checks {
+			switch {
+			case c.Outcome > 0 && len(x.Support) < 2:
+				x.Support = append(x.Support, truncRunes(c.Reason, 200))
+			case c.Outcome < 0 && len(x.Against) < 2:
+				x.Against = append(x.Against, truncRunes(c.Reason, 200))
+			}
+		}
+		if h.HumanState != nil {
+			x.Operator = h.HumanState.State
+		}
+		out = append(out, x)
+	}
 	return out
 }
 
@@ -75,7 +101,7 @@ func RenderSavedTR(problemRef string, s mcptools.InvestigationSummary, loc *time
 	default:
 		return ""
 	}
-	if len(s.Findings) == 0 && s.Summary == "" {
+	if len(s.Findings) == 0 && s.Summary == "" && len(s.Hypotheses) == 0 {
 		return ""
 	}
 	if loc == nil {
@@ -92,6 +118,22 @@ func RenderSavedTR(problemRef string, s mcptools.InvestigationSummary, loc *time
 	b.WriteString(". Bu bir ÖNERİDİR, hiçbir şey değiştirilmedi; yaşı yukarıdaki saatte.\n")
 	for _, f := range s.Findings {
 		b.WriteString("- " + f + "\n")
+	}
+	for i, h := range s.Hypotheses {
+		if i == 0 {
+			b.WriteString("Ajanın hipotezleri (kod skoru — değiştirme):\n")
+		}
+		line := fmt.Sprintf("- %s: %s %.2f", h.Label, h.Band, h.Score)
+		if len(h.Support) > 0 {
+			line += " — " + strings.Join(h.Support, "; ")
+		}
+		switch h.Operator {
+		case MarkDismissed:
+			line += " (operatör eledi)"
+		case MarkConfirmed:
+			line += " (operatör onayladı)"
+		}
+		b.WriteString(truncRunes(line, 400) + "\n")
 	}
 	if s.Summary != "" {
 		b.WriteString("Ajanın özeti:\n" + truncRunes(s.Summary, 1200) + "\n")

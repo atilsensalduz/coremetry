@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/cilcenk/coremetry/internal/auth"
+	"github.com/cilcenk/coremetry/internal/sre"
 )
 
 // chat_actions.go — v0.10.542 (CoSRE v2 Faz 3.4): `action` bloğu.
@@ -93,5 +95,64 @@ func (s *Server) problemNoteAction(ctx context.Context, problemID, tool, content
 	return map[string]any{
 		"kind": "problem_note", "problemId": problemID, "tool": tool, "text": text,
 		"token": tok, "label": "Bulguyu probleme not olarak kaydet",
+	}, true
+}
+
+// ── v0.10.1288 (AI SRE Faz 2) — "<hipotez> hipotezini doğrula" ──────────
+//
+// problemNoteAction deseni: aksiyon YALNIZ sunucu tarafında, başarılı bir
+// get_problem TOOL SONUCUNDAN türer — model metninden asla. Hedef problem
+// sohbetin sayfa bağlamıyla (pageCtx.ProblemID) EŞLEŞMELİ; hipotez türü
+// kodun kapalı kümesinden (sre.IsHypothesisKind). Tık-only: istemci
+// POST /api/problems/{id}/investigation {kind:"verify", hypothesis} çağırır
+// (editor+, audit; uç türü yeniden doğrular). İmzalı jeton GEREKMEZ: yükte
+// serbest metin yok (problem_note'un jetonu metin bütünlüğü içindi), uç
+// idempotent kuyruğa alma ve rol kapılı. Viewer'a aksiyon önerilmez.
+
+// sreHypothesisPick — SAF: get_problem çıktısından doğrulanacak hipotez.
+// Kural: problem sayfanın problemi; kartın ilk hipotezi düşük bantta değil ve
+// operatör onu elememiş/onaylamamış (işaretli kart zaten karara bağlanmış).
+func sreHypothesisPick(problemID, tool, content string) (kind, label string, ok bool) {
+	if tool != "get_problem" || strings.TrimSpace(problemID) == "" {
+		return "", "", false
+	}
+	var out struct {
+		ID            string `json:"id"`
+		DisplayID     string `json:"displayId"`
+		Investigation *struct {
+			Hypotheses []struct {
+				Kind     string `json:"kind"`
+				Label    string `json:"label"`
+				Band     string `json:"band"`
+				Operator string `json:"operator"`
+			} `json:"hypotheses"`
+		} `json:"investigation"`
+	}
+	if json.Unmarshal([]byte(content), &out) != nil || out.Investigation == nil || len(out.Investigation.Hypotheses) == 0 {
+		return "", "", false
+	}
+	if out.ID != problemID && out.DisplayID != problemID {
+		return "", "", false
+	}
+	h := out.Investigation.Hypotheses[0]
+	if !sre.IsHypothesisKind(h.Kind) || h.Band == sre.BandLow || h.Operator != "" {
+		return "", "", false
+	}
+	return h.Kind, sre.HypothesisLabel(h.Kind), true
+}
+
+// sreHypothesisAction — aksiyon bloğu; editor+ değilse ya da seçim yoksa yok.
+func (s *Server) sreHypothesisAction(ctx context.Context, problemID, tool, content string) (map[string]any, bool) {
+	c := auth.FromContext(ctx)
+	if c == nil || (c.Role != auth.RoleAdmin && c.Role != auth.RoleEditor) {
+		return nil, false
+	}
+	kind, label, ok := sreHypothesisPick(strings.TrimSpace(problemID), tool, content)
+	if !ok {
+		return nil, false
+	}
+	return map[string]any{
+		"kind": "sre_hypothesis", "problemId": strings.TrimSpace(problemID), "hypothesis": kind,
+		"label": label + " hipotezini doğrula",
 	}, true
 }

@@ -110,3 +110,72 @@ func PodWaitingReasonQuery(nsFilter, podRe string) string {
 		`max by (namespace, pod, reason) (kube_pod_container_status_waiting_reason{%s%s} == 1)`,
 		podMatcher(podRe), nsMatcher(nsFilter))
 }
+
+// ── v0.10.1288 (AI SRE Faz 2): tembel node / gürültülü komşu kontrolü ─────
+//
+// Yalnız doygunluk hipotezi isterse koşar (internal/sre); üç anlık sorgu:
+// servis pod'larının node'u (kube_pod_info), o node'ların CPU kullanımı
+// (allocatable'ın yüzdesi) ve o node'lardaki en işlek pod'lar (allocatable'ın
+// yüzdesi). CPU cAdvisor'ın `node` etiketinden okunur — scrape relabel'ı bu
+// etiketi taşımıyorsa node sorguları boş döner (çağıran "node etiketi yok"
+// der; okunamadı ≠ temiz). Node adları PodNamesRegex ile (QuoteMeta + ^(…)$)
+// çerçevelenir, değer çerçevesi escapeLabelValue ile kaçışlanır; cluster
+// matcher'ı çağıranın doQuery yolunda enjekte edilir.
+
+// NodeCheckMaxNodes — kontrolün okuduğu en çok node.
+const NodeCheckMaxNodes = 3
+
+// PodNodeQuery — SAF: servis pod'larının node'u. KSM kube_pod_info
+// (namespace, pod, node) — `node!=""` zamanlanmamış pod'u düşürür.
+func PodNodeQuery(nsFilter, podRe string) string {
+	return fmt.Sprintf(`max by (namespace, pod, node) (kube_pod_info{node!="",%s%s})`, podMatcher(podRe), nsMatcher(nsFilter))
+}
+
+// nodeMatcher — SAF: `node=~"^(a|b)$"` (en çok NodeCheckMaxNodes ad). Ad yoksa
+// ok=false (sorgu kurulmaz — boş seçici tüm node'ları okurdu).
+func nodeMatcher(nodes []string) (string, bool) {
+	if len(nodes) > NodeCheckMaxNodes {
+		nodes = nodes[:NodeCheckMaxNodes]
+	}
+	re, _ := PodNamesRegex(nodes)
+	if re == "" {
+		return "", false
+	}
+	return fmt.Sprintf(`node=~"%s"`, escapeLabelValue(re)), true
+}
+
+func nodeOffset(offset time.Duration) string {
+	if offset >= time.Minute {
+		return " offset " + promDur(offset)
+	}
+	return ""
+}
+
+// NodeCPUPressureQuery — SAF: node başına CPU kullanımı, allocatable'ın
+// yüzdesi (5 dk hız; offset ≥ 1 dk ise pencere sonuna kaydırılır).
+func NodeCPUPressureQuery(nodes []string, offset time.Duration) (string, error) {
+	nm, ok := nodeMatcher(nodes)
+	if !ok {
+		return "", fmt.Errorf("thanos node check: node adı yok")
+	}
+	off := nodeOffset(offset)
+	return fmt.Sprintf(
+		`100 * sum by (node) (rate(container_cpu_usage_seconds_total{container!="",container!="POD",pod!="",%s}[5m]%s)) / on (node) sum by (node) (kube_node_status_allocatable{resource="cpu",%s}%s)`,
+		nm, off, nm, off), nil
+}
+
+// NodeTopPodsQuery — SAF: o node'lardaki en işlek k pod, node allocatable
+// CPU'sunun yüzdesi olarak (namespace, pod, node etiketli).
+func NodeTopPodsQuery(nodes []string, k int, offset time.Duration) (string, error) {
+	nm, ok := nodeMatcher(nodes)
+	if !ok {
+		return "", fmt.Errorf("thanos node check: node adı yok")
+	}
+	if k <= 0 || k > 20 {
+		k = 5
+	}
+	off := nodeOffset(offset)
+	return fmt.Sprintf(
+		`topk(%d, 100 * sum by (namespace, pod, node) (rate(container_cpu_usage_seconds_total{container!="",container!="POD",pod!="",%s}[5m]%s)) / on (node) group_left sum by (node) (kube_node_status_allocatable{resource="cpu",%s}%s))`,
+		k, nm, off, nm, off), nil
+}

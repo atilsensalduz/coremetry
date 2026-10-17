@@ -3,23 +3,26 @@
 //   - adım tablosu: tarama · deploy · bağımlılık · trace pivotu · log artışı ·
 //     AI özeti — durum, süre, özet;
 //   - AI özeti (ExplainBody) ya da kapı kapalıyken dürüst sabit cümle;
-//   - sentezleyici hipotezinin salt-okunur kopyası;
+//   - v0.10.1288: hipotez kartları + zaman çizelgesi + doğrula/ele
+//     (ProblemInvestigationCards; sentezleyici kopyası orada AYRI motor kutusu);
 //   - bulgular + her bulgunun kanıt çipleri (EvidenceChips — sorgu künyesi +
 //     "Explore'da aç");
 //   - "Sohbette sor": CoSRE'yi problem kapsamıyla açar (coremetry:ai-ask).
 // 0a kaydı (tek `sweep` adımı) bugünkü tek satır özetle çizilir.
 //
-// Ajan YALNIZ öneri üretir; burada hiçbir düğme bir şeyi değiştirmez.
+// Ajan YALNIZ öneri üretir; burada hiçbir düğme sistemde bir şeyi
+// değiştirmez (Doğrula yeniden okur, Ele/Onayla yalnız kartı etiketler).
 import { ExplainBody } from '@/components/ai/ExplainBody';
 import { EvidenceChips } from '@/components/ai/EvidenceChips';
 import { Badge, Button } from '@/components/ui';
 import { agoTR, tsLong } from '@/lib/utils';
 import type { SREInvestigation } from '@/lib/types';
+import { ProblemInvestigationCards } from './ProblemInvestigationCards';
 import {
   STEP_LABEL, askInChatQuestion, findingEvidence, findingKindLabel, fmtStepDuration, orderedSteps, stepStateView,
 } from './investigationResultView';
 
-export function InvestigationResult({ inv }: { inv: SREInvestigation }) {
+export function InvestigationResult({ inv, canEdit = false }: { inv: SREInvestigation; canEdit?: boolean }) {
   const sweep = inv.steps.find(s => s.name === 'sweep');
   const multi = inv.steps.length > 1;
   const steps = orderedSteps(inv.steps);
@@ -37,8 +40,8 @@ export function InvestigationResult({ inv }: { inv: SREInvestigation }) {
         <div style={{ color: 'var(--text3)' }}>Tarama {sweep.state === 'partial' ? 'kısmi tamamlandı' : 'tamamlanamadı'}.</div>
       )}
       {multi && (
-        // statik tablo (T1): ≤6 sabit satır, sıra boru hattının (tarama → … →
-        // AI özeti), sıralanmaz; yalnız sapan durum rozet alır.
+        // statik tablo (T1): ≤8 sabit satır (v0.10.1288: + olaylar, node), sıra
+        // boru hattının (tarama → … → AI özeti), sıralanmaz; yalnız sapan durum rozet alır.
         <table className="dt">
           <colgroup><col style={{ width: 130 }} /><col style={{ width: 92 }} /><col style={{ width: 64 }} /><col /></colgroup>
           <thead>
@@ -79,12 +82,7 @@ export function InvestigationResult({ inv }: { inv: SREInvestigation }) {
             <ExplainBody text={inv.summary.text} busy={false} verdict={false} />
           </div>
         ))}
-      {inv.synthRef?.topSuspect && (
-        <div style={{ color: 'var(--text3)' }}>
-          Kök-neden sentezleyicisi: şüpheli <span className="mono">{inv.synthRef.topSuspect}</span>{' '}
-          (güven %{Math.round(inv.synthRef.confidence * 100)})
-        </div>
-      )}
+      <ProblemInvestigationCards inv={inv} canEdit={canEdit} />
       {inv.findings.length > 0 && (
         <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 6 }}>
           {inv.findings.map(f => (

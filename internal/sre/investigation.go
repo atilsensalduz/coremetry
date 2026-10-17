@@ -139,6 +139,14 @@ type Investigation struct {
 	// v0.10.1287 (Faz 1b) — anlatım + sentezleyici kopyası.
 	Summary  *Narration `json:"summary,omitempty"`
 	SynthRef *SynthRef  `json:"synthRef,omitempty"`
+	// v0.10.1288 (Faz 2) — hipotez kartları (SAF Score, skora göre azalan; 8
+	// tür, kartta ilk 3), zaman çizelgesi (≤30), adımların yapısal gerçekleri
+	// (skorun girdisi — resume / doğrulama aynı girdiden yeniden hesaplar) ve
+	// doğrulama koşusunun hipotezi (Kind=verify).
+	Hypothesis string          `json:"hypothesis,omitempty"`
+	Hypotheses []Hypothesis    `json:"hypotheses,omitempty"`
+	Timeline   []TimelineEvent `json:"timeline,omitempty"`
+	Facts      *Facts          `json:"facts,omitempty"`
 }
 
 // step — ada göre adım (yoksa nil).
@@ -187,6 +195,15 @@ func Encode(inv Investigation) (string, error) {
 		n := *inv.Summary
 		inv.Summary = &n
 	}
+	inv.Hypotheses = append([]Hypothesis(nil), inv.Hypotheses...)
+	inv.Timeline = append([]TimelineEvent(nil), inv.Timeline...)
+	if len(inv.Timeline) > TimelineMax {
+		inv.Timeline = inv.Timeline[:TimelineMax]
+	}
+	if inv.Facts != nil {
+		f := *inv.Facts
+		inv.Facts = &f
+	}
 	for i := range inv.Steps {
 		if len(inv.Steps[i].Payload) > maxStepPayload {
 			inv.Steps[i].Payload = nil
@@ -220,6 +237,20 @@ func Encode(inv Investigation) (string, error) {
 				}
 				inv.Findings[i].EvidenceRefs = nil
 			}
+		},
+		func() { // v0.10.1288 — gerçeklerin uzun listeleri (skor yeniden hesaplanmaz; kartlar kayıtta)
+			if inv.Facts != nil {
+				inv.Facts.Events, inv.Facts.Node = nil, nil
+			}
+			if len(inv.Timeline) > 15 {
+				inv.Timeline = inv.Timeline[:15]
+			}
+		},
+		func() {
+			if len(inv.Hypotheses) > HypothesesShown {
+				inv.Hypotheses = inv.Hypotheses[:HypothesesShown]
+			}
+			inv.Facts = nil
 		},
 		func() {
 			for i := range inv.Steps {

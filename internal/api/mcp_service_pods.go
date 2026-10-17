@@ -16,6 +16,8 @@ package api
 import (
 	"context"
 	"fmt"
+	"math"
+	"sort"
 	"sync"
 	"time"
 
@@ -85,6 +87,9 @@ func (s *Server) mcpServicePods(ctx context.Context, service string, refs []stri
 
 // mcpServicePodsCluster — tek cluster'ın okuması (yalnız kendi dönüşüne yazar).
 func (s *Server) mcpServicePodsCluster(ctx context.Context, c thanos.ClusterConfig, re string, window, offset time.Duration, opt mcptools.ServicePodsOpts) mcptools.ServicePodsCluster {
+	if opt.Nodes {
+		return s.mcpServicePodsNodes(ctx, c, re, offset)
+	}
 	cl := mcptools.ServicePodsCluster{ID: c.EffectiveID(), Name: c.Name}
 	start := time.Now()
 	cctx, cancel := context.WithTimeout(ctx, thanosPodsPerCluster)
@@ -131,4 +136,99 @@ func (s *Server) mcpServicePodsCluster(ctx context.Context, c thanos.ClusterConf
 	}
 	cl.DurationMs = time.Since(start).Milliseconds()
 	return cl
+}
+
+// mcpServicePodsNodes — v0.10.1288 (AI SRE Faz 2, tembel node kontrolü):
+// pod metrikleri OKUNMAZ. Üç anlık sorgu (aynı cluster tavanı):
+//  1. thanos.PodNodeQuery — servis pod'larının node'u (KSM kube_pod_info);
+//  2. thanos.NodeCPUPressureQuery — en çok servis pod'u taşıyan ≤3 node'un
+//     CPU kullanımı (allocatable'ın %'si);
+//  3. thanos.NodeTopPodsQuery — o node'lardaki en işlek 5 pod; servisin kendi
+//     pod'u (1. sorgunun kümesi) Service=true (komşu sayılmaz).
+//
+// Eşleme boşsa NodesOK=true + Nodes boş ("node etiketi yok"); 2./3. sorgu
+// düşerse NodeErr dolar, eşleme yine taşınır (okunamadı ≠ temiz).
+func (s *Server) mcpServicePodsNodes(ctx context.Context, c thanos.ClusterConfig, re string, offset time.Duration) mcptools.ServicePodsCluster {
+	cl := mcptools.ServicePodsCluster{ID: c.EffectiveID(), Name: c.Name}
+	start := time.Now()
+	cctx, cancel := context.WithTimeout(ctx, thanosPodsPerCluster)
+	defer cancel()
+	defer func() { cl.DurationMs = time.Since(start).Milliseconds() }()
+	pq := thanos.PodNodeQuery(c.NamespaceFilter, re)
+	cl.Query = pq
+	samples, err := s.thanos.InstantSamples(cctx, c, pq)
+	if err != nil {
+		cl.Err = err.Error()
+		return cl
+	}
+	cl.NodesOK = true
+	cl.PodNodes = make(map[string]string, len(samples))
+	count := map[string]int{}
+	for _, smp := range samples {
+		n := smp.Labels["node"]
+		if n == "" {
+			continue
+		}
+		cl.PodNodes[smp.Labels["namespace"]+"\x00"+smp.Labels["pod"]] = n
+		count[n]++
+	}
+	nodes := topNodesByPods(count, thanos.NodeCheckMaxNodes)
+	if len(nodes) == 0 {
+		return cl
+	}
+	press := map[string]*mcptools.NodePressure{}
+	for _, n := range nodes {
+		cl.Nodes = append(cl.Nodes, mcptools.NodePressure{Cluster: c.Name, Node: n})
+	}
+	for i := range cl.Nodes {
+		press[cl.Nodes[i].Node] = &cl.Nodes[i]
+	}
+	if cq, qerr := thanos.NodeCPUPressureQuery(nodes, offset); qerr == nil {
+		cl.Query += "\n" + cq
+		if rows, rerr := s.thanos.InstantSamples(cctx, c, cq); rerr == nil {
+			for _, smp := range rows {
+				if p := press[smp.Labels["node"]]; p != nil {
+					v := math.Round(smp.Value*10) / 10
+					p.CPUPct = &v
+				}
+			}
+		} else {
+			cl.NodeErr = "node CPU baskısı okunamadı: " + rerr.Error()
+		}
+	}
+	if tq, qerr := thanos.NodeTopPodsQuery(nodes, 5, offset); qerr == nil {
+		cl.Query += "\n" + tq
+		if rows, rerr := s.thanos.InstantSamples(cctx, c, tq); rerr == nil {
+			for _, smp := range rows {
+				p := press[smp.Labels["node"]]
+				if p == nil {
+					continue
+				}
+				ns, pod := smp.Labels["namespace"], smp.Labels["pod"]
+				_, own := cl.PodNodes[ns+"\x00"+pod]
+				p.TopPods = append(p.TopPods, mcptools.NodeTopPod{Namespace: ns, Pod: pod, Pct: math.Round(smp.Value*10) / 10, Service: own})
+			}
+		} else if cl.NodeErr == "" {
+			cl.NodeErr = "node'daki pod'lar okunamadı: " + rerr.Error()
+		}
+	}
+	return cl
+}
+
+// topNodesByPods — SAF: servis pod'u en çok olan n node (eşitlikte ada göre).
+func topNodesByPods(count map[string]int, n int) []string {
+	out := make([]string, 0, len(count))
+	for k := range count {
+		out = append(out, k)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if count[out[i]] != count[out[j]] {
+			return count[out[i]] > count[out[j]]
+		}
+		return out[i] < out[j]
+	})
+	if len(out) > n {
+		out = out[:n]
+	}
+	return out
 }

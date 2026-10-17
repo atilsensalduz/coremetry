@@ -47,19 +47,19 @@ func TestPlanSteps(t *testing.T) {
 		exemplar chstore.ExemplarKind
 	}{
 		{"hata P1 → derin tarama + hatalı pivot + ERROR log artışı", chstore.Problem{Service: "checkout", Metric: "error_rate"}, nil, "P1",
-			"sweep,deploys,deps,pivot,log_spike", true, "slowest_error", "error", chstore.ExemplarError},
+			"sweep,deploys,deps,pivot,log_spike,events", true, "slowest_error", "error", chstore.ExemplarError},
 		{"gecikme P2 → en yavaş pivot, log artışı yok", chstore.Problem{Service: "checkout", Metric: "p99"}, nil, "P2",
-			"sweep,deploys,deps,pivot", false, "slowest", "", chstore.ExemplarSlow},
+			"sweep,deploys,deps,pivot,events", false, "slowest", "", chstore.ExemplarSlow},
 		{"ayakta değil → hatalı pivot + ERROR log", chstore.Problem{Service: "checkout", Metric: "down"}, nil, "P1",
-			"sweep,deploys,deps,pivot,log_spike", true, "slowest_error", "error", chstore.ExemplarError},
+			"sweep,deploys,deps,pivot,log_spike,events", true, "slowest_error", "error", chstore.ExemplarError},
 		{"exception kuralı (metrik yok) → hata planı", chstore.Problem{Service: "checkout", RuleName: "Exception storm"}, nil, "P2",
-			"sweep,deploys,deps,pivot,log_spike", false, "slowest_error", "error", chstore.ExemplarError},
+			"sweep,deploys,deps,pivot,log_spike,events", false, "slowest_error", "error", chstore.ExemplarError},
 		{"doygunluk → pivot yok, log yok", chstore.Problem{Service: "checkout", Metric: "heap"}, nil, "P2",
-			"sweep,deploys,deps", false, "", "", ""},
+			"sweep,deploys,deps,events", false, "", "", ""},
 		{"hacim → yalnız dalga 1", chstore.Problem{Service: "checkout", Metric: "request_rate"}, nil, "P2",
-			"sweep,deploys,deps", false, "", "", ""},
+			"sweep,deploys,deps,events", false, "", "", ""},
 		{"hipotezin temsilci trace'i → pivot trace ile, exemplar okuması yok", chstore.Problem{Service: "checkout", Metric: "heap"},
-			&chstore.RootCauseHypothesis{ExemplarTraceID: "abc"}, "P2", "sweep,deploys,deps,pivot", false, "", "", ""},
+			&chstore.RootCauseHypothesis{ExemplarTraceID: "abc"}, "P2", "sweep,deploys,deps,pivot,events", false, "", "", ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			specs := planSteps(c.p, c.hyp, planIn(c.prio))
@@ -100,6 +100,10 @@ func TestPlanSteps(t *testing.T) {
 				case stepLogSpike:
 					if s.Wave != 2 || s.Spike.Level != c.level || !s.Spike.SpikeFrom.Equal(start.Add(-15*time.Minute)) || !s.Spike.SpikeTo.Equal(t0) {
 						t.Fatalf("log_spike: %+v", s.Spike)
+					}
+				case stepEvents: // v0.10.1288 — [başlangıç − 60 dk, şimdi], dalga 2
+					if s.Wave != 2 || s.Events.Service != "checkout" || !s.Events.From.Equal(start.Add(-60*time.Minute)) || !s.Events.To.Equal(t0) || s.Cap != capEvents {
+						t.Fatalf("events: %+v", s.Events)
 					}
 				}
 			}
@@ -222,6 +226,17 @@ func okReaders(c *calls, n Narrator) readers {
 			c.hit("spike")
 			return mcptools.LogSpikeResult{OK: true, Message: "belirgin artış yok"}, nil
 		},
+		events: func(_ context.Context, svc string, _, _ time.Time, _ int) (mcptools.ProblemWindowData, error) {
+			c.hit("events:" + svc)
+			return mcptools.ProblemWindowData{Rows: []mcptools.ProblemWindowRow{
+				{ID: "p1", RuleID: "r", RuleName: "Error rate", Service: "checkout", StartedAtNs: start.UnixNano()},
+				{ID: "p0", RuleID: "anomaly:checkout:p99_ms", RuleName: "p99 anomaly", Service: "checkout", Priority: "P2", StartedAtNs: start.Add(-5 * time.Minute).UnixNano()},
+			}}, nil
+		},
+		incident: func(context.Context, string) (string, int64, error) {
+			c.hit("incident")
+			return "inc-7", start.Add(2 * time.Minute).UnixNano(), nil
+		},
 		narrator: n,
 		budget:   newLLMBudget(nil, func() time.Time { return t0 }),
 		settings: func() Settings { return NormalizeSettings(DefaultSettings()) },
@@ -239,11 +254,22 @@ func TestRunInvestigationFull(t *testing.T) {
 	inv := newInv()
 	cps := 0
 	runInvestigation(context.Background(), okReaders(c, n), inv, func(*Investigation) { cps++ }, func() time.Time { return t0 })
-	if got := len(inv.Steps); got != 6 {
-		t.Fatalf("6 adım (5 okuma + özet) bekleniyordu: %d %+v", got, inv.Steps)
+	if got := len(inv.Steps); got != 7 {
+		t.Fatalf("7 adım (6 okuma + özet) bekleniyordu: %d %+v", got, inv.Steps)
 	}
-	if cps != 6 {
-		t.Fatalf("her adımda checkpoint: %d", cps)
+	if cps != 8 {
+		t.Fatalf("her adımda + skordan sonra checkpoint: %d", cps)
+	}
+	// v0.10.1288 — 8 hipotez kartı (skor sıralı), zaman çizelgesi, node okuması
+	// YOK (pod verisi yok → doygunluk node'a ihtiyaç duymuyor).
+	if len(inv.Hypotheses) != len(hypothesisTable) || inv.Hypotheses[0].Score < inv.Hypotheses[1].Score || inv.step(stepNode) != nil {
+		t.Fatalf("hipotezler: %+v", inv.Hypotheses)
+	}
+	if len(inv.Timeline) < 3 || inv.Timeline[0].At > inv.Timeline[len(inv.Timeline)-1].At || c.get("incident") != 1 {
+		t.Fatalf("zaman çizelgesi: %+v", inv.Timeline)
+	}
+	if !strings.Contains(n.user, "AJAN HİPOTEZİ") {
+		t.Fatalf("anlatım girdisi en olası hipotezi taşımalı: %s", n.user)
 	}
 	if finalState(inv.Steps) != StateDone {
 		t.Fatalf("durum %s: %+v", finalState(inv.Steps), inv.Steps)
@@ -362,6 +388,7 @@ func TestStepResume(t *testing.T) {
 	}
 	inv.Summary = &Narration{Text: "eski özet", At: now.Add(-time.Minute).UnixNano()}
 	inv.Findings = []Finding{{Kind: "pod", Name: "checkout-1", Level: "crit", Step: stepSweep}}
+	inv.Facts = &Facts{Pods: &PodFacts{PodsState: "ok", Pods: 3}} // v0.10.1288 — taze adımın gerçekleri kayıtta
 	runInvestigation(context.Background(), rd, inv, func(*Investigation) {}, time.Now)
 	if c.get("sweep") != 0 {
 		t.Fatal("taze ok tarama yeniden koştu")
@@ -575,6 +602,9 @@ func TestSummaryOfAndRenderSaved(t *testing.T) {
 
 // TestOrchestratorReadOnly — orkestratörün mağaza okuyucuları yalnız
 // Get/Find/List/Count; problems / hipotez / öncelik yazıcısı yok (öneri ajanı).
+// v0.10.1288 — + Enrich*: chstore'un OKUMA zenginleştirmeleri
+// (EnrichProblemsForRead: deploy → öncelik, satıra yazmaz; terfi Problem'inin
+// bölüm alanları deploy hipotezinin "düzenli yinelenme" çürütmesine girer).
 func TestOrchestratorReadOnly(t *testing.T) {
 	fset := token.NewFileSet()
 	af, err := parser.ParseFile(fset, "orchestrator.go", nil, 0)
@@ -590,7 +620,8 @@ func TestOrchestratorReadOnly(t *testing.T) {
 		if id, ok := sel.X.(*ast.Ident); ok && id.Name == "st" {
 			seen++
 			name := sel.Sel.Name
-			if !(strings.HasPrefix(name, "Get") || strings.HasPrefix(name, "Find") || strings.HasPrefix(name, "List") || strings.HasPrefix(name, "Count")) {
+			if !(strings.HasPrefix(name, "Get") || strings.HasPrefix(name, "Find") || strings.HasPrefix(name, "List") || strings.HasPrefix(name, "Count") ||
+				strings.HasPrefix(name, "EnrichProblemsFor")) {
 				t.Errorf("%s: st.%s — orkestratör yalnız okur", fset.Position(sel.Pos()), name)
 			}
 		}

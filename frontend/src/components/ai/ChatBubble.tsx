@@ -6,8 +6,9 @@ import { chartBlocks, mergeBlockLinks, traceListBlocks, operationBlocks, evidenc
 import { ChatTraceList } from './ChatTraceList'; // v0.10.688 — trace_list bloğu
 import { evidenceBlocks } from '@/lib/chatEvidence'; // v0.10.558
 import { EvidenceCard } from './EvidenceCard';
-import { parseAction, actionVisible, applyActionHref, parseProblemNoteAction } from '@/lib/pageActions';
+import { parseAction, actionVisible, applyActionHref, parseProblemNoteAction, parseSREHypothesisAction } from '@/lib/pageActions';
 import { ProblemNoteButton } from './ProblemNoteButton';
+import { SREHypothesisButton } from './SREHypothesisButton';
 import { OperationCard } from './OperationCard';
 import { Button } from '@/components/ui/Button';
 import type { ChatTurn, ChatStepDetail, ChatTypedBlock, CosreSignalKind, ChatQueryEvidence } from '@/lib/types';
@@ -988,6 +989,9 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
               // v0.10.1169 — "probleme not" aksiyonu (sunucu, tool sonucundan).
               const note = parseProblemNoteAction(b.payload);
               if (note) return <div key={b.id} style={{ marginTop: 6 }}><ProblemNoteButton action={note} onSaved={() => signal('problem_note')} /></div>;
+              // v0.10.1288 — "hipotezi doğrula" (sunucu, get_problem sonucundan; tık-only).
+              const hyp = parseSREHypothesisAction(b.payload);
+              if (hyp) return <div key={b.id} style={{ marginTop: 6 }}><SREHypothesisButton action={hyp} /></div>;
               const a = parseAction(b.payload);
               if (!a || !actionVisible(a, loc.pathname)) return null;
               return (

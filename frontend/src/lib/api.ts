@@ -1375,8 +1375,14 @@ export const api = {
   // v0.10.1282 — AI SRE araştırma kaydı (10 s cache) + elle kuyruğa alma (editor+).
   problemInvestigation: (id: string, signal?: AbortSignal) =>
     get<import('./types').ProblemInvestigationResponse>(`/api/problems/${encodeURIComponent(id)}/investigation`, signal),
-  enqueueProblemInvestigation: (id: string) =>
-    request<import('./types').SREEnqueueResult>(`/api/problems/${encodeURIComponent(id)}/investigation`, { method: 'POST' }),
+  // v0.10.1288 — gövde {kind:'verify', hypothesis} = "Doğrula" (hipotezin derin okumaları).
+  enqueueProblemInvestigation: (id: string, body?: { kind: 'verify'; hypothesis: import('./types').SREHypothesisKind }) =>
+    request<import('./types').SREEnqueueResult>(`/api/problems/${encodeURIComponent(id)}/investigation`,
+      body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : { method: 'POST' }),
+  // v0.10.1288 — "Ele / Onayla" (editor+, audit sre.hypothesis.mark); skor DEĞİŞMEZ.
+  markProblemHypothesis: (id: string, kind: import('./types').SREHypothesisKind, body: { state: 'dismissed' | 'confirmed'; note?: string }) =>
+    request<import('./types').SREHypothesis>(`/api/problems/${encodeURIComponent(id)}/investigation/hypotheses/${encodeURIComponent(kind)}`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   // v0.10.1282 — AI SRE kuyruk / rol durumu (5 s cache).
   sreStatus: (signal?: AbortSignal) => get<import('./types').SREStatus>(`/api/sre/status`, signal),
   // v0.10.1286 — AI SRE ayarı (admin; PUT audit settings.sre_agent.update).

@@ -543,6 +543,33 @@ func (s *Store) IncidentProblems(ctx context.Context, incidentID string) ([]stri
 	return out, rows.Err()
 }
 
+// getProblemIncidentSQL — v0.10.1288 (AI SRE Faz 2, zaman çizelgesi):
+// problemin bağlı olduğu incident ve bağlanma anı. ORDER BY problem_id nokta
+// okuması (FINAL), LIMIT 1 + 3 s tavan.
+const getProblemIncidentSQL = `SELECT incident_id, toUnixTimestamp64Nano(attached_at)
+		FROM incident_problems FINAL
+		WHERE problem_id = ?
+		LIMIT 1
+		SETTINGS max_execution_time = 3`
+
+// GetProblemIncident — problemin incident'ı ("" = bağlı değil) + bağlanma anı
+// (unix ns). Salt okuma; AI SRE zaman çizelgesinin "incident'a bağlandı" olayı.
+func (s *Store) GetProblemIncident(ctx context.Context, problemID string) (string, int64, error) {
+	rows, err := s.conn.Query(ctx, getProblemIncidentSQL, problemID)
+	if err != nil {
+		return "", 0, err
+	}
+	defer rows.Close()
+	var id string
+	var at int64
+	if rows.Next() {
+		if err := rows.Scan(&id, &at); err != nil {
+			return "", 0, err
+		}
+	}
+	return id, at, rows.Err()
+}
+
 // OpenIncidentRollup summarises one open incident's attached-problem state for
 // the cascade-resolution sweep (v0.7.33).
 type OpenIncidentRollup struct {

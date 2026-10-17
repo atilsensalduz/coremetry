@@ -81,7 +81,7 @@ type depsResult struct {
 }
 
 // runDeps — adım (okumalar paralel, birleştirme SAF depsStep).
-func runDeps(ctx context.Context, rd readers, req depsRequest) (Step, []Finding) {
+func runDeps(ctx context.Context, rd readers, req depsRequest) (Step, []Finding, *DepsFacts) {
 	var res depsResult
 	var wg sync.WaitGroup
 	durs := make([]int64, 3)
@@ -128,7 +128,7 @@ func runDeps(ctx context.Context, rd readers, req depsRequest) (Step, []Finding)
 	wg.Wait()
 	st, f := depsStep(req, res)
 	st.Evidence = depsEvidence(req, res, durs)
-	return st, f
+	return st, f, depsFactsOf(req, res)
 }
 
 // depsStep — SAF: üç okuma → adım + bulgular.

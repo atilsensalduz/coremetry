@@ -6,7 +6,7 @@ import type { ChatQueryEvidence, SREInvestigation, SREInvestigationFinding, SREI
 // react-refresh). Adım adları Go internal/sre/plan.go sabitlerinin aynası.
 
 /** Boru hattı sırası (dalga 1 → dalga 2 → anlatım); tablo bu sırayla, sıralanmaz. */
-export const STEP_ORDER = ['sweep', 'deploys', 'deps', 'pivot', 'log_spike', 'summary'] as const;
+export const STEP_ORDER = ['sweep', 'deploys', 'deps', 'pivot', 'log_spike', 'events', 'node', 'summary'] as const;
 
 export const STEP_LABEL: Record<string, string> = {
   sweep: 'Servis taraması',
@@ -14,16 +14,18 @@ export const STEP_LABEL: Record<string, string> = {
   deps: 'Bağımlılık',
   pivot: 'Trace pivotu',
   log_spike: 'Log artışı',
+  events: 'Olaylar', // v0.10.1288 — alarmlar + aşağı akış db/ext problemleri + incident
+  node: 'Node baskısı', // v0.10.1288 — tembel; yalnız doygunluk hipotezi isterse
   summary: 'AI özeti',
 };
 
-/** orderedSteps — adımlar boru hattı sırasıyla (bilinmeyen sonda), en çok 6. */
+/** orderedSteps — adımlar boru hattı sırasıyla (bilinmeyen sonda), en çok 8. */
 export function orderedSteps(steps: readonly SREInvestigationStep[]): SREInvestigationStep[] {
   const rank = (n: string) => {
     const i = (STEP_ORDER as readonly string[]).indexOf(n);
     return i < 0 ? STEP_ORDER.length : i;
   };
-  return [...steps].sort((a, b) => rank(a.name) - rank(b.name)).slice(0, 6);
+  return [...steps].sort((a, b) => rank(a.name) - rank(b.name)).slice(0, STEP_ORDER.length);
 }
 
 /** Adım durumu: yalnız sapan durum renk alır (tablo standardı — ok düz metin). */
@@ -70,6 +72,7 @@ export function findingKindLabel(kind: string): string {
     case 'dependency': return 'bağımlılık';
     case 'k8s': return 'Kubernetes';
     case 'jvm': return 'JVM';
+    case 'node': return 'node';
     default: return kind;
   }
 }

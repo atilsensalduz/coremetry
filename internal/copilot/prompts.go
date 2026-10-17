@@ -1422,7 +1422,9 @@ func SystemPromptLogSpike() string { return systemLogSpike }
 // model sabit şekli kopyalasın — systemProblem / systemLogSpike emsali).
 // Ajan YALNIZ ÖNERİ üretir: model bir şeyi değiştirdiğini ya da uyguladığını
 // söylemez. Veri-talimat çerçevesi (DataNotInstruction): bulgu gerekçeleri ve
-// log değerleri operatörün telemetrisinden AYNEN gelir.
+// log değerleri operatörün telemetrisinden AYNEN gelir. v0.10.1288 (Faz 2):
+// paket kodla skorlanmış en olası hipotezi ("AJAN HİPOTEZİ") taşır; model onu
+// anabilir, skoru değiştiremez (skor internal/sre Score — LLM girdisi değil).
 const systemSREInvestigation = `Sen Coremetry APM içinde kıdemli bir SRE asistanısın. Bir Problem açıldı ve
 otomatik araştırma ajanı deterministik okumaları ZATEN yaptı. Sana HAZIR bir
 araştırma paketi verilir: problem başlığı, adımların durumu (servis taraması,
@@ -1436,6 +1438,9 @@ KURALLAR:
 - Durumu "okunamadı" / "atlandı" / "hata" olan adım hakkında sonuç çıkarma —
   okunamadı, yok demek değildir; bunu bir cümleyle söyle.
 - Deploy ile hata zamanının yakınlığı korelasyondur, nedensellik değil; öyle yaz.
+- "AJAN HİPOTEZİ" satırı KODLA hesaplanmış skordur: "Muhtemel neden"de bu
+  hipotezi adıyla ve bandıyla anabilirsin; skoru, bandı ya da sırayı DEĞİŞTİRME,
+  yeni hipotez uydurma. "belirgin hipotez yok" yazıyorsa öyle söyle.
 - Kanıt yetersizse "Muhtemel neden" bölümünde "kanıt yetersiz" de; sebep uydurma.
 - Sen ve ajan HİÇBİR ŞEYİ DEĞİŞTİRMEDİNİZ: "yeniden başlattım", "geri aldım",
   "uyguladım" gibi cümle kurma. Sonraki adım yalnız ÖNERİDİR.
@@ -1462,6 +1467,8 @@ ADIMLAR:
 - trace pivotu: tamam — POST /pay 2300 ms, 2 bulgu
 - log artışı: kısmi — ×5,9; desen boyutu okunamadı
 SENTEZLEYİCİ: şüpheli payments-db (güven %58)
+AJAN HİPOTEZİ (kod skoru): Deploy — yüksek 0.75 — başlangıçtan 12 dk önce checkout@rev 42 (rollout)
+DİĞER HİPOTEZLER: Bağımlılık arızası orta 0.55 · Kod gerilemesi / yeni exception orta 0.45
 BULGULAR (sunucu sırası):
 1. [crit] deploy checkout@rev 42 — başlangıçtan 12 dk önce rollout (rev 42←rev 41)
 2. [crit] operasyon POST /pay — hata oranı %9 (önceki %0,5)
@@ -1473,7 +1480,7 @@ Kanıt:
 - checkout@rev 42 rollout'u başlangıçtan 12 dk önce (rev 42←rev 41)
 - POST /pay hata oranı %9 (önceki %0,5)
 - aşağı akış bağımlılığı payments-db p99'u +180%
-Muhtemel neden: rev 42 rollout'u ile hata artışı zamanca örtüşüyor (korelasyon); payments-db yavaşlaması ikinci aday. Log desen boyutu okunamadı.
+Muhtemel neden: ajanın en olası hipotezi Deploy (yüksek): rev 42 rollout'u ile hata artışı zamanca örtüşüyor (korelasyon); payments-db yavaşlaması ikinci aday. Log desen boyutu okunamadı.
 Sonraki adım: rev 41 ile rev 42 arasındaki POST /pay değişikliğini ve payments-db p99'unu karşılaştırın; geri alma kararı operatörde.` + DataNotInstruction
 
 // SystemPromptSREInvestigation — arka plan AI SRE anlatımı (internal/sre).

@@ -6027,3 +6027,44 @@ tetikleyicisi yok); sentezleyici hipotezi salt-okunur kopya (SynthRef).
 **Ertelenen:** Argo CD Degraded/OutOfSync notu (servis → uygulama eşlemesi api
 katmanında), node / gürültülü komşu kontrolü (Faz 2), log_patterns kontrolü
 (explain_log_spike karşılıyor).
+
+## 2026-10-17 — AI SRE Faz 2: hipotez kartları + zaman çizelgesi + doğrula/ele (v0.10.1288)
+
+**Karar:** ajanın araştırması 8 türlü hipotez kartı taşır (deploy · config ·
+doygunluk/OOM · bağımlılık arızası · dış servis kesintisi · DB yavaşlığı ·
+trafik sıçraması · kod gerilemesi/yeni exception; kategoriler incident_cases
+sözlüğünden). Skor SAF ve deterministik `sre.Score(ev)` —
+`clamp(öncül + Σ ağırlık × sonuç, 0, 1)`, sonuç +1/−1/0; bant yüksek ≥0.70 /
+orta ≥0.40 / düşük; kartta ilk 3. Öncül/ağırlık tablosu kodda
+(`internal/sre/hypotheses.go` `hypothesisTable`); her kontrol
+{ad, sonuç, gerekçe, kanıt künyesi}. Girdi YALNIZ Faz 1b adımlarının topladığı
+yapısal gerçekler (`Investigation.Facts`, resume/doğrulama aynı girdiden yeniden
+hesaplar) + iki yeni adım: `events` (ReadProblemWindowEvents öznenin + aşağı
+akış db:/ext: düğümlerinin problemleri, incident bağlanması) ve TEMBEL `node`
+(follow-up B'nin node satırı: kube_pod_info → ≤3 node, node CPU % allocatable
+≥90 uyarı, servis dışı pod ≥%40 "gürültülü komşu"; node etiketi yoksa skipped;
+yalnız doygunluk hipotezi isterse — pod kanıtı doğrulamıyorsa ve belirti
+gecikme/doygunluk ya da pod kanıtı belirsizse, ya da doğrulamada). Zaman
+çizelgesi ≤30 olay (başlangıç, deploy, log artışı, ilk hata, alarmlar,
+incident). "Doğrula" = `Enqueue{Kind: verify, Hypothesis}`: önceki koşunun
+adımları + gerçekleri taşınır, yalnız hipotezin adımları yeniden okunur
+(`verifyForced`), anlatım koşu başına ≤1 çağrı (doğrulama da koşu). "Ele /
+Onayla" = POST /api/problems/{id}/investigation/hypotheses/{kind}
+{state, note} (editor+, audit `sre.hypothesis.mark`) → HumanState; skor
+DEĞİŞMEZ ve yeniden skorda türe göre taşınır. Sohbet: get_problem
+`investigation.hypotheses` (≤3) + tık-only `sre_hypothesis` aksiyon bloğu
+(problemNoteAction deseni, yalnız editor'a; jetonsuz — yük serbest metin
+taşımaz). Anlatım istemi en olası hipotezi ("AJAN HİPOTEZİ") anabilir, skoru
+değiştiremez.
+
+**Neden / sınır:** iki motor ayrı kalır — kök-neden sentezleyicisi
+(root_cause_hypotheses, tek yazıcı) yalnız SynthRef olarak okunur ve kartta
+"Korelatör — ayrı motor" kutusunda çizilir; ajan hipotez tablosuna / derin
+kanıta / problems'a / önceliğe YAZMAZ (TestNeverWritesHypothesisTable,
+TestOrchestratorReadOnly). Oylar okunmaz; işaret skora girmez
+(TestHypothesisMarkNeverChangesScore). Kuyrukta/koşan kayıt işaretlenemez
+(409 — drain checkpoint'i ezerdi).
+
+**Ertelenen:** Argo CD senkron durumu (config kartında "okunmuyor" kontrolü,
+ağırlık 0.20 hep 0); DB p99 tabanı (kenar ortalaması yaklaşık); ext-down
+problem öznesi (kaynak adı) ↔ topoloji `ext:` düğümü eşlemesi yalnız birebir ad.

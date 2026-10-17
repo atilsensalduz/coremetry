@@ -41,6 +41,9 @@ type EnqueueRequest struct {
 	Priority         string
 	ProblemStartedAt int64 // unix ns
 	By               string
+	// Hypothesis — v0.10.1288: Kind=verify iken doğrulanacak hipotez türü
+	// (IsHypothesisKind; yoksa ErrInvalid).
+	Hypothesis string
 	// SharedFrom — doluysa kayıt kuyruğa GİRMEZ: aynı servisin yakın tarihli
 	// araştırmasına işaret eden "paylaşılan" satır yazılır.
 	SharedFrom string
@@ -78,6 +81,9 @@ func Load(ctx context.Context, st QueueStore, problemID string) (Investigation, 
 //   - queued / running kayıt → dokunulmaz (çift kuyruk yok).
 //   - bitmiş kayıt + otomatik istek → dokunulmaz (otomatik ASLA yeniden koşmaz).
 //   - bitmiş kayıt + elle istek → Run++ ile taze koşu (adımlar temizlenir).
+//   - v0.10.1288: bitmiş kayıt + doğrulama (Kind=verify, Hypothesis) → Run++;
+//     önceki adımlar + gerçekler taşınır, yalnız hipotezin adımları yeniden
+//     okunur. Her yeniden koşuda operatör işaretleri (HumanState) taşınır.
 //   - SharedFrom → kuyruğa girmeyen "shared" satır.
 func Enqueue(ctx context.Context, st QueueStore, req EnqueueRequest, cfg Settings) (EnqueueResult, error) {
 	if !cfg.IsEnabled() {
@@ -88,6 +94,9 @@ func Enqueue(ctx context.Context, st QueueStore, req EnqueueRequest, cfg Setting
 	}
 	if req.Kind == "" {
 		req.Kind = KindAuto
+	}
+	if req.Kind == KindVerify && !IsHypothesisKind(req.Hypothesis) {
+		return EnqueueResult{}, ErrInvalid
 	}
 	now := req.Now
 	if now.IsZero() {
@@ -103,7 +112,7 @@ func Enqueue(ctx context.Context, st QueueStore, req EnqueueRequest, cfg Setting
 		case StateQueued, StateRunning:
 			return EnqueueResult{State: cur.State, Reason: "zaten kuyrukta"}, nil
 		}
-		if req.Kind != KindManual {
+		if req.Kind != KindManual && req.Kind != KindVerify {
 			return EnqueueResult{State: cur.State, Reason: "zaten araştırıldı"}, nil
 		}
 		run = cur.Run + 1
@@ -113,6 +122,19 @@ func Enqueue(ctx context.Context, st QueueStore, req EnqueueRequest, cfg Setting
 		Kind: req.Kind, Priority: req.Priority, Run: run, EnqueuedAt: now.UnixNano(),
 		RequestBy: req.By, ProblemAt: req.ProblemStartedAt,
 		Anchor: anchorFor(req.ProblemStartedAt, now),
+	}
+	if ok && cur.State != StateShared {
+		// v0.10.1288 — operatör işaretleri (HumanState) yeniden koşudan sağ
+		// çıkar; doğrulama ayrıca önceki koşunun adımlarını + gerçeklerini
+		// taşır: yalnız hipotezin adımları yeniden okunur (verifyForced).
+		inv.Hypotheses = cur.Hypotheses
+		if req.Kind == KindVerify {
+			inv.Hypothesis = req.Hypothesis
+			inv.Steps, inv.Findings, inv.Facts = cur.Steps, cur.Findings, cur.Facts
+			inv.Timeline, inv.Summary, inv.SynthRef, inv.Warnings = cur.Timeline, cur.Summary, cur.SynthRef, cur.Warnings
+		}
+	} else if req.Kind == KindVerify {
+		inv.Hypothesis = req.Hypothesis
 	}
 	if req.SharedFrom != "" && req.SharedFrom != req.ProblemID {
 		inv.State = StateShared

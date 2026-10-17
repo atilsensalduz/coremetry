@@ -990,8 +990,14 @@ export function AlertProblemDetail({ problem, isAdmin, onBack, onChanged }: {
                 pod'lar, log imzaları) D4'ün yazdığı hipotezden çizilir. */}
             {isExtSeries
               ? <ExternalEvidencePanel problem={problem} window={probWindow} />
-              : <RootCausePanel problemId={problem.id} service={problem.service} window={probWindow}
-                  onLoaded={rc => setRcRollouts(rc?.hypothesis?.deep?.rollouts ?? [])} />}
+              : (
+                // v0.10.1288 — AI SRE kartlarındaki "Kök neden paneline git" kaydırma hedefi
+                // (panelin kendisi değişmez; ROOT_CAUSE_ANCHOR hypothesisView.ts).
+                <div id="problem-root-cause">
+                  <RootCausePanel problemId={problem.id} service={problem.service} window={probWindow}
+                    onLoaded={rc => setRcRollouts(rc?.hypothesis?.deep?.rollouts ?? [])} />
+                </div>
+              )}
             {/* Background problemExplainer's persisted first-look blurb —
                 full prose here (the feed card only tooltips it). */}
             {problem.aiSummary && (
