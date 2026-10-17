@@ -204,7 +204,6 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
   // soru sorulmamışken çekilir — ev kuralı: aç-üzerine-getir, liste
   // prefetch'i yok, poll yok. (v0.10.1138 — `user` yukarıda, profil seçimiyle birlikte.)
   // v0.9.182 — Alternatif A: sayfa-içi tam-boy expand (operatör seçimi).
-  const [expanded, setExpanded] = useState(false);
   // v0.10.1138 — son cevabın sürüm görünümü ("önceki cevap (1/2)"); yeni tur gelince sıfırlanır.
   const [versionSel, setVersionSel] = useState<{ turn: unknown; idx: number } | null>(null);
   const [opening, setOpening] = useState(false);
@@ -619,12 +618,14 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
                 flex: 1, minWidth: 0,
                 color: subject ? 'var(--text2)' : currentService ? 'var(--accent2)' : 'var(--text3)',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              }} title={subject ? `${aiSubjectTitle(subject)} · ${aiSubjectSubtitle(subject)}` : currentService ? `Sorular ${currentService} servisine kapsanır` : 'Filo geneli sorular'}>
+              }} title={subject ? `${aiSubjectTitle(subject)} · ${aiSubjectSubtitle(subject)}` : currentService ? `Sorular ${currentService} servisine kapsanır` : undefined}>
                 {subject
                   ? `✨ ${aiSubjectTitle(subject)} · ${aiSubjectSubtitle(subject)}`
                   : pinned
                     ? ''
-                    : `${currentService ? `📍 ${currentService}` : 'filo geneli'}${env ? ` · env ${env}` : ''}`}
+                    // v0.10.1295 (operatör 2026-10-17: "filo geneli yazmasına gerek yok") —
+                    // servis yoksa etiket boş; yalnız env (varsa) kalır.
+                    : [currentService ? `📍 ${currentService}` : '', env ? `env ${env}` : ''].filter(Boolean).join(' · ')}
               </span>
               {/* v0.10.540 — pin çipi / sabitle düğmesi (özne kipinde yok: Explain
                   zaten özne-kilitli). */}
@@ -656,14 +657,9 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
                   aria-expanded={showHistory}
                   title="Konuşma geçmişi">🕘 Geçmiş</Button>
               )}
-              {!isPage && (
-                // v0.10.1255 (operatör: "tam ekrana geç daha belirgin olabilir") —
-                // yalnız ikon değil, etiketli düğme.
-                <Button variant="secondary" size="sm" className="cm-head-btn" onClick={() => setExpanded(e => !e)}
-                  aria-pressed={expanded}
-                  title={expanded ? 'Çekmeceyi daralt' : 'Çekmeceyi tam ekran yap'}>
-                  {expanded ? '⊟ Daralt' : '⤢ Tam ekran'}</Button>
-              )}
+              {/* v0.10.1295 (operatör 2026-10-17: "en üstte iki tane tam ekran ve tam
+                  sayfada aç çıkıyor") — "⤢ Tam ekran" (çekmeceyi 1100 px'e genişletme)
+                  KALDIRILDI; tek yol "Tam sayfada aç ↗" (/cosre, geçmiş + kurallar). */}
               {!subject && turns.length > 0 && (
                 <Button variant="secondary" size="sm" onClick={startNew}
                   title="Konuşmayı temizle ve yeni konuşma başlat">Temizle</Button>
@@ -1053,7 +1049,7 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
         <Drawer
           onClose={closeDrawer}
           backdrop={false}
-          width={expanded ? 1100 : AI_DRAWER_WIDTH}
+          width={AI_DRAWER_WIDTH}
           bodyStyle={{ display: 'flex', flexDirection: 'column', padding: 0 }}
           header={headerNode}>
           <div className="cosre-root cosre-root--drawer">{bodyNode}</div>

@@ -19,7 +19,9 @@ describe('AI çekmeceleri aynı genişlik', () => {
   it('v0.10.483 — TEK çekmece: AIDrawer CopilotChat\'e delege eder, kendi Drawer\'ı yok', () => {
     expect(ai).toContain('<CopilotChat />');
     expect(ai).not.toContain('<Drawer');
-    expect(chat).toContain('width={expanded ? 1100 : AI_DRAWER_WIDTH}');
+    // v0.10.1295 — "Tam ekran" (1100 px genişletme) kaldırıldı; çekmece tek genişlik.
+    expect(chat).toContain('width={AI_DRAWER_WIDTH}');
+    expect(chat).not.toContain("'⤢ Tam ekran'");
     expect(chat).not.toMatch(/width=\{expanded \? 1100 : 480\}/);
     // Özne aynı kabukta: CopilotChat ?ai= öznesini okur ve AIDrawerBody çizer.
     expect(chat).toContain('useAiSubject()');
