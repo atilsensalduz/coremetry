@@ -1805,14 +1805,28 @@ func zoomClientFor(skipVerify bool) *http.Client {
 	}
 	zoomInsecureOnce.Do(func() {
 		zoomInsecureClient = &http.Client{
-			Timeout: 15 * time.Second,
-			// nolint:gosec // operator-opt-in for corp-proxy MITM CAs.
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-			},
+			Timeout:   15 * time.Second,
+			Transport: zoomInsecureTransport(),
 		}
 	})
 	return zoomInsecureClient
+}
+
+// zoomInsecureTransport — v0.10.1283 (operatör onaylı düzeltme): eskiden
+// sıfırdan bir http.Transport kuruluyordu → Proxy alanı nil kalıyor,
+// HTTPS_PROXY/NO_PROXY YOK SAYILIYORDU; kurumsal proxy arkasında
+// "TLS doğrulamasını atla" açık Zoom kanalı api.zoom.us'a doğrudan
+// gitmeye çalışıp düşüyordu (tam da bu bayrağın açıldığı kurulum). Artık
+// http.DefaultTransport klonlanır (Proxy: ProxyFromEnvironment, havuz ve
+// zaman aşımı ayarları dahil) ve yalnız TLS doğrulaması kapatılır.
+func zoomInsecureTransport() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	if t.Proxy == nil {
+		t.Proxy = http.ProxyFromEnvironment
+	}
+	// nolint:gosec // operator-opt-in for corp-proxy MITM CAs.
+	t.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	return t
 }
 
 func (n *Notifier) sendZoomChat(ctx context.Context, c chstore.NotificationChannel, p chstore.Problem) error {
