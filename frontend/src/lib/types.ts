@@ -9512,3 +9512,79 @@ export interface ArgoCDDiscoverError { error: string; errorType?: string; upstre
 /** GET /api/admin/function-code-shape (v0.10.1226) — function_code biçim ölçümü (son 1 saat). */
 export interface FunctionCodeShapeRow { conforms: boolean; len: number; distinct: number; spans: number; example: string }
 export interface FunctionCodeShapeReport { source: 'rollup' | 'spans' | ''; from: number; to: number; rows: FunctionCodeShapeRow[] }
+
+// ── AI SRE (v0.10.1282, Faz 0a) ─────────────────────────────────────────────
+// Go: sre.Investigation (saved_views page='sre-investigation' gövdesi).
+export type SREInvestigationState = 'none' | 'queued' | 'running' | 'done' | 'partial' | 'shared' | 'error' | 'skipped';
+export interface SREInvestigationStep {
+  name: string;
+  state: 'ok' | 'partial' | 'error' | 'skipped';
+  summary?: string;
+  durationMs: number;
+  at: number; // unix ns
+  evidenceRefs?: string[];
+}
+export interface SREInvestigationFinding {
+  kind: string;
+  name: string;
+  level: string;
+  reasons?: string[];
+  evidenceRefs?: string[];
+}
+export interface SREInvestigation {
+  problemId: string;
+  displayId?: string;
+  service: string;
+  env?: string;
+  kind: 'auto' | 'manual' | 'verify' | 'replay' | 'resolve';
+  state: SREInvestigationState;
+  priority?: string;
+  attempts: number;
+  run: number;
+  claimedBy?: string;
+  enqueuedAt: number; // unix ns
+  claimedAt?: number;
+  startedAt?: number;
+  finishedAt?: number;
+  sharedFrom?: string;
+  requestBy?: string;
+  problemStartedAt: number;
+  anchor: { from: number; to: number; symptom?: string };
+  steps: SREInvestigationStep[];
+  findings: SREInvestigationFinding[];
+  error?: string;
+  warnings?: string[];
+}
+// Go: api.problemInvestigationResponse — GET /api/problems/{id}/investigation.
+export interface ProblemInvestigationResponse {
+  state: SREInvestigationState;
+  position?: number; // 1 tabanlı kuyruk sırası (yalnız queued)
+  enabled: boolean;
+  investigation?: SREInvestigation;
+}
+// Go: sre.Heartbeat.
+export interface SREHeartbeat {
+  pod: string;
+  version: string;
+  mode: string; // sre | all
+  startedAt: number;
+  at: number;
+  inFlight: number;
+  drained: number;
+  idleExitSec: number;
+}
+// Go: api.sreStatusResponse — GET /api/sre/status.
+export interface SREStatus {
+  enabled: boolean;
+  launcher: 'deployment' | 'inprocess' | 'none';
+  roleSeen: boolean;
+  pods: SREHeartbeat[];
+  queueDepth: number;
+  running: number;
+}
+// Go: sre.EnqueueResult — POST /api/problems/{id}/investigation.
+export interface SREEnqueueResult {
+  state: SREInvestigationState;
+  created: boolean;
+  reason?: string;
+}

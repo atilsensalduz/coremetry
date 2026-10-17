@@ -9,7 +9,7 @@ Datadog / Dynatrace / Honeycomb engineer this?"**
 
 | Constraint | Enforced where |
 |---|---|
-| **Single-binary release** — one image/tag; `COREMETRY_MODE=all\|ingest\|api\|worker` for roles | `main.go`, `Dockerfile` |
+| **Single-binary release** — one image/tag; `COREMETRY_MODE=all\|ingest\|api\|worker\|agent\|sre` for roles (`all` ⊃ sre drain; worker only enqueues) | `main.go` `parseRunModeValue`, `Dockerfile` |
 | **Picker = server-side search** — never eager `<Combobox options={…}>` | `ServicePicker` / `OperationPicker` / `MetricNamePicker` |
 | **Table > 100 rows** — virtualize, server-paginate, or `content-visibility:auto` | every list page |
 | **Record-list tables sortable + resizable** — shared primitive, never hand-rolled | `useDataTable` + `DataTable.tsx`; template `SlowQueries.tsx` |

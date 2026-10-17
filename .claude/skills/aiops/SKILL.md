@@ -32,6 +32,7 @@ Tüm döngüler `if mode.worker` (`main.go:652,1221,1251`) + Redis lider kilidi
 | ExternalScanner (Oracle serileri) | `external.go:117` ← poller kancası | 30 s | problems (kind=external) |
 | Rollout reconciler | `main.go:1124` | ayar | rollout olayları → RCA girdisi |
 | Synthetic monitor | `monitor/runner.go:32` | tik | problems (monitor:*) |
+| AI SRE üreticisi (v0.10.1282) | `sre/enqueuer.go` `coremetry:lock:sre-enqueue` (worker; tüketici `sre` rolü/all, iş başına kilit) | 30 s | YALNIZ saved_views(page='sre-investigation') — problems'a YAZMAZ |
 
 **Evaluator tik sırası** (`evaluator.go:452-622`): kurallar → SLO → DB kapasite
 → DB yavaş ifade → DB sağlığı (`db-health`, v0.10.1073) → yaygın yavaşlama (`svc-slowdown`, v0.10.1091) → runtime → paylaşılan exception patlaması → ölümcül

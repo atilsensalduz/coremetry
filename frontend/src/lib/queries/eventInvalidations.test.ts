@@ -26,6 +26,9 @@ describe('eventInvalidations', () => {
   it('rollout yalnız listeyi geçersiz kılar (stats 60 s TTL korunur)', () => {
     expect(eventInvalidations('rollout')).toEqual([keys.rollouts.listAll]);
   });
+  it('sre.investigation kayıt dalı + kuyruk durumu (v0.10.1282)', () => {
+    expect(eventInvalidations('sre.investigation')).toEqual([keys.problems.investigationAll, keys.sre.all]);
+  });
   it('bilinmeyen kind → boş (blanket refetch YOK)', () => {
     expect(eventInvalidations('garbage.kind')).toEqual([]);
     expect(eventInvalidations('')).toEqual([]);

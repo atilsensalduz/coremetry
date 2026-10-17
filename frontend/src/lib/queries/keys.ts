@@ -75,6 +75,9 @@ export const keys = {
     affected:    (id: string) => ['problems', 'affected', id] as const, // v0.10.707
     sourceEvent: (id: string) => ['problems', 'source-event', id] as const, // v0.10.1106
     logTemplates: (id: string) => ['problems', 'log-templates', id] as const, // v0.10.1113
+    // v0.10.1282 — AI SRE araştırma kaydı; SSE 'sre.investigation' tüm dalı düşürür.
+    investigationAll: ['problems', 'investigation'] as const,
+    investigation: (id: string) => ['problems', 'investigation', id] as const,
     list:        (filter: { status?: string; service?: string; ownerTeam?: string; sreTeam?: string; env?: string; limit?: number }) =>
                    ['problems', 'list', filter] as const,
     // v0.9.825 — tekil kayıt (bildirim derin linki yedek yolu).
@@ -84,6 +87,12 @@ export const keys = {
     // satır arıyor ve iki şeklin aynı dala düşmesi o taramayı
     // gereksizce şekil-ayırt etmeye zorlardı.
     byID:        (id: string) => ['problems', 'byid', id] as const,
+  },
+
+  // v0.10.1282 — AI SRE kuyruk / rol durumu (GET /api/sre/status).
+  sre: {
+    all:    ['sre'] as const,
+    status: ['sre', 'status'] as const,
   },
 
   anomalies: {

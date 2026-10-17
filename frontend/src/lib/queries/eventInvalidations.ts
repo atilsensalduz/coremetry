@@ -12,7 +12,8 @@ import { keys } from './keys';
 export type EventKind =
   | 'problem.open' | 'problem.resolve'
   | 'anomaly.open' | 'anomaly.clear'
-  | 'rollout'; // v0.10.201 — workload_rollouts satırı değişti (pod tail'i, PublishLocal)
+  | 'rollout' // v0.10.201 — workload_rollouts satırı değişti (pod tail'i, PublishLocal)
+  | 'sre.investigation'; // v0.10.1282 — AI SRE kaydı değişti (drain / üretici / POST)
 
 export function eventInvalidations(kind: EventKind | string): QueryKey[] {
   switch (kind) {
@@ -32,6 +33,10 @@ export function eventInvalidations(kind: EventKind | string): QueryKey[] {
       // yalnız liste: stats/runs kendi TTL'lerinde kalır (sunucu tail'i de
       // zaten tik başına tek olay + tek süpürme garantisi verir, rollouts.go)
       return [keys.rollouts.listAll];
+    // v0.10.1282 — payload taşınmaz: kayıt dalı + kuyruk durumu tazelenir
+    // (yalnız açık detay panelleri gözlemci; kapalı sorgu refetch etmez).
+    case 'sre.investigation':
+      return [keys.problems.investigationAll, keys.sre.all];
     default:
       return [];
   }
@@ -49,5 +54,6 @@ export function catchupInvalidations(): QueryKey[] {
     keys.incidents.all,
     keys.inbox.all,
     keys.rollouts.all, // v0.10.201
+    keys.sre.all, // v0.10.1282
   ];
 }

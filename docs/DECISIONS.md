@@ -5959,3 +5959,40 @@ CD API'sinden gelir (P3.3, askıda) — yazılmaz; pod_label (§11 K2.4) yazılm
   o birleşim P3.4'te eklenir. Pin düzenleyicisi yok (pinler API'den); Ayarlar › Argo CD metinleri artık
   "Faz 3" demiyor, pinlerin ne zaman kullanıldığını ve instance_id'nin durum + eşleme satırlarına bağlı
   olduğunu söylüyor.
+
+## 2026-10-17 — AI SRE Faz 0a: ayrı `sre` rolü, saved_views kuyruğu, always-on Deployment (v0.10.1282)
+
+**Karar:** AI SRE ajanı kendi rolünde koşar (`COREMETRY_MODE=sre`; `all` onu
+süreç içinde içerir, `worker` içermez). Üretici WORKER'da (lider kilidi
+`coremetry:lock:sre-enqueue`, 30 s, P1/P2 + son 15 dk + servis öznesi; tik
+başına 2, saatte 20, servis başına 15 dk soğuma → aynı servisin ikinci
+problemi "paylaşılan" kayıt), tüketici `sre` rolünde (iş başına Redis kilidi,
+pod başına 2 eşzamanlı, 90 s bütçe, checkpoint + resume, çökmede 2×kira sonra
+yeniden kuyruk / 2 denemede hata, SIGTERM'de 20 s sonra queued'a iade).
+Kuyruk = araştırma kaydı = `saved_views(page='sre-investigation', id='sre-<problemId>',
+owner_id='', name=<durum>)`, gövde ≤ 64 KB; sistem sayfası (genel /api/views
+yazamaz), 30 günde süpürülür (StartAIChatSweeper'ın ikinci kolu). Ayar
+`system_settings.sre_agent` (enabled nil = açık, autoPriorities nil = [P1,P2],
+[] = otomatik kapalı; admin PUT `/api/settings/sre`, audit
+`settings.sre_agent.update`). Uçlar: `GET /api/sre/status`, `GET|POST
+/api/problems/{id}/investigation` (POST editor+, audit
+`problem.investigation.enqueue`). 0a yürütücüsü tek adım: `sweep` =
+`mcptools.ReadServiceSweep` (CoSRE sohbetiyle aynı okuma).
+
+**Başlatıcı (operatör 2026-10-17):** always-on Deployment `<release>-sre`
+(chart `deployment.roles.sre.enabled`, distributed'da varsayılan AÇIK; raw
+manifestler `coremetry-sre`). Job başlatıcı (Faz 0b: k8sjobs, RBAC, Job
+ConfigMap) DÜŞÜRÜLDÜ; boşta çıkış yolu (`COREMETRY_SRE_IDLE_EXIT`, varsayılan 0
+= asla) ve CH kuyruğu ileride bir Job başlatıcı eklenebilsin diye korundu.
+
+**Neden:** (1) worker zaten 13 lider döngü taşıyor ve tek replika — uzun süren
+okuma fan-out'u onun tikini geciktirmesin; (2) api kullanıcıya bakar, HPA'lı,
+etki alanı geniş; (3) kuyruk CH'de, Redis listesi değil — sre pod'u yokken de
+kalıcı ve durum ekranı onu sayabiliyor; (4) ajan YALNIZ öneri üretir:
+problems / root_cause_hypotheses / öncelik tablolarına yazmaz
+(TestEnqueueNeverUpsertsProblems), oy / kalite puanı okumaz (cosrelearn
+TestVotesNeverReachRuntimeDecisions `../sre`'yi tarar).
+
+**Reddedilen:** kuyruğu root_cause_hypotheses ya da problems kolonlarında
+tutmak (tek yazıcıları başka, /aiops §6); drain'i worker'da koşmak; idle exit'i
+Deployment'ta açık bırakmak (çıkış = restart döngüsü).

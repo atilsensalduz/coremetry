@@ -91,6 +91,31 @@ deployment:
       enabled: false
       replicas: 1
       resources: {}
+    # AI SRE drain (v0.10.1282, Faz 0a) — always-on `<release>-sre`
+    # Deployment, COREMETRY_MODE=sre. Consumes the investigation queue the
+    # worker fills (P1/P2 problems → read-only service sweep → record shown on
+    # the Problem page). Recommendation-only: never writes problems, never
+    # executes anything. Default ON in distributed mode because the worker
+    # enqueues by default — without a consumer the queue fills (cap 200) and
+    # every Problem page shows "SRE rolü yok". The monolithic all-pod runs the
+    # drain in-process, so this block is only consulted in mode=distributed.
+    # No Service (nothing connects to it); probes /readyz + /livez. Replicas >1
+    # are HA-safe (each item is claimed via a per-item Redis lock). Turn the
+    # agent itself off with admin PUT /api/settings/sre {"enabled":false} (system_settings sre_agent).
+    sre:
+      enabled: true
+      replicas: 1
+      # 0 = never exit. >0 = exit after N idle seconds (only meaningful for a
+      # future Job launcher; a Deployment would just restart the pod).
+      idleExitSec: 0
+      # Small by design: the pod only runs bounded MV / Thanos reads.
+      resources:
+        requests:
+          cpu: 250m
+          memory: 512Mi
+        limits:
+          cpu: "2"
+          memory: 2Gi
 
 # Pod-level options
 podAnnotations: {}

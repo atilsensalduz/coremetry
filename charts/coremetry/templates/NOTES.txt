@@ -92,6 +92,12 @@ Coremetry has been installed.
     {{ include "coremetry.fullname" . }}-ingest   ({{ .Values.deployment.roles.ingest.replicas }} replicas)
     {{ include "coremetry.fullname" . }}-api      ({{ .Values.deployment.roles.api.replicas }} replicas)
     {{ include "coremetry.fullname" . }}-worker   ({{ .Values.deployment.roles.worker.replicas }} replica — DO NOT scale)
+    {{- if (.Values.deployment.roles.sre | default dict).enabled }}
+    {{ include "coremetry.fullname" . }}-sre      ({{ .Values.deployment.roles.sre.replicas }} replica — AI SRE drain, no Service)
+    {{- else }}
+  ⚠ deployment.roles.sre.enabled=false — the worker still queues AI SRE
+    investigations; disable the agent (admin PUT /api/settings/sre {"enabled":false}) or the queue fills.
+    {{- end }}
 
   External clients reach the UI / REST / MCP through the stable
   {{ include "coremetry.fullname" . }} Service (aliases the api role).

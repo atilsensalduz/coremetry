@@ -38,6 +38,13 @@
        automated step is claimed via a per-execution Redis lock). */}}
 {{- $roles = append $roles (dict "name" "agent" "mode" "agent" "replicas" .Values.deployment.roles.agent.replicas "resources" .Values.deployment.roles.agent.resources "extras" false) }}
 {{- end }}
+{{- $sre := .Values.deployment.roles.sre | default dict }}
+{{- if $sre.enabled }}
+{{- /* v0.10.1282 — AI SRE drain (COREMETRY_MODE=sre): always-on, Service YOK,
+       OTLP portu YOK, readiness /readyz (sre-only pod /api/health servis
+       etmez). extras true: Thanos / VM tokenRef'leri sweep okumalarında çözülür. */}}
+{{- $roles = append $roles (dict "name" "sre" "mode" "sre" "replicas" ($sre.replicas | default 1) "resources" $sre.resources "extras" true "ready" "/readyz") }}
+{{- end }}
 {{- range $role := $roles }}
 ---
 apiVersion: apps/v1
@@ -102,6 +109,7 @@ spec:
             - name: http
               containerPort: 8088
               protocol: TCP
+            {{- if ne $role.name "sre" }}
             - name: otlp-grpc
               containerPort: 4317
               protocol: TCP
@@ -110,9 +118,20 @@ spec:
               containerPort: 4318
               protocol: TCP
             {{- end }}
+            {{- end }}
           env:
             - name: COREMETRY_MODE
               value: {{ $role.mode | quote }}
+            {{- if eq $role.name "sre" }}
+            # v0.10.1282 — Deployment asla boşta çıkmaz (0); >0 yalnız Job başlatıcı için.
+            - name: COREMETRY_SRE_IDLE_EXIT
+              value: {{ $sre.idleExitSec | default 0 | quote }}
+            {{- end }}
+            {{- if has $role.name (list "api" "worker") }}
+            # v0.10.1282 — GET /api/sre/status `launcher` alanı (banner kararı).
+            - name: COREMETRY_SRE_LAUNCHER
+              value: {{ ternary "deployment" "none" (and $sre.enabled true) | quote }}
+            {{- end }}
             - name: COREMETRY_JWT_SECRET
               valueFrom:
                 secretKeyRef:
@@ -242,7 +261,7 @@ spec:
             {{- end }}
             {{- end }}
           readinessProbe:
-            httpGet: { path: /api/health, port: http }
+            httpGet: { path: {{ $role.ready | default "/api/health" }}, port: http }
             periodSeconds: 5
             failureThreshold: 3
           # v0.8.339 (HA audit H3) — liveness split from readiness.

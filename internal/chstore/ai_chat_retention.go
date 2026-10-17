@@ -141,7 +141,24 @@ func (s *Store) StartAIChatSweeper(ctx context.Context, interval time.Duration, 
 			log.Printf("[ai-chat-sweep] %d sohbet satırı silindi (son yazım < %s, %d gün)", n, cutoff.UTC().Format(time.RFC3339), cfg.Days)
 		}
 	}
+	// v0.10.1282 — AI SRE araştırma kayıtları (page='sre-investigation'):
+	// sabit 30 gün, sohbet saklama ayarından BAĞIMSIZ (days=0 sohbet
+	// süpürmesini kapatır, bunu değil). Aynı lider, aynı tik.
+	runSRE := func() {
+		if !leader.IsLeader() {
+			return
+		}
+		cutoff := time.Now().Add(-SREInvestigationRetention)
+		n, err := s.SweepSREInvestigations(ctx, cutoff)
+		switch {
+		case err != nil:
+			log.Printf("[sre-sweep] %v", err)
+		case n > 0:
+			log.Printf("[sre-sweep] %d araştırma satırı silindi (son yazım < %s)", n, cutoff.UTC().Format(time.RFC3339))
+		}
+	}
 	runOnce()
+	runSRE()
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
@@ -150,6 +167,7 @@ func (s *Store) StartAIChatSweeper(ctx context.Context, interval time.Duration, 
 			return
 		case <-t.C:
 			runOnce()
+			runSRE()
 		}
 	}
 }

@@ -37,8 +37,9 @@ Dikkat edilecek üç davranış:
 
 `COREMETRY_MODE` rolleri: `all` (varsayılan, tek pod) · `ingest` (OTLP alıcı
 + CH yazıcı) · `api` (UI + REST + SSE + MCP) · `worker` (evaluator, anomali,
-topoloji, retention, bildirim; **tek replika**) · `agent` (runbook otomatik
-adımları). "Rol" sütunu değişkeni **kullanan** rolü gösterir; `config.Load`
+topoloji, retention, bildirim, AI SRE kuyruğa alma; **tek replika**) · `agent`
+(runbook otomatik adımları) · `sre` (AI SRE drain, v0.10.1282; Service'siz,
+always-on). "Rol" sütunu değişkeni **kullanan** rolü gösterir; `config.Load`
 her rolde koşar, ama örneğin ingest knob'ları api pod'unda etkisizdir.
 
 Chart eşlemesi: `charts/coremetry/templates/deployment.yaml:89-190` ve
@@ -59,7 +60,9 @@ Sütunlar: **Okunduğu yer** · **Yokken / varsayılan** · **Etki** · **Rol** 
 
 | Değişken | Okunduğu yer | Yokken / varsayılan | Etki | Rol | Gizli |
 |---|---|---|---|---|---|
-| `COREMETRY_MODE` | `main.go:117` `parseRunMode` | boş → `all` | `all\|ingest\|api\|worker\|agent`; başka değer → `log.Fatalf` (`main.go:130`). Chart `deployment.mode=distributed` her rolü ayrı Deployment yapar. | hepsi | hayır |
+| `COREMETRY_MODE` | `main.go` `parseRunModeValue` | boş → `all` | `all\|ingest\|api\|worker\|agent\|sre`; başka değer → `log.Fatalf`. `all` sre'yi içerir (AI SRE drain süreç içinde), `worker` içermez (yalnız kuyruğa yazar). `sre` (v0.10.1282): yalnız AI SRE drain + `/livez` `/readyz` `/api/version`; tohumlama / preset / retention DDL / HTTP API yok. Chart `deployment.mode=distributed` her rolü ayrı Deployment yapar (`deployment.roles.sre.enabled`, varsayılan açık). | hepsi | hayır |
+| `COREMETRY_SRE_IDLE_EXIT` | `main_sre.go` `idleExitFor` | boş / `0` → asla | Yalnız `sre` rolü: kuyruk boş ve uçuşta iş yokken bu süre geçince drain kapanır, süreç 0 ile çıkar. Saniye (`120`) ya da Go süresi (`2m`); geçersiz → kapalı + log. Chart / raw manifest Deployment'ı `0` verir (Deployment'ta çıkış = restart); >0 ileride bir Job başlatıcı içindir. `all` modunda yok sayılır. v0.10.1282. | sre | hayır |
+| `COREMETRY_SRE_LAUNCHER` | `internal/api/sre_status.go` → `sre.ResolveLauncher` | boş → taze bir `sre` kalp atışı varsa `deployment`, yoksa `none` | `GET /api/sre/status` `launcher` alanı: `deployment` \| `none` (`off` = none). Chart api + worker'a `deployment`/`none` yazar (`deployment.roles.sre.enabled`). Drain aynı süreçteyse (`all`) her zaman `inprocess`. Problem sayfasındaki "SRE rolü yok — kuyrukta N iş bekliyor" banner'ı: kuyruk > 0, 60 s'dir kalp atışı yok, `inprocess` değil. v0.10.1282. | api, worker | hayır |
 | `COREMETRY_AGENT_ENV_PASSTHROUGH` | `main.go:730` agent bloğu → `agent.ConfigureBashEnv` (`internal/agent/bashenv.go`) | boş → runbook bash adımı yalnız taban listeyi görür (aşağıda) | CSV (`splitCSVEnv`); girdi `AD` (tam, harfe duyarlı) ya da `ÖNEK*` (yalnız sonda `*`, önek ≥3 karakter), ör. `PD_TOKEN,K8S_*,https_proxy`. Büyük harfe çevrilince `COREMETRY_` ile başlayan ad **hiçbir** yoldan geçmez (tam ad, önek, taban, proxy). Önek eşleşmesi `PASS\|SECRET\|TOKEN\|KEY\|CRED\|AUTH\|PRIVATE\|SESSION\|COOKIE` içeren adı ya da `@` taşıyan değeri süpürmez — kimlik yalnız tam adıyla geçer (boot logunda "credential-like" notuyla). Boot'ta reddedilir + `[agent] WARNING … entry rejected` loglanır: çıplak `*`, kısa önek, geçersiz ad (yalnız sırası gösterilir, içerik yankılanmaz), `COREMETRY_*`. Monolitikte chart `extraEnv` ile verilir; distributed agent rolüne bugün verilemez (extras render edilmez). v0.10.966. | agent, all | hayır (yalnız adlar) |
 | `COREMETRY_HTTP_ADDR` | `config.go:632` | `:8088` | api rolünde Web UI + REST + SSE + OTLP/HTTP yedeği; api olmayan rollerde yalnız `/livez` + 503 sağlık dinleyicisi (`main.go:325` boot listener, `main.go:1414` "Health-only HTTP"). Port doluysa boot anında `Fatalf`. | hepsi | hayır |
 | `COREMETRY_GRPC_ADDR` | `config.go:641` | `:4317` | OTLP/gRPC alıcı (`main.go:526`, yalnız ingest). `all` modda self-obs varsayılan hedefini de türetir (`main.go:301` `selfObsDefaultEndpoint`). | ingest | hayır |

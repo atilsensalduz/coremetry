@@ -1372,6 +1372,13 @@ export const api = {
   // v0.10.1113 — başlangıçta doğan log şablonları (kök neden kanıtı), 60 s cache.
   problemLogTemplates: (id: string, signal?: AbortSignal) =>
     get<import('./types').ProblemLogTemplatesResponse>(`/api/problems/${encodeURIComponent(id)}/log-templates`, signal),
+  // v0.10.1282 — AI SRE araştırma kaydı (10 s cache) + elle kuyruğa alma (editor+).
+  problemInvestigation: (id: string, signal?: AbortSignal) =>
+    get<import('./types').ProblemInvestigationResponse>(`/api/problems/${encodeURIComponent(id)}/investigation`, signal),
+  enqueueProblemInvestigation: (id: string) =>
+    request<import('./types').SREEnqueueResult>(`/api/problems/${encodeURIComponent(id)}/investigation`, { method: 'POST' }),
+  // v0.10.1282 — AI SRE kuyruk / rol durumu (5 s cache).
+  sreStatus: (signal?: AbortSignal) => get<import('./types').SREStatus>(`/api/sre/status`, signal),
   // v0.10.561 — sohbet arşivi saklama süresi (admin).
   aiChatRetention: () => get<import('./types').AIChatRetention>(`/api/ai/chat-retention`),
   putAIChatRetention: (c: import('./types').AIChatRetention) =>

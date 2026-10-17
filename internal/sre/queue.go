@@ -1,0 +1,153 @@
+package sre
+
+// queue.go — v0.10.1282 — kuyruğa alma. Tek giriş noktası Enqueue: WORKER'daki
+// üretici (otomatik) ve POST /api/problems/{id}/investigation (elle) aynı
+// kapılardan geçer. Problem satırına ASLA dokunmaz.
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/cilcenk/coremetry/internal/chstore"
+)
+
+// QueueStore — kuyruğun dört okuması/yazması (*chstore.Store karşılar).
+// Bilerek DAR: problems / hipotez yazıcısı bu arayüzde yok, yani paket
+// onları çağıramaz (TestEnqueueNeverUpsertsProblems).
+type QueueStore interface {
+	GetSREInvestigation(ctx context.Context, problemID string) (*chstore.SavedView, error)
+	PutSREInvestigation(ctx context.Context, problemID, state, body string, createdAt int64) error
+	ListSREInvestigations(ctx context.Context, states []string, limit int) ([]chstore.SavedView, error)
+	CountSREQueued(ctx context.Context) (int, error)
+}
+
+var (
+	// ErrDisabled — sre_agent.enabled=false.
+	ErrDisabled = errors.New("AI SRE kapalı")
+	// ErrQueueFull — kuyruk MaxQueue'da.
+	ErrQueueFull = errors.New("kuyruk dolu")
+	// ErrInvalid — problemId / servis eksik.
+	ErrInvalid = errors.New("problem kimliği ve servis zorunlu")
+)
+
+// EnqueueRequest — kuyruğa alma isteği.
+type EnqueueRequest struct {
+	ProblemID        string
+	DisplayID        string
+	Service          string
+	Env              string
+	Kind             string // auto | manual | …
+	Priority         string
+	ProblemStartedAt int64 // unix ns
+	By               string
+	// SharedFrom — doluysa kayıt kuyruğa GİRMEZ: aynı servisin yakın tarihli
+	// araştırmasına işaret eden "paylaşılan" satır yazılır.
+	SharedFrom string
+	Now        time.Time
+}
+
+// EnqueueResult — sonuç.
+type EnqueueResult struct {
+	State   string `json:"state"`
+	Created bool   `json:"created"`
+	Reason  string `json:"reason,omitempty"`
+}
+
+// save — kaydı kodlayıp yazar (createdAt = EnqueuedAt, her yazımda taşınır).
+func save(ctx context.Context, st QueueStore, inv Investigation) error {
+	body, err := Encode(inv)
+	if err != nil {
+		return err
+	}
+	return st.PutSREInvestigation(ctx, inv.ProblemID, inv.State, body, inv.EnqueuedAt)
+}
+
+// Load — problemin kaydı (yoksa ya da sahteyse ok=false).
+func Load(ctx context.Context, st QueueStore, problemID string) (Investigation, bool, error) {
+	v, err := st.GetSREInvestigation(ctx, problemID)
+	if err != nil || v == nil {
+		return Investigation{}, false, err
+	}
+	inv, ok := Decode(*v)
+	return inv, ok, nil
+}
+
+// Enqueue — kayıt açar ya da elle istekte yeniden kuyruğa alır.
+//
+//   - queued / running kayıt → dokunulmaz (çift kuyruk yok).
+//   - bitmiş kayıt + otomatik istek → dokunulmaz (otomatik ASLA yeniden koşmaz).
+//   - bitmiş kayıt + elle istek → Run++ ile taze koşu (adımlar temizlenir).
+//   - SharedFrom → kuyruğa girmeyen "shared" satır.
+func Enqueue(ctx context.Context, st QueueStore, req EnqueueRequest, cfg Settings) (EnqueueResult, error) {
+	if !cfg.IsEnabled() {
+		return EnqueueResult{}, ErrDisabled
+	}
+	if req.ProblemID == "" || req.Service == "" {
+		return EnqueueResult{}, ErrInvalid
+	}
+	if req.Kind == "" {
+		req.Kind = KindAuto
+	}
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
+	run := 1
+	cur, ok, err := Load(ctx, st, req.ProblemID)
+	if err != nil {
+		return EnqueueResult{}, err
+	}
+	if ok {
+		switch cur.State {
+		case StateQueued, StateRunning:
+			return EnqueueResult{State: cur.State, Reason: "zaten kuyrukta"}, nil
+		}
+		if req.Kind != KindManual {
+			return EnqueueResult{State: cur.State, Reason: "zaten araştırıldı"}, nil
+		}
+		run = cur.Run + 1
+	}
+	inv := Investigation{
+		ProblemID: req.ProblemID, DisplayID: req.DisplayID, Service: req.Service, Env: req.Env,
+		Kind: req.Kind, Priority: req.Priority, Run: run, EnqueuedAt: now.UnixNano(),
+		RequestBy: req.By, ProblemAt: req.ProblemStartedAt,
+		Anchor: anchorFor(req.ProblemStartedAt, now),
+	}
+	if req.SharedFrom != "" && req.SharedFrom != req.ProblemID {
+		inv.State = StateShared
+		inv.SharedFrom = req.SharedFrom
+		inv.FinishedAt = now.UnixNano()
+	} else {
+		n, err := st.CountSREQueued(ctx)
+		if err != nil {
+			return EnqueueResult{}, err
+		}
+		if n >= cfg.MaxQueue {
+			return EnqueueResult{}, ErrQueueFull
+		}
+		inv.State = StateQueued
+	}
+	if err := save(ctx, st, inv); err != nil {
+		return EnqueueResult{}, err
+	}
+	return EnqueueResult{State: inv.State, Created: true}, nil
+}
+
+// anchorFor — SAF: [başlangıç − 15 dk, min(now, başlangıç + 30 dk)]. Başlangıç
+// yoksa now'a göre son 45 dk; ters pencere en az 1 dk'ya açılır.
+func anchorFor(startNs int64, now time.Time) Anchor {
+	start := time.Unix(0, startNs)
+	if startNs <= 0 {
+		start = now.Add(-30 * time.Minute)
+	}
+	from := start.Add(-15 * time.Minute)
+	to := start.Add(30 * time.Minute)
+	if now.Before(to) {
+		to = now
+	}
+	if !to.After(from) {
+		to = from.Add(time.Minute)
+	}
+	return Anchor{From: from.UnixNano(), To: to.UnixNano()}
+}

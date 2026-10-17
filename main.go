@@ -54,6 +54,7 @@ import (
 	"github.com/cilcenk/coremetry/internal/rag"
 	"github.com/cilcenk/coremetry/internal/rollout"
 	"github.com/cilcenk/coremetry/internal/selfobs"
+	"github.com/cilcenk/coremetry/internal/sre"
 	"github.com/cilcenk/coremetry/internal/sse"
 	"github.com/cilcenk/coremetry/internal/templater"
 	"github.com/cilcenk/coremetry/internal/tempo"
@@ -112,29 +113,50 @@ var BuildVersion = "dev"
 // (one Deployment, mode=all) vs distributed (three Deployments
 // with mode=ingest/api/worker) via values.yaml.
 //
+// v0.10.1282 — "sre" (AI SRE Faz 0a): araştırma kuyruğunun tüketicisi
+// (internal/sre StartDrain). all modu sre'yi İÇERİR (drain süreç içinde);
+// worker İÇERMEZ (worker yalnız üretir — StartEnqueuer). Chart'ta always-on
+// `<release>-sre` Deployment'ı (deployment.roles.sre).
+//
 // Older deployments are unchanged: COREMETRY_MODE unset → "all".
 type runMode struct {
-	ingest, api, worker, agent bool
-	name                       string
+	ingest, api, worker, agent, sre bool
+	name                            string
+}
+
+// sreOnly — yalnız sre rolü: tohumlama / preset / retention / HTTP API
+// atlanır, yerine küçük sağlık sunucusu (main_sre.go).
+func (m runMode) sreOnly() bool {
+	return m.sre && !m.ingest && !m.api && !m.worker && !m.agent
+}
+
+// parseRunModeValue — SAF: COREMETRY_MODE değeri → rol bayrakları.
+func parseRunModeValue(s string) (runMode, error) {
+	m := strings.ToLower(strings.TrimSpace(s))
+	switch m {
+	case "", "all":
+		return runMode{ingest: true, api: true, worker: true, agent: true, sre: true, name: "all"}, nil
+	case "ingest":
+		return runMode{ingest: true, name: "ingest"}, nil
+	case "api":
+		return runMode{api: true, name: "api"}, nil
+	case "worker":
+		return runMode{worker: true, name: "worker"}, nil
+	case "agent":
+		return runMode{agent: true, name: "agent"}, nil
+	case "sre":
+		return runMode{sre: true, name: "sre"}, nil
+	default:
+		return runMode{}, fmt.Errorf("invalid COREMETRY_MODE=%q (must be one of: all, ingest, api, worker, agent, sre)", m)
+	}
 }
 
 func parseRunMode() runMode {
-	m := strings.ToLower(strings.TrimSpace(os.Getenv("COREMETRY_MODE")))
-	switch m {
-	case "", "all":
-		return runMode{ingest: true, api: true, worker: true, agent: true, name: "all"}
-	case "ingest":
-		return runMode{ingest: true, name: "ingest"}
-	case "api":
-		return runMode{api: true, name: "api"}
-	case "worker":
-		return runMode{worker: true, name: "worker"}
-	case "agent":
-		return runMode{agent: true, name: "agent"}
-	default:
-		log.Fatalf("invalid COREMETRY_MODE=%q (must be one of: all, ingest, api, worker, agent)", m)
-		return runMode{}
+	m, err := parseRunModeValue(os.Getenv("COREMETRY_MODE"))
+	if err != nil {
+		log.Fatalf("%v", err)
 	}
+	return m
 }
 
 // buildAcachePolicy resolves the autocomplete-cache cardinality policy
@@ -277,8 +299,8 @@ func main() {
 	}
 
 	mode := parseRunMode()
-	log.Printf("[mode] running as role=%s (ingest=%v api=%v worker=%v)",
-		mode.name, mode.ingest, mode.api, mode.worker)
+	log.Printf("[mode] running as role=%s (ingest=%v api=%v worker=%v sre=%v)",
+		mode.name, mode.ingest, mode.api, mode.worker, mode.sre)
 	// v0.10.966 — PR_SET_DUMPABLE=0 HER rolde: runbook bash adımı (agent/all)
 	// ve MCP stdio sunucuları (her rol) aynı uid ile koşar; dumpable süreçte
 	// `cat /proc/$PPID/environ` env allowlist'ini atlatıp JWT secret'ı ve CH
@@ -763,10 +785,13 @@ func main() {
 	// expired. See internal/auth/live_authz.go for the cache + fail-open
 	// reasoning.
 	authSvc.SetAuthzLookup(store)
-	if err := seedInitialAdmin(ctx, store, cfg.Auth); err != nil {
-		log.Printf("[auth] seed initial admin: %v", err)
+	// v0.10.1282 — sre-only pod kullanıcı/runbook tohumlamaz (yazıcı roller yapar).
+	if !mode.sreOnly() {
+		if err := seedInitialAdmin(ctx, store, cfg.Auth); err != nil {
+			log.Printf("[auth] seed initial admin: %v", err)
+		}
+		seedExampleRunbooks(ctx, store)
 	}
-	seedExampleRunbooks(ctx, store)
 	// Custom-role catalog — operator-defined viewer subsets, persisted
 	// in system_settings. Failure to load is non-fatal: the service
 	// boots with no custom roles and the admin can recreate them later.
@@ -816,8 +841,10 @@ func main() {
 	//
 	// Hata artık ölümcül değil ama SESSİZ de değil: SeedPresetDashboards
 	// sürümü okuyamazsa yıkıcı yola girmeden hata döner (v0.9.564).
-	if err := store.SeedPresetDashboards(ctx); err != nil {
-		log.Printf("[chstore] seed preset dashboards: %v", err)
+	if !mode.sreOnly() { // v0.10.1282 — sre-only pod preset tohumlamaz
+		if err := store.SeedPresetDashboards(ctx); err != nil {
+			log.Printf("[chstore] seed preset dashboards: %v", err)
+		}
 	}
 
 	// ── Re-apply admin-set retention overrides ──────────────────────────────
@@ -825,8 +852,10 @@ func main() {
 	// but operators can override them live via the UI. Re-running ALTER
 	// MODIFY TTL on boot ensures a restart doesn't silently fall back
 	// to the config defaults.
-	if err := store.ApplyPersistedRetention(ctx); err != nil {
-		log.Printf("[chstore] apply persisted retention: %v", err)
+	if !mode.sreOnly() { // v0.10.1282 — sre-only pod TTL DDL'i koşmaz
+		if err := store.ApplyPersistedRetention(ctx); err != nil {
+			log.Printf("[chstore] apply persisted retention: %v", err)
+		}
 	}
 	// v0.5.320 — proactive retention enforcer. CH's merge-based
 	// TTL drop has a 4h timeout default and won't reclaim disk
@@ -989,6 +1018,12 @@ func main() {
 		log.Printf("[copilot] load persisted config: %v", err)
 	}
 	cfgRefresh.Add("copilot", func(ctx context.Context) error { return copilotSvc.LoadPersisted(ctx, store) })
+	// v0.10.1282 — AI SRE ayarı (system_settings sre_agent) HER rolde: worker
+	// üretir, sre/all tüketir, api durum + POST ucunda okur.
+	if err := sre.LoadSettings(ctx, store); err != nil {
+		log.Printf("[sre] load persisted settings: %v", err)
+	}
+	cfgRefresh.Add("sre-agent", func(ctx context.Context) error { return sre.LoadSettings(ctx, store) })
 	// CoSRE öğrenme Faz 2+4 — gece kalite puanı; önce örneklem self-hosted
 	// hakeme (yapılandırılmış AI profili; ai_calls'a "cosre-selfeval" düşer).
 	if mode.worker {
@@ -1497,6 +1532,9 @@ func main() {
 	srv.SetAllowedOrigins(cfg.AllowedOrigins, cfg.PublicURL) // v0.10.804 — CORS allowlist (M4)
 	if mode.worker {
 		go srv.StartOperationCatalog(ctx, lockImpl) // CoSRE operasyon tespiti Faz 1 — operasyon kataloğu
+		// v0.10.1282 — AI SRE üreticisi: YALNIZ worker (lider kilidi
+		// coremetry:lock:sre-enqueue); kuyruğa yazar, Problem'e dokunmaz.
+		go sre.StartEnqueuer(ctx, store, cacheImpl, lockImpl, srv.PublishSRE)
 	}
 	// v0.9.1281 — kanca bağlanır, ANCAK ŞİMDİ döngü başlar. Kanca kendi
 	// kapılarını taşıyor (AutoExplainEnabled / Active / kota devre-kesici
@@ -1550,10 +1588,14 @@ func main() {
 	// MCP kimliği). Adapter chstore→auth tip köprüsü.
 	authSvc.EnableAPITokens(ctx, tokenSourceAdapter{store})
 	// v0.8.442 — wiki/URL kaynaklarının 30 dk'lık leader-gated senkronu.
-	go srv.StartRAGSync(ctx, lockImpl)
+	if !mode.sreOnly() { // v0.10.1282 — sre pod'u lider yarışlarına girmez
+		go srv.StartRAGSync(ctx, lockImpl)
+	}
 	// v0.10.1013 — Argo CD: keşfedilen instance'ların kendiliğinden kaydı
 	// (argocd.autoRegister.enabled, varsayılan kapalı; kapalıyken sorgu / kilit yok).
-	go srv.StartArgoCDAutoRegister(ctx, lockImpl)
+	if !mode.sreOnly() {
+		go srv.StartArgoCDAutoRegister(ctx, lockImpl)
+	}
 
 	// v0.8.346 (HA audit H6) — the role guard the old comment only claimed:
 	// OTLP HTTP routes 501 off the ingest role (a collector mis-pointed at
@@ -1613,6 +1655,17 @@ func main() {
 		go srv.StartWikiSync(ctx, lockImpl)
 	}
 	srv.SetMCPClient(mcpCliSvc)
+	// v0.10.1282 — AI SRE drain: YALNIZ sre rolünde (all dahil). srv.MCPDeps()
+	// her Set*'ten (Thanos, Entity, Rollout, VMetrics, MCPClient) SONRA —
+	// sohbetle aynı kurucu, aynı okuyucular.
+	var sreDone <-chan struct{}
+	if mode.sre {
+		sreDone = sre.StartDrain(ctx, sre.DrainDeps{
+			Deps: srv.MCPDeps(), Store: store, Cache: cacheImpl, Lock: lockImpl,
+			PodID: clusterSvc.MyID(), Version: Version, Mode: mode.name,
+			IdleExit: idleExitFor(mode), Publish: srv.PublishSRE,
+		})
+	}
 	// v0.6.4 — Model Context Protocol server. Wired on api/all
 	// modes only — worker / ingest pods don't take operator
 	// traffic so they have no MCP listeners. External LLMs
@@ -1644,14 +1697,18 @@ func main() {
 	// response from EVERY pod's L1 tier within ~50ms — closes
 	// the multi-pod staleness gap (was bounded only by the
 	// soft TTL, up to 5s + the SWR window).
-	srv.StartCacheInvalidation(ctx)
+	if !mode.sreOnly() { // v0.10.1282 — sre-only pod HTTP API servis etmez
+		srv.StartCacheInvalidation(ctx)
+	}
 	// Async audit drainer (v0.5.339). Mutation handlers push
 	// rows onto a buffered channel; one background goroutine
 	// batches them into a single CH INSERT every 200ms. Removes
 	// the per-mutation goroutine + single-row insert cost that
 	// bottlenecked high-rate admin scripts (bulk alert-rule
 	// imports, mass acks).
-	srv.StartAuditDrainer(ctx)
+	if !mode.sreOnly() {
+		srv.StartAuditDrainer(ctx)
+	}
 	if cfg.Auth.DemoMode {
 		// Demo mode auto-signs the visitor in as the configured initial
 		// admin so they can poke at every screen, including admin-only
@@ -1669,11 +1726,17 @@ func main() {
 	// Shutdown() closes the boot listener before Start() rebinds; the gap
 	// is microseconds against probe periods of seconds.
 	stopBootListener()
-	go func() {
-		if err := srv.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("[http] %v", err)
-		}
-	}()
+	// v0.10.1282 — sre-only: tam API yerine /livez + /readyz + /api/version.
+	var sreHealth *http.Server
+	if mode.sreOnly() {
+		sreHealth = startSREHealth(cfg.Listen.HTTP)
+	} else {
+		go func() {
+			if err := srv.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Fatalf("[http] %v", err)
+			}
+		}()
+	}
 
 	log.Println("┌──────────────────────────────────────────────┐")
 	log.Printf("│         Coremetry APM    — ready (%s)        │", mode.name)
@@ -1682,12 +1745,21 @@ func main() {
 	}
 	if mode.api {
 		log.Printf("│  Web UI + REST API:   http://localhost%s   │", cfg.Listen.HTTP)
+	} else if mode.sreOnly() {
+		log.Printf("│  SRE health HTTP:     http://localhost%s   │", cfg.Listen.HTTP)
 	} else {
 		log.Printf("│  Health-only HTTP:    http://localhost%s   │", cfg.Listen.HTTP)
 	}
 	log.Println("└──────────────────────────────────────────────┘")
 
-	<-ctx.Done()
+	// v0.10.1282 — sreDone yalnız sre rolünde dolu (nil kanal sonsuza bekler).
+	// Drain idle exit ile kapanırsa (IdleExit > 0) süreç düzenli çıkar (0).
+	select {
+	case <-ctx.Done():
+	case <-sreDone:
+		log.Println("[sre] drain bitti (idle exit) — süreç kapanıyor")
+		cancel()
+	}
 	log.Println("Shutting down gracefully...")
 	// v0.8.336 (HA audit H1) — ordered teardown. Sequence matters:
 	//   1. Stop ACCEPTING: gRPC GracefulStop (GOAWAY to collectors,
@@ -1705,6 +1777,9 @@ func main() {
 	if err := srv.Shutdown(sctx); err != nil {
 		log.Printf("[http] shutdown: %v", err)
 	}
+	if sreHealth != nil {
+		_ = sreHealth.Shutdown(sctx)
+	}
 	scancel()
 	pipeCancel()
 	if mode.ingest {
@@ -1714,6 +1789,11 @@ func main() {
 		exemplarConsumer.Stop()
 		spanLinkConsumer.Stop()
 		vmForward.Stop() // v0.10.293
+	}
+	// v0.10.1282 — drain'in düzenli kapanışı (uçuştaki işe ≤20 s, bitmeyen iş
+	// queued'a döner) store.Close'tan (defer) ÖNCE bitmeli.
+	if sreDone != nil {
+		<-sreDone
 	}
 	log.Println("Bye.")
 }

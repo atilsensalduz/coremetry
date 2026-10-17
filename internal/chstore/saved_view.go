@@ -40,6 +40,10 @@ type SavedView struct {
 // en fazla yazanın KENDİ görünümünü etkiler.
 var systemSavedViewPages = map[string]struct{}{
 	ProblemVerdictPage: {}, // v0.10.1015 — PUT /api/problem-verdicts (editor+, denetimli)
+	// v0.10.1282 — AI SRE araştırma kaydı = kuyruk satırı; yalnız sre paketi
+	// (drain / enqueuer) ve POST /api/problems/{id}/investigation (editor+,
+	// denetimli) yazar.
+	SREInvestigationPage: {},
 }
 
 // IsSystemSavedViewPage — SAF: page bir sistem sayfası mı (systemSavedViewPages).

@@ -224,3 +224,36 @@ export function useProblemAffected(id: string, enabled = true) {
     staleTime: 60_000,
   });
 }
+
+// v0.10.1282 — AI SRE araştırması (Problem detayı açıkken). staleTime = sunucu
+// TTL (10 s). Yoklama YALNIZ iş kuyrukta / koşarken, 10 s (RQ gizli sekmede
+// durur); bitmiş kayıt yoklanmaz — değişim SSE 'sre.investigation' ile gelir.
+export const SRE_INVESTIGATION_POLL_MS = 10_000;
+
+export function sreInvestigationInterval(state: string | undefined): number | false {
+  return state === 'queued' || state === 'running' ? SRE_INVESTIGATION_POLL_MS : false;
+}
+
+export function useProblemInvestigation(id: string) {
+  return useQuery({
+    queryKey: keys.problems.investigation(id),
+    queryFn: ({ signal }) => api.problemInvestigation(id, signal),
+    enabled: !!id,
+    staleTime: SRE_INVESTIGATION_POLL_MS,
+    refetchInterval: q => sreInvestigationInterval(q.state.data?.state),
+    placeholderData: undefined,
+  });
+}
+
+// v0.10.1282 — kuyruk durumu yalnız kayıt kuyruktayken gerekir (banner:
+// "SRE rolü yok — kuyrukta N iş bekliyor"). staleTime = sunucu TTL (5 s),
+// yoklama 10 s.
+export function useSREStatus(enabled: boolean) {
+  return useQuery({
+    queryKey: keys.sre.status,
+    queryFn: ({ signal }) => api.sreStatus(signal),
+    enabled,
+    staleTime: 5_000,
+    refetchInterval: enabled ? SRE_INVESTIGATION_POLL_MS : false,
+  });
+}

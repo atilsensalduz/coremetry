@@ -98,6 +98,8 @@ deployment:
     ingest:  { replicas: 2, resources: {} }
     api:     { replicas: 2, resources: {} }
     worker:  { replicas: 1, resources: {} }   # MUST stay 1
+    agent:   { enabled: false, … }            # runbook agent (opt-in)
+    sre:     { enabled: true, replicas: 1, idleExitSec: 0, resources: … }  # v0.10.1282
 ```
 
 **Monolithic** — `charts/coremetry/templates/deployment.yaml`
@@ -110,6 +112,19 @@ three Deployments (ingest / api / worker). Worker replicas locked
 at 1 (leader-elected jobs). The stable `<release>` Service is
 ALIASED to the api role in distributed mode so existing
 ingress/route references keep working.
+
+**sre role (v0.10.1282, AI SRE Faz 0a)** — `deployment.roles.sre.enabled`
+(default **true**) appends a fourth Deployment `<fullname>-sre`
+(`COREMETRY_MODE=sre`, `COREMETRY_SRE_IDLE_EXIT=idleExitSec`, default 0 =
+never exit). It is always-on, leader-free (per-item Redis lock → replicas >1
+are HA-safe), has **no Service** and **no OTLP ports**, and its readiness is
+`/readyz` (the sre-only pod serves only `/livez`, `/readyz`, `/api/version` —
+never `/api/health`). Same securityContext / SA / extras as the other roles.
+api + worker get `COREMETRY_SRE_LAUNCHER=deployment|none` for the status
+endpoint's banner. Both `COREMETRY_SRE_*` names are reserved for extraEnv in
+distributed mode. Monolithic ignores the block (the all-pod drains
+in-process). Why default on: the worker enqueues P1/P2 problems by default;
+without a consumer the queue fills and the Problem page says "SRE rolü yok".
 
 **When adding a chart resource that needs the api fleet:**
 - Service / Ingress / Route → target `<release>` (alias). Works
@@ -256,8 +271,12 @@ shared-JWT-key guard (`templates/secret.yaml`, v0.8.343), so
 `helm template` fails without it. `render-smoke-only` is a throwaway
 value for the render — never a real key.
 Spot-check that:
-- Distributed mode produces the 3 role Deployments
-  (`<fullname>-ingest` / `-api` / `-worker`) + 5 coremetry Services
+- Distributed mode produces the role Deployments
+  (`<fullname>-ingest` / `-api` / `-worker`, plus `-sre` while
+  `deployment.roles.sre.enabled` — v0.10.1282; re-render with
+  `--set deployment.roles.sre.enabled=false` and confirm `-sre` is gone and
+  api/worker carry `COREMETRY_SRE_LAUNCHER=none`) + 5 coremetry Services
+  (no Service for sre)
   (the stable alias→api, one per role, and the always-rendered
   `-ingest-headless` from v0.8.171). The raw totals are higher
   because the bundled OTel Collector, Redis and ClickHouse render too

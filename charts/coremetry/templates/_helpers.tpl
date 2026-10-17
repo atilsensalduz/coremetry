@@ -243,6 +243,10 @@ eder, o env Secret'tan gelir (internal/mcpclient/seed.go).
 {{- end -}}
 {{- end -}}
 {{- $reservedEnv := list "COREMETRY_MODE" "COREMETRY_JWT_SECRET" "COREMETRY_CH_PASSWORD" "COREMETRY_INITIAL_PASSWORD" -}}
+{{- /* v0.10.1282 — distributed'da chart sre rolünün env'lerini de yönetir. */ -}}
+{{- if eq (default "monolithic" .Values.deployment.mode) "distributed" -}}
+{{- $reservedEnv = concat $reservedEnv (list "COREMETRY_SRE_IDLE_EXIT" "COREMETRY_SRE_LAUNCHER") -}}
+{{- end -}}
 {{- range $e := (.Values.extraEnv | default list) -}}
 {{- if has (toString $e.name) $reservedEnv -}}
 {{- fail (printf "coremetry: extraEnv must not set %s — the chart manages it (use deployment.mode / secrets.*)" (toString $e.name)) -}}
