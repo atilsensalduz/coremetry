@@ -9,10 +9,11 @@ import { EvidenceCard } from './EvidenceCard';
 import { parseAction, actionVisible, applyActionHref, parseProblemNoteAction, parseSREHypothesisAction, parseCosreRuleAction } from '@/lib/pageActions';
 import { ProblemNoteButton } from './ProblemNoteButton';
 import { SREHypothesisButton } from './SREHypothesisButton';
+import { showSREHypothesisButton } from './sreHypothesisDedup'; // v0.10.1300
 import { CosreRuleConfirm } from './CosreRuleConfirm';
 import { OperationCard } from './OperationCard';
 import { Button } from '@/components/ui/Button';
-import type { ChatTurn, ChatStepDetail, ChatTypedBlock, CosreSignalKind, ChatQueryEvidence } from '@/lib/types';
+import type { ChatTurn, ChatStepDetail, ChatTypedBlock, CosreSignalKind, ChatQueryEvidence, ChatFollowup } from '@/lib/types';
 import { api } from '@/lib/api';
 import { traceHref } from '@/lib/traceHref';
 import { isPlainLeftClick } from '@/lib/a11y'; // v0.10.1105
@@ -845,6 +846,12 @@ interface ChatBubbleProps {
   onEdit?: (text: string) => void;
   /** test dikişi — "Nasıl cevapladım" açılırını tıklamadan açık çizer (statik render). */
   stepsOpen?: boolean;
+  /**
+   * v0.10.1300 — bu cevabın altında ŞU AN çizilen takip çipleri (FollowupChips);
+   * yalnız çip şeridinin sahibi olan son cevaba verilir. Aynı problem + tür
+   * "hipotezi doğrula" çipi varsa action bloğunun düğmesi çizilmez (çift yok).
+   */
+  shownFollowups?: ChatFollowup[];
 }
 
 // BubbleBoundary — v0.10.1137 inceleme: tek bir cevabın çiziminde beklenmedik
@@ -891,7 +898,7 @@ export const ChatBubble = memo(function ChatBubble(props: ChatBubbleProps) {
   return <BubbleBoundary turn={props.turn}><ChatBubbleView {...props} /></BubbleBoundary>;
 });
 
-function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions, onEdit }: ChatBubbleProps) {
+function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions, onEdit, shownFollowups }: ChatBubbleProps) {
   const effLinks = mergeBlockLinks(turn.links, turn.blocks); // v0.10.541 — link blokları çiplere katılır
   const isUser = turn.role === 'user';
   const navigate = useNavigate();
@@ -991,8 +998,10 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
               const note = parseProblemNoteAction(b.payload);
               if (note) return <div key={b.id} style={{ marginTop: 6 }}><ProblemNoteButton action={note} onSaved={() => signal('problem_note')} /></div>;
               // v0.10.1288 — "hipotezi doğrula" (sunucu, get_problem sonucundan; tık-only).
+              // v0.10.1300 — aynı problem + tür çipi altta görünüyorsa düğme çizilmez (operatör 2026-10-17).
               const hyp = parseSREHypothesisAction(b.payload);
-              if (hyp) return <div key={b.id} style={{ marginTop: 6 }}><SREHypothesisButton action={hyp} /></div>;
+              if (hyp) return showSREHypothesisButton(hyp, shownFollowups)
+                ? <div key={b.id} style={{ marginTop: 6 }}><SREHypothesisButton action={hyp} /></div> : null;
               // v0.10.1289 — "bunu hatırla" onay kartı (sunucu hafıza kademesi; tık-only kayıt).
               const rule = parseCosreRuleAction(b.payload);
               if (rule) return <CosreRuleConfirm key={b.id} action={rule} />;

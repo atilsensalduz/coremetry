@@ -308,7 +308,9 @@ function AIDrawerChat({ subject, explainText, resumed = false, spanIds, traceIds
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {turns.map((t, i) => <ChatBubble key={i} turn={t} onRetry={i === turns.length - 1 && t.error && !busy ? retry : undefined} />)}
+          {/* v0.10.1300 — çip şeridi yalnız son cevabın altında: onun çipleri düğme tekrarını bastırır. */}
+          {turns.map((t, i) => <ChatBubble key={i} turn={t} onRetry={i === turns.length - 1 && t.error && !busy ? retry : undefined}
+            shownFollowups={i === turns.length - 1 && showFollowups ? last?.followups : undefined} />)}
           <div ref={endRef} />
         </div>
 

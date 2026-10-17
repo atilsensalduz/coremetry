@@ -850,12 +850,14 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
                 const v = answerVersion(t, versionSel && versionSel.turn === t ? versionSel.idx : null);
                 return (
                   <ChatBubble key={i} turn={v.view} busy={busy}
+                    shownFollowups={showFollowups ? last?.followups : undefined}
                     onRegenerate={canRegenerate(turns) ? regenerate : undefined}
                     versions={{ index: v.index, total: v.total, onSelect: idx => setVersionSel({ turn: t, idx }) }} />
                 );
               }
               return (
                 <ChatBubble key={i} turn={t} busy={busy}
+                  shownFollowups={isLast && showFollowups ? last?.followups : undefined}
                   onRetry={isLast && t.error && !busy ? retry : undefined}
                   onRegenerate={isLast && canRegenerate(turns) ? regenerate : undefined}
                   onEdit={i === lastUserIdx && t.role === 'user' ? editLastAndPin : undefined} />
