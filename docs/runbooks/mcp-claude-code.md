@@ -115,6 +115,21 @@ fonksiyon → en yeni hatalı trace'in logları). `deep:true` ayrıca code.*
 örneklemi + log desenleri. 15 sn bütçe; her bölüm `state` + not; bölüm
 başına `evidences[]`. Salt okuma.
 
+v0.10.1284'te 74 oldu: `explain_log_spike` (AI SRE Faz 1a) — log ARTIŞINI ne
+açıklıyor: `spike_start_iso`/`spike_end_iso` verilmezse arama penceresinde
+(`window` 15m|1h|6h|24h) en belirgin tepe bulunur (severity bantlı tek
+histogram, medyan/MAD z-skoru, ≥1.5× + Poisson tabanı; düz seri →
+`empty=true` "belirgin artış yok"); verilirse o aralık (≤6 sa) kıyaslanır.
+Taban = önceki pencere [başlangıç − B, başlangıç), B = clamp(3×süre, 15 dk,
+3 sa). Boyutlar: seviye bandı, pod / cluster (log alan eşlemesi rolleri;
+eşlenmemiş → `unmapped`, okunmaz), servis + namespace (servis boşken),
+logger, hata türü, mesaj DESENİ. `contributors` (≤5, boyut başına ≤2)
+artışın FAZLASINI taşıyan değerler: `sharePct` (artıştaki pay), `spikePct`
+/ `basePct`, `new` / `baseUnknown`, Türkçe `reason`. `level=error` yalnız
+ERROR bandını açıklar. Maliyet: 1 histogram + 2 alan okuması (ES'te pencere
+başına TEK `_search`) + ≤2 desen örneklemi (≤500 satır) + ≤12 örnek satır;
+60 sn (artış 10 dk'dan eskiyse 5 dk) önbellekli. Salt okuma; sohbet + dış MCP.
+
 ### "Benim servislerim" MCP'de YOK (bilinçli)
 
 Takım tool'ları takım ADIYLA çalışır. Sebep yukarıdaki sınırın

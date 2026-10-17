@@ -59,7 +59,9 @@
 //     doğru çağrının koşulu, orada kazanılan bayt yanlış argümanla
 //     harcanan bir tura değmez.
 //
-// Tool catalogue (73 tools; v0.10.1276 — 72 → 73: service_sweep.go service_health_sweep (CoSRE adım 7,
+// Tool catalogue (74 tools; v0.10.1284 — 73 → 74: log_spike.go explain_log_spike (AI SRE Faz 1a,
+// log artışını ne açıklıyor: tepe tespiti + önceki pencereyle pod / seviye / desen payı kıyası; salt okuma, sohbet + MCP);
+// v0.10.1276 — 72 → 73: service_sweep.go service_health_sweep (CoSRE adım 7,
 // servisin pod / operasyon / fonksiyon / JVM taraması + sorunluların logları, tek bileşik çağrı; salt okuma, sohbet + MCP);
 // v0.10.1275 — 71 → 72: pivot_trace.go pivot_from_trace (CoSRE adım 6,
 // trace → pod → JVM → log + playbook, tek deterministik bileşik çağrı, hop başına kanıt; salt okuma, sohbet + MCP);
@@ -119,6 +121,8 @@
 //   - get_topology ("yukarımda/aşağımda ne var" — topology_edges_5m MV)
 //   - get_blast_radius ("bu bozulursa kim bozulur" — service_callers_5m)
 //   - get_log_histogram ("log hacmi zamanla nasıl" — severity kırılımı)
+//   - explain_log_spike (v0.10.1284, log_spike.go — "bu artışı ne açıklıyor":
+//     tepe + önceki pencereyle pod / seviye / desen payı; histogramın yanında)
 //
 // Guided-parite tool'ları (v0.9.1147, AI Faz 3.4 — guided_parity.go). D6:
 // guided router 16 intent tanıyordu ve yedisinin MCP karşılığı YOKTU.
@@ -379,6 +383,9 @@ func ToolList(d Deps) []mcp.Tool {
 		// v0.9.1146 (Faz 3.3) — search_logs SATIR döndürür, bu ŞEKİL:
 		// "hata ne zaman başladı" sorusu log ailesinin içinde dursun.
 		getLogHistogramTool(d),
+		// v0.10.1284 (AI SRE Faz 1a) — histogramın SORUSU: "bu artışı ne açıklıyor"
+		// (log_spike.go; tepe + önceki pencereyle pod/seviye/desen payı, tek çağrı).
+		explainLogSpikeTool(d),
 		// v0.10.468 (Faz 2, F2-1) — varlık kataloğu: list_clusters'ın ailesi
 		// (log ailesi araya girmesin diye histogramdan sonra) — namespace →
 		// workload → pod yürüyüşü (entity_catalog.go).

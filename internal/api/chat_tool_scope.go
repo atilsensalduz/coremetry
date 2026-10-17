@@ -115,7 +115,9 @@ var traceInjectTools = map[string]bool{"query_logs": true, "get_logs_for_trace":
 // serviceInjectTools — v0.10.1275: servisi ZORUNLU tutmayan ama servis
 // sayfasında servise kapsanması gereken araçlar (pivot_from_trace: trace_id
 // YA DA service ister; servis sayfasında trace yoksa en yavaş trace o servisten).
-var serviceInjectTools = map[string]bool{mcptools.PivotFromTraceName: true}
+// v0.10.1284 — explain_log_spike: servis isteğe bağlı (boş = filo geneli), servis
+// sayfasında o servisin log artışı sorulur.
+var serviceInjectTools = map[string]bool{mcptools.PivotFromTraceName: true, mcptools.ExplainLogSpikeName: true}
 
 // applyScreenContext — SAF. args JSON nesnesi değilse aynen döner.
 func applyScreenContext(tool string, args json.RawMessage, schema map[string]any, sc toolScreenScope, now time.Time) (json.RawMessage, mcptools.ScopeApplied) {

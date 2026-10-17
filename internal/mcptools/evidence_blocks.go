@@ -57,6 +57,16 @@ type EvChartSeries struct {
 	Points [][2]float64 `json:"points"`
 }
 
+// EvChartRegion — v0.10.1284 (explain_log_spike): grafiğin x-bölgesi (taban /
+// artış penceresi). İSTEĞE BAĞLI: alanı tanımayan eski istemci yok sayar.
+// Tone: err | warn | muted (FE token eşlemesi; renk sunucudan gelmez).
+type EvChartRegion struct {
+	FromMs int64  `json:"fromMs"`
+	ToMs   int64  `json:"toMs"`
+	Label  string `json:"label,omitempty"`
+	Tone   string `json:"tone,omitempty"`
+}
+
 // EvChartPayload — `chart` bloğunun VERİ kipi (service/agg yok: eski istemci
 // sorgu-spec'i sanmaz).
 type EvChartPayload struct {
@@ -65,6 +75,7 @@ type EvChartPayload struct {
 	DeepLink    string          `json:"deepLink,omitempty"`
 	Window      EvBlockWindow   `json:"window"`
 	Series      []EvChartSeries `json:"series"`
+	Regions     []EvChartRegion `json:"regions,omitempty"`
 	Truncated   bool            `json:"truncated,omitempty"`
 }
 

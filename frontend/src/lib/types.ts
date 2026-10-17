@@ -7116,10 +7116,13 @@ export interface ChatCtxApplied {
  * İkisi de `evidenceRef` ile çipe bağlı; `deepLink` = Explore'da aç.
  */
 export interface ChatEvidenceChartSeries { name: string; group?: string; unit: string; points: [number, number][] }
+/** v0.10.1284 — grafik x-bölgesi (explain_log_spike: taban / artış). Tone FE token'ına eşlenir. */
+export interface ChatEvidenceChartRegion { fromMs: number; toMs: number; label?: string; tone?: 'err' | 'warn' | 'muted' | string }
 export interface ChatEvidenceChartPayload {
   title: string; evidenceRef: string; deepLink?: string;
   window: { fromNs: number; toNs: number };
   series: ChatEvidenceChartSeries[]; truncated?: boolean;
+  regions?: ChatEvidenceChartRegion[];
 }
 // v0.10.1275 — 'level': crit/warn/ok rozeti (eski istemci düz metin çizer).
 export type ChatEvidenceColumnKind = 'time' | 'num' | 'severity' | 'trace' | 'text' | 'level';
@@ -8733,6 +8736,45 @@ export interface ServiceChartsExplain {
    */
   error?: string;
 }
+
+// ── LOG ARTIŞI (v0.10.1284, AI SRE Faz 1a) — mcptools.LogSpikeResult ──
+/** Tespit edilen / verilen artış + taban (unix ms). factor 0 = taban hızı 0 (oran tanımsız). */
+export interface LogSpikeWindow {
+  fromMs: number; toMs: number; source: 'given' | 'detected' | 'level_shift' | string;
+  factor: number; ratePerMinSpike: number; ratePerMinBase: number;
+  baseFromMs: number; baseToMs: number; spikeCount: number; baseCount: number; bucketS: number;
+}
+/** Artışın fazlasını taşıyan değer (sunucu sıralı, ≤5). */
+export interface LogSpikeContributor {
+  rank: number; dim: string; value: string; spikeCount: number; baseCount: number;
+  sharePct: number; spikePct: number; basePct: number; liftPts: number;
+  new?: boolean; baseUnknown?: boolean; reason: string;
+}
+/** Boyut durumu: okunamadı (error/timeout/degraded) ≠ yok (empty). */
+export interface LogSpikeDim { dim: string; field?: string; state: string; note?: string }
+export interface LogSpikeSample { tsMs: number; severity: string; service?: string; pod?: string; traceId?: string; body: string }
+export interface LogSpikeResult {
+  tool: string; ok: boolean; partial: boolean; empty?: boolean; message?: string;
+  error?: { code: string; message: string };
+  warnings?: string[];
+  request: Record<string, unknown>;
+  spike?: LogSpikeWindow;
+  contributors: LogSpikeContributor[];
+  contributorsHasMore?: boolean;
+  dims: LogSpikeDim[];
+  data: {
+    /** [kova başı unix ms, toplam, ERROR] */
+    histogram: [number, number, number][];
+    samples: LogSpikeSample[];
+  };
+}
+/** POST /api/copilot/explain-log-spike gövdesi. */
+export interface LogSpikeExplainRequest {
+  service: string; env: string; query: string; level: 'all' | 'error';
+  mode: 'sel' | 'auto'; fromNs: number; toNs: number;
+}
+/** Anlatım düşse de 200 + kanıt (explain-charts emsali); exchangeId yalnız başarılı anlatımda. */
+export interface LogSpikeExplain { explanation: string; exchangeId?: string; error?: string; spike: LogSpikeResult }
 
 // ── ROLLOUTS (v0.10.201) — chstore.RolloutRow / RolloutStats / rollout.Run ──
 /** workload_rollouts satırı; zamanlar ms (0 = yok). Ad WorkloadRollout:

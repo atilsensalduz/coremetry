@@ -14,7 +14,7 @@ import { ChatTraceList } from './ChatTraceList';
 import {
   evidenceChipParts, evidenceChipText, evidenceHref, evidenceKindLabel, evidenceWindowFull,
   evidenceChartGroups, evidenceDefaultOpen, evidenceCellText, evidenceSeverityTone,
-  evidenceLevelTone, evidenceLevelLabel,
+  evidenceLevelTone, evidenceLevelLabel, evidenceRegions,
 } from './evidenceChip';
 
 // EvidenceChips — v0.10.1272 (CoSRE adım 3/8): kanıt çipleri + sohbet içi veri
@@ -130,12 +130,15 @@ function EvidenceBlock({ id, block, ev }: { id: string; block: EvidenceBlockView
 // yeniden sorgu YOK. Seri/nokta tavanı sunucuda (≤20 × ≤120).
 function EvidenceChart({ p }: { p: ChatEvidenceChartPayload }) {
   const groups = evidenceChartGroups(p);
+  // v0.10.1284 — isteğe bağlı x-bölgeleri (explain_log_spike: taban / artış).
+  const regions = evidenceRegions(p.regions);
   return (
     <div className="cm-evblk__chart">
       <Suspense fallback={<Spinner />}>
         {groups.map(g => (
           <CorePanelMulti key={g.unit || '_'} title={groups.length > 1 ? `${p.title} · ${g.unit}` : p.title}
-            height={160} storageKey={`cosre-ev:${p.title}:${g.unit}`} items={g.items} unit={g.unit} />
+            height={160} storageKey={`cosre-ev:${p.title}:${g.unit}`} items={g.items} unit={g.unit}
+            regions={regions.length ? regions : undefined} />
         ))}
       </Suspense>
       {p.truncated && <div className="cell-hint">seri/nokta tavanı uygulandı (≤20 seri, ≤120 nokta)</div>}
@@ -149,7 +152,9 @@ function EvidenceChart({ p }: { p: ChatEvidenceChartPayload }) {
 // boyutlama/kalıcı genişlik bir cevabın içindeki ≤50 satırlık sabit kanıtta
 // anlamsız (ChatTraceList / ToolEvidence emsali); görünüm sohbetin tek tablo
 // dili `.cm-md-table`. Satır tıklanmaz; yalnız trace hücresi gerçek bağlantı.
-function EvidenceTable({ p }: { p: ChatEvidenceTablePayload }) {
+// v0.10.1284 — dışa açık: log artışı çekmecesi katkı tablosunu AYNI kanıt
+// tablosuyla çizer (sohbetteki blokla bayt-aynı görünüm; yeni tablo türü yok).
+export function EvidenceTable({ p }: { p: ChatEvidenceTablePayload }) {
   const linkProps = chatLinkTargetProps(useChatLinkNewTab());
   return (
     <div className="cm-md-tw cm-evblk__table">

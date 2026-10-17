@@ -28,6 +28,12 @@ const CASES: Array<{ name: string; subject: AISubject; param: string }> = [
     subject: { kind: 'charts', id: 'checkout', fromNs: 1000, toNs: 2000, scope: 'dur' },
     param: 'charts:checkout:1000:2000:dur',
   },
+  {
+    // v0.10.1284 — AI SRE Faz 1a: log artışı (servis ':' içerebilir, arama kodlanır).
+    name: 'log-spike',
+    subject: { kind: 'log-spike', id: 'ns:checkout', fromNs: 1000, toNs: 2000, mode: 'sel', env: 'prod', q: 'level:error AND "timeout"', level: 'error' },
+    param: 'log-spike:ns%3Acheckout:1000:2000:sel:prod:level%3Aerror%20AND%20%22timeout%22:error',
+  },
 ];
 
 describe('formatAiParam / parseAiParam round-trip', () => {
@@ -248,5 +254,36 @@ describe('SELF biçimi (v0.10.731/743)', () => {
   it('service-health / charts kısaltılmaz (pencere/kapsam taşır)', () => {
     const sh = { kind: 'service-health', id: 'svc', fromNs: 1000, toNs: 2000 } as const;
     expect(formatAiParamForUrl(sh, page({ name: 'svc' }))).toBe(formatAiParam(sh));
+  });
+});
+
+// v0.10.1284 — AI SRE Faz 1a: explain_log_spike (log artışını ne açıklıyor).
+// Filo geneli özne '*', eski (seviyesiz 7 parça) biçim all'a düşer, arama
+// 200 karakterde kesilir, bilinmeyen kip/ters pencere reddedilir.
+describe('log-spike öznesi', () => {
+  it('filo geneli * ↔ boş id', () => {
+    const s: AISubject = { kind: 'log-spike', id: '', fromNs: 5, toNs: 9, mode: 'auto', env: '', q: '', level: 'all' };
+    expect(formatAiParam(s)).toBe('log-spike:*:5:9:auto:::all');
+    expect(parseAiParam('log-spike:*:5:9:auto:::all')).toEqual(s);
+  });
+  it('seviyesiz 7 parça → all', () => {
+    expect(parseAiParam('log-spike:svc:5:9:sel::')).toEqual(
+      { kind: 'log-spike', id: 'svc', fromNs: 5, toNs: 9, mode: 'sel', env: '', q: '', level: 'all' });
+  });
+  it('arama 200 karakterde kesilir', () => {
+    const s: AISubject = { kind: 'log-spike', id: 'svc', fromNs: 5, toNs: 9, mode: 'auto', env: '', q: 'x'.repeat(500), level: 'all' };
+    const back = parseAiParam(formatAiParam(s));
+    expect(back && back.kind === 'log-spike' ? back.q.length : -1).toBe(200);
+  });
+  it.each([
+    ['bilinmeyen kip', 'log-spike:svc:5:9:zoom:::all'],
+    ['ters pencere', 'log-spike:svc:9:5:auto:::all'],
+    ['eksik segment', 'log-spike:svc:5:9:auto'],
+    ['fazla segment', 'log-spike:svc:5:9:auto:::all:x'],
+  ])('%s → null', (_n, raw) => expect(parseAiParam(raw)).toBeNull());
+  it('başlık + alt satır', () => {
+    const s: AISubject = { kind: 'log-spike', id: '', fromNs: 5, toNs: 9, mode: 'sel', env: '', q: '', level: 'error' };
+    expect(aiSubjectTitle(s, 'tr')).toBe('Log artışını açıkla');
+    expect(aiSubjectSubtitle(s, 'tr')).toBe('tüm servisler · seçili aralık · ERROR');
   });
 });

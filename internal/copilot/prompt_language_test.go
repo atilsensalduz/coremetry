@@ -90,6 +90,7 @@ func promptRegistry() map[string]promptClass {
 		"ShiftSummary":   classTurkishNative,
 		"AlertNoise":     classTurkishNative,
 		"LogPatterns":    classTurkishNative,
+		"LogSpike":       classTurkishNative, // v0.10.1284 — AI SRE Faz 1a, sabit dört bölüm + tek örnek
 		"Postmortem":     classTurkishNative, // Faz 5.4 — markdown taslak, Türkçe talimat
 		"RunbookUpdate":  classTurkishNative, // Faz 5.5 — güncelleme önerisi bloğu
 		// ── Makine-parse edilen çıktı
@@ -122,6 +123,7 @@ func promptTexts() map[string]string {
 		"WikiFollowUp": SystemPromptWikiFollowUp(),
 		"WikiSelect":   SystemPromptWikiSelect(), "RAGChatWiki": SystemPromptRAGChatWiki(),
 		"AlertNoise": SystemPromptAlertNoise(), "LogPatterns": SystemPromptLogPatterns(),
+		"LogSpike":   SystemPromptLogSpike(),
 		"Postmortem": SystemPromptPostmortem(), "RunbookUpdate": SystemPromptRunbookUpdate(),
 		"NLToQuery": SystemPromptNLToQuery(), "CHQueryOptimize": SystemPromptCHQueryOptimize(),
 		"ServiceTags": SystemPromptServiceTags(), "OracleException": SystemPromptOracleException(),

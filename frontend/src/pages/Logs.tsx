@@ -1,4 +1,5 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { LOG_SPIKE_QUERY_MAX, type AISubject } from '@/lib/aiSubject';
 import { DEFAULT_RANGE_PRESET } from '@/lib/useUrlRange';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
@@ -157,7 +158,7 @@ function LogsInner() {
   // pencerede çift-tık default preset'e dönüyor (diğer sayfalarla
   // aynı sözleşme). resetPaging her iki yönde (v0.7.81 kuralı) —
   // closure çağrı anında değerlendirilir, TDZ yok.
-  const { range, setRange, handleZoom, handleZoomReset } = usePageZoomRange(DEFAULT_RANGE_PRESET, () => resetPaging());
+  const { range, setRange, handleZoom, handleZoomReset, zoomDepth } = usePageZoomRange(DEFAULT_RANGE_PRESET, () => resetPaging());
   // v0.9.291 — the window handed to the KQL autocomplete. Memoised on
   // the range, never computed bare in JSX (v0.5.184: a bare
   // range→duration call in the tree is a new object each render and
@@ -483,6 +484,21 @@ function LogsInner() {
     () => compileSearch(filters, filter.search),
     [filters, filter.search],
   );
+  // v0.10.1284 (AI SRE Faz 1a) — histogram başlığının ✨ "Artışı açıkla"
+  // öznesi. Zoom'lanmışsa (brush) seçilen aralık VERİLEN artıştır (sel),
+  // değilse pencerede tepe otomatik bulunur (auto). Trace pinliyken yok (bir
+  // trace'in logları artış sorusu değil). Pencere useMemo'daki from/to'dan —
+  // JSX'te timeRangeToNs yok (v0.5.184). Sayfanın cluster/pattern süzgeci
+  // özneye girmez (araç bu boyutları KIRILIM olarak okur); env + arama girer.
+  const spikeSubject = useMemo<AISubject | undefined>(() => {
+    if (!from || !to || filter.traceId) return undefined;
+    return {
+      kind: 'log-spike', id: filter.service || '', fromNs: from, toNs: to,
+      mode: zoomDepth > 0 ? 'sel' : 'auto', env: env || '',
+      q: compiledSearch.slice(0, LOG_SPIKE_QUERY_MAX),
+      level: filter.severity >= 17 ? 'error' : 'all',
+    };
+  }, [from, to, filter.traceId, filter.service, filter.severity, zoomDepth, env, compiledSearch]);
   // <mark> terms for the message cell — the APPLIED free-text
   // query's bare terms + quoted phrases only (field clauses and
   // pills excluded; a level:error clause must not light unrelated
@@ -1420,7 +1436,8 @@ function LogsInner() {
           onZoomReset={handleZoomReset}
           breakdown={breakdown} onBreakdown={setBreakdown}
           onSeries={setHistTotals}
-          onSeriesPick={addFromRow} /* v0.10.503 (B8) — lejant ⊕ → pill */ />
+          onSeriesPick={addFromRow} /* v0.10.503 (B8) — lejant ⊕ → pill */
+          spikeSubject={spikeSubject} /* v0.10.1284 — ✨ Artışı açıkla */ />
 
         {/* v0.9.294 — narrow within results. Sits directly above the
             table because it acts on the table, and it says LOADED in

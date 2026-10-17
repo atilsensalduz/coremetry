@@ -346,12 +346,15 @@ var explainStreamDeferred = map[string]string{
 	"copilotAnalyzeService": "ajanik döngü, prose değil",
 	"copilotNLToQuery":      "JSON kipi — akan token anlamsız",
 	"copilotExplainCharts":  "sunucu-cache'li yanıt (cache + akış ayrı dilim)",
-	"explainShift":          "bağımsız küçük panel — Faz 1.5 takibi",
-	"explainAlertNoise":     "bağımsız küçük panel — Faz 1.5 takibi",
-	"explainLogPatterns":    "bağımsız küçük panel — Faz 1.5 takibi",
-	"copilotCompareTraces":  "bağımsız küçük panel — Faz 1.5 takibi",
-	"copilotDeployImpact":   "bağımsız küçük panel — Faz 1.5 takibi",
-	"copilotExplainSLO":     "bağımsız küçük panel — Faz 1.5 takibi",
+	// v0.10.1284 — explain-charts emsali: kanıt (grafik + katkı tablosu) + anlatım
+	// TEK JSON'da, model düşse de kanıt döner; akış ayrı dilim.
+	"copilotExplainLogSpike": "kanıt + anlatım tek JSON (explain-charts emsali) — akış ayrı dilim",
+	"explainShift":           "bağımsız küçük panel — Faz 1.5 takibi",
+	"explainAlertNoise":      "bağımsız küçük panel — Faz 1.5 takibi",
+	"explainLogPatterns":     "bağımsız küçük panel — Faz 1.5 takibi",
+	"copilotCompareTraces":   "bağımsız küçük panel — Faz 1.5 takibi",
+	"copilotDeployImpact":    "bağımsız küçük panel — Faz 1.5 takibi",
+	"copilotExplainSLO":      "bağımsız küçük panel — Faz 1.5 takibi",
 	// copilotExplainSlowQuery SİLİNDİ — v0.9.1209: FE tüketicisi v0.9.1137'de
 	// insight kartına devredilmişti, uç 72 gün sıfır-çağrılı yaşadı.
 	"copilotSuggestServiceTags": "JSON kipi — prose değil",

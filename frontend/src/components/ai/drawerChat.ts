@@ -52,6 +52,7 @@ function subjectRef(s: AISubject): string {
     case 'span':           return `trace ${s.id} · span ${s.spanId}`;
     case 'service-health': return `servis ${s.id}`;
     case 'charts':         return `servis ${s.id} grafikleri (${s.scope})`;
+    case 'log-spike':      return `log artışı (${s.id || 'tüm servisler'}${s.env ? ' · ' + s.env : ''}${s.q ? ' · arama: ' + s.q : ''})`;
     case 'exception':      return `exception grubu ${s.id}`;
     case 'problem':        return `problem ${s.id}`;
     case 'incident':       return `incident ${s.id}`;
@@ -85,6 +86,7 @@ export function aiSubjectQuestion(kind: AIKind, id: string): string {
   switch (kind) {
     case 'service-health': return `${id} servisinin sağlığı nasıl?`;
     case 'charts':         return `${id} grafiklerinde bu pencerede ne oldu?`;
+    case 'log-spike':      return `${id || 'Tüm servislerin'} log artışını ne açıklıyor?`;
     case 'problem':        return `Bu problemin kök nedeni ne? (problem ${id})`;
     case 'runbook':        return `${id} runbook'unun adımlarını özetle`;
     case 'anomaly':        return `Bu anomaliyi açıkla (${id})`;
@@ -111,6 +113,9 @@ export function drawerFollowups(s: AISubject): string[] {
       `${s.id} hata logları?`,
       `${s.id} son deploy etkisi?`,
     ];
+  }
+  if (s.kind === 'log-spike' && s.id) {
+    return [`${s.id} hata logları?`, `${s.id} son deploy etkisi?`, 'Hangi kanıta dayanıyorsun?'];
   }
   return ['Bu neden oluyor?', 'Nasıl düzeltirim?', 'Hangi kanıta dayanıyorsun?'];
 }

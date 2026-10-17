@@ -2589,6 +2589,10 @@ export const api = {
   // v0.9.1031 — ServiceCharts AI çekmecesi (onaylı mockup). Anlatımın
   // YANINDA yapısal sinyaller döner: tablo model metnine bağlı değil,
   // model kotayı doldursa/saçmalasa bile kanıt DOĞRU kalır.
+  // v0.10.1284 (AI SRE Faz 1a) — Logs histogramının ✨ "artışı açıkla" çekmecesi.
+  copilotExplainLogSpike: (body: import('./types').LogSpikeExplainRequest) =>
+    request<import('./types').LogSpikeExplain>('/api/copilot/explain-log-spike',
+      { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } }),
   copilotExplainCharts: (service: string, fromNs: number, toNs: number, scope: string) =>
     request<import('./types').ServiceChartsExplain>(
       `/api/copilot/explain-charts?service=${encodeURIComponent(service)}`

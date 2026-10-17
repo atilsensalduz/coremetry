@@ -61,7 +61,10 @@ const shortDescMinBytes = 60
 // v0.10.1276 — 73 tool: service_health_sweep (CoSRE adım 7, servisin pod /
 // operasyon / fonksiyon taraması + sorunluların logları tek çağrıda; ölçülen
 // +126 B → 9696 B) → tavan 9.8 KB (+150 B, 50 B'a yukarı).
-const shortCatalogMaxBytes = 9800
+// v0.10.1284 — 74 tool: explain_log_spike (AI SRE Faz 1a, log artışını ne
+// açıklıyor — tepe + önceki pencereyle pod/seviye/desen payı tek çağrıda;
+// ölçülen +150 B → 9846 B) → tavan 9.95 KB (+150 B, 50 B'a yukarı).
+const shortCatalogMaxBytes = 9950
 
 // shortCatalogConditionalMaxBytes — v0.10.1050: KOŞULLU sohbet araçlarının
 // (chatOffered; bugün yalnız read_source_code, DevOps bağlıyken) kompakt

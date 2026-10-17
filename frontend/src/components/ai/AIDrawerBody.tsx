@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { mergeOpenHref } from '@/lib/openHref'; // v0.10.460
 import { useNavigate } from 'react-router-dom';
 import { DrawerSection } from '@/components/ui/Drawer';
@@ -9,6 +9,10 @@ import { aiSubjectSubtitle, aiSubjectTitle, formatAiParam, type AISubject } from
 import { emitAiEvidence, emitAiFocus, scrollToAttr } from './aiEvents';
 import { ChatBubble } from './ChatBubble';
 import { ServiceChartsExplainBody } from './ServiceChartsExplainBody';
+import { Spinner } from '@/components/Spinner';
+// v0.10.1284 — tembel: gövde grafik (uPlot) taşır; çekmece yalnız log-spike
+// öznesinde öder (öteki özneler ve jsdom testleri uPlot'u hiç yüklemez).
+const LogSpikeExplainBody = lazy(() => import('./LogSpikeExplainBody').then(m => ({ default: m.LogSpikeExplainBody })));
 import { aiSubjectQuestion, buildExplainContext, drawerFollowups } from './drawerChat';
 import { useChatThread } from './useChatThread';
 import { useStickToBottom } from './stickToBottom';
@@ -73,6 +77,24 @@ export function AIDrawerBody({ subject, onClose, traceCtx, resume, onResumed }: 
         <ServiceChartsExplainBody
           service={subject.id} fromNs={subject.fromNs} toNs={subject.toNs}
           scope={subject.scope} onAnswer={setExplainText} />
+        {(explainText || resumed) && (
+          <AIDrawerChat subject={subject} explainText={explainText} resumed={resumed}
+            spanIds={[]} traceIds={[]} resume={resume} onResumed={onResumed} />
+        )}
+      </div>
+    );
+  }
+
+  // v0.10.1284 (AI SRE Faz 1a) — `log-spike` öznesi: `charts` gibi kanıt
+  // (grafik + katkı tablosu) ile anlatım ayrı; gövde LogSpikeExplainBody.
+  if (subject.kind === 'log-spike') {
+    return (
+      <div style={{ paddingTop: 8 }}>
+        <Suspense fallback={<Spinner />}>
+          <LogSpikeExplainBody
+            service={subject.id} fromNs={subject.fromNs} toNs={subject.toNs} mode={subject.mode}
+            env={subject.env} q={subject.q} level={subject.level} onAnswer={setExplainText} />
+        </Suspense>
         {(explainText || resumed) && (
           <AIDrawerChat subject={subject} explainText={explainText} resumed={resumed}
             spanIds={[]} traceIds={[]} resume={resume} onResumed={onResumed} />

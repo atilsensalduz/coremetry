@@ -23,6 +23,7 @@ func TestLimitedToolEnvelopesCarryHasMore(t *testing.T) {
 		"bubble_up.go":         {`out["attributes"], out["count"], out["has_more"] = rows, len(rows), hasMore`},                                  // v0.10.993
 		"pivot_trace.go":       {`FindingsHasMore bool`, `CandidatesHasMore bool`, `res.Findings, res.FindingsHasMore = rankFindings(findings)`}, // v0.10.1275
 		"service_sweep.go":     {`FindingsHasMore bool`, `res.FindingsHasMore = more`},                                                           // v0.10.1276
+		"log_spike.go":         {`ContributorsHasMore bool`, `res.Contributors, res.ContributorsHasMore = rankSpikeContributors(`},               // v0.10.1284
 	} {
 		b, err := os.ReadFile(file)
 		if err != nil {

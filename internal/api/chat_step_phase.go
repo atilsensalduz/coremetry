@@ -25,6 +25,7 @@ var stepPhaseByTool = map[string]string{
 	// Log
 	"query_logs": "Log", "search_logs": "Log", "log_patterns": "Log",
 	"get_log_histogram": "Log", "get_logs_for_trace": "Log", "list_log_fields": "Log",
+	"explain_log_spike": "Log", // v0.10.1284 — AI SRE Faz 1a: log artışını ne açıklıyor
 	// Trace
 	"query_traces": "Trace", "search_traces": "Trace", "get_trace": "Trace",
 	"find_trace_by_request_id": "Trace", "find_trace_by_span": "Trace",

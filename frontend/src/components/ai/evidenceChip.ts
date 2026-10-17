@@ -1,4 +1,5 @@
-import type { ChatQueryEvidence, ChatEvidenceChartPayload, ChatCtxApplied, ChatStepDetail } from '@/lib/types';
+import type { ChatQueryEvidence, ChatEvidenceChartPayload, ChatEvidenceChartRegion, ChatCtxApplied, ChatStepDetail } from '@/lib/types';
+import type { ChartTimeRegion } from '@/lib/chart/overlays';
 import type { CorePanelMultiItem } from '@/components/chart/corePanelEntry';
 import type { EvidenceBlockView } from '@/lib/chatBlocks';
 import type { Tone } from '@/components/ui/Badge';
@@ -174,4 +175,20 @@ export function evidenceSeverityTone(sev: string): Tone | null {
   if (s.startsWith('ERR') || s.startsWith('FATAL') || s.startsWith('CRIT')) return 'danger';
   if (s.startsWith('WARN')) return 'warning';
   return null;
+}
+
+/**
+ * evidenceRegions — v0.10.1284 (explain_log_spike): sunucunun x-bölgeleri
+ * (unix ms + ton) → grafik primitiflerinin ChartTimeRegion'u (unix SANİYE,
+ * CSS token rengi). Ton sözlüğü dar: err → --err, warn → --warn, gerisi
+ * soluk (--text3) — renk sunucudan gelmez. Bozuk bölge (to ≤ from) düşer. SAF.
+ */
+export function evidenceRegions(regions: ChatEvidenceChartRegion[] | undefined): ChartTimeRegion[] {
+  const out: ChartTimeRegion[] = [];
+  for (const r of regions ?? []) {
+    if (!Number.isFinite(r.fromMs) || !Number.isFinite(r.toMs) || r.toMs <= r.fromMs) continue;
+    const color = r.tone === 'err' ? 'var(--err)' : r.tone === 'warn' ? 'var(--warn)' : 'var(--text3)';
+    out.push({ fromSec: r.fromMs / 1000, toSec: r.toMs / 1000, endSec: r.toMs / 1000, color, label: r.label });
+  }
+  return out;
 }

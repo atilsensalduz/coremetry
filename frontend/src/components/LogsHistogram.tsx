@@ -5,6 +5,9 @@ import { severityBandOf } from '@/lib/severityBand';
 import { TimeChart, type TimeChartSeries } from '@/components/charts/TimeChart';
 import { seriesPalette } from '@/lib/chartFmt'; // v0.10.510 (D7)
 import { useThemeTick } from '@/lib/useThemeTick';
+import { AIExplainButton } from '@/components/ai/AIExplainButton';
+import { IconSparkles } from '@/components/icons';
+import type { AISubject } from '@/lib/aiSubject';
 
 // LogsHistogram — log volume over time for /logs, the service Logs tab and
 // the anomaly drawer.
@@ -108,7 +111,7 @@ export function histogramFeedsChips(bd: LogsBreakdown, severityFloor: number): b
   return severityFloor === 0 && bd === 'severity';
 }
 
-export function LogsHistogram({ range, filter, onRangeSelect, onZoomReset, onSeries, breakdown, onBreakdown, onSeriesPick }: {
+export function LogsHistogram({ range, filter, onRangeSelect, onZoomReset, onSeries, breakdown, onBreakdown, onSeriesPick, spikeSubject }: {
   range: { from?: number; to?: number };
   filter: Filter;
   // Drag-select a horizontal span → called with the selection as unix-ns
@@ -131,6 +134,10 @@ export function LogsHistogram({ range, filter, onRangeSelect, onZoomReset, onSer
   // Verilirse başlıkta kırılım seçicisi çizilir (yalnız /logs geçirir;
   // servis Logs sekmesi + anomali çekmecesi seviye modunda kalır).
   onBreakdown?: (b: LogsBreakdown) => void;
+  // v0.10.1284 (AI SRE Faz 1a) — verilirse başlıkta ✨ "Artışı açıkla"
+  // (`log-spike` öznesi; çekmece açılınca bir kez çekilir). Yalnız /logs
+  // geçirir; copilot kapalıysa düğme kendini gizler (AIExplainButton).
+  spikeSubject?: AISubject;
 }) {
   const [data, setData] = useState<Series[] | null | undefined>(undefined);
   // v0.9.358 — the per-band series this chart ALREADY fetches, exposed to the
@@ -240,6 +247,13 @@ export function LogsHistogram({ range, filter, onRangeSelect, onZoomReset, onSer
         {/* The hand-drawn version's only hint that it was draggable was a
             crosshair cursor. Say it. */}
         <span>
+          {spikeSubject && !degraded && (
+            <>
+              <AIExplainButton size="xs" subject={spikeSubject}
+                title="Bu log artışını ne açıklıyor — tepe, önceki pencereyle pod / seviye / desen payı (sağ çekmecede)"
+                label={<><IconSparkles /> <span>Artışı açıkla</span></>} />{' '}
+            </>
+          )}
           {totals.ratePct !== null && totals.error > 0 && `${fmtPct(totals.ratePct)} hata · `}
           {/* v0.9.287 — a severity floor narrows the denominator, so the
               rate isn't the error rate any more. Say that instead of

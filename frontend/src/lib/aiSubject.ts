@@ -13,6 +13,9 @@
 //   span            → "span:<enc(traceId)>:<enc(spanId)>"
 //   service-health  → "service-health:<enc(service)>:<fromNs>:<toNs>"
 //   charts          → "charts:<enc(service)>:<fromNs>:<toNs>:<scope>"
+//   log-spike       → "log-spike:<enc(service)|*>:<fromNs>:<toNs>:<sel|auto>:<enc(env)>:<enc(q≤200)>:<all|error>"
+//                     (v0.10.1284 — Logs histogramının ✨ "artışı açıkla"; son
+//                     segment isteğe bağlı, yoksa all)
 //
 // id HER ZAMAN encodeURIComponent'ten geçer: servis adı / fingerprint
 // içinde ':' geçse bile ayraç belirsizleşmez (parse ':' üzerinden böler).
@@ -79,6 +82,7 @@ export function readAiSrcParam(): AISrc | null {
 export const AI_KINDS = [
   'trace', 'span', 'problem', 'incident', 'anomaly',
   'service-health', 'runbook', 'exception', 'charts',
+  'log-spike', // v0.10.1284 — AI SRE Faz 1a: log artışını ne açıklıyor
 ] as const;
 
 export type AIKind = typeof AI_KINDS[number];
@@ -105,7 +109,13 @@ export function chartScopeLabel(s: ChartScope): string {
 }
 
 // Basit özneler: tek bir id yeter (backend geri kalanını kendi toplar).
-type SimpleKind = Exclude<AIKind, 'span' | 'service-health' | 'charts'>;
+type SimpleKind = Exclude<AIKind, 'span' | 'service-health' | 'charts' | 'log-spike'>;
+
+// v0.10.1284 — log-spike öznesinin kipi: sel = operatörün zoom'ladığı aralık
+// (verilen artış), auto = pencerede tepe otomatik bulunur.
+export type LogSpikeMode = 'sel' | 'auto';
+export type LogSpikeLevel = 'all' | 'error';
+export const LOG_SPIKE_QUERY_MAX = 200;
 
 export type AISubject =
   | { kind: SimpleKind; id: string }
@@ -117,7 +127,10 @@ export type AISubject =
   | { kind: 'service-health'; id: string; fromNs: number; toNs: number }
   // charts → id = servis adı; pencere linkte taşınır (service-health ile
   // aynı gerekçe) + hangi kartın sorulduğu.
-  | { kind: 'charts'; id: string; fromNs: number; toNs: number; scope: ChartScope };
+  | { kind: 'charts'; id: string; fromNs: number; toNs: number; scope: ChartScope }
+  // log-spike → id = servis adı ('' = tüm servisler, adreste '*'); pencere +
+  // kip + env + arama + seviye linkte taşınır (paylaşılan link AYNI artışı açar).
+  | { kind: 'log-spike'; id: string; fromNs: number; toNs: number; mode: LogSpikeMode; env: string; q: string; level: LogSpikeLevel };
 
 const KIND_SET = new Set<string>(AI_KINDS);
 
@@ -176,6 +189,11 @@ export function formatAiParam(s: AISubject): string {
   if (s.kind === 'span') return `${head}:${encodeURIComponent(s.spanId)}`;
   if (s.kind === 'service-health') return `${head}:${s.fromNs}:${s.toNs}`;
   if (s.kind === 'charts') return `${head}:${s.fromNs}:${s.toNs}:${s.scope}`;
+  if (s.kind === 'log-spike') {
+    const q = s.q.slice(0, LOG_SPIKE_QUERY_MAX);
+    return `log-spike:${s.id ? encodeURIComponent(s.id) : '*'}:${s.fromNs}:${s.toNs}:${s.mode}`
+      + `:${encodeURIComponent(s.env)}:${encodeURIComponent(q)}:${s.level}`;
+  }
   return head;
 }
 
@@ -203,6 +221,7 @@ export function parseAiParam(
     const spanId = safeDecode(parts[1] ?? '');
     return traceID && spanId ? { kind: 'span', id: traceID, spanId } : null;
   }
+  if (kind === 'log-spike') return parseLogSpike(parts);
   const id = safeDecode(parts[1] ?? '');
   if (!id) return null;
 
@@ -239,6 +258,25 @@ export function parseAiParam(
   return { kind: kind as SimpleKind, id };
 }
 
+// parseLogSpike — v0.10.1284: 7 ya da 8 parça; pencere service-health ile aynı
+// katılıkta (sonlu, artan, pozitif). Bilinmeyen kip → null (yanlış soruyu
+// sormaktansa hiç açmamak); bilinmeyen seviye → all (en geniş).
+function parseLogSpike(parts: string[]): AISubject | null {
+  if (parts.length !== 7 && parts.length !== 8) return null;
+  const rawId = parts[1] ?? '';
+  const id = rawId === '*' ? '' : safeDecode(rawId);
+  if (rawId !== '*' && !id) return null;
+  const fromNs = Number(parts[2]);
+  const toNs = Number(parts[3]);
+  if (!Number.isFinite(fromNs) || !Number.isFinite(toNs) || fromNs <= 0 || toNs <= fromNs) return null;
+  const mode = parts[4];
+  if (mode !== 'sel' && mode !== 'auto') return null;
+  const env = safeDecode(parts[5] ?? '');
+  const q = safeDecode(parts[6] ?? '').slice(0, LOG_SPIKE_QUERY_MAX);
+  const level: LogSpikeLevel = parts[7] === 'error' ? 'error' : 'all';
+  return { kind: 'log-spike', id, fromNs, toNs, mode, env, q, level };
+}
+
 // Çekmece başlığı — operatör hangi soruyu sorduğunu görsün.
 // v0.10.948 (CoSRE Faz B) — trace öznesi artık kanıt toplayan inceleme; başlık
 // düğmenin adıyla aynı ("CoSRE’ye sor · trace <kısa kimlik>", EN "Ask CoSRE ·
@@ -257,6 +295,7 @@ export function aiSubjectTitle(s: AISubject, lang: Lang = currentLang()): string
     // triyaj etmiyor — iki yüzey aynı sayfada yaşadığı için ad ayrımı
     // operatörün hangi cevabı okuduğunu belirler.
     case 'charts':         return 'AI grafik özeti';
+    case 'log-spike':      return 'Log artışını açıkla'; // v0.10.1284
   }
 }
 
@@ -265,6 +304,7 @@ export function aiSubjectSubtitle(s: AISubject, lang: Lang = currentLang()): str
   if (s.kind === 'trace') return `${t('ai.subject.trace', lang)} ${short(s.id)}`; // v0.10.948
   if (s.kind === 'span') return `${short(s.id)} · span ${short(s.spanId)}`;
   if (s.kind === 'charts') return `${s.id} · ${chartScopeLabel(s.scope)}`;
+  if (s.kind === 'log-spike') return `${s.id || 'tüm servisler'} · ${s.mode === 'sel' ? 'seçili aralık' : 'otomatik tespit'}${s.level === 'error' ? ' · ERROR' : ''}`;
   return s.kind === 'service-health' ? s.id : short(s.id);
 }
 
