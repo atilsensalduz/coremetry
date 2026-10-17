@@ -43,7 +43,8 @@ describe('topoloji ok akışı (v0.10.729)', () => {
     expect(block).toMatch(/\.topo-edge-arrow\.rev \{ offset-distance: 22%; \}/);
   });
   it('bileşen: sınıf + yol + süre + indeksten türeyen gecikme; statik transform ÖZNİTELİĞİ yok', () => {
-    expect(src).toContain("className={j === 0 ? 'topo-edge-arrow' : 'topo-edge-arrow rev'}");
+    // v0.10.1294 — `live`: animate="hover" kipinde yalnız vurgulu ok akar.
+    expect(src).toContain("className={(j === 0 ? 'topo-edge-arrow' : 'topo-edge-arrow rev') + live}");
     // Yol satır içinde: kenarın d'si ile AYNI eğri (ok çizgiden ayrılmasın).
     // v0.10.1269 — sözleşme bilerek değişti: d artık tek eğri dizesi değil,
     // yerleşimin ara noktalarından (routes) geçen zincir; çizgi ve ok AYNI
@@ -53,7 +54,10 @@ describe('topoloji ok akışı (v0.10.729)', () => {
     expect(src).toContain('d={d}');
     expect(src).toContain('offsetPath: `path("${d}")`,');
     // Ok yedek konumu da aynı yoldan (pathArrow), düz a→b eğrisinden değil.
-    expect(src).toContain('const arrows = [pathArrow(pts, 0.78)];');
+    // v0.10.1294 — ok/chip konumu kenarın KENDİ geometrisinden (geomAt):
+    // nokta zinciri → pathArrow, odak kipinin peer yayı → cubicArrow.
+    expect(src).toContain('const arrows = [geomAt(g, 0.78)];');
+    expect(src).toContain('(g.ctrl ? cubicArrow(g.pts[0], g.ctrl[0], g.ctrl[1], g.pts[1], t, rev) : pathArrow(g.pts, t, rev))');
     expect(src).not.toMatch(/edgeArrow\(a, b/);
     expect(src).toContain("['--arw-dur' as string]: `${(2.8 - 1.8 * t).toFixed(2)}s`");
     expect(src).toMatch(/--arw-delay[^\n]*i \* 37/);

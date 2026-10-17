@@ -3788,6 +3788,30 @@ button.cosre-cap__row > .row { align-items: flex-start; min-width: 0; }
 .topo-chip { position: absolute; transform: translate(-50%, -50%); z-index: var(--z-sticky-cell); pointer-events: none; font: 600 10px var(--font-mono); padding: 2px 7px; border-radius: var(--radius-sm); background: var(--bg1); border: 1px solid var(--border); color: var(--text2); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .topo-chip.hot { border-color: var(--accent); color: var(--text); }
 .topo-chip .chip-err { color: var(--err); }
+/* v0.10.1294 — odak sütun yerleşimi (Focus Column Layout, operatör 2026-10-17:
+   "oklar uzak ve sarmal"). Pil genişliği SABİT (lib/topoFocusLayout PILL_W):
+   kenar uçları pil kenarında (x ± 85) buluşsun, ok/chip olukta kalsın. */
+.topo.focus-cols .topo-node { width: 170px; }
+.topo-node.ns-stripe { box-shadow: inset 3px 0 0 var(--ns, transparent), var(--shadow-sm); }
+/* animate="hover": akış kenarları durağan düz çizgi; kesik akış yalnız vurguda
+   (.live). Yeni kenarın satır içi 12 4 deseni ve .back noktası anlamını korur. */
+.topo.anim-hover .topo-edge-flow:not(.live) { animation: none; }
+.topo.anim-hover .topo-edge-flow:not(.live):not(.back) { stroke-dasharray: none; }
+.topo.anim-hover .topo-edge-arrow:not(.live) { animation: none; }
+.topo-colhdr { position: absolute; transform: translate(-50%, -50%); z-index: var(--z-sticky-cell); pointer-events: none; font-size: var(--fs-2xs); font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: var(--text3); white-space: nowrap; }
+.topo-more { position: absolute; transform: translate(-50%, -50%); z-index: var(--z-sticky-cell); white-space: nowrap; }
+.topo-nsbracket { stroke-width: 1.5; opacity: .7; }
+.topo-nsbracket-label { position: absolute; transform: translate(0, -50%); z-index: var(--z-sticky-cell); pointer-events: none; writing-mode: vertical-rl; font-size: var(--fs-3xs); font-weight: 700; letter-spacing: .4px; text-transform: uppercase; white-space: nowrap; opacity: .85; }
+.topo-nsbracket-label.left { transform: translate(-100%, -50%) rotate(180deg); }
+.topo-legend { position: absolute; left: 10px; bottom: 10px; z-index: var(--z-sticky-foot); display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3) var(--sp-5); max-width: 38%; padding: 4px 8px; font-size: var(--fs-2xs); color: var(--text3); background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.topo-legend-item { display: inline-flex; align-items: center; gap: 4px; }
+.topo-legend-ns { width: 3px; height: 10px; border-radius: 1px; display: inline-block; }
+.topo-tb-check { display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-sm); color: var(--text2); cursor: pointer; }
+.topo-tb-count { font-size: var(--fs-xs); color: var(--text3); }
+.topo-lg-edge { display: inline-flex; align-items: center; gap: 4px; }
+.topo-lg-line { stroke: var(--border-strong); stroke-width: 1.6; }
+.topo-lg-line.back { stroke-dasharray: 2 6; }
+.topo-lg-line.new { stroke: var(--accent2); stroke-dasharray: 12 4; }
 
 /* Metric query editor (v0.7.126) — Grafana-style ad-hoc builder. Tokens only. */
 .mqe { display: flex; flex-direction: column; gap: 10px; }

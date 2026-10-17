@@ -52,19 +52,29 @@ export function fitViewport(contentW: number, contentH: number, viewW: number, v
 // `pad` rather than centred: centring a box larger than the view pushes its
 // origin negative, so the graph would open scrolled into its own middle with
 // the first column off-screen left. Roots live in that first column.
+//
+// v0.10.1294 — `centerOn` (content coords): the focused topology view has no
+// root column; what the operator came to read is the focus. With a centre
+// point the overflowing axis puts that point mid-view instead of anchoring
+// top-left, clamped so the content edge never pulls away from the pad.
 export function readableFit(
   contentW: number, contentH: number, viewW: number, viewH: number,
-  pad = 24, minK = READABLE_MIN_K,
+  pad = 24, minK = READABLE_MIN_K, centerOn?: { x: number; y: number },
 ): Viewport {
   const fit = fitViewport(contentW, contentH, viewW, viewH, pad);
   if (fit.k >= minK) return fit;
   const cw = Math.max(1, contentW);
   const ch = Math.max(1, contentH);
+  const axis = (c: number, view: number, p: number | undefined) => {
+    if (c * minK <= view - pad * 2) return (view - c * minK) / 2; // room left: centre
+    if (p === undefined) return pad;
+    return Math.min(pad, Math.max(view - pad - c * minK, view / 2 - p * minK));
+  };
   return {
     k: minK,
     // Keep centring on whichever axis still has room at the floor.
-    x: cw * minK <= viewW - pad * 2 ? (viewW - cw * minK) / 2 : pad,
-    y: ch * minK <= viewH - pad * 2 ? (viewH - ch * minK) / 2 : pad,
+    x: axis(cw, viewW, centerOn?.x),
+    y: axis(ch, viewH, centerOn?.y),
   };
 }
 

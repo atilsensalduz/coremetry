@@ -6,7 +6,8 @@
 //   • grupsuz (ns'siz) çağıran → grupsuz
 //   • tek çağıran şeridi katlı (çağıran süper-düğüm) → grupsuz
 //   • şerit başlığı servis sayısı bağımlılıklarla şişmez
-//   • şeritler çakışmaz, her üye (bağımlılık dahil) kendi şeridinde; odak pin'i aynı
+//   • şeritler çakışmaz, her üye (bağımlılık dahil) kendi şeridinde
+//   (v0.10.1294: odak pin testi kaldırıldı — odaklı görünüm lib/topoFocusLayout'ta)
 import { describe, it, expect } from 'vitest';
 import { serviceBands, dependencyBands, bandServiceCounts } from './topoBands';
 import { bfsBarycenterLayout } from './topoBfsLayout';
@@ -49,8 +50,8 @@ const graph = map(
   ],
 );
 
-function bandsFor(g: ServiceMap, focusNs?: string) {
-  const svc = serviceBands(g.nodes, nsOf, focusNs);
+function bandsFor(g: ServiceMap) {
+  const svc = serviceBands(g.nodes, nsOf);
   const all = new Map(svc);
   for (const [d, ns] of dependencyBands(g.nodes, g.edges, svc)) all.set(d, ns);
   return { svc, all };
@@ -111,15 +112,5 @@ describe('şerit yerleşimi + başlık sayısı', () => {
     expect(c.get('crm')).toBe(3);
     expect(c.get('pay')).toBe(2);
     expect(r.bands.find(b => b.key === 'crm')!.members).toBe(5);
-  });
-
-  it('odak pin davranışı değişmez: odak şeridi en üstte, odak sütun hücresinde ilk', () => {
-    const p = bfsBarycenterLayout(graph.nodes, graph.edges, 800, 600, PITCH,
-      { bandOf: s => all.get(s), firstBand: 'pay', pin: 'pay-api' });
-    expect(p.bands[0].key).toBe('pay');
-    const col = p.layer.get('pay-api')!;
-    const same = graph.nodes.filter(n => all.get(n.service) === 'pay' && p.layer.get(n.service) === col);
-    const top = Math.min(...same.map(n => p.pos.get(n.service)!.y));
-    expect(p.pos.get('pay-api')!.y).toBe(top);
   });
 });

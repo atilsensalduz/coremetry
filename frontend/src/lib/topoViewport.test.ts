@@ -95,6 +95,31 @@ describe('readableFit', () => {
   });
 });
 
+// v0.10.1294 — odak sütun yerleşimi (operatör 2026-10-17: "oklar uzak ve
+// sarmal"): odaklı görünüm açılışta ODAĞI ortalar. Sol-üst çapası global
+// haritanın kök sütunu içindi; odaklı grafta kök sütun yok, okunacak şey odak.
+describe('readableFit centerOn', () => {
+  it('sığan içerikte fitViewport ile aynı (odak zaten içerik ortasında)', () => {
+    expect(readableFit(400, 300, 900, 600, 24, READABLE_MIN_K, { x: 200, y: 150 }))
+      .toEqual(fitViewport(400, 300, 900, 600, 24));
+  });
+  it('taşan eksende odak noktası görünümün ortasına düşer', () => {
+    const vp = readableFit(2000, 2400, 900, 600, 24, READABLE_MIN_K, { x: 1000, y: 1200 });
+    expect(vp.k).toBe(READABLE_MIN_K);
+    expect(vp.x + 1000 * vp.k).toBeCloseTo(450, 9);
+    expect(vp.y + 1200 * vp.k).toBeCloseTo(300, 9);
+  });
+  it('içerik kenarının ötesine boşluk açmaz (kenara yakın nokta kıstırılır)', () => {
+    const vp = readableFit(2000, 2400, 900, 600, 24, READABLE_MIN_K, { x: 0, y: 2400 });
+    expect(vp.x).toBe(24);
+    expect(vp.y + 2400 * vp.k).toBeCloseTo(600 - 24, 9);
+  });
+  it('yeri olan eksen ortalı kalır', () => {
+    const vp = readableFit(200, 2400, 900, 600, 24, READABLE_MIN_K, { x: 100, y: 1200 });
+    expect(vp.x).toBeCloseTo((900 - 200 * READABLE_MIN_K) / 2);
+  });
+});
+
 describe('zoomAt', () => {
   const start: Viewport = { k: 1, x: 0, y: 0 };
 

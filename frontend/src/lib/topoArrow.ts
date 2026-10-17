@@ -107,3 +107,30 @@ export function pathArrow(pts: readonly TopoPt[], t: number, reverse = false): E
   }
   return edgeArrow(pts[0], pts[pts.length - 1], t, reverse);
 }
+
+// ── v0.10.1294 — genel kübik (odak sütun yerleşiminin peer yayı) ───────────
+// Aynı sütundaki iki düğüm arasındaki peer kenarı dış olukta TEK kübik yaydır
+// (lib/topoFocusLayout ctrl): edgePathD'nin yatay-tanjant sözleşmesi aynı x'te
+// iki ucu dikey bir çizgiye indirirdi. Ok ve chip yayın kendisinden okunur.
+
+/** M a C c1, c2, b — tek kübik segmentin path `d` dizesi. */
+export function cubicD(a: TopoPt, c1: TopoPt, c2: TopoPt, b: TopoPt): string {
+  return `M ${r2(a.x)} ${r2(a.y)} C ${r2(c1.x)} ${r2(c1.y)}, ${r2(c2.x)} ${r2(c2.y)}, ${r2(b.x)} ${r2(b.y)}`;
+}
+
+/** cubicArrow — genel kübiğin t noktası + akış açısı (edgeArrow'un genel hâli). */
+export function cubicArrow(a: TopoPt, c1: TopoPt, c2: TopoPt, b: TopoPt, t: number, reverse = false): EdgeArrow {
+  const u = 1 - t;
+  const x = u * u * u * a.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * b.x;
+  const y = u * u * u * a.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * b.y;
+  let dx = 3 * u * u * (c1.x - a.x) + 6 * u * t * (c2.x - c1.x) + 3 * t * t * (b.x - c2.x);
+  let dy = 3 * u * u * (c1.y - a.y) + 6 * u * t * (c2.y - c1.y) + 3 * t * t * (b.y - c2.y);
+  if (Math.abs(dx) < 1e-9 && Math.abs(dy) < 1e-9) {
+    dx = b.x - a.x;
+    dy = b.y - a.y;
+    if (Math.abs(dx) < 1e-9 && Math.abs(dy) < 1e-9) dx = 1;
+  }
+  let angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+  if (reverse) angle += 180;
+  return { x, y, angle };
+}

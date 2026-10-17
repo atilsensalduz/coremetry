@@ -8,6 +8,8 @@
 //   • döngü sonlanır, geri kenar sağdan sola, deterministik
 //   • lavabo en sağdaki çağıranının hemen sağında (ASAP)
 //   • şeritler çakışmaz, her üye kendi şeridinde; firstBand en üstte
+//   (v0.10.1294: odak `pin` testleri kaldırıldı — odaklı görünüm
+//   lib/topoFocusLayout(.test).ts'te.)
 //   • yalıtık düğümler yerleşir; aynı sütunda düğümler satır aralığıyla ayrık
 //   • determinizm — aynı girdi ve KARIŞTIRILMIŞ girdi aynı çıktıyı verir
 import { describe, it, expect } from 'vitest';
@@ -262,37 +264,5 @@ describe('sınır durumları', () => {
     const r = run(many, many.slice(1).map(n => ({ caller: 'root', callee: n.service })));
     expect(r.lh).toBeGreaterThanOrEqual(30 * PITCH);
     expectNoOverlapInColumns(r);
-  });
-});
-
-// v0.10.1265 — operatör 2026-10-17: "orijinal servis en altta çıkıyor, kendi
-// namespace gözükmüyor; sol başta durabilir". `pin` = odak düğümü.
-describe('odak sabitleme (pin)', () => {
-  const nodes = N('focus', 'a', 'b', 'c', 'x', 'y', 'ext');
-  const edges = E('focus>a', 'focus>b', 'focus>c', 'focus>x', 'x>ext', 'y>ext', 'a>y');
-  const nsMap: Record<string, string> = { a: 'pay', b: 'pay', x: 'dep', y: 'dep' };
-
-  it('grupsuz odak: grupsuz şerit EN ÜSTTE, odak sol sütunda ilk satırda', () => {
-    const r = bfsBarycenterLayout(nodes, edges, 800, 600, PITCH, { bandOf: s => nsMap[s], pin: 'focus' });
-    expect(r.bands[0].key).toBeNull();
-    expect(r.layer.get('focus')).toBe(0);
-    const fy = r.pos.get('focus')!.y;
-    for (const n of nodes) {
-      if (n.service !== 'focus' && r.layer.get(n.service) === 0) expect(fy).toBeLessThan(r.pos.get(n.service)!.y);
-    }
-    expect(fy).toBeLessThan(r.bands[0].y1);
-  });
-
-  it('tek üyeli odak namespace şeridi firstBand ile en üstte', () => {
-    const bandOf = (s: string) => (s === 'focus' ? 'mobile' : nsMap[s]);
-    const r = bfsBarycenterLayout(nodes, edges, 800, 600, PITCH, { bandOf, firstBand: 'mobile', pin: 'focus' });
-    expect(r.bands[0].key).toBe('mobile');
-    expect(r.bands[0].members).toBe(1);
-    expect(r.bands[r.bands.length - 1].key).toBeNull();
-  });
-
-  it('pin hücre içinde barycenter süpürmelerinden sonra da ilk satır', () => {
-    const r = bfsBarycenterLayout(N('z', 'focus', 'q'), E('z>q', 'focus>q'), 800, 600, PITCH, { pin: 'focus' });
-    expect(r.pos.get('focus')!.y).toBeLessThan(r.pos.get('z')!.y);
   });
 });

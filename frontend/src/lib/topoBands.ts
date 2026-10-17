@@ -3,9 +3,10 @@
 // Yerleşim çekirdeği (topoBfsLayout) jenerik kalır: yalnız `bandOf(düğüm)`
 // alır. Hangi düğümün hangi şeride girdiği burada hesaplanır.
 //
-// v0.10.1261/1265 — servis şeridi (hull kuralı): kind'lı bağımlılık ve katlı
-// süper-düğüm serbest; namespace'i grafta ≥2 servisle temsil edilen servis
-// (ya da odaklı servisin namespace'i, tek üyeyle de) o şeride girer.
+// v0.10.1261 — servis şeridi (hull kuralı): kind'lı bağımlılık ve katlı
+// süper-düğüm serbest; namespace'i grafta ≥2 servisle temsil edilen servis o
+// şeride girer. (v0.10.1265'in odak istisnası v0.10.1294'de kalktı: odaklı
+// görünüm şerit kullanmıyor — lib/topoFocusLayout.)
 //
 // v0.10.1268 — operatör 2026-10-17: tek namespace'in bağımlılıkları o
 // namespace şeridinde. Bir bağımlılık (db/queue/external — `kind`'lı düğüm)
@@ -20,11 +21,10 @@ import { isNsNode } from './topoFold';
 export interface BandNode { service: string; kind?: string }
 export interface BandEdge { caller: string; callee: string }
 
-/** servis → namespace şeridi (hull kuralı + odak istisnası). */
+/** servis → namespace şeridi (hull kuralı). */
 export function serviceBands(
   nodes: readonly BandNode[],
   nsOf: (service: string) => string | undefined,
-  focusNs?: string,
 ): Map<string, string> {
   const m = new Map<string, string>();
   const counts = new Map<string, number>();
@@ -35,7 +35,7 @@ export function serviceBands(
     m.set(node.service, ns);
     counts.set(ns, (counts.get(ns) ?? 0) + 1);
   }
-  for (const [svc, ns] of m) if ((counts.get(ns) ?? 0) < 2 && ns !== focusNs) m.delete(svc);
+  for (const [svc, ns] of m) if ((counts.get(ns) ?? 0) < 2) m.delete(svc);
   return m;
 }
 

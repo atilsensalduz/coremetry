@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { edgeArrow, edgePathD, pathArrow } from './topoArrow';
+import { edgeArrow, edgePathD, pathArrow, cubicD, cubicArrow } from './topoArrow';
 
 // v0.9.1032 — topoloji kenar oku matematiği. Kenar şekli
 // TopologyFlowGraph ile sözleşmeli (M a C (mx,a.y) (mx,b.y) b);
@@ -72,5 +72,28 @@ describe('edgePathD / pathArrow (v0.10.1269)', () => {
     expect(m.angle).toBeCloseTo(0, 5);
     const end = pathArrow(pts, 0.9);
     expect(end.x).toBeGreaterThan(200);
+  });
+});
+
+// v0.10.1294 — peer yayı (odak sütun yerleşimi): genel kübik.
+describe('cubicArrow / cubicD (v0.10.1294)', () => {
+  it('yatay-tanjant kontrol noktalarıyla edgeArrow\'un aynısı', () => {
+    const a = { x: 0, y: 0 }, b = { x: 100, y: 40 };
+    for (const t of [0, 0.22, 0.5, 0.78, 1]) {
+      const g = cubicArrow(a, { x: 50, y: 0 }, { x: 50, y: 40 }, b, t);
+      const e = edgeArrow(a, b, t);
+      expect(g.x).toBeCloseTo(e.x, 9);
+      expect(g.y).toBeCloseTo(e.y, 9);
+      expect(g.angle).toBeCloseTo(e.angle, 9);
+    }
+  });
+  it('dış yay ortası pil kenarının dışında, tepe noktasında dikey akar', () => {
+    const a = { x: 85, y: 0 }, b = { x: 85, y: 64 };
+    const cx = (85 + 22) / 0.75; // x=0 düğümü: kontrol x = x + (85+22)/0.75
+    const m = cubicArrow(a, { x: cx, y: 0 }, { x: cx, y: 64 }, b, 0.5);
+    expect(m.x).toBeGreaterThan(85);
+    expect(m.y).toBeCloseTo(32, 9);
+    expect(Math.abs(m.angle)).toBeCloseTo(90, 6);
+    expect(cubicD(a, { x: cx, y: 0 }, { x: cx, y: 64 }, b)).toMatch(/^M 85 0 C [\d.]+ 0, [\d.]+ 64, 85 64$/);
   });
 });

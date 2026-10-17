@@ -1,6 +1,6 @@
 import { usePivotCtx, withPivotCtx } from '@/lib/pivotContext';
-import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { timeRangeToNs, fmtNum } from '@/lib/utils';
@@ -16,6 +16,7 @@ import { nodeDetailHref } from '@/components/topology/nodeDetailHref';
 import { nodeLinkLabel } from '@/components/topology/nodeLinkLabel';
 import { ExternalPaths } from '@/components/ExternalPaths';
 import { serviceHref } from '@/lib/serviceHref';
+import { countSecondary, moreNodeId, moreNodeCol, isMoreNode } from '@/lib/topoFocusLayout';
 
 // FocusedNeighborhood — the focused topology graph (service-detail Topology
 // tab). Since v0.8.294 the neighborhood is walked SERVER-side
@@ -23,12 +24,18 @@ import { serviceHref } from '@/lib/serviceHref';
 // BFS contract, see neighborhoodKeepSet) so this component no longer
 // downloads the entire global graph (20k edges at 1000+ services) for a
 // ≤40-node view. The client keeps assignFocusColumns on the returned
-// subgraph for the signed caller/dependency columns that drive the
-// nearest-first CAP, and renders via TopologyFlowGraph (v0.8.108): pill
-// nodes + flow-animated bezier edges + hover-blue direct-edge emphasis.
-// Toolbar (hops / errors-only) + hover inspector stay.
-
-const CAP = 40;
+// subgraph for the signed caller/dependency columns, and renders via
+// TopologyFlowGraph (v0.8.108): pill nodes + bezier edges + hover-blue
+// direct-edge emphasis. Toolbar (hops / errors-only) + hover inspector stay.
+//
+// v0.10.1294 — operatör 2026-10-17 ("oklar çok uzak ve sarmal bir path gibi
+// gidiyor"): the signed columns now ARE the x-placement. TopologyFlowGraph
+// gets `columns` and switches to the Focus Column Layout (lib/
+// topoFocusLayout): fixed columns −2 | −1 | focus | +1 | +2, focus vertically
+// centred, one smooth curve per adjacent-column edge, peer/skip/back edges
+// behind "Yan bağlantılar (N)" (?tside=1), a per-column "+N more" pill
+// (capPerColumn, expand → ?texp=). The nearest-first capPerSide/CAP=40 cut is
+// gone with it.
 
 function kindLabel(n: GraphNode): string {
   if (n.kind === 'database') return n.system ? `db · ${n.system}` : 'database';
@@ -56,31 +63,105 @@ function fmtMs(ms: number): string {
 // left, deps strictly right, and nothing but the focus at 0. A node reachable
 // both ways (a cycle) takes the side with the smaller hop distance.
 //
-// Since v0.8.108 the columns aren't used for x-placement (TopologyFlowGraph
-// lays out with its own BFS) — they still drive the nearest-first node CAP.
-// capPerSide — v0.9.359. The old cap sorted every node by |col| and cut at
-// CAP; ties at the same distance kept insertion order, and the column walk
-// emits dependencies first — so a gateway with 45 deps and 20 callers
-// rendered 39 deps and ZERO callers. "Nothing calls this service" is the
-// single most load-bearing fact on this tab, and the cap could fabricate it.
-//
-// Each side now gets its own budget (half of CAP-1, focus always kept); an
-// under-full side donates its remainder to the other. Within a side the cut
-// stays nearest-first. Pure + unit-tested.
-export function capPerSide(
-  ids: string[], colOf: (id: string) => number, cap: number, focus: string,
-): { keep: string[]; collapsed: number } {
-  if (ids.length <= cap) return { keep: ids, collapsed: 0 };
-  const byDist = (a: string, b: string) => Math.abs(colOf(a)) - Math.abs(colOf(b));
-  const callers = ids.filter(id => id !== focus && colOf(id) < 0).sort(byDist);
-  const deps    = ids.filter(id => id !== focus && colOf(id) > 0).sort(byDist);
-  const others  = ids.filter(id => id !== focus && colOf(id) === 0); // savunma; normalde yalnız focus 0
-  const budget = cap - 1 - others.length;
-  const half = Math.floor(budget / 2);
-  const nCallers = Math.min(callers.length, half + Math.max(0, half - deps.length));
-  const nDeps    = Math.min(deps.length,    budget - nCallers);
-  const keep = [focus, ...others, ...callers.slice(0, nCallers), ...deps.slice(0, nDeps)];
-  return { keep, collapsed: ids.length - keep.length };
+// Since v0.10.1294 the columns are the x-placement again (Focus Column
+// Layout) and drive the per-column cap below.
+
+// capPerColumn — v0.10.1294 (replaces v0.9.359 capPerSide). A column with
+// more than MAX_PER_COL nodes that the operator has not expanded (?texp=)
+// keeps MAX_PER_COL−1: errored first (errorRate > 1%), then calls, then id.
+// The rest collapse into a synthetic `more:<col>` node ("+N more"), which the
+// layout puts last in its column; edges touching hidden nodes merge into
+// aggregate edges (calls/errors/rate summed, p99 max) so the traffic stays
+// visible. v0.9.359's invariant survives by construction: every column keeps
+// ≥ 11 nodes, so neither callers nor dependencies can be emptied — "nothing
+// calls this service" is never fabricated by the cap. Pure + unit-tested.
+export const MAX_PER_COL = 12;
+
+export function capPerColumn(
+  nodes: readonly GraphNode[], edges: readonly GraphEdge[], col: ReadonlyMap<string, number>,
+  focus: string, expanded: ReadonlySet<number>, maxPerCol = MAX_PER_COL,
+): {
+  nodes: GraphNode[]; edges: GraphEdge[]; col: Map<string, number>;
+  /** sütun → gizlenen düğüm sayısı */
+  hidden: Map<number, number>;
+  collapsed: number;
+} {
+  const byCol = new Map<number, GraphNode[]>();
+  for (const n of nodes) {
+    const c = col.get(n.id);
+    if (c === undefined || n.id === focus || c === 0) continue;
+    (byCol.get(c) ?? byCol.set(c, []).get(c)!).push(n);
+  }
+  const repOf = new Map<string, string>(); // gizli id → more:<col>
+  const moreNodes: GraphNode[] = [];
+  const hidden = new Map<number, number>();
+  for (const c of [...byCol.keys()].sort((a, b) => a - b)) {
+    const list = byCol.get(c)!;
+    if (list.length <= maxPerCol || expanded.has(c)) continue;
+    const ranked = list.slice().sort((a, b) => {
+      const ea = a.errorRate > 1 ? 0 : 1, eb = b.errorRate > 1 ? 0 : 1;
+      return (ea - eb) || (b.calls - a.calls) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    });
+    const drop = ranked.slice(maxPerCol - 1);
+    const id = moreNodeId(c);
+    let calls = 0, errors = 0, rate = 0;
+    for (const n of drop) { repOf.set(n.id, id); calls += n.calls; errors += n.errors; rate += n.rate; }
+    hidden.set(c, drop.length);
+    moreNodes.push({
+      id, name: `+${drop.length} more`, kind: 'service',
+      calls, errors, errorRate: calls ? errors / calls * 100 : 0, rate,
+    });
+  }
+  const keepNodes = nodes.filter(n => col.has(n.id) && !repOf.has(n.id));
+  const outCol = new Map<string, number>();
+  for (const n of keepNodes) outCol.set(n.id, col.get(n.id)!);
+  for (const m of moreNodes) outCol.set(m.id, moreNodeCol(m.id));
+  if (repOf.size === 0) {
+    return { nodes: keepNodes, edges: edges.filter(e => outCol.has(e.source) && outCol.has(e.target)), col: outCol, hidden, collapsed: 0 };
+  }
+  const outEdges: GraphEdge[] = [];
+  const agg = new Map<string, GraphEdge & { wAvg: number }>();
+  for (const e of edges) {
+    const s = repOf.get(e.source) ?? e.source, t = repOf.get(e.target) ?? e.target;
+    if (!outCol.has(s) || !outCol.has(t)) continue;
+    if (s === e.source && t === e.target) { outEdges.push(e); continue; }
+    if (s === t) continue; // aynı sütunun gizlileri arası
+    const k = `${s}|${t}`;
+    const a = agg.get(k);
+    if (!a) {
+      agg.set(k, { source: s, target: t, calls: e.calls, errors: e.errors, errorRate: 0, rate: e.rate, avgMs: 0, p99Ms: e.p99Ms, protocol: e.protocol, wAvg: e.avgMs * e.calls });
+    } else {
+      a.calls += e.calls; a.errors += e.errors; a.rate += e.rate;
+      a.wAvg += e.avgMs * e.calls;
+      if (e.p99Ms > a.p99Ms) a.p99Ms = e.p99Ms;
+      if (a.protocol !== e.protocol) a.protocol = undefined;
+    }
+  }
+  for (const k of [...agg.keys()].sort()) {
+    const { wAvg, ...a } = agg.get(k)!;
+    a.errorRate = a.calls ? a.errors / a.calls * 100 : 0;
+    a.avgMs = a.calls ? wAvg / a.calls : 0;
+    outEdges.push(a);
+  }
+  return {
+    nodes: [...keepNodes, ...moreNodes], edges: outEdges, col: outCol, hidden,
+    collapsed: [...hidden.values()].reduce((x, v) => x + v, 0),
+  };
+}
+
+/** ?texp= kodeki (açılmış sütunlar, ör. "-2,2") — sıralı, tekil, sıfırsız tamsayılar. */
+export function parseTexp(raw: string | null): Set<number> {
+  const out = new Set<number>();
+  for (const p of (raw ?? '').split(',')) {
+    const t = p.trim();
+    if (!/^-?\d+$/.test(t)) continue;
+    const n = Number(t);
+    if (n !== 0) out.add(n);
+  }
+  return new Set([...out].sort((a, b) => a - b));
+}
+export function encodeTexp(cols: ReadonlySet<number>): string {
+  return [...cols].sort((a, b) => a - b).join(',');
 }
 
 /**
@@ -164,14 +245,42 @@ export function FocusedNeighborhood({ range, focus, hops, errorsOnly, onHops, on
 
   // v0.9.381 (redesign D5, mockup af7419e5) — pin'li inspector: düğüm
   // TIK = kart sabitlenir (📌/✕), hover-only davranış tamamlanır. Recenter
-  // artık karttaki buton; tık-recenter kalktı. +K more pili tıklanabilir:
-  // taraf bütçesi bir kademe artar (yalnız istemci yeniden-kesimi — kenar
-  // kümesi zaten odak-kapsamlı fetch'te, yeni istek YOK).
+  // artık karttaki buton; tık-recenter kalktı.
   const [pinned, setPinned] = useState<string | null>(null);
-  const [capBoost, setCapBoost] = useState(0);
-  useEffect(() => { setPinned(null); setCapBoost(0); }, [focus]);
+  useEffect(() => { setPinned(null); }, [focus]);
 
-  // ── signed columns + nearest-first cap over the server-walked subgraph ──
+  // v0.10.1294 — sütun başına "+N more ▸" (açılan sütunlar ?texp=-2,2) ve
+  // "Yan bağlantılar" (?tside=1) URL'de (house rule §4: kopyalanan link aynı
+  // görünümü açar). Yerel kopya YOK: durum doğrudan paramdan türer ve yalnız
+  // KENDİ param dizesine bağlı memo'dur (sig-guard) — ilgisiz bir URL yazımı
+  // (range) açılmış sütunları sıfırlamaz. Yazımlar replace:true, yabancı
+  // paramlar korunur. Açma yalnız istemci yeniden-kesimi: kenar kümesi zaten
+  // odak-kapsamlı fetch'te, yeni istek YOK.
+  const [params, setParams] = useSearchParams();
+  const texpRaw = params.get('texp');
+  const texp = useMemo(() => parseTexp(texpRaw), [texpRaw]);
+  const showSide = params.get('tside') === '1';
+  const writeTexp = (next: ReadonlySet<number>) => setParams(prev => {
+    const p = new URLSearchParams(prev);
+    if (next.size) p.set('texp', encodeTexp(next)); else p.delete('texp');
+    return p;
+  }, { replace: true });
+  const expandColumn = (c: number) => writeTexp(new Set([...parseTexp(params.get('texp')), c]));
+  const setShowSide = (v: boolean) => setParams(prev => {
+    const p = new URLSearchParams(prev);
+    if (v) p.set('tside', '1'); else p.delete('tside');
+    return p;
+  }, { replace: true });
+  // Odak değişince açılmış sütunlar başka bir servisin sütunlarıdır — düşer.
+  const prevFocus = useRef(focus);
+  useEffect(() => {
+    if (prevFocus.current === focus) return;
+    prevFocus.current = focus;
+    if (texpRaw) writeTexp(new Set());
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- yalnız odak geçişinde
+  }, [focus]);
+
+  // ── signed columns + per-column cap over the server-walked subgraph ──
   const nb = useMemo(() => {
     const allNodes = new Map<string, GraphNode>();
     for (const n of graph.data?.nodes ?? []) allNodes.set(n.id, n);
@@ -180,18 +289,13 @@ export function FocusedNeighborhood({ range, focus, hops, errorsOnly, onHops, on
     // above). Walks callers (upstream) and deps (downstream) as SEPARATE
     // directional BFS so a caller's other dependency no longer collapses onto
     // the focus column (the pre-v0.8.39 "won't branch at 2 hops" bug).
-    const col = assignFocusColumns(edges, focus, hops);
-    // cap: keep the nearest CAP nodes (lowest |col|, focus always kept).
-    // v0.9.359 — taraf-başına bütçe (capPerSide): tavan artık çağıranların
-    // TAMAMINI düşüremez; eskiden eşit mesafede ekleme sırası kazandığı ve
-    // yürüyüş bağımlılıkları önce ürettiği için 45 bağımlılıklı bir gateway
-    // sıfır çağıranla çizilebiliyordu.
-    const capped = capPerSide([...col.keys()], id => col.get(id) ?? 0, CAP + capBoost * 40, focus);
-    const ids = capped.keep;
-    const collapsed = capped.collapsed;
-    const keep = new Set(ids);
-    const nodes = ids.map(id => allNodes.get(id)).filter((n): n is GraphNode => !!n);
-    const shown = edges.filter(e => keep.has(e.source) && keep.has(e.target));
+    const col0 = assignFocusColumns(edges, focus, hops);
+    // v0.10.1294 — sütun başına tavan (capPerColumn): kalabalık sütun "+N
+    // more" düğümüne iner; hiçbir taraf sıfırlanamaz (v0.9.359 değişmezi).
+    const inCol = [...col0.keys()].map(id => allNodes.get(id)).filter((n): n is GraphNode => !!n);
+    const capped = capPerColumn(inCol, edges, col0, focus, texp);
+    const { nodes, col, collapsed } = capped;
+    const shown = capped.edges;
     // node p99 ≈ max p99 of its incoming edges (fall back to outgoing).
     const p99Of = (id: string) => {
       let m = 0;
@@ -199,8 +303,9 @@ export function FocusedNeighborhood({ range, focus, hops, errorsOnly, onHops, on
       if (!m) for (const e of shown) if (e.source === id && e.p99Ms > m) m = e.p99Ms;
       return m;
     };
-    return { nodes, edges: shown, col, collapsed, p99Of };
-  }, [graph.data, focus, hops, errorsOnly]);
+    const secondary = countSecondary(shown.map(e => ({ caller: e.source, callee: e.target })), col);
+    return { nodes, edges: shown, col, collapsed, p99Of, secondary };
+  }, [graph.data, focus, hops, errorsOnly, texp]);
 
   const [hover, setHover] = useState<string | null>(null);
 
@@ -208,8 +313,8 @@ export function FocusedNeighborhood({ range, focus, hops, errorsOnly, onHops, on
   // erken-return'lerin ALTINDAydı). Sebep: dış düğümün yol kırılımı bir
   // hook ve hook koşullu olamaz; gate'in girdisi de pin'li düğümün ta
   // kendisi.
-  const pinnedNode = pinned ? nb.nodes.find(n => n.id === pinned) : null;
-  const hoverNode = pinnedNode ?? (hover ? nb.nodes.find(n => n.id === hover) : null);
+  const pinnedNode = pinned && !isMoreNode(pinned) ? nb.nodes.find(n => n.id === pinned) : null;
+  const hoverNode = pinnedNode ?? (hover && !isMoreNode(hover) ? nb.nodes.find(n => n.id === hover) : null);
 
   // v0.9.1255 — Operator-reported: dış düğümde host değil hangi UÇ
   // olduğu anlamlı. Kırılım PIN'de yükleniyor, HOVER'da değil: hover
@@ -324,23 +429,31 @@ export function FocusedNeighborhood({ range, focus, hops, errorsOnly, onHops, on
             <SegmentedControl aria-label="Komşuluk derinliği" value={String(hops)}
               onChange={v => onHops(v === '2' ? 2 : 1)}
               options={[{ value: '1', label: '1 hop' }, { value: '2', label: '2 hops' }]} />
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--text2)', cursor: 'pointer' }}>
+            <label className="topo-tb-check">
               <input type="checkbox" checked={errorsOnly} onChange={e => onErrorsOnly(e.target.checked)} /> Errors only
             </label>
-            <span style={{ fontSize: 11, color: 'var(--text3)' }}>
-              {nb.nodes.length} of {graph.data?.nodes.length ?? 0} nodes · {nb.edges.length} edges
-              {nb.collapsed > 0 && (
-                <strong onClick={() => setCapBoost(b => b + 1)}
-                  title="Taraf bütçesini 40 düğüm artır — kenarlar zaten yüklü, yeni istek yok"
-                  style={{ color: 'var(--warn)', cursor: 'pointer', textDecoration: 'underline dotted' }}>
-                  {' '}· +{nb.collapsed} more — genişlet
-                </strong>
-              )}
+            {/* v0.10.1294 — peer/skip/back kenarlar varsayılan GİZLİ: "kim kimi
+                çağırıyor" tek bakışta okunsun. Sayı her zaman görünür, hover
+                edilen düğüm kendi yan bağlantılarını soluk gösterir. */}
+            <label className="topo-tb-check"
+              title="Aynı sütun içi, sütun atlayan ve döngü (geri) kenarları — varsayılan gizli; hover edilen düğümün kendi yan bağlantıları soluk görünür">
+              <input type="checkbox" checked={showSide} onChange={e => setShowSide(e.target.checked)} /> Yan bağlantılar ({nb.secondary})
+            </label>
+            <span className="topo-tb-count">
+              {nb.nodes.filter(n => !isMoreNode(n.id)).length} of {graph.data?.nodes.length ?? 0} nodes · {nb.edges.length} edges
+              {nb.collapsed > 0 && <> · {nb.collapsed} gizli (sütun başına “+N more ▸”)</>}
             </span>
+            {texp.size > 0 && (
+              <Button variant="ghost" size="xs" onClick={() => writeTexp(new Set())}
+                title="Açılmış sütunları yeniden “+N more” altında topla">Sütunları daralt</Button>
+            )}
         </>
       </div>
 
       {/* ── flow graph canvas ───────────────────────────────────────────── */}
+      {/* v0.10.1294 — `columns` → Focus Column Layout (lib/topoFocusLayout):
+          sabit sütunlar, odak ortada, akış kenarları durağan (animasyon yalnız
+          hover'da). */}
       <TopologyFlowGraph
         data={mapData}
         focus={focus}
@@ -352,6 +465,16 @@ export function FocusedNeighborhood({ range, focus, hops, errorsOnly, onHops, on
         }}
         height={height}
         dropMessaging={false}
+        columns={nb.col}
+        animate="hover"
+        showSecondary={showSide}
+        onExpandColumn={expandColumn}
+        legend={<>
+          {/* v0.10.929 (K5) — lejant healthToken ile aynı: sağlıklı nötr. */}
+          <Kind c="var(--text3)" l="healthy" /><Kind c="var(--warn)" l=">1% err" /><Kind c="var(--err)" l=">5% err" />
+          {/* v0.10.1294 — kenar türleri; namespace renklerini grafik ekler. */}
+          <EdgeKind kind="call" l="çağrı" /><EdgeKind kind="back" l="döngü" /><EdgeKind kind="new" l="yeni" />
+        </>}
       />
 
       {/* ── hover inspector ─────────────────────────────────────────────── */}
@@ -473,11 +596,7 @@ export function FocusedNeighborhood({ range, focus, hops, errorsOnly, onHops, on
         </div>
       )}
 
-      {/* ── health legend (bottom-left) ─────────────────────────────────── */}
-      <div style={{ position: 'absolute', left: 10, bottom: 10, zIndex: 3, display: 'inline-flex', gap: 12, fontSize: 10, color: 'var(--text3)', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 8px' }}>
-        {/* v0.10.929 (K5) — lejant healthToken ile aynı: sağlıklı nötr. */}
-        <Kind c="var(--text3)" l="healthy" /><Kind c="var(--warn)" l=">1% err" /><Kind c="var(--err)" l=">5% err" />
-      </div>
+      {/* ── legend: v0.10.1294'den beri tuvalin içinde tek satır (TopologyFlowGraph `legend`) ── */}
 
       {/* ── footer caption ──────────────────────────────────────────────── */}
       <div style={{ position: 'absolute', right: 10, bottom: 10, zIndex: 3, maxWidth: '62%', fontSize: 9.5, color: 'var(--text3)', textAlign: 'right', lineHeight: 1.4 }}>
@@ -486,7 +605,7 @@ export function FocusedNeighborhood({ range, focus, hops, errorsOnly, onHops, on
             çağırmıyor" ile "çağıranı enstrümante değil" aynı görüntüydü ve
             operatörün ilk şüphesi kapsama değil servis oluyordu. */}
         Only callers/dependencies whose traces reach Coremetry appear — an uninstrumented client is invisible here; operator-hidden patterns (Settings → Topology) are excluded.
-        Click a node to recenter · hover for direct edges · dashed pill = external dependency.
+        Callers left, dependencies right · click a node to pin its card · hover for its path to the focus · dashed pill = external dependency.
       </div>
     </div>
   );
@@ -499,6 +618,17 @@ function Kind({ c, l }: { c: string; l: string }) {
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
       <span style={{ width: 8, height: 8, borderRadius: '50%', background: c }} />{l}
+    </span>
+  );
+}
+// v0.10.1294 — lejant kenar örneği: çizgi deseni TopologyFlowGraph'ın
+// kenarıyla aynı (düz çağrı, noktalı döngü .back, 12 4 yeni).
+function EdgeKind({ kind, l }: { kind: 'call' | 'back' | 'new'; l: string }) {
+  return (
+    <span className="topo-lg-edge">
+      <svg width="22" height="8" aria-hidden="true">
+        <line x1="1" y1="4" x2="21" y2="4" className={'topo-lg-line ' + kind} />
+      </svg>{l}
     </span>
   );
 }

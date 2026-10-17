@@ -67,59 +67,115 @@ describe('assignFocusColumns', () => {
   });
 });
 
-// v0.9.359 — capPerSide. The flat nearest-first cap could drop EVERY caller:
-// ties at |col|=1 kept insertion order, and the walk emits dependencies
-// first, so a gateway with 45 deps + 20 callers rendered 39 deps and zero
-// callers — fabricating "nothing calls this service".
-import { capPerSide } from './FocusedNeighborhood';
+// v0.10.1294 — capPerColumn (capPerSide'ın yerine; operatör 2026-10-17:
+// "oklar uzak ve sarmal"). Odak görünümü artık sabit sütunlu (lib/
+// topoFocusLayout); tavan da SÜTUN başına: kalabalık sütun (> MAX_PER_COL)
+// açılmamışsa 11 düğüm tutar (önce hatalı >%1, sonra çağrı, sonra ad), kalanı
+// sütunun sonundaki sentetik "+N more" düğümüne iner; gizli düğümlere giden
+// kenarlar toplam kenara birleşir. v0.9.359 değişmezi korunur: hiçbir taraf
+// (çağıranlar / bağımlılıklar) tavanla SIFIRLANAMAZ.
+import { capPerColumn, MAX_PER_COL, parseTexp, encodeTexp } from './FocusedNeighborhood';
+import { moreNodeId } from '@/lib/topoFocusLayout';
 
-describe('capPerSide', () => {
+describe('capPerColumn', () => {
+  const gn = (id: string, calls = 10, errorRate = 0): GraphNode => ({
+    id, name: id, kind: 'service', calls, errors: Math.round(calls * errorRate / 100), errorRate, rate: calls,
+  });
+  const ge = (source: string, target: string, calls = 10, errors = 0, p99Ms = 5): GraphEdge => ({
+    source, target, calls, errors, errorRate: calls ? errors / calls * 100 : 0, rate: calls, avgMs: 2, p99Ms,
+  });
+  // odak + `callers` çağıran (−1) + `deps` bağımlılık (+1)
   const mk = (callers: number, deps: number) => {
+    const nodes = [gn('focus', 1000)];
+    const edges: GraphEdge[] = [];
+    for (let i = 0; i < callers; i++) { nodes.push(gn(`c${String(i).padStart(2, '0')}`, 100 + i)); edges.push(ge(`c${String(i).padStart(2, '0')}`, 'focus', 100 + i)); }
+    for (let i = 0; i < deps; i++) { nodes.push(gn(`d${String(i).padStart(2, '0')}`, 100 + i)); edges.push(ge('focus', `d${String(i).padStart(2, '0')}`, 100 + i)); }
     const col = new Map<string, number>([['focus', 0]]);
-    for (let i = 0; i < callers; i++) col.set(`c${i}`, -1 - (i % 2)); // -1/-2 karışık
-    for (let i = 0; i < deps; i++) col.set(`d${i}`, 1 + (i % 2));
-    return { ids: [...col.keys()], colOf: (id: string) => col.get(id) ?? 0 };
+    for (const n of nodes) if (n.id !== 'focus') col.set(n.id, n.id.startsWith('c') ? -1 : 1);
+    return { nodes, edges, col };
   };
 
-  it('under the cap: untouched', () => {
-    const { ids, colOf } = mk(5, 5);
-    const r = capPerSide(ids, colOf, 40, 'focus');
-    expect(r.keep.length).toBe(11);
+  it('tavan altında dokunulmaz', () => {
+    const { nodes, edges, col } = mk(5, MAX_PER_COL);
+    const r = capPerColumn(nodes, edges, col, 'focus', new Set());
+    expect(r.nodes).toHaveLength(nodes.length);
+    expect(r.edges).toHaveLength(edges.length);
     expect(r.collapsed).toBe(0);
+    expect(r.hidden.size).toBe(0);
   });
 
-  it('the review scenario: 45 deps + 20 callers keeps BOTH sides', () => {
-    const { ids, colOf } = mk(20, 45);
-    const r = capPerSide(ids, colOf, 40, 'focus');
-    expect(r.keep.length).toBe(40);
-    const callers = r.keep.filter(id => colOf(id) < 0).length;
-    const deps = r.keep.filter(id => colOf(id) > 0).length;
-    // budget=39, half=19: çağıran 19 (1'i düşer), bağımlılık 20 — ama SIFIR
-    // çağıran asla; eski davranış 0/39'du.
-    expect(callers).toBe(19);
-    expect(deps).toBe(20);
-    expect(r.collapsed).toBe(26); // 66 düğümden 40 kaldı
+  it('45 bağımlılık + 20 çağıran: İKİ taraf da kalır (v0.9.359 değişmezi)', () => {
+    const { nodes, edges, col } = mk(20, 45);
+    const r = capPerColumn(nodes, edges, col, 'focus', new Set());
+    const callers = r.nodes.filter(n => (r.col.get(n.id) ?? 0) < 0);
+    const deps = r.nodes.filter(n => (r.col.get(n.id) ?? 0) > 0);
+    expect(callers).toHaveLength(MAX_PER_COL);   // 11 + "+9 more"
+    expect(deps).toHaveLength(MAX_PER_COL);      // 11 + "+34 more"
+    expect(r.hidden.get(-1)).toBe(9);
+    expect(r.hidden.get(1)).toBe(34);
+    expect(r.collapsed).toBe(9 + 34);
+    expect(r.nodes.map(n => n.id)).toContain('focus');
   });
 
-  it('an under-full side donates its remainder', () => {
-    const { ids, colOf } = mk(3, 60);
-    const r = capPerSide(ids, colOf, 40, 'focus');
-    expect(r.keep.filter(id => colOf(id) < 0).length).toBe(3);   // hepsi
-    expect(r.keep.filter(id => colOf(id) > 0).length).toBe(36);  // 39-3
+  it('+N more düğümü gizlenen sayıyı ve toplamı taşır', () => {
+    const { nodes, edges, col } = mk(0, 20);
+    const r = capPerColumn(nodes, edges, col, 'focus', new Set());
+    const more = r.nodes.find(n => n.id === moreNodeId(1))!;
+    expect(more).toBeDefined();
+    expect(more.name).toBe('+9 more');
+    expect(r.col.get(more.id)).toBe(1);
+    // gizlenenler en az çağrılı 9'u: d00..d08 (100..108)
+    expect(more.calls).toBe([100, 101, 102, 103, 104, 105, 106, 107, 108].reduce((a, v) => a + v, 0));
+    for (let i = 0; i < 9; i++) expect(r.nodes.some(n => n.id === `d0${i}`)).toBe(false);
   });
 
-  it('focus is always kept', () => {
-    const { ids, colOf } = mk(50, 50);
-    const r = capPerSide(ids, colOf, 10, 'focus');
-    expect(r.keep).toContain('focus');
-    expect(r.keep.length).toBe(10);
+  it('önce hatalılar tutulur (errorRate > %1), sonra çağrı, sonra ad', () => {
+    const { nodes, edges, col } = mk(0, 20);
+    nodes.find(n => n.id === 'd00')!.errorRate = 5;   // en az çağrılı ama hatalı
+    nodes.find(n => n.id === 'd01')!.errorRate = 0.5; // eşik altı
+    const r = capPerColumn(nodes, edges, col, 'focus', new Set());
+    expect(r.nodes.some(n => n.id === 'd00')).toBe(true);
+    expect(r.nodes.some(n => n.id === 'd01')).toBe(false);
   });
 
-  it('within a side the cut is nearest-first', () => {
-    const col = new Map<string, number>([['focus', 0], ['near', 1], ['far', 2], ['x', -1]]);
-    const r = capPerSide([...col.keys()], id => col.get(id) ?? 0, 3, 'focus');
-    expect(r.keep).toContain('near');
-    expect(r.keep).not.toContain('far');
+  it('gizli düğümlere giden kenarlar toplam kenara birleşir (calls/errors toplanır)', () => {
+    const { nodes, edges, col } = mk(0, 14);
+    // gizlenecek iki düğüm (d00, d01, d02 en az çağrılı) — hatalarıyla
+    edges.find(e => e.target === 'd00')!.errors = 3;
+    edges.find(e => e.target === 'd01')!.errors = 4;
+    const r = capPerColumn(nodes, edges, col, 'focus', new Set());
+    const agg = r.edges.filter(e => e.target === moreNodeId(1));
+    expect(agg).toHaveLength(1);
+    expect(agg[0].source).toBe('focus');
+    expect(agg[0].calls).toBe(100 + 101 + 102);
+    expect(agg[0].errors).toBe(7);
+    expect(agg[0].errorRate).toBeCloseTo(7 / 303 * 100, 9);
+    // gizli uçlu ham kenar kalmaz
+    expect(r.edges.some(e => ['d00', 'd01', 'd02'].includes(e.target))).toBe(false);
+  });
+
+  it('gizli → gizli (farklı sütun) kenarı more → more olur; aynı sütun içi düşer', () => {
+    const { nodes, edges, col } = mk(0, 14);
+    for (let i = 0; i < 14; i++) { nodes.push(gn(`x${String(i).padStart(2, '0')}`, 1 + i)); col.set(`x${String(i).padStart(2, '0')}`, 2); }
+    edges.push(ge('d00', 'x00', 7), ge('d00', 'd01', 2));
+    const r = capPerColumn(nodes, edges, col, 'focus', new Set());
+    const mm = r.edges.find(e => e.source === moreNodeId(1) && e.target === moreNodeId(2));
+    expect(mm?.calls).toBe(7);
+    expect(r.edges.some(e => e.source === moreNodeId(1) && e.target === moreNodeId(1))).toBe(false);
+  });
+
+  it('açılmış (expanded) sütun kesilmez', () => {
+    const { nodes, edges, col } = mk(30, 30);
+    const r = capPerColumn(nodes, edges, col, 'focus', new Set([1]));
+    expect(r.nodes.filter(n => (r.col.get(n.id) ?? 0) > 0)).toHaveLength(30);
+    expect(r.hidden.has(1)).toBe(false);
+    expect(r.hidden.get(-1)).toBe(19);
+  });
+
+  it('?texp kodeki: sıralı, tekil, geçersizler düşer', () => {
+    expect([...parseTexp('2,-2,x,2,0')]).toEqual([-2, 2]);
+    expect(parseTexp(null).size).toBe(0);
+    expect(encodeTexp(new Set([2, -1]))).toBe('-1,2');
   });
 });
 
