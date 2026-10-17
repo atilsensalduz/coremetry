@@ -10,6 +10,7 @@ import (
 	agentctx "github.com/cilcenk/coremetry/internal/ai/agent/context"
 	"github.com/cilcenk/coremetry/internal/auth"
 	"github.com/cilcenk/coremetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/mcptools"
 )
 
 // AI konuşma kalıcılığı — v0.9.1139 (AI Assistant Faz 4.1,
@@ -86,9 +87,57 @@ const (
 
 // aiChatMessage — blob'daki tek mesaj. FE'deki ChatMessage ile birebir
 // (role + text); araç çağrıları sunucu-içi kalır, arşive girmez.
+// v0.10.1272 — Evidence: asistan cevabının kanıt çipleri (answer.evidence[],
+// chat_evidence.go); geri yüklenen cevap çiplerini korur. omitempty: kanıtsız
+// mesajların gövdesi bayt-bayt eski şekil. İstemciden gelir → sanitize edilir
+// (sanitizeChatEvidence): yalnız asistan, tavanlı, href yalnız kök-göreli.
 type aiChatMessage struct {
-	Role string `json:"role"`
-	Text string `json:"text"`
+	Role     string                  `json:"role"`
+	Text     string                  `json:"text"`
+	Evidence []mcptools.ChatEvidence `json:"evidence,omitempty"`
+}
+
+// Arşivlenen kanıtın tavanları (blob 64 KB; 40 mesajın hepsi kanıtlı olsa da
+// sığmalı — sığmazsa fitChatBlob en eski mesajı düşürür, 413 değil).
+const (
+	aiChatEvidenceMax      = chatEvidenceMax
+	aiChatEvidenceQueryMax = 2 << 10
+	aiChatEvidenceFieldMax = 200
+	aiChatEvidenceHrefMax  = 4096
+)
+
+// sanitizeChatEvidence — istemcinin geri gönderdiği kanıt listesini arşivlenebilir
+// şekle indirir: kaynaksız kayıt düşer, metin alanları kırpılır, href yalnız
+// kök-göreli uygulama yolu (// ya da /\ ile başlayan protokol-göreli adres ve
+// dış adres SİLİNİR — çip tıklanmaz ama kaybolmaz). Saf.
+func sanitizeChatEvidence(in []mcptools.ChatEvidence) []mcptools.ChatEvidence {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]mcptools.ChatEvidence, 0, len(in))
+	for _, e := range in {
+		if strings.TrimSpace(e.Source) == "" {
+			continue
+		}
+		e.Tool = clampChatRunes(e.Tool, aiChatEvidenceFieldMax)
+		e.Source = clampChatRunes(e.Source, aiChatEvidenceFieldMax)
+		e.QueryKind = clampChatRunes(e.QueryKind, aiChatEvidenceFieldMax)
+		e.Env = clampChatRunes(e.Env, aiChatEvidenceFieldMax)
+		e.Cluster = clampChatRunes(e.Cluster, aiChatEvidenceFieldMax)
+		e.Query = clampChatRunes(e.Query, aiChatEvidenceQueryMax)
+		if !strings.HasPrefix(e.Href, "/") || strings.HasPrefix(e.Href, "//") ||
+			strings.HasPrefix(e.Href, "/\\") || len(e.Href) > aiChatEvidenceHrefMax {
+			e.Href = ""
+		}
+		out = append(out, e)
+		if len(out) >= aiChatEvidenceMax {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // aiChatBlob — query_string kolonunda yaşayan gövde.
@@ -165,6 +214,11 @@ func sanitizeChatMessages(in []aiChatMessage) []aiChatMessage {
 		}
 		if strings.TrimSpace(m.Text) == "" {
 			continue
+		}
+		if m.Role == "assistant" {
+			m.Evidence = sanitizeChatEvidence(m.Evidence) // v0.10.1272
+		} else {
+			m.Evidence = nil
 		}
 		out = append(out, m)
 	}

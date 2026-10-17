@@ -4752,6 +4752,28 @@ tr:hover .row-kiosk, .row-kiosk:focus-visible { opacity: 1; }
 .ai-links__cap { font-size: var(--fs-xs); font-weight: 600; color: var(--text3); letter-spacing: 0.02em; }
 .ai-link { display: inline-flex; align-items: center; gap: var(--sp-2); padding: 3px 9px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--accent2) 45%, transparent); background: color-mix(in srgb, var(--accent2) 10%, transparent); color: var(--accent2); font-size: 12px; font-weight: 600; text-decoration: none; line-height: 1.3; }
 .ai-link:hover, .ai-link:focus-visible { background: color-mix(in srgb, var(--accent2) 20%, transparent); text-decoration: none; }
+/* v0.10.1272 (CoSRE adım 3) — kanıt çipleri: [Kaynak] · pencere · env/cluster ·
+   N satır · süre; tıkla = Explore'da aç; ipucunda tam sorgu (monospace).
+   Yalnız tema belirteçleri. Uzun çip kırpılmaz, sarılır (dar çekmece). */
+.cm-evidence { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin-top: var(--sp-4); }
+.cm-evidence--step { margin-top: 0; margin-bottom: var(--sp-2); }
+.cm-evidence__chip { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; }
+.cm-evidence__btn { display: inline-flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; min-width: 0; max-width: 100%; font-size: var(--fs-xs); text-align: left; }
+.cm-evidence__btn.is-static { padding: 2px 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text2); }
+.cm-evidence__part { color: var(--text2); font-variant-numeric: tabular-nums; }
+.cm-evidence__part + .cm-evidence__part::before, .cm-evidence__src + .cm-evidence__part::before { content: '·'; margin-right: var(--sp-2); color: var(--text3); }
+.cm-evidence__go { margin-left: var(--sp-2); font-size: var(--fs-xs); color: var(--accent2); white-space: nowrap; }
+.cm-evidence-wrap { margin-top: var(--sp-4); }
+.cm-evidence-wrap > .cm-evidence { margin-top: 0; }
+.cm-evidence-wrap.cm-evidence--step { margin-top: 0; margin-bottom: var(--sp-2); }
+.cm-evblk { margin-top: var(--sp-3); max-width: 720px; }
+.cm-evblk__chart { display: flex; flex-direction: column; gap: var(--sp-3); }
+.cm-evblk__table { max-height: 360px; overflow: auto; }
+.cm-evblk__body { white-space: normal; overflow-wrap: anywhere; min-width: 240px; }
+.cm-evidence__tip { display: flex; flex-direction: column; gap: var(--sp-2); max-width: 520px; }
+.cm-evidence__tip-h { font-weight: 600; }
+.cm-evidence__tip-w { color: var(--text3); font-size: var(--fs-xs); }
+.cm-evidence__q { display: block; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; font-size: var(--fs-xs); color: var(--text); background: var(--bg1); border: 1px solid var(--border); border-radius: var(--radius-xs); padding: var(--sp-2); }
 /* v0.10.944 (CoSRE Faz A) — çekmecenin "Bağlam" şeridi (trace öznesi):
    başlığın hemen altında trace/span/servis/ortam/cluster/namespace/pencere.
    Öğeler mevcut .chip anatomisi; uzun değer kırpılır, tamamı ipucunda. */

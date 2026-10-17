@@ -2,7 +2,7 @@ import { Component, Fragment, createContext, memo, useContext, useMemo, useRef, 
 import { chatErrorText } from './chatErrorText';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { AIFeedbackButtons } from './AIFeedbackButtons';
-import { chartBlocks, mergeBlockLinks, traceListBlocks, operationBlocks } from '@/lib/chatBlocks';
+import { chartBlocks, mergeBlockLinks, traceListBlocks, operationBlocks, evidenceBlocksByRef, type EvidenceBlockView } from '@/lib/chatBlocks';
 import { ChatTraceList } from './ChatTraceList'; // v0.10.688 — trace_list bloğu
 import { evidenceBlocks } from '@/lib/chatEvidence'; // v0.10.558
 import { EvidenceCard } from './EvidenceCard';
@@ -10,7 +10,7 @@ import { parseAction, actionVisible, applyActionHref, parseProblemNoteAction } f
 import { ProblemNoteButton } from './ProblemNoteButton';
 import { OperationCard } from './OperationCard';
 import { Button } from '@/components/ui/Button';
-import type { ChatTurn, ChatStepDetail, ChatTypedBlock, CosreSignalKind } from '@/lib/types';
+import type { ChatTurn, ChatStepDetail, ChatTypedBlock, CosreSignalKind, ChatQueryEvidence } from '@/lib/types';
 import { api } from '@/lib/api';
 import { traceHref } from '@/lib/traceHref';
 import { isPlainLeftClick } from '@/lib/a11y'; // v0.10.1105
@@ -30,6 +30,7 @@ import { summarizeSteps, parseToolError, previewFirstLine, visibleRows, isDeadli
 import { StateBadges } from './StateBadges'; // v0.10.948 — paylaşılan durum rozetleri
 import { chatLinkTargetProps, useChatLinkNewTab } from './chatLinkTarget'; // v0.10.1125 — /cosre yeni sekme
 import { sourceChips, SOURCE_KIND_LABEL, type SourceChip } from './sourceChips'; // v0.10.1127 — hedef başına tek kaynak çipi
+import { EvidenceChips } from './EvidenceChips'; // v0.10.1272 — kanıt çipleri + Explore'da aç
 
 // ChatBubble — bir sohbet turunun ÇİZİMİ. v0.9.479'da CopilotChat.tsx'ten
 // buraya taşındı: AI çekmecesi içindeki sohbet (AIDrawer) aynı balonu
@@ -54,6 +55,9 @@ import { sourceChips, SOURCE_KIND_LABEL, type SourceChip } from './sourceChips';
 // varsayılanla: hiçbir dış link doğrulanmış sayılmaz.
 interface MdCtx { policy: LinkPolicy; cites: readonly SourceChip[]; newTab: boolean; origin: string }
 const ChatMdContext = createContext<MdCtx>({ policy: EMPTY_POLICY, cites: [], newTab: false, origin: '' });
+// v0.10.1272 — kanıt çipine bağlı sohbet içi bloklar (evidenceRef → blok); adım
+// panelindeki çip de aynı bloğu açabilsin diye bağlamla iner.
+const EvidenceBlocksContext = createContext<ReadonlyMap<string, EvidenceBlockView> | undefined>(undefined);
 
 function currentOrigin(): string {
   return typeof window !== 'undefined' && window.location ? window.location.origin : '';
@@ -545,6 +549,7 @@ function ToolChips({ steps, details, hasText, turnDone, evId, setEvId }: {
 // İLAN EDİLİR (sessiz kırpma, eksik kanıta tam kanıt sanıp bakmak demek).
 function ToolEvidence({ d }: { d: ChatStepDetail }) {
   const view = parseStepPreview(d.preview ?? '', d.truncated);
+  const evBlocks = useContext(EvidenceBlocksContext);
   return (
     <div style={{
       marginTop: 6, padding: '6px 8px', borderRadius: 6,
@@ -556,9 +561,12 @@ function ToolEvidence({ d }: { d: ChatStepDetail }) {
           {d.tool}({d.args})
         </div>
       )}
+      {/* v0.10.1272 — kanıt zarflı aracın çipi (kaynak · pencere · satır · süre; tıkla = Explore'da aç). */}
+      {d.evidence && <EvidenceChips items={[d.evidence]} blocks={evBlocks} defaultOpen="none" className="cm-evidence--step" />}
       {/* v0.9.1228 — çağrının ürün görünümü: sunucunun K4-denetimli
-          haritasından gelir (model metninden asla), yoksa çizilmez. */}
-      {d.href && (
+          haritasından gelir (model metninden asla), yoksa çizilmez.
+          v0.10.1272 — kanıt çipi aynı href'i taşıyorsa ikinci bağlantı çizilmez. */}
+      {d.href && d.href !== d.evidence?.href && (
         <a className="sec" href={d.href} target="_blank" rel="noopener noreferrer"
           style={{ fontSize: 10.5, padding: '2px 8px', marginBottom: 4, display: 'inline-block' }}>
           ↗ Üründe aç
@@ -902,6 +910,13 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
     [turn.text, turn.pending, turn.blocks, isUser],
   );
   const done = !isUser && !turn.pending && !turn.error && !!turn.text;
+  // v0.10.1272 — cevabın kanıt çipleri: answer.evidence (arşivden de gelir);
+  // yoksa (hata ile biten tur) adımların kendi kanıtları.
+  const answerEvidence = useMemo<ChatQueryEvidence[]>(
+    () => turn.evidence ?? (turn.stepDetails ?? []).flatMap(d => (d.evidence ? [d.evidence] : [])),
+    [turn.evidence, turn.stepDetails],
+  );
+  const evBlocks = useMemo(() => evidenceBlocksByRef(turn.blocks), [turn.blocks]);
   const hasSteps = !isUser && (!!turn.steps?.length || !!turn.stepDetails?.length);
 
   if (isUser) {
@@ -913,6 +928,7 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
 
   return (
     <ChatMdContext.Provider value={mdCtx}>
+    <EvidenceBlocksContext.Provider value={evBlocks}>
     <div className="cm-msg cm-msg--ai">
       {/* v0.10.1137 — asistan cevabı kart DEĞİL: sayfadaki düz metin (Claude gibi),
           küçük marka etiketi. Explain paneli kendi .ai-answer-card'ını korur. */}
@@ -979,6 +995,9 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
         <SourceList chips={cites} />
       )}
 
+      {/* v0.10.1272 — kanıt çipleri: hangi kaynaktan, hangi pencerede, kaç satır; tıkla = Explore'da aç. */}
+      {!isUser && !turn.pending && answerEvidence.length > 0 && <EvidenceChips items={answerEvidence} blocks={evBlocks} defaultOpen="last" />}
+
       {/* Derin-link çipleri (v0.9.419; v0.10.546 etiketli "Aç →" satırı). Dış
           URL <a target=_blank> (v0.9.709), iç link SPA <Link>. */}
       {!!effLinks.length && !turn.pending && !turn.error && (
@@ -1032,6 +1051,7 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
         </div>
       )}
     </div>
+    </EvidenceBlocksContext.Provider>
     </ChatMdContext.Provider>
   );
 }

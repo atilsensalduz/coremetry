@@ -7035,6 +7035,57 @@ export interface DBQueryStat {
 export interface ChatMessage {
   role: 'user' | 'assistant';
   text?: string;
+  /**
+   * v0.10.1272 — asistan cevabının kanıt çipleri (answer.evidence[]). Arşive
+   * yazılır (sunucu sanitize eder: internal/api/ai_conversations.go
+   * sanitizeChatEvidence) — geri yüklenen cevap çiplerini korur.
+   */
+  evidence?: ChatQueryEvidence[];
+}
+
+/**
+ * ChatQueryEvidence — v0.10.1272 (CoSRE adım 3): kanıt zarflı araçların
+ * (query_metrics / query_traces / query_logs) okuduğu sorgunun künyesi.
+ * Go aynası: internal/mcptools/evidence_link.go ChatEvidence. `href` sunucunun
+ * tek eşlemesinden (EvidenceHref) — aynı sorgu + pencere + env/cluster;
+ * yoksa çip tıklanmaz.
+ */
+export interface ChatQueryEvidence {
+  tool: string;
+  /** Thanos | VictoriaMetrics | ClickHouse | Elasticsearch */
+  source: string;
+  /** Çalışan sorgu metni (PromQL / SQL / okuyucu özeti). */
+  query: string;
+  /** promql | sql | summary */
+  queryKind: string;
+  window: { fromMs: number; toMs: number };
+  env?: string;
+  cluster?: string;
+  rows?: number;
+  series?: number;
+  durationMs: number;
+  href?: string;
+  /** v0.10.1272 — sohbet içi bloğa bağ (blok yükünün `evidenceRef`i); yoksa bloksuz kanıt. */
+  ref?: string;
+}
+
+/**
+ * v0.10.1272 — kanıt bloklarının yükü (internal/mcptools/evidence_blocks.go).
+ * `chart` veri kipi: service/agg YOK (eski istemcinin sorgu-spec süzgeci atlar),
+ * noktalar [unixMs, değer]. `table`: sohbet kanıt tablosu (≤50 satır).
+ * İkisi de `evidenceRef` ile çipe bağlı; `deepLink` = Explore'da aç.
+ */
+export interface ChatEvidenceChartSeries { name: string; group?: string; unit: string; points: [number, number][] }
+export interface ChatEvidenceChartPayload {
+  title: string; evidenceRef: string; deepLink?: string;
+  window: { fromNs: number; toNs: number };
+  series: ChatEvidenceChartSeries[]; truncated?: boolean;
+}
+export type ChatEvidenceColumnKind = 'time' | 'num' | 'severity' | 'trace' | 'text';
+export interface ChatEvidenceTablePayload {
+  title: string; evidenceRef: string; deepLink?: string;
+  columns: { key: string; label: string; kind: ChatEvidenceColumnKind | string }[];
+  rows: (string | number | null)[][]; truncated?: boolean;
 }
 
 // One streamed event from the chat SSE. `step` = a tool the model
@@ -7141,7 +7192,7 @@ export interface ChatTypedBlock { id: string; type: ChatBlockType; seq: number; 
 // endpoint_traces.go traceListPayload). Deterministik trace tablosu (D6):
 // satır = trace linki, deepLink aynı süzgeçle /traces, truncated = limit dolu.
 export interface ChatTraceListRow { traceId: string; startTime: number; serviceName: string; rootName: string; durationMs: number; spanCount: number; hasError: boolean }
-export interface ChatTraceListPayload { query: string; window: { fromNs: number; toNs: number }; traces: ChatTraceListRow[]; deepLink: string; truncated: boolean }
+export interface ChatTraceListPayload { query: string; window: { fromNs: number; toNs: number }; traces: ChatTraceListRow[]; deepLink: string; truncated: boolean; /** v0.10.1272 — kanıt çipine bağlı liste (çipin altında açılır). */ evidenceRef?: string }
 
 // ProblemInsight — GET /api/problems/{id}/insight (v0.10.562, internal/api/problem_insight.go):
 // deterministik insight şeridi; hücre bilinmiyorsa null (şerit "—" basar).
@@ -7453,6 +7504,8 @@ export interface ChatStepDetail {
   skipped?: boolean;
   /** v0.10.944 — tam çıktıdan okunan kaynak durumları (varsa önizlemeden önce gelir). */
   sources?: ChatStepSourceState[];
+  /** v0.10.1272 — kanıt zarflı aracın kanıtı (kaynak · sorgu · pencere · satır · süre + href). */
+  evidence?: ChatQueryEvidence;
 }
 
 export type ChatStreamEvent =
@@ -7461,7 +7514,8 @@ export type ChatStreamEvent =
   | { kind: 'step'; i?: number; tool?: string; label?: string; args?: string; origin?: string }
   // skipped (v0.10.944, Faz B sunucusu) — çağrı yürütülmedi; süre ölçüm değildir.
   // sources (v0.10.944) — sunucunun TAM çıktıdan okuduğu kaynak durumları (kırpık önizlemeden bağımsız).
-  | { kind: 'step-result'; i: number; tool: string; ok: boolean; preview: string; truncated: boolean; bytes: number; href?: string; durationMs?: number; skipped?: boolean; sources?: ChatStepSourceState[] }
+  // evidence (v0.10.1272) — query_metrics/traces/logs kanıtı; eski sunucu göndermez.
+  | { kind: 'step-result'; i: number; tool: string; ok: boolean; preview: string; truncated: boolean; bytes: number; href?: string; durationMs?: number; skipped?: boolean; sources?: ChatStepSourceState[]; evidence?: ChatQueryEvidence }
   | { kind: 'delta'; text: string }
   // suggestions (v0.9.411) — guided cevabın rotasından türetilen
   // konuya-duyarlı takip önerileri; yoksa frontend statik listesine düşer.
@@ -7470,7 +7524,8 @@ export type ChatStreamEvent =
   // href; frontend SPA içinde oraya gider, sohbet açık kalır.
   // evidenceSpanIds / cached (v0.10.453) — trace açıklaması Explain çekirdeğinden:
   // kanıt span'leri ve önbellek isabeti (sohbet ile ✨ Explain aynı cevabı paylaşır).
-  | { kind: 'answer'; text: string; exchangeId?: string; sources?: RagSource[]; suggestions?: string[]; links?: ChatAnswerLink[]; open?: string; evidenceSpanIds?: string[]; cached?: boolean; allowedLinks?: string[] }
+  // evidence (v0.10.1272) — alışverişin kanıt çipleri (step-result.evidence'ların listesi).
+  | { kind: 'answer'; text: string; exchangeId?: string; sources?: RagSource[]; suggestions?: string[]; links?: ChatAnswerLink[]; open?: string; evidenceSpanIds?: string[]; cached?: boolean; allowedLinks?: string[]; evidence?: ChatQueryEvidence[] }
   // v0.10.541 (Faz 3.3a) — tipli blok: model yalnız metin üretir; chart/link
   // (ileride trace_list/table/action/evidence) deterministik, tool sonucundan.
   | { kind: 'block'; id: string; type: ChatBlockType; seq: number; final: boolean; payload: unknown }

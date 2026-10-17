@@ -73,23 +73,23 @@ type MetricRouter interface {
 	RuntimePods() chstore.RuntimePodReader
 }
 
-// evWindow — kanıt penceresi (unix ms).
-type evWindow struct {
+// EvidenceWindow — kanıt penceresi (unix ms).
+type EvidenceWindow struct {
 	FromMs int64 `json:"fromMs"`
 	ToMs   int64 `json:"toMs"`
 }
 
 // cosreEvidence — adım 3'ün çipi.
 type cosreEvidence struct {
-	Source     string   `json:"source"`
-	Query      string   `json:"query"`
-	QueryKind  string   `json:"queryKind"`
-	Window     evWindow `json:"window"`
-	Env        string   `json:"env,omitempty"`
-	Cluster    string   `json:"cluster,omitempty"`
-	Rows       *int     `json:"rows,omitempty"`
-	Series     *int     `json:"series,omitempty"`
-	DurationMs int64    `json:"durationMs"`
+	Source     string         `json:"source"`
+	Query      string         `json:"query"`
+	QueryKind  string         `json:"queryKind"`
+	Window     EvidenceWindow `json:"window"`
+	Env        string         `json:"env,omitempty"`
+	Cluster    string         `json:"cluster,omitempty"`
+	Rows       *int           `json:"rows,omitempty"`
+	Series     *int           `json:"series,omitempty"`
+	DurationMs int64          `json:"durationMs"`
 }
 
 // cosreError — yapısal hata (düzyazı değil).
@@ -290,8 +290,8 @@ func humanSecs(s int) string {
 	}
 }
 
-func evWin(from, to time.Time) evWindow {
-	return evWindow{FromMs: from.UnixMilli(), ToMs: to.UnixMilli()}
+func evWin(from, to time.Time) EvidenceWindow {
+	return EvidenceWindow{FromMs: from.UnixMilli(), ToMs: to.UnixMilli()}
 }
 
 // windowTR — "veri yok" mesajı için pencere metni.

@@ -32,8 +32,8 @@ const CEILINGS = {
   /** T1 — `<table>` sayısı eksi `<DataTableHead>` sayısı (dosya başına).
    *  Tür ayırmaz: T1'in gerekçeli statik tablosu da sayılır.
    *  v0.10.977 — dilim 7 (son): kalan 47'nin hepsi muaf ya da gerekçeli;
-   *  sayaç tasarım gereği düşmez. MUAF 9 — sohbet markdown / kanıt tablosu 5
-   *  (ai/ChatBubble 3, ai/ChatTraceList, ai/EvidenceCard), grafik lejantı 3
+   *  sayaç tasarım gereği düşmez. MUAF 10 — sohbet markdown / kanıt tablosu 6
+   *  (ai/ChatBubble 3, ai/ChatTraceList, ai/EvidenceCard, ai/EvidenceChips [v0.10.1272]), grafik lejantı 3
    *  (chart/PanelLegend, chart/StatsLegend, viz/TimeSeriesPanel), yer tutucu
    *  1 (Skeleton `TableSkeleton` — gerçek tablonun iskeleti, veri satırı
    *  yok). GEREKÇELİ STATİK (T1; dosya içi `statik tablo` yorumu, durumu
@@ -53,7 +53,7 @@ const CEILINGS = {
    *  birleşik satır modeli, replika kararı çok satırlı hücre, dar kartta
    *  ingest pod özeti, düzenlenebilir gün seçici, ön kontrolde küme başına
    *  kapsama). */
-  rawTable: 47, // v0.10.973 — dilim 6: 48 → 47
+  rawTable: 48, // v0.10.973 — dilim 6: 48 → 47; v0.10.1272 — 47 → 48: MUAF sohbet kanıt tablosu (ai/EvidenceChips — query_logs / query_metrics satırları, ≤50 sabit satır, `.cm-md-table`; ChatTraceList emsali, T1 sohbet muafı)
   /** T5 — `<td style={…}>`: hücre görünümü sınıfa/sütun tanımına taşınır.
    *  v0.10.977 — dilim 7 (son): 69 → 60 — settings/ 7 (LdapTab 3,
    *  LdapUserPicker 4) taban `tbody td` ritmine indi, ProblemDetail 2

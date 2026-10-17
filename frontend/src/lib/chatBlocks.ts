@@ -1,6 +1,6 @@
 // chatBlocks.ts — v0.10.541 (Faz 3.3a): tipli blok biriktirme, SAF.
 // Aynı id ikinci kez gelirse (final güncellemesi) yerine geçer; sıra seq.
-import type { ChatTypedBlock, ChatAnswerLink, CosreChartSpecLike, ChatTraceListPayload, ChatOperationPayload } from './types';
+import type { ChatTypedBlock, ChatAnswerLink, CosreChartSpecLike, ChatTraceListPayload, ChatOperationPayload, ChatEvidenceChartPayload, ChatEvidenceTablePayload } from './types';
 
 export function appendChatBlock(blocks: ChatTypedBlock[] | undefined, b: ChatTypedBlock): ChatTypedBlock[] {
   const rest = (blocks ?? []).filter(x => x.id !== b.id);
@@ -28,10 +28,38 @@ export function mergeBlockLinks(links: ChatAnswerLink[] | undefined, blocks: Cha
   return out;
 }
 
-/** v0.10.688 — trace_list blokları (endpoint_traces.go); şekil doğrulanır, bozuk yük atlanır. */
+/** v0.10.688 — trace_list blokları (endpoint_traces.go); şekil doğrulanır, bozuk yük atlanır.
+ *  v0.10.1272 — kanıt çipine bağlı (evidenceRef) listeler burada DEĞİL, çipin altında çizilir. */
 export function traceListBlocks(blocks: ChatTypedBlock[] | undefined): ChatTraceListPayload[] {
   return (blocks ?? []).filter(b => b.type === 'trace_list').map(b => b.payload as ChatTraceListPayload)
-    .filter(p => p && Array.isArray(p.traces) && typeof p.deepLink === 'string');
+    .filter(p => p && Array.isArray(p.traces) && typeof p.deepLink === 'string' && !p.evidenceRef);
+}
+
+/** v0.10.1272 — kanıt çipine bağlı sohbet içi blok (kanıt zarflı araçların verisi). */
+export type EvidenceBlockView =
+  | { type: 'chart'; payload: ChatEvidenceChartPayload }
+  | { type: 'table'; payload: ChatEvidenceTablePayload }
+  | { type: 'trace_list'; payload: ChatTraceListPayload };
+
+/** evidenceBlocksByRef — evidenceRef → blok (şekil doğrulanır; bozuk yük düşer). SAF. */
+export function evidenceBlocksByRef(blocks: ChatTypedBlock[] | undefined): Map<string, EvidenceBlockView> {
+  const out = new Map<string, EvidenceBlockView>();
+  for (const b of blocks ?? []) {
+    const p = b.payload as { evidenceRef?: unknown } | null;
+    const ref = p && typeof p.evidenceRef === 'string' ? p.evidenceRef : '';
+    if (!ref) continue;
+    if (b.type === 'chart') {
+      const c = b.payload as ChatEvidenceChartPayload;
+      if (Array.isArray(c.series) && c.series.length > 0) out.set(ref, { type: 'chart', payload: c });
+    } else if (b.type === 'table') {
+      const t = b.payload as ChatEvidenceTablePayload;
+      if (Array.isArray(t.columns) && Array.isArray(t.rows) && t.rows.length > 0) out.set(ref, { type: 'table', payload: t });
+    } else if (b.type === 'trace_list') {
+      const l = b.payload as ChatTraceListPayload;
+      if (Array.isArray(l.traces) && l.traces.length > 0 && typeof l.deepLink === 'string') out.set(ref, { type: 'trace_list', payload: l });
+    }
+  }
+  return out;
 }
 
 // operationBlocks — operasyon ön-getirme kartı (geçersiz yük düşer).

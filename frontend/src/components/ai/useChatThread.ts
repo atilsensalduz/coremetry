@@ -281,7 +281,7 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
             ...t,
             stepDetails: (t.stepDetails ?? []).map(d =>
               d.i === e.i
-                ? { ...d, ok: e.ok, preview: e.preview, truncated: e.truncated, bytes: e.bytes, href: e.href, durationMs: e.durationMs, skipped: e.skipped || undefined, sources: e.sources } // v0.10.944 — tam çıktıdan kaynak durumu
+                ? { ...d, ok: e.ok, preview: e.preview, truncated: e.truncated, bytes: e.bytes, href: e.href, durationMs: e.durationMs, skipped: e.skipped || undefined, sources: e.sources, evidence: e.evidence } // v0.10.944 — tam çıktıdan kaynak durumu; v0.10.1272 — kanıt çipi
                 : d),
           }));
         } else if (e.kind === 'block') {
@@ -290,7 +290,7 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
         } else if (e.kind === 'delta') {
           patchLast(t => ({ ...t, text: (t.text ?? '') + e.text }));
         } else if (e.kind === 'answer') {
-          patchLast(t => ({ ...t, text: e.text, exchangeId: e.exchangeId, sources: e.sources, suggestions: e.suggestions, links: e.links, allowedLinks: e.allowedLinks, pending: false })); // v0.10.1137 — link doğrulama listesi
+          patchLast(t => ({ ...t, text: e.text, exchangeId: e.exchangeId, sources: e.sources, suggestions: e.suggestions, links: e.links, allowedLinks: e.allowedLinks, evidence: e.evidence, pending: false })); // v0.10.1137 — link doğrulama listesi; v0.10.1272 — kanıt çipleri
           // v0.10.434 (D7b) — yalnız uygulama-içi (kök-göreli) href; dış adres asla.
           if (e.open && e.open.startsWith('/') && !e.open.startsWith('//')) o.onOpen?.(e.open);
         } else if (e.kind === 'error') {

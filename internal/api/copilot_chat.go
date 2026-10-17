@@ -618,6 +618,9 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	// v0.10.944 — /logs? bağlantısı da taşıyabilir, ama YALNIZ döngüde trace
 	// araması olmadıysa (nextLoopOpen, chat_tool_links.go).
 	var loopOpen string
+	// v0.10.1272 — kanıt zarflı araçların (query_metrics/traces/logs) kanıtı:
+	// step-result.evidence + answer.evidence[] (chat_evidence.go).
+	var loopEvidence []mcptools.ChatEvidence
 	// v0.9.528 Faz 2 — serbest döngünün sistem prompt'u da kiminle
 	// konuşulduğunu taşır. Ön-söz boşsa sabitin aynısı.
 	// v0.10.32 — EKRAN BAĞLAMI. İlk üç kademe req.Context.* alıyordu,
@@ -805,8 +808,8 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 			for _, l := range s.answerRequestIDLinks(ctx, finalText, req.Context.Service) {
 				links = mergeToolLinks(links, l)
 			}
-			emit("answer", chatAnswerEvent(finalText, exchangeID, links,
-				answerOpenHref(lastUserText(req.Messages), loopOpen)))
+			emit("answer", withAnswerEvidence(chatAnswerEvent(finalText, exchangeID, links,
+				answerOpenHref(lastUserText(req.Messages), loopOpen)), loopEvidence))
 			break
 		}
 		// Record the assistant's tool-call turn, then execute each
@@ -967,6 +970,14 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 					emit("block", blockSeq.Next(blocks.TypeLink, l))
 				}
 			}
+			// v0.10.1272 — kanıt çipi: sonuçtaki evidence + "Explore'da aç" href'i.
+			// Veri sohbet içinde de: aynı sonuçtan chart/trace_list/table bloğu (ek sorgu yok).
+			if ev, ok := attachStepEvidence(stepEv, tc.Name, tr.Content); ok {
+				loopEvidence = mergeChatEvidence(loopEvidence, ev)
+				if b, ok := mcptools.ToolResultBlock(tc.Name, tr.Content, ev); ok {
+					emit("block", blockSeq.Next(b.Type, b.Payload))
+				}
+			}
 			emit("step-result", stepEv)
 			// v0.9.1230 — MODEL tarafındaki bütçe, çipten SONRA uygulanır:
 			// önizleme ve `bytes` kırpılmamış GERÇEK boyu göstermeye devam
@@ -1072,8 +1083,8 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 				for _, l := range s.answerRequestIDLinks(ctx, finalText, req.Context.Service) {
 					links = mergeToolLinks(links, l)
 				}
-				emit("answer", chatAnswerEvent(finalText, exchangeID, links,
-					answerOpenHref(lastUserText(req.Messages), loopOpen)))
+				emit("answer", withAnswerEvidence(chatAnswerEvent(finalText, exchangeID, links,
+					answerOpenHref(lastUserText(req.Messages), loopOpen)), loopEvidence))
 			}
 			break // tavan turu son turdur (tur ya da çağrı tavanı)
 		}

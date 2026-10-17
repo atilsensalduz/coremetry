@@ -128,6 +128,9 @@ func emitStepEvidence(emit func(string, any), i int, tool, text string, err erro
 		if srcs := stepSourceStatuses(text); srcs != nil {
 			ev["sources"] = srcs
 		}
+		// v0.10.1272 — kanıt zarflı araç (query_metrics/traces/logs) bu yoldan da
+		// geçerse çip aynı kanıtı taşır (chat_evidence.go).
+		attachStepEvidence(ev, tool, text)
 	}
 	emit("step-result", ev)
 }
