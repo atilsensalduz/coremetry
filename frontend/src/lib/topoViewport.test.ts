@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { fitViewport, readableFit, zoomAt, zoomRange, READABLE_MIN_K, type Viewport } from './topoViewport';
+import { fitViewport, readableFit, anchorAxis, zoomAt, zoomRange, READABLE_MIN_K, type Viewport } from './topoViewport';
 
 // v0.8.296 (operator-reported: "çok fazla servis olduğunda ekrana sığmıyor") —
 // TopologyFlowGraph gains zoom/pan. The transform math lives in this pure
@@ -117,6 +117,51 @@ describe('readableFit centerOn', () => {
   it('yeri olan eksen ortalı kalır', () => {
     const vp = readableFit(200, 2400, 900, 600, 24, READABLE_MIN_K, { x: 100, y: 1200 });
     expect(vp.x).toBeCloseTo((900 - 200 * READABLE_MIN_K) / 2);
+  });
+});
+
+// v0.10.1307 — operatör 2026-10-17: servis Topology sekmesinde hop'u az olan
+// tarafa boş 280 px sütun ayrılıyordu. Odak yerleşimi artık her tarafı kendi
+// hop sayısı kadar genişletiyor → odak içerik ortasında değil. centerOn SIĞAN
+// içerikte de uygulanır (anchorAxis): odak görünüm ortasında, içerik padded
+// görünümden taşmayacak biçimde kıstırılı; simetrik içerik fitViewport'la aynı.
+describe('readableFit centerOn — asimetrik odak (v0.10.1307)', () => {
+  it('sığan asimetrik içerik: odak görünümün ortasında, ölçek fit ölçeği', () => {
+    // 3 sütun (1 çağıran | odak | 2 bağımlılık): lw = 3·280 + 300 = 1140, odak x = 430
+    const vp = readableFit(1140, 300, 2000, 600, 24, READABLE_MIN_K, { x: 430, y: 150 });
+    expect(vp.k).toBe(fitViewport(1140, 300, 2000, 600, 24).k);
+    expect(vp.x + 430 * vp.k).toBeCloseTo(1000, 9);
+    expect(vp.y + 150 * vp.k).toBeCloseTo(300, 9);
+  });
+  it('kenara yakın odak kıstırılır: içerik padded görünümden taşmaz', () => {
+    // odak en solda (çağıran yok), içerik görünüme ancak sığıyor
+    const vp = readableFit(800, 300, 900, 600, 24, READABLE_MIN_K, { x: 150, y: 150 });
+    expect(vp.k).toBe(1);
+    expect(vp.x).toBeGreaterThanOrEqual(24 - 1e-9);
+    expect(vp.x + 800 * vp.k).toBeLessThanOrEqual(900 - 24 + 1e-9);
+    // odak ortaya çekilmek ister; içeriğin sağ kenarı pad'e değince durur
+    expect(vp.x + 800 * vp.k).toBeCloseTo(900 - 24, 9);
+    expect(vp.x + 150 * vp.k).toBeLessThan(450);
+  });
+  it('taban ölçekte taşan eksende de odak ortada, kenar kıstırması aynen', () => {
+    const vp = readableFit(3000, 2400, 900, 600, 24, READABLE_MIN_K, { x: 1200, y: 1200 });
+    expect(vp.k).toBe(READABLE_MIN_K);
+    expect(vp.x + 1200 * vp.k).toBeCloseTo(450, 9);
+  });
+  it('simetrik içerik (odak = içerik ortası): fitViewport ile bayt bayt aynı', () => {
+    for (const [cw, ch, vw, vh] of [[860, 420, 1200, 700], [1000, 300, 900, 600], [300, 300, 300, 300], [1140, 812, 1013, 677]]) {
+      expect(readableFit(cw, ch, vw, vh, 24, READABLE_MIN_K, { x: cw / 2, y: ch / 2 })).toEqual(fitViewport(cw, ch, vw, vh, 24));
+    }
+  });
+  it('anchorAxis: p yoksa ortalar; hedef [min(pad, uzak), max(pad, uzak)] aralığına kıstırılır', () => {
+    expect(anchorAxis(400, 900, 24, 1)).toBe(250);
+    expect(anchorAxis(400, 900, 24, 1, 0)).toBe(450);   // sol kenar ortada, sağ kenar 850 ≤ 876
+    expect(anchorAxis(400, 900, 24, 1, -100)).toBe(476); // sağ kenar pad'de durur
+    expect(anchorAxis(400, 900, 24, 1, 400)).toBe(50);
+    expect(anchorAxis(400, 900, 24, 1, 500)).toBe(24);  // sol kenar pad'de durur
+    expect(anchorAxis(2000, 900, 24, 1, 1000)).toBe(-550);
+    expect(anchorAxis(2000, 900, 24, 1, 0)).toBe(24);
+    expect(anchorAxis(2000, 900, 24, 1, 2000)).toBe(900 - 24 - 2000);
   });
 });
 

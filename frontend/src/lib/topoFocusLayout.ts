@@ -20,7 +20,7 @@
 //
 //  • SÜTUN = assignFocusColumns (değişmedi). x = PAD_X + (col + HL)·COL_W,
 //    COL_W = pil genişliği (170) + oluk (110) = 280; ASLA gerilmez.
-//  • GENİŞLİK (v0.10.1306): her taraf KENDİ hop sayısı kadar sütun —
+//  • GENİŞLİK (v0.10.1307): her taraf KENDİ hop sayısı kadar sütun —
 //    HL = en dış çağıran sütunu, HR = en dış bağımlılık sütunu ("+N more"
 //    dahil); lw = (HL+HR)·COL_W + 2·PAD_X. Simetrik grafta eskisiyle bayt
 //    bayt aynı; asimetrikte odak ortada değil, açılışta viewport ortalar.
@@ -96,7 +96,7 @@ export interface FocusLayoutResult {
   lw: number;
   lh: number;
   focusPt: { x: number; y: number };
-  /** v0.10.1306 — her tarafın gerçek sütun sayısı: left = çağıran, right = bağımlılık */
+  /** v0.10.1307 — her tarafın gerçek sütun sayısı: left = çağıran, right = bağımlılık */
   hops: { left: number; right: number };
   /** "caller|callee" → geometri (her iki ucu yerleşen her girdi kenarı) */
   edges: Map<string, FocusEdgeGeom>;
@@ -123,7 +123,7 @@ export function xOfCol(col: number, hl: number): number {
   return PAD_X + (col + hl) * COL_W;
 }
 
-// v0.10.1306 — operatör 2026-10-17: servis Topology sekmesinde hop'u az olan
+// v0.10.1307 — operatör 2026-10-17: servis Topology sekmesinde hop'u az olan
 // tarafa boş 280 px sütun ayrılıyordu. Artık o taraf hiç yer almıyor; çağıran
 // hiç yoksa (giriş noktası ya da çağıranlar enstrümante değil) odağın soluna,
 // başlık satırına tek soluk not düşülür — boşluk "eksik veri" diye okunmasın.
@@ -264,7 +264,7 @@ export function focusColumnLayout(input: FocusLayoutInput): FocusLayoutResult {
   const col = (s: string) => (s === focus ? 0 : colOf.get(s)!);
   const traffic = (s: string) => info.get(s)!.spanCount;
 
-  // v0.10.1306 — her tarafın kendi derinliği ("+N more" düğümleri dahil);
+  // v0.10.1307 — her tarafın kendi derinliği ("+N more" düğümleri dahil);
   // H = ikisinin büyüğü yalnız ±k döngülerinin üst sınırı.
   let HL = 0, HR = 0;
   const byCol = new Map<number, string[]>();
@@ -439,7 +439,7 @@ export function focusColumnLayout(input: FocusLayoutInput): FocusLayoutResult {
 
   const yShift = Y + PAD_Y;
   const lh = 2 * yShift;
-  // v0.10.1306 — eskiden 2·H·COL_W: az hop'lu tarafa boş sütun ayrılıyordu.
+  // v0.10.1307 — eskiden 2·H·COL_W: az hop'lu tarafa boş sütun ayrılıyordu.
   const lw = (HL + HR) * COL_W + 2 * PAD_X;
   const pos = new Map<string, { x: number; y: number }>();
   for (const s of names) pos.set(s, { x: xOfCol(col(s), HL), y: yRel.get(s)! + yShift });

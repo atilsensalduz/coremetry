@@ -57,24 +57,43 @@ export function fitViewport(contentW: number, contentH: number, viewW: number, v
 // root column; what the operator came to read is the focus. With a centre
 // point the overflowing axis puts that point mid-view instead of anchoring
 // top-left, clamped so the content edge never pulls away from the pad.
+//
+// v0.10.1307 — the focus layout is now sized by each side's real hop count
+// (lib/topoFocusLayout), so the focus is no longer the content centre when one
+// side is deeper. `centerOn` therefore applies at EVERY scale, including when
+// the content fits: each axis puts the point mid-view, clamped (anchorAxis)
+// so the content never leaves the padded view when it fits, nor pulls its
+// edge inside the pad when it overflows. Symmetric content (point = content
+// centre) gives exactly fitViewport's numbers. Without `centerOn` nothing
+// changed (fit → centred; floor → pad-anchored).
+export function anchorAxis(c: number, view: number, pad: number, k: number, p?: number): number {
+  const far = view - pad - c * k;
+  const lo = Math.min(pad, far), hi = Math.max(pad, far);
+  const target = p === undefined ? (view - c * k) / 2 : view / 2 - p * k;
+  return Math.min(hi, Math.max(lo, target));
+}
+
 export function readableFit(
   contentW: number, contentH: number, viewW: number, viewH: number,
   pad = 24, minK = READABLE_MIN_K, centerOn?: { x: number; y: number },
 ): Viewport {
   const fit = fitViewport(contentW, contentH, viewW, viewH, pad);
-  if (fit.k >= minK) return fit;
   const cw = Math.max(1, contentW);
   const ch = Math.max(1, contentH);
-  const axis = (c: number, view: number, p: number | undefined) => {
+  if (centerOn) {
+    const k = fit.k >= minK ? fit.k : minK;
+    return { k, x: anchorAxis(cw, viewW, pad, k, centerOn.x), y: anchorAxis(ch, viewH, pad, k, centerOn.y) };
+  }
+  if (fit.k >= minK) return fit;
+  const axis = (c: number, view: number) => {
     if (c * minK <= view - pad * 2) return (view - c * minK) / 2; // room left: centre
-    if (p === undefined) return pad;
-    return Math.min(pad, Math.max(view - pad - c * minK, view / 2 - p * minK));
+    return pad;
   };
   return {
     k: minK,
     // Keep centring on whichever axis still has room at the floor.
-    x: axis(cw, viewW, centerOn?.x),
-    y: axis(ch, viewH, centerOn?.y),
+    x: axis(cw, viewW),
+    y: axis(ch, viewH),
   };
 }
 

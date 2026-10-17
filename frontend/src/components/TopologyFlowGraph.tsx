@@ -20,7 +20,7 @@ import {
 import { serviceBands, dependencyBands, bandServiceCounts } from '@/lib/topoBands';
 import {
   focusColumnLayout, focusPath, edgeVisibility, focusColumnLabel,
-  isMoreNode, moreNodeCol, HEADER_H, type EdgeClass,
+  isMoreNode, moreNodeCol, HEADER_H, noCallersHeader, NO_CALLERS_LABEL, type EdgeClass,
 } from '@/lib/topoFocusLayout';
 
 // TopologyFlowGraph — prototipteki "pill düğüm + akış animasyonlu
@@ -354,7 +354,11 @@ export function TopologyFlowGraph({
   // rides the true fit, so zooming out to "everything" stays available, and
   // ⛶ jumps straight there.
   // v0.10.1294 — odak kipinde açılış ODAĞI ortalar (readableFit centerOn).
+  // v0.10.1307 — yerleşim artık asimetrik (her taraf kendi hop sayısı kadar
+  // sütun): odak içerik ortasında değil, readableFit sığan içerikte de onu
+  // görünümün ortasına koyar (kenara kıstırılı).
   const centerOn = focusLayout?.focusPt;
+  const noCallers = focusLayout ? noCallersHeader(focusLayout) : null;
   const openFit = () => readableFit(layoutW, layoutH, width, height, 24, READABLE_MIN_K, centerOn);
   const [vp, setVp] = useState<Viewport>(openFit);
   const fitK = useMemo(() => fitViewport(layoutW, layoutH, width, height).k, [layoutW, layoutH, width, height]);
@@ -648,6 +652,13 @@ export function TopologyFlowGraph({
           {focusColumnLabel(c.col)}{c.col !== 0 ? ` · ${c.count}` : ''}
         </div>
       ))}
+      {/* v0.10.1307 — çağıran tarafı hiç yer almıyor; boşluk "eksik" diye
+          okunmasın diye odağın solunda tek soluk not. */}
+      {noCallers && (
+        <div className="topo-colhdr topo-colhdr-empty" style={{ left: noCallers.x, top: HEADER_H / 2, width: noCallers.w }}>
+          {NO_CALLERS_LABEL}
+        </div>
+      )}
       {focusLayout?.brackets.map(b => (
         <div key={`brl-${b.col}-${b.ns}-${b.y0}`} className={'topo-nsbracket-label' + (b.side < 0 ? ' left' : '')}
           style={{ left: b.x + b.side * 3, top: (b.y0 + b.y1) / 2, color: nsColor.get(b.ns) ?? 'var(--text3)' }}>

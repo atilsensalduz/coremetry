@@ -67,6 +67,23 @@ describe('TopologyFlowGraph — odak sütun kipi (v0.10.1294)', () => {
     for (const l of ['Çağıranlar · 1', 'Odak', 'Bağımlılıklar · 2', 'Bağımlılıklar · 2 hop · 1']) expect(html).toContain(l);
   });
 
+  // v0.10.1307 — operatör 2026-10-17: hop'u az olan tarafa boş 280 px sütun
+  // ayrılıyordu. Çağıran yoksa sol taraf hiç yer almaz; odağın solunda soluk
+  // "Çağıran yok (enstrümante değil)" notu boşluğun eksik veri olmadığını söyler.
+  it('çağıran yok: sol sütun yok, soluk "Çağıran yok" notu; çağıran varsa not yok', () => {
+    const noCallers: ServiceMap = {
+      ...data,
+      nodes: data.nodes.filter(n => n.service !== 'c'),
+      edges: data.edges.filter(e => e.caller !== 'c'),
+    };
+    const cols = new Map([...columns].filter(([s]) => s !== 'c'));
+    const html = render({ data: noCallers, columns: cols });
+    expect(html).toContain('Bağımlılıklar');
+    expect(html).not.toContain('Çağıranlar ·');
+    expect(html).toMatch(/class="topo-colhdr topo-colhdr-empty"[^>]*>Çağıran yok \(enstrümante değil\)</);
+    expect(render()).not.toContain('Çağıran yok');
+  });
+
   it('bayat ?nsfold= odak kipinde yok sayılır (süper-düğüm yok)', () => {
     const html = render({}, '/?nsfold=x,y');
     expect(html).not.toContain('topo-nsnode');

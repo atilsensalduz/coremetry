@@ -3803,6 +3803,8 @@ button.cosre-cap__row > .row { align-items: flex-start; min-width: 0; }
 .topo-nsbracket { stroke-width: 1.5; opacity: .7; }
 .topo-nsbracket-label { position: absolute; transform: translate(0, -50%); z-index: var(--z-sticky-cell); pointer-events: none; writing-mode: vertical-rl; font-size: var(--fs-3xs); font-weight: 700; letter-spacing: .4px; text-transform: uppercase; white-space: nowrap; opacity: .85; }
 .topo-nsbracket-label.left { transform: translate(-100%, -50%) rotate(180deg); }
+/* v0.10.1307 — odak kipi: çağıran tarafı boş (yer ayrılmaz) → odağın solunda, başlık satırında tek soluk not; sola yaslı kutu, sağa hizalı metin, en çok iki satır. */
+.topo-colhdr.topo-colhdr-empty { transform: translate(0, -50%); white-space: normal; text-align: right; text-transform: none; letter-spacing: 0; font-weight: 400; font-style: italic; line-height: 1.2; }
 .topo-legend { position: absolute; left: 10px; bottom: 10px; z-index: var(--z-sticky-foot); display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3) var(--sp-5); max-width: 38%; padding: 4px 8px; font-size: var(--fs-2xs); color: var(--text3); background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .topo-legend-item { display: inline-flex; align-items: center; gap: 4px; }
 .topo-legend-ns { width: 3px; height: 10px; border-radius: 1px; display: inline-block; }

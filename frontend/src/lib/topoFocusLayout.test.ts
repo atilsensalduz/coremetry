@@ -24,7 +24,7 @@ import { describe, it, expect } from 'vitest';
 import {
   focusColumnLayout, classifyEdge, pairClass, xOfCol, placeOuter, pav,
   focusPath, countSecondary, edgeVisibility, focusColumnLabel,
-  moreNodeId, isMoreNode, moreNodeCol,
+  moreNodeId, isMoreNode, moreNodeCol, noCallersHeader, NO_CALLERS_LABEL,
   COL_W, PAD_X, PAD_Y, BLOCK_GAP, HALF_PILL, PORT_SPREAD_MAX,
   type FocusLayoutInput, type FocusLayoutResult,
 } from './topoFocusLayout';
@@ -106,11 +106,14 @@ describe('focusColumnLayout — ekran görüntüsü fikstürü (v0.10.1294)', ()
     expect(r.pos.size).toBe(40);
   });
 
-  it('(1) x = xOfCol(col); odak sütun 0, tam ortada', () => {
-    for (const [s, p] of r.pos) expect(p.x, s).toBe(xOfCol(colOf.get(s)!, 2));
+  it('(1) x = xOfCol(col, hops.left); odak sütun 0, tam ortada (simetrik: 2 | 2)', () => {
+    expect(r.hops).toEqual({ left: 2, right: 2 });
+    for (const [s, p] of r.pos) expect(p.x, s).toBe(xOfCol(colOf.get(s)!, r.hops.left));
     const f = r.pos.get('gw')!;
     expect(f.y).toBe(r.lh / 2);
     expect(f.x).toBe(r.lw / 2);
+    // v0.10.1307 — simetrik grafta eski 2·H·COL_W + 2·PAD_X genişliği aynen
+    expect(r.lw).toBe(2 * 2 * COL_W + 2 * PAD_X);
     expect(r.focusPt).toEqual(f);
   });
 
@@ -143,7 +146,7 @@ describe('focusColumnLayout — ekran görüntüsü fikstürü (v0.10.1294)', ()
       expect(['skip', 'back']).toContain(g.cls);
       lanes++;
       const lane = g.pts[1];
-      const c = [...cols.keys()].find(k => xOfCol(k, 2) === lane.x)!;
+      const c = [...cols.keys()].find(k => xOfCol(k, r.hops.left) === lane.x)!;
       const ys = cols.get(c)!;
       const half = (c === 0 ? NODE_H_FOCUS : NODE_H) / 2;
       const outside = lane.y < ys[0] - half || lane.y > ys[ys.length - 1] + half;
@@ -227,6 +230,88 @@ describe('focusColumnLayout — ekran görüntüsü fikstürü (v0.10.1294)', ()
   it('sütun başlıkları her dolu sütun için', () => {
     expect(r.columns.map(c => c.col)).toEqual([-2, -1, 0, 1, 2]);
     expect(r.columns.find(c => c.col === 1)!.count).toBe(14);
+  });
+});
+
+// v0.10.1307 — operatör 2026-10-17: servis Topology sekmesinde hop'u az olan
+// tarafa boş 280 px sütun ayrılıyordu (lw = 2·max|col|·COL_W, odak lw/2'de).
+// Kök neden: genişlik ve x tek bir H = max|col| ile hesaplanıyordu. Artık
+// her taraf kendi derinliği (HL / HR) kadar yer alır; y yerleşimi değişmez.
+describe('asimetrik derinlik — her taraf kendi hop sayısı kadar (v0.10.1307)', () => {
+  // çağıran c (−1); bağımlılık p (+1), k (+2)
+  const nodes = [node('f'), node('c'), node('p'), node('k')];
+  const edges = [edge('c', 'f'), edge('f', 'p'), edge('p', 'k')];
+
+  it('çağıran 1 / bağımlılık 2 → lw = 3·COL_W + 2·PAD_X, odak x = PAD_X + COL_W', () => {
+    const r = layout(nodes, edges, 'f', 2);
+    expect(r.hops).toEqual({ left: 1, right: 2 });
+    expect(r.lw).toBe(3 * COL_W + 2 * PAD_X);
+    expect(r.focusPt.x).toBe(PAD_X + COL_W);
+    expect(r.pos.get('c')!.x).toBe(PAD_X);
+    expect(r.pos.get('k')!.x).toBe(r.lw - PAD_X);
+    expect(r.columns.map(c => c.col)).toEqual([-1, 0, 1, 2]);
+    // dikey yerleşime dokunulmadı: odak hâlâ tam dikey ortada
+    expect(r.focusPt.y).toBe(r.lh / 2);
+  });
+
+  it('çağıran yok → odak en solda, boş sütun ayrılmaz', () => {
+    const r = layout([node('f'), node('p'), node('k')], [edge('f', 'p'), edge('p', 'k')], 'f', 2);
+    expect(r.hops).toEqual({ left: 0, right: 2 });
+    expect(r.lw).toBe(2 * COL_W + 2 * PAD_X);
+    expect(r.focusPt.x).toBe(PAD_X);
+    expect(Math.min(...[...r.pos.values()].map(p => p.x))).toBe(r.focusPt.x);
+  });
+
+  it('yalnız çağıran → odak en sağda', () => {
+    const r = layout([node('f'), node('c'), node('g')], [edge('c', 'f'), edge('g', 'c')], 'f', 2);
+    expect(r.hops).toEqual({ left: 2, right: 0 });
+    expect(r.lw).toBe(2 * COL_W + 2 * PAD_X);
+    expect(r.focusPt.x).toBe(r.lw - PAD_X);
+    expect(Math.max(...[...r.pos.values()].map(p => p.x))).toBe(r.focusPt.x);
+  });
+
+  it('"+N more" düğümü kendi tarafının derinliğine sayılır', () => {
+    const more = moreNodeId(-1);
+    const r = focusColumnLayout({
+      nodes: [node('f'), node('p'), node(more)], edges: [edge('f', 'p'), edge(more, 'f')],
+      colOf: new Map([['f', 0], ['p', 1], [more, -1]]), focus: 'f',
+    });
+    expect(r.hops).toEqual({ left: 1, right: 1 });
+  });
+
+  it('skip şerit noktası ve ayraçlar aynı x ekseninde (xOfCol(·, hops.left))', () => {
+    // f → a, f → b (+1, ns n), a → k (+2), c → f (−1), c → k skip (−1 → +2)
+    const ns: Record<string, string> = { a: 'n', b: 'n' };
+    const r = layout(
+      [node('f'), node('a', 50), node('b', 40), node('k'), node('c')],
+      [edge('f', 'a'), edge('f', 'b'), edge('a', 'k'), edge('c', 'f'), edge('c', 'k')], 'f', 2, s => ns[s],
+    );
+    expect(r.hops).toEqual({ left: 1, right: 2 });
+    const lane = r.edges.get('c|k')!;
+    expect(lane.cls).toBe('skip');
+    expect([0, 1].map(c => xOfCol(c, 1))).toContain(lane.pts[1].x);
+    const br = r.brackets.find(b => b.col === 1)!;
+    expect(br.x).toBe(xOfCol(1, 1) + HALF_PILL + 8);
+  });
+
+  it('determinizm: karıştırılmış girdi → aynı çıktı', () => {
+    const a = layout(nodes, edges, 'f', 2);
+    const b = layout(nodes.slice().reverse(), edges.slice().reverse(), 'f', 2);
+    expect([...b.pos.entries()].sort()).toEqual([...a.pos.entries()].sort());
+    expect([...b.edges.entries()].sort()).toEqual([...a.edges.entries()].sort());
+    expect(b.lw).toBe(a.lw);
+    expect(b.hops).toEqual(a.hops);
+  });
+
+  it('noCallersHeader: yalnız çağıran tarafı boşken, odağın solunda yer varsa', () => {
+    const none = layout([node('f'), node('p')], [edge('f', 'p')], 'f', 1);
+    const h = noCallersHeader(none)!;
+    expect(h).not.toBeNull();
+    expect(h.x).toBeGreaterThanOrEqual(0);
+    expect(h.x + h.w).toBeLessThan(none.focusPt.x); // "Odak" başlığına binmez
+    expect(noCallersHeader(layout(nodes, edges, 'f', 2))).toBeNull();
+    expect(noCallersHeader({ hops: { left: 0, right: 1 }, focusPt: { x: 40, y: 0 } })).toBeNull(); // yer yok
+    expect(NO_CALLERS_LABEL).toBe('Çağıran yok (enstrümante değil)');
   });
 });
 
