@@ -14,6 +14,8 @@ package chstore
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -89,35 +91,14 @@ func (s *Store) GetExternalHosts(ctx context.Context, from, to time.Time) ([]Ext
 	// readers) so a 13:03 winStart catches the 13:00 bucket.
 	bucketStart := from.Truncate(5 * time.Minute)
 
-	// The GLOBAL NOT IN excludes instrumented services: SDKs that set
-	// peer.service on *internal* calls (seen in the wild and in the
-	// bundled demos) produce ext: edges whose "host" is really another
-	// monitored service. Datadog semantics — if it emits spans, it is
-	// not a third party; it belongs on /services, not here. The
-	// exclusion set is DISTINCT service_name over the same window from
-	// service_summary_5m (every instrumented service lands there),
-	// small by construction (thousands). GLOBAL for distributed
-	// installs (make audit CHECK 5); a no-op on single-node.
-	rows, err := s.conn.Query(ctx, `
-		SELECT substring(child_node, 5)          AS host,
-		       uniqExact(parent_service)         AS callers,
-		       arraySort(groupUniqArray(8)(parent_service)) AS caller_names,
-		       sum(calls)                        AS total_calls,
-		       sum(errors)                       AS total_errors,
-		       sum(sum_duration_ns) / nullIf(sum(calls), 0) / 1e6 AS avg_ms,
-		       max(p99_ms)                       AS p99_ms,
-		       arraySlice(arrayDistinct(arrayFlatten(groupArray(top_labels))), 1, 8) AS labels
-		FROM topology_edges_5m FINAL
-		WHERE node_kind = 'external'
-		  AND time_bucket >= ? AND time_bucket < ?
-		  AND substring(child_node, 5) GLOBAL NOT IN (
-			SELECT DISTINCT service_name FROM service_summary_5m
-			WHERE time_bucket >= ? AND time_bucket < ?
-		  )
-		GROUP BY child_node
-		ORDER BY total_calls DESC
-		LIMIT 500
-		SETTINGS max_execution_time = 10`,
+	// Instrumented services are excluded: SDKs that set peer.service
+	// (or a k8s DNS name / gRPC target) on *internal* calls produce
+	// ext: edges whose "host" is really another monitored service.
+	// Datadog semantics — if it emits spans, it is not a third party.
+	// The exclusion runs IN SQL, before the LIMIT (v0.10.1266 — see
+	// externalHostsSQL), so the page is never short-filled by rows
+	// that would be dropped afterwards.
+	rows, err := s.conn.Query(ctx, externalHostsSQL(),
 		bucketStart, to, bucketStart, to)
 	if err != nil {
 		return nil, err
@@ -151,35 +132,24 @@ func (s *Store) GetExternalHosts(ctx context.Context, from, to time.Time) ([]Ext
 func (s *Store) GetExternalHostDetail(ctx context.Context, host string, from, to time.Time) (*ExternalHostDetail, error) {
 	bucketStart := from.Truncate(5 * time.Minute)
 	d := &ExternalHostDetail{Host: host}
+	if host == "" {
+		d.Callers, d.Trend, d.Paths = []ExternalCaller{}, []ExternalTrendPoint{}, []ExternalPathRow{}
+		return d, nil
+	}
 	if display, kind, ok := classifyExternal(host); ok {
 		d.Display, d.Category = display, kind
 	}
 
-	// Per-caller breakdown, heaviest dependency first. The GLOBAL
-	// NOT IN mirrors GetExternalHosts' instrumented-service
-	// exclusion — without it a hand-edited ?host=<service> deep
-	// link would render a monitored service as a third party; with
-	// it the drawer's empty state renders, matching list semantics.
-	rows, err := s.conn.Query(ctx, `
-		SELECT parent_service,
-		       sum(calls)  AS total_calls,
-		       sum(errors) AS total_errors,
-		       sum(sum_duration_ns) / nullIf(sum(calls), 0) / 1e6 AS avg_ms,
-		       max(p99_ms) AS p99_ms,
-		       arraySlice(arrayDistinct(arrayFlatten(groupArray(top_labels))), 1, 5) AS labels
-		FROM topology_edges_5m FINAL
-		WHERE node_kind = 'external'
-		  AND child_node = concat('ext:', ?)
-		  AND time_bucket >= ? AND time_bucket < ?
-		  AND ? GLOBAL NOT IN (
-			SELECT DISTINCT service_name FROM service_summary_5m
-			WHERE time_bucket >= ? AND time_bucket < ?
-		  )
-		GROUP BY parent_service
-		ORDER BY total_calls DESC
-		LIMIT 100
-		SETTINGS max_execution_time = 10`,
-		host, bucketStart, to, host, bucketStart, to)
+	// Per-caller breakdown, heaviest dependency first. The exclusion
+	// mirrors GetExternalHosts' instrumented-service exclusion — without
+	// it a hand-edited ?host=<service> deep link (or a k8s DNS spelling
+	// of one, v0.10.1266) would render a monitored service as a third
+	// party; with it the drawer's empty state renders, matching list
+	// semantics. The host's candidates are computed in Go by the very
+	// function the topology merge uses (ExtPeerServiceCandidates).
+	cands := externalHostExclusionCandidates(host)
+	rows, err := s.conn.Query(ctx, externalCallersSQL(),
+		bucketStart, to, host, bucketStart, to, cands)
 	if err != nil {
 		return nil, err
 	}
@@ -206,25 +176,8 @@ func (s *Store) GetExternalHostDetail(ctx context.Context, host string, from, to
 	// 5-minute trend across all callers. 14d TTL × 5m grain caps
 	// this at ~4k buckets; LIMIT guards a TTL change from silently
 	// unbounding the read.
-	trows, err := s.conn.Query(ctx, `
-		SELECT toUnixTimestamp(time_bucket) AS bucket,
-		       sum(calls)  AS total_calls,
-		       sum(errors) AS total_errors,
-		       sum(sum_duration_ns) / nullIf(sum(calls), 0) / 1e6 AS avg_ms,
-		       max(p99_ms) AS p99_ms
-		FROM topology_edges_5m FINAL
-		WHERE node_kind = 'external'
-		  AND child_node = concat('ext:', ?)
-		  AND time_bucket >= ? AND time_bucket < ?
-		  AND ? GLOBAL NOT IN (
-			SELECT DISTINCT service_name FROM service_summary_5m
-			WHERE time_bucket >= ? AND time_bucket < ?
-		  )
-		GROUP BY time_bucket
-		ORDER BY time_bucket ASC
-		LIMIT 5000
-		SETTINGS max_execution_time = 10`,
-		host, bucketStart, to, host, bucketStart, to)
+	trows, err := s.conn.Query(ctx, externalTrendSQL(),
+		bucketStart, to, host, bucketStart, to, cands)
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +203,7 @@ func (s *Store) GetExternalHostDetail(ctx context.Context, host string, from, to
 	// üçüncü okuma ancak MV yarısı bir şey döndürdüyse anlamlı — ve
 	// çağıran yoksa (host penceresinden düştü / elle kurulmuş bir
 	// ?host=<servis> derin linki) hiç koşmuyor. Aynı hamle, bogus-host
-	// kapısını yukarıdaki GLOBAL NOT IN'den bedavaya devralıyor.
+	// kapısını yukarıdaki servis dışlamasından bedavaya devralıyor.
 	//
 	// Hata YUTULMUYOR ama ÖLDÜRMÜYOR da: yol okuması ham spans'e
 	// gidiyor ve timeout'u mümkün; onun 500'ü çağıranları ve trendi de
@@ -270,4 +223,231 @@ func (s *Store) GetExternalHostDetail(ctx context.Context, host string, from, to
 		d.Paths = paths
 	}
 	return d, nil
+}
+
+// ─── v0.10.1266 — enstrümante servis dışlaması, k8s DNS dahil ────────
+//
+// Operatör raporu (2026-10-17): /external,
+// `ext:bsa-sales-salesapplication-query-prod.sales.svc.cluster.local`'ı
+// üçüncü parti diye listeliyordu; `bsa-sales-salesapplication-query-prod`
+// ise enstrümante bir servis. v0.10.1260 topoloji grafiğini
+// ExtPeerServiceCandidates/ResolveExtPeer ile düzeltti, ama bu sayfanın
+// dışlaması `substring(child_node, 5) GLOBAL NOT IN (service_summary_5m)`
+// BİREBİR eşleşmeydi.
+//
+// Şimdi dışlama ResolveExtPeer'in anlamını taşıyor:
+//   - adaylar: ham ad → host (şema/dns:, yol, tek-iki-noktalı sayısal
+//     port, sondaki nokta soyulmuş) → yalnız k8s soneklerinde
+//     (.svc.cluster.local / .cluster.local / .svc, önünde ≥1 etiket) ilk
+//     DNS etiketi. `@`'li geçit biçimi yalnız ham ad.
+//   - bir aday ya bir service.name'e BİREBİR, ya da harf duyarsız olarak
+//     TEK bir service.name'e eşitse (iki farklı yazımı aynı küçük harfe
+//     düşen adlar belirsiz → harf duyarsız yol kapalı) host bir servistir.
+//
+// SQL'de, LIMIT'ten ÖNCE: Go'da sonradan süzmek sayfayı eksik doldururdu.
+// Servis adı kümesi TEK bir sınırlı skaler alt-sorgu (WITH … AS
+// svc_names): tuple(birebir adlar, belirsiz-olmayan küçük harfli adlar).
+// Skaler alt-sorgu dağıtıkta başlatıcıda bir kez koşar ve sabit olarak
+// shard'lara gider — GLOBAL IN'in yaptığı işin aynısı (CHECK 5'in
+// koruduğu shard-yerel tuzak burada yok). Pencere dış sorguyla AYNI
+// (TestExternalCatalogueBoundsAgreeWithinQuery her okumada çift yüklem
+// arar: alt-sorgu + kenarlar).
+//
+// Kilit adım: host normalizasyonu RE2 adım listesi (extPeerHostSteps)
+// olarak TEK yerde tanımlı; SQL ifadesi bu listeden kurulur, test aynı
+// listeyi Go'da koşturup ExtPeerServiceCandidates ile aynı vaka
+// tablosunda karşılaştırır (external_ext_peer_sql_test.go) ve
+// `clickhouse` ikilisi varsa ifadeyi canlı motorda da koşturur.
+
+// extPeerHostStep — host normalizasyonunun bir adımı. Regex adımları RE2
+// (Go regexp ve CH replaceRegexp* aynı motor); Replace CH sözdiziminde
+// (`\1`), Go aynası `${1}`'e çevirir. Scheme=true adımı regex değil:
+// "ilk `://`'ye kadar" RE2'de ancak tembel niceleyici (`.*?`) ile
+// yazılır, ve SQL metninde HİÇBİR `?` olmamalı — clickhouse-go'nun
+// konumsal bind'i dizgi değişmezinin İÇİNDEKİ `?`'yi de yer tutucu
+// sayıyor (bind.go bindPositional). Aynı sebeple desenlerde `(?i)`,
+// `(?:…)`, `(?s)` ve `?` niceleyicisi yok: harf duyarsızlık lowerUTF8
+// ile (Go tarafı da strings.ToLower kullanıyor), `.` yerine `[\s\S]`.
+// Süslü parantez de yok ('{…:…}' sunucu tarafı parametre moduna geçirir,
+// gatewayPathRegex notu): opsiyonel grup `(…)*` ile yazılır — "'.' ile
+// biten parça" dilinde `*` ile `{0,1}` aynı kümeyi tanır.
+type extPeerHostStep struct {
+	Pattern string
+	Replace string
+	All     bool // replaceRegexpAll; aksi hâlde replaceRegexpOne
+	Scheme  bool // regex değil: ilk "://"'ye kadar, yoksa harf duyarsız "dns:"
+	Why     string
+}
+
+// extPeerHostSteps — ExtPeerServiceCandidates'in host türetmesinin
+// adım adım ikizi. SIRA ÖNEMLİ (Go fonksiyonundaki sırayla aynı).
+var extPeerHostSteps = []extPeerHostStep{
+	{Pattern: `^[\t\n\v\f\r ]+|[\t\n\v\f\r ]+$`, All: true, Why: "strings.TrimSpace (ASCII boşluk)"},
+	{Scheme: true, Why: "ilk `://`'ye kadar şema, yoksa `dns:` öneki (harf duyarsız)"},
+	{Pattern: `^/+`, Why: "dns:/// artığı: baştaki '/'ler"},
+	{Pattern: `/[\s\S]*$`, Why: "ilk '/'den sonrası (yol)"},
+	{Pattern: `^([^:]+):[0-9]+$`, Replace: `\1`, Why: "tek ':' + sayısal port (IPv6 dokunulmaz)"},
+	{Pattern: `\.$`, Why: "sondaki tek nokta"},
+}
+
+// extPeerK8sHostPattern — KÜÇÜK HARFE indirilmiş host bir k8s küme-içi
+// adı mı (önünde ≥1 etiket + sonek). Aday o zaman ilk DNS etiketidir
+// (ilk '.'den önce, özgün harfle). extPeerK8sBareSuffix: Go'nun sonek
+// önceliği (.svc.cluster.local önce) `svc.cluster.local`'ın kendisini
+// etiketsiz bırakır; tek-desen biçimi onu ".cluster.local önünde 'svc'"
+// diye okurdu — bu yüzden açıkça reddedilir.
+const (
+	extPeerK8sHostPattern = `^[^.]+\.([\s\S]*\.)*(svc\.cluster\.local|cluster\.local|svc)$`
+	extPeerK8sBareSuffix  = `svc.cluster.local`
+)
+
+// extPeerSQLLit — CH dizgi değişmezi. Desenlerdeki ters bölüler CH
+// değişmezinde kaçış sayılır (`'\.'` → `.`), o yüzden ikilenir.
+func extPeerSQLLit(s string) string {
+	return "'" + strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(s) + "'"
+}
+
+// extPeerHostSQL — extPeerHostSteps'in CH ifadesi. Her adım kendi
+// lambda'sında (`arrayMap(s -> …, [önceki])[1]`): girdiyi birden çok kez
+// anan adımlar metni üstel büyütmesin; lambda'lar iç içe değil, yalnız
+// kendi parametresini görür.
+func extPeerHostSQL(raw string) string {
+	cur := raw
+	for _, st := range extPeerHostSteps {
+		switch {
+		case st.Scheme:
+			cur = "arrayMap(s -> if(position(s, '://') > 0, substring(s, position(s, '://') + 3), " +
+				"if(startsWith(lowerUTF8(s), 'dns:'), substring(s, 5), s)), [" + cur + "])[1]"
+		case st.All:
+			cur = fmt.Sprintf("replaceRegexpAll(%s, %s, %s)", cur, extPeerSQLLit(st.Pattern), extPeerSQLLit(st.Replace))
+		default:
+			cur = fmt.Sprintf("replaceRegexpOne(%s, %s, %s)", cur, extPeerSQLLit(st.Pattern), extPeerSQLLit(st.Replace))
+		}
+	}
+	return cur
+}
+
+// extPeerCandidatesSQL — ExtPeerServiceCandidates'in CH ikizi:
+// Array(String), boş adaylar elenmiş (sıra/tekrar dışlama için önemsiz).
+// `raw` öneksiz ad ifadesi (ör. `substring(child_node, 5)`).
+func extPeerCandidatesSQL(raw string) string {
+	return fmt.Sprintf("arrayFilter(c -> c != '', if(position(%[1]s, '@') > 0, [%[1]s], "+
+		"arrayMap(h -> [%[1]s, h, if(match(lowerUTF8(h), %[3]s) AND lowerUTF8(h) != %[4]s, splitByChar('.', h)[1], '')], [%[2]s])[1]))",
+		raw, extPeerHostSQL(raw), extPeerSQLLit(extPeerK8sHostPattern), extPeerSQLLit(extPeerK8sBareSuffix))
+}
+
+// extPeerIsServiceSQL — adaylardan biri bilinen bir servis mi
+// (ResolveExtPeer anlamı). svc_names WITH skalerine bağlı.
+func extPeerIsServiceSQL(cands string) string {
+	return "arrayExists(x -> has(tupleElement(svc_names, 1), x) OR " +
+		"has(tupleElement(svc_names, 2), lowerUTF8(x)), " + cands + ")"
+}
+
+// externalHostExclusionCandidates — çekmece okumaları için adaylar,
+// Go'da: topoloji birleştirmesinin kullandığı fonksiyonun KENDİSİ.
+// "ext:" öneki eklenir ki liste tarafındaki substring(child_node, 5)
+// ile birebir aynı ham adı görsün.
+func externalHostExclusionCandidates(host string) []string {
+	out := []string{}
+	for _, c := range ExtPeerServiceCandidates("ext:" + host) {
+		if c != "" {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// GetExternalHosts / GetExternalHostDetail sorgu metinleri — SAF
+// kurucular (canlı motor testi gerçekten koşan metni koşturur). Her
+// metin İKİ kova yüklemi taşır: svc_names alt-sorgusu + kenarlar, aynı
+// argümanlarla (bucketStart, to).
+
+func externalHostsSQL() string {
+	return `
+		WITH (
+			SELECT tuple(groupArrayArray(ns), groupArrayIf(l, length(ns) = 1))
+			FROM (
+				SELECT lowerUTF8(toString(service_name)) AS l,
+				       groupUniqArray(toString(service_name)) AS ns
+				FROM service_summary_5m
+				WHERE time_bucket >= ? AND time_bucket < ?
+				GROUP BY l
+			)
+		) AS svc_names
+		SELECT substring(child_node, 5)          AS host,
+		       uniqExact(parent_service)         AS callers,
+		       arraySort(groupUniqArray(8)(parent_service)) AS caller_names,
+		       sum(calls)                        AS total_calls,
+		       sum(errors)                       AS total_errors,
+		       sum(sum_duration_ns) / nullIf(sum(calls), 0) / 1e6 AS avg_ms,
+		       max(p99_ms)                       AS p99_ms,
+		       arraySlice(arrayDistinct(arrayFlatten(groupArray(top_labels))), 1, 8) AS labels
+		FROM topology_edges_5m FINAL
+		WHERE node_kind = 'external'
+		  AND time_bucket >= ? AND time_bucket < ?
+		GROUP BY child_node
+		HAVING NOT ` + extPeerIsServiceSQL(extPeerCandidatesSQL("substring(child_node, 5)")) + `
+		ORDER BY total_calls DESC
+		LIMIT 500
+		SETTINGS max_execution_time = 10`
+}
+
+// externalCallersSQL — argümanlar: bucketStart, to, host, bucketStart,
+// to, adaylar ([]string, externalHostExclusionCandidates).
+func externalCallersSQL() string {
+	return `
+		WITH (
+			SELECT tuple(groupArrayArray(ns), groupArrayIf(l, length(ns) = 1))
+			FROM (
+				SELECT lowerUTF8(toString(service_name)) AS l,
+				       groupUniqArray(toString(service_name)) AS ns
+				FROM service_summary_5m
+				WHERE time_bucket >= ? AND time_bucket < ?
+				GROUP BY l
+			)
+		) AS svc_names
+		SELECT parent_service,
+		       sum(calls)  AS total_calls,
+		       sum(errors) AS total_errors,
+		       sum(sum_duration_ns) / nullIf(sum(calls), 0) / 1e6 AS avg_ms,
+		       max(p99_ms) AS p99_ms,
+		       arraySlice(arrayDistinct(arrayFlatten(groupArray(top_labels))), 1, 5) AS labels
+		FROM topology_edges_5m FINAL
+		WHERE node_kind = 'external'
+		  AND child_node = concat('ext:', ?)
+		  AND time_bucket >= ? AND time_bucket < ?
+		  AND NOT ` + extPeerIsServiceSQL("?") + `
+		GROUP BY parent_service
+		ORDER BY total_calls DESC
+		LIMIT 100
+		SETTINGS max_execution_time = 10`
+}
+
+// externalTrendSQL — argümanlar externalCallersSQL ile aynı.
+func externalTrendSQL() string {
+	return `
+		WITH (
+			SELECT tuple(groupArrayArray(ns), groupArrayIf(l, length(ns) = 1))
+			FROM (
+				SELECT lowerUTF8(toString(service_name)) AS l,
+				       groupUniqArray(toString(service_name)) AS ns
+				FROM service_summary_5m
+				WHERE time_bucket >= ? AND time_bucket < ?
+				GROUP BY l
+			)
+		) AS svc_names
+		SELECT toUnixTimestamp(time_bucket) AS bucket,
+		       sum(calls)  AS total_calls,
+		       sum(errors) AS total_errors,
+		       sum(sum_duration_ns) / nullIf(sum(calls), 0) / 1e6 AS avg_ms,
+		       max(p99_ms) AS p99_ms
+		FROM topology_edges_5m FINAL
+		WHERE node_kind = 'external'
+		  AND child_node = concat('ext:', ?)
+		  AND time_bucket >= ? AND time_bucket < ?
+		  AND NOT ` + extPeerIsServiceSQL("?") + `
+		GROUP BY time_bucket
+		ORDER BY time_bucket ASC
+		LIMIT 5000
+		SETTINGS max_execution_time = 10`
 }
