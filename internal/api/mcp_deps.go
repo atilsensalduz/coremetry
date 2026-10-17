@@ -77,6 +77,9 @@ func (s *Server) mcpDeps() mcptools.Deps {
 		// GET /api/trace-pods/metrics ile ortak) + bileşik araç önbelleği (cachedJSON).
 		TracePods: s.mcpTracePodsOrNil(),
 		Memo:      s.mcpMemo,
+		// v0.10.1276 (CoSRE adım 7) — service_health_sweep'in pod bölümü (Thanos
+		// PodMetrics + penceredeki restart artışı; mcp_service_pods.go).
+		ServicePods: s.mcpServicePodsOrNil(),
 		CopilotModel: func() string {
 			if s.copilot == nil || !s.copilot.Configured() {
 				return ""

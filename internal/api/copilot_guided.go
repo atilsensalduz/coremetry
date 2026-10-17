@@ -193,6 +193,11 @@ type guidedRoute struct {
 	// (env-separation Phase 4 pending) — those bundles SAY so in the
 	// evidence instead of silently ignoring the ask.
 	Env string
+	// Deep (v0.10.1276, CoSRE adım 7) — servis-sağlık rotasında DERİN tarama
+	// istendi (hasSweepSignal: "tara", "kapsamlı", pod+operasyon+fonksiyon…):
+	// guidedServiceHealthBundle service_health_sweep'i derin kipte koşar
+	// (ilk 5 bulgu + code.* örneklemi). Yeni intent YOK — aynı rota.
+	Deep bool
 	// Family (v0.9.192) — the resolved service list for a
 	// guidedFamilyHealth route ("mobile bff'ler"); nil otherwise.
 	Family []string
@@ -565,6 +570,49 @@ func hasPodSignal(tokens []string) bool {
 	}
 	for _, t := range tokens {
 		if t == "gc" {
+			return true
+		}
+	}
+	return false
+}
+
+// hasSweepSignal (v0.10.1276, CoSRE adım 7) — servisin TAMAMINI tarama isteği
+// (operatör: "Servisin tüm podlarını operationlarını fonksiyonlarını da
+// tarasın genel sağlığı için sorunlu olanların loglarına baksın…"). SAF.
+//
+//   - açık tarama sözcüğü: tara* (taraf* HARİÇ — "tarafında" tarama değil),
+//     scan*, sweep*, kapsamlı*, detaylı*;
+//   - YA DA ≥2 varlık ailesi: {pod}, {operasyon/operation/endpoint},
+//     {fonksiyon/function};
+//   - YA DA "genel" + sağlık sinyali ("genel sağlığı", "genel durumu nasıl").
+//
+// Router bu dalı why/slow/log/pod dallarından ÖNCE dener: operatörün cümlesi
+// "podlarını" (pod) ve "loglarına" (log) da taşıyor — sırası tersse soru
+// pod_health'e düşer ve operasyon/fonksiyon taraması sessizce kaybolur.
+func hasSweepSignal(tokens []string) bool {
+	for _, t := range tokens {
+		if strings.HasPrefix(t, "tara") && !strings.HasPrefix(t, "taraf") {
+			return true
+		}
+	}
+	if tokenHasPrefix(tokens, "scan", "sweep", "kapsamlı", "detaylı") {
+		return true
+	}
+	fam := 0
+	if tokenHasPrefix(tokens, "pod") {
+		fam++
+	}
+	if tokenHasPrefix(tokens, "operasyon", "operation", "endpoint") {
+		fam++
+	}
+	if tokenHasPrefix(tokens, "fonksiyon", "function") {
+		fam++
+	}
+	if fam >= 2 {
+		return true
+	}
+	for _, t := range tokens {
+		if strings.HasPrefix(t, "genel") && (hasHealthDomainSignal(tokens) || tokenHasPrefix(tokens, "durum")) {
 			return true
 		}
 	}
@@ -1301,6 +1349,13 @@ func routeGuidedIntentOpts(raw string, services, envs, teams []string, ctxServic
 	// "yavaş mı"ya çöker ve NEDENSELLİK sessizce düşer. Servis şart:
 	// hipotez bir anchor'a bağlıdır, servissiz "neden hata alıyoruz"
 	// aşağıdaki problems yoluna düşsün (filo geneli zaten o).
+	// v0.10.1276 (CoSRE adım 7) — servis TARAMASI, why/slow/log/pod dallarından
+	// ÖNCE: "servisin tüm podlarını operationlarını fonksiyonlarını tarasın …
+	// loglarına baksın" hem pod hem log sinyali taşır; o dallar kazanırsa
+	// operasyon/fonksiyon taraması sessizce düşer. Servis şart (tarama tek
+	// servisin); yeni intent yok — servis sağlığı, derin kip.
+	case svc != "" && hasSweepSignal(toks):
+		return guidedRoute{Intent: guidedServiceHealth, Service: svc, Env: env, Deep: true}
 	case svc != "" && hasWhySignal(toks):
 		return guidedRoute{Intent: guidedRootCause, Service: svc, Env: env}
 	case hasSlowTraceSignal(msg):
@@ -1863,14 +1918,19 @@ func (s *Server) runGuidedRoute(ctx context.Context, emit func(string, any), rou
 		// bundle'ına yönlendir; aksi halde servis-geneli kalır.
 		// v0.9.410 — takip sorusu operasyonu adlandırmaz ("peki p99?");
 		// mevcut soru çözmezse devralınan temel mesajdan dene.
-		op := s.resolveGuidedOperation(ctx, route.Service, question, ctxOperation)
-		if op == "" && followBase != "" {
-			op = s.resolveGuidedOperation(ctx, route.Service, followBase, "")
+		// v0.10.1276 — tarama (Deep) servisin TÜM operasyonlarını okur:
+		// operasyon kapsamına daraltılmaz ("operationlarını" bir operasyon adı değil).
+		op := ""
+		if !route.Deep {
+			op = s.resolveGuidedOperation(ctx, route.Service, question, ctxOperation)
+			if op == "" && followBase != "" {
+				op = s.resolveGuidedOperation(ctx, route.Service, followBase, "")
+			}
 		}
 		if op != "" {
 			evidence, sources, err = s.guidedOperationHealthBundle(ctx, emit, route.Service, op, route.Env, from, to, rangeS)
 		} else {
-			evidence, sources, err = s.guidedServiceHealthBundle(ctx, emit, route.Service, route.Env, from, to, rangeS)
+			evidence, sources, err = s.guidedServiceHealthBundle(ctx, emit, route.Service, route.Env, from, to, rangeS, route.Deep)
 		}
 	case guidedFamilyHealth:
 		evidence, sources, err = s.guidedFamilyHealthBundle(ctx, emit, route.Family, route.Env, from, to, rangeS)
@@ -2453,7 +2513,27 @@ func guidedEnvREDLineTR(env string, rangeS int64, w chstore.ServiceSummary, foun
 // dimension) — an env ask (v0.8.398) narrows only the problems
 // sub-read and prepends an honest one-liner so the model attributes
 // the RED numbers correctly instead of claiming they're env-scoped.
-func (s *Server) guidedServiceHealthBundle(ctx context.Context, emit func(string, any), service, env string, from, to time.Time, rangeS int64) (string, string, error) {
+//
+// v0.10.1276 (CoSRE adım 7) — servis TARAMASI (mcptools.ReadServiceSweep):
+// demetin girişinde arka planda başlar (paralel; goroutine emit ETMEZ — SSE
+// tek goroutine'den), hükümden önce birleşir. Düz "sağlıklı mı / genel durum"
+// standart kip (ilk 3 bulgu), Deep (hasSweepSignal) derin kip (ilk 5 + code.*
+// örneklemi). Adımı `service_health_sweep` çipi: step-result tarama JSON'u
+// (bileşik kanıt listesi → bölüm başına çip), blokları ev_block ile; kanıt
+// metnine "TARAMA:" bloğu; hüküm ikisinin KÖTÜSÜ (mergeSweepVerdict).
+func (s *Server) guidedServiceHealthBundle(ctx context.Context, emit func(string, any), service, env string, from, to time.Time, rangeS int64, deep bool) (string, string, error) {
+	type sweepOut struct {
+		res mcptools.SweepResult
+		err error
+	}
+	sweepCh := make(chan sweepOut, 1)
+	sweepCtx, cancelSweep := context.WithCancel(ctx)
+	defer cancelSweep()
+	go func() {
+		res, err := mcptools.ReadServiceSweep(sweepCtx, s.mcpDeps(), mcptools.SweepRequest{
+			Service: service, Env: env, From: from, To: to, Window: fmt.Sprintf("%ds", rangeS), Deep: deep, SkipPatterns: true})
+		sweepCh <- sweepOut{res, err}
+	}()
 	var b strings.Builder
 	s.guidedSLOStep(ctx, emit, &b, service) // v0.10.808 (V4) — oryantasyon SLO'yla başlar
 	nCtx := emitGuidedStep(emit, "service_context", `{"service":"`+service+`"}`)
@@ -2520,6 +2600,32 @@ func (s *Server) guidedServiceHealthBundle(ctx context.Context, emit func(string
 		openN = len(probs)
 	}
 	vl, vr, vn := serviceHealthVerdict(cx.Current, cx.Baseline, cx.curErr, openN, errTraces)
+	// v0.10.1276 — tarama birleşimi (en geç sweepBudget; ctx biterse boş geçer).
+	argsSw, _ := json.Marshal(map[string]any{"service": service, "env": env, "deep": deep})
+	nSw := emitGuidedStep(emit, mcptools.ServiceHealthSweepName, string(argsSw))
+	var sw sweepOut
+	select {
+	case sw = <-sweepCh:
+	case <-ctx.Done():
+		sw.err = ctx.Err()
+	}
+	sweepOK := sw.err == nil && sw.res.OK
+	if sweepOK {
+		if body, merr := json.Marshal(sw.res); merr == nil {
+			emitGuidedCompositeResult(emit, nSw, mcptools.ServiceHealthSweepName, string(body))
+		}
+		b.WriteString(renderSweepEvidenceTR(sw.res))
+	} else {
+		serr := sw.err
+		if serr == nil {
+			serr = fmt.Errorf("tarama tamamlanamadı")
+			if sw.res.Error != nil {
+				serr = fmt.Errorf("%s", sw.res.Error.Message)
+			}
+		}
+		emitGuidedStepResult(emit, nSw, mcptools.ServiceHealthSweepName, "", serr)
+	}
+	vl, vr, vn = mergeSweepVerdict(vl, vr, vn, sw.res, sweepOK)
 	verdict := renderServiceHealthVerdictTR(vl, vr, vn)
 	nV := emitGuidedStep(emit, "health_verdict", `{"service":"`+service+`"}`)
 	emitGuidedStepResult(emit, nV, "health_verdict", verdict, nil)
@@ -2533,7 +2639,7 @@ func (s *Server) guidedServiceHealthBundle(ctx context.Context, emit func(string
 	// versin diye server iki kart basar; serbest döngüdeki eşdeğeri
 	// render_chart tool'udur (copilot_chat.go).
 	b.WriteString(chartFence(guidedChartSpec{Title: service + " · p99", Service: service, Agg: "p99", RangeS: rangeS}))
-	src := fmt.Sprintf("SLO durumu + deterministik sağlık hükmü + servis RED özeti + baseline + en sık hatalar + deploy işaretçileri + açık problemler + hatalı trace'ler + error logları + grafikler (son %s)", fmtAgoTR(rangeS))
+	src := fmt.Sprintf("SLO durumu + deterministik sağlık hükmü + servis RED özeti + baseline + en sık hatalar + deploy işaretçileri + açık problemler + hatalı trace'ler + error logları + servis taraması (pod/operasyon/fonksiyon + sorunluların logları) + grafikler (son %s)", fmtAgoTR(rangeS))
 	if env != "" {
 		src += fmt.Sprintf("; RED tüm ortamlar, problemler ortam: %s", env)
 	}
@@ -4036,6 +4142,8 @@ func problemMetricUnitTR(metric string) string { return chstore.ProblemMetricUni
 // öncelik). guidedNone ⇒ servis sorusu değil, aday aranmaz.
 func serviceIntentFor(msg string, toks []string) guidedIntent {
 	switch {
+	case hasSweepSignal(toks): // v0.10.1276 — router'daki sıra (tarama why/pod'dan önce)
+		return guidedServiceHealth
 	case hasWhySignal(toks):
 		return guidedRootCause
 	case hasSlowTraceSignal(msg):

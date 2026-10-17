@@ -34,7 +34,8 @@ var stepPhaseByTool = map[string]string{
 	// Sağlık (servis / operasyon / veritabanı / kuyruk / SLO)
 	"get_service_health": "Sağlık", "get_operation_health": "Sağlık", "get_db_health": "Sağlık",
 	"get_messaging_health": "Sağlık", "list_slo_status": "Sağlık", "explain_service_health": "Sağlık",
-	"list_operations": "Sağlık", "list_services": "Sağlık",
+	"service_health_sweep": "Sağlık", // v0.10.1276 — CoSRE adım 7: pod/operasyon/fonksiyon taraması
+	"list_operations":      "Sağlık", "list_services": "Sağlık",
 	// Problem / anomali / exception
 	"list_problems": "Problem", "get_problem": "Problem", "get_problem_root_cause": "Problem",
 	"list_problem_window_events": "Problem", "similar_problems": "Problem", "similar_incidents": "Problem",

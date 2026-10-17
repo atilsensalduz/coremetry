@@ -28,6 +28,7 @@ import (
 	"strings"
 
 	"github.com/cilcenk/coremetry/internal/mcp"
+	"github.com/cilcenk/coremetry/internal/mcptools"
 )
 
 // withStepIDs — akıştaki her `step` olayına istek-boyunca tekil bir
@@ -152,6 +153,14 @@ func withBlockSeq(emit func(string, any), seq *blocks.Sequencer) func(string, an
 		}
 		if kind == "trace_list" && seq != nil { // v0.10.688 — endpoint trace listesi (FE tablo)
 			emit("block", seq.Next(blocks.TypeTraceList, payload))
+			return
+		}
+		// v0.10.1276 (CoSRE adım 7) — guided demetin bileşik araç bloğu
+		// (mcptools.ToolResultBlocks çıktısı: chart/table/trace_list; yük
+		// evidenceRef'iyle adım çipine bağlı). Serbest döngünün blok yoluyla AYNI
+		// sıralayıcı — iki sıralayıcı FE'de id çakışması olurdu.
+		if b, ok := payload.(mcptools.EvidenceBlock); ok && kind == "ev_block" && seq != nil {
+			emit("block", seq.Next(b.Type, b.Payload))
 			return
 		}
 		emit(kind, payload)

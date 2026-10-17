@@ -103,6 +103,18 @@ checked}`; halka başına `evidences[]` (ilki `evidence`). Salt okuma.
 stored|on_demand|none, checked}` döndürür; `investigate:true` saklı denetim
 izi yoksa aileleri son 60 dk'da canlı okur — hipoteze yazılmaz.
 
+v0.10.1276'da 73 oldu: `service_health_sweep` (CoSRE adım 7) — TEK servisin
+tam taraması: RED (önceki eş pencereyle), açık problemler, TÜM operasyonlar
+(operation_summary_5m, env yok), tüm FUNCTION_CODE'lar (geniş rollup; yoksa
+sınırlı ham kırılım), servisin eşlenen Thanos cluster'larındaki pod'lar (CPU/
+bellek % limit, faz, son sonlanma, penceredeki restart artışı) ve JVM heap/GC.
+Satırlar servis hükmüyle AYNI deterministik eşiklerle (internal/healthverdict)
+puanlanır; ilk N bulgu (3; `deep:true` ile 5, `top_n` ≤8) sıralanır ve
+YALNIZ onların logları okunur (pod → pod'un ERROR+ logları; operasyon/
+fonksiyon → en yeni hatalı trace'in logları). `deep:true` ayrıca code.*
+örneklemi + log desenleri. 15 sn bütçe; her bölüm `state` + not; bölüm
+başına `evidences[]`. Salt okuma.
+
 ### "Benim servislerim" MCP'de YOK (bilinçli)
 
 Takım tool'ları takım ADIYLA çalışır. Sebep yukarıdaki sınırın

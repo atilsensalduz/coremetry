@@ -43,20 +43,8 @@ func (s *Server) guidedThanosPods(ctx context.Context, service string) thanosPod
 	if s.thanos == nil || !s.thanos.HasEnabledClusters() || service == "" {
 		return out
 	}
-	deploy := ""
-	if md, err := s.store.GetServiceMetadata(ctx, service); err == nil && md != nil {
-		deploy = md.Deployment
-	}
-	re := thanosServicePodRegex(service, deploy)
-	var clusters []thanos.ClusterConfig
-	for _, c := range s.thanos.Snapshot().Clusters {
-		if !c.Enabled {
-			continue
-		}
-		if cfg, ok := s.thanos.ClusterByName(c.Name); ok { // snapshot maskeli; gerçek yapılandırma
-			clusters = append(clusters, cfg)
-		}
-	}
+	re := s.thanosPodRegexFor(ctx, service)
+	clusters := s.thanosEnabledClusters()
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, thanosPodsParallel)
@@ -86,6 +74,37 @@ func (s *Server) guidedThanosPods(ctx context.Context, service string) thanosPod
 	wg.Wait()
 	sort.Strings(out.Errors)
 	return out
+}
+
+// thanosPodRegexFor — v0.10.1276: servisin pod seçicisi (metadata'daki
+// deployment adıyla; Infrastructure sekmesiyle aynı küme). guidedThanosPods ve
+// service_health_sweep'in pod adaptörü (mcp_service_pods.go) ORTAK okur.
+func (s *Server) thanosPodRegexFor(ctx context.Context, service string) string {
+	deploy := ""
+	if s.store != nil {
+		if md, err := s.store.GetServiceMetadata(ctx, service); err == nil && md != nil {
+			deploy = md.Deployment
+		}
+	}
+	return thanosServicePodRegex(service, deploy)
+}
+
+// thanosEnabledClusters — v0.10.1276: etkin cluster'ların GERÇEK yapılandırması
+// (snapshot maskeli; ClusterByName gerçeğini verir). Ad sırası snapshot sırası.
+func (s *Server) thanosEnabledClusters() []thanos.ClusterConfig {
+	var clusters []thanos.ClusterConfig
+	if s.thanos == nil {
+		return nil
+	}
+	for _, c := range s.thanos.Snapshot().Clusters {
+		if !c.Enabled {
+			continue
+		}
+		if cfg, ok := s.thanos.ClusterByName(c.Name); ok {
+			clusters = append(clusters, cfg)
+		}
+	}
+	return clusters
 }
 
 func fmtGiB(b float64) string {

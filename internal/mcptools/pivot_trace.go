@@ -49,6 +49,7 @@ import (
 	"github.com/cilcenk/coremetry/internal/ai/agent/blocks"
 	"github.com/cilcenk/coremetry/internal/anomaly"
 	"github.com/cilcenk/coremetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/healthverdict"
 	"github.com/cilcenk/coremetry/internal/logstore"
 	"github.com/cilcenk/coremetry/internal/mcp"
 	"github.com/cilcenk/coremetry/internal/metricsrc"
@@ -103,12 +104,12 @@ const (
 	pivotChartMaxPoints    = evBlockMaxPoints
 )
 
-// op_baseline eşikleri — api/service_health_verdict.go hvP99* aynası (paket
-// sınırı: mcptools api'yi import edemez). Trace'in op süresi / op p99.
+// op_baseline eşikleri — servis hükmüyle AYNI kaynak (v0.10.1276:
+// internal/healthverdict; önceden api hvP99* aynasıydı). Trace'in op süresi / op p99.
 const (
-	pivotOpWarnMult = 1.25
-	pivotOpCritMult = 2.0
-	pivotOpCritMin  = 200.0
+	pivotOpWarnMult = 1 + healthverdict.P99WarnRel
+	pivotOpCritMult = healthverdict.P99CritMult
+	pivotOpCritMin  = healthverdict.P99CritMin
 )
 
 // Pod doygunluk eşikleri (% limit) — evaluator/db_capacity.go 85/90 emsali.

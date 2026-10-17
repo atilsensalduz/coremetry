@@ -75,7 +75,9 @@ var evidenceTools = map[string]bool{queryMetricsName: true, queryTracesName: tru
 
 // compositeEvidenceTools — v0.10.1275: hop başına kanıt LİSTESİ (`evidences`)
 // taşıyan bileşik araçlar.
-var compositeEvidenceTools = map[string]bool{PivotFromTraceName: true}
+// v0.10.1276 — service_health_sweep (bölüm başına kanıt: red · ops ·
+// functions · pods · jvm · logs).
+var compositeEvidenceTools = map[string]bool{PivotFromTraceName: true, ServiceHealthSweepName: true}
 
 // compositeEvidenceMax — bileşik aracın çip tavanı (hop sayısının üstü).
 const compositeEvidenceMax = 6

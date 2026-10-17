@@ -95,6 +95,12 @@ var mvCostClaims = map[string]string{
 	// diğer halkalar trace-id / pod kapsamlı (GetTrace PK, Thanos pod seçicisi,
 	// LogsForTrace, JVM pod okuması).
 	"pivot_from_trace": "op_baseline → operation_summary_5m, no env; other hops trace-id/pod scoped",
+	// v0.10.1276 — service_health_sweep: ops bölümü GetOperationSummaryCompared
+	// (operation_summary_5m, şimdiki + önceki, env YOK — açıklama söylüyor); RED
+	// service_summary_5m / service_env_summary_5m; fonksiyonlar geniş rollup varsa
+	// o, yoksa sınırlı ham span kırılımı (açıklama koşulu söylüyor).
+	"service_health_sweep": "ops → operation_summary_5m, no env; functions → wide rollup if applied, " +
+		"else bounded raw spans (LIMIT 8, max_execution_time 5)",
 	"trace_stats": "trace_summary_5m — GetTraceAggregate MV yolu koşullu (service/operation, süzgeçsiz); " +
 		"süzgeçli çağrı search_traces kapısıyla kelepçeli ham yol, açıklama koşulu söylüyor",
 }

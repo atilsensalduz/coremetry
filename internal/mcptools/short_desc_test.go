@@ -58,7 +58,10 @@ const shortDescMinBytes = 60
 // MCP sözleşmesi olarak kalıyor; sohbetten çıkarılmaları ayrı bir karar.
 // v0.10.1275 — 72 tool: pivot_from_trace (CoSRE adım 6, trace → pod → JVM → log
 // tek çağrıda; ölçülen +133 B → 9570 B) → tavan 9.65 KB (+150 B, 50 B'a yukarı).
-const shortCatalogMaxBytes = 9650
+// v0.10.1276 — 73 tool: service_health_sweep (CoSRE adım 7, servisin pod /
+// operasyon / fonksiyon taraması + sorunluların logları tek çağrıda; ölçülen
+// +126 B → 9696 B) → tavan 9.8 KB (+150 B, 50 B'a yukarı).
+const shortCatalogMaxBytes = 9800
 
 // shortCatalogConditionalMaxBytes — v0.10.1050: KOŞULLU sohbet araçlarının
 // (chatOffered; bugün yalnız read_source_code, DevOps bağlıyken) kompakt

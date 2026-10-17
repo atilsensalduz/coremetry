@@ -59,7 +59,9 @@
 //     doğru çağrının koşulu, orada kazanılan bayt yanlış argümanla
 //     harcanan bir tura değmez.
 //
-// Tool catalogue (72 tools; v0.10.1275 — 71 → 72: pivot_trace.go pivot_from_trace (CoSRE adım 6,
+// Tool catalogue (73 tools; v0.10.1276 — 72 → 73: service_sweep.go service_health_sweep (CoSRE adım 7,
+// servisin pod / operasyon / fonksiyon / JVM taraması + sorunluların logları, tek bileşik çağrı; salt okuma, sohbet + MCP);
+// v0.10.1275 — 71 → 72: pivot_trace.go pivot_from_trace (CoSRE adım 6,
 // trace → pod → JVM → log + playbook, tek deterministik bileşik çağrı, hop başına kanıt; salt okuma, sohbet + MCP);
 // v0.10.1271 — 68 → 71: query_metrics.go / query_traces.go /
 // query_logs.go (CoSRE adım 2, aile/enum tabanlı, kanıt zarflı; sohbet + MCP, salt okuma);
@@ -72,6 +74,7 @@
 // find_trace_by_request_id ile 25; v0.9.1146'da üç analiz tool'uyla 28;
 // v0.9.1147'de dört guided-parite tool'uyla 32):
 //   - list_services
+//   - service_health_sweep (v0.10.1276, service_sweep.go — pod/operasyon/fonksiyon/JVM taraması + sorunluların logları)
 //   - get_service_health
 //   - get_operation_health (v0.9.1227 — endpoint-bazlı RED, spanmetrics_1m)
 //   - list_problems
@@ -268,6 +271,10 @@ type Deps struct {
 	// singleflight). fn'in bool'u false → gövde döner ama SAKLANMAZ (kısmi
 	// sonuç). nil = önbelleksiz (testler, doğrudan Deps kurulumu).
 	Memo func(ctx context.Context, key string, ttl time.Duration, fn func(context.Context) (any, bool, error)) ([]byte, error)
+	// v0.10.1276 (CoSRE adım 7) — service_health_sweep'in pod bölümü (Thanos
+	// PodMetrics + penceredeki restart artışı; api/mcp_service_pods.go,
+	// guidedThanosPods ile aynı pod seçicisi). nil = Thanos yok → bölüm skipped.
+	ServicePods ServicePodsFunc
 }
 
 // MetricSource is the metric-read half of Deps, satisfied by
@@ -319,6 +326,11 @@ func ToolList(d Deps) []mcp.Tool {
 		// (Faz 3.2 doktrini), o yüzden ikisi bitişik.
 		listTeamsTool(d),
 		getTeamServicesTool(d),
+		// v0.10.1276 (CoSRE adım 7) — tek servis RED'inin hemen ÖNÜNDE TAM
+		// tarama: pod · operasyon · fonksiyon · JVM + sorunluların logları
+		// (service_sweep.go; tek deterministik bileşik çağrı). Önde, çünkü
+		// get_service_health → get_topology komşuluğu (≤3) pinli.
+		serviceHealthSweepTool(d),
 		getServiceHealthTool(d),
 		// v0.9.1227 (CoSRE denetimi) — servis-seviyesi RED'in hemen
 		// ardındaki İÇERİ kazı: "bu servisin HANGİ endpoint'i?". Bugüne
@@ -999,7 +1011,7 @@ func getServiceHealthTool(d Deps) mcp.Tool {
 	return mcp.Tool{
 		Name:             "get_service_health",
 		ShortDescription: "TEK servisin RED'i + açık problem sayısı, verilen pencerede. list_services'ten sonraki kazı adımı. env ile tek ortama daralt.",
-		Description:      "Get ONE service's RED summary (request rate, error rate, p99 latency) plus its open-problem count over a window. `service` is matched by exact name as list_services returns it; a case variant or single near-match is resolved and echoed as matched_name, an ambiguous name returns found=false with candidates (resolve partial names with list_services name_contains). COST: the same read as list_services — the 5-minute pre-aggregate when range_s >= 300 and no env is set, otherwise a bounded raw-span scan. Use after list_services to drill into one service; pass env to scope both numbers to one deployment environment.",
+		Description:      "Get ONE service's RED summary (request rate, error rate, p99 latency) plus its open-problem count over a window. `service` is matched by exact name as list_services returns it; a case variant or single near-match is resolved and echoed as matched_name, an ambiguous name returns found=false with candidates (resolve partial names with list_services name_contains). COST: the same read as list_services — the 5-minute pre-aggregate when range_s >= 300 and no env is set, otherwise a bounded raw-span scan. Use after list_services to drill into one service; pass env to scope both numbers to one deployment environment. For a full sweep (every pod, operation and function code plus the logs of the problematic ones) use service_health_sweep.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
