@@ -43,8 +43,11 @@ describe('/service sade palet — K5 artıkları (v0.10.929)', () => {
       // şablonla basar (var(--${tone})), K5 kuralı diğer /service yüzeylerinde aynen.
       if (f === 'httpMetricsViz.tsx') continue;
       if (f === 'Overview.tsx') {
-        expect(hits.length, f).toBe(1);
+        // v0.10.1264 — İSTİSNA (operatör 2026-10-17): "Toplam istek" karosu
+        // yeşil seri kimliği; mavi Throughput karosuyla karışıyordu.
+        expect(hits.length, f).toBe(2);
         expect(hits[0]).toMatch(/const okLine: ChartLine = .*label: 'OK'/);
+        expect(hits[1]).toMatch(/accent="var\(--ok\)" spark=\{metricRpsSeries\}/);
       } else {
         expect(hits, f).toEqual([]);
       }
@@ -87,8 +90,9 @@ describe('/service sade palet — K5 artıkları (v0.10.929)', () => {
     expect(accents).toEqual([
       ['rtLabel', 'var(--orange)'],
       ['tputLabel', 'var(--accent)'],
-      // v0.10.1259 — hata oranı yokken (metrik modu) aynı yuvada Toplam istek; --info seri kimliği.
-      ['Toplam', 'var(--info)'],
+      // v0.10.1259 — hata oranı yokken (metrik modu) aynı yuvada Toplam istek.
+      // v0.10.1264 — --info → --ok (operatör: mavi Throughput ile karışıyordu).
+      ['Toplam', 'var(--ok)'],
       ['Failure', 'var(--err)'],
     ]);
     // Gerekçe yorumu kaynakta durur (yorum soyulmadan okunur).

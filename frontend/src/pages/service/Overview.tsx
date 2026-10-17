@@ -942,8 +942,10 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
             olsa şerit aynıdır; sağlık/sapma dili delta sınıfında (.ov-delta). */}
         <MetricPanel compact menuOnly title="Failure rate" metricQuery={mkFailureRate('stat')}>
           {metricErrorsUnknown && totalReq !== null
+            // v0.10.1264 (operatör 2026-10-17: "Toplam istek yeşil olsun, mavi
+            // olunca throughput ile karışıyor") — seri kimliği --ok.
             ? <KpiTile lab="Toplam istek" val={new Intl.NumberFormat('tr-TR', { notation: 'compact', maximumFractionDigits: 1 }).format(totalReq)}
-                accent="var(--info)" spark={metricRpsSeries} note={`Seçili pencerede toplam istek: ${totalReq.toLocaleString('tr-TR', { maximumFractionDigits: 0 })} (HTTP metrikleri)`} />
+                accent="var(--ok)" spark={metricRpsSeries} note={`Seçili pencerede toplam istek: ${totalReq.toLocaleString('tr-TR', { maximumFractionDigits: 0 })} (HTTP metrikleri)`} />
             : <KpiTile lab="Failure rate" val={metricErrorsUnknown ? '—' : `${errorRatePct.toFixed(2)}%`} accent="var(--err)" spark={vals(lat?.error_rate)} delta={computeDelta(vals(lat?.error_rate))} goodWhenUp={false} note={latScopeNote} />}
         </MetricPanel>
         {/* v0.9.483 (operatör: "bence response time mediana da gerek yok") —
