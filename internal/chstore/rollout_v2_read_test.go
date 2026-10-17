@@ -201,3 +201,31 @@ func TestRolloutRowJSONV1UnchangedV2Additive(t *testing.T) {
 		t.Fatalf("v2 değerleri (ms, [] , sıfır zaman 0): %s", b)
 	}
 }
+
+// v0.10.1262 — operatör 2026-10-17: platform namespace dışlaması iki okuma
+// yolunda da WHERE'e `NOT match(namespace, ?)` olarak iner (LIMIT'ten ÖNCE,
+// sunucuda); boş desen listesi sorguyu değiştirmez.
+func TestRolloutWhereNamespaceExclude(t *testing.T) {
+	from, to := time.Unix(100, 0), time.Unix(200, 0)
+	for name, fn := range map[string]func(RolloutFilter, time.Time, time.Time) (string, []any){"v1": rolloutWhere, "v2": rolloutV2Where} {
+		for _, tc := range []struct {
+			excl    []string
+			wantRE  string
+			wantArg int
+		}{
+			{nil, "", 2},
+			{[]string{}, "", 2},
+			{[]string{"openshift-*", "openshift", "kube-*"}, `^(?:kube-.*|openshift|openshift-.*)$`, 3},
+		} {
+			where, args := fn(RolloutFilter{ExcludeNamespaces: tc.excl}, from, to)
+			has := strings.Contains(where, "AND NOT match(namespace, ?)")
+			if has != (tc.wantRE != "") || len(args) != tc.wantArg {
+				t.Errorf("%s %q: where=%s args=%v", name, tc.excl, where, args)
+				continue
+			}
+			if tc.wantRE != "" && args[len(args)-1] != tc.wantRE {
+				t.Errorf("%s: RE argümanı %v, want %q", name, args[len(args)-1], tc.wantRE)
+			}
+		}
+	}
+}

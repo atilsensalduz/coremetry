@@ -139,7 +139,7 @@ func rolloutV2Where(f RolloutFilter, from, to time.Time) (string, []any) {
 		add("status", rollout.V1StatusToV2(f.Status))
 	}
 	add("workload_kind", f.Kind)
-	return where, args
+	return addNamespaceExclude(where, args, f.ExcludeNamespaces) // v0.10.1262
 }
 
 // rolloutV2OrderKey — toplam sıra için anahtar kolonları (ORDER BY kuyruğu).
@@ -296,9 +296,9 @@ func rolloutV2StatsByDaySQL(where string) string {
 
 // RolloutV2Stats — v0.10.984 — agregat sekmesi, v1 RolloutStats şeklinde
 // (completed = succeeded, inProgress = progressing, stalled = stuck).
-func (s *Store) RolloutV2Stats(ctx context.Context, clusterID, ns string, from, to time.Time, topN int) (*RolloutStats, error) {
+func (s *Store) RolloutV2Stats(ctx context.Context, f RolloutFilter, from, to time.Time, topN int) (*RolloutStats, error) {
 	topN = clampRolloutLimit(topN, 10, 50)
-	where, args := rolloutV2Where(RolloutFilter{ClusterID: clusterID, Namespace: ns}, from, to)
+	where, args := rolloutV2Where(RolloutFilter{ClusterID: f.ClusterID, Namespace: f.Namespace, ExcludeNamespaces: f.ExcludeNamespaces}, from, to)
 	st := &RolloutStats{From: from.UnixMilli(), To: to.UnixMilli(), TopRollback: []RolloutWorkloadN{}, TopDeploy: []RolloutWorkloadN{}, ByDay: []RolloutDayCount{}}
 	var total, completed, rolled, inprog, stalled, superseded uint64
 	var meanSec, p95Sec float64

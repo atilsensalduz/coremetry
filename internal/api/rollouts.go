@@ -52,6 +52,15 @@ func (s *Server) registerRolloutRoutes(mux *http.ServeMux) {
 // SetRollout — main.go bağlar (Set* kablolama deseni).
 func (s *Server) SetRollout(cfg *rollout.SettingsService) { s.rolloutCfg = cfg }
 
+// rolloutExcludeNamespaces — v0.10.1262 — uygulanan platform namespace
+// desenleri (ayar yoksa varsayılan; normalize, sıralı; nil değil).
+func (s *Server) rolloutExcludeNamespaces() []string {
+	if s.rolloutCfg == nil {
+		return rollout.NormalizeNamespacePatterns(rollout.DefaultExcludeNamespaces)
+	}
+	return s.rolloutCfg.Current().ResolvedExcludeNamespaces()
+}
+
 // rolloutEnabled — bayrak kapalıysa 404 {disabled:true} yazar.
 func (s *Server) rolloutEnabled(w http.ResponseWriter) bool {
 	if s.rolloutCfg != nil && s.rolloutCfg.Resolved().Enabled {
@@ -90,6 +99,10 @@ func (s *Server) listRollouts(w http.ResponseWriter, r *http.Request) {
 			f.ClusterID = c.EffectiveID()
 		}
 	}
+	// v0.10.1262 (operatör 2026-10-17) — platform namespace'leri SUNUCUDA
+	// dışla (LIMIT gürültüye harcanmasın); açık ?namespace= süzgeci kazanır.
+	excl := s.rolloutExcludeNamespaces()
+	f.ExcludeNamespaces = rollout.EffectiveNamespaceExclude(excl, f.Namespace)
 	limit := parseInt(q.Get("limit"), rolloutListLimitDefault)
 	if limit <= 0 {
 		limit = rolloutListLimitDefault
@@ -116,7 +129,9 @@ func (s *Server) listRollouts(w http.ResponseWriter, r *http.Request) {
 		if src == rollout.SourceV2 {
 			s.attachV2Traffic(ctx, rows, from, to) // v0.10.1212 — "trafik geçti" (rollouts_v2_traffic.go)
 		}
-		resp := map[string]any{"rollouts": rows, "from": from.UnixMilli(), "to": to.UnixMilli(), "limit": limit}
+		resp := map[string]any{"rollouts": rows, "from": from.UnixMilli(), "to": to.UnixMilli(), "limit": limit,
+			// v0.10.1262 — viewer de görsün (ayar ucu admin): uygulanan desenler + bu cevapta uygulandı mı.
+			"excludeNamespaces": excl, "excludeApplied": len(f.ExcludeNamespaces) > 0}
 		if src == rollout.SourceV2 {
 			resp["v2"] = true // v0.10.984 — FE v2 kolon setini seçer (eklemeli; v1'de anahtar yok)
 		}
@@ -231,23 +246,23 @@ func (s *Server) getRolloutStats(w http.ResponseWriter, r *http.Request) {
 		topN = rolloutStatsTopNMax
 	}
 	src := s.rolloutSource()
-	key := rolloutStatsKey(src, cluster, ns, topN, from, to)
+	// v0.10.1262 — Toplu sekmesi de platform namespace'lerini saymaz (liste ile aynı kural).
+	excl := s.rolloutExcludeNamespaces()
+	f := chstore.RolloutFilter{ClusterID: cluster, Namespace: ns, ExcludeNamespaces: rollout.EffectiveNamespaceExclude(excl, ns)}
+	key := rolloutStatsKey(src, cluster, ns, f.ExcludeNamespaces, topN, from, to)
 	s.serveCached(w, r, key, rolloutStatsTTL, func(ctx context.Context) (any, error) {
 		rd := rolloutReaderOf(s)
+		read := rd.RolloutStats
 		if src == rollout.SourceV2 {
-			st, err := rd.RolloutV2Stats(ctx, cluster, ns, from, to, topN)
-			if err != nil {
-				return nil, err
-			}
-			// v0.10.984 — eklemeli işaret (RolloutStats'a alan eklemek v1
-			// cevabını değiştirirdi): v2'de gövde {…stats, "v2": true}.
-			return rolloutStatsV2{RolloutStats: st, V2: true}, nil
+			read = rd.RolloutV2Stats
 		}
-		st, err := rd.RolloutStats(ctx, cluster, ns, from, to, topN)
+		st, err := read(ctx, f, from, to, topN)
 		if err != nil {
 			return nil, err
 		}
-		return st, nil
+		// v0.10.984 — eklemeli işaret: v2'de gövde {…stats, "v2": true}.
+		// v0.10.1262 — + excludeNamespaces / excludeApplied (eklemeli).
+		return rolloutStatsResp{RolloutStats: st, V2: src == rollout.SourceV2, ExcludeNamespaces: excl, ExcludeApplied: len(f.ExcludeNamespaces) > 0}, nil
 	})
 }
 
@@ -292,6 +307,7 @@ func (s *Server) getRolloutSettings(w http.ResponseWriter, r *http.Request) {
 		"source": v2.Source, "detectorIntervalSec": int(v2.DetectorInterval / time.Second), "stuckAfterSec": int(v2.StuckAfter / time.Second),
 		"ignoreScale": v2.IgnoreScale, "kinds": v2.Kinds, "initialEvents": v2.InitialEvents,
 		"observedGenWaitTicks": v2.ObservedGenWaitTicks, "incarnationAbsentTicks": v2.IncarnationAbsentTicks, "knownRevisionsMax": v2.KnownRevisionsMax,
+		"excludeNamespaces": cfg.ResolvedExcludeNamespaces(), // v0.10.1262
 	}, "defaults": rollout.DefaultSettings()})
 }
 

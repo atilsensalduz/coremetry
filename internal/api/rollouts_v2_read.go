@@ -50,8 +50,8 @@ type rolloutReader interface {
 	RolloutV2List(ctx context.Context, f chstore.RolloutFilter, from, to time.Time, limit int) ([]chstore.RolloutRow, error)
 	RolloutByID(ctx context.Context, id chstore.RolloutID) (*chstore.RolloutRow, error)
 	RolloutV2ByID(ctx context.Context, id chstore.RolloutV2ID) (*chstore.RolloutRow, error)
-	RolloutStats(ctx context.Context, clusterID, ns string, from, to time.Time, topN int) (*chstore.RolloutStats, error)
-	RolloutV2Stats(ctx context.Context, clusterID, ns string, from, to time.Time, topN int) (*chstore.RolloutStats, error)
+	RolloutStats(ctx context.Context, f chstore.RolloutFilter, from, to time.Time, topN int) (*chstore.RolloutStats, error)
+	RolloutV2Stats(ctx context.Context, f chstore.RolloutFilter, from, to time.Time, topN int) (*chstore.RolloutStats, error)
 	RolloutRuns(ctx context.Context, limit int) ([]rollout.Run, error)
 	RolloutWorkerRuns(ctx context.Context, worker string, limit int) ([]rollout.WorkerRun, error)
 	RolloutLastRun(ctx context.Context) (*rollout.Run, error)
@@ -158,11 +158,16 @@ func rolloutRunsFromWorker(runs []rollout.WorkerRun) []rolloutRunJSON {
 	return out
 }
 
-// rolloutStatsV2 — v0.10.984 — v2 istatistik gövdesi: RolloutStats alanları
-// + eklemeli "v2": true (RolloutStats'a alan eklemek v1 cevabını değiştirirdi).
-type rolloutStatsV2 struct {
+// rolloutStatsResp — v0.10.984 — istatistik gövdesi: RolloutStats alanları
+// + eklemeli "v2": true (yalnız v2'de; RolloutStats'a alan eklemek v1
+// cevabını değiştirirdi). v0.10.1262 — + platform namespace dışlaması
+// (excludeNamespaces: uygulanan desenler, excludeApplied: bu cevapta
+// uygulandı mı — açık ?namespace= süzgecinde false).
+type rolloutStatsResp struct {
 	*chstore.RolloutStats
-	V2 bool `json:"v2"`
+	V2                bool     `json:"v2,omitempty"`
+	ExcludeNamespaces []string `json:"excludeNamespaces"`
+	ExcludeApplied    bool     `json:"excludeApplied"`
 }
 
 // v2RowServiceKeys — v2 satırının iş yükü düzeyi servis anahtarları (span

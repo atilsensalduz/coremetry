@@ -8651,7 +8651,10 @@ export interface WorkloadRollout {
   succeededAt?: number; stuckAt?: number; finishedAt?: number;
 }
 /** v2: true — v0.10.984, sunucu rollout_events okudu (rollouts.source="v2"); v1 cevabında anahtar yok. */
-export interface RolloutListResponse { rollouts: WorkloadRollout[]; from: number; to: number; limit: number; capped?: boolean; note?: string; disabled?: boolean; v2?: boolean }
+export interface RolloutListResponse { rollouts: WorkloadRollout[]; from: number; to: number; limit: number; capped?: boolean; note?: string; disabled?: boolean; v2?: boolean;
+  /** v0.10.1262 — sunucuda gizlenen platform namespace glob'ları (system_settings["rollouts"].excludeNamespaces; viewer de görür)
+   *  ve bu cevapta uygulandı mı (açık ?namespace= süzgecinde false — açık süzgeç kazanır). */
+  excludeNamespaces?: string[]; excludeApplied?: boolean }
 export interface RolloutWorkloadN { clusterId: string; namespace: string; workload: string; n: number }
 export interface RolloutStats {
   total: number; completed: number; rolledBack: number; inProgress: number; stalled: number; superseded: number;
@@ -8662,6 +8665,8 @@ export interface RolloutStats {
   disabled?: boolean;
   /** v0.10.984 — rollout_events'ten sayıldı (completed = succeeded, inProgress = progressing, stalled = stuck). */
   v2?: boolean;
+  /** v0.10.1262 — RolloutListResponse ile aynı: gizlenen platform namespace desenleri + uygulandı mı. */
+  excludeNamespaces?: string[]; excludeApplied?: boolean;
 }
 /** rollout.Run — sunucu MarshalJSON'u camelCase + epoch-ms yazar (reconciler.go); istemci normalize ETMEZ.
  *  v0.10.984 — source=v2'de satırlar rollout_worker_runs'tan (worker="rollout-detector"): clusters = kapsam,
@@ -8672,7 +8677,9 @@ export interface RolloutRunsResponse { runs: RolloutRun[] }
 export interface RolloutSettings { enabled: boolean; interval?: string; bucket?: string; threshold?: number; hysteresis?: number; exitHysteresis?: number; overlapMax?: string; lookback?: string; weakSignal?: boolean; stalledMin?: string; updatedAt?: number;
   /** v0.10.957 — Rollouts v2 (P1.5) vidaları. v0.10.984 (P2.3): `source` "v2" (+ enabled) iken /api/rollouts*, SSE tail,
    *  GitOps sekmesi ve servis rollout okuması rollout_events'ten; varsayılan v1. */
-  source?: 'v1' | 'v2'; detectorIntervalS?: number; stuckAfter?: string; ignoreScale?: boolean; kinds?: string[]; initialEvents?: boolean; observedGenWaitTicks?: number; incarnationAbsentTicks?: number; knownRevisionsMax?: number }
+  source?: 'v1' | 'v2'; detectorIntervalS?: number; stuckAfter?: string; ignoreScale?: boolean; kinds?: string[]; initialEvents?: boolean; observedGenWaitTicks?: number; incarnationAbsentTicks?: number; knownRevisionsMax?: number;
+  /** v0.10.1262 — liste/Toplu'dan sunucuda gizlenen namespace glob'ları; alan yok = varsayılan (openshift, openshift-*, kube-*), [] = hiçbiri. */
+  excludeNamespaces?: string[] }
 /** GET/PUT /api/settings/rollouts cevabı: settings + resolved (uygulanan) + defaults. */
 export interface RolloutSettingsResponse { settings: RolloutSettings; resolved: Record<string, unknown>; defaults: RolloutSettings }
 /** GET /api/rollout/detail (v0.10.203) — çekmece. since/generatedAt NANOSANİYE (rollout.startedAt ms'tir). */

@@ -20,7 +20,7 @@ import { fmtDateTime, fmtNum, fmtDurShort } from '@/lib/utils';
 import { useRolloutDetail, useEntityClusters } from '@/lib/queries';
 import { CopyButton } from '@/components/CopyButton';
 import { useDataTable, DataTableHead, DataTableColgroup, DataTableCell, DataTableState, type ColumnDef } from '@/components/ui/DataTable';
-import { statusTone, statusLabel, statusTitle, shortRevision, imageDiff, imageRef, rolloutChangeKind, changeKindLabel, changeKindTitle, changeKindTone, rolloutPlaceLabel, isV2Rollout, replicaSummary, rolloutTimeline } from '@/lib/rolloutRow';
+import { statusTone, statusLabel, statusTitle, shortRevision, imageDiff, rolloutChangeKind, changeKindLabel, changeKindTitle, changeKindTone, rolloutPlaceLabel, isV2Rollout, replicaSummary, rolloutTimeline, imageLines } from '@/lib/rolloutRow';
 import type { RolloutIdParam } from '@/lib/rolloutRow';
 import type { ServiceReportSection } from '@/lib/types';
 
@@ -75,7 +75,6 @@ export function RolloutDrawer({ id, onClose }: { id: RolloutIdParam; onClose: ()
         // v0.10.338 — Operator-reported: revizyon ve imaj "…" ile kırpılıyordu
         // (genel `tbody td` nowrap + 320px kuralı); tam kimlik yanında kopyalama
         // düğmesi. v0.10.943 — öznitelik paneli KeyValue: değer kırpılmaz, sarar.
-        const curImage = imageRef(r.image, r.imageTag);
         const v2 = isV2Rollout(r);
         const replicas = replicaSummary(r);
         return (
@@ -87,7 +86,19 @@ export function RolloutDrawer({ id, onClose }: { id: RolloutIdParam; onClose: ()
               <KeyValueRow k="revizyon" mono v={<>{r.prevRevision || '—'} → <b>{r.revision || '—'}</b> {r.revision && <CopyButton value={r.revision} title="Revizyonu kopyala" />}</>} />
               {v2 && <KeyValueRow k="nesil" mono v={<>{r.generation}{r.observedGeneration ? <span className="field-hint"> · gözlenen {r.observedGeneration}</span> : null}</>} />}
               {replicas && <KeyValueRow k="replika" mono title="güncel şablonda / hazır / istenen (KSM)" v={replicas} />}
-              <KeyValueRow k="imaj" mono v={<>{imageRef(r.prevImage, r.prevImageTag)} → <b>{curImage}</b> {curImage !== '—' && <CopyButton value={curImage} title="İmajı (repo:tag) kopyala" />}</>} />
+              {/* v0.10.1262 (operatör 2026-10-17: "imaj eski/yeni aynı ya da farklı olduğunda iki satır yaz") —
+                  `önceki → yeni` tek blob yerine iki etiketli satır, her biri kendi kopyalama düğmesiyle;
+                  aynıysa "aynı" rozeti (config rollout'u: şablon değişti, imaj değişmedi). */}
+              <KeyValueRow k="imaj" mono v={(() => {
+                const im = imageLines(r);
+                return (
+                  <div style={{ display: 'grid', gap: 2 }}>
+                    <div><span className="field-hint">önceki: </span>{im.prev}{im.hasPrev && <> <CopyButton value={im.prev} title="Önceki imajı (repo:tag) kopyala" /></>}</div>
+                    <div><span className="field-hint">yeni: </span><b>{im.next}</b>{im.hasNext && <> <CopyButton value={im.next} title="Yeni imajı (repo:tag) kopyala" /></>}
+                      {im.same && <> <Badge tone="neutral" title="önceki ve yeni imaj birebir aynı — değişen pod şablonu (config)">aynı</Badge></>}</div>
+                  </div>
+                );
+              })()} />
               {(r.images?.length ?? 0) > 1 && <KeyValueRow k="tüm imajlar" mono v={(r.images ?? []).join(', ')} />}
               <KeyValueRow k="zaman" v={<span className="field-hint">başladı {fmtDateTime(new Date(r.startedAt))}{r.completedAt > 0 ? ` · tamamlandı ${fmtDateTime(new Date(r.completedAt))}` : ''}{r.detectedBy ? ` · kaynak ${r.detectedBy}` : ''}</span>} />
             </KeyValue>

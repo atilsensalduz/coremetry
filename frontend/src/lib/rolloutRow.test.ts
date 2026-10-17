@@ -1,6 +1,6 @@
 // rolloutRow.test.ts — v0.10.201 sözleşmesi (rolloutRow.ts başlığı).
 import { describe, it, expect } from 'vitest';
-import { rolloutKey, upsertRollouts, statusTone, rolloutDurationSec, shortRevision, imageDiff, rolloutTracesFilters, rolloutEvidenceHref, decodeRolloutParam, rolloutPlaceLabel, rolloutTimingHint, rolloutTimeline } from './rolloutRow';
+import { rolloutKey, upsertRollouts, statusTone, rolloutDurationSec, shortRevision, imageDiff, rolloutTracesFilters, rolloutEvidenceHref, decodeRolloutParam, rolloutPlaceLabel, rolloutTimingHint, rolloutTimeline, parseNamespacePatterns, invalidNamespacePatterns, namespaceExcluded, imageLines } from './rolloutRow';
 import type { WorkloadRollout } from './types';
 
 const base: WorkloadRollout = {
@@ -212,5 +212,63 @@ describe('rolloutTimeline', () => {
   });
   it('başlangıç yoksa boş', () => {
     expect(rolloutTimeline({ startedAt: 0, status: '' })).toEqual([]);
+  });
+});
+
+// v0.10.1262 — operatör 2026-10-17: platform namespace dışlaması (istemci
+// ikizi) + çekmece imaj satırının iki satıra bölünmesi.
+
+describe('v0.10.1262 namespace desenleri', () => {
+  it.each([
+    ['openshift, openshift-*, kube-*', ['openshift', 'openshift-*', 'kube-*']],
+    ['  OpenShift-*\nkube-*  kube-* ', ['openshift-*', 'kube-*']],
+    ['', []],
+    [' , ,, ', []],
+  ])('parseNamespacePatterns(%j)', (text, want) => {
+    expect(parseNamespacePatterns(text)).toEqual(want);
+  });
+  it.each([
+    [['openshift', 'team-?', '*.infra'], []],
+    [['bad|re', 'ok', 'x/y', 'ns[0]'], ['bad|re', 'x/y', 'ns[0]']],
+  ])('invalidNamespacePatterns(%j)', (ps, want) => {
+    expect(invalidNamespacePatterns(ps)).toEqual(want);
+  });
+  const def = ['openshift', 'openshift-*', 'kube-*'];
+  it.each([
+    ['openshift', true],
+    ['openshift-monitoring', true],
+    ['openshift-storage', true],
+    ['kube-system', true],
+    ['kube-node-lease', true],
+    ['default', false],
+    ['payments', false],
+    ['my-openshift-app', false],
+    ['openshiftx', false],
+    ['kube', false],
+    ['', false],
+  ])('namespaceExcluded(default, %j) = %s', (ns, want) => {
+    expect(namespaceExcluded(def, ns)).toBe(want);
+  });
+  it('glob anlamı: ? tek karakter, nokta literal, boş liste', () => {
+    expect(namespaceExcluded(['team-?'], 'team-a')).toBe(true);
+    expect(namespaceExcluded(['team-?'], 'team-ab')).toBe(false);
+    expect(namespaceExcluded(['a.b'], 'axb')).toBe(false);
+    expect(namespaceExcluded([], 'kube-system')).toBe(false);
+    expect(namespaceExcluded(undefined, 'kube-system')).toBe(false);
+  });
+});
+
+describe('v0.10.1262 imageLines', () => {
+  const base = { image: '', imageTag: '', prevImage: '', prevImageTag: '' };
+  it.each([
+    [{ ...base, prevImage: 'reg/app', prevImageTag: '1.0', image: 'reg/app', imageTag: '1.1' },
+      { prev: 'reg/app:1.0', next: 'reg/app:1.1', same: false, hasPrev: true, hasNext: true }],
+    [{ ...base, prevImage: 'reg/app', prevImageTag: '1.1', image: 'reg/app', imageTag: '1.1' },
+      { prev: 'reg/app:1.1', next: 'reg/app:1.1', same: true, hasPrev: true, hasNext: true }],
+    [{ ...base, image: 'reg/app', imageTag: '1.1' },
+      { prev: '—', next: 'reg/app:1.1', same: false, hasPrev: false, hasNext: true }],
+    [base, { prev: '—', next: '—', same: false, hasPrev: false, hasNext: false }],
+  ])('imageLines(%j)', (r, want) => {
+    expect(imageLines(r)).toEqual(want);
   });
 });

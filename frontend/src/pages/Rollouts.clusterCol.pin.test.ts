@@ -26,7 +26,20 @@ describe('Rollouts cluster kolonu', () => {
     expect(col).not.toMatch(/numeric|truncate/);
   });
   it('workload eki artık cluster TEKRARLAMAZ (kırpılma kaynağı)', () => {
-    expect(src).toContain('<span className="field-hint"> · {r.namespace}</span>');
     expect(src).not.toContain('· {r.namespace} · {cname}');
+  });
+  // v0.10.1262 — operatör 2026-10-17: "workload ve namespace ayrı kolonlarda
+  // yazılabilir". Namespace Workload'dan hemen sonra kendi kolonunda; workload
+  // hücresi artık namespace eki taşımaz. sortValue YOK (serverSort tablo).
+  it('namespace kendi kolonunda, workload ile cluster arasında', () => {
+    const w = src.indexOf("{ id: 'workload', label: 'Workload'");
+    const n = src.indexOf("{ id: 'namespace', label: 'Namespace'");
+    const c = src.indexOf("{ id: 'cluster', label: 'Cluster'");
+    expect(n).toBeGreaterThan(w);
+    expect(c).toBeGreaterThan(n);
+    expect(src).toContain('<DataTableCell dt={dt} col="namespace" row={r} value={r.namespace} />');
+    expect(src).not.toContain('<span className="field-hint"> · {r.namespace}</span>');
+    const col = src.slice(n, c);
+    expect(col).not.toMatch(/sortValue/);
   });
 });

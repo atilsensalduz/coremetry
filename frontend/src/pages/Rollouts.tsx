@@ -28,7 +28,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Topbar } from '@/components/Topbar';
 import { PageShell } from '@/components/ui/PageShell';
 import { Spinner, Empty } from '@/components/Spinner';
-import { Badge, Button, StatTile } from '@/components/ui';
+import { Badge, Button, Field, StatTile } from '@/components/ui';
 import {
   useDataTable, DataTableColgroup, DataTableHead, DataTableCell, DataTableState,
   type ColumnDef, type DataTableStateProps,
@@ -42,7 +42,7 @@ import { keys, useRollouts, useRolloutStats, useRolloutRuns, useEntityClusters }
 import { RolloutDrawer } from '@/components/RolloutDrawer';
 import { tracesPivotHref } from '@/lib/pivotHref';
 import { entityHref } from '@/lib/entityHref';
-import { rolloutKey, statusTone, statusLabel, statusTitle, rolloutDurationSec, shortRevision, imageDiff, encodeRolloutParam, decodeRolloutParam, rolloutTracesFilters, rolloutChangeKind, changeKindLabel, changeKindTitle, changeKindTone, replicaSummary, rolloutTimingHint } from '@/lib/rolloutRow';
+import { rolloutKey, statusTone, statusLabel, statusTitle, rolloutDurationSec, shortRevision, imageDiff, encodeRolloutParam, decodeRolloutParam, rolloutTracesFilters, rolloutChangeKind, changeKindLabel, changeKindTitle, changeKindTone, replicaSummary, rolloutTimingHint, parseNamespacePatterns, invalidNamespacePatterns, namespaceExcluded } from '@/lib/rolloutRow';
 import type { RolloutStats, WorkloadRollout } from '@/lib/types';
 
 const STATUSES = ['', 'in_progress', 'completed', 'rolled_back', 'superseded', 'stalled'] as const;
@@ -63,6 +63,12 @@ const COLS: ColumnDef<WorkloadRollout>[] = [
   // v0.10.1205 (operatör) — zaman EN BAŞTA, durum onun eski yerinde.
   { id: 'started', label: 'Başladı', width: 136, minWidth: 128, numeric: true, priority: 1 }, // v0.10.1068 — yılsız damga (tsCompact), tam damga title'da
   { id: 'workload', label: 'Workload', flex: true, minWidth: 180, priority: 1 },
+  // v0.10.1262 (operatör 2026-10-17: "workload ve namespace ayrı kolonlarda
+  // yazılabilir") — namespace Workload hücresinin soluk eki değil, kendi
+  // kolonu: ayrı genişletilir (genişlik storageKey'de kalıcı). sortValue YOK:
+  // tablo serverSort (started_at DESC + LIMIT) — kesik sayfayı istemcide
+  // sıralamak yalan söyler ve serverSort'ta başlık sahte-sıralanabilir olurdu (T3).
+  { id: 'namespace', label: 'Namespace', width: 190, minWidth: 120, priority: 1 },
   // v0.10.565 (operatör-raporlu): cluster adı Workload hücresinin SONUNDA
   // soluk ek olarak duruyordu ve 300px kolonda ellipsis'e kurban gidiyordu
   // ("workload · ns · c…"). Kendi kolonu: her zaman okunur, ayrı
@@ -203,6 +209,13 @@ export default function RolloutsPage() {
             </span>
           )}
         </div>
+        {!disabled && (
+          <PlatformNsBar
+            patterns={tab === 'live' ? listQ.data?.excludeNamespaces : statsQ.data?.excludeNamespaces}
+            applied={(tab === 'live' ? listQ.data?.excludeApplied : statsQ.data?.excludeApplied) === true}
+            explicitNs={ns} isAdmin={isAdmin}
+            onSaved={() => qc.invalidateQueries({ queryKey: keys.rollouts.all })} />
+        )}
         {disabled ? (
           <Empty icon="—" title={`${ROLLOUTS_PAGE_TITLE} kapalı`}
             action={isAdmin ? <Button variant="primary" size="sm" loading={enabling} onClick={() => void enable()}>Etkinleştir</Button> : undefined}>
@@ -237,8 +250,9 @@ export default function RolloutsPage() {
                         </td>
                         <DataTableCell dt={dt} col="workload" row={r} title={`${cname} / ${r.namespace} / ${r.workload}`}>
                           <Link to={wlHref} className="sec">{r.workload}</Link>
-                          <span className="field-hint"> · {r.namespace}</span>
                         </DataTableCell>
+                        {/* v0.10.1262 — namespace kendi kolonunda (dizge value → title + ellipsis). */}
+                        <DataTableCell dt={dt} col="namespace" row={r} value={r.namespace} />
                         {/* v0.10.565 — cluster kendi kolonunda; ad çözülemezse ham id (clusterName). */}
                         <DataTableCell dt={dt} col="cluster" row={r} value={cname} />
                         <DataTableCell dt={dt} col="kind" row={r} className="field-hint">{r.kind || '—'}</DataTableCell>
@@ -351,6 +365,62 @@ function StatsPanel({ st, clusterName }: { st: NonNullable<ReturnType<typeof use
         </div>
       </div>
     </>
+  );
+}
+
+// v0.10.1262 — operatör 2026-10-17: "OpenShift'e ait projeler rollout
+// listelemesin". Sunucu system_settings["rollouts"].excludeNamespaces
+// glob'larını Canlı + Toplu sorgusunda (LIMIT'ten önce) uygular ve uygulanan
+// listeyi cevapta döndürür — viewer burada SALT OKUNUR görür, admin düzenler
+// (read-modify-write: tam blob PUT'u öteki vidaları ezmesin; PUT audit'li).
+// Açık namespace süzgeci gizlemeyi geçersiz kılar (sunucu kuralı).
+function PlatformNsBar({ patterns, applied, explicitNs, isAdmin, onSaved }: {
+  patterns: string[] | undefined; applied: boolean; explicitNs: string; isAdmin: boolean; onSaved: () => Promise<unknown>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+  if (!patterns) return null; // cevap henüz yok / eski sunucu
+  const save = async () => {
+    const list = parseNamespacePatterns(draft);
+    const bad = invalidNamespacePatterns(list);
+    if (bad.length) { setErr(`Geçersiz desen: ${bad.join(', ')} (küçük harf, rakam, '-', '.', '*', '?')`); return; }
+    setSaving(true);
+    setErr('');
+    try {
+      const cur = await api.rolloutSettings();
+      await api.putRolloutSettings({ ...cur.settings, excludeNamespaces: list });
+      setEditing(false);
+      await onSaved();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+  if (editing) {
+    return (
+      <div className="controls" style={{ marginBottom: 12, gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <div style={{ flex: '1 1 360px', maxWidth: 560 }}>
+          <Field label="Gizlenen platform namespace'leri (glob)" value={draft} onChange={e => setDraft(e.target.value)}
+            placeholder="openshift, openshift-*, kube-*" className="mono" error={err || undefined}
+            hint="Virgül ya da boşlukla ayır; * = herhangi dizi, ? = tek karakter, tam ad eşleşir. Boş = hiçbirini gizleme." />
+        </div>
+        <Button variant="primary" size="sm" loading={saving} onClick={() => void save()}>Kaydet</Button>
+        <Button variant="secondary" size="sm" disabled={saving} onClick={() => { setEditing(false); setErr(''); }}>Vazgeç</Button>
+      </div>
+    );
+  }
+  const overridden = !!explicitNs && !applied && namespaceExcluded(patterns, explicitNs);
+  return (
+    <div className="field-hint" style={{ marginBottom: 10, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+      {patterns.length === 0
+        ? <span>Platform namespace gizleme kapalı — tüm namespace'ler listelenir.</span>
+        : <span>Gizlenen platform namespace'leri: <span className="mono">{patterns.join(', ')}</span>
+            {overridden && <> — açık namespace süzgeci «{explicitNs}» bu gizlemeyi geçersiz kılıyor</>}</span>}
+      {isAdmin && <Button variant="ghost" size="sm" onClick={() => { setDraft(patterns.join(', ')); setEditing(true); }}>Düzenle</Button>}
+    </div>
   );
 }
 

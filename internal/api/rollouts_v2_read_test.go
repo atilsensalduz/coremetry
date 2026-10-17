@@ -82,12 +82,14 @@ func (f *fakeRolloutReader) RolloutV2ByID(_ context.Context, id chstore.RolloutV
 	}
 	return &f.v2Rows[0], nil
 }
-func (f *fakeRolloutReader) RolloutStats(context.Context, string, string, time.Time, time.Time, int) (*chstore.RolloutStats, error) {
+func (f *fakeRolloutReader) RolloutStats(_ context.Context, fl chstore.RolloutFilter, _, _ time.Time, _ int) (*chstore.RolloutStats, error) {
 	f.hit("v1.stats")
+	f.filter = fl
 	return f.v1Stats, nil
 }
-func (f *fakeRolloutReader) RolloutV2Stats(context.Context, string, string, time.Time, time.Time, int) (*chstore.RolloutStats, error) {
+func (f *fakeRolloutReader) RolloutV2Stats(_ context.Context, fl chstore.RolloutFilter, _, _ time.Time, _ int) (*chstore.RolloutStats, error) {
 	f.hit("v2.stats")
+	f.filter = fl
 	return f.v2Stats, nil
 }
 func (f *fakeRolloutReader) RolloutRuns(context.Context, int) ([]rollout.Run, error) {
@@ -200,7 +202,10 @@ func TestRolloutListV1Unchanged(t *testing.T) {
 		t.Fatalf("v1 kaynağında v2 okuması çağrıldı: %v", fr.calls)
 	}
 	// Bayt eşliği: bugünkü gövde (rollouts/from/to/limit, v2 anahtarı yok).
-	want, _ := json.Marshal(map[string]any{"rollouts": fr.v1Rows, "from": int64(1790000000000), "to": int64(1790003600000), "limit": rolloutListLimitDefault})
+	// v0.10.1262 — eklemeli excludeNamespaces/excludeApplied (platform
+	// namespace dışlaması, varsayılan desenler).
+	want, _ := json.Marshal(map[string]any{"rollouts": fr.v1Rows, "from": int64(1790000000000), "to": int64(1790003600000), "limit": rolloutListLimitDefault,
+		"excludeNamespaces": []string{"kube-*", "openshift", "openshift-*"}, "excludeApplied": true})
 	if !bytes.Equal(bytes.TrimSpace(w.Body.Bytes()), want) {
 		t.Fatalf("v1 gövdesi değişmiş:\n got %s\nwant %s", w.Body.Bytes(), want)
 	}
@@ -313,7 +318,8 @@ func TestRolloutStatsAndRunsPerSource(t *testing.T) {
 			Status: rollout.RunPartial, ScopesTotal: 2, ScopesOK: 1, RowsWritten: 4, DurationMs: 900}}}
 	v1 := newRolloutReadEnv(t, rollout.SourceV1, fr)
 	w := rv2Get(v1, "/api/rollouts/stats?"+rv2Window)
-	want, _ := json.Marshal(st)
+	// v0.10.1262 — v1 gövdesi = stats + eklemeli dışlama alanları (v2 anahtarı yok).
+	want, _ := json.Marshal(rolloutStatsResp{RolloutStats: st, ExcludeNamespaces: []string{"kube-*", "openshift", "openshift-*"}, ExcludeApplied: true})
 	if !bytes.Equal(bytes.TrimSpace(w.Body.Bytes()), want) || fr.touched("v2.") {
 		t.Fatalf("v1 istatistik gövdesi değişmiş: %s %v", w.Body, fr.calls)
 	}

@@ -38,7 +38,12 @@ describe('RolloutDrawer (v0.10.338)', () => {
 
   it('tam kimlik kopyalanabilir', () => {
     expect(src).toMatch(/<CopyButton value=\{r\.revision\}/);
-    expect(src).toMatch(/<CopyButton value=\{curImage\}/);
+    // v0.10.1262 — imaj iki satır (önceki / yeni), her biri kendi kopyalama düğmesiyle; aynıysa "aynı" rozeti.
+    expect(src).toMatch(/<CopyButton value=\{im\.prev\}/);
+    expect(src).toMatch(/<CopyButton value=\{im\.next\}/);
+    expect(src).toContain('önceki: ');
+    expect(src).toContain('yeni: ');
+    expect(src).toMatch(/im\.same && .*>aynı<\/Badge>/);
   });
 
   it('çekmece küme adını çözer ve başlıkta + Geçiş panelinde gösterir', () => {

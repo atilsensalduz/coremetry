@@ -79,6 +79,12 @@ type Settings struct {
 	// RS'nin geri dönüşü ROLLBACK görünsün (§4.4 durum c) → taban 11, tavan 256.
 	KnownRevisionsMax int `json:"knownRevisionsMax,omitempty"`
 
+	// ExcludeNamespaces — v0.10.1262 (operatör 2026-10-17): /api/rollouts ve
+	// /api/rollouts/stats'tan SUNUCU tarafında gizlenen platform namespace
+	// glob'ları (nsfilter.go). nil (alan yok) = DefaultExcludeNamespaces;
+	// boş liste = hiçbirini gizleme. Pointer: [] ile "yok" ayrılsın.
+	ExcludeNamespaces *[]string `json:"excludeNamespaces,omitempty"`
+
 	UpdatedAt int64 `json:"updatedAt,omitempty"`
 }
 
@@ -184,7 +190,16 @@ func DefaultSettings() Settings {
 	return Settings{Enabled: false, Interval: "60s", Bucket: "5m", Threshold: 10, Hysteresis: 2, ExitHysteresis: 6, OverlapMax: "30m", Lookback: "6h", StalledMin: "10m",
 		// v0.10.957 — v2 varsayılanları (GET `defaults`; ResolvedV2 buradan okur).
 		Source: SourceV2, SourceRev: CurrentSourceRev, DetectorIntervalS: 30, StuckAfter: "10m", IgnoreScale: &t, Kinds: append([]string(nil), v2Kinds...),
-		InitialEvents: &t, ObservedGenWaitTicks: 10, IncarnationAbsentTicks: 3, KnownRevisionsMax: 32}
+		InitialEvents: &t, ObservedGenWaitTicks: 10, IncarnationAbsentTicks: 3, KnownRevisionsMax: 32,
+		// v0.10.1262 — platform namespace dışlaması (nsfilter.go).
+		ExcludeNamespaces: defaultExcludeNamespacesPtr()}
+}
+
+// defaultExcludeNamespacesPtr — v0.10.1262 — varsayılanın KOPYASI (paylaşılan
+// dilim GET/PUT gidiş-dönüşünde değişmesin).
+func defaultExcludeNamespacesPtr() *[]string {
+	v := append([]string(nil), DefaultExcludeNamespaces...)
+	return &v
 }
 
 // bucketAllowed — saat bölenleri: Go AlignBucket ile CH toStartOfInterval aynı
@@ -300,6 +315,11 @@ func ValidateSettings(s Settings) error {
 		"incarnationAbsentTicks": s.IncarnationAbsentTicks, "knownRevisionsMax": s.KnownRevisionsMax} {
 		if v < 0 {
 			return fmt.Errorf("%s negatif olamaz: %d", name, v)
+		}
+	}
+	if s.ExcludeNamespaces != nil {
+		if err := ValidateNamespacePatterns(*s.ExcludeNamespaces); err != nil {
+			return err
 		}
 	}
 	for i, k := range s.Kinds {

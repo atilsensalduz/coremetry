@@ -92,7 +92,7 @@ func TestRolloutKeysCarryEveryInput(t *testing.T) {
 	if rolloutKey("v1", id) == rolloutKey("v1", chstore.RolloutID{ClusterID: "c-1", Namespace: "pay", Workload: "api", Revision: "api-abc", StartedAt: from.Add(time.Minute)}) {
 		t.Fatal("startedAt anahtarda olmalı")
 	}
-	if rolloutStatsKey("v1", "c-1", "pay", 10, from, to) == rolloutStatsKey("v1", "c-1", "pay", 20, from, to) {
+	if rolloutStatsKey("v1", "c-1", "pay", nil, 10, from, to) == rolloutStatsKey("v1", "c-1", "pay", nil, 20, from, to) {
 		t.Fatal("topN anahtarda olmalı")
 	}
 	// v0.10.984 — okuma kaynağı her anahtarda (iki tablo aynı girdiye farklı cevap verir).
@@ -102,7 +102,7 @@ func TestRolloutKeysCarryEveryInput(t *testing.T) {
 	if rolloutKey("v2", id) == rolloutKey("v1", id) {
 		t.Fatal("kaynak tekil anahtarda olmalı")
 	}
-	if rolloutStatsKey("v2", "c-1", "pay", 10, from, to) == rolloutStatsKey("v1", "c-1", "pay", 10, from, to) {
+	if rolloutStatsKey("v2", "c-1", "pay", nil, 10, from, to) == rolloutStatsKey("v1", "c-1", "pay", nil, 10, from, to) {
 		t.Fatal("kaynak istatistik anahtarında olmalı")
 	}
 	if rolloutDetailKey("v2", id, from) == rolloutDetailKey("v1", id, from) || rolloutRunsKey("v2") == rolloutRunsKey("v1") {

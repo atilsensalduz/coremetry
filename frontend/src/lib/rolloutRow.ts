@@ -308,3 +308,49 @@ export function rolloutTimeline(r: Pick<WorkloadRollout, 'startedAt' | 'status'>
   }
   return out.sort((a, b) => a.at - b.at || (a.key === 'start' ? -1 : b.key === 'start' ? 1 : 0));
 }
+
+// ── v0.10.1262 — operatör 2026-10-17 ──────────────────────────────────────
+// (1) Platform namespace dışlaması: sunucu (internal/rollout/nsfilter.go)
+// system_settings["rollouts"].excludeNamespaces glob'larını SQL'de uygular;
+// istemci yalnız düzenleme metnini ayrıştırır ve "açık süzgeç gizli bir
+// namespace'e uyuyor" ipucu için AYNI anlamla eşler (`*` dizi, `?` tek
+// karakter, tam eşleşme, küçük harf).
+
+/** Düzenleme metni → desen listesi: virgül / boşluk / satır ayırır; kırp, küçült, tekille (girdi sırası korunur). */
+export function parseNamespacePatterns(text: string): string[] {
+  const out: string[] = [];
+  for (const raw of text.split(/[\s,]+/)) {
+    const p = raw.trim().toLowerCase();
+    if (p && !out.includes(p)) out.push(p);
+  }
+  return out;
+}
+
+/** Sunucunun kabul ettiği desen alfabesi (nsfilter.go nsGlobRE ikizi). */
+export function invalidNamespacePatterns(patterns: string[]): string[] {
+  return patterns.filter(p => !/^[a-z0-9*?.-]{1,63}$/.test(p));
+}
+
+function globToRegExp(p: string): RegExp {
+  const body = p.toLowerCase().split('').map(ch =>
+    ch === '*' ? '.*' : ch === '?' ? '.' : ch.replace(/[.+^${}()|[\]\\]/g, '\\$&')).join('');
+  return new RegExp(`^${body}$`);
+}
+
+/** ns desenlerden birine TAM uyuyor mu? (sunucu NamespaceExcluded ikizi) */
+export function namespaceExcluded(patterns: readonly string[] | undefined, ns: string): boolean {
+  if (!ns || !patterns?.length) return false;
+  return patterns.some(p => p.trim() !== '' && globToRegExp(p.trim()).test(ns));
+}
+
+// (2) Çekmece "imaj" satırı: önceki / yeni AYRI satır; aynıysa açıkça "aynı".
+export interface ImageLines { prev: string; next: string; same: boolean; hasPrev: boolean; hasNext: boolean }
+
+/** Çekmece imaj satırının iki satırı (imageRef biçimi, yoksa '—'); same = ikisi de dolu ve eşit. */
+export function imageLines(r: Pick<WorkloadRollout, 'image' | 'imageTag' | 'prevImage' | 'prevImageTag'>): ImageLines {
+  const prev = imageRef(r.prevImage, r.prevImageTag);
+  const next = imageRef(r.image, r.imageTag);
+  const hasPrev = prev !== '—';
+  const hasNext = next !== '—';
+  return { prev, next, same: hasPrev && hasNext && prev === next, hasPrev, hasNext };
+}

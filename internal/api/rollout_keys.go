@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/cilcenk/coremetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/rollout"
 )
 
 // rollout_keys.go — v0.10.200: /api/rollouts* önbellek anahtarları — SAF
@@ -19,9 +20,22 @@ import (
 // çevrildiğinde öteki pod'ların önbelleği eski tablonun cevabını
 // servis etmesin.
 
+// v0.10.1262 — dışlanan namespace desenleri de anahtarda (ayrı özet: desen
+// listesi serbest metin, ayraç saldırısına kapalı kalsın); PUT zaten
+// "rollouts:" önekini süpürür ama öteki pod'lar config reload'la gelir.
 func rolloutsListKey(src string, f chstore.RolloutFilter, limit int, from, to time.Time) string {
-	return fmt.Sprintf("rollouts:list:src=%s:%s:lim=%d:w=%s",
-		src, fnvStr(f.ClusterID, f.Namespace, f.Workload, f.Status, f.Kind), limit, cacheBucket(from, to))
+	return fmt.Sprintf("rollouts:list:src=%s:%s:x=%s:lim=%d:w=%s",
+		src, fnvStr(f.ClusterID, f.Namespace, f.Workload, f.Status, f.Kind), rolloutExcludeDigest(f.ExcludeNamespaces), limit, cacheBucket(from, to))
+}
+
+// rolloutExcludeDigest — v0.10.1262 — SAF: desen kümesinin sıra-bağımsız özeti
+// ("-" = dışlama yok).
+func rolloutExcludeDigest(patterns []string) string {
+	ps := rollout.NormalizeNamespacePatterns(patterns)
+	if len(ps) == 0 {
+		return "-"
+	}
+	return fnvStr(ps...)
 }
 
 func rolloutKey(src string, id chstore.RolloutID) string {
@@ -52,8 +66,8 @@ func rolloutV2DetailKey(id chstore.RolloutV2ID, now time.Time) string {
 	return "rollouts:detail:v2key:" + rolloutV2IDDigest(id) + ":t=" + strconv.FormatInt(now.Truncate(30*time.Second).Unix(), 10)
 }
 
-func rolloutStatsKey(src, cluster, ns string, topN int, from, to time.Time) string {
-	return fmt.Sprintf("rollouts:stats:src=%s:%s:top=%d:w=%s", src, fnvStr(cluster, ns), topN, cacheBucket(from, to))
+func rolloutStatsKey(src, cluster, ns string, exclude []string, topN int, from, to time.Time) string {
+	return fmt.Sprintf("rollouts:stats:src=%s:%s:x=%s:top=%d:w=%s", src, fnvStr(cluster, ns), rolloutExcludeDigest(exclude), topN, cacheBucket(from, to))
 }
 
 // rolloutRunsKey — v0.10.984 — v1 reconciler koşuları ile v2 dedektör
