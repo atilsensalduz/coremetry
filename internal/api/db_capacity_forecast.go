@@ -21,6 +21,7 @@ import (
 
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/forecast"
+	"github.com/cilcenk/coremetry/internal/metricsrc"
 )
 
 const (
@@ -38,7 +39,8 @@ type trendReader interface {
 }
 
 func (s *Server) capacityTrendReader() (trendReader, string) {
-	if s.vmetrics != nil && s.vmetrics.Configured() {
+	// v0.10.1270 — karar metricsrc'de (evaluator capacityReader ile aynı aile).
+	if metricsrc.UsesVM(metricsrc.FamilyApp, s.vmetrics != nil && s.vmetrics.Configured()) {
 		return s.vmetrics, "vm"
 	}
 	if s.store == nil {

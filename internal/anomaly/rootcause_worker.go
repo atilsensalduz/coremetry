@@ -114,7 +114,7 @@ type AutoVerdictFunc func(ctx context.Context, anchorKind string, h *chstore.Roo
 type RootCauseSynthesizer struct {
 	store *chstore.Store
 	// runtimePods — v0.10.374 (VM dilim 3c): JVM heap / GC evidence
-	// reader; nil → store. Set by main.go (vmetrics.RuntimePodsOr).
+	// reader; nil → store. Set by main.go (metricsrc Resolver.RuntimePods, v0.10.1270).
 	runtimePods chstore.RuntimePodReader
 	lock        cache.Lock
 	leader      *cache.LeaderHolder

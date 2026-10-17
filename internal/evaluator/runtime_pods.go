@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/cilcenk/coremetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/metricsrc"
 )
 
 // runtime_pods.go — JVM pod-level runtime alerting (v0.9.90, operatör
@@ -159,7 +160,10 @@ func (e *Evaluator) evaluateRuntimePods(ctx context.Context) {
 	// vmActive iken gc çifti tahliye setinden çıkar ve değerlendirme
 	// koşar; değilse v0.9.1075 emekliliği aynen sürer. VM sonradan
 	// kapatılırsa açık GC problemleri bir sonraki tikte tahliyeyle kapanır.
-	vmActive := e.vmetrics != nil && e.vmetrics.Configured()
+	// v0.10.1270 — VM/CH kararı metricsrc'de (FamilyOTelRuntime → VM ise
+	// GC değerlendirmesi koşar). Kaynak yine YALNIZ VM: CH rotası burada
+	// "değerlendirme yok" demektir, CH okuyucusuna dönüş değil.
+	vmActive := metricsrc.UsesVM(metricsrc.FamilyOTelRuntime, e.vmetrics != nil && e.vmetrics.Configured())
 	e.drainRetiredRuntimeProblems(ctx, snap, vmActive)
 	if !vmActive {
 		return

@@ -235,32 +235,7 @@ func (s *Service) JVMHeapPodUsage(ctx context.Context, from, to time.Time) ([]ch
 	return out, nil
 }
 
-// runtimePodsOr — per-call resolver: VictoriaMetrics when configured,
-// the fallback (ClickHouse store) otherwise. Decided at CALL time so a
-// Settings change flips the source without a restart, like the
-// evaluator's vmActive rule.
-type runtimePodsOr struct {
-	vm       *Service
-	fallback chstore.RuntimePodReader
-}
-
-func (r runtimePodsOr) pick() chstore.RuntimePodReader {
-	if r.vm != nil && r.vm.Configured() {
-		return r.vm
-	}
-	return r.fallback
-}
-func (r runtimePodsOr) JVMHeapPodUsage(ctx context.Context, from, to time.Time) ([]chstore.CapacitySample, error) {
-	return r.pick().JVMHeapPodUsage(ctx, from, to)
-}
-func (r runtimePodsOr) JVMGCPodPause(ctx context.Context, from, to time.Time) ([]chstore.CapacitySample, error) {
-	return r.pick().JVMGCPodPause(ctx, from, to)
-}
-
-// RuntimePodsOr — the reader main.go hands to the anomaly worker and
-// the MCP tools.
-func RuntimePodsOr(vm *Service, fallback chstore.RuntimePodReader) chstore.RuntimePodReader {
-	return runtimePodsOr{vm: vm, fallback: fallback}
-}
-
+// v0.10.1270 — VM-mi-CH-mi seçimi (eski runtimePodsOr/RuntimePodsOr)
+// internal/metricsrc'ye taşındı: Resolver.RuntimePods. Bu paket yalnız
+// VM BACKEND'idir; karar vermez.
 var _ chstore.RuntimePodReader = (*Service)(nil)

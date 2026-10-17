@@ -76,6 +76,7 @@ import (
 	"time"
 
 	"github.com/cilcenk/coremetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/metricsrc"
 	"github.com/cilcenk/coremetry/internal/promql"
 	"github.com/cilcenk/coremetry/internal/vmetrics"
 )
@@ -685,7 +686,8 @@ func (v vmMetricSource) QueryMetricNoted(ctx context.Context, f chstore.MetricQu
 // package for the settings-driven callers that have no request:
 // mcpDeps().
 func (s *Server) metricSource() metricSource {
-	if s.vmetrics != nil && s.vmetrics.Configured() {
+	// v0.10.1270 — VM/CH kararı metricsrc'de (uygulama/RED ailesi).
+	if metricsrc.UsesVM(metricsrc.FamilyApp, s.vmetrics != nil && s.vmetrics.Configured()) {
 		return newVMMetricSource(s.vmetrics, s.store)
 	}
 	return chMetricSource{s.store}

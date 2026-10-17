@@ -15,8 +15,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/cilcenk/coremetry/internal/chstore"
 )
 
 func podFake(t *testing.T, answers map[string]string) (*Service, *[]string) {
@@ -118,35 +116,6 @@ func TestJVMGCPodStatsJoinsSumAndCount(t *testing.T) {
 	}
 	if PodFromTuple([]string{"svc", "", "", "abcdefghijklmnop"}) != "abcdefgh" {
 		t.Fatal("instance id identity must be truncated to 8 runes")
-	}
-}
-
-type fakePodReader struct{ tag string }
-
-func (f fakePodReader) JVMHeapPodUsage(context.Context, time.Time, time.Time) ([]chstore.CapacitySample, error) {
-	return []chstore.CapacitySample{{Instance: f.tag}}, nil
-}
-func (f fakePodReader) JVMGCPodPause(context.Context, time.Time, time.Time) ([]chstore.CapacitySample, error) {
-	return []chstore.CapacitySample{{Instance: f.tag}}, nil
-}
-
-func TestRuntimePodsOrPicksAtCallTime(t *testing.T) {
-	vm := New()
-	r := RuntimePodsOr(vm, fakePodReader{tag: "ch"})
-	now := time.Now()
-	if got, _ := r.JVMHeapPodUsage(context.Background(), now, now); got[0].Instance != "ch" {
-		t.Fatal("unconfigured VM → fallback")
-	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[]}}`))
-	}))
-	t.Cleanup(srv.Close)
-	vm.Configure(Settings{Enabled: true, BaseURL: srv.URL})
-	if got, err := r.JVMGCPodPause(context.Background(), now.Add(-time.Minute), now); err != nil || len(got) != 0 {
-		t.Fatalf("configured VM must answer (empty here): %v %v", got, err)
-	}
-	if RuntimePodsOr(nil, fakePodReader{tag: "ch"}).(runtimePodsOr).pick().(fakePodReader).tag != "ch" {
-		t.Fatal("nil VM → fallback")
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/forecast"
+	"github.com/cilcenk/coremetry/internal/metricsrc"
 )
 
 // db_capacity.go — capacity / saturation alerting off DB-receiver gauges
@@ -467,7 +468,8 @@ func capacityThreshold(c capacityCheck, severity string) float64 {
 // Mirrors runtime_pods.go's vmActive rule so an install never reads
 // JVM GC from VictoriaMetrics and DB capacity from an empty ClickHouse.
 func (e *Evaluator) capacityReader() chstore.CapacityReader {
-	if e.vmetrics != nil && e.vmetrics.Configured() {
+	// v0.10.1270 — karar metricsrc'de (db.client.connection.* = OTLP app ailesi).
+	if metricsrc.UsesVM(metricsrc.FamilyApp, e.vmetrics != nil && e.vmetrics.Configured()) {
 		return e.vmetrics
 	}
 	return e.store

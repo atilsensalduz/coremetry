@@ -44,6 +44,7 @@ import (
 	"github.com/cilcenk/coremetry/internal/mcp"
 	"github.com/cilcenk/coremetry/internal/mcpclient"
 	"github.com/cilcenk/coremetry/internal/mcptools"
+	"github.com/cilcenk/coremetry/internal/metricsrc"
 	"github.com/cilcenk/coremetry/internal/monitor"
 	"github.com/cilcenk/coremetry/internal/notify"
 	"github.com/cilcenk/coremetry/internal/oracle"
@@ -1473,7 +1474,8 @@ func main() {
 		rcSynth.SetRollouts(rolloutClusterSource{thanosSvc}, func() bool { return rolloutSettings.Resolved().Enabled })
 		// v0.10.374 — VM dilim 3c: JVM heap / GC kanıtı VM yapılandırılmışsa
 		// VictoriaMetrics'ten (çağrı anında karar), değilse ClickHouse.
-		rcSynth.SetRuntimePods(vmetrics.RuntimePodsOr(vmSvc, store))
+		// v0.10.1270 — karar metricsrc çözümleyicisinde (FamilyOTelRuntime).
+		rcSynth.SetRuntimePods(metricsrc.New(metricsrc.Backends{VM: vmSvc, CH: store, Thanos: thanosSvc}).RuntimePods())
 		// v0.10.891 — heap bandı fazı: VM yapılandırılmışsa VM, değilse CH
 		// (çağrı anında; anomaly_sensitivity.runtime.heapSource zorlayabilir).
 		if anomDet != nil {

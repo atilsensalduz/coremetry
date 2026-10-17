@@ -159,7 +159,9 @@ func BackfillClusterIDs(cfg Settings) (Settings, bool) {
 
 // ClusterByID — etkin kayıt, id ile.
 func (s *Service) ClusterByID(id string) (ClusterConfig, bool) {
-	if id == "" {
+	// v0.10.1270 — nil alıcı güvenli (ClusterByName emsali): metricsrc
+	// Resolver typed-nil *Service ile kurulabilir.
+	if s == nil || id == "" {
 		return ClusterConfig{}, false
 	}
 	s.mu.RLock()

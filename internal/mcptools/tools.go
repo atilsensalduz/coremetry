@@ -195,7 +195,7 @@ type Deps struct {
 	// TraceWindow; o da yoksa sohbet çıpasından geriye range_s (eski davranış).
 	TraceWindow func(ctx context.Context, traceID string) (lo, hi time.Time, ok bool)
 	// RuntimePods — v0.10.374 (VM dilim 3c): JVM heap / GC pod reads;
-	// nil → Store. main.go hands vmetrics.RuntimePodsOr so a
+	// nil → Store. api.mcpDeps hands metricsrc Resolver.RuntimePods (v0.10.1270) so a
 	// VictoriaMetrics-primary install's pod-health tool is not empty.
 	RuntimePods chstore.RuntimePodReader
 	// Metrics — v0.9.1150. The METRIC read router (ClickHouse or an

@@ -7,6 +7,7 @@ import (
 
 	"github.com/cilcenk/coremetry/internal/cache"
 	"github.com/cilcenk/coremetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/metricsrc"
 )
 
 // heap_source.go — v0.10.891 (paritesi #4 dilim 2): dedektörün heap okuma
@@ -14,7 +15,7 @@ import (
 // kullanıyor. Burada iki backend'in ORTAK üç metodu + VM'nin Configured()
 // kapısı yapısal arayüzle alınır (anomaly → vmetrics import'u açılmaz;
 // main.go somut *vmetrics.Service ve *chstore.Store'u geçer). Seçim ÇAĞRI
-// ANINDA (vmetrics.RuntimePodsOr/pick emsali): ayar değişince restart yok.
+// ANINDA (metricsrc.Resolver.RuntimePods emsali): ayar değişince restart yok.
 
 // HeapBackend — chstore.Store ve vmetrics.Service aynı imzayı taşır.
 type HeapBackend interface {
@@ -60,7 +61,8 @@ func (s *HeapSourceOr) pick(mode string) heapPicked {
 	case chstore.HeapSourceCH:
 		useVM = false
 	default:
-		useVM = s.vm != nil && s.vm.Configured()
+		// v0.10.1270 — auto kararı metricsrc'de (FamilyOTelRuntime).
+		useVM = s.vm != nil && metricsrc.UsesVM(metricsrc.FamilyOTelRuntime, s.vm.Configured())
 	}
 	if useVM {
 		return heapPicked{HeapBackend: s.vm, name: chstore.HeapSourceVM}
