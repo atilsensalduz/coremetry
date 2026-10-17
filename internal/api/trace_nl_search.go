@@ -623,7 +623,11 @@ func matchPairEdges(edges []chstore.ServiceTopologyEdge, a, b string, bIsService
 		child := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(e.ChildNode, "ext:"), "db:"), "q:")
 		hit := false
 		if bIsService {
-			hit = e.NodeKind == "service" && child == b
+			// v0.10.1260 — servis k8s DNS adıyla da çağrılır
+			// (`ext:<b>.<ns>.svc.cluster.local[:port]`); servis grafiğinin
+			// ext-merge kuralıyla aynı aday seti.
+			hit = (e.NodeKind == "service" && child == b) ||
+				(strings.HasPrefix(e.ChildNode, "ext:") && chstore.ExtPeerMatchesService(e.ChildNode, b))
 		} else {
 			lc := strings.ToLower(child + " " + e.ExtDisplay)
 			for _, t := range frag {
@@ -644,6 +648,19 @@ func matchPairEdges(edges []chstore.ServiceTopologyEdge, a, b string, bIsService
 		others = others[:8]
 	}
 	return matched, others
+}
+
+// pairEdgeExtAliases — A→B (B servis) kenarlarından `ext:` ile saklanan
+// ham çocuk adları (v0.10.1260): kenar serisinin IN listesine takma ad.
+func pairEdgeExtAliases(edges []chstore.ServiceTopologyEdge, a, b string) []string {
+	matched, _ := matchPairEdges(edges, a, b, true)
+	var out []string
+	for _, e := range matched {
+		if strings.HasPrefix(e.ChildNode, "ext:") {
+			out = append(out, e.ChildNode)
+		}
+	}
+	return out
 }
 
 func renderPairEvidenceTR(route guidedRoute, matched, others []chstore.ServiceTopologyEdge, rows []chstore.TraceRow, rangeS int64) string {

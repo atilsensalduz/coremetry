@@ -1278,7 +1278,43 @@ func (s *Store) ListOpsForService(ctx context.Context, service string, from, to 
 // Window is rounded out to the surrounding 5-min boundaries so a
 // partially-covered bucket isn't dropped silently.
 func (s *Store) ReadServiceTopologyAgg(ctx context.Context, from, to time.Time, limit int) ([]ServiceTopologyEdge, error) {
-	return s.readServiceTopologyAggFiltered(ctx, from, to, limit, nil)
+	return s.readServiceTopologyAggFiltered(ctx, from, to, limit, nil, nil)
+}
+
+// k8sExtChildRegex — `ext:` çocuğunun küme-içi Kubernetes DNS adı olup
+// olmadığı (isteğe bağlı :port). SQL METNİNE gömülür: İÇİNDE '?' YOK
+// (clickhouse-go konumsal yer tutucu sayar — gatewayPathRegex notu).
+// ExtPeerServiceCandidates'in k8sClusterSuffixes listesinin SQL ikizi.
+const k8sExtChildRegex = `\\.(svc|svc\\.cluster\\.local|cluster\\.local)(:[0-9]+)*$`
+
+// topologyTouchWhere — readServiceTopologyAggFiltered'in düğüm-dokunma
+// yüklemi (SAF, tablo testli). v0.10.1260: `extCallersOf` içindeki her
+// düz servis adı için, o servisi Kubernetes DNS adıyla çağıran
+// `ext:<ad>.<ns>.svc.cluster.local[:port]` (ve `ext:dns:///<ad>.…`)
+// kenarları da okunur — odak servisin bu yoldan gelen ÇAĞIRANLARI
+// yoksa hiç okunmuyordu (çocuk IN listesi yalnız düz adı tutuyor). k8s
+// sonek şartı genel host'ları (`ext:<ad>.example.com`) dışarıda tutar.
+func topologyTouchWhere(touching, extCallersOf []string) (string, []any) {
+	if len(touching) == 0 {
+		return "", nil
+	}
+	ph := chPlaceholders(len(touching))
+	var args []any
+	args = append(args, toAnySlice(touching)...)
+	args = append(args, toAnySlice(touching)...)
+	var pre []string
+	for _, n := range extCallersOf {
+		if n == "" || strings.Contains(n, ":") {
+			continue
+		}
+		pre = append(pre, "startsWith(child_node, ?)", "startsWith(child_node, ?)")
+		args = append(args, "ext:"+n+".", "ext:dns:///"+n+".")
+	}
+	w := "\n\t\t\t  AND (parent_service IN (" + ph + ") OR child_node IN (" + ph + ")"
+	if len(pre) > 0 {
+		w += " OR (match(child_node, '" + k8sExtChildRegex + "') AND (" + strings.Join(pre, " OR ") + "))"
+	}
+	return w + ")", args
 }
 
 // readServiceTopologyAggFiltered is ReadServiceTopologyAgg with an optional
@@ -1286,18 +1322,13 @@ func (s *Store) ReadServiceTopologyAgg(ctx context.Context, from, to time.Time, 
 // one endpoint in the set are read. v0.9.366 — the neighborhood scope's
 // building block; the focus walk (ReadServiceTopologyAggForFocus) feeds
 // frontiers here instead of pulling the whole estate's top-20k edge set.
-func (s *Store) readServiceTopologyAggFiltered(ctx context.Context, from, to time.Time, limit int, touching []string) ([]ServiceTopologyEdge, error) {
+func (s *Store) readServiceTopologyAggFiltered(ctx context.Context, from, to time.Time, limit int, touching, extCallersOf []string) ([]ServiceTopologyEdge, error) {
 	if limit <= 0 || limit > 100000 {
 		limit = 20000
 	}
-	touchWhere := ""
 	args := []any{from.Unix(), to.Unix()}
-	if len(touching) > 0 {
-		ph := chPlaceholders(len(touching))
-		touchWhere = "\n\t\t\t  AND (parent_service IN (" + ph + ") OR child_node IN (" + ph + "))"
-		args = append(args, toAnySlice(touching)...)
-		args = append(args, toAnySlice(touching)...)
-	}
+	touchWhere, touchArgs := topologyTouchWhere(touching, extCallersOf)
+	args = append(args, touchArgs...)
 	args = append(args, limit)
 	// v0.9.1026 — cluster projeksiyonu probe'a bağlı (hasTopoClusterCol).
 	// Kolonun inmediği boot'ta koşulsuz bir `argMax(cluster, …)` bu
@@ -1418,12 +1449,18 @@ func (s *Store) readServiceTopologyAggFiltered(ctx context.Context, from, to tim
 // endpoints contribute BOTH spellings so the api layer's ext-merge keeps
 // finding the real service's own edges on the next hop. Table-tested
 // (topology_focus_test.go, v0.9.366).
+//
+// v0.10.1260 — "both spellings" artık ExtPeerServiceCandidates'in TÜM
+// adayları: `ext:foo.ns.svc.cluster.local:50051` → `foo.ns.svc.cluster
+// .local` ve `foo` de sınıra girer; aksi hâlde api katmanı düğümü
+// gerçek servise birleştirse bile 2. hop o servisin kendi kenarlarını
+// hiç okumuyordu (operatör raporu 2026-10-17).
 func topologyNextFrontier(edges []ServiceTopologyEdge, seen map[string]bool, cap int) []string {
 	var next []string
 	add := func(n string) {
 		cands := []string{n}
-		if stripped := strings.TrimPrefix(n, "ext:"); stripped != n {
-			cands = append(cands, stripped)
+		if strings.HasPrefix(n, "ext:") {
+			cands = append(cands, ExtPeerServiceCandidates(n)...)
 		}
 		for _, c := range cands {
 			if c == "" || seen[c] {
@@ -1469,7 +1506,13 @@ func (s *Store) ReadServiceTopologyAggForFocus(ctx context.Context, from, to tim
 	have := map[string]bool{}
 	var out []ServiceTopologyEdge
 	for h := 0; h < hops && len(frontier) > 0 && len(out) < limit; h++ {
-		edges, err := s.readServiceTopologyAggFiltered(ctx, from, to, limit, frontier)
+		// v0.10.1260 — yalnız odak (hop 0): odağı k8s DNS adıyla çağıran
+		// ext: kenarları da okunur; api ext-merge onları odağa birleştirir.
+		var extCallersOf []string
+		if h == 0 {
+			extCallersOf = []string{focus}
+		}
+		edges, err := s.readServiceTopologyAggFiltered(ctx, from, to, limit, frontier, extCallersOf)
 		if err != nil {
 			return nil, err
 		}

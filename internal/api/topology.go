@@ -560,11 +560,11 @@ func (s *Server) getServiceTopology(w http.ResponseWriter, r *http.Request) {
 		// edge, once as "frontend → ext:api-gateway". Only
 		// un-instrumented peers (third-party APIs, legacy systems)
 		// survive the filter.
-		knownServices := map[string]bool{}
+		knownServices := chstore.NewServiceNameSet() // v0.10.1260: k8s DNS adı da çözülür
 		for _, e := range edges {
 			if e.NodeKind == "service" {
-				knownServices[e.ParentService] = true
-				knownServices[e.ChildNode] = true
+				knownServices.Add(e.ParentService)
+				knownServices.Add(e.ChildNode)
 			}
 		}
 		// v0.5.310 — total call volume across the window, used
@@ -582,8 +582,7 @@ func (s *Server) getServiceTopology(w http.ResponseWriter, r *http.Request) {
 		filtered := edges[:0]
 		for _, e := range edges {
 			if e.NodeKind == "external" {
-				peer := strings.TrimPrefix(e.ChildNode, "ext:")
-				if knownServices[peer] {
+				if _, ok := knownServices.ResolveExtPeer(e.ChildNode); ok {
 					continue
 				}
 			}
@@ -1013,18 +1012,17 @@ func (s *Server) getFlowTopology(w http.ResponseWriter, r *http.Request) {
 		// Same external-peer filter as the global topology — drop
 		// peers that already exist as instrumented services so the
 		// subgraph doesn't double-count cross-service edges.
-		knownServices := map[string]bool{}
+		knownServices := chstore.NewServiceNameSet() // v0.10.1260: k8s DNS adı da çözülür
 		for _, e := range edges {
 			if e.NodeKind == "service" {
-				knownServices[e.ParentService] = true
-				knownServices[e.ChildNode] = true
+				knownServices.Add(e.ParentService)
+				knownServices.Add(e.ChildNode)
 			}
 		}
 		filtered := edges[:0]
 		for _, e := range edges {
 			if e.NodeKind == "external" {
-				peer := strings.TrimPrefix(e.ChildNode, "ext:")
-				if knownServices[peer] {
+				if _, ok := knownServices.ResolveExtPeer(e.ChildNode); ok {
 					continue
 				}
 			}
@@ -1184,18 +1182,17 @@ func (s *Server) exportFlowTopologyDrawIO(w http.ResponseWriter, r *http.Request
 // JSON endpoint uses so the JSON view and the export stay
 // visually identical.
 func filterExternalPeers(edges []chstore.ServiceTopologyEdge) []chstore.ServiceTopologyEdge {
-	knownServices := map[string]bool{}
+	knownServices := chstore.NewServiceNameSet() // v0.10.1260: k8s DNS adı da çözülür
 	for _, e := range edges {
 		if e.NodeKind == "service" {
-			knownServices[e.ParentService] = true
-			knownServices[e.ChildNode] = true
+			knownServices.Add(e.ParentService)
+			knownServices.Add(e.ChildNode)
 		}
 	}
 	filtered := edges[:0]
 	for _, e := range edges {
 		if e.NodeKind == "external" {
-			peer := strings.TrimPrefix(e.ChildNode, "ext:")
-			if knownServices[peer] {
+			if _, ok := knownServices.ResolveExtPeer(e.ChildNode); ok {
 				continue
 			}
 		}

@@ -45,6 +45,22 @@ func TestTopologyNextFrontier(t *testing.T) {
 			[]string{"ext:orders", "orders"},
 		},
 		{
+			// v0.10.1260 — operatör raporu 2026-10-17: k8s DNS adı da
+			// gerçek servis adayını sınıra koyar, 2. hop onun kenarlarını okur.
+			"ext: k8s DNS endpoint contributes the normalized service name",
+			[]ServiceTopologyEdge{edge("gw", "ext:orders.shop.svc.cluster.local:50051")},
+			map[string]bool{"gw": true},
+			10,
+			[]string{"ext:orders.shop.svc.cluster.local:50051", "orders.shop.svc.cluster.local:50051", "orders.shop.svc.cluster.local", "orders"},
+		},
+		{
+			"ext: public host is not shortened",
+			[]ServiceTopologyEdge{edge("gw", "ext:api.stripe.com")},
+			map[string]bool{"gw": true},
+			10,
+			[]string{"ext:api.stripe.com", "api.stripe.com"},
+		},
+		{
 			"cap truncates to the busiest (edge order = calls DESC)",
 			[]ServiceTopologyEdge{edge("gw", "a"), edge("gw", "b"), edge("gw", "c")},
 			map[string]bool{"gw": true},

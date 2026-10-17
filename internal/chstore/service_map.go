@@ -405,6 +405,14 @@ func (s *Store) getServiceMapAt(
 		return nil, err
 	}
 
+	// v0.10.1260 — gerçek servis kümesi, sentetik dep düğümleri
+	// eklenmeden ÖNCE: peer.service k8s DNS adı taşıyabilir
+	// (`<svc>.<ns>.svc.cluster.local`), birebir arama onu kaçırıyordu.
+	realSvc := NewServiceNameSet()
+	for svc := range nodeSpan {
+		realSvc.Add(svc)
+	}
+
 	type edgeKey struct{ caller, callee string }
 	edgeSpan := map[edgeKey]int{}
 	edgeErr := map[edgeKey]int{}
@@ -467,7 +475,7 @@ func (s *Store) getServiceMapAt(
 				// receiver side).
 				// Skip if peerSvc actually IS an OTel service
 				// in this map already — it's a real edge then.
-				if _, isReal := nodeSpan[sp.peerSvc]; isReal && sp.peerSvc != sp.svc {
+				if real, isReal := realSvc.ResolveExtPeer(sp.peerSvc); isReal && real != sp.svc {
 					continue
 				}
 				depEdge(sp.svc, "ext:"+sp.peerSvc, "external", sp.peerSvc, sp, traceID)

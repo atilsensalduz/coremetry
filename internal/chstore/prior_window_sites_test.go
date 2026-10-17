@@ -471,7 +471,7 @@ func TestTopologyPriorWindowReaderPin(t *testing.T) {
 		}
 	}
 	focus := funcBody(t, "topology.go", "func (s *Store) ReadServiceTopologyAggForFocus(")
-	if !strings.Contains(focus, "s.readServiceTopologyAggFiltered(ctx, from, to, limit, frontier)") {
+	if !strings.Contains(focus, "s.readServiceTopologyAggFiltered(ctx, from, to, limit, frontier, extCallersOf)") {
 		t.Error("ReadServiceTopologyAggForFocus aynı yüklemi okumuyor — servicegraph prior'u ayrı model ister")
 	}
 }

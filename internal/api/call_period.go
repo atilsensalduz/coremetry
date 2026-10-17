@@ -253,6 +253,7 @@ func (s *Server) guidedCallPeriodBundle(ctx context.Context, emit func(string, a
 	var srcParts []string
 	if route.PairFrom != "" && route.PairTo != "" {
 		edgeChild := route.PairTo
+		var edgeAliases []string
 		if route.PairToKind != "service" {
 			// v0.10.444 — dış/DB düğüm parçası ("osbprod") saklanan ada
 			// ("ext:osbprod.example.com") çözülür; aksi hâlde IN listesi hiç
@@ -263,9 +264,14 @@ func (s *Server) guidedCallPeriodBundle(ctx context.Context, emit func(string, a
 					route.PairTo = strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(edgeChild, "ext:"), "db:"), "q:")
 				}
 			}
+		} else if edges, err := s.store.ReadServiceTopologyAggForFocus(ctx, edgeFrom, to, route.PairFrom, 1, 20000); err == nil {
+			// v0.10.1260 — servis hedefi k8s DNS adıyla da çağrılıyor olabilir
+			// (`ext:<svc>.<ns>.svc.cluster.local`); grafik o kenarı servise
+			// birleştiriyor, seri de o satırları saymalı.
+			edgeAliases = pairEdgeExtAliases(edges, route.PairFrom, route.PairTo)
 		}
 		n := emitGuidedStep(emit, "topology_edge_series", fmt.Sprintf(`{"from":%q,"to":%q,"step":"5m"}`, route.PairFrom, edgeChild))
-		pts, err := s.store.TopologyEdgeSeries(ctx, route.PairFrom, edgeChild, edgeFrom, to)
+		pts, err := s.store.TopologyEdgeSeries(ctx, route.PairFrom, edgeChild, edgeAliases, edgeFrom, to)
 		if err != nil {
 			emitGuidedStepResult(emit, n, "topology_edge_series", "", err)
 			return "", "", err

@@ -22,12 +22,13 @@ type EdgeSeriesPoint struct {
 
 // topologyEdgeSeriesSQL — SAF (test pinler): zaman sınırlı WHERE, FINAL,
 // LIMIT, max_execution_time. child_node üç önekle de eşlenir (servis düz
-// ad, ext:/db:/q: düğümler).
+// ad, ext:/db:/q: düğümler) — v0.10.1260'tan beri tek bir bağlı liste
+// (topologyEdgeSeriesChildren) + çağıranın verdiği ham takma adlar.
 const topologyEdgeSeriesSQL = `
 		SELECT time_bucket, sum(calls), sum(errors)
 		FROM topology_edges_5m FINAL
 		WHERE parent_service = ?
-		  AND child_node IN (?, ?, ?, ?)
+		  AND child_node IN (?)
 		  AND ` + TopoCallEdgeFilterSQL + `
 		  AND time_bucket >= ? AND time_bucket < ?
 		GROUP BY time_bucket
@@ -35,12 +36,40 @@ const topologyEdgeSeriesSQL = `
 		LIMIT 2000
 		SETTINGS max_execution_time = 10`
 
+// topologyEdgeSeriesAliasCap — çağıranın verdiği takma ad üst sınırı
+// (IN listesi sınırlı kalsın; bir servisin k8s DNS yazımları birkaç tane).
+const topologyEdgeSeriesAliasCap = 16
+
+// topologyEdgeSeriesChildren — child_node IN listesi (SAF, tablo testli).
+// v0.10.1260: servis grafiği `ext:<svc>.<ns>.svc.cluster.local` kenarını
+// gerçek servise birleştiriyor; kenar matkabı düz adla gelince o satırlar
+// `ext:`+ad ile eşleşmezdi. `aliases` saklanan HAM çocuk adlarıdır
+// (ör. matchPairEdges'in eşlediği ChildNode'lar), tekrarsız + sınırlı.
+func topologyEdgeSeriesChildren(child string, aliases []string) []string {
+	out := []string{child, "ext:" + child, "db:" + child, "q:" + child}
+	seen := map[string]bool{}
+	for _, c := range out {
+		seen[c] = true
+	}
+	n := 0
+	for _, a := range aliases {
+		if a == "" || seen[a] || n >= topologyEdgeSeriesAliasCap {
+			continue
+		}
+		seen[a] = true
+		out = append(out, a)
+		n++
+	}
+	return out
+}
+
 // TopologyEdgeSeries — parent → child kenarının 5 dk serisi [from, to).
-func (s *Store) TopologyEdgeSeries(ctx context.Context, parent, child string, from, to time.Time) ([]EdgeSeriesPoint, error) {
+// aliases: aynı çocuğun saklanan diğer ham adları (nil olabilir).
+func (s *Store) TopologyEdgeSeries(ctx context.Context, parent, child string, aliases []string, from, to time.Time) ([]EdgeSeriesPoint, error) {
 	if parent == "" || child == "" || !to.After(from) {
 		return nil, nil
 	}
-	rows, err := s.conn.Query(ctx, topologyEdgeSeriesSQL, parent, child, "ext:"+child, "db:"+child, "q:"+child,
+	rows, err := s.conn.Query(ctx, topologyEdgeSeriesSQL, parent, topologyEdgeSeriesChildren(child, aliases),
 		from.Truncate(5*time.Minute), to)
 	if err != nil {
 		return nil, err

@@ -576,3 +576,170 @@ func dbEntityID(system, host, port string) string {
 // çelişir. 'default' düşüşü de MV ile aynı — db.name yayınlamayan bir
 // instrumentasyon her iki yolda da 'default' kovasına düşer.
 const dbNameExpr = `coalesce(nullIf(attr_values[indexOf(attr_keys, 'db.name')], ''), 'default')`
+
+// ─── ext:<peer> → gerçek servis adı (v0.10.1260) ─────────────────────
+//
+// Operatör raporu (2026-10-17, servis sayfası → Topology, odak
+// bsa-crm-contentmanagement-prod): gRPC ile çağrılan, KENDİSİ de
+// enstrümante bir servis ayrı bir "dış bağımlılık" düğümü olarak
+// çiziliyordu — `ext:bsa-sales-salesapplication-query-prod.sales.svc.cluster.local`
+// ile gerçek `bsa-sales-salesapplication-query-prod` aynı grafta yan
+// yana. v0.8.11 birleştirmesi ext:<ad>'ı yalnız <ad> bir service.name'e
+// BİREBİR eşitse topluyordu; Kubernetes DNS adı (`<svc>.<ns>.svc
+// .cluster.local`, `<svc>.<ns>.svc`, `:port`'lu, gRPC hedefi
+// `dns:///host:port`) asla birebir eşleşmez.
+//
+// Kural (sırasıyla, ilk bilinen aday kazanır):
+//  1. HAM ad (birebir eşleşme her zaman önce).
+//  2. Şema/gRPC çözücü öneki (`dns:///`, `dns:`, `http://`, …) ve yol
+//     atılır; sonda sayısal `:port` atılır; sondaki nokta atılır.
+//  3. Host bir küme-içi Kubernetes adıysa (sonek `.svc.cluster.local`,
+//     `.svc` ya da `.cluster.local`, önünde en az bir etiket) İLK DNS
+//     etiketi aday olur.
+//
+// Rastgele genel host'lar ASLA kısaltılmaz: api.stripe.com "api"
+// olmaz — yalnız (2)'nin ürettiği tam host aday olur. Aday yalnızca
+// bilinen bir service.name ise birleşme olur (ServiceNameSet).
+// Geçit biçimi `<Svc>@<host>:<port>` (gatewayExtExpr) bir servis
+// adı değil, olduğu gibi kalır.
+
+// k8sClusterSuffixes — küme-içi DNS sonekleri, uzun olan önce.
+var k8sClusterSuffixes = []string{".svc.cluster.local", ".cluster.local", ".svc"}
+
+// ExtPeerServiceCandidates — bir dış eş adının (önekli `ext:` ya da
+// öneksiz) servis adı adayları, öncelik sırasıyla, tekrarsız. İlk eleman
+// daima ham addır. SAF, tablo testli (identity_ext_peer_test.go).
+func ExtPeerServiceCandidates(peer string) []string {
+	raw := strings.TrimPrefix(peer, "ext:")
+	if raw == "" {
+		return nil
+	}
+	out := []string{raw}
+	add := func(c string) {
+		if c == "" {
+			return
+		}
+		for _, x := range out {
+			if x == c {
+				return
+			}
+		}
+		out = append(out, c)
+	}
+	if strings.Contains(raw, "@") { // geçit biçimi: servis adı değil
+		return out
+	}
+	host := strings.TrimSpace(raw)
+	// Şema / gRPC çözücü öneki: "dns:///h:p", "http://h", "dns:h:p".
+	if i := strings.Index(host, "://"); i >= 0 {
+		host = host[i+3:]
+	} else if rest, ok := strings.CutPrefix(strings.ToLower(host), "dns:"); ok {
+		host = host[len(host)-len(rest):]
+	}
+	host = strings.TrimLeft(host, "/") // dns:///h → "/h" artığı
+	if i := strings.IndexByte(host, '/'); i >= 0 {
+		host = host[:i]
+	}
+	// Sondaki sayısal :port — tek ':' şartı IPv6'yı bozmaz.
+	if i := strings.LastIndexByte(host, ':'); i > 0 && strings.Count(host, ":") == 1 && isAllDigits(host[i+1:]) {
+		host = host[:i]
+	}
+	host = strings.TrimSuffix(host, ".")
+	add(host)
+	lh := strings.ToLower(host)
+	for _, suf := range k8sClusterSuffixes {
+		// Bütün-etiket eşleşmesi: "svc.cluster.local" kendisi ".svc.cluster.local"
+		// ile eşleşir ve önünde etiket kalmaz → aday yok ("svc" değil).
+		if len(lh) == len(host) && strings.HasSuffix("."+lh, suf) {
+			if rest := host[:len(host)-(len(suf)-1)]; len(rest) > 1 {
+				if i := strings.IndexByte(rest, '.'); i > 0 {
+					add(rest[:i])
+				}
+			}
+			break
+		}
+	}
+	return out
+}
+
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// ServiceNameSet — bilinen service.name kümesi; birebir arama önce,
+// sonra büyük/küçük harf duyarsız (DNS harf duyarsız). İki farklı
+// yazımı aynı küçük harfe düşen servisler (Foo / foo) belirsizdir →
+// harf duyarsız yol o ad için KAPANIR, yanlış birleşme yerine birleşme
+// yok.
+type ServiceNameSet struct {
+	exact map[string]bool
+	lower map[string]string // küçük harf → kanonik ad; "" = belirsiz
+}
+
+// NewServiceNameSet — verilen adlarla kurulmuş küme.
+func NewServiceNameSet(names ...string) *ServiceNameSet {
+	s := &ServiceNameSet{exact: map[string]bool{}, lower: map[string]string{}}
+	for _, n := range names {
+		s.Add(n)
+	}
+	return s
+}
+
+// Add — boş ad eklenmez.
+func (s *ServiceNameSet) Add(name string) {
+	if name == "" || s.exact[name] {
+		return
+	}
+	s.exact[name] = true
+	l := strings.ToLower(name)
+	if prev, ok := s.lower[l]; ok && prev != name {
+		s.lower[l] = ""
+		return
+	}
+	s.lower[l] = name
+}
+
+// Has — birebir üyelik.
+func (s *ServiceNameSet) Has(name string) bool { return s.exact[name] }
+
+// ResolveExtPeer — `ext:<peer>` (ya da öneksiz peer) bilinen bir servise
+// çözülüyorsa kanonik servis adını döndürür. Aday sırası
+// ExtPeerServiceCandidates'inki; her aday önce birebir, sonra harf
+// duyarsız denenir.
+func (s *ServiceNameSet) ResolveExtPeer(peer string) (string, bool) {
+	if s == nil {
+		return "", false
+	}
+	for _, c := range ExtPeerServiceCandidates(peer) {
+		if s.exact[c] {
+			return c, true
+		}
+		if canon := s.lower[strings.ToLower(c)]; canon != "" {
+			return canon, true
+		}
+	}
+	return "", false
+}
+
+// ExtPeerMatchesService — peer'in adaylarından biri `service`'e (harf
+// duyarsız) eşit mi. Tek-servisli sorular için (A→B kenar eşleştirme)
+// küme kurmadan.
+func ExtPeerMatchesService(peer, service string) bool {
+	if service == "" {
+		return false
+	}
+	for _, c := range ExtPeerServiceCandidates(peer) {
+		if strings.EqualFold(c, service) {
+			return true
+		}
+	}
+	return false
+}

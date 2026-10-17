@@ -462,6 +462,84 @@ func filterHiddenTopologyEdges(edges []chstore.ServiceTopologyEdge, patterns []s
 	return kept
 }
 
+// mergeExtPeerEdges — `ext:<peer>` çocuklu kenarları, peer bilinen bir
+// service.name'e çözülüyorsa (chstore.ServiceNameSet.ResolveExtPeer)
+// gerçek servis düğümüne taşır ve aynı (parent, child) üzerine düşen
+// kenarları TEK kenara katlar (SAF, tablo testli; v0.10.1260).
+//
+// Katlama kuralı: birleşen bir ext kenarı, aynı (parent, child) için
+// zaten var olan kenara (önce gerçek servis kenarı — okuyucu calls DESC
+// sıralı verdiği için en yoğun protokol satırı) eklenir; yoksa aynı
+// hedefe birleşmiş önceki ext kenarına. calls/errors toplanır, avg
+// calls-ağırlıklı, p99 maksimum, errorRate yeniden hesaplanır. Birleşme
+// OLMAYAN satırların (parent, child, protocol) anahtarı aynen kalır —
+// okuyucunun protokol başına ayrık satırları bu adımın konusu değil.
+func mergeExtPeerEdges(edges []chstore.ServiceTopologyEdge) []chstore.ServiceTopologyEdge {
+	known := chstore.NewServiceNameSet()
+	for _, e := range edges {
+		known.Add(e.ParentService)
+		if e.NodeKind == "service" {
+			known.Add(e.ChildNode)
+		}
+	}
+	type pc struct{ p, c string }
+	out := make([]chstore.ServiceTopologyEdge, 0, len(edges))
+	first := map[pc]int{} // (parent, child) → out içindeki ilk kenar
+	var pending []chstore.ServiceTopologyEdge
+	for _, e := range edges {
+		if strings.HasPrefix(e.ChildNode, "ext:") {
+			if name, ok := known.ResolveExtPeer(e.ChildNode); ok {
+				e.ChildNode = name
+				e.NodeKind = "service"
+				e.ExtDisplay, e.ExtKind = "", ""
+				pending = append(pending, e)
+				continue
+			}
+		}
+		k := pc{e.ParentService, e.ChildNode}
+		if _, ok := first[k]; !ok {
+			first[k] = len(out)
+		}
+		out = append(out, e)
+	}
+	for _, e := range pending {
+		k := pc{e.ParentService, e.ChildNode}
+		if i, ok := first[k]; ok {
+			foldTopologyEdge(&out[i], e)
+			continue
+		}
+		first[k] = len(out)
+		out = append(out, e)
+	}
+	return out
+}
+
+// foldTopologyEdge — src'yi dst'ye katlar (mergeExtPeerEdges kuralı).
+func foldTopologyEdge(dst *chstore.ServiceTopologyEdge, src chstore.ServiceTopologyEdge) {
+	calls := dst.Calls + src.Calls
+	if calls > 0 {
+		dst.AvgMs = (dst.AvgMs*float64(dst.Calls) + src.AvgMs*float64(src.Calls)) / float64(calls)
+	}
+	dst.Calls = calls
+	dst.Errors += src.Errors
+	if src.P99Ms > dst.P99Ms {
+		dst.P99Ms = src.P99Ms
+	}
+	dst.ErrorRate = 0
+	if dst.Calls > 0 {
+		dst.ErrorRate = float64(dst.Errors) / float64(dst.Calls) * 100
+	}
+	if dst.ChildEnv == "" {
+		dst.ChildEnv = src.ChildEnv
+	}
+	if dst.ParentEnv == "" {
+		dst.ParentEnv = src.ParentEnv
+	}
+	if dst.Protocol == "" {
+		dst.Protocol = src.Protocol
+	}
+}
+
 // serviceGraphWindowMinutes returns the window length in minutes used to derive
 // each node/edge calls-per-minute Rate, FLOORED at 1 so a sub-minute or zero
 // window can't divide-by-zero or inflate the rate. (v0.8.x — the one metric
@@ -486,22 +564,13 @@ func buildServiceGraph(edges []chstore.ServiceTopologyEdge, focus, scope string,
 	// as ext:<name>) otherwise splits into a duplicate service + external node.
 	// After the merge "external" means only true third parties (stripe, s3,
 	// sendgrid, twilio).
-	known := map[string]bool{}
-	for _, e := range edges {
-		known[e.ParentService] = true
-		if e.NodeKind == "service" {
-			known[e.ChildNode] = true
-		}
-	}
-	merged := make([]chstore.ServiceTopologyEdge, len(edges))
-	copy(merged, edges)
-	for i := range merged {
-		if name, ok := strings.CutPrefix(merged[i].ChildNode, "ext:"); ok && known[name] {
-			merged[i].ChildNode = name
-			merged[i].NodeKind = "service"
-		}
-	}
-	edges = merged
+	//
+	// v0.10.1260 — birebir eşitlik yetmiyordu (operatör raporu 2026-10-17):
+	// k8s DNS adı `ext:<svc>.<ns>.svc.cluster.local[:port]` / `dns:///…`
+	// asla eşleşmiyor, odak servisin sağ kolonu gerçek servislerin
+	// kopyalarıyla doluyordu. Aday kuralı chstore.ExtPeerServiceCandidates;
+	// birleşen kenarlar mergeExtPeerEdges'te tek kenara katlanır.
+	edges = mergeExtPeerEdges(edges)
 
 	// Neighborhood scope: keep only edges whose BOTH endpoints sit within
 	// `hops` of the focus — direction-separated walk (neighborhoodKeepSet,
