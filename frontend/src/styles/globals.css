@@ -2756,6 +2756,11 @@ tr.wf-evidence > td:first-child { border-left: 3px dashed var(--accent2); }
      stays distinct from the flow tempo. */
   stroke-dasharray: 6 8;
 }
+.topo-edge-flow.back {
+  /* v0.10.1261 — döngüyü kapatan geri kenar (sağdan sola): noktalı.
+     Periyot 8, keyframe dashoffset'i (-16) böler → akış dikişsiz. */
+  stroke-dasharray: 2 6;
+}
 
 /* v0.10.729 (operatör, prod: "çizgiler kayıyor ama oklar sabit belki onlar da
    kaysa iyi olur. Aynı sütun hizasındaki oklarda karışıklık olabiliyor") —

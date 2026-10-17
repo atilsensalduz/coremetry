@@ -31,10 +31,11 @@ import {
 //     yoğun kenar daha hızlı akar. prefers-reduced-motion global
 //     kuralı animasyonu otomatik kapatır.
 //   • Hover: 1-hop komşuluk dışındaki her şey .dim ile söner.
-//   • Yerleşim: BFS katmanlı soldan-sağa (kapalı form, fizik yok) —
-//     kök servisler solda, bağımlılıklar sağda. Focus modunda da
-//     aynı yerleşim çalışır çünkü ServiceMap.tsx zaten 1-hop
-//     komşuluğa filtreleyip veriyor.
+//   • Yerleşim (v0.10.1261): en uzun yol katmanlı soldan-sağa (kapalı
+//     form, fizik yok) — her kenar kesin soldan sağa, aynı sütunda
+//     birbirini çağıran servis yok; açık namespace'ler tam genişlikte
+//     yatay şerit (lib/topoBfsLayout.ts). Döngüyü kapatan geri kenar
+//     sağdan sola, noktalı desenle çizilir.
 //
 // CSS bağımlılıkları globals.css'te zaten mevcut: .topo, .topo-edges,
 // .topo-node (+ .focus/.dim), .topo-name, .topo-sub, .topo-dot,
@@ -206,10 +207,13 @@ export function TopologyFlowGraph({
   // id durumunda tetiklenirdi, güvenle null'a iner.
   const active = hoverNode ? (neighbours.get(hoverNode) ?? null) : null;
 
-  // ── BFS katmanlı yerleşim ───────────────────────────────────────────
-  // Kök = gelen kenarı olmayan düğümler; erişilemeyenler en sağ sütuna.
-  // Sütun içi sıralama: ebeveynlerin ortalama y'sine göre (barycenter),
-  // tek geçişte kenar kesişimlerini ciddi azaltır.
+  // ── Katmanlı + namespace şeritli yerleşim ───────────────────────────
+  // v0.10.1261 (operatör 2026-10-17: "aynı sütunda birbirini çağıran
+  // servisler" + iç içe namespace kutuları) — sütun = döngüsü kırılmış
+  // DAG'de en uzun yol katmanı; AÇIK namespace (≥2 üye, hull kuralı) tam
+  // genişlikte yatay şerit, üyeleri şeridin içinde. Grupsuzlar (bağımlılık,
+  // ns'siz, katlı süper-düğüm) en alttaki şeritte. Odaklı servisin şeridi
+  // en üstte. Saf çekirdek + değişmez testleri: lib/topoBfsLayout(.test).ts.
   //
   // v0.8.296 — yerleşim artık VIEW alanına değil LAYOUT alanına açılır:
   // kalabalık bir sütun (ör. 30 servis) 560px'e sıkışıp pill'leri üst üste
@@ -217,14 +221,33 @@ export function TopologyFlowGraph({
   // transform'u (fit/zoom/pan) bu alanı ekrana sığdırır. Operatör-raporlu
   // "çok fazla servis ekrana sığmıyor" düzeltmesinin yarısı budur (diğer
   // yarısı zoom/pan).
-  const { positioned, layoutW, layoutH } = useMemo(() => {
-    // v0.10.133 — yerleşim saf çekirdeğe taşındı (lib/topoBfsLayout.ts):
-    // komşuluk indeksi, O(E·n log n) → O(E + n log n); çıktı birebir aynı
-    // (topoBfsLayout.test.ts referans kopyasıyla pinli). Ölçüm 500/20k:
-    // 1 716 ms → (aşağıda, perf probe).
-    const { pos, lw, lh } = bfsBarycenterLayout(data.nodes, data.edges, width, height, ROW_PITCH);
-    return { positioned: pos, layoutW: lw, layoutH: lh };
-  }, [data, width, height]);
+  // Şerit üyeliği hull kuralının aynısı: kind'lı bağımlılık ve katlı
+  // süper-düğüm serbest; namespace'i grafta ≥2 servisle temsil edilen
+  // servis o namespace'in şeridine girer.
+  const bandNs = useMemo(() => {
+    const meta = metaQ.data ?? {};
+    const m = new Map<string, string>();
+    const counts = new Map<string, number>();
+    for (const node of data.nodes) {
+      if (node.kind || isNsNode(node.service)) continue;
+      const ns = meta[node.service]?.namespace;
+      if (!ns) continue;
+      m.set(node.service, ns);
+      counts.set(ns, (counts.get(ns) ?? 0) + 1);
+    }
+    for (const [svc, ns] of m) if ((counts.get(ns) ?? 0) < 2) m.delete(svc);
+    return m;
+  }, [data.nodes, metaQ.data]);
+
+  const { positioned, layoutW, layoutH, bands, backEdges } = useMemo(() => {
+    // v0.10.133 — komşuluk indeksi, O(E + n log n) (perf probe 500/20k).
+    // v0.10.1261 — katman + şerit; aynı karmaşıklık sınıfı.
+    const { pos, lw, lh, bands: bs, backEdges: be } = bfsBarycenterLayout(
+      data.nodes, data.edges, width, height, ROW_PITCH,
+      { bandOf: s => bandNs.get(s), firstBand: focusNs },
+    );
+    return { positioned: pos, layoutW: lw, layoutH: lh, bands: bs, backEdges: be };
+  }, [data, width, height, bandNs, focusNs]);
 
   // ── v0.8.296 — zoom/pan viewport ─────────────────────────────────────
   // Transform matematiği pure seam'de (lib/topoViewport.ts, vitest-pinli).
@@ -298,38 +321,22 @@ export function TopologyFlowGraph({
   // bağımlılıklar ve namespace'siz servisler SERBEST (operatör
   // kararı: "diğer" kovası yok). Renk nsColor'dan — katla/aç
   // toggle'ı diğer grupların rengini kaydırmaz.
+  // v0.10.1261 — kutu artık üye sınırlayıcı kutusu DEĞİL, şeridin kendisi:
+  // tam genişlik, şeritler çakışmaz → iç içe/üst üste binen kutu yok.
   const hulls = useMemo(() => {
-    const meta = metaQ.data ?? {};
-    const boxes = new Map<string, { x0: number; y0: number; x1: number; y1: number; n: number }>();
-    for (const node of data.nodes) {
-      if (node.kind || isNsNode(node.service)) continue; // dep / süper-düğüm — free
-      const ns = meta[node.service]?.namespace;
-      if (!ns) continue;
-      const p = positioned.get(node.service);
-      if (!p) continue;
-      const g = boxes.get(ns);
-      if (!g) {
-        boxes.set(ns, { x0: p.x, y0: p.y, x1: p.x, y1: p.y, n: 1 });
-      } else {
-        g.x0 = Math.min(g.x0, p.x); g.y0 = Math.min(g.y0, p.y);
-        g.x1 = Math.max(g.x1, p.x); g.y1 = Math.max(g.y1, p.y);
-        g.n++;
-      }
-    }
-    const NODE_W = 70, NODE_H = 34, PAD = 26; // kart yarı-boyutu + nefes payı
-    return [...boxes.entries()]
-      .filter(([, g]) => g.n >= 2)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([ns, g]) => ({
-        ns,
-        n: g.n,
-        x: g.x0 - NODE_W - PAD,
-        y: g.y0 - NODE_H - PAD,
-        w: (g.x1 - g.x0) + 2 * (NODE_W + PAD),
-        h: (g.y1 - g.y0) + 2 * (NODE_H + PAD),
-        color: nsColor.get(ns) ?? 'var(--accent)',
+    const INSET = 6;
+    return bands
+      .filter((b): b is typeof b & { key: string } => b.key !== null)
+      .map(b => ({
+        ns: b.key,
+        n: b.members,
+        x: INSET,
+        y: b.y0,
+        w: layoutW - 2 * INSET,
+        h: b.y1 - b.y0,
+        color: nsColor.get(b.key) ?? 'var(--accent)',
       }));
-  }, [data.nodes, positioned, metaQ.data, nsColor]);
+  }, [bands, layoutW, nsColor]);
 
   // Yoğunluk kapısı (ServiceGraph slice-4 kuralının aynısı): az kenarlı
   // grafikte chip'ler hep açık, kalabalıkta yalnız hover'da.
@@ -355,7 +362,7 @@ export function TopologyFlowGraph({
         style={{ width: layoutW, height: layoutH, transform: `translate(${vp.x}px, ${vp.y}px) scale(${vp.k})` }}>
       <svg className="topo-edges" width={layoutW} height={layoutH}>
         {hulls.map(h => (
-          <rect key={`hull-${h.ns}`} x={h.x} y={h.y} width={h.w} height={h.h} rx={24}
+          <rect key={`hull-${h.ns}`} x={h.x} y={h.y} width={h.w} height={h.h} rx={12}
             fill={`color-mix(in srgb, ${h.color} 7%, transparent)`}
             stroke={`color-mix(in srgb, ${h.color} 30%, transparent)`}
             strokeWidth={1} />
@@ -385,6 +392,10 @@ export function TopologyFlowGraph({
           // ayrışır (hatalı olsa bile "yeni" bilgisi kaybolmasın).
           const stroke = errorish ? 'var(--err)' : e.isNew ? 'var(--accent2)' : hot ? 'var(--accent)' : 'var(--border-strong)';
           const newDash = e.isNew ? NEW_EDGE_DASH : undefined;
+          // v0.10.1261 — döngüyü kapatan geri kenar (sağdan sola) noktalı
+          // desen alır (.topo-edge-flow.back). Çift yönlü çizgide zaten iki
+          // ok var; orada ayrıca işaretlenmez.
+          const back = !re.reverse && backEdges.has(`${e.caller}|${e.callee}`);
           const opacity = dimmed ? 0.12 : hot ? 0.95 : errorish ? 0.85 : 0.55;
           // v0.9.1031 — yön oku (operatör isteği). Uca (t=1) konan ok HTML
           // pilinin ALTINDA kalır (düğümler SVG'nin üstünde); hedefe yakın
@@ -402,7 +413,7 @@ export function TopologyFlowGraph({
               stroke={stroke}
               strokeWidth={hot ? w + 0.8 : w}
               opacity={opacity}
-              className="topo-edge-flow"
+              className={back ? 'topo-edge-flow back' : 'topo-edge-flow'}
               style={{ animationDuration: `${(2.8 - 1.8 * t).toFixed(2)}s`, transition: 'opacity 120ms, stroke 120ms, stroke-width 120ms', strokeDasharray: newDash }}>
               <title>
                 {`${e.caller} → ${e.callee}\n${e.traceCount} traces · ${e.spanCount} spans` +
@@ -410,6 +421,7 @@ export function TopologyFlowGraph({
                   (re.reverse ? `\n${re.reverse.caller} → ${re.reverse.callee} (çift yönlü)` : '') +
                   (fwdBundle > 1 ? `\n${fwdBundle} kenar demetlendi (katlı grup)` : '') +
                   (revBundle > 1 ? `\n${revBundle} kenar demetlendi (ters yön, katlı grup)` : '') +
+                  (back ? '\n↺ döngü kenarı (sağdan sola)' : '') +
                   (e.isNew ? '\n[NEW since baseline]' : '')}
               </title>
             </path>
