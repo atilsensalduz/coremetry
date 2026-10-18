@@ -82,14 +82,17 @@ func (s *Server) copilotExplainTrace(w http.ResponseWriter, r *http.Request) {
 	// explainTraceClassicPrepared.
 	// v0.10.1044 — kod stack'i basan servisin ÇALIŞAN sürümünden
 	// (in.StackVersion; boşsa dal ucu).
-	cc := s.buildCodeContext(r.Context(), in.StackService, in.Stack, in.StackVersion)
+	// v0.10.1330 — stack YOKSA trace'in ana operasyonunun kodu
+	// (traceCodeContext → buildOperationCodeContext); stack yolu aynı.
+	cc := s.traceCodeContext(r.Context(), in)
 	// v0.10.115 — SQL hatasında şema kanıtı (hata span'ının db_statement'ı
 	// → katalog); kod bloğunun arkasına, kendi bütçesiyle.
 	se := s.buildSchemaEvidence(in.ErrorText, in.DBStatements, mapperBlocks(cc))
-	cacheKey := explainCacheKey(copilot.SystemPromptTraceWithCode(), in.User, cc.PromptBlock()+se.Block)
+	systemWithCode, keyExtra := traceCodePromptAndKey(cc, se)
+	cacheKey := explainCacheKey(systemWithCode, in.User, keyExtra)
 	run := explainPromptBuffered(func() (string, error) {
 		return s.copilotExplainEvidence(r,
-			copilot.SystemPromptTrace(), copilot.SystemPromptTraceWithCode(), in.User, cc, se)
+			copilot.SystemPromptTrace(), systemWithCode, in.User, cc, se)
 	})
 	// v0.9.1127 (Faz 1.5) — cevabın çıkışı tek yerden (deliverExplain).
 	s.deliverExplain(w, r, xid, traceExplainExtra(in, cc, opts.IncludeCode), run, in.RootService, cacheKey)
@@ -114,4 +117,20 @@ func (s *Server) explainTraceClassicPrepared(r *http.Request) (explainPrepared, 
 		service:  in.RootService,
 		cacheKey: explainCacheKey(copilot.SystemPromptTrace(), in.User, ""),
 	}, nil
+}
+
+// traceCodePromptAndKey — SAF (v0.10.1330): kodlu system prompt + önbellek
+// anahtarının kod parçası. Stack yolu bayt bayt eskisi (SystemPromptTraceWithCode,
+// PromptBlock+şema). Operasyon yolunda pencere varsa operasyon prompt'u; anahtar
+// MissingBlock'u da taşır ki Code Search açılınca / arama sonucu değişince
+// eski "kodsuz" cevap geri gelmesin.
+func traceCodePromptAndKey(cc devops.CodeContext, se schemaEvidence) (system, keyExtra string) {
+	if cc.Source != devops.CodeSourceOperation {
+		return copilot.SystemPromptTraceWithCode(), cc.PromptBlock() + se.Block
+	}
+	system = copilot.SystemPromptTraceWithCode()
+	if !cc.Empty() {
+		system = copilot.SystemPromptTraceWithOperationCode()
+	}
+	return system, cc.PromptBlock() + cc.MissingBlock() + se.Block
 }

@@ -149,9 +149,15 @@ func oracleExtraAttrs(r chstore.OracleErrorRow) map[string]string {
 // traceExplainExtra — Explain trace cevabına eşlik eden meta (kanıt span'leri,
 // kod kaynağı, Oracle satır sayısı). api.go'dan taşındı (api.go büyümesin).
 func traceExplainExtra(in traceExplainInput, cc devops.CodeContext, includeCode bool) map[string]any {
+	code := codePayload(cc, includeCode)
+	// v0.10.1330 — kod ana operasyondan arandıysa künyesi.
+	if code != nil && cc.Source == devops.CodeSourceOperation {
+		code.Operation, code.OperationSource = in.MainOperation, in.OperationSource
+		code.OtherOperations, code.OperationLookup = in.OtherOperations, operationLookupState(cc)
+	}
 	return map[string]any{
 		"evidenceSpanIds": in.Evidence,
-		"code":            codePayload(cc, includeCode),
+		"code":            code,
 		"oracleRows":      in.OracleRows,
 	}
 }

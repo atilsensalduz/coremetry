@@ -16,6 +16,7 @@ import { readAiCodeParam, readAiSrcParam, writeAiCodeParam } from '@/lib/aiSubje
 import { AIFeedbackButtons } from '@/components/ai/AIFeedbackButtons';
 import { shouldAskForCode, type CodeAskState } from './codeAsk';
 import { codeSourceRef } from './codeSourceRef'; // v0.10.1044 — çalışan sürüm / dal
+import { CodeStatusNote } from './CodeStatusNote'; // v0.10.1330 — operasyon kodu durum satırı
 import { isOracleGroup } from '@/features/anomalies/oracleGroup'; // v0.10.1100
 import { OracleExplainContextLine } from '@/features/anomalies/OracleExplainContextLine';
 
@@ -506,16 +507,9 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs, spanId, logLine,
               söylenir. Sessiz kalmak, kodsuz bir çıkarımı kod
               destekliymiş gibi okutur — bu yüzeyin verebileceği en
               pahalı yanlış izlenim. */}
-          {code && !code.files?.length && (
-            <div style={{
-              fontSize: 11, color: 'var(--warn, var(--text3))', marginBottom: 8,
-              display: 'flex', gap: 6, alignItems: 'flex-start',
-            }}>
-              <span>⚠</span>
-              <span>Kod okunamadı — <strong>kodsuz</strong> analiz.
-                {code.reason ? ` (${code.reason})` : ''}</span>
-            </div>
-          )}
+          {/* v0.10.1330 — durum satırı tek yerden (CodeStatusNote): stack
+              yoksa ana operasyonun kodu ya da neden okunamadığı. */}
+          <CodeStatusNote code={code} />
           {/* v0.9.641 — operatör-bildirimli: "neden kök neden ipucu veya
               öncelikli inceleme başlıkları bold yazmıyor". Model markdown
               üretiyor (**Kök Neden İpucu:**) ama burası {text}'i HAM
@@ -623,12 +617,8 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs, spanId, logLine,
             <div style={{ padding: 10, borderRadius: 6, fontSize: 12, background: 'rgba(255,82,82,.10)', color: 'var(--err)', border: '1px solid rgba(255,82,82,.25)' }}>{codeError}</div>
           )}
           {/* v0.10.1041 — bu kartın künyesi KENDİ isteğinden (codeCtx); ilk kart onu çizmez. */}
-          {codeCtx && !codeCtx.files?.length && (
-            <div style={{ fontSize: 11, color: 'var(--warn, var(--text3))', marginBottom: 8, display: 'flex', gap: 6, alignItems: 'flex-start' }}>
-              <span>⚠</span>
-              <span>Kod okunamadı — <strong>kodsuz</strong> analiz.{codeCtx.reason ? ` (${codeCtx.reason})` : ''}</span>
-            </div>
-          )}
+          {/* v0.10.1330 — ilk kartla aynı durum satırı */}
+          <CodeStatusNote code={codeCtx} />
           {codeText && <ExplainBody text={codeText} busy={codeBusy} links={codeLinks} />}
           {codeBusy && codeText !== null && <span className="cm-ai-cursor" />}
           {codeCtx && !!codeCtx.files?.length && (

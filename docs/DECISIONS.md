@@ -6348,6 +6348,42 @@ loglarına (tüm loglara değil)".
   TestIntentTraceDrillUpgrade, TestRootCauseWantsTraceDrill, TestTraceDrillWiring,
   TestTraceDrillFollowupChip; chstore TestSpanOperationREDQueryPinsP50.
 
+## 2026-10-18 — Stack yoksa kod incelemesi trace'in ana operasyonunun kodunu okur (v0.10.1330)
+
+> Sıra notu: bu kayıt aşağıdaki v0.10.1329 dikişinin ÜSTÜNE kurulur (paralel
+> v0.10.1331 kaydıyla hunk çakışmasın diye 1329'un önüne yazıldı).
+
+**Sorun (operatör-bildirimli):** trace explain "Kod incelemesi" stacktrace'siz trace'te "Kod okunamadı —
+kodsuz analiz. (bu kayıtta stacktrace yok)" diyordu; oysa trace'in ana operasyonu (v0.10.1329
+`pickMainOperation`, kendi Oracle satırı → span attribute'u) depoda tam olarak bir controller metoduna
+bağlı (`@Service(SelfServiceNames.Rest.<OP>)`). **Karar:** `copilotExplainTrace` stack yolu (değişmedi)
+kodsuz + `CodeNoStack` dönerse ve stack METNİ boşsa (`wantOperationCode`), YALNIZ ana operasyonun kodu
+okunur (`api/copilot_code_operation.go` → `devops.FetchOperationCode`, `devops/operation_code.go`):
+Code Search kapısı (kapalıysa Outcome no-stack kalır, Reason Ayarlar ipucu), kök servisin deposu aynı
+pin (fail-closed) / konvansiyon kararıyla, sürüm `RootVersion`, operasyon `^[A-Z0-9_]{6,120}$`. Bütçe:
+TEK arama (`"<OP>" ext:java`, depo süzgeçli) + en çok İKİ dosya (giriş + çağrılan), zincir (branş/ağaç/
+sürüm) explain'in cache'lerinden, süre min(fetchDeadline, 15 sn). Sıralama saf (`RankOperationHits`:
+kaynak-dışı / …Names / …Constants / test elenir; `@Service(`/`SelfServiceNames.` parçası +100,
+Controller/Rest adı +10, `/service/rest/` +5, eşitlikte yol). Pencere: anotasyonun metodu, dize/yorum
+maskeli parantez-dengeli gövde ≤60 satır (`AnnotatedMethodWindow`) + gövdedeki ilk `xxxManager/Service.foo(`
+çağrısı → alan tipinden `<Tip>Impl.java`/`<Tip>.java` (ağaçta, giriş dosyasına en yakın) → gövdeli metot
+≤60 satır (`CalleeMethodWindow`); toplam min(bütçe, 6000) rune. `CodeWindow.Operation/Callee`, Line=0
+(">>>" yok), `CodeContext.Source="operation"`, `OperationOthers`; PromptBlock "operasyon kodu i/n —
+trace'in ANA operasyonu …" başlığı ve "Kodu trace ve Oracle hata satırıyla BİRLİKTE oku…" kapanışı.
+Prompt: yeni `systemOperationCodeAddendum` + `SystemPromptTraceWithOperationCode` (alıntı + yol:aralık,
+span/Oracle/hata kodu → gövdedeki çağrı eşlemesi, "operasyon kodunda görünmüyor", satır suçlaması yok,
+"+N diğer operasyon okunmadı"); pencere yokken eski kodlu prompt + MissingBlock, anahtar MissingBlock'u da
+taşır. Taksonomi pinli kaldı: yeni Outcome yok, sayaç ARTMAZ (istek stack yolunda no-stack sayıldı); 10 dk /
+32 girdilik sonuç cache'i (proje/depo/ref/operasyon/bütçe). Payload: `operation`, `operationSource`,
+`otherOperations`, `operationLookup` (ok/off/failed), dosya `kind` (operation/callee) — kod gövdesi yine
+tarayıcıya gitmez. UI: `codeStatusLine` + `CodeStatusNote` iki kartta; span `coremetry.ai.code.source`.
+**Değişmeyenler:** stack yolu bayt bayt, TestTraceExplainUserGolden, exception explain. **Testler:** devops
+TestOperationSearchQuery, TestValidOperationCode, TestRankOperationHits, TestAnnotatedMethodWindow,
+TestManagerCalleeAndFieldType, TestCalleeMethodWindow, TestCalleePathCandidates,
+TestPromptBlockOperationWindows, TestFetchOperationCode_RequestBudget / SearchOffAndNoHits /
+PATNeverInReason; api TestWantOperationCode, TestTraceCodePromptAndKey, TestTraceCodeContextOperationBranch,
+TestCodeEvidenceAttrsSource; copilot TestTraceWithOperationCodePrompt; vitest CodeStatusNote.test.tsx.
+
 ## 2026-10-18 — Trace operasyon çipi: önce kesin kaynak, sözlük etiketli yedek (v0.10.1329)
 
 **Düzeltme (v0.10.1003 kararının üstüne; operatör-bildirimli):** trace 6008dded… (kök POST

@@ -650,7 +650,9 @@ func TestCodePayload(t *testing.T) {
 // ([[feedback-tested-but-unreachable]]).
 func TestCodeFetchCarriesRunningVersion(t *testing.T) {
 	for _, c := range []struct{ file, want string }{
-		{"trace_explain_handler.go", "s.buildCodeContext(r.Context(), in.StackService, in.Stack, in.StackVersion)"},
+		// v0.10.1330 — trace yolu traceCodeContext üzerinden (stack yoksa operasyon kodu).
+		{"trace_explain_handler.go", "cc := s.traceCodeContext(r.Context(), in)"},
+		{"copilot_code_operation.go", "s.buildCodeContext(ctx, in.StackService, in.Stack, in.StackVersion)"},
 		{"copilot_exception.go", "s.buildCodeContext(r.Context(), codeSvc, in.Stack, in.StackVersion)"},
 		{"explain_trace_input.go", "StackVersion: anomaly.StackVersion(allSpans, stackService, stackSpanID, stackRes),"},
 		{"explain_trace_input.go", "stackSpanID, stackRes = lg.SpanID, lg.ResourceAttributes"},

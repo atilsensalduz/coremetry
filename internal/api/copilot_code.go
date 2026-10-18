@@ -206,6 +206,14 @@ type codeContextPayload struct {
 	// Sürüm bilinip ref bulunamadıysa ikisi de boş, neden Reason'da.
 	Version string `json:"version,omitempty"`
 	Commit  string `json:"commit,omitempty"`
+	// Operation / OperationSource / OtherOperations / OperationLookup
+	// (v0.10.1330) — stack yokken kod trace'in ANA operasyonundan arandıysa:
+	// operasyon kodu, kaynağı (oracle | span), okunmayan diğer operasyonlar ve
+	// aramanın hâli (ok | off = Code Search kapalı | failed). Yalnız trace explain.
+	Operation       string   `json:"operation,omitempty"`
+	OperationSource string   `json:"operationSource,omitempty"`
+	OtherOperations []string `json:"otherOperations,omitempty"`
+	OperationLookup string   `json:"operationLookup,omitempty"`
 }
 
 type codeFileRefDTO struct {
@@ -220,6 +228,9 @@ type codeFileRefDTO struct {
 	// v0.10.353 — pencerenin gerçek deposu ve DevOps dosya+satır linki.
 	Repo string `json:"repo,omitempty"`
 	URL  string `json:"url,omitempty"`
+	// Kind (v0.10.1330) — "operation" (operasyonun giriş metodu) | "callee"
+	// (onun çağırdığı yönetici metodu); stack penceresinde boş.
+	Kind string `json:"kind,omitempty"`
 }
 
 // codePayload — CodeContext → wire. requested=false ise nil döner:
@@ -237,9 +248,20 @@ func codePayload(cc devops.CodeContext, requested bool) *codeContextPayload {
 		p.Version, p.Commit = cc.Revision.Version, cc.Revision.SHA
 	}
 	for _, w := range cc.Windows {
-		p.Files = append(p.Files, codeFileRefDTO{Path: w.Path, FromLine: w.FromLine, ToLine: w.ToLine, Line: w.Line, Repo: w.Repo, URL: w.WebURL})
+		p.Files = append(p.Files, codeFileRefDTO{Path: w.Path, FromLine: w.FromLine, ToLine: w.ToLine, Line: w.Line, Repo: w.Repo, URL: w.WebURL, Kind: codeFileKind(w)})
 	}
 	return p
+}
+
+// codeFileKind — v0.10.1330: pencerenin türü (operasyon yolu); stack'te "".
+func codeFileKind(w devops.CodeWindow) string {
+	switch {
+	case w.Callee:
+		return "callee"
+	case w.Operation:
+		return "operation"
+	}
+	return ""
 }
 
 // isContextOverflowErr — sağlayıcı hatası "prompt bağlama sığmadı" mı?

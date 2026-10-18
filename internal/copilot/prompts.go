@@ -1213,6 +1213,48 @@ const systemExceptionCode = systemExceptionBody + systemCodeAddendum + AnswerInT
 func SystemPromptTraceWithCode() string     { return systemTraceCode }
 func SystemPromptExceptionWithCode() string { return systemExceptionCode }
 
+// systemOperationCodeAddendum — v0.10.1330 (operatör: stacktrace'siz trace'te
+// "Kod incelemesi" kodsuz kalıyordu). Stack YOK; pencereler trace'in ANA
+// operasyonunun giriş metodu + ilk çağırdığı yönetici metodu (devops
+// FetchOperationCode). Kod ekinden (systemCodeAddendum) AYRI: ">>>" hata
+// satırı ve "en derin frame" kuralları burada YANLIŞ olurdu — satır kanıtı
+// yok, kod yalnız çağrı eşlemesi ve öneri için.
+const systemOperationCodeAddendum = `
+
+Bu istekte OPERASYON KODU var: trace'te stacktrace YOK. Pencereler trace'in
+ANA operasyonunun (kendi Oracle satırı ya da span attribute'u) depodaki giriş
+metodu ve o metodun ilk çağırdığı yönetici metodudur, gerçek satır
+numaralarıyla.
+
+- KOD ALINTISI ZORUNLU. İlgili metottan bir kod bloğu ver: bloğu ` + fenceLit + `
+  ile aç ve kapat, ilk satıra // <yol>:<başlangıç>-<bitiş> yaz, ardından SANA
+  VERİLEN satır numaralarıyla kodu koy. Pencerelerde hata satırı işareti YOK;
+  sen de bir satırı hata satırı diye işaretleme.
+- Numaraları UYDURMA: yalnız pencerede verilen satır numaralarını kullan.
+- Trace'teki span'leri (çağrılan servis, DB, HTTP hedefi), Oracle satırındaki
+  operasyonu ve hata kodunu (errorCode / returnCode) metot gövdesinde GÖRÜNEN
+  çağrılara eşle: hangi çağrı hangi span'e karşılık geliyor, hata kodu hangi
+  kontrol ya da throw ile dönüyor. Gövdede görünmeyen bir çağrı ya da davranış
+  için "operasyon kodunda görünmüyor" de; uydurma.
+- Stack olmadığı için belirli bir satırı "hata burada" diye SUÇLAMA. Kodu
+  yalnız ÖNERİ için kullan: hangi kontrolün, hata eşlemesinin ya da logun
+  eklenmesi/düzeltilmesi gerektiğini metotta görünen çağrıya dayandır.
+- Yalnız ANA operasyonun kodu okundu. Blokta "+N diğer operasyon okunmadı"
+  yazıyorsa cevabında bunu tek cümleyle söyle; okunmayan operasyonların kodu
+  hakkında iddia yürütme.
+- "NOT — kod bağlamı EKSİK" satırı varsa gönderilmeyen kısım hakkında iddia
+  yürütme; bir dosya sana verilmediyse "kaynak çözülemedi: <yol>" de.
+- Kod ile trace çelişiyorsa (depodaki sürüm çalışan sürümden farklı olabilir)
+  bunu tek cümleyle söyle.
+- Sonraki adım DOĞRULANABİLİR olsun: hangi dosyada ne kontrol edilecek, hangi
+  span/attribute'a bakılacak. Genel tavsiye YAZMA.`
+
+const systemTraceOperationCode = systemTraceBody + systemOperationCodeAddendum + AnswerInTurkish
+
+// SystemPromptTraceWithOperationCode — v0.10.1330: "Kodu da incele" + stack
+// yok + operasyon kodu bulundu (CodeContext.Source == "operation").
+func SystemPromptTraceWithOperationCode() string { return systemTraceOperationCode }
+
 // systemServiceCharts — Service → Details grafiklerinin AI özeti
 // (onaylı mockup: toolbar Ⓐ "tüm kartlar" / kart başlığı Ⓑ "tek kart").
 //

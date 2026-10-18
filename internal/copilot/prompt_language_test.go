@@ -63,6 +63,8 @@ func promptRegistry() map[string]promptClass {
 		"DeployImpact":      classDirective,
 		"SLOBurn":           classDirective,
 		"SlowQuery":         classDirective,
+		// v0.10.1330 — stack yok, ana operasyonun kodu (kendi hizalama grubu).
+		"TraceWithOperationCode": classDirective,
 		// ── Chat kademeleri (Faz 1.6'da internal/api'den taşındı)
 		"GuidedChat": classDirective, // kademe 1 — guided router narration
 		"DrawerChat": classDirective, // kademe 2 — explain-grounded çekmece
@@ -137,6 +139,9 @@ func promptTexts() map[string]string {
 		"NLToQuery": SystemPromptNLToQuery(), "CHQueryOptimize": SystemPromptCHQueryOptimize(),
 		"ServiceTags": SystemPromptServiceTags(), "OracleException": SystemPromptOracleException(),
 		"CaseCompare": SystemPromptCaseCompare(), "GroundingJudge": SystemPromptGroundingJudge(),
+
+		// v0.10.1330 — stack yok, ana operasyonun kodu.
+		"TraceWithOperationCode": SystemPromptTraceWithOperationCode(),
 	}
 }
 

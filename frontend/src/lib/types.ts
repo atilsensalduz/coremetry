@@ -2204,7 +2204,9 @@ export interface AICodeContext {
   source?: string;
   files?: { path: string; fromLine: number; toLine: number; line?: number;
     /** v0.10.353 — pencerenin gerçek deposu ve DevOps dosya+satır linki (varsa). */
-    repo?: string; url?: string }[];
+    repo?: string; url?: string;
+    /** v0.10.1330 — operasyon yolunda pencere türü: giriş metodu | çağrılan yönetici metodu. */
+    kind?: 'operation' | 'callee' }[];
   reason?: string;
   /** Tarayıcıda açılabilir depo linki — depo bir TAHMİN olabilir, operatör
    *  onu ancak bakarak doğrulayabilir (v0.10.60). */
@@ -2213,6 +2215,13 @@ export interface AICodeContext {
    *  commit; yoksa kod `branch`'in ucundan (sürüm bulunamadıysa neden `reason`'da). */
   version?: string;
   commit?: string;
+  /** v0.10.1330 — stack yokken kod trace'in ANA operasyonundan arandıysa:
+   *  operasyon kodu, kaynağı, OKUNMAYAN diğer operasyonlar ve aramanın hâli
+   *  ('off' = Code Search kapalı). `source` bu yolda 'operation'. */
+  operation?: string;
+  operationSource?: 'oracle' | 'span';
+  otherOperations?: string[];
+  operationLookup?: 'ok' | 'off' | 'failed';
 }
 
 export type DevOpsFlavor = 'auto' | 'azure-devops-server' | 'tfs';

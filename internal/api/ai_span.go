@@ -165,6 +165,7 @@ func codeEvidenceAttrs(cc devops.CodeContext) []attribute.KeyValue {
 	return []attribute.KeyValue{
 		attribute.Bool("coremetry.ai.code.requested", true),
 		attribute.String("coremetry.ai.code.outcome", string(cc.Outcome)),
+		attribute.String("coremetry.ai.code.source", cc.Source), // v0.10.1330 — pin | convention | operation
 		attribute.Int("coremetry.ai.code.frames_total", st.FramesTotal),
 		attribute.Int("coremetry.ai.code.candidates", st.Candidates),
 		attribute.Int("coremetry.ai.code.fetched", st.Fetched),

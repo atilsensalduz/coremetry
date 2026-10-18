@@ -87,6 +87,9 @@ var promptVersionRegistry = map[string]string{
 	"systemGeneralChat":          systemGeneralChat,
 	"AnswerInTurkish":            AnswerInTurkish,
 
+	// v0.10.1330 — stack yokken operasyon kodu eki (kendi hizalama grubu).
+	"systemOperationCodeAddendum": systemOperationCodeAddendum,
+
 	// v0.10.1302 — simple araç seti varyantları (*.simple; ToolsetText ile türer).
 	"systemChatAgentLoop.simple":   SystemPromptChatAgentLoopFor(true),
 	"traceFollowUpAddendum.simple": TraceFollowUpAddendumFor(true),

@@ -193,6 +193,13 @@ type CodeWindow struct {
 	// tanımı bu bağlamda yok"). Pencere imzayı zaten içeriyorsa boş.
 	Signature     string `json:"signature,omitempty"`
 	SignatureLine int    `json:"signatureLine,omitempty"`
+	// Operation / Callee (v0.10.1330) — stack yokken trace'in ANA
+	// operasyonundan gelen pencere (operation_code.go): Operation=true giriş
+	// metodu (Frame = operasyon kodu), Callee=true ayrıca giriş metodunun
+	// çağırdığı yönetici metodu (Frame = "Tip.metot"). Hata satırı YOK:
+	// Line=0, ">>>" işareti basılmaz.
+	Operation bool `json:"operation,omitempty"`
+	Callee    bool `json:"callee,omitempty"`
 }
 
 // FetchStats — bir çekimin SAYILARI (v0.10.112, gözlemlenebilirlik).
@@ -255,6 +262,9 @@ type CodeContext struct {
 	// dosyalar o sürümün COMMIT'inden okundu; değilse Note nedeni söyler ve
 	// kod Branch'in ucundan geldi.
 	Revision *Revision `json:"revision,omitempty"`
+	// OperationOthers (v0.10.1330) — operasyon kodu yolunda trace'teki
+	// OKUNMAYAN diğer operasyon sayısı (prompt "+N diğer operasyon okunmadı").
+	OperationOthers int `json:"operationOthers,omitempty"`
 }
 
 // FromRunningVersion — kod çalışan sürümün commit'inden mi okundu?
@@ -2276,9 +2286,30 @@ func (c CodeContext) PromptBlock() string {
 			fmt.Fprintf(&b, "; çalışan sürüm %s %s — satırlar çalışan koddan farklı olabilir", rv.Version, word)
 		}
 	}
-	b.WriteString("). Satır başındaki sayı GERÇEK dosya satırıdır; " +
-		frameMarker + " ile işaretli satır stack'in gösterdiği hata satırıdır — analizini oradan başlat:")
+	// v0.10.1330 — pencerelerin HEPSİ operasyon kodundansa stack yok:
+	// ">>>" vaadi yerine giriş metodu + ilk çağrı anlatılır.
+	allOp := c.allOperationWindows()
+	if allOp {
+		b.WriteString("). Satır başındaki sayı GERÇEK dosya satırıdır; stacktrace yok — pencereler operasyonun giriş metodu ve ilk çağrısıdır:")
+		if c.OperationOthers > 0 {
+			fmt.Fprintf(&b, "\nYalnız ANA operasyonun kodu okundu; +%d diğer operasyon okunmadı.", c.OperationOthers)
+		}
+	} else {
+		b.WriteString("). Satır başındaki sayı GERÇEK dosya satırıdır; " +
+			frameMarker + " ile işaretli satır stack'in gösterdiği hata satırıdır — analizini oradan başlat:")
+	}
 	for i, w := range c.Windows {
+		if w.Operation {
+			// v0.10.1330 — operasyon penceresi: hata satırı işareti YOK.
+			if w.Callee {
+				fmt.Fprintf(&b, "\n\noperasyon kodu %d/%d — çağrılan yönetici metodu %s\n%s (satır %d-%d)\n```%s\n%s\n```",
+					i+1, len(c.Windows), w.Frame, w.Path, w.FromLine, w.ToLine, fenceLang(w.Path), w.Content)
+			} else {
+				fmt.Fprintf(&b, "\n\noperasyon kodu %d/%d — trace'in ANA operasyonu %s (stacktrace yok; bu metot operasyonun giriş noktası, hata satırı işareti yok)\n%s (satır %d-%d)\n```%s\n%s\n```",
+					i+1, len(c.Windows), w.Frame, w.Path, w.FromLine, w.ToLine, fenceLang(w.Path), w.Content)
+			}
+			continue
+		}
 		if w.Resource {
 			// v0.10.73 — KAYNAK PENCERESİ AYRI SUNULUYOR.
 			//
@@ -2309,8 +2340,27 @@ func (c CodeContext) PromptBlock() string {
 	if c.Trimmed != "" {
 		b.WriteString("\n\nNOT — kod bağlamı EKSİK: " + c.Trimmed + ". Gönderilmeyen pencereler hakkında iddia yürütme; gerekiyorsa \"kaynak çözülemedi: <yol>\" de.")
 	}
+	if allOp {
+		// v0.10.1330 — stack yok: satır suçlaması yerine çağrı eşlemesi.
+		b.WriteString("\n\nKodu trace ve Oracle hata satırıyla BİRLİKTE oku: trace'teki span'leri, Oracle operasyonunu ve hata kodunu metot gövdesinde GÖRÜNEN çağrılara eşle; gövdede görünmeyen bir çağrı ya da davranış için \"operasyon kodunda görünmüyor\" de. Hata satırı bilinmiyor — belirli bir satırı suçlama, öneriyi metotta görünen çağrı/koşula dayandır.")
+		return b.String()
+	}
 	b.WriteString("\n\nKodu stack'le BİRLİKTE oku: hatanın atıldığı satırı göster ve kök nedeni o satırdaki koşula/çağrıya dayandır. Kodda görmediğin bir davranışı UYDURMA — pencere dışında kalan kısım hakkında \"bu pencerede görünmüyor\" de.")
 	return b.String()
+}
+
+// allOperationWindows — v0.10.1330: bağlamdaki her pencere operasyon
+// kodundan mı (stack yok)? Boş bağlamda false.
+func (c CodeContext) allOperationWindows() bool {
+	if len(c.Windows) == 0 {
+		return false
+	}
+	for _, w := range c.Windows {
+		if !w.Operation {
+			return false
+		}
+	}
+	return true
 }
 
 // MissingBlock — KOD İSTENDİ AMA ÇÖZÜLEMEDİ (v0.10.112, operatör
