@@ -469,7 +469,10 @@ func TestEvalAgentSurfaceTag(t *testing.T) {
 	s.copilot.SetRecorder(rec)
 	rows := captureCosreRows(t)
 	(&fakeTools{}).install(t)
-	out := runEvalsetCase(fullCtx(), nil, agentServerFn(s), agentCase("a-tag", evalExpect{AnyOfTools: []string{"compare_periods"}}))
+	// v0.10.1321 — ajan vakasında niyet kademesi yalnız expectTier "intent"
+	// sabitlenince açık (evalAgentSkipIntent); etiket pini sınıflandırıcı
+	// satırını görmek için kademeyi sabitler (none → IntentOn → döngü).
+	out := runEvalsetCase(fullCtx(), nil, agentServerFn(s), agentCase("a-tag", evalExpect{AnyOfTools: []string{"compare_periods"}, ExpectTier: "intent"}))
 	if out.Agent == nil || out.Agent.Tier != "loop" {
 		t.Fatalf("niyet → döngü kurgusu: %+v fails=%v", out.Agent, out.Fails)
 	}

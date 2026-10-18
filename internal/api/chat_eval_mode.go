@@ -18,6 +18,8 @@ package api
 //     bağlamı (Redis) okunmaz/yazılmaz;
 //   - araç başına mcp.tool.call audit'i yazılmaz (D4 — koşu düzeyi audit
 //     ai.evalset.run kalır);
+//   - v0.10.1321 — niyet kademesi atlanır (SkipIntent; vaka expectTier
+//     "intent" sabitlemediyse);
 //   - her model turu OnTurn'e, her Executor çağrısı OnTool'a bildirilir.
 //
 // İşaret nil iken (üretim) her yol bayt bayt eskisidir
@@ -40,6 +42,12 @@ type chatEvalMode struct {
 	Surface, ExchangeID string
 	// Toolset — koşunun araç seti (full | simple); "" = canlı çözüm.
 	Toolset string
+	// SkipIntent — v0.10.1321 (operatör): niyet kademesi (copilotChatIntent —
+	// LLM sınıflandırıcısı + on_no_loop genel cevabı) bu vakada koşmaz; düz
+	// soru serbest araç döngüsüne ulaşır. guided ve öteki kademeler açık.
+	// evalsetServerAgent kurar (evalAgentSkipIntent: vaka expectTier "intent"
+	// sabitlemediyse true).
+	SkipIntent bool
 	// OnTurn — serbest döngünün her model turu; round < 0 = tavan turu
 	// (araç çağrısı yasak son tur). nil = bildirim yok.
 	OnTurn func(round int, turn copilot.ChatTurn, err error)
@@ -84,6 +92,10 @@ func chatEvalModeFrom(ctx context.Context) *chatEvalMode {
 	em, _ := ctx.Value(chatEvalModeKey{}).(*chatEvalMode)
 	return em
 }
+
+// skipIntent — v0.10.1321: niyet kademesi atlanır mı. nil (üretim) → false,
+// yani kademe kararı bayt bayt eski.
+func (em *chatEvalMode) skipIntent() bool { return em != nil && em.SkipIntent }
 
 // evalOutcomeFromExchange — SAF (x kilidi altında okur): Sink yükü.
 func evalOutcomeFromExchange(x *chatExchange, tier, status, msg string) evalAgentOutcome {

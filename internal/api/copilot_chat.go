@@ -490,10 +490,15 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 		// cevap AYNI prefetch→anlatım yolundan (runGuidedRoute). Eşlemezse
 		// ayara göre öneri çipleri (on_no_loop, prod varsayılanı) ya da aşağıdaki
 		// serbest döngü (on). Sınıflandırıcı hatası sessizce düşer — döngü sürer.
-		if handled, iok := s.copilotChatIntent(ctx, emit, req.Messages, req.Context.Service, req.Context.Operation, req.Context.Explain, req.Context.RangeS, req.Context.Env, anchorTo, req.Context.TzOffsetMin, req.Context.Tz); handled {
-			cspan.tier("intent", iok)
-			emit("done", map[string]bool{"ok": iok})
-			return
+		// v0.10.1321 (operatör) — ajan kipi evalset vakasında niyet kademesi
+		// kapalı (chatEvalMode.SkipIntent): vaka araç döngüsünü ölçer. nil
+		// işarette skipIntent false → üretim aynen.
+		if !evm.skipIntent() {
+			if handled, iok := s.copilotChatIntent(ctx, emit, req.Messages, req.Context.Service, req.Context.Operation, req.Context.Explain, req.Context.RangeS, req.Context.Env, anchorTo, req.Context.TzOffsetMin, req.Context.Tz); handled {
+				cspan.tier("intent", iok)
+				emit("done", map[string]bool{"ok": iok})
+				return
+			}
 		}
 	}
 

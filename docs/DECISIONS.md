@@ -6283,3 +6283,29 @@ kıyas tarafları `toolCallsMean` / `tokensMean` + not. Şema değişmez.
 ajan dosyalarında yazan çağrı yok), mcptools TestMCPToolsNoWriteTool (her araç
 MinRole "", yazma fiilli ad yalnız ConversationStateTools'ta ya da gerekçeli okuma
 listesinde), TestEvalAgentSurfaceTag, TestEvalNeverReadsVotes.
+
+## 2026-10-18 — v0.10.1321 — Ajan eval vakalarında intent katmanı kapalı (operatör)
+
+**Sorun:** v0.10.1316 D2 döngü öncesi kademeleri açık bıraktı. Prod niyet ayarı
+varsayılanı `on_no_loop`: guided'ın eşlemediği düz soru niyet kademesinde
+(sınıflandırıcı + araçsız genel cevap) biter, araç döngüsüne hiç ulaşmaz — ajan
+vakaları "missing tool" ile kalıyordu; ölçmek istediğimiz araç döngüsüydü.
+
+- **Karar (operatör):** ajan kipi evalset vakasında NİYET kademesi kapalı.
+  `chatEvalMode.SkipIntent` (evalsetServerAgent kurar, `evalAgentSkipIntent`);
+  copilot_chat.go'da `copilotChatIntent` çağrısı `!evm.skipIntent()` ile sarılı.
+  Atlanınca hem sınıflandırıcı hem on_no_loop genel cevabı koşmaz → serbest döngü.
+- **Kapsam:** yalnız niyet kademesi. guided ayrı mekanizma (deterministik router,
+  LLM sınıflandırıcısı yok; niyet eşleşince yalnız anlatım yolunu — runGuidedRoute —
+  paylaşır) → açık kalır; kapsam / hafıza / wiki / doc-rows / operasyon / çekmece /
+  RAG kademeleri de değişmez. Sistem ayarı (`IntentClassifyMode`) okunmaya devam
+  eder; değişen yalnız bu vakanın kademe kararı.
+- **İstisna:** vaka `"expectTier": "intent"` sabitlediyse kademeyi ölçmek istiyordur
+  → niyet açık kalır (SkipIntent false).
+- **Üretim:** işaret nil iken `skipIntent()` false → yol bayt bayt eski
+  (TestChatEvalModeNilIsByteIdentical yeşil).
+- **Testler:** TestEvalAgentSkipsIntentTier (on_no_loop'ta aynı soru üretimde niyet
+  kademesinde biter, ajan vakasında sınıflandırıcısız döngüye ulaşır),
+  TestEvalAgentExpectTierIntentKeepsIntent, TestEvalAgentSkipIntentDecision;
+  TestEvalAgentSurfaceTag sınıflandırıcı satırını görmek için artık expectTier
+  "intent" sabitler.

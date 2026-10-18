@@ -13,10 +13,12 @@ package api
 // CANLI sohbet handler'ından geçirir (D1, süreç içi): copilotChat'e gerçek bir
 // POST /api/copilot/chat isteği kurulur, ctx'e chatEvalMode işareti konur
 // (chat_eval_mode.go) ve SSE gövdesi atılır; sonuç Sink + tur/araç
-// kancalarından toplanır. Döngü öncesi kademeler (guided, niyet, wiki …)
-// AÇIK kalır (D2) — üretim neyse o ölçülür; kademe önemliyse vaka
-// `expectTier` ile sabitler. Tavanlar canlıdakiler (D3: 5 tur / 6 çağrı,
-// Derin 8 / 12; araç başına 20 s), vaka tavanı evalAgentCaseMax. Araç başına
+// kancalarından toplanır. Döngü öncesi kademeler (guided, wiki …) AÇIK
+// kalır (D2) — üretim neyse o ölçülür; kademe önemliyse vaka `expectTier`
+// ile sabitler. v0.10.1321: niyet kademesi ajan vakasında KAPALI
+// (evalAgentSkipIntent), yalnız expectTier "intent" sabitleyen vakada açık.
+// Tavanlar canlıdakiler (D3: 5 tur / 6 çağrı, Derin 8 / 12; araç başına
+// 20 s), vaka tavanı evalAgentCaseMax. Araç başına
 // mcp.tool.call audit'i yazılmaz (D4), koşunun ai.evalset.run satırı kalır.
 // ai_calls yüzeyi evalset-ChatLoop (D5, evalset- öneki = K2 dışlaması);
 // döngü öncesi kademelerin satırları da aynı öneki alır
@@ -39,6 +41,7 @@ import (
 	"time"
 
 	agenttools "github.com/cilcenk/coremetry/internal/ai/agent/tools"
+	"github.com/cilcenk/coremetry/internal/ai/aisurface"
 	"github.com/cilcenk/coremetry/internal/ai/evalrubric"
 	"github.com/cilcenk/coremetry/internal/ai/modelcaps"
 	"github.com/cilcenk/coremetry/internal/auth"
@@ -256,6 +259,16 @@ func (w *evalDiscardResponse) status() int {
 	return w.code
 }
 
+// evalAgentSkipIntent — SAF, v0.10.1321 (operatör; DECISIONS "Ajan eval
+// vakalarında intent katmanı kapalı"): ajan vakasında niyet kademesi KAPALI.
+// Prod varsayılanı on_no_loop'ta guided'ın eşlemediği düz soru niyet
+// kademesinde (sınıflandırıcı + genel cevap) biter, döngüye hiç ulaşmaz ve
+// vaka "missing tool" ile kalırdı — ölçmek istediğimiz araç döngüsüydü. guided
+// (deterministik router, ayrı mekanizma) ve öteki kademeler açık kalır.
+// İstisna: vaka expectTier "intent" sabitlediyse kademeyi ölçmek istiyordur →
+// açık kalır.
+func evalAgentSkipIntent(c evalCase) bool { return c.Expect.ExpectTier != aisurface.TierIntent }
+
 // evalAgentRequest — SAF: vakanın sohbet isteği (tek kullanıcı turu,
 // konuşmasız, sayfasız; Derin vakadan).
 func evalAgentRequest(c evalCase) chatRequest {
@@ -279,7 +292,8 @@ func (s *Server) evalsetServerAgent(job *evalJob) evalAgentFn {
 		col := &evalAgentCollector{}
 		em := &chatEvalMode{
 			Surface: evalsetSurfacePrefix + c.Surface, ExchangeID: job.row.ID + "/" + c.ID, Toolset: toolset,
-			OnTurn: col.onTurn, OnTool: col.onTool, Sink: col.sink,
+			SkipIntent: evalAgentSkipIntent(c), // v0.10.1321
+			OnTurn:     col.onTurn, OnTool: col.onTool, Sink: col.sink,
 		}
 		cctx := copilot.WithRecordSurfacePrefix(ctx, evalsetSurfacePrefix)
 		cctx = auth.ContextWithClaims(cctx, &auth.Claims{UserID: job.userID, Email: job.userEmail, Role: job.userRole})

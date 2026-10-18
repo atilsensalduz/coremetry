@@ -94,8 +94,13 @@ temizlenerek alınır.
 `"deep": true`). Vaka tek çağrı DEĞİL: sunucu canlı sohbet handler'ını
 (`copilotChat`) süreç içinde, gerçek araç kataloğu, Executor ve tur/çağrı
 tavanlarıyla koşar (`internal/api/ai_evalset_agent.go`). Döngü öncesi
-kademeler (guided, niyet …) açıktır; kademe önemliyse `expectTier`
-sabitler. CLI koşumunda (`-tags evalset`) ajan vakaları ATLANIR.
+kademeler (guided, wiki, RAG …) açıktır; kademe önemliyse `expectTier`
+sabitler. **Niyet kademesi (LLM sınıflandırıcısı + `on_no_loop` genel
+cevabı) ajan vakasında KAPALIDIR (v0.10.1321, operatör):** prod varsayılanı
+`on_no_loop`'ta guided'ın eşlemediği düz soru orada biter ve araç döngüsü
+hiç ölçülmezdi. Yalnız `"expectTier": "intent"` sabitleyen vaka kademeyi
+açık tutar (`evalAgentSkipIntent`). CLI koşumunda (`-tags evalset`) ajan
+vakaları ATLANIR.
 
 Ek beklentiler (yalnız ajan kipi): `expectedTools` (her biri en az bir kez
 başarıyla — tek çağrılı kipte bilgi amaçlı), `anyOfTools` (en az biri),
