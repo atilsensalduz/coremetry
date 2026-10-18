@@ -550,6 +550,11 @@ code, pre, .mono { font-family: var(--font-mono); font-size: 12px; } /* v0.10.93
 
 /* Controls */
 .controls { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; align-items: center; }
+/* v0.10.1319 K1 — sayfa EYLEM yuvası (`PageControls actions=`): filtreler +
+   sonuç bilgisi solda, eylemler sağ kümede (ikinciller primary'nin solunda).
+   `margin-left: auto` sağa iten TEK yer — çağıranlar artık meta span'ine
+   satır-içi `marginLeft: 'auto'` yazmıyor. */
+.controls > .pc-actions { display: inline-flex; align-items: center; gap: var(--sp-4); margin-left: auto; flex-shrink: 0; }
 
 /* v0.9.639 — YAPIŞKAN filtre barı, OPT-IN.
    (denetim bulgusu #5: "hiçbir liste sayfasında sticky filtre barı yok —
@@ -4542,6 +4547,11 @@ tr:hover .row-kiosk, .row-kiosk:focus-visible { opacity: 1; }
   .controls.is-collapsible:not(.is-sticky) { position: relative; }
   /* Ana yüzeyde kalan tek kontrol boşluğu alsın (tipik: arama kutusu). */
   .controls.is-collapsible > :first-child { flex: 1 1 auto; min-width: 0; }
+  /* v0.10.1319 K1 — eylemler KATLANMAZ: yuva panelin dışında kalır ve
+     kendi satırına sağa yaslı iner (lead + "Filtreler" üst satırda).
+     `has-actions` olmadan yukarıdaki `nowrap` aynen geçerli. */
+  .controls.is-collapsible.has-actions { flex-wrap: wrap; row-gap: 8px; }
+  .controls.is-collapsible > .pc-actions { flex: 1 0 100%; justify-content: flex-end; margin-left: 0; }
   /* Katlama düğmesi `DisclosureButton anatomy="row"` — glif disiplini
      oradan geliyor (▸/▾, operatör kararı 2026-08-10). `row` anatomisi
      11px/2px dolgulu ve `(0,2,0)` özgüllüğüyle bu bloğun `button`

@@ -36,6 +36,16 @@ export interface PageControlsProps {
       sayfaların taşıdığı mevcut değerleri kaybetmemek için var —
       yeni kullanımda gerekmiyor. */
   style?: CSSProperties;
+  /** v0.10.1319 K1 — SAYFA EYLEMLERİ yuvası. Tek primary + yardımcı
+      ikinciller (ikinciller primary'nin SOLUNDA), md boy. Barın sağ
+      kümesi: filtreler + sonuç bilgisi solda, eylemler sağda. DOM'da
+      HER ZAMAN son çocuk (masaüstünde `{children}`dan sonra; dar
+      ekranda lead + "Filtreler" düğmesinden sonra, panelden ÖNCE ve
+      panelin DIŞINDA). ≤640px'te KATLANMAZ — eylem bir filtre değil,
+      "Filtreler (N)" sayacına da girmez. `false`/`null` = yuva yok ve
+      DOM/className eski hâlin BİREBİR aynısı (rol kapısı:
+      `actions={isAdmin && …}`). */
+  actions?: ReactNode;
 }
 
 // v0.9.669 — kalan div ÖZNİTELİKLERİ geçirgen.
@@ -141,7 +151,7 @@ export function leadChildIndex(items: ReactNode[]): number {
   return items.length > 0 ? 0 : -1;   // hiç kontrol yoksa ilk çocuk
 }
 
-export function PageControls({ children, sticky = false, className, style, ...rest }: PageControlsAllProps) {
+export function PageControls({ children, sticky = false, className, style, actions, ...rest }: PageControlsAllProps) {
   const ref = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const panelId = useId();
@@ -235,10 +245,18 @@ export function PageControls({ children, sticky = false, className, style, ...re
   // bir panel yığında durup Esc'i yutmamalı.
   useEscLayer(open, () => setOpen(false));
 
+  // v0.10.1319 — `actions={isAdmin && …}` yetkisiz kullanıcıda `false`
+  // geçiyor; o durumda yuva HİÇ basılmıyor (boş bir sağ küme
+  // `margin-left: auto` ile hiçbir şeyi itmemeli, className de değişmemeli
+  // — `pageControlsCollapse.test` tam sınıf dizgisini çiviliyor).
+  const hasActions = actions != null && actions !== false;
+  const actionSlot = hasActions && <div className="pc-actions">{actions}</div>;
+
   const cls = [
     'controls',
     sticky ? 'is-sticky' : '',
     narrow ? 'is-collapsible' : '',
+    hasActions ? 'has-actions' : '',
     className ?? '',
   ].filter(Boolean).join(' ');
 
@@ -249,6 +267,7 @@ export function PageControls({ children, sticky = false, className, style, ...re
       // çağıran onları kazara ezemesin.
       <div {...rest} ref={ref} className={cls} style={style}>
         {children}
+        {actionSlot}
       </div>
     );
   }
@@ -271,6 +290,10 @@ export function PageControls({ children, sticky = false, className, style, ...re
           Filtreler{hiddenControls > 0 ? ` (${hiddenControls})` : ''}
         </DisclosureButton>
       )}
+      {/* v0.10.1319 — eylemler panelin DIŞINDA, `.controls`un doğrudan
+          çocuğu: katlanmaz ve sayaç (`panelRef` altını sayıyor) onları
+          görmez. CSS telefon katmanı yuvayı kendi satırına sağa yaslıyor. */}
+      {actionSlot}
       {/* Panel HER ZAMAN basılıyor (kapalıyken `display: none`):
           çocuklar mount kalsın ve sayaç kapalıyken de doğru olsun.
           Sıra korunuyor — filtreler barda hangi sırayla duruyorsa

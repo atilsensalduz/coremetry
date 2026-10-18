@@ -91,20 +91,21 @@ export default function SLOsPage() {
     <>
       <Topbar title="SLOs" />
       <PageShell>
-        <PageControls sticky>
-          <span style={{ color: 'var(--text2)', fontSize: 12 }}>
-            Service Level Objectives — track availability and latency targets with error-budget burn down.
-          </span>
-          {isAdmin && (
+        {/* v0.10.1319 K1 — eylemler sağ kümede, md boy (eski size="sm" +
+            satır-içi marginLeft kalktı; hizayı `.pc-actions` veriyor). */}
+        <PageControls sticky
+          actions={isAdmin && (
             <>
-              <Button variant="secondary" size="sm" onClick={() => setShowAuto(true)}
-                style={{ marginLeft: 'auto' }}
+              <Button variant="secondary" onClick={() => setShowAuto(true)}
                 title="Scan recent telemetry and propose baseline-grounded availability + latency SLOs">
                 <IconSparkles size={13} /> Auto-create
               </Button>
-              <Button variant="primary" size="sm" onClick={() => setShowNew(true)}>+ New SLO</Button>
+              <Button variant="primary" onClick={() => setShowNew(true)}>+ New SLO</Button>
             </>
-          )}
+          )}>
+          <span style={{ color: 'var(--text2)', fontSize: 12 }}>
+            Service Level Objectives — track availability and latency targets with error-budget burn down.
+          </span>
         </PageControls>
 
         {/* v0.9.858 (UX denetimi K6) — hata dalı "No SLOs defined"e

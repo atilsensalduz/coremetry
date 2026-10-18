@@ -215,31 +215,37 @@ export default function DashboardsPage() {
     <>
       <Topbar title="Dashboards" />
       <PageShell>
-        <PageControls sticky>
+        {/* v0.10.1319 K1 — eylemler sağ kümede: ikincil (Import) primary'nin
+            SOLUNDA, primary EN SAĞDA. */}
+        <PageControls sticky
+          actions={isAdmin && (
+            <>
+              <Button variant="secondary" onClick={() => fileRef.current?.click()}
+                title="Import a dashboard from an exported JSON file" loading={importing}>
+                ↑ Import JSON
+              </Button>
+              <Button variant="primary" onClick={() => setShowNew(true)}>+ New dashboard</Button>
+            </>
+          )}>
           {/* v0.9.1012 (M8) — ayrı "Clear" butonu atomun kutu-içi ✕'ine
               devredildi: temizleme affordance'ı aramanın KENDİSİNDE. */}
           <SearchField ref={searchRef} value={q} onChange={setQ}
             placeholder="Filter dashboards…" aria-label="Filter dashboards"
             hint="/" width={220} />
-          {isAdmin && (
-            <>
-              <Button variant="primary" onClick={() => setShowNew(true)}>+ New dashboard</Button>
-              <Button variant="secondary" onClick={() => fileRef.current?.click()}
-                title="Import a dashboard from an exported JSON file" loading={importing}>
-                ↑ Import JSON
-              </Button>
-              <input ref={fileRef} type="file" accept="application/json,.json"
-                style={{ display: 'none' }}
-                onChange={e => {
-                  const f = e.target.files?.[0];
-                  if (f) onImportFile(f);
-                }} />
-            </>
-          )}
-          <span style={{ color: 'var(--text3)', fontSize: 12, marginLeft: 'auto' }}>
+          <span style={{ color: 'var(--text3)', fontSize: 12 }}>
             {filtered?.length ?? 0} dashboard{(filtered?.length ?? 0) === 1 ? '' : 's'}
           </span>
         </PageControls>
+        {/* Gizli dosya girdisi barın DIŞINDA (v0.10.1319): içeride kalsaydı
+            dar ekranda "Filtreler (N)" sayacı onu bir filtre alanı sayardı. */}
+        {isAdmin && (
+          <input ref={fileRef} type="file" accept="application/json,.json"
+            style={{ display: 'none' }}
+            onChange={e => {
+              const f = e.target.files?.[0];
+              if (f) onImportFile(f);
+            }} />
+        )}
 
         <div className="table-wrap">
           <table {...dt.tableProps}>

@@ -125,8 +125,9 @@ export default function UsersPage() {
     <>
       <Topbar title="Users" />
       <PageShell>
-        <PageControls sticky>
-          <Button variant="primary" onClick={() => setShowNew(true)}>+ New user</Button>
+        {/* v0.10.1319 K1 — "+ New user" eylem yuvasında (sağ küme, md). */}
+        <PageControls sticky
+          actions={<Button variant="primary" onClick={() => setShowNew(true)}>+ New user</Button>}>
           {teamOptions.length > 0 && (
             <select ref={teamRef} value={teamFilter}
               onChange={e => setTeamFilter(e.target.value)}
@@ -137,7 +138,7 @@ export default function UsersPage() {
               {teamOptions.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           )}
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
             {/* v0.8.403 — presence: count over ALL loaded users (not the
                 team-filtered slice) so the header reads as a page-level
                 "who's on Coremetry right now".

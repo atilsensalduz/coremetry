@@ -12,6 +12,7 @@ import { tsLong } from '@/lib/utils';
 import type { Monitor, MonitorRow, MonitorStats, MonitorType } from '@/lib/types';
 import { QueryError } from '@/components/QueryError';
 import { readState } from '@/lib/readState';
+import { PageControls } from '@/components/ui/PageControls';
 import { PageShell } from '@/components/ui/PageShell';
 
 // /monitors — synthetic uptime + heartbeat dashboard.
@@ -41,14 +42,14 @@ export default function MonitorsPage() {
     <>
       <Topbar title="Monitors" />
       <PageShell>
-        {isAdmin && (
-          <div className="controls" style={{ marginBottom: 12 }}>
-            <Button variant="primary" onClick={() => setShowNew(true)}>+ New monitor</Button>
-            <span style={{ color: 'var(--text3)', fontSize: 12, marginLeft: 'auto' }}>
-              {items?.length ?? 0} monitors
-            </span>
-          </div>
-        )}
+        {/* v0.10.1319 K1 — bar artık herkese basılıyor (sayaç salt-okur
+            bilgi, invariant #7); yalnız eylem yuvası rol kapılı. */}
+        <PageControls style={{ marginBottom: 12 }}
+          actions={isAdmin && <Button variant="primary" onClick={() => setShowNew(true)}>+ New monitor</Button>}>
+          <span style={{ color: 'var(--text3)', fontSize: 12 }}>
+            {items?.length ?? 0} monitors
+          </span>
+        </PageControls>
         {readState(items) === 'loading' && <Spinner />}
         {/* v0.9.858 (UX denetimi K6) — hata "No monitors yet" olarak
             sunuluyordu; operatör monitörlerinin gittiğini sanabilir. */}

@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Topbar } from '@/components/Topbar';
 import { ServicePicker } from '@/components/ServicePicker';
-import { Button, Chip, useConfirm } from '@/components/ui';
+import { ActionRow, Button, Chip, useConfirm } from '@/components/ui';
 import { useDataTable, DataTableHead, DataTableColgroup, DataTableState, type DataTableStateProps } from '@/components/ui/DataTable';
 import type { DataTableColumn } from '@/lib/dataTable';
 import { useAuth } from '@/components/AuthProvider';
@@ -24,6 +24,7 @@ import { ConditionPreview } from './alerts/ConditionPreview';
 import { NoisyRulesPanel } from './alerts/NoisyRulesPanel';
 import { WatcherImportModal } from './alerts/WatcherImportModal';
 import { Link } from 'react-router-dom';
+import { PageControls } from '@/components/ui/PageControls';
 import { PageShell } from '@/components/ui/PageShell';
 
 // alertTypeLabel — Type hücresinin bastığı rozet metni. Sıralama accessor'ı
@@ -310,8 +311,13 @@ export default function AlertsPage() {
   // NoisyRulesPanel owns the report + bulk-apply state; this single
   // callback is the one cross-cutting concern (it drives the parent's
   // form), so behaviour matches the pre-refactor inline applySuggestion.
+  // v0.10.1319 — formun kabı (odak hedefi) ve açıldığı andaki taslak
+  // (kirlilik ölçüsü: `draft` bundan farklıysa kaydedilmemiş düzenleme var).
+  const formRef = useRef<HTMLDivElement>(null);
+  const formBaseline = useRef<Partial<AlertRule>>(emptyDraft);
   const editFromSuggestion = (d: Partial<AlertRule>, ruleId: string) => {
     setDraft(d);
+    formBaseline.current = d;
     setEditingId(ruleId);
     setShowForm(true);
     // Scroll the form into view so the operator sees the
@@ -323,6 +329,7 @@ export default function AlertsPage() {
 
   const startEdit = (r: AlertRule) => {
     setDraft({ ...r });
+    formBaseline.current = { ...r };
     setEditingId(r.id);
     setShowForm(true);
   };
@@ -330,6 +337,28 @@ export default function AlertsPage() {
     setShowForm(false);
     setEditingId(null);
     setDraft(emptyDraft);
+    formBaseline.current = emptyDraft;
+  };
+  // v0.10.1319 K1 — "+ New alert rule" artık TEK YÖNLÜ: formu açar, asla
+  // kapatmaz (eski Cancel/New etiket takası kalktı; iptal
+  // formun kendi ActionRow'unda). Form ZATEN açık ve kaydedilmemiş
+  // düzenleme varsa taslak SESSİZCE SİLİNMEZ — form açık kalır ve odak
+  // forma taşınır; operatör bilinçli olarak Cancel'a basıp yeniden açar.
+  // Açık ama temiz bir form (ör. değişiklik yapılmamış bir Edit) yeni
+  // boş taslağa geçer.
+  const focusForm = () => {
+    const el = formRef.current;
+    if (!el) return;
+    el.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+    el.querySelector<HTMLElement>('input:not([type="file"]), select, textarea')?.focus();
+  };
+  const startNew = () => {
+    const dirty = showForm && JSON.stringify(draft) !== JSON.stringify(formBaseline.current);
+    if (dirty) { focusForm(); return; }
+    setDraft(emptyDraft);
+    formBaseline.current = emptyDraft;
+    setEditingId(null);
+    setShowForm(true);
   };
 
   const save = async () => {
@@ -366,25 +395,23 @@ export default function AlertsPage() {
     <>
       <Topbar title="Alert rules" />
       <PageShell>
-        <div className="controls" style={{ marginBottom: 14 }}>
+        {/* v0.10.1319 K1 — eylem yuvası: ikincil (Import) primary'nin solunda. */}
+        <PageControls style={{ marginBottom: 14 }}
+          actions={canEdit && (
+            <>
+              <Button variant="secondary" onClick={() => setShowImport(true)}
+                      title="Paste an Elasticsearch Watcher definition (PUT _watcher/watch body) and import it as an alert rule">
+                ⤓ Import ES watcher
+              </Button>
+              <Button variant="primary" onClick={startNew}>+ New alert rule</Button>
+            </>
+          )}>
           {/* v0.10.1069 — "Built-in rules ship pre-configured" cümlesi kalktı:
               yerleşikler artık varsayılan kapalı (tablonun üstündeki not). */}
           <span style={{ color: 'var(--text2)', fontSize: 12 }}>
             Evaluator runs every minute.
           </span>
-          {canEdit && (
-            <>
-              <Button variant="secondary" onClick={() => setShowImport(true)}
-                      style={{ marginLeft: 'auto' }}
-                      title="Paste an Elasticsearch Watcher definition (PUT _watcher/watch body) and import it as an alert rule">
-                ⤓ Import ES watcher
-              </Button>
-              <Button variant="primary" onClick={() => showForm ? cancelForm() : setShowForm(true)}>
-                {showForm ? 'Cancel' : '+ New alert rule'}
-              </Button>
-            </>
-          )}
-        </div>
+        </PageControls>
 
         {showImport && (
           <WatcherImportModal
@@ -405,7 +432,7 @@ export default function AlertsPage() {
         )}
 
         {showForm && (
-          <div style={{
+          <div ref={formRef} style={{
             background: 'var(--bg1)', border: '1px solid var(--border)',
             borderRadius: 8, padding: 14, marginBottom: 14,
           }}>
@@ -614,28 +641,33 @@ export default function AlertsPage() {
                 the threshold line + a "would have fired N×" count, so the
                 operator tunes the threshold against real data before saving. */}
             <ConditionPreview draft={draft} />
-            <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
-              <Button variant="primary" onClick={save}>{editingId ? 'Update rule' : 'Save rule'}</Button>
-              {!editingId && (
-                <Button variant="secondary" type="button" onClick={saveAsPreset}
-                  disabled={!draft.metric}
-                  title={isAdmin
-                    ? 'Save this draft as a reusable preset — admins can share with the team'
-                    : 'Save this draft as a personal preset'}>
-                  ★ Save as preset
-                </Button>
-              )}
-              {editingId && (
-                <span style={{ fontSize: 11, color: 'var(--text3)' }}>
-                  Editing <code>{editingId}</code>
-                  {draft.builtIn && (
-                    <span style={{ marginLeft: 6, color: 'var(--text2)' }}>
-                      (built-in — edits persist; preset values aren't restored on next boot)
-                    </span>
-                  )}
-                </span>
-              )}
-            </div>
+            {editingId && (
+              <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text3)' }}>
+                Editing <code>{editingId}</code>
+                {draft.builtIn && (
+                  <span style={{ marginLeft: 6, color: 'var(--text2)' }}>
+                    (built-in — edits persist; preset values aren't restored on next boot)
+                  </span>
+                )}
+              </div>
+            )}
+            {/* v0.10.1319 K1 — form footer'ı ActionRow: Save/Update EN SAĞDA
+                (tek confirm yuvası), Cancel onun solunda, ★ preset en solda.
+                Cancel eskiden barın etiket-takaslı primary'siydi. */}
+            <ActionRow
+              secondary={<>
+                {!editingId && (
+                  <Button variant="secondary" type="button" onClick={saveAsPreset}
+                    disabled={!draft.metric}
+                    title={isAdmin
+                      ? 'Save this draft as a reusable preset — admins can share with the team'
+                      : 'Save this draft as a personal preset'}>
+                    ★ Save as preset
+                  </Button>
+                )}
+                <Button variant="secondary" type="button" onClick={cancelForm}>Cancel</Button>
+              </>}
+              confirm={<Button variant="primary" onClick={save}>{editingId ? 'Update rule' : 'Save rule'}</Button>} />
           </div>
         )}
 

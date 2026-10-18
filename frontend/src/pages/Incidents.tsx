@@ -107,7 +107,9 @@ export default function IncidentsPage() {
     <>
       <Topbar title="Incidents" />
       <PageShell>
-        <PageControls sticky style={{ marginBottom: 12 }}>
+        {/* v0.10.1319 K1 — "+ Declare incident" eylem yuvasında. */}
+        <PageControls sticky style={{ marginBottom: 12 }}
+          actions={isAdmin && <Button variant="primary" onClick={() => setShowNew(true)}>+ Declare incident</Button>}>
           <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as 'all' | IncidentStatus)}>
             <option value="all">All statuses</option>
             <option value="open">Open</option>
@@ -116,10 +118,7 @@ export default function IncidentsPage() {
           </select>
           <ServicePicker value={serviceFilter} onChange={setServiceFilter}
             placeholder="Filter by service…" width={220} />
-          {isAdmin && (
-            <Button variant="primary" onClick={() => setShowNew(true)}>+ Declare incident</Button>
-          )}
-          <span style={{ color: 'var(--text3)', fontSize: 12, marginLeft: 'auto' }}>
+          <span style={{ color: 'var(--text3)', fontSize: 12 }}>
             {/* v0.10.929 (K5) — sayaç nötr: üç sayı da --text, durum rengi rozette. */}
             <b style={{ color: 'var(--text)' }}>{counts.open}</b> open ·
             {' '}<b style={{ color: 'var(--text)' }}>{counts.acknowledged}</b> ack ·
