@@ -1390,12 +1390,13 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
                   v0.5.454'te TAM bu vaka için yazılmıştı (yorumu da
                   öyle diyor) ama işaret hiçbir sayfaya konmamıştı. */}
               <ServicePicker value={draft.service} onChange={v => setDraft({ ...draft, service: v })}
-                placeholder="Filter by service…" width={170} onEnter={(v) => apply(v)} shortcutSearch />
+                placeholder="Filter by service…" width={170} onEnter={(v) => apply(v)}
+                dataTour="traces-service" shortcutSearch />
               <OperationPicker service={draft.service} value={draft.op || draft.search}
                 onChange={v => setDraft({ ...draft, search: v, op: '' })}
                 onPick={v => setDraft(d => ({ ...d, op: v, search: '' }))}
                 placeholder="Operation, or an id (function_id / trace ID)…" width={240} onEnter={() => apply()} />
-              <input placeholder="Min ms" value={draft.minMs}
+              <input placeholder="Min ms" data-tour="traces-min-ms" value={draft.minMs}
                 onChange={e => setDraft({ ...draft, minMs: e.target.value })} type="number" style={{ width: 72 }} />
               <input placeholder="Max ms" value={draft.maxMs}
                 onChange={e => setDraft({ ...draft, maxMs: e.target.value })} type="number" style={{ width: 72 }} />
@@ -1537,7 +1538,8 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
                tek satır sorgu kutusu; FilterBuilder Explore/Logs'ta kalır. */
             <FilterQueryBox value={advFilters} onChange={setAdvFilters}
               suggestedValues={FILTER_SUGGESTED_VALUES} quick={TRACES_QUICK_FILTERS}
-              recentKey="traces-recent-filters" extraKeys={TRACES_EXTRA_FILTER_KEYS} />
+              recentKey="traces-recent-filters" extraKeys={TRACES_EXTRA_FILTER_KEYS}
+              tourBar="traces-active-chips" tourQuick="traces-quick-chips" />
           ) : (
             <FilterGroupBuilder value={advGroup ?? { join: 'AND', filters: [] }}
               onChange={setAdvGroup}
@@ -1548,8 +1550,9 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
             (başlık + sütun araç çubuğu) HER durumda; iskelet / hata / boş
             teşhis satırı tablonun içinde (listState). Terfi bandı, Pager ve
             sayı etiketleri eskisi gibi yalnız satır varken. */}
+        {/* v0.10.1336 — data-tour="traces-table": rehberli tur adım 4 (ilk satır, yedek: tablo). */}
         {view === 'list' && (
-          <div style={{ opacity: refreshing ? 0.55 : 1, transition: 'opacity 120ms' }}
+          <div data-tour="traces-table" style={{ opacity: refreshing ? 0.55 : 1, transition: 'opacity 120ms' }}
             aria-busy={refreshing}>
             {/* v0.10.339 — Operator-reported: terfi kolonu uyuşmazlığı. Bu
                 satırlar dizi yolundan geldi (sunucu kolonun yalan söylediğini

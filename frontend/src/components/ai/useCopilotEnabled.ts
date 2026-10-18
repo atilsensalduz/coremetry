@@ -61,6 +61,12 @@ function load(): Promise<CopilotConfig> {
   return inflight;
 }
 
+// v0.10.1336 — aynı tek isteğin Promise yüzü (rehberli tur bağlamı "copilot
+// açık mı"yı başlarken bekler; ikinci istek YOK — modül cache'i/inflight).
+export function loadCopilotConfig(): Promise<CopilotConfig> {
+  return load();
+}
+
 // `active=false` iken HİÇ istek atılmaz — kapalı çekmece (ve anonim
 // /public/* sayfaları) boşuna config sormasın.
 export function useCopilotConfig(active = true): CopilotConfig | null {

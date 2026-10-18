@@ -51,7 +51,7 @@ export function shouldAutoCommit(prev: string, next: string, isKnownOption: bool
  * users understand they're seeing a subset and need to type to narrow.
  */
 export function ServicePicker({
-  value, onChange, placeholder, width, onEnter, shortcutSearch, optionMeta,
+  value, onChange, placeholder, width, onEnter, shortcutSearch, optionMeta, dataTour,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -78,6 +78,8 @@ export function ServicePicker({
   // sayısı). /api/service-names yalnız ad döndürüyor; ipucu için seçicinin
   // kendisi bir şey çekseydi "tam katalog yok" kuralı arkadan dolanmış olurdu.
   optionMeta?: (name: string) => string | undefined;
+  // v0.10.1336 — rehberli tur çapası; Combobox sarmalayıcısına geçer.
+  dataTour?: string;
 }) {
   // v0.10.1089 — debounce + sunucu araması ortak kancada (davranış aynı:
   // 180 ms, /api/service-names, 200 satır); kanca durum ve sıra bekçisi ekler.
@@ -152,6 +154,7 @@ export function ServicePicker({
       // Mekanizma v0.5.454'te tam bu vaka için yazılmıştı ama işaret
       // hiçbir sayfaya konmamıştı.
       shortcutSearch={shortcutSearch}
+      dataTour={dataTour}
       footer={truncated
         ? `… +${total - opts.length} more — refine search`
         : undefined}

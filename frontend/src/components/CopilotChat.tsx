@@ -44,6 +44,7 @@ import { cosreFullPageHref } from './ai/drawerFullPage'; // v0.10.1138 — "Tam 
 import { isPlainLeftClick } from '@/lib/a11y';
 import { toast } from '@/lib/toast'; // v0.10.1139 — tam sayfa kayıt hatası
 import { useCopilotConfig } from './ai/useCopilotEnabled'; // v0.10.483
+import { AI_PREFILL_EVENT, type AIPrefillDetail } from './ai/aiEvents'; // v0.10.1336 — tur: aç + doldur, gönderme
 import { AI_DRAWER_WIDTH } from './ai/answerCard'; // v0.10.461
 import { AIDrawerBody } from './ai/AIDrawerBody'; // v0.10.483 — ✨ Explain gövdesi aynı çekmecede
 import { useAiSubject } from './ai/useAiSubject';
@@ -527,6 +528,21 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
     window.addEventListener('coremetry:ai-ask', h);
     return () => window.removeEventListener('coremetry:ai-ask', h);
   }, [send]);
+  // v0.10.1336 — rehberli tur köprüsü (aiEvents AI_PREFILL_EVENT): ai-ask'ın
+  // kardeşi ama GÖNDERMEZ — çekmeceyi açar, composer'ı doldurur, imleç sonda,
+  // odak (prefill: belgelenmiş "doldur + imleç + odak" yolu). send'e dokunmaz.
+  const prefillRef = useRef(prefill);
+  prefillRef.current = prefill;
+  useEffect(() => {
+    const h = (e: Event) => {
+      const q = (e as CustomEvent<AIPrefillDetail>).detail?.question;
+      if (!q) return;
+      setOpen(true);
+      prefillRef.current(q, q.length);
+    };
+    window.addEventListener(AI_PREFILL_EVENT, h);
+    return () => window.removeEventListener(AI_PREFILL_EVENT, h);
+  }, []);
 
   if (!enabled) {
     if (!isPage) return null;
@@ -886,7 +902,7 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
 
           {/* Composer */}
           {/* v0.10.1137 — composer: gölgeli tek kutu (metin + gönder/durdur), okuma sütunuyla hizalı. */}
-          <form className="cm-composer"
+          <form className="cm-composer" data-tour="cosre-composer"
             onSubmit={e => { e.preventDefault(); submit(input); }}>
             {/* v0.10.664 — <textarea>: Enter gönderir, Shift+Enter yeni satır (stack
                 trace / SQL yapıştırılabilir); akarken KİLİTLİ DEĞİL — gönderim
@@ -1007,7 +1023,7 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
         // `--z-tooltip` (30) ile çizilir, FAB ise `--z-fab` (80). Sağ kenardaki
         // çekmeceler (60/61), span paneli (40) ve üstteki nudge baloncuğu (80)
         // açıkken ipucu onların ALTINDA kalıp görünmez; yerel title üstte.
-        <IconButton variant="bare"
+        <IconButton variant="bare" data-tour="cosre-fab"
           className={criticalOpen > 0 ? 'cm-ai-fab is-alert' : 'cm-ai-fab'}
           onClick={() => setOpen(true)}
           title={criticalOpen > 0 ? `CoSRE — ${criticalOpen} açık kritik problem` : "CoSRE'ye sor"}
@@ -1055,7 +1071,7 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
           width={AI_DRAWER_WIDTH}
           bodyStyle={{ display: 'flex', flexDirection: 'column', padding: 0 }}
           header={headerNode}>
-          <div className="cosre-root cosre-root--drawer">{bodyNode}</div>
+          <div className="cosre-root cosre-root--drawer" data-tour="cosre-drawer">{bodyNode}</div>
         </Drawer>
       )}
     </>

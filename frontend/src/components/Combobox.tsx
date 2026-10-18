@@ -42,7 +42,7 @@ export function Combobox({
   value, onChange, options, placeholder, width, onEnter,
   autoFocus, disabled, onBlurCommit, onEscape,
   serverFiltered, title, ariaLabel, className, shortcutSearch,
-  footer, optionMeta, resultCount, status, recentKey,
+  footer, optionMeta, resultCount, status, recentKey, dataTour,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -83,6 +83,9 @@ export function Combobox({
   ariaLabel?: string;
   // Sarmalayıcıya (`.cb-wrap`) eklenir — ölçü/konum kancası.
   className?: string;
+  // v0.10.1336 — rehberli tur çapası (`.cb-wrap`'e data-tour). Kimlik çağıranda
+  // literal (features/tour TOUR_ANCHORS sahibi); burada yalnız geçirilir.
+  dataTour?: string;
   // `/` kısayolunun AÇIK hedefi (v0.9.951 / Ö31). Sayfa başına TEK
   // alan işaretlenmeli: GlobalShortcuts querySelectorAll'ın İLKİNİ
   // seçer, yani ikinci bir işaret DOM sırası kumarına döner.
@@ -256,7 +259,7 @@ export function Combobox({
   const showList = open && !disabled && (items.length > 0 || !!status || !!value.trim());
 
   return (
-    <div ref={wrapRef} className={className ? `cb-wrap ${className}` : 'cb-wrap'} style={{ width }}>
+    <div ref={wrapRef} className={className ? `cb-wrap ${className}` : 'cb-wrap'} style={{ width }} data-tour={dataTour}>
       <input
         ref={inputRef}
         id={id}

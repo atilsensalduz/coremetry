@@ -68,7 +68,8 @@ describe('v0.10.1320 — servis başlığı kaynağı', () => {
   });
 
   it('kırıntı: nav[aria-label=Breadcrumb], Services halkası navHref ile, geçerli öğe aria-current', () => {
-    expect(head).toMatch(/<nav className="crumbs svc-head__crumbs" aria-label="Breadcrumb">/);
+    // v0.10.1336 — rehberli tur çapası (data-tour) ek öznitelik olarak izinli.
+    expect(head).toMatch(/<nav className="crumbs svc-head__crumbs" aria-label="Breadcrumb"(?: data-tour="svc-crumbs")?>/);
     expect(head).toContain("<Link to={navHref('/services', searchParams.toString())}>Services</Link>");
     expect(head).toMatch(/<span className="crumbs__cur" aria-current="page"[^>]*>\{svc\}<\/span>/);
     // Kırıntı h1'den ÖNCE.

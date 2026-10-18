@@ -2,11 +2,13 @@
 // anahtarı (adım başlık/gövdeleri + çerçeve + notlar) İKİ katalogda da var
 // ve iki katalogdaki tour.* kümeleri birebir aynı. Eksik TR anahtarı sessizce
 // İngilizce'ye düşer (lib/i18n.ts t() geri dönüşü) — hiçbir kapı görmez.
+// v0.10.1336 (R2) — adım 3–5'in kare (alt adım) metinleri, copilot_disabled
+// notu ve CoSRE soru şablonu ({svc}) da kapsamda.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { t } from '@/lib/i18n';
-import { TOUR_CHROME_KEYS, TOUR_STEPS } from './steps';
+import { TOUR_CHROME_KEYS, TOUR_STEPS, stepFrames } from './steps';
 
 const SRC = readFileSync(resolve(__dirname, '../../lib/i18n.ts'), 'utf8');
 const enStart = SRC.indexOf('const EN: Catalog = {');
@@ -20,8 +22,9 @@ const TR = tourKeys(block(trStart, end));
 
 const USED = [
   ...TOUR_STEPS.flatMap(s => [s.titleKey, s.bodyKey]),
+  ...TOUR_STEPS.flatMap(s => stepFrames(s).flatMap(f => [f.bodyKey, ...(f.titleKey ? [f.titleKey] : [])])),
   ...TOUR_CHROME_KEYS,
-  ...(['not_yet', 'no_services'] as const).map(r => `tour.note.${r}`),
+  ...(['not_yet', 'no_services', 'copilot_disabled'] as const).map(r => `tour.note.${r}`),
 ];
 
 describe('tour i18n (v0.10.1334)', () => {
@@ -47,6 +50,15 @@ describe('tour i18n (v0.10.1334)', () => {
       expect(t(k, 'en'), k).not.toBe(k);
     }
     expect(t('tour.note.no_services', 'tr')).toContain('Henüz servis raporlamıyor');
+  });
+
+  it('v0.10.1336 — CoSRE sorusu iki dilde {svc} taşıyor; kapalı notu operatörün metni', () => {
+    expect(t('tour.cosre.prompt', 'en')).toBe('Why is {svc} slow?');
+    expect(t('tour.cosre.prompt', 'tr')).toBe('Son 1 saatte {svc} hatalı mı?');
+    expect(t('tour.note.copilot_disabled', 'tr')).toContain('CoSRE bu kurulumda kapalı');
+    expect(t('tour.note.copilot_disabled', 'tr')).toContain('Settings › CoSRE');
+    // R1'in yer tutucu gövdeleri kalmadı.
+    expect(t('tour.operations.body', 'en')).not.toBe('Latency and errors per operation of one service.');
   });
 
   it('stepOf şablonu iki dilde {n} ve {total} taşıyor', () => {

@@ -14,12 +14,14 @@
 //   • Yeniden konum: ResizeObserver (varsa — jsdom/eski tarayıcı bekçisi)
 //     + window resize + YAKALAMA fazında scroll (iç kaydırma kapları da),
 //     rAF ile kısılmış. Kart yerleşimi örtüde, lib/tipPlacement.placeTip.
+//   • v0.10.1336 — hedef ADIMIN değil şu anki KARENİN (alt adım) hedefi;
+//     bekleme/zaman aşımı kare anahtarıyla (engine.currentFrame). Rota adımın.
 
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { TipRect } from '@/lib/tipPlacement';
 import type { TourCtx } from './steps';
-import { currentStep, initialTourState, shouldReturn, tourReducer, type TourAction, type TourState } from './engine';
+import { currentFrame, currentStep, initialTourState, shouldReturn, tourReducer, type TourAction, type TourState } from './engine';
 import { waitForTarget } from './waitForTarget';
 
 export type TourTargetStatus = 'none' | 'waiting' | 'found' | 'timeout';
@@ -105,14 +107,16 @@ export function useTour(opts: { onDone: (s: TourState) => void }): UseTour {
     if (owned && pathname !== owned) dispatch({ type: 'LOCATION_LEFT' });
   }, [pathname, running]);
 
-  // ③ Hedef bekleme.
+  // ③ Hedef bekleme — v0.10.1336: karenin hedefi, kare anahtarıyla.
   const stepId = step?.id;
-  const sel = step?.target ?? null;
-  const fallback = step?.fallbackTarget;
+  const frame = currentFrame(state);
+  const frameKey = frame?.key;
+  const sel = frame?.target ?? null;
+  const fallback = frame?.fallbackTarget;
   const onRoute = !route || pathname === pathOf(route);
   useEffect(() => {
     elRef.current = null;
-    if (!running || !stepId || !sel) { setTarget(NO_TARGET); return; }
+    if (!running || !stepId || !frameKey || !sel) { setTarget(NO_TARGET); return; }
     if (!onRoute) { setTarget({ status: 'waiting', rect: null }); return; } // gezinme sürüyor
     const ac = new AbortController();
     setTarget({ status: 'waiting', rect: null });
@@ -122,12 +126,12 @@ export function useTour(opts: { onDone: (s: TourState) => void }): UseTour {
         revealIfOffscreen(r.el);
         setTarget({ status: 'found', rect: measure(r.el) });
       } else if (r.status === 'timeout') {
-        dispatch({ type: 'TARGET_TIMEOUT', id: stepId });
+        dispatch({ type: 'TARGET_TIMEOUT', id: stepId, frame: frameKey });
         setTarget({ status: 'timeout', rect: null });
       }
     });
     return () => ac.abort();
-  }, [running, stepId, sel, fallback, onRoute, retarget]);
+  }, [running, stepId, frameKey, sel, fallback, onRoute, retarget]);
 
   // ④ Yeniden konumlama (rAF-kısılmış).
   const found = target.status === 'found';

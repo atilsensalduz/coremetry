@@ -13,21 +13,38 @@
 //   4. Bitti/Atlandı → localStorage flaş bekçisi + PUT /api/tour/state
 //      HEMEN (beklemeden; düşerse bekçi yine korur).
 //   5. "Turu yeniden başlat" (restart.ts) → kapılardan bağımsız begin().
+//
+// v0.10.1336 (R2):
+//   • begin() copilot yapılandırmasını da bekler (loadCopilotConfig — tek
+//     paylaşılan istek), en çok COPILOT_WAIT_MS; bilinmiyorsa KAPALI sayılır
+//     → adım 5 ortalanmış "CoSRE bu kurulumda kapalı" not kartı + Bitir.
+//   • Örtü ADIMIN değil şu anki KARENİN (alt adım) hedefini/metnini çizer.
+//   • 'cosre-prefill' karesine girişte coremetry:ai-prefill (aiEvents) atılır:
+//     çekmece açılır, composer gerçek servisle UI dilinde DOLDURULUR, gönderilmez
+//     (ai-ask köprüsü KULLANILMAZ — o hemen gönderir).
+//   • keepFocus karesinde (composer bulunmuşken) tur biterse örtünün odak
+//     iadesi atlanır; odak composer'a, imleç sona. Çekmece açık kalır.
+//   • Esc: çekmece açıkken ilk Esc çekmeceyi kapatır (katmanı üstte), ikinci
+//     Esc turu atlar (TourOverlay başlığı).
 
 import { useCallback, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/components/AuthProvider';
 import { StatTile } from '@/components/ui';
-import { useCopilotConfig } from '@/components/ai/useCopilotEnabled';
+import { loadCopilotConfig } from '@/components/ai/useCopilotEnabled';
+import { emitAiPrefill } from '@/components/ai/aiEvents';
 import { api } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { fmtNum } from '@/lib/utils';
 import { getRaw, setRaw, getSessionRaw, setSessionRaw, STORAGE_KEYS, tourSeenKey } from '@/lib/storage';
 import type { TourStateResponse } from '@/lib/types';
-import { TOUR_STEPS, TOUR_TOTAL, TOUR_VERSION, formatStepOf } from './steps';
-import { buildTourCtx } from './ctx';
-import { hasPrev, indicator, isLastOpen, persistedOutcome, type IndicatorSeg, type TourState } from './engine';
+import {
+  COPILOT_WAIT_MS, TOUR_COSRE_PROMPT_FLEET_KEY, TOUR_COSRE_PROMPT_KEY, TOUR_STEPS, TOUR_TOTAL, TOUR_VERSION,
+  formatCosrePrompt, formatStepOf,
+} from './steps';
+import { buildTourCtx, withTimeout } from './ctx';
+import { currentFrame, frameProgress, hasPrev, indicator, isLastOpen, persistedOutcome, type IndicatorSeg, type TourState } from './engine';
 import { isTourBlockedLocation, shouldAutoStart } from './autoStart';
 import { loadTourTiles, tourKeys, useTourStateQuery, useTourTiles } from './queries';
 import { onTourRestart } from './restart';
@@ -39,11 +56,10 @@ export function TourProvider() {
   const { pathname, search } = useLocation();
   const qc = useQueryClient();
   const t = useT();
-  const copilot = useCopilotConfig(true);
   const hereRef = useRef({ pathname, search });
   hereRef.current = { pathname, search };
-  const copilotRef = useRef(false);
-  copilotRef.current = !!copilot?.enabled;
+  // v0.10.1336 — tur bu karede biterse odaklanacak eleman (son çalışan render'ın değeri).
+  const keepFocusRef = useRef<string | null>(null);
 
   const uid = user?.id ?? '';
   const blocked = isTourBlockedLocation(pathname, search);
@@ -53,6 +69,11 @@ export function TourProvider() {
   const stateQ = useTourStateQuery(candidate);
 
   const onDone = useCallback((s: TourState) => {
+    // v0.10.1336 — composer karesinde bitti: odak composer'a, imleç sona
+    // (örtü kendi odak iadesini bu dalda atladı). Çekmece açık kalır.
+    const keepSel = keepFocusRef.current;
+    keepFocusRef.current = null;
+    if (keepSel) focusKept(keepSel);
     const status = persistedOutcome(s);
     if (!status || !uid) return;
     setRaw(tourSeenKey(uid), '1');
@@ -71,11 +92,16 @@ export function TourProvider() {
   const begin = useCallback(async () => {
     if (startingRef.current || state.status === 'running') return;
     startingRef.current = true;
+    keepFocusRef.current = null;
     try {
-      const tiles = await loadTourTiles(qc);
-      // Konum ve copilot bayrağı AWAIT'TEN SONRA okunur: karo beklenirken
-      // kullanıcı gezindiyse returnTo bayat kalıp LOCATION_LEFT tetiklemesin.
-      start(buildTourCtx(tiles, hereRef.current, copilotRef.current));
+      // v0.10.1336 — copilot bilinmiyorsa en çok COPILOT_WAIT_MS, sonra kapalı.
+      const [tiles, copilotEnabled] = await Promise.all([
+        loadTourTiles(qc),
+        withTimeout(loadCopilotConfig().then(c => !!c.enabled), COPILOT_WAIT_MS, false),
+      ]);
+      // Konum AWAIT'TEN SONRA okunur: karo beklenirken kullanıcı gezindiyse
+      // returnTo bayat kalıp LOCATION_LEFT tetiklemesin.
+      start(buildTourCtx(tiles, hereRef.current, copilotEnabled));
     } finally {
       startingRef.current = false;
     }
@@ -102,16 +128,36 @@ export function TourProvider() {
 
   const running = state.status === 'running';
   const tilesQ = useTourTiles(running && TOUR_STEPS[state.index]?.id === 'welcome');
+
+  // v0.10.1336 — kare (alt adım) + yan etkisi.
+  const frame = running ? currentFrame(state) : null;
+  const frameKey = frame?.key ?? null;
+  const prefillQuestion = frame?.effect === 'cosre-prefill'
+    ? (state.ctx?.service ? formatCosrePrompt(t(TOUR_COSRE_PROMPT_KEY), state.ctx.service) : t(TOUR_COSRE_PROMPT_FLEET_KEY))
+    : null;
+  const prefillRef = useRef(prefillQuestion);
+  prefillRef.current = prefillQuestion;
+  useEffect(() => {
+    // Kareye her GİRİŞTE bir kez (Geri → İleri yeniden doldurur). GÖNDERMEZ.
+    const q = prefillRef.current;
+    if (!running || blocked || !frameKey || !q) return;
+    emitAiPrefill({ question: q });
+  }, [running, blocked, frameKey]);
+  if (running) {
+    keepFocusRef.current = frame?.keepFocus && tour.target.status === 'found' ? frame.keepFocus : null;
+  }
+
   if (!running || blocked) return null;
   const step = TOUR_STEPS[state.index];
-  if (!step) return null;
+  if (!step || !frame) return null;
 
   const notes: string[] = [];
   const ctx = state.ctx;
   if (step.id === 'welcome' && ctx && ctx.serviceCount === 0) notes.push(t('tour.note.no_services'));
   if (step.id === 'welcome' && ctx && ctx.serviceCount < 0) notes.push(t('tour.welcome.unavailable'));
-  if (state.timedOut[step.id]) notes.push(t('tour.note.timeout'));
+  if (state.timedOut[frame.key]) notes.push(t('tour.note.timeout'));
   else if (tour.target.status === 'waiting') notes.push(t('tour.chrome.loading'));
+  const prog = frameProgress(state);
 
   const segTitle = (seg: IndicatorSeg) => {
     const st = TOUR_STEPS.find(x => x.id === seg.id);
@@ -124,20 +170,21 @@ export function TourProvider() {
 
   return (
     <TourOverlay
-      stepKey={step.id}
-      stepLabel={formatStepOf(t('tour.chrome.stepOf'), state.index + 1, TOUR_TOTAL)}
+      stepKey={frame.key}
+      stepLabel={formatStepOf(t('tour.chrome.stepOf'), state.index + 1, TOUR_TOTAL) + (prog.n > 1 ? ` · ${prog.i}/${prog.n}` : '')}
       progressLabel={t('tour.chrome.progress')}
       segments={indicator(state)}
       segmentTitle={segTitle}
-      title={t(step.titleKey)}
-      body={t(step.bodyKey)}
+      title={t(frame.titleKey ?? step.titleKey)}
+      body={t(frame.bodyKey)}
       notes={notes}
       rect={tour.target.status === 'found' ? tour.target.rect : null}
-      placement={step.placement}
+      placement={frame.placement}
       dialogLabel={t('tour.chrome.dialog')}
       labels={{ back: t('tour.chrome.back'), next: t('tour.chrome.next'), finish: t('tour.chrome.finish'), skip: t('tour.chrome.skip') }}
       canBack={hasPrev(state)}
       isLast={isLastOpen(state)}
+      restoreFocus={!keepFocusRef.current}
       onBack={tour.back}
       onNext={isLastOpen(state) ? tour.finish : tour.next}
       onSkip={tour.skip}>
@@ -153,4 +200,20 @@ export function TourProvider() {
       )}
     </TourOverlay>
   );
+}
+
+/** v0.10.1336 — tur bittikten bir kare sonra (örtü söküldü) odak + imleç sonda. */
+function focusKept(sel: string): void {
+  const go = () => {
+    let el: HTMLElement | null = null;
+    try { el = document.querySelector<HTMLElement>(sel); } catch { el = null; }
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
+      const n = el.value.length;
+      try { el.setSelectionRange(n, n); } catch { /* setSelectionRange desteklemeyen input türü */ }
+    }
+  };
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(go);
+  else go();
 }

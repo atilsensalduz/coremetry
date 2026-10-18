@@ -6533,6 +6533,50 @@ tipPlacement gap, zLayers tour rungu; Go `tour_routes_test.go` (tourRowID, valid
 version, isNewUser sınırı, saklanan satır çözümü, 401, PUT doğrulaması store'dan önce),
 `branding_test` OnboardingTour normalizasyonu.
 
+## 2026-10-18 — v0.10.1336 — Rehberli tur R2: adım 3–5 açık (operations · traces · cosre) + alt adımlar
+
+Operatör onaylı spec. `steps.ts`'te 3–5'in `not_yet`'i kalktı; `TOUR_VERSION` 1→2.
+**Alt adım (kare) motoru:** `TourStep.frames` (yoksa adımın kendisi tek kare) — rota ve gösterge
+segmenti adım başına tek, İleri/Geri önce karelerde yürür; Geri ilk kareden ÖNCEKİ adımın SON karesine.
+`TourState.sub`; zaman aşımı KARE anahtarlı (`timedOut['operations.rows']`; tek kareli adımda anahtar
+= adım kimliği, R1 davranışı aynı). Gösterge "Adım N / 5 · i/n". **Not gerekçesi:** `NOTE_REASONS`
+(`copilot_disabled`) adımı ATLATMAZ — `noted`a yazılır, tek ortalanmış not karesi
+(`tour.note.copilot_disabled` = "CoSRE bu kurulumda kapalı — admin Settings › CoSRE'den açar") + Bitir.
+Copilot bilinmiyorsa `begin()` `loadCopilotConfig()`'i (aynı tek istek, yeni dışa aktarım) en çok
+`COPILOT_WAIT_MS` 8 sn bekler (`ctx.withTimeout`), sonra kapalı sayar.
+**Adım 3 (zorunlu, operatör):** `serviceHref(svc,{range,tab:'operations'})`; kareler başlık (`svc-nav`,
+yedek `svc-crumbs`; metin kırıntı + ☆ `svc-pin` + gezinme) → sekme (`svc-tab-operations`, TabStrip atomu
+öznitelik geçirmediği için etiket span'inde) → Impact (`ops-impact-col` DataTableHead renderLabel'da,
+yedek `ops-normalized`: sütun dar ekranda öncelikle gizlenebilir; metin avg × count + Raw/Normalized)
+→ satırlar (`ops-table` tbody, ilk `data-row-idx="0"`). Satır karesinde BİLİNÇLİ yedek yok: satırlar
+8 sn'de gelmezse kart o sekmede "veri henüz yok" notuyla sürer, adım asla atlanmaz. Servis adı yoksa
+(okuma düştü) gidilecek sayfa yok → `no_services`.
+**Adım 4:** `tracesTourHref` = `/traces?service=&filters=encodeFilters([status_code = error])&minMs=500
+&view=list&range=` (Traces.tsx'in okuduğu biçim; ham ?range= zaten encodeRange çıktısı). Kareler etkin
+çip barı (`traces-active-chips`, yedek `traces-quick-chips`) → Min ms (`traces-min-ms`, yedek
+`traces-service`) → tablo (`traces-table` ilk satır, yedek tablo). ServicePicker/Combobox ve
+FilterQueryBox'a geçirgen çapa prop'u (`dataTour` / `tourBar`+`tourQuick`): ServicePicker'ı bir
+sarmalayıcıyla sarmak PageControls'un lead çocuğunu (isInteractiveChild) değiştirirdi; kimlik literal
+olarak çağıranda (Traces.tsx), dinamik `data-tour={…}` targetPin.test'in izin listesinde.
+**Adım 5 — aç + doldur, GÖNDERME:** `coremetry:ai-ask` hemen gönderir → KULLANILMAZ. Kardeş olay
+`coremetry:ai-prefill {question}` (`aiEvents.AI_PREFILL_EVENT`); dinleyici CopilotChat'te ai-ask'ın
+yanında: `setOpen(true); prefill(q, q.length)` (belgelenmiş doldur + imleç + odak yolu, `send`e
+dokunmaz). Kareler FAB (`cosre-fab`, yedek `cosre-drawer` — çekmece açıkken FAB çizilmez) → composer
+(`cosre-composer`, giriş efekti `cosre-prefill`, yedek çekmece). Soru UI dilinde gerçek servisle:
+EN "Why is {svc} slow?", TR "Son 1 saatte {svc} hatalı mı?" (servis yoksa genel soru). Kart aria-modal:
+hedef belirince kart dışına kaçan odak (composer autoFocus / prefill rAF'ı) bir kare sonra birincile
+döner — Enter kazara GÖNDERMESİN. Bitir (birincil, gönder düğmesi yok) çekmeceyi AÇIK bırakır; örtünün
+odak iadesi bu dalda atlanır (`restoreFocus=false`), odak composer'a, imleç sona (`keepFocus`).
+**Esc sırası (belgeli):** Esc LIFO katman yığınının tepesini kapatır; Drawer'ın katmanı turdan SONRA
+itildiği için ilk Esc çekmeceyi kapatır (composer kaybolur → kare yeniden bekler, 8 sn'de not), ikinci
+Esc turu atlar. **Testler:** engine.test (kare yürüyüşü, Geri sınırları, kare anahtarlı zaman aşımı,
+copilot_disabled not yolu, bekleme tavanı, adım 3/4 rotaları, soru şablonu), targetPin.test (beş adımın
+HER karesi; R2 çapaları kullanımda; geçirgen bileşenler izinli), i18n.test (kare metinleri + not +
+şablon iki dilde), TourOverlay.contract.test (restoreFocus=false, odağın geri çekilmesi, Esc sırası),
+yeni `components/ai/aiPrefill.contract.test.tsx` (açar, doldurur, imleç sonda, odak composer'da;
+api.copilotChat çağrılmaz, /copilot/chat fetch'i ve ai-ask olayı yok; boş soru no-op).
+serviceHeaderNav.test kırıntı regex'i data-tour özniteliğine izin verecek biçimde genişletildi (pin aynı).
+
 ## 2026-10-18 — v0.10.1335 — Birleşik arama sayfası `/search` (spec R3+R4, yalnız ön yüz)
 
 Operatör onaylı spec, varsayılanlar seçili; backend v0.10.1333 `GET /api/search` aynen. **Sayfa:**

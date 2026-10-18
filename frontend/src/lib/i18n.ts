@@ -280,12 +280,23 @@ const EN: Catalog = {
   'tour.welcome.tile.envs':     'Environments',
   'tour.services.title':    'Services: your starting point',
   'tour.services.body':     'Each row is one service sending OTLP spans. The dot before the name is its health: amber when the error rate is above 1 % (or a warning/info problem is open), red above 5 % (or a critical problem is open). Spans, Error rate and P99 cover the selected time range; turn on "Δ prior" to compare with the previous window. Click a row to open the service.',
-  'tour.operations.title':  'Operations',
-  'tour.operations.body':   'Latency and errors per operation of one service.',
-  'tour.traces.title':      'Traces',
-  'tour.traces.body':       'Follow a single request across services.',
-  'tour.cosre.title':       'CoSRE assistant',
-  'tour.cosre.body':        'Ask about your telemetry in plain language.',
+  // v0.10.1336 — guided tour R2: steps 3–5 (operations / traces / cosre) + sub-steps.
+  'tour.operations.title':  'Operations: where the time goes',
+  'tour.operations.header': 'This is the page of the busiest service. The breadcrumb above the name goes back to Services with the same time window, ☆ pins the service to Cmd-K quick access, and these buttons jump to its backtrace, logs, endpoints, problems, anomalies and traces — the service and the window come along.',
+  'tour.operations.tab':    'The Operations tab lists every operation (span name) of this service. The tab lives in the URL (?tab=operations), so a shared link opens right here.',
+  'tour.operations.impact': 'Rows are ranked by Impact = average duration × call count: the operation that costs your users the most total time comes first — not merely the slowest one. Raw shows span names as they arrive; Normalized (top right) collapses id-bearing names into shapes such as GET /users/:id.',
+  'tour.operations.body':   'Each row is one operation with its trend, calls, error rate and latency percentiles. Click a row to open that operation\'s traces — exactly where the next step goes.',
+  'tour.traces.title':      'Traces: the slow and failing requests',
+  'tour.traces.filters':    'We opened this service\'s traces with the status_code = error quick chip applied. Active filters sit in this bar (click one to edit, ✕ removes it); the quick row below ("Hızlı:") adds the common ones — errors, server spans, POST — in one click.',
+  'tour.traces.minms':      'Min ms = 500 hides fast requests, so only slow and failing traces remain. The service picker on the left scopes the list; after changing a field press Search (or Enter).',
+  'tour.traces.body':       'Each row is one trace — a single request across services. Click a row to open its waterfall: every span, its timing and its attributes.',
+  'tour.cosre.title':       'CoSRE: ask in plain language',
+  'tour.cosre.fab':         'This button opens CoSRE, the assistant that reads your telemetry. It knows the page you are on — on a service or a trace it starts from that context. A red badge counts open critical problems.',
+  'tour.cosre.body':        'We drafted a question about this service — nothing has been sent. Press Finish, edit it if you like, then send it with Enter. Esc closes the chat drawer first; a second Esc skips the tour.',
+  'tour.cosre.prompt':      'Why is {svc} slow?',
+  'tour.cosre.promptFleet': 'What should I look at first right now?',
+  'tour.note.copilot_disabled': 'CoSRE is turned off on this installation — an admin enables it in Settings › CoSRE.',
+  // v0.10.1336 END
 };
 
 const TR: Catalog = {
@@ -535,12 +546,23 @@ const TR: Catalog = {
   'tour.welcome.tile.envs':     'Ortam',
   'tour.services.title':    'Servisler: başlangıç noktan',
   'tour.services.body':     'Her satır OTLP span gönderen bir servis. Adın önündeki nokta sağlığıdır: hata oranı %1\'i aşınca (ya da açık bir uyarı/bilgi problemi varsa) amber, %5\'i aşınca (ya da açık kritik problem varsa) kırmızı. Spans, Error rate ve P99 seçili zaman aralığını kapsar; önceki pencereyle kıyas için "Δ prior"u aç. Servisi açmak için satıra tıkla.',
-  'tour.operations.title':  'Operasyonlar',
-  'tour.operations.body':   'Bir servisin operasyon bazında gecikme ve hataları.',
-  'tour.traces.title':      'Trace\'ler',
-  'tour.traces.body':       'Tek bir isteği servisler boyunca izle.',
-  'tour.cosre.title':       'CoSRE asistanı',
-  'tour.cosre.body':        'Telemetrin hakkında düz dille soru sor.',
+  // v0.10.1336 — rehberli tur R2: adım 3–5 (operations / traces / cosre) + alt adımlar.
+  'tour.operations.title':  'Operasyonlar: zaman nereye gidiyor',
+  'tour.operations.header': 'Bu, en yoğun servisin sayfası. Adın üstündeki kırıntı aynı zaman penceresiyle Servisler\'e döner, ☆ servisi Cmd-K hızlı erişimine sabitler; bu düğmeler servisin backtrace, log, endpoint, problem, anomali ve trace\'lerine atlar — servis ve pencere de yanında gelir.',
+  'tour.operations.tab':    'Operations sekmesi bu servisin her operasyonunu (span adı) listeler. Sekme URL\'de durur (?tab=operations); paylaşılan bağlantı doğrudan burada açılır.',
+  'tour.operations.impact': 'Satırlar Impact = ortalama süre × çağrı sayısı ile sıralanır: kullanıcılarına toplamda en çok zaman kaybettiren operasyon en üstte — yalnız en yavaşı değil. Raw span adlarını geldiği gibi gösterir; Normalized (sağ üstte) kimlik taşıyan adları GET /users/:id gibi şekillerde toplar.',
+  'tour.operations.body':   'Her satır bir operasyon: trendi, çağrı sayısı, hata oranı ve gecikme yüzdelikleri. Satıra tıklayınca o operasyonun trace\'leri açılır — sıradaki adım tam oraya gidiyor.',
+  'tour.traces.title':      'Trace\'ler: yavaş ve hatalı istekler',
+  'tour.traces.filters':    'Bu servisin trace\'lerini status_code = error hızlı çipi uygulanmış olarak açtık. Etkin süzgeçler bu çubukta (tıkla: düzenle, ✕: kaldır); alttaki "Hızlı:" satırı sık kullanılanları — hatalar, server span\'ler, POST — tek tıkla ekler.',
+  'tour.traces.minms':      'Min ms = 500 hızlı istekleri gizler; geriye yalnız yavaş ve hatalı trace\'ler kalır. Soldaki servis seçici listeyi daraltır; bir alanı değiştirince Search\'e bas (ya da Enter).',
+  'tour.traces.body':       'Her satır bir trace — servisler boyunca tek bir istek. Satıra tıklayınca şelalesi açılır: her span, süresi ve öznitelikleri.',
+  'tour.cosre.title':       'CoSRE: düz dille sor',
+  'tour.cosre.fab':         'Bu düğme CoSRE\'yi açar — telemetrini okuyan asistan. Bulunduğun sayfayı bilir: bir servis ya da trace üstündeyken o bağlamdan başlar. Kırmızı rozet açık kritik problemleri sayar.',
+  'tour.cosre.body':        'Bu servis için bir soru taslağı hazırladık — hiçbir şey gönderilmedi. Bitir\'e bas, istersen düzenle, sonra Enter ile gönder. Esc önce sohbet çekmecesini kapatır; ikinci Esc turu atlar.',
+  'tour.cosre.prompt':      'Son 1 saatte {svc} hatalı mı?',
+  'tour.cosre.promptFleet': 'Şu an önce neye bakmalıyım?',
+  'tour.note.copilot_disabled': 'CoSRE bu kurulumda kapalı — admin Settings › CoSRE\'den açar.',
+  // v0.10.1336 END
 };
 
 const CATALOGS: Record<Lang, Catalog> = { en: EN, tr: TR };

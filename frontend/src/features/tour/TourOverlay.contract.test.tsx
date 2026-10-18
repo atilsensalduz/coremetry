@@ -11,12 +11,15 @@
 //   • waitForTarget: sahte zamanlayıcıyla 8 s zaman aşımı, yedek hedef payı,
 //     MutationObserver ile geç beliren hedef, AbortSignal
 //   • useTour: ResizeObserver YOKKEN (jsdom) çökmeden hedefi bulur; varken gözler
+//   • v0.10.1336: restoreFocus=false → kapanışta iade YOK (CoSRE composer
+//     karesi); hedef belirince kart dışına kaçan odak bir kare sonra birincile
+//     döner; Esc sırası: sonradan açılan katman (çekmece) önce, tur sonra.
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { act, useEffect } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { TourOverlay, type TourOverlayProps } from './TourOverlay';
-import { topEscLayer, __resetEscLayers } from '@/lib/escLayer';
+import { topEscLayer, pushEscLayer, __resetEscLayers } from '@/lib/escLayer';
 import { waitForTarget, FALLBACK_GRACE_MS } from './waitForTarget';
 import { TARGET_TIMEOUT_MS, type TourCtx } from './steps';
 import { useTour, type UseTour } from './useTour';
@@ -137,6 +140,44 @@ describe('TourOverlay — odak', () => {
     act(() => { root!.unmount(); });
     root = null;
     expect(document.activeElement).toBe(trigger);
+  });
+});
+
+describe('TourOverlay — v0.10.1336 odak dalları', () => {
+  it('restoreFocus=false → kapanışta açılıştaki elemana iade YOK', () => {
+    const trigger = document.createElement('button');
+    trigger.textContent = 'trigger';
+    document.body.appendChild(trigger);
+    trigger.focus();
+    render(<TourOverlay {...props()} />);
+    rerender(<TourOverlay {...props({ restoreFocus: false })} />);
+    act(() => { root!.unmount(); });
+    root = null;
+    expect(document.activeElement).not.toBe(trigger);
+  });
+
+  it('hedef belirince kart dışına kaçan odak (prefill/autoFocus) bir kare sonra birincile döner', async () => {
+    const outside = document.createElement('textarea');
+    document.body.appendChild(outside);
+    render(<TourOverlay {...props({ stepKey: 'cosre.composer', rect: null })} />);
+    outside.focus();
+    expect(document.activeElement).toBe(outside);
+    rerender(<TourOverlay {...props({ stepKey: 'cosre.composer', rect: { left: 10, top: 10, width: 100, height: 30 } })} />);
+    await act(async () => { await new Promise(r => requestAnimationFrame(() => r(null))); });
+    expect(document.activeElement).toBe(btn('Next'));
+  });
+
+  it('Esc sırası: tur sonra açılan katmanın ALTINDA — ilk Esc katmanı, ikinci Esc turu', () => {
+    const onSkip = vi.fn();
+    render(<TourOverlay {...props({ onSkip })} />);
+    const drawerClose = vi.fn();
+    const pop = pushEscLayer(drawerClose); // CoSRE çekmecesi (Drawer useEscLayer) turdan SONRA açılır
+    act(() => { topEscLayer()!(); });
+    expect(drawerClose).toHaveBeenCalledTimes(1);
+    expect(onSkip).not.toHaveBeenCalled();
+    pop(); // çekmece kapandı → katmanı düştü
+    act(() => { topEscLayer()!(); });
+    expect(onSkip).toHaveBeenCalledTimes(1);
   });
 });
 

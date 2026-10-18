@@ -30,6 +30,19 @@ export function emitAiFocus(detail: AIFocusDetail) {
   window.dispatchEvent(new CustomEvent(AI_FOCUS_EVENT, { detail }));
 }
 
+// v0.10.1336 — rehberli tur adım 5: CoSRE çekmecesini AÇ + composer'ı
+// DOLDUR, GÖNDERME. `coremetry:ai-ask` köprüsü (CopilotChat) soruyu hemen
+// gönderir — tur onu KULLANMAZ. Dinleyici CopilotChat'te ai-ask'ın yanında:
+// setOpen(true) + prefill(q, q.length) (doldur + imleç sonda + odak; gönderim
+// yolu yok). Sözleşme: components/ai/aiPrefill.contract.test.tsx.
+export const AI_PREFILL_EVENT = 'coremetry:ai-prefill';
+export type AIPrefillDetail = { question?: string };
+
+export function emitAiPrefill(detail: AIPrefillDetail) {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(AI_PREFILL_EVENT, { detail }));
+}
+
 // Handler ref'te tutulur: çağıran satır-içi arrow geçse bile dinleyici
 // her render'da sökülüp takılmaz.
 function useWindowEvent<T>(name: string, handler: (detail: T) => void) {

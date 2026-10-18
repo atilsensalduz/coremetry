@@ -480,7 +480,7 @@ function ServiceDetailInner() {
             Başlık artık `info` beklemiyor: gezinme yükleme/hata anında da
             erişilir; yalnız bundle'a bağlı nokta/rozet/katalog onu bekler. */}
         <div className="svc-head">
-          <nav className="crumbs svc-head__crumbs" aria-label="Breadcrumb">
+          <nav className="crumbs svc-head__crumbs" aria-label="Breadcrumb" data-tour="svc-crumbs">
             <Link to={navHref('/services', searchParams.toString())}>Services</Link>
             <span className="crumbs__sep" aria-hidden="true">›</span>
             <span className="crumbs__cur" aria-current="page" title={svc}>{svc}</span>
@@ -499,7 +499,7 @@ function ServiceDetailInner() {
             <h1>{svc}</h1>
             {/* v0.7.89 Cmd-K sabitleme — aynı toggleServicePin; v0.10.1320'den
                 beri metinli buton değil, Services listesindeki yıldızla aynı dil. */}
-            <IconButton variant="ghost" size="sm" className="ib-star"
+            <IconButton variant="ghost" size="sm" className="ib-star" data-tour="svc-pin"
               active={pinned}
               aria-label={pinned ? 'Unpin from Cmd-K quick access' : 'Pin to Cmd-K quick access'}
               tooltip={pinned ? 'Unpin from Cmd-K quick access' : 'Pin to Cmd-K quick access'}
@@ -517,7 +517,8 @@ function ServiceDetailInner() {
           {/* Gruplar ui/ButtonGroup attached; çocuklar Button değil <Link>
               (DrillButton `subtle` = kenarlı a.sec, düz --text). Bitişik
               birleşim globals'ta `.btn-group.is-attached > a.sec`. */}
-          <div className="svc-head__nav">
+          {/* v0.10.1336 — data-tour çapaları (svc-crumbs / svc-pin / svc-nav): rehberli tur adım 3. */}
+          <div className="svc-head__nav" data-tour="svc-nav">
             <ButtonGroup attached aria-label="Bağımlılık ve sinyaller">
               <DrillButton to="/service/backtrace" params={{ name: svc }} variant="subtle"
                 title="Inbound callers — service / pod / IP backtrace"
@@ -851,7 +852,11 @@ function TabStrip({ tab, onChange, opCount }: {
   // scrolls under it, with the page bg masking the content behind it.
   return (
     <UiTabStrip ariaLabel="Servis sekmeleri" className="svc-tabs" value={tab} onChange={onChange}
-      tabs={items.map(it => ({ key: it.key, label: <>{it.label}{it.hint && <span className="tab-count">{it.hint}</span>}</> }))} />
+      tabs={items.map(it => {
+        const label = <>{it.label}{it.hint && <span className="tab-count">{it.hint}</span>}</>;
+        // v0.10.1336 — rehberli tur adım 3 çapası; TabStrip atomu düğmeye öznitelik geçirmez.
+        return { key: it.key, label: it.key === 'operations' ? <span data-tour="svc-tab-operations">{label}</span> : label };
+      })} />
   );
 }
 

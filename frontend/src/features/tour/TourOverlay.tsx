@@ -17,6 +17,14 @@
 //     kapalıyken ok tuşları sayfalarındır).
 //   • Kart yerleşimi lib/tipPlacement.placeTip (gap genişletmesi) — ikinci
 //     bir yerleştirici yazılmadı.
+//   • v0.10.1336 — `restoreFocus=false`: kapanışta odak iadesi ATLANIR (CoSRE
+//     composer karesinde Bitir → odak composer'da kalır; TourProvider odaklar).
+//     Hedef bulununca odak kart dışına kaçmışsa (ör. çekmece composer'ı
+//     autoFocus / prefill rAF'ı ile aldı) bir kare sonra birincile geri
+//     çekilir — kart aria-modal; Enter kazara soruyu GÖNDERMESİN.
+//   • Esc sırası: Esc LIFO katman yığınının TEPESİNİ kapatır. Tur katmanı tur
+//     başında, CoSRE çekmecesinin katmanı (Drawer useEscLayer) çekmece
+//     açılınca itilir → ilk Esc çekmeceyi kapatır, ikinci Esc turu atlar.
 
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -44,6 +52,8 @@ export interface TourOverlayProps {
   labels: { back: string; next: string; finish: string; skip: string };
   canBack: boolean;
   isLast: boolean;
+  /** v0.10.1336 — false: kapanışta açılıştaki elemana odak iadesi yapılmaz. Varsayılan true. */
+  restoreFocus?: boolean;
   onBack: () => void;
   onNext: () => void;
   onSkip: () => void;
@@ -56,23 +66,37 @@ export function TourOverlay(p: TourOverlayProps) {
   const bodyId = useId();
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
 
+  const restoreRef = useRef(p.restoreFocus !== false);
+  restoreRef.current = p.restoreFocus !== false;
+
   useFocusTrap(cardRef, true);
   useEscLayer(true, p.onSkip);
 
-  // İlk odak birincil düğmede; kapanınca açılıştaki elemana iade.
+  // İlk odak birincil düğmede; kapanınca açılıştaki elemana iade
+  // (v0.10.1336: restoreFocus=false ise iade yok — son render'ın değeri).
   useEffect(() => {
     const prev = document.activeElement;
     primaryRef.current?.focus({ preventScroll: true });
     return () => {
+      if (!restoreRef.current) return;
       if (prev instanceof HTMLElement && prev.isConnected) prev.focus({ preventScroll: true });
     };
   }, []);
 
-  // Adım değişince odak kartta kalsın (önceki düğme devre dışı kalmış olabilir).
+  // Adım/kare değişince ya da hedef belirince odak kartta kalsın (önceki düğme
+  // devre dışı kalmış, ya da hedefin sahibi odağı almış olabilir — v0.10.1336:
+  // bir kare SONRA da bakılır; prefill'in rAF odağı ondan önce sıraya girer).
+  const hasRect = !!p.rect;
   useEffect(() => {
-    const card = cardRef.current;
-    if (card && !card.contains(document.activeElement)) primaryRef.current?.focus({ preventScroll: true });
-  }, [p.stepKey]);
+    const pull = () => {
+      const card = cardRef.current;
+      if (card && !card.contains(document.activeElement)) primaryRef.current?.focus({ preventScroll: true });
+    };
+    pull();
+    if (!hasRect || typeof requestAnimationFrame !== 'function') return;
+    const id = requestAnimationFrame(pull);
+    return () => { if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(id); };
+  }, [p.stepKey, hasRect]);
 
   const ring = p.rect ? ringRect(p.rect) : null;
   const anchored = !!ring && p.placement !== 'center';

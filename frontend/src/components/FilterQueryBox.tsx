@@ -65,6 +65,10 @@ export interface FilterQueryBoxProps {
   /** v0.10.1115 — span attribute'u olmayan, sunucunun tanıdığı sentetik
    *  anahtarlar (op_group); span kipinde öneri listesinin sonuna eklenir. */
   extraKeys?: readonly string[];
+  /** v0.10.1336 — rehberli tur çapaları: etkin çip barı (`.fq-bar`) ve hızlı
+   *  çip satırı (`.fq-quick`). Kimlikler çağıranda literal (TOUR_ANCHORS). */
+  tourBar?: string;
+  tourQuick?: string;
 }
 
 function fmtCount(n: number): string {
@@ -79,7 +83,7 @@ function loadRecent(key?: string): FilterExpr[] {
   try { return parseRecent(localStorage.getItem(key)); } catch { return []; }
 }
 
-export function FilterQueryBox({ value, onChange, suggestedValues, quick = [], recentKey, keyOptions, placeholder, metricName, metricService, extraKeys }: FilterQueryBoxProps) {
+export function FilterQueryBox({ value, onChange, suggestedValues, quick = [], recentKey, keyOptions, placeholder, metricName, metricService, extraKeys, tourBar, tourQuick }: FilterQueryBoxProps) {
   const metricMode = !!metricName?.trim();
   const [metricKeys, setMetricKeys] = useState<string[]>([]);
   useEffect(() => {
@@ -278,7 +282,7 @@ export function FilterQueryBox({ value, onChange, suggestedValues, quick = [], r
   return (
     <div className="fq">
       <div className={draft ? 'fq-bar is-open' : 'fq-bar'} role="combobox" aria-expanded={draft !== null} aria-haspopup="listbox"
-        aria-owns={draft ? listId : undefined} onClick={() => inputRef.current?.focus()}>
+        aria-owns={draft ? listId : undefined} onClick={() => inputRef.current?.focus()} data-tour={tourBar}>
         <span className="fq-lens" aria-hidden>⌕</span>
         {value.map((f, i) => { const d = chipDisplay(f); return (
           <span key={`${filterKey(f)}#${i}`} className={draft?.editing === i ? 'fq-chip is-editing' : 'fq-chip'}
@@ -376,7 +380,7 @@ export function FilterQueryBox({ value, onChange, suggestedValues, quick = [], r
         </div>
       )}
       {(quick.length > 0 || recent.length > 0) && !draft && (
-        <div className="fq-quick">
+        <div className="fq-quick" data-tour={tourQuick}>
           <span className="fq-quick-label">Hızlı:</span>
           {quick.map(f => (
             <Chip key={`q:${filterKey(f)}`} size="xs" className="mono" onClick={() => commit(f)} title="Filtre olarak ekle">

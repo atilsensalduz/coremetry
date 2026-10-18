@@ -324,8 +324,9 @@ export function OperationsTable({ service, rows, range, preset, onWiden, normali
   // v0.10.928 — seçim secondary/ghost farkıyla kodlanıyordu; dolgusuz
   // secondary'de bu yalnız "kenarlık var" farkına iniyordu. Tek seçim →
   // SegmentedControl (radiogroup, accent seçili).
+  // v0.10.1336 — data-tour="ops-normalized": rehberli tur adım 3 (Impact sütunu gizliyse yedek hedef).
   const modeToggle = (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
+    <div data-tour="ops-normalized" style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
       <SegmentedControl size="sm" aria-label="Operation names"
         value={normalized ? 'normalized' : 'raw'}
         onChange={v => onToggleNormalized(v === 'normalized')}
@@ -435,8 +436,12 @@ export function OperationsTable({ service, rows, range, preset, onWiden, normali
                 ))}
               </span>
             </span>
+          ) : c.id === 'impact' ? (
+            // v0.10.1336 — rehberli tur adım 3 çapası (Impact = avg × count sıralaması).
+            <span data-tour="ops-impact-col">{c.label}</span>
           ) : c.label} />
-          <tbody>
+          {/* v0.10.1336 — data-tour="ops-table": tur ilk satırı (data-row-idx="0") hedefler; agg satırında damga yok. */}
+          <tbody data-tour="ops-table">
             {!showRows && <DataTableState dt={dt} {...tableState} />}
             {showRows && agg && (
               <tr className="agg-row">
