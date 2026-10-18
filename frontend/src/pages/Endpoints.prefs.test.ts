@@ -8,8 +8,9 @@ import { resolve } from 'node:path';
 const src = readFileSync(resolve(__dirname, 'Endpoints.tsx'), 'utf8');
 
 describe('Endpoints sunucu sütun tercihi', () => {
-  it("useTablePrefs('endpoints') + bir kez benimseme + URL öncelik kapısı", () => {
-    expect(src).toContain("useTablePrefs('endpoints')");
+  it("useTablePrefs(ENDPOINTS_TABLE_KEY = 'endpoints-v2', v0.10.1348) + bir kez benimseme + URL öncelik kapısı", () => {
+    expect(src).toContain('useTablePrefs(ENDPOINTS_TABLE_KEY)');
+    expect(src).toContain("const ENDPOINTS_TABLE_KEY = 'endpoints-v2';");
     expect(src).toContain('if (prefs.model === undefined || prefsAdopted.current) return;');
     expect(src).toContain('if (urlHadCols.current || !prefs.model) return;');
   });

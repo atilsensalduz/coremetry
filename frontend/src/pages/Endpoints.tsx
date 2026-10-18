@@ -33,6 +33,7 @@ import type { EndpointRow } from '@/lib/types';
 import { traceHref } from '@/lib/traceHref';
 import { PageControls } from '@/components/ui/PageControls';
 import { Button } from '@/components/ui/Button';
+import { Badge } from '@/components/ui/Badge';
 import { IconButton } from '@/components/ui/IconButton';
 import { useAuth } from '@/components/AuthProvider';
 import { RouteAlertModal } from '@/pages/alerts/RouteAlertModal'; // v0.10.705
@@ -100,8 +101,12 @@ const ENDPOINT_COLS: DataTableColumn<EndpointRow>[] = [
   // "Operation" on the RPC one: the column carries http.route there and
   // the span NAME here, and calling a gRPC method a "path" would be a
   // small lie repeated on every row.
-  { id: 'path',      label: 'Path',       sortValue: r => r.path,      naturalDir: 'asc', width: 260, stickyLeft: true },
-  { id: 'method',    label: 'Method',     width: 68 },
+  // v0.10.1348 (operatör: "Method kısmı daha net gözüksün") — Path kalan
+  // genişliği alan TEK flex kolon (ellipsis + title'da tam değer); Method
+  // kendi dar kolonunda rozet, asla kırpılmaz/gizlenmez (minWidth = width,
+  // priority 1). OPTIONS rozeti ≈ 58px + hücre dolgusu.
+  { id: 'path',      label: 'Path',       sortValue: r => r.path,      naturalDir: 'asc', width: 260, minWidth: 200, flex: true, priority: 1, stickyLeft: true },
+  { id: 'method',    label: 'Method',     width: 84, minWidth: 84, priority: 1 },
   { id: 'calls',     label: 'Calls',      sortValue: r => r.calls,     numeric: true, width: 84 },
   { id: 'errors',    label: 'Errors',     sortValue: r => r.errors,    numeric: true, width: 76 },
   { id: 'errorRate', label: 'Error rate', sortValue: r => r.errorRate, numeric: true, width: 92 },
@@ -143,9 +148,22 @@ const SORT_KEYS = [
   'avgMs', 'p50Ms', 'p90Ms', 'p95Ms', 'p99Ms', 'reqPerMin', 'impact',
   'p99Delta', // v0.9.761 — sunucuda aday-havuzu sıralaması
 ] as const;
-// v0.9.761 (mockup onayı) — varsayılan sıralama "kötüleşenler önce":
-// sayfayı açma sebebi neredeyse hep "ne bozuldu". Hacim bir tık uzakta.
-const DEFAULT_ENDPOINTS_SORT = { id: 'p99Delta', dir: 'desc' as const };
+// v0.9.761 (mockup onayı) — varsayılan sıralama "kötüleşenler önce" idi.
+// v0.10.1348 (operatör: "Endpoints sayfasında P99 ve P99 delta default
+// kapalı gelsin") — P99 Δ artık varsayılan GİZLİ; görünmeyen bir kolona göre
+// sıralı açılan tablo okunmaz → varsayılan Calls ↓ (sunucunun sıralamasız
+// varsayılanıyla aynı: chstore.endpointsOrderBy fallback). Kötüleşenler
+// Columns'tan P99 Δ açılıp başlığa tıklanınca; "Worst by impact" değişmedi.
+const DEFAULT_ENDPOINTS_SORT = { id: 'calls', dir: 'desc' as const };
+// v0.10.1348 — kalıcı tercih anahtarları v2. v0.10.831 öncesi hook sıralamayı
+// her yüklemede localStorage'a yazıyordu: çoğu tarayıcıda seçilmemiş bir
+// "P99 Δ ↓" kayıtlı; sunucu sütun tercihi de P99/P99 Δ görünürken
+// kaydedilmiş kolon kümelerini taşıyor. Anahtar eski kalsa yeni varsayılan
+// görünmezdi (v0.10.1323 exception-inbox v2 → v3 emsali). Bedel: bilinçli
+// seçimler (sıra, genişlik, kolon kümesi) BİR KEZ sıfırlanır. URL parametre
+// adı `s_endpoints` AYNI kalır (paylaşılan link + kayıtlı görünüm çalışır).
+const ENDPOINTS_TABLE_KEY = 'endpoints-v2';
+const ENDPOINTS_SORT_URL_KEY = 's_endpoints';
 
 // Visible-column universe for the ?cols= codec (v0.8.574) — every
 // rendered column; headerHidden `impact` is sort-only and can't be
@@ -167,8 +185,11 @@ const ALL_COL_IDS = ENDPOINT_COLS.filter(c => !c.headerHidden).map(c => c.id);
 //   spread     türetilmiş (p99/p50); değerli ama varsayılan olmak zorunda değil
 //   errors     mutlak sayı artık Error rate hücresinde ("%0,4 · 12")
 //   reqPerMin  Calls hücresinde ("1,2M · 340/dk")
+//   p99Ms      v0.10.1348 (operatör: "P99 ve P99 delta default kapalı
+//   p99Delta   gelsin") — P50/P95 kuyruğu taşıyor; ikisi Columns'ta
+const DEFAULT_HIDDEN_COL_IDS = ['avgMs', 'p90Ms', 'spread', 'errors', 'reqPerMin', 'p99Ms', 'p99Delta'] as const;
 const DEFAULT_COL_IDS = ALL_COL_IDS.filter(
-  id => !['avgMs', 'p90Ms', 'spread', 'errors', 'reqPerMin'].includes(id));
+  id => !(DEFAULT_HIDDEN_COL_IDS as readonly string[]).includes(id));
 
 export default function EndpointsPage() {
   const navigate = useNavigate();
@@ -415,7 +436,8 @@ export default function EndpointsPage() {
   // benimseme = URL'ye bir kez yazmak (replace, deep-link cols= varken
   // ASLA); yalnız operatörün ColumnToggle değişikliği sunucuya. Sıra sabit
   // (ENDPOINT_COLS) → model.order kanonik sıra, hidden = gizlenenler.
-  const prefs = useTablePrefs('endpoints');
+  // v0.10.1348 — anahtar v2 (ENDPOINTS_TABLE_KEY gerekçesi).
+  const prefs = useTablePrefs(ENDPOINTS_TABLE_KEY);
   const urlHadCols = useRef(!!params.get('cols'));
   const prefsAdopted = useRef(false);
   useEffect(() => {
@@ -430,7 +452,7 @@ export default function EndpointsPage() {
   }, [prefs.model]);
   const changeVisibleCols = (s: Set<string>) => {
     setVisibleCols(s);
-    prefs.save({ v: 1, order: [...ALL_COL_IDS], hidden: ALL_COL_IDS.filter(id => !s.has(id)), sig: 'endpoints' });
+    prefs.save({ v: 1, order: [...ALL_COL_IDS], hidden: ALL_COL_IDS.filter(id => !s.has(id)), sig: ENDPOINTS_TABLE_KEY });
   };
   // The hook sees only visible columns (+ the sort-only headerHidden
   // impact) so DataTableColgroup/Head stay aligned with the body cells.
@@ -455,11 +477,17 @@ export default function EndpointsPage() {
   // onOpen + searchRef wire the app-wide keyboard nav: j/k select a
   // row, Enter/o open its service detail, "/" focuses the path filter.
   const dt = useDataTable<EndpointRow>({
-    storageKey: 'endpoints',
+    storageKey: ENDPOINTS_TABLE_KEY,
+    // v0.10.1348 — URL parametre adı sabit (`s_endpoints`): anahtar v2'ye
+    // geçse de paylaşılan link / kayıtlı görünüm sırası aynen okunur.
+    sortUrlKey: ENDPOINTS_SORT_URL_KEY,
     columns: visibleColumns,
     rows: tableRows,
     serverSort: true,
     initialSort: DEFAULT_ENDPOINTS_SORT,
+    // v0.10.1348 — bilinmeyen sıralama kimliği (bayat link / kayıt)
+    // varsayılana (Calls ↓) düşer; başlık oku da onu gösterir.
+    sortIds: SORT_KEYS,
     // v0.9.839 — Enter/o goes where the CLICK goes. It used to open the
     // row's SERVICE, so the mouse and the keyboard answered two
     // different questions from the same selected row; the drill-down
@@ -470,6 +498,14 @@ export default function EndpointsPage() {
   // v0.9.1256 — sola sabit kimlik kolonlarının kümülatif ofsetleri
   // (görünür kolonlar + resize'lı genişliklerle; saf çekirdek).
   const leftOffs = stickyLeftOffsets(dt.visibleColumns, dt.colWidths, 120);
+  // v0.10.1348 — operatör-bildirimli (prod /endpoints, servis süzgeci
+  // seçili): başlık "Path"in altında servis adı, "Method"un altında yol
+  // duruyordu. Kök neden: başlık `visibleColumns`tan (servis süzgecinde
+  // Service, metrik kipinde P90 düşmüş), gövde ise ham `visibleCols`tan
+  // (?cols= kümesi) çiziliyordu → gövdede fazladan bir hücre, sonraki her
+  // hücre bir kolon sağa kaydı (ve primitifin sığdırma CSS'i hücre sayısını
+  // tutturamadı). Artık gövde de BAŞLIĞIN listesinden: dt.visibleColumns.
+  const cellOn = useMemo(() => new Set(dt.visibleColumns.map(c => c.id)), [dt.visibleColumns]);
 
   const sortOk = (SORT_KEYS as readonly string[]).includes(dt.sort.id ?? '');
   const sortBy = sortOk ? (dt.sort.id as string) : DEFAULT_ENDPOINTS_SORT.id;
@@ -807,60 +843,64 @@ export default function EndpointsPage() {
                         its column is visible (?cols=); order stays in
                         lockstep with ENDPOINT_COLS so the colgroup and
                         body never misalign. */}
-                    {visibleCols.has('service') && <td className="sticky-left" style={{ left: leftOffs['service'] }}>
+                    {cellOn.has('service') && <td className="sticky-left" style={{ left: leftOffs['service'] }}>
                       <Link to={serviceHref(r.service, { range, env })} className="mono">
                         {r.service}
                       </Link>
                     </td>}
-                    {visibleCols.has('path') && <td className="mono sticky-left" style={{ left: leftOffs['path'] }} title={r.path}>
+                    {cellOn.has('path') && <td className="mono sticky-left" style={{ left: leftOffs['path'] }} title={r.path}>
                       {r.path}
                     </td>}
-                    {visibleCols.has('method') && <td className="mono cell-muted">
-                      {r.method || '—'}
+                    {/* v0.10.1348 — Method rozet (tek nötr ton: renk yalnız
+                        sapan değerde, T9); boş metot (RPC) düz tire. */}
+                    {cellOn.has('method') && <td>
+                      {r.method
+                        ? <Badge tone="neutral" className="mono">{r.method}</Badge>
+                        : <span className="cell-muted">—</span>}
                     </td>}
-                    {visibleCols.has('calls') && <td className="num">
+                    {cellOn.has('calls') && <td className="num">
                       {fmtNum(r.calls)}
                       {/* v0.9.642 — Req/min varsayılandan çıktı; hızı
                           BURADA taşıyoruz ki bilgi kaybolmasın. Ayrı
                           kolon hâlâ ColumnManager'da (o zaman burada
                           tekrar etmiyor). */}
-                      {!visibleCols.has('reqPerMin') && r.reqPerMin != null && (
+                      {!cellOn.has('reqPerMin') && r.reqPerMin != null && (
                         <span style={{ color: 'var(--text3)', marginLeft: 6 }}>
                           · {fmtRate(r.reqPerMin)}
                         </span>
                       )}
                       {compare && <TrendDelta cur={r.calls} prior={r.priorCalls} kind="neutral" />}
                     </td>}
-                    {visibleCols.has('errors') && <td className="num">
+                    {cellOn.has('errors') && <td className="num">
                       {fmtNum(r.errors)}
                       {compare && <TrendDelta cur={r.errors} prior={r.priorErrors} kind="lowerBetter" />}
                     </td>}
-                    {visibleCols.has('errorRate') && <td className="num">
+                    {cellOn.has('errorRate') && <td className="num">
                       <span className={`badge ${errCls}`}>{r.errorRate.toFixed(2)}%</span>
                       {/* v0.9.642 — Errors varsayılandan çıktı; mutlak
                           sayı BURADA. Oran tek başına ölçek saklıyor:
                           %50 iki çağrının biri de olabilir, 2M'nin
                           1M'i de. */}
-                      {!visibleCols.has('errors') && r.errors > 0 && (
+                      {!cellOn.has('errors') && r.errors > 0 && (
                         <span style={{ color: 'var(--text3)', marginLeft: 6 }}>
                           · {fmtNum(r.errors)}
                         </span>
                       )}
                     </td>}
-                    {visibleCols.has('status') && <td><StatusBreakdown r={r} /></td>}
-                    {visibleCols.has('reqPerMin') && <td className="num">{fmtRate(r.reqPerMin)}</td>}
-                    {visibleCols.has('avgMs') && <td className="num">
+                    {cellOn.has('status') && <td><StatusBreakdown r={r} /></td>}
+                    {cellOn.has('reqPerMin') && <td className="num">{fmtRate(r.reqPerMin)}</td>}
+                    {cellOn.has('avgMs') && <td className="num">
                       {r.avgMs.toFixed(1)} ms
                       {compare && <TrendDelta cur={r.avgMs} prior={r.priorAvgMs} kind="lowerBetter" />}
                     </td>}
-                    {visibleCols.has('p50Ms') && <td className="num">{fmtMs(r.p50Ms)}</td>}
-                    {visibleCols.has('p90Ms') && <td className="num">{fmtMs(r.p90Ms)}</td>}
-                    {visibleCols.has('p95Ms') && <td className="num">{fmtMs(r.p95Ms)}</td>}
-                    {visibleCols.has('p99Ms') && <td className="num">
+                    {cellOn.has('p50Ms') && <td className="num">{fmtMs(r.p50Ms)}</td>}
+                    {cellOn.has('p90Ms') && <td className="num">{fmtMs(r.p90Ms)}</td>}
+                    {cellOn.has('p95Ms') && <td className="num">{fmtMs(r.p95Ms)}</td>}
+                    {cellOn.has('p99Ms') && <td className="num">
                       {r.p99Ms.toFixed(0)} ms
                       {compare && <TrendDelta cur={r.p99Ms} prior={r.priorP99Ms} kind="lowerBetter" />}
                     </td>}
-                    {visibleCols.has('p99Delta') && <td className="num">
+                    {cellOn.has('p99Delta') && <td className="num">
                       {(() => {
                         // v0.9.818 — "YENİ" YALANDI. Prior okuma da
                         // top-N (api.go getEndpoints prior taraması aynı
@@ -879,7 +919,7 @@ export default function EndpointsPage() {
                         return <b style={{ color: cls }}>{d.pct > 0 ? '▲' : d.pct < 0 ? '▼' : ''}{Math.abs(d.pct).toFixed(0)}%</b>;
                       })()}
                     </td>}
-                    {visibleCols.has('spread') && <td className="num"
+                    {cellOn.has('spread') && <td className="num"
                       title="p99 ÷ p50 — the SHAPE of the latency, not its level.\nNear 1: the whole distribution moved, every caller is slow (dependency, pool, node).\nHigh: most calls are fine and a tail is dragging (retries, GC, cold cache, one bad shard).\nSame p99, opposite causes.">
                       {(() => {
                         const sp = spreadOf(r);
@@ -890,7 +930,7 @@ export default function EndpointsPage() {
                         return <span style={{ color: tone }}>{sp < 10 ? sp.toFixed(1) : Math.round(sp)}×</span>;
                       })()}
                     </td>}
-                    {visibleCols.has('traces') && <td className="sticky-right">
+                    {cellOn.has('traces') && <td className="sticky-right">
                       {/* /traces, bu endpoint'e kapsamlı.
                           ⚠ Bu şerh v0.9.1372'ye kadar "search=path …
                           rootOnly=false" diyordu ve o sürümde YANLIŞ
@@ -938,8 +978,9 @@ export default function EndpointsPage() {
                     <tr>
                       <td />
                       {/* v0.8.574 — span every VISIBLE data column
-                          (?cols= can hide any of the 14). */}
-                      <td colSpan={visibleCols.size} style={{ background: 'var(--bg0)', padding: '8px 14px' }}>
+                          (?cols= can hide any of the 14).
+                          v0.10.1348 — gövdeyle aynı liste (dt.visibleColumns). */}
+                      <td colSpan={dt.visibleColumns.length} style={{ background: 'var(--bg0)', padding: '8px 14px' }}>
                         <DependencyStrip
                           service={r.service} range={range}
                           window={dep.since} capped={dep.capped}
