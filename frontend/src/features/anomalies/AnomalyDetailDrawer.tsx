@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Badge, Drawer } from '@/components/ui';
 import { ClusterChips } from '@/components/ClusterChips';
 import { CopilotExplain } from '@/components/CopilotExplain';
+import { useT } from '@/lib/i18n'; // v0.10.1338 — "Ask CoSRE" etiketi
 import { RootCauseRibbon } from '@/components/RootCauseRibbon';
 import { tsLong } from '@/lib/utils';
 import type { AnomalyEvent } from '@/lib/types';
@@ -42,6 +43,7 @@ export function AnomalyDetailDrawer({ event, onClose }: {
   event: AnomalyEvent;
   onClose: () => void;
 }) {
+  const tr = useT(); // v0.10.1338
   const isLogKind = isLogAnomalyKind(event.kind);
 
   // v0.9.936 — davranış olayının yapılandırılmış kanıtı. Memo: her
@@ -147,7 +149,8 @@ export function AnomalyDetailDrawer({ event, onClose }: {
                 açardı ve iki kabuk da window'da Escape dinlediğinden tek
                 ESC ikisini birden kapatırdı. Detay çekmecesinde açıklamanın
                 yeri zaten burası. */}
-            <CopilotExplain kind="anomaly" id={event.id} label="✨ Explain this anomaly" />
+            {/* v0.10.1338 (operatör) — görünen ad "Ask CoSRE" / "CoSRE’ye sor". */}
+            <CopilotExplain kind="anomaly" id={event.id} label={`✨ ${tr('ai.askCosre')}`} />
             {/* v0.10.6 — v0.9.1372'nin İKİZİ. O sürüm detay sayfalarının
                 pivotlarını `.accent`e taşımıştı; bu çekmecedeki aynı türden
                 pivot gözden kaçmıştı. */}

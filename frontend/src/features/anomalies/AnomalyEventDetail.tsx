@@ -10,6 +10,7 @@ import { ShareButton } from '@/components/ShareButton';
 import { RootCauseRibbon } from '@/components/RootCauseRibbon';
 import { AIExplainButton } from '@/components/ai/AIExplainButton';
 import { IconSparkles } from '@/components/icons';
+import { useT } from '@/lib/i18n'; // v0.10.1338 — "Ask CoSRE" etiketi
 import { CosreChart } from '@/components/CosreChart';
 import { ProblemVerdictActions } from '@/components/ProblemVerdictActions';
 import { api } from '@/lib/api';
@@ -153,6 +154,7 @@ export function AnomalyEventDetail({ event, isAdmin, onBack }: {
   isAdmin: boolean;
   onBack: () => void;
 }) {
+  const tr = useT(); // v0.10.1338
   // Esc = geri (AlertProblemDetail / ProblemDetail ile aynı kas hafızası);
   // üstte açılan bir modal Esc'i önce alır (katman yığını, v0.9.950).
   useEscLayer(true, onBack);
@@ -247,7 +249,7 @@ export function AnomalyEventDetail({ event, isAdmin, onBack }: {
               window={win}
               trailing={(
                 <AIExplainButton subject={{ kind: 'anomaly', id: event.id }}
-                  label={<><IconSparkles /> <span>Açıkla</span></>} />
+                  label={<><IconSparkles /> <span>{tr('ai.askCosre')}</span></>} />
               )} />
           </Sect>
 

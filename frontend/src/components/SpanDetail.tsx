@@ -17,6 +17,7 @@ import { CopyButton } from './CopyButton';
 import { IconButton } from './ui/IconButton';
 import { DisclosureButton } from './ui/DisclosureButton';
 import { AIExplainButton } from './ai/AIExplainButton';
+import { useT } from '@/lib/i18n'; // v0.10.1338 — "Ask CoSRE" etiketi
 import { BreakdownBar, KindBadge } from './KindBadge';
 import { useEntityEnabled, useStackFrameLinks } from '@/lib/queries';
 import { StackTrace } from './StackTrace';
@@ -65,6 +66,7 @@ export function SpanDetail({ span, onClose, logsFrom, logsTo, serviceLinks = tru
   // penceresi ±2 dk'lık; pod sayfasını ona kilitlemek yanlıştı — inceleme).
   pageRange?: TimeRange;
 }) {
+  const tr = useT(); // v0.10.1338
   const attrGroups = useMemo(() => groupSpanAttrs(span.attributes), [span.attributes]);
   // v0.10.692 — resource attribute'ları da gruplu (Service/Deployment/Container/
   // Kubernetes/Host/…; lib/spanAttrGroups groupResourceAttrs) — kiosk paneliyle aynı.
@@ -321,8 +323,11 @@ export function SpanDetail({ span, onClose, logsFrom, logsTo, serviceLinks = tru
             cevap tek sağ-kenar AI çekmecesinde (?ai=span:<traceId>:<spanId>). */}
         {span.traceId && span.spanId && (
           <div className="kiosk-span__actions">
+            {/* v0.10.1338 (operatör) — görünen ad "Ask CoSRE" / "CoSRE’ye sor";
+                Trace sayfasındaki trace düğmesiyle aynı ad, ayrımı ipucu yapar. */}
             <AIExplainButton subject={{ kind: 'span', id: span.traceId, spanId: span.spanId }}
-              label={<><IconSparkles /> <span style={{ marginLeft: 6 }}>Explain this span</span></>} />
+              title={tr('ai.askCosreSpanHint')}
+              label={<><IconSparkles /> <span style={{ marginLeft: 6 }}>{tr('ai.askCosre')}</span></>} />
           </div>
         )}
         <div className="kiosk-span__cols">

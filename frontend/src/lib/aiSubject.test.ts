@@ -99,15 +99,17 @@ describe('parseAiParam — reddedilenler', () => {
 
 // v0.10.948 (CoSRE Faz B) — trace çekmecesinin başlığı düğmenin adıyla aynı,
 // i18n'li: TR "CoSRE’ye sor · trace <kısa>", EN "Ask CoSRE · trace <kısa>".
-// Öteki türlerin başlığı DEĞİŞMEDİ. Dil verilmezse etkin dil (kullanıcı seçimi).
+// Dil verilmezse etkin dil (kullanıcı seçimi).
 describe('trace başlığı i18n (v0.10.948)', () => {
   const tr = { kind: 'trace', id: '0af7651916cd43dd8448eb211c80319c' } as const;
   it('açık dil', () => {
     expect(`${aiSubjectTitle(tr, 'tr')} · ${aiSubjectSubtitle(tr, 'tr')}`).toBe('CoSRE’ye sor · trace 0af7651916cd43dd…');
     expect(`${aiSubjectTitle(tr, 'en')} · ${aiSubjectSubtitle(tr, 'en')}`).toBe('Ask CoSRE · trace 0af7651916cd43dd…');
   });
-  it('öteki türler aynı', () => {
-    expect(aiSubjectTitle({ kind: 'span', id: 't', spanId: 's' }, 'tr')).toBe('Explain span');
+  it('öteki türler', () => {
+    // v0.10.1338 — span de artık "CoSRE’ye sor" (aşağıdaki describe).
+    expect(aiSubjectTitle({ kind: 'runbook', id: 'p' }, 'tr')).toBe('Runbook AI');
+    expect(aiSubjectTitle({ kind: 'service-health', id: 'svc', fromNs: 1, toNs: 2 }, 'tr')).toBe('AI triage');
     // v0.10.1326 (operatör) — exception çekmecesi düğmeyle aynı ad: "Ask CoSRE".
     expect(aiSubjectTitle({ kind: 'exception', id: 'fp' }, 'tr')).toBe('CoSRE’ye sor');
     expect(aiSubjectTitle({ kind: 'exception', id: 'fp' }, 'en')).toBe('Ask CoSRE');
@@ -126,6 +128,32 @@ describe('trace başlığı i18n (v0.10.948)', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+// v0.10.1338 (operatör) — her AI açıklama affordance'ı "Ask CoSRE" /
+// "CoSRE’ye sor" adını taşır: span/problem/incident/anomaly çekmece başlıkları
+// da düğmeyle aynı. MODEL bağlamı (drawerChat KONU satırı) semantik kalır.
+describe('Ask CoSRE başlıkları (v0.10.1338)', () => {
+  const subjects = [
+    { s: { kind: 'span', id: 't', spanId: 's' } as const, topic: 'Explain span' },
+    { s: { kind: 'problem', id: 'p1' } as const, topic: 'Explain problem' },
+    { s: { kind: 'incident', id: 'i1' } as const, topic: 'Explain incident' },
+    { s: { kind: 'anomaly', id: 'a1' } as const, topic: 'Explain anomaly' },
+  ];
+  for (const { s, topic } of subjects) {
+    it(`${s.kind} başlığı tr/en`, () => {
+      expect(aiSubjectTitle(s, 'tr')).toBe('CoSRE’ye sor');
+      expect(aiSubjectTitle(s, 'en')).toBe('Ask CoSRE');
+    });
+    it(`${s.kind} model konusu "${topic}" kalır`, () => {
+      expect(aiSubjectTopic(s)).toBe(topic);
+    });
+  }
+  it('runbook / service-health / charts / log konuları başlıklarıyla aynı', () => {
+    expect(aiSubjectTopic({ kind: 'runbook', id: 'p' })).toBe('Runbook AI');
+    expect(aiSubjectTopic({ kind: 'service-health', id: 'svc', fromNs: 1, toNs: 2 })).toBe('AI triage');
+    expect(aiSubjectTopic({ kind: 'charts', id: 'svc', fromNs: 1, toNs: 2, scope: 'all' })).toBe('AI grafik özeti');
   });
 });
 
@@ -293,7 +321,7 @@ describe('log-spike öznesi', () => {
   ])('%s → null', (_n, raw) => expect(parseAiParam(raw)).toBeNull());
   it('başlık + alt satır', () => {
     const s: AISubject = { kind: 'log-spike', id: '', fromNs: 5, toNs: 9, mode: 'sel', env: '', q: '', level: 'error' };
-    expect(aiSubjectTitle(s, 'tr')).toBe('Log artışını açıkla');
+    expect(aiSubjectTitle(s, 'tr')).toBe('CoSRE’ye sor'); // v0.10.1338 — konu: 'Log artışını açıkla'
     expect(aiSubjectSubtitle(s, 'tr')).toBe('tüm servisler · seçili aralık · ERROR');
   });
 });
@@ -321,7 +349,7 @@ describe('log öznesi', () => {
   ])('%s → null', (_n, raw) => expect(parseAiParam(raw)).toBeNull());
   it('başlık + alt satır', () => {
     const s: AISubject = { kind: 'log', id: 'checkout', tsNs: '1', pod: 'checkout-7f9', traceId: '', hash: '0000abcd' };
-    expect(aiSubjectTitle(s, 'tr')).toBe('Log satırını açıkla');
+    expect(aiSubjectTitle(s, 'tr')).toBe('CoSRE’ye sor'); // v0.10.1338 — konu: 'Log satırını açıkla'
     expect(aiSubjectSubtitle(s, 'tr')).toBe('checkout · checkout-7f9');
   });
 });

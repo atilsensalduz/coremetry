@@ -830,6 +830,7 @@ export function AlertProblemDetail({ problem, isAdmin, onBack, onChanged }: {
   onChanged: () => void;
 }) {
   useEscBack(onBack);
+  const tr = useT(); // v0.10.1338 — "Ask CoSRE" etiketi
   const qc = useQueryClient();
   const [acking, setAcking] = useState(false);
   // v0.10.1055 (operatör: "Okdir") — terfi ("anomaly-auto:") ve küme
@@ -1028,8 +1029,9 @@ export function AlertProblemDetail({ problem, isAdmin, onBack, onChanged }: {
               {/* v0.9.477 — iki AI affordance'ı da tek sağ çekmeceye açılır;
                   ikisi aynı anda satır-içi açıldığında kart iki uzun metin
                   bloğuyla şişiyordu. */}
+              {/* v0.10.1338 (operatör) — görünen ad "Ask CoSRE" / "CoSRE’ye sor". */}
               <AIExplainButton subject={{ kind: 'problem', id: problem.id }}
-                label={<><IconSparkles /> <span>Explain</span></>} />
+                label={<><IconSparkles /> <span>{tr('ai.askCosre')}</span></>} />
               <AIExplainButton subject={{ kind: 'runbook', id: problem.id }}
                 label={<><IconSparkles /> <span>Runbook AI</span></>} />
             </div>

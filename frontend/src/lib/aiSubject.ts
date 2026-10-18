@@ -310,14 +310,17 @@ function parseLogLine(parts: string[]): AISubject | null {
 // Çekmece başlığı — operatör hangi soruyu sorduğunu görsün.
 // v0.10.948 (CoSRE Faz B) — trace öznesi artık kanıt toplayan inceleme; başlık
 // düğmenin adıyla aynı ("CoSRE’ye sor · trace <kısa kimlik>", EN "Ask CoSRE ·
-// trace …"). Öteki türler DEĞİŞMEDİ. `lang` verilmezse etkin dil.
+// trace …"). `lang` verilmezse etkin dil.
 export function aiSubjectTitle(s: AISubject, lang: Lang = currentLang()): string {
   switch (s.kind) {
     case 'trace':          return t('ai.askCosre', lang);
-    case 'span':           return 'Explain span';
-    case 'problem':        return 'Explain problem';
-    case 'incident':       return 'Explain incident';
-    case 'anomaly':        return 'Explain anomaly';
+    // v0.10.1338 (operatör) — her AI açıklama affordance'ı "Ask CoSRE" /
+    // "CoSRE’ye sor" adını taşır (trace v0.10.944, exception v0.10.1326);
+    // modelin KONU satırı aiSubjectTopic'te semantik kalır.
+    case 'span':
+    case 'problem':
+    case 'incident':
+    case 'anomaly':        return t('ai.askCosre', lang);
     case 'exception':      return t('ai.askCosre', lang); // v0.10.1326 (operatör) — düğme adıyla aynı
     case 'runbook':        return 'Runbook AI';
     case 'service-health': return 'AI triage';
@@ -325,17 +328,29 @@ export function aiSubjectTitle(s: AISubject, lang: Lang = currentLang()): string
     // triyaj etmiyor — iki yüzey aynı sayfada yaşadığı için ad ayrımı
     // operatörün hangi cevabı okuduğunu belirler.
     case 'charts':         return 'AI grafik özeti';
-    case 'log-spike':      return 'Log artışını açıkla'; // v0.10.1284
-    case 'log':            return 'Log satırını açıkla'; // v0.10.1291
+    // v0.10.1338 (operatör) — log / log-spike başlıkları da "CoSRE’ye sor";
+    // eski ifadeler aiSubjectTopic'te modelin KONU satırı olarak kalır.
+    case 'log-spike':                                    // v0.10.1284
+    case 'log':            return t('ai.askCosre', lang); // v0.10.1291
   }
 }
 
 // aiSubjectTopic — v0.10.1326: MODEL bağlamındaki konu adı (drawerChat KONU
 // satırı). Çekmece başlığı exception için "CoSRE’ye sor" oldu; model ise
 // sorunun bir kök-neden açıklaması olduğunu bilmeye devam etmeli.
+// v0.10.1338 — span/problem/incident/anomaly başlıkları da "CoSRE’ye sor"
+// oldu; model eski semantik konuları görmeye devam eder.
+const TOPIC: Partial<Record<AIKind, string>> = {
+  exception: 'Explain root cause',
+  span: 'Explain span',
+  problem: 'Explain problem',
+  incident: 'Explain incident',
+  anomaly: 'Explain anomaly',
+  'log-spike': 'Log artışını açıkla', // v0.10.1338
+  log: 'Log satırını açıkla',         // v0.10.1338
+};
 export function aiSubjectTopic(s: AISubject): string {
-  if (s.kind === 'exception') return 'Explain root cause';
-  return aiSubjectTitle(s, 'tr');
+  return TOPIC[s.kind] ?? aiSubjectTitle(s, 'tr');
 }
 
 // Başlığın altındaki ikinci satır: hangi nesne (kısaltılmış id / servis).

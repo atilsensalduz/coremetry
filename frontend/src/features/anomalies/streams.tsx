@@ -17,6 +17,7 @@ import { Badge, Button, Card, DisclosureButton, Row, useConfirm } from '@/compon
 import { useDataTable, DataTableHead, DataTableColgroup, DataTableState, type ColumnDef, type DataTableStateProps } from '@/components/ui/DataTable';
 import { ClusterChips } from '@/components/ClusterChips';
 import { AIExplainButton } from '@/components/ai/AIExplainButton';
+import { useT } from '@/lib/i18n'; // v0.10.1338
 // v0.9.1137 (AI Faz 2.4) — log deseni kartının yuvası (ızgara varyantı).
 import { useInsightRow, InsightRowChip, InsightGridSlot } from '@/components/ai/insightRow';
 import { RootCauseRibbon } from '@/components/RootCauseRibbon';
@@ -444,6 +445,8 @@ function AnomalyTable({ rows, storageKey, rowRefs, highlight, onOpen, title, sta
 }) {
   // Varsayılan sıra sunucununkiyle birebir: handler `status = 'active' DESC,
   // last_seen DESC` döndürüyor ve sayfa zaten active/cleared olarak ayırıyor.
+  const tr = useT(); // v0.10.1338
+  const askCosreName = `${tr('ai.askCosre')} · anomaly`;
   const dt = useDataTable<AnomalyEvent>({
     storageKey, columns: ANOMALY_HISTORY_COLS, rows,
     initialSort: { id: 'lastSeen', dir: 'desc' },
@@ -533,7 +536,10 @@ function AnomalyTable({ rows, storageKey, rowRefs, highlight, onOpen, title, sta
                 <td>
                   {/* v0.9.477 — satır-içi panel bir tablo hücresinde
                       satırı şişiriyordu; cevap artık sağ AI çekmecesinde. */}
-                  <AIExplainButton subject={{ kind: 'anomaly', id: e.id }} label="AI" />
+                  {/* v0.10.1338 (operatör) — görünür metin kompakt "AI" kalır;
+                      erişilebilir ad + ipucu "Ask CoSRE · anomaly". */}
+                  <AIExplainButton subject={{ kind: 'anomaly', id: e.id }} title={askCosreName}
+                    label={<><span aria-hidden="true">AI</span><span className="sr-only">{askCosreName}</span></>} />
                 </td>
               </tr>
             ))}

@@ -8,6 +8,7 @@ import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { useAuth } from '@/components/AuthProvider';
 import { AIExplainButton } from '@/components/ai/AIExplainButton';
+import { useT } from '@/lib/i18n'; // v0.10.1338 — "Ask CoSRE" etiketi
 import { OverviewChart } from '@/pages/service/charts/OverviewChart';
 import {
   useIncident, useIncidentEvents, useIncidentProblems, useIncidentProblemDetails,
@@ -54,6 +55,7 @@ function Inner() {
   const { user } = useAuth();
   const id = sp.get('id') ?? '';
   const isAdmin = user?.role === 'admin' || user?.role === 'editor';
+  const tr = useT(); // v0.10.1338
   const qc = useQueryClient();
   // v0.10.1081 — Problems kuyruğundan gelindiyse geri bağlantı oraya (aynı
   // süzgeçlerle) döner; başka her girişte bugünkü gibi Incidents listesi.
@@ -239,7 +241,9 @@ function Inner() {
           <span className="spacer" />
           {/* v0.9.477 — aksiyon çubuğunda buton, cevap sağ AI çekmecesinde
               (eskiden çubuğun altına satır-içi panel açıyordu). */}
-          <AIExplainButton subject={{ kind: 'incident', id: inc.id }} />
+          {/* v0.10.1338 (operatör) — görünen ad "Ask CoSRE" / "CoSRE’ye sor". */}
+          <AIExplainButton subject={{ kind: 'incident', id: inc.id }}
+            label={<><IconSparkles /> <span>{tr('ai.askCosre')}</span></>} />
           {isAdmin && inc.status === 'open' && <Button variant="secondary" onClick={ack}
             loading={busy === 'ack'} disabled={busy !== null}>Acknowledge</Button>}
           {isAdmin && inc.status !== 'resolved' && <Button variant="primary" onClick={resolve}

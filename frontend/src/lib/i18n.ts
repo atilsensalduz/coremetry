@@ -211,6 +211,12 @@ const EN: Catalog = {
   // v0.10.948 (CoSRE Faz B) — çekmece başlığının trace alt satırı: "Ask CoSRE · trace <kısa kimlik>".
   'ai.subject.trace':     'trace',
 
+  // v0.10.1338 — span düğmesi Trace sayfasında trace düğmesiyle AYNI adı
+  // taşır; ikisini ipucu ayırır.
+  'ai.askCosreSpanHint':  'Ask CoSRE · span — explain this span.',
+  // v0.10.1338 (operatör) — log satırı / log artışı düğmeleri de "Ask CoSRE"; ipucu ayırır.
+  'ai.askCosreLogHint':      'Ask CoSRE · log — explain this log line.',
+  'ai.askCosreLogSpikeHint': 'Ask CoSRE · log spike — explain this log increase.',
   // v0.10.944 (CoSRE Faz A) — çekmecenin "Bağlam" şeridi: sohbetin hangi
   // trace/span/servis/ortam/cluster/namespace ve pencereye kapsandığı.
   'ai.ctx.label':     'Context',
@@ -489,6 +495,10 @@ const TR: Catalog = {
   'ai.ctx.aria':      'CoSRE sohbet bağlamı',
   'ai.ctx.trace':     'Trace',
   'ai.ctx.span':      'Span',
+  'ai.askCosreSpanHint':  'CoSRE’ye sor · span — bu span’i açıkla.',
+  // v0.10.1338
+  'ai.askCosreLogHint':      'CoSRE’ye sor · log — bu log satırını açıkla.',
+  'ai.askCosreLogSpikeHint': 'CoSRE’ye sor · log artışı — bu log artışını açıkla.',
   'ai.ctx.service':   'Servis',
   'ai.ctx.env':       'Ortam',
   'ai.ctx.clusterNs': 'Cluster / namespace',

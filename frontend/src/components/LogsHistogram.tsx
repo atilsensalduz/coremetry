@@ -8,6 +8,7 @@ import { useThemeTick } from '@/lib/useThemeTick';
 import { AIExplainButton } from '@/components/ai/AIExplainButton';
 import { IconSparkles } from '@/components/icons';
 import type { AISubject } from '@/lib/aiSubject';
+import { useT } from '@/lib/i18n'; // v0.10.1338
 
 // LogsHistogram — log volume over time for /logs, the service Logs tab and
 // the anomaly drawer.
@@ -134,7 +135,7 @@ export function LogsHistogram({ range, filter, onRangeSelect, onZoomReset, onSer
   // Verilirse başlıkta kırılım seçicisi çizilir (yalnız /logs geçirir;
   // servis Logs sekmesi + anomali çekmecesi seviye modunda kalır).
   onBreakdown?: (b: LogsBreakdown) => void;
-  // v0.10.1284 (AI SRE Faz 1a) — verilirse başlıkta ✨ "Artışı açıkla"
+  // v0.10.1284 (AI SRE Faz 1a) — verilirse başlıkta ✨ "Artışı açıkla" (v0.10.1338: "CoSRE’ye sor")
   // (`log-spike` öznesi; çekmece açılınca bir kez çekilir). Yalnız /logs
   // geçirir; copilot kapalıysa düğme kendini gizler (AIExplainButton).
   spikeSubject?: AISubject;
@@ -145,6 +146,7 @@ export function LogsHistogram({ range, filter, onRangeSelect, onZoomReset, onSer
   // onZoomRef pattern) so a per-render callback identity doesn't re-run the
   // fetch effect.
   const onSeriesRef = useRef(onSeries); onSeriesRef.current = onSeries;
+  const tr = useT(); // v0.10.1338 — "Ask CoSRE" etiketi
   const themeTick = useThemeTick(); // v0.10.510 (D7) — kırılım renkleri paletten; tema değişince yeniden kur
   const bd: LogsBreakdown = breakdown ?? 'severity';
 
@@ -250,8 +252,8 @@ export function LogsHistogram({ range, filter, onRangeSelect, onZoomReset, onSer
           {spikeSubject && !degraded && (
             <>
               <AIExplainButton size="xs" subject={spikeSubject}
-                title="Bu log artışını ne açıklıyor — tepe, önceki pencereyle pod / seviye / desen payı (sağ çekmecede)"
-                label={<><IconSparkles /> <span>Artışı açıkla</span></>} />{' '}
+                title={tr('ai.askCosreLogSpikeHint')}
+                label={<><IconSparkles /> <span>{tr('ai.askCosre')}</span></>} />{' '}
             </>
           )}
           {totals.ratePct !== null && totals.error > 0 && `${fmtPct(totals.ratePct)} hata · `}

@@ -17,6 +17,7 @@ import { logLineSubjectOf } from '@/lib/logLineSubject'; // v0.10.1291 — ✨ l
 import { AIExplainButton } from './ai/AIExplainButton';
 import { useInAiDrawer } from './ai/aiDrawerContext';
 import { IconSparkles } from './icons';
+import { useT } from '@/lib/i18n'; // v0.10.1338
 import { Button, IconButton, KeyValue, KeyValueRow } from '@/components/ui';
 
 // Column model (Discover revamp step 3): Time is fixed left, Message
@@ -356,11 +357,12 @@ export function LogTable({
 // yok) çizilmez. Ayrı bileşen: router kancaları yalnız açılan satırda koşar.
 function LogLineExplain({ l }: { l: LogRow }) {
   const inDrawer = useInAiDrawer();
+  const tr = useT(); // v0.10.1338 — "Ask CoSRE" etiketi
   const subject = useMemo(() => logLineSubjectOf(l), [l]);
   if (inDrawer || !subject) return null;
   return (
-    <AIExplainButton subject={subject} size="sm" title="Bu log satırını AI ile açıkla (sağ çekmece)"
-      label={<><IconSparkles /> <span>Açıkla</span></>} />
+    <AIExplainButton subject={subject} size="sm" title={tr('ai.askCosreLogHint')}
+      label={<><IconSparkles /> <span>{tr('ai.askCosre')}</span></>} />
   );
 }
 
