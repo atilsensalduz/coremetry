@@ -5951,3 +5951,32 @@ tbody td.tpm-more-cell { color: var(--text2); }
   .srch-ts { display: none; }
 }
 /* ── v0.10.1335 END ──────────────────────────────────────────────────── */
+
+/* ── v0.10.1339 BEGIN — platform kazanımları (Vercel Web Interface Guidelines, denetim R1) ──
+   Üç küçük tarayıcı kuralı; styles/platformCss.pin.test.ts çiviliyor.
+   1  Dokunmatik: çift-dokunma yakınlaştırma gecikmesi ve gri dokunma
+      parlaması etkileşimli öğelerde kapalı. `:where()` özgüllük 0 —
+      sürükleme tutamaklarının `touch-action: none`ı (.col-resize-handle,
+      .span-panel-resizer, satır içi touchAction) kaynak sırasından
+      bağımsız olarak HER ZAMAN kazanır.
+   2  Katman kaydırması: modal/çekmece/popover/liste dibine gelince alttaki
+      sayfa (#content) kaymaya devam etmesin (scroll chaining).
+   3  Çapa ofseti: scrollIntoView({ block: 'start' }) ve #hash hedefleri
+      (DetailsToc bölümleri, ?tab=details#deploys, #db-errors, kök neden
+      çapası) yapışkan filtre barının ALTINA gizlenmesin. Bar yüksekliği
+      PageControls'ün #content/.page-body'ye yazdığı --controls-h; bar
+      yoksa değişken tanımsız → yalnız --sp-4 nefes payı.
+   iOS 16px yakınlaştırma kuralı ZATEN telefon katmanında (D2.2, yoğunluk
+   kapsamıyla; mobileBreakpoints pinliyor) — burada tekrar yazılmadı.
+   `html { overscroll-behavior }` bilerek YOK (operatör kararı bekliyor). */
+:where(button, a, .btn-icon, [role="button"], summary, label[for]) {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.modal-dialog, .drawer-panel, .ui-popover, .dt-menu-pop, .cb-list, .pc-panel {
+  overscroll-behavior: contain;
+}
+.sec-head[id], #dtl-props, #deploys, #db-errors, #problem-root-cause {
+  scroll-margin-top: calc(var(--controls-h, 0px) + var(--sp-4));
+}
+/* ── v0.10.1339 END ──────────────────────────────────────────────────── */

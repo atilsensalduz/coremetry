@@ -14,6 +14,25 @@ const LABEL: Record<Theme, string> = {
 /** v0.10.1177 — kullanıcı menüsü de aynı döngüyü kullanır (Sidebar). */
 export const THEME_LABEL = LABEL;
 
+/** v0.10.1339 — `<meta name="theme-color">` değeri = temanın sayfa zemini
+ *  (`--bg0`, globals.css). Mobil tarayıcı adres çubuğu / PWA başlığı bununla
+ *  boyanır; index.html açılış betiği AYNI haritayı taşır (platformCss.pin
+ *  ikisini ve CSS'i birbirine çiviliyor). */
+export const THEME_COLOR: Record<Theme, string> = {
+  dark: '#1e2124', light: '#f4f6f8', redhat: '#f0f0f0',
+};
+
+/** v0.10.1339 — theme-color meta'sını temaya eşitler (yoksa ekler). */
+export function syncThemeColor(t: Theme): void {
+  let meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+  if (!meta) {
+    meta = document.createElement('meta');
+    meta.name = 'theme-color';
+    document.head.appendChild(meta);
+  }
+  meta.content = THEME_COLOR[t];
+}
+
 /** Şu anki tema (<html data-theme>). */
 export function currentTheme(): Theme {
   const t = document.documentElement.getAttribute('data-theme');
@@ -24,6 +43,7 @@ export function currentTheme(): Theme {
 export function cycleTheme(): Theme {
   const next = THEME_NEXT[currentTheme()];
   document.documentElement.setAttribute('data-theme', next);
+  syncThemeColor(next);
   setRaw(STORAGE_KEY, next);
   return next;
 }
@@ -33,5 +53,6 @@ export function cycleTheme(): Theme {
 export const THEMES: readonly Theme[] = ['dark', 'light', 'redhat'];
 export function applyTheme(t: Theme): void {
   document.documentElement.setAttribute('data-theme', t);
+  syncThemeColor(t);
   setRaw(STORAGE_KEY, t);
 }

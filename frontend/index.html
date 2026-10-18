@@ -32,17 +32,28 @@
       palette when a session loads. Was inline in layout.tsx;
       moves here verbatim under Vite (no SSR).
     -->
+    <!--
+      v0.10.1339 — theme-color = temanın sayfa zemini (--bg0). Varsayılan
+      redhat değeri; açılış betiği kayıtlı temaya göre ilk boyamadan önce
+      günceller, lib/theme.ts (syncThemeColor) tema değişince. Harita
+      lib/theme.ts THEME_COLOR ile aynı (platformCss.pin çiviliyor).
+    -->
+    <meta name="theme-color" content="#f0f0f0" />
     <script>
       (function() {
+        var colors = { dark: '#1e2124', light: '#f4f6f8', redhat: '#f0f0f0' };
+        var t;
         try {
-          var t = localStorage.getItem('coremetry-theme');
+          t = localStorage.getItem('coremetry-theme');
           // v0.8.285 — default to 'redhat' (PatternFly/OpenShift) for new
           // sessions; a saved pref still wins so existing users keep their pick.
           if (t !== 'light' && t !== 'dark' && t !== 'redhat') t = 'redhat';
-          document.documentElement.setAttribute('data-theme', t);
         } catch (e) {
-          document.documentElement.setAttribute('data-theme', 'redhat');
+          t = 'redhat';
         }
+        document.documentElement.setAttribute('data-theme', t);
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute('content', colors[t]);
       })();
     </script>
     <!--
