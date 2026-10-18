@@ -53,6 +53,16 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   // without managing the gap themselves.
   leftIcon?: ReactNode;
   rightIcon?: ReactNode;
+  // v0.10.1318 (K3) — açık/kapalı DURUM (Logs "With trace", "Live tail",
+  // problem kararı). `true` → `aria-pressed="true"` + `.is-active` accent
+  // TINT'i (ikincilin açık hâli); `false` → `aria-pressed="false"`, sınıf
+  // yok; verilmezse buton bir anahtar değildir (aria-pressed basılmaz).
+  // Yalnız `secondary` | `ghost` ile: durum birincilin DOLGUSU değildir —
+  // `variant={on ? 'primary' : 'secondary'}` grup başına tek birincil
+  // kuralını (K4) bozuyor ve "açık" ile "asıl eylem"i aynı dille söylüyordu
+  // (buttonStateRatchet çiviliyor). Seçenekler arasında TEK seçim
+  // (radyo anlamı) → SegmentedControl, bu prop değil.
+  active?: boolean;
 }
 
 const variantClass: Record<Variant, string> = {
@@ -71,7 +81,7 @@ const sizeClass: Record<Size, string> = {
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  { variant, size, loading, leftIcon, rightIcon,
+  { variant, size, loading, leftIcon, rightIcon, active,
     className, disabled, children, type = 'button', ...rest },
   ref,
 ) {
@@ -82,6 +92,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     variantClass[variant],
     sizeClass[effSize],
     loading ? 'is-loading' : '',
+    active ? 'is-active' : '',
     className,
   ].filter(Boolean).join(' ');
 
@@ -100,6 +111,8 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       className={classes || undefined}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
+      // v0.10.1318 — `{...rest}`ten ÖNCE: çağıranın açık aria-pressed'i kazanır.
+      aria-pressed={active === undefined ? undefined : active}
       {...rest}>
       <span className="row gap-2">
         {leftIcon}

@@ -14,6 +14,7 @@
 //      geri gelmedi.
 //   4. Geçiş/geri bildirim yeşilleri fazla nötrleştirilmedi.
 //   5. Açık KİP (Logs canlı kuyruk .live-on) bir seçim: accent, kırmızı değil.
+//      v0.10.1318 (K3): dolgu değil TINT — renk Button `active` (.is-active).
 //
 // Neden ayrı kapı: bunların hiçbiri tsc/colorLeaks/undefinedCssRefs'e
 // takılmaz — `var(--ok)` geçerli bir token, kural da geçerli CSS.
@@ -169,23 +170,38 @@ function ratio(a: string, b: string): number {
   return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
 }
 
-describe('K5 — açık kip seçim dilinde (.live-on)', () => {
-  it('.live-on dolgusu accent, metin --on-accent; sapma rengi yok', () => {
+// v0.10.1318 (K3) — açık kip bir DURUM: `.live-on` artık yalnız yerleşim +
+// nabız noktası; renkleri `button.sec.is-active` (Button `active`) verir —
+// birincilin dolgusu (`background: var(--accent)`) değil, ikincilin tint'i.
+// Okunurluk ölçüsü buna göre: nokta ve metin --accent2, zemin --accent-bg.
+describe('K5/K3 — açık kip seçim dilinde (.live-on, v0.10.1318)', () => {
+  it('.live-on yalnız yerleşim: sapma rengi yok, birincil dolgu yok', () => {
     const b = bodyOf('.live-on');
-    expect(b).toMatch(/background:\s*var\(--accent\)/);
-    expect(b).toMatch(/color:\s*var\(--on-accent\)/);
     expect(b).not.toMatch(/--(err|warn|ok)(-solid|-bg)?\b/);
-    // Açık hâl ipucu (nabız noktası) duruyor ve dolguyla aynı okunur renkte.
+    expect(b).not.toMatch(/background:\s*var\(--accent\)/);
+    expect(b).toMatch(/position:\s*relative/);
+    expect(b).toMatch(/padding-left:\s*22px/);
+    // Açık hâl ipucu (nabız noktası) duruyor, tint üstünde accent2.
     const dot = bodyOf('.live-on::before');
-    expect(dot).toMatch(/background:\s*var\(--on-accent\)/);
+    expect(dot).toMatch(/background:\s*var\(--accent2\)/);
     expect(dot).toMatch(/animation:\s*pulse\b/);
+    expect(dot).not.toMatch(/--(err|warn|ok)(-solid|-bg)?\b/);
   });
 
-  it('okunurluk: --on-accent / --accent ≥ 4.5 her temada', () => {
+  it('renk Button `active`ten gelir: Logs.tsx canlı kuyruk `active={live}`', () => {
+    const logs = readFileSync(resolve(__dirname, '../pages/Logs.tsx'), 'utf8');
+    expect(logs).toContain('active={live}');
+    expect(logs).not.toMatch(/variant=\{live \?/);
+    const tint = bodyOf('button.sec.is-active');
+    expect(tint).toMatch(/color:\s*var\(--accent2\)/);
+    expect(tint).toMatch(/background:\s*var\(--accent-bg\)/);
+  });
+
+  it('okunurluk: --accent2 / --accent-bg ≥ 4.5 her temada', () => {
     const out: string[] = [];
     for (const theme of Object.keys(THEME_BLOCKS)) {
-      const r = ratio(themeTok(theme, '--on-accent'), themeTok(theme, '--accent'));
-      if (r < 4.5) out.push(`${theme}: --on-accent / --accent = ${r.toFixed(2)} (< 4.5)`);
+      const r = ratio(themeTok(theme, '--accent2'), themeTok(theme, '--accent-bg'));
+      if (r < 4.5) out.push(`${theme}: --accent2 / --accent-bg = ${r.toFixed(2)} (< 4.5)`);
     }
     expect(out).toEqual([]);
   });

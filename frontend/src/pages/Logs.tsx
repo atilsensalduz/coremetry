@@ -972,8 +972,9 @@ function LogsInner() {
           </div>
           {/* v0.9.1100 (F3.5) — ✨ desen anlatımı. Fetch YALNIZ tıkla
               (ES-maliyet disiplini); pencere sunucuda rung'lanır. */}
-          <Button variant={patternsOpen ? 'primary' : 'secondary'} size="sm"
-            onClick={togglePatterns} aria-pressed={patternsOpen}
+          {/* v0.10.1318 (K3) — açık panel bir DURUM: ikincil tint, dolgu değil. */}
+          <Button variant="secondary" size="sm" active={patternsOpen}
+            onClick={togglePatterns}
             title="Penceredeki log desenleri (örneklemeli imza grupları)">
             ≡ Desenler
           </Button>
@@ -1118,8 +1119,9 @@ function LogsInner() {
               Keeps only rows with a trace correlation, so every
               visible line's Trace cell can pivot to /trace. Auto-
               applies like the severity facet chips. */}
-          <Button variant={filter.hasTrace ? 'primary' : 'secondary'}
-            aria-pressed={filter.hasTrace}
+          {/* v0.10.1318 (K3) — süzgeç açık/kapalı bir DURUM: accent tint
+              (`active` → aria-pressed + .is-active). Bu çubuğun TEK birincili Search. */}
+          <Button variant="secondary" active={filter.hasTrace}
             onClick={toggleHasTrace}
             title="Show only logs correlated with a trace — every row can pivot to its trace">
             ◆ With trace
@@ -1138,7 +1140,9 @@ function LogsInner() {
             </Button>
           )}
           <ShareButton label="Copy link" copiedLabel="Copied" title={LOG_SHARE_TITLE} />
-          <Button variant={live ? 'primary' : 'secondary'}
+          {/* v0.10.1318 (K3) — canlı kuyruk bir KİP: tint + nabız noktası
+              (.live-on yalnız yerleşim), birincil dolgu değil. */}
+          <Button variant="secondary" active={live}
             className={live ? 'live-on' : undefined}
             onClick={() => setLive(v => !v)}
             style={{ marginLeft: 'auto' }}
@@ -1495,8 +1499,9 @@ function LogsInner() {
               </>
             )}
             <span style={{ flex: 1 }} />
-            {/* v0.10.417 (B5) — satır sarma anahtarı (aç/kapa deseni: variant + aria-pressed). */}
-            <Button variant={wrapLines ? 'primary' : 'secondary'} size="sm" aria-pressed={wrapLines}
+            {/* v0.10.417 (B5) — satır sarma anahtarı. v0.10.1318 (K3): aç/kapa deseni
+                artık `active` (tint + aria-pressed), birincil dolgu değil. */}
+            <Button variant="secondary" size="sm" active={wrapLines}
               onClick={toggleWrap}
               title={wrapLines
                 ? 'Mesajlar sarılı. Tıkla: tek satır + … (tam metin hücre başlığında).'

@@ -1,0 +1,118 @@
+// buttonStateRatchet — v0.10.1318 (K3): açık/kapalı DURUM birincil dolgu değil.
+//
+// Ne çiviliyor: `variant={on ? 'primary' : 'secondary'}` deseni — bir
+// anahtarın açık hâlini birincilin DOLGUSUYLA söylemek. Bu "durum" ile
+// "asıl eylem"i aynı dille anlatıyor ve grup başına tek birincil kuralını
+// (K4) sessizce bozuyordu: Logs araç çubuğunda "◆ With trace" açıkken
+// Search'ün yanında ikinci bir dolu mavi oluyordu. Doğru dil Button
+// `active` (→ `.is-active` ikincil tint'i + aria-pressed); seçenekler
+// arasında tek seçim (radyo anlamı) ise SegmentedControl.
+//
+// Neden kapı: `tsc` için iki yazım da kusursuz, eslint ifadeye bakmaz,
+// jsdom rengi hesaplamaz. Kalan siteler bir TAVAN (aşağı iner, yukarı
+// çıkmaz); göç ettikçe sayı düşürülür.
+//   (a) koşullu birincil sayısı ≤ TAVAN,
+//   (b) göç eden iki dosya (Logs, ProblemVerdictActions) `active=` taşıyor
+//       ve koşullu birincile geri dönmedi,
+//   (c) hiçbir <Button> hem `active=` hem dolu varyant (primary|danger) taşımaz.
+import { describe, it, expect } from 'vitest';
+import { readFileSync, readdirSync } from 'node:fs';
+import { resolve, join } from 'node:path';
+import { jsxOpenTags } from '@/styles/jsxTags';
+
+const SRC = resolve(__dirname, '..', '..');
+const TEST_MARK = '.' + 'test' + '.';
+
+// styles/zLayers.test.ts `stripTsComments` ile aynı durum makinesi (oradan
+// içe aktarmak o dosyanın describe'larını da koştururdu). Yorumları boşluğa
+// çevirir, satırları korur; dizgi içindeki `//` yorum sanılmaz.
+function stripTsComments(src: string): string {
+  let out = '';
+  let mode: 'code' | 'line' | 'block' | '"' | "'" | '`' = 'code';
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    const n = src[i + 1] ?? '';
+    if (mode === 'code') {
+      if (c === '/' && n === '/') { mode = 'line'; out += '  '; i++; continue; }
+      if (c === '/' && n === '*') { mode = 'block'; out += '  '; i++; continue; }
+      if (c === '"' || c === "'" || c === '`') { mode = c; out += c; continue; }
+      out += c;
+    } else if (mode === 'line') {
+      if (c === '\n') { mode = 'code'; out += '\n'; } else out += ' ';
+    } else if (mode === 'block') {
+      if (c === '*' && n === '/') { mode = 'code'; out += '  '; i++; continue; }
+      out += c === '\n' ? '\n' : ' ';
+    } else {
+      if (c === '\\') { out += '  '; i++; continue; }
+      if (c === mode) mode = 'code';
+      out += c;
+    }
+  }
+  return out;
+}
+
+function walk(dir: string, out: string[] = []): string[] {
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    if (e.name === 'node_modules') continue;
+    const p = join(dir, e.name);
+    if (e.isDirectory()) walk(p, out);
+    else if (e.name.endsWith('.tsx') && !e.name.includes(TEST_MARK)) out.push(p);
+  }
+  return out;
+}
+
+const FILES = walk(SRC).map(p => ({ rel: p.slice(SRC.length + 1), src: stripTsComments(readFileSync(p, 'utf8')) }));
+const COND_PRIMARY = /variant=\{[^}]*\?\s*['"]primary['"]/g;
+
+// v0.10.1318 ölçümü: 10 site (MethodHotspots, FilterGroupBuilder,
+// LogPatternsPanel, LogFieldsPanel, AIExplainButton, AdminClickhouse ×2,
+// Alerts, Metrics, Explore). Bazıları gerçek durum anahtarı (göç adayı),
+// bazıları bağlamsal vurgu (AdminClickhouse onay kipi) — tavan yalnız aşağı.
+const CEILING = 10;
+
+describe('K3 — durum birincil dolgu değil (v0.10.1318)', () => {
+  it('tarama boşa dönmüyor', () => {
+    expect(FILES.length).toBeGreaterThan(100);
+    expect(FILES.some(f => f.rel === 'pages/Logs.tsx')).toBe(true);
+  });
+
+  it(`(a) koşullu birincil sayısı ≤ ${CEILING} (tavan yalnız aşağı iner)`, () => {
+    const hits: string[] = [];
+    for (const f of FILES) {
+      for (const m of f.src.matchAll(COND_PRIMARY)) {
+        hits.push(`${f.rel}:${f.src.slice(0, m.index).split('\n').length}`);
+      }
+    }
+    expect(hits.length, `Koşullu birincil (durumu dolguyla söylüyor) — Button \`active\` kullan:\n${hits.join('\n')}`)
+      .toBeLessThanOrEqual(CEILING);
+  });
+
+  it('(b) Logs ve ProblemVerdictActions `active` ile — koşullu birincile dönmedi', () => {
+    for (const rel of ['pages/Logs.tsx', 'components/ProblemVerdictActions.tsx']) {
+      const f = FILES.find(x => x.rel === rel);
+      expect(f, rel).toBeDefined();
+      expect(f!.src, rel).toContain('active=');
+      expect([...f!.src.matchAll(COND_PRIMARY)].length, rel).toBe(0);
+    }
+    const logs = FILES.find(x => x.rel === 'pages/Logs.tsx')!.src;
+    expect(logs).toContain('active={filter.hasTrace}');
+    expect(logs).toContain('active={live}');
+    const pv = FILES.find(x => x.rel === 'components/ProblemVerdictActions.tsx')!.src;
+    expect(pv).toContain("active={current?.verdict === 'real'}");
+    expect(pv).toContain("active={current?.verdict === 'noise'}");
+  });
+
+  it('(c) hiçbir <Button> `active` ile dolu varyant (primary|danger) taşımaz', () => {
+    const bad: string[] = [];
+    let scanned = 0;
+    for (const f of FILES) {
+      for (const t of jsxOpenTags(f.src, 'Button')) {
+        if (!/\sactive(?=[\s=/>])/.test(t.tag)) continue;
+        scanned++;
+        if (/variant=["'{]+['"]?(primary|danger)['"]/.test(t.tag)) bad.push(`${f.rel}:${t.line}`);
+      }
+    }
+    expect(scanned, 'active taşıyan Button bulunamadı — tarama kaymış').toBeGreaterThan(5);
+    expect(bad, `active + dolu varyant (durum ikincilin tint'idir):\n${bad.join('\n')}`).toEqual([]);
+  });
+});

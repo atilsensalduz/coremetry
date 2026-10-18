@@ -16,6 +16,11 @@ import { useMemo } from 'react';
 // Viewer kararı GÖRÜR, düğmeleri görmez (sunucu da kapalı).
 // İmzası olmayan satırda (olay) hiçbir şey çizilmez.
 //
+// v0.10.1318 (K3) — işaretli karar bir DURUM: `variant="secondary" active`
+// (accent tint + aria-pressed), birincil dolgu değil. Seçili seçenek yine
+// disabled (aynı kararı yeniden yazmaz) ama `button.is-active:disabled`
+// onu %40'a soldurmaz — seçim okunur kalır.
+//
 // v0.10.1032 (operatör: "Anomali ve alert rule'lara girdiğimde drawer çıkıyor.
 // Exception gibi detay gözükmüyor.") — alarm kuralı ve anomali satırları artık
 // TAM SAYFA detay açıyor; çekmece atlanınca bu düğmeler kaybolmasın diye bileşen
@@ -67,11 +72,11 @@ export function ProblemVerdictActions({ item, subject, onDone, flush, compact }:
         )}
         {isEditor && (
           <>
-            <Button size="sm" variant={current?.verdict === 'real' ? 'primary' : 'secondary'}
+            <Button size="sm" variant="secondary" active={current?.verdict === 'real'}
               loading={set.isPending} disabled={current?.verdict === 'real'} onClick={() => write('real')}>
               Gerçek problem
             </Button>
-            <Button size="sm" variant={current?.verdict === 'noise' ? 'primary' : 'secondary'}
+            <Button size="sm" variant="secondary" active={current?.verdict === 'noise'}
               loading={set.isPending} disabled={current?.verdict === 'noise'} onClick={() => write('noise')}>
               Problem değil
             </Button>
@@ -98,11 +103,11 @@ export function ProblemVerdictActions({ item, subject, onDone, flush, compact }:
       </div>
       {isEditor && (
         <div className="row gap-2 row-wrap">
-          <Button size="sm" variant={current?.verdict === 'real' ? 'primary' : 'secondary'}
+          <Button size="sm" variant="secondary" active={current?.verdict === 'real'}
             loading={set.isPending} disabled={current?.verdict === 'real'} onClick={() => write('real')}>
             Gerçek problem
           </Button>
-          <Button size="sm" variant={current?.verdict === 'noise' ? 'primary' : 'secondary'}
+          <Button size="sm" variant="secondary" active={current?.verdict === 'noise'}
             loading={set.isPending} disabled={current?.verdict === 'noise'} onClick={() => write('noise')}>
             Problem değil
           </Button>

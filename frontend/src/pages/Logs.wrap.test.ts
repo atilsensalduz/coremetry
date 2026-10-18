@@ -10,7 +10,8 @@ describe('log line wrap toggle (B5)', () => {
   it('Logs.tsx: kalıcı state + araç çubuğu + prop', () => {
     const src = read('./Logs.tsx');
     expect(src).toContain("getRaw('logs.wrap') === '1'");
-    expect(src).toContain('aria-pressed={wrapLines}');
+    // v0.10.1318 (K3) — anahtar `active` ile (aria-pressed'i atom basar).
+    expect(src).toContain('active={wrapLines}');
     expect(src).toContain('wrap={wrapLines}');
   });
   it('LogTable: mesaj hücresi sınıfı ve title yalnız kapalıyken', () => {

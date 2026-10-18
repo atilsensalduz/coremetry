@@ -68,6 +68,14 @@ function ButtonSection() {
         <Button variant="secondary" size="sm" leftIcon={<Download size={14} />}>Dışa aktar</Button>
         <Button variant="ghost" size="sm" rightIcon={<ChevronRight size={14} />}>Detay</Button>
       </Row>
+      {/* v0.10.1318 (K3) — açık/kapalı DURUM: `active` → accent tint +
+          aria-pressed; yalnız secondary | ghost. Birincilin dolgusu değil. */}
+      <Row label="active (durum)">
+        <Button variant="secondary" size="sm" active>◆ With trace</Button>
+        <Button variant="ghost" size="sm" active>Ghost açık</Button>
+        <Button variant="secondary" size="sm" active disabled>Seçili · disabled</Button>
+        <Button variant="secondary" size="sm" active={false}>Kapalı</Button>
+      </Row>
       <Row label="genişlik testi">
         <Button variant="primary" loading={busy} leftIcon={<Save size={16} />}>Değişiklikleri kaydet</Button>
         <Button variant="secondary" size="sm" onClick={() => setBusy(b => !b)}>

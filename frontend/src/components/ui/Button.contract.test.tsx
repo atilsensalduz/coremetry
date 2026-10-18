@@ -300,3 +300,64 @@ describe('MB3 — loading görünürlüğü', () => {
     expect(css.includes('button:disabled { opacity: .4;')).toBe(true);
   });
 });
+
+// ── K3 (v0.10.1318) — açık/kapalı DURUM `active`, birincil dolgu değil ────
+// Logs "With trace" / "Live tail" ve problem kararı düğmeleri açıkken
+// `variant="primary"` oluyordu: "durum" ile "asıl eylem" aynı dolu maviyle
+// söyleniyor, yanındaki gerçek birincil (Search) ikinciye düşüyordu. Atom
+// artık durumu ayrı taşıyor: `active` → `.is-active` (ikincilin tint'i) +
+// `aria-pressed`.
+describe('K3 — active (v0.10.1318)', () => {
+  it('active → is-active + aria-pressed="true"', () => {
+    const b = btn(render(<Button variant="secondary" active>On</Button>));
+    expect(b.classList.contains('is-active')).toBe(true);
+    expect(b.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('active={false} → sınıf yok, aria-pressed="false" (hâlâ bir anahtar)', () => {
+    const b = btn(render(<Button variant="secondary" active={false}>Off</Button>));
+    expect(b.classList.contains('is-active')).toBe(false);
+    expect(b.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('active verilmezse aria-pressed hiç basılmaz (anahtar değil)', () => {
+    const b = btn(render(<Button variant="secondary">Plain</Button>));
+    expect(b.hasAttribute('aria-pressed')).toBe(false);
+    expect(b.classList.contains('is-active')).toBe(false);
+  });
+
+  it('sec/sm ve çağıranın className\'i ile birleşir', () => {
+    const b = btn(render(
+      <Button variant="secondary" size="sm" active className="live-on">Live</Button>,
+    ));
+    for (const c of ['sec', 'sm', 'is-active', 'live-on']) expect(b.classList.contains(c), c).toBe(true);
+    // Çağıranın sınıfı sonda kalır (mevcut sıra korunur).
+    expect(b.className.split(' ').at(-1)).toBe('live-on');
+  });
+
+  it('ghost ile de çalışır', () => {
+    const b = btn(render(<Button variant="ghost" active>G</Button>));
+    expect(b.className).toBe('ghost is-active');
+  });
+
+  it('çağıranın açık aria-pressed\'i kazanır ({...rest} sonra yayılır)', () => {
+    const b = btn(render(<Button variant="secondary" active aria-pressed="mixed">M</Button>));
+    expect(b.getAttribute('aria-pressed')).toBe('mixed');
+  });
+
+  it('CSS: button.sec.is-active tint (accent-bg/accent2/accent-border), dolgu değil', () => {
+    const css = readFileSync(
+      resolve(__dirname, '..', '..', 'styles', 'globals.css'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+    const rule = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .find(m => m[1].split(',').map(s => s.trim()).includes('button.sec.is-active'));
+    expect(rule, 'button.sec.is-active kuralı yok').toBeDefined();
+    const body = rule![2];
+    expect(body).toMatch(/background:\s*var\(--accent-bg\)/);
+    expect(body).toMatch(/color:\s*var\(--accent2\)/);
+    expect(body).toMatch(/border-color:\s*var\(--accent-border\)/);
+    expect(body).not.toMatch(/background:\s*var\(--accent\)/);
+    // Seçili + disabled solmaz; yüklenen buton kendi kuralında.
+    expect(css).toMatch(/button\.is-active:disabled:not\(\[aria-busy="true"\]\)\s*\{[^}]*opacity:\s*1/);
+  });
+});

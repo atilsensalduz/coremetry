@@ -881,6 +881,15 @@ button.xs.copy-btn { min-height: 0; }
    açık ikincil anahtar (MetricQueryEditor, QueryRow) accent kenarını korusun.
    Genel `.btn-icon.active:hover`a EKLENMEDİ: `.ib-star.active` kenarsız kalmalı. */
 .btn-icon.ib-sec.active:hover:not(:disabled) { background: var(--accent-bg); border-color: var(--accent); }
+/* v0.10.1318 (K3) — Button `active`: durum ikincilin TINT'i, birincilin dolgusu değil.
+   `.btn-icon.active` ile aynı dil (accent2 metin, accent-bg zemin, accent-border
+   kenar). Hover'da tint korunur (`button.sec:hover` / `button.ghost:hover`
+   bg2'ye çekerdi; ghost metni de --text'e). Seçili + disabled (problem kararı:
+   işaretli seçenek yeniden tıklanamaz) %40'a SOLMAZ — seçim okunur kalmalı;
+   yüklenen buton (aria-busy) kendi kuralında. */
+button.sec.is-active, button.ghost.is-active { color: var(--accent2); background: var(--accent-bg); border-color: var(--accent-border); }
+button.sec.is-active:hover:not(:disabled), button.ghost.is-active:hover:not(:disabled) { color: var(--accent2); background: var(--accent-bg); border-color: var(--accent); }
+button.is-active:disabled:not([aria-busy="true"]) { opacity: 1; cursor: default; }
 /* v0.10.928 (Y4) — içeriğin ÜSTÜNDE yüzen ikinciller (kiosk çıkışı, kompakt
    panel ⋯, kod bloğu Kopyala) şeffaf kalırsa arkadaki çizgi/kod glifin
    içinden görünür. Dinlenmede opak; hover/basılı kuralları (bg2/bg3,
@@ -2695,15 +2704,18 @@ canvas { max-width: 100%; }
    v0.10.929 (K5) — AÇIK KİP bir SEÇİM, sapma değil: dolgu --err-solid →
    --accent (seçili/birincil dili). Açık hâl yine net: kapalıyken ikincil
    (dolgusuz) düğme, açıkken accent dolgu + nabız noktası + "⏸ Pause Live".
-   Okunurluk: --on-accent / --accent ≥4.5 (contrastTokens + k5HealthNeutral). */
+   Okunurluk: --on-accent / --accent ≥4.5 (contrastTokens + k5HealthNeutral).
+   v0.10.1318 (K3) — açık kip bir DURUM: dolgu (birincilin dili) kalktı;
+   renkleri Button `active` → `button.sec.is-active` tint'i verir. Burada
+   yalnız yerleşim + nabız noktası (--accent2, tint üstünde okunur:
+   --accent2 / --accent-bg ≥4.5, k5HealthNeutral). */
 .live-on {
-  background: var(--accent); color: var(--on-accent); border: 0;
   position: relative; padding-left: 22px;
 }
 .live-on::before {
   content: ''; position: absolute; left: 8px; top: 50%;
   width: 8px; height: 8px; border-radius: 50%;
-  background: var(--on-accent); transform: translateY(-50%);
+  background: var(--accent2); transform: translateY(-50%);
   animation: pulse 1.4s ease-in-out infinite;
 }
 @keyframes pulse {
