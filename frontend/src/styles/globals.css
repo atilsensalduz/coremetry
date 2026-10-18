@@ -181,6 +181,11 @@
      değer; compact/dense kendi değerini dolgu kurallarının yanında
      bildirir. rowHeight.ts `ROW_H` ile eşit olmak ZORUNDA (rowHeight.test). */
   --row-h: 36px;
+  /* v0.10.1317 K5 WCAG 2.5.8 taban — küçük tetiklerin (button.sm/xs,
+     sg-sm, ch-xs, dsc-row, yoğunluk .controls) en az isabet yüksekliği.
+     compact aynı (24); dense bilinçli istisna 20 (satır ritmi). Kapı:
+     styles/hitArea.pin.test.ts. */
+  --hit-min: 24px;
 
   /* ── MK2 (v0.9.910) — z-index skalası ────────────────────────────────────
      Depoda 32 farklı z değeri vardı ve hiçbiri diğerine göre TANIMLI
@@ -680,7 +685,7 @@ button.danger { background: var(--err-solid); color: var(--on-accent); }
 button.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--err-solid) 85%, black); }
 button.ghost { background: transparent; color: var(--text2); border: 1px solid transparent; }
 button.ghost:hover:not(:disabled) { background: var(--bg2); color: var(--text); }
-button.sm { padding: 3px 9px; font-size: 11px; border-radius: var(--radius-xs); }
+button.sm { padding: 3px 9px; font-size: 11px; border-radius: var(--radius-xs); min-height: var(--hit-min); } /* v0.10.1317 — ~22.5px → 24 */
 button.lg { padding: 8px 18px; font-size: 14px; }
 /* `ghost-danger` (v0.9.884) — quiet destructive. Solid `.danger` is a
    commitment ("this is THE action of this dialog"); a Remove sitting in
@@ -709,7 +714,12 @@ button.ghost-danger:hover:not(:disabled) {
 }
 /* `xs` (v0.9.884) — the sub-`sm` rung the chart footers and the command
    palette were inventing per file (fontSize 10/11, ad-hoc padding). */
-button.xs { padding: 1px 6px; font-size: 10.5px; border-radius: var(--radius-xs); }
+button.xs { padding: 1px 6px; font-size: 10.5px; border-radius: var(--radius-xs); min-height: var(--hit-min); } /* v0.10.1317 — ~17.75px → 24 */
+/* v0.10.1317 — masaüstü muafiyet listesi (KAPALI; hitArea.pin çiviler):
+   CopyButton metin satırına gömülü (ID/hash satırları, lineHeight 1) —
+   24px taban satır yüksekliğini şişirirdi. Telefon katmanındaki muafiyetin
+   masaüstü ikizi. */
+button.xs.copy-btn { min-height: 0; }
 
 /* `.btn-bare` (v0.9.888) — the honest replacement for `all: unset` on a
    button that wraps NON-square content: a sparkline, a label fragment.
@@ -797,6 +807,14 @@ button.xs { padding: 1px 6px; font-size: 10.5px; border-radius: var(--radius-xs)
 .btn-icon-glyph { display: inline-flex; align-items: center; justify-content: center; }
 .btn-icon:disabled { opacity: .4; cursor: not-allowed; }
 .btn-icon.ib-xs { width: 20px; height: 20px; font-size: 11px; }
+/* v0.10.1317 K5 — xs 20×20 KUTUSU kalır (touchTargets çiviler); isabet alanı
+   görünmez ::after ile --hit-min'e (24) uzar. %'ler dolgu kutusuna (1px kenar
+   içi, 18px) göre: inset (18-24)/2 = -3px → ::after tam 24×24. dense'te
+   --hit-min 20 → ::after 20×20. `position: relative` :where() içinde (özgüllük 0):
+   Combobox `.cb-clear/.cb-caret` (0,1,0) ve `.btn-icon.sb-*` konumlarını
+   EZMESİN — absolute/fixed da ::after için kapsayıcı blok kurar. */
+:where(.btn-icon.ib-xs) { position: relative; }
+.btn-icon.ib-xs::after { content: ''; position: absolute; inset: calc((100% - var(--hit-min)) / 2); }
 .btn-icon.ib-sm { width: 24px; height: 24px; font-size: 12px; }
 .btn-icon.ib-md { width: 28px; height: 28px; font-size: 13px; }
 .btn-icon.ib-ghost:hover:not(:disabled) { background: var(--bg2); color: var(--text); }
@@ -897,7 +915,7 @@ button.sec.is-overlay, .btn-icon.ib-sec.is-overlay { background: var(--bg1); box
 .btn-disclose:hover:not(:disabled) { background: transparent; color: var(--text); }
 .btn-disclose:disabled { opacity: .4; cursor: not-allowed; }
 /* `row` — flows inline next to other controls. */
-.btn-disclose.dsc-row { gap: 4px; padding: 2px 4px; font-size: 11px; }
+.btn-disclose.dsc-row { gap: 4px; padding: 2px 4px; font-size: 11px; min-height: var(--hit-min); } /* v0.10.1317 */
 .btn-disclose.dsc-row .dsc-glyph { font-size: 9px; color: var(--text3); }
 /* `section` — a card's own heading. The glyph column is FIXED WIDTH so
    labels line up at the same x whether the section is open or closed. */
@@ -993,7 +1011,7 @@ button.sec.is-overlay, .btn-icon.ib-sec.is-overlay { background: var(--bg1); box
 .btn-chip:hover:not(:disabled) { background: var(--bg2); border-color: var(--accent); }
 .btn-chip:disabled { opacity: .4; cursor: not-allowed; }
 .btn-chip.ch-pill { border-radius: 999px; }
-.btn-chip.ch-xs { font-size: 10px; padding: 1px 6px; gap: 4px; }
+.btn-chip.ch-xs { font-size: 10px; padding: 1px 6px; gap: 4px; min-height: var(--hit-min); } /* v0.10.1317 */
 .btn-chip.ch-sm { font-size: 12px; padding: 3px 9px; }
 /* `accent` is the "this chip carries emphasis at rest" tone (the AI
    starter chip, an assigned team). `active` is the "you are filtered by
@@ -1223,7 +1241,7 @@ button.btn-chip-label:hover { background: transparent; color: var(--accent2); }
    invented it by hand at exactly these values (11px / 2px 8px), because
    the canonical 13px / 6px 14px control is too tall to sit on a card's
    title row. Generalising the house pattern beats a third hand copy. */
-.segmented.sg-sm > button { font-size: 11px; padding: 2px 8px; }
+.segmented.sg-sm > button { font-size: 11px; padding: 2px 8px; min-height: var(--hit-min); } /* v0.10.1317 */
 
 /* Facet filter bar (v0.8.38) — one grouped row of compact filter chips,
    the repo equivalent of the design's .logbar / .facet / .facet.on. Used
@@ -2606,7 +2624,7 @@ canvas { max-width: 100%; }
   padding: 1px 5px; border-radius: 3px; color: var(--accent2);
   word-break: break-all;
 }
-.trace-lock button { padding: 2px 8px; font-size: 11px; }
+.trace-lock button { padding: 2px 8px; font-size: 11px; min-height: var(--hit-min); } /* v0.10.1317 */
 
 /* Compact log line in the span detail panel */
 .ps-log {
@@ -3405,7 +3423,7 @@ button.cosre-cap__row > .row { align-items: flex-start; min-width: 0; }
    block. A stored "spacious" migrates to comfortable (lib/density.ts). */
 
 /* ── Compact — modest tightening ──────────────────────────── */
-[data-density="compact"] { --row-h: 24px; } /* v0.10.933 (T6) — 11px × 1.5 + 2×3px dolgu + ayraç */
+[data-density="compact"] { --row-h: 24px; --hit-min: 24px; } /* v0.10.933 (T6) — 11px × 1.5 + 2×3px dolgu + ayraç; v0.10.1317 isabet tabanı WCAG 24 */
 [data-density="compact"] table { font-size: 11px; }
 [data-density="compact"] thead th { padding: 3px 7px; }
 [data-density="compact"] tbody td { padding: 3px 7px; }
@@ -3414,6 +3432,7 @@ button.cosre-cap__row > .row { align-items: flex-start; min-width: 0; }
 [data-density="compact"] .controls input,
 [data-density="compact"] .controls select,
 [data-density="compact"] .controls button { padding: 3px 8px; font-size: 11px; }
+[data-density="compact"] .controls button { min-height: var(--hit-min); } /* v0.10.1317 — ~22.5px → 24 */
 [data-density="compact"] #content, [data-density="compact"] .page-body { padding: 10px 12px; }
 [data-density="compact"] .empty { padding: 24px; }
 [data-density="compact"] .wf-row { min-height: 18px; }
@@ -3421,7 +3440,7 @@ button.cosre-cap__row > .row { align-items: flex-start; min-width: 0; }
 [data-density="compact"] .badge { font-size: 9px; padding: 1px 5px; }
 
 /* ── Dense — maximum information density ─────────────────── */
-[data-density="dense"] { --row-h: 20px; } /* v0.10.933 (T6) — 10px × 1.5 + 2×2px dolgu + ayraç */
+[data-density="dense"] { --row-h: 20px; --hit-min: 20px; } /* v0.10.933 (T6) — 10px × 1.5 + 2×2px dolgu + ayraç; v0.10.1317 isabet tabanı 20 = BİLİNÇLİ istisna (satır ritmi 20px) */
 [data-density="dense"] table { font-size: 10px; }
 [data-density="dense"] thead th { padding: 2px 5px; font-size: var(--fs-2xs); } /* v0.10.928 (Y3) — başlık 10px gövdeden büyük kalmasın */
 [data-density="dense"] tbody td { padding: 2px 5px; }
@@ -3430,6 +3449,7 @@ button.cosre-cap__row > .row { align-items: flex-start; min-width: 0; }
 [data-density="dense"] .controls input,
 [data-density="dense"] .controls select,
 [data-density="dense"] .controls button { padding: 2px 6px; font-size: 10px; }
+[data-density="dense"] .controls button { min-height: var(--hit-min); } /* v0.10.1317 — 19px → 20 (dense istisnası) */
 [data-density="dense"] #content, [data-density="dense"] .page-body { padding: 6px 10px; }
 [data-density="dense"] .empty { padding: 18px; font-size: 11px; }
 [data-density="dense"] .wf-row { min-height: 15px; }
