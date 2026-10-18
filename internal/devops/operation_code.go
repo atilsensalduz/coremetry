@@ -65,7 +65,15 @@ type OperationCodeRequest struct {
 	Operation string
 	// Others — trace'teki diğer operasyon sayısı; yalnız etiket (okunmaz).
 	Others int
+	// Source — v0.10.1349: operasyonun kaynağı (oracle | span | log |
+	// function-code); CodeContext.OperationSource'a damgalanır.
+	// OperationSourceFunctionCode iken PromptBlock "ADAY, kesin değil" der.
+	Source string
 }
+
+// OperationSourceFunctionCode — v0.10.1349: operasyon adı trace'in kendisinden
+// değil, FUNCTION_CODE → Oracle operasyon sözlüğünden (1:n) ADAY.
+const OperationSourceFunctionCode = "function-code"
 
 // OperationSearchQuery — SAF: Azure DevOps Code Search sorgusu. Tırnaklı tam
 // belirteç + ext:java (SearchServiceCode'un düz searchText sözdizimi).
@@ -666,28 +674,37 @@ func (s *Service) operationDeadline() time.Duration {
 // FetchOperationCode — v0.10.1330: stack yokken trace'in ana operasyonunun
 // giriş metodu + ilk çağırdığı yönetici metodu. FAIL-OPEN: hata dönmez,
 // boş bağlam + Reason. Source her dalda CodeSourceOperation.
-func (s *Service) FetchOperationCode(ctx context.Context, req OperationCodeRequest) (out CodeContext) {
+func (s *Service) FetchOperationCode(ctx context.Context, req OperationCodeRequest) CodeContext {
+	cc, _ := s.fetchOperationCode(ctx, req)
+	return cc
+}
+
+// fetchOperationCode — FetchOperationCode'un gövdesi; ikinci dönüş (v0.10.1349)
+// = arama ISKALADI (Code Search kaynak giriş dosyası döndürmedi). Aday
+// döngüsü (FetchOperationCodeCandidates) yalnız ıskada sonraki adaya geçer.
+func (s *Service) fetchOperationCode(ctx context.Context, req OperationCodeRequest) (out CodeContext, searchMiss bool) {
 	op := strings.TrimSpace(req.Operation)
 	out = CodeContext{Repo: strings.TrimSpace(req.Repo), Source: CodeSourceOperation, OperationOthers: req.Others}
 	defer func() {
 		out.Source = CodeSourceOperation
 		out.OperationOthers = req.Others
+		out.Operation, out.OperationSource = op, strings.TrimSpace(req.Source)
 	}()
 	if s == nil || !s.Configured() {
 		out.Outcome, out.Reason = CodeUnconfigured, "kod entegrasyonu yapılandırılmamış (Ayarlar → Kod entegrasyonu)"
-		return out
+		return out, false
 	}
 	if !s.CodeSearchEnabled() {
 		out.Outcome, out.Reason = CodeNoStack, OperationSearchOffReason
-		return out
+		return out, false
 	}
 	if !ValidOperationCode(op) {
 		out.Outcome, out.Reason = CodeNoStack, "bu kayıtta stacktrace yok; operasyon kodu aranabilir biçimde değil"
-		return out
+		return out, false
 	}
 	if out.Repo == "" {
 		out.Outcome, out.Reason = CodeRepoUnresolved, "servis için depo çözülemedi"
-		return out
+		return out, false
 	}
 	cfg := s.CurrentSettings()
 	parent := ctx
@@ -696,7 +713,7 @@ func (s *Service) FetchOperationCode(ctx context.Context, req OperationCodeReque
 	project, _, dead := pickProject(cfg, req.Hint)
 	if dead != "" {
 		out.Outcome, out.Reason = CodeProjectDeadEnd, dead
-		return out
+		return out, false
 	}
 	cfg.Project = project
 	version := strings.TrimSpace(req.Version)
@@ -712,7 +729,7 @@ func (s *Service) FetchOperationCode(ctx context.Context, req OperationCodeReque
 		if deadlineHit(parent, ctx) {
 			out.Outcome, out.Reason = CodeDeadline, deadlineReason(s.operationDeadline())
 		}
-		return out
+		return out, false
 	}
 	out.BrowseURL = BrowseURL(cfg, ch.repo, ch.branch)
 	note = ch.note
@@ -732,7 +749,7 @@ func (s *Service) FetchOperationCode(ctx context.Context, req OperationCodeReque
 		out.Windows, out.Trimmed, out.Outcome = e.windows, e.trimmed, e.outcome
 		out.Reason = withNote(note, e.reason)
 		out.Stats = FetchStats{Fetched: 0, Resolved: len(e.windows)}
-		return out
+		return out, false
 	}
 	fail := func(class CodeOutcome, reason string) CodeContext {
 		out.Outcome, out.Reason = class, withNote(note, reason)
@@ -747,7 +764,7 @@ func (s *Service) FetchOperationCode(ctx context.Context, req OperationCodeReque
 	// 1) TEK arama.
 	hits, err := s.SearchServiceCode(ctx, ch.repo, OperationSearchQuery(op), operationSearchTop)
 	if err != nil {
-		return fail(CodeBackendError, "operasyon kodu araması başarısız: "+sanitize(firstLine(err.Error()), cfg))
+		return fail(CodeBackendError, "operasyon kodu araması başarısız: "+sanitize(firstLine(err.Error()), cfg)), false
 	}
 	ranked := RankOperationHits(hits)
 	if len(ranked) == 0 {
@@ -755,7 +772,9 @@ func (s *Service) FetchOperationCode(ctx context.Context, req OperationCodeReque
 		if len(hits) > 0 {
 			why = fmt.Sprintf("Code Search %d dosya buldu ama hiçbiri kaynak giriş dosyası değil (sabit sözlüğü / yapılandırma / test)", len(hits))
 		}
-		return fail(CodeTreeMiss, why)
+		// v0.10.1349 — ıska yalnız sınıf hâlâ tree-miss ise (süre/iptal değil).
+		r := fail(CodeTreeMiss, why)
+		return r, r.Outcome == CodeTreeMiss
 	}
 	entryPath := ""
 	for _, h := range ranked {
@@ -769,7 +788,7 @@ func (s *Service) FetchOperationCode(ctx context.Context, req OperationCodeReque
 		}
 	}
 	if entryPath == "" {
-		return fail(CodeTreeMiss, "Code Search isabeti okunan ağaçta yok: "+strings.TrimPrefix(ranked[0].Path, "/"))
+		return fail(CodeTreeMiss, "Code Search isabeti okunan ağaçta yok: "+strings.TrimPrefix(ranked[0].Path, "/")), false
 	}
 
 	// 2) Giriş dosyası (çekim 1/2).
@@ -777,12 +796,12 @@ func (s *Service) FetchOperationCode(ctx context.Context, req OperationCodeReque
 	body, ferr := sc.fetch(ctx, entryPath)
 	fetched++
 	if ferr != nil {
-		return fail(CodeBackendError, "operasyon dosyası okunamadı: "+sanitize(firstLine(ferr.Error()), cfg))
+		return fail(CodeBackendError, "operasyon dosyası okunamadı: "+sanitize(firstLine(ferr.Error()), cfg)), false
 	}
 	body, _ = trimTruncatedBody(body, fileBodyCap)
 	entry, ok := AnnotatedMethodWindow(body, op, operationEntryMaxLines)
 	if !ok {
-		return fail(CodeWindowFailed, "operasyon dosyası okundu ama sabiti anotasyonunda taşıyan metot bulunamadı: "+strings.TrimPrefix(entryPath, "/"))
+		return fail(CodeWindowFailed, "operasyon dosyası okundu ama sabiti anotasyonunda taşıyan metot bulunamadı: "+strings.TrimPrefix(entryPath, "/")), false
 	}
 	ew := entry.Window
 	ew.Path, ew.Operation, ew.Frame = entryPath, true, op
@@ -840,7 +859,7 @@ func (s *Service) FetchOperationCode(ctx context.Context, req OperationCodeReque
 		trims = append(trims, t)
 	}
 	if len(clamped) == 0 {
-		return fail(CodeWindowFailed, "operasyon penceresi bütçeye sığmadı")
+		return fail(CodeWindowFailed, "operasyon penceresi bütçeye sığmadı"), false
 	}
 	stampWindowLinksAt(cfg, ch.repo, ch.branch, sc.src, clamped)
 	for i := range clamped {
@@ -859,7 +878,94 @@ func (s *Service) FetchOperationCode(ctx context.Context, req OperationCodeReque
 	out.Stats = FetchStats{Fetched: fetched, Resolved: len(windows), Candidates: len(ranked)}
 	s.opCache().put(key, opCacheEntry{windows: clamped, reason: opNote, trimmed: out.Trimmed, outcome: out.Outcome})
 	out.Reason = withNote(note, opNote)
-	return out
+	return out, false
+}
+
+// ── v0.10.1349 (operatör-bildirimli): fonksiyon kodu ADAYLARI ─────────────
+//
+// HATASIZ trace'te ana operasyon kesin kaynaktan bulunamayınca api katmanı
+// trace'in FUNCTION_CODE değerlerini sözlükten (1:n) aday operasyonlara
+// çevirir; burada adaylar SIRAYLA denenir. Bütçe: dış tavan
+// operationDeadline (≤15 sn) TÜM döngü için; en çok
+// OperationCandidateMax aday; her aday FetchOperationCode'un kendi bütçesi
+// (TEK arama + ≤2 dosya). İlk aramanın İSABET ettiği adayda durulur (isabet
+// sonra okunamasa bile — sonraki aday başka bir controller, aynı trace'in
+// kanıtı değil). En kötü hâl: 2 arama + 2 dosya.
+
+// OperationCandidateMax — denenecek aday tavanı.
+const OperationCandidateMax = 2
+
+// OperationNoneReason — ne kesin operasyon ne aday var: operatöre giden tek
+// yazım (api de basar).
+const OperationNoneReason = "bu kayıtta stacktrace yok; trace'in operasyon adı bulunamadı"
+
+// OperationCandidatesMissReason — SAF: bütün adayların araması ıskaladı.
+func OperationCandidatesMissReason(cands []string) string {
+	return "bu kayıtta stacktrace yok; fonksiyon kodu adayları (" + strings.Join(cands, ", ") + ") için depoda controller bulunamadı"
+}
+
+// FetchOperationCodeCandidates — adayları sırayla dener (bkz. bölüm başı).
+// req.Operation yok sayılır; req.Source boşsa OperationSourceFunctionCode.
+// Dönüşte OperationCandidates = denenmeye ALINAN adaylar (≤2, tekil, geçerli).
+// FAIL-OPEN: hata dönmez, boş bağlam + Reason.
+func (s *Service) FetchOperationCodeCandidates(ctx context.Context, req OperationCodeRequest, candidates []string) CodeContext {
+	if strings.TrimSpace(req.Source) == "" {
+		req.Source = OperationSourceFunctionCode
+	}
+	var cands []string
+	seen := map[string]bool{}
+	for _, c := range candidates {
+		c = strings.TrimSpace(c)
+		if !ValidOperationCode(c) || seen[c] {
+			continue
+		}
+		seen[c] = true
+		cands = append(cands, c)
+		if len(cands) >= OperationCandidateMax {
+			break
+		}
+	}
+	stamp := func(cc CodeContext) CodeContext {
+		cc.Source, cc.OperationSource, cc.OperationOthers = CodeSourceOperation, req.Source, req.Others
+		cc.OperationCandidates = append([]string(nil), cands...)
+		return cc
+	}
+	if len(cands) == 0 {
+		return stamp(CodeContext{Repo: strings.TrimSpace(req.Repo), Outcome: CodeNoStack, Reason: OperationNoneReason})
+	}
+	if s == nil || !s.Configured() || !s.CodeSearchEnabled() {
+		// Kapı cevapları FetchOperationCode'unkiyle aynı (ağ isteği yok).
+		r := req
+		r.Operation = cands[0]
+		cc := s.FetchOperationCode(ctx, r)
+		cc.Operation = ""
+		return stamp(cc)
+	}
+	parent := ctx
+	ctx, cancel := context.WithTimeout(ctx, s.operationDeadline())
+	defer cancel()
+	var last CodeContext
+	for _, c := range cands {
+		r := req
+		r.Operation = c
+		cc, miss := s.fetchOperationCode(ctx, r)
+		if !miss {
+			if deadlineHit(parent, ctx) && cc.Empty() {
+				cc.Outcome, cc.Reason = CodeDeadline, deadlineReason(s.operationDeadline())
+			}
+			return stamp(cc)
+		}
+		last = cc
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	last.Operation = ""
+	last.Reason = OperationCandidatesMissReason(cands)
+	if deadlineHit(parent, ctx) {
+		last.Outcome, last.Reason = CodeDeadline, deadlineReason(s.operationDeadline())
+	}
+	return stamp(last)
 }
 
 // operationLinkRef — pencere linkinin ref'i: commit okunduysa commit, değilse dal.

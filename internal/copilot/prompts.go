@@ -1255,6 +1255,25 @@ const systemTraceOperationCode = systemTraceBody + systemOperationCodeAddendum +
 // yok + operasyon kodu bulundu (CodeContext.Source == "operation").
 func SystemPromptTraceWithOperationCode() string { return systemTraceOperationCode }
 
+// systemOperationCandidateAddendum — v0.10.1349 (operatör-bildirimli: HATASIZ
+// trace'te kod incelemesi "Kod okunamadı" diyordu). Kesin operasyon yokken
+// pencereler trace'in FUNCTION_CODE değerinin sözlükteki (1:n) ADAY
+// operasyonundan; model adı kesin bir gerçek gibi sunmamalı.
+const systemOperationCandidateAddendum = `
+
+- Bu istekte operasyon adı trace'in kendisinden DEĞİL, fonksiyon kodu
+  sözlüğünden bir ADAY (bir fonksiyon kodu birden çok operasyona bağlanır).
+  Bunu cevabında tek cümleyle bir kez söyle; trace'in bu operasyonu
+  çalıştırdığını kesin bir gerçek gibi iddia etme — kod trace'le uyuşmuyorsa
+  bunu açıkça yaz.`
+
+const systemTraceOperationCandidate = systemTraceBody + systemOperationCodeAddendum + systemOperationCandidateAddendum + AnswerInTurkish
+
+// SystemPromptTraceWithOperationCandidate — v0.10.1349: "Kodu da incele" +
+// stack yok + operasyon fonksiyon kodu sözlüğünden ADAY
+// (CodeContext.OperationSource == "function-code").
+func SystemPromptTraceWithOperationCandidate() string { return systemTraceOperationCandidate }
+
 // systemServiceCharts — Service → Details grafiklerinin AI özeti
 // (onaylı mockup: toolbar Ⓐ "tüm kartlar" / kart başlığı Ⓑ "tek kart").
 //

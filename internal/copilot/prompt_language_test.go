@@ -65,6 +65,8 @@ func promptRegistry() map[string]promptClass {
 		"SlowQuery":         classDirective,
 		// v0.10.1330 — stack yok, ana operasyonun kodu (kendi hizalama grubu).
 		"TraceWithOperationCode": classDirective,
+		// v0.10.1349 — operasyon fonksiyon kodu sözlüğünden ADAY.
+		"TraceWithOperationCandidate": classDirective,
 		// ── Chat kademeleri (Faz 1.6'da internal/api'den taşındı)
 		"GuidedChat": classDirective, // kademe 1 — guided router narration
 		"DrawerChat": classDirective, // kademe 2 — explain-grounded çekmece
@@ -144,6 +146,8 @@ func promptTexts() map[string]string {
 
 		// v0.10.1330 — stack yok, ana operasyonun kodu.
 		"TraceWithOperationCode": SystemPromptTraceWithOperationCode(),
+		// v0.10.1349 — operasyon fonksiyon kodu sözlüğünden ADAY.
+		"TraceWithOperationCandidate": SystemPromptTraceWithOperationCandidate(),
 	}
 }
 

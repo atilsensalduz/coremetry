@@ -131,6 +131,10 @@ func traceCodePromptAndKey(cc devops.CodeContext, se schemaEvidence) (system, ke
 	system = copilot.SystemPromptTraceWithCode()
 	if !cc.Empty() {
 		system = copilot.SystemPromptTraceWithOperationCode()
+		// v0.10.1349 — operasyon fonksiyon kodu sözlüğünden ADAY.
+		if cc.OperationSource == devops.OperationSourceFunctionCode {
+			system = copilot.SystemPromptTraceWithOperationCandidate()
+		}
 	}
 	return system, cc.PromptBlock() + cc.MissingBlock() + se.Block
 }

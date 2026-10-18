@@ -21,6 +21,8 @@ import (
 	"strings"
 
 	"github.com/cilcenk/coremetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/devops"
+	"github.com/cilcenk/coremetry/internal/logstore"
 )
 
 // traceOperationSpanKeys — span attribute'unda operasyon kodunu taşıyan
@@ -31,6 +33,9 @@ var traceOperationSpanKeys = []string{"operation.code", "OPERATION_CODE", "opera
 const (
 	traceOpSourceOracle = "oracle"
 	traceOpSourceSpan   = "span"
+	// traceOpSourceLog — v0.10.1349: trace'in KENDİ log kaydındaki operasyon
+	// kodu attribute'u (kesin; explain'in zaten okuduğu loglardan).
+	traceOpSourceLog = "log"
 )
 
 func spanOperationCode(sp chstore.SpanRow) string {
@@ -56,8 +61,13 @@ func isEntrySpanKind(kind string) bool {
 //	(b) span — kök span'in, sonra giriş (server/consumer) span'lerinin,
 //	    sonra herhangi bir span'in operasyon attribute'u (zaman sırasıyla);
 //	    others = span'lerdeki diğer tekil değerler.
-//	(c) hiçbiri → "", nil, "".
-func pickMainOperation(rows []chstore.OracleErrorRow, spans []chstore.SpanRow) (main string, others []string, source string) {
+//	(c) log — v0.10.1349: bu trace'in log kayıtlarında operasyon kodu
+//	    attribute'u (logOperationCode); en çok kayıtta geçen → en erken →
+//	    ad. others = loglardaki diğer tekil değerler.
+//	(d) hiçbiri → "", nil, "".
+//
+// (a)/(b) v0.10.1329'daki gibi bayt bayt; (c) yalnız ikisi de boşken.
+func pickMainOperation(rows []chstore.OracleErrorRow, spans []chstore.SpanRow, logs []*logstore.LogRecord) (main string, others []string, source string) {
 	var rootSvc string
 	if len(spans) > 0 {
 		rootSvc = traceRootSpan(spans).ServiceName
@@ -118,7 +128,7 @@ func pickMainOperation(rows []chstore.OracleErrorRow, spans []chstore.SpanRow) (
 		return ranked[0].op, others, traceOpSourceOracle
 	}
 	if len(spans) == 0 {
-		return "", nil, ""
+		return pickLogOperation(logs)
 	}
 	ordered := append([]chstore.SpanRow(nil), spans...)
 	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].StartTime < ordered[j].StartTime })
@@ -140,7 +150,7 @@ func pickMainOperation(rows []chstore.OracleErrorRow, spans []chstore.SpanRow) (
 		}
 	}
 	if pick == "" {
-		return "", nil, ""
+		return pickLogOperation(logs)
 	}
 	seen := map[string]bool{pick: true}
 	for _, sp := range ordered {
@@ -150,4 +160,145 @@ func pickMainOperation(rows []chstore.OracleErrorRow, spans []chstore.SpanRow) (
 		}
 	}
 	return pick, others, traceOpSourceSpan
+}
+
+// ── v0.10.1349 (operatör-bildirimli) ─────────────────────────────────────
+//
+// Olay: HATASIZ bir trace'te "Kodu da incele" Code Search açıkken bile "⚠ Kod
+// okunamadı — kodsuz analiz. (bu kayıtta stacktrace yok)" diyordu. Ana
+// operasyon yalnız Oracle HATA satırlarından (sağlıklı trace'te yok) ve
+// span'in operation.code attribute'undan okunuyordu; BSA span'leri ise
+// FUNCTION_CODE taşır. İki ek: (c) log tier'ı (kesin) ve fonksiyon kodu
+// listesi (sözlük adayları için — copilot_code_operation.go).
+
+// pickLogOperation — SAF: pickMainOperation'ın (c) log tier'ı.
+func pickLogOperation(logs []*logstore.LogRecord) (main string, others []string, source string) {
+	type g struct {
+		op    string
+		n     int
+		first int64
+	}
+	groups := map[string]*g{}
+	for _, lg := range logs {
+		if lg == nil {
+			continue
+		}
+		op := logOperationCode(lg.Attributes)
+		if op == "" {
+			continue
+		}
+		e := groups[op]
+		if e == nil {
+			e = &g{op: op, first: lg.Timestamp}
+			groups[op] = e
+		}
+		e.n++
+		if lg.Timestamp < e.first {
+			e.first = lg.Timestamp
+		}
+	}
+	if len(groups) == 0 {
+		return "", nil, ""
+	}
+	ranked := make([]*g, 0, len(groups))
+	for _, e := range groups {
+		ranked = append(ranked, e)
+	}
+	sort.Slice(ranked, func(i, j int) bool {
+		a, b := ranked[i], ranked[j]
+		if a.n != b.n {
+			return a.n > b.n
+		}
+		if a.first != b.first {
+			return a.first < b.first
+		}
+		return a.op < b.op
+	})
+	for _, e := range ranked[1:] {
+		others = append(others, e.op)
+	}
+	return ranked[0].op, others, traceOpSourceLog
+}
+
+// normOpKey — SAF: anahtar → büyük harf, "_" "." "-" soyulmuş.
+func normOpKey(k string) string {
+	return strings.NewReplacer("_", "", ".", "", "-", "").Replace(strings.ToUpper(k))
+}
+
+// logOperationCode — SAF, tablo-testli: log attribute'larında operasyon kodu.
+// Anahtar normalize edilince (normOpKey) OPERATIONCODE ya da OPERATIONNAME
+// ile bitmeli (operation_code, labels.OPERATION_CODE, operationName, …) ve
+// değer devops.ValidOperationCode'dan geçmeli ("GET /x" gibi serbest bir
+// operation.name elenir). Öncelik: …CODE anahtarları …NAME'den önce, sonra
+// anahtar adı (harita sırası determinizmi bozmasın).
+func logOperationCode(attrs map[string]string) string {
+	keys := make([]string, 0, 4)
+	for k := range attrs {
+		n := normOpKey(k)
+		if strings.HasSuffix(n, "OPERATIONCODE") || strings.HasSuffix(n, "OPERATIONNAME") {
+			keys = append(keys, k)
+		}
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		ci, cj := strings.HasSuffix(normOpKey(keys[i]), "CODE"), strings.HasSuffix(normOpKey(keys[j]), "CODE")
+		if ci != cj {
+			return ci
+		}
+		return keys[i] < keys[j]
+	})
+	for _, k := range keys {
+		if v := strings.TrimSpace(attrs[k]); devops.ValidOperationCode(v) {
+			return v
+		}
+	}
+	return ""
+}
+
+// traceFunctionCodeKeys — span'de fonksiyon kodunu taşıyan yazımlar (FE
+// FUNCTION_CODE_KEYS ile aynı ikili).
+var traceFunctionCodeKeys = []string{"FUNCTION_CODE", "function_code"}
+
+// traceFunctionCodeMax — sözlük sorgusuna giden kod tavanı (FE ile aynı 5).
+const traceFunctionCodeMax = 5
+
+// traceFunctionCodes — SAF: FE lib/oracleFunctionOps.ts traceFunctionCodes'un
+// Go ikizi, KANIT sırasıyla: kök span → giriş (server/consumer) span'leri →
+// diğerleri (ikisi de zaman sırasıyla); tekil, ≤ traceFunctionCodeMax.
+func traceFunctionCodes(spans []chstore.SpanRow) []string {
+	if len(spans) == 0 {
+		return nil
+	}
+	ordered := append([]chstore.SpanRow(nil), spans...)
+	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].StartTime < ordered[j].StartTime })
+	root := traceRootSpan(spans)
+	var out []string
+	seen := map[string]bool{}
+	add := func(sp chstore.SpanRow) bool {
+		for _, k := range traceFunctionCodeKeys {
+			c := strings.TrimSpace(sp.Attributes[k])
+			if c == "" || seen[c] {
+				continue
+			}
+			seen[c] = true
+			out = append(out, c)
+			if len(out) >= traceFunctionCodeMax {
+				return true
+			}
+		}
+		return false
+	}
+	if add(root) {
+		return out
+	}
+	for _, sp := range ordered {
+		if isEntrySpanKind(sp.Kind) && add(sp) {
+			return out
+		}
+	}
+	for _, sp := range ordered {
+		if add(sp) {
+			return out
+		}
+	}
+	return out
 }

@@ -67,6 +67,16 @@ func newOpGit(t *testing.T, codeSearch bool) (*opGit, *devops.Service) {
 			g.mu.Lock()
 			g.search++
 			g.mu.Unlock()
+			// v0.10.1349 — depo YALNIZ opTestOp'un controller'ını taşır: başka
+			// bir operasyonun araması ıskalar (aday döngüsü testi).
+			var body struct {
+				SearchText string `json:"searchText"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if !strings.Contains(body.SearchText, `"`+opTestOp+`"`) {
+				_ = json.NewEncoder(w).Encode(map[string]any{"results": []any{}})
+				return
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"results": []any{
 				map[string]any{"path": opTestCtrlPath, "repository": map[string]string{"name": "loan-service", "type": "git"},
 					"matches": map[string]any{"content": []any{map[string]any{"line": 7, "codeSnippet": "@Service(SelfServiceNames.Rest." + opTestOp + ")"}}}},
@@ -115,8 +125,11 @@ func TestWantOperationCode(t *testing.T) {
 	}{
 		{"stack yok + geçerli operasyon", traceExplainInput{MainOperation: opTestOp}, noStack, true},
 		{"stack var (frame'siz bile)", traceExplainInput{MainOperation: opTestOp, Stack: "java.lang.X: y"}, noStack, false},
-		{"operasyon yok", traceExplainInput{}, noStack, false},
-		{"biçimsiz operasyon", traceExplainInput{MainOperation: `x" OR *`}, noStack, false},
+		// v0.10.1349 (operatör-bildirimli) — hatasız trace: kesin operasyon
+		// yokken de yola girilir (fonksiyon kodu adayları / "bulunamadı").
+		{"operasyon yok (hatasız trace)", traceExplainInput{}, noStack, true},
+		{"biçimsiz operasyon → aday yolu", traceExplainInput{MainOperation: `x" OR *`}, noStack, true},
+		{"stack yolu kod buldu", traceExplainInput{}, devops.CodeContext{Outcome: devops.CodeOK, Windows: []devops.CodeWindow{{Path: "/a.java"}}}, false},
 		{"kod entegrasyonu yok", traceExplainInput{MainOperation: opTestOp}, devops.CodeContext{Outcome: devops.CodeUnconfigured}, false},
 	}
 	for _, c := range cases {
@@ -140,6 +153,22 @@ func TestTraceCodePromptAndKey(t *testing.T) {
 	op := devops.CodeContext{Repo: "r", Source: devops.CodeSourceOperation, Windows: []devops.CodeWindow{{Path: "/C.java", FromLine: 1, ToLine: 1, Content: "1| a", Operation: true, Frame: opTestOp}}}
 	if sys, _ := traceCodePromptAndKey(op, se); sys != copilot.SystemPromptTraceWithOperationCode() {
 		t.Error("operasyon penceresi varken operasyon prompt'u")
+	}
+	// v0.10.1349 — fonksiyon kodu ADAYI: aday prompt'u; anahtar bloğu taşır
+	// (aday başlığı kesin başlıktan farklı → cevaplar karışmaz).
+	cand := op
+	cand.OperationSource = devops.OperationSourceFunctionCode
+	if sys, key := traceCodePromptAndKey(cand, se); sys != copilot.SystemPromptTraceWithOperationCandidate() || !strings.Contains(key, "OLABİLİR") {
+		t.Errorf("aday yolu: prompt/anahtar: %q", key)
+	}
+	_, kExact := traceCodePromptAndKey(op, se)
+	_, kCand := traceCodePromptAndKey(cand, se)
+	if kExact == kCand {
+		t.Error("kesin ve aday anahtarı ayrışmalı")
+	}
+	noOp := devops.CodeContext{Source: devops.CodeSourceOperation, Outcome: devops.CodeNoStack, Reason: devops.OperationNoneReason}
+	if sys, key := traceCodePromptAndKey(noOp, se); sys != copilot.SystemPromptTraceWithCode() || !strings.Contains(key, devops.OperationNoneReason) {
+		t.Errorf("aday yok: kodlu prompt + gerekçe anahtarda: %q", key)
 	}
 	off := devops.CodeContext{Source: devops.CodeSourceOperation, Outcome: devops.CodeNoStack, Reason: devops.OperationSearchOffReason}
 	sys, key = traceCodePromptAndKey(off, se)

@@ -387,6 +387,9 @@ type fakeTFS struct {
 	// searchHits — kod arama ucunun (codesearchresults) döndüreceği
 	// isabetler (v0.10.85 proje-çıkmazı yedeği testleri).
 	searchHits []CodeSearchHit
+	// searchFor — v0.10.1349: doluysa isabetler arama METNİNE göre
+	// (searchHits yerine); aday döngüsü testinde ıska/isabet ayrımı.
+	searchFor func(text string) []CodeSearchHit
 	// commits — depo → son commit tarihi (RFC3339); v0.10.226 güncellik
 	// sıralaması `…/commits?searchCriteria.$top=1` ucunu buradan okur.
 	commits map[string]string
@@ -535,7 +538,15 @@ func newFakeTFS(t *testing.T) *fakeTFS {
 			out := struct {
 				Results []wireHit `json:"results"`
 			}{}
-			for _, h := range f.searchHits {
+			hitsFor := f.searchHits
+			if f.searchFor != nil {
+				var body struct {
+					SearchText string `json:"searchText"`
+				}
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				hitsFor = f.searchFor(body.SearchText)
+			}
+			for _, h := range hitsFor {
 				var w wireHit
 				w.Path, w.Repository.Name, w.Repository.Type = h.Path, h.Repository, "git"
 				w.Project.Name = h.Project

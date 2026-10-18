@@ -154,6 +154,14 @@ func traceExplainExtra(in traceExplainInput, cc devops.CodeContext, includeCode 
 	if code != nil && cc.Source == devops.CodeSourceOperation {
 		code.Operation, code.OperationSource = in.MainOperation, in.OperationSource
 		code.OtherOperations, code.OperationLookup = in.OtherOperations, operationLookupState(cc)
+		// v0.10.1349 — bağlam kendi operasyonunu taşıyorsa (fonksiyon kodu
+		// adayı) o kazanır; aday yolunda okunmayanlar + denenen adaylar.
+		if cc.Operation != "" || cc.OperationSource != "" {
+			code.Operation, code.OperationSource = cc.Operation, cc.OperationSource
+		}
+		if cc.OperationSource == devops.OperationSourceFunctionCode {
+			code.OtherOperations, code.OperationCandidates = cc.OperationUnread, cc.OperationCandidates
+		}
 	}
 	return map[string]any{
 		"evidenceSpanIds": in.Evidence,

@@ -346,3 +346,133 @@ func TestFetchOperationCode_PATNeverInReason(t *testing.T) {
 		t.Fatalf("Reason PAT taşıyor ya da boş: %q", cc.Reason)
 	}
 }
+
+// ── v0.10.1349 (operatör-bildirimli): fonksiyon kodu ADAYLARI ────────────
+// Hatasız trace'te kesin operasyon yok; adaylar sırayla denenir, ilk aramanın
+// İSABET ettiği adayda durulur. Bütçe: ≤2 aday, en kötü 2 arama + 2 dosya,
+// tüm döngü ≤15 sn.
+
+const (
+	opCandMissA = "LOAN_CONSUMER_APP_APPLICATIONINQ_MISSING_A_REST"
+	opCandMissB = "LOAN_CONSUMER_APP_APPLICATIONINQ_MISSING_B_REST"
+)
+
+// candidateFixture — depo YALNIZ opFixtureOp'un controller'ını taşır.
+func candidateFixture(t *testing.T) (*fakeTFS, *Service) {
+	t.Helper()
+	f, svc := operationFixture(t, true)
+	hits := f.searchHits
+	f.searchFor = func(text string) []CodeSearchHit {
+		if strings.Contains(text, `"`+opFixtureOp+`"`) {
+			return hits
+		}
+		return nil
+	}
+	return f, svc
+}
+
+func TestFetchOperationCodeCandidates_Budget(t *testing.T) {
+	req := OperationCodeRequest{Repo: "loan-service", Service: "loan-service", Others: 2}
+
+	t.Run("ilk iki aday ıskalar ⇒ 2 arama, üçüncü denenmez", func(t *testing.T) {
+		f, svc := candidateFixture(t)
+		start := time.Now()
+		cc := svc.FetchOperationCodeCandidates(context.Background(), req, []string{opCandMissA, opCandMissB, opFixtureOp})
+		f.mu.Lock()
+		search, items := f.hits["search"], f.hits["item"]
+		f.mu.Unlock()
+		if search != 2 || items != 0 || len(cc.Windows) != 0 {
+			t.Fatalf("arama=%d (2) dosya=%d (0) pencere=%d", search, items, len(cc.Windows))
+		}
+		if cc.Reason != "bu kayıtta stacktrace yok; fonksiyon kodu adayları ("+opCandMissA+", "+opCandMissB+") için depoda controller bulunamadı" {
+			t.Errorf("reason: %q", cc.Reason)
+		}
+		if cc.Source != CodeSourceOperation || cc.OperationSource != OperationSourceFunctionCode || cc.Operation != "" ||
+			len(cc.OperationCandidates) != 2 || cc.OperationCandidates[1] != opCandMissB || cc.Outcome != CodeTreeMiss {
+			t.Errorf("künye: %+v", cc)
+		}
+		if el := time.Since(start); el > 15*time.Second {
+			t.Errorf("süre: %s", el)
+		}
+	})
+
+	t.Run("ilk aday isabet ⇒ 1 arama, ≤2 dosya", func(t *testing.T) {
+		f, svc := candidateFixture(t)
+		cc := svc.FetchOperationCodeCandidates(context.Background(), req, []string{opFixtureOp, opCandMissA})
+		f.mu.Lock()
+		search, items := f.hits["search"], f.hits["item"]
+		f.mu.Unlock()
+		if search != 1 || items > 2 || len(cc.Windows) != 2 {
+			t.Fatalf("arama=%d (1) dosya=%d (≤2) pencere=%d reason=%q", search, items, len(cc.Windows), cc.Reason)
+		}
+		if cc.Operation != opFixtureOp || cc.OperationSource != OperationSourceFunctionCode || cc.OperationOthers != 2 {
+			t.Errorf("künye: op=%q src=%q others=%d", cc.Operation, cc.OperationSource, cc.OperationOthers)
+		}
+	})
+
+	t.Run("ikinci aday isabet ⇒ 2 arama + 2 dosya (en kötü hâl)", func(t *testing.T) {
+		f, svc := candidateFixture(t)
+		cc := svc.FetchOperationCodeCandidates(context.Background(), req, []string{opCandMissA, opFixtureOp})
+		f.mu.Lock()
+		search, items := f.hits["search"], f.hits["item"]
+		f.mu.Unlock()
+		if search != 2 || items > 2 || cc.Operation != opFixtureOp || len(cc.Windows) != 2 {
+			t.Fatalf("arama=%d dosya=%d op=%q pencere=%d", search, items, cc.Operation, len(cc.Windows))
+		}
+	})
+
+	t.Run("aday yok / geçersiz ⇒ istek yok", func(t *testing.T) {
+		f, svc := candidateFixture(t)
+		cc := svc.FetchOperationCodeCandidates(context.Background(), req, []string{"bad op", ""})
+		if cc.Reason != OperationNoneReason || cc.Outcome != CodeNoStack || f.countReqs("") != 0 {
+			t.Errorf("aday yok: %+v istek=%v", cc, f.snapshotReqs())
+		}
+	})
+
+	t.Run("Code Search kapalı ⇒ istek yok", func(t *testing.T) {
+		f, svc := operationFixture(t, false)
+		cc := svc.FetchOperationCodeCandidates(context.Background(), req, []string{opFixtureOp})
+		if cc.Reason != OperationSearchOffReason || f.countReqs("") != 0 {
+			t.Errorf("kapalı: %+v", cc)
+		}
+	})
+	if New().operationDeadline() > 15*time.Second {
+		t.Error("dış tavan 15 sn'yi aşmamalı")
+	}
+}
+
+func TestPromptBlockOperationCandidateHeader(t *testing.T) {
+	win := func() []CodeWindow {
+		return []CodeWindow{
+			{Path: "/src/C.java", FromLine: 20, ToLine: 34, Content: "20| @Service(x)", Operation: true, Frame: opFixtureOp},
+			{Path: "/src/MImpl.java", FromLine: 9, ToLine: 17, Content: "9| @Override", Operation: true, Callee: true, Frame: "M.get"},
+		}
+	}
+	exact := CodeContext{Repo: "loan-service", Branch: "release", OperationOthers: 2, Windows: win()}
+	cand := exact
+	cand.Windows = win()
+	cand.OperationSource = OperationSourceFunctionCode
+	pb := cand.PromptBlock()
+	for _, want := range []string{
+		"operasyon kodu 1/2 — trace'in ANA operasyonu OLABİLİR: " + opFixtureOp + " (fonksiyon kodu sözlüğünden ADAY, kesin değil; stacktrace yok",
+		"operasyon kodu 2/2 — çağrılan yönetici metodu M.get",
+		"Yalnız bir ADAY operasyonun kodu okundu; +2 diğer operasyon okunmadı.",
+		"Operasyon adı bir adaydır — kod trace'le uyuşmuyorsa bunu söyle.",
+	} {
+		if !strings.Contains(pb, want) {
+			t.Errorf("aday bloğunda yok: %q\n%s", want, pb)
+		}
+	}
+	// Diğer kaynaklar (oracle | span | log | "") bayt bayt v0.10.1330.
+	base := exact.PromptBlock()
+	for _, src := range []string{"oracle", "span", "log"} {
+		c := exact
+		c.OperationSource = src
+		if c.PromptBlock() != base {
+			t.Errorf("%s kaynağında blok değişmiş", src)
+		}
+	}
+	if strings.Contains(base, "OLABİLİR") || strings.Contains(base, "adaydır") || !strings.Contains(base, "Yalnız ANA operasyonun kodu okundu; +2 diğer operasyon okunmadı.") {
+		t.Errorf("kesin blok:\n%s", base)
+	}
+}

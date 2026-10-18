@@ -265,6 +265,16 @@ type CodeContext struct {
 	// OperationOthers (v0.10.1330) — operasyon kodu yolunda trace'teki
 	// OKUNMAYAN diğer operasyon sayısı (prompt "+N diğer operasyon okunmadı").
 	OperationOthers int `json:"operationOthers,omitempty"`
+	// Operation / OperationSource / OperationCandidates / OperationUnread
+	// (v0.10.1349, operatör-bildirimli) — operasyon kodu yolunda kodu OKUNAN
+	// operasyon, kaynağı (oracle | span | log | function-code), fonksiyon kodu
+	// sözlüğünden denenen ADAYLAR ve okunmayan diğer adaylar. OperationSource
+	// == OperationSourceFunctionCode iken PromptBlock başlığı "ADAY, kesin
+	// değil" der; diğer kaynaklarda blok bayt bayt v0.10.1330.
+	Operation           string   `json:"operation,omitempty"`
+	OperationSource     string   `json:"operationSource,omitempty"`
+	OperationCandidates []string `json:"operationCandidates,omitempty"`
+	OperationUnread     []string `json:"operationUnread,omitempty"`
 }
 
 // FromRunningVersion — kod çalışan sürümün commit'inden mi okundu?
@@ -2289,10 +2299,17 @@ func (c CodeContext) PromptBlock() string {
 	// v0.10.1330 — pencerelerin HEPSİ operasyon kodundansa stack yok:
 	// ">>>" vaadi yerine giriş metodu + ilk çağrı anlatılır.
 	allOp := c.allOperationWindows()
+	// v0.10.1349 — operasyon fonksiyon kodu sözlüğünden ADAY: başlık + kapanış
+	// "kesin değil" der (diğer kaynaklarda bayt bayt v0.10.1330).
+	candidate := allOp && c.OperationSource == OperationSourceFunctionCode
 	if allOp {
 		b.WriteString("). Satır başındaki sayı GERÇEK dosya satırıdır; stacktrace yok — pencereler operasyonun giriş metodu ve ilk çağrısıdır:")
 		if c.OperationOthers > 0 {
-			fmt.Fprintf(&b, "\nYalnız ANA operasyonun kodu okundu; +%d diğer operasyon okunmadı.", c.OperationOthers)
+			if candidate {
+				fmt.Fprintf(&b, "\nYalnız bir ADAY operasyonun kodu okundu; +%d diğer operasyon okunmadı.", c.OperationOthers)
+			} else {
+				fmt.Fprintf(&b, "\nYalnız ANA operasyonun kodu okundu; +%d diğer operasyon okunmadı.", c.OperationOthers)
+			}
 		}
 	} else {
 		b.WriteString("). Satır başındaki sayı GERÇEK dosya satırıdır; " +
@@ -2303,6 +2320,9 @@ func (c CodeContext) PromptBlock() string {
 			// v0.10.1330 — operasyon penceresi: hata satırı işareti YOK.
 			if w.Callee {
 				fmt.Fprintf(&b, "\n\noperasyon kodu %d/%d — çağrılan yönetici metodu %s\n%s (satır %d-%d)\n```%s\n%s\n```",
+					i+1, len(c.Windows), w.Frame, w.Path, w.FromLine, w.ToLine, fenceLang(w.Path), w.Content)
+			} else if candidate {
+				fmt.Fprintf(&b, "\n\noperasyon kodu %d/%d — trace'in ANA operasyonu OLABİLİR: %s (fonksiyon kodu sözlüğünden ADAY, kesin değil; stacktrace yok; bu metot adayın giriş noktası, hata satırı işareti yok)\n%s (satır %d-%d)\n```%s\n%s\n```",
 					i+1, len(c.Windows), w.Frame, w.Path, w.FromLine, w.ToLine, fenceLang(w.Path), w.Content)
 			} else {
 				fmt.Fprintf(&b, "\n\noperasyon kodu %d/%d — trace'in ANA operasyonu %s (stacktrace yok; bu metot operasyonun giriş noktası, hata satırı işareti yok)\n%s (satır %d-%d)\n```%s\n%s\n```",
@@ -2343,6 +2363,9 @@ func (c CodeContext) PromptBlock() string {
 	if allOp {
 		// v0.10.1330 — stack yok: satır suçlaması yerine çağrı eşlemesi.
 		b.WriteString("\n\nKodu trace ve Oracle hata satırıyla BİRLİKTE oku: trace'teki span'leri, Oracle operasyonunu ve hata kodunu metot gövdesinde GÖRÜNEN çağrılara eşle; gövdede görünmeyen bir çağrı ya da davranış için \"operasyon kodunda görünmüyor\" de. Hata satırı bilinmiyor — belirli bir satırı suçlama, öneriyi metotta görünen çağrı/koşula dayandır.")
+		if candidate {
+			b.WriteString(" Operasyon adı bir adaydır — kod trace'le uyuşmuyorsa bunu söyle.")
+		}
 		return b.String()
 	}
 	b.WriteString("\n\nKodu stack'le BİRLİKTE oku: hatanın atıldığı satırı göster ve kök nedeni o satırdaki koşula/çağrıya dayandır. Kodda görmediğin bir davranışı UYDURMA — pencere dışında kalan kısım hakkında \"bu pencerede görünmüyor\" de.")

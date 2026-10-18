@@ -150,6 +150,11 @@ type traceExplainInput struct {
 	// RootVersion — v0.10.1329 (dikiş): kök servisin bu trace'teki çalışan
 	// sürümü (anomaly.StackServiceVersion; ek okuma yok). Boş = bilinmiyor.
 	RootVersion string
+	// FunctionCodes — v0.10.1349 (operatör-bildirimli): trace'in span'lerindeki
+	// tekil FUNCTION_CODE değerleri, kanıt sırasıyla (kök → giriş → diğer),
+	// ≤5 (traceFunctionCodes). Ana operasyon KESİN kaynaktan bulunamazsa kod
+	// incelemesi sözlükten ADAY operasyon arar; prompt'a GİRMEZ.
+	FunctionCodes []string
 }
 
 // buildTraceExplainInput — trace'in span'lerini çekip kompakt JSON'a
@@ -240,6 +245,9 @@ func (s *Server) buildTraceExplainInput(ctx context.Context, id string) (traceEx
 	// v0.10.1329 — satırların KENDİSİ de tutulur (yalnız sayı değil): ana
 	// operasyon seçimi (pickMainOperation) aynı okumadan, ek sorgu yok.
 	var oracleRowsRead []chstore.OracleErrorRow
+	// v0.10.1349 — okunan log kayıtları da tutulur: ana operasyonun (c) log
+	// tier'ı (pickMainOperation) aynı okumadan, ek I/O yok.
+	var logsRead []*logstore.LogRecord
 	var oracleWG sync.WaitGroup
 	if s.oracle != nil && s.oracle.HasEnabledSources() && s.store != nil {
 		ofrom := time.Unix(0, minT).Add(-time.Minute)
@@ -268,6 +276,7 @@ func (s *Server) buildTraceExplainInput(ctx context.Context, id string) (traceEx
 				Body   string `json:"body,omitempty"`
 			}
 			logs := page.Logs
+			logsRead = logs
 			sort.SliceStable(logs, func(i, j int) bool { return logs[i].Severity > logs[j].Severity })
 			ll := make([]liteLog, 0, 15)
 			for _, lg := range logs {
@@ -345,7 +354,7 @@ func (s *Server) buildTraceExplainInput(ctx context.Context, id string) (traceEx
 	// v0.10.1147 — span event bloğu kuyruğun BAŞINA: kırpmada span listesi
 	// kesilir, exception özeti korunur (yalnız-log modunda da baştan kesilir).
 	tail := evd.Block() + logsBlock + oracleBlock
-	mainOp, otherOps, opSource := pickMainOperation(oracleRowsRead, allSpans)
+	mainOp, otherOps, opSource := pickMainOperation(oracleRowsRead, allSpans, logsRead)
 	return traceExplainInput{
 		User:         traceExplainUser(id, len(compact), totalSpans, string(payload), tail),
 		Evidence:     traceEvidenceSpanIDs(compact),
@@ -362,6 +371,7 @@ func (s *Server) buildTraceExplainInput(ctx context.Context, id string) (traceEx
 		OtherOperations: otherOps,
 		OperationSource: opSource,
 		RootVersion:     anomaly.StackServiceVersion(allSpans, rootService),
+		FunctionCodes:   traceFunctionCodes(allSpans), // v0.10.1349
 	}, nil
 }
 

@@ -6348,6 +6348,52 @@ loglarına (tüm loglara değil)".
   TestIntentTraceDrillUpgrade, TestRootCauseWantsTraceDrill, TestTraceDrillWiring,
   TestTraceDrillFollowupChip; chstore TestSpanOperationREDQueryPinsP50.
 
+## 2026-10-18 — v0.10.1349 — Hatasız trace'te kod incelemesi: log tier'ı + fonksiyon kodu ADAYLARI
+
+> Sıra notu: v0.10.1330 dikişinin ÜSTÜNE kurulur; paralel kayıtlarla hunk çakışmasın diye 1330'un
+> önüne yazıldı.
+
+**Sorun (operatör-bildirimli):** HATASIZ bir trace'te Code Search açıkken bile ikinci geçiş "Kod
+incelemesi" "⚠ Kod okunamadı — kodsuz analiz. (bu kayıtta stacktrace yok)" diyordu. **Kök neden:**
+`MainOperation` boştu — `buildTraceExplainInput` ana operasyonu yalnız `OracleErrorsByTrace`
+(HATA satırları; sağlıklı trace'te yok) ve span'in `operation.code`/`OPERATION_CODE`/`operation_code`
+attribute'undan okuyordu (BSA span'leri `FUNCTION_CODE` taşır); sözlük bilerek dışarıdaydı (v0.10.1329,
+yalnız çipin etiketli (c) kademesi); `wantOperationCode` geçerli `MainOperation` şart koştuğu için stack
+yolunun "bu kayıtta stacktrace yok" cevabı aynen kalıyordu. **Karar:** (1) `pickMainOperation` (c)
+**log** kademesi (kesin; Oracle ve span'den SONRA): explain'in zaten okuduğu ES/CH log kayıtlarında
+anahtarı normalize edilince (büyük harf, `_ . -` soyulmuş) `OPERATIONCODE`/`OPERATIONNAME` ile biten ve
+değeri `ValidOperationCode`'dan geçen attribute (`logOperationCode`); en çok kayıt → en erken → ad; ek
+I/O yok. (a)/(b) bayt bayt aynı. (2) `traceExplainInput.FunctionCodes` (≤5, tekil; kök span → giriş
+span'leri → diğerleri; `traceFunctionCodes`, FE ikizi). (3) `wantOperationCode` yalnız "stack metni boş
++ stack yolu NoStack" ister. `buildOperationCodeContext`: Code Search kapısı (aynı) → depo çözümü (aynı,
+pin fail-closed) → geçerli `MainOperation` varsa v0.10.1330 TEK `FetchOperationCode` bayt bayt → yoksa
+YALNIZ trace'in kodları için sözlük (`chstore.OracleOperationsForFunctionCodes`: sözlük gövdesi +
+`fc IN (…)`, son 7 gün = çip penceresi, `LIMIT len(codes)*perCode*4`, `max_execution_time=3`, kendi 3 sn
+ctx'i, Oracle kaynağı kapalıysa sorgu yok) → `operationCandidates` (kod başına satır sayısına göre,
+kodlar arası örgü — kök kodu önce, tekil, geçersiz ad atılır; denenecek ≤2 + okunmayan ≤3) →
+`devops.FetchOperationCodeCandidates` (dış tavan ≤15 sn; her aday v0.10.1330 bütçesi; aramanın İSABET
+ettiği ilk adayda durur; en kötü 2 arama + 2 dosya; hepsi ıskarsa "fonksiyon kodu adayları (A, B) için
+depoda controller bulunamadı") → aday yoksa `OperationNoneReason` ("trace'in operasyon adı
+bulunamadı", `operationLookup: "none"`). **Adaylık dürüstçe söylenir:** `CodeContext.OperationSource
+= "function-code"` iken PromptBlock başlığı "trace'in ANA operasyonu OLABİLİR … (fonksiyon kodu
+sözlüğünden ADAY, kesin değil …)", "+N" satırı "Yalnız bir ADAY operasyonun kodu okundu" ve kapanış
+"Operasyon adı bir adaydır — kod trace'le uyuşmuyorsa bunu söyle."; system prompt
+`SystemPromptTraceWithOperationCandidate` (operasyon kodu prompt'u + tek maddelik kayıtlı
+`systemOperationCandidateAddendum`). Diğer kaynaklarda (oracle/span/log) blok bayt bayt v0.10.1330.
+Payload `operationSource` + `log`/`function-code`, `operationLookup` + `none`, `operationCandidates`
+(denenen); aday yolunda `otherOperations` = okunmayan adaylar. UI `codeStatusLine`: aday okunduysa
+"stacktrace yok → fonksiyon kodu ADAYININ kodu üzerinden incelendi (kesin değil): <Dosya#L ↗>
+(operasyon adayı: X, +N aday okunmadı)"; adaylar depoda yoksa / ad yoksa kendi cümlesi; kesin yol ve
+stack yolu metni aynı. Span `coremetry.ai.code.operation_source`. **Test dikişi:** sözlük okuyucusu
+`fnCodeDictSeams` (*Server → okuyucu; yoksa `s.store`) — Server struct'ına alan eklenmedi, api.go
+büyümedi. **Değişmeyenler:** TestTraceExplainUserGolden, stack yolu, taksonomi (yeni Outcome yok, sayaç
+artmaz), kesin operasyon yolunun istek bütçesi ve payload'u. **Testler:** api TestLogOperationCode,
+TestPickMainOperationLogTier, TestTraceFunctionCodes, TestOperationCandidates, TestOperationLookupState,
+TestTraceCodeContextCandidateBranch (i)–(iv), TestWantOperationCode / TestTraceCodePromptAndKey
+güncel; devops TestFetchOperationCodeCandidates_Budget, TestPromptBlockOperationCandidateHeader;
+copilot TestTraceWithOperationCandidatePrompt; chstore TestOracleFnOpsForCodesSQL; vitest
+CodeStatusNote.test.tsx (aday / adaylar ıska / ad yok + render).
+
 ## 2026-10-18 — Stack yoksa kod incelemesi trace'in ana operasyonunun kodunu okur (v0.10.1330)
 
 > Sıra notu: bu kayıt aşağıdaki v0.10.1329 dikişinin ÜSTÜNE kurulur (paralel

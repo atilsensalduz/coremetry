@@ -2222,9 +2222,14 @@ export interface AICodeContext {
    *  operasyon kodu, kaynağı, OKUNMAYAN diğer operasyonlar ve aramanın hâli
    *  ('off' = Code Search kapalı). `source` bu yolda 'operation'. */
   operation?: string;
-  operationSource?: 'oracle' | 'span';
+  /** v0.10.1349 — + 'log' (trace'in kendi log kaydı, kesin) ve 'function-code'
+   *  (kesin kaynak yok; FUNCTION_CODE sözlüğünden ADAY — kesin DEĞİL). */
+  operationSource?: 'oracle' | 'span' | 'log' | 'function-code';
   otherOperations?: string[];
-  operationLookup?: 'ok' | 'off' | 'failed';
+  /** v0.10.1349 — + 'none' = ne kesin operasyon ne fonksiyon kodu adayı var. */
+  operationLookup?: 'ok' | 'off' | 'failed' | 'none';
+  /** v0.10.1349 — fonksiyon kodu sözlüğünden DENENEN aday operasyonlar (≤2). */
+  operationCandidates?: string[];
 }
 
 export type DevOpsFlavor = 'auto' | 'azure-devops-server' | 'tfs';

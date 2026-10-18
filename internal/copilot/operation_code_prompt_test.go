@@ -36,3 +36,30 @@ func TestTraceWithOperationCodePrompt(t *testing.T) {
 		t.Error("operasyon eki >>> işaretini anmamalı — pencerede hata satırı yok")
 	}
 }
+
+// TestTraceWithOperationCandidatePrompt — v0.10.1349 (operatör-bildirimli):
+// hatasız trace'te operasyon fonksiyon kodu sözlüğünden ADAY. Operasyon kodu
+// prompt'unun AYNISI + tek maddelik aday eki (sicilde); dil direktifi sonda.
+func TestTraceWithOperationCandidatePrompt(t *testing.T) {
+	p := SystemPromptTraceWithOperationCandidate()
+	if p != systemTraceBody+systemOperationCodeAddendum+systemOperationCandidateAddendum+AnswerInTurkish {
+		t.Fatal("aday prompt'u = trace tabanı + operasyon eki + aday eki + dil direktifi olmalı")
+	}
+	if strings.Count(p, AnswerInTurkish) != 1 || !strings.HasSuffix(p, AnswerInTurkish) {
+		t.Fatal("dil direktifi tek kez ve sonda olmalı")
+	}
+	if promptVersionRegistry["systemOperationCandidateAddendum"] != systemOperationCandidateAddendum {
+		t.Error("aday eki promptVersionRegistry'de değil")
+	}
+	if strings.Count(systemOperationCandidateAddendum, "\n- ") != 1 {
+		t.Errorf("aday eki tek madde olmalı:\n%s", systemOperationCandidateAddendum)
+	}
+	for _, want := range []string{"ADAY", "bir kez söyle", "iddia etme"} {
+		if !strings.Contains(systemOperationCandidateAddendum, want) {
+			t.Errorf("aday eki %q kuralını taşımıyor", want)
+		}
+	}
+	if SystemPromptTraceWithOperationCode() == p {
+		t.Error("kesin operasyon prompt'u değişmemeli (aday eki yalnız aday yolunda)")
+	}
+}

@@ -209,3 +209,91 @@ func (s *Store) OracleFunctionOperations(ctx context.Context, codeSources []stri
 	}
 	return out, len(out) >= oracleFnOpLimit, rows.Err()
 }
+
+// ── v0.10.1349 (operatör-bildirimli) ─────────────────────────────────────
+// HATASIZ trace'te ana operasyon kesin kaynaktan (kendi Oracle hata satırı /
+// span / log attribute'u) bulunamayınca trace explain'in kod incelemesi
+// trace'in FUNCTION_CODE değerlerini sözlükten ADAY operasyona çevirir. Tam
+// sözlük (≤5000 çift) yerine YALNIZ o kodların çiftleri okunur.
+
+// oracleFnOpsForCodesMaxCodes / PerCodeMax — girdi tavanları (trace başına ≤5
+// kod; aday + okunmayan ≤5 operasyon).
+const (
+	oracleFnOpsForCodesMaxCodes = 5
+	oracleFnOpsForCodesPerMax   = 10
+)
+
+// oracleFnOpsForCodesSQL — SAF: oracleFnOpsSQL gövdesi + `fc IN (…)`; en çok
+// satırlı önce, LIMIT bind-arg, max_execution_time 3 sn (explain isteğinin
+// içinde, kullanıcı bekliyor).
+func oracleFnOpsForCodesSQL(nCodeSources, nCodes int) string {
+	fc := oracleFunctionCodeAttrExpr
+	if nCodeSources > 0 {
+		holders := strings.TrimSuffix(strings.Repeat("?,", nCodeSources), ",")
+		fc = "if(source_id IN (" + holders + "), trimBoth(error_code), " + oracleFunctionCodeAttrExpr + ")"
+	}
+	codes := strings.TrimSuffix(strings.Repeat("?,", nCodes), ",")
+	return `
+		SELECT fc, operation_code, count() AS n
+		FROM (
+			SELECT operation_code, ` + fc + ` AS fc
+			FROM oracle_error_log
+			WHERE time >= ? AND time < ? AND operation_code != ''
+		)
+		WHERE fc != '' AND fc IN (` + codes + `)
+		GROUP BY fc, operation_code
+		ORDER BY n DESC, fc, operation_code
+		LIMIT ?
+		SETTINGS max_execution_time = 3`
+}
+
+// OracleOperationsForFunctionCodes — v0.10.1349: [from, to) penceresinde
+// YALNIZ codes için (fonksiyon kodu, operasyon, satır) çiftleri, en çok
+// satırlı önce, ≤ len(codes)*perCode*4. codeSources: `code` alanı fonksiyon
+// kodu olan kaynaklar (oracleFnOpsSQL ile aynı kural). Boş/tekrarlı kodlar
+// atılır; kod yoksa sorgu YOK.
+func (s *Store) OracleOperationsForFunctionCodes(ctx context.Context, codes, codeSources []string, from, to time.Time, perCode int) ([]OracleFnOp, error) {
+	out := []OracleFnOp{}
+	var uniq []string
+	seen := map[string]bool{}
+	for _, c := range codes {
+		c = strings.TrimSpace(c)
+		if c == "" || seen[c] {
+			continue
+		}
+		seen[c] = true
+		uniq = append(uniq, c)
+		if len(uniq) >= oracleFnOpsForCodesMaxCodes {
+			break
+		}
+	}
+	if len(uniq) == 0 || !to.After(from) {
+		return out, nil
+	}
+	if perCode <= 0 || perCode > oracleFnOpsForCodesPerMax {
+		perCode = oracleFnOpsForCodesPerMax
+	}
+	// Yer tutucu sırası SQL'deki sırayla birebir: [kaynaklar], pencere, kodlar, limit.
+	args := make([]any, 0, len(codeSources)+len(uniq)+3)
+	for _, id := range codeSources {
+		args = append(args, id)
+	}
+	args = append(args, from, to)
+	for _, c := range uniq {
+		args = append(args, c)
+	}
+	args = append(args, len(uniq)*perCode*4)
+	rows, err := s.conn.Query(ctx, oracleFnOpsForCodesSQL(len(codeSources), len(uniq)), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var o OracleFnOp
+		if err := rows.Scan(&o.Code, &o.Operation, &o.Rows); err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}

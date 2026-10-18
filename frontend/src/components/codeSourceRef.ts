@@ -18,15 +18,32 @@ export function codeSourceRef(code: Pick<AICodeContext, 'version' | 'branch'>): 
 //   - kod ana operasyondan okunduysa → "stacktrace yok → operasyon kodu
 //     üzerinden incelendi: <Dosya.java#L123 ↗> (operasyon: X, +N …)";
 //   - stack penceresi geldiyse null (Kaynak satırı yeter).
+//
+// v0.10.1349 (operatör-bildirimli: HATASIZ trace'te Code Search açıkken de "Kod
+// okunamadı … (bu kayıtta stacktrace yok)") — kesin operasyon yokken kod
+// FUNCTION_CODE sözlüğünün ADAY operasyonundan okunabilir: satır "kesin değil"
+// der (candidate); hiç ad yoksa / adaylar depoda yoksa bunu açıkça söyler.
 export type CodeStatusLine =
   | { kind: 'missing'; detail: string }
-  | { kind: 'operation'; operation: string; others: number; file?: { label: string; url?: string; title: string } };
+  | { kind: 'operation'; operation: string; others: number; candidate?: boolean; file?: { label: string; url?: string; title: string } };
+
+const NO_STACK = 'bu kayıtta stacktrace yok';
 
 export function codeStatusLine(code: AICodeContext | null | undefined): CodeStatusLine | null {
   if (!code) return null;
   const files = code.files ?? [];
   const op = code.operation ?? '';
+  const candidate = code.operationSource === 'function-code';
   if (!files.length) {
+    if (code.source === 'operation' && code.operationLookup === 'none') {
+      return { kind: 'missing', detail: `${NO_STACK}; trace'in operasyon adı bulunamadı` };
+    }
+    const cands = code.operationCandidates ?? [];
+    if (candidate && cands.length && code.operationLookup === 'failed') {
+      // Sunucu gerekçesi zaten "bu kayıtta stacktrace yok; …adayları…" ise tekrar edilmez.
+      const why = code.reason && !code.reason.startsWith(NO_STACK) ? `: ${code.reason}` : '';
+      return { kind: 'missing', detail: `${NO_STACK}; fonksiyon kodu adayları ${cands.join(', ')} için depoda kod bulunamadı${why}` };
+    }
     if (op && code.operationLookup === 'off') {
       return { kind: 'missing', detail: 'bu kayıtta stacktrace yok — operasyon kodu araması için Code Search kapalı' };
     }
@@ -43,11 +60,20 @@ export function codeStatusLine(code: AICodeContext | null | undefined): CodeStat
     kind: 'operation',
     operation: op,
     others: code.otherOperations?.length ?? 0,
+    ...(candidate ? { candidate: true } : {}),
     file: { label: `${base}#L${entry.fromLine}`, url: entry.url, title: `DevOps'ta aç: ${entry.path} satır ${entry.fromLine}` },
   };
 }
 
-/** codeStatusOperationTail — "(operasyon: X, +N diğer operasyon okunmadı)". */
-export function codeStatusOperationTail(s: { operation: string; others: number }): string {
+/** codeStatusLead — satırın başı: kesin operasyon ya da (v0.10.1349) fonksiyon kodu ADAYI. */
+export function codeStatusLead(s: { candidate?: boolean }): string {
+  return s.candidate
+    ? 'stacktrace yok → fonksiyon kodu ADAYININ kodu üzerinden incelendi (kesin değil):'
+    : 'stacktrace yok → operasyon kodu üzerinden incelendi:';
+}
+
+/** codeStatusOperationTail — "(operasyon: X, +N diğer operasyon okunmadı)"; aday: "(operasyon adayı: X, +N aday okunmadı)". */
+export function codeStatusOperationTail(s: { operation: string; others: number; candidate?: boolean }): string {
+  if (s.candidate) return ` (operasyon adayı: ${s.operation}${s.others > 0 ? `, +${s.others} aday okunmadı` : ''})`;
   return ` (operasyon: ${s.operation}${s.others > 0 ? `, +${s.others} diğer operasyon okunmadı` : ''})`;
 }

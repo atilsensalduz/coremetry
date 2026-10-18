@@ -214,6 +214,10 @@ type codeContextPayload struct {
 	OperationSource string   `json:"operationSource,omitempty"`
 	OtherOperations []string `json:"otherOperations,omitempty"`
 	OperationLookup string   `json:"operationLookup,omitempty"`
+	// OperationCandidates (v0.10.1349) — kesin operasyon yokken fonksiyon kodu
+	// sözlüğünden DENENEN aday operasyonlar (≤2; OperationSource
+	// "function-code"). OperationLookup ayrıca "none" olabilir.
+	OperationCandidates []string `json:"operationCandidates,omitempty"`
 }
 
 type codeFileRefDTO struct {

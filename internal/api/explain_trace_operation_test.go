@@ -68,7 +68,7 @@ func TestPickMainOperation(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			main, others, source := pickMainOperation(c.rows, c.spans)
+			main, others, source := pickMainOperation(c.rows, c.spans, nil)
 			if main != c.wantMain || source != c.wantSource || !reflect.DeepEqual(others, c.wantOthers) {
 				t.Fatalf("pickMainOperation = (%q, %q, %q), want (%q, %q, %q)", main, others, source, c.wantMain, c.wantOthers, c.wantSource)
 			}

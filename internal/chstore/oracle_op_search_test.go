@@ -99,3 +99,33 @@ func TestOracleOpExactSQL(t *testing.T) {
 		}
 	}
 }
+
+// TestOracleFnOpsForCodesSQL — v0.10.1349 (operatör-bildirimli): hatasız
+// trace'in fonksiyon kodları → aday operasyonlar. Sözlük gövdesinin aynısı +
+// kod IN listesi; zaman sınırlı, LIMIT bind-arg, max_execution_time 3 sn.
+func TestOracleFnOpsForCodesSQL(t *testing.T) {
+	attrOnly, mixed := oracleFnOpsForCodesSQL(0, 2), oracleFnOpsForCodesSQL(3, 1)
+	for name, q := range map[string]string{"attr": attrOnly, "mixed": mixed} {
+		for _, w := range []string{
+			"FROM oracle_error_log", "WHERE time >= ? AND time < ? AND operation_code != ''",
+			"GROUP BY fc, operation_code", "ORDER BY n DESC", "LIMIT ?", "SETTINGS max_execution_time = 3",
+		} {
+			if !strings.Contains(q, w) {
+				t.Errorf("%s: SQL %q içermeli:\n%s", name, w, q)
+			}
+		}
+		if strings.Contains(q, "FINAL") {
+			t.Errorf("%s: FINAL taşımamalı", name)
+		}
+	}
+	if !strings.Contains(attrOnly, "WHERE fc != '' AND fc IN (?,?)") || strings.Contains(attrOnly, "source_id IN") || strings.Count(attrOnly, "?") != 5 {
+		t.Errorf("attribute yolu: pencere(2) + kod(2) + limit(1):\n%s", attrOnly)
+	}
+	if !strings.Contains(mixed, "if(source_id IN (?,?,?), trimBoth(error_code), ") || !strings.Contains(mixed, "fc IN (?)") || strings.Count(mixed, "?") != 7 {
+		t.Errorf("karışık yol: kaynak(3) + pencere(2) + kod(1) + limit(1):\n%s", mixed)
+	}
+	// Gövde sözlük sorgusuyla AYNI kod ifadesini kullanır (çip ile aynı eşleme).
+	if !strings.Contains(oracleFnOpsSQL(0), oracleFunctionCodeAttrExpr+" AS fc") || !strings.Contains(attrOnly, oracleFunctionCodeAttrExpr+" AS fc") {
+		t.Error("fonksiyon kodu ifadesi sözlükle aynı olmalı")
+	}
+}
