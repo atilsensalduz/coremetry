@@ -6892,3 +6892,39 @@ http_response_status_code 5xx (4xx hata sayılmaz)" (VM'de VM etiket yazımı), 
 aynı); `vmetrics.PromLabel` dışa açıldı, Go pini `TestHTTPLabelsMatchFrontend_v0101350`.
 **İzleme (şimdi değil):** `MetricPresentKeys` sertleştirmesi — servis kapsamı + kısmi cevap ⇒ bilinmiyor;
 kalan tüketici `service_metric_throughput` presentKeys teşhisi.
+
+## 2026-10-18 — v0.10.1352 — Endpoint metrik kipi = HTTP Metrics sekmesinin panelleri, route'a süzülü
+
+**Operatör (prod):** `/endpoint?service=bsa-loan-assessment-allocation-prod&path=/BSAWEB/decision/service/rest&range=3h`
+"Kaynak: metrik (vm)" → Calls/requests ve gecikme grafikleri (p95 seçiliyken de) Service → HTTP Metrics sekmesindeki
+aynı route ile tutmuyor; "VictoriaMetrics'ten gelmiyor gibi". Karar: "HTTP Metrics tabındaki aynı paneli/grafiği ilgili
+endpoint'e göre filtreleyerek koyabiliriz direkt." **Kök neden:** iki yüzey iki ayrı hesap yapıyordu. Detay sayfası
+`/api/endpoints/metric`'i okuyordu: throughput-metric seam'i (ayar + aday listesi; kurulum varsayılanına göre VM ya da CH),
+≤60 adım (3h → 180 s) adım başına yüzdelik, karolar adım değerlerinin çağrı-ağırlıklı ortalaması. Sekme ise
+`/api/metrics/promql?metricsrc=vm` ile `http_server_request_duration_seconds_*` PromQL'i (3h → 36 s adım, 144 s rate;
+tablo `increase[W]` anlık = gerçek pencere yüzdeliği). Aynı route için farklı sayılar kaçınılmazdı.
+**Karar:** (1) `lib/httpMetrics.ts` saf: `endpointScope`/`endpointFilter({service, route, method?, sig?})` — route HER
+ZAMAN süzer (`promStr` kaçışlı tam eşitlik; boş route `http_route=~""`, servis geneline genişlemez; şekil kipi
+`shapeRouteRegex`: metakarakter kaçışı + `:id` → `[^/]+`, `HttpScope.routeRe`). `windowQueries(scope, W, by, offset)` ve
+`quantileQuery(scope, W, p, by)` sekmenin tablo (`tTotal/tAvg/tP95/tP99/tErr5/tErr4`) ve yüzdelik/route-P95 sorgularının
+TEK üreticisi oldu — sekme çıktısı HEAD ile bayt bayt aynı (geçici eşitlik koşusuyla doğrulandı, pinler testte).
+`endpointHttpQueries` endpoint planı: grafikler sekmenin range sorguları (rateByRoute, err5/err4ByRoute, p50/p90/p95/p99,
+seçili yüzdelikte route paneli; `?lat` p95 varsayılanında = sekmenin p95ByRoute'u), karolar pencere sorguları (by yok →
+tek seri; çağrı, 5xx sayısı, avg, p50/p95/p99), status kodu donut'u, compare'de aynı pencere sorguları `offset W`.
+(2) Okuma `lib/queries/httpMetrics.ts useHttpPromql` — sekme de buna taşındı: aynı uç (`api.httpMetricsPromql`, metricsrc=vm),
+aynı anahtar (`['http-metrics', expr, from, to, instant]` → aynı ifade iki yüzeyde tek önbellek girdisi), staleTime 30 sn,
+retry yok, yoklama yok; `enabled` yalnız metrik kipinde. (3) Paneller `httpMetricsViz` `HttpChartPanel` /
+`HttpDonutPanel` (sekmenin `chart()`/`donut()` gövdeleri buraya çıkarıldı; regions + zoom endpoint sayfasında geçer).
+(4) EndpointDetail metrik kipi: `MetricREDStrip` (CALLS/ERRORS/ERR RATE/REQ-MIN/AVG/P50/P95/P99 — sekmenin birimleri:
+`fmtCount`, `fmtRatio`, `fmtSmart(s)`; ERR RATE = 5xx/çağrı, 4xx hata değil; REQ/MIN = çağrı / pencere dk) +
+`MetricCharts`; satır okuması (`/api/endpoints/metric`) bu kipte KAPALI (`useEndpoints(params, enabled)`), span kipi
+aynen. Bant: "Tüm RED karoları ve grafikler: VictoriaMetrics (HTTP Metrics sekmesiyle aynı sorgular …) · histogram, durum
+kırılımı, çağıranlar ve trace bölümleri span türevli"; "true window quantiles (tdigest)" dipnotu yalnız span kipinde.
+Gecikme varsayılanı metrikte p95, span'de p99 (varsayılan URL'e yazılmaz). (5) Sekme etiketleri: "P95 gecikme (route)";
+route etiketsiz seri lejantı `methodRouteLegend` → "GET (route yok)" (status'lu panellerde "500 GET (route yok)");
+`relabel` şablon yerine fonksiyon da alır. (6) Backend DEĞİŞMEDİ: `/api/endpoints/metric` liste sayfasında aynen, yeni
+Go rotası yok.
+**Bilinçli sınır:** sayfa kimliği (service, path) — method URL'de yok, metrik satırı da method taşımıyordu; karolar tüm
+methodların toplamı. Route tek methodluysa sekmenin "Endpoint Detayları" satırıyla birebir; çok methodluysa sekmede satır
+başına, burada toplam (grafikler method başına seri çizer). Cluster süzgeci VM PromQL'inde ifade edilmiyor (sekmeyle aynı);
+env de sekme gibi uygulanmaz — env/cluster seçiliyken bant bunu söyler (eski kip env'i withEnvFilter ile uyguluyordu; bilinçli takas).

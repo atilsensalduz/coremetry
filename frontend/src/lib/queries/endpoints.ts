@@ -12,9 +12,11 @@ import { api } from '@/lib/api';
 // document.hidden house rule.
 // v0.9.812 — zarf döner (rows + pool + poolCapped). Boş yanıt, satırsız
 // ama zarf şekilli bir sabite düşer; çağıran `data.rows` okur.
-export function useEndpoints(params: Parameters<typeof api.endpoints>[0]) {
+// v0.10.1352 — enabled: /endpoint metrik kipi satırı okumaz (PromQL'den).
+export function useEndpoints(params: Parameters<typeof api.endpoints>[0], enabled = true) {
   return useQuery({
     queryKey: ['endpoints', 'list', params],
+    enabled,
     queryFn: async ({ signal }) =>
       (await api.endpoints(params, signal)) ?? { rows: [] },
     refetchInterval: 30_000,

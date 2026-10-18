@@ -7,22 +7,20 @@
 // süzgeçleri URL'de (?hroute, ?hmethod), seçenekler süzgeçsiz route serisinden.
 // Yalnız sekme açıkken sorgu atılır (30 sn sunucu önbelleği).
 import { useMemo, type ReactNode } from 'react';
-import { useQueries } from '@tanstack/react-query';
 import { Card, PanelTitle, SectionHead, SelectField } from '@/components/ui';
-import { HttpStat, HttpGauge, HttpDonut } from './httpMetricsViz';
+import { HttpStat, HttpGauge, HttpChartPanel, HttpDonutPanel } from './httpMetricsViz';
 import { Spinner, Empty } from '@/components/Spinner';
-import { MultiLineChart } from '@/components/MultiLineChart';
 import {
   useDataTable, DataTableHead, DataTableColgroup, DataTableCell, DataTableState, type ColumnDef,
 } from '@/components/ui/DataTable';
-import { api } from '@/lib/api';
+import { useHttpPromql } from '@/lib/queries/httpMetrics';
 import { timeRangeToNs } from '@/lib/utils';
 import { fmtSmart } from '@/lib/chartFmt';
 import { useUrlParams, strParam } from '@/lib/urlParams';
 import {
   httpQueries, relabel, scalarOf, barsOf, mergeTable, filterOptions,
-  HTTP_METRICS_POINTS, HTTP_INSTANT_IDS, fmtCount, fmtRatio, fmtSeconds, type BarRow,
-  latencyTone, errorRatioTone, clientErrorTone, sliTone, httpSeriesColors, donutSlices, sparkValues, HTTP_SERIES_TOKENS,
+  HTTP_INSTANT_IDS, fmtCount, fmtRatio, fmtSeconds, fmtCompact, type BarRow, type LegendTpl,
+  latencyTone, errorRatioTone, clientErrorTone, sliTone, sparkValues, statusCodeColorVar, methodRouteLegend,
 } from '@/lib/httpMetrics';
 import type { TimeRange, SpanMetricSeries } from '@/lib/types';
 import { useThemeTick } from '@/lib/useThemeTick';
@@ -52,15 +50,13 @@ function GaugeCell({ value, max, text }: { value: unknown; max: number; text: st
 }
 const maxOf = (rows: Row[], k: string) => rows.reduce((m, r) => (typeof r[k] === 'number' && (r[k] as number) > m ? (r[k] as number) : m), 0);
 
-const cssToken = (t: string) => getComputedStyle(document.documentElement).getPropertyValue(t);
 // Grafana "short" birimi: 19 Mn, 2 B (sayı tam haliyle title'da).
-const compact = (v: number | null | undefined) => (typeof v === 'number' && Number.isFinite(v)
-  ? new Intl.NumberFormat('tr-TR', { notation: 'compact', maximumFractionDigits: 1 }).format(v) : '—');
+const compact = (v: number | null | undefined) => fmtCompact(v);
 // Panodaki status kodu renkleri: 2xx yeşil, 3xx mavi, 4xx turuncu, 5xx kırmızı.
-const statusCodeColor = (code: string) => {
-  const tok = HTTP_SERIES_TOKENS[`${code.charAt(0)}xx`];
-  return tok ? `var(${tok})` : undefined;
-};
+const statusCodeColor = statusCodeColorVar;
+// v0.10.1352 — route etiketsiz seri "GET (route yok)", çıplak "GET" değil.
+const MR: LegendTpl = l => methodRouteLegend(l);
+const SMR: LegendTpl = l => methodRouteLegend(l, true);
 
 const FILTER_SPEC = { hroute: strParam(), hmethod: strParam() };
 
@@ -100,18 +96,10 @@ export function ServiceHttpMetricsTab({ service, range }: { service: string; ran
   const queries = useMemo(() => httpQueries(scope, windowSec), [service, f.hroute, f.hmethod, windowSec]); // eslint-disable-line react-hooks/exhaustive-deps
   const optsExpr = useMemo(() => httpQueries({ app: service }, windowSec).rateByRoute, [service, windowSec]);
   const ids = Object.keys(queries);
-  const all = [...ids.map(id => ({ id, expr: queries[id] })), { id: 'opts', expr: optsExpr }];
-  const results = useQueries({
-    queries: all.map(q => ({
-      queryKey: ['http-metrics', q.expr, win.from, win.to, HTTP_INSTANT_IDS.has(q.id)],
-      queryFn: () => api.httpMetricsPromql({ query: q.expr, from: win.from, to: win.to, maxDataPoints: HTTP_METRICS_POINTS, ...(HTTP_INSTANT_IDS.has(q.id) ? { instant: '1' as const } : {}) }),
-      staleTime: 30_000,
-      retry: false,
-    })),
-  });
-  const data: Record<string, SpanMetricSeries[] | null | undefined> = {};
-  all.forEach((q, i) => { data[q.id] = results[i].data; });
-  const optsQ = results[results.length - 1];
+  const all = [...ids.map(id => ({ id, expr: queries[id], instant: HTTP_INSTANT_IDS.has(id) })), { id: 'opts', expr: optsExpr, instant: false }];
+  const res = useHttpPromql(all, win);
+  const data: Record<string, SpanMetricSeries[] | null | undefined> = res.data;
+  const optsErr = res.error('opts');
   const opts = filterOptions(data.opts);
 
   const inRows = useMemo(() => mergeTable({
@@ -123,11 +111,11 @@ export function ServiceHttpMetricsTab({ service, range }: { service: string; ran
   const inDt = useDataTable<Row>({ storageKey: 'svc-http-endpoints', columns: IN_COLS, rows: inRows, initialSort: { id: 'tTotal', dir: 'desc' } });
   const outDt = useDataTable<Row>({ storageKey: 'svc-http-downstream', columns: OUT_COLS, rows: outRows, initialSort: { id: 'dtTotal', dir: 'desc' } });
 
-  if (optsQ.isPending) return <Spinner />;
-  if (optsQ.isError) {
+  if (res.pending('opts')) return <Spinner />;
+  if (optsErr) {
     return (
       <Empty icon="!" title="HTTP metrikleri okunamadı">
-        {(optsQ.error as Error).message} — bu sekme VictoriaMetrics'ten okur
+        {optsErr.message} — bu sekme VictoriaMetrics'ten okur
         (http_server_request_duration_seconds_* / http_client_request_duration_seconds_*).
       </Empty>
     );
@@ -140,21 +128,13 @@ export function ServiceHttpMetricsTab({ service, range }: { service: string; ran
     );
   }
 
-  const pending = (id: string) => results[ids.indexOf(id)]?.isPending;
-  const chart = (title: string, id: string, tpl: string, unit: string, scale = 1, extra?: { id: string; tpl: string }[]) => {
+  const pending = res.pending;
+  const chart = (title: string, id: string, tpl: LegendTpl, unit: string, scale = 1, extra?: { id: string; tpl: LegendTpl }[]) => {
     const series = [
       ...relabel(data[id], tpl, scale),
       ...(extra ?? []).flatMap(e => relabel(data[e.id], e.tpl, scale)),
     ];
-    return (
-      <Card header={<PanelTitle>{title}</PanelTitle>}>
-        {pending(id) ? <Spinner /> : series.length === 0
-          ? <div className="field-hint">Bu pencerede veri yok.</div>
-          : <MultiLineChart series={series} unit={unit} height={220} syncKey="svc-http" legendStorageKey={`svc-http:${id}`}
-              maxSeries={60} legendDefaultOpen
-              seriesColors={httpSeriesColors(series.map(x => x.groupKey[0] ?? ''), cssToken)} />}
-      </Card>
-    );
+    return <HttpChartPanel title={title} series={series} unit={unit} loading={pending(id)} syncKey="svc-http" legendKey={`svc-http:${id}`} />;
   };
   // v0.10.1248 — gradient=true: Grafana bargauge (gradient mod, değer renkli).
   const bars = (title: string, rows: BarRow[], fmt: (v: number) => string, loading?: boolean, gradient = false) => {
@@ -208,10 +188,7 @@ export function ServiceHttpMetricsTab({ service, range }: { service: string; ran
   );
   // v0.10.1258 — onSelect: dilim/lejant tıkı (route pastası route süzgecini uygular).
   const donut = (title: string, rows: BarRow[], id: string, colorOf?: (l: string) => string | undefined, onSelect?: (label: string) => void) => (
-    <Card header={<PanelTitle>{title}</PanelTitle>}>
-      {pending(id) ? <Spinner /> : rows.length === 0 ? <div className="field-hint">Bu pencerede veri yok.</div>
-        : <HttpDonut slices={donutSlices(rows)} fmt={v => compact(v)} colorOf={colorOf} onSelect={onSelect} />}
-    </Card>
+    <HttpDonutPanel title={title} rows={rows} loading={pending(id)} fmt={v => compact(v)} colorOf={colorOf} onSelect={onSelect} />
   );
   const grid = (min: number) => ({ display: 'grid', gap: 12, gridTemplateColumns: `repeat(auto-fit, minmax(${min}px, 1fr))`, marginBottom: 14 });
 
@@ -241,7 +218,7 @@ export function ServiceHttpMetricsTab({ service, range }: { service: string; ran
 
       <SectionHead title="Trafik" />
       <div style={grid(420)}>
-        {chart('Request Rate (Route bazında)', 'rateByRoute', '{{http_request_method}} {{http_route}}', 'req/s')}
+        {chart('Request Rate (Route bazında)', 'rateByRoute', MR, 'req/s')}
         {donut('İstek Dağılımı (Route, Top 10)', barsOf(data.topRoutes, 'http_route'), 'topRoutes', undefined,
           r => setF({ hroute: f.hroute === r ? '' : r }))}
         {chart('HTTP Status Sınıfları', 'statusClass', '{{cls}}', 'req/s')}
@@ -252,13 +229,13 @@ export function ServiceHttpMetricsTab({ service, range }: { service: string; ran
       <div style={grid(420)}>
         {chart('Latency Yüzdelikleri (p50 / p90 / p95 / p99)', 'p50', 'p50', 's', 1,
           [{ id: 'p90', tpl: 'p90' }, { id: 'p95', tpl: 'p95' }, { id: 'p99', tpl: 'p99' }])}
-        {chart('P95 Latency (Route bazında)', 'p95ByRoute', '{{http_request_method}} {{http_route}}', 's')}
+        {chart('P95 gecikme (route)', 'p95ByRoute', MR, 's')}
       </div>
 
       <SectionHead title="Hatalar" />
       <div style={grid(420)}>
-        {chart('5xx Hataları (Route bazında)', 'err5ByRoute', '{{http_response_status_code}} {{http_request_method}} {{http_route}}', 'req/s')}
-        {chart('4xx Hataları (Route bazında)', 'err4ByRoute', '{{http_response_status_code}} {{http_request_method}} {{http_route}}', 'req/s')}
+        {chart('5xx Hataları (Route bazında)', 'err5ByRoute', SMR, 'req/s')}
+        {chart('4xx Hataları (Route bazında)', 'err4ByRoute', SMR, 'req/s')}
       </div>
 
       <SectionHead title="Endpoint Detayları" meta="seçili zaman aralığı" />

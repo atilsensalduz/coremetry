@@ -16,12 +16,19 @@ describe('endpoints source defaults (v0.10.454 + v0.10.788)', () => {
   });
   it('detail page defaults to metric, ?src=span forces span, rpc entries stay span', () => {
     expect(detail).toContain("params.get('src') === 'span' || entry ? 'span' : 'metric'");
-    expect(detail).toContain("...(detailSrc === 'metric' ? { src: 'metric' as const } : {})");
+    // v0.10.1352 — metrik kipinde satır (/api/endpoints/metric) okunmaz;
+    // şerit + grafikler sekmenin PromQL'i (useHttpPromql, yalnız metrikte).
+    expect(detail).toContain("useEndpoints(refObj && detailSrc === 'span' ? {");
+    expect(detail).toContain("}, detailSrc === 'span');");
+    expect(detail).toContain("useHttpPromql(httpItems, { from, to }, detailSrc === 'metric' && !!refObj)");
     expect(detail).toContain('<option value="metric">Kaynak: metrik</option>');
-    // v0.10.1350 (operatör bildirimi) — grafikler metrik kipinde metrikten
-    // (satırın kovaları); yalnız alt bölümler span türevli.
-    expect(detail).toContain('RED şeridi ve Calls/Errors/latency grafikleri: metrik');
+    // v0.10.1350 → v0.10.1352 (operatör bildirimi) — metrik kipinde TÜM RED
+    // karoları ve grafikler VM'den (sekmenin sorguları); alt bölümler span.
+    expect(detail).toContain('Tüm RED karoları ve grafikler: VictoriaMetrics (HTTP Metrics sekmesiyle aynı sorgular');
     expect(detail).toContain('histogram, durum kırılımı, çağıranlar ve trace bölümleri span türevli');
+    expect(detail).not.toContain('RED şeridi ve Calls/Errors/latency grafikleri: metrik');
+    // tdigest iddiası yalnız span kipinde.
+    expect(detail).toContain("' P50/P95/P99 are true window quantiles (tdigest).'}");
     expect(detail).not.toContain('grafikler ve alt bölümler span türevli');
     expect(detail).toContain("next.set('src', 'span'); else next.delete('src');");
   });

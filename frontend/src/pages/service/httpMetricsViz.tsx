@@ -5,11 +5,17 @@
 //   gauge (SLI)                                    → HttpGauge
 //   piechart (donut + tablo lejant: değer, %)      → HttpDonut
 // Renkler tema token'larından (globals.css); sabit hex yok.
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Sparkline } from '@/components/Sparkline';
-import { Button } from '@/components/ui';
+import { Button, Card, PanelTitle } from '@/components/ui';
+import { Spinner } from '@/components/Spinner';
+import { MultiLineChart } from '@/components/MultiLineChart';
 import { seriesPalette, inkOn } from '@/lib/chartFmt';
-import { fmtShare, type DonutSlice, type HttpTone } from '@/lib/httpMetrics';
+import {
+  fmtShare, donutSlices, httpSeriesColors, type BarRow, type DonutSlice, type HttpTone,
+} from '@/lib/httpMetrics';
+import type { ChartTimeRegion } from '@/lib/chart/overlays';
+import type { SpanMetricSeries } from '@/lib/types';
 
 const TONE_VAR: Record<'ok' | 'warn' | 'err', string> = { ok: 'var(--ok)', warn: 'var(--warn)', err: 'var(--err)' };
 const TONE_TOKEN: Record<'ok' | 'warn' | 'err', string> = { ok: '--ok', warn: '--warn', err: '--err' };
@@ -162,5 +168,46 @@ export function HttpDonut({ slices, fmt, colorOf, onSelect }: {
         })}
       </div>
     </div>
+  );
+}
+
+const cssToken = (t: string) => getComputedStyle(document.documentElement).getPropertyValue(t);
+
+/**
+ * v0.10.1352 — HTTP Metrics zaman serisi paneli (sekmenin `chart()` gövdesi,
+ * endpoint sayfasının metrik kipiyle PAYLAŞILIR): Card + PanelTitle +
+ * MultiLineChart, tüm seriler (≤60), açık lejant, sabit status/yüzdelik
+ * renkleri. Seriler çağıranda relabel'lı gelir.
+ */
+export function HttpChartPanel({
+  title, series, unit, loading, syncKey, legendKey, right, regions, onZoom, onZoomReset,
+}: {
+  title: string; series: SpanMetricSeries[]; unit: string; loading?: boolean;
+  syncKey: string; legendKey: string; right?: ReactNode;
+  regions?: ChartTimeRegion[];
+  onZoom?: (fromUnixSec: number, toUnixSec: number) => void;
+  onZoomReset?: () => void;
+}) {
+  return (
+    <Card header={<PanelTitle right={right}>{title}</PanelTitle>}>
+      {loading ? <Spinner /> : series.length === 0
+        ? <div className="field-hint">Bu pencerede veri yok.</div>
+        : <MultiLineChart series={series} unit={unit} height={220} syncKey={syncKey} legendStorageKey={legendKey}
+            maxSeries={60} legendDefaultOpen regions={regions} onZoom={onZoom} onZoomReset={onZoomReset}
+            seriesColors={httpSeriesColors(series.map(x => x.groupKey[0] ?? ''), cssToken)} />}
+    </Card>
+  );
+}
+
+/** v0.10.1352 — donut paneli (sekmenin `donut()` gövdesi, paylaşılan). */
+export function HttpDonutPanel({ title, rows, loading, fmt, colorOf, onSelect }: {
+  title: string; rows: BarRow[]; loading?: boolean; fmt: (v: number) => string;
+  colorOf?: (label: string) => string | undefined; onSelect?: (label: string) => void;
+}) {
+  return (
+    <Card header={<PanelTitle>{title}</PanelTitle>}>
+      {loading ? <Spinner /> : rows.length === 0 ? <div className="field-hint">Bu pencerede veri yok.</div>
+        : <HttpDonut slices={donutSlices(rows)} fmt={fmt} colorOf={colorOf} onSelect={onSelect} />}
+    </Card>
   );
 }

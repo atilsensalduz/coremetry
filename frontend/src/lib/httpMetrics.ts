@@ -11,7 +11,11 @@
 //   $__range        → pencere saniyesi (range sorgusunun SON noktası okunur)
 import type { SpanMetricSeries } from './types';
 
-export interface HttpScope { app: string; route?: string; method?: string }
+export interface HttpScope {
+  app: string; route?: string; method?: string;
+  /** v0.10.1352 — route REGEX (`=~`, VM tam-çapalı); şekil kipi (`/users/:id`). route'u ezer. */
+  routeRe?: string;
+}
 
 // v0.10.1350 — VM etiket adları TEK yerde. Backend aynı OTel anahtarlarını
 // promLabel ile buraya sanitize eder (internal/api/http_labels.go
@@ -36,7 +40,8 @@ export function promStr(v: string): string {
 /** Inbound seçici: service_name + isteğe bağlı route/method. */
 export function serverSel(s: HttpScope, extra = ''): string {
   const parts = [`${L.service}=${promStr(s.app)}`];
-  if (s.route) parts.push(`${L.route}=${promStr(s.route)}`);
+  if (s.routeRe !== undefined) parts.push(`${L.route}=~${promStr(s.routeRe)}`);
+  else if (s.route) parts.push(`${L.route}=${promStr(s.route)}`);
   if (s.method) parts.push(`${L.method}=${promStr(s.method)}`);
   if (extra) parts.push(extra);
   return `{${parts.join(', ')}}`;
@@ -68,23 +73,71 @@ const CS = 'http_client_request_duration_seconds_sum';
 
 export interface HttpQuery { id: string; expr: string }
 
+/** Pencere uzunluğu (`$__range`): en az 60 s. */
+export function windowRange(windowSec: number): string {
+  return `${Math.max(60, Math.round(windowSec))}s`;
+}
+
+/** `increase(m{sel}[W])`; offsetSec > 0 → bir önceki pencere (`offset Ns`). */
+function winInc(s: HttpScope, windowSec: number, m: string, extra = '', offsetSec = 0): string {
+  const off = offsetSec > 0 ? ` offset ${Math.round(offsetSec)}s` : '';
+  return `increase(${m}${serverSel(s, extra)}[${windowRange(windowSec)}]${off})`;
+}
+
+/**
+ * v0.10.1352 — route bazında (ya da bütün) yüzdelik zaman serisi:
+ * `histogram_quantile(p, sum by (le[, by]) (rate(bucket[R])))`. Sekmenin
+ * "Latency Yüzdelikleri" (by yok) ve "P95 gecikme (route)" (by = method,
+ * route) panelleri ile endpoint sayfasının gecikme panelleri AYNI üretici.
+ */
+export function quantileQuery(s: HttpScope, windowSec: number, p: number, by = ''): string {
+  const R = rateWindow(windowSec);
+  return `histogram_quantile(${p}, sum by (le${by ? ', ' + by : ''}) (rate(${SB}${serverSel(s)}[${R}])))`;
+}
+
+export interface HttpWindowQueries {
+  total: string; err5Count: string; avg: string;
+  p50: string; p95: string; p99: string; err5: string; err4: string;
+}
+
+/**
+ * v0.10.1352 — GERÇEK PENCERE değerleri (anlık sorgu, `increase[W]`):
+ * sekmenin "Endpoint Detayları" tablosu (by = method, route) ve endpoint
+ * sayfasının RED karoları (by yok → tek seri) aynı üreticiden. Pencere
+ * yüzdeliği = penceredeki kova artışlarının yüzdeliği (adım ortalaması
+ * DEĞİL). offsetSec > 0 → aynı sorgular bir önceki pencere için (compare).
+ */
+export function windowQueries(s: HttpScope, windowSec: number, by = '', offsetSec = 0): HttpWindowQueries {
+  const inc = (m: string, x = '') => winInc(s, windowSec, m, x, offsetSec);
+  const agg = (x: string) => (by ? `sum by (${by}) (${x})` : `sum(${x})`);
+  const qt = (p: number) => `histogram_quantile(${p}, sum by (le${by ? ', ' + by : ''}) (${inc(SB)}))`;
+  const ratio = (st: string) => `(${agg(inc(SC, st))} or (0 * ${agg(inc(SC))})) / ${agg(inc(SC))}`;
+  return {
+    total: agg(inc(SC)),
+    err5Count: `${agg(inc(SC, ST5))} or (0 * ${agg(inc(SC))})`,
+    avg: `${agg(inc(SS))} / ${agg(inc(SC))}`,
+    p50: qt(0.5), p95: qt(0.95), p99: qt(0.99),
+    err5: ratio(ST5), err4: ratio(ST4),
+  };
+}
+
 /** Panodaki sorguların tamamı (id → PromQL). W = pencere, R = rate penceresi. */
 export function httpQueries(s: HttpScope, windowSec: number): Record<string, string> {
   const R = rateWindow(windowSec);
-  const W = `${Math.max(60, Math.round(windowSec))}s`;
+  const W = windowRange(windowSec);
   const sel = (x = '') => serverSel(s, x);
   const csel = (x = '') => clientSel(s, x);
   const rate = (m: string, x = '') => `rate(${m}${sel(x)}[${R}])`;
   const crate = (m: string, x = '') => `rate(${m}${csel(x)}[${R}])`;
-  const inc = (m: string, x = '') => `increase(${m}${sel(x)}[${W}])`;
   const cinc = (m: string, x = '') => `increase(${m}${csel(x)}[${W}])`;
-  const q = (p: number, by = 'le') => `histogram_quantile(${p}, sum by (${by}) (${rate(SB)}))`;
+  const q = (p: number) => quantileQuery(s, windowSec, p);
   const cq = (p: number, by = 'le') => `histogram_quantile(${p}, sum by (${by}) (${crate(CB)}))`;
   const byMR = `${L.method}, ${L.route}`;
   const byDM = `server_address, ${L.method}`;
+  const tw = windowQueries(s, windowSec, byMR);
   return {
     // Genel bakış
-    total: `sum(${inc(SC)})`,
+    total: `sum(${winInc(s, windowSec, SC)})`,
     rps: `sum(${rate(SC)})`,
     err5: `(sum(${rate(SC, ST5)}) or vector(0)) / sum(${rate(SC)})`,
     err4: `(sum(${rate(SC, ST4)}) or vector(0)) / sum(${rate(SC)})`,
@@ -92,23 +145,18 @@ export function httpQueries(s: HttpScope, windowSec: number): Record<string, str
     sli: `sum(${rate(SB, 'le="0.5"')}) / sum(${rate(SC)})`,
     // Trafik
     rateByRoute: `sum by (${byMR}) (${rate(SC)})`,
-    topRoutes: `topk(10, sum by (${L.route}) (${inc(SC)}))`,
+    topRoutes: `topk(10, sum by (${L.route}) (${winInc(s, windowSec, SC)}))`,
     statusClass: `sum by (cls) (label_replace(${rate(SC)}, "cls", "\${1}xx", "${L.status}", "([0-9]).*"))`,
-    statusCodes: `sum by (${L.status}) (${inc(SC)})`,
+    statusCodes: `sum by (${L.status}) (${winInc(s, windowSec, SC)})`,
     // Gecikme
     p50: q(0.5), p90: q(0.9), p99: q(0.99),
-    p95ByRoute: q(0.95, `le, ${byMR}`),
+    p95ByRoute: quantileQuery(s, windowSec, 0.95, byMR),
     // Hatalar
     err5ByRoute: `sum by (${L.route}, ${L.method}, ${L.status}) (${rate(SC, ST5)}) > 0`,
     err4ByRoute: `sum by (${L.route}, ${L.method}, ${L.status}) (${rate(SC, ST4)}) > 0`,
     // Endpoint özeti
     tRps: `sum by (${byMR}) (rate(${SC}${sel()}[5m]))`, // panodaki gibi [5m]
-    tTotal: `sum by (${byMR}) (${inc(SC)})`,
-    tAvg: `sum by (${byMR}) (${inc(SS)}) / sum by (${byMR}) (${inc(SC)})`,
-    tP95: `histogram_quantile(0.95, sum by (le, ${byMR}) (${inc(SB)}))`,
-    tP99: `histogram_quantile(0.99, sum by (le, ${byMR}) (${inc(SB)}))`,
-    tErr5: `(sum by (${byMR}) (${inc(SC, ST5)}) or (0 * sum by (${byMR}) (${inc(SC)}))) / sum by (${byMR}) (${inc(SC)})`,
-    tErr4: `(sum by (${byMR}) (${inc(SC, ST4)}) or (0 * sum by (${byMR}) (${inc(SC)}))) / sum by (${byMR}) (${inc(SC)})`,
+    tTotal: tw.total, tAvg: tw.avg, tP95: tw.p95, tP99: tw.p99, tErr5: tw.err5, tErr4: tw.err4,
     // Downstream
     dRps: `sum(${crate(CC)})`,
     dErr: `(sum(${crate(CC, ST5C)}) or vector(0)) / sum(${crate(CC)})`,
@@ -149,13 +197,17 @@ export function legendOf(tpl: string, labels: Record<string, string>): string {
   return tpl.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, k: string) => labels[k] ?? '').trim();
 }
 
+/** Lejant: şablon dizesi ya da etiket → ad fonksiyonu (methodRouteLegend). */
+export type LegendTpl = string | ((labels: Record<string, string>) => string);
+
 /** Serileri lejant şablonuyla yeniden adlandırır (grafik bileşeni groupKey'i basar). */
-export function relabel(series: SpanMetricSeries[] | null | undefined, tpl: string, scale = 1): SpanMetricSeries[] {
+export function relabel(series: SpanMetricSeries[] | null | undefined, tpl: LegendTpl, scale = 1): SpanMetricSeries[] {
   // v0.10.1245 — Go nil dilimi `points: null` gelebilir; boş say.
   return (series ?? []).map(s => {
     const pts = s.points ?? [];
+    const labels = seriesLabels(s);
     return {
-      groupKey: [legendOf(tpl, seriesLabels(s)) || '—'],
+      groupKey: [(typeof tpl === 'function' ? tpl(labels) : legendOf(tpl, labels)) || '—'],
       points: scale === 1 ? pts : pts.map(p => ({ time: p.time, value: p.value * scale })),
     };
   });
@@ -351,4 +403,127 @@ export function statusCodeSeries(series: SpanMetricSeries[] | null | undefined):
 // v0.10.1259 — Overview "Toplam istek" karosu: penceredeki toplam (anlık sorgu).
 export function totalRequestsQuery(app: string, windowSec: number): string {
   return `sum(increase(${SC}${serverSel({ app })}[${Math.max(60, Math.round(windowSec))}s]))`;
+}
+
+// ── v0.10.1352 — endpoint sayfası metrik kipi = HTTP Metrics sekmesinin
+// AYNI panelleri, route'a süzülü (operatör: "HTTP Metrics tabındaki aynı
+// paneli/grafiği ilgili endpoint'e göre filtreleyerek koyabiliriz direkt").
+// Eski kip /api/endpoints/metric'ten (throughput-metric seam'i, 180 s adım
+// başına yüzdelik + çağrı-ağırlıklı karo ortalaması) okuyordu; sekmeyle
+// tutmuyordu.
+
+/** Lejant: "GET /a"; route etiketi yoksa "GET (route yok)" (çıplak "GET" değil). */
+export function methodRouteLegend(labels: Record<string, string>, withStatus = false): string {
+  const route = labels[L.route] ? labels[L.route] : '(route yok)';
+  return [withStatus ? labels[L.status] : '', labels[L.method] ?? '', route]
+    .filter(Boolean).join(' ');
+}
+
+/** Kod → sınıf rengi (`var(--ok)` …); bilinmeyen sınıf → undefined. */
+export function statusCodeColorVar(code: string): string | undefined {
+  const tok = HTTP_SERIES_TOKENS[`${code.charAt(0)}xx`];
+  return tok ? `var(${tok})` : undefined;
+}
+
+/** Grafana "short": 19 Mn, 2 B (tam sayı title'da). */
+const COMPACT = new Intl.NumberFormat('tr-TR', { notation: 'compact', maximumFractionDigits: 1 });
+export function fmtCompact(v: MaybeNum): string {
+  return finite(v) ? COMPACT.format(v) : '—';
+}
+
+/**
+ * Şekil (`/users/:id`, endpointPathSignature çıktısı) → route regex'i: regex
+ * metakarakterleri kaçışlı, her `:id` = bir ya da daha çok segment-içi
+ * karakter (`[^/]+`). VM `=~` tam çapalar; ham şablon `/users/:id` da eşleşir.
+ */
+export function shapeRouteRegex(shape: string): string {
+  return shape.split(':id').map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[^/]+');
+}
+
+export interface EndpointIdentity {
+  service: string;
+  /** http_route değeri (ya da sig=true'da şekil). */
+  route: string;
+  method?: string;
+  /** Şekil kipi (Endpoints "group by shape"): route regex ile eşlenir. */
+  sig?: boolean;
+}
+
+/** Endpoint kimliği → sekme üreticilerinin kapsamı. Route HER ZAMAN süzer (boşsa `http_route=~""` = route'suz seriler; servis geneline genişlemez). */
+export function endpointScope(ep: EndpointIdentity): HttpScope {
+  const method = ep.method?.trim() || undefined;
+  if (ep.sig) return { app: ep.service, routeRe: shapeRouteRegex(ep.route), method };
+  if (!ep.route) return { app: ep.service, routeRe: '', method };
+  return { app: ep.service, route: ep.route, method };
+}
+
+/** Endpoint'in inbound etiket seçicisi (`{service_name="…", http_route="…"[, http_request_method="…"]}`). */
+export function endpointFilter(ep: EndpointIdentity): string {
+  return serverSel(endpointScope(ep));
+}
+
+export type LatQ = 'p50' | 'p95' | 'p99';
+const LAT_P: Record<LatQ, number> = { p50: 0.5, p95: 0.95, p99: 0.99 };
+
+export interface EndpointHttpQuery { id: string; expr: string; instant: boolean }
+
+/**
+ * Endpoint metrik kipinin TÜM sorguları. Grafikler sekmenin range
+ * sorguları (aynı adım: ceil(W/300), aynı rate penceresi); karolar sekmenin
+ * "Endpoint Detayları" tablosunun pencere sorguları (by yok → tek seri,
+ * anlık); compare → aynı pencere sorguları `offset W` ile.
+ */
+export function endpointHttpQueries(ep: EndpointIdentity, windowSec: number, opts: { latQ: LatQ; compare: boolean }): EndpointHttpQuery[] {
+  const sc = endpointScope(ep);
+  const tab = httpQueries(sc, windowSec);
+  const w = windowQueries(sc, windowSec);
+  const byMR = `${L.method}, ${L.route}`;
+  const out: EndpointHttpQuery[] = [
+    { id: 'rateByRoute', expr: tab.rateByRoute, instant: false },
+    { id: 'err5ByRoute', expr: tab.err5ByRoute, instant: false },
+    { id: 'err4ByRoute', expr: tab.err4ByRoute, instant: false },
+    { id: 'p50', expr: tab.p50, instant: false },
+    { id: 'p90', expr: tab.p90, instant: false },
+    { id: 'p95', expr: tab.p95, instant: false },
+    { id: 'p99', expr: tab.p99, instant: false },
+    { id: 'latByRoute', expr: quantileQuery(sc, windowSec, LAT_P[opts.latQ], byMR), instant: false },
+    { id: 'statusCodes', expr: tab.statusCodes, instant: true },
+    { id: 'wTotal', expr: w.total, instant: true },
+    { id: 'wErr5', expr: w.err5Count, instant: true },
+    { id: 'wAvg', expr: w.avg, instant: true },
+    { id: 'wP50', expr: w.p50, instant: true },
+    { id: 'wP95', expr: w.p95, instant: true },
+    { id: 'wP99', expr: w.p99, instant: true },
+  ];
+  if (opts.compare) {
+    const pw = windowQueries(sc, windowSec, '', Math.max(60, Math.round(windowSec)));
+    out.push(
+      { id: 'pTotal', expr: pw.total, instant: true },
+      { id: 'pErr5', expr: pw.err5Count, instant: true },
+      { id: 'pAvg', expr: pw.avg, instant: true },
+      { id: 'pP99', expr: pw.p99, instant: true },
+    );
+  }
+  return out;
+}
+
+export interface EndpointRed {
+  calls: number | null; errors: number | null; errRate: number | null; reqPerMin: number | null;
+  avgS: number | null; p50S: number | null; p95S: number | null; p99S: number | null;
+}
+
+/** Pencere sorgularının anlık değerleri → karolar (errRate 0–1, reqPerMin = çağrı / pencere dk). */
+export function endpointRed(
+  d: Partial<Record<'total' | 'err5' | 'avg' | 'p50' | 'p95' | 'p99', SpanMetricSeries[] | null | undefined>>, windowSec: number,
+): EndpointRed {
+  const calls = scalarOf(d.total);
+  const errors = scalarOf(d.err5);
+  const nn = (v: number | null) => (v === null || !Number.isFinite(v) ? null : v);
+  const W = Math.max(60, Math.round(windowSec));
+  return {
+    calls, errors,
+    errRate: calls !== null && calls > 0 && errors !== null ? errors / calls : null,
+    reqPerMin: calls !== null ? calls / (W / 60) : null,
+    avgS: nn(scalarOf(d.avg)), p50S: nn(scalarOf(d.p50)), p95S: nn(scalarOf(d.p95)), p99S: nn(scalarOf(d.p99)),
+  };
 }

@@ -29,6 +29,9 @@ import { PageShell } from '@/components/ui/PageShell';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/components/AuthProvider';
 import { RouteAlertModal } from '@/pages/alerts/RouteAlertModal'; // v0.10.705
+import { useHttpPromql } from '@/lib/queries/httpMetrics';
+import { endpointHttpQueries, type LatQ } from '@/lib/httpMetrics';
+import { MetricREDStrip, MetricCharts } from '@/pages/endpoints/MetricModeSections'; // v0.10.1352
 
 // /endpoint — the full-page endpoint detail (v0.9.839).
 //
@@ -48,9 +51,15 @@ import { RouteAlertModal } from '@/pages/alerts/RouteAlertModal'; // v0.10.705
 // page — it keys on span NAME, and an SDK that names its server span
 // "HTTP POST" would return a different population that looks correct.
 //
-// NO EXTRA SERIES FETCH. The three RED charts are drawn from the table
-// row's own sparkline arrays (the MV produced them beside the numbers),
-// exactly as the retired modal did.
+// NO EXTRA SERIES FETCH (span mode). The three RED charts are drawn from
+// the table row's own sparkline arrays (the MV produced them beside the
+// numbers), exactly as the retired modal did.
+//
+// METRIC MODE (v0.10.1352, operatör bildirimi): RED şeridi ve grafikler
+// Service → HTTP Metrics sekmesinin AYNI PromQL'i ve AYNI panelleri,
+// route'a süzülü (endpointHttpQueries + useHttpPromql + HttpChartPanel,
+// /api/metrics/promql?metricsrc=vm). /api/endpoints/metric bu sayfada
+// artık okunmaz (liste sayfası okumaya devam eder).
 //
 // URL = source of truth: ?service=&path=&sig=&range=&env=&cluster=
 // &compare=&entry=. Human-readable on purpose — a link pasted into an
@@ -125,7 +134,7 @@ export default function EndpointDetailPage() {
   // which in signature mode has to be the literal prefix before the
   // first ':' segment, since a collapsed path (/orders/:id) is not a
   // substring of any raw one. endpointSearchHint owns that reasoning.
-  const rowsQ = useEndpoints(refObj ? {
+  const rowsQ = useEndpoints(refObj && detailSrc === 'span' ? {
     from, to,
     service: refObj.service,
     search: endpointSearchHint(refObj.path, refObj.sig) || undefined,
@@ -137,8 +146,9 @@ export default function EndpointDetailPage() {
     sort: 'calls',
     dir: 'desc' as const,
     entry,
-    ...(detailSrc === 'metric' ? { src: 'metric' as const } : {}),
-  } : { from, to, limit: 1 });
+    // v0.10.1352 — metrik kipinde satır okunmaz (şerit + grafikler PromQL'den);
+    // span'e geçince kip yeniden bu okumayı açar.
+  } : { from, to, limit: 1 }, detailSrc === 'span');
   const row: EndpointRow | undefined = useMemo(() => {
     if (!refObj) return undefined;
     return (rowsQ.data?.rows ?? []).find(r =>
@@ -158,13 +168,24 @@ export default function EndpointDetailPage() {
     () => (row ? bucketsToSeries(row, range) : { calls: [], errors: [], p99: [], p50: [], p95: [] }),
     [row, range]);
   // v0.10.1199 (operatör: "avg latency kısmında p50 p95 de seçilebilsin") —
-  // grafik yüzdeliği URL'de (?lat=p50|p95; varsayılan p99, URL'e yazılmaz).
-  const latQ = params.get('lat') === 'p50' ? 'p50' : params.get('lat') === 'p95' ? 'p95' : 'p99';
+  // grafik yüzdeliği URL'de (?lat=p50|p95|p99; varsayılan URL'e yazılmaz).
+  // v0.10.1352 — varsayılan kipe göre: metrik p95 (sekmenin route paneli),
+  // span p99 (eskisi gibi).
+  const latDefault: LatQ = detailSrc === 'metric' ? 'p95' : 'p99';
+  const latRaw = params.get('lat');
+  const latQ: LatQ = latRaw === 'p50' || latRaw === 'p95' || latRaw === 'p99' ? latRaw : latDefault;
   const setLatQ = (v: string) => setParams(prev => {
     const n = new URLSearchParams(prev);
-    if (v === 'p99') n.delete('lat'); else n.set('lat', v);
+    if (v === latDefault) n.delete('lat'); else n.set('lat', v);
     return n;
   }, { replace: true });
+  // v0.10.1352 — metrik kipi: sekmenin sorguları, route'a süzülü. Yalnız
+  // metrik kipinde atılır (enabled), yoklama yok, staleTime 30 sn.
+  const windowSec = Math.max(60, (to - from) / 1e9);
+  const httpItems = useMemo(() => (refObj
+    ? endpointHttpQueries({ service: refObj.service, route: refObj.path, sig: refObj.sig }, windowSec, { latQ, compare })
+    : []), [refObj, windowSec, latQ, compare]);
+  const httpRes = useHttpPromql(httpItems, { from, to }, detailSrc === 'metric' && !!refObj);
 
   if (!refObj) {
     return (
@@ -246,7 +267,7 @@ export default function EndpointDetailPage() {
               <select value={detailSrc} onChange={e => setDetailSrc(e.target.value as 'span' | 'metric')}
                 aria-label="RED şeridinin kaynağı"
                 title={detailSrc === 'metric'
-                  ? 'Kaynak: metrik — RED şeridi ve Calls/Errors/latency grafikleri OTel HTTP server histogramından (VM ya da ClickHouse), örneklemeden bağımsız; histogram, durum kırılımı, çağıranlar ve trace bölümleri span türevli'
+                  ? 'Kaynak: metrik — RED karoları ve grafikler VictoriaMetrics\'ten (HTTP Metrics sekmesiyle aynı sorgular, bu route\'a süzülü), örneklemeden bağımsız; histogram, durum kırılımı, çağıranlar ve trace bölümleri span türevli'
                   : 'Kaynak: span — spanmetrics (izlerden türetilmiş); collector örnekliyorsa eksik sayar'}>
                 <option value="span">Kaynak: span</option>
                 <option value="metric">Kaynak: metrik</option>
@@ -266,16 +287,21 @@ export default function EndpointDetailPage() {
           </span>
         </div>
 
-        <REDStrip row={row} pending={rowsQ.isPending} compare={compare}
-          onToggleCompare={() => setCompare(!compare)} />
-        {/* v0.10.1350 (operatör bildirimi) — Calls/Errors/latency grafikleri
-            satırın kendi kovalarından çizilir; metrik kipinde o satır
-            metrikten gelir. Eski metin "grafikler span türevli" diyordu. */}
-        {detailSrc === 'metric' && (
-          <div className="badge b-info" style={{ marginTop: -6, marginBottom: 12 }}
-            title="Metrik kipi üst RED şeridini ve Calls/Errors/latency grafiklerini değiştirir; histogram, durum kırılımı, çağıranlar ve trace bölümleri span türevlidir">
-            RED şeridi ve Calls/Errors/latency grafikleri: metrik{rowsQ.data?.note ? ` — ${rowsQ.data.note}` : ''} · histogram, durum kırılımı, çağıranlar ve trace bölümleri span türevli
-          </div>
+        {detailSrc === 'metric' ? (
+          <>
+            <MetricREDStrip res={httpRes} windowSec={windowSec} compare={compare}
+              onToggleCompare={() => setCompare(!compare)} />
+            {/* v0.10.1352 (operatör bildirimi) — şerit + grafikler sekmenin
+                PromQL'i (VM), alt bölümler span türevli. v0.10.1350 metni
+                "satırın kovaları" diyordu; o satır artık okunmuyor. */}
+            <div className="badge b-info" style={{ marginTop: -6, marginBottom: 12 }}
+              title="Metrik kipi: RED karoları ve grafikler Service → HTTP Metrics sekmesinin aynı sorguları (/api/metrics/promql, VictoriaMetrics), bu route'a süzülü; karolar gerçek pencere değerleri (increase[pencere]). Histogram, durum kırılımı, çağıranlar ve trace bölümleri span türevlidir">
+              Tüm RED karoları ve grafikler: VictoriaMetrics (HTTP Metrics sekmesiyle aynı sorgular{refObj.sig ? ', route şekle göre regex' : ', tüm methodlar'}){(env || cluster) ? ' · env/cluster süzgeci bu karolara ve grafiklere uygulanmaz (sekmedeki gibi)' : ''} · histogram, durum kırılımı, çağıranlar ve trace bölümleri span türevli
+            </div>
+          </>
+        ) : (
+          <REDStrip row={row} pending={rowsQ.isPending} compare={compare}
+            onToggleCompare={() => setCompare(!compare)} />
         )}
 
         {/* Three RED series — from the row's own sparklines, no extra
@@ -286,7 +312,11 @@ export default function EndpointDetailPage() {
             Eski hâl karo başına DOM-overlay EventMarkers'tı: 3 ayrı
             /api/events isteği + grafiğin x-scale'inden habersiz çizgiler
             (v0.9.396'nın ServiceCharts'ta söktüğü çift-işin ikizi). */}
-        <div style={{
+        {detailSrc === 'metric' && (
+          <MetricCharts res={httpRes} latQ={latQ} onLatQ={setLatQ}
+            regions={eventRegions} onZoom={handleZoom} onZoomReset={handleZoomReset} />
+        )}
+        {detailSrc === 'span' && <div style={{
           display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
           gap: 12, marginBottom: 12,
         }}>
@@ -320,7 +350,7 @@ export default function EndpointDetailPage() {
             range={range} regions={eventRegions}
             emptyLabel={row ? undefined : 'endpoint not in the current window'}
             onZoom={handleZoom} onZoomReset={handleZoomReset} />
-        </div>
+        </div>}
 
         {detail === undefined && <Spinner />}
         {detail === null && (
@@ -359,7 +389,9 @@ export default function EndpointDetailPage() {
           Endpoint identity is <code>http.route</code> (templated) with the
           table's own path fallbacks — never the span name. Server / consumer
           spans only; outbound client spans count under the callee.
-          P50/P95/P99 are true window quantiles (tdigest).
+          {detailSrc === 'metric'
+            ? ' Metrik kipi: RED karoları ve grafikler VictoriaMetrics http_server_request_duration_seconds_* (HTTP Metrics sekmesiyle aynı PromQL, bu route\'a süzülü); P50/P95/P99 karoları penceredeki kova artışlarından (histogram_quantile over increase[pencere]).'
+            : ' P50/P95/P99 are true window quantiles (tdigest).'}
         </div>
         {alertOpen && (
           <RouteAlertModal open onClose={() => setAlertOpen(false)} env={env || undefined}

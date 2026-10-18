@@ -13,7 +13,10 @@ describe('HTTP Metrics sekmesi', () => {
   });
   it('sorgular VictoriaMetrics\'e sabit', () => {
     expect(read('../../lib/api.ts')).toContain("withMetricSource(`/api/metrics/promql?${qs(params)}`, 'vm')");
-    expect(read('ServiceHttpMetricsTab.tsx')).toContain('api.httpMetricsPromql(');
+    // v0.10.1352 — okuma paylaşılan kancada (endpoint sayfası da kullanır).
+    expect(read('ServiceHttpMetricsTab.tsx')).toContain('useHttpPromql(all, win)');
+    expect(read('../../lib/queries/httpMetrics.ts')).toContain('api.httpMetricsPromql(');
+    expect(read('../../lib/queries/httpMetrics.ts')).toContain('staleTime: 30_000');
   });
 });
 
@@ -30,7 +33,26 @@ describe('HTTP Metrics Grafana paritesi', () => {
     expect(tab).toContain('<ToneCell');
   });
   it('grafikler tüm seriler + açık lejant + sabit renkler', () => {
-    expect(tab).toMatch(/maxSeries=\{60\} legendDefaultOpen/);
-    expect(tab).toContain('seriesColors={httpSeriesColors(');
+    // v0.10.1352 — panel gövdesi paylaşılan HttpChartPanel'de.
+    const viz = read('httpMetricsViz.tsx');
+    expect(tab).toContain('<HttpChartPanel ');
+    expect(viz).toMatch(/maxSeries=\{60\} legendDefaultOpen/);
+    expect(viz).toContain('seriesColors={httpSeriesColors(');
+  });
+});
+
+// v0.10.1352 (operatör bildirimi) — route gecikme paneli yüzdeliği açıkça
+// söyler; route etiketsiz seri "GET (route yok)" (çıplak "GET" değil).
+describe('HTTP Metrics etiketleri (v0.10.1352)', () => {
+  const tab = read('ServiceHttpMetricsTab.tsx');
+  it('route gecikme başlığı', () => {
+    expect(tab).toContain("chart('P95 gecikme (route)', 'p95ByRoute', MR, 's')");
+    expect(tab).not.toContain('P95 Latency (Route bazında)');
+  });
+  it('route lejantları methodRouteLegend', () => {
+    expect(tab).toContain('const MR: LegendTpl = l => methodRouteLegend(l);');
+    expect(tab).toContain("chart('Request Rate (Route bazında)', 'rateByRoute', MR, 'req/s')");
+    expect(tab).toContain("chart('5xx Hataları (Route bazında)', 'err5ByRoute', SMR, 'req/s')");
+    expect(tab).not.toContain("'{{http_request_method}} {{http_route}}'");
   });
 });
