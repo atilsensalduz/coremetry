@@ -31,6 +31,7 @@ import { getItem, setItem } from '@/lib/storage';
 import { getPinnedServices, isServicePinned, toggleServicePin } from '@/lib/recentServices';
 import type { Service, SparklineBucket, TimeRange, SpanAgg } from '@/lib/types';
 import { PageControls } from '@/components/ui/PageControls';
+import { EnterHint } from '@/components/ui/EnterHint';
 import { serviceHref } from '@/lib/serviceHref';
 import { PageShell } from '@/components/ui/PageShell';
 import { Pager } from '@/components/Pager';
@@ -603,12 +604,14 @@ export default function ServicesPage() {
             <ServicePicker value={serviceFilter} onChange={setServiceFilter}
               onEnter={apply}
               placeholder="Filter services…" width={220} optionMeta={pickerMeta} />
-            <Button variant="primary" size="sm" onClick={apply}
-                    title="Search server-side for matching services">Search</Button>
+            {/* v0.10.1332 — Enter iki sayı kutusunda da Search'ü tetikler
+                (`EnterHint` ipucu bu yüzden dürüst: picker + iki kutu). */}
             <input placeholder="Min spans" aria-label="Minimum spans" value={minSpans} type="number"
-              onChange={e => setMinSpans(e.target.value)} style={{ width: 100 }} />
+              onChange={e => setMinSpans(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') apply(); }} style={{ width: 100 }} />
             <input placeholder="Min P99 (ms)" aria-label="Minimum P99 latency in milliseconds" value={minP99} type="number"
-              onChange={e => setMinP99(e.target.value)} style={{ width: 110 }} />
+              onChange={e => setMinP99(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') apply(); }} style={{ width: 110 }} />
             {/* Team dropdowns derived from the catalog. Server
                 resolves the selection to a service-name
                 allowlist so the filter is correct across all
@@ -676,7 +679,18 @@ export default function ServicesPage() {
                 onChange={e => setCompare(e.target.checked)} />
               Δ prior
             </label>
-            <Button variant="secondary" onClick={reset}>Reset</Button>
+            {/* v0.10.1332 (operatör onaylı mockup "Filtre barı · Search son
+                filtrenin arkasında") — Search SON filtrenin hemen arkasında,
+                md boy (üç barda tek Search boyu) + "Enter ↵" ipucu; Reset
+                sağda. `data-pc-pin`: telefonda (≤640px) Search panele
+                katlanmaz, "Filtreler (N)" düğmesinin yanında görünür kalır;
+                Reset panelde. */}
+            <span className="search-go" data-pc-pin>
+              <Button variant="primary" onClick={apply}
+                      title="Search server-side for matching services">Search</Button>
+              <EnterHint title="Arama kutusunda (ve Min spans / Min P99 kutularında) Enter" />
+            </span>
+            <Button variant="secondary" className="pc-push" onClick={reset}>Reset</Button>
             {/* v0.9.344 warned that these three only narrowed the visible
                 page. v0.9.345 made that untrue — they are HAVING predicates
                 now, so paging walks the matching services and the warning

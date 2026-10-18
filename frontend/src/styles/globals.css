@@ -5808,3 +5808,24 @@ tbody td.tpm-more-cell { color: var(--text2); }
 .sre-eval-form { margin-bottom: var(--sp-6); }
 .sre-eval-form .row { align-items: flex-end; }
 .sre-eval-hyp { margin-right: var(--sp-2); }
+
+/* ── v0.10.1332 BEGIN — filtre barı: Search son filtrenin arkasında ──────
+   (operatör onaylı mockup "Filtre barı · Search son filtrenin arkasında")
+   `.kbd` = "Enter ↵" kısayol ipucu (`ui/EnterHint`); `.search-go` = Search +
+   ipucu çifti; `.pc-right` / `.pc-push` = boşluktan sonraki sağ küme. */
+.kbd {
+  display: inline-block; font-family: var(--font-mono); font-size: var(--fs-2xs);
+  line-height: 1.4; padding: 0 var(--sp-2); color: var(--text3); background: var(--bg2);
+  border: 1px solid var(--border-strong); border-bottom-width: 2px;
+  border-radius: var(--radius-xs); white-space: nowrap;
+}
+.search-go { display: inline-flex; align-items: center; gap: var(--sp-3); flex-shrink: 0; }
+.pc-right { display: inline-flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; margin-left: auto; }
+.pc-push { margin-left: auto; }
+.trace-lookup > .kbd { margin: 0 var(--sp-2); }
+@media (max-width: 640px) {
+  .search-go .kbd { display: none; }
+  .pc-panel .pc-right,
+  .pc-panel .pc-push { margin-left: 0; }
+}
+/* ── v0.10.1332 END ──────────────────────────────────────────────────── */

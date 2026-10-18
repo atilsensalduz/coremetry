@@ -143,6 +143,24 @@ export function hasLeadMark(node: ReactNode): boolean {
   return v !== undefined && v !== false && v !== null;
 }
 
+// v0.10.1332 (operatör onaylı mockup "Filtre barı · Search son filtrenin
+// arkasında") — AÇIK pin işareti. `data-pc-pin` taşıyan çocuk ≤640px'te
+// PANELE İNMEZ: lead + "Filtreler (N)" düğmesinden hemen SONRA, barın
+// doğrudan çocuğu olarak görünür kalır (tipik: filtre barının kendi Search
+// tetikleyicisi — /services'te telefonda Search bir popover'ın arkasında
+// kalıyordu). Panelin dışında olduğu için sayaca da girmez.
+//
+// `actions=` yuvası NEDEN değil: yuva sağ kümeye (`margin-left: auto`) ve
+// telefonda kendi satırına iniyor — Search ise son filtrenin hemen
+// arkasında durmalı. İşaret yoksa her iki dalın DOM'u eski hâlle birebir.
+export function hasPinMark(node: ReactNode): boolean {
+  if (!isValidElement(node)) return false;
+  const props = node.props as Record<string, unknown> | null | undefined;
+  if (!props) return false;
+  const v = props['data-pc-pin'];
+  return v !== undefined && v !== false && v !== null;
+}
+
 export function leadChildIndex(items: ReactNode[]): number {
   // İşaretli çocuk KAZANIR. İşaret yoksa davranış bit-bit eski hâl —
   // geriye uyumlu, 14 tüketicinin 11'i tek satır bile değişmeden kalıyor.
@@ -272,7 +290,9 @@ export function PageControls({ children, sticky = false, className, style, actio
     );
   }
 
-  const restItems = items.filter((_, i) => i !== lead);
+  // v0.10.1332 — pinli çocuklar panelin DIŞINDA (sıra korunuyor).
+  const pinned = items.filter((n, i) => i !== lead && hasPinMark(n));
+  const restItems = items.filter((n, i) => i !== lead && !hasPinMark(n));
 
   return (
     <div {...rest} ref={ref} className={cls} style={style}>
@@ -290,6 +310,7 @@ export function PageControls({ children, sticky = false, className, style, actio
           Filtreler{hiddenControls > 0 ? ` (${hiddenControls})` : ''}
         </DisclosureButton>
       )}
+      {pinned}
       {/* v0.10.1319 — eylemler panelin DIŞINDA, `.controls`un doğrudan
           çocuğu: katlanmaz ve sayaç (`panelRef` altını sayıyor) onları
           görmez. CSS telefon katmanı yuvayı kendi satırına sağa yaslıyor. */}

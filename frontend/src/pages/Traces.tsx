@@ -33,7 +33,7 @@ import { FilterQueryBox } from '@/components/FilterQueryBox';
 import { TRACES_EXTRA_FILTER_KEYS } from '@/lib/filterQuery'; // v0.10.1115 — op_group anahtar önerisi
 import { FilterGroupBuilder } from '@/components/FilterGroupBuilder';
 import { Button } from '@/components/ui/Button';
-import { IconButton, SegmentedControl } from '@/components/ui'; // v0.10.676 — satır-içi kiosk düğmesi; v0.10.914 SegmentedControl
+import { EnterHint, IconButton, SegmentedControl } from '@/components/ui'; // v0.10.676 — satır-içi kiosk düğmesi; v0.10.914 SegmentedControl
 import { Chip } from '@/components/ui/Chip';
 import { Pager } from '@/components/Pager';
 import { ColumnManager } from '@/components/ColumnManager';
@@ -1221,13 +1221,16 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
                 onChange={e => setDraft({ ...draft, traceId: e.target.value })}
                 onKeyDown={e => e.key === 'Enter' && apply()} />
               {/* v0.10.914 (buton bütünlüğü) — sayfaya özel Go/Clear sınıfları
-                  yerine ortak atomlar: IconButton (temizle) + Button primary sm (git). */}
+                  yerine ortak atomlar: IconButton (temizle).
+                  v0.10.1332 (operatör onaylı mockup) — "Go" primary'si kalktı:
+                  kutu bir ATLAYIŞ, Enter zaten gidiyor; sayfada ikinci bir
+                  dolu mavi Search'le yarışıyordu. Yerine "Enter ↵" ipucu. */}
               {draft.traceId && (
                 <IconButton size="sm" variant="ghost" aria-label="Trace ID'yi temizle" tooltip="Clear"
                   icon={<span aria-hidden="true">✕</span>}
                   onClick={() => { setDraft({ ...draft, traceId: '' }); setFilter({ ...filter, traceId: '' }); }} />
               )}
-              <Button variant="primary" size="sm" onClick={() => apply()}>Go</Button>
+              <EnterHint title="Enter ile trace'e git" />
             </div>
         </div>
 
@@ -1415,7 +1418,13 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
                   onChange={() => setDraft({ ...draft, rootOnly: !draft.rootOnly })} />
                 <span style={{ color: draft.rootOnly ? 'var(--accent2)' : 'var(--text2)' }}>Root</span>
               </label>
-              <Button variant="primary" size="sm" onClick={() => apply()}>Search</Button>
+              {/* v0.10.1332 (operatör onaylı mockup) — Search md (üç barda tek
+                  boy) + "Enter ↵" ipucu; son filtrenin (Errors / Root) hemen
+                  arkasında, ardından boşluk ve sağ küme (görünüm anahtarı). */}
+              <span className="search-go">
+                <Button variant="primary" onClick={() => apply()}>Search</Button>
+                <EnterHint title="Arama kutusunda Enter" />
+              </span>
           {/* v0.10.1088 (operatör: "Traces sayfasındaki service search sol başta
               olabilir") — görünüm anahtarı (Traces / Aggregated / Shapes) ve
               Aggregated'ın grup alanları şeridin SONUNA; servis seçici Services

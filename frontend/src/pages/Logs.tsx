@@ -53,6 +53,7 @@ import type { LogFilter } from '@/lib/logFilters';
 import { logsUrlSig, writeLogsParams, readLogsUrlState, buildDocPermalink, parseDocParam, parseLogsPanel } from '@/lib/logsUrl';
 import type { LogsResponse, LogRow, TimeRange } from '@/lib/types';
 import { PageControls } from '@/components/ui/PageControls';
+import { EnterHint } from '@/components/ui/EnterHint';
 import { PageShell } from '@/components/ui/PageShell';
 import { AIFeedbackButtons } from '@/components/ai/AIFeedbackButtons';
 
@@ -1126,34 +1127,44 @@ function LogsInner() {
             title="Show only logs correlated with a trace — every row can pivot to its trace">
             ◆ With trace
           </Button>
-          <Button variant="primary" onClick={apply}>Search</Button>
-          <Button variant="secondary" onClick={reset}>Reset</Button>
-          {/* v0.10.440 (B3) — ↻ + tazelik: etiket PENCERE SONU (sorgulanan an),
-              fetch zamanı değil (cevap 15 sn sunucu önbelleğinden gelebilir).
-              Özel aralıkta pencere sabittir → yalnız yeniden sorgular. Canlı
-              kuyrukta pencere yok → çizilmez. */}
-          {!live && (
-            <Button variant="secondary" aria-label="Yenile"
-              onClick={() => { resetPaging(); if (range.preset === 'custom') void staticQ.refetch(); else setNowTick(t => t + 1); }}
-              title={to ? `Veri penceresi ${fmtClock(to / 1e6)} anında bitiyor — ↻ pencereyi şimdiye taşır ve yeniden sorgular` : 'Yeniden sorgula'}>
-              ↻{to ? ` ${fmtClock(to / 1e6)}` : ''}
+          {/* v0.10.1332 (operatör onaylı mockup "Filtre barı · Search son
+              filtrenin arkasında") — Search son filtrenin hemen arkasında
+              (md, üç barda tek boy) + "Enter ↵" ipucu; ardından boşluk ve
+              SAĞ KÜME: Reset · ↻ · Copy link · Live tail. Sağa itme tek
+              yerde (`.pc-right`), Live'ın satır-içi marginLeft'i kalktı.
+              Davranış aynı — yalnız yerleşim. */}
+          <span className="search-go">
+            <Button variant="primary" onClick={apply}>Search</Button>
+            <EnterHint title="Arama kutusunda (ve Trace ID kutusunda) Enter" />
+          </span>
+          <span className="pc-right">
+            <Button variant="secondary" onClick={reset}>Reset</Button>
+            {/* v0.10.440 (B3) — ↻ + tazelik: etiket PENCERE SONU (sorgulanan an),
+                fetch zamanı değil (cevap 15 sn sunucu önbelleğinden gelebilir).
+                Özel aralıkta pencere sabittir → yalnız yeniden sorgular. Canlı
+                kuyrukta pencere yok → çizilmez. */}
+            {!live && (
+              <Button variant="secondary" aria-label="Yenile"
+                onClick={() => { resetPaging(); if (range.preset === 'custom') void staticQ.refetch(); else setNowTick(t => t + 1); }}
+                title={to ? `Veri penceresi ${fmtClock(to / 1e6)} anında bitiyor — ↻ pencereyi şimdiye taşır ve yeniden sorgular` : 'Yeniden sorgula'}>
+                ↻{to ? ` ${fmtClock(to / 1e6)}` : ''}
+              </Button>
+            )}
+            <ShareButton label="Copy link" copiedLabel="Copied" title={LOG_SHARE_TITLE} />
+            {/* v0.10.1318 (K3) — canlı kuyruk bir KİP: tint + nabız noktası
+                (.live-on yalnız yerleşim), birincil dolgu değil. */}
+            <Button variant="secondary" active={live}
+              className={live ? 'live-on' : undefined}
+              onClick={() => setLive(v => !v)}
+              title="Stream the latest logs live (server-pushed; pauses when the tab is hidden)">
+              {live ? '⏸ Pause Live' : '▶ Live tail'}
             </Button>
-          )}
-          <ShareButton label="Copy link" copiedLabel="Copied" title={LOG_SHARE_TITLE} />
-          {/* v0.10.1318 (K3) — canlı kuyruk bir KİP: tint + nabız noktası
-              (.live-on yalnız yerleşim), birincil dolgu değil. */}
-          <Button variant="secondary" active={live}
-            className={live ? 'live-on' : undefined}
-            onClick={() => setLive(v => !v)}
-            style={{ marginLeft: 'auto' }}
-            title="Stream the latest logs live (server-pushed; pauses when the tab is hidden)">
-            {live ? '⏸ Pause Live' : '▶ Live tail'}
-          </Button>
-          {live && liveGap && (
-            <span className="badge b-warn" title="A busy service produced more lines than one tick could read — narrow the filter to see them all.">
-              ⚠ high volume — some lines skipped
-            </span>
-          )}
+            {live && liveGap && (
+              <span className="badge b-warn" title="A busy service produced more lines than one tick could read — narrow the filter to see them all.">
+                ⚠ high volume — some lines skipped
+              </span>
+            )}
+          </span>
         </PageControls>
 
         {/* v0.8.400 — HONEST env-filter chip (the v0.8.398 pattern:

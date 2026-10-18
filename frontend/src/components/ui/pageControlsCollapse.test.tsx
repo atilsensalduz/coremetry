@@ -19,7 +19,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { PageControls, leadChildIndex, isInteractiveChild, hasLeadMark } from './PageControls';
+import { PageControls, leadChildIndex, isInteractiveChild, hasLeadMark, hasPinMark } from './PageControls';
 import { topEscLayer, escLayerDepth, __resetEscLayers } from '@/lib/escLayer';
 
 // ── matchMedia sahtesi ────────────────────────────────────────────────
@@ -289,6 +289,77 @@ describe('D6.4 — ≤640px\'te katlanıyor', () => {
       document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     });
     expect(panel()!.className).toBe('pc-panel');
+  });
+});
+
+// ── v0.10.1332 — PİN işareti (operatör onaylı mockup "Filtre barı ·
+// Search son filtrenin arkasında") ────────────────────────────────────
+// `data-pc-pin` taşıyan çocuk telefonda panele İNMEZ: "Filtreler (N)"
+// düğmesinden hemen sonra barın doğrudan çocuğu olarak kalır, sayaca
+// girmez. İşaret yoksa iki dalın DOM'u eski hâlle birebir.
+describe('v0.10.1332 — data-pc-pin', () => {
+  const pinBar = (pin: boolean) => (
+    <PageControls sticky>
+      <input placeholder="ara" />
+      <input placeholder="min" type="number" />
+      <select aria-label="küme"><option>a</option></select>
+      <span className="search-go" {...(pin ? { 'data-pc-pin': '' } : {})}>
+        <button>Search</button>
+      </span>
+      <button>Reset</button>
+    </PageControls>
+  );
+
+  it('hasPinMark: işaret / false / element olmayan', () => {
+    expect(hasPinMark(<span data-pc-pin />)).toBe(true);
+    expect(hasPinMark(<span data-pc-pin={false} />)).toBe(false);
+    expect(hasPinMark(<span />)).toBe(false);
+    expect(hasPinMark('metin')).toBe(false);
+    expect(hasPinMark(null)).toBe(false);
+  });
+
+  it('dar ekran: pinli çocuk panelin DIŞINDA, disclosure düğmesinden hemen SONRA', () => {
+    setViewport(true);
+    render(pinBar(true));
+    const kids = [...bar().children];
+    expect(kids.map(c => c.tagName)).toEqual(['INPUT', 'BUTTON', 'SPAN', 'DIV']);
+    const pinned = host!.querySelector('.search-go')!;
+    expect(pinned.parentElement).toBe(bar());
+    expect(pinned.closest('.pc-panel')).toBeNull();
+    expect(kids.indexOf(pinned)).toBe(kids.indexOf(moreBtn()!) + 1);
+    // Panelde kalanlar sırayı koruyor; Reset panelde.
+    expect([...panel()!.children].map(c => c.tagName)).toEqual(['INPUT', 'SELECT', 'BUTTON']);
+    expect(panel()!.textContent).toContain('Reset');
+    expect(panel()!.textContent).not.toContain('Search');
+  });
+
+  it('dar ekran: pinli çocuk sayaca girmiyor', () => {
+    setViewport(true);
+    render(
+      <PageControls>
+        <input placeholder="ara" />
+        <select aria-label="küme"><option>a</option></select>
+        <span data-pc-pin><input placeholder="pinli" /></span>
+      </PageControls>,
+    );
+    expect(label()).toBe('Filtreler (1)');
+  });
+
+  it('işaret YOKSA dar ekran DOM\'u eski hâlle aynı (çocuk panelde)', () => {
+    setViewport(true);
+    render(pinBar(false));
+    expect([...bar().children].map(c => c.tagName)).toEqual(['INPUT', 'BUTTON', 'DIV']);
+    expect(panel()!.querySelector('.search-go')).not.toBeNull();
+  });
+
+  it('masaüstü: işaret sırayı DEĞİŞTİRMİYOR, çocuklar yazıldığı sırada', () => {
+    setViewport(false);
+    render(pinBar(true));
+    expect(bar().className).toBe('controls is-sticky');
+    expect([...bar().children].map(c => c.tagName))
+      .toEqual(['INPUT', 'INPUT', 'SELECT', 'SPAN', 'BUTTON']);
+    expect(moreBtn()).toBeNull();
+    expect(panel()).toBeNull();
   });
 });
 

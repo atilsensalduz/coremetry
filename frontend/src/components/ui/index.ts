@@ -54,6 +54,8 @@ export { ConfirmProvider, useConfirm } from './ConfirmDialog';
 export type { ConfirmOptions } from './ConfirmDialog';
 
 export { SearchField } from './SearchField';
+export { EnterHint } from './EnterHint'; // v0.10.1332
+export type { EnterHintProps } from './EnterHint';
 export type { SearchFieldProps } from './SearchField';
 
 export { ActionRow } from './ActionRow';
