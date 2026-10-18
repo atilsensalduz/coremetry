@@ -38,6 +38,7 @@ import { sourceChips, SOURCE_KIND_LABEL, type SourceChip } from './sourceChips';
 import { EvidenceChips } from './EvidenceChips'; // v0.10.1272 — kanıt çipleri + Explore'da aç
 import { ctxAppliedLabel, stepEvidenceItems } from './evidenceChip'; // v0.10.1274 — ekran kapsamı künyesi; v0.10.1275 — hop listesi
 import { phaseTrail } from './phaseTrail'; // v0.10.1273 — Metrik → Log → Trace kırıntısı
+import { cellNoWrap, cellText, numericColumn, plainCell, wbrSegments } from './mdTableCell'; // v0.10.1346 — tablo hücresi kararları
 
 // ChatBubble — bir sohbet turunun ÇİZİMİ. v0.9.479'da CopilotChat.tsx'ten
 // buraya taşındı: AI çekmecesi içindeki sohbet (AIDrawer) aynı balonu
@@ -258,7 +259,10 @@ function CodeBlock({ lang, code, open, streaming, title }: {
 // Kaydırma kabı `.table-wrap` (yatay taşma TABLONUN kabında), hizalama
 // `.num`, zebra + kenarlık `.cm-md-table`.
 function MdTable({ block }: { block: Extract<ChatBlock, { kind: 'table' }> }) {
-  const cls = (i: number) => (block.align[i] === 'right' ? 'num' : block.align[i] === 'center' ? 'ta-c' : undefined);
+  // v0.10.1346 — sayısal kolon `.num`, kısa değer `.cm-td-nw` (bölünmez), uzun kimlik <wbr> (mdTableCell.ts).
+  const num = useMemo(() => block.head.map((_, i) => block.align[i] === 'right' || (block.align[i] === 'left' && numericColumn(block.rows, i))), [block]);
+  const cells = useMemo(() => block.rows.map(r => r.map(c => ({ plain: plainCell(c), nw: cellNoWrap(cellText(c)) }))), [block.rows]);
+  const cls = (i: number) => (num[i] ? 'num' : block.align[i] === 'center' ? 'ta-c' : undefined);
   // 100+ satır kuralı (ev kısıtı): content-visibility bedelsiz.
   const heavy = block.rows.length > 100;
   const rowStyle = heavy
@@ -273,7 +277,10 @@ function MdTable({ block }: { block: Extract<ChatBlock, { kind: 'table' }> }) {
         <tbody>
           {block.rows.map((r, k) => (
             <tr key={k} style={rowStyle}>
-              {r.map((c, i) => <td key={i} className={cls(i)}><MdInline text={c} /></td>)}
+              {r.map((c, i) => { const m = cells[k][i]; return ( // v0.10.1346
+                <td key={i} className={[cls(i), m.nw && 'cm-td-nw'].filter(Boolean).join(' ') || undefined}>
+                  {m.plain === null ? <MdInline text={c} /> : <span>{wbrSegments(m.plain).flatMap((s, j) => (j ? [<wbr key={j} />, s] : [s]))}</span>}
+                </td>); })}
             </tr>
           ))}
         </tbody>

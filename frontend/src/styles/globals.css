@@ -4304,11 +4304,27 @@ thead th:hover .th-remove, .th-remove:focus-visible { opacity: 1; }
 /* v0.10.1291 — sohbet tablolarının satır başı ✨ sütunu (RowExplainCell): dar, satırı büyütmez. */
 .cm-md-table th.cm-row-ai, .cm-md-table td.cm-row-ai { width: 1%; white-space: nowrap; padding-left: var(--sp-1); padding-right: var(--sp-1); }
 .cm-trace-list__more { margin-top: var(--sp-2); font-size: var(--fs-xs); }
+/* ── v0.10.1346 (operatör-bildirimli, /cosre): sohbet tablosu hücre sarması ──
+   "Kolon adı kısa ama satırlardaki değerler uzun olduğunda tablo kötü
+   gözüküyor" — yüklenen belge satırlarında "LOGIN_14300.aspx" L/O/GI/N_/…,
+   "1526" 152/6, "AKTİF" AKTİ/F diye harf harf kırılıyordu. Kök neden:
+   hücrede `overflow-wrap: anywhere` min-content genişliğini TEK HARFE
+   indirir ve otomatik tablo düzeni kısa başlıklı kolonu oraya sıkıştırır.
+   `break-word` aynı taşma korumasını min-content'e dokunmadan verir; kısa
+   değer `.cm-td-nw` ile hiç bölünmez, uzun kimlik yalnız `_ . / -` sonrası
+   <wbr>'de kırılır (mdTableCell.ts). Tablo içeriği kadar genişler, fazlası
+   `.table-wrap`ın yatay kaydırıcısına gider. ASLA `break-all`/`anywhere`
+   (chatTableWrap.pin.test.ts). Hücre içi satır içi öğeler (doğrulanmamış
+   link vb. kendi `anywhere`ını taşıyor) hücrenin kuralını devralır. */
+.cm-md-table { table-layout: auto; }
 .cm-md-table tbody td {
   padding: 5px 8px; max-width: none;
   white-space: normal; overflow: visible; text-overflow: clip;
-  overflow-wrap: anywhere; vertical-align: top;
+  overflow-wrap: break-word; word-break: normal; vertical-align: top;
 }
+.cm-md-table tbody td * { overflow-wrap: inherit; word-break: inherit; }
+.cm-md-table tbody td.cm-td-nw { white-space: nowrap; }
+/* ── /v0.10.1346 ── */
 .cm-md-table td.ta-c, .cm-md-table th.ta-c { text-align: center; }
 
 /* cm-md-wrap (v0.10.79, operatör-bildirimli): AI cevabındaki uzun

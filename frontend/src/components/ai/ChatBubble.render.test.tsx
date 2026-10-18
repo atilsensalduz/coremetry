@@ -123,8 +123,9 @@ describe('tablo', () => {
   it('sağa hizalı kolon `.num` alıyor (sayısal kolon = tabular-nums)', async () => {
     await mount(asst(TBL));
     expect(qa('table.cm-md-table thead th')[1].className).toBe('num');
-    expect(qa('table.cm-md-table tbody td')[1].className).toBe('num');
-    expect(qa('table.cm-md-table tbody td')[0].className).toBe('');
+    // v0.10.1346 — hücre ayrıca `.cm-td-nw` (kısa değer bölünmez) taşıyabilir; hizalama sınıfı ayrı ölçülür.
+    expect(qa('table.cm-md-table tbody td')[1].classList.contains('num')).toBe(true);
+    expect(qa('table.cm-md-table tbody td')[0].classList.contains('num')).toBe(false);
   });
 
   // Ev kısıtı: 100'den fazla satır → content-visibility. Model tool
