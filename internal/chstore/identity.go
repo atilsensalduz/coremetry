@@ -629,6 +629,17 @@ func ExtPeerServiceCandidates(peer string) []string {
 	if strings.Contains(raw, "@") { // geçit biçimi: servis adı değil
 		return out
 	}
+	host := extPeerNormHost(raw)
+	add(host)
+	add(extPeerK8sLabel(host))
+	return out
+}
+
+// extPeerNormHost — ExtPeerServiceCandidates'in host türetmesi (şema /
+// `dns:` öneki, yol, tek-iki-noktalı sayısal port, sondaki nokta soyulur).
+// SQL ikizi extPeerHostSteps (external.go); `@`'li geçit biçimi çağırana
+// kalır.
+func extPeerNormHost(raw string) string {
 	host := strings.TrimSpace(raw)
 	// Şema / gRPC çözücü öneki: "dns:///h:p", "http://h", "dns:h:p".
 	if i := strings.Index(host, "://"); i >= 0 {
@@ -644,8 +655,13 @@ func ExtPeerServiceCandidates(peer string) []string {
 	if i := strings.LastIndexByte(host, ':'); i > 0 && strings.Count(host, ":") == 1 && isAllDigits(host[i+1:]) {
 		host = host[:i]
 	}
-	host = strings.TrimSuffix(host, ".")
-	add(host)
+	return strings.TrimSuffix(host, ".")
+}
+
+// extPeerK8sLabel — host bir küme-içi Kubernetes adıysa (sonek
+// `.svc.cluster.local` / `.cluster.local` / `.svc`, önünde ≥1 etiket) ilk
+// DNS etiketi, değilse "".
+func extPeerK8sLabel(host string) string {
 	lh := strings.ToLower(host)
 	for _, suf := range k8sClusterSuffixes {
 		// Bütün-etiket eşleşmesi: "svc.cluster.local" kendisi ".svc.cluster.local"
@@ -653,10 +669,139 @@ func ExtPeerServiceCandidates(peer string) []string {
 		if len(lh) == len(host) && strings.HasSuffix("."+lh, suf) {
 			if rest := host[:len(host)-(len(suf)-1)]; len(rest) > 1 {
 				if i := strings.IndexByte(rest, '.'); i > 0 {
-					add(rest[:i])
+					return rest[:i]
 				}
 			}
+			return ""
+		}
+	}
+	return ""
+}
+
+// ─── v0.10.1344 — etiket-önek aşaması (ResolveExtPeer 2. aşama) ──────
+//
+// Operatör raporu (2026-10-18, card-web-api komşuluğu, 2 hop): enstrümante
+// `bsa-channel-channelutility-prod` gRPC ile
+// `ext:bsa-channel-channelutility-prod-grpc.channel.svc.cluster.local`,
+// `bsa-customer-maininq-prod` de GSLB/route host'ları
+// `<svc>-prod-kon.<kurum>`, `<svc>-prod-mobil.<kurum>`,
+// `<svc>-prod-sube.<kurum>` adıyla çağrılıyor ve "dış bağımlılık" diye
+// çiziliyordu. 1. aşama (ExtPeerServiceCandidates, SQL ikiziyle eşli,
+// DEĞİŞMEDİ) k8s adında yalnız ilk DNS etiketini AYNEN dener
+// (`…-prod-grpc` diye servis yok), GSLB host'unda hiç etiket denemez.
+//
+// 2. aşama yalnız 1. aşama bir şey bulamazsa: host'un ilk etiketi ve
+// sondan `-<belirteç>` parçaları birer birer atılmış önekleri (en çok 2
+// atım, belirteç ^[a-z0-9]+$ harf duyarsız ≤16 karakter, '-' içermeyen
+// önek ASLA — R3: `api-grpc` → `api` olmaz), uzundan kısaya. Uygulanır:
+// k8s host'unda her zaman; diğer çok-etiketli host'ta ilk etiket '-'
+// içeriyor ve host dış katalogda (classifyExternal) değilse. Kurum alan
+// adı koda yazılmaz (v0.10.1146) — karar desene göre. SQL ikizi
+// extPeerLabelStageSQL (external.go).
+
+// extPeerLabelMaxStrips / extPeerLabelMaxToken — R1/R2 tavanları.
+const (
+	extPeerLabelMaxStrips = 2
+	extPeerLabelMaxToken  = 16
+)
+
+// ExtPeerLabel — normalize host'un (extPeerNormHost) ilk DNS etiketi,
+// host çok-etiketliyse. IP (sayısal ilk etiket, IPv6 / köşeli parantez /
+// çözülmemiş ':'), geçit biçimi `Svc@host:port` ve tek etiketli adlar "".
+// SAF, tablo testli.
+func ExtPeerLabel(peer string) string {
+	raw := strings.TrimPrefix(peer, "ext:")
+	if raw == "" || strings.Contains(raw, "@") {
+		return ""
+	}
+	host := extPeerNormHost(raw)
+	if strings.ContainsAny(host, ":[]") {
+		return ""
+	}
+	i := strings.IndexByte(host, '.')
+	if i <= 0 || i == len(host)-1 {
+		return ""
+	}
+	label := host[:i]
+	if isAllDigits(label) {
+		return ""
+	}
+	return label
+}
+
+// ExtPeerLabelPrefixes — etiketin kendisi, sonra sondan `-<belirteç>`
+// atılmış önekler (uzundan kısaya, en çok extPeerLabelMaxStrips atım).
+// Belirteç ^[A-Za-z0-9]+$ ve ≤extPeerLabelMaxToken bayt; kalan önek boş
+// olamaz, '-' ile bitemez ve '-' İÇERMELİ (R3). SAF, tablo testli.
+func ExtPeerLabelPrefixes(label string) []string {
+	if label == "" {
+		return nil
+	}
+	out := []string{label}
+	cur := label
+	for n := 0; n < extPeerLabelMaxStrips; n++ {
+		j := strings.LastIndexByte(cur, '-')
+		if j < 0 {
 			break
+		}
+		tok, pre := cur[j+1:], cur[:j]
+		if !isLabelToken(tok) || pre == "" || strings.HasSuffix(pre, "-") || !strings.Contains(pre, "-") {
+			break
+		}
+		out = append(out, pre)
+		cur = pre
+	}
+	return out
+}
+
+func isLabelToken(s string) bool {
+	if s == "" || len(s) > extPeerLabelMaxToken {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9') {
+			return false
+		}
+	}
+	return true
+}
+
+// extPeerLabelStage — ResolveExtPeer'in 2. aşama adayları (yukarıdaki
+// kapı dahil); kapı kapalıysa nil.
+func extPeerLabelStage(peer string) []string {
+	label := ExtPeerLabel(peer)
+	if label == "" {
+		return nil
+	}
+	raw := strings.TrimPrefix(peer, "ext:")
+	if extPeerK8sLabel(extPeerNormHost(raw)) == "" {
+		if !strings.Contains(label, "-") {
+			return nil
+		}
+		if _, _, ok := classifyExternal(raw); ok {
+			return nil
+		}
+	}
+	return ExtPeerLabelPrefixes(label)
+}
+
+// ExtPeerResolveCandidates — ResolveExtPeer'in denediği TÜM adaylar,
+// sırasıyla, tekrarsız: 1. aşama (ExtPeerServiceCandidates) + 2. aşama
+// (etiket önekleri, kapılı). Küme kurmadan aday listesi isteyenler için
+// (topoloji sınırı, /external çekmece dışlaması).
+func ExtPeerResolveCandidates(peer string) []string {
+	out := ExtPeerServiceCandidates(peer)
+	for _, c := range extPeerLabelStage(peer) {
+		dup := false
+		for _, x := range out {
+			if x == c {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			out = append(out, c)
 		}
 	}
 	return out
@@ -712,19 +857,34 @@ func (s *ServiceNameSet) Has(name string) bool { return s.exact[name] }
 
 // ResolveExtPeer — `ext:<peer>` (ya da öneksiz peer) bilinen bir servise
 // çözülüyorsa kanonik servis adını döndürür. Aday sırası
-// ExtPeerServiceCandidates'inki; her aday önce birebir, sonra harf
-// duyarsız denenir.
+// ExtPeerServiceCandidates'inki, sonra (v0.10.1344) etiket önekleri
+// (extPeerLabelStage); her aday önce birebir, sonra harf duyarsız denenir.
+// Yeni çağıran bilinçli eklenir: TestResolveExtPeerCallSitesPinned.
 func (s *ServiceNameSet) ResolveExtPeer(peer string) (string, bool) {
 	if s == nil {
 		return "", false
 	}
 	for _, c := range ExtPeerServiceCandidates(peer) {
-		if s.exact[c] {
-			return c, true
+		if name, ok := s.lookup(c); ok {
+			return name, true
 		}
-		if canon := s.lower[strings.ToLower(c)]; canon != "" {
-			return canon, true
+	}
+	// v0.10.1344 — 2. aşama: etiket önekleri (extPeerLabelStage).
+	for _, c := range extPeerLabelStage(peer) {
+		if name, ok := s.lookup(c); ok {
+			return name, true
 		}
+	}
+	return "", false
+}
+
+// lookup — birebir, sonra harf duyarsız (belirsiz küçük harf → yok).
+func (s *ServiceNameSet) lookup(c string) (string, bool) {
+	if s.exact[c] {
+		return c, true
+	}
+	if canon := s.lower[strings.ToLower(c)]; canon != "" {
+		return canon, true
 	}
 	return "", false
 }

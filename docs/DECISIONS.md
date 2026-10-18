@@ -6780,3 +6780,40 @@ RED/trace yok; ön-getirmede trace kırılımı yoktu. Fable'ın onaylı R1 plan
   TestOpPrefetchDrillUnderModelClamp; chstore TestRouteREDQueryPins; vitest operationCardView
   (endpoint bloğu, güvensiz href düşer). Yeşil kalanlar: TestOpTokens, TestMatchOperations,
   TestOpPrefetchSummaryAndSeed, TestOpPrefetchWithExceptionsUnderModelClamp, TestRouteEndpointRequest.
+
+## 2026-10-18 — v0.10.1344 — Topoloji: ext eşi etiket önekiyle ve bilinen-servis yedeğiyle servise çözülür
+
+**Operatör (prod, servis → Topology, "card-web-api neighborhood", 2 hop):** enstrümante iki servis "dış
+bağımlılık" diye çiziliyordu — `ext:bsa-channel-channelutility-prod-grpc.channel.svc.cluster.local`
+(56 span, %0) ve `ext:bsa-customer-maininq-prod-kon.<kurum>` (66 span, %3.03); aynı servis GSLB/route
+host'ları `<svc>-prod-mobil.<kurum>` / `<svc>-prod-sube.<kurum>` ile de geliyordu. **Kök neden:**
+`ServiceNameSet.ResolveExtPeer` yalnız `ExtPeerServiceCandidates`'i deniyordu (ham, normalize host, k8s'te
+ilk DNS etiketi AYNEN → `…-prod-grpc` diye servis yok; GSLB host'u k8s soneki taşımadığı için hiç etiket
+adayı yok). Ayrıca çözüm kümesi yalnız graftaki kenar adlarıydı: 1 hop'ta hedef servisin kendi kenarı yoksa
+eşleşecek ad da yoktu.
+**Karar:** (1) `ExtPeerServiceCandidates` DEĞİŞMEDİ (SQL ikiziyle eşli; yalnız host/k8s türetmesi saf
+yardımcılara ayrıldı, davranış aynı). Yeni saf `ExtPeerLabel` (normalize host'un ilk etiketi; IP, geçit
+`Svc@host:port`, tek etiket → "") ve `ExtPeerLabelPrefixes` (etiket, sonra sondan `-<belirteç>` atımları;
+en çok 2, belirteç `[A-Za-z0-9]+` ≤16 bayt, '-'siz önek ASLA — R3: `api-grpc` → `api` olmaz).
+`ResolveExtPeer` 2. aşaması, 1. aşama boşsa: k8s host'unda her zaman, diğer çok-etiketli host'ta ilk etiket
+'-' içeriyor ve ham ad dış katalogda (`classifyExternal`) değilse; önekler uzundan kısaya, birebir sonra harf
+duyarsız (belirsiz harf çakışması atlanır). Kurum alan adı koda/teste yazılmaz (v0.10.1146; testler
+`.bank.example`). (2) Bilinen-servis yedeği: `Store.KnownServiceNames` (service_summary_5m, son 1 gün,
+LIMIT 20000, 5 sn; pinli) + `Server.knownServiceSet` süreç içi 60 sn bellek (hata 15 sn). servicegraph
+ext-merge'i (`buildServiceGraphWith` / `mergeExtPeerEdgesWith`; eski imzalar nil tohumla aynen) ve eski
+/topology + flow + draw.io filtreleri (`filterExternalPeersWith`) bununla tohumlanır. Filtrelerde hedef
+kenar setinde bir servisse ext kenarı eskisi gibi DÜŞER; yalnız yedekte varsa düşürmek çağrıyı
+kaybettireceği için kenar gerçek servise yeniden adlanır ve katlanır. `/api/service-map` (örneklemli)
+aynısını yapar: örnekte olan hedef atlanır, yalnız yedekteki hedefe servis kenarı çizilir. (3) İkinci
+yarılar: `topologyNextFrontier` 2. hop'a `ExtPeerResolveCandidates` (1.+2. aşama, aynı kapı) ekler;
+`topologyTouchWhere` '-'li odak için `ext:<n>-` / `ext:dns:///<n>-` öneklerini ve
+`^ext:(dns:///)*[^./:]+[-][^./:]*[.][^./:]+[.]` kapısını ekler ('?'/'{' yok); /external liste dışlaması
+`extPeerResolveCandidatesSQL` (2. aşamanın CH ikizi: katalog `multiSearchAny`, `length()` ile ≤16, iç içe
+lambda) ile LIMIT'ten önce, çekmece adayları `ExtPeerResolveCandidates` ile — canlı motor eşliği
+`TestExtPeerIsServiceSQLMirrorMatchesResolve`. (4) UI: `GraphEdge.viaHosts` (≤8, sıralı, tekrarsız, "ext:"
+öneksiz; `ServiceTopologyEdge.ViaHosts` taşır), FocusedNeighborhood adapter'ı (`graphEdgeToMapEdge`,
+vitest'li) geçirir, hover kartı soluk mono "via <host>" satırı basar; gerçek dış düğüm "external" kalır.
+(5) `ResolveExtPeer(` çağrı yerleri pinli (`TestResolveExtPeerCallSitesPinned`): yeni tüketici 2. aşamayı
+bilerek seçer. **Bilinçli kapsam dışı:** `ExtPeerMatchesService` / `pairEdgeExtAliases` (A→B kenar
+eşleştirme, NL arama, çağrı dönemi) yalnız 1. aşamada. **Risk:** 2 atım içinde başka bir servis adına
+düşen enstrümante olmayan bir host (ör. `<svc>-query-prod` yokken `<svc>` varsa) o servise birleşir.

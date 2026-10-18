@@ -8,7 +8,7 @@ import { healthToken } from '@/lib/health';
 import { encodeRange } from '@/lib/urlState';
 import { Spinner, Empty } from '@/components/Spinner';
 import { TopologyFlowGraph } from '@/components/TopologyFlowGraph';
-import type { TimeRange, ServiceGraphResponse, GraphNode, GraphEdge, ServiceMap } from '@/lib/types';
+import type { TimeRange, ServiceGraphResponse, GraphNode, GraphEdge, ServiceMap, ServiceMapEdge } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
 import { SegmentedControl } from '@/components/ui'; // v0.10.914 dilim 2 (buton bütünlüğü)
@@ -186,6 +186,45 @@ export function externalPinHost(node: GraphNode | null | undefined): string | nu
   return host || null;
 }
 
+/**
+ * graphEdgeToMapEdge — GraphEdge → ServiceMapEdge (TopologyFlowGraph'ın
+ * sözleşmesi). v0.10.1344'te inline adapter'dan çıkarıldı ve TESTLENDİ:
+ * bu adapter alan düşürme sınıfının (v0.8.322) evi — yeni bir GraphEdge
+ * alanı burada taşınmazsa grafik onu hiç görmez.
+ */
+export function graphEdgeToMapEdge(e: GraphEdge): ServiceMapEdge {
+  return {
+    caller: e.source,
+    callee: e.target,
+    traceCount: e.calls,
+    spanCount: e.calls,
+    errorCount: e.errors,
+    // v0.8.322 — carry the MV's per-edge RED (the v0.8.281 chip
+    // contract). This inline adapter dropped them, so the service
+    // Topology tab never showed the "N/dk · p99 · err%" chips its
+    // /service-map twin renders (TopologyFlowGraph gates the chip on
+    // p99Ms != null). errorRate rescales to ServiceMap's 0..1.
+    rate: e.rate,
+    errorRate: (e.errorRate ?? 0) / 100,
+    avgMs: e.avgMs,
+    p99Ms: e.p99Ms,
+    // v0.10.1344 — gerçek servise katlanmış ext host'ları.
+    viaHosts: e.viaHosts,
+  };
+}
+
+/**
+ * viaHostsInto — v0.10.1344. Düğüme GELEN kenarların viaHosts birleşimi
+ * (sıralı, tekil). Sunucu `ext:<host>` kenarını gerçek servise katladığında
+ * host'u kenarda bırakır; hover kartı "via <host>" satırını bundan basar.
+ * Gerçek dış düğümde kenarlar viaHosts taşımaz → boş, kart "external" kalır.
+ */
+export function viaHostsInto(edges: readonly GraphEdge[], id: string): string[] {
+  const out = new Set<string>();
+  for (const e of edges) if (e.target === id) for (const h of e.viaHosts ?? []) out.add(h);
+  return [...out].sort();
+}
+
 export function assignFocusColumns(edges: GraphEdge[], focus: string, hops: number): Map<string, number> {
   const out = new Map<string, GraphEdge[]>(); // source → edges (downstream)
   const inc = new Map<string, GraphEdge[]>(); // target → edges (upstream)
@@ -325,6 +364,7 @@ export function FocusedNeighborhood({ range, focus, hops, errorsOnly, onHops, on
   //
   // queryKey /external çekmecesiyle BİREBİR aynı → aynı hostu iki
   // yüzeyde de açmak tek istek. staleTime = sunucu TTL'i (30s).
+  const hoverVia = hoverNode ? viaHostsInto(nb.edges, hoverNode.id) : [];
   const extHost = externalPinHost(pinnedNode);
   const extDetail = useQuery({
     queryKey: ['external-host', extHost, from, to],
@@ -362,22 +402,7 @@ export function FocusedNeighborhood({ range, focus, hops, errorsOnly, onHops, on
       // class).
       env: n.env || undefined,
     })),
-    edges: nb.edges.map(e => ({
-      caller: e.source,
-      callee: e.target,
-      traceCount: e.calls,
-      spanCount: e.calls,
-      errorCount: e.errors,
-      // v0.8.322 — carry the MV's per-edge RED (the v0.8.281 chip
-      // contract). This inline adapter dropped them, so the service
-      // Topology tab never showed the "N/dk · p99 · err%" chips its
-      // /service-map twin renders (TopologyFlowGraph gates the chip on
-      // p99Ms != null). errorRate rescales to ServiceMap's 0..1.
-      rate: e.rate,
-      errorRate: (e.errorRate ?? 0) / 100,
-      avgMs: e.avgMs,
-      p99Ms: e.p99Ms,
-    })),
+    edges: nb.edges.map(graphEdgeToMapEdge),
   }), [nb]);
 
   if (graph.isLoading) return <div style={{ padding: 60, display: 'grid', placeItems: 'center' }}><Spinner /></div>;
@@ -504,6 +529,14 @@ export function FocusedNeighborhood({ range, focus, hops, errorsOnly, onHops, on
             {kindLabel(hoverNode)} · {hoverNode.kind === 'service' ? 'service.name' : hoverNode.system ? (hoverNode.kind === 'database' ? 'db.system' : 'messaging.system') : hoverNode.kind}
             {hoverNode.kind === 'database' && hoverNode.dbName ? ` · db.name=${hoverNode.dbName}` : ''}
           </div>
+          {/* v0.10.1344 — servis, ext host'u (k8s gRPC / GSLB adı) üstünden
+              çağrıldıysa o host tek soluk satırda; gerçek dış düğümde boş. */}
+          {hoverVia.length > 0 && (
+            <div className="mono" title={hoverVia.join('\n')}
+              style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              via {hoverVia[0]}{hoverVia.length > 1 ? ` +${hoverVia.length - 1}` : ''}
+            </div>
+          )}
           <div className="grid-3" style={{ display: 'grid', gap: 6, marginBottom: 8 }}>
             {/* v0.9.367 — sayının HANGİ popülasyondan geldiği görünür:
                 ↓ inbound (normal), ↑ outbound = giriş-servis fallback'i;

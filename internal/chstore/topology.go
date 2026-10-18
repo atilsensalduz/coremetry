@@ -116,6 +116,10 @@ type ServiceTopologyEdge struct {
 	// the underlying spans.
 	ParentEnv string `json:"parentEnv,omitempty"`
 	ChildEnv  string `json:"childEnv,omitempty"`
+	// v0.10.1344 — api katmanı bir `ext:<host>` kenarını gerçek servise
+	// katladığında (mergeExtPeerEdgesWith / filterExternalPeersWith) ham
+	// host'lar ("ext:" öneksiz). Okuyucu hiç doldurmaz.
+	ViaHosts []string `json:"viaHosts,omitempty"`
 	// v0.9.1026 — kuyruk düğümünün messaging cluster'ı (v0.9.1025'te
 	// yazılmaya başlandı). YALNIZ queue düğümü taşıyan kenarlarda dolu;
 	// hangi TARAFIN kuyruk olduğu kenarı üreten pass'e göre değişir
@@ -1287,6 +1291,13 @@ func (s *Store) ReadServiceTopologyAgg(ctx context.Context, from, to time.Time, 
 // ExtPeerServiceCandidates'in k8sClusterSuffixes listesinin SQL ikizi.
 const k8sExtChildRegex = `\\.(svc|svc\\.cluster\\.local|cluster\\.local)(:[0-9]+)*$`
 
+// labelExtChildRegex — v0.10.1344: `ext:` çocuğu ilk etiketi '-' içeren,
+// en az üç etiketli bir host mu (GSLB/route adı, ör.
+// `ext:<svc>-prod-kon.<kurum>.<tld>`; `dns:///` önekli de). Etiket-önek
+// aşamasının (ExtPeerLabelPrefixes) okuma kapısı; kurum alan adı yok
+// (v0.10.1146). SQL METNİNE gömülür: '?' ve '{' YOK.
+const labelExtChildRegex = `^ext:(dns:///)*[^./:]+[-][^./:]*[.][^./:]+[.]`
+
 // topologyTouchWhere — readServiceTopologyAggFiltered'in düğüm-dokunma
 // yüklemi (SAF, tablo testli). v0.10.1260: `extCallersOf` içindeki her
 // düz servis adı için, o servisi Kubernetes DNS adıyla çağıran
@@ -1303,16 +1314,28 @@ func topologyTouchWhere(touching, extCallersOf []string) (string, []any) {
 	args = append(args, toAnySlice(touching)...)
 	args = append(args, toAnySlice(touching)...)
 	var pre []string
+	label := false
 	for _, n := range extCallersOf {
 		if n == "" || strings.Contains(n, ":") {
 			continue
 		}
 		pre = append(pre, "startsWith(child_node, ?)", "startsWith(child_node, ?)")
 		args = append(args, "ext:"+n+".", "ext:dns:///"+n+".")
+		// v0.10.1344 — `<n>-<belirteç>…` etiketleri (ExtPeerLabelPrefixes);
+		// '-'siz ad hiçbir önekten türeyemez (R3), o yüzden yalnız '-'li ad.
+		if strings.Contains(n, "-") {
+			pre = append(pre, "startsWith(child_node, ?)", "startsWith(child_node, ?)")
+			args = append(args, "ext:"+n+"-", "ext:dns:///"+n+"-")
+			label = true
+		}
 	}
 	w := "\n\t\t\t  AND (parent_service IN (" + ph + ") OR child_node IN (" + ph + ")"
 	if len(pre) > 0 {
-		w += " OR (match(child_node, '" + k8sExtChildRegex + "') AND (" + strings.Join(pre, " OR ") + "))"
+		guard := "match(child_node, '" + k8sExtChildRegex + "')"
+		if label {
+			guard = "(" + guard + " OR match(child_node, '" + labelExtChildRegex + "'))"
+		}
+		w += " OR (" + guard + " AND (" + strings.Join(pre, " OR ") + "))"
 	}
 	return w + ")", args
 }
@@ -1460,7 +1483,11 @@ func topologyNextFrontier(edges []ServiceTopologyEdge, seen map[string]bool, cap
 	add := func(n string) {
 		cands := []string{n}
 		if strings.HasPrefix(n, "ext:") {
-			cands = append(cands, ExtPeerServiceCandidates(n)...)
+			// v0.10.1344 — + etiket önekleri (ResolveExtPeer 2. aşaması,
+			// aynı kapıyla): `ext:<svc>-grpc.<ns>.svc…` ve GSLB
+			// `ext:<svc>-kon.<kurum>` 2. hop'ta <svc>'nin kendi kenarlarını
+			// okutur.
+			cands = append(cands, ExtPeerResolveCandidates(n)...)
 		}
 		for _, c := range cands {
 			if c == "" || seen[c] {

@@ -184,6 +184,9 @@ export interface GraphEdge {
   protocol?: string;   // http | grpc | db | kafka — SpanKind proxy
   // v0.9.1112 (Faz 5) — ?compare=prior açıkken önceki pencerenin p99'u.
   priorP99Ms?: number;
+  // v0.10.1344 — kenar `ext:<host>` kenarlarının gerçek servise katlanmasıyla
+  // oluştuysa o host'lar ("ext:" öneksiz, sıralı, ≤8). Hover: "via <host>".
+  viaHosts?: string[];
 }
 export interface ServiceGraphResponse {
   nodes: GraphNode[];
@@ -6615,6 +6618,8 @@ export interface ServiceMapEdge {
   // v0.9.1112 (Faz 5) — compare=prior'da önceki pencerenin p99'u
   // (yalnız MV yolu; adapter taşır). Kenar chip'inde Δ% olarak okunur.
   priorP99Ms?: number;
+  // v0.10.1344 — GraphEdge.viaHosts (yalnız MV yolu; adapter taşır).
+  viaHosts?: string[];
 }
 
 export interface ServiceMap {

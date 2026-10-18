@@ -279,7 +279,8 @@ func TestCompareSitesUseSharedPriorWindow(t *testing.T) {
 				"pfrom, pto := chstore.TopologyPriorWindow(from, to)",
 				// pfrom/pto okuyucu ARGÜMANI, zaman aralığı değil: prior grafın
 				// dakika paydası current'ınki (aynı kova sayısı).
-				"pg := buildServiceGraph(pedges, focus, scope, hops, dbNames, serviceGraphWindowMinutes(from, to))",
+				// v0.10.1344 — ext-merge tohumu (knownServiceSet) iki pencerede de aynı.
+				"pg := buildServiceGraphWith(pedges, focus, scope, hops, dbNames, serviceGraphWindowMinutes(from, to), s.knownServiceSet(ctx))",
 			},
 			[]string{"from.Add(-dur)", "serviceGraphWindowMinutes(pfrom, pto)"}},
 		{"copilot_aianalyze.go",

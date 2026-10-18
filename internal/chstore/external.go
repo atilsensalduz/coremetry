@@ -336,6 +336,63 @@ func extPeerCandidatesSQL(raw string) string {
 		raw, extPeerHostSQL(raw), extPeerSQLLit(extPeerK8sHostPattern), extPeerSQLLit(extPeerK8sBareSuffix))
 }
 
+// ─── v0.10.1344 — etiket-önek aşamasının SQL ikizi ───────────────────
+//
+// ResolveExtPeer'in 2. aşaması (extPeerLabelStage, identity.go) liste
+// okumasında da LIMIT'ten önce koşmalı; aksi hâlde
+// `<svc>-prod-grpc.<ns>.svc…` / `<svc>-prod-kon.<kurum>` host'ları
+// topolojide servise birleşip /external'da üçüncü parti kalırdı. Aynı
+// kurallar, aynı sırayla:
+//   - geçit biçimi (`@`) yok; host = extPeerHostSQL (1. aşamayla aynı);
+//   - etiket: host ':' / '[' / ']' içermez, ilk '.' 1. konumdan sonra ve
+//     sonda değil, ilk etiket tamamen rakam değil (IPv4);
+//   - kapı: k8s host'u (1. aşamanın deseni) YA DA ilk etiket '-' içerir ve
+//     ham ad dış katalogda değildir (multiSearchAny, externalCatalogue'tan);
+//   - önekler: etiket + en çok iki `-<belirteç>` atımı; belirteç
+//     `[A-Za-z0-9]+` ve ≤16 bayt, kalan önek boş değil, '-' ile bitmez,
+//     '-' içerir (R3). '{n,m}' niceleyicisi yerine length() (bind kuralı).
+// Her adım kendi lambda'sında (girdi metni üstel büyümesin). Canlı motor
+// eşliği: TestExtPeerIsServiceSQLMirrorMatchesResolve.
+
+// extPeerLabelStripSQL — tek `-<belirteç>` atımı; geçersizse boş dizgi.
+func extPeerLabelStripSQL(x string) string {
+	const tail = `'-[A-Za-z0-9]+$'`
+	return fmt.Sprintf("if(match(%[1]s, '[^-]-[A-Za-z0-9]+$') AND length(extract(%[1]s, '-([A-Za-z0-9]+)$')) <= %[2]d "+
+		"AND position(replaceRegexpOne(%[1]s, %[3]s, ''), '-') > 0, replaceRegexpOne(%[1]s, %[3]s, ''), '')",
+		x, extPeerLabelMaxToken, tail)
+}
+
+// extPeerLabelPrefixesSQL — ExtPeerLabelPrefixes'in ikizi (2 atım).
+func extPeerLabelPrefixesSQL(label string) string {
+	return "arrayMap(l -> arrayMap(p -> arrayFilter(x -> x != '', [l, p, " + extPeerLabelStripSQL("p") + "]), [" +
+		extPeerLabelStripSQL("l") + "])[1], [" + label + "])[1]"
+}
+
+// extPeerCatalogueSQL — classifyExternal'ın boolean ikizi.
+func extPeerCatalogueSQL(raw string) string {
+	subs := make([]string, 0, len(externalCatalogue))
+	for _, e := range externalCatalogue {
+		subs = append(subs, extPeerSQLLit(e.substring))
+	}
+	return "multiSearchAny(lowerUTF8(" + raw + "), [" + strings.Join(subs, ", ") + "])"
+}
+
+// extPeerLabelStageSQL — extPeerLabelStage'in CH ikizi: Array(String).
+func extPeerLabelStageSQL(raw string) string {
+	const label = "splitByChar('.', h)[1]"
+	cond := "position(" + raw + ", '@') = 0 AND position(h, ':') = 0 AND position(h, '[') = 0 AND position(h, ']') = 0 " +
+		"AND position(h, '.') > 1 AND position(h, '.') < length(h) AND NOT match(" + label + ", '^[0-9]+$') " +
+		"AND ((match(lowerUTF8(h), " + extPeerSQLLit(extPeerK8sHostPattern) + ") AND lowerUTF8(h) != " + extPeerSQLLit(extPeerK8sBareSuffix) + ") " +
+		"OR (position(" + label + ", '-') > 0 AND NOT " + extPeerCatalogueSQL(raw) + "))"
+	return "arrayMap(h -> if(" + cond + ", " + extPeerLabelPrefixesSQL(label) + ", emptyArrayString()), [" + extPeerHostSQL(raw) + "])[1]"
+}
+
+// extPeerResolveCandidatesSQL — ExtPeerResolveCandidates'in ikizi (sıra
+// ve tekrar dışlama için önemsiz): 1. aşama + 2. aşama.
+func extPeerResolveCandidatesSQL(raw string) string {
+	return "arrayConcat(" + extPeerCandidatesSQL(raw) + ", " + extPeerLabelStageSQL(raw) + ")"
+}
+
 // extPeerIsServiceSQL — adaylardan biri bilinen bir servis mi
 // (ResolveExtPeer anlamı). svc_names WITH skalerine bağlı.
 func extPeerIsServiceSQL(cands string) string {
@@ -349,7 +406,7 @@ func extPeerIsServiceSQL(cands string) string {
 // ile birebir aynı ham adı görsün.
 func externalHostExclusionCandidates(host string) []string {
 	out := []string{}
-	for _, c := range ExtPeerServiceCandidates("ext:" + host) {
+	for _, c := range ExtPeerResolveCandidates("ext:" + host) { // v0.10.1344: + etiket önekleri
 		if c != "" {
 			out = append(out, c)
 		}
@@ -386,7 +443,7 @@ func externalHostsSQL() string {
 		WHERE node_kind = 'external'
 		  AND time_bucket >= ? AND time_bucket < ?
 		GROUP BY child_node
-		HAVING NOT ` + extPeerIsServiceSQL(extPeerCandidatesSQL("substring(child_node, 5)")) + `
+		HAVING NOT ` + extPeerIsServiceSQL(extPeerResolveCandidatesSQL("substring(child_node, 5)")) + `
 		ORDER BY total_calls DESC
 		LIMIT 500
 		SETTINGS max_execution_time = 10`

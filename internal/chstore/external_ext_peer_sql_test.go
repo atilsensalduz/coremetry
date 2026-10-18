@@ -170,8 +170,10 @@ func TestExternalHostExclusionCandidates(t *testing.T) {
 		host string
 		want []string
 	}{
+		// v0.10.1344 — + etiket önekleri (ResolveExtPeer 2. aşaması; en çok 2 atım).
 		{"bsa-sales-salesapplication-query-prod.sales.svc.cluster.local",
-			[]string{"bsa-sales-salesapplication-query-prod.sales.svc.cluster.local", "bsa-sales-salesapplication-query-prod"}},
+			[]string{"bsa-sales-salesapplication-query-prod.sales.svc.cluster.local", "bsa-sales-salesapplication-query-prod",
+				"bsa-sales-salesapplication-query", "bsa-sales-salesapplication"}},
 		{"api.stripe.com", []string{"api.stripe.com"}},
 		{"ext:payments", []string{"ext:payments"}}, // ham ad "ext:" ile başlıyorsa ikinci kez soyulmaz
 		{"", []string{}},

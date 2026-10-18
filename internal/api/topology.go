@@ -560,13 +560,8 @@ func (s *Server) getServiceTopology(w http.ResponseWriter, r *http.Request) {
 		// edge, once as "frontend → ext:api-gateway". Only
 		// un-instrumented peers (third-party APIs, legacy systems)
 		// survive the filter.
-		knownServices := chstore.NewServiceNameSet() // v0.10.1260: k8s DNS adı da çözülür
-		for _, e := range edges {
-			if e.NodeKind == "service" {
-				knownServices.Add(e.ParentService)
-				knownServices.Add(e.ChildNode)
-			}
-		}
+		// v0.10.1260: k8s DNS adı da çözülür; v0.10.1344: etiket önekleri +
+		// bilinen-servis yedeği (filterExternalPeersWith).
 		// v0.5.310 — total call volume across the window, used
 		// for the minCallPct threshold below. Computed BEFORE
 		// any filtering so a healthy noise edge doesn't shift
@@ -579,13 +574,9 @@ func (s *Server) getServiceTopology(w http.ResponseWriter, r *http.Request) {
 		if minCallPct > 0 && totalCalls > 0 {
 			minCalls = uint64(float64(totalCalls) * minCallPct / 100)
 		}
+		edges = filterExternalPeersWith(edges, s.knownServiceNames(ctx))
 		filtered := edges[:0]
 		for _, e := range edges {
-			if e.NodeKind == "external" {
-				if _, ok := knownServices.ResolveExtPeer(e.ChildNode); ok {
-					continue
-				}
-			}
 			// v0.5.310 — noise filters (default ON, ?noise=show
 			// disables). Each filter is independent so future
 			// per-axis toggles cost nothing.
@@ -1012,23 +1003,8 @@ func (s *Server) getFlowTopology(w http.ResponseWriter, r *http.Request) {
 		// Same external-peer filter as the global topology — drop
 		// peers that already exist as instrumented services so the
 		// subgraph doesn't double-count cross-service edges.
-		knownServices := chstore.NewServiceNameSet() // v0.10.1260: k8s DNS adı da çözülür
-		for _, e := range edges {
-			if e.NodeKind == "service" {
-				knownServices.Add(e.ParentService)
-				knownServices.Add(e.ChildNode)
-			}
-		}
-		filtered := edges[:0]
-		for _, e := range edges {
-			if e.NodeKind == "external" {
-				if _, ok := knownServices.ResolveExtPeer(e.ChildNode); ok {
-					continue
-				}
-			}
-			filtered = append(filtered, e)
-		}
-		edges = filtered
+		// v0.10.1260 / v0.10.1344 — k8s DNS, etiket önekleri, bilinen-servis yedeği.
+		edges = filterExternalPeersWith(edges, s.knownServiceNames(ctx))
 		nodes := map[string]ServiceTopologyNode{}
 		addNode := func(id, kind, extDisp, extKind, env string) {
 			if existing, ok := nodes[id]; ok {
@@ -1145,7 +1121,7 @@ func (s *Server) exportServiceTopologyDrawIO(w http.ResponseWriter, r *http.Requ
 		writeErr(w, err)
 		return
 	}
-	edges = filterExternalPeers(edges)
+	edges = filterExternalPeersWith(edges, s.knownServiceNames(r.Context()))
 	filename := fmt.Sprintf("service-topology-%s.drawio",
 		time.Now().UTC().Format("20060102-1504"))
 	writeServiceDrawIO(w, "Service topology", filename, edges)
@@ -1170,7 +1146,7 @@ func (s *Server) exportFlowTopologyDrawIO(w http.ResponseWriter, r *http.Request
 		writeErr(w, err)
 		return
 	}
-	edges = filterExternalPeers(edges)
+	edges = filterExternalPeersWith(edges, s.knownServiceNames(r.Context()))
 	safeOp := strings.NewReplacer("/", "_", " ", "_", "?", "_", "&", "_").Replace(rootOp)
 	filename := fmt.Sprintf("flow-%s-%s-%s.drawio",
 		rootService, safeOp, time.Now().UTC().Format("20060102-1504"))
@@ -1182,18 +1158,44 @@ func (s *Server) exportFlowTopologyDrawIO(w http.ResponseWriter, r *http.Request
 // JSON endpoint uses so the JSON view and the export stay
 // visually identical.
 func filterExternalPeers(edges []chstore.ServiceTopologyEdge) []chstore.ServiceTopologyEdge {
-	knownServices := chstore.NewServiceNameSet() // v0.10.1260: k8s DNS adı da çözülür
+	return filterExternalPeersWith(edges, nil)
+}
+
+// filterExternalPeersWith — v0.10.1344: çözüm kümesi = kenar setindeki
+// servisler + `catalogue` (knownServiceNames yedeği; nil = yalnız kenarlar).
+// Çözülen hedef kenar setinde bir SERVİS ise ext kenarı düşer (gerçek
+// kenar join pass'inden zaten var — eski davranış). Yalnız yedekte varsa
+// düşürmek çağrıyı kaybettirirdi: kenar gerçek servise yeniden adlanır
+// (kind=service, ViaHosts=ham host) ve aynı (parent, servis) üzerine düşen
+// yeniden adlanmış kenarlar foldTopologyEdge ile katlanır. SAF.
+func filterExternalPeersWith(edges []chstore.ServiceTopologyEdge, catalogue []string) []chstore.ServiceTopologyEdge {
+	inGraph := map[string]bool{}
+	known := chstore.NewServiceNameSet(catalogue...)
 	for _, e := range edges {
 		if e.NodeKind == "service" {
-			knownServices.Add(e.ParentService)
-			knownServices.Add(e.ChildNode)
+			inGraph[e.ParentService], inGraph[e.ChildNode] = true, true
+			known.Add(e.ParentService)
+			known.Add(e.ChildNode)
 		}
 	}
+	type pc struct{ p, c string }
+	folded := map[pc]int{}
 	filtered := edges[:0]
 	for _, e := range edges {
 		if e.NodeKind == "external" {
-			if _, ok := knownServices.ResolveExtPeer(e.ChildNode); ok {
-				continue
+			if name, ok := known.ResolveExtPeer(e.ChildNode); ok {
+				if inGraph[name] {
+					continue
+				}
+				e.ViaHosts = mergeViaHosts(e.ViaHosts, []string{strings.TrimPrefix(e.ChildNode, "ext:")})
+				e.ChildNode, e.NodeKind = name, "service"
+				e.ExtDisplay, e.ExtKind = "", ""
+				k := pc{e.ParentService, name}
+				if i, ok := folded[k]; ok {
+					foldTopologyEdge(&filtered[i], e)
+					continue
+				}
+				folded[k] = len(filtered)
 			}
 		}
 		filtered = append(filtered, e)

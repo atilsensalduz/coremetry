@@ -412,6 +412,19 @@ func (s *Store) getServiceMapAt(
 	for svc := range nodeSpan {
 		realSvc.Add(svc)
 	}
+	// v0.10.1344 — çözüm kümesi = örneklenen servisler + bilinen-servis
+	// yedeği (KnownServiceNames, best-effort). Hedef örnekte varsa kenar
+	// trace'ten zaten gelir (atla, eski davranış); yalnız yedekte varsa
+	// sentetik ext düğümü yerine gerçek servise kenar çizilir.
+	knownSvc := NewServiceNameSet()
+	if names, err := s.KnownServiceNames(ctx); err == nil {
+		for _, n := range names {
+			knownSvc.Add(n)
+		}
+	}
+	for svc := range nodeSpan {
+		knownSvc.Add(svc)
+	}
 
 	type edgeKey struct{ caller, callee string }
 	edgeSpan := map[edgeKey]int{}
@@ -475,7 +488,10 @@ func (s *Store) getServiceMapAt(
 				// receiver side).
 				// Skip if peerSvc actually IS an OTel service
 				// in this map already — it's a real edge then.
-				if real, isReal := realSvc.ResolveExtPeer(sp.peerSvc); isReal && real != sp.svc {
+				if real, isReal := knownSvc.ResolveExtPeer(sp.peerSvc); isReal && real != sp.svc {
+					if !realSvc.Has(real) {
+						depEdge(sp.svc, real, "", "", sp, traceID)
+					}
 					continue
 				}
 				depEdge(sp.svc, "ext:"+sp.peerSvc, "external", sp.peerSvc, sp, traceID)

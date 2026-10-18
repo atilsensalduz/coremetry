@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { assignFocusColumns, externalPinHost } from './FocusedNeighborhood';
+import { assignFocusColumns, externalPinHost, graphEdgeToMapEdge, viaHostsInto } from './FocusedNeighborhood';
 import type { GraphEdge, GraphNode } from '@/lib/types';
 
 // v0.8.39 — Operator-reported: the focused topology graph "won't branch" at
@@ -241,5 +241,40 @@ describe('externalPinHost bağlantısı', () => {
     const m = /staleTime:\s*([\d_]+)/.exec(q);
     expect(m).not.toBeNull();
     expect(Number(m![1].replace(/_/g, ''))).toBeGreaterThanOrEqual(30_000);
+  });
+});
+
+// v0.10.1344 — operatör raporu 2026-10-18 (card-web-api komşuluğu, 2 hop):
+// enstrümante servisler `ext:bsa-channel-channelutility-prod-grpc.channel.svc.cluster.local`
+// ve `ext:bsa-customer-maininq-prod-kon.<kurum>` adıyla "dış bağımlılık"
+// çiziliyordu. Sunucu artık bu kenarları gerçek servise katlıyor ve host'u
+// GraphEdge.viaHosts'ta bırakıyor; inline adapter bu alanı DÜŞÜRÜRSE
+// (v0.8.322 sınıfı) hover kartı "via <host>" satırını hiç basamaz.
+describe('graphEdgeToMapEdge (v0.10.1344)', () => {
+  const full: Required<GraphEdge> = {
+    source: 'card-web-api', target: 'bsa-customer-maininq-prod', calls: 80, errors: 2,
+    errorRate: 2.5, rate: 1.3, avgMs: 12, p99Ms: 200, protocol: 'http', priorP99Ms: 150,
+    viaHosts: ['bsa-customer-maininq-prod-kon.bank.example', 'bsa-customer-maininq-prod-sube.bank.example'],
+  };
+  it('carries viaHosts through the adapter', () => {
+    const m = graphEdgeToMapEdge(full);
+    expect(m.viaHosts).toEqual(full.viaHosts);
+    expect(m).toMatchObject({ caller: full.source, callee: full.target, errorCount: 2, p99Ms: 200, rate: 1.3, avgMs: 12 });
+    expect(m.errorRate).toBeCloseTo(0.025);
+  });
+  it('leaves viaHosts undefined for a plain edge', () => {
+    expect(graphEdgeToMapEdge(e('a', 'b')).viaHosts).toBeUndefined();
+  });
+});
+
+describe('viaHostsInto (v0.10.1344)', () => {
+  it('unions incoming viaHosts, sorted + deduped; outgoing edges ignored', () => {
+    const edges: GraphEdge[] = [
+      { ...e('card-web-api', 'svc'), viaHosts: ['svc-prod-sube.bank.example', 'svc-prod-kon.bank.example'] },
+      { ...e('other', 'svc'), viaHosts: ['svc-prod-kon.bank.example'] },
+      { ...e('svc', 'db'), viaHosts: ['nope.example'] },
+    ];
+    expect(viaHostsInto(edges, 'svc')).toEqual(['svc-prod-kon.bank.example', 'svc-prod-sube.bank.example']);
+    expect(viaHostsInto(edges, 'ext:api.stripe.com')).toEqual([]);
   });
 });

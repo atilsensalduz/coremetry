@@ -307,6 +307,9 @@ func TestTelemetryReadConnCallSurface(t *testing.T) {
 		// v0.10.1276 — SAF telemetri: service_health_sweep derin kipinin code.*
 		// örneklemi, tek FROM'u spans (iç LIMIT 5000, zaman-sınırlı). State okumaz.
 		"code_function_sample.go": true,
+		// v0.10.1344 — SAF telemetri: ext-peer bilinen-servis yedeği, tek FROM'u
+		// service_summary_5m (1 gün, LIMIT 20000). State okumaz.
+		"known_services.go": true,
 		// TAŞINMAZ ÜÇÜNCÜ SINIF: sysstats.go + cluster.go system.* okuyor.
 		// Bunlar NODE-LOKAL tablolar; RoundRobin'e verilirse disk/utilizasyon
 		// panelleri her çağrıda BAŞKA node'u raporlar (SQL konsolunun in-order

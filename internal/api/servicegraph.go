@@ -67,6 +67,10 @@ type GraphEdge struct {
 	// pencerenin kenar p99'u; kenar chip'indeki Δ bundan hesaplanır.
 	// omitempty: kıyas kapalıyken yük değişmez.
 	PriorP99Ms float64 `json:"priorP99Ms,omitempty"`
+	// v0.10.1344 — kenar bir ya da daha çok `ext:<host>` kenarının gerçek
+	// servise katlanmasıyla oluştuysa, o host'lar ("ext:" öneksiz, sıralı,
+	// tekrarsız, en çok 8). Hover kartı "via <host>" satırını bundan basar.
+	ViaHosts []string `json:"viaHosts,omitempty"`
 }
 
 // ServiceGraphResponse is the compact payload the canonical renderer consumes.
@@ -399,7 +403,10 @@ func (s *Server) getOtelServiceGraph(w http.ResponseWriter, r *http.Request) {
 		// Best-effort db.name enrichment for database nodes; a lookup failure
 		// leaves nodes unannotated rather than failing the whole graph.
 		dbNames, _ := s.store.DbNamesBySystem(ctx, from, to)
-		g := buildServiceGraph(edges, focus, scope, hops, dbNames, serviceGraphWindowMinutes(from, to))
+		// v0.10.1344 — bilinen-servis yedeği (son 1 gün service_summary_5m,
+		// 60 sn bellek): ext kenarının hedefi bu grafta kenarı olmayan
+		// enstrümante bir servisse de (1 hop'ta sık) gerçek servise katlanır.
+		g := buildServiceGraphWith(edges, focus, scope, hops, dbNames, serviceGraphWindowMinutes(from, to), s.knownServiceSet(ctx))
 		pruneServiceGraphTopN(&g, topN)
 		if compare {
 			// Prior penceresi: chstore.TopologyPriorWindow (v0.10.1028).
@@ -420,7 +427,7 @@ func (s *Server) getOtelServiceGraph(w http.ResponseWriter, r *http.Request) {
 			if perr == nil {
 				pedges = filterHiddenTopologyEdges(pedges, hidPats)
 				// v0.10.1028 — pfrom/pto okuyucu ARGÜMANI, zaman aralığı değil; prior aynı kova sayısını okur → dakika paydası current'ınki.
-				pg := buildServiceGraph(pedges, focus, scope, hops, dbNames, serviceGraphWindowMinutes(from, to))
+				pg := buildServiceGraphWith(pedges, focus, scope, hops, dbNames, serviceGraphWindowMinutes(from, to), s.knownServiceSet(ctx))
 				mergePriorGraphEdges(g.Edges, pg.Edges)
 			}
 		}
@@ -474,8 +481,18 @@ func filterHiddenTopologyEdges(edges []chstore.ServiceTopologyEdge, patterns []s
 // calls-ağırlıklı, p99 maksimum, errorRate yeniden hesaplanır. Birleşme
 // OLMAYAN satırların (parent, child, protocol) anahtarı aynen kalır —
 // okuyucunun protokol başına ayrık satırları bu adımın konusu değil.
+//
+// v0.10.1344 — `known` bilinen-servis yedeğiyle (knownServiceSet) tohumlanmış
+// küme olabilir (nil → boş); kenar adları üstüne eklenir. Birleşen her ext
+// kenarı ham host'unu ViaHosts'a yazar (katlamada birleşir).
 func mergeExtPeerEdges(edges []chstore.ServiceTopologyEdge) []chstore.ServiceTopologyEdge {
-	known := chstore.NewServiceNameSet()
+	return mergeExtPeerEdgesWith(edges, nil)
+}
+
+func mergeExtPeerEdgesWith(edges []chstore.ServiceTopologyEdge, known *chstore.ServiceNameSet) []chstore.ServiceTopologyEdge {
+	if known == nil {
+		known = chstore.NewServiceNameSet()
+	}
 	for _, e := range edges {
 		known.Add(e.ParentService)
 		if e.NodeKind == "service" {
@@ -489,6 +506,7 @@ func mergeExtPeerEdges(edges []chstore.ServiceTopologyEdge) []chstore.ServiceTop
 	for _, e := range edges {
 		if strings.HasPrefix(e.ChildNode, "ext:") {
 			if name, ok := known.ResolveExtPeer(e.ChildNode); ok {
+				e.ViaHosts = mergeViaHosts(e.ViaHosts, []string{strings.TrimPrefix(e.ChildNode, "ext:")})
 				e.ChildNode = name
 				e.NodeKind = "service"
 				e.ExtDisplay, e.ExtKind = "", ""
@@ -538,6 +556,32 @@ func foldTopologyEdge(dst *chstore.ServiceTopologyEdge, src chstore.ServiceTopol
 	if dst.Protocol == "" {
 		dst.Protocol = src.Protocol
 	}
+	if len(src.ViaHosts) > 0 {
+		dst.ViaHosts = mergeViaHosts(dst.ViaHosts, src.ViaHosts)
+	}
+}
+
+// viaHostsCap — GraphEdge.ViaHosts tavanı (v0.10.1344).
+const viaHostsCap = 8
+
+// mergeViaHosts — iki host listesinin birleşimi: sıralı, tekrarsız, boşsuz,
+// en çok viaHostsCap (SAF).
+func mergeViaHosts(a, b []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, l := range [][]string{a, b} {
+		for _, h := range l {
+			if h != "" && !seen[h] {
+				seen[h] = true
+				out = append(out, h)
+			}
+		}
+	}
+	sort.Strings(out)
+	if len(out) > viaHostsCap {
+		out = out[:viaHostsCap]
+	}
+	return out
 }
 
 // serviceGraphWindowMinutes returns the window length in minutes used to derive
@@ -556,6 +600,12 @@ func serviceGraphWindowMinutes(from, to time.Time) float64 {
 // {nodes, edges} model. Extracted so it's unit-testable without ClickHouse.
 // hops bounds the neighborhood walk (v0.8.294); ignored outside that scope.
 func buildServiceGraph(edges []chstore.ServiceTopologyEdge, focus, scope string, hops int, dbNames map[string]string, windowMin float64) ServiceGraphResponse {
+	return buildServiceGraphWith(edges, focus, scope, hops, dbNames, windowMin, nil)
+}
+
+// buildServiceGraphWith — buildServiceGraph + ext-merge kümesinin tohumu
+// (v0.10.1344, knownServiceSet; nil = yalnız kenar adları).
+func buildServiceGraphWith(edges []chstore.ServiceTopologyEdge, focus, scope string, hops int, dbNames map[string]string, windowMin float64, known *chstore.ServiceNameSet) ServiceGraphResponse {
 	if windowMin < 1 {
 		windowMin = 1
 	}
@@ -570,7 +620,7 @@ func buildServiceGraph(edges []chstore.ServiceTopologyEdge, focus, scope string,
 	// asla eşleşmiyor, odak servisin sağ kolonu gerçek servislerin
 	// kopyalarıyla doluyordu. Aday kuralı chstore.ExtPeerServiceCandidates;
 	// birleşen kenarlar mergeExtPeerEdges'te tek kenara katlanır.
-	edges = mergeExtPeerEdges(edges)
+	edges = mergeExtPeerEdgesWith(edges, known)
 
 	// Neighborhood scope: keep only edges whose BOTH endpoints sit within
 	// `hops` of the focus — direction-separated walk (neighborhoodKeepSet,
@@ -651,6 +701,7 @@ func buildServiceGraph(edges []chstore.ServiceTopologyEdge, focus, scope string,
 			Calls: e.Calls, Errors: e.Errors, ErrorRate: e.ErrorRate,
 			Rate:  float64(e.Calls) / windowMin,
 			AvgMs: e.AvgMs, P99Ms: e.P99Ms, Protocol: e.Protocol,
+			ViaHosts: e.ViaHosts,
 		})
 	}
 
