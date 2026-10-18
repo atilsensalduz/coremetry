@@ -156,7 +156,15 @@ describe('ButtonGroup — bitişik grup varyant kuralı (kaynak taraması)', () 
       const src = stripTsComments(readFileSync(p, 'utf8'));
       for (const m of src.matchAll(/<ButtonGroup\b[^>]*\battached\b[^>]*>([\s\S]*?)<\/ButtonGroup>/g)) {
         for (const v of m[1].matchAll(/variant="([\w-]+)"/g)) {
-          if (v[1] !== 'secondary') offenders.push(`${p.slice(SRC.length + 1)}: variant="${v[1]}"`);
+          // v0.10.1320 — bitişik BAĞLANTI grubu (/service başlığı): DrillButton
+          // `subtle` kenarlı `a.sec` basar (düz --text) — `secondary` ile aynı
+          // kenarlı aile. İstisna yalnız o etikete: varyantın sahibi, ondan
+          // önceki en yakın `<Etiket` (araya giren bir `<span` istisnayı düşürür
+          // → kapı yalnız sıkılaşabilir).
+          const before = m[1].slice(0, v.index);
+          const tag = /^<([A-Za-z][\w.]*)/.exec(before.slice(before.lastIndexOf('<')))?.[1];
+          const ok = v[1] === 'secondary' || (tag === 'DrillButton' && v[1] === 'subtle');
+          if (!ok) offenders.push(`${p.slice(SRC.length + 1)}: variant="${v[1]}"`);
         }
       }
     }

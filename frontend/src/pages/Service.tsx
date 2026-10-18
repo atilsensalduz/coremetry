@@ -6,7 +6,8 @@ import { navHref } from '@/lib/navHref';
 import { encodeRange } from '@/lib/urlState';
 import { Topbar } from '@/components/Topbar';
 import { DrillButton } from '@/components/DrillButton';
-import { Button } from '@/components/ui/Button';
+import { IconButton } from '@/components/ui/IconButton';
+import { ButtonGroup } from '@/components/ui/ButtonGroup';
 import { recordServiceVisit, isServicePinned, toggleServicePin } from '@/lib/recentServices';
 import { usePageZoomRange } from '@/lib/chart/usePageZoomRange';
 import { useUrlEnv } from '@/lib/useUrlEnv';
@@ -436,6 +437,9 @@ function ServiceDetailInner() {
   // v0.10.929 (K5) — başlık sağlık noktası: sınıf + metin alternatifi tek
   // eşikten (>5 kritik, >1 uyarı); ikisi ayrı ayrı hesaplanıp ayrışmasın.
   const headDot = serviceHeadDot(info?.errorRate ?? 0);
+  // v0.10.1320 — Problems çipinin sayısı: bundle'ın zaten getirdiği
+  // problemlerden (ek istek yok); yalnız açık olanlar (Problem.status).
+  const openProblems = useMemo(() => problems.filter(p => p.status === 'open').length, [problems]);
 
   if (!svc) {
     return (
@@ -463,69 +467,89 @@ function ServiceDetailInner() {
             service rendered a green dot next to an orange "Errors 0.50%")
             and their P99 included kafka spans while the Overview tile 200px
             below excluded them. */}
-        {info && (
-          <div className="svc-head">
-            <div className="svc-title">
-              {/* v0.10.929 (K5) — eşikler aynı; sağlıklı nokta yeşil değil, soluk
-                  --border-strong halkası (Services HealthDot emsali). Halka artık
-                  globals'taki `.ov-dot.green`ten gelir (tarihsel ad, nötr halka);
-                  satır içi boxShadow kopyası kalktı. Renk tek başına durum
-                  taşımasın: aynı >5 / >1 eşiğinde metin alternatifi (title +
-                  aria-label). */}
+        {/* v0.10.1320 (operatör onaylı mockup "Öneri A") — başlık TEK satır:
+            kimlik solda, gezinme sağda. Eski ikinci satır (oklu "All services" geri linki +
+            yedi eşit buton) kalktı:
+              • geri linki başlığın ÜSTÜNDE kırıntı (`.crumbs`, /trace emsali);
+                hedef aynı navHref → pencere + env taşınır (v0.9.1320).
+              • Pin, h1'in yanında yıldız anahtarı (IconButton ib-star, aria-pressed).
+              • drill çipleri üç bitişik grup: bağımlılık+sinyaller · sağlık ·
+                Traces (sağda tek). Renk düz --text (`subtle`): gezinme CTA değil.
+              • Problems çipi açık problem sayısını (bundle'dan, ek istek yok)
+                `.badge b-err` ile taşır; RED sayısı başlığa girmez (v0.9.211).
+            Başlık artık `info` beklemiyor: gezinme yükleme/hata anında da
+            erişilir; yalnız bundle'a bağlı nokta/rozet/katalog onu bekler. */}
+        <div className="svc-head">
+          <nav className="crumbs svc-head__crumbs" aria-label="Breadcrumb">
+            <Link to={navHref('/services', searchParams.toString())}>Services</Link>
+            <span className="crumbs__sep" aria-hidden="true">›</span>
+            <span className="crumbs__cur" aria-current="page" title={svc}>{svc}</span>
+          </nav>
+          <div className="svc-title">
+            {/* v0.10.929 (K5) — eşikler aynı; sağlıklı nokta yeşil değil, soluk
+                --border-strong halkası (Services HealthDot emsali). Halka artık
+                globals'taki `.ov-dot.green`ten gelir (tarihsel ad, nötr halka);
+                satır içi boxShadow kopyası kalktı. Renk tek başına durum
+                taşımasın: aynı >5 / >1 eşiğinde metin alternatifi (title +
+                aria-label). */}
+            {info && (
               <span className={`ov-dot ${headDot.cls}`} style={{ width: 12, height: 12 }}
                 role="img" title={headDot.label} aria-label={headDot.label} />
-              <h1>{svc}</h1>
-              {runtimeQ.data && <ServiceRuntimeBadge rt={runtimeQ.data} compact />}
-              <ServiceCatalogPill service={svc} />
-            </div>
+            )}
+            <h1>{svc}</h1>
+            {/* v0.7.89 Cmd-K sabitleme — aynı toggleServicePin; v0.10.1320'den
+                beri metinli buton değil, Services listesindeki yıldızla aynı dil. */}
+            <IconButton variant="ghost" size="sm" className="ib-star"
+              active={pinned}
+              aria-label={pinned ? 'Unpin from Cmd-K quick access' : 'Pin to Cmd-K quick access'}
+              tooltip={pinned ? 'Unpin from Cmd-K quick access' : 'Pin to Cmd-K quick access'}
+              icon={pinned ? '★' : '☆'}
+              onClick={() => setPinned(toggleServicePin(svc))} />
+            {info && runtimeQ.data && <ServiceRuntimeBadge rt={runtimeQ.data} compact />}
+            {info && <ServiceCatalogPill service={svc} />}
           </div>
-        )}
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
-          {/* v0.9.1320 — geri linki pencereyi + env'i taşır (navHref);
-              çıplak `/services` operatörü sticky pencereye düşürüyordu.
-              v0.10.928 — satır içi --border kalktı; kenarlık `a.sec`ten
-              (--border-control, hover --border-strong). */}
-          <Link to={navHref('/services', searchParams.toString())} className="sec" style={{
-            padding: '5px 12px',
-            borderRadius: 6, fontSize: 12, color: 'var(--text)', textDecoration: 'none',
-          }}>← All services</Link>
           {/* Drill chips (v0.5.463) — DrillButton standardises the
               "view in X" cross-page navigation pattern; service +
               range propagate so the destination starts where the
-              operator left off. Backtrace, traces, logs, problems,
-              anomalies, profiles. */}
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            <Button variant="secondary" size="sm"
-              title={pinned ? 'Unpin — remove from Cmd-K quick access' : 'Pin — keep this service one keystroke away in Cmd-K'}
-              onClick={() => setPinned(toggleServicePin(svc))}>
-              {pinned ? '★ Pinned' : '☆ Pin'}
-            </Button>
-            <DrillButton to="/service/backtrace" params={{ name: svc }}
-              title="Inbound callers — service / pod / IP backtrace"
-              label="↩ Backtrace" />
-            <DrillButton to="/traces" params={{ service: svc }} range={range} carry={SERVICE_PIVOT_CARRY}
-              title="Raw traces filtered to this service"
-              label="⋮ Traces" />
-            <DrillButton to="/logs" params={{ service: svc }} range={range} carry={SERVICE_PIVOT_CARRY}
-              title="Logs filtered to this service"
-              label="≡ Logs" />
-            {/* v0.9.309 (brief N6d) — /endpoints had NO contextual way
-                in: the page was reachable only from the sidebar and the
-                command palette, so an incident investigation never
-                descended to the per-route table. This is the drill an
-                operator wants right after "which service" — "which
-                ROUTE of it". env rides along for the same reason it
-                rides every other pivot since v0.9.307: a link must ask
-                the question the screen it left was asking. */}
-            <DrillButton to="/endpoints" params={{ service: svc }} range={range} carry={SERVICE_PIVOT_CARRY}
-              title="Per-route RED for this service — calls, errors, P50/P90/P95/P99 and spread per endpoint"
-              label="⇄ Endpoints" />
-            <DrillButton to="/problems" params={{ service: svc }}
-              title="Open problems for this service"
-              label="⚠ Problems" />
-            <DrillButton to="/anomalies" params={{ service: svc }}
-              title="Anomaly events for this service"
-              label="∿ Anomalies" />
+              operator left off. v0.10.1320 — sıra ve gruplama operatör
+              onaylı: [Backtrace | Logs | Endpoints] [Problems | Anomalies]
+              [Traces]. Bağlantılar (to/params/range/carry) değişmedi. */}
+          {/* Gruplar ui/ButtonGroup attached; çocuklar Button değil <Link>
+              (DrillButton `subtle` = kenarlı a.sec, düz --text). Bitişik
+              birleşim globals'ta `.btn-group.is-attached > a.sec`. */}
+          <div className="svc-head__nav">
+            <ButtonGroup attached aria-label="Bağımlılık ve sinyaller">
+              <DrillButton to="/service/backtrace" params={{ name: svc }} variant="subtle"
+                title="Inbound callers — service / pod / IP backtrace"
+                label="↩ Backtrace" />
+              <DrillButton to="/logs" params={{ service: svc }} range={range} carry={SERVICE_PIVOT_CARRY} variant="subtle"
+                title="Logs filtered to this service"
+                label="≡ Logs" />
+              {/* v0.9.309 (brief N6d) — /endpoints had NO contextual way
+                  in: the page was reachable only from the sidebar and the
+                  command palette, so an incident investigation never
+                  descended to the per-route table. This is the drill an
+                  operator wants right after "which service" — "which
+                  ROUTE of it". env rides along for the same reason it
+                  rides every other pivot since v0.9.307: a link must ask
+                  the question the screen it left was asking. */}
+              <DrillButton to="/endpoints" params={{ service: svc }} range={range} carry={SERVICE_PIVOT_CARRY} variant="subtle"
+                title="Per-route RED for this service — calls, errors, P50/P90/P95/P99 and spread per endpoint"
+                label="⇄ Endpoints" />
+            </ButtonGroup>
+            <ButtonGroup attached aria-label="Sağlık">
+              <DrillButton to="/problems" params={{ service: svc }} variant="subtle"
+                title="Open problems for this service"
+                label={<>⚠ Problems{openProblems > 0 && <span className="badge b-err">{openProblems}</span>}</>} />
+              <DrillButton to="/anomalies" params={{ service: svc }} variant="subtle"
+                title="Anomaly events for this service"
+                label="∿ Anomalies" />
+            </ButtonGroup>
+            <ButtonGroup attached aria-label="Traces">
+              <DrillButton to="/traces" params={{ service: svc }} range={range} carry={SERVICE_PIVOT_CARRY} variant="subtle"
+                title="Raw traces filtered to this service"
+                label="⋮ Traces" />
+            </ButtonGroup>
           </div>
         </div>
         {/* v0.10.784 — dikkat şeridi: Inbox sıralı, tıklanabilir problem /

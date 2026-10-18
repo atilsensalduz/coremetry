@@ -76,14 +76,16 @@ export function DrillButton({ to, label, range, params, title, variant = 'primar
     );
   }
   // v0.10.928 — satır içi bg3 + --border boyası kalktı: yüzey/kenarlık/hover
-  // artık `a.sec`ten (dolgusuz secondary). /service başlığında yanındaki
-  // "← All services" ve Pin ile aynı dil; yalnız yazı rengi varyanttan.
+  // artık `a.sec`ten (dolgusuz secondary); yalnız yazı rengi varyanttan.
+  // v0.10.1320 — satır içi `borderRadius: 6` da kalktı: radius `a.sec`in
+  // `--radius-sm`inden (varsayılan temada aynı 6px; redhat'te kendi
+  // basamağı). Satır içi değer `.btn-group.is-attached > a.sec` iç köşe
+  // düzleştirmesini ezerdi (/service başlığındaki bitişik gruplar).
   return (
     <Link to={href} title={title} className="sec"
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 4,
         fontSize: 12, padding: '5px 12px',
-        borderRadius: 6,
         color: variant === 'subtle' ? 'var(--text)' : 'var(--accent2)',
         textDecoration: 'none', whiteSpace: 'nowrap',
       }}>

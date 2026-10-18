@@ -3170,6 +3170,16 @@ button.accent.copied {
    kardeş (-1px) o pikseli kendi kenarıyla örterdi → 1px dikiş. Hover eden
    öne gelir. Trace'in el yapımı bölünmüş düğmesi (.btn-split) aynı kural. */
 .btn-group.is-attached > button:hover:not(:disabled) { z-index: 1; }
+/* v0.10.1320 — bitişik BAĞLANTI grubu: aynı birleşim `a.sec` (DrillButton)
+   için (/service başlığı drill grupları). Kurallar butonunkinin ikizi. */
+.btn-group.is-attached > a.sec { position: relative; }
+.btn-group.is-attached > a.sec:not(:first-of-type) {
+  margin-left: -1px; border-top-left-radius: 0; border-bottom-left-radius: 0;
+}
+.btn-group.is-attached > a.sec:not(:last-of-type) {
+  border-top-right-radius: 0; border-bottom-right-radius: 0;
+}
+.btn-group.is-attached > a.sec:hover, .btn-group.is-attached > a.sec:focus-visible { z-index: 1; }
 .btn-split > button:hover:not(:disabled), .btn-split > button:focus-visible { position: relative; z-index: 1; }
 
 /* Tooltip (v0.10.919, Seçenek B) — gerekçe ui/Tooltip.tsx. Ağaçta,
@@ -3989,7 +3999,20 @@ td > .cell-actions.end { justify-content: flex-end; }
 .metric-row-meta { font-size: 10px; color: var(--text3); margin-top: 2px; }
 
 /* Service identity header (design handoff app.jsx .svc-head) */
-.svc-head { display: flex; align-items: flex-start; gap: 16px; padding: 2px 0 12px; }
+/* v0.10.1320 (mockup "Öneri A") — tek satır: kırıntı üstte tam genişlik,
+   kimlik solda, drill grupları sağda (margin-left:auto); dar ekranda
+   gezinme kümesi başlığın altına sarar. Kırıntı `.crumbs` (/trace emsali),
+   burada küçük ve sönük: başlığın üstünde bir yön işareti, ikinci başlık değil. */
+.svc-head { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-3) 16px; padding: 2px 0 12px; }
+.svc-head__crumbs.crumbs { flex: 1 0 100%; margin-bottom: 0; font-size: var(--fs-sm); color: var(--text3); }
+.svc-head__crumbs a { color: var(--text3); text-decoration: none; }
+.svc-head__crumbs a:hover { color: var(--text2); text-decoration: underline; text-underline-offset: 2px; }
+.svc-head__crumbs .crumbs__cur { font-weight: 400; }
+.svc-head__nav { margin-left: auto; display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-3); }
+@media (max-width: 640px) {
+  .svc-head__nav { margin-left: 0; flex-basis: 100%; justify-content: flex-start; }
+  .svc-head__nav a.sec { min-height: 28px; }
+}
 .svc-title { display: flex; align-items: center; gap: 11px; flex-wrap: wrap; }
 .svc-title h1 { font-size: 23px; margin: 0; letter-spacing: -.4px; font-weight: 700; white-space: nowrap; color: var(--text); }
 
