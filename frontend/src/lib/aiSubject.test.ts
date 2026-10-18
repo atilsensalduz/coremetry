@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   formatAiParamForUrl, aiSelfParam,
-  formatAiParam, parseAiParam, aiSubjectTitle, aiSubjectSubtitle,
+  formatAiParam, parseAiParam, aiSubjectTitle, aiSubjectSubtitle, aiSubjectTopic,
   AI_KINDS, CHART_SCOPES, chartScopeLabel, type AISubject,
 } from './aiSubject';
 
@@ -108,7 +108,11 @@ describe('trace başlığı i18n (v0.10.948)', () => {
   });
   it('öteki türler aynı', () => {
     expect(aiSubjectTitle({ kind: 'span', id: 't', spanId: 's' }, 'tr')).toBe('Explain span');
-    expect(aiSubjectTitle({ kind: 'exception', id: 'fp' }, 'tr')).toBe('Explain root cause');
+    // v0.10.1326 (operatör) — exception çekmecesi düğmeyle aynı ad: "Ask CoSRE".
+    expect(aiSubjectTitle({ kind: 'exception', id: 'fp' }, 'tr')).toBe('CoSRE’ye sor');
+    expect(aiSubjectTitle({ kind: 'exception', id: 'fp' }, 'en')).toBe('Ask CoSRE');
+    // Model bağlamı kök-neden konusunu korur.
+    expect(aiSubjectTopic({ kind: 'exception', id: 'fp' })).toBe('Explain root cause');
   });
   it('varsayılan dil: kullanıcı seçimi (localStorage) → yoksa İngilizce', () => {
     const mem = new Map<string, string>();

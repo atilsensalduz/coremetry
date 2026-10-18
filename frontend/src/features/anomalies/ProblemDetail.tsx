@@ -65,6 +65,7 @@ import { Badge } from '@/components/ui/Badge';
 import { OracleGroupPanel } from './OracleGroupPanel';
 import { isOracleGroup, isSyntheticOracleService } from './oracleGroup';
 import { useBranding } from '@/lib/branding'; // v0.10.1108 — Oracle grubu görünen adı
+import { useT } from '@/lib/i18n'; // v0.10.1326 — "Ask CoSRE" etiketi
 // v0.10.1032 — triyaj eylemleri tam sayfaya taşındı (çekmece atlanınca
 // "Gerçek problem / Problem değil" ve Assign… kaybolmasın).
 import { ProblemVerdictActions } from '@/components/ProblemVerdictActions';
@@ -464,6 +465,7 @@ export function ProblemDetail({ group, isAdmin, onBack, onChanged }: {
   // daha" yerinde açar. Copy HER ZAMAN tamamını kopyalar (stack). Sayfa
   // yüklemesi başına, kalıcı değil.
   const [stackOpen, setStackOpen] = useState(false);
+  const tr = useT(); // v0.10.1326
   const stackFolded = !stackOpen && stackLines.length > STACK_FOLD_AT;
   const shownStackLines = stackFolded ? stackLines.slice(0, STACK_FOLD_SHOW) : stackLines;
 
@@ -591,12 +593,15 @@ export function ProblemDetail({ group, isAdmin, onBack, onChanged }: {
           kanıt trace'leri window köprüsüyle gelip örnek satırlarını
           kutulamaya devam ediyor. */}
       <div style={{ marginBottom: 16 }}>
-        {/* v0.10.593 (operatör) — Trace'teki "Explain this trace" ile AYNI:
+        {/* v0.10.1326 (operatör) — görünen ad "Ask CoSRE" / "CoSRE’ye sor"
+            (Trace'teki düğmeyle aynı i18n anahtarı); davranış aynı:
+            ?ai=exception:<fp>.
+            v0.10.593 (operatör) — Trace'teki "Explain this trace" ile AYNI:
             sayfanın tek ana eylemi, dolu aksan (emphasis strong). İki yüzeyde
             iki farklı ağırlık, aynı işi yapan düğmeyi iki ayrı şey gibi
             gösteriyordu. */}
         <AIExplainButton subject={{ kind: 'exception', id: group.fingerprint }} emphasis="strong"
-          label={<><IconSparkles /> <span style={{ marginLeft: 6 }}>Explain root cause</span></>} />
+          label={<><IconSparkles /> <span style={{ marginLeft: 6 }}>{tr('ai.askCosre')}</span></>} />
       </div>
       {/* CoSRE öğrenme Faz 3 — çözülmüş grubun vaka kaydı (taslak → tek tık onay). */}
       <IncidentCaseCard source="exception" sourceId={group.fingerprint} />

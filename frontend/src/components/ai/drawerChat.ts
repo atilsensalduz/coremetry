@@ -1,4 +1,4 @@
-import { aiSubjectTitle, type AIKind, type AISubject } from '@/lib/aiSubject';
+import { aiSubjectTopic, type AIKind, type AISubject } from '@/lib/aiSubject';
 
 // drawerChat — AI çekmecesi içindeki sohbetin BAĞLAM DEVRİ kodeği
 // (v0.9.479, operatör raporu: "Chat'te devam et" global CoSRE
@@ -74,7 +74,7 @@ export function buildExplainContext(i: {
   const body = (i.text ?? '').trim();
   if (!body) return '';
   // v0.10.948 — model bağlamı arayüz dilinden BAĞIMSIZ (trace başlığı artık i18n'li).
-  const parts = [`KONU: ${aiSubjectTitle(i.subject, 'tr')} — ${subjectRef(i.subject)}`, body];
+  const parts = [`KONU: ${aiSubjectTopic(i.subject)} — ${subjectRef(i.subject)}`, body]; // v0.10.1326
   if (i.spanIds?.length) parts.push(`Kanıt span'leri: ${i.spanIds.slice(0, EVIDENCE_MAX).join(', ')}`);
   if (i.traceIds?.length) parts.push(`Kanıt trace'leri: ${i.traceIds.slice(0, EVIDENCE_MAX).join(', ')}`);
   return clampExplain(parts.join('\n'));

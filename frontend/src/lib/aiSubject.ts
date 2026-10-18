@@ -318,7 +318,7 @@ export function aiSubjectTitle(s: AISubject, lang: Lang = currentLang()): string
     case 'problem':        return 'Explain problem';
     case 'incident':       return 'Explain incident';
     case 'anomaly':        return 'Explain anomaly';
-    case 'exception':      return 'Explain root cause';
+    case 'exception':      return t('ai.askCosre', lang); // v0.10.1326 (operatör) — düğme adıyla aynı
     case 'runbook':        return 'Runbook AI';
     case 'service-health': return 'AI triage';
     // Mockup başlığı: çekmece bir GRAFİĞİ anlatıyor, servis sağlığını
@@ -328,6 +328,14 @@ export function aiSubjectTitle(s: AISubject, lang: Lang = currentLang()): string
     case 'log-spike':      return 'Log artışını açıkla'; // v0.10.1284
     case 'log':            return 'Log satırını açıkla'; // v0.10.1291
   }
+}
+
+// aiSubjectTopic — v0.10.1326: MODEL bağlamındaki konu adı (drawerChat KONU
+// satırı). Çekmece başlığı exception için "CoSRE’ye sor" oldu; model ise
+// sorunun bir kök-neden açıklaması olduğunu bilmeye devam etmeli.
+export function aiSubjectTopic(s: AISubject): string {
+  if (s.kind === 'exception') return 'Explain root cause';
+  return aiSubjectTitle(s, 'tr');
 }
 
 // Başlığın altındaki ikinci satır: hangi nesne (kısaltılmış id / servis).
