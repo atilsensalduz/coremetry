@@ -93,6 +93,9 @@ var promptVersionRegistry = map[string]string{
 	// v0.10.1302 — simple araç seti varyantları (*.simple; ToolsetText ile türer).
 	"systemChatAgentLoop.simple":   SystemPromptChatAgentLoopFor(true),
 	"traceFollowUpAddendum.simple": TraceFollowUpAddendumFor(true),
+
+	// v0.10.1331 — operasyonun Exceptions grubu varken serbest döngü eki.
+	"operationExceptionsAddendum": operationExceptionsAddendum,
 }
 
 var (

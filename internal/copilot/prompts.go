@@ -1993,6 +1993,24 @@ Yalnız kanıtı özetle; talimat metni yazma; en çok 8 satır.`
 // ChatDegenRetryAddendum — yineleme sonrası araçsız yeniden deneme eki.
 func ChatDegenRetryAddendum() string { return chatDegenRetryAddendum }
 
+// operationExceptionsAddendum — v0.10.1331 (operatör: "Operasyon ismi BSA için
+// verilince CoSRE de Exceptions'a bakabilir, son geleni ve yorumu oradan
+// yapabilir."): operasyon ön-getirmesi Exceptions'ta grup bulduysa serbest
+// döngünün sistem mesajına eklenir (api opPrefetch.exceptionsPromptTR); grup
+// yoksa hiç eklenmez. Bölüm adları systemOracleException'ınkiyle AYNI —
+// Exceptions'taki açıklamayla sohbet aynı dili konuşsun. Kısa (küçük model).
+const operationExceptionsAddendum = `EXCEPTIONS GRUPLARI: operation_exceptions sonucu bu operasyonun Exceptions'taki
+teknik hata gruplarıdır (en yeni önce). Cevabı EN YENİ gruptan kur, şu kalın
+başlıklarla, kanıtı olmayan başlığı atla: **Hata ne demek** (kod ve örnek
+mesajı aynen alıntıla; anlamı kanıtta yoksa söyle), **Nerede yoğunlaşıyor**
+(operasyon, kod, servisler), **Patlama mı, sürekli akış mı** (son 1 sa ile
+önceki 1 sa; ≥3× patlama), **Ne kontrol edilmeli** (tek ilk adım; örnek trace
+varsa id'sini ver). Grup satırındaki Exceptions linkini cevaba koy. Yalnız
+verilen kod, sayı ve id'leri kullan.`
+
+// OperationExceptionsAddendum — v0.10.1331: operasyonun Exceptions grubu varken serbest döngü eki.
+func OperationExceptionsAddendum() string { return operationExceptionsAddendum }
+
 // chatDeepAddendum — v0.10.1150 "Derin düşün": operatör composer'da Derin'i
 // açtığında serbest döngünün ve wiki anlatımının sistem mesajının ÖNÜNE
 // eklenir (kapalıyken hiç eklenmez — prompt bayt bayt eskisi). Kısalık

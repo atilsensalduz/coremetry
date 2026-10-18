@@ -213,8 +213,8 @@ func TestFollowupTemplatesRouteGuided(t *testing.T) {
 		fuKindDeploy: {followupFact{Kind: fuKindDeploy, Service: "checkout-service"}, guidedDeployImpact},
 	}
 	for kind := range fuKindOrder {
-		if kind == fuKindHypothesis {
-			continue // aksiyon çipi — aşağıda
+		if kind == fuKindHypothesis || kind == fuKindExceptionGroup {
+			continue // aksiyon / link çipi (v0.10.1331) — mesaj göndermez, aşağıda
 		}
 		p, ok := pinned[kind]
 		if !ok {
@@ -318,5 +318,45 @@ func TestLoopAnswerSitesCarryFollowups(t *testing.T) {
 	}
 	if !strings.Contains(b, "fuFacts = append(fuFacts, followupFactsFromTool(tc.Name, cargs, tr.Content)...)") {
 		t.Fatal("olgular başarılı tool sonucundan toplanmıyor")
+	}
+}
+
+// TestExceptionGroupFollowupChip — v0.10.1331: operasyon ön-getirmesinin en
+// yeni Exceptions grubu "<KOD> grubunu açıkla" LİNK çipi olur (grubun sayfası +
+// AI açıklaması); mesaj göndermez → eski istemcinin suggestions'ına girmez;
+// bozuk kod / parmak izi çip üretmez; öncelik sırasında hipotezden sonra ilk.
+func TestExceptionGroupFollowupChip(t *testing.T) {
+	c, ok := renderFollowup(followupFact{Kind: fuKindExceptionGroup, Code: "COR-30518", Fingerprint: "ora:0123456789abcdef"})
+	if !ok || c.Text != "COR-30518 grubunu açıkla" || c.Href != "/problems?exc=ora%3A0123456789abcdef&ai=exception" || c.Action != nil || c.Scope != nil {
+		t.Fatalf("çip: %+v ok=%v", c, ok)
+	}
+	for _, bad := range []followupFact{
+		{Kind: fuKindExceptionGroup, Code: "COR 30518", Fingerprint: "ora:0123456789abcdef"},
+		{Kind: fuKindExceptionGroup, Code: "COR-30518", Fingerprint: "javascript:alert(1)"},
+		{Kind: fuKindExceptionGroup, Code: "", Fingerprint: "0123456789abcdef"},
+	} {
+		if _, ok := renderFollowup(bad); ok {
+			t.Errorf("bozuk olgu çip üretti: %+v", bad)
+		}
+	}
+	chips := followupChips([]followupFact{
+		{Kind: fuKindErrors, Service: "payments"},
+		{Kind: fuKindExceptionGroup, Code: "COR-30518", Fingerprint: "ora:0123456789abcdef"},
+	}, nil, followupMax)
+	if len(chips) != 2 || chips[0].Kind != fuKindExceptionGroup {
+		t.Fatalf("sıra: %+v", chips)
+	}
+	ans := withAnswerFollowups(map[string]any{}, chips)
+	if sg, _ := ans["suggestions"].([]string); len(sg) != 1 || sg[0] != "payments hata logları?" {
+		t.Fatalf("link çipi suggestions'a girmemeli: %#v", ans["suggestions"])
+	}
+	p := &opPrefetch{Exceptions: &exceptionGroupsEvidence{Groups: []exGroupLine{{Fingerprint: "ora:0123456789abcdef", Code: "COR-30518", Oracle: true}}}}
+	if f := p.exceptionFollowupFacts(); len(f) != 1 || f[0].Code != "COR-30518" {
+		t.Fatalf("ön-getirme olgusu: %+v", f)
+	}
+	for _, q := range []*opPrefetch{nil, {}, {Exceptions: &exceptionGroupsEvidence{Err: "x", Groups: p.Exceptions.Groups}}} {
+		if f := q.exceptionFollowupFacts(); f != nil {
+			t.Errorf("grup yok / okunamadı → olgu yok: %+v", f)
+		}
 	}
 }

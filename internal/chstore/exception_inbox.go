@@ -622,6 +622,11 @@ type ExceptionGroupFilter struct {
 	// of the paginated inbox (the old client-side filter only searched
 	// the loaded 50 rows).
 	Search string
+	// Messages — v0.10.1331 (CoSRE operasyon → Exceptions): ex_message
+	// BİREBİR kümesi (`ex_message IN (?)`). Oracle grubunda ex_message =
+	// operasyon kodu; Search'ün ILIKE alt-dizesi "X_REST" ile "X_REST_V2"yi
+	// karıştırırdı. Boş = kısıt yok (eski cümle bayt-bayt aynı).
+	Messages []string
 	// Sort / Dir (v0.8.318) — server-side ordering (whitelisted via
 	// exceptionGroupsOrderBy). The inbox is LIMIT/OFFSET paginated, so a
 	// client-side sort of one page silently lied ("top by occurrences"
@@ -737,6 +742,9 @@ func buildExceptionGroupWhere(f ExceptionGroupFilter) whereClause {
 	if f.Search != "" {
 		p := "%" + f.Search + "%"
 		wc.add("(ex_type ILIKE ? OR ex_message ILIKE ? OR service ILIKE ?)", p, p, p)
+	}
+	if len(f.Messages) > 0 { // v0.10.1331 — birebir operasyon kodu
+		wc.add("ex_message IN (?)", f.Messages)
 	}
 	switch f.HTTPErrors {
 	case "exclude":

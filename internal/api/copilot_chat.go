@@ -654,7 +654,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	hypOffered := false  // v0.10.1288 — tur başına en çok bir "hipotezi doğrula" aksiyonu
 	// v0.10.1291 — kural-türevli takip çiplerinin olguları (chat_followup_chips.go);
 	// yalnız başarılı, veri döndüren araç sonuçlarından toplanır.
-	var fuFacts []followupFact
+	fuFacts := opPre.exceptionFollowupFacts() // v0.10.1331 — operasyonun en yeni Exceptions grubu (nil → yok)
 	// v0.10.1050 — okunan kodun MASKELİ özetleri (ai_calls örneği; kod yok).
 	var codeReads []string
 	// v0.10.948 — trace takibinin sayı denetimi kanıtı: sunucu bağlamı + operatör
@@ -780,6 +780,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 		chatSourceCodePromptTR(tools) + // v0.10.1050 — read_source_code sunulmuyorsa ""
 		chatWikiPromptTR(tools) + // v0.10.1122 — wiki araçları sunulmuyorsa ""
 		chatCodeResolvePromptTR(tools) + // v0.10.1210 — iş kodu / kod arama eki
+		opPre.exceptionsPromptTR() + // v0.10.1331 — operasyonun Exceptions grubu yoksa ""
 		dm.loopPrefix() + // v0.10.1150 — Derin kapalıyken ""
 		withAddressee(addressee, copilot.SystemPromptChat())
 	// v0.10.1324 — yankı süzgecinin cümleleri loopPrompt'a giren AYNI önsöz

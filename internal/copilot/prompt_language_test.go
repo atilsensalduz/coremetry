@@ -383,3 +383,25 @@ func TestNoPromptsDeclaredInAPIPackage(t *testing.T) {
 		}
 	}
 }
+
+// TestOperationExceptionsAddendum — v0.10.1331: operasyon → Exceptions eki
+// sicilde (PromptVersion kapsar), Türkçe yazılı, dil direktifi taşımaz (serbest
+// döngü prompt'u zaten Türkçe), ≤10 satır ve bölüm adları Oracle grubu
+// açıklamasıyla (systemOracleException) AYNI.
+func TestOperationExceptionsAddendum(t *testing.T) {
+	a := OperationExceptionsAddendum()
+	if promptVersionRegistry["operationExceptionsAddendum"] != a {
+		t.Fatal("ek promptVersionRegistry'de değil — PromptVersion değişimi görmez")
+	}
+	if strings.Contains(a, AnswerInTurkish) || !strings.Contains(a, "Exceptions") || !strings.Contains(a, "operation_exceptions") {
+		t.Fatalf("ek Türkçe-native olmalı ve aracı/sayfayı anmalı:\n%s", a)
+	}
+	if n := strings.Count(a, "\n") + 1; n > 10 {
+		t.Fatalf("ek %d satır, ≤10 olmalı", n)
+	}
+	for _, sec := range []string{"**Hata ne demek**", "**Nerede yoğunlaşıyor**", "**Patlama mı, sürekli akış mı**", "**Ne kontrol edilmeli**"} {
+		if !strings.Contains(a, sec) || !strings.Contains(systemOracleException, sec) {
+			t.Errorf("bölüm %q ekte ve systemOracleException'da aynı yazılmalı", sec)
+		}
+	}
+}

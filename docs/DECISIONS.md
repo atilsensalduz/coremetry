@@ -6411,3 +6411,34 @@ diye verilmez); `traceExplainInput` MainOperation / OtherOperations / OperationS
 ek sorgu yok; prompt'a henüz girmez (TestTraceExplainUserGolden bayt-bayt aynı). **Testler:**
 vitest `pickTraceOperation` tablosu + `OracleOperationChip.render.test.tsx` (kesin + etiketli yedek +
 yüklenirken boş); Go `TestPickMainOperation`.
+
+## 2026-10-18 — v0.10.1331 — CoSRE: BSA operasyonu sorulunca Exceptions grupları da okunur
+
+**Operatör:** "CoSRE doğrudan operasyonu sorunca cevabı yeterli değil, ancak Exceptions'ta sorunca iyi
+tespit ediyor. Operasyon ismi BSA için verilince CoSRE de Exceptions'a bakabilir, son geleni ve yorumu
+oradan yapabilir." **Karar:** yeni MCP aracı YOK (araç sayısı pinleri + kısa açıklama bütçesi aynı);
+operasyon ön-getirmesi (chat_operation_prefetch.go) hedef BSA/Oracle operasyonuysa (katalogda Oracle
+satırı ya da BÜYÜK_HARF_ALT_ÇİZGİ biçimi) trace/RED/Oracle'dan sonra ikinci guided adımı
+`operation_exceptions` koşar. Okuma paylaşılan dikişte (`api/chat_exception_groups.go`
+exceptionGroupsEvidence — servis düzeyi okuma aynı yolu kullanacak): TEK `ListExceptionGroups`
+(yeni `ExceptionGroupFilter.Messages` → birebir `ex_message IN (?)`; Oracle grubunda ex_message =
+operasyon kodu, ILIKE alt-dizesi `_REST` / `_REST_V2`'yi karıştırırdı), pencere örtüşmesi son 24 sa
+(operatör onaylı; Oracle grubu durgun akış), son görülme sırası, LIMIT 20; saatlik toplamlar enjekte
+edilen Oracle istatistik önbelleğinden (CH yok), öncelik `exceptionPriority`; yalnız ilk 2 grup için
+`GetExceptionGroupSamples(3)` (örnek mesaj ≤160 rune + Coremetry'de olmadığı bilinmeyen ≤2 trace id).
+Modele ≤5 grup: ilk ikisi Exceptions açıklamasının bölüm adlarıyla (ne demek / nerede yoğunlaşıyor /
+patlama mı sürekli akış mı (≥3×) / örnek trace / link), kalanı tek satır; "OKUNAMADI" ≠ "Grup yok".
+Bölüm `summary()`'ye girer → v0.10.1324 deterministik düşüş özeti de taşır; 5 azami grupla bütün metin
+`clampToolResultForModel` tavanının altında (pin). Prompt: `copilot.OperationExceptionsAddendum`
+(Türkçe, ≤10 satır, bölüm adları systemOracleException'la aynı; promptVersionRegistry) serbest döngü
+prompt'una YALNIZ grup varken (copilot_chat.go, `opPre.exceptionsPromptTR()`); yoksa bayt bayt eski.
+Kart: operasyon bloğu `exceptions` taşır, OperationCard "Teknik hatalar" (kod rozeti, saatlik sayı /
+toplam, son görülme, `/problems?exc=<fp>` linki isSafeAppPath'ten). Takip çipi: en yeni grup →
+"<KOD> grubunu açıkla" LİNK çipi (`href` = `/problems?exc=<fp>&ai=exception`, mesaj göndermez,
+eski istemcinin suggestions'ına girmez; TestFollowupTemplatesRouteGuided onu aksiyon çipi gibi muaf
+tutar). Evalset: `ChatOperationExceptions` yüzeyi (döngü çekirdeği + ek + sohbet), vaka
+`operation-bsa-exceptions-latest-group`. **Testler:** chstore TestExceptionGroupWhereMessages;
+api TestCollectExceptionGroupsOracleOnly / MixedCapAndErrors, TestExGroupTrendTR,
+TestRenderExceptionGroupsTRGolden, TestOpPrefetchWithExceptionsUnderModelClamp, TestOpWantsExceptions,
+TestExceptionGroupFollowupChip; copilot TestOperationExceptionsAddendum; vitest operationCardView +
+FollowupChips link çipi.

@@ -7,13 +7,15 @@ import { Link } from 'react-router-dom';
 import type { ChatOperationPayload } from '@/lib/types';
 import { traceHref } from '@/lib/traceHref';
 import { chatLinkTargetProps, useChatLinkNewTab } from './chatLinkTarget';
-import { deltaLabel, errRate, fmtMs, worse } from './operationCardView';
+import { deltaLabel, errRate, fmtMs, opExceptionRows, opExceptionsNote, worse } from './operationCardView';
 
 export function OperationCard({ op }: { op: ChatOperationPayload }) {
   const linkProps = chatLinkTargetProps(useChatLinkNewTab());
   const errTraces = (op.traces ?? []).filter(t => t.error).slice(0, 10);
   const oracle = op.oracleErrors ?? [];
   const c = op.current, p = op.previous;
+  const excRows = opExceptionRows(op); // v0.10.1331 — Exceptions grupları
+  const excNote = opExceptionsNote(op);
   return (
     <div className="cm-trace-list" style={{ marginTop: 6 }}>
       <div style={{ fontSize: 12, marginBottom: 6 }}>
@@ -50,6 +52,25 @@ export function OperationCard({ op }: { op: ChatOperationPayload }) {
           {oracle.map(o => (
             <span key={o.code} className="badge b-err" title={o.sample}>{o.code || '—'} ×{o.count}</span>
           ))}
+        </div>
+      )}
+      {(excRows.length > 0 || excNote) && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Teknik hatalar</div>
+          {excRows.length > 0 && (
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 2, fontSize: 12 }}>
+              {excRows.map(r => (
+                <li key={r.key} style={{ display: 'flex', gap: 8, alignItems: 'baseline' }} title={r.title}>
+                  <span className="badge b-err mono">{r.code}</span>
+                  {r.priority && <span className="cell-hint">{r.priority}</span>}
+                  <span className={r.burst ? 'cell-err' : undefined}>{r.count}</span>
+                  {r.lastSeen && <span className="cell-hint">{r.lastSeen}</span>}
+                  {r.href && <Link to={r.href} style={{ marginLeft: 'auto' }} {...linkProps}>Exceptions →</Link>}
+                </li>
+              ))}
+            </ul>
+          )}
+          {excNote && <div className="cell-hint">{excNote}</div>}
         </div>
       )}
       <div className="cm-trace-list__more">

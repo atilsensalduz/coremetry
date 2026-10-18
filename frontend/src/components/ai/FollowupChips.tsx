@@ -19,6 +19,9 @@ import type { ChatSendOpts } from './useChatThread';
 import { followupSendOpts } from './followupSend';
 import { useSREHypothesisVerify } from './sreHypothesisVerify';
 import { parseSREHypothesisAction, type SREHypothesisAction } from '@/lib/pageActions';
+import { useNavigate } from 'react-router-dom';
+import { safeAppPath } from '@/lib/safeAppPath';
+import { useChatLinkNewTab } from './chatLinkTarget';
 
 export interface FollowupChipsProps {
   followups?: ChatFollowup[];
@@ -40,6 +43,20 @@ function ActionChip({ action, disabled, onClicked }: { action: SREHypothesisActi
   );
 }
 
+// LinkChip — v0.10.1331: link çipi ("<KOD> grubunu açıkla" → grubun Exceptions
+// sayfası + AI açıklaması). Mesaj göndermez; yol isSafeAppPath'ten geçmiştir.
+// /cosre (kromsuz) sayfada diğer sohbet linkleri gibi yeni sekmede açılır.
+function LinkChip({ href, text, disabled, onClicked }: { href: string; text: string; disabled?: boolean; onClicked: () => void }) {
+  const navigate = useNavigate();
+  const newTab = useChatLinkNewTab();
+  return (
+    <Chip pill disabled={disabled} title={href}
+      onClick={() => { onClicked(); if (newTab) window.open(href, '_blank', 'noopener,noreferrer'); else navigate(href); }}>
+      ↗ {text}
+    </Chip>
+  );
+}
+
 export function FollowupChips({ followups, suggestions, fallback, exchangeId, disabled, onAsk }: FollowupChipsProps) {
   const signal = (detail: string) => { if (exchangeId) api.aiSignal(exchangeId, 'followup_click', detail); };
   if (followups?.length) {
@@ -50,6 +67,11 @@ export function FollowupChips({ followups, suggestions, fallback, exchangeId, di
             // Aksiyon bloğuyla AYNI doğrulama (kapalı tür kümesi); bozuk yük → çip yok.
             const a = parseSREHypothesisAction(f.action);
             return a ? <ActionChip key={`a:${f.text}`} action={a} disabled={disabled} onClicked={() => signal(f.kind)} /> : null;
+          }
+          if (f.href !== undefined) {
+            // v0.10.1331 — link çipi; güvensiz yol → çip yok (metin olarak da gönderilmez).
+            const h = safeAppPath(f.href);
+            return h ? <LinkChip key={`l:${f.text}`} href={h} text={f.text} disabled={disabled} onClicked={() => signal(f.kind)} /> : null;
           }
           return (
             <Chip key={f.text} pill disabled={disabled} onClick={() => { signal(f.kind); onAsk(f.text, followupSendOpts(f)); }}>

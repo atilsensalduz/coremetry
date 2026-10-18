@@ -11,7 +11,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ChatFollowup, ChatQueryEvidence, ChatTurn } from '@/lib/types';
 
@@ -73,6 +73,20 @@ describe('FollowupChips — takip çipi tıkı kapsamı taşır', () => {
     expect(onAsk).not.toHaveBeenCalled();
     expect(enqueue).toHaveBeenCalledWith('p-1', { kind: 'verify', hypothesis: 'saturation' });
     expect(aiSignal).toHaveBeenCalledWith('x1', 'followup_click', 'hypothesis');
+  });
+  it('v0.10.1331 — link çipi mesaj göndermez, grubun sayfasına gider; güvensiz yol çizilmez', async () => {
+    const onAsk = vi.fn();
+    const Probe = () => <span data-testid="loc">{useLocation().pathname + useLocation().search}</span>;
+    const fu: ChatFollowup[] = [
+      { text: 'COR-30518 grubunu açıkla', kind: 'exception_group', href: '/problems?exc=ora%3A0123456789abcdef&ai=exception' },
+      { text: 'kötü', kind: 'exception_group', href: '//evil.com/x' },
+    ];
+    await mount(<><FollowupChips followups={fu} fallback={['statik']} exchangeId="x1" onAsk={onAsk} /><Probe /></>);
+    expect(chips().map(b => b.textContent)).toEqual(['↗ COR-30518 grubunu açıkla']);
+    await act(async () => { chips()[0].click(); });
+    expect(onAsk).not.toHaveBeenCalled();
+    expect(host.querySelector('[data-testid="loc"]')?.textContent).toBe('/problems?exc=ora%3A0123456789abcdef&ai=exception');
+    expect(aiSignal).toHaveBeenCalledWith('x1', 'followup_click', 'exception_group');
   });
   it('bozuk aksiyon yükü çizilmez', async () => {
     const bad: ChatFollowup[] = [{ text: 'x', kind: 'hypothesis', action: { kind: 'sre_hypothesis', problemId: 'p', hypothesis: 'bogus', label: 'x' } }];

@@ -7274,6 +7274,8 @@ export interface ChatFollowup {
   scope?: ChatScope;
   command?: ChatCommand;
   action?: { kind: 'sre_hypothesis'; problemId: string; hypothesis: string; label: string };
+  /** v0.10.1331 — link çipi (uygulama-içi yol, isSafeAppPath kapısından); doluysa mesaj gönderilmez. */
+  href?: string;
 }
 
 // One streamed event from the chat SSE. `step` = a tool the model
@@ -7372,6 +7374,41 @@ export interface ChatOperationPayload {
   traces: Array<{ traceId: string; service: string; durationMs: number; error: boolean }> | null;
   oracleErrors: Array<{ code: string; count: number; sample: string; channel?: string }> | null;
   tracesHref: string;
+  /** v0.10.1331 — operasyonun Exceptions grupları (yok = bakılmadı). */
+  exceptions?: ChatOperationExceptions;
+}
+/** v0.10.1331 — Go exceptionGroupsEvidence (internal/api/chat_exception_groups.go). */
+export interface ChatOperationExceptions {
+  groups: ChatOperationException[] | null;
+  more?: number;
+  moreAtMin?: boolean;
+  error?: string;
+  lookbackS: number;
+}
+/** v0.10.1331 — Go exGroupLine. */
+export interface ChatOperationException {
+  fingerprint: string;
+  type: string;
+  message: string;
+  service?: string;
+  state: string;
+  priority?: string;
+  priorityReason?: string;
+  oracle: boolean;
+  code?: string;
+  operation?: string;
+  hourKnown: boolean;
+  lastHour: number;
+  prevHour: number;
+  occurrences: number;
+  firstSeen: number;
+  lastSeen: number;
+  services?: string[];
+  serviceCount?: number;
+  sampleTraceIds?: string[];
+  sample?: string;
+  href: string;
+  explainHref: string;
 }
 /** chart bloğunun gövdesi — components/cosreChartSpec.ts CosreChartSpec ile aynı alanlar (Go guidedChartSpec). */
 export interface CosreChartSpecLike { title?: string; service: string; operation?: string; agg: string; unit?: string; rangeS?: number; groupBy?: string; fromNs?: number; toNs?: number; compare?: { kind?: string; shiftS: number }; source?: 'span' | 'metric' }

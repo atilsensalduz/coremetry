@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -41,7 +42,20 @@ const (
 	opPrefetchToolID  = "cosre-operation-prefetch"
 	opPrefetchTool    = "operation_prefetch"
 	opPrefetchTimeout = 15 * time.Second
+	// v0.10.1331 — BSA/Oracle operasyonunda Exceptions grupları (chat_exception_groups.go):
+	// ayrı adım çipi + operatör onaylı 24 sa geriye bakış (Oracle grubu durgun akış).
+	opExceptionsTool     = "operation_exceptions"
+	opExceptionsLookback = 24 * time.Hour
 )
+
+// opCodeShapeRe — v0.10.1331: BSA operasyon kodu biçimi (BÜYÜK_HARF_ALT_ÇİZGİ,
+// en az iki parça) — katalogda Oracle satırı olmasa da Exceptions'a bakılır.
+var opCodeShapeRe = regexp.MustCompile(`^[A-Z][A-Z0-9]*(_[A-Z0-9]+)+$`)
+
+// opWantsExceptions — SAF: hedef BSA/Oracle operasyonu mu.
+func opWantsExceptions(t opTarget) bool {
+	return t.HasOra || opCodeShapeRe.MatchString(strings.TrimSpace(t.Name))
+}
 
 // opTokens — SAF: mesajdan aday belirteçler (tekil, sırayı korur). Ayraç:
 // boşluk ve noktalama; '_' '-' '.' '/' ':' tanımlayıcının parçası sayılır.
@@ -189,6 +203,8 @@ type opPrefetch struct {
 	Traces     []opTraceRow               `json:"traces"`
 	Oracle     []chstore.OracleErrorCount `json:"oracleErrors"`
 	TracesHref string                     `json:"tracesHref"`
+	// Exceptions — v0.10.1331: operasyonun Exceptions grupları (nil = bakılmadı).
+	Exceptions *exceptionGroupsEvidence `json:"exceptions,omitempty"`
 	argsJSON   string
 	// codeKey — v0.10.1297: operasyon span'lerde yok, köprü fonksiyon kodu
 	// (Oracle katalog satırı) → span anahtarının yazımı; "" = span operasyonu
@@ -269,7 +285,33 @@ func (p *opPrefetch) summary() string {
 	} else {
 		b.WriteString("Bu trace'lere bağlı Oracle hatası yok.\n")
 	}
+	if p.Exceptions != nil { // v0.10.1331 — v0.10.1324 düşüş özetine de girer
+		b.WriteString(renderExceptionGroupsTR(p.Operation+" operasyonu", *p.Exceptions))
+	}
 	return b.String()
+}
+
+// exceptionsPromptTR — v0.10.1331: serbest döngü prompt'una ek YALNIZ
+// ön-getirme Exceptions grubu bulduysa; yoksa "" (prompt bayt bayt eski).
+func (p *opPrefetch) exceptionsPromptTR() string {
+	if p == nil || p.Exceptions == nil || p.Exceptions.Err != "" || len(p.Exceptions.Groups) == 0 {
+		return ""
+	}
+	return copilot.OperationExceptionsAddendum() + "\n\n"
+}
+
+// exceptionFollowupFacts — v0.10.1331: en yeni grubun takip çipi olgusu
+// ("<KOD> grubunu açıkla" → grubun Exceptions açıklaması). nil → yok.
+func (p *opPrefetch) exceptionFollowupFacts() []followupFact {
+	if p == nil || p.Exceptions == nil || p.Exceptions.Err != "" || len(p.Exceptions.Groups) == 0 {
+		return nil
+	}
+	g := p.Exceptions.Groups[0]
+	code := g.Code
+	if code == "" {
+		code = g.Type
+	}
+	return []followupFact{{Kind: fuKindExceptionGroup, Code: code, Fingerprint: g.Fingerprint}}
 }
 
 // opTracesHref — SAF: filtreli Traces sayfası; Traces'in URL sözleşmesi
@@ -460,6 +502,17 @@ func (s *Server) chatOperationPrefetch(ctx context.Context, emit func(string, an
 		p.codeKey = sc.SpanKey // v0.10.1297 — döngü linkleri kod süzgecine çevrilir
 	}
 	emitGuidedStepResult(emit, n, opPrefetchTool, p.summary(), nil)
+	if opWantsExceptions(t) { // v0.10.1331 — Exceptions'taki son grup + yorum
+		eargs, _ := json.Marshal(map[string]any{"operation": t.Name, "range_s": int64(opExceptionsLookback / time.Second)})
+		en := emitGuidedStep(emit, opExceptionsTool, string(eargs))
+		ev := s.exceptionGroupsEvidence(pctx, exScope{Messages: []string{t.Name}, From: to.Add(-opExceptionsLookback), To: to})
+		p.Exceptions = &ev
+		var eerr error
+		if ev.Err != "" {
+			eerr = fmt.Errorf("exceptions okunamadı: %s", ev.Err)
+		}
+		emitGuidedStepResult(emit, en, opExceptionsTool, renderExceptionGroupsTR(t.Name+" operasyonu", ev), eerr)
+	}
 	// Faz 3 — sohbet kartı (metrikler, hatalı trace'ler, Oracle kodları,
 	// filtreli Traces linki). seq yüksek: döngünün kendi blokları (b1…) önce.
 	emit("block", map[string]any{"id": "op-prefetch", "type": blocks.TypeOperation, "seq": 1000, "final": true, "payload": p})

@@ -239,8 +239,13 @@ func evalSystemPrompt(surface string) (string, bool) { return evalSystemPromptFo
 // evalLoopSurface — SAF: serbest döngünün sistem prompt'unu (ajan çekirdeği)
 // koşan evalset yüzeyi. Araç seti yalnız bunlara uygulanır.
 func evalLoopSurface(surface string) bool {
-	return surface == "ChatCodeResolve" || surface == evalAgentLoopSurface // v0.10.1316
+	return surface == "ChatCodeResolve" || surface == evalAgentLoopSurface || // v0.10.1316
+		surface == evalOpExceptionsSurface // v0.10.1331
 }
+
+// evalOpExceptionsSurface — v0.10.1331: operasyon ön-getirmesi Exceptions
+// grubu bulduğunda serbest döngünün prompt'u (çekirdek + Exceptions eki + sohbet).
+const evalOpExceptionsSurface = "ChatOperationExceptions"
 
 // evalAgentLoopSurface — v0.10.1316: ajan döngüsü vakalarının yüzeyi
 // (agent_loop.json). ai_calls etiketi evalset-ChatLoop (D5); üretim profili
@@ -311,6 +316,8 @@ func evalSystemPromptFor(surface string, simple bool) (string, bool) {
 		return copilot.SystemPromptChatAgentLoopFor(simple) + copilot.CodeResolveChatAddendum(true) + "\n\n" + copilot.SystemPromptChat(), true // v0.10.1311 — araç setine göre
 	case "IntentClassify":
 		return copilot.SystemPromptIntentClassify(), true
+	case evalOpExceptionsSurface: // v0.10.1331 — copilot_chat.go loopPrompt'undaki ek sırası
+		return copilot.SystemPromptChatAgentLoopFor(simple) + copilot.OperationExceptionsAddendum() + "\n\n" + copilot.SystemPromptChat(), true
 	case evalAgentLoopSurface: // v0.10.1316 — serbest döngü çekirdeği + sohbet çekirdeği (ekran/sayfa önsözsüz)
 		return copilot.SystemPromptChatAgentLoopFor(simple) + "\n\n" + copilot.SystemPromptChat(), true
 	}
@@ -496,7 +503,7 @@ func evalProductionLabel(surface string) string { return evalProductionLabels[su
 // serbest sohbet döngüsünün ("chat") ekidir, aynı profille koşar. Etiket
 // tablosunda DEĞİL (👎 export geri dönüşümü Chat'e düşmeli).
 func evalProfileLabel(surface string) string {
-	if surface == "ChatCodeResolve" || surface == evalAgentLoopSurface { // v0.10.1316 — ChatLoop da serbest döngü
+	if surface == "ChatCodeResolve" || surface == evalAgentLoopSurface || surface == evalOpExceptionsSurface { // v0.10.1316 — ChatLoop da serbest döngü; v0.10.1331
 		return evalProductionLabel("Chat")
 	}
 	return evalProductionLabel(surface)

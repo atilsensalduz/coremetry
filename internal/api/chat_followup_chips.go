@@ -26,6 +26,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -45,9 +46,13 @@ const (
 	fuKindSlow       = "slow"
 	fuKindErrors     = "errors"
 	fuKindDeploy     = "deploy"
+	// fuKindExceptionGroup — v0.10.1331: operasyon ön-getirmesinin en yeni
+	// Exceptions grubu → "<KOD> grubunu açıkla" LİNK çipi (mesaj göndermez;
+	// grubun sayfası + AI açıklaması, /problems?exc=<fp>&ai=exception).
+	fuKindExceptionGroup = "exception_group"
 )
 
-var fuKindOrder = map[string]int{fuKindHypothesis: 0, fuKindPod: 1, fuKindTrace: 2, fuKindSlow: 3, fuKindErrors: 4, fuKindDeploy: 5}
+var fuKindOrder = map[string]int{fuKindHypothesis: 0, fuKindExceptionGroup: 1, fuKindPod: 2, fuKindTrace: 3, fuKindSlow: 4, fuKindErrors: 5, fuKindDeploy: 6}
 
 const (
 	followupMax            = 3
@@ -68,6 +73,9 @@ type followupFact struct {
 	ProblemID  string // hypothesis: get_problem id
 	DisplayID  string // hypothesis: get_problem displayId
 	Hypothesis string // hypothesis: sre hipotez türü (kapalı küme)
+	// v0.10.1331 — exception_group: hata kodu + grup parmak izi.
+	Code        string
+	Fingerprint string
 }
 
 // followupAction — aksiyon çipinin yükü (chat_actions.go sre_hypothesis bloğuyla aynı alanlar).
@@ -87,12 +95,18 @@ type chatFollowup struct {
 	Command string          `json:"command,omitempty"`
 	Kind    string          `json:"kind"`
 	Action  *followupAction `json:"action,omitempty"`
+	// Href — v0.10.1331: LİNK çipi (uygulama-içi yol); doluysa çip mesaj
+	// GÖNDERMEZ, o sayfayı açar (FE isSafeAppPath kapısından geçirir).
+	Href string `json:"href,omitempty"`
 }
 
 var (
 	fuPodRe     = regexp.MustCompile(`^[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?$`)
 	fuServiceRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/:@-]{0,127}$`)
 	fuTraceRe   = regexp.MustCompile(`^[0-9a-f]{32}$`)
+	// v0.10.1331 — exception_group çipi: hata kodu ve parmak izi biçimi.
+	fuExcCodeRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,63}$`)
+	fuExcFPRe   = regexp.MustCompile(`^(ora:)?[0-9a-f]{8,64}$`)
 )
 
 // fuEnvelope — atomik cosre araçlarının zarfı (query_*).
@@ -400,6 +414,13 @@ func renderFollowup(f followupFact) (chatFollowup, bool) {
 			return chatFollowup{}, false
 		}
 		return chatFollowup{Text: id + " trace'ini açıkla", Scope: &chatScope{Trace: id, Env: f.Env}, Kind: f.Kind}, true
+	case fuKindExceptionGroup: // v0.10.1331 — link çipi, router'a gitmez
+		code := strings.TrimSpace(f.Code)
+		if !fuExcCodeRe.MatchString(code) || !fuExcFPRe.MatchString(f.Fingerprint) {
+			return chatFollowup{}, false
+		}
+		return chatFollowup{Text: code + " grubunu açıkla", Kind: f.Kind,
+			Href: "/problems?exc=" + url.QueryEscape(f.Fingerprint) + "&ai=exception"}, true
 	case fuKindHypothesis:
 		if !sre.IsHypothesisKind(f.Hypothesis) || f.ProblemID == "" {
 			return chatFollowup{}, false
@@ -497,7 +518,7 @@ func withAnswerFollowups(ans map[string]any, chips []chatFollowup) map[string]an
 	ans["followups"] = chips
 	var texts []string
 	for _, c := range chips {
-		if c.Action == nil {
+		if c.Action == nil && c.Href == "" { // v0.10.1331 — link çipi eski istemcide metin olarak gönderilmez
 			texts = append(texts, c.Text)
 		}
 	}
