@@ -735,9 +735,12 @@ export const api = {
   // v0.9.1151 — withMetricSource: ?metricsrc= deneme modu. Rozet
   // cevaptaki `source`'u okuduğu için param'lı istekte otomatik doğruyu
   // gösterir.
-  metricNamesSearch: (service: string, q?: string, limit = 200, offset = 0) =>
+  // v0.10.1309 — `src`: PromQL editörünün ?src=vm|ch seçimi bu isteği de o
+  // backend'e sabitler (öneri adları sorgunun koştuğu depodan gelsin); yoksa
+  // sayfa URL'inin ?metricsrc= denemesi / kurulum varsayılanı.
+  metricNamesSearch: (service: string, q?: string, limit = 200, offset = 0, src?: import('./metricSource').MetricSourceParam) =>
     get<MetricNameSearchResult>(withMetricSource(
-      `/api/metrics/names?${qs({ service, q, limit, offset })}`)),
+      `/api/metrics/names?${qs({ service, q, limit, offset })}`, src)),
   // Distinct attribute keys observed on recent spans — drives the
   // FilterBuilder autocomplete so custom attrs (function_code etc.)
   // surface as suggestions in addition to the hardcoded list.
@@ -3225,13 +3228,15 @@ export const api = {
       body: JSON.stringify({ table }),
     }),
   // v0.10.868 — q sunucuda süzülür (alt dize), limit 1..1000: uzun kuyruk yazdıkça gelir.
-  metricLabels: (metric: string, key: string, since: GoDuration = '24h', q = '', limit = 200) =>
-    get<string[] | null>(withMetricSource(`/api/metrics/labels?metric=${encodeURIComponent(metric)}&key=${encodeURIComponent(key)}&since=${since}&q=${encodeURIComponent(q)}&limit=${limit}`)),
+  // v0.10.1309 — `src`: metricNamesSearch'teki gibi (PromQL editörü ?src=vm|ch).
+  metricLabels: (metric: string, key: string, since: GoDuration = '24h', q = '', limit = 200, src?: import('./metricSource').MetricSourceParam) =>
+    get<string[] | null>(withMetricSource(`/api/metrics/labels?metric=${encodeURIComponent(metric)}&key=${encodeURIComponent(key)}&since=${since}&q=${encodeURIComponent(q)}&limit=${limit}`, src)),
   // v0.9.771 — metricLabels'in anahtar yarısı: bir metrikte GÖRÜLMÜŞ datapoint
   // attribute anahtarları. PromQL editöründe `{` yazınca ne yazılabileceğini
   // sunucudan öğrenmek için (sabit LABEL_KEYS listesi tahmin, bu ölçüm).
-  metricAttrKeys: (metric: string, service = '', since: GoDuration = '24h') =>
-    get<string[] | null>(withMetricSource(`/api/metrics/attr-keys?metric=${encodeURIComponent(metric)}&service=${encodeURIComponent(service)}&since=${since}`)),
+  // v0.10.1309 — `src`: metricNamesSearch'teki gibi (PromQL editörü ?src=vm|ch).
+  metricAttrKeys: (metric: string, service = '', since: GoDuration = '24h', src?: import('./metricSource').MetricSourceParam) =>
+    get<string[] | null>(withMetricSource(`/api/metrics/attr-keys?metric=${encodeURIComponent(metric)}&service=${encodeURIComponent(service)}&since=${since}`, src)),
 
   profiles:        (params: ProfilesParams) => get<ProfileRow[] | null>(`/api/profiles?${qs(params)}`),
   profile:         (id: string, signal?: AbortSignal) => get<ProfileDetail>(`/api/profiles/${id}`, signal),

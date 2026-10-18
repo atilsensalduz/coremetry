@@ -36,7 +36,7 @@ import {
   applyPromqlParams, decodePromqlParams, promqlSig,
   type PromqlParams, type PromqlSrc, type PromqlView,
 } from '@/pages/metricsPromqlUrl';
-import { METRIC_SOURCE_LABELS } from '@/lib/metricSource';
+import { METRIC_SOURCE_LABELS, type MetricSourceParam } from '@/lib/metricSource';
 import { promConsoleError, promMatrixToSeries } from '@/lib/promMatrix';
 import { usePromqlConsoleRange } from '@/lib/queries/promql';
 import type { MetricInfo, SpanMetricSeries, FilterExpr, TimeRange, Panel, DashboardSummary } from '@/lib/types';
@@ -91,6 +91,14 @@ function cachedSugList(key: string, fetcher: () => Promise<string[] | null>): Pr
   p.catch(() => { if (promqlSugCache.get(key)?.p === p) promqlSugCache.delete(key); });
   promqlSugCache.set(key, { at: Date.now(), p });
   return p;
+}
+// v0.10.1309 — mini-cache anahtarı KAYNAĞI da taşır ('' = sayfa varsayılanı,
+// vm | ch = editörün ?src= seçimi): aynı metriğin CH'deki anahtar listesi VM
+// seçiliyken önerilmesin (adlar depoya göre farklı — jvm.memory.used ⇄
+// jvm_memory_used). Autocomplete ile etiket gezgini AYNI anahtarı kurar ki
+// anahtar listesi gerçekten bir kez çekilsin.
+function promqlSugKey(src: MetricSourceParam | undefined, ...parts: string[]): string {
+  return [src ?? '', ...parts].join('\0');
 }
 // Anahtar/değer listeleri KÜÇÜK (bir metriğin onlarca attr'ı) — filtre
 // istemcide: önce prefix eşleşmeleri, sonra içerenler, en fazla 20 satır.
@@ -375,9 +383,10 @@ const LB_OPEN_KEY = 'cm.mqe.labelBrowser';
 // İmleçten türeyen metrik yazarken parça parça değişir (http.se → http.ser…);
 // debounce olmadan her tuş vuruşu bir attr-keys isteği olurdu.
 const LB_DEBOUNCE = 350;
-function LabelBrowser({ cursorMetric, onApply }: {
+function LabelBrowser({ cursorMetric, onApply, src }: {
   cursorMetric: string;                                     // imleçten türeyen metrik ('' → picker)
   onApply: (metric: string, key: string, value: string) => void;
+  src?: MetricSourceParam;                                  // v0.10.1309 — editörün ?src=vm|ch seçimi
 }) {
   const [open, setOpen] = useState(() => {
     try { return localStorage.getItem(LB_OPEN_KEY) === '1'; } catch { return false; }
@@ -407,23 +416,23 @@ function LabelBrowser({ cursorMetric, onApply }: {
     let alive = true;
     setKeys(null);
     const t = window.setTimeout(() => {
-      cachedSugList(`k ${metric}`, () => api.metricAttrKeys(metric, '', '24h'))
+      cachedSugList(promqlSugKey(src, 'k', metric), () => api.metricAttrKeys(metric, '', '24h', src))
         .then(all => { if (alive) setKeys(all); })
         .catch(() => { if (alive) setKeys([]); });
     }, LB_DEBOUNCE);
     return () => { alive = false; clearTimeout(t); };
-  }, [open, metric]);
+  }, [open, metric, src]);
 
   useEffect(() => {
     if (!open || !metric || !key) { setVals(null); return; }
     let alive = true;
     setVals(null);
     // Anahtar TIKLAMAYLA değişir — debounce'a gerek yok.
-    cachedSugList(`v ${metric} ${key}`, () => api.metricLabels(metric, key, '24h'))
+    cachedSugList(promqlSugKey(src, 'v', metric, key, ''), () => api.metricLabels(metric, key, '24h', '', 200, src))
       .then(all => { if (alive) setVals(all); })
       .catch(() => { if (alive) setVals([]); });
     return () => { alive = false; };
-  }, [open, metric, key]);
+  }, [open, metric, key, src]);
 
   const shownKeys = keys ? filterSugList(keys, kq) : [];
   const shownVals = vals ? filterSugList(vals, vq) : [];
@@ -442,7 +451,7 @@ function LabelBrowser({ cursorMetric, onApply }: {
           {!cursorMetric && (
             <div className="mqe-lb-pick">
               <span className="mqe-lbl">metrik</span>
-              <MetricNamePicker service="" value={pickText} width={260} placeholder="metrik ara…"
+              <MetricNamePicker service="" src={src} value={pickText} width={260} placeholder="metrik ara…"
                 onChange={v => { setPickText(v); if (!v) setPicked(''); }}
                 onPick={m => setPicked(m.name)}
                 onEnter={v => setPicked((v ?? pickText).trim())} />
@@ -675,6 +684,11 @@ export function MetricQueryEditor({ range }: { range: TimeRange }) {
   // v0.10.1306 — Thanos kaynağında öneri YOK: liste OTel metrik deposundan
   // (CH/VM) gelir, Thanos'taki adları önermek yanıltırdı.
   const sugOff = view !== 'promql' || promqlSrc === 'thanos';
+  // v0.10.1309 — öneri istekleri (ad / anahtar / değer + etiket gezgini)
+  // sorgunun koştuğu depoya gider: aşağıdaki metricPromql de bu storeSrc'yi
+  // kullanır. '' → undefined: sayfanın ?metricsrc= denemesi / kurulum
+  // varsayılanı, davranış v0.10.1306'daki gibi.
+  const storeSrc: MetricSourceParam | undefined = promqlSrc === 'vm' || promqlSrc === 'ch' ? promqlSrc : undefined;
   useEffect(() => {
     if (sugOff) { setSug([]); return; }
     let alive = true;
@@ -682,8 +696,8 @@ export function MetricQueryEditor({ range }: { range: TimeRange }) {
     //   yazar yazmaz metriğin TÜM anahtarları listelenir (Grafana davranışı).
     if (labelPhase && labelMetric && (labelPhase === 'key' || labelKey)) {
       const p = labelPhase === 'key'
-        ? cachedSugList(`k\0${labelMetric}`, () => api.metricAttrKeys(labelMetric, '', '24h'))
-        : cachedSugList(`v\0${labelMetric}\0${labelKey}\0${metricLabelQ(labelPartial)}`, () => api.metricLabels(labelMetric, labelKey, '24h', metricLabelQ(labelPartial))); // v0.10.875 — 868 bu siteyi kaçırmıştı
+        ? cachedSugList(promqlSugKey(storeSrc, 'k', labelMetric), () => api.metricAttrKeys(labelMetric, '', '24h', storeSrc))
+        : cachedSugList(promqlSugKey(storeSrc, 'v', labelMetric, labelKey, metricLabelQ(labelPartial)), () => api.metricLabels(labelMetric, labelKey, '24h', metricLabelQ(labelPartial), 200, storeSrc)); // v0.10.875 — 868 bu siteyi kaçırmıştı
       p.then(all => { if (alive) { setSug(filterSugList(all, labelPartial)); setSugIdx(0); } })
         .catch(() => { if (alive) setSug([]); });
       return () => { alive = false; };
@@ -691,12 +705,12 @@ export function MetricQueryEditor({ range }: { range: TimeRange }) {
     // — Faz 1: metrik adı. Sunucu-taraflı arama, 250ms debounce.
     if (!sugQ) { setSug([]); return; }
     const t = window.setTimeout(() => {
-      api.metricNamesSearch('', sugQ, 20, 0)
+      api.metricNamesSearch('', sugQ, 20, 0, storeSrc)
         .then(r => { if (alive) { setSug((r.names ?? []).map(n => n.name)); setSugIdx(0); } })
         .catch(() => { if (alive) setSug([]); });
     }, 250);
     return () => { alive = false; clearTimeout(t); };
-  }, [sugQ, sugOff, labelPhase, labelMetric, labelKey, labelPartial]);
+  }, [sugQ, sugOff, storeSrc, labelPhase, labelMetric, labelKey, labelPartial]);
 
   // Öneri uygulandıktan sonra imleci eklenen adın sonuna koy. Layout
   // effect: React yeni değeri commit ETTİKTEN sonra, boyanmadan önce.
@@ -796,7 +810,6 @@ export function MetricQueryEditor({ range }: { range: TimeRange }) {
   // /api/metrics/promql (src=vm|ch o isteği backend'e sabitler).
   const thanosSel = promqlSrc === 'thanos';
   const isThanos = thanosSel && !!promqlCluster;
-  const storeSrc = promqlSrc === 'vm' || promqlSrc === 'ch' ? promqlSrc : undefined;
   const promqlRes = useQuery({
     queryKey: ['mqe-promql', from, to, promqlQ, storeSrc ?? ''] as const,
     queryFn: ({ signal }) => api.metricPromql({ query: promqlQ, from, to, src: storeSrc }, signal),
@@ -1179,7 +1192,7 @@ export function MetricQueryEditor({ range }: { range: TimeRange }) {
             </div>
           )}
           {thanosWarnings.map(w => <div key={w} className="mqe-code-foot mqe-code-err">⚠ {w}</div>)}
-          {!thanosSel && <LabelBrowser cursorMetric={lbMetric} onApply={applyMatcher} />}
+          {!thanosSel && <LabelBrowser cursorMetric={lbMetric} onApply={applyMatcher} src={storeSrc} />}
         </div>
       )}
 

@@ -5,6 +5,7 @@ import { shouldAutoCommit } from '@/components/ServicePicker';
 import { usePickerSearch } from '@/components/usePickerSearch';
 import { getPickerRecents } from '@/lib/pickerRecents';
 import type { MetricInfo } from '@/lib/types';
+import type { MetricSourceParam } from '@/lib/metricSource';
 
 /**
  * MetricNamePicker — metric-names counterpart of ServicePicker /
@@ -25,7 +26,7 @@ import type { MetricInfo } from '@/lib/types';
  * görünüyor" iddiası tarayıcıya göre doğru ya da yanlıştı.
  */
 export function MetricNamePicker({
-  service, value, onChange, placeholder, width, onEnter, onPick,
+  service, value, onChange, placeholder, width, onEnter, onPick, src,
 }: {
   service: string;
   value: string;
@@ -37,11 +38,15 @@ export function MetricNamePicker({
   // the dropdown — gives downstream callers access to unit /
   // type without a second round-trip. Optional.
   onPick?: (m: MetricInfo) => void;
+  // v0.10.1309 — arama hangi metrik deposuna gitsin (PromQL editörünün
+  // ?src=vm|ch seçimi). Yoksa sayfanın ?metricsrc= denemesi / varsayılan.
+  // Kapsama (scope) girer: kaynak değişince aynı metinle arama tazelenir.
+  src?: MetricSourceParam;
 }) {
   // v0.10.1089 — ortak debounce kancası (180 ms, /api/metrics/names,
   // servis kapsamı, 200 satır — davranış aynı).
-  const search = usePickerSearch(value, service, q =>
-    api.metricNamesSearch(service, q, 200).then(r => ({ items: r.names ?? [], total: r.total })));
+  const search = usePickerSearch(value, `${service}\0${src ?? ''}`, q =>
+    api.metricNamesSearch(service, q, 200, 0, src).then(r => ({ items: r.names ?? [], total: r.total })));
   const opts = search.items;
   const total = search.total;
   const lastValueRef = useRef(value);

@@ -112,3 +112,35 @@ describe('api.ts forwards ?metricsrc= (v0.9.1151)', () => {
     expect(urls[0]).not.toContain('metricsrc');
   });
 });
+
+// v0.10.1309 — PromQL editörünün ?src=vm|ch seçimi metadata isteklerine de
+// iner (öneri adları / anahtar / değer sorgunun koştuğu depodan). Açık src
+// sayfanın ?metricsrc= denemesinden ÖNCE gelir — metricPromql'deki gibi —
+// ve parametre tek kez basılır; src verilmeyen çağrı yukarıdaki üç kuralla
+// aynı (sayfa param'ı / hiçbiri).
+const explicitSrcCalls: Array<[string, (src: 'vm' | 'ch') => Promise<unknown>]> = [
+  ['metricNamesSearch', src => api.metricNamesSearch('', 'jvm', 20, 0, src)],
+  ['metricLabels', src => api.metricLabels('jvm.memory.used', 'pod', '24h', '', 200, src)],
+  ['metricAttrKeys', src => api.metricAttrKeys('jvm.memory.used', '', '24h', src)],
+];
+
+describe('metadata methods take an explicit src (v0.10.1309)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it.each(explicitSrcCalls)('%s stamps the explicit src on a param-less page', async (_name, call) => {
+    pinPage('?editor=1&tab=promql&src=ch');
+    const urls = captureFetch();
+    await call('ch');
+    expect(urls).toHaveLength(1);
+    expect(urls[0]).toContain('metricsrc=ch');
+    expect(urls[0].match(/metricsrc=/g)).toHaveLength(1);
+  });
+
+  it.each(explicitSrcCalls)('%s: explicit src wins over the page trial param', async (_name, call) => {
+    pinPage('?metricsrc=vm');
+    const urls = captureFetch();
+    await call('ch');
+    expect(urls[0]).toContain('metricsrc=ch');
+    expect(urls[0].match(/metricsrc=/g)).toHaveLength(1);
+  });
+});
