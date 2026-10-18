@@ -71,7 +71,10 @@ export function DurationBar({ ms, err, max }: { ms: number; err: boolean; max: n
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
       {/* v0.10.922 (sade palet adım 1) — değer metni nötr: hata zaten çubuk rengi + ERROR rozetinde (tek olgu, tek işaret). */}
-      <span className="mono" style={{ minWidth: 58, color: 'var(--text)' }}>
+      {/* v0.10.1351 — operatör: "Traces sayfasında trace süresi bold olabilir." Ağırlık
+          tablo standardının vurgu sınıfından (.cell-strong 600), hiza .trace-dur-val
+          (tabular-nums); renk ve gecikme çubuğu aynen. pages/tracesDurationBold.test.tsx. */}
+      <span className="mono cell-strong trace-dur-val" style={{ minWidth: 58, color: 'var(--text)' }}>
         {fmtDur(ms)}
       </span>
       <span className="ov-minibar" style={{ maxWidth: 110, flex: 1 }}>

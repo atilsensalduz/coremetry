@@ -6031,3 +6031,11 @@ tbody td.tpm-more-cell { color: var(--text2); }
   .trace-summary__measures { margin-left: 0; flex-basis: 100%; }
 }
 /* ── v0.10.1347 END ──────────────────────────────────────────────────── */
+
+/* ── v0.10.1351 BEGIN — Traces listesi: trace süresi kalın ─────────────
+   Operatör: "Traces sayfasında trace süresi bold olabilir." Ağırlık
+   .cell-strong'dan (600); bu sınıf yalnız rakam hizasını taşır (renk
+   satır içi --text, gecikme çubuğu aynen). components/traces/shared.tsx
+   DurationBar; pin: pages/tracesDurationBold.test.tsx. */
+.trace-dur-val { font-variant-numeric: tabular-nums; }
+/* ── v0.10.1351 END ──────────────────────────────────────────────────── */
