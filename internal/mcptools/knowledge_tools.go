@@ -27,6 +27,7 @@ import (
 
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/mcp"
+	"github.com/cilcenk/coremetry/internal/safelink"
 )
 
 const (
@@ -194,16 +195,22 @@ func resolveRunbookURL(ctx context.Context, d Deps, ruleID, service string) (u, 
 	if ruleID != "" {
 		if rules, err := d.Store.ListAlertRules(ctx); err == nil {
 			for _, r := range rules {
-				if r.ID == ruleID && r.RunbookURL != "" {
-					return r.RunbookURL, "rule"
+				// v0.10.1341 — EnrichProblemsWithRunbooks simetrisi: geçersiz
+				// kural runbook'u servis runbook'una düşer.
+				if r.ID == ruleID {
+					if u := safelink.Sanitize(r.RunbookURL); u != "" {
+						return u, "rule"
+					}
 				}
 			}
 		}
 	}
 	if service != "" {
 		if mds, err := d.Store.ListServiceMetadata(ctx); err == nil {
-			if md, ok := mds[service]; ok && md.RunbookURL != "" {
-				return md.RunbookURL, "service"
+			if md, ok := mds[service]; ok {
+				if u := safelink.Sanitize(md.RunbookURL); u != "" {
+					return u, "service"
+				}
 			}
 		}
 	}

@@ -39,6 +39,7 @@ import (
 
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/mcptools"
+	"github.com/cilcenk/coremetry/internal/safelink"
 )
 
 // Öneri durumları.
@@ -399,8 +400,10 @@ func matchRunbooks(p chstore.Problem, hyps []Hypothesis, books []chstore.Runbook
 	}
 	sort.Strings(ids)
 
-	// 1. Problemin kendi bağlantısı.
-	if u := strings.TrimSpace(p.RunbookURL); u != "" {
+	// 1. Problemin kendi bağlantısı. v0.10.1341 — safelink.Sanitize: okuma
+	// zenginleştirmesi zaten süzüyor; çağıran ham bir Problem verirse de
+	// çizilemeyen bağlantı öneriye girmez.
+	if u := safelink.Sanitize(p.RunbookURL); u != "" {
 		if id := internalRunbookID(u); id != "" {
 			if b, ok := enabled[id]; ok {
 				add(RunbookMatch{Runbook: RecRunbook{ID: b.ID, Title: b.Title, URL: runbookUIPath(b.ID, p.ID)}, Reason: "problemin runbook bağlantısı (kural / servis kataloğu)"})

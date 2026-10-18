@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api } from '@/lib/api';
+import { api, apiErrorText } from '@/lib/api';
 import { useAuth } from '@/components/AuthProvider';
 import { Button } from '@/components/ui/Button';
 import { ActionRow } from '@/components/ui/ActionRow';
@@ -159,11 +159,17 @@ function CatalogEditor({ initial, onSave, onCancel }: {
 }) {
   const [m, setM] = useState<ServiceMetadata>({ ...initial });
   const [busy, setBusy] = useState(false);
+  // v0.10.1341 — sunucu link alanlarını doğruluyor (400 "runbookUrl: …");
+  // eskiden try/finally'de catch yoktu → işlenmemiş ret, editör sessizce
+  // açık kalıyordu. Hata formun altında satır içi, form açık kalır.
+  const [err, setErr] = useState<string | null>(null);
   const update = (patch: Partial<ServiceMetadata>) => setM({ ...m, ...patch });
 
   const submit = async () => {
     setBusy(true);
+    setErr(null);
     try { await onSave(m); }
+    catch (e) { setErr(apiErrorText(e, 'Save failed')); }
     finally { setBusy(false); }
   };
 
@@ -210,6 +216,9 @@ function CatalogEditor({ initial, onSave, onCancel }: {
           links={m.customLinks ?? []}
           onChange={ls => update({ customLinks: ls })} />
       </div>
+      {err && (
+        <div role="alert" className="field-error" style={{ gridColumn: '1 / -1' }}>{err}</div>
+      )}
       {/* v0.9.1007 (M5/O8) — sıra TERSTİ (Save solda, Cancel sağda). */}
       <div style={{ gridColumn: '1 / -1' }}>
         <ActionRow

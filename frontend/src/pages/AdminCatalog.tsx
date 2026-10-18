@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Empty } from '@/components/Spinner';
 import { useAuth } from '@/components/AuthProvider';
 import { IconShield } from '@/components/icons';
-import { api } from '@/lib/api';
+import { api, apiErrorText } from '@/lib/api';
+import { toast } from '@/lib/toast';
 import {
   useDataTable, DataTableHead, DataTableColgroup, DataTableState, type DataTableStateProps,
 } from '@/components/ui/DataTable';
@@ -141,7 +142,10 @@ export default function AdminCatalogPage() {
       ) : rs);
       setEditing(null);
       setDraft(null);
-    } catch {
+    } catch (e) {
+      // v0.10.1341 — sunucu link doğrulaması (400 "runbookUrl: …") artık
+      // görünür; eskiden hata sessizce yutuluyordu.
+      toast.error(apiErrorText(e, 'Save failed'));
       // Re-fetch on save failure so the row reflects the
       // server's actual state instead of the stale optimistic
       // copy.

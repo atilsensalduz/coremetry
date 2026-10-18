@@ -2686,8 +2686,8 @@ func (s *Server) putServiceMetadata(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var m chstore.ServiceMetadata
-	if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
-		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+	if err := decodeServiceMetadata(r, &m); err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	m.Service = name
@@ -10034,7 +10034,7 @@ func (s *Server) createAlertRule(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if !s.acceptRuleTarget(w, rule) || !s.acceptRuleNotify(w, &rule) {
+	if !s.acceptRuleTarget(w, rule) || !s.acceptRuleNotify(w, &rule) || !s.acceptRuleRunbook(w, &rule) {
 		return
 	}
 	if s.rejectDeadLogQuery(w, rule) {
@@ -10082,7 +10082,7 @@ func (s *Server) updateAlertRule(w http.ResponseWriter, r *http.Request) {
 	// Create ile AYNI kapı. Yalnız create'i kapatmak, kuralı önce boş
 	// bırakıp sonra düzenleyerek geçilebilir bir kapı olurdu — ve o yol
 	// bir kaçamak değil, düzenlemenin NORMAL akışıdır.
-	if !s.acceptRuleTarget(w, rule) || !s.acceptRuleNotify(w, &rule) {
+	if !s.acceptRuleTarget(w, rule) || !s.acceptRuleNotify(w, &rule) || !s.acceptRuleRunbook(w, &rule) {
 		return
 	}
 	if s.rejectDeadLogQuery(w, rule) {

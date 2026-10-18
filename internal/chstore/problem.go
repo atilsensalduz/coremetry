@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/cilcenk/coremetry/internal/safelink"
 )
 
 // AlertRule defines an evaluator condition. metric is one of:
@@ -740,22 +742,29 @@ func (s *Store) EnrichProblemsWithRunbooks(ctx context.Context, problems []Probl
 	if len(problems) == 0 {
 		return problems
 	}
+	rules, _ := s.ListAlertRules(ctx)
+	mds, _ := s.ListServiceMetadata(ctx)
+	return applyProblemRunbooks(problems, rules, mds)
+}
+
+// applyProblemRunbooks — SAF (v0.10.1341): kural → self-health → servis
+// kataloğu önceliğiyle her problemin RunbookURL'si. Kural ve katalog
+// değerleri safelink.Sanitize'dan geçer ve "" atlanır: geçersiz (eski,
+// v0.10.1341 yazma kapısı öncesi) bir kural runbook'u servis / self-health
+// runbook'una DÜŞER, çizilemeyen bir href olarak problemde kalmaz.
+func applyProblemRunbooks(problems []Problem, rules []AlertRule, mds map[string]ServiceMetadata) []Problem {
 	// Alert rule runbooks — keyed by rule id.
 	ruleBooks := map[string]string{}
-	if rules, err := s.ListAlertRules(ctx); err == nil {
-		for _, r := range rules {
-			if r.RunbookURL != "" {
-				ruleBooks[r.ID] = r.RunbookURL
-			}
+	for _, r := range rules {
+		if u := safelink.Sanitize(r.RunbookURL); u != "" {
+			ruleBooks[r.ID] = u
 		}
 	}
 	// Service catalog runbooks — keyed by service name.
 	svcBooks := map[string]string{}
-	if mds, err := s.ListServiceMetadata(ctx); err == nil {
-		for svc, md := range mds {
-			if md.RunbookURL != "" {
-				svcBooks[svc] = md.RunbookURL
-			}
+	for svc, md := range mds {
+		if u := safelink.Sanitize(md.RunbookURL); u != "" {
+			svcBooks[svc] = u
 		}
 	}
 	for i := range problems {

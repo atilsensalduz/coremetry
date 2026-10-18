@@ -6631,6 +6631,37 @@ chatContext SERVICE_PARAM_ROUTES + pageContext ROUTE_PAGES `/search` (PageId `'s
 okunamadı & atlandı / vurgu / çekmece sel'den açılır, api.trace yalnız açılışta, ?ai= varken çekmece
 yok), `components/CommandPalette.searchRow.pin.test.ts`.
 
+## 2026-10-18 — Runbook/katalog URL'leri yazarken doğrulanır (v0.10.1341)
+
+- **Sorun:** v0.10.1315 runbook/oncall/repo/customLinks değerlerini yalnız ÇİZİMDE süzüyordu
+  (SafeHref). Kural ve katalog uçları `javascript:` / `//evil` gibi değerleri sessizce saklıyordu:
+  editör kaydı "başarılı" görüyor, link problem çekmecesinde hiç çizilmiyordu; problem okuması
+  geçersiz kural runbook'unu servis runbook'una düşürmeden döndürüyordu.
+- **Yazarken ret (400 `{error}`):** alert kuralı create/update → `acceptRuleRunbook`
+  (`internal/api/alert_rule_runbook.go`; kırp, boş geçerli, `safelink.SafeLink`, aksi
+  `runbookUrl must be an absolute http(s) URL or an app path such as "/runbook?id=…"`).
+  Katalog `putServiceMetadata` → `decodeServiceMetadata` + SAF `validateServiceMetadataLinks`
+  (`internal/api/service_metadata_links.go`): runbookUrl / oncallUrl / `customLinks[i].url` safelink;
+  hata alanı adlandırır (`customLinks[2].url: …`). `repository` = safelink YA DA git uzak biçimi
+  (`ssh://[user@]host/path` parolasız; scp `user@host:org/repo(.git)`); kontrol karakteri, boşluk,
+  ters bölü, `javascript:`/`data:`/`vbscript:` ret. Geçerli değerler yerinde kırpılır.
+- **api.go büyümedi:** kural kapısı mevcut `acceptRuleTarget || acceptRuleNotify` satırına
+  eklendi (`alert_target_test.go` pini güncellendi); katalog Decode + http.Error satırları 1:1
+  `decodeServiceMetadata` + `writeJSONError` oldu (bozuk JSON da artık 400 `{error:"invalid body: …"}`).
+- **Okurken süzme:** `chstore.EnrichProblemsWithRunbooks` → SAF `applyProblemRunbooks`; kural ve
+  katalog runbook'ları `safelink.Sanitize`, "" atlanır → geçersiz kural runbook'u self-health / servis
+  runbook'una DÜŞER. Simetri: `mcptools` `resolveRunbookURL`, `sre` `matchRunbooks`. Katalog
+  okumaları bilinçli olarak SÜZÜLMEZ (AdminCatalog eski kötü değeri "blocked" gösterir, v0.10.1315).
+- **UI:** `lib/api.ts` `apiErrorText(e, fallback)` (`HTTP NNN:` öneki atılır, `{error}` JSON'u açılır,
+  boşsa fallback). Alerts formu: `pages/alerts/useRuleSaveError.ts` + `RuleSaveError.tsx` (form oturumu
+  anahtarlı, footer üstünde satır içi `role=alert`, form açık kalır; Runbook alanı altında
+  `appLinkKind` ön-kontrol ipucu) — Alerts.tsx'e dokunuş `v0.10.1341` işaretli küçük blok.
+  CatalogEditor submit artık catch'liyor (eskiden işlenmemiş ret); AdminCatalog satır kaydı
+  `toast.error(apiErrorText(e))`.
+- **Testler:** `internal/api/alert_rule_runbook_test.go`, `service_metadata_links_test.go`,
+  `internal/chstore/problem_runbook_sanitize_test.go`, `lib/apiErrorText.test.ts`,
+  `pages/Alerts.saveError.test.tsx`, `components/ServiceCatalogPill.saveError.test.tsx`.
+
 ## 2026-10-18 — v0.10.1337 — CoSRE: servis raporu (`service_report`) — operasyonlar + teknik hatalar + trace/log kanıtı tek raporda
 
 **Operatör (Feature D):** "Bir servisi analiz ederken operasyonları, son 1 saatteki veya 3 [saatteki]

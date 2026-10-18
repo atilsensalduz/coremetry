@@ -19,6 +19,8 @@ import {
 import { ThresholdField } from './alerts/ThresholdField';
 import { StatementPicker } from './alerts/StatementPicker';
 import { NotifyTeamsField } from './alerts/NotifyTeamsField';
+import { RuleSaveError, RunbookUrlHint } from './alerts/RuleSaveError'; // v0.10.1341
+import { useRuleSaveError } from './alerts/useRuleSaveError'; // v0.10.1341
 import { notifySummary } from './alerts/notifyTeams';
 import { ConditionPreview } from './alerts/ConditionPreview';
 import { NoisyRulesPanel } from './alerts/NoisyRulesPanel';
@@ -361,15 +363,16 @@ export default function AlertsPage() {
     setShowForm(true);
   };
 
+  // ── v0.10.1341 — kaydetme reddi (400 runbookUrl …) formda satır içi; form açık kalır.
+  const ruleSave = useRuleSaveError(showForm ? (editingId ?? 'new') : null);
   const save = async () => {
     if (!draft.name || !draft.metric) return;
-    if (editingId) {
-      await updateRule.mutateAsync({ id: editingId, patch: draft });
-    } else {
-      await createRule.mutateAsync(draft);
-    }
-    cancelForm();
+    const ok = await ruleSave.run(() => editingId
+      ? updateRule.mutateAsync({ id: editingId, patch: draft })
+      : createRule.mutateAsync(draft));
+    if (ok) cancelForm();
   };
+  // ── /v0.10.1341
   // remove = hard delete (DELETE /api/alert-rules/{id} actually
   // removes the row now, per v0.5.175). `disable` is the soft
   // counterpart for the "I want to silence this but keep the
@@ -628,6 +631,7 @@ export default function AlertsPage() {
                   onChange={e => setDraft({ ...draft, runbookUrl: e.target.value })}
                   placeholder="https://wiki.internal/runbook/high-error-rate"
                   style={{ width: '100%' }} />
+                <RunbookUrlHint url={draft.runbookUrl} />{/* v0.10.1341 */}
               </Field>
             </div>
             {/* v0.10.519 — kural bazında ekip bildirimi: bu kural açılınca hangi
@@ -654,6 +658,7 @@ export default function AlertsPage() {
             {/* v0.10.1319 K1 — form footer'ı ActionRow: Save/Update EN SAĞDA
                 (tek confirm yuvası), Cancel onun solunda, ★ preset en solda.
                 Cancel eskiden barın etiket-takaslı primary'siydi. */}
+            <RuleSaveError error={ruleSave.error} />{/* v0.10.1341 */}
             <ActionRow
               secondary={<>
                 {!editingId && (

@@ -419,6 +419,26 @@ export function apiErrorDetail(e: unknown): { message: string; steps?: string[] 
   } catch { return { message: raw }; }
 }
 
+/** v0.10.1341 — bir kaydetme hatasını formda gösterilecek TEK satıra indirir.
+ *
+ *  request() hatası `HTTP 400: {"error":"runbookUrl must be …"}` biçimindedir;
+ *  operatöre `HTTP 400:` gürültüsü ya da ham JSON değil sunucunun cümlesi
+ *  gerekir. Sıra: `^HTTP \d+: ` öneki atılır → gövde JSON ve dolu `error`
+ *  taşıyorsa o → yoksa kalan düz metin (ör. http.Error gövdesi) → o da boşsa
+ *  `fallback`. Hiçbir hata boş metne YUTULMAZ. */
+export function apiErrorText(e: unknown, fallback = 'Request failed'): string {
+  const raw = e instanceof Error ? e.message : typeof e === 'string' ? e : '';
+  const body = raw.replace(/^HTTP \d+:\s*/, '').trim();
+  if (body.startsWith('{')) {
+    try {
+      const j: unknown = JSON.parse(body);
+      const msg = typeof j === 'object' && j !== null ? (j as Record<string, unknown>).error : undefined;
+      if (typeof msg === 'string' && msg.trim()) return msg.trim();
+    } catch { /* JSON değil — düz metin olarak göster */ }
+  }
+  return body || fallback;
+}
+
 async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   return request<T>(path, signal ? { signal } : undefined);
 }
