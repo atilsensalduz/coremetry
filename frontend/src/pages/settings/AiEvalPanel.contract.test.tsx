@@ -9,6 +9,7 @@
 // v0.10.940 — başlık profili kataloğun defaultProfileId'si (son koşunun
 // bayat profili değil); katalog alt sekme dönüşünde ve başlatma hatasında
 // tazelenir; kıyas ipucu duruma göre (süren / başarısız).
+// v0.10.1316 — ajan kipi: özet sütunları ve çekmecenin "Araç izi".
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -270,6 +271,59 @@ describe('AiEvalPanel', () => {
       expect(td.className).toContain('num');
       expect(td.className).not.toMatch(/\bmono\b/);
     }
+  });
+
+  // v0.10.1316 — ajan kipi: yüzey özetinde iki yeni sütun (null → soluk —),
+  // ajan vakası çekmecesinde "ajan" rozeti + "Araç izi" sıralı listesi.
+  it('ajan kipi: özet sütunları (null —), çekmecede rozet + Araç izi listesi', async () => {
+    const agentRun = run('ev-new', { bySurface: [
+      { surface: 'IntentClassify', cases: 20, pass: 19, fail: 1, skipped: 0, unknownEntities: null, avgLatencyMs: 1400, agentCases: 0, avgToolCalls: null, avgTokens: null },
+      { surface: 'ChatLoop', cases: 2, pass: 1, fail: 1, skipped: 0, unknownEntities: 0, avgLatencyMs: 42000, agentCases: 2, avgToolCalls: 2.5, avgTokens: 6100 },
+    ] });
+    api.aiEvalsetCatalog.mockResolvedValue(CATALOG);
+    api.aiEvalsetRuns.mockResolvedValue({ runs: [agentRun] });
+    api.aiEvalsetRun.mockResolvedValue({ run: agentRun, cases: [kase('agent-checkout', {
+      surface: 'ChatLoop', ok: false, fails: ['missing tool: compare_periods'], mode: 'agent',
+      expect: { anyOfTools: ['compare_periods', 'get_service_health'], maxToolCalls: 6 },
+      agent: { tier: 'loop', rounds: 3, calls: 4, executed: 3, skipped: 1, modelCalls: 3, inputTokens: 5200, outputTokens: 900, cachedTokens: 0, capped: false,
+        steps: [
+          { i: 1, tool: 'get_service_health', args: '{"service":"checkout"}', ok: true, skipped: false, ms: 120, bytes: 2048, preview: '{"p95_ms":1830}' },
+          { i: 2, tool: 'compare_periods', args: '{}', ok: false, skipped: true, ms: 0, bytes: 0, preview: 'skipped' },
+        ] },
+    })] });
+    const el = render(<AiEvalPanel />, '/settings/ai?tab=eval&case=agent-checkout');
+    await tick();
+    const [summary] = tables(el);
+    const heads = Array.from(summary.querySelectorAll('thead th')).map(th => th.textContent ?? '');
+    expect(heads.some(h => h.includes('Araç çağrısı'))).toBe(true);
+    expect(heads.some(h => h.includes('Token'))).toBe(true);
+    const rows = Array.from(summary.querySelectorAll('tbody tr'));
+    const intent = cellsOf(rows.find(r => r.textContent?.startsWith('IntentClassify'))!);
+    const loop = cellsOf(rows.find(r => r.textContent?.startsWith('ChatLoop'))!);
+    expect(intent[5].querySelector('.cell-empty')!.textContent).toBe('—');
+    expect(intent[6].querySelector('.cell-empty')!.textContent).toBe('—');
+    expect(loop[5].textContent).toBe('2,5');
+    expect(loop[6].textContent).toBe('6,1k');
+    const drawer = document.body.querySelector('[aria-label="Vaka ayrıntısı"]')!;
+    expect(drawer.textContent).toContain('ajan');
+    expect(drawer.textContent).toContain('Araç izi');
+    expect(drawer.textContent).toContain('döngü · 3 tur · 4 çağrı (1 atlandı) · 6,1k token');
+    expect(drawer.textContent).toContain('Araçlardan en az biri: compare_periods / get_service_health');
+    const items = Array.from(drawer.querySelectorAll('ol.evs-trail > li'));
+    expect(items.length).toBe(2);
+    expect(items[0].textContent).toContain('get_service_health');
+    expect(items[1].textContent).toContain('atlandı');
+    // Liste, tablo değil (≤12 sabit sıralı adım).
+    expect(drawer.querySelector('ol.evs-trail table')).toBeNull();
+  });
+
+  it('tek çağrılı vakada Araç izi bölümü ve ajan rozeti yok', async () => {
+    idle();
+    render(<AiEvalPanel />, '/settings/ai?tab=eval&case=intent-checkout-find');
+    await tick();
+    const drawer = document.body.querySelector('[aria-label="Vaka ayrıntısı"]')!;
+    expect(drawer.textContent).not.toContain('Araç izi');
+    expect(drawer.querySelector('.badge')!.textContent).not.toBe('ajan');
   });
 
   it('kalan vaka satırı gerçek ?case= linki; çekmece bölümleri + kırpma notu', async () => {

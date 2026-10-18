@@ -25,6 +25,13 @@ var contextFieldProps = map[string]any{
 	"search_text": map[string]any{"type": "string"},
 }
 
+// ConversationStateTools — v0.10.1316: sohbetin SUNUCU durumunu (konuşma
+// başına Redis bağlamı) okuyan/yazan araçlar. Katalogdaki yazma-biçimli tek
+// adlar bunlardır (TestMCPToolsNoWriteTool izin listesi); değerlendirme
+// setinin ajan kipi bunları katalogdan düşürür (api evalAgentTools) — vaka
+// konuşmasızdır ve operatörün bağlamına dokunmamalıdır.
+var ConversationStateTools = map[string]bool{"set_context": true, "get_context": true, "clear_context": true}
+
 func noContextErr() error {
 	return fmt.Errorf("sohbet bağlamı yalnız in-app CoSRE sohbetinde tutulur (bu çağrıda konuşma yok)")
 }

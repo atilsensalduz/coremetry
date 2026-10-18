@@ -95,7 +95,8 @@ func TestEvalsetReplay(t *testing.T) {
 		if ts := evalCaseToolset(c.Surface, tsOverride, svc.ToolsetFor(cctx)); ts != "" { // v0.10.1311 — panelle aynı çözüm
 			cctx = mcptools.WithToolset(cctx, ts)
 		}
-		o := runEvalsetCase(cctx, call, c)
+		// v0.10.1316 — ajan vakası (agent nil) CLI'da atlanır.
+		o := runEvalsetCase(cctx, call, nil, c)
 		if o.Skipped { // v0.10.431
 			skipped++
 			t.Logf("%s\t%s\tSKIP\t-\t-\t%s", c.ID, c.Surface, o.SkipReason)

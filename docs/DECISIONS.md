@@ -6230,3 +6230,56 @@ argo satırları, TestChkArgoWindow, TestArgoSingleReadPerRun, TestArgoAppStatus
   (TrimSpace, host zorunlu, userinfo/kontrol karakteri yasak): saklama tarafı.
 - `sanitizeOIDCNext`, `buildLinkResultLink`, `announcement.go` dokunulmadı (duyuru linki
   çizimde SafeHref'ten geçiyor).
+
+## 2026-10-18 — Değerlendirme seti gerçek ajan döngüsünde (v0.10.1316)
+
+**Sorun:** v0.10.940'tan beri her evalset vakası TEK model çağrısıydı (`runEvalsetCase`
+→ `aiCall`): araç sonucu fikstür metninde hazır, modele araç kataloğu hiç gitmez;
+v0.10.1311 araç seti yalnız prompt varyantını değiştiriyordu. CoSRE'nin asıl davranışı —
+araç seçimi, tur sayısı, bütçe kullanımı, kanıtla cevap — ölçülmüyordu.
+
+**Karar:** fikstürde `"mode":"agent"` (yalnız serbest döngü yüzeylerinde; yeni yüzey
+`ChatLoop`, `agent_loop.json` 6 vaka) vakayı canlı ajan döngüsünden koşar.
+
+- **D1 — süreç içi canlı handler.** `evalsetServerAgent` gerçek bir
+  `POST /api/copilot/chat` isteği kurup `s.copilotChat`'i çağırır (koşuyu başlatanın
+  kimliği + rolüyle, profil üretim eşlemesinden), SSE gövdesi atılır. Handler'daki
+  sapmalar YALNIZ `chatEvalModeFrom(ctx) != nil` anahtarları (`chat_eval_mode.go`):
+  yüzey/exchange işaretten, araç seti işaretten, dış MCP araçları ve sohbet bağlamı
+  araçları (`mcptools.ConversationStateTools`) yok, Redis sohbet bağlamı okunmaz/yazılmaz,
+  etkileşim satırı + cosre_interactions yerine Sink, tur/araç kancaları. İşaret nil iken
+  bayt bayt eski (TestChatEvalModeNilIsByteIdentical).
+- **D2 — döngü öncesi kademeler açık.** Üretim neyse o ölçülür (guided / niyet cevabı da
+  geçerli sonuç); kademe önemliyse vaka `expectTier` ile sabitler. guided ön-yükleme
+  çipleri de araç yolu sayılır (Origin "guided"); niyet sınıflandırıcısının sözde-çipi
+  sayılmaz. Not: prod varsayılanı `on_no_loop` olduğundan düz bir soru çoğunlukla niyet
+  kademesinde biter — ajan vakalarının döngüye ulaşma oranı da bu yüzden bir ölçüdür.
+- **D3 — bütçeler.** Tur/çağrı tavanları canlıdakiler (5/6; Derin 8/12), araç başına
+  20 s (`mcp.ToolCallBudget`); vaka tavanı `min(chatExchangeTimeout, 10 dk)`; koşu tavanı
+  `60 dk + 10 dk × ajan vakası`, en çok 180 dk (`evalRunDeadlineFor`); terk eşiği
+  15 → 20 dk (`evalRunStaleAfter` = `chstore.StatePathEvalFresh`, kilitli). Vakalar
+  ardışık; koşu iptali / tavanıyla yarıda kalan ajan vakası sayılmaz.
+- **D4 — araç başına audit yok.** Değerlendirmede `mcp.tool.call` yazılmaz (Executor
+  Hooks.Audit nil); koşu düzeyi `ai.evalset.run` kalır ve `agent=<n>` taşır.
+- **D5 — yüzey `evalset-ChatLoop`.** `chstore.AICallEvalsetSurfacePrefix` yeniden
+  kullanılır (K2 dışlaması kendiliğinden); döngü öncesi kademelerin satırları da
+  `copilot.WithRecordSurfacePrefix` ile `evalset-` önekli (yalnız kayıtta — profil
+  yönlendirmesi etiketi okumaya devam eder). Exchange kimliği `<koşu>/<vaka>`.
+
+**Puanlama (SAF, `scoreEvalAgentCase`):** cevap yoksa kalır; `expectedTools` her biri
+başarıyla en az bir kez (ajan kipinde KAPI), `anyOfTools` en az biri, `forbiddenTools`
+hiç denenmez, yürütülen ≤ `maxToolCalls`, `expectTier`; sonra tek çağrılı yolun metin
+kapıları ve uydurma sayımı (bilinen = knownEntities ∪ sistem + kullanıcı + araç metni).
+Gecikme / token / tur METRİK (`agent.overruns`). Rubrikte `tool_calls_valid` (bilinmeyen
+ad, tekrar, tavan aşımı yok; döngü koşmadıysa n/a). Oylar hiçbir aşamada girdi değil
+(TestEvalNeverReadsVotes).
+
+**Saklama:** `ai_eval_runs` cases JSON'u eklemeli — `mode`, `agent` izi (kademe, tur,
+çağrı, yürütülen/atlanan, token, tavan, ≤12 adım, argüman ≤256 B, önizleme ≤512 B,
+iz ≤8 KiB); yüzey özeti `agentCases` / `avgToolCalls` / `avgTokens` (null = ölçülmedi),
+kıyas tarafları `toolCallsMean` / `tokensMean` + not. Şema değişmez.
+
+**Ratchet'ler:** TestEvalAgentCatalogReadOnly (katalog viewer tabanı, bağlam aracı yok,
+ajan dosyalarında yazan çağrı yok), mcptools TestMCPToolsNoWriteTool (her araç
+MinRole "", yazma fiilli ad yalnız ConversationStateTools'ta ya da gerekçeli okuma
+listesinde), TestEvalAgentSurfaceTag, TestEvalNeverReadsVotes.

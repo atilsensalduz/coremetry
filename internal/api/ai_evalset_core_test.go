@@ -116,7 +116,7 @@ func TestRunEvalsetCaseSharedPath(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			f := &fakeCall{answer: c.answer, err: c.err}
-			o := runEvalsetCase(context.Background(), f.fn, c.c)
+			o := runEvalsetCase(context.Background(), f.fn, nil, c.c)
 			if f.n != c.wantCalls {
 				t.Fatalf("çağrı %d, want %d", f.n, c.wantCalls)
 			}
@@ -141,7 +141,7 @@ func TestRunEvalsetCaseSharedPath(t *testing.T) {
 	}
 	// Şema İÇERİĞİ üretiminkiyle aynı olmalı (ad değil, gövde).
 	f := &fakeCall{answer: "{}"}
-	runEvalsetCase(context.Background(), f.fn, evalCase{ID: "i", Surface: "IntentClassify", User: "q", Expect: evalExpect{Intent: "none"}})
+	runEvalsetCase(context.Background(), f.fn, nil, evalCase{ID: "i", Surface: "IntentClassify", User: "q", Expect: evalExpect{Intent: "none"}})
 	got, _ := json.Marshal(f.schema)
 	want, _ := json.Marshal(intentClassifySchema())
 	if string(got) != string(want) {
@@ -149,7 +149,7 @@ func TestRunEvalsetCaseSharedPath(t *testing.T) {
 	}
 	// RCA: kurulan prompt modele gider (fikstürde user yok).
 	f = &fakeCall{answer: "{}"}
-	o := runEvalsetCase(context.Background(), f.fn, evalCase{ID: "r", Surface: "RCAVerdict", Hypothesis: json.RawMessage(hyp), Expect: evalExpect{Verdicts: []string{"x"}}})
+	o := runEvalsetCase(context.Background(), f.fn, nil, evalCase{ID: "r", Surface: "RCAVerdict", Hypothesis: json.RawMessage(hyp), Expect: evalExpect{Verdicts: []string{"x"}}})
 	if f.user == "" || o.User != f.user || !o.RCA {
 		t.Fatalf("RCA promptu: %q / %q", f.user, o.User)
 	}

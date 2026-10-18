@@ -1,0 +1,104 @@
+{
+  "schema": "coremetry.evalset/1",
+  "cases": [
+    {
+      "id": "agent-checkout-latency-path",
+      "surface": "ChatLoop",
+      "mode": "agent",
+      "why": "v0.10.1316 — gecikme sorusunda ajan önce RED/endpoint kanıtı toplamalı; kanıtsız ad ya da kubectl önerisi kırmızı. Veri yoksa da araç yolu ölçülür.",
+      "user": "checkout servisi son 1 saatte neden yavaşladı? Hangi endpoint ve hangi bağımlılık etkileniyor?",
+      "expect": {
+        "anyOfTools": ["service_health_sweep", "get_service_health", "get_operation_health", "compare_periods", "get_topology", "service_red", "top_error_operations"],
+        "maxToolCalls": 6,
+        "mustContain": ["checkout"],
+        "mustNotContain": ["kubectl delete"],
+        "knownEntities": ["checkout", "payments", "inventory"],
+        "maxUnknownEntities": 2,
+        "maxTokens": 60000,
+        "maxLatencyMs": 180000
+      }
+    },
+    {
+      "id": "agent-payments-error-logs",
+      "surface": "ChatLoop",
+      "mode": "agent",
+      "why": "v0.10.1316 — log özeti sorusu log ailesinden (yapısal query_logs / desenler / histogram) cevaplanmalı; kaynak koda gitmek gereksiz bütçe.",
+      "user": "payments servisinde son 30 dakikadaki hata loglarını özetle; en sık hata mesajı ne?",
+      "expect": {
+        "anyOfTools": ["query_logs", "search_logs", "log_patterns", "get_log_histogram", "explain_log_spike"],
+        "forbiddenTools": ["read_source_code", "search_code"],
+        "maxToolCalls": 6,
+        "mustContain": ["payments"],
+        "knownEntities": ["checkout", "payments", "inventory"],
+        "maxUnknownEntities": 2,
+        "maxTokens": 60000,
+        "maxLatencyMs": 180000
+      }
+    },
+    {
+      "id": "agent-inventory-deploy-impact",
+      "surface": "ChatLoop",
+      "mode": "agent",
+      "why": "v0.10.1316 — deploy etkisi sorusu deploy listesi / önce-sonra kıyası ile kanıtlanmalı; sürüm uydurmak yerine araç sonucu.",
+      "user": "inventory servisinde son 24 saatte deploy oldu mu? Deploy sonrasında hata oranı ya da gecikme değişti mi?",
+      "expect": {
+        "anyOfTools": ["list_deploys", "list_deployments", "get_deploy_diff", "get_correlated_changes", "recent_deploys"],
+        "maxToolCalls": 6,
+        "mustContain": ["inventory"],
+        "knownEntities": ["checkout", "payments", "inventory"],
+        "maxUnknownEntities": 2,
+        "maxTokens": 60000,
+        "maxLatencyMs": 180000
+      }
+    },
+    {
+      "id": "agent-open-problems-checkout",
+      "surface": "ChatLoop",
+      "mode": "agent",
+      "why": "v0.10.1316 — açık problem sorusu list_problems ile başlamalı (guided ön-yüklemesi de aynı adı taşır); problem uydurmak yerine boş liste dürüstçe söylenmeli.",
+      "user": "Şu an açık problemler neler? Hangisi checkout servisini etkiliyor?",
+      "expect": {
+        "expectedTools": ["list_problems"],
+        "maxToolCalls": 6,
+        "mustNotContain": ["kubectl delete"],
+        "knownEntities": ["checkout", "payments", "inventory"],
+        "maxUnknownEntities": 2,
+        "maxTokens": 60000,
+        "maxLatencyMs": 180000
+      }
+    },
+    {
+      "id": "agent-checkout-exceptions-deep",
+      "surface": "ChatLoop",
+      "mode": "agent",
+      "deep": true,
+      "why": "v0.10.1316 — Derin kipte exception kazısı: grup → örnek (stack + trace pivotu); geniş bütçe (8 tur / 12 çağrı) aşılmamalı.",
+      "user": "checkout servisinde son 1 saatte hangi exception grupları arttı? En sık olanın örnek bir stack'ini ve ilgili trace'i bul.",
+      "expect": {
+        "anyOfTools": ["list_exception_groups", "get_exception_samples", "list_exceptions"],
+        "maxToolCalls": 12,
+        "mustContain": ["checkout"],
+        "knownEntities": ["checkout", "payments", "inventory"],
+        "maxUnknownEntities": 3,
+        "maxTokens": 120000,
+        "maxLatencyMs": 300000
+      }
+    },
+    {
+      "id": "agent-payments-dependencies",
+      "surface": "ChatLoop",
+      "mode": "agent",
+      "why": "v0.10.1316 — bağımlılık sağlığı topoloji + DB/kuyruk sağlık ikizlerinden okunmalı; tek serbest metrik sorgusuyla tahmin değil.",
+      "user": "payments servisinin veritabanı ve mesajlaşma bağımlılıkları sağlıklı mı?",
+      "expect": {
+        "anyOfTools": ["get_topology", "get_db_health", "get_messaging_health", "get_blast_radius", "topology_edges"],
+        "maxToolCalls": 6,
+        "mustContain": ["payments"],
+        "knownEntities": ["checkout", "payments", "inventory"],
+        "maxUnknownEntities": 2,
+        "maxTokens": 60000,
+        "maxLatencyMs": 180000
+      }
+    }
+  ]
+}

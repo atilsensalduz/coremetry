@@ -3268,8 +3268,8 @@ export const EVALSET_SURFACE_PREFIX = 'evalset-';
 // v0.10.811 /ai null kırılım dersi). Zamanlar RFC3339 UTC dizgesi (ns değil:
 // koşu kaydı bir iş kaydı, telemetri noktası değil).
 
-/** Koşu durumu. `abandoned` sunucuda OKUMADA türetilir: 15 dk'dır
- *  güncellenmeyen, bu sürecin sahiplenmediği `running` satırı. */
+/** Koşu durumu. `abandoned` sunucuda OKUMADA türetilir: 20 dk'dır
+ *  (v0.10.1316; önce 15) güncellenmeyen, bu sürecin sahiplenmediği `running` satırı. */
 export type EvalRunStatus = 'running' | 'done' | 'cancelled' | 'failed' | 'abandoned';
 
 /** Katalogdaki bir yüzey + üretimin o yüzey için kullanacağı profil
@@ -3300,6 +3300,8 @@ export interface EvalsetCatalog {
    *  yüzeyinin üretim profili; Go evalCatalog.Toolset). '' = kümede döngü
    *  yüzeyi yok. Yok = v0.10.1311 öncesi sunucu. */
   toolset?: AIToolset;
+  /** v0.10.1316 — kümedeki ajan kipi vaka sayısı (Go evalCatalog.AgentCases). */
+  agentCases?: number;
 }
 
 /** Koşunun yüzey başına özeti (koşu sürerken her vakadan sonra güncellenir). */
@@ -3313,6 +3315,12 @@ export interface EvalSurfaceSummary {
    *  aksi hâlde taşıyan vakaların toplamı. 0 ile null ayrı şeyler. */
   unknownEntities: number | null;
   avgLatencyMs: number;
+  /** v0.10.1316 — plandaki ajan kipi vaka sayısı; ortalamalar biten ajan
+   *  vakalarından (atlanan hariç). null = yüzeyde ajan vakası yok / henüz
+   *  biten yok (ölçülmedi ≠ 0); yok = v0.10.1316 öncesi koşu. */
+  agentCases?: number;
+  avgToolCalls?: number | null;
+  avgTokens?: number | null;
 }
 
 /** Koşu özeti — liste satırı ve detayın `run` alanı. */
@@ -3359,6 +3367,53 @@ export interface EvalExpect {
   maxLatencyMs?: number;
   verdicts?: string[];
   minEvidenceCitationRate?: number;
+  /** v0.10.1316 — ajan kipi (mode "agent") beklentileri. expectedTools ajan
+   *  kipinde KAPI (her biri en az bir kez başarıyla), tek çağrıda bilgi;
+   *  maxTokens ölçü (aşılması kaldırmaz). */
+  expectedTools?: string[];
+  keyFacts?: string[];
+  anyOfTools?: string[];
+  forbiddenTools?: string[];
+  maxToolCalls?: number;
+  expectTier?: string;
+  maxTokens?: number;
+}
+
+/** v0.10.1316 — ajan vakası izinin bir adımı (Go evalAgentStep). Argüman
+ *  ≤256 B, önizleme ≤512 B (rune-güvenli). origin: '' model · 'guided'
+ *  sunucu ön-yüklemesi. */
+export interface EvalAgentStep {
+  i: number;
+  tool: string;
+  origin?: string;
+  args: string;
+  ok: boolean;
+  skipped: boolean;
+  ms: number;
+  bytes: number;
+  preview: string;
+}
+
+/** v0.10.1316 — ajan vakasının izi (Go evalAgentTrail, ≤8 KiB JSON).
+ *  tier: aisurface kademesi (loop, guided, intent …); calls = denenen araç
+ *  çipi (executed + skipped); steps en çok 12 (stepsTruncated). overruns:
+ *  ölçü aşımları (token / süre) — vakayı kaldırmaz. */
+export interface EvalAgentTrail {
+  tier: string;
+  route?: string;
+  rounds: number;
+  calls: number;
+  executed: number;
+  skipped: number;
+  modelCalls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  capped: boolean;
+  deep?: boolean;
+  overruns?: string[];
+  steps: EvalAgentStep[];
+  stepsTruncated?: boolean;
 }
 
 /** Bir vakanın sonucu (GET /runs/{id} `cases`). Girdi 8 KiB, cevap 16 KiB'de
@@ -3385,6 +3440,9 @@ export interface EvalCaseResult {
   expect: EvalExpect;
   /** v0.10.1311 — vakanın araç seti; döngü dışı yüzey ''. */
   toolset?: AIToolset;
+  /** v0.10.1316 — 'agent' = canlı ajan döngüsünde koştu (iz `agent`'ta); yok = tek çağrı. */
+  mode?: 'agent';
+  agent?: EvalAgentTrail;
 }
 
 /** Karşılaştırmanın bir tarafı (koşu künyesi). */
@@ -3399,6 +3457,9 @@ export interface EvalCompareSide {
   total: number;
   /** v0.10.1311 — koşunun araç seti ('' = döngü yüzeyi yok / eski koşu). */
   toolset?: AIToolset;
+  /** v0.10.1316 — ajan vakalarının araç çağrısı / token ortalaması; null = ajan vakası yok. */
+  toolCallsMean?: number | null;
+  tokensMean?: number | null;
 }
 
 export interface EvalCompareCase {

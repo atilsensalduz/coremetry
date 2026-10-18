@@ -5064,6 +5064,19 @@ a.ins-val:hover { text-decoration: underline; }
 .evs-cmp__summary { font-size: var(--fs-sm); color: var(--text); font-variant-numeric: tabular-nums; }
 .evs-cmp__title { margin-bottom: var(--sp-2); font-size: var(--fs-xs); font-weight: 600; color: var(--text2); }
 .evs-cmp__title--err { color: var(--err); }
+/* v0.10.1316 — ajan vakasının "Araç izi" (çekmece): sıralı adım listesi,
+   argüman tek satır (taşarsa kırılır), önizleme sınırlı yükseklikte. */
+.evs-trail__meta { font-size: var(--fs-sm); color: var(--text); font-variant-numeric: tabular-nums; }
+.evs-trail { margin: var(--sp-4) 0 0; padding-left: var(--sp-7); font-size: var(--fs-sm); line-height: 1.5; }
+.evs-trail > li + li { margin-top: var(--sp-4); }
+.evs-trail__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-3); }
+.evs-trail__head .field-hint { margin-top: 0; }
+.evs-trail__args { margin-top: var(--sp-1); font-size: var(--fs-xs); color: var(--text2); overflow-wrap: anywhere; }
+.evs-trail__preview {
+  margin-top: var(--sp-2); max-height: 96px; overflow: auto; padding: var(--sp-2) var(--sp-4);
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font-size: var(--fs-xs); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text2);
+}
 
 /* v0.10.940 — /ai süzgeç şeridinin select'leri (Kaynak / sağlayıcı / durum).
    Satır içi `fontSize: 12` idi; sınıf (0,1,0) olunca `[data-density] .controls

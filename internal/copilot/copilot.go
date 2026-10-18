@@ -824,7 +824,7 @@ func (s *Service) recordNarration(ctx context.Context, started time.Time,
 	rec := CallRecord{
 		ID:             callID,
 		CreatedAt:      started,
-		Surface:        meta.Surface,
+		Surface:        recordSurface(ctx, meta.Surface), // v0.10.1316 — ajan kipi evalset öneki
 		ExchangeID:     meta.ExchangeID,
 		Provider:       provider,
 		Model:          model,

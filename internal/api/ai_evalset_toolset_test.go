@@ -259,7 +259,7 @@ func TestRunEvalsetCaseReadsToolsetFromCtx(t *testing.T) {
 		return "bsa-card-core", nil
 	}
 	c := evalToolsetCases()[0]
-	o := runEvalsetCase(context.Background(), call, c)
+	o := runEvalsetCase(context.Background(), call, nil, c)
 	if o.Toolset != modelcaps.ToolsetFull || gotSys != evalFullLoopPromptPre1311() {
 		t.Fatalf("işaretsiz ctx full olmalı: %q", o.Toolset)
 	}
@@ -267,11 +267,11 @@ func TestRunEvalsetCaseReadsToolsetFromCtx(t *testing.T) {
 	if res.Toolset != modelcaps.ToolsetFull {
 		t.Fatalf("vaka satırı toolset taşımalı: %q", res.Toolset)
 	}
-	o = runEvalsetCase(mcptools.WithToolset(context.Background(), modelcaps.ToolsetSimple), call, c)
+	o = runEvalsetCase(mcptools.WithToolset(context.Background(), modelcaps.ToolsetSimple), call, nil, c)
 	if o.Toolset != modelcaps.ToolsetSimple || evalHiddenToolRe.MatchString(gotSys) {
 		t.Fatalf("simple ctx: toolset=%q", o.Toolset)
 	}
-	o = runEvalsetCase(mcptools.WithToolset(context.Background(), modelcaps.ToolsetSimple), call, evalToolsetCases()[1])
+	o = runEvalsetCase(mcptools.WithToolset(context.Background(), modelcaps.ToolsetSimple), call, nil, evalToolsetCases()[1])
 	if o.Toolset != "" || gotSys != copilot.SystemPromptProblem() {
 		t.Fatalf("döngü dışı yüzey: toolset=%q", o.Toolset)
 	}

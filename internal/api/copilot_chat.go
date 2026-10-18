@@ -256,6 +256,12 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 		uid, email = c.UserID, c.Email
 	}
 	exchangeID := newRandID(16)
+	// v0.10.1316 — ajan kipi evalset vakası (chat_eval_mode.go): yüzey ve
+	// exchange kimliği işaretten; nil (üretim) iken bayt bayt eski.
+	evm := chatEvalModeFrom(r.Context())
+	if evm != nil && evm.ExchangeID != "" {
+		exchangeID = evm.ExchangeID
+	}
 	// v0.10.24 — UÇTAN UCA TAVAN. Hiçbir katmanda yoktu: handler yalnız
 	// tool başına 20s taşıyordu, http.Server'da tavan yok (SSE için
 	// DOĞRU — sunucu geneli WriteTimeout her akışı keserdi), istemci ham
@@ -265,9 +271,13 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	exchangeMax := chatExchangeTimeout(s.copilot.ClientTimeout())
 	dctx, cancelExchange := context.WithTimeout(r.Context(), exchangeMax)
 	defer cancelExchange()
-	ctx := copilot.WithMeta(dctx, copilot.CallMeta{
+	callMeta := copilot.CallMeta{
 		Surface: "chat", UserID: uid, UserEmail: email, ExchangeID: exchangeID,
-	})
+	}
+	if evm != nil { // v0.10.1316 — RecordUsage satırı evalset- önekli (K2 dışlaması)
+		callMeta.Surface = evm.Surface
+	}
+	ctx := copilot.WithMeta(dctx, callMeta)
 	// v0.10.425 (CoSRE denetimi O2) — alışverişin kök span'ı (chat_span.go):
 	// kademeler, turlar, araçlar ve CH sorguları bunun altında iç içe geçer.
 	// defer: dört erken-dönüş kademesi var, aksi hâlde span sızar.
@@ -318,6 +328,11 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	// guided varsayılanı + serbest döngü önsözü + tool'lar (set/get/clear_context)
 	// aynı state'i okur; alışveriş sonunda kirliyse yazılır.
 	cst := s.loadChatContext(ctx, req.Context.Conversation, len(req.Messages) <= 1) // v0.10.487 — ilk tur köprüyü okumaz
+	if evm != nil {
+		// v0.10.1316 — değerlendirme vakası konuşmasız: koşuyu başlatanın Redis
+		// sohbet bağlamı ne okunur ne yazılır (kullanıcısız durum = flush no-op).
+		cst = &chatContextState{}
+	}
 	ctx = ctxWithChatContext(ctx, cst)
 	defer func() {
 		fctx, fcancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -502,6 +517,9 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	// metni (ChatDescriptionFor) ve döngü prompt'u aynı varyantı okur; etkileşim
 	// satırı (cosre_interactions.toolset) hangi varyantın koştuğunu kaydeder.
 	toolset := s.copilot.ToolsetFor(ctx)
+	if evm != nil && evm.Toolset != "" {
+		toolset = evm.Toolset // v0.10.1316 — koşunun araç seti (çözüm ya da açık seçim)
+	}
 	simpleTools := toolset == modelcaps.ToolsetSimple
 	xch.setToolset(toolset)
 	// Araç YÜRÜTMESİ de aynı varyantı görsün: sonuç ipuçları / notlar / hata
@@ -509,6 +527,9 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	// ctx'ten türer); dış MCP istemcisi işaretsiz ctx ile full kalır.
 	ctx = mcptools.WithToolset(ctx, toolset)
 	tools := toolsForRole(mcptools.ChatToolListFor(s.mcpDeps(), toolset), role) // v0.10.993 — dış-yalnız araçlar (bubble_up) hariç
+	if evm != nil {
+		tools = evalAgentTools(tools) // v0.10.1316 — sohbet bağlamı araçları düşer
+	}
 	// v0.10.1050 — read_source_code YALNIZ panel trace takibinde ve oturum
 	// kullanıcısına (API token'ı değil); bağımsız döngüde dış MCP araçlarının
 	// yanında sunulmaz (chat_source_code.go). Katalog/spec/prompt bundan kurulur.
@@ -527,7 +548,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	// araçları bu turda sunulmaz (wikiToolsFor).
 	// v0.10.948 — trace takibi YALNIZ yerli salt-okur katalog: dış MCP tool'ları (yazma yetkisi Coremetry'de denetlenmez, chat_mcp_bridge.go) çekmeceye sızmaz — DECISIONS v0.10.86-89 "guided/drawer/RAG'a sızmaz" + Faz B gereksinim 7.
 	var extTools []mcp.Tool
-	if !isTraceFollowUp && s.mcpClient != nil && s.mcpClient.Configured() {
+	if !isTraceFollowUp && evm == nil && s.mcpClient != nil && s.mcpClient.Configured() { // v0.10.1316 — değerlendirmede dış MCP yok
 		ext := externalChatTools(
 			s.mcpClient.Registry().Tools(ctx),
 			s.mcpClient.ToolRules,
@@ -781,12 +802,16 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 			byName[n] = chatLoopHandlerSeam(n, h)
 		}
 	}
-	exec := agenttools.NewExecutor(byName, extNames, agenttools.Hooks{
+	execHooks := agenttools.Hooks{
 		Span: cspan.tool,
 		Audit: func(name string, args json.RawMessage, dur time.Duration, err error, bytes int) {
 			s.audit(r, "mcp.tool.call", "mcp_tool", name, chatToolAuditDetails(name, args, dur, err, bytes))
 		},
-	})
+	}
+	if evm != nil {
+		execHooks.Audit = nil // v0.10.1316 (D4) — koşu düzeyi audit ai.evalset.run kalır
+	}
+	exec := agenttools.NewExecutor(byName, extNames, execHooks)
 
 	// v0.10.1280 (CoSRE adım 8) — döngünün TEK ai_calls satırı cevaptan SONRA
 	// yazılır (RecordUsage, aşağıda); cevap olayının callId'si o satırla
@@ -806,6 +831,9 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 		// v0.10.1273 — final turun metni canlı akar (chat_step_phase.go chatLoopTurn).
 		turn, err := s.chatLoopTurn(tctx, loopPrompt, conv, specs, emit)
 		endTurn(turn.InputTokens, turn.OutputTokens, turn.CachedTokens, err)
+		if evm != nil && evm.OnTurn != nil {
+			evm.OnTurn(round, turn, err) // v0.10.1316
+		}
 		if turn.ToolCallsFromText {
 			// v0.10.545 — sunucu tool_calls üretmedi, çağrı metinden ayrıştırıldı:
 			// operatör çipte görür, /ai için log. Sürekli görünüyorsa serving
@@ -923,6 +951,9 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 				})
 			}
 			oc := exec.Call(ctx, tc.Name, cargs)
+			if evm != nil && evm.OnTool != nil {
+				evm.OnTool(tc.Name, cargs, oc) // v0.10.1316
+			}
 			if !oc.Executed {
 				// bilinmeyen ad / tekrar muhafızı / kapsam reddi / iptal:
 				// yürütülmedi, süre yazılmaz (v0.10.161 — Σ süre hesaplanabilir
@@ -1137,6 +1168,9 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 			tctx2, endTurn2 := cspan.turn(ctx, round, false) // v0.10.425 — tur tavanı da bir tur
 			turn2, err2 := s.chatLoopTurn(copilot.WithNoToolCalls(tctx2), capPrompt, conv, specs, emit)
 			endTurn2(turn2.InputTokens, turn2.OutputTokens, turn2.CachedTokens, err2)
+			if evm != nil && evm.OnTurn != nil {
+				evm.OnTurn(-1, turn2, err2) // v0.10.1316 — tavan turu
+			}
 			totalIn += turn2.InputTokens
 			totalCached += turn2.CachedTokens
 			totalOut += turn2.OutputTokens

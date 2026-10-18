@@ -87,3 +87,21 @@ Vaka kaynağı: elle yazılmış sentetik (demo sözlüğü: checkout, payments,
 inventory). Prod 👎 satırları müşteri adı taşıyabilir ve repoya GİRMEZ;
 `GET /api/ai/evalset/export` (E5) indirilen dosya repoya elle ve
 temizlenerek alınır.
+
+## Ajan kipi (v0.10.1316)
+
+`agent_loop.json`: `surface: "ChatLoop"` + `"mode": "agent"` (isteğe bağlı
+`"deep": true`). Vaka tek çağrı DEĞİL: sunucu canlı sohbet handler'ını
+(`copilotChat`) süreç içinde, gerçek araç kataloğu, Executor ve tur/çağrı
+tavanlarıyla koşar (`internal/api/ai_evalset_agent.go`). Döngü öncesi
+kademeler (guided, niyet …) açıktır; kademe önemliyse `expectTier`
+sabitler. CLI koşumunda (`-tags evalset`) ajan vakaları ATLANIR.
+
+Ek beklentiler (yalnız ajan kipi): `expectedTools` (her biri en az bir kez
+başarıyla — tek çağrılı kipte bilgi amaçlı), `anyOfTools` (en az biri),
+`forbiddenTools` (hiç denenmez), `maxToolCalls` (yürütülen çağrı tavanı),
+`expectTier` (aisurface kademesi), `maxTokens` (METRİK, kaldırmaz). Araç
+adları sohbet kataloğundan ya da guided ön-yükleme çiplerinden olmalı
+(`TestEvalsetFixturesValid`). Sonuç izi (`agent`: kademe, tur, çağrı,
+token, ≤12 adım) koşunun cases JSON'unda; ai_calls satırları
+`evalset-ChatLoop` (döngü öncesi kademeler de `evalset-` önekli).

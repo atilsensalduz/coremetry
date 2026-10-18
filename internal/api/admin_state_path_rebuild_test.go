@@ -79,7 +79,7 @@ func TestStatePathRebuildAdminRoutes(t *testing.T) {
 }
 
 // TestStatePathEvalFreshMatchesEvalStale — R8'in "çalışan koşu" penceresi
-// ürünün terk eşiğiyle AYNI: 15 dk sessiz "running" satırı zaten terk
+// ürünün terk eşiğiyle AYNI (v0.10.1316: 20 dk) sessiz "running" satırı zaten terk
 // edilmiş sayılır; sihirbaz onu çalışıyor saymamalı (ve tersi).
 func TestStatePathEvalFreshMatchesEvalStale(t *testing.T) {
 	if chstore.StatePathEvalFresh != evalRunStaleAfter {

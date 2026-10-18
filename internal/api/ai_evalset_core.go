@@ -61,8 +61,19 @@ type evalExpect struct {
 	// dışa aktarımının alanları. keyFacts mustContain gibi sınanır (harf
 	// duyarsız alt-dize); expectedTools bilgi amaçlı — tek çağrılı evalset
 	// yüzeyleri tool koşmaz, sınama serbest döngü koşucusunun işi.
+	// v0.10.1316 — ajan kipinde (mode "agent") expectedTools bir KAPIDIR: her
+	// biri en az bir kez başarıyla yürümeli; tek çağrılı kipte bilgi amaçlı kalır.
 	ExpectedTools []string `json:"expectedTools,omitempty"`
 	KeyFacts      []string `json:"keyFacts,omitempty"`
+	// v0.10.1316 — yalnız ajan kipi (scoreEvalAgentCase): en az biri başarıyla
+	// yürümeli / hiç denenmemeli / yürütülen çağrı tavanı / beklenen kademe
+	// (aisurface: loop, guided, intent …). maxTokens METRİK (aşım iz notu,
+	// kaldırmaz) — maxLatencyMs gibi.
+	AnyOfTools     []string `json:"anyOfTools,omitempty"`
+	ForbiddenTools []string `json:"forbiddenTools,omitempty"`
+	MaxToolCalls   *int     `json:"maxToolCalls,omitempty"`
+	ExpectTier     string   `json:"expectTier,omitempty"`
+	MaxTokens      int      `json:"maxTokens,omitempty"`
 }
 
 type evalCase struct {
@@ -85,7 +96,12 @@ type evalCase struct {
 	// kırpık prompt'la alınan cevap ne pass ne fail kanıtıdır. ai_evalset.go
 	// başlığı bunu v0.10.423'ten beri vaat ediyordu, koşucu okumuyordu.
 	Provenance *evalProvenance `json:"provenance,omitempty"`
-	file       string
+	// Mode — v0.10.1316: "" tek çağrı (v0.10.940 yolu) | "agent" (canlı ajan
+	// döngüsü; yalnız serbest döngü yüzeylerinde — ai_evalset_agent.go).
+	// Deep — ajan vakasının "Derin düşün" anahtarı (yalnız agent ile).
+	Mode string `json:"mode,omitempty"`
+	Deep bool   `json:"deep,omitempty"`
+	file string
 	// expectRaw — v0.10.940: fikstürdeki expect nesnesi HARFİYEN (panel
 	// çekmecesi "Beklenti"yi gösterir; struct gidiş-dönüşü bilinmeyen
 	// anahtarı düşürürdü). Yükleyici doldurur; elle kurulan vakada boş.
@@ -212,12 +228,24 @@ func evalSystemPrompt(surface string) (string, bool) { return evalSystemPromptFo
 // evalset'te ölçülen etkisi prompt varyantıdır; gizli araçlar ne katalogda
 // (yok) ne prompt'ta (simple varyant) anılır.
 //
+// v0.10.1316 — bu sınır yalnız TEK ÇAĞRILI vakalar için geçerli: ajan kipi
+// vakası (`"mode":"agent"`, ChatLoop yüzeyi) canlı serbest döngüyü gerçek
+// araç kataloğuyla koşar; araç seti orada kataloğu da değiştirir
+// (ai_evalset_agent.go).
+//
 // Toolset yalnız serbest döngü prompt'unu koşan yüzeyde anlamlıdır; diğer
 // yüzeyler "" kaydeder (cosre_interactions.toolset emsali: guided/niyet "").
 
 // evalLoopSurface — SAF: serbest döngünün sistem prompt'unu (ajan çekirdeği)
 // koşan evalset yüzeyi. Araç seti yalnız bunlara uygulanır.
-func evalLoopSurface(surface string) bool { return surface == "ChatCodeResolve" }
+func evalLoopSurface(surface string) bool {
+	return surface == "ChatCodeResolve" || surface == evalAgentLoopSurface // v0.10.1316
+}
+
+// evalAgentLoopSurface — v0.10.1316: ajan döngüsü vakalarının yüzeyi
+// (agent_loop.json). ai_calls etiketi evalset-ChatLoop (D5); üretim profili
+// serbest döngününki ("chat", evalProfileLabel).
+const evalAgentLoopSurface = "ChatLoop"
 
 // evalCaseToolset — SAF: vakanın araç seti. Döngü dışı yüzey "" ; açık
 // seçim (simple|full) kazanır; değilse çözülen değer (ToolsetFor), boş ya
@@ -283,6 +311,8 @@ func evalSystemPromptFor(surface string, simple bool) (string, bool) {
 		return copilot.SystemPromptChatAgentLoopFor(simple) + copilot.CodeResolveChatAddendum(true) + "\n\n" + copilot.SystemPromptChat(), true // v0.10.1311 — araç setine göre
 	case "IntentClassify":
 		return copilot.SystemPromptIntentClassify(), true
+	case evalAgentLoopSurface: // v0.10.1316 — serbest döngü çekirdeği + sohbet çekirdeği (ekran/sayfa önsözsüz)
+		return copilot.SystemPromptChatAgentLoopFor(simple) + "\n\n" + copilot.SystemPromptChat(), true
 	}
 	return "", false
 }
@@ -304,22 +334,7 @@ func scoreEvalCase(c evalCase, system, answer string, err error) (fails []string
 	if err != nil {
 		return []string{"error: " + err.Error()}, 0
 	}
-	low := strings.ToLower(answer)
-	for _, m := range c.Expect.MustContain {
-		if !strings.Contains(low, strings.ToLower(m)) {
-			fails = append(fails, "missing: "+m)
-		}
-	}
-	for _, m := range c.Expect.MustNotContain {
-		if strings.Contains(low, strings.ToLower(m)) {
-			fails = append(fails, "forbidden: "+m)
-		}
-	}
-	for _, f := range c.Expect.KeyFacts {
-		if !strings.Contains(low, strings.ToLower(f)) {
-			fails = append(fails, "missing fact: "+f)
-		}
-	}
+	fails = evalTextGateFails(c, answer) // v0.10.1316 — ajan kipiyle ortak
 	sys, user := evalCaseInput(c, system)
 	unknown = int(rca.CountUnknownEntities(rca.LowerKnownSet(c.Expect.KnownEntities...), sys+"\n"+user, answer))
 	if c.Expect.MaxUnknownEntities != nil && unknown > *c.Expect.MaxUnknownEntities {
@@ -338,6 +353,29 @@ func scoreEvalCase(c evalCase, system, answer string, err error) (fails []string
 		}
 	}
 	return fails, unknown
+}
+
+// evalTextGateFails — SAF (v0.10.1316'da scoreEvalCase'ten ayrıldı; metinler
+// aynı): mustContain / mustNotContain / keyFacts, büyük/küçük harf duyarsız.
+func evalTextGateFails(c evalCase, answer string) []string {
+	var fails []string
+	low := strings.ToLower(answer)
+	for _, m := range c.Expect.MustContain {
+		if !strings.Contains(low, strings.ToLower(m)) {
+			fails = append(fails, "missing: "+m)
+		}
+	}
+	for _, m := range c.Expect.MustNotContain {
+		if strings.Contains(low, strings.ToLower(m)) {
+			fails = append(fails, "forbidden: "+m)
+		}
+	}
+	for _, f := range c.Expect.KeyFacts {
+		if !strings.Contains(low, strings.ToLower(f)) {
+			fails = append(fails, "missing fact: "+f)
+		}
+	}
+	return fails
 }
 
 // evalRubricInput — v0.10.666 (Faz A): vaka beklentisi + çıktı → deterministik
@@ -458,7 +496,7 @@ func evalProductionLabel(surface string) string { return evalProductionLabels[su
 // serbest sohbet döngüsünün ("chat") ekidir, aynı profille koşar. Etiket
 // tablosunda DEĞİL (👎 export geri dönüşümü Chat'e düşmeli).
 func evalProfileLabel(surface string) string {
-	if surface == "ChatCodeResolve" {
+	if surface == "ChatCodeResolve" || surface == evalAgentLoopSurface { // v0.10.1316 — ChatLoop da serbest döngü
 		return evalProductionLabel("Chat")
 	}
 	return evalProductionLabel(surface)
@@ -505,6 +543,9 @@ type evalCaseOutcome struct {
 	// Toolset — v0.10.1311: vakanın koştuğu araç seti (full | simple; döngü
 	// dışı yüzey ""). Bağlamdan okunur (mcptools.WithToolset), prompt da.
 	Toolset string
+	// Mode / Agent — v0.10.1316: ajan kipi vakasının kipi ve izi (tek çağrıda "" / nil).
+	Mode  string
+	Agent *evalAgentTrail
 }
 
 // runEvalsetCase — v0.10.940: CLI (evalset_test.go) ve sunucu koşucusunun
@@ -514,7 +555,10 @@ type evalCaseOutcome struct {
 // ayarlanmaz: CLI kendi özel Service'inde 0 kullanır, sunucu üretim
 // profilinin/küresel ayarın sıcaklığıyla koşar (üretim eşitliği; JSON
 // istekleri sağlayıcı katmanında zaten 0'a iner).
-func runEvalsetCase(ctx context.Context, call evalCallFn, c evalCase) evalCaseOutcome {
+//
+// v0.10.1316 — agent: ajan kipi vakasının koşucusu (ai_evalset_agent.go). Tek
+// çağrılı vakalarda kullanılmaz; nil (CLI) iken ajan vakası atlanır.
+func runEvalsetCase(ctx context.Context, call evalCallFn, agent evalAgentFn, c evalCase) evalCaseOutcome {
 	if why := evalCaseSkipReason(c); why != "" { // v0.10.431
 		_, user := evalCaseInput(c, "")
 		return evalCaseOutcome{Skipped: true, SkipReason: why, User: user}
@@ -528,6 +572,9 @@ func runEvalsetCase(ctx context.Context, call evalCallFn, c evalCase) evalCaseOu
 		if simple {
 			toolset = modelcaps.ToolsetSimple
 		}
+	}
+	if evalAgentCase(c) { // v0.10.1316 — canlı ajan döngüsü
+		return runEvalAgentCase(ctx, agent, c, toolset)
 	}
 	system, ok := evalSystemPromptFor(c.Surface, simple)
 	if !ok {
@@ -571,8 +618,9 @@ const (
 
 // evalRunStaleAfter — sahipsiz "running" satırı bu kadar sessizse terk
 // edilmiş sayılır. Vaka başına yazım var; tek vaka en fazla profil zaman
-// aşımı (≤ 600 sn) sürer, yani 15 dk sessizlik yaşayan bir koşuda olmaz.
-const evalRunStaleAfter = 15 * time.Minute
+// aşımı (≤ 600 sn) sürer. v0.10.1316 — 15 → 20 dk: ajan vakası
+// evalAgentCaseMax'e (≤ 10 dk) dek sürebilir; pay iki katı kalsın.
+const evalRunStaleAfter = 20 * time.Minute
 
 // Kırpma tavanları (bayt, rune-güvenli): liste değil çekmece yükü, ama 51
 // vakalık cases JSON'u CH satırında ve yanıtta sınırlı kalsın.
@@ -606,6 +654,8 @@ type evalCatalog struct {
 	Toolset  string               `json:"toolset"`
 	Total    int                  `json:"total"`
 	Surfaces []evalCatalogSurface `json:"surfaces"`
+	// AgentCases — v0.10.1316: kümedeki ajan kipi vaka sayısı.
+	AgentCases int `json:"agentCases"`
 }
 
 type evalSurfaceSummary struct {
@@ -618,6 +668,12 @@ type evalSurfaceSummary struct {
 	// taşımıyor (ölçülmüyor ≠ sıfır uydurma); değilse taşıyan vakaların TOPLAMI.
 	UnknownEntities *int  `json:"unknownEntities"`
 	AvgLatencyMs    int64 `json:"avgLatencyMs"`
+	// v0.10.1316 — ajan kipi: plandaki ajan vakası sayısı ve tamamlanan
+	// ajan vakalarının araç çağrısı / token ortalaması (nil = yüzeyde ajan
+	// vakası yok ya da henüz biten yok — ölçülmedi ≠ 0).
+	AgentCases   int      `json:"agentCases"`
+	AvgToolCalls *float64 `json:"avgToolCalls"`
+	AvgTokens    *float64 `json:"avgTokens"`
 }
 
 type evalRunSummary struct {
@@ -668,6 +724,9 @@ type evalCaseResult struct {
 	Expect          json.RawMessage `json:"expect"`
 	// Toolset — v0.10.1311: full | simple; döngü dışı yüzey "".
 	Toolset string `json:"toolset"`
+	// Mode / Agent — v0.10.1316: ajan kipi ("agent") ve izi; tek çağrıda yok.
+	Mode  string          `json:"mode,omitempty"`
+	Agent *evalAgentTrail `json:"agent,omitempty"`
 }
 
 type evalCompareSide struct {
@@ -680,6 +739,9 @@ type evalCompareSide struct {
 	Fail          int    `json:"fail"`
 	Total         int    `json:"total"`
 	Toolset       string `json:"toolset"` // v0.10.1311 — "" = döngü yüzeyi yok / eski koşu
+	// v0.10.1316 — ajan vakalarının araç çağrısı / token ortalaması (nil = ajan vakası yok).
+	ToolCallsMean *float64 `json:"toolCallsMean"`
+	TokensMean    *float64 `json:"tokensMean"`
 }
 
 type evalCompareCase struct {
@@ -776,6 +838,7 @@ func evalCaseResultFrom(c evalCase, o evalCaseOutcome, profileID, model string) 
 		ProfileID: profileID, Model: model,
 		Input: in, InputTruncated: inT, Answer: ans, AnswerTruncated: ansT,
 		Expect: evalExpectJSON(c), Toolset: o.Toolset,
+		Mode: o.Mode, Agent: o.Agent, // v0.10.1316
 	}
 	if o.Err != nil {
 		res.Error = o.Err.Error()
@@ -830,6 +893,12 @@ func evalSurfaceSummaries(plan []evalCase, results []evalCaseResult) []evalSurfa
 			}
 		}
 	}
+	for _, c := range plan { // v0.10.1316 — ajan vakası sayısı PLANDAN
+		if i, ok := idx[c.Surface]; ok && evalAgentCase(c) {
+			out[i].AgentCases++
+		}
+	}
+	agentRes := make([][]evalCaseResult, len(out))
 	latSum := make([]int64, len(out))
 	latN := make([]int64, len(out))
 	for _, r := range results {
@@ -852,11 +921,15 @@ func evalSurfaceSummaries(plan []evalCase, results []evalCaseResult) []evalSurfa
 		if measured[r.ID] && out[i].UnknownEntities != nil {
 			*out[i].UnknownEntities += r.UnknownEntities
 		}
+		if r.Agent != nil {
+			agentRes[i] = append(agentRes[i], r)
+		}
 	}
 	for i := range out {
 		if latN[i] > 0 {
 			out[i].AvgLatencyMs = latSum[i] / latN[i]
 		}
+		out[i].AvgToolCalls, out[i].AvgTokens = evalAgentMeans(agentRes[i]) // v0.10.1316
 	}
 	return out
 }
@@ -1000,12 +1073,17 @@ func evalCompareRuns(base, head chstore.EvalRun) evalCompare {
 	bRun := toRun(base, bCases)
 	hRun := toRun(head, hCases) // head sonra: yüzey adı çakışırsa head'inki kalır
 	rep := evalrubric.Diff(bRun, hRun)
-	side := func(r chstore.EvalRun) evalCompareSide {
-		return evalCompareSide{ID: r.ID, StartedAt: evalTimeString(r.StartedAt), Model: r.Model, PromptVersion: r.PromptVersion,
+	side := func(r chstore.EvalRun, cases []evalCaseResult) evalCompareSide {
+		sd := evalCompareSide{ID: r.ID, StartedAt: evalTimeString(r.StartedAt), Model: r.Model, PromptVersion: r.PromptVersion,
 			AppVersion: r.AppVersion, Pass: int(r.Pass), Fail: int(r.Fail), Total: int(r.Total), Toolset: evalBlobFromRow(r).Toolset}
+		sd.ToolCallsMean, sd.TokensMean = evalAgentMeans(cases) // v0.10.1316
+		return sd
 	}
+	bSide, hSide := side(base, bCases), side(head, hCases)
+	note := evalCompareNote(rep.Note, evalBlobFromRow(base).Toolset, evalBlobFromRow(head).Toolset)
+	note = evalCompareAgentNote(note, bSide.ToolCallsMean, hSide.ToolCallsMean) // v0.10.1316
 	cmp := evalCompare{
-		Comparable: rep.Comparable, Note: evalCompareNote(rep.Note, evalBlobFromRow(base).Toolset, evalBlobFromRow(head).Toolset), Base: side(base), Head: side(head),
+		Comparable: rep.Comparable, Note: note, Base: bSide, Head: hSide,
 		RubricMeanDelta: rep.MeanDelta,
 		NewlyFailing:    []evalCompareCase{}, NewlyPassing: []evalCompareCase{},
 		Regressed: []evalCompareDelta{}, Improved: []evalCompareDelta{},
@@ -1108,6 +1186,7 @@ func (s *Server) evalsetCatalog() (evalCatalog, error) {
 	cat := evalCatalog{
 		Ready: s.copilotReady(), AppVersion: s.evalAppVersion(), PromptVersion: copilot.PromptVersion(),
 		DefaultProfileID: defaultPID, Toolset: s.evalRunToolset(cases, ""), Total: len(cases), Surfaces: []evalCatalogSurface{},
+		AgentCases: evalAgentCaseCount(cases), // v0.10.1316
 	}
 	for _, sc := range evalSurfaceCounts(cases) {
 		id, label, provider, model, base := s.evalProfileFor(sc.Surface)

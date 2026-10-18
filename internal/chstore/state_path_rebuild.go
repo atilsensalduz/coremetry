@@ -110,9 +110,10 @@ func StatePathRebuildAllowed(name string) bool {
 }
 
 // StatePathEvalFresh — v0.10.965 — "çalışan evalset koşusu" penceresi. API
-// testi bunun api.evalRunStaleAfter'a EŞİT olduğunu pinler: 15 dk sessiz bir
-// "running" satırı ürün tarafında zaten terk edilmiş sayılır.
-const StatePathEvalFresh = 15 * time.Minute
+// testi bunun api.evalRunStaleAfter'a EŞİT olduğunu pinler: bu kadar sessiz
+// bir "running" satırı ürün tarafında zaten terk edilmiş sayılır.
+// v0.10.1316 — 15 → 20 dk (ajan kipi vakası ≤ 10 dk sürebilir; api ile kilitli).
+const StatePathEvalFresh = 20 * time.Minute
 
 // statePathRebuildBusy — v0.10.965 — pod başına tek çalıştırma (Store'a alan
 // eklenmez). İki api pod'u aynı anda koşarsa yakınsar: ikisi de yalnız
@@ -785,9 +786,9 @@ func statePathGate(in statePathGateInput) []string {
 		case in.EvalErr != nil:
 			out = append(out, fmt.Sprintf("ai_eval_runs: çalışan koşu sayımı okunamadı (%v) — koşu olmadığı doğrulanmadan düşürülmez", in.EvalErr))
 		case in.EvalRunning > 0 && in.EvalByParts:
-			out = append(out, fmt.Sprintf("ai_eval_runs: son 15 dk içinde %d taze parça (tablo bazı host'larda yok, koşular tek tek sayılamıyor) — bir evalset koşusu çalışıyor olabilir, bitmesini bekle", in.EvalRunning))
+			out = append(out, fmt.Sprintf("ai_eval_runs: son %d dk içinde %d taze parça (tablo bazı host'larda yok, koşular tek tek sayılamıyor) — bir evalset koşusu çalışıyor olabilir, bitmesini bekle", int(StatePathEvalFresh/time.Minute), in.EvalRunning))
 		case in.EvalRunning > 0:
-			out = append(out, fmt.Sprintf("ai_eval_runs: %d evalset koşusu şu an çalışıyor (son 15 dk) — bitmesini bekle", in.EvalRunning))
+			out = append(out, fmt.Sprintf("ai_eval_runs: %d evalset koşusu şu an çalışıyor (son %d dk) — bitmesini bekle", in.EvalRunning, int(StatePathEvalFresh/time.Minute)))
 		}
 	}
 	return out
@@ -1359,9 +1360,9 @@ func (s *Store) planStatePathRebuild(ctx context.Context, cluster string, tables
 				out.evalRead, out.evalLastWriteMs = true, lastMs
 				if in.EvalRunning == 0 {
 					if in.EvalByParts {
-						p.Checks = append(p.Checks, "ai_eval_runs'a son 15 dk'da yazım yok (parça yoklaması; tablo bazı host'larda yok)")
+						p.Checks = append(p.Checks, fmt.Sprintf("ai_eval_runs'a son %d dk'da yazım yok (parça yoklaması; tablo bazı host'larda yok)", int(StatePathEvalFresh/time.Minute)))
 					} else {
-						p.Checks = append(p.Checks, "çalışan evalset koşusu yok (son 15 dk)")
+						p.Checks = append(p.Checks, fmt.Sprintf("çalışan evalset koşusu yok (son %d dk)", int(StatePathEvalFresh/time.Minute)))
 					}
 				}
 			}

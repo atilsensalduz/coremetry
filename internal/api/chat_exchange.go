@@ -438,6 +438,14 @@ func (s *Server) recordChatExchange(ctx context.Context, x *chatExchange, cs *ch
 	answer, emittedErr, route := x.answer, x.errMsg, x.route
 	x.mu.Unlock()
 	status, msg := chatExchangeOutcome(tierErr, emittedErr, answer != "", ctx.Err())
+	if evm := chatEvalModeFrom(ctx); evm != nil {
+		// v0.10.1316 — ajan kipi evalset vakası: etkileşim satırı (cosre-turn)
+		// ve cosre_interactions YOK; sonuç değerlendirme koşucusuna.
+		if evm.Sink != nil {
+			evm.Sink(evalOutcomeFromExchange(x, tier, status, msg))
+		}
+		return
+	}
 	m := copilot.MetaFromContext(ctx)
 	m.Surface = aisurface.TurnLabel(tier, route, x.deep)
 	m.ExchangeID = aisurface.TurnExchangeID(x.root)

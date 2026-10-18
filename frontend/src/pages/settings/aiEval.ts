@@ -11,7 +11,7 @@
 // aktaran dosya istediği için ayrı modülde (aiTuning.ts / aiBudget.ts
 // emsali).
 import type {
-  AIToolset, EvalCaseResult, EvalCompare, EvalExpect, EvalRunStatus, EvalRunSummary, EvalsetCatalog, EvalsetCatalogSurface,
+  AIToolset, EvalAgentTrail, EvalCaseResult, EvalCompare, EvalExpect, EvalRunStatus, EvalRunSummary, EvalsetCatalog, EvalsetCatalogSurface,
 } from '@/lib/types';
 import { fmtDateTime } from '@/lib/utils';
 
@@ -308,6 +308,14 @@ export function expectLines(e: EvalExpect | null | undefined): string[] {
   const out: string[] = [];
   if (e.mustContain?.length) out.push(`İçermeli: ${quoteList(e.mustContain)}`);
   if (e.mustNotContain?.length) out.push(`İçermemeli: ${quoteList(e.mustNotContain)}`);
+  if (e.keyFacts?.length) out.push(`Anahtar olgular: ${quoteList(e.keyFacts)}`); // v0.10.1316
+  // v0.10.1316 — ajan kipi araç yolu (kaldıran koşullar; tek çağrılı vakada
+  // expectedTools yalnız bilgi — sunucu onu ajan kipinde sınar).
+  if (e.expectedTools?.length) out.push(`Koşması gereken araçlar: ${e.expectedTools.join(', ')}`);
+  if (e.anyOfTools?.length) out.push(`Araçlardan en az biri: ${e.anyOfTools.join(' / ')}`);
+  if (e.forbiddenTools?.length) out.push(`Denenmemesi gereken araçlar: ${e.forbiddenTools.join(', ')}`);
+  if (e.maxToolCalls !== undefined && e.maxToolCalls !== null) out.push(`Araç çağrısı üst sınırı: ${e.maxToolCalls}`);
+  if (e.expectTier) out.push(`Beklenen kademe: ${tierLabel(e.expectTier)} (${e.expectTier})`);
   if (e.intent) out.push(`Niyet: ${e.intent}${e.intentService ? ` · servis: ${e.intentService}` : ''}`);
   if (e.verdicts?.length) out.push(`Kabul edilen hüküm: ${e.verdicts.join(' / ')}`);
   if (e.minEvidenceCitationRate !== undefined && e.minEvidenceCitationRate !== null) {
@@ -323,7 +331,76 @@ export function expectLines(e: EvalExpect | null | undefined): string[] {
   }
   if (e.knownTeams?.length) out.push(`Bilinen takımlar: ${e.knownTeams.join(', ')}`);
   if (e.maxLatencyMs) out.push(`Süre hedefi: ${fmtSec1(e.maxLatencyMs)} sn (ölçü — aşılması vakayı kaldırmaz)`);
+  if (e.maxTokens) out.push(`Token hedefi: ${e.maxTokens.toLocaleString('tr-TR')} (ölçü — aşılması vakayı kaldırmaz)`); // v0.10.1316
   return out;
+}
+
+// ── Ajan kipi (v0.10.1316) ──────────────────────────────────────────────
+
+/** v0.10.1316 — aisurface kademesinin okunur adı (çekmece künyesi ve
+ *  beklenti satırı). Bilinmeyen kademe ham adıyla. */
+const TIER_LABEL: Record<string, string> = {
+  loop: 'döngü', guided: 'kılavuz', intent: 'niyet', wiki: 'wiki', rag: 'doküman', drawer: 'çekmece',
+  scope: 'kapsam', 'doc-rows': 'doküman satırı', operation: 'operasyon', memory: 'hafıza', other: 'diğer',
+};
+export function tierLabel(tier: string | undefined | null): string {
+  if (!tier) return '—';
+  return TIER_LABEL[tier] ?? tier;
+}
+
+/** v0.10.1316 — token sayısı: ≥1000 ise tek ondalık "k" (tr-TR: "6,1k"),
+ *  altı tam sayı. null / sonlu değil → null (hücre soluk "—"). */
+export function fmtTokensK(n: number | null | undefined): string | null {
+  if (n === null || n === undefined || !Number.isFinite(n)) return null;
+  if (Math.abs(n) < 1000) return Math.round(n).toLocaleString('tr-TR');
+  return `${(n / 1000).toLocaleString('tr-TR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}k`;
+}
+
+/** v0.10.1316 — yüzey özetinin "Araç çağrısı" hücresi: ortalama, tek
+ *  ondalık; null (ajan vakası yok / eski koşu) → null. */
+export function fmtAvg1(n: number | null | undefined): string | null {
+  if (n === null || n === undefined || !Number.isFinite(n)) return null;
+  return n.toLocaleString('tr-TR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
+
+/** v0.10.1316 — çekmecenin "Araç izi" künyesi:
+ *  "döngü · 3 tur · 4 çağrı (1 atlandı) · 6,1k token" (+ bütçe doldu / derin). */
+export function agentMetaLine(tr: EvalAgentTrail): string {
+  const parts = [tierLabel(tr.tier), `${tr.rounds} tur`, `${tr.calls} çağrı${tr.skipped ? ` (${tr.skipped} atlandı)` : ''}`,
+    `${fmtTokensK(tr.inputTokens + tr.outputTokens) ?? '0'} token`];
+  if (tr.capped) parts.push('bütçe doldu');
+  if (tr.deep) parts.push('derin');
+  return parts.join(' · ');
+}
+
+export interface TrailRow {
+  key: string;
+  n: number;
+  tool: string;
+  /** "ön-yükleme" (guided) ya da '' (modelin çağrısı). */
+  origin: string;
+  status: 'ok' | 'err' | 'skipped';
+  statusLabel: string;
+  /** "120 ms · 2.048 B"; atlanan adımda ''. */
+  meta: string;
+  args: string;
+  preview: string;
+}
+
+/** v0.10.1316 — izin adımları, sıralı liste satırları (tablo değil: ≤12
+ *  sabit sıralı adım, sıralama/yeniden boyut anlamsız). Durum metni rengi
+ *  yalnız sapmada (hata) taşır. */
+export function trailRows(tr: EvalAgentTrail | null | undefined): TrailRow[] {
+  return (tr?.steps ?? []).map(st => {
+    const status: TrailRow['status'] = st.skipped ? 'skipped' : st.ok ? 'ok' : 'err';
+    return {
+      key: `${st.i}-${st.tool}`, n: st.i, tool: st.tool,
+      origin: st.origin === 'guided' ? 'ön-yükleme' : '',
+      status, statusLabel: status === 'skipped' ? 'atlandı' : status === 'ok' ? 'tamam' : 'hata',
+      meta: st.skipped ? '' : `${Math.max(0, st.ms).toLocaleString('tr-TR')} ms · ${Math.max(0, st.bytes).toLocaleString('tr-TR')} B`,
+      args: st.args, preview: st.preview,
+    };
+  });
 }
 
 // ── Karşılaştırma ───────────────────────────────────────────────────────
@@ -360,6 +437,9 @@ export function compareSummary(cmp: EvalCompare): string {
     return `${fmtRunTime(s.startedAt)} · ${s.appVersion || '—'}${ts ? ` · ${ts}` : ''} · ${s.pass} / ${s.total}`;
   };
   const parts = [`${side(cmp.base)} → ${side(cmp.head)}`, `rubrik ortalaması ${fmtSigned2(cmp.rubricMeanDelta)}`];
+  // v0.10.1316 — iki tarafta da ajan vakası varsa araç çağrısı ortalaması.
+  const bt = fmtAvg1(cmp.base.toolCallsMean), ht = fmtAvg1(cmp.head.toolCallsMean);
+  if (bt && ht) parts.push(`araç çağrısı ort. ${bt} → ${ht}`);
   const onlyBase = (cmp.onlyInBase ?? []).length;
   const onlyHead = (cmp.onlyInHead ?? []).length;
   if (onlyBase) parts.push(`yalnız tabanda ${onlyBase} vaka`);

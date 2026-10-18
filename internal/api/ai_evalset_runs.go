@@ -27,12 +27,13 @@ package api
 // İş defteri SÜREÇ YEREL (admin_trace_backfill.go / spool_actions.go
 // emsali): api.go'ya alan eklenemez ve Redis kilidi için değer yok — koşu
 // ardışık, admin tetikli, en fazla bir tane. Çapraz-pod kapısı CH'deki en
-// yeni satır: taze bir "running" varsa 409. Ölü pod'un koşusu 15 dk
-// sessizlikten sonra okumada "abandoned" görünür (yazılmaz).
+// yeni satır: taze bir "running" varsa 409. Ölü pod'un koşusu 20 dk
+// (v0.10.1316; önce 15) sessizlikten sonra okumada "abandoned" görünür (yazılmaz).
 //
 // Neden bağlam context.Background(): koşu isteği aşar (sayfadan ayrılmak
 // koşuyu durdurmaz — K1 metni), tavanı 60 dk; api'de recover middleware
 // yok, kopuk goroutine'de panik süreci öldürür → recover → failed.
+// v0.10.1316 — tavan ajan vakası başına +10 dk (evalRunDeadlineFor, ≤ 180 dk).
 //
 // Bilinçli YOK: onay adımı / ücretli-sağlayıcı uyarısı (operatör: "yerel
 // modele bağlıyız" — koşu üretimle aynı profili kullanır), sıcaklık
@@ -119,6 +120,9 @@ type evalJob struct {
 	deadline  time.Duration // başlangıçta okunan tavan (mesaj için)
 	userID    string
 	userEmail string
+	// userRole — v0.10.1316: koşuyu başlatanın rolü (ajan vakası canlı
+	// handler'ı bu kimlikle koşar — katalog rol süzgeci canlıdaki gibi).
+	userRole string
 	// v0.10.1311 — araç seti: override = istekteki açık seçim ("" otomatik);
 	// toolset = koşu düzeyi çözüm (evalRunToolset; döngü yüzeyi yoksa "").
 	toolsetOverride string
@@ -323,9 +327,9 @@ func (s *Server) startAIEvalsetRun(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "toolset boş (otomatik), 'simple' ya da 'full' olmalı")
 		return
 	}
-	uid, email := "", ""
+	uid, email, role := "", "", ""
 	if c := auth.FromContext(r.Context()); c != nil {
-		uid, email = c.UserID, c.Email
+		uid, email, role = c.UserID, c.Email, c.Role // v0.10.1316 — rol ajan vakası için
 	}
 	startedBy := email
 	if startedBy == "" {
@@ -385,8 +389,9 @@ func (s *Server) startAIEvalsetRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
-	runCtx, release := context.WithTimeout(runCtx, evalRunDeadline)
-	job := &evalJob{row: row, plan: cases, cancel: cancel, deadline: evalRunDeadline, userID: uid, userEmail: email,
+	deadline := evalRunDeadlineFor(cases) // v0.10.1316 — ajan vakası başına pay, 180 dk tavan
+	runCtx, release := context.WithTimeout(runCtx, deadline)
+	job := &evalJob{row: row, plan: cases, cancel: cancel, deadline: deadline, userID: uid, userEmail: email, userRole: role,
 		toolsetOverride: in.Toolset, toolset: s.evalRunToolset(cases, in.Toolset)} // v0.10.1311
 	evalJobs.running = job
 	sum := job.summaryLocked()
@@ -399,6 +404,9 @@ func (s *Server) startAIEvalsetRun(w http.ResponseWriter, r *http.Request) {
 		scope = strings.Join(surfaces, ",")
 	}
 	details := fmt.Sprintf("surfaces=%s cases=%d", scope, len(cases))
+	if n := evalAgentCaseCount(cases); n > 0 { // v0.10.1316 — koşu düzeyi audit (D4: araç başına yok)
+		details += fmt.Sprintf(" agent=%d", n)
+	}
 	if job.toolset != "" { // v0.10.1311 — araç setinin uygulandığı koşu
 		mode := "auto"
 		if in.Toolset != "" {
@@ -556,6 +564,7 @@ func (s *Server) runEvalJob(ctx context.Context, release func(), job *evalJob, s
 		release()
 		s.finishEvalJob(job, st, status, errText)
 	}()
+	agent := s.evalsetServerAgent(job) // v0.10.1316 — ajan kipi vakaların koşucusu
 	for _, c := range job.plan {
 		if ctx.Err() != nil {
 			break
@@ -575,9 +584,12 @@ func (s *Server) runEvalJob(ctx context.Context, release func(), job *evalJob, s
 		if ts := s.evalToolsetFor(cctx, c.Surface, job.toolsetOverride); ts != "" {
 			cctx = mcptools.WithToolset(cctx, ts)
 		}
-		out := runEvalsetCase(cctx, s.evalsetServerCall, c)
-		if out.Err != nil && ctx.Err() != nil {
-			break // iptal/tavanla YARIDA kesilen vaka modelin sonucu değil — sayılmaz
+		out := runEvalsetCase(cctx, s.evalsetServerCall, agent, c)
+		// iptal/tavanla YARIDA kesilen vaka modelin sonucu değil — sayılmaz.
+		// v0.10.1316 — ajan vakası hata dönmeden de yarıda kalabilir (handler
+		// iptali "aborted" diye bitirir): koşu bağlamı bittiyse hiç sayılmaz.
+		if ctx.Err() != nil && (out.Err != nil || out.Mode == evalModeAgent) {
+			break
 		}
 		row := evalJobs.record(job, evalCaseResultFrom(c, out, pid, model), out.Rubric)
 		_ = s.persistEvalRun(st, row)

@@ -13,12 +13,19 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/cilcenk/coremetry/internal/ai/evalrubric"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/cilcenk/coremetry/internal/ai/aisurface"
+	"github.com/cilcenk/coremetry/internal/ai/evalrubric"
 	"github.com/cilcenk/coremetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/mcptools"
 )
 
 // loadEvalset — loadEvalsetCases'in test sarmalayıcısı (hata = t.Fatal).
@@ -37,8 +44,14 @@ func TestEvalsetFixturesValid(t *testing.T) {
 	if len(cases) < 20 {
 		t.Fatalf("en az 20 vaka bekleniyor, %d", len(cases))
 	}
+
 	seen := map[string]bool{}
+	knownTools := evalFixtureToolNames(t) // v0.10.1316
+	agentN := 0
 	for _, c := range cases {
+		if evalAgentCase(c) {
+			agentN++
+		}
 		if c.ID == "" || seen[c.ID] {
 			t.Errorf("%s: id boş ya da tekrar: %q", c.file, c.ID)
 		}
@@ -72,7 +85,96 @@ func TestEvalsetFixturesValid(t *testing.T) {
 		if (c.Surface == "IntentClassify") != (e.Intent != "") {
 			t.Errorf("%s/%s: intent beklentisi yalnız IntentClassify yüzeyinde ve orada zorunlu", c.file, c.ID)
 		}
+		checkAgentFixture(t, c, knownTools)
 	}
+	if agentN < 6 { // v0.10.1316 — agent_loop.json
+		t.Errorf("en az 6 ajan vakası bekleniyor, %d", agentN)
+	}
+}
+
+// v0.10.1316 — ajan kipi fikstür sözleşmesi: mode yalnız serbest döngü
+// yüzeyinde ve yalnız "agent"; ajan vakası en az bir araç beklentisi taşır;
+// deep ve ajan-yalnız anahtarlar yalnız ajanla; araç adları gerçek (sohbet
+// kataloğu ya da guided ön-yükleme çipi) — yazım hatası sessiz "missing
+// tool" olmasın.
+func checkAgentFixture(t *testing.T, c evalCase, knownTools map[string]bool) {
+	t.Helper()
+	e := c.Expect
+	if c.Mode != "" && c.Mode != evalModeAgent {
+		t.Errorf("%s/%s: mode %q — yalnız \"agent\"", c.file, c.ID, c.Mode)
+	}
+	if c.Mode != "" && !evalLoopSurface(c.Surface) {
+		t.Errorf("%s/%s: mode yalnız serbest döngü yüzeyinde (ChatLoop / ChatCodeResolve)", c.file, c.ID)
+	}
+	agent := evalAgentCase(c)
+	if c.Deep && !agent {
+		t.Errorf("%s/%s: deep yalnız ajan kipiyle", c.file, c.ID)
+	}
+	agentOnly := len(e.AnyOfTools) > 0 || len(e.ForbiddenTools) > 0 || e.MaxToolCalls != nil || e.ExpectTier != "" || e.MaxTokens > 0
+	if agentOnly && !agent {
+		t.Errorf("%s/%s: anyOfTools / forbiddenTools / maxToolCalls / expectTier / maxTokens yalnız ajan kipinde", c.file, c.ID)
+	}
+	if !agent {
+		return
+	}
+	if len(e.ExpectedTools) == 0 && len(e.AnyOfTools) == 0 {
+		t.Errorf("%s/%s: ajan vakası en az bir araç beklentisi taşır (expectedTools | anyOfTools)", c.file, c.ID)
+	}
+	if strings.TrimSpace(c.User) == "" || c.Prompt != "" {
+		t.Errorf("%s/%s: ajan vakası user taşır, prompt değil", c.file, c.ID)
+	}
+	if e.ExpectTier != "" && !aisurface.KnownTier(e.ExpectTier) {
+		t.Errorf("%s/%s: expectTier %q aisurface kademesi değil", c.file, c.ID, e.ExpectTier)
+	}
+	for _, list := range [][]string{e.ExpectedTools, e.AnyOfTools, e.ForbiddenTools} {
+		for _, name := range list {
+			if !knownTools[name] {
+				t.Errorf("%s/%s: araç %q ne sohbet kataloğunda ne guided ön-yükleme çiplerinde", c.file, c.ID, name)
+			}
+		}
+	}
+}
+
+// evalFixtureToolNames — v0.10.1316: sohbet kataloğunun adları + guided
+// ön-yükleme çiplerinin adları (kaynakta emitGuidedStep(emit, "<ad>", …)).
+func evalFixtureToolNames(t *testing.T) map[string]bool {
+	t.Helper()
+	out := map[string]bool{}
+	for _, tl := range mcptools.ToolList(mcptools.Deps{}) {
+		out[tl.Name] = true
+	}
+	files, _ := filepath.Glob("*.go")
+	fset := token.NewFileSet()
+	guided := 0
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		af, err := parser.ParseFile(fset, f, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(af, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok || len(call.Args) < 2 {
+				return true
+			}
+			if id, ok := call.Fun.(*ast.Ident); !ok || id.Name != "emitGuidedStep" {
+				return true
+			}
+			if bl, ok := call.Args[1].(*ast.BasicLit); ok && bl.Kind == token.STRING {
+				if v, err := strconv.Unquote(bl.Value); err == nil {
+					out[v] = true
+					guided++
+				}
+			}
+			return true
+		})
+	}
+	if guided < 10 {
+		t.Fatalf("yalnız %d guided çip adı bulundu — tarama bozuk", guided)
+	}
+	return out
 }
 
 // TestScoreEvalCase — skorlayıcı saf ve tablolu: E7'nin "davranış" pini

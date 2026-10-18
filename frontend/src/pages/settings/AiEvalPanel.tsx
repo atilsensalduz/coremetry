@@ -32,10 +32,10 @@ import { useEvalsetCatalog, useEvalRuns, useEvalRun, useEvalCompare, useStartEva
 import type { AIToolset, EvalCaseResult, EvalCompare, EvalRunSummary, EvalSurfaceSummary } from '@/lib/types';
 import { FlashBox, humanize } from './shared';
 import {
-  activeRun, caseReason, compareCandidates, compareGroups, compareSummary, evalHref, expectLines, failingCases,
-  fmtDec2, fmtRunTime, fmtSec1, fmtSignedInt, isFinished, passDeltas, pickDefaultProfile, pickDefaultRunId,
+  activeRun, agentMetaLine, caseReason, compareCandidates, compareGroups, compareSummary, evalHref, expectLines, failingCases,
+  fmtAvg1, fmtDec2, fmtRunTime, fmtSec1, fmtSignedInt, fmtTokensK, isFinished, passDeltas, pickDefaultProfile, pickDefaultRunId,
   progressPct, progressText, routingHint, runStatusView, runToolsetView, selectionCaseCount, toggleSurface, toolsetLabel,
-  withEvalParams,
+  trailRows, withEvalParams,
 } from './aiEval';
 
 // v0.10.940 — koşu satırı + "Fark" (passDeltas). Fark satıra gömülü: kolon
@@ -51,6 +51,9 @@ const SURFACE_COLS: ColumnDef<EvalSurfaceSummary>[] = [
   { id: 'fail',    label: 'Kaldı',        sortValue: r => r.fail, numeric: true, width: 90, tone: r => (r.fail > 0 ? 'err' : undefined) },
   { id: 'unknown', label: 'Uydurma ad',   sortValue: r => r.unknownEntities ?? -1, numeric: true, width: 120 },
   { id: 'latency', label: 'Ort. süre sn', sortValue: r => r.avgLatencyMs, numeric: true, width: 120 },
+  // v0.10.1316 — ajan vakalarının ortalaması (null = yüzeyde ajan vakası yok → soluk "—").
+  { id: 'toolCalls', label: 'Araç çağrısı', sortValue: r => r.avgToolCalls ?? -1, numeric: true, width: 120 },
+  { id: 'tokens',    label: 'Token',        sortValue: r => r.avgTokens ?? -1, numeric: true, width: 100 },
 ];
 
 // Kalan vakalar: kimlik mono (T5), gerekçe sarar (T11 'wrap'). Satır =
@@ -227,7 +230,9 @@ export function AiEvalPanel() {
         <p className="evs-intro">
           Gömülü evalset vakalarını üretimle aynı yoldan — yapılandırılmış profil(ler), aynı sistem
           istemleri — sunucuda sırayla koşturur ve deterministik puanlar (içerik, uydurma ad, niyet,
-          RCA hükmü, rubrik). Çağrılar /ai'da ayrı etiketlenir; üretim sayılarını ve bütçeyi şişirmez.
+          RCA hükmü, rubrik). Ajan vakaları (ChatLoop) canlı CoSRE döngüsünden — gerçek araç kataloğu,
+          tur ve çağrı tavanlarıyla — geçer; araç yolu da puanlanır. Çağrılar /ai'da ayrı etiketlenir;
+          üretim sayılarını ve bütçeyi şişirmez.
         </p>
         {catalogQ.isPending && <Spinner label="Katalog yükleniyor" />}
         {catalogQ.isError && <QueryErrorInline text={humanize(catalogQ.error)} onRetry={() => { void catalogQ.refetch(); }} />}
@@ -260,7 +265,7 @@ export function AiEvalPanel() {
                     { value: 'simple', label: 'Basit', title: 'query_metric / search_logs / search_traces / list_metric_labels anılmaz' },
                     { value: 'full', label: 'Tam' },
                   ]} />
-                <span className="field-hint">Yalnız serbest döngü yüzeylerine (ChatCodeResolve) uygulanır; modele araç kataloğu gönderilmez, prompt varyantı değişir.</span>
+                <span className="field-hint">Serbest döngü yüzeylerine uygulanır: tek çağrılı vakada (ChatCodeResolve) prompt varyantı, ajan vakasında (ChatLoop) modele giden araç kataloğu da değişir.</span>
               </div>
             )}
           </>
@@ -296,6 +301,8 @@ export function AiEvalPanel() {
                 <DataTableCell dt={surfaceDt} col="fail" row={r} value={r.fail} />
                 <DataTableCell dt={surfaceDt} col="unknown" row={r} value={r.unknownEntities} />
                 <DataTableCell dt={surfaceDt} col="latency" row={r} value={fmtSec1(r.avgLatencyMs)} />
+                <DataTableCell dt={surfaceDt} col="toolCalls" row={r} value={fmtAvg1(r.avgToolCalls)} />
+                <DataTableCell dt={surfaceDt} col="tokens" row={r} value={fmtTokensK(r.avgTokens)} />
               </tr>
             )) : <DataTableState dt={surfaceDt} {...summaryState} />}
           </tbody>
@@ -448,6 +455,7 @@ function CaseHeader({ id, c }: { id: string; c: EvalCaseResult | null }) {
           {c.skipped ? 'atlandı' : c.ok ? 'geçti' : c.error ? 'hata' : 'kaldı'}
         </Badge>
       )}
+      {c?.mode === 'agent' && <Badge tone="neutral" title="Canlı ajan döngüsünde koştu">ajan</Badge>}
       <span className="mono">{id}</span>
       {c && <span className="field-hint">{c.surface}</span>}
     </>
@@ -474,6 +482,7 @@ function CaseBody({ c }: { c: EvalCaseResult }) {
           ...(c.skipped ? [{ id: 'skip', k: 'Atlama nedeni', v: c.skipReason }] : []),
         ]} />
       </DrawerSection>
+      {c.agent && <AgentTrail trail={c.agent} />}
       {(fails.length > 0 || errExtra) && (
         <DrawerSection title="Neden">
           <ul className="evs-fails">
@@ -497,6 +506,37 @@ function CaseBody({ c }: { c: EvalCaseResult }) {
         {c.answerTruncated && <div className="field-hint">kırpıldı — ilk 16 KiB</div>}
       </DrawerSection>
     </>
+  );
+}
+
+/** v0.10.1316 — ajan vakasının araç izi: künye + sıralı adım listesi (≤12
+ *  sabit sıralı adım; tablo değil). Renk yalnız hatalı adımda. */
+function AgentTrail({ trail }: { trail: NonNullable<EvalCaseResult['agent']> }) {
+  const rows = trailRows(trail);
+  return (
+    <DrawerSection title="Araç izi">
+      <div className="evs-trail__meta">{agentMetaLine(trail)}</div>
+      {(trail.overruns ?? []).length > 0 && (
+        <div className="field-hint evs-note--warn">Ölçü aşımı (vakayı kaldırmaz): {(trail.overruns ?? []).join(' · ')}</div>
+      )}
+      {rows.length > 0 ? (
+        <ol className="evs-trail">
+          {rows.map(r => (
+            <li key={r.key}>
+              <div className="evs-trail__head">
+                <span className="mono">{r.tool}</span>
+                {r.origin && <span className="field-hint">{r.origin}</span>}
+                <span className={r.status === 'err' ? 'is-err' : 'field-hint'}>{r.statusLabel}</span>
+                {r.meta && <span className="field-hint">{r.meta}</span>}
+              </div>
+              {r.args && <div className="evs-trail__args mono">{r.args}</div>}
+              {r.preview && <div className="evs-trail__preview">{r.preview}</div>}
+            </li>
+          ))}
+        </ol>
+      ) : <div className="field-hint">Araç çağrılmadı — cevap araçsız üretildi.</div>}
+      {trail.stepsTruncated && <div className="field-hint">ilk {rows.length} adım gösteriliyor</div>}
+    </DrawerSection>
   );
 }
 

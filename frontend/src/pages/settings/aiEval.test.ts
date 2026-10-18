@@ -4,8 +4,9 @@ import {
   evalHref, expectLines, failingCases, fmtDurationMs, fmtRunTime, fmtSec1, fmtSigned2, fmtSignedInt,
   passDeltas, pickDefaultProfile, pickDefaultRunId, progressPct, progressText, routingHint, runElapsedMs,
   runStatusView, runToolsetView, selectionCaseCount, toggleSurface, toolsetLabel, withEvalParams,
+  agentMetaLine, fmtAvg1, fmtTokensK, tierLabel, trailRows,
 } from './aiEval';
-import type { EvalCaseResult, EvalCompare, EvalRunSummary, EvalsetCatalogSurface } from '@/lib/types';
+import type { EvalAgentTrail, EvalCaseResult, EvalCompare, EvalRunSummary, EvalsetCatalogSurface } from '@/lib/types';
 
 // aiEval.test.ts — v0.10.940 (Settings › CoSRE › Değerlendirme).
 //
@@ -246,6 +247,68 @@ describe('karşılaştırma', () => {
     const ts: EvalCompare = { ...cmp, base: { ...cmp.base, toolset: 'full' }, head: { ...cmp.head, toolset: 'simple' }, onlyInHead: [] };
     expect(compareSummary(ts)).toBe(
       '26.09.2026 18:40 · v-b · tam · 46 / 51 → 26.09.2026 18:40 · v-h · basit · 48 / 51 · rubrik ortalaması +0,02');
+  });
+});
+
+// v0.10.1316 — ajan kipi: iz satırları, künye, yeni beklenti anahtarları,
+// kıyasın araç çağrısı ortalaması. null ortalama "ölçülmedi" (— ), 0 değil.
+describe('ajan kipi (v0.10.1316)', () => {
+  const trail: EvalAgentTrail = {
+    tier: 'loop', rounds: 3, calls: 4, executed: 3, skipped: 1, modelCalls: 3,
+    inputTokens: 5200, outputTokens: 900, cachedTokens: 0, capped: false,
+    steps: [
+      { i: 1, tool: 'list_problems', origin: 'guided', args: '{}', ok: true, skipped: false, ms: 1200, bytes: 2048, preview: '{"problems":[]}' },
+      { i: 2, tool: 'compare_periods', args: '{"service":"checkout"}', ok: false, skipped: false, ms: 20000, bytes: 64, preview: 'timeout' },
+      { i: 3, tool: 'compare_periods', args: '{"service":"checkout"}', ok: false, skipped: true, ms: 0, bytes: 0, preview: 'skipped' },
+    ],
+  };
+  it('agentMetaLine: kademe · tur · çağrı (atlanan) · token', () => {
+    expect(agentMetaLine(trail)).toBe('döngü · 3 tur · 4 çağrı (1 atlandı) · 6,1k token');
+    expect(agentMetaLine({ ...trail, tier: 'intent', rounds: 0, calls: 0, skipped: 0, inputTokens: 300, outputTokens: 40, capped: true, deep: true }))
+      .toBe('niyet · 0 tur · 0 çağrı · 340 token · bütçe doldu · derin');
+  });
+  it('trailRows: sıra korunur; durum metni; atlanan adımda süre yok; ön-yükleme kökeni', () => {
+    const rows = trailRows(trail);
+    expect(rows.map(r => [r.n, r.tool, r.status, r.statusLabel, r.origin])).toEqual([
+      [1, 'list_problems', 'ok', 'tamam', 'ön-yükleme'],
+      [2, 'compare_periods', 'err', 'hata', ''],
+      [3, 'compare_periods', 'skipped', 'atlandı', ''],
+    ]);
+    expect(rows[0].meta).toBe('1.200 ms · 2.048 B');
+    expect(rows[2].meta).toBe('');
+    expect(new Set(rows.map(r => r.key)).size).toBe(3);
+    expect(trailRows(undefined)).toEqual([]);
+  });
+  it('sayı biçimleri: null → null (soluk —), tr-TR', () => {
+    expect(fmtTokensK(6100)).toBe('6,1k');
+    expect(fmtTokensK(640)).toBe('640');
+    expect(fmtTokensK(null)).toBeNull();
+    expect(fmtAvg1(2.25)).toBe('2,3');
+    expect(fmtAvg1(undefined)).toBeNull();
+    expect(tierLabel('loop')).toBe('döngü');
+    expect(tierLabel('yeni-kademe')).toBe('yeni-kademe');
+  });
+  it('expectLines: ajan anahtarları kaldıran koşullarla, token hedefi ölçü olarak en sonda', () => {
+    expect(expectLines({
+      mustContain: ['checkout'], anyOfTools: ['query_logs', 'search_logs'], expectedTools: ['list_problems'],
+      forbiddenTools: ['read_source_code'], maxToolCalls: 6, expectTier: 'loop', maxTokens: 60000, maxLatencyMs: 180000,
+    })).toEqual([
+      'İçermeli: «checkout»',
+      'Koşması gereken araçlar: list_problems',
+      'Araçlardan en az biri: query_logs / search_logs',
+      'Denenmemesi gereken araçlar: read_source_code',
+      'Araç çağrısı üst sınırı: 6',
+      'Beklenen kademe: döngü (loop)',
+      'Süre hedefi: 180,0 sn (ölçü — aşılması vakayı kaldırmaz)',
+      'Token hedefi: 60.000 (ölçü — aşılması vakayı kaldırmaz)',
+    ]);
+  });
+  it('compareSummary: iki tarafta da ajan ortalaması varsa araç çağrısı değişimi', () => {
+    const side = (id: string, mean: number | null) => ({ id, startedAt: '2026-09-26T18:40:00Z', model: 'qwen', promptVersion: 'p', appVersion: `v-${id}`, pass: 5, fail: 1, total: 6, toolCallsMean: mean, tokensMean: null });
+    const base: EvalCompare = { comparable: true, note: '', base: side('b', 2), head: side('h', 3.5), rubricMeanDelta: 0,
+      newlyFailing: [], newlyPassing: [], regressed: [], improved: [], onlyInBase: [], onlyInHead: [] };
+    expect(compareSummary(base)).toBe('26.09.2026 18:40 · v-b · 5 / 6 → 26.09.2026 18:40 · v-h · 5 / 6 · rubrik ortalaması 0,00 · araç çağrısı ort. 2,0 → 3,5');
+    expect(compareSummary({ ...base, base: side('b', null) })).not.toContain('araç çağrısı');
   });
 });
 

@@ -90,7 +90,7 @@ func TestStatePathAllowlist(t *testing.T) {
 			t.Errorf("StatePathRebuildAllowed(%q) true", n)
 		}
 	}
-	if StatePathEvalFresh != 15*time.Minute {
+	if StatePathEvalFresh != 20*time.Minute { // v0.10.1316 — 15 → 20 dk
 		t.Errorf("StatePathEvalFresh = %v", StatePathEvalFresh)
 	}
 }
@@ -483,7 +483,7 @@ func TestStatePathGateOrder(t *testing.T) {
 		"R", "Z", "D",
 		"özel ZK öneki (/ch/tbl)",
 		"W",
-		"ai_eval_runs: 2 evalset koşusu şu an çalışıyor (son 15 dk) — bitmesini bekle",
+		"ai_eval_runs: 2 evalset koşusu şu an çalışıyor (son 20 dk) — bitmesini bekle", // v0.10.1316
 	}
 	if len(got) != len(want) {
 		t.Fatalf("sıra = %v", got)
@@ -505,7 +505,7 @@ func TestStatePathGateOrder(t *testing.T) {
 		t.Errorf("parça yoklaması hatası = %v", got)
 	}
 	in.EvalErr, in.EvalRunning = nil, 3
-	if got := statePathGate(in); len(got) != 1 || !strings.Contains(got[0], "ai_eval_runs: son 15 dk içinde 3 taze parça") || !strings.Contains(got[0], "çalışıyor") {
+	if got := statePathGate(in); len(got) != 1 || !strings.Contains(got[0], "ai_eval_runs: son 20 dk içinde 3 taze parça") || !strings.Contains(got[0], "çalışıyor") {
 		t.Errorf("parça yoklaması taze = %v", got)
 	}
 }
@@ -776,16 +776,16 @@ func TestStatePathQueriesBoundedStrict(t *testing.T) {
 			t.Errorf("sınırsız okuma: %s", q)
 		}
 	}
-	if !strings.Contains(statePathEvalSQL("c", "coremetry"), "INTERVAL 15 MINUTE") {
-		t.Error("R8 penceresi StatePathEvalFresh'ten türemeli (15 dk)")
+	if !strings.Contains(statePathEvalSQL("c", "coremetry"), "INTERVAL 20 MINUTE") { // v0.10.1316
+		t.Error("R8 penceresi StatePathEvalFresh'ten türemeli (20 dk)")
 	}
 	// v0.10.965 — R8 yalnız ÇALIŞAN koşuları sayar; ikinci kolon en son yazım (ms).
-	if q := statePathEvalSQL("c", "coremetry"); !strings.Contains(q, "countIf(st = 'running' AND upd >= now64(9) - INTERVAL 15 MINUTE)") || !strings.Contains(q, "toUnixTimestamp64Milli(max(upd))") {
+	if q := statePathEvalSQL("c", "coremetry"); !strings.Contains(q, "countIf(st = 'running' AND upd >= now64(9) - INTERVAL 20 MINUTE)") || !strings.Contains(q, "toUnixTimestamp64Milli(max(upd))") {
 		t.Errorf("R8 çalışan süzgeci / son yazım yok: %s", q)
 	}
 	// v0.10.965 — eval yedeği: tablonun kendisini DEĞİL system.parts'ı okur, veritabanı bağlı.
 	if q := statePathEvalPartsSQL("c"); !strings.Contains(q, "clusterAllReplicas('c', system.parts) WHERE database = ? AND table = 'ai_eval_runs' AND active") ||
-		!strings.Contains(q, "modification_time >= now() - INTERVAL 15 MINUTE") || strings.Contains(q, "ai_eval_runs`") || strings.Contains(q, "level") {
+		!strings.Contains(q, "modification_time >= now() - INTERVAL 20 MINUTE") || strings.Contains(q, "ai_eval_runs`") || strings.Contains(q, "level") { // v0.10.1316 — 20 dk
 		t.Errorf("eval parça yoklaması: %s", q)
 	}
 }
@@ -1371,7 +1371,7 @@ func TestStatePathRebuildRefusals(t *testing.T) {
 			}
 			c.evalFreshParts = 1
 		},
-			want: "ai_eval_runs: son 15 dk içinde 1 taze parça"},
+			want: "ai_eval_runs: son 20 dk içinde 1 taze parça"}, // v0.10.1316
 		{label: "replika adı çakışması", setup: func(c *sprConn) { c.macros["host-2"]["replica"] = "r1" },
 			want: `replika adı çakışması: {shard}-{replica} host-1, host-2 host'larında "01-r1"`},
 		{label: "veritabanı Atomic değil", setup: func(c *sprConn) { c.dbEngine["host-4"] = "Ordinary" },

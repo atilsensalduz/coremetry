@@ -118,7 +118,7 @@ func (s *Service) RecordUsage(ctx context.Context, started time.Time, inTok, out
 	rec := CallRecord{
 		ID:             callID,
 		CreatedAt:      time.Now(),
-		Surface:        meta.Surface,
+		Surface:        recordSurface(ctx, meta.Surface), // v0.10.1316 — ajan kipi evalset öneki
 		ExchangeID:     meta.ExchangeID,
 		Provider:       provider,
 		Model:          model,
@@ -165,7 +165,7 @@ func (s *Service) RecordExchange(ctx context.Context, started time.Time, status,
 	rec := CallRecord{
 		ID:             NewCallID(),
 		CreatedAt:      created,
-		Surface:        meta.Surface,
+		Surface:        recordSurface(ctx, meta.Surface), // v0.10.1316 — ajan kipi evalset öneki
 		ExchangeID:     meta.ExchangeID,
 		DurationMs:     durationMsSince(started),
 		Status:         status,
