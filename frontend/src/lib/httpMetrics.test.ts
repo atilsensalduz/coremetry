@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { httpQueries, serverSel, promStr, rateWindow, seriesLabels, legendOf, relabel, scalarOf, barsOf, mergeTable, filterOptions, fmtCount, fmtRatio, fmtSeconds, latencyTone, errorRatioTone, clientErrorTone, sliTone, httpSeriesColors, donutSlices, sparkValues, statusCodeRateQuery, statusCodeSeries, totalRequestsQuery } from './httpMetrics';
+import { httpQueries, serverSel, promStr, rateWindow, seriesLabels, legendOf, relabel, scalarOf, barsOf, mergeTable, filterOptions, fmtCount, fmtRatio, fmtSeconds, latencyTone, errorRatioTone, clientErrorTone, sliTone, httpSeriesColors, donutSlices, fmtShare, sparkValues, statusCodeRateQuery, statusCodeSeries, totalRequestsQuery } from './httpMetrics';
 import type { SpanMetricSeries } from './types';
 
 // v0.10.1244 — HTTP Metrics sekmesi (Grafana panosu → VictoriaMetrics).
@@ -122,5 +122,34 @@ describe('status kodu serileri', () => {
 describe('totalRequestsQuery', () => {
   it('pencere toplamı', () => {
     expect(totalRequestsQuery('shop', 10800)).toBe('sum(increase(http_server_request_duration_seconds_count{service_name="shop"}[10800s]))');
+  });
+});
+
+// v0.10.1325 — operatör (prod, Status Code Dağılımı lejantı): "%0.01 olarak
+// da dağılım gösterebilir, burada 0 yazıyor çoğu." Pay tam sayıya
+// yuvarlanıyordu; 200 dışı her kod "%0" okunuyordu.
+describe('fmtShare — uyarlanır yüzde payı (v0.10.1325)', () => {
+  it.each([
+    [0, '%0'],
+    [0.004, '<%0,01'],
+    [0.0099, '<%0,01'],
+    [0.01, '%0,01'],
+    [0.33, '%0,33'],
+    [2.44, '%2,4'],
+    [9.99, '%10'],
+    [10, '%10'],
+    [42.4, '%42'],
+    [98.6, '%99'],
+    [99.3, '%99,3'],
+    [99.97, '%99,97'],
+    [99.999, '%99,99'],
+    [100, '%100'],
+  ])('fmtShare(%s) = %s', (v, want) => { expect(fmtShare(v)).toBe(want); });
+  it('< 100 pay asla "%100" okunmaz', () => {
+    for (const v of [99, 99.5, 99.99, 99.994, 99.995, 99.9999999]) expect(fmtShare(v)).not.toBe('%100');
+  });
+  it('eksik / geçersiz değer → —, negatif → %0', () => {
+    for (const v of [null, undefined, NaN, Infinity]) expect(fmtShare(v as never)).toBe('—');
+    expect(fmtShare(-1)).toBe('%0');
   });
 });

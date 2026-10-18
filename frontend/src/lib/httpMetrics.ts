@@ -273,6 +273,28 @@ export function donutSlices(rows: BarRow[]): DonutSlice[] {
   return rows.map(r => ({ label: r.label, value: r.value, pct: total > 0 ? (r.value / total) * 100 : 0 }));
 }
 
+// v0.10.1325 — operatör (prod, Status Code Dağılımı): "%0.01 olarak da
+// dağılım gösterebilir, burada 0 yazıyor çoğu." Lejant payı tam sayıya
+// yuvarlanıyordu (toFixed(0)); 40,5 Mn × 200 yanında 134,3 B × 400 "%0"
+// okunuyordu. Uyarlanır hassasiyet, tr-TR ondalık virgül:
+//   ≥ 99 ve < 100 → 2 ondalık, asla "%100" okunmaz (99,999 → %99,99)
+//   ≥ 10          → tam sayı (%42)
+//   ≥ 1           → 1 ondalık (%2,4)
+//   ≥ 0,01        → 2 ondalık (%0,33)
+//   (0, 0,01)     → "<%0,01"   · tam 0 → "%0"
+const SHARE_FMT = [0, 1, 2].map(d => new Intl.NumberFormat('tr-TR', { maximumFractionDigits: d, useGrouping: false }));
+/** Yüzde payı (0–100) → "%0,33" biçimi; null/NaN → "—". */
+export function fmtShare(pct: MaybeNum): string {
+  if (!finite(pct)) return '—';
+  if (pct <= 0) return '%0';
+  if (pct >= 100) return '%100';
+  if (pct >= 99) return `%${SHARE_FMT[2].format(Math.min(Math.round(pct * 100) / 100, 99.99))}`;
+  if (pct >= 10) return `%${SHARE_FMT[0].format(pct)}`;
+  if (pct >= 1) return `%${SHARE_FMT[1].format(pct)}`;
+  if (pct >= 0.01) return `%${SHARE_FMT[2].format(pct)}`;
+  return '<%0,01';
+}
+
 /** Stat kartı trend çizgisi: ilk serinin değerleri (yoksa boş). */
 export function sparkValues(series: SpanMetricSeries[] | null | undefined): (number | null)[] {
   return (series?.[0]?.points ?? []).map(p => (Number.isFinite(p.value) ? p.value : null));

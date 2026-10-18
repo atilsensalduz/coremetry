@@ -9,7 +9,7 @@ import { useState } from 'react';
 import { Sparkline } from '@/components/Sparkline';
 import { Button } from '@/components/ui';
 import { seriesPalette, inkOn } from '@/lib/chartFmt';
-import type { DonutSlice, HttpTone } from '@/lib/httpMetrics';
+import { fmtShare, type DonutSlice, type HttpTone } from '@/lib/httpMetrics';
 
 const TONE_VAR: Record<'ok' | 'warn' | 'err', string> = { ok: 'var(--ok)', warn: 'var(--warn)', err: 'var(--err)' };
 const TONE_TOKEN: Record<'ok' | 'warn' | 'err', string> = { ok: '--ok', warn: '--warn', err: '--err' };
@@ -112,7 +112,7 @@ export function HttpDonut({ slices, fmt, colorOf, onSelect }: {
                 style={{ cursor: onSelect ? 'pointer' : 'default', transition: 'stroke-width .12s, opacity .12s' }}
                 onMouseEnter={() => setHover(i)}
                 onClick={onSelect ? () => onSelect(s.label) : undefined}>
-                <title>{`${s.label}: ${fmt(s.value)} (%${s.pct.toFixed(1)})`}</title>
+                <title>{`${s.label}: ${fmt(s.value)} (${fmtShare(s.pct)})`}</title>
               </circle>
             );
             acc += len;
@@ -121,11 +121,11 @@ export function HttpDonut({ slices, fmt, colorOf, onSelect }: {
         </g>
         {active ? (
           <>
-            <text x={60} y={56} textAnchor="middle" fontSize={11} fontWeight={600} fill="var(--text)">%{active.pct.toFixed(1)}</text>
+            <text x={60} y={56} textAnchor="middle" fontSize={11} fontWeight={600} fill="var(--text)">{fmtShare(active.pct)}</text>
             <text x={60} y={70} textAnchor="middle" fontSize={8} fill="var(--text2)">{fmt(active.value)}</text>
           </>
         ) : slices[0] && slices[0].pct >= 8 && (
-          <text x={60} y={64} textAnchor="middle" fontSize={12} fontWeight={600} fill="var(--text)">%{slices[0].pct.toFixed(0)}</text>
+          <text x={60} y={64} textAnchor="middle" fontSize={12} fontWeight={600} fill="var(--text)">{fmtShare(slices[0].pct)}</text>
         )}
       </svg>
       <div style={{ display: 'grid', gap: 2, fontSize: 12, minWidth: 0 }}>
@@ -142,7 +142,7 @@ export function HttpDonut({ slices, fmt, colorOf, onSelect }: {
                 <span className="dt-trunc">{s.label}</span>
               </span>
               <span style={{ fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>{fmt(s.value)}</span>
-              <span style={{ fontVariantNumeric: 'tabular-nums', textAlign: 'right', color: 'var(--text2)' }}>%{s.pct.toFixed(0)}</span>
+              <span style={{ fontVariantNumeric: 'tabular-nums', textAlign: 'right', color: 'var(--text2)' }}>{fmtShare(s.pct)}</span>
             </span>
           );
           return onSelect ? (
