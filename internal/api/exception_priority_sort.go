@@ -63,6 +63,20 @@ func sortExceptionGroupsByPriority(items []chstore.ExceptionGroup, dir string) {
 	})
 }
 
+// exceptionListDefaultSort — v0.10.1323 (operatör: "First seen son olacak
+// şekilde sıralı gelsin default"). /api/exception-groups sort param'ı
+// taşımayan istekte First seen DESC (en yeni grup üstte) uygular — SPA'nın
+// varsayılanı (AnomaliesPage DEFAULT_EXC_SORT) ile aynı. Önceden boş sort
+// chstore.exceptionGroupsOrderBy'nin genel geri düşüşüne (last_seen DESC)
+// iniyordu; o geri düşüş öteki çağıranlar için AYNEN kalır. Açık sort/dir
+// (priority dahil) dokunulmadan geçer. SAF.
+func exceptionListDefaultSort(sort, dir string) (string, string) {
+	if sort == "" {
+		return "firstSeen", "desc"
+	}
+	return sort, dir
+}
+
 // pageExceptionGroups — SAF: [offset, offset+limit) dilimi; sınır dışı → boş.
 func pageExceptionGroups(items []chstore.ExceptionGroup, offset, limit int) []chstore.ExceptionGroup {
 	if offset < 0 {
@@ -114,6 +128,7 @@ type exceptionPage struct {
 // Taban varken tabansız bir COUNT daha: gizlenen sayı yanıtta (yeni alan).
 // Yayılım işaretleri her kipte.
 func (s *Server) listExceptionGroupsPage(ctx context.Context, f chstore.ExceptionGroupFilter, q url.Values) ([]chstore.ExceptionGroup, int64, exceptionPage, error) {
+	f.Sort, f.Dir = exceptionListDefaultSort(f.Sort, f.Dir) // v0.10.1323
 	pg := exceptionPage{Limit: f.Limit, Offset: f.Offset, prio: f.Sort == exceptionPrioritySortKey, dir: f.Dir, OracleCount: -1}
 	// v0.10.1092 — Exceptions "Oracle" çipi: ?oracle=only|exclude; param yok =
 	// Oracle grupları DAHİL (varsayılan görünüm).

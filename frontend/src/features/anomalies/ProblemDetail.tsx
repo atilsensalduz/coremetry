@@ -516,6 +516,10 @@ export function ProblemDetail({ group, isAdmin, onBack, onChanged }: {
           <>
             {state !== 'acknowledged' && <Button variant="secondary" onClick={() => act('acknowledged')}
               loading={acting === 'acknowledged'} disabled={acting !== null}>Acknowledge</Button>}
+            {/* v0.10.1323 — Exceptions tablosunun satır eylem kolonu kalktı; oradaki
+                acknowledged → new "Reopen" (ack'i geri al) yalnız satırdaydı, artık burada. */}
+            {state === 'acknowledged' && <Button variant="secondary" onClick={() => act('new')}
+              loading={acting === 'new'} disabled={acting !== null}>Reopen</Button>}
             <Button variant="secondary" onClick={() => act('ignored')}
               loading={acting === 'ignored'} disabled={acting !== null}>Ignore</Button>
             <Button variant="primary" onClick={() => act('resolved')}

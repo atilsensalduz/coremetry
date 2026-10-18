@@ -113,3 +113,37 @@ func TestExceptionPageApply(t *testing.T) {
 		t.Fatal("toplam tavan altındayken capped=false")
 	}
 }
+
+// v0.10.1323 — operatör: "First seen son olacak şekilde sıralı gelsin
+// default". Sort param'sız /api/exception-groups isteği First seen DESC'e
+// iner (SPA DEFAULT_EXC_SORT ile aynı); açık sort/dir aynen geçer.
+func TestExceptionListDefaultSort(t *testing.T) {
+	cases := []struct {
+		sort, dir         string
+		wantSort, wantDir string
+	}{
+		{"", "", "firstSeen", "desc"},
+		{"", "asc", "firstSeen", "desc"},
+		{"priority", "desc", "priority", "desc"},
+		{"lastSeen", "asc", "lastSeen", "asc"},
+		{"firstSeen", "asc", "firstSeen", "asc"},
+		{"occurrences", "", "occurrences", ""},
+	}
+	for _, c := range cases {
+		s, d := exceptionListDefaultSort(c.sort, c.dir)
+		if s != c.wantSort || d != c.wantDir {
+			t.Errorf("exceptionListDefaultSort(%q,%q) = (%q,%q), want (%q,%q)", c.sort, c.dir, s, d, c.wantSort, c.wantDir)
+		}
+	}
+	src := readRepoFile(t, "exception_priority_sort.go")
+	i := strings.Index(src, "func (s *Server) listExceptionGroupsPage(")
+	if i < 0 {
+		t.Fatal("listExceptionGroupsPage bulunamadı")
+	}
+	body := src[i:]
+	def := strings.Index(body, "exceptionListDefaultSort(f.Sort, f.Dir)")
+	prio := strings.Index(body, "prio: f.Sort == exceptionPrioritySortKey")
+	if def < 0 || prio < 0 || def > prio {
+		t.Error("varsayılan sıra, priority kararından ve ListExceptionGroups'tan ÖNCE uygulanmalı")
+	}
+}

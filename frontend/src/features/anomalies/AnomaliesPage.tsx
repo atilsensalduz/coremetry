@@ -61,10 +61,13 @@ import { spreadOf, spreadTitle, defaultFloorTitle, spreadOffFloorTitle, readFloo
 type SortKey = 'priority' | 'state' | 'type' | 'service' | 'occurrences' | 'firstSeen' | 'lastSeen' | 'assignee';
 const SORT_KEYS: readonly SortKey[] =
   ['priority', 'state', 'type', 'service', 'occurrences', 'firstSeen', 'lastSeen', 'assignee'];
-// v0.10.703 (operatör 2026-09-13) — varsayılan ÖNCELİK: Problems inbox gibi
-// P1 patlamalar ilk sayfada; "last seen" sırası yüzlerce tek seferlik grubu
-// öne alıyor, 700+ occurrence'lı P1'i sonraki sayfalara itiyordu.
-const DEFAULT_EXC_SORT = { id: 'priority' as SortKey, dir: 'desc' as const };
+// v0.10.703 (operatör 2026-09-13) — varsayılan ÖNCELİK idi (P1 patlamalar ilk
+// sayfada). v0.10.1323 (operatör: "First seen son olacak şekilde sıralı gelsin
+// default") — varsayılan artık FIRST SEEN DESC (en yeni grup üstte), her
+// sekmede. Prio sütunu sıralanabilir kalır; URL / kayıtlı görünüm / operatörün
+// kendi tıkladığı sıra bunu ezer. Sunucu da sort param'sız istekte aynı sırayı
+// uygular (internal/api/exception_priority_sort.go exceptionListDefaultSort).
+const DEFAULT_EXC_SORT = { id: 'firstSeen' as SortKey, dir: 'desc' as const };
 
 // Exception inbox columns — shared DataTable primitive in serverSort
 // mode (Services template, v0.8.251): the hook owns the sort UX, the
@@ -92,12 +95,11 @@ const EXC_COLS: ColumnDef<ExceptionGroup>[] = [
   { id: 'lastSeen',    label: 'Last seen',   sortValue: g => g.lastSeen,    width: 136, minWidth: 136, priority: 3 },
   { id: 'assignee',    label: 'Assignee',    sortValue: g => g.assignee,    naturalDir: 'asc',  width: 150, minWidth: 120, priority: 3 },
 ];
-// v0.10.945 (tablo standardı T8) — eylem kolonu yalnız admin/editor'de;
-// `minWidth = width` onu eski sabit `trailing` genişliğinde kilitler.
-const EXC_COLS_ADMIN: ColumnDef<ExceptionGroup>[] = [
-  ...EXC_COLS,
-  { id: 'actions',     label: 'Actions',     kind: 'actions', width: 208, minWidth: 208 },
-];
+// v0.10.1323 (operatör: "Sağdaki Ack/Resolve/Ignore butonları çıkmasın, zaten
+// içinden çıkıyor") — satır başı eylem kolonu (v0.10.945 EXC_COLS_ADMIN,
+// `kind: 'actions'`) KALDIRILDI. Durum eylemleri satırın açtığı detayda
+// (ProblemDetail detay çubuğu: Acknowledge / Reopen / Ignore / Resolve) —
+// her durum için orada; satırdan erişilip detayda olmayan eylem kalmadı.
 
 // v0.10.740 — varsayılan occurrence tabanı (sunucu inboxDefaultMinOcc ile aynı).
 // v0.10.949 — 2 → 5, çoklu-servis istisnalı; varsayılan kipte istek tabanı
@@ -113,12 +115,12 @@ type ExceptionGroupsParams = Parameters<typeof api.exceptionGroups>[0]; // v0.10
 function excEmptyMessage(tab: string): string {
   const head = tab === 'inbox' ? 'Inbox boş, ignored dışında hiç grup yok' : `"${tab}" sekmesinde grup yok`;
   const why = tab === 'resolved'
-    ? "Inbox'ta bir satırda Resolve'a basınca ya da 14 gün yeni oluşum gelmeyince gruplar buraya düşer"
+    ? "bir grubun detayında Resolve'a basınca ya da 14 gün yeni oluşum gelmeyince gruplar buraya düşer"
     : tab === 'ignored'
-      ? "bir satırda Ignore'a basınca gruplar buraya düşer; ignored grup yeniden tetiklense de sessiz kalır"
+      ? "bir grubun detayında Ignore'a basınca gruplar buraya düşer; ignored grup yeniden tetiklense de sessiz kalır"
       : tab === 'acknowledged'
-        ? "bir satırı Ack'leyince (gördün ama henüz düzeltmedin) gruplar buraya düşer; ack'ten çıkarmak için Resolve'a bas"
-        : 'son oluşumları görmek için bir satıra tıkla; durumu Ack / Resolve / Ignore ile yönet';
+        ? "bir grubu detayında Acknowledge'layınca (gördün ama henüz düzeltmedin) gruplar buraya düşer; ack'ten çıkarmak için Resolve'a bas"
+        : 'detayı açmak için bir satıra tıkla; durumu orada Acknowledge / Resolve / Ignore ile yönet';
   return `${head} — ${why}`;
 }
 
@@ -316,8 +318,16 @@ export default function ProblemsPage() {
   const dt = useDataTable<ExceptionGroup>({
     // v0.10.703 — anahtar v2: eski kalıcı sıra (lastSeen) yeni öncelik
     // varsayılanını gölgelemesin; genişlikler sıfırlanır (bilinçli).
-    storageKey: 'exception-inbox-v2',
-    columns: isAdmin ? EXC_COLS_ADMIN : EXC_COLS,
+    // v0.10.1323 — anahtar v3: v0.10.831 öncesi hook sıralamayı MOUNT'ta da
+    // yazıyordu, yani v2 kaydı çoğu tarayıcıda operatör seçimi değil eski
+    // `priority` varsayılanının izi — yeni First seen varsayılanını
+    // gölgelerdi. URL parametresi ADI v2'de kalır (sortUrlKey): paylaşılan
+    // link ve kayıtlı görünümlerin `?s_exception-inbox-v2=` sırası çalışmaya
+    // devam eder. Genişlikler eylem kolonu kalktığı için zaten sıfırlanıyor.
+    storageKey: 'exception-inbox-v3',
+    sortUrlKey: 's_exception-inbox-v2',
+    sortIds: SORT_KEYS,
+    columns: EXC_COLS,
     rows: data ?? [],
     serverSort: true,
     initialSort: DEFAULT_EXC_SORT,
@@ -445,16 +455,6 @@ export default function ProblemsPage() {
     return m;
   }, [users]);
 
-  const setState = async (g: ExceptionGroup, next: ExceptionGroupState) => {
-    try {
-      await api.setExceptionGroupState(g.fingerprint, next);
-      // Refresh the exception inbox + every anomaly feed so a
-      // state change percolates everywhere it might appear
-      // (the /anomalies page consumes the same cache).
-      refreshExceptionGroups();
-      qc.invalidateQueries({ queryKey: keys.anomalies.all });
-    } catch (err) { alert(humanize(err)); }
-  };
   const setAssignee = async (g: ExceptionGroup, userId: string) => {
     try {
       await api.assignExceptionGroup(g.fingerprint, userId);
@@ -645,7 +645,7 @@ export default function ProblemsPage() {
                 const spread = spreadOf(g); // v0.10.949
                 const ora = isOracleGroup(g); // v0.10.1092
                 // v0.10.221 — düz hücreler gerçek <Link> (orta tık yeni
-                // sekme); caret/servis/eylem hücreleri kendi tıklarını
+                // sekme); caret/servis/assignee hücreleri kendi tıklarını
                 // taşır, satır onClick'i kalan boşluk için kalıyor.
                 const excHref = excDetailHref(location.pathname, searchParams, g.fingerprint);
                 return (
@@ -759,16 +759,11 @@ export default function ProblemsPage() {
                           </span>
                         )}
                       </td>
-                      {isAdmin && (
-                        <td className="col-actions" onClick={e => e.stopPropagation()}>
-                          <ActionButtons g={g} onSet={setState} />
-                        </td>
-                      )}
                     </tr>
                     {open && (
                       <tr>
                         {/* v0.10.945 — `row-detail` değil: örnek kartları bg2, o zeminde kaybolurlar; bg1 bilerek. */}
-                        <td colSpan={isAdmin ? 10 : 9} style={{
+                        <td colSpan={9} style={{
                           background: 'var(--bg1)', padding: '10px 16px',
                           borderTop: '1px solid var(--divider)',
                         }}>
@@ -942,36 +937,6 @@ function SampleCard({ sample, index }: { sample: ExceptionSample; index: number 
       )}
     </div>
   );
-}
-
-function ActionButtons({ g, onSet }: {
-  g: ExceptionGroup; onSet: (g: ExceptionGroup, s: ExceptionGroupState) => void;
-}) {
-  // Compact secondary actions in a flex row — uniform gap instead of
-  // per-button margins, all on the canonical secondary/sm Button.
-  const row = (...kids: React.ReactNode[]) => (
-    <span style={{ display: 'inline-flex', gap: 4 }}>{kids}</span>
-  );
-  switch (g.state) {
-    case 'new':
-    case 'regressed':
-      return row(
-        <Button key="ack" variant="secondary" size="sm" onClick={() => onSet(g, 'acknowledged')}>Ack</Button>,
-        <Button key="res" variant="secondary" size="sm" onClick={() => onSet(g, 'resolved')}>Resolve</Button>,
-        <Button key="ign" variant="secondary" size="sm" onClick={() => onSet(g, 'ignored')}>Ignore</Button>,
-      );
-    case 'acknowledged':
-      return row(
-        <Button key="res" variant="secondary" size="sm" onClick={() => onSet(g, 'resolved')}>Resolve</Button>,
-        <Button key="reo" variant="secondary" size="sm" onClick={() => onSet(g, 'new')}>Reopen</Button>,
-        <Button key="ign" variant="secondary" size="sm" onClick={() => onSet(g, 'ignored')}>Ignore</Button>,
-      );
-    case 'resolved':
-      return <Button variant="secondary" size="sm" onClick={() => onSet(g, 'new')}>Reopen</Button>;
-    case 'ignored':
-      return <Button variant="secondary" size="sm" onClick={() => onSet(g, 'new')}>Unignore</Button>;
-  }
-  return null;
 }
 
 function StateBadge({ s }: { s: ExceptionGroupState }) {
