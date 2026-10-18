@@ -102,8 +102,10 @@ describe('T2 — satır yardımcıları işaret basar', () => {
     expect(read('pages/Databases.tsx')).toContain('{...(r.stmtHash ? rowActivation(() => openStmt(r)) : {})}');
     expect(read('pages/databases/detailSections.tsx')).toContain('{...(r.stmtHash ? rowActivation(() => onOpen(r)) : {})}');
     const shapes = read('components/traces/ShapesView.tsx');
-    expect(shapes).toContain('data-row-action={r.exemplar ? true : undefined}');
-    expect(shapes).toContain('{...(r.exemplar ? rowActivation(');
+    // v0.10.1356 (R4) — açılan satır rowClickHandlers (işareti o basar); açılmayan
+    // satırda rowProps'un işareti `undefined` ile düşer.
+    expect(shapes).toContain('{...(r.exemplar ? rowClickHandlers(');
+    expect(shapes).toContain(": { 'data-row-action': undefined })}");
     const lp = read('components/LogPatternsPanel.tsx');
     expect(lp.split('{...(r.query ? rowActivation(() => onSearch(r.query)) : {})}').length - 1).toBe(2);
     for (const src of [read('pages/Databases.tsx'), read('pages/databases/detailSections.tsx'), shapes, lp]) {

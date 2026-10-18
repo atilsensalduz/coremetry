@@ -54,7 +54,8 @@ describe('exception örnek tablosu — durum satırı tablonun içinde (v0.10.97
     const row = readFileSync(resolve(__dirname, 'ExceptionSampleRow.tsx'), 'utf8');
     expect(src).toContain('<ExceptionSampleRow key={i} s={s} isEv={!!s.traceId && evTraces.includes(s.traceId)} />');
     expect(row).toContain("className={isEv ? 'wf-evidence' : undefined}");
-    expect(row).toContain('{...(linkable ? rowActivation(() => navigate(traceHref(s.traceId))) : {})}');
+    // v0.10.1356 (R4) — satır değiştirici duyarlı rowClickHandlers (role=button değil).
+    expect(row).toContain('{...(linkable ? rowClickHandlers(traceHref(s.traceId), () => navigate(traceHref(s.traceId))) : {})}');
     expect(row).toContain('data-trace-id={s.traceId || undefined}');
     // Spinner sayfanın başka yerinde hâlâ kullanılıyor; içe aktarma kalır.
     expect(src).toContain("import { Spinner, Empty } from '@/components/Spinner';");

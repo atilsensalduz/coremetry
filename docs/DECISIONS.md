@@ -6960,3 +6960,15 @@ değerler yaklaşıktır (OTel varsayılan sınırları 0/5/10/25… ms)." (iki 
 `pages/service/httpChartPanel.render.test.tsx` (zeroBase / dolgu / not render + kaynak pinleri).
 **Bilinçli sınır:** x ekseni yine veriye oturur (v0.9.93 operatör kararı); panelde yalnız seyrek seri varsa iki nokta
 eksenin iki ucuna düşer.
+
+## 2026-10-18 — v0.10.1356 — Gezinen tablo satırları gerçek link (Ctrl/⌘ yeni sekme)
+
+**Operatör onayı (kuyruk):** satıra tıklayınca sayfa açan altı tablo (Exceptions örnek satırı, Shapes, Repeats, Profiling,
+Overview Operations / DB kartları) yalnız `navigate()` çağırıyordu — Ctrl/⌘/orta tık ile yeni sekme, sağ tık "bağlantıyı
+kopyala" yoktu. **Karar:** her satırın ilk hücresi gerçek `<Link>`; satırın geri kalanı mevcut `rowClickHandlers`
+(`lib/utils.ts`) ile değiştirici tuş farkında (düz tık aynı sekme, Ctrl/⌘/Shift/orta tık `window.open`). `rowActivation`
+(role=button) gezinen satırlarda kullanılmaz — button rolü içindeki linki ekran okuyucudan gizler; satır başına tek
+klavye durağı linktir, Space artık satırı açmaz (link davranışı), Enter ve j/k gezinmesi aynı. Ratchet
+`lib/a11y.rowSites.test.ts`: `rowActivation(() => navigate(` yasak (izin listesi boş), `rowClickHandlers(X, () =>
+navigate(X))` aynı dosyada `<Link to={X}>` ister. **Bilinçli sınır:** sarmalayıcı fonksiyonla gezinen satırlar (TopEndpoints,
+Hosts/External, Databases, Clusters, Inbox, DetailsEndpoints) ratchet'e takılmaz; ayrıca incelenecek.

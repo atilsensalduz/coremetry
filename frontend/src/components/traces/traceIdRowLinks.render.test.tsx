@@ -118,7 +118,10 @@ const SITES: { name: string; el: () => JSX.Element; href: string; blankCell: num
 ];
 
 describe.each(SITES)('$name — trace id gerçek link (v0.10.1105)', ({ el, href, blankCell }) => {
-  const link = (h: HTMLElement) => h.querySelector(`tbody tr a[href^="/trace?"]`) as HTMLAnchorElement | null;
+  // v0.10.1356 (R4) — Shapes'te operasyon adı da aynı hedefe link (birincil
+  // hücre); burada trace id'yi taşıyan link sınanır.
+  const link = (h: HTMLElement) => ([...h.querySelectorAll(`tbody tr a[href^="/trace?"]`)] as HTMLAnchorElement[])
+    .find(a => a.textContent?.includes(T1.slice(0, 12))) ?? null;
 
   it('trace id gerçek anchor (href=/trace?id=…); düz tık tek gezinme, satıra çıkmaz', async () => {
     const h = await mount(el());

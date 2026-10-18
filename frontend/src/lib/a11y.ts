@@ -33,6 +33,11 @@ export function isPlainLeftClick(e: Pick<MouseEvent, 'button' | 'metaKey' | 'ctr
   return e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
 }
 
+/** v0.10.1356 (R4) — GEZİNEN satır için DEĞİL: rowActivation her tıkta
+ *  onActivate çağırır (Ctrl/⌘/orta tık da aynı sekmede) ve satırı role=button
+ *  yapar. Gezinen satır = birincil hücrede `<Link to={X} onClick={stopRowClick}>`
+ *  + satırda lib/utils `rowClickHandlers(X, () => navigate(X))` (değiştirici
+ *  duyarlı). Kapı: a11y.rowSites.test.ts "navigating rows are real links". */
 export function rowActivation<E extends HTMLElement = HTMLTableRowElement>(onActivate: () => void): {
   role: 'button';
   tabIndex: 0;

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import { rowActivation } from '@/lib/a11y'; // v0.10.451 (dış denetim D3 kalan)
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { stopRowClick } from '@/lib/a11y'; // v0.10.451 (dış denetim D3 kalan); v0.10.1356 R4
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Topbar } from '@/components/Topbar';
 import { Empty } from '@/components/Spinner';
 import { IconFlame } from '@/components/icons';
@@ -8,7 +8,7 @@ import { ServicePicker } from '@/components/ServicePicker';
 import { BreakdownBar, KindBadge } from '@/components/KindBadge';
 import { useProfiles, useProfileHotspots } from '@/lib/queries';
 import { copyToClipboard } from '@/lib/clipboard';
-import { tsShort, timeRangeToNs, fmtNum } from '@/lib/utils';
+import { tsShort, timeRangeToNs, fmtNum, rowClickHandlers } from '@/lib/utils';
 import { useUrlRange, DEFAULT_RANGE_PRESET } from '@/lib/useUrlRange';
 import {
   useDataTable, DataTableHead, DataTableColgroup, DataTableState,
@@ -43,6 +43,9 @@ const TYPES = [
   { v: 'goroutine', label: 'Goroutine' },
   { v: 'alloc', label: 'Alloc' },
 ];
+
+/** v0.10.1356 (R4) — profil satırının TEK hedefi (Link, satır tıkı, j/k Enter). */
+const profileHref = (p: ProfileRow) => `/profile?id=${p.profileId}`;
 
 export default function ProfilingPage() {
   // URL-bound state so the service detail page can deep-link
@@ -105,7 +108,7 @@ export default function ProfilingPage() {
   const profileDt = useDataTable<ProfileRow>({
     storageKey: 'profiles', columns: PROFILE_COLS,
     rows: data ?? [], initialSort: { id: 'time', dir: 'desc' },
-    onOpen: p => navigate(`/profile?id=${p.profileId}`),
+    onOpen: p => navigate(profileHref(p)),
   });
   // v0.10.954 — tablo standardı T12: yükleniyor / hata / boş tablonun
   // İÇİNDE, başlık durur. Servis / tür süzgeci isteğe gidiyor: seçiliyken
@@ -176,8 +179,12 @@ export default function ProfilingPage() {
                   return (
                     <tr key={p.profileId} {...rp}
                       className={[rp.className, profileDt.sortedRows.length > 100 ? 'cv-row' : ''].filter(Boolean).join(' ') || undefined}
-                      {...rowActivation(() => navigate(`/profile?id=${p.profileId}`))}>
-                      <td className="mono">{tsShort(p.startTime)}</td>
+                      // v0.10.1356 (R4) — rowActivation (her tıkta navigate) yerine
+                      // değiştirici duyarlı rowClickHandlers; zaman hücresi gerçek <Link>.
+                      {...rowClickHandlers(profileHref(p), () => navigate(profileHref(p)))}>
+                      <td className="mono">
+                        <Link to={profileHref(p)} onClick={stopRowClick} className="cell-link">{tsShort(p.startTime)}</Link>
+                      </td>
                       <td>
                         <span style={{ fontSize: 11, padding: '1px 6px', background: 'var(--bg3)', borderRadius: 3, fontFamily: 'var(--font-mono)' }}>
                           {p.serviceName}

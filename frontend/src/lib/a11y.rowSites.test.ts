@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { jsxOpenTags } from '@/styles/jsxTags';
 
 // v0.10.451 (dış skill denetimi D3, kalan siteler) — tıklanabilir <tr>
 // yalnız rowActivation ile (klavye eşdeğeri: role=button, tabIndex=0,
@@ -65,11 +66,110 @@ describe('clickable rows use rowActivation (D3)', () => {
     }
   });
   it('the D3 sites adopted the helper', () => {
-    for (const f of ['components/DBQueriesPanel.tsx', 'features/anomalies/AnomaliesPage.tsx', 'pages/AIObservability.tsx', 'pages/AdminElastic.tsx', 'pages/Profiling.tsx', 'pages/service/ServicePodsTable.tsx', 'pages/Clusters.tsx', 'pages/Inbox.tsx', 'pages/Hosts.tsx', 'pages/Databases.tsx', 'pages/SlowQueries.tsx', 'pages/service/OverviewTables.tsx', 'components/LogPatternsPanel.tsx']) {
+    // v0.10.1356 (R4) — Profiling ve servis OverviewTables gezinen satırdı:
+    // rowActivation'dan rowClickHandlers + <Link>'e geçtiler (aşağıdaki R4 kapısı).
+    for (const f of ['components/DBQueriesPanel.tsx', 'features/anomalies/AnomaliesPage.tsx', 'pages/AIObservability.tsx', 'pages/AdminElastic.tsx', 'pages/service/ServicePodsTable.tsx', 'pages/Clusters.tsx', 'pages/Inbox.tsx', 'pages/Hosts.tsx', 'pages/Databases.tsx', 'pages/SlowQueries.tsx', 'components/LogPatternsPanel.tsx']) {
       expect(readFileSync(join(root, f), 'utf8')).toMatch(ROW_ACTIVATION_SPREAD);
     }
     for (const f of ['components/chart/StatsLegend.tsx', 'components/viz/TimeSeriesPanel.tsx', 'pages/Metrics.tsx']) {
       expect(readFileSync(join(root, f), 'utf8')).toContain('rowKeyboard(');
+    }
+  });
+});
+
+// v0.10.1356 (Web Interface Guidelines R4; tablo standardı T7 "gezinen satır
+// gerçek bağlantı") — `rowActivation(() => navigate(X))` satırı role=button
+// yapar ve HER tıkta aynı sekmede gezinir: Ctrl/⌘/orta tık / "yeni sekmede
+// aç" / "bağlantıyı kopyala" ölüydü, ekran okuyucu bağlantı yerine düğme
+// duyuruyordu (ARIA button'ın çocukları sunumsaldır — içteki <a> da gizlenir).
+// Gezinen satırın deseni (explore/TracesResult, OperationsTable):
+//   <tr {...rowClickHandlers(X, () => navigate(X))}>   // düz tık aynı sekme,
+//     <td><Link to={X} onClick={stopRowClick}>…</Link></td>  // değiştiricili/orta tık yeni sekme
+// Klavye durağı Link'in kendisi (Enter = tarayıcının bağlantı etkinleştirmesi);
+// onOpen'lı tablonun j/k/↑/↓/Enter'ı useTableNav'da, değişmedi.
+// Davranış: lib/rowLinkSites.render.test.tsx.
+/** `src[open]` = '(' → eşleşen ')' indeksine kadar olan argüman listesi. */
+function balancedArgs(src: string, open: number): string {
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    const c = src[i];
+    if (c === '(' || c === '{' || c === '[') depth++;
+    else if (c === ')' || c === '}' || c === ']') { depth--; if (depth === 0) return src.slice(open + 1, i); }
+  }
+  return src.slice(open + 1);
+}
+/** Üst düzey ilk virgüle kadar olan argüman (iç içe parantezler atlanır). */
+function firstArg(args: string): string {
+  let depth = 0;
+  for (let i = 0; i < args.length; i++) {
+    const c = args[i];
+    if (c === '(' || c === '{' || c === '[') depth++;
+    else if (c === ')' || c === '}' || c === ']') depth--;
+    else if (c === ',' && depth === 0) return args.slice(0, i).trim();
+  }
+  return args.trim();
+}
+const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
+/** Dosya `<Link … to={X} …>` çiziyor mu (X boşluk-normalize metin eşitliği). */
+function rendersLinkTo(src: string, target: string): boolean {
+  return jsxOpenTags(src, 'Link').some(t => norm(t.tag).includes(`to={${norm(target)}}`));
+}
+/** Gerekçe anahtarlı muafiyet — BOŞ kalmalı; eklenen her satır gerekçesini taşır. */
+const ROW_NAV_ALLOW: Record<string, string> = {};
+
+describe('navigating rows are real links (R4, v0.10.1356)', () => {
+  const root = resolve(__dirname, '..');
+  const files = walk(root).map(f => ({ rel: f.slice(root.length + 1), src: readFileSync(f, 'utf8') }));
+
+  it('no rowActivation(() => navigate(…)) — the row would be a button that ignores Ctrl/⌘/middle click', () => {
+    const offenders: string[] = [];
+    for (const { rel, src } of files) {
+      for (const m of src.matchAll(/rowActivation\(\s*\(\)\s*=>\s*navigate\(/g)) {
+        const key = `${rel}:${src.slice(0, m.index ?? 0).split('\n').length}`;
+        if (!(key in ROW_NAV_ALLOW)) offenders.push(key);
+      }
+    }
+    expect(offenders).toEqual([]);
+    expect(Object.keys(ROW_NAV_ALLOW)).toEqual([]);
+  });
+
+  it('rowClickHandlers(X, () => navigate(X)) and rowKeyboard(() => navigate(X)) rows render a <Link to={X}>', () => {
+    const offenders: string[] = [];
+    let checked = 0;
+    for (const { rel, src } of files) {
+      // Primitif kendi hücre linklerini dt.rowLink ile basar (getRowHref).
+      if (rel === 'components/ui/DataTable/DataTable.tsx') continue;
+      for (const m of src.matchAll(/\b(rowClickHandlers|rowKeyboard)\(/g)) {
+        const at = (m.index ?? 0) + m[0].length - 1;
+        const args = balancedArgs(src, at);
+        let target: string | null = null;
+        if (m[1] === 'rowClickHandlers') {
+          const href = firstArg(args);
+          const rest = args.slice(args.indexOf(href) + href.length).replace(/^\s*,\s*/, '');
+          const nav = /^\(\)\s*=>\s*navigate\(/.exec(rest);
+          if (!nav) continue; // gezinmeyi başka yardımcıya devreden satır (Services goToService) bu kapının dışında
+          const navArgs = firstArg(balancedArgs(rest, nav[0].length - 1));
+          if (norm(navArgs) !== norm(href)) offenders.push(`${rel}: rowClickHandlers href ≠ navigate hedefi (${href} / ${navArgs})`);
+          target = href;
+        } else {
+          const nav = /^\s*\(\)\s*=>\s*navigate\(/.exec(args);
+          if (!nav) continue;
+          target = firstArg(balancedArgs(args, nav[0].length - 1));
+        }
+        checked++;
+        if (!rendersLinkTo(src, target)) offenders.push(`${rel}: <Link to={${target}}> yok`);
+      }
+    }
+    expect(offenders).toEqual([]);
+    expect(checked).toBeGreaterThanOrEqual(9); // R4'ün 6 sitesi + TracesResult + OperationsTable + Metrics
+  });
+
+  it('the six R4 sites use rowClickHandlers + a Link guarded by stopRowClick', () => {
+    for (const f of ['features/anomalies/ExceptionSampleRow.tsx', 'components/traces/ShapesView.tsx', 'pages/Profiling.tsx', 'pages/explore/RepeatsResult.tsx', 'pages/service/OverviewTables.tsx']) {
+      const src = readFileSync(join(root, f), 'utf8');
+      expect(src, f).toContain('rowClickHandlers(');
+      expect(src, f).not.toMatch(/rowActivation\(/);
+      expect(src, f).toContain('onClick={stopRowClick}');
     }
   });
 });

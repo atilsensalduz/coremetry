@@ -17,9 +17,9 @@
 //      link YOK, satır tıklanmaz (tablo standardı: satır yalnız açılıyorsa
 //      tıklanır görünür). true / undefined → link.
 import { Link, useNavigate } from 'react-router-dom';
-import { rowActivation, stopRowClick } from '@/lib/a11y';
+import { stopRowClick } from '@/lib/a11y';
 import { traceHref } from '@/lib/traceHref';
-import { tsLong } from '@/lib/utils';
+import { rowClickHandlers, tsLong } from '@/lib/utils';
 import type { ExceptionSample } from '@/lib/types';
 import { TRACE_MISSING_LABEL, TRACE_MISSING_TITLE, sampleTraceLinkable } from './sampleTrace';
 
@@ -39,9 +39,12 @@ export function ExceptionSampleRow({ s, isEv }: { s: ExceptionSample; isEv: bool
   return (
     // data-trace-id (v0.9.477): AI çekmecesindeki kanıt satırı
     // tıklanınca buraya kaydırılır.
+    // v0.10.1356 (R4, gezinen satır gerçek bağlantı) — satır rowActivation
+    // (role=button, her tıkta navigate) DEĞİL rowClickHandlers: düz tık aynı
+    // sekmede, Ctrl/⌘/Shift/orta tık yeni sekme; klavye durağı trace id Link'i.
     <tr data-trace-id={s.traceId || undefined}
       className={isEv ? 'wf-evidence' : undefined}
-      {...(linkable ? rowActivation(() => navigate(traceHref(s.traceId))) : {})}>
+      {...(linkable ? rowClickHandlers(traceHref(s.traceId), () => navigate(traceHref(s.traceId))) : {})}>
       {/* v0.10.977 — uç hücrelerin 14px kenar dolgusu kart kenarıyla hizalanır
           (başlıksız liste; §2b özel dolgu, sınıf karşılığı yok). */}
       <td className="mono" style={{ paddingLeft: 14 }}>

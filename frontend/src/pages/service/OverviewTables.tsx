@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { rowActivation } from '@/lib/a11y'; // v0.10.455 (dış denetim D3 dilim 3)
+import { stopRowClick } from '@/lib/a11y'; // v0.10.455 (dış denetim D3 dilim 3); v0.10.1356 R4
+import { rowClickHandlers } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '@/lib/api';
@@ -95,8 +96,9 @@ export function OpsCard({ service, range, operations, state }: {
           <tbody>
             {dt.sortedRows.length === 0 ? <DataTableState dt={dt} {...(state ?? { kind: 'empty' })} /> : dt.sortedRows.slice(0, 8).map((r, i) => (
               <tr key={r.name} {...dt.rowProps(i)}
-                  {...rowActivation(() => navigate(opHref(r.name)))}>
-                <td><span className="mono" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }} title={r.name}>{r.name}</span></td>
+                  // v0.10.1356 (R4) — değiştirici duyarlı satır; ad gerçek <Link>.
+                  {...rowClickHandlers(opHref(r.name), () => navigate(opHref(r.name)))}>
+                <td><Link to={opHref(r.name)} onClick={stopRowClick} className="mono cell-link cell-link--block" title={r.name}>{r.name}</Link></td>
                 <td className="num">{r.spanCount >= 1000 ? `${(r.spanCount / 1000).toFixed(1)}K` : r.spanCount}</td>
                 <td className="num"><span className={errBadge(r.errorRate)}>{r.errorRate.toFixed(2)}%</span></td>
                 <td className="num">{r.p99DurationMs.toFixed(0)} ms</td>
@@ -181,9 +183,10 @@ export function DbCard({ service, range, from, to }: { service: string; range: T
           <tbody>
             {!showRows ? <DataTableState dt={dt} {...tableState} /> : dt.sortedRows.slice(0, 8).map((r, i) => (
               <tr key={i} {...dt.rowProps(i)}
-                  {...rowActivation(() => navigate(dbHref(r)))}>
+                  // v0.10.1356 (R4) — değiştirici duyarlı satır; ifade gerçek <Link>.
+                  {...rowClickHandlers(dbHref(r), () => navigate(dbHref(r)))}>
                 <td>
-                  <div className="mono" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.sampleStatement || r.statement}>{r.statement}</div>
+                  <Link to={dbHref(r)} onClick={stopRowClick} className="mono cell-link cell-link--block" title={r.sampleStatement || r.statement}>{r.statement}</Link>
                   {/* v0.9.964 (UX denetimi Ö9 / G2) — engine sub-label is
                       the bridge into the database catalogue; the row
                       itself keeps going to /traces (v0.9.960), so the

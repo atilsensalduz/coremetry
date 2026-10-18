@@ -6039,3 +6039,14 @@ tbody td.tpm-more-cell { color: var(--text2); }
    DurationBar; pin: pages/tracesDurationBold.test.tsx. */
 .trace-dur-val { font-variant-numeric: tabular-nums; }
 /* ── v0.10.1351 END ──────────────────────────────────────────────────── */
+
+/* ── v0.10.1356 BEGIN — gezinen satırın birincil hücresi gerçek bağlantı ──
+   Web Interface Guidelines R4 / tablo standardı T7: role=button + navigate()
+   satırların ilk hücresi react-router <Link> oldu (Ctrl/⌘/orta tık yeni
+   sekme, "bağlantıyı kopyala"). Görünüm değişmez: renk hücreden, alt çizgi
+   yok; --block hücre içi blok + "…" kırpma (eski satır içi span/div stili).
+   Siteler: Profiling, Shapes, servis Overview Operations/DB kartları.
+   Pin: lib/a11y.rowSites.test.ts, lib/rowLinkSites.render.test.tsx. */
+a.cell-link, a.cell-link:hover { color: inherit; text-decoration: none; }
+a.cell-link--block { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* ── v0.10.1356 END ──────────────────────────────────────────────────── */

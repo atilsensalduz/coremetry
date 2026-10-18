@@ -14,13 +14,13 @@
 // of the sample — so virtualisation isn't needed here).
 
 import { useEffect, useMemo, useState } from 'react';
-import { rowActivation, stopRowClick } from '@/lib/a11y'; // v0.10.455 (dış denetim D3 dilim 3)
+import { stopRowClick } from '@/lib/a11y'; // v0.10.455 (dış denetim D3 dilim 3)
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '@/lib/api';
 import { percentiles } from '@/lib/perf/transforms';
 import { useDataTable, DataTableColgroup, DataTableHead, DataTableState, type DataTableStateProps } from '@/components/ui/DataTable';
 import type { DataTableColumn } from '@/lib/dataTable';
-import { timeRangeToNs } from '@/lib/utils';
+import { rowClickHandlers, timeRangeToNs } from '@/lib/utils';
 import type { TimeRange, TraceRow } from '@/lib/types';
 import { traceHref } from '@/lib/traceHref';
 import { SvcBadge, fmtDur } from './shared';
@@ -137,8 +137,12 @@ export function ShapesView({ range, service }: { range: TimeRange; service?: str
                   // satıra; satır içi koşullu cursor kalktı. dt onOpen'lı olduğu
                   // için rowProps her satıra data-row-action basar — açılmayan
                   // satırda o işaret de düşer.
-                  data-row-action={r.exemplar ? true : undefined}
-                  {...(r.exemplar ? rowActivation(() => navigate(traceHref(r.exemplar, { pageRange: range }))) : {})}
+                  // v0.10.1356 (R4) — rowActivation (her tıkta navigate) yerine
+                  // rowClickHandlers: düz tık aynı sekme, Ctrl/⌘/Shift/orta tık
+                  // yeni sekme; operasyon adı + exemplar gerçek <Link>. İşareti
+                  // (data-row-action) açılan satırda yardımcı basar; açılmayanda
+                  // rowProps'unki undefined ile düşer.
+                  {...(r.exemplar ? rowClickHandlers(traceHref(r.exemplar, { pageRange: range }), () => navigate(traceHref(r.exemplar, { pageRange: range }))) : { 'data-row-action': undefined })}
                   // v0.9.236 — shapes group a 1000-trace sample by
                   // (service, rootName); at 1000s of services × 10000s of
                   // operations that barely collapses, so an unfiltered
@@ -150,7 +154,10 @@ export function ShapesView({ range, service }: { range: TimeRange; service?: str
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                       <SvcBadge name={r.service} />
-                      <span title={r.operation} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.operation || '—'}</span>
+                      {/* v0.10.1356 (R4) — birincil etiket gerçek bağlantı (satırın Tab durağı). */}
+                      {r.exemplar
+                        ? <Link to={traceHref(r.exemplar, { pageRange: range })} onClick={stopRowClick} className="cell-link cell-link--block" title={r.operation}>{r.operation || '—'}</Link>
+                        : <span title={r.operation} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.operation || '—'}</span>}
                     </div>
                   </td>
                   <td className="num">{r.count.toLocaleString()}</td>
@@ -165,7 +172,7 @@ export function ShapesView({ range, service }: { range: TimeRange; service?: str
                       kalır; Link'in tıkı satıra çıkmaz (stopRowClick) → çift gezinme yok. */}
                   <td className="mono" style={{ color: 'var(--accent2)' }}>
                     {r.exemplar
-                      ? <Link to={traceHref(r.exemplar, { pageRange: range })} className="mono" onClick={stopRowClick} title={r.exemplar}>{r.exemplar.slice(0, 12)}…</Link>
+                      ? <Link to={traceHref(r.exemplar, { pageRange: range })} className="mono" onClick={stopRowClick} title={r.exemplar} tabIndex={-1}>{r.exemplar.slice(0, 12)}…</Link>
                       : '—'}
                   </td>
                 </tr>

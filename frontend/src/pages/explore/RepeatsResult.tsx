@@ -1,11 +1,11 @@
 import { useMemo } from 'react';
-import { rowActivation, stopRowClick } from '@/lib/a11y'; // v0.10.455 (dış denetim D3 dilim 3); v0.10.1105 stopRowClick
+import { stopRowClick } from '@/lib/a11y'; // v0.10.455 (dış denetim D3 dilim 3); v0.10.1105 stopRowClick
 import { Link, useNavigate } from 'react-router-dom';
 import { readState } from '@/lib/readState';
 import {
   useDataTable, DataTableHead, DataTableColgroup, DataTableState, type DataTableStateProps,
 } from '@/components/ui/DataTable';
-import { fmtNum, tsLong } from '@/lib/utils';
+import { fmtNum, tsLong, rowClickHandlers } from '@/lib/utils';
 import type { RepeatedSpanRow } from '@/lib/types';
 import { traceHref } from '@/lib/traceHref';
 import { repeatCols } from './presets';
@@ -94,7 +94,8 @@ export function RepeatsResult({
               const rp = repeatsDt.rowProps(i);
               return (
                 <tr key={`${r.traceId}|${i}`} {...rp}
-                    {...rowActivation(() => navigate(traceHref(r.traceId)))}
+                    // v0.10.1356 (R4) — değiştirici duyarlı satır (TracesResult deseni).
+                    {...rowClickHandlers(traceHref(r.traceId), () => navigate(traceHref(r.traceId)))}
                     className={[rp.className, 'cv-row'].filter(Boolean).join(' ')}>
                   <td className="mono">
                     <Link to={traceHref(r.traceId)}

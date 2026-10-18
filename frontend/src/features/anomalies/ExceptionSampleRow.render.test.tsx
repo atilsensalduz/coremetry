@@ -96,7 +96,10 @@ describe('ExceptionSampleRow — trace id gerçek link (v0.10.1104)', () => {
     const a = el.querySelector('tr a') as HTMLAnchorElement;
     expect(a).not.toBeNull();
     expect(a.getAttribute('href')).toBe(`/trace?id=${T1}`);
-    expect(el.querySelector('tr')?.getAttribute('role')).toBe('button');
+    // v0.10.1356 (R4) — satır artık role=button değil (rowClickHandlers): ARIA
+    // button'ın çocukları sunumsaldır, içteki bağlantıyı gizlerdi.
+    expect(el.querySelector('tr')?.getAttribute('role')).toBeNull();
+    expect(el.querySelector('tr')?.hasAttribute('data-row-action')).toBe(true);
     await act(async () => { a.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })); });
     expect(visits).toEqual(['/problems', `/trace?id=${T1}`]);
     expect(outer).not.toHaveBeenCalled();
