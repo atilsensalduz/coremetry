@@ -4,6 +4,9 @@ import { DisclosureButton } from '@/components/ui/DisclosureButton';
 import { splitHeader, hasGutter, gutterLines, resourceLabel, isStackTrace, foldStack } from '@/lib/codeQuote';
 import { idLinkPattern, type IdLink, type IdLinkPattern } from '@/components/ai/inlineIdLinks';
 import { normalizeMathEscapes } from './mathEscapes';
+import { MdTable } from '@/components/ai/MdTable'; // v0.10.1357 — sohbetle ortak GFM tablosu
+import { isRowLine, parseTableAt } from '@/components/ai/mdTableParse';
+import { plainCell } from '@/components/ai/mdTableCell';
 import { CopyButton } from './CopyButton';
 // RenderedMarkdown — a deliberately small markdown renderer extracted
 // from the old Notebook page (v0.7.0, when Notebook was replaced by
@@ -27,6 +30,16 @@ import { CopyButton } from './CopyButton';
 // v0.10.1345 — yardımcı artık kod-farkında (çit/satır içi kod dokunulmaz)
 // ve sohbet balonuyla PAYLAŞILIYOR; `streaming` akan cevabın sonundaki
 // yarım komutu gizler (CopilotExplain akarken ExplainBody `busy` geçer).
+// v0.10.1357 — GFM tablosu: `| a | b |` + `|---|---|` artık gerçek tablo
+// (v0.10.1346'nın açık bıraktığı boşluk — açıklama/kod incelemesi
+// tablosu düz paragraf satırları olarak görünüyordu). Çözücü + çizim
+// sohbetle ORTAK (ai/mdTableParse.ts + ai/MdTable.tsx): nowrap kısa hücre,
+// uzun kimlikte <wbr>, sayı kolonu, `.table-wrap` kaydırma kabı, aynı
+// `.cm-md-table` sınıfları. Sıra: matematik normalizasyonu ÖNCE (tüm
+// metin), sonra çözüm; kod çiti içindeki tablo çizilMEZ (çit dalı önce
+// gelir, çizgileri literal tüketir). Akış: ayraç satırı TAM gelene dek
+// başlık düz metin; tablonun altındaki yarım gövde satırı gizlenir (bir
+// sonraki delta'da satır olarak gelir — ham çubuklar yanıp sönmez).
 export function RenderedMarkdown({ text, idLinks, anatomy, streaming }: {
   text: string;
   /** v0.10.1345 — metin hâlâ akıyor (normalizeMathEscapes kural 6) */
@@ -41,7 +54,16 @@ export function RenderedMarkdown({ text, idLinks, anatomy, streaming }: {
 }) {
   const idPat = idLinkPattern(idLinks);
   const blocks: React.ReactNode[] = [];
-  const lines = normalizeMathEscapes(text, { streaming }).split('\n');
+  const norm = normalizeMathEscapes(text, { streaming });
+  const lines = norm.split('\n');
+  // Akışta `\n` ile bitmeyen son satır YARIM (chatMarkdown.parseChatBlocks ile aynı tanım).
+  const partial = streaming && !norm.endsWith('\n') ? lines.length - 1 : -1;
+  const full = (k: number) => k < lines.length && k !== partial;
+  // Sunucu kimliği geçen hücre düz yola düşmez: kimlik linki renderInline'da.
+  const ids = idPat ? [...idPat.byId.keys()] : [];
+  const cellPlain = (raw: string) => (ids.some(id => raw.includes(id)) ? null : plainCell(raw));
+  // <span> sarması sohbetin MdInline çizimiyle aynı iskelet (th/td içeriği birebir).
+  const cellInline = (c: string) => <span>{renderInline(c, idPat)}</span>;
   let i = 0;
   let bulletBuf: string[] = [];
   const flushBullets = () => {
@@ -72,6 +94,15 @@ export function RenderedMarkdown({ text, idLinks, anatomy, streaming }: {
       }
       blocks.push(<CodeBlock key={blocks.length} lang={lang} lines={dedent(code)} anatomy={anatomy} />);
       i++; continue;
+    }
+    const tb = parseTableAt(lines, i, full);
+    if (tb) {
+      flushBullets();
+      blocks.push(<MdTable key={blocks.length} block={tb.table} inline={cellInline} plain={cellPlain} />);
+      i = tb.next;
+      // Tablonun hemen altındaki YARIM gövde satırı tutulur (akış sürüyor).
+      if (i === partial && isRowLine(lines[i])) i++;
+      continue;
     }
     if (line.startsWith('### ')) {
       flushBullets();

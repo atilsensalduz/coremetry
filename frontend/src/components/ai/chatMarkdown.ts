@@ -29,8 +29,10 @@
 
 import { inlinePlain, parseInline } from './chatInline';
 import { normalizeMathEscapes } from '@/components/mathEscapes'; // v0.10.1345
+import { parseTableAt, type MdTableAlign } from './mdTableParse'; // v0.10.1357 — paylaşılan GFM tablo çözücüsü
+export { splitRow } from './mdTableParse';
 
-export type ChatBlockAlign = 'left' | 'center' | 'right';
+export type ChatBlockAlign = MdTableAlign;
 export type CalloutVariant = 'summary' | 'note' | 'tip' | 'warning' | 'important' | 'caution';
 
 // GFM uyarı türleri + Türkçe karşılıkları (büyük/küçük harf duyarsız).
@@ -202,60 +204,8 @@ const PARTIAL_FENCE = /^\s{0,3}`{1,3}[a-z0-9_+-]*$/i;
 const PARTIAL_ROW = /^\s{0,3}\|/;
 const PARTIAL_HEADING = /^\s{0,3}#{1,6}\s*$/;
 
-/** Satır bir tablo satırı gibi mi duruyor: `|` ile BAŞLIYOR mu. */
-function isRowLine(line: string): boolean {
-  return line.trim().startsWith('|');
-}
-
-// Ayraç satırı: `|---|---:|`. Kural GFM'in kendisi — hücrelerin HEPSİ
-// tire (istenirse iki yanında hizalama iki noktası) ve hücre SAYISI
-// başlıkla aynı.
-//
-// Sayı eşitliği asıl kapı: onsuz `| önemli | not |` satırının altındaki
-// bir `---` yatay çizgisi ayraç sanılır ve düzyazı boş bir tabloya
-// dönüşür. Baştaki çubuğu ŞART koşmuyoruz (model bazen `---|---:`
-// yazıyor) — yanlış-pozitife karşı asıl çapa BAŞLIK satırının çubukla
-// başlaması (isRowLine), yani "hızlı | yavaş" gibi bir cümle hiçbir
-// hâlde tablo başlatmıyor.
-function isDelimRow(line: string, ncols: number): boolean {
-  const s = line.trim();
-  if (!/-/.test(s)) return false;
-  if (!/^[|\s:-]+$/.test(s)) return false;
-  const cells = splitRow(s);
-  return cells.length === ncols && cells.every(c => /^:?-+:?$/.test(c));
-}
-
-// splitRow — bir tablo satırını hücrelere böler. İki tuzağı biliyor:
-//   `\|`      → kaçırılmış çubuk, hücre İÇERİĞİ (ayırıcı değil).
-//   `` `a|b` `` → kod aralığındaki çubuk bölmez; aksi hâlde model
-//              `p95 | p99` gibi bir kod parçası yazdığında kolonlar
-//              kayardı.
-export function splitRow(line: string): string[] {
-  let s = line.trim();
-  if (s.startsWith('|')) s = s.slice(1);
-  if (s.endsWith('|') && !s.endsWith('\\|')) s = s.slice(0, -1);
-  const cells: string[] = [];
-  let cur = '';
-  let inCode = false;
-  for (let i = 0; i < s.length; i++) {
-    const c = s[i];
-    if (c === '\\' && s[i + 1] === '|') { cur += '|'; i++; continue; }
-    if (c === '`') { inCode = !inCode; cur += c; continue; }
-    if (c === '|' && !inCode) { cells.push(cur.trim()); cur = ''; continue; }
-    cur += c;
-  }
-  cells.push(cur.trim());
-  return cells;
-}
-
-function alignOf(cell: string): ChatBlockAlign {
-  const s = cell.trim();
-  const l = s.startsWith(':');
-  const r = s.endsWith(':');
-  if (l && r) return 'center';
-  if (r) return 'right';
-  return 'left';
-}
+// v0.10.1357 — tablo satırı / ayraç / hücre bölme / hiza kararları
+// mdTableParse.ts'e taşındı (RenderedMarkdown da aynı çözücüyü kullanıyor).
 
 /** Metin koşusunun kenarındaki boş satırları atar (blok arası çift boşluk olmasın). */
 function trimRun(lines: string[]): string {
@@ -399,24 +349,12 @@ function parseBlocksInner(text: string, streaming: boolean, depth: number): Chat
     }
 
     // ── Tablo: `|…` başlığı + hemen ardından TAM bir ayraç satırı.
-    const head = isRowLine(line) ? splitRow(line) : null;
-    if (head && full(i + 1) && isDelimRow(lines[i + 1], head.length)) {
+    // Yarım satır burada da TUTULUYOR (parseTableAt, mdTableParse.ts).
+    const tb = parseTableAt(lines, i, full);
+    if (tb) {
       flushRun();
-      const align = splitRow(lines[i + 1]).map(alignOf);
-      const rows: string[][] = [];
-      let j = i + 2;
-      // Yarım satır burada da TUTULUYOR: yarım bir satırı satır olarak
-      // basmak kolon genişliklerini her delta'da zıplatır.
-      while (full(j) && isRowLine(lines[j])) {
-        const cells = splitRow(lines[j]);
-        // Kısa satır doldurulur; FAZLA hücre KORUNUR (içerik yutmayız —
-        // tablo bir kolon geniş çizilir, o kolonun başlığı boş kalır).
-        while (cells.length < head.length) cells.push('');
-        rows.push(cells);
-        j++;
-      }
-      blocks.push({ kind: 'table', head, align, rows });
-      i = j;
+      blocks.push({ kind: 'table', ...tb.table });
+      i = tb.next;
       continue;
     }
 

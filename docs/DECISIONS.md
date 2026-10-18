@@ -6972,3 +6972,12 @@ klavye durağı linktir, Space artık satırı açmaz (link davranışı), Enter
 `lib/a11y.rowSites.test.ts`: `rowActivation(() => navigate(` yasak (izin listesi boş), `rowClickHandlers(X, () =>
 navigate(X))` aynı dosyada `<Link to={X}>` ister. **Bilinçli sınır:** sarmalayıcı fonksiyonla gezinen satırlar (TopEndpoints,
 Hosts/External, Databases, Clusters, Inbox, DetailsEndpoints) ratchet'e takılmaz; ayrıca incelenecek.
+
+## 2026-10-18 — v0.10.1357 — CopilotExplain markdown tabloları (sohbetle ortak MdTable)
+
+**Kuyruk:** `RenderedMarkdown` (CopilotExplain / ExplainBody) GFM tablolarını ham `|` satırları olarak basıyordu; sohbet
+balonu aynı tabloyu düzgün çiziyordu. **Karar:** ayrıştırıcı `components/ai/mdTableParse.ts`'e (`parseTableAt`, değişmeden
+taşındı), bileşen `components/ai/MdTable.tsx`'e çıkarıldı; iki yüzey aynı kodu kullanır, ChatBubble DOM çıktısı bayt bayt
+aynı. Hücre içi biçimleme `inline` prop'uyla çağırana bırakıldı — link güvenliği her yüzeyin kendi kapısında kalır
+(RenderedMarkdown `renderInline` + `appLinkKind`). `normalizeMathEscapes` önce tüm metne uygulanır; kod çiti içindeki
+tablo düz metin kalır; akış sırasında ayraç satırı tamamlanana kadar başlık metin, yarım gövde satırı gizli (sohbet kuralı).

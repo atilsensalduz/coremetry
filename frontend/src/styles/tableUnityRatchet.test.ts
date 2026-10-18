@@ -33,7 +33,7 @@ const CEILINGS = {
    *  Tür ayırmaz: T1'in gerekçeli statik tablosu da sayılır.
    *  v0.10.977 — dilim 7 (son): kalan 47'nin hepsi muaf ya da gerekçeli;
    *  sayaç tasarım gereği düşmez. MUAF 12 — sohbet markdown / kanıt tablosu 8
-   *  (ai/ChatBubble 3, ai/ChatTraceList, ai/EvidenceCard, ai/EvidenceChips [v0.10.1272],
+   *  (ai/ChatBubble 2 + ai/MdTable [v0.10.1357 — sohbet markdown tablosu taşındı, RenderedMarkdown da çizer], ai/ChatTraceList, ai/EvidenceCard, ai/EvidenceChips [v0.10.1272],
    *  ai/ServiceReportCard 2 [v0.10.1337]), grafik lejantı 3
    *  (chart/PanelLegend, chart/StatsLegend, viz/TimeSeriesPanel), yer tutucu
    *  1 (Skeleton `TableSkeleton` — gerçek tablonun iskeleti, veri satırı
@@ -95,7 +95,7 @@ const CEILINGS = {
   trCursor: 0,
   /** T6 — elle `containIntrinsicSize` (tek `--row-h` ritmi).
    *  v0.10.977 — dilim 7 (son): kalan 3'ün hiçbiri tablo satırı değil, T6
-   *  kapsamı dışı (tarif §3.6): ai/ChatBubble (muaf sohbet tablosu, >100
+   *  kapsamı dışı (tarif §3.6): ai/MdTable (v0.10.1357'ye dek ChatBubble; muaf sohbet tablosu, >100
    *  satırda içerik boylu 26px), LogFieldsPanel (alan rayı — DisclosureButton
    *  listesi, tablo yok), TraceWaterfall (`.wf-row` div, sanallaştırma
    *  kapalıyken). `.cv-row`a göç tablo dışı olduğu için yok. */

@@ -38,7 +38,7 @@ import { sourceChips, SOURCE_KIND_LABEL, type SourceChip } from './sourceChips';
 import { EvidenceChips } from './EvidenceChips'; // v0.10.1272 — kanıt çipleri + Explore'da aç
 import { ctxAppliedLabel, stepEvidenceItems } from './evidenceChip'; // v0.10.1274 — ekran kapsamı künyesi; v0.10.1275 — hop listesi
 import { phaseTrail } from './phaseTrail'; // v0.10.1273 — Metrik → Log → Trace kırıntısı
-import { cellNoWrap, cellText, numericColumn, plainCell, wbrSegments } from './mdTableCell'; // v0.10.1346 — tablo hücresi kararları
+import { MdTable } from './MdTable'; // v0.10.1357 — paylaşılan markdown tablosu (RenderedMarkdown da çizer)
 
 // ChatBubble — bir sohbet turunun ÇİZİMİ. v0.9.479'da CopilotChat.tsx'ten
 // buraya taşındı: AI çekmecesi içindeki sohbet (AIDrawer) aynı balonu
@@ -254,40 +254,9 @@ function CodeBlock({ lang, code, open, streaming, title }: {
   );
 }
 
-// MdTable (v0.9.1148) — markdown tablosu GERÇEK tablo (sohbet markdown'ı
-// tablo standardından muaf: kolonlar modelin o cevapta uydurduğu başlıklar).
-// Kaydırma kabı `.table-wrap` (yatay taşma TABLONUN kabında), hizalama
-// `.num`, zebra + kenarlık `.cm-md-table`.
-function MdTable({ block }: { block: Extract<ChatBlock, { kind: 'table' }> }) {
-  // v0.10.1346 — sayısal kolon `.num`, kısa değer `.cm-td-nw` (bölünmez), uzun kimlik <wbr> (mdTableCell.ts).
-  const num = useMemo(() => block.head.map((_, i) => block.align[i] === 'right' || (block.align[i] === 'left' && numericColumn(block.rows, i))), [block]);
-  const cells = useMemo(() => block.rows.map(r => r.map(c => ({ plain: plainCell(c), nw: cellNoWrap(cellText(c)) }))), [block.rows]);
-  const cls = (i: number) => (num[i] ? 'num' : block.align[i] === 'center' ? 'ta-c' : undefined);
-  // 100+ satır kuralı (ev kısıtı): content-visibility bedelsiz.
-  const heavy = block.rows.length > 100;
-  const rowStyle = heavy
-    ? { contentVisibility: 'auto' as const, containIntrinsicSize: '26px' }
-    : undefined;
-  return (
-    <div className="table-wrap cm-md-tw">
-      <table className="cm-md-table">
-        <thead>
-          <tr>{block.head.map((h, i) => <th key={i} className={cls(i)}><MdInline text={h} /></th>)}</tr>
-        </thead>
-        <tbody>
-          {block.rows.map((r, k) => (
-            <tr key={k} style={rowStyle}>
-              {r.map((c, i) => { const m = cells[k][i]; return ( // v0.10.1346
-                <td key={i} className={[cls(i), m.nw && 'cm-td-nw'].filter(Boolean).join(' ') || undefined}>
-                  {m.plain === null ? <MdInline text={c} /> : <span>{wbrSegments(m.plain).flatMap((s, j) => (j ? [<wbr key={j} />, s] : [s]))}</span>}
-                </td>); })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
+// MdTable — v0.10.1357'den beri MdTable.tsx (RenderedMarkdown ile ortak);
+// sohbet hücrenin satır içi çizimini MdInline'a (chatLinks politikası) verir.
+const mdInlineCell = (text: string) => <MdInline text={text} />;
 
 // v0.10.1137 — dört kademe; etiket h4–h6 (cevap sayfanın başlık
 // hiyerarşisini ele geçirmez), görsel ölçek sınıftan (.cm-md-h1…h4).
@@ -413,7 +382,7 @@ function renderBlocks(blocks: readonly ChatBlock[], streaming: boolean, typedCha
         break;
       }
       case 'table':
-        out.push(<MdTable key={i} block={b} />);
+        out.push(<MdTable key={i} block={b} inline={mdInlineCell} />);
         break;
     }
   });
