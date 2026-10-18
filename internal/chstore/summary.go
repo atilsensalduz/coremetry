@@ -173,6 +173,69 @@ func (s *Store) ListOperationNames(ctx context.Context, service, pattern string,
 	return out, int(total), rows.Err()
 }
 
+// OperationHit — v0.10.1333: birleşik aramanın (GET /api/search) endpoint
+// satırı. Ad TEK BAŞINA kimlik değildir — aynı "GET /health" iki serviste iki
+// ayrı sonuçtur ve tıklama o servisin trace'lerine gider.
+type OperationHit struct {
+	Service string `json:"service"`
+	Name    string `json:"name"`
+}
+
+// operationHitsMaxLimit — arama kaynağı başına tavan (api: ≤20/kaynak).
+const operationHitsMaxLimit = 20
+
+// operationHitsSQL — SAF (summary_operation_hits_test.go): ListOperationNames'in
+// DISTINCT şekli, (service_name, name) çiftiyle. WHERE operationNamesQuery'den
+// (öz-telemetri dışlama + ILIKE) — iki okuyucu ayrışırsa palet ile arama farklı
+// liste görürdü. MV-only: ham-span fallback'i YOK (arama sıcak yoldur; boş MV
+// boş sonuç demek, 2 sn bütçede spans taraması değil). max_execution_time 5:
+// kaynağın bütçesi 2 sn, ctx zaten keser; CH tarafı da sınırlı kalsın.
+func operationHitsSQL(service, pattern string, limit int) (countQ, pageQ string, countArgs, pageArgs []any) {
+	if limit <= 0 || limit > operationHitsMaxLimit {
+		limit = operationHitsMaxLimit
+	}
+	wc, orderBy := operationNamesQuery(service, pattern)
+	countQ = "SELECT uniqExact(service_name, name) FROM operation_summary_5m " + wc.sql() +
+		" SETTINGS max_execution_time = 5"
+	countArgs = append([]any{}, wc.args...)
+	pageArgs = append([]any{}, wc.args...)
+	if strings.Contains(orderBy, "startsWith") {
+		pageArgs = append(pageArgs, pattern) // önek sıralamasının bind argümanı
+	}
+	pageArgs = append(pageArgs, limit)
+	pageQ = "SELECT DISTINCT service_name, name FROM operation_summary_5m " + wc.sql() +
+		orderBy + ", service_name LIMIT ?" +
+		" SETTINGS max_execution_time = 5"
+	return countQ, pageQ, countArgs, pageArgs
+}
+
+// ListOperationHits — v0.10.1333: (servis, operasyon) çiftleri + toplam çift
+// sayısı. service boş değilse SQL'e iner (servis facet'i).
+func (s *Store) ListOperationHits(ctx context.Context, service, pattern string, limit int) ([]OperationHit, int, error) {
+	countQ, pageQ, countArgs, pageArgs := operationHitsSQL(service, pattern, limit)
+	var total uint64
+	if err := s.telemetryReadConn().QueryRow(ctx, countQ, countArgs...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	out := []OperationHit{}
+	if total == 0 {
+		return out, 0, nil
+	}
+	rows, err := s.telemetryReadConn().Query(ctx, pageQ, pageArgs...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var h OperationHit
+		if err := rows.Scan(&h.Service, &h.Name); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, h)
+	}
+	return out, int(total), rows.Err()
+}
+
 // ListActiveServiceNames returns the distinct service names seen in
 // the last `window`, from the MV. v0.8.506 (perf raporu #3):
 // evaluator (1dk tick) + anomaly detector (2dk tick) yalnız İSİM

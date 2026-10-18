@@ -6442,3 +6442,43 @@ api TestCollectExceptionGroupsOracleOnly / MixedCapAndErrors, TestExGroupTrendTR
 TestRenderExceptionGroupsTRGolden, TestOpPrefetchWithExceptionsUnderModelClamp, TestOpWantsExceptions,
 TestExceptionGroupFollowupChip; copilot TestOperationExceptionsAddendum; vitest operationCardView +
 FollowupChips link çipi.
+
+## 2026-10-18 — v0.10.1333 — Birleşik arama backend'i: `GET /api/search` (yalnız backend)
+
+**Operatör onaylı spec, varsayılanlar seçili; ön yüz bu sürümde YOK.** Tek uç altı türü (service →
+endpoint → problem → exception → trace → log) tek istekte, kaynak başına ≤20 satırla döner:
+`{results, facets:{type,service,env,sev,scope}, sources:{[t]:{status,ms,reason?,truncated}}, total,
+queryKind, fromNs, toNs}`. Rol kapısı yok (her kaynak viewer-okunur), audit yok, min q 2.
+**Fan-out:** `sync.WaitGroup` + kaynak başına `context.WithTimeout` (service/endpoint 2 sn,
+problem/exception 3 sn, trace/log 5 sn), istek tavanı 6 sn — errgroup DEĞİL (bir hata kardeşleri
+iptal etmez); ctx'i yok sayan kaynak tavanda 'timeout' ("request ceiling"), seçilmeyen tür sorgulanmaz.
+**Daraltma (span'ler üstünde daraltmasız tam metin ASLA):** 32-hex → TraceID tam eşitlik; paletin
+IDENTITY_RE'si + rakam → kimlik (Search ham, kimlik-önce yolu); serbest metin yalnız servis facet'i
+ya da servis kaynağının TEK adı (paylaşılan `serviceLookup`, sync.Once) varken, pencere ≤1 sa; aksi
+'skipped' "needs service or trace id". Trace id / kimlik penceresi ≤24 sa, log ≤24 sa, genel ≤7 g;
+NarrowedFrom → "window narrowed" + truncated. Hex sorguda servis/endpoint 'skipped' (palet emsali).
+Logs `s.logs` (Settings → ES ise ES; env'den çıkarılmaz), CH'de ayrışmayan sözdizimi
+(`logQuerySyntaxReject`) 'skipped' "unsupported syntax", ErrBackendSlow 'unavailable', EnvUnapplied
+→ reason. Servis/endpoint env boyutu taşımaz → reason "env not applied" (dürüst, sessiz genişleme yok).
+**sev bir TABAN:** critical ⊂ warning ⊂ info; problem critical/warning/info, exception P1/P2/P3,
+log ERROR(17)/WARN(13)/INFO(9). SQL'e inen: log SeverityMin, problem yalnız `critical` (tam eşitlik
+= tepe); exception (öncelik okuma-anı) ve problem warning/info Go'da (exception 5× okunur).
+**Problem:** `ListProblems(ProblemScanLimit(20,true))` = 100 satır tarama, Go'da harf duyarsız alt dize
+(RuleName/Service/Description/displayId); tarama dolduysa truncated. **Endpoint:** yeni
+`chstore.ListOperationHits` — operation_summary_5m DISTINCT (service_name, name), WHERE
+`operationNamesQuery` ile ortak, toplam `uniqExact(service_name, name)`, MV-only (ham-span fallback yok).
+**Cache:** `serveCached` 15 sn; saf `searchCacheKey` (serbest metinler ayrı fnvStr, types küme
+digest, pencere 15 sn basamakta — snapLogsKeyWindow, logs arka ucu anahtarda); closure verilen ctx.
+Zaman aşımlı kısmi cevap TTL boyunca saklanır; zaman-aşımı-dışı store hatası → `uncacheable`.
+**Sıralama (saf):** tam 1000 > önek 500 > içerir 200 (paletteScore.ts; başlık dışı alan en fazla 200)
+→ tür sırası → yenilik; newest/oldest ts (ts'siz sonda, kararlı); severity seviye → log numarası.
+**Facet:** type okuyucu toplamından (trace hasMore → truncated "20+"), total = tür sayımları toplamı;
+service/env/sev dönen ≤120 satırda, her biri DİĞER facet'lere göre (kendi seçimi hariç), boyutsuz
+satır süzgece takılmaz; scope "within shown results". Href'ler güvenli uygulama yolu (url.Values
+kaçışı): `/service?name=`, `/traces?filters=[name=]&rootOnly=false&view=list` (operationTracesHref
+aynası), `/problems?problem=`, `/problems?exc=`, `/trace?id=`, `/logs?q=&service=`.
+**Dosyalar:** api/search.go (rota + fan-out), search_query.go (saf), search_sources.go (kaynaklar),
+chstore/summary.go (+ListOperationHits). **Testler:** search_query_test, search_key_test,
+search_rank_test, search_facets_test, search_budget_test (sahte kaynaklarla zaman aşımı tablosu),
+search_routes_test (mux "GET /api/search", closure r.Context() pini, href güvenliği), chstore
+summary_operation_hits_test (SQL pini).
