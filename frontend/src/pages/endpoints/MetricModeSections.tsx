@@ -101,13 +101,14 @@ export function MetricCharts({ res, latQ, onLatQ, regions, onZoom, onZoomReset }
     <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', marginBottom: 12 }}>
       <HttpChartPanel title="Request Rate (Route bazında)" unit="req/s" legendKey="ep-http:rateByRoute"
         series={relabel(d.rateByRoute, MR)} loading={res.pending('rateByRoute')} {...common} />
-      <HttpChartPanel title="5xx Hataları (Route bazında)" unit="req/s" legendKey="ep-http:err5ByRoute"
-        series={relabel(d.err5ByRoute, SMR)} loading={res.pending('err5ByRoute')} {...common} />
-      <HttpChartPanel title="4xx Hataları (Route bazında)" unit="req/s" legendKey="ep-http:err4ByRoute"
-        series={relabel(d.err4ByRoute, SMR)} loading={res.pending('err4ByRoute')} {...common} />
+      {/* v0.10.1354 (operatör: "5xx hataları ile latency yer değiştirsin") — yüzdelikler istek hızının yanında. */}
       <HttpChartPanel title="Latency Yüzdelikleri (p50 / p90 / p95 / p99)" unit="s" legendKey="ep-http:p50"
         series={[...relabel(d.p50, 'p50'), ...relabel(d.p90, 'p90'), ...relabel(d.p95, 'p95'), ...relabel(d.p99, 'p99')]}
         loading={res.pending('p50')} {...common} />
+      <HttpChartPanel title="4xx Hataları (Route bazında)" unit="req/s" legendKey="ep-http:err4ByRoute"
+        series={relabel(d.err4ByRoute, SMR)} loading={res.pending('err4ByRoute')} {...common} />
+      <HttpChartPanel title="5xx Hataları (Route bazında)" unit="req/s" legendKey="ep-http:err5ByRoute"
+        series={relabel(d.err5ByRoute, SMR)} loading={res.pending('err5ByRoute')} {...common} />
       <HttpChartPanel title={`${latQ.toUpperCase()} gecikme (route)`} unit="s" legendKey="ep-http:latByRoute"
         series={relabel(d.latByRoute, MR)} loading={res.pending('latByRoute')}
         right={<SegmentedControl size="sm" aria-label="Gecikme yüzdeliği" value={latQ} onChange={onLatQ}
