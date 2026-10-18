@@ -7003,3 +7003,27 @@ Alan yoksa (eski gövde) known okuması. Testler: `internal/chstore/metric_prese
 tablosu, 24 sa kıstırma), `internal/vmetrics/throughput_test.go` (hata / kısmi / servis-boş ⇒ filo / 24 sa pencere
 httptest), `service_metric_throughput_test.go` (zarf pini, v3), `MetricThroughputNote.test.tsx` (unknown dalı).
 **Bilinçli sınır:** VM etiket ucunda kesik (truncation) bayrağı yok — `limit` gönderilmiyor; yalnız `isPartial` okunur.
+
+## 2026-10-18 — v0.10.1359 — Endpoints listesi metrik kipi: HTTP Metrics PromQL'i (servis zorunlu, method+route)
+
+**Operatör-raporlu:** /endpoints "Kaynak: metrik" listesinin sayıları Service → HTTP Metrics sekmesiyle ve endpoint detay
+karolarıyla tutmuyordu. **Kök neden:** liste hâlâ `/api/endpoints/metric` okuyordu (çağrı = adım başı artışların toplamı,
+avg/p50/p95/p99 = adım değerlerinin çağrı-ağırlıklı ortalaması); sekme ve detay (v0.10.1352'den beri) pencere `increase[W]`
+anlık sorgularıyla okuyor. **Karar (operatör, nihai):** liste aynı üreticiyi okur — `lib/httpMetrics.ts` `listQueries(scope,
+W, N, compare)` sekmenin `windowQueries(scope, W, "http_request_method, http_route")`'unu çağırır; total = `topk(N, tTotal)`,
+diğer her ölçü `(<sekme ifadesi>) and on (BY) topk(N, …)` ile havuza süzülü (her yanıt ≤ N seri, promapi 1000-seri tavanı
+güvenli; 8192 karakter tavanı altında). Ek olarak durum sınıfları (`label_replace` → `cls`); compare → total/err5/avg/p99
+`offset W` (havuz BU pencerenin topk'sı). Saf indirgeyici `endpointListRows(data, W, service)`: (method, route) birleşimi,
+s → ms, errorRate = err5/total×100, reqPerMin = total/(W/60), p90 yok. (1) Servis ZORUNLU: seçilmezse tabloda "Metrik
+kipinde servis seçin" (filo geneli sorgu yok). (2) Satır greni (method, route), sekme gibi; satır tıkı detaya `?method=`
+taşır (`endpointParam` EndpointRef.method → `endpointScope`), detay karoları satırla aynı dilim; `method` yoksa detay
+bugünkü tüm-method toplamı. (3) "Group by shape" metrik kipinde devre dışı (gerekçe title'da; URL `shape=1` korunur, span'e
+dönünce geçerli). (4) Yalnız VM (`useHttpPromql` → `/api/metrics/promql?metricsrc=vm`); VM yoksa sunucunun 400 cümlesi
+tablonun hata satırında; span kipi değişmedi. (5) N = min(limit, 300); yoklama yok, staleTime 30 sn (sekme paritesi);
+sıralama istemcide (`serverSort` yalnız span'de), havuz dolarsa şerit her sıralamanın havuz içinde olduğunu söyler. Yol
+araması sunucuda route regex'i (`(?i).*<kaçışlı>.*`) — havuz aramaya göre kurulur, satır değeri değişmez. Testler:
+`lib/httpMetrics.list.test.ts` (bayt bayt pinler, sekme üreticisi + sarmal, indirgeyici, tek fikstürle liste == sekme
+mergeTable == detay endpointRed + PromQL dilim dönüşümü), `pages/endpoints/listMetricMode.test.tsx` (render).
+**Bilinçli sınır:** env/cluster metrik kipinde uygulanmaz (sekmedeki gibi; not bunu söyler). `http_route` etiketsiz seriler
+"(route yok)" satırı olarak listelenir ama detay sayfası yoktur. `/api/endpoints/metric` bu sürümde SİLİNMEDİ (sonraki
+sürüm); liste artık okumuyor.

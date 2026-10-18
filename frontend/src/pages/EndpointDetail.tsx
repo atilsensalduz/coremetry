@@ -184,7 +184,8 @@ export default function EndpointDetailPage() {
   // metrik kipinde atılır (enabled), yoklama yok, staleTime 30 sn.
   const windowSec = Math.max(60, (to - from) / 1e9);
   const httpItems = useMemo(() => (refObj
-    ? endpointHttpQueries({ service: refObj.service, route: refObj.path, sig: refObj.sig }, windowSec, { latQ, compare })
+    // v0.10.1359 — ?method= (metrik liste satırı) karoları o methoda süzer; yoksa tüm methodlar.
+    ? endpointHttpQueries({ service: refObj.service, route: refObj.path, sig: refObj.sig, method: refObj.method }, windowSec, { latQ, compare })
     : []), [refObj, windowSec, latQ, compare]);
   const httpRes = useHttpPromql(httpItems, { from, to }, detailSrc === 'metric' && !!refObj);
 
@@ -217,8 +218,9 @@ export default function EndpointDetailPage() {
           display: 'flex', alignItems: 'center', gap: 10,
           flexWrap: 'wrap', marginBottom: 4,
         }}>
-          {row?.method && (
-            <span className="badge b-info" style={{ fontSize: 10 }}>{row.method}</span>
+          {/* v0.10.1359 — metrik kipinde satır yok; method URL'den (?method=). */}
+          {(row?.method || refObj.method) && (
+            <span className="badge b-info" style={{ fontSize: 10 }}>{row?.method || refObj.method}</span>
           )}
           <span className="mono" style={{ fontSize: 15, fontWeight: 600, wordBreak: 'break-all' }}
             title={refObj.path}>
@@ -297,7 +299,7 @@ export default function EndpointDetailPage() {
                 "satırın kovaları" diyordu; o satır artık okunmuyor. */}
             <div className="badge b-info" style={{ marginTop: -6, marginBottom: 12 }}
               title="Metrik kipi: RED karoları ve grafikler Service → HTTP Metrics sekmesinin aynı sorguları (/api/metrics/promql, VictoriaMetrics), bu route'a süzülü; karolar gerçek pencere değerleri (increase[pencere]). Histogram, durum kırılımı, çağıranlar ve trace bölümleri span türevlidir">
-              Tüm RED karoları ve grafikler: VictoriaMetrics (HTTP Metrics sekmesiyle aynı sorgular{refObj.sig ? ', route şekle göre regex' : ', tüm methodlar'}){(env || cluster) ? ' · env/cluster süzgeci bu karolara ve grafiklere uygulanmaz (sekmedeki gibi)' : ''} · histogram, durum kırılımı, çağıranlar ve trace bölümleri span türevli
+              Tüm RED karoları ve grafikler: VictoriaMetrics (HTTP Metrics sekmesiyle aynı sorgular{refObj.sig ? ', route şekle göre regex' : refObj.method ? `, method=${refObj.method}` /* v0.10.1359 */ : ', tüm methodlar'}){(env || cluster) ? ' · env/cluster süzgeci bu karolara ve grafiklere uygulanmaz (sekmedeki gibi)' : ''} · histogram, durum kırılımı, çağıranlar ve trace bölümleri span türevli
             </div>
           </>
         ) : (

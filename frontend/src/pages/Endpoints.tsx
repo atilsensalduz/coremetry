@@ -38,6 +38,9 @@ import { IconButton } from '@/components/ui/IconButton';
 import { useAuth } from '@/components/AuthProvider';
 import { RouteAlertModal } from '@/pages/alerts/RouteAlertModal'; // v0.10.705
 import { PageShell } from '@/components/ui/PageShell';
+// v0.10.1359 — metrik kipi: Service → HTTP Metrics sekmesinin PromQL'i.
+import { useHttpPromql } from '@/lib/queries/httpMetrics';
+import { ENDPOINT_LIST_POOL_MAX, endpointListRows, endpointListScope, listQueries } from '@/lib/httpMetrics';
 
 // /endpoints — operator-asked v0.5.365. Cross-service inbound
 // RED rollup keyed on http.route (templated) with url.path /
@@ -264,7 +267,9 @@ export default function EndpointsPage() {
   }, { replace: true });
   // shape (v0.8.x): Uptrace-style "group by shape" — cluster paths
   // carrying IDs (/orders/8421) into a signature (/orders/:id).
-  const bySignature = params.get('shape') === '1';
+  // v0.10.1359 — ham URL değeri; etkin değer (bySignature) metrik kipinde
+  // kapalı, aşağıda src'den sonra.
+  const shapeParam = params.get('shape') === '1';
   const setBySignature = (v: boolean) => setParams(prev => {
     const next = new URLSearchParams(prev);
     if (v) next.set('shape', '1'); else next.delete('shape');
@@ -304,6 +309,11 @@ export default function EndpointsPage() {
     if (v === 'metric') next.delete('entry');
     return next;
   }, { replace: true });
+  // v0.10.1359 — metrik kipi satır greni (method, route), sekme gibi: şekil
+  // gruplaması yok (toggle devre dışı, gerekçe title'da). URL'deki shape=1
+  // korunur, span'e dönünce yine geçerli.
+  const metricMode = src === 'metric';
+  const bySignature = shapeParam && !metricMode;
 
   // v0.5.406 — row expansion + per-service dependency cache.
   // Clicking the "▶" chevron on a row reveals a strip showing
@@ -388,8 +398,10 @@ export default function EndpointsPage() {
   // tıkının TEK hedefi. Kapsam (range/env/cluster/compare/entry) pivotla
   // birlikte gider: bir satır env=uat altında okunduysa açılan sayfa da
   // aynı soruyu sormalı (v0.9.307 kuralı).
-  const openEndpointPage = (r: EndpointRow) => navigate(endpointDetailHref(
-    { service: r.service, path: r.path, sig: bySignature },
+  // v0.10.1359 — metrik satırı method taşır (?method=): detay karoları satırla
+  // aynı (method, route) dilimini okur. Route etiketsiz satırın detayı yok.
+  const openEndpointPage = (r: EndpointRow) => (metricMode && !r.path) ? undefined : navigate(endpointDetailHref(
+    { service: r.service, path: r.path, sig: bySignature, ...(metricMode && r.method ? { method: r.method } : {}) },
     {
       range: encodeRange(range),
       env: env || undefined,
@@ -483,7 +495,8 @@ export default function EndpointsPage() {
     sortUrlKey: ENDPOINTS_SORT_URL_KEY,
     columns: visibleColumns,
     rows: tableRows,
-    serverSort: true,
+    // v0.10.1359 — metrik kipinde sıralama istemcide (havuz ≤ 300 satır).
+    serverSort: !metricMode,
     initialSort: DEFAULT_ENDPOINTS_SORT,
     // v0.10.1348 — bilinmeyen sıralama kimliği (bayat link / kayıt)
     // varsayılana (Calls ↓) düşer; başlık oku da onu gösterir.
@@ -526,18 +539,47 @@ export default function EndpointsPage() {
     dir: sortDir,
     entry: entry === 'rpc' ? 'rpc' : undefined, // v0.9.313 (entry=rpc → src zaten span, v0.10.361)
     src: src === 'metric' ? 'metric' : undefined, // v0.10.336
-  });
+    // v0.10.1359 — metrik kipinde /api/endpoints/metric OKUNMAZ (aşağıda PromQL).
+  }, !metricMode);
+  // v0.10.1359 — metrik kipi = HTTP Metrics sekmesinin AYNI pencere sorguları
+  // (lib/httpMetrics listQueries: sekmenin windowQueries'i + `and on (BY)
+  // topk(N, …)` havuzu), anlık, /api/metrics/promql?metricsrc=vm. Servis
+  // ZORUNLU (filo geneli sorgu yok); N = min(limit, 300); yoklama yok, RQ
+  // staleTime 30 sn (useHttpPromql — sekme paritesi). Yol araması route
+  // regex'i olarak sunucuda (havuz aramaya göre kurulur).
+  const windowSec = Math.max(60, (to - from) / 1e9);
+  const metricN = Math.min(limit, ENDPOINT_LIST_POOL_MAX);
+  const searchQ = search.trim();
+  const metricItems = useMemo(() => (metricMode && service
+    ? listQueries(endpointListScope(service, searchQ), windowSec, metricN, compare)
+    : []), [metricMode, service, searchQ, windowSec, metricN, compare]);
+  const metricRes = useHttpPromql(metricItems, { from, to }, metricMode && !!service);
+  const md = metricRes.data;
+  const metricRows = useMemo(
+    () => endpointListRows({
+      total: md.total, err5: md.err5, avg: md.avg, p50: md.p50, p95: md.p95, p99: md.p99, cls: md.cls,
+      ...(compare ? { pTotal: md.pTotal, pErr5: md.pErr5, pAvg: md.pAvg, pP99: md.pP99 } : {}),
+    }, windowSec, service),
+    // md her render'da yeni nesne; anahtar seriler tek tek (v0.10.1359).
+    [md.total, md.err5, md.avg, md.p50, md.p95, md.p99, md.cls, md.pTotal, md.pErr5, md.pAvg, md.pP99, compare, windowSec, service]);
+  const metricPending = metricItems.some(q => metricRes.pending(q.id));
+  const metricErr = metricItems.map(q => metricRes.error(q.id)).find((e): e is Error => !!e) ?? null;
   // v0.9.812 — zarf: satırlar + sıralama havuzunun gerçeği.
   // v0.9.818 — MEMO. Üçlü koşul her render'da YENİ bir dizi kimliği
   // üretiyordu; `rows`'a bağlı her useMemo (KPI toplamları) fiilen her
   // render'da yeniden koşardı. Kimlik artık yalnız sorgu durumu
   // değiştiğinde değişir.
+  // v0.10.1359 — metrik kipinde satırlar PromQL indirgeyicisinden; bir alt
+  // sorgu bile hata verirse tablo hata (eksik ölçü "0 hata" diye okunmasın).
+  // Havuz = N; dolduysa (satır ≥ N) dışında kalan route'lar VAR.
   const rows: EndpointRow[] | null | undefined = useMemo(
-    () => (rowsQ.isPending ? undefined : rowsQ.isError ? null : rowsQ.data?.rows ?? []),
-    [rowsQ.isPending, rowsQ.isError, rowsQ.data]);
-  const pool = rowsQ.data?.pool ?? 0;
-  const poolCapped = rowsQ.data?.poolCapped === true;
-  useEffect(() => { setTableRows(rowsQ.data?.rows ?? []); }, [rowsQ.data]);
+    () => (metricMode
+      ? (!service ? [] : metricPending ? undefined : metricErr ? null : metricRows)
+      : rowsQ.isPending ? undefined : rowsQ.isError ? null : rowsQ.data?.rows ?? []),
+    [metricMode, service, metricPending, metricErr, metricRows, rowsQ.isPending, rowsQ.isError, rowsQ.data]); // v0.10.1359
+  const pool = metricMode ? (service ? metricN : 0) : rowsQ.data?.pool ?? 0;
+  const poolCapped = metricMode ? (!!service && metricRows.length >= metricN) : rowsQ.data?.poolCapped === true;
+  useEffect(() => { setTableRows(metricMode ? metricRows : rowsQ.data?.rows ?? []); }, [metricMode, metricRows, rowsQ.data]);
 
   // Cluster picker options — mirror Services page so symmetry is
   // intuitive for operators landing here after filtering there.
@@ -555,7 +597,11 @@ export default function EndpointsPage() {
   // adım, env/cluster daraltması, eksik alt sorgular): istemci tahmin etmez.
   // v0.10.454 — metrik kipi yalnız açık seçimle; not sunucudan (metrik
   // bulunamadıysa da sunucunun cümlesi ekranda, sessiz düşüş yok).
-  const metricNote = src === 'metric' ? (rowsQ.data?.note ?? null) : null;
+  // v0.10.1359 — metrik kipi artık sunucu notu taşımaz (PromQL okuması);
+  // env/cluster sekmedeki gibi uygulanmaz ve bunu not söyler.
+  const metricNote = metricMode && (env || cluster)
+    ? `Metrik kipi: ${env && cluster ? 'env ve cluster' : env ? 'env' : 'cluster'} süzgeci bu tabloya uygulanmaz (HTTP Metrics sekmesindeki gibi — VM HTTP metriklerinde bu boyut yok).`
+    : null;
 
   // v0.10.954 — tablo standardı T12: yükleniyor / hata / eşleşme yok / boş
   // tablonun İÇİNDE, başlık durur. Koşullar eskisiyle aynı (rows tri-state);
@@ -572,9 +618,18 @@ export default function EndpointsPage() {
   const rpcNeedsMv = entry === 'rpc' && (cluster || env)
     ? `RPC & Messaging sekmesi spanmetrics rollup'larını gerektirir; ${cluster && env ? 'cluster ve env' : cluster ? 'cluster' : 'env'} süzgeci bunları devre dışı bırakır. HTTP dışı giriş noktalarını listelemek için süzgeci temizleyin ya da HTTP'ye dönün.`
     : null;
-  const errDetail = rowsQ.error instanceof Error && rowsQ.error.message ? rowsQ.error.message : '';
+  // v0.10.1359 — metrik kipinde hata metni PromQL okumasından (VM yapılandırılmamışsa
+  // sunucunun 400 cümlesi: "metricsrc=vm — VictoriaMetrics yapılandırılmamış …").
+  const errDetail = metricMode
+    ? (metricErr?.message ? `${metricErr.message} — metrik kipi VictoriaMetrics'ten okur` : '')
+    : rowsQ.error instanceof Error && rowsQ.error.message ? rowsQ.error.message : '';
   const tableState: Omit<DataTableStateProps<EndpointRow>, 'dt' | 'leading'> =
-    rows === undefined ? { kind: 'loading' }
+    // v0.10.1359 — metrik kipi servis ister (filo geneli PromQL yok).
+    metricMode && !service ? {
+      kind: 'empty',
+      message: 'Metrik kipinde servis seçin — liste, seçili servisin HTTP Metrics sekmesiyle aynı PromQL\'i okur (VictoriaMetrics, method + route başına).',
+    }
+    : rows === undefined ? { kind: 'loading' }
     : rows === null ? {
       kind: 'error',
       message: errDetail || rpcNeedsMv
@@ -585,6 +640,11 @@ export default function EndpointsPage() {
       kind: 'no-match',
       onClearFilters: filterClears.length === 1 ? filterClears[0] : undefined,
       returnFocusRef: searchRef,
+    }
+    : metricMode ? {
+      // v0.10.1359
+      kind: 'empty',
+      message: `Bu pencerede VictoriaMetrics'te service_name="${service}" etiketli http_server_request_duration_seconds metriği yok. Zaman aralığını genişletin ya da Kaynak: span'e dönün.`,
     }
     : {
       kind: 'empty',
@@ -648,7 +708,8 @@ export default function EndpointsPage() {
             style={{ fontSize: 12 }}
             aria-label="Veri kaynağı"
             title={src === 'metric'
-              ? 'Kaynak: metrik — OTel HTTP server histogramı (VM ya da ClickHouse), örneklemeden bağımsız tam sayım; p90 yok'
+              // v0.10.1359
+              ? 'Kaynak: metrik — HTTP Metrics sekmesinin PromQL\'i (VictoriaMetrics, pencere increase[W]); servis seçimi gerekir, satır = method + route; örneklemeden bağımsız tam sayım; p90 yok'
               : 'Kaynak: span — spanmetrics_1m (izlerden türetilmiş); collector örnekliyorsa eksik sayar'}>
             <option value="span">Kaynak: span</option>
             <option value="metric">Kaynak: metrik</option>
@@ -669,7 +730,9 @@ export default function EndpointsPage() {
                 )}
                 {(rows.length >= limit || poolCapped) && (
                   <span style={{ color: 'var(--warn)', marginLeft: 6 }}
-                        title={poolCapped
+                        title={metricMode // v0.10.1359
+                          ? `Metrik kipi en çok çağrılan ilk ${metricN} (method, route) satırını okur — havuz doldu, dışında kalan route'lar var`
+                          : poolCapped
                           ? `Sıralama havuzu ${pool} aday ile sınırlı — havuz doldu, dışında kalan endpoint'ler var`
                           : 'Result hit the limit — long-tail endpoints may be hidden'}>
                     (capped)
@@ -699,10 +762,14 @@ export default function EndpointsPage() {
               onChange={e => setCompare(e.target.checked)} />
             Compare vs prior
           </label>
-          <label style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}
-            title="Group endpoints by normalized shape: paths carrying IDs (/orders/8421) collapse into one stable group (/orders/:id). p99/error-rate stay exact.">
+          {/* v0.10.1359 — metrik kipinde devre dışı: satır greni sekmeyle aynı (method, route). */}
+          <label style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4, cursor: metricMode ? 'not-allowed' : 'pointer', opacity: metricMode ? 0.6 : undefined }}
+            title={metricMode
+              ? 'Metrik kipinde şekle göre gruplama yok: satırlar HTTP Metrics sekmesi gibi method + route (http_route zaten şablonlu). Gruplamak için Kaynak: span.'
+              : 'Group endpoints by normalized shape: paths carrying IDs (/orders/8421) collapse into one stable group (/orders/:id). p99/error-rate stay exact.'}>
             <input type="checkbox"
               checked={bySignature}
+              disabled={metricMode} // v0.10.1359
               onChange={e => setBySignature(e.target.checked)} />
             Group by shape
           </label>
@@ -737,11 +804,21 @@ export default function EndpointsPage() {
             borderRadius: 6, background: 'var(--bg2)', color: 'var(--text2)',
             lineHeight: 1.5,
           }}>
+            {metricMode ? (
+              // v0.10.1359 — metrik kipinde HER sıralama havuz içinde (istemci).
+              <>
+                Metrik kipi pencerede en çok çağrılan ilk <b>{fmtNum(pool)}</b>{' '}
+                (method, route) satırını okur ve her sıralamayı bu havuz içinde
+                yapar; havuz doldu — daha düşük hacimli route'lar listede yok.
+                Yol filtresiyle daraltın.
+              </>
+            ) : (<>
             Sıralama havuzu <b>{fmtNum(pool)}</b> aday ile sınırlı — liste eksik
             olabilir. Kötüleşme sıralaması, pencerede en çok çağrılan ilk{' '}
             {fmtNum(pool)} endpoint içinde hesaplanır; daha düşük hacimli bir uç
             nokta kötüleşse bile bu tabloya giremez. Daralt (servis / yol filtresi)
             ya da başka bir kolona göre sırala.
+            </>)}
           </div>
         )}
 
@@ -789,6 +866,8 @@ export default function EndpointsPage() {
                 // atlıyordu (ve URL'e yazılamazdı). Kimlik MV grenidir:
                 // (service, path).
                 const rowKey = endpointRowKey(r.service, r.path);
+                // v0.10.1359 — metrik kipinde aynı path birden çok methodla gelir; React anahtarı method'u da taşır.
+                const reactKey = metricMode ? `${rowKey}|${r.method ?? ''}` : rowKey;
                 const isExpanded = expandedRows.has(rowKey);
                 // v0.10.943 — cv-row rowProps sınıfıyla BİRLEŞİR; tek başına className row-selected'ı ezerdi.
                 const rp = dt.rowProps(i);
@@ -796,7 +875,7 @@ export default function EndpointsPage() {
                   // v0.10.378 (dış skill denetimi C11) — anahtar YALNIZ rowKey:
                   // `|${i}` eki sıralamada her satırın anahtarını değiştirip
                   // tüm tbody'yi remount ediyordu (açık şerit + odak kaybı).
-                  <React.Fragment key={rowKey}>
+                  <React.Fragment key={reactKey /* v0.10.1359 */}>
                   <tr {...rp} className={[rp.className, 'cv-row'].filter(Boolean).join(' ')}
                     // v0.10.933 (tablo standardı T2) — elle onClick: imleç + hover bu işaretle (globals.css)
                     data-row-action
@@ -849,7 +928,8 @@ export default function EndpointsPage() {
                       </Link>
                     </td>}
                     {cellOn.has('path') && <td className="mono sticky-left" style={{ left: leftOffs['path'] }} title={r.path}>
-                      {r.path}
+                      {/* v0.10.1359 — metrik: http_route etiketsiz seriler (sekmedeki "(route yok)"). */}
+                      {r.path || (metricMode ? <span className="cell-muted">(route yok)</span> : r.path)}
                     </td>}
                     {/* v0.10.1348 — Method rozet (tek nötr ton: renk yalnız
                         sapan değerde, T9); boş metot (RPC) düz tire. */}
@@ -1015,9 +1095,12 @@ export default function EndpointsPage() {
             )}
             {src === 'metric' ? (
               <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text3)' }}>
-                Path = <code>http_route</code> etiketi (OTel HTTP server histogramı).
-                Çağrı/hata adım toplamı; avg/p50/p95/p99 adım değerlerinin
-                çağrı-ağırlıklı ortalaması — ayrıntı yukarıdaki notta.
+                {/* v0.10.1359 — sayılar HTTP Metrics sekmesinin AYNI PromQL'i. */}
+                Path = <code>http_route</code>, Method = <code>http_request_method</code> etiketi
+                (VictoriaMetrics, OTel HTTP server histogramı). Sayılar Service → HTTP Metrics
+                sekmesinin "Endpoint Detayları" tablosu ve endpoint detay karolarıyla aynı
+                PromQL: pencere <code>increase[W]</code>; yüzdelikler penceredeki kova artışlarından
+                (<code>histogram_quantile</code>). En çok çağrılan ilk {fmtNum(metricN)} satır.
               </div>
             ) : (
             <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text3)' }}>

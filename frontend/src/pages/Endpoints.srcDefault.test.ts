@@ -12,7 +12,12 @@ describe('endpoints source defaults (v0.10.454 + v0.10.788)', () => {
   it('list page defaults to span and only explicit ?src=metric forces metric', () => {
     expect(list).toContain("const src: 'span' | 'metric' = entry === 'rpc' ? 'span'\n    : explicitSrc === 'metric' ? 'metric'\n    : 'span';");
     expect(list).not.toContain('autoSpan');
-    expect(list).toContain("const metricNote = src === 'metric' ? (rowsQ.data?.note ?? null) : null;");
+    // v0.10.1359 — metrik kipi /api/endpoints/metric okumaz (sunucu notu yok):
+    // satırlar sekmenin PromQL'inden, servis zorunlu; useEndpoints yalnız span'de.
+    expect(list).not.toContain('rowsQ.data?.note');
+    expect(list).toContain("const metricMode = src === 'metric';");
+    expect(list).toContain('}, !metricMode);');
+    expect(list).toContain('const metricRes = useHttpPromql(metricItems, { from, to }, metricMode && !!service);');
   });
   it('detail page defaults to metric, ?src=span forces span, rpc entries stay span', () => {
     expect(detail).toContain("params.get('src') === 'span' || entry ? 'span' : 'metric'");

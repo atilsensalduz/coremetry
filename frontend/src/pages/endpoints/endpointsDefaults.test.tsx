@@ -50,6 +50,20 @@ vi.mock('@/lib/api', () => {
     savedViews: () => Promise.resolve([]),
     serviceNames: () => Promise.resolve({ names: [], total: 0 }),
     clusters: () => Promise.resolve([]),
+    // v0.10.1359 — metrik kipi satırları PromQL'den (sekmenin sorguları):
+    // aynı satır (POST /BSAWeb/api/allocate, 1400 çağrı, p50 10 ms).
+    httpMetricsPromql: (p: unknown) => {
+      const q = (p as { query: string }).query;
+      const lab = ['http_request_method="POST"', 'http_route="/BSAWeb/api/allocate"'];
+      const one = (v: number, extra: string[] = []) => Promise.resolve([{ groupKey: [...lab, ...extra], points: [{ time: 1e9, value: v }] }]);
+      if (q.startsWith('topk(')) return one(1400);
+      if (q.includes('label_replace(')) return one(1400, ['cls="2xx"']);
+      if (q.startsWith('(histogram_quantile(0.5,')) return one(0.01);
+      if (q.startsWith('(histogram_quantile(')) return one(0.06);
+      if (q.includes('_sum{')) return one(0.014);
+      if (q.includes('=~"5.."')) return one(0);
+      return one(1400);
+    },
   };
   return {
     api: new Proxy({}, { get: (_t, k: string) => stub[k] ?? (() => Promise.resolve(null)) }),
@@ -234,7 +248,8 @@ describe('/endpoints başlık ↔ gövde hizası + Method rozeti (v0.10.1348)', 
   });
 
   it('metrik kipi + P90 seçili: P90 başlıkla birlikte gövdeden de düşer', async () => {
-    await mount('/endpoints?range=1h&src=metric&cols=path,method,calls,errorRate,status,p50Ms,p90Ms,p95Ms,traces');
+    // v0.10.1359 — metrik kipi servis ister.
+    await mount('/endpoints?range=1h&src=metric&service=bsa-loan-assessment-allocation-prod&cols=path,method,calls,errorRate,status,p50Ms,p90Ms,p95Ms,traces');
     assertAligned();
     expect(headLabels()).not.toContain('P90');
   });

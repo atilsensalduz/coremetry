@@ -595,3 +595,132 @@ export function fillStepGaps(series: SpanMetricSeries[], stepSec: number): SpanM
     return { ...s, points: pts };
   });
 }
+
+// ── v0.10.1359 — /endpoints LİSTESİ metrik kipi = HTTP Metrics PromQL'i ──
+// Operatör-raporlu: liste "Kaynak: metrik" kipinde /api/endpoints/metric'ten
+// okuyordu (çağrı = adım artışlarının toplamı, yüzdelik = adım değerlerinin
+// çağrı-ağırlıklı ortalaması) ve sayılar sekmenin "Endpoint Detayları"
+// tablosuyla tutmuyordu. Artık liste satırı = sekme satırı = endpoint detay
+// karoları YAPI GEREĞİ: ölçüler sekmenin `windowQueries(scope, W, BY)`
+// üreticisinin AYNISI, yalnız `and on (BY) topk(N, toplam)` ile havuza
+// süzülü (her yanıt ≤ N seri — promapi 1000-seri tavanı güvenli). Satır
+// greni (method, route), sekme gibi. Servis ZORUNLU (filo geneli sorgu yok).
+
+type EndpointListRow = import('./types').EndpointRow; // v0.10.1359
+
+/** v0.10.1359 — metrik liste havuz tavanı: N = min(limit, 300). */
+export const ENDPOINT_LIST_POOL_MAX = 300;
+
+/** v0.10.1359 — liste satır greni (sekmenin byMR'ı). */
+const LIST_BY = `${L.method}, ${L.route}`;
+
+/** v0.10.1359 — yol araması → büyük/küçük harf duyarsız alt-dize route regex'i (VM `=~` tam çapalar). */
+export function routeSubstringRegex(search: string): string {
+  return `(?i).*${search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}.*`;
+}
+
+/** v0.10.1359 — liste kapsamı: servis (zorunlu) + isteğe bağlı yol araması (route regex). */
+export function endpointListScope(service: string, search = ''): HttpScope {
+  const q = search.trim();
+  return q ? { app: service, routeRe: routeSubstringRegex(q) } : { app: service };
+}
+
+export type EndpointListId =
+  | 'total' | 'err5' | 'avg' | 'p50' | 'p95' | 'p99' | 'cls'
+  | 'pTotal' | 'pErr5' | 'pAvg' | 'pP99';
+
+export interface EndpointListQuery { id: EndpointListId; expr: string; instant: true }
+
+/**
+ * v0.10.1359 — liste sayfasının TÜM sorguları (anlık, `to` anında). total =
+ * `topk(N, sekmenin tTotal'ı)`; diğer her ölçü sekmenin üreticisi
+ * `(…) and on (BY) topk(N, …)` ile havuza süzülü. compare → total/err5/avg/p99
+ * `offset W` ile (önceki pencere), havuz yine BU pencerenin topk'sı.
+ */
+export function listQueries(scope: HttpScope, windowSec: number, n: number, compare: boolean): EndpointListQuery[] {
+  const N = Math.max(1, Math.min(ENDPOINT_LIST_POOL_MAX, Math.floor(n)));
+  const w = windowQueries(scope, windowSec, LIST_BY);
+  const pool = `topk(${N}, ${w.total})`;
+  const inPool = (m: string) => `(${m}) and on (${LIST_BY}) ${pool}`;
+  const cls = `sum by (${LIST_BY}, cls) (label_replace(${winInc(scope, windowSec, SC)}, "cls", "\${1}xx", "${L.status}", "([0-9]).*"))`;
+  const q = (id: EndpointListId, expr: string): EndpointListQuery => ({ id, expr, instant: true });
+  const out: EndpointListQuery[] = [
+    q('total', pool),
+    q('err5', inPool(w.err5Count)),
+    q('avg', inPool(w.avg)),
+    q('p50', inPool(w.p50)),
+    q('p95', inPool(w.p95)),
+    q('p99', inPool(w.p99)),
+    q('cls', inPool(cls)),
+  ];
+  if (compare) {
+    const pw = windowQueries(scope, windowSec, LIST_BY, Math.max(60, Math.round(windowSec)));
+    out.push(
+      q('pTotal', inPool(pw.total)),
+      q('pErr5', inPool(pw.err5Count)),
+      q('pAvg', inPool(pw.avg)),
+      q('pP99', inPool(pw.p99)),
+    );
+  }
+  return out;
+}
+
+/**
+ * v0.10.1359 — SAF indirgeyici: liste sorgularının anlık sonuçları →
+ * EndpointRow[]. Satır kümesi = `total` havuzu; diğer ölçüler (method, route)
+ * üzerinden birleşir. s → ms, errorRate = err5 / total × 100, reqPerMin =
+ * total / (W / 60), http2xx..5xx `cls`'ten; p90 yok. compare sonucu geldiyse
+ * önceki pencerede olmayan satırın prior'u 0 (UI "listede yeni" der).
+ * Sırasız döner (istemci sıralar).
+ */
+export function endpointListRows(
+  data: Partial<Record<EndpointListId, SpanMetricSeries[] | null | undefined>>, windowSec: number, service: string,
+): EndpointListRow[] {
+  const key = (l: Record<string, string>) => `${l[L.method] ?? ''}\u0000${l[L.route] ?? ''}`;
+  const val = (s: SpanMetricSeries) => { const v = lastValue(s); return v !== null && Number.isFinite(v) ? v : null; };
+  const index = (series: SpanMetricSeries[] | null | undefined) => {
+    const m = new Map<string, number>();
+    for (const s of series ?? []) { const v = val(s); if (v !== null) m.set(key(seriesLabels(s)), v); }
+    return m;
+  };
+  const err5 = index(data.err5), avg = index(data.avg);
+  const p50 = index(data.p50), p95 = index(data.p95), p99 = index(data.p99);
+  const cls = new Map<string, Record<string, number>>();
+  for (const s of data.cls ?? []) {
+    const l = seriesLabels(s); const v = val(s);
+    if (v === null || !l.cls) continue;
+    const k = key(l);
+    cls.set(k, { ...(cls.get(k) ?? {}), [l.cls]: v });
+  }
+  const hasPrior = data.pTotal !== undefined;
+  const pTotal = index(data.pTotal), pErr5 = index(data.pErr5), pAvg = index(data.pAvg), pP99 = index(data.pP99);
+  const W = Math.max(60, Math.round(windowSec));
+  const ms = (v: number | undefined) => (v === undefined ? undefined : v * 1000);
+  const rows: EndpointListRow[] = [];
+  for (const s of data.total ?? []) {
+    const calls = val(s);
+    if (calls === null) continue;
+    const l = seriesLabels(s);
+    const k = key(l);
+    const errors = err5.get(k) ?? 0;
+    const c = cls.get(k) ?? {};
+    const row: EndpointListRow = {
+      service, path: l[L.route] ?? '', method: l[L.method] || undefined,
+      calls, errors,
+      errorRate: calls > 0 ? (errors / calls) * 100 : 0,
+      reqPerMin: calls / (W / 60),
+      avgMs: ms(avg.get(k)) ?? 0,
+      p50Ms: ms(p50.get(k)), p95Ms: ms(p95.get(k)),
+      p99Ms: ms(p99.get(k)) ?? 0,
+      http2xx: c['2xx'] ?? 0, http3xx: c['3xx'] ?? 0, http4xx: c['4xx'] ?? 0, http5xx: c['5xx'] ?? 0,
+    };
+    if (hasPrior) {
+      row.priorCalls = pTotal.get(k) ?? 0;
+      row.priorErrors = pErr5.get(k) ?? 0;
+      row.priorAvgMs = ms(pAvg.get(k)) ?? 0;
+      row.priorP99Ms = ms(pP99.get(k)) ?? 0;
+    }
+    rows.push(row);
+  }
+  return rows;
+}

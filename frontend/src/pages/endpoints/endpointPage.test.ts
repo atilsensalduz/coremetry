@@ -137,3 +137,15 @@ describe('endpointSearchHint', () => {
     }
   });
 });
+
+// v0.10.1359 — metrik liste satırı (method, route) → detay ?method=; yoksa tüm methodlar.
+describe('method param (v0.10.1359)', () => {
+  it('href ↔ parse gidiş-dönüş; boş method yazılmaz/okunmaz', () => {
+    const ref = { service: 'checkout', path: '/orders', sig: false, method: 'POST' };
+    const href = endpointDetailHref(ref);
+    expect(href).toContain('method=POST');
+    expect(parseEndpointPageRef(href.split('?')[1])).toEqual(ref);
+    expect(endpointDetailHref({ service: 'c', path: '/o', sig: false })).not.toContain('method=');
+    expect(parseEndpointPageRef('service=c&path=/o&method=%20')).not.toHaveProperty('method');
+  });
+});
