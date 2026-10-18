@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"time"
+
+	"github.com/cilcenk/coremetry/internal/safelink"
 )
 
 // Event — operator-marked moment in time. v0.5.476.
@@ -122,6 +124,11 @@ func (s *Store) ListEvents(ctx context.Context, f EventFilter) ([]Event, error) 
 			&e.Time, &e.Service, &e.Link, &e.Owner, &e.CreatedAt); err != nil {
 			return nil, err
 		}
+		// v0.10.1315 (olay linki XSS) — yazma kapısından (api
+		// validateEventLink) önce saklanmış eski satırlar: çizilemeyen link
+		// (javascript:, data:, "//host", …) okumada düşer. Tek okuyucu bu —
+		// olay API'si, annotation lane ve deploy korelasyonu hepsi buradan.
+		e.Link = safelink.Sanitize(e.Link)
 		out = append(out, e)
 	}
 	return out, rows.Err()

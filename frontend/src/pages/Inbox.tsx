@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { SafeHref } from '@/components/ui/SafeHref'; // v0.10.1315 — olay/katalog linki XSS kapısı
 import { rowActivation } from '@/lib/a11y'; // v0.10.455 (dış denetim D3 dilim 3)
 import { PriorityBadge } from '@/components/ui/PriorityBadge';
 import { useQueryClient } from '@tanstack/react-query';
@@ -1415,9 +1416,9 @@ function RowChips({ it, real, oraLabel }: { it: InboxItem; real: boolean; oraLab
           var mı" ve "az önce deploy oldu mu". */}
       {it.runbookUrl && (
         // v0.10.922 (sade palet adım 1) — üst veri: nötr.
-        <a href={it.runbookUrl} target="_blank" rel="noreferrer"
+        <SafeHref href={it.runbookUrl}
           onClick={e => e.stopPropagation()}
-          className="badge b-gray" title="Runbook aç">📕 runbook</a>
+          className="badge b-gray" title="Runbook aç">📕 runbook</SafeHref>
       )}
       {/* v0.10.1055 (operatör: "Okdir") — ipucu "undefined v…" başlıyordu:
           deploy nesnesinde `service` yok (chstore.RecentDeploy), servis

@@ -18,6 +18,13 @@
 // buildLinkResultLink (internal/api/chat_tool_links.go) ve sanitizeOIDCNext
 // (internal/api/oidc_next.go). postLoginRedirect.ts bundan SIKI (nokta
 // segmenti, /login|/api öneki) ve Go'yla 1:1 — o ayrı kalır.
+//
+// v0.10.1315 (olay linki XSS) — Go aynası: internal/safelink (Classify /
+// SafeLink / Sanitize). Internal = isSafeAppPath, External = appLinkKind'in
+// http(s) dalı (Go ek olarak Host zorunlu, userinfo yasak). Tablolar kilitli
+// adımda: safeAppPath.ratchet.test.ts ↔ internal/safelink/safelink_test.go.
+// API/editör kaynaklı URL'yi ÇİZEN tek kapı components/ui/SafeHref.tsx;
+// programatik açış openSafeLink (aşağıda).
 
 // Kontrol karakteri ya da boşluk (yol içinde asla).
 // eslint-disable-next-line no-control-regex -- yol güvenliği: C0/C1 kontrol karakterlerini reddetmek kuralın amacı
@@ -53,4 +60,23 @@ export function appLinkKind(href: string): 'internal' | 'external' | null {
   if (isSafeAppPath(href)) return 'internal';
   if (/^https?:\/\//i.test(href)) return 'external';
   return null;
+}
+
+/**
+ * v0.10.1315 — API/editör kaynaklı bir linki programatik açar (olay işareti,
+ * tık işleyicileri). Dış (http(s)) → yeni sekme, noopener+noreferrer; iç
+ * (isSafeAppPath) → SPA navigate; ikisi de değilse hiçbir şey yapmaz ve false.
+ */
+export function openSafeLink(href: string | null | undefined, navigate: (to: string) => void): boolean {
+  if (typeof href !== 'string') return false;
+  const kind = appLinkKind(href);
+  if (kind === 'external') {
+    window.open(href, '_blank', 'noopener,noreferrer');
+    return true;
+  }
+  if (kind === 'internal') {
+    navigate(href);
+    return true;
+  }
+  return false;
 }

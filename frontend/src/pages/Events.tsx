@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { SafeHref } from '@/components/ui/SafeHref'; // v0.10.1315 — olay/katalog linki XSS kapısı
 import { TabStrip } from '@/components/ui/TabStrip'; // v0.10.456 (D5)
 import { Link, useSearchParams } from 'react-router-dom';
 import { Topbar } from '@/components/Topbar';
@@ -374,11 +375,9 @@ function AnnotationsTab({ from, to }: { from: number; to: number }) {
                   </DataTableCell>
                   <DataTableCell dt={dt} col="owner" row={ev} value={ev.owner} />
                   <DataTableCell dt={dt} col="link" row={ev}>
-                    {ev.link
-                      ? <a href={ev.link} target="_blank" rel="noopener noreferrer"
-                           style={{ color: 'var(--accent2)', fontSize: 11 }}
-                           title={ev.link}>open ↗</a>
-                      : <span style={{ color: 'var(--text3)' }}>—</span>}
+                    {/* v0.10.1315 — link SafeHref'ten geçer (javascript: vb. → "—"). */}
+                    <SafeHref href={ev.link} style={{ color: 'var(--accent2)', fontSize: 11 }} title={ev.link}
+                      fallback={<span style={{ color: 'var(--text3)' }}>—</span>}>open ↗</SafeHref>
                   </DataTableCell>
                   {canDelete && (
                     <DataTableCell dt={dt} col="actions" row={ev}>

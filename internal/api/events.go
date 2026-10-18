@@ -3,12 +3,15 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/cilcenk/coremetry/internal/auth"
 	"github.com/cilcenk/coremetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/safelink"
 )
 
 // Operator events HTTP surface (v0.5.476). Three endpoints —
@@ -42,6 +45,25 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// errEventLink — v0.10.1315 (olay linki XSS): createEvent'in 400 metni.
+var errEventLink = errors.New(`link must be an absolute http(s) URL or an app path starting with "/"`)
+
+// validateEventLink — v0.10.1315: olay linki yazılmadan önce SAF kapı.
+// Boş (kırpılmış) link geçerli ("" döner); aksi safelink.SafeLink —
+// javascript:/data:/"//host"/"/\host" gibi çizilemeyen her şey hata. Okuma
+// tarafında chstore.ListEvents eski satırları ayrıca süzer.
+func validateEventLink(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+	l, ok := safelink.SafeLink(raw)
+	if !ok {
+		return "", errEventLink
+	}
+	return l, nil
+}
+
 func (s *Server) createEvent(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Kind    string `json:"kind"`
@@ -59,6 +81,12 @@ func (s *Server) createEvent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "label required", http.StatusBadRequest)
 		return
 	}
+	// v0.10.1315 — store'a dokunmadan önce (Server{} testi buna dayanır).
+	link, lerr := validateEventLink(body.Link)
+	if lerr != nil {
+		writeJSONError(w, http.StatusBadRequest, lerr.Error())
+		return
+	}
 	claims := auth.FromContext(r.Context())
 	owner := ""
 	if claims != nil {
@@ -69,7 +97,7 @@ func (s *Server) createEvent(w http.ResponseWriter, r *http.Request) {
 		Label:   body.Label,
 		Time:    body.Time,
 		Service: body.Service,
-		Link:    body.Link,
+		Link:    link,
 		Owner:   owner,
 	}
 	saved, err := s.store.UpsertEvent(r.Context(), ev)

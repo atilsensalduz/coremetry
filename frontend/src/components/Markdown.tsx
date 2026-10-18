@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { appLinkKind } from '@/lib/safeAppPath';
 import { DisclosureButton } from '@/components/ui/DisclosureButton';
 import { splitHeader, hasGutter, gutterLines, resourceLabel, isStackTrace, foldStack } from '@/lib/codeQuote';
 import { idLinkPattern, type IdLink, type IdLinkPattern } from '@/components/ai/inlineIdLinks';
@@ -249,8 +250,10 @@ function renderInline(s: string, idPat?: IdLinkPattern | null): React.ReactNode[
         // OTHER users (viewers read editor-authored runbooks), so a
         // `javascript:` href would be a stored-XSS vector. Allow only
         // http(s)/mailto/relative/anchor; otherwise drop to plain text.
+        // v0.10.1315 — iç yol/dış URL kararı appLinkKind'de (tek kapı): eski
+        // `^\/` öneki "/\evil.com" ve "//evil.com"u da geçiriyordu.
         const href = m[2].trim();
-        const safe = /^(https?:|mailto:|\/|#)/i.test(href);
+        const safe = appLinkKind(href) !== null || /^(mailto:|#)/i.test(href);
         return safe
           ? <a key={key++} href={href} target="_blank" rel="noopener noreferrer"
                style={{ color: 'var(--accent2)' }}>{m[1]}</a>

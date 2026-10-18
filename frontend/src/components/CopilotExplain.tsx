@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { SafeHref } from '@/components/ui/SafeHref'; // v0.10.1315 — olay/katalog linki XSS kapısı
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Chip } from '@/components/ui/Chip';
@@ -422,8 +423,8 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs, spanId, logLine,
       )}
       {includeCode && repoCode?.browseUrl && (
         <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, wordBreak: 'break-all' }}>
-          <a href={repoCode.browseUrl} target="_blank" rel="noreferrer noopener"
-             style={{ color: 'var(--accent2)' }} title="Depoyu tarayıcıda aç">{repoCode.browseUrl}</a>
+          <SafeHref href={repoCode.browseUrl} fallback={<span>{repoCode.browseUrl}</span>}
+             style={{ color: 'var(--accent2)' }} title="Depoyu tarayıcıda aç">{repoCode.browseUrl}</SafeHref>
           {repoCode.source && <span> · kaynak: {repoCode.source === 'pin' ? 'katalog pini' : 'konvansiyon'}</span>}
         </div>
       )}
@@ -569,9 +570,8 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs, spanId, logLine,
               {code.files.map(f => (
                 <div key={`${f.path}:${f.fromLine}`} style={{ fontFamily: 'var(--font-mono)' }}>
                   {/* v0.10.353 (operatör) — dosya+satır DevOps'ta açılır (url sunucudan, FileURL). */}
-                  {f.url
-                    ? <a href={f.url} target="_blank" rel="noreferrer" title={`DevOps'ta aç: ${f.path}${f.line ? ` satır ${f.line}` : ''}`}>{f.path}:{f.fromLine}-{f.toLine} ↗</a>
-                    : <>{f.path}:{f.fromLine}-{f.toLine}</>}
+                  <SafeHref href={f.url} title={`DevOps'ta aç: ${f.path}${f.line ? ` satır ${f.line}` : ''}`}
+                    fallback={<>{f.path}:{f.fromLine}-{f.toLine}</>}>{f.path}:{f.fromLine}-{f.toLine} ↗</SafeHref>
                   {/* v0.9.1254 — modelin ">>>" ile işaretlendiği satır;
                       içerik tarayıcıya gitmez, numara yeter. */}
                   {!!f.line && <span style={{ color: 'var(--text3)' }}> · hata satırı {f.line}</span>}
@@ -637,9 +637,8 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs, spanId, logLine,
               {codeCtx.reason && <div style={{ color: 'var(--warn, var(--text3))' }}>{codeCtx.reason}</div>}
               {codeCtx.files.map(f => (
                 <div key={`${f.path}:${f.fromLine}`} style={{ fontFamily: 'var(--font-mono)' }}>
-                  {f.url
-                    ? <a href={f.url} target="_blank" rel="noreferrer" title={`DevOps'ta aç: ${f.path}${f.line ? ` satır ${f.line}` : ''}`}>{f.path}:{f.fromLine}-{f.toLine} ↗</a>
-                    : <>{f.path}:{f.fromLine}-{f.toLine}</>}{!!f.line && <span style={{ color: 'var(--text3)' }}> · hata satırı {f.line}</span>}
+                  <SafeHref href={f.url} title={`DevOps'ta aç: ${f.path}${f.line ? ` satır ${f.line}` : ''}`}
+                    fallback={<>{f.path}:{f.fromLine}-{f.toLine}</>}>{f.path}:{f.fromLine}-{f.toLine} ↗</SafeHref>{!!f.line && <span style={{ color: 'var(--text3)' }}> · hata satırı {f.line}</span>}
                 </div>
               ))}
             </div>

@@ -4,6 +4,7 @@ import { useAuth } from '@/components/AuthProvider';
 import { Button } from '@/components/ui/Button';
 import { ActionRow } from '@/components/ui/ActionRow';
 import { Chip } from '@/components/ui/Chip';
+import { SafeHref } from '@/components/ui/SafeHref';
 import type { ServiceMetadata } from '@/lib/types';
 
 // ServiceCatalogPill — Datadog "service catalog" lite. Shows
@@ -132,20 +133,22 @@ function Pill({ children, title }: { children: React.ReactNode; title?: string }
   );
 }
 
+// v0.10.1315 (link XSS) — katalog URL'leri editör kaynaklı: SafeHref'ten
+// geçer; çizilemeyen (javascript:, data:, "//host") düz Pill olur.
 function Link({ href, title, children }: {
   href: string; title?: string; children: React.ReactNode;
 }) {
   return (
-    <a href={href} target="_blank" rel="noopener" title={title} style={{
+    <SafeHref href={href} title={title} style={{
       padding: '4px 12px', borderRadius: 14,
       background: 'color-mix(in srgb, var(--accent) 10%, transparent)',
       border: '1px solid color-mix(in srgb, var(--accent) 35%, transparent)',
       color: 'var(--accent2)', textDecoration: 'none',
       whiteSpace: 'nowrap',
       fontWeight: 500,
-    }}>
+    }} fallback={<Pill title="unsafe link omitted">{children}</Pill>}>
       {children} ↗
-    </a>
+    </SafeHref>
   );
 }
 

@@ -10,6 +10,11 @@
 // bölü kontrolü ya da isSafeAppPath anmıyorsa ihlal.
 //
 // tsc/eslint bunu göremez: zayıf kapı tip olarak kusursuz.
+//
+// v0.10.1315 (olay linki XSS) — iki ek: (1) Go aynası internal/safelink
+// tablosu (safelink_test.go) ile bu dosyanın tabloları KİLİTLİ ADIMDA (keep in
+// lockstep) — biri değişirse öteki de; (2) API/editör kaynaklı URL alanları
+// href/window.open'a yalnız SafeHref/appLinkKind üzerinden ulaşır.
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
@@ -124,4 +129,96 @@ describe('appLinkKind (v0.10.1314)', () => {
   for (const [href, want] of CASES) {
     it(`${JSON.stringify(href)} → ${want}`, () => expect(appLinkKind(href)).toBe(want));
   }
+});
+
+// v0.10.1315 — Go internal/safelink aynası. Keep in lockstep with
+// internal/safelink/safelink_test.go TestClassify: Internal ⇔ 'internal',
+// None ⇔ null. Bilinçli farklar (Go yalnız DAHA SIKI, saklama tarafı):
+// Go TrimSpace yapar (" https://x" External; burada null — boşluklu href
+// çizilmez), "http://" (host yok), userinfo'lu URL ve kontrol karakterli dış
+// URL Go'da None. Bu satırlar Go tablosunda.
+describe('appLinkKind — Go safelink aynası (v0.10.1315)', () => {
+  const CASES: Array<[string, 'internal' | 'external' | null]> = [
+    ['javascript:alert(1)', null],
+    ['JavaScript:alert(1)', null],
+    ['data:text/html,<script>alert(1)</script>', null],
+    ['vbscript:msgbox(1)', null],
+    ['http:evil', null],
+    ['', null],
+    ['/a\u00a0b', null],
+    ['/%E0%A4', null],
+    ['/runbook?id=abc&problemId=p1', 'internal'],
+    ['HTTP://ci.example', 'external'],
+    ['https://a', 'external'],
+  ];
+  for (const [href, want] of CASES) {
+    it(`${JSON.stringify(href)} → ${want}`, () => expect(appLinkKind(href)).toBe(want));
+  }
+});
+
+// v0.10.1315 — API/editör kaynaklı URL alanı (olay `link`, katalog
+// runbook/oncall/repo, duyuru `linkUrl`, DevOps `url`) `href={x.link}` ya da
+// `window.open(` ile çizilen her kaynak dosya kapıyı (lib/safeAppPath ya da
+// components/ui/SafeHref) import etmeli. React 18 `javascript:` href'lerini
+// engellemez — kapısız yeni bir sink = saklanan XSS.
+const URL_SINK_ALLOWED: { file: string; why: string; pattern: RegExp }[] = [
+  {
+    file: 'lib/utils.ts',
+    why: 'openNewTab: rowClickHandlers\'ın Ctrl/orta tık yedeği; href satırın '
+      + 'KENDİ hesaplanmış uygulama yolu (getRowHref), API alanı değil.',
+    pattern: new RegExp('window\\.' + 'open\\('),
+  },
+  {
+    file: 'pages/Traces.tsx',
+    why: 'kiosk düğmesi: window.open(traceHref(...)) — yol traceHref ile kod '
+      + 'içinde kuruluyor (traceId yüzde-kodlu), API URL alanı değil.',
+    pattern: new RegExp('window\\.' + 'open\\(trace' + 'Href\\('),
+  },
+];
+
+describe('v0.10.1315 — API-supplied URL fields reach href/window.open only through SafeHref/appLinkKind', () => {
+  // İmza parçalardan kuruluyor ki bu dosyanın KENDİ düzyazısı ihlal sanılmasın.
+  const HREF_FIELD = new RegExp('href=' + '\\{[^}]*\\.(link|runbookUrl|oncallUrl|repository|linkUrl|url)\\b');
+  const WIN_OPEN = new RegExp('window\\.' + 'open\\(');
+  const GATE_IMPORT = new RegExp('from [\'"](@/|\\.{1,2}/)+(lib/)?safe' + 'AppPath[\'"]'
+    + '|from [\'"](@/|\\.{1,2}/)+(components/)?(ui/)?Safe' + 'Href[\'"]');
+
+  it('tarama temiz', () => {
+    const bad: string[] = [];
+    for (const file of walk(SRC)) {
+      const rel = file.slice(SRC.length + 1).split('\\').join('/');
+      if (URL_SINK_ALLOWED.some(a => a.file === rel)) continue;
+      // Kapının kendisi (openSafeLink'in window.open'ı, SafeHref'in <a>'sı).
+      if (rel === 'lib/safeAppPath.ts' || rel === 'components/ui/SafeHref.tsx') continue;
+      const src = readFileSync(file, 'utf8');
+      if (GATE_IMPORT.test(src)) continue;
+      src.split('\n').forEach((line, i) => {
+        if (/^\s*(\/\/|\*)/.test(line)) return;
+        if (HREF_FIELD.test(line) || WIN_OPEN.test(line)) {
+          bad.push(`${rel}:${i + 1} ${line.trim().slice(0, 100)}`);
+        }
+      });
+    }
+    expect(bad, 'components/ui/SafeHref ya da lib/safeAppPath (appLinkKind / openSafeLink) kullan').toEqual([]);
+  });
+
+  it('muafiyet dosyaları hâlâ var ve hâlâ deseni taşıyor (yoksa muafiyeti ÇIKAR)', () => {
+    for (const a of URL_SINK_ALLOWED) {
+      let src = '';
+      expect(() => { src = readFileSync(join(SRC, a.file), 'utf8'); }, `${a.file} yok — muafiyeti ÇIKAR`).not.toThrow();
+      expect(a.pattern.test(src), `${a.file} — muafiyet bayat (${a.why})`).toBe(true);
+      expect(GATE_IMPORT.test(src), `${a.file} artık kapıyı import ediyor — muafiyeti ÇIKAR`).toBe(false);
+    }
+  });
+
+  it('tarayıcı gerçekten yakalıyor (kendi kendini doğrulama)', () => {
+    expect(HREF_FIELD.test('<a href={ev.link} target="_blank">')).toBe(true);
+    expect(HREF_FIELD.test('<a href={p.runbookUrl}>')).toBe(true);
+    expect(HREF_FIELD.test('<a href={f.url}>')).toBe(true);
+    expect(HREF_FIELD.test('<a href={href}>')).toBe(false);
+    expect(WIN_OPEN.test("window.open(e.link, '_blank')")).toBe(true);
+    expect(GATE_IMPORT.test("import { SafeHref } from '@/components/ui/SafeHref';")).toBe(true);
+    expect(GATE_IMPORT.test("import { appLinkKind } from '@/lib/safeAppPath';")).toBe(true);
+    expect(GATE_IMPORT.test("import { appLinkKind } from './safeAppPath';")).toBe(true);
+  });
 });

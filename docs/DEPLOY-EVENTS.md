@@ -32,6 +32,11 @@ curl -sS -X POST "$COREMETRY_URL/api/operator-events" \
   `$(Release.ReleaseName)` ya da `$(Build.BuildNumber)` doğal adaydır.
 - `time` — verilmezse "şimdi"; geriye dönük kayıt için unix nanosaniye
   gönderilebilir.
+- `link` — isteğe bağlı; ya mutlak bir `http(s)://` URL'si (ör. release
+  sayfası) ya da `/` ile başlayan bir Coremetry uygulama yolu olmalı.
+  Başka her şey (`javascript:`, `data:`, `//host`, kullanıcı:parola'lı URL)
+  `400` döner. Bu kuraldan önce saklanmış geçersiz linkler okumada düşer
+  (olay görünür, link görünmez) — v0.10.1315.
 - Token: Settings → API Tokens'tan editor rollü bir token yeterli.
 
 ## Ne kazanırsınız

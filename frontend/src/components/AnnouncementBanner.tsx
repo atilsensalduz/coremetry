@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { SafeHref } from '@/components/ui/SafeHref'; // v0.10.1315 — olay/katalog linki XSS kapısı
 import { useState } from 'react';
 import { Button } from '@/components/ui';
 import { api } from '@/lib/api';
@@ -42,10 +43,10 @@ export function AnnouncementBanner() {
         {a!.text}
       </span>
       {a!.linkUrl && (
-        <a href={a!.linkUrl} target="_blank" rel="noreferrer"
+        <SafeHref href={a!.linkUrl}
           style={{ color: 'var(--accent2)', whiteSpace: 'nowrap' }}>
           {a!.linkLabel || a!.linkUrl} ↗
-        </a>
+        </SafeHref>
       )}
       <span style={{ flex: 1 }} />
       <Button variant="secondary" size="sm" aria-label="Duyuruyu kapat"

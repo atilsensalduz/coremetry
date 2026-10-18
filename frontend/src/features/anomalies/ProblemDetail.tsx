@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { SafeHref } from '@/components/ui/SafeHref'; // v0.10.1315 — olay/katalog linki XSS kapısı
 import { useEscLayer } from '@/lib/escLayer';
 import { Link } from 'react-router-dom';
 import { rolloutEvidenceHref } from '@/lib/rolloutRow';
@@ -1277,7 +1278,7 @@ export function AlertProblemDetail({ problem, isAdmin, onBack, onChanged }: {
           <Sect title="Runbook" collapsible
             sub={problem.runbookUrl ? 'runbook bağlantısı var' : undefined}>
             {problem.runbookUrl && (
-              <a href={problem.runbookUrl} target="_blank" rel="noopener"
+              <SafeHref href={problem.runbookUrl}
                 style={{
                   display: 'inline-block', marginBottom: 8,
                   fontSize: 12, padding: '4px 12px', borderRadius: 'var(--radius-sm)',
@@ -1285,7 +1286,7 @@ export function AlertProblemDetail({ problem, isAdmin, onBack, onChanged }: {
                   color: 'var(--accent2)', textDecoration: 'none',
                 }}>
                 Runbook ↗
-              </a>
+              </SafeHref>
             )}
             {/* Problem→Runbook bridge: run an operational runbook against this
                 fire (tagged with problemId) + the runs already attached. */}

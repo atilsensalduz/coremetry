@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState } from 'react';
+import { appLinkKind } from '@/lib/safeAppPath';
 import { Button, SearchField, DisclosureButton } from '@/components/ui';
 import { useDataTable, DataTableHead, DataTableColgroup, DataTableCell, DataTableState, type ColumnDef } from '@/components/ui/DataTable';
 import { api } from '@/lib/api';
@@ -94,7 +95,7 @@ export function WikiPagesTable({ status, mode }: { status?: WikiSyncStatus; mode
                           <DisclosureButton expanded={expanded} aria-label={`${r.title} önizlemesi`}
                             onClick={() => setOpen(expanded ? null : k)} style={{ marginRight: 4 }} />
                         )}
-                        {r.url && /^https?:\/\//.test(r.url)
+                        {r.url && appLinkKind(r.url) === 'external' /* v0.10.1315 — tek kapı */
                           ? <a href={r.url} target="_blank" rel="noopener noreferrer">{r.title || r.path}</a>
                           : <span>{r.title || r.path}</span>}
                       </DataTableCell>

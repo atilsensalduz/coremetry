@@ -1,4 +1,5 @@
 import { Fragment, useMemo } from 'react';
+import { SafeHref } from '@/components/ui/SafeHref'; // v0.10.1315 — olay/katalog linki XSS kapısı
 import type { StackFrameLink } from '@/lib/types';
 
 // StackTrace — v0.10.581 (Aşama 1.5): exception stack trace'inin
@@ -114,10 +115,10 @@ function frameLine(line: string, f: StackFrameLink | undefined) {
   if (!f.url) return <span className="ex-frame-app" title={f.reason || undefined}>{line}</span>;
 
   return (
-    <a className="ex-frame-link" href={f.url}
-       target="_blank" rel="noreferrer"
-       title={`DevOps'ta aç: ${f.file}${f.line > 0 ? `:${f.line}` : ''}`}>
+    <SafeHref className="ex-frame-link" href={f.url}
+       title={`DevOps'ta aç: ${f.file}${f.line > 0 ? `:${f.line}` : ''}`}
+       fallback={<span className="ex-frame-app">{line}</span>}>
       {line}
-    </a>
+    </SafeHref>
   );
 }

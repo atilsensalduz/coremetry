@@ -1,4 +1,5 @@
 import { absoluteShareHref } from '@/lib/shareUrl';
+import { appLinkKind } from '@/lib/safeAppPath';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TabStrip } from '@/components/ui/TabStrip'; // v0.10.457 (D5 dilim B)
 import { useEscLayer } from '@/lib/escLayer';
@@ -1438,7 +1439,9 @@ function ExternalLinkRow({ link: l, url, missing, ctx, identities, srcNote }: {
     const joined = withArrow ? { borderTopRightRadius: 0, borderBottomRightRadius: 0 } : undefined;
     return ok
       ? <Button variant="secondary" size="md" title={title} style={{ ...fill, ...joined }}
-          onClick={() => window.open(url, '_blank', 'noopener,noreferrer')}>{l.label} ↗</Button>
+          // v0.10.1315 — şablon linki appLinkKind'den geçer (javascript: açılmaz);
+          // iç yol da YENİ sekmede kalır (düğme "yeni sekmede" vaat ediyor).
+          onClick={() => { if (appLinkKind(url)) window.open(url, '_blank', 'noopener,noreferrer'); }}>{l.label} ↗</Button>
       : <Button variant="secondary" size="md" disabled title={title}
           style={fill ? { ...fill, opacity: 0.55, ...joined } : joined}>{l.label} ↗</Button>;
   };
@@ -1534,7 +1537,7 @@ function ExternalLinkRow({ link: l, url, missing, ctx, identities, srcNote }: {
                   onClick={() => {
                     if (!cu) return;
                     setOpen(false);
-                    window.open(cu, '_blank', 'noopener,noreferrer');
+                    if (appLinkKind(cu)) window.open(cu, '_blank', 'noopener,noreferrer'); // v0.10.1315
                   }}>
                   <span style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
                     <span style={{ display: 'flex', gap: 8, alignItems: 'baseline', minWidth: 0 }}>

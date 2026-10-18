@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { appLinkKind, openSafeLink } from '@/lib/safeAppPath'; // v0.10.1315
 import { api } from '@/lib/api';
 import { tsLong } from '@/lib/utils';
 // v0.9.1044 — palet lib/eventRegions.ts'e taşındı (tek kaynak): chart-içi
@@ -42,6 +44,7 @@ interface EventMarkersProps {
 
 export function EventMarkers({ fromNs, toNs, service }: EventMarkersProps) {
   const [events, setEvents] = useState<OperatorEvent[]>([]);
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (!fromNs || !toNs || toNs <= fromNs) return;
@@ -88,13 +91,13 @@ export function EventMarkers({ fromNs, toNs, service }: EventMarkersProps) {
               marginLeft: -1,
               background: colour,
               pointerEvents: 'auto',
-              cursor: e.link ? 'pointer' : 'help',
+              // v0.10.1315 — yalnız çizilebilir link tıklanabilir görünür.
+              cursor: e.link && appLinkKind(e.link) ? 'pointer' : 'help',
             }}
-            onClick={() => {
-              if (e.link) {
-                window.open(e.link, '_blank', 'noopener');
-              }
-            }}>
+            // v0.10.1315 (olay linki XSS) — dış → yeni sekme, iç → SPA,
+            // javascript:/data:/"//host" → hiçbir şey. Bileşen yalnız
+            // BrowserRouter altında çizilir (main.tsx tek kök; OperationsTable).
+            onClick={() => { openSafeLink(e.link, navigate); }}>
             {/* Tiny diamond at the top so the marker is visible
                 even when the chart's background is busy. */}
             <div style={{

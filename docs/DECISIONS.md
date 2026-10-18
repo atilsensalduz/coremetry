@@ -6201,3 +6201,32 @@ argo satırları, TestChkArgoWindow, TestArgoSingleReadPerRun, TestArgoAppStatus
   değer bir sink'e ulaşmıyor, hepsi kapıdan geçiyor.
 - **Yeniden bak:** `@grafana/ui` `react-router-dom-v5-compat` bağımlılığını bıraktığında v7'ye geçiş
   yeniden değerlendirilir.
+
+## 2026-10-18 — Olay linki XSS: internal/safelink + SafeHref (v0.10.1315)
+
+- **Sorun:** `/api/operator-events` `link` alanı serbest saklanıyor, `<a href={ev.link}>`
+  (Events sayfası) ve `window.open(e.link)` (EventMarkers) ile çiziliyordu. React 18
+  `javascript:` href'lerini engellemez → editor rollü bir token saklanan XSS yazabiliyordu.
+  Aynı sınıf: katalog runbook/oncall/repo/customLinks, problem/inbox runbook rozeti, duyuru
+  linki, DevOps dosya URL'leri, markdown `[x](href)` (eski `^\/` öneki `/\evil.com`'u geçiriyordu).
+- **Yazarken ret:** `internal/safelink` (stdlib, SAF) — `Classify` → None / Internal / External,
+  `SafeLink`, `Sanitize`, `MaxLen` 4096. Internal = frontend `isSafeAppPath`'in birebir aynası
+  (çözülmüş yol da kontrolden geçer: `%2F%2F`, `%5C` ret); External = ham önek `http(s)://`,
+  `url.Parse` başarılı, Host dolu, userinfo yok. `createEvent` → `validateEventLink`: boş geçerli,
+  aksi 400 (`link must be an absolute http(s) URL or an app path starting with "/"`), store'a
+  dokunmadan.
+- **Okurken süzme:** `chstore.ListEvents` her satırda `e.Link = safelink.Sanitize(e.Link)` — eski
+  satırlar; olay API'si, annotation lane ve deploy korelasyonu aynı okuyucudan geçer.
+- **Tek çizim kapısı:** `components/ui/SafeHref.tsx` (iç → react-router `<Link>`, dış →
+  `<a target=_blank rel="noopener noreferrer">`, diğer → `fallback`) ve `lib/safeAppPath.ts`
+  `openSafeLink` (programatik açış). Trace dış-araç şablon düğmeleri `appLinkKind` kapısıyla yeni
+  sekmede kalır (düğme "yeni sekmede" vaat ediyor); AdminCatalog güvensiz değeri "blocked" diye
+  gösterir (admin düzeltebilsin).
+- **Ratchet:** `safeAppPath.ratchet.test.ts` v0.10.1315 bloğu — `href={x.link|runbookUrl|oncallUrl|
+  repository|linkUrl|url}` ya da `window.open(` taşıyan, kapıyı import etmeyen kaynak dosya kırmızı;
+  muafiyetler gerekçe-anahtarlı (`lib/utils.ts` openNewTab, `pages/Traces.tsx` traceHref).
+- **Go/TS tabloları kilitli adımda:** `internal/safelink/safelink_test.go` ↔
+  `safeAppPath.ratchet.test.ts` — biri değişirse öteki de. Go bilinçli olarak yalnız DAHA SIKI
+  (TrimSpace, host zorunlu, userinfo/kontrol karakteri yasak): saklama tarafı.
+- `sanitizeOIDCNext`, `buildLinkResultLink`, `announcement.go` dokunulmadı (duyuru linki
+  çizimde SafeHref'ten geçiyor).

@@ -46,8 +46,9 @@ describe('Trace kimlik seçim menüsü (v0.10.568)', () => {
     // Aday listesi ASLA null: eski (identities taşımayan) sunucuya karşı da
     // karar tek yerde verilir.
     expect(src).toContain('const identities = ident?.identities ?? [];');
-    // Ana tık DEĞİŞMEDİ: kazanan kimliğin url'i, yeni sekmede.
-    expect(src).toContain("onClick={() => window.open(url, '_blank', 'noopener,noreferrer')}");
+    // Ana tık DEĞİŞMEDİ: kazanan kimliğin url'i, yeni sekmede. v0.10.1315 —
+    // açış appLinkKind kapısından geçer (javascript: şablon linki açılmaz).
+    expect(src).toContain("onClick={() => { if (appLinkKind(url)) window.open(url, '_blank', 'noopener,noreferrer'); }}");
   });
 
   it('aday > 1 ise ok tetiği + role="menu" / role="menuitem" satırları', () => {

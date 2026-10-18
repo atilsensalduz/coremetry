@@ -17,6 +17,7 @@
 // the barrel re-exports AnomaliesPage, which would drag the whole
 // Exceptions page into the /inbox chunk.
 import { Fragment, useEffect, useMemo, useState } from 'react';
+import { SafeHref } from '@/components/ui/SafeHref'; // v0.10.1315 — olay/katalog linki XSS kapısı
 import { rowActivation } from '@/lib/a11y'; // v0.10.455 (dış denetim D3 dilim 3)
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { Topbar } from '@/components/Topbar';
@@ -704,13 +705,13 @@ export function ProblemsSection({ serviceFilter, navDisabled = false }: {
                         <>{' '}<RecurringMarker episodeCount={p.episodeCount} firstStartedAt={p.firstStartedAt} priorDeploy={p.priorDeploy} /></>
                       )}
                       {p.runbookUrl && (
-                        <a href={p.runbookUrl} target="_blank" rel="noopener"
+                        <SafeHref href={p.runbookUrl}
                           onClick={e => e.stopPropagation()}
                           title="Open team runbook"
                           className="badge b-gray"
                           style={{ marginLeft: 8, textDecoration: 'none' }}>
                           Runbook ↗
-                        </a>
+                        </SafeHref>
                       )}
                       {p.recentDeploy && (
                         // Deploy correlation tag — shows the

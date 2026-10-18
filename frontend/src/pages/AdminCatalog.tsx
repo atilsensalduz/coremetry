@@ -8,6 +8,7 @@ import {
 } from '@/components/ui/DataTable';
 import { Button } from '@/components/ui/Button';
 import { ActionRow } from '@/components/ui/ActionRow';
+import { SafeHref } from '@/components/ui/SafeHref';
 import type { DataTableColumn } from '@/lib/dataTable';
 import type { ServiceMetadata } from '@/lib/types';
 
@@ -345,11 +346,13 @@ function Inp({ v, on, ph }: { v?: string; on: (v: string) => void; ph?: string }
 
 function LinkCell({ url }: { url?: string }) {
   if (!url) return <em style={{ color: 'var(--text3)' }}>—</em>;
+  // v0.10.1315 (link XSS) — SafeHref; saklanmış güvensiz değer admine
+  // GÖRÜNÜR kalır ("blocked", tam değer title'da) ki düzeltebilsin.
   return (
-    <a href={url} target="_blank" rel="noopener"
+    <SafeHref href={url}
       style={{ fontSize: 11, color: 'var(--accent2)' }}
-      title={url}>
+      title={url} fallback={<em title={url}>blocked</em>}>
       open ↗
-    </a>
+    </SafeHref>
   );
 }
