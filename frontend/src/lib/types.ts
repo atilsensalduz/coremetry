@@ -9474,6 +9474,18 @@ export interface ServicePodsResponse {
 /** GET /api/preferences/{key} — model null = kayıt yok/silinmiş. updatedAt unix ns. */
 export interface PreferenceResponse<M = unknown> { key: string; model: M | null; updatedAt?: number }
 
+// v0.10.1334 — rehberli tur durumu (internal/api/tour_routes.go aynası).
+// 'none' = satır yok (hiç bitirilmedi/atlanmadı); at unix ns (0 = yok).
+export type TourPersistedStatus = 'none' | 'completed' | 'skipped';
+/** GET /api/tour/state — newUser: hesap ≤7 gün; enabled: branding.onboardingTour ≠ 'off'. */
+export interface TourStateResponse {
+  status: TourPersistedStatus;
+  version: number;
+  at: number;
+  newUser: boolean;
+  enabled: boolean;
+}
+
 // /api/metrics/compare (v0.10.294, VM Dilim 1c) — aynı sorgu iki kaynakta
 // (ch ↔ vm), nokta-nokta kıyas. Sınıf: identical | tolerated (rel ≤ 1e-9)
 // | mismatch; onlyA/onlyB kafes hizası (değer değil zaman farkı).

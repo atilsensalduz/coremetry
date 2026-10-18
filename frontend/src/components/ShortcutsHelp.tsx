@@ -1,6 +1,8 @@
 import { useState } from 'react';
-import { Modal } from '@/components/ui';
+import { Modal, LinkButton } from '@/components/ui';
 import { listShortcuts, useShortcuts, type Shortcut } from '@/lib/keyboard';
+import { useT } from '@/lib/i18n';
+import { requestTourRestart } from '@/features/tour/restart'; // v0.10.1334
 
 // Help modal that lists every registered shortcut. The "?"
 // global binding toggles it open. Bindings register and
@@ -17,6 +19,7 @@ import { listShortcuts, useShortcuts, type Shortcut } from '@/lib/keyboard';
 
 export function ShortcutsHelp() {
   const [open, setOpen] = useState(false);
+  const t = useT();
 
   // The "?" binding is itself a shortcut, registered by this
   // component so the modal owns its own opening trigger. We
@@ -46,7 +49,13 @@ export function ShortcutsHelp() {
 
   return (
     <Modal open={open} onClose={() => setOpen(false)}
-           title="Keyboard shortcuts" size="lg">
+           title="Keyboard shortcuts" size="lg"
+           // v0.10.1334 — rehberli turun ikinci yeniden-başlatma girişi.
+           footer={
+             <LinkButton onClick={() => { setOpen(false); requestTourRestart(); }}>
+               {t('tour.chrome.restart')}
+             </LinkButton>
+           }>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
         {Object.entries(grouped).map(([group, items]) => (
           <div key={group}>

@@ -18,6 +18,7 @@ import { ChangePasswordModal } from './ChangePasswordModal';
 import { applyTheme, currentTheme, THEMES, THEME_LABEL } from '@/lib/theme';
 import { Wordmark } from './Wordmark';
 import { MenuItem, IconButton, DisclosureButton } from '@/components/ui';
+import { requestTourRestart } from '@/features/tour/restart'; // v0.10.1334
 
 // adminOnly entries are hidden from non-admin users in the
 // sidebar. The pages themselves still enforce admin-role at
@@ -543,6 +544,11 @@ export function Sidebar() {
                     </div>
                   )}
                 </div>
+                {/* v0.10.1334 — rehberli turu baştan başlat (her rol; oto-başlatma
+                    kapılarından bağımsız). Tema ile şifre değiştirme arasında. */}
+                <MenuItem icon="➜" onClick={() => { setMenuOpen(false); requestTourRestart(); }}>
+                  {t('tour.chrome.restart')}
+                </MenuItem>
                 {user.role !== 'viewer' && (
                   <MenuItem icon="⚿" onClick={() => { setMenuOpen(false); setShowChangePw(true); }}>
                     {t('user.changePassword')}

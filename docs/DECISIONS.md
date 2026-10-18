@@ -6482,3 +6482,53 @@ chstore/summary.go (+ListOperationHits). **Testler:** search_query_test, search_
 search_rank_test, search_facets_test, search_budget_test (sahte kaynaklarla zaman aşımı tablosu),
 search_routes_test (mux "GET /api/search", closure r.Context() pini, href güvenliği), chstore
 summary_operation_hits_test (SQL pini).
+
+## 2026-10-18 — v0.10.1334 — Uygulama içi rehberli tur, R1 (motor + örtü + kalıcılık + admin anahtarı + adım 1–2)
+
+Operatör onaylı spec (varsayılanlar seçili). **Beş adım beyanlı, R1'de 1–2 açık:** `welcome`
+(ortalanmış kart + canlı karolar) ve `services` (ilk satır, yedek: tablo); `operations` / `traces` /
+`cosre` beyanlı ama `requires → 'not_yet'` (R2). Gösterge her zaman "Adım N / 5", kapalılar kesik.
+**Neden saf motor + ayrı kanca:** `features/tour/engine.ts` DOM/zamanlayıcısız indirgeyici
+(START bağlamı bir kez çözer ve tüm `requires` gerekçelerini baştan yazar → gösterge zıplamaz; NEXT/
+BACK yalnız açık adımlarda; TARGET_TIMEOUT ATLAMAZ, yalnız not düşer, İleri açık — tur asla takılmaz;
+LOCATION_LEFT = kullanıcı tur dışı yola gitti → 'skipped' ve returnTo'ya GERİ ÇEKİLMEZ). DOM/yönlendirici
+`useTour.ts`'te: tur-içi `navigate(url,{replace:true})` yalnız pathname farklıysa (aynı sayfadaki
+kullanıcı parametreleri korunur), bitişte `navigate(returnTo,{replace:true})`; hedef `waitForTarget`
+(anında + MutationObserver + görünürlük, 8 sn, 1,5 sn yedek payı, AbortSignal, enjekte zamanlayıcı);
+konum ResizeObserver (bekçili) + resize + yakalama-fazı scroll, rAF-kısılmış; kart yerleşimi
+`lib/tipPlacement.placeTip`'e **`gap` parametresi** eklenerek (ikinci yerleştirici YOK).
+**Örtü:** body portalı; tek sabit halka `box-shadow 0 0 0 100vmax var(--backdrop)` (spotlight +
+karartma tek katman); perde tıklamaları yutar; kart role=dialog + aria-modal + aria-labelledby,
+`useFocusTrap`, ilk odak birincil, odak iadesi, Esc `useEscLayer` → atla, ←/→ kart kökünde (global
+kısayol DEĞİL). **Yeni z rungu `--z-tour: 90`** (fab 80 < tour < modal 100; çekmece paneli de altında)
+— tur sırasında açılan onay modalı turun üstünde kalmalı (`zLayers.test` ilişki pini).
+**Kalıcılık:** `GET/PUT /api/tour/state` kendi dosyasında (`internal/api/tour_routes.go`,
+`registerRoutesExtra`; api.go büyümedi) — `preferences_routes.go`'nun ikizi: saved_views
+`page='tour'`, `id='tour:<uid>'`, owner_id=claims.UserID; her oturumlu rol, claims yoksa 401,
+serveCached/audit YOK (kişisel, idempotent). PUT ≤1 KiB, status enum `completed|skipped`, version
+1..65536. `newUser` = users.created_at ≥ now−7g (sıfır damga yeni sayılmaz); `enabled` =
+branding.`onboardingTour` ≠ "off". **Admin anahtarı branding blobunda** (yeni system_settings anahtarı
+DEĞİL — zaten SPA açılışında okunan, admin kapılı + denetimli blob): ""|"on" açık, "off" kapalı,
+`NormalizeBranding` bilinmeyeni ""ye indirir; anahtar yalnız OTO-başlatmayı keser, menüden başlatma
+her zaman çalışır. putBranding denetim satırı yeni alanı ayrıca listelemiyor (api.go satır büyütülemez;
+`settings.branding.update` olayı yine yazılır).
+**Oto-başlatma kapısı (saf `autoStart.ts`):** enabled ∧ status 'none' ∧ newUser ∧ sekmede henüz
+başlamadı (sessionStorage `cm.tour.autoStarted`) ∧ bu tarayıcıda görülmedi (localStorage
+`coremetry.tour.seen.<uid>` flaş bekçisi; PUT düşse de yeniden açılmaz) ∧ kromlu kabuk (kiosk-çıplak,
+`?kiosk=1`, cosre-çıplak, public, /login değil) ∧ `?tour=0` yok. Aday değilse GET bile atılmaz.
+**Karolar yalnız mevcut sınırlı uçlardan:** `servicesPage` (son 5 dk, dakikaya oturtulmuş, limit 50,
+sort spanCount, withTotal) → toplam servis, Σ span ("ilk 50" etiketi hasMore'da), en yoğun servis;
+`environments()` → sayı; staleTime 60 sn. Boş veri → "Henüz servis raporlamıyor…" + adım 2–4
+`no_services`; okuma düşerse serviceCount −1 (adımlar açık, zaman aşımı notuyla sürer).
+**Girişler:** Sidebar kullanıcı menüsü "Turu yeniden başlat" (Tema ile Şifre değiştir arası, her rol),
+ShortcutsHelp alt bağlantısı; ikisi `restart.ts` modül kanalıyla (sağlayıcı Sidebar'ın kardeşi).
+Çapalar `pages/Services.tsx`: `services-table`, `services-health-dot`, kolon başlıkları (Spans /
+Error rate / P99 / P99 Δ, `renderLabel` ile). Metin eşikleri `scoreHealth` ile doğrulandı (>%1 amber,
+>%5 kırmızı; açık problemler de). **Bilinen sınır:** custom-rol kapısı /services'i engelleyen bir
+viewer'da adım 2'nin yönlendirmesi geri itilir → LOCATION_LEFT → tur 'skipped' biter.
+**Testler:** engine.test (tablolar), targetPin.test (açık adım çapası sahibinde literal; src'de
+sahipsiz data-tour yok), i18n.test (tour.* iki katalogda birebir), TourOverlay.contract.test (dialog,
+odak, Tab, iade, aria-live, ←/→/Esc, sahte zamanlayıcıyla bekleme, ResizeObserver bekçisi),
+tipPlacement gap, zLayers tour rungu; Go `tour_routes_test.go` (tourRowID, validateTourStatus,
+version, isNewUser sınırı, saklanan satır çözümü, 401, PUT doğrulaması store'dan önce),
+`branding_test` OnboardingTour normalizasyonu.

@@ -715,7 +715,8 @@ export default function ServicesPage() {
             eksikliği gibi sunuluyor, operatör saatlerce collector tarafında
             arıyordu. Hata artık hata olarak duruyor — v0.10.967'den beri
             tablonun İÇİNDE (tableState). */}
-        <div className="table-wrap"
+        {/* v0.10.1334 — rehberli tur çapası (features/tour/steps.ts TOUR_ANCHORS). */}
+        <div className="table-wrap" data-tour="services-table"
           style={{ opacity: refreshing ? 0.55 : 1, transition: 'opacity 120ms' }}
           aria-busy={refreshing}>
           <table {...dt.tableProps}>
@@ -723,7 +724,10 @@ export default function ServicesPage() {
             {/* v0.8.251 — shared primitive header (serverSort mode): same
                 click-to-re-fetch semantics as the old SortTh row, plus the
                 URL/localStorage-persisted sort state and resize grips. */}
-            <DataTableHead dt={dt} />
+            {/* v0.10.1334 — tur çapaları: Spans / Error rate / P99 / P99 Δ başlıkları. */}
+            <DataTableHead dt={dt} renderLabel={c => TOUR_COL_ANCHOR[c.id]
+              ? <span data-tour={TOUR_COL_ANCHOR[c.id]}>{c.label}</span>
+              : c.label} />
             <tbody>
               {shown.length === 0 && <DataTableState dt={dt} {...tableState} />}
               {agg && (
@@ -1055,6 +1059,15 @@ function ApdexBadge({ value }: { value: number }) {
   return <span className={`badge ${value >= 0.70 ? 'b-warn' : 'b-err'}`} title={title}>{fmtFixed(value, 2)}</span>;
 }
 
+// TOUR_COL_ANCHOR — v0.10.1334: rehberli turun kolon başlığı çapaları
+// (features/tour/steps.ts TOUR_ANCHORS; targetPin.test literal'leri burada arar).
+const TOUR_COL_ANCHOR: Record<string, string> = {
+  spanCount: 'services-col-spans',
+  errorRate: 'services-col-errors',
+  p99:       'services-col-p99',
+  p99Delta:  'services-col-delta',
+};
+
 // HealthDot — v0.5.274 Datadog-Watchdog-style service health
 // pill. 8×8 dot colored by the server-computed health verdict;
 // tooltip surfaces the firing rule so the operator can argue
@@ -1079,7 +1092,8 @@ function HealthDot({ health, reason, openProblems }: {
     ? `${health.toUpperCase()} · ${reason}${openProblems ? ` · ${openProblems} open problem${openProblems === 1 ? '' : 's'}` : ''}`
     : `${health.toUpperCase()} · healthy${openProblems ? ` · ${openProblems} open` : ''}`;
   return (
-    <span title={title}
+    // v0.10.1334 — data-tour: rehberli turun sağlık noktası çapası.
+    <span title={title} data-tour="services-health-dot"
       style={{
         display: 'inline-block', width: 8, height: 8,
         borderRadius: '50%', background: color,

@@ -33,11 +33,11 @@ function z(name: string): number {
 const LADDER = [
   'sticky-cell', 'sticky-head', 'sticky-foot', 'sticky-bar',
   'handle', 'tooltip', 'app-splash', 'nav', 'dropdown', 'popover',
-  'drawer-scrim', 'drawer', 'drawer-panel', 'fab', 'modal', 'modal-nested', 'toast', 'debug',
+  'drawer-scrim', 'drawer', 'drawer-panel', 'fab', 'tour', 'modal', 'modal-nested', 'toast', 'debug', // v0.10.1334 — 'tour'
 ];
 
 describe('MK2 — z merdiveni', () => {
-  it('18 rung tanımlı ve KESİN artan', () => {
+  it('19 rung tanımlı ve KESİN artan', () => { // v0.10.1334 — +tour
     const vals = LADDER.map(z);
     expect(vals).toEqual([...vals].sort((a, b) => a - b));
     expect(new Set(vals).size, 'iki rung aynı değerde — beraberlik DOM sırasına kalır').toBe(vals.length);
@@ -68,6 +68,15 @@ describe('MK2 — z merdiveni', () => {
     expect(z('drawer-scrim')).toBe(z('drawer') - 1);
     expect(z('drawer-scrim')).toBeGreaterThan(z('popover'));
     expect(z('drawer-scrim')).toBeGreaterThan(z('dropdown'));
+  });
+
+  it('rehberli tur FAB ve çekmece panelinin üstünde, modalın altında (v0.10.1334)', () => {
+    // Tur örtüsü CopilotChat launcher'ını (fab) ve açık bir çekmeceyi
+    // örtmeli; tur sırasında açılan bir onay modalı (ör. ConfirmDialog)
+    // ise turun ÜSTÜNDE kalmalı.
+    expect(z('fab')).toBeLessThan(z('tour'));
+    expect(z('drawer-panel')).toBeLessThan(z('tour'));
+    expect(z('tour')).toBeLessThan(z('modal'));
   });
 
   it('iç içe modal dıştakinin üstünde', () => {

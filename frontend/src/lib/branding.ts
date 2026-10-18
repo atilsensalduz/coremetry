@@ -23,6 +23,9 @@ export interface BrandingSettings {
   // (Exceptions/Problems satır rozeti + soluk satır, çip, AI satırı). Boş =
   // "Teknik hata". Sunucu kırpar + 40 rune'a keser (chstore.NormalizeBranding).
   oracleGroupLabel?: string;
+  // v0.10.1334 — rehberli turun yeni kullanıcıya oto-açılışı: ''|'on' = açık
+  // (varsayılan), 'off' = kapalı (chstore.BrandingSettings.OnboardingTour).
+  onboardingTour?: '' | 'on' | 'off';
 }
 
 /** v0.10.1108 — chstore.DefaultOracleGroupLabel / OracleGroupLabelMaxRunes ile aynı. */
@@ -51,6 +54,7 @@ export const DEFAULT_BRANDING: Required<BrandingSettings> = {
   primaryColor:      '',
   language:          'en',
   oracleGroupLabel:  DEFAULT_ORACLE_GROUP_LABEL,
+  onboardingTour:    'on', // v0.10.1334 — varsayılan açık
 };
 
 // Resolve fills empty fields with defaults so consumers never
@@ -72,6 +76,7 @@ export function resolveBranding(b: BrandingSettings | null | undefined): Require
   if (b.primaryColor)      r.primaryColor = b.primaryColor;
   if (b.language === 'tr' || b.language === 'en') r.language = b.language;
   r.oracleGroupLabel = oracleGroupLabelOf(b);
+  if (b.onboardingTour === 'off') r.onboardingTour = 'off'; // v0.10.1334 — yalnız 'off' kapatır
   return r;
 }
 

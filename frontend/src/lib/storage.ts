@@ -83,7 +83,16 @@ export const STORAGE_KEYS = {
   // bırakılsa da tekrar çıkmaz.
   aiTraceNudgeDeclined: 'cm.ai.traceNudge.declined',
   aiTraceNudgeAsked:    'cm.ai.traceNudge.asked',
+  // v0.10.1334 — rehberli tur. tourSeen = localStorage ÖNEK (tam anahtar
+  // tourSeenKey(uid)): bitirilen/atlanan tur, sunucu PUT'u gecikse ya da
+  // düşse de bu tarayıcıda yeniden oto-açılmaz (flaş bekçisi). tourAutoStarted
+  // = sessionStorage: sekme oturumu başına en çok bir oto-başlatma.
+  tourSeen:             'coremetry.tour.seen',
+  tourAutoStarted:      'cm.tour.autoStarted',
 } as const;
+
+/** v0.10.1334 — kullanıcı-kapsamlı tur flaş bekçisi: `coremetry.tour.seen.<uid>`. */
+export const tourSeenKey = (uid: string) => `${STORAGE_KEYS.tourSeen}.${uid}`;
 
 /** DataTable persistence family: sort + column widths per table. */
 export const dtSortKey = (storageKey: string) => `dt.${storageKey}.sort`;

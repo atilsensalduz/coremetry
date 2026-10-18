@@ -43,6 +43,23 @@ type BrandingSettings struct {
 	// çip, AI satırı, öncelik gerekçesi). Boş = DefaultOracleGroupLabel.
 	// Kırpılır, ≤ OracleGroupLabelMaxRunes (NormalizeBranding).
 	OracleGroupLabel string `json:"oracleGroupLabel,omitempty"`
+	// OnboardingTour — v0.10.1334 (uygulama içi rehberli tur, R1). Yeni
+	// kullanıcıya turun KENDİLİĞİNDEN açılıp açılmayacağı: "" | "on" = açık
+	// (varsayılan), "off" = kapalı. Kapalıyken bile kullanıcı menüden
+	// "Turu yeniden başlat" ile açabilir — anahtar yalnız oto-başlatmayı
+	// keser. NormalizeBranding bilinmeyen değeri ""ye indirir.
+	OnboardingTour string `json:"onboardingTour,omitempty"`
+}
+
+// v0.10.1334 — tur anahtarının iki açık değeri (FE lib/branding.ts aynası).
+const (
+	OnboardingTourOn  = "on"
+	OnboardingTourOff = "off"
+)
+
+// TourEnabled — v0.10.1334: ""/"on" açık, yalnız "off" kapalı.
+func (b BrandingSettings) TourEnabled() bool {
+	return NormalizeBranding(b).OnboardingTour != OnboardingTourOff
 }
 
 // v0.10.1108 — Oracle hata grubu etiketi: varsayılan + uzunluk tavanı (rozet /
@@ -61,6 +78,13 @@ func NormalizeBranding(b BrandingSettings) BrandingSettings {
 		l = strings.TrimSpace(string(r[:OracleGroupLabelMaxRunes]))
 	}
 	b.OracleGroupLabel = l
+	// v0.10.1334 — tur anahtarı: kırp + küçük harf; "on"/"off" dışı → "" (açık).
+	switch t := strings.ToLower(strings.TrimSpace(b.OnboardingTour)); t {
+	case OnboardingTourOn, OnboardingTourOff:
+		b.OnboardingTour = t
+	default:
+		b.OnboardingTour = ""
+	}
 	return b
 }
 

@@ -1084,6 +1084,13 @@ export const api = {
     }),
   deletePreference: (key: string) =>
     request<{ ok: true; key: string }>(`/api/preferences/${encodeURIComponent(key)}`, { method: 'DELETE' }),
+  // v0.10.1334 — rehberli tur durumu (kişisel saved_views satırı; serveCached yok).
+  tourState: (signal?: AbortSignal) =>
+    request<import('./types').TourStateResponse>('/api/tour/state', { signal }),
+  putTourState: (body: { status: 'completed' | 'skipped'; version: number }) =>
+    request<{ ok: true; status: string; version: number; at: number }>('/api/tour/state', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    }),
   bulkDeleteAnomalySilences: (ids: string[]) =>
     request<{ deleted: number }>(`/api/anomalies/silences/bulk-delete`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },

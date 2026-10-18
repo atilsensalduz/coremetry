@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent, type ChangeEvent } from 'react';
 import { Spinner } from '@/components/Spinner';
-import { Button, useConfirm, Field as LabeledInput } from '@/components/ui';
+import { Button, useConfirm, Field as LabeledInput, SelectField } from '@/components/ui'; // v0.10.1334 — SelectField
 import { api } from '@/lib/api';
 import { DEFAULT_BRANDING, ORACLE_GROUP_LABEL_MAX, invalidateBranding, type BrandingSettings } from '@/lib/branding';
 import { Field, Row, SettingsLoadError, useSettingsLoad } from './shared';
@@ -152,6 +152,19 @@ export function BrandingTab() {
             Applies to every operator hitting this Coremetry instance.
           </div>
         </Field>
+
+        {/* v0.10.1334 — rehberli tur: yeni kullanıcıya (hesap ≤ 7 gün) ilk
+            girişte kendiliğinden açılsın mı. Kapalıyken menüdeki "Turu yeniden
+            başlat" çalışmaya devam eder; anahtar yalnız oto-başlatmayı keser. */}
+        <div style={{ marginBottom: 12 }}>
+          <SelectField label="Rehberli tur (yeni kullanıcı)"
+            value={b.onboardingTour === 'off' ? 'off' : 'on'}
+            onChange={e => set('onboardingTour', e.target.value)}
+            hint="Açık: ilk 7 gün içindeki kullanıcıya tur ilk girişte bir kez açılır. Kullanıcı menüsündeki “Turu yeniden başlat” her durumda çalışır.">
+            <option value="on">Açık (varsayılan)</option>
+            <option value="off">Kapalı</option>
+          </SelectField>
+        </div>
 
         {/* v0.10.1108 (operatör: "exceptionsta Oracle yazıyor onun yerine … Teknik
             Hata gibi") — `ora:` gruplarının görünen adı; boş = "Teknik hata".

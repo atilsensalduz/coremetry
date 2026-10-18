@@ -49,3 +49,16 @@ describe('placeTip', () => {
     expect(p.top).toBeGreaterThanOrEqual(TIP_MARGIN);
   });
 });
+
+// v0.10.1334 — `gap` genişletmesi (rehberli tur koç kartı): varsayılan
+// TIP_GAP ile birebir aynı; verilen boşluk iki tarafta da uygulanır.
+describe('placeTip gap (v0.10.1334)', () => {
+  const A = { left: 440, top: 400, width: 120, height: 24 };
+  it('varsayılan = TIP_GAP', () => {
+    expect(placeTip(A, TIP, VP, 'top', TIP_GAP)).toEqual(placeTip(A, TIP, VP));
+  });
+  it('üstte ve altta özel boşluk', () => {
+    expect(placeTip(A, TIP, VP, 'top', 14).top).toBe(400 - 14 - 30);
+    expect(placeTip(A, TIP, VP, 'bottom', 14).top).toBe(400 + 24 + 14);
+  });
+});

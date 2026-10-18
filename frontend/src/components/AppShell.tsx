@@ -3,6 +3,7 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { AnnouncementBanner } from './AnnouncementBanner';
 import { ShortcutsHelp } from './ShortcutsHelp';
+import { TourProvider } from '@/features/tour'; // v0.10.1334 — rehberli tur
 import { CommandPalette } from './CommandPalette';
 import { CopilotChat } from './CopilotChat';
 import { GlobalShortcuts } from './GlobalShortcuts';
@@ -216,6 +217,9 @@ export function AppShell() {
           render. Mount once at the shell so the help modal
           is reachable from any page without per-page wiring. */}
       <ShortcutsHelp />
+      {/* v0.10.1334 — rehberli tur (features/tour): yalnız bu tam-kromlu
+          dalda; kiosk-/cosre-çıplak dallar ve public sayfalar çizmez. */}
+      <TourProvider />
       {/* CommandPalette (v0.5.162) — global Cmd-K / Ctrl-K
           spotlight. Self-contained: owns its hotkey binding +
           modal render; mounting here keeps it available on every

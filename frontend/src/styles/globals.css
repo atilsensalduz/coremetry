@@ -219,6 +219,7 @@
   --z-drawer:      60;   /* panel = +1 (--z-drawer-panel) */
   --z-drawer-panel: 61;
   --z-fab:         80;
+  --z-tour:        90;   /* v0.10.1334 — rehberli tur örtüsü: FAB + çekmece üstü, modal altı */
   --z-modal:      100;
   --z-modal-nested: 110;
   --z-toast:     9000;
@@ -5829,3 +5830,53 @@ tbody td.tpm-more-cell { color: var(--text2); }
   .pc-panel .pc-push { margin-left: 0; }
 }
 /* ── v0.10.1332 END ──────────────────────────────────────────────────── */
+
+/* ── v0.10.1334 — rehberli tur örtüsü (features/tour/TourOverlay.tsx) ─────
+   Tek sabit halka hedef dikdörtgende; `box-shadow: 0 0 0 100vmax` aynı anda
+   spotlight + karartma (ikinci bir maske katmanı yok). Perde tıklamaları
+   yutar (tur sırasında sayfa etkileşimsiz); halka pointer-events:none.
+   Hedef yokken (karşılama / bekleme) perde kendisi karartır. Hepsi
+   --z-tour'da: FAB ve çekmece panelinin üstü, modalın altı (zLayers.test). */
+.tour-backdrop {
+  position: fixed; inset: 0; z-index: var(--z-tour);
+  background: transparent;
+}
+.tour-backdrop.is-dim { background: var(--backdrop); }
+.tour-ring {
+  position: fixed; z-index: var(--z-tour); pointer-events: none;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 2px var(--focus), 0 0 0 100vmax var(--backdrop);
+  transition: left .18s ease, top .18s ease, width .18s ease, height .18s ease;
+}
+.tour-card {
+  position: fixed; z-index: var(--z-tour);
+  width: min(380px, calc(100vw - 32px));
+  max-height: 80vh; overflow: auto;
+  background: var(--bg1); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: var(--radius);
+  box-shadow: var(--shadow-pop);
+  display: flex; flex-direction: column; gap: var(--sp-5);
+  padding: var(--sp-7);
+}
+.tour-card:focus { outline: none; }
+.tour-card.is-center { left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.tour-card__head { display: flex; flex-direction: column; gap: var(--sp-3); }
+.tour-card__step { font-size: var(--fs-xs); color: var(--text3); }
+.tour-card__title { margin: 0; font-size: var(--fs-lg); font-weight: 600; color: var(--text); }
+.tour-card__body { margin: 0; font-size: var(--fs-md); line-height: 1.5; color: var(--text2); }
+.tour-card__note { margin: 0; font-size: var(--fs-sm); color: var(--text3); }
+.tour-card__tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); }
+.tour-card__foot { display: flex; align-items: center; gap: var(--sp-4); }
+.tour-card__foot .tour-card__primary { margin-left: auto; }
+.tour-progress { display: flex; gap: var(--sp-2); }
+.tour-progress__seg {
+  flex: 1; height: 4px; border-radius: var(--radius-xs);
+  background: var(--bg3); border: 1px solid transparent;
+}
+.tour-progress__seg.is-done,
+.tour-progress__seg.is-current { background: var(--accent); }
+.tour-progress__seg.is-skipped { background: transparent; border: 1px dashed var(--border-strong); }
+@media (prefers-reduced-motion: reduce) {
+  .tour-ring { transition: none; }
+}
+/* ── v0.10.1334 END ──────────────────────────────────────────────────── */

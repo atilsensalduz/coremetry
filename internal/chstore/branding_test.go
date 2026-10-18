@@ -74,3 +74,39 @@ func TestBrandingResolvedOracleGroupLabel(t *testing.T) {
 		t.Fatalf("boşa dönüş varsayılana: %q", CurrentOracleGroupLabel())
 	}
 }
+
+// v0.10.1334 — rehberli tur anahtarı: ""/"on" açık, yalnız "off" kapalı;
+// kırpılır + küçük harfe iner, bilinmeyen değer ""ye (açık) düşer; boş
+// değer blob'a yazılmaz (omitempty).
+func TestBrandingOnboardingTourNormalize(t *testing.T) {
+	cases := []struct {
+		in, want string
+		enabled  bool
+	}{
+		{"", "", true},
+		{"on", "on", true},
+		{" ON ", "on", true},
+		{"off", "off", false},
+		{"  Off", "off", false},
+		{"maybe", "", true},
+	}
+	for _, c := range cases {
+		raw, err := encodeBranding(BrandingSettings{OnboardingTour: c.in})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := decodeBranding(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.OnboardingTour != c.want {
+			t.Errorf("%q → %q, istenen %q", c.in, got.OnboardingTour, c.want)
+		}
+		if (BrandingSettings{OnboardingTour: c.in}).TourEnabled() != c.enabled {
+			t.Errorf("%q TourEnabled istenen %v", c.in, c.enabled)
+		}
+		if c.want == "" && strings.Contains(string(raw), "onboardingTour") {
+			t.Errorf("%q: boş değer blob'a yazılmamalı: %s", c.in, raw)
+		}
+	}
+}

@@ -23,13 +23,16 @@ export const TIP_GAP = 6;
 /** Viewport kenarından en az uzaklık (px). */
 export const TIP_MARGIN = 8;
 
-export function placeTip(anchor: TipRect, tip: TipSize, viewport: TipSize, prefer: TipSide = 'top'): TipPos {
+// v0.10.1334 — `gap` (varsayılan TIP_GAP) GENİŞLETME: rehberli turun koç
+// kartı aynı yerleşimi daha geniş boşlukla kullanır (ikinci bir yerleştirici
+// yazılmadı). Mevcut çağıranlar parametre geçmez → davranış aynı.
+export function placeTip(anchor: TipRect, tip: TipSize, viewport: TipSize, prefer: TipSide = 'top', gap: number = TIP_GAP): TipPos {
   const maxLeft = Math.max(TIP_MARGIN, viewport.width - TIP_MARGIN - tip.width);
   const centered = anchor.left + anchor.width / 2 - tip.width / 2;
   const left = Math.round(Math.min(Math.max(centered, TIP_MARGIN), maxLeft));
 
-  const above = anchor.top - TIP_GAP - tip.height;
-  const below = anchor.top + anchor.height + TIP_GAP;
+  const above = anchor.top - gap - tip.height;
+  const below = anchor.top + anchor.height + gap;
   const fitsAbove = above >= TIP_MARGIN;
   const fitsBelow = below + tip.height <= viewport.height - TIP_MARGIN;
 
