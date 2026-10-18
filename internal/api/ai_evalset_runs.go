@@ -53,9 +53,11 @@ import (
 	"time"
 
 	"github.com/cilcenk/coremetry/internal/ai/evalrubric"
+	"github.com/cilcenk/coremetry/internal/ai/modelcaps"
 	"github.com/cilcenk/coremetry/internal/auth"
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/copilot"
+	"github.com/cilcenk/coremetry/internal/mcptools"
 )
 
 func (s *Server) registerAIEvalsetRunRoutes(mux *http.ServeMux) {
@@ -117,6 +119,10 @@ type evalJob struct {
 	deadline  time.Duration // başlangıçta okunan tavan (mesaj için)
 	userID    string
 	userEmail string
+	// v0.10.1311 — araç seti: override = istekteki açık seçim ("" otomatik);
+	// toolset = koşu düzeyi çözüm (evalRunToolset; döngü yüzeyi yoksa "").
+	toolsetOverride string
+	toolset         string
 }
 
 type evalJobBook struct {
@@ -146,13 +152,18 @@ func evalStamp(prev time.Time) time.Time {
 func (j *evalJob) summaryLocked() evalRunSummary {
 	sum := evalSummaryFromRow(j.row, time.Now(), true)
 	sum.BySurface = evalSurfaceSummaries(j.plan, j.cases)
+	sum.Toolset, sum.ToolsetPinned = j.toolset, j.toolsetPinned()
 	return sum
 }
+
+// toolsetPinned — v0.10.1311: araç seti istekte açık seçildi ve en az bir
+// vakaya uygulandı.
+func (j *evalJob) toolsetPinned() bool { return j.toolsetOverride != "" && j.toolset != "" }
 
 // rowLocked — CH satırı; withCases yalnız son yazımda (ilerleme küçük kalsın).
 func (j *evalJob) rowLocked(withCases bool) chstore.EvalRun {
 	row := j.row
-	blob, _ := json.Marshal(evalRunSummaryBlob{BySurface: evalSurfaceSummaries(j.plan, j.cases)})
+	blob, _ := json.Marshal(evalRunSummaryBlob{BySurface: evalSurfaceSummaries(j.plan, j.cases), Toolset: j.toolset, ToolsetPinned: j.toolsetPinned()}) // v0.10.1311
 	row.Summary = string(blob)
 	row.Cases = ""
 	if withCases {
@@ -298,10 +309,18 @@ func newEvalRunID(now time.Time) string {
 func (s *Server) startAIEvalsetRun(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Surfaces []string `json:"surfaces"`
+		// Toolset — v0.10.1311: "" otomatik (üretim profilinin araç seti,
+		// canlı serbest döngüyle aynı çözüm) | simple | full (açık seçim).
+		Toolset string `json:"toolset"`
 	}
 	// Boş gövde = tümü (FE düğmesi seçim yokken gövdesiz gönderebilir).
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil && !errors.Is(err, io.EOF) {
 		writeJSONError(w, http.StatusBadRequest, "geçersiz JSON: "+err.Error())
+		return
+	}
+	in.Toolset = strings.TrimSpace(in.Toolset)
+	if !modelcaps.ValidToolset(in.Toolset) {
+		writeJSONError(w, http.StatusBadRequest, "toolset boş (otomatik), 'simple' ya da 'full' olmalı")
 		return
 	}
 	uid, email := "", ""
@@ -367,7 +386,8 @@ func (s *Server) startAIEvalsetRun(w http.ResponseWriter, r *http.Request) {
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
 	runCtx, release := context.WithTimeout(runCtx, evalRunDeadline)
-	job := &evalJob{row: row, plan: cases, cancel: cancel, deadline: evalRunDeadline, userID: uid, userEmail: email}
+	job := &evalJob{row: row, plan: cases, cancel: cancel, deadline: evalRunDeadline, userID: uid, userEmail: email,
+		toolsetOverride: in.Toolset, toolset: s.evalRunToolset(cases, in.Toolset)} // v0.10.1311
 	evalJobs.running = job
 	sum := job.summaryLocked()
 	first := job.rowLocked(false)
@@ -378,7 +398,15 @@ func (s *Server) startAIEvalsetRun(w http.ResponseWriter, r *http.Request) {
 	if len(surfaces) > 0 {
 		scope = strings.Join(surfaces, ",")
 	}
-	s.audit(r, "ai.evalset.run", "ai_evalset", row.ID, fmt.Sprintf("surfaces=%s cases=%d", scope, len(cases)))
+	details := fmt.Sprintf("surfaces=%s cases=%d", scope, len(cases))
+	if job.toolset != "" { // v0.10.1311 — araç setinin uygulandığı koşu
+		mode := "auto"
+		if in.Toolset != "" {
+			mode = "pinned"
+		}
+		details += fmt.Sprintf(" toolset=%s(%s)", job.toolset, mode)
+	}
+	s.audit(r, "ai.evalset.run", "ai_evalset", row.ID, details)
 	go s.runEvalJob(runCtx, func() { release(); cancel() }, job, st)
 	writeEvalJSONStatus(w, http.StatusAccepted, map[string]any{"run": sum})
 }
@@ -539,6 +567,13 @@ func (s *Server) runEvalJob(ctx context.Context, release func(), job *evalJob, s
 		})
 		if pid != "" {
 			cctx = copilot.WithProfile(cctx, pid)
+		}
+		// v0.10.1311 — araç seti canlı serbest döngüdeki gibi: çözülen profil →
+		// ToolsetFor (açık seçim kazanır), YÜRÜTME bağlamına mcptools.WithToolset
+		// (copilot_chat.go'nun aynısı); runEvalsetCase prompt varyantını bu
+		// bağlamdan okur. Döngü dışı yüzeyde "" → bağlam işaretsiz (full).
+		if ts := s.evalToolsetFor(cctx, c.Surface, job.toolsetOverride); ts != "" {
+			cctx = mcptools.WithToolset(cctx, ts)
 		}
 		out := runEvalsetCase(cctx, s.evalsetServerCall, c)
 		if out.Err != nil && ctx.Err() != nil {

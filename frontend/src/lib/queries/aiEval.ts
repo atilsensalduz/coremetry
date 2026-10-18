@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import type { EvalRunSummary } from '@/lib/types';
+import type { AIToolset, EvalRunSummary } from '@/lib/types';
 
 // queries/aiEval.ts — v0.10.940 (Settings › CoSRE › Değerlendirme). Evalset
 // panelinin okuma + yazma kancaları.
@@ -88,7 +88,8 @@ export function useEvalCompare(base: string | null, head: string | null) {
 export function useStartEvalRun() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (surfaces: string[]) => api.aiEvalsetStartRun(surfaces),
+    // v0.10.1311 — araç seti seçimi ('' = otomatik) gövdeye.
+    mutationFn: ({ surfaces, toolset }: { surfaces: string[]; toolset: AIToolset }) => api.aiEvalsetStartRun(surfaces, toolset),
     onSuccess: res => {
       if (!res?.run) return;
       qc.setQueryData<EvalRunSummary[]>(aiEvalKeys.runs(), old => [res.run, ...(old ?? []).filter(r => r.id !== res.run.id)]);

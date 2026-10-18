@@ -1352,10 +1352,12 @@ export const api = {
       `/api/ai/evalset/runs/${encodeURIComponent(id)}`, signal),
   // surfaces [] = tümü (sunucu sözleşmesi). 409 gövdesi {error, run}:
   // çağıran humanize ile `error`u gösterir ve listeyi tazeler.
-  aiEvalsetStartRun: (surfaces: string[]) =>
+  // v0.10.1311 — toolset '' = otomatik (üretim profilinin araç seti) |
+  // simple | full (açık seçim; yalnız serbest döngü yüzeylerine uygulanır).
+  aiEvalsetStartRun: (surfaces: string[], toolset: import('./types').AIToolset = '') =>
     request<{ run: import('./types').EvalRunSummary }>(`/api/ai/evalset/runs`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ surfaces }), timeoutMs: 30_000,
+      body: JSON.stringify({ surfaces, toolset }), timeoutMs: 30_000,
     }),
   aiEvalsetCancelRun: (id: string) =>
     request<{ ok: boolean }>(`/api/ai/evalset/runs/${encodeURIComponent(id)}/cancel`, { method: 'POST', timeoutMs: 15_000 }),

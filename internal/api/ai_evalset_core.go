@@ -34,9 +34,11 @@ import (
 	"unicode/utf8"
 
 	"github.com/cilcenk/coremetry/internal/ai/evalrubric"
+	"github.com/cilcenk/coremetry/internal/ai/modelcaps"
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/copilot"
 	"github.com/cilcenk/coremetry/internal/copilot/evalset"
+	"github.com/cilcenk/coremetry/internal/mcp"
 	"github.com/cilcenk/coremetry/internal/rca"
 )
 
@@ -191,7 +193,53 @@ type evalFile struct {
 
 // evalSystemPrompt — fikstürdeki surface adı → copilot.SystemPromptX.
 // Eksik ad kırmızı test (TestEvalsetFixturesValid), sessiz atlama değil.
-func evalSystemPrompt(surface string) (string, bool) {
+// Tam (full) araç seti varyantı — v0.10.1311 öncesiyle bayt bayt aynı.
+func evalSystemPrompt(surface string) (string, bool) { return evalSystemPromptFor(surface, false) }
+
+// ── v0.10.1311 — araç seti (v0.10.1302 ModelProfile.Toolset) ────────────
+//
+// Evalset koşusu artık serbest döngünün araç setini CANLI yolla aynı
+// çözer: vakanın üretim profili (WithProfile) → copilot.ToolsetFor (açık
+// profil ayarı, boşsa model adından ≤12B kuralı); koşu isteğinde açık
+// `toolset` (simple|full) varsa o kazanır. Çözülen set YÜRÜTME bağlamına
+// mcptools.WithToolset ile basılır (canlı döngünün ctx'i) ve döngü
+// yüzeyinin sistem prompt'u bu bağlamdan okunur (SystemPromptChatAgentLoopFor)
+// — prompt varyantı ile bağlam ayrı iki kaynaktan gelmez.
+//
+// Bilinçli sınır: evalset vakası TEK ÇAĞRIDIR — araç sonucu fikstürün
+// kullanıcı metninde hazır gelir, modele araç kataloğu (tool spec) HİÇ
+// gönderilmez (full'de de; v0.10.1311 öncesi de). Bu yüzden araç setinin
+// evalset'te ölçülen etkisi prompt varyantıdır; gizli araçlar ne katalogda
+// (yok) ne prompt'ta (simple varyant) anılır.
+//
+// Toolset yalnız serbest döngü prompt'unu koşan yüzeyde anlamlıdır; diğer
+// yüzeyler "" kaydeder (cosre_interactions.toolset emsali: guided/niyet "").
+
+// evalLoopSurface — SAF: serbest döngünün sistem prompt'unu (ajan çekirdeği)
+// koşan evalset yüzeyi. Araç seti yalnız bunlara uygulanır.
+func evalLoopSurface(surface string) bool { return surface == "ChatCodeResolve" }
+
+// evalCaseToolset — SAF: vakanın araç seti. Döngü dışı yüzey "" ; açık
+// seçim (simple|full) kazanır; değilse çözülen değer (ToolsetFor), boş ya
+// da bilinmeyen → full (canlıdaki güvenli yön).
+func evalCaseToolset(surface, override, resolved string) string {
+	if !evalLoopSurface(surface) {
+		return ""
+	}
+	switch override {
+	case modelcaps.ToolsetSimple, modelcaps.ToolsetFull:
+		return override
+	}
+	if resolved == modelcaps.ToolsetSimple {
+		return modelcaps.ToolsetSimple
+	}
+	return modelcaps.ToolsetFull
+}
+
+// evalSystemPromptFor — evalSystemPrompt'un araç setine göre hâli: simple
+// yalnız serbest döngü yüzeyinde ajan çekirdeğini değiştirir (canlıdaki
+// copilot_chat.go loopPrompt'u gibi); diğer yüzeyler iki sette aynı.
+func evalSystemPromptFor(surface string, simple bool) (string, bool) {
 	switch surface {
 	case "Trace":
 		return copilot.SystemPromptTrace(), true
@@ -232,7 +280,7 @@ func evalSystemPrompt(surface string) (string, bool) {
 	case "Chat":
 		return copilot.SystemPromptChat(), true
 	case "ChatCodeResolve": // v0.10.1210 — iş kodu / kod arama eki (serbest döngü prompt'u + ek)
-		return copilot.SystemPromptChatAgentLoop() + copilot.CodeResolveChatAddendum(true) + "\n\n" + copilot.SystemPromptChat(), true
+		return copilot.SystemPromptChatAgentLoopFor(simple) + copilot.CodeResolveChatAddendum(true) + "\n\n" + copilot.SystemPromptChat(), true // v0.10.1311 — araç setine göre
 	case "IntentClassify":
 		return copilot.SystemPromptIntentClassify(), true
 	}
@@ -454,6 +502,9 @@ type evalCaseOutcome struct {
 	Unknown    int
 	RCA        bool
 	Rubric     evalrubric.Result
+	// Toolset — v0.10.1311: vakanın koştuğu araç seti (full | simple; döngü
+	// dışı yüzey ""). Bağlamdan okunur (mcptools.WithToolset), prompt da.
+	Toolset string
 }
 
 // runEvalsetCase — v0.10.940: CLI (evalset_test.go) ve sunucu koşucusunun
@@ -468,7 +519,17 @@ func runEvalsetCase(ctx context.Context, call evalCallFn, c evalCase) evalCaseOu
 		_, user := evalCaseInput(c, "")
 		return evalCaseOutcome{Skipped: true, SkipReason: why, User: user}
 	}
-	system, ok := evalSystemPrompt(c.Surface)
+	// v0.10.1311 — araç seti YÜRÜTME bağlamından (runEvalJob basar; CLI
+	// işaretsiz → full, eski davranış). Prompt varyantı aynı kaynaktan.
+	simple := mcp.SimpleToolsetFrom(ctx)
+	toolset := ""
+	if evalLoopSurface(c.Surface) {
+		toolset = modelcaps.ToolsetFull
+		if simple {
+			toolset = modelcaps.ToolsetSimple
+		}
+	}
+	system, ok := evalSystemPromptFor(c.Surface, simple)
 	if !ok {
 		return evalCaseOutcome{Fixture: true, User: c.User, Fails: []string{fmt.Sprintf("fixture: surface %q çözülemiyor", c.Surface)}}
 	}
@@ -488,7 +549,7 @@ func runEvalsetCase(ctx context.Context, call evalCallFn, c evalCase) evalCaseOu
 	}
 	t0 := time.Now()
 	answer, err := call(ctx, c.Surface, sys, user, schema, evalJSONSurface(c.Surface))
-	out := evalCaseOutcome{User: user, Answer: answer, Err: err, LatencyMs: time.Since(t0).Milliseconds(), RCA: rcaH != nil}
+	out := evalCaseOutcome{User: user, Answer: answer, Err: err, LatencyMs: time.Since(t0).Milliseconds(), RCA: rcaH != nil, Toolset: toolset}
 	if rcaH != nil && err == nil {
 		out.Fails, out.Unknown = scoreRCACase(c, rcaH, rcaCat, answer)
 	} else {
@@ -538,9 +599,13 @@ type evalCatalog struct {
 	// yazılan profil (haritasız yüzey = varsayılan; AYNI çözücü). Panel
 	// başlığı "varsayılan profil"i yüzey sırasından tahmin etmesin. Profil
 	// KİMLİĞİ, anahtar değil.
-	DefaultProfileID string               `json:"defaultProfileId"`
-	Total            int                  `json:"total"`
-	Surfaces         []evalCatalogSurface `json:"surfaces"`
+	DefaultProfileID string `json:"defaultProfileId"`
+	// Toolset — v0.10.1311: OTOMATİK araç setinin bugünkü çözümü (serbest
+	// döngü yüzeyinin üretim profili + ToolsetFor): full | simple; kümede
+	// döngü yüzeyi yoksa "". Panelin "Otomatik (…)" seçeneği bunu yazar.
+	Toolset  string               `json:"toolset"`
+	Total    int                  `json:"total"`
+	Surfaces []evalCatalogSurface `json:"surfaces"`
 }
 
 type evalSurfaceSummary struct {
@@ -575,6 +640,11 @@ type evalRunSummary struct {
 	RubricMean    float64              `json:"rubricMean"`
 	Error         string               `json:"error"`
 	BySurface     []evalSurfaceSummary `json:"bySurface"`
+	// Toolset — v0.10.1311: koşunun serbest döngü yüzeylerinin araç seti
+	// (full | simple); planda döngü yüzeyi yoksa "". ToolsetPinned: koşu
+	// isteğinde açık seçildi (otomatik çözüm değil).
+	Toolset       string `json:"toolset"`
+	ToolsetPinned bool   `json:"toolsetPinned"`
 }
 
 type evalCaseResult struct {
@@ -596,6 +666,8 @@ type evalCaseResult struct {
 	AnswerTruncated bool            `json:"answerTruncated"`
 	Error           string          `json:"error"`
 	Expect          json.RawMessage `json:"expect"`
+	// Toolset — v0.10.1311: full | simple; döngü dışı yüzey "".
+	Toolset string `json:"toolset"`
 }
 
 type evalCompareSide struct {
@@ -607,6 +679,7 @@ type evalCompareSide struct {
 	Pass          int    `json:"pass"`
 	Fail          int    `json:"fail"`
 	Total         int    `json:"total"`
+	Toolset       string `json:"toolset"` // v0.10.1311 — "" = döngü yüzeyi yok / eski koşu
 }
 
 type evalCompareCase struct {
@@ -636,8 +709,21 @@ type evalCompare struct {
 }
 
 // evalRunSummaryBlob — summary kolonunun şekli (chstore için opak JSON).
+// v0.10.1311 — araç seti de burada (CH kolonu yok: şema değişmez; eski
+// satırda alan yok → "").
 type evalRunSummaryBlob struct {
-	BySurface []evalSurfaceSummary `json:"bySurface"`
+	BySurface     []evalSurfaceSummary `json:"bySurface"`
+	Toolset       string               `json:"toolset,omitempty"`
+	ToolsetPinned bool                 `json:"toolsetPinned,omitempty"`
+}
+
+// evalBlobFromRow — SAF: summary kolonu → blob; boş/bozuk → sıfır değer.
+func evalBlobFromRow(r chstore.EvalRun) evalRunSummaryBlob {
+	var blob evalRunSummaryBlob
+	if r.Summary != "" {
+		_ = json.Unmarshal([]byte(r.Summary), &blob)
+	}
+	return blob
 }
 
 // ── Saf yardımcılar ─────────────────────────────────────────────────────
@@ -689,7 +775,7 @@ func evalCaseResultFrom(c evalCase, o evalCaseOutcome, profileID, model string) 
 		LatencyMs: o.LatencyMs, Fails: fails, UnknownEntities: o.Unknown, RubricTotal: o.Rubric.Total,
 		ProfileID: profileID, Model: model,
 		Input: in, InputTruncated: inT, Answer: ans, AnswerTruncated: ansT,
-		Expect: evalExpectJSON(c),
+		Expect: evalExpectJSON(c), Toolset: o.Toolset,
 	}
 	if o.Err != nil {
 		res.Error = o.Err.Error()
@@ -796,10 +882,7 @@ func evalRunBlocksStart(r chstore.EvalRun, now time.Time) bool {
 
 // evalSummaryFromRow — SAF: CH satırı → özet (durum türetilmiş).
 func evalSummaryFromRow(r chstore.EvalRun, now time.Time, ownedHere bool) evalRunSummary {
-	var blob evalRunSummaryBlob
-	if r.Summary != "" {
-		_ = json.Unmarshal([]byte(r.Summary), &blob)
-	}
+	blob := evalBlobFromRow(r)
 	if blob.BySurface == nil {
 		blob.BySurface = []evalSurfaceSummary{}
 	}
@@ -814,6 +897,7 @@ func evalSummaryFromRow(r chstore.EvalRun, now time.Time, ownedHere bool) evalRu
 		Model: r.Model, ProfileID: r.ProfileID, Surfaces: surfaces,
 		Total: int(r.Total), Done: int(r.Done), Pass: int(r.Pass), Fail: int(r.Fail), Skipped: int(r.Skipped),
 		RubricMean: r.RubricMean, Error: r.Error, BySurface: blob.BySurface,
+		Toolset: blob.Toolset, ToolsetPinned: blob.ToolsetPinned, // v0.10.1311
 	}
 }
 
@@ -918,10 +1002,10 @@ func evalCompareRuns(base, head chstore.EvalRun) evalCompare {
 	rep := evalrubric.Diff(bRun, hRun)
 	side := func(r chstore.EvalRun) evalCompareSide {
 		return evalCompareSide{ID: r.ID, StartedAt: evalTimeString(r.StartedAt), Model: r.Model, PromptVersion: r.PromptVersion,
-			AppVersion: r.AppVersion, Pass: int(r.Pass), Fail: int(r.Fail), Total: int(r.Total)}
+			AppVersion: r.AppVersion, Pass: int(r.Pass), Fail: int(r.Fail), Total: int(r.Total), Toolset: evalBlobFromRow(r).Toolset}
 	}
 	cmp := evalCompare{
-		Comparable: rep.Comparable, Note: rep.Note, Base: side(base), Head: side(head),
+		Comparable: rep.Comparable, Note: evalCompareNote(rep.Note, evalBlobFromRow(base).Toolset, evalBlobFromRow(head).Toolset), Base: side(base), Head: side(head),
 		RubricMeanDelta: rep.MeanDelta,
 		NewlyFailing:    []evalCompareCase{}, NewlyPassing: []evalCompareCase{},
 		Regressed: []evalCompareDelta{}, Improved: []evalCompareDelta{},
@@ -942,6 +1026,21 @@ func evalCompareRuns(base, head chstore.EvalRun) evalCompare {
 	cmp.OnlyInBase = append(cmp.OnlyInBase, rep.OnlyInBefore...)
 	cmp.OnlyInHead = append(cmp.OnlyInHead, rep.OnlyInAfter...)
 	return cmp
+}
+
+// evalCompareNote — v0.10.1311, SAF: iki koşunun araç seti farklıysa
+// Diff notuna tek cümle eklenir. Kıyaslanabilirliği DEĞİŞTİRMEZ: full ↔
+// simple kıyası tam da ölçülmek istenen şey (model farkı gibi değil).
+// Bir taraf "" (döngü yüzeyi yok / eski koşu) ise not yok.
+func evalCompareNote(note, baseTS, headTS string) string {
+	if baseTS == "" || headTS == "" || baseTS == headTS {
+		return note
+	}
+	add := fmt.Sprintf("Araç seti farklı: %s → %s (serbest döngü yüzeyleri).", baseTS, headTS)
+	if strings.TrimSpace(note) == "" {
+		return add
+	}
+	return strings.TrimRight(note, " ") + " " + add
 }
 
 // ── Katalog ─────────────────────────────────────────────────────────────
@@ -966,6 +1065,34 @@ func (s *Server) evalProfileFor(surface string) (id, label, provider, model, bas
 	return id, label, provider, model, baseURL
 }
 
+// evalToolsetFor — v0.10.1311: yüzeyin araç seti CANLI çözümle — ctx'teki
+// profil (WithProfile) ya da yüzey eşlemesi → copilot.ToolsetFor; açık
+// seçim kazanır (evalCaseToolset). Döngü dışı yüzey "".
+func (s *Server) evalToolsetFor(ctx context.Context, surface, override string) string {
+	if !evalLoopSurface(surface) {
+		return ""
+	}
+	return evalCaseToolset(surface, override, s.copilot.ToolsetFor(ctx))
+}
+
+// evalRunToolset — v0.10.1311: koşu düzeyi araç seti (özet + panel). Planda
+// döngü yüzeyi yoksa "" (araç seti hiçbir vakaya uygulanmadı). Döngü
+// yüzeylerinin hepsi aynı profil etiketine ("chat") gider → ilk döngü
+// vakasının profiliyle çözülür; vaka başı değer runEvalJob'da AYNI yoldan.
+func (s *Server) evalRunToolset(plan []evalCase, override string) string {
+	for _, c := range plan {
+		if !evalLoopSurface(c.Surface) {
+			continue
+		}
+		ctx := context.Background()
+		if pid, _, _, _, _ := s.evalProfileFor(c.Surface); pid != "" {
+			ctx = copilot.WithProfile(ctx, pid)
+		}
+		return s.evalToolsetFor(ctx, c.Surface, override)
+	}
+	return ""
+}
+
 // evalsetCatalog — GET /api/ai/evalset/catalog gövdesi. `ready` bir KAPI
 // DEĞİL, durum alanı: katalog AI kapalıyken de cevap verir ki panel "Koş"
 // düğmesinin NEDEN pasif olduğunu söyleyebilsin (insight kartının AIOff
@@ -980,7 +1107,7 @@ func (s *Server) evalsetCatalog() (evalCatalog, error) {
 	defaultPID, _, _, _, _ := s.evalProfileFor("") // startAIEvalsetRun'daki çağrının AYNISI
 	cat := evalCatalog{
 		Ready: s.copilotReady(), AppVersion: s.evalAppVersion(), PromptVersion: copilot.PromptVersion(),
-		DefaultProfileID: defaultPID, Total: len(cases), Surfaces: []evalCatalogSurface{},
+		DefaultProfileID: defaultPID, Toolset: s.evalRunToolset(cases, ""), Total: len(cases), Surfaces: []evalCatalogSurface{},
 	}
 	for _, sc := range evalSurfaceCounts(cases) {
 		id, label, provider, model, base := s.evalProfileFor(sc.Surface)

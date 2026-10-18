@@ -3,7 +3,7 @@ import {
   EVAL_URL_PARAMS, RUN_STATUS_VIEW, activeRun, caseReason, compareCandidates, compareGroups, compareSummary,
   evalHref, expectLines, failingCases, fmtDurationMs, fmtRunTime, fmtSec1, fmtSigned2, fmtSignedInt,
   passDeltas, pickDefaultProfile, pickDefaultRunId, progressPct, progressText, routingHint, runElapsedMs,
-  runStatusView, selectionCaseCount, toggleSurface, withEvalParams,
+  runStatusView, runToolsetView, selectionCaseCount, toggleSurface, toolsetLabel, withEvalParams,
 } from './aiEval';
 import type { EvalCaseResult, EvalCompare, EvalRunSummary, EvalsetCatalogSurface } from '@/lib/types';
 
@@ -240,6 +240,28 @@ describe('karşılaştırma', () => {
   it('özet satırı', () => {
     expect(compareSummary(cmp)).toBe(
       '26.09.2026 18:40 · v-b · 46 / 51 → 26.09.2026 18:40 · v-h · 48 / 51 · rubrik ortalaması +0,02 · yalnız seçilide 1 vaka');
+  });
+  // v0.10.1311 — full ↔ simple kıyası: araç seti tarafın künyesinde.
+  it('özet satırı araç setini taşır (biliniyorsa)', () => {
+    const ts: EvalCompare = { ...cmp, base: { ...cmp.base, toolset: 'full' }, head: { ...cmp.head, toolset: 'simple' }, onlyInHead: [] };
+    expect(compareSummary(ts)).toBe(
+      '26.09.2026 18:40 · v-b · tam · 46 / 51 → 26.09.2026 18:40 · v-h · basit · 48 / 51 · rubrik ortalaması +0,02');
+  });
+});
+
+// v0.10.1311 — araç seti etiketi (profil paneliyle aynı sözcükler).
+describe('araç seti', () => {
+  it('toolsetLabel: simple/full okunur, boş/yok null', () => {
+    expect(toolsetLabel('simple')).toBe('basit');
+    expect(toolsetLabel('full')).toBe('tam');
+    expect(toolsetLabel('')).toBeNull();
+    expect(toolsetLabel(undefined)).toBeNull();
+  });
+  it('runToolsetView: açık seçim eki, otomatik eksiz, uygulanmamış null', () => {
+    expect(runToolsetView({ toolset: 'simple', toolsetPinned: true }).text).toBe('basit (açık)');
+    expect(runToolsetView({ toolset: 'full', toolsetPinned: false }).text).toBe('tam');
+    expect(runToolsetView({ toolset: '' }).text).toBeNull();
+    expect(runToolsetView({}).text).toBeNull();
   });
 });
 

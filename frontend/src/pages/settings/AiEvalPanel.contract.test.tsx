@@ -165,8 +165,43 @@ describe('AiEvalPanel', () => {
     expect(el.textContent).toContain('6 vaka · sırayla koşar');
     act(() => { button(el, 'Koş')!.click(); });
     await tick();
-    expect(api.aiEvalsetStartRun).toHaveBeenCalledWith(['Problem']);
+    expect(api.aiEvalsetStartRun).toHaveBeenCalledWith(['Problem'], ''); // v0.10.1311 — '' = otomatik araç seti
     expect(where).toBe('/settings/ai?tab=eval');
+  });
+
+  // v0.10.1311 — araç seti: döngü yüzeyi olan katalogda seçici (Otomatik
+  // çözümü yazar); seçim Koş gövdesine gider; koşu geçmişi ve çekmece
+  // araç setini gösterir; döngüsüz katalogda seçici yok.
+  it('araç seti seçici → Koş gövdesi; geçmiş kolonu ve çekmece araç setini gösterir', async () => {
+    api.aiEvalsetCatalog.mockResolvedValue({ ...CATALOG, toolset: 'simple' });
+    api.aiEvalsetRuns.mockResolvedValue({ runs: [run('ev-new', { toolset: 'simple', toolsetPinned: true }), run('ev-old', { toolset: 'full', startedAt: '2026-09-25T10:00:00Z' })] });
+    api.aiEvalsetRun.mockResolvedValue({ run: run('ev-new', { toolset: 'simple', toolsetPinned: true }),
+      cases: [kase('biz', { ok: false, fails: ['missing: x'], surface: 'ChatCodeResolve', toolset: 'simple' })] });
+    api.aiEvalsetStartRun.mockResolvedValue({ run: run('ev-3', { status: 'running', done: 0, finishedAt: '' }) });
+    const el = render(<AiEvalPanel />, '/settings/ai?tab=eval&case=biz');
+    await tick();
+    // Çekmece önce: Koş başarısı ?case='i siler.
+    const drawer = document.body.querySelector('[aria-label="Vaka ayrıntısı"]')!;
+    expect(drawer.textContent).toContain('Araç seti');
+    expect(drawer.textContent).toContain('basit');
+    const group = el.querySelector('[role="radiogroup"][aria-label="Araç seti"]')!;
+    expect(group.textContent).toContain('Otomatik (basit)');
+    act(() => { button(group, 'Tam')!.click(); });
+    act(() => { button(el, 'Koş')!.click(); });
+    await tick();
+    expect(api.aiEvalsetStartRun).toHaveBeenCalledWith([], 'full');
+    const history = tables(el)[2];
+    expect(Array.from(history.querySelectorAll('thead th')).some(th => th.textContent?.includes('Araç seti'))).toBe(true);
+    const body = history.querySelector('tbody')!.textContent!;
+    expect(body).toContain('basit (açık)');
+    expect(body).toContain('tam');
+  });
+
+  it('döngü yüzeyi olmayan katalogda araç seti seçicisi yok', async () => {
+    idle();
+    const el = render(<AiEvalPanel />);
+    await tick();
+    expect(el.querySelector('[role="radiogroup"][aria-label="Araç seti"]')).toBeNull();
   });
 
   it('başlatma 409 → sunucunun metni aynen', async () => {

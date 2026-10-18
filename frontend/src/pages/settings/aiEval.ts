@@ -11,7 +11,7 @@
 // aktaran dosya istediği için ayrı modülde (aiTuning.ts / aiBudget.ts
 // emsali).
 import type {
-  EvalCaseResult, EvalCompare, EvalExpect, EvalRunStatus, EvalRunSummary, EvalsetCatalog, EvalsetCatalogSurface,
+  AIToolset, EvalCaseResult, EvalCompare, EvalExpect, EvalRunStatus, EvalRunSummary, EvalsetCatalog, EvalsetCatalogSurface,
 } from '@/lib/types';
 import { fmtDateTime } from '@/lib/utils';
 
@@ -197,6 +197,27 @@ export function compareCandidates(runs: readonly EvalRunSummary[], headId: strin
   return runs.filter(r => r.id !== headId && isFinished(r.status));
 }
 
+// ── Araç seti (v0.10.1311) ──────────────────────────────────────────────
+
+/** v0.10.1311 — araç setinin okunur adı (Ayarlar › AI model profilleri ile
+ *  aynı sözcükler): simple → "basit", full → "tam"; ''/yok → null (hücre
+ *  soluk "—": döngü yüzeyi yok ya da v0.10.1311 öncesi koşu). */
+export function toolsetLabel(ts: AIToolset | string | undefined | null): string | null {
+  if (ts === 'simple') return 'basit';
+  if (ts === 'full') return 'tam';
+  return null;
+}
+
+/** v0.10.1311 — koşu satırının araç seti metni + ipucu: açık seçim
+ *  "(açık)" ekiyle; otomatik çözüm eksiz. */
+export function runToolsetView(r: Pick<EvalRunSummary, 'toolset' | 'toolsetPinned'>): { text: string | null; title: string } {
+  const label = toolsetLabel(r.toolset);
+  if (!label) return { text: null, title: 'Araç seti uygulanmadı — koşuda serbest döngü yüzeyi yok' };
+  return r.toolsetPinned
+    ? { text: `${label} (açık)`, title: 'Koşu başlatılırken açıkça seçildi' }
+    : { text: label, title: 'Otomatik — üretim profilinin araç seti (açık ayar ya da model adı ≤12B → basit)' };
+}
+
 // ── Süre / sayı biçimi ──────────────────────────────────────────────────
 
 /** "4 dk 10 sn" / "45 sn" / "1 sa 2 dk" — ilerleme satırının süresi. */
@@ -333,7 +354,11 @@ export function compareGroups(cmp: EvalCompare): CompareGroup[] {
  *  "26.09.2026 18:40 · v0.10.939 · 46 / 51 → 26.09.2026 19:10 · v0.10.940 ·
  *  48 / 51 · rubrik ortalaması +0,02" (+ yalnız bir tarafta olan vakalar). */
 export function compareSummary(cmp: EvalCompare): string {
-  const side = (s: EvalCompare['base']) => `${fmtRunTime(s.startedAt)} · ${s.appVersion || '—'} · ${s.pass} / ${s.total}`;
+  // v0.10.1311 — araç seti biliniyorsa tarafın künyesinde (full ↔ simple kıyası).
+  const side = (s: EvalCompare['base']) => {
+    const ts = toolsetLabel(s.toolset);
+    return `${fmtRunTime(s.startedAt)} · ${s.appVersion || '—'}${ts ? ` · ${ts}` : ''} · ${s.pass} / ${s.total}`;
+  };
   const parts = [`${side(cmp.base)} → ${side(cmp.head)}`, `rubrik ortalaması ${fmtSigned2(cmp.rubricMeanDelta)}`];
   const onlyBase = (cmp.onlyInBase ?? []).length;
   const onlyHead = (cmp.onlyInHead ?? []).length;

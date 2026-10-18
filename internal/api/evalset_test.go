@@ -8,6 +8,9 @@
 //	COREMETRY_EVAL_MODEL=qwen3:8b \
 //	go test -tags evalset ./internal/api/ -run TestEvalsetReplay -v
 //
+// v0.10.1311 — araç seti panelle aynı çözülür (modelin otomatik kuralı:
+// ≤12B → simple); COREMETRY_EVAL_TOOLSET=simple|full açık seçimdir.
+//
 // Üretim COREMETRY_AI_* değişkenleri OKUNMAZ: evalset bir geliştiricinin
 // gerçek anahtarına asla ateşlenmez. Kayıt bellek içi (ai_calls satırı
 // yok). Gecikme METRİK (soğuk model 60 sn+ olabilir): aşım uyarı, kırmızı
@@ -30,7 +33,9 @@ import (
 	"time"
 
 	"github.com/cilcenk/coremetry/internal/ai/evalrubric"
+	"github.com/cilcenk/coremetry/internal/ai/modelcaps"
 	"github.com/cilcenk/coremetry/internal/copilot"
+	"github.com/cilcenk/coremetry/internal/mcptools"
 )
 
 type evalRecorder struct {
@@ -80,9 +85,17 @@ func TestEvalsetReplay(t *testing.T) {
 		}
 		return svc.Explain(ctx, system, user)
 	}
-	t.Logf("id\tsurface\tok\tlatency_ms\tunknown_entities\trubric\tfails")
+	tsOverride := strings.TrimSpace(os.Getenv("COREMETRY_EVAL_TOOLSET")) // v0.10.1311
+	if !modelcaps.ValidToolset(tsOverride) {
+		t.Fatalf("COREMETRY_EVAL_TOOLSET %q: boş, simple ya da full", tsOverride)
+	}
+	t.Logf("id\tsurface\tok\tlatency_ms\tunknown_entities\trubric\ttoolset\tfails")
 	for _, c := range cases {
-		o := runEvalsetCase(context.Background(), call, c)
+		cctx := context.Background()
+		if ts := evalCaseToolset(c.Surface, tsOverride, svc.ToolsetFor(cctx)); ts != "" { // v0.10.1311 — panelle aynı çözüm
+			cctx = mcptools.WithToolset(cctx, ts)
+		}
+		o := runEvalsetCase(cctx, call, c)
 		if o.Skipped { // v0.10.431
 			skipped++
 			t.Logf("%s\t%s\tSKIP\t-\t-\t%s", c.ID, c.Surface, o.SkipReason)
@@ -96,7 +109,7 @@ func TestEvalsetReplay(t *testing.T) {
 			pass++
 		}
 		results = append(results, evalrubric.CaseResult{ID: c.ID, Surface: c.Surface, OK: len(o.Fails) == 0, LatencyMs: o.LatencyMs, Fails: o.Fails, Rubric: o.Rubric})
-		t.Logf("%s\t%s\t%s\t%d\t%d\t%.2f\t%s", c.ID, c.Surface, okS, o.LatencyMs, o.Unknown, o.Rubric.Total, strings.Join(o.Fails, " | "))
+		t.Logf("%s\t%s\t%s\t%d\t%d\t%.2f\t%s\t%s", c.ID, c.Surface, okS, o.LatencyMs, o.Unknown, o.Rubric.Total, o.Toolset, strings.Join(o.Fails, " | "))
 		// v0.10.940 — fikstür hatası (bilinmeyen yüzey / bozuk hipotez) artık
 		// koşuyu t.Fatalf ile DÜŞÜRMEZ: "fixture: …" ihlaliyle kırmızı vaka.
 		if len(o.Fails) > 0 {

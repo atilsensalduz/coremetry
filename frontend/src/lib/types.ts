@@ -3296,6 +3296,10 @@ export interface EvalsetCatalog {
    *  bugünkü yönlendirmeyi söylemez. */
   defaultProfileId: string;
   surfaces: EvalsetCatalogSurface[];
+  /** v0.10.1311 — OTOMATİK araç setinin bugünkü çözümü (serbest döngü
+   *  yüzeyinin üretim profili; Go evalCatalog.Toolset). '' = kümede döngü
+   *  yüzeyi yok. Yok = v0.10.1311 öncesi sunucu. */
+  toolset?: AIToolset;
 }
 
 /** Koşunun yüzey başına özeti (koşu sürerken her vakadan sonra güncellenir). */
@@ -3336,6 +3340,10 @@ export interface EvalRunSummary {
   rubricMean: number;
   error: string;
   bySurface: EvalSurfaceSummary[];
+  /** v0.10.1311 — serbest döngü yüzeylerinin araç seti ('' = planda döngü
+   *  yüzeyi yok / eski koşu); toolsetPinned: koşu isteğinde açık seçildi. */
+  toolset?: AIToolset;
+  toolsetPinned?: boolean;
 }
 
 /** Fikstürün `expect` nesnesi AYNEN (evalExpect JSON etiketleri). */
@@ -3375,6 +3383,8 @@ export interface EvalCaseResult {
   /** Taşıma / sağlayıcı hatası metni (varsa). */
   error: string;
   expect: EvalExpect;
+  /** v0.10.1311 — vakanın araç seti; döngü dışı yüzey ''. */
+  toolset?: AIToolset;
 }
 
 /** Karşılaştırmanın bir tarafı (koşu künyesi). */
@@ -3387,6 +3397,8 @@ export interface EvalCompareSide {
   pass: number;
   fail: number;
   total: number;
+  /** v0.10.1311 — koşunun araç seti ('' = döngü yüzeyi yok / eski koşu). */
+  toolset?: AIToolset;
 }
 
 export interface EvalCompareCase {

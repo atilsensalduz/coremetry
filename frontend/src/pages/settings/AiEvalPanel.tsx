@@ -23,18 +23,19 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { Spinner, Empty } from '@/components/Spinner';
 import { QueryErrorInline } from '@/components/QueryError';
-import { Badge, Button, Card, Chip, Drawer, DrawerSection, KeyValue, SectionHead, SelectField } from '@/components/ui';
+import { Badge, Button, Card, Chip, Drawer, DrawerSection, KeyValue, SectionHead, SegmentedControl, SelectField } from '@/components/ui';
 import {
   useDataTable, DataTableHead, DataTableColgroup, DataTableCell, DataTableState,
   type ColumnDef, type DataTableStateKind,
 } from '@/components/ui/DataTable';
 import { useEvalsetCatalog, useEvalRuns, useEvalRun, useEvalCompare, useStartEvalRun, useCancelEvalRun } from '@/lib/queries';
-import type { EvalCaseResult, EvalCompare, EvalRunSummary, EvalSurfaceSummary } from '@/lib/types';
+import type { AIToolset, EvalCaseResult, EvalCompare, EvalRunSummary, EvalSurfaceSummary } from '@/lib/types';
 import { FlashBox, humanize } from './shared';
 import {
   activeRun, caseReason, compareCandidates, compareGroups, compareSummary, evalHref, expectLines, failingCases,
   fmtDec2, fmtRunTime, fmtSec1, fmtSignedInt, isFinished, passDeltas, pickDefaultProfile, pickDefaultRunId,
-  progressPct, progressText, routingHint, runStatusView, selectionCaseCount, toggleSurface, withEvalParams,
+  progressPct, progressText, routingHint, runStatusView, runToolsetView, selectionCaseCount, toggleSurface, toolsetLabel,
+  withEvalParams,
 } from './aiEval';
 
 // v0.10.940 — koşu satırı + "Fark" (passDeltas). Fark satıra gömülü: kolon
@@ -70,6 +71,9 @@ const RUN_COLS: ColumnDef<RunRow>[] = [
   { id: 'pass',    label: 'Geçti', sortValue: r => r.pass, numeric: true, width: 100 },
   { id: 'delta',   label: 'Fark',  sortValue: r => r.delta, numeric: true, width: 80,
     tone: r => (r.delta === null ? undefined : r.delta < 0 ? 'err' : r.delta > 0 ? 'muted' : undefined) },
+  // v0.10.1311 — serbest döngü yüzeylerinin araç seti (full ↔ simple kıyası); sonda —
+  // döngü yüzeyi olmayan / eski koşu soluk "—".
+  { id: 'toolset', label: 'Araç seti', sortValue: r => r.toolset ?? '', naturalDir: 'asc', width: 110 },
 ];
 
 interface TableStateView { kind: DataTableStateKind; message?: string; onRetry?: () => void }
@@ -84,6 +88,9 @@ export function AiEvalPanel() {
   // Bir sonraki koşunun yüzey seçimi ([] = tümü). URL'de değil: görünümü
   // değiştirmiyor, yalnız Koş'un gövdesini — form alanı gibi.
   const [picked, setPicked] = useState<string[]>([]);
+  // v0.10.1311 — bir sonraki koşunun araç seti ('' = otomatik: üretim
+  // profilinin araç seti, canlı serbest döngüyle aynı çözüm). Form alanı.
+  const [toolset, setToolset] = useState<AIToolset>('');
   const [flash, setFlash] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   const catalog = catalogQ.data;
@@ -175,7 +182,7 @@ export function AiEvalPanel() {
 
   const start = () => {
     setFlash(null);
-    startM.mutate(picked, {
+    startM.mutate({ surfaces: picked, toolset }, {
       // Yeni koşu seçili olsun: açık ?run= / ?case= / ?cmp= eski koşuya aitti.
       onSuccess: () => setParams({ run: null, case: null, cmp: null }),
       onError: e => setFlash({ kind: 'err', text: humanize(e) }),
@@ -242,6 +249,20 @@ export function AiEvalPanel() {
                 </Chip>
               ))}
             </div>
+            {/* v0.10.1311 — araç seti yalnız serbest döngü yüzeylerine uygulanır;
+                kümede yoksa (katalog toolset '') seçici gösterilmez. */}
+            {catalog.toolset && (
+              <div className="evs-actions">
+                <span className="field-hint">Araç seti</span>
+                <SegmentedControl<AIToolset> size="sm" aria-label="Araç seti" value={toolset} onChange={setToolset}
+                  options={[
+                    { value: '', label: `Otomatik (${toolsetLabel(catalog.toolset) ?? '—'})`, title: 'Üretim profilinin araç seti: açık ayar, yoksa model adı ≤12B → basit' },
+                    { value: 'simple', label: 'Basit', title: 'query_metric / search_logs / search_traces / list_metric_labels anılmaz' },
+                    { value: 'full', label: 'Tam' },
+                  ]} />
+                <span className="field-hint">Yalnız serbest döngü yüzeylerine (ChatCodeResolve) uygulanır; modele araç kataloğu gönderilmez, prompt varyantı değişir.</span>
+              </div>
+            )}
           </>
         )}
         <div className="evs-actions">
@@ -325,6 +346,7 @@ export function AiEvalPanel() {
                   </DataTableCell>
                   <DataTableCell dt={runDt} col="pass" row={r} value={`${r.pass} / ${r.total}`} />
                   <DataTableCell dt={runDt} col="delta" row={r} value={r.delta === null ? null : fmtSignedInt(r.delta)} />
+                  <DataTableCell dt={runDt} col="toolset" row={r} value={runToolsetView(r).text} title={runToolsetView(r).title} />
                 </tr>
               );
             }) : <DataTableState dt={runDt} {...runsState} />}
@@ -340,7 +362,7 @@ export function AiEvalPanel() {
           <option value="">— seç —</option>
           {candidates.map(r => (
             <option key={r.id} value={r.id}>
-              {`${fmtRunTime(r.startedAt)} · ${r.appVersion || '—'} · ${r.model || '—'} · ${r.pass} / ${r.total}`}
+              {`${fmtRunTime(r.startedAt)} · ${r.appVersion || '—'} · ${r.model || '—'}${toolsetLabel(r.toolset) ? ` · ${toolsetLabel(r.toolset)}` : ''} · ${r.pass} / ${r.total}`}
             </option>
           ))}
         </SelectField>
@@ -383,6 +405,8 @@ function cmpHint(run: EvalRunSummary | null, candidateCount: number): string | u
 /** Bölüm başlığının sağ ucu: zaman · durum · geçen · rubrik ortalaması. */
 function runMeta(r: EvalRunSummary): string {
   const parts = [fmtRunTime(r.startedAt), runStatusView(r.status).label, `${r.pass} / ${r.total} geçti`];
+  const ts = runToolsetView(r).text; // v0.10.1311
+  if (ts) parts.push(`araç seti ${ts}`);
   if (r.rubricMean > 0) parts.push(`rubrik ${fmtDec2(r.rubricMean)}`);
   return parts.join(' · ');
 }
@@ -443,6 +467,7 @@ function CaseBody({ c }: { c: EvalCaseResult }) {
           { id: 'surface', k: 'Yüzey', v: c.surface },
           { id: 'profile', k: 'Profil', v: c.profileId, mono: true },
           { id: 'model', k: 'Model', v: c.model, mono: true },
+          { id: 'toolset', k: 'Araç seti', v: toolsetLabel(c.toolset) }, // v0.10.1311 — döngü dışı yüzey "—"
           { id: 'latency', k: 'Süre', v: `${fmtSec1(c.latencyMs)} sn` },
           { id: 'unknown', k: 'Uydurma ad', v: `${c.unknownEntities}${maxUnknown !== undefined && maxUnknown !== null ? ` (sınır ${maxUnknown})` : ''}` },
           { id: 'rubric', k: 'Rubrik', v: c.skipped ? null : fmtDec2(c.rubricTotal) },
