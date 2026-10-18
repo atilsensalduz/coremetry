@@ -12,9 +12,13 @@ import (
 
 // OpRED — bir pencerenin istek sayısı / hata / p99.
 type OpRED struct {
-	Calls    uint64  `json:"calls"`
-	Errors   uint64  `json:"errors"`
-	P99Ms    float64 `json:"p99Ms"`
+	Calls  uint64  `json:"calls"`
+	Errors uint64  `json:"errors"`
+	P99Ms  float64 `json:"p99Ms"`
+	// P50Ms — v0.10.1327: CoSRE trace drill'inin taban çizgisi ("bu
+	// operasyonun 24 sa p50'si 13 ms (×3825)"). Aynı MV, aynı tdigest durumu;
+	// omitempty: eski yük (op-prefetch bloğu) bayt bayt aynı kalır.
+	P50Ms    float64 `json:"p50Ms,omitempty"`
 	Measured bool    `json:"measured"`
 }
 
@@ -28,8 +32,30 @@ func (r OpRED) ErrorRate() float64 {
 
 // SpanOperationRED — operation_summary_5m'den tek pencere (servis boşsa tüm servisler).
 func (s *Store) SpanOperationRED(ctx context.Context, service, name string, from, to time.Time) (OpRED, error) {
+	q, args := spanOperationREDQuery(service, name, from, to)
+	var r OpRED
+	var p99, p50 float64
+	if err := s.conn.QueryRow(ctx, q, args...).Scan(&r.Calls, &r.Errors, &p99, &p50); err != nil {
+		return OpRED{}, err
+	}
+	if p99 == p99 { // NaN (boş pencere) korunmaz
+		r.P99Ms = p99
+	}
+	if p50 == p50 {
+		r.P50Ms = p50
+	}
+	r.Measured = true
+	return r, nil
+}
+
+// spanOperationREDQuery — SAF (v0.10.1327): SpanOperationRED'in SQL'i +
+// bind'leri. p50 aynı tdigest birleşiminin 1. elemanı (CH aynı aggregate
+// ifadesini bir kez hesaplar); MV-first (operation_summary_5m), zaman-sınırlı,
+// tek satır (aggregate), max_execution_time'lı. SQL pini testte.
+func spanOperationREDQuery(service, name string, from, to time.Time) (string, []any) {
 	q := `SELECT countMerge(span_count_state), countMerge(error_count_state),
-	             arrayElement(quantilesTDigestMerge(0.5, 0.95, 0.99)(duration_q_state), 3) / 1e6
+	             arrayElement(quantilesTDigestMerge(0.5, 0.95, 0.99)(duration_q_state), 3) / 1e6,
+	             arrayElement(quantilesTDigestMerge(0.5, 0.95, 0.99)(duration_q_state), 1) / 1e6
 	      FROM operation_summary_5m
 	      WHERE name = ? AND time_bucket >= ? AND time_bucket < ?`
 	args := []any{name, from, to}
@@ -38,16 +64,7 @@ func (s *Store) SpanOperationRED(ctx context.Context, service, name string, from
 		args = append(args, service)
 	}
 	q += " SETTINGS max_execution_time = 5"
-	var r OpRED
-	var p99 float64
-	if err := s.conn.QueryRow(ctx, q, args...).Scan(&r.Calls, &r.Errors, &p99); err != nil {
-		return OpRED{}, err
-	}
-	if p99 == p99 { // NaN (boş pencere) korunmaz
-		r.P99Ms = p99
-	}
-	r.Measured = true
-	return r, nil
+	return q, args
 }
 
 // FunctionCodeRED — rollup ailesinden fonksiyon kodu toplamı; p99 = kova

@@ -1,0 +1,833 @@
+package api
+
+// chat_trace_drill.go — v0.10.1327 "C-core": CoSRE guided cevaplarına
+// deterministik EN YAVAŞ TRACE kırılımı + YALNIZ o trace id'lerinin logları.
+//
+// Operator-reported: "bsa-loan-legalproceeding-prod neden yavaş" sorusu
+// SocketTimeoutException dedi ama NEREDE demedi; takip sorusu "nereye giderken
+// socketimeoutexception almış" Log kademesine gitti ve "son 500 hata logunda
+// yok" dedi. En yavaş trace cevabı anında veriyordu: kök SERVER span
+// POST /BSAWEB/legalproceeding/… 50.02 s; çocuk CLIENT span
+// "POST osbprod.bank.example" 50015 ms, öz süre %100, status error, HTTP 500,
+// url.full …/TibcoESB/ExternalXServices/Uyap/DosyaListesiSorgulama?wsdl,
+// operasyonun 24 sa p50'si 13 ms → ×3825; kaynak Tempo. Operatör: "en yavaş
+// bir iki trace'e bak, ve O TRACE ID'LERİNİN loglarına (tüm loglara değil)".
+//
+// Saf çekirdek (tablo testli, chat_trace_drill_test.go): dominantSpan,
+// peerOf, spanFailure, renderTraceDrillTR/renderTraceDrillsTR, pickDrillTraces,
+// groupTraceLogs, hasPeerSignal, prevTurnMentionsLatencyFailure, traceDrillRoute,
+// rootCauseWantsTraceDrill, intentTraceDrillUpgrade. Sunucu yarısı: trace
+// çözümü Tempo-öncelikli resolveTraceSpans (≤3 sn Tempo, sonra CH), taban
+// çizgisi operation_summary_5m (SpanOperationRED p50), loglar TEK okuma
+// (logstore.Filter.TraceIDs) — s.logs yapılandırılmış Switchable depo (ES
+// seçiliyse ES); arka uç ASLA env'den tahmin edilmez. Tüm kırılım 10 sn tavanlı;
+// goroutine'ler emit ETMEZ, olaylar yalnız demet goroutine'inden çıkar.
+// Prompt değişmedi: kanıt satırları kendini anlatır.
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/url"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/cilcenk/coremetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/copilot"
+	"github.com/cilcenk/coremetry/internal/logstore"
+	"github.com/cilcenk/coremetry/internal/mcptools"
+	"github.com/cilcenk/coremetry/internal/sourcestate"
+)
+
+// guidedTraceDrill — "nereye giderken timeout almış": servisin en yavaş
+// trace(ler)inin kritik yolundaki baskın span + o trace'lerin logları. Router'ın
+// saf yarısı geçmiş görmez; rota copilotChatGuided'da geçmişle (traceDrillRoute)
+// ve sınıflandırıcı log_errors + hedef sorusunda (intentTraceDrillUpgrade)
+// kurulur. Sınıflandırıcı beyaz listesinde DEĞİL (prompt değişmedi).
+const guidedTraceDrill guidedIntent = "trace_drill"
+
+const (
+	traceDrillBudget       = 10 * time.Second // tüm kırılım (trace'ler + taban + loglar)
+	traceDrillLogsTimeout  = 5 * time.Second
+	traceDrillLogsLimit    = 60
+	traceDrillLogsPerTrace = 8
+	traceDrillLogBodyRunes = 200
+	traceDrillBaselineWin  = 24 * time.Hour
+	traceDrillMax          = 2
+)
+
+// drillPick — kritik yoldaki baskın span (öz süresi en büyük).
+type drillPick struct {
+	Span   chstore.SpanRow
+	SelfNs int64
+	WallNs int64   // kök süresi (kritik yolun duvar saati)
+	Share  float64 // SelfNs / WallNs (0..1)
+	Depth  int
+	OK     bool
+}
+
+func drillKindRank(kind string) int {
+	switch strings.ToLower(kind) {
+	case "client", "producer":
+		return 1
+	}
+	return 0
+}
+
+// dominantSpan — SAF: kritik yol span'leri arasında öz süresi en büyük olan;
+// eşitlikte hata durumlu, sonra CLIENT/PRODUCER türlü span kazanır (dış çağrı
+// "nereye" sorusunun cevabıdır). Kritik yol boşsa OK=false.
+func dominantSpan(spans []chstore.SpanRow, an chstore.TraceAnalysis) drillPick {
+	byID := make(map[string]int, len(spans))
+	for i := range spans {
+		if _, dup := byID[spans[i].SpanID]; !dup && spans[i].SpanID != "" {
+			byID[spans[i].SpanID] = i
+		}
+	}
+	node := make(map[string]chstore.TraceNode, len(an.Nodes))
+	for _, n := range an.Nodes {
+		node[n.SpanID] = n
+	}
+	var best drillPick
+	better := func(sp chstore.SpanRow, self int64) bool {
+		if !best.OK || self > best.SelfNs {
+			return true
+		}
+		if self < best.SelfNs {
+			return false
+		}
+		be, ce := best.Span.StatusCode == "error", sp.StatusCode == "error"
+		if be != ce {
+			return ce
+		}
+		return drillKindRank(sp.Kind) > drillKindRank(best.Span.Kind)
+	}
+	for _, id := range an.CriticalIDs {
+		i, ok := byID[id]
+		if !ok {
+			continue
+		}
+		n := node[id]
+		if better(spans[i], n.SelfNs) {
+			best = drillPick{Span: spans[i], SelfNs: n.SelfNs, Depth: int(n.Depth), OK: true}
+		}
+	}
+	if best.OK {
+		best.WallNs = an.CriticalNs
+		if best.WallNs > 0 {
+			best.Share = float64(best.SelfNs) / float64(best.WallNs)
+		}
+	}
+	return best
+}
+
+// peerRef — baskın span'in hedefi. Target "ortak hedef" anahtarıdır.
+type peerRef struct {
+	Kind   string // peer.service | http | db | messaging | name
+	Target string
+	Path   string // yalnız url.full'den (sorgu/fragman atılır)
+}
+
+func spanAttr(sp chstore.SpanRow, keys ...string) string {
+	for _, k := range keys {
+		if v := strings.TrimSpace(sp.Attributes[k]); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// urlHostPath — SAF: url.full → (host, path); sorgu ve fragman atılır.
+func urlHostPath(raw string) (string, string) {
+	if raw == "" {
+		return "", ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", ""
+	}
+	return u.Hostname(), u.EscapedPath()
+}
+
+// peerOf — SAF: öncelik peer.service → server.address / net.peer.name
+// (+ url.full yolu) → db.system + db.name → messaging.system + hedef → span
+// adı. Değerler AYNEN (redaksiyon yok, operatör tercihi).
+func peerOf(sp chstore.SpanRow) peerRef {
+	fullHost, path := urlHostPath(spanAttr(sp, "url.full", "http.url"))
+	if ps := strings.TrimSpace(sp.PeerService); ps != "" {
+		return peerRef{Kind: "peer.service", Target: ps, Path: path}
+	}
+	if ps := spanAttr(sp, "peer.service"); ps != "" {
+		return peerRef{Kind: "peer.service", Target: ps, Path: path}
+	}
+	if host := spanAttr(sp, "server.address", "net.peer.name"); host != "" {
+		return peerRef{Kind: "http", Target: host, Path: path}
+	}
+	if fullHost != "" {
+		return peerRef{Kind: "http", Target: fullHost, Path: path}
+	}
+	dbSys := strings.TrimSpace(sp.DBSystem)
+	if dbSys == "" {
+		dbSys = spanAttr(sp, "db.system", "db.system.name")
+	}
+	if dbSys != "" {
+		t := dbSys
+		if n := spanAttr(sp, "db.name", "db.namespace"); n != "" {
+			t += "/" + n
+		}
+		return peerRef{Kind: "db", Target: t}
+	}
+	if ms := spanAttr(sp, "messaging.system"); ms != "" {
+		t := ms
+		if d := spanAttr(sp, "messaging.destination.name", "messaging.destination"); d != "" {
+			t += "/" + d
+		}
+		return peerRef{Kind: "messaging", Target: t}
+	}
+	return peerRef{Kind: "name", Target: sp.Name}
+}
+
+// drillFailure — baskın span'in hata özeti.
+type drillFailure struct {
+	Status   string
+	HTTPCode int
+	ExType   string
+	ExMsg    string
+}
+
+// spanFailure — SAF: status + HTTP kodu (kolon, yoksa semconv attribute) +
+// ilk exception event'i (mcptools.SpanException — get_trace aracıyla aynı
+// çözücü); event yoksa hata mesajı status mesajından.
+func spanFailure(sp chstore.SpanRow) drillFailure {
+	f := drillFailure{Status: sp.StatusCode, HTTPCode: int(sp.HTTPStatus)}
+	if f.HTTPCode == 0 {
+		var c int
+		if _, err := fmt.Sscanf(spanAttr(sp, "http.response.status_code", "http.status_code"), "%d", &c); err == nil {
+			f.HTTPCode = c
+		}
+	}
+	f.ExType, f.ExMsg = mcptools.SpanException(sp.Events)
+	if f.ExType == "" && f.ExMsg == "" && sp.StatusCode == "error" {
+		f.ExMsg = strings.TrimSpace(sp.StatusMessage)
+	}
+	return f
+}
+
+// traceDrill — tek trace'in kırılım sonucu (render girdisi).
+type traceDrill struct {
+	TraceID   string
+	Label     string // en yavaş | en yavaş hatalı | 2. en yavaş
+	Source    string // traceSourceTempo | traceSourceCH | traceSourceAllReplicas
+	Pick      drillPick
+	Peer      peerRef
+	Fail      drillFailure
+	BaseP50Ms float64
+	BaseOK    bool
+	BaseErr   error
+	Err       error
+	NotFound  bool
+	RootSvc   string // kök span'in servisi (baskın span başka servisteyse adı yazılır)
+	MinNs     int64  // span zarfı (log penceresi için)
+	MaxNs     int64
+}
+
+func traceSourceTR(src string) string {
+	switch src {
+	case traceSourceTempo:
+		return "Tempo"
+	case traceSourceCH:
+		return "ClickHouse"
+	case traceSourceAllReplicas:
+		return "ClickHouse (tüm replikalar)"
+	}
+	return src
+}
+
+func fmtDrillWall(ns int64) string {
+	if ns >= int64(time.Second) {
+		return fmt.Sprintf("%.2f s", float64(ns)/1e9)
+	}
+	return fmt.Sprintf("%.0f ms", float64(ns)/1e6)
+}
+
+func fmtDrillSelf(ns int64) string {
+	if ns >= int64(time.Second) {
+		return fmt.Sprintf("%.1f s", float64(ns)/1e9)
+	}
+	return fmt.Sprintf("%.0f ms", float64(ns)/1e6)
+}
+
+// drillCallLabel — SAF: "POST" + host (adda yoksa) + " → " + yol.
+func drillCallLabel(name string, p peerRef) string {
+	label := name
+	if p.Kind != "name" && p.Target != "" && !strings.Contains(name, p.Target) {
+		if p.Kind == "http" {
+			label += " " + p.Target
+		} else {
+			label += " → " + p.Target
+		}
+	}
+	if p.Path != "" && p.Path != "/" {
+		label += " → " + p.Path
+	}
+	return strings.TrimSpace(label)
+}
+
+// renderTraceDrillTR — SAF: tek trace'in kanıt cümlesi. Hedef cümle (prod):
+// "50.02 s'nin 50.0 s'i (%100) CLIENT çağrısında: POST osbprod.bank.example →
+// /TibcoESB/…/DosyaListesiSorgulama (HTTP 500, java.net.SocketTimeoutException:
+// Read timed out); bu operasyonun 24 sa p50'si 13 ms (×3825). Trace: <id>
+// (kaynak: Tempo)". Taban yoksa ×N yazılmaz; okunamadıysa SÖYLENİR.
+func renderTraceDrillTR(d traceDrill) string {
+	if d.Err != nil {
+		return fmt.Sprintf("Trace %s span'leri OKUNAMADI (%s) — kritik yol bilinmiyor; hedef UYDURMA.", d.TraceID, sourcestate.Classify(d.Err))
+	}
+	if d.NotFound || !d.Pick.OK {
+		return fmt.Sprintf("Trace %s trace deposunda BULUNAMADI (Tempo/ClickHouse) — kritik yol çıkarılamadı; hedef UYDURMA.", d.TraceID)
+	}
+	sp := d.Pick.Span
+	kind := strings.ToUpper(sp.Kind)
+	where := kind + " span'inde"
+	if r := drillKindRank(sp.Kind); r > 0 {
+		where = kind + " çağrısında"
+	} else if kind == "" {
+		where = "span'de"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s'nin %s'i (%%%.0f) %s: %s", fmtDrillWall(d.Pick.WallNs), fmtDrillSelf(d.Pick.SelfNs), d.Pick.Share*100, where, drillCallLabel(sp.Name, d.Peer))
+	if sp.ServiceName != "" && d.RootSvc != "" && sp.ServiceName != d.RootSvc {
+		fmt.Fprintf(&b, " [servis: %s]", sp.ServiceName)
+	}
+	var fail []string
+	if d.Fail.HTTPCode > 0 {
+		fail = append(fail, fmt.Sprintf("HTTP %d", d.Fail.HTTPCode))
+	}
+	switch {
+	case d.Fail.ExType != "" && d.Fail.ExMsg != "":
+		fail = append(fail, d.Fail.ExType+": "+oneLineSample(d.Fail.ExMsg, 200))
+	case d.Fail.ExType != "":
+		fail = append(fail, d.Fail.ExType)
+	case d.Fail.ExMsg != "":
+		fail = append(fail, oneLineSample(d.Fail.ExMsg, 200))
+	}
+	if len(fail) == 0 && d.Fail.Status == "error" {
+		fail = append(fail, "status error")
+	}
+	if len(fail) > 0 {
+		b.WriteString(" (" + strings.Join(fail, ", ") + ")")
+	}
+	durMs := float64(spanDurNs(sp)) / 1e6
+	switch {
+	case d.BaseErr != nil:
+		fmt.Fprintf(&b, "; bu operasyonun 24 sa p50'si OKUNAMADI (%s)", sourcestate.Classify(d.BaseErr))
+	case d.BaseOK && d.BaseP50Ms > 0:
+		fmt.Fprintf(&b, "; bu operasyonun 24 sa p50'si %s (×%.0f)", fmtDrillMs(d.BaseP50Ms), durMs/d.BaseP50Ms)
+	}
+	fmt.Fprintf(&b, ". Trace: %s (kaynak: %s)", d.TraceID, traceSourceTR(d.Source))
+	return b.String()
+}
+
+func fmtDrillMs(ms float64) string {
+	if ms >= 1000 {
+		return fmt.Sprintf("%.2f s", ms/1000)
+	}
+	if ms < 10 {
+		return fmt.Sprintf("%.1f ms", ms)
+	}
+	return fmt.Sprintf("%.0f ms", ms)
+}
+
+func spanDurNs(sp chstore.SpanRow) int64 {
+	if sp.EndTime > sp.StartTime {
+		return sp.EndTime - sp.StartTime
+	}
+	return int64(sp.DurationMs * 1e6)
+}
+
+// renderTraceDrillsTR — SAF: başlık + trace başına bir satır + paylaşılan
+// hedef ("ortak hedef: osbprod.bank.example (2/2)").
+func renderTraceDrillsTR(ds []traceDrill) string {
+	if len(ds) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("EN YAVAŞ TRACE KRİTİK YOLU (deterministik — kritik yolda öz süresi en büyük span; 'nereye' sorusunun cevabı bu hedeftir):\n")
+	count := map[string]int{}
+	var order []string
+	ok := 0
+	for _, d := range ds {
+		fmt.Fprintf(&b, "- %s: %s\n", d.Label, renderTraceDrillTR(d))
+		if d.Err != nil || d.NotFound || !d.Pick.OK {
+			continue
+		}
+		ok++
+		if t := d.Peer.Target; t != "" {
+			if count[t] == 0 {
+				order = append(order, t)
+			}
+			count[t]++
+		}
+	}
+	for _, t := range order {
+		if count[t] >= 2 {
+			fmt.Fprintf(&b, "ortak hedef: %s (%d/%d)\n", t, count[t], ok)
+		}
+	}
+	return b.String()
+}
+
+// drillCandidate — kırılacak trace + etiketi.
+type drillCandidate struct {
+	Row   chstore.TraceRow
+	Label string
+}
+
+// pickDrillTraces — SAF: en yavaş + en yavaş HATALI (farklıysa); en yavaş
+// zaten hatalıysa ikinci en yavaş. En çok traceDrillMax, tekrarsız.
+func pickDrillTraces(rows []chstore.TraceRow) []drillCandidate {
+	if len(rows) == 0 {
+		return nil
+	}
+	rs := append([]chstore.TraceRow(nil), rows...)
+	sort.SliceStable(rs, func(i, j int) bool { return rs[i].DurationMs > rs[j].DurationMs })
+	out := []drillCandidate{{Row: rs[0], Label: "en yavaş"}}
+	for _, r := range rs[1:] {
+		if r.HasError && !rs[0].HasError && r.TraceID != rs[0].TraceID {
+			return append(out, drillCandidate{Row: r, Label: "en yavaş hatalı"})
+		}
+	}
+	for _, r := range rs[1:] {
+		if r.TraceID != rs[0].TraceID {
+			return append(out, drillCandidate{Row: r, Label: "2. en yavaş"})
+		}
+	}
+	return out
+}
+
+// groupTraceLogs — SAF: tek çoklu-trace log sayfasını trace id'ye göre
+// gruplar (traceIDs sırasıyla), trace başına ≤perTrace satır, önce şiddet
+// (azalan) sonra zaman (artan). Listede olmayan trace'in logu atılır.
+func groupTraceLogs(logs []*logstore.LogRecord, traceIDs []string, perTrace int) [][]*logstore.LogRecord {
+	idx := make(map[string]int, len(traceIDs))
+	for i, id := range traceIDs {
+		idx[strings.ToLower(id)] = i
+	}
+	out := make([][]*logstore.LogRecord, len(traceIDs))
+	for _, lg := range logs {
+		if lg == nil {
+			continue
+		}
+		if i, ok := idx[strings.ToLower(strings.TrimSpace(lg.TraceID))]; ok {
+			out[i] = append(out[i], lg)
+		}
+	}
+	for i := range out {
+		g := out[i]
+		sort.SliceStable(g, func(a, b int) bool {
+			if g[a].Severity != g[b].Severity {
+				return g[a].Severity > g[b].Severity
+			}
+			return g[a].Timestamp < g[b].Timestamp
+		})
+		if perTrace > 0 && len(g) > perTrace {
+			out[i] = g[:perTrace]
+		}
+	}
+	return out
+}
+
+func drillSevTR(lg *logstore.LogRecord) string {
+	if t := strings.TrimSpace(lg.SeverityText); t != "" {
+		return strings.ToUpper(t)
+	}
+	switch n := lg.Severity; {
+	case n >= 21:
+		return "FATAL"
+	case n >= 17:
+		return "ERROR"
+	case n >= 13:
+		return "WARN"
+	case n >= 9:
+		return "INFO"
+	case n >= 1:
+		return "DEBUG"
+	}
+	return "-"
+}
+
+func drillTraceID12(id string) string {
+	if len(id) > 12 {
+		return id[:12] + "…"
+	}
+	return id
+}
+
+// renderTraceLogLineTR — SAF: "KANIT: log 10:42:01 ERROR svc <gövde≤200> (trace 0af7651916cd…)".
+func renderTraceLogLineTR(lg *logstore.LogRecord) string {
+	body := oneLineSample(lg.Body, traceDrillLogBodyRunes)
+	if et := strings.TrimSpace(lg.Attributes["exception.type"]); et != "" && !strings.Contains(body, et) {
+		body += " [exception.type=" + et + "]"
+	}
+	return fmt.Sprintf("KANIT: log %s %s %s %s (trace %s)",
+		time.Unix(0, lg.Timestamp).UTC().Format("15:04:05"), drillSevTR(lg), lg.ServiceName, body, drillTraceID12(lg.TraceID))
+}
+
+// renderTraceDrillLogsTR — SAF: log bölümü. Depo yok / okunamadı / boş ayrı
+// cümleler (okunamadı ≠ yok).
+func renderTraceDrillLogsTR(noStore bool, page *logstore.Page, err error, traceIDs []string) string {
+	switch {
+	case len(traceIDs) == 0:
+		return ""
+	case noStore:
+		return "Loglar: log deposu yapılandırılmamış — bu trace'lerin logları okunamadı.\n"
+	case err != nil:
+		return fmt.Sprintf("Loglar OKUNAMADI (%s) — bu 'log yok' DEMEK DEĞİL; log içeriği UYDURMA.\n", sourcestate.Classify(err))
+	}
+	var logs []*logstore.LogRecord
+	if page != nil {
+		logs = page.Logs
+	}
+	var b strings.Builder
+	b.WriteString("O TRACE'LERİN LOGLARI (yalnız bu trace id'leri, trace zarfı ±1 dk):\n")
+	for i, g := range groupTraceLogs(logs, traceIDs, traceDrillLogsPerTrace) {
+		if len(g) == 0 {
+			fmt.Fprintf(&b, "- trace %s: bu trace'e bağlı log kaydı YOK.\n", drillTraceID12(traceIDs[i]))
+			continue
+		}
+		for _, lg := range g {
+			b.WriteString(renderTraceLogLineTR(lg) + "\n")
+		}
+	}
+	if len(logs) >= traceDrillLogsLimit {
+		fmt.Fprintf(&b, "Not: log okuması %d kayıt tavanına ulaştı; trace başına en çok %d satır gösterildi.\n", traceDrillLogsLimit, traceDrillLogsPerTrace)
+	}
+	return b.String()
+}
+
+// hasPeerSignal — SAF: "nereye / hangi servise / hangi hedefe / giderken /
+// downstream / kime / hangi url / hangi endpoint" — hedef soran şekil.
+func hasPeerSignal(toks []string) bool {
+	if tokenHasPrefix(toks, "nereye", "giderken", "downstream") {
+		return true
+	}
+	for i, t := range toks {
+		if t == "kime" {
+			return true
+		}
+		if t == "hangi" && i+1 < len(toks) {
+			n := toks[i+1]
+			for _, p := range []string{"servise", "hedef", "url", "endpoint"} {
+				if strings.HasPrefix(n, p) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// latencyFailureStems — önceki turda gecikme/hata konuşulduğunu gösteren
+// alt-dizgiler (normalize metin; "sockettimeoutexception" içindeki "timeout"
+// da yakalanır).
+var latencyFailureStems = []string{"timeout", "timed out", "zaman aşım", "exception", "istisna",
+	"yavaş", "latency", "gecikme", "slow", "p99"}
+
+// prevTurnMentionsLatencyFailure — SAF: aktif soru HARİÇ en yakın asistan
+// cevabı ya da bir önceki kullanıcı sorusu timeout/exception/yavaşlık andı mı;
+// ya da önceki rota kök-neden / yavaş-trace / drill miydi.
+func prevTurnMentionsLatencyFailure(msgs []copilot.ChatMessage, lastIntent guidedIntent) bool {
+	switch lastIntent {
+	case guidedRootCause, guidedSlowTraces, guidedTraceDrill:
+		return true
+	}
+	seenLast, seenAsst, seenUser := false, false, false
+	for i := len(msgs) - 1; i >= 0; i-- {
+		m := msgs[i]
+		txt := strings.TrimSpace(m.Text)
+		if txt == "" {
+			continue
+		}
+		if m.Role == "user" && !seenLast {
+			seenLast = true
+			continue
+		}
+		if !seenLast {
+			continue
+		}
+		switch {
+		case m.Role == "assistant" && !seenAsst:
+			seenAsst = true
+		case m.Role == "user" && !seenUser:
+			seenUser = true
+		default:
+			continue
+		}
+		norm := normalizeGuidedMsg(txt)
+		for _, st := range latencyFailureStems {
+			if strings.Contains(norm, st) {
+				return true
+			}
+		}
+		if seenAsst && seenUser {
+			break
+		}
+	}
+	return false
+}
+
+// traceDrillOverridable — hedef sorusunun ezebileceği rotalar: Log/hata/sağlık
+// kademeleri (prod'da soru log_errors'a düşüp "son 500 hata logunda yok"
+// dedi). Daha spesifik rotalar (trace id, çift, endpoint, yavaş-trace,
+// kök-neden — son ikisi zaten kırılım taşır) dokunulmaz.
+var traceDrillOverridable = map[guidedIntent]bool{
+	guidedNone: true, guidedLogErrors: true, guidedProblems: true, guidedServiceHealth: true,
+	guidedServiceExceptions: true, guidedFindEntity: true,
+}
+
+// traceDrillRoute — SAF: hedef sinyali + servis (sorudan ya da önceki
+// turdan) + önceki turda gecikme/hata → trace_drill. Geçmiş yoksa rota AYNEN.
+func traceDrillRoute(route guidedRoute, norm, inheritedSvc string, prevLatency bool) (guidedRoute, bool) {
+	if !prevLatency || !traceDrillOverridable[route.Intent] || !hasPeerSignal(guidedTokens(norm)) {
+		return route, false
+	}
+	svc := route.Service
+	if svc == "" {
+		svc = inheritedSvc
+	}
+	if svc == "" {
+		return route, false
+	}
+	return guidedRoute{Intent: guidedTraceDrill, Service: svc, Env: route.Env}, true
+}
+
+// intentTraceDrillUpgrade — SAF: sınıflandırıcı log_errors dedi ama soru
+// hedef soruyor ("payments hangi servise giderken hata alıyor") → trace_drill.
+func intentTraceDrillUpgrade(route guidedRoute, question string) guidedRoute {
+	if route.Intent != guidedLogErrors || route.Service == "" {
+		return route
+	}
+	if !hasPeerSignal(guidedTokens(normalizeGuidedMsg(question))) {
+		return route
+	}
+	return guidedRoute{Intent: guidedTraceDrill, Service: route.Service, Env: route.Env}
+}
+
+// hasLatencyAsk — SAF: soru yavaşlık/timeout soruyor mu (kök-neden demetinin
+// kırılım kapısı).
+func hasLatencyAsk(norm string) bool {
+	if hasSlowTraceSignal(norm) {
+		return true
+	}
+	if tokenHasPrefix(guidedTokens(norm), "yavaş", "yavas", "slow", "gecikme", "latency", "p99", "p95", "takıl") {
+		return true
+	}
+	for _, s := range []string{"timeout", "timed out", "zaman aşım"} {
+		if strings.Contains(norm, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// rootCauseWantsTraceDrill — SAF: kök-neden demeti kırılımı YALNIZ p99
+// tabana göre yükseldiyse (≥1.5×) ya da soru yavaşlık/timeout soruyorsa koşar.
+func rootCauseWantsTraceDrill(cur, base aiRED, curErr error, slowAsk bool) bool {
+	if slowAsk {
+		return true
+	}
+	return curErr == nil && cur.Spans > 0 && base.P99Ms > 0 && cur.P99Ms >= 1.5*base.P99Ms
+}
+
+// ─── Sunucu yarısı ──────────────────────────────────────────────────────
+
+// traceDrillFor — tek trace: Tempo-öncelikli span çözümü, analiz, baskın span,
+// 24 sa p50 tabanı. Emit ETMEZ (goroutine'den çağrılır).
+func (s *Server) traceDrillFor(ctx context.Context, c drillCandidate) traceDrill {
+	d := traceDrill{TraceID: c.Row.TraceID, Label: c.Label}
+	spans, src, err := s.resolveTraceSpans(ctx, c.Row.TraceID)
+	if err != nil {
+		d.Err = err
+		return d
+	}
+	if len(spans) == 0 {
+		d.NotFound = true
+		return d
+	}
+	d.Source = src
+	for _, sp := range spans {
+		if sp.StartTime > 0 && (d.MinNs == 0 || sp.StartTime < d.MinNs) {
+			d.MinNs = sp.StartTime
+		}
+		if sp.EndTime > d.MaxNs {
+			d.MaxNs = sp.EndTime
+		}
+	}
+	an := chstore.BuildTraceAnalysis(spans, false)
+	for i := range spans {
+		if spans[i].SpanID == an.RootSpanID {
+			d.RootSvc = spans[i].ServiceName
+			break
+		}
+	}
+	d.Pick = dominantSpan(spans, an)
+	if !d.Pick.OK {
+		return d
+	}
+	d.Peer, d.Fail = peerOf(d.Pick.Span), spanFailure(d.Pick.Span)
+	if s.store != nil && d.Pick.Span.Name != "" {
+		end := time.Unix(0, d.Pick.Span.EndTime)
+		if d.Pick.Span.EndTime <= 0 {
+			end = time.Now()
+		}
+		red, berr := s.store.SpanOperationRED(ctx, d.Pick.Span.ServiceName, d.Pick.Span.Name, end.Add(-traceDrillBaselineWin), end)
+		switch {
+		case berr != nil:
+			d.BaseErr = berr
+		case red.Calls > 0 && red.P50Ms > 0:
+			d.BaseP50Ms, d.BaseOK = red.P50Ms, true
+		}
+	}
+	return d
+}
+
+// traceDrillEvidence — adayları paralel kırar (goroutine'ler emit etmez),
+// sonra TEK log okuması; adım çipleri + trace_list bloğu yalnız buradan.
+func (s *Server) traceDrillEvidence(ctx context.Context, emit func(string, any), cands []drillCandidate, service string, from, to time.Time) string {
+	if len(cands) == 0 {
+		return ""
+	}
+	dctx, cancel := context.WithTimeout(ctx, traceDrillBudget)
+	defer cancel()
+	steps := make([]int, len(cands))
+	for i, c := range cands {
+		args, _ := json.Marshal(map[string]any{"trace_id": c.Row.TraceID, "pick": c.Label})
+		steps[i] = emitGuidedStep(emit, "trace_drill", string(args))
+	}
+	res := make([]traceDrill, len(cands))
+	var wg sync.WaitGroup
+	for i, c := range cands {
+		wg.Add(1)
+		go func(i int, c drillCandidate) {
+			defer wg.Done()
+			res[i] = s.traceDrillFor(dctx, c)
+		}(i, c)
+	}
+	wg.Wait()
+	ids := make([]string, 0, len(res))
+	var minNs, maxNs int64
+	for i, d := range res {
+		emitGuidedStepResult(emit, steps[i], "trace_drill", renderTraceDrillTR(d), d.Err)
+		ids = append(ids, d.TraceID)
+		lo, hi := d.MinNs, d.MaxNs
+		if lo == 0 { // span okunamadı: liste satırının zarfı
+			lo = cands[i].Row.StartTime
+			hi = lo + int64(cands[i].Row.DurationMs*1e6)
+		}
+		if lo > 0 && (minNs == 0 || lo < minNs) {
+			minNs = lo
+		}
+		if hi > maxNs {
+			maxNs = hi
+		}
+	}
+	var b strings.Builder
+	b.WriteString(renderTraceDrillsTR(res))
+	largs, _ := json.Marshal(map[string]any{"trace_ids": ids, "limit": traceDrillLogsLimit})
+	nLog := emitGuidedStep(emit, "trace_drill_logs", string(largs))
+	var page *logstore.Page
+	var lerr error
+	if s.logs != nil {
+		lf, lt := from, to
+		if minNs > 0 {
+			lf, lt = time.Unix(0, minNs).Add(-time.Minute), time.Unix(0, maxNs).Add(time.Minute)
+		}
+		page, lerr = logstore.SearchWithTimeout(dctx, s.logs, logstore.Filter{TraceIDs: ids, From: lf, To: lt, Limit: traceDrillLogsLimit}, traceDrillLogsTimeout)
+	}
+	logText := renderTraceDrillLogsTR(s.logs == nil, page, lerr, ids)
+	emitGuidedStepResult(emit, nLog, "trace_drill_logs", logText, lerr)
+	b.WriteString(logText)
+	b.WriteString("KURAL: Kritik yol satırları HESAPLANMIŞ ölçümdür — hedefi, süreyi ve hatayı aynen aktar; log satırı yoksa log içeriği UYDURMA.\n")
+	rows := make([]chstore.TraceRow, 0, len(cands))
+	for _, c := range cands {
+		rows = append(rows, c.Row)
+	}
+	href := "/traces?sort=duration"
+	if service != "" {
+		href = "/traces?service=" + url.QueryEscape(service) + "&sort=duration"
+	}
+	emit("trace_list", endpointTraceListPayload("en yavaş trace kritik yolu", rows, from, to, href))
+	return b.String()
+}
+
+// slowTraceDrill — en yavaş trace listesi (guidedTraceFilter) + kırılım.
+func (s *Server) slowTraceDrill(ctx context.Context, emit func(string, any), service, env string, from, to time.Time) ([]chstore.TraceRow, string, error) {
+	rows, _, _, err := s.store.GetTraces(ctx, guidedTraceFilter(service, env, from, to))
+	if err != nil {
+		return nil, "", err
+	}
+	return rows, s.traceDrillEvidence(ctx, emit, pickDrillTraces(rows), service, from, to), nil
+}
+
+// guidedTraceDrillBundle — trace_drill rotasının kanıtı: en yavaş trace listesi
+// + en yavaş 1–2 trace'in kritik yolu + yalnız o trace'lerin logları.
+func (s *Server) guidedTraceDrillBundle(ctx context.Context, emit func(string, any), service, env string, from, to time.Time, rangeS int64) (string, string, error) {
+	n := emitGuidedStep(emit, "slow_traces", withEnvArg(`{"service":"`+service+`","sort":"duration"}`, env))
+	rows, _, _, err := s.store.GetTraces(ctx, guidedTraceFilter(service, env, from, to))
+	if err != nil {
+		emitGuidedStepResult(emit, n, "slow_traces", "", err)
+		return "", "", err
+	}
+	list := renderSlowTracesEvidenceTR(rows, service, env, rangeS)
+	emitGuidedStepResult(emit, n, "slow_traces", list, nil)
+	var b strings.Builder
+	fmt.Fprintf(&b, "SORU ŞEKLİ: hedef — %q servisinin yavaş/hatalı isteği NEREYE giderken takıldı.\n\n", service)
+	b.WriteString(list)
+	if drill := s.traceDrillEvidence(ctx, emit, pickDrillTraces(rows), service, from, to); drill != "" {
+		b.WriteString("\n" + drill)
+	}
+	src := fmt.Sprintf("en yavaş trace kritik yolu + o trace'lerin logları (son %s)", fmtAgoTR(rangeS))
+	if env != "" {
+		src += fmt.Sprintf(", ortam: %s", env)
+	}
+	return b.String(), src, nil
+}
+
+// guidedTraceDrillOverride — copilotChatGuided'ın geçmiş-farkında yarısı:
+// servis sorudan, ekrandan, sohbet bağlamından ya da en yakın önceki kullanıcı
+// sorusundan devralınır; önceki tur gecikme/hata anmadıysa rota DEĞİŞMEZ.
+func (s *Server) guidedTraceDrillOverride(ctx context.Context, route guidedRoute, norm string, msgs []copilot.ChatMessage, prior []string, ctxService string, svcNames, envNames []string) (guidedRoute, bool) {
+	inherited := ctxService
+	if st := chatContextFromCtx(ctx); st != nil {
+		if inherited == "" {
+			inherited = st.ctx.Service
+		}
+		if lr := st.ctx.LastRoute; lr != nil && inherited == "" {
+			inherited = lr.Service
+		}
+	}
+	if inherited == "" {
+		inherited = latestPriorService(prior, svcNames, envNames)
+	}
+	return traceDrillRoute(route, norm, inherited, prevTurnMentionsLatencyFailure(msgs, chatLastIntent(ctx)))
+}
+
+// chatLastIntent — sohbet bağlamının son rotası ("" = yok).
+func chatLastIntent(ctx context.Context) guidedIntent {
+	if st := chatContextFromCtx(ctx); st != nil && st.ctx.LastRoute != nil {
+		return st.ctx.LastRoute.Intent
+	}
+	return guidedNone
+}
+
+// latestPriorService — SAF: priorUserTexts YENİDEN ESKİYE sıralı; ilk servis
+// adı taşıyan önceki soru kazanır.
+func latestPriorService(prior []string, services, envs []string) string {
+	for _, p := range prior {
+		if svc := extractServiceEntity(normalizeGuidedMsg(p), services, envs); svc != "" {
+			return svc
+		}
+	}
+	return ""
+}

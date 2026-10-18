@@ -151,9 +151,20 @@ func guidedSuggestions(route guidedRoute) []string {
 		return []string{"Takımımın exception'ları?", "Takımımın en hatalı servisleri?", "Takımımın servisleri nasıl?"}
 	case guidedSlowTraces:
 		if svc != "" {
-			return []string{svc + " sağlığı nasıl?", svc + " hata logları?", svc + " son deploy etkisi?"}
+			// v0.10.1327 — "NEREDE": en yavaş trace'in hedefi (kırılım + o trace'in logları).
+			return []string{svc + " en yavaş trace'i nereye gidiyor?", svc + " sağlığı nasıl?", svc + " hata logları?", svc + " son deploy etkisi?"}
 		}
 		return []string{"Açık problemler?", "Takımımın servisleri nasıl?"}
+	case guidedRootCause: // v0.10.1327 — kök-neden sonrası "nerede" adımı
+		if svc != "" {
+			return []string{svc + " en yavaş trace'i nereye gidiyor?", svc + " hata logları?", svc + " son deploy etkisi?"}
+		}
+		return nil
+	case guidedTraceDrill: // v0.10.1327
+		if svc != "" {
+			return []string{svc + " hata logları?", svc + " sağlığı nasıl?", svc + " son deploy etkisi?"}
+		}
+		return nil
 	case guidedDeployImpact:
 		if svc != "" {
 			return []string{svc + " sağlığı nasıl?", svc + " en yavaş trace'ler?", svc + " hata logları?"}
@@ -400,7 +411,7 @@ func guidedAnswerLinkTargets(route guidedRoute) []guidedAnswerLink {
 			}
 		}
 		return []guidedAnswerLink{{Label: "Problemler", Href: "/problems"}}
-	case guidedSlowTraces:
+	case guidedSlowTraces, guidedTraceDrill: // v0.10.1327 — kırılım aynı listeden
 		if svc != "" {
 			return []guidedAnswerLink{{Label: "Trace'ler (en yavaş)", Href: "/traces?service=" + svcQ + "&sort=duration"}}
 		}

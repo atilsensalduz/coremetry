@@ -6309,3 +6309,41 @@ vakaları "missing tool" ile kalıyordu; ölçmek istediğimiz araç döngüsüy
   TestEvalAgentExpectTierIntentKeepsIntent, TestEvalAgentSkipIntentDecision;
   TestEvalAgentSurfaceTag sınıflandırıcı satırını görmek için artık expectTier
   "intent" sabitler.
+
+## 2026-10-18 — v0.10.1327 — CoSRE: en yavaş trace kırılımı + YALNIZ o trace'lerin logları ("C-core")
+
+**Sorun (operator-reported):** "X neden yavaş" SocketTimeoutException dedi ama NEREDE
+demedi; takip "nereye giderken socketimeoutexception almış" Log kademesine düşüp "son
+500 hata logunda yok" dedi. En yavaş trace cevabı anında veriyordu (kök SERVER 50.02 s,
+çocuk CLIENT çağrısı 50015 ms öz süre %100, HTTP 500, url.full yolu, 24 sa p50 13 ms →
+×3825, kaynak Tempo). Operatör: "en yavaş bir iki trace'e bak, ve O TRACE ID'LERİNİN
+loglarına (tüm loglara değil)".
+
+- **Karar:** deterministik kırılım `api/chat_trace_drill.go`. Trace Tempo-öncelikli
+  `resolveTraceSpans` (≤3 sn, sonra CH) → `BuildTraceAnalysis` → kritik yolda öz süresi
+  en büyük span (eşitlikte hata, sonra CLIENT/PRODUCER) → hedef (peer.service →
+  server.address/net.peer.name + url.full yolu → db → messaging → ad; değerler aynen) →
+  hata (HTTP kodu + `mcptools.SpanException`) → taban `SpanOperationRED` p50 (aynı MV
+  `operation_summary_5m`, yeni P50Ms kolonu; SQL pinli). Seçim: en yavaş + en yavaş
+  hatalı (en yavaş zaten hatalıysa 2. en yavaş), ≤2. Loglar TEK okuma
+  (`logstore.Filter.TraceIDs`, zarf ±1 dk, 60 kayıt, trace başına 8 satır) — `s.logs`
+  yapılandırılmış depo (Ayarlar→ES ise ES), arka uç env'den çıkarılmaz; depo yok /
+  OKUNAMADI / YOK ayrı cümleler. Tüm kırılım 10 sn tavanlı; goroutine'ler emit etmez.
+- **Kablolama:** yavaş-trace demeti listesinin ilk 1–2'sini kırar (ikinci GetTraces
+  yok); kök-neden demeti log desenlerinden sonra YALNIZ p99 tabanın ≥1.5×'iyse ya da soru
+  yavaşlık/timeout soruyorsa; yeni guided niyet `trace_drill`: hedef sinyali ("nereye",
+  "giderken", "hangi servise/hedefe/url/endpoint", "kime", "downstream") + servis
+  (sorudan / ekrandan / sohbet bağlamından / önceki sorudan) + önceki tur gecikme/hata
+  andı (ya da son rota kök-neden / yavaş-trace) → copilotChatGuided'da router'dan sonra
+  ezer (yalnız none / log_errors / problems / sağlık / exception / find_entity rotalarını).
+  Geçmişsiz aynı soru bugünkü yolunda. Sınıflandırıcı log_errors + hedef sinyali +
+  servis → `trace_drill` (beyaz listeye girmedi). Takip çipi "<svc> en yavaş trace'i
+  nereye gidiyor?" (yavaş-trace + kök-neden sonrası; kendi başına slow_traces'e yönlenir).
+- **Değişmeyenler:** prompt yok (anlatım SystemPromptGuidedChat; kanıt satırları kendini
+  anlatır), copilot_chat.go / provider dokunulmadı, MCP araç sayısı aynı, api.go büyümedi.
+- **Testler:** TestDominantSpan, TestPeerOfPrecedence, TestSpanFailure,
+  TestRenderTraceDrillTRGolden (prod vakası), TestRenderTraceDrillsTRSharedTarget,
+  TestPickDrillTraces, TestGroupTraceLogsCapsAndOrder, TestRenderTraceDrillLogsTR,
+  TestHasPeerSignal, TestPrevTurnMentionsLatencyFailure, TestTraceDrillRouterTable,
+  TestIntentTraceDrillUpgrade, TestRootCauseWantsTraceDrill, TestTraceDrillWiring,
+  TestTraceDrillFollowupChip; chstore TestSpanOperationREDQueryPinsP50.

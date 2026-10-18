@@ -32,6 +32,8 @@ var stepPhaseByTool = map[string]string{
 	"get_exemplar_traces": "Trace", "get_linked_traces": "Trace", "trace_stats": "Trace",
 	"compare_traces": "Trace", "bubble_up": "Trace", "explain_trace": "Trace",
 	"pivot_from_trace": "Trace", // v0.10.1275 — CoSRE adım 6: trace → pod → JVM → log
+	// v0.10.1327 — en yavaş trace kritik yolu + o trace'lerin logları
+	"trace_drill": "Trace", "trace_drill_logs": "Log",
 	// Sağlık (servis / operasyon / veritabanı / kuyruk / SLO)
 	"get_service_health": "Sağlık", "get_operation_health": "Sağlık", "get_db_health": "Sağlık",
 	"get_messaging_health": "Sağlık", "list_slo_status": "Sağlık", "explain_service_health": "Sağlık",

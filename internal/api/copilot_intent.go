@@ -485,6 +485,9 @@ func (s *Server) copilotChatIntent(ctx context.Context, emit func(string, any), 
 			ExchangeID: aisurface.ChildExchangeID(m.ExchangeID, aisurface.ChatOffTopic)}), t0, // v0.10.1153 — turun altında
 			0, 0, 0, "ok", "", question, offTopicAnswerText(question, ctxService))
 	}
+	// v0.10.1327 — log_errors + hedef sorusu ("hangi servise giderken hata
+	// alıyor") → en yavaş trace kırılımı (chat_trace_drill.go).
+	route = intentTraceDrillUpgrade(route, question)
 	if route.Env == "" && ctxEnv != "" {
 		route.Env = ctxEnv
 	}

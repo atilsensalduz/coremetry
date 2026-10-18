@@ -1652,7 +1652,11 @@ func (s *Server) copilotChatGuided(ctx context.Context, emit func(string, any), 
 	// v0.10.819 — yapıştırılan hata metni ("Caused by: java.lang…") hata/log
 	// sözcüğü taşımayabilir; şekli katalog okumasını hak eder (copilot_pasted_error.go).
 	pasted := looksLikePastedError(question)
-	if !hasGuidedSignal(norm) && !followCue && !mayNameTeam(norm) && !absShape && !findCue && !affirm && !pasted {
+	// v0.10.1327 — hedef sorusu ("nereye giderken timeout almış") guided
+	// kelime taşımayabilir; önceki tur gecikme/hata andıysa katalog okumasını
+	// hak eder (geçmişsiz ya da konusu başka geçmişli soru bugünkü yolunda).
+	peerCue := len(prior) > 0 && hasPeerSignal(guidedTokens(norm)) && prevTurnMentionsLatencyFailure(msgs, chatLastIntent(ctx))
+	if !hasGuidedSignal(norm) && !followCue && !mayNameTeam(norm) && !absShape && !findCue && !peerCue && !affirm && !pasted {
 		return false, false // zero-cost fast path: no catalogue read
 	}
 	svcNames, envNames := s.guidedServiceNames(ctx), s.guidedEnvNames(ctx)
@@ -1756,6 +1760,13 @@ func (s *Server) copilotChatGuided(ctx context.Context, emit func(string, any), 
 				scope = route.Service
 			}
 			emitGuidedContextStep(emit, "bağlam: "+scope+" (önceki sorudan)")
+		}
+	}
+	// v0.10.1327 — hedef sorusu + önceki turda gecikme/hata → en yavaş trace
+	// kırılımı (chat_trace_drill.go); geçmişsiz soru bugünkü rotasında kalır.
+	if peerCue {
+		if dr, ok := s.guidedTraceDrillOverride(ctx, route, norm, msgs, prior, ctxService, svcNames, envNames); ok {
+			route = dr
 		}
 	}
 	// v0.10.437 (D6) — mutlak pencere(ler): tek pencere çıpayı ve uzunluğu
@@ -1908,7 +1919,7 @@ func (s *Server) runGuidedRoute(ctx context.Context, emit func(string, any), rou
 	var err error
 	switch route.Intent {
 	case guidedRootCause:
-		evidence, sources, err = s.guidedRootCauseBundle(ctx, emit, route.Service, route.Env, from, to, rangeS)
+		evidence, sources, err = s.guidedRootCauseBundle(ctx, emit, route.Service, route.Env, from, to, rangeS, hasLatencyAsk(normalizeGuidedMsg(question)))
 	case guidedProblems:
 		evidence, sources, err = s.guidedProblemsBundle(ctx, emit, route.Service, route.Env, to)
 	case guidedServiceHealth:
@@ -1936,6 +1947,8 @@ func (s *Server) runGuidedRoute(ctx context.Context, emit func(string, any), rou
 		evidence, sources, err = s.guidedFamilyHealthBundle(ctx, emit, route.Family, route.Env, from, to, rangeS)
 	case guidedSlowTraces:
 		evidence, sources, err = s.guidedSlowTracesBundle(ctx, emit, route.Service, route.Env, from, to, rangeS)
+	case guidedTraceDrill: // v0.10.1327 — en yavaş trace kritik yolu + o trace'lerin logları
+		evidence, sources, err = s.guidedTraceDrillBundle(ctx, emit, route.Service, route.Env, from, to, rangeS)
 	case guidedDeployImpact:
 		evidence, sources, err = s.guidedDeployBundle(ctx, emit, route.Service, route.Env, rangeS, anchorTo)
 	case guidedLogErrors:
@@ -2351,7 +2364,9 @@ func guidedTraceFilter(service, env string, from, to time.Time) chstore.TraceFil
 // deploy (en sık sebep). Açık problem yoksa hipotez de yoktur — o durum
 // SESSİZCE geçilmez, açıkça söylenir ve model değişim verisiyle cevap
 // verir.
-func (s *Server) guidedRootCauseBundle(ctx context.Context, emit func(string, any), service, env string, from, to time.Time, rangeS int64) (string, string, error) {
+// slowAsk (v0.10.1327) — soru yavaşlık/timeout soruyor (hasLatencyAsk); p99
+// yükselmesiyle birlikte en yavaş trace kırılımının kapısı.
+func (s *Server) guidedRootCauseBundle(ctx context.Context, emit func(string, any), service, env string, from, to time.Time, rangeS int64, slowAsk bool) (string, string, error) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "SORU ŞEKLİ: nedensellik — %q servisinde NE OLDU değil NEDEN OLDU sorusu.\n\n", service)
 
@@ -2450,6 +2465,19 @@ func (s *Server) guidedRootCauseBundle(ctx context.Context, emit func(string, an
 		b.WriteString(patText)
 	}
 
+	// v0.10.1327 — "NEREDE": en yavaş 1–2 trace'in kritik yolu + YALNIZ o
+	// trace'lerin logları; yalnız p99 tabana göre yükseldiyse ya da soru
+	// yavaşlık/timeout soruyorsa (chat_trace_drill.go).
+	drilled := false
+	if rootCauseWantsTraceDrill(cx.Current, cx.Baseline, cx.curErr, slowAsk) {
+		if _, drill, terr := s.slowTraceDrill(ctx, emit, service, env, from, to); terr != nil {
+			fmt.Fprintf(&b, "\nEn yavaş trace'ler OKUNAMADI (%s) — kritik yol bilinmiyor; hedef UYDURMA.\n", sourcestate.Classify(terr))
+		} else if drill != "" {
+			b.WriteString("\n" + drill)
+			drilled = true
+		}
+	}
+
 	// v0.10.557 — yapısal kanıt bloğu (FE kartı; anlatımdan bağımsız, tek sıralayıcı).
 	emit("evidence", guidedEvidencePayload(service, rangeS, cx, probs, probErr, changes, pats))
 
@@ -2458,6 +2486,9 @@ func (s *Server) guidedRootCauseBundle(ctx context.Context, emit func(string, an
 		"hangi kanıta baktığını yaz ve 'kesin sebep için yeterli kanıt yok' de.\n")
 
 	src := fmt.Sprintf("SLO durumu + kök-neden hipotezi + açık problemler + servis RED değişimi + ayrışan boyutlar (BubbleUp) + deploy geçmişi + pencere değişiklikleri (rollout) + log desenleri (son %s)", fmtAgoTR(rangeS))
+	if drilled {
+		src += " + en yavaş trace kritik yolu + o trace'lerin logları"
+	}
 	if env != "" {
 		src += fmt.Sprintf("; RED tüm ortamlar, problemler ortam: %s", env) // v0.10.944 — sağlık demetiyle aynı
 	}
@@ -3341,6 +3372,12 @@ func (s *Server) guidedSlowTracesBundle(ctx context.Context, emit func(string, a
 	}
 	ev := renderSlowTracesEvidenceTR(rows, service, env, rangeS)
 	emitGuidedStepResult(emit, nSlow, "slow_traces", ev, nil)
+	// v0.10.1327 — listenin en yavaş 1–2 trace'i: kritik yol + o trace'lerin
+	// logları (chat_trace_drill.go); liste aynı okumadan, ikinci GetTraces yok.
+	if drill := s.traceDrillEvidence(ctx, emit, pickDrillTraces(rows), service, from, to); drill != "" {
+		ev += "\n" + drill
+		src += " + en yavaş trace kritik yolu + o trace'lerin logları"
+	}
 	return ev, src, nil
 }
 
