@@ -16,6 +16,7 @@ import { Drawer, DrawerSection, Badge, KeyValue, KeyValueRow } from '@/component
 import { RecurringMarker } from '@/features/anomalies/RecurringMarker'; // v0.10.1049
 import { Spinner, Empty } from '@/components/Spinner';
 import { serviceHref } from '@/lib/serviceHref';
+import { SvcBadge } from '@/components/traces/shared'; // v0.10.1328 — Traces Service kolonuyla aynı hap
 import { fmtDateTime, fmtNum, fmtDurShort } from '@/lib/utils';
 import { useRolloutDetail, useEntityClusters } from '@/lib/queries';
 import { CopyButton } from '@/components/CopyButton';
@@ -139,7 +140,8 @@ export function RolloutDrawer({ id, onClose }: { id: RolloutIdParam; onClose: ()
                   ) : dt.sortedRows.map(s => (
                     <tr key={s.service}>
                       <DataTableCell dt={dt} col="service" row={s} value={s.service}>
-                        <Link to={serviceHref(s.service, { params: { range: `custom:${Math.round(d.since / 1e6)}-${Math.round(d.generatedAt / 1e6)}` } })} className="sec">{s.service}</Link>
+                        {/* v0.10.1328 (operatör-raporlu) — servis adı kutu düğme değil, Traces'in servis-renkli hapı. */}
+                        <SvcBadge name={s.service} to={serviceHref(s.service, { params: { range: `custom:${Math.round(d.since / 1e6)}-${Math.round(d.generatedAt / 1e6)}` } })} />
                       </DataTableCell>
                       {/* v0.10.929 (K5) — green = sağlıklı durum, nötr; renk yalnız sapmada. */}
                       <DataTableCell dt={dt} col="health" row={s}><Badge tone={s.health === 'red' ? 'danger' : s.health === 'yellow' ? 'warning' : 'neutral'}>{s.health || 'n/a'}</Badge></DataTableCell>

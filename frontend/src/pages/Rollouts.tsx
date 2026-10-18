@@ -44,6 +44,7 @@ import { api } from '@/lib/api';
 import { useAuth } from '@/components/AuthProvider';
 import { keys, useRollouts, useRolloutStats, useRolloutRuns, useEntityClusters } from '@/lib/queries';
 import { RolloutDrawer } from '@/components/RolloutDrawer';
+import { SvcBadge } from '@/components/traces/shared'; // v0.10.1328 — Traces Service kolonuyla aynı hap
 import { tracesPivotHref } from '@/lib/pivotHref';
 import { entityHref } from '@/lib/entityHref';
 import { rolloutKey, statusTone, statusLabel, statusTitle, rolloutDurationSec, shortRevision, imageDiff, encodeRolloutParam, decodeRolloutParam, rolloutTracesFilters, rolloutChangeKind, changeKindLabel, changeKindTitle, changeKindTone, replicaSummary, rolloutTimingHint, parseNamespacePatterns, invalidNamespacePatterns, namespaceExcluded } from '@/lib/rolloutRow';
@@ -264,8 +265,11 @@ export default function RolloutsPage() {
                           {tsCompact(r.startedAt * 1e6)}
                           {rolloutTimingHint(r) && <div className="field-hint">{rolloutTimingHint(r)}</div>}
                         </td>
+                        {/* v0.10.1328 (operatör-raporlu, prod): workload kutu düğme (a.sec) değil,
+                            Traces Service kolonunun servis-renkli hapı (SvcBadge; aynı hash →
+                            aynı renk). Gerçek <Link> kalır; tam bağlam hapın title'ında. */}
                         <DataTableCell dt={dt} col="workload" row={r} title={`${cname} / ${r.namespace} / ${r.workload}`}>
-                          <Link to={wlHref} className="sec">{r.workload}</Link>
+                          <SvcBadge name={r.workload} to={wlHref} title={`${cname} / ${r.namespace} / ${r.workload}`} />
                         </DataTableCell>
                         {/* v0.10.1262 — namespace kendi kolonunda (dizge value → title + ellipsis). */}
                         <DataTableCell dt={dt} col="namespace" row={r} value={r.namespace} />
@@ -343,7 +347,7 @@ function StatsPanel({ st, clusterName }: { st: NonNullable<ReturnType<typeof use
                   Yükleniyor / hata bölümün (istatistik yanıtı KPI'ları da belirliyor) — dışarıda kalır. */}
               {st.topRollback.length === 0
                 ? <DataTableState colSpan={2} kind="empty" message="Bu pencerede rollback alan workload yok" />
-                : st.topRollback.map(w => <tr key={`${w.clusterId}/${w.namespace}/${w.workload}`}><td>{w.workload} <span className="field-hint">· {w.namespace} · {clusterName(w.clusterId)}</span></td><td className="num">{w.n}</td></tr>)}
+                : st.topRollback.map(w => <tr key={`${w.clusterId}/${w.namespace}/${w.workload}`}><td><SvcBadge name={w.workload} title={`${clusterName(w.clusterId)} / ${w.namespace} / ${w.workload}`} /> <span className="field-hint">· {w.namespace} · {clusterName(w.clusterId)}</span></td><td className="num">{w.n}</td></tr>)}
             </tbody>
           </table>
         </div>
@@ -356,7 +360,7 @@ function StatsPanel({ st, clusterName }: { st: NonNullable<ReturnType<typeof use
               {/* v0.10.967 (P-2) — statik tablonun durum satırı; colSpan = thead'deki 2 <th>. */}
               {st.topDeploy.length === 0
                 ? <DataTableState colSpan={2} kind="empty" message="Bu pencerede deploy alan workload yok" />
-                : st.topDeploy.map(w => <tr key={`${w.clusterId}/${w.namespace}/${w.workload}`}><td>{w.workload} <span className="field-hint">· {w.namespace} · {clusterName(w.clusterId)}</span></td><td className="num">{w.n}</td></tr>)}
+                : st.topDeploy.map(w => <tr key={`${w.clusterId}/${w.namespace}/${w.workload}`}><td><SvcBadge name={w.workload} title={`${clusterName(w.clusterId)} / ${w.namespace} / ${w.workload}`} /> <span className="field-hint">· {w.namespace} · {clusterName(w.clusterId)}</span></td><td className="num">{w.n}</td></tr>)}
             </tbody>
           </table>
         </div>

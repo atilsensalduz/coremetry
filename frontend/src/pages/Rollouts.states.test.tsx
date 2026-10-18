@@ -46,6 +46,7 @@ vi.mock('@/components/Topbar', () => ({ Topbar: () => null }));
 vi.mock('@/components/RolloutDrawer', () => ({ RolloutDrawer: () => null }));
 
 import RolloutsPage from './Rollouts';
+import { SvcBadge } from '@/components/traces/shared';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 window.matchMedia = ((q: string) => ({
@@ -233,5 +234,55 @@ describe('Rollouts Canlı — v2 kaynağı (P2.3)', () => {
     const el = mount('/rollouts');
     expect(el.textContent).toContain('Deployment/Rollouts kapalı');
     expect(el.textContent).not.toContain('Settings → Rollouts');
+  });
+});
+
+// v0.10.1328 (operatör-raporlu, prod ekran görüntüsü): Canlı tablosunun
+// Workload hücresi `a.sec` kutu düğmesi gibi çiziliyordu ("coremetry-api"
+// çerçeveli dikdörtgende). Operatör: "Deployment Rollouts sayfasında servis
+// ismi gibi yazsın. Traces sayfasındaki farklı renkler güzeldi." Sözleşme:
+// hücre Traces Service kolonunun PAYLAŞILAN hapını (SvcBadge — aynı hash →
+// aynı renk) gerçek <Link> olarak basar; `.sec` yok. Toplu top-N ve çekmece
+// servis hücresi de aynı hap.
+describe('Rollouts — workload hücresi servis hapı (v0.10.1328)', () => {
+  const liveTable = (el: HTMLElement) => el.querySelector('.table-wrap table')!;
+  const refStyle = (name: string): string => {
+    const d = document.createElement('div');
+    const r = createRoot(d);
+    act(() => { r.render(<SvcBadge name={name} />); });
+    const s = d.querySelector('span')!.getAttribute('style') ?? '';
+    act(() => { r.unmount(); });
+    return s;
+  };
+
+  it('Canlı: Workload hücresi SvcBadge stilinde gerçek link, kutu (.sec) değil; title tam bağlam', () => {
+    h.list = { data: LIST, isPending: false, error: null };
+    const el = mount('/rollouts');
+    const row = dataRows(liveTable(el))[0];
+    const a = Array.from(row.querySelectorAll('a')).find(x => x.textContent === 'checkout')!;
+    expect(a, 'workload linki çizilmedi').toBeTruthy();
+    expect(a.classList.contains('sec')).toBe(false);
+    expect(a.getAttribute('href')).toBeTruthy();
+    expect(a.getAttribute('style')).toBe(refStyle('checkout'));
+    expect(a.style.color).not.toBe('');
+    expect(a.title).toBe('prod-east / shop / checkout');
+    expect(a.closest('td')!.title).toBe('prod-east / shop / checkout');
+  });
+
+  it('Toplu: top-N workload adı aynı hap', () => {
+    h.stats = { data: STATS, isPending: false, error: null };
+    const el = mount('/rollouts?tab=stats');
+    const t = tableByHead(el, "En çok deploy alan workload'lar")!;
+    const chip = Array.from(t.querySelectorAll('tbody span')).find(x => x.textContent === 'checkout')!;
+    expect(chip.getAttribute('style')).toBe(refStyle('checkout'));
+  });
+
+  it('kaynak: workload / çekmece servis adı artık a.sec değil', () => {
+    const src = readFileSync(resolve(__dirname, './Rollouts.tsx'), 'utf8');
+    expect(src).not.toContain('className="sec">{r.workload}');
+    expect(src).toContain('<SvcBadge name={r.workload} to={wlHref}');
+    const drawer = readFileSync(resolve(__dirname, '../components/RolloutDrawer.tsx'), 'utf8');
+    expect(drawer).not.toContain('className="sec">{s.service}');
+    expect(drawer).toContain('<SvcBadge name={s.service} to={serviceHref(');
   });
 });

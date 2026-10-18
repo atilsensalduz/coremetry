@@ -6,6 +6,8 @@
 // service keeps ONE colour across the whole product — the operator's eye never
 // recalibrates. Everything here is CSS-var-only (light + dark safe).
 
+import type { CSSProperties } from 'react';
+import { Link } from 'react-router-dom';
 import { seriesColor } from '@/lib/chartFmt';
 
 // svcColor — the shared per-service hue. Empty / unknown collapses to a stable
@@ -35,27 +37,30 @@ export function fmtDur(ms: number): string {
 
 // SvcBadge — service-coloured monospace pill. Same hue as the waterfall +
 // topology, so service identity is colour-stable everywhere.
-export function SvcBadge({ name }: { name: string }) {
-  return (
-    <span
-      title={name || 'unknown'}
-      style={{
-        fontSize: 11,
-        padding: '1px 7px',
-        borderRadius: 4,
-        fontFamily: 'var(--font-mono)',
-        background: svcBadgeBg(name),
-        color: svcColor(name),
-        whiteSpace: 'nowrap',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        maxWidth: '100%',
-        display: 'inline-block',
-        verticalAlign: 'bottom',
-      }}>
-      {name || 'unknown'}
-    </span>
-  );
+// v0.10.1328 (operatör-raporlu, prod: "Deployment Rollouts sayfasında servis
+// ismi gibi yazsın. Traces sayfasındaki farklı renkler güzeldi") — `to`
+// verilince AYNI hap gerçek bir <Link> olur (yeni sekme çalışır; spaLinks),
+// kutu düğme (`a.sec`) değil. `title` tam bağlamı taşır (örn. küme / ns /
+// workload); verilmezse ad. Rollouts Workload hücresi + çekmece servisleri.
+export function SvcBadge({ name, to, title }: { name: string; to?: string; title?: string }) {
+  const label = name || 'unknown';
+  const style: CSSProperties = {
+    fontSize: 11,
+    padding: '1px 7px',
+    borderRadius: 4,
+    fontFamily: 'var(--font-mono)',
+    background: svcBadgeBg(name),
+    color: svcColor(name),
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    maxWidth: '100%',
+    display: 'inline-block',
+    verticalAlign: 'bottom',
+  };
+  return to
+    ? <Link to={to} title={title ?? label} style={style}>{label}</Link>
+    : <span title={title ?? label} style={style}>{label}</span>;
 }
 
 // DurationBar — value label + a track-bar scaled to the slowest visible row,
