@@ -17,6 +17,8 @@ package sre
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -95,12 +97,16 @@ func narrate(ctx context.Context, rd readers, inv *Investigation, p chstore.Prob
 	}
 	nctx, cancel := context.WithTimeout(ctx, capSummary)
 	defer cancel()
-	nctx = copilot.WithMeta(nctx, copilot.CallMeta{
-		Surface: NarrationSurface, UserID: "system",
+	// v0.10.1312 — özetin 👍/👎 rayı: ai_calls kimliği (WithCallID → kayıt bu
+	// kimlikle yazılır) ve exchange kimliği (ai_calls.exchange_id → oyun yüzey
+	// çözümü) çağrıdan ÖNCE basılır, özetle saklanır.
+	callID, exchangeID := copilot.NewCallID(), newNarrationExchangeID()
+	nctx = copilot.WithCallID(copilot.WithMeta(nctx, copilot.CallMeta{
+		Surface: NarrationSurface, UserID: "system", ExchangeID: exchangeID,
 		Shield: func(prompt, answer string) uint8 {
 			return rca.CountUnknownEntities(rca.LowerKnownSet(known...), prompt, answer)
 		},
-	})
+	}), callID)
 	// v0.10.1289 — operatör kuralları: bağlama (servis, sahip takım) uyan ≤5
 	// kural çitli veri bloğu olarak paketin SONUNA, ek sistem mesajının önüne
 	// (DataNotInstruction sonda kalır). Kural yoksa iki metin de bayt bayt eski.
@@ -122,7 +128,8 @@ func narrate(ctx context.Context, rd readers, inv *Investigation, p chstore.Prob
 		st.State, st.Summary = StepError, truncRunes("AI özeti alınamadı: "+msg, 400)
 		return finish()
 	}
-	inv.Summary = &Narration{Text: truncRunes(text, 4000), Model: rd.narrator.ActiveModel(), At: now().UnixNano()}
+	inv.Summary = &Narration{Text: truncRunes(text, 4000), Model: rd.narrator.ActiveModel(),
+		CallID: callID, ExchangeID: exchangeID, At: now().UnixNano()}
 	st.State, st.Summary = StepOK, truncRunes(firstLine(text), 300)
 	return finish()
 }
@@ -143,6 +150,18 @@ func narrationRulesBlock(rd readers, p chstore.Problem, loc *time.Location) stri
 	picked, omitted := cosrerules.Relevant(rules, cosrerules.Context{Service: p.Service, Team: p.OwnerTeam},
 		cosrerules.PromptMaxRules, cosrerules.PromptMaxBytes)
 	return cosrerules.BlockTR(picked, omitted, loc)
+}
+
+// newNarrationExchangeID — anlatım çağrısının exchange kimliği: tıklamalı ✨
+// yüzeylerinin biçimi (16 bayt hex, api.newRandID(16) ile aynı; oy ucunun
+// kimlik kapısı ≤64). crypto/rand okunamazsa "" — çağrı yine yapılır, yalnız
+// oylanamaz (FE kimliksiz rayı çizmez).
+func newNarrationExchangeID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(b)
 }
 
 func firstLine(s string) string {

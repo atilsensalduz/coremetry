@@ -71,6 +71,11 @@ func NewCallID() string {
 // Sohbet döngüleri cevabı yayınladıktan SONRA toplu satırı yazar; cevap
 // olayındaki callId'nin o satırla eşleşmesi için kimlik cevaptan önce
 // basılıp buradan geçirilir. Boş kimlik ctx'i değiştirmez.
+//
+// v0.10.1312 — Explain/StreamText kaydı (recordNarration) da bu kimliği
+// okur: arka plan AI SRE anlatımı kimliği çağrıdan önce basar ve özetle
+// saklar. ctx TEK çağrıya verilmeli — aynı ctx'le iki çağrı aynı ai_calls
+// kimliğini yazar.
 func WithCallID(ctx context.Context, id string) context.Context {
 	if id == "" {
 		return ctx
@@ -78,12 +83,22 @@ func WithCallID(ctx context.Context, id string) context.Context {
 	return context.WithValue(ctx, callIDKey{}, id)
 }
 
-// callIDFor — ctx'te sabitlenmiş kimlik, yoksa taze.
-func callIDFor(ctx context.Context) string {
+// CallIDFromContext — v0.10.1312: ctx'te WithCallID ile sabitlenmiş kimlik
+// ("" = yok). Narrator test dikişleri (internal/sre) gerçek kaydın hangi
+// kimlikle yazılacağını buradan görür.
+func CallIDFromContext(ctx context.Context) string {
 	if ctx != nil {
-		if id, ok := ctx.Value(callIDKey{}).(string); ok && id != "" {
+		if id, ok := ctx.Value(callIDKey{}).(string); ok {
 			return id
 		}
+	}
+	return ""
+}
+
+// callIDFor — ctx'te sabitlenmiş kimlik, yoksa taze.
+func callIDFor(ctx context.Context) string {
+	if id := CallIDFromContext(ctx); id != "" {
+		return id
 	}
 	return NewCallID()
 }

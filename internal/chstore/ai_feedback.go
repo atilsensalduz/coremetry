@@ -294,6 +294,15 @@ func sreReviewDownvotesSQL(callCols bool) string {
 		SETTINGS max_execution_time = 10`
 }
 
+// sreReviewDownvotesArgs — SAF (v0.10.1312, canlı motor testi aynı bind'i
+// kullansın diye ayrıldı): sreReviewDownvotesSQL'in yer tutucu sırası.
+func sreReviewDownvotesArgs(callCols bool, from, to time.Time, limit int) []any {
+	if callCols {
+		return []any{chDateTime64Arg(from.Add(-7 * 24 * time.Hour)), chDateTime64Arg(to), chDateTime64Arg(from), chDateTime64Arg(to), limit}
+	}
+	return []any{chDateTime64Arg(from), chDateTime64Arg(to), limit}
+}
+
 // ListSREReviewDownvotes — v0.10.1301: [from, to] içindeki sre-* 👎'leri
 // (≤100). İnceleme listesi; hiçbir karar / puan bunu okumaz.
 func (s *Store) ListSREReviewDownvotes(ctx context.Context, from, to time.Time, limit int) ([]SREReviewDownvote, error) {
@@ -301,11 +310,7 @@ func (s *Store) ListSREReviewDownvotes(ctx context.Context, from, to time.Time, 
 		limit = SREReviewDownvotesMax
 	}
 	cc := aiFeedbackCallCols.Load()
-	args := []any{chDateTime64Arg(from), chDateTime64Arg(to), limit}
-	if cc {
-		args = []any{chDateTime64Arg(from.Add(-7 * 24 * time.Hour)), chDateTime64Arg(to), chDateTime64Arg(from), chDateTime64Arg(to), limit}
-	}
-	rows, err := s.conn.Query(ctx, sreReviewDownvotesSQL(cc), args...)
+	rows, err := s.conn.Query(ctx, sreReviewDownvotesSQL(cc), sreReviewDownvotesArgs(cc, from, to, limit)...)
 	if err != nil {
 		return nil, err
 	}

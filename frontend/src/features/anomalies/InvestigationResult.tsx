@@ -3,6 +3,7 @@
 //   - adım tablosu: tarama · deploy · bağımlılık · trace pivotu · log artışı ·
 //     AI özeti — durum, süre, özet;
 //   - AI özeti (ExplainBody) ya da kapı kapalıyken dürüst sabit cümle;
+//     v0.10.1312: özetin altında 👍/👎 (AIFeedbackButtons, exchangeId + callId);
 //   - v0.10.1288: hipotez kartları + zaman çizelgesi + doğrula/ele
 //     (ProblemInvestigationCards; sentezleyici kopyası orada AYRI motor kutusu);
 //   - bulgular + her bulgunun kanıt çipleri (EvidenceChips — sorgu künyesi +
@@ -15,6 +16,7 @@
 //
 // Ajan YALNIZ öneri üretir; burada hiçbir düğme sistemde bir şeyi
 // değiştirmez (Doğrula yeniden okur, Ele/Onayla yalnız kartı etiketler).
+import { AIFeedbackButtons } from '@/components/ai/AIFeedbackButtons';
 import { ExplainBody } from '@/components/ai/ExplainBody';
 import { EvidenceChips } from '@/components/ai/EvidenceChips';
 import { Badge, Button } from '@/components/ui';
@@ -84,6 +86,11 @@ export function InvestigationResult({ inv, canEdit = false }: { inv: SREInvestig
               {inv.summary.at ? <span title={tsLong(inv.summary.at)}> · {agoTR(inv.summary.at)}</span> : null}
             </div>
             <ExplainBody text={inv.summary.text} busy={false} verdict={false} />
+            {/* v0.10.1312 — özetin 👍/👎 rayı (hazır neden çipleri dahil): oy
+                somut ai_calls satırına (callId) bağlanır → /ai "incelemeye
+                değer" listesi. Zayıf sinyal: skor / plan okumaz. Kimlik yoksa
+                (eski kayıt) bileşen hiçbir şey çizmez. */}
+            <AIFeedbackButtons exchangeId={inv.summary.exchangeId} callId={inv.summary.callId} />
           </div>
         ))}
       <ProblemInvestigationCards inv={inv} canEdit={canEdit} />

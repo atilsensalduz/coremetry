@@ -9783,9 +9783,14 @@ export interface SRETimelineEvent {
   ref?: string;
 }
 // v0.10.1287 — Go: sre.Narration (tek LLM çağrısı; gated = arka plan AI kapısı kapalı).
+// v0.10.1312 — callId / exchangeId: özeti üreten ai_calls satırı + çağrının
+// exchange kimliği → özetin 👍/👎 rayı (AIFeedbackButtons). Kapalı kapı /
+// tekrar / eski kayıtta yok → buton çizilmez.
 export interface SRENarration {
   text: string;
   model?: string;
+  callId?: string;
+  exchangeId?: string;
   at: number; // unix ns
   gated?: boolean;
   reason?: string;

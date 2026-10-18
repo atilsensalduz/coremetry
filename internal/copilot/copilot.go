@@ -794,7 +794,10 @@ func (s *Service) recordNarration(ctx context.Context, started time.Time,
 	}
 	// v0.10.114 — gözlemci RECORDER'DAN BAĞIMSIZ ve SENKRON: span
 	// attribute'ları çağıranın elindeki span kapanmadan yazılmalı.
-	callID := NewCallID() // v0.10.1280 — kimlik kayıttan ÖNCE (cevaba bağlanır)
+	// v0.10.1280 — kimlik kayıttan ÖNCE (cevaba bağlanır). v0.10.1312 — ctx'te
+	// sabitlenmişse (WithCallID: AI SRE anlatımı kimliği çağrıdan önce basar ki
+	// özetin 👍/👎'ı bu satıra bağlansın) o kimlik; yoksa taze (eski davranış).
+	callID := callIDFor(ctx)
 	notifyCallSink(ctx, CallNote{CallID: callID, ExchangeID: meta.ExchangeID, Model: model,
 		InputTokens: inputTokens, OutputTokens: outputTokens}) // Faz 1 — cosre_interactions
 	if meta.Observe != nil {

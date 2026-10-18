@@ -148,6 +148,7 @@ type fakeNarrator struct {
 	calls                      int
 	surface, user, sys, answer string
 	err                        error
+	callID, exchangeID         string // v0.10.1312 — ctx'te sabitlenen ai_calls / exchange kimliği
 }
 
 func (n *fakeNarrator) Active() bool             { return n.active }
@@ -159,6 +160,7 @@ func (n *fakeNarrator) Explain(ctx context.Context, sys, user string) (string, e
 	defer n.mu.Unlock()
 	n.calls++
 	n.surface = copilot.MetaFromContext(ctx).Surface
+	n.callID, n.exchangeID = copilot.CallIDFromContext(ctx), copilot.MetaFromContext(ctx).ExchangeID
 	n.sys, n.user = sys, user
 	return n.answer, n.err
 }

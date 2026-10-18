@@ -99,12 +99,22 @@ type Finding struct {
 
 // Narration — v0.10.1287: araştırmanın AI anlatımı (tek LLM çağrısı). Gated =
 // arka plan AI kapısı kapalıydı; Text o zaman dürüst sabit cümle.
+//
+// v0.10.1312 — CallID / ExchangeID: anlatımı üreten ai_calls satırının kimliği
+// ve çağrının exchange kimliği (ikisi de çağrıdan ÖNCE basılır). FE özetin
+// altında 👍/👎 rayını bunlarla çizer: exchangeId → oy satırının anahtarı +
+// yüzey çözümü (sre-investigation), callId → oyun call_id'si → /ai inceleme
+// listesinin ai_calls birleşimi. Kapı kapalı / tekrar (Kind=replay) / eski
+// kayıt → boş, buton çizilmez. Oy ZAYIF sinyal: bu paket oyları OKUMAZ;
+// kimlikler yalnız yazılır, skor/plan onlara bakmaz.
 type Narration struct {
-	Text   string `json:"text"`
-	Model  string `json:"model,omitempty"`
-	At     int64  `json:"at"` // unix ns
-	Gated  bool   `json:"gated,omitempty"`
-	Reason string `json:"reason,omitempty"` // kapı nedeni (kapalı / kota / saatlik tavan / yapılandırılmamış)
+	Text       string `json:"text"`
+	Model      string `json:"model,omitempty"`
+	CallID     string `json:"callId,omitempty"`
+	ExchangeID string `json:"exchangeId,omitempty"`
+	At         int64  `json:"at"` // unix ns
+	Gated      bool   `json:"gated,omitempty"`
+	Reason     string `json:"reason,omitempty"` // kapı nedeni (kapalı / kota / saatlik tavan / yapılandırılmamış)
 }
 
 // SynthRef — v0.10.1287: kök-neden sentezleyicisinin hipotezinin SALT-OKUNUR
