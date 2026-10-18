@@ -297,3 +297,117 @@ describe('v0.10.1319 K1 — CSS yuva kuralları', () => {
     expect(s).toMatch(/margin-left:\s*0/);
   });
 });
+
+// ── v0.10.1322 — yoğunluk katmanı yuvayı KÜÇÜLTMÜYOR ───────────────────
+// compact/dense'in `.controls button` dolgu/yazı kuralı v0.10.1319'dan beri
+// `.pc-actions` içindeki "+ New …" primary'sini de 3px 8px / 11px'e
+// (dense 2px 6px / 10px) indiriyordu. Yuva artık seçici kümesinin DIŞINDA:
+// yuvadaki md buton taban `button` metriklerini (5px 14px / 13px) giyer,
+// filtre barı butonları birebir eskisi gibi küçülür.
+describe('v0.10.1322 — yoğunluk: eylem yuvası md kalıyor', () => {
+  const css = read('styles/globals.css').replace(/\/\*[\s\S]*?\*\//g, '');
+  const PHONE = css.indexOf('@media (max-width: 640px)');
+  // Taban katmandaki (telefon katmanından önce) kurallar: [seçiciler, gövde].
+  const baseRules = (): Array<{ sels: string[]; body: string }> => {
+    const out: Array<{ sels: string[]; body: string }> = [];
+    const re = /([^{}]+)\{([^{}]*)\}/g;
+    const head = css.slice(0, PHONE);
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(head))) {
+      out.push({ sels: m[1].split(',').map(s => s.trim().replace(/\s+/g, ' ')), body: m[2] });
+    }
+    return out;
+  };
+  const RULES = baseRules();
+  const prop = (body: string, p: string) =>
+    new RegExp(`(?:^|[;\\s])${p}\\s*:\\s*([^;]+)`).exec(body)?.[1].trim();
+
+  const LEVELS = [
+    { d: 'compact', pad: '3px 8px', fs: '11px' },
+    { d: 'dense', pad: '2px 6px', fs: '10px' },
+  ] as const;
+
+  // Sabit DOM: bar'ın doğrudan çocuğu buton, panel/sarmalayıcı içindeki
+  // buton, yuvadaki md primary + ikincil, yuvada iç içe buton.
+  const mount = (d: string) => {
+    const root = document.createElement('div');
+    root.setAttribute('data-density', d);
+    root.innerHTML = `
+      <div class="controls has-actions">
+        <button id="direct">Run</button>
+        <div class="pc-panel"><span><button id="nested">Clear</button></span></div>
+        <button class="btn-disclose dsc-row pc-more" id="more">Filtreler</button>
+        <div class="pc-actions">
+          <button class="sec" id="sec">Import</button>
+          <button id="primary">+ New</button>
+          <span><button id="deep">x</button></span>
+        </div>
+      </div>
+      <div class="pc-actions"><button id="outside">dış</button></div>`;
+    document.body.appendChild(root);
+    return root;
+  };
+
+  for (const { d, pad, fs } of LEVELS) {
+    const sizing = () => RULES.filter(r =>
+      r.sels.some(s => s.startsWith(`[data-density="${d}"] .controls`) && /button/.test(s))
+      && prop(r.body, 'padding') !== undefined);
+
+    it(`${d}: filtre barı dolgu/yazı kuralı birebir (${pad} / ${fs}), input/select aynı kuralda`, () => {
+      const rs = sizing();
+      expect(rs.length, `${d} buton boyut kuralı tek olmalı`).toBe(1);
+      const r = rs[0];
+      expect(prop(r.body, 'padding')).toBe(pad);
+      expect(prop(r.body, 'font-size')).toBe(fs);
+      expect(r.sels).toEqual([
+        `[data-density="${d}"] .controls input`,
+        `[data-density="${d}"] .controls select`,
+        `[data-density="${d}"] .controls > button`,
+        `[data-density="${d}"] .controls > :where(:not(.pc-actions)) button`,
+      ]);
+      // Çıplak `.controls button` artık boyut kuralında DEĞİL (yuvayı yakalardı).
+      expect(r.sels).not.toContain(`[data-density="${d}"] .controls button`);
+    });
+
+    it(`${d}: seçici kümesi yuvayı ATLIYOR, filtre barı butonlarını yakalıyor`, () => {
+      const root = mount(d);
+      const sels = sizing()[0].sels.filter(s => /button$/.test(s));
+      const hit = (id: string) => sels.some(s => root.querySelector(`#${id}`)!.matches(s));
+      for (const id of ['direct', 'nested', 'more']) expect(hit(id), `#${id} küçülmeli`).toBe(true);
+      for (const id of ['sec', 'primary', 'deep', 'outside']) expect(hit(id), `#${id} md kalmalı`).toBe(false);
+      // Eski kümeyle fark YALNIZ yuva: bar içindeki her buton için
+      // yeni küme == eski `.controls button` ∧ ¬(.pc-actions içinde).
+      for (const b of Array.from(root.querySelectorAll('.controls button'))) {
+        const inSlot = b.closest('.pc-actions') !== null;
+        expect(sels.some(s => b.matches(s)), `#${b.id}`).toBe(!inSlot);
+      }
+      root.remove();
+    });
+
+    it(`${d}: yuvadaki md buton taban metrikleri (5px 14px / 13px) + isabet tabanı`, () => {
+      const base = RULES.find(r => r.sels.length === 1 && r.sels[0] === 'button' && prop(r.body, 'padding'));
+      expect(base, 'taban `button` kuralı').toBeDefined();
+      expect(prop(base!.body, 'padding')).toBe('5px 14px');
+      expect(prop(base!.body, 'font-size')).toBe('13px');
+      // Yuva butonunu küçülten başka bir yoğunluk kuralı yok.
+      const root = mount(d);
+      const primary = root.querySelector('#primary')!;
+      const shrinkers = RULES.filter(r =>
+        r.sels.some(s => s.startsWith('[data-density') && primary.matches(s))
+        && (prop(r.body, 'padding') !== undefined || prop(r.body, 'font-size') !== undefined));
+      expect(shrinkers.map(r => r.sels.join(', '))).toEqual([]);
+      // `min-height: var(--hit-min)` çıplak `.controls button` kuralında kalıyor (yuvayı da kapsar).
+      const mh = RULES.find(r => r.sels.includes(`[data-density="${d}"] .controls button`)
+        && prop(r.body, 'min-height') === 'var(--hit-min)');
+      expect(mh, `${d} isabet tabanı kuralı`).toBeDefined();
+      expect(primary.matches(`[data-density="${d}"] .controls button`)).toBe(true);
+      root.remove();
+    });
+  }
+
+  it('telefon katmanı değişmedi: `[data-density] .controls button` 9px 14px / 14px', () => {
+    const phone = css.slice(PHONE);
+    expect(phone).toMatch(/button, \[data-density\] \.controls button \{ padding: 9px 14px; font-size: 14px; \}/);
+    expect(phone).not.toMatch(/pc-actions button/);
+  });
+});
