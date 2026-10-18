@@ -169,9 +169,10 @@ export default function EndpointDetailPage() {
     [row, range]);
   // v0.10.1199 (operatör: "avg latency kısmında p50 p95 de seçilebilsin") —
   // grafik yüzdeliği URL'de (?lat=p50|p95|p99; varsayılan URL'e yazılmaz).
-  // v0.10.1352 — varsayılan kipe göre: metrik p95 (sekmenin route paneli),
-  // span p99 (eskisi gibi).
-  const latDefault: LatQ = detailSrc === 'metric' ? 'p95' : 'p99';
+  // v0.10.1352 — varsayılan kipe göre: metrik p95, span p99.
+  // v0.10.1353 (operatör: "Default p50 olsun") — iki kipte de p50;
+  // p95/p99 seçiciden ya da ?lat= ile.
+  const latDefault: LatQ = 'p50';
   const latRaw = params.get('lat');
   const latQ: LatQ = latRaw === 'p50' || latRaw === 'p95' || latRaw === 'p99' ? latRaw : latDefault;
   const setLatQ = (v: string) => setParams(prev => {

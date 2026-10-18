@@ -129,8 +129,15 @@ describe('/endpoint metrik kipi = HTTP Metrics sekmesinin sorguları (v0.10.1352
     expect(inst).toContain(`histogram_quantile(0.95, sum by (le) (increase(http_server_request_duration_seconds_bucket{service_name="${SVC}", http_route="${ROUTE}"}[10800s])))`);
   });
 
-  it('varsayılan gecikme yüzdeliği p95: route paneli sekmenin p95ByRoute\'u', async () => {
+  // v0.10.1353 (operatör: "Default p50 olsun") — varsayılan p50; p95 ?lat=p95 ile.
+  it('varsayılan gecikme yüzdeliği p50', async () => {
     await mount();
+    expect(m.prom.some(c => c.query.startsWith('histogram_quantile(0.5, sum by (le, http_request_method, http_route) (rate('))).toBe(true);
+    expect(host!.textContent).toContain('P50 gecikme (route)');
+  });
+
+  it('?lat=p95: route paneli sekmenin p95ByRoute\'u', async () => {
+    await mount('&lat=p95');
     expect(m.prom.map(c => c.query)).toContain(
       `histogram_quantile(0.95, sum by (le, http_request_method, http_route) (rate(http_server_request_duration_seconds_bucket{service_name="${SVC}", http_route="${ROUTE}"}[144s])))`);
     expect(host!.textContent).toContain('P95 gecikme (route)');
