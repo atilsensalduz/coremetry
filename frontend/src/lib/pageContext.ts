@@ -51,6 +51,7 @@ export const ROUTE_PAGES: Record<string, PageId> = {
   '/design': 'design', // v0.10.919 — yalnız geliştirme kataloğu
   '/cosre': 'cosre', // v0.10.1125 — bağımsız CoSRE sohbet sayfası (bağlamsız: filo geneli)
   '/cosre/shared/:id': 'cosre', // v0.10.1167 — paylaşılan sohbet (salt-okunur)
+  '/search': 'search', // v0.10.1335 — birleşik arama (q/types/service/sev; servis ?service=)
 };
 
 /** Bağlam TAŞIMAYAN sayfalar: yalnız page + path (kimlik/ayar/kabuk yüzeyleri). */

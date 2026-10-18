@@ -79,6 +79,9 @@ const APPLIES = new Set([
   'pages/Service.tsx',
   'pages/Services.tsx',
   'pages/Traces.tsx',
+  // v0.10.1335 — /search: env GET /api/search'e `env=` olarak gider (kaynak
+  // başına uygulanır; uygulanamadığı yerde şerit "env not applied" der).
+  'pages/Search.tsx',
 ]);
 
 // Env'i OKUYAN ama kendi verisine UYGULAMAYAN sayfalar. Bunlar en kolay

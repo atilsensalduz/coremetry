@@ -31,6 +31,7 @@ const Endpoints         = lazy(() => import('./pages/Endpoints'));
 // from /endpoints.
 const EndpointDetail    = lazy(() => import('./pages/EndpointDetail'));
 const Explore           = lazy(() => import('./pages/Explore'));
+const Search            = lazy(() => import('./pages/Search')); // v0.10.1335 — birleşik arama
 const Runbooks          = lazy(() => import('./pages/Runbooks'));
 const Runbook           = lazy(() => import('./pages/Runbook'));
 const RunbookExecution  = lazy(() => import('./pages/RunbookExecution'));
@@ -178,6 +179,8 @@ export default function App() {
             <Route path="/endpoints"      element={<Endpoints />} />
             <Route path="/endpoint"       element={<EndpointDetail />} />
             <Route path="/explore"        element={<Explore />} />
+            {/* v0.10.1335 — birleşik arama (GET /api/search); RouteSkeleton üstteki Suspense'ten */}
+            <Route path="/search"         element={<Search />} />
             <Route path="/runbooks"      element={<Runbooks />} />
             <Route path="/runbook"       element={<Runbook />} />
             <Route path="/runbook-exec"  element={<RunbookExecution />} />

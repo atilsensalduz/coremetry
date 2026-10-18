@@ -22,6 +22,7 @@ import { traceHref } from '@/lib/traceHref';
 import { paletteIdentityQuery, identityTracesHref, paletteProblemId, problemDisplayHref } from '@/lib/paletteIdentity';
 import { oracleOperationQuery, oraclePaletteResults } from '@/lib/paletteOracle';
 import { Button, LinkButton } from '@/components/ui';
+import { searchSeeAllHref } from '@/lib/searchUrl'; // v0.10.1335
 
 // CommandPalette — global Cmd-K / Ctrl-K spotlight (v0.5.162).
 // Mounted once at AppShell level; listens for the hotkey and pops
@@ -91,6 +92,8 @@ const PAGES: Result[] = [
   { kind: 'page', label: 'Trace compare', hint: 'Diff two traces', to: '/trace/compare' },
   // Workspaces
   { kind: 'page', label: 'Explore',     navKey: 'nav.explore', hint: 'Cross-signal ad-hoc query', to: '/explore' },
+  // v0.10.1335 — birleşik arama sayfası (GET /api/search).
+  { kind: 'page', label: 'Search',      navKey: 'nav.search', aliases: ['search', 'arama', 'find'], hint: 'Services, endpoints, problems, exceptions, traces, logs', to: '/search' },
   { kind: 'page', label: 'Runbooks',    navKey: 'nav.runbooks', hint: 'Operational procedures', to: '/runbooks' },
   { kind: 'page', label: 'Dashboards',  navKey: 'nav.dashboards', hint: 'Operator-curated', to: '/dashboards' },
   // Alerting
@@ -468,8 +471,14 @@ export function CommandPalette() {
     }
     // v0.10.126 — endpoint'ler artık rankPaletteResults içinde (servisten
     // sonra, sayfadan önce); burada ikinci kez eklenmez.
+    // v0.10.1335 — SON satır: "“q” için tüm sonuçlar →" (/search?q=). Skorlanmaz,
+    // sıralamaya girmez; Enter/tık diğer sayfa satırları gibi navHref'ten geçer.
+    const seeAll = searchSeeAllHref(query);
+    if (seeAll) {
+      scored = [...scored, { kind: 'page', label: t('search.seeAll').replace('{q}', query.trim()), hint: 'Search', to: seeAll }];
+    }
     return scored;
-  }, [query, services, endpoints, oracleOps, pivotSvcs, user?.role, localizedPages]);
+  }, [query, services, endpoints, oracleOps, pivotSvcs, user?.role, localizedPages, t]);
 
   // Reset cursor when results shrink/grow — otherwise the cursor
   // can point past the last row and Enter does nothing.

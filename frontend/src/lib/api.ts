@@ -3196,6 +3196,10 @@ export const api = {
   // the route while the table showed one: two truths, one screen.
   endpointDetail: (params: { service: string; path: string; from: number; to: number; sig?: '1'; env?: string; cluster?: string }, signal?: AbortSignal) =>
     get<EndpointDetail>(`/api/endpoints/detail?${qs(params)}`, signal),
+  // v0.10.1335 — birleşik arama (GET /api/search, v0.10.1333 backend'i):
+  // tek istek, altı kaynak, kaynak başına ≤20 satır; sunucu 15 sn cache.
+  search: (params: import('./types').SearchQueryParams, signal?: AbortSignal) =>
+    get<import('./types').SearchResponse>(`/api/search?${qs(params)}`, signal),
   // v0.9.311 (brief N4) — "Where the time goes". SAMPLED over the
   // route's slowest traces; two raw-spans passes behind a 60s server
   // cache, so this is fetch-on-open and never polled.

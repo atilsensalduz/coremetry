@@ -225,4 +225,13 @@ export const keys = {
     all: ['prefs'] as const,
     get: (key: string) => ['prefs', key] as const,
   },
+  // v0.10.1335 — birleşik arama (search.ts). results: TÜM istek girdileri
+  // (sunucu searchCacheKey'in aynası); detail: çekmece gövdesi, YALNIZ
+  // açılışta (tür + kimlik + pencere/env gibi ek girdiler).
+  search: {
+    all:     ['search'] as const,
+    results: (p: import('../types').SearchQueryParams) => ['search', 'results', p] as const,
+    detail:  (type: string, id: string, extra: Record<string, string | number> = {}) =>
+               ['search', 'detail', type, id, extra] as const,
+  },
 } as const;

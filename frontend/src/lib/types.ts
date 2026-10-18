@@ -9653,7 +9653,8 @@ export type PageId =
   | 'dashboards' | 'dashboard' | 'service-map' | 'topology' | 'messaging' | 'external' | 'profiling'
   | 'slos' | 'alerts' | 'monitors' | 'watchers' | 'incidents' | 'incident' | 'runbooks' | 'runbook'
   | 'runbook-exec' | 'shift' | 'status' | 'system' | 'admin' | 'ai' | 'settings' | 'users' | 'profile'
-  | 'login' | 'public-trace' | 'public-status' | 'design' | 'cosre' | 'unknown';
+  | 'login' | 'public-trace' | 'public-status' | 'design' | 'cosre' | 'unknown'
+  | 'search'; // v0.10.1335 — birleşik arama sayfası (/search)
 /** Kodek bağımsız filtre: op FilterOp ya da EXISTS / NOT EXISTS. */
 export interface PageFilter { k: string; op: string; v: string[] }
 
@@ -9726,6 +9727,70 @@ export interface ProblemAffectedResponse {
   entities: AffectedEntity[];
   total: number;
 }
+
+// ── v0.10.1335 — birleşik arama, GET /api/search ─────────────────────────
+// Go aynası (v0.10.1333): internal/api/search_query.go SearchResult /
+// sourceStatus / typeFacet / searchFacets / searchResponse; payload'lar
+// searchProblemLite / searchExceptionLite / searchTraceLite / searchLogLite,
+// endpoint payload'ı chstore.OperationHit (summary.go). Sunucu DÜZ METİN
+// döner; vurgulama istemcide (lib/logFilters highlightSegments).
+export type SearchResultType = 'service' | 'endpoint' | 'problem' | 'exception' | 'trace' | 'log';
+export type SearchSev = 'critical' | 'warning' | 'info';
+export type SearchSort = 'relevance' | 'newest' | 'oldest' | 'severity';
+export type SearchStatus = 'open' | 'all';
+export interface SearchEndpointLite { service: string; name: string }
+export interface SearchProblemLite {
+  id: string; displayId: string; ruleName: string; severity: string; status: string;
+  service: string; kind?: string; description: string; startedAt: number;
+}
+export interface SearchExceptionLite {
+  fingerprint: string; type: string; message: string; service: string; state: string;
+  firstSeen: number; lastSeen: number; occurrences: number; priority?: 'P1' | 'P2' | 'P3' | '';
+}
+export interface SearchTraceLite {
+  traceId: string; rootName: string; rootRoute?: string; serviceName: string; startTime: number;
+  durationMs: number; spanCount: number; hasError: boolean; errorSpans?: number;
+}
+export interface SearchLogLite {
+  timestamp: number; severity: number; severityText: string; body: string;
+  serviceName: string; traceId?: string; spanId?: string;
+}
+interface SearchResultBase {
+  id: string; title: string; subtitle: string; service: string;
+  env?: string; severity?: string; ts?: number; href: string;
+}
+export type SearchResult =
+  | (SearchResultBase & { type: 'service'; payload?: undefined })
+  | (SearchResultBase & { type: 'endpoint'; payload: SearchEndpointLite })
+  | (SearchResultBase & { type: 'problem'; payload: SearchProblemLite })
+  | (SearchResultBase & { type: 'exception'; payload: SearchExceptionLite })
+  | (SearchResultBase & { type: 'trace'; payload: SearchTraceLite })
+  | (SearchResultBase & { type: 'log'; payload: SearchLogLite });
+export interface SearchTypeFacet { count: number; truncated: boolean }
+export interface SearchFacets {
+  type: Partial<Record<SearchResultType, SearchTypeFacet>>;
+  service: Record<string, number>;
+  env: Record<string, number>;
+  sev: Partial<Record<SearchSev, number>>;
+  scope: string; // "within shown results"
+}
+export type SearchSourceState = 'ok' | 'unavailable' | 'skipped' | 'timeout';
+export interface SearchSourceStatus { status: SearchSourceState; ms: number; reason?: string; truncated: boolean }
+export interface SearchResponse {
+  results: SearchResult[];
+  facets: SearchFacets;
+  sources: Partial<Record<SearchResultType, SearchSourceStatus>>;
+  total: number;
+  queryKind: 'trace_id' | 'identity' | 'text';
+  fromNs: number;
+  toNs: number;
+}
+/** İstek parametreleri — `types` kanonik sıralı CSV; boş alan gönderilmez. */
+export interface SearchQueryParams {
+  q: string; types?: string; service?: string; env?: string; sev?: SearchSev | '';
+  status?: SearchStatus; sort?: SearchSort; from: number; to: number; limit?: number;
+}
+// ── v0.10.1335 END ───────────────────────────────────────────────────────
 
 // v0.10.968 — GET /api/trace-pods/metrics (internal/api/trace_pod_metrics.go
 // tracePodMetricsResponse + internal/thanos/trace_pods.go TracePodSeries birebir).

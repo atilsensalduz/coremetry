@@ -51,6 +51,8 @@ const SERVICE_PARAM_ROUTES = new Set([
   // "kör" olduğu görünmüyordu — v0.9.1226'nın kapatmayı amaçladığı
   // bulgunun aynısı, iki rotada açık kalmış.
   '/endpoint',
+  // v0.10.1335 — /search Servis facet'i `?service=` yazar ve okur (lib/searchUrl).
+  '/search',
 ]);
 
 // v0.10.45 — /service-map servis seçimini `?service=` DEĞİL `?focus=`

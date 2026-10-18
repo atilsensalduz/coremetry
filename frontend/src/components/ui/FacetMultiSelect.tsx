@@ -18,7 +18,9 @@ import { useEscLayer } from '@/lib/escLayer';
 // (.fsel*), URL writes stay in the caller's codec, and the pure summary
 // logic is exported for vitest.
 
-export type FacetOption = { value: string; label: string; count: number };
+// v0.10.1335 — `countLabel` sayının GÖSTERİMİ ("20+": kesik tür sayımı, "—":
+// sorgulanmamış tür); `count` 0 olan seçili olmayan satır soluk çizilir.
+export type FacetOption = { value: string; label: string; count: number; countLabel?: string };
 
 // facetSummary — the button text. Pure; tested in FacetMultiSelect.test.ts.
 //   all selected  → "tümü"
@@ -77,7 +79,7 @@ export function FacetMultiSelect({ label, options, selected, onToggle, onSolo, o
               // yani liste ekran okuyucuya seçenek listesi olarak
               // duyuruluyor ama klavyeyle HİÇ kullanılamıyordu. Yanlış
               // duyurulan bir rol, rolsüz bir div'den kötüdür.
-              <div key={o.value} className="fsel-row" role="option" aria-selected={on}
+              <div key={o.value} className={o.count === 0 && !on ? 'fsel-row is-zero' : 'fsel-row'} role="option" aria-selected={on}
                 tabIndex={lastOn ? -1 : 0}
                 onKeyDown={e => {
                   if (lastOn) return;
@@ -92,7 +94,7 @@ export function FacetMultiSelect({ label, options, selected, onToggle, onSolo, o
                     sadece
                   </button>
                 )}
-                <span className="fsel-n">{o.count}</span>
+                <span className="fsel-n">{o.countLabel ?? o.count}</span>
               </div>
             );
           })}

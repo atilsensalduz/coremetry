@@ -5880,3 +5880,74 @@ tbody td.tpm-more-cell { color: var(--text2); }
   .tour-ring { transition: none; }
 }
 /* ── v0.10.1334 END ──────────────────────────────────────────────────── */
+
+/* ── v0.10.1335 — birleşik arama (/search, pages/Search.tsx + pages/search/*) ──
+   Yalnız token'lar. Satırlar ≤120 (6 kaynak × 20): sanallaştırma yok,
+   content-visibility:auto (tablo standardı >100 satır kuralı) burada — TSX'te
+   containIntrinsicSize sayacı (tableUnityRatchet) büyümesin diye. Çekmece
+   paneli mevcut slideInRight ile girer; azaltılmış harekette global kural
+   animasyonu söndürür. */
+.srch-layout {
+  display: grid; grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+  gap: var(--sp-7); align-items: start; margin-top: var(--sp-5);
+}
+.srch-rail {
+  display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-4);
+  position: sticky; top: var(--controls-h, 0px);
+}
+.srch-rail-row { display: flex; align-items: center; gap: var(--sp-4); }
+.srch-rail-l { font-size: var(--fs-xs); color: var(--text3); }
+.srch-rail-note { margin: 0; font-size: var(--fs-2xs); color: var(--text3); line-height: 1.4; }
+.fsel-row.is-zero { color: var(--text3); }
+.fsel-row.is-zero .fsel-n { opacity: .7; }
+.srch-col { min-width: 0; display: flex; flex-direction: column; gap: var(--sp-4); }
+.srch-count { display: inline-flex; align-items: center; gap: var(--sp-3); font-size: var(--fs-xs); color: var(--text3); }
+.srch-chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); }
+.srch-sources { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--sp-3) var(--sp-6); }
+.srch-src { font-size: var(--fs-xs); color: var(--text3); }
+.srch-src.is-warn { color: var(--warn); }
+.srch-list { display: flex; flex-direction: column; }
+.srch-group {
+  display: flex; align-items: baseline; gap: var(--sp-3);
+  padding: var(--sp-5) var(--sp-4) var(--sp-2);
+  font-size: var(--fs-2xs); font-weight: 600; text-transform: uppercase; letter-spacing: .4px; color: var(--text3);
+}
+.srch-group-n { font-weight: 400; }
+.srch-row {
+  display: flex; align-items: center; gap: var(--sp-2);
+  border-bottom: 1px solid var(--divider);
+  content-visibility: auto; contain-intrinsic-size: auto var(--row-h);
+}
+.srch-row .srch-main { flex: 1; min-width: 0; min-height: var(--row-h); gap: var(--sp-4); }
+.srch-type { flex: none; min-width: 64px; justify-content: center; }
+.srch-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
+.srch-title, .srch-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srch-title { color: var(--text); }
+.srch-sub { font-size: var(--fs-xs); color: var(--text3); }
+.srch-ts { flex: none; font-size: var(--fs-xs); color: var(--text3); font-variant-numeric: tabular-nums; }
+.srch-open {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  min-width: var(--hit-min, 24px); min-height: var(--hit-min, 24px);
+  border-radius: var(--radius-xs); color: var(--text3); text-decoration: none;
+}
+.srch-open:hover { color: var(--accent2); background: var(--bg2); }
+.srch-mark { background: color-mix(in srgb, var(--warn) 28%, transparent); color: inherit; border-radius: var(--radius-xs); }
+.drawer-panel:has(> .srch-drawer) { animation: slideInRight 160ms ease-out; }
+.srch-drawer { display: flex; flex-direction: column; gap: var(--sp-6); }
+.srch-dh { display: inline-flex; align-items: center; gap: var(--sp-4); min-width: 0; }
+.srch-dh-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 360px; }
+.srch-dsub { margin: 0; font-size: var(--fs-xs); color: var(--text3); }
+.srch-log-body {
+  margin: 0; padding: var(--sp-4); max-height: 240px; overflow: auto;
+  background: var(--bg1); border: 1px solid var(--border); border-radius: var(--radius-xs);
+  font-family: var(--font-mono); font-size: var(--fs-xs); white-space: pre-wrap; word-break: break-word;
+}
+.srch-tiles { gap: var(--sp-4); }
+.srch-affected { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); font-size: var(--fs-xs); }
+.srch-more { color: var(--text3); }
+@media (max-width: 640px) {
+  .srch-layout { grid-template-columns: minmax(0, 1fr); }
+  .srch-rail { position: static; flex-direction: row; flex-wrap: wrap; }
+  .srch-ts { display: none; }
+}
+/* ── v0.10.1335 END ──────────────────────────────────────────────────── */

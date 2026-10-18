@@ -6532,3 +6532,57 @@ odak, Tab, iade, aria-live, ←/→/Esc, sahte zamanlayıcıyla bekleme, ResizeO
 tipPlacement gap, zLayers tour rungu; Go `tour_routes_test.go` (tourRowID, validateTourStatus,
 version, isNewUser sınırı, saklanan satır çözümü, 401, PUT doğrulaması store'dan önce),
 `branding_test` OnboardingTour normalizasyonu.
+
+## 2026-10-18 — v0.10.1335 — Birleşik arama sayfası `/search` (spec R3+R4, yalnız ön yüz)
+
+Operatör onaylı spec, varsayılanlar seçili; backend v0.10.1333 `GET /api/search` aynen. **Sayfa:**
+PageShell + Topbar (range `useUrlRange(DEFAULT_RANGE_PRESET)`, `envApplies` — env isteğe `env=` gider,
+envApplies.test APPLIES'a eklendi) + yapışkan PageControls: SearchField (`data-shortcut-search`, "/"
+odaklar; 180 ms debounce → `setSearchParams(replace)`; Enter anında yazar; ↓ ilk satıra iner),
+SegmentedControl sıralama (Relevance/Newest/Oldest/Severity) + gruplama (List | By type), aktif süzgeç
+çipleri (`onRemove`) + "Clear all" (env dahil TEK yazım: iki ardışık setSearchParams bayat `prev`
+yüzünden birbirini ezerdi; yapışkan env de temizlenir). **URL codec** `lib/searchUrl.ts` (saf):
+q/types/service/sev/status/sort/group/sel, varsayılanlar yazılmaz, types CSV inboxUrl yardımcılarıyla
+(kanonik sıra), `sel=<type>:<encodeURIComponent(id)>`; `env` global EnvPicker paramı (useUrlEnv sahibi,
+Environment facet'i de onu yazar), `range`/`ai`/bilinmeyenler YABANCI → korunur. `searchUrlSig` yalnız
+sahip SÜZGEÇ paramlarını özetler (sel ve yabancılar hariç) — Logs.tsx emsali imza bekçili içe aktarma:
+satır seçmek / range değiştirmek yazılmakta olan taslağı silmez. **Sorgu** `lib/queries/search.ts`
+`useSearch`: enabled q ≥ 2, staleTime 15 000 (= sunucu TTL), keepPreviousData, refetchOnWindowFocus
+false, yoklama YOK; anahtar `keys.search.results(params)` varsayılansız kanonik istek. **Facet rayı**
+(`pages/search/FacetRail.tsx`): FacetMultiSelect ×4 (Tür, Servis, Ortam, Önem ≥) + problem durumu
+(Açık | Tümü). Tür sayısı okuyucu toplamı, kesikse "N+" ("20+"), seçilmeyen tür "—"; servis/ortam/önem
+sayıları "within shown results" notuyla. Servis/ortam/önem sunucuda TEK değer → atomda tık o değeri
+seçer, seçiliye tık / "tümünü seç" temizler; önem TABAN. FacetMultiSelect'e `countLabel` + sayısı 0
+olan seçili-olmayan satırı soluk çizen `is-zero` eklendi (geri uyumlu). **Liste:** OptionRow gövde
+(tık/Enter → `?sel=`) + yanında SafeHref ↗ gerçek bağlantı (düğme içine konmaz); tür Badge + önem
+(problem Badge, exception PriorityBadge, log seviye, trace error); `highlightSegments` → `<mark>`; ≤120
+satır, `content-visibility:auto` CSS'te (TSX sayaçları büyümez); useTableNav j/k/Enter + ↑/↓ odak;
+"Türe göre" kanonik tür sırası + başlık satırları (gezinme indeksine girmez). **Dürüstlük:** kaynak
+şeridi `sources`'tan — unavailable/timeout "Logs unavailable (timeout)" / "Logs okunamadı (timeout)"
+(uyarı tonu) ≠ sonuç yok; trace daraltması "Traces: needs a service or trace id" / "servis ya da trace
+id gerekli"; ok + reason soluk not. Boş iki türlü: süzgeçsiz "No matches for “q”"; süzgeçli "No results
+with current filters · N hidden" — N YALNIZ önbellekteki aynı q + pencere süzgeçsiz cevabın `total`ı
+(`hiddenByFilters`), yoksa sayı yok, ek istek yok — + Clear all. **Çekmece**
+(`pages/search/SearchDetailDrawer.tsx`): ui/Drawer (perde, Esc katmanı, ✕), panel slideInRight
+(`.drawer-panel:has(> .srch-drawer)`; azaltılmış hareket global kural). Gövde YALNIZ açılışta: trace →
+api.trace + KeyValue (süre/span/kök op/hata) + ServiceTimeline; log → satırın payload'ı (ek istek yok;
+listede yoksa SectionUnavailable, satır uydurulmaz); problem → useProblemByID + useProblemAffected;
+exception → api.getExceptionGroup; service → api.serviceBundle RED StatTile'ları; endpoint →
+useEndpointDetail ("METHOD /yol" span adında yol kısmı). ActionRow: tek birincil "Open in …"
+(`resultOpenTarget`: traceHref / logsHref / sunucu problem href'i (isSafeAppPath) / `/problems?exc=` /
+serviceHref / operationTracesHref), "Ask CoSRE" (AIExplainButton; özne haritası `resultSubject`:
+trace/problem/exception kendi kimliği, service → service-health{fromNs,toNs}, endpoint → üst servisin
+service-health'i, log → logLineSubject), sel'li sayfa linki CopyButton. **İki odak tuzağı yok:** ?ai=
+varken çekmece çizilmez ve sayfa sel'i siler (AIExplainButton'a kanca EKLENMEDİ: useAiSubject bayat
+router `prev`inden eksik anahtarları geri eklediği için "önce sel'i sil" sırası tutmuyordu). **Sapma
+(bilinçli):** endpoint birincil etiketi "Open in Endpoints" yerine "Open operation traces" — hedef
+/traces (operationTracesHref); etiket hedefini söylemeli. **Bağlantılar:** App.tsx lazy `/search`
+(üst Suspense RouteSkeleton); ⌘K PAGES `{label:'Search', navKey:'nav.search', to:'/search'}` + q ≥ 2
+iken SON satır "See all results for “q” →" (`searchSeeAllHref`, skorlanmaz, navHref'ten gezinir);
+chatContext SERVICE_PARAM_ROUTES + pageContext ROUTE_PAGES `/search` (PageId `'search'`); i18n
+`nav.search` + `search.*` EN/TR; globals.css tek `.srch-*` bloğu (yalnız token). **Testler:**
+`lib/searchUrl.test.ts` (tur-dönüşü, varsayılanlar, yabancı paramlar, sel, imza, istek kanonu, N gizli,
+⌘K hedefi), `pages/search/resultSubject.test.ts` (tür → AISubject + birincil hedef),
+`pages/Search.states.test.tsx` (kısa q / yükleniyor / eşleşme yok / süzgeçle gizli ±önbellek / kaynak
+okunamadı & atlandı / vurgu / çekmece sel'den açılır, api.trace yalnız açılışta, ?ai= varken çekmece
+yok), `components/CommandPalette.searchRow.pin.test.ts`.
