@@ -7027,3 +7027,27 @@ mergeTable == detay endpointRed + PromQL dilim dönüşümü), `pages/endpoints/
 **Bilinçli sınır:** env/cluster metrik kipinde uygulanmaz (sekmedeki gibi; not bunu söyler). `http_route` etiketsiz seriler
 "(route yok)" satırı olarak listelenir ama detay sayfası yoktur. `/api/endpoints/metric` bu sürümde SİLİNMEDİ (sonraki
 sürüm); liste artık okumuyor.
+
+## 2026-10-18 — v0.10.1360 — Service Overview metrik karoları: pencere değeri (HTTP Metrics ile aynı)
+
+**Operatör:** Overview'ın Response time karosu ve "P99 (metrik)" alt satırı HTTP Metrics sekmesi / endpoint karolarıyla
+tutmuyordu. **Kök neden:** metrik kipinde karo değeri adım serisinin SON noktasıydı (avg: grupsuz `metricQueryFull` serisi;
+P99: `/metric-red` adım başına `histogram_quantile(rate[180s])`) — pencere değeri değil, son ~3 dakikanın değeri. Sekme ve
+endpoint karoları (v0.10.1352) pencere `increase[W]` anlık sorgularıyla okuyor; Toplam istek karosu da (v0.10.1259).
+**Karar:** (1) Metrik kipinde Overview `useHttpPromql`'i `overviewWindowItems(service, W, offset)` ile çağırır
+(`pages/service/overviewWindowKpi.ts`) — `windowQueries({ app: service }, W)`'nin avg/p50/p95/p99'u bayt-aynı, aynı kanca
+(aynı RQ anahtarı, staleTime 30 sn, yoklama yok), W = max(60, pencere) sekme formülü. (2) Karo değeri = pencere avg ×1000
+(ms); alt satır = pencere p99; tooltip dört pencere değerini + `increase[W]`'yi yazar. Grafikler ve sparkline'lar adım
+serisinde KALIR. (3) Delta: compare açıkken pencere avg vs önceki pencere avg (`offset` = sayfanın compare kaydırması;
+"prior"da W, endpoint `pAvg` ile bayt-aynı); kapalıyken bugünkü seri eğilimi (computeDelta). Offset sorgusu yalnız avg
+(tek tüketici delta). (4) Düşüş: pencere avg'ı yoksa (HTTP histogram ailesi yok / sorgu hatası / VM yok; NaN = 0/0 da yok
+sayılır) bugünkü son-nokta değeri, etiket "Response time · avg · son adım", alt satır "P99 (metrik · son adım)", tooltip
+nedeni yazar — sessiz değil. Pencere sorgusu dönene dek karo bekler ("…", v0.10.368 dersi). (5) Span kipi değişmedi (pencere
+sorgusu kapalı). (6) `/metric-red` notu: "grafik serileri adım başına histogram_quantile(rate[180s]); karolar pencere değeri
+(increase[W], HTTP Metrics ile aynı)"; kaynak seçicisinin tooltip'i aynı ayrımı söyler. Testler:
+`overviewWindowKpi.test.ts` (sorgu pini, offset, s→ms, hata/boş nedeni, delta), `Overview.windowKpi.render.test.tsx`
+(gerçek ServiceOverview: pencere değeri / promql hatası → son adım / span kipi sorgusuz), `service_metric_red_test.go`
+`TestServiceMetricREDNote_WindowTilesWording_v0101360`; `overviewKpiPending` + `routeSeries` kaynak pinleri güncellendi.
+**Bilinçli sınır:** pencere sorguları env süzgeci taşımaz (HTTP Metrics sekmesi ve Toplam karosu gibi; env seçiliyken
+tooltip söyler) — `/metric-red` grafikleri env'e daralır. Metrik adı sabit (`http_server_request_duration_seconds`, sekmeyle
+aynı aile); başka histogram adı yayınlayan servis son adıma düşer ve bunu söyler.

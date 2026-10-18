@@ -193,9 +193,14 @@ describe('Service Overview — Toplam çizgisi ve karo kaynak birliği (v0.9.799
   it('🔴 Response time karosu: değer + sparkline + delta AYNI metrik serisinden', () => {
     // v0.10.368 — metrik kipinde yükleme anında karo bekler (metricTilesPending);
     // üç değer yine AYNI seriden, önek yalnız bekleme kapısı.
-    expect(src).toMatch(/val=\{metricTilesPending \? '…' : rtFromMetric \? \(rtAvgMsNow as number\)\.toFixed\(0\) : p99Ms\.toFixed\(0\)\}/);
-    expect(src).toMatch(/spark=\{metricTilesPending \? undefined : rtFromMetric \? rtAvgMsSeries : vals\(lat\?\.p99\)\}/);
-    expect(src).toMatch(/delta=\{metricTilesPending \? null : computeDelta\(rtFromMetric \? rtAvgMsSeries : vals\(lat\?\.p99\)\)\}/);
+    // v0.10.1360 — metrik kipinde DEĞER pencere avg'ı (HTTP Metrics ile aynı),
+    // yoksa aynı metrik serisinin son noktası; sparkline + eğilim deltası
+    // hâlâ AYNI seri (compare açıkken delta pencere vs önceki pencere).
+    expect(src).toMatch(/const rtValMs = rtFromWindow \? \(rtWinAvgMs as number\) : rtFromMetric \? \(rtAvgMsNow as number\) : p99Ms;/);
+    expect(src).toMatch(/val=\{rtTilePending \? '…' : rtValMs\.toFixed\(0\)\}/);
+    expect(src).toMatch(/spark=\{rtTilePending \? undefined : rtFromMetric \? rtAvgMsSeries : vals\(lat\?\.p99\)\}/);
+    expect(src).toMatch(/: computeDelta\(rtFromMetric \? rtAvgMsSeries : vals\(lat\?\.p99\)\);/);
+    expect(src).toMatch(/delta=\{rtTilePending \? null : rtDelta\}/);
   });
 
   it('🔴 Throughput karosu: değer + sparkline + delta AYNI metrik serisinden', () => {
@@ -206,7 +211,8 @@ describe('Service Overview — Toplam çizgisi ve karo kaynak birliği (v0.9.799
   });
 
   it('düşüş KARO BAŞINA ayrı — tek bayrak ikisini kilitlemez', () => {
-    expect(src).toMatch(/const rtFromMetric = rtAvgMsNow != null;/);
+    // v0.10.1360 — pencere avg'ı da metrik kaynağı sayılır.
+    expect(src).toMatch(/const rtFromMetric = rtFromWindow \|\| rtAvgMsNow != null;/);
     expect(src).toMatch(/const tputFromMetric = metricRpsNow != null;/);
     // Ve başlık kaynağı SÖYLÜYOR (dürüstlük deseni).
     expect(src).toMatch(/'Response time · P99 \(span\)'/);

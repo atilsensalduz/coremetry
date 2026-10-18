@@ -18,7 +18,9 @@ describe('Overview KPI tiles wait for the metric query in metric mode', () => {
   });
 
   it('labels stay metric-flavoured while pending (no "(span)" flash)', () => {
-    expect(src).toContain("rtFromMetric || metricTilesPending ? 'Response time · avg'");
+    // v0.10.1360 — Response time karosu pencere sorgusunu da bekler.
+    expect(src).toContain('const rtTilePending = metricTilesPending || (metricMode && ovWin.avgPending);');
+    expect(src).toContain("const rtLabel = rtFromMetric || rtTilePending\n    ? (rtLastStep && !rtTilePending ? 'Response time · avg · son adım' : 'Response time · avg')");
     expect(src).toContain("tputFromMetric || metricTilesPending ? 'Throughput'");
   });
 
@@ -27,14 +29,18 @@ describe('Overview KPI tiles wait for the metric query in metric mode', () => {
     const tput = src.indexOf('<KpiTile lab={tputLabel}');
     expect(rt).toBeGreaterThan(0);
     expect(tput).toBeGreaterThan(rt);
-    for (const tile of [src.slice(rt, tput), src.slice(tput, src.indexOf('<KpiTile lab="Failure rate"'))]) {
-      expect(tile).toContain("val={metricTilesPending ? '…' :");
-      expect(tile).toContain('spark={metricTilesPending ? undefined :');
-      expect(tile).toContain('delta={metricTilesPending ? null :');
+    // v0.10.1360 — Response time karosunun kapısı rtTilePending (⊇ metricTilesPending).
+    const tiles: [string, string][] = [[src.slice(rt, tput), 'rtTilePending'], [src.slice(tput, src.indexOf('<KpiTile lab="Failure rate"')), 'metricTilesPending']];
+    for (const [tile, gate] of tiles) {
+      expect(tile).toContain(`val={${gate} ? '…' :`);
+      expect(tile).toContain(`spark={${gate} ? undefined :`);
+      expect(tile).toContain(`delta={${gate} ? null :`);
     }
   });
 
   it('the P99 sub-line never shows a span number under a pending metric tile', () => {
-    expect(src).toContain('sub={!metricTilesPending && rtFromMetric && p99Now != null');
+    // v0.10.1360 — alt satır rtSub'da; bekleme anında hiç yazılmaz.
+    expect(src).toContain('const rtSub = rtTilePending || !rtFromMetric ? undefined');
+    expect(src).toContain('sub={rtSub}');
   });
 });

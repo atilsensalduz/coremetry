@@ -274,3 +274,25 @@ func TestSumSeriesByTime_v0101350(t *testing.T) {
 		t.Fatalf("boş → []: %+v", got)
 	}
 }
+
+// v0.10.1360 — not metni iki kavramı AYIRIR: grafik serileri adım başına
+// histogram_quantile(rate[180s]); Overview karoları pencere değeri
+// (increase[W], HTTP Metrics windowQueries ile aynı). Eski "P50/P95/P99
+// histogram_quantile" ifadesi karonun da adım değeri olduğunu ima ediyordu.
+func TestServiceMetricREDNote_WindowTilesWording_v0101360(t *testing.T) {
+	r := serviceMetricREDResponse{
+		Source: "vm", Metric: "http.server.request.duration", MatchedBy: "service_name",
+		MetricExists: true, LatencyUnitKnown: true, LatencyUnit: "s",
+		StatusState: statusLabelPresent, StatusKey: "http.response.status_code",
+	}
+	note := serviceMetricREDNote(r)
+	want := "grafik serileri adım başına histogram_quantile(rate[180s]); karolar pencere değeri (increase[W], HTTP Metrics ile aynı)"
+	if !strings.Contains(note, want) || !strings.Contains(note, "birim s") {
+		t.Fatalf("not %q içermeli: %s", want, note)
+	}
+	// Birim bilinmiyorsa yüzdelik metni hiç yazılmaz (karo span'a düşer).
+	r.LatencyUnitKnown = false
+	if n := serviceMetricREDNote(r); strings.Contains(n, "increase[W]") {
+		t.Fatalf("birim yokken pencere ifadesi olmamalı: %s", n)
+	}
+}

@@ -1,4 +1,7 @@
-import { statusCodeRateQuery, statusCodeSeries, totalRequestsQuery, scalarOf, HTTP_METRICS_POINTS } from '@/lib/httpMetrics';
+import { statusCodeRateQuery, statusCodeSeries, totalRequestsQuery, scalarOf, HTTP_METRICS_POINTS, windowRange } from '@/lib/httpMetrics';
+// v0.10.1360 — metrik karoları pencere değeri (HTTP Metrics sekmesiyle aynı sorgu + kanca).
+import { useHttpPromql } from '@/lib/queries/httpMetrics';
+import { overviewWindowItems, overviewWindowKpi, overviewWindowOffsetSec, overviewWindowSec, windowDelta } from './overviewWindowKpi';
 import { encodeRange } from '@/lib/urlState';
 import { useId, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -282,6 +285,17 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
     retry: false,
   });
   const totalReq = scalarOf(totalReqQ.data);
+  // v0.10.1360 (operatör: yüzeyler arası tutarlılık) — Response time karosu +
+  // "P99 (metrik)" alt satırı PENCERE değeri: HTTP Metrics sekmesi / endpoint
+  // karolarıyla AYNI üretici (windowQueries({ app }, W) — anlık increase[W])
+  // ve AYNI kanca (useHttpPromql → aynı RQ anahtarı, staleTime 30 sn, yoklama
+  // yok — sayfanın kendi kadansı). Grafikler/sparkline'lar /metric-red adım
+  // serisinde kalır. Compare açıkken önceki pencerenin avg'ı (offset =
+  // sayfanın compare kaydırması; prior'da W) yalnız delta için.
+  const ovWinSec = overviewWindowSec(from, to);
+  const ovWinOffsetSec = overviewWindowOffsetSec(compareOff);
+  const ovWinItems = useMemo(() => overviewWindowItems(service, ovWinSec, ovWinOffsetSec), [service, ovWinSec, ovWinOffsetSec]);
+  const ovWin = overviewWindowKpi(useHttpPromql(ovWinItems, { from, to }, metricMode && !!service));
   const metricAutoFellBack = explicitSrc === null && !!metricRedQ.data && !metricRedQ.data.metricExists;
   const metricRedGhostQ = useQuery({
     queryKey: ['service-metric-red', service, from - compareOff, to - compareOff, redMdp, env],
@@ -822,7 +836,12 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
   // response-time metriği birim taşımıyor olabilir. Tek bir "metrik modu"
   // bayrağı ikisini birbirine kilitlerdi ve biri yüzünden diğeri de
   // span'e düşerdi.
-  const rtFromMetric = rtAvgMsNow != null;
+  // v0.10.1360 — metrik kipinde pencere avg'ı (HTTP Metrics ile aynı) önce;
+  // yoksa son adım (etiketli). Span kipi DEĞİŞMEDİ (pencere sorgusu kapalı).
+  const rtWinAvgMs = metricMode ? ovWin.avgMs : null;
+  const rtFromWindow = rtWinAvgMs != null;
+  const rtFromMetric = rtFromWindow || rtAvgMsNow != null;
+  const rtLastStep = metricMode && !rtFromWindow && rtAvgMsNow != null;
   const tputFromMetric = metricRpsNow != null;
   // v0.10.368 (operatör: "yüklenirken önce başka response time çıkıyor,
   // sayfa yüklendikten sonra başka") — metrik kipinde karolar metrik
@@ -832,13 +851,37 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
   // Metrik kipinde metrik gelene dek karo BEKLER: etiket metrik, değer
   // "…"; span'e yalnız metrik gerçekten yoksa düşülür.
   const metricTilesPending = metricMode && metricTputQ.isLoading;
-  const rtLabel = rtFromMetric || metricTilesPending ? 'Response time · avg' : 'Response time · P99 (span)';
+  // v0.10.1360 — pencere sorgusu gelene dek de karo bekler (v0.10.368 dersi:
+  // önce son adım, sonra pencere değeri = iki sayı arasında zıplama).
+  const rtTilePending = metricTilesPending || (metricMode && ovWin.avgPending);
+  const rtLabel = rtFromMetric || rtTilePending
+    ? (rtLastStep && !rtTilePending ? 'Response time · avg · son adım' : 'Response time · avg')
+    : 'Response time · P99 (span)';
+  const rtValMs = rtFromWindow ? (rtWinAvgMs as number) : rtFromMetric ? (rtAvgMsNow as number) : p99Ms;
+  // Delta: pencere vs önceki pencere (compare açıkken); aksi hâlde bugünkü
+  // seri eğilimi (ilk üçte bir vs son üçte bir) — sparkline ile aynı seri.
+  const rtDelta = rtFromWindow && ovWin.prevAvgMs != null
+    ? windowDelta(rtWinAvgMs, ovWin.prevAvgMs)
+    : computeDelta(rtFromMetric ? rtAvgMsSeries : vals(lat?.p99));
+  // "P99 (metrik)" alt satırı: pencere p99; yoksa /metric-red son noktası, "son adım" etiketiyle.
+  const rtSub = rtTilePending || !rtFromMetric ? undefined
+    : !metricMode ? (p99Now != null ? `P99 (span) · ${p99Ms.toFixed(0)} ms` : undefined)
+      : ovWin.p99Ms != null ? `P99 (metrik) · ${ovWin.p99Ms.toFixed(0)} ms`
+        : p99Now != null ? `P99 (metrik · son adım) · ${p99Ms.toFixed(0)} ms` : undefined;
   const tputLabel = tputFromMetric || metricTilesPending ? 'Throughput' : 'Throughput (span)';
   // Karo tooltip'i kaynağı TAM yazar — kapsam rozeti span kapsamını
   // anlatıyor ve metrik karosunda o rozet geçerli DEĞİL.
-  const rtTileNote = rtFromMetric
-    ? `Kaynak: ${metricName} · gözlem-ağırlıklı ortalama (grupsuz), service.name = ${service}`
-    : latScopeNote;
+  // v0.10.1360 — pencere karosu kaynağını, pencereyi ve dört pencere değerini yazar.
+  const fmtMs = (v: number | null) => (v == null ? '—' : `${v.toFixed(v < 10 ? 1 : 0)} ms`);
+  const rtTileNote = rtFromWindow
+    ? `Kaynak: http_server_request_duration_seconds · karolar pencere değeri (increase[${windowRange(ovWinSec)}], HTTP Metrics ile aynı), service_name = ${service}`
+      + ` · avg ${fmtMs(ovWin.avgMs)} · P50 ${fmtMs(ovWin.p50Ms)} · P95 ${fmtMs(ovWin.p95Ms)} · P99 ${fmtMs(ovWin.p99Ms)}`
+      + (env ? ' · env süzgeci yok (HTTP Metrics gibi)' : '')
+      + '; sparkline ve grafikler adım başına seri'
+    : rtFromMetric
+      ? `Kaynak: ${metricName} · gözlem-ağırlıklı ortalama (grupsuz), service.name = ${service}`
+        + (rtLastStep ? ` · son adım (adım serisinin son noktası) — ${ovWin.avgMissingReason ?? 'pencere değeri yok'}` : '')
+      : latScopeNote;
   const tputTileNote = tputFromMetric
     ? `Kaynak: ${metricTputQ.data?.metric ?? '?'} · rate toplamı (route'ların toplamı), eşleşme ${metricTputQ.data?.matchedBy ?? '?'}`
     : latScopeNote;
@@ -909,15 +952,17 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
             uygulanmış hâli. */}
         <MetricPanel compact title={rtLabel} metricQuery={rtFromMetric ? mkMetricResponseTimeTotal() : mkLatency('p99', 'stat')}>
           <KpiTile lab={rtLabel}
-            val={metricTilesPending ? '…' : rtFromMetric ? (rtAvgMsNow as number).toFixed(0) : p99Ms.toFixed(0)}
+            // v0.10.1360 — değer/delta/alt satır pencere değerinden (yukarıda
+            // rtValMs/rtDelta/rtSub); sparkline adım serisinde kalır.
+            val={rtTilePending ? '…' : rtValMs.toFixed(0)}
             unit=" ms" accent="var(--orange)"
-            spark={metricTilesPending ? undefined : rtFromMetric ? rtAvgMsSeries : vals(lat?.p99)}
-            delta={metricTilesPending ? null : computeDelta(rtFromMetric ? rtAvgMsSeries : vals(lat?.p99))}
+            spark={rtTilePending ? undefined : rtFromMetric ? rtAvgMsSeries : vals(lat?.p99)}
+            delta={rtTilePending ? null : rtDelta}
             goodWhenUp={false} note={rtTileNote}
             // v0.9.798 — İKİNCİL SATIR (tek commit'le geri alınabilir):
             // büyük sayı metrik AVG olunca kuyruk görünürlüğü kaybolmasın.
-            // Değer ZATEN çekiliyor (latencyQ) — ek sorgu yok.
-            sub={!metricTilesPending && rtFromMetric && p99Now != null ? `P99 (${metricMode ? 'metrik' : 'span'}) · ${p99Ms.toFixed(0)} ms` : undefined}
+            // v0.10.1360 — metrik kipinde pencere p99'u; yoksa "son adım".
+            sub={rtSub}
           />
         </MetricPanel>
         <MetricPanel compact menuOnly title={tputLabel} metricQuery={mkThroughput('stat')}>
@@ -973,7 +1018,8 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
           onChange={e => setMetricMode(e.target.value === 'metric')}
           style={{ fontSize: 11 }} aria-label="RED kaynağı"
           title={metricMode
-            ? 'Kaynak: metrik — OTel HTTP server histogramı (VM ya da ClickHouse): P50/P95/P99 histogram_quantile, Failure rate 5xx; örneklemeden bağımsız'
+            // v0.10.1360 — grafik = adım serisi, karo = pencere değeri.
+            ? 'Kaynak: metrik — OTel HTTP server histogramı (VM ya da ClickHouse): grafik serileri adım başına histogram_quantile(rate[180s]); karolar pencere değeri (increase[W], HTTP Metrics ile aynı); Failure rate 5xx; örneklemeden bağımsız'
             : 'Kaynak: span — giriş span\u2019lerinden (server/consumer) türetilmiş RED; collector örnekliyorsa eksik sayar'}>
           <option value="span">Kaynak: span</option>
           <option value="metric">Kaynak: metrik</option>

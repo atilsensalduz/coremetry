@@ -1,0 +1,87 @@
+// overviewWindowKpi.ts — v0.10.1360 (operatör: "sayılar yüzeyler arasında
+// tutarlı olsun"). Service Overview metrik kipinde Response time karosu ve
+// "P99 (metrik)" alt satırı PENCERE değerini gösterir: HTTP Metrics sekmesi
+// ve endpoint karolarıyla AYNI üretici (lib/httpMetrics windowQueries —
+// anlık `increase[W]`), AYNI kanca (useHttpPromql → aynı RQ anahtarı, aynı
+// /api/metrics/promql?metricsrc=vm ucu). Eskiden karo /metric-red'in adım
+// başına `histogram_quantile(rate[180s])` serisinin SON noktasını okuyordu;
+// bu bir pencere değeri değil, son ~3 dakikanın değeri.
+//
+// Grafikler ve sparkline'lar adım serisinde KALIR (zaman ekseni için doğru
+// olan o). Pencere değeri okunamazsa (HTTP histogram ailesi yok, sorgu
+// hatası, VM yok) karo bugünkü son-nokta değerine düşer ve bunu "son adım"
+// etiketiyle SÖYLER — sessiz düşüş yok.
+//
+// SAF: React yok; kanca sonucu (HttpPromqlResult) girdi olarak gelir.
+import { windowQueries, scalarOf } from '@/lib/httpMetrics';
+import type { HttpPromqlItem, HttpPromqlResult } from '@/lib/queries/httpMetrics';
+
+/** Karo kimlikleri: w* = bu pencere, pAvg = önceki pencere (yalnız compare açıkken). */
+export type OverviewWindowId = 'wAvg' | 'wP50' | 'wP95' | 'wP99' | 'pAvg';
+
+/** Pencere saniyesi — ServiceHttpMetricsTab ile aynı formül (en az 60 s). */
+export function overviewWindowSec(fromNs: number, toNs: number): number {
+  return Math.max(60, (toNs - fromNs) / 1e9);
+}
+
+/**
+ * Compare kaydırması (ns) → PromQL `offset` saniyesi; kapalı → 0. 'prior'
+ * kipinde kaydırma = pencere boyu, yani endpoint sayfasının `offset W`
+ * sorgusuyla bayt-aynı (Math.max(60, round(W))).
+ */
+export function overviewWindowOffsetSec(compareOffNs: number): number {
+  return compareOffNs > 0 ? Math.max(60, Math.round(compareOffNs / 1e9)) : 0;
+}
+
+/**
+ * Overview'ın pencere sorguları — `windowQueries({ app: service }, W)`
+ * çıktısının KENDİSİ (yeniden yazım yok; tutarlılık yapı gereği). offsetSec
+ * > 0 → önceki pencerenin avg'ı (delta için; başka tüketici yok).
+ */
+export function overviewWindowItems(service: string, windowSec: number, offsetSec = 0): HttpPromqlItem[] {
+  const w = windowQueries({ app: service }, windowSec);
+  const out: HttpPromqlItem[] = [
+    { id: 'wAvg', expr: w.avg, instant: true },
+    { id: 'wP50', expr: w.p50, instant: true },
+    { id: 'wP95', expr: w.p95, instant: true },
+    { id: 'wP99', expr: w.p99, instant: true },
+  ];
+  if (offsetSec > 0) {
+    out.push({ id: 'pAvg', expr: windowQueries({ app: service }, windowSec, '', offsetSec).avg, instant: true });
+  }
+  return out;
+}
+
+export interface OverviewWindowKpi {
+  avgMs: number | null; p50Ms: number | null; p95Ms: number | null; p99Ms: number | null;
+  prevAvgMs: number | null;
+  /** avg sorgusu henüz dönmedi (karo bekler, son adıma düşmez). */
+  avgPending: boolean;
+  /** Pencere avg'ı yoksa NEDEN (karo tooltip'i söyler); varsa null. */
+  avgMissingReason: string | null;
+}
+
+const toMs = (v: number | null): number | null => (v !== null && Number.isFinite(v) && v >= 0 ? v * 1000 : null);
+
+/** Kanca sonucu → karo değerleri (saniye → ms). Hatalı kimlik = değer yok. */
+export function overviewWindowKpi(res: Pick<HttpPromqlResult, 'data' | 'pending' | 'error'>): OverviewWindowKpi {
+  const pick = (id: OverviewWindowId) => (res.error(id) ? null : toMs(scalarOf(res.data[id])));
+  const avgMs = pick('wAvg');
+  const err = res.error('wAvg');
+  return {
+    avgMs, p50Ms: pick('wP50'), p95Ms: pick('wP95'), p99Ms: pick('wP99'), prevAvgMs: pick('pAvg'),
+    avgPending: res.pending('wAvg'),
+    avgMissingReason: avgMs !== null ? null
+      : err ? `pencere sorgusu başarısız: ${err.message}`
+        : 'HTTP histogram ailesi (http_server_request_duration_seconds) bu pencerede yok',
+  };
+}
+
+export type WindowDelta = { pct: string; dir: 'up' | 'down' | 'flat' };
+
+/** Pencere vs önceki pencere — computeDelta ile aynı eşikler (±%0.5). */
+export function windowDelta(cur: number | null, prev: number | null): WindowDelta | null {
+  if (cur === null || prev === null || !(prev > 0)) return null;
+  const d = ((cur - prev) / prev) * 100;
+  return { pct: Math.abs(d).toFixed(1), dir: d > 0.5 ? 'up' : d < -0.5 ? 'down' : 'flat' };
+}

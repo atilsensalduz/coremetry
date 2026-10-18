@@ -271,7 +271,9 @@ func serviceMetricREDNote(r serviceMetricREDResponse) string {
 	fmt.Fprintf(&b, " — %s, kimlik %s.", r.Metric, r.MatchedBy)
 	b.WriteString(statusLabelNote(r.StatusState, r.StatusKey, r.StatusReason, r.Source, "Failure rate", ""))
 	if r.LatencyUnitKnown {
-		fmt.Fprintf(&b, " P50/P95/P99 histogram_quantile, birim %s", r.LatencyUnit)
+		// v0.10.1360 — grafik = adım serisi, karo = pencere değeri (Overview
+		// karoları artık HTTP Metrics'in windowQueries'inden okur).
+		fmt.Fprintf(&b, " P50/P95/P99: grafik serileri adım başına histogram_quantile(rate[180s]); karolar pencere değeri (increase[W], HTTP Metrics ile aynı); birim %s", r.LatencyUnit)
 		if r.LatencyUnitFrom == "name" {
 			b.WriteString(" (metrik adından)")
 		}
