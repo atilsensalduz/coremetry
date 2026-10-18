@@ -118,12 +118,24 @@ func DoAnthropic(ctx context.Context, cfg Config, req Request) (Response, error)
 // çözümlemek ikinci bir faturalı çağrıdan iyidir (v0.8.404).
 //
 // content[] birden çok text bloğu taşıyabilir (Anthropic uzun yanıtı
-// bölebiliyor); text OLMAYAN bloklar (tool_use, thinking) atlanır.
+// bölebiliyor); tool_use gibi blokların metni cevaba girmez.
+//
+// v0.10.1308 — nihai metin ParseOpenAIChat ile AYNI kurtarma zincirinden
+// (SalvageAnswer → StripThinking → thinkStripper) geçer. Eskiden text
+// blokları ham birleştiriliyordu: Gemma'yı Messages şekliyle sunan bir
+// vekilin `<think>…</think>` / `<|channel>thought…<channel|>` bloğu nihai
+// cevapta kalıyordu (canlı delta'lar 1304'ten beri temizdi, `answer`
+// çerçevesi değil). Sıra openai ile birebir:
+//  1. text bloklarının görünür kısmı (düşünce soyulmuş, trim'li);
+//  2. boşsa thinking bloklarının metni — İŞARETLİ (reasoning_content'in
+//     karşılığı; akış yolunda thinking_delta aynı yere gider);
+//  3. son çare: text içindeki ilk düşünce bloğunun İÇİ — İŞARETLİ.
 func ParseAnthropic(respBody []byte) (Response, error) {
 	var parsed struct {
 		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
+			Type     string `json:"type"`
+			Text     string `json:"text"`
+			Thinking string `json:"thinking"` // type=thinking bloğu
 		} `json:"content"`
 		StopReason string         `json:"stop_reason"`
 		Usage      anthropicUsage `json:"usage"`
@@ -138,17 +150,21 @@ func ParseAnthropic(respBody []byte) (Response, error) {
 		return Response{InputTokens: parsed.Usage.totalInput(), OutputTokens: parsed.Usage.OutputTokens, CachedTokens: parsed.Usage.CacheReadInputTokens},
 			errAnthropicRefusal
 	}
-	var out strings.Builder
+	var text, thinking strings.Builder
 	for _, c := range parsed.Content {
-		if c.Type == "text" {
-			out.WriteString(c.Text)
+		switch c.Type {
+		case "text":
+			text.WriteString(c.Text)
+		case "thinking":
+			thinking.WriteString(c.Thinking)
 		}
 	}
-	// Not: boş metin burada HATA DEĞİL — openai-compat'ın kurtarma
-	// zincirinin (EmptyAnswerError) anthropic karşılığı yok ve olmadı.
-	// Bu, taşınan davranış; değiştirmek ayrı bir ürün kararı olurdu.
+	// Not: kurtarılacak bir şey yoksa boş metin burada HATA DEĞİL —
+	// openai-compat'ın EmptyAnswerError teşhisinin anthropic karşılığı yok
+	// ve olmadı. Bu, taşınan davranış; değiştirmek ayrı bir ürün kararı
+	// olurdu (v0.10.1308 yalnız düşünce soymayı hizaladı).
 	return Response{
-		Text:         out.String(),
+		Text:         SalvageAnswer(text.String(), thinking.String(), ""),
 		InputTokens:  parsed.Usage.totalInput(),
 		OutputTokens: parsed.Usage.OutputTokens,
 		CachedTokens: parsed.Usage.CacheReadInputTokens, // v0.10.807

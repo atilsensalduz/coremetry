@@ -367,12 +367,12 @@ func (a *anthropicStreamAccum) finishAnthropic() (final, trailing string, err er
 		// ErrClassRefusal); "empty response" diye de görünmez.
 		return "", "", errAnthropicRefusal
 	}
-	final = strings.TrimSpace(a.content.String())
-	if final == "" {
-		// Yalnız-düşünce akışı — openai-compat ile aynı kurtarma duruşu, aynı
-		// işaretle (salvage.go v0.10.66: düşünce kanalından gelen metin işaretlenir).
-		final = MarkSalvagedThinking(StripThinking(strings.TrimSpace(a.reasoning.String())))
-	}
+	// v0.10.1308 — finishOpenAI ile AYNI zincir. Eskiden content yalnız
+	// trim'lenip döndürülüyordu: canlı kapı (live_think_gate.go) Gemma
+	// bloğunu ve ortadaki <think>'i gizlerken nihai `answer` metni onları
+	// geri getiriyordu. Yalnız-düşünce akışı (thinking_delta ya da yalnız
+	// gömülü blok) salvage.go v0.10.66/37 kuralıyla İŞARETLİ kurtarılır.
+	final = SalvageAnswer(a.content.String(), a.reasoning.String(), "")
 	if final == "" {
 		return "", "", errors.New("anthropic stream: empty response")
 	}
