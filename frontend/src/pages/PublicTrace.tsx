@@ -135,8 +135,13 @@ function PublicTraceInner() {
             {hasErr
               ? <span className="badge b-err">ERROR</span>
               : <span className="sr-only">OK</span>}
-            <span style={{ color: 'var(--text2)', fontSize: 12 }}>{data.spans.length} spans · {fmtNs(totalNs)}</span>
-            {root && <span style={{ color: 'var(--text3)', fontSize: 12 }}>{tsLong(root.startTime)}</span>}
+            {/* v0.10.1347 — /trace özet şeridiyle aynı: ölçüler (süre · sayı ·
+                başlangıç) sağa dayalı küme; süre şeridin belirgin sayısı. */}
+            <span className="trace-summary__measures">
+              <span className="trace-summary__dur" title="Trace toplam süresi: ilk span başlangıcından son span bitişine">⏱ {fmtNs(totalNs)}</span>
+              <span className="trace-summary__counts">{data.spans.length} spans</span>
+              {root && <span className="trace-summary__start" title="Trace başlangıcı (kök span)">{tsLong(root.startTime)}</span>}
+            </span>
           </>
         )}
       </div>

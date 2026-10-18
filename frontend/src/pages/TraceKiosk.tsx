@@ -161,9 +161,6 @@ export function TraceKiosk() {
           ? <span className="badge b-err">ERROR</span>
           : <span className="sr-only">OK</span>}
         {errSpans > 0 && <span className="cell-hint">{errSpans} error span{errSpans === 1 ? '' : 's'}</span>}
-        <span className="trace-summary__dur" title="Trace toplam süresi: ilk span başlangıcından son span bitişine">⏱ {fmtNs(totalNs)}</span>
-        <span>{spans.length} spans · {svcCount} service{svcCount === 1 ? '' : 's'}</span>
-        {root && <span title="Trace başlangıcı (kök span)">{tsLong(root.startTime)}</span>}
         <code className="trace-kiosk__id">{id}<CopyButton value={id} title="Copy trace ID" /></code>
         {bundle.source === 'tempo' && <span className="badge b-info" title="source: Tempo fallback">Tempo</span>}
         {bundle.spanCapped && (
@@ -171,6 +168,12 @@ export function TraceKiosk() {
             span tavanı{bundle.spanTotal ? ` · ${bundle.spanTotal.toLocaleString()}` : ''}
           </span>
         )}
+        {/* v0.10.1347 — /trace özet şeridiyle aynı: ölçüler sağa dayalı küme. */}
+        <span className="trace-summary__measures">
+          <span className="trace-summary__dur" title="Trace toplam süresi: ilk span başlangıcından son span bitişine">⏱ {fmtNs(totalNs)}</span>
+          <span>{spans.length} spans · {svcCount} service{svcCount === 1 ? '' : 's'}</span>
+          {root && <span title="Trace başlangıcı (kök span)">{tsLong(root.startTime)}</span>}
+        </span>
       </div>
       <TraceWaterfall
         spans={spans}

@@ -6011,3 +6011,23 @@ tbody td.tpm-more-cell { color: var(--text2); }
   scroll-margin-top: calc(var(--controls-h, 0px) + var(--sp-4));
 }
 /* ── v0.10.1339 END ──────────────────────────────────────────────────── */
+
+/* ── v0.10.1347 BEGIN — trace özet şeridi: ölçüler sağa dayalı ─────────
+   Operatör: "Üstteki ms cinsinden süre ve tarih sağa dayalı olabilir."
+   Kimlik/durum (servis · id · ERROR · hatalı span) solda; ölçüler (süre ·
+   span/servis sayısı · başlangıç) margin-left:auto kümesinde sağda. Aynı
+   küme /trace (.trace-summary), kiosk (.trace-kiosk__head) ve /public
+   trace başlığında. gap ebeveynden (`inherit`) — her şerit kendi ritmini
+   korur. Oracle operasyon satırı(ları) şeridin altında tam genişlik;
+   çip hiçbir şey çizmezse :empty boş satırı gizler. ≤640px: ölçü kümesi
+   sol kümenin ALTINA, sola dayalı iner. pages/traceHeaderMeasures.pin.test.ts. */
+.trace-summary__measures { display: inline-flex; flex-wrap: wrap; align-items: center; gap: inherit; margin-left: auto; }
+.trace-summary__counts { color: var(--text2); font-size: var(--fs-sm); }
+.trace-summary__start { color: var(--text); font-size: var(--fs-md); font-weight: 600; font-variant-numeric: tabular-nums; }
+.trace-summary__ops { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3) var(--sp-6); }
+.trace-summary__ops:empty { display: none; }
+.trace-summary__ops > .cell-hint { margin-left: 0; }
+@media (max-width: 640px) {
+  .trace-summary__measures { margin-left: 0; flex-basis: 100%; }
+}
+/* ── v0.10.1347 END ──────────────────────────────────────────────────── */

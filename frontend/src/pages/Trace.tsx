@@ -573,15 +573,23 @@ function TraceDetailInner() {
               {/* v0.10.678 (operatör: "trace'in toplam süresini daha net görebilsek") —
                   süre gri sayım satırından ayrıldı; tarih gibi (v0.10.347) şeridin
                   okunan sayısı. totalNs = ilk span başlangıcı → son span bitişi. */}
-              <span className="trace-summary__dur" title="Trace toplam süresi: ilk span başlangıcından son span bitişine">⏱ {fmtNs(totalNs)}</span>
-              <span style={{ color: 'var(--text2)', fontSize: 12 }}>{spans.length} spans · {svcCount} service{svcCount === 1 ? '' : 's'}</span>
-              {/* v0.10.347 (operatör: "en üstteki tarih daha belirgin olabilir") —
-                  trace zamanı ikincil gri yazı değil, şeridin okunan sayısı. */}
-              {root && <span style={{ color: 'var(--text)', fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }} title="Trace başlangıcı (kök span)">{tsLong(root.startTime)}</span>}
+              {/* v0.10.1347 (operatör: "Üstteki ms cinsinden süre ve tarih sağa
+                  dayalı olabilir") — kimlik/durum solda; ölçüler (süre · sayılar ·
+                  başlangıç) sağa dayalı küme. ≤640px'te sol kümenin altına iner. */}
+              <span className="trace-summary__measures">
+                <span className="trace-summary__dur" title="Trace toplam süresi: ilk span başlangıcından son span bitişine">⏱ {fmtNs(totalNs)}</span>
+                <span className="trace-summary__counts">{spans.length} spans · {svcCount} service{svcCount === 1 ? '' : 's'}</span>
+                {/* v0.10.347 (operatör: "en üstteki tarih daha belirgin olabilir") —
+                    trace zamanı ikincil gri yazı değil, şeridin okunan sayısı. */}
+                {root && <span className="trace-summary__start" title="Trace başlangıcı (kök span)">{tsLong(root.startTime)}</span>}
+              </span>
               {/* v0.10.1003 — Oracle operasyon adı. v0.10.1329: önce bu trace'in kendi
                   Oracle satırları / span attribute'u (kesin), yoksa FUNCTION_CODE
-                  sözlüğü etiketli yedek; hiçbiri yoksa hiçbir şey çizilmez. */}
-              <OracleOperationChip spans={spans} pageRange={range} oracleRows={chipOracleRows} />
+                  sözlüğü etiketli yedek; hiçbiri yoksa hiçbir şey çizilmez.
+                  v0.10.1347: kendi tam genişlik satırında (boşsa :empty gizler). */}
+              <div className="trace-summary__ops">
+                <OracleOperationChip spans={spans} pageRange={range} oracleRows={chipOracleRows} />
+              </div>
               {/* v0.10.354 (operatör) — Compare / Logs / Share / Export JSON ve kritik
                   yol özeti beyaz şeritten çıktı: Topbar'daki gri alana (actions). */}
 
