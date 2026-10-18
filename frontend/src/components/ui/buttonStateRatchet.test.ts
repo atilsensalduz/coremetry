@@ -9,12 +9,14 @@
 // arasında tek seçim (radyo anlamı) ise SegmentedControl.
 //
 // Neden kapı: `tsc` için iki yazım da kusursuz, eslint ifadeye bakmaz,
-// jsdom rengi hesaplamaz. Kalan siteler bir TAVAN (aşağı iner, yukarı
-// çıkmaz); göç ettikçe sayı düşürülür.
-//   (a) koşullu birincil sayısı ≤ TAVAN,
+// jsdom rengi hesaplamaz. Kalan siteler bir TAVAN'dı (aşağı iner, yukarı
+// çıkmaz); v0.10.1342 (dilim B) son 10 siteyi göçürdü → tavan 0.
+//   (a) koşullu birincil sayısı ≤ TAVAN (= 0),
 //   (b) göç eden iki dosya (Logs, ProblemVerdictActions) `active=` taşıyor
 //       ve koşullu birincile geri dönmedi,
-//   (c) hiçbir <Button> hem `active=` hem dolu varyant (primary|danger) taşımaz.
+//   (c) hiçbir <Button> hem `active=` hem dolu varyant (primary|danger) taşımaz,
+//   (d) v0.10.1342 dilim B siteleri seçtikleri kalıpta kalıyor (active /
+//       SegmentedControl / vurgu tablosu) — biri üçlüye dönerse adıyla düşer.
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
@@ -66,9 +68,16 @@ const COND_PRIMARY = /variant=\{[^}]*\?\s*['"]primary['"]/g;
 
 // v0.10.1318 ölçümü: 10 site (MethodHotspots, FilterGroupBuilder,
 // LogPatternsPanel, LogFieldsPanel, AIExplainButton, AdminClickhouse ×2,
-// Alerts, Metrics, Explore). Bazıları gerçek durum anahtarı (göç adayı),
-// bazıları bağlamsal vurgu (AdminClickhouse onay kipi) — tavan yalnız aşağı.
-const CEILING = 10;
+// Alerts, Metrics, Explore). v0.10.1342 (dilim B) hepsini göçürdü:
+//   durum anahtarı / komut  → `variant="secondary" active={x}`
+//       (LogPatternsPanel Trend, LogFieldsPanel ⚠ ayıran, Metrics editör,
+//        Explore Repeats preset'leri),
+//   seçenekler arası tek seçim → SegmentedControl
+//       (MethodHotspots tür, FilterGroupBuilder AND|OR, Alerts kural türü),
+//   bağlamsal vurgu (durum değil) → arama tablosu
+//       (AIExplainButton EMPHASIS_LOOK, AdminClickhouse CONFIRM_VARIANT).
+// Tavan 0: yeni bir koşullu birincil eklemek bu testi düşürür.
+const CEILING = 0;
 
 describe('K3 — durum birincil dolgu değil (v0.10.1318)', () => {
   it('tarama boşa dönmüyor', () => {
@@ -100,6 +109,29 @@ describe('K3 — durum birincil dolgu değil (v0.10.1318)', () => {
     const pv = FILES.find(x => x.rel === 'components/ProblemVerdictActions.tsx')!.src;
     expect(pv).toContain("active={current?.verdict === 'real'}");
     expect(pv).toContain("active={current?.verdict === 'noise'}");
+  });
+
+  it('(d) v0.10.1342 dilim B siteleri seçtikleri kalıpta kalıyor', () => {
+    const src = (rel: string) => {
+      const f = FILES.find(x => x.rel === rel);
+      expect(f, rel).toBeDefined();
+      expect([...f!.src.matchAll(COND_PRIMARY)].length, rel).toBe(0);
+      return f!.src;
+    };
+    // Durum anahtarı / komut → ikincil + active.
+    expect(src('components/LogPatternsPanel.tsx')).toContain('active={trend}');
+    expect(src('components/LogFieldsPanel.tsx')).toContain('active={lift}');
+    expect(src('pages/Metrics.tsx')).toContain('active={editor}');
+    expect(src('pages/Explore.tsx')).toContain('active={active}');
+    // Tek seçim → SegmentedControl.
+    for (const rel of ['components/MethodHotspots.tsx', 'components/FilterGroupBuilder.tsx', 'pages/Alerts.tsx']) {
+      expect(src(rel), rel).toContain('<SegmentedControl');
+    }
+    // Vurgu → arama tablosu (üçlü değil).
+    expect(src('components/ai/AIExplainButton.tsx')).toContain('variant={look.variant}');
+    const ch = src('pages/AdminClickhouse.tsx');
+    expect(ch).toContain("variant={CONFIRM_VARIANT[confirmKind ?? 'rollback']}");
+    expect(ch).toContain('variant={CONFIRM_VARIANT[confirmKind]}');
   });
 
   it('(c) hiçbir <Button> `active` ile dolu varyant (primary|danger) taşımaz', () => {

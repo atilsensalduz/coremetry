@@ -157,4 +157,19 @@ describe('LogPatternsPanel', () => {
     expect(agoLabel((now - 7_200_000) * 1e6, now)).toBe('2 sa önce');
     expect(agoLabel((now - 172_800_000) * 1e6, now)).toBe('2 g önce');
   });
+
+  it('v0.10.1342 — Trend açık/kapalı durumu ikincil + active (tint + aria-pressed), dolu birincil değil', async () => {
+    const el = render(<LogPatternsPanel params={{ service: 'api', from: 1, to: 2 }} open onSearch={() => {}} />);
+    await act(async () => { await new Promise(r => setTimeout(r, 30)); });
+    const trend = () => [...el.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Trend') as HTMLButtonElement;
+    expect(trend()).toBeTruthy();
+    expect(trend().getAttribute('aria-pressed')).toBe('false');
+    expect(trend().className).toContain('sec');
+    expect(trend().className).not.toContain('is-active');
+    await act(async () => { trend().click(); await new Promise(r => setTimeout(r, 30)); });
+    expect(trend().getAttribute('aria-pressed')).toBe('true');
+    // Açıkken de ikincil kalır (`sec`), yalnız `.is-active` tint'i eklenir.
+    expect(trend().className).toContain('sec');
+    expect(trend().className).toContain('is-active');
+  });
 });

@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { Button } from '@/components/ui';
+import { SegmentedControl } from '@/components/ui';
 import type { FlameNode, ProfileFrameKind } from '@/lib/types';
 import { flameToHotspots, flameCategoryBreakdown, type MethodHotspot } from '@/lib/flameHotspots';
 import { KindBadge, BreakdownBar, kindLabel } from './KindBadge';
@@ -126,20 +126,14 @@ function KindFilterChips({ cur, onChange }: {
   onChange: (k: ProfileFrameKind | 'all') => void;
 }) {
   const kinds: (ProfileFrameKind | 'all')[] = ['all', 'cpu', 'lock', 'io', 'sleep', 'gc'];
+  // v0.10.1342 (K3 dilim B) — türler arasında TEK seçim → SegmentedControl
+  // (eskiden seçili tür dolu birincildi: durum ≠ birincil). Seçili türe
+  // yeniden tıklamak "All"a döner — eski davranış korunur.
   return (
-    <span style={{ display: 'inline-flex', gap: 4 }}>
-      {kinds.map(k => {
-        const active = k === cur;
-        const label = k === 'all' ? 'All' : kindLabel(k as ProfileFrameKind);
-        return (
-          <Button key={k}
-            onClick={() => onChange(active && k !== 'all' ? 'all' : k)}
-            variant={active ? 'primary' : 'secondary'} size="sm">
-            {label}
-          </Button>
-        );
-      })}
-    </span>
+    <SegmentedControl size="sm" aria-label="Frame kind"
+      value={cur}
+      onChange={k => onChange(k === cur && k !== 'all' ? 'all' : k)}
+      options={kinds.map(k => ({ value: k, label: k === 'all' ? 'All' : kindLabel(k as ProfileFrameKind) }))} />
   );
 }
 

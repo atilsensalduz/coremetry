@@ -322,7 +322,9 @@ export default function MetricsPage() {
             </Badge>
           )}
           <div style={{ flex: 1 }} />
-          <Button variant={editor ? 'primary' : 'secondary'} size="sm"
+          {/* v0.10.1342 (K3 dilim B) — editör açık/kapalı bir durum: ikincil +
+              `active` (tint + aria-pressed), dolu birincil değil. */}
+          <Button variant="secondary" active={editor} size="sm"
             onClick={() => {
               // Yabancı paramlar KORUNUR (range!). Eskiden tam URL
               // yazılıyordu ve görünüm değiştiren operatörün zaman

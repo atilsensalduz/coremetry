@@ -167,7 +167,7 @@ export function LogPatternsPanel({ params, open, onSearch, tab: tabProp, onTab }
           { key: 'templates', label: 'Şablonlar', title: "Drain templater'ın kalıcı şablonları (5 dk'da ≤1000 satır örneklenir)" },
         ]} />
         {tab === 'patterns' && (
-          <Button variant={trend ? 'primary' : 'secondary'} size="xs" onClick={toggleTrend} aria-pressed={trend}
+          <Button variant="secondary" active={trend} size="xs" onClick={toggleTrend} /* v0.10.1342 — açık/kapalı durum: active, birincil değil */
             title="Δ / YENİ: hemen önceki eşit pencerenin örneklemesiyle (tek ek sayfa, 500 satır) karşılaştırır — ipucu, kanıt değil">
             Trend
           </Button>

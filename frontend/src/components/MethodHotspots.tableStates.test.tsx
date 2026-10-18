@@ -95,9 +95,24 @@ describe('MethodHotspots — süzgeç boşaltınca durum tablonun içinde (v0.10
     expect(stateRow(el)?.dataset.dtState).toBe('no-match');
     act(() => { buttonByText(stateRow(el)!, DATA_TABLE_STATE_TEXT.clearFilters)!.click(); });
     expect(dataRows(el)).toBe(3);
-    // "All" yeniden birincil (seçili: `sec` sınıfı yok), "Lock" ikincil.
-    expect(buttonByText(el, 'All')?.className ?? '').not.toContain('sec');
-    expect(buttonByText(el, 'Lock')?.className).toContain('sec');
+    // v0.10.1342 — tür seçimi SegmentedControl: "All" yeniden seçili
+    // (aria-checked), "Lock" değil. Eskiden seçili tür dolu birincildi.
+    expect(buttonByText(el, 'All')?.getAttribute('aria-checked')).toBe('true');
+    expect(buttonByText(el, 'Lock')?.getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('v0.10.1342 — tür süzgeci tek seçimli radiogroup; seçili türe yeniden tıklamak "All"a döner', () => {
+    const el = mount(ROOT);
+    const group = el.querySelector('[role="radiogroup"][aria-label="Frame kind"]');
+    expect(group).not.toBeNull();
+    // Hiçbir tür butonu dolu birincil değil (hepsi .segmented içindeki radyo).
+    expect(group!.querySelectorAll('button[role="radio"]').length).toBe(6);
+    act(() => { buttonByText(el, 'Lock')!.click(); });
+    expect(buttonByText(el, 'Lock')?.getAttribute('aria-checked')).toBe('true');
+    expect(buttonByText(el, 'All')?.getAttribute('aria-checked')).toBe('false');
+    act(() => { buttonByText(el, 'Lock')!.click(); });
+    expect(buttonByText(el, 'All')?.getAttribute('aria-checked')).toBe('true');
+    expect(buttonByText(el, 'Lock')?.getAttribute('aria-checked')).toBe('false');
   });
 
   it('süzgeçsiz küme boşsa bölüm hiç çizilmez (kendini gizleme korunur, no-match yok)', () => {

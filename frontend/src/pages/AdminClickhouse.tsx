@@ -1003,6 +1003,17 @@ const TARGET_LABEL: Record<RollupTarget, string> = {
   route: 'Yalnız route kırılımlı metrik zinciri (0008)',
 };
 
+// v0.10.1342 (K3 dilim B) — onay butonunun ağırlığı onaylanan EYLEMİN
+// türünden gelir (uygula = asıl eylem, geri al = yıkıcı), bir durum anahtarı
+// değil. Üçlü `confirmKind === 'apply' ? 'primary' : 'danger'` yerine arama
+// tablosu: buttonStateRatchet koşullu-birincili sıfırda tutuyor. Rollup ve
+// entity-layer sihirbazları aynı tabloyu paylaşır.
+type ConfirmKind = 'apply' | 'rollback';
+const CONFIRM_VARIANT: Record<ConfirmKind, 'primary' | 'danger'> = {
+  apply: 'primary',
+  rollback: 'danger',
+};
+
 function RollupWizardPanel() {
   const status = useRollupStatus();
   // Ön kontrol / eylem durumu YEREL: bunlar paylaşılabilir bir GÖRÜNÜM
@@ -1284,7 +1295,7 @@ function RollupWizardPanel() {
           // keşfedilebilir olmadığının işaretiydi.
           <>
             <Button variant="secondary" onClick={() => setConfirmKind(null)}>Vazgeç</Button>
-            <Button variant={confirmKind === 'apply' ? 'primary' : 'danger'}
+            <Button variant={CONFIRM_VARIANT[confirmKind ?? 'rollback']}
                     onClick={() => confirmKind && runAction(confirmKind)}>
               {confirmKind === 'apply' ? 'Uygula' : 'Geri Al'}
             </Button>
@@ -1806,7 +1817,7 @@ function EntityLayerWizardPanel() {
                 ? <>0011 <span className="mono">{cluster}</span> kümesine uygulanacak (IF NOT EXISTS; ilk hatada durur). Emin misin?</>
                 : <>entity_seen MV'leri düşürülecek — yazım kesilir, kolon/tablo/veri kalır. Emin misin?</>}
             </span>
-            <Button variant={confirmKind === 'apply' ? 'primary' : 'danger'} size="sm" loading={busy} onClick={() => void runAction(confirmKind)}>Evet</Button>
+            <Button variant={CONFIRM_VARIANT[confirmKind]} size="sm" loading={busy} onClick={() => void runAction(confirmKind)}>Evet</Button>
             <Button variant="ghost" size="sm" disabled={busy} onClick={() => setConfirmKind(null)}>Vazgeç</Button>
           </>
         )}

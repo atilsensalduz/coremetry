@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Topbar } from '@/components/Topbar';
 import { ServicePicker } from '@/components/ServicePicker';
-import { ActionRow, Button, Chip, useConfirm } from '@/components/ui';
+import { ActionRow, Button, Chip, SegmentedControl, useConfirm } from '@/components/ui';
 import { useDataTable, DataTableHead, DataTableColgroup, DataTableState, type DataTableStateProps } from '@/components/ui/DataTable';
 import type { DataTableColumn } from '@/lib/dataTable';
 import { useAuth } from '@/components/AuthProvider';
@@ -681,26 +681,29 @@ export default function AlertsPage() {
             without scrolling past 50+ metric rules. */}
         {rulesAll && rulesAll.length > 0 && (
           <div style={{ display: 'flex', gap: 6, marginBottom: 8, alignItems: 'center' }}>
-            {([
-              { key: 'all',     label: 'All',     count: rulesAll.length },
-              { key: 'metric',  label: 'Metric',  count: metricCount },
-              { key: 'watcher', label: 'Watcher', count: watcherCount },
-            ] as const).map(t => (
-              <Button key={t.key} size="sm"
-                onClick={() => setRuleKind(t.key)}
-                variant={ruleKind === t.key ? 'primary' : 'secondary'}
-                title={t.key === 'watcher'
+            {/* v0.10.1342 (K3 dilim B) — All | Metric | Watcher tek seçim →
+                SegmentedControl (eskiden seçili tür dolu birincildi). */}
+            <SegmentedControl size="sm" aria-label="Alert rule kind"
+              value={ruleKind} onChange={setRuleKind}
+              options={([
+                { key: 'all',     label: 'All',     count: rulesAll.length },
+                { key: 'metric',  label: 'Metric',  count: metricCount },
+                { key: 'watcher', label: 'Watcher', count: watcherCount },
+              ] as const).map(t => ({
+                value: t.key,
+                title: t.key === 'watcher'
                   ? 'Saved log-search alerts (/logs Create watcher) + imported ES Watcher definitions'
                   : t.key === 'metric'
                   ? 'Metric-threshold alerts (RPS / error rate / p99 / etc.)'
-                  : 'All alert rules'}>
-                {t.label}
-                <span style={{
-                  marginLeft: 6, fontSize: 10, color: 'var(--text3)',
-                  fontFamily: 'var(--font-mono)',
-                }}>{t.count}</span>
-              </Button>
-            ))}
+                  : 'All alert rules',
+                label: <>
+                  {t.label}
+                  <span style={{
+                    marginLeft: 6, fontSize: 10, color: 'var(--text3)',
+                    fontFamily: 'var(--font-mono)',
+                  }}>{t.count}</span>
+                </>,
+              }))} />
           </div>
         )}
         {/* v0.10.1069 — yerleşik kurallar varsayılan KAPALI (operatör: "çok

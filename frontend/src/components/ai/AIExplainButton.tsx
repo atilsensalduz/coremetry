@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { Button } from '@/components/ui/Button';
+import { Button, type ButtonProps } from '@/components/ui/Button';
 import { IconSparkles } from '@/components/icons';
 import { formatAiParam, type AISubject } from '@/lib/aiSubject';
 import { useAiSubject } from './useAiSubject';
@@ -15,6 +15,17 @@ import { useCopilotEnabled } from './useCopilotEnabled';
 //   • copilot kapalıysa buton HİÇ görünmez (eski self-hide davranışı),
 //   • ilk kullanıma dek nabız atar (v0.9.409, operatör isteği),
 //   • Button atomu + variant="accent" (tek tasarım dili).
+
+// v0.10.1342 (K3 dilim B) — ağırlık basamağı bir ARAMA TABLOSU, `strong ?
+// 'primary' : …` üçlüsü değil. `strong` bir durum anahtarı değil, çağrı
+// yerinde beyan edilen vurgu; buttonStateRatchet koşullu-birincil deseninin
+// sıfırda kalmasını çiviliyor. Görsel sonuç aynı: strong = sayfanın tek dolu
+// birincili (md), normal = accent tint (sm).
+const EMPHASIS_LOOK = {
+  normal: { variant: 'accent',  size: 'sm' },
+  strong: { variant: 'primary', size: 'md' },
+} as const satisfies Record<'normal' | 'strong', { variant: ButtonProps['variant']; size: NonNullable<ButtonProps['size']> }>;
+
 export function AIExplainButton({ subject, label, size, emphasis = 'normal', title, className }: {
   subject: AISubject;
   label?: ReactNode;
@@ -45,10 +56,10 @@ export function AIExplainButton({ subject, label, size, emphasis = 'normal', tit
   const open = ai !== null && formatAiParam(ai) === key;
   const quiet = used || open;
 
-  const strong = emphasis === 'strong';
+  const look = EMPHASIS_LOOK[emphasis];
   return (
-    <Button variant={strong ? 'primary' : 'accent'}
-      size={size ?? (strong ? 'md' : 'sm')}
+    <Button variant={look.variant}
+      size={size ?? look.size}
       aria-expanded={open}
       title={title ?? 'AI açıklamasını sağ çekmecede aç'}
       className={[quiet ? undefined : 'ai-attn', className].filter(Boolean).join(' ') || undefined}

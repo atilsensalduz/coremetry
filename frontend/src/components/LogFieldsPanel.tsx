@@ -331,7 +331,7 @@ export function LogFieldsPanel({
           value={needle}
           onChange={e => setNeedle(e.target.value)}
           style={{ flex: 1, minWidth: 0, fontSize: 11.5, padding: '3px 6px' }} />
-        <Button variant={lift ? 'primary' : 'secondary'} size="sm" onClick={toggleLift} aria-pressed={lift}
+        <Button variant="secondary" active={lift} size="sm" onClick={toggleLift} /* v0.10.1342 — açık/kapalı durum: active, birincil değil */
           title="Hatalıyı ayıran: genişletilen alanın değerlerini hata logları (severity ≥ ERROR) için sayar ve tabana göre farkı (lift, puan) gösterir — açıkken alan başına bir ek sorgu">
           ⚠ ayıran
         </Button>

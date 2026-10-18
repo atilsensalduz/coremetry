@@ -1020,7 +1020,10 @@ name ~ checkout`}
                         if (extra.length > 0) setFilters([...filters, ...extra]);
                       }
                     }}
-                    variant={active ? 'primary' : 'secondary'} size="sm">
+                    // v0.10.1342 (K3 dilim B) — preset bir KOMUT (birkaç durumu
+                    // birden yazar, filtre ekleyebilir); eşleşme yalnız durumu
+                    // söyler → ikincil + `active` (tint + aria-pressed).
+                    variant="secondary" active={active} size="sm">
                     {p.label}
                   </Button>
                 );

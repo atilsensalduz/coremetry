@@ -1,5 +1,6 @@
 import { FilterBuilder } from './FilterBuilder';
 import { Button } from './ui/Button';
+import { SegmentedControl } from './ui/SegmentedControl';
 import type { FilterExpr, FilterGroup, FilterJoin } from '@/lib/types';
 
 // FilterGroupBuilder — grouped AND/OR query builder (v0.8.x trace-query gap-2).
@@ -30,18 +31,11 @@ function JoinToggle({ value, onChange, label }: {
   return (
     <div className="row gap-2" style={{ alignItems: 'center' }}>
       {label && <span className="field-label" style={{ fontSize: 11, color: 'var(--text3)' }}>{label}</span>}
-      <div className="row" role="group" aria-label="Join operator" style={{ gap: 4 }}>
-        {JOINS.map(j => (
-          <Button
-            key={j}
-            variant={value === j ? 'primary' : 'secondary'}
-            size="sm"
-            aria-pressed={value === j}
-            onClick={() => onChange(j)}>
-            {j}
-          </Button>
-        ))}
-      </div>
+      {/* v0.10.1342 (K3 dilim B) — AND | OR tek seçim → SegmentedControl
+          (eskiden seçili birleştirici dolu birincildi). */}
+      <SegmentedControl size="sm" aria-label="Join operator"
+        value={value} onChange={onChange}
+        options={JOINS.map(j => ({ value: j, label: j }))} />
     </div>
   );
 }
