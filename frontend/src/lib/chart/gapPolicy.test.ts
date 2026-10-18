@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { medianStep, isBridgeableGap, filterGapsPx, nearestFilledIdx } from './gapPolicy';
+import { medianStep, isBridgeableGap, filterGapsPx, nearestFilledIdx, isolatedPointIdxs } from './gapPolicy';
 
 // uPlot Aşama 2 madde 3+4 — gap köprüleme + cursor dolu-örnek snap'i.
 // Kontrat: tek kaçmış scrape köprülenir, gerçek kesinti kırık kalır;
@@ -77,5 +77,29 @@ describe('nearestFilledIdx', () => {
   it('sınır dışı index güvenli', () => {
     expect(nearestFilledIdx(vals, -1)).toBe(-1);
     expect(nearestFilledIdx(vals, 99)).toBe(99);
+  });
+});
+
+// v0.10.1355 (operatör-raporlu, prod "5xx Hataları (Route bazında)") — iki
+// örnekli seyrek seri boşluk null'la kırılınca SIKI doktrinde (spanNulls:
+// false) hiç çizilmezdi; yalıtık örnek nokta olarak basılır.
+describe('isolatedPointIdxs — yalıtık örnek noktası (v0.10.1355)', () => {
+  const N = null;
+  it.each<[string, (number | null)[], number[] | null]>([
+    ['operatör vakası: iki örnek, arası null → iki nokta', [0.0042, N, N, N, 0.0033], [0, 4]],
+    ['tek örnek (dizi = 1)', [5], [0]],
+    ['ortada tek örnek', [N, N, 7, N, N], [2]],
+    ['sürekli seri → nokta yok (çizgi var)', [1, 2, 3, 4], null],
+    ['iki ardışık örnek segment çizer → nokta yok', [N, 1, 2, N], null],
+    ['NaN null sayılır', [NaN, 3, NaN], [1]],
+    ['segment + yalıtık karışık', [1, 2, N, 9, N, 4, 5], [3]],
+    ['hepsi null', [N, N], null],
+  ])('%s', (_n, vals, want) => { expect(isolatedPointIdxs(vals)).toEqual(want); });
+
+  it('görünen pencere tarama sınırı; komşu pencere dışında doluysa nokta yok', () => {
+    // i=2 dolu, i=1 dolu (pencere dışı) → çizgi oraya uzanıyor.
+    expect(isolatedPointIdxs([N, 1, 2, N, 8, N], 2, 5)).toEqual([4]);
+    // Pencere dışındaki yalıtık örnek çizilmez.
+    expect(isolatedPointIdxs([3, N, N, N, 8, N], 2, 5)).toEqual([4]);
   });
 });

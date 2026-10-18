@@ -63,7 +63,7 @@ export function foldTopN(
   if (series.length <= n && !hasServerTail) return series;
   const mean = isMeanUnit(unit);
   const ranked = series
-    .map(s => ({ s, area: s.points.reduce((a, p) => a + Math.abs(p.value ?? 0), 0) }))
+    .map(s => ({ s, area: s.points.reduce((a, p) => a + (Number.isFinite(p.value) ? Math.abs(p.value) : 0), 0) }))
     .sort((a, b) => b.area - a.area);
   const keep = ranked.slice(0, n).map(r => r.s);
   const tail = ranked.slice(n).map(r => r.s);
@@ -71,7 +71,8 @@ export function foldTopN(
   const cntByTime = new Map<number, number>();
   for (const s of tail) {
     for (const p of s.points) {
-      if (p.value == null) continue;
+      // v0.10.1355 — NaN = boşluk dolgusu (httpMetrics fillStepGaps); null gibi atlanır.
+      if (p.value == null || !Number.isFinite(p.value)) continue;
       sumByTime.set(p.time, (sumByTime.get(p.time) ?? 0) + p.value);
       cntByTime.set(p.time, (cntByTime.get(p.time) ?? 0) + 1);
     }

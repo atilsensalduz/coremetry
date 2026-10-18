@@ -19,7 +19,7 @@ import { fmtSmart } from '@/lib/chartFmt';
 import { useUrlParams, strParam } from '@/lib/urlParams';
 import {
   httpQueries, relabel, scalarOf, barsOf, mergeTable, filterOptions,
-  HTTP_INSTANT_IDS, fmtCount, fmtRatio, fmtSeconds, fmtCompact, type BarRow, type LegendTpl,
+  HTTP_INSTANT_IDS, HTTP_QUANTILE_NOTE, stepSeconds, fmtCount, fmtRatio, fmtSeconds, fmtCompact, type BarRow, type LegendTpl,
   latencyTone, errorRatioTone, clientErrorTone, sliTone, sparkValues, statusCodeColorVar, methodRouteLegend,
 } from '@/lib/httpMetrics';
 import type { TimeRange, SpanMetricSeries } from '@/lib/types';
@@ -129,12 +129,14 @@ export function ServiceHttpMetricsTab({ service, range }: { service: string; ran
   }
 
   const pending = res.pending;
-  const chart = (title: string, id: string, tpl: LegendTpl, unit: string, scale = 1, extra?: { id: string; tpl: LegendTpl }[]) => {
+  // v0.10.1355 — stepSec: boşluk dolgusu (sorgunun adımı); note: panel altı tek satır.
+  const step = stepSeconds(windowSec);
+  const chart = (title: string, id: string, tpl: LegendTpl, unit: string, scale = 1, extra?: { id: string; tpl: LegendTpl }[], note?: string) => {
     const series = [
       ...relabel(data[id], tpl, scale),
       ...(extra ?? []).flatMap(e => relabel(data[e.id], e.tpl, scale)),
     ];
-    return <HttpChartPanel title={title} series={series} unit={unit} loading={pending(id)} syncKey="svc-http" legendKey={`svc-http:${id}`} />;
+    return <HttpChartPanel title={title} series={series} unit={unit} stepSec={step} loading={pending(id)} syncKey="svc-http" legendKey={`svc-http:${id}`} note={note} />;
   };
   // v0.10.1248 — gradient=true: Grafana bargauge (gradient mod, değer renkli).
   const bars = (title: string, rows: BarRow[], fmt: (v: number) => string, loading?: boolean, gradient = false) => {
@@ -228,7 +230,7 @@ export function ServiceHttpMetricsTab({ service, range }: { service: string; ran
       <SectionHead title="Gecikme (Latency)" />
       <div style={grid(420)}>
         {chart('Latency Yüzdelikleri (p50 / p90 / p95 / p99)', 'p50', 'p50', 's', 1,
-          [{ id: 'p90', tpl: 'p90' }, { id: 'p95', tpl: 'p95' }, { id: 'p99', tpl: 'p99' }])}
+          [{ id: 'p90', tpl: 'p90' }, { id: 'p95', tpl: 'p95' }, { id: 'p99', tpl: 'p99' }], HTTP_QUANTILE_NOTE)}
         {chart('P95 gecikme (route)', 'p95ByRoute', MR, 's')}
       </div>
 

@@ -51,6 +51,7 @@ import {
   toggleSeriesVisibility, isolateSeriesVisibility, resetSeriesVisibility,
 } from '@/lib/chart/legendVisibility';
 import { resolveVar } from '@/lib/chart/resolveVar';
+import { isolatedPointsFilter } from '@/lib/chart/gapPolicy';
 import {
   drawThresholds, drawTimeRegions, drawExemplars, exemplarAt, regionAt, fmtRegionSpan, thresholdSoftRange, yScaleSoftMin,
   type ChartThreshold, type ChartTimeRegion, type ChartExemplar,
@@ -105,6 +106,11 @@ function bucketWindowAt(u: uPlot, clientX: number, clientY: number) {
 // imleç noktası ölçüsü de bu civarda (seri nokta çapı × 2).
 const CURSOR_POINT_PX = 10;
 const CURSOR_POINT_BORDER_PX = 2;
+// v0.10.1355 — yalıtık örnek noktası çapı (Grafana TimeSeries varsayılan
+// pointSize'ı 5). Çizgi kalınlığından (1.5) büyük olmalı: builder
+// `pointSize < lineWidth` iken size'ı undefined yazar → uPlot çapı NaN olur
+// ve nokta görünmez (v0.9.799'daki imleç zincirinin aynısı).
+const ISOLATED_POINT_PX = 5;
 
 // v0.10.1102 — y oluğu ÖLÇEN builder. @grafana/ui'nin AxisProps.size'ı
 // yalnız sayı kabul ediyor (verilmezse sabit 'Inter' ile ölçen
@@ -751,13 +757,24 @@ export function CorePanel({
         // katman sınırını bulanıklaştırır. None + fillOpacity =
         // alpha(lineColor, %28) — renk yine token kanalından gelir.
         gradientMode: stacked ? GraphGradientMode.None : GraphGradientMode.Opacity,
-        // Line dalı bayt-bayt eskisi: bar alanları yalnız bars'ta var.
+        // Bar alanları yalnız bars'ta; line dalında yalnız yalıtık-nokta ayarı (v0.10.1355).
         ...(bars ? {
           drawStyle: DrawStyle.Bars,
           showPoints: PointVisibility.Auto,
           barWidthFactor: 0.6,
           barMaxWidth: 40,
-        } : {}),
+        } : {
+          // v0.10.1355 (operatör-raporlu: seyrek 5xx serisi) — çizgi/alan
+          // dalında noktalar KAPALI (bugünkü görünüm: builder pointSize'sız
+          // size'ı undefined yazdığı için uPlot'un yoğunluk-otomatiği zaten
+          // görünmez nokta basıyordu), YALNIZ iki yanı null olan tek örnek
+          // nokta olarak çizilir — aksi hâlde SIKI boşluk doktrininde o örnek
+          // hiç görünmez. Grafana TimeSeries pointsFilter karşılığı; karar
+          // saf ve tablo-testli (lib/chart/gapPolicy isolatedPointIdxs).
+          showPoints: PointVisibility.Never,
+          pointSize: ISOLATED_POINT_PX,
+          pointsFilter: isolatedPointsFilter,
+        }),
         lineStyle: dashed?.[i] ? { fill: 'dash' as const, dash: [5, 4] } : undefined,
         // show BURADA SABİT true: görünürlük setSeries ile uygulanıyor
         // (aşağıdaki effect). Config'e gömmek her legend tıkını full

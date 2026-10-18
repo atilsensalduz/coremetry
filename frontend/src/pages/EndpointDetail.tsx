@@ -314,7 +314,7 @@ export default function EndpointDetailPage() {
             /api/events isteği + grafiğin x-scale'inden habersiz çizgiler
             (v0.9.396'nın ServiceCharts'ta söktüğü çift-işin ikizi). */}
         {detailSrc === 'metric' && (
-          <MetricCharts res={httpRes} latQ={latQ} onLatQ={setLatQ}
+          <MetricCharts res={httpRes} windowSec={windowSec} latQ={latQ} onLatQ={setLatQ}
             regions={eventRegions} onZoom={handleZoom} onZoomReset={handleZoomReset} />
         )}
         {detailSrc === 'span' && <div style={{

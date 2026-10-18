@@ -76,3 +76,49 @@ export function nearestFilledIdx(
   }
   return idx;
 }
+
+// ── v0.10.1355 — YALITIK ÖRNEK NOKTASI (operatör-raporlu, prod) ──────────
+//
+// CorePanel SIKI boşluk doktrininde (spanNulls: false) iki komşusu da null
+// olan TEK dolu örnek çizgi segmenti üretmez — uPlot'un çizgi yolu en az iki
+// nokta ister — yani seri VAR ama görünmez. Grafana'nın "Auto" nokta
+// görünürlüğü bu örnekleri nokta olarak basar (TimeSeries pointsFilter);
+// bu onun saf karşılığı. Seyrek 5xx serisi (iki örnek, aralarında saatler)
+// boşluk null'la kırılınca iki NOKTA olur, dev bir üçgen değil.
+//
+// Yalıtık = dolu ve iki yanı (verinin TAMAMINDA, görünen pencereyle
+// sınırlı değil) null ya da dizi ucu. Görünen pencere [i0, i1] yalnız
+// TARAMA sınırıdır: pencere dışı noktalar çizilmez, ama pencere kenarındaki
+// örneğin komşusu pencere dışında doluysa çizgi oraya uzanıyordur ve nokta
+// basılmaz.
+export function isolatedPointIdxs(
+  values: ArrayLike<number | null | undefined>,
+  i0 = 0,
+  i1 = values.length - 1,
+): number[] | null {
+  const filled = (i: number) => {
+    const v = values[i];
+    return v != null && Number.isFinite(v);
+  };
+  const out: number[] = [];
+  const lo = Math.max(0, i0);
+  const hi = Math.min(values.length - 1, i1);
+  for (let i = lo; i <= hi; i++) {
+    if (!filled(i)) continue;
+    if (i > 0 && filled(i - 1)) continue;
+    if (i < values.length - 1 && filled(i + 1)) continue;
+    out.push(i);
+  }
+  return out.length ? out : null;
+}
+
+// isolatedPointsFilter — uPlot `series.points.filter` geri çağrısı.
+// `show` true iken (uPlot tüm noktaları zaten basıyor) karışmaz; false iken
+// yalnız yalıtık örneklerin indeksleri çizilir. Durum yok, bilgi u'dan.
+export function isolatedPointsFilter(u: uPlot, seriesIdx: number, show: boolean): number[] | null {
+  if (show) return null;
+  const vals = u.data[seriesIdx] as ArrayLike<number | null | undefined> | undefined;
+  if (!vals) return null;
+  const idxs = (u.series[0] as { idxs?: [number, number] }).idxs;
+  return isolatedPointIdxs(vals, idxs?.[0] ?? 0, idxs?.[1] ?? vals.length - 1);
+}

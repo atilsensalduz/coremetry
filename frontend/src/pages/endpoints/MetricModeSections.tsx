@@ -24,7 +24,7 @@ import { fmtSmart } from '@/lib/chartFmt';
 import {
   relabel, barsOf, endpointRed, methodRouteLegend, statusCodeColorVar,
   fmtCount, fmtRatio, fmtSeconds, fmtCompact, errorRatioTone, latencyTone,
-  HTTP_LABELS, type LatQ, type LegendTpl,
+  HTTP_LABELS, HTTP_QUANTILE_NOTE, stepSeconds, type LatQ, type LegendTpl,
 } from '@/lib/httpMetrics';
 import type { HttpPromqlResult } from '@/lib/queries/httpMetrics';
 import type { ChartTimeRegion } from '@/lib/chart/overlays';
@@ -89,14 +89,17 @@ export function MetricREDStrip({ res, windowSec, compare, onToggleCompare }: {
 }
 
 /** Metrik kipinin grafikleri — sekmenin panelleri, route'a süzülü. */
-export function MetricCharts({ res, latQ, onLatQ, regions, onZoom, onZoomReset }: {
-  res: HttpPromqlResult; latQ: LatQ; onLatQ: (v: string) => void;
+export function MetricCharts({ res, windowSec, latQ, onLatQ, regions, onZoom, onZoomReset }: {
+  res: HttpPromqlResult;
+  /** v0.10.1355 — sorgu penceresi (sn); adım = stepSeconds(windowSec), boşluk dolgusu buna göre. */
+  windowSec: number;
+  latQ: LatQ; onLatQ: (v: string) => void;
   regions?: ChartTimeRegion[];
   onZoom?: (fromUnixSec: number, toUnixSec: number) => void;
   onZoomReset?: () => void;
 }) {
   const d = res.data;
-  const common = { syncKey: 'ep-http', regions, onZoom, onZoomReset };
+  const common = { syncKey: 'ep-http', stepSec: stepSeconds(windowSec), regions, onZoom, onZoomReset };
   return (
     <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', marginBottom: 12 }}>
       <HttpChartPanel title="Request Rate (Route bazında)" unit="req/s" legendKey="ep-http:rateByRoute"
@@ -104,7 +107,7 @@ export function MetricCharts({ res, latQ, onLatQ, regions, onZoom, onZoomReset }
       {/* v0.10.1354 (operatör: "5xx hataları ile latency yer değiştirsin") — yüzdelikler istek hızının yanında. */}
       <HttpChartPanel title="Latency Yüzdelikleri (p50 / p90 / p95 / p99)" unit="s" legendKey="ep-http:p50"
         series={[...relabel(d.p50, 'p50'), ...relabel(d.p90, 'p90'), ...relabel(d.p95, 'p95'), ...relabel(d.p99, 'p99')]}
-        loading={res.pending('p50')} {...common} />
+        loading={res.pending('p50')} note={HTTP_QUANTILE_NOTE} {...common} />
       <HttpChartPanel title="4xx Hataları (Route bazında)" unit="req/s" legendKey="ep-http:err4ByRoute"
         series={relabel(d.err4ByRoute, SMR)} loading={res.pending('err4ByRoute')} {...common} />
       <HttpChartPanel title="5xx Hataları (Route bazında)" unit="req/s" legendKey="ep-http:err5ByRoute"

@@ -6928,3 +6928,35 @@ Go rotası yok.
 methodların toplamı. Route tek methodluysa sekmenin "Endpoint Detayları" satırıyla birebir; çok methodluysa sekmede satır
 başına, burada toplam (grafikler method başına seri çizer). Cluster süzgeci VM PromQL'inde ifade edilmiyor (sekmeyle aynı);
 env de sekme gibi uygulanmaz — env/cluster seçiliyken bant bunu söyler (eski kip env'i withEnvFilter ile uyguluyordu; bilinçli takas).
+
+## 2026-10-18 — v0.10.1355 — HTTP panelleri: gecikme/hız y tabanı 0, eksik adım null, yalıtık örnek nokta
+
+**Operatör (prod ekran görüntüleri, /endpoint metrik kipi + Service → HTTP Metrics):** (1) "Latency Yüzdelikleri" p50
+2.621–2.653 ms (ort. 2.634) y ekseni 2.62–2.65 ms'e oturmuş çiziliyordu — "Küçük ms arasında çok oynak görünüyor grafikte,
+neden?" Gerçek hassasiyet kova düzeyinde (OTel varsayılan sınırları 0/5/10/25… ms; histogram_quantile kova içinde doğrusal
+interpolasyon) — 30 µs oynama gürültü. (2) "5xx Hataları (Route bazında)": iki örnek (~19:25 0.0042, ~23:00 0.0033 req/s)
+aradaki boşluğu kapatan büyük bir üçgen çiziyordu. **Kök neden:** (1) HTTP panelleri CorePanel'in otomatik y aralığındaydı
+(veriye otur, %10 dolgu). (2) VM değer üretmeyen adımı yanıttan ÇIKARIR; CorePanel serileri zaman damgalarının birleşimine
+hizalar (framesToAligned, eksik = null) ama panelde başka seri yoksa birleşimde o aralıkta HİÇ damga yok — iki örnek komşu
+indeks oldu ve çizgi boşluğu kapattı (spanNulls: false yalnız VAR OLAN null'u kırar). Ayrıca SIKI doktrinde iki yanı null
+tek örnek hiç görünmüyordu (builder pointSize'sız nokta çapını NaN yapıyor).
+**Karar (paylaşılan `httpMetricsViz` `HttpChartPanel`, iki yüzey tek yer; sorgular bayt bayt aynı):** (a) y tabanı 0 —
+mevcut `zeroBase` kanalı (softMin 0, negatif veri kırpılmaz), `httpPanelZeroBase(unit)`: s / ms / req/s / % için true,
+bilinmeyen birim otomatik. TÜM HTTP zaman serisi panelleri (yüzdelikler, route gecikmesi, istek hızı, 4xx/5xx, downstream):
+hepsi negatif olmayan miktar ve aynı aşırı-zoom hız panelinde de (120.1–120.5 req/s) aynı yanlış izlenimi verir; gecikmede
+0-tabanı Datadog/Dynatrace/Grafana pratiği, gerçek sıçrama (2.6 → 50 ms) aynen görünür. Min-span kuralı yerine 0-tabanı:
+tek kural, ek prop yok. (b) `fillStepGaps(series, stepSec)` (`lib/httpMetrics.ts`, saf): panel birleşiminin > 1.5 adımlık
+boşluklarına `prev + k·adım` damgaları NaN (dataFrame köprüsü → null) olarak her seriye eklenir; birleşimin içi zaten
+hizalamada null. SIKI doktrinle tutarlı: tek eksik adım da boşluk, 1.5 yalnız adım yuvarlama payı (dolgu hiçbir serinin
+verisi olmayan anlara düştüğü için adım birkaç sn kaysa da başka seriyi kıramaz; tavan 4×300 damga). `stepSec` =
+`stepSeconds(windowSec)` (sunucu `promStep` ile aynı ceil(pencere/300)); sekme ve MetricCharts (yeni `windowSec` prop'u)
+geçirir. (c) CorePanel çizgi/alan dalı: `showPoints: Never` + `pointSize: 5` + `pointsFilter: isolatedPointsFilter`
+(`lib/chart/gapPolicy` `isolatedPointIdxs`: dolu ve iki yanı null/dizi ucu) — Grafana TimeSeries pointsFilter karşılığı;
+bugünkü görünüm aynen (noktalar zaten görünmüyordu), yalnız yalıtık örnek nokta olur. Tüm CorePanel çizgi panellerine
+uygulanır (görünmeyen veri her yüzeyde kusur); çubuk dalı değişmedi. `foldTopN` NaN'ı null gibi atlar. (d) Yüzdelik
+panelinin altında tek satır `field-hint`: `HTTP_QUANTILE_NOTE` "Yüzdelikler histogram kovalarından hesaplanır; kova içi
+değerler yaklaşıktır (OTel varsayılan sınırları 0/5/10/25… ms)." (iki yüzey). Testler: `lib/httpMetrics.panel.test.ts`
+(uPlot.rangeNum ile y-aralığı tablosu, dolgu), `lib/chart/gapPolicy.test.ts` (yalıtık nokta tablosu),
+`pages/service/httpChartPanel.render.test.tsx` (zeroBase / dolgu / not render + kaynak pinleri).
+**Bilinçli sınır:** x ekseni yine veriye oturur (v0.9.93 operatör kararı); panelde yalnız seyrek seri varsa iki nokta
+eksenin iki ucuna düşer.

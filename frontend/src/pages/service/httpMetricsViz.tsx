@@ -12,7 +12,7 @@ import { Spinner } from '@/components/Spinner';
 import { MultiLineChart } from '@/components/MultiLineChart';
 import { seriesPalette, inkOn } from '@/lib/chartFmt';
 import {
-  fmtShare, donutSlices, httpSeriesColors, type BarRow, type DonutSlice, type HttpTone,
+  fmtShare, donutSlices, httpSeriesColors, httpPanelZeroBase, fillStepGaps, type BarRow, type DonutSlice, type HttpTone,
 } from '@/lib/httpMetrics';
 import type { ChartTimeRegion } from '@/lib/chart/overlays';
 import type { SpanMetricSeries } from '@/lib/types';
@@ -178,23 +178,38 @@ const cssToken = (t: string) => getComputedStyle(document.documentElement).getPr
  * endpoint sayfasının metrik kipiyle PAYLAŞILIR): Card + PanelTitle +
  * MultiLineChart, tüm seriler (≤60), açık lejant, sabit status/yüzdelik
  * renkleri. Seriler çağıranda relabel'lı gelir.
+ *
+ * v0.10.1355 (operatör-raporlu, prod) — çizim politikası BURADA, iki yüzey
+ * için tek yer: (a) y tabanı 0 (`httpPanelZeroBase(unit)` → mevcut
+ * `zeroBase` kanalı; p50 2.621–2.653 ms artık 30 µs'lik gürültüyü panel
+ * boyu oynaklık gibi çizmez); (b) eksik adımlar null (`fillStepGaps`,
+ * `stepSec` = sorgunun adımı) — seyrek seri boşluğu köprülemez, tek örnek
+ * CorePanel'in yalıtık-nokta filtresiyle nokta olur; (c) `note` grafiğin
+ * altında tek satır soluk açıklama (field-hint).
  */
 export function HttpChartPanel({
-  title, series, unit, loading, syncKey, legendKey, right, regions, onZoom, onZoomReset,
+  title, series, unit, stepSec, loading, syncKey, legendKey, right, note, regions, onZoom, onZoomReset,
 }: {
-  title: string; series: SpanMetricSeries[]; unit: string; loading?: boolean;
+  title: string; series: SpanMetricSeries[]; unit: string;
+  /** Range sorgusunun adımı (sn) — `stepSeconds(windowSec)`; boşluk dolgusu buna göre. */
+  stepSec: number;
+  loading?: boolean;
   syncKey: string; legendKey: string; right?: ReactNode;
+  note?: ReactNode;
   regions?: ChartTimeRegion[];
   onZoom?: (fromUnixSec: number, toUnixSec: number) => void;
   onZoomReset?: () => void;
 }) {
+  const drawn = fillStepGaps(series, stepSec);
   return (
     <Card header={<PanelTitle right={right}>{title}</PanelTitle>}>
       {loading ? <Spinner /> : series.length === 0
         ? <div className="field-hint">Bu pencerede veri yok.</div>
-        : <MultiLineChart series={series} unit={unit} height={220} syncKey={syncKey} legendStorageKey={legendKey}
+        : <MultiLineChart series={drawn} unit={unit} height={220} syncKey={syncKey} legendStorageKey={legendKey}
             maxSeries={60} legendDefaultOpen regions={regions} onZoom={onZoom} onZoomReset={onZoomReset}
+            zeroBase={httpPanelZeroBase(unit)}
             seriesColors={httpSeriesColors(series.map(x => x.groupKey[0] ?? ''), cssToken)} />}
+      {note && <div className="field-hint">{note}</div>}
     </Card>
   );
 }

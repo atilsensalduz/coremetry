@@ -527,3 +527,71 @@ export function endpointRed(
     avgS: nn(scalarOf(d.avg)), p50S: nn(scalarOf(d.p50)), p95S: nn(scalarOf(d.p95)), p99S: nn(scalarOf(d.p99)),
   };
 }
+
+// ── v0.10.1355 — HTTP zaman serisi panellerinin çizim politikası ─────────
+// Operatör-raporlu (prod, /endpoint metrik kipi + Service → HTTP Metrics):
+// (1) "Latency Yüzdelikleri" p50 2.621–2.653 ms aralığında gezerken y ekseni
+// 2.62–2.65 ms'e oturuyordu; 30 µs'lik interpolasyon gürültüsü büyük
+// oynaklık gibi görünüyordu ("Küçük ms arasında çok oynak görünüyor").
+// (2) "5xx Hataları": iki örnekli seyrek seri (0.0042 ve 0.0033 req/s,
+// aralarında ~3.5 saat) dev bir üçgen çiziyordu — panelde başka zaman damgası
+// olmadığı için iki örnek KOMŞU indeks oldu ve çizgi aradaki boşluğu kapattı.
+
+/** Yüzdelik panelinin dürüstlük notu: hassasiyet kova düzeyinde. */
+export const HTTP_QUANTILE_NOTE =
+  'Yüzdelikler histogram kovalarından hesaplanır; kova içi değerler yaklaşıktır (OTel varsayılan sınırları 0/5/10/25… ms).';
+
+// Negatif olamayan miktar birimleri — gecikme (s), hız (req/s), oran (%).
+const ZERO_BASE_UNITS: ReadonlySet<string> = new Set(['s', 'ms', 'req/s', '%']);
+
+/**
+ * y tabanı 0 mı (MultiLineChart/CorePanel `zeroBase` → softMin 0)?
+ * Karar: HTTP panellerinin TÜM birimleri negatif olmayan miktar; gecikmede
+ * 0-tabanı Datadog/Dynatrace/Grafana pratiği ve gerçek hassasiyet zaten kova
+ * düzeyinde (histogram_quantile kova içinde doğrusal interpolasyon) —
+ * µs ölçeğinde zoom anlamlı ayrıntı değil, gürültü gösterir. Hız/oran
+ * panellerinde aynı aşırı-zoom (120.1–120.5 req/s) aynı yanlış izlenimi
+ * verir, bu yüzden tutarlı olarak onlar da 0'dan çizilir. Soft taban:
+ * gerçek bir sıçrama (2.6 → 50 ms) aynen görünür; bilinmeyen birim → false
+ * (otomatik aralık).
+ */
+export function httpPanelZeroBase(unit: string): boolean {
+  return ZERO_BASE_UNITS.has(unit);
+}
+
+/** Boşluk eşiği: ardışık iki zaman damgası arası > 1.5 adım ⇒ en az bir adım eksik. */
+const GAP_FACTOR = 1.5;
+/** Savunma tavanı: yanlış/küçük adımda dolgu döngüsü sınırsız büyümesin. */
+const MAX_FILL = 4 * HTTP_METRICS_POINTS;
+
+/**
+ * PromQL range sonucu → çizilecek seriler: eksik adımlar NULL (NaN — dataFrame
+ * köprüsü sonlu olmayanı null taşır), atlanmaz. VM/Prometheus değer
+ * üretmeyen adımı yanıttan ÇIKARIR; CorePanel serileri zaman damgalarının
+ * birleşimine hizalar (framesToAligned, eksik = null) ama birleşimde HİÇ
+ * damga olmayan aralık null taşımaz ve çizgi onu köprüler (spanNulls: false
+ * yalnız null'u kırar). Bu yüzden dolgu PANEL düzeyinde, birleşimin
+ * boşluklarına yapılır: `prev + k·adım` damgaları her seriye NaN olarak
+ * eklenir. Birleşimin içi zaten hizalamada null'lanır; dolgu damgaları
+ * hiçbir serinin verisi olmayan anlara düştüğü için adım tahmini birkaç
+ * saniye kaysa da başka bir serinin çizgisini kıramaz.
+ * SIKI doktrin (CorePanel, operatör onayı 2026-08-06): tek eksik adım da
+ * boşluktur; 1.5 çarpanı köprüleme değil, adım yuvarlama payıdır.
+ */
+export function fillStepGaps(series: SpanMetricSeries[], stepSec: number): SpanMetricSeries[] {
+  const stepNs = stepSec * 1e9;
+  if (!(stepNs > 0) || series.length === 0) return series;
+  const times = [...new Set(series.flatMap(s => (s.points ?? []).map(p => p.time)))].sort((a, b) => a - b);
+  const fill: number[] = [];
+  for (let i = 1; i < times.length && fill.length < MAX_FILL; i++) {
+    const a = times[i - 1], b = times[i];
+    if (b - a <= GAP_FACTOR * stepNs) continue;
+    for (let t = a + stepNs; t < b - stepNs / 2 && fill.length < MAX_FILL; t += stepNs) fill.push(t);
+  }
+  if (fill.length === 0) return series;
+  return series.map(s => {
+    const pts = [...(s.points ?? []), ...fill.map(time => ({ time, value: NaN }))];
+    pts.sort((x, y) => x.time - y.time);
+    return { ...s, points: pts };
+  });
+}
