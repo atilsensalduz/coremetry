@@ -316,6 +316,8 @@ func evalSystemPromptFor(surface string, simple bool) (string, bool) {
 		return copilot.SystemPromptChatAgentLoopFor(simple) + copilot.CodeResolveChatAddendum(true) + "\n\n" + copilot.SystemPromptChat(), true // v0.10.1311 — araç setine göre
 	case "IntentClassify":
 		return copilot.SystemPromptIntentClassify(), true
+	case "ServiceReport": // v0.10.1337 — guided servis raporu anlatıcısı (copilot_service_report.go)
+		return copilot.SystemPromptServiceReport(), true
 	case evalOpExceptionsSurface: // v0.10.1331 — copilot_chat.go loopPrompt'undaki ek sırası
 		return copilot.SystemPromptChatAgentLoopFor(simple) + copilot.OperationExceptionsAddendum() + "\n\n" + copilot.SystemPromptChat(), true
 	case evalAgentLoopSurface: // v0.10.1316 — serbest döngü çekirdeği + sohbet çekirdeği (ekran/sayfa önsözsüz)

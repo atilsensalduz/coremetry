@@ -513,6 +513,7 @@ func hasGuidedSignal(msg string) bool {
 		hasShiftSignal(msg, toks) || hasDBSignal(toks) || hasMessagingSignal(toks) ||
 		hasWhySignal(toks) || hasPeriodSignal(toks) || // v0.10.438 (D3)
 		hasEndpointRequestSignal(toks) || // v0.10.688 — "X isteklerini getir"
+		hasServiceReportSignal(toks) || // v0.10.1337 — "X için rapor çıkar"
 		// v0.9.537 — açık trace ID'si ya da "trace" kökü (prefix:
 		// Türkçe ekli hâlleri de yakalar — "tracei", "trace'in";
 		// ekrandaki trace'e bağlamdan gitmek için, ctxTrace çözümü
@@ -1268,7 +1269,9 @@ func routeGuidedIntentOpts(raw string, services, envs, teams []string, ctxServic
 		svc = extractServiceEntity(cleaned, services, envs)
 	}
 	if svc == "" && team == "" && !lfOK {
-		if ask := serviceIntentFor(msg, toks); ask != guidedNone && (len(family) == 0 || ask != guidedServiceHealth) {
+		// v0.10.1337 — servis raporu da sağlık gibi: aile yakalandıysa yan yana
+		// RED (family_health) korunur, aile üyeleri aday olarak sorulmaz.
+		if ask := serviceIntentFor(msg, toks); ask != guidedNone && (len(family) == 0 || (ask != guidedServiceHealth && ask != guidedServiceReport)) {
 			opts := family
 			if len(opts) == 0 {
 				opts = serviceCandidates(msg, services, envs, guidedServiceAskMax)
@@ -1289,6 +1292,10 @@ func routeGuidedIntentOpts(raw string, services, envs, teams []string, ctxServic
 				// şimdi sorar, adayları bundle açık problemlerden doldurur.
 				// "neden hata alıyoruz" filo-geneli problems yolunda kalır.
 				return guidedRoute{Intent: guidedAskService, AskIntent: guidedRootCause, Env: env}
+			case ask == guidedServiceReport && serviceReportAskable(msg, toks):
+				// v0.10.1337 — "servisi analiz et, rapor çıkar" öznesiz: rapor tek
+				// servisin; sor (adayları bundle açık problemlerden doldurur).
+				return guidedRoute{Intent: guidedAskService, AskIntent: guidedServiceReport, Env: env}
 			}
 		}
 	}
@@ -1356,6 +1363,12 @@ func routeGuidedIntentOpts(raw string, services, envs, teams []string, ctxServic
 	// servisin); yeni intent yok — servis sağlığı, derin kip.
 	case svc != "" && hasSweepSignal(toks):
 		return guidedRoute{Intent: guidedServiceHealth, Service: svc, Env: env, Deep: true}
+	// v0.10.1337 — servis RAPORU ("X servisini analiz et", "X için rapor çıkar"):
+	// taramadan SONRA (tarama sözcüğü kazanır), neden dalından ÖNCE. Log /
+	// deploy / pod / db / messaging sinyali taşıyan analiz isteği kendi
+	// spesifik yolunda kalır ("X loglarını analiz et" bugünkü rotası).
+	case svc != "" && serviceReportShape(toks): // hasServiceReportSignal && !log/deploy/pod/db/messaging
+		return guidedRoute{Intent: guidedServiceReport, Service: svc, Env: env}
 	case svc != "" && hasWhySignal(toks):
 		return guidedRoute{Intent: guidedRootCause, Service: svc, Env: env}
 	case hasSlowTraceSignal(msg):
@@ -1820,6 +1833,13 @@ func (s *Server) copilotChatGuided(ctx context.Context, emit func(string, any), 
 			rangeS = 12 * 3600
 		}
 	}
+	// v0.10.1337 — servis raporu varsayılanı son 1 saat (operatör: "son 1
+	// saatteki veya 3 saatteki teknik hata"); açık pencere kazanır.
+	if route.Intent == guidedServiceReport {
+		if _, explicit := guidedRangeSExplicit(norm); !explicit {
+			rangeS = serviceReportDefaultRangeS
+		}
+	}
 	// v0.10.688 — endpoint rotaları varsayılan son 1 saat (operatör kararı); açık
 	// pencere ve "son 6 saate genişlet" kipi kazanır.
 	if route.Intent == guidedEndpointCandidates || route.Intent == guidedEndpointTraces {
@@ -1949,6 +1969,8 @@ func (s *Server) runGuidedRoute(ctx context.Context, emit func(string, any), rou
 		evidence, sources, err = s.guidedSlowTracesBundle(ctx, emit, route.Service, route.Env, from, to, rangeS)
 	case guidedTraceDrill: // v0.10.1327 — en yavaş trace kritik yolu + o trace'lerin logları
 		evidence, sources, err = s.guidedTraceDrillBundle(ctx, emit, route.Service, route.Env, from, to, rangeS)
+	case guidedServiceReport: // v0.10.1337 — operasyonlar + teknik hatalar + trace/log kanıtı (copilot_service_report.go)
+		evidence, sources, err = s.guidedServiceReportBundle(ctx, emit, route, from, to, rangeS)
 	case guidedDeployImpact:
 		evidence, sources, err = s.guidedDeployBundle(ctx, emit, route.Service, route.Env, rangeS, anchorTo)
 	case guidedLogErrors:
@@ -4108,6 +4130,8 @@ func guidedNarrationPrompt(intent guidedIntent) string {
 	// farklı derinlikte anlatılırdı (v0.9.1131'in tam olarak bu kazası).
 	case guidedTraceByID, guidedSpanByID, guidedRequestID:
 		return copilot.SystemPromptTrace()
+	case guidedServiceReport: // v0.10.1337 — sabit altı bölümlü rapor anlatıcısı
+		return copilot.SystemPromptServiceReport()
 	}
 	return copilot.SystemPromptGuidedChat()
 }
@@ -4197,6 +4221,8 @@ func serviceIntentFor(msg string, toks []string) guidedIntent {
 	switch {
 	case hasSweepSignal(toks): // v0.10.1276 — router'daki sıra (tarama why/pod'dan önce)
 		return guidedServiceHealth
+	case serviceReportShape(toks): // v0.10.1337 — router'daki sıra (rapor taramadan sonra, why'dan önce)
+		return guidedServiceReport
 	case hasWhySignal(toks):
 		return guidedRootCause
 	case hasSlowTraceSignal(msg):

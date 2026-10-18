@@ -6630,3 +6630,60 @@ chatContext SERVICE_PARAM_ROUTES + pageContext ROUTE_PAGES `/search` (PageId `'s
 `pages/Search.states.test.tsx` (kısa q / yükleniyor / eşleşme yok / süzgeçle gizli ±önbellek / kaynak
 okunamadı & atlandı / vurgu / çekmece sel'den açılır, api.trace yalnız açılışta, ?ai= varken çekmece
 yok), `components/CommandPalette.searchRow.pin.test.ts`.
+
+## 2026-10-18 — v0.10.1337 — CoSRE: servis raporu (`service_report`) — operasyonlar + teknik hatalar + trace/log kanıtı tek raporda
+
+**Operatör (Feature D):** "Bir servisi analiz ederken operasyonları, son 1 saatteki veya 3 [saatteki]
+teknik hata exceptions var mı ve logları analiz et, ona göre bir rapor çıkar. Teknik hatadaki birkaç
+trace'e hızlıca Ask CoSRE gibi bakıp birleştir, bütünle." Onaylı tasarım, operatör varsayılanları.
+
+- **Niyet (D1):** yeni guided `service_report` (`api/copilot_service_report.go`). Router: tarama dalından
+  SONRA, neden dalından ÖNCE — `svc != "" && serviceReportShape(toks)` = `hasServiceReportSignal`
+  (analiz / analy / rapor / report / incele / değerlendir / assess; ayraçlı/rakamlı ad jetonu sinyal
+  değil — "reporting-service") ∧ log / deploy / pod / db / messaging sinyali yok ∧ nasıl-yapılır değil.
+  `hasGuidedSignal`, `serviceIntentFor` (aynı sıra), öznesiz → `ask_service` AskIntent service_report
+  (problem / hata / vardiya / takım / yavaş / neden şekilleri kendi filo yollarında; aile yakalandıysa
+  sağlık gibi family_health korunur), aday çipi "<svc> servisini analiz et", wiki kurtarması yok.
+  Varsayılan pencere son 1 saat (açık pencere kazanır; shift_summary emsali, sınıflandırıcı yolu da).
+  Sınıflandırıcı beyaz listesi + `systemIntentClassify` satırı + örnek (senkron pin).
+- **D7:** "X neden yavaş/hatalı" root_cause, "X'in durumu" service_health kalır; ikisinin takip
+  çiplerine "<svc> servisini analiz et" eklendi. "X loglarını analiz et" bugünkü rotasında.
+  v0.10.1215'in "X servisini analiz et → service_health" pini rapora çevrildi.
+- **Demet (deterministik, trace başına model çağrısı YOK — D2):** 20 sn tavan; goroutine'ler emit
+  etmez (çipler önce, sonuçlar sırayla). Faz 1 (≤6 sn, paralel): service_context
+  (buildServiceContext + renderServiceSnapshot), list_problems (+ EnrichProblemsWithRootCause),
+  top_operations (`GetOperationSummaryCompared` — MV ve ham yol LIMIT 500; girdi 500'e kırpılır; SAF
+  `rankOpDeltas`: ≥20 çağrılı p99 ilk 5 → önceki pencereye kat sırası, kıyassız sonda; hata sayısı ilk
+  5), exception_groups (v0.10.1331 dikişi, `exScope{Service}`, son 3 sa; son 1 sa ↔ önceki 1 sa
+  `exGroupTrendTR`), slow_traces (guidedTraceFilter + HasError ikizi). Faz 2 SAF `pickReportTraces`
+  (≤3, tekrarsız): en yavaş + farklı gruplardan ≤2 örnek trace (patlayan Oracle grubu önce), örnek
+  eksikse en hatalı operasyonun hatalı trace'i / 2. en yavaş; Exceptions yoksa 2 en yavaş + 1 hatalı.
+  Faz 3 (≤8 sn) `traceDrillFor` (ikinci uygulama yok; traceDrill'e RootName). Faz 4 (≤5 sn) TEK log
+  okuması `readDrillLogs` (traceDrillEvidence'tan çıkarılan ortak yol; yapılandırılmış depo, env
+  yok); depo yok / OKUNAMADI / log yok ayrı. Faz 5 SAF `serviceReportVerdict`: RED kolu
+  `healthverdict.Service` eşikleri + teknik hata (patlama ≥10 oluşum / P1 son 1 sa → Sorunlu; son 1
+  saatte grup → Dikkat), operasyon (×2 & ≥200 ms, hata ≥%5 & ≥10), trace (HTTP ≥500 / exception) kolları;
+  okunamayan çekirdek kaynak en az Dikkat. Kanıt ≤6 KB, sabit bölümler HÜKÜM / OPERASYONLAR /
+  TEKNİK HATALAR (son 1 sa / 3 sa) / TRACE KANITI / LOG KANITI / AÇIK PROBLEMLER + HİPOTEZ, olgular
+  "KANIT:" satırı. Deterministik yük + kanıt 60 sn `s.cache` (FNV: servis, ortam, dakikaya oturan
+  from/to); anlatım önbelleğe girmez; isabette adım çipleri aynen yeniden yayınlanır.
+- **Prompt:** `systemServiceReport` / `SystemPromptServiceReport()` (Türkçe-native; yalnız rapor verisi,
+  KANIT aynen, yalnız öneri; başlıklar **Durum özeti** (HÜKÜM etiketi değişmez) / **Teknik hatalar** /
+  **Yavaşlık ve hedefler** / **Trace + log kanıtı** / **Kök neden adayı** / **Ne kontrol edilmeli**;
+  boş bölüm "veri yok"). promptRegistry + promptTexts + promptVersionRegistry; tek anlatım chat-guided.
+- **Bloklar/UI:** mevcut `trace_list` (kırılan trace'ler) + yeni `blocks.TypeServiceReport`
+  (`withBlockSeq`). FE: `ChatServiceReportPayload` (lib/types.ts), `serviceReportBlocks()` (her href
+  isSafeAppPath), `components/ai/ServiceReportCard.tsx` (ui atomları; `.ev-verdict` rozeti; iki ≤5
+  satırlı statik tablo — tableUnity rawTable 49 → 51 gerekçeli; exception satırı /problems?exc=,
+  trace linki traceHref, mono log satırı, link çipleri); `exceptionGroupRows` operasyon kartıyla ortak.
+  Takip çipleri: "<svc> neden yavaş?" / "teknik hataları?" / "hata logları?"; linkler Overview /
+  Operations / Exceptions. Evalset: `service_report.json` (ServiceReport yüzeyi) + intent vakası.
+- **Değişmeyenler:** TestChatTierOrderIsPinned, TestGuidedIsNotACatchAll, MCP araç sayısı 74,
+  api.go büyümedi; yazma / denetim / oy okuması yok (TestServiceReportReadOnly).
+- **Testler:** TestRouteGuidedIntent (v0.10.1337 satırları), TestHasServiceReportSignal,
+  TestServiceReportRouting, TestServiceReportFollowups, TestRankOpDeltas, TestPickReportTraces,
+  TestServiceReportVerdict, TestRenderServiceReportTR (OKUNAMADI ≠ boş ≠ depo yok, ≤6 KB),
+  TestServiceReportPayload, TestServiceReportCacheKey, TestServiceReportCacheReplay,
+  TestServiceReportReadOnly, TestServiceReportGoroutinesDoNotEmit, TestServiceReportWiring,
+  TestDrillLogEnvelope; copilot TestServiceReportPromptRegistered / TestServiceReportPromptSections;
+  vitest `lib/chatBlocks.serviceReport.test.ts` (güvensiz href düşer), `ServiceReportCard.test.tsx`.

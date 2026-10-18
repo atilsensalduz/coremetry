@@ -23,6 +23,10 @@ const (
 	TypeEvidence  = "evidence"
 	// TypeOperation — operasyon adı ön-getirmesinin kartı (api/chat_operation_prefetch.go).
 	TypeOperation = "operation"
+	// TypeServiceReport — v0.10.1337: guided servis raporunun kartı
+	// (api/copilot_service_report.go): hüküm, operasyonlar, teknik hatalar,
+	// trace kırılımları + o trace'lerin logları, link çipleri.
+	TypeServiceReport = "service_report"
 )
 
 // Sequencer — bir turn içinde blok kimliği/sırası. SAF: emit'e verilecek

@@ -39,12 +39,14 @@ var stepPhaseByTool = map[string]string{
 	"get_messaging_health": "Sağlık", "list_slo_status": "Sağlık", "explain_service_health": "Sağlık",
 	"service_health_sweep": "Sağlık", // v0.10.1276 — CoSRE adım 7: pod/operasyon/fonksiyon taraması
 	"list_operations":      "Sağlık", "list_services": "Sağlık",
+	"top_operations": "Sağlık", // v0.10.1337 — servis raporu: en yavaş / en hatalı operasyonlar
 	// Problem / anomali / exception
 	"list_problems": "Problem", "get_problem": "Problem", "get_problem_root_cause": "Problem",
 	"list_problem_window_events": "Problem", "similar_problems": "Problem", "similar_incidents": "Problem",
 	"explain_problem": "Problem", "get_correlation_evidence": "Problem", "get_blast_radius": "Problem",
 	"list_anomalies":        "Anomali",
 	"list_exception_groups": "Exception", "get_exception_samples": "Exception", "explain_exception": "Exception",
+	"exception_groups": "Exception", // v0.10.1337 — servis raporu: servis düzeyi Exceptions grupları
 	// Topoloji / altyapı
 	"get_topology": "Topoloji", "list_pods": "Altyapı", "get_pod_health": "Altyapı",
 	"list_workloads": "Altyapı", "list_clusters": "Altyapı", "list_namespaces": "Altyapı",

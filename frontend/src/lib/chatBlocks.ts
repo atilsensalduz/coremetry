@@ -1,6 +1,6 @@
 // chatBlocks.ts — v0.10.541 (Faz 3.3a): tipli blok biriktirme, SAF.
 // Aynı id ikinci kez gelirse (final güncellemesi) yerine geçer; sıra seq.
-import type { ChatTypedBlock, ChatAnswerLink, CosreChartSpecLike, ChatTraceListPayload, ChatOperationPayload, ChatEvidenceChartPayload, ChatEvidenceTablePayload } from './types';
+import type { ChatTypedBlock, ChatAnswerLink, CosreChartSpecLike, ChatTraceListPayload, ChatOperationPayload, ChatEvidenceChartPayload, ChatEvidenceTablePayload, ChatServiceReportPayload } from './types';
 import { isSafeAppPath } from './safeAppPath';
 
 export function appendChatBlock(blocks: ChatTypedBlock[] | undefined, b: ChatTypedBlock): ChatTypedBlock[] {
@@ -76,4 +76,28 @@ export function evidenceBlocksByRef(blocks: ChatTypedBlock[] | undefined): Map<s
 export function operationBlocks(blocks: ChatTypedBlock[] | undefined): ChatOperationPayload[] {
   return (blocks ?? []).filter(b => b.type === 'operation').map(b => b.payload as ChatOperationPayload)
     .filter(p => p && typeof p.operation === 'string' && typeof p.tracesHref === 'string' && isSafeAppPath(p.tracesHref) && p.current != null);
+}
+
+/** v0.10.1337 — servis raporu kartı (copilot_service_report.go). Şekil doğrulanır;
+ *  HER href isSafeAppPath'ten geçer: güvensiz link çipi düşer, güvensiz exception
+ *  linki satırdan silinir (satır kalır, link olmaz). Trace linkleri traceHref'le
+ *  kartta kurulur (sunucu href'i yok). SAF. */
+export function serviceReportBlocks(blocks: ChatTypedBlock[] | undefined): ChatServiceReportPayload[] {
+  const out: ChatServiceReportPayload[] = [];
+  for (const b of blocks ?? []) {
+    if (b.type !== 'service_report') continue;
+    const p = b.payload as ChatServiceReportPayload | null;
+    if (!p || typeof p.service !== 'string' || !p.service || typeof p.verdict !== 'string' || !p.ops) continue;
+    out.push({
+      ...p,
+      links: (p.links ?? []).filter(l => l && typeof l.href === 'string' && isSafeAppPath(l.href) && typeof l.label === 'string'),
+      exceptions: (p.exceptions ?? []).map(e => ({
+        ...e,
+        href: typeof e.href === 'string' && isSafeAppPath(e.href) ? e.href : '',
+        explainHref: typeof e.explainHref === 'string' && isSafeAppPath(e.explainHref) ? e.explainHref : '',
+      })),
+      drills: (p.drills ?? []).filter(d => d && typeof d.traceId === 'string' && d.traceId !== ''),
+    });
+  }
+  return out;
 }

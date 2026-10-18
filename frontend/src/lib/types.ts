@@ -7359,7 +7359,7 @@ export interface ExplainTraceAnswer extends ExplainAnswerBase {
 // (ChatMessage) + yalnız UI'ın bildiği alanlar. İKİ yüzey paylaşır —
 // global CoSRE penceresi (CopilotChat) ve AI çekmecesi içindeki sohbet
 // (AIDrawer) — bu yüzden bileşen dosyasında değil burada yaşar.
-export type ChatBlockType = 'text' | 'table' | 'chart' | 'trace_list' | 'link' | 'action' | 'evidence' | 'operation';
+export type ChatBlockType = 'text' | 'table' | 'chart' | 'trace_list' | 'link' | 'action' | 'evidence' | 'operation' | 'service_report';
 // ChatOperationPayload — operasyon adı ön-getirmesinin kartı (internal/api/
 // chat_operation_prefetch.go opPrefetch). measured=false → RED ölçülemedi.
 export interface ChatOperationRED { calls: number; errors: number; p99Ms: number; measured: boolean }
@@ -7409,6 +7409,47 @@ export interface ChatOperationException {
   sample?: string;
   href: string;
   explainHref: string;
+}
+/** v0.10.1337 — servis raporu operasyon satırı (Go reportOp; errorRate yüzde, ratio 0 = kıyas yok). */
+export interface ChatServiceReportOp { name: string; calls: number; errors: number; errorRate: number; p99Ms: number; priorP99Ms?: number; ratio?: number; hasPrior: boolean }
+/** v0.10.1337 — kırılan trace'in log satırı (Go reportLogLine; ts unix ns). */
+export interface ChatServiceReportLog { ts: number; severity: string; service: string; body: string }
+/** v0.10.1337 — Go traceDrillView: bir trace kırılımı + o trace'in logları. */
+export interface ChatServiceReportDrill {
+  traceId: string;
+  label: string;
+  source?: string;
+  ok: boolean;
+  text: string;
+  span?: string;
+  kind?: string;
+  target?: string;
+  path?: string;
+  service?: string;
+  selfMs?: number;
+  wallMs?: number;
+  sharePct?: number;
+  httpCode?: number;
+  error?: string;
+  baseP50Ms?: number;
+  /** ok | empty | no_store | error | none — "depo yok" / "OKUNAMADI" / "log yok" ayrı. */
+  logsState: string;
+  logs: ChatServiceReportLog[] | null;
+}
+/** v0.10.1337 — `service_report` bloğu (internal/api/copilot_service_report.go serviceReportPayload). */
+export interface ChatServiceReportPayload {
+  service: string;
+  env?: string;
+  rangeS: number;
+  verdict: string;
+  reasons: string[] | null;
+  red?: { spans: number; errorRate: number; p99Ms: number; baseErrorRate: number; baseP99Ms: number; unavailable?: string };
+  ops: { slow: ChatServiceReportOp[] | null; erroring: ChatServiceReportOp[] | null; err?: string };
+  exceptions: ChatOperationException[] | null;
+  exceptionsError?: string;
+  drills: ChatServiceReportDrill[] | null;
+  logBackend?: string;
+  links: ChatAnswerLink[] | null;
 }
 /** chart bloğunun gövdesi — components/cosreChartSpec.ts CosreChartSpec ile aynı alanlar (Go guidedChartSpec). */
 export interface CosreChartSpecLike { title?: string; service: string; operation?: string; agg: string; unit?: string; rangeS?: number; groupBy?: string; fromNs?: number; toNs?: number; compare?: { kind?: string; shiftS: number }; source?: 'span' | 'metric' }

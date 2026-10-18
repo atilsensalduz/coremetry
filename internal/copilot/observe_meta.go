@@ -55,6 +55,7 @@ var promptVersionRegistry = map[string]string{
 	"systemPostmortem":           systemPostmortem,
 	"systemRunbookUpdate":        systemRunbookUpdate,
 	"systemServiceAnalysis":      systemServiceAnalysis,
+	"systemServiceReport":        systemServiceReport, // v0.10.1337 — guided servis raporu
 	"DataNotInstruction":         DataNotInstruction,
 	"systemGuidedChat":           systemGuidedChat,
 	"latencyEvidenceRule":        latencyEvidenceRule, // v0.10.1299 — guided / serbest döngü / AI SRE ortak kuralı

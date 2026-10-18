@@ -1,5 +1,5 @@
 // operationCardView — operasyon ön-getirme kartının saf yardımcıları.
-import type { ChatOperationPayload, ChatOperationRED } from '@/lib/types';
+import type { ChatOperationException, ChatOperationPayload, ChatOperationRED } from '@/lib/types';
 import { safeAppPath } from '@/lib/safeAppPath';
 import { agoTR, fmtNum } from '@/lib/utils';
 
@@ -44,7 +44,11 @@ export interface OpExceptionRow {
 
 /** SAF: kart satırları — en yeni önce (sunucu sırası), güvensiz href düşer. */
 export function opExceptionRows(op: ChatOperationPayload, nowMs = Date.now()): OpExceptionRow[] {
-  const groups = op.exceptions?.groups ?? [];
+  return exceptionGroupRows(op.exceptions?.groups ?? [], nowMs);
+}
+
+/** v0.10.1337 — grup listesinden satırlar (operasyon kartı + servis raporu kartı ortak). SAF. */
+export function exceptionGroupRows(groups: ChatOperationException[], nowMs = Date.now()): OpExceptionRow[] {
   return groups.filter(g => g && typeof g.fingerprint === 'string').map(g => {
     const code = (g.oracle ? g.code : g.type) || g.type || '—';
     const hourly = g.oracle && g.hourKnown;

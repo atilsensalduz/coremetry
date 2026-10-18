@@ -229,6 +229,7 @@ type traceDrill struct {
 	Err       error
 	NotFound  bool
 	RootSvc   string // kök span'in servisi (baskın span başka servisteyse adı yazılır)
+	RootName  string // v0.10.1337 — kök span adı (servis raporunun trace_list satırı)
 	MinNs     int64  // span zarfı (log penceresi için)
 	MaxNs     int64
 }
@@ -667,7 +668,7 @@ func (s *Server) traceDrillFor(ctx context.Context, c drillCandidate) traceDrill
 	an := chstore.BuildTraceAnalysis(spans, false)
 	for i := range spans {
 		if spans[i].SpanID == an.RootSpanID {
-			d.RootSvc = spans[i].ServiceName
+			d.RootSvc, d.RootName = spans[i].ServiceName, spans[i].Name
 			break
 		}
 	}
@@ -736,15 +737,7 @@ func (s *Server) traceDrillEvidence(ctx context.Context, emit func(string, any),
 	b.WriteString(renderTraceDrillsTR(res))
 	largs, _ := json.Marshal(map[string]any{"trace_ids": ids, "limit": traceDrillLogsLimit})
 	nLog := emitGuidedStep(emit, "trace_drill_logs", string(largs))
-	var page *logstore.Page
-	var lerr error
-	if s.logs != nil {
-		lf, lt := from, to
-		if minNs > 0 {
-			lf, lt = time.Unix(0, minNs).Add(-time.Minute), time.Unix(0, maxNs).Add(time.Minute)
-		}
-		page, lerr = logstore.SearchWithTimeout(dctx, s.logs, logstore.Filter{TraceIDs: ids, From: lf, To: lt, Limit: traceDrillLogsLimit}, traceDrillLogsTimeout)
-	}
+	page, lerr := s.readDrillLogs(dctx, ids, minNs, maxNs, from, to)
 	logText := renderTraceDrillLogsTR(s.logs == nil, page, lerr, ids)
 	emitGuidedStepResult(emit, nLog, "trace_drill_logs", logText, lerr)
 	b.WriteString(logText)
@@ -759,6 +752,21 @@ func (s *Server) traceDrillEvidence(ctx context.Context, emit func(string, any),
 	}
 	emit("trace_list", endpointTraceListPayload("en yavaş trace kritik yolu", rows, from, to, href))
 	return b.String()
+}
+
+// readDrillLogs — kırılan trace'lerin TEK çoklu-trace log okuması (zarf ±1 dk;
+// zarf bilinmiyorsa sohbet penceresi). s.logs yapılandırılmış depo (Ayarlar →
+// ES ise ES); depo yoksa (nil, nil) — çağıran "depo yok" cümlesini kurar.
+// v0.10.1337 — servis raporu da AYNI yolu kullanır (ikinci log okuyucu yok).
+func (s *Server) readDrillLogs(dctx context.Context, ids []string, minNs, maxNs int64, from, to time.Time) (*logstore.Page, error) {
+	if s.logs == nil || len(ids) == 0 {
+		return nil, nil
+	}
+	lf, lt := from, to
+	if minNs > 0 {
+		lf, lt = time.Unix(0, minNs).Add(-time.Minute), time.Unix(0, maxNs).Add(time.Minute)
+	}
+	return logstore.SearchWithTimeout(dctx, s.logs, logstore.Filter{TraceIDs: ids, From: lf, To: lt, Limit: traceDrillLogsLimit}, traceDrillLogsTimeout)
 }
 
 // slowTraceDrill — en yavaş trace listesi (guidedTraceFilter) + kırılım.

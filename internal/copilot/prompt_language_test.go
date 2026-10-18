@@ -75,6 +75,7 @@ func promptRegistry() map[string]promptClass {
 		// onlara UYGULANMAZ; ayrım çıktının şekli değil, TALİMATIN dilidir.
 		"RCAVerdict":      classTurkishNative,
 		"ServiceAnalysis": classTurkishNative, // JSON çıktı, Türkçe talimat
+		"ServiceReport":   classTurkishNative, // v0.10.1337 — guided servis raporu, sabit altı bölüm
 		"RAGChat":         classTurkishNative, // kademe 3 — doküman yolu
 		"WikiChat":        classTurkishNative, // v0.10.1124 — açık wiki sorusu kademesi
 		"WikiFollowUp":    classTurkishNative, // v0.10.1134 — wiki takip sorusu (sayfa yeniden okuma)
@@ -126,7 +127,8 @@ func promptTexts() map[string]string {
 		"ChatRoundCap": SystemPromptChatRoundCap(), "ChatAgentLoop": SystemPromptChatAgentLoop(),
 		"ChatAgentLoop.simple": SystemPromptChatAgentLoopFor(true), // v0.10.1302
 		"RCAVerdict":           SystemPromptRCAVerdict(), "ServiceAnalysis": SystemPromptServiceAnalysis(),
-		"RAGChat": SystemPromptRAGChat(), "ShiftSummary": SystemPromptShiftSummary(),
+		"ServiceReport": SystemPromptServiceReport(), // v0.10.1337
+		"RAGChat":       SystemPromptRAGChat(), "ShiftSummary": SystemPromptShiftSummary(),
 		"WikiChat":     SystemPromptWikiChat(),
 		"WikiFollowUp": SystemPromptWikiFollowUp(),
 		"WikiSelect":   SystemPromptWikiSelect(), "RAGChatWiki": SystemPromptRAGChatWiki(),

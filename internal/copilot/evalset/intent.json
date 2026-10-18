@@ -294,6 +294,22 @@
         ],
         "maxLatencyMs": 20000
       }
+    },
+    {
+      "id": "intent-service-report",
+      "surface": "IntentClassify",
+      "why": "v0.10.1337 — \"X servisini analiz et, rapor çıkar\" servis raporu niyeti; servis slotu aynen",
+      "user": "payments servisini analiz et ve rapor çıkar",
+      "expect": {
+        "intent": "service_report",
+        "intentService": "payments",
+        "knownEntities": [
+          "payments",
+          "checkout",
+          "inventory"
+        ],
+        "maxLatencyMs": 20000
+      }
     }
   ]
 }

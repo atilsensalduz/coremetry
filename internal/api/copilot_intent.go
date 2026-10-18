@@ -68,12 +68,15 @@ var intentAllowed = map[string]guidedIntent{
 	"off_topic": guidedOffTopic,
 	// v0.10.470 (F2-3) — namespace'teki servisler / namespace listesi; `namespace` slotu.
 	"namespace_services": guidedNamespaceServices,
+	// v0.10.1337 — servis raporu (operasyonlar + teknik hatalar + trace/log
+	// kanıtı; copilot_service_report.go). Servis şart (intentNeedsService).
+	"service_report": guidedServiceReport,
 }
 
 // intentNeedsService — servissiz anlamsız şekiller: model servis vermediyse
 // ve ekranda bağlam servisi yoksa none. pod_health DIŞARIDA: servissiz hâli
 // filo-geneli sıralama (copilot_guided.go, bilinçli).
-var intentNeedsService = map[guidedIntent]bool{guidedServiceHealth: true, guidedRootCause: true}
+var intentNeedsService = map[guidedIntent]bool{guidedServiceHealth: true, guidedRootCause: true, guidedServiceReport: true}
 
 func intentClassifySchema() map[string]any {
 	names := make([]string, 0, len(intentAllowed)+1)
@@ -495,6 +498,8 @@ func (s *Server) copilotChatIntent(ctx context.Context, emit func(string, any), 
 		switch {
 		case route.Intent == guidedShiftSummary:
 			rangeS = 12 * 3600 // guided ile aynı varsayılan (vardiya)
+		case route.Intent == guidedServiceReport:
+			rangeS = serviceReportDefaultRangeS // v0.10.1337 — guided ile aynı varsayılan (son 1 saat)
 		case ctxRangeS > 0:
 			rangeS = snapRangeS(ctxRangeS)
 		default:

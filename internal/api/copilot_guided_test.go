@@ -100,7 +100,13 @@ func TestRouteGuidedIntent(t *testing.T) {
 		// (b) service health — needs a live-list entity.
 		{"health turkish smoke", "checkout servisi yavaş mı", guidedServiceHealth, "checkout-service", ""},
 		{"health turkish sağlık", "payment-service sağlığı nasıl", guidedServiceHealth, "payment-service", ""},
-		{"v0.10.1215 analiz et → servis sağlığı (log örneklemli)", "payment-service servisini analiz et", guidedServiceHealth, "payment-service", ""},
+		// v0.10.1337 — "analiz et" artık servis RAPORU (operatör, Feature D); v0.10.1215'in sağlık rotası geride kaldı.
+		{"v0.10.1337 analiz et → servis raporu", "payment-service servisini analiz et", guidedServiceReport, "payment-service", ""},
+		{"v0.10.1337 rapor çıkar → servis raporu", "payment-service için rapor çıkar", guidedServiceReport, "payment-service", ""},
+		{"v0.10.1337 neden hatalı kök-nedende kalır", "payment-service neden hatalı", guidedRootCause, "payment-service", ""},
+		{"v0.10.1337 durumu nasıl sağlıkta kalır", "payment-service'in durumu nasıl", guidedServiceHealth, "payment-service", ""},
+		{"v0.10.1337 loglarını analiz et bugünkü rotası", "payment-service loglarını analiz et", guidedServiceHealth, "payment-service", ""},
+		{"v0.10.1337 öznesiz rapor → hangi servis", "servisi analiz et, rapor çıkar", guidedAskService, "", ""},
 		{"health english", "is payment-service healthy", guidedServiceHealth, "payment-service", ""},
 		{"health suffixed name wins", "mobile-bff-uat sağlığı nasıl", guidedServiceHealth, "mobile-bff-uat", ""},
 		{"health base name not shadowed", "mobile-bff yavaş mı", guidedServiceHealth, "mobile-bff", ""},
@@ -963,9 +969,17 @@ func TestHowToNotServiceHealthFromCtx(t *testing.T) {
 			t.Errorf("%q → service_health olmamalı", q)
 		}
 	}
-	for _, q := range []string{"durumu nasıl", "nasıl gidiyor", "analiz et"} {
+	for _, q := range []string{"durumu nasıl", "nasıl gidiyor"} {
 		if r := routeGuidedIntent(q, svcs, nil, nil, ctx); r.Intent != guidedServiceHealth {
 			t.Errorf("%q → service_health bekleniyordu, %s", q, r.Intent)
 		}
+	}
+	// v0.10.1337 — ekran servisinde "analiz et" servis RAPORU; "nasıl analiz
+	// edebilirim" ise yol tarifi şekli, rapora da sağlığa da gitmez.
+	if r := routeGuidedIntent("analiz et", svcs, nil, nil, ctx); r.Intent != guidedServiceReport || r.Service != ctx {
+		t.Errorf("\"analiz et\" → service_report bekleniyordu, %s/%s", r.Intent, r.Service)
+	}
+	if r := routeGuidedIntent("bunu nasıl analiz edebilirim", svcs, nil, nil, ctx); r.Intent == guidedServiceReport || r.Intent == guidedServiceHealth {
+		t.Errorf("nasıl-yapılır şekli rapora/sağlığa gitmemeli, %s", r.Intent)
 	}
 }

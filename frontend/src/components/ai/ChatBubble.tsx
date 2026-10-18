@@ -2,7 +2,7 @@ import { Component, Fragment, createContext, memo, useContext, useMemo, useRef, 
 import { chatErrorText } from './chatErrorText';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { AIFeedbackButtons } from './AIFeedbackButtons';
-import { chartBlocks, mergeBlockLinks, traceListBlocks, operationBlocks, evidenceBlocksByRef, type EvidenceBlockView } from '@/lib/chatBlocks';
+import { chartBlocks, mergeBlockLinks, traceListBlocks, operationBlocks, serviceReportBlocks, evidenceBlocksByRef, type EvidenceBlockView } from '@/lib/chatBlocks';
 import { ChatTraceList } from './ChatTraceList'; // v0.10.688 — trace_list bloğu
 import { evidenceBlocks } from '@/lib/chatEvidence'; // v0.10.558
 import { EvidenceCard } from './EvidenceCard';
@@ -12,6 +12,7 @@ import { SREHypothesisButton } from './SREHypothesisButton';
 import { showSREHypothesisButton } from './sreHypothesisDedup'; // v0.10.1300
 import { CosreRuleConfirm } from './CosreRuleConfirm';
 import { OperationCard } from './OperationCard';
+import { ServiceReportCard } from './ServiceReportCard';
 import { Button } from '@/components/ui/Button';
 import type { ChatTurn, ChatStepDetail, ChatTypedBlock, CosreSignalKind, ChatQueryEvidence, ChatFollowup } from '@/lib/types';
 import { api } from '@/lib/api';
@@ -991,6 +992,8 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
             {!turn.pending && traceListBlocks(turn.blocks).map((tl, i) => <ChatTraceList key={`tl-${i}`} tl={tl} />)}
             {/* Operasyon adı ön-getirmesi — metrikler, hatalı trace'ler, Oracle kodları (chat_operation_prefetch.go) */}
             {operationBlocks(turn.blocks).map((op, i) => <OperationCard key={`op-${i}`} op={op} />)}
+            {/* v0.10.1337 — servis raporu kartı: hüküm, operasyonlar, teknik hatalar, trace + log kanıtı (copilot_service_report.go) */}
+            {!turn.pending && serviceReportBlocks(turn.blocks).map((rep, i) => <ServiceReportCard key={`sr-${i}`} rep={rep} />)}
             {/* v0.10.542 — action bloğu: yalnız tool sonucundan (sunucu chat_actions.go),
                 yalnız hedef sayfa açıkken; URL birleşimi + replace:true, yeni sekme yok. */}
             {!turn.pending && (turn.blocks ?? []).filter(b => b.type === 'action').map(b => {

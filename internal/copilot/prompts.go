@@ -1722,6 +1722,52 @@ CHANNEL_CODE kırılımı (en çok hata üreten önce): mobile-app (820 çağrı
   "guven": "yuksek"
 }`
 
+// systemServiceReport — v0.10.1337 (operatör: "Bir servisi analiz ederken
+// operasyonları, son 1 saatteki veya 3 saatteki teknik hata exceptions var mı
+// ve logları analiz et, ona göre bir rapor çıkar. Teknik hatadaki birkaç
+// trace'e hızlıca Ask CoSRE gibi bakıp birleştir, bütünle."). guided
+// service_report rotasının TEK anlatım çağrısı (api/copilot_service_report.go):
+// rapor verisi sunucuda deterministik toplanır (HÜKÜM + altı bölüm, olgular
+// "KANIT:" satırı); model yeniden incelemez, anlatır. Türkçe-native (2B dersi);
+// bölüm başlıkları sabit — TestServiceReportPromptSections pinler. Exceptions
+// bölüm adları systemOracleException / operationExceptionsAddendum ile aynı dil.
+const systemServiceReport = `Sen Coremetry'nin servis rapor anlatıcısısın. Sana operatörün sorusu ve
+sunucunun TEK bir servis için deterministik topladığı RAPOR VERİSİ verilir:
+HÜKÜM satırı ve OPERASYONLAR, TEKNİK HATALAR (son 1 sa / 3 sa), TRACE KANITI,
+LOG KANITI, AÇIK PROBLEMLER + HİPOTEZ bölümleri. Yeniden inceleme yapmazsın;
+raporu birleştirip anlatırsın. Her zaman Türkçe yaz.
+
+KURALLAR:
+- YALNIZ rapor verisini kullan. Veride olmayan servis, operasyon, sayı, trace id
+  ya da log satırı UYDURMA.
+- "KANIT:" satırlarındaki sayı, ad, kod, trace id ve log metnini AYNEN alıntıla;
+  yuvarlama, çevirme, kısaltma.
+- Yalnız ÖNERİ ver: bir komut çalıştırdığını, bir şeyi değiştirdiğini ya da
+  düzelttiğini asla söyleme.
+- OKUNAMADI yazan bölüm "yok" demek değildir — okunamadığını söyle, sonuç çıkarma.
+- Bir bölümde veri yoksa o başlığın altına yalnız "veri yok" yaz.
+- latency, span, p99, timeout, trace, deploy, exception gibi teknik terimleri
+  ÇEVİRME. Selamlama, önsöz ve kapanış cümlesi yok.
+` + latencyEvidenceRule + `
+- Çıktı TAM olarak şu altı kalın başlık, bu sırayla:
+
+**Durum özeti**
+HÜKÜM satırındaki etiketle başla (Sağlıklı / Dikkat / Sorunlu); etiketi
+DEĞİŞTİRME. Gerekçeleri 1-2 cümlede ver.
+**Teknik hatalar**
+Her grup için: ne demek (kod ya da tip ve örnek mesaj aynen), nerede
+yoğunlaşıyor (operasyon, servis), patlama mı sürekli akış mı (son 1 sa ile
+önceki 1 sa; ≥3× patlama), örnek trace id.
+**Yavaşlık ve hedefler**
+En yavaş operasyonlar (p99 ve önceki pencereye kat) ve trace kanıtındaki
+hedefler (servis, host, db).
+**Trace + log kanıtı**
+Trace başına TEK satır: baskın span → hedef → hata → log satırı.
+**Kök neden adayı**
+TEK aday ve dayandığı KANIT satırı; kanıt yetmiyorsa "yeterli kanıt yok".
+**Ne kontrol edilmeli**
+1-3 madde; her maddede trace id ya da operasyon adı.` + DataNotInstruction
+
 // systemGuidedChat frames the single narration call. Turkish-native
 // instructions (the 2B lesson from copilot_aianalyze.go: English
 // instructions + Turkish answers is a code-switching tax on a small
@@ -2204,6 +2250,11 @@ func SystemPromptRAGChatWiki() string { return systemRAGChatWiki }
 // eklenir (serviceAnalysisSchema).
 func SystemPromptServiceAnalysis() string { return systemServiceAnalysis }
 
+// SystemPromptServiceReport — v0.10.1337: guided service_report rotasının
+// anlatıcısı (api/copilot_service_report.go). Rapor verisi sunucuda
+// deterministik; tek anlatım çağrısı (yüzey chat-guided).
+func SystemPromptServiceReport() string { return systemServiceReport }
+
 // SystemPromptGuidedChat — chat kademesi 1, guided router narration
 // (copilot_guided.go). Hitap ön-sözü çağrı yerinde eklenir
 // (withAddressee).
@@ -2234,6 +2285,7 @@ Niyetler:
 - problems: açık problemler, alarm durumu (servis isteğe bağlı)
 - service_health: bir servisin genel sağlığı (gecikme, hata oranı, trafik)
 - root_cause: bir servisteki bozulmanın NEDENİ ("neden yavaş", "sebebi ne")
+- service_report: bir servisin KAPSAMLI analiz raporu ("checkout servisini analiz et", "checkout için rapor çıkar") — operasyonlar + teknik hatalar + trace/log kanıtı tek raporda
 - slow_traces: en yavaş trace'ler / istekler
 - deploy_impact: son deploy'un etkisi, sürüm değişikliği
 - log_errors: hata logları, exception'lar
@@ -2268,6 +2320,7 @@ Kurallar:
 Örnekler (şekli gör, kopyalama):
 - "checkout servisi son 1 saatte nasıl?" → {"intent":"service_health","service":"checkout","env":"","rangeS":3600,"traceId":"","spanId":""}
 - "açık problemler neler?" → {"intent":"problems","service":"","env":"","rangeS":0,"traceId":"","spanId":""}
+- "payments servisini analiz et, rapor çıkar" → {"intent":"service_report","service":"payments","env":"","rangeS":0,"traceId":"","spanId":"","team":""}
 - "bugün hava nasıl?" → {"intent":"off_topic","service":"","env":"","rangeS":0,"traceId":"","spanId":"","team":""}
 - "Türkiye'nin nüfusu kaçtır?" → {"intent":"off_topic","service":"","env":"","rangeS":0,"traceId":"","spanId":"","team":""}
 - "o şey yine oldu mu?" → {"intent":"none","service":"","env":"","rangeS":0,"traceId":"","spanId":"","team":""}

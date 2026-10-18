@@ -143,7 +143,13 @@ func guidedSuggestions(route guidedRoute) []string {
 			svc + " hata logları?",
 			svc + " son deploy etkisi?",
 			svc + " pod'ları nasıl?",
+			serviceReportChip(svc), // v0.10.1337 (D7) — durumdan tam rapora tek tık
 		}
+	case guidedServiceReport: // v0.10.1337 — rapordan sonraki üç doğal derinleşme
+		if svc != "" {
+			return []string{svc + " neden yavaş?", svc + " teknik hataları?", svc + " hata logları?"}
+		}
+		return nil
 	case guidedProblems:
 		if svc != "" {
 			return []string{svc + " sağlığı nasıl?", svc + " hata logları?", svc + " en yavaş trace'ler?"}
@@ -157,7 +163,8 @@ func guidedSuggestions(route guidedRoute) []string {
 		return []string{"Açık problemler?", "Takımımın servisleri nasıl?"}
 	case guidedRootCause: // v0.10.1327 — kök-neden sonrası "nerede" adımı
 		if svc != "" {
-			return []string{svc + " en yavaş trace'i nereye gidiyor?", svc + " hata logları?", svc + " son deploy etkisi?"}
+			// v0.10.1337 (D7) — kök-neden cevabından tam rapora tek tık.
+			return []string{svc + " en yavaş trace'i nereye gidiyor?", svc + " hata logları?", svc + " son deploy etkisi?", serviceReportChip(svc)}
 		}
 		return nil
 	case guidedTraceDrill: // v0.10.1327
@@ -612,6 +619,15 @@ func guidedAnswerLinkTargets(route guidedRoute) []guidedAnswerLink {
 			return []guidedAnswerLink{{Label: svc + " · Operations", Href: "/service?name=" + svcQ + "&tab=operations"}}
 		}
 		return nil
+	case guidedServiceReport: // v0.10.1337 — raporun üç kanıt sayfası
+		if svc != "" {
+			return []guidedAnswerLink{
+				{Label: svc + " · Overview", Href: "/service?name=" + svcQ},
+				{Label: svc + " · Operations", Href: "/service?name=" + svcQ + "&tab=operations"},
+				{Label: svc + " · Exceptions", Href: "/problems?service=" + svcQ},
+			}
+		}
+		return nil
 	case guidedMyExceptions:
 		// Exceptions sekmesi Inbox'ta tür süzgeciyle açılıyor.
 		//
@@ -804,6 +820,8 @@ func askServiceChip(intent guidedIntent, svc string) string {
 		return svc + " problemleri?"
 	case guidedServiceExceptions: // v0.10.1252
 		return svc + " teknik hataları?"
+	case guidedServiceReport: // v0.10.1337
+		return serviceReportChip(svc)
 	}
 	return svc + " sağlığı nasıl?"
 }
