@@ -12,7 +12,8 @@ import (
 )
 
 // service_metric_red_test.go — v0.10.337: Overview RED'i metrikten.
-// Sahte kaynak endpoints_metric_test.go'daki fakeEPSource (aynı paket).
+// Sahte kaynak metricsource_fake_test.go'daki fakeEPSource (aynı paket;
+// v0.10.1361 — /api/endpoints/metric silinince oraya taşındı).
 
 // redFixtureSource — v0.10.1350: `keys` = VERİDE taşınan durum anahtarları.
 // Durum adayıyla gruplanan rate sorgusu taşınıyorsa kod başına seri (200:
@@ -294,5 +295,38 @@ func TestServiceMetricREDNote_WindowTilesWording_v0101360(t *testing.T) {
 	r.LatencyUnitKnown = false
 	if n := serviceMetricREDNote(r); strings.Contains(n, "increase[W]") {
 		t.Fatalf("birim yokken pencere ifadesi olmamalı: %s", n)
+	}
+}
+
+// v0.10.1361 — latencyScaleMs endpoints_metric.go'dan taşındı; birim
+// sözleşmesinin doğrudan pini o dosyanın testleriyle gitmesin. Her birim
+// ayrı satır (CLAUDE.md: değer+birim şablonunda HER birimi test et).
+func TestLatencyScaleMs(t *testing.T) {
+	cases := []struct {
+		unit, metric string
+		scale        float64
+		known        bool
+		from         string
+	}{
+		{"s", "m", 1000, true, "source"},
+		{" Seconds ", "m", 1000, true, "source"},
+		{"ms", "m", 1, true, "source"},
+		{"milliseconds", "m", 1, true, "source"},
+		{"us", "m", 0.001, true, "source"},
+		{"microseconds", "m", 0.001, true, "source"},
+		{"ns", "m", 1e-6, true, "source"},
+		{"nanoseconds", "m", 1e-6, true, "source"},
+		{"", "http_server_request_duration_seconds", 1000, true, "name"},
+		{"", "rpc_duration_milliseconds", 1, true, "name"},
+		{"ms", "http_server_request_duration_seconds", 1, true, "source"}, // kaynak birimi addan önce
+		{"", "http.server.request.duration", 1, false, ""},
+		{"By", "m", 1, false, ""},
+	}
+	for _, c := range cases {
+		scale, known, from := latencyScaleMs(c.unit, c.metric)
+		if scale != c.scale || known != c.known || from != c.from {
+			t.Errorf("latencyScaleMs(%q, %q) = (%v, %v, %q) want (%v, %v, %q)",
+				c.unit, c.metric, scale, known, from, c.scale, c.known, c.from)
+		}
 	}
 }

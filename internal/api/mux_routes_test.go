@@ -1,6 +1,7 @@
 package api
 
 import (
+	"net/http/httptest"
 	"testing"
 )
 
@@ -25,4 +26,24 @@ func TestMuxRoutePatterns(t *testing.T) {
 	// çakışma testine girer; yalnız registerRoutes olsaydı defter rotası
 	// boot'ta panic'lerdi (v0.9.465-470 sınıfı).
 	_ = s.buildMux()
+}
+
+// v0.10.1361 — /api/endpoints/metric SİLİNDİ: /endpoints listesi
+// (v0.10.1359) ve detayı (v0.10.1352) metrik kipinde HTTP Metrics
+// PromQL'ini okuyor; uç ikinci, tutarsız bir cevap hesaplıyordu. Rota
+// geri gelmesin: ne defterde ne mux'ta. (Kayıtsız yol SPA catch-all'ına
+// düşer — 404 değil 200 + index.html, /api-route; o yüzden kalıba bakılır.)
+func TestEndpointsMetricRouteRemoved_v0101361(t *testing.T) {
+	if _, ok := extraRouteRegistrars["endpoints-metric"]; ok {
+		t.Fatal("endpoints-metric defterde olmamalı (v0.10.1361'de silindi)")
+	}
+	mux := (&Server{}).buildMux()
+	_, pattern := mux.Handler(httptest.NewRequest("GET", "/api/endpoints/metric", nil))
+	if pattern == "GET /api/endpoints/metric" {
+		t.Fatalf("GET /api/endpoints/metric hâlâ kayıtlı (kalıp %q)", pattern)
+	}
+	// Span yolu yerinde kalır.
+	if _, p := mux.Handler(httptest.NewRequest("GET", "/api/endpoints", nil)); p != "GET /api/endpoints" {
+		t.Fatalf("span listesi GET /api/endpoints kayıtlı olmalı, kalıp %q", p)
+	}
 }

@@ -59,7 +59,8 @@ import { MetricREDStrip, MetricCharts } from '@/pages/endpoints/MetricModeSectio
 // Service → HTTP Metrics sekmesinin AYNI PromQL'i ve AYNI panelleri,
 // route'a süzülü (endpointHttpQueries + useHttpPromql + HttpChartPanel,
 // /api/metrics/promql?metricsrc=vm). /api/endpoints/metric bu sayfada
-// artık okunmaz (liste sayfası okumaya devam eder).
+// artık okunmaz; v0.10.1359'dan beri liste de PromQL'den, uç v0.10.1361'de
+// silindi.
 //
 // URL = source of truth: ?service=&path=&sig=&range=&env=&cluster=
 // &compare=&entry=. Human-readable on purpose — a link pasted into an

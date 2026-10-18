@@ -7051,3 +7051,22 @@ sorgusu kapalı). (6) `/metric-red` notu: "grafik serileri adım başına histog
 **Bilinçli sınır:** pencere sorguları env süzgeci taşımaz (HTTP Metrics sekmesi ve Toplam karosu gibi; env seçiliyken
 tooltip söyler) — `/metric-red` grafikleri env'e daralır. Metrik adı sabit (`http_server_request_duration_seconds`, sekmeyle
 aynı aile); başka histogram adı yayınlayan servis son adıma düşer ve bunu söyler.
+
+## 2026-10-19 — v0.10.1361 — /api/endpoints/metric silindi (liste ve detay HTTP Metrics PromQL'inde)
+
+**Neden:** v0.10.1352'den beri endpoint detayı, v0.10.1359'dan beri /endpoints listesi metrik kipinde HTTP Metrics
+sekmesinin PromQL'ini okuyor (`lib/httpMetrics` `endpointHttpQueries` / `listQueries` + `endpointListRows`,
+`useHttpPromql` → `/api/metrics/promql?metricsrc=vm`). `GET /api/endpoints/metric` (`endpoints_metric.go`, throughput-metric
+seam'i, adım artışlarının toplamı + çağrı-ağırlıklı yüzdelik ortalaması) ikinci, tutarsız bir cevap hesaplıyordu ve UI'da
+çağıranı kalmamıştı. **Operatör kararı:** yalnız VM, uç silinir (shim yok). **Silinen:** `internal/api/endpoints_metric.go`
++ `_test.go` (rota, plan/anahtar, iki aşamalı indirgeyici, sıralama, prior birleşimi, `endpointPathSignature`, not);
+frontend `api.endpoints`'in `src: 'metric'` dalı ve `EndpointsListResponse`'un metrik-yalnız alanları (`source`, `backend`,
+`metric`, `metricExists`, `matchedBy`, `statusKey`, `errorsUnknown`, `statusState`, `statusReason`, `latencyUnit*`,
+`envAmbiguous`, `clusterIgnored`, `stepSeconds`, `tried`, `partial`, `note`). **Taşınan:** `endpointsMetricIdentity` (+
+yöntemi) ve `latencyScaleMs` → `service_metric_red.go` (tüketiciler `buildServiceMetricRED` ve MCP `query_metrics` —
+`mcp_deps.go` `mcpServiceMetricRED`; araç sayısı değişmedi); sahte kaynak `fakeEPSource` + `epFixtureWindow` / `epConst` /
+`hasStatusFilter` / `statusGroupKey` → yeni `metricsource_fake_test.go` (service_metric_red + messaging testleri).
+**Kalan:** span kipi `/api/endpoints` aynen; Overview `/api/services/{name}/metric-red` aynen. Kilitler:
+`TestEndpointsMetricRouteRemoved_v0101361` (defterde ad yok, mux kalıbı yok, span rotası var), `TestLatencyScaleMs` (birim
+sözleşmesinin doğrudan pini silinen testlerle gitmesin); `vmetrics/bucket_start_test.go` kaynak pini yalnız
+`hosts_metric.go`.

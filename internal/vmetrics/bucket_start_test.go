@@ -54,7 +54,8 @@ func TestEndStampShiftIsSingleSourced(t *testing.T) {
 	if strings.Contains(read("capacity.go"), "- capacityTrendStepSec") {
 		t.Fatal("capacity.go must not compensate the end stamp any more")
 	}
-	for _, f := range []string{"../api/hosts_metric.go", "../api/endpoints_metric.go"} {
+	// v0.10.1361 — endpoints_metric.go silindi (/api/endpoints/metric).
+	for _, f := range []string{"../api/hosts_metric.go"} {
 		if strings.Contains(read(f), "endStamped") {
 			t.Fatalf("%s must not carry its own end-stamp compensation", f)
 		}

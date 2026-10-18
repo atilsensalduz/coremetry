@@ -291,6 +291,8 @@ export default function EndpointsPage() {
   // türevli kalır; ?src=metric URL'de (Copy link / saved view aynı kipi
   // açar). Metrik kipi HTTP yüzeyine özgü (http_route etiketi): cluster
   // filtresi sunucuda "uygulanmadı" diye ilan edilir.
+  // (v0.10.1359'dan beri metrik kipi HTTP Metrics PromQL'i; uç v0.10.1361'de
+  // silindi.)
   // v0.10.361 varsayılanı METRİK yapmıştı (operatör "2 olsun"); v0.10.454
   // (operatör 2026-09-06, prod ekranı): LİSTE VARSAYILANI SPAN — "endpoint
   // sayfasında span'den çeksin hep default; detay sayfasında belirli bir
@@ -538,8 +540,8 @@ export default function EndpointsPage() {
     sort: sortBy,
     dir: sortDir,
     entry: entry === 'rpc' ? 'rpc' : undefined, // v0.9.313 (entry=rpc → src zaten span, v0.10.361)
-    src: src === 'metric' ? 'metric' : undefined, // v0.10.336
-    // v0.10.1359 — metrik kipinde /api/endpoints/metric OKUNMAZ (aşağıda PromQL).
+    // v0.10.1359 — metrik kipinde satır okunmaz (aşağıda PromQL);
+    // v0.10.1361 — /api/endpoints/metric silindi, bu okuma yalnız span.
   }, !metricMode);
   // v0.10.1359 — metrik kipi = HTTP Metrics sekmesinin AYNI pencere sorguları
   // (lib/httpMetrics listQueries: sekmenin windowQueries'i + `and on (BY)

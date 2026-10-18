@@ -21,10 +21,12 @@ package api
 //   - p50/p95/p99/avg ms (kaynak birimi ya da `_seconds` adından); birim
 //                bilinmiyorsa seriler YOK + latencyUnitKnown=false — tahmin
 //                yok, karo span'e düşer ve etiketi söyler
-// Kimlik ve ad: /endpoints metrik kipiyle ortak (endpointsMetricIdentity:
-// tput bağı → service_name; service.throughput_metric + adaylar). Her
-// okuma dikişten; hiçbir s.store.<metric> çağrısı yok. Varsayılan
-// DEĞİŞMEDİ: Overview ?src=metric ile bu uca geçer.
+// Kimlik ve ad: endpointsMetricIdentity (tput bağı → service_name;
+// service.throughput_metric + adaylar) — MCP query_metrics de aynısını
+// okur (mcp_deps.go). Her okuma dikişten; hiçbir s.store.<metric> çağrısı
+// yok. Varsayılan DEĞİŞMEDİ: Overview ?src=metric ile bu uca geçer.
+// v0.10.1361 — /api/endpoints/metric silindi; kimlik ve birim yardımcıları
+// (endpointsMetricIdentity, latencyScaleMs) buraya taşındı.
 
 import (
 	"context"
@@ -173,6 +175,70 @@ func scaleSeries(ser []chstore.SpanMetricSeries, scale float64) []chstore.SpanMe
 		out = append(out, c)
 	}
 	return out
+}
+
+// endpointsMetricIdentity — hangi metrik, hangi kimlik.
+// v0.10.1361 — endpoints_metric.go'dan taşındı (o uç silindi; tüketiciler
+// buildServiceMetricRED ve MCP query_metrics).
+type endpointsMetricIdentity struct {
+	Metric     string // throughput ailesi (VM'de `_count` yazımı olabilir)
+	RTMetric   string // değer okuyan ad (avg / yüzdelik) — LatencyMetricName
+	Instrument string // sum | histogram
+	Service    string // service_name eşleşmesi (bağ etiketliyse boş)
+	Filters    []chstore.FilterExpr
+	MatchedBy  string
+	Tried      []string
+}
+
+func (s *Server) endpointsMetricIdentity(ctx context.Context, src metricSource, service, env string) (endpointsMetricIdentity, bool) {
+	id := endpointsMetricIdentity{Service: service, MatchedBy: "service_name"}
+	if service != "" {
+		// Service Overview'un çözdüğü kimlik (job/name etiketi, `_count`
+		// yazımı, instrument) — keşfi tekrarlama.
+		if b := s.loadTputBinding(ctx, service, env, src.Name()); b != nil && !b.None && b.Metric != "" {
+			id.Metric, id.Instrument = b.Metric, b.Instrument
+			id.Service, id.Filters = b.Service, b.Filters
+			id.MatchedBy = "binding:" + b.MatchedBy
+			id.RTMetric = src.LatencyMetricName(b.Metric)
+			return id, true
+		}
+	}
+	resolved, tried := s.resolveThroughputMetric(ctx, src, "")
+	id.Tried = tried
+	if resolved == "" {
+		return id, false
+	}
+	id.Metric = resolved
+	id.RTMetric = src.LatencyMetricName(resolved)
+	id.Instrument = src.MetricInstrument(ctx, resolved, service)
+	if id.Instrument == "" {
+		id.Instrument = src.MetricInstrument(ctx, resolved, "")
+	}
+	return id, true
+}
+
+// latencyScaleMs — birim → ms çarpanı. Kaynak birimi önce; yoksa Prometheus
+// ad sözleşmesi (`_seconds` / `_milliseconds`); o da yoksa 1 + bilinmiyor.
+// v0.10.1361 — endpoints_metric.go'dan taşındı.
+func latencyScaleMs(unit, metric string) (scale float64, known bool, from string) {
+	switch strings.ToLower(strings.TrimSpace(unit)) {
+	case "s", "seconds":
+		return 1000, true, "source"
+	case "ms", "milliseconds":
+		return 1, true, "source"
+	case "us", "microseconds":
+		return 0.001, true, "source"
+	case "ns", "nanoseconds":
+		return 1e-6, true, "source"
+	}
+	n := strings.ToLower(metric)
+	switch {
+	case strings.Contains(n, "milliseconds"):
+		return 1, true, "name"
+	case strings.Contains(n, "seconds"):
+		return 1000, true, "name"
+	}
+	return 1, false, ""
 }
 
 // buildServiceMetricRED — SAF (kaynak arayüz): sorgular → seri haritası.

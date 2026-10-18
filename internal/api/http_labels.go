@@ -1,8 +1,8 @@
 package api
 
 // http_labels.go — v0.10.1350: HTTP durum-kodu etiketinin VERİDEN
-// çözümü; /endpoints "Kaynak: metrik" (endpoints_metric.go) ve Service
-// Overview metrik RED'i (service_metric_red.go) ortak kullanır.
+// çözümü; Service Overview metrik RED'i (service_metric_red.go) kullanır.
+// v0.10.1361 — ikinci tüketici /api/endpoints/metric silindi.
 //
 // Operator-reported (prod): /endpoint?service=bsa-loan-assessment-allocation-
 // prod&… "Kaynak: metrik" → "Hata BİLİNMİYOR: metrikte durum-kodu etiketi yok"
