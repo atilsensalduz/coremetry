@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,10 @@ import (
 // service_metric_red_test.go — v0.10.337: Overview RED'i metrikten.
 // Sahte kaynak endpoints_metric_test.go'daki fakeEPSource (aynı paket).
 
+// redFixtureSource — v0.10.1350: `keys` = VERİDE taşınan durum anahtarları.
+// Durum adayıyla gruplanan rate sorgusu taşınıyorsa kod başına seri (200:
+// ilk yarı 9.5, ikinci yarı 10; 500: ilk yarı 0.5; 400: 0.2 — hata değil),
+// taşınmıyorsa durum sütunu "" olan tek seri; grupsuz (yedek) sorgu tek seri.
 func redFixtureSource(unit string, keys []string) *fakeEPSource {
 	from, _ := epFixtureWindow()
 	step := 60
@@ -21,15 +26,25 @@ func redFixtureSource(unit string, keys []string) *fakeEPSource {
 		if mode != "rate" {
 			return nil, nil
 		}
-		if len(f.GroupBy) != 0 {
-			return nil, nil // RED grupsuz: tek seri
+		sk := statusGroupKey(f.GroupBy)
+		if sk == "" {
+			return []chstore.SpanMetricSeries{epConst(nil, from, step, 60, 10)}, nil // 10 req/s
 		}
-		if hasStatusFilter(f.Filters) {
-			s := epConst(nil, from, step, 60, 0.5) // 0.5 hata/sn
-			s.Points = s.Points[:30]               // ikinci yarıda hata yok
-			return []chstore.SpanMetricSeries{s}, nil
+		carried := false
+		for _, k := range keys {
+			carried = carried || k == sk
 		}
-		return []chstore.SpanMetricSeries{epConst(nil, from, step, 60, 10)}, nil // 10 req/s
+		if !carried {
+			return []chstore.SpanMetricSeries{epConst([]string{""}, from, step, 60, 10)}, nil
+		}
+		ok := epConst([]string{"200"}, from, step, 60, 9.3)
+		for i := 30; i < 60; i++ {
+			ok.Points[i].Value = 9.8
+		}
+		e5 := epConst([]string{"500"}, from, step, 60, 0.5) // 0.5 hata/sn
+		e5.Points = e5.Points[:30]                          // ikinci yarıda hata yok
+		e4 := epConst([]string{"400"}, from, step, 60, 0.2) // 4xx: çağrı, hata DEĞİL
+		return []chstore.SpanMetricSeries{ok, e5, e4}, nil
 	}
 	src.queryFn = func(f chstore.MetricQueryFilter) ([]chstore.SpanMetricSeries, error) {
 		v := map[string]float64{"p50": 0.1, "p95": 0.5, "p99": 1.0, "avg": 0.2}[f.Aggregation]
@@ -66,12 +81,16 @@ func TestBuildServiceMetricRED(t *testing.T) {
 	if resp.ErrorsUnknown || !resp.LatencyUnitKnown || resp.StatusKey != "http.response.status_code" || resp.Source != "vm" {
 		t.Fatalf("zarf: %+v", resp)
 	}
-	// histogram → count rate, rate modu; değer sorguları rtMetric adıyla
-	if src.calls[0] != "countrate:rate" || src.calls[1] != "countrate:rate" || !strings.HasSuffix(src.calls[2], ":http_server_request_duration_seconds") {
+	// histogram → count rate, rate modu; değer sorguları rtMetric adıyla.
+	// v0.10.1350 — tek rate sorgusu durumla gruplanır; ayrı 5xx sorgusu yok.
+	if len(src.calls) != 1+4 || src.calls[0] != "countrate:rate" || !strings.HasSuffix(src.calls[1], ":http_server_request_duration_seconds") {
 		t.Fatalf("sorgu dizisi: %v", src.calls)
 	}
-	if f := src.filters[1]; len(f) != 1 || f[0].Values[0] != "^5[0-9][0-9]$" {
-		t.Fatalf("5xx filtresi: %+v", f)
+	if g := strings.Join(src.groupBys[0], ","); g != "http.response.status_code" || hasStatusFilter(src.filters[0]) {
+		t.Fatalf("rate durumla gruplanmalı, 5xx süzgeci yok: %s %+v", g, src.filters[0])
+	}
+	if len(resp.Series["rate"]) != 1 || len(rate) != 60 || rate[59].Value != 10 {
+		t.Fatalf("rate = durumların toplamı, tek seri: %+v", resp.Series["rate"])
 	}
 	// rate penceresi + nokta bütçesi geçer
 	if !strings.Contains(resp.Note, "5xx") || !strings.Contains(resp.Note, "birim s") {
@@ -99,10 +118,14 @@ func TestBuildServiceMetricRED_UnknownsAreAbsentNotZero(t *testing.T) {
 	if resp.LatencyUnitKnown || !resp.EnvAmbiguous {
 		t.Fatalf("bayraklar: %+v", resp)
 	}
-	if len(src.calls) != 1 {
-		t.Fatalf("yalnız rate sorgusu atılmalı: %v", src.calls)
+	// v0.10.1350 — iki aday sırayla yoklanır, ikisi de boş ⇒ absent
+	if len(src.calls) != 2 || resp.StatusState != statusLabelAbsent {
+		t.Fatalf("yalnız iki yoklama sorgusu atılmalı: %v %s", src.calls, resp.StatusState)
 	}
-	for _, w := range []string{"Failure rate BİLİNMİYOR", "Süre birimi BİLİNMİYOR", "TÜM ortamları"} {
+	if r := resp.Series["rate"]; len(r) != 1 || r[0].Points[0].Value != 10 {
+		t.Fatalf("absent'ta rate yoklama serisinden: %+v", r)
+	}
+	for _, w := range []string{"Failure rate BİLİNMİYOR: metrikte durum-kodu etiketi yok", "Süre birimi BİLİNMİYOR", "TÜM ortamları"} {
 		if !strings.Contains(resp.Note, w) {
 			t.Fatalf("not %q içermeli: %s", w, resp.Note)
 		}
@@ -182,5 +205,72 @@ func TestErrorRatePercent_IdleWindowPointsNeverNull(t *testing.T) {
 	}
 	if !strings.Contains(string(b), `"points":[]`) {
 		t.Fatalf("JSON points boş dizi olmalı: %s", b)
+	}
+}
+
+// v0.10.1350 — Operator-reported (prod): metrik kipinde "durum-kodu etiketi
+// yok" derken HTTP Metrics sekmesi (VM) aynı servis için 200/400 çiziyordu
+// (kök neden: tek, filo genelinde, 7 g /api/v1/labels taraması; hata/kısmi ⇒
+// nil ⇒ "yok"). (a) MetricPresentKeys nil, veri kod taşıyor ⇒ error_rate var.
+func TestBuildServiceMetricRED_StatusFromData_v0101350(t *testing.T) {
+	from, to := epFixtureWindow()
+	src := redFixtureSource("s", []string{"http.response.status_code"})
+	src.keys = nil
+	id := endpointsMetricIdentity{Metric: "m_count", RTMetric: "http_server_request_duration_seconds", Instrument: "histogram", Service: "cart", MatchedBy: "service_name"}
+	resp, err := buildServiceMetricRED(context.Background(), src, id, serviceMetricREDPlan{Service: "cart", From: from, To: to})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.ErrorsUnknown || resp.StatusState != statusLabelPresent || resp.StatusKey != "http.response.status_code" || src.presentCalls != 0 {
+		t.Fatalf("veri durum taşıyor → present, etiket taraması yok: %+v (present çağrı %d)", resp, src.presentCalls)
+	}
+	if er := resp.Series["error_rate"]; len(er) != 1 || er[0].Points[0].Value != 5 {
+		t.Fatalf("error_rate veriden (500/(200+500+400) = %%5): %+v", er)
+	}
+	if !strings.Contains(resp.Note, "Failure rate = http_response_status_code 5xx (4xx hata sayılmaz)") {
+		t.Fatalf("not: %s", resp.Note)
+	}
+}
+
+// (b) durum sorgusu hata ⇒ unknown, rate grupsuz yedekten; not "yok" demez.
+func TestBuildServiceMetricRED_StatusQueryErrorIsUnknown_v0101350(t *testing.T) {
+	from, to := epFixtureWindow()
+	src := redFixtureSource("s", []string{"http.response.status_code"})
+	inner := src.rateFn
+	src.rateFn = func(f chstore.MetricQueryFilter, mode string) ([]chstore.SpanMetricSeries, error) {
+		if statusGroupKey(f.GroupBy) != "" {
+			return nil, errors.New("vm: partial response")
+		}
+		return inner(f, mode)
+	}
+	id := endpointsMetricIdentity{Metric: "m_count", RTMetric: "http_server_request_duration_seconds", Instrument: "histogram", Service: "cart"}
+	resp, err := buildServiceMetricRED(context.Background(), src, id, serviceMetricREDPlan{Service: "cart", From: from, To: to})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resp.ErrorsUnknown || resp.StatusState != statusLabelUnknown || !strings.Contains(resp.StatusReason, "partial") {
+		t.Fatalf("hata ⇒ unknown: %+v", resp)
+	}
+	if _, ok := resp.Series["error_rate"]; ok {
+		t.Fatalf("bilinmeyen hata serisi uydurulmaz: %+v", resp.Series["error_rate"])
+	}
+	if r := resp.Series["rate"]; len(r) != 1 || r[0].Points[0].Value != 10 {
+		t.Fatalf("rate grupsuz yedekten: %+v", r)
+	}
+	if !strings.Contains(resp.Note, "durum sorgusu başarısız (vm: partial response)") || strings.Contains(resp.Note, "durum-kodu etiketi yok") {
+		t.Fatalf("not: %s", resp.Note)
+	}
+}
+
+func TestSumSeriesByTime_v0101350(t *testing.T) {
+	from, _ := epFixtureWindow()
+	a := epConst([]string{"200"}, from, 60, 3, 2)
+	b := epConst([]string{"500"}, from, 60, 2, 1)
+	out := sumSeriesByTime([]chstore.SpanMetricSeries{b, a})
+	if len(out) != 1 || len(out[0].Points) != 3 || out[0].Points[0].Value != 3 || out[0].Points[2].Value != 2 || out[0].Points[0].Time >= out[0].Points[1].Time {
+		t.Fatalf("toplam + zaman sırası: %+v", out)
+	}
+	if got := sumSeriesByTime(nil); got == nil || len(got) != 0 {
+		t.Fatalf("boş → []: %+v", got)
 	}
 }

@@ -246,7 +246,7 @@ export default function EndpointDetailPage() {
               <select value={detailSrc} onChange={e => setDetailSrc(e.target.value as 'span' | 'metric')}
                 aria-label="RED şeridinin kaynağı"
                 title={detailSrc === 'metric'
-                  ? 'Kaynak: metrik — üst şerit OTel HTTP server histogramından (VM ya da ClickHouse), örneklemeden bağımsız; grafikler ve alt bölümler span türevli'
+                  ? 'Kaynak: metrik — RED şeridi ve Calls/Errors/latency grafikleri OTel HTTP server histogramından (VM ya da ClickHouse), örneklemeden bağımsız; histogram, durum kırılımı, çağıranlar ve trace bölümleri span türevli'
                   : 'Kaynak: span — spanmetrics (izlerden türetilmiş); collector örnekliyorsa eksik sayar'}>
                 <option value="span">Kaynak: span</option>
                 <option value="metric">Kaynak: metrik</option>
@@ -268,10 +268,13 @@ export default function EndpointDetailPage() {
 
         <REDStrip row={row} pending={rowsQ.isPending} compare={compare}
           onToggleCompare={() => setCompare(!compare)} />
+        {/* v0.10.1350 (operatör bildirimi) — Calls/Errors/latency grafikleri
+            satırın kendi kovalarından çizilir; metrik kipinde o satır
+            metrikten gelir. Eski metin "grafikler span türevli" diyordu. */}
         {detailSrc === 'metric' && (
           <div className="badge b-info" style={{ marginTop: -6, marginBottom: 12 }}
-            title="Metrik kipi yalnız üst RED şeridini değiştirir; aşağıdaki seriler, durum kırılımı ve gecikme dağılımı span türevlidir">
-            RED şeridi: metrik{rowsQ.data?.note ? ` — ${rowsQ.data.note}` : ''} · grafikler ve alt bölümler span türevli
+            title="Metrik kipi üst RED şeridini ve Calls/Errors/latency grafiklerini değiştirir; histogram, durum kırılımı, çağıranlar ve trace bölümleri span türevlidir">
+            RED şeridi ve Calls/Errors/latency grafikleri: metrik{rowsQ.data?.note ? ` — ${rowsQ.data.note}` : ''} · histogram, durum kırılımı, çağıranlar ve trace bölümleri span türevli
           </div>
         )}
 

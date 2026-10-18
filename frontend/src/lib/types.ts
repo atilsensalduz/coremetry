@@ -4110,6 +4110,11 @@ export type SpanAgg =
 // Cevap boş bir seriyle YETİNMİYOR: metrik kurulumda var mı, hangi `job`
 // değerleri mevcut, hangi desen denendi — hepsi dönüyor. Boş bir grafik
 // "metrik yok" ile "desen tutmadı"yı aynı gösterirdi.
+// v0.10.1350 — metrik kipinde HTTP durum-kodu etiketinin hâli (backend
+// internal/api/http_labels.go statusLabelState): present = hata 5xx'ten;
+// absent = veride etiket yok; unknown = durum sorgusu başarısız (statusReason).
+export type HttpStatusLabelState = 'present' | 'absent' | 'unknown';
+
 // ServiceMetricRED — v0.10.337: /api/services/{name}/metric-red. Overview'un
 // RED üçlüsü METRİKTEN (VM | CH, dikiş). `series` anahtarları spanMetricBatch
 // ile aynı (rate · error_rate · p50 · p95 · p99 · avg) — aynı tüketiciler.
@@ -4126,6 +4131,10 @@ export interface ServiceMetricRED {
   stepSeconds: number;
   statusKey?: string;
   errorsUnknown?: boolean;
+  // v0.10.1350 — durum-kodu etiketi VERİDEN çözülür (present | absent |
+  // unknown); unknown = durum sorgusu başarısız, "etiket yok" DEĞİL.
+  statusState?: HttpStatusLabelState;
+  statusReason?: string;
   latencyUnit?: string;
   latencyUnitKnown: boolean;
   latencyUnitFrom?: string;
@@ -6049,6 +6058,9 @@ export interface EndpointsListResponse {
   matchedBy?: string;
   statusKey?: string;
   errorsUnknown?: boolean;
+  // v0.10.1350 — bkz. HttpStatusLabelState.
+  statusState?: HttpStatusLabelState;
+  statusReason?: string;
   latencyUnit?: string;
   latencyUnitKnown?: boolean;
   envAmbiguous?: boolean;

@@ -31,6 +31,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -54,8 +55,9 @@ type serviceMetricREDPlan struct {
 	Env      string
 }
 
+// v0.10.1350 — v2: zarf statusState/statusReason taşır, hata veri güdümlü.
 func serviceMetricREDKey(p serviceMetricREDPlan, srcName, mx string) string {
-	return fmt.Sprintf("svc-metric-red:v1:src=%s:%s:%s:mdp%d:rw%d:env=%s:mx=%s",
+	return fmt.Sprintf("svc-metric-red:v2:src=%s:%s:%s:mdp%d:rw%d:env=%s:mx=%s",
 		srcName, p.Service, cacheBucket(p.From, p.To), p.Mdp, p.RateWin, p.Env, mx)
 }
 
@@ -71,6 +73,8 @@ type serviceMetricREDResponse struct {
 	StepSeconds      int                                   `json:"stepSeconds"`
 	StatusKey        string                                `json:"statusKey,omitempty"`
 	ErrorsUnknown    bool                                  `json:"errorsUnknown,omitempty"`
+	StatusState      statusLabelState                      `json:"statusState,omitempty"`  // v0.10.1350
+	StatusReason     string                                `json:"statusReason,omitempty"` // v0.10.1350
 	LatencyUnit      string                                `json:"latencyUnit,omitempty"`
 	LatencyUnitKnown bool                                  `json:"latencyUnitKnown"`
 	LatencyUnitFrom  string                                `json:"latencyUnitFrom,omitempty"`
@@ -131,6 +135,30 @@ func errorRatePercent(rate, errs []chstore.SpanMetricSeries) []chstore.SpanMetri
 	return []chstore.SpanMetricSeries{out}
 }
 
+// sumSeriesByTime — SAF (v0.10.1350): durum kırılımlı serileri zaman
+// damgasında toplar → TEK grupsuz seri (eski durumsuz sorgunun şekli).
+// NaN/Inf atlanır; seri yoksa boş dilim (JSON `[]`, asla null).
+func sumSeriesByTime(ser []chstore.SpanMetricSeries) []chstore.SpanMetricSeries {
+	if len(ser) == 0 {
+		return []chstore.SpanMetricSeries{}
+	}
+	at := map[int64]float64{}
+	for _, s := range ser {
+		for _, p := range s.Points {
+			if math.IsNaN(p.Value) || math.IsInf(p.Value, 0) {
+				continue
+			}
+			at[p.Time] += p.Value
+		}
+	}
+	out := chstore.SpanMetricSeries{Points: make([]chstore.SpanMetricPoint, 0, len(at))}
+	for t, v := range at {
+		out.Points = append(out.Points, chstore.SpanMetricPoint{Time: t, Value: v})
+	}
+	sort.Slice(out.Points, func(i, j int) bool { return out.Points[i].Time < out.Points[j].Time })
+	return []chstore.SpanMetricSeries{out}
+}
+
 // scaleSeries — değerleri ms'e çevirir (kopya; kaynak serisi mutasyona uğramaz).
 func scaleSeries(ser []chstore.SpanMetricSeries, scale float64) []chstore.SpanMetricSeries {
 	out := make([]chstore.SpanMetricSeries, 0, len(ser))
@@ -164,11 +192,6 @@ func buildServiceMetricRED(ctx context.Context, src metricSource, id endpointsMe
 		resp.EnvAmbiguous = !applied
 		base = withEnvFilter(base, p.Env, src)
 	}
-	if keys := src.MetricPresentKeys(ctx, id.RTMetric, endpointsMetricStatusKeys, endpointsMetricKeyLookback); len(keys) > 0 {
-		resp.StatusKey = keys[0]
-	} else {
-		resp.ErrorsUnknown = true
-	}
 	unit := src.MetricUnit(ctx, id.RTMetric, p.Service)
 	scale, unitKnown, unitFrom := latencyScaleMs(unit, id.RTMetric)
 	resp.LatencyUnit, resp.LatencyUnitKnown, resp.LatencyUnitFrom = unit, unitKnown, unitFrom
@@ -183,28 +206,38 @@ func buildServiceMetricRED(ctx context.Context, src metricSource, id endpointsMe
 	if id.Instrument == "histogram" {
 		rate = src.QueryMetricCountRate
 	}
-	rateSer, err := rate(ctx, base, "rate")
-	if err != nil {
-		return resp, err
+	// v0.10.1350 — veri güdümlü durum yoklaması (http_labels.go): rate
+	// sorgusu durum adayıyla gruplanır; rate = durumların toplamı, hata =
+	// 5xx serileri. Ayrı 5xx sorgusu ve 7 günlük etiket taraması yok.
+	probe := probeStatusLabel(func(key string) ([]chstore.SpanMetricSeries, error) {
+		f := base
+		f.GroupBy = []string{key}
+		return statusRowsChecked(rate(ctx, f, "rate"))
+	}, 0)
+	resp.StatusState, resp.StatusKey = probe.State, probe.Key
+	resp.ErrorsUnknown = probe.State != statusLabelPresent
+	byStatus := probe.Series
+	if probe.State == statusLabelUnknown {
+		resp.StatusReason = probe.Reason
+		if byStatus == nil { // ilk aday hata verdi: rate durumsuz sorgudan
+			var err error
+			byStatus, err = rate(ctx, base, "rate")
+			if err != nil {
+				return resp, err
+			}
+		}
 	}
-	if rateSer == nil {
-		rateSer = []chstore.SpanMetricSeries{}
-	}
+	rateSer := sumSeriesByTime(byStatus)
 	resp.Series["rate"] = rateSer
 	resp.StepSeconds = seriesStep(rateSer)
-
-	if resp.StatusKey != "" {
-		ef := base
-		ef.Filters = append(append([]chstore.FilterExpr(nil), base.Filters...),
-			chstore.FilterExpr{Key: resp.StatusKey, Op: "=~", Values: []string{"^5[0-9][0-9]$"}})
-		errSer, eerr := rate(ctx, ef, "rate")
-		if eerr != nil {
-			resp.ErrorsUnknown = true
-			resp.StatusKey = ""
-			resp.Partial = append(resp.Partial, "error_rate: "+eerr.Error())
-		} else {
-			resp.Series["error_rate"] = errorRatePercent(rateSer, errSer)
+	if probe.State == statusLabelPresent {
+		var errSer []chstore.SpanMetricSeries
+		for _, sr := range byStatus {
+			if len(sr.GroupKey) > 0 && isHTTP5xx(sr.GroupKey[0]) {
+				errSer = append(errSer, sr)
+			}
 		}
+		resp.Series["error_rate"] = errorRatePercent(rateSer, errSer)
 	}
 	if unitKnown {
 		for _, ag := range []string{"p50", "p95", "p99", "avg"} {
@@ -236,11 +269,7 @@ func serviceMetricREDNote(r serviceMetricREDResponse) string {
 		return b.String()
 	}
 	fmt.Fprintf(&b, " — %s, kimlik %s.", r.Metric, r.MatchedBy)
-	if r.ErrorsUnknown {
-		b.WriteString(" Failure rate BİLİNMİYOR: metrikte durum-kodu etiketi yok (http.response.status_code / http.status_code).")
-	} else {
-		fmt.Fprintf(&b, " Failure rate = %s 5xx; 4xx hata sayılmaz.", r.StatusKey)
-	}
+	b.WriteString(statusLabelNote(r.StatusState, r.StatusKey, r.StatusReason, r.Source, "Failure rate", ""))
 	if r.LatencyUnitKnown {
 		fmt.Fprintf(&b, " P50/P95/P99 histogram_quantile, birim %s", r.LatencyUnit)
 		if r.LatencyUnitFrom == "name" {

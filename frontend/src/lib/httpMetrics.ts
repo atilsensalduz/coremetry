@@ -13,6 +13,21 @@ import type { SpanMetricSeries } from './types';
 
 export interface HttpScope { app: string; route?: string; method?: string }
 
+// v0.10.1350 — VM etiket adları TEK yerde. Backend aynı OTel anahtarlarını
+// promLabel ile buraya sanitize eder (internal/api/http_labels.go
+// httpStatusKeyCandidates[0] → status); Go pin testi
+// (TestHTTPLabelsMatchFrontend) iki dilin ayrışmasını kırar.
+export const HTTP_LABELS = {
+  service: 'service_name',
+  route: 'http_route',
+  method: 'http_request_method',
+  status: 'http_response_status_code',
+} as const;
+const L = HTTP_LABELS;
+const ST5 = `${L.status}=~"5.."`;
+const ST4 = `${L.status}=~"4.."`;
+const ST5C = `${L.status}=~"5..|"`; // downstream: bağlantı hatası (boş kod) da hata
+
 /** PromQL dize kaçışı (" ve \). */
 export function promStr(v: string): string {
   return '"' + v.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
@@ -20,16 +35,16 @@ export function promStr(v: string): string {
 
 /** Inbound seçici: service_name + isteğe bağlı route/method. */
 export function serverSel(s: HttpScope, extra = ''): string {
-  const parts = [`service_name=${promStr(s.app)}`];
-  if (s.route) parts.push(`http_route=${promStr(s.route)}`);
-  if (s.method) parts.push(`http_request_method=${promStr(s.method)}`);
+  const parts = [`${L.service}=${promStr(s.app)}`];
+  if (s.route) parts.push(`${L.route}=${promStr(s.route)}`);
+  if (s.method) parts.push(`${L.method}=${promStr(s.method)}`);
   if (extra) parts.push(extra);
   return `{${parts.join(', ')}}`;
 }
 
 /** Downstream seçici (panoda route/method süzgeci yok). */
 export function clientSel(s: HttpScope, extra = ''): string {
-  return `{service_name=${promStr(s.app)}${extra ? ', ' + extra : ''}}`;
+  return `{${L.service}=${promStr(s.app)}${extra ? ', ' + extra : ''}}`;
 }
 
 /** Grafik nokta bütçesi; adım = ceil(pencere / bu). */
@@ -65,43 +80,43 @@ export function httpQueries(s: HttpScope, windowSec: number): Record<string, str
   const cinc = (m: string, x = '') => `increase(${m}${csel(x)}[${W}])`;
   const q = (p: number, by = 'le') => `histogram_quantile(${p}, sum by (${by}) (${rate(SB)}))`;
   const cq = (p: number, by = 'le') => `histogram_quantile(${p}, sum by (${by}) (${crate(CB)}))`;
-  const byMR = 'http_request_method, http_route';
-  const byDM = 'server_address, http_request_method';
+  const byMR = `${L.method}, ${L.route}`;
+  const byDM = `server_address, ${L.method}`;
   return {
     // Genel bakış
     total: `sum(${inc(SC)})`,
     rps: `sum(${rate(SC)})`,
-    err5: `(sum(${rate(SC, 'http_response_status_code=~"5.."')}) or vector(0)) / sum(${rate(SC)})`,
-    err4: `(sum(${rate(SC, 'http_response_status_code=~"4.."')}) or vector(0)) / sum(${rate(SC)})`,
+    err5: `(sum(${rate(SC, ST5)}) or vector(0)) / sum(${rate(SC)})`,
+    err4: `(sum(${rate(SC, ST4)}) or vector(0)) / sum(${rate(SC)})`,
     p95: q(0.95),
     sli: `sum(${rate(SB, 'le="0.5"')}) / sum(${rate(SC)})`,
     // Trafik
     rateByRoute: `sum by (${byMR}) (${rate(SC)})`,
-    topRoutes: `topk(10, sum by (http_route) (${inc(SC)}))`,
-    statusClass: `sum by (cls) (label_replace(${rate(SC)}, "cls", "\${1}xx", "http_response_status_code", "([0-9]).*"))`,
-    statusCodes: `sum by (http_response_status_code) (${inc(SC)})`,
+    topRoutes: `topk(10, sum by (${L.route}) (${inc(SC)}))`,
+    statusClass: `sum by (cls) (label_replace(${rate(SC)}, "cls", "\${1}xx", "${L.status}", "([0-9]).*"))`,
+    statusCodes: `sum by (${L.status}) (${inc(SC)})`,
     // Gecikme
     p50: q(0.5), p90: q(0.9), p99: q(0.99),
     p95ByRoute: q(0.95, `le, ${byMR}`),
     // Hatalar
-    err5ByRoute: `sum by (http_route, http_request_method, http_response_status_code) (${rate(SC, 'http_response_status_code=~"5.."')}) > 0`,
-    err4ByRoute: `sum by (http_route, http_request_method, http_response_status_code) (${rate(SC, 'http_response_status_code=~"4.."')}) > 0`,
+    err5ByRoute: `sum by (${L.route}, ${L.method}, ${L.status}) (${rate(SC, ST5)}) > 0`,
+    err4ByRoute: `sum by (${L.route}, ${L.method}, ${L.status}) (${rate(SC, ST4)}) > 0`,
     // Endpoint özeti
     tRps: `sum by (${byMR}) (rate(${SC}${sel()}[5m]))`, // panodaki gibi [5m]
     tTotal: `sum by (${byMR}) (${inc(SC)})`,
     tAvg: `sum by (${byMR}) (${inc(SS)}) / sum by (${byMR}) (${inc(SC)})`,
     tP95: `histogram_quantile(0.95, sum by (le, ${byMR}) (${inc(SB)}))`,
     tP99: `histogram_quantile(0.99, sum by (le, ${byMR}) (${inc(SB)}))`,
-    tErr5: `(sum by (${byMR}) (${inc(SC, 'http_response_status_code=~"5.."')}) or (0 * sum by (${byMR}) (${inc(SC)}))) / sum by (${byMR}) (${inc(SC)})`,
-    tErr4: `(sum by (${byMR}) (${inc(SC, 'http_response_status_code=~"4.."')}) or (0 * sum by (${byMR}) (${inc(SC)}))) / sum by (${byMR}) (${inc(SC)})`,
+    tErr5: `(sum by (${byMR}) (${inc(SC, ST5)}) or (0 * sum by (${byMR}) (${inc(SC)}))) / sum by (${byMR}) (${inc(SC)})`,
+    tErr4: `(sum by (${byMR}) (${inc(SC, ST4)}) or (0 * sum by (${byMR}) (${inc(SC)}))) / sum by (${byMR}) (${inc(SC)})`,
     // Downstream
     dRps: `sum(${crate(CC)})`,
-    dErr: `(sum(${crate(CC, 'http_response_status_code=~"5..|"')}) or vector(0)) / sum(${crate(CC)})`,
+    dErr: `(sum(${crate(CC, ST5C)}) or vector(0)) / sum(${crate(CC)})`,
     dP95: cq(0.95),
-    dConnErr: `sum(${cinc(CC, 'http_response_status_code=""')}) or vector(0)`,
+    dConnErr: `sum(${cinc(CC, `${L.status}=""`)}) or vector(0)`,
     dRateByAddr: `sum by (server_address) (${crate(CC)})`,
     dP95ByAddr: cq(0.95, 'le, server_address'),
-    dErrByAddr: `sum by (server_address) (${crate(CC, 'http_response_status_code=~"5..|"')}) / sum by (server_address) (${crate(CC)})`,
+    dErrByAddr: `sum by (server_address) (${crate(CC, ST5C)}) / sum by (server_address) (${crate(CC)})`,
     dErrTypes: `sum by (server_address, error_type) (${crate(CC, 'error_type!=""')}) > 0`,
     dtTotal: `sum by (${byDM}) (${cinc(CC)})`,
     dtRps: `sum by (${byDM}) (rate(${CC}${csel()}[5m]))`,
@@ -109,8 +124,8 @@ export function httpQueries(s: HttpScope, windowSec: number): Record<string, str
     dtAvg: `sum by (${byDM}) (${cinc(CS)}) / sum by (${byDM}) (${cinc(CC)})`,
     dtP95: `histogram_quantile(0.95, sum by (le, ${byDM}) (${cinc(CB)}))`,
     dtP99: `histogram_quantile(0.99, sum by (le, ${byDM}) (${cinc(CB)}))`,
-    dtErr5: `(sum by (${byDM}) (${cinc(CC, 'http_response_status_code=~"5..|"')}) or (0 * sum by (${byDM}) (${cinc(CC)}))) / sum by (${byDM}) (${cinc(CC)})`,
-    dtErr4: `(sum by (${byDM}) (${cinc(CC, 'http_response_status_code=~"4.."')}) or (0 * sum by (${byDM}) (${cinc(CC)}))) / sum by (${byDM}) (${cinc(CC)})`,
+    dtErr5: `(sum by (${byDM}) (${cinc(CC, ST5C)}) or (0 * sum by (${byDM}) (${cinc(CC)}))) / sum by (${byDM}) (${cinc(CC)})`,
+    dtErr4: `(sum by (${byDM}) (${cinc(CC, ST4)}) or (0 * sum by (${byDM}) (${cinc(CC)}))) / sum by (${byDM}) (${cinc(CC)})`,
   };
 }
 
@@ -201,8 +216,10 @@ export function filterOptions(series: SpanMetricSeries[] | null | undefined): { 
   const methods = new Set<string>();
   for (const s of series ?? []) {
     const l = seriesLabels(s);
-    if (l.http_route && l.http_route !== 'none') routes.add(l.http_route);
-    if (l.http_request_method) methods.add(l.http_request_method);
+    const r = l[L.route];
+    const m = l[L.method];
+    if (r && r !== 'none') routes.add(r);
+    if (m) methods.add(m);
   }
   return { routes: [...routes].sort(), methods: [...methods].sort() };
 }
@@ -315,12 +332,12 @@ export const HTTP_INSTANT_IDS: ReadonlySet<string> = new Set([
 // v0.10.1253 (operatör: Overview'da "Failure rate · metrik" yerine HTTP
 // status; yalnız sınıflar değil kodlar) — status KODU başına istek hızı.
 export function statusCodeRateQuery(app: string, windowSec: number): string {
-  return `sum by (http_response_status_code) (rate(${SC}${serverSel({ app })}[${rateWindow(windowSec)}]))`;
+  return `sum by (${L.status}) (rate(${SC}${serverSel({ app })}[${rateWindow(windowSec)}]))`;
 }
 
 /** Kod serileri: ad = kod, sıra 2xx→5xx (kod artan); renk tokenı sınıftan. */
 export function statusCodeSeries(series: SpanMetricSeries[] | null | undefined): { series: SpanMetricSeries[]; tokens: Map<string, string> } {
-  const out = relabel(series, '{{http_response_status_code}}')
+  const out = relabel(series, `{{${L.status}}}`)
     .filter(s => s.groupKey[0] && s.groupKey[0] !== '—')
     .sort((a, b) => a.groupKey[0].localeCompare(b.groupKey[0]));
   const tokens = new Map<string, string>();

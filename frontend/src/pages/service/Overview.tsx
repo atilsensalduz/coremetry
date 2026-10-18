@@ -984,7 +984,8 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
         {(metricMode || metricAutoFellBack) && metricRedQ.data && !metricRedQ.data.metricExists && <span className="badge b-warn" title={metricRedQ.data.note}>metrik bulunamadı — span gösteriliyor</span>}
         {metricMode && metricRedQ.data?.metricExists && (metricRedQ.data.errorsUnknown || !metricRedQ.data.latencyUnitKnown || metricRedQ.data.envAmbiguous) && (
           <span className="badge b-warn" title={metricRedQ.data.note}>eksik: {[
-            metricRedQ.data.errorsUnknown ? 'failure rate (durum etiketi yok)' : null,
+            // v0.10.1350 — sorgu hatası "etiket yok" diye okunmaz.
+            metricRedQ.data.errorsUnknown ? (metricRedQ.data.statusState === 'unknown' ? 'failure rate (durum sorgusu başarısız)' : 'failure rate (durum etiketi yok)') : null,
             !metricRedQ.data.latencyUnitKnown ? 'P50/P95/P99 (birim bilinmiyor)' : null,
             metricRedQ.data.envAmbiguous ? 'env daraltması' : null,
           ].filter(Boolean).join(', ')}</span>

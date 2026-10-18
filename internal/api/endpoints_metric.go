@@ -31,7 +31,9 @@ package api
 //     söyler; p90 bu kipte yok (dikiş p50/p95/p99 üretir).
 //   - hata = durum kodu 5xx (`http.response.status_code` semconv, yoksa
 //     eski `http.status_code`); ikisi de yoksa hata BİLİNMİYOR (0 değil) ve
-//     zarf errorsUnknown der. 4xx hata SAYILMAZ (operatör kararı
+//     zarf errorsUnknown der. v0.10.1350: varlık VERİDEN (çağrı sorgusu
+//     durumla gruplanır, http_labels.go); sorgu hatası "yok" değil
+//     statusState=unknown. 4xx hata SAYILMAZ (operatör kararı
 //     2026-09-04: span yoluyla aynı; 4xx Status pillerinde görünür).
 //   - süre birimi kaynaktan (MetricUnit) ya da Prometheus ad
 //     sözleşmesinden (`_seconds`); ikisi de yoksa ham sayı +
@@ -73,15 +75,13 @@ const (
 	// endpointsMetricMinStep — export aralığının altına inmesin (60 s, VM
 	// rate penceresi tabanı ile aynı sınıf).
 	endpointsMetricMinStep = 60
-	// endpointsMetricKeyLookback — durum-kodu etiketi keşfi penceresi
-	// (ListMetricNames'in 7 g'siyle aynı: "var" aynı anlama gelsin).
-	endpointsMetricKeyLookback = 7 * 24 * time.Hour
-	endpointsMetricSource      = "metric"
+	endpointsMetricSource  = "metric"
+	// endpointsMetricStatusFanout — v0.10.1350: durum kırılımlı çağrı
+	// sorgusunda route başına varsayılan en çok durum kodu sayısı; ayrıntı
+	// sorgusu route parçalarına bölünür ki parça başına satır (route × kod ×
+	// slot) chstore.SpanMetricRowCap altında kalsın.
+	endpointsMetricStatusFanout = 6
 )
-
-// endpointsMetricStatusKeys — sırayla: OTel semconv (≥1.23) sonra eski
-// yazım. İlk MEVCUT olan seçilir; ikisi de yoksa hata bilinmiyor.
-var endpointsMetricStatusKeys = []string{"http.response.status_code", "http.status_code"}
 
 // endpointsMetricPlan — istekten çıkan SAF karar; test buraya bakar.
 type endpointsMetricPlan struct {
@@ -112,8 +112,9 @@ func endpointsMetricStep(from, to time.Time) int {
 
 // endpointsMetricKey — TÜM girdiler (v0.5.187 sınıfı): depo adı ayrı segment
 // (metricsource.go sözleşmesi), dışlama özeti (CH rate yolu kuralları uygular).
+// v0.10.1350 — v2: zarf statusState/statusReason taşır, hata veri güdümlü.
 func endpointsMetricKey(p endpointsMetricPlan, srcName, mx string) string {
-	return fmt.Sprintf("endpoints-metric:v1:src=%s:%s:svc=%s:q=%s:env=%s:cl=%s:lim=%d:cmp=%v:sig=%v:sort=%s:dir=%s:step=%d:mx=%s",
+	return fmt.Sprintf("endpoints-metric:v2:src=%s:%s:svc=%s:q=%s:env=%s:cl=%s:lim=%d:cmp=%v:sig=%v:sort=%s:dir=%s:step=%d:mx=%s",
 		srcName, cacheBucket(p.From, p.To), p.Service, p.Search, p.Env, p.Cluster, p.Limit, p.Compare, p.BySignature, p.Sort, p.Dir, p.StepSec, mx)
 }
 
@@ -160,23 +161,27 @@ func (s *Server) endpointsMetricIdentity(ctx context.Context, src metricSource, 
 // (tput ucunun sözleşmesi: bulamamak operatörün sorusuna cevaptır).
 type endpointsMetricResponse struct {
 	endpointsListResponse
-	Source           string   `json:"source"`
-	Backend          string   `json:"backend"`
-	Metric           string   `json:"metric,omitempty"`
-	MetricExists     bool     `json:"metricExists"`
-	MatchedBy        string   `json:"matchedBy,omitempty"`
-	Instrument       string   `json:"instrument,omitempty"`
-	StatusKey        string   `json:"statusKey,omitempty"`
-	ErrorsUnknown    bool     `json:"errorsUnknown,omitempty"`
-	LatencyUnit      string   `json:"latencyUnit,omitempty"`
-	LatencyUnitKnown bool     `json:"latencyUnitKnown"`
-	LatencyUnitFrom  string   `json:"latencyUnitFrom,omitempty"` // source | name
-	EnvAmbiguous     bool     `json:"envAmbiguous,omitempty"`
-	ClusterIgnored   bool     `json:"clusterIgnored,omitempty"`
-	StepSeconds      int      `json:"stepSeconds"`
-	Tried            []string `json:"tried,omitempty"`
-	Partial          []string `json:"partial,omitempty"`
-	Note             string   `json:"note"`
+	Source        string `json:"source"`
+	Backend       string `json:"backend"`
+	Metric        string `json:"metric,omitempty"`
+	MetricExists  bool   `json:"metricExists"`
+	MatchedBy     string `json:"matchedBy,omitempty"`
+	Instrument    string `json:"instrument,omitempty"`
+	StatusKey     string `json:"statusKey,omitempty"`
+	ErrorsUnknown bool   `json:"errorsUnknown,omitempty"`
+	// v0.10.1350 — present | absent | unknown (http_labels.go); unknown =
+	// durum sorgusu başarısız, "etiket yok" DEĞİL (StatusReason söyler).
+	StatusState      statusLabelState `json:"statusState,omitempty"`
+	StatusReason     string           `json:"statusReason,omitempty"`
+	LatencyUnit      string           `json:"latencyUnit,omitempty"`
+	LatencyUnitKnown bool             `json:"latencyUnitKnown"`
+	LatencyUnitFrom  string           `json:"latencyUnitFrom,omitempty"` // source | name
+	EnvAmbiguous     bool             `json:"envAmbiguous,omitempty"`
+	ClusterIgnored   bool             `json:"clusterIgnored,omitempty"`
+	StepSeconds      int              `json:"stepSeconds"`
+	Tried            []string         `json:"tried,omitempty"`
+	Partial          []string         `json:"partial,omitempty"`
+	Note             string           `json:"note"`
 }
 
 // latencyScaleMs — birim → ms çarpanı. Kaynak birimi önce; yoksa Prometheus
@@ -224,12 +229,14 @@ type epMetricAcc struct {
 	calls, errors float64
 	countAt       []float64 // slot → çağrı (ağırlık)
 	errAt         []float64
+	p50At, p95At  []float64 // v0.10.1350 — gecikme seçicisinin p50/p95 kovaları
 	p99At         []float64
 	v, w          [4]float64
 }
 
 func newEPAcc(n int) *epMetricAcc {
-	return &epMetricAcc{countAt: make([]float64, n), errAt: make([]float64, n), p99At: make([]float64, n)}
+	return &epMetricAcc{countAt: make([]float64, n), errAt: make([]float64, n),
+		p50At: make([]float64, n), p95At: make([]float64, n), p99At: make([]float64, n)}
 }
 
 // endpointsMetricDetailMax — 2. aşamaya (ayrıntı sorguları) giren route
@@ -296,11 +303,6 @@ func buildEndpointsMetric(ctx context.Context, src metricSource, id endpointsMet
 		_, applied := src.EnvFilterExpr(p.Env)
 		resp.EnvAmbiguous = !applied
 		base = withEnvFilter(base, p.Env, src)
-	}
-	if keys := src.MetricPresentKeys(ctx, id.RTMetric, endpointsMetricStatusKeys, endpointsMetricKeyLookback); len(keys) > 0 {
-		resp.StatusKey = keys[0]
-	} else {
-		resp.ErrorsUnknown = true
 	}
 	unit := src.MetricUnit(ctx, id.RTMetric, p.Service)
 	scale, unitKnown, unitFrom := latencyScaleMs(unit, id.RTMetric)
@@ -420,13 +422,17 @@ func buildEndpointsMetric(ctx context.Context, src metricSource, id endpointsMet
 	}
 	sort.Strings(detailRoutes)
 	sort.Strings(detailSvcs)
-	detail := base
-	detail.Filters = append(append([]chstore.FilterExpr(nil), base.Filters...),
-		chstore.FilterExpr{Key: "http.route", Op: "=~", Values: []string{endpointsMetricRouteRegex(detailRoutes)}})
-	if allServices && len(detailSvcs) > 0 {
-		detail.Filters = append(detail.Filters,
-			chstore.FilterExpr{Key: "service.name", Op: "=~", Values: []string{endpointsMetricRouteRegex(detailSvcs)}})
+	detailFor := func(routes []string) chstore.MetricQueryFilter {
+		f := base
+		f.Filters = append(append([]chstore.FilterExpr(nil), base.Filters...),
+			chstore.FilterExpr{Key: "http.route", Op: "=~", Values: []string{endpointsMetricRouteRegex(routes)}})
+		if allServices && len(detailSvcs) > 0 {
+			f.Filters = append(f.Filters,
+				chstore.FilterExpr{Key: "service.name", Op: "=~", Values: []string{endpointsMetricRouteRegex(detailSvcs)}})
+		}
+		return f
 	}
+	detail := detailFor(detailRoutes)
 
 	// ── 2. AŞAMA: ayrıntı (yalnız ilk N) ───────────────────────────────────
 	nSlots := int(p.To.Sub(p.From).Seconds()) / step
@@ -458,47 +464,66 @@ func buildEndpointsMetric(ctx context.Context, src metricSource, id endpointsMet
 		}
 		return a
 	}
-	callsSer, err := rate(ctx, detail, "increase")
-	if err != nil {
-		return resp, err
+	// v0.10.1350 — çağrı sorgusu durum adayıyla GRUPLANIR (veri güdümlü
+	// yoklama, http_labels.go); ayrı 5xx sorgusu ve 7 günlük etiket
+	// taraması yok. Durum sütunu groupBy'ın SONUNDA (statusIdx); keyOf
+	// kalan route tuple'ına bakar. Route'lar parçalara bölünür: parça
+	// başına satır ≤ SpanMetricRowCap (route × kod × slot).
+	statusIdx := len(groupBy)
+	chunk := chstore.SpanMetricRowCap / (nSlots * endpointsMetricStatusFanout)
+	if chunk < 1 {
+		chunk = 1
+	}
+	probe := probeStatusLabel(func(key string) ([]chstore.SpanMetricSeries, error) {
+		var out []chstore.SpanMetricSeries
+		for i := 0; i < len(detailRoutes) || i == 0; i += chunk {
+			j := i + chunk
+			if j > len(detailRoutes) {
+				j = len(detailRoutes)
+			}
+			f := detailFor(detailRoutes[i:j])
+			f.GroupBy = append(append([]string(nil), groupBy...), key)
+			ser, qerr := statusRowsChecked(rate(ctx, f, "increase"))
+			if qerr != nil {
+				return nil, qerr
+			}
+			out = append(out, ser...)
+		}
+		return out, nil
+	}, statusIdx)
+	resp.StatusState, resp.StatusKey = probe.State, probe.Key
+	resp.ErrorsUnknown = probe.State != statusLabelPresent
+	callsSer := probe.Series
+	if probe.State == statusLabelUnknown {
+		resp.StatusReason = probe.Reason
+		if callsSer == nil { // ilk aday hata verdi: çağrılar durumsuz sorgudan
+			callsSer, err = rate(ctx, detail, "increase")
+			if err != nil {
+				return resp, err
+			}
+		}
 	}
 	for _, ser := range callsSer {
-		k, ok := keyOf(ser.GroupKey)
+		gk, status := ser.GroupKey, ""
+		if len(gk) > statusIdx {
+			gk, status = gk[:statusIdx], gk[statusIdx]
+		}
+		k, ok := keyOf(gk)
 		if !ok || !keep[k] {
 			continue
 		}
 		a := get(k)
+		isErr := probe.State == statusLabelPresent && isHTTP5xx(status)
 		for _, pt := range ser.Points {
 			if pt.Value <= 0 || math.IsNaN(pt.Value) || math.IsInf(pt.Value, 0) {
 				continue
 			}
+			sl := slotOf(pt.Time)
 			a.calls += pt.Value
-			a.countAt[slotOf(pt.Time)] += pt.Value
-		}
-	}
-	if resp.StatusKey != "" {
-		ef := detail
-		ef.Filters = append(append([]chstore.FilterExpr(nil), detail.Filters...),
-			chstore.FilterExpr{Key: resp.StatusKey, Op: "=~", Values: []string{"^5[0-9][0-9]$"}})
-		errSer, eerr := rate(ctx, ef, "increase")
-		if eerr != nil {
-			resp.ErrorsUnknown = true
-			resp.StatusKey = ""
-			resp.Partial = append(resp.Partial, "errors: "+eerr.Error())
-		} else {
-			for _, ser := range errSer {
-				k, ok := keyOf(ser.GroupKey)
-				if !ok || !keep[k] {
-					continue
-				}
-				a := get(k)
-				for _, pt := range ser.Points {
-					if pt.Value <= 0 || math.IsNaN(pt.Value) || math.IsInf(pt.Value, 0) {
-						continue
-					}
-					a.errors += pt.Value
-					a.errAt[slotOf(pt.Time)] += pt.Value
-				}
+			a.countAt[sl] += pt.Value
+			if isErr {
+				a.errors += pt.Value
+				a.errAt[sl] += pt.Value
 			}
 		}
 	}
@@ -529,7 +554,12 @@ func buildEndpointsMetric(ctx context.Context, src metricSource, id endpointsMet
 				}
 				a.v[i] += pt.Value * w
 				a.w[i] += w
-				if i == 3 {
+				switch i { // v0.10.1350 — p50/p95 kovaları da (gecikme seçicisi)
+				case 1:
+					a.p50At[sl] = pt.Value * scale
+				case 2:
+					a.p95At[sl] = pt.Value * scale
+				case 3:
 					a.p99At[sl] = pt.Value * scale
 				}
 			}
@@ -563,6 +593,7 @@ func buildEndpointsMetric(ctx context.Context, src metricSource, id endpointsMet
 			P99Ms:     mean(3),
 			ReqPerMin: a.calls / minutes,
 			Sparkline: a.countAt, ErrorsSparkline: a.errAt, P99Sparkline: a.p99At,
+			P50Sparkline: a.p50At, P95Sparkline: a.p95At,
 		}
 		if a.calls > 0 {
 			r.ErrorRate = a.errors / a.calls * 100
@@ -664,11 +695,7 @@ func endpointsMetricNote(r endpointsMetricResponse, p endpointsMetricPlan) strin
 	}
 	fmt.Fprintf(&b, " — %s, kimlik %s. Çağrı ve hata %d s adımların toplamı; avg/p50/p95/p99 adım değerlerinin çağrı-ağırlıklı ortalaması (gerçek pencere yüzdeliği değil), p90 bu kipte yok.",
 		r.Metric, r.MatchedBy, r.StepSeconds)
-	if r.ErrorsUnknown {
-		b.WriteString(" Hata BİLİNMİYOR: metrikte durum-kodu etiketi yok (http.response.status_code / http.status_code) — Errors ve Rate boş.")
-	} else {
-		fmt.Fprintf(&b, " Hata = %s 5xx; 4xx hata sayılmaz.", r.StatusKey)
-	}
+	b.WriteString(statusLabelNote(r.StatusState, r.StatusKey, r.StatusReason, r.Backend, "Hata", " — Errors ve Rate boş"))
 	if r.LatencyUnitKnown {
 		fmt.Fprintf(&b, " Süre birimi %s", r.LatencyUnit)
 		if r.LatencyUnitFrom == "name" {

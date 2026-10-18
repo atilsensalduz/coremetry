@@ -18,7 +18,11 @@ describe('endpoints source defaults (v0.10.454 + v0.10.788)', () => {
     expect(detail).toContain("params.get('src') === 'span' || entry ? 'span' : 'metric'");
     expect(detail).toContain("...(detailSrc === 'metric' ? { src: 'metric' as const } : {})");
     expect(detail).toContain('<option value="metric">Kaynak: metrik</option>');
-    expect(detail).toContain('grafikler ve alt bölümler span türevli');
+    // v0.10.1350 (operatör bildirimi) — grafikler metrik kipinde metrikten
+    // (satırın kovaları); yalnız alt bölümler span türevli.
+    expect(detail).toContain('RED şeridi ve Calls/Errors/latency grafikleri: metrik');
+    expect(detail).toContain('histogram, durum kırılımı, çağıranlar ve trace bölümleri span türevli');
+    expect(detail).not.toContain('grafikler ve alt bölümler span türevli');
     expect(detail).toContain("next.set('src', 'span'); else next.delete('src');");
   });
 });

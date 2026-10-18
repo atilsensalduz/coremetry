@@ -6863,3 +6863,32 @@ vitest'li) geçirir, hover kartı soluk mono "via <host>" satırı basar; gerçe
 bilerek seçer. **Bilinçli kapsam dışı:** `ExtPeerMatchesService` / `pairEdgeExtAliases` (A→B kenar
 eşleştirme, NL arama, çağrı dönemi) yalnız 1. aşamada. **Risk:** 2 atım içinde başka bir servis adına
 düşen enstrümante olmayan bir host (ör. `<svc>-query-prod` yokken `<svc>` varsa) o servise birleşir.
+
+## 2026-10-18 — v0.10.1350 — Metrik kipi: HTTP durum-kodu etiketi veriden çözülür (present / absent / unknown)
+
+**Operatör (prod):** `/endpoint?service=bsa-loan-assessment-allocation-prod&path=…` "Kaynak: metrik" →
+"Hata BİLİNMİYOR: metrikte durum-kodu etiketi yok — Errors ve Rate boş" ve P50 grafiği "Bu pencerede veri
+yok" (karo P50 7 ms); aynı servisin Service → HTTP Metrics sekmesi (VM) 200/400 çiziyordu. **Kök neden:**
+(1) etiket varlığı `src.MetricPresentKeys(…, 7g)` ile soruluyordu — VM'de TEK, filo genelinde, 7 günlük
+`/api/v1/labels`; her hata nil'e çöküyor, `isPartial` düşüyordu → prod boyutunda zaman aşımı/kısmi cevap
+"etiket yok" okundu, 5xx sorgusu hiç atılmadı (aynı çağrı Overview metrik RED'inde). Etiket yazımı doğruydu.
+(2) `epMetricAcc` yalnız `p99At`'ı dolduruyordu; `P50Sparkline`/`P95Sparkline` boş → gecikme seçicisi "veri
+yok". (3) Detay sayfası bandı metrik kipinde grafikleri yanlışlıkla "span türevli" diyordu.
+**Karar:** (1) Yeni saf seam `internal/api/http_labels.go`: `httpStatusKeyCandidates`
+(`http.response.status_code`, `http.status_code`), `statusLabelState` present|absent|unknown,
+`resolveStatusLabel`, `probeStatusLabel`, `statusLabelNote`. VERİ GÜDÜMLÜ yoklama: çağrı sorgusunun
+GroupBy'ına aday durum anahtarı eklenir (dikişler yokluğu "" döner); boş-olmayan değer ⇒ present, hepsi boş ⇒
+sıradaki aday (ikinci sorgu yalnız ıskada) ⇒ absent, sorgu hatası ya da satır tavanı ⇒ unknown (gerekçe
+`statusReason`; çağrılar durumsuz yedek sorgudan). Çağrı = durumların toplamı, hata = `^5\d\d$` (4xx hata
+DEĞİL — sekmenin ayrı 4xx oranıyla tutarlı). Ayrı 5xx sorgusu ve 7 g etiket taraması bu iki yoldan kalktı.
+Kardinalite: /endpoints ayrıntı sorgusu route parçalarına bölünür (parça ≤ `SpanMetricRowCap / (slot × 6)`
+route); sıralama aşaması değişmedi. Zarf `statusState`/`statusReason` taşır; `errorsUnknown` present
+dışındaki iki hâlde true kalır (UI "—" çizer, 0 değil — absent'ta da hata gerçekten bilinmiyor). Önbellek
+anahtarları v2. (2) `p50At`/`p95At` i==1/i==2'de doldurulur. (3) Not üç hâlli: present "Hata =
+http_response_status_code 5xx (4xx hata sayılmaz)" (VM'de VM etiket yazımı), absent eski metin, unknown
+"durum sorgusu başarısız (<err>) — etiket yok DEĞİL"; Overview RED aynası + "eksik" rozeti unknown'ı ayırır.
+(4) Detay bandı: "RED şeridi ve Calls/Errors/latency grafikleri: metrik — … · histogram, durum kırılımı,
+çağıranlar ve trace bölümleri span türevli". `lib/httpMetrics.ts` `HTTP_LABELS` tek kaynak (PromQL bayt-bayt
+aynı); `vmetrics.PromLabel` dışa açıldı, Go pini `TestHTTPLabelsMatchFrontend_v0101350`.
+**İzleme (şimdi değil):** `MetricPresentKeys` sertleştirmesi — servis kapsamı + kısmi cevap ⇒ bilinmiyor;
+kalan tüketici `service_metric_throughput` presentKeys teşhisi.

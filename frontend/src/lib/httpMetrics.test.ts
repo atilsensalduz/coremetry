@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { httpQueries, serverSel, promStr, rateWindow, seriesLabels, legendOf, relabel, scalarOf, barsOf, mergeTable, filterOptions, fmtCount, fmtRatio, fmtSeconds, latencyTone, errorRatioTone, clientErrorTone, sliTone, httpSeriesColors, donutSlices, fmtShare, sparkValues, statusCodeRateQuery, statusCodeSeries, totalRequestsQuery } from './httpMetrics';
+import { httpQueries, serverSel, promStr, rateWindow, seriesLabels, legendOf, relabel, scalarOf, barsOf, mergeTable, filterOptions, fmtCount, fmtRatio, fmtSeconds, latencyTone, errorRatioTone, clientErrorTone, sliTone, httpSeriesColors, donutSlices, fmtShare, sparkValues, statusCodeRateQuery, statusCodeSeries, totalRequestsQuery, HTTP_LABELS } from './httpMetrics';
 import type { SpanMetricSeries } from './types';
 
 // v0.10.1244 — HTTP Metrics sekmesi (Grafana panosu → VictoriaMetrics).
@@ -151,5 +151,22 @@ describe('fmtShare — uyarlanır yüzde payı (v0.10.1325)', () => {
   it('eksik / geçersiz değer → —, negatif → %0', () => {
     for (const v of [null, undefined, NaN, Infinity]) expect(fmtShare(v as never)).toBe('—');
     expect(fmtShare(-1)).toBe('%0');
+  });
+});
+
+// v0.10.1350 (operatör bildirimi: metrik kipi "durum-kodu etiketi yok" derken
+// bu sekme 200/400 çiziyordu) — etiket adları tek kaynakta; backend aynı
+// OTel anahtarını promLabel ile buna sanitize eder (Go: TestHTTPLabelsMatchFrontend).
+describe('HTTP_LABELS', () => {
+  it('VM etiket adları ve kurucuların kullandığı yazım', () => {
+    expect(HTTP_LABELS).toEqual({
+      service: 'service_name', route: 'http_route', method: 'http_request_method', status: 'http_response_status_code',
+    });
+    const q = httpQueries({ app: 'shop', route: '/a', method: 'GET' }, 3600);
+    expect(q.err5).toContain(`${HTTP_LABELS.status}=~"5.."`);
+    expect(q.statusCodes).toContain(`sum by (${HTTP_LABELS.status})`);
+    expect(serverSel({ app: 'shop', route: '/a', method: 'GET' }))
+      .toBe(`{${HTTP_LABELS.service}="shop", ${HTTP_LABELS.route}="/a", ${HTTP_LABELS.method}="GET"}`);
+    expect(statusCodeRateQuery('x', 600)).toContain(`sum by (${HTTP_LABELS.status})`);
   });
 });

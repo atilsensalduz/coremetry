@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -27,13 +29,18 @@ type fakeEPSource struct {
 	queryFn func(f chstore.MetricQueryFilter) ([]chstore.SpanMetricSeries, error)
 	calls   []string
 	filters [][]chstore.FilterExpr
-	queries []chstore.MetricQueryFilter // v0.10.550 — QueryMetric süzgeçleri (Kafka testleri)
-	mu      sync.Mutex                  // v0.10.550 — Kafka soruları paralel sorulur
+	// v0.10.1350 — veri güdümlü durum yoklaması: rate sorgularının GroupBy'ı
+	// ve MetricPresentKeys'in hiç sorulmadığının kanıtı.
+	groupBys     [][]string
+	presentCalls int
+	queries      []chstore.MetricQueryFilter // v0.10.550 — QueryMetric süzgeçleri (Kafka testleri)
+	mu           sync.Mutex                  // v0.10.550 — Kafka soruları paralel sorulur
 }
 
 func (f *fakeEPSource) Name() string                      { return f.name }
 func (f *fakeEPSource) LatencyMetricName(n string) string { return strings.TrimSuffix(n, "_count") }
 func (f *fakeEPSource) MetricPresentKeys(context.Context, string, []string, time.Duration) []string {
+	f.presentCalls++
 	return f.keys
 }
 func (f *fakeEPSource) MetricUnit(context.Context, string, string) string { return f.unit }
@@ -46,11 +53,13 @@ func (f *fakeEPSource) EnvFilterExpr(env string) (chstore.FilterExpr, bool) {
 func (f *fakeEPSource) QueryMetricRate(_ context.Context, q chstore.MetricQueryFilter, mode string) ([]chstore.SpanMetricSeries, error) {
 	f.calls = append(f.calls, "rate:"+mode)
 	f.filters = append(f.filters, q.Filters)
+	f.groupBys = append(f.groupBys, q.GroupBy)
 	return f.rateFn(q, mode)
 }
 func (f *fakeEPSource) QueryMetricCountRate(_ context.Context, q chstore.MetricQueryFilter, mode string) ([]chstore.SpanMetricSeries, error) {
 	f.calls = append(f.calls, "countrate:"+mode)
 	f.filters = append(f.filters, q.Filters)
+	f.groupBys = append(f.groupBys, q.GroupBy)
 	return f.rateFn(q, mode)
 }
 func (f *fakeEPSource) QueryMetric(_ context.Context, q chstore.MetricQueryFilter) ([]chstore.SpanMetricSeries, error) {
@@ -88,21 +97,56 @@ func hasStatusFilter(fs []chstore.FilterExpr) bool {
 	return false
 }
 
+// statusGroupKey — GroupBy'ın son öğesi bir durum adayıysa o anahtar.
+func statusGroupKey(groupBy []string) string {
+	if n := len(groupBy); n > 0 {
+		for _, k := range httpStatusKeyCandidates {
+			if groupBy[n-1] == k {
+				return k
+			}
+		}
+	}
+	return ""
+}
+
+// epFixtureSource — v0.10.1350: `keys` = VERİDE taşınan durum anahtarları
+// (veri güdümlü yoklama). Durum adayıyla gruplanan çağrı sorgusu, anahtar
+// taşınıyorsa kod başına seri döner (dikiş gibi), taşınmıyorsa durum
+// sütunu "" olan route serisi. src.keys (MetricPresentKeys cevabı) aynı
+// değerle doldurulur; yeni kod onu SORMAZ (presentCalls == 0).
 func epFixtureSource(unit string, keys []string) *fakeEPSource {
 	from, _ := epFixtureWindow()
 	step := 60
 	src := &fakeEPSource{name: "vm", unit: unit, keys: keys}
 	src.rateFn = func(f chstore.MetricQueryFilter, mode string) ([]chstore.SpanMetricSeries, error) {
-		if hasStatusFilter(f.Filters) {
+		sk := statusGroupKey(f.GroupBy)
+		if sk == "" {
 			return []chstore.SpanMetricSeries{
-				epConst([]string{"/orders/8421"}, from, step, 60, 1), // 60 hata
+				epConst([]string{"/orders/8421"}, from, step, 60, 10), // 600 çağrı
+				epConst([]string{"/orders/77"}, from, step, 60, 5),    // 300
+				epConst([]string{"/health"}, from, step, 60, 1),       // 60
+				epConst([]string{""}, from, step, 60, 99),             // rotasız: atlanır
+			}, nil
+		}
+		carried := false
+		for _, k := range keys {
+			carried = carried || k == sk
+		}
+		if !carried {
+			return []chstore.SpanMetricSeries{
+				epConst([]string{"/orders/8421", ""}, from, step, 60, 10),
+				epConst([]string{"/orders/77", ""}, from, step, 60, 5),
+				epConst([]string{"/health", ""}, from, step, 60, 1),
+				epConst([]string{"", ""}, from, step, 60, 99),
 			}, nil
 		}
 		return []chstore.SpanMetricSeries{
-			epConst([]string{"/orders/8421"}, from, step, 60, 10), // 600 çağrı
-			epConst([]string{"/orders/77"}, from, step, 60, 5),    // 300
-			epConst([]string{"/health"}, from, step, 60, 1),       // 60
-			epConst([]string{""}, from, step, 60, 99),             // rotasız: atlanır
+			epConst([]string{"/orders/8421", "200"}, from, step, 60, 9), // 540
+			epConst([]string{"/orders/8421", "500"}, from, step, 60, 1), // 60 hata
+			epConst([]string{"/orders/77", "200"}, from, step, 60, 4),   // 240
+			epConst([]string{"/orders/77", "404"}, from, step, 60, 1),   // 60 — 4xx hata DEĞİL
+			epConst([]string{"/health", "200"}, from, step, 60, 1),      // 60
+			epConst([]string{"", "200"}, from, step, 60, 99),            // rotasız: atlanır
 		}, nil
 	}
 	src.queryFn = func(f chstore.MetricQueryFilter) ([]chstore.SpanMetricSeries, error) {
@@ -194,27 +238,41 @@ func TestBuildEndpointsMetric_Reduce(t *testing.T) {
 		t.Fatalf("/health: %+v", h)
 	}
 	// v0.10.362 — iki aşama: sıralama (kaba adım, çağrı) + ayrıntı (çağrı,
-	// hata, 4 değer) yalnız ilk N route için. histogram → count rate; increase.
-	want := []string{"countrate:increase", "countrate:increase", "countrate:increase",
+	// 4 değer) yalnız ilk N route için. histogram → count rate; increase.
+	// v0.10.1350 — ayrı 5xx sorgusu YOK: hata, durum-kırılımlı çağrı
+	// sorgusundan (GroupBy route + durum) türetilir.
+	want := []string{"countrate:increase", "countrate:increase",
 		"query:avg:http_server_request_duration_seconds", "query:p50:http_server_request_duration_seconds",
 		"query:p95:http_server_request_duration_seconds", "query:p99:http_server_request_duration_seconds"}
 	if strings.Join(src.calls, ",") != strings.Join(want, ",") {
 		t.Fatalf("sorgu dizisi: %v", src.calls)
 	}
-	// 1. aşama daraltmasız; 2. aşama route regex'i taşır; hata sorgusu 5xx + regex
-	if len(src.filters[0]) != 0 {
-		t.Fatalf("sıralama sorgusu çip taşımaz: %+v", src.filters[0])
+	// 1. aşama daraltmasız + durumsuz; 2. aşama route regex'i + durum grubu
+	if len(src.filters[0]) != 0 || strings.Join(src.groupBys[0], ",") != "http.route" {
+		t.Fatalf("sıralama sorgusu çip/durum taşımaz: %+v %v", src.filters[0], src.groupBys[0])
 	}
 	if fs := src.filters[1]; len(fs) != 1 || fs[0].Key != "http.route" || fs[0].Op != "=~" || !strings.Contains(fs[0].Values[0], "/orders/8421") || !strings.Contains(fs[0].Values[0], "/health") {
 		t.Fatalf("ayrıntı route daraltması: %+v", fs)
 	}
-	if fs := src.filters[2]; len(fs) != 2 || fs[1].Key != "http.response.status_code" || fs[1].Op != "=~" || fs[1].Values[0] != "^5[0-9][0-9]$" {
-		t.Fatalf("hata filtresi: %+v", fs)
+	if g := strings.Join(src.groupBys[1], ","); g != "http.route,http.response.status_code" {
+		t.Fatalf("ayrıntı çağrı sorgusu durumla gruplanmalı: %s", g)
+	}
+	for _, fs := range src.filters {
+		if hasStatusFilter(fs) {
+			t.Fatalf("ayrı 5xx süzgeçli sorgu kalmamalı: %+v", src.filters)
+		}
+	}
+	if src.presentCalls != 0 {
+		t.Fatalf("MetricPresentKeys (7 g etiket taraması) sorulmamalı: %d", src.presentCalls)
+	}
+	// 4xx hata sayılmaz: /orders/77'nin 404'leri çağrıda, hatada değil
+	if o := epRow(resp.Rows, "/orders/77"); o == nil || o.Calls != 300 || o.Errors != 0 {
+		t.Fatalf("/orders/77 (4xx hata değil): %+v", o)
 	}
 	if resp.Pool != 3 || resp.PoolCapped {
 		t.Fatalf("havuz: %d capped=%v", resp.Pool, resp.PoolCapped)
 	}
-	if resp.ErrorsUnknown || resp.StatusKey != "http.response.status_code" || !resp.LatencyUnitKnown || resp.LatencyUnit != "s" {
+	if resp.ErrorsUnknown || resp.StatusKey != "http.response.status_code" || resp.StatusState != statusLabelPresent || !resp.LatencyUnitKnown || resp.LatencyUnit != "s" {
 		t.Fatalf("zarf: %+v", resp)
 	}
 	if resp.Source != "metric" || resp.Backend != "vm" || !resp.MetricExists {
@@ -305,16 +363,23 @@ func TestBuildEndpointsMetric_ErrorsUnknownAndUnit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !resp.ErrorsUnknown || resp.StatusKey != "" {
-		t.Fatalf("durum-kodu etiketi yok → hata bilinmiyor: %+v", resp)
+	if !resp.ErrorsUnknown || resp.StatusKey != "" || resp.StatusState != statusLabelAbsent || resp.StatusReason != "" {
+		t.Fatalf("durum-kodu etiketi yok → hata bilinmiyor (absent): %+v", resp)
 	}
 	for _, fs := range src.filters {
 		if hasStatusFilter(fs) {
 			t.Fatalf("hata sorgusu HİÇ atılmamalı: %+v", src.filters)
 		}
 	}
-	if len(src.calls) != 2+4 { // sıralama + ayrıntı çağrı + 4 değer
+	// v0.10.1350 (c) — hepsi boş ⇒ sıradaki aday: sıralama + 2 yoklama + 4 değer
+	if len(src.calls) != 3+4 {
 		t.Fatalf("sorgu sayısı: %v", src.calls)
+	}
+	if a, b := statusGroupKey(src.groupBys[1]), statusGroupKey(src.groupBys[2]); a != "http.response.status_code" || b != "http.status_code" {
+		t.Fatalf("adaylar sırayla denenmeli: %q %q", a, b)
+	}
+	if r := epRow(resp.Rows, "/orders/8421"); r == nil || r.Calls != 600 {
+		t.Fatalf("absent'ta çağrılar yoklama serisinden: %+v", r)
 	}
 	r := epRow(resp.Rows, "/orders/8421")
 	if r.Errors != 0 || r.Http5xx != 0 || r.ErrorRate != 0 {
@@ -324,7 +389,7 @@ func TestBuildEndpointsMetric_ErrorsUnknownAndUnit(t *testing.T) {
 		t.Fatalf("birim bilinmiyor → ham değer + bayrak: known=%v avg=%v", resp.LatencyUnitKnown, r.AvgMs)
 	}
 	note := endpointsMetricNote(resp, epPlan(from, to))
-	for _, want := range []string{"Hata BİLİNMİYOR", "Süre birimi BİLİNMİYOR", "Exemplar"} {
+	for _, want := range []string{"Hata BİLİNMİYOR", "durum-kodu etiketi yok", "Süre birimi BİLİNMİYOR", "Exemplar"} {
 		if !strings.Contains(note, want) {
 			t.Fatalf("not %q içermeli: %s", want, note)
 		}
@@ -350,7 +415,7 @@ func TestBuildEndpointsMetric_SumInstrumentAllServicesEnvCluster(t *testing.T) {
 	src := epFixtureSource("ms", []string{"http.response.status_code"})
 	step := 60
 	src.rateFn = func(f chstore.MetricQueryFilter, mode string) ([]chstore.SpanMetricSeries, error) {
-		if strings.Join(f.GroupBy, ",") != "service.name,http.route" {
+		if !strings.HasPrefix(strings.Join(f.GroupBy, ","), "service.name,http.route") {
 			t.Fatalf("servissiz istekte servis de gruplanmalı: %v", f.GroupBy)
 		}
 		if hasStatusFilter(f.Filters) {
@@ -469,5 +534,161 @@ func TestEndpointsMetricNoteWhenMetricMissing(t *testing.T) {
 	note := endpointsMetricNote(resp, endpointsMetricPlan{})
 	if !strings.Contains(note, "metrik bulunamadı") || !strings.Contains(note, "denenen: a, b") {
 		t.Fatalf("not: %s", note)
+	}
+}
+
+// v0.10.1350 — Operator-reported (prod): /endpoint?service=bsa-loan-
+// assessment-allocation-prod&path=… "Kaynak: metrik" → "Hata BİLİNMİYOR:
+// metrikte durum-kodu etiketi yok" ve P50 grafiği "Bu pencerede veri yok"
+// (karo P50 7 ms); aynı servisin HTTP Metrics sekmesi (VM) 200/400 çiziyordu.
+// Kök neden: etiket varlığı tek, filo genelinde, 7 günlük /api/v1/labels
+// taramasıyla soruluyordu (hata/kısmi ⇒ nil ⇒ "yok"); p50/p95 kovaları
+// hiç doldurulmuyordu.
+
+// (a) MetricPresentKeys nil der ama durum-kırılımlı çağrılar kod taşır ⇒
+// hata hesaplanır, StatusKey dolar (eski kod: ErrorsUnknown).
+func TestBuildEndpointsMetric_StatusFromDataNotLabelsLookup_v0101350(t *testing.T) {
+	from, to := epFixtureWindow()
+	src := epFixtureSource("s", []string{"http.response.status_code"})
+	src.keys = nil // prod: 7 g etiket taraması zaman aşımı → nil
+	id := endpointsMetricIdentity{Metric: "http_server_request_duration_seconds_count", RTMetric: "http_server_request_duration_seconds", Instrument: "histogram", Service: "cart", MatchedBy: "service_name"}
+	resp, err := buildEndpointsMetric(context.Background(), src, id, epPlan(from, to))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.ErrorsUnknown || resp.StatusState != statusLabelPresent || resp.StatusKey != "http.response.status_code" {
+		t.Fatalf("veri durum kodu taşıyor → present: %+v", resp)
+	}
+	r := epRow(resp.Rows, "/orders/8421")
+	if r == nil || r.Calls != 600 || r.Errors != 60 || r.Http5xx != 60 || r.ErrorsSparkline[0] != 1 {
+		t.Fatalf("hata veriden: %+v", r)
+	}
+	note := endpointsMetricNote(resp, epPlan(from, to))
+	if !strings.Contains(note, "Hata = http_response_status_code 5xx (4xx hata sayılmaz)") || strings.Contains(note, "BİLİNMİYOR: metrikte") {
+		t.Fatalf("not: %s", note)
+	}
+}
+
+// (b) durum sorgusu hata verir ⇒ unknown (absent DEĞİL); çağrılar durumsuz
+// sorgudan gelir, not "sorgu başarısız" der, "etiket yok" demez.
+func TestBuildEndpointsMetric_StatusQueryErrorIsUnknown_v0101350(t *testing.T) {
+	from, to := epFixtureWindow()
+	src := epFixtureSource("s", []string{"http.response.status_code"})
+	inner := src.rateFn
+	src.rateFn = func(f chstore.MetricQueryFilter, mode string) ([]chstore.SpanMetricSeries, error) {
+		if statusGroupKey(f.GroupBy) != "" {
+			return nil, errors.New("vm: timeout")
+		}
+		return inner(f, mode)
+	}
+	id := endpointsMetricIdentity{Metric: "m_count", RTMetric: "http_server_request_duration_seconds", Instrument: "histogram", Service: "cart"}
+	resp, err := buildEndpointsMetric(context.Background(), src, id, epPlan(from, to))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resp.ErrorsUnknown || resp.StatusState != statusLabelUnknown || resp.StatusKey != "" || !strings.Contains(resp.StatusReason, "timeout") {
+		t.Fatalf("hata ⇒ unknown + gerekçe: %+v", resp)
+	}
+	if r := epRow(resp.Rows, "/orders/8421"); r == nil || r.Calls != 600 || r.Errors != 0 {
+		t.Fatalf("çağrılar durumsuz yedek sorgudan: %+v", r)
+	}
+	// sıralama + 1 başarısız yoklama (ikinci aday DENENMEZ) + yedek + 4 değer
+	if len(src.calls) != 3+4 {
+		t.Fatalf("sorgu dizisi: %v", src.calls)
+	}
+	note := endpointsMetricNote(resp, epPlan(from, to))
+	if !strings.Contains(note, "durum sorgusu başarısız (vm: timeout)") || !strings.Contains(note, "etiket yok DEĞİL") || strings.Contains(note, "durum-kodu etiketi yok") {
+		t.Fatalf("not: %s", note)
+	}
+}
+
+// (d) P50/P95 kovaları dolar: uzunluk == slot, değer == p50/p95 ms (eski
+// kod yalnız p99At'ı dolduruyordu → gecikme seçicisinde "veri yok").
+func TestBuildEndpointsMetric_P50P95Sparklines_v0101350(t *testing.T) {
+	from, to := epFixtureWindow()
+	src := epFixtureSource("s", []string{"http.response.status_code"})
+	id := endpointsMetricIdentity{Metric: "m_count", RTMetric: "http_server_request_duration_seconds", Instrument: "histogram", Service: "cart"}
+	resp, err := buildEndpointsMetric(context.Background(), src, id, epPlan(from, to))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := epRow(resp.Rows, "/orders/8421")
+	if r == nil || len(r.P50Sparkline) != 60 || len(r.P95Sparkline) != 60 {
+		t.Fatalf("p50/p95 sparkline 60 slot: %+v", r)
+	}
+	for i := 0; i < 60; i++ {
+		if r.P50Sparkline[i] != 100 || r.P95Sparkline[i] != 500 {
+			t.Fatalf("slot %d: p50=%v p95=%v (100 / 500 ms)", i, r.P50Sparkline[i], r.P95Sparkline[i])
+		}
+	}
+}
+
+// Kardinalite: durum-kırılımlı ayrıntı sorgusu route parçalarına bölünür
+// (parça başına route × kod × slot ≤ SpanMetricRowCap); tek parça tavana
+// çarparsa kırpık toplam yerine unknown + durumsuz yedek.
+func TestBuildEndpointsMetric_StatusProbeBounded_v0101350(t *testing.T) {
+	from, to := epFixtureWindow()
+	step := 60
+	var routes []string
+	for i := 0; i < 300; i++ {
+		routes = append(routes, fmt.Sprintf("/r%03d", i))
+	}
+	capped := false
+	src := &fakeEPSource{name: "vm", unit: "s"}
+	src.rateFn = func(f chstore.MetricQueryFilter, mode string) ([]chstore.SpanMetricSeries, error) {
+		sk := statusGroupKey(f.GroupBy)
+		var out []chstore.SpanMetricSeries
+		if sk == "" {
+			for _, r := range routes {
+				out = append(out, epConst([]string{r}, from, step, 60, 1))
+			}
+			return out, nil
+		}
+		if capped {
+			big := epConst([]string{"/r000", "200"}, from, 1, chstore.SpanMetricRowCap, 1)
+			return []chstore.SpanMetricSeries{big}, nil
+		}
+		for _, r := range strings.Split(f.Filters[0].Values[0], "|") {
+			out = append(out, epConst([]string{r, "200"}, from, step, 60, 1))
+		}
+		return out, nil
+	}
+	src.queryFn = func(chstore.MetricQueryFilter) ([]chstore.SpanMetricSeries, error) { return nil, nil }
+	id := endpointsMetricIdentity{Metric: "m", RTMetric: "m_seconds", Instrument: "sum", Service: "cart"}
+	p := epPlan(from, to)
+	p.Limit = 300
+	resp, err := buildEndpointsMetric(context.Background(), src, id, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunk := chstore.SpanMetricRowCap / (60 * endpointsMetricStatusFanout)
+	statusQueries := 0
+	for i, g := range src.groupBys {
+		if statusGroupKey(g) == "" {
+			continue
+		}
+		statusQueries++
+		if n := strings.Count(src.filters[i][0].Values[0], "|") + 1; n > chunk {
+			t.Fatalf("parça %d route > %d", n, chunk)
+		}
+	}
+	if want := (300 + chunk - 1) / chunk; statusQueries != want {
+		t.Fatalf("parça sayısı %d, beklenen %d", statusQueries, want)
+	}
+	if resp.StatusState != statusLabelPresent || len(resp.Rows) != 300 {
+		t.Fatalf("parçalı yoklama tüm route'ları kapsar: %s %d", resp.StatusState, len(resp.Rows))
+	}
+
+	capped = true
+	src.calls, src.filters, src.groupBys = nil, nil, nil
+	resp, err = buildEndpointsMetric(context.Background(), src, id, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusState != statusLabelUnknown || !strings.Contains(resp.StatusReason, "satır tavanı") {
+		t.Fatalf("tavan ⇒ unknown: %+v", resp.StatusState)
+	}
+	if r := epRow(resp.Rows, "/r001"); r == nil || r.Calls != 60 {
+		t.Fatalf("çağrılar durumsuz yedekten: %+v", r)
 	}
 }
