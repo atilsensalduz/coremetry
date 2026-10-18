@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { TimeRangePicker } from './TimeRangePicker';
 import { TopbarShare } from './TopbarShare';
 import { EnvPicker } from './EnvPicker';
@@ -7,6 +8,7 @@ import { ThemeToggle } from './ThemeToggle';
 import { TopbarSearch } from './TopbarSearch';
 import type { TimeRange } from '@/lib/types';
 import { ContextBar, type ContextBarProps } from './ContextBar';
+import { setPageTitle } from '@/lib/branding';
 
 // `range` is optional — pages that aren't time-bound (e.g. /users) omit it
 // and the time picker is hidden. The global env picker (v0.8.383) rides the
@@ -31,6 +33,14 @@ export function Topbar({ title, range, onRangeChange, showEnv, envApplies, conte
   /** v0.10.250 — ContextBar: verilirse EnvPicker+TimeRangePicker çiftinin yerine geçer (aynı yuva). */
   context?: ContextBarProps;
 }) {
+  // v0.10.1340 (Web Interface Guidelines) — sayfa başlığı sekmeye de yazılır:
+  // `${title} · ${marka}` (bileşim + marka yeniden çözümü lib/branding.ts
+  // setPageTitle'da; applyBranding aynı bileşimi korur). Unmount yalnız KENDİ
+  // başlığını temizler — sıradaki sayfanın başlığını silmez.
+  useEffect(() => {
+    setPageTitle(title);
+    return () => setPageTitle('', title);
+  }, [title]);
   return (
     <div id="topbar">
       <h1>{title}</h1>

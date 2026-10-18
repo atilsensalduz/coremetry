@@ -483,6 +483,21 @@ code, pre, .mono { font-family: var(--font-mono); font-size: 12px; } /* v0.10.93
 .sidebar-resizer:active { background: var(--accent); }
 
 #main { flex: 1; overflow: auto; display: flex; flex-direction: column; min-width: 0; min-height: 0; } /* v0.10.722 — min-height:0 (zararsız; 726'da da kaldı) */
+/* ── v0.10.1340 BEGIN — kabuk: "İçeriğe atla" bağlantısı + <main id="main"> odağı ──
+   Bağlantı tam-kromlu kabuğun ilk odak durağı (AppShell SkipToContent);
+   ekran dışında bekler (display:none DEĞİL — ekran okuyucu ulaşır), klavye
+   odağında görünür. #main odağı geçici tabIndex=-1 ile gelir; kabın tamamına
+   halka çizilmez (sonraki Tab ilk içerik öğesine iner). */
+.skip-link {
+  position: fixed; top: var(--sp-4); left: var(--sp-4); z-index: var(--z-toast);
+  padding: var(--sp-3) var(--sp-6); border-radius: var(--radius-sm);
+  background: var(--bg1); color: var(--text); border: 1px solid var(--border);
+  font-weight: 600; text-decoration: none;
+  transform: translateY(calc(-100% - var(--sp-8)));
+}
+.skip-link:focus-visible { transform: none; }
+#main:focus { outline: none; }
+/* ── v0.10.1340 END ──────────────────────────────────────────────────── */
 #topbar {
   padding: 10px 20px; border-bottom: 1px solid var(--border);
   background: var(--bg1); display: flex; align-items: center; gap: 12px; flex-shrink: 0;

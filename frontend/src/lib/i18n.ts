@@ -26,6 +26,9 @@ const EN: Catalog = {
   'navGroup.system':      'System',
   'navGroup.management':  'Management',
   'navGroup.community':   'Community',
+  // v0.10.1340 — kabuk atlama bağlantısı (AppShell SkipToContent)
+  'shell.skipToContent': 'Skip to content',
+  // v0.10.1340 END
 
   // Sidebar
   // v0.9.323 — triage merge. The merged queue takes the name operators
@@ -208,15 +211,15 @@ const EN: Catalog = {
   // explain-trace yüzeyi ve AIExplainButton aynı kalır.
   'ai.askCosre':          'Ask CoSRE',
   'ai.askCosreTraceHint': 'Ask CoSRE about this trace.',
-  // v0.10.948 (CoSRE Faz B) — çekmece başlığının trace alt satırı: "Ask CoSRE · trace <kısa kimlik>".
-  'ai.subject.trace':     'trace',
-
   // v0.10.1338 — span düğmesi Trace sayfasında trace düğmesiyle AYNI adı
   // taşır; ikisini ipucu ayırır.
   'ai.askCosreSpanHint':  'Ask CoSRE · span — explain this span.',
   // v0.10.1338 (operatör) — log satırı / log artışı düğmeleri de "Ask CoSRE"; ipucu ayırır.
   'ai.askCosreLogHint':      'Ask CoSRE · log — explain this log line.',
   'ai.askCosreLogSpikeHint': 'Ask CoSRE · log spike — explain this log increase.',
+  // v0.10.948 (CoSRE Faz B) — çekmece başlığının trace alt satırı: "Ask CoSRE · trace <kısa kimlik>".
+  'ai.subject.trace':     'trace',
+
   // v0.10.944 (CoSRE Faz A) — çekmecenin "Bağlam" şeridi: sohbetin hangi
   // trace/span/servis/ortam/cluster/namespace ve pencereye kapsandığı.
   'ai.ctx.label':     'Context',
@@ -403,6 +406,9 @@ const TR: Catalog = {
   'nav.query':       'Sorgu (DQL)',
   'nav.statusPage':  'Genel Durum Sayfası',
   'navGroup.community': 'Topluluk',
+  // v0.10.1340 — kabuk atlama bağlantısı (AppShell SkipToContent)
+  'shell.skipToContent': 'İçeriğe atla',
+  // v0.10.1340 END
 
   // Login
   'login.signIn':      'Giriş yap',
@@ -489,16 +495,16 @@ const TR: Catalog = {
 
   'ai.askCosre':          'CoSRE’ye sor',
   'ai.askCosreTraceHint': 'Bu trace hakkında CoSRE’ye soru sor.',
+  'ai.askCosreSpanHint':  'CoSRE’ye sor · span — bu span’i açıkla.',
+  // v0.10.1338
+  'ai.askCosreLogHint':      'CoSRE’ye sor · log — bu log satırını açıkla.',
+  'ai.askCosreLogSpikeHint': 'CoSRE’ye sor · log artışı — bu log artışını açıkla.',
   'ai.subject.trace':     'trace',
 
   'ai.ctx.label':     'Bağlam',
   'ai.ctx.aria':      'CoSRE sohbet bağlamı',
   'ai.ctx.trace':     'Trace',
   'ai.ctx.span':      'Span',
-  'ai.askCosreSpanHint':  'CoSRE’ye sor · span — bu span’i açıkla.',
-  // v0.10.1338
-  'ai.askCosreLogHint':      'CoSRE’ye sor · log — bu log satırını açıkla.',
-  'ai.askCosreLogSpikeHint': 'CoSRE’ye sor · log artışı — bu log artışını açıkla.',
   'ai.ctx.service':   'Servis',
   'ai.ctx.env':       'Ortam',
   'ai.ctx.clusterNs': 'Cluster / namespace',

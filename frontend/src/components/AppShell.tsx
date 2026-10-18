@@ -15,6 +15,7 @@ import { isPublicPath } from '@/lib/auth-paths';
 import { isKioskBare } from '@/lib/kioskMode';
 import { isCosrePage } from '@/lib/cosrePage';
 import { useBranding } from '@/lib/branding';
+import { useT } from '@/lib/i18n';
 import { PageLoader } from './Spinner';
 import { ErrorBoundary } from './ErrorBoundary';
 
@@ -64,6 +65,40 @@ export function isPathAllowed(pathname: string, allowedPages: string[]): boolean
     if (p === '/databases' && pathname === '/database') return true;
   }
   return false;
+}
+
+// v0.10.1340 (Web Interface Guidelines, kabuk semantiği) — "İçeriğe atla":
+// tam-kromlu kabuğun İLK odaklanabilir öğesi (sidebar'dan önce). Hedef her
+// dalda var olan kaydırma kabı `#main` (`#content` yalnız PageShell'li
+// sayfalarda var; sistem kabukları onu basmaz). Odak GEÇİCİ tabIndex=-1 ile
+// taşınır, blur'da geri alınır (DataTableState landFocus deseni): kalıcı
+// tabindex `#main`in içindeki her boş tıkı odağı ana kaba çekerdi ve
+// "odak body'de mi" diye bakan yerleri (TracePodTable) sessizce değiştirirdi.
+// preventDefault: `#main` URL'ye hash olarak yazılmaz (Copy link temiz kalır).
+export const SKIP_TARGET_ID = 'main';
+
+function focusSkipTarget(id: string = SKIP_TARGET_ID): boolean {
+  const target = document.getElementById(id);
+  if (!target) return false;
+  if (!target.hasAttribute('tabindex')) {
+    target.tabIndex = -1;
+    target.addEventListener('blur', () => target.removeAttribute('tabindex'), { once: true });
+  }
+  target.focus();
+  return document.activeElement === target;
+}
+
+function SkipToContent() {
+  const t = useT();
+  return (
+    <a
+      className="skip-link"
+      href={`#${SKIP_TARGET_ID}`}
+      onClick={e => { if (focusSkipTarget()) e.preventDefault(); }}
+    >
+      {t('shell.skipToContent')}
+    </a>
+  );
 }
 
 // AppShell is the layout-route wrapper. React Router renders the
@@ -171,20 +206,24 @@ export function AppShell() {
     // düzeni flex/overflow aynen), krom ve akış bileşenlerinin HİÇBİRİ
     // mount edilmez (appShellKiosk.test.ts pinler). Oturum bitince kart
     // donmuş görünümün üstünde; AuthProvider user'ı düşürmez.
+    // v0.10.1340 — #main bir <main> landmark'ı (shellLandmarks.test.tsx).
     return (
       <div id="app" className="kiosk-bare">
-        <div id="main">
+        <main id="main">
           {sessionEnded && <SessionEndedCard onRelogin={relogin} />}
           <ErrorBoundary key={pathname}>
             <Outlet />
           </ErrorBoundary>
-        </div>
+        </main>
       </div>
     );
   }
   if (cosreBare) {
     // v0.10.1125 — /cosre kabuğu: yalnız sayfa (tam boy CoSRE sohbeti). Sidebar,
     // duyuru, ⌘K, kısayollar, FAB'lı CopilotChat, Toaster YOK (cosrePage.test pinler).
+    // v0.10.1340 — #main burada BİLEREK <div>: tek <main> landmark'ı sayfanın
+    // kendisi (CopilotChat variant="page" → <main className="cosre-page__body">);
+    // kabuğu da <main> yapmak iç içe iki <main> olurdu (shellLandmarks.test.tsx).
     return (
       <div id="app" className="cosre-bare">
         <div id="main">
@@ -197,8 +236,10 @@ export function AppShell() {
   }
   return (
     <div id="app">
+      {/* v0.10.1340 — İLK odaklanabilir öğe: sidebar'dan ÖNCE (shellLandmarks.test.tsx). */}
+      <SkipToContent />
       <Sidebar />
-      <div id="main">
+      <main id="main">
         {/* v0.8.486 — admin'in Settings'ten yönettiği duyuru şeridi
             (kaldırılan What-changed'in yerinde, operatör-kontrollü). */}
         <AnnouncementBanner />
@@ -212,7 +253,7 @@ export function AppShell() {
         <ErrorBoundary key={pathname}>
           <Outlet />
         </ErrorBoundary>
-      </div>
+      </main>
       {/* ShortcutsHelp owns its own '?' binding + the modal
           render. Mount once at the shell so the help modal
           is reachable from any page without per-page wiring. */}

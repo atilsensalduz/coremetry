@@ -116,12 +116,52 @@ export function useBranding(): Required<BrandingSettings> {
   return b;
 }
 
+// v0.10.1340 (Web Interface Guidelines, kabuk semantiği) — sekme başlığı
+// sayfa başlığını taşır: `${sayfa} · ${marka}`. Topbar başlığını buraya
+// yazar (setPageTitle); markalama yeniden çözülünce (ilk fetch ya da
+// Settings kaydı → invalidateBranding) applyBranding AYNI bileşimi yeniden
+// kurar — iki yazıcı birbirini ezmez. Topbar'sız sayfalar marka başlığında
+// kalır. /cosre (Topbar'ı yok) TAM başlık geçersiz kılması kullanır
+// (setDocumentTitleOverride) — markalama fetch'i sonradan çözülse de ezilmez.
+let pageTitle = '';
+let titleOverride: string | null = null;
+
+function writeTitle(brandTitle: string): void {
+  if (typeof document === 'undefined') return;
+  document.title = titleOverride ?? composeDocumentTitle(pageTitle, brandTitle);
+}
+
+/** v0.10.1340 — SAF: sayfa + marka → sekme başlığı. Boş/markayla aynı sayfa başlığı = yalnız marka. */
+export function composeDocumentTitle(page: string, brandTitle: string): string {
+  const p = (page ?? '').trim();
+  const b = (brandTitle ?? '').trim() || DEFAULT_BRANDING.browserTitle;
+  return p && p !== b ? `${p} · ${b}` : b;
+}
+
+/**
+ * v0.10.1340 — Topbar'ın sayfa başlığını sekmeye yansıtır. `''` temizler.
+ * `clearIf` verilirse yalnız kayıtlı başlık hâlâ o ise temizler (eski sayfanın
+ * unmount temizliği yeni sayfanın başlığını silmesin).
+ */
+export function setPageTitle(title: string, clearIf?: string): void {
+  if (clearIf !== undefined && pageTitle !== clearIf) return;
+  pageTitle = title;
+  writeTitle((cached ?? DEFAULT_BRANDING).browserTitle);
+}
+
+/** v0.10.1340 — markasız TAM sekme başlığı (yalnız /cosre). `null` kaldırır → sayfa/marka bileşimine döner. */
+export function setDocumentTitleOverride(title: string | null): void {
+  titleOverride = title;
+  writeTitle((cached ?? DEFAULT_BRANDING).browserTitle);
+}
+
 // applyBranding pushes side-effects to the document. Called
 // once on first successful fetch; idempotent so a re-fetch
 // (after an admin saves new branding) updates the same DOM.
 function applyBranding(b: Required<BrandingSettings>) {
   if (typeof document !== 'undefined') {
-    if (b.browserTitle) document.title = b.browserTitle;
+    // v0.10.1340 — sayfa başlığı korunur (Topbar'lı sayfada `${sayfa} · ${marka}`).
+    if (b.browserTitle) writeTitle(b.browserTitle);
   }
   if (typeof document !== 'undefined' && b.primaryColor) {
     document.documentElement.style.setProperty('--accent', b.primaryColor);

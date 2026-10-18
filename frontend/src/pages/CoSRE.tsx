@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { CopilotChat } from '@/components/CopilotChat';
-import { useBranding } from '@/lib/branding';
+import { setDocumentTitleOverride } from '@/lib/branding';
 
 // CoSRE — v0.10.1125: `/cosre` bağımsız sohbet sayfası (yer imine eklenebilir,
 // tek başına açılabilir). Kabuk dalı AppShell'de (lib/cosrePage.ts): sidebar
@@ -8,16 +8,15 @@ import { useBranding } from '@/lib/branding';
 // CopilotChat `variant="page"` (çatal yok; başlık + gövde tek yerde kurulur).
 //
 // Sekme başlığı "CoSRE"; favicon zaten /favicon.svg (CoSRE markası da o).
-// Markalama (browserTitle) AppShell'de ilk yüklemede document.title'ı yazar —
-// `branding` bağımlılığı başlığın o yazımdan SONRA yeniden "CoSRE" olmasını
-// sağlar; sayfadan çıkınca önceki başlık geri gelir.
+// v0.10.1340 — başlık lib/branding.ts'in TAM geçersiz kılmasıyla yazılır:
+// markalama fetch'i sayfa açıldıktan SONRA çözülse de (applyBranding) "CoSRE"
+// kalır — eski `document.title = 'CoSRE'` + brandTitle bağımlılığı varsayılan
+// markada yeniden koşmuyor, sekme "Coremetry"ye dönüyordu. Çıkışta geçersiz
+// kılma kalkar → sayfa/marka bileşimi (Topbar'lı sayfa kendi başlığını yazar).
 export default function CoSRE() {
-  const branding = useBranding();
-  const brandTitle = branding.browserTitle;
   useEffect(() => {
-    document.title = 'CoSRE';
-    // Çıkışta markanın başlığı (uygulamanın geri kalanı onu gösterir).
-    return () => { if (brandTitle) document.title = brandTitle; };
-  }, [brandTitle]);
+    setDocumentTitleOverride('CoSRE');
+    return () => setDocumentTitleOverride(null);
+  }, []);
   return <CopilotChat variant="page" />;
 }
