@@ -7376,7 +7376,24 @@ export interface ChatOperationPayload {
   tracesHref: string;
   /** v0.10.1331 — operasyonun Exceptions grupları (yok = bakılmadı). */
   exceptions?: ChatOperationExceptions;
+  // ── v0.10.1343 — endpoint hedefi (chat_endpoint_prefetch.go); endpoint dışı operasyonda yok.
+  route?: string;
+  method?: string;
+  /** /endpoint?service=&path=&range= — yalnız isSafeAppPath ise çizilir. */
+  endpointHref?: string;
+  /** endpoint span'lerindeki exception tipleri (yok = bakılmadı ya da boş). */
+  endpointExceptions?: ChatOperationEndpointException[];
+  /** endpoint exception okuması başarısız (OKUNAMADI ≠ yok). */
+  endpointExceptionsError?: string;
+  /** endpoint exception'larına bakıldı (boş liste sunucuda düşer; "yok" ≠ "bakılmadı"). */
+  endpointExceptionsChecked?: boolean;
+  /** ≥3× kuralıyla geri planda kalan servisler. */
+  alternatives?: ChatOperationAlternative[];
 }
+/** v0.10.1343 — Go opEndpointException. */
+export interface ChatOperationEndpointException { type: string; message?: string; count: number; lastSeenNs: number; href: string }
+/** v0.10.1343 — Go opAlternative. */
+export interface ChatOperationAlternative { service: string; op: string; calls: number }
 /** v0.10.1331 — Go exceptionGroupsEvidence (internal/api/chat_exception_groups.go). */
 export interface ChatOperationExceptions {
   groups: ChatOperationException[] | null;

@@ -6718,3 +6718,65 @@ trace'e hızlıca Ask CoSRE gibi bakıp birleştir, bütünle." Onaylı tasarım
   TestServiceReportReadOnly, TestServiceReportGoroutinesDoNotEmit, TestServiceReportWiring,
   TestDrillLogEnvelope; copilot TestServiceReportPromptRegistered / TestServiceReportPromptSections;
   vitest `lib/chatBlocks.serviceReport.test.ts` (güvensiz href düşer), `ServiceReportCard.test.tsx`.
+
+## 2026-10-18 — v0.10.1343 — CoSRE: endpoint anılınca (POST /yol, tam URL, /users/{id}) bulunur ve endpoint kapsamlı kanıt gelir (R1)
+
+**Sorun (operator-reported):** "POST /BSAWEB/application/directCreditPreApproval neden yavaş?" —
+CoSRE endpoint'i bulamıyordu. Kök nedenler (`api/chat_operation_prefetch.go`): `opTokens` baştaki
+"/"yı kırpıyordu; `identifierLike("POST")` doğru olduğundan bulanık aşama HER POST operasyonunu
+eşleyip sorulanın çoğu kez olmadığı belirsizlik çipleri çıkarıyordu; `CatalogCandidates` belirteçleri
+OR'layıp çağrı sırasıyla LIMIT 60 aldığından "post" listeyi dolduruyordu; katalogda zaten olan
+`source='endpoint'` (http_route) satırlarını `opTargetFor` tanımıyordu → yalnız rota eşleşmesinde
+RED/trace yok; ön-getirmede trace kırılımı yoktu. Fable'ın onaylı R1 planı, operatör varsayılanları.
+
+- **Saf yarı (`api/chat_endpoint_prefetch.go`):** `endpointMention` (isteğe bağlı GET|POST|PUT|PATCH|
+  DELETE|HEAD|OPTIONS + yol; tam URL → yalnız yol; {id} / :id / * parçaları; sondaki ?.,;:!) ve Türkçe
+  ek kırpılır; ≥2 karakterli en az bir parça; yolun harfi korunur). `opTokens` HTTP fiillerini düşürür
+  (TestOpTokens fikstürü aynen). `matchEndpoint` puanı: span adı == "FİİL yol" 100, == yol 90, harf
+  duyarsız 80/70, rota == yol 95 / harf duyarsız 75, şablon eşitliği (`routeTemplateEqual`: yer
+  tutucu / sayı / UUID / hex parça) 65 span / 60 rota, içerir 20 — EN İYİ KADEME kazanır (içerir yalnız
+  ≥60 yoksa); fiil sorulup span'inki farklıysa o span başka endpoint'tir. Gruplama servis × yol (aynı
+  serviste span + rota satırı tek grup); mesajdaki katalog servisi (yol çıkarılmış metinde sözcük)
+  önce daraltır. **Belirsizlik (operatör varsayılanı):** baskın servisin çağrısı ikinciden ≥3× ise
+  seçilir ve özet/kart "Ayrıca şu servislerde de var: …" der; aksi "<svc> <FİİL yol> endpointine bak"
+  çipleri (yeniden giriş servis ipucuyla çözülür). **Veto:** `extractEndpointRequest(raw, norm, toks,
+  nil, nil, "")` ok ise ("X isteklerini getir", "/yol trace'lerini getir") anma aşaması sahiplenmez —
+  bugünkü belirteç yolu ve guided listele/sor akışı aynen; çipin kendi cümlesi ("… endpointine bak",
+  "endpoint" ipucunu taşır) vetodan muaf.
+- **Plan sapmaları (gerekçeli):** katalog adayları yol belirteciyle + somut kimlik parçası varsa
+  kimlikten önceki önekle (`endpointCatalogTokens`: "/users/42" katalogdaki "/users/{id}"yi alt-dize
+  olarak içermez; şablon eşleşmesi aksi hiç aday bulamazdı). Ön-getirme kırılımının log gövdesi 120
+  rune (`opDrillLogBodyRunes`; guided trace_drill 200 kalır) — 2 kırılım + 16 log satırı 200 rune'la
+  6232 rune ölçüldü, tavan 6000. `RouteRED` ana bağlantıda (`s.conn`, SpanOperationRED gibi —
+  `TestTelemetryReadConnCallSurface` dosya yüzeyini pinliyor).
+- **Sunucu:** `chatOperationPrefetch` önce anma aşaması (`resolveEndpointMention`), değilse bugünkü
+  belirteç yolu bayt bayt. RED: HasSpan → `SpanOperationRED`, yalnız rota → yeni `chstore.RouteRED`
+  (saf `routeREDQuery`: spanmetrics_1m, countMerge(calls_state/error_state), quantilesTDigestMerge
+  (0.5,0.9,0.95,0.99) → ms, servis + http_route, GetEndpointsMV'nin HTTP giriş yüklemi `kind NOT IN
+  ('client','producer')`, yarı-açık pencere, max_execution_time=5; SQL pinli). Trace'ler mevcut
+  hatalı-önce birleşim, rota hedefinde süzgeç `http.route =`. Yeni faz trace'lerden sonra
+  (`endpointDrillPhase`): trace varsa HER hedefte (BSA dahil, operatör varsayılanı) `traceDrillEvidence`
+  (≤2 trace, 10 sn) → `p.Drill`; servisli endpoint hedefinde `EndpointTopExceptions` (4 sn, 5 tip)
+  goroutine'de toplanır, emit yalnız ön-getirme goroutine'inden; OKUNAMADI ≠ yok. BSA operasyonu
+  `exceptionGroupsEvidence`'ta kalır. Hepsi `opPrefetchTimeout` (15 sn) altında.
+- **Model:** `seed()` kırılım varsa İKİNCİ sentetik tool çifti (ID `cosre-endpoint-drill`, ad
+  `trace_drill`); iki içerik de `clampToolResultForModel`'den geçer. `summary()` endpoint dışı
+  operasyonda bayt bayt aynı; endpoint'te "Endpoint: FİİL rota · servis", alternatif satırı ve kısa
+  "Endpoint teknik hataları" bölümü (≤5 satır, mesaj ≤160 rune, `/problems?exc=`).
+- **Linkler:** `opTracesHref` rota dalı `/traces?range=custom:…&service=…&filters=[{"k":"http.route",
+  "op":"=","v":[rota]}]`; `endpointPageHref` → `/endpoint?service=&path=&range=custom:<fromMs>-<toMs>`
+  (endpointParam.ts / build_link sözleşmesi).
+- **Kart:** `ChatOperationPayload` (lib/types.ts) route / method / endpointHref / endpointExceptions /
+  endpointExceptionsError / endpointExceptionsChecked / alternatives; `operationCardView.ts`
+  `opEndpointLabel`, `opEndpointHref`, `opEndpointExceptionRows` (OpExceptionRow paylaşılır),
+  `opEndpointExceptionsNote`, `opAlternativesLine` (her href `safeAppPath`); OperationCard başlıkta
+  "FİİL rota · servis", "Endpoint sayfası →", "Endpoint teknik hataları", alternatif satırı.
+- **Değişmeyenler:** prompt / MCP aracı / HTTP rotası yok (araç sayısı 74, TestApiGoDoesNotGrow,
+  TestChatTierOrderIsPinned yeşil); copilot_chat.go dokunulmadı; çekmece `subject` ayrıştırması (endpoint
+  AI türü) R2.
+- **Testler:** TestEndpointMention, TestOpTokensSkipHTTPVerbs, TestMatchEndpoint, TestRouteTemplateEqual,
+  TestEndpointPrefetchVetoesListAsk, TestOpTargetForEndpointSource, TestEndpointHrefs,
+  TestRenderEndpointExceptionsTR, TestOpPrefetchEndpointSummary, TestOpPrefetchSeedWithDrill,
+  TestOpPrefetchDrillUnderModelClamp; chstore TestRouteREDQueryPins; vitest operationCardView
+  (endpoint bloğu, güvensiz href düşer). Yeşil kalanlar: TestOpTokens, TestMatchOperations,
+  TestOpPrefetchSummaryAndSeed, TestOpPrefetchWithExceptionsUnderModelClamp, TestRouteEndpointRequest.

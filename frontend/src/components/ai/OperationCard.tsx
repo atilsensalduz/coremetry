@@ -7,7 +7,10 @@ import { Link } from 'react-router-dom';
 import type { ChatOperationPayload } from '@/lib/types';
 import { traceHref } from '@/lib/traceHref';
 import { chatLinkTargetProps, useChatLinkNewTab } from './chatLinkTarget';
-import { deltaLabel, errRate, fmtMs, opExceptionRows, opExceptionsNote, worse } from './operationCardView';
+import {
+  deltaLabel, errRate, fmtMs, opAlternativesLine, opEndpointExceptionRows, opEndpointExceptionsNote, opEndpointHref,
+  opEndpointLabel, opExceptionRows, opExceptionsNote, worse,
+} from './operationCardView';
 
 export function OperationCard({ op }: { op: ChatOperationPayload }) {
   const linkProps = chatLinkTargetProps(useChatLinkNewTab());
@@ -16,13 +19,26 @@ export function OperationCard({ op }: { op: ChatOperationPayload }) {
   const c = op.current, p = op.previous;
   const excRows = opExceptionRows(op); // v0.10.1331 — Exceptions grupları
   const excNote = opExceptionsNote(op);
+  // v0.10.1343 — endpoint hedefi: başlık, /endpoint linki, endpoint exception'ları, alternatif servisler
+  const epLabel = opEndpointLabel(op);
+  const epHref = opEndpointHref(op);
+  const epRows = opEndpointExceptionRows(op);
+  const epNote = opEndpointExceptionsNote(op);
+  const altLine = opAlternativesLine(op);
   return (
     <div className="cm-trace-list" style={{ marginTop: 6 }}>
-      <div style={{ fontSize: 12, marginBottom: 6 }}>
-        <b className="mono">{op.operation}</b>
-        {(op.services ?? []).length > 0 && <span style={{ color: 'var(--text3)' }}> · {(op.services ?? []).join(', ')}</span>}
-        {(op.functionCodes ?? []).length > 0 && <span style={{ color: 'var(--text3)' }}> · kod {(op.functionCodes ?? []).join(', ')}</span>}
-      </div>
+      {epLabel ? (
+        <div style={{ fontSize: 12, marginBottom: 6 }}>
+          <b className="mono">{epLabel}</b>
+          {altLine && <div className="cell-hint">{altLine}</div>}
+        </div>
+      ) : (
+        <div style={{ fontSize: 12, marginBottom: 6 }}>
+          <b className="mono">{op.operation}</b>
+          {(op.services ?? []).length > 0 && <span style={{ color: 'var(--text3)' }}> · {(op.services ?? []).join(', ')}</span>}
+          {(op.functionCodes ?? []).length > 0 && <span style={{ color: 'var(--text3)' }}> · kod {(op.functionCodes ?? []).join(', ')}</span>}
+        </div>
+      )}
       {c.measured ? (
         <div style={{ display: 'flex', gap: 16, fontSize: 12, marginBottom: 6, flexWrap: 'wrap' }}>
           <span>Çağrı <b>{c.calls}</b> <span style={{ color: 'var(--text3)' }}>{deltaLabel(c.calls, p.calls)}</span></span>
@@ -73,8 +89,27 @@ export function OperationCard({ op }: { op: ChatOperationPayload }) {
           {excNote && <div className="cell-hint">{excNote}</div>}
         </div>
       )}
+      {(epRows.length > 0 || epNote) && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Endpoint teknik hataları</div>
+          {epRows.length > 0 && (
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 2, fontSize: 12 }}>
+              {epRows.map(r => (
+                <li key={r.key} style={{ display: 'flex', gap: 8, alignItems: 'baseline' }} title={r.title}>
+                  <span className="badge b-err mono">{r.code}</span>
+                  <span>{r.count}</span>
+                  {r.lastSeen && <span className="cell-hint">{r.lastSeen}</span>}
+                  {r.href && <Link to={r.href} style={{ marginLeft: 'auto' }} {...linkProps}>Exceptions →</Link>}
+                </li>
+              ))}
+            </ul>
+          )}
+          {epNote && <div className="cell-hint">{epNote}</div>}
+        </div>
+      )}
       <div className="cm-trace-list__more">
         <Link to={op.tracesHref} {...linkProps}>Traces'te aç →</Link>
+        {epHref && <> · <Link to={epHref} {...linkProps}>Endpoint sayfası →</Link></>}
         <span className="cell-hint"> · {(op.traces ?? []).length} trace, {errTraces.length} hatalı gösterildi</span>
       </div>
     </div>

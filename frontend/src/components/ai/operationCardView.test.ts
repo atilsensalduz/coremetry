@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { deltaLabel, errRate, fmtMs, opExceptionRows, opExceptionsNote, worse } from './operationCardView';
+import {
+  deltaLabel, errRate, fmtMs, opAlternativesLine, opEndpointExceptionRows, opEndpointExceptionsNote, opEndpointHref, opEndpointLabel,
+  opExceptionRows, opExceptionsNote, worse,
+} from './operationCardView';
 import type { ChatOperationException, ChatOperationPayload } from '@/lib/types'; // v0.10.1331
 import { operationBlocks } from '@/lib/chatBlocks';
 
@@ -70,5 +73,50 @@ describe('operasyon kartı — Exceptions grupları (v0.10.1331)', () => {
     expect(opExceptionsNote(op({ groups: [grp({})], lookbackS: 86400 }))).toBeNull();
     expect(opExceptionsNote(op(undefined))).toBeNull();
     expect(opExceptionRows(op(undefined))).toEqual([]);
+  });
+});
+
+// v0.10.1343 (operator-reported: "POST /BSAWEB/application/directCreditPreApproval
+// neden yavaş?") — endpoint hedefi: başlık, /endpoint linki, endpoint exception
+// satırları (güvensiz href düşer), ≥3× kuralının alternatif satırı.
+describe('operasyon kartı — endpoint hedefi (v0.10.1343)', () => {
+  const now = Date.UTC(2026, 9, 18, 10, 0, 0);
+  const base: ChatOperationPayload = {
+    operation: 'POST /BSAWEB/application/directCreditPreApproval', matchKind: 'endpoint_exact', rangeS: 3600, tracesHref: '/traces',
+    services: ['bsaweb'], current: { calls: 1, errors: 0, p99Ms: 1, measured: true }, previous: { calls: 1, errors: 0, p99Ms: 1, measured: true },
+    traces: null, oracleErrors: null,
+  };
+  it('başlık "FİİL rota · servis"; endpoint dışı operasyonda null', () => {
+    expect(opEndpointLabel({ ...base, route: '/BSAWEB/application/directCreditPreApproval', method: 'POST' }))
+      .toBe('POST /BSAWEB/application/directCreditPreApproval · bsaweb');
+    expect(opEndpointLabel({ ...base, method: 'POST' })).toBe('POST /BSAWEB/application/directCreditPreApproval · bsaweb');
+    expect(opEndpointLabel({ ...base, operation: 'GET /orders', route: '/orders', services: [] })).toBe('/orders');
+    expect(opEndpointLabel(base)).toBeNull();
+  });
+  it('endpoint sayfası linki yalnız güvenli yolsa', () => {
+    expect(opEndpointHref({ ...base, endpointHref: '/endpoint?path=%2Fx&service=bsaweb' })).toBe('/endpoint?path=%2Fx&service=bsaweb');
+    expect(opEndpointHref({ ...base, endpointHref: '//evil.com/endpoint' })).toBeNull();
+    expect(opEndpointHref({ ...base, endpointHref: 'javascript:alert(1)' })).toBeNull();
+    expect(opEndpointHref(base)).toBeNull();
+  });
+  it('endpoint exception satırları: tip, toplam, son görülme, güvensiz href düşer, ≤5', () => {
+    const ex = (o: Partial<NonNullable<ChatOperationPayload['endpointExceptions']>[number]>) => ({
+      type: 'java.net.SocketTimeoutException', message: 'Read timed out', count: 1234, lastSeenNs: (now - 4 * 60_000) * 1e6, href: '/problems?exc=f1', ...o,
+    });
+    const rows = opEndpointExceptionRows({ ...base, endpointExceptions: [ex({}), ex({ type: 'X', href: '//evil.com/x' }), ex({}), ex({}), ex({}), ex({})], endpointExceptionsChecked: true }, now);
+    expect(rows).toHaveLength(5);
+    expect(rows[0]).toMatchObject({ code: 'java.net.SocketTimeoutException', count: 'toplam 1.2K', lastSeen: '4 dk önce', href: '/problems?exc=f1', explainHref: null, title: 'Read timed out', burst: false });
+    expect(rows[1].href).toBeNull();
+    expect(opEndpointExceptionRows(base)).toEqual([]);
+  });
+  it('okunamadı ≠ yok ≠ bakılmadı', () => {
+    expect(opEndpointExceptionsNote({ ...base, endpointExceptionsError: 'timeout', endpointExceptionsChecked: true })).toMatch(/okunamadı/);
+    expect(opEndpointExceptionsNote({ ...base, endpointExceptionsChecked: true })).toMatch(/exception yok/);
+    expect(opEndpointExceptionsNote(base)).toBeNull();
+    expect(opEndpointExceptionsNote({ ...base, endpointExceptionsChecked: true, endpointExceptions: [{ type: 'X', count: 1, lastSeenNs: 0, href: '' }] })).toBeNull();
+  });
+  it('alternatif servis satırı', () => {
+    expect(opAlternativesLine({ ...base, alternatives: [{ service: 'bsaweb-gw', op: '/x', calls: 100 }] })).toBe('Ayrıca şu servislerde de var: bsaweb-gw (100 çağrı)');
+    expect(opAlternativesLine(base)).toBeNull();
   });
 });

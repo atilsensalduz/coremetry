@@ -75,3 +75,49 @@ export function opExceptionsNote(op: ChatOperationPayload): string | null {
   if (ex.more && ex.more > 0) return `+${ex.moreAtMin ? 'en az ' : ''}${ex.more} grup daha`;
   return null;
 }
+
+// ── v0.10.1343 — endpoint hedefi (chat_endpoint_prefetch.go) ────────────────
+
+/** SAF: kart başlığı "POST /x · svc"; endpoint değilse null. */
+export function opEndpointLabel(op: ChatOperationPayload): string | null {
+  if (!op.route && !op.method) return null;
+  let path = op.route || op.operation;
+  const sp = /^[A-Z]+ (\/.*)$/.exec(op.operation);
+  if (!op.route && sp) path = sp[1];
+  const head = [op.method, path].filter(Boolean).join(' ');
+  const svc = (op.services ?? []).join(', ');
+  return svc ? `${head} · ${svc}` : head;
+}
+
+/** SAF: "Endpoint sayfası" linki — güvenli uygulama yolu değilse null. */
+export function opEndpointHref(op: ChatOperationPayload): string | null {
+  return safeAppPath(op.endpointHref);
+}
+
+/** SAF: endpoint exception satırları (OpExceptionRow paylaşılır); güvensiz href düşer. */
+export function opEndpointExceptionRows(op: ChatOperationPayload, nowMs = Date.now()): OpExceptionRow[] {
+  return (op.endpointExceptions ?? []).filter(e => e && typeof e.type === 'string').slice(0, 5).map((e, i) => ({
+    key: `${e.type}:${i}`,
+    code: e.type || '—',
+    count: `toplam ${fmtNum(e.count)}`,
+    burst: false,
+    lastSeen: e.lastSeenNs > 0 ? agoTR(e.lastSeenNs, nowMs) : '',
+    href: safeAppPath(e.href),
+    explainHref: null,
+    title: e.message ?? '',
+  }));
+}
+
+/** SAF: endpoint exception durum satırı — okunamadı / yok; satır varken null. */
+export function opEndpointExceptionsNote(op: ChatOperationPayload): string | null {
+  if (op.endpointExceptionsError) return 'Endpoint exception\'ları okunamadı';
+  if (!op.endpointExceptionsChecked) return null;
+  return (op.endpointExceptions ?? []).length ? null : 'Bu pencerede endpoint span\'lerinde exception yok';
+}
+
+/** SAF: ≥3× kuralıyla geri planda kalan servisler; yoksa null. */
+export function opAlternativesLine(op: ChatOperationPayload): string | null {
+  const alts = (op.alternatives ?? []).filter(a => a && typeof a.service === 'string');
+  if (!alts.length) return null;
+  return `Ayrıca şu servislerde de var: ${alts.map(a => `${a.service} (${fmtNum(a.calls)} çağrı)`).join(', ')}`;
+}

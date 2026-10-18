@@ -467,7 +467,13 @@ func drillTraceID12(id string) string {
 
 // renderTraceLogLineTR — SAF: "KANIT: log 10:42:01 ERROR svc <gövde≤200> (trace 0af7651916cd…)".
 func renderTraceLogLineTR(lg *logstore.LogRecord) string {
-	body := oneLineSample(lg.Body, traceDrillLogBodyRunes)
+	return renderTraceLogLineBodyTR(lg, traceDrillLogBodyRunes)
+}
+
+// renderTraceLogLineBodyTR — SAF (v0.10.1343): gövde tavanı parametreli hâl
+// (operasyon/endpoint ön-getirmesinin kırılımı model tavanına sığsın diye).
+func renderTraceLogLineBodyTR(lg *logstore.LogRecord, bodyRunes int) string {
+	body := oneLineSample(lg.Body, bodyRunes)
 	if et := strings.TrimSpace(lg.Attributes["exception.type"]); et != "" && !strings.Contains(body, et) {
 		body += " [exception.type=" + et + "]"
 	}
@@ -478,6 +484,11 @@ func renderTraceLogLineTR(lg *logstore.LogRecord) string {
 // renderTraceDrillLogsTR — SAF: log bölümü. Depo yok / okunamadı / boş ayrı
 // cümleler (okunamadı ≠ yok).
 func renderTraceDrillLogsTR(noStore bool, page *logstore.Page, err error, traceIDs []string) string {
+	return renderTraceDrillLogsBodyTR(noStore, page, err, traceIDs, traceDrillLogBodyRunes)
+}
+
+// renderTraceDrillLogsBodyTR — SAF (v0.10.1343): gövde tavanı parametreli hâl.
+func renderTraceDrillLogsBodyTR(noStore bool, page *logstore.Page, err error, traceIDs []string, bodyRunes int) string {
 	switch {
 	case len(traceIDs) == 0:
 		return ""
@@ -498,7 +509,7 @@ func renderTraceDrillLogsTR(noStore bool, page *logstore.Page, err error, traceI
 			continue
 		}
 		for _, lg := range g {
-			b.WriteString(renderTraceLogLineTR(lg) + "\n")
+			b.WriteString(renderTraceLogLineBodyTR(lg, bodyRunes) + "\n")
 		}
 	}
 	if len(logs) >= traceDrillLogsLimit {
@@ -696,6 +707,12 @@ func (s *Server) traceDrillFor(ctx context.Context, c drillCandidate) traceDrill
 // traceDrillEvidence — adayları paralel kırar (goroutine'ler emit etmez),
 // sonra TEK log okuması; adım çipleri + trace_list bloğu yalnız buradan.
 func (s *Server) traceDrillEvidence(ctx context.Context, emit func(string, any), cands []drillCandidate, service string, from, to time.Time) string {
+	return s.traceDrillEvidenceBody(ctx, emit, cands, service, from, to, traceDrillLogBodyRunes)
+}
+
+// traceDrillEvidenceBody — v0.10.1343: log gövdesi tavanı parametreli hâl;
+// operasyon/endpoint ön-getirmesi opDrillLogBodyRunes ile çağırır.
+func (s *Server) traceDrillEvidenceBody(ctx context.Context, emit func(string, any), cands []drillCandidate, service string, from, to time.Time, bodyRunes int) string {
 	if len(cands) == 0 {
 		return ""
 	}
@@ -733,15 +750,11 @@ func (s *Server) traceDrillEvidence(ctx context.Context, emit func(string, any),
 			maxNs = hi
 		}
 	}
-	var b strings.Builder
-	b.WriteString(renderTraceDrillsTR(res))
 	largs, _ := json.Marshal(map[string]any{"trace_ids": ids, "limit": traceDrillLogsLimit})
 	nLog := emitGuidedStep(emit, "trace_drill_logs", string(largs))
 	page, lerr := s.readDrillLogs(dctx, ids, minNs, maxNs, from, to)
-	logText := renderTraceDrillLogsTR(s.logs == nil, page, lerr, ids)
+	logText := renderTraceDrillLogsBodyTR(s.logs == nil, page, lerr, ids, bodyRunes)
 	emitGuidedStepResult(emit, nLog, "trace_drill_logs", logText, lerr)
-	b.WriteString(logText)
-	b.WriteString("KURAL: Kritik yol satırları HESAPLANMIŞ ölçümdür — hedefi, süreyi ve hatayı aynen aktar; log satırı yoksa log içeriği UYDURMA.\n")
 	rows := make([]chstore.TraceRow, 0, len(cands))
 	for _, c := range cands {
 		rows = append(rows, c.Row)
@@ -751,6 +764,18 @@ func (s *Server) traceDrillEvidence(ctx context.Context, emit func(string, any),
 		href = "/traces?service=" + url.QueryEscape(service) + "&sort=duration"
 	}
 	emit("trace_list", endpointTraceListPayload("en yavaş trace kritik yolu", rows, from, to, href))
+	return composeDrillEvidenceTR(res, logText)
+}
+
+// composeDrillEvidenceTR — SAF (v0.10.1343'te traceDrillEvidence'tan
+// çıkarıldı; metin bayt bayt aynı): kırılımlar + log bölümü + kural satırı.
+// Operasyon/endpoint ön-getirmesi bu metni ikinci sentetik tool sonucu
+// olarak verir; tavan pini TestOpPrefetchDrillUnderModelClamp.
+func composeDrillEvidenceTR(res []traceDrill, logText string) string {
+	var b strings.Builder
+	b.WriteString(renderTraceDrillsTR(res))
+	b.WriteString(logText)
+	b.WriteString("KURAL: Kritik yol satırları HESAPLANMIŞ ölçümdür — hedefi, süreyi ve hatayı aynen aktar; log satırı yoksa log içeriği UYDURMA.\n")
 	return b.String()
 }
 

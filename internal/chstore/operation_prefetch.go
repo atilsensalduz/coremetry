@@ -67,6 +67,49 @@ func spanOperationREDQuery(service, name string, from, to time.Time) (string, []
 	return q, args
 }
 
+// RouteRED — v0.10.1343: (servis, http_route) penceresi spanmetrics_1m'den —
+// CoSRE endpoint ön-getirmesinde katalogda yalnız `endpoint` (http_route)
+// satırı olan hedefin RED'i. Servis boşsa tüm servisler. Scan sırası
+// SpanOperationRED ile aynı (calls, errors, p99, p50).
+func (s *Store) RouteRED(ctx context.Context, service, route string, from, to time.Time) (OpRED, error) {
+	q, args := routeREDQuery(service, route, from, to)
+	var r OpRED
+	var p99, p50 float64
+	if err := s.conn.QueryRow(ctx, q, args...).Scan(&r.Calls, &r.Errors, &p99, &p50); err != nil {
+		return OpRED{}, err
+	}
+	if p99 == p99 { // NaN (boş pencere) korunmaz
+		r.P99Ms = p99
+	}
+	if p50 == p50 {
+		r.P50Ms = p50
+	}
+	r.Measured = true
+	return r, nil
+}
+
+// routeREDQuery — SAF (v0.10.1343): RouteRED'in SQL'i + bind'leri. MV-first
+// (spanmetrics_1m), giriş-noktası kind yüklemi GetEndpointsMV'nin HTTP
+// sekmesiyle AYNI (client/producer hariç — aynı route'u çağıran istemci
+// span'leri sayılmaz), yarı-açık pencere, tek satır, max_execution_time.
+func routeREDQuery(service, route string, from, to time.Time) (string, []any) {
+	where := "http_route = ?"
+	args := []any{route}
+	if service != "" {
+		where = "service_name = ? AND http_route = ?"
+		args = []any{service, route}
+	}
+	q := `SELECT countMerge(calls_state), countMerge(error_state),
+	             arrayElement(quantilesTDigestMerge(0.5, 0.9, 0.95, 0.99)(duration_q_state), 4) / 1e6,
+	             arrayElement(quantilesTDigestMerge(0.5, 0.9, 0.95, 0.99)(duration_q_state), 1) / 1e6
+	      FROM spanmetrics_1m
+	      WHERE ` + where + `
+	        AND kind NOT IN ('client', 'producer')
+	        AND time_bucket >= ? AND time_bucket < ?
+	      SETTINGS max_execution_time = 5`
+	return q, append(args, from, to)
+}
+
 // FunctionCodeRED — rollup ailesinden fonksiyon kodu toplamı; p99 = kova
 // p99'larının en yükseği (yaklaşık, üst sınır). Rollup yoksa Measured=false.
 func (s *Store) FunctionCodeRED(ctx context.Context, codes []string, from, to time.Time) (OpRED, error) {

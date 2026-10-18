@@ -30,6 +30,7 @@ import (
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/copilot"
 	"github.com/cilcenk/coremetry/internal/mcptools"
+	"github.com/cilcenk/coremetry/internal/sourcestate"
 )
 
 const (
@@ -74,7 +75,9 @@ func opTokens(msg string) []string {
 	seen := map[string]bool{}
 	for _, p := range parts {
 		p = strings.Trim(p, "-.:/")
-		if len([]rune(p)) < opTokenMin || seen[p] {
+		// v0.10.1343 — HTTP fiili belirteç değil: "POST" identifierLike sayılmasa da
+		// katalog adaylarını (OR, LIMIT 60, çağrı sırası) her POST operasyonuyla doldururdu.
+		if len([]rune(p)) < opTokenMin || seen[p] || isHTTPVerb(p) {
 			continue
 		}
 		seen[p] = true
@@ -159,6 +162,13 @@ type opTarget struct {
 	Codes    []string // Oracle fonksiyon kodları
 	HasSpan  bool
 	HasOra   bool
+	// v0.10.1343 — endpoint (http_route) hedefi: katalogdaki `endpoint` satırı
+	// ya da endpoint anma aşamasının seçtiği grup (chat_endpoint_prefetch.go).
+	Route        string
+	Method       string
+	HasRoute     bool
+	Endpoint     bool // endpoint anma aşamasından geldi
+	Alternatives []opAlternative
 }
 
 // opTargetFor — SAF.
@@ -172,6 +182,12 @@ func opTargetFor(name string, cands []chstore.CatalogOperation) opTarget {
 		switch c.Source {
 		case "span":
 			t.HasSpan = true
+			if c.Service != "" && !seenS[c.Service] {
+				seenS[c.Service] = true
+				t.Services = append(t.Services, c.Service)
+			}
+		case "endpoint": // v0.10.1343 — spanmetrics_1m http_route satırı
+			t.HasRoute, t.Route = true, c.Operation
 			if c.Service != "" && !seenS[c.Service] {
 				seenS[c.Service] = true
 				t.Services = append(t.Services, c.Service)
@@ -205,7 +221,22 @@ type opPrefetch struct {
 	TracesHref string                     `json:"tracesHref"`
 	// Exceptions — v0.10.1331: operasyonun Exceptions grupları (nil = bakılmadı).
 	Exceptions *exceptionGroupsEvidence `json:"exceptions,omitempty"`
-	argsJSON   string
+	// v0.10.1343 — endpoint hedefi (chat_endpoint_prefetch.go). Hepsi omitempty:
+	// endpoint dışı operasyonun yükü bayt bayt eski.
+	Route                 string                `json:"route,omitempty"`
+	Method                string                `json:"method,omitempty"`
+	EndpointHref          string                `json:"endpointHref,omitempty"`
+	EndpointExceptions    []opEndpointException `json:"endpointExceptions,omitempty"`
+	EndpointExceptionsErr string                `json:"endpointExceptionsError,omitempty"`
+	// EndpointExceptionsChecked — bakıldı (boş liste omitempty ile düşer; "yok" ≠ "bakılmadı").
+	EndpointExceptionsChecked bool            `json:"endpointExceptionsChecked,omitempty"`
+	Alternatives              []opAlternative `json:"alternatives,omitempty"`
+	// Drill — v0.10.1343: en yavaş 1–2 trace'in kritik yolu + logları; summary()'ye
+	// GİRMEZ, seed()'in ikinci sentetik tool çifti.
+	Drill         string `json:"-"`
+	drillArgsJSON string
+	endpoint      bool // endpoint anma aşamasından geldi
+	argsJSON      string
 	// codeKey — v0.10.1297: operasyon span'lerde yok, köprü fonksiyon kodu
 	// (Oracle katalog satırı) → span anahtarının yazımı; "" = span operasyonu
 	// ya da kod yok (döngü linkleri yeniden yazılmaz).
@@ -226,10 +257,22 @@ func (p *opPrefetch) seed(msgs []copilot.ChatMessage) []copilot.ChatMessage {
 		return msgs
 	}
 	out := append([]copilot.ChatMessage{}, msgs...)
+	sum, _ := clampToolResultForModel(p.summary())
 	out = append(out,
 		copilot.ChatMessage{Role: "assistant", ToolCalls: []copilot.ToolCall{{ID: opPrefetchToolID, Name: opPrefetchTool, Input: json.RawMessage(p.argsJSON)}}},
-		copilot.ChatMessage{Role: "user", ToolResults: []copilot.ToolResult{{CallID: opPrefetchToolID, Name: opPrefetchTool, Content: p.summary()}}},
+		copilot.ChatMessage{Role: "user", ToolResults: []copilot.ToolResult{{CallID: opPrefetchToolID, Name: opPrefetchTool, Content: sum}}},
 	)
+	if p.Drill != "" { // v0.10.1343 — kırılım ayrı çift (özet bayt bayt eski kalır)
+		args := p.drillArgsJSON
+		if args == "" {
+			args = "{}"
+		}
+		drill, _ := clampToolResultForModel(p.Drill)
+		out = append(out,
+			copilot.ChatMessage{Role: "assistant", ToolCalls: []copilot.ToolCall{{ID: opDrillToolID, Name: opDrillTool, Input: json.RawMessage(args)}}},
+			copilot.ChatMessage{Role: "user", ToolResults: []copilot.ToolResult{{CallID: opDrillToolID, Name: opDrillTool, Content: drill}}},
+		)
+	}
 	return out
 }
 
@@ -253,6 +296,16 @@ func (p *opPrefetch) summary() string {
 	}
 	if len(p.Codes) > 0 {
 		fmt.Fprintf(&b, "Oracle fonksiyon kodu: %s\n", strings.Join(p.Codes, ", "))
+	}
+	if p.endpoint { // v0.10.1343
+		route := p.Route
+		if route == "" {
+			_, route = splitSpanVerb(p.Operation)
+		}
+		fmt.Fprintf(&b, "Endpoint: %s · %s\n", strings.TrimSpace(p.Method+" "+route), strings.Join(p.Services, ", "))
+		if len(p.Services) > 0 {
+			b.WriteString(renderEndpointAlternativesTR(p.Alternatives, p.Services[0]))
+		}
 	}
 	if p.Current.Measured {
 		c, pr := p.Current, p.Previous
@@ -287,6 +340,9 @@ func (p *opPrefetch) summary() string {
 	}
 	if p.Exceptions != nil { // v0.10.1331 — v0.10.1324 düşüş özetine de girer
 		b.WriteString(renderExceptionGroupsTR(p.Operation+" operasyonu", *p.Exceptions))
+	}
+	if p.EndpointExceptionsChecked { // v0.10.1343
+		b.WriteString(renderEndpointExceptionsTR(p.EndpointExceptions, p.EndpointExceptionsErr))
 	}
 	return b.String()
 }
@@ -326,12 +382,24 @@ func opTracesHref(t opTarget, spanKey string, from, to time.Time) string {
 		if len(t.Services) == 1 {
 			q.Set("service", t.Services[0])
 		}
+	case t.HasRoute: // v0.10.1343 — yalnız rota: http.route süzgeci
+		if len(t.Services) == 1 {
+			q.Set("service", t.Services[0])
+		}
+		f, _ := json.Marshal(opRouteFilter(t.Route))
+		q.Set("filters", string(f))
 	case len(t.Codes) > 0 && spanKey != "":
 		// v0.10.1297 — TÜM kodlar (tek kod "=", çoğu "IN"); eskiden yalnız ilki.
 		f, _ := json.Marshal([]chstore.FilterExpr{mcptools.OracleCodeFilter(spanKey, t.Codes)}) // {"k","op","v"} — FE FilterExpr
 		q.Set("filters", string(f))
 	}
 	return "/traces?" + q.Encode()
+}
+
+// opRouteFilter — SAF (v0.10.1343): rota hedefinin trace süzgeci (Traces
+// sayfası linki ve GetTraces aynı ifadeyi kullanır).
+func opRouteFilter(route string) []chstore.FilterExpr {
+	return []chstore.FilterExpr{{Key: "http.route", Op: "=", Values: []string{route}}}
 }
 
 // rewriteSearchHref — v0.10.1297: ön-getirme operasyonu fonksiyon koduyla
@@ -413,35 +481,43 @@ func (s *Server) chatOperationPrefetch(ctx context.Context, emit func(string, an
 	if s == nil || s.store == nil {
 		return nil, false
 	}
-	toks := opTokens(lastUserText(msgs))
-	if len(toks) == 0 {
-		return nil, false
-	}
+	raw := lastUserText(msgs)
 	pctx, cancel := context.WithTimeout(ctx, opPrefetchTimeout)
 	defer cancel()
-	cands, err := s.store.CatalogCandidates(pctx, toks, opCandidateLimit)
-	if err != nil || len(cands) == 0 {
-		return nil, false
-	}
-	m := matchOperations(toks, cands)
-	switch {
-	case len(m.Ops) == 0:
-		return nil, false
-	case len(m.Ops) > 1:
-		ops := m.Ops
-		if len(ops) > opChoiceMax {
-			ops = ops[:opChoiceMax]
-		}
-		sugg := make([]string, len(ops))
-		for i, op := range ops {
-			sugg[i] = op + " operasyonuna bak"
-		}
-		emit("answer", map[string]any{
-			"text":        fmt.Sprintf("Mesajınız %d operasyonla eşleşti; hangisine bakayım?", len(m.Ops)),
-			"exchangeId":  copilot.MetaFromContext(ctx).ExchangeID,
-			"suggestions": sugg,
-		})
+	t, kind, handled, ok := s.resolveEndpointMention(pctx, ctx, emit, raw)
+	if handled {
 		return nil, true
+	}
+	if !ok { // endpoint anması yok / vetolu / eşleşmedi → bugünkü belirteç yolu
+		toks := opTokens(raw)
+		if len(toks) == 0 {
+			return nil, false
+		}
+		cands, err := s.store.CatalogCandidates(pctx, toks, opCandidateLimit)
+		if err != nil || len(cands) == 0 {
+			return nil, false
+		}
+		m := matchOperations(toks, cands)
+		switch {
+		case len(m.Ops) == 0:
+			return nil, false
+		case len(m.Ops) > 1:
+			ops := m.Ops
+			if len(ops) > opChoiceMax {
+				ops = ops[:opChoiceMax]
+			}
+			sugg := make([]string, len(ops))
+			for i, op := range ops {
+				sugg[i] = op + " operasyonuna bak"
+			}
+			emit("answer", map[string]any{
+				"text":        fmt.Sprintf("Mesajınız %d operasyonla eşleşti; hangisine bakayım?", len(m.Ops)),
+				"exchangeId":  copilot.MetaFromContext(ctx).ExchangeID,
+				"suggestions": sugg,
+			})
+			return nil, true
+		}
+		t, kind = opTargetFor(m.Ops[0], cands), m.Kind
 	}
 	if rangeS <= 0 {
 		rangeS = opDefaultRangeS
@@ -452,10 +528,14 @@ func (s *Server) chatOperationPrefetch(ctx context.Context, emit func(string, an
 	}
 	from := to.Add(-time.Duration(rangeS) * time.Second)
 	prevFrom := from.Add(-time.Duration(rangeS) * time.Second)
-	t := opTargetFor(m.Ops[0], cands)
 	sc := s.oracleOpScope()
-	p := &opPrefetch{Operation: t.Name, MatchKind: m.Kind, Services: t.Services, Codes: t.Codes, RangeS: rangeS, From: from, To: to}
-	args, _ := json.Marshal(map[string]any{"operation": t.Name, "match": m.Kind, "range_s": rangeS})
+	p := &opPrefetch{Operation: t.Name, MatchKind: kind, Services: t.Services, Codes: t.Codes, RangeS: rangeS, From: from, To: to,
+		Route: t.Route, Method: t.Method, Alternatives: t.Alternatives, endpoint: t.Endpoint}
+	argm := map[string]any{"operation": t.Name, "match": kind, "range_s": rangeS}
+	if t.HasRoute {
+		argm["route"] = t.Route
+	}
+	args, _ := json.Marshal(argm)
 	p.argsJSON = string(args)
 	n := emitGuidedStep(emit, opPrefetchTool, p.argsJSON)
 
@@ -467,14 +547,20 @@ func (s *Server) chatOperationPrefetch(ctx context.Context, emit func(string, an
 	case t.HasSpan:
 		p.Current, _ = s.store.SpanOperationRED(pctx, svc, t.Name, from, to)
 		p.Previous, _ = s.store.SpanOperationRED(pctx, svc, t.Name, prevFrom, from)
+	case t.HasRoute: // v0.10.1343 — yalnız http_route: spanmetrics_1m
+		p.Current, _ = s.store.RouteRED(pctx, svc, t.Route, from, to)
+		p.Previous, _ = s.store.RouteRED(pctx, svc, t.Route, prevFrom, from)
 	case len(t.Codes) > 0:
 		p.Current, _ = s.store.FunctionCodeRED(pctx, t.Codes, from, to)
 		p.Previous, _ = s.store.FunctionCodeRED(pctx, t.Codes, prevFrom, from)
 	}
 	var filters [][]chstore.FilterExpr
-	if t.HasSpan {
+	switch {
+	case t.HasSpan:
 		filters = append(filters, []chstore.FilterExpr{{Key: "name", Op: "=", Values: []string{t.Name}}})
-	} else if sc.SpanKey != "" {
+	case t.HasRoute:
+		filters = append(filters, opRouteFilter(t.Route))
+	case sc.SpanKey != "":
 		for _, c := range t.Codes {
 			filters = append(filters, []chstore.FilterExpr{{Key: sc.SpanKey, Op: "=", Values: []string{c}}})
 		}
@@ -490,7 +576,8 @@ func (s *Server) chatOperationPrefetch(ctx context.Context, emit func(string, an
 		}
 	}
 	ids := []string{}
-	for _, r := range mergeErrorsFirst(sets, opTraceLimit) {
+	merged := mergeErrorsFirst(sets, opTraceLimit)
+	for _, r := range merged {
 		p.Traces = append(p.Traces, opTraceRow{TraceID: r.TraceID, Service: r.ServiceName, DurationMs: r.DurationMs, Error: r.HasError})
 		ids = append(ids, r.TraceID)
 	}
@@ -498,6 +585,9 @@ func (s *Server) chatOperationPrefetch(ctx context.Context, emit func(string, an
 		p.Oracle, _ = s.store.OracleErrorsForTraces(pctx, ids, from, to)
 	}
 	p.TracesHref = opTracesHref(t, sc.SpanKey, from, to)
+	if t.HasRoute {
+		p.EndpointHref = endpointPageHref(svc, t.Route, from, to)
+	}
 	if !t.HasSpan && len(t.Codes) > 0 && sc.SpanKey != "" {
 		p.codeKey = sc.SpanKey // v0.10.1297 — döngü linkleri kod süzgecine çevrilir
 	}
@@ -513,8 +603,92 @@ func (s *Server) chatOperationPrefetch(ctx context.Context, emit func(string, an
 		}
 		emitGuidedStepResult(emit, en, opExceptionsTool, renderExceptionGroupsTR(t.Name+" operasyonu", ev), eerr)
 	}
+	s.endpointDrillPhase(pctx, emit, p, t, svc, merged, from, to)
 	// Faz 3 — sohbet kartı (metrikler, hatalı trace'ler, Oracle kodları,
 	// filtreli Traces linki). seq yüksek: döngünün kendi blokları (b1…) önce.
 	emit("block", map[string]any{"id": "op-prefetch", "type": blocks.TypeOperation, "seq": 1000, "final": true, "payload": p})
 	return p, false
+}
+
+// resolveEndpointMention — v0.10.1343: endpoint anma aşaması. ok=true → hedef
+// seçildi; handled=true → belirsizlik çipleri yayınlandı (tur biter); ikisi de
+// false → bugünkü belirteç yolu. Veto: listele/sor şekli (endpointMentionVetoed).
+func (s *Server) resolveEndpointMention(pctx, ctx context.Context, emit func(string, any), raw string) (t opTarget, kind string, handled, ok bool) {
+	method, path, mentioned := endpointMention(raw)
+	if !mentioned || endpointMentionVetoed(raw) {
+		return t, "", false, false
+	}
+	cands, err := s.store.CatalogCandidates(pctx, endpointCatalogTokens(path), opCandidateLimit)
+	if err != nil || len(cands) == 0 {
+		return t, "", false, false
+	}
+	m := matchEndpoint(method, path, cands, endpointServiceHint(raw, path, cands))
+	switch {
+	case m.Pick != nil:
+		t = endpointTargetFor(*m.Pick, method)
+		t.Alternatives = opAlternativesFrom(m.Alternatives, method)
+		return t, m.Kind, false, true
+	case len(m.Choices) > 1:
+		sugg := make([]string, len(m.Choices))
+		for i, g := range m.Choices {
+			sugg[i] = endpointChoiceChip(g, method)
+		}
+		emit("answer", map[string]any{
+			"text":        fmt.Sprintf("%s %d serviste eşleşti ve hiçbiri baskın değil; hangisine bakayım?", strings.TrimSpace(method+" "+path), len(m.Choices)),
+			"exchangeId":  copilot.MetaFromContext(ctx).ExchangeID,
+			"suggestions": sugg,
+		})
+		return t, "", true, false
+	}
+	return t, "", false, false
+}
+
+// epExResult — endpoint exception okumasının goroutine sonucu.
+type epExResult struct {
+	rows []chstore.EndpointException
+	err  error
+}
+
+// endpointDrillPhase — v0.10.1343: trace'ler varsa en yavaş ≤2 trace'in
+// kırılımı (operatör varsayılanı: her hedefte, BSA dahil; ≤10 sn) ve endpoint
+// hedefinde servisin endpoint span exception'ları (≤4 sn). Exception okuması
+// goroutine'de TOPLANIR; emit yalnız bu (ön-getirme) goroutine'inden.
+func (s *Server) endpointDrillPhase(pctx context.Context, emit func(string, any), p *opPrefetch, t opTarget, svc string, merged []chstore.TraceRow, from, to time.Time) {
+	var epCh chan epExResult
+	en := 0
+	if (t.Endpoint || t.HasRoute) && svc != "" && !opWantsExceptions(t) {
+		path := t.Route
+		if path == "" {
+			path = t.Name
+		}
+		eargs, _ := json.Marshal(map[string]any{"service": svc, "path": path})
+		en = emitGuidedStep(emit, opEndpointExTool, string(eargs))
+		epCh = make(chan epExResult, 1)
+		go func() {
+			ectx, ecancel := context.WithTimeout(pctx, opEndpointExTimeout)
+			defer ecancel()
+			rows, err := s.store.EndpointTopExceptions(ectx, chstore.EndpointDetailQuery{Service: svc, Path: path, From: from, To: to}, opEndpointExLimit)
+			epCh <- epExResult{rows: rows, err: err}
+		}()
+	}
+	if picks := pickDrillTraces(merged); len(picks) > 0 {
+		dids := make([]string, len(picks))
+		for i, c := range picks {
+			dids[i] = c.Row.TraceID
+		}
+		dargs, _ := json.Marshal(map[string]any{"operation": t.Name, "trace_ids": dids})
+		p.drillArgsJSON = string(dargs)
+		p.Drill = s.traceDrillEvidenceBody(pctx, emit, picks, svc, from, to, opDrillLogBodyRunes)
+	}
+	if epCh == nil {
+		return
+	}
+	r := <-epCh
+	p.EndpointExceptionsChecked = true
+	if r.err != nil {
+		p.EndpointExceptionsErr = string(sourcestate.Classify(r.err))
+	} else {
+		p.EndpointExceptions = opEndpointExceptionsFrom(r.rows)
+	}
+	emitGuidedStepResult(emit, en, opEndpointExTool, renderEndpointExceptionsTR(p.EndpointExceptions, p.EndpointExceptionsErr), r.err)
 }
