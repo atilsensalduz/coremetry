@@ -70,7 +70,8 @@ type readers struct {
 	// v0.10.1293 (Faz 4) — öneri okumaları (recommend.go): etkin runbook
 	// listesi, problemin runbook bağlantısı (EnrichProblemsWithRunbooks: kural →
 	// servis kataloğu; OKUMA zenginleştirmesi, satıra yazmaz) ve TEMBEL Argo
-	// durumu (Deps.ArgoApps; yalnız geri alma adayı / konfigürasyon önerisi).
+	// durumu (Deps.ArgoApps). v0.10.1310: koşu başına TEK okuma, skordan önce
+	// Facts.Argo'ya (argoFactsFor) — argo_sync kontrolü + öneri eki ortak.
 	runbooks   func(ctx context.Context) ([]chstore.Runbook, error)
 	runbookURL func(ctx context.Context, p chstore.Problem) string
 	argo       func(ctx context.Context, service string) ([]mcptools.ArgoAppStatus, error)
@@ -294,6 +295,10 @@ func runInvestigation(ctx context.Context, rd readers, inv *Investigation, check
 	if !reuse(stepNode) && ctx.Err() == nil && needsNodeCheck(evidenceFrom(inv), verify) {
 		runWave(ctx, rd, inv.Service, []StepSpec{nodeSpec(inv.Service, inv.Anchor)}, now, apply)
 	}
+	// v0.10.1310 — Argo CD gerçeği: koşu başına EN ÇOK BİR Deps.ArgoApps
+	// okuması, skordan ÖNCE (argo_sync + öneri eki aynı parçayı okur). Tekrarda
+	// okuma yok → State=replay (Argo durumu "şimdi", as-of değil).
+	inv.Facts.Argo = argoFactsFor(ctx, rd, inv.Facts.Argo, inv.Service, replay, verify, now)
 	// Hipotezler + zaman çizelgesi: SAF, okuma yok; operatör işaretleri taşınır.
 	ev := evidenceFrom(inv)
 	inv.Hypotheses = carryHuman(Score(ev), inv.Hypotheses)

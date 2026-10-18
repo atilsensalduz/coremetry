@@ -144,13 +144,141 @@ func TestBuildRecommendationsRollback(t *testing.T) {
 	if rb := rollbackCandidate(f, start.UnixNano()); rb != nil {
 		t.Fatalf("önceki sürüm yoksa aday yok: %+v", rb)
 	}
-	// Aday yoksa deploy hipotezi genel cümleye düşer; Argo okunması gerekmez.
+	// Aday yoksa deploy hipotezi genel cümleye düşer. (v0.10.1310: Argo artık
+	// koşu başına tek okumayla Facts.Argo'da — needsArgo kapısı kalktı,
+	// TestArgoSingleReadPerRun.)
 	in.Facts = &Facts{}
 	if recs := buildRecommendations(in); len(recs) != 1 || recs[0].ID != "hyp-deploy" || recs[0].Rollout != nil {
 		t.Fatalf("adaysız deploy önerisi: %+v", recs)
 	}
-	if needsArgo(in.Hyps, nil) || !needsArgo(in.Hyps, &DeployFact{}) || !needsArgo([]Hypothesis{recHyp(HypConfig, 0.5, BandMedium)}, nil) {
-		t.Fatal("Argo yalnız geri alma adayı / konfigürasyon önerisinde okunur")
+}
+
+// argoCheck — kayıttaki config kartının argo_sync kontrolü.
+func argoCheck(t *testing.T, inv *Investigation) HypothesisCheck {
+	t.Helper()
+	for _, h := range inv.Hypotheses {
+		if h.Kind != HypConfig {
+			continue
+		}
+		for _, c := range h.Checks {
+			if c.Name == "argo_sync" {
+				return c
+			}
+		}
+	}
+	t.Fatalf("argo_sync kontrolü yok: %+v", inv.Hypotheses)
+	return HypothesisCheck{}
+}
+
+// TestArgoSingleReadPerRun — v0.10.1310: Deps.ArgoApps koşu başına EN ÇOK BİR
+// kez okunur; argo_sync (SAF Score) ve geri alma önerisinin Argo eki aynı
+// Facts.Argo'yu okur. Taze yeniden koşu okumaz; config doğrulaması zorla
+// okur; başka hipotezin doğrulaması önceki parçayı kullanır; skor kayıttan
+// (evidenceFrom) aynen yeniden hesaplanır.
+func TestArgoSingleReadPerRun(t *testing.T) {
+	c := &calls{}
+	rd := okReaders(c, &fakeNarrator{active: true, auto: true, answer: "Ne oldu: x"})
+	rd.deploys = func(context.Context, string, time.Time, time.Time) (mcptools.DeployCheck, error) {
+		return mcptools.DeployCheck{Section: mcptools.SweepSection{Name: "deploys", State: "ok"}, Rows: []mcptools.ChangeRow{
+			{Source: "rollout", TimeUnixNs: start.Add(-12 * time.Minute).UnixNano(), Workload: "checkout", Version: "rev 42", PrevVersion: "rev 41"},
+		}}, nil
+	}
+	rd.argo = func(_ context.Context, svc string) ([]mcptools.ArgoAppStatus, error) {
+		c.hit("argo:" + svc)
+		return []mcptools.ArgoAppStatus{{App: "checkout", Sync: "OutOfSync", Health: "Healthy", Workloads: []string{"checkout"}}}, nil
+	}
+	ctx := context.Background()
+	inv := newInv()
+	runInvestigation(ctx, rd, inv, func(*Investigation) {}, func() time.Time { return t0 })
+	if c.get("argo:checkout") != 1 {
+		t.Fatalf("ilk koşu tek Argo okuması: %v", c.n)
+	}
+	if a := inv.Facts.Argo; a == nil || a.State != argoStateOK || a.ReadAt != t0.UnixNano() || len(a.Apps) != 1 {
+		t.Fatalf("Facts.Argo: %+v", inv.Facts.Argo)
+	}
+	if ck := argoCheck(t, inv); ck.Outcome != 1 || !strings.Contains(ck.Reason, "OutOfSync") {
+		t.Fatalf("argo_sync doğrulamalı: %+v", ck)
+	}
+	var rb *Recommendation
+	for i := range inv.Recommendations {
+		if inv.Recommendations[i].ID == "rollback" {
+			rb = &inv.Recommendations[i]
+		}
+	}
+	if rb == nil || rb.Argo == nil || !strings.Contains(rb.Text, "(Argo: OutOfSync)") {
+		t.Fatalf("öneri eki aynı parçadan: %+v", inv.Recommendations)
+	}
+	// Kayıt → skor: saf yeniden hesap aynı (gerçekler kayıtta).
+	raw, err := Encode(*inv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back Investigation
+	if err := json.Unmarshal([]byte(raw), &back); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := Score(evidenceFrom(&back)), Score(evidenceFrom(inv)); !reflect.DeepEqual(got, want) {
+		t.Fatalf("kayıttan yeniden skor farklı:\n%+v\n%+v", got, want)
+	}
+
+	// Taze yeniden koşu (10 dk içinde) Argo'yu yeniden okumaz.
+	runInvestigation(ctx, rd, inv, func(*Investigation) {}, func() time.Time { return t0.Add(time.Minute) })
+	if c.get("argo:checkout") != 1 {
+		t.Fatalf("taze parça yeniden okunmamalı: %v", c.n)
+	}
+	// Başka hipotezin doğrulaması önceki parçayı kullanır; config doğrulaması zorla okur.
+	inv.Kind, inv.Hypothesis = KindVerify, HypSaturation
+	runInvestigation(ctx, rd, inv, func(*Investigation) {}, func() time.Time { return t0.Add(20 * time.Minute) })
+	if c.get("argo:checkout") != 1 {
+		t.Fatalf("doygunluk doğrulaması Argo okumamalı: %v", c.n)
+	}
+	inv.Hypothesis = HypConfig
+	runInvestigation(ctx, rd, inv, func(*Investigation) {}, func() time.Time { return t0.Add(21 * time.Minute) })
+	if c.get("argo:checkout") != 2 || inv.Facts.Argo.ReadAt != t0.Add(21*time.Minute).UnixNano() {
+		t.Fatalf("config doğrulaması Argo'yu yeniden okur (tek kez): %v %+v", c.n, inv.Facts.Argo)
+	}
+
+	// Okuma hatası: State=error, hata metni yankılanmaz, kontrol 0.
+	rd.argo = func(context.Context, string) ([]mcptools.ArgoAppStatus, error) {
+		c.hit("argo-err")
+		return nil, errors.New("dial https://hub.internal?token=s3cret")
+	}
+	inv2 := newInv()
+	runInvestigation(ctx, rd, inv2, func(*Investigation) {}, func() time.Time { return t0 })
+	if c.get("argo-err") != 1 || inv2.Facts.Argo == nil || inv2.Facts.Argo.State != argoStateError || strings.Contains(inv2.Facts.Argo.Note, "s3cret") {
+		t.Fatalf("hata parçası: %v %+v", c.n, inv2.Facts.Argo)
+	}
+	if ck := argoCheck(t, inv2); ck.Outcome != 0 {
+		t.Fatalf("okunamayan Argo bilinmiyor: %+v", ck)
+	}
+	for _, r := range inv2.Recommendations {
+		if r.Argo != nil {
+			t.Fatalf("okunamayan Argo öneriye eklenmez: %+v", r)
+		}
+	}
+}
+
+// TestReplayArgoUnknown — v0.10.1310: tekrar (Kind=replay) Deps.ArgoApps'i
+// HİÇ çağırmaz — Argo durumu "şimdi"dir, as-of değil; geçmiş vaka canlı
+// durumla puanlanmaz. Parça State=replay + not, argo_sync 0.
+func TestReplayArgoUnknown(t *testing.T) {
+	c := &calls{}
+	rd := okReaders(c, &fakeNarrator{active: true, auto: true, answer: "x"})
+	rd.argo = func(context.Context, string) ([]mcptools.ArgoAppStatus, error) {
+		c.hit("argo")
+		return []mcptools.ArgoAppStatus{{App: "checkout", Sync: "OutOfSync", Health: "Degraded"}}, nil
+	}
+	old := time.Date(2026, 8, 2, 9, 30, 0, 0, time.UTC)
+	inv := replayInvestigation(ReplayRequest{RunID: "e1", CaseID: "p:p1", ProblemID: "p1", Service: "checkout", ProblemStartedAt: old.UnixNano(), Now: t0})
+	runInvestigation(context.Background(), rd, &inv, func(*Investigation) {}, func() time.Time { return t0 })
+	if c.get("argo") != 0 {
+		t.Fatalf("tekrar canlı Argo okumamalı: %v", c.n)
+	}
+	if a := inv.Facts.Argo; a == nil || a.State != argoStateReplay || a.Note != ReplayArgoNote || len(a.Apps) != 0 {
+		t.Fatalf("tekrar parçası: %+v", inv.Facts.Argo)
+	}
+	if ck := argoCheck(t, &inv); ck.Outcome != 0 || ck.Reason != ReplayArgoNote {
+		t.Fatalf("tekrarda argo_sync bilinmiyor + not: %+v", ck)
 	}
 }
 

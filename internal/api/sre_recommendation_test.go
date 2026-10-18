@@ -123,12 +123,17 @@ func TestArgoAppStatuses(t *testing.T) {
 	a := serviceGitOpsArgo{Configured: true, Apps: []argocd.ServiceApp{
 		{AppStatus: argocd.AppStatus{Name: "pay-prod", SyncStatus: "OutOfSync", HealthStatus: "Degraded"},
 			Workloads: []argocd.ServiceWorkload{{ClusterID: "c1", Namespace: "pay", Workload: "pay"}}},
-		{AppStatus: argocd.AppStatus{Name: "pay-canary", SyncStatus: "Synced", HealthStatus: "Healthy"}},
+		{AppStatus: argocd.AppStatus{Name: "pay-canary", SyncStatus: "Synced", HealthStatus: "Healthy"}, Syncs24h: map[string]int{}},
+		{AppStatus: argocd.AppStatus{Name: "pay-dr", SyncStatus: "Synced", HealthStatus: "Healthy"}, Syncs24h: map[string]int{"Succeeded": 2, "Failed": 1}},
 	}}
 	got := argoAppStatuses(a)
-	if len(got) != 2 || got[0].App != "pay-prod" || got[0].Sync != "OutOfSync" || got[0].Health != "Degraded" ||
+	if len(got) != 3 || got[0].App != "pay-prod" || got[0].Sync != "OutOfSync" || got[0].Health != "Degraded" ||
 		len(got[0].Workloads) != 1 || got[0].Workloads[0] != "pay" || got[1].Workloads != nil {
 		t.Fatalf("dönüşüm: %+v", got)
+	}
+	// v0.10.1310 — senkron toplamı: okunmadı (nil) nil kalır, {} → 0, fazlar toplanır.
+	if got[0].Syncs24h != nil || got[1].Syncs24h == nil || *got[1].Syncs24h != 0 || got[2].Syncs24h == nil || *got[2].Syncs24h != 3 {
+		t.Fatalf("Syncs24h: %v %v %v", got[0].Syncs24h, got[1].Syncs24h, got[2].Syncs24h)
 	}
 	if out, err := (&Server{}).mcpArgoApps(context.Background(), "pay"); out != nil || err != nil {
 		t.Fatalf("Argo ayarı / thanos yokken (nil, nil): %v %v", out, err)

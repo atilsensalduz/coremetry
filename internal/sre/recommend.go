@@ -13,7 +13,8 @@ package sre
 //     satırlarından (Facts.Deploys; yeni okuma yok) — "<iş yükü> v42 → v41
 //     geri alma değerlendirilebilir (Argo: OutOfSync)". Argo eki yalnız
 //     Deps.ArgoApps dikişi bağlıysa (api/sre_argo.go; servis → Argo eşlemesi
-//     api katmanında, internal/sre api'yi import etmez);
+//     api katmanında, internal/sre api'yi import etmez); v0.10.1310: eki
+//     kayıttaki Facts.Argo besler (koşu başına TEK okuma, argo_sync ile ortak);
 //   - runbook: SAF matchRunbooks — Problem.RunbookURL → etkin runbook'ların
 //     service:<svc> / cause:<tür> / rule:<önek> etiketleri → başlık jetonu
 //     örtüşmesi ≥0.5; ≤3. "Runbook'u aç" mevcut runbook sayfasına problemId
@@ -586,20 +587,48 @@ func carryRecState(next, prev []Recommendation) []Recommendation {
 	return next
 }
 
-// needsArgo — SAF: Argo okuması yalnız geri alma adayı ya da konfigürasyon
-// önerisi varsa (her araştırmada Thanos'a gidilmez).
-func needsArgo(hyps []Hypothesis, rb *DeployFact) bool {
-	for _, h := range activeHyps(hyps) {
-		if h.Kind == HypConfig || ((h.Kind == HypDeploy || h.Kind == HypCodeRegression) && rb != nil) {
-			return true
-		}
+// ReplayArgoNote — tekrar koşusunun Argo parçası notu (argo_sync gerekçesi).
+const ReplayArgoNote = "değerlendirme tekrarı — Argo CD durumu bugünü gösterir (as-of değil); geçmiş olay canlı Argo durumuyla puanlanmaz"
+
+// argoFactsFor — v0.10.1310: koşunun Argo CD gerçeği, koşu başına EN ÇOK BİR
+// Deps.ArgoApps okuması (≤readCap). Skordan ÖNCE çağrılır; argo_sync kontrolü
+// (SAF Score) ve öneri eki (recommend) aynı parçayı okur — öneri ikinci kez
+// okumaz.
+//
+//   - tekrar (Kind=replay): okuma YOK → State=replay + not (Argo "şimdi"dir;
+//     geçmiş vakayı bugünün durumuyla puanlamak tekrarı kirletir).
+//   - dikiş bağlı değil: nil (kontrol dürüst "okunmadı").
+//   - önceki koşunun başarılı parçası yeniden kullanılır: normal koşuda
+//     stepFreshForReuse'tan tazeyse; doğrulamada (Kind=verify) hipotez config
+//     DEĞİLSE (config doğrulaması Argo'yu ZORLA yeniden okur).
+//   - okuma hatası: State=error (hata metni yankılanmaz — URL/token taşıyabilir).
+func argoFactsFor(ctx context.Context, rd readers, prev *ArgoFacts, service string, replay bool, verify string, now func() time.Time) *ArgoFacts {
+	if replay {
+		return &ArgoFacts{State: argoStateReplay, Note: ReplayArgoNote}
 	}
-	return false
+	if rd.argo == nil {
+		return nil
+	}
+	if prev != nil && prev.State == argoStateOK && verify != HypConfig &&
+		(verify != "" || now().Sub(time.Unix(0, prev.ReadAt)) < stepFreshForReuse) {
+		return prev
+	}
+	if ctx.Err() != nil {
+		return prev
+	}
+	c, cancel := context.WithTimeout(ctx, readCap)
+	defer cancel()
+	apps, err := rd.argo(c, service)
+	if err != nil {
+		return &ArgoFacts{State: argoStateError, ReadAt: now().UnixNano(), Note: "Argo CD durumu okunamadı"}
+	}
+	return argoFactsOf(apps, now())
 }
 
-// recommend — okumalar (runbook listesi, problemin runbook bağlantısı, tembel
-// Argo) + SAF buildRecommendations. Okuma hatası öneriyi düşürmez: o parça
-// yok sayılır. Hiçbir yazım yok.
+// recommend — okumalar (runbook listesi, problemin runbook bağlantısı) + SAF
+// buildRecommendations. Argo eki v0.10.1310'den beri kayıttaki Facts.Argo'dan
+// (argoFactsFor; koşu başına tek okuma) — burada Argo okunmaz. Okuma hatası
+// öneriyi düşürmez: o parça yok sayılır. Hiçbir yazım yok.
 func recommend(ctx context.Context, rd readers, inv *Investigation, p chstore.Problem) []Recommendation {
 	in := recInput{ProblemID: inv.ProblemID, Problem: p, Service: inv.Service, StartNs: inv.ProblemAt, Hyps: inv.Hypotheses, Facts: inv.Facts}
 	if ctx.Err() == nil && rd.runbookURL != nil {
@@ -616,12 +645,8 @@ func recommend(ctx context.Context, rd readers, inv *Investigation, p chstore.Pr
 		}
 		cancel()
 	}
-	if ctx.Err() == nil && rd.argo != nil && needsArgo(inv.Hypotheses, rollbackCandidate(inv.Facts, inv.ProblemAt)) {
-		c, cancel := context.WithTimeout(ctx, readCap)
-		if apps, err := rd.argo(c, inv.Service); err == nil {
-			in.Argo, in.ArgoRead = apps, true
-		}
-		cancel()
+	if inv.Facts != nil && inv.Facts.Argo != nil && inv.Facts.Argo.State == argoStateOK {
+		in.Argo, in.ArgoRead = inv.Facts.Argo.Apps, true
 	}
 	return buildRecommendations(in)
 }

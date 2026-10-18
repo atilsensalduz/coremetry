@@ -9,8 +9,14 @@ package sre
 // taze adım yeniden koşmasa da skor aynı girdiden yeniden hesaplanır;
 // doğrulama koşusu (Kind=verify) yalnız hipotezin adımlarını yeniler, kalan
 // gerçekler önceki koşudan gelir. Tavanlar küçük (kayıt ≤64 KB).
+//
+// v0.10.1310 — Argo parçası adım DEĞİL: koşu başına TEK Deps.ArgoApps okuması
+// (recommend.go argoFactsFor) skordan ÖNCE buraya yazılır; argo_sync kontrolü
+// ve öneri eki aynı parçayı okur. Tekrarda (Kind=replay) okuma yok, parça
+// State=replay (Argo durumu "şimdi"dir — geçmiş olayı puanlamaz).
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -28,6 +34,7 @@ type Facts struct {
 	Spike   *SpikeFacts   `json:"spike,omitempty"`
 	Events  *EventFacts   `json:"events,omitempty"`
 	Node    *NodeFacts    `json:"node,omitempty"`
+	Argo    *ArgoFacts    `json:"argo,omitempty"` // v0.10.1310
 }
 
 // merge — SAF: src'nin dolu parçaları dst'ye.
@@ -58,6 +65,9 @@ func (f *Facts) merge(src *Facts) {
 	}
 	if src.Node != nil {
 		f.Node = src.Node
+	}
+	if src.Argo != nil {
+		f.Argo = src.Argo
 	}
 }
 
@@ -205,15 +215,59 @@ type NodeFacts struct {
 	Nodes   []mcptools.NodePressure `json:"nodes,omitempty"`
 }
 
+// Argo parçasının durumları.
 const (
-	factsDeployRows  = 10
-	factsEdges       = 20
-	factsAlerts      = 30
-	factsRelated     = 10
-	factsContribs    = 5
-	factsPathSteps   = 3
-	factsListedNames = 3
+	argoStateOK     = "ok"
+	argoStateError  = "error"
+	argoStateReplay = "replay"
 )
+
+// ArgoFacts — v0.10.1310: servise eşlenen Argo CD uygulamalarının OKUMA
+// ANINDAKİ durumu (as-of değil). ReadAt argo_sync'in pencere kapsamı için:
+// Syncs24h [ReadAt − 24 sa, ReadAt] aralığını sayar.
+type ArgoFacts struct {
+	State  string                   `json:"state"`            // ok | error | replay
+	ReadAt int64                    `json:"readAt,omitempty"` // unix ns
+	Note   string                   `json:"note,omitempty"`
+	Apps   []mcptools.ArgoAppStatus `json:"apps,omitempty"` // ≤factsArgoApps
+}
+
+const (
+	factsArgoApps      = 5
+	factsArgoWorkloads = 5
+	factsDeployRows    = 10
+	factsEdges         = 20
+	factsAlerts        = 30
+	factsRelated       = 10
+	factsContribs      = 5
+	factsPathSteps     = 3
+	factsListedNames   = 3
+)
+
+// argoFactsOf — SAF: dikiş satırları → kayıt parçası (tavanlı kopya; çağıranın
+// dilimlerine takma ad tutmaz).
+func argoFactsOf(apps []mcptools.ArgoAppStatus, readAt time.Time) *ArgoFacts {
+	out := &ArgoFacts{State: argoStateOK, ReadAt: readAt.UnixNano()}
+	for _, a := range apps {
+		if len(out.Apps) >= factsArgoApps {
+			out.Note = fmt.Sprintf("%d uygulamadan ilk %d saklandı", len(apps), factsArgoApps)
+			break
+		}
+		row := mcptools.ArgoAppStatus{App: a.App, Sync: a.Sync, Health: a.Health}
+		for _, w := range a.Workloads {
+			if len(row.Workloads) >= factsArgoWorkloads {
+				break
+			}
+			row.Workloads = append(row.Workloads, w)
+		}
+		if a.Syncs24h != nil {
+			n := *a.Syncs24h
+			row.Syncs24h = &n
+		}
+		out.Apps = append(out.Apps, row)
+	}
+	return out
+}
 
 // ── SAF dönüştürücüler (adım sonucu → parça) ────────────────────────────────
 

@@ -11,6 +11,11 @@ package api
 // istenmez (rolloutsOn=false: öneri metni rollout satırını zaten deploy
 // adımından alır). Salt okuma; ajan hiçbir Argo işlemi (sync / rollback)
 // tetiklemez — böyle bir yol bu pakette de yok.
+//
+// v0.10.1310 — AI SRE Faz 2 argo_sync: aynı dikiş koşu başına TEK okumayla
+// sre.Facts.Argo'yu besler (skor + öneri ortak); satıra 24 saatlik senkron
+// toplamı (Syncs24h) eklendi — GitOps sekmesinin zaten hesapladığı sayım,
+// yeni sorgu yok.
 
 import (
 	"context"
@@ -42,6 +47,14 @@ func argoAppStatuses(a serviceGitOpsArgo) []mcptools.ArgoAppStatus {
 		row := mcptools.ArgoAppStatus{App: app.Name, Sync: app.SyncStatus, Health: app.HealthStatus}
 		for _, w := range app.Workloads {
 			row.Workloads = append(row.Workloads, w.Workload)
+		}
+		// v0.10.1310 — faz → adet toplamı; nil (okunmadı) nil kalır, {} → 0.
+		if app.Syncs24h != nil {
+			n := 0
+			for _, c := range app.Syncs24h {
+				n += c
+			}
+			row.Syncs24h = &n
 		}
 		out = append(out, row)
 	}

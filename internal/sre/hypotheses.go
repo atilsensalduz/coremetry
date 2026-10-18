@@ -21,6 +21,10 @@ package sre
 // (TestNeverWritesHypothesisTable); kök-neden sentezleyicisi AYRI motordur ve
 // yalnız SynthRef olarak okunur (bir kontrolün girdisi: "sentezleyici aynı
 // komşuyu gösteriyor").
+//
+// v0.10.1310 — konfigürasyonun argo_sync kontrolü (0.20) artık Facts.Argo'dan
+// okunur (koşu başına tek Deps.ArgoApps okuması, skordan önce); önceden hep 0
+// ("okunmuyor") olduğu için config 0.70'te tavanlanıyordu. Tekrarda 0 + not.
 
 import (
 	"context"
@@ -32,6 +36,7 @@ import (
 	"time"
 
 	"github.com/cilcenk/coremetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/mcptools"
 )
 
 // Hipotez türleri (kayıttaki Hypothesis.Kind; FE aynası hypothesisView.ts).
@@ -514,10 +519,81 @@ func chkConfigBeforeError(ev Evidence) (int, string, string) {
 	return -1, fmt.Sprintf("hata değişiklikten önce başladı (%s)", src), ev.ref(stepDeploys, "")
 }
 
-func chkArgo(Evidence) (int, string, string) {
-	// Argo CD senkron durumu (OutOfSync / sync) servis → uygulama eşlemesi api
-	// katmanında; ajan bu fazda okumuyor — dürüst "bilinmiyor".
-	return 0, "Argo CD senkron durumu bu araştırmada okunmuyor", ""
+// argoSyncHorizon — Syncs24h'in kapsadığı geri bakış (okuma anından).
+const argoSyncHorizon = 24 * time.Hour
+
+// argoOwns — SAF: uygulama bu iş yükünü (ya da servisi) deploy ediyor mu;
+// servise tek uygulama eşlenmişse o (recommend.go argoFor kuralı).
+func argoOwns(a mcptools.ArgoAppStatus, workload, service string, apps int) bool {
+	if apps == 1 {
+		return true
+	}
+	for _, w := range a.Workloads {
+		if w == workload || w == service {
+			return true
+		}
+	}
+	return false
+}
+
+// argoCalm — Synced + Healthy + okunmuş sıfır senkron.
+func argoCalm(a mcptools.ArgoAppStatus) bool {
+	return strings.EqualFold(a.Sync, "Synced") && strings.EqualFold(a.Health, "Healthy") && a.Syncs24h != nil && *a.Syncs24h == 0
+}
+
+// chkArgo — v0.10.1310: Facts.Argo (koşu başına tek Deps.ArgoApps okuması)
+// üzerinden SAF. Dikiş zaman damgası taşımaz; [başlangıç − 60 dk, +5 dk]
+// penceresi okuma anının 24 saatlik senkron sayımıyla (Syncs24h) kapsanır.
+//
+//	+1  servise eşlenen bir uygulama OutOfSync; ya da son 24 sa'te senkronu
+//	    olan uygulamanın iş yükünde pencerede İMAJSIZ rollout / olay var
+//	    (senkron imaj değiştirmeden config getirmiş).
+//	−1  her uygulama Synced + Healthy, 24 sa'te senkron yok VE okuma anı
+//	    pencereyi kapsıyor (ReadAt − 24 sa ≤ başlangıç − 60 dk, ReadAt ≥ başlangıç).
+//	 0  okunmadı / okunamadı / eşleme yok / tekrar (Argo durumu "şimdi"dir,
+//	    as-of değil — geçmiş vaka canlı durumla puanlanmaz) / senkron var ama
+//	    pencereye bağlanamıyor.
+func chkArgo(ev Evidence) (int, string, string) {
+	a := ev.Facts.Argo
+	switch {
+	case a == nil:
+		return 0, "Argo CD durumu okunmadı (dikiş bağlı değil)", ""
+	case a.State == argoStateReplay:
+		return 0, firstNonEmpty(a.Note, ReplayArgoNote), ""
+	case a.State != argoStateOK:
+		return 0, "Argo CD durumu okunamadı", ""
+	case len(a.Apps) == 0:
+		return 0, "servise eşlenen Argo CD uygulaması yok", ""
+	}
+	for _, app := range a.Apps {
+		if strings.EqualFold(app.Sync, "OutOfSync") {
+			return 1, fmt.Sprintf("Argo CD %s OutOfSync (%s) — canlı durum Git'teki tanımdan sapıyor", app.App, argoStatusTR(app)), ""
+		}
+	}
+	for _, r := range ev.configChanges() {
+		for _, app := range a.Apps {
+			if app.Syncs24h != nil && *app.Syncs24h > 0 && argoOwns(app, r.Name, ev.Service, len(a.Apps)) {
+				return 1, fmt.Sprintf("Argo CD %s son 24 sa'te %d senkron; %s imaj değişmeden %s (%s) — senkron config getirmiş olası",
+					app.App, *app.Syncs24h, relMin(r.At, ev.StartNs), firstNonEmpty(r.Source, "değişiklik"), r.Name), ev.ref(stepDeploys, "")
+			}
+		}
+	}
+	calm := true
+	var names []string
+	for _, app := range a.Apps {
+		calm = calm && argoCalm(app)
+		names = append(names, app.App)
+	}
+	list := strings.Join(names, ", ")
+	if calm {
+		read := time.Unix(0, a.ReadAt)
+		from := time.Unix(0, ev.StartNs).Add(-deployNearBefore)
+		if a.ReadAt > 0 && !read.Add(-argoSyncHorizon).After(from) && a.ReadAt >= ev.StartNs {
+			return -1, fmt.Sprintf("Argo CD %s Synced/Healthy, pencerede (−60/+5 dk) senkron yok", list), ""
+		}
+		return 0, fmt.Sprintf("Argo CD %s Synced/Healthy ama okuma anının 24 sa'i başlangıç penceresini kapsamıyor", list), ""
+	}
+	return 0, fmt.Sprintf("Argo CD %s: senkron var ya da sayım okunmadı, pencereye bağlanamıyor (imajsız yakın değişiklik yok)", list), ""
 }
 
 // ── kontroller: doygunluk / OOM ─────────────────────────────────────────────

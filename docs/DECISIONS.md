@@ -6156,3 +6156,27 @@ yalnız ilk koşunun bitişi).
 iğnesi; tek okuyucusu `api/sre_eval.go` (inceleme yüzeyi). TestEvalIgnoresFeedback
 evalInput'un (iç içe) oy alanı taşımadığını ve eval.go'nun oy okuyucusu
 anmadığını pinler.
+
+## 2026-10-18 — AI SRE Faz 2: argo_sync kontrolü Deps.ArgoApps'ten (v0.10.1310)
+
+**Karar (operatör onaylı 2026-10-18):** konfigürasyon hipotezinin `argo_sync`
+kontrolü (0.20) artık hep 0 ("okunmuyor") değil; config 0.70 tavanı kalktı.
+Kaynak Faz 4'ün AYNI dar dikişi `mcptools.Deps.ArgoApps` (api/sre_argo.go →
+buildServiceGitOps, salt okuma, ≤3 s). Koşu başına EN ÇOK BİR okuma
+(`recommend.go argoFactsFor`), skordan ÖNCE `Investigation.Facts.Argo`'ya
+yazılır; `Score` SAF kalır ve öneri eki aynı parçayı okur (Faz 4'ün ikinci
+okuması ve `needsArgo` kapısı kalktı). Taze (<10 dk) başarılı parça yeniden
+koşuda okunmaz; doğrulamada yalnız config hipotezi Argo'yu zorla yeniden okur.
+
+Dikiş satırına `Syncs24h` (GitOps sekmesinin 24 sa senkron fazları toplamı;
+yeni sorgu yok, nil = okunmadı) eklendi. Zaman damgası yok, bu yüzden pencere
+[başlangıç − 60 dk, +5 dk] okuma anıyla kapsanır:
++1 eşlenen uygulama OutOfSync, ya da 24 sa'te senkronu olan uygulamanın iş
+yükünde pencerede imajsız rollout / olay; −1 her uygulama Synced + Healthy,
+24 sa'te 0 senkron ve `ReadAt − 24 sa ≤ başlangıç − 60 dk`, `ReadAt ≥
+başlangıç`; aksi 0 (okunmadı / okunamadı / eşleme yok / bağlanamayan senkron).
+
+**Tekrar (Kind=replay):** Argo durumu "şimdi"dir, as-of değil — dikiş HİÇ
+çağrılmaz, parça `State=replay` + not, kontrol 0. Geçmiş vaka canlı Argo
+durumuyla puanlanmaz (TestReplayArgoUnknown). Testler: TestHypothesisTable
+argo satırları, TestChkArgoWindow, TestArgoSingleReadPerRun, TestArgoAppStatuses.

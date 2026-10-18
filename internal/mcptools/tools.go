@@ -288,8 +288,12 @@ type Deps struct {
 	// senkron / sağlık durumu (api/sre_argo.go: GET /api/services/{name}/gitops
 	// ile AYNI kurucu, buildServiceGitOps — eşleyici tablosu ya da canlı sorgu).
 	// Servis → Argo eşlemesi api katmanında; internal/sre api'yi import edemez,
-	// bu dar okuma dikişi tek köprü. Yalnız öneri metnine girer (geri alma
-	// önerisinin "Argo: OutOfSync" eki); hipotez skoruna girmez. nil = yok.
+	// bu dar okuma dikişi tek köprü. v0.10.1293: öneri metnine girer (geri
+	// alma önerisinin "Argo: OutOfSync" eki). v0.10.1310: AYNI okuma koşu
+	// başına TEK kez yapılır ve sre.Facts.Argo'ya yazılır — konfigürasyon
+	// hipotezinin argo_sync kontrolü (SAF Score) ve öneri eki oradan okur;
+	// tekrar (Kind=replay) koşusu bu dikişi HİÇ çağırmaz (durum "şimdi"dir,
+	// as-of değil). nil = yok.
 	ArgoApps func(ctx context.Context, service string) ([]ArgoAppStatus, error)
 	// v0.10.1297 (operatör 2026-10-17: model linke coremetry.io yazdı) — kurulumun
 	// COREMETRY_PUBLIC_URL origin'i ("" = yapılandırılmamış). build_link yalnız bu
@@ -305,6 +309,11 @@ type ArgoAppStatus struct {
 	Sync      string   `json:"sync,omitempty"`   // Synced | OutOfSync | Unknown
 	Health    string   `json:"health,omitempty"` // Healthy | Degraded | Progressing …
 	Workloads []string `json:"workloads,omitempty"`
+	// Syncs24h — v0.10.1310: okuma anından geriye 24 saatte tamamlanan
+	// senkron sayısı (GitOps sekmesinin syncs24h fazlarının toplamı). nil =
+	// okunmadı (senkron sorgusu düştü / kesildi); 0 = okundu, senkron yok.
+	// Zaman damgası YOK — argo_sync kontrolü pencereyi okuma anıyla kapsar.
+	Syncs24h *int `json:"syncs24h,omitempty"`
 }
 
 // MetricSource is the metric-read half of Deps, satisfied by

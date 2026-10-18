@@ -107,6 +107,43 @@ func TestHypothesisTable(t *testing.T) {
 			return ev
 		}(), 0, BandLow, "-1,0,0"},
 		{HypConfig, "bilinmiyor: geçmiş okunamadı", baseEv(symptomError), 0.10, BandLow, "0,0,0"},
+		// v0.10.1310 — argo_sync (Facts.Argo; koşu başına tek Deps.ArgoApps okuması)
+		{HypConfig, "doğrular: imajsız rollout + Argo OutOfSync (0.70 tavanı kalktı)", func() Evidence {
+			ev := baseEv(symptomError, stepDeploys)
+			ev.Facts.Deploys = &DeployFacts{Rows: []DeployFact{deployRow(-8*time.Minute, "rollout", "", "", "complete")}}
+			ev.Facts.Argo = argoAt(t0, argoApp("checkout-prod", "OutOfSync", "Healthy", 1, "checkout"))
+			return ev
+		}(), 0.90, BandHigh, "1,1,1"},
+		{HypConfig, "doğrular: Argo Synced ama 24 sa'te senkron + pencerede imajsız rollout", func() Evidence {
+			ev := baseEv(symptomError, stepDeploys)
+			ev.Facts.Deploys = &DeployFacts{Rows: []DeployFact{deployRow(-8*time.Minute, "rollout", "", "", "complete")}}
+			ev.Facts.Argo = argoAt(t0, argoApp("checkout-prod", "Synced", "Healthy", 2, "checkout"), argoApp("web-prod", "Synced", "Healthy", 0, "web"))
+			return ev
+		}(), 0.90, BandHigh, "1,1,1"},
+		{HypConfig, "çürütür: Argo Synced/Healthy, pencerede senkron yok; yakın değişiklik imajlı", func() Evidence {
+			ev := baseEv(symptomError, stepDeploys)
+			ev.Facts.Deploys = &DeployFacts{Rows: []DeployFact{deployRow(-10*time.Minute, "rollout", "rev42", "rev41", "complete")}}
+			ev.Facts.Argo = argoAt(t0, argoApp("checkout-prod", "Synced", "Healthy", 0, "checkout"))
+			return ev
+		}(), 0, BandLow, "0,0,-1"},
+		{HypConfig, "bilinmiyor: servise eşlenen Argo uygulaması yok", func() Evidence {
+			ev := baseEv(symptomError)
+			ev.Facts.Argo = argoAt(t0)
+			return ev
+		}(), 0.10, BandLow, "0,0,0"},
+		{HypConfig, "bilinmiyor: Argo okunamadı", func() Evidence {
+			ev := baseEv(symptomError)
+			ev.Facts.Argo = &ArgoFacts{State: argoStateError, ReadAt: t0.UnixNano()}
+			return ev
+		}(), 0.10, BandLow, "0,0,0"},
+		{HypConfig, "bilinmiyor: tekrar — canlı Argo durumu geçmiş vakayı puanlamaz", func() Evidence {
+			ev := baseEv(symptomError, stepDeploys)
+			ev.Facts.Deploys = &DeployFacts{Rows: []DeployFact{deployRow(-8*time.Minute, "rollout", "", "", "complete")}}
+			a := argoAt(t0, argoApp("checkout-prod", "OutOfSync", "Degraded", 3, "checkout"))
+			a.State, a.Note = argoStateReplay, ReplayArgoNote // satır olsa bile replay puanlanmaz
+			ev.Facts.Argo = a
+			return ev
+		}(), 0.70, BandHigh, "1,1,0"},
 		// saturation
 		{HypSaturation, "doğrular: OOM + post-GC + node", func() Evidence {
 			ev := baseEv(symptomLatency, stepSweep, stepNode)
@@ -239,6 +276,56 @@ func TestHypothesisTable(t *testing.T) {
 	}
 	if BandOf(0.70) != BandHigh || BandOf(0.6999) != BandMedium || BandOf(0.40) != BandMedium || BandOf(0.39) != BandLow {
 		t.Fatal("bant eşikleri: yüksek ≥0.70, orta ≥0.40")
+	}
+}
+
+// argoApp / argoAt — v0.10.1310 Facts.Argo kurucuları (syncs < 0 = sayım okunmadı).
+func argoApp(app, sync, health string, syncs int, workloads ...string) mcptools.ArgoAppStatus {
+	a := mcptools.ArgoAppStatus{App: app, Sync: sync, Health: health, Workloads: workloads}
+	if syncs >= 0 {
+		a.Syncs24h = &syncs
+	}
+	return a
+}
+
+func argoAt(read time.Time, apps ...mcptools.ArgoAppStatus) *ArgoFacts {
+	return argoFactsOf(apps, read)
+}
+
+// TestChkArgoWindow — v0.10.1310: argo_sync'in pencere kapsamı ve eşleme
+// kenarları (Syncs24h zaman damgası taşımaz; pencere okuma anıyla kapsanır).
+func TestChkArgoWindow(t *testing.T) {
+	cases := []struct {
+		name    string
+		argo    *ArgoFacts
+		deploys []DeployFact
+		want    int
+		reason  string
+	}{
+		{"dikiş yok → okunmadı", nil, nil, 0, "okunmadı"},
+		{"sakin + kapsıyor → çürütür", argoAt(t0, argoApp("a", "Synced", "Healthy", 0)), nil, -1, "senkron yok"},
+		{"sakin ama okuma başlangıçtan > 23 sa sonra → bilinmiyor", argoAt(start.Add(30*time.Hour), argoApp("a", "Synced", "Healthy", 0)), nil, 0, "kapsamıyor"},
+		{"sakin ama okuma başlangıçtan önce → bilinmiyor", argoAt(start.Add(-time.Minute), argoApp("a", "Synced", "Healthy", 0)), nil, 0, "kapsamıyor"},
+		{"senkron sayımı okunmadı → bilinmiyor", argoAt(t0, argoApp("a", "Synced", "Healthy", -1)), nil, 0, "bağlanamıyor"},
+		{"Degraded → çürütmez", argoAt(t0, argoApp("a", "Synced", "Degraded", 0)), nil, 0, "bağlanamıyor"},
+		{"senkron var, imajlı deploy → config kanıtı değil", argoAt(t0, argoApp("a", "Synced", "Healthy", 1, "checkout")),
+			[]DeployFact{{At: ns(-10 * time.Minute), Source: "rollout", Name: "checkout", Version: "r2", Prev: "r1"}}, 0, "bağlanamıyor"},
+		{"senkron başka iş yükünün uygulamasında → bağlanmaz", argoAt(t0, argoApp("a", "Synced", "Healthy", 0, "checkout"), argoApp("b", "Synced", "Healthy", 4, "web")),
+			[]DeployFact{{At: ns(-10 * time.Minute), Source: "rollout", Name: "checkout"}}, 0, "bağlanamıyor"},
+		{"imajsız rollout pencere dışında → bağlanmaz", argoAt(t0, argoApp("a", "Synced", "Healthy", 1, "checkout")),
+			[]DeployFact{{At: ns(-90 * time.Minute), Source: "rollout", Name: "checkout"}}, 0, "bağlanamıyor"},
+		{"OutOfSync okuma anından bağımsız doğrular", argoAt(start.Add(30*time.Hour), argoApp("a", "OutOfSync", "Healthy", -1)), nil, 1, "OutOfSync"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ev := baseEv(symptomError, stepDeploys)
+			ev.Facts.Deploys = &DeployFacts{Rows: c.deploys}
+			ev.Facts.Argo = c.argo
+			o, why, _ := chkArgo(ev)
+			if o != c.want || !strings.Contains(why, c.reason) {
+				t.Fatalf("chkArgo = %d %q, beklenen %d (%q)", o, why, c.want, c.reason)
+			}
+		})
 	}
 }
 
