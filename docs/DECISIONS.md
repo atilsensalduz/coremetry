@@ -6347,3 +6347,31 @@ loglarına (tüm loglara değil)".
   TestHasPeerSignal, TestPrevTurnMentionsLatencyFailure, TestTraceDrillRouterTable,
   TestIntentTraceDrillUpgrade, TestRootCauseWantsTraceDrill, TestTraceDrillWiring,
   TestTraceDrillFollowupChip; chstore TestSpanOperationREDQueryPinsP50.
+
+## 2026-10-18 — Trace operasyon çipi: önce kesin kaynak, sözlük etiketli yedek (v0.10.1329)
+
+**Düzeltme (v0.10.1003 kararının üstüne; operatör-bildirimli):** trace 6008dded… (kök POST
+/BSAWEB/application/directCreditPreApproval, kendi Oracle satırı
+LOAN_CONSUMER_APP_APPLICATIONTRX_DIRECT_CREDIT_PRE_APPROVAL_REST) özet şeridinde "Operasyon:
+LOAN_CONSUMER_APP_APPLICATIONINQ_CREDIT_PRODUCT_INFORMATION_REST (+15)" gösteriyordu. **Kök neden:**
+çip YALNIZ fonksiyon kodu sözlüğünü okuyordu — `ops[0]` = kodun bankanın tamamında son 7 günde EN ÇOK
+satırlı operasyonu, 1:n ilişkinin tahmini; trace'in kendi Oracle satırları hiç sorulmuyordu. 1003'teki
+"(+N) ile 1:n gizlenmez" önlemi yetmedi: tahmin yine "bu trace'in operasyonu" gibi okunuyordu.
+**Karar:** çip artık KESİN-önce (`lib/oracleFunctionOps.ts` `pickTraceOperation`): **(a)** bu trace'in
+Oracle hata satırlarındaki tekil `operation.code` — ana = satırı kök servisin span'ine bağlı olan →
+en çok satırlı → en erken; "+N" = BU trace'teki diğer gerçek operasyonlar; **(b)** kök span'in, sonra
+giriş (server/consumer) span'lerinin, sonra herhangi bir span'in `operation.code` / `OPERATION_CODE` /
+`operation_code` attribute'u; **(c)** ancak ikisi de yoksa sözlük — ETİKETİYLE: "Operasyon (fonksiyon
+kodundan, N aday): X", ipucu "kesin DEĞİL" der ve adayları listeler. İpucu + aria metni her durumda
+kaynağı söyler; link hedefi (fonksiyon kodunun diğer trace'leri) değişmedi. **Maliyet:** Trace sayfası
+`useOracleTraceLogs`'u artık Logs sekmesi kapalıyken de, YALNIZ trace FUNCTION_CODE taşıyorsa çeker —
+trace başına tek istek, span-ankrajlı pencere, 200 satır, sunucu 30 sn önbellek (+ aynı staleTime),
+CH'de trace_id bloom indeksi + LIMIT + max_execution_time; Oracle kaynağı kapalıysa CH'ye gidilmez.
+Satırlar yüklenirken çip bekler (önce tahmini çizip kesin ada atlamaz); sözlük isteği yalnız kesin
+kaynak yoksa atılır. **Backend dikişi (davranış/prompt değişmedi):** `internal/api/explain_trace_operation.go`
+`pickMainOperation` aynı (a)→(b) sırası, sözlük BİLEREK yok (tahmin modele "bu trace'in operasyonu"
+diye verilmez); `traceExplainInput` MainOperation / OtherOperations / OperationSource / RootVersion
+(kök servisin `anomaly.StackServiceVersion`'ı) taşır, explain'in zaten okuduğu Oracle satırlarından —
+ek sorgu yok; prompt'a henüz girmez (TestTraceExplainUserGolden bayt-bayt aynı). **Testler:**
+vitest `pickTraceOperation` tablosu + `OracleOperationChip.render.test.tsx` (kesin + etiketli yedek +
+yüklenirken boş); Go `TestPickMainOperation`.

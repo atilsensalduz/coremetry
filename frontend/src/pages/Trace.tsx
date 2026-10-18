@@ -42,6 +42,7 @@ import { TraceWaterfall, TraceServiceBreakdown } from '@/components/TraceWaterfa
 import { SpanDetail } from '@/components/SpanDetail';
 import { TraceHonesty } from '@/components/traces/TraceHonesty';
 import { OracleOperationChip } from '@/components/traces/OracleOperationChip';
+import { traceFunctionCodes } from '@/lib/oracleFunctionOps';
 // v0.8.550 — this file used to OWN the strongest of the three hand-rolled
 // clipboard copies (it alone fell back when writeText rejected). That
 // version is now lib/clipboard, and the two local functions are gone.
@@ -161,8 +162,19 @@ function TraceDetailInner() {
   // v0.10.602 — Oracle Aşama 2: trace'in Oracle hata tablosu satırları, aynı
   // span-ankrajlı pencere; yalnız Logs sekmesi açıkken çekilir (ES-maliyet
   // disiplini burada CH için de korunur: liste boyunca prefetch yok).
-  const oracleQuery = useOracleTraceLogs(tab === 'logs' ? id : undefined, { from: logWin?.from, to: logWin?.to, enabled: tab === 'logs' });
+  // v0.10.1329 (operatör-bildirimli) — trace bir FUNCTION_CODE taşıyorsa satırlar
+  // Logs sekmesi kapalıyken de çekilir: özet şeridindeki operasyon çipinin KESİN
+  // kaynağı bu trace'in kendi Oracle satırları (sözlük yalnız etiketli yedek).
+  // Maliyet sınırlı: trace başına tek istek, aynı span-ankrajlı pencere, 200
+  // satır, sunucu 30 s önbellek (+ aynı staleTime), CH tarafında trace_id bloom
+  // indeksi + LIMIT + max_execution_time; Oracle kaynağı kapalıysa CH'ye hiç
+  // gidilmez. Kod taşımayan trace bugünkü gibi yalnız Logs sekmesinde çeker.
+  const traceHasFunctionCodes = useMemo(() => traceFunctionCodes(spans).length > 0, [spans]);
+  const oracleWanted = tab === 'logs' || traceHasFunctionCodes;
+  const oracleQuery = useOracleTraceLogs(oracleWanted ? id : undefined, { from: logWin?.from, to: logWin?.to, enabled: oracleWanted });
   const oracleRows = useMemo(() => oracleQuery.data?.logs ?? [], [oracleQuery.data]);
+  // Çip için: undefined = hâlâ yükleniyor (çip bekler, önce tahmini çizmez).
+  const chipOracleRows = oracleQuery.isLoading ? undefined : oracleRows;
   // v0.8.407 — per-span correlated-row counts for the waterfall chips
   // (span events always; ES logs once the lazy fetch has cached them).
   const logSignals = useMemo(
@@ -566,9 +578,10 @@ function TraceDetailInner() {
               {/* v0.10.347 (operatör: "en üstteki tarih daha belirgin olabilir") —
                   trace zamanı ikincil gri yazı değil, şeridin okunan sayısı. */}
               {root && <span style={{ color: 'var(--text)', fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }} title="Trace başlangıcı (kök span)">{tsLong(root.startTime)}</span>}
-              {/* v0.10.1003 — Oracle operasyon adı (span'lerdeki FUNCTION_CODE üzerinden);
-                  trace kod taşımıyorsa ya da ad bilinmiyorsa hiçbir şey çizilmez. */}
-              <OracleOperationChip spans={spans} pageRange={range} />
+              {/* v0.10.1003 — Oracle operasyon adı. v0.10.1329: önce bu trace'in kendi
+                  Oracle satırları / span attribute'u (kesin), yoksa FUNCTION_CODE
+                  sözlüğü etiketli yedek; hiçbiri yoksa hiçbir şey çizilmez. */}
+              <OracleOperationChip spans={spans} pageRange={range} oracleRows={chipOracleRows} />
               {/* v0.10.354 (operatör) — Compare / Logs / Share / Export JSON ve kritik
                   yol özeti beyaz şeritten çıktı: Topbar'daki gri alana (actions). */}
 

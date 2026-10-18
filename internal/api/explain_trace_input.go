@@ -139,6 +139,17 @@ type traceExplainInput struct {
 	// OracleRows — v0.10.921 (Kademe A): prompt'a giren Oracle hata satırı
 	// sayısı (UI kanıt satırı için); 0 = Oracle kapalı / satır yok.
 	OracleRows int
+	// MainOperation / OtherOperations / OperationSource — v0.10.1329
+	// (operatör-bildirimli, dikiş): trace'in ana operasyonu KESİN kaynaktan
+	// (pickMainOperation: bu trace'in Oracle satırları → span attribute'u;
+	// fonksiyon kodu sözlüğü YOK). Source "oracle" | "span" | "" (bilinmiyor).
+	// Bu sürümde prompt'a GİRMEZ — golden bayt-bayt aynı.
+	MainOperation   string
+	OtherOperations []string
+	OperationSource string
+	// RootVersion — v0.10.1329 (dikiş): kök servisin bu trace'teki çalışan
+	// sürümü (anomaly.StackServiceVersion; ek okuma yok). Boş = bilinmiyor.
+	RootVersion string
 }
 
 // buildTraceExplainInput — trace'in span'lerini çekip kompakt JSON'a
@@ -226,6 +237,9 @@ func (s *Server) buildTraceExplainInput(ctx context.Context, id string) (traceEx
 	// kendi 4 sn bütçesi, sessiz düşüş: Explain'i asla düşürmez.
 	var oracleBlock string
 	var oracleRows int
+	// v0.10.1329 — satırların KENDİSİ de tutulur (yalnız sayı değil): ana
+	// operasyon seçimi (pickMainOperation) aynı okumadan, ek sorgu yok.
+	var oracleRowsRead []chstore.OracleErrorRow
 	var oracleWG sync.WaitGroup
 	if s.oracle != nil && s.oracle.HasEnabledSources() && s.store != nil {
 		ofrom := time.Unix(0, minT).Add(-time.Minute)
@@ -237,6 +251,7 @@ func (s *Server) buildTraceExplainInput(ctx context.Context, id string) (traceEx
 			defer ocancel()
 			if rows, oerr := s.store.OracleErrorsByTrace(octx, strings.ToLower(id), ofrom, oto, oracleExplainMaxRows*5); oerr == nil {
 				oracleBlock, oracleRows = oracleExplainBlock(rows, s.oracleSourceNames())
+				oracleRowsRead = rows
 			}
 		}()
 	}
@@ -330,6 +345,7 @@ func (s *Server) buildTraceExplainInput(ctx context.Context, id string) (traceEx
 	// v0.10.1147 — span event bloğu kuyruğun BAŞINA: kırpmada span listesi
 	// kesilir, exception özeti korunur (yalnız-log modunda da baştan kesilir).
 	tail := evd.Block() + logsBlock + oracleBlock
+	mainOp, otherOps, opSource := pickMainOperation(oracleRowsRead, allSpans)
 	return traceExplainInput{
 		User:         traceExplainUser(id, len(compact), totalSpans, string(payload), tail),
 		Evidence:     traceEvidenceSpanIDs(compact),
@@ -341,6 +357,11 @@ func (s *Server) buildTraceExplainInput(ctx context.Context, id string) (traceEx
 		RootService:  rootService,
 		DBStatements: dbStmts,
 		ErrorText:    truncRunesN(strings.Join(errTexts, "\n")+"\n"+rawStack, 2000),
+		// v0.10.1329 — dikiş: henüz prompt'a girmez.
+		MainOperation:   mainOp,
+		OtherOperations: otherOps,
+		OperationSource: opSource,
+		RootVersion:     anomaly.StackServiceVersion(allSpans, rootService),
 	}, nil
 }
 
