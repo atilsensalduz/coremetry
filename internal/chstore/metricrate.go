@@ -286,6 +286,110 @@ func (s *Store) QueryMetricCountRate(ctx context.Context, f MetricQueryFilter, m
 	return s.queryRateFrom(ctx, f, mode, rateSourceHistogramCount)
 }
 
+// PresentKeys — v0.10.1358 — MetricPresentKeys'in cevabı. Eskiden çıplak
+// []string idi ve hata / kısmi cevap nil'e çöküyordu: çağıran nil'i "hiçbir
+// anahtar yok" diye okuyordu (v0.10.1350'nin durum-kodu dersiyle aynı sınıf).
+// Artık yokluk iddiası yalnız State == "known" iken geçerli.
+//
+//	Keys   — sorulan anahtarlardan GÖRÜLENLER (çağıranın yazımıyla). unknown'da
+//	         da dolu olabilir: kısmi listede görülen anahtar gerçekten VAR;
+//	         bilinmeyen yalnız YOKLUK.
+//	State  — "known" | "unknown" (hata / kısmi / kesik cevap).
+//	Reason — unknown'ın gerekçesi (operatöre basılır).
+//	Scope  — "service" (service_name kapsamlı tarama) | "fleet" (servis
+//	         kapsamı boş döndü ya da servis verilmedi → filo geneli).
+type PresentKeys struct {
+	Keys   []string
+	State  string
+	Reason string
+	Scope  string
+}
+
+// v0.10.1358 — PresentKeys hâlleri.
+const (
+	PresentKeysKnown        = "known"
+	PresentKeysUnknown      = "unknown"
+	PresentKeysScopeService = "service"
+	PresentKeysScopeFleet   = "fleet"
+)
+
+// PresentKeysMaxLookback — v0.10.1358 — anahtar taramasının en geniş penceresi.
+// Sayfa penceresi 7 g / 30 g olabilir; etiket indeksi taraması pencereyle
+// büyür ve prod boyutunda zaman aşımı → (eskiden) "yok" demekti. Kimlik
+// anahtarı varlığı için son 24 saat yeter.
+const PresentKeysMaxLookback = 24 * time.Hour
+
+// ClampPresentKeysWindow — v0.10.1358 — SAF: etkin from = max(from, to-24h).
+// to sıfırsa şimdi; from sıfır ya da to'dan sonraysa to-24h.
+func ClampPresentKeysWindow(from, to time.Time) (time.Time, time.Time) {
+	if to.IsZero() {
+		to = time.Now()
+	}
+	floor := to.Add(-PresentKeysMaxLookback)
+	if from.IsZero() || from.Before(floor) || from.After(to) {
+		from = floor
+	}
+	return from, to
+}
+
+// PresentKeysProbe — v0.10.1358 — tek kapsamlı tarama: service "" ⇒ filo
+// geneli. present = sorulan anahtarlardan görülenler (çağıranın yazımıyla);
+// partial = liste eksik olabilir (VM isPartial / kesik), "yok" kanıtı DEĞİL.
+type PresentKeysProbe func(service string) (present []string, partial bool, err error)
+
+// ResolvePresentKeys — v0.10.1358 — SAF orkestrasyon, VM ve CH ortak:
+// önce servis kapsamı; kapsamlı tarama BİLİNEN boş döndüyse (hata/kısmi
+// DEĞİL) filo geneline bir kez daha sorulur (Scope="fleet"). Hata ya da
+// kısmi cevap ⇒ unknown + gerekçe — "anahtar yok" DEĞİL (http_labels.go
+// probeStatusLabel ile aynı üç hâl).
+func ResolvePresentKeys(keys []string, service string, probe PresentKeysProbe) PresentKeys {
+	if len(keys) == 0 {
+		return PresentKeys{State: PresentKeysKnown}
+	}
+	run := func(svc, scope string) PresentKeys {
+		present, partial, err := probe(svc)
+		switch {
+		case err != nil:
+			return PresentKeys{Keys: present, State: PresentKeysUnknown, Reason: err.Error(), Scope: scope}
+		case partial:
+			return PresentKeys{Keys: present, State: PresentKeysUnknown,
+				Reason: "kısmi cevap (isPartial) — liste eksik olabilir", Scope: scope}
+		}
+		return PresentKeys{Keys: present, State: PresentKeysKnown, Scope: scope}
+	}
+	svc := strings.TrimSpace(service)
+	if svc != "" {
+		if r := run(svc, PresentKeysScopeService); r.State != PresentKeysKnown || len(r.Keys) > 0 {
+			return r
+		}
+	}
+	return run("", PresentKeysScopeFleet)
+}
+
+// metricPresentKeysSQL — v0.10.1358 — SAF SQL kurucu (pin testi). service
+// boş değilse `service_name = ?` kapsamı; boşsa filo geneli.
+func metricPresentKeysSQL(metric, service string, keys []string, from, to time.Time) (string, []any) {
+	sel := make([]string, 0, len(keys))
+	args := []any{}
+	for i, k := range keys {
+		col, name := "attr_keys", k
+		if strings.HasPrefix(k, "resource.") {
+			col, name = "res_keys", strings.TrimPrefix(k, "resource.")
+		}
+		sel = append(sel, fmt.Sprintf("countIf(has(%s, ?)) AS k%d", col, i))
+		args = append(args, name)
+	}
+	args = append(args, metric, from, to)
+	q := "SELECT " + strings.Join(sel, ", ") +
+		" FROM metric_points WHERE metric = ? AND time >= ? AND time <= ?"
+	if service != "" {
+		q += " AND service_name = ?"
+		args = append(args, service)
+	}
+	q += " SETTINGS max_execution_time = 5"
+	return q, args
+}
+
 // MetricPresentKeys — verilen anahtarlardan HANGİLERİ bu metrikte
 // gerçekten var (attr_keys ya da res_keys içinde).
 //
@@ -301,42 +405,31 @@ func (s *Store) QueryMetricCountRate(ctx context.Context, f MetricQueryFilter, m
 // Tek sorgu, anahtar başına countIf — N ayrı tur değil. `resource.`
 // öneki soyulup res_keys'e, önek yoksa attr_keys'e bakılıyor (filtre
 // tarafındaki çözümlemenin aynısı).
-func (s *Store) MetricPresentKeys(ctx context.Context, metric string, keys []string, since time.Duration) []string {
-	if len(keys) == 0 {
-		return nil
-	}
-	to := time.Now()
-	from := to.Add(-since)
-	sel := make([]string, 0, len(keys))
-	args := []any{}
-	for i, k := range keys {
-		col, name := "attr_keys", k
-		if strings.HasPrefix(k, "resource.") {
-			col, name = "res_keys", strings.TrimPrefix(k, "resource.")
+//
+// v0.10.1358 — sertleştirme: (1) Scan/sorgu hatası artık nil ("yok")
+// DEĞİL, State="unknown" + gerekçe; (2) önce `service_name = ?` kapsamı,
+// bilinen-boşsa filo geneli (ResolvePresentKeys); (3) pencere en çok 24 sa
+// (ClampPresentKeysWindow).
+func (s *Store) MetricPresentKeys(ctx context.Context, metric, service string, keys []string, from, to time.Time) PresentKeys {
+	from, to = ClampPresentKeysWindow(from, to)
+	return ResolvePresentKeys(keys, service, func(svc string) ([]string, bool, error) {
+		q, args := metricPresentKeysSQL(metric, svc, keys, from, to)
+		counts := make([]uint64, len(keys))
+		dest := make([]any, len(keys))
+		for i := range counts {
+			dest[i] = &counts[i]
 		}
-		sel = append(sel, fmt.Sprintf("countIf(has(%s, ?)) AS k%d", col, i))
-		args = append(args, name)
-	}
-	args = append(args, metric, from, to)
-	q := "SELECT " + strings.Join(sel, ", ") +
-		" FROM metric_points WHERE metric = ? AND time >= ? AND time <= ?" +
-		" SETTINGS max_execution_time = 5"
-
-	counts := make([]uint64, len(keys))
-	dest := make([]any, len(keys))
-	for i := range counts {
-		dest[i] = &counts[i]
-	}
-	if err := s.conn.QueryRow(ctx, q, args...).Scan(dest...); err != nil {
-		return nil
-	}
-	var out []string
-	for i, k := range keys {
-		if counts[i] > 0 {
-			out = append(out, k)
+		if err := s.conn.QueryRow(ctx, q, args...).Scan(dest...); err != nil {
+			return nil, false, err
 		}
-	}
-	return out
+		var out []string
+		for i, k := range keys {
+			if counts[i] > 0 {
+				out = append(out, k)
+			}
+		}
+		return out, false, nil
+	})
 }
 
 // MetricUnit — bir metriğin OTLP birimi ("s", "ms", "By", …).

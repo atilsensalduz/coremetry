@@ -120,7 +120,10 @@ func metricThroughputCacheKey(service, metric, jobLabel string, from, to time.Ti
 	// geldi). Sürümsüz anahtar, rolling deploy sırasında eski zarfı yeni
 	// koda servis ederdi: panel 30 sn boyunca birimsiz çizerdi. Zarf
 	// değişimi anahtar sürümü ister — v0.9.443/458 dersi.
-	return fmt.Sprintf("svc-metric-tput:v2:src=%s:%s:%s:%s:%s:mdp%d:bd%s:rw%d:mx%s:env%s", src, service, metric, jobLabel, cacheBucket(from, to), mdp, breakdown, rateWin, mx, env)
+	//
+	// :v3: — v0.10.1358. Zarf presentKeysState/Reason/Scope kazandı; eski
+	// gövde (alan yok) eski "hiçbiri yok" cümlesini 30 sn daha basardı.
+	return fmt.Sprintf("svc-metric-tput:v3:src=%s:%s:%s:%s:%s:mdp%d:bd%s:rw%d:mx%s:env%s", src, service, metric, jobLabel, cacheBucket(from, to), mdp, breakdown, rateWin, mx, env)
 }
 
 func metricThroughputPlan(service, metric, jobLabel string, from, to time.Time, mdp int, breakdown string, rateWin int, mx, env, src string) (string, chstore.MetricQueryFilter) {
@@ -562,8 +565,19 @@ func (s *Server) getServiceMetricThroughput(w http.ResponseWriter, r *http.Reque
 		// v0.9.1268 — tanılama da AYNI depodan. Bu satır s.store'da kalsaydı
 		// grafik VM'de ararken not ClickHouse'un anahtarlarını anlatırdı;
 		// "hiçbir aday yok" cümlesi doğru görünüp yanlış depoyu tarif ederdi.
-		out["presentKeys"] = src.MetricPresentKeys(ctx, resolved,
-			append(identityLabelCandidates(jobLabel, src), chstore.EnvAttrKeys...), to.Sub(from))
+		// v0.10.1358 — üç hâlli cevap (chstore.PresentKeys). Eskiden hata /
+		// kısmi cevap nil'e çöküyordu ve not "hiçbir anahtar yok — collector
+		// kimliği başka alanda gönderiyor" diyordu: yanlış eylem. Artık
+		// servis kapsamı önce (bilinen-boşsa filo geneli), pencere ≤24 sa,
+		// hata/kısmi ⇒ presentKeysState="unknown" + gerekçe — "yok" DEĞİL.
+		pk := src.MetricPresentKeys(ctx, resolved, name,
+			append(identityLabelCandidates(jobLabel, src), chstore.EnvAttrKeys...), from, to)
+		out["presentKeys"] = pk.Keys
+		out["presentKeysState"] = pk.State
+		out["presentKeysScope"] = pk.Scope
+		if pk.Reason != "" {
+			out["presentKeysReason"] = pk.Reason
+		}
 
 		probeLabel := jobLabel
 		if probeLabel == "" {

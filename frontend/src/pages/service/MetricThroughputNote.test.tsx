@@ -104,3 +104,52 @@ describe('MetricThroughputNote — kaynak rozeti', () => {
     expect(txt).toContain('deposit/shop-deposit-uat');
   });
 });
+
+// v0.10.1358 — MetricPresentKeys sertleştirmesi: tarama hata/kısmi döndüyse
+// boş presentKeys "hiçbiri yok — collector'ı düzelt" DEĞİL. Eski iki dal
+// (var / yok) aynen; alan yoksa (eski gövde) known okuması.
+describe('MetricThroughputNote — presentKeys üç hâli (v0.10.1358)', () => {
+  it('unknown ⇒ BİLİNEMEDİ + gerekçe, "hiçbiri yok" cümlesi YOK', () => {
+    const txt = render(base({
+      source: 'vm',
+      presentKeys: [],
+      presentKeysState: 'unknown',
+      presentKeysReason: 'kısmi cevap (isPartial) — liste eksik olabilir',
+      presentKeysScope: 'service',
+    }));
+    expect(txt).toContain('Anahtar varlığı BİLİNEMEDİ');
+    expect(txt).toContain('(kısmi cevap (isPartial) — liste eksik olabilir)');
+    expect(txt).toContain('etiket yok DEĞİL');
+    expect(txt).not.toContain('bu metrikte yok');
+    expect(txt).not.toContain('VAR OLAN anahtarlar');
+  });
+
+  it('unknown ama kısmi listede görülen anahtar ⇒ yine basılır', () => {
+    const txt = render(base({
+      presentKeys: ['job'],
+      presentKeysState: 'unknown',
+      presentKeysReason: 'kısmi',
+    }));
+    expect(txt).toContain('BİLİNEMEDİ');
+    expect(txt).toContain('Görülen anahtarlar: job');
+  });
+
+  it('known + fleet ⇒ eski metin + "filo geneli"', () => {
+    const present = render(base({ presentKeys: ['job'], presentKeysState: 'known', presentKeysScope: 'fleet' }));
+    expect(present).toContain('VAR OLAN anahtarlar (filo geneli)');
+    expect(present).toContain('değer beklenenden farklı');
+    const absent = render(base({ presentKeys: [], presentKeysState: 'known', presentKeysScope: 'fleet' }));
+    expect(absent).toContain('bu metrikte yok (filo geneli)');
+    expect(absent).not.toContain('BİLİNEMEDİ');
+  });
+
+  it('alan yok (eski gövde) ⇒ eski known dalları, kapsam yazısı yok', () => {
+    const absent = render(base({}));
+    expect(absent).toContain('bu metrikte yok');
+    expect(absent).not.toContain('filo geneli');
+    expect(absent).not.toContain('BİLİNEMEDİ');
+    const present = render(base({ presentKeys: ['job'], presentKeysScope: 'service' }));
+    expect(present).toContain('VAR OLAN anahtarlar:');
+    expect(present).not.toContain('filo geneli');
+  });
+});

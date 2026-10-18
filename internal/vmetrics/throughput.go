@@ -549,16 +549,34 @@ func (s *Service) labelNamesBetween(ctx context.Context, cfg Settings, metric, s
 // matched through promLabel, but ECHOED BACK VERBATIM: the note prints them
 // next to the tried-labels list, and printing two spellings of one key would
 // read as two different keys.
-func (s *Service) MetricPresentKeys(ctx context.Context, metric string, keys []string, since time.Duration) []string {
-	if len(keys) == 0 {
-		return nil
-	}
-	all, err := s.labelNames(ctx, metric, "", since)
-	if err != nil {
-		return nil
-	}
-	have := make(map[string]bool, len(all))
-	for _, k := range all {
+//
+// v0.10.1358 — hardened (the v0.10.1350 follow-up). The old body asked ONE
+// fleet-wide labelNames over the page window, turned every error into nil and
+// dropped isPartial — so a prod-size timeout or partial answer read as "none of
+// these keys exist". Now: the window is clamped to 24h, the scan is scoped to
+// service_name="<service>" first (fleet-wide only when that is a KNOWN empty),
+// and error / partial answers return State="unknown" with a reason —
+// chstore.ResolvePresentKeys, shared with the ClickHouse twin.
+func (s *Service) MetricPresentKeys(ctx context.Context, metric, service string, keys []string, from, to time.Time) chstore.PresentKeys {
+	from, to = chstore.ClampPresentKeysWindow(from, to)
+	return chstore.ResolvePresentKeys(keys, service, func(svc string) ([]string, bool, error) {
+		cfg, err := s.ready()
+		if err != nil {
+			return nil, false, err
+		}
+		all, partial, err := s.labelNamesBetween(ctx, cfg, metric, svc, from, to)
+		if err != nil {
+			return nil, false, err
+		}
+		return presentAmong(keys, all), partial, nil
+	})
+}
+
+// presentAmong — v0.10.1358 — PURE: the asked-about keys (Coremetry spelling,
+// echoed verbatim) whose promLabel spelling is in the label-name list.
+func presentAmong(keys, labelNames []string) []string {
+	have := make(map[string]bool, len(labelNames))
+	for _, k := range labelNames {
 		have[k] = true
 	}
 	var out []string

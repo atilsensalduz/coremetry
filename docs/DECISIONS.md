@@ -6981,3 +6981,25 @@ taşındı), bileşen `components/ai/MdTable.tsx`'e çıkarıldı; iki yüzey ay
 aynı. Hücre içi biçimleme `inline` prop'uyla çağırana bırakıldı — link güvenliği her yüzeyin kendi kapısında kalır
 (RenderedMarkdown `renderInline` + `appLinkKind`). `normalizeMathEscapes` önce tüm metne uygulanır; kod çiti içindeki
 tablo düz metin kalır; akış sırasında ayraç satırı tamamlanana kadar başlık metin, yarım gövde satırı gizli (sohbet kuralı).
+
+## 2026-10-18 — v0.10.1358 — MetricPresentKeys: hata/kısmi = bilinmiyor
+
+**Bağlam:** v0.10.1350'nin izlemesi. `MetricPresentKeys` (kalan tek tüketicisi: throughput eşleyicisinin "kimlik
+eşleşmedi" teşhisi) VM'de filo genelinde TEK `/api/v1/labels` taraması (sayfa penceresi kadar) soruyor, her hatayı nil'e
+çeviriyor, `isPartial`'ı düşürüyordu; CH yolu Scan hatasında nil dönüyor, servis kapsamı taşımıyordu. nil = not "denenen
+kimlik anahtarlarının hiçbiri bu metrikte yok — collector kimliği başka alanda gönderiyor" → zaman aşımı / kısmi cevap
+operatöre YANLIŞ eylem söylüyordu (v0.10.1350 durum-kodu hatasıyla aynı sınıf).
+**Karar:** (1) Dikiş `MetricPresentKeys(ctx, metric, service, keys, from, to) chstore.PresentKeys{Keys, State
+known|unknown, Reason, Scope service|fleet}`; yokluk iddiası yalnız `known`'da geçerli. Kısmi listede görülen anahtar
+`Keys`'te kalır (varlık kanıtı geçerli, bilinmeyen yalnız yokluk). (2) Pencere `ClampPresentKeysWindow`: etkin from =
+max(from, to−24 sa). (3) Ortak saf orkestrasyon `chstore.ResolvePresentKeys`: önce servis kapsamı (VM
+`service_name="<svc>"` matcher'lı `labelNamesBetween`, CH `AND service_name = ?`); kapsamlı tarama BİLİNEN boş (sorulan
+anahtarlardan hiçbiri, hata/kısmi değil) ise bir kez filo geneli (`Scope=fleet`); hata ya da kısmi ⇒ `unknown` + gerekçe,
+filoya düşülmez. `probeStatusLabel` üç hâlinin aynası. (4) Throughput zarfı `presentKeysState` / `presentKeysReason` /
+`presentKeysScope` taşır; önbellek anahtarı `svc-metric-tput:v3:` (eski gövde eski "hiçbiri yok" cümlesini basmasın).
+Negatif bağ teşhis zarfı presentKeys'ten ÖNCE serileştirildiği için `tputBindKey` değişmedi. (5) `MetricThroughputNote`
+üçüncü dal: "Anahtar varlığı BİLİNEMEDİ (<gerekçe>) — etiket yok DEĞİL"; known dallar aynen, `fleet`'te "(filo geneli)".
+Alan yoksa (eski gövde) known okuması. Testler: `internal/chstore/metric_present_keys_test.go` (SQL servis pini, üç hâl
+tablosu, 24 sa kıstırma), `internal/vmetrics/throughput_test.go` (hata / kısmi / servis-boş ⇒ filo / 24 sa pencere
+httptest), `service_metric_throughput_test.go` (zarf pini, v3), `MetricThroughputNote.test.tsx` (unknown dalı).
+**Bilinçli sınır:** VM etiket ucunda kesik (truncation) bayrağı yok — `limit` gönderilmiyor; yalnız `isPartial` okunur.

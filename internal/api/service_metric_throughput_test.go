@@ -81,7 +81,7 @@ func mustKey(k string, _ any) string { return k }
 func TestMetricThroughputCacheKeyIsEnvelopeVersioned(t *testing.T) {
 	svc, from, to := planFixture(t)
 	k, _ := metricThroughputPlan(svc, "m1", "job", from, to, 600, "", 180, "0", "", "ch")
-	if !strings.HasPrefix(k, "svc-metric-tput:v2:") {
+	if !strings.HasPrefix(k, "svc-metric-tput:v3:") { // v0.10.1358 — presentKeysState zarfı
 		t.Errorf("zarf sürümü anahtarda değil: %q", k)
 	}
 }
@@ -485,5 +485,28 @@ func TestThroughputPayloadNamesTheSourceItSearched(t *testing.T) {
 	// bayat bir gövde yanlış deponun adını gösterir.
 	if !strings.Contains(src, "src.Name())") {
 		t.Error("önbellek/bağ anahtarları src.Name() taşımıyor")
+	}
+}
+
+// v0.10.1358 — presentKeys teşhisi üç hâlli: zarf State/Scope/Reason taşır ve
+// çağrı servis + sayfa penceresiyle yapılır (kıstırma seam'de, 24 sa). Eski
+// `to.Sub(from)` süre imzası geri gelirse servis kapsamı da kaybolur.
+func TestMetricThroughputPresentKeysTriState_v0101358(t *testing.T) {
+	raw, err := os.ReadFile("service_metric_throughput.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := stripAPILineComments(string(raw))
+	for _, want := range []string{
+		"pk := src.MetricPresentKeys(ctx, resolved, name,",
+		"chstore.EnvAttrKeys...), from, to)",
+		`out["presentKeys"] = pk.Keys`,
+		`out["presentKeysState"] = pk.State`,
+		`out["presentKeysScope"] = pk.Scope`,
+		`out["presentKeysReason"] = pk.Reason`,
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("service_metric_throughput.go %q içermiyor", want)
+		}
 	}
 }

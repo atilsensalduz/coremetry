@@ -23,6 +23,8 @@ package api
 // İzleme (kuyruk, ŞİMDİ DEĞİL): MetricPresentKeys sertleştirmesi — servis
 // kapsamı + kısmi cevap ⇒ bilinmiyor. Diğer tüketicisi (service_metric_
 // throughput presentKeys teşhisi) hâlâ eski yoldan okur.
+// v0.10.1358 — YAPILDI: chstore.PresentKeys (known|unknown + Reason +
+// service|fleet Scope), pencere ≤24 sa; throughput zarfı presentKeysState taşır.
 
 import (
 	"errors"

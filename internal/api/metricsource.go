@@ -250,7 +250,12 @@ type metricSource interface {
 	// MetricPresentKeys answers "does this metric carry this identity key at
 	// all" — the diagnostic that separates a mis-configured collector from a
 	// mismatched value (v0.9.682).
-	MetricPresentKeys(ctx context.Context, metric string, keys []string, since time.Duration) []string
+	//
+	// v0.10.1358 — tri-state answer (chstore.PresentKeys): service-scoped first,
+	// fleet-wide only on a KNOWN empty, window clamped to 24h, and error /
+	// partial ⇒ State "unknown" — never "absent". Callers must not read an
+	// empty Keys as absence unless State == chstore.PresentKeysKnown.
+	MetricPresentKeys(ctx context.Context, metric, service string, keys []string, from, to time.Time) chstore.PresentKeys
 
 	// ServiceIdentityLabels is the ONE method here with no chstore twin, and
 	// it exists because the two backends genuinely disagree about the
@@ -395,8 +400,9 @@ func (c chMetricSource) MetricUnit(ctx context.Context, metric, service string) 
 // ClickHouse install sees.
 func (chMetricSource) LatencyMetricName(name string) string { return name }
 
-func (c chMetricSource) MetricPresentKeys(ctx context.Context, metric string, keys []string, since time.Duration) []string {
-	return c.store.MetricPresentKeys(ctx, metric, keys, since)
+// v0.10.1358 — service + from/to (tri-state PresentKeys).
+func (c chMetricSource) MetricPresentKeys(ctx context.Context, metric, service string, keys []string, from, to time.Time) chstore.PresentKeys {
+	return c.store.MetricPresentKeys(ctx, metric, service, keys, from, to)
 }
 
 func (chMetricSource) ServiceIdentityLabels() []string { return chstore.ServiceIdentityLabels }
@@ -618,8 +624,9 @@ func (v vmMetricSource) LatencyMetricName(name string) string {
 	return v.svc.LatencyMetricName(name)
 }
 
-func (v vmMetricSource) MetricPresentKeys(ctx context.Context, metric string, keys []string, since time.Duration) []string {
-	return v.svc.MetricPresentKeys(ctx, metric, keys, since)
+// v0.10.1358 — service + from/to (tri-state PresentKeys).
+func (v vmMetricSource) MetricPresentKeys(ctx context.Context, metric, service string, keys []string, from, to time.Time) chstore.PresentKeys {
+	return v.svc.MetricPresentKeys(ctx, metric, service, keys, from, to)
 }
 
 func (v vmMetricSource) ServiceIdentityLabels() []string { return v.svc.ServiceIdentityLabels() }

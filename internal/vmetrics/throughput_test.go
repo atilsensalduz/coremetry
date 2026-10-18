@@ -440,8 +440,13 @@ func TestMetricPresentKeysMatchesSanitizedEchoesVerbatim(t *testing.T) {
 
 	s := New()
 	s.Configure(Settings{BaseURL: srv.URL})
-	got := s.MetricPresentKeys(context.Background(), "http.server.request.duration",
-		[]string{"resource.k8s.deployment.name", "job", "resource.k8s.container.name"}, time.Hour)
+	now := time.Now()
+	pk := s.MetricPresentKeys(context.Background(), "http.server.request.duration", "", // v0.10.1358 — servis + pencere
+		[]string{"resource.k8s.deployment.name", "job", "resource.k8s.container.name"}, now.Add(-time.Hour), now)
+	if pk.State != chstore.PresentKeysKnown || pk.Scope != chstore.PresentKeysScopeFleet {
+		t.Fatalf("başarılı tam cevap known/fleet olmalı: %+v", pk)
+	}
+	got := pk.Keys
 
 	if len(got) != 2 {
 		t.Fatalf("want the two present keys, got %v", got)
@@ -483,7 +488,148 @@ func TestThroughputMethodsFailClosedWhenUnconfigured(t *testing.T) {
 	if got := s.MetricUnit(ctx, "m", ""); got != "" {
 		t.Errorf("MetricUnit = %q, want empty", got)
 	}
-	if got := s.MetricPresentKeys(ctx, "m", []string{"job"}, time.Hour); got != nil {
-		t.Errorf("MetricPresentKeys = %v, want nil", got)
+	// v0.10.1358 — yapılandırılmamış VM artık nil ("yok") DEĞİL: unknown + gerekçe.
+	now := time.Now()
+	if got := s.MetricPresentKeys(ctx, "m", "svc", []string{"job"}, now.Add(-time.Hour), now); got.State != chstore.PresentKeysUnknown || got.Reason == "" || got.Keys != nil {
+		t.Errorf("MetricPresentKeys = %+v, want unknown with reason", got)
+	}
+}
+
+// v0.10.1358 — MetricPresentKeys sertleştirmesi (v0.10.1350 izlemesi). Eski
+// gövde filo genelinde TEK labelNames soruyordu; hata nil'e çöküyor, isPartial
+// düşüyordu → prod boyutunda zaman aşımı / kısmi cevap "anahtar yok" okunuyordu.
+type presentKeysCall struct {
+	match      string
+	start, end float64
+}
+
+func presentKeysServer(t *testing.T, answer func(match string) (status int, body string)) (*Service, *[]presentKeysCall) {
+	t.Helper()
+	var calls []presentKeysCall
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		st, _ := strconv.ParseFloat(r.Form.Get("start"), 64)
+		en, _ := strconv.ParseFloat(r.Form.Get("end"), 64)
+		m := r.Form.Get("match[]")
+		calls = append(calls, presentKeysCall{match: m, start: st, end: en})
+		code, body := answer(m)
+		w.WriteHeader(code)
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	s := New()
+	s.Configure(Settings{BaseURL: srv.URL})
+	return s, &calls
+}
+
+func TestMetricPresentKeysHardened_v0101358(t *testing.T) {
+	now := time.Now()
+	keys := []string{"job", "resource.k8s.deployment.name"}
+	cases := []struct {
+		name      string
+		answer    func(match string) (int, string)
+		wantState string
+		wantScope string
+		wantKeys  int
+		wantCalls int
+		reasonHas string
+	}{
+		{
+			name: "hata ⇒ unknown, yok DEĞİL",
+			answer: func(string) (int, string) {
+				return http.StatusServiceUnavailable, `timeout`
+			},
+			wantState: chstore.PresentKeysUnknown, wantScope: chstore.PresentKeysScopeService,
+			wantCalls: 1, reasonHas: "503",
+		},
+		{
+			name: "kısmi + boş ⇒ unknown, filoya düşmez",
+			answer: func(string) (int, string) {
+				return 200, `{"status":"success","isPartial":true,"data":["__name__"]}`
+			},
+			wantState: chstore.PresentKeysUnknown, wantScope: chstore.PresentKeysScopeService,
+			wantCalls: 1, reasonHas: "isPartial",
+		},
+		{
+			name: "kısmi ama görülen anahtar ⇒ unknown, görülen korunur",
+			answer: func(string) (int, string) {
+				return 200, `{"status":"success","isPartial":true,"data":["job"]}`
+			},
+			wantState: chstore.PresentKeysUnknown, wantScope: chstore.PresentKeysScopeService,
+			wantKeys: 1, wantCalls: 1, reasonHas: "isPartial",
+		},
+		{
+			name: "servis kapsamı bilinen-boş ⇒ filo genelinde yeniden sorulur",
+			answer: func(m string) (int, string) {
+				if strings.Contains(m, "service_name") {
+					return 200, `{"status":"success","data":[]}`
+				}
+				return 200, `{"status":"success","data":["job","k8s_deployment_name"]}`
+			},
+			wantState: chstore.PresentKeysKnown, wantScope: chstore.PresentKeysScopeFleet,
+			wantKeys: 2, wantCalls: 2,
+		},
+		{
+			name: "servis kapsamında bulundu ⇒ filo sorulmaz",
+			answer: func(string) (int, string) {
+				return 200, `{"status":"success","data":["job"]}`
+			},
+			wantState: chstore.PresentKeysKnown, wantScope: chstore.PresentKeysScopeService,
+			wantKeys: 1, wantCalls: 1,
+		},
+		{
+			name: "filo da bilinen-boş ⇒ known, gerçekten yok",
+			answer: func(string) (int, string) {
+				return 200, `{"status":"success","data":["__name__","le"]}`
+			},
+			wantState: chstore.PresentKeysKnown, wantScope: chstore.PresentKeysScopeFleet,
+			wantCalls: 2,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s, calls := presentKeysServer(t, tc.answer)
+			got := s.MetricPresentKeys(context.Background(), "http.server.request.duration", "cart", keys, now.Add(-time.Hour), now)
+			if got.State != tc.wantState || got.Scope != tc.wantScope || len(got.Keys) != tc.wantKeys {
+				t.Fatalf("got %+v, want state=%s scope=%s keys=%d", got, tc.wantState, tc.wantScope, tc.wantKeys)
+			}
+			if len(*calls) != tc.wantCalls {
+				t.Fatalf("calls = %d, want %d: %+v", len(*calls), tc.wantCalls, *calls)
+			}
+			if !strings.Contains((*calls)[0].match, `service_name="cart"`) {
+				t.Errorf("ilk tarama servis kapsamlı değil: %q", (*calls)[0].match)
+			}
+			if tc.wantCalls == 2 && strings.Contains((*calls)[1].match, "service_name") {
+				t.Errorf("ikinci tarama filo geneli olmalı: %q", (*calls)[1].match)
+			}
+			if tc.reasonHas != "" && !strings.Contains(got.Reason, tc.reasonHas) {
+				t.Errorf("reason %q, want contains %q", got.Reason, tc.reasonHas)
+			}
+			if tc.wantState == chstore.PresentKeysKnown && got.Reason != "" {
+				t.Errorf("known with reason %q", got.Reason)
+			}
+		})
+	}
+}
+
+// v0.10.1358 — 7 g / 30 g sayfa penceresi etiket taramasına 24 sa olarak iner.
+func TestMetricPresentKeysClampsLookback24h_v0101358(t *testing.T) {
+	s, calls := presentKeysServer(t, func(string) (int, string) {
+		return 200, `{"status":"success","data":["job"]}`
+	})
+	to := time.Now()
+	_ = s.MetricPresentKeys(context.Background(), "m", "cart", []string{"job"}, to.Add(-7*24*time.Hour), to)
+	if len(*calls) != 1 {
+		t.Fatalf("calls = %d", len(*calls))
+	}
+	c := (*calls)[0]
+	if span := c.end - c.start; span < 24*3600-1 || span > 24*3600+1 {
+		t.Errorf("tarama penceresi %.0f sn, want 24 sa", span)
+	}
+	// Dar pencere aynen kalır.
+	*calls = nil
+	_ = s.MetricPresentKeys(context.Background(), "m", "cart", []string{"job"}, to.Add(-time.Hour), to)
+	if span := (*calls)[0].end - (*calls)[0].start; span < 3600-1 || span > 3600+1 {
+		t.Errorf("1 sa pencere %.0f sn'ye değişti", span)
 	}
 }

@@ -4255,6 +4255,13 @@ export interface ServiceMetricThroughput {
   // "anahtar yok" ile "anahtar var, değer tutmadı" bambaşka eylemler
   // gerektiriyor; boş bir grafik ikisini de aynı gösteriyordu.
   presentKeys?: string[];
+  // v0.10.1358 — presentKeys'in güvenilirliği. 'unknown' = tarama hata verdi
+  // ya da kısmi döndü (gerekçe presentKeysReason): boş liste "anahtar yok"
+  // DEĞİL. Scope 'fleet' = servis kapsamı bilinen-boş döndü, filo geneline
+  // bakıldı. `?:` çünkü eski gövdelerde yok (yok ⇒ eski 'known' okuması).
+  presentKeysState?: 'known' | 'unknown';
+  presentKeysReason?: string;
+  presentKeysScope?: 'service' | 'fleet';
   // v0.9.683 — teknik olarak PATLAYAN adaylar. "Eşleşme yok" ile
   // "sorgu hata verdi" bambaşka şeyler; ikincisi sessiz kalırsa
   // operatör sonsuza kadar deseni kovalar.

@@ -470,7 +470,7 @@ func TestCHSourceDelegationIsArgumentIdentical(t *testing.T) {
 		"return c.store.QueryMetricRate(ctx, f, mode)",
 		"return c.store.QueryMetricCountRate(ctx, f, mode)",
 		"return c.store.MetricUnit(ctx, metric, service)",
-		"return c.store.MetricPresentKeys(ctx, metric, keys, since)",
+		"return c.store.MetricPresentKeys(ctx, metric, service, keys, from, to)", // v0.10.1358 — servis + pencere
 		// Faz 1/2'den beri var olanlar da listede: bu sürüm onlara
 		// dokunmadı, ve dokunulmadığının kanıtı da burada dursun.
 		"return c.store.QueryMetric(ctx, f)",

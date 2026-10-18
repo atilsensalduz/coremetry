@@ -135,10 +135,28 @@ export function MetricThroughputNote({ d }: { d: ServiceMetricThroughput }) {
           </ul>
         </div>
       )}
+      {/* v0.10.1358 — üçüncü dal: tarama hata verdi / kısmi döndü. Boş
+          liste burada "anahtar yok" DEĞİL — collector'ı düzelt demek yanlış
+          eylem olurdu. Görülen anahtarlar (kısmi listede) yine VAR. Eski
+          gövdede alan yok ⇒ known okuması (eski iki dal aynen). */}
       <div style={{ marginTop: 4 }}>
-        {(d.presentKeys?.length ?? 0) > 0 ? (
+        {d.presentKeysState === 'unknown' ? (
+          <span style={{ color: 'var(--warn)' }}>
+            Anahtar varlığı <b>BİLİNEMEDİ</b>
+            {d.presentKeysReason ? <> ({d.presentKeysReason})</> : null} — etiket yok DEĞİL.
+            {(d.presentKeys?.length ?? 0) > 0 && (
+              <>
+                {' '}Görülen anahtarlar:{' '}
+                {d.presentKeys!.map((k, i) => (
+                  <span key={k}>{i > 0 && ', '}<code>{k}</code></span>
+                ))}
+              </>
+            )}
+          </span>
+        ) : (d.presentKeys?.length ?? 0) > 0 ? (
           <>
-            <span style={{ color: 'var(--text3)' }}>Bu metrikte VAR OLAN anahtarlar:</span>{' '}
+            <span style={{ color: 'var(--text3)' }}>Bu metrikte VAR OLAN anahtarlar
+              {d.presentKeysScope === 'fleet' && ' (filo geneli)'}:</span>{' '}
             {d.presentKeys!.map((k, i) => (
               <span key={k}>{i > 0 && ', '}<code>{k}</code></span>
             ))}
@@ -148,7 +166,8 @@ export function MetricThroughputNote({ d }: { d: ServiceMetricThroughput }) {
           </>
         ) : (
           <span style={{ color: 'var(--text3)' }}>
-            Denenen kimlik anahtarlarının <b>hiçbiri</b> bu metrikte yok —
+            Denenen kimlik anahtarlarının <b>hiçbiri</b> bu metrikte yok
+            {d.presentKeysScope === 'fleet' && ' (filo geneli)' /* v0.10.1358 */} —
             collector servis kimliğini başka bir alanda gönderiyor.
           </span>
         )}

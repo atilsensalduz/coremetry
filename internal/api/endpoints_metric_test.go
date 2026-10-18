@@ -39,9 +39,11 @@ type fakeEPSource struct {
 
 func (f *fakeEPSource) Name() string                      { return f.name }
 func (f *fakeEPSource) LatencyMetricName(n string) string { return strings.TrimSuffix(n, "_count") }
-func (f *fakeEPSource) MetricPresentKeys(context.Context, string, []string, time.Duration) []string {
+
+// v0.10.1358 — imza servis + pencere + üç hâlli PresentKeys.
+func (f *fakeEPSource) MetricPresentKeys(context.Context, string, string, []string, time.Time, time.Time) chstore.PresentKeys {
 	f.presentCalls++
-	return f.keys
+	return chstore.PresentKeys{Keys: f.keys, State: chstore.PresentKeysKnown, Scope: chstore.PresentKeysScopeService}
 }
 func (f *fakeEPSource) MetricUnit(context.Context, string, string) string { return f.unit }
 func (f *fakeEPSource) EnvFilterExpr(env string) (chstore.FilterExpr, bool) {
