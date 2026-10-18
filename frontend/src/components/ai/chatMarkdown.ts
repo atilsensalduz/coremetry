@@ -28,6 +28,7 @@
 // saf testle çivilenebiliyor (chatMarkdown.test.ts).
 
 import { inlinePlain, parseInline } from './chatInline';
+import { normalizeMathEscapes } from '@/components/mathEscapes'; // v0.10.1345
 
 export type ChatBlockAlign = 'left' | 'center' | 'right';
 export type CalloutVariant = 'summary' | 'note' | 'tip' | 'warning' | 'important' | 'caution';
@@ -614,5 +615,6 @@ function plainBlocks(bs: readonly ChatBlock[], indent: string): string[] {
 }
 
 export function chatPlainText(md: string): string {
-  return plainBlocks(parseChatBlocks(md ?? ''), '').join('\n\n').trim();
+  // v0.10.1345 — panoya da çizimle aynı metin: LaTeX sembolleri unicode.
+  return plainBlocks(parseChatBlocks(normalizeMathEscapes(md ?? '')), '').join('\n\n').trim();
 }

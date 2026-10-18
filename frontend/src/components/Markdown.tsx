@@ -24,8 +24,13 @@ import { CopyButton } from './CopyButton';
 // TEK satır (hata hangi servisten hangisine yayıldı) gürültüye
 // gömülmüştü. `normalizeMathEscapes` girişte bir kez uygulanıyor;
 // gerekçesi ve neden prompt'la çözülmediği o dosyada.
-export function RenderedMarkdown({ text, idLinks, anatomy }: {
+// v0.10.1345 — yardımcı artık kod-farkında (çit/satır içi kod dokunulmaz)
+// ve sohbet balonuyla PAYLAŞILIYOR; `streaming` akan cevabın sonundaki
+// yarım komutu gizler (CopilotExplain akarken ExplainBody `busy` geçer).
+export function RenderedMarkdown({ text, idLinks, anatomy, streaming }: {
   text: string;
+  /** v0.10.1345 — metin hâlâ akıyor (normalizeMathEscapes kural 6) */
+  streaming?: boolean;
   /** v0.10.165 — kod çitlerinde oluk/dosya başlığı/stack katlama (yalnız CoSRE kartı; runbook vb. operatör metni dokunulmaz) */
   anatomy?: boolean;
   // v0.10.35 — SUNUCUNUN linklenebilir saydığı kimlikler. Verilirse
@@ -36,7 +41,7 @@ export function RenderedMarkdown({ text, idLinks, anatomy }: {
 }) {
   const idPat = idLinkPattern(idLinks);
   const blocks: React.ReactNode[] = [];
-  const lines = normalizeMathEscapes(text).split('\n');
+  const lines = normalizeMathEscapes(text, { streaming }).split('\n');
   let i = 0;
   let bulletBuf: string[] = [];
   const flushBullets = () => {
@@ -197,7 +202,8 @@ export function CodeBlock({ lang, lines, anatomy }: { lang: string; lines: strin
 // Bilinmeyen işaretler OLDUĞU GİBİ kalıyor — RenderedMarkdown'ın
 // "sessizce içerik yutma" ilkesiyle aynı.
 export function stripMarkdown(s: string): string {
-  return s
+  // v0.10.1345 — kart önizlemesi de model metni: `$\rightarrow$` → `→`.
+  return normalizeMathEscapes(s)
     // ``` çitleri: yalnız çit satırı gider, kod durur.
     .replace(/^\s*```.*$/gm, '')
     // Başlıklar ve madde imleri satır BAŞINDA.

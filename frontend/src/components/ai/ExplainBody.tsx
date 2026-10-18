@@ -72,7 +72,7 @@ export function ExplainBody({ text, busy, links, evidence, verdict: wantVerdict 
         </div>
       )}
       {hoisted.quotes.map((q, i) => <CodeBlock key={`q${i}`} lang={q.lang} lines={q.lines} anatomy />)}
-      <RenderedMarkdown text={hoisted.rest} idLinks={links} anatomy />
+      <RenderedMarkdown text={hoisted.rest} idLinks={links} anatomy streaming={busy} />
     </>
   );
 }

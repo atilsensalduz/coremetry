@@ -24,6 +24,7 @@ import {
   CALLOUT_LABEL, CODE_COLLAPSE_LINES, type CalloutVariant, type ChatBlock,
 } from './chatMarkdown';
 import { parseInline, inlinePlain, type InlineNode } from './chatInline'; // v0.10.1137
+import { normalizeMathEscapes } from '@/components/mathEscapes'; // v0.10.1345
 import { buildLinkPolicy, classifyLink, EMPTY_POLICY, hostOf, toAppPath, UNVERIFIED_TITLE, type LinkPolicy } from './chatLinks'; // v0.10.1137
 import { parseStepPreview, fmtPreviewBytes } from './stepPreview';
 import { DisclosureButton } from '@/components/ui/DisclosureButton';
@@ -427,7 +428,9 @@ const NO_CHARTS: unknown[] = [];
 export function renderMessage(text: string, streaming = false, typed?: ChatTypedBlock[], opts?: { charts?: boolean }) {
   // v0.10.541 — tipli chart blokları varsa fence grafikleri ÇİZİLMEZ.
   const typedCharts = opts?.charts === false ? NO_CHARTS : chartBlocks(typed);
-  const blocks = parseChatBlocks(text, streaming);
+  // v0.10.1345 — LaTeX sembolleri (`$\rightarrow$` → →) çözücüden ÖNCE, BİRİKMİŞ
+  // metin üzerinde (delta değil): akışta sondaki yarım komut gizlenir, kod dokunulmaz.
+  const blocks = parseChatBlocks(normalizeMathEscapes(text, { streaming }), streaming);
   // Yedek dal İÇERİK YOKLUĞUNA bakıyor (bozuk chart bloğu bilinçli atlanır).
   if (blocks.length === 0) return <>{streaming && <Caret />}</>;
   return <>{renderBlocks(blocks, streaming, typedCharts, streaming, 'b')}</>;
