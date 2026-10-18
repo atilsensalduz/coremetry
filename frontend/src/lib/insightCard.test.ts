@@ -56,6 +56,11 @@ describe('insightHrefInternal', () => {
   // router'a verilirse uygulama sessizce başka bir siteye gider.
   const EXTERNAL = [
     '//evil.example/x',
+    // v0.10.1314 — react-router v6 ters bölü açık yönlendirmesi: "//" testini
+    // geçen "/\host" ve kodlanmış biçimleri de iç DEĞİL (isSafeAppPath).
+    '/\\evil.example/x',
+    '/%5Cevil.example',
+    '/%2F%2Fevil.example',
     'https://grafana.example/d/abc',
     'http://x.example',
     'mailto:ops@example.com',

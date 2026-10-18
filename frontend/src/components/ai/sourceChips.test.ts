@@ -34,3 +34,21 @@ describe('sourceChips', () => {
     expect(sourceChips([])).toEqual([]);
   });
 });
+
+// v0.10.1314 — react-router v6 ters bölü açık yönlendirmesi: kaynak href'i
+// yalnız http(s) ya da isSafeAppPath; "/\evil.com" ve kodlanmış biçimleri tıklanmaz.
+describe('sourceChips — güvensiz href (v0.10.1314)', () => {
+  const CASES: Array<[string, string | undefined]> = [
+    ['/\\evil.com', undefined],
+    ['//evil.com', undefined],
+    ['/%5Cevil.com', undefined],
+    ['javascript:alert(1)', undefined],
+    ['/docs/x', '/docs/x'],
+    ['https://wiki.example/x', 'https://wiki.example/x'],
+  ];
+  for (const [ref, want] of CASES) {
+    it(`${JSON.stringify(ref)} → ${JSON.stringify(want)}`, () => {
+      expect(sourceChips([{ doc: 'd', ref, chunk: 1, score: 0.5 }])[0].href).toBe(want);
+    });
+  }
+});

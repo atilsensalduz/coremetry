@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { appendChatBlock } from '@/lib/chatBlocks';
+import { isSafeAppPath } from '@/lib/safeAppPath';
 import type { AiConversation, ChatAttempt, PageContext } from '@/lib/types';
 import type { ChatMessage, ChatTurn } from '@/lib/types';
 import { capPageContext } from '@/lib/traceAiContext';
@@ -295,7 +296,8 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
         } else if (e.kind === 'answer') {
           patchLast(t => ({ ...t, text: e.text, exchangeId: e.exchangeId, callId: e.callId, sources: e.sources, suggestions: e.suggestions, followups: e.followups, links: e.links, allowedLinks: e.allowedLinks, evidence: e.evidence, pending: false })); // v0.10.1137 — link doğrulama listesi; v0.10.1272 — kanıt çipleri; v0.10.1280 — callId (👍/👎 → ai_calls); v0.10.1291 — kural-türevli takip çipleri
           // v0.10.434 (D7b) — yalnız uygulama-içi (kök-göreli) href; dış adres asla.
-          if (e.open && e.open.startsWith('/') && !e.open.startsWith('//')) o.onOpen?.(e.open);
+          // v0.10.1314 — kapı isSafeAppPath ("/\evil.com" react-router v6'da dışarı açılırdı).
+          if (e.open && isSafeAppPath(e.open)) o.onOpen?.(e.open);
         } else if (e.kind === 'error') {
           patchLast(t => ({ ...t, error: e.error, pending: false }));
         } else if (e.kind === 'done') {

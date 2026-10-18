@@ -27,4 +27,11 @@ describe('mergeOpenHref', () => {
     expect(mergeOpenHref('https://evil', '/trace', '')).toBeNull();
     expect(mergeOpenHref('//evil', '/trace', '')).toBeNull();
   });
+  // v0.10.1314 — react-router v6 ters bölü açık yönlendirmesi: "//" testini geçen
+  // "/\host" ve kodlanmış biçimleri de null (isSafeAppPath).
+  it('rejects backslash / encoded protocol-relative hrefs (v0.10.1314)', () => {
+    for (const h of ['/\\evil.com', '/%5Cevil.com', '/%2F%2Fevil.com', '/x\\y', '/x%0Ay']) {
+      expect(mergeOpenHref(h, '/trace', ''), h).toBeNull();
+    }
+  });
 });

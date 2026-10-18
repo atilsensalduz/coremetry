@@ -4,6 +4,7 @@ import type { CorePanelMultiItem } from '@/components/chart/corePanelEntry';
 import type { EvidenceBlockView } from '@/lib/chatBlocks';
 import type { Tone } from '@/components/ui/Badge';
 import { fmtClock, fmtDateTime, fmtDurShort } from '@/lib/utils';
+import { safeAppPath } from '@/lib/safeAppPath';
 import { fmtMs } from './toolSteps';
 
 // evidenceChip — v0.10.1272 (CoSRE adım 3): kanıt çipinin SAF yarısı.
@@ -105,9 +106,7 @@ export function evidenceKindLabel(kind: string): string {
  * gelen kanıt istemciden geçtiği için burada da sınır). "//host" ve "/\host" asla.
  */
 export function evidenceHref(ev: ChatQueryEvidence): string | null {
-  const h = ev.href ?? '';
-  if (!h.startsWith('/') || h.startsWith('//') || h.startsWith('/\\')) return null;
-  return h;
+  return safeAppPath(ev.href); // v0.10.1314 — tek kapı (lib/safeAppPath)
 }
 
 /**

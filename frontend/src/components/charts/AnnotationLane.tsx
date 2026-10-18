@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { AnnotationItem } from '@/lib/types';
 import { fmtClock } from '@/lib/utils';
+import { appLinkKind } from '@/lib/safeAppPath';
 
 // AnnotationLane — v0.9.395, Faz C-2 Ş2 (mockup 52b05851 operatör onaylı).
 // Chart'ın ALTINDA x-hizalı ince olay bandı: deploy ▲ / rollout ↻ /
@@ -166,14 +167,15 @@ export function AnnotationLane({ items, fromNs, toNs, onZoomTo }: {
           <div style={{ display: 'grid', gap: 3, maxHeight: 140, overflowY: 'auto' }}>
             {clusters[open].items.map((it, j) => {
               const href = targetHref(it);
+              // v0.10.1314 — olay `link`i dışarıdan POST edilen olaydan: iç yalnız
+              // isSafeAppPath ("/\evil.com" react-router v6'da dışarı açılırdı),
+              // dış yalnız http(s); ikisi de değilse bağlantı çizilmez.
+              const linkKind = href ? appLinkKind(href) : null;
               return (
                 <span key={j} style={{ color: KIND_COLOR[it.kind] }}>
                   {KIND_GLYPH[it.kind] ?? '•'} {it.title}
-                  {href && (
-                    href.startsWith('/')
-                      ? <Link to={href} style={{ marginLeft: 5 }}>aç →</Link>
-                      : <a href={href} target="_blank" rel="noreferrer" style={{ marginLeft: 5 }}>aç →</a>
-                  )}
+                  {href && linkKind === 'internal' && <Link to={href} style={{ marginLeft: 5 }}>aç →</Link>}
+                  {href && linkKind === 'external' && <a href={href} target="_blank" rel="noreferrer" style={{ marginLeft: 5 }}>aç →</a>}
                 </span>
               );
             })}

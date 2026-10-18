@@ -9,6 +9,7 @@
 // doküman adı) başına tek çip, sıra ilk görülme, etiket "Kaynak N".
 
 import type { RagSource } from '@/lib/types';
+import { isSafeAppPath } from '@/lib/safeAppPath';
 
 export interface SourceChip {
   key: string;
@@ -31,7 +32,8 @@ export const SOURCE_KIND_LABEL: Record<NonNullable<SourceChip['kind']>, string> 
 const WIKI_PREFIX = 'Wiki · ';
 const hostOfRef = (u?: string) => /^https?:\/\/([^/?#\s]+)/i.exec(u ?? '')?.[1].toLowerCase() ?? '';
 // Yalnız http(s) ve kök-göreli href tıklanır (javascript:/data: asla).
-const safeHref = (u?: string) => (u && (/^https?:\/\//i.test(u) || (u.startsWith('/') && !u.startsWith('//'))) ? u : undefined);
+// v0.10.1314 — kök-göreli kapı isSafeAppPath ("/\evil.com" dışarı açılırdı).
+const safeHref = (u?: string) => (u && (/^https?:\/\//i.test(u) || isSafeAppPath(u)) ? u : undefined);
 
 function targetKey(s: RagSource): string {
   const ref = (s.ref ?? '').trim();

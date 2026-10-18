@@ -10,6 +10,10 @@ describe('pageActions', () => {
     expect(parseAction({ kind: 'navigate', href: '/x' })).toBeNull();
     expect(parseAction({ kind: 'apply', href: 'https://evil/traces' })).toBeNull();
     expect(parseAction({ kind: 'apply', href: '//evil/traces' })).toBeNull();
+    // v0.10.1314 — react-router v6 ters bölü açık yönlendirmesi (isSafeAppPath).
+    expect(parseAction({ kind: 'apply', href: '/\\evil.com' })).toBeNull();
+    expect(parseAction({ kind: 'apply', href: '/%5Cevil.com' })).toBeNull();
+    expect(parseAction({ kind: 'apply', href: '/%2F%2Fevil.com' })).toBeNull();
     expect(parseAction('x')).toBeNull();
   });
   it('görünürlük aynı sayfa; uygulama sayfa-sahipli param\'ları değiştirir, yabancıyı korur', () => {

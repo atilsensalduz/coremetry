@@ -2,6 +2,8 @@
 // sayfadaysa mevcut sorgu paramlarıyla birleştirilir (range/env/chat gibi
 // yabancı paramlar korunur — URL tek gerçek kaynak ev kuralı); farklı
 // sayfaysa aynen gidilir. Yalnız kök-göreli href; dış adres asla.
+import { isSafeAppPath } from './safeAppPath';
+
 // pageOwnedParams — v0.10.495: sunucunun `open` verdiği sayfanın KENDİ
 // süzgeç/sıralama paramları. Aynı sayfadayken birleştirme bunları önce
 // SİLER: "trace'leri getir" cevabı /traces'e yeni bir arama taşıyor;
@@ -21,8 +23,9 @@ const pageOwnedParams: Record<string, readonly string[]> = {
   '/logs': ['service', 'cluster', 'q', 'severity', 'traceId', 'spanId', 'hasTrace', 'filters', 'doc', 'docsvc'],
 };
 
+// v0.10.1314 — kapı isSafeAppPath ("/\evil.com" react-router v6'da dışarı açılırdı).
 export function mergeOpenHref(href: string, currentPathname: string, currentSearch: string): string | null {
-  if (!href.startsWith('/') || href.startsWith('//')) return null;
+  if (!isSafeAppPath(href)) return null;
   const q = href.indexOf('?');
   const path = q >= 0 ? href.slice(0, q) : href;
   if (path !== currentPathname) return href;

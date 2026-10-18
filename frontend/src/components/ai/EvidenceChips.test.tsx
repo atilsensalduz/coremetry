@@ -12,7 +12,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { EvidenceChips } from './EvidenceChips';
 import { ChatBubble } from './ChatBubble';
-import { evidenceChipParts, evidenceDefaultOpen, evidenceChartGroups, evidenceHopLabel, evidenceLevelTone, stepEvidenceItems } from './evidenceChip';
+import { evidenceChipParts, evidenceDefaultOpen, evidenceChartGroups, evidenceHopLabel, evidenceHref, evidenceLevelTone, stepEvidenceItems } from './evidenceChip';
 import { persistMessages, restoreTurns } from './chatPersist';
 import { evidenceBlocksByRef, traceListBlocks } from '@/lib/chatBlocks';
 import type { ChatQueryEvidence, ChatTypedBlock, ChatTurn } from '@/lib/types';
@@ -247,4 +247,22 @@ describe('EvidenceChips — bileşik kanıt listesi (pivot_from_trace)', () => {
     expect(table.textContent).toContain('normal');
     expect(table.querySelectorAll('.badge').length).toBe(2);
   });
+});
+
+// v0.10.1314 — evidenceHref tek kapıdan (lib/safeAppPath): react-router v6
+// ters bölü açık yönlendirmesi ve kodlanmış biçimleri tıklanmaz.
+describe('evidenceHref (v0.10.1314)', () => {
+  const CASES: Array<[string | undefined, string | null]> = [
+    ['/\\evil.com', null],
+    ['//evil.com', null],
+    ['/%5Cevil.com', null],
+    ['https://evil.com', null],
+    [undefined, null],
+    ['/logs?service=a', '/logs?service=a'],
+  ];
+  for (const [href, want] of CASES) {
+    it(`${JSON.stringify(href)} → ${JSON.stringify(want)}`, () => {
+      expect(evidenceHref({ ...evLogs, href })).toBe(want);
+    });
+  }
 });

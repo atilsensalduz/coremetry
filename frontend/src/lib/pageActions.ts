@@ -6,6 +6,7 @@
 // ile URL birleşimi + replace:true navigate: yeni sekme yok, sayfa URL'yi
 // kaynak-of-truth olarak yeniden okur (frontend-conventions §4).
 import { mergeOpenHref } from './openHref';
+import { isSafeAppPath } from './safeAppPath';
 import type { CosreRuleScope, CosreRuleScopeKind, SREHypothesisKind } from './types';
 
 export interface ApplyAction { kind: 'apply'; href: string; label: string }
@@ -13,7 +14,8 @@ export interface ApplyAction { kind: 'apply'; href: string; label: string }
 export function parseAction(payload: unknown): ApplyAction | null {
   if (!payload || typeof payload !== 'object') return null;
   const p = payload as Partial<ApplyAction>;
-  if (p.kind !== 'apply' || typeof p.href !== 'string' || !p.href.startsWith('/') || p.href.startsWith('//')) return null;
+  // v0.10.1314 — kapı isSafeAppPath ("/\evil.com" react-router v6'da dışarı açılırdı).
+  if (p.kind !== 'apply' || typeof p.href !== 'string' || !isSafeAppPath(p.href)) return null;
   return { kind: 'apply', href: p.href, label: typeof p.label === 'string' && p.label ? p.label : 'Bu sayfada uygula' };
 }
 

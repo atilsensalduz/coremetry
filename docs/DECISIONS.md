@@ -6180,3 +6180,24 @@ başlangıç`; aksi 0 (okunmadı / okunamadı / eşleme yok / bağlanamayan senk
 çağrılmaz, parça `State=replay` + not, kontrol 0. Geçmiş vaka canlı Argo
 durumuyla puanlanmaz (TestReplayArgoUnknown). Testler: TestHypothesisTable
 argo satırları, TestChkArgoWindow, TestArgoSingleReadPerRun, TestArgoAppStatuses.
+
+## 2026-10-18 — react-router v6'da kal; tek uygulama-içi yol kapısı `isSafeAppPath` (v0.10.1314)
+
+- **Karar (v0.10.1314):** react-router v6'da (6.30.6, BrowserRouter) kalınıyor. Dependabot'un
+  react-router < 7.18 açık yönlendirme uyarısı (`<Link to="/\evil.com">` / `navigate('/\\evil.com')`
+  v6'nın ABSOLUTE_URL_REGEX'ini ve removeDoubleSlashes'ını geçer, pushState kökenler-arası fırlatır,
+  router `window.location.assign`'a düşer) için 6.x yaması yok; v7'ye geçmek de kurtarmaz —
+  `@grafana/ui` iç içe react-router 6.30.6 (`react-router-dom-v5-compat`) taşıyor.
+- **Kapı:** sabit olmayan HER uygulama-içi yol (sunucu/AI/editör kaynaklı href) Link/navigate'e
+  gitmeden `frontend/src/lib/safeAppPath.ts` `isSafeAppPath` / `safeAppPath` / `appLinkKind`'den
+  geçer (Go aynası: `buildLinkResultLink`, `sanitizeOIDCNext`). Bağlanan yerler: openHref, pageActions,
+  insightCard, sourceChips, useChatThread `open`, chatBlocks (turn.links + link/trace_list/operation
+  blokları), evidenceChip, recommendationView `runbookTarget` (editörün yazdığı runbook URL'si —
+  tek gerçek vaka), AnnotationLane olay linki. `postLoginRedirect.ts` bilinçli olarak ayrı (daha sıkı,
+  Go'yla 1:1). Ratchet: `safeAppPath.ratchet.test.ts` — yalnız `"//"`ya bakan yeni kapı kırmızı,
+  muafiyetler gerekçe-anahtarlı (postLoginRedirect, clusterArgoFields Git URL ayrıştırma).
+- **Dependabot react-router uyarıları kapatıldı (dismiss):** SSR `deserializeErrors` — kullanılmıyor
+  (BrowserRouter; data router / hydration yok). Açık yönlendirme — izleyicinin kontrol ettiği hiçbir
+  değer bir sink'e ulaşmıyor, hepsi kapıdan geçiyor.
+- **Yeniden bak:** `@grafana/ui` `react-router-dom-v5-compat` bağımlılığını bıraktığında v7'ye geçiş
+  yeniden değerlendirilir.

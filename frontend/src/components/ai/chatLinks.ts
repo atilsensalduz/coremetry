@@ -23,6 +23,7 @@
 // Parça (#…) karşılaştırmada yok sayılır: tarayıcı onu sunucuya göndermez.
 
 import type { ChatAnswerLink, RagSource } from '@/lib/types';
+import { isSafeAppPath } from '@/lib/safeAppPath';
 
 // 'allowed-host' — v0.10.1137 inceleme: adres TAM eşleşmedi, yalnız kaynağın
 // host'u (+ çok kiracılı host'ta ilk yol parçası) tuttu. Tıklanır ama etiket
@@ -76,25 +77,10 @@ function firstSegment(raw: string): string {
   return m ? m[1].toLowerCase() : '';
 }
 
-// Kontrol karakteri ya da boşluk (yol içinde asla).
-// eslint-disable-next-line no-control-regex -- yol güvenliği: C0/C1 kontrol karakterlerini reddetmek kuralın amacı
-const CTRL_OR_SPACE = /[\s\u0000-\u001f\u007f-\u009f]/;
-
-/**
- * Kök-göreli GÜVENLİ uygulama yolu ("/x"). Reddedilenler: "//host" ve "/\host"
- * (tarayıcı protokol-göreli dış adres sayar), yolda ters bölü, boşluk/kontrol
- * karakteri, ve kod çözülünce "//" ya da "/\" ile başlayan ya da ters bölü
- * içeren yol (%2F%2F, %5C — sunucu/yönlendirici çözünce dışarı açılabilir).
- */
-export function isRelativePath(u: string): boolean {
-  if (!u.startsWith('/') || u.startsWith('//') || u.startsWith('/\\')) return false;
-  if (u.includes('\\') || CTRL_OR_SPACE.test(u)) return false;
-  const path = u.split(/[?#]/)[0];
-  let dec = path;
-  try { dec = decodeURIComponent(path); } catch { return false; }
-  if (dec.startsWith('//') || dec.startsWith('/\\') || dec.includes('\\') || CTRL_OR_SPACE.test(dec)) return false;
-  return true;
-}
+// v0.10.1314 — kural lib/safeAppPath.ts'e taşındı (uygulamanın TEK
+// uygulama-içi yol kapısı; react-router v6 "/\host" açık yönlendirmesi).
+// Eski ad mevcut çağıranlar ve testler için aynı fonksiyon.
+export const isRelativePath = isSafeAppPath;
 
 export function buildLinkPolicy(opts: {
   allowedLinks?: readonly string[];

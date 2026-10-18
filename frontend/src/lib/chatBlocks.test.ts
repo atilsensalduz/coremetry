@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { appendChatBlock, chartBlocks, mergeBlockLinks } from './chatBlocks';
+import { appendChatBlock, chartBlocks, evidenceBlocksByRef, mergeBlockLinks, operationBlocks, traceListBlocks } from './chatBlocks';
 import type { ChatTypedBlock } from './types';
 
 // v0.10.541 — blok biriktirme: id tekil (son kazanır), seq sıralı; chart süzgeci
@@ -24,5 +24,32 @@ describe('chatBlocks', () => {
     expect(mergeBlockLinks([{ label: 'A', href: '/a' }], bs)).toEqual([
       { label: 'A', href: '/a' }, { label: 'Traces', href: '/traces?x' }, { label: '/logs', href: '/logs' },
     ]);
+  });
+});
+
+// v0.10.1314 — react-router v6 ters bölü açık yönlendirmesi: ChatBubble http(s)
+// olmayan her link href'ini `<Link to>` çizer; "/\evil.com" v6'nın "//" kontrolünü
+// geçip window.location.assign ile dışarı açılırdı. Güvensiz href (turn.links ve
+// tipli link bloğu) düşer; deepLink/tracesHref güvensiz blok da düşer.
+describe('chatBlocks — güvensiz uygulama yolu (v0.10.1314)', () => {
+  const BAD = ['/\\evil.com', '//evil.com', '/%5Cevil.com', '/%2F%2Fevil.com', 'javascript:alert(1)', 'x'];
+  for (const h of BAD) {
+    it(`mergeBlockLinks ${JSON.stringify(h)} düşer`, () => {
+      expect(mergeBlockLinks([{ label: 'A', href: h }], [mk('b1', 1, 'link', { href: h, label: 'B' })])).toEqual([]);
+    });
+  }
+  it('http(s) ve güvenli yol kalır', () => {
+    expect(mergeBlockLinks([{ label: 'W', href: 'https://wiki.example/x' }], [mk('b1', 1, 'link', { href: '/traces?service=a', label: 'T' })]))
+      .toEqual([{ label: 'W', href: 'https://wiki.example/x' }, { label: 'T', href: '/traces?service=a' }]);
+  });
+  it('trace_list / operasyon bloğu güvensiz deepLink/tracesHref ile düşer', () => {
+    const tl = (deepLink: string, evidenceRef?: string) => ({ query: 'q', window: { fromNs: 1, toNs: 2 }, traces: [{ traceId: 't' }], deepLink, truncated: false, evidenceRef });
+    expect(traceListBlocks([mk('b1', 1, 'trace_list', tl('/\\evil.com'))])).toEqual([]);
+    expect(traceListBlocks([mk('b1', 1, 'trace_list', tl('/traces?x=1'))])).toHaveLength(1);
+    expect(evidenceBlocksByRef([mk('b1', 1, 'trace_list', tl('/\\evil.com', 'ev1'))]).size).toBe(0);
+    expect(evidenceBlocksByRef([mk('b1', 1, 'trace_list', tl('/traces?x=1', 'ev1'))]).size).toBe(1);
+    const op = (tracesHref: string) => ({ operation: 'X', tracesHref, current: { calls: 1, errors: 0, p99Ms: 1, measured: true } });
+    expect(operationBlocks([mk('b1', 1, 'operation', op('/\\evil.com'))])).toEqual([]);
+    expect(operationBlocks([mk('b1', 1, 'operation', op('/traces?operation=X'))])).toHaveLength(1);
   });
 });

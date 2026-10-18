@@ -1,5 +1,6 @@
 import type { Tone } from '@/components/ui';
 import type { SRERecommendation, SREInvestigation } from '@/lib/types';
+import { appLinkKind } from '@/lib/safeAppPath';
 
 // recommendationView — v0.10.1293 — AI SRE Faz 4: yalnız öneri (runbook
 // eşleme + geri alma metni). ProblemInvestigationRecommendations'ın saf
@@ -23,12 +24,19 @@ export function recHumanLabel(r: SRERecommendation): { text: string; tone: Tone 
   return null;
 }
 
-/** Runbook bağlantısı uygulama içi mi (react-router ile git) yoksa dış mı. */
+/**
+ * Runbook bağlantısı uygulama içi mi (react-router ile git) yoksa dış mı.
+ * v0.10.1314 — url editörün elle yazdığı runbook alanı ve navigate()'e
+ * gidiyor: iç yalnız isSafeAppPath ("/\evil.com" react-router v6'da
+ * window.location.assign ile dışarı açılırdı), dış yalnız http(s)
+ * (javascript:/ftp: vb. asla); ikisi de değilse null (düğme gizli).
+ */
 export function runbookTarget(r: SRERecommendation): { kind: 'internal' | 'external'; href: string } | null {
   const u = r.runbook?.url;
   if (!u) return null;
   if (u.startsWith('/api/')) return null; // hiçbir zaman bir uca bağlanma (Go zaten üretmez)
-  return u.startsWith('/') ? { kind: 'internal', href: u } : { kind: 'external', href: u };
+  const kind = appLinkKind(u);
+  return kind ? { kind, href: u } : null;
 }
 
 /** Uygulandı / Ele yalnız bitmiş kayıtta ve işaretlenmemiş öneride. */

@@ -1,5 +1,6 @@
 import { aiSubjectQuestion } from '@/components/ai/drawerChat';
 import type { InsightKind, InsightResponse } from './types';
+import { isSafeAppPath } from './safeAppPath';
 
 // insightCard — gömülü insight kartının SAF yardımcıları (v0.9.1130,
 // AI Faz 2.2; docs/plans/ai-assistant-design-2026-08-16.md §2.3).
@@ -39,9 +40,12 @@ export function insightTone(severity?: string): 'b-warn' | 'b-err' | null {
  * `/logs`, `/traces`, `/service`, `/problems`, `/trace` basıyor; bu kapı o
  * yüzden 3 karakterlik bir sigortadır, bir ihtiyaç listesi değil — FE
  * href'i AYNEN çiziyor, dolayısıyla doğrulamayı da FE yapmalı.
+ *
+ * v0.10.1314 — kapı isSafeAppPath: `/\evil.example` da `//` testini geçip
+ * react-router v6'da window.location.assign ile dışarı açılıyordu.
  */
 export function insightHrefInternal(href: string): boolean {
-  return href.startsWith('/') && !href.startsWith('//');
+  return isSafeAppPath(href);
 }
 
 /**
