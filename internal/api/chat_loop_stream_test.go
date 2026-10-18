@@ -67,7 +67,8 @@ func sseLoopServer(t *testing.T, l *sseLoopLLM) *Server {
 
 func TestChatLoopStreamsFinalTurnOnly(t *testing.T) {
 	final := "**Bulgu** — checkout ödeme adımı yavaş: p95 1830 ms, ödeme geçidi zaman aşımı logları aynı pencerede. " +
-		strings.Repeat("Kanıt: compare_periods ve get_logs_for_trace aynı yönü gösteriyor. ", 3)
+		// v0.10.1324 — farklı cümleler: aynı cümlenin 3 kopyası artık yineleme sayılır (chat_answer_degen.go).
+		"Kanıt: compare_periods aynı yönü gösteriyor. Kanıt: get_logs_for_trace aynı yönü gösteriyor. Kanıt: iki sinyal aynı pencerede örtüşüyor. "
 	llm := newSSELoopLLM(t, func(n int, w http.ResponseWriter, _ *http.Request) {
 		if n == 0 {
 			sseChunk(w, map[string]any{"content": "Önce metriklere, sonra loglara bakıyorum."})

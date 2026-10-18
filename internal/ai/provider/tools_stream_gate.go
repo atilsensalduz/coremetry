@@ -69,6 +69,14 @@ type toolTurnGate struct {
 	lineEmitted int             // satırın onaylanmış bayt sayısı
 	fence       bool            // ``` çit bloğu tutuluyor
 	block       strings.Builder // tutulan çit bloğu
+
+	// v0.10.1324 — yineleme muhafızı (degen_guard.go): yayınlanan metni
+	// izler; tetiklenince yayın durur, temiz önek kalır ve onDegenerate
+	// (üst akış iptali) bir kez çağrılır.
+	degen        degenGuard
+	degenerated  bool
+	cleanText    string
+	onDegenerate func()
 }
 
 func newToolTurnGate(sink func(TextDelta), guard bool, textCalls []string) *toolTurnGate {
@@ -83,6 +91,9 @@ func newToolTurnGate(sink func(TextDelta), guard bool, textCalls []string) *tool
 
 // Content — sağlayıcının content kanalından gelen ham parça.
 func (g *toolTurnGate) Content(s string) {
+	if g.degenerated {
+		return
+	}
 	out, reset := g.think.Feed(s)
 	if reset {
 		g.thinkReset()
@@ -93,6 +104,9 @@ func (g *toolTurnGate) Content(s string) {
 // ToolCall — yapılandırılmış bir tool çağrısı başladı: tur bir tool-call
 // turudur, metni operatöre gitmez.
 func (g *toolTurnGate) ToolCall() {
+	if g.degenerated {
+		return // v0.10.1324 — kesilmiş turun kalan parçaları yok sayılır
+	}
 	g.toolSeen = true
 	g.suppress(true)
 }
@@ -127,6 +141,37 @@ func (g *toolTurnGate) Finish(final string, toolTurn bool) {
 // Emitted — son Reset'ten beri yayınlanan metin (test + teşhis).
 func (g *toolTurnGate) Emitted() string { return g.emitted.String() }
 
+// Degenerated — v0.10.1324: yineleme muhafızı turu kesti mi.
+func (g *toolTurnGate) Degenerated() bool { return g.degenerated }
+
+// CleanText — kesilen turun operatöre kalan temiz öneki ("" = kesilmedi).
+func (g *toolTurnGate) CleanText() string { return g.cleanText }
+
+// degenerate — muhafız tetiklendi: yayın temiz öneke uzlaştırılır, tur
+// susturulur, üst akış okuması iptal edilir.
+func (g *toolTurnGate) degenerate() {
+	clean := g.degen.CleanText()
+	e := g.emitted.String()
+	switch {
+	case strings.HasPrefix(clean, e):
+		if rem := clean[len(e):]; rem != "" {
+			g.sink(TextDelta{Text: rem})
+		}
+	default:
+		g.sink(TextDelta{Text: clean, Reset: true})
+	}
+	g.emitted.Reset()
+	g.emitted.WriteString(clean)
+	g.wsHold = ""
+	g.cleanText = clean
+	g.degenerated = true
+	g.suppressed = true
+	g.approved.Reset()
+	if g.onDegenerate != nil {
+		g.onDegenerate()
+	}
+}
+
 // emit — sondaki boşluk bir SONRAKİ parçaya taşınır: buffered metin
 // (StripThinking) sonu kırpar; akış da kırpık biterse birleşim birebir tutar.
 func (g *toolTurnGate) emit(s string) {
@@ -134,6 +179,10 @@ func (g *toolTurnGate) emit(s string) {
 	t := strings.TrimRight(s, " \t\r\n")
 	g.wsHold = s[len(t):]
 	if t == "" {
+		return
+	}
+	if g.degen.Feed(t) {
+		g.degenerate()
 		return
 	}
 	g.emitted.WriteString(t)
@@ -146,6 +195,7 @@ func (g *toolTurnGate) suppress(reset bool) {
 	if reset && g.emitted.Len() > 0 {
 		g.sink(TextDelta{Reset: true})
 		g.emitted.Reset()
+		g.degen.Reset()
 		g.wsHold = ""
 	}
 }
@@ -156,6 +206,7 @@ func (g *toolTurnGate) thinkReset() {
 		g.sink(TextDelta{Reset: true})
 		g.emitted.Reset()
 	}
+	g.degen.Reset()
 	g.wsHold = ""
 	g.approved.Reset()
 	g.line.Reset()

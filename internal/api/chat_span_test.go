@@ -143,11 +143,13 @@ func TestChatSpanWiring(t *testing.T) {
 	if !(iMeta > 0 && iSpan > iMeta && iDefer > iSpan && iGuided > iDefer) {
 		t.Fatalf("kök span sırası: meta=%d span=%d defer=%d guided=%d", iMeta, iSpan, iDefer, iGuided)
 	}
-	if n := strings.Count(b, "cspan.turn(ctx, round,"); n != 2 {
-		t.Fatalf("iki ChatWithTools yeri de tur span'ı açmalı, %d", n)
+	// v0.10.1324 — üçüncü yer: yineleme düşüşünün araçsız yeniden denemesi.
+	if n := strings.Count(b, "cspan.turn(ctx, round,"); n != 3 {
+		t.Fatalf("üç ChatWithTools yeri de (tur, tavan, yineleme yeniden denemesi) tur span'ı açmalı, %d", n)
 	}
 	// v0.10.1273 — turlar akan ikizden (chatLoopTurn → ChatWithToolsStream).
-	if n := strings.Count(b, "s.chatLoopTurn("); n != 2 {
+	// v0.10.1324 — üçüncüsü yineleme düşüşünün araçsız yeniden denemesi.
+	if n := strings.Count(b, "s.chatLoopTurn("); n != 3 {
 		t.Fatalf("chatLoopTurn çağrı sayısı değişti (%d) — tur span'ı eşlemesini güncelle", n)
 	}
 	// v0.10.536 — araç span'ı tools.Executor'ın Span kancasından (executor_test.go

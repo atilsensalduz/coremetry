@@ -66,7 +66,12 @@ func joinVisible(ds []TextDelta) string {
 }
 
 func TestChatWithToolsStreamOpenAISSE(t *testing.T) {
-	answer := strings.Repeat("checkout p95 1830 ms; ödeme geçidi zaman aşımı. ", 6)
+	// v0.10.1324 — FARKLI cümleler (aynı cümlenin kopyaları yineleme muhafızını haklı olarak tetikler).
+	var ab strings.Builder
+	for i := 0; i < 6; i++ {
+		fmt.Fprintf(&ab, "checkout p95 %d ms; ödeme geçidi zaman aşımı. ", 1830+i)
+	}
+	answer := ab.String()
 	llm := newToolStreamLLM(t, func(w http.ResponseWriter, _ bool) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		r := []rune(answer)

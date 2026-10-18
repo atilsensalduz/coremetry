@@ -71,8 +71,27 @@ func TestChatPipelineGolden(t *testing.T) {
 				"checkout-service",
 				"range_s=21600",
 				"1800 YERİNE", // prompt'un kendi varsayılanı EZİLMELİ
-				"AKSİNİ SÖYLEMEDİKÇE",
+				"Bu kapsam varsayılandır",
 			},
+			// v0.10.1324 (operatör-bildirimi) — büyük harfli kapsam emri yankı
+			// döngüsünün kaynağıydı; kapsamı sunucu uyguluyor.
+			wantNotIn: []string{"AKSİNİ SÖYLEMEDİKÇE", "argümanda açıkça yaz"},
+		},
+		{
+			name: "yineleme düşüşü — prod örneği kanıt özetine döner",
+			why: "v0.10.1324 (operatör-bildirimi): gemma4 31b bir önsöz cümlesini " +
+				"max_tokens dolana dek yazdı; final metne yineleme/yankı süzgeci yoktu.",
+			build: func() string {
+				prod := "Operasyonun hata sebebini inceliyorum.\n" +
+					strings.Repeat("Soru AKSİNİ SÖYLEMEDİKÇE bu boyutları (cluster/namespace/problem/filtreler) tool argümanlarında kullan.\n", 30)
+				ca := cleanChatAnswer(prod, nil) // akmayan yol: akış muhafızı yok, süzgeç var
+				if chatDegenDecide(ca.Repeated, ca.Dropped, ca.Text, true, false, false) != degenDeterministic {
+					return "KARAR: kullanılabilir sayıldı\n" + ca.Text
+				}
+				return chatDegenFallbackAnswer("Operasyon X otomatik getirildi.\nTrace: 3 (2 hatalı).", []chatStepDigest{{Tool: "query_logs", Preview: `{"rows":2}`}})
+			},
+			wantIn:    []string{"yinelenen metne düştüğü", "Operasyon X otomatik getirildi", "**query_logs**"},
+			wantNotIn: []string{"KARAR:", "AKSİNİ SÖYLEMEDİKÇE"},
 		},
 		{
 			name: "geçmişe zoom — çıpa ilan edilir",

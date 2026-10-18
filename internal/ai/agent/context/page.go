@@ -188,7 +188,11 @@ func PreambleTR(cur, pinned *PageContext) string {
 	if cur != nil && cur.Page != "" && !cur.Empty() {
 		b.WriteString("AÇIK SAYFA — operatör şu an burada (servis/aralık yukarıdaki ekran bağlamında):\n")
 		lines(&b, cur, false)
-		b.WriteString("Soru AKSİNİ SÖYLEMEDİKÇE bu boyutları (cluster/namespace/problem/filtreler) tool argümanlarında kullan.\n\n")
+		// v0.10.1324 (operatör-bildirimi) — "Soru AKSİNİ SÖYLEMEDİKÇE bu boyutları
+		// … tool argümanlarında kullan." emri kalktı: ekran önsözünün tek olgusal
+		// kapsam satırına katlandı (api/chat_screen_context.go screenScopeLineTR).
+		// Üç ikiz büyük harfli emir gemma4'ü cevapta yankı döngüsüne sokuyordu.
+		b.WriteString("\n")
 	}
 	return b.String()
 }

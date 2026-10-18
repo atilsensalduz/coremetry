@@ -39,10 +39,16 @@ import (
 // yazılmıyor. Boş bir alanı "(bilinmiyor)" diye yazmak modele
 // doldurulacak bir boşluk sunardı.
 //
-// ── NEDEN "AKSİNİ SÖYLEMEDİKÇE" ─────────────────────────────────────────
+// ── NEDEN "VARSAYILAN" ──────────────────────────────────────────────────
 //
 // Operatör tek servise bakarken pekâlâ "hangi servisler yavaş" diye
-// filo sorusu sorabilir. Bağlam bir VARSAYILAN, kelepçe değil.
+// filo sorusu sorabilir. Bağlam bir VARSAYILAN, kelepçe değil. v0.10.1324'e
+// dek bu, BÜYÜK HARFLİ bir emirdi ("Soru AKSİNİ SÖYLEMEDİKÇE …"); kapsamı
+// artık sunucu uyguladığı için yalnız olgu kalır (screenScopeLineTR).
+
+// screenScopeLineTR — v0.10.1324: ekran önsözünün TEK kapsam satırı. Olgusal,
+// emir değil; sayfa önsözü (agentctx.PreambleTR) artık kendi satırını yazmaz.
+const screenScopeLineTR = "Bu kapsam varsayılandır; varsa açık sayfanın cluster/namespace/filtre boyutlarını sunucu uygulamaz."
 
 // ChatScreenContext — istekle gelen ekran bağlamı.
 type ChatScreenContext struct {
@@ -115,7 +121,13 @@ func screenContextPreambleTR(c ChatScreenContext) string {
 			"\"şimdi\" DEĞİL. Cevabı o ana göre yaz.\n",
 			c.AnchorTo.UTC().Format("2006-01-02 15:04 UTC"))
 	}
-	b.WriteString("Soru AKSİNİ SÖYLEMEDİKÇE bu kapsam geçerli; başka ortam/servis/pencere sorulursa argümanda açıkça yaz.\n\n")
+	// v0.10.1324 (operatör-bildirimi) — eski "Soru AKSİNİ SÖYLEMEDİKÇE …
+	// argümanda açıkça yaz" emri kalktı: kapsamı v0.10.1274'ten beri SUNUCU
+	// uyguluyor (chat_tool_scope.go) ve sayfa/sohbet önsözlerindeki iki ikiz
+	// emirle birlikte gemma4 31b o cümleleri cevaba yankılayıp döngüye
+	// giriyordu. Tek, kısa, OLGUSAL satır — sayfa önsözünün emri de buraya
+	// katlandı (sayfa boyutları sunucuca uygulanmaz).
+	b.WriteString(screenScopeLineTR + "\n\n")
 	return b.String()
 }
 

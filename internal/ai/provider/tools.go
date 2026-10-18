@@ -114,9 +114,12 @@ type ChatResponse struct {
 	// ToolCallsFromText — v0.10.545: tool_calls boştu, çağrılar content'ten
 	// ayrıştırıldı (Gemma 4 sınıfı sunucu parser eksikliği). Gözlem için.
 	ToolCallsFromText bool
-	InputTokens       int
-	OutputTokens      int
-	CachedTokens      int // v0.10.807 — bkz. Response.CachedTokens
+	// Degenerated — v0.10.1324: akan tur yineleme muhafızınca kesildi
+	// (degen_guard.go); Text yinelemeden önceki temiz önektir.
+	Degenerated  bool
+	InputTokens  int
+	OutputTokens int
+	CachedTokens int // v0.10.807 — bkz. Response.CachedTokens
 	// RawContent — Anthropic yanıtının ham content dizisi; bir sonraki turda
 	// ChatMessage.RawContent olarak aynen geri gider (thinking blokları dâhil).
 	RawContent json.RawMessage

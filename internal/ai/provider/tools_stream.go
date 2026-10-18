@@ -31,6 +31,12 @@ import (
 //     ikinci faturalı çağrı yapılmadan çözülür.
 //   - ctx iptali (istemci koptu, alışveriş tavanı) HTTP isteğini keser:
 //     gövde okuması hata döner, akış durur.
+//   - v0.10.1324 (operatör-bildirimi) — YİNELEME MUHAFIZI (degen_guard.go):
+//     yayınlanan metin aynı satırı döngüyle yazmaya başlarsa kapı yayını
+//     keser ve üst akışı KENDİ iptal eder (ctx WithCancel). Bu iptal hata
+//     DEĞİLDİR: tur biriktiriciden biter, Text = temiz önek, Degenerated=true,
+//     tool çağrısı yok sayılır. Usage parçası gelmediği için o turun token
+//     sayıları eksik kalabilir.
 
 // ParseOpenAIToolsOneShot — stream:true isteğine tek atış (SSE olmayan)
 // cevap gelmişse gövdeyi buffered çözümleyiciyle çözer.
@@ -90,6 +96,8 @@ func StreamOpenAITools(ctx context.Context, cfg Config, req ChatRequest, onDelta
 	body := buildOpenAIToolsBody(cfg, req, defaultModel, toolChoiceNone)
 	body["stream"] = true
 	body["stream_options"] = map[string]any{"include_usage": true}
+	ctx, cancel := context.WithCancel(ctx) // v0.10.1324 — yineleme muhafızı üst akışı keser
+	defer cancel()
 	resp, err := doStreamPost(ctx, cfg, url, hdrs, body, labelOpenAI)
 	if err != nil {
 		return ChatResponse{}, err
@@ -98,6 +106,7 @@ func StreamOpenAITools(ctx context.Context, cfg Config, req ChatRequest, onDelta
 
 	offered := offeredTextCalls(req)
 	gate := newToolTurnGate(onDelta, !req.NoToolCalls && len(req.Tools) > 0, offered)
+	gate.onDegenerate = cancel
 	acc := &openAIToolsStreamAccum{}
 	scanErr := scanSSE(resp.Body, func(line string) { acc.feed(line, gate) })
 	if !acc.sawData {
@@ -106,6 +115,9 @@ func StreamOpenAITools(ctx context.Context, cfg Config, req ChatRequest, onDelta
 		}
 	}
 	usage := ChatResponse{InputTokens: acc.inTokens, OutputTokens: acc.outTokens, CachedTokens: acc.cached}
+	if gate.Degenerated() {
+		return degeneratedResponse(usage, gate), nil
+	}
 	if scanErr != nil {
 		// Veri aktıktan sonra kopma (iptal dâhil) — geri düşüş yok.
 		return usage, fmt.Errorf("openai-compat stream read: %w", scanErr)
@@ -116,6 +128,16 @@ func StreamOpenAITools(ctx context.Context, cfg Config, req ChatRequest, onDelta
 	}
 	gate.Finish(out.Text, len(out.ToolCalls) > 0)
 	return out, nil
+}
+
+// degeneratedResponse — v0.10.1324: muhafızın kestiği tur. Kendi iptalimizin
+// okuma hatası yutulur; metin temiz önek, tool çağrısı yok (kesilen turun
+// yarım argümanı yürütülmez), RawContent yok (final tur geri beslenmez).
+func degeneratedResponse(usage ChatResponse, gate *toolTurnGate) ChatResponse {
+	usage.Text = gate.CleanText()
+	usage.Degenerated = true
+	gate.Finish(usage.Text, false)
+	return usage
 }
 
 // openAIToolsStreamAccum — content / reasoning / tool_calls parçalarını
@@ -322,6 +344,8 @@ func StreamAnthropicTools(ctx context.Context, cfg Config, req ChatRequest, onDe
 	}
 	body := buildAnthropicToolsBody(cfg, req)
 	body["stream"] = true
+	ctx, cancel := context.WithCancel(ctx) // v0.10.1324 — yineleme muhafızı üst akışı keser
+	defer cancel()
 	resp, err := doStreamPost(ctx, cfg, anthropicURL, map[string]string{
 		"Content-Type":      "application/json",
 		"X-API-Key":         cfg.APIKey,
@@ -334,6 +358,7 @@ func StreamAnthropicTools(ctx context.Context, cfg Config, req ChatRequest, onDe
 
 	// Anthropic yolunda metin-gömülü çağrı ayrıştırması yok (buffered da yapmıyor).
 	gate := newToolTurnGate(onDelta, !req.NoToolCalls && len(req.Tools) > 0, nil)
+	gate.onDegenerate = cancel
 	acc := &anthropicToolsStreamAccum{}
 	scanErr := scanSSE(resp.Body, func(line string) { acc.feed(line, gate) })
 	if !acc.sawData {
@@ -343,6 +368,9 @@ func StreamAnthropicTools(ctx context.Context, cfg Config, req ChatRequest, onDe
 	}
 	usage := ChatResponse{InputTokens: acc.usage.totalInput(), OutputTokens: acc.usage.OutputTokens,
 		CachedTokens: acc.usage.CacheReadInputTokens}
+	if gate.Degenerated() {
+		return degeneratedResponse(usage, gate), nil
+	}
 	if scanErr != nil {
 		return usage, fmt.Errorf("anthropic stream read: %w", scanErr)
 	}

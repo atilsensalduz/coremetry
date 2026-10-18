@@ -680,6 +680,9 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	// v0.10.1272 — kanıt zarflı araçların (query_metrics/traces/logs) kanıtı:
 	// step-result.evidence + answer.evidence[] (chat_evidence.go).
 	var loopEvidence []mcptools.ChatEvidence
+	// v0.10.1324 — başarılı araç önizlemeleri: yineleme düşüşünün deterministik
+	// kanıt özeti (chat_answer_degen.go chatDegenFallbackAnswer).
+	var stepDigests []chatStepDigest
 	// v0.9.528 Faz 2 — serbest döngünün sistem prompt'u da kiminle
 	// konuşulduğunu taşır. Ön-söz boşsa sabitin aynısı.
 	// v0.10.32 — EKRAN BAĞLAMI. İlk üç kademe req.Context.* alıyordu,
@@ -779,6 +782,11 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 		chatCodeResolvePromptTR(tools) + // v0.10.1210 — iş kodu / kod arama eki
 		dm.loopPrefix() + // v0.10.1150 — Derin kapalıyken ""
 		withAddressee(addressee, copilot.SystemPromptChat())
+	// v0.10.1324 — yankı süzgecinin cümleleri loopPrompt'a giren AYNI önsöz
+	// kurucularından, aynı girdilerle (chatLoopPreambles) + tavan / yeniden
+	// deneme ekleri (chat_answer_degen.go).
+	echoPhrases := chatEchoPhrases(append(chatLoopPreambles(screenCtx, pageCtx, pinnedCtx, cst.ctx),
+		copilot.ChatRoundCapAddendum(), copilot.ChatDegenRetryAddendum())...)
 	if isTraceFollowUp {
 		// v0.10.948 — sayı denetiminin tohumu: açıklamasız AKTİF BAĞLAM + ekran ve
 		// sayfa önsözleri + operatör turları. Önceki açıklama YOK (ilk cevabın sayı uyarısı
@@ -831,6 +839,49 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	// v0.10.948 — bütçe sessiz değil: operatör döngünün sınırını baştan görür,
 	// dolunca da ne kadarının kullanıldığını (chat_loop_steps.go).
 	emit("step", map[string]string{"label": chatBudgetLabelTR(maxCalls, maxRounds)})
+	// v0.10.1324 (operatör-bildirimi) — FİNAL METİN SÜZGECİ + YİNELEME DÜŞÜŞÜ
+	// (chat_answer_degen.go). gemma4 31b bir önsöz cümlesini max_tokens dolana
+	// dek yazdı; iki final çıkış da metni yalnız sanitizeAnswerLinks'ten
+	// geçiriyordu. Önce yineleme + yankı süzülür; cevap yine kullanılamazsa
+	// (akış muhafızı kesti ya da kanıt varken çok kısa) Derin kipte BİR araçsız
+	// yeniden deneme, değilse deterministik kanıt özeti. Neden ai_calls
+	// error_msg'ine yazılır, status ok kalır (degradedReason).
+	var degradedReason string
+	finalAnswerText := func(turn copilot.ChatTurn, prompt string, round int) string {
+		ca := cleanChatAnswer(turn.Text, echoPhrases)
+		hadEvidence := len(calledTools) > 0 || opPre != nil
+		v := chatDegenDecide(turn.Degenerated || ca.Repeated, ca.Dropped, ca.Text, hadEvidence, dm.On, false)
+		if v == degenUsable {
+			return ca.Text
+		}
+		if v == degenRetryNoTools {
+			emit("step", map[string]string{"label": chatDegenRetryLabel})
+			emit("delta", chatDeltaPayload(copilot.TextDelta{Reset: true}))
+			rctx, endR := cspan.turn(ctx, round, false)
+			rt, rerr := s.chatLoopTurn(copilot.WithMaxTokensCap(copilot.WithNoToolCalls(rctx), chatDegenRetryMaxTokens),
+				prompt+copilot.ChatDegenRetryAddendum(), conv, specs, emit)
+			endR(rt.InputTokens, rt.OutputTokens, rt.CachedTokens, rerr)
+			totalIn += rt.InputTokens
+			totalCached += rt.CachedTokens
+			totalOut += rt.OutputTokens
+			if rerr == nil {
+				rca := cleanChatAnswer(rt.Text, echoPhrases)
+				if chatDegenDecide(rt.Degenerated || rca.Repeated, rca.Dropped, rca.Text, hadEvidence, dm.On, true) == degenUsable {
+					degradedReason = chatDegenReasonRetry
+					return rca.Text
+				}
+			}
+		}
+		emit("step", map[string]string{"label": chatDegenFallbackLabel})
+		emit("delta", chatDeltaPayload(copilot.TextDelta{Reset: true}))
+		degradedReason = chatDegenReasonFallback
+		var pre string
+		if opPre != nil {
+			pre = opPre.summary()
+			calledTools = append(calledTools, opPrefetchTool) // künye: özet ön-getirmeden geliyor
+		}
+		return chatDegenFallbackAnswer(pre, stepDigests)
+	}
 	for round := 0; round < maxRounds; round++ {
 		tctx, endTurn := cspan.turn(ctx, round, overflowRetried) // v0.10.425 — ai.chat.turn
 		// v0.10.1273 — final turun metni canlı akar (chat_step_phase.go chatLoopTurn).
@@ -889,7 +940,9 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 			// kanıtta olmayan sayı uyarısı ve önceki açıklamayı adlandıran künye.
 			// Takip değilse ikisi de bayt-bayt eski künye.
 			// v0.10.1297 — model metnindeki uydurma host / araç yankısı süzgeci (chat_answer_links.go).
-			finalText = appendCharts(sanitizeAnswerLinks(turn.Text, loopLinks, s.publicBaseURL(), chatToolNameSet(toolSchemas))) + traceFollowUpNumericWarning(isTraceFollowUp, turn.Text, fuEvidence.String()) +
+			// v0.10.1324 — yineleme/yankı süzgeci + düşüş, sanitizeAnswerLinks'ten ÖNCE.
+			answerText := finalAnswerText(turn, loopPrompt, round)
+			finalText = appendCharts(sanitizeAnswerLinks(answerText, loopLinks, s.publicBaseURL(), chatToolNameSet(toolSchemas))) + traceFollowUpNumericWarning(isTraceFollowUp, answerText, fuEvidence.String()) +
 				traceFollowUpSourceNoteTR(fuHadExplain, calledTools, chatSourceNoteTR(calledTools))
 			// v0.9.709 (operatör-bildirimi) — cevaptaki request_id'ler log
 			// köprüsü çipi olur; altyapı (links + ChatBubble çipleri)
@@ -1034,6 +1087,9 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 			// v0.10.1050 — read_source_code'un başarılı sonucu tele YALNIZ referans
 			// olarak çıkar (chat_source_code.go chatStepPreview; kod modele gider).
 			preview, truncated := chatStepPreview(tc.Name, tr.Content, tr.IsError)
+			if !tr.IsError {
+				stepDigests = append(stepDigests, chatStepDigest{Tool: tc.Name, Preview: preview}) // v0.10.1324
+			}
 			if sum := chatCodeReadSummary(tc.Name, tr.Content, tr.IsError); sum != "" {
 				codeReads = append(codeReads, sum)
 			}
@@ -1209,7 +1265,9 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 				// tavana ancak tur tur araç çağırarak varılıyor. Yani atıfın
 				// en anlamlı olduğu cevap, tek atıfsız cevaptı.
 				// v0.10.948 — iki çıkış tek sözleşme: sayı denetimi ve takip künyesi burada da.
-				finalText = appendCharts(sanitizeAnswerLinks(turn2.Text, loopLinks, s.publicBaseURL(), chatToolNameSet(toolSchemas))) + traceFollowUpNumericWarning(isTraceFollowUp, turn2.Text, fuEvidence.String()) +
+				// v0.10.1324 — iki çıkış tek sözleşme: süzgeç + düşüş burada da (tavan prompt'uyla).
+				answerText := finalAnswerText(turn2, capPrompt, round)
+				finalText = appendCharts(sanitizeAnswerLinks(answerText, loopLinks, s.publicBaseURL(), chatToolNameSet(toolSchemas))) + traceFollowUpNumericWarning(isTraceFollowUp, answerText, fuEvidence.String()) +
 					traceFollowUpSourceNoteTR(fuHadExplain, calledTools, chatSourceNoteTR(calledTools))
 				// v0.9.709 (operatör-bildirimi) — cevaptaki request_id'ler log
 				// köprüsü çipi olur. v0.9.1228 — tool köprüleri de burada:
@@ -1228,7 +1286,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 
 	// One ai_calls row per exchange. Prompt sample = the operator's
 	// last user message; response sample = the final answer.
-	status, errMsg := "ok", ""
+	status, errMsg := "ok", degradedReason // v0.10.1324 — bozulmuş cevap: status ok, neden error_msg'de
 	if lastErr != nil {
 		status, errMsg = "error", lastErr.Error()
 	}

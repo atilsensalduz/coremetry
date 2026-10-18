@@ -118,8 +118,14 @@ func (r *gateRec) anyText(sub string) bool {
 
 var offeredT = []string{"query_metrics", "query_logs", "query_traces"}
 
+// longProse — n FARKLI cümle. v0.10.1324: eskiden aynı cümlenin n kopyasıydı;
+// yineleme muhafızı (degen_guard.go) o metni haklı olarak dejenere sayar.
 func longProse(n int) string {
-	return strings.Repeat("checkout servisinde p95 gecikmesi yükseldi. ", n)
+	var b strings.Builder
+	for i := 0; i < n; i++ {
+		fmt.Fprintf(&b, "checkout servisinde %d numaralı pencerede p95 gecikmesi yükseldi. ", i+1)
+	}
+	return b.String()
 }
 
 func TestToolTurnGate(t *testing.T) {

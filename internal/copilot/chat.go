@@ -59,6 +59,9 @@ type ChatTurn struct {
 	CachedTokens uint32 // v0.10.807 — önek önbelleği; tur başına, döngü toplar
 	// ToolCallsFromText — v0.10.545: bkz. provider.ChatResponse.ToolCallsFromText.
 	ToolCallsFromText bool
+	// Degenerated — v0.10.1324: bkz. provider.ChatResponse.Degenerated. Döngü
+	// bunu kullanılamaz cevap sayar (api/chat_answer_degen.go).
+	Degenerated bool
 	// RawContent — Anthropic asistan turunun ham content'i; döngü onu
 	// ChatMessage.RawContent olarak geri besler (thinking blokları imzalı kalır).
 	RawContent json.RawMessage
@@ -75,6 +78,30 @@ func WithNoToolCalls(ctx context.Context) context.Context {
 func noToolCallsFrom(ctx context.Context) bool {
 	v, _ := ctx.Value(noToolCallsKey{}).(bool)
 	return v
+}
+
+type maxTokensCapKey struct{}
+
+// WithMaxTokensCap — v0.10.1324: bu çağrının completion bütçesine TAVAN
+// (yineleme sonrası araçsız yeniden deneme ~700). n ≤ 0 → ctx aynen.
+func WithMaxTokensCap(ctx context.Context, n int) context.Context {
+	if n <= 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, maxTokensCapKey{}, n)
+}
+
+// cappedMaxTokens — SAF: tavan varsa bütçe min(bütçe, tavan); bütçe 0
+// (sağlayıcı varsayılanı) ise tavanın kendisi.
+func cappedMaxTokens(ctx context.Context, maxTok int) int {
+	c, _ := ctx.Value(maxTokensCapKey{}).(int)
+	if c <= 0 {
+		return maxTok
+	}
+	if maxTok <= 0 || maxTok > c {
+		return c
+	}
+	return maxTok
 }
 
 // ChatWithTools runs ONE model turn over the conversation with the
@@ -138,6 +165,11 @@ func (s *Service) RecordUsage(ctx context.Context, started time.Time, inTok, out
 	if status == "error" {
 		rec.ErrorMsg = truncErr(errMsg)
 		rec.ErrorClass = ClassifyAIErrorText(errMsg) // v0.10.409
+	} else if errMsg != "" {
+		// v0.10.1324 — durum ok kalır (oran/sınıf toplamları status'a bakar),
+		// ama bozulmuş cevabın nedeni satırda görünür (ör. yineleme düşüşü).
+		// Sınıf YOK: error_class yalnız status='error' satırlarında anlamlı.
+		rec.ErrorMsg = truncErr(errMsg)
 	}
 	rec.PromptVersion = PromptVersion() // v0.10.409
 	rec.ProfileID = s.profileID(ctx)
@@ -207,7 +239,7 @@ func (s *Service) emitRecord(rec CallRecord) {
 func chatRequest(ctx context.Context, req aiprov.Request, system string, msgs []ChatMessage, tools []ToolSpec) aiprov.ChatRequest {
 	return aiprov.ChatRequest{
 		Model:       req.Model,
-		MaxTokens:   req.MaxTokens,
+		MaxTokens:   cappedMaxTokens(ctx, req.MaxTokens), // v0.10.1324 — tavan yalnız WithMaxTokensCap ile
 		Temperature: req.Temperature,
 		ExtraBody:   req.ExtraBody, // v0.10.534 — thinking anahtarı tool döngüsüne de iner
 		System:      system,
@@ -225,6 +257,7 @@ func chatTurnFrom(r aiprov.ChatResponse) ChatTurn {
 		OutputTokens:      clampTokens(r.OutputTokens),
 		CachedTokens:      clampTokens(r.CachedTokens), // v0.10.807
 		ToolCallsFromText: r.ToolCallsFromText,
+		Degenerated:       r.Degenerated, // v0.10.1324
 		RawContent:        r.RawContent,
 	}
 }

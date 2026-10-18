@@ -39,8 +39,15 @@ func TestScreenContextPreamble(t *testing.T) {
 		}
 		// Bağlam bir VARSAYILAN, kelepçe değil: operatör tek servise
 		// bakarken pekâlâ filo sorusu sorabilir.
-		if !strings.Contains(got, "AKSİNİ SÖYLEMEDİKÇE") {
-			t.Errorf("bağlam kelepçe gibi dayatılıyor: %q", got)
+		// v0.10.1324 (operatör-bildirimi) — bu artık OLGU cümlesi, büyük harfli
+		// emir değil: "Soru AKSİNİ SÖYLEMEDİKÇE … argümanda açıkça yaz" emri
+		// (sayfa/sohbet önsözlerindeki ikizleriyle) gemma4'ü yankı döngüsüne
+		// soktu; kapsamı v0.10.1274'ten beri sunucu uyguluyor.
+		if !strings.Contains(got, "Bu kapsam varsayılandır") {
+			t.Errorf("bağlamın varsayılan olduğu söylenmiyor: %q", got)
+		}
+		if strings.Contains(got, "AKSİNİ SÖYLEMEDİKÇE") {
+			t.Errorf("eski büyük harfli kapsam emri geri geldi: %q", got)
 		}
 	})
 

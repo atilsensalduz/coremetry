@@ -72,6 +72,7 @@ var promptVersionRegistry = map[string]string{
 	"systemChat":                 systemChat,
 	"systemChatRoundCap":         systemChatRoundCap,
 	"systemChatRoundCapAddendum": systemChatRoundCapAddendum, // v0.10.806
+	"chatDegenRetryAddendum":     chatDegenRetryAddendum,     // v0.10.1324 — yineleme sonrası araçsız deneme
 	"chatDeepAddendum":           chatDeepAddendum,           // v0.10.1150 — Derin düşün üslubu
 	"chatDeepLoopBudget":         chatDeepLoopBudget,         // v0.10.1150 — Derin düşün araç bütçesi
 	"sourceCodeChatAddendum":     sourceCodeChatAddendum,

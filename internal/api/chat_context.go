@@ -332,7 +332,7 @@ func chatContextPreambleTR(c ChatContext) string {
 		fb, _ := json.Marshal(c.Filters)
 		fmt.Fprintf(&b, "- süzgeçler: %s\n", string(fb))
 	}
-	b.WriteString("\"onun içinde\", \"bu servisin\", \"aynı filtreyle\", \"son 1 saate genişlet\", \"sadece hatalı olanlar\" gibi ifadeler BU kümeyi değiştirir, sıfırdan başlamaz. Operatör konu değiştirirse varlık alanlarını değiştir ama pencereyi koru. Boş argümanı buradan doldur ve set_context ile değişeni yaz.\n\n")
+	b.WriteString("\"onun içinde\", \"bu servisin\", \"aynı filtreyle\", \"son 1 saate genişlet\", \"sadece hatalı olanlar\" gibi ifadeler BU kümeyi değiştirir, sıfırdan başlamaz.\n\n") // v0.10.1324 — yalnız ilk cümle: "konu değişirse pencereyi koru" ve set_context kuralı döngü çekirdeğinin BAĞLAM KURALLARI'nda zaten var; "Boş argümanı buradan doldur …" emri kalktı (kapsamı sunucu uygular)
 	return b.String()
 }
 

@@ -1861,6 +1861,11 @@ WİKİ KAYNAKLARI: Bağlamda "[n] Wiki · <sayfa başlığı>" satırıyla başl
 //     dürüstleştirildi.
 //
 // Kurumsal ad taslakta vardı, burada YOK — müşteri adı repoya girmez.
+//
+// v0.10.1324 (operatör-bildirimi) — "EKRAN BAĞLAMI önsözü varsa oradaki
+// değerleri … kullan" artık modele kapsamı argümana KOPYALATMIYOR: v0.10.1274'ten
+// beri sunucu uyguluyor (api/chat_tool_scope.go). Kopyalama emirleri önsözlerde
+// üç kez tekrar edince gemma4 31b onları cevaba yankılayıp döngüye giriyordu.
 const systemChat = `Sen Coremetry'nin uygulama-içi gözlemlenebilirlik asistanısın; bir üretim
 gözlemlenebilirlik platformunda SRE'lere, uygulama geliştiricilere ve nöbetçi
 mühendislere yardım ediyorsun. Operatör KENDİ telemetrisini soruşturuyor:
@@ -1871,10 +1876,11 @@ değil, tool'lardan topladığın kanıtla cevapla.
 TOOL KULLANIMI:
 - Önce plan yap: hangi kanıt gerekiyor, hangi tool verir. Planı kullanıcıya
   yazma, doğrudan çağrıyı yap. Bağımsız çağrıları aynı turda yap.
-- Her çağrı dar kapsamlı olsun: zaman aralığı, servis ve limit ver. Tool'lar
-  range_s alır (şu andan geriye saniye); EKRAN BAĞLAMI önsözü varsa oradaki
-  değerleri, yoksa 1800 (30 dk) kullan. Operatör "bu servis", "şu hata"
-  diyorsa önsözdekini kastediyordur — geri sorma.
+- Her çağrı dar kapsamlı olsun (servis, zaman aralığı, limit). Tool'lar
+  range_s alır (şu andan geriye saniye); EKRAN BAĞLAMI önsözü varsa ortam/
+  servis/pencereyi sunucu boş bıraktığın argümanlara kendisi koyar, önsöz
+  yoksa 1800 (30 dk) kullan.
+  Operatör "bu servis", "şu hata" diyorsa önsözdekini kastediyordur — geri sorma.
 - Aynı tool'u aynı argümanlarla iki kez çağırma. Sonuç boşsa argümanı
   değiştir (aralığı genişlet, filtreyi gevşet) ve bunu cevabında belirt.
 - Bir tool hata dönerse bir kez farklı argümanla dene; yine olmazsa o kanıtı
@@ -1933,6 +1939,17 @@ topladığın veriyle şimdi cevap ver. Toplayamadığın kısmı açıkça beli
 
 // ChatRoundCapAddendum — yalnız tavan eki (systemChat'siz).
 func ChatRoundCapAddendum() string { return systemChatRoundCapAddendum }
+
+// chatDegenRetryAddendum — v0.10.1324 (operatör-bildirimi): model cevabı
+// yinelenen metne düştüğünde (gemma4 31b sistem prompt cümlesini onlarca kez
+// yazdı) Derin kipte BİR kez araçsız yeniden deneme, ~700 token tavanla.
+// Kısa ve somut: uzun talimat küçük modele yeni bir yankı malzemesi olurdu.
+const chatDegenRetryAddendum = `
+
+Yalnız kanıtı özetle; talimat metni yazma; en çok 8 satır.`
+
+// ChatDegenRetryAddendum — yineleme sonrası araçsız yeniden deneme eki.
+func ChatDegenRetryAddendum() string { return chatDegenRetryAddendum }
 
 // chatDeepAddendum — v0.10.1150 "Derin düşün": operatör composer'da Derin'i
 // açtığında serbest döngünün ve wiki anlatımının sistem mesajının ÖNÜNE
