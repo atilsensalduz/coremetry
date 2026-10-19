@@ -33,7 +33,7 @@ apps ──▶ OTel Collector ──▶ Coremetry  (gRPC :4317  /  HTTP :8088)
 | [![Problems](docs/screenshots/problems.png)](docs/screenshots/problems.png) **Problems inbox: anomalies, alert rules and exception groups with priority** | [![SLOs](docs/screenshots/slos.png)](docs/screenshots/slos.png) **SLOs with error-budget burn rate** |
 | [![Endpoints](docs/screenshots/endpoints.png)](docs/screenshots/endpoints.png) **Endpoints across services with error rate, status mix and latency** | [![Logs](docs/screenshots/logs.png)](docs/screenshots/logs.png) **Logs with level histogram, KQL search and trace links** |
 
-More in [`docs/screenshots/`](docs/screenshots/): services list, profiling flamegraph, exception stack traces, login, Grafana Tempo data source.
+More in [`docs/screenshots/`](docs/screenshots/): services list, profiling flamegraph, login.
 
 ---
 
