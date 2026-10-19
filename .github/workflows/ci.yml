@@ -353,13 +353,17 @@ jobs:
             --set config.auth.oidc.issuerUrl=https://example.com \
             --set secrets.jwtSecret=ci-test \
             > /dev/null
-      # v0.10.958 — extraEnv/envFrom/extraVolumes yalnız ingest+api+worker'a
-      # gider, agent'a ASLA (runbook bash adımları pod ortamını devralır);
-      # varsayılan render'da hiç envFrom yok.
+      # v0.10.958 — extraEnv/envFrom/extraVolumes yalnız tokenRef çözen rollere
+      # (ingest+api+worker, v0.10.1282'den beri sre de) gider, agent'a ASLA
+      # (runbook bash adımları pod ortamını devralır); varsayılan render'da hiç
+      # envFrom yok. v0.10.1387 — sayı 3'te kalmıştı (sre rolü eklenince 4 oldu,
+      # CI v0.10.1282'den beri kırmızıydı); artık rol adıyla doğrulanır.
       - name: helm template (distributed + extras)
         run: |
           out=$(helm template ci charts/coremetry --set deployment.mode=distributed \
             --set secrets.jwtSecret=ci-test --set deployment.roles.agent.enabled=true \
             --set 'envFrom[0].secretRef.name=ci-integrations')
-          test "$(printf '%s\n' "$out" | grep -c 'envFrom:')" -eq 3
+          roles=$(printf '%s\n' "$out" | awk '/^---/{n=""} /^  name: /{if(n=="")n=$2} /envFrom:/{print n}' | sort | tr '\n' ' ')
+          echo "envFrom roles: $roles"
+          test "$roles" = "ci-coremetry-api ci-coremetry-ingest ci-coremetry-sre ci-coremetry-worker "
           test "$(helm template ci charts/coremetry --set deployment.mode=distributed --set secrets.jwtSecret=ci-test | grep -c 'envFrom:')" -eq 0

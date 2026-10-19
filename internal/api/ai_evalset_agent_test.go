@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -432,11 +433,16 @@ func TestChatEvalModeNilIsByteIdentical(t *testing.T) {
 			t.Errorf("üretim kataloğunda %s yok", n)
 		}
 	}
+	// v0.10.1387 — kayıtlar fire-and-forget RecordCall goroutine'lerinden
+	// gelir; varış sırası ([chat cosre-turn] / [cosre-turn chat]) garanti
+	// değil. Test SIRAYI değil yüzey KÜMESİNİ karşılaştırır — release
+	// kapısındaki ara sıra kırılmanın (v0.10.1385/1386 yayınlanamadı) nedeni.
 	surfaces := func(rs []copilot.CallRecord) []string {
 		var out []string
 		for _, r := range rs {
 			out = append(out, strings.SplitN(r.Surface, ":", 2)[0])
 		}
+		sort.Strings(out)
 		return out
 	}
 	if !reflect.DeepEqual(surfaces(recsA), surfaces(recsB)) || len(recsA) != 2 || cosreA != 1 || cosreB != 1 || auditA != 1 || auditB != 1 {

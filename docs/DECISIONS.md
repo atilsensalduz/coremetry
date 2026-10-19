@@ -7675,3 +7675,12 @@ env, pod keşfi/yapılandırma, 5xx, p99, Fleet, kaçış), `copilot_metric_char
 negatif + kuyruk + ask/kapsam, istatistik/sıçrama/biçim, tavanlar, önbellek anahtarı tüm girdiler, editör linki
 safelink, çip ↔ blok ref eşliği, takip çiplerinin yönlenmesi ve pencere kipi, sahte VM demeti, VM'siz düşüş,
 salt-okur), `vmetrics/names_export_test.go`.
+
+## 2026-10-19 — v0.10.1387 — CI: helm envFrom kontrolü rol adıyla, release kapısındaki kırılgan test düzeldi
+
+**Operatör-bildirimli:** "Son CI build'ler hata aldı." İki ayrı kök neden: (1) CI "helm template (distributed + extras)"
+envFrom sayısını 3 bekliyordu; v0.10.1282 sre rolünü `extras: true` ile ekleyince sayı 4 oldu ve CI o günden beri
+kırmızıydı. Kontrol artık sayı yerine rol adlarını doğrular (api, ingest, sre, worker; agent ASLA). (2) Release iş
+akışının "Gate" adımı `TestChatEvalModeNilIsByteIdentical`'da ara sıra düşüyordu (kayıtlar fire-and-forget goroutine'lerden
+geldiği için yüzey SIRASI değişken) — v0.10.1385 ve v0.10.1386 imajları bu yüzden YAYINLANMADI. Test artık yüzey kümesini
+(sıralı) karşılaştırır; 60 tekrar yeşil.
