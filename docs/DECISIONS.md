@@ -7127,3 +7127,11 @@ endpoint kanıtı alır — `parseDrawerSubject` endpoint dalı; `drawerSubjectE
 çıkarılan `opPrefetchForTarget` (sohbet yolu bayt bayt aynı, çekmece emit'siz). Pinler: `TestEndpointAskQuestionResolves`
 (frontend ekini/şablonunu kaynaktan okur), `TestOpPrefetchForTargetMatchesChatPath`, `TestParseDrawerSubject*`,
 `TestDrawerEndpointWindow`; FE `AIDrawerBody.endpointAutoAsk.test.tsx`, `pages/endpoints/askCosre.test.tsx`.
+
+## 2026-10-19 — v0.10.1368 — CoSRE wiki örnek sorusu `@wiki` önekiyle
+
+**Operatör-bildirimli:** "Hazır sorularda wiki cache refresh nasıl yapılır var ama düzgün çalışmıyor." Örnek
+("wikide cache refresh nasıl yapılır") düz cümleydi; kapsam üretmediği için guided/servis yoluna kayabiliyordu. Yeni örnek
+`@wiki BSA cache refresh en sık karşılaşılan hatalar nelerdir?` — `@wiki` composer'da `scope.wiki=true` olur, sunucuda wiki
+katmanı kesin devreye girer (`chat_scope.go`). Pin: `chatScope.test.ts` (TR/EN örnek i18n'den okunur → wiki kapsamı, servis
+anması yok), `CosreCapabilities.test.tsx`.

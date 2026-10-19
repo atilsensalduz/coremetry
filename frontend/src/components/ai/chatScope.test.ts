@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { commandOf, hasDrawerContext, parseChatInput, pickedServices, removeToken, scopeChips, scopeForRequest } from './chatScope';
 import { answerVersion, canRegenerate, regenerateBase, MAX_ANSWER_VERSIONS } from './chatRegenerate';
 import type { ChatTurn } from '@/lib/types';
+import { t as tr18 } from '@/lib/i18n'; // v0.10.1368
 
 // v0.10.1138 — composer @-anma / /-komut çözümleyicisi ve yeniden üretimin saf
 // yarısı. Sunucu yarısı internal/api/chat_scope.go (komut listesi aynı).
@@ -103,5 +104,20 @@ describe('chatRegenerate', () => {
     expect(answerVersion(last, null)).toMatchObject({ index: 1, total: 2, view: { text: 'yeni' } });
     expect(answerVersion(last, 0)).toMatchObject({ index: 0, total: 2, view: { text: 'eski', exchangeId: 'x1' } });
     expect(answerVersion(last, 9).index).toBe(1);
+  });
+});
+
+// v0.10.1368 (operatör: "hazır sorularda wiki cache refresh var ama düzgün
+// çalışmıyor") — CoSRE'nin wiki örnek sorusu `@wiki` kapsamıyla başlar; serbest
+// "wikide …" cümlesi kapsam üretmiyordu. Örnek i18n'den okunur: ikisi ayrışmasın.
+describe('wiki örnek sorusu (v0.10.1368)', () => {
+  it('TR ve EN örnekler wiki kapsamı üretir, servis anması üretmez', () => {
+    for (const lang of ['tr', 'en'] as const) {
+      const q = tr18('cosre.cap.wiki.prompt', lang);
+      expect(q.startsWith('@wiki ')).toBe(true);
+      const p = parseChatInput(q);
+      expect(p.scope?.wiki).toBe(true);
+      expect(p.scope?.services ?? []).toEqual([]);
+    }
   });
 });

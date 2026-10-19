@@ -148,7 +148,7 @@ describe('CopilotChat çekmecesi — yetenek ipucu', () => {
 
     const wikiRow = rows().find(b => b.dataset.cap === 'wiki')!;
     await act(async () => { wikiRow.click(); });
-    expect(textarea()?.value).toBe('wikide cache refresh nasıl yapılır');
+    expect(textarea()?.value).toBe('@wiki BSA cache refresh en sık karşılaşılan hatalar nelerdir?');
 
     const svcRow = rows().find(b => b.dataset.cap === 'service')!;
     await act(async () => { svcRow.click(); });
@@ -178,7 +178,7 @@ describe('CopilotChat çekmecesi — yetenek ipucu', () => {
     expect(document.body.querySelector('[role="list"].cosre-cap')?.getAttribute('aria-label')).toBe('CoSRE neler yapabilir');
 
     await act(async () => { rows().find(b => b.dataset.cap === 'wiki')!.click(); });
-    expect(textarea()?.value).toBe('wikide cache refresh nasıl yapılır');
+    expect(textarea()?.value).toBe('@wiki BSA cache refresh en sık karşılaşılan hatalar nelerdir?');
     await act(async () => { rows().find(b => b.dataset.cap === 'operation')!.click(); });
     expect(textarea()?.value).toBe(' operasyonu neden hata veriyor?');
     await act(async () => { rows().find(b => b.dataset.cap === 'navigate')!.click(); });
