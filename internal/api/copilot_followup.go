@@ -342,6 +342,8 @@ func guidedSuggestions(route guidedRoute) []string {
 		return []string{"Takımımın en hatalı servisleri?", "Açık problemler?", "Takımımın exception'ları?"}
 	case guidedMessagingHealth:
 		return []string{"Takımımın en hatalı servisleri?", "Açık problemler?"}
+	case guidedMetricChart: // v0.10.1386 (copilot_metric_chart.go)
+		return metricChartSuggestions(route)
 	}
 	return nil
 }
@@ -424,6 +426,8 @@ func guidedFollowups(route guidedRoute, asked []string) []chatFollowup {
 	switch route.Intent { // v0.10.1385 — takım exception rotaları grup çiplerini taşır
 	case guidedTeamServices, guidedMyServices, guidedMyExceptions, guidedTeamExceptions:
 		return dedupFollowupsAsked(route.TeamFollowups, asked, guidedFollowupMax)
+	case guidedMetricChart: // v0.10.1386 — diğer ortam · 24 sa · yavaş trace'ler · Metrics'te aç
+		return metricChartFollowups(route, asked)
 	}
 	covered, ok := serviceStepCovered[route.Intent]
 	svc := strings.TrimSpace(route.Service)
@@ -567,6 +571,8 @@ func guidedAnswerLinkTargets(route guidedRoute) []guidedAnswerLink {
 	svc := route.Service
 	svcQ := url.QueryEscape(svc)
 	switch route.Intent {
+	case guidedMetricChart: // v0.10.1386 — PromQL editörü (mutlak pencereli) + Infrastructure
+		return metricChartLinks(route)
 	case guidedServiceHealth:
 		// Sağlık özeti (2026-10-15, operatör: "kullanıcıyı yönlendirsin") —
 		// hükmün kanıt sayfaları tek tık; otomatik geçiş YOK.
@@ -946,6 +952,8 @@ func askServiceChipFor(route guidedRoute) []string {
 			out = append(out, opt+" isteklerinde periyot var mı")
 		case guidedFanout: // v0.10.439 (D4)
 			out = append(out, opt+"'dan "+route.PairTo+"'ye gidenlerin hepsi "+route.FanoutTo+"'ye gidiyor mu")
+		case guidedMetricChart: // v0.10.1386 — "<svc> JVM heap grafiği" aynı şablona yönlenir
+			out = append(out, metricChartAskChip(route, opt))
 		default:
 			out = append(out, askServiceChip(route.AskIntent, opt))
 		}

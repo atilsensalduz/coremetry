@@ -580,3 +580,44 @@ func nameAlternation(candidates []string) string {
 	}
 	return "^(" + strings.Join(quoted, "|") + ")$"
 }
+
+// ── v0.10.1386 — CoSRE metrik grafiği dış kapıları ──────────────────────────
+//
+// api/metric_chart_templates.go şablon PromQL'ini kurarken adı ELLE yazmaz:
+// operatörün kurulumu `jvm.memory.used`, `jvm_memory_used` ya da
+// `jvm_memory_used_bytes` taşıyabilir. Yazım kuralı burada (nameSpellings /
+// histogram parça adayları) tek yerde kalsın diye iki ince kapı.
+
+// NameCandidates — adların VM yazım adayları, sıralı ve tekil birleşim.
+// kind: "gauge" (sayaç değil) | "counter" (`_total` dâhil) | "count" | "sum" |
+// "bucket" (histogram parçaları). Bilinmeyen tür "gauge" sayılır. SAF.
+func NameCandidates(kind string, names ...string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, n := range names {
+		var c []string
+		switch kind {
+		case "counter":
+			c = nameSpellings(n, true)
+		case "count":
+			c = countNameCandidates(n)
+		case "sum":
+			c = sumNameCandidates(n)
+		case "bucket":
+			c = bucketNameCandidates(n)
+		default:
+			c = nameSpellings(n, false)
+		}
+		for _, x := range c {
+			if !seen[x] {
+				seen[x] = true
+				out = append(out, x)
+			}
+		}
+	}
+	return out
+}
+
+// NameSelector — aday listesinin `__name__` eşleştiricisi (tek aday `=`,
+// çok aday çapalı literal alternation; nameMatcher). SAF.
+func NameSelector(cands []string) string { return nameMatcher(cands) }

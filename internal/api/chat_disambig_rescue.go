@@ -172,7 +172,8 @@ func guidedTelemetrySignal(question string) bool {
 // Sağlık / kök-neden / pencere-kıyası soruları servis seçimini bekler.
 func disambigAskRescuable(ask guidedIntent) bool {
 	switch ask {
-	case guidedRootCause, guidedServiceHealth, guidedWindowCompare, guidedServiceReport: // v0.10.1337 — rapor da servis seçimini bekler
+	case guidedRootCause, guidedServiceHealth, guidedWindowCompare, guidedServiceReport, // v0.10.1337 — rapor da servis seçimini bekler
+		guidedMetricChart: // v0.10.1386 — grafik de servis seçimini bekler (wiki cevabı değil)
 		return false
 	}
 	return true

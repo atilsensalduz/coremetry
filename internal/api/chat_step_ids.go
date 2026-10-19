@@ -24,9 +24,10 @@ package api
 // numarayı alır.
 
 import (
-	"github.com/cilcenk/coremetry/internal/ai/agent/blocks"
+	"fmt"
 	"strings"
 
+	"github.com/cilcenk/coremetry/internal/ai/agent/blocks"
 	"github.com/cilcenk/coremetry/internal/mcp"
 	"github.com/cilcenk/coremetry/internal/mcptools"
 )
@@ -138,6 +139,36 @@ func emitStepEvidence(emit func(string, any), i int, tool, text string, err erro
 		attachStepEvidenceList(ev, tool, text)
 	}
 	emit("step-result", ev)
+}
+
+// emitGuidedEvidenceResult — v0.10.1386 (CoSRE metric_chart): kanıt zarfı
+// taşımayan guided adımın KENDİ kurduğu kanıtı. emitStepEvidence'in aynası
+// (aynı step-result gövdesi), ama kanıt aracın JSON'undan çıkarılmaz — demet
+// sorguyu kendisi koştu ve ChatEvidence'i doğrudan verir. Ref = "ev<i>"
+// (attachStepEvidence kuralı); chart != nil ise aynı ref'le `ev_block`
+// (withBlockSeq sıralayıcısı) yayınlanır: çip bloğu açar/kapatır. Kimlik yoksa
+// (sarmalanmamış emit) hiçbir şey yayınlanmaz; dönen kanıtın Ref'i boştur.
+func emitGuidedEvidenceResult(emit func(string, any), i int, tool, text string, ev mcptools.ChatEvidence, chart *mcptools.EvChartPayload) mcptools.ChatEvidence {
+	if i <= 0 {
+		return ev
+	}
+	ev.Ref = fmt.Sprintf("ev%d", i)
+	preview, truncated := clipStepPreview(text)
+	m := map[string]any{
+		"i": i, "tool": tool, "ok": true,
+		"preview": preview, "truncated": truncated, "bytes": len(text),
+		"evidence": ev,
+	}
+	if ev.Href != "" {
+		m["href"] = ev.Href
+	}
+	emit("step-result", m)
+	if chart != nil && len(chart.Series) > 0 {
+		p := *chart
+		p.EvidenceRef = ev.Ref
+		emit("ev_block", mcptools.EvidenceBlock{Type: blocks.TypeChart, Payload: p})
+	}
+	return ev
 }
 
 // withBlockSeq — v0.10.557 (CoSRE Faz 4c): guided demetlerin yapısal kanıtı TEK

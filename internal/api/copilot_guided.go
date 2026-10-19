@@ -316,6 +316,18 @@ type guidedRoute struct {
 	// kurar, anlatım çağrısı yapılmaz (modelin ekleyebileceği tek şey
 	// uydurma bir ad olurdu).
 	DirectAnswer string
+	// v0.10.1386 — metric_chart (copilot_metric_chart.go). GİRDİ (JSON'a girer:
+	// LastRoute "son 24 saate genişlet" takibinde klonlanır): ChartTemplate
+	// şablon kimliği, ChartGroupBy kırılım (""|env|pod), ChartEnvAsked ortam
+	// SORUDA anıldı (ekrandan devralınmadı → çözülemezse grafik durur).
+	// ÇIKTI (demet yazar; link + takip çipleri okur, JSON'a girmez): ChartHref
+	// PromQL editörü linki, ChartEnvOptions diğer canlı ortamlar, ChartRangeS pencere.
+	ChartTemplate   string   `json:",omitempty"`
+	ChartGroupBy    string   `json:",omitempty"`
+	ChartEnvAsked   bool     `json:",omitempty"`
+	ChartHref       string   `json:"-"`
+	ChartEnvOptions []string `json:"-"`
+	ChartRangeS     int64    `json:"-"`
 }
 
 // normalizeGuidedMsg lowercases for matching. Go's ToLower maps the
@@ -534,6 +546,7 @@ func hasGuidedSignal(msg string) bool {
 		hasWhySignal(toks) || hasPeriodSignal(toks) || // v0.10.438 (D3)
 		hasEndpointRequestSignal(toks) || // v0.10.688 — "X isteklerini getir"
 		hasServiceReportSignal(toks) || // v0.10.1337 — "X için rapor çıkar"
+		hasMetricChartSignal(toks) || // v0.10.1386 — "X heap grafiği", "kafka lag trendi"
 		// v0.9.537 — açık trace ID'si ya da "trace" kökü (prefix:
 		// Türkçe ekli hâlleri de yakalar — "tracei", "trace'in";
 		// ekrandaki trace'e bağlamdan gitmek için, ctxTrace çözümü
@@ -1155,6 +1168,13 @@ func routeGuidedIntentOpts(raw string, services, envs, teams []string, ctxServic
 		defer func() { route.EnvSet = envSet }()
 	}
 	team := extractTeamEntity(msg, teams)
+	// v0.10.1386 — metrik grafiği (copilot_metric_chart.go): grafik fiili +
+	// katalog metriği. Fan-out/periyot/çift/endpoint dallarından ÖNCE ("istek
+	// hızı grafiği" endpoint aday turuna, "kafka lag trendi" servis-adayı
+	// sorusuna savrulmasın); fiilsiz soru (heap/db "nasıl") bugünkü yolunda.
+	if r, ok := routeMetricChart(raw, msg, toks, svc, env, services, envs, ctxService); ok {
+		return r
+	}
 	// v0.10.439 (D4) — fan-out: A→B→C; periyot ve çift dallarından ÖNCE
 	// (cümle istek/giden sözcüğü de taşır).
 	if hasFanoutSignal(toks) && hasPairRequestSignal(toks) {
@@ -1919,6 +1939,12 @@ func (s *Server) copilotChatGuided(ctx context.Context, emit func(string, any), 
 			rangeS = teamExcDefaultRangeS
 		}
 	}
+	// v0.10.1386 — metrik grafiği varsayılanı son 1 saat (D1; açık pencere 5 dk..24 sa kazanır).
+	if route.Intent == guidedMetricChart {
+		if _, explicit := guidedRangeSExplicit(norm); !explicit {
+			rangeS = metricChartDefaultRangeS
+		}
+	}
 	// v0.10.688 — endpoint rotaları varsayılan son 1 saat (operatör kararı); açık
 	// pencere ve "son 6 saate genişlet" kipi kazanır.
 	if route.Intent == guidedEndpointCandidates || route.Intent == guidedEndpointTraces {
@@ -2090,6 +2116,8 @@ func (s *Server) runGuidedRoute(ctx context.Context, emit func(string, any), rou
 		evidence, sources, err = s.guidedTeamServicesBundle(ctx, emit, &route, from, to, rangeS)
 	case guidedPodHealth:
 		evidence, sources, err = s.guidedPodHealthBundle(ctx, emit, route.Service, from, to)
+	case guidedMetricChart: // v0.10.1386 — tek VM range sorgusu + sohbet içi grafik
+		evidence, sources, err = s.guidedMetricChartBundle(ctx, emit, &route, from, to, rangeS, loc)
 	case guidedShiftSummary:
 		evidence, sources, err = s.guidedShiftSummaryBundle(ctx, emit, route.Service, from, to, rangeS, loc) // v0.10.758
 	case guidedDBHealth:

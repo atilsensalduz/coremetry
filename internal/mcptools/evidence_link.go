@@ -305,6 +305,26 @@ func promqlEditorHref(ev cosreEvidence, rangeParam string) string {
 	return "/metrics?" + v.Encode()
 }
 
+// PromQLEditorHref — v0.10.1386: promqlEditorHref'in dış kapısı (CoSRE
+// metric_chart kanıt çipi + "Metrics'te aç"). src "vm" | "thanos" (Thanos
+// cluster ister); pencere unix ms, mutlak `range=custom:<from>-<to>`. Bozuk
+// pencere / bilinmeyen kaynak / boş ya da 8 KiB üstü sorgu → "". SAF.
+func PromQLEditorHref(query, src, cluster string, fromMs, toMs int64) string {
+	if fromMs <= 0 || toMs <= fromMs {
+		return ""
+	}
+	ev := cosreEvidence{QueryKind: evKindPromQL, Query: query, Cluster: cluster}
+	switch src {
+	case "vm":
+		ev.Source = evSourceVM
+	case "thanos":
+		ev.Source = evSourceThanos
+	default:
+		return ""
+	}
+	return promqlEditorHref(ev, fmt.Sprintf("custom:%d-%d", fromMs, toMs))
+}
+
 // firstNonEmptyLine — ilk boş olmayan satır (kırpılmış); yoksa "".
 func firstNonEmptyLine(s string) string {
 	for _, line := range strings.Split(s, "\n") {

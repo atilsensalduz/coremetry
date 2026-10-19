@@ -331,6 +331,7 @@ var serviceScopedIntents = map[guidedIntent]bool{
 	guidedProblems: true, guidedServiceHealth: true, guidedSlowTraces: true, guidedDeployImpact: true,
 	guidedLogErrors: true, guidedRootCause: true, guidedLogField: true, guidedTraceSearch: true,
 	guidedPodHealth: true, guidedDBHealth: true, guidedMessagingHealth: true, guidedOpenPage: true,
+	guidedMetricChart: true, // v0.10.1386
 }
 
 // planChatScope — SAF: komut + doğrulanmış kapsam → ne yapılacak.

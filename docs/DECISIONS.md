@@ -7624,3 +7624,54 @@ cümlesi), span → "<svc> teknik hataları?" (service_exceptions, kapsam servis
 iki takım exception niyetinde `route.TeamFollowups`'ı taşır. MCP araç sayısı (74), sohbet kademe sırası, api.go değişmedi.
 Testler: `copilot_team_exceptions_test.go` (yönlendirme + kapsam tablosu, render tablosu, link kurucu, çip yönlenmesi,
 okuma süzgeci, eksen, kaynak pini); güncellenen pin: `TestMyExceptionsLinkCarriesResolvedTeam` (hedef /inbox → /problems).
+
+## 2026-10-19 — v0.10.1386 — CoSRE metrik grafiği: VictoriaMetrics şablon sorgusu + sohbette grafik
+
+**Operatör fikri:** "VictoriaMetrics sorgulayıp grafik getirse mesela". **Boşluk:** sohbet VM'i yalnız serbest döngünün
+`query_metrics` aracıyla (RED / jvm_* / pod_* aileleri) okuyabiliyordu; "orders-api'nin JVM heap kullanımı son 6 saat
+grafik", "checkout pod'larının CPU'sunu çiz", "kafka consumer lag trendi", "5xx oranı cluster bazında grafik" gibi
+doğrudan grafik istekleri ya pod_health / db_health / messaging özetlerine ya da küçük modelin araç seçimine kalıyordu.
+MCP kataloğu dolu (74 araç / bayt bütçesi) — yeni araç YOK.
+
+**Karar (R1, deterministik).** (1) Yeni router-içi guided niyet `metric_chart` (`copilot_metric_chart.go`;
+sınıflandırıcı listesinde yok). Kapı = grafik FİİLİ (grafi*/çiz/chart/graph/plot/trend/eğri/görselle) VE katalog metrik
+sözcüğü; fiilsiz "heap kullanımı nasıl" pod_health'te, "db bağlantı havuzu nasıl" db_health'te kalır (D2); "kuyruk"
+sinyal DEĞİL; "gc"/"ram" tam jeton. Router dalı servis/ortam çıkarımından hemen sonra, fan-out/periyot/çift/endpoint
+dallarından ÖNCE ("istek hızı grafiği" endpoint aday turuna, servissiz "kafka lag trendi" aday sorusuna savrulmasın);
+takım-iyelik ve "A'dan B'ye" şekilleri kendi yollarında. Servis isteyen şablonda servis yoksa tek aday → o, çok aday →
+`ask_service` (AskIntent metric_chart, çip "<svc> JVM heap grafiği" aynı şablona yönlenir), ekran servisi → o. Sohbet
+kademe sırası, `copilot_chat.go`, api.go DEĞİŞMEDİ. (2) Şablon kataloğu (`metric_chart_templates.go`, SAF, altın
+testli): jvm_heap · jvm_gc (% GC süresi) · cpu (process, %) · memory (process, By) · threads · db_pool · kafka_lag ·
+http_5xx (%) · http_rps · http_p99 · http_p95. Her şablon sıralı VARYANTLAR taşır (OTel semconv / micrometer / eski
+adlar); metrik adı elle yazılmaz — `vmetrics.NameCandidates/NameSelector` (iç yazım kuralının dış kapısı). Varyant
+seçimi metriğin son 24 sa ETİKET KÜMESİYLE (tek `/api/v1/labels` okuması, 2 sn, 5 dk önbellek): küme boş = metrik yok;
+aynı küme pod etiketini (LabelMap.Pod > k8s_pod_name > pod), servis etiketini (LabelMap.Service > service_name > keşif),
+durum kodu etiketini (http_response_status_code > http_status_code) verir. 5xx = `100 × (5xx rate or 0×toplam) /
+toplam` (5xx'siz pencere "seri yok" değil 0 çizer); durum etiketi yoksa grafik YOK (0 sanılmasın). (3) Ortam (D8):
+`resolveHTTPEnvScope` (HTTP RED metriğinin ortam etiketi + canlı değerleri, v0.10.1376 çözücüsü) matcher'ı; metrik o
+etiketi taşımıyorsa ya da değer eşleşmiyorsa: ortam SORUDA anıldıysa grafik YOK + gerekçe, ekrandan devralındıysa
+süzgeçsiz çizer ve "UYGULANMADI — tüm ortamlar" der (sessiz düşüş yok). "cluster/ortam bazında" → ortam etiketiyle
+kırılım. (4) Yürütme: TEK `QueryPromQLRange` (8 sn, `WithQueryRecorder` — çip VM'e giden ifadeyi gösterir), pencere
+dakikaya oturtulur, adım ⌈aralık/120⌉ (≥15 sn) → ≤120 nokta, rate penceresi max(4×adım, 60 sn); kırılımlı ifade
+`topk(20, …)` + sonradan ≤20 seri (tepe değere göre) kesimi, Truncated (D3). Varsayılan pencere 1 sa, açık pencere
+5 dk..24 sa (D1). Önbellek 60 sn, anahtar `cosre-mchart:v1:<FNV(kaynak, şablon, son PromQL, servis, env matcher,
+kırılım, from/60, to/60, adım)>` — tüm girdiler. (5) VM yok (D4): RED şablonu + servis → mevcut span spec-chart çiti
+(`guidedChartSpec`, sunucu izin listesinde); diğerleri dürüst "VictoriaMetrics yapılandırılmamış". cAdvisor pod
+CPU/bellek (container_*) Thanos'ta kalır (D5): cpu/memory şablonu uygulamanın process metriğini çizer, kanıt notu +
+"<svc> · Infrastructure" linki. (6) Sohbet: yeni `emitGuidedEvidenceResult` (chat_step_ids.go) — step-result
+`evidence` (Tool metric_chart · VictoriaMetrics · PromQL · pencere · seri · süre · href) + aynı `ev<i>` ref'li veri
+`chart` bloğu (EvChartPayload; FE EvidenceChips mevcut uPlot çizimi — FE değişikliği yok); href =
+`mcptools.PromQLEditorHref` (v0.10.1306 editör eşlemesinin dış kapısı, mutlak pencere). Modelin okuduğu blok
+"GRAFİK ÖZETİ (deterministik; model noktaları yeniden sayma)": seri başına min/max (+saat)/ort/son, eğilim (ilk üçte
+bir → son üçte bir ±%20), sıçrama (son ≥1.5×ort ya da tepe ≥2×ort — followupSlow* eşikleri); anlatım
+SystemPromptGuidedChat (D7, yeni prompt yok). Metrik yok → "BULUNAMADI (denenen yazımlar: …)"; okuma hatası
+"okunamadı ≠ yok". (7) Takip: ≤2 diğer canlı ortamda aynı metrik ("<svc> JVM heap grafiği <env> ortamında çiz", kapsam
+env), "Son 24 saate genişlet" (bağlam pencere kipi — LastRoute JSON'a giren ChartTemplate/ChartGroupBy/ChartEnvAsked
+ile klonlanır), "<svc> en yavaş trace'ler?", "Metrics'te aç" link çipi; tavan 4. Salt-okur (TestMetricChartReadOnly).
+R2 (yapıştırılan PromQL + doğrulayıcı) ve R3 (LLM PromQL, varsayılan kapalı) bu sürümde YOK; route'a `Cluster` alanı
+eklenmedi (canlı cluster adı çıkarımı yok — kırılım ortam etiketinden). Testler: `metric_chart_templates_test.go`
+(katalog şekli + ifadenin kendi şablonuna yönlenmesi, adım/pencere, altın PromQL: varsayılan/özel LabelMap, tek/çoklu
+env, pod keşfi/yapılandırma, 5xx, p99, Fleet, kaçış), `copilot_metric_chart_test.go` (router TR/EN pozitif +
+negatif + kuyruk + ask/kapsam, istatistik/sıçrama/biçim, tavanlar, önbellek anahtarı tüm girdiler, editör linki
+safelink, çip ↔ blok ref eşliği, takip çiplerinin yönlenmesi ve pencere kipi, sahte VM demeti, VM'siz düşüş,
+salt-okur), `vmetrics/names_export_test.go`.
