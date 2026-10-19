@@ -7090,3 +7090,14 @@ kendisi kayan sayfalarda (giriş, durum sayfası) da çek-yenile yok; yenileme t
 v0.10.1361'de `/api/endpoints/metric` silindikten sonra tip ve yöntem adı yalnız artık olmayan uca işaret ediyordu;
 tüketicileri `buildServiceMetricRED` ve MCP `query_metrics`. Saf yeniden adlandırma (tip + `Server` yöntemi + yorumlar);
 davranış ve MCP araç sayısı (74) değişmedi. Geçmiş DECISIONS kayıtları eski adla kalır.
+
+## 2026-10-19 — v0.10.1365 — Exception Occurrences bandı: sürüyor / son görülme / resolved
+
+**Operatör-bildirimli (prod ekran görüntüsü, Oracle grubu, 6 olay 08:39'da):** "Burada neden pencere boyu yazıyor … Devam
+etmiyorsa bittiyse kapanır, resolve onu gösterir." **Kök neden:** çözülmemiş grupta bant firstSeen → grafiğin SON bucket'ı
+çiziliyordu; grafik sağda şimdiye kadar sıfır dolgulu olduğu için susan grubun bandı da tüm x eksenini kaplıyor, kronik
+kuralı (%90 kapsama) etikete "· pencere boyu" ekliyordu. **Karar** (saf `features/anomalies/occRegion.ts`): resolved →
+resolvedAt'te biter, etiket durum; son görülme son 2 bucket içindeyse "NEW · sürüyor", bant grafik sonuna; değilse bant son
+görülmenin bucket sonunda kapanır, "NEW · son görülme 08:39" (başka günse tarih + saat). Bu bant `noChronicLabel` taşır —
+`drawTimeRegions` kronik eki basmaz (diğer grafiklerin kronik davranışı aynı). Testler: `occRegion.test.ts`,
+`lib/chart/drawTimeRegions.test.ts`.

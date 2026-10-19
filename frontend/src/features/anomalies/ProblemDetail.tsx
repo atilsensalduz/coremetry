@@ -26,6 +26,7 @@ import { fmtStartedTs } from './problemTime';
 import { emptySamplesNote } from './exceptionSamples';
 import { ExceptionPodsPanel } from './ExceptionPodsPanel';
 import { fmtOccTick } from './occTick'; // v0.10.734
+import { occRegion } from './occRegion'; // v0.10.1365
 import { StackTrace } from '@/components/StackTrace'; // v0.10.735
 import { useStackFrameLinks } from '@/lib/queries'; // v0.10.735
 import { useAlertRuleSeries } from '@/lib/queries'; // v0.10.1091
@@ -424,19 +425,19 @@ export function ProblemDetail({ group, isAdmin, onBack, onChanged }: {
   // resolvedAt'te BİTER — kuyruktaki temiz kesim "burada çözüldü" okunur.
   // Açık grupta uç, grafiğin son bucket'ına sabit ('now' imza churn'ü yok);
   // memo'lu — Copy/state re-render'ı TimeChart rebuild'i tetiklemez.
+  // v0.10.1365 (operatör: "Devam etmiyorsa bittiyse kapanır, resolve onu
+  // gösterir") — bant artık grafiğin sonuna körlemesine uzanmaz: sürüyorsa
+  // sona, sustuysa son görülmede kapanır, resolved'da resolvedAt'te biter
+  // (occRegion, saf). "· pencere boyu" eki bu bantta basılmaz.
   const probRegions = useMemo<ChartTimeRegion[] | undefined>(() => {
-    if (occTimes.length === 0) return undefined;
-    const endSec = group.resolvedAt
-      ? group.resolvedAt / 1e9
-      : occTimes[occTimes.length - 1];
-    const r: ChartTimeRegion = {
-      fromSec: group.firstSeen / 1e9,
-      toSec: endSec,
-      color: 'var(--err)',
-      label: STATE_LABEL[state] ?? 'OPEN',
-    };
-    return r.toSec > r.fromSec ? [r] : undefined;
-  }, [occTimes, group.firstSeen, group.resolvedAt, state]);
+    const r = occRegion({
+      firstSeenNs: group.firstSeen, lastSeenNs: group.lastSeen,
+      resolvedAtNs: group.resolvedAt || undefined,
+      stateLabel: STATE_LABEL[state] ?? 'OPEN',
+      occTimes, nowSec: Date.now() / 1000,
+    });
+    return r ? [r] : undefined;
+  }, [occTimes, group.firstSeen, group.lastSeen, group.resolvedAt, state]);
 
   // Representative stack = the first sample that carries one.
   // v0.10.1048 (operatör: "Exception sayfasındaki dosya bağlantıları hâlâ

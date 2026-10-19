@@ -51,6 +51,9 @@ export interface ChartTimeRegion {
   /** v0.10.182 — GERÇEK bitiş (sn). toSec çizim için şişirilebilir (min genişlik);
    *  tooltip «son/süre» bundan okur. Yoksa anlık olay (deploy ▼): son/süre yazılmaz. */
   endSec?: number;
+  /** v0.10.1365 — etiket durumu zaten söylüyorsa (exception bandı: «sürüyor» /
+   *  «son görülme …») kronik «· pencere boyu» eki basılmaz. */
+  noChronicLabel?: boolean;
 }
 
 // ResolvedThreshold — drawThresholds girdisi: renk canvas-hazır (preset çözdü).
@@ -357,7 +360,7 @@ export function drawTimeRegions(u: uPlot, regions: ChartTimeRegion[], xUnit = 1)
     // Küçük etiket — şeridin altında; bant içine sığmazsa SOLA (v0.10.1077,
     // regionLabelPlacement), orada da yer yoksa kısalt, hiç sığmazsa çizme (fitLabel).
     if (rg.label) {
-      const full = '▮ ' + rg.label + (chronic[ri] ? ' · pencere boyu' : '');
+      const full = '▮ ' + rg.label + (chronic[ri] && !rg.noChronicLabel ? ' · pencere boyu' : ''); // v0.10.1365 noChronicLabel
       const labelW = ctx.measureText(full).width;
       let floorX = u.bbox.left;
       for (let j = 0; j < regions.length; j++) {

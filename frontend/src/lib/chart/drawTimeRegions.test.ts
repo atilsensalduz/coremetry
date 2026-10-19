@@ -54,6 +54,12 @@ describe('drawTimeRegions (v0.10.168)', () => {
     expect(texts.map(c => c.args[2])).toEqual([33, 47, 61]);
     expect(texts[0].args[0]).toBe('▮ a0 · pencere boyu');
   });
+  // v0.10.1365 — durumu kendi söyleyen bant (exception "· sürüyor") ek almaz.
+  it('noChronicLabel: kronik bölgede «· pencere boyu» eki basılmaz', () => {
+    const { u, calls } = fakeU(xMin, xMax);
+    drawTimeRegions(u, [{ fromSec: 1_699_000_000, toSec: 1_700_010_000, label: 'NEW · sürüyor', color: C, noChronicLabel: true }], 1000);
+    expect(calls.filter(c => c.fn === 'fillText').map(c => String(c.args[0]))).toEqual(['▮ NEW · sürüyor']);
+  });
   it('iki çakışan kısa bölge → dolgu TEK kat; kronik + kısa karışımında yalnız kısa dolgulu', () => {
     const { u, calls } = fakeU(xMin, xMax);
     drawTimeRegions(u, [
