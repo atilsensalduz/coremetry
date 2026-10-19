@@ -7210,3 +7210,11 @@ okunmaz, `traceFollowUp.Chain`, çipte "hata zinciri"); `traceFollowUpAddendum` 
 (`chat_trace_drill.go`) ve MCP explain_trace istemi değişmedi. Testler: `api/explain_trace_chain_test.go`,
 `copilot/trace_prompt_test.go` (`TestSystemTraceErrorChainRule`). **Takip (kapsam dışı):** exception açıklamasının trace
 kanıtı (`anomaly/trace_evidence.go` `compactTraceEvidence`) aynı boşluğu taşıyor — HTTP kodu/hedef/kaynak yok; ayrı sürüm.
+
+## 2026-10-19 — v0.10.1372 — Lisans MIT → Apache License 2.0
+
+**Operatör kararı:** proje izin verici açık kaynak kalır, lisans Apache 2.0 olur. Gerekçe: katkıcılardan açık patent
+hakkı (md. 3), marka/ad kullanımına izin vermediğini açıkça söyler (md. 6 — "Coremetry" adı fork'larda ürün adı olamaz),
+OpenTelemetry ve CNCF projeleriyle aynı lisans. MIT kodu Apache 2.0 altında dağıtılabildiği için mevcut katkılar dahil
+geçiş mümkün; v0.10.1371 ve öncesi MIT olarak yayımlandı ve o kopyalar MIT kalır (NOTICE). LICENSE = apache.org'un kanonik
+metni (GitHub lisans tespiti için değiştirilmedi); telif satırı NOTICE'ta. README rozeti ve "License" bölümü güncellendi.

@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/cosretr/coremetry/actions/workflows/ci.yml/badge.svg)](https://github.com/cosretr/coremetry/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/cosretr/coremetry?display_name=tag&sort=semver)](https://github.com/cosretr/coremetry/releases)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Go Report Card](https://goreportcard.com/badge/github.com/cosretr/coremetry)](https://goreportcard.com/report/github.com/cosretr/coremetry)
 
 **Open-source, OpenTelemetry-native, enterprise-grade APM.**
@@ -550,10 +550,12 @@ make audit                         # repo-specific static checks; 🔴 blocks a 
 
 ## License
 
-[MIT License](LICENSE). Free for any use — commercial,
-non-commercial, modification, redistribution. SigNoz-style
-permissive licensing so banks and SaaS operators can ship
-Coremetry into production without per-seat negotiations.
+[Apache License 2.0](LICENSE) — the same license as OpenTelemetry
+itself. Free for any use — commercial, non-commercial, modification,
+redistribution — with an explicit patent grant from contributors, so
+banks and SaaS operators can ship Coremetry into production without
+per-seat negotiations. See [NOTICE](NOTICE) for attribution; versions
+up to v0.10.1371 were released under the MIT License.
 
 ---
 
