@@ -7070,3 +7070,9 @@ yöntemi) ve `latencyScaleMs` → `service_metric_red.go` (tüketiciler `buildSe
 `TestEndpointsMetricRouteRemoved_v0101361` (defterde ad yok, mux kalıbı yok, span rotası var), `TestLatencyScaleMs` (birim
 sözleşmesinin doğrudan pini silinen testlerle gitmesin); `vmetrics/bucket_start_test.go` kaynak pini yalnız
 `hosts_metric.go`.
+
+## 2026-10-19 — v0.10.1362 — Settings → DevOps: kod araması açıklaması operasyon kodunu da söylüyor
+
+**Kuyruk (operatör onaylı):** "Organizasyon geneli kod araması" kutusunun açıklaması yalnız "depo ağacında bulunamayan
+stack frame'leri" diyordu; v0.10.1349'dan beri stacktrace'siz trace'in kod incelemesi (ana operasyonun kodu) de bu kapıya
+bağlı ve kapalıyken o trace'ler kodsuz inceleniyor. Açıklamaya ikinci satır eklendi; davranış değişmedi.

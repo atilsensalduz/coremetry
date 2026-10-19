@@ -497,6 +497,13 @@ export function DevOpsTab() {
               gerekir; yoksa açıklama yine üretilir, künyeye “kod araması
               başarısız” yazılır.
             </span>
+            {/* v0.10.1362 — v0.10.1349'dan beri stacktrace'siz trace'in kod
+                incelemesi de bu aramaya dayanıyor; açıklama bunu söylemiyordu. */}
+            <span style={{ display: 'block', marginTop: 2, fontSize: 11, color: 'var(--text3)', fontStyle: 'italic' }}>
+              Stacktrace'i olmayan trace'lerin kod incelemesi de bu aramayı kullanır:
+              trace'in ana operasyonunun adı depoda aranır ve o operasyonun
+              kodu okunur. Kapalıysa bu trace'ler kodsuz incelenir.
+            </span>
           </span>
         </label>
 
