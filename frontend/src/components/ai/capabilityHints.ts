@@ -17,6 +17,8 @@
 // COSRE_LANG yerine useT'ye geçilir; o güne kadar burada KULLANILMAZ.
 
 import { t, type Lang } from '@/lib/i18n';
+import type { CopilotStarter, CopilotStarterGroup, CopilotStarterGroupKind } from '@/lib/types';
+import type { ChatSendOpts } from './useChatThread';
 
 /** CoSRE sohbet yüzeyinin dili — karşılama metinleriyle aynı (sabit Türkçe). */
 export const COSRE_LANG: Lang = 'tr';
@@ -26,7 +28,9 @@ export function tCosre(key: string): string {
   return t(key, COSRE_LANG);
 }
 
-export type CapabilityKind = 'wiki' | 'service' | 'operation' | 'navigate';
+// v0.10.1382 — p1 / deploy satırları: YALNIZ sunucu o grup için seçenek
+// getirdiyse (/api/copilot/starters); boş grup = satır yok.
+export type CapabilityKind = 'wiki' | 'service' | 'operation' | 'p1' | 'deploy' | 'navigate';
 
 export interface CapabilityItem {
   kind: CapabilityKind;
@@ -37,15 +41,75 @@ export interface CapabilityItem {
 }
 
 const WIKI: CapabilityItem = { kind: 'wiki', labelKey: 'cosre.cap.wiki', promptKey: 'cosre.cap.wiki.prompt' };
-const REST: CapabilityItem[] = [
-  { kind: 'service',   labelKey: 'cosre.cap.service',   promptKey: 'cosre.cap.service.prompt' },
-  { kind: 'operation', labelKey: 'cosre.cap.operation', promptKey: 'cosre.cap.operation.prompt' },
-  { kind: 'navigate',  labelKey: 'cosre.cap.navigate',  promptKey: 'cosre.cap.navigate.prompt' },
-];
+const SERVICE: CapabilityItem = { kind: 'service', labelKey: 'cosre.cap.service', promptKey: 'cosre.cap.service.prompt' };
+const OPERATION: CapabilityItem = { kind: 'operation', labelKey: 'cosre.cap.operation', promptKey: 'cosre.cap.operation.prompt' };
+const P1: CapabilityItem = { kind: 'p1', labelKey: 'cosre.cap.p1', promptKey: 'cosre.cap.p1.prompt' };
+const DEPLOY: CapabilityItem = { kind: 'deploy', labelKey: 'cosre.cap.deploy', promptKey: 'cosre.cap.deploy.prompt' };
+const NAVIGATE: CapabilityItem = { kind: 'navigate', labelKey: 'cosre.cap.navigate', promptKey: 'cosre.cap.navigate.prompt' };
 
-/** SAF — görünen satırlar; wiki satırı yalnız `wiki` true iken ve en başta. */
-export function capabilityItems(wiki: boolean): CapabilityItem[] {
-  return wiki ? [WIKI, ...REST] : REST;
+/** v0.10.1382 — yetenek satırı → sunucu grubu (wiki/navigate grupsuz). */
+const GROUP_OF: Partial<Record<CapabilityKind, CopilotStarterGroupKind>> = {
+  service: 'services', operation: 'operations', p1: 'p1', deploy: 'deploys',
+};
+
+/** SAF — v0.10.1382: satırın sunucu grubu (öğesi yoksa undefined). */
+export function groupForCapability(kind: CapabilityKind, groups: readonly CopilotStarterGroup[]): CopilotStarterGroup | undefined {
+  const g = GROUP_OF[kind];
+  if (!g) return undefined;
+  const hit = groups.find(x => x.kind === g);
+  return hit && hit.items.length > 0 ? hit : undefined;
+}
+
+/**
+ * SAF — görünen satırlar; wiki satırı yalnız `wiki` true iken ve en başta.
+ * v0.10.1382 — p1 / deploy satırları yalnız o grupta öğe varken (operasyon
+ * satırından sonra, navigate'ten önce).
+ */
+export function capabilityItems(wiki: boolean, groups: readonly CopilotStarterGroup[] = []): CapabilityItem[] {
+  const out: CapabilityItem[] = wiki ? [WIKI] : [];
+  out.push(SERVICE, OPERATION);
+  if (groupForCapability('p1', groups)) out.push(P1);
+  if (groupForCapability('deploy', groups)) out.push(DEPLOY);
+  out.push(NAVIGATE);
+  return out;
+}
+
+/** v0.10.1382 — yerel (son/sabitlenmiş) servis çipi tavanı. */
+export const LOCAL_SERVICE_CHIPS_MAX = 2;
+
+/** SAF — servis sorusu (yerel çip ve "başka bir servis…" seçimi; service_health'e yönlenir). */
+export function serviceHealthQuestion(name: string): string {
+  return `${name} sağlığı nasıl?`;
+}
+
+/**
+ * SAF — v0.10.1382: tarayıcının sabitlenmiş + son ziyaret edilen servisleri
+ * (lib/recentServices.ts) servis satırına DÜZ çip olarak eklenir. Sunucuya
+ * gitmez (yalnız bu tarayıcının kolaylığı); sunucu çipinin zaten andığı servis
+ * tekrar edilmez; sabitlenmiş önce, ad biçimi uygunsuzsa atlanır.
+ */
+export function localServiceChips(
+  serverItems: readonly CopilotStarter[],
+  pinned: readonly string[],
+  recent: readonly string[],
+  max = LOCAL_SERVICE_CHIPS_MAX,
+): CopilotStarter[] {
+  const out: CopilotStarter[] = [];
+  const seen = new Set<string>();
+  for (const raw of [...pinned, ...recent]) {
+    if (out.length >= max) break;
+    const name = raw.trim();
+    if (!name || /[\s:]/.test(name) || seen.has(name)) continue;
+    seen.add(name);
+    if (serverItems.some(it => it.question.startsWith(name + ' '))) continue;
+    out.push({ chip: name, question: serviceHealthQuestion(name), kind: 'service_health' });
+  }
+  return out;
+}
+
+/** SAF — v0.10.1382: çipin yapısal kapsamı → send ikinci argümanı (followupSendOpts deseni). */
+export function starterSendOpts(st: CopilotStarter): ChatSendOpts | undefined {
+  return st.scope ? { parsed: { scope: st.scope } } : undefined;
 }
 
 /** SAF — `|` imleç işaretini söker; işaret yoksa imleç metnin sonunda. */

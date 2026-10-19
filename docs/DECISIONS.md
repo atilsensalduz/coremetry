@@ -7491,3 +7491,32 @@ okunamıyordu. **Karar:** üç red yolu (id_token, UserInfo, LDAP e-posta) `[oid
 allowed=<n>` yazar — tam e-posta YAZILMAZ; alan adı saldırgan kontrollü olabildiği için yazdırılabilir ASCII dışı / 100
 rune üstü "<geçersiz>", harita ≤256 girdi (dolunca sıfırlanır), alan adı başına saatte bir satır. Test:
 `internal/auth/oidc_denied_log_test.go`.
+
+## 2026-10-19 — v0.10.1382 — CoSRE başlangıç soruları: canlı veriden seçilebilir seçenekler
+
+**Operatör isteği:** "CoSRE'deki chat hazır soruları daha anlamlı cevapları seçilebilir halde getirsek." Boş
+sohbetteki "neler yapabilirim" satırları yalnız şablon dolduruyordu; operatör servis/operasyon adını kendisi yazmak
+zorundaydı ve v0.10.702'nin iki veri çipi satırlardan kopuk bir şeritte duruyordu. **Karar:** her satır = başlık
+(şablonu DOLDURUR, eskisi gibi) + altında `role=group` seçenek çipleri (`ui/Chip`). Somut çip (servis / operasyon /
+P1 / deploy) soruyu HEMEN gönderir; "başka bir servis…" satır içi sunucu-aramalı `ServicePicker` açar ve seçim tam
+cümleyi composer'a DOLDURUR (göndermez); navigate satırı yalnız şablon. Yeni uç YOK: mevcut
+`GET /api/copilot/starters` gruplu yanıta geçti (`{groups:[{kind, fleet, items:[{chip, question, kind, scope?}]}],
+team, rangeS, env, envScope}`), serveCached 60 s, anahtar `v2` + env FNV özeti; api.go dokunulmadı. CopilotChat'in
+eski `dataStarters` şeridi servis grubuna katıldı (en kötü servisin en çok hata alan yolu çipi korunur).
+**Veri kaynakları:** services — takım varsa `ReadTeamServicesRED` + hata oranı sırası (hatalı → "<svc> son 1 saatte
+neden hata veriyor?" root_cause, hatasız → "<svc> sağlığı nasıl?"), takım yoksa `TopErrorServices` filo sıcak
+noktaları, FE "filo geneli" etiketiyle; operations — açık exception grupları (occurrences sırası): Oracle `ora:` grubu
+→ "<OP_KODU> operasyonu neden hata veriyor?" (operasyon kataloğu ön-getirmesi; <4 karakter / boşluklu kod atlanır),
+span grubu → "<svc> teknik hataları?"; p1 — açık problemler (`ProblemScanLimit` ile açılmış tarama, okuma-anı
+önceliği, P1 daraltması) → "<svc> kök nedeni ne?" + `scope.problem` (kapsam kademesi problemin penceresinde root_cause;
+servis adı kapsama konmaz — son pencerede span'i olmayan servis "servis yok" cevabına düşerdi); deploys — son 24 sa
+`GetRecentDeploys` ∩ takım (ya da filo) → "<svc> son deploy etkisi?". Bu tarayıcının sabitlenmiş/son servisleri
+(`lib/recentServices.ts`) FE'de düz çip olarak eklenir, sunucuya GİTMEZ. **Bütçe:** her grup kendi 3 s zaman aşımıyla
+paralel okunur ve tek başına düşer (soft-fail: o grup yok, diğerleri gelir); boş grup yanıta girmez, p1/deploy satırı
+yalnız öğe varken çizilir. Env yalnız P1 problemlerine uygulanır (ProblemFilter.Env servis-üyeliği semantiği) — yanıt
+`envScope: "p1"` ile söyler. **Varsayılanlar (operatör onaylı):** tavanlar services 3 (+ yol çipi + seçici), operations
+3, p1 3, deploys 2; yerel servis çipi en çok 2; yavaş-endpoint çipleri ertelendi (deterministik niyeti yok); wiki
+satırı değişmedi. Sözleşme: her üretilen cümle LLM'siz yönlenir — `TestStarterQuestionsRoute` (routeGuidedIntent,
+`planChatScope` problem planı, operasyon cümlesinde `opTokens` + `matchOperations` birebir eşleşme). Yan düzeltme:
+`api.copilotStarters` URL'sinde `?` eksikti (`qs` önek koymaz), istek "/api/copilot/startersrange_s=…" gidiyordu.
+Testler: `internal/api/copilot_starters_test.go`, `frontend/src/components/ai/CosreCapabilities.test.tsx`.

@@ -2408,8 +2408,10 @@ export const api = {
   copilotScopeNames:     (kind: 'team', q: string) =>
     get<{ names: string[] }>(`/api/copilot/scope-names?kind=${kind}&q=${encodeURIComponent(q)}`),
   // v0.10.702 — boş sohbetin veri çipleri (takımın en kötü servisi + yolu).
-  copilotStarters:       (rangeS?: number, signal?: AbortSignal) =>
-    get<CopilotStartersResponse>(`/api/copilot/starters${qs({ range_s: rangeS })}`, signal),
+  // v0.10.1382 — gruplu seçenekler + env (yalnız P1'e uygulanır). `?` eksikti:
+  // qs önek koymaz, URL "/api/copilot/startersrange_s=…" oluyordu.
+  copilotStarters:       (rangeS?: number, env?: string, signal?: AbortSignal) =>
+    get<CopilotStartersResponse>(`/api/copilot/starters?${qs({ range_s: rangeS, env })}`, signal),
   // v0.6.53 — agentic chatbot stream. POST + SSE (EventSource is
   // GET-only, so we read the fetch body stream and parse SSE frames
   // by hand). onEvent fires per `event:`/`data:` frame; the promise

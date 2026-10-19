@@ -3276,6 +3276,17 @@ button.cosre-cap__row {
 }
 button.cosre-cap__row > .row { align-items: flex-start; min-width: 0; }
 .cosre-cap__icon { flex: none; margin-top: 2px; color: var(--accent); }
+/* v0.10.1382 — satır altındaki canlı veriden seçenekler: başlığın metniyle
+   hizalı (ikon + boşluk kadar girinti), sarar; "filo geneli" soluk etiket;
+   "başka bir servis…" satır içi seçici tam genişlik. */
+.cosre-cap__item { display: flex; flex-direction: column; min-width: 0; }
+.cosre-cap__choices {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2);
+  padding: 0 var(--sp-4) var(--sp-2) 27px; min-width: 0;
+}
+.cosre-cap__choices .btn-chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cosre-cap__fleet { color: var(--text3); font-size: var(--fs-xs); }
+.cosre-cap__picker { padding: 0 var(--sp-4) var(--sp-2) 27px; min-width: 0; }
 .cb-row-empty {
   color: var(--text3);
   font-size: 11px;
@@ -5799,6 +5810,8 @@ tbody td.tpm-more-cell { color: var(--text2); }
   background: var(--bg1); color: var(--text2);
 }
 .cosre-root .cm-greet .cosre-cap__row:hover { border-color: var(--accent); color: var(--text); background: var(--bg1); }
+.cosre-root .cm-greet .cosre-cap__choices,
+.cosre-root .cm-greet .cosre-cap__picker { padding: var(--cosre-s1) var(--cosre-s1) 0; gap: var(--cosre-s1); }
 .cosre-root .cm-greet__chips { display: flex; gap: var(--cosre-s2); flex-wrap: wrap; justify-content: center; max-width: 640px; }
 
 /* Composer: tek kart, metin üstte, araç satırı altta. */

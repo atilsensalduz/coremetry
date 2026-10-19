@@ -9791,17 +9791,32 @@ export interface PageContext {
 }
 
 // ── CoSRE başlangıç veri çipleri (v0.10.702, mirrors Go api.copilotStarter) ──
-// Boş sohbette kullanıcının takımından üretilen 0-2 çip: en kötü servis +
-// o servisin en çok hata alan yolu. `question` gönderilen tam cümle.
+// `question` gönderilen tam cümle (LLM'siz yönlenir; copilot_starters_test).
+// v0.10.1382 — gruplu: yetenek satırlarının altındaki seçilebilir seçenekler
+// (Go api.starterGroup). `fleet` → takım çözülemedi, öğeler filo genelinden.
+// `scope` → çipin yapısal kapsamı (P1: problem kimliği), followup çipleriyle
+// aynı yoldan gider. `envScope: 'p1'` → env yalnız P1 problemlerine uygulandı.
+export type CopilotStarterKind =
+  | 'service_health' | 'service_errors' | 'endpoint_errors'
+  | 'operation' | 'service_exceptions' | 'p1' | 'deploy';
 export interface CopilotStarter {
   chip: string;
   question: string;
-  kind: 'service_health' | 'endpoint_errors';
+  kind: CopilotStarterKind;
+  scope?: ChatScope;
+}
+export type CopilotStarterGroupKind = 'services' | 'operations' | 'p1' | 'deploys';
+export interface CopilotStarterGroup {
+  kind: CopilotStarterGroupKind;
+  fleet?: boolean;
+  items: CopilotStarter[];
 }
 export interface CopilotStartersResponse {
-  starters: CopilotStarter[];
+  groups: CopilotStarterGroup[];
   team?: string;
   rangeS?: number;
+  env?: string;
+  envScope?: 'p1';
 }
 
 // ── Problem affected entities (v0.10.707, mirrors Go api.affectedEntity) ──

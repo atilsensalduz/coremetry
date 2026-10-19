@@ -246,6 +246,16 @@ const EN: Catalog = {
   'cosre.cap.operation.prompt': 'Why is the | operation failing?',
   'cosre.cap.navigate':         'I can tell you where to look and take you to the right page',
   'cosre.cap.navigate.prompt':  'Where should I look to investigate |?',
+  // v0.10.1382 — data-grounded choices under the rows (/api/copilot/starters).
+  'cosre.cap.p1':               'I can dig into the root cause of open P1 problems',
+  'cosre.cap.p1.prompt':        'What is the root cause of |?',
+  'cosre.cap.deploy':           'I can show what the latest deploys changed',
+  'cosre.cap.deploy.prompt':    'Impact of the latest | deploy?',
+  'cosre.cap.choices':          'Ready-made choices',
+  'cosre.cap.fleet':            'fleet-wide',
+  'cosre.cap.fleet.title':      'No team resolved — the fleet’s current hot spots',
+  'cosre.cap.pickService':      'another service…',
+  'cosre.cap.pickService.placeholder': 'Search services…',
   'cosre.chip.wiki':            'Search the wiki: …',
   'cosre.chip.wiki.prompt':     '@wiki ', // v0.10.1378 — kapsam belirteci, dilden bağımsız
 
@@ -527,6 +537,18 @@ const TR: Catalog = {
   'cosre.cap.operation.prompt': '| operasyonu neden hata veriyor?',
   'cosre.cap.navigate':         'Nereye bakman gerektiğini söyleyip ilgili sayfaya yönlendirebilirim',
   'cosre.cap.navigate.prompt':  '| sorununu incelemek için nereye bakmalıyım?',
+  // v0.10.1382 (operatör: "hazır soruları seçilebilir halde getirsek") — satırların
+  // altındaki canlı veriden seçenekler (/api/copilot/starters); p1/deploy satırı
+  // yalnız o grupta öğe varken.
+  'cosre.cap.p1':               'Açık P1 problemlerinin kök nedenine bakabilirim',
+  'cosre.cap.p1.prompt':        '| kök nedeni ne?',
+  'cosre.cap.deploy':           'Son deploy’ların neyi değiştirdiğini gösterebilirim',
+  'cosre.cap.deploy.prompt':    '| son deploy etkisi?',
+  'cosre.cap.choices':          'Hazır seçenekler',
+  'cosre.cap.fleet':            'filo geneli',
+  'cosre.cap.fleet.title':      'Takımın çözülemedi — filonun şu anki sıcak noktaları',
+  'cosre.cap.pickService':      'başka bir servis…',
+  'cosre.cap.pickService.placeholder': 'Servis ara…',
   'cosre.chip.wiki':            'Wikide ara: …',
   // v0.10.1378 (operatör onaylı kuyruk) — "wikide " düz cümleydi, kapsam
   // üretmiyordu; `@wiki ` composer'da scope.wiki=true olur (1368'deki örnek soruyla aynı).

@@ -130,7 +130,7 @@ beforeEach(() => {
   vi.spyOn(api, 'problemsCount').mockResolvedValue({ count: 0 } as never);
   vi.spyOn(api, 'problems').mockResolvedValue({ items: [], total: 0 } as never);
   vi.spyOn(api, 'aiConversations').mockResolvedValue([] as never);
-  vi.spyOn(api, 'copilotStarters').mockResolvedValue({ starters: [] } as never);
+  vi.spyOn(api, 'copilotStarters').mockResolvedValue({ groups: [] } as never);
 });
 
 afterEach(() => {

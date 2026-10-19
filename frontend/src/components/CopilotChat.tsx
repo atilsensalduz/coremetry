@@ -493,7 +493,9 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
   const { pin: pinBottom, atBottom } = useStickToBottomState(scrollRef, [turns, open]);
   // v0.10.702 — VERİ çipleri: takımın en kötü servisi + o servisin en çok
   // hata alan yolu (sunucu, 60 s). Yalnız çekmece açık + sohbet boşken.
-  const dataStarters = useCopilotStarters(drawerOpen && enabled === true && turns.length === 0);
+  // v0.10.1382 — gruplu seçenekler (servis / operasyon / P1 / deploy) yetenek
+  // satırlarının altında (CosreCapabilities); env yalnız P1'e uygulanır.
+  const starterGroups = useCopilotStarters(drawerOpen && enabled === true && turns.length === 0, env);
   // v0.10.702 — şablon çipi: composer'ı doldurur, GÖNDERMEZ; imleç başta,
   // operatör yolu yazar ("/api/x hatalı trace'lerini getir" → endpoint_traces).
   // v0.10.1128 — genelleştirildi: yetenek satırları ve wiki çipi de aynı
@@ -818,7 +820,9 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
                 <div className="cm-greet__ask">Sana nasıl yardımcı olabilirim?</div>
                 {/* v0.10.1128 (operatör) — "neler yapabilirim" ipucu: yalnız
                     boş sohbette; tıklama örnek soruyu composer'a DOLDURUR. */}
-                <CosreCapabilities wiki={wikiOn} onPrefill={prefill} />
+                {/* v0.10.1382 — satır başlığı şablonu DOLDURUR; altındaki somut
+                    seçenek çipi HEMEN GÖNDERİR (askChip), "başka bir servis…" doldurur. */}
+                <CosreCapabilities wiki={wikiOn} groups={starterGroups} onPrefill={prefill} onAsk={askChip} />
                 {/* v0.9.652 — başlangıç çipleri (operatör isteği). Gerekçe
                     ve v0.9.579 ile ilişkisi STARTERS tanımında. */}
                 <div className="cm-greet__chips">
@@ -833,15 +837,8 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
                       ✨ {ctxStarter.chip}
                     </Chip>
                   )}
-                  {/* v0.10.702 — takımdan üretilen veri çipleri (varsa):
-                      en kötü servisin sağlığı + en çok hata alan yolunun
-                      hatalı trace'leri. Vurgulu: o an gerçekten yanan şey. */}
-                  {dataStarters.map(st => (
-                    <Chip key={st.question} pill tone="accent" onClick={() => submit(st.question)}
-                      title={st.question}>
-                      {st.kind === 'endpoint_errors' ? '⚠ ' : '♥ '}{st.chip}
-                    </Chip>
-                  ))}
+                  {/* v0.10.1382 — v0.10.702'nin veri çipleri (en kötü servis + en
+                      çok hata alan yolu) servis satırının seçeneklerine taşındı. */}
                   {STARTERS.map(q => (
                     <Chip key={q} pill onClick={() => submit(q)}>{q}</Chip>
                   ))}

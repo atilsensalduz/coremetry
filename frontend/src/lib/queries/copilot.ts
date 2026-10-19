@@ -1,20 +1,22 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import type { CopilotStarter } from '@/lib/types';
+import type { CopilotStarterGroup } from '@/lib/types';
 
 // queries/copilot.ts — v0.10.702. Boş sohbetin veri çipleri: YALNIZ çekmece
 // açık + sohbet boşken (aç-üzerine-getir; liste prefetch'i yok, poll yok).
 // staleTime sunucu cache'iyle aynı (60 s). Hata → boş liste: statik çipler
 // zaten var, veri çipi bir ek.
-export function useCopilotStarters(enabled: boolean, rangeS = 3600): CopilotStarter[] {
+// v0.10.1382 — gruplu yanıt; env (useUrlEnv) sorguya VE anahtara girer
+// (sunucu anahtarı da env'i özetler). Env yalnız P1 grubuna uygulanır.
+export function useCopilotStarters(enabled: boolean, env = '', rangeS = 3600): CopilotStarterGroup[] {
   const q = useQuery({
-    queryKey: ['copilot', 'starters', rangeS],
-    queryFn: ({ signal }) => api.copilotStarters(rangeS, signal),
+    queryKey: ['copilot', 'starters', rangeS, env],
+    queryFn: ({ signal }) => api.copilotStarters(rangeS, env, signal),
     enabled,
     staleTime: 60_000,
     retry: false,
   });
-  return q.data?.starters ?? [];
+  return q.data?.groups ?? [];
 }
 
 // v0.10.1289 — CoSRE operatör kuralları (GET /api/ai/rules, her rol). Yalnız

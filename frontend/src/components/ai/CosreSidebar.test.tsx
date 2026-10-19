@@ -129,7 +129,7 @@ beforeEach(() => {
   vi.spyOn(api, 'copilotConfig').mockResolvedValue({ enabled: true, model: 'model-x' } as never);
   vi.spyOn(api, 'problemsCount').mockResolvedValue({ count: 0 } as never);
   vi.spyOn(api, 'problems').mockResolvedValue({ items: [], total: 0 } as never);
-  vi.spyOn(api, 'copilotStarters').mockResolvedValue({ starters: [] } as never);
+  vi.spyOn(api, 'copilotStarters').mockResolvedValue({ groups: [] } as never);
   vi.spyOn(api, 'aiConversations').mockResolvedValue(THREADS as never);
   vi.spyOn(api, 'aiConversation').mockImplementation(async (id: string) => ({
     id, title: 'Jenkins pipeline linki nedir', updatedAt: ns(NOW),
