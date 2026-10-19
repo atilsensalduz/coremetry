@@ -75,7 +75,7 @@ func renderSweepEvidenceTR(sw mcptools.SweepResult) string {
 			if i > 0 {
 				b.WriteString(" ")
 			}
-			fmt.Fprintf(&b, "%d) %s %s [%s]", f.Rank, sweepKindLabelTR(f.Kind), f.Name, f.Level)
+			fmt.Fprintf(&b, "%d) %s %s%s [%s]", f.Rank, sweepKindLabelTR(f.Kind), f.Name, sweepSpanKindTR(f.SpanKind), f.Level)
 		}
 		if sw.FindingsHasMore {
 			b.WriteString(" (+ daha fazlası)")
@@ -90,7 +90,7 @@ func renderSweepEvidenceTR(sw mcptools.SweepResult) string {
 				}
 				where += ")"
 			}
-			fmt.Fprintf(&b, "%d) %s %s%s — %s: %s\n", f.Rank, sweepKindLabelTR(f.Kind), f.Name, where, f.Level, strings.Join(f.Reasons, "; "))
+			fmt.Fprintf(&b, "%d) %s %s%s%s — %s: %s\n", f.Rank, sweepKindLabelTR(f.Kind), f.Name, sweepSpanKindTR(f.SpanKind), where, f.Level, strings.Join(f.Reasons, "; "))
 			if f.Logs != nil {
 				fmt.Fprintf(&b, "   loglar: %s\n", f.Logs.Summary)
 				for k, l := range f.Logs.Rows {
@@ -108,6 +108,21 @@ func renderSweepEvidenceTR(sw mcptools.SweepResult) string {
 		b.WriteString(sweepSectionLineTR(sec))
 	}
 	return b.String()
+}
+
+// sweepSpanKindTR — SAF (v0.10.1391): operasyon bulgusunun span türü eki.
+// Giden çağrı (CLIENT/PRODUCER) açıkça söylenir: anlatım servisin GİDEN gRPC
+// çağrısını servisin gelen trafiği sanmasın.
+func sweepSpanKindTR(k string) string {
+	switch k {
+	case "":
+		return ""
+	case "CLIENT", "PRODUCER":
+		return " (giden çağrı · " + k + ")"
+	case "SERVER", "CONSUMER":
+		return " (gelen · " + k + ")"
+	}
+	return " (" + k + ")"
 }
 
 func sweepKindLabelTR(k string) string {

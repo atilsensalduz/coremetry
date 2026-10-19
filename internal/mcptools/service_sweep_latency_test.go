@@ -48,8 +48,9 @@ func TestSweepOpLatencyChart(t *testing.T) {
 		pts = append(pts, chstore.OpLatencyPoint{TS: base + i*60, Calls: 100, Errors: uint64(i % 2), P50Ms: 120, P99Ms: 300})
 	}
 	corr := &chstore.SlowSpanCorroboration{ThresholdMs: 250, Minutes: []chstore.SlowSpanMinute{{TS: base + 60, Count: 4}, {TS: base + 120, Count: 6}}}
-	c, ok := sweepOpLatencyChart("POST /pay", pts, 60, 200, corr, EvBlockWindow{})
-	if !ok || !strings.Contains(c.Title, "POST /pay · p50/p99 · 1 dk kova (spanmetrics_1m)") {
+	c, ok := sweepOpLatencyChart("POST /pay", "", pts, 60, 200, corr, EvBlockWindow{})
+	// v0.10.1391 — başlık "p50/p99" demez (count panelinde yanıltıcıydı).
+	if !ok || c.Title != "POST /pay · 1 dk kova · örneklenmiş span (spanmetrics_1m)" {
 		t.Fatalf("başlık %q", c.Title)
 	}
 	byName := map[string]EvChartSeries{}
@@ -70,7 +71,7 @@ func TestSweepOpLatencyChart(t *testing.T) {
 		t.Fatal("hata serisi")
 	}
 	// 3 dk adım: dakika sayımları adım kovasına TOPLANIR.
-	c3, _ := sweepOpLatencyChart("op", []chstore.OpLatencyPoint{{TS: base}, {TS: base + 180}}, 180, 0, corr, EvBlockWindow{})
+	c3, _ := sweepOpLatencyChart("op", "", []chstore.OpLatencyPoint{{TS: base}, {TS: base + 180}}, 180, 0, corr, EvBlockWindow{})
 	for _, s := range c3.Series {
 		if strings.HasPrefix(s.Name, "yavaş") && s.Points[0][1] != 10 {
 			t.Fatalf("3 dk kovaya toplam 10: %+v", s.Points)
@@ -83,8 +84,8 @@ func TestSweepOpLatencyChart(t *testing.T) {
 
 func TestSweepSparkChartFallback(t *testing.T) {
 	op := chstore.OperationSummary{Name: "op", P99Sparkline: []float64{2, 7, 3}, P50Sparkline: []float64{1, 1, 1}, ErrorsSparkline: []uint64{0, 1, 0}, PriorP99Ms: 4}
-	c, ok := sweepSparkChart("op", op, sweepTo.Add(-15*time.Minute), sweepTo)
-	if !ok || !strings.Contains(c.Title, "5 dk kova (operation_summary_5m)") || len(c.Series) != 4 {
+	c, ok := sweepSparkChart("op", "", op, sweepTo.Add(-15*time.Minute), sweepTo)
+	if !ok || !strings.Contains(c.Title, "5 dk kova · örneklenmiş span (operation_summary_5m)") || len(c.Series) != 4 {
 		t.Fatalf("%q %d", c.Title, len(c.Series))
 	}
 }
@@ -225,7 +226,7 @@ func TestSweepOpChartBlock(t *testing.T) {
 			chart = &c
 		}
 	}
-	if chart == nil || !strings.Contains(chart.Title, "1 dk kova (spanmetrics_1m)") {
+	if chart == nil || !strings.Contains(chart.Title, "1 dk kova · örneklenmiş span (spanmetrics_1m)") {
 		t.Fatalf("grafik bloğu: %+v", res.Data.Blocks)
 	}
 	names := []string{}

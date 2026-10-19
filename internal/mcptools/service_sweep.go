@@ -243,9 +243,13 @@ type sweepFindingLogRows struct {
 
 // SweepFinding — sıralı bulgu.
 type SweepFinding struct {
-	Rank         int        `json:"rank"`
-	Kind         string     `json:"kind"` // pod | jvm | operation | function
-	Name         string     `json:"name"`
+	Rank int    `json:"rank"`
+	Kind string `json:"kind"` // pod | jvm | operation | function
+	Name string `json:"name"`
+	// SpanKind — v0.10.1391: operasyon bulgusunun span türü (SERVER | CLIENT |
+	// PRODUCER | CONSUMER | INTERNAL; spanmetrics_1m), bilinmiyorsa boş.
+	// Anlatım giden çağrıyı servisin gelen trafiği sanmasın.
+	SpanKind     string     `json:"spanKind,omitempty"`
 	Cluster      string     `json:"cluster,omitempty"`
 	ClusterID    string     `json:"clusterId,omitempty"`
 	Namespace    string     `json:"namespace,omitempty"`
@@ -375,6 +379,10 @@ type sweepReaders struct {
 	// 5 dk sparkline.
 	slowSpans func(ctx context.Context, service, op string, thrMs float64, curFrom, curTo, priorFrom time.Time) (chstore.SlowSpanCorroboration, error)
 	opLatency func(ctx context.Context, service, op string, from, to time.Time, stepSec int) ([]chstore.OpLatencyPoint, error)
+	// v0.10.1391 — grafik adayı operasyonların span türleri (spanmetrics_1m):
+	// giriş (SERVER/CONSUMER) grafiği giden çağrıya (CLIENT/PRODUCER) tercih
+	// edilir. nil / hata = tür bilinmiyor, tercih yok (eski sıra).
+	opKinds func(ctx context.Context, service string, names []string, from, to time.Time) (map[string][]string, error)
 }
 
 func sweepReadersFrom(d Deps) sweepReaders {
@@ -437,6 +445,7 @@ func sweepReadersFrom(d Deps) sweepReaders {
 		}
 		r.slowSpans = st.SlowSpanCorroborate
 		r.opLatency = st.OperationLatencySeries
+		r.opKinds = st.OperationKinds // v0.10.1391
 	}
 	return r
 }
@@ -635,6 +644,7 @@ wait:
 	waitCharts := sweepStartOpCharts(ctx, r, req, findings, deadline) // v0.10.1299 — evre 2 ile paralel
 	p2 := sweepPhase2(ctx, r, req, findings, byName[sweepHopOps], deadline)
 	opCharts := waitCharts()
+	sweepApplyOpKinds(findings, opCharts.kinds) // v0.10.1391 — bulgu satırı span türünü taşır
 	if errors.Is(ctx.Err(), context.Canceled) {
 		return SweepResult{}, ctx.Err()
 	}
@@ -1761,7 +1771,7 @@ func sweepFindingLogs(ctx context.Context, r sweepReaders, req SweepRequest, f S
 // sweepBlocks — ≤6 blok: özet tablosu (Bulgu · Tür · Seviye · Gerekçe), sonra
 // bulgu sırasıyla operasyon/fonksiyon grafiği, pod tablosu, JVM tablosu, log
 // tablosu. Ek sorgu yok (sonucun kendi satırları).
-func sweepBlocks(req SweepRequest, res SweepResult, ops, fns *sweepOutcome, logRows map[int][]qlRow, opCharts map[string][]chstore.OpLatencyPoint) []pivotBlock {
+func sweepBlocks(req SweepRequest, res SweepResult, ops, fns *sweepOutcome, logRows map[int][]qlRow, opCharts sweepOpChartSet) []pivotBlock {
 	out := []pivotBlock{}
 	add := func(b pivotBlock) {
 		if len(out) < sweepMaxBlocks {
@@ -1783,9 +1793,12 @@ func sweepBlocks(req SweepRequest, res SweepResult, ops, fns *sweepOutcome, logR
 	for _, f := range res.Findings {
 		switch f.Kind {
 		case sweepKindOperation:
-			if ops == nil {
+			// v0.10.1391 — yalnız seçilen operasyonlar çizilir: giriş (SERVER/
+			// CONSUMER) bulgusu varken giden çağrı (CLIENT/PRODUCER) grafiği yok.
+			if ops == nil || !opCharts.isChosen(f.Name) {
 				continue
 			}
+			kindTag := sweepOpKindTag(opCharts.kinds[f.Name])
 			for _, op := range ops.ops {
 				if op.Name != f.Name {
 					continue
@@ -1796,12 +1809,12 @@ func sweepBlocks(req SweepRequest, res SweepResult, ops, fns *sweepOutcome, logR
 					corr = &cr
 				}
 				c, ok := EvChartPayload{}, false
-				if pts := opCharts[f.Name]; len(pts) > 0 {
+				if pts := opCharts.pts[f.Name]; len(pts) > 0 {
 					step, _ := sweepChartStep(req.To.Sub(req.From))
-					c, ok = sweepOpLatencyChart(f.Name, pts, step, op.PriorP99Ms, corr, win)
+					c, ok = sweepOpLatencyChart(f.Name, kindTag, pts, step, op.PriorP99Ms, corr, win)
 				}
 				if !ok {
-					c, ok = sweepSparkChart(f.Name, op, req.From, req.To)
+					c, ok = sweepSparkChart(f.Name, kindTag, op, req.From, req.To)
 				}
 				if ok {
 					add(pivotBlock{Hop: sweepHopOps, Type: blocks.TypeChart, Payload: c})

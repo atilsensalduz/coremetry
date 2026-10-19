@@ -7782,3 +7782,39 @@ Testler: `TestStarterQuestionsRoute` (arama cümleleri: servis → service_healt
 birebir tek eşleşme, topoloji vetosu ve endpoint anması yok), `copilot_operation_search_test.go`,
 `chstore TestCatalogOperationSearchSQL`, `CosreCapabilities.test.tsx` (çip/filo yok, kutular görünür, seçim gönderir,
 Enter doğrulaması, <2 karakter istek yok).
+
+## 2026-10-19 — v0.10.1391 — CoSRE servis sağlığı/raporu grafikleri: VictoriaMetrics HTTP RED (örneklenmemiş), span grafiği yalnız yedek
+
+**Operatör-bildirimli (prod ekranı, "… sağlığı nasıl?"):** "Prod sağlığı güzel ama VictoriaMetrics getirmedi, en azından
+HTTP metriclerimi getirebilirdi. Onun yerine gRPC getirdi. Aslında metrikler OTel collector'dan geliyor." Cevabın grafikleri
+servisin TEK bir giden gRPC istemci çağrısının (CLIENT) span grafiğiydi; ikinci panel "… · p50/p99 · 2 dk kova
+(spanmetrics_1m) · count" başlıklı, 0–7 değerli örneklenmiş span sayısıydı (prod %1 örnekliyor).
+**Kök neden:** guided servis sağlığı (`guidedServiceHealthBundle`) grafiklerini YALNIZ span'den kuruyordu: iki ```chart```
+çiti (servis error_rate / p99) + taramanın (`mcptools service_health_sweep`) operasyon BULGUSU grafiği
+(`sweepBlocks` → `sweepOpLatencyChart`). Tarama operasyonları `operation_summary_5m`'den sıralar — MV'de `kind` boyutu
+YOK — bu yüzden giden gRPC çağrısı gelen HTTP uç noktasıyla aynı listede yarışıp grafik aldı. Başlık sabit "p50/p99"
+diyordu; arayüz birim başına panel çizip başlığa " · <birim>" eklediği için count paneli de "p50/p99" taşıdı. Servis
+raporu (`service_report`) grafik basmaz (kart + trace listesi) — değişmedi.
+**Karar:** (1) VictoriaMetrics yapılandırılmış ve servisin OTel HTTP sunucu histogramı (`http_server_request_duration_seconds_*`,
+Service → HTTP Metrics sekmesinin metriği) varsa servis sağlığı servisin GELEN HTTP RED'ini VM'den çizer: istek hızı
+(req/s), 5xx oranı (%), gecikme p95/p99 — üç veri grafiği bloğu (`metric_chart` adımı: PromQL kopyala + "Metrics'te aç"),
+cevapla aynı pencere. Bunlar span grafiklerinin YERİNE geçer: iki çit basılmaz, taramanın operasyon grafik blokları
+düşer (`SweepResult.DropOperationCharts`). Grafik başına deterministik özet (`metricChartStatsTR`) kanıtta, kaynak
+"VictoriaMetrics, örneklenmemiş"; anlatıma hacim/oran için bunları esas alması, span SAYIMLARININ örneklenmiş olduğu söylenir.
+v0.10.1386 makinesi yeniden kullanıldı (şablonlar + `buildMetricChartPromQL`, `metricChartLabelSet` 5 dk etiket önbelleği,
+`resolveHTTPEnvScope`, `metricChartCacheKey` 60 sn, `emitGuidedEvidenceResult`); gecikme TEK sorgu: MetricsQL
+`histogram_quantiles("phi", 0.95, 0.99, …)` (yalnız VM okuyucusunda koşar). Varlık yoklaması = önbellekli istek hızı
+sorgusu: seri yoksa (ör. yalnız gRPC sunan servis) diğer iki sorgu koşmaz. VM tarafı taramayla paralel, 8 sn bütçe.
+(2) Yedek (VM yok / histogram yok / servis etiketi yok / okunamadı ≠ yok): bugünkü span grafikleri kalır, kanıt dürüst notu
+taşır ("span verisinden — örneklenmiş trace'ler; VM HTTP RED çizilmedi: <gerekçe>"). Taramanın grafik seçimi artık span
+türünü okur (`chstore.OperationKinds`, `spanmetrics_1m` önek budamalı tek okuma, LIMIT + max_execution_time 3): giriş
+(SERVER/CONSUMER) bulgusu varken giden çağrı (CLIENT/PRODUCER) grafiği çizilmez; yalnız giden çağrı bulgusu varsa çizilir
+ve başlığı "(giden çağrı · CLIENT)" der; tür okunamazsa eski sıra. Bulgu satırı `spanKind` taşır, kanıt metni
+"(giden çağrı · CLIENT)" yazar. Grafik başlığı "<op> · 2 dk kova · örneklenmiş span (spanmetrics_1m)" — "p50/p99" yok
+(seri adları lejantta), iki panel de örneklenmiş olduğunu söyler.
+**Neden FE değişmedi:** birim-başına panel başlığını ayırmak `lib/types.ts` + EvidenceChips değişikliği isterdi; başlığın
+gecikmeye özgü olmaması aynı sonucu sunucudan verir. **Grafik sayısı:** VM kipinde 3 blok, bugünkü 2 çit + ≥1 operasyon
+grafiği yerine (operasyon bulgusu olmayan cevapta 2 çit → 3 blok; çitler modelin aktarmasına bağlıydı, bloklar değil).
+Testler: `copilot_service_http_red_test.go` (kaynak seçimi tablosu, üç PromQL bayt bayt, anahtar tüm girdiler, çip ↔ blok,
+demet kablolaması, salt-okur), `mcptools service_sweep_kinds_test.go` (giriş tercihi, başlık pini, blok düşürme),
+`chstore TestOpKindsSQLBounded`.

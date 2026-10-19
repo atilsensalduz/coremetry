@@ -2115,7 +2115,7 @@ func (s *Server) runGuidedRoute(ctx context.Context, emit func(string, any), rou
 		if op != "" {
 			evidence, sources, err = s.guidedOperationHealthBundle(ctx, emit, route.Service, op, route.Env, from, to, rangeS)
 		} else {
-			evidence, sources, err = s.guidedServiceHealthBundle(ctx, emit, route.Service, route.Env, from, to, rangeS, route.Deep)
+			evidence, sources, err = s.guidedServiceHealthBundle(ctx, emit, route.Service, route.Env, from, to, rangeS, route.Deep, loc)
 		}
 	case guidedFamilyHealth:
 		evidence, sources, err = s.guidedFamilyHealthBundle(ctx, emit, route.Family, route.Env, from, to, rangeS)
@@ -2757,7 +2757,11 @@ func guidedEnvREDLineTR(env string, rangeS int64, w chstore.ServiceSummary, foun
 // örneklemi). Adımı `service_health_sweep` çipi: step-result tarama JSON'u
 // (bileşik kanıt listesi → bölüm başına çip), blokları ev_block ile; kanıt
 // metnine "TARAMA:" bloğu; hüküm ikisinin KÖTÜSÜ (mergeSweepVerdict).
-func (s *Server) guidedServiceHealthBundle(ctx context.Context, emit func(string, any), service, env string, from, to time.Time, rangeS int64, deep bool) (string, string, error) {
+func (s *Server) guidedServiceHealthBundle(ctx context.Context, emit func(string, any), service, env string, from, to time.Time, rangeS int64, deep bool, loc *time.Location) (string, string, error) {
+	// v0.10.1391 — servisin gelen HTTP RED'i VictoriaMetrics'ten (örneklenmemiş),
+	// tarama ile PARALEL; varsa span grafiklerinin YERİNE geçer
+	// (copilot_service_http_red.go). Goroutine emit etmez.
+	waitHTTPRED := s.startServiceHTTPRED(ctx, service, env, from, to, rangeS)
 	type sweepOut struct {
 		res mcptools.SweepResult
 		err error
@@ -2845,8 +2849,14 @@ func (s *Server) guidedServiceHealthBundle(ctx context.Context, emit func(string
 	case <-ctx.Done():
 		sw.err = ctx.Err()
 	}
+	httpRED := waitHTTPRED()
 	sweepOK := sw.err == nil && sw.res.OK
 	if sweepOK {
+		if httpRED.UseVM {
+			// v0.10.1391 — VM HTTP RED çizilecek: taramanın span operasyon
+			// grafiği (operatör ekranında servisin giden gRPC çağrısıydı) düşer.
+			sw.res.DropOperationCharts()
+		}
 		if body, merr := json.Marshal(sw.res); merr == nil {
 			emitGuidedCompositeResult(emit, nSw, mcptools.ServiceHealthSweepName, string(body))
 		}
@@ -2869,13 +2879,21 @@ func (s *Server) guidedServiceHealthBundle(ctx context.Context, emit func(string
 	b.Reset()
 	b.WriteString(verdict)
 	b.WriteString(body)
-	b.WriteString(chartFence(guidedChartSpec{Title: service + " · error_rate", Service: service, Agg: "error_rate", RangeS: rangeS}))
-	// CoSRE Faz-2 — ikinci deterministik kart: p99 latency. Guided yol
-	// tool çağrısı yapamayan küçük modelde (gemma4) de zengin görsel
-	// versin diye server iki kart basar; serbest döngüdeki eşdeğeri
-	// render_chart tool'udur (copilot_chat.go).
-	b.WriteString(chartFence(guidedChartSpec{Title: service + " · p99", Service: service, Agg: "p99", RangeS: rangeS}))
-	src := fmt.Sprintf("SLO durumu + deterministik sağlık hükmü + servis RED özeti + baseline + en sık hatalar + deploy işaretçileri + açık problemler + hatalı trace'ler + error logları + servis taraması (pod/operasyon/fonksiyon + sorunluların logları) + grafikler (son %s)", fmtAgoTR(rangeS))
+	if httpRED.UseVM {
+		// v0.10.1391 — servisin gelen HTTP RED'i: istek hızı · 5xx % · p95/p99,
+		// VictoriaMetrics (örneklenmemiş) veri grafiği blokları; span çitleri YOK.
+		b.WriteString("\n")
+		b.WriteString(s.emitServiceHTTPRED(emit, service, rangeS, httpRED, loc))
+	} else {
+		b.WriteString(svcHTTPREDSpanNoteTR(httpRED.Reason)) // v0.10.1391 — yedek: span (örneklenmiş)
+		b.WriteString(chartFence(guidedChartSpec{Title: service + " · error_rate", Service: service, Agg: "error_rate", RangeS: rangeS}))
+		// CoSRE Faz-2 — ikinci deterministik kart: p99 latency. Guided yol
+		// tool çağrısı yapamayan küçük modelde (gemma4) de zengin görsel
+		// versin diye server iki kart basar; serbest döngüdeki eşdeğeri
+		// render_chart tool'udur (copilot_chat.go).
+		b.WriteString(chartFence(guidedChartSpec{Title: service + " · p99", Service: service, Agg: "p99", RangeS: rangeS}))
+	}
+	src := fmt.Sprintf("SLO durumu + deterministik sağlık hükmü + servis RED özeti + baseline + en sık hatalar + deploy işaretçileri + açık problemler + hatalı trace'ler + error logları + servis taraması (pod/operasyon/fonksiyon + sorunluların logları)%s (son %s)", svcHTTPREDSourcesTR(httpRED), fmtAgoTR(rangeS))
 	if env != "" {
 		src += fmt.Sprintf("; RED tüm ortamlar, problemler ortam: %s", env)
 	}

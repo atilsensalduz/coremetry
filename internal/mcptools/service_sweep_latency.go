@@ -28,6 +28,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/cilcenk/coremetry/internal/ai/agent/blocks"
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/healthverdict"
 )
@@ -233,57 +234,212 @@ func sweepBucketLabel(stepSec int) string {
 	return fmt.Sprintf("%d sn", stepSec)
 }
 
-// sweepStartOpCharts — operasyon bulgularının (≤ sweepChartOpsMax) ince
-// gecikme serisini evre 2 ile PARALEL okur; dönen fonksiyon bekler (bütçe
-// sonunda yarım sonuçla döner).
-func sweepStartOpCharts(ctx context.Context, r sweepReaders, req SweepRequest, findings []SweepFinding, deadline time.Time) func() map[string][]chstore.OpLatencyPoint {
-	out := map[string][]chstore.OpLatencyPoint{}
+// sweepOpChartSet — v0.10.1391: grafik okumasının sonucu. pts: seçilen
+// operasyonların ince serisi; chosen: çizilecek operasyonlar (giriş önce, giden
+// çağrı yalnız başka aday yoksa); kinds: okunan span türleri (nil = bilinmiyor).
+type sweepOpChartSet struct {
+	pts    map[string][]chstore.OpLatencyPoint
+	chosen map[string]bool
+	kinds  map[string][]string
+}
+
+func (s sweepOpChartSet) isChosen(name string) bool { return s.chosen[name] }
+
+// v0.10.1391 — span türü sınıfları (grafik tercihi).
+const (
+	opClassEntry    = 0 // server | consumer — servisin GELEN trafiği
+	opClassOther    = 1 // internal | bilinmiyor
+	opClassOutbound = 2 // client | producer — servisin GİDEN çağrısı
+)
+
+// sweepCapKinds — tür okuması bütçesi (önek budamalı tek MV okuması).
+const sweepCapKinds = 1500 * time.Millisecond
+
+// sweepOpKindClass — SAF (v0.10.1391): bir operasyon adının türleri → sınıf.
+// Ad hem giriş hem giden türde görülüyorsa giriş kazanır.
+func sweepOpKindClass(kinds []string) int {
+	cls := opClassOther
+	for _, k := range kinds {
+		switch strings.ToLower(k) {
+		case "server", "consumer":
+			return opClassEntry
+		case "client", "producer":
+			cls = opClassOutbound
+		}
+	}
+	return cls
+}
+
+// sweepOpKindLabel — SAF (v0.10.1391): türlerin anlatım etiketi (giriş önce,
+// sonra giden, sonra iç; büyük harf). Bilinmiyorsa "".
+func sweepOpKindLabel(kinds []string) string {
+	for _, pref := range [][]string{{"server", "consumer"}, {"client", "producer"}, {"internal"}} {
+		for _, p := range pref {
+			for _, k := range kinds {
+				if strings.EqualFold(k, p) {
+					return strings.ToUpper(p)
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// sweepOpKindTag — SAF (v0.10.1391): grafik başlığının tür eki — YALNIZ giden
+// çağrıda ("giden çağrı · CLIENT"); giriş/iç/bilinmeyende "".
+func sweepOpKindTag(kinds []string) string {
+	if sweepOpKindClass(kinds) != opClassOutbound {
+		return ""
+	}
+	return "giden çağrı · " + sweepOpKindLabel(kinds)
+}
+
+// sweepPickChartOps — SAF (v0.10.1391; operatör: "en azından HTTP metriclerimi
+// getirebilirdi. Onun yerine gRPC getirdi"): grafik çizilecek operasyon
+// bulguları, bulgu sırasıyla. Giriş (SERVER/CONSUMER) sınıfı önce; giden çağrı
+// (CLIENT/PRODUCER) YALNIZ giriş/iç/bilinmeyen aday yoksa çizilir (bulgu yine
+// özet tablosunda ve anlatımda). Tür okunamadıysa (kinds nil) herkes "diğer"
+// sınıfında — eski davranış. Tavan sweepChartOpsMax.
+func sweepPickChartOps(names []string, kinds map[string][]string) []string {
+	idx := make([]int, len(names))
+	cls := make([]int, len(names))
+	anyInbound := false
+	for i, n := range names {
+		idx[i] = i
+		cls[i] = sweepOpKindClass(kinds[n])
+		if cls[i] != opClassOutbound {
+			anyInbound = true
+		}
+	}
+	sort.SliceStable(idx, func(a, b int) bool { return cls[idx[a]] < cls[idx[b]] })
+	var out []string
+	for _, i := range idx {
+		if len(out) >= sweepChartOpsMax {
+			break
+		}
+		if anyInbound && cls[i] == opClassOutbound {
+			continue
+		}
+		out = append(out, names[i])
+	}
+	return out
+}
+
+// sweepApplyOpKinds — v0.10.1391: operasyon bulgularına okunan span türü.
+func sweepApplyOpKinds(findings []SweepFinding, kinds map[string][]string) {
+	for i := range findings {
+		if findings[i].Kind == sweepKindOperation {
+			findings[i].SpanKind = sweepOpKindLabel(kinds[findings[i].Name])
+		}
+	}
+}
+
+// sweepStartOpCharts — operasyon bulgularının ince gecikme serisini evre 2 ile
+// PARALEL okur; dönen fonksiyon bekler (bütçe sonunda yarım sonuçla döner).
+// v0.10.1391: önce adayların span türü (tek MV okuması), sonra seçilen
+// (sweepPickChartOps) ≤ sweepChartOpsMax operasyonun serisi — hepsi aynı
+// goroutine zincirinde, bekleme fonksiyonu yalnız sonucu toplar.
+func sweepStartOpCharts(ctx context.Context, r sweepReaders, req SweepRequest, findings []SweepFinding, deadline time.Time) func() sweepOpChartSet {
 	step, fine := sweepChartStep(req.To.Sub(req.From))
-	var names []string
+	var cands []string
 	for _, f := range findings {
-		if f.Kind == sweepKindOperation && len(names) < sweepChartOpsMax {
-			names = append(names, f.Name)
+		if f.Kind == sweepKindOperation {
+			cands = append(cands, f.Name)
 		}
 	}
 	dl := hopDeadline(time.Until(deadline)-sweepPhase2Margin, sweepCapChart)
-	if r.opLatency == nil || !fine || len(names) == 0 || dl <= 0 {
-		return func() map[string][]chstore.OpLatencyPoint { return out }
+	if len(cands) == 0 || dl <= 0 {
+		set := sweepOpChartSet{pts: map[string][]chstore.OpLatencyPoint{}, chosen: map[string]bool{}}
+		for _, n := range sweepPickChartOps(cands, nil) {
+			set.chosen[n] = true
+		}
+		return func() sweepOpChartSet { return set }
 	}
-	type done struct {
-		name string
-		pts  []chstore.OpLatencyPoint
-		err  error
-	}
-	ch := make(chan done, len(names))
-	cctx, cancel := context.WithTimeout(ctx, dl)
-	for _, n := range names {
-		go func(n string) {
-			pts, err := r.opLatency(cctx, req.Service, n, req.From, req.To, step)
-			ch <- done{n, pts, err}
-		}(n)
-	}
-	return func() map[string][]chstore.OpLatencyPoint {
+	done := make(chan sweepOpChartSet, 1)
+	go func() {
+		set := sweepOpChartSet{pts: map[string][]chstore.OpLatencyPoint{}, chosen: map[string]bool{}}
+		cctx, cancel := context.WithTimeout(ctx, dl)
 		defer cancel()
+		if r.opKinds != nil {
+			kctx, kcancel := context.WithTimeout(cctx, sweepCapKinds)
+			if k, err := r.opKinds(kctx, req.Service, cands, req.From, req.To); err == nil {
+				set.kinds = k
+			}
+			kcancel()
+		}
+		names := sweepPickChartOps(cands, set.kinds)
+		for _, n := range names {
+			set.chosen[n] = true
+		}
+		if r.opLatency == nil || !fine || len(names) == 0 {
+			done <- set
+			return
+		}
+		type res struct {
+			name string
+			pts  []chstore.OpLatencyPoint
+			err  error
+		}
+		ch := make(chan res, len(names))
+		for _, n := range names {
+			go func(n string) {
+				pts, err := r.opLatency(cctx, req.Service, n, req.From, req.To, step)
+				ch <- res{n, pts, err}
+			}(n)
+		}
 		for range names {
 			select {
 			case d := <-ch:
 				if d.err == nil && len(d.pts) > 0 {
-					out[d.name] = d.pts
+					set.pts[d.name] = d.pts
 				}
 			case <-cctx.Done():
-				return out
+				done <- set
+				return
 			}
 		}
-		return out
+		done <- set
+	}()
+	return func() sweepOpChartSet { return <-done }
+}
+
+// DropOperationCharts — v0.10.1391: operasyon grafik bloklarını (ops bölümünün
+// chart blokları) çıkarır, sayısını döndürür. Guided servis sağlığı, servisin
+// HTTP RED'ini VictoriaMetrics'ten (örneklenmemiş) çizdiğinde span türevli
+// operasyon grafiği YERİNE geçer — cevaptaki grafik sayısı artmaz. Yeni dilim
+// kurar (paylaşılan dizi yerinde değişmez).
+func (r *SweepResult) DropOperationCharts() int {
+	kept := make([]pivotBlock, 0, len(r.Data.Blocks))
+	for _, b := range r.Data.Blocks {
+		if b.Hop == sweepHopOps && b.Type == blocks.TypeChart {
+			continue
+		}
+		kept = append(kept, b)
 	}
+	n := len(r.Data.Blocks) - len(kept)
+	r.Data.Blocks = kept
+	return n
+}
+
+// sweepOpChartTitle — SAF (v0.10.1391): grafik başlığı. Arayüz birim başına bir
+// panel çizer ve başlığa " · <birim>" ekler (ms paneli + count paneli); bu yüzden
+// başlık GECİKMEYE özgü bir şey ("p50/p99") SÖYLEMEZ — count panelinde yanıltıcıydı
+// (operatör ekranı: "… · p50/p99 · 2 dk kova (spanmetrics_1m) · count", 0–7
+// örneklenmiş span sayısı). Seri adları (p50, p99, errors, yavaş istek) lejantta;
+// sayımların örneklenmiş span olduğu başlıkta açık.
+func sweepOpChartTitle(name, kindTag, bucket, source string) string {
+	if kindTag != "" {
+		name += " (" + kindTag + ")"
+	}
+	return fmt.Sprintf("%s · %s kova · örneklenmiş span (%s)", name, bucket, source)
 }
 
 // sweepOpLatencyChart — SAF: ince seri → grafik. p50 (birincil), p99
 // (ikincil), önceki pencerenin birleşik p99'u (kesikli, her noktada aynı
 // değer — hizalı eksen), doğrulamanın yavaş-istek sayısı (adım kovasına
 // TOPLANIR) ve hata sayısı.
-func sweepOpLatencyChart(name string, pts []chstore.OpLatencyPoint, stepSec int, baseP99 float64, corr *chstore.SlowSpanCorroboration, win EvBlockWindow) (EvChartPayload, bool) {
-	c := EvChartPayload{Title: fmt.Sprintf("%s · p50/p99 · %s kova (spanmetrics_1m)", name, sweepBucketLabel(stepSec)), Window: win, Series: []EvChartSeries{}}
+func sweepOpLatencyChart(name, kindTag string, pts []chstore.OpLatencyPoint, stepSec int, baseP99 float64, corr *chstore.SlowSpanCorroboration, win EvBlockWindow) (EvChartPayload, bool) {
+	c := EvChartPayload{Title: sweepOpChartTitle(name, kindTag, sweepBucketLabel(stepSec), "spanmetrics_1m"), Window: win, Series: []EvChartSeries{}}
 	if len(pts) == 0 {
 		return c, false
 	}
@@ -331,7 +487,7 @@ func sweepSlowSeries(corr *chstore.SlowSpanCorroboration, pts []chstore.OpLatenc
 // sweepSparkChart — 5 dk geri dönüşü (ince MV pencereyi kapsamıyor ya da
 // pencere > 6 sa): operation_summary_5m sparkline'ı — p50 (varsa) + p99 +
 // önceki pencere p99'u + hata. Başlık kova boyutunu söyler.
-func sweepSparkChart(name string, op chstore.OperationSummary, from, to time.Time) (EvChartPayload, bool) {
+func sweepSparkChart(name, kindTag string, op chstore.OperationSummary, from, to time.Time) (EvChartPayload, bool) {
 	c := EvChartPayload{Window: EvBlockWindow{FromNs: from.UnixNano(), ToNs: to.UnixNano()}, Series: []EvChartSeries{}}
 	n := len(op.P99Sparkline)
 	slot := 0.0
@@ -344,7 +500,7 @@ func sweepSparkChart(name string, op chstore.OperationSummary, from, to time.Tim
 			label = sweepBucketLabel((sec + 59) / 60 * 60)
 		}
 	}
-	c.Title = fmt.Sprintf("%s · p50/p99 · %s kova (operation_summary_5m)", name, label)
+	c.Title = sweepOpChartTitle(name, kindTag, label, "operation_summary_5m") // v0.10.1391
 	at := func(i int) float64 { return float64(from.UnixMilli()) + float64(i)*slot }
 	if len(op.P50Sparkline) == n && n > 0 {
 		s := EvChartSeries{Name: "p50", Unit: "ms", Points: [][2]float64{}}
