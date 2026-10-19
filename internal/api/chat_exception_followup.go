@@ -46,7 +46,7 @@ package api
 // parçası" sınırı burada geniş kalırdı. Sürüm o stack'i veren olayın çalışan
 // sürümü (StackVersion, v0.10.1044) ve YALNIZ o servis için; grup servisi
 // stack servisinden farklıysa dal. İkisi de çekmecenin her takipte ZATEN
-// kurduğu explain girdisinden (anomaly.BuildExceptionExplainInput) — ek CH/ES
+// kurduğu explain girdisinden (exceptionExplainInput dağıtıcısı, v0.10.1370) — ek CH/ES
 // okuması yok. Grup okunamadıysa döngüye hiç girilmez (eski anlatım); araç
 // yine de "exception okunamadı" ıskasıyla savunur, git'e istek yok.
 
@@ -140,6 +140,11 @@ var exceptionInputSeam func(ctx context.Context, fp string, loc *time.Location) 
 
 // drawerExceptionInput — çekmecenin exception kanıtının kaynağı: grup +
 // explain'in TEK girdi kurucusu. Grup okunamazsa ok=false.
+//
+// v0.10.1370 (operatör-bildirimli) — kurucu explain'in dağıtıcısından
+// (exceptionExplainInput): `ora:` grubu Oracle bağlamı + örnek trace logları
+// alır (span kurucusu Oracle grubunda boş kanıt veriyordu). Sistem prompt'u
+// burada kullanılmaz — takip çekmecenin kendi prompt'uyla koşar.
 func (s *Server) drawerExceptionInput(ctx context.Context, fp string, loc *time.Location) (*chstore.ExceptionGroup, anomaly.ExceptionExplainInput, bool) {
 	if exceptionInputSeam != nil {
 		g, in, err := exceptionInputSeam(ctx, fp, loc)
@@ -149,7 +154,8 @@ func (s *Server) drawerExceptionInput(ctx context.Context, fp string, loc *time.
 	if err != nil || g == nil {
 		return nil, anomaly.ExceptionExplainInput{}, false
 	}
-	return g, anomaly.BuildExceptionExplainInput(ctx, s.store, s.logs, g, loc), true
+	in, _ := s.exceptionExplainInput(ctx, g, loc) // v0.10.1370 — ora: → Oracle kurucusu
+	return g, in, true
 }
 
 // drawerLoopEnv — copilotChat'in alışveriş kaynakları: audit için istek,

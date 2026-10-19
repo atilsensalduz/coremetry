@@ -5,9 +5,17 @@ package api
 // hata tablosu, v0.10.1092) span-merkezli girdiyle boş/jenerik açıklama
 // alıyordu (stack yok, örnek span yok); artık Oracle bağlamı + kendi sistem
 // prompt'u. Kullananlar: ✨ "Explain root cause" (copilot_exception.go) ve
-// insight kartı (insight.go). AI çekmecesinin takip sohbeti (read_source_code
-// yolu, drawerExceptionInput) bilinçli olarak DEĞİŞMEDİ — takip, açıklamanın
-// metnini bağlam olarak zaten taşır. api.go BÜYÜMEZ.
+// insight kartı (insight.go). api.go BÜYÜMEZ.
+//
+// v0.10.1370 (operatör-bildirimli: "Teknik hatalar için Exceptions sayfasında
+// trace incelemesi gibi loga bakmıyor — Ask CoSRE veya explain için") — AI
+// çekmecesinin takip sohbeti (drawerExceptionInput, chat_exception_followup.go)
+// de artık BU dağıtıcıdan geçer: v0.10.1100'deki "bilinçli olarak değişmedi"
+// kararı `ora:` grubunun CoSRE takibinde span kurucusuyla (stack yok, örnek
+// span yok, log yok) boş kanıt almasına yol açıyordu. Ayrıca interaktif yolda
+// Oracle okuyucusu Tempo-önce sarılır (oracleInteractiveReader): trace
+// Coremetry'ye örneklenmemiş ama Tempo'da olabilir. Arka plan açıklayıcı
+// (anomaly.ExceptionExplainer) CH-only kalır.
 
 import (
 	"context"
@@ -27,7 +35,7 @@ var (
 	oracleExceptionInputFn = func(s *Server, ctx context.Context, g *chstore.ExceptionGroup, loc *time.Location) anomaly.ExceptionExplainInput {
 		var rd anomaly.OracleContextReader
 		if s.store != nil { // nil *Store'u arayüze sarmak nil olmayan arayüz verirdi
-			rd = s.store
+			rd = oracleInteractiveReader(s, s.store) // v0.10.1370 — Tempo-önce trace okuması
 		}
 		// v0.10.1103 — s.logs: satırın trace'i Coremetry'de varsa o trace'in
 		// logları da girdiye (nil = CH-only kurulum, log bloğu atlanır).
@@ -37,6 +45,33 @@ var (
 	// ulaştığı store'suz testte pinlenir.
 	buildOracleExceptionInput = anomaly.BuildOracleExceptionExplainInput
 )
+
+// oracleTempoFirstReader — v0.10.1370: interaktif yolun Oracle okuyucusu.
+// GetTrace Tempo-önce resolveTraceSpans'a gider (trace_resolve.go; ≤3 sn
+// Tempo, sonra CH) ve anomaly.TraceSourceLoader'ı uygular: CH çözülen
+// id'lerin hiçbirini bulamazsa kurucu en yeni id'yi BİR kez bununla dener.
+type oracleTempoFirstReader struct {
+	anomaly.OracleContextReader
+	s *Server
+}
+
+func (r oracleTempoFirstReader) GetTrace(ctx context.Context, traceID string) ([]chstore.SpanRow, error) {
+	spans, _, err := r.s.resolveTraceSpans(ctx, traceID)
+	return spans, err
+}
+
+func (r oracleTempoFirstReader) GetTraceSource(ctx context.Context, traceID string) ([]chstore.SpanRow, string, error) {
+	return r.s.resolveTraceSpans(ctx, traceID)
+}
+
+// oracleInteractiveReader — v0.10.1370: taban okuyucuyu Tempo-önce sarar;
+// taban nil → nil (nil arayüz korunur).
+func oracleInteractiveReader(s *Server, base anomaly.OracleContextReader) anomaly.OracleContextReader {
+	if base == nil || s == nil {
+		return base
+	}
+	return oracleTempoFirstReader{OracleContextReader: base, s: s}
+}
 
 // exceptionExplainInput — grubun girdisi + sistem prompt'u. `ora:` → Oracle
 // kurucusu + SystemPromptOracleException; aksi span kurucusu + SystemPromptException.

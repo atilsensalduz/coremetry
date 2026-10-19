@@ -145,6 +145,11 @@ type OracleExplainContext struct {
 	CoremetryTrace string
 	TraceSpans     int
 	LogLines       int
+	// SampleLogTraces / SampleLogLines (v0.10.1370, operatör-bildirimli) —
+	// örnek trace'lerin logları (span'e bağlı OLMADAN, TEK sorgu): logu
+	// bulunan trace ve prompt'a giren satır sayısı.
+	SampleLogTraces int
+	SampleLogLines  int
 }
 
 // SummaryLine — "Oracle · <kaynak> · <kod> · <operasyon>" (panel başlığı ve log).
@@ -227,6 +232,26 @@ func oracleTraceIDs(rows []chstore.OracleErrorRow, n int) []string {
 		}
 		seen[id] = true
 		out = append(out, id)
+		if len(out) >= n {
+			break
+		}
+	}
+	return out
+}
+
+// oracleLogRefs — SAF (v0.10.1370): satırlardaki ayrık trace id'ler (en yeni
+// önce, ≤ n) + o satırın damgası; örnek trace logları penceresinin girdisi
+// (oracleTraceIDs'in damgalı ikizi). Source çağıranda doldurulur.
+func oracleLogRefs(rows []chstore.OracleErrorRow, n int) []sampleLogRef {
+	seen := map[string]bool{}
+	var out []sampleLogRef
+	for _, r := range rows {
+		id := strings.TrimSpace(r.TraceID)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, sampleLogRef{TraceID: id, AtNs: r.Time.UnixNano()})
 		if len(out) >= n {
 			break
 		}
@@ -358,8 +383,10 @@ func fmtNamed(in []OracleNamedCount) string {
 // boş ayrı kelimeler). traceBlock / logsBlock (v0.10.1103) — Coremetry'den
 // yüklenen trace'in kompakt span bloğu ve logları (oracleTraceBlock /
 // oracleLogsBlock); çözülen trace'lerin JSON'undan SONRA basılır, boşsa trace
-// için tek "yok" satırı.
-func renderOracleExplainPrompt(g *chstore.ExceptionGroup, c OracleExplainContext, loc *time.Location, traceBlock, logsBlock string) string {
+// için tek "yok" satırı. sampleLogsBlock (v0.10.1370) — örnek trace'lerin
+// logları (renderSampleTraceLogs); trace / "yok" satırından hemen SONRA, boşsa
+// prompt bayt bayt eski.
+func renderOracleExplainPrompt(g *chstore.ExceptionGroup, c OracleExplainContext, loc *time.Location, traceBlock, logsBlock, sampleLogsBlock string) string {
 	if loc == nil {
 		loc = time.UTC
 	}
@@ -444,6 +471,7 @@ func renderOracleExplainPrompt(g *chstore.ExceptionGroup, c OracleExplainContext
 	} else {
 		sb.WriteString("\n\nCoremetry trace'i: yok (satırlar trace id taşımıyor)")
 	}
+	sb.WriteString(sampleLogsBlock) // v0.10.1370 — örnek trace'lerin logları ("yok" satırı korunur)
 	if len(c.Samples) > 0 {
 		if sp, err := json.Marshal(c.Samples); err == nil {
 			fmt.Fprintf(&sb, "\n\nEn yeni %d satır (eşlenen alanlar; columns = eşlenmeyen kolonlar verbatim):\n```json\n%s\n```", len(c.Samples), promptfmt.FenceSafe(string(sp)))
@@ -454,6 +482,9 @@ func renderOracleExplainPrompt(g *chstore.ExceptionGroup, c OracleExplainContext
 	sb.WriteString("\n\nKodun anlamını, nerede yoğunlaştığını, patlama mı sürekli akış mı olduğunu ve önce DB tarafının mı çağıran tarafın mı kontrol edilmesi gerektiğini YALNIZ bu kanıta dayanarak söyle.")
 	if traceBlock != "" {
 		sb.WriteString(" Coremetry trace'inden Oracle'ı çağıran servisi ve operasyonu (hata span'i), loglarından uygulamanın hata çevresinde ne yazdığını belirt.")
+	}
+	if sampleLogsBlock != "" { // v0.10.1370
+		sb.WriteString(" Örnek trace'lerin loglarından her trace id (önek) için uygulamanın ne logladığını (servis, severity, mesaj, exception tipi) belirt; logu atan servis olası çağırandır.")
 	}
 	return sb.String()
 }
@@ -493,6 +524,49 @@ func oracleLogsBlock(lr traceLogsResult) string {
 		return ""
 	}
 	return fmt.Sprintf("\n\nBu trace'in ilişkili LOGLARI (yüksek severity önce):\n```json\n%s\n```", promptfmt.FenceSafe(lp))
+}
+
+// TraceSourceLoader — v0.10.1370: span'leri KAYNAĞIYLA döndüren yükleyici
+// (api: Tempo-önce resolveTraceSpans). Okuyucu bunu da uygularsa (yalnız
+// interaktif yol) CH çözülen id'lerin HİÇBİRİNİ bulamadığında en yeni id BİR
+// kez bununla denenir. Arka plan açıklayıcının *chstore.Store'u uygulamaz →
+// CH-only kalır.
+type TraceSourceLoader interface {
+	GetTraceSource(ctx context.Context, traceID string) ([]chstore.SpanRow, string, error)
+}
+
+// probeTraceEvidence — v0.10.1370: TraceSourceLoader ile TEK, sınırlı
+// (traceEvidenceTimeout) deneme; düşerse / boşsa sıfır değer.
+func probeTraceEvidence(ctx context.Context, ld TraceSourceLoader, traceID string) (traceEvidenceResult, string) {
+	if ld == nil || traceID == "" {
+		return traceEvidenceResult{}, ""
+	}
+	tctx, cancel := context.WithTimeout(ctx, traceEvidenceTimeout)
+	spans, src, err := ld.GetTraceSource(tctx, traceID)
+	cancel()
+	if err != nil || len(spans) == 0 {
+		return traceEvidenceResult{}, ""
+	}
+	return compactTraceEvidence(spans), src
+}
+
+// oracleSampleLogRefs — SAF (v0.10.1370): satır referanslarına kaynak etiketi:
+// yüklenen trace → onun kaynağı; CH'de bulunan (TraceFactsByIDs) → clickhouse;
+// aksi "Coremetry'de yok".
+func oracleSampleLogRefs(refs []sampleLogRef, found map[string]chstore.TraceFact, loadedID, loadedSrc string) []sampleLogRef {
+	out := make([]sampleLogRef, len(refs))
+	for i, r := range refs {
+		switch _, inCH := found[r.TraceID]; {
+		case loadedID != "" && r.TraceID == loadedID && loadedSrc != "":
+			r.Source = loadedSrc
+		case inCH:
+			r.Source = sampleLogSrcCH
+		default:
+			r.Source = sampleLogSrcNone
+		}
+		out[i] = r
+	}
+	return out
 }
 
 // BuildOracleExceptionExplainInput — `ora:` grubunun explain girdisi. Okumalar
@@ -536,25 +610,41 @@ func BuildOracleExceptionExplainInput(ctx context.Context, rd OracleContextReade
 	oc := assembleOracleExplainContext(g, facts, factsOK, rows, oracleExplainRowLimit, traceFacts, loc)
 	var traceBlock, logsBlock string
 	var tev traceEvidenceResult
-	if id := oracleCoremetryTrace(oc.Traces, traceFacts); id != "" && rd != nil {
+	loadedID, loadedSrc := "", "" // v0.10.1370 — örnek log referanslarının kaynak etiketi
+	id := oracleCoremetryTrace(oc.Traces, traceFacts)
+	if id != "" && rd != nil {
 		tev = traceEvidence(ctx, rd, id)
-		if tev.Loaded() {
-			// Yüklenmeyen trace için log sorgusu YOK (v0.9.414 ES maliyet disiplini).
-			lr := traceLogsEvidence(ctx, logs, id, tev.MinT, tev.MaxT)
-			oc.CoremetryTrace, oc.TraceSpans, oc.LogLines = id, len(tev.Compact), len(lr.Lines)
-			traceBlock = oracleTraceBlock(id, traceFacts[id].Service, tev)
-			logsBlock = oracleLogsBlock(lr)
-		}
+		loadedSrc = sampleLogSrcCH
+	} else if tsl, ok := rd.(TraceSourceLoader); ok && len(oc.Traces) > 0 {
+		// v0.10.1370 — interaktif yol (api Tempo-önce sarmalayıcı): CH hiçbir
+		// id'yi bulamadı → en yeni id BİR kez Tempo-önce yükleyiciyle.
+		id = oc.Traces[0].TraceID
+		tev, loadedSrc = probeTraceEvidence(ctx, tsl, id)
 	}
+	if tev.Loaded() {
+		// Yüklenmeyen trace için tek-trace log sorgusu YOK (v0.9.414 ES maliyet
+		// disiplini); örnek trace logları aşağıda span'e bağlı OLMADAN (v0.10.1370).
+		lr := traceLogsEvidence(ctx, logs, id, tev.MinT, tev.MaxT)
+		oc.CoremetryTrace, oc.TraceSpans, oc.LogLines = id, len(tev.Compact), len(lr.Lines)
+		traceBlock = oracleTraceBlock(id, traceFacts[id].Service, tev)
+		logsBlock = oracleLogsBlock(lr)
+		loadedID = id
+	}
+	// v0.10.1370 (operatör-bildirimli: "trace incelemesi gibi loga bakmıyor") —
+	// satırların en yeni ≤3 trace'inin logları, Coremetry'de olmasalar da TEK
+	// sorguyla; yüklenen trace'in logları tek-trace bloğunda → dışarıda.
+	sl := sampleTraceLogsEvidence(ctx, logs,
+		oracleSampleLogRefs(oracleLogRefs(rows, oracleExplainTraceMax), traceFacts, loadedID, loadedSrc), loadedID)
+	oc.SampleLogTraces, oc.SampleLogLines = sl.WithLogs, sl.Lines
 	ev := make([]string, 0, len(oc.Traces))
 	for _, t := range oc.Traces {
 		ev = append(ev, t.TraceID)
 	}
 	in := ExceptionExplainInput{
-		User:         renderOracleExplainPrompt(g, oc, loc, traceBlock, logsBlock),
+		User:         renderOracleExplainPrompt(g, oc, loc, traceBlock, logsBlock, sl.Block), // v0.10.1370 — sl.Block
 		EvTraces:     ev,
 		EvSpans:      tev.EvSpans,
-		LogsBlock:    logsBlock,
+		LogsBlock:    oracleInputLogsBlock(logsBlock, sl.Block), // v0.10.1370
 		DBStatements: tev.DBStatements,
 		ErrorText:    truncRunes(g.Type+": "+g.Message, 2000),
 		Oracle:       &oc,
@@ -566,6 +656,17 @@ func BuildOracleExceptionExplainInput(ctx context.Context, rd OracleContextReade
 		in.TraceID = ev[0]
 	}
 	return in
+}
+
+// oracleInputLogsBlock — SAF (v0.10.1370): girdinin LogsBlock'u (çekmece
+// sohbeti bütçede önce bunu korur). Tek-trace log bloğu varsa o + örnek
+// trace logları (User'da bitişik basılırlar → alt dize); yoksa yalnız örnek
+// trace logları (tek-trace yokken araya "yok"/"bulunamadı" satırı girer).
+func oracleInputLogsBlock(single, sample string) string {
+	if single != "" {
+		return single + sample
+	}
+	return sample
 }
 
 // oracleExplainWindow — SAF: [son görülme − 1 sa (ilk görülme daha yakınsa o),

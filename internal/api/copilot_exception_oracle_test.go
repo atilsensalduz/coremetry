@@ -89,12 +89,12 @@ func TestDefaultOracleExceptionInputPassesLogs(t *testing.T) {
 // seamLogs — kimlik karşılaştırması için boş log deposu.
 type seamLogs struct{ logstore.Store }
 
-// Kaynak pini: explain ve insight TEK dağıtıcıdan geçer (çekmece takip sohbeti
-// — read_source_code yolu — bilinçli olarak değişmedi, kendi pini var); Oracle
+// Kaynak pini: explain, insight ve (v0.10.1370) çekmece takip sohbeti TEK
+// dağıtıcıdan geçer; Oracle
 // grubunda kod dalı kapalı; LLM çağrısı sarmalayıcıdan (explainPrompt →
 // copilotExplain), doğrudan s.copilot.Explain değil.
 func TestExceptionExplainCallersUseDispatcher(t *testing.T) {
-	for _, f := range []string{"copilot_exception.go", "insight.go"} {
+	for _, f := range []string{"copilot_exception.go", "insight.go", "chat_exception_followup.go"} { // v0.10.1370 — takip sohbeti
 		b, err := os.ReadFile(f)
 		if err != nil {
 			t.Fatalf("%s: %v", f, err)

@@ -815,7 +815,7 @@ func TestExceptionFollowUpWiring(t *testing.T) {
 		"clampToolResultForModel(tr.Content)",
 		"Span: env.span.tool,",
 		"sourceCodeToolsFor(toolsForRole(catalog, role), true, c, false)",
-		"anomaly.BuildExceptionExplainInput(ctx, s.store, s.logs, g, loc)",
+		"in, _ := s.exceptionExplainInput(ctx, g, loc)", // v0.10.1370 — ora: → Oracle kurucusu
 		"codeService: in.CodeService(g.Service), codeVersion: in.StackVersion,",
 	} {
 		if !strings.Contains(src, want) {

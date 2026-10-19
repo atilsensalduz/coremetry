@@ -347,6 +347,11 @@ Kanıt:
 // ORDER hatasının düzeltilmemiş ikizi. Ödenmiş kanıt çöpe gidiyordu.
 // Aynı ev deseni: talimat İngilizce, bölüm başlıkları Türkçe (çıktı
 // dili), kanıtı olmayan bölüm atlanır.
+//
+// v0.10.1370 (operatör-bildirimli: "Teknik hatalar için Exceptions
+// sayfasında trace incelemesi gibi loga bakmıyor") — girdi ≤3 örnek
+// trace'in loglarını span'e bağlı olmadan taşıyabilir ("Örnek trace'lerin
+// LOGLARI"); "Yayılım ve Bağlam" onları trace id önekiyle anar.
 const systemExceptionBody = `You are a senior SRE assistant inside an APM tool. You are given an
 exception GROUP: type, message, service, representative stacktrace,
 occurrence trend (total / last-24h / peak bucket), and — when
@@ -392,6 +397,8 @@ stacktrace; the deployment unit if visible.
 **Yayılım ve Bağlam** — from the sample trace and logs: where in the
 request flow the exception fires (service + operation), what the
 caller saw, notable business data in log bodies (input values, IDs),
+what the logs of up to 3 sample traces show when "Örnek trace'lerin
+LOGLARI" is present (cite the trace id prefix for each finding),
 whether the trend suggests new / spiking / chronic (quote the
 occurrence numbers), and — when the pod/instance line reports a
 measured concentration — WHERE the occurrences landed, with the
@@ -423,6 +430,13 @@ const systemException = systemExceptionBody + AnswerInTurkish
 // gelir: model çağıran servisi/operasyonu ve uygulamanın hata çevresinde ne
 // logladığını söyler; yoksa satırların Coremetry trace'i taşımadığını tek
 // cümleyle söyler, çağıranı tahmin etmez.
+//
+// v0.10.1370 (operatör-bildirimli: "Teknik hatalar için Exceptions sayfasında
+// trace incelemesi gibi loga bakmıyor") — girdi en yeni ≤3 satır trace'inin
+// loglarını Coremetry'de olmasalar da taşıyabilir ("Örnek trace'lerin
+// LOGLARI"): model trace yokken de her trace id için uygulamanın logladığını
+// söyler, logu atan servisi olası çağıran olarak adlandırır ve span ağacının
+// olmadığını belirtir. Bölüm adları DEĞİŞMEDİ.
 const systemOracleException = `You are a senior SRE assistant inside an APM tool. The operator
 clicked "Explain root cause" on an ORACLE ERROR-TABLE group. This is
 NOT a span exception: the group is rows of an application error table
@@ -444,7 +458,9 @@ MAY also be present: one Coremetry TRACE that an error row carried and
 that exists in Coremetry (compact spans: name, service, kind, parent,
 duration; error spans with status message and the SQL statement) and
 that trace's LOGS (highest severity first). When they are absent the
-input says "Coremetry trace'i: yok".
+input says "Coremetry trace'i: yok". Also MAY be present: "Örnek
+trace'lerin LOGLARI" — the logs of up to 3 newest row trace ids, read
+by trace id even when the trace is not in Coremetry.
 
 Write in plain, short language for an on-call operator. Use these bold
 section headers, skipping a section when its evidence is absent:
@@ -467,7 +483,11 @@ and, from that trace's LOGS, what the application logged around the
 Oracle error (quote the message and exception type). When the input
 says "Coremetry trace'i: yok", write one sentence repeating the reason
 in the parentheses (the rows carried no trace id, or the trace was not
-found / could not be read) and do not guess the caller.
+found / could not be read) and do not guess the caller. When there is
+no Coremetry trace but "Örnek trace'lerin LOGLARI" is present, still
+report per trace id prefix what the application logged (service,
+severity, message, exception type), name the logging service as the
+likely caller, and say the span tree is unavailable.
 
 **Patlama mı, sürekli akış mı** — compare the last hour with the
 previous hour using the given numbers and ratio: a burst (≥3×), a new

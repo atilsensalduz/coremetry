@@ -325,6 +325,16 @@ func BuildExceptionExplainInput(ctx context.Context, store *chstore.Store, logs 
 		sampleStacks = append(sampleStacks, sm.Stacktrace)
 	}
 	st := sampleTraceEvidence(ctx, store, logs, traceID, sampleStacks)
+	// v0.10.1370 (operatör-bildirimli: "trace incelemesi gibi loga bakmıyor") —
+	// örnek trace'lerin logları span'e bağlı OLMADAN, TEK sorguyla (≤3 ayrık
+	// trace, sample_trace_logs.go). Yüklenen trace'in logları tek-trace
+	// bloğunda zaten var → dışarıda. Blok boşsa prompt bayt bayt eski.
+	sampleLogsExclude := ""
+	if st.Trace.Loaded() {
+		sampleLogsExclude = traceID
+	}
+	sl := sampleTraceLogsEvidence(ctx, logs, spanSampleLogRefs(samples), sampleLogsExclude)
+	logsBlock := st.LogsBlock + sl.Block // v0.10.1370 — bitişik: LogsBlock User'ın alt dizesi kalır
 
 	// Deploy penceresi — FirstSeen'e YAKINLIĞA göre seçim + önce/sonra
 	// açık etiket (v0.9.414 verify bulguları).
@@ -359,11 +369,11 @@ func BuildExceptionExplainInput(ctx context.Context, store *chstore.Store, logs 
 		verSvc, st.Logs.StackSpan, st.Logs.StackRes, st.StackRaw != "")
 
 	return ExceptionExplainInput{
-		User: assembleExceptionPrompt(g, loc, trend, st.StackForPrompt, st.TraceBlock, st.LogsBlock, deployBlock,
+		User: assembleExceptionPrompt(g, loc, trend, st.StackForPrompt, st.TraceBlock, logsBlock, deployBlock, // v0.10.1370 — logsBlock
 			renderPodConcentration(pods)),
 		EvTraces:     st.EvTraces,
 		EvSpans:      st.Trace.EvSpans,
-		LogsBlock:    st.LogsBlock,
+		LogsBlock:    logsBlock, // v0.10.1370 — tek-trace + örnek trace logları
 		Stack:        st.StackRaw,
 		StackService: st.StackService,
 		StackVersion: stackVersion,
@@ -374,6 +384,19 @@ func BuildExceptionExplainInput(ctx context.Context, store *chstore.Store, logs 
 		Deploys:      nearby,
 		Pods:         pods,
 	}
+}
+
+// spanSampleLogRefs — SAF (v0.10.1370): span örnekleri → örnek-log
+// referansları (sıra korunur; tekrar / boş id ve ≤3 tavanı pickSampleLogRefs'te).
+// Örnekler spans tablosundan gelir → kaynak clickhouse.
+func spanSampleLogRefs(samples []chstore.ExceptionSample) []sampleLogRef {
+	out := make([]sampleLogRef, 0, len(samples))
+	for _, sm := range samples {
+		if sm.TraceID != "" {
+			out = append(out, sampleLogRef{TraceID: sm.TraceID, AtNs: sm.Time, Source: sampleLogSrcCH})
+		}
+	}
+	return out
 }
 
 // sampleTraceOut — span yolunun örnek trace kanıtı (v0.10.1103 çıkarımı).

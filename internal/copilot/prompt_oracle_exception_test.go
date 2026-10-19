@@ -60,3 +60,30 @@ func TestOracleExceptionPromptCoremetryTrace(t *testing.T) {
 		t.Error("span örneği artık olabilir — 'NO span sample' kalmamalı")
 	}
 }
+
+// v0.10.1370 (operatör-bildirimli: "Teknik hatalar için Exceptions sayfasında
+// trace incelemesi gibi loga bakmıyor — Ask CoSRE veya explain için") — iki
+// prompt da girdideki "Örnek trace'lerin LOGLARI" bloğunu tanır: Oracle
+// prompt'u trace yokken de trace id başına logu raporlar ve logu atan servisi
+// olası çağıran sayar; span prompt'u ≤3 örnek trace'in loglarını trace id
+// önekiyle anar. Bölüm adları değişmez; prompt sürümü sicilde.
+func TestExceptionPromptsSampleTraceLogs(t *testing.T) {
+	ora := SystemPromptOracleException()
+	for _, want := range []string{
+		"Örnek\ntrace'lerin LOGLARI", "\"Örnek trace'lerin LOGLARI\" is present, still",
+		"logging service as the\nlikely caller", "span tree is unavailable", "**Çağıran taraf (Coremetry trace)**",
+	} {
+		if !strings.Contains(ora, want) {
+			t.Errorf("Oracle prompt'u %q çıpasını taşımalı", want)
+		}
+	}
+	sp := SystemPromptException()
+	for _, want := range []string{"logs of up to 3 sample traces", "\"Örnek trace'lerin\nLOGLARI\"", "trace id prefix", "**Yayılım ve Bağlam**"} {
+		if !strings.Contains(sp, want) {
+			t.Errorf("span exception prompt'u %q çıpasını taşımalı", want)
+		}
+	}
+	if promptVersionRegistry["systemExceptionBody"] != systemExceptionBody || promptVersionRegistry["systemOracleException"] != systemOracleException {
+		t.Fatal("iki prompt da sürüm sicilinde güncel değeriyle olmalı")
+	}
+}

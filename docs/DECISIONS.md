@@ -7158,3 +7158,27 @@ Anomalies örnek kartı): DOM'da TAM id, görsel kısaltma CSS ellipsis (`maxWid
 ("Bu trace örneklemeye girmedi, Grafana Tempo'dan açılır"); hâlâ yoksa gri "Coremetry'de yok" (title metni güncellendi —
 "yalnız Oracle hata satırı taşıyor" artık eksikti). Testler: `exception_sample_tempo_test.go` (birleşim tablosu, işçi
 tavanı, toplam bütçe, anahtar, yalnız-kesin önbellek, CoSRE), `ExceptionSampleRow.render.test.tsx`.
+
+## 2026-10-19 — v0.10.1370 — Exception açıklaması örnek trace'lerin loglarını okur (Coremetry'de olmasa da)
+
+**Operatör-bildirimli (prod, Exceptions › çoğunlukla Oracle `ora:` grupları; log arka ucu Elasticsearch):** "Teknik hatalar
+için Exceptions sayfasında trace incelemesi gibi loga bakmıyor — Ask CoSRE veya explain için." **Kök neden:** exception
+açıklamasının log okuması trace'in ClickHouse'ta YÜKLENMESİNE bağlıydı. Span grubunda `traceLogsEvidence` zarfı
+`store.GetTrace`'ten (CH) alır ve `maxT<=0`'da hiç gitmez; Oracle grubunda `oracleCoremetryTrace` CH'nin bildiği ilk id'yi
+seçer, yoksa trace ve log bloğu boş kalır, prompt "Coremetry trace'i: yok" deyip modele çağıranı analiz ettirmezdi. Oracle
+satırlarının trace id'leri çoğu zaman CH'de yok (örnekleme) → log sorgusu HİÇ atılmıyordu. Ayrıca CoSRE takip sohbeti
+(`drawerExceptionInput`) `ora:` grubunda da span kurucusunu kullanıyordu. Karşıt örnek: CoSRE trace kırılımı
+(`readDrillLogs`) span varlığına bakmadan TEK çoklu-trace sorgusu atar; ES trace id'yi alan şekillerinden bağımsız eşler.
+**Karar:** `anomaly/sample_trace_logs.go` — örnek trace'lerin (≤3, en yeni önce) logları span'e bağlı OLMADAN tek
+`logstore.Filter{TraceIDs, From, To, Limit: 60}` sorgusuyla okunur; pencere örnek/satır damgalarının [min−2 dk, max+2 dk];
+trace başına ≤8 satır (`logstore.GroupByTrace` — kırılımın gruplaması buraya taşındı, `groupTraceLogs` devreder), gövde
+≤300 rune, logu olmayan trace açıkça "log bulunamadı", blok `promptfmt.FenceSafe`. Tek-trace bloğu (`traceLogsEvidence`)
+bayt bayt aynı; yeni blok yanına eklenir ve tek-trace'te okunan id dışarıda kalır. Oracle prompt'u "Coremetry trace'i: yok
+(…)" cümlesini korur, blok ardından gelir; span prompt'u blok boşsa bayt bayt eski. İnteraktif yolda Oracle okuyucusu
+Tempo-önce sarılır (`oracleInteractiveReader` → `resolveTraceSpans`): CH hiçbir id'yi bulamazsa en yeni id BİR kez
+denenir; arka plan açıklayıcı CH-only. Takip sohbeti `exceptionExplainInput` dağıtıcısından geçer (v0.10.1100'deki
+"bilinçli olarak değişmedi" kararı geri alındı). `systemOracleException` "Çağıran taraf": trace yokken de trace id başına
+logu raporla, logu atan servis olası çağıran, span ağacı yok; `systemExceptionBody` "Yayılım ve Bağlam": ≤3 örnek trace'in
+logları, trace id önekiyle. **Bütçe:** explain başına bir ek log sorgusu (ES'te tek `_search`), ≤60 kayıt, ±2 dk pencere,
+6 sn tavan; okuma düşerse blok basılmaz. Testler: `sample_trace_logs_test.go`, `exception_oracle_trace_test.go`,
+`logstore/trace_group_test.go`, `api/copilot_exception_oracle_logs_test.go`, `copilot/prompt_oracle_exception_test.go`.

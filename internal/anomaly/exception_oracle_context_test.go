@@ -165,7 +165,7 @@ func TestAssembleOracleExplainContext(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			c := assembleOracleExplainContext(g, tc.facts, tc.factsOK, tc.rows, oracleExplainRowLimit, tf, time.UTC)
-			tc.check(t, c, renderOracleExplainPrompt(g, c, time.UTC, "", ""))
+			tc.check(t, c, renderOracleExplainPrompt(g, c, time.UTC, "", "", "")) // v0.10.1370 — örnek log bloğu yok
 		})
 	}
 	// Sentetik servis (`oracle:<ad>`) kaynak adına çözülür.

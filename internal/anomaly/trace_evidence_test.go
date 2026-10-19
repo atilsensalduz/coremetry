@@ -49,13 +49,21 @@ type fakeTraceLogs struct {
 	err   error
 	calls int
 	got   logstore.Filter
+	// v0.10.1370 — all: HER çağrının süzgeci (tek-trace + çoklu-trace ayrı
+	// sayılır); mkF doluysa sayfayı süzgece göre üretir (mk'nin yerine).
+	all []logstore.Filter
+	mkF func(logstore.Filter) *logstore.Page
 }
 
 func (f *fakeTraceLogs) Search(_ context.Context, fl logstore.Filter) (*logstore.Page, error) {
 	f.calls++
 	f.got = fl
+	f.all = append(f.all, fl) // v0.10.1370
 	if f.err != nil {
 		return nil, f.err
+	}
+	if f.mkF != nil { // v0.10.1370
+		return f.mkF(fl), nil
 	}
 	if f.mk == nil {
 		return &logstore.Page{}, nil

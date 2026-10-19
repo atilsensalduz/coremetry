@@ -410,33 +410,10 @@ func pickDrillTraces(rows []chstore.TraceRow) []drillCandidate {
 // groupTraceLogs — SAF: tek çoklu-trace log sayfasını trace id'ye göre
 // gruplar (traceIDs sırasıyla), trace başına ≤perTrace satır, önce şiddet
 // (azalan) sonra zaman (artan). Listede olmayan trace'in logu atılır.
+// v0.10.1370 — gövde logstore.GroupByTrace'e taşındı (exception açıklaması da
+// aynı gruplamayı kullanır); burası yalnız devreder.
 func groupTraceLogs(logs []*logstore.LogRecord, traceIDs []string, perTrace int) [][]*logstore.LogRecord {
-	idx := make(map[string]int, len(traceIDs))
-	for i, id := range traceIDs {
-		idx[strings.ToLower(id)] = i
-	}
-	out := make([][]*logstore.LogRecord, len(traceIDs))
-	for _, lg := range logs {
-		if lg == nil {
-			continue
-		}
-		if i, ok := idx[strings.ToLower(strings.TrimSpace(lg.TraceID))]; ok {
-			out[i] = append(out[i], lg)
-		}
-	}
-	for i := range out {
-		g := out[i]
-		sort.SliceStable(g, func(a, b int) bool {
-			if g[a].Severity != g[b].Severity {
-				return g[a].Severity > g[b].Severity
-			}
-			return g[a].Timestamp < g[b].Timestamp
-		})
-		if perTrace > 0 && len(g) > perTrace {
-			out[i] = g[:perTrace]
-		}
-	}
-	return out
+	return logstore.GroupByTrace(logs, traceIDs, perTrace)
 }
 
 func drillSevTR(lg *logstore.LogRecord) string {
