@@ -13,10 +13,15 @@ import { act } from 'react';
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ConfirmProvider } from '@/components/ui/ConfirmDialog';
+import { removeRaw, STORAGE_KEYS } from '@/lib/storage';
 import type { SpanMetricSeries } from '@/lib/types';
 
 type PromCall = { query: string; instant?: '1' };
-const m = vi.hoisted(() => ({ prom: [] as PromCall[], endpoints: 0, vmDown: false }));
+const m = vi.hoisted(() => ({
+  prom: [] as PromCall[], endpoints: 0, vmDown: false,
+  // v0.10.1377 — ortam kapsamı sahtesi: gate çözülene dek cevap gelmez.
+  scope: null as unknown, scopeCalls: [] as unknown[], gate: Promise.resolve() as Promise<void>,
+}));
 
 const SVC = 'checkout';
 const ser = (labels: Record<string, string>, v: number): SpanMetricSeries => ({
@@ -50,6 +55,7 @@ vi.mock('@/lib/api', () => {
     serviceNames: () => Promise.resolve({ names: [], total: 0 }),
     clusters: () => Promise.resolve([]),
     getPreference: (k: unknown) => Promise.resolve({ key: k, model: null }),
+    httpEnvScope: (p: unknown) => { m.scopeCalls.push(p); return m.gate.then(() => m.scope); },
   };
   return {
     api: new Proxy({}, { get: (_t, k: string) => stub[k] ?? (() => Promise.resolve(null)) }),
@@ -97,6 +103,9 @@ afterEach(() => {
   root = null; host = null;
   m.vmDown = false;
   document.body.innerHTML = '';
+  // v0.10.1377 — useUrlEnv env'i depoya yansıtır; sonraki teste sızmasın.
+  removeRaw(STORAGE_KEYS.env);
+  m.scope = null; m.scopeCalls = []; m.gate = Promise.resolve();
 });
 
 const dataRows = () => [...host!.querySelectorAll('tbody tr')].filter(tr => tr.querySelectorAll('td').length > 1);
@@ -169,5 +178,41 @@ describe('/endpoints metrik kipi = HTTP Metrics PromQL (v0.10.1359)', () => {
     await mount(`/endpoints?src=metric&range=3h&service=${SVC}`);
     expect(host!.textContent).toContain('VictoriaMetrics yapılandırılmamış');
     expect(dataRows()).toHaveLength(0);
+  });
+});
+
+// v0.10.1377 — liste metrik kipi env süzgeci VM PromQL'inde (adlar SENTETİK).
+describe('/endpoints metrik kipi: env süzgeci (v0.10.1377)', () => {
+  const ENV2 = 'deployment_environment_name=~"dr-eu-a|prod-eu-a"';
+
+  it('çözüm gelene dek sorgu YOK; sonra her sorgu eşleyiciyle; not uygulandı der', async () => {
+    let release!: () => void;
+    m.gate = new Promise<void>(r => { release = r; });
+    m.scope = {
+      label: 'deployment_environment_name', source: 'default', applied: true, matcher: ENV2,
+      terms: [{ role: 'env', want: 'eu-a', label: 'deployment_environment_name', values: ['dr-eu-a', 'prod-eu-a'], tier: 'prefix' }],
+    };
+    await mount(`/endpoints?src=metric&range=3h&service=${SVC}&compare=0&env=eu-a`);
+    expect(m.scopeCalls).toHaveLength(1);
+    expect(m.scopeCalls[0]).toMatchObject({ env: 'eu-a' });
+    expect(m.prom).toHaveLength(0);
+    await act(async () => { release(); });
+    await settle();
+    await settle();
+    expect(m.prom.length).toBe(7);
+    for (const c of m.prom) expect(c.query).toContain(`{service_name="${SVC}", ${ENV2}`);
+    expect(host!.textContent).toContain('Ortam süzgeci metrikte uygulandı: deployment_environment_name=dr-eu-a|prod-eu-a (env eu-a → dr-eu-a | prod-eu-a, önek eşleşmesi)');
+    expect(host!.textContent).not.toContain('süzgeci bu tabloya uygulanmaz');
+  });
+
+  it('kapsam ucu hata verirse süzgeçsiz sorgular + çözülemedi notu', async () => {
+    m.gate = Promise.reject(new Error('HTTP 502: VictoriaMetrics erişilemiyor'));
+    m.gate.catch(() => {});
+    await mount(`/endpoints?src=metric&range=3h&service=${SVC}&compare=0&env=eu-a`);
+    await settle();
+    expect(m.prom.length).toBe(7);
+    for (const c of m.prom) expect(c.query).toContain(`{service_name="${SVC}"`);
+    for (const c of m.prom) expect(c.query).not.toContain('deployment_environment_name');
+    expect(host!.textContent).toContain('Ortam süzgeci çözülemedi (HTTP 502: VictoriaMetrics erişilemiyor) — süzgeç uygulanmadı, seriler TÜM ortamları kapsıyor');
   });
 });

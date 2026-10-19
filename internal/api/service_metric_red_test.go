@@ -153,7 +153,7 @@ func TestErrorRatePercent(t *testing.T) {
 func TestServiceMetricREDKeyCoversEveryInput(t *testing.T) {
 	from, to := epFixtureWindow()
 	base := serviceMetricREDPlan{Service: "cart", From: from, To: to, Mdp: 300, RateWin: 180, Env: "uat"}
-	k0 := serviceMetricREDKey(base, "vm", "0")
+	k0 := serviceMetricREDKey(base, "vm", "0", "-")
 	muts := []func(p *serviceMetricREDPlan){
 		func(p *serviceMetricREDPlan) { p.Service = "pay" },
 		func(p *serviceMetricREDPlan) { p.To = p.To.Add(time.Hour) },
@@ -164,12 +164,16 @@ func TestServiceMetricREDKeyCoversEveryInput(t *testing.T) {
 	for i, m := range muts {
 		p := base
 		m(&p)
-		if serviceMetricREDKey(p, "vm", "0") == k0 {
+		if serviceMetricREDKey(p, "vm", "0", "-") == k0 {
 			t.Fatalf("girdi %d anahtara girmiyor", i)
 		}
 	}
-	if serviceMetricREDKey(base, "ch", "0") == k0 || serviceMetricREDKey(base, "vm", "1") == k0 {
+	if serviceMetricREDKey(base, "ch", "0", "-") == k0 || serviceMetricREDKey(base, "vm", "1", "-") == k0 {
 		t.Fatal("depo + dışlama özeti anahtarda olmalı")
+	}
+	// v0.10.1377 — LabelMap'in env/cluster etiket özeti de anahtarda.
+	if serviceMetricREDKey(base, "vm", "0", fnvStr("env_x", "")) == k0 {
+		t.Fatal("LabelMap özeti anahtarda olmalı")
 	}
 }
 

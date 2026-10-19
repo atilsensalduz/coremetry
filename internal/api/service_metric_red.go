@@ -55,12 +55,46 @@ type serviceMetricREDPlan struct {
 	Mdp      int
 	RateWin  int
 	Env      string
+	// v0.10.1377 — VM kaynağında env'in canlı değerlere çözümü (handler /
+	// MCP çözer, buildServiceMetricRED SAF kalır). nil → eski yol
+	// (src.EnvFilterExpr: CH süzer, VM reddeder).
+	EnvScope *httpEnvScope
 }
 
 // v0.10.1350 — v2: zarf statusState/statusReason taşır, hata veri güdümlü.
-func serviceMetricREDKey(p serviceMetricREDPlan, srcName, mx string) string {
-	return fmt.Sprintf("svc-metric-red:v2:src=%s:%s:%s:mdp%d:rw%d:env=%s:mx=%s",
-		srcName, p.Service, cacheBucket(p.From, p.To), p.Mdp, p.RateWin, p.Env, mx)
+// v0.10.1377 — v3: VM'de env canlı değerlere çözülüp süzülür; zarf envScope
+// taşır. lm = LabelMap'in env/cluster etiketlerinin özeti (Settings'te etiket
+// değişirse eski süzgeç servis edilmesin); CH'de "-".
+func serviceMetricREDKey(p serviceMetricREDPlan, srcName, mx, lm string) string {
+	return fmt.Sprintf("svc-metric-red:v3:src=%s:%s:%s:mdp%d:rw%d:env=%s:mx=%s:lm=%s",
+		srcName, p.Service, cacheBucket(p.From, p.To), p.Mdp, p.RateWin, p.Env, mx, lm)
+}
+
+// serviceMetricREDLabelDigest — v0.10.1377: anahtarın lm bileşeni.
+func serviceMetricREDLabelDigest(src metricSource) string {
+	if r, ok := src.(httpEnvLabelReader); ok {
+		lm := r.MetricLabelMap().Normalized()
+		return fnvStr(lm.Env, lm.Cluster)
+	}
+	return "-"
+}
+
+// serviceMetricREDEnvScope — v0.10.1377: VM kaynağında env'i HTTP histogramının
+// ortam etiketine çözer (HTTP Metrics sekmesi / endpoint / liste / Overview
+// karolarıyla AYNI çözücü ve aynı önbellekli değerler → iki yüzey aynı değere
+// süzülür, "ikili hâl" yok). CH kaynağı ya da boş env → nil (eski yol).
+// Okuma hatası → Failed kapsamı (süzgeç uygulanmaz, not söyler).
+func (s *Server) serviceMetricREDEnvScope(ctx context.Context, src metricSource, env string, to time.Time) *httpEnvScope {
+	r, ok := src.(httpEnvLabelReader)
+	if !ok || strings.TrimSpace(env) == "" {
+		return nil
+	}
+	sc, err := s.resolveHTTPEnvScope(ctx, r, map[string]string{"env": env}, to)
+	if err != nil {
+		f := httpEnvScopeFailed(err)
+		return &f
+	}
+	return &sc
 }
 
 // serviceMetricREDResponse — zarf. `series` anahtarları spanMetricBatch'inki.
@@ -81,6 +115,7 @@ type serviceMetricREDResponse struct {
 	LatencyUnitKnown bool                                  `json:"latencyUnitKnown"`
 	LatencyUnitFrom  string                                `json:"latencyUnitFrom,omitempty"`
 	EnvAmbiguous     bool                                  `json:"envAmbiguous,omitempty"`
+	EnvScope         *httpEnvScope                         `json:"envScope,omitempty"` // v0.10.1377
 	Tried            []string                              `json:"tried,omitempty"`
 	Partial          []string                              `json:"partial,omitempty"`
 	Note             string                                `json:"note"`
@@ -254,7 +289,16 @@ func buildServiceMetricRED(ctx context.Context, src metricSource, id httpMetricI
 		Name: id.Metric, Service: id.Service, Filters: id.Filters,
 		From: p.From, To: p.To, MaxDataPoints: p.Mdp, RateWindowSec: p.RateWin,
 	}
-	if p.Env != "" {
+	switch {
+	case p.Env != "" && p.EnvScope != nil:
+		// v0.10.1377 — VM: canlı değerlere çözülmüş ortam etiketi.
+		resp.EnvScope = p.EnvScope
+		if fs := httpEnvScopeFilters(*p.EnvScope); len(fs) > 0 {
+			base.Filters = append(append([]chstore.FilterExpr(nil), base.Filters...), fs...)
+		} else {
+			resp.EnvAmbiguous = true
+		}
+	case p.Env != "":
 		_, applied := src.EnvFilterExpr(p.Env)
 		resp.EnvAmbiguous = !applied
 		base = withEnvFilter(base, p.Env, src)
@@ -348,13 +392,28 @@ func serviceMetricREDNote(r serviceMetricREDResponse) string {
 	} else {
 		b.WriteString(" Süre birimi BİLİNMİYOR: P50/P95/P99 metrikten verilmedi, karo span'a düşer.")
 	}
-	if r.EnvAmbiguous {
-		b.WriteString(" env filtresi bu depoda ifade edilemiyor, seriler TÜM ortamları kapsıyor.")
-	}
+	b.WriteString(serviceMetricREDEnvNote(r))
 	if len(r.Partial) > 0 {
 		b.WriteString(" Eksik: " + strings.Join(r.Partial, "; ") + ".")
 	}
 	return b.String()
+}
+
+// serviceMetricREDEnvNote — SAF (v0.10.1377): notun env cümlesi (boş = env
+// seçili değil ya da CH süzdü).
+func serviceMetricREDEnvNote(r serviceMetricREDResponse) string {
+	sc := r.EnvScope
+	switch {
+	case sc != nil && sc.Applied && !r.EnvAmbiguous:
+		return fmt.Sprintf(" env süzgeci metrikte %s ile uygulandı.", sc.Matcher)
+	case sc != nil && sc.Failed:
+		return fmt.Sprintf(" env süzgeci çözülemedi (%s) — süzgeç uygulanmadı, seriler TÜM ortamları kapsıyor.", sc.Reason)
+	case sc != nil:
+		return fmt.Sprintf(" env süzgeci uygulanamadı (%s) — seriler TÜM ortamları kapsıyor.", sc.Reason)
+	case r.EnvAmbiguous:
+		return " env filtresi bu depoda ifade edilemiyor, seriler TÜM ortamları kapsıyor."
+	}
+	return ""
 }
 
 // getServiceMetricRED — GET /api/services/{name}/metric-red
@@ -386,7 +445,7 @@ func (s *Server) getServiceMetricRED(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mx := s.store.MetricExclusions().Digest()
-	key := serviceMetricREDKey(p, src.Name(), mx)
+	key := serviceMetricREDKey(p, src.Name(), mx, serviceMetricREDLabelDigest(src))
 	s.serveCached(w, r, key, 30*time.Second, func(ctx context.Context) (any, error) {
 		id, ok := s.httpMetricIdentity(ctx, src, name, p.Env)
 		if !ok {
@@ -394,6 +453,9 @@ func (s *Server) getServiceMetricRED(w http.ResponseWriter, r *http.Request) {
 			resp.Note = serviceMetricREDNote(resp)
 			return resp, nil
 		}
-		return buildServiceMetricRED(ctx, src, id, p)
+		// v0.10.1377 — closure'ın kendi ctx'i (SWR tazelemesi istek bağlamına bağlanmaz).
+		pp := p
+		pp.EnvScope = s.serviceMetricREDEnvScope(ctx, src, p.Env, p.To)
+		return buildServiceMetricRED(ctx, src, id, pp)
 	})
 }

@@ -12,7 +12,8 @@ import type { VMAuthType, VMLabelMap, VMSettingsInput, VMTestResult } from '@/li
 // kararın tek yazımı sunucuda (LabelMapProblem → 400, metin aynen gösterilir).
 const LABEL_ROLES: { key: keyof VMLabelMap; label: string; ph: string }[] = [
   { key: 'service', label: 'Servis', ph: 'boş = service_name konvansiyonu' },
-  { key: 'env', label: 'Ortam', ph: 'boş = keşif' },
+  // v0.10.1377 — HTTP metrik süzgeci (metrik kipi + küme kıyası) boşken bu etiketi kullanır.
+  { key: 'env', label: 'Ortam', ph: 'boş = deployment_environment_name' },
   { key: 'cluster', label: 'Cluster', ph: 'boş = keşif' },
   { key: 'namespace', label: 'Namespace', ph: 'boş = keşif' },
   { key: 'pod', label: 'Pod', ph: 'boş = keşif' },

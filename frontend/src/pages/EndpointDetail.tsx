@@ -29,7 +29,9 @@ import { PageShell } from '@/components/ui/PageShell';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/components/AuthProvider';
 import { RouteAlertModal } from '@/pages/alerts/RouteAlertModal'; // v0.10.705
-import { useHttpPromql } from '@/lib/queries/httpMetrics';
+import { useHttpPromql, useHttpEnvScope } from '@/lib/queries/httpMetrics';
+import { httpEnvScopeReady } from '@/lib/httpEnvScopeNote';
+import { HttpEnvScopeBand } from './service/httpMetricsViz';
 import { endpointHttpQueries, type LatQ } from '@/lib/httpMetrics';
 import { MetricREDStrip, MetricCharts } from '@/pages/endpoints/MetricModeSections'; // v0.10.1352
 import { AIExplainButton } from '@/components/ai/AIExplainButton'; // v0.10.1367 — tek tık "CoSRE'ye sor"
@@ -199,11 +201,15 @@ export default function EndpointDetailPage() {
   // v0.10.1352 — metrik kipi: sekmenin sorguları, route'a süzülü. Yalnız
   // metrik kipinde atılır (enabled), yoklama yok, staleTime 30 sn.
   const windowSec = Math.max(60, (to - from) / 1e9);
+  // v0.10.1377 — env/cluster metrik kipinde de süzer: ortam adı VM'in ortam
+  // etiketine çözülür; çözüm gelene dek sorgu atılmaz (süzgeçsiz an yok).
+  const envScope = useHttpEnvScope(env, cluster, to, detailSrc === 'metric' && !!refObj);
+  const envSel = envScope.envSel;
   const httpItems = useMemo(() => (refObj
     // v0.10.1359 — ?method= (metrik liste satırı) karoları o methoda süzer; yoksa tüm methodlar.
-    ? endpointHttpQueries({ service: refObj.service, route: refObj.path, sig: refObj.sig, method: refObj.method }, windowSec, { latQ, compare })
-    : []), [refObj, windowSec, latQ, compare]);
-  const httpRes = useHttpPromql(httpItems, { from, to }, detailSrc === 'metric' && !!refObj);
+    ? endpointHttpQueries({ service: refObj.service, route: refObj.path, sig: refObj.sig, method: refObj.method, envSel }, windowSec, { latQ, compare })
+    : []), [refObj, envSel, windowSec, latQ, compare]);
+  const httpRes = useHttpPromql(httpItems, { from, to }, detailSrc === 'metric' && !!refObj && httpEnvScopeReady(envScope));
 
   if (!refObj) {
     return (
@@ -322,8 +328,10 @@ export default function EndpointDetailPage() {
                 "satırın kovaları" diyordu; o satır artık okunmuyor. */}
             <div className="badge b-info" style={{ marginTop: -6, marginBottom: 12 }}
               title="Metrik kipi: RED karoları ve grafikler Service → HTTP Metrics sekmesinin aynı sorguları (/api/metrics/promql, VictoriaMetrics), bu route'a süzülü; karolar gerçek pencere değerleri (increase[pencere]). Histogram, durum kırılımı, çağıranlar ve trace bölümleri span türevlidir">
-              Tüm RED karoları ve grafikler: VictoriaMetrics (HTTP Metrics sekmesiyle aynı sorgular{refObj.sig ? ', route şekle göre regex' : refObj.method ? `, method=${refObj.method}` /* v0.10.1359 */ : ', tüm methodlar'}){(env || cluster) ? ' · env/cluster süzgeci bu karolara ve grafiklere uygulanmaz (sekmedeki gibi)' : ''} · histogram, durum kırılımı, çağıranlar ve trace bölümleri span türevli
+              Tüm RED karoları ve grafikler: VictoriaMetrics (HTTP Metrics sekmesiyle aynı sorgular{refObj.sig ? ', route şekle göre regex' : refObj.method ? `, method=${refObj.method}` /* v0.10.1359 */ : ', tüm methodlar'}) · histogram, durum kırılımı, çağıranlar ve trace bölümleri span türevli
             </div>
+            {/* v0.10.1377 — env/cluster süzgecinin metrikteki hâli (uygulandı / uygulanamadı / çözülemedi). */}
+            <HttpEnvScopeBand view={envScope} style={{ display: 'block', marginTop: -6, marginBottom: 12 }} />
           </>
         ) : (
           <REDStrip row={row} pending={rowsQ.isPending} compare={compare}

@@ -5,9 +5,10 @@
 //   gauge (SLI)                                    → HttpGauge
 //   piechart (donut + tablo lejant: değer, %)      → HttpDonut
 // Renkler tema token'larından (globals.css); sabit hex yok.
-import { useState, type ReactNode } from 'react';
+import { useState, type CSSProperties, type ReactNode } from 'react';
 import { Sparkline } from '@/components/Sparkline';
-import { Button, Card, PanelTitle } from '@/components/ui';
+import { Badge, Button, Card, PanelTitle } from '@/components/ui';
+import { httpEnvScopeNote, type HttpEnvScopeView } from '@/lib/httpEnvScopeNote';
 import { Spinner } from '@/components/Spinner';
 import { MultiLineChart } from '@/components/MultiLineChart';
 import { seriesPalette, inkOn } from '@/lib/chartFmt';
@@ -224,5 +225,22 @@ export function HttpDonutPanel({ title, rows, loading, fmt, colorOf, onSelect }:
       {loading ? <Spinner /> : rows.length === 0 ? <div className="field-hint">Bu pencerede veri yok.</div>
         : <HttpDonut slices={donutSlices(rows)} fmt={fmt} colorOf={colorOf} onSelect={onSelect} />}
     </Card>
+  );
+}
+
+/**
+ * v0.10.1377 — metrik kipi ortam süzgeci bandı (HTTP Metrics sekmesi, endpoint
+ * sayfası, Overview): uygulandıysa hangi etiket=değer ile (b-info), uygulanamadı
+ * / çözülemediyse serilerin TÜM ortamları kapsadığını (b-warn) söyler. Metin
+ * SAF httpEnvScopeNote'tan; env/cluster seçili değilse hiçbir şey çizmez.
+ */
+export function HttpEnvScopeBand({ view, style }: { view: HttpEnvScopeView; style?: CSSProperties }) {
+  const n = httpEnvScopeNote(view);
+  if (!n) return null;
+  return (
+    <Badge tone={n.tone} title={n.title} data-testid="http-env-scope-band" data-state={view.state}
+      style={{ whiteSpace: 'normal', textAlign: 'left', lineHeight: 1.4, ...style }}>
+      {n.text}
+    </Badge>
   );
 }

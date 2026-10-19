@@ -3188,6 +3188,11 @@ export const api = {
   // (operatör: pano VM'den okunsun); sayfanın deneme kaynağı seçimi uygulanmaz.
   httpMetricsPromql: (params: { query: string; from: number; to: number; maxDataPoints: number; instant?: '1' }) =>
     get<SpanMetricSeries[] | null>(withMetricSource(`/api/metrics/promql?${qs(params)}`, 'vm')),
+  // v0.10.1377 — metrik kipi env/cluster süzgeci: ortam adı → VM HTTP
+  // histogramının ortam etiketi + canlı değer(ler)i (matcher). Yalnız VM
+  // (httpMetricsPromql gibi sabit); `to` ns, sunucu 10 dk'ya yuvarlar.
+  httpEnvScope: (params: { env?: string; cluster?: string; to: number }, signal?: AbortSignal) =>
+    get<import('./types').HttpEnvScope>(withMetricSource(`/api/metrics/http-env-scope?${qs(params)}`, 'vm'), signal),
   // v0.10.1306 — `src` (/metrics PromQL sekmesi ?src=vm|ch): bu TEK isteği o
   // backend'e sabitler (aynı metricsrc değeri); yoksa sayfa URL'inin
   // ?metricsrc= denemesi / kurulum varsayılanı. signal: sekme/pencere değişince iptal.

@@ -15,11 +15,16 @@ import { act } from 'react';
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ConfirmProvider } from '@/components/ui/ConfirmDialog';
+import { removeRaw, STORAGE_KEYS } from '@/lib/storage';
 import { fmtSmart } from '@/lib/chartFmt';
 import type { EndpointRow, SpanMetricSeries } from '@/lib/types';
 
 type PromCall = { query: string; from: number; to: number; maxDataPoints: number; instant?: '1' };
-const m = vi.hoisted(() => ({ prom: [] as PromCall[], endpoints: 0 }));
+const m = vi.hoisted(() => ({
+  prom: [] as PromCall[], endpoints: 0,
+  // v0.10.1377 — ortam kapsamı sahtesi: gate çözülene dek cevap gelmez.
+  scope: null as unknown, scopeCalls: [] as unknown[], gate: Promise.resolve() as Promise<void>,
+}));
 
 const SVC = 'bsa-loan-assessment-allocation-prod';
 const ROUTE = '/BSAWEB/decision/service/rest';
@@ -53,6 +58,7 @@ vi.mock('@/lib/api', () => {
     httpMetricsPromql: (p: unknown) => { const c = p as PromCall; m.prom.push(c); return Promise.resolve(answer(c.query)); },
     savedViews: () => Promise.resolve([]),
     endpointDetail: () => Promise.resolve(null),
+    httpEnvScope: (p: unknown) => { m.scopeCalls.push(p); return m.gate.then(() => m.scope); },
   };
   return {
     api: new Proxy({}, { get: (_t, k: string) => stub[k] ?? (() => Promise.resolve(null)) }),
@@ -104,6 +110,9 @@ afterEach(() => {
   host?.remove();
   root = null; host = null;
   document.body.innerHTML = '';
+  // v0.10.1377 — useUrlEnv env'i depoya yansıtır; sonraki teste sızmasın.
+  removeRaw(STORAGE_KEYS.env);
+  m.scope = null; m.scopeCalls = []; m.gate = Promise.resolve();
 });
 
 // StatTile: çerçeve > [etiket, değer]; etiket metni bileşene verilen ad.
@@ -192,5 +201,72 @@ describe('api.httpMetricsPromql yolu (v0.10.1352)', () => {
     expect(urls[0]).toContain('/api/metrics/promql?');
     expect(urls[0]).toContain('metricsrc=vm');
     expect(new URL(urls[0], 'http://x').searchParams.get('query')).toBe('up{http_route="/a"}');
+  });
+});
+
+// v0.10.1377 — metrik kipi env/cluster süzgeci VM PromQL'inde (adlar SENTETİK).
+describe('/endpoint metrik kipi: env/cluster süzgeci (v0.10.1377)', () => {
+  const ENV = 'deployment_environment_name="prod-eu-a"';
+  const applied = {
+    label: 'deployment_environment_name', source: 'default', applied: true, matcher: ENV,
+    terms: [
+      { role: 'env', want: 'eu-a', label: 'deployment_environment_name', values: ['prod-eu-a'], tier: 'prefix' },
+      { role: 'cluster', want: 'prod-eu-a', label: 'deployment_environment_name', values: ['prod-eu-a'], tier: 'exact' },
+    ],
+  };
+
+  it('çözüm gelene dek sorgu YOK; sonra her sorgu eşleyiciyle, bant uygulandı der', async () => {
+    let release!: () => void;
+    m.gate = new Promise<void>(r => { release = r; });
+    m.scope = applied;
+    await mount('&env=eu-a&cluster=prod-eu-a');
+    expect(m.scopeCalls).toHaveLength(1);
+    expect(m.scopeCalls[0]).toMatchObject({ env: 'eu-a', cluster: 'prod-eu-a' });
+    expect(m.prom).toHaveLength(0); // süzgeçsiz an yok
+    expect(host!.textContent).toContain('Ortam süzgeci çözülüyor…');
+    await act(async () => { release(); });
+    await settle();
+    expect(m.prom.length).toBeGreaterThanOrEqual(15);
+    for (const c of m.prom) expect(c.query).toContain(`{service_name="${SVC}", ${ENV}, http_route="${ROUTE}"`);
+    expect(host!.textContent).toContain('Ortam süzgeci metrikte uygulandı: deployment_environment_name=prod-eu-a (env eu-a → prod-eu-a, önek eşleşmesi; cluster prod-eu-a, birebir)');
+    expect(host!.textContent).not.toContain('uygulanmaz');
+  });
+
+  it('metrikte ortam yok: süzgeçsiz sorgular + TÜM ortamlar bandı', async () => {
+    m.scope = {
+      label: 'deployment_environment_name', source: 'default', applied: false,
+      reason: 'metrikte bu ortam yok (deployment_environment_name değerleri arasında "us-x" eşleşmedi)',
+      terms: [{ role: 'env', want: 'us-x', label: 'deployment_environment_name', tier: 'none' }],
+    };
+    await mount('&env=us-x');
+    expect(m.prom.length).toBeGreaterThanOrEqual(15);
+    for (const c of m.prom) expect(c.query).toContain(`{service_name="${SVC}", http_route="${ROUTE}"`);
+    expect(host!.textContent).toContain('Ortam süzgeci uygulanamadı (metrikte bu ortam yok: deployment_environment_name değerleri arasında "us-x" eşleşmedi) — seriler TÜM ortamları kapsıyor');
+  });
+
+  it('env yok: kapsam sorulmaz, sorgular bayt bayt eski', async () => {
+    await mount();
+    expect(m.scopeCalls).toHaveLength(0);
+    expect(m.prom.length).toBeGreaterThanOrEqual(15);
+  });
+});
+
+describe('api.httpEnvScope yolu (v0.10.1377)', () => {
+  it('/api/metrics/http-env-scope + metricsrc=vm; boş cluster gönderilmez', async () => {
+    const { api } = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
+    const urls: string[] = [];
+    const orig = globalThis.fetch;
+    globalThis.fetch = (async (u: RequestInfo | URL) => {
+      urls.push(String(u));
+      return new Response('{"label":"","source":"","terms":null,"applied":false}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as typeof fetch;
+    try {
+      await api.httpEnvScope({ env: 'eu-a', cluster: undefined, to: 1_800_000_000_000_000_000 });
+    } finally { globalThis.fetch = orig; }
+    const u = new URL(urls[0], 'http://x');
+    expect(u.pathname).toBe('/api/metrics/http-env-scope');
+    expect(u.searchParams.get('metricsrc')).toBe('vm');
+    expect(u.searchParams.get('env')).toBe('eu-a');
+    expect(u.searchParams.has('cluster')).toBe(false);
   });
 });

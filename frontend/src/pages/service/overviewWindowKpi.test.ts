@@ -54,9 +54,11 @@ describe('Overview pencere sorguları = windowQueries({ app }, W)', () => {
 
   it('Overview.tsx sorguları bu yardımcıdan + sekmenin kancasından okur', () => {
     const src = readFileSync(resolve(__dirname, 'Overview.tsx'), 'utf8');
-    expect(src).toContain("import { useHttpPromql } from '@/lib/queries/httpMetrics';");
-    expect(src).toContain('overviewWindowItems(service, ovWinSec, ovWinOffsetSec)');
-    expect(src).toContain('useHttpPromql(ovWinItems, { from, to }, metricMode && !!service)');
+    expect(src).toContain("import { useHttpPromql, useHttpEnvScope } from '@/lib/queries/httpMetrics';");
+    // v0.10.1377 — ortam eşleyicisi geçer; çözüm gelene dek sorgu yok.
+    expect(src).toContain('overviewWindowItems(service, ovWinSec, ovWinOffsetSec, envSel)');
+    expect(src).toContain('useHttpPromql(ovWinItems, { from, to }, metricMode && !!service && envReady)');
+    expect(src).toContain("useHttpEnvScope(env, '', to, metricMode && !!service)");
   });
 });
 

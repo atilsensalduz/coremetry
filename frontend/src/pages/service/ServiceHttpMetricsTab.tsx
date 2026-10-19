@@ -6,14 +6,18 @@
 // dağılımı (yalnız uPlot kuralı), tablo → useDataTable. Route / method
 // süzgeçleri URL'de (?hroute, ?hmethod), seçenekler süzgeçsiz route serisinden.
 // Yalnız sekme açıkken sorgu atılır (30 sn sunucu önbelleği).
+// v0.10.1377 — env/cluster (Topbar) artık süzer: ortam adı VM'in ortam
+// etiketine çözülür (useHttpEnvScope), eşleyici her sorguda service_name'den
+// sonra; çözüm gelene dek sorgu atılmaz, uygulanamazsa bant söyler.
 import { useMemo, type ReactNode } from 'react';
 import { Card, PanelTitle, SectionHead, SelectField } from '@/components/ui';
-import { HttpStat, HttpGauge, HttpChartPanel, HttpDonutPanel } from './httpMetricsViz';
+import { HttpStat, HttpGauge, HttpChartPanel, HttpDonutPanel, HttpEnvScopeBand } from './httpMetricsViz';
 import { Spinner, Empty } from '@/components/Spinner';
 import {
   useDataTable, DataTableHead, DataTableColgroup, DataTableCell, DataTableState, type ColumnDef,
 } from '@/components/ui/DataTable';
-import { useHttpPromql } from '@/lib/queries/httpMetrics';
+import { useHttpPromql, useHttpEnvScope } from '@/lib/queries/httpMetrics';
+import { httpEnvScopeReady } from '@/lib/httpEnvScopeNote';
 import { timeRangeToNs } from '@/lib/utils';
 import { fmtSmart } from '@/lib/chartFmt';
 import { useUrlParams, strParam } from '@/lib/urlParams';
@@ -87,17 +91,20 @@ function cols(keyCols: Array<{ id: string; label: string }>, prefix: string): Co
 const IN_COLS = cols([{ id: 'http_request_method', label: 'Method' }, { id: 'http_route', label: 'Route' }], 't');
 const OUT_COLS = cols([{ id: 'http_request_method', label: 'Method' }, { id: 'server_address', label: 'Downstream' }], 'dt');
 
-export function ServiceHttpMetricsTab({ service, range }: { service: string; range: TimeRange }) {
+export function ServiceHttpMetricsTab({ service, range, env = '', cluster = '' }: { service: string; range: TimeRange; env?: string; cluster?: string }) {
   const [f, setF] = useUrlParams(FILTER_SPEC);
   useThemeTick();
   const win = useMemo(() => timeRangeToNs(range), [range]);
   const windowSec = Math.max(60, (win.to - win.from) / 1e9);
-  const scope = { app: service, route: f.hroute || undefined, method: f.hmethod || undefined };
-  const queries = useMemo(() => httpQueries(scope, windowSec), [service, f.hroute, f.hmethod, windowSec]); // eslint-disable-line react-hooks/exhaustive-deps
-  const optsExpr = useMemo(() => httpQueries({ app: service }, windowSec).rateByRoute, [service, windowSec]);
+  // v0.10.1377 — ortam eşleyicisi; env/cluster yoksa envSel undefined → sorgular bayt bayt eski.
+  const envScope = useHttpEnvScope(env, cluster, win.to);
+  const envSel = envScope.envSel;
+  const scope = { app: service, envSel, route: f.hroute || undefined, method: f.hmethod || undefined };
+  const queries = useMemo(() => httpQueries(scope, windowSec), [service, envSel, f.hroute, f.hmethod, windowSec]); // eslint-disable-line react-hooks/exhaustive-deps
+  const optsExpr = useMemo(() => httpQueries({ app: service, envSel }, windowSec).rateByRoute, [service, envSel, windowSec]);
   const ids = Object.keys(queries);
   const all = [...ids.map(id => ({ id, expr: queries[id], instant: HTTP_INSTANT_IDS.has(id) })), { id: 'opts', expr: optsExpr, instant: false }];
-  const res = useHttpPromql(all, win);
+  const res = useHttpPromql(all, win, httpEnvScopeReady(envScope));
   const data: Record<string, SpanMetricSeries[] | null | undefined> = res.data;
   const optsErr = res.error('opts');
   const opts = filterOptions(data.opts);
@@ -111,7 +118,7 @@ export function ServiceHttpMetricsTab({ service, range }: { service: string; ran
   const inDt = useDataTable<Row>({ storageKey: 'svc-http-endpoints', columns: IN_COLS, rows: inRows, initialSort: { id: 'tTotal', dir: 'desc' } });
   const outDt = useDataTable<Row>({ storageKey: 'svc-http-downstream', columns: OUT_COLS, rows: outRows, initialSort: { id: 'dtTotal', dir: 'desc' } });
 
-  if (res.pending('opts')) return <Spinner />;
+  if (res.pending('opts')) return <Spinner />; // v0.10.1377 — ortam çözülürken de (sorgu bekler)
   if (optsErr) {
     return (
       <Empty icon="!" title="HTTP metrikleri okunamadı">
@@ -123,7 +130,7 @@ export function ServiceHttpMetricsTab({ service, range }: { service: string; ran
   if (!data.opts?.length && !f.hroute && !f.hmethod) {
     return (
       <Empty icon="∿" title="Bu servis için HTTP metriği yok">
-        VictoriaMetrics'te service_name="{service}" etiketli http_server_request_duration_seconds metriği bu pencerede bulunamadı.
+        VictoriaMetrics'te service_name="{service}"{envSel ? `, ${envSel}` : ''} etiketli http_server_request_duration_seconds metriği bu pencerede bulunamadı.
       </Empty>
     );
   }
@@ -206,6 +213,7 @@ export function ServiceHttpMetricsTab({ service, range }: { service: string; ran
           {opts.methods.map(m => <option key={m} value={m}>{m}</option>)}
         </SelectField>
         <span className="field-hint">Kaynak: VictoriaMetrics · OpenTelemetry HTTP semconv metrikleri</span>
+        <HttpEnvScopeBand view={envScope} />
       </div>
 
       <SectionHead title="Genel Bakış" />

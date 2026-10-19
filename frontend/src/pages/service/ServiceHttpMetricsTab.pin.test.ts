@@ -9,12 +9,15 @@ describe('HTTP Metrics sekmesi', () => {
   it('Service sekme şeridinde ve render ediliyor', () => {
     const svc = read('../Service.tsx');
     expect(svc).toContain("{ key: 'http',       label: 'HTTP Metrics' }");
-    expect(svc).toContain("{tab === 'http' && <ServiceHttpMetricsTab service={svc} range={range} />}");
+    // v0.10.1377 — env + Topbar cluster kapsamı sekmeye iner (VM ortam süzgeci).
+    expect(svc).toContain("{tab === 'http' && <ServiceHttpMetricsTab service={svc} range={range} env={env} cluster={scopeCluster} />}");
   });
   it('sorgular VictoriaMetrics\'e sabit', () => {
     expect(read('../../lib/api.ts')).toContain("withMetricSource(`/api/metrics/promql?${qs(params)}`, 'vm')");
     // v0.10.1352 — okuma paylaşılan kancada (endpoint sayfası da kullanır).
-    expect(read('ServiceHttpMetricsTab.tsx')).toContain('useHttpPromql(all, win)');
+    // v0.10.1377 — ortam çözülene dek sorgu atılmaz (süzgeçsiz an yok).
+    expect(read('ServiceHttpMetricsTab.tsx')).toContain('useHttpPromql(all, win, httpEnvScopeReady(envScope))');
+    expect(read('ServiceHttpMetricsTab.tsx')).toContain('useHttpEnvScope(env, cluster, win.to)');
     expect(read('../../lib/queries/httpMetrics.ts')).toContain('api.httpMetricsPromql(');
     expect(read('../../lib/queries/httpMetrics.ts')).toContain('staleTime: 30_000');
   });

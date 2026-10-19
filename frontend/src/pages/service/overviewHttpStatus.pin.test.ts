@@ -9,7 +9,9 @@ const src = readFileSync(resolve(__dirname, 'Overview.tsx'), 'utf8');
 describe('Overview HTTP Status paneli', () => {
   it('metrik kipinde status kodu sorgusu, başlık ve geri düşüş', () => {
     expect(src).toContain('statusCodeRateQuery(service,');
-    expect(src).toContain("enabled: metricMode,");
+    // v0.10.1377 — env seçiliyse ortam eşleyicisi çözülene dek bekler.
+    expect(src).toContain("enabled: metricMode && envReady,");
+    expect(src).toContain('statusCodeRateQuery(service, Math.max(60, (to - from) / 1e9), envSel)');
     expect(src).toContain("title={showHttpStatus ? 'HTTP Status · metrik' : metricMode ? 'Failure rate · metrik'");
     expect(src).toMatch(/const showHttpStatus = metricMode && httpStatus\.series\.length > 0;/);
   });

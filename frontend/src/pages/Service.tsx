@@ -597,7 +597,7 @@ function ServiceDetailInner() {
                 rollout'ları (workload_rollouts). Kendi sabit pencereleri var
                 (iş yükü 24 sa, rollout 7 gün); sayfa aralığını okumaz. */}
             {tab === 'gitops' && <ServiceGitOpsTab service={svc} />}
-            {tab === 'http' && <ServiceHttpMetricsTab service={svc} range={range} />}
+            {tab === 'http' && <ServiceHttpMetricsTab service={svc} range={range} env={env} cluster={scopeCluster} />}
             {/* v0.9.63 — v0.9.62'nin sekme-tepesi RED üçlüsü OPERATÖR
                 KARARIYLA geri alındı ("gereksiz olmuş"): grafikler
                 Details'te (Performance) yaşar, Operations sekmesi

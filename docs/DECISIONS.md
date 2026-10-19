@@ -7359,3 +7359,53 @@ Testler: `vmetrics/envmatch_test.go`, `api/http_env_scope_test.go`, `api/chat_cl
 (`TestHTTPEnvSelectorMatchesFrontend_v0101376` altın), `api/chat_cluster_compare_test.go` (trace başlığı),
 `copilot/prompt_language_test.go`. HTTP ucu, Service/Endpoint metrik kipi env süzgeci ve frontend v0.10.1377'de. Sohbet
 kademe sırası, MCP araç sayısı (74) ve api.go değişmedi.
+
+## 2026-10-19 — v0.10.1377 — Metrik kipi: env/cluster süzgeci VM PromQL'inde (deployment_environment_name, canlı değerlere karşı çözülür)
+
+**Bağlam:** v0.10.1352 (endpoint sayfası), v0.10.1359 (/endpoints listesi) ve v0.10.1360 (Overview pencere karoları)
+"Bilinçli sınır" notlarında env/cluster süzgecinin metrik kipinde UYGULANMADIĞINI yazmıştı ("VM HTTP metriklerinde bu boyut
+yok"). Boyut var: `http_server_request_duration_seconds` ortamı `deployment_environment_name` etiketinde taşıyor (değerler
+`prod-<küme>`), v0.10.1376 küme kıyası onu zaten okuyor. Aynı sayfada /metric-red grafikleri env'e daralıp pencere
+karoları daralmıyordu ("ikili hâl"). **Bu kayıt 1352/1359/1360'ın env/cluster "Bilinçli sınır" notlarını REVİZE eder.**
+**Karar (operatör onaylı varsayılanlar):** (1) Yeni uç `GET /api/metrics/http-env-scope?env=&cluster=&to=`
+(`internal/api/http_env_scope_route.go`, `registerRoutesExtra("http-env-scope")`, api.go değişmedi; rol kapısı yok —
+viewer süzgecin hâlini görür). v0.10.1376 çözücüsü AYNEN: etiket = `LabelMap.Env` (Settings → Metrik backend'i → Ortam;
+yer tutucu artık "boş = deployment_environment_name") > `deployment_environment_name` > diğer yazımlar (yalnız varsayılan
+değersizse); toleranslı eşleme birebir → harf duyarsız → tek taraflı tek önek (`eu-a` ↔ `prod-eu-a`), belirsizlikte
+kazanan kademenin TÜM değerleri `=~` ile. cluster, `LabelMap.Cluster` doluysa o etikette, değilse ortam etiketinde aranır;
+env ∧ cluster aynı etikette → değer kesişimi, boşsa uygulanmaz. Yanıt `httpEnvScope` (label, source, terms, matcher,
+applied, reason, partial, yeni `failed`). Yalnız VM (CH → 400 "yalnız VictoriaMetrics kaynağında (metricsrc=vm)"); terim
+yok → 400. Önbellek 60 sn, anahtar `http-env-scope:v1:src=vm:lm=<fnv(LabelMap.Env, LabelMap.Cluster)>:q=<fnv(env,
+cluster)>:to=<10 dk dilimi>`; etiket okuma HATASI önbelleğe yazılmaz, 200 `{applied:false, failed:true, reason:"VM etiket
+sorgusu başarısız: <sınıf>"}` döner (ham hata metni/host viewer'a gitmez). (2) Frontend: `useHttpEnvScope(env, cluster,
+to, enabled)` (RQ anahtarı env + cluster + 10 dk dilimi, staleTime 60 sn, retry yok, yoklama yok) → saf
+`lib/httpEnvScopeNote.ts` durumu `off | pending | applied | unresolved | error`. `HttpScope.envSel` = sunucunun
+matcher'ı; `serverSel`/`clientSel` onu service_name'den HEMEN sonra koyar (Go altınıyla aynı yer —
+`httpMetrics.envScope.golden.json` artık iki dilde de doğrulanıyor). `endpointScope`/`EndpointIdentity`,
+`endpointListScope(service, search, envSel)`, `statusCodeRateQuery`, `totalRequestsQuery`, `overviewWindowItems(…,
+envSel)` isteğe bağlı envSel alır; **env seçili değilse her PromQL dizesi bugünküyle bayt bayt aynı** (pin). (3) Sorgular
+kapsam çözülene dek ATILMAZ (`httpEnvScopeReady`; süzgeçsiz bir an bile çizilmez); çözülemezse / uç hata verirse sorgular
+süzgeçsiz atılır ve bant söyler. (4) Yüzeyler: Service → HTTP Metrics (`ServiceHttpMetricsTab` artık `env` + Topbar
+`cluster` alır; route seçenekleri de süzülür), EndpointDetail (env + cluster; "uygulanmaz" ibaresi kalktı), /endpoints
+listesi (env + cluster; not = bant metni), Overview (env; pencere karoları, HTTP Status ve Toplam istek; RQ anahtarlarına
+envSel girdi). Bant (`HttpEnvScopeBand`, `Badge` atomu): uygulandı (b-info) "Ortam süzgeci metrikte uygulandı:
+deployment_environment_name=prod-eu-a (env eu-a → prod-eu-a, önek eşleşmesi)"; uygulanamadı (b-warn) "Ortam süzgeci
+uygulanamadı (metrikte bu ortam yok: <etiket> değerleri arasında "<ad>" eşleşmedi) — seriler TÜM ortamları kapsıyor";
+çözülemedi (b-warn) "Ortam süzgeci çözülemedi (<sebep>) — süzgeç uygulanmadı, seriler TÜM ortamları kapsıyor";
+bekliyor (b-gray) "Ortam süzgeci çözülüyor…". (5) `/metric-red` VM'de env'i AYNI çözücüyle süzer
+(`serviceMetricREDEnvScope` → `httpEnvScopeFilters` → `FilterExpr{Key: <etiket>, Op: "=", Values}`; VM derleyicisi çoklu
+değeri QuoteMeta'lı `=~` yazar): Overview adım grafikleri ve MCP `query_metrics` (`mcpServiceMetricRED`) miras alır;
+`envAmbiguous` yalnız çözülemeyince; zarf `envScope` taşır; not "env süzgeci metrikte <matcher> ile uygulandı." /
+"uygulanamadı (…) — seriler TÜM ortamları kapsıyor." / "çözülemedi (…)"; Overview "eksik" rozeti nedeni yazar. Anahtar
+`svc-metric-red:v3` + LabelMap özeti. CH yolu (`EnvFilterExpr`) değişmedi; `vmMetricSource.EnvFilterExpr` hâlâ reddeder
+(genel metrik keşfi için çok-yazımlı belirsizlik argümanı geçerli — bu karar yalnız HTTP histogramı için, canlı değerle).
+Testler: `api/http_env_scope_route_test.go` (kayıt, 400'ler, anahtar, önbellek, hata önbelleğe yazılmaz, süzgeç ifadeleri,
+/metric-red VM env uygulandı/uygulanamadı/çözülemedi, MCP kablosu), `service_metric_red_test.go` (anahtar v3),
+`lib/httpMetrics.envScope.test.ts` (altın paritesi, envSel'siz bayt pini, envSel yerleşim özelliği tüm üreticilerde, durum
++ bant metni tablosu), `HttpEnvScopeBand.test.tsx`, `listMetricMode.test.tsx` + `metricMode.test.tsx` (çözüm öncesi sorgu
+yok, sonrası eşleyicili, uygulanamadı / uç hatası), pin testleri güncellendi.
+**Bilinçli sınır:** Overview yalnız env'i süzer (sayfa cluster kapsamını Overview'a geçirmiyor; /metric-red de yalnız env
+alır). /metric-red'in kimliği HTTP histogramı dışında bir metriğe bağlıysa (tput bağı) süzgeç yine ortam etiketiyle
+uygulanır — o metrik etiketi taşımıyorsa seri boşalır (Overview span'e düşmez, grafik boş görünür); varsayılan kurulumda
+kimlik HTTP histogramı. Ortam etiketi değerleri 24 sa / ≤1000 değer penceresinden okunur; daha eski bir pencerede yalnız
+eskiden var olan bir ortam "metrikte yok" görünebilir (bant söyler).

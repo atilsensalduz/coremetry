@@ -208,6 +208,7 @@ func (s *Server) mcpServiceMetricRED(ctx context.Context, service, env string, f
 		return out, nil
 	}
 	p := serviceMetricREDPlan{Service: service, From: from, To: to, Mdp: mdp, RateWin: 180, Env: env}
+	p.EnvScope = s.serviceMetricREDEnvScope(ctx, src, env, to) // v0.10.1377 — Overview ile aynı env süzgeci
 	resp, err := buildServiceMetricRED(ctx, src, id, p)
 	out.Queries = rec.Queries()
 	if err != nil {

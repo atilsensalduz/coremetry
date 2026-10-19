@@ -15,6 +15,13 @@ export interface HttpScope {
   app: string; route?: string; method?: string;
   /** v0.10.1352 — route REGEX (`=~`, VM tam-çapalı); şekil kipi (`/users/:id`). route'u ezer. */
   routeRe?: string;
+  /**
+   * v0.10.1377 — ortam eşleyicisi (GET /api/metrics/http-env-scope `matcher`,
+   * ör. `deployment_environment_name="prod-eu-a"`); seçicide service_name'den
+   * HEMEN sonra (Go altını httpMetrics.envScope.golden.json ile aynı yer).
+   * Yoksa / boşsa her sorgu bugünküyle bayt bayt aynı.
+   */
+  envSel?: string;
 }
 
 // v0.10.1350 — VM etiket adları TEK yerde. Backend aynı OTel anahtarlarını
@@ -37,9 +44,10 @@ export function promStr(v: string): string {
   return '"' + v.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
 }
 
-/** Inbound seçici: service_name + isteğe bağlı route/method. */
+/** Inbound seçici: service_name + isteğe bağlı ortam (v0.10.1377) + route/method. */
 export function serverSel(s: HttpScope, extra = ''): string {
   const parts = [`${L.service}=${promStr(s.app)}`];
+  if (s.envSel) parts.push(s.envSel);
   if (s.routeRe !== undefined) parts.push(`${L.route}=~${promStr(s.routeRe)}`);
   else if (s.route) parts.push(`${L.route}=${promStr(s.route)}`);
   if (s.method) parts.push(`${L.method}=${promStr(s.method)}`);
@@ -47,9 +55,9 @@ export function serverSel(s: HttpScope, extra = ''): string {
   return `{${parts.join(', ')}}`;
 }
 
-/** Downstream seçici (panoda route/method süzgeci yok). */
+/** Downstream seçici (panoda route/method süzgeci yok; ortam v0.10.1377 — aynı kaynak etiketi). */
 export function clientSel(s: HttpScope, extra = ''): string {
-  return `{${L.service}=${promStr(s.app)}${extra ? ', ' + extra : ''}}`;
+  return `{${L.service}=${promStr(s.app)}${s.envSel ? ', ' + s.envSel : ''}${extra ? ', ' + extra : ''}}`;
 }
 
 /** Grafik nokta bütçesi; adım = ceil(pencere / bu). */
@@ -383,8 +391,9 @@ export const HTTP_INSTANT_IDS: ReadonlySet<string> = new Set([
 
 // v0.10.1253 (operatör: Overview'da "Failure rate · metrik" yerine HTTP
 // status; yalnız sınıflar değil kodlar) — status KODU başına istek hızı.
-export function statusCodeRateQuery(app: string, windowSec: number): string {
-  return `sum by (${L.status}) (rate(${SC}${serverSel({ app })}[${rateWindow(windowSec)}]))`;
+// v0.10.1377 — envSel: Overview'ın ortam eşleyicisi (yoksa bayt bayt eski sorgu).
+export function statusCodeRateQuery(app: string, windowSec: number, envSel?: string): string {
+  return `sum by (${L.status}) (rate(${SC}${serverSel({ app, envSel })}[${rateWindow(windowSec)}]))`;
 }
 
 /** Kod serileri: ad = kod, sıra 2xx→5xx (kod artan); renk tokenı sınıftan. */
@@ -401,8 +410,8 @@ export function statusCodeSeries(series: SpanMetricSeries[] | null | undefined):
 }
 
 // v0.10.1259 — Overview "Toplam istek" karosu: penceredeki toplam (anlık sorgu).
-export function totalRequestsQuery(app: string, windowSec: number): string {
-  return `sum(increase(${SC}${serverSel({ app })}[${Math.max(60, Math.round(windowSec))}s]))`;
+export function totalRequestsQuery(app: string, windowSec: number, envSel?: string): string {
+  return `sum(increase(${SC}${serverSel({ app, envSel })}[${Math.max(60, Math.round(windowSec))}s]))`;
 }
 
 // ── v0.10.1352 — endpoint sayfası metrik kipi = HTTP Metrics sekmesinin
@@ -447,14 +456,17 @@ export interface EndpointIdentity {
   method?: string;
   /** Şekil kipi (Endpoints "group by shape"): route regex ile eşlenir. */
   sig?: boolean;
+  /** v0.10.1377 — ortam eşleyicisi (HttpScope.envSel). */
+  envSel?: string;
 }
 
 /** Endpoint kimliği → sekme üreticilerinin kapsamı. Route HER ZAMAN süzer (boşsa `http_route=~""` = route'suz seriler; servis geneline genişlemez). */
 export function endpointScope(ep: EndpointIdentity): HttpScope {
   const method = ep.method?.trim() || undefined;
-  if (ep.sig) return { app: ep.service, routeRe: shapeRouteRegex(ep.route), method };
-  if (!ep.route) return { app: ep.service, routeRe: '', method };
-  return { app: ep.service, route: ep.route, method };
+  const env = ep.envSel ? { envSel: ep.envSel } : {}; // v0.10.1377
+  if (ep.sig) return { app: ep.service, ...env, routeRe: shapeRouteRegex(ep.route), method };
+  if (!ep.route) return { app: ep.service, ...env, routeRe: '', method };
+  return { app: ep.service, ...env, route: ep.route, method };
 }
 
 /** Endpoint'in inbound etiket seçicisi (`{service_name="…", http_route="…"[, http_request_method="…"]}`). */
@@ -619,10 +631,11 @@ export function routeSubstringRegex(search: string): string {
   return `(?i).*${search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}.*`;
 }
 
-/** v0.10.1359 — liste kapsamı: servis (zorunlu) + isteğe bağlı yol araması (route regex). */
-export function endpointListScope(service: string, search = ''): HttpScope {
+/** v0.10.1359 — liste kapsamı: servis (zorunlu) + isteğe bağlı yol araması (route regex); v0.10.1377 ortam eşleyicisi. */
+export function endpointListScope(service: string, search = '', envSel?: string): HttpScope {
   const q = search.trim();
-  return q ? { app: service, routeRe: routeSubstringRegex(q) } : { app: service };
+  const env = envSel ? { envSel } : {};
+  return q ? { app: service, ...env, routeRe: routeSubstringRegex(q) } : { app: service, ...env };
 }
 
 export type EndpointListId =

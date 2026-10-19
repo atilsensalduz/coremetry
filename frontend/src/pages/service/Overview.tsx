@@ -1,6 +1,9 @@
 import { statusCodeRateQuery, statusCodeSeries, totalRequestsQuery, scalarOf, HTTP_METRICS_POINTS, windowRange } from '@/lib/httpMetrics';
 // v0.10.1360 — metrik karoları pencere değeri (HTTP Metrics sekmesiyle aynı sorgu + kanca).
-import { useHttpPromql } from '@/lib/queries/httpMetrics';
+import { useHttpPromql, useHttpEnvScope } from '@/lib/queries/httpMetrics';
+// v0.10.1377 — metrik kipi env süzgeci VM PromQL'inde (karolar + /metric-red aynı çözücü).
+import { httpEnvScopeNote, httpEnvScopeReady } from '@/lib/httpEnvScopeNote';
+import { HttpEnvScopeBand } from './httpMetricsViz';
 import { overviewWindowItems, overviewWindowKpi, overviewWindowOffsetSec, overviewWindowSec, windowDelta } from './overviewWindowKpi';
 import { encodeRange } from '@/lib/urlState';
 import { useId, useMemo } from 'react';
@@ -262,13 +265,19 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
   // Otomatik kipte metrik yoksa span: sorgu bitene dek metrik varsayılır
   // (karolar zaten yükleniyor). Zorlanmış metrikte (?src=metric) hep metrik.
   const metricMode = explicitSrc ?? (metricRedQ.data ? !!metricRedQ.data.metricExists : !metricRedQ.isError);
+  // v0.10.1377 — env seçiliyken pencere karoları / durum kodu / toplam istek
+  // sorguları VM ortam eşleyicisiyle süzülür (/metric-red sunucuda AYNI
+  // çözücüyle süzer — iki yüzey aynı değerde). Çözüm gelene dek sorgu yok.
+  const envScope = useHttpEnvScope(env, '', to, metricMode && !!service);
+  const envSel = envScope.envSel;
+  const envReady = httpEnvScopeReady(envScope);
   // v0.10.1253 (operatör) — metrik kipinde "Failure rate" yerine HTTP status
   // KODU başına istek hızı (VictoriaMetrics, HTTP Metrics sekmesiyle aynı
   // metrik). Seri yoksa (HTTP semconv metriği yayınlanmıyor) eski OK/Errors.
   const httpStatusQ = useQuery({
-    queryKey: ['ov-http-status', service, from, to],
-    queryFn: () => api.httpMetricsPromql({ query: statusCodeRateQuery(service, Math.max(60, (to - from) / 1e9)), from, to, maxDataPoints: HTTP_METRICS_POINTS }),
-    enabled: metricMode,
+    queryKey: ['ov-http-status', service, from, to, envSel ?? ''],
+    queryFn: () => api.httpMetricsPromql({ query: statusCodeRateQuery(service, Math.max(60, (to - from) / 1e9), envSel), from, to, maxDataPoints: HTTP_METRICS_POINTS }),
+    enabled: metricMode && envReady,
     staleTime: 30_000,
     retry: false,
   });
@@ -278,9 +287,9 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
   // kipinde hata oranı hesaplanamıyorsa (durum etiketi yok, "—") karo
   // penceredeki TOPLAM isteği gösterir (VM anlık sorgu, HTTP Metrics'le aynı).
   const totalReqQ = useQuery({
-    queryKey: ['ov-http-total', service, from, to],
-    queryFn: () => api.httpMetricsPromql({ query: totalRequestsQuery(service, Math.max(60, (to - from) / 1e9)), from, to, maxDataPoints: HTTP_METRICS_POINTS, instant: '1' }),
-    enabled: metricMode,
+    queryKey: ['ov-http-total', service, from, to, envSel ?? ''],
+    queryFn: () => api.httpMetricsPromql({ query: totalRequestsQuery(service, Math.max(60, (to - from) / 1e9), envSel), from, to, maxDataPoints: HTTP_METRICS_POINTS, instant: '1' }),
+    enabled: metricMode && envReady,
     staleTime: 30_000,
     retry: false,
   });
@@ -294,8 +303,8 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
   // sayfanın compare kaydırması; prior'da W) yalnız delta için.
   const ovWinSec = overviewWindowSec(from, to);
   const ovWinOffsetSec = overviewWindowOffsetSec(compareOff);
-  const ovWinItems = useMemo(() => overviewWindowItems(service, ovWinSec, ovWinOffsetSec), [service, ovWinSec, ovWinOffsetSec]);
-  const ovWin = overviewWindowKpi(useHttpPromql(ovWinItems, { from, to }, metricMode && !!service));
+  const ovWinItems = useMemo(() => overviewWindowItems(service, ovWinSec, ovWinOffsetSec, envSel), [service, ovWinSec, ovWinOffsetSec, envSel]);
+  const ovWin = overviewWindowKpi(useHttpPromql(ovWinItems, { from, to }, metricMode && !!service && envReady));
   const metricAutoFellBack = explicitSrc === null && !!metricRedQ.data && !metricRedQ.data.metricExists;
   const metricRedGhostQ = useQuery({
     queryKey: ['service-metric-red', service, from - compareOff, to - compareOff, redMdp, env],
@@ -876,7 +885,7 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
   const rtTileNote = rtFromWindow
     ? `Kaynak: http_server_request_duration_seconds · karolar pencere değeri (increase[${windowRange(ovWinSec)}], HTTP Metrics ile aynı), service_name = ${service}`
       + ` · avg ${fmtMs(ovWin.avgMs)} · P50 ${fmtMs(ovWin.p50Ms)} · P95 ${fmtMs(ovWin.p95Ms)} · P99 ${fmtMs(ovWin.p99Ms)}`
-      + (env ? ' · env süzgeci yok (HTTP Metrics gibi)' : '')
+      + (env ? ` · ${httpEnvScopeNote(envScope)?.text ?? 'env süzgeci yok'}` : '') // v0.10.1377
       + '; sparkline ve grafikler adım başına seri'
     : rtFromMetric
       ? `Kaynak: ${metricName} · gözlem-ağırlıklı ortalama (grupsuz), service.name = ${service}`
@@ -1033,10 +1042,13 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
             // v0.10.1350 — sorgu hatası "etiket yok" diye okunmaz.
             metricRedQ.data.errorsUnknown ? (metricRedQ.data.statusState === 'unknown' ? 'failure rate (durum sorgusu başarısız)' : 'failure rate (durum etiketi yok)') : null,
             !metricRedQ.data.latencyUnitKnown ? 'P50/P95/P99 (birim bilinmiyor)' : null,
-            metricRedQ.data.envAmbiguous ? 'env daraltması' : null,
+            // v0.10.1377 — VM'de env artık süzülür; eksikse NEDEN (yok / çözülemedi).
+            metricRedQ.data.envAmbiguous ? (metricRedQ.data.envScope?.failed ? 'env daraltması (çözülemedi)' : metricRedQ.data.envScope ? 'env daraltması (metrikte bu ortam yok)' : 'env daraltması') : null,
           ].filter(Boolean).join(', ')}</span>
         )}
         {ghostEnabled && (seriesGhostQ.isError || latencyGhostQ.isError) && <span className="badge b-warn">önceki dönem yüklenemedi</span>}
+        {/* v0.10.1377 — env süzgecinin metrikteki hâli (karolar + grafikler aynı eşleyici). */}
+        {metricMode && <HttpEnvScopeBand view={envScope} />}
       </div>
       <div className="ov-grid ov-charts-3 ov-mb">
         {/* v0.9.1163 (operatör-raporlu: "çift ⋯") — suppressMenu + fonksiyon

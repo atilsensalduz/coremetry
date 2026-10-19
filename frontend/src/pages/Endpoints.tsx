@@ -39,7 +39,8 @@ import { useAuth } from '@/components/AuthProvider';
 import { RouteAlertModal } from '@/pages/alerts/RouteAlertModal'; // v0.10.705
 import { PageShell } from '@/components/ui/PageShell';
 // v0.10.1359 — metrik kipi: Service → HTTP Metrics sekmesinin PromQL'i.
-import { useHttpPromql } from '@/lib/queries/httpMetrics';
+import { useHttpPromql, useHttpEnvScope } from '@/lib/queries/httpMetrics';
+import { httpEnvScopeNote, httpEnvScopeReady } from '@/lib/httpEnvScopeNote';
 import { ENDPOINT_LIST_POOL_MAX, endpointListRows, endpointListScope, listQueries } from '@/lib/httpMetrics';
 
 // /endpoints — operator-asked v0.5.365. Cross-service inbound
@@ -552,10 +553,14 @@ export default function EndpointsPage() {
   const windowSec = Math.max(60, (to - from) / 1e9);
   const metricN = Math.min(limit, ENDPOINT_LIST_POOL_MAX);
   const searchQ = search.trim();
+  // v0.10.1377 — env/cluster metrik kipinde de süzer (ortam adı → VM ortam
+  // etiketi); çözüm gelene dek sorgu atılmaz, uygulanamazsa not söyler.
+  const envScope = useHttpEnvScope(env, cluster, to, metricMode && !!service);
+  const envSel = envScope.envSel;
   const metricItems = useMemo(() => (metricMode && service
-    ? listQueries(endpointListScope(service, searchQ), windowSec, metricN, compare)
-    : []), [metricMode, service, searchQ, windowSec, metricN, compare]);
-  const metricRes = useHttpPromql(metricItems, { from, to }, metricMode && !!service);
+    ? listQueries(endpointListScope(service, searchQ, envSel), windowSec, metricN, compare)
+    : []), [metricMode, service, searchQ, envSel, windowSec, metricN, compare]);
+  const metricRes = useHttpPromql(metricItems, { from, to }, metricMode && !!service && httpEnvScopeReady(envScope));
   const md = metricRes.data;
   const metricRows = useMemo(
     () => endpointListRows({
@@ -599,10 +604,11 @@ export default function EndpointsPage() {
   // adım, env/cluster daraltması, eksik alt sorgular): istemci tahmin etmez.
   // v0.10.454 — metrik kipi yalnız açık seçimle; not sunucudan (metrik
   // bulunamadıysa da sunucunun cümlesi ekranda, sessiz düşüş yok).
-  // v0.10.1359 — metrik kipi artık sunucu notu taşımaz (PromQL okuması);
-  // env/cluster sekmedeki gibi uygulanmaz ve bunu not söyler.
+  // v0.10.1359 — metrik kipi artık sunucu notu taşımaz (PromQL okuması).
+  // v0.10.1377 — env/cluster VM ortam etiketine çözülüp UYGULANIR; not hangi
+  // değerle uygulandığını ya da neden uygulanamadığını söyler.
   const metricNote = metricMode && (env || cluster)
-    ? `Metrik kipi: ${env && cluster ? 'env ve cluster' : env ? 'env' : 'cluster'} süzgeci bu tabloya uygulanmaz (HTTP Metrics sekmesindeki gibi — VM HTTP metriklerinde bu boyut yok).`
+    ? httpEnvScopeNote(envScope)?.text ?? 'Metrik kipi: servis seçilince env/cluster süzgeci VictoriaMetrics ortam etiketine çözülüp uygulanır.'
     : null;
 
   // v0.10.954 — tablo standardı T12: yükleniyor / hata / eşleşme yok / boş

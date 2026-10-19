@@ -38,8 +38,10 @@ export function overviewWindowOffsetSec(compareOffNs: number): number {
  * çıktısının KENDİSİ (yeniden yazım yok; tutarlılık yapı gereği). offsetSec
  * > 0 → önceki pencerenin avg'ı (delta için; başka tüketici yok).
  */
-export function overviewWindowItems(service: string, windowSec: number, offsetSec = 0): HttpPromqlItem[] {
-  const w = windowQueries({ app: service }, windowSec);
+// v0.10.1377 — envSel: ortam eşleyicisi (useHttpEnvScope); yoksa bayt bayt eski sorgular.
+export function overviewWindowItems(service: string, windowSec: number, offsetSec = 0, envSel?: string): HttpPromqlItem[] {
+  const scope = envSel ? { app: service, envSel } : { app: service };
+  const w = windowQueries(scope, windowSec);
   const out: HttpPromqlItem[] = [
     { id: 'wAvg', expr: w.avg, instant: true },
     { id: 'wP50', expr: w.p50, instant: true },
@@ -47,7 +49,7 @@ export function overviewWindowItems(service: string, windowSec: number, offsetSe
     { id: 'wP99', expr: w.p99, instant: true },
   ];
   if (offsetSec > 0) {
-    out.push({ id: 'pAvg', expr: windowQueries({ app: service }, windowSec, '', offsetSec).avg, instant: true });
+    out.push({ id: 'pAvg', expr: windowQueries(scope, windowSec, '', offsetSec).avg, instant: true });
   }
   return out;
 }

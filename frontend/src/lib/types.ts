@@ -4139,10 +4139,37 @@ export interface ServiceMetricRED {
   latencyUnitKnown: boolean;
   latencyUnitFrom?: string;
   envAmbiguous?: boolean;
+  /** v0.10.1377 — VM'de env'in canlı değerlere çözümü (CH'de yok). */
+  envScope?: HttpEnvScope;
   tried?: string[];
   partial?: string[];
   note: string;
   series: Record<string, SpanMetricSeries[] | undefined>;
+}
+
+// HttpEnvTerm / HttpEnvScope — v0.10.1377: GET /api/metrics/http-env-scope
+// (Go internal/api/http_env_scope.go httpEnvTerm / httpEnvScope). Span'in
+// ortam adı ("eu-a") VM HTTP histogramının ortam ETİKETİNE ve o etiketin canlı
+// değer(ler)ine ("prod-eu-a") çözülür. applied=false → süzgeç UYGULANMAZ,
+// reason söyler; failed=true → etiket okuması başarısız ("yok" değil).
+// matcher = PromQL seçici parçası (service_name'den hemen sonra girer).
+export type HttpEnvTier = 'exact' | 'ci' | 'prefix' | 'none';
+export interface HttpEnvTerm {
+  role: 'env' | 'cluster';
+  want: string;
+  label?: string;
+  values?: string[];
+  tier: HttpEnvTier;
+}
+export interface HttpEnvScope {
+  label: string;
+  source: 'configured' | 'default' | 'discovered' | '';
+  terms: HttpEnvTerm[] | null;
+  matcher?: string;
+  applied: boolean;
+  partial?: boolean;
+  reason?: string;
+  failed?: boolean;
 }
 
 // v0.10.345 — trace sayfası dış link şablonları (system_settings['external_links']).

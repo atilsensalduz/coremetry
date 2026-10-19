@@ -17,7 +17,12 @@ package api
 //
 // Değer okuması sınırlı (≤1000 değer, 24 sa pencere, 2 sn) ve önbellekli (5 dk,
 // anahtar metrik + etiket + limit + 10 dk'ya yuvarlanmış uç). Eşleme SAF:
-// vmetrics.MatchEnvValues. Bu sürümde HTTP ucu YOK (v0.10.1377).
+// vmetrics.MatchEnvValues.
+//
+// v0.10.1377 — HTTP ucu (GET /api/metrics/http-env-scope) kendi dosyasında
+// (http_env_scope_route.go); Service → HTTP Metrics, endpoint sayfası, liste ve
+// Overview pencere karoları matcher'ı oradan alır. /metric-red aynı çözücüyü
+// sunucuda çağırır (httpEnvScopeFilters) — iki yüzey aynı değerlere süzülür.
 
 import (
 	"context"
@@ -89,6 +94,9 @@ type httpEnvScope struct {
 	Applied bool          `json:"applied"`
 	Partial bool          `json:"partial,omitempty"`
 	Reason  string        `json:"reason,omitempty"`
+	// v0.10.1377 — etiket okuması BAŞARISIZ (VM erişilemedi / zaman aşımı):
+	// "metrikte bu ortam yok"tan ayrı söylenir; süzgeç yine uygulanmaz.
+	Failed bool `json:"failed,omitempty"`
 }
 
 // httpEnvValuesKey — SAF (v0.10.1376): değer önbelleği anahtarı; TÜM girdiler
@@ -262,6 +270,39 @@ func intersectStrings(a, b []string) []string {
 		if in[v] {
 			out = append(out, v)
 		}
+	}
+	return out
+}
+
+// httpEnvScopeFilters — SAF (v0.10.1377): uygulanmış kapsamı metrik süzgeç
+// ifadelerine çevirir (etiket başına bir ifade, terimlerin etiket sırasıyla;
+// aynı etikette iki terim → değer kesişimi, resolveHTTPEnvScope ile aynı).
+// Op "=" — VM derleyicisi (vmetrics promMatcher) tek değeri `label="v"`,
+// çoklu değeri regexp.QuoteMeta'lı `label=~"a|b"` yazar. Uygulanmamış kapsam
+// → nil (süzgeç YOK; çağıran EnvAmbiguous der).
+func httpEnvScopeFilters(sc httpEnvScope) []chstore.FilterExpr {
+	if !sc.Applied {
+		return nil
+	}
+	byLabel := map[string][]string{}
+	var order []string
+	for _, t := range sc.Terms {
+		if t.Label == "" || len(t.Values) == 0 {
+			continue
+		}
+		if prev, ok := byLabel[t.Label]; ok {
+			byLabel[t.Label] = intersectStrings(prev, t.Values)
+			continue
+		}
+		byLabel[t.Label] = append([]string(nil), t.Values...)
+		order = append(order, t.Label)
+	}
+	out := make([]chstore.FilterExpr, 0, len(order))
+	for _, l := range order {
+		if len(byLabel[l]) == 0 {
+			return nil
+		}
+		out = append(out, chstore.FilterExpr{Key: l, Op: "=", Values: byLabel[l]})
 	}
 	return out
 }
