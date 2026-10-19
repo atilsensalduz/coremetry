@@ -121,3 +121,13 @@ describe('wiki örnek sorusu (v0.10.1368)', () => {
     }
   });
 });
+
+// v0.10.1378 — "Wikide ara" çipinin doldurduğu metin de wiki kapsamı üretir.
+describe('wiki çipi (v0.10.1378)', () => {
+  it('çip metni + soru → scope.wiki', () => {
+    for (const lang of ['tr', 'en'] as const) {
+      const p = parseChatInput(tr18('cosre.chip.wiki.prompt', lang) + 'deploy runbook');
+      expect(p.scope?.wiki).toBe(true);
+    }
+  });
+});

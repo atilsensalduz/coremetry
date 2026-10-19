@@ -7409,3 +7409,10 @@ alır). /metric-red'in kimliği HTTP histogramı dışında bir metriğe bağlı
 uygulanır — o metrik etiketi taşımıyorsa seri boşalır (Overview span'e düşmez, grafik boş görünür); varsayılan kurulumda
 kimlik HTTP histogramı. Ortam etiketi değerleri 24 sa / ≤1000 değer penceresinden okunur; daha eski bir pencerede yalnız
 eskiden var olan bir ortam "metrikte yok" görünebilir (bant söyler).
+
+## 2026-10-19 — v0.10.1378 — CoSRE "Wikide ara" çipi `@wiki ` doldurur
+
+**Kuyruk (operatör onaylı; v0.10.1368'in devamı):** çip kutuya "wikide " (EN "wiki: ") yazıyordu — düz cümle, kapsam
+üretmiyor, soru guided/servis yoluna kayabiliyordu. Artık iki dilde de `@wiki ` (kapsam belirteci, dilden bağımsız):
+composer `scope.wiki=true` üretir, wiki katmanı kesin devreye girer. Pin: `chatScope.test.ts` (çip metni + soru → wiki
+kapsamı), `CosreCapabilities.test.tsx` (EN/TR farklılık kuralından bu anahtar muaf).

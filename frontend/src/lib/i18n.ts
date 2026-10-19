@@ -247,7 +247,7 @@ const EN: Catalog = {
   'cosre.cap.navigate':         'I can tell you where to look and take you to the right page',
   'cosre.cap.navigate.prompt':  'Where should I look to investigate |?',
   'cosre.chip.wiki':            'Search the wiki: …',
-  'cosre.chip.wiki.prompt':     'wiki: ',
+  'cosre.chip.wiki.prompt':     '@wiki ', // v0.10.1378 — kapsam belirteci, dilden bağımsız
 
   // v0.10.1119 — kök-neden paneli: ayrı bubbleUp isteği düştü (≠ "ayrışma yok").
   'rootCause.bubbleUnavailable': 'Attribute comparison unavailable — the span scan failed or timed out. This does not mean no dimension stood out.',
@@ -528,7 +528,9 @@ const TR: Catalog = {
   'cosre.cap.navigate':         'Nereye bakman gerektiğini söyleyip ilgili sayfaya yönlendirebilirim',
   'cosre.cap.navigate.prompt':  '| sorununu incelemek için nereye bakmalıyım?',
   'cosre.chip.wiki':            'Wikide ara: …',
-  'cosre.chip.wiki.prompt':     'wikide ',
+  // v0.10.1378 (operatör onaylı kuyruk) — "wikide " düz cümleydi, kapsam
+  // üretmiyordu; `@wiki ` composer'da scope.wiki=true olur (1368'deki örnek soruyla aynı).
+  'cosre.chip.wiki.prompt':     '@wiki ',
 
   'rootCause.bubbleUnavailable': 'Attribute kıyası okunamadı — span taraması düştü ya da zaman aşımına uğradı. Bu, "ayrışan boyut yok" demek değildir.',
 

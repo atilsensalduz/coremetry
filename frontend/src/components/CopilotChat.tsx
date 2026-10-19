@@ -849,7 +849,7 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
                   <Chip pill onClick={prefillEndpoint} title="Yolu yaz: /api/... hatalı trace'lerini getir">
                     ⌨ …/yol hatalı trace'leri
                   </Chip>
-                  {/* v0.10.1128 — wiki şablon çipi: "wikide " doldurur + odaklar.
+                  {/* v0.10.1128 — wiki şablon çipi: "@wiki " doldurur (v0.10.1378) + odaklar.
                       Dil: karşılamayla aynı (tCosre, sabit TR) — UI dili değil. */}
                   {wikiOn && (
                     <Chip pill data-chip="wiki" onClick={() => { const v = tCosre('cosre.chip.wiki.prompt'); prefill(v, v.length); }}>

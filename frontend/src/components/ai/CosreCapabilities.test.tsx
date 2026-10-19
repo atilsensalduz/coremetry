@@ -6,7 +6,7 @@
 //       sohbet-geneli i18n için katalogda durur);
 //   (3) çekmecede: ipucu boş sohbette görünür; wiki kapalıyken wiki satırı ve
 //       wiki çipi YOK, açıkken VAR; satıra tıklamak composer'ı doldurur ama
-//       GÖNDERMEZ (copilotChat çağrılmaz); wiki çipi "wikide " doldurur;
+//       GÖNDERMEZ (copilotChat çağrılmaz); wiki çipi "@wiki " doldurur (v0.10.1378);
 //   (4) prod hatası (v0.10.1130): sohbet yüzeyi Türkçe-öncelikli — UI dili EN
 //       iken de ipuçları, title'ı, wiki çipi ve doldurulan örnekler TÜRKÇE.
 //   /cosre sayfası aynı bileşeni çizer — pages/CoSRE.test.tsx.
@@ -80,7 +80,7 @@ describe('capabilityHints — saf', () => {
 
   it('EN/TR: her anahtar iki katalogda da var ve dile göre farklı', () => {
     const keys = capabilityItems(true).flatMap(i => [i.labelKey, i.promptKey])
-      .concat(['cosre.cap.aria', 'cosre.cap.tryHint', 'cosre.chip.wiki', 'cosre.chip.wiki.prompt']);
+      .concat(['cosre.cap.aria', 'cosre.cap.tryHint', 'cosre.chip.wiki']);
     for (const k of keys) {
       expect(t(k, 'en'), k).not.toBe(k);
       expect(t(k, 'tr'), k).not.toBe(k);
@@ -89,7 +89,9 @@ describe('capabilityHints — saf', () => {
     expect(t('cosre.cap.wiki', 'tr')).toContain('wiki');
     expect(t('cosre.cap.service', 'tr')).toContain('servis adını yaz');
     expect(t('cosre.cap.service', 'en')).toContain('service name');
-    expect(t('cosre.chip.wiki.prompt', 'tr')).toBe('wikide ');
+    // v0.10.1378 — çipin metni kapsam belirteci: iki dilde aynı `@wiki `.
+    expect(t('cosre.chip.wiki.prompt', 'tr')).toBe('@wiki ');
+    expect(t('cosre.chip.wiki.prompt', 'en')).toBe('@wiki ');
   });
 
   it('tCosre: UI dilinden bağımsız, karşılamanın dili (TR)', () => {
@@ -97,7 +99,7 @@ describe('capabilityHints — saf', () => {
     setUserLang('en');
     expect(tCosre('cosre.cap.wiki')).toBe(t('cosre.cap.wiki', 'tr'));
     expect(tCosre('cosre.cap.tryHint')).toBe('Kutuya örnek bir soru yazar — düzenleyip gönder');
-    expect(tCosre('cosre.chip.wiki.prompt')).toBe('wikide ');
+    expect(tCosre('cosre.chip.wiki.prompt')).toBe('@wiki ');
   });
 });
 
@@ -157,7 +159,7 @@ describe('CopilotChat çekmecesi — yetenek ipucu', () => {
     const chip = document.body.querySelector<HTMLButtonElement>('[data-chip="wiki"]');
     expect(chip?.textContent).toContain('Wikide ara');
     await act(async () => { chip!.click(); });
-    expect(textarea()?.value).toBe('wikide ');
+    expect(textarea()?.value).toBe('@wiki ');
     expect(send).not.toHaveBeenCalled();
     // Hâlâ boş sohbet: ipucu yerinde (gönderilmedi).
     expect(rows().length).toBe(4);
@@ -188,7 +190,7 @@ describe('CopilotChat çekmecesi — yetenek ipucu', () => {
     expect(chip?.textContent).toContain('Wikide ara');
     expect(chip?.textContent).not.toContain('Search the wiki');
     await act(async () => { chip!.click(); });
-    expect(textarea()?.value).toBe('wikide ');
+    expect(textarea()?.value).toBe('@wiki ');
     expect(send).not.toHaveBeenCalled();
   });
 });
