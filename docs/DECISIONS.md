@@ -7101,3 +7101,10 @@ resolvedAt'te biter, etiket durum; son görülme son 2 bucket içindeyse "NEW ·
 görülmenin bucket sonunda kapanır, "NEW · son görülme 08:39" (başka günse tarih + saat). Bu bant `noChronicLabel` taşır —
 `drawTimeRegions` kronik eki basmaz (diğer grafiklerin kronik davranışı aynı). Testler: `occRegion.test.ts`,
 `lib/chart/drawTimeRegions.test.ts`.
+
+## 2026-10-19 — v0.10.1366 — Rollouts: Başladı hücresinin "hazır +Nm" alt satırı kalktı
+
+**Operatör-bildirimli (prod ekran görüntüsü):** "hazır +3 yazıyor, gerek yok." v0.10.1212'nin `rolloutTimingHint` alt satırı
+(hazır / trafik gecikmesi) her satırı iki satıra çıkarıp listeyi kalabalıklaştırıyordu. Kaldırıldı; aynı bilgi hücrenin
+`title`ında (`rolloutTimingTitle`) ve çekmecenin zaman çizelgesinde (`rolloutTimeline`) duruyor. Ölü yardımcı ve testi silindi;
+pin `Rollouts.clusterCol.pin.test.ts`.

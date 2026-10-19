@@ -47,7 +47,7 @@ import { RolloutDrawer } from '@/components/RolloutDrawer';
 import { SvcBadge } from '@/components/traces/shared'; // v0.10.1328 — Traces Service kolonuyla aynı hap
 import { tracesPivotHref } from '@/lib/pivotHref';
 import { entityHref } from '@/lib/entityHref';
-import { rolloutKey, statusTone, statusLabel, statusTitle, rolloutDurationSec, shortRevision, imageDiff, encodeRolloutParam, decodeRolloutParam, rolloutTracesFilters, rolloutChangeKind, changeKindLabel, changeKindTitle, changeKindTone, replicaSummary, rolloutTimingHint, parseNamespacePatterns, invalidNamespacePatterns, namespaceExcluded } from '@/lib/rolloutRow';
+import { rolloutKey, statusTone, statusLabel, statusTitle, rolloutDurationSec, shortRevision, imageDiff, encodeRolloutParam, decodeRolloutParam, rolloutTracesFilters, rolloutChangeKind, changeKindLabel, changeKindTitle, changeKindTone, replicaSummary, parseNamespacePatterns, invalidNamespacePatterns, namespaceExcluded } from '@/lib/rolloutRow';
 import { ROLLOUT_SORT_DEFAULT, ROLLOUT_SORT_IDS, ROLLOUT_SORT_URL_KEY, parseRolloutSort, rolloutSortApiParams } from '@/lib/rolloutSort';
 import type { RolloutStats, WorkloadRollout } from '@/lib/types';
 
@@ -263,7 +263,8 @@ export default function RolloutsPage() {
                             `numeric` olduğundan DataTableCell `num` basar ve mono'yu nötrlerdi. */}
                         <td className="mono" title={rolloutTimingTitle(r)}>
                           {tsCompact(r.startedAt * 1e6)}
-                          {rolloutTimingHint(r) && <div className="field-hint">{rolloutTimingHint(r)}</div>}
+                          {/* v0.10.1366 (operatör: "hazır +3 yazıyor, gerek yok") — alt satır kalktı;
+                              hazır/trafik gecikmesi hücrenin title'ında ve çekmecenin zaman çizelgesinde. */}
                         </td>
                         {/* v0.10.1328 (operatör-raporlu, prod): workload kutu düğme (a.sec) değil,
                             Traces Service kolonunun servis-renkli hapı (SvcBadge; aynı hash →

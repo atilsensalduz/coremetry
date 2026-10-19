@@ -53,4 +53,10 @@ describe('Rollouts cluster kolonu', () => {
     expect(sortable).toEqual(['cluster', 'namespace', 'started', 'workload']);
     expect(src).toMatch(/serverSort: true, initialSort: ROLLOUT_SORT_DEFAULT, persistSort: false, sortIds: ROLLOUT_SORT_IDS/);
   });
+  // v0.10.1366 (operatör-raporlu, prod: "hazır +3 yazıyor gerek yok") — Başladı
+  // hücresinin altında hazır/trafik satırı YOK; bilgi title'da (rolloutTimingTitle).
+  it('Başladı hücresi tek satır: hazır/trafik alt satırı yok, title kalır', () => {
+    expect(src).not.toContain('rolloutTimingHint');
+    expect(src).toContain('title={rolloutTimingTitle(r)}');
+  });
 });
