@@ -527,6 +527,19 @@ func (s *Server) chatOperationPrefetch(ctx context.Context, emit func(string, an
 		to = time.Now()
 	}
 	from := to.Add(-time.Duration(rangeS) * time.Second)
+	return s.opPrefetchForTarget(pctx, emit, t, kind, rangeS, from, to), false
+}
+
+// opPrefetchForTarget — v0.10.1367: hedef ÇÖZÜLDÜKTEN sonraki ön-getirme
+// (RED + önceki eşit pencere, hatalı-önce trace'ler, Oracle, Exceptions,
+// kırılım, Faz 3 kartı). chatOperationPrefetch'in kuyruğundan MEKANİK
+// çıkarıldı — sohbet yolu bayt bayt aynı (TestOpPrefetch*); çekmece endpoint
+// takibi (drawerEndpointEvidence) aynı kurucuyu emit'siz çağırır, ikinci bir
+// montaj kopyası yok.
+func (s *Server) opPrefetchForTarget(pctx context.Context, emit func(string, any), t opTarget, kind string, rangeS int64, from, to time.Time) *opPrefetch {
+	if s == nil || s.store == nil {
+		return nil
+	}
 	prevFrom := from.Add(-time.Duration(rangeS) * time.Second)
 	sc := s.oracleOpScope()
 	p := &opPrefetch{Operation: t.Name, MatchKind: kind, Services: t.Services, Codes: t.Codes, RangeS: rangeS, From: from, To: to,
@@ -607,7 +620,7 @@ func (s *Server) chatOperationPrefetch(ctx context.Context, emit func(string, an
 	// Faz 3 — sohbet kartı (metrikler, hatalı trace'ler, Oracle kodları,
 	// filtreli Traces linki). seq yüksek: döngünün kendi blokları (b1…) önce.
 	emit("block", map[string]any{"id": "op-prefetch", "type": blocks.TypeOperation, "seq": 1000, "final": true, "payload": p})
-	return p, false
+	return p
 }
 
 // resolveEndpointMention — v0.10.1343: endpoint anma aşaması. ok=true → hedef

@@ -12,7 +12,7 @@ import { Spinner } from '@/components/Spinner';
 // v0.10.1284 — tembel: gövde grafik (uPlot) taşır; çekmece yalnız log-spike
 // öznesinde öder (öteki özneler ve jsdom testleri uPlot'u hiç yüklemez).
 const LogSpikeExplainBody = lazy(() => import('./LogSpikeExplainBody').then(m => ({ default: m.LogSpikeExplainBody })));
-import { aiSubjectQuestion, buildExplainContext, drawerFollowups } from './drawerChat';
+import { aiSubjectQuestion, buildExplainContext, drawerFollowups, endpointAskQuestion } from './drawerChat';
 import { useChatThread, type ChatSendOpts } from './useChatThread';
 import { FollowupChips } from './FollowupChips'; // v0.10.1291
 import { useStickToBottom } from './stickToBottom';
@@ -103,6 +103,20 @@ export function AIDrawerBody({ subject, onClose, traceCtx, resume, onResumed }: 
     );
   }
 
+  // v0.10.1367 — `endpoint` öznesi (Endpoint detay + /search): ayrı bir explain
+  // yüzeyi/prompt YOK. Çekmece görünür bir ilk soru sorar (autoAsk); sunucunun
+  // operasyon/endpoint ön-getirmesi (chat_operation_prefetch.go) onu
+  // deterministik çözer — OperationCard + anlatım + düşüş yolu bedelsiz.
+  if (subject.kind === 'endpoint') {
+    return (
+      <div style={{ paddingTop: 8 }}>
+        <AIDrawerChat subject={subject} explainText="" resumed={resumed}
+          spanIds={[]} traceIds={[]} resume={resume} onResumed={onResumed}
+          autoAsk={endpointAskQuestion(subject)} />
+      </div>
+    );
+  }
+
   return (
     <div style={{ paddingTop: 8 }}>
       <CopilotExplain
@@ -171,7 +185,7 @@ export function AIDrawerBody({ subject, onClose, traceCtx, resume, onResumed }: 
 //           sunucudaki takip-devralma bunu "önceki soru" sayar.
 //   explain → `context.explain`; sunucu narration bloğuna katar ve
 //           özneye oturmayan guided rotayı bastırır.
-function AIDrawerChat({ subject, explainText, resumed = false, spanIds, traceIds, traceCtx, resume, onResumed }: {
+function AIDrawerChat({ subject, explainText, resumed: resumedIn = false, spanIds, traceIds, traceCtx, resume, onResumed, autoAsk }: {
   subject: AISubject;
   explainText: string;
   /** v0.10.944 — geçmişten devralınan konuşma: açıklama boşken de açık kalır. */
@@ -181,7 +195,16 @@ function AIDrawerChat({ subject, explainText, resumed = false, spanIds, traceIds
   traceCtx?: TraceAiContext | null;
   resume?: AiConversation | null;
   onResumed?: (id: string) => void;
+  /** v0.10.1367 — mount'ta BİR KEZ görünür tur olarak sorulan ilk soru (endpoint öznesi). */
+  autoAsk?: string;
 }) {
+  // v0.10.1367 — autoAsk'lı sohbet açıklamasız da açık (ilk tur sorunun kendisi).
+  const resumed = resumedIn || !!autoAsk;
+  // v0.10.1367 — açıklama metni yokken (autoAsk) takiplerin bağlamı ilk
+  // TAMAMLANMIŞ asistan cevabı; useChatThread seçenekleri gönderim anında
+  // optsRef'ten okuduğu için turlardan türeyen state yeterli.
+  const [firstAnswer, setFirstAnswer] = useState('');
+  const explainSrc = explainText || firstAnswer;
   // v0.10.82 (operatör isteği: "Chat'te devam et demesine gerek yok,
   // kullanıcı isterse hemen yazabilsin"). `open` kapısı kaldırıldı —
   // salt aşamalı-gösterimdi ve bir tık vergisiydi: composer'ın mount'u
@@ -190,11 +213,12 @@ function AIDrawerChat({ subject, explainText, resumed = false, spanIds, traceIds
   const endRef = useRef<HTMLDivElement>(null);
 
   const explain = useMemo(
-    () => buildExplainContext({ subject, text: explainText, spanIds, traceIds }),
-    [subject, explainText, spanIds, traceIds],
+    () => buildExplainContext({ subject, text: explainSrc, spanIds, traceIds }), // v0.10.1367 — explainSrc
+    [subject, explainSrc, spanIds, traceIds],
   );
   const seed = useMemo(
-    () => [{ role: 'user' as const, text: aiSubjectQuestion(subject.kind, subject.id) }],
+    // v0.10.1367 — endpoint: görünür ilk tur sorunun KENDİSİ; çizilmeyen seed yok.
+    () => (subject.kind === 'endpoint' ? [] : [{ role: 'user' as const, text: aiSubjectQuestion(subject.kind, subject.id) }]),
     [subject],
   );
   // v0.9.482 — öznenin KENDİSİ de tele gider: sunucu bundan ilgili
@@ -242,18 +266,23 @@ function AIDrawerChat({ subject, explainText, resumed = false, spanIds, traceIds
   // Bitiş şimdiye kırpılır (traceChatWindow); `now` yalnız bağlam değişince
   // okunur — render başına değil.
   const win = useMemo(() => (isTrace && traceCtx ? traceChatWindow(traceCtx, Date.now()) : null), [isTrace, traceCtx]);
+  // v0.10.1367 — endpoint öznesinin penceresi HER ZAMAN sabitli (operatör
+  // varsayılanı): ilk soru da takipler de düğmeye basılan pencereyi okur.
+  const epWin = useMemo(() => (subject.kind === 'endpoint'
+    ? { rangeS: Math.max(60, Math.round((subject.toNs - subject.fromNs) / 1e9)), toMs: Math.floor(subject.toNs / 1e6) }
+    : null), [subject]);
   // Kalıcı anlık görüntü (≤2 KB): geçmişten açılınca şerit bunu gösterir.
   const persistContext = useMemo(() => (page ? capPageContext(page) ?? undefined : undefined), [page]);
 
   const { turns, busy, send, retry, stop, last, showFollowups, adopt } = useChatThread({
     explain, seed, subject: subjectParam,
     onOpen: href => { const to = mergeOpenHref(href, window.location.pathname, window.location.search); if (to) navigate(to, { replace: true }); }, // v0.10.460
-    service: subject.kind === 'service-health' ? subject.id : undefined,
+    service: subject.kind === 'service-health' || subject.kind === 'endpoint' ? subject.id : undefined, // v0.10.1367 — endpoint
     trace: isTrace ? subject.id : undefined,
     env: isTrace ? traceCtx?.env : undefined,
     page,
-    rangeS: win?.rangeS,
-    toMs: win?.toMs,
+    rangeS: win?.rangeS ?? epWin?.rangeS, // v0.10.1367
+    toMs: win?.toMs ?? epWin?.toMs,
     profile: profile || undefined,
     deep, // v0.10.1150 — açıkken context.deep: true
     onProfileRejected: () => setProfile(''), // v0.10.1138 — 400/403 → varsayılana dön
@@ -283,6 +312,24 @@ function AIDrawerChat({ subject, explainText, resumed = false, spanIds, traceIds
   // v0.10.1291 — takip çipi: çipin yapısal kapsamı (followups.scope/command) eşlik eder.
   const askChip = (text: string, so?: ChatSendOpts) => { setInput(''); pinBottom(); void send(text, so); };
 
+  // v0.10.1367 — autoAsk BİR KEZ gönderilir (ref muhafızlı). Geçmişten açılan
+  // konuşmada (resume) ya da turlar zaten varken ASLA: yeniden açılış soruyu
+  // tekrar sordurmamalı — resume bir kez görüldüyse kapı kalıcı kapanır.
+  const autoAskedRef = useRef(false);
+  useEffect(() => {
+    if (resume) { autoAskedRef.current = true; return; }
+    if (!autoAsk || autoAskedRef.current || turns.length > 0) return;
+    autoAskedRef.current = true;
+    pinBottom();
+    void send(autoAsk);
+  }, [autoAsk, resume, turns.length, send, pinBottom]);
+  // v0.10.1367 — ilk tamamlanmış asistan cevabı → takip bağlamı (explainText yoksa).
+  useEffect(() => {
+    if (!autoAsk || explainText || firstAnswer) return;
+    const done = turns.find(t => t.role === 'assistant' && !t.pending && !t.error && (t.text ?? '').trim());
+    if (done?.text) setFirstAnswer(done.text);
+  }, [autoAsk, explainText, firstAnswer, turns]);
+
   // Bağlam kurulamadıysa (yalnız-boşluk cevap) sohbeti hiç açma —
   // bağlamsız sohbet operatör raporundaki hatanın ta kendisiydi.
   // v0.10.944 — devralınan konuşma istisna: bağlamı özne (`subject`, sunucu
@@ -301,7 +348,9 @@ function AIDrawerChat({ subject, explainText, resumed = false, spanIds, traceIds
     <div style={{ marginTop: 16 }}>
       <DrawerSection title="Sohbet">
         <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span>{explain
+          <span>{autoAsk // v0.10.1367 — endpoint: açıklama yok, ilk tur sorunun kendisi
+            ? 'CoSRE bu endpoint\'i inceliyor — takip sorusu sorabilirsin.'
+            : explain
             ? 'Bu sohbet yukarıdaki açıklamayı bilir — takip sorusu sorabilirsin.'
             // v0.10.944 — açıklama yokken "açıklamayı bilir" demek yalan olurdu.
             : 'Kayıtlı konuşma — açıklama henüz yok; takip sorusu özneyi ve önceki turları taşır.'}</span>

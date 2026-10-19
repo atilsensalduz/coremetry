@@ -217,6 +217,8 @@ const EN: Catalog = {
   // v0.10.1338 (operatör) — log satırı / log artışı düğmeleri de "Ask CoSRE"; ipucu ayırır.
   'ai.askCosreLogHint':      'Ask CoSRE · log — explain this log line.',
   'ai.askCosreLogSpikeHint': 'Ask CoSRE · log spike — explain this log increase.',
+  // v0.10.1367 — Endpoint detay / arama endpoint sonucu: tek tık "Ask CoSRE".
+  'ai.askCosreEndpointHint': 'Ask CoSRE · endpoint — what is happening, since when, where the time goes, which errors.',
   // v0.10.948 (CoSRE Faz B) — çekmece başlığının trace alt satırı: "Ask CoSRE · trace <kısa kimlik>".
   'ai.subject.trace':     'trace',
 
@@ -499,6 +501,7 @@ const TR: Catalog = {
   // v0.10.1338
   'ai.askCosreLogHint':      'CoSRE’ye sor · log — bu log satırını açıkla.',
   'ai.askCosreLogSpikeHint': 'CoSRE’ye sor · log artışı — bu log artışını açıkla.',
+  'ai.askCosreEndpointHint': 'CoSRE’ye sor · endpoint — ne oluyor, ne zamandan beri, süre nereye gidiyor, hangi hatalar.', // v0.10.1367
   'ai.subject.trace':     'trace',
 
   'ai.ctx.label':     'Bağlam',

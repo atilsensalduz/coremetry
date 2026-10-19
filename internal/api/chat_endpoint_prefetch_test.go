@@ -19,7 +19,9 @@ package api
 // Adlar SENTETİK.
 
 import (
+	"context"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -379,5 +381,114 @@ func TestOpPrefetchDrillUnderModelClamp(t *testing.T) {
 	}
 	if _, cut := clampToolResultForModel(txt); cut {
 		t.Fatal("kırpıldı")
+	}
+}
+
+// v0.10.1367 — Endpoint "Ask CoSRE" (R2): çekmecenin GÖRÜNÜR ilk sorusu
+// (frontend drawerChat.ts endpointAskQuestion) sunucunun endpoint anma
+// aşamasınca deterministik çözülmeli. Cümle ve ek FRONTEND KAYNAĞINDAN okunur
+// (emsal TestHTTPLabelsMatchFrontend_v0101350): ek değişir ya da sıra bozulursa
+// (ek sonda değil, fiil rotanın önünde değil, servis tokenize olmuyor) burada
+// düşer. Servis adı tireli ve iki serviste aynı rota var — ipucu olmadan
+// belirsizlik çipleri çıkardı.
+func TestEndpointAskQuestionResolves(t *testing.T) {
+	src := readRepoFile(t, "../../frontend/src/components/ai/drawerChat.ts")
+	sm := regexp.MustCompile(`export const ENDPOINT_ASK_SUFFIX = '([^']+)';`).FindStringSubmatch(src)
+	if sm == nil {
+		t.Fatal("ENDPOINT_ASK_SUFFIX bulunamadı")
+	}
+	suffix := sm[1]
+	tm := regexp.MustCompile("return `([^`$]*)\\$\\{target\\} \\$\\{ENDPOINT_ASK_SUFFIX\\}`;").FindStringSubmatch(src)
+	if tm == nil {
+		t.Fatal("endpointAskQuestion şablonu bulunamadı (ek en sonda, hedef hemen önünde olmalı)")
+	}
+	if !endpointChipShape(normalizeGuidedMsg("x " + suffix)) {
+		t.Fatalf("ek %q sunucunun endpointChipShape'iyle eşleşmiyor", suffix)
+	}
+	const svc, route = "bsa-loan-web", "/BSAWEB/application/{id}"
+	cands := []chstore.CatalogOperation{
+		{Operation: "POST " + route, Source: "span", Service: svc, CallCount: 400},
+		{Operation: "POST " + route, Source: "span", Service: "bsa-loan", CallCount: 390},
+		{Operation: route, Source: "endpoint", Service: "bsa-loan", CallCount: 380},
+	}
+	for _, c := range []struct{ method, target string }{
+		{"POST", svc + " POST " + route},
+		{"", svc + " " + route},
+	} {
+		q := tm[1] + c.target + " " + suffix
+		m, p, ok := endpointMention(q)
+		if !ok || m != c.method || p != route {
+			t.Fatalf("endpointMention(%q) = (%q, %q, %v), want (%q, %q, true)", q, m, p, ok, c.method, route)
+		}
+		if endpointMentionVetoed(q) {
+			t.Fatalf("soru listele/sor vetosuna takıldı: %q", q)
+		}
+		if h := endpointServiceHint(q, p, cands); h != svc {
+			t.Fatalf("endpointServiceHint = %q, want %q (%q)", h, svc, q)
+		}
+		em := matchEndpoint(m, p, cands, endpointServiceHint(q, p, cands))
+		if em.Pick == nil || em.Pick.Service != svc {
+			t.Fatalf("matchEndpoint seçmedi: %+v", em)
+		}
+	}
+}
+
+// v0.10.1367 — opPrefetchForTarget, chatOperationPrefetch'in kuyruğundan
+// MEKANİK çıkarıldı: (1) sohbet yolu seam'i çağırır, okumaları kendisi
+// yapmaz; (2) çekmece kanıtı aynı seam'i emit'siz çağırır; (3) seam'in
+// ürettiği paket emit'ten BAĞIMSIZ (kayıtlı emit ile no-op emit aynı paketi
+// verir) ve sohbet yolunun olay sırası (adım → sonuç → kart) korunur.
+// CH'ye dokunmayan hedef: kaynaksız ad (RED/trace/Oracle okuması yok).
+func TestOpPrefetchForTargetMatchesChatPath(t *testing.T) {
+	src := readRepoFile(t, "chat_operation_prefetch.go")
+	chat := funcBody(src, "chatOperationPrefetch")
+	if !strings.Contains(chat, "return s.opPrefetchForTarget(pctx, emit, t, kind, rangeS, from, to), false") {
+		t.Fatal("chatOperationPrefetch seam'i çağırmıyor")
+	}
+	for _, banned := range []string{"SpanOperationRED", "GetTraces", "endpointDrillPhase", `emit("block"`} {
+		if strings.Contains(chat, banned) {
+			t.Fatalf("chatOperationPrefetch hâlâ %s içeriyor — ikinci montaj kopyası", banned)
+		}
+	}
+	if !strings.Contains(funcBody(readRepoFile(t, "copilot_drawer.go"), "drawerEndpointEvidence"), "s.opPrefetchForTarget(ctx, func(string, any) {}, t, m.Kind, rangeS, from, to)") {
+		t.Fatal("çekmece endpoint kanıtı seam'i emit'siz çağırmıyor")
+	}
+
+	s := &Server{store: &chstore.Store{}}
+	to := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
+	from := to.Add(-time.Hour)
+	tgt := opTarget{Name: "checkout", Services: []string{"shop"}}
+	var kinds []string
+	var block any
+	p1 := s.opPrefetchForTarget(context.Background(), func(k string, v any) {
+		kinds = append(kinds, k)
+		if k == "step" { // sohbetin emit sarmalayıcısı adım kimliğini basar
+			v.(map[string]any)["i"] = len(kinds)
+		}
+		if k == "block" {
+			block = v.(map[string]any)["payload"]
+		}
+	}, tgt, "exact", 3600, from, to)
+	p2 := s.opPrefetchForTarget(context.Background(), func(string, any) {}, tgt, "exact", 3600, from, to)
+	if p1 == nil || p2 == nil {
+		t.Fatal("seam nil döndü")
+	}
+	if !reflect.DeepEqual(p1, p2) {
+		t.Fatalf("emit paketi değiştirdi:\n%+v\n%+v", p1, p2)
+	}
+	if want := []string{"step", "step-result", "block"}; !reflect.DeepEqual(kinds, want) {
+		t.Fatalf("olay sırası %v, want %v", kinds, want)
+	}
+	if block != p1 {
+		t.Fatal("kart yükü dönen paket değil")
+	}
+	if !p1.From.Equal(from) || !p1.To.Equal(to) || p1.RangeS != 3600 || p1.argsJSON != `{"match":"exact","operation":"checkout","range_s":3600}` {
+		t.Fatalf("pencere/args: %+v %s", p1, p1.argsJSON)
+	}
+	if !strings.HasPrefix(p1.TracesHref, "/traces?") {
+		t.Fatalf("TracesHref %q", p1.TracesHref)
+	}
+	if (*Server)(nil).opPrefetchForTarget(context.Background(), func(string, any) {}, tgt, "exact", 3600, from, to) != nil {
+		t.Fatal("nil sunucu nil dönmeli")
 	}
 }

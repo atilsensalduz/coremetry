@@ -60,6 +60,19 @@ describe('Ask CoSRE etiketleri — log / log-spike / kompakt anomali (v0.10.1338
     expect(el).toContain('title={askCosreName}');
   });
 
+  // v0.10.1367 — Endpoint detayının tek tık "Ask CoSRE"ı: ProblemDetail ile aynı
+  // biçim (dolu birincil, ✨ + ai.askCosre), ipucu ai.askCosreEndpointHint.
+  it('EndpointDetail düğmesi ai.askCosre + ai.askCosreEndpointHint, emphasis strong', () => {
+    const els = explainButtons(read('pages/EndpointDetail.tsx'));
+    expect(els.length).toBe(1);
+    expect(els[0]).toContain('subject={aiSubject}');
+    expect(els[0]).toContain('emphasis="strong"');
+    expect(els[0]).toContain("tr('ai.askCosre')");
+    expect(els[0]).toContain("title={tr('ai.askCosreEndpointHint')}");
+    expect(t('ai.askCosreEndpointHint', 'en')).toBe('Ask CoSRE · endpoint — what is happening, since when, where the time goes, which errors.');
+    expect(t('ai.askCosreEndpointHint', 'tr')).toBe('CoSRE’ye sor · endpoint — ne oluyor, ne zamandan beri, süre nereye gidiyor, hangi hatalar.');
+  });
+
   it('i18n ipuçları iki dilde', () => {
     expect(t('ai.askCosreLogHint', 'en')).toBe('Ask CoSRE · log — explain this log line.');
     expect(t('ai.askCosreLogHint', 'tr')).toBe('CoSRE’ye sor · log — bu log satırını açıkla.');

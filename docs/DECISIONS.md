@@ -7108,3 +7108,22 @@ görülmenin bucket sonunda kapanır, "NEW · son görülme 08:39" (başka güns
 (hazır / trafik gecikmesi) her satırı iki satıra çıkarıp listeyi kalabalıklaştırıyordu. Kaldırıldı; aynı bilgi hücrenin
 `title`ında (`rolloutTimingTitle`) ve çekmecenin zaman çizelgesinde (`rolloutTimeline`) duruyor. Ölü yardımcı ve testi silindi;
 pin `Rollouts.clusterCol.pin.test.ts`.
+
+## 2026-10-19 — v0.10.1367 — Endpoint "Ask CoSRE" (R2): endpoint AI türü, sohbet ön-getirmesiyle
+
+**Kuyruk (operatör onaylı; v0.10.1343'ün R2'si):** Endpoint detay sayfasında ve /search'ün endpoint sonucunda tek tık
+"Ask CoSRE". Yeni AI öznesi `endpoint` — `?ai=endpoint:<enc(servis)>:<enc(rota)>:<fromNs>:<toNs>[:<FİİL>]`
+(`lib/aiSubject.ts`; 5|6 parça, pencere service-health katılığında, fiil beyaz listeli — bilinmeyen fiil REDDETTİRMEZ,
+düşer; SELF kısa biçimi yok). **Karar — yeni prompt / HTTP rotası / MCP aracı YOK (74 kalır):** çekmece ayrı bir explain
+yüzeyi çağırmaz, sohbete GÖRÜNÜR bir ilk soru sorar (`drawerChat.ts endpointAskQuestion`, ek `endpointine bak` EN
+SONDA); v0.10.1343'ün endpoint anma aşaması onu deterministik çözer → OperationCard + anlatım + düşüş yolu bedelsiz.
+Soru bir kez gider (ref muhafızı); Geçmiş'ten açılan konuşmada yeniden sorulmaz. Takiplerin `explain` bağlamı ilk
+tamamlanmış cevap. **Operatör varsayılanları:** sohbetle tohumlanan özne (yeni prompt/rota yok); görünür ilk soru (çizilmeyen
+seed yok); env kodekte YOK; `entry=rpc` (yolu olmayan span adı) düğmesi gizli; /search endpoint sonucu endpoint öznesini
+alır (yol olmayan ad → eski service-health); pencere HER ZAMAN sabitli (`toMs` = toNs/1e6, `rangeS` = max(60, pencere)).
+Düğme sayfanın tek dolu birincili (ProblemDetail'deki Ask CoSRE ile aynı biçim). **Sunucu (aynı sürüm):** çekmece takipleri
+endpoint kanıtı alır — `parseDrawerSubject` endpoint dalı; `drawerSubjectEvidence` katalog → `matchEndpoint` (servis ipucu =
+özne servisi, başka servise düşerse kanıt yok) → `endpointTargetFor` → `chatOperationPrefetch`'in kuyruğundan MEKANİK
+çıkarılan `opPrefetchForTarget` (sohbet yolu bayt bayt aynı, çekmece emit'siz). Pinler: `TestEndpointAskQuestionResolves`
+(frontend ekini/şablonunu kaynaktan okur), `TestOpPrefetchForTargetMatchesChatPath`, `TestParseDrawerSubject*`,
+`TestDrawerEndpointWindow`; FE `AIDrawerBody.endpointAutoAsk.test.tsx`, `pages/endpoints/askCosre.test.tsx`.

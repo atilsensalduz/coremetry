@@ -2,7 +2,9 @@ package api
 
 import (
 	"context"
+	"math"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -122,13 +124,20 @@ type drawerSubject struct {
 	Kind   string
 	ID     string
 	SpanID string // yalnız kind=span
+	// v0.10.1367 — yalnız kind=endpoint: rota, beyaz listeli fiil ("" = yok)
+	// ve düğmeye basılan pencere (ns → time.Time).
+	Route  string
+	Method string
+	From   time.Time
+	To     time.Time
 }
 
 // drawerEvidenceKinds — kanıt paketi KURULABİLEN özneler. Diğer
 // özneler (problem/incident/anomaly/runbook/service-health) v0.9.479
 // davranışında kalır: yalnız açıklama metni + konuşma (operatör:
 // problem explain takipleri zaten iyi cevaplanıyor).
-var drawerEvidenceKinds = map[string]bool{"trace": true, "span": true, "exception": true}
+// v0.10.1367 — endpoint: sohbet ön-getirmesinin AYNI kurucusu (opPrefetchForTarget).
+var drawerEvidenceKinds = map[string]bool{"trace": true, "span": true, "exception": true, "endpoint": true}
 
 // parseDrawerSubject — `kind:enc(id)[:enc(spanId)]` çözümü. aiSubject.ts
 // ile aynı katılıkta: id URL-decode edilir (servis adı/fingerprint ':'
@@ -144,6 +153,9 @@ func parseDrawerSubject(raw string) (drawerSubject, bool) {
 	kind := parts[0]
 	if !drawerEvidenceKinds[kind] {
 		return drawerSubject{}, false
+	}
+	if kind == "endpoint" { // v0.10.1367
+		return parseDrawerEndpoint(parts)
 	}
 	id := ""
 	if len(parts) > 1 {
@@ -172,6 +184,35 @@ func parseDrawerSubject(raw string) (drawerSubject, bool) {
 		return drawerSubject{}, false
 	}
 	return drawerSubject{Kind: kind, ID: id}, true
+}
+
+// parseDrawerEndpoint — v0.10.1367: `endpoint:enc(service):enc(route):fromNs:toNs[:METHOD]`.
+// aiSubject.ts parseEndpoint ile aynı katılık: TAM 5 ya da 6 parça, servis ve
+// rota decode edilir ve boş olamaz, pencere pozitif ve ARTAN; bilinmeyen fiil
+// özneyi reddettirmez, DÜŞER (fiilsiz endpoint). Bozuk link → kanıtsız devam.
+func parseDrawerEndpoint(parts []string) (drawerSubject, bool) {
+	if len(parts) != 5 && len(parts) != 6 {
+		return drawerSubject{}, false
+	}
+	svc, err := url.QueryUnescape(parts[1])
+	if err != nil || svc == "" {
+		return drawerSubject{}, false
+	}
+	route, err := url.QueryUnescape(parts[2])
+	if err != nil || route == "" {
+		return drawerSubject{}, false
+	}
+	fromNs, ferr := strconv.ParseInt(parts[3], 10, 64)
+	toNs, terr := strconv.ParseInt(parts[4], 10, 64)
+	if ferr != nil || terr != nil || fromNs <= 0 || toNs <= fromNs {
+		return drawerSubject{}, false
+	}
+	method := ""
+	if len(parts) == 6 && isHTTPVerb(parts[5]) {
+		method = strings.ToUpper(parts[5])
+	}
+	return drawerSubject{Kind: "endpoint", ID: svc, Route: route, Method: method,
+		From: time.Unix(0, fromNs), To: time.Unix(0, toNs)}, true
 }
 
 // clampDrawerEvidence — kanıt paketini narration bütçesine sığdırır.
@@ -430,8 +471,50 @@ func (s *Server) drawerSubjectEvidence(ctx context.Context, subj drawerSubject, 
 			ev += s.pastCasesBlock(ectx, g.Service, []string{g.Type}, chstore.CaseIDFor("exception", g.Fingerprint))
 		}
 		return ev, exceptionCodeScopeFrom(g, in)
+	case "endpoint": // v0.10.1367
+		return s.drawerEndpointEvidence(ectx, subj), nil
 	}
 	return "", nil
+}
+
+// drawerEndpointEvidence — v0.10.1367: endpoint öznesinin takip kanıtı. Hedef
+// sohbetteki endpoint anma aşamasıyla AYNI saf zincirle çözülür (katalog
+// adayları → matchEndpoint, servis ipucu = özne servisi → endpointTargetFor);
+// paket sohbet ön-getirmesinin AYNI kurucusundan (opPrefetchForTarget, emit
+// yok). Pencere ilk sorunun penceresi: rangeS = max(60, pencere), bitiş = özne
+// bitişi (ms). Hedef yok / başka servis / okuma yok → "" (soft-fail).
+func (s *Server) drawerEndpointEvidence(ctx context.Context, subj drawerSubject) string {
+	if s == nil || s.store == nil {
+		return ""
+	}
+	cands, err := s.store.CatalogCandidates(ctx, endpointCatalogTokens(subj.Route), opCandidateLimit)
+	if err != nil || len(cands) == 0 {
+		return ""
+	}
+	m := matchEndpoint(subj.Method, subj.Route, cands, subj.ID)
+	if m.Pick == nil || !strings.EqualFold(m.Pick.Service, subj.ID) {
+		return ""
+	}
+	t := endpointTargetFor(*m.Pick, subj.Method)
+	rangeS, from, to := drawerEndpointWindow(subj.From, subj.To, time.Now())
+	p := s.opPrefetchForTarget(ctx, func(string, any) {}, t, m.Kind, rangeS, from, to)
+	if p == nil {
+		return ""
+	}
+	return clampDrawerEvidence(strings.TrimSpace(p.summary()+"\n"+p.Drill), "")
+}
+
+// drawerEndpointWindow — SAF (v0.10.1367): çekmecenin sohbete gönderdiği
+// pencereyle (AIDrawerBody epWin: rangeS = max(60, round(saniye)), toMs =
+// floor(toNs/1e6)) ve copilotChat'in kurduğu aralıkla aynı: bitiş
+// chatAnchorTime çıpası (gelecek / çok eski → şimdi), başlangıç to-rangeS.
+func drawerEndpointWindow(fromT, toT, now time.Time) (int64, time.Time, time.Time) {
+	to, _ := chatAnchorTime(toT.UnixMilli(), now)
+	rangeS := int64(math.Round(toT.Sub(fromT).Seconds()))
+	if rangeS < 60 {
+		rangeS = 60
+	}
+	return rangeS, to.Add(-time.Duration(rangeS) * time.Second), to
 }
 
 // drawerEvidenceStep — kanıt çekildiğinde operatöre gösterilen şeffaflık
@@ -442,6 +525,8 @@ func drawerEvidenceStep(kind string) string {
 		return "kanıt: exception grubu + örnek trace + loglar"
 	case "span", "trace":
 		return "kanıt: trace span'leri + ilişkili loglar"
+	case "endpoint": // v0.10.1367
+		return "kanıt: endpoint RED + hatalı/yavaş trace'ler + kırılım"
 	}
 	return ""
 }
@@ -456,6 +541,8 @@ func drawerSourceNote(evidenceKind string) string {
 		return "\n\nKaynak: ekrandaki AI açıklaması + exception grubunun örnek trace/log kanıtı"
 	case "trace", "span":
 		return "\n\nKaynak: ekrandaki AI açıklaması + trace span'leri ve ilişkili loglar"
+	case "endpoint": // v0.10.1367
+		return "\n\nKaynak: ekrandaki AI açıklaması + endpoint RED, trace ve kırılım kanıtı"
 	}
 	return "\n\nKaynak: ekrandaki AI açıklaması"
 }

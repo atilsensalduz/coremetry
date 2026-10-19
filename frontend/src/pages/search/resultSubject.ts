@@ -3,15 +3,18 @@
 //
 // Özne haritası (operatör onaylı): trace→trace, problem→problem,
 // exception→exception (parmak izi), service→service-health{fromNs,toNs},
-// log→log (lib/logLineSubject — servis + zaman yoksa null), endpoint→ ÜST
-// servisin service-health'i (endpoint'in kendi öznesi yok; boş vaat yerine
-// servis sağlığı sorulur).
+// log→log (lib/logLineSubject — servis + zaman yoksa null), endpoint→ endpoint
+// öznesi (v0.10.1367: servis + rota endpointPathOf + fiil endpointMethodOf +
+// pencere; çekmece görünür ilk soruyu sorar). Rota `/` ile başlamıyorsa (span
+// adı endpoint'i, RPC) sunucu onu endpoint olarak çözemez → ÜST servisin
+// service-health'i (v0.10.1335 davranışı).
 //
 // Hedefler mevcut kurucular üzerinden (pencere unutulmasın — pivotHref
 // sözleşmesi): traceHref, logsHref, sunucunun problem/exception href'i,
 // serviceHref, operationTracesHref. Sunucu href'i yalnız isSafeAppPath'ten
 // geçerse kullanılır.
-import type { AISubject } from '@/lib/aiSubject';
+import { endpointAiMethod, type AISubject } from '@/lib/aiSubject';
+import { endpointMethodOf, endpointPathOf } from './searchText'; // v0.10.1367
 import { logLineSubjectOf } from '@/lib/logLineSubject';
 import { logsHref } from '@/lib/logsUrl';
 import { operationTracesHref } from '@/lib/pivotHref';
@@ -32,7 +35,13 @@ export function resultSubject(r: SearchResult, win: { fromNs: number; toNs: numb
       return r.id ? { kind: 'service-health', id: r.id, fromNs: win.fromNs, toNs: win.toNs } : null;
     case 'endpoint': {
       const svc = r.payload?.service || r.service;
-      return svc ? { kind: 'service-health', id: svc, fromNs: win.fromNs, toNs: win.toNs } : null;
+      if (!svc) return null;
+      // v0.10.1367 — endpoint öznesi; rota yol değilse servis sağlığına düşer.
+      const name = r.payload?.name || r.title;
+      const route = endpointPathOf(name);
+      if (!route.startsWith('/')) return { kind: 'service-health', id: svc, fromNs: win.fromNs, toNs: win.toNs };
+      const method = endpointAiMethod(endpointMethodOf(name));
+      return { kind: 'endpoint', id: svc, route, ...(method ? { method } : {}), fromNs: win.fromNs, toNs: win.toNs };
     }
     case 'log': {
       const p = r.payload;

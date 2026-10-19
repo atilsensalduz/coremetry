@@ -20,6 +20,9 @@
 //                     (v0.10.1291 — tek log satırının ✨'i; tsNs ONDALIK METİN
 //                     kalır — 1.7e18 JS sayısına sığmaz; hash = gövde önünün
 //                     FNV-1a 32'si, lib/logLineSubject.ts ↔ mcptools/log_line_subject.go)
+//   endpoint        → "endpoint:<enc(service)>:<enc(route)>:<fromNs>:<toNs>[:<METHOD>]"
+//                     (v0.10.1367 — endpoint'in tek tık "CoSRE'ye sor"u; METHOD
+//                     beyaz listeli, bilinmeyen fiil REDDEDİLMEZ düşer; env kodekte yok)
 //
 // id HER ZAMAN encodeURIComponent'ten geçer: servis adı / fingerprint
 // içinde ':' geçse bile ayraç belirsizleşmez (parse ':' üzerinden böler).
@@ -88,6 +91,7 @@ export const AI_KINDS = [
   'service-health', 'runbook', 'exception', 'charts',
   'log-spike', // v0.10.1284 — AI SRE Faz 1a: log artışını ne açıklıyor
   'log',       // v0.10.1291 — tek log satırını açıkla
+  'endpoint',  // v0.10.1367 — endpoint "CoSRE'ye sor" (sohbet ön-getirmesiyle)
 ] as const;
 
 export type AIKind = typeof AI_KINDS[number];
@@ -114,13 +118,25 @@ export function chartScopeLabel(s: ChartScope): string {
 }
 
 // Basit özneler: tek bir id yeter (backend geri kalanını kendi toplar).
-type SimpleKind = Exclude<AIKind, 'span' | 'service-health' | 'charts' | 'log-spike' | 'log'>;
+type SimpleKind = Exclude<AIKind, 'span' | 'service-health' | 'charts' | 'log-spike' | 'log' | 'endpoint'>; // v0.10.1367 — endpoint
 
 // v0.10.1284 — log-spike öznesinin kipi: sel = operatörün zoom'ladığı aralık
 // (verilen artış), auto = pencerede tepe otomatik bulunur.
 export type LogSpikeMode = 'sel' | 'auto';
 export type LogSpikeLevel = 'all' | 'error';
 export const LOG_SPIKE_QUERY_MAX = 200;
+
+// v0.10.1367 — endpoint öznesinin HTTP fiili beyaz listesi (sunucu
+// chat_endpoint_prefetch.go httpVerbSet ile aynı küme). Bilinmeyen fiil
+// özneyi reddettirmez, yalnız DÜŞER: fiilsiz endpoint de sorulabilir.
+export const ENDPOINT_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'] as const;
+const ENDPOINT_METHOD_SET = new Set<string>(ENDPOINT_METHODS);
+
+/** v0.10.1367 — fiili büyük harfe çevirir; beyaz listede değilse undefined. */
+export function endpointAiMethod(raw: string | null | undefined): string | undefined {
+  const m = (raw ?? '').trim().toUpperCase();
+  return ENDPOINT_METHOD_SET.has(m) ? m : undefined;
+}
 
 export type AISubject =
   | { kind: SimpleKind; id: string }
@@ -138,7 +154,11 @@ export type AISubject =
   | { kind: 'log-spike'; id: string; fromNs: number; toNs: number; mode: LogSpikeMode; env: string; q: string; level: LogSpikeLevel }
   // log → id = servis adı; satır zaman (ns, ondalık metin) + pod + trace + gövde
   // özetiyle kimliklenir — sunucu satırı logstore'dan YENİDEN okur (v0.10.1291).
-  | { kind: 'log'; id: string; tsNs: string; pod: string; traceId: string; hash: string };
+  | { kind: 'log'; id: string; tsNs: string; pod: string; traceId: string; hash: string }
+  // endpoint → id = servis adı; rota + (isteğe bağlı) fiil + pencere linkte
+  // taşınır (v0.10.1367). Çekmece görünür bir ilk soru sorar; sunucunun
+  // operasyon/endpoint ön-getirmesi onu deterministik çözer.
+  | { kind: 'endpoint'; id: string; route: string; method?: string; fromNs: number; toNs: number };
 
 const KIND_SET = new Set<string>(AI_KINDS);
 
@@ -197,6 +217,10 @@ export function formatAiParam(s: AISubject): string {
   if (s.kind === 'span') return `${head}:${encodeURIComponent(s.spanId)}`;
   if (s.kind === 'service-health') return `${head}:${s.fromNs}:${s.toNs}`;
   if (s.kind === 'charts') return `${head}:${s.fromNs}:${s.toNs}:${s.scope}`;
+  if (s.kind === 'endpoint') { // v0.10.1367 — fiil yalnız beyaz listedeyse (kanonik)
+    const m = endpointAiMethod(s.method);
+    return `${head}:${encodeURIComponent(s.route)}:${s.fromNs}:${s.toNs}${m ? ':' + m : ''}`;
+  }
   if (s.kind === 'log') {
     return `log:${s.tsNs}:${encodeURIComponent(s.id)}:${encodeURIComponent(s.pod)}:${s.traceId}:${s.hash}`;
   }
@@ -234,6 +258,7 @@ export function parseAiParam(
   }
   if (kind === 'log-spike') return parseLogSpike(parts);
   if (kind === 'log') return parseLogLine(parts);
+  if (kind === 'endpoint') return parseEndpoint(parts); // v0.10.1367
   const id = safeDecode(parts[1] ?? '');
   if (!id) return null;
 
@@ -307,6 +332,21 @@ function parseLogLine(parts: string[]): AISubject | null {
   return { kind: 'log', id, tsNs: tsNs ?? '', pod, traceId: traceId ?? '', hash: hash ?? '' };
 }
 
+// parseEndpoint — v0.10.1367: 5 ya da 6 parça; servis + rota zorunlu, pencere
+// service-health ile aynı katılıkta (sonlu, artan, pozitif). Bilinmeyen fiil
+// → düşer (fiilsiz özne), reddedilmez.
+function parseEndpoint(parts: string[]): AISubject | null {
+  if (parts.length !== 5 && parts.length !== 6) return null;
+  const id = safeDecode(parts[1] ?? '');
+  const route = safeDecode(parts[2] ?? '');
+  if (!id || !route) return null;
+  const fromNs = Number(parts[3]);
+  const toNs = Number(parts[4]);
+  if (!Number.isFinite(fromNs) || !Number.isFinite(toNs) || fromNs <= 0 || toNs <= fromNs) return null;
+  const method = endpointAiMethod(parts[5]);
+  return { kind: 'endpoint', id, route, ...(method ? { method } : {}), fromNs, toNs };
+}
+
 // Çekmece başlığı — operatör hangi soruyu sorduğunu görsün.
 // v0.10.948 (CoSRE Faz B) — trace öznesi artık kanıt toplayan inceleme; başlık
 // düğmenin adıyla aynı ("CoSRE’ye sor · trace <kısa kimlik>", EN "Ask CoSRE ·
@@ -332,6 +372,7 @@ export function aiSubjectTitle(s: AISubject, lang: Lang = currentLang()): string
     // eski ifadeler aiSubjectTopic'te modelin KONU satırı olarak kalır.
     case 'log-spike':                                    // v0.10.1284
     case 'log':            return t('ai.askCosre', lang); // v0.10.1291
+    case 'endpoint':       return t('ai.askCosre', lang); // v0.10.1367
   }
 }
 
@@ -348,6 +389,7 @@ const TOPIC: Partial<Record<AIKind, string>> = {
   anomaly: 'Explain anomaly',
   'log-spike': 'Log artışını açıkla', // v0.10.1338
   log: 'Log satırını açıkla',         // v0.10.1338
+  endpoint: 'Endpoint analizi',       // v0.10.1367
 };
 export function aiSubjectTopic(s: AISubject): string {
   return TOPIC[s.kind] ?? aiSubjectTitle(s, 'tr');
@@ -360,6 +402,7 @@ export function aiSubjectSubtitle(s: AISubject, lang: Lang = currentLang()): str
   if (s.kind === 'charts') return `${s.id} · ${chartScopeLabel(s.scope)}`;
   if (s.kind === 'log-spike') return `${s.id || 'tüm servisler'} · ${s.mode === 'sel' ? 'seçili aralık' : 'otomatik tespit'}${s.level === 'error' ? ' · ERROR' : ''}`;
   if (s.kind === 'log') return `${s.id}${s.pod ? ' · ' + s.pod : ''}`;
+  if (s.kind === 'endpoint') return `${s.method ? s.method + ' ' : ''}${s.route} · ${s.id}`; // v0.10.1367
   return s.kind === 'service-health' ? s.id : short(s.id);
 }
 

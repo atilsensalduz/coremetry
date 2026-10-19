@@ -3,6 +3,7 @@ package api
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cilcenk/coremetry/internal/copilot"
 )
@@ -60,6 +61,18 @@ func TestParseDrawerSubject(t *testing.T) {
 		{name: "span boş spanId", raw: "span:abc:", wantOK: false},
 		// Bozuk yüzde dizisi: çekmece bir URL parçası yüzünden patlamamalı.
 		{name: "bozuk yüzde dizisi", raw: "trace:%zz", wantOK: false},
+		// v0.10.1367 — endpoint: aiSubject.ts parseEndpoint ile aynı katılık.
+		{name: "endpoint fiilli", raw: "endpoint:bsa-web:%2FBSAWEB%2Fapplication%2F%7Bid%7D:1000:2000:POST", wantOK: true, wantKind: "endpoint", wantID: "bsa-web"},
+		{name: "endpoint fiilsiz", raw: "endpoint:ns%3Acart:%2Fcart:1000:2000", wantOK: true, wantKind: "endpoint", wantID: "ns:cart"},
+		{name: "endpoint bilinmeyen fiil düşer", raw: "endpoint:svc:%2Fcart:1000:2000:BREW", wantOK: true, wantKind: "endpoint", wantID: "svc"},
+		{name: "endpoint 4 parça", raw: "endpoint:svc:%2Fcart:1000", wantOK: false},
+		{name: "endpoint 7 parça", raw: "endpoint:svc:%2Fcart:1000:2000:GET:x", wantOK: false},
+		{name: "endpoint ters pencere", raw: "endpoint:svc:%2Fcart:2000:1000", wantOK: false},
+		{name: "endpoint sıfır pencere", raw: "endpoint:svc:%2Fcart:1000:1000", wantOK: false},
+		{name: "endpoint sıfır başlangıç", raw: "endpoint:svc:%2Fcart:0:1000", wantOK: false},
+		{name: "endpoint sayı değil", raw: "endpoint:svc:%2Fcart:a:b", wantOK: false},
+		{name: "endpoint bozuk yüzde", raw: "endpoint:%zz:%2Fcart:1000:2000", wantOK: false},
+		{name: "endpoint boş rota", raw: "endpoint:svc::1000:2000", wantOK: false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -74,6 +87,41 @@ func TestParseDrawerSubject(t *testing.T) {
 				t.Fatalf("got=%+v want kind=%q id=%q span=%q", got, c.wantKind, c.wantID, c.wantSpanID)
 			}
 		})
+	}
+}
+
+// v0.10.1367 — endpoint öznesinin ek alanları: rota decode edilir, fiil büyük
+// harf + beyaz liste (bilinmeyen → ""), pencere ns → time.Time.
+func TestParseDrawerSubjectEndpointFields(t *testing.T) {
+	got, ok := parseDrawerSubject("endpoint:bsa-web:%2FBSAWEB%2Fapplication%2F%7Bid%7D:1790000000000000000:1790003600000000000:post")
+	if !ok {
+		t.Fatal("reddedildi")
+	}
+	if got.Route != "/BSAWEB/application/{id}" || got.Method != "POST" ||
+		got.From.UnixNano() != 1790000000000000000 || got.To.UnixNano() != 1790003600000000000 {
+		t.Fatalf("got=%+v", got)
+	}
+	if got, _ := parseDrawerSubject("endpoint:svc:%2Fcart:1000:2000:BREW"); got.Method != "" {
+		t.Fatalf("bilinmeyen fiil düşmeli: %+v", got)
+	}
+}
+
+// v0.10.1367 — çekmece kanıt penceresi sohbetin penceresiyle aynı: rangeS =
+// max(60, round), bitiş ms'ye kırpılmış çıpa, başlangıç bitiş-rangeS; gelecek
+// bitiş şimdiye çekilir (chatAnchorTime).
+func TestDrawerEndpointWindow(t *testing.T) {
+	now := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
+	to := now.Add(-time.Hour).Add(1234567 * time.Nanosecond)
+	rs, f, e := drawerEndpointWindow(to.Add(-3*time.Hour), to, now)
+	if rs != 10800 || !e.Equal(time.UnixMilli(to.UnixMilli())) || !f.Equal(e.Add(-3*time.Hour)) {
+		t.Fatalf("3h: %d %v %v", rs, f, e)
+	}
+	rs, f, e = drawerEndpointWindow(to.Add(-10*time.Second), to, now)
+	if rs != 60 || !f.Equal(e.Add(-time.Minute)) {
+		t.Fatalf("taban 60 sn: %d %v %v", rs, f, e)
+	}
+	if _, _, e = drawerEndpointWindow(now, now.Add(time.Hour), now); !e.Equal(now) {
+		t.Fatalf("gelecek bitiş şimdiye çekilmeli: %v", e)
 	}
 }
 
@@ -227,6 +275,7 @@ func TestDrawerSourceNoteAndStep(t *testing.T) {
 		{kind: "trace", wantNoteExtra: true, wantStep: true},
 		{kind: "span", wantNoteExtra: true, wantStep: true},
 		{kind: "exception", wantNoteExtra: true, wantStep: true},
+		{kind: "endpoint", wantNoteExtra: true, wantStep: true}, // v0.10.1367
 		{kind: "problem", wantNoteExtra: false, wantStep: false},
 	}
 	for _, c := range cases {

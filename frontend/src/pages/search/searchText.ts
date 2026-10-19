@@ -102,3 +102,9 @@ export function endpointPathOf(name: string): string {
   const m = /^[A-Z]+\s+(\/.*)$/.exec(name);
   return m ? m[1] : name;
 }
+
+/** v0.10.1367 — span adı "GET /x" ise fiil "GET"; fiilsiz ad → "" (endpointPathOf'un ikizi). */
+export function endpointMethodOf(name: string): string {
+  const m = /^([A-Z]+)\s+\//.exec(name);
+  return m ? m[1] : '';
+}

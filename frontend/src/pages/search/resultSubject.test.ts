@@ -39,8 +39,19 @@ describe('resultSubject — tür → AISubject (v0.10.1335)', () => {
     expect(resultSubject(ROWS.service, WIN)).toEqual({ kind: 'service-health', id: 'shop-api', fromNs: 1_000, toNs: 2_000 });
   });
 
-  it('endpoint → ÜST servisin service-health’i', () => {
-    expect(resultSubject(ROWS.endpoint, WIN)).toEqual({ kind: 'service-health', id: 'shop-api', fromNs: 1_000, toNs: 2_000 });
+  // v0.10.1367 — endpoint sonucu kendi öznesini taşır (servis + rota + fiil + pencere).
+  it('endpoint GET /cart → endpoint öznesi', () => {
+    expect(resultSubject(ROWS.endpoint, WIN)).toEqual({ kind: 'endpoint', id: 'shop-api', route: '/cart', method: 'GET', fromNs: 1_000, toNs: 2_000 });
+  });
+
+  it('fiilsiz rota → fiilsiz endpoint öznesi', () => {
+    const r = { ...ROWS.endpoint, title: '/cart', payload: { service: 'shop-api', name: '/cart' } } as SearchResult;
+    expect(resultSubject(r, WIN)).toEqual({ kind: 'endpoint', id: 'shop-api', route: '/cart', fromNs: 1_000, toNs: 2_000 });
+  });
+
+  it('yol olmayan endpoint adı (RPC) → ÜST servisin service-health’i', () => {
+    const r = { ...ROWS.endpoint, title: 'OrderService/Place', payload: { service: 'shop-api', name: 'OrderService/Place' } } as SearchResult;
+    expect(resultSubject(r, WIN)).toEqual({ kind: 'service-health', id: 'shop-api', fromNs: 1_000, toNs: 2_000 });
   });
 
   it('log → log öznesi (logLineSubject): servis + ts + küçük harf trace id', () => {

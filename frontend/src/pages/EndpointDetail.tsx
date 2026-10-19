@@ -32,6 +32,10 @@ import { RouteAlertModal } from '@/pages/alerts/RouteAlertModal'; // v0.10.705
 import { useHttpPromql } from '@/lib/queries/httpMetrics';
 import { endpointHttpQueries, type LatQ } from '@/lib/httpMetrics';
 import { MetricREDStrip, MetricCharts } from '@/pages/endpoints/MetricModeSections'; // v0.10.1352
+import { AIExplainButton } from '@/components/ai/AIExplainButton'; // v0.10.1367 — tek tık "CoSRE'ye sor"
+import { IconSparkles } from '@/components/icons';
+import { useT } from '@/lib/i18n';
+import { endpointAiMethod, type AISubject } from '@/lib/aiSubject';
 
 // /endpoint — the full-page endpoint detail (v0.9.839).
 //
@@ -156,6 +160,17 @@ export default function EndpointDetailPage() {
       r.service === refObj.service && r.path === refObj.path);
   }, [rowsQ.data, refObj]);
 
+  // v0.10.1367 — endpoint "CoSRE'ye sor" öznesi: servis + rota + fiil + MEMO'lu
+  // pencere (from/to timeRangeToNs memo'sundan — JSX'te çıplak değil). RPC
+  // girişinde (entry=rpc, `/`-yolu olmayan span adı) sunucu endpoint olarak
+  // çözemez → düğme gizli.
+  const tr = useT();
+  const aiSubject = useMemo<AISubject | null>(() => {
+    if (!refObj || entry) return null;
+    const method = endpointAiMethod((row?.method || refObj.method || '').toUpperCase());
+    return { kind: 'endpoint', id: refObj.service, route: refObj.path, ...(method ? { method } : {}), fromNs: from, toNs: to };
+  }, [refObj, entry, row?.method, from, to]);
+
   const detailQ = useEndpointDetail(refObj ? {
     service: refObj.service, path: refObj.path, from, to,
     ...(refObj.sig ? { sig: '1' as const } : {}),
@@ -276,6 +291,13 @@ export default function EndpointDetailPage() {
                 <option value="span">Kaynak: span</option>
                 <option value="metric">Kaynak: metrik</option>
               </select>
+            )}
+            {/* v0.10.1367 — sayfanın TEK dolu birincil eylemi (ProblemDetail'deki
+                Ask CoSRE ile aynı): çekmece görünür ilk soruyu sorar. */}
+            {aiSubject && (
+              <AIExplainButton subject={aiSubject} emphasis="strong"
+                label={<><IconSparkles /> <span style={{ marginLeft: 6 }}>{tr('ai.askCosre')}</span></>}
+                title={tr('ai.askCosreEndpointHint')} />
             )}
             {/* v0.10.1117 — şekil (sig) ve RPC (entry) kimliği pivota taşınır:
                 `http.route_shape` / `name` / `name_shape` (endpoints/links.ts). */}

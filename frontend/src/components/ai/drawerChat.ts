@@ -59,7 +59,22 @@ function subjectRef(s: AISubject): string {
     case 'anomaly':        return `anomali ${s.id}`;
     case 'runbook':        return `runbook (problem ${s.id})`;
     case 'log':            return `log satırı (servis ${s.id}${s.pod ? ' · pod ' + s.pod : ''} · zaman ${s.tsNs} ns${s.traceId ? ' · trace ' + s.traceId : ''})`; // v0.10.1291
+    case 'endpoint':       return `endpoint ${s.method ? s.method + ' ' : ''}${s.route} · servis ${s.id}`; // v0.10.1367
   }
+}
+
+// v0.10.1367 — endpoint öznesinin GÖRÜNÜR ilk sorusu. Sunucu sözleşmesi
+// (internal/api/chat_endpoint_prefetch.go): endpointChipShape normalize
+// edilmiş mesajın bu ekle BİTTİĞİNE bakar (liste/sor vetosundan muaf);
+// endpointMention ilk `/`-belirtecini yol, önündeki alanı fiil sayar;
+// endpointServiceHint servisi `[a-z0-9._-]` belirteçlerinden bulur. Bu yüzden
+// ek EN SONDA, servis + fiil + rota hemen önünde. Go pini:
+// TestEndpointAskQuestionResolves (bu dosyadan ENDPOINT_ASK_SUFFIX'i okur).
+export const ENDPOINT_ASK_SUFFIX = 'endpointine bak';
+
+export function endpointAskQuestion(s: Extract<AISubject, { kind: 'endpoint' }>): string {
+  const target = [s.id, s.method, s.route].filter(Boolean).join(' ');
+  return `Ne oluyor, ne zamandan beri, en yavaş trace'lerde süre nereye gidiyor, hangi hatalar var? ${target} ${ENDPOINT_ASK_SUFFIX}`;
 }
 
 // buildExplainContext — `context.explain` alanının gövdesi: künye +
@@ -89,6 +104,7 @@ export function aiSubjectQuestion(kind: AIKind, id: string): string {
     case 'charts':         return `${id} grafiklerinde bu pencerede ne oldu?`;
     case 'log-spike':      return `${id || 'Tüm servislerin'} log artışını ne açıklıyor?`;
     case 'log':            return `${id} servisinin bu log satırı ne anlama geliyor?`; // v0.10.1291
+    case 'endpoint':       return `${id} servisinin bu endpoint'i ne durumda?`; // v0.10.1367 — çekmece seed'i boş; yalnız tür bütünlüğü
     case 'problem':        return `Bu problemin kök nedeni ne? (problem ${id})`;
     case 'runbook':        return `${id} runbook'unun adımlarını özetle`;
     case 'anomaly':        return `Bu anomaliyi açıkla (${id})`;
@@ -118,6 +134,10 @@ export function drawerFollowups(s: AISubject): string[] {
   }
   if (s.kind === 'log-spike' && s.id) {
     return [`${s.id} hata logları?`, `${s.id} son deploy etkisi?`, 'Hangi kanıta dayanıyorsun?'];
+  }
+  // v0.10.1367 — endpoint: servis adını taşıyan şekiller guided router'da yönlenir.
+  if (s.kind === 'endpoint') {
+    return [`${s.id} hata logları?`, `${s.id} en yavaş trace'ler?`, 'Hangi kanıta dayanıyorsun?'];
   }
   // v0.10.1291 — log satırı: servis adını taşıyan şekiller guided router'da yönlenir.
   if (s.kind === 'log') {

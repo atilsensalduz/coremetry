@@ -40,6 +40,17 @@ const CASES: Array<{ name: string; subject: AISubject; param: string }> = [
     subject: { kind: 'log', id: 'pay ments', tsNs: '1700000000123000000', pod: 'pod:1', traceId: '0af7651916cd43dd8448eb211c80319c', hash: 'ca29aa39' },
     param: 'log:1700000000123000000:pay%20ments:pod%3A1:0af7651916cd43dd8448eb211c80319c:ca29aa39',
   },
+  {
+    // v0.10.1367 — endpoint "CoSRE'ye sor": servis + rota kodlanır, fiil isteğe bağlı.
+    name: 'endpoint',
+    subject: { kind: 'endpoint', id: 'bsa-web', route: '/BSAWEB/application/{id}', method: 'POST', fromNs: 1000, toNs: 2000 },
+    param: 'endpoint:bsa-web:%2FBSAWEB%2Fapplication%2F%7Bid%7D:1000:2000:POST',
+  },
+  {
+    name: 'endpoint (fiilsiz)',
+    subject: { kind: 'endpoint', id: 'ns:cart', route: '/cart', fromNs: 1000, toNs: 2000 },
+    param: 'endpoint:ns%3Acart:%2Fcart:1000:2000',
+  },
 ];
 
 describe('formatAiParam / parseAiParam round-trip', () => {
@@ -91,6 +102,15 @@ describe('parseAiParam — reddedilenler', () => {
     ['service-health ters pencere', 'service-health:checkout:2000:1000'],
     ['service-health sıfır pencere', 'service-health:checkout:1000:1000'],
     ['service-health negatif başlangıç', 'service-health:checkout:-5:1000'],
+    // v0.10.1367 — endpoint: 5 ya da 6 parça, artan pencere, geçerli yüzde dizisi.
+    ['endpoint 4 parça', 'endpoint:svc:%2Fcart:1000'],
+    ['endpoint 7 parça', 'endpoint:svc:%2Fcart:1000:2000:GET:x'],
+    ['endpoint ters pencere', 'endpoint:svc:%2Fcart:2000:1000'],
+    ['endpoint sıfır pencere', 'endpoint:svc:%2Fcart:1000:1000'],
+    ['endpoint sıfır başlangıç', 'endpoint:svc:%2Fcart:0:1000'],
+    ['endpoint bozuk yüzde (servis)', 'endpoint:%zz:%2Fcart:1000:2000'],
+    ['endpoint bozuk yüzde (rota)', 'endpoint:svc:%E0%A4%A:1000:2000'],
+    ['endpoint boş rota', 'endpoint:svc::1000:2000'],
   ] as const;
   for (const [name, raw] of bad) {
     it(`${name} → null`, () => expect(parseAiParam(raw)).toBeNull());
@@ -351,5 +371,31 @@ describe('log öznesi', () => {
     const s: AISubject = { kind: 'log', id: 'checkout', tsNs: '1', pod: 'checkout-7f9', traceId: '', hash: '0000abcd' };
     expect(aiSubjectTitle(s, 'tr')).toBe('CoSRE’ye sor'); // v0.10.1338 — konu: 'Log satırını açıkla'
     expect(aiSubjectSubtitle(s, 'tr')).toBe('checkout · checkout-7f9');
+  });
+});
+
+// v0.10.1367 — endpoint öznesi: bilinmeyen fiil REDDETTİRMEZ, düşer; fiil
+// büyük harfe çevrilir; başlık "CoSRE’ye sor", konu "Endpoint analizi".
+describe('endpoint öznesi (v0.10.1367)', () => {
+  it('bilinmeyen fiil düşer, özne açılır', () => {
+    expect(parseAiParam('endpoint:svc:%2Fcart:1000:2000:BREW')).toEqual({ kind: 'endpoint', id: 'svc', route: '/cart', fromNs: 1000, toNs: 2000 });
+  });
+  it('küçük harf fiil büyütülür', () => {
+    expect(parseAiParam('endpoint:svc:%2Fcart:1000:2000:get')).toMatchObject({ method: 'GET' });
+  });
+  it('format kanonik: beyaz listede olmayan fiil adrese yazılmaz', () => {
+    expect(formatAiParam({ kind: 'endpoint', id: 'svc', route: '/cart', method: 'BREW', fromNs: 1, toNs: 2 })).toBe('endpoint:svc:%2Fcart:1:2');
+  });
+  it('kısa (SELF) biçim yok', () => {
+    expect(parseAiParam('endpoint', new URLSearchParams('service=svc&path=/cart'))).toBeNull();
+    expect(aiSelfParam('endpoint')).toBeNull();
+  });
+  it('başlık + konu + alt satır', () => {
+    const s: AISubject = { kind: 'endpoint', id: 'shop-api', route: '/cart', method: 'GET', fromNs: 1, toNs: 2 };
+    expect(aiSubjectTitle(s, 'tr')).toBe('CoSRE’ye sor');
+    expect(aiSubjectTitle(s, 'en')).toBe('Ask CoSRE');
+    expect(aiSubjectTopic(s)).toBe('Endpoint analizi');
+    expect(aiSubjectSubtitle(s)).toBe('GET /cart · shop-api');
+    expect(aiSubjectSubtitle({ ...s, method: undefined })).toBe('/cart · shop-api');
   });
 });
