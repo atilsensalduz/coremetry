@@ -106,11 +106,7 @@ func endpointEnvSet(raw, path string, envs []string) []string {
 	if len(envs) < 2 {
 		return nil
 	}
-	rest := raw
-	if path != "" {
-		rest = strings.Replace(raw, path, " ", 1)
-	}
-	return extractEnvSet(normalizeGuidedMsg(stripMarkdownWrapText(rest)), envs)
+	return extractEnvSet(endpointEnvMsg(raw, path), envs) // v0.10.1380 — yol çıkarma endpointEnvMsg'de (çip aynı metni okur)
 }
 
 // wantsClusterCompare — SAF: ≥2 ortam anılmış endpoint/rota hedefi.

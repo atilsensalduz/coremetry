@@ -255,6 +255,9 @@ func parseIntentJSON(raw string, services, envs, teams []string, ctxService stri
 	}
 	if strings.TrimSpace(in.Env) != "" {
 		if route.Env = matchLiveName(in.Env, envs); route.Env == "" {
+			route.Env = resolveEnvShortName(in.Env, envs) // v0.10.1380 — "eu-a" → tek canlı "prod-eu-a"
+		}
+		if route.Env == "" {
 			return guidedRoute{}, 0, false
 		}
 	}

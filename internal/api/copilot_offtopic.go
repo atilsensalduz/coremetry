@@ -133,6 +133,11 @@ func offTopicVeto(question string, services, envs, teams []string) (why string, 
 	if env := extractEnvEntity(msg, envs); env != "" {
 		return "ortam adı: " + env, true
 	}
+	// v0.10.1380 — belirsiz kısa ortam anması ("eu-a" → prod-eu-a + dr-eu-a)
+	// tek ortama çözülmese de konu dışı değildir.
+	if ms := findEnvMentions(msg, envs); len(ms) > 0 {
+		return "ortam adı: " + strings.Join(ms[0].Values, ", "), true
+	}
 	if team := extractTeamEntity(msg, teams); team != "" {
 		return "takım adı: " + team, true
 	}

@@ -7417,6 +7417,36 @@ eskiden var olan bir ortam "metrikte yok" görünebilir (bant söyler).
 composer `scope.wiki=true` üretir, wiki katmanı kesin devreye girer. Pin: `chatScope.test.ts` (çip metni + soru → wiki
 kapsamı), `CosreCapabilities.test.tsx` (EN/TR farklılık kuralından bu anahtar muaf).
 
+## 2026-10-19 — v0.10.1380 — CoSRE: ortam/küme adları öneksiz ve harf duyarsız tanınır
+
+**Bağlam (operatör):** prod'da ortam/küme değerleri sinyaller arasında tutarsız; kullanıcı "eu-a" / "Kxzone" yazıyor,
+span `deploy_env` değeri "prod-eu-a" / "prod-Kxzone" (operatör Collector transform'uyla normalize edene dek). Sohbetin
+ortam çözümü (`extractEnvEntity` / `extractEnvSet`) yalnız sınırlı TAM adı tanıyordu: anma kaçıyor, küme kıyastan
+düşüyor ya da yanlış tek ortam seçiliyordu.
+**Karar:** `internal/api/chat_env_mentions.go` `findEnvMentions` (SAF) — canlı span ortam kataloğunun her değeri için
+tam ad VE öneksiz kısa biçim (`vmetrics.EnvShortForm` = v0.10.1376 metrik eşleştiricisinin `stripEnvPrefix` kuralı,
+TEK tanım: baştaki tek `^[A-Za-z0-9]+-`, kalan ≥3), harf duyarsız, `indexBounded` sınırlı ("eu-a", "eu-a-svc" içinde
+tutmaz). Aynı biçim bir değerin tam adıysa tam ad kazanır; kısa biçim isabeti o biçimi paylaşan TÜM canlı değerlere
+çözülür ("eu-a" → prod-eu-a + dr-eu-a); harf varyantları tek ad (katalog sırasındaki ilk yazım — v0.10.1373 tam-ad
+tekilleştirmesiyle aynı). Katalogda olmayan değer asla üretilmez; iki taraf birden soyulmaz; kullanıcı tarafı önek
+soyma (yazılan "prod-eu-a", canlı "eu-a") YOK — yalnız canlı değerin kısa biçimi.
+**Tüketiciler:** `extractEnvEntity` tam ad yolu bayt bayt eski; yalnız tam ad yoksa kısa biçim, o da TEK değere
+çözülüyorsa (belirsizse "" — router bugünkü gibi env'siz/ekran env'i; küme `extractEnvSet`'te görünür).
+`extractEnvSet` kısa isabetleri canlı değerlere açar (mesaj sırası, tekil, <2 → nil, ≤6) → guided `EnvSet` ve endpoint
+küme kıyası `opTarget.Envs` tam değerleri taşır (RED/trace/VM okumaları canlı değerle). Ayrıca `hasAnalysisCue`,
+`extractServiceEntity`'nin ortam-jetonu dışlaması (`envNameTokens`), niyet kademesi env doğrulaması
+(`matchLiveName` tutmazsa `resolveEnvShortName`, yalnız tek değer), açık `@env` kapsamı (`validateChatScope`; belirsizse
+mevcut seçenek sorusu) ve konu-dışı vetosu kısa adı tanır. Bağlam çipi `envAliasNoteTR`: "ortam adı çözüldü: eu-a →
+prod-eu-a, dr-eu-a" — guided akışta ve endpoint küme kıyasında (iki dal), yalnız rotanın kullandığı değerlerle; tam adla
+anmada çip yok.
+**Kademe sözcüğü koruması (yalnız sohbet yolu):** kısa biçim çıplak bir ortam KADEMESİ sözcüğüyse (prod, production,
+prd, test, tst, dev, development, uat, qa, stage, staging, stg, preprod, prep, sit, perf, dr, local; harf duyarsız —
+`envTierWords`) anma sayılmaz: servis adları sık sık "-prod" ile biter, mesajlar "prod" der durur; canlı "k8s-prod" her
+"prod"u ortam anmasına çevirmemeli. Tam ad eşleşmesi etkilenmez (canlı "prod" ya da "k8s-prod" yazılınca tutar);
+`vmetrics.EnvShortForm` / `MatchEnvValues` (VM çözücüsü) değişmedi — koruma sohbet yardımcısında. Testler: `api/chat_env_mentions_test.go` (yardımcı tablosu,
+extractEnvEntity/extractEnvSet regresyon satırları, guided rota, küme kıyası tam değerler + çip, tüketiciler),
+`vmetrics/envshort_test.go` (paylaşılan kural = prefix kademesi).
+
 ## 2026-10-19 — v0.10.1379 — Exception açıklaması: HATA ZİNCİRİ (bağımlı çağrının HTTP kodu ve hedefi)
 
 **Bağlam (v0.10.1371 kaydının takibi):** trace açıklaması deterministik HATA ZİNCİRİ'ni aldı; Exceptions sayfasının

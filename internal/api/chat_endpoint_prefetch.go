@@ -218,8 +218,11 @@ func hasAnalysisCue(toks []string, envs []string) bool {
 	if tokenHasPrefix(toks, epAnalysisStems...) {
 		return true
 	}
-	for _, e := range envs {
-		if le := strings.ToLower(e); len(le) >= 2 && anyToken(toks, le) {
+	// v0.10.1380 — öneksiz kısa ortam biçimi de ortam adıdır ("eu-a", canlı
+	// "prod-eu-a"); envNameTokens tam adları (≥2) da içerir.
+	envTok := envNameTokens(envs)
+	for _, t := range toks {
+		if envTok[t] {
 			return true
 		}
 	}

@@ -740,10 +740,9 @@ func extractServiceEntity(msg string, services, envs []string) string {
 	// not resolve to a "uat-gateway" service. The bounded full-name
 	// pass above still wins when the operator literally types the
 	// service name ("uat-gateway hataları").
-	envTok := map[string]bool{}
-	for _, e := range envs {
-		envTok[strings.ToLower(e)] = true
-	}
+	// v0.10.1380 — öneksiz kısa ortam biçimi de ortam jetonudur ("eu-a",
+	// canlı "prod-eu-a"); envNameTokens tam adları da içerir.
+	envTok := envNameTokens(envs)
 	for _, t := range guidedTokens(msg) {
 		if len(t) < 3 || guidedStopwords[t] || envTok[t] || !asciiNameToken(t) {
 			continue
@@ -816,7 +815,13 @@ func extractEnvEntity(msg string, envs []string) string {
 			best = env
 		}
 	}
-	return best
+	if best != "" {
+		return best
+	}
+	// v0.10.1380 — tam ad yoksa öneksiz/harf duyarsız kısa biçim ("kxzone" →
+	// "prod-Kxzone"): YALNIZ tek canlı değere çözülüyorsa; belirsizse ("eu-a" →
+	// prod-eu-a + dr-eu-a) "" — tahmin yok, küme extractEnvSet'te görünür.
+	return envShortResolve(findEnvMentions(msg, envs))
 }
 
 // envSetMax — v0.10.1373: extractEnvSet tavanı.
@@ -830,32 +835,16 @@ const envSetMax = 6
 // parantez/virgül sınırdır. 2'den az ad → nil (tek ortam extractEnvEntity'nin
 // işi). msg normalizeGuidedMsg'den geçmiş olmalı.
 func extractEnvSet(msg string, envs []string) []string {
-	type hit struct {
-		at  int
-		env string
-	}
-	var hits []hit
-	seen := map[string]bool{}
-	for _, env := range envs {
-		le := strings.ToLower(env)
-		if len(le) < 2 || seen[le] {
-			continue
-		}
-		if i := indexBounded(msg, le); i >= 0 {
-			seen[le] = true
-			hits = append(hits, hit{i, env})
-		}
-	}
-	if len(hits) < 2 {
+	// v0.10.1380 — anmalar findEnvMentions'tan: tam ad + öneksiz kısa biçim
+	// (harf duyarsız, sınırlı); kısa biçim isabeti o biçimi paylaşan TÜM canlı
+	// değerleri getirir ("eu-a" → prod-eu-a, dr-eu-a). Tam adlarla bayt bayt
+	// eski: mesaj sırası, harf-katlamalı tekil (ilk yazım), <2 → nil, ≤envSetMax.
+	out := envMentionValues(findEnvMentions(msg, envs))
+	if len(out) < 2 {
 		return nil
 	}
-	sort.SliceStable(hits, func(i, j int) bool { return hits[i].at < hits[j].at })
-	if len(hits) > envSetMax {
-		hits = hits[:envSetMax]
-	}
-	out := make([]string, len(hits))
-	for i, h := range hits {
-		out[i] = h.env
+	if len(out) > envSetMax {
+		out = out[:envSetMax]
 	}
 	return out
 }
@@ -1816,6 +1805,11 @@ func (s *Server) copilotChatGuided(ctx context.Context, emit func(string, any), 
 	}
 	if len(route.EnvSet) >= 2 { // v0.10.1373 — özet çipi: hangi ortamlar anıldı, süzgeç neden yok
 		emitGuidedContextStep(emit, envSetNoteTR(route.EnvSet))
+	}
+	// v0.10.1380 — kısa biçimle anılan ortamın çözüldüğü canlı değer(ler)
+	// görünür: "ortam adı çözüldü: eu-a → prod-eu-a". Tam adla anmada çip yok.
+	if note := envAliasNoteTR(findEnvMentions(norm, envNames), append([]string{route.Env}, route.EnvSet...)); note != "" {
+		emitGuidedContextStep(emit, note)
 	}
 	followBase := "" // devralınan temel mesaj (operasyon çözümü için)
 	if followCue {

@@ -707,6 +707,8 @@ func (s *Server) resolveEndpointMention(pctx, ctx context.Context, emit func(str
 		}
 		pt := endpointPathOnlyTarget(raw, method, path, s.guidedServiceNames(pctx), envs)
 		pt.Envs = endpointEnvSet(raw, path, envs) // v0.10.1374 — küme kıyası
+		// v0.10.1380 — kısa adla anılan kümenin canlı değeri çipte ("eu-a → prod-eu-a").
+		emitEnvAliasStep(emit, endpointEnvAliasNote(raw, path, envs, pt.Envs))
 		return pt, endpointPathKind, false, true
 	}
 	toks := endpointCatalogTokens(path)
@@ -721,6 +723,8 @@ func (s *Server) resolveEndpointMention(pctx, ctx context.Context, emit func(str
 		t = endpointTargetFor(*m.Pick, method)
 		t.Alternatives = opAlternativesFrom(m.Alternatives, method)
 		t.Envs = endpointEnvSet(raw, path, envs) // v0.10.1374 — küme kıyası
+		// v0.10.1380 — kısa adla anılan kümenin canlı değeri çipte ("eu-a → prod-eu-a").
+		emitEnvAliasStep(emit, endpointEnvAliasNote(raw, path, envs, t.Envs))
 		return t, m.Kind, false, true
 	case len(m.Choices) > 1:
 		sugg := make([]string, len(m.Choices))

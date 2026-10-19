@@ -230,6 +230,10 @@ func validateChatScope(sc chatScope, svcNames, envNames, teamNames []string) (ch
 	if v := strings.TrimSpace(sc.Env); v != "" {
 		if envNames != nil {
 			c, ok := scopeNameMatch(v, envNames)
+			if !ok { // v0.10.1380 — öneksiz kısa ad tek canlı değere çözülürse o ("eu-a" → "prod-eu-a")
+				c = resolveEnvShortName(v, envNames)
+				ok = c != ""
+			}
 			if !ok {
 				return out, &chatScopeIssue{Dim: "env", Value: v, Options: scopeNearNames(v, envNames)}
 			}

@@ -65,6 +65,12 @@ func stripEnvPrefix(s string) (string, bool) {
 	return rest, true
 }
 
+// EnvShortForm — SAF (v0.10.1380): ortam değerinin öneksiz kısa biçimi
+// ("prod-eu-a" → "eu-a"); kural stripEnvPrefix'in KENDİSİ (tek önek parçası,
+// kalan ≥3). CoSRE sohbetinin ortam anma çözücüsü (api/chat_env_mentions.go)
+// aynı tanımı kullanır — metrik eşleşmesiyle sohbet çözümü ayrışmaz.
+func EnvShortForm(s string) (string, bool) { return stripEnvPrefix(s) }
+
 // envPrefixMatch — SAF (v0.10.1376): tek taraflı önek toleransı.
 func envPrefixMatch(want, live string) bool {
 	if r, ok := stripEnvPrefix(live); ok && strings.EqualFold(want, r) {
