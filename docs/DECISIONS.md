@@ -7880,3 +7880,10 @@ basılıyor, okuma tavanı sekmeden farklıydı (2000 ↔ 20000).
 **Doğrulama sınırı:** prod verisine erişim yok; kök neden kod + fikstürle kanıtlandı (2. adım kenarları taşıyan okuma →
 ne çizilir ne sayılır; tavan yalnız aşınca). Hub'ın 230 komşusunun gerçekten doğrudan olup olmadığı (ör. v0.10.1344
 etiket-önek katlamasının `<odak>-<x>` kardeşini odağa katlaması) prod'da sekmenin "N of M nodes" sayısıyla kıyaslanmalı.
+
+## 2026-10-19 — v0.10.1395 — CoSRE başlığı: marka grubu ve Geçmiş tek satır
+
+**Operatör:** "En üstteki CoSRE yazısı ve telemetry ikonu çok sıkışık duruyor." İkon ile "CoSRE" yazısı ayrı flex
+çocuklarıydı, başlık boşluğu 8 px'ti; "🕘 Geçmiş" düğmesi ikon üstte / yazı altta kırılıyordu. **Karar:** ikon + yazı
+tek `.cosre-head__brand` grubunda (iç boşluk `--sp-5`), başlık boşluğu 12 px, `.cm-head-btn` satır içi tek satır.
+Yalnız CSS/JSX düzeni; davranış değişmez.

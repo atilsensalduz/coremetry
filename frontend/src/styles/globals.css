@@ -5640,6 +5640,8 @@ tbody td.tpm-more-cell { color: var(--text2); }
 .cosre-root--drawer { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 
 /* Başlık satırı */
+/* v0.10.1395 — marka grubu: ikon + CoSRE arasında boşluk, başlıkta sıkışmaz. */
+.cosre-head__brand { display: inline-flex; align-items: center; gap: var(--sp-5); flex-shrink: 0; padding-left: var(--sp-2); }
 .cosre-head__title { flex-shrink: 0; font-size: var(--cosre-fs-title); font-weight: var(--cosre-fw-bold); letter-spacing: var(--cosre-ls-title); line-height: var(--cosre-lh-heading); }
 .cosre-head__meta { font-size: var(--cosre-fs-meta); }
 .cosre-head .cosre-page__home { font-size: var(--cosre-fs-small); }
@@ -5868,6 +5870,8 @@ tbody td.tpm-more-cell { color: var(--text2); }
 .cosre-root .cosre-head__meta { font-size: var(--cosre-fs-body); }
 .cosre-root .cm-head-btn,
 .cosre-root .cm-fullpage { font-size: var(--cosre-fs-body); white-space: nowrap; }
+/* v0.10.1395 — "🕘 Geçmiş" ikon üstte / yazı altta kırılıyordu: tek satır. */
+.cosre-root .cm-head-btn { display: inline-flex; flex-direction: row; align-items: center; gap: var(--sp-2); }
 
 /* v0.10.1289 — CoSRE operatör kuralları: sohbetin "bunu hatırla" onay kartı
    (CosreRuleConfirm) ve kural listesi paneli (CosreRulesPanel: Ayarlar ›

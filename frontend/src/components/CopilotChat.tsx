@@ -621,7 +621,7 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
 
   // v0.10.1125 — başlık + gövde TEK yerde; çekmece ve /cosre sayfası aynı düğümleri sarar.
   const headerNode = (
-            <div className="cosre-head" style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, flexWrap: isPage ? 'wrap' : undefined }}>
+            <div className="cosre-head" style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0, flexWrap: isPage ? 'wrap' : undefined }}>
               {/* v0.9.1253 (operatör: "CoSRE yazısı biraz daha belirgin,
                   büyük font olabilir") — 13→16 + 700 + hafif harf aralığı;
                   marka adı çekmece başlığında artık ilk bakışta okunur.
@@ -630,8 +630,12 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
                   SATIR: marka · meta (kapsam ya da ✨ Explain öznesi, ellipsis)
                   · eylemler (v0.10.1141: model seçici composer'a taşındı). 461'in iki satırlı başlığı Drawer'ın
                   ✕ hizasını ve eylem düğmelerini kaydırıyordu. */}
-              <AiMark size={20} />
-              <span className="cosre-head__title">CoSRE</span>
+              {/* v0.10.1395 (operatör: "En üstteki CoSRE yazısı ve telemetry ikonu çok
+                  sıkışık duruyor") — marka tek grup, ikonla yazı arasında nefes payı. */}
+              <span className="cosre-head__brand">
+                <AiMark size={20} />
+                <span className="cosre-head__title">CoSRE</span>
+              </span>
               <span className="mono cosre-head__meta" style={{
                 flex: 1, minWidth: 0,
                 color: subject ? 'var(--text2)' : currentService ? 'var(--accent2)' : 'var(--text3)',
