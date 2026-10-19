@@ -13,7 +13,6 @@ import { fmtClock } from '@/lib/utils';
 import type { LogSpikeMode, LogSpikeLevel } from '@/lib/aiSubject';
 import type { LogSpikeExplain } from '@/lib/types';
 import { ExplainBody } from './ExplainBody';
-import { AIFeedbackButtons } from './AIFeedbackButtons';
 import { EvidenceTable } from './EvidenceChips';
 import { logSpikeChart, logSpikeContributorTable, logSpikeDimNotes, logSpikeSummary } from './logSpikeView';
 
@@ -21,7 +20,7 @@ import { logSpikeChart, logSpikeContributorTable, logSpikeDimNotes, logSpikeSumm
 // `log-spike` öznesi ("bu log artışını ne açıklıyor"). ServiceChartsExplainBody
 // emsali: KANIT ile ANLATIM ayrı — grafik (taban + artış bölgeli), katkı
 // tablosu ve boyut notları sunucunun deterministik sonucundan çizilir; model
-// düşse bile doğru kalır. Anlatım ExplainBody + 👍/👎.
+// düşse bile doğru kalır. Anlatım ExplainBody (v0.10.1393: 👍/👎 kaldırıldı).
 //
 // Maliyet: fetch YALNIZ açılışta (çekmece açıkken mount), poll yok, odakta
 // yeniden çekme yok; sunucu 60 s / 5 dk önbellekli. "Yeniden üret" bilinçli
@@ -143,7 +142,6 @@ export function LogSpikeAnswer({ data, service, env, q, level, busy, onRegenerat
       <div className="ls-explain__foot">
         <span>AI çıkarımı — veriyle doğrula</span>
         <Link to="/ai">/ai kaydı</Link>
-        <AIFeedbackButtons exchangeId={data.exchangeId} />
         <span className="ls-explain__spacer" />
         <Button variant="secondary" size="xs" onClick={onRegenerate} loading={busy}
           title="Yeni bir üretim çalıştır (yeni ai_calls kaydı)">

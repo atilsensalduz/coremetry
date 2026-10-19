@@ -119,7 +119,8 @@ export function ExchangesPanel({ range, onOpenCall }: { range: TimeRange; onOpen
         </span>
         <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 10, alignItems: 'center' }}>
           {rows && rows.length > 0 && (
-            <span style={{ fontSize: 11, color: 'var(--text3)' }}>
+            <span style={{ fontSize: 11, color: 'var(--text3)' }}
+              title="v0.10.1393 — AI cevaplarında 👍/👎 artık sorulmuyor; sayımlar yalnız geçmiş oylar (yeni turlarda Oy '—')">
               {fmtNum(rows.length)} tur · {fmtNum(noLLM)} {NO_LLM_LABEL} · 👍 {fmtNum(votes.up)} · 👎 {fmtNum(votes.down)}
             </span>
           )}

@@ -10,8 +10,8 @@
 //       hiçbir tip hatası vermez;
 //   (2) AI KAPALI hâlde kart KÜÇÜLMEZ — sinyaller+pivotlar tam, anlatı
 //       yerine tek dürüst satır. Bu, ürün kararının kendisi;
-//   (3) 👍/👎 kapısı KİMLİK: aiOff cevabı exchangeId taşımaz, atom kendini
-//       gizler (v0.9.592'nin ölü-affordance dersi);
+//   (3) v0.10.1393 — 👍/👎 rayı kaldırıldı: kimlikli tamamlanmış cevapta da
+//       oy düğmesi yok (operatör; oy zayıf sinyal);
 //   (4) hata anlatıyı düşürür ama KANITI düşürmez — ve yarım anlatı
 //       silinir (yarım bir kök-neden cümlesi tam sanılırsa operatör
 //       yanlış yere koşar);
@@ -30,7 +30,8 @@ let root: Root;
 const text = () => host.textContent ?? '';
 const cursor = () => host.querySelector('.cm-ai-cursor');
 const badges = () => Array.from(host.querySelectorAll('.badge'));
-const feedback = () => Array.from(host.querySelectorAll('button[aria-pressed]'));
+const feedback = () => Array.from(host.querySelectorAll('button'))
+  .filter(b => /faydal|faydas/i.test(b.getAttribute('aria-label') ?? '') || /👍|👎/.test(b.textContent ?? ''));
 const anchors = () => Array.from(host.querySelectorAll('a'));
 const button = (label: string) =>
   Array.from(host.querySelectorAll('button')).find(b => b.textContent?.includes(label));
@@ -187,17 +188,16 @@ describe('InsightCard — akan anlatı', () => {
     expect(cursor()).toBeNull();
   });
 
-  it('👍/👎 yalnız cevap TAMAMLANINCA çıkar', async () => {
+  it('v0.10.1393 — kimlikli tamamlanmış cevapta da 👍/👎 yok', async () => {
     const f = fakeInsight();
     await mount(<InsightCard kind="exception" id="a3f19c" />);
     await f.call(0).signals();
     await f.call(0).emit('akıyor…');
-    // Sinyal çerçevesi kimlik TAŞISA da oy düğmesi yok: akmakta olan bir
-    // cevabı oylamak, okunmamış metne not vermek olurdu.
     expect(feedback()).toHaveLength(0);
 
     await f.call(0).finish({ prose: 'bitti', exchangeId: 'x-final' });
-    expect(feedback()).toHaveLength(2);
+    expect(text()).toContain('bitti');
+    expect(feedback()).toHaveLength(0);
   });
 
   it('sıfır delta (buffered geri düşüşü) yine de anlatıyı çizer', async () => {
@@ -231,13 +231,6 @@ describe('InsightCard — AI kapalı', () => {
     // Anlatı yuvasında "düşünüyor" da imleç de YOK.
     expect(text()).not.toContain('CoSRE düşünüyor');
     expect(cursor()).toBeNull();
-  });
-
-  it('kimlik yok → 👍/👎 HİÇ çizilmez (kapı aiOff dalı değil, KİMLİK)', async () => {
-    const f = fakeInsight();
-    await mount(<InsightCard kind="exception" id="a3f19c" />);
-    await f.call(0).finish({ aiOff: true, prose: '', exchangeId: undefined });
-    expect(feedback()).toHaveLength(0);
   });
 
   it('Chat\'te devam et gizlenir (sohbet de yapılandırılmamış)', async () => {
@@ -316,19 +309,17 @@ describe('InsightCard — maliyet disiplini', () => {
     expect(f.call(0).aborted()).toBe(true);
   });
 
-  it('Yeniden üret öncekini İPTAL eder, oyu sıfırlar, KANITI korur', async () => {
+  it('Yeniden üret öncekini İPTAL eder, KANITI korur', async () => {
     const f = fakeInsight();
     await mount(<InsightCard kind="exception" id="a3f19c" />);
     await f.call(0).signals();
     await f.call(0).finish({ prose: 'eski anlatı', exchangeId: 'x-eski' });
-    expect(feedback()).toHaveLength(2);
 
     await act(async () => { button('Yeniden üret')!.click(); });
 
     expect(f.call(0).aborted()).toBe(true);   // birinci akış kesildi
     expect(f.count()).toBe(2);                // ve ikincisi başladı
     expect(text()).not.toContain('eski anlatı');
-    expect(feedback()).toHaveLength(0);       // eski oy yeni cevabın üstünde kalamaz
     // Deterministik yarı SİLİNMEZ: aynı veri yeniden gelecek, kartı bir
     // kare boyunca çökertmek "kanıt kayboldu" der.
     expect(text()).toContain('1.240 · son 24s 320');

@@ -1,10 +1,10 @@
 // aiFeedbackReasons.ts — v0.10.1280 (CoSRE adım 8): 👎 hazır nedenlerinin
-// TEK listesi. Tel değeri → ekran etiketi; Go aynası chstore.AIFeedbackReasons
-// (sunucu küme dışını 400 ile reddeder). Hem oy rayı (AIFeedbackButtons) hem
-// /ai etkileşim paneli buradan okur — iki yerde ayrı yazılmış etiket kayardı.
+// TEK listesi. Tel değeri → ekran etiketi.
+// v0.10.1393 — oy rayı kaldırıldı (yeni oy yazılmaz); liste yalnız /ai
+// etkileşim panelinin GEÇMİŞ oyları okuması için kalır.
 import type { AIFeedbackReason } from './types';
 
-export const FEEDBACK_REASONS: ReadonlyArray<{ value: AIFeedbackReason; label: string; title: string }> = [
+const FEEDBACK_REASONS: ReadonlyArray<{ value: AIFeedbackReason; label: string; title: string }> = [
   { value: 'wrong', label: 'yanlış', title: 'Cevap yanlış bilgi içeriyor' },
   { value: 'incomplete', label: 'eksik', title: 'Cevap eksik — önemli bir kanıt / adım yok' },
   { value: 'irrelevant', label: 'alakasız', title: 'Cevap soruyla alakasız' },

@@ -13,7 +13,6 @@ import { IconSparkles } from './icons';
 import { ExplainBody, type ExplainEvidence } from '@/components/ai/ExplainBody';
 import type { IdLink } from '@/components/ai/inlineIdLinks';
 import { readAiCodeParam, readAiSrcParam, writeAiCodeParam } from '@/lib/aiSubject';
-import { AIFeedbackButtons } from '@/components/ai/AIFeedbackButtons';
 import { shouldAskForCode, type CodeAskState } from './codeAsk';
 import { codeSourceRef } from './codeSourceRef'; // v0.10.1044 — çalışan sürüm / dal
 import { CodeStatusNote } from './CodeStatusNote'; // v0.10.1330 — operasyon kodu durum satırı
@@ -102,10 +101,6 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs, spanId, logLine,
   const [error, setError] = useState<string | null>(null);
   // v0.10.948 — operatör açıklamayı cevap gelmeden DURDURDU (hata değil; nötr not).
   const [stopped, setStopped] = useState(false);
-  // v0.9.1121 (Faz 0.3b) — cevabın ai_calls kimliği; 👍/👎 buna asılı.
-  // Her çalıştırmada SIFIRLANIR: "Yeniden sor" yeni bir kimlik üretir ve
-  // eski cevabın oyu yeni cevabın üstünde kalamaz.
-  const [exchangeId, setExchangeId] = useState<string | undefined>(undefined);
   // v0.9.409 (operatör isteği): buton ilk kullanıma kadar nabız atar —
   // gözden kaçıyordu. İlk tıklama kalıcı susturur (bu mount için).
   const [used, setUsed] = useState(false);
@@ -158,7 +153,6 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs, spanId, logLine,
   const [codeBusy, setCodeBusy] = useState(false);
   const [codeError, setCodeError] = useState<string | null>(null);
   const [codeLinks, setCodeLinks] = useState<IdLink[] | undefined>(undefined);
-  const [codeExchangeId, setCodeExchangeId] = useState<string | undefined>(undefined);
   // v0.10.1041 (operatör: "'Kodu da incele → Evet' sonrası ilk kart da kaynak
   // satırlarını basıyor; düzeltilsin.") — kod geçişinin künyesi (depo/branş
   // satırı, dosya + "hata satırı N", bütçe / "Kod okunamadı" notu) KENDİ
@@ -222,19 +216,17 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs, spanId, logLine,
     setUsed(true);
     sawDeltaRef.current = false; setRevealAt(undefined); // v0.10.1384
     setBusy(true); setError(null); setStopped(false); setText(null); setMeta(null); setCode(null); setEvidence({ spans: 0, traces: 0 });
-    setExchangeId(undefined);
     setCachedAtMs(null);
     // v0.10.153 — yeni ilk geçiş: kod geçişi ve karar sıfırlanır.
     // v0.10.1041 — kod kartının künyesi (codeCtx) de; ilk kartınki yukarıda (setCode).
     codeAbortRef.current?.abort();
-    setCodeAsk('idle'); setCodeText(null); setCodeBusy(false); setCodeError(null); setCodeLinks(undefined); setCodeExchangeId(undefined); setCodeCtx(null);
+    setCodeAsk('idle'); setCodeText(null); setCodeBusy(false); setCodeError(null); setCodeLinks(undefined); setCodeCtx(null);
     onAnswer?.(''); // "Yeniden sor" bayat bağlamı taşımasın
     try {
       if (kind === 'runbook') {
         const r = await api.copilotRunbook(id, opts);
         applyText(r.explanation, r.cached);
         setLinks(r.links);
-        setExchangeId(r.exchangeId);
         setCachedAtMs(r.cached ? (r.cachedAtMs ?? 0) : null);
         // Surface the "based on N past resolutions" hint so the
         // operator knows whether the steps are grounded in
@@ -268,7 +260,6 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs, spanId, logLine,
                 :                             await api.copilotExplainServiceHealth(id, fromNs ?? 0, toNs ?? 0, opts);
         applyText(r.explanation, r.cached);
         setLinks(r.links);
-        setExchangeId(r.exchangeId);
         setCachedAtMs(r.cached ? (r.cachedAtMs ?? 0) : null);
       }
     } catch (e: unknown) {
@@ -317,12 +308,11 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs, spanId, logLine,
     setCodeRevealAt(undefined);
     const opts = { onDelta: (d: string) => { codeSawDelta = true; setCodeText(prev => (prev ?? '') + d); }, signal: ac.signal, fresh: false, src: readAiSrcParam() ?? undefined };
     try {
-      const finish = (r: { explanation: string; links?: IdLink[]; exchangeId?: string; code?: AICodeContext; evidenceSpanIds?: string[]; cached?: boolean }) => {
+      const finish = (r: { explanation: string; links?: IdLink[]; code?: AICodeContext; evidenceSpanIds?: string[]; cached?: boolean }) => {
         // kod geçişi listeyi değiştirirse Kanıt sayısı da onu izler (trace: waterfall kutuları yenilenir)
         if (r.evidenceSpanIds?.length) { onEvidence?.(r.evidenceSpanIds); if (kind === 'trace') setEvidence(e => ({ ...e, spans: r.evidenceSpanIds?.length ?? 0 })); }
         setCodeCtx(r.code ?? null);
         setCodeLinks(r.links);
-        setCodeExchangeId(r.exchangeId);
         setCodeText(r.explanation || '⚠ Model boş yanıt döndürdü.');
         setCodeRevealAt(r.explanation && !codeSawDelta && !r.cached ? Date.now() : undefined);
       };
@@ -585,9 +575,6 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs, spanId, logLine,
               ))}
             </div>
           )}
-          {/* v0.9.1121 (Faz 0.3b) — 👍/👎. Kimlik gelmediyse (eski gövde,
-              cache'li yüzey) HİÇ çizilmez; bileşenin kendi kapısı. */}
-          <AIFeedbackButtons exchangeId={exchangeId} />
           {/* v0.9.479 — çekmecede (auto) bu link ÇİZİLMEZ: sohbet aynı
               çekmecenin içinde, ekrandaki açıklamayı bağlam alarak açılır
               (AIDrawer). Satır-içi yüzeylerde köprü aynen duruyor. */}
@@ -645,7 +632,6 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs, spanId, logLine,
               ))}
             </div>
           )}
-          {!codeBusy && codeText && <AIFeedbackButtons exchangeId={codeExchangeId} />}
         </div>
       )}
     </div>

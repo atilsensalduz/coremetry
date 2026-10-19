@@ -8,7 +8,7 @@
 //   • grafik taban + artış BÖLGELERİYLE çizilir (TimeChart `regions`);
 //   • katkı tablosu sunucu sırasıyla, ≤5 satır, gerekçe sütunuyla (kanıt tablosu);
 //   • okunamayan boyut "okunamadı" der (yokluk ≠ okunamadı);
-//   • anlatım düşse de (error) kanıt görünür, 👍/👎 yalnız exchangeId varken.
+//   • anlatım düşse de (error) kanıt görünür; v0.10.1393: 👍/👎 hiç çizilmez.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -104,14 +104,14 @@ describe('LogSpikeExplainBody', () => {
     expect(el.textContent).toContain('logger: okunamadı (timeout)');
     expect(el.textContent).toContain('cluster: eşlenmedi');
     expect(el.textContent).toContain('×5,9');
-    expect(el.querySelector('[aria-label*="Yararlı"], [aria-label*="yararlı"], button[aria-pressed]')).not.toBeNull();
+    // v0.10.1393 — exchangeId'li tam cevapta da oy rayı yok.
+    expect(el.querySelector('[aria-label*="faydal"], [aria-label*="faydas"]')).toBeNull();
   });
 
-  it('anlatım düşse de kanıt görünür, oy düğmesi yok', async () => {
+  it('anlatım düşse de kanıt görünür', async () => {
     const el = await mount({ ...FULL, explanation: '', exchangeId: undefined, error: 'kota' });
     expect(el.textContent).toContain('Anlatım üretilemedi (kota)');
     expect(el.querySelectorAll('tbody tr')).toHaveLength(2);
-    expect(el.querySelector('button[aria-pressed]')).toBeNull();
   });
 });
 

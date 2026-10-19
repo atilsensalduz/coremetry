@@ -16,7 +16,6 @@ import type { SLIType, SLORow } from '@/lib/types';
 import { PageControls } from '@/components/ui/PageControls';
 import { readState } from '@/lib/readState';
 import { PageShell } from '@/components/ui/PageShell';
-import { AIFeedbackButtons } from '@/components/ai/AIFeedbackButtons';
 
 // v0.6.44 — sortable columns on /slos. Forecast + 7d trend stay
 // non-sortable because their values are loaded asynchronously per
@@ -555,8 +554,6 @@ function BurnExplainButton({ sloId }: { sloId: string }) {
                 )}
               </div>
               <div style={{ whiteSpace: 'pre-wrap' }}>{resp.explanation}</div>
-              {/* v0.9.1121 (Faz 0.3b) — 👍/👎; kimlik yoksa çizilmez. */}
-              <AIFeedbackButtons exchangeId={resp.exchangeId} />
             </div>
           )}
         </Modal>

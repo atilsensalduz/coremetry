@@ -107,8 +107,8 @@ type aiAnalyzeResponse struct {
 	// link, link yokluğundan kötüdür.
 	CorrelationLinks []guidedAnswerLink `json:"correlationLinks,omitempty"`
 
-	// ExchangeID (v0.9.593) — bu CEVABIN kimliği; 👍/👎 bununla
-	// POST /api/ai/feedback'e gider.
+	// ExchangeID (v0.9.593) — bu CEVABIN kimliği; /ai atfı (ai_calls.exchange_id)
+	// bununla bağlanır (v0.10.1393: 👍/👎 rayı + POST /api/ai/feedback kaldırıldı).
 	//
 	// Panel operatöre "Bu analiz yararlı mıydı?" diye soruyor ve
 	// tıklayınca "Teşekkürler." yazıyordu — ama hiçbir yere

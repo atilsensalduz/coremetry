@@ -7,7 +7,6 @@ import { useUpdateAlertRule, useDisableAlertRule } from '@/lib/queries';
 import { api } from '@/lib/api';
 import { tsLong } from '@/lib/utils';
 import type { AlertRule, NoisyRule } from '@/lib/types';
-import { AIFeedbackButtons } from '@/components/ai/AIFeedbackButtons';
 import { RenderedMarkdown } from '@/components/Markdown';
 
 // NoisyRulesPanel — surfaces rules that have opened problems most
@@ -54,13 +53,12 @@ export function NoisyRulesPanel({ rules, onEditFromSuggestion }: {
   const [bulkBusy, setBulkBusy] = useState(false);
   // v0.9.1080 (F3.3) — ✨ tek-atış gürültü anlatımı. Fetch yalnız
   // tıklamayla (LLM maliyet disiplini); panel Shift emsali.
-  // v0.9.1121 (Faz 0.3b) — xid: cevabın ai_calls kimliği; 👍/👎 buna asılı.
-  const [ai, setAi] = useState<{ busy: boolean; text: string | null; err: string | null; xid?: string }>({ busy: false, text: null, err: null });
+  const [ai, setAi] = useState<{ busy: boolean; text: string | null; err: string | null }>({ busy: false, text: null, err: null });
   const explainNoise = async () => {
     setAi({ busy: true, text: null, err: null });
     try {
       const r = await api.explainAlertNoise();
-      setAi({ busy: false, text: r.explanation, err: null, xid: r.exchangeId });
+      setAi({ busy: false, text: r.explanation, err: null });
     } catch (e) {
       setAi({ busy: false, text: null, err: e instanceof Error ? e.message : 'Anlatım alınamadı' });
     }
@@ -252,8 +250,6 @@ export function NoisyRulesPanel({ rules, onEditFromSuggestion }: {
           {ai.busy && <Spinner />}
           {ai.err && <span style={{ color: 'var(--err)' }}>{ai.err}</span>}
           {ai.text && <RenderedMarkdown text={ai.text} />}
-          {/* v0.9.1121 (Faz 0.3b) — 👍/👎; kimlik yoksa çizilmez. */}
-          <div><AIFeedbackButtons exchangeId={ai.xid} /></div>
         </div>
       )}
       {/* v0.10.947 — statik tablo: en çok 10 satırlık seçimli öneri listesi

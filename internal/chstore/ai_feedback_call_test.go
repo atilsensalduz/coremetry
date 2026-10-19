@@ -76,21 +76,10 @@ func TestV1277MigrationIdempotent(t *testing.T) {
 	}
 }
 
-func TestAIFeedbackInsertBranches(t *testing.T) {
-	f := AIFeedback{ExchangeID: "x", Surface: "chat", Verdict: -1, Comment: "c", CallID: "ab12", Reason: "wrong"}
+// v0.10.1393 — INSERT dalı (UpsertAIFeedback) yazma ucuyla birlikte silindi;
+// 👎 okumasının kolon/Scan eşleşmesi iki dalda pinli kalır.
+func TestNegFeedbackReadBranches(t *testing.T) {
 	for _, cc := range []bool{false, true} {
-		sql := aiFeedbackInsertSQL(cc)
-		inner := sql[strings.Index(sql, "(")+1 : strings.LastIndex(sql, ")")]
-		args := aiFeedbackInsertArgs(f, time.Unix(0, 0).UTC(), cc)
-		if n := len(strings.Split(inner, ",")); n != len(args) {
-			t.Fatalf("cc=%v: SQL %d kolon, %d arg", cc, n, len(args))
-		}
-		if strings.Contains(inner, "call_id") != cc || strings.Contains(inner, "reason") != cc {
-			t.Errorf("cc=%v: call_id/reason beklenmedik durumda: %s", cc, sql)
-		}
-		if cc && (args[len(args)-2] != "ab12" || args[len(args)-1] != "wrong") {
-			t.Errorf("call_id/reason son iki arg olmalı: %v", args)
-		}
 		cols := negFeedbackCols(cc)
 		var r NegativeFeedbackCall
 		if n, m := len(strings.Split(cols, ",")), len(negFeedbackScan(&r, cc)); n != m {

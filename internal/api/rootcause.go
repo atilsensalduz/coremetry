@@ -891,8 +891,8 @@ type rcaExplainResponse struct {
 	Prose   *string     `json:"prose"`
 	Verdict *RCAVerdict `json:"verdict,omitempty"`
 
-	// ExchangeID (v0.9.591) — bu CEVABIN kimliği; 👍/👎 bununla
-	// POST /api/ai/feedback'e gider.
+	// ExchangeID (v0.9.591) — bu CEVABIN kimliği; /ai atfı (ai_calls.exchange_id)
+	// bununla bağlanır (v0.10.1393: 👍/👎 rayı + POST /api/ai/feedback kaldırıldı).
 	//
 	// Cevabı tanımlar, isteği değil: önbellekten sunulan aynı cevap
 	// aynı kimliği taşır. Sonucu, aynı verdict'i iki operatör oylarsa

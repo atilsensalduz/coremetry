@@ -120,7 +120,7 @@ func TestExchangeIDIsMintedInsideTheCachedProducer(t *testing.T) {
 	mint := strings.Index(body, "newRandID(")
 	cache := strings.Index(body, "s.serveCached(")
 	if mint < 0 {
-		t.Fatal("exchangeID hiç basılmıyor — 👍/👎 bağlanacağı kimlik yok")
+		t.Fatal("exchangeID hiç basılmıyor — /ai atfının bağlanacağı kimlik yok")
 	}
 	if cache < 0 {
 		t.Fatal("serveCached bulunamadı — test bayatladı")
@@ -133,7 +133,7 @@ func TestExchangeIDIsMintedInsideTheCachedProducer(t *testing.T) {
 	}
 	if !strings.Contains(body, "ExchangeID: exchangeID") {
 		t.Error("exchangeID CallMeta'ya geçmiyor — ai_calls satırına düşmez, " +
-			"POST /api/ai/feedback surface'i çözemez")
+			"/ai atfı (ai_calls.exchange_id) kopar")
 	}
 }
 

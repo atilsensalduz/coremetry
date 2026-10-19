@@ -28,7 +28,6 @@ import { CompareToggle } from '@/components/charts/CompareToggle';
 import type { ChartTimeRegion } from '@/lib/chart/overlays';
 import type { Problem, SpanMetricSeries, TimeRange } from '@/lib/types';
 import { QueryError } from '@/components/QueryError';
-import { AIFeedbackButtons } from '@/components/ai/AIFeedbackButtons';
 
 // ServiceCharts — three core trend panels for the focused
 // service: throughput (RPS by operation), error rate (%) by
@@ -841,10 +840,6 @@ function DeployImpactButton({ service, deploys }: {
             </div>
           )}
           {resp.explanation}
-          {/* v0.9.1121 (Faz 0.3b) — 👍/👎. DeployHistoryPanel'in ikizi:
-              aynı uç, aynı ray; birinde oylanıp diğerinde oylanamaması
-              operatöre kuralı rastgele gösterirdi. */}
-          <div><AIFeedbackButtons exchangeId={resp.exchangeId} /></div>
         </div>
       )}
     </div>

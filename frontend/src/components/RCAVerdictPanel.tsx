@@ -22,12 +22,9 @@
 //  4. Üç güven AYRI etiketlerle gösterilir. Aynı ekranda üç farklı
 //     "confidence" var ve hepsini "güven" diye çizmek, hangisinin neyi
 //     ölçtüğünü kaybettirirdi.
-import { useState } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { AIFeedbackButtons } from '@/components/ai/AIFeedbackButtons';
-import { api } from '@/lib/api';
-import { verdictTone, verdictIsDegraded, verdictHasShieldWarning, measuredText, canRateVerdict } from './rcaVerdictView';
+import { verdictTone, verdictIsDegraded, verdictHasShieldWarning, measuredText } from './rcaVerdictView';
 import type { RCAVerdict } from '@/lib/types';
 
 const VERDICT_LABEL: Record<RCAVerdict['verdict'], string> = {
@@ -66,7 +63,7 @@ function measured(n: number | null | undefined, fmt: (v: number) => string): Rea
   return t;
 }
 
-export function RCAVerdictPanel({ v, exchangeId }: { v: RCAVerdict; exchangeId?: string }) {
+export function RCAVerdictPanel({ v }: { v: RCAVerdict }) {
   const sh = v.shields;
   const degraded = verdictIsDegraded(v);
   // v0.9.592 — operatör oyu. undefined = henüz oy yok.
@@ -263,28 +260,8 @@ export function RCAVerdictPanel({ v, exchangeId }: { v: RCAVerdict; exchangeId?:
         </div>
       )}
 
-      {/* ── 5. Operatör oyu (v0.9.592) ────────────────────────────────
-          Kimlik yoksa HİÇ ÇİZİLMEZ. Bu dilim, depoda tıklanınca
-          "Teşekkürler." yazıp hiçbir yere yazmayan ÖLÜ bir
-          derecelendirme affordance'ı bulunduğu için var; aynı hatayı
-          burada tekrarlamak tasarımın kendisini çürütürdü.
-
-          İyimser güncelleme + hata hâlinde geri alma — sohbetteki
-          rateTurn (ChatBubble.tsx) ile aynı davranış. Ray da aynı:
-          POST /api/ai/feedback, surface SUNUCUDA çözülür. */}
-      {/* v0.10.537 — paylaşılan atom (AIFeedbackButtons): 👎'de yorum kutusu da
-          gelir; elle yazılmış rateVerdict kopyası silindi. Kimlik yoksa soru
-          HİÇ sorulmaz (canRateVerdict). */}
-      {canRateVerdict(exchangeId) && (
-        <div style={{
-          marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--divider)',
-          display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 11.5,
-          color: 'var(--text3)',
-        }}>
-          <span style={{ paddingTop: 12 }}>Bu değerlendirme doğru mu?</span>
-          <AIFeedbackButtons exchangeId={exchangeId!} />
-        </div>
-      )}
+      {/* v0.10.1393 — "Bu değerlendirme doğru mu?" 👍/👎 kaldırıldı (operatör;
+          oy zayıf sinyal). Doğruluk etiketi yalnız onaylı kök neden. */}
     </div>
   );
 }

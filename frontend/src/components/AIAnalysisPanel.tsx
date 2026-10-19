@@ -8,11 +8,6 @@ import type { ServiceAnalysisResponse, KibanaSettings } from '@/lib/types';
 import { buildKibanaURL, buildKQLFromFilter } from '@/lib/kibanaLink';
 import { traceHref } from '@/lib/traceHref';
 import { Button } from '@/components/ui/Button';
-// canRateVerdict — kimlik yoksa soru sorulmaz. Kapı tek yerde
-// (rcaVerdictView.ts) ve vitest ile pinli; ikinci bir kopya yazmak
-// aynı sözleşmenin iki yerde ayrışması demekti.
-import { canRateVerdict } from './rcaVerdictView';
-import { AIFeedbackButtons } from '@/components/ai/AIFeedbackButtons';
 import { isAbortError } from '@/components/ai/chatAbort';
 
 // AIAnalysisPanel — embedded "AI ile analiz et" affordance for a service /
@@ -62,13 +57,6 @@ export function AIAnalysisPanel({ service, rangeS = 1800 }: { service: string; r
     });
     // res kimliği: yeni analiz = yeni pencere.
   }, [kibana, state, service, rangeS, res?.exchangeId]);
-  // v0.9.593 — oy artık GERÇEKTEN kaydediliyor.
-  //
-  // Öncesi: bu state yalnız local'di. Panel operatöre "Bu analiz
-  // yararlı mıydı?" diye soruyor, tıklayınca "Teşekkürler." yazıyor ve
-  // HİÇBİR YERE yazmıyordu. Sistem topladığını iddia ettiği şeyi
-  // toplamıyordu — dürüstlük hatası, üstelik ölçmek istediğimiz tam
-  // olarak buydu.
   // v0.10.537 — iptal: yeni istek öncekini keser, unmount'ta kesilir;
   // iptal hatası ne "error" ne "done" (chatAbort sınıflandırıcısı).
   const acRef = useRef<AbortController | null>(null);
@@ -242,16 +230,9 @@ function Result({ res, showCtx, setShowCtx, kibanaHref, service }: {
         </div>
       )}
 
-      {/* Footer: feedback + "Bağlamı gör"
-          Kimlik yoksa soru HİÇ SORULMAZ (canRateVerdict). Cevabı
-          kaydedemeyeceğimiz bir soruyu sormak, bu düzeltmenin ortadan
-          kaldırdığı hatanın ta kendisiydi. */}
+      {/* Footer: "Bağlamı gör". v0.10.1393 — "Bu analiz yararlı mıydı?" 👍/👎
+          kaldırıldı (operatör; oy zayıf sinyal). */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', borderTop: '1px solid var(--divider)', paddingTop: 10 }}>
-        {/* v0.10.537 — paylaşılan atom (👎'de yorum kutusu); elle yazılmış kopya silindi. */}
-        {canRateVerdict(res.exchangeId) && (<>
-          <span style={{ fontSize: 11.5, color: 'var(--text3)' }}>Bu analiz yararlı mıydı?</span>
-          <AIFeedbackButtons exchangeId={res.exchangeId!} />
-        </>)}
         <span style={{ flex: 1 }} />
         <Button variant="secondary" size="sm" onClick={() => setShowCtx(!showCtx)}>
           {showCtx ? 'Bağlamı gizle' : 'Bağlamı gör'}

@@ -297,7 +297,7 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
           patchLast(t => withArrival(t, applyChatDelta(t.text, e), false));
         } else if (e.kind === 'answer') {
           // v0.10.1384 — metin withArrival'dan: öncesinde akış yoksa tüm cevap varış damgası alır.
-          patchLast(t => ({ ...withArrival(t, e.text, true), exchangeId: e.exchangeId, callId: e.callId, sources: e.sources, suggestions: e.suggestions, followups: e.followups, links: e.links, allowedLinks: e.allowedLinks, evidence: e.evidence, pending: false })); // v0.10.1137 — link doğrulama listesi; v0.10.1272 — kanıt çipleri; v0.10.1280 — callId (👍/👎 → ai_calls); v0.10.1291 — kural-türevli takip çipleri
+          patchLast(t => ({ ...withArrival(t, e.text, true), exchangeId: e.exchangeId, sources: e.sources, suggestions: e.suggestions, followups: e.followups, links: e.links, allowedLinks: e.allowedLinks, evidence: e.evidence, pending: false })); // v0.10.1137 — link doğrulama listesi; v0.10.1272 — kanıt çipleri; v0.10.1291 — kural-türevli takip çipleri
           // v0.10.434 (D7b) — yalnız uygulama-içi (kök-göreli) href; dış adres asla.
           // v0.10.1314 — kapı isSafeAppPath ("/\evil.com" react-router v6'da dışarı açılırdı).
           if (e.open && isSafeAppPath(e.open)) o.onOpen?.(e.open);

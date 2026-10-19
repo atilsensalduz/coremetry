@@ -171,7 +171,6 @@ var aiCallsReaderDecisions = map[string]string{
 	"aiExchangeTurnsSQL":             "turn",      // v0.10.1153 — YALNIZ etkileşim satırları
 	"GetAICall":                      "point",
 	"aiCallEvalSelect":               "point", // AICallForEvalset (exchange_id)
-	"AICallSurfaceByExchange":        "point",
 	"AICallSampleByExchange":         "point",
 	"ListNegativeFeedbackCalls":      "point",
 	"NegativeFeedbackCallByExchange": "point",

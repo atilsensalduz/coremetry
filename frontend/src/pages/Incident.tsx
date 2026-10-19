@@ -35,7 +35,6 @@ import { incidentRootCauseLabel } from '@/lib/incidentRootCause';
 import { Button } from '@/components/ui/Button';
 import { PageShell } from '@/components/ui/PageShell';
 import { useConfirm } from '@/components/ui/ConfirmDialog';
-import { AIFeedbackButtons } from '@/components/ai/AIFeedbackButtons';
 import { IconSparkles } from '@/components/icons';
 import { aiErrorHint } from '@/lib/aiErrors';
 import { TriageStatusBadge } from '@/features/anomalies/statusTone'; // v0.10.929 (K5) — tek durum sözlüğü (hafif yaprak)
@@ -78,7 +77,7 @@ function Inner() {
   // v0.9.1197 (Faz 5.4) — AI taslağı + KB'ye ekleme durumları. İkisi de
   // `busy` guard'ından ayrı: taslak üretimi incident yazmaz (audit yok),
   // KB ekleme kendi ucunda audit'lenir.
-  const [aiPM, setAiPM] = useState<{ busy: boolean; err: string | null; xid?: string }>({ busy: false, err: null });
+  const [aiPM, setAiPM] = useState<{ busy: boolean; err: string | null }>({ busy: false, err: null });
   const [kbPM, setKbPM] = useState<{ busy: boolean; done: string | null; err: string | null }>({ busy: false, done: null, err: null });
   const confirm = useConfirm();
 
@@ -171,7 +170,7 @@ function Inner() {
     try {
       const rsp = await api.draftPostmortem(id);
       setPostmortemDraft(rsp.draft);
-      setAiPM({ busy: false, err: null, xid: rsp.exchangeId });
+      setAiPM({ busy: false, err: null });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setAiPM({ busy: false, err: aiErrorHint(msg) ?? msg });
@@ -415,7 +414,6 @@ function Inner() {
                         title="Incident kanıtından (zaman çizelgesi + problemler + kök-neden hipotezleri) taslak üret">
                         <IconSparkles /> AI taslağı
                       </Button>
-                      {aiPM.xid && !aiPM.busy && <AIFeedbackButtons exchangeId={aiPM.xid} />}
                       {aiPM.err && <span style={{ color: 'var(--err)', fontSize: 12 }}>{aiPM.err}</span>}
                       <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
                         <Button variant="secondary" disabled={busy !== null}

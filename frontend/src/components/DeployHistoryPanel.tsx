@@ -6,7 +6,6 @@ import { fmtNum, fmtAgoNs } from '@/lib/utils';
 import type { Rollout, DeployImpact, TimeRange } from '@/lib/types';
 import { Link } from 'react-router-dom';
 import { entityHref } from '@/lib/entityHref';
-import { AIFeedbackButtons } from '@/components/ai/AIFeedbackButtons';
 import { AiThinking } from '@/components/ai/AiThinking'; // v0.10.1384 — tek tip "düşünüyor"
 import { rolloutHeadline, rolloutCounts, rolloutExplainVersion, rolloutRowKey } from '@/lib/serviceRolloutLabel';
 
@@ -16,9 +15,7 @@ import { rolloutHeadline, rolloutCounts, rolloutExplainVersion, rolloutRowKey } 
 type ExplainState =
   | { kind: 'idle' }
   | { kind: 'busy' }
-  // v0.9.1121 (Faz 0.3b) — exchangeId: cevabın ai_calls kimliği, 👍/👎
-  // buna asılı. omitempty; gelmezse düğmeler hiç çizilmez.
-  | { kind: 'ok'; text: string; exchangeId?: string }
+  | { kind: 'ok'; text: string }
   | { kind: 'err'; msg: string };
 
 // DeployHistoryPanel — "Recent rollouts" panel on the service detail
@@ -85,7 +82,7 @@ export function DeployHistoryPanel({ service, onZoomWindow, cluster = '', range 
         deployTimeNs: row.timeUnixNs,
         windowSec: 600,
       });
-      setExplains(s => ({ ...s, [key]: { kind: 'ok', text: r.explanation, exchangeId: r.exchangeId } }));
+      setExplains(s => ({ ...s, [key]: { kind: 'ok', text: r.explanation } }));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setExplains(s => ({ ...s, [key]: { kind: 'err', msg } }));
@@ -231,7 +228,6 @@ export function DeployHistoryPanel({ service, onZoomWindow, cluster = '', range 
                               marginBottom: 6, fontWeight: 600,
                             }}>✨ CoSRE</div>
                             {st.text}
-                            <div><AIFeedbackButtons exchangeId={st.exchangeId} /></div>
                           </div>
                         )}
                       </div>

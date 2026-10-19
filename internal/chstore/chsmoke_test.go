@@ -111,10 +111,11 @@ func seedSmokeRows(t *testing.T, st *Store, now time.Time) {
 	}
 	// 👍 — ConfirmedRCASignatures'ın INNER JOIN'i buna bağlı; onsuz
 	// sorgu koşar ama sıfır satır döner ve Scan yine çalışmazdı.
-	if err := st.UpsertAIFeedback(ctx, AIFeedback{
-		ExchangeID: "smoke-ex-1", Surface: "rootcause-verdict", Verdict: 1,
-		CreatedAt: now.UnixNano(),
-	}); err != nil {
+	// v0.10.1393 — UpsertAIFeedback yazma ucuyla silindi; geçmiş satırı
+	// taklit eden tohum doğrudan INSERT ile (yalnız taban kolonlar).
+	if err := st.conn.Exec(ctx,
+		`INSERT INTO ai_feedback (exchange_id, surface, verdict, comment, user_email, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		"smoke-ex-1", "rootcause-verdict", int8(1), "", "", now.UTC()); err != nil {
 		t.Fatalf("tohum geri bildirim yazılamadı: %v", err)
 	}
 }

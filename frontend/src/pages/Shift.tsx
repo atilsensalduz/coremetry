@@ -13,7 +13,6 @@ import { serviceHref, eventLifespanWindow, exceptionGroupWindow } from '@/lib/se
 import { SHIFT_WINDOWS, normalizeShiftWindow, shiftWindowNs } from './shift/shiftWindow';
 import type { Problem, ChangedService, ExceptionGroup } from '@/lib/types';
 import { PageShell } from '@/components/ui/PageShell';
-import { AIFeedbackButtons } from '@/components/ai/AIFeedbackButtons';
 import { RenderedMarkdown } from '@/components/Markdown';
 import { SubjectLink } from '../components/SubjectLink';
 
@@ -71,13 +70,12 @@ export default function ShiftPage() {
 
   // ✨ tek-atış anlatım — inline panel (SlowQueries emsali). Fetch yalnız
   // tıkla (ES/LLM maliyet disiplini: hiçbir şey önceden istenmez).
-  // v0.9.1121 (Faz 0.3b) — xid: cevabın ai_calls kimliği; 👍/👎 buna asılı.
-  const [ai, setAi] = useState<{ busy: boolean; text: string | null; err: string | null; xid?: string }>({ busy: false, text: null, err: null });
+  const [ai, setAi] = useState<{ busy: boolean; text: string | null; err: string | null }>({ busy: false, text: null, err: null });
   const explain = async () => {
     setAi({ busy: true, text: null, err: null });
     try {
       const r = await api.explainShift(w);
-      setAi({ busy: false, text: r.explanation, err: null, xid: r.exchangeId });
+      setAi({ busy: false, text: r.explanation, err: null });
     } catch (e) {
       setAi({ busy: false, text: null, err: e instanceof Error ? e.message : 'Anlatım alınamadı' });
     }
@@ -133,8 +131,6 @@ export default function ShiftPage() {
           {ai.busy && <Spinner />}
           {ai.err && <span style={{ color: 'var(--err)' }}>{ai.err}</span>}
           {ai.text && <RenderedMarkdown text={ai.text} />}
-          {/* v0.9.1121 (Faz 0.3b) — 👍/👎; kimlik yoksa çizilmez. */}
-          <div><AIFeedbackButtons exchangeId={ai.xid} /></div>
         </div>
       )}
 

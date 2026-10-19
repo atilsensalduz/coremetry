@@ -1,7 +1,6 @@
 import { Component, Fragment, createContext, memo, useContext, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
 import { chatErrorText } from './chatErrorText';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { AIFeedbackButtons } from './AIFeedbackButtons';
 import { chartBlocks, mergeBlockLinks, traceListBlocks, operationBlocks, serviceReportBlocks, topologyBlocks, evidenceBlocksByRef, type EvidenceBlockView } from '@/lib/chatBlocks';
 import { ChatTraceList } from './ChatTraceList'; // v0.10.688 — trace_list bloğu
 import { evidenceBlocks } from '@/lib/chatEvidence'; // v0.10.558
@@ -1076,9 +1075,7 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
             className={copied ? 'is-ok' : undefined}>
             {copied ? '✓ Kopyalandı' : '⧉ Kopyala'}
           </Button>
-          {/* v0.10.537 — paylaşılan atom: 👎'de yorum kutusu (arşivden gelen
-              turn exchangeId taşımaz → atom hiç çizilmez, chatPersist sözleşmesi). */}
-          {!!turn.exchangeId && <AIFeedbackButtons exchangeId={turn.exchangeId} callId={turn.callId} key={turn.exchangeId} />}
+          {/* v0.10.1393 — 👍/👎 rayı kaldırıldı (operatör; oy zayıf sinyal). */}
           {/* v0.10.1138 — yeniden üret: yalnız son cevapta, akarken kapalı. */}
           {onRegenerate && (
             <Button variant="ghost" size="sm" onClick={onRegenerate} disabled={busy}

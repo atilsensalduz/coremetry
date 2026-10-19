@@ -1,11 +1,10 @@
 package api
 
-// v0.10.1312 — AI SRE özetinin 👍/👎 rayı, API tarafı: GET
-// /api/problems/{id}/investigation özetin ai_calls kimliğini (callId) ve
-// exchange kimliğini (exchangeId) FE'ye taşır; FE ikisini POST
-// /api/ai/feedback'e gönderir, kapı (validateAIFeedback +
-// normalizeFeedbackCallID) anlatımın bastığı biçimleri kabul eder. Kapı
-// kapalı / tekrar özetinde alanlar HİÇ gelmez (omitempty) → FE rayı çizmez.
+// v0.10.1312 — GET /api/problems/{id}/investigation özetin ai_calls kimliğini
+// (callId) ve exchange kimliğini (exchangeId) taşır (/ai izlenebilirliği);
+// kapı kapalı / tekrar özetinde alanlar HİÇ gelmez (omitempty).
+// v0.10.1393 — özetin 👍/👎 rayı ve POST /api/ai/feedback kapısı kaldırıldı;
+// bu test yalnız tel şeklini pinler.
 
 import (
 	"context"
@@ -45,14 +44,6 @@ func TestProblemInvestigationExposesSummaryIDs(t *testing.T) {
 	if raw.Investigation.Summary["callId"] != callID || raw.Investigation.Summary["exchangeId"] != xid {
 		t.Fatalf("özet kimlikleri cevapta olmalı: %s", w.Body)
 	}
-	// Oy kapısı anlatımın bastığı biçimleri kabul eder.
-	if err := validateAIFeedback(xid, -1); err != nil {
-		t.Fatalf("exchangeId kapıda reddedildi: %v", err)
-	}
-	if v, keep, err := normalizeFeedbackCallID(&callID); err != nil || keep || v != callID {
-		t.Fatalf("callId kapıda: %q %v %v", v, keep, err)
-	}
-
 	// Kapı kapalı özet: alanlar yok.
 	gated := inv
 	gated.ProblemID = "p2"

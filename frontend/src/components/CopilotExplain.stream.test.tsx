@@ -8,8 +8,8 @@
 //       akışın tüm değerini yok eder),
 //   (2) ilk token'a kadar Spinner, token'lardan SONRA imleç — ikisi
 //       birlikte "hem bekliyor hem yazıyor" diye okunur,
-//   (3) 👍/👎 yalnız answer çerçevesinden sonra çıkar (kimlik oradan
-//       gelir; erken çizilen düğme oy kaydedemez — v0.9.592'nin dersi),
+//   (3) v0.10.1393 — 👍/👎 rayı kaldırıldı: cevap tamamlansa (kimlik gelse)
+//       bile oy düğmesi çizilmez (operatör; oy zayıf sinyal),
 //   (4) "Yeniden sor" uçuştaki akışı KESER, yoksa eski delta'lar yeni
 //       cevabın üstüne yazar ve panelde iki cevap iç içe geçer.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -31,7 +31,8 @@ async function mount(node: React.ReactNode) {
 
 const panelText = () => host.textContent ?? '';
 const cursor = () => host.querySelector('.cm-ai-cursor');
-const feedbackButtons = () => Array.from(host.querySelectorAll('button[aria-pressed]'));
+const feedbackButtons = () => Array.from(host.querySelectorAll('button'))
+  .filter(b => /faydal|faydas/i.test(b.getAttribute('aria-label') ?? '') || /👍|👎/.test(b.textContent ?? ''));
 const rerunButton = () =>
   Array.from(host.querySelectorAll('button')).find(b => b.textContent?.includes('Yeniden sor'));
 
@@ -149,15 +150,16 @@ describe('CopilotExplain — akan render', () => {
     expect(panelText()).not.toContain('yarım cevap');
   });
 
-  it('👍/👎 yalnız cevap TAMAMLANINCA çıkar', async () => {
+  it('v0.10.1393 — cevap tamamlansa da 👍/👎 çizilmez', async () => {
     const f = fakeExplain();
     await mount(<CopilotExplain kind="problem" id="p1" auto />);
 
     await f.emit('akıyor…');
-    expect(feedbackButtons()).toHaveLength(0); // kimlik henüz yok
+    expect(feedbackButtons()).toHaveLength(0);
 
     await f.finish('bitti', 'xid-42');
-    expect(feedbackButtons()).toHaveLength(2);
+    expect(panelText()).toContain('bitti');
+    expect(feedbackButtons()).toHaveLength(0);
   });
 
   it('sıfır delta (buffered geri düşüşü) yine de cevabı çizer', async () => {
@@ -176,7 +178,6 @@ describe('CopilotExplain — Yeniden sor', () => {
     await f.emit('eski cevap');
     await f.finish('eski cevap tamam', 'xid-eski');
     expect(panelText()).toContain('eski cevap tamam');
-    expect(feedbackButtons()).toHaveLength(2);
 
     const btn = rerunButton();
     expect(btn).toBeDefined();
@@ -185,7 +186,6 @@ describe('CopilotExplain — Yeniden sor', () => {
     expect(f.call(0).aborted()).toBe(true);    // BİRİNCİ akış kesildi
     expect(f.count()).toBe(2);                 // ve ikincisi başladı
     expect(panelText()).not.toContain('eski cevap tamam');
-    expect(feedbackButtons()).toHaveLength(0); // eski oy yeni cevabın üstünde kalamaz
   });
 
   it('kesilen eski akışın delta\'ları yeni cevaba KARIŞMAZ', async () => {

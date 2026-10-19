@@ -86,10 +86,9 @@ func (s *Server) registerAIRoutes(mux *http.ServeMux) {
 	// v0.10.561 — sohbet arşivi saklama süresi (ai_chat_retention.go).
 	mux.HandleFunc("GET /api/ai/chat-retention", auth.RequireRole(auth.RoleAdmin, s.getAIChatRetention))
 	mux.HandleFunc("PUT /api/ai/chat-retention", auth.RequireRole(auth.RoleAdmin, s.putAIChatRetention))
-	// v0.8.399 — thumbs up/down on AI answers. Any authenticated user
-	// (NOT admin-gated like the reads above): whoever can chat can
-	// rate the answer they got — mirrors POST /api/copilot/chat.
-	mux.HandleFunc("POST /api/ai/feedback", s.postAIFeedback)
+	// v0.10.1393 — POST /api/ai/feedback (👍/👎 yazma ucu) kaldırıldı:
+	// AI yüzeylerinde oy rayı yok (operatör; oy zayıf sinyal). Geçmiş oylar
+	// aşağıdaki okumalarla /ai'da görünmeye devam eder (ai_feedback.go).
 	// v0.9.423 (CoSRE fikir #6) — 👎 madenciliği: düşük puanlı cevaplar
 	// prompt örnekleriyle; yeni guided-intent adayları veriden çıkar.
 	mux.HandleFunc("GET /api/ai/feedback/negative", auth.RequireRole(auth.RoleAdmin, s.listNegativeAIFeedback))

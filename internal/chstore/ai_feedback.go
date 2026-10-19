@@ -9,45 +9,22 @@ import (
 )
 
 // AI answer feedback (v0.8.399, AI audit feedback slice). One row per
-// rated exchange: the chat handler mints an exchange_id per answer,
-// the UI's thumbs up/down posts it back, and the row lands here.
-// ReplacingMergeTree(version) ORDER BY exchange_id — the user can
-// change their mind; the latest verdict wins on FINAL reads. The /ai
-// page aggregates this into a per-surface thumbs-up rate next to the
-// call stats. Provider-agnostic: pure correlation plumbing, nothing
-// here knows which LLM answered.
-
-// AIFeedback is one operator verdict on one AI answer.
-type AIFeedback struct {
-	ExchangeID string `json:"exchangeId"`
-	Surface    string `json:"surface"` // resolved server-side from the ai_calls row
-	Verdict    int8   `json:"verdict"` // 1 = thumbs up, -1 = thumbs down
-	// Comment (v0.9.1193, Faz 5.1) — 👎'nin serbest metni. Tam-satır
-	// replace: her Upsert bu alanı da taşır; flip'te korunması çağıranın
-	// (API preserve yolu) işi.
-	Comment   string `json:"comment,omitempty"`
-	UserEmail string `json:"userEmail,omitempty"` // who rated (full fidelity, house policy)
-	CreatedAt int64  `json:"createdAt"`           // unix ns
-	// CallID (v0.10.1280, CoSRE adım 8) — oylanan cevabı ÜRETEN ai_calls
-	// satırının id'si (bir exchange'in birden çok çağrısı olabilir: araç
-	// turları, sınıflandırıcı, anlatım). Boş = exchange düzeyinde oy (eski
-	// istemci, LLM'siz cevap). Tam-satır replace: her Upsert taşır.
-	CallID string `json:"callId,omitempty"`
-	// Reason (v0.10.1280) — 👎'nin hazır nedeni: AIFeedbackReasons kümesi.
-	Reason string `json:"reason,omitempty"`
-}
-
-// AIFeedbackReasons — 👎 hazır nedenlerinin KAPALI kümesi (tel değeri →
-// arayüz etiketi "yanlış" / "eksik" / "alakasız"). LowCardinality kolonu
-// bu yüzden sınırlı kalır; küme dışı değer API'de 400.
-var AIFeedbackReasons = []string{"wrong", "incomplete", "irrelevant"}
+// rated exchange; ReplacingMergeTree(version) ORDER BY exchange_id — the
+// latest verdict wins on FINAL reads. The /ai page aggregates this into
+// a per-surface thumbs-up rate next to the call stats.
+//
+// v0.10.1393 — 👍/👎 rayı AI yüzeylerinden ve yazma ucu (POST
+// /api/ai/feedback) API'den kaldırıldı (operatör; oy zayıf sinyal). Bu
+// dosyada artık YAZICI yok: UpsertAIFeedback + yorum/neden koruma okuması +
+// yüzey çözümü silindi. Şema ve geçmiş satırlar durur (90g TTL); aşağıdaki
+// okumalar /ai'nın geçmiş oy görünümlerini besler.
 
 // aiFeedbackCallCols — v0.10.1280 call_id + reason kolonları INSERT
 // hedefinde var mı (boot probe, iki-boot sözleşmesi: küme kipinde ALTER
 // ertelenir, ilk boot false okur → INSERT/SELECT iki kolonu ANMAZ).
 var aiFeedbackCallCols atomic.Bool
 
-// AIFeedbackCallCols — okuyucu/yazıcı bayrağı.
+// AIFeedbackCallCols — okuyucu bayrağı (v0.10.1393'ten beri yazıcı yok).
 func AIFeedbackCallCols() bool { return aiFeedbackCallCols.Load() }
 
 // probeAIFeedbackCallColumns — iki kolon da INSERT hedefinde görünüyorsa true.
@@ -59,74 +36,6 @@ func (s *Store) probeAIFeedbackCallColumns(ctx context.Context) bool {
 	ok := err == nil && n >= 2
 	aiFeedbackCallCols.Store(ok)
 	return ok
-}
-
-// aiFeedbackInsertSQL / aiFeedbackInsertArgs — SAF: kolon listesi bayrağa
-// göre; SQL kolon sayısı == arg sayısı (ai_feedback_call_test pinler).
-func aiFeedbackInsertSQL(callCols bool) string {
-	cols := `exchange_id, surface, verdict, comment, user_email, created_at`
-	if callCols {
-		cols += `, call_id, reason`
-	}
-	return `INSERT INTO ai_feedback (` + cols + `)`
-}
-
-func aiFeedbackInsertArgs(f AIFeedback, created time.Time, callCols bool) []any {
-	args := []any{f.ExchangeID, f.Surface, f.Verdict, f.Comment, f.UserEmail, created}
-	if callCols {
-		args = append(args, f.CallID, f.Reason)
-	}
-	return args
-}
-
-// UpsertAIFeedback inserts a verdict row. ReplacingMergeTree dedup by
-// exchange_id means re-rating the same answer is a whole-row replace
-// (all fields carried forward by the caller, house rule) — no ALTER
-// UPDATE, no read-modify-write.
-func (s *Store) UpsertAIFeedback(ctx context.Context, f AIFeedback) error {
-	created := time.Now().UTC()
-	if f.CreatedAt > 0 {
-		created = time.Unix(0, f.CreatedAt).UTC()
-	}
-	cc := aiFeedbackCallCols.Load()
-	batch, err := s.conn.PrepareBatch(ctx, aiFeedbackInsertSQL(cc))
-	if err != nil {
-		return err
-	}
-	if err := batch.Append(aiFeedbackInsertArgs(f, created, cc)...); err != nil {
-		return err
-	}
-	return batch.Send()
-}
-
-// AICallSurfaceByExchange resolves the surface label of the ai_calls
-// row a feedback POST refers to — server-side, so the client can't
-// mislabel a verdict, and so an unknown exchangeId is detectable
-// (returns ""). ai_calls is a small 90d-TTL table; the unindexed
-// exchange_id filter follows the GetAICall `WHERE id = ?` precedent,
-// bounded the same way.
-func (s *Store) AICallSurfaceByExchange(ctx context.Context, exchangeID string) (string, error) {
-	if exchangeID == "" {
-		return "", nil
-	}
-	rows, err := s.conn.Query(ctx, `
-		SELECT surface FROM ai_calls
-		WHERE exchange_id = ?
-		ORDER BY created_at DESC
-		LIMIT 1
-		SETTINGS max_execution_time = 5`, exchangeID)
-	if err != nil {
-		return "", err
-	}
-	defer rows.Close()
-	if rows.Next() {
-		var surface string
-		if err := rows.Scan(&surface); err != nil {
-			return "", err
-		}
-		return surface, nil
-	}
-	return "", rows.Err()
 }
 
 // aiFeedbackAgg is one surface's verdict tally over a window.
@@ -356,48 +265,6 @@ func (s *Store) NegativeFeedbackCallByExchange(ctx context.Context, exchangeID s
 		return nil, err
 	}
 	return &r, nil
-}
-
-// AIFeedbackStored — flip'te taşınan alanlar (v0.10.1280: yorum + neden + çağrı).
-type AIFeedbackStored struct {
-	Comment string
-	Reason  string
-	CallID  string
-}
-
-// AIFeedbackStoredByExchange — v0.10.1280 (v0.9.1193 yorum-koruma okumasının
-// genişlemesi); tam-satır replace'te gövdenin göndermediği HER alan
-// saklanandan taşınır (yorum, hazır neden, çağrı kimliği). Kolonlar yoksa
-// (iki-boot) yalnız yorum. Satır yoksa sıfır değer.
-func (s *Store) AIFeedbackStoredByExchange(ctx context.Context, exchangeID string) (AIFeedbackStored, error) {
-	var out AIFeedbackStored
-	if exchangeID == "" {
-		return out, nil
-	}
-	cc := aiFeedbackCallCols.Load()
-	cols := `comment`
-	if cc {
-		cols += `, reason, call_id`
-	}
-	rows, err := s.conn.Query(ctx, `
-		SELECT `+cols+` FROM ai_feedback FINAL
-		WHERE exchange_id = ?
-		LIMIT 1
-		SETTINGS max_execution_time = 5`, exchangeID)
-	if err != nil {
-		return out, err
-	}
-	defer rows.Close()
-	if rows.Next() {
-		dest := []any{&out.Comment}
-		if cc {
-			dest = append(dest, &out.Reason, &out.CallID)
-		}
-		if err := rows.Scan(dest...); err != nil {
-			return AIFeedbackStored{}, err
-		}
-	}
-	return out, rows.Err()
 }
 
 // ── KB terfi kuyruğu (v0.9.1195, AI Faz 5.2) ───────────────────────────

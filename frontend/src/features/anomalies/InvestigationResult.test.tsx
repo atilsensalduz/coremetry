@@ -7,7 +7,6 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import type { SREInvestigation } from '@/lib/types';
-import { api } from '@/lib/api';
 import { InvestigationResult } from './InvestigationResult';
 import { askInChatQuestion, findingEvidence, fmtStepDuration, orderedSteps, stepStateView } from './investigationResultView';
 
@@ -93,36 +92,14 @@ describe('InvestigationResult', () => {
     expect(question.startsWith('@problem:p1 ')).toBe(true);
   });
 
-  // v0.10.1312 — özetin 👍/👎 rayı: sunucu özetin ai_calls kimliğini (callId) ve
-  // exchange kimliğini taşır; her POST İKİSİNİ de gönderir (exchangeId → oy
-  // anahtarı + yüzey sre-investigation, callId → /ai "incelemeye değer"
-  // birleşimi); 👎 hazır neden çiplerini açar. Kimlik yoksa (eski kayıt) /
-  // kapı kapalı / tekrar özetinde (LLM çağrısı yok) ray çizilmez.
-  it('AI özeti 👍/👎: exchangeId + callId + hazır neden gönderir', async () => {
-    const post = vi.spyOn(api, 'postAIFeedback').mockResolvedValue({ ok: true });
-    const el = render({ ...inv, summary: { ...inv.summary!, exchangeId: 'aa11bb22cc33dd44ee55ff6600112233', callId: '0a1b2c3d4e5f60718293a4b5' } });
-    const btn = (label: string) => Array.from(el.querySelectorAll('button')).find(b => b.getAttribute('aria-label') === label);
-    expect(btn('Cevabı faydalı işaretle')).toBeTruthy();
-    await act(async () => { btn('Cevabı faydasız işaretle')!.click(); });
-    expect(post).toHaveBeenLastCalledWith({ exchangeId: 'aa11bb22cc33dd44ee55ff6600112233', verdict: -1, callId: '0a1b2c3d4e5f60718293a4b5' });
-    const presets = el.querySelector('[role="group"][aria-label="Faydasız oyunun hazır nedeni"]');
-    expect(presets).toBeTruthy();
-    const chip = presets!.querySelector('button')!;
-    await act(async () => { chip.click(); });
-    const last = post.mock.calls[post.mock.calls.length - 1][0];
-    expect(last.exchangeId).toBe('aa11bb22cc33dd44ee55ff6600112233');
-    expect(last.callId).toBe('0a1b2c3d4e5f60718293a4b5');
-    expect(last.verdict).toBe(-1);
-    expect(typeof last.reason === 'string' && last.reason.length > 0).toBe(true);
-  });
-
-  it('kimliksiz / kapalı kapı / tekrar özetinde 👍/👎 yok', () => {
-    const noRail = (el: HTMLElement) => !Array.from(el.querySelectorAll('button')).some(b => b.getAttribute('aria-label') === 'Cevabı faydasız işaretle');
-    expect(noRail(render(inv))).toBe(true); // eski kayıt: kimlik yok
-    act(() => root?.unmount()); host?.remove();
-    expect(noRail(render({ ...inv, summary: { text: 'AI özeti yok (otomatik AI kapalı)', at: NOW_NS, gated: true, reason: 'kapalı' } }))).toBe(true);
-    act(() => root?.unmount()); host?.remove();
-    expect(noRail(render({ ...inv, kind: 'replay', summary: { text: 'tekrar', at: NOW_NS, gated: true, reason: 'değerlendirme tekrarı' } }))).toBe(true);
+  // v0.10.1393 — oy rayı kaldırıldı (operatör: "Faydalı faydasız kaldıralım";
+  // oy zayıf sinyal). AI özeti olan araştırma oy düğmesi çizmez.
+  it('AI özetinin altında 👍/👎 rayı yok', () => {
+    const el = render(inv);
+    expect(inv.summary?.text).toBeTruthy();
+    const labels = Array.from(el.querySelectorAll('button')).map(b => b.getAttribute('aria-label') ?? '');
+    expect(labels.some(l => /faydal|faydas/i.test(l))).toBe(false);
+    expect(el.textContent).not.toMatch(/👍|👎/);
   });
 
   it('0a tek-adım kaydı: tablo yok, tek satır özet', () => {

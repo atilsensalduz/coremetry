@@ -245,7 +245,8 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	//
 	// exchangeID (v0.8.399, AI audit feedback slice) — one crypto/rand
 	// hex id per exchange. Emitted to the UI in the answer event so the
-	// thumbs up/down can POST it to /api/ai/feedback, and threaded via
+	// thumbs up/down could POST it to /api/ai/feedback (removed v0.10.1393),
+	// and threaded via
 	// CallMeta into the ai_calls row (exchange_id) so the verdict joins
 	// back to the exact call it rates. Provider-agnostic plumbing —
 	// works identically for anthropic / openai-compat / github, and for

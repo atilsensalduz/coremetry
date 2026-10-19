@@ -55,7 +55,6 @@ import type { LogsResponse, LogRow, TimeRange } from '@/lib/types';
 import { PageControls } from '@/components/ui/PageControls';
 import { EnterHint } from '@/components/ui/EnterHint';
 import { PageShell } from '@/components/ui/PageShell';
-import { AIFeedbackButtons } from '@/components/ai/AIFeedbackButtons';
 
 // Share affordance — copies a link to the CURRENT filtered logs view.
 // Logs filters live entirely in the URL querystring (the same mechanism
@@ -241,8 +240,7 @@ function LogsInner() {
     setFilter(next); setDraft(next); resetPaging(); writeUrl(next, filters);
   };
   // v0.9.1100 (F3.5) — ✨ desen anlatımı durumu (Shift emsali).
-  // v0.9.1121 (Faz 0.3b) — xid: cevabın ai_calls kimliği; 👍/👎 buna asılı.
-  const [aiPat, setAiPat] = useState<{ busy: boolean; text: string | null; err: string | null; xid?: string }>({ busy: false, text: null, err: null });
+  const [aiPat, setAiPat] = useState<{ busy: boolean; text: string | null; err: string | null }>({ busy: false, text: null, err: null });
   const explainPatterns = async () => {
     setAiPat({ busy: true, text: null, err: null });
     try {
@@ -253,7 +251,7 @@ function LogsInner() {
         service: filter.service, cluster: filter.cluster, env, search: compiledSearch,
         severity: filter.severity, fromNs: from ?? undefined, toNs: to ?? undefined,
       });
-      setAiPat({ busy: false, text: r.explanation, err: null, xid: r.exchangeId });
+      setAiPat({ busy: false, text: r.explanation, err: null });
     } catch (e) {
       setAiPat({ busy: false, text: null, err: e instanceof Error ? e.message : 'Anlatım alınamadı' });
     }
@@ -1199,8 +1197,6 @@ function LogsInner() {
             {aiPat.busy && <Spinner />}
             {aiPat.err && <span style={{ color: 'var(--err)' }}>{aiPat.err}</span>}
             {aiPat.text && <RenderedMarkdown text={aiPat.text} />}
-            {/* v0.9.1121 (Faz 0.3b) — 👍/👎; kimlik yoksa çizilmez. */}
-            <div><AIFeedbackButtons exchangeId={aiPat.xid} /></div>
           </div>
         )}
 

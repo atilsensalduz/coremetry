@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/Button';
 import { Spinner, Empty } from '@/components/Spinner';
 import { AiThinking } from './AiThinking'; // v0.10.1384 — tek tip "düşünüyor" (Spinner veri toplama için kalır)
 import { RenderedMarkdown } from '@/components/Markdown';
-import { AIFeedbackButtons } from '@/components/ai/AIFeedbackButtons';
 import { RCAVerdictPanel } from '@/components/RCAVerdictPanel';
 import {
   insightHasEvidence, insightHrefInternal, insightQuestion, insightTone,
@@ -81,9 +80,6 @@ export function InsightCard({ kind, id, windowSec, onClose }: {
   const [base, setBase] = useState<InsightResponse | null>(null);
   // Anlatı. null = henüz tek token gelmedi ("düşünüyor" hâli).
   const [prose, setProse] = useState<string | null>(null);
-  // 👍/👎 kimliği YALNIZ cevap TAMAMLANINCA dolar: akmakta olan bir cevabı
-  // oylamak, henüz okunmamış bir metne not vermek olurdu (v0.9.592 rayı).
-  const [exchangeId, setExchangeId] = useState<string | undefined>(undefined);
   const [busy, setBusy] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -95,7 +91,6 @@ export function InsightCard({ kind, id, windowSec, onClose }: {
     setBusy(true);
     setErr(null);
     setProse(null);
-    setExchangeId(undefined);
     // `base` BİLEREK korunuyor: deterministik yarı yeniden üretimde de
     // aynı veriyi gösterecek, silmek kartı bir kare boyunca çökertir
     // (satır yükseklik zıplaması) ve operatöre "kanıt kayboldu" der.
@@ -113,7 +108,6 @@ export function InsightCard({ kind, id, windowSec, onClose }: {
         // toplamı eksik kalır (explainStream'in aynı sözleşmesi).
         setBase(r);
         setProse(r.prose);
-        setExchangeId(r.exchangeId);
       } catch (e: unknown) {
         // İptal HATA DEĞİL: "Yeniden üret" kendi öncülünü keser, unmount
         // da akışı keser. Kullanıcının kendi eylemini kırmızı kutu olarak
@@ -219,9 +213,7 @@ export function InsightCard({ kind, id, windowSec, onClose }: {
       </section>
 
       {/* v0.9.1207 (Faz 6.3) — hazır verdict varsa kanıt-ID'li anlatı
-          kartta. exchangeId BİLEREK verilmiyor: oy affordance'ı kartın
-          footer'ında zaten var, panelin kendi oyu ikinci ray olurdu;
-          verdict'in kendi oyu ✨ Explain yolunda (RootCauseRibbon). */}
+          kartta. */}
       {base.verdict && (
         <section>
           <div style={headStyle}>
@@ -284,11 +276,6 @@ export function InsightCard({ kind, id, windowSec, onClose }: {
       )}
 
       <div style={footStyle}>
-        {/* KAPI KİMLİKTİR, ikinci bir aiOff dalı DEĞİL: exchangeId yoksa
-            atom kendini çizmez (AIFeedbackButtons sözleşmesi). AI kapalı
-            cevap kimlik taşımaz — yani "faydalı mıydı?" sorusu hiç
-            sorulmaz, çünkü kaydedilecek bir model cevabı yok. */}
-        <AIFeedbackButtons exchangeId={exchangeId} />
         <span>AI çıkarımı — veriyle doğrula</span>
         <Link to="/ai" style={linkStyle}>/ai kaydı</Link>
         <span style={{ flex: 1 }} />

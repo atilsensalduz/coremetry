@@ -15,7 +15,6 @@ import { useDataTable, DataTableHead, DataTableColgroup, DataTableCell, DataTabl
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useRunbook, useUpdateRunbook, useDeleteRunbook, useRunbookExecutions, useExecuteRunbook } from '@/lib/queries';
-import { AIFeedbackButtons } from '@/components/ai/AIFeedbackButtons';
 import { IconSparkles } from '@/components/icons';
 import { aiErrorHint } from '@/lib/aiErrors';
 import { tsLong } from '@/lib/utils';
@@ -237,13 +236,13 @@ function ExecutionsTab({ runbookId }: { runbookId: string }) {
   // v0.9.1198 (Faz 5.5) — probleme bağlı tamamlanmış koşudan güncelleme
   // önerisi. Tek açık öneri (kanıt bakışı, veri sayfası değil); tıkla-getir,
   // liste prefetch'i yok. Öneri saklanmaz — uygulamak runbook'u düzenlemek.
-  const [sugg, setSugg] = useState<{ execId: string; busy: boolean; text: string; err: string | null; xid?: string } | null>(null);
+  const [sugg, setSugg] = useState<{ execId: string; busy: boolean; text: string; err: string | null } | null>(null);
   const suggest = async (e: RunbookExecution) => {
     if (sugg?.busy) return;
     setSugg({ execId: e.id, busy: true, text: '', err: null });
     try {
       const r = await api.runbookUpdateSuggestion(e.id);
-      setSugg({ execId: e.id, busy: false, text: r.explanation, err: null, xid: r.exchangeId });
+      setSugg({ execId: e.id, busy: false, text: r.explanation, err: null });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setSugg({ execId: e.id, busy: false, text: '', err: aiErrorHint(msg) ?? msg });
@@ -312,7 +311,6 @@ function ExecutionsTab({ runbookId }: { runbookId: string }) {
             ) : (
               <>
                 <RenderedMarkdown text={sugg.text} />
-                <div style={{ marginTop: 6 }}><AIFeedbackButtons exchangeId={sugg.xid} /></div>
               </>
             )}
           </div>

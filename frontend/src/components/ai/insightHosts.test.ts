@@ -212,7 +212,7 @@ describe('yavaş sorgu — yuva SÖKÜLDÜ (v0.10.652, operatör) + satır-içi 
   });
 
   it('satır-içi ✨ Explain paneli GERİ GELMEDİ', () => {
-    // Kart onun ÜST KÜMESİ (aynı prompt + sinyaller + pivotlar + 👍/👎).
+    // Kart onun ÜST KÜMESİ (aynı prompt + sinyaller + pivotlar).
     // İkisi birlikte aynı satırda iki AI yüzeyi olurdu (v0.9.306), ve eski
     // panel cevabı HAM basıyordu (markdownSurfaces kapısının görmediği
     // dördüncü yazılış).
@@ -220,8 +220,6 @@ describe('yavaş sorgu — yuva SÖKÜLDÜ (v0.10.652, operatör) + satır-içi 
       .not.toContain('copilotExplainSlowQuery');
     expect(src, 'satır-içi explain state makinesi geri gelmiş')
       .not.toMatch(/ExplainState|askCopilot|setExplains/);
-    expect(src, 'kartın dışında ikinci bir 👍/👎 rayı')
-      .not.toContain('<AIFeedbackButtons');
     expect(src, 'eski panelin ham metin kabı geri gelmiş')
       .not.toContain('✨ CoSRE');
   });

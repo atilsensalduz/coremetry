@@ -7605,11 +7605,8 @@ export interface ChatTurn extends ChatMessage {
    */
   stopped?: boolean;
   exchangeId?: string;
-  /** v0.10.1280 — cevabı üreten ai_calls satırı (answer.callId); arşiv taşımaz. */
-  callId?: string;
   /** v0.10.1150 — cevap "Derin düşün" açıkken istendi (adım satırında rozet). Arşiv taşımaz. */
   deep?: boolean;
-  verdict?: 1 | -1;
   sources?: RagSource[];
   // v0.9.411 — sunucunun rotadan türettiği konuya-duyarlı takip
   // önerileri; varsa statik liste yerine bunlar çizilir.
@@ -7943,10 +7940,8 @@ export type ChatStreamEvent =
   // evidenceSpanIds / cached (v0.10.453) — trace açıklaması Explain çekirdeğinden:
   // kanıt span'leri ve önbellek isabeti (sohbet ile ✨ Explain aynı cevabı paylaşır).
   // evidence (v0.10.1272) — alışverişin kanıt çipleri (step-result.evidence'ların listesi).
-  // callId (v0.10.1280, CoSRE adım 8) — cevabı ÜRETEN ai_calls satırının id'si;
-  // 👍/👎 onu da gönderir (somut çağrıya bağlanır). Eski sunucu / LLM'siz cevap göndermez.
   // followups (v0.10.1291) — kural-türevli takip çipleri (internal/api/chat_followup_chips.go); suggestions yalnız metinlerini taşır (eski istemci).
-  | { kind: 'answer'; text: string; exchangeId?: string; callId?: string; sources?: RagSource[]; suggestions?: string[]; followups?: ChatFollowup[]; links?: ChatAnswerLink[]; open?: string; evidenceSpanIds?: string[]; cached?: boolean; allowedLinks?: string[]; evidence?: ChatQueryEvidence[] }
+  | { kind: 'answer'; text: string; exchangeId?: string; sources?: RagSource[]; suggestions?: string[]; followups?: ChatFollowup[]; links?: ChatAnswerLink[]; open?: string; evidenceSpanIds?: string[]; cached?: boolean; allowedLinks?: string[]; evidence?: ChatQueryEvidence[] }
   // v0.10.541 (Faz 3.3a) — tipli blok: model yalnız metin üretir; chart/link
   // (ileride trace_list/table/action/evidence) deterministik, tool sonucundan.
   | { kind: 'block'; id: string; type: ChatBlockType; seq: number; final: boolean; payload: unknown }
@@ -10120,14 +10115,11 @@ export interface SRETimelineEvent {
   ref?: string;
 }
 // v0.10.1287 — Go: sre.Narration (tek LLM çağrısı; gated = arka plan AI kapısı kapalı).
-// v0.10.1312 — callId / exchangeId: özeti üreten ai_calls satırı + çağrının
-// exchange kimliği → özetin 👍/👎 rayı (AIFeedbackButtons). Kapalı kapı /
-// tekrar / eski kayıtta yok → buton çizilmez.
+// (v0.10.1393 — sunucunun callId / exchangeId alanları yalnız özetin 👍/👎
+// rayını besliyordu; ray kalktı, FE okumaz.)
 export interface SRENarration {
   text: string;
   model?: string;
-  callId?: string;
-  exchangeId?: string;
   at: number; // unix ns
   gated?: boolean;
   reason?: string;

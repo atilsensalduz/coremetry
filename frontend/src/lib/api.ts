@@ -1306,17 +1306,6 @@ export const api = {
     get<import('./types').AIStats>(`/api/ai/stats?${qs(params)}`),
   aiSeries: (params: { from?: number; to?: number; source?: import('./types').AICallSource }) =>
     get<import('./types').AICallsTimePoint[]>(`/api/ai/series?${qs(params)}`),
-  // v0.8.399 — thumbs up/down on an AI answer. exchangeId comes from
-  // the chat SSE answer event; re-posting the same id replaces the
-  // verdict (user changed their mind).
-  // v0.10.1280 — `callId`: cevabı üreten ai_calls satırı (answer.callId; yoksa
-  // exchange düzeyinde oy — eski davranış); `reason`: 👎 hazır nedeni.
-  // Gönderilmeyen alan sunucuda KORUNUR (preserve), '' temizler.
-  postAIFeedback: (body: { exchangeId: string; verdict: 1 | -1; comment?: string; callId?: string; reason?: import('./types').AIFeedbackReason | '' }) =>
-    request<{ ok: boolean }>(`/api/ai/feedback`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }),
   // CoSRE öğrenme Faz 3 — vaka kartı (taslak/onaylı) ve tek düğmeli onay (editor+).
   incidentCase: (source: 'problem' | 'exception', id: string) =>
     get<import('./types').IncidentCaseLookup>(`/api/cases/lookup?${qs({ source, id })}`),
@@ -2638,10 +2627,9 @@ export const api = {
   // GÖVDESİZ gider, yani bugünkü davranış bayt-bayt korunur.
   //
   // v0.9.1119 (Faz 0.3) — `exchangeId`: tek-atış cevabın ai_calls
-  // kimliği. omitempty; AIFeedbackButtons yoksa hiç çizilmez. Aynı alan
-  // aşağıdaki BÜTÜN prose explain uçlarında var — explain-charts HARİÇ
-  // (yanıtı sunucu-cache'li; cache'li gövdedeki kimlik ikinci
-  // kullanıcının oyunu başkasının çağrısına yazardı).
+  // kimliği. omitempty. Aynı alan aşağıdaki BÜTÜN prose explain uçlarında
+  // var — explain-charts HARİÇ (yanıtı sunucu-cache'li). v0.10.1393: FE
+  // 👍/👎 rayı kalktı; alan /ai atfı için sunucuda kalır.
   //
   // v0.9.1127 (Faz 1.5) — sekizi de opsiyonel `opts.onDelta` alıyor:
   // verilince istek `?stream=1` ile gider ve cevap token token akar.

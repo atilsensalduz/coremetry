@@ -7819,6 +7819,34 @@ Testler: `copilot_service_http_red_test.go` (kaynak seçimi tablosu, üç PromQL
 demet kablolaması, salt-okur), `mcptools service_sweep_kinds_test.go` (giriş tercihi, başlık pini, blok düşürme),
 `chstore TestOpKindsSQLBounded`.
 
+## 2026-10-19 — v0.10.1393 — AI cevaplarındaki 👍/👎 kaldırıldı
+
+**Operatör isteği:** "Faydalı faydasız kaldıralım." (trace explain cevap kartının altındaki 👍/👎 ekran görüntüsüyle).
+**Politika:** oy zayıf sinyaldir — hiçbir çalışma zamanı kararını ve hiçbir değerlendirme etiketini sürmez (doğruluk
+etiketi yalnız onaylı kök neden). Toplamadığımız bir sinyal için her AI cevabının altına düğme koymak gürültüdür.
+**Kaldırılan (FE):** paylaşılan oy atomu `AIFeedbackButtons` (👍/👎 + 👎 hazır neden çipleri + yorum kutusu) ve onu
+çizen her yüzey — ✨ Explain kartı (`CopilotExplain`, kod incelemesi kartı dahil), sohbet balonu (`ChatBubble`; AI
+çekmecesi ve CoSRE sayfası aynı balonu kullanır), insight kartı, log artışı açıklaması, RCA verdict paneli ("Bu
+değerlendirme doğru mu?"), servis analizi paneli ("Bu analiz yararlı mıydı?"), AI SRE araştırma özeti, deploy/servis
+grafiği açıklamaları, Runbook önerisi, Vardiya, Incident postmortem taslağı, SLO, Logs desen anlatımı, gürültülü
+kurallar. Silinen: `api.postAIFeedback`, `canRateVerdict`, sohbet turunun `callId`/`verdict` alanları, yalnız rayı
+besleyen `exchangeId`/`xid` state'leri ve atomun dört testi (`AIFeedbackButtons.*.test.tsx`,
+`aiFeedbackAdoption.test.ts`, `rcaVerdictRate.test.ts`). Yerine ratchet: `aiVoteRemoved.ratchet.test.ts` (üretim
+kaynağında oy atomu / oy POST'u / 👍👎 ikonlu düğme / faydalı-faydasız etiketi / oy sorusu yok).
+**Kaldırılan (BE):** `POST /api/ai/feedback` rotası + handler + saf istek kapısı (`validateAIFeedback`,
+`normalizeFeedback*`, `mergeStoredFeedback`) ve yalnız onu besleyen chstore yazıcısı (`UpsertAIFeedback`, INSERT
+SQL/arg dalı, `AIFeedbackStoredByExchange`, `AICallSurfaceByExchange`, `AIFeedback`, `AIFeedbackReasons`). Bağımlılık
+yoktu: MCP aracı, eval aracı ya da başka bir istemci yazmıyor; evalset / KB / SRE eval yalnız OKUR. Pin:
+`TestAIFeedbackWriteRouteRemoved` (rota geri kaydedilirse kızarır; `GET /api/ai/feedback/negative` kalır).
+**Duran (veri):** `ai_feedback` tablosu, kolonları ve geçmiş satırlar (90g TTL) DOKUNULMADI. /ai sayfası geçmiş oyları
+okumaya devam eder: yüzey "Memnuniyet", CoSRE etkileşimlerinin Oy kolonu + 👍/👎 süzgeci + "Geri bildirim" /
+"Oylanan çağrı" satırları (yeni turlarda "—"; sayım satırının title'ı "yalnız geçmiş oylar" der), 👎 paneli + evalset
+dışa aktarımı, RCA kalite tablosu, KB terfi kuyruğu, SRE eval inceleme listesi. Hepsi TTL dolunca kendiliğinden
+boşalır; ayrı bir göç / silme yok. `exchangeId` sunucuda basılmaya devam eder (/ai atfı, CoSRE örtük sinyali).
+**Açık not:** `ConfirmedRCASignatures` (RCA verdict prompt'una "operatörün 👍'ladığı geçmiş kök nedenler") 👍 okur —
+politikaya aykırı eski bir çalışma zamanı kullanımı. Yeni oy yazılmadığı için 90 gün içinde boşalır; erken sökmek
+ayrı bir karar (kuyruk).
+
 ## 2026-10-19 — v0.10.1392 — CoSRE topoloji kartı: Topology sekmesinin 1 hop görünümü, tutarlı sayılar, gereksiz "via" yok
 
 **Operatör (prod ekran görüntüleri, v0.10.1388 sohbet topolojisi):** "Bunu galiba eski service map'ten getiriyor. Onun

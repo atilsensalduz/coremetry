@@ -213,8 +213,8 @@ type Response struct {
 	Links   []Link      `json:"links"`
 	Charts  []ChartSpec `json:"charts,omitempty"`
 
-	// ExchangeID — bu CEVABIN kimliği; 👍/👎 bununla
-	// POST /api/ai/feedback'e gider (v0.8.399 rayı). AI kapalıyken
+	// ExchangeID — bu CEVABIN kimliği; /ai atfı (ai_calls.exchange_id)
+	// bununla bağlanır (v0.10.1393: 👍/👎 rayı kaldırıldı). AI kapalıyken
 	// BOŞ: oylanacak bir model cevabı yok, ai_calls satırı da yok.
 	ExchangeID string `json:"exchangeId,omitempty"`
 
