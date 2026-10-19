@@ -308,6 +308,9 @@ func (o *OIDCService) resolveMissingEmail(ctx context.Context, c *oidcClient, to
 				}
 				dec := decideOIDCEmail(ev, email, c.cfg.AllowedDomains, c.trustUnverifiedEmail)
 				if dec.Class != "" {
+					if dec.Class == "email_domain_denied" { // v0.10.1381
+						logDeniedEmailDomain(email, c.cfg.AllowedDomains, time.Now(), log.Printf)
+					}
 					return fail(dec.Class, nil)
 				}
 				if dec.ViaTrust {
@@ -355,6 +358,7 @@ func (o *OIDCService) resolveMissingEmail(ctx context.Context, c *oidcClient, to
 		}
 		if mail != "" {
 			if !emailDomainAllowed(c.cfg.AllowedDomains, mail) {
+				logDeniedEmailDomain(mail, c.cfg.AllowedDomains, time.Now(), log.Printf) // v0.10.1381
 				return fail("email_domain_denied", nil)
 			}
 			cl := base(OIDCEmailSourceLDAP)

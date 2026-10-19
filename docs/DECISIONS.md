@@ -7481,3 +7481,13 @@ değişmedi; `promptVersionRegistry` yeni metni taşır.
 **Testler:** `tracechain/tracechain_test.go` (parite, kaynak kuralı, tavanlar, çit, exception satırı, SpanException
 biçimleri), `anomaly/exception_chain_test.go` (span grubu blok + sıra + span JSON'u eski, kesim dışı kaynak, Oracle CH
 ve Tempo-önce, yokluk), `copilot/prompt_exception_chain_test.go`.
+
+## 2026-10-19 — v0.10.1381 — OIDC: email_domain_denied satırı alan adını ve etkin liste uzunluğunu yazar
+
+**Operatör-bildirimli (prod):** "[oidc] callback failed: class=email_domain_denied" geldi; operatör izinli alan adı
+listesini boş bildiğini söyledi (boş liste = herkes serbest, bu sınıf boş listeyle oluşamaz — sunucu o an dolu bir
+listeyle çalışıyordu: reddedilmiş kayıt / eski ayar). Hangi alan adının reddedildiği ve etkin listenin ne olduğu logdan
+okunamıyordu. **Karar:** üç red yolu (id_token, UserInfo, LDAP e-posta) `[oidc] email_domain_denied domain=<alan adı>
+allowed=<n>` yazar — tam e-posta YAZILMAZ; alan adı saldırgan kontrollü olabildiği için yazdırılabilir ASCII dışı / 100
+rune üstü "<geçersiz>", harita ≤256 girdi (dolunca sıfırlanır), alan adı başına saatte bir satır. Test:
+`internal/auth/oidc_denied_log_test.go`.

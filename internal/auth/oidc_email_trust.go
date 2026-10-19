@@ -128,6 +128,60 @@ func logTrustedUnverifiedLogin(email string, now time.Time, logf func(string, ..
 	logf("[auth] WARNING: OIDC email_verified=false accepted (trustUnverifiedEmail) domain=%s", dom)
 }
 
+// v0.10.1381 (operatör, prod: "class=email_domain_denied" geldi, izinli liste
+// "boş" sanılıyordu — hangi alan adının reddedildiği ve sunucunun hangi
+// listeyle çalıştığı logdan okunamıyordu). Red satırı artık YALNIZ alan adını
+// ve etkin listenin uzunluğunu yazar — tam e-posta loga GİRMEZ. Alan adı
+// saldırgan kontrollü olabilir: yazdırılabilir ASCII dışı / 100 rune üstü
+// "<geçersiz>" olur; harita en çok deniedLogMax girdi tutar (dolunca
+// sıfırlanır), alan adı başına saatte en çok bir satır.
+const deniedLogMax = 256
+
+var (
+	deniedLogMu sync.Mutex
+	deniedLog   = map[string]time.Time{}
+)
+
+// deniedDomainLabel — loga yazılacak alan adı. SAF.
+func deniedDomainLabel(email string) string {
+	dom := domainOf(email)
+	if dom == "" {
+		return "<yok>"
+	}
+	if len(dom) > 100 {
+		return "<geçersiz>"
+	}
+	for _, r := range dom {
+		if r < 0x21 || r > 0x7e {
+			return "<geçersiz>"
+		}
+	}
+	return dom
+}
+
+// logDeniedEmailDomain — email_domain_denied satırı (alan adı + etkin liste
+// uzunluğu), alan adı başına saatte bir.
+func logDeniedEmailDomain(email string, allowedDomains []string, now time.Time, logf func(string, ...any)) {
+	dom := deniedDomainLabel(email)
+	deniedLogMu.Lock()
+	if prev, ok := deniedLog[dom]; ok && now.Sub(prev) < trustedLoginLogEvery {
+		deniedLogMu.Unlock()
+		return
+	}
+	if len(deniedLog) >= deniedLogMax {
+		deniedLog = map[string]time.Time{}
+	}
+	deniedLog[dom] = now
+	deniedLogMu.Unlock()
+	n := 0
+	for _, d := range allowedDomains {
+		if strings.TrimSpace(d) != "" {
+			n++
+		}
+	}
+	logf("[oidc] email_domain_denied domain=%s allowed=%d (izinli alan adı listesinde değil; Settings › SSO)", dom, n)
+}
+
 // warnTrustUnverifiedEmail — ayar YÜKLEMESİ başına bir kez (blob değişimi /
 // PUT), warnInsecureOIDCTLS emsali.
 func warnTrustUnverifiedEmail(s OIDCSettings, logf func(string, ...any)) {

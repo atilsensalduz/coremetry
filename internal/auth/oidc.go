@@ -226,6 +226,9 @@ func (o *OIDCService) Exchange(ctx context.Context, code, codeVerifier, expected
 	}
 	dec := decideOIDCEmail(raw.EmailVerified, raw.Email, c.cfg.AllowedDomains, c.trustUnverifiedEmail)
 	if dec.Class != "" {
+		if dec.Class == "email_domain_denied" { // v0.10.1381 — hangi alan adı, hangi liste
+			logDeniedEmailDomain(raw.Email, c.cfg.AllowedDomains, time.Now(), log.Printf)
+		}
 		return nil, loginErr(dec.Class, nil)
 	}
 	if dec.ViaTrust {
