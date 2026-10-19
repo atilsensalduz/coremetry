@@ -57,7 +57,7 @@ func redFixtureSource(unit string, keys []string) *fakeEPSource {
 func TestBuildServiceMetricRED(t *testing.T) {
 	from, to := epFixtureWindow()
 	src := redFixtureSource("s", []string{"http.response.status_code"})
-	id := endpointsMetricIdentity{Metric: "http_server_request_duration_seconds_count", RTMetric: "http_server_request_duration_seconds", Instrument: "histogram", Service: "cart", MatchedBy: "service_name"}
+	id := httpMetricIdentity{Metric: "http_server_request_duration_seconds_count", RTMetric: "http_server_request_duration_seconds", Instrument: "histogram", Service: "cart", MatchedBy: "service_name"}
 	p := serviceMetricREDPlan{Service: "cart", From: from, To: to, Mdp: 300, RateWin: 180}
 	resp, err := buildServiceMetricRED(context.Background(), src, id, p)
 	if err != nil {
@@ -102,7 +102,7 @@ func TestBuildServiceMetricRED(t *testing.T) {
 func TestBuildServiceMetricRED_UnknownsAreAbsentNotZero(t *testing.T) {
 	from, to := epFixtureWindow()
 	src := redFixtureSource("", nil)
-	id := endpointsMetricIdentity{Metric: "http.server.request.duration", RTMetric: "http.server.request.duration", Instrument: "histogram", Service: "cart"}
+	id := httpMetricIdentity{Metric: "http.server.request.duration", RTMetric: "http.server.request.duration", Instrument: "histogram", Service: "cart"}
 	p := serviceMetricREDPlan{Service: "cart", From: from, To: to, Env: "uat"}
 	resp, err := buildServiceMetricRED(context.Background(), src, id, p)
 	if err != nil {
@@ -217,7 +217,7 @@ func TestBuildServiceMetricRED_StatusFromData_v0101350(t *testing.T) {
 	from, to := epFixtureWindow()
 	src := redFixtureSource("s", []string{"http.response.status_code"})
 	src.keys = nil
-	id := endpointsMetricIdentity{Metric: "m_count", RTMetric: "http_server_request_duration_seconds", Instrument: "histogram", Service: "cart", MatchedBy: "service_name"}
+	id := httpMetricIdentity{Metric: "m_count", RTMetric: "http_server_request_duration_seconds", Instrument: "histogram", Service: "cart", MatchedBy: "service_name"}
 	resp, err := buildServiceMetricRED(context.Background(), src, id, serviceMetricREDPlan{Service: "cart", From: from, To: to})
 	if err != nil {
 		t.Fatal(err)
@@ -244,7 +244,7 @@ func TestBuildServiceMetricRED_StatusQueryErrorIsUnknown_v0101350(t *testing.T) 
 		}
 		return inner(f, mode)
 	}
-	id := endpointsMetricIdentity{Metric: "m_count", RTMetric: "http_server_request_duration_seconds", Instrument: "histogram", Service: "cart"}
+	id := httpMetricIdentity{Metric: "m_count", RTMetric: "http_server_request_duration_seconds", Instrument: "histogram", Service: "cart"}
 	resp, err := buildServiceMetricRED(context.Background(), src, id, serviceMetricREDPlan{Service: "cart", From: from, To: to})
 	if err != nil {
 		t.Fatal(err)

@@ -11,7 +11,7 @@ package mcptools
 //	    → metricsrc.FamilyApp. Operatör brief'i: uygulama/HTTP RED metrikleri
 //	      VictoriaMetrics'te. VM yapılandırılmışsa (Decide → BackendVM) Service
 //	      Overview METRİK kipinin AYNI okuması (api buildServiceMetricRED:
-//	      endpointsMetricIdentity + QueryMetricRate/CountRate + 5xx durum
+//	      httpMetricIdentity + QueryMetricRate/CountRate + 5xx durum
 //	      etiketi + histogram_quantile; Deps.ServiceMetricRED) → VictoriaMetrics,
 //	      kanıtta çalışan MetricsQL. VM bu servis için HTTP metriği DÖNDÜRMEZSE
 //	      (boş, hata değil) ClickHouse span RED'ine geçilir ve uyarı yazılır;

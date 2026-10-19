@@ -21,12 +21,12 @@ package api
 //   - p50/p95/p99/avg ms (kaynak birimi ya da `_seconds` adından); birim
 //                bilinmiyorsa seriler YOK + latencyUnitKnown=false — tahmin
 //                yok, karo span'e düşer ve etiketi söyler
-// Kimlik ve ad: endpointsMetricIdentity (tput bağı → service_name;
+// Kimlik ve ad: httpMetricIdentity (tput bağı → service_name;
 // service.throughput_metric + adaylar) — MCP query_metrics de aynısını
 // okur (mcp_deps.go). Her okuma dikişten; hiçbir s.store.<metric> çağrısı
 // yok. Varsayılan DEĞİŞMEDİ: Overview ?src=metric ile bu uca geçer.
 // v0.10.1361 — /api/endpoints/metric silindi; kimlik ve birim yardımcıları
-// (endpointsMetricIdentity, latencyScaleMs) buraya taşındı.
+// (httpMetricIdentity, latencyScaleMs) buraya taşındı.
 
 import (
 	"context"
@@ -177,10 +177,11 @@ func scaleSeries(ser []chstore.SpanMetricSeries, scale float64) []chstore.SpanMe
 	return out
 }
 
-// endpointsMetricIdentity — hangi metrik, hangi kimlik.
+// httpMetricIdentity — hangi metrik, hangi kimlik.
+// v0.10.1364 — eski adı endpointsMetricIdentity (silinen uçtan kalma); tüketicilere göre yeniden adlandırıldı.
 // v0.10.1361 — endpoints_metric.go'dan taşındı (o uç silindi; tüketiciler
 // buildServiceMetricRED ve MCP query_metrics).
-type endpointsMetricIdentity struct {
+type httpMetricIdentity struct {
 	Metric     string // throughput ailesi (VM'de `_count` yazımı olabilir)
 	RTMetric   string // değer okuyan ad (avg / yüzdelik) — LatencyMetricName
 	Instrument string // sum | histogram
@@ -190,8 +191,8 @@ type endpointsMetricIdentity struct {
 	Tried      []string
 }
 
-func (s *Server) endpointsMetricIdentity(ctx context.Context, src metricSource, service, env string) (endpointsMetricIdentity, bool) {
-	id := endpointsMetricIdentity{Service: service, MatchedBy: "service_name"}
+func (s *Server) httpMetricIdentity(ctx context.Context, src metricSource, service, env string) (httpMetricIdentity, bool) {
+	id := httpMetricIdentity{Service: service, MatchedBy: "service_name"}
 	if service != "" {
 		// Service Overview'un çözdüğü kimlik (job/name etiketi, `_count`
 		// yazımı, instrument) — keşfi tekrarlama.
@@ -242,7 +243,7 @@ func latencyScaleMs(unit, metric string) (scale float64, known bool, from string
 }
 
 // buildServiceMetricRED — SAF (kaynak arayüz): sorgular → seri haritası.
-func buildServiceMetricRED(ctx context.Context, src metricSource, id endpointsMetricIdentity, p serviceMetricREDPlan) (serviceMetricREDResponse, error) {
+func buildServiceMetricRED(ctx context.Context, src metricSource, id httpMetricIdentity, p serviceMetricREDPlan) (serviceMetricREDResponse, error) {
 	resp := serviceMetricREDResponse{
 		Service: p.Service, Source: src.Name(),
 		Metric: id.Metric, RTMetric: id.RTMetric, Instrument: id.Instrument, MatchedBy: id.MatchedBy,
@@ -387,7 +388,7 @@ func (s *Server) getServiceMetricRED(w http.ResponseWriter, r *http.Request) {
 	mx := s.store.MetricExclusions().Digest()
 	key := serviceMetricREDKey(p, src.Name(), mx)
 	s.serveCached(w, r, key, 30*time.Second, func(ctx context.Context) (any, error) {
-		id, ok := s.endpointsMetricIdentity(ctx, src, name, p.Env)
+		id, ok := s.httpMetricIdentity(ctx, src, name, p.Env)
 		if !ok {
 			resp := serviceMetricREDResponse{Service: name, Source: src.Name(), Tried: id.Tried, Series: map[string][]chstore.SpanMetricSeries{}}
 			resp.Note = serviceMetricREDNote(resp)

@@ -257,7 +257,7 @@ type Deps struct {
 	// ClickHouse'tan okunur, pod_* aileleri dürüst not_configured döner.
 	MetricRouter MetricRouter
 	// v0.10.1271 — Service Overview METRİK kipinin RED okuması (api
-	// buildServiceMetricRED + endpointsMetricIdentity; api/mcp_deps.go doldurur).
+	// buildServiceMetricRED + httpMetricIdentity; api/mcp_deps.go doldurur).
 	// query_metrics red/latency/throughput/errors aileleri metricsrc VM derken
 	// bunu okur; nil = yok → ClickHouse span RED.
 	ServiceMetricRED ServiceMetricREDReader

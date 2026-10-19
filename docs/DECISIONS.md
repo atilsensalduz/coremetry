@@ -7084,3 +7084,9 @@ zincirlenip tüm uygulama kabuğunu (topbar + sidebar) esnetiyordu (macOS/iOS la
 **Karar:** yalnız dikey eksen `none`; yatay serbest — tarayıcının geri/ileri kaydırma jesti korunur. Bilinçli takas: body'nin
 kendisi kayan sayfalarda (giriş, durum sayfası) da çek-yenile yok; yenileme tarayıcı düğmesinden. Pin:
 `styles/platformCss.pin.test.ts` madde 6 (kökte yalnız `-y: none`, `-x`/kısaltma yok).
+
+## 2026-10-19 — v0.10.1364 — `endpointsMetricIdentity` → `httpMetricIdentity`
+
+v0.10.1361'de `/api/endpoints/metric` silindikten sonra tip ve yöntem adı yalnız artık olmayan uca işaret ediyordu;
+tüketicileri `buildServiceMetricRED` ve MCP `query_metrics`. Saf yeniden adlandırma (tip + `Server` yöntemi + yorumlar);
+davranış ve MCP araç sayısı (74) değişmedi. Geçmiş DECISIONS kayıtları eski adla kalır.

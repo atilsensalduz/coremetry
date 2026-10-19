@@ -191,7 +191,7 @@ func (m mcpClusterMetrics) NetworkTrend(ctx context.Context, cluster string, fro
 
 // mcpServiceMetricRED — v0.10.1271 (CoSRE adım 2): query_metrics'in uygulama/
 // HTTP RED aileleri için Service Overview METRİK kipinin AYNI okuması
-// (endpointsMetricIdentity + buildServiceMetricRED; rateWindow Overview
+// (httpMetricIdentity + buildServiceMetricRED; rateWindow Overview
 // varsayılanı 180 s). Seam settings-güdümlü s.metricSource() — VM/CH kararı
 // metricsrc'de. Çalışan MetricsQL vmetrics.QueryRecorder ile toplanır (kanıt
 // çipi). Önbellek YOK: araç bütçesi kendi zaman aşımını taşır, sonuç modele
@@ -201,7 +201,7 @@ func (s *Server) mcpServiceMetricRED(ctx context.Context, service, env string, f
 	rec := &vmetrics.QueryRecorder{}
 	ctx = vmetrics.WithQueryRecorder(ctx, rec)
 	out := mcptools.MetricREDResult{Source: src.Name()}
-	id, ok := s.endpointsMetricIdentity(ctx, src, service, env)
+	id, ok := s.httpMetricIdentity(ctx, src, service, env)
 	if !ok {
 		out.Tried = id.Tried
 		out.Queries = rec.Queries()
