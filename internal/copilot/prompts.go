@@ -2137,14 +2137,17 @@ func OperationExceptionsAddendum() string { return operationExceptionsAddendum }
 // ön-getirmesi küme kıyası yaptıysa (api opPrefetch.clusterPromptTR) serbest
 // döngünün sistem mesajına eklenir; kıyas yoksa hiç eklenmez. Satırlar
 // deterministik (renderClusterCompareTR); model sayıyı aktarır, üretmez.
-// Türkçe-native, kısa (küçük model).
+// Türkçe-native, kısa (küçük model). v0.10.1376 — başlığın kaynak eki
+// (metrik = gerçek trafik, trace = örneklenmiş) modele nasıl okunacağını söyler.
 const operationClusterCompareAddendum = `KÜME KIYASI: cluster_compare sonucu bu endpoint'in küme (ortam) başına
 HESAPLANMIŞ ölçümüdür. KÜME KIYASI satırlarını (çağrı, hata, p50/p95, "en
 yavaş" işareti, trace şekli: DB payı ve tekrar ×N) aynen aktar; OKUNAMADI /
 veri yok / ölçülemedi yazan küme için sayı UYDURMA. Hipotez: DB/kaynak bir
 bölgedeyse diğer bölgedeki fark ≈ tekrar sayısı × bölgeler arası gecikme (RTT);
 bunu kesin dille yalnız sonuçta "Hipotez" satırı varsa söyle. Öneri (tek): tekrar
-sayısını düşür (toplu sorgu / önbellek) ya da çağrıyı veriye yaklaştır.`
+sayısını düşür (toplu sorgu / önbellek) ya da çağrıyı veriye yaklaştır.
+Başlıkta 'kaynak: trace (örneklenmiş)' varsa mutlak çağrı sayısı örneklenmiştir: oran
+ve yüzdelikleri kullan, sayıyı gerçek trafik diye sunma; 'kaynak: metrik' ise sayılar gerçek trafiktir.`
 
 // OperationClusterCompareAddendum — v0.10.1374: küme kıyası varken serbest döngü eki.
 func OperationClusterCompareAddendum() string { return operationClusterCompareAddendum }

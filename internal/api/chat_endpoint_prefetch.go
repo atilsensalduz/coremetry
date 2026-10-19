@@ -532,6 +532,7 @@ func endpointTargetFor(g endpointGroup, method string) opTarget {
 	}
 	verb, _ := splitSpanVerb(g.SpanOp)
 	t.Method = strings.ToUpper(method)
+	t.MethodAsked = t.Method != "" // v0.10.1376 — sorudaki fiil
 	if t.Method == "" {
 		t.Method = verb
 	}

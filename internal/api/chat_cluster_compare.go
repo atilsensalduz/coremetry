@@ -20,6 +20,12 @@ package api
 // Blok seed()'in ÜÇÜNCÜ sentetik tool çifti (cluster_compare); summary()
 // değişmez. Emit yalnız ön-getirme goroutine'inden (start/finish); okumalar
 // goroutine'lerde TOPLANIR. FE kartı ertelendi (yalnız metin bloğu).
+//
+// v0.10.1376 — prod trace'leri %1 örnekliyor: span'den sayılan çağrı gerçek
+// trafiğin ~%1'i. VM kaynağı varsa ve hedef tek servis + http_route ise RED
+// satırları örneklenmemiş metrikten okunur (chat_cluster_compare_vm.go);
+// başlık kaynağı söyler ("kaynak: metrik (VM, …)" | "kaynak: trace
+// (örneklenmiş)"). Pencere tavanı (6 sa) iki kaynakta da aynı.
 
 import (
 	"context"
@@ -61,8 +67,13 @@ type clusterEnvEvidence struct {
 	Traces   []opTraceRow  `json:"traces,omitempty"`
 	TraceErr string        `json:"tracesError,omitempty"`
 	Drilled  bool          `json:"drilled,omitempty"`
-	rows     []chstore.TraceRow
-	drills   []clusterDrill
+	// MetricValues — v0.10.1376: kaynak metrikse ortamın eşlendiği VM etiket
+	// değerleri (boş = metrikte eşleşen değer yok). ErrorsUnknown: metrikte
+	// durum etiketi yok — hata sayısı bilinmiyor (0 DEĞİL).
+	MetricValues  []string `json:"metricValues,omitempty"`
+	ErrorsUnknown bool     `json:"errorsUnknown,omitempty"`
+	rows          []chstore.TraceRow
+	drills        []clusterDrill
 }
 
 // clusterCompareEvidence — küme kıyası paketi (opPrefetch.ClusterCompare).
@@ -74,7 +85,13 @@ type clusterCompareEvidence struct {
 	From    time.Time `json:"from"`
 	To      time.Time `json:"to"`
 	// REDNote — RED neden ölçülmedi (dolu → her ortam satırı "RED ölçülemedi").
-	REDNote    string               `json:"redNote,omitempty"`
+	REDNote string `json:"redNote,omitempty"`
+	// Source — v0.10.1376: RED satırlarının kaynağı "metric" (VM, örneklenmemiş)
+	// | "trace" (span'ler, örneklenmiş; "" eski yük = trace). SourceNote: VM
+	// beklenirken trace'e düşüldüyse neden. EnvLabel: metrikteki ortam etiketi.
+	Source     string               `json:"source,omitempty"`
+	SourceNote string               `json:"sourceNote,omitempty"`
+	EnvLabel   string               `json:"envLabel,omitempty"`
 	Envs       []clusterEnvEvidence `json:"envs"`
 	Hypothesis string               `json:"hypothesis,omitempty"`
 }
@@ -291,6 +308,21 @@ func fmtTRErrRate(r chstore.OpRED) string {
 	return "%" + strings.Replace(fmt.Sprintf("%.1f", pct), ".", ",", 1)
 }
 
+// clusterSourceMetric — v0.10.1376: RED satırları metrikten mi.
+const clusterSourceMetric = "metric"
+
+// clusterSourceTrace — v0.10.1376: RED satırları span'lerden (örneklenmiş).
+const clusterSourceTrace = "trace"
+
+// clusterEnvName — SAF (v0.10.1376): satırın ortam adı; metrik değeri span
+// adından farklıysa "eu-a (metrik: prod-eu-a)" — eşleme görünür.
+func clusterEnvName(e clusterEnvEvidence) string {
+	if len(e.MetricValues) == 0 || len(e.MetricValues) == 1 && e.MetricValues[0] == e.Env {
+		return e.Env
+	}
+	return e.Env + " (metrik: " + strings.Join(e.MetricValues, ", ") + ")"
+}
+
 // clusterREDRow — SAF: ortamın RED satırı (en yavaş işareti hariç).
 func clusterREDRow(ev clusterCompareEvidence, e clusterEnvEvidence) string {
 	switch {
@@ -298,12 +330,30 @@ func clusterREDRow(ev clusterCompareEvidence, e clusterEnvEvidence) string {
 		return fmt.Sprintf("- %s: RED OKUNAMADI (%s)", e.Env, e.REDErr)
 	case ev.REDNote != "":
 		return fmt.Sprintf("- %s: RED ölçülemedi", e.Env)
+	case ev.Source == clusterSourceMetric && len(e.MetricValues) == 0: // v0.10.1376
+		return fmt.Sprintf("- %s: %s", e.Env, clusterVMUnresolvedRow)
 	case !e.RED.Measured || e.RED.Calls == 0:
-		return fmt.Sprintf("- %s: veri yok (bu pencerede)", e.Env)
+		return fmt.Sprintf("- %s: veri yok (bu pencerede)", clusterEnvName(e))
 	}
 	r := e.RED
-	return fmt.Sprintf("- %s: %s çağrı · hata %s · p50 %s · p95 %s", e.Env, fmtTRCount(r.Calls), fmtTRErrRate(r),
+	errTxt := "hata " + fmtTRErrRate(r)
+	if e.ErrorsUnknown { // v0.10.1376 — durum etiketi yok: 0 değil, bilinmiyor
+		errTxt = "hata bilinmiyor (durum etiketi yok)"
+	}
+	return fmt.Sprintf("- %s: %s çağrı · %s · p50 %s · p95 %s", clusterEnvName(e), fmtTRCount(r.Calls), errTxt,
 		fmtShapeDur(int64(r.P50Ms*1e6)), fmtShapeDur(int64(r.P95Ms*1e6)))
+}
+
+// clusterSourceHeader — SAF (v0.10.1376): başlığın kaynak eki.
+func clusterSourceHeader(ev clusterCompareEvidence) string {
+	if ev.Source == clusterSourceMetric {
+		return fmt.Sprintf(" · kaynak: metrik (VM, http_server_request_duration_seconds, %s)", ev.EnvLabel)
+	}
+	h := " · kaynak: trace (örneklenmiş) — sayılar gerçek trafiğin bir kısmı; oranlar ve p50/p95 anlamlı"
+	if ev.SourceNote != "" {
+		h += " (" + ev.SourceNote + ")"
+	}
+	return h
 }
 
 // renderClusterCompareTR — SAF: deterministik KÜME KIYASI bloğu.
@@ -318,6 +368,7 @@ func renderClusterCompareTR(ev clusterCompareEvidence) string {
 	if ev.Clamped {
 		b.WriteString(" — sohbet penceresi 6 sa ile sınırlandı")
 	}
+	b.WriteString(clusterSourceHeader(ev)) // v0.10.1376
 	b.WriteString("\n")
 	if ev.REDNote != "" {
 		fmt.Fprintf(&b, "RED ölçülemedi: %s.\n", ev.REDNote)
@@ -385,7 +436,7 @@ func renderClusterCompareTR(ev clusterCompareEvidence) string {
 	if h := clusterHypothesisTR(ev); h != "" {
 		b.WriteString(h + "\n")
 	}
-	b.WriteString("KURAL: Küme satırları HESAPLANMIŞ ölçümdür — sayıları aynen aktar; OKUNAMADI / veri yok / ölçülemedi yazan küme için sayı UYDURMA; Hipotez satırı yoksa bölgeler arası gecikme iddiasını kesin dille kurma.\n")
+	b.WriteString("KURAL: Küme satırları HESAPLANMIŞ ölçümdür — sayıları aynen aktar; OKUNAMADI / veri yok / ölçülemedi yazan küme için sayı UYDURMA; Hipotez satırı yoksa bölgeler arası gecikme iddiasını kesin dille kurma; kaynak trace (örneklenmiş) ise çağrı sayısını gerçek trafik diye sunma.\n") // v0.10.1376
 	return b.String()
 }
 
@@ -454,14 +505,33 @@ func (s *Server) clusterCompareEvidence(ctx context.Context, t opTarget, svc str
 	ev.REDNote = note
 	cctx, cancel := context.WithTimeout(ctx, clusterCompareBudget)
 	defer cancel()
+	// v0.10.1376 — VM kaynağı varsa ve hedef tek servis + http_route ise RED
+	// örneklenmemiş metrikten (span sorgusundan ÖNCE denenir; hata / hiç
+	// eşleşme yok → notla span yoluna düşülür).
+	vm, vmOK := s.metricSource().(vmMetricSource)
+	useVM, vmNote := clusterVMPlan(t, svc, vmOK)
+	ev.Source, ev.SourceNote = clusterSourceTrace, vmNote
 
 	var wg sync.WaitGroup
 	var red map[string]chstore.OpRED
 	var redErr error
+	var vmRes *clusterVMResult // v0.10.1376
 	if mode != "" {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			if useVM { // v0.10.1376 — hata / eşleşme yok → notla span sorgusuna devam
+				res, err := s.clusterVMRED(cctx, vm, t, svc, t.Envs, cfrom, to)
+				switch {
+				case err != nil:
+					ev.SourceNote = "VM okunamadı: " + string(sourcestate.Classify(err))
+				case res.Resolved == 0:
+					ev.SourceNote = clusterVMNoMatchNote + " (" + res.Label + ")"
+				default:
+					vmRes = res
+					return
+				}
+			}
 			if mode == "path" {
 				red, redErr = s.store.PathREDByEnv(cctx, svc, t.SearchPath, t.Envs, cfrom, to)
 				return
@@ -490,9 +560,18 @@ func (s *Server) clusterCompareEvidence(ctx context.Context, t opTarget, svc str
 		}(i)
 	}
 	wg.Wait()
+	if vmRes != nil { // v0.10.1376 — bir blokta tek kaynak
+		ev.Source, ev.SourceNote, ev.EnvLabel = clusterSourceMetric, "", vmRes.Label
+	}
 	for i := range ev.Envs {
 		e := &ev.Envs[i]
 		switch {
+		case vmRes != nil: // v0.10.1376 — eşlenmeyen ortam: MetricValues boş
+			if i < len(vmRes.Matches) && len(vmRes.Matches[i].Values) > 0 {
+				e.MetricValues = vmRes.Matches[i].Values
+				row := vmRes.Rows[e.Env]
+				e.RED, e.ErrorsUnknown = row.RED, row.ErrorsUnknown
+			}
 		case redErr != nil:
 			e.REDErr = string(sourcestate.Classify(redErr))
 		case red != nil:

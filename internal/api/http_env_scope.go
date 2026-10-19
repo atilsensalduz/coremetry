@@ -1,0 +1,267 @@
+package api
+
+// http_env_scope.go — v0.10.1376 (CoSRE küme kıyası; v0.10.1377 metrik kipi
+// env süzgecinin ortak yarısı): span'in ortam adını ("eu-a") VictoriaMetrics'in
+// HTTP histogramındaki ortam ETİKETİNE ve o etiketin CANLI değerlerine
+// ("prod-eu-a") çevirir. Prod trace'leri %1 örnekliyor; span'den sayılan çağrı
+// gerçek trafiğin ~%1'i. http_server_request_duration_seconds örneklenmemiş ve
+// kümeyi deployment_environment_name etiketinde taşıyor.
+//
+// Etiket seçimi (operatör onaylı varsayılanlar):
+//
+//  1. configured — LabelMap.Env (Settings → Metrik backend'i → "Ortam") doluysa
+//     KAZANIR, değeri olmasa bile (operatörün açık kararı);
+//  2. default — deployment_environment_name (kod varsayılanı);
+//  3. discovered — diğer yazımlar (vmetrics.RoleCandidates(RoleEnv)) YALNIZ
+//     varsayılanın bu metrikte HİÇ değeri yoksa, sırayla, ilk değerlisi.
+//
+// Değer okuması sınırlı (≤1000 değer, 24 sa pencere, 2 sn) ve önbellekli (5 dk,
+// anahtar metrik + etiket + limit + 10 dk'ya yuvarlanmış uç). Eşleme SAF:
+// vmetrics.MatchEnvValues. Bu sürümde HTTP ucu YOK (v0.10.1377).
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/cilcenk/coremetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/vmetrics"
+)
+
+// v0.10.1376 — ortam etiketi sabitleri.
+const (
+	httpEnvLabelDefault   = "deployment_environment_name"
+	httpEnvMetric         = chstore.ThroughputMetricDefault
+	httpEnvValuesLimit    = 1000
+	httpEnvValuesTimeout  = 2 * time.Second
+	httpEnvValuesTTL      = 5 * time.Minute
+	httpEnvValuesLookback = 24 * time.Hour
+	httpEnvValuesSnap     = 10 * time.Minute
+)
+
+// Etiket kaynağı — v0.10.1376.
+const (
+	httpEnvSourceConfigured = "configured"
+	httpEnvSourceDefault    = "default"
+	httpEnvSourceDiscovered = "discovered"
+)
+
+// httpEnvLabelReader — v0.10.1376: çözümleyicinin VM'den okuduğu iki şey
+// (vmMetricSource karşılar; testler sahte okuyucu verir).
+type httpEnvLabelReader interface {
+	MetricLabelValuesIn(ctx context.Context, metric, label string, from, to time.Time, limit int) ([]string, bool, error)
+	MetricLabelMap() vmetrics.LabelMap
+}
+
+// httpEnvLabelCandidates — SAF (v0.10.1376): denenecek etiketler sırasıyla.
+// LabelMap.Env doluysa yalnız o; değilse varsayılan + kalan rol adayları.
+func httpEnvLabelCandidates(lm vmetrics.LabelMap) []string {
+	if l := lm.Get(vmetrics.RoleEnv); l != "" {
+		return []string{l}
+	}
+	out := []string{httpEnvLabelDefault}
+	for _, c := range vmetrics.RoleCandidates(vmetrics.RoleEnv) {
+		if c != httpEnvLabelDefault {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// httpEnvTerm — tek süzgeç teriminin çözümü (role "env" | "cluster").
+type httpEnvTerm struct {
+	Role   string   `json:"role"`
+	Want   string   `json:"want"`
+	Label  string   `json:"label,omitempty"`
+	Values []string `json:"values,omitempty"`
+	Tier   string   `json:"tier"`
+}
+
+// httpEnvScope — çözülmüş ortam kapsamı. Applied=false → süzgeç UYGULANMAZ ve
+// Reason çağırana söylenir (sessizce düşürülen süzgeç yok).
+type httpEnvScope struct {
+	Label   string        `json:"label"`
+	Source  string        `json:"source"`
+	Terms   []httpEnvTerm `json:"terms"`
+	Matcher string        `json:"matcher,omitempty"`
+	Applied bool          `json:"applied"`
+	Partial bool          `json:"partial,omitempty"`
+	Reason  string        `json:"reason,omitempty"`
+}
+
+// httpEnvValuesKey — SAF (v0.10.1376): değer önbelleği anahtarı; TÜM girdiler
+// (metrik, etiket, limit, 10 dk'ya yuvarlanmış uç — pencere ondan türer).
+func httpEnvValuesKey(metric, label string, to time.Time) string {
+	return fmt.Sprintf("http-env-values:v1:m=%s:l=%s:n=%d:to=%d", metric, label, httpEnvValuesLimit, to.Truncate(httpEnvValuesSnap).Unix())
+}
+
+// httpEnvValuesWindow — SAF (v0.10.1376): değer penceresi = 24 sa, ucu 10 dk'ya
+// yuvarlanmış `to`nun bir adım sonrası (anahtar ile okuma aynı pencereyi görür,
+// `to` her zaman içinde).
+func httpEnvValuesWindow(to time.Time) (time.Time, time.Time) {
+	end := to.Truncate(httpEnvValuesSnap).Add(httpEnvValuesSnap)
+	return end.Add(-httpEnvValuesLookback), end
+}
+
+// httpEnvValuesBody — önbellek gövdesi.
+type httpEnvValuesBody struct {
+	Values  []string `json:"values"`
+	Partial bool     `json:"partial,omitempty"`
+}
+
+// httpEnvLabelValues — v0.10.1376: etiketin canlı değerleri (≤1000, 24 sa,
+// 2 sn, 5 dk önbellek). Hata önbelleğe yazılmaz, çağırana döner.
+func (s *Server) httpEnvLabelValues(ctx context.Context, vm httpEnvLabelReader, label string, to time.Time) ([]string, bool, error) {
+	fn := func(c context.Context) (any, error) {
+		cctx, cancel := context.WithTimeout(c, httpEnvValuesTimeout)
+		defer cancel()
+		from, end := httpEnvValuesWindow(to)
+		vals, partial, err := vm.MetricLabelValuesIn(cctx, httpEnvMetric, label, from, end, httpEnvValuesLimit)
+		if err != nil {
+			return nil, err
+		}
+		return httpEnvValuesBody{Values: vals, Partial: partial}, nil
+	}
+	if s == nil || s.cache == nil || s.l1 == nil || s.stats == nil {
+		v, err := fn(ctx)
+		if err != nil {
+			return nil, false, err
+		}
+		b := v.(httpEnvValuesBody)
+		return b.Values, b.Partial, nil
+	}
+	raw, _, err := s.cachedJSON(ctx, httpEnvValuesKey(httpEnvMetric, label, to), httpEnvValuesTTL, false, fn)
+	if err != nil {
+		return nil, false, err
+	}
+	var b httpEnvValuesBody
+	if err := json.Unmarshal(raw, &b); err != nil {
+		return nil, false, err
+	}
+	return b.Values, b.Partial, nil
+}
+
+// httpEnvLabel — çözülmüş ortam etiketi + canlı değerleri.
+type httpEnvLabel struct {
+	Label   string
+	Source  string
+	Values  []string
+	Partial bool
+}
+
+// httpEnvLabelFor — v0.10.1376: etiket seçimi (configured > default >
+// discovered; discovered yalnız varsayılan değersizken). Hiçbiri değerli
+// değilse ilk aday değersiz döner (çağıran "eşleşmedi" der). Okuma hatası
+// çağırana döner.
+func (s *Server) httpEnvLabelFor(ctx context.Context, vm httpEnvLabelReader, to time.Time) (httpEnvLabel, error) {
+	lm := vm.MetricLabelMap().Normalized()
+	cands := httpEnvLabelCandidates(lm)
+	src := httpEnvSourceDefault
+	if lm.Env != "" {
+		src = httpEnvSourceConfigured
+	}
+	first := httpEnvLabel{Label: cands[0], Source: src}
+	for i, l := range cands {
+		vals, partial, err := s.httpEnvLabelValues(ctx, vm, l, to)
+		if err != nil {
+			return httpEnvLabel{}, err
+		}
+		if i == 0 {
+			first.Values, first.Partial = vals, partial
+		}
+		if len(vals) == 0 {
+			continue
+		}
+		out := httpEnvLabel{Label: l, Source: src, Values: vals, Partial: partial}
+		if i > 0 {
+			out.Source = httpEnvSourceDiscovered
+		}
+		return out, nil
+	}
+	return first, nil
+}
+
+// httpEnvUnresolvedReason — SAF (v0.10.1376).
+func httpEnvUnresolvedReason(label, want string) string {
+	return fmt.Sprintf("metrikte bu ortam yok (%s değerleri arasında %q eşleşmedi)", label, want)
+}
+
+// httpEnvRoles — terimlerin sabit işlenme sırası.
+var httpEnvRoles = []string{vmetrics.RoleEnv, vmetrics.RoleCluster}
+
+// resolveHTTPEnvScope — v0.10.1376: terimleri (rol → istenen ad) canlı
+// değerlere karşı çözer. cluster rolü LabelMap.Cluster doluysa o etikette,
+// değilse ortam etiketinde aranır; iki rol aynı etikette → değer KESİŞİMİ.
+// Bir terim bile çözülmezse Applied=false + Reason. Etiket okuma hatası → err.
+func (s *Server) resolveHTTPEnvScope(ctx context.Context, vm httpEnvLabelReader, terms map[string]string, to time.Time) (httpEnvScope, error) {
+	el, err := s.httpEnvLabelFor(ctx, vm, to)
+	if err != nil {
+		return httpEnvScope{}, err
+	}
+	sc := httpEnvScope{Label: el.Label, Source: el.Source, Partial: el.Partial}
+	clusterLabel := vm.MetricLabelMap().Get(vmetrics.RoleCluster)
+	byLabel := map[string][]string{}
+	var order []string
+	for _, role := range httpEnvRoles {
+		want := strings.TrimSpace(terms[role])
+		if want == "" {
+			continue
+		}
+		label, live := el.Label, el.Values
+		if role == vmetrics.RoleCluster && clusterLabel != "" && clusterLabel != el.Label {
+			label = clusterLabel
+			vals, partial, err := s.httpEnvLabelValues(ctx, vm, label, to)
+			if err != nil {
+				return httpEnvScope{}, err
+			}
+			live, sc.Partial = vals, sc.Partial || partial
+		}
+		m := vmetrics.MatchEnvValue(want, live)
+		sc.Terms = append(sc.Terms, httpEnvTerm{Role: role, Want: want, Label: label, Values: m.Values, Tier: m.Tier})
+		if m.Tier == vmetrics.EnvTierNone {
+			if sc.Reason == "" {
+				sc.Reason = httpEnvUnresolvedReason(label, want)
+			}
+			continue
+		}
+		if prev, ok := byLabel[label]; ok {
+			byLabel[label] = intersectStrings(prev, m.Values)
+			if len(byLabel[label]) == 0 && sc.Reason == "" {
+				sc.Reason = "env ve cluster aynı etikette kesişmiyor"
+			}
+			continue
+		}
+		byLabel[label] = m.Values
+		order = append(order, label)
+	}
+	if len(sc.Terms) == 0 {
+		sc.Reason = "süzgeç terimi yok"
+		return sc, nil
+	}
+	if sc.Reason != "" {
+		return sc, nil
+	}
+	parts := make([]string, 0, len(order))
+	for _, l := range order {
+		parts = append(parts, vmetrics.EnvMatcher(l, byLabel[l]))
+	}
+	sc.Matcher, sc.Applied = strings.Join(parts, ", "), true
+	return sc, nil
+}
+
+// intersectStrings — SAF: a ∩ b, a'nın sırasıyla.
+func intersectStrings(a, b []string) []string {
+	in := make(map[string]bool, len(b))
+	for _, v := range b {
+		in[v] = true
+	}
+	var out []string
+	for _, v := range a {
+		if in[v] {
+			out = append(out, v)
+		}
+	}
+	return out
+}

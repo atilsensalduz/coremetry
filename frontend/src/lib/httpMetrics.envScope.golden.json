@@ -1,0 +1,77 @@
+{
+  "_comment": "v0.10.1376 — ortam eşleyicili HTTP histogram sorgularının çapraz dil altını. Go: internal/api chat_cluster_compare_vm_test.go TestHTTPEnvSelectorMatchesFrontend_v0101376 (UPDATE_GOLDEN=1 yeniden üretir). TS (v0.10.1377): serverSel({app, route, method, envSel}) == serverSel; windowQueries(scope, windowSec, totalBy).total == total; windowQueries(scope, windowSec, quantileBy).p50/.p95 == p50/p95. Seçici sırası: service_name, ortam eşleyicisi, http_route, http_request_method.",
+  "cases": [
+    {
+      "name": "tek değer, fiilsiz",
+      "app": "orders-api-prod",
+      "route": "/shop/orders/{id}",
+      "method": "",
+      "envLabel": "deployment_environment_name",
+      "envValues": [
+        "prod-eu-a"
+      ],
+      "windowSec": 10800,
+      "envSel": "deployment_environment_name=\"prod-eu-a\"",
+      "serverSel": "{service_name=\"orders-api-prod\", deployment_environment_name=\"prod-eu-a\", http_route=\"/shop/orders/{id}\"}",
+      "totalBy": "deployment_environment_name, http_response_status_code, http_status_code",
+      "quantileBy": "deployment_environment_name",
+      "total": "sum by (deployment_environment_name, http_response_status_code, http_status_code) (increase(http_server_request_duration_seconds_count{service_name=\"orders-api-prod\", deployment_environment_name=\"prod-eu-a\", http_route=\"/shop/orders/{id}\"}[10800s]))",
+      "p50": "histogram_quantile(0.5, sum by (le, deployment_environment_name) (increase(http_server_request_duration_seconds_bucket{service_name=\"orders-api-prod\", deployment_environment_name=\"prod-eu-a\", http_route=\"/shop/orders/{id}\"}[10800s])))",
+      "p95": "histogram_quantile(0.95, sum by (le, deployment_environment_name) (increase(http_server_request_duration_seconds_bucket{service_name=\"orders-api-prod\", deployment_environment_name=\"prod-eu-a\", http_route=\"/shop/orders/{id}\"}[10800s])))"
+    },
+    {
+      "name": "iki değer (önek belirsizliği) + fiil, taban pencere",
+      "app": "orders-api-prod",
+      "route": "/shop/orders/detail",
+      "method": "GET",
+      "envLabel": "deployment_environment_name",
+      "envValues": [
+        "prod-eu-a",
+        "dr-eu-a"
+      ],
+      "windowSec": 59.6,
+      "envSel": "deployment_environment_name=~\"dr-eu-a|prod-eu-a\"",
+      "serverSel": "{service_name=\"orders-api-prod\", deployment_environment_name=~\"dr-eu-a|prod-eu-a\", http_route=\"/shop/orders/detail\", http_request_method=\"GET\"}",
+      "totalBy": "deployment_environment_name, http_response_status_code, http_status_code",
+      "quantileBy": "deployment_environment_name",
+      "total": "sum by (deployment_environment_name, http_response_status_code, http_status_code) (increase(http_server_request_duration_seconds_count{service_name=\"orders-api-prod\", deployment_environment_name=~\"dr-eu-a|prod-eu-a\", http_route=\"/shop/orders/detail\", http_request_method=\"GET\"}[60s]))",
+      "p50": "histogram_quantile(0.5, sum by (le, deployment_environment_name) (increase(http_server_request_duration_seconds_bucket{service_name=\"orders-api-prod\", deployment_environment_name=~\"dr-eu-a|prod-eu-a\", http_route=\"/shop/orders/detail\", http_request_method=\"GET\"}[60s])))",
+      "p95": "histogram_quantile(0.95, sum by (le, deployment_environment_name) (increase(http_server_request_duration_seconds_bucket{service_name=\"orders-api-prod\", deployment_environment_name=~\"dr-eu-a|prod-eu-a\", http_route=\"/shop/orders/detail\", http_request_method=\"GET\"}[60s])))"
+    },
+    {
+      "name": "kaçış: tırnak, ters bölü, regex noktası",
+      "app": "shop.example.com",
+      "route": "/shop/\"q\"\\x",
+      "method": "POST",
+      "envLabel": "environment",
+      "envValues": [
+        "eu.a",
+        "tr-c"
+      ],
+      "windowSec": 3600.4,
+      "envSel": "environment=~\"eu\\\\.a|tr-c\"",
+      "serverSel": "{service_name=\"shop.example.com\", environment=~\"eu\\\\.a|tr-c\", http_route=\"/shop/\\\"q\\\"\\\\x\", http_request_method=\"POST\"}",
+      "totalBy": "environment, http_response_status_code, http_status_code",
+      "quantileBy": "environment",
+      "total": "sum by (environment, http_response_status_code, http_status_code) (increase(http_server_request_duration_seconds_count{service_name=\"shop.example.com\", environment=~\"eu\\\\.a|tr-c\", http_route=\"/shop/\\\"q\\\"\\\\x\", http_request_method=\"POST\"}[3600s]))",
+      "p50": "histogram_quantile(0.5, sum by (le, environment) (increase(http_server_request_duration_seconds_bucket{service_name=\"shop.example.com\", environment=~\"eu\\\\.a|tr-c\", http_route=\"/shop/\\\"q\\\"\\\\x\", http_request_method=\"POST\"}[3600s])))",
+      "p95": "histogram_quantile(0.95, sum by (le, environment) (increase(http_server_request_duration_seconds_bucket{service_name=\"shop.example.com\", environment=~\"eu\\\\.a|tr-c\", http_route=\"/shop/\\\"q\\\"\\\\x\", http_request_method=\"POST\"}[3600s])))"
+    },
+    {
+      "name": "ortam eşleyicisi yok (eski seçiciyle bayt bayt aynı)",
+      "app": "orders-api-prod",
+      "route": "/shop/orders/{id}",
+      "method": "",
+      "envLabel": "deployment_environment_name",
+      "envValues": [],
+      "windowSec": 21600,
+      "envSel": "",
+      "serverSel": "{service_name=\"orders-api-prod\", http_route=\"/shop/orders/{id}\"}",
+      "totalBy": "deployment_environment_name, http_response_status_code, http_status_code",
+      "quantileBy": "deployment_environment_name",
+      "total": "sum by (deployment_environment_name, http_response_status_code, http_status_code) (increase(http_server_request_duration_seconds_count{service_name=\"orders-api-prod\", http_route=\"/shop/orders/{id}\"}[21600s]))",
+      "p50": "histogram_quantile(0.5, sum by (le, deployment_environment_name) (increase(http_server_request_duration_seconds_bucket{service_name=\"orders-api-prod\", http_route=\"/shop/orders/{id}\"}[21600s])))",
+      "p95": "histogram_quantile(0.95, sum by (le, deployment_environment_name) (increase(http_server_request_duration_seconds_bucket{service_name=\"orders-api-prod\", http_route=\"/shop/orders/{id}\"}[21600s])))"
+    }
+  ]
+}

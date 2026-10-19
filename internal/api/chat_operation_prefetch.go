@@ -178,6 +178,10 @@ type opTarget struct {
 	// endpoint anma aşaması doldurur) → küme kıyası (chat_cluster_compare.go).
 	// nil = kıyas yok (bayt bayt eski yol).
 	Envs []string
+	// MethodAsked — v0.10.1376: Method sorudaki fiilden mi geldi (span adından
+	// türetilen fiil değil). Küme kıyasının VM sorgusu http_request_method
+	// süzgecini YALNIZ bu durumda ekler (operatör varsayılanı).
+	MethodAsked bool
 }
 
 // opTargetFor — SAF.

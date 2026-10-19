@@ -20,6 +20,11 @@ package api
 //     tekrar sayıları ±%20 içinde VE çağrı başına DB ortalaması oranı ≥2.
 //   - seed(): kıyas metni ÜÇÜNCÜ sentetik çift (kırpma tavanı); summary()
 //     değişmez; ClusterCompare nil → mesajlar ve prompt bayt bayt eski.
+//   - v0.10.1376: başlık RED kaynağını söyler — "kaynak: metrik (VM, …, <etiket>)"
+//     ya da "kaynak: trace (örneklenmiş) — …" (+ zorunlu düşüşte "(<not>)");
+//     metrik satırında ortam adı eşlenen değerle ("eu-a (metrik: prod-eu-a)"),
+//     durum etiketi yoksa "hata bilinmiyor", eşlenmeyen ortam "metrikte
+//     eşleşen ortam değeri yok"; iki kaynak bir blokta karışmaz.
 
 import (
 	"context"
@@ -41,6 +46,12 @@ const (
 )
 
 var ccTo = time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
+
+// v0.10.1376 — trace kaynağı başlık eki ve KURAL satırı (altın).
+const (
+	ccTraceHeader = " · kaynak: trace (örneklenmiş) — sayılar gerçek trafiğin bir kısmı; oranlar ve p50/p95 anlamlı"
+	ccRuleLine    = "KURAL: Küme satırları HESAPLANMIŞ ölçümdür — sayıları aynen aktar; OKUNAMADI / veri yok / ölçülemedi yazan küme için sayı UYDURMA; Hipotez satırı yoksa bölgeler arası gecikme iddiasını kesin dille kurma; kaynak trace (örneklenmiş) ise çağrı sayısını gerçek trafik diye sunma.\n"
+)
 
 // ccShape — tekrar eden tek SELECT'li N+1 şekli.
 func ccShape(spans, dbN int, dbSumNs int64, repName string, repN int, repAvgNs int64) traceShapeStats {
@@ -79,7 +90,7 @@ func ccProdLike() clusterCompareEvidence {
 
 func TestRenderClusterCompareTR(t *testing.T) {
 	got := renderClusterCompareTR(ccProdLike())
-	want := "KÜME KIYASI — GET /shop/orders/detail · orders-api-prod · son 3sa (09:00 – 12:00 UTC)\n" +
+	want := "KÜME KIYASI — GET /shop/orders/detail · orders-api-prod · son 3sa (09:00 – 12:00 UTC)" + ccTraceHeader + "\n" + // v0.10.1376
 		"- eu-a: 1.234 çağrı · hata %0,1 · p50 120 ms · p95 480 ms\n" +
 		"- eu-b: veri yok (bu pencerede)\n" +
 		"- tr-c: 310 çağrı · hata %0,3 · p50 610 ms · p95 2,1 s ← en yavaş (p95 ×4,4 / eu-a)\n" +
@@ -88,7 +99,7 @@ func TestRenderClusterCompareTR(t *testing.T) {
 		"- eu-b · bu pencerede trace yok\n" +
 		"- tr-c · " + ccTraceC + " · 2,3 s · hatalı · 148 span · DB 92 span / 1,8 s (%92) · tekrar: SELECT orders ×46 (ort 19 ms)\n" +
 		"Hipotez (hesaplanmış): tekrar sayısı benzer — SELECT orders: tr-c ×46, eu-a ×44; çağrı başına DB ortalaması tr-c 20 ms, eu-a 3 ms (×6,7) → fark, tekrar sayısı × bölgeler arası gecikme ile uyumlu (DB/kaynak hızlı küme eu-a tarafında olabilir).\n" +
-		"KURAL: Küme satırları HESAPLANMIŞ ölçümdür — sayıları aynen aktar; OKUNAMADI / veri yok / ölçülemedi yazan küme için sayı UYDURMA; Hipotez satırı yoksa bölgeler arası gecikme iddiasını kesin dille kurma.\n"
+		ccRuleLine // v0.10.1376
 	if got != want {
 		t.Fatalf("golden:\n%s\nwant:\n%s", got, want)
 	}
@@ -106,7 +117,7 @@ func TestRenderClusterCompareTR(t *testing.T) {
 	ev.Envs[0].drills[0].D = traceDrill{TraceID: ccTraceA, Err: context.DeadlineExceeded}
 	got = renderClusterCompareTR(ev)
 	for _, w := range []string{
-		"son 6sa (06:00 – 12:00 UTC) — sohbet penceresi 6 sa ile sınırlandı\n",
+		"son 6sa (06:00 – 12:00 UTC) — sohbet penceresi 6 sa ile sınırlandı" + ccTraceHeader + "\n", // v0.10.1376
 		"- eu-a: RED OKUNAMADI (timeout)\n", "- eu-b: RED OKUNAMADI (timeout)\n", "- tr-c: RED OKUNAMADI (timeout)\n",
 		"- eu-b · trace OKUNAMADI (timeout)\n",
 		"- eu-a · " + ccTraceA + " · 910 ms · span'ler OKUNAMADI (timeout)\n",

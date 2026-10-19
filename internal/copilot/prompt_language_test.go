@@ -427,7 +427,9 @@ func TestOperationClusterCompareAddendum(t *testing.T) {
 	if n := strings.Count(a, "\n") + 1; n > 10 {
 		t.Fatalf("ek %d satır, ≤10 olmalı", n)
 	}
-	for _, w := range []string{"cluster_compare", "KÜME KIYASI", "aynen aktar", "UYDURMA", "Hipotez", "tekrar sayısı × bölgeler arası gecikme", "toplu sorgu / önbellek", "veriye yaklaştır"} {
+	for _, w := range []string{"cluster_compare", "KÜME KIYASI", "aynen aktar", "UYDURMA", "Hipotez", "tekrar sayısı × bölgeler arası gecikme", "toplu sorgu / önbellek", "veriye yaklaştır",
+		// v0.10.1376 — kaynak eki: örneklenmiş sayı gerçek trafik diye sunulmaz.
+		"kaynak: trace (örneklenmiş)", "gerçek trafik diye sunma", "'kaynak: metrik' ise sayılar gerçek trafiktir"} {
 		if !strings.Contains(a, w) {
 			t.Errorf("ek %q içermeli:\n%s", w, a)
 		}

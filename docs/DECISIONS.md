@@ -7319,3 +7319,43 @@ sonda 200 ve ucuz; işaret bayatlayınca girişten sonra oturumu yok sayma riski
 Testler: `internal/api/auth_session_test.go` (tablo: çerez yok / geçerli çerez / Bearer / süresi geçmiş / yabancı imza /
 bozuk / silinmiş kullanıcı → hepsi 200; me ile aynı gövde; me 401 aynen; fail-open eşliği; rota kaydı),
 `frontend/src/components/AuthProvider.logout.test.tsx`.
+
+## 2026-10-19 — v0.10.1376 — CoSRE küme kıyası: ortam başına RED metrikten (VM, örneklenmemiş)
+
+**Operatör bağlamı:** prod trace'leri %1 örnekleniyor. v0.10.1374'ün KÜME KIYASI bloğu ortam başına çağrıyı span'lerden
+(`RouteREDByEnv`) sayıyordu — sayı gerçek trafiğin ~%1'i, model de onu "eu-a'da 12 çağrı" diye aktarıyordu.
+VictoriaMetrics'teki `http_server_request_duration_seconds` histogramı örneklenmemiş ve kümeyi
+`deployment_environment_name` etiketinde taşıyor (değerler `prod-<küme>`); span `deploy_env` öneki taşıyabilir de
+taşımayabilir de.
+**Karar:** metrik kaynağı VM ise (`s.metricSource()` → `vmMetricSource`) ve hedef tek servis + `http_route` ise RED
+satırları VM'den okunur (`internal/api/chat_cluster_compare_vm.go`): üç anlık sorgu paralel — çağrı
+`sum by (<etiket>, http_response_status_code, http_status_code) (increase(…_count{SEL}[W]))`, p50/p95
+`histogram_quantile(p, sum by (le, <etiket>) (increase(…_bucket{SEL}[W])))`, W = max(60 s, pencere), SEL = service_name,
+ortam eşleyicisi, http_route[, http_request_method — YALNIZ soruda fiil varsa (`opTarget.MethodAsked`)]. Sorgu şekli
+frontend `windowQueries` ile bayt bayt aynı; çapraz dil altını `frontend/src/lib/httpMetrics.envScope.golden.json`
+(TS tarafı v0.10.1377'de aynı dosyayı doğrular). Hata = 5xx; ortamın serilerinde hiçbir durum etiketi yoksa satır
+"hata bilinmiyor (durum etiketi yok)" der — asla 0. Ortam birden çok VM değerine eşlenirse çağrı/hata toplanır,
+yüzdelik değerlerin en yükseğidir (üst sınır; kovalar değerler arası birleştirilmez). Başlık kaynağı söyler:
+"· kaynak: metrik (VM, http_server_request_duration_seconds, <etiket>)" ya da "· kaynak: trace (örneklenmiş) — sayılar
+gerçek trafiğin bir kısmı; oranlar ve p50/p95 anlamlı" (+ zorunlu düşüşte "(<not>)"); KURAL satırı ve
+`operationClusterCompareAddendum` örneklenmiş sayıyı gerçek trafik diye sunmayı yasaklar.
+**Etiket seçimi** (`internal/api/http_env_scope.go`, v0.10.1377'nin metrik-kipi süzgeci de kullanacak): Settings'teki
+`LabelMap.Env` doluysa o kazanır (değeri olmasa bile); yoksa kod varsayılanı `deployment_environment_name`; diğer
+yazımlar (`RoleCandidates(RoleEnv)`) YALNIZ varsayılanın bu metrikte hiç değeri yoksa, sırayla. `roleConvention(RoleEnv)`
+değişmedi (MCP query_metrics semantiği). Değer okuması ≤1000 değer, 24 sa pencere, 2 sn; 5 dk önbellek, anahtar metrik +
+etiket + limit + 10 dk'ya yuvarlanmış uç (pencere ondan türer).
+**Toleranslı eşleme** (`internal/vmetrics/envmatch.go`, SAF): istenen her ad için ilk tutan kademe — birebir →
+büyük/küçük harf duyarsız → TEK TARAFLI tek önek (canlı değerin ya da istenen adın başındaki tek `^[A-Za-z0-9]+-` atılır,
+kalan ≥3 karakter, harf duyarsız). İki taraf birden soyulmaz (`prod-eu-a` ≠ `dr-eu-a`), son ek eşlenmez
+(`eu-a` ≠ `eu-a-svc`). Kazanan kademenin TÜM değerleri birlikte uygulanır ve satırda görünür
+("eu-a (metrik: dr-eu-a, prod-eu-a)") — hiçbiri sessizce seçilmez. Çoklu değer `=~` ile, her değer `regexp.QuoteMeta`'lı.
+**Geri dönüş:** VM okunamazsa ("VM okunamadı: <sınıf>") ya da hiçbir ortam eşleşmezse ("metrikte hiçbir ortam eşleşmedi
+(<etiket>)") bütün blok span yoluna düşer, not başlıkta. Kısmi çözümde çözülen ortamlar metrikten, kalanlar
+"metrikte eşleşen ortam değeri yok" — bir blokta iki kaynak KARIŞMAZ. Yol-yalnız / span adı hedefi VM'de http_route olarak
+ifade edilemez → trace'ten, notla. VM yoksa not yok, başlık yine "kaynak: trace (örneklenmiş)".
+**Bütçe:** VM okuması `clusterVMBudget` = 4 sn (etiket değerleri + 3 sorgu), mevcut 10 sn küme kıyası bütçesinin içinde,
+trace aramalarıyla paralel; span RED yalnız düşüşte koşar. 6 sa pencere tavanı iki kaynakta aynı. Sonuç önbelleği yok.
+Testler: `vmetrics/envmatch_test.go`, `api/http_env_scope_test.go`, `api/chat_cluster_compare_vm_test.go`
+(`TestHTTPEnvSelectorMatchesFrontend_v0101376` altın), `api/chat_cluster_compare_test.go` (trace başlığı),
+`copilot/prompt_language_test.go`. HTTP ucu, Service/Endpoint metrik kipi env süzgeci ve frontend v0.10.1377'de. Sohbet
+kademe sırası, MCP araç sayısı (74) ve api.go değişmedi.
