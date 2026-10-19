@@ -7588,3 +7588,39 @@ dışında, düşünme metinli `<Spinner>`/`<LoaderMark>`, AI alanında LoaderMa
 pinli. Testler: `revealSchedule.test.ts`, `useTypewriter.test.tsx` (kanca + ChatBubble + ExplainBody), `AiThinking.test.tsx`,
 `aiThinkingRatchet.test.ts`; güncellenen pinler: `cosreLoading.test.ts`, `chatBlocks.pin.test.ts`, `codeAsk.test.ts`,
 `markdownSurfaces.test.ts`, `ChatBubble.rich.test.tsx`, `ChatBubble.render.test.tsx` (reduced-motion: çizim ölçümü).
+
+## 2026-10-19 — v0.10.1385 — CoSRE "ekibimin teknik hataları": Exceptions kutusundan en son gruplar + takım süzgeçli Exceptions linki
+
+**Operatör isteği:** "Ekibimin teknik hataları var mı diye sorduğumda CoSRE arkada Exceptions açıp filtrelenebilir ve
+chatte en son exceptions errorleri getirebilir." **Kök:** `my_exceptions` kipi `GetExceptions`'ın ham span
+exception'larını tip×servis gruplayıp SAYIYA göre diziyordu — Exceptions sayfasının kutusu (`exception_groups`: span +
+Oracle `ora:` "teknik hata" grupları, durum, son görülme, P1) okunmuyordu, Oracle grupları cevapta yoktu, sıra
+"en son" değildi, link /inbox'a gidiyordu. "ekibimin teknik hataları var mı" ise exception kelimesi taşımadığı için
+`my_problems`'a düşüyordu.
+
+**Karar.** (1) Yönlendirme: iyelik dalında `hasExceptionWord` ∨ "teknik hata" ∨ `hasTeamErrorPresenceAsk`
+(takım/ekip kökü + "hata" kökü — "hatalı" değil — + "var/varmı/mevcut", problem kelimesi yok) → `my_exceptions`;
+"takımımın hataları neler" (v0.9.650) ve "servislerimde hata var mı" (v0.9.375 pini) `my_problems`'ta KALIR. Adı geçen
+takım + exception/teknik hata → yeni router-içi niyet `team_exceptions` (sınıflandırıcı listesinde yok; düz "X takımının
+hataları" `team_services`'te kalır); `@team:<x> teknik hataları` kapsam planı aynı niyete, kapsam kimlik rotasını adı
+geçen takıma çevirir. Varsayılan pencere 24 sa (Oracle akışı durgun; operasyon yolunun onaylı geriye bakışı), açık
+pencere kazanır. (2) Okuma: paylaşılan dikiş `collectExceptionGroups` (`chat_exception_groups.go`) `exScope.Services/
+State/MinOcc/FloorExempt*` ile genişledi — takımın servisleri `service IN (…)`, `state=open` (new/acknowledged/
+regressed), Exceptions sayfasının VARSAYILAN tabanı (`effectiveDefaultFloor` + çoklu-servis/regressed muafiyeti),
+`lastSeen DESC`, gösterim tavanı 10 (operasyon kapsamı 5'te kalır), ortam varsa takım ∩ `EnvMemberServices` (sayfanın
+kuralı; harita okunamazsa kısıtsız + not). Ham `GetExceptions` takım kipinden KALDIRILDI (ikincil sinyal tutulmadı —
+kutu aynı veriyi grup düzeyinde zaten taşıyor; shim yok). (3) Kanıt: `renderTeamExceptionsTR` (saf, tablo testli) —
+satır başına tür (`[teknik hata · Oracle]` kod · operasyon / `[exception]` tip), servis(ler), son görülme (göreli +
+UTC saat), Oracle'da son 1 sa / önceki 1 sa, ömür boyu toplam (pencere-içi sayı grup satırında yok — uydurulmaz),
+öncelik, durum, `detay: /problems?exc=<fp>` (safelink); OKUNAMADI ≠ "Yok:". (4) Link: `teamExceptionsLinks` →
+"Exceptions'ta aç (takım süzgeçli · <takım>)" = `/problems?owner|sre=<takım>[&env=…]&s_exception-inbox-v2=lastSeen.desc`;
+soru "teknik hata" dediyse VE Oracle grubu bulunduysa ikinci link `oracle=only` (ana link facetsiz kalır — sohbet iki
+türü de listeliyor, Oracle-only ana link sayfayla sohbeti ayrıştırırdı). Sayfanın takım süzgeci tek eksenli (owner VE
+sre = kesişim): takım yalnız SRE'yse `sre=`, ikisinde de geçiyorsa `owner=` + kanıtta not + birleşim için
+`/inbox?kind=exception&team=` linki. Her href `safelink.SafeLink`'ten geçer; param adları kaynak-pinli (K4:
+`AnomaliesPage.tsx` owner/sre/oracle/sortUrlKey, `useUrlEnv` env, `formatSortParam` biçimi). (5) Takip çipleri grup
+başına (en çok 4, en son görülen önce): Oracle → "<OP> operasyonu neden hata veriyor?" (operasyon ön-getirmesi; v0.10.1382
+cümlesi), span → "<svc> teknik hataları?" (service_exceptions, kapsam servis+env; v0.10.1383 cümlesi); `guidedFollowups`
+iki takım exception niyetinde `route.TeamFollowups`'ı taşır. MCP araç sayısı (74), sohbet kademe sırası, api.go değişmedi.
+Testler: `copilot_team_exceptions_test.go` (yönlendirme + kapsam tablosu, render tablosu, link kurucu, çip yönlenmesi,
+okuma süzgeci, eksen, kaynak pini); güncellenen pin: `TestMyExceptionsLinkCarriesResolvedTeam` (hedef /inbox → /problems).

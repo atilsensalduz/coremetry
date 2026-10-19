@@ -298,7 +298,15 @@ func guidedSuggestions(route guidedRoute) []string {
 	// v0.9.650 — exception cevabından sonraki doğal adımlar: aynı takımın
 	// açık PROBLEM'leri (farklı yüzey, aynı kapsam) ve servis sağlığı.
 	case guidedMyExceptions:
-		return []string{"Takımımın servisleri nasıl?", "Takımımın en hatalı servisleri?"}
+		// v0.10.1385 — en son görülen grupların çip cümleleri önce (eski
+		// istemci de gruba inebilsin), sonra takımın diğer yüzeyleri.
+		return append(teamExceptionSuggestionTexts(route.TeamFollowups, 2), "Takımımın servisleri nasıl?", "Takımımın açık problemleri?")
+	case guidedTeamExceptions: // v0.10.1385
+		out := teamExceptionSuggestionTexts(route.TeamFollowups, 2)
+		if t := strings.TrimSpace(route.Team); t != "" {
+			out = append(out, t+" takımının servisleri nasıl?")
+		}
+		return out
 	case guidedServiceExceptions:
 		if svc != "" {
 			return []string{svc + " sağlığı nasıl?", svc + " hata logları?", svc + " en yavaş trace'ler?"}
@@ -413,7 +421,8 @@ func guidedFollowups(route guidedRoute, asked []string) []chatFollowup {
 	if len(route.TeamOptions) > 0 || len(route.ServiceOptions) > 0 {
 		return nil
 	}
-	if route.Intent == guidedTeamServices || route.Intent == guidedMyServices {
+	switch route.Intent { // v0.10.1385 — takım exception rotaları grup çiplerini taşır
+	case guidedTeamServices, guidedMyServices, guidedMyExceptions, guidedTeamExceptions:
 		return dedupFollowupsAsked(route.TeamFollowups, asked, guidedFollowupMax)
 	}
 	covered, ok := serviceStepCovered[route.Intent]
@@ -784,19 +793,13 @@ func guidedAnswerLinkTargets(route guidedRoute) []guidedAnswerLink {
 			}
 		}
 		return nil
-	case guidedMyExceptions:
-		// Exceptions sekmesi Inbox'ta tür süzgeciyle açılıyor.
-		//
-		// v0.9.1246 (operatör: "Takımımın exceptionları dediğinde o takım
-		// filtreli exceptions açabilir") — link artık TAKIMI da taşıyor.
-		// Eskiden cevap takımın exception'larını sayıyor, link ise TÜM
-		// filonun kuyruğunu açıyordu: operatör sayfada kendi takımını
-		// aramak zorundaydı ve iki sayı (cevaptaki ile sayfadaki)
-		// birbirini tutmuyordu.
-		if l, ok := inboxTeamExceptionsLink(route.Team); ok {
-			return []guidedAnswerLink{l}
-		}
-		return []guidedAnswerLink{{Label: "Exceptions", Href: "/inbox?kind=exception"}}
+	case guidedMyExceptions, guidedTeamExceptions:
+		// v0.9.1246 — link takımı taşır (kimlik URL'e girmez: katalog yazımı).
+		// v0.10.1385 (operatör: "arkada Exceptions açıp filtrelenebilir") —
+		// hedef artık Exceptions SAYFASI: takım süzgeçli, son görülme sıralı;
+		// "teknik hata" + Oracle grubu → oracle=only ikinci link; iki eksenli
+		// takımda birleşim için Inbox linki (copilot_team_exceptions.go).
+		return teamExceptionsLinks(route)
 	case guidedPodHealth:
 		if svc != "" {
 			return []guidedAnswerLink{{Label: svc + " · Infrastructure", Href: "/service?name=" + svcQ + "&tab=infra"}}

@@ -176,25 +176,29 @@ func TestServiceHealthChipsCarryOperatorDrilldowns(t *testing.T) {
 // User.Team → katalog yazımı) ve URL'e KANONİK ADIYLA yazılıyor: "benim"
 // kelimesi URL'e girseydi paylaşılan link, açan kişinin takımını
 // gösterirdi.
+//
+// v0.10.1385 (operatör: "CoSRE arkada Exceptions açıp filtrelenebilir") —
+// hedef Inbox'tan Exceptions SAYFASINA taşındı: takım süzgeçli (owner
+// ekseni), son görülme sıralı. Ayrıntılı tablo copilot_team_exceptions_test.go.
 func TestMyExceptionsLinkCarriesResolvedTeam(t *testing.T) {
 	links := guidedAnswerLinks(guidedRoute{Intent: guidedMyExceptions, Team: "SY"}, noLinkWindow())
 	if len(links) != 1 {
 		t.Fatalf("tek link beklenir: %+v", links)
 	}
-	if links[0].Href != "/inbox?kind=exception&team=SY" {
-		t.Errorf("link %q — takım-filtreli exception görünümü açmalı", links[0].Href)
+	if links[0].Href != "/problems?owner=SY&s_exception-inbox-v2=lastSeen.desc" {
+		t.Errorf("link %q — takım-filtreli Exceptions sayfası açmalı", links[0].Href)
 	}
-	if links[0].Label != "SY · Exceptions" {
+	if !strings.Contains(links[0].Label, "SY") {
 		t.Errorf("etiket takımı söylemeli, got %q", links[0].Label)
 	}
 
 	// Takım ÇÖZÜLMEDİYSE (kimlik yok / takım atanmamış / takımın hiç
 	// servisi yok) link filo geneline döner. Yanlış kapsamlı bir link
-	// linksizlikten kötü, ama "hiç link yok" da çıkmazdır — kuyruğun
+	// linksizlikten kötü, ama "hiç link yok" da çıkmazdır — sayfanın
 	// kendisi hâlâ doğru hedef.
 	fallback := guidedAnswerLinks(guidedRoute{Intent: guidedMyExceptions}, noLinkWindow())
-	if len(fallback) != 1 || fallback[0].Href != "/inbox?kind=exception" {
-		t.Errorf("takımsız cevapta düz exception kuyruğu beklenir: %+v", fallback)
+	if len(fallback) != 1 || fallback[0].Href != "/problems?s_exception-inbox-v2=lastSeen.desc" {
+		t.Errorf("takımsız cevapta düz Exceptions sayfası beklenir: %+v", fallback)
 	}
 }
 

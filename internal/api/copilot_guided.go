@@ -106,6 +106,11 @@ const (
 	// span'lerden gruplanan ham hata. my_problems ikincisini
 	// kapsamıyordu.
 	guidedMyExceptions guidedIntent = "my_exceptions"
+	// v0.10.1385 — ADI GEÇEN takımın teknik hataları ("platform takımının
+	// teknik hataları", "@team:platform teknik hataları"): my_exceptions'ın
+	// iyelik olmayan ikizi, aynı Exceptions kutusu okuması
+	// (copilot_team_exceptions.go). Router-içi; sınıflandırıcı listesinde yok.
+	guidedTeamExceptions guidedIntent = "team_exceptions"
 	// v0.10.1252 — tek servisin teknik hataları (exception grupları).
 	guidedServiceExceptions guidedIntent = "service_exceptions"
 	// v0.10.1256 — hata sıralaması: en hatalı servisler (filo/takım) ve bir
@@ -226,6 +231,14 @@ type guidedRoute struct {
 	// servis başına takip adımları; rotanın ÇIKTISI (bundle yazar,
 	// guidedFollowups okur). JSON'a girmez.
 	TeamFollowups []chatFollowup `json:"-"`
+	// v0.10.1385 — takım exception rotası (copilot_team_exceptions.go):
+	// TechErr router GİRDİSİ (soru "teknik hata" dedi → Oracle süzgeçli ikinci
+	// link); ExcAxis / ExcOracle bundle ÇIKTISI (Exceptions sayfa linkinin
+	// takım ekseni owner|sre|both; Oracle grubu bulundu). TeamFollowups bu
+	// rotada grup başına takip çiplerini taşır.
+	TechErr   bool   `json:"-"`
+	ExcAxis   string `json:"-"`
+	ExcOracle bool   `json:"-"`
 	// TraceID (v0.9.537) — guidedTraceByID rotasının öznesi (32-hex).
 	TraceID string
 	// SpanID (v0.9.548) — guidedSpanByID rotasının öznesi (16-hex).
@@ -1350,8 +1363,11 @@ func routeGuidedIntentOpts(raw string, services, envs, teams []string, ctxServic
 		// v0.9.650 — exception kelimesi problem/hata sinyalinden ÖNCE:
 		// "takımımın exception'ları" ikisini birden taşıyor ve problems
 		// dalı kazanırsa soru sessizce "açık problemler"e çöker.
-		if hasExceptionWord(toks) {
-			return guidedRoute{Intent: guidedMyExceptions, Env: env}
+		// v0.10.1385 (operatör: "Ekibimin teknik hataları var mı …") — "teknik
+		// hata" ve "takımımda hata var mı" varlık sorusu da Exceptions kutusuna
+		// (hasTeamExceptionAsk). "takımımın hataları neler" problemlerde kalır.
+		if hasExceptionWord(toks) || (hasTeamExceptionAsk(toks) && !hasTopErrorSignal(toks)) {
+			return guidedRoute{Intent: guidedMyExceptions, Env: env, TechErr: hasTechErrorWord(toks)}
 		}
 		if hasTopErrorSignal(toks) { // v0.10.1256 — "takımımın en hatalı servisleri"
 			return guidedRoute{Intent: guidedMyTopErrors, Env: env}
@@ -1383,6 +1399,11 @@ func routeGuidedIntentOpts(raw string, services, envs, teams []string, ctxServic
 	// "payments hataları" sorusunu servis tarafında bırakır.
 	case team != "" && (isBareTeamAsk(msg, team) || hasTeamWord(toks) ||
 		(svc == "" && (hasServiceListWord(toks) || hasHealthSignal(toks) || hasErrorSignal(toks)))):
+		// v0.10.1385 — adı geçen takımın teknik hataları / exception'ları →
+		// Exceptions kutusu (team_exceptions); düz "hataları" takım servislerinde.
+		if hasExceptionWord(toks) || hasServiceExceptionSignal(toks) {
+			return guidedRoute{Intent: guidedTeamExceptions, Team: team, Env: env, TechErr: hasTechErrorWord(toks)}
+		}
 		return guidedRoute{Intent: guidedTeamServices, Team: team, Env: env}
 	// v0.10.433 (D5) — alan süzgeçli log araması, "yavaş"/"hata" gibi
 	// içerik sözcükleri taşıyabilen tırnaklı değerlerden ÖNCE: "message
@@ -1891,6 +1912,13 @@ func (s *Server) copilotChatGuided(ctx context.Context, emit func(string, any), 
 			rangeS = serviceReportDefaultRangeS
 		}
 	}
+	// v0.10.1385 — takım teknik hataları varsayılanı son 24 saat ("en son"
+	// grupları getirmek için; Oracle akışı durgun); açık pencere kazanır.
+	if route.Intent == guidedMyExceptions || route.Intent == guidedTeamExceptions {
+		if _, explicit := guidedRangeSExplicit(norm); !explicit {
+			rangeS = teamExcDefaultRangeS
+		}
+	}
 	// v0.10.688 — endpoint rotaları varsayılan son 1 saat (operatör kararı); açık
 	// pencere ve "son 6 saate genişlet" kipi kazanır.
 	if route.Intent == guidedEndpointCandidates || route.Intent == guidedEndpointTraces {
@@ -2046,6 +2074,8 @@ func (s *Server) runGuidedRoute(ctx context.Context, emit func(string, any), rou
 		evidence, sources, err = s.guidedMyTeamBundle(ctx, emit, "problems", &route, from, to, rangeS)
 	case guidedMyExceptions:
 		evidence, sources, err = s.guidedMyTeamBundle(ctx, emit, "exceptions", &route, from, to, rangeS)
+	case guidedTeamExceptions: // v0.10.1385
+		evidence, sources, err = s.guidedTeamExceptionsBundle(ctx, emit, &route, from, to)
 	case guidedServiceExceptions:
 		evidence, sources, err = s.guidedServiceExceptionsBundle(ctx, emit, route.Service, from, to)
 	case guidedTopErrorServices:
@@ -2972,45 +3002,15 @@ func (s *Server) guidedMyTeamBundle(ctx context.Context, emit func(string, any),
 	}
 	if mode == "exceptions" {
 		// v0.9.650 (operatör: "Takımıma ait servislerin hataları
-		// (Exceptions) neler?") — Problem'ler ile Exception'lar AYRI
-		// yüzeyler: Problem bir alarm kuralının açtığı kayıt,
-		// Exception ise span'lerden gruplanan ham hata. "Takımımın
-		// problemleri" ikincisini KAPSAMIYORDU.
-		//
-		// Tek sorgu: ExceptionFilter.Services (v0.9.650) takımın tüm
-		// servislerini IN ile tarıyor — servis başına ayrı çağrı,
-		// takım büyüdükçe doğrusal büyüyen bir JSON-kazıma yükü
-		// olurdu.
-		nEx := emitGuidedStep(emit, "list_exceptions", fmt.Sprintf(`{"teamServices":%d}`, len(svcs)))
-		exs, eerr := s.store.GetExceptions(ctx, chstore.ExceptionFilter{
-			Services: svcs, GroupBy: "type-service", From: from, To: to, Limit: 30,
-		})
-		if eerr != nil {
-			emitGuidedStepResult(emit, nEx, "list_exceptions", "", eerr)
-			return "", "", eerr
-		}
-		var b strings.Builder
-		b.WriteString(header)
-		atEx := b.Len()
-		if len(exs) == 0 {
-			b.WriteString("Takımın servislerinde bu pencerede exception yok.\n")
-		} else {
-			fmt.Fprintf(&b, "Takımın servislerindeki exception'lar (en çok görülen önce, %d grup):\n", len(exs))
-			for i, e := range exs {
-				if i >= 20 {
-					fmt.Fprintf(&b, "… ve %d grup daha.\n", len(exs)-20)
-					break
-				}
-				fmt.Fprintf(&b, "- %s · %s · %d kez", e.Service, e.Type, e.Count)
-				if e.Message != "" {
-					fmt.Fprintf(&b, " · %s", truncate(e.Message, 140))
-				}
-				b.WriteString("\n")
-			}
-		}
-		emitGuidedStepResult(emit, nEx, "list_exceptions", guidedStepSegment(&b, atEx), nil)
-		src := fmt.Sprintf("takım: %s (%d servis) — exception grupları", u.Team, len(svcs)+trimmed)
-		return b.String(), src, nil
+		// (Exceptions) neler?") — Problem ile Exception AYRI yüzeyler.
+		// v0.10.1385 (operatör: "Ekibimin teknik hataları var mı diye
+		// sorduğumda CoSRE arkada Exceptions açıp filtrelenebilir …") —
+		// okuma artık Exceptions KUTUSU (span + Oracle grupları, durum, son
+		// görülme, öncelik), en son görülen önce; ham GetExceptions
+		// gruplaması kaldırıldı (copilot_team_exceptions.go).
+		blk := s.teamExceptionsBlock(ctx, emit, route, teamExcInput{Team: route.Team, Services: svcs, Axis: teamExceptionsAxis(ta, mds, u.Team)}, from, to)
+		src := fmt.Sprintf("takım: %s (%d servis) — Exceptions kutusu (açık gruplar, en son görülen önce)", u.Team, len(svcs)+trimmed)
+		return header + blk, src, nil
 	}
 	evidence, src, err := s.guidedFamilyHealthBundle(ctx, emit, svcs, env, from, to, rangeS)
 	if err != nil {

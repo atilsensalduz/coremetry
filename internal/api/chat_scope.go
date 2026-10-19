@@ -387,6 +387,15 @@ func planChatScope(cmd string, sc chatScope, routed, rest string, svcNames, envN
 		return chatScopePlan{Kind: "route", Route: guidedRoute{Intent: guidedRootCause, Service: svc, Env: sc.Env},
 			Question: orDefault(routed, svc+" kök nedeni ne?")}
 	}
+	// v0.10.1385 — "@team:platform teknik hataları": takım kapsamı + exception /
+	// teknik hata / "hata var mı" metni → o takımın Exceptions kutusu
+	// (team_exceptions). Metinde servis adı geçiyorsa servis yolu kazanır.
+	if cmd == "" && sc.Team != "" && svc == "" && rest != "" {
+		if toks := guidedTokens(norm); hasTeamExceptionAsk(toks) {
+			return chatScopePlan{Kind: "route", Route: guidedRoute{Intent: guidedTeamExceptions, Team: sc.Team, Env: sc.Env, TechErr: hasTechErrorWord(toks)},
+				Question: orDefault(routed, sc.Team+" takımının teknik hataları?")}
+		}
+	}
 	// Yalnız anma ("@svc-orders", "@team:platform"): komutsuz, metinsiz.
 	if rest == "" {
 		switch {
@@ -454,6 +463,10 @@ func applyChatScopeRoute(sc *chatScope, r guidedRoute) guidedRoute {
 			r = guidedRoute{Intent: guidedTeamServices, Team: sc.Team, Env: r.Env}
 		case guidedTeamServices:
 			r.Team, r.TeamOptions, r.DirectAnswer = sc.Team, nil, ""
+		case guidedMyExceptions: // v0.10.1385 — kapsamdaki takımın Exceptions kutusu
+			r = guidedRoute{Intent: guidedTeamExceptions, Team: sc.Team, Env: r.Env, TechErr: r.TechErr}
+		case guidedTeamExceptions:
+			r.Team = sc.Team
 		}
 	}
 	return r
@@ -620,6 +633,9 @@ func (s *Server) chatScopeTier(ctx context.Context, emit func(string, any), rq *
 	rangeS, explicit := guidedRangeSExplicit(normalizeGuidedMsg(rest))
 	if !explicit && rq.RangeS > 0 {
 		rangeS = snapRangeS(rq.RangeS)
+	}
+	if !explicit && plan.Route.Intent == guidedTeamExceptions { // v0.10.1385 — serbest metin yoluyla aynı 24 sa varsayılanı
+		rangeS = teamExcDefaultRangeS
 	}
 	anchor := rq.AnchorTo
 	switch plan.Kind {

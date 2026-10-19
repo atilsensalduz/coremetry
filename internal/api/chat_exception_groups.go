@@ -31,6 +31,7 @@ import (
 const (
 	exGroupListLimit     = 20 // CH okuması tavanı (kesilme sayısını bilmek için gösterilenden geniş)
 	exGroupRenderMax     = 5  // modele / karta giden grup tavanı
+	exGroupTeamRenderMax = 10 // v0.10.1385 — takım kapsamında gösterilen grup tavanı
 	exGroupSampleGroups  = 2  // örnek okunan grup sayısı
 	exGroupSampleLimit   = 3  // grup başına örnek
 	exGroupSampleRunes   = 160
@@ -52,6 +53,16 @@ type exScope struct {
 	Messages []string
 	From, To time.Time
 	Max      int // 0 = exGroupRenderMax
+	// v0.10.1385 — takım kapsamı (copilot_team_exceptions.go): Services
+	// `service IN (…)` (Exceptions sayfasının owner/sre süzgeciyle aynı
+	// yol), State durum kovası ("open" = new/acknowledged/regressed; boş =
+	// ignored hariç hepsi), MinOcc/FloorExempt/FloorExemptRegressed sayfanın
+	// varsayılan tabanı. Takım kapsamında gösterim tavanı exGroupTeamRenderMax.
+	Services             []string
+	State                string
+	MinOcc               uint64
+	FloorExempt          []string
+	FloorExemptRegressed bool
 }
 
 // exGroupLine — bir grubun modele ve karta giden kompakt hâli.
@@ -130,15 +141,23 @@ func lookbackSeconds(sc exScope) int64 {
 // collectExceptionGroups — okuma + kompaktlama (sahte okuyucuyla test edilir).
 func collectExceptionGroups(ctx context.Context, rd exGroupsReader, sc exScope, h exGroupHooks) exceptionGroupsEvidence {
 	ev := exceptionGroupsEvidence{Groups: []exGroupLine{}, LookbackS: lookbackSeconds(sc), at: sc.To}
-	if len(sc.Messages) == 0 && strings.TrimSpace(sc.Service) == "" {
+	if len(sc.Messages) == 0 && strings.TrimSpace(sc.Service) == "" && len(sc.Services) == 0 {
 		ev.Err = "kapsam yok"
 		return ev
 	}
-	show := sc.Max
-	if show <= 0 || show > exGroupRenderMax {
-		show = exGroupRenderMax
+	maxShow := exGroupRenderMax
+	if len(sc.Services) > 0 { // v0.10.1385 — takım listesi
+		maxShow = exGroupTeamRenderMax
 	}
-	f := chstore.ExceptionGroupFilter{Service: sc.Service, Messages: sc.Messages, Sort: "lastSeen", Dir: "desc", Limit: exGroupListLimit}
+	show := sc.Max
+	if show <= 0 || show > maxShow {
+		show = maxShow
+	}
+	f := chstore.ExceptionGroupFilter{Service: sc.Service, Messages: sc.Messages, Sort: "lastSeen", Dir: "desc", Limit: exGroupListLimit,
+		Services: sc.Services, State: sc.State, MinOccurrences: sc.MinOcc}
+	if sc.MinOcc > 0 { // v0.10.1385 — taban istisnaları yalnız tabanla anlamlı
+		f.FloorExempt, f.FloorExemptRegressed = sc.FloorExempt, sc.FloorExemptRegressed
+	}
 	if !sc.From.IsZero() {
 		f.ActiveFromNs = sc.From.UnixNano()
 	}
