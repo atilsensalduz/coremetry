@@ -52,7 +52,9 @@ const (
 	fuKindExceptionGroup = "exception_group"
 )
 
-var fuKindOrder = map[string]int{fuKindHypothesis: 0, fuKindExceptionGroup: 1, fuKindPod: 2, fuKindTrace: 3, fuKindSlow: 4, fuKindErrors: 5, fuKindDeploy: 6}
+// v0.10.1388 — fuKindOpTopology (operasyon cevabının "<op> örnek trace
+// topolojisi" çipi) exception grubundan hemen sonra.
+var fuKindOrder = map[string]int{fuKindHypothesis: 0, fuKindExceptionGroup: 1, fuKindOpTopology: 2, fuKindPod: 3, fuKindTrace: 4, fuKindSlow: 5, fuKindErrors: 6, fuKindDeploy: 7}
 
 const (
 	followupMax            = 3
@@ -76,6 +78,9 @@ type followupFact struct {
 	// v0.10.1331 — exception_group: hata kodu + grup parmak izi.
 	Code        string
 	Fingerprint string
+	// Operation — v0.10.1388: op_topology çipinin operasyonu ("PAYMENT_CREATE",
+	// "POST /api/payments").
+	Operation string
 }
 
 // followupAction — aksiyon çipinin yükü (chat_actions.go sre_hypothesis bloğuyla aynı alanlar).
@@ -424,6 +429,12 @@ func renderFollowup(f followupFact) (chatFollowup, bool) {
 		}
 		return chatFollowup{Text: code + " grubunu açıkla", Kind: f.Kind,
 			Href: "/problems?exc=" + url.QueryEscape(f.Fingerprint) + "&ai=exception"}, true
+	case fuKindOpTopology: // v0.10.1388 — router trace_topology'ye (operasyonla) yönlenir
+		op := strings.TrimSpace(f.Operation)
+		if !fuOpTopoRe.MatchString(op) {
+			return chatFollowup{}, false
+		}
+		return chatFollowup{Text: topoOpChoiceChip(op), Label: "Örnek trace topolojisi", Kind: f.Kind}, true
 	case fuKindHypothesis:
 		if !sre.IsHypothesisKind(f.Hypothesis) || f.ProblemID == "" {
 			return chatFollowup{}, false

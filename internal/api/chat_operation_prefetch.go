@@ -409,6 +409,26 @@ func (p *opPrefetch) exceptionFollowupFacts() []followupFact {
 	return []followupFact{{Kind: fuKindExceptionGroup, Code: code, Fingerprint: g.Fingerprint}}
 }
 
+// followupFacts — v0.10.1388: ön-getirmenin takip olguları — en yeni Exceptions
+// grubu (exceptionFollowupFacts) + "<op> örnek trace topolojisi" (op_topology).
+// nil → yok.
+func (p *opPrefetch) followupFacts() []followupFact {
+	if p == nil {
+		return nil
+	}
+	out := p.exceptionFollowupFacts()
+	op := strings.TrimSpace(p.Operation)
+	if p.Route != "" {
+		op = strings.TrimSpace(p.Method + " " + p.Route)
+	} else if p.searchText != "" {
+		op = "" // yol-yalnız hedef: operasyon adı yok (yol metni çip cümlesine uymaz)
+	}
+	if op != "" {
+		out = append(out, followupFact{Kind: fuKindOpTopology, Operation: op})
+	}
+	return out
+}
+
 // opTracesHref — SAF: filtreli Traces sayfası; Traces'in URL sözleşmesi
 // (frontend lib/urlState.ts): range=custom:<fromMs>-<toMs>, op=<ad>,
 // service=, filters=<JSON FilterExpr dizisi>, hasError.
@@ -438,6 +458,28 @@ func opTracesHref(t opTarget, spanKey string, from, to time.Time) string {
 		q.Set("filters", string(f))
 	}
 	return "/traces?" + q.Encode()
+}
+
+// opTraceFilterSets — SAF (v0.10.1388, opPrefetchForTarget'tan MEKANİK
+// çıkarıldı): hedefin trace süzgeç kümeleri. Yol-yalnız → tek süzgeçsiz küme
+// (Search taşır), span operasyonu → name, rota → http.route, Oracle kodları →
+// kod başına bir küme (spanKey boşsa yok). CoSRE operasyon topolojisi
+// (copilot_service_topology.go) örnek trace'i aynı kümelerden seçer.
+func opTraceFilterSets(t opTarget, search, spanKey string) [][]chstore.FilterExpr {
+	var filters [][]chstore.FilterExpr
+	switch {
+	case search != "": // v0.10.1373 — süzgeçsiz, yalnız Search (RED yok: Measured=false)
+		filters = append(filters, nil)
+	case t.HasSpan:
+		filters = append(filters, []chstore.FilterExpr{{Key: "name", Op: "=", Values: []string{t.Name}}})
+	case t.HasRoute:
+		filters = append(filters, opRouteFilter(t.Route))
+	case spanKey != "":
+		for _, c := range t.Codes {
+			filters = append(filters, []chstore.FilterExpr{{Key: spanKey, Op: "=", Values: []string{c}}})
+		}
+	}
+	return filters
 }
 
 // opRouteFilter — SAF (v0.10.1343): rota hedefinin trace süzgeci (Traces
@@ -526,6 +568,12 @@ func (s *Server) chatOperationPrefetch(ctx context.Context, emit func(string, an
 		return nil, false
 	}
 	raw := lastUserText(msgs)
+	// v0.10.1388 — topoloji sözcüğü taşıyan mesaj ("PAYMENT_CREATE operasyonunun
+	// topolojisi", "POST /api/payments topolojisi") ön-getirmeye girmez: guided
+	// trace_topology operasyonu kendisi çözer (copilot_service_topology.go).
+	if topologyVetoesOpPrefetch(raw) {
+		return nil, false
+	}
 	pctx, cancel := context.WithTimeout(ctx, opPrefetchTimeout)
 	defer cancel()
 	t, kind, handled, ok := s.resolveEndpointMention(pctx, ctx, emit, raw)
@@ -620,19 +668,7 @@ func (s *Server) opPrefetchForTarget(pctx context.Context, emit func(string, any
 		p.Current, _ = s.store.FunctionCodeRED(pctx, t.Codes, from, to)
 		p.Previous, _ = s.store.FunctionCodeRED(pctx, t.Codes, prevFrom, from)
 	}
-	var filters [][]chstore.FilterExpr
-	switch {
-	case search != "": // v0.10.1373 — süzgeçsiz, yalnız Search (RED yok: Measured=false)
-		filters = append(filters, nil)
-	case t.HasSpan:
-		filters = append(filters, []chstore.FilterExpr{{Key: "name", Op: "=", Values: []string{t.Name}}})
-	case t.HasRoute:
-		filters = append(filters, opRouteFilter(t.Route))
-	case sc.SpanKey != "":
-		for _, c := range t.Codes {
-			filters = append(filters, []chstore.FilterExpr{{Key: sc.SpanKey, Op: "=", Values: []string{c}}})
-		}
-	}
+	filters := opTraceFilterSets(t, search, sc.SpanKey) // v0.10.1388 — topoloji demeti de aynı süzgeçleri kullanır
 	var sets [][]chstore.TraceRow
 	for _, errorsOnly := range []bool{true, false} { // önce hatalılar
 		for _, fx := range filters {

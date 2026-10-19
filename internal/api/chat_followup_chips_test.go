@@ -212,6 +212,8 @@ func TestFollowupTemplatesRouteGuided(t *testing.T) {
 		fuKindPod:    {followupFact{Kind: fuKindPod, Service: "payments", Pod: "payments-7f9c-abcde"}, guidedLogField},
 		fuKindTrace:  {followupFact{Kind: fuKindTrace, TraceID: fuTrace}, guidedTraceByID},
 		fuKindDeploy: {followupFact{Kind: fuKindDeploy, Service: "checkout-service"}, guidedDeployImpact},
+		// v0.10.1388 — operasyon cevabının topoloji çipi trace_topology'ye (operasyonla) yönlenir.
+		fuKindOpTopology: {followupFact{Kind: fuKindOpTopology, Operation: "PAYMENT_CREATE"}, guidedTraceTopology},
 	}
 	for kind := range fuKindOrder {
 		if kind == fuKindHypothesis || kind == fuKindExceptionGroup {
@@ -238,6 +240,10 @@ func TestFollowupTemplatesRouteGuided(t *testing.T) {
 		case fuKindTrace:
 			if r.TraceID != fuTrace || c.Scope == nil || c.Scope.Trace != fuTrace {
 				t.Errorf("trace çipi: rota %+v kapsam %+v", r, c.Scope)
+			}
+		case fuKindOpTopology: // v0.10.1388 — kapsamsız (operasyon servisi katalogdan çözülür)
+			if r.TopoOperation != p.fact.Operation || c.Scope != nil {
+				t.Errorf("op_topology çipi: rota %+v kapsam %+v", r, c.Scope)
 			}
 		default:
 			if r.Service != p.fact.Service || c.Scope == nil || len(c.Scope.Services) != 1 || c.Scope.Services[0] != p.fact.Service {

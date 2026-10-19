@@ -344,6 +344,8 @@ func guidedSuggestions(route guidedRoute) []string {
 		return []string{"Takımımın en hatalı servisleri?", "Açık problemler?"}
 	case guidedMetricChart: // v0.10.1386 (copilot_metric_chart.go)
 		return metricChartSuggestions(route)
+	case guidedServiceTopology, guidedTraceTopology: // v0.10.1388 (copilot_service_topology.go)
+		return topologySuggestions(route)
 	}
 	return nil
 }
@@ -428,6 +430,8 @@ func guidedFollowups(route guidedRoute, asked []string) []chatFollowup {
 		return dedupFollowupsAsked(route.TeamFollowups, asked, guidedFollowupMax)
 	case guidedMetricChart: // v0.10.1386 — diğer ortam · 24 sa · yavaş trace'ler · Metrics'te aç
 		return metricChartFollowups(route, asked)
+	case guidedServiceTopology, guidedTraceTopology: // v0.10.1388 — hop · örnek trace · hatalı bağımlılık · komşu
+		return topologyFollowups(route, asked)
 	}
 	covered, ok := serviceStepCovered[route.Intent]
 	svc := strings.TrimSpace(route.Service)
@@ -573,6 +577,8 @@ func guidedAnswerLinkTargets(route guidedRoute) []guidedAnswerLink {
 	switch route.Intent {
 	case guidedMetricChart: // v0.10.1386 — PromQL editörü (mutlak pencereli) + Infrastructure
 		return metricChartLinks(route)
+	case guidedServiceTopology, guidedTraceTopology: // v0.10.1388 — Topology sekmesi · Service Map · Overview (trace önce)
+		return topologyLinks(route)
 	case guidedServiceHealth:
 		// Sağlık özeti (2026-10-15, operatör: "kullanıcıyı yönlendirsin") —
 		// hükmün kanıt sayfaları tek tık; otomatik geçiş YOK.
@@ -954,6 +960,8 @@ func askServiceChipFor(route guidedRoute) []string {
 			out = append(out, opt+"'dan "+route.PairTo+"'ye gidenlerin hepsi "+route.FanoutTo+"'ye gidiyor mu")
 		case guidedMetricChart: // v0.10.1386 — "<svc> JVM heap grafiği" aynı şablona yönlenir
 			out = append(out, metricChartAskChip(route, opt))
+		case guidedServiceTopology, guidedTraceTopology: // v0.10.1388 — "<svc> topolojisi?" aynı niyete yönlenir
+			out = append(out, topologyAskChip(route, opt))
 		default:
 			out = append(out, askServiceChip(route.AskIntent, opt))
 		}
@@ -989,6 +997,10 @@ func askServiceChip(intent guidedIntent, svc string) string {
 		return svc + " teknik hataları?"
 	case guidedServiceReport: // v0.10.1337
 		return serviceReportChip(svc)
+	case guidedServiceTopology: // v0.10.1388
+		return svc + " topolojisi?"
+	case guidedTraceTopology: // v0.10.1388
+		return svc + " örnek trace topolojisi?"
 	}
 	return svc + " sağlığı nasıl?"
 }

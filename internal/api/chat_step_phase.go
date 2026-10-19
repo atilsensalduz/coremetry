@@ -52,6 +52,7 @@ var stepPhaseByTool = map[string]string{
 	"get_topology": "Topoloji", "list_pods": "Altyapı", "get_pod_health": "Altyapı",
 	"list_workloads": "Altyapı", "list_clusters": "Altyapı", "list_namespaces": "Altyapı",
 	"list_environments": "Altyapı",
+	"oracle_trace_ids":  "Trace", // v0.10.1388 — Oracle-only operasyonun trace id'leri (topoloji)
 	// Değişiklik
 	"list_deploys": "Değişiklik", "list_deployments": "Değişiklik", "get_deploy_diff": "Değişiklik",
 	"deploy_impact": "Değişiklik", "get_correlated_changes": "Değişiklik",

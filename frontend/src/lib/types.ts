@@ -7402,7 +7402,7 @@ export interface ExplainTraceAnswer extends ExplainAnswerBase {
 // (ChatMessage) + yalnız UI'ın bildiği alanlar. İKİ yüzey paylaşır —
 // global CoSRE penceresi (CopilotChat) ve AI çekmecesi içindeki sohbet
 // (AIDrawer) — bu yüzden bileşen dosyasında değil burada yaşar.
-export type ChatBlockType = 'text' | 'table' | 'chart' | 'trace_list' | 'link' | 'action' | 'evidence' | 'operation' | 'service_report';
+export type ChatBlockType = 'text' | 'table' | 'chart' | 'trace_list' | 'link' | 'action' | 'evidence' | 'operation' | 'service_report' | 'topology'; // v0.10.1388 — topology
 // ChatOperationPayload — operasyon adı ön-getirmesinin kartı (internal/api/
 // chat_operation_prefetch.go opPrefetch). measured=false → RED ölçülemedi.
 export interface ChatOperationRED { calls: number; errors: number; p99Ms: number; measured: boolean }
@@ -7510,6 +7510,31 @@ export interface ChatServiceReportPayload {
   drills: ChatServiceReportDrill[] | null;
   logBackend?: string;
   links: ChatAnswerLink[] | null;
+}
+/**
+ * v0.10.1388 — `topology` bloğu (internal/api/copilot_service_topology.go
+ * topologyBlockPayload): CoSRE servis topolojisi (scope 'neighborhood',
+ * topology_edges_5m) ya da örnek trace topolojisi (scope 'trace', tek trace'in
+ * span ağacı). Düğüm/kenar Service Map tipleri (GraphNode / GraphEdge).
+ */
+export interface ChatTopologyPayload {
+  focus: string;
+  scope: 'neighborhood' | 'trace';
+  /** 1 | 2 (neighborhood); trace kipinde 0. */
+  hops: number;
+  window: { fromNs: number; toNs: number };
+  rangeS: number;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  /** Topology sekmesi (pencereli) — yalnız isSafeAppPath ise çizilir. */
+  deepLink: string;
+  traceId?: string;
+  traceHref?: string;
+  operation?: string;
+  /** sohbet bütçesinin (≤15 düğüm / ≤30 kenar) dışarıda bıraktıkları. */
+  truncated: { nodes: number; edges: number };
+  errorsOnly?: boolean;
+  note?: string;
 }
 /** chart bloğunun gövdesi — components/cosreChartSpec.ts CosreChartSpec ile aynı alanlar (Go guidedChartSpec). */
 export interface CosreChartSpecLike { title?: string; service: string; operation?: string; agg: string; unit?: string; rangeS?: number; groupBy?: string; fromNs?: number; toNs?: number; compare?: { kind?: string; shiftS: number }; source?: 'span' | 'metric' }

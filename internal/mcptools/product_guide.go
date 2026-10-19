@@ -167,7 +167,8 @@ var productGuide = []GuideTopic{
 		Steps: []string{
 			"Service Map servisler arası çağrıları hata/gecikme ağırlığıyla çizer; bir düğüme tıklayınca servis sayfasına gidersin.",
 			"Servis sayfasının Topology sekmesi yalnız {svc} servisinin komşularını (kimi çağırıyor, kim çağırıyor) gösterir.",
-			"Bana \"{svc} kimleri çağırıyor\" ya da \"{svc} ile X arasındaki istekler\" diyebilirsin.",
+			// v0.10.1388 — CoSRE topolojiyi sohbette çizer (LLM'siz): servis komşuluğu ya da örnek trace'in grafiği.
+			"Bana \"{svc} topolojisi\" (komşular, \"2 adım\" ile genişler) ya da \"{svc} örnek trace topolojisi\" / \"<OPERASYON> operasyonunun topolojisi\" dersen grafiği sohbette çizerim; \"{svc} ile X arasındaki istekler\" çift sorusu da olur.",
 		},
 		Links: func(svc, _ string) []GuideLink {
 			out := []GuideLink{{Label: "Service Map", Href: "/service-map"}}

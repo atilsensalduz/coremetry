@@ -328,6 +328,20 @@ type guidedRoute struct {
 	ChartHref       string   `json:"-"`
 	ChartEnvOptions []string `json:"-"`
 	ChartRangeS     int64    `json:"-"`
+	// v0.10.1388 — service_topology / trace_topology (copilot_service_topology.go).
+	// GİRDİ (JSON'a girer, LastRoute takibinde klonlanır): TopoHops 1|2,
+	// TopoErrorsOnly yalnız hatalı kenarlar / hatalı örnek trace, TopoTraceID
+	// açık trace kimliği, TopoOperation sorudaki operasyon anması (span adı /
+	// "POST /yol" / Oracle kodu). ÇIKTI (demet yazar; çip + link okur):
+	// TopoNeighbours ⚠ komşular, TopoHasErrEdge hatalı kenar var, TopoTraceOut
+	// çizilen trace.
+	TopoHops       int      `json:",omitempty"`
+	TopoErrorsOnly bool     `json:",omitempty"`
+	TopoTraceID    string   `json:",omitempty"`
+	TopoOperation  string   `json:",omitempty"`
+	TopoNeighbours []string `json:"-"`
+	TopoHasErrEdge bool     `json:"-"`
+	TopoTraceOut   string   `json:"-"`
 }
 
 // normalizeGuidedMsg lowercases for matching. Go's ToLower maps the
@@ -547,6 +561,7 @@ func hasGuidedSignal(msg string) bool {
 		hasEndpointRequestSignal(toks) || // v0.10.688 — "X isteklerini getir"
 		hasServiceReportSignal(toks) || // v0.10.1337 — "X için rapor çıkar"
 		hasMetricChartSignal(toks) || // v0.10.1386 — "X heap grafiği", "kafka lag trendi"
+		hasTopologySignal(toks) || // v0.10.1388 — "X topolojisi", "kimler çağırıyor"
 		// v0.9.537 — açık trace ID'si ya da "trace" kökü (prefix:
 		// Türkçe ekli hâlleri de yakalar — "tracei", "trace'in";
 		// ekrandaki trace'e bağlamdan gitmek için, ctxTrace çözümü
@@ -1113,6 +1128,10 @@ func routeGuidedIntentOpts(raw string, services, envs, teams []string, ctxServic
 	// intent tanımıyordu, soru RAG doküman yoluna düşüp "yüklü
 	// dokümanlarda bu bilgi yok" cevabı alıyordu (operator-reported).
 	if id := extractTraceID(msg); id != "" {
+		// v0.10.1388 — "<traceId> topolojisi": o trace'in servis grafiği.
+		if hasTopologySignal(toks) {
+			return guidedRoute{Intent: guidedTraceTopology, TopoTraceID: id, TopoErrorsOnly: hasErrorSignal(toks)}
+		}
 		return guidedRoute{Intent: guidedTraceByID, TraceID: id}
 	}
 	// v0.10.13 — asistanın KENDİSİ hakkındaki soru. Somut bir ID'den
@@ -1168,12 +1187,28 @@ func routeGuidedIntentOpts(raw string, services, envs, teams []string, ctxServic
 		defer func() { route.EnvSet = envSet }()
 	}
 	team := extractTeamEntity(msg, teams)
+	// v0.10.1388 — topoloji (copilot_service_topology.go): AÇIK topoloji
+	// sözcüğü (topoloji/upstream/bağımlılık/servis haritası) metrik grafiğinden
+	// de önce kazanır ("topolojisini çiz, hatalılar" 5xx grafiği değil);
+	// zayıf komşuluk fiili (çağıran/komşu/kime bağlı) grafikten SONRA denenir.
+	topoStrong := hasStrongTopologySignal(toks)
+	if topoStrong {
+		if r, ok := routeTopologyAsk(raw, msg, toks, svc, env, services, envs, ctxService); ok {
+			return r
+		}
+	}
 	// v0.10.1386 — metrik grafiği (copilot_metric_chart.go): grafik fiili +
 	// katalog metriği. Fan-out/periyot/çift/endpoint dallarından ÖNCE ("istek
 	// hızı grafiği" endpoint aday turuna, "kafka lag trendi" servis-adayı
 	// sorusuna savrulmasın); fiilsiz soru (heap/db "nasıl") bugünkü yolunda.
 	if r, ok := routeMetricChart(raw, msg, toks, svc, env, services, envs, ctxService); ok {
 		return r
+	}
+	// v0.10.1388 — zayıf topoloji sinyali: fan-out/periyot/çift/endpoint'ten ÖNCE.
+	if !topoStrong {
+		if r, ok := routeTopologyAsk(raw, msg, toks, svc, env, services, envs, ctxService); ok {
+			return r
+		}
 	}
 	// v0.10.439 (D4) — fan-out: A→B→C; periyot ve çift dallarından ÖNCE
 	// (cümle istek/giden sözcüğü de taşır).
@@ -1812,7 +1847,11 @@ func (s *Server) copilotChatGuided(ctx context.Context, emit func(string, any), 
 	// yavaş?" EKRANDAKİ şeyi soruyor. İşaret zamiri o ayrımı taşıyan
 	// tek sinyal.
 	inheritTrace := guidedInheritsScreenTrace(ctxTrace, explain) // v0.10.944
-	if inheritTrace && hasDemonstrativeTrace(norm) {
+	if tr, ok := topologyInheritTrace(route, ctxTrace); ok && inheritTrace && hasDemonstrativeTrace(norm) {
+		// v0.10.1388 — "bu trace'in topolojisi": ekrandaki trace'in grafiği (trace_by_id değil).
+		route = tr
+		emitGuidedContextStep(emit, "bağlam: ekrandaki trace ("+ctxTrace+")")
+	} else if inheritTrace && hasDemonstrativeTrace(norm) {
 		route = guidedRoute{Intent: guidedTraceByID, TraceID: ctxTrace}
 		emitGuidedContextStep(emit, "bağlam: ekrandaki trace ("+ctxTrace+")")
 	} else if route.Intent == guidedNone && inheritTrace && tokenHasPrefix(guidedTokens(norm), "trace") {
@@ -1939,6 +1978,12 @@ func (s *Server) copilotChatGuided(ctx context.Context, emit func(string, any), 
 			rangeS = teamExcDefaultRangeS
 		}
 	}
+	// v0.10.1388 — topoloji varsayılanı son 1 saat (topology_edges_5m kovaları); açık pencere kazanır.
+	if route.Intent == guidedServiceTopology || route.Intent == guidedTraceTopology {
+		if _, explicit := guidedRangeSExplicit(norm); !explicit {
+			rangeS = topoChatDefaultRangeS
+		}
+	}
 	// v0.10.1386 — metrik grafiği varsayılanı son 1 saat (D1; açık pencere 5 dk..24 sa kazanır).
 	if route.Intent == guidedMetricChart {
 		if _, explicit := guidedRangeSExplicit(norm); !explicit {
@@ -2016,6 +2061,10 @@ func (s *Server) runGuidedRoute(ctx context.Context, emit func(string, any), rou
 	// v0.10.688 — endpoint adayları / trace listesi: LLM'siz (endpoint_traces.go).
 	if route.Intent == guidedEndpointCandidates || route.Intent == guidedEndpointTraces {
 		return s.guidedEndpointAnswer(ctx, emit, route, from, to, rangeS)
+	}
+	// v0.10.1388 — servis topolojisi / örnek trace topolojisi: LLM'siz (copilot_service_topology.go).
+	if route.Intent == guidedServiceTopology || route.Intent == guidedTraceTopology {
+		return s.guidedTopologyAnswer(ctx, emit, route, chatUserTexts(msgs), from, to, rangeS)
 	}
 	if route.Intent == guidedOffTopic { // v0.10.819 — LLM'siz kibar sınır + yol tarifi
 		return s.guidedOffTopicAnswer(emit, question, ctxService)

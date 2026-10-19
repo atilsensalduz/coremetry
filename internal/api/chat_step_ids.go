@@ -190,6 +190,10 @@ func withBlockSeq(emit func(string, any), seq *blocks.Sequencer) func(string, an
 			emit("block", seq.Next(blocks.TypeServiceReport, payload))
 			return
 		}
+		if kind == blocks.TypeTopology && seq != nil { // v0.10.1388 — topoloji grafiği (copilot_service_topology.go)
+			emit("block", seq.Next(blocks.TypeTopology, payload))
+			return
+		}
 		// v0.10.1276 (CoSRE adım 7) — guided demetin bileşik araç bloğu
 		// (mcptools.ToolResultBlocks çıktısı: chart/table/trace_list; yük
 		// evidenceRef'iyle adım çipine bağlı). Serbest döngünün blok yoluyla AYNI

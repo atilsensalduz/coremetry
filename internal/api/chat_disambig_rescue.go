@@ -173,7 +173,8 @@ func guidedTelemetrySignal(question string) bool {
 func disambigAskRescuable(ask guidedIntent) bool {
 	switch ask {
 	case guidedRootCause, guidedServiceHealth, guidedWindowCompare, guidedServiceReport, // v0.10.1337 — rapor da servis seçimini bekler
-		guidedMetricChart: // v0.10.1386 — grafik de servis seçimini bekler (wiki cevabı değil)
+		guidedMetricChart,                          // v0.10.1386 — grafik de servis seçimini bekler (wiki cevabı değil)
+		guidedServiceTopology, guidedTraceTopology: // v0.10.1388 — topoloji de servis seçimini bekler
 		return false
 	}
 	return true

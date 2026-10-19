@@ -1,6 +1,6 @@
 // chatBlocks.ts — v0.10.541 (Faz 3.3a): tipli blok biriktirme, SAF.
 // Aynı id ikinci kez gelirse (final güncellemesi) yerine geçer; sıra seq.
-import type { ChatTypedBlock, ChatAnswerLink, CosreChartSpecLike, ChatTraceListPayload, ChatOperationPayload, ChatEvidenceChartPayload, ChatEvidenceTablePayload, ChatServiceReportPayload } from './types';
+import type { ChatTypedBlock, ChatAnswerLink, CosreChartSpecLike, ChatTraceListPayload, ChatOperationPayload, ChatEvidenceChartPayload, ChatEvidenceTablePayload, ChatServiceReportPayload, ChatTopologyPayload } from './types';
 import { isSafeAppPath } from './safeAppPath';
 
 export function appendChatBlock(blocks: ChatTypedBlock[] | undefined, b: ChatTypedBlock): ChatTypedBlock[] {
@@ -97,6 +97,36 @@ export function serviceReportBlocks(blocks: ChatTypedBlock[] | undefined): ChatS
         explainHref: typeof e.explainHref === 'string' && isSafeAppPath(e.explainHref) ? e.explainHref : '',
       })),
       drills: (p.drills ?? []).filter(d => d && typeof d.traceId === 'string' && d.traceId !== ''),
+    });
+  }
+  return out;
+}
+
+/** v0.10.1388 — topoloji bloğu düğüm tavanı (sunucu bütçesi 15; bozuk/aşırı yük düşer). */
+export const TOPOLOGY_BLOCK_MAX_NODES = 60;
+
+/** v0.10.1388 — topoloji grafiği (copilot_service_topology.go). Şekil doğrulanır;
+ *  deepLink isSafeAppPath geçmezse yük düşer; traceHref güvensizse silinir (kart
+ *  kalır, trace linki olmaz); kenarı olmayan ya da >60 düğümlü yük düşer;
+ *  ucu düğüm kümesinde olmayan kenar atılır. SAF. */
+export function topologyBlocks(blocks: ChatTypedBlock[] | undefined): ChatTopologyPayload[] {
+  const out: ChatTopologyPayload[] = [];
+  for (const b of blocks ?? []) {
+    if (b.type !== 'topology') continue;
+    const p = b.payload as ChatTopologyPayload | null;
+    if (!p || typeof p.focus !== 'string' || !p.focus || !Array.isArray(p.nodes) || !Array.isArray(p.edges)) continue;
+    if (p.scope !== 'neighborhood' && p.scope !== 'trace') continue;
+    if (typeof p.deepLink !== 'string' || !isSafeAppPath(p.deepLink)) continue;
+    if (p.nodes.length === 0 || p.nodes.length > TOPOLOGY_BLOCK_MAX_NODES) continue;
+    const ids = new Set(p.nodes.filter(n => n && typeof n.id === 'string').map(n => n.id));
+    const edges = p.edges.filter(e => e && ids.has(e.source) && ids.has(e.target));
+    if (edges.length === 0) continue;
+    out.push({
+      ...p,
+      nodes: p.nodes.filter(n => n && typeof n.id === 'string'),
+      edges,
+      traceHref: typeof p.traceHref === 'string' && isSafeAppPath(p.traceHref) ? p.traceHref : undefined,
+      truncated: { nodes: Number(p.truncated?.nodes) || 0, edges: Number(p.truncated?.edges) || 0 },
     });
   }
   return out;

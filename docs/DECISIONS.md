@@ -7684,3 +7684,67 @@ kırmızıydı. Kontrol artık sayı yerine rol adlarını doğrular (api, inges
 akışının "Gate" adımı `TestChatEvalModeNilIsByteIdentical`'da ara sıra düşüyordu (kayıtlar fire-and-forget goroutine'lerden
 geldiği için yüzey SIRASI değişken) — v0.10.1385 ve v0.10.1386 imajları bu yüzden YAYINLANMADI. Test artık yüzey kümesini
 (sıralı) karşılaştırır; 60 tekrar yeşil.
+
+
+## 2026-10-19 — v0.10.1388 — CoSRE: servis topolojisi ve örnek trace topolojisi (LLM'siz, grafik bloğu)
+
+**Operatör:** "Bu arada topology soranlar da oluyor. Servis topolojisini CoSRE'den yönlendir ya da örnek bir trace'in
+topolojisini çiz o servise ait." + "Operasyon ismine göre de trace bulup topoloji çizebilirsin." **Boşluk:** topoloji
+niyeti yoktu; "payment-service kimleri çağırıyor" guided sinyali taşımadığı için çekmece/RAG/serbest döngüye düşüyor,
+"gelen/giden çağrı" sözcükleri çift (pair) dalına, "POST /api/payments topolojisi" endpoint ön-getirmesine kaçıyordu.
+MCP kataloğu dolu (74) — yeni araç YOK; api.go, route, prompt, kademe sırası DEĞİŞMEDİ.
+
+**Karar (onaylı varsayılanlar: 1 hop, tipli blok + TopologyPillGraph, LLM'siz metin, temsilci trace = en yavaş 10'un
+hatasızları içinde span sayısı medyanı / "hatalı" → en yavaş hatalı, bütçe 15 düğüm / 30 kenar, ⚠ ≥%1 kırmızı ≥%5,
+linkler önce Topology sekmesi sonra Service Map, otomatik açılış yok, kenar gecikmesi p99).** (1) İki router-içi guided
+niyet (`copilot_service_topology.go`; sınıflandırıcı listesinde yok): `service_topology` ve `trace_topology`. Sinyal
+iki katlı: GÜÇLÜ (topolo*/topology/upstream/downstream/bağımlılı*/dependenc*/"servis haritası"/"service map")
+metrik grafiğinden de önce kazanır ("topolojisini çiz, hatalılar" 5xx grafiği değil); ZAYIF (çağıran/çağırıyor/
+çağrılan/komşu/bağımlı/callers/callees/depends/"kime bağlı") metrik grafiğinden SONRA, fan-out/periyot/çift/endpoint
+dallarından ÖNCE denenir ve çift şekli ("A'dan B'ye …") varsa kendi yolunda kalır. "neye bağlı" nedensellik sorusu
+olabildiği için sinyal değil; takım-iyelik kendi yolunda. Trace kipi: trace/örnek/sample kökü ya da operasyon anması;
+"2 adım/iki hop/genişlet" → 2 hop (sohbet tavanı 2), hata sözcüğü → yalnız hatalı. 32-hex id + topoloji sözcüğü →
+o trace'in grafiği; ekrandaki trace + "bu trace'in topolojisi" trace_by_id'ye çevrilmez. Servis: mesaj → tek aday →
+çok aday (ask_service, çip "<svc> topolojisi?" aynı niyete) → ekran servisi → sor. Varsayılan pencere 1 sa (açık
+pencere kazanır). (2) Operasyon anması (SAF `topologyOpMention`): endpoint ("POST /api/payments", URL yolu) →
+"operasyon/operation" sözcüğünün komşusu → BSA kod biçimi (PAYMENT_CREATE); servis/ortam adı operasyon sayılmaz.
+Çözüm ön-getirmenin eşleyicileriyle (`opTokens`/`CatalogCandidates`/`matchOperations`; endpoint için
+`matchEndpoint` + katalogda yoksa yol-yalnız hedef); çok eşleşme → "<op> operasyonunun örnek trace topolojisi"
+çipleri (akış topolojide kalır), eşleşme yok → dürüst "BULUNAMADI". Örnek trace süzgeçleri ön-getirmeyle AYNI:
+`opPrefetchForTarget`'ın süzgeç anahtarı `opTraceFilterSets` olarak MEKANİK çıkarıldı (davranış bayt bayt aynı).
+Oracle-only operasyonun span'i yoksa yeni `chstore.OracleTraceIDsForOperation` (PK öneki source_id+time, son 24 sa,
+≤10 id, LIMIT + max_execution_time) id'leri Tempo-önce (`resolveTraceSpans`, en çok 3 deneme) çözülür (v0.10.1369/
+1370 deseni). (3) Operasyon ön-getirme kademesi (guided'dan önce) topoloji sözcüğü taşıyan mesajı sahiplenmez
+(`topologyVetoesOpPrefetch`, ilk okumadan önce — kaynak pinli); kademe sırası aynı (TestChatTierOrderIsPinned).
+Topoloji sözcüğü olmayan operasyon sorusu bugünkü ön-getirmede; o cevabın takip çiplerine "<op> örnek trace
+topolojisi" (`op_topology`, exception grubundan hemen sonra) eklendi. (4) Servis demeti: `ReadServiceTopologyAggForFocus`
+(≤2000 kenar) → `filterHiddenTopologyEdges` → `DbNamesBySystem` → `buildServiceGraphWith` (Service Map'in kurucusu,
+ext-merge) → SAF `topoChatBudget` (odak kalır; önce doğrudan kenarlar çağrı sayısıyla, sonra 2. adım; kenar ancak iki
+ucu düğüm bütçesine sığarsa; eonly hatasız kenarları düşürür, kesim sayılmaz). Önbellek 60 sn, anahtar
+`copilot:topo:v1:<FNV(servis, hop, eonly, from/5dk, to/5dk, gizli desen özeti)>`. Metin deterministik: başlık
+"<svc> topolojisi (son 1sa, 1 hop · N komşu, M kenar)", ÇAĞIRANLAR / BAĞIMLILIKLAR / 2. ADIM satırları "ad → çağrı ·
+hata % ⚠ · p99 (protokol) via host", (dış)/(veritabanı)/(kuyruk) etiketi, bütçe notu, "kenar gecikmesi p99; ortam
+topolojide süzgeç DEĞİL" notu; kenar yoksa olası nedenler (mcptools topologyEmptyReasons'ın Türkçe ikizi), okuma hatası
+"OKUNAMADI ≠ kenar yok". (5) Trace demeti: SAF `traceTopologyEdges` — ebeveyniyle servisi farklı her span bir çağrı;
+başka servise çocuğu olmayan CLIENT/PRODUCER span `tracechain.PeerOf` hedefine (db:<sistem> / queue:<sistem>:<hedef> /
+ext:<host>; bilinen servise ext-merge katlar); hata = `tracechain.SpanFailure` status error ya da HTTP ≥500; kenar
+çağrı = span adedi, AvgMs ortalama, P99Ms en uzun çağrı. Graf aynı kurucudan (Scope "trace"), aynı bütçe; önbellek 5 dk
+(trace id + odak). Metin "Örnek trace (<op>): <id12> · <kök op> · <süre> · N span · M servis (kaynak: CH|Tempo)" +
+"A → B  3 çağrı · 1 hata · 420 ms toplam"; aday trace'ler ayrıca `trace_list` bloğu. (6) Blok: `blocks.TypeTopology =
+"topology"` (withBlockSeq sıralayıcısı), yük `topologyBlockPayload` / TS `ChatTopologyPayload` (focus, scope, hops,
+window, rangeS, nodes GraphNode[], edges GraphEdge[], deepLink, traceId/traceHref, operation, truncated, errorsOnly,
+note). FE: `lib/chatBlocks.ts topologyBlocks` (şekil kapısı, deepLink/traceHref isSafeAppPath, ≤60 düğüm, ucu
+bilinmeyen kenar atılır), `components/ai/ChatTopologyCard.tsx` (ev-card; Topology sekmesinin `TopologyPillGraph`'ı;
+sütunlar komşulukta `assignFocusColumns`, trace'te kökten BFS — saf `chatTopologyView.ts`; düğüm tık →
+`nodeDetailHref`; "Topology'de aç" / "Trace'i aç" Link; ham düğme yok), ChatBubble diğer bloklardan sonra.
+(7) Takip (tavan 4): "2 adım genişlet" ↔ "1 adıma daralt", "Örnek trace topolojisi", "Hatalı bağımlılıklar" (eonly ya da
+hatalı kenar yoksa yok), ⚠ servis komşularının (≤2) sağlığı; trace kipinde "Servis topolojisi", "Bu trace'i açıkla",
+"Hatalı örnek trace". "sadece hatalı olanlar" bağlam kipi topoloji rotasını eonly'ye çevirir. Linkler: (trace) →
+"<svc> · Topology" (`tab=topology`, hops yalnız ≠2 iken, `eonly=1`) → "Service Map" (`/service-map?focus=`) →
+Overview; pencere tek çıkışta (applyAll). Ürün kılavuzunun topoloji adımı yeni cümleyle güncellendi. Salt-okur ve
+LLM'siz (anlatım çağrısı, ai_calls satırı yok; noteRoute rotayı yine etiketler). Testler:
+`copilot_service_topology_test.go` (TR/EN rota tablosu + çift/metrik grafiği/sağlık negatifleri + veto, hop, operasyon
+anması, bütçe, metin, trace grafı, temsilci seçimi, linkler, çiplerin yönlenmesi, op_topology çipi, önbellek anahtarı
+tüm girdiler, blok sıralayıcısı, salt-okur, veto sırası pini), `chstore/oracle_op_traces_test.go`,
+`lib/chatBlocks.topology.test.ts`, `components/ai/ChatTopologyCard.test.tsx`; güncellenen pin:
+`TestFollowupTemplatesRouteGuided` (op_topology türü).

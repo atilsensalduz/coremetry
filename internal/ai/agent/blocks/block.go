@@ -27,6 +27,9 @@ const (
 	// (api/copilot_service_report.go): hüküm, operasyonlar, teknik hatalar,
 	// trace kırılımları + o trace'lerin logları, link çipleri.
 	TypeServiceReport = "service_report"
+	// TypeTopology — v0.10.1388: CoSRE servis topolojisi / örnek trace
+	// topolojisi grafiği (api/copilot_service_topology.go; FE ChatTopologyCard).
+	TypeTopology = "topology"
 )
 
 // Sequencer — bir turn içinde blok kimliği/sırası. SAF: emit'e verilecek

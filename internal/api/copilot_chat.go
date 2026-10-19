@@ -654,7 +654,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	hypOffered := false  // v0.10.1288 — tur başına en çok bir "hipotezi doğrula" aksiyonu
 	// v0.10.1291 — kural-türevli takip çiplerinin olguları (chat_followup_chips.go);
 	// yalnız başarılı, veri döndüren araç sonuçlarından toplanır.
-	fuFacts := opPre.exceptionFollowupFacts() // v0.10.1331 — operasyonun en yeni Exceptions grubu (nil → yok)
+	fuFacts := opPre.followupFacts() // v0.10.1331 Exceptions grubu + v0.10.1388 "<op> örnek trace topolojisi" (nil → yok)
 	// v0.10.1050 — okunan kodun MASKELİ özetleri (ai_calls örneği; kod yok).
 	var codeReads []string
 	// v0.10.948 — trace takibinin sayı denetimi kanıtı: sunucu bağlamı + operatör
