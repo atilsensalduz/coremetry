@@ -203,6 +203,13 @@ func TestRenderTraceDrillTRGolden(t *testing.T) {
 	if got := renderTraceDrillTR(d5); !strings.Contains(got, "[servis: osb-gateway]") {
 		t.Errorf("başka servis adı yazılmalı: %s", got)
 	}
+	// v0.10.1373 — şekil doluysa satırın sonuna eklenir (Spans==0 → bayt bayt eski).
+	d6 := d
+	d6.Shape = traceShapeStats{Spans: 148, WallNs: 2_300_000_000, DB: shapeShare{Count: 92, SumNs: 1_800_000_000, Share: 0.78},
+		Repeats: []shapeRepeat{{Name: "SELECT orders.order_item", Count: 46, AvgNs: 19_000_000}, {Name: "GET /x", Count: 12, AvgNs: 35_000_000}}}
+	if got := renderTraceDrillTR(d6); got != want+". Şekil: 148 span · DB 92 span / 1,8 s (%78) · tekrar: SELECT orders.order_item ×46 (ort 19 ms), GET /x ×12 (ort 35 ms)" {
+		t.Errorf("şekil golden:\n got %s", got)
+	}
 }
 
 func TestRenderTraceDrillsTRSharedTarget(t *testing.T) {

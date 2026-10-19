@@ -54,7 +54,8 @@ var httpVerbSet = map[string]bool{"GET": true, "POST": true, "PUT": true, "PATCH
 func isHTTPVerb(s string) bool { return httpVerbSet[strings.ToUpper(s)] }
 
 // cleanEndpointPath — SAF: Türkçe ek (kesme işaretinden sonrası), sorgu /
-// fragman, sondaki noktalama ve sondaki "/" atılır.
+// fragman, sondaki noktalama ve sondaki "/" atılır. v0.10.1373 — sondaki
+// Markdown vurgu sarmalayıcısı (`*…*`, `_…_`) da atılır (trimWrapSuffix).
 func cleanEndpointPath(p string) string {
 	if i := strings.IndexAny(p, "'’"); i >= 0 {
 		p = p[:i]
@@ -63,6 +64,7 @@ func cleanEndpointPath(p string) string {
 		p = p[:i]
 	}
 	p = strings.TrimRight(p, ".,;:!)]>\"`")
+	p = strings.TrimRight(trimWrapSuffix(p), ".,;:!)]>\"`") // v0.10.1373 — "*/x/y.*" → "/x/y"
 	for len(p) > 1 && strings.HasSuffix(p, "/") {
 		p = strings.TrimSuffix(p, "/")
 	}
@@ -91,12 +93,45 @@ func validEndpointPath(p string) bool {
 	return false
 }
 
+// trimWrapSuffix — SAF (v0.10.1373): sondaki `*` / `_` dizisi yalnız ÖNÜNDEKİ
+// karakter "/" DEĞİLSE sarmalayıcıdır ve atılır: "/x/y*" → "/x/y", ama
+// "/users/:id/orders/*" ve "/x/**" joker parçası olarak kalır.
+func trimWrapSuffix(tok string) string {
+	end := len(tok)
+	for end > 0 && (tok[end-1] == '*' || tok[end-1] == '_') {
+		end--
+	}
+	if end == len(tok) || end == 0 || tok[end-1] == '/' {
+		return tok
+	}
+	return tok[:end]
+}
+
+// stripMarkdownWrap — SAF (v0.10.1373, operator-reported): Markdown vurgu
+// sarmalayıcısı (`*/yol*`, `**/yol**`, `_/yol_`) belirteçten atılır. Baştaki
+// `*`/`_` her zaman, sondaki yalnız trimWrapSuffix kuralıyla. Hem anma
+// (endpointMention) hem veto (endpointMentionVetoed) aynı kırpmayı görür.
+func stripMarkdownWrap(tok string) string {
+	return trimWrapSuffix(strings.TrimLeft(tok, "*_"))
+}
+
+// stripMarkdownWrapText — SAF (v0.10.1373): metnin her belirtecine
+// stripMarkdownWrap; ayraç tek boşluk.
+func stripMarkdownWrapText(raw string) string {
+	fields := strings.Fields(raw)
+	for i, f := range fields {
+		fields[i] = stripMarkdownWrap(f)
+	}
+	return strings.Join(fields, " ")
+}
+
 // endpointMention — SAF: mesajdaki ilk endpoint anması. method büyük harfe
-// çevrilir ("" = fiil yok), path ham metnin harfiyle.
+// çevrilir ("" = fiil yok), path ham metnin harfiyle. v0.10.1373 — `*…*` /
+// `_…_` ile sarılı yol da anmadır (eskiden "*/yol*" belirteci atlanıyordu).
 func endpointMention(raw string) (method, path string, ok bool) {
 	fields := strings.Fields(raw)
 	for i, f := range fields {
-		tok := strings.TrimLeft(f, "\"'`(<[")
+		tok := stripMarkdownWrap(strings.TrimLeft(f, "\"'`(<[")) // v0.10.1373 — "*" ve "_" sarmalayıcı
 		lower := strings.ToLower(tok)
 		var p string
 		switch {
@@ -134,13 +169,61 @@ func endpointChipShape(norm string) bool {
 // endpointMentionVetoed — SAF: mesaj endpoint_candidates / endpoint_traces
 // şeklindeyse (listele/sor akışı) anma aşaması sahiplenmez. Belirsizlik çipi
 // muaf (kendi "endpoint" sözcüğü taşır ama hedefi tektir).
-func endpointMentionVetoed(raw string) bool {
+//
+// v0.10.1373 (operator-reported) — "*/…/yol* … çağrılıyor, tekrar eden DB
+// çağrılarına bak" soruyu ANALİZ istiyordu ama "çağrı" kökü istek sinyali
+// sayılıp veto ediliyordu. Veto artık yalnız SAF liste/getir şeklinde:
+// onaylı trace isteği (yol + trace kökü) ya da getir/listele/göster/bul/aç
+// fiili, VE analiz ipucu yok (hasAnalysisCue; envs canlı ortam adları).
+// Yol Markdown sarmalayıcısı atılmış metin üzerinde aranır.
+func endpointMentionVetoed(raw string, envs []string) bool {
 	norm := normalizeGuidedMsg(raw)
 	if endpointChipShape(norm) {
 		return false
 	}
-	_, _, ok := extractEndpointRequest(raw, norm, guidedTokens(norm), nil, nil, "")
-	return ok
+	clean := stripMarkdownWrapText(raw)
+	cnorm := normalizeGuidedMsg(clean)
+	toks := guidedTokens(cnorm)
+	_, confirmed, ok := extractEndpointRequest(clean, cnorm, toks, nil, nil, "")
+	if !ok || hasAnalysisCue(toks, envs) {
+		return false
+	}
+	return confirmed || hasFetchVerb(toks)
+}
+
+// epFetchStems / epFetchWords — v0.10.1373: listele/getir fiilleri. "bul" ve
+// "aç" yalnız TAM sözcük ("bulunamadı", "açıkla" fiil değil).
+var (
+	epFetchStems = []string{"getir", "listele", "göster", "goster"}
+	epFetchWords = []string{"bul", "aç", "ac"}
+)
+
+// hasFetchVerb — SAF (v0.10.1373).
+func hasFetchVerb(toks []string) bool {
+	return tokenHasPrefix(toks, epFetchStems...) || anyToken(toks, epFetchWords...)
+}
+
+// epAnalysisStems — v0.10.1373: analiz ipucu kökleri (tekrar / DB / yavaşlık /
+// neden / kıyas / küme / süre / analiz). "çağrı" BURADA DEĞİL — o istek
+// sinyalidir; "X çağrılarını getir" listesi korunur.
+var epAnalysisStems = []string{
+	"tekrar", "db", "sql", "veritaban", "yavaş", "yavas", "neden", "niye", "kıyas", "kiyas",
+	"karşılaştır", "karsilastir", "cluster", "küme", "kume", "uzama", "uzun", "süre", "sure",
+	"analiz", "incele",
+}
+
+// hasAnalysisCue — SAF (v0.10.1373): analiz kökü ya da canlı bir ortam adı
+// (ortam anan soru kıyas/analizdir, liste değil).
+func hasAnalysisCue(toks []string, envs []string) bool {
+	if tokenHasPrefix(toks, epAnalysisStems...) {
+		return true
+	}
+	for _, e := range envs {
+		if le := strings.ToLower(e); len(le) >= 2 && anyToken(toks, le) {
+			return true
+		}
+	}
+	return false
 }
 
 var (

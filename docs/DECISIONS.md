@@ -7218,3 +7218,38 @@ hakkı (md. 3), marka/ad kullanımına izin vermediğini açıkça söyler (md. 
 OpenTelemetry ve CNCF projeleriyle aynı lisans. MIT kodu Apache 2.0 altında dağıtılabildiği için mevcut katkılar dahil
 geçiş mümkün; v0.10.1371 ve öncesi MIT olarak yayımlandı ve o kopyalar MIT kalır (NOTICE). LICENSE = apache.org'un kanonik
 metni (GitHub lisans tespiti için değiştirilmedi); telif satırı NOTICE'ta. README rozeti ve "License" bölümü güncellendi.
+
+## 2026-10-19 — v0.10.1373 — CoSRE: `*…*` içindeki endpoint yolu tanınır; trace şekli (tekrar/DB) drill'e girer
+
+**Operator-reported:** iki prod CoSRE sohbeti, Markdown yıldızlarıyla sarılı bir endpoint yolu (`*/…/…/detail*` biçimi)
+için "hem <bölge-1>(<küme-a>, <küme-b>) hem <bölge-2>(<küme-c>) kümelerinde çağrılıyor" diyordu; kullanıcılar tekrar eden
+DB/servis çağrılarının analizini istiyordu. Biri guided `trace_search`'e gitti (arama metni cümle PARÇASI, ortam tek küme,
+0 trace); diğeri `endpoint_candidates` → `errEndpointsMVEnv` → intent kademesi "Hangi servisi kastettin?" oldu.
+**Kök nedenler:** (a) `endpointMention` belirteci `TrimLeft("\"'`(<[")` ile kırpıyordu, `*` yoktu → "*/yol*" anma
+sayılmadı; kırpılsa da `endpointMentionVetoed` → `extractEndpointRequest` (`endpointPathRe` `(?:^|\s)/` "*/"de düşüyor,
+belirteç döngüsünde "çağrı" kökü istek sinyali) soruyu liste isteği sayıp veto ediyordu; yol katalogda yoksa
+(H1: rota yalnız `url.path`/`http.target`'ta — katalog kaynakları `operation_summary_5m.name` + `spanmetrics_1m.http_route`;
+H2: `CatalogCandidates` 3 sn tavanında düştü, hata sessizce yutuldu) belirteç yoluna sessizce düşüyordu. (b) `extractTraceSearch`
+tırnaksız parçayı "içinde"den cümle sonuna kadar alıyordu; sondaki "." `traceSearchValueOK`'u geçiriyordu → literal arama.
+(c) `extractEnvEntity` tek değer: eşit uzunluktaki küme adlarında liste sırası (en yoğun) kazanıyor, diğerleri sessizce
+düşüyordu. (b′) `guidedEndpointAnswer` env'li adayları `GetEndpointsMV`'den okuyordu; MV env'i reddeder (v0.8.385) →
+`return false` → intent kademesi.
+**Karar:** (A) `stripMarkdownWrap` — baştaki `*`/`_` her zaman, sondaki yalnız önündeki karakter "/" değilse atılır
+(`/users/:id/orders/*` jokeri kalır); veto yalnız SAF liste/getir şeklinde (onaylı trace isteği ya da getir/listele/göster/
+bul/aç) VE analiz ipucu (`hasAnalysisCue`: tekrar/db/sql/yavaş/neden/kıyas/küme/süre/analiz… + canlı ortam adı) yokken;
+`endpointPathRe` baştaki `*`'ı kabul eder; soru sözcüğü yol taşıyan mesajı endpoint kademesinden atmaz. Katalog boş /
+hatalı / eşleşmesiz → YOL-YALNIZ hedef (`endpoint_path`): RED ölçülmez ve özet bunu söyler ("RED ölçülemedi (rota katalogda
+yok; url.path üzerinden arandı)"), trace'ler `TraceFilter.Search` ile (elips/joker parçalarında bölünmüş yol metni, hatalı
+önce), servis yalnız TEK adayda daraltılır, rota exception okuması yapılmaz; log sinyalli mesaj bugünkü yolunda kalır.
+Katalog okuması `operation_catalog` çipinde görünür (endpoint anmasında her zaman, belirteç yolunda yalnız hata). (B) saf
+`extractEnvSet` (mesaj sırası, tekil, sınırlı, ≤6, <2 → nil); guided ≥2 ortamda `Env=""` + `guidedRoute.EnvSet`, ekran env'i
+devralınmaz, "ortamlar: … (tek ortama daraltılmadı)" bağlam çipi; guided endpoint adayları `GetEndpoints` (env → ham yol).
+(C) saf `traceShape` (span sayısı, ≥2 tekrar eden adlar ≤5, DB/istemci öz-süre payı ≤1, farklı hedef) `traceDrillFor`'da
+aynı `BuildTraceAnalysis`'ten (ek I/O yok); kırılım satırı "Şekil: N span · DB n span / 1,8 s (%78) · tekrar: SELECT … ×46
+(ort 19 ms)" ile biter (≤3 tekrar, ad ≤48 rune). (D) tırnaksız trace arama parçası ≤4 sözcük + değer şekli (SQL muaf);
+geçmezse anılan endpoint yolu aranır. Testler: `api/cosre_endpoint_wrap_test.go` + `TestEndpointMention`,
+`TestRenderTraceDrillTRGolden`, `TestOpPrefetchDrillUnderModelClamp` ekleri. Sohbet kademe sırası, MCP araç sayısı ve
+api.go değişmedi.
+**Ertelendi (v0.10.1374 — küme kıyası):** ≥2 ortam anan endpoint hedefinde ortam başına RED (`RouteREDByEnv`, tek ham
+sorgu GROUP BY deploy_env), ortam başına en yavaş trace'ler + şekil, deterministik "KÜME KIYASI" bloğu ve prompt eki
+(`operationClusterCompareAddendum`). Bu sürümde çok ortamlı soru tüm ortamlarda okunur ve bunu söyler; kıyas yapılmaz.

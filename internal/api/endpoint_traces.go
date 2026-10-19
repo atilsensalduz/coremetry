@@ -7,7 +7,8 @@ package api
 // İki rota, ikisi de LLM'siz (find_entity emsali):
 //   endpoint_candidates — ipucu (istek/endpoint/çağrı/request) + tanımlayıcı
 //     token → son 1 sa'te http.route'unda token geçen endpoint'ler
-//     (GetEndpointsMV Search: positionCaseInsensitive), ≤8 aday; cevap
+//     (GetEndpointsMV Search: positionCaseInsensitive; v0.10.1373'ten beri
+//     GetEndpoints — env doluysa ham yol), ≤8 aday; cevap
 //     adayları listeler ve SORAR. Tek adayda da sorar (operatör kararı).
 //   endpoint_traces — onay: "evet/tamam/hepsi/olur/ok/getir" (LastRoute
 //     endpoint_candidates iken) ya da aday çipi "/yol trace'lerini getir"
@@ -72,15 +73,20 @@ var endpointStopWords = map[string]bool{
 	"gelenler": true, "gidenler": true, "geçen": true, "gecen": true, "içinde": true, "icinde": true,
 }
 
-var endpointPathRe = regexp.MustCompile(`(?:^|\s)(/[A-Za-z0-9._~%{}\-]+(?:/[A-Za-z0-9._~%{}\-]*)*)`)
+// v0.10.1373 — baştaki `*` (Markdown vurgusu "*/yol*") da yol başlangıcıdır.
+var endpointPathRe = regexp.MustCompile(`(?:^|\s|\*)(/[A-Za-z0-9._~%{}\-]+(?:/[A-Za-z0-9._~%{}\-]*)*)`)
 
 func hasEndpointRequestSignal(toks []string) bool { return tokenHasPrefix(toks, endpointCueStems...) }
 
 // extractEndpointRequest — SAF. raw: orijinal metin (yol harfini korumak için);
 // norm: normalizeGuidedMsg; toks: guidedTokens(norm). ok=false → bu kademe
 // değil. confirmed=true → doğrudan trace listesi (yol + trace kökü).
+//
+// v0.10.1373 — soru sözcüğü ("neden", "mi") yol TAŞIYAN mesajı artık bu kademeden
+// atmaz: yol dalı yine denenir (yolsuz mesajda kısa devre aynen).
 func extractEndpointRequest(raw, norm string, toks []string, services, envs []string, svc string) (query string, confirmed, ok bool) {
-	if len(toks) == 0 || anyToken(toks, questionWords...) {
+	pathM := endpointPathRe.FindStringSubmatch(raw)
+	if len(toks) == 0 || (pathM == nil && anyToken(toks, questionWords...)) {
 		return "", false, false
 	}
 	// Çift ŞEKLİ ("A'dan B'ye giden istekler") pair_requests'e kalır; sinyal
@@ -88,7 +94,7 @@ func extractEndpointRequest(raw, norm string, toks []string, services, envs []st
 	if _, _, pair := splitPairFragments(raw); pair {
 		return "", false, false
 	}
-	if m := endpointPathRe.FindStringSubmatch(raw); m != nil && len(m[1]) >= 3 {
+	if m := pathM; m != nil && len(m[1]) >= 3 {
 		switch {
 		case tokenHasPrefix(toks, "trace"):
 			return m[1], true, true
@@ -322,7 +328,10 @@ func (s *Server) guidedEndpointAnswer(ctx context.Context, emit func(string, any
 	}
 	listEndpoints := func(step string) ([]endpointCandidate, error) {
 		n := emitGuidedStep(emit, step, withEnvArg(fmt.Sprintf(`{"search":%q,"limit":%d,"range_s":%d}`, query, endpointCandidatesMax, rangeS), route.Env))
-		rows, err := s.store.GetEndpointsMV(ctx, chstore.EndpointsQuery{From: from, To: to, Env: route.Env, Search: query, Limit: endpointCandidatesMax, Sort: "calls", Dir: "desc"})
+		// v0.10.1373 (operator-reported) — GetEndpoints: env doluysa ham yola
+		// dağıtır (v0.8.385). GetEndpointsMV env'i REDDEDER (errEndpointsMVEnv) →
+		// cevap intent kademesine düşüp "Hangi servisi kastettin?" diyordu.
+		rows, err := s.store.GetEndpoints(ctx, chstore.EndpointsQuery{From: from, To: to, Env: route.Env, Search: query, Limit: endpointCandidatesMax, Sort: "calls", Dir: "desc"})
 		if err != nil {
 			emitGuidedStepResult(emit, n, step, "", err)
 			return nil, err

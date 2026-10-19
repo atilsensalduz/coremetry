@@ -169,6 +169,11 @@ type opTarget struct {
 	HasRoute     bool
 	Endpoint     bool // endpoint anma aşamasından geldi
 	Alternatives []opAlternative
+	// SearchPath — v0.10.1373 (operator-reported): anılan yol katalogda YOK
+	// (rota yalnız url.path/http.target'ta ya da katalog okuması düştü) →
+	// yol-yalnız hedef: RED ölçülmez, trace'ler yol metniyle aranır
+	// (endpointPathOnlyTarget). "" = katalog hedefi (bayt bayt eski yol).
+	SearchPath string
 }
 
 // opTargetFor — SAF.
@@ -235,8 +240,11 @@ type opPrefetch struct {
 	// GİRMEZ, seed()'in ikinci sentetik tool çifti.
 	Drill         string `json:"-"`
 	drillArgsJSON string
-	endpoint      bool // endpoint anma aşamasından geldi
-	argsJSON      string
+	// searchText — v0.10.1373: yol-yalnız hedefin trace arama metni
+	// (pathSearchText); "" = katalog hedefi.
+	searchText string
+	endpoint   bool // endpoint anma aşamasından geldi
+	argsJSON   string
 	// codeKey — v0.10.1297: operasyon span'lerde yok, köprü fonksiyon kodu
 	// (Oracle katalog satırı) → span anahtarının yazımı; "" = span operasyonu
 	// ya da kod yok (döngü linkleri yeniden yazılmaz).
@@ -302,12 +310,18 @@ func (p *opPrefetch) summary() string {
 		if route == "" {
 			_, route = splitSpanVerb(p.Operation)
 		}
-		fmt.Fprintf(&b, "Endpoint: %s · %s\n", strings.TrimSpace(p.Method+" "+route), strings.Join(p.Services, ", "))
+		if len(p.Services) == 0 { // v0.10.1373 — yol-yalnız hedef, servis tek adaya çözülmedi
+			fmt.Fprintf(&b, "Endpoint: %s · servis belirsiz (tüm servislerde arandı)\n", strings.TrimSpace(p.Method+" "+route))
+		} else {
+			fmt.Fprintf(&b, "Endpoint: %s · %s\n", strings.TrimSpace(p.Method+" "+route), strings.Join(p.Services, ", "))
+		}
 		if len(p.Services) > 0 {
 			b.WriteString(renderEndpointAlternativesTR(p.Alternatives, p.Services[0]))
 		}
 	}
-	if p.Current.Measured {
+	if p.searchText != "" { // v0.10.1373 — yol-yalnız hedef
+		fmt.Fprintf(&b, "RED ölçülemedi (rota katalogda yok; url.path üzerinden arandı: %q).\n", p.searchText)
+	} else if p.Current.Measured {
 		c, pr := p.Current, p.Previous
 		fmt.Fprintf(&b, "Çağrı %d (önceki eşit pencere %d, %s) · hata oranı %%%.2f (önce %%%.2f) · p99 %.0f ms (önce %.0f ms, %s)\n",
 			c.Calls, pr.Calls, opPctDelta(float64(c.Calls), float64(pr.Calls)), c.ErrorRate()*100, pr.ErrorRate()*100,
@@ -377,6 +391,11 @@ func opTracesHref(t opTarget, spanKey string, from, to time.Time) string {
 	q := url.Values{}
 	q.Set("range", fmt.Sprintf("custom:%d-%d", from.UnixMilli(), to.UnixMilli()))
 	switch {
+	case t.SearchPath != "": // v0.10.1373 — yol-yalnız: serbest arama
+		q.Set("search", pathSearchText(t.SearchPath))
+		if len(t.Services) == 1 {
+			q.Set("service", t.Services[0])
+		}
 	case t.HasSpan:
 		q.Set("op", t.Name)
 		if len(t.Services) == 1 {
@@ -494,6 +513,9 @@ func (s *Server) chatOperationPrefetch(ctx context.Context, emit func(string, an
 			return nil, false
 		}
 		cands, err := s.store.CatalogCandidates(pctx, toks, opCandidateLimit)
+		if err != nil { // v0.10.1373 — katalog okuması düştü (3 sn tavanı): sessiz değil, çipte görünür
+			emitCatalogStep(emit, toks, 0, err)
+		}
 		if err != nil || len(cands) == 0 {
 			return nil, false
 		}
@@ -548,6 +570,12 @@ func (s *Server) opPrefetchForTarget(pctx context.Context, emit func(string, any
 	if t.HasRoute {
 		argm["route"] = t.Route
 	}
+	search := "" // v0.10.1373 — yol-yalnız hedefin trace arama metni
+	if t.SearchPath != "" {
+		search = pathSearchText(t.SearchPath)
+		p.searchText = search
+		argm["search"] = search
+	}
 	args, _ := json.Marshal(argm)
 	p.argsJSON = string(args)
 	n := emitGuidedStep(emit, opPrefetchTool, p.argsJSON)
@@ -569,6 +597,8 @@ func (s *Server) opPrefetchForTarget(pctx context.Context, emit func(string, any
 	}
 	var filters [][]chstore.FilterExpr
 	switch {
+	case search != "": // v0.10.1373 — süzgeçsiz, yalnız Search (RED yok: Measured=false)
+		filters = append(filters, nil)
 	case t.HasSpan:
 		filters = append(filters, []chstore.FilterExpr{{Key: "name", Op: "=", Values: []string{t.Name}}})
 	case t.HasRoute:
@@ -581,7 +611,7 @@ func (s *Server) opPrefetchForTarget(pctx context.Context, emit func(string, any
 	var sets [][]chstore.TraceRow
 	for _, errorsOnly := range []bool{true, false} { // önce hatalılar
 		for _, fx := range filters {
-			f := traceSearchFilter(svc, "", "", false, from, to)
+			f := traceSearchFilter(svc, "", search, false, from, to)
 			f.Filters, f.HasError, f.Limit = fx, errorsOnly, opTraceLimit
 			if rows, _, _, terr := s.store.GetTraces(pctx, f); terr == nil {
 				sets = append(sets, rows)
@@ -626,14 +656,35 @@ func (s *Server) opPrefetchForTarget(pctx context.Context, emit func(string, any
 // resolveEndpointMention — v0.10.1343: endpoint anma aşaması. ok=true → hedef
 // seçildi; handled=true → belirsizlik çipleri yayınlandı (tur biter); ikisi de
 // false → bugünkü belirteç yolu. Veto: listele/sor şekli (endpointMentionVetoed).
+//
+// v0.10.1373 (operator-reported) — yol anıldı, veto yok ama katalog adayı yok
+// (H1: rota yalnız url.path/http.target'ta, katalog kaynakları
+// operation_summary_5m.name + spanmetrics_1m.http_route; H2: katalog okuması 3 sn
+// tavanında düştü) ya da hiçbir aday yolu eşlemedi → eskiden sessizce belirteç
+// yoluna düşüyordu. Artık yol-yalnız hedef (endpointPathOnlyTarget, kind
+// endpoint_path); katalog okuması operation_catalog çipinde görünür.
 func (s *Server) resolveEndpointMention(pctx, ctx context.Context, emit func(string, any), raw string) (t opTarget, kind string, handled, ok bool) {
 	method, path, mentioned := endpointMention(raw)
-	if !mentioned || endpointMentionVetoed(raw) {
+	if !mentioned {
 		return t, "", false, false
 	}
-	cands, err := s.store.CatalogCandidates(pctx, endpointCatalogTokens(path), opCandidateLimit)
-	if err != nil || len(cands) == 0 {
+	envs := s.guidedEnvNames(pctx) // v0.10.1373 — ortam anan soru analizdir (veto değil)
+	if endpointMentionVetoed(raw, envs) {
 		return t, "", false, false
+	}
+	// pathOnly — v0.10.1373: yol-yalnız geri dönüş. Log sorusu ("/var/log/x'te
+	// hata", "/yol logları") bugünkü yolunda kalır (log kademesi).
+	pathOnly := func() (opTarget, string, bool, bool) {
+		if !endpointPathOnlyAllowed(raw) {
+			return opTarget{}, "", false, false
+		}
+		return endpointPathOnlyTarget(raw, method, path, s.guidedServiceNames(pctx), envs), endpointPathKind, false, true
+	}
+	toks := endpointCatalogTokens(path)
+	cands, err := s.store.CatalogCandidates(pctx, toks, opCandidateLimit)
+	emitCatalogStep(emit, toks, len(cands), err) // v0.10.1373 — gözlemlenebilirlik
+	if err != nil || len(cands) == 0 {
+		return pathOnly()
 	}
 	m := matchEndpoint(method, path, cands, endpointServiceHint(raw, path, cands))
 	switch {
@@ -653,7 +704,69 @@ func (s *Server) resolveEndpointMention(pctx, ctx context.Context, emit func(str
 		})
 		return t, "", true, false
 	}
-	return t, "", false, false
+	// v0.10.1373 — adaylar var ama hiçbiri yolu eşlemedi: yol katalogda yok.
+	return pathOnly()
+}
+
+// endpointPathOnlyAllowed — SAF (v0.10.1373): log sinyali taşıyan mesaj
+// yol-yalnız hedefe çevrilmez (dosya yolu / log sorusu log kademesine kalır).
+func endpointPathOnlyAllowed(raw string) bool {
+	return !hasLogSignal(guidedTokens(normalizeGuidedMsg(raw)))
+}
+
+// endpointPathKind — v0.10.1373: yol-yalnız hedefin eşleşme türü.
+const endpointPathKind = "endpoint_path"
+
+// opCatalogTool — v0.10.1373: katalog okumasının adım çipi.
+const opCatalogTool = "operation_catalog"
+
+// emitCatalogStep — v0.10.1373 (A4): katalog okuması çipi {tokens} + sonuç
+// ("N aday" / "0 aday" / hata). Davranış değiştirmez; H2 (3 sn tavanı) artık
+// sessiz değil.
+func emitCatalogStep(emit func(string, any), toks []string, n int, err error) {
+	args, _ := json.Marshal(map[string]any{"tokens": toks})
+	i := emitGuidedStep(emit, opCatalogTool, string(args))
+	emitGuidedStepResult(emit, i, opCatalogTool, fmt.Sprintf("%d aday", n), err)
+}
+
+// endpointPathOnlyTarget — SAF (v0.10.1373): katalogda olmayan anılmış yolun
+// okuma hedefi. Servis yalnız TEK aday varsa daraltılır: önce yol çıkarılmış
+// metinde sınırlı tam ad (extractServiceFullName — tireli ad parça eşine
+// oturmaz), sonra serviceCandidates; 2+ aday → servissiz (yanlış servise
+// daraltıp 0 trace dönmektense geniş arama).
+func endpointPathOnlyTarget(raw, method, path string, services, envs []string) opTarget {
+	t := opTarget{Name: path, Method: strings.ToUpper(method), Endpoint: true, SearchPath: path}
+	rest := normalizeGuidedMsg(stripMarkdownWrapText(strings.Replace(raw, path, " ", 1)))
+	if svc := extractServiceFullName(rest, services); svc != "" {
+		t.Services = []string{svc}
+	} else if c := serviceCandidates(rest, services, envs, guidedServiceAskMax); len(c) == 1 {
+		t.Services = c
+	}
+	return t
+}
+
+// pathSearchText — SAF (v0.10.1373): yol-yalnız hedefin trace arama metni.
+// Elips ("..." / "…") ve joker/şablon parçaları ({id}, :id, *, **) url.path'te
+// birebir geçmez; yol o parçalarda bölünür ve parçalar boşlukla birleşir —
+// TraceFilter.Search TÜM belirteçleri (harf duyarsız alt-dize) arar:
+// "/shop/.../detail" → "/shop/ /detail".
+func pathSearchText(path string) string {
+	segs := strings.Split(path, "/")
+	for i, sg := range segs {
+		if sg == "..." || sg == "…" || isPlaceholderSegment(sg) {
+			segs[i] = "\x00"
+		}
+	}
+	var parts []string
+	for _, piece := range strings.Split(strings.Join(segs, "/"), "\x00") {
+		if strings.ContainsFunc(piece, func(r rune) bool { return r != '/' }) {
+			parts = append(parts, piece)
+		}
+	}
+	if len(parts) == 0 {
+		return path
+	}
+	return strings.Join(parts, " ")
 }
 
 // epExResult — endpoint exception okumasının goroutine sonucu.
@@ -669,7 +782,9 @@ type epExResult struct {
 func (s *Server) endpointDrillPhase(pctx context.Context, emit func(string, any), p *opPrefetch, t opTarget, svc string, merged []chstore.TraceRow, from, to time.Time) {
 	var epCh chan epExResult
 	en := 0
-	if (t.Endpoint || t.HasRoute) && svc != "" && !opWantsExceptions(t) {
+	// v0.10.1373 — yol-yalnız hedefte rota exception okuması yok (http_route
+	// eşleşmez; "exception yok" yanlış olurdu).
+	if (t.Endpoint || t.HasRoute) && svc != "" && !opWantsExceptions(t) && t.SearchPath == "" {
 		path := t.Route
 		if path == "" {
 			path = t.Name

@@ -202,10 +202,35 @@ func extractTraceSearch(raw string, toks []string) (frag string, isSQL bool, ok 
 	// v0.10.443 — tırnaksız parça değer ŞEKLİNDE olmalı (host/yol/sorgu:
 	// nokta, /, :, =, -, _ ya da rakam taşır, ya da SQL); "içinde hata olan
 	// trace'ler" gibi düz sözcükler literal arama olmasın.
-	if !quoted && !traceSearchValueOK(frag) {
-		return "", false, false
+	if !quoted {
+		var fok bool
+		if frag, fok = unquotedTraceFragment(raw, frag); !fok {
+			return "", false, false
+		}
 	}
 	return frag, sqlLikeRe.MatchString(frag), true
+}
+
+// traceFragMaxWords — v0.10.1373: tırnaksız parçanın sözcük tavanı.
+const traceFragMaxWords = 4
+
+// unquotedTraceFragment — SAF (v0.10.1373, operator-reported): tırnaksız
+// parça kapısı. Prod'da "trace'leri içinde tekrar eden db çağrılarını analiz
+// et." cümle PARÇASI, sondaki "." yüzünden değer şekli sayılıp literal arandı
+// → 0 trace. Artık parça (sondaki nokta ve `*…*` sarmalayıcısı atılmış) ≤4
+// sözcük VE değer şeklinde olmalı; SQL parçası sözcük tavanından muaf
+// (db.statement LIKE yolu, v0.10.436). Kapıdan geçmeyen parça yerine mesaj bir
+// endpoint yolu anıyorsa (endpointMention) O YOL aranır; tam URL parçası kapıdan
+// geçtiği için host'uyla aynen kalır.
+func unquotedTraceFragment(raw, frag string) (string, bool) {
+	f := stripMarkdownWrap(strings.TrimSpace(strings.TrimRight(frag, ".")))
+	if f != "" && (sqlLikeRe.MatchString(f) || (len(strings.Fields(f)) <= traceFragMaxWords && traceSearchValueOK(f))) {
+		return f, true
+	}
+	if _, p, ok := endpointMention(raw); ok {
+		return p, true
+	}
+	return "", false
 }
 
 var traceSearchValueRe = regexp.MustCompile(`[./:=_\-0-9]`)

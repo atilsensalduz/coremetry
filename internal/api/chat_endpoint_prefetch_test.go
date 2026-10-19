@@ -72,6 +72,14 @@ func TestEndpointMention(t *testing.T) {
 		{"https://example.com/ yavaş", "", "", false},
 		{"GET", "", "", false},
 		{"ATM_CORE_PIN_CHANGE neden hata veriyor", "", "", false},
+		// v0.10.1373 (operator-reported) — Markdown sarmalayıcısı `*…*` / `_…_`.
+		{"*/shop/orders/detail* servisi hem eu-a hem tr-c kümelerinde çağrılıyor", "", "/shop/orders/detail", true},
+		{"_/shop/x_ bak", "", "/shop/x", true},
+		{"**/shop/orders/detail**.", "", "/shop/orders/detail", true},
+		{"GET */shop/orders/detail* neden yavaş", "GET", "/shop/orders/detail", true},
+		{"(*/shop/orders/detail*) yavaş", "", "/shop/orders/detail", true},
+		{"*/shop/.../detail* çağrılıyor", "", "/shop/.../detail", true},
+		{"/x/** bak", "", "/x/**", true},
 	}
 	for _, c := range cases {
 		m, p, ok := endpointMention(c.raw)
@@ -160,7 +168,7 @@ func TestMatchEndpoint(t *testing.T) {
 		t.Fatalf("çip: %q", chip)
 	}
 	meth, path, ok := endpointMention(chip)
-	if !ok || endpointMentionVetoed(chip) {
+	if !ok || endpointMentionVetoed(chip, nil) {
 		t.Fatalf("çip yeniden girişte endpoint anması olmalı: %q %q %v", meth, path, ok)
 	}
 	hint := endpointServiceHint(chip, path, epCands)
@@ -208,7 +216,7 @@ func TestEndpointPrefetchVetoesListAsk(t *testing.T) {
 		"/api/paymentApprove isteklerini getir",
 		"/api/paymentApprove trace'lerini getir",
 	} {
-		if !endpointMentionVetoed(q) {
+		if !endpointMentionVetoed(q, nil) {
 			t.Errorf("%q endpoint_candidates/endpoint_traces'e kalmalı (anma aşaması sahiplenmez)", q)
 		}
 	}
@@ -218,7 +226,7 @@ func TestEndpointPrefetchVetoesListAsk(t *testing.T) {
 		"https://shop.example.com/api/checkout yavaş",
 		"checkout POST /api/checkout endpointine bak",
 	} {
-		if endpointMentionVetoed(q) {
+		if endpointMentionVetoed(q, nil) {
 			t.Errorf("%q anma aşamasında kalmalı", q)
 		}
 	}
@@ -361,6 +369,12 @@ func TestOpPrefetchSeedWithDrill(t *testing.T) {
 // (trace başına 8, gövde 200 rune) kırpma tavanının ALTINDA.
 func TestOpPrefetchDrillUnderModelClamp(t *testing.T) {
 	d1, d2 := tdProdDrill(tdTrace1, "en yavaş"), tdProdDrill(tdTrace2, "en yavaş hatalı")
+	// v0.10.1373 — azami şekil satırı (DB + istemci + hedef + 3 × 48 rune tekrar).
+	long := strings.Repeat("Ş", 200)
+	maxShape := traceShapeStats{Spans: 9999, WallNs: 9e9, DB: shapeShare{Count: 9000, SumNs: 8e9, Share: 0.9},
+		Client: shapeShare{Count: 900, SumNs: 5e8, Share: 0.05}, DistinctPeers: 99,
+		Repeats: []shapeRepeat{{Name: long, Count: 4000, AvgNs: 2e6}, {Name: long, Count: 3000, AvgNs: 2e6}, {Name: long, Count: 2000, AvgNs: 2e6}, {Name: long, Count: 1000, AvgNs: 2e6}}}
+	d1.Shape, d2.Shape = maxShape, maxShape
 	page := &logstore.Page{}
 	for i := 0; i < 2*traceDrillLogsPerTrace; i++ {
 		id := tdTrace1
@@ -420,7 +434,7 @@ func TestEndpointAskQuestionResolves(t *testing.T) {
 		if !ok || m != c.method || p != route {
 			t.Fatalf("endpointMention(%q) = (%q, %q, %v), want (%q, %q, true)", q, m, p, ok, c.method, route)
 		}
-		if endpointMentionVetoed(q) {
+		if endpointMentionVetoed(q, nil) {
 			t.Fatalf("soru listele/sor vetosuna takıldı: %q", q)
 		}
 		if h := endpointServiceHint(q, p, cands); h != svc {

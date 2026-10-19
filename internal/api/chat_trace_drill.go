@@ -232,6 +232,9 @@ type traceDrill struct {
 	RootName  string // v0.10.1337 — kök span adı (servis raporunun trace_list satırı)
 	MinNs     int64  // span zarfı (log penceresi için)
 	MaxNs     int64
+	// Shape — v0.10.1373: trace şekli (tekrar eden span'ler, DB/istemci payı);
+	// BuildTraceAnalysis'ten, ek okuma yok. Spans==0 → render yazmaz.
+	Shape traceShapeStats
 }
 
 func traceSourceTR(src string) string {
@@ -327,6 +330,9 @@ func renderTraceDrillTR(d traceDrill) string {
 		fmt.Fprintf(&b, "; bu operasyonun 24 sa p50'si %s (×%.0f)", fmtDrillMs(d.BaseP50Ms), durMs/d.BaseP50Ms)
 	}
 	fmt.Fprintf(&b, ". Trace: %s (kaynak: %s)", d.TraceID, traceSourceTR(d.Source))
+	if d.Shape.Spans > 0 { // v0.10.1373
+		b.WriteString(". " + renderTraceShapeTR(d.Shape))
+	}
 	return b.String()
 }
 
@@ -660,6 +666,7 @@ func (s *Server) traceDrillFor(ctx context.Context, c drillCandidate) traceDrill
 			break
 		}
 	}
+	d.Shape = traceShape(spans, an) // v0.10.1373 — aynı analizden, ek I/O yok
 	d.Pick = dominantSpan(spans, an)
 	if !d.Pick.OK {
 		return d

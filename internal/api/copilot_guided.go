@@ -289,6 +289,9 @@ type guidedRoute struct {
 	// v0.10.688 (endpoint_traces.go) — endpoint_candidates turunun adayları
 	// (bundle yazar; çipler ve trace cevabının başlığı okur).
 	EndpointOptions []endpointCandidate
+	// EnvSet — v0.10.1373: mesaj ≥2 canlı ortam andı (extractEnvSet); Env bu
+	// durumda "" (tek ortama sessizce daraltma yok), liste özet çipinde söylenir.
+	EnvSet []string `json:",omitempty"`
 	// v0.10.479 (F4-2) — namespace_services: yalnız pod listesi ("bunun pod'ları").
 	FindPods bool
 	// DirectAnswer — netleştirme sorusu (hangi servis / hangi takım): aday
@@ -816,6 +819,47 @@ func extractEnvEntity(msg string, envs []string) string {
 	return best
 }
 
+// envSetMax — v0.10.1373: extractEnvSet tavanı.
+const envSetMax = 6
+
+// extractEnvSet — SAF (v0.10.1373, operator-reported: "hem eu-a, eu-b hem tr-c
+// kümelerinde çağrılıyor" sorusunda extractEnvEntity eşit uzunluktaki adlardan
+// liste sırasındakini — en yoğun ortamı — seçip diğerlerini SESSİZCE atıyordu).
+// Mesajda SINIRLI (indexBounded) geçen canlı ortam adları, mesajdaki sırayla,
+// tekil, ≤envSetMax. "eu-a-svc" içindeki "eu-a" sızmaz ('-' ad karakteri);
+// parantez/virgül sınırdır. 2'den az ad → nil (tek ortam extractEnvEntity'nin
+// işi). msg normalizeGuidedMsg'den geçmiş olmalı.
+func extractEnvSet(msg string, envs []string) []string {
+	type hit struct {
+		at  int
+		env string
+	}
+	var hits []hit
+	seen := map[string]bool{}
+	for _, env := range envs {
+		le := strings.ToLower(env)
+		if len(le) < 2 || seen[le] {
+			continue
+		}
+		if i := indexBounded(msg, le); i >= 0 {
+			seen[le] = true
+			hits = append(hits, hit{i, env})
+		}
+	}
+	if len(hits) < 2 {
+		return nil
+	}
+	sort.SliceStable(hits, func(i, j int) bool { return hits[i].at < hits[j].at })
+	if len(hits) > envSetMax {
+		hits = hits[:envSetMax]
+	}
+	out := make([]string, len(hits))
+	for i, h := range hits {
+		out[i] = h.env
+	}
+	return out
+}
+
 // ─── Takım varlığı (v0.9.1134) ──────────────────────────────────────
 
 // extractTeamEntity — mesajdaki takım adını CANLI takım kataloğuna karşı
@@ -1042,7 +1086,7 @@ func routeGuidedIntent(raw string, services, envs, teams []string, ctxService st
 // routeGuidedIntentOpts — v0.10.1133: routeGuidedIntent + oracleOps bayrağı
 // (etkin Oracle kaynağı var mı; çağıran söyler, router SAF kalır). false iken
 // rota bayt-bayt eskisi: Oracle operasyon adı kuralı hiç denenmez.
-func routeGuidedIntentOpts(raw string, services, envs, teams []string, ctxService string, oracleOps bool) guidedRoute {
+func routeGuidedIntentOpts(raw string, services, envs, teams []string, ctxService string, oracleOps bool) (route guidedRoute) {
 	msg := normalizeGuidedMsg(raw)
 	toks := guidedTokens(msg)
 	// v0.9.537 — açık 32-hex trace ID'si EN GÜÇLÜ sinyaldir ve her şeyi
@@ -1098,6 +1142,12 @@ func routeGuidedIntentOpts(raw string, services, envs, teams []string, ctxServic
 	}
 	svc := extractServiceEntity(msg, services, envs)
 	env := extractEnvEntity(msg, envs)
+	// v0.10.1373 — ≥2 ortam anıldıysa tek ortama daraltma yok (en yoğun ortam
+	// sessizce kazanıyordu); küme listesi rotaya yazılır (dönen her rotaya).
+	if envSet := extractEnvSet(msg, envs); len(envSet) >= 2 {
+		env = ""
+		defer func() { route.EnvSet = envSet }()
+	}
 	team := extractTeamEntity(msg, teams)
 	// v0.10.439 (D4) — fan-out: A→B→C; periyot ve çift dallarından ÖNCE
 	// (cümle istek/giden sözcüğü de taşır).
@@ -1761,8 +1811,11 @@ func (s *Server) copilotChatGuided(ctx context.Context, emit func(string, any), 
 	// Öncelik bilinçli: sorunun açık env'i > ekran > (boş = tümü).
 	// Çip şeffaflığı: bundle'lar env'i zaten arg yankısında gösteriyor
 	// (withEnvArg) — devralınan env de oradan görünür.
-	if route.Env == "" && ctxEnv != "" {
+	if route.Env == "" && ctxEnv != "" && len(route.EnvSet) < 2 { // v0.10.1373 — çok ortamlı soru ekran env'ini devralmaz
 		route.Env = ctxEnv
+	}
+	if len(route.EnvSet) >= 2 { // v0.10.1373 — özet çipi: hangi ortamlar anıldı, süzgeç neden yok
+		emitGuidedContextStep(emit, envSetNoteTR(route.EnvSet))
 	}
 	followBase := "" // devralınan temel mesaj (operasyon çözümü için)
 	if followCue {
@@ -2348,6 +2401,11 @@ func guidedEnvlessNoteTR(what, env string) string {
 		return ""
 	}
 	return fmt.Sprintf("Not: %s ortam boyutu taşımıyor (env-ayrımı Faz 4 bekliyor) — %q ortam filtresi UYGULANMADI; sayılar tüm ortamların toplamı.\n", what, env)
+}
+
+// envSetNoteTR — SAF (v0.10.1373): çok ortamlı sorunun özet çipi.
+func envSetNoteTR(envs []string) string {
+	return "ortamlar: " + strings.Join(envs, ", ") + " (tek ortama daraltılmadı — tüm ortamlar)"
 }
 
 // guidedProblemFilter builds the problems prefetch filter. Extracted
