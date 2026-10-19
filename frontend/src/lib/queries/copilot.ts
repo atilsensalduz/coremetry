@@ -8,10 +8,12 @@ import type { CopilotStarterGroup } from '@/lib/types';
 // zaten var, veri çipi bir ek.
 // v0.10.1382 — gruplu yanıt; env (useUrlEnv) sorguya VE anahtara girer
 // (sunucu anahtarı da env'i özetler). Env yalnız P1 grubuna uygulanır.
-export function useCopilotStarters(enabled: boolean, env = '', rangeS = 3600): CopilotStarterGroup[] {
+// v0.10.1390 — pencere (rangeS) kalktı: yalnız kaldırılan servis/operasyon
+// gruplarının girdisiydi; anahtar artık yalnız env.
+export function useCopilotStarters(enabled: boolean, env = ''): CopilotStarterGroup[] {
   const q = useQuery({
-    queryKey: ['copilot', 'starters', rangeS, env],
-    queryFn: ({ signal }) => api.copilotStarters(rangeS, env, signal),
+    queryKey: ['copilot', 'starters', env],
+    queryFn: ({ signal }) => api.copilotStarters(env, signal),
     enabled,
     staleTime: 60_000,
     retry: false,

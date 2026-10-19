@@ -2410,8 +2410,15 @@ export const api = {
   // v0.10.702 — boş sohbetin veri çipleri (takımın en kötü servisi + yolu).
   // v0.10.1382 — gruplu seçenekler + env (yalnız P1'e uygulanır). `?` eksikti:
   // qs önek koymaz, URL "/api/copilot/startersrange_s=…" oluyordu.
-  copilotStarters:       (rangeS?: number, env?: string, signal?: AbortSignal) =>
-    get<CopilotStartersResponse>(`/api/copilot/starters?${qs({ range_s: rangeS, env })}`, signal),
+  // v0.10.1390 — range_s kalktı (pencere yalnız kaldırılan servis/operasyon
+  // gruplarının girdisiydi; sunucu anahtarı v3).
+  copilotStarters:       (env?: string, signal?: AbortSignal) =>
+    get<CopilotStartersResponse>(`/api/copilot/starters?${qs({ env })}`, signal),
+  // v0.10.1390 — CoSRE başlangıç kartının operasyon arama kutusu (sunucu
+  // araması, ≤50; q < 2 karakterse sunucu CH'ye gitmez). Kaynak sohbet
+  // ön-getirmesinin kataloğu (span + Oracle operasyon kodları).
+  copilotOperationSearch: (q: string, limit = 20) =>
+    get<{ names: string[]; total: number }>(`/api/copilot/operation-search?${qs({ q, limit })}`),
   // v0.6.53 — agentic chatbot stream. POST + SSE (EventSource is
   // GET-only, so we read the fetch body stream and parse SSE frames
   // by hand). onEvent fires per `event:`/`data:` frame; the promise

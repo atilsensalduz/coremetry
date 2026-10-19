@@ -120,3 +120,46 @@ func (s *Store) CatalogCandidates(ctx context.Context, tokens []string, limit in
 	}
 	return out, rows.Err()
 }
+
+// catalogOperationSearchSQL — v0.10.1390 SAF: CoSRE başlangıç kartındaki
+// operasyon arama kutusunun okuması (api/copilot_operation_search.go).
+// Kaynak sohbetin ön-getirmesiyle AYNI katalog (CatalogCandidates) → seçilen
+// ad orada birebir eşleşir. Yalnız span + oracle (endpoint satırı yol; o
+// endpoint anma aşamasının işi). Boşluklu / <4 karakter ad SQL'de elenir
+// (belirteç kuralı; kesin süzgeç çağıranda). Sıra: birebir → önek → son 24
+// sa hata → çağrı.
+const catalogOperationSearchSQL = `
+	SELECT operation
+	FROM cosre_operation_catalog FINAL
+	WHERE source IN ('span', 'oracle')
+	  AND positionCaseInsensitiveUTF8(operation, ?) > 0
+	  AND lengthUTF8(operation) >= 4
+	  AND NOT match(operation, '\\s')
+	GROUP BY operation
+	ORDER BY lowerUTF8(operation) = lowerUTF8(?) DESC, startsWith(lowerUTF8(operation), lowerUTF8(?)) DESC,
+	         sum(error_count) DESC, sum(call_count) DESC, operation
+	LIMIT ?
+	SETTINGS max_execution_time = 3`
+
+// SearchCatalogOperations — v0.10.1390: katalogda alt-dizge araması (harf
+// duyarsız), en çok `limit` tekil ad. q boşsa CH'ye gidilmez.
+func (s *Store) SearchCatalogOperations(ctx context.Context, q string, limit int) ([]string, error) {
+	q = strings.TrimSpace(q)
+	if q == "" || limit <= 0 {
+		return nil, nil
+	}
+	rows, err := s.conn.Query(ctx, catalogOperationSearchSQL, q, q, q, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var op string
+		if err := rows.Scan(&op); err != nil {
+			return nil, err
+		}
+		out = append(out, op)
+	}
+	return out, rows.Err()
+}

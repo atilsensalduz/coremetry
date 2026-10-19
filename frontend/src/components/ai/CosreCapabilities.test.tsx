@@ -10,6 +10,9 @@
 //   (4) prod hatası (v0.10.1130): sohbet yüzeyi Türkçe-öncelikli — UI dili EN
 //       iken de ipuçları, title'ı, wiki çipi ve doldurulan örnekler TÜRKÇE.
 //   /cosre sayfası aynı bileşeni çizer — pages/CoSRE.test.tsx.
+//   (5) v0.10.1390 (operatör: "filo geneli ve böyle birçok servis yazmasın,
+//       search kısmı çıksa yeter") — servis/operasyon satırlarında çip ve
+//       "filo geneli" yok; her zaman görünen arama kutusu, seçim HEMEN gönderir.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
@@ -32,7 +35,7 @@ import { CopilotChat } from '@/components/CopilotChat';
 import { __resetCopilotEnabledCache } from './useCopilotEnabled';
 import {
   capabilityItems, splitCaret, tCosre, COSRE_LANG,
-  groupForCapability, localServiceChips, starterSendOpts, serviceHealthQuestion,
+  groupForCapability, starterSendOpts, serviceHealthQuestion, operationErrorQuestion,
 } from './capabilityHints';
 import type { CopilotStarterGroup } from '@/lib/types';
 
@@ -108,15 +111,9 @@ describe('capabilityHints — saf', () => {
 });
 
 // v0.10.1382 — gruplu başlangıç seçenekleri (sentetik adlar).
+// v0.10.1390 — sunucu yalnız p1 + deploys grubu döner.
 const GROUPS: CopilotStarterGroup[] = [
-  { kind: 'services', fleet: true, items: [
-    { chip: 'checkout-service', question: 'checkout-service son 1 saatte neden hata veriyor?', kind: 'service_errors' },
-    { chip: '/api/checkout', question: "/api/checkout hatalı trace'lerini getir", kind: 'endpoint_errors' },
-  ] },
-  { kind: 'operations', items: [
-    { chip: 'INSURANCE_DOC_PDF', question: 'INSURANCE_DOC_PDF operasyonu neden hata veriyor?', kind: 'operation' },
-  ] },
-  { kind: 'p1', items: [
+  { kind: 'p1', fleet: true, items: [
     { chip: 'orders-api · error rate', question: 'orders-api kök nedeni ne?', kind: 'p1', scope: { problem: 'p-1' } },
   ] },
   { kind: 'deploys', items: [] },
@@ -125,46 +122,64 @@ const GROUPS: CopilotStarterGroup[] = [
 describe('capabilityHints — v0.10.1382 gruplar (saf)', () => {
   it('p1/deploy satırları yalnız öğeli grupla; sıra operasyon → p1 → deploy → navigate', () => {
     expect(capabilityItems(false, GROUPS).map(i => i.kind)).toEqual(['service', 'operation', 'p1', 'navigate']);
-    const withDeploy: CopilotStarterGroup[] = [...GROUPS.slice(0, 3),
+    const withDeploy: CopilotStarterGroup[] = [GROUPS[0],
       { kind: 'deploys', items: [{ chip: 'orders-api → 2.0', question: 'orders-api son deploy etkisi?', kind: 'deploy' }] }];
     expect(capabilityItems(true, withDeploy).map(i => i.kind)).toEqual(['wiki', 'service', 'operation', 'p1', 'deploy', 'navigate']);
     expect(groupForCapability('deploy', GROUPS)).toBeUndefined();
     expect(groupForCapability('navigate', GROUPS)).toBeUndefined();
-    expect(groupForCapability('service', GROUPS)?.fleet).toBe(true);
+    expect(groupForCapability('p1', GROUPS)?.fleet).toBe(true);
   });
 
-  it('yerel servis çipleri: sabitlenmiş önce, sunucunun andığı ve uygunsuz ad atlanır, tavan 2', () => {
-    const got = localServiceChips(GROUPS[0].items, ['checkout-service', 'payment-service'], ['payment-service', 'oracle:eu-a', 'two words', 'inventory', 'api-gateway']);
-    expect(got.map(c => c.question)).toEqual(['payment-service sağlığı nasıl?', 'inventory sağlığı nasıl?']);
-    expect(got.every(c => c.kind === 'service_health')).toBe(true);
+  it('v0.10.1390 — servis/operasyon satırının sunucu grubu yok (yalnız arama kutusu)', () => {
+    expect(groupForCapability('service', GROUPS)).toBeUndefined();
+    expect(groupForCapability('operation', GROUPS)).toBeUndefined();
+  });
+
+  it('v0.10.1390 — arama kutularının cümleleri (LLM\'siz yönlenir: TestStarterQuestionsRoute)', () => {
     expect(serviceHealthQuestion('orders-api')).toBe('orders-api sağlığı nasıl?');
+    expect(operationErrorQuestion('INSURANCE_DOC_PDF')).toBe('INSURANCE_DOC_PDF operasyonu neden hata veriyor?');
+    // Şablon satırının doldurduğu kalıpla aynı.
+    expect(splitCaret(tCosre('cosre.cap.operation.prompt')).text).toBe(operationErrorQuestion(''));
   });
 
   it('kapsamlı çip → parsed.scope; kapsamsız → undefined (istek gövdesi eski)', () => {
-    expect(starterSendOpts(GROUPS[2].items[0])).toEqual({ parsed: { scope: { problem: 'p-1' } } });
-    expect(starterSendOpts(GROUPS[0].items[0])).toBeUndefined();
+    expect(starterSendOpts(GROUPS[0].items[0])).toEqual({ parsed: { scope: { problem: 'p-1' } } });
+    expect(starterSendOpts({ chip: 'a', question: 'a son deploy etkisi?', kind: 'deploy' })).toBeUndefined();
   });
 
-  it('istemci URL\'si sorgu dizesini ? ile ayırır (v0.10.702 hatası: "/startersrange_s=…")', async () => {
+  it('istemci URL\'si sorgu dizesini ? ile ayırır; v0.10.1390 — range_s yok', async () => {
     const f = vi.fn().mockResolvedValue(new Response(JSON.stringify({ groups: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
     vi.stubGlobal('fetch', f);
     vi.mocked(api.copilotStarters).mockRestore(); // beforeEach casusu: gerçek istemci
-    await api.copilotStarters(3600, 'prod');
+    await api.copilotStarters('prod');
     const url = String(f.mock.calls[0][0]);
     expect(url).toContain('/api/copilot/starters?');
-    expect(url).toContain('range_s=3600');
     expect(url).toContain('env=prod');
+    expect(url).not.toContain('range_s');
   });
 
-  it('yeni anahtarlar iki katalogda da var', () => {
+  it('v0.10.1390 — operasyon araması istemcisi', async () => {
+    const f = vi.fn().mockResolvedValue(new Response(JSON.stringify({ names: [], total: 0 }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', f);
+    await api.copilotOperationSearch('INSU');
+    const url = String(f.mock.calls[0][0]);
+    expect(url).toContain('/api/copilot/operation-search?');
+    expect(url).toContain('q=INSU');
+    expect(url).toContain('limit=20');
+  });
+
+  it('anahtarlar iki katalogda da var; kaldırılan anahtarlar yok', () => {
     for (const k of ['cosre.cap.p1', 'cosre.cap.p1.prompt', 'cosre.cap.deploy', 'cosre.cap.deploy.prompt',
-      'cosre.cap.choices', 'cosre.cap.fleet', 'cosre.cap.fleet.title', 'cosre.cap.pickService', 'cosre.cap.pickService.placeholder']) {
+      'cosre.cap.choices', 'cosre.cap.fleet', 'cosre.cap.fleet.title', 'cosre.cap.search.service', 'cosre.cap.search.operation']) {
       expect(t(k, 'en'), k).not.toBe(k);
       expect(t(k, 'tr'), k).not.toBe(k);
       expect(t(k, 'tr'), k).not.toBe(t(k, 'en'));
     }
-    expect(tCosre('cosre.cap.fleet')).toBe('filo geneli');
-    expect(tCosre('cosre.cap.pickService')).toBe('başka bir servis…');
+    expect(tCosre('cosre.cap.search.service')).toBe('Servis ara…');
+    expect(tCosre('cosre.cap.search.operation')).toBe('Operasyon ara…');
+    for (const gone of ['cosre.cap.pickService', 'cosre.cap.pickService.placeholder']) {
+      expect(t(gone, 'tr'), gone).toBe(gone);
+    }
   });
 });
 
@@ -260,71 +275,124 @@ describe('CopilotChat çekmecesi — yetenek ipucu', () => {
   });
 });
 
-describe('CopilotChat çekmecesi — v0.10.1382 seçilebilir başlangıçlar', () => {
+describe('CopilotChat çekmecesi — v0.10.1382 / v0.10.1390 başlangıçlar', () => {
   const choices = (kind: string) => Array.from(document.body.querySelectorAll<HTMLButtonElement>(`[data-cap-choices="${kind}"] button`));
+  const search = (kind: string) => document.body.querySelector<HTMLInputElement>(`[data-cap-search="${kind}"] input`);
+  const setVal = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+  const type = async (input: HTMLInputElement, v: string) => {
+    await act(async () => {
+      setVal.call(input, v);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  };
+  const key = async (input: HTMLInputElement, k: string) => {
+    await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })); });
+  };
+  // Debounce (180 ms) + cevap + setTimeout(onEnter) için bekleme.
+  const settle = async (ms = 260) => { await act(async () => { await new Promise(r => setTimeout(r, ms)); }); };
+  const lastSent = (send: ReturnType<typeof vi.spyOn>) => {
+    const msgs = (send.mock.calls[send.mock.calls.length - 1] as unknown[])[0] as { role: string; text: string }[];
+    return msgs[msgs.length - 1].text;
+  };
 
-  it('gruplar satırların altında; somut çip HEMEN gönderir, P1 kapsamıyla', async () => {
+  it('servis/operasyon satırında çip ve "filo geneli" YOK, arama kutusu her zaman görünür; P1 çipi kapsamıyla gönderir', async () => {
     vi.spyOn(api, 'copilotConfig').mockResolvedValue({ enabled: true, model: 'm' });
     vi.spyOn(api, 'copilotStarters').mockResolvedValue({ groups: GROUPS } as never);
     const send = vi.spyOn(api, 'copilotChat').mockResolvedValue(undefined as never);
     setUserLang('en');
     await openDrawer();
     expect(rows().map(b => b.dataset.cap)).toEqual(['service', 'operation', 'p1', 'navigate']);
-    const grp = document.body.querySelector('[data-cap-choices="service"]');
-    expect(grp?.getAttribute('role')).toBe('group');
-    expect(grp?.textContent).toContain('filo geneli');
-    expect(choices('service').map(b => b.textContent)).toEqual(['checkout-service', '/api/checkout', 'başka bir servis…']);
-    expect(choices('operation').map(b => b.textContent)).toEqual(['INSURANCE_DOC_PDF']);
-    expect(document.body.querySelector('[data-cap-choices="navigate"]')).toBeNull();
+    expect(document.body.querySelector('[data-cap-choices="service"]')).toBeNull();
+    expect(document.body.querySelector('[data-cap-choices="operation"]')).toBeNull();
+    expect(document.body.querySelector('[data-chip="pick-service"]')).toBeNull();
+    expect(document.body.textContent).not.toContain('başka bir servis');
+    expect(document.body.textContent).not.toContain('teknik hataları');
+    // UI dili EN iken de sohbetin dili (TR).
+    expect(search('service')?.placeholder).toBe('Servis ara…');
+    expect(search('operation')?.placeholder).toBe('Operasyon ara…');
+    // "filo geneli" yalnız P1/deploy grubunda (operatör onlara dokunmadı).
+    const svcItem = search('service')!.closest('.cosre-cap__item')!;
+    expect(svcItem.textContent).not.toContain('filo geneli');
+    expect(document.body.querySelector('[data-cap-choices="p1"]')?.textContent).toContain('filo geneli');
 
     await act(async () => { choices('p1')[0].click(); });
     await act(async () => { await new Promise(r => setTimeout(r, 10)); });
     expect(send).toHaveBeenCalledTimes(1);
     const args = send.mock.calls[0] as unknown[];
-    const msgs = args[0] as { role: string; text: string }[];
-    expect(msgs[msgs.length - 1].text).toBe('orders-api kök nedeni ne?');
+    expect(lastSent(send)).toBe('orders-api kök nedeni ne?');
     expect(args.some(a => !!a && typeof a === 'object' && (a as { problem?: string }).problem === 'p-1')).toBe(true);
   });
 
-  it('başlık hâlâ şablonu doldurur; "başka bir servis…" seçici açar ve seçim cümleyi DOLDURUR (göndermez)', async () => {
+  it('servis kutusu: listeden seçim HEMEN gönderir "<svc> sağlığı nasıl?"', async () => {
     vi.spyOn(api, 'copilotConfig').mockResolvedValue({ enabled: true, model: 'm' });
-    vi.spyOn(api, 'copilotStarters').mockResolvedValue({ groups: GROUPS } as never);
-    vi.spyOn(api, 'serviceNames').mockResolvedValue({ names: ['orders-api'], total: 1 } as never);
+    const names = vi.spyOn(api, 'serviceNames').mockResolvedValue({ names: ['orders-api'], total: 1, hasMore: false } as never);
     const send = vi.spyOn(api, 'copilotChat').mockResolvedValue(undefined as never);
     await openDrawer();
-    await act(async () => { rows().find(b => b.dataset.cap === 'p1')!.click(); });
-    expect(textarea()?.value).toBe(' kök nedeni ne?');
-
-    const pickChip = document.body.querySelector<HTMLButtonElement>('[data-chip="pick-service"]')!;
-    expect(pickChip.getAttribute('aria-expanded')).toBe('false');
-    await act(async () => { pickChip.click(); });
-    expect(pickChip.getAttribute('aria-expanded')).toBe('true');
-    const input = document.body.querySelector<HTMLInputElement>('.cosre-cap__picker input');
-    expect(input).not.toBeNull();
-    const setVal = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
-    await act(async () => {
-      setVal.call(input, 'orders-api');
-      input!.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    await act(async () => {
-      input!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    });
-    await act(async () => { await new Promise(r => setTimeout(r, 10)); });
-    expect(textarea()?.value).toBe('orders-api sağlığı nasıl?');
-    expect(document.body.querySelector('.cosre-cap__picker')).toBeNull();
-    expect(send).not.toHaveBeenCalled();
+    const input = search('service')!;
+    await type(input, 'ord');
+    await settle();
+    expect(names).toHaveBeenCalledWith('ord', 200);
+    await key(input, 'ArrowDown');
+    await key(input, 'Enter');
+    await settle(20);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(lastSent(send)).toBe('orders-api sağlığı nasıl?');
   });
 
-  it('istek env + pencere taşır; gruplar boşken p1/deploy satırı yok', async () => {
+  it('servis kutusu: Enter — birebir ad sunucuda doğrulanınca gönderir, değilse cümleyi DOLDURUR', async () => {
+    vi.spyOn(api, 'copilotConfig').mockResolvedValue({ enabled: true, model: 'm' });
+    vi.spyOn(api, 'serviceNames').mockResolvedValue({ names: ['orders-api', 'orders-worker'], total: 2, hasMore: false } as never);
+    const send = vi.spyOn(api, 'copilotChat').mockResolvedValue(undefined as never);
+    await openDrawer();
+    let input = search('service')!;
+    await type(input, 'orders');
+    await key(input, 'Enter');
+    await settle(20);
+    expect(send).not.toHaveBeenCalled();
+    expect(textarea()?.value).toBe('orders sağlığı nasıl?');
+    expect(input.value).toBe('');
+
+    input = search('service')!;
+    await type(input, 'orders-api');
+    await key(input, 'Enter');
+    await settle(20);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(lastSent(send)).toBe('orders-api sağlığı nasıl?');
+  });
+
+  it('operasyon kutusu: <2 karakter istek atmaz; seçim HEMEN gönderir "<OP> operasyonu neden hata veriyor?"', async () => {
+    vi.spyOn(api, 'copilotConfig').mockResolvedValue({ enabled: true, model: 'm' });
+    const opSearch = vi.spyOn(api, 'copilotOperationSearch').mockResolvedValue({ names: ['INSURANCE_DOC_PDF'], total: 1 });
+    const send = vi.spyOn(api, 'copilotChat').mockResolvedValue(undefined as never);
+    await openDrawer();
+    const input = search('operation')!;
+    await settle();
+    expect(opSearch).not.toHaveBeenCalled(); // boş alan: liste yok, istek yok
+    await type(input, 'I');
+    await settle();
+    expect(opSearch).not.toHaveBeenCalled();
+    await type(input, 'INSU');
+    await settle();
+    expect(opSearch).toHaveBeenCalledWith('INSU');
+    await key(input, 'ArrowDown');
+    await key(input, 'Enter');
+    await settle(20);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(lastSent(send)).toBe('INSURANCE_DOC_PDF operasyonu neden hata veriyor?');
+  });
+
+  it('başlık hâlâ şablonu doldurur (göndermez); istek yalnız env taşır', async () => {
     vi.spyOn(api, 'copilotConfig').mockResolvedValue({ enabled: true, model: 'm' });
     const st = vi.spyOn(api, 'copilotStarters').mockResolvedValue({ groups: [] } as never);
+    const send = vi.spyOn(api, 'copilotChat').mockResolvedValue(undefined as never);
     await openDrawer();
     expect(st).toHaveBeenCalled();
-    expect(st.mock.calls[0][0]).toBe(3600);
-    expect(typeof st.mock.calls[0][1]).toBe('string');
+    expect(typeof st.mock.calls[0][0]).toBe('string');
     expect(rows().map(b => b.dataset.cap)).toEqual(['service', 'operation', 'navigate']);
-    // Servis satırında veri yokken de seçici çipi var; diğer satırlarda grup yok.
-    expect(choices('service').map(b => b.textContent)).toEqual(['başka bir servis…']);
-    expect(document.body.querySelector('[data-cap-choices="operation"]')).toBeNull();
+    expect(search('service')).not.toBeNull();
+    expect(search('operation')).not.toBeNull();
+    await act(async () => { rows().find(b => b.dataset.cap === 'operation')!.click(); });
+    expect(textarea()?.value).toBe(' operasyonu neden hata veriyor?');
+    expect(send).not.toHaveBeenCalled();
   });
 });

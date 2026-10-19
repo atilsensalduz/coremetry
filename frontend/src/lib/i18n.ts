@@ -254,8 +254,8 @@ const EN: Catalog = {
   'cosre.cap.choices':          'Ready-made choices',
   'cosre.cap.fleet':            'fleet-wide',
   'cosre.cap.fleet.title':      'No team resolved — the fleet’s current hot spots',
-  'cosre.cap.pickService':      'another service…',
-  'cosre.cap.pickService.placeholder': 'Search services…',
+  'cosre.cap.search.service':   'Search services…', // v0.10.1390
+  'cosre.cap.search.operation': 'Search operations…', // v0.10.1390
   'cosre.chip.wiki':            'Search the wiki: …',
   'cosre.chip.wiki.prompt':     '@wiki ', // v0.10.1378 — kapsam belirteci, dilden bağımsız
 
@@ -547,8 +547,8 @@ const TR: Catalog = {
   'cosre.cap.choices':          'Hazır seçenekler',
   'cosre.cap.fleet':            'filo geneli',
   'cosre.cap.fleet.title':      'Takımın çözülemedi — filonun şu anki sıcak noktaları',
-  'cosre.cap.pickService':      'başka bir servis…',
-  'cosre.cap.pickService.placeholder': 'Servis ara…',
+  'cosre.cap.search.service':   'Servis ara…', // v0.10.1390
+  'cosre.cap.search.operation': 'Operasyon ara…', // v0.10.1390
   'cosre.chip.wiki':            'Wikide ara: …',
   // v0.10.1378 (operatör onaylı kuyruk) — "wikide " düz cümleydi, kapsam
   // üretmiyordu; `@wiki ` composer'da scope.wiki=true olur (1368'deki örnek soruyla aynı).

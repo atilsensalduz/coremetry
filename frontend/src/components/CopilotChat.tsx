@@ -821,7 +821,9 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
                 {/* v0.10.1128 (operatör) — "neler yapabilirim" ipucu: yalnız
                     boş sohbette; tıklama örnek soruyu composer'a DOLDURUR. */}
                 {/* v0.10.1382 — satır başlığı şablonu DOLDURUR; altındaki somut
-                    seçenek çipi HEMEN GÖNDERİR (askChip), "başka bir servis…" doldurur. */}
+                    seçenek çipi HEMEN GÖNDERİR (askChip). v0.10.1390 — servis ve
+                    operasyon satırlarında çip yok, her zaman görünen arama kutusu;
+                    seçim de askChip ile gönderir. */}
                 <CosreCapabilities wiki={wikiOn} groups={starterGroups} onPrefill={prefill} onAsk={askChip} />
                 {/* v0.9.652 — başlangıç çipleri (operatör isteği). Gerekçe
                     ve v0.9.579 ile ilişkisi STARTERS tanımında. */}

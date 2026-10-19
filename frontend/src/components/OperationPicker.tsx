@@ -5,6 +5,9 @@ import { shouldAutoCommit } from '@/components/ServicePicker';
 import { usePickerSearch } from '@/components/usePickerSearch';
 import { getPickerRecents } from '@/lib/pickerRecents';
 
+/** v0.10.1390 — CoSRE katalog aramasının en kısa sorgusu (sunucu opSearchMinQuery). */
+export const COSRE_OP_SEARCH_MIN = 2;
+
 /**
  * OperationPicker — operations-picker counterpart to ServicePicker
  * (v0.5.180). Same debounced server-side search + wildcard
@@ -19,7 +22,7 @@ import { getPickerRecents } from '@/lib/pickerRecents';
  * past tens of thousands of operations.
  */
 export function OperationPicker({
-  service, value, onChange, placeholder, width, onEnter, onPick,
+  service, value, onChange, placeholder, width, onEnter, onPick, source = 'spans',
 }: {
   // Scope the search to one service. Pass undefined / empty to
   // search across every service (cardinality permitting).
@@ -32,18 +35,28 @@ export function OperationPicker({
   // v0.10.752 — değer listedeki bir operasyonla BİREBİR eşleşince (seçim)
   // çağrılır; çağıran bunu alt-dizge arama yerine tam eşleşme yapar.
   onPick?: (v: string) => void;
+  // v0.10.1390 — arama kaynağı. 'spans' (varsayılan): /api/operation-names
+  // (span operasyonları, servis kapsamlı). 'cosre': /api/copilot/operation-search
+  // — CoSRE sohbet ön-getirmesinin kataloğu (span + Oracle operasyon kodları);
+  // dönen her ad sohbette birebir eşleşir. `service` bu kaynakta yok sayılır;
+  // 2 karakterden kısa sorguda istek ATILMAZ (boş alan = liste yok).
+  source?: 'spans' | 'cosre';
 }) {
   // v0.10.1089 — ortak debounce kancası (180 ms, /api/operation-names,
   // servis kapsamı, 200 satır — davranış aynı).
-  const search = usePickerSearch(value, service ?? '', q =>
-    api.operationNames(service || undefined, q, 200).then(r => ({ items: r.names, total: r.total })));
+  const cosre = source === 'cosre';
+  const search = usePickerSearch(value, cosre ? 'cosre' : (service ?? ''), q => {
+    if (!cosre) return api.operationNames(service || undefined, q, 200).then(r => ({ items: r.names, total: r.total }));
+    if (q.trim().length < COSRE_OP_SEARCH_MIN) return Promise.resolve({ items: [] as string[], total: 0 });
+    return api.copilotOperationSearch(q.trim()).then(r => ({ items: r.names, total: r.total }));
+  });
   const opts = search.items;
   const total = search.total;
   const lastValueRef = useRef(value);
   const optsRef = search.itemsRef;
   // "Son kullanılan" servis BAŞINA: başka servisin operasyonunu önermek
-  // boş sonuçlu bir süzgeç üretirdi.
-  const recentKey = `operation:${service || '*'}`;
+  // boş sonuçlu bir süzgeç üretirdi. v0.10.1390 — CoSRE kataloğu ayrı kapsam.
+  const recentKey = cosre ? 'operation:cosre' : `operation:${service || '*'}`;
 
   const handleChange = (next: string) => {
     const prev = lastValueRef.current;
@@ -80,9 +93,12 @@ export function OperationPicker({
         ? `… +${total - opts.length} more — refine search`
         : undefined}
       title={
-        truncated
-          ? `Showing ${opts.length} of ${total} operations — type to refine. Wildcards: pay*, *pay*, p?y`
-          : 'Type to filter. Wildcards: pay*, *pay*, p?y'
+        cosre
+          // v0.10.1390 — katalog araması joker karakter desteklemez (alt-dizge).
+          ? 'Span operasyonu ya da Oracle operasyon kodu — en az 2 karakter yaz'
+          : truncated
+            ? `Showing ${opts.length} of ${total} operations — type to refine. Wildcards: pay*, *pay*, p?y`
+            : 'Type to filter. Wildcards: pay*, *pay*, p?y'
       }
     />
   );

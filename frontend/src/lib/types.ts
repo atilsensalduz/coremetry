@@ -9837,16 +9837,16 @@ export interface PageContext {
 // (Go api.starterGroup). `fleet` → takım çözülemedi, öğeler filo genelinden.
 // `scope` → çipin yapısal kapsamı (P1: problem kimliği), followup çipleriyle
 // aynı yoldan gider. `envScope: 'p1'` → env yalnız P1 problemlerine uygulandı.
-export type CopilotStarterKind =
-  | 'service_health' | 'service_errors' | 'endpoint_errors'
-  | 'operation' | 'service_exceptions' | 'p1' | 'deploy';
+// v0.10.1390 — servis/operasyon grupları kalktı (yerlerinde arama kutuları);
+// yalnız p1 + deploys; yanıtta rangeS yok.
+export type CopilotStarterKind = 'p1' | 'deploy';
 export interface CopilotStarter {
   chip: string;
   question: string;
   kind: CopilotStarterKind;
   scope?: ChatScope;
 }
-export type CopilotStarterGroupKind = 'services' | 'operations' | 'p1' | 'deploys';
+export type CopilotStarterGroupKind = 'p1' | 'deploys';
 export interface CopilotStarterGroup {
   kind: CopilotStarterGroupKind;
   fleet?: boolean;
@@ -9855,7 +9855,6 @@ export interface CopilotStarterGroup {
 export interface CopilotStartersResponse {
   groups: CopilotStarterGroup[];
   team?: string;
-  rangeS?: number;
   env?: string;
   envScope?: 'p1';
 }

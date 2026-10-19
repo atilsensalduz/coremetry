@@ -47,9 +47,13 @@ const P1: CapabilityItem = { kind: 'p1', labelKey: 'cosre.cap.p1', promptKey: 'c
 const DEPLOY: CapabilityItem = { kind: 'deploy', labelKey: 'cosre.cap.deploy', promptKey: 'cosre.cap.deploy.prompt' };
 const NAVIGATE: CapabilityItem = { kind: 'navigate', labelKey: 'cosre.cap.navigate', promptKey: 'cosre.cap.navigate.prompt' };
 
-/** v0.10.1382 — yetenek satırı → sunucu grubu (wiki/navigate grupsuz). */
+/**
+ * v0.10.1382 — yetenek satırı → sunucu grubu (wiki/navigate grupsuz).
+ * v0.10.1390 — servis/operasyon satırlarının grubu yok: altlarında yalnız
+ * arama kutusu (CosreCapabilities SEARCH_ROWS).
+ */
 const GROUP_OF: Partial<Record<CapabilityKind, CopilotStarterGroupKind>> = {
-  service: 'services', operation: 'operations', p1: 'p1', deploy: 'deploys',
+  p1: 'p1', deploy: 'deploys',
 };
 
 /** SAF — v0.10.1382: satırın sunucu grubu (öğesi yoksa undefined). */
@@ -74,37 +78,21 @@ export function capabilityItems(wiki: boolean, groups: readonly CopilotStarterGr
   return out;
 }
 
-/** v0.10.1382 — yerel (son/sabitlenmiş) servis çipi tavanı. */
-export const LOCAL_SERVICE_CHIPS_MAX = 2;
-
-/** SAF — servis sorusu (yerel çip ve "başka bir servis…" seçimi; service_health'e yönlenir). */
+/**
+ * SAF — servis arama kutusunun seçimi → gönderilen cümle (service_health'e
+ * LLM'siz yönlenir; copilot_starters_test TestStarterQuestionsRoute).
+ */
 export function serviceHealthQuestion(name: string): string {
   return `${name} sağlığı nasıl?`;
 }
 
 /**
- * SAF — v0.10.1382: tarayıcının sabitlenmiş + son ziyaret edilen servisleri
- * (lib/recentServices.ts) servis satırına DÜZ çip olarak eklenir. Sunucuya
- * gitmez (yalnız bu tarayıcının kolaylığı); sunucu çipinin zaten andığı servis
- * tekrar edilmez; sabitlenmiş önce, ad biçimi uygunsuzsa atlanır.
+ * SAF — v0.10.1390: operasyon arama kutusunun seçimi → gönderilen cümle.
+ * Sohbet ön-getirmesinde kataloğa BİREBİR tek eşleşir (aynı test pinler);
+ * şablon satırının (cosre.cap.operation.prompt) doldurduğu kalıpla aynı.
  */
-export function localServiceChips(
-  serverItems: readonly CopilotStarter[],
-  pinned: readonly string[],
-  recent: readonly string[],
-  max = LOCAL_SERVICE_CHIPS_MAX,
-): CopilotStarter[] {
-  const out: CopilotStarter[] = [];
-  const seen = new Set<string>();
-  for (const raw of [...pinned, ...recent]) {
-    if (out.length >= max) break;
-    const name = raw.trim();
-    if (!name || /[\s:]/.test(name) || seen.has(name)) continue;
-    seen.add(name);
-    if (serverItems.some(it => it.question.startsWith(name + ' '))) continue;
-    out.push({ chip: name, question: serviceHealthQuestion(name), kind: 'service_health' });
-  }
-  return out;
+export function operationErrorQuestion(op: string): string {
+  return `${op} operasyonu neden hata veriyor?`;
 }
 
 /** SAF — v0.10.1382: çipin yapısal kapsamı → send ikinci argümanı (followupSendOpts deseni). */

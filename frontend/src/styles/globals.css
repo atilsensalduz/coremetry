@@ -3277,8 +3277,9 @@ button.cosre-cap__row {
 button.cosre-cap__row > .row { align-items: flex-start; min-width: 0; }
 .cosre-cap__icon { flex: none; margin-top: 2px; color: var(--accent); }
 /* v0.10.1382 — satır altındaki canlı veriden seçenekler: başlığın metniyle
-   hizalı (ikon + boşluk kadar girinti), sarar; "filo geneli" soluk etiket;
-   "başka bir servis…" satır içi seçici tam genişlik. */
+   hizalı (ikon + boşluk kadar girinti), sarar; "filo geneli" soluk etiket
+   (yalnız p1/deploy). v0.10.1390 — servis/operasyon satırının her zaman
+   görünen arama kutusu (.cosre-cap__picker) tam genişlik. */
 .cosre-cap__item { display: flex; flex-direction: column; min-width: 0; }
 .cosre-cap__choices {
   display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2);

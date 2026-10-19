@@ -7755,3 +7755,30 @@ tüm girdiler, blok sıralayıcısı, salt-okur, veto sırası pini), `chstore/o
 İlk token gelmeden önce cevap balonu marka etiketini (logo + "CoSRE") ve altında sola yaslı "Düşünüyor…" gösteriyordu.
 Artık bekleyiş (`pending && !text && !error`) yalnız ortalanmış `AiThinking` (`.cm-wait-center`); marka etiketi ilk metinle
 gelir. Adım çipleri ve evre kırıntısı aynen. Pin: `chatThinkingCenter.pin.test.ts`.
+
+## 2026-10-19 — v0.10.1390 — CoSRE başlangıç: servis ve teknik operasyon için yalnız arama kutusu
+
+**Operatör-bildirimli (ekran görüntüsü, v0.10.1382 boş sohbet):** "Burada filo geneli ve böyle birçok servis yazmasın,
+search kısmı çıksa yeter. Aynısı hata veren teknik operasyonlar için de geçerli, çok karışık gösteriyor."
+(1) Servis satırı: "filo geneli" etiketi, sunucu servis/yol çipleri, tarayıcının yerel (sabitlenmiş/son) servis çipleri ve
+"başka bir servis…" anahtarı kalktı; başlığın altında HER ZAMAN görünen `ServicePicker` ("Servis ara…"). Seçim
+"<svc> sağlığı nasıl?" cümlesini HEMEN gönderir (çiplerin yolu, `askChip`). (2) Teknik operasyon satırı: "filo geneli" ve
+"<svc> teknik hataları" çipleri kalktı; her zaman görünen `OperationPicker source="cosre"` ("Operasyon ara…"); seçim
+"<OP> operasyonu neden hata veriyor?" gönderir. (3) Enter'la yazılan ad sunucu aramasıyla BİREBİR doğrulanır (örneklenmiş
+listeye karşı değil, v0.8.265); birebir değilse cümle composer'a doldurulur — sessiz no-op yok. Başlık tıklaması şablonu
+doldurmaya devam eder. **Operasyon arama kaynağı:** yeni `GET /api/copilot/operation-search?q=&limit=`
+(`copilot_operation_search.go`, `registerRoutesExtra`, api.go büyümez) → `chstore.SearchCatalogOperations`:
+`cosre_operation_catalog FINAL`, yalnız `span` + `oracle` kaynakları, alt-dizge (harf duyarsız), birebir → önek → 24 sa hata
+→ çağrı sırası, `LIMIT` + `max_execution_time = 3`; q < 2 karakterse CH'ye gidilmez (FE de istek atmaz), limit ≤ 50,
+serveCached 60 s (anahtar q küçük harf FNV + limit). Neden bu kaynak: sohbetin operasyon ön-getirmesi AYNI kataloğu
+okur; dönen her ad `opSearchRoutable` (ön-getirmenin `opTokens` kuralından tek belirteç olarak geçer) süzgecinden geçer →
+cümle katalogda birebir TEK eşleşir, LLM'siz. `/api/operation-names` Oracle kodlarını, `/api/oracle/operations` span
+operasyonlarını bilmez. (4) Sunucu: `/api/copilot/starters` `services` ve `operations` gruplarını artık HESAPLAMAZ (takım
+RED'i / filo sıcak noktaları + en kötü yol, açık exception grupları okumaları kalktı); `p1` ve `deploys` aynen.
+Pencere (`range_s`) yalnız kaldırılan grupların girdisiydi → parametre, yanıt alanı ve anahtar boyutu kalktı; anahtar
+`copilot:starters:v3`. Ölü kod (servis/operasyon çip üreticileri, `localServiceChips`, `cosre.cap.pickService*`
+anahtarları) silindi, shim yok. "filo geneli" etiketi P1/deploy gruplarında kalır (operatör onlara dokunmadı).
+Testler: `TestStarterQuestionsRoute` (arama cümleleri: servis → service_health; Oracle kodu + span operasyonu → katalogda
+birebir tek eşleşme, topoloji vetosu ve endpoint anması yok), `copilot_operation_search_test.go`,
+`chstore TestCatalogOperationSearchSQL`, `CosreCapabilities.test.tsx` (çip/filo yok, kutular görünür, seçim gönderir,
+Enter doğrulaması, <2 karakter istek yok).

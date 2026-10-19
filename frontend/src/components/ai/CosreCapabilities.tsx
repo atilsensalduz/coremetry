@@ -1,13 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { BookOpen, Compass, Rocket, Search, Siren, Workflow, type LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Chip } from '@/components/ui/Chip';
 import { ServicePicker } from '@/components/ServicePicker';
-import { getPinnedServices, getRecentServices } from '@/lib/recentServices';
-import type { CopilotStarter, CopilotStarterGroup } from '@/lib/types';
+import { OperationPicker } from '@/components/OperationPicker';
+import { api } from '@/lib/api';
+import type { CopilotStarterGroup } from '@/lib/types';
 import type { ChatSendOpts } from './useChatThread';
 import {
-  capabilityItems, groupForCapability, localServiceChips, serviceHealthQuestion,
+  capabilityItems, groupForCapability, operationErrorQuestion, serviceHealthQuestion,
   splitCaret, starterSendOpts, tCosre as t, type CapabilityKind,
 } from './capabilityHints';
 
@@ -24,6 +25,21 @@ import {
 // Servis satırına bu tarayıcının sabitlenmiş/son servisleri düz çip olarak
 // eklenir (sunucuya gitmez). Boş grup çizilmez; p1/deploy satırları yalnız
 // öğe varken (capabilityItems).
+//
+// v0.10.1390 (operatör: "Burada filo geneli ve böyle birçok servis yazmasın,
+// search kısmı çıksa yeter. Aynısı hata veren teknik operasyonlar için de
+// geçerli, çok karışık gösteriyor.") — servis ve teknik operasyon satırlarında
+// "filo geneli" etiketi, servis/yol/yerel çipleri, "başka bir servis…"
+// anahtarı ve "<svc> teknik hataları" çipleri KALKTI. Yerlerinde başlığın
+// altında HER ZAMAN görünen sunucu-aramalı kutu: ServicePicker ("Servis
+// ara…") ve OperationPicker source="cosre" ("Operasyon ara…" — sohbet
+// ön-getirmesinin kataloğu: span + Oracle operasyon kodları). Seçim (ya da
+// birebir ad + Enter) tam cümleyi HEMEN GÖNDERİR (onAsk = askChip; çiplerin
+// yolu): "<svc> sağlığı nasıl?" / "<OP> operasyonu neden hata veriyor?" —
+// ikisi de LLM'siz yönlenir (copilot_starters_test TestStarterQuestionsRoute).
+// Enter'la yazılan ad sunucuya SORULUR (örneklenmiş listeye karşı doğrulama
+// yok, v0.8.265); birebir değilse cümle composer'a DOLDURULUR (sessiz no-op
+// yok). P1 / deploy satırları ve çipleri aynen.
 const ICON: Record<CapabilityKind, LucideIcon> = {
   wiki: BookOpen,
   service: Search,
@@ -37,35 +53,36 @@ export function CosreCapabilities({ wiki, groups = [], onPrefill, onAsk }: {
   wiki: boolean;
   groups?: readonly CopilotStarterGroup[];
   onPrefill: (text: string, caret: number) => void;
-  /** v0.10.1382 — somut seçenek çipi: soruyu hemen gönderir (CopilotChat askChip). */
+  /** v0.10.1382 — somut seçenek: soruyu hemen gönderir (CopilotChat askChip). */
   onAsk?: (text: string, so?: ChatSendOpts) => void;
 }) {
-  const [picking, setPicking] = useState(false);
-  const [pick, setPick] = useState('');
-  const svcGroup = groupForCapability('service', groups);
-  // Yerel servisler yalnız grup değişince yeniden okunur (localStorage, ağ yok).
-  const local = useMemo(
-    () => localServiceChips(svcGroup?.items ?? [], getPinnedServices(), getRecentServices()),
-    [svcGroup],
-  );
-  const commitPick = (v?: string) => {
-    const name = (v ?? pick).trim();
+  const [svc, setSvc] = useState('');
+  const [op, setOp] = useState('');
+  const send = (q: string) => (onAsk ? onAsk(q) : onPrefill(q, q.length));
+  // v0.10.1390 — seçim (picked) doğrudan gönderir; Enter'da yazılan ad sunucu
+  // aramasıyla birebir doğrulanır, değilse cümle doldurulur.
+  const commit = (picked: string | undefined, typed: string, clear: () => void,
+    question: (name: string) => string, exact: (name: string) => Promise<string[]>) => {
+    const name = (picked ?? typed).trim();
     if (!name) return;
-    const q = serviceHealthQuestion(name);
-    setPicking(false);
-    setPick('');
-    onPrefill(q, q.length);
+    const q = question(name);
+    clear();
+    if (picked !== undefined) { send(q); return; }
+    exact(name)
+      .then(names => (names.includes(name) ? send(q) : onPrefill(q, q.length)))
+      .catch(() => onPrefill(q, q.length));
   };
+  const commitService = (v?: string) => commit(v, svc, () => setSvc(''), serviceHealthQuestion,
+    name => api.serviceNames(name, 50).then(r => r.names));
+  const commitOperation = (v?: string) => commit(v, op, () => setOp(''), operationErrorQuestion,
+    name => api.copilotOperationSearch(name).then(r => r.names));
 
   return (
     <div className="cosre-cap" role="list" aria-label={t('cosre.cap.aria')}>
       {capabilityItems(wiki, groups).map(it => {
         const Icon = ICON[it.kind];
         const group = groupForCapability(it.kind, groups);
-        const items: CopilotStarter[] = onAsk
-          ? [...(group?.items ?? []), ...(it.kind === 'service' ? local : [])]
-          : [];
-        const withPicker = it.kind === 'service';
+        const items = onAsk ? (group?.items ?? []) : [];
         return (
           <div role="listitem" key={it.kind} className="cosre-cap__item">
             <Button variant="ghost" size="sm" className="cosre-cap__row"
@@ -75,7 +92,19 @@ export function CosreCapabilities({ wiki, groups = [], onPrefill, onAsk }: {
               onClick={() => { const p = splitCaret(t(it.promptKey)); onPrefill(p.text, p.caret); }}>
               <span>{t(it.labelKey)}</span>
             </Button>
-            {(items.length > 0 || withPicker) && (
+            {it.kind === 'service' && (
+              <div className="cosre-cap__picker" data-cap-search="service">
+                <ServicePicker value={svc} onChange={setSvc} onEnter={commitService}
+                  placeholder={t('cosre.cap.search.service')} width="100%" />
+              </div>
+            )}
+            {it.kind === 'operation' && (
+              <div className="cosre-cap__picker" data-cap-search="operation">
+                <OperationPicker source="cosre" value={op} onChange={setOp} onEnter={commitOperation}
+                  placeholder={t('cosre.cap.search.operation')} width="100%" />
+              </div>
+            )}
+            {items.length > 0 && (
               <div className="cosre-cap__choices" role="group" aria-label={t('cosre.cap.choices')} data-cap-choices={it.kind}>
                 {group?.fleet && (
                   <span className="cosre-cap__fleet" title={t('cosre.cap.fleet.title')}>{t('cosre.cap.fleet')}</span>
@@ -87,18 +116,6 @@ export function CosreCapabilities({ wiki, groups = [], onPrefill, onAsk }: {
                     {st.chip}
                   </Chip>
                 ))}
-                {withPicker && (
-                  <Chip pill size="sm" data-chip="pick-service" aria-expanded={picking}
-                    onClick={() => setPicking(p => !p)}>
-                    {t('cosre.cap.pickService')}
-                  </Chip>
-                )}
-              </div>
-            )}
-            {withPicker && picking && (
-              <div className="cosre-cap__picker">
-                <ServicePicker value={pick} onChange={setPick} onEnter={commitPick}
-                  placeholder={t('cosre.cap.pickService.placeholder')} width="100%" />
               </div>
             )}
           </div>

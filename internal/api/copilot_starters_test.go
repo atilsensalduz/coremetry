@@ -16,97 +16,12 @@ import (
 // deploys): her grubun saf üreticisi, tavanları, boş grubun yanıta girmemesi,
 // v2 cache anahtarının env'i özetlemesi ve her şablonun LLM'siz yönlenmesi
 // (operasyon cümlesi: katalog ön-getirmesinin belirteç + birebir eşleşme şekli).
-
-func TestStarterServiceChips(t *testing.T) {
-	route := &chstore.EndpointRow{Service: "checkout-service", Path: "/api/checkout", Errors: 7}
-	if got := starterServiceChips(nil, route, 3600, 3); len(got) != 0 {
-		t.Fatalf("girdi yok → çip yok (yol çipi de yok): %+v", got)
-	}
-	rows := []chstore.ServiceSummary{
-		{Name: "checkout-service", ErrorCount: 12, ErrorRate: 3.1},
-		{Name: "orders-api", ErrorCount: 0},
-		{Name: "oracle:eu-a-src", ErrorCount: 4},  // sentetik önek: atlanır
-		{Name: "checkout-service", ErrorCount: 1}, // tekrar: atlanır
-		{Name: "payment-service", ErrorCount: 2},
-		{Name: "inventory", ErrorCount: 1}, // tavan dışı
-	}
-	got := starterServiceChips(rows, route, 3600, 3)
-	if len(got) != 4 {
-		t.Fatalf("3 servis + 1 yol çipi beklenir: %+v", got)
-	}
-	want := []struct{ kind, q string }{
-		{"service_errors", "checkout-service son 1 saatte neden hata veriyor?"},
-		{"service_health", "orders-api sağlığı nasıl?"},
-		{"service_errors", "payment-service son 1 saatte neden hata veriyor?"},
-		{"endpoint_errors", "/api/checkout hatalı trace'lerini getir"},
-	}
-	for i, w := range want {
-		if got[i].Kind != w.kind || got[i].Question != w.q {
-			t.Errorf("[%d] = %s/%q; want %s/%q", i, got[i].Kind, got[i].Question, w.kind, w.q)
-		}
-	}
-	for _, bad := range []string{"pkg.Svc/Method", "orders process", "/", ""} {
-		g := starterServiceChips(rows[:1], &chstore.EndpointRow{Path: bad, Errors: 3}, 3600, 3)
-		if len(g) != 1 {
-			t.Errorf("uygunsuz yol %q endpoint çipi üretmemeli: %+v", bad, g)
-		}
-	}
-	if g := starterServiceChips(rows[:1], &chstore.EndpointRow{Path: "/api/ok", Errors: 0}, 3600, 3); len(g) != 1 {
-		t.Errorf("hatasız yol endpoint çipi üretmemeli: %+v", g)
-	}
-	if w := worstTeamService([]chstore.ServiceSummary{{Name: "a"}, {Name: "b", ErrorCount: 2}, {Name: "c", ErrorCount: 9}}); w == nil || w.Name != "b" {
-		t.Fatalf("sıralı listede hata taşıyan İLK servis: %+v", w)
-	}
-	if worstTeamService([]chstore.ServiceSummary{{Name: "a"}}) != nil {
-		t.Fatal("hatasız liste → nil")
-	}
-	eps := []chstore.EndpointRow{{Path: "orders process", Errors: 9}, {Path: "/api/x", Errors: 0}, {Path: "/api/y", Errors: 4}}
-	if e := worstEndpoint(eps); e == nil || e.Path != "/api/y" {
-		t.Fatalf("uygun ve hatalı ilk yol: %+v", e)
-	}
-}
-
-func TestStarterWindowTR(t *testing.T) {
-	for _, c := range []struct {
-		s    int
-		want string
-	}{{3600, "son 1 saatte"}, {21600, "son 6 saatte"}, {86400, "son 24 saatte"}, {1800, "son 30 dakikada"}, {300, "son 5 dakikada"}} {
-		if got := starterWindowTR(c.s); got != c.want {
-			t.Errorf("%d → %q; want %q", c.s, got, c.want)
-		}
-	}
-}
-
-func TestStarterOperationChips(t *testing.T) {
-	groups := []chstore.ExceptionGroup{
-		{Fingerprint: "ora:0123456789abcdef", Message: "INSURANCE_DOC_PDF", Service: "policy-service"},
-		{Fingerprint: "ora:1111111111111111", Message: "ABC", Service: "policy-service"},           // <4 karakter
-		{Fingerprint: "ora:2222222222222222", Message: "two words", Service: "policy-service"},     // boşluk
-		{Fingerprint: "ora:3333333333333333", Message: "INSURANCE_DOC_PDF", Service: "orders-api"}, // tekrar
-		{Fingerprint: "a1b2", Type: "java.lang.NullPointerException", Service: "checkout-service"},
-		{Fingerprint: "a1b3", Type: "java.io.IOException", Service: "checkout-service"}, // aynı servis
-		{Fingerprint: "a1b4", Type: "X", Service: "oracle:eu-a-src"},                    // sentetik
-		{Fingerprint: "a1b5", Type: "Y", Service: "orders-api"},
-		{Fingerprint: "a1b6", Type: "Z", Service: "inventory"}, // tavan dışı
-	}
-	got := starterOperationChips(groups, 3)
-	want := []struct{ kind, q string }{
-		{"operation", "INSURANCE_DOC_PDF operasyonu neden hata veriyor?"},
-		{"service_exceptions", "checkout-service teknik hataları?"},
-		{"service_exceptions", "orders-api teknik hataları?"},
-	}
-	if len(got) != len(want) {
-		t.Fatalf("üç çip beklenir: %+v", got)
-	}
-	for i, w := range want {
-		if got[i].Kind != w.kind || got[i].Question != w.q {
-			t.Errorf("[%d] = %s/%q; want %s/%q", i, got[i].Kind, got[i].Question, w.kind, w.q)
-		}
-	}
-	if len(starterOperationChips(nil, 3)) != 0 {
-		t.Fatal("grup yok → çip yok")
-	}
-}
+//
+// v0.10.1390 — services / operations grupları kalktı (operatör: "filo geneli
+// ve böyle birçok servis yazmasın, search kısmı çıksa yeter"); yerlerinde
+// arama kutuları. Kutulardan gönderilen İKİ cümle ("<svc> sağlığı nasıl?",
+// "<OP> operasyonu neden hata veriyor?") burada yönlenme pinini korur;
+// anahtar v3 (pencere girdisi yok).
 
 func TestStarterP1Chips(t *testing.T) {
 	probs := []chstore.Problem{
@@ -162,80 +77,65 @@ func TestStarterDeployChips(t *testing.T) {
 }
 
 func TestStarterGroupsOmitEmpty(t *testing.T) {
-	one := []copilotStarter{{Chip: "a", Question: "a sağlığı nasıl?", Kind: "service_health"}}
-	gs := starterGroups(true, one, nil, []copilotStarter{}, one)
-	if len(gs) != 2 || gs[0].Kind != "services" || gs[1].Kind != "deploys" || !gs[0].Fleet {
-		t.Fatalf("boş grup yanıta girmez, sıra sabit: %+v", gs)
+	one := []copilotStarter{{Chip: "a", Question: "a son deploy etkisi?", Kind: "deploy"}}
+	gs := starterGroups(true, []copilotStarter{}, one)
+	if len(gs) != 1 || gs[0].Kind != "deploys" || !gs[0].Fleet {
+		t.Fatalf("boş grup yanıta girmez: %+v", gs)
 	}
-	if len(starterGroups(false, nil, nil, nil, nil)) != 0 {
+	p1 := []copilotStarter{{Chip: "b", Question: "b kök nedeni ne?", Kind: "p1"}}
+	if gs := starterGroups(false, p1, one); len(gs) != 2 || gs[0].Kind != "p1" || gs[1].Kind != "deploys" || gs[0].Fleet {
+		t.Fatalf("sıra sabit p1 → deploys: %+v", gs)
+	}
+	if len(starterGroups(false, nil, nil)) != 0 {
 		t.Fatal("hepsi boş → grup yok")
 	}
 }
 
 func TestStartersKey(t *testing.T) {
-	a := startersKey("u1", 3600, "")
-	if !strings.HasPrefix(a, "copilot:starters:v2:") {
-		t.Fatalf("v2 öneki: %q", a)
+	a := startersKey("u1", "")
+	if !strings.HasPrefix(a, "copilot:starters:v3:") {
+		t.Fatalf("v3 öneki (v0.10.1390 — gruplar değişti, v2 kayıtları okunmasın): %q", a)
 	}
 	seen := map[string]string{}
 	for _, c := range []struct {
 		u   string
-		r   int
 		env string
-	}{{"u1", 3600, ""}, {"u1", 3600, "prod"}, {"u1", 3600, "uat"}, {"u2", 3600, "prod"}, {"u1", 7200, "prod"}} {
-		k := startersKey(c.u, c.r, c.env)
+	}{{"u1", ""}, {"u1", "prod"}, {"u1", "uat"}, {"u2", "prod"}, {"u2", ""}} {
+		k := startersKey(c.u, c.env)
 		if prev, dup := seen[k]; dup {
 			t.Fatalf("anahtar çakışması: %+v ile %s", c, prev)
 		}
 		seen[k] = c.u + "/" + c.env
 	}
-	if k1, k2 := startersKey("u1", 3600, "prod"), startersKey("u1", 3600, "prod"+""); k1 != k2 {
+	if k1, k2 := startersKey("u1", "prod"), startersKey("u1", "prod"+""); k1 != k2 {
 		t.Fatal("anahtar kararlı olmalı")
 	}
 }
 
 // Üretilen cümleler router'da beklenen rotaya düşer. FE'deki statik çipler
 // de burada pinli (copilotStarters.test.ts listeyi, bu test yönlenmeyi).
-// v0.10.1382 — yeni grupların HER şablonu da (servis hata/sağlık, teknik
-// hatalar, P1 kök neden, deploy etkisi, yerel servis çipi) LLM'siz yönlenir;
-// operasyon cümlesi guided'dan ÖNCE katalog ön-getirmesinde birebir eşleşir.
+// v0.10.1382 — P1 kök neden ve deploy etkisi şablonları LLM'siz yönlenir.
+// v0.10.1390 — başlangıç kartının arama kutuları: servis seçimi "<svc> sağlığı
+// nasıl?" (service_health), operasyon seçimi "<OP> operasyonu neden hata
+// veriyor?" — guided'dan ÖNCE katalog ön-getirmesinde birebir TEK eşleşme;
+// hem Oracle kodu hem span operasyonu (aramanın döndüğü ad şekilleri).
 func TestStarterQuestionsRoute(t *testing.T) {
-	rows := []chstore.ServiceSummary{{Name: "checkout-service", ErrorCount: 12}, {Name: "payment-service"}}
-	route := &chstore.EndpointRow{Path: "/api/checkout", Errors: 7}
-	chips := starterServiceChips(rows, route, 3600, 3)
-	chips = append(chips, starterServiceChips([]chstore.ServiceSummary{{Name: "inventory", ErrorCount: 1}}, nil, 21600, 3)...)
-	chips = append(chips, starterOperationChips([]chstore.ExceptionGroup{{Fingerprint: "a1", Service: "checkout-service"}}, 3)...)
-	chips = append(chips, starterP1Chips([]chstore.Problem{{ID: "p-1", Service: "payment-service", Priority: "P1"}}, 3)...)
+	chips := starterP1Chips([]chstore.Problem{{ID: "p-1", Service: "payment-service", Priority: "P1"}}, 3)
 	chips = append(chips, starterDeployChips([]chstore.RecentDeployEntry{{Service: "api-gateway", Version: "3.1"}}, nil, 2)...)
 	want := map[string]struct {
 		intent guidedIntent
 		svc    string
 	}{
-		"service_errors":     {guidedRootCause, ""},
-		"service_health":     {guidedServiceHealth, ""},
-		"service_exceptions": {guidedServiceExceptions, "checkout-service"},
-		"p1":                 {guidedRootCause, "payment-service"},
-		"deploy":             {guidedDeployImpact, "api-gateway"},
+		"p1":     {guidedRootCause, "payment-service"},
+		"deploy": {guidedDeployImpact, "api-gateway"},
 	}
 	kinds := map[string]bool{}
 	for _, c := range chips {
 		kinds[c.Kind] = true
 		r := routeGuidedIntent(c.Question, feServices, feEnvs, nil, "")
-		if c.Kind == "endpoint_errors" {
-			if r.Intent != guidedEndpointTraces || r.SearchText != "/api/checkout" || !r.TraceErrorsOnly {
-				t.Errorf("%q → %s/%q errs=%v; want endpoint_traces//api/checkout/true", c.Question, r.Intent, r.SearchText, r.TraceErrorsOnly)
-			}
-			continue
-		}
 		w := want[c.Kind]
-		if r.Intent != w.intent {
-			t.Errorf("%s %q → %s; want %s", c.Kind, c.Question, r.Intent, w.intent)
-		}
-		if w.svc != "" && r.Service != w.svc {
-			t.Errorf("%s %q → servis %q; want %q", c.Kind, c.Question, r.Service, w.svc)
-		}
-		if r.Service == "" {
-			t.Errorf("%s %q servis çözmedi", c.Kind, c.Question)
+		if r.Intent != w.intent || r.Service != w.svc {
+			t.Errorf("%s %q → %s/%q; want %s/%q", c.Kind, c.Question, r.Intent, r.Service, w.intent, w.svc)
 		}
 	}
 	for k := range want {
@@ -244,21 +144,43 @@ func TestStarterQuestionsRoute(t *testing.T) {
 		}
 	}
 	// P1 kapsamı: problem kimliği kapsam kademesinde "problem" planına gider.
-	p1 := starterP1Chips([]chstore.Problem{{ID: "p-1", Service: "payment-service", Priority: "P1"}}, 3)[0]
+	p1 := chips[0]
 	if pl := planChatScope("", *p1.Scope, p1.Question, p1.Question, feServices, feEnvs); pl.Kind != "problem" {
 		t.Errorf("P1 kapsamı → %q; want problem", pl.Kind)
 	}
-	// Operasyon cümlesi: ön-getirme belirteçleri kodu taşır ve katalogla
-	// BİREBİR tek operasyon eşleşir (çoklu seçim / bulanık değil).
-	op := starterOperationChips([]chstore.ExceptionGroup{{Fingerprint: "ora:0123456789abcdef", Message: "INSURANCE_DOC_PDF"}}, 3)[0]
-	toks := opTokens(op.Question)
-	m := matchOperations(toks, []chstore.CatalogOperation{{Operation: "INSURANCE_DOC_PDF", CallCount: 9}, {Operation: "ORDERS_LIST_GET", CallCount: 40}})
-	if m.Kind != "exact" || len(m.Ops) != 1 || m.Ops[0] != "INSURANCE_DOC_PDF" {
-		t.Errorf("%q → belirteçler %v, eşleşme %+v; want exact INSURANCE_DOC_PDF", op.Question, toks, m)
+	// Servis arama kutusu (capabilityHints serviceHealthQuestion) aynı cümleyi kurar.
+	for _, svc := range []string{"inventory", "checkout-service"} {
+		q := svc + " sağlığı nasıl?"
+		if r := routeGuidedIntent(q, feServices, feEnvs, nil, ""); r.Intent != guidedServiceHealth || r.Service != svc {
+			t.Errorf("servis arama seçimi %q → %s/%q", q, r.Intent, r.Service)
+		}
 	}
-	// FE yerel servis çipi (capabilityHints localServiceChips) aynı cümleyi kurar.
-	if r := routeGuidedIntent("inventory sağlığı nasıl?", feServices, feEnvs, nil, ""); r.Intent != guidedServiceHealth || r.Service != "inventory" {
-		t.Errorf("yerel servis çipi → %s/%q", r.Intent, r.Service)
+	// Operasyon arama kutusu (capabilityHints operationErrorQuestion): aramanın
+	// döndüğü her ad (opSearchRoutable) ön-getirme belirteçlerinde kendisi olarak
+	// çıkar ve katalogla BİREBİR tek operasyon eşleşir (çoklu seçim / bulanık değil).
+	cat := []chstore.CatalogOperation{
+		{Operation: "INSURANCE_DOC_PDF", Source: "oracle", CallCount: 9},
+		{Operation: "ORDERS_LIST_GET", Source: "oracle", CallCount: 40},
+		{Operation: "OrderService.PlaceOrder", Source: "span", Service: "checkout-service", CallCount: 120},
+		{Operation: "OrderService.PlaceOrderV2", Source: "span", Service: "checkout-service", CallCount: 80},
+		{Operation: "payments/authorize", Source: "span", Service: "payment-service", CallCount: 30},
+	}
+	for _, op := range []string{"INSURANCE_DOC_PDF", "OrderService.PlaceOrder", "payments/authorize"} {
+		if !opSearchRoutable(op) {
+			t.Fatalf("%q aramada önerilebilmeli", op)
+		}
+		q := op + " operasyonu neden hata veriyor?"
+		toks := opTokens(q)
+		m := matchOperations(toks, cat)
+		if m.Kind != "exact" || len(m.Ops) != 1 || m.Ops[0] != op {
+			t.Errorf("%q → belirteçler %v, eşleşme %+v; want exact %s", q, toks, m, op)
+		}
+		if topologyVetoesOpPrefetch(q) {
+			t.Errorf("%q ön-getirmeden vetolanmamalı", q)
+		}
+		if _, _, ok := endpointMention(q); ok {
+			t.Errorf("%q endpoint anması sayılmamalı (ön-getirme belirteç yoluna düşer)", q)
+		}
 	}
 	static := []struct {
 		q      string
