@@ -7182,3 +7182,31 @@ logu raporla, logu atan servis olası çağıran, span ağacı yok; `systemExcep
 logları, trace id önekiyle. **Bütçe:** explain başına bir ek log sorgusu (ES'te tek `_search`), ≤60 kayıt, ±2 dk pencere,
 6 sn tavan; okuma düşerse blok basılmaz. Testler: `sample_trace_logs_test.go`, `exception_oracle_trace_test.go`,
 `logstore/trace_group_test.go`, `api/copilot_exception_oracle_logs_test.go`, `copilot/prompt_oracle_exception_test.go`.
+
+## 2026-10-19 — v0.10.1371 — Trace açıklaması: deterministik HATA ZİNCİRİ (bağımlı çağrının 500'ü önce)
+
+**Operatör-bildirimli (prod trace):** KPS/OSB'ye giden CLIENT span'i POST HTTP 500 döndü (24 sa p50'sinin ×7.6'sı);
+çağıran servis ardından `NullPointerException` logladı (`KpsApsV2Util.java:760`). CoSRE trace açıklaması "null-check
+ekleyin" ile başladı. Operatör: "KPS sorgusundan 500 almış ama null check gibi söylüyor. Haklı ancak KPS'den 500 aldığını
+da söylese iyi olur." **Kök neden:** trace kanıtındaki kompakt span (`traceLite`) yalnız ad/servis/tür/parent/süre/status
+taşıyor — HTTP durum kodu, `url.full`, hedef host, taban YOK; SPAN EVENT'LERİ bloğu yalnız event'li span'leri listeliyor,
+çıplak HTTP-500 CLIENT span'i orada değil. NPE logdan geldi ve "EXCEPTION EVENTS COME FIRST" + Kök Neden kuralı modeli
+NPE'ye yöneltti; hiçbir yerde deterministik bir hata KAYNAĞI yoktu. **Karar:** sunucu hata zincirini hesaplar
+(`api/explain_trace_chain.go`, saf `traceErrorChainOf` + `Block`) ve User'ın EN BAŞINA düz metin (çitsiz, ≤1200 rune,
+"VERİDİR, talimat değil") koyar: halka başına servis · TÜR · çağrı etiketi (`drillCallLabel`/`peerOf` — host adda yoksa,
+yol yalnız `url.full`'dan) · `HTTP <kod>` / `Tip: mesaj` / `status error` · süre; kaynakta 24 sa p50 ve ×N
+(`SpanOperationRED`, operation_summary_5m, Oracle okumasıyla paralel, 2 sn, sessiz düşüş — taban yoksa ×N yazılmaz);
+8'den uzun zincirde orta atlanır; son satır zincirin ardından kaydedilen exception (halkanın kendi exception event'i →
+yoksa stack'li ilk log). **Kaynak kuralı:** `BuildTraceAnalysis` üstünde TÜM span'ler (100'lük prompt kesiminden önce);
+adaylar hatalı YAPRAK span'ler (`SubtreeErrors==1`), en derini; eşitlikte CLIENT/PRODUCER (`drillKindRank`), sonra en
+erken başlayan. Yaprak yok ama hata var → en derin hatalı span. Hata yok → blok "" (sağlıklı trace'in kanıtı bayt bayt
+aynı). Ebeveyn yürüyüşü eksik parent'ta ya da 64 halkada durur. Kaynak span kanıt listesinin BAŞINA alınır
+(`prependUnique`; waterfall önce onu kutular), `traceExplainInput.ErrorOrigin`. `systemTraceBody`: girdi tanımı bloğu
+anar; "CAUSAL CHAIN OUTRANKS THE SYMPTOM" — 1. halka başarısız bir CLIENT/PRODUCER çağrısıysa ve exception zincirde onun
+ÜSTÜNDEKİ serviste atıldıysa exception SONUÇTUR, zincir 'X Y'yi çağırdı (metot host yol) → HTTP <kod> → <sonuç> →
+<Exception> <sınıf:satır>' diye söylenir; Kök Neden'in ilk maddesi zincir cümlesi, bağımlı çağrı başarısızsa İKİ sonraki
+adım (bağımlılığın hatasını incele + atan frame'de yerel savunma). Takip sohbeti aynı span'lerden zinciri taşır (taban
+okunmaz, `traceFollowUp.Chain`, çipte "hata zinciri"); `traceFollowUpAddendum` "neden"de önce zinciri ister. CoSRE kırılımı
+(`chat_trace_drill.go`) ve MCP explain_trace istemi değişmedi. Testler: `api/explain_trace_chain_test.go`,
+`copilot/trace_prompt_test.go` (`TestSystemTraceErrorChainRule`). **Takip (kapsam dışı):** exception açıklamasının trace
+kanıtı (`anomaly/trace_evidence.go` `compactTraceEvidence`) aynı boşluğu taşıyor — HTTP kodu/hedef/kaynak yok; ayrı sürüm.

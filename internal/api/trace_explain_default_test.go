@@ -187,7 +187,9 @@ func TestExplainTraceDefaultIsClassic(t *testing.T) {
 	if system != copilot.SystemPromptTrace() {
 		t.Errorf("sistem istemi SystemPromptTrace değil (ilk 80: %.80q)", system)
 	}
-	if !strings.HasPrefix(user, "Trace "+defTestTrace+" with 2 spans") || !strings.Contains(user, "card declined") {
+	// v0.10.1371 — hatalı trace'te User HATA ZİNCİRİ bloğuyla başlar; klasik
+	// paket ardından gelir (HasPrefix → Contains).
+	if !strings.Contains(user, "Trace "+defTestTrace+" with 2 spans") || !strings.Contains(user, "card declined") {
 		t.Errorf("user istemi klasik kanıt paketi değil: %.200q", user)
 	}
 

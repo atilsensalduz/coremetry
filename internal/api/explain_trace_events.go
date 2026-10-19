@@ -609,7 +609,11 @@ func stackTail(lines []string, maxLines, maxRunes int) []string {
 // sınırları orada) ve AYNI seçim (pickExplainSpans → buildTraceEventDigest),
 // böylece takip sohbeti ilk cevabın gördüğü exception özetini taşır.
 // Sınırlı süre, sessiz düşüş: okunamazsa "" ve takip bugünkü gibi sürer.
-func (s *Server) traceFollowUpEvents(ctx context.Context, traceID string) string {
+//
+// v0.10.1371 — AYNI span'lerden HATA ZİNCİRİ de döner (chain; "\n\n" ile
+// başlar, "" = hata yok). Taban (24 sa p50) OKUNMAZ — takip turu ek CH
+// okuması yapmaz; log exception satırı da yok (log okuması burada yok).
+func (s *Server) traceFollowUpEvents(ctx context.Context, traceID string) (events, chain string) {
 	ctx, cancel := context.WithTimeout(ctx, traceFollowUpEventsTimeout)
 	defer cancel()
 	var spans []chstore.SpanRow
@@ -622,10 +626,13 @@ func (s *Server) traceFollowUpEvents(ctx context.Context, traceID string) string
 		// düşerken nil store'a dokunurdu.
 		spans, err = s.tempo.LookupTrace(ctx, traceID)
 	default:
-		return ""
+		return "", ""
 	}
 	if err != nil || len(spans) == 0 {
-		return ""
+		return "", ""
 	}
-	return buildTraceEventDigest(pickExplainSpans(spans, traceExplainSpanCap)).Block()
+	if b := traceErrorChainOf(spans).Block(traceChainException{}); b != "" { // v0.10.1371
+		chain = "\n\n" + b
+	}
+	return buildTraceEventDigest(pickExplainSpans(spans, traceExplainSpanCap)).Block(), chain
 }

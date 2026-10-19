@@ -155,6 +155,10 @@ type traceExplainInput struct {
 	// ≤5 (traceFunctionCodes). Ana operasyon KESİN kaynaktan bulunamazsa kod
 	// incelemesi sözlükten ADAY operasyon arar; prompt'a GİRMEZ.
 	FunctionCodes []string
+	// ErrorOrigin — v0.10.1371 (operatör-bildirimli): deterministik HATA
+	// ZİNCİRİ'nin kaynak span'i (en derin hatalı yaprak); "" = trace'te hata
+	// yok. Kanıt listesinin (Evidence) BAŞINDA — waterfall önce onu kutular.
+	ErrorOrigin string
 }
 
 // buildTraceExplainInput — trace'in span'lerini çekip kompakt JSON'a
@@ -199,6 +203,9 @@ func (s *Server) buildTraceExplainInput(ctx context.Context, id string) (traceEx
 	// v0.10.1044 — çalışan sürüm seçimi TÜM span'lerden (100'lük prompt
 	// kesiminden önce): sayım ne kadar çok örnekse o kadar sağlam.
 	allSpans := spans
+	// v0.10.1371 — HATA ZİNCİRİ TÜM span'lerden (kaynak 100'lük kesimin
+	// dışında kalabilir); sağlıklı trace'te OK=false ve blok "".
+	chain := traceErrorChainOf(allSpans)
 	spans = pickExplainSpans(spans, traceExplainSpanCap)
 	compact := make([]traceLite, 0, len(spans))
 	var dbStmts, errTexts []string
@@ -249,6 +256,9 @@ func (s *Server) buildTraceExplainInput(ctx context.Context, id string) (traceEx
 	// tier'ı (pickMainOperation) aynı okumadan, ek I/O yok.
 	var logsRead []*logstore.LogRecord
 	var oracleWG sync.WaitGroup
+	// v0.10.1371 — zincirin ilk satırına giren exception (stack'li İLK log);
+	// halkanın kendi exception event'i varsa Block onu tercih eder.
+	var chainLogEx traceChainException
 	if s.oracle != nil && s.oracle.HasEnabledSources() && s.store != nil {
 		ofrom := time.Unix(0, minT).Add(-time.Minute)
 		oto := time.Unix(0, maxT).Add(time.Minute)
@@ -260,6 +270,28 @@ func (s *Server) buildTraceExplainInput(ctx context.Context, id string) (traceEx
 			if rows, oerr := s.store.OracleErrorsByTrace(octx, strings.ToLower(id), ofrom, oto, oracleExplainMaxRows*5); oerr == nil {
 				oracleBlock, oracleRows = oracleExplainBlock(rows, s.oracleSourceNames())
 				oracleRowsRead = rows
+			}
+		}()
+	}
+	// v0.10.1371 — kaynak operasyonun 24 sa p50'si (SpanDetail "×N slower" ile
+	// aynı okuma: operation_summary_5m, SpanOperationRED). Oracle'la PARALEL,
+	// kendi 2 sn bütçesi, sessiz düşüş: taban yoksa ×N yazılmaz.
+	var chainWG sync.WaitGroup
+	var chainBaseP50 float64
+	var chainBaseOK bool
+	if chain.OK && s.store != nil && chain.Origin.Span.Name != "" {
+		origin := chain.Origin.Span
+		chainWG.Add(1)
+		go func() {
+			defer chainWG.Done()
+			bctx, bcancel := context.WithTimeout(ctx, traceChainBaselineTimeout)
+			defer bcancel()
+			end := time.Unix(0, origin.EndTime)
+			if origin.EndTime <= 0 {
+				end = time.Now()
+			}
+			if red, berr := s.store.SpanOperationRED(bctx, origin.ServiceName, origin.Name, end.Add(-traceDrillBaselineWin), end); berr == nil && red.Calls > 0 && red.P50Ms > 0 {
+				chainBaseP50, chainBaseOK = red.P50Ms, true
 			}
 		}()
 	}
@@ -329,6 +361,7 @@ func (s *Server) buildTraceExplainInput(ctx context.Context, id string) (traceEx
 					if rawStack == "" {
 						rawStack, stackService = stackText, lg.ServiceName
 						stackSpanID, stackRes = lg.SpanID, lg.ResourceAttributes
+						chainLogEx = traceChainLogException(lg, stackText) // v0.10.1371
 					}
 				}
 				ll = append(ll, e)
@@ -349,6 +382,14 @@ func (s *Server) buildTraceExplainInput(ctx context.Context, id string) (traceEx
 	}
 
 	oracleWG.Wait()
+	chainWG.Wait() // v0.10.1371
+	chain.BaseP50Ms, chain.BaseOK = chainBaseP50, chainBaseOK
+	// v0.10.1371 — HATA ZİNCİRİ User'ın EN BAŞINDA (düz metin, çitsiz; çekmece
+	// kırpması baştan tutar). traceExplainUser'a dokunulmaz (golden pin).
+	chainBlock := ""
+	if b := chain.Block(chainLogEx); b != "" {
+		chainBlock = b + "\n\n"
+	}
 	// Oracle bloğu logların ARKASINA; çekmece kırpması (clampDrawerEvidence)
 	// bu kuyruğu bütün tutar, span listesini keser.
 	// v0.10.1147 — span event bloğu kuyruğun BAŞINA: kırpmada span listesi
@@ -356,8 +397,9 @@ func (s *Server) buildTraceExplainInput(ctx context.Context, id string) (traceEx
 	tail := evd.Block() + logsBlock + oracleBlock
 	mainOp, otherOps, opSource := pickMainOperation(oracleRowsRead, allSpans, logsRead)
 	return traceExplainInput{
-		User:         traceExplainUser(id, len(compact), totalSpans, string(payload), tail),
-		Evidence:     traceEvidenceSpanIDs(compact),
+		User:         chainBlock + traceExplainUser(id, len(compact), totalSpans, string(payload), tail), // v0.10.1371 — zincir başta
+		Evidence:     prependUnique(chain.Origin.Span.SpanID, traceEvidenceSpanIDs(compact)),             // v0.10.1371 — kaynak önce kutulanır
+		ErrorOrigin:  chain.Origin.Span.SpanID,                                                           // v0.10.1371
 		LogsBlock:    tail,
 		OracleRows:   oracleRows,
 		Stack:        rawStack,

@@ -170,3 +170,49 @@ func TestSystemSpanTraceFirstStructure(t *testing.T) {
 		t.Error("systemSpan still forbids headers")
 	}
 }
+
+// v0.10.1371 — operator-reported: KPS/OSB 500 → null → NPE; explain led with
+// the null-check. Prod trace: a downstream CLIENT POST returned HTTP 500
+// (×7.6 its 24h p50) and the caller then logged NullPointerException
+// (KpsApsV2Util.java:760); CoSRE led with "add a null-check" and never said
+// the dependency returned 500. The evidence now starts with a server-computed
+// HATA ZİNCİRİ block; this pins the rule that ranks the failed dependency
+// call above the local exception and asks for two next steps.
+func TestSystemTraceErrorChainRule(t *testing.T) {
+	flat := strings.Join(strings.Fields(systemTraceBody), " ")
+	for _, must := range []string{
+		"HATA ZİNCİRİ",
+		"CAUSAL CHAIN OUTRANKS THE SYMPTOM",
+		"hop 1 is the error origin",
+		"that exception is a CONSEQUENCE of the failed dependency call, not the root cause",
+		"Name the dependency's host and path verbatim from the block",
+		"Never present the local exception as the cause while the block shows a failed downstream call beneath it",
+		"give TWO",
+		"investigate the dependency's failure",
+		"the local defensive fix at the throwing frame",
+		"Only when no downstream call failed, give the single next thing",
+	} {
+		if !strings.Contains(flat, must) {
+			t.Errorf("systemTraceBody lost the error-chain clause %q", must)
+		}
+	}
+	// The chain rule follows the exception rule (it qualifies it).
+	if i, j := strings.Index(flat, "EXCEPTION EVENTS COME FIRST"), strings.Index(flat, "CAUSAL CHAIN OUTRANKS THE SYMPTOM"); i < 0 || j < i {
+		t.Errorf("chain rule must come right after the exception rule: exc=%d chain=%d", i, j)
+	}
+	for name, p := range map[string]string{"Trace": SystemPromptTrace(), "TraceWithCode": SystemPromptTraceWithCode()} {
+		if !strings.Contains(p, "CAUSAL CHAIN OUTRANKS THE SYMPTOM") {
+			t.Errorf("%s lost the error-chain rule", name)
+		}
+	}
+	fu := strings.Join(strings.Fields(TraceFollowUpAddendum()), " ")
+	for _, must := range []string{"HATA ZİNCİRİ bloğu varsa", "önce zinciri (kaynak uç → belirti) söyle",
+		"yerel exception'ı kök neden diye sunma", "bağımlı çağrının HTTP kodunu ve hedefini an"} {
+		if !strings.Contains(fu, must) {
+			t.Errorf("traceFollowUpAddendum lost %q", must)
+		}
+	}
+	if !strings.Contains(TraceFollowUpAddendumFor(true), "HATA ZİNCİRİ bloğu varsa") {
+		t.Error("simple follow-up addendum lost the chain rule")
+	}
+}

@@ -112,6 +112,11 @@ type traceFollowUp struct {
 	// görmeden cevaplanıyordu. Sunucu kurar (traceFollowUpEvents), modelden
 	// çıkarılmaz.
 	Events string
+	// Chain — v0.10.1371 (operatör-bildirimli): ilk cevabın HATA ZİNCİRİ
+	// bloğu, AYNI span'lerden (traceFollowUpEvents; taban okunmaz). "\n\n" ile
+	// başlar; "" = trace'te hata yok. "Neden" takibi bağımlı çağrının HTTP
+	// kodunu ve hedefini görmeden yerel exception'ı kök neden sanmasın.
+	Chain string
 	// Simple — v0.10.1302: serbest döngü simple araç setinde (küçük model;
 	// serbest-sorgu araçları gizli). Takip talimatı ve pencere satırı gizli
 	// araçların yerine yapısal karşılıklarını anar (copilot.ToolsetText).
@@ -235,7 +240,7 @@ func traceFollowUpPromptTR(tf *traceFollowUp, explain string) string {
 	// v0.10.1147 — span exception özeti (VERİ bloğu, çitli): talimattan sonra,
 	// önceki açıklamadan önce. Sayı denetiminin tohumuna da girer (açıklamasız
 	// çağrı) — mesajdaki değerler temellenir.
-	out += tf.Events
+	out += tf.Chain + tf.Events // v0.10.1371 — zincir event bloğundan önce
 	if ex := clampDrawerExplain(explain); ex != "" {
 		out += "\n\n" + traceFollowUpExplainHeader + "```text\n" + promptfmt.FenceSafe(ex) + "\n```"
 	}
@@ -257,6 +262,10 @@ func traceFollowUpChipTR(tf traceFollowUp) string {
 	if tf.Events != "" {
 		// v0.10.1147 — bağlam sessizce uygulanmaz: span event'leri de bağlamda.
 		parts = append(parts, "span event'leri")
+	}
+	if tf.Chain != "" {
+		// v0.10.1371 — hata zinciri de bağlamda (sessizce uygulanmaz).
+		parts = append(parts, "hata zinciri")
 	}
 	return "trace takibi (araçlarla): " + strings.Join(parts, " · ")
 }
