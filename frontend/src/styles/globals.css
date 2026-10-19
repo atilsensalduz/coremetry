@@ -404,6 +404,10 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; }
+/* v0.10.1363 (operatör onayı, kuyruk) — uygulama kabuğu: sayfa #content'te kayar, kök hiç kaymaz.
+   #content dibine gelince kaydırma köke zincirlenip tüm kabuğu esnetiyor (macOS/iOS lastik bant,
+   Android çek-yenile). Yalnız dikey: yatay geri-kaydırma (tarayıcı geri jesti) korunur. */
+html, body { overscroll-behavior-y: none; }
 body {
   background: var(--bg0); color: var(--text);
   font: 13px/1.5 -apple-system, 'Segoe UI', sans-serif;
@@ -5999,7 +6003,7 @@ tbody td.tpm-more-cell { color: var(--text2); }
       yoksa değişken tanımsız → yalnız --sp-4 nefes payı.
    iOS 16px yakınlaştırma kuralı ZATEN telefon katmanında (D2.2, yoğunluk
    kapsamıyla; mobileBreakpoints pinliyor) — burada tekrar yazılmadı.
-   `html { overscroll-behavior }` bilerek YOK (operatör kararı bekliyor). */
+   Kök `overscroll-behavior-y: none` v0.10.1363'te geldi (html, body kuralı). */
 :where(button, a, .btn-icon, [role="button"], summary, label[for]) {
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;

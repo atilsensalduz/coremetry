@@ -17,7 +17,8 @@
 //      üzerinden; her çapa id'si kaynakta gerçekten bir hedef.
 //   5  iOS 16px yakınlaştırma kuralı telefon katmanında (D2.2) — tekrar
 //      yazılmadı, burada ikinci kez çivileniyor.
-//   6  `html { overscroll-behavior }` YOK (operatör kararı bekliyor).
+//   6  v0.10.1363 — kök (`html, body`) `overscroll-behavior-y: none`; yatay
+//      eksen SERBEST (tarayıcı geri jesti), kısaltma `overscroll-behavior` yok.
 //
 // Neden kapı: bu dört kuralın hiçbiri masaüstünde görünmez; silinseler
 // tsc/eslint/diğer stil kapıları susar, kusur yalnız telefonda (300ms
@@ -154,9 +155,13 @@ describe('v0.10.1339 — platform CSS kazanımları', () => {
     expect(r!.selectors).toContain('[data-density] .controls input');
   });
 
-  it('6 — html overscroll-behavior YOK (operatör kararı bekliyor)', () => {
-    const bad = RULES.filter(x => x.selectors.some(s => s === 'html' || s === ':root' || s === 'body')
-      && decl(x.body, 'overscroll-behavior(?:-[xy])?'));
+  // v0.10.1363 — operatör onayı: kök dikeyde zincirlenmez, yatay serbest.
+  it('6 — kök overscroll-behavior-y: none, x ve kısaltma yok', () => {
+    const root = RULES.filter(x => x.at.length === 0
+      && x.selectors.some(s => s === 'html' || s === ':root' || s === 'body'));
+    const y = root.filter(x => decl(x.body, 'overscroll-behavior-y') === 'none');
+    expect(y.map(x => x.selectors.join(', '))).toEqual(['html, body']);
+    const bad = root.filter(x => decl(x.body, 'overscroll-behavior(?:-x)?'));
     expect(bad.map(x => x.selectors.join(', '))).toEqual([]);
   });
 });

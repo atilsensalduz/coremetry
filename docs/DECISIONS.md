@@ -7076,3 +7076,11 @@ sözleşmesinin doğrudan pini silinen testlerle gitmesin); `vmetrics/bucket_sta
 **Kuyruk (operatör onaylı):** "Organizasyon geneli kod araması" kutusunun açıklaması yalnız "depo ağacında bulunamayan
 stack frame'leri" diyordu; v0.10.1349'dan beri stacktrace'siz trace'in kod incelemesi (ana operasyonun kodu) de bu kapıya
 bağlı ve kapalıyken o trace'ler kodsuz inceleniyor. Açıklamaya ikinci satır eklendi; davranış değişmedi.
+
+## 2026-10-19 — v0.10.1363 — Kök kaydırma zinciri kapalı (`html, body { overscroll-behavior-y: none }`)
+
+**Kuyruk (operatör onaylı; v0.10.1339'da bekletilen karar):** sayfa `#content`'te kayar; dibe/tepeye gelince kaydırma köke
+zincirlenip tüm uygulama kabuğunu (topbar + sidebar) esnetiyordu (macOS/iOS lastik bant), Android'de çek-yenile tetikleniyordu.
+**Karar:** yalnız dikey eksen `none`; yatay serbest — tarayıcının geri/ileri kaydırma jesti korunur. Bilinçli takas: body'nin
+kendisi kayan sayfalarda (giriş, durum sayfası) da çek-yenile yok; yenileme tarayıcı düğmesinden. Pin:
+`styles/platformCss.pin.test.ts` madde 6 (kökte yalnız `-y: none`, `-x`/kısaltma yok).
