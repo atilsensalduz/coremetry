@@ -240,12 +240,17 @@ func evalSystemPrompt(surface string) (string, bool) { return evalSystemPromptFo
 // koşan evalset yüzeyi. Araç seti yalnız bunlara uygulanır.
 func evalLoopSurface(surface string) bool {
 	return surface == "ChatCodeResolve" || surface == evalAgentLoopSurface || // v0.10.1316
-		surface == evalOpExceptionsSurface // v0.10.1331
+		surface == evalOpExceptionsSurface || // v0.10.1331
+		surface == evalOpClusterCompareSurface // v0.10.1374
 }
 
 // evalOpExceptionsSurface — v0.10.1331: operasyon ön-getirmesi Exceptions
 // grubu bulduğunda serbest döngünün prompt'u (çekirdek + Exceptions eki + sohbet).
 const evalOpExceptionsSurface = "ChatOperationExceptions"
+
+// evalOpClusterCompareSurface — v0.10.1374: endpoint ön-getirmesi küme kıyası
+// yaptığında serbest döngünün prompt'u (çekirdek + küme kıyası eki + sohbet).
+const evalOpClusterCompareSurface = "ChatOperationClusterCompare"
 
 // evalAgentLoopSurface — v0.10.1316: ajan döngüsü vakalarının yüzeyi
 // (agent_loop.json). ai_calls etiketi evalset-ChatLoop (D5); üretim profili
@@ -320,6 +325,8 @@ func evalSystemPromptFor(surface string, simple bool) (string, bool) {
 		return copilot.SystemPromptServiceReport(), true
 	case evalOpExceptionsSurface: // v0.10.1331 — copilot_chat.go loopPrompt'undaki ek sırası
 		return copilot.SystemPromptChatAgentLoopFor(simple) + copilot.OperationExceptionsAddendum() + "\n\n" + copilot.SystemPromptChat(), true
+	case evalOpClusterCompareSurface: // v0.10.1374 — copilot_chat.go loopPrompt'undaki ek sırası
+		return copilot.SystemPromptChatAgentLoopFor(simple) + copilot.OperationClusterCompareAddendum() + "\n\n" + copilot.SystemPromptChat(), true
 	case evalAgentLoopSurface: // v0.10.1316 — serbest döngü çekirdeği + sohbet çekirdeği (ekran/sayfa önsözsüz)
 		return copilot.SystemPromptChatAgentLoopFor(simple) + "\n\n" + copilot.SystemPromptChat(), true
 	}
@@ -505,7 +512,7 @@ func evalProductionLabel(surface string) string { return evalProductionLabels[su
 // serbest sohbet döngüsünün ("chat") ekidir, aynı profille koşar. Etiket
 // tablosunda DEĞİL (👎 export geri dönüşümü Chat'e düşmeli).
 func evalProfileLabel(surface string) string {
-	if surface == "ChatCodeResolve" || surface == evalAgentLoopSurface || surface == evalOpExceptionsSurface { // v0.10.1316 — ChatLoop da serbest döngü; v0.10.1331
+	if surface == "ChatCodeResolve" || surface == evalAgentLoopSurface || surface == evalOpExceptionsSurface || surface == evalOpClusterCompareSurface { // v0.10.1316 — ChatLoop da serbest döngü; v0.10.1331; v0.10.1374
 		return evalProductionLabel("Chat")
 	}
 	return evalProductionLabel(surface)

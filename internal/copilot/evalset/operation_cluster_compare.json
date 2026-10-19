@@ -1,0 +1,28 @@
+{
+  "schema": "coremetry.evalset/1",
+  "cases": [
+    {
+      "id": "operation-endpoint-cluster-compare-repeated-db",
+      "surface": "ChatOperationClusterCompare",
+      "why": "v0.10.1374 — iki bölgeden servis edilen endpoint, DB bir bölgede: cevap KÜME KIYASI satırlarını (en yavaş küme tr-c, aynı ×46 tekrar, çağrı başına DB 20 ms vs 3 ms) aktarmalı, veri yok kümesine sayı uydurmamalı, tek öneri vermeli.",
+      "user": "*/shop/orders/detail* endpointi hem kuzey(eu-a, eu-b) hem güney(tr-c) kümelerinde çağrılıyor, tekrar eden DB/servis çağrılarına bak\n\n[operation_prefetch + cluster_compare sonucu]\nOperasyon GET /shop/orders/detail otomatik getirildi (eşleşme: endpoint_exact; pencere son 3sa, 09:00 – 12:00 UTC).\nServis: orders-api-prod\nEndpoint: GET /shop/orders/detail · orders-api-prod\nÇağrı 1544 (önceki eşit pencere 1490, +4%) · hata oranı %0.13 (önce %0.10) · p99 2600 ms (önce 2450 ms, +6%)\nTrace: 20 (2 hatalı). İlk hatalılar:\n- 9f3a2b1c4d5e6f708192a3b4c5d6e7f8 · orders-api-prod · 2300 ms\nBu trace'lere bağlı Oracle hatası yok.\nKÜME KIYASI — GET /shop/orders/detail · orders-api-prod · son 3sa (09:00 – 12:00 UTC)\n- eu-a: 1.234 çağrı · hata %0,1 · p50 120 ms · p95 480 ms\n- eu-b: veri yok (bu pencerede)\n- tr-c: 310 çağrı · hata %0,3 · p50 610 ms · p95 2,1 s ← en yavaş (p95 ×4,4 / eu-a)\nEn yavaş trace'ler (küme · trace · süre · şekil):\n- eu-a · 0af7651916cd43dd8448eb211c80319c · 910 ms · 60 span · DB 46 span / 138 ms (%7) · tekrar: SELECT orders ×44 (ort 3 ms)\n- eu-b · bu pencerede trace yok\n- tr-c · 9f3a2b1c4d5e6f708192a3b4c5d6e7f8 · 2,3 s · hatalı · 148 span · DB 92 span / 1,8 s (%92) · tekrar: SELECT orders ×46 (ort 19 ms)\nHipotez (hesaplanmış): tekrar sayısı benzer — SELECT orders: tr-c ×46, eu-a ×44; çağrı başına DB ortalaması tr-c 20 ms, eu-a 3 ms (×6,7) → fark, tekrar sayısı × bölgeler arası gecikme ile uyumlu (DB/kaynak hızlı küme eu-a tarafında olabilir).\nKURAL: Küme satırları HESAPLANMIŞ ölçümdür — sayıları aynen aktar; OKUNAMADI / veri yok / ölçülemedi yazan küme için sayı UYDURMA; Hipotez satırı yoksa bölgeler arası gecikme iddiasını kesin dille kurma.\n",
+      "expect": {
+        "mustContain": [
+          "tr-c",
+          "×46"
+        ],
+        "mustNotContain": [
+          "kubectl"
+        ],
+        "knownEntities": [
+          "orders-api-prod",
+          "eu-a",
+          "eu-b",
+          "tr-c"
+        ],
+        "maxUnknownEntities": 0,
+        "maxLatencyMs": 30000
+      }
+    }
+  ]
+}

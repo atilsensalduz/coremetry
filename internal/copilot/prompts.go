@@ -2131,6 +2131,24 @@ verilen kod, sayı ve id'leri kullan.`
 // OperationExceptionsAddendum — v0.10.1331: operasyonun Exceptions grubu varken serbest döngü eki.
 func OperationExceptionsAddendum() string { return operationExceptionsAddendum }
 
+// operationClusterCompareAddendum — v0.10.1374 (operator-reported: bir endpoint
+// iki bölgeden servis ediliyor, DB çoğunlukla birinde; "hem eu-a hem tr-c
+// kümelerinde çağrılıyor, tekrar eden DB/servis çağrılarına bak"): endpoint
+// ön-getirmesi küme kıyası yaptıysa (api opPrefetch.clusterPromptTR) serbest
+// döngünün sistem mesajına eklenir; kıyas yoksa hiç eklenmez. Satırlar
+// deterministik (renderClusterCompareTR); model sayıyı aktarır, üretmez.
+// Türkçe-native, kısa (küçük model).
+const operationClusterCompareAddendum = `KÜME KIYASI: cluster_compare sonucu bu endpoint'in küme (ortam) başına
+HESAPLANMIŞ ölçümüdür. KÜME KIYASI satırlarını (çağrı, hata, p50/p95, "en
+yavaş" işareti, trace şekli: DB payı ve tekrar ×N) aynen aktar; OKUNAMADI /
+veri yok / ölçülemedi yazan küme için sayı UYDURMA. Hipotez: DB/kaynak bir
+bölgedeyse diğer bölgedeki fark ≈ tekrar sayısı × bölgeler arası gecikme (RTT);
+bunu kesin dille yalnız sonuçta "Hipotez" satırı varsa söyle. Öneri (tek): tekrar
+sayısını düşür (toplu sorgu / önbellek) ya da çağrıyı veriye yaklaştır.`
+
+// OperationClusterCompareAddendum — v0.10.1374: küme kıyası varken serbest döngü eki.
+func OperationClusterCompareAddendum() string { return operationClusterCompareAddendum }
+
 // chatDeepAddendum — v0.10.1150 "Derin düşün": operatör composer'da Derin'i
 // açtığında serbest döngünün ve wiki anlatımının sistem mesajının ÖNÜNE
 // eklenir (kapalıyken hiç eklenmez — prompt bayt bayt eskisi). Kısalık

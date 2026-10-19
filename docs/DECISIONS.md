@@ -7253,3 +7253,39 @@ api.go değişmedi.
 **Ertelendi (v0.10.1374 — küme kıyası):** ≥2 ortam anan endpoint hedefinde ortam başına RED (`RouteREDByEnv`, tek ham
 sorgu GROUP BY deploy_env), ortam başına en yavaş trace'ler + şekil, deterministik "KÜME KIYASI" bloğu ve prompt eki
 (`operationClusterCompareAddendum`). Bu sürümde çok ortamlı soru tüm ortamlarda okunur ve bunu söyler; kıyas yapılmaz.
+
+## 2026-10-19 — v0.10.1374 — CoSRE küme kıyası: endpoint için cluster başına RED + yavaş trace şekli
+
+**Operator request:** bir endpoint iki bölgeden servis ediliyor, DB çoğunlukla bölgelerden birinde; CoSRE'ye "`*/…/detail*`
+hem <bölge-1>(<küme-a>, <küme-b>) hem <bölge-2>(<küme-c>) kümelerinde çağrılıyor, tekrar eden DB/servis çağrılarına bak"
+diye soruluyor. v0.10.1373 bu soruyu doğru hedefe çözdü ve tüm ortamlarda okudu, ama kümeleri KIYASLAMADI: aynı tekrar
+sayısının bir bölgede neden daha pahalı olduğu (çağrı sayısı × bölgeler arası gecikme) kanıtla görünmüyordu.
+**Karar:** endpoint anma aşaması mesajın andığı ≥2 canlı ortamı hedefe yazar (`opTarget.Envs` = `endpointEnvSet`:
+`extractEnvSet`, yol metinden çıkarılmış, canlı ortam kataloğuna karşı; <2 → nil ve yol bayt bayt eski). Bu durumda
+`opPrefetchForTarget` endpoint kırılımıyla PARALEL bir küme kıyası koşar (`chat_cluster_compare.go`; ön-getirmenin 15 sn
+tavanı sıralı koşuyu taşımazdı) ve kırılımdan sonra toplar: (1) ortam başına RED — `chstore.RouteREDByEnv` (http_route
+VEYA span adı) / `PathREDByEnv` (yol-yalnız hedef: `url.path` ya da `http.target`'ın `?` öncesi BİREBİR); (2) ortam
+başına en yavaş ≤5 trace (`TraceFilter.Env`, hedef süzgeci ön-getirmeyle aynı öncelik, `CountMode: skip`); (3) ≤4
+ortamda en yavaş ≤2 trace'in şekli (`traceDrillCore` → `traceShape`; 24 sa taban okuması ve log okuması YOK).
+Deterministik "KÜME KIYASI" bloğu (`renderClusterCompareTR`): ortam satırı `1.234 çağrı · hata %0,1 · p50 · p95`, en
+yüksek p95'e "← en yavaş (p95 ×N / <en hızlı>)", boş ortam "veri yok (bu pencerede)", okuma hatası "RED OKUNAMADI
+(<sourcestate sınıfı>)", ölçülemeyen RED "RED ölçülemedi" + neden; trace satırı `küme · trace · süre · şekil`. Blok
+`seed()`'in üçüncü sentetik tool çifti (`cluster_compare`, model tavanında kırpılır); `summary()` değişmez. Serbest döngü
+prompt'una `operationClusterCompareAddendum` yalnız kıyas varken girer (`opPre.clusterPromptTR()`, Exceptions ekinin
+hemen ardında); evalset yüzeyi `ChatOperationClusterCompare`.
+**Sorgu bütçesi:** RED TEK ham sorgu `GROUP BY deploy_env` — spanmetrics_1m / operation_summary_5m'de deploy_env yok,
+v0.8.385 env ham geri dönüşü emsal; MV DEĞİŞİKLİĞİ YOK. `service_name = ?` (birincil anahtar öneki) + `deploy_env IN (?)`
++ giriş-noktası kind yüklemi + yarı-açık pencere (sohbet penceresi ≤6 sa'e kırpılır, blok söyler) + `LIMIT 16` +
+`max_execution_time = 10`; kuantil `quantilesTDigest(0.5, 0.95)` (bellek sınırlı). Servis tek adaya çözülmediyse ham
+sorgu KOŞMAZ (anahtar budaması yok) ve yol-yalnız hedefte yol elips/joker taşıyorsa (`url.path` birebir eşlenemez) RED
+ölçülmez — her ortam "RED ölçülemedi" der, kıyas trace'lerle sürer. Toplam: 1 RED sorgusu + ≤6 trace araması + ≤8 trace
+çözümü, hepsi tek 10 sn bütçede.
+**Hipotez kapısı:** hipotez cümlesi yalnız HESAPLANMIŞ koşulda yazılır: en yavaş ve en hızlı ortamın (hepsinin RED'i
+ölçülmüşse p95, değilse en yavaş trace süresi — iki ölçü karıştırılmaz) en yavaş trace şeklinde, yavaş ortamın en çok
+tekrar eden çağrısı hızlı ortamda da var, tekrar sayıları ±%20 içinde VE çağrı başına DB ortalaması (DB öz süre / DB span)
+oranı ≥2. Koşul tutmazsa satır yok; ek modelden bölgeler arası gecikme iddiasını yalnız o satır varken kesin dille
+kurmasını ister. Tahmin edilen bir sayı yok.
+**Ertelendi:** FE kartı (op-prefetch bloğu `clusterCompare` alanını taşır, `lib/types.ts`'e girmedi; bu sürüm yalnız
+metin bloğu). Testler: `api/chat_cluster_compare_test.go`, `chstore/operation_env_red_test.go`,
+`copilot/prompt_language_test.go` `TestOperationClusterCompareAddendum`. Sohbet kademe sırası, MCP araç sayısı ve api.go
+değişmedi.

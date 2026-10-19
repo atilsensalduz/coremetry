@@ -18,7 +18,10 @@ type OpRED struct {
 	// P50Ms — v0.10.1327: CoSRE trace drill'inin taban çizgisi ("bu
 	// operasyonun 24 sa p50'si 13 ms (×3825)"). Aynı MV, aynı tdigest durumu;
 	// omitempty: eski yük (op-prefetch bloğu) bayt bayt aynı kalır.
-	P50Ms    float64 `json:"p50Ms,omitempty"`
+	P50Ms float64 `json:"p50Ms,omitempty"`
+	// P95Ms — v0.10.1374: küme kıyası (RouteREDByEnv / PathREDByEnv) satırı;
+	// diğer okumalar doldurmaz, omitempty ile eski yük bayt bayt aynı.
+	P95Ms    float64 `json:"p95Ms,omitempty"`
 	Measured bool    `json:"measured"`
 }
 

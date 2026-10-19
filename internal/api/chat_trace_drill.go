@@ -640,6 +640,32 @@ func rootCauseWantsTraceDrill(cur, base aiRED, curErr error, slowAsk bool) bool 
 // traceDrillFor — tek trace: Tempo-öncelikli span çözümü, analiz, baskın span,
 // 24 sa p50 tabanı. Emit ETMEZ (goroutine'den çağrılır).
 func (s *Server) traceDrillFor(ctx context.Context, c drillCandidate) traceDrill {
+	d := s.traceDrillCore(ctx, c)
+	if !d.Pick.OK {
+		return d
+	}
+	if s.store != nil && d.Pick.Span.Name != "" {
+		end := time.Unix(0, d.Pick.Span.EndTime)
+		if d.Pick.Span.EndTime <= 0 {
+			end = time.Now()
+		}
+		red, berr := s.store.SpanOperationRED(ctx, d.Pick.Span.ServiceName, d.Pick.Span.Name, end.Add(-traceDrillBaselineWin), end)
+		switch {
+		case berr != nil:
+			d.BaseErr = berr
+		case red.Calls > 0 && red.P50Ms > 0:
+			d.BaseP50Ms, d.BaseOK = red.P50Ms, true
+		}
+	}
+	return d
+}
+
+// traceDrillCore — v0.10.1374: traceDrillFor'un taban okumasız gövdesi (span
+// çözümü, analiz, şekil, baskın span, hedef, hata) — traceDrillFor'dan MEKANİK
+// ayrıldı (metin bayt bayt aynı). Küme kıyası (chat_cluster_compare.go) ≤8
+// trace kırar ve 24 sa p50 tabanını yazmaz; tabanın ≤8 ek MV okuması boşa
+// gitmesin diye bunu çağırır. Emit ETMEZ.
+func (s *Server) traceDrillCore(ctx context.Context, c drillCandidate) traceDrill {
 	d := traceDrill{TraceID: c.Row.TraceID, Label: c.Label}
 	spans, src, err := s.resolveTraceSpans(ctx, c.Row.TraceID)
 	if err != nil {
@@ -672,19 +698,6 @@ func (s *Server) traceDrillFor(ctx context.Context, c drillCandidate) traceDrill
 		return d
 	}
 	d.Peer, d.Fail = peerOf(d.Pick.Span), spanFailure(d.Pick.Span)
-	if s.store != nil && d.Pick.Span.Name != "" {
-		end := time.Unix(0, d.Pick.Span.EndTime)
-		if d.Pick.Span.EndTime <= 0 {
-			end = time.Now()
-		}
-		red, berr := s.store.SpanOperationRED(ctx, d.Pick.Span.ServiceName, d.Pick.Span.Name, end.Add(-traceDrillBaselineWin), end)
-		switch {
-		case berr != nil:
-			d.BaseErr = berr
-		case red.Calls > 0 && red.P50Ms > 0:
-			d.BaseP50Ms, d.BaseOK = red.P50Ms, true
-		}
-	}
 	return d
 }
 

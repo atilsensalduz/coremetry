@@ -174,6 +174,10 @@ type opTarget struct {
 	// yol-yalnız hedef: RED ölçülmez, trace'ler yol metniyle aranır
 	// (endpointPathOnlyTarget). "" = katalog hedefi (bayt bayt eski yol).
 	SearchPath string
+	// Envs — v0.10.1374: mesajın andığı ≥2 canlı ortam (endpointEnvSet; yalnız
+	// endpoint anma aşaması doldurur) → küme kıyası (chat_cluster_compare.go).
+	// nil = kıyas yok (bayt bayt eski yol).
+	Envs []string
 }
 
 // opTargetFor — SAF.
@@ -236,6 +240,12 @@ type opPrefetch struct {
 	// EndpointExceptionsChecked — bakıldı (boş liste omitempty ile düşer; "yok" ≠ "bakılmadı").
 	EndpointExceptionsChecked bool            `json:"endpointExceptionsChecked,omitempty"`
 	Alternatives              []opAlternative `json:"alternatives,omitempty"`
+	// ClusterCompare — v0.10.1374: ≥2 ortam anan endpoint sorusunda ortam başına
+	// RED + en yavaş trace şekli (nil = kıyas yok; omitempty → yük bayt bayt eski).
+	// Metni (clusterText) summary()'ye GİRMEZ, seed()'in üçüncü sentetik çifti.
+	ClusterCompare  *clusterCompareEvidence `json:"clusterCompare,omitempty"`
+	clusterText     string
+	clusterArgsJSON string
 	// Drill — v0.10.1343: en yavaş 1–2 trace'in kritik yolu + logları; summary()'ye
 	// GİRMEZ, seed()'in ikinci sentetik tool çifti.
 	Drill         string `json:"-"`
@@ -279,6 +289,17 @@ func (p *opPrefetch) seed(msgs []copilot.ChatMessage) []copilot.ChatMessage {
 		out = append(out,
 			copilot.ChatMessage{Role: "assistant", ToolCalls: []copilot.ToolCall{{ID: opDrillToolID, Name: opDrillTool, Input: json.RawMessage(args)}}},
 			copilot.ChatMessage{Role: "user", ToolResults: []copilot.ToolResult{{CallID: opDrillToolID, Name: opDrillTool, Content: drill}}},
+		)
+	}
+	if p.clusterText != "" { // v0.10.1374 — küme kıyası üçüncü çift (özet bayt bayt eski kalır)
+		args := p.clusterArgsJSON
+		if args == "" {
+			args = "{}"
+		}
+		cc, _ := clampToolResultForModel(p.clusterText)
+		out = append(out,
+			copilot.ChatMessage{Role: "assistant", ToolCalls: []copilot.ToolCall{{ID: opClusterToolID, Name: opClusterTool, Input: json.RawMessage(args)}}},
+			copilot.ChatMessage{Role: "user", ToolResults: []copilot.ToolResult{{CallID: opClusterToolID, Name: opClusterTool, Content: cc}}},
 		)
 	}
 	return out
@@ -646,7 +667,9 @@ func (s *Server) opPrefetchForTarget(pctx context.Context, emit func(string, any
 		}
 		emitGuidedStepResult(emit, en, opExceptionsTool, renderExceptionGroupsTR(t.Name+" operasyonu", ev), eerr)
 	}
+	cc := s.startClusterCompare(pctx, emit, t, svc, from, to) // v0.10.1374 — ≥2 ortam yoksa nil; kırılımla paralel okur
 	s.endpointDrillPhase(pctx, emit, p, t, svc, merged, from, to)
+	cc.finish(emit, p) // v0.10.1374 — nil → no-op
 	// Faz 3 — sohbet kartı (metrikler, hatalı trace'ler, Oracle kodları,
 	// filtreli Traces linki). seq yüksek: döngünün kendi blokları (b1…) önce.
 	emit("block", map[string]any{"id": "op-prefetch", "type": blocks.TypeOperation, "seq": 1000, "final": true, "payload": p})
@@ -678,7 +701,9 @@ func (s *Server) resolveEndpointMention(pctx, ctx context.Context, emit func(str
 		if !endpointPathOnlyAllowed(raw) {
 			return opTarget{}, "", false, false
 		}
-		return endpointPathOnlyTarget(raw, method, path, s.guidedServiceNames(pctx), envs), endpointPathKind, false, true
+		pt := endpointPathOnlyTarget(raw, method, path, s.guidedServiceNames(pctx), envs)
+		pt.Envs = endpointEnvSet(raw, path, envs) // v0.10.1374 — küme kıyası
+		return pt, endpointPathKind, false, true
 	}
 	toks := endpointCatalogTokens(path)
 	cands, err := s.store.CatalogCandidates(pctx, toks, opCandidateLimit)
@@ -691,6 +716,7 @@ func (s *Server) resolveEndpointMention(pctx, ctx context.Context, emit func(str
 	case m.Pick != nil:
 		t = endpointTargetFor(*m.Pick, method)
 		t.Alternatives = opAlternativesFrom(m.Alternatives, method)
+		t.Envs = endpointEnvSet(raw, path, envs) // v0.10.1374 — küme kıyası
 		return t, m.Kind, false, true
 	case len(m.Choices) > 1:
 		sugg := make([]string, len(m.Choices))

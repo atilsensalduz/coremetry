@@ -781,6 +781,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 		chatWikiPromptTR(tools) + // v0.10.1122 — wiki araçları sunulmuyorsa ""
 		chatCodeResolvePromptTR(tools) + // v0.10.1210 — iş kodu / kod arama eki
 		opPre.exceptionsPromptTR() + // v0.10.1331 — operasyonun Exceptions grubu yoksa ""
+		opPre.clusterPromptTR() + // v0.10.1374 — küme kıyası yoksa ""
 		dm.loopPrefix() + // v0.10.1150 — Derin kapalıyken ""
 		withAddressee(addressee, copilot.SystemPromptChat())
 	// v0.10.1324 — yankı süzgecinin cümleleri loopPrompt'a giren AYNI önsöz

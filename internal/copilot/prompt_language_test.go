@@ -411,3 +411,25 @@ func TestOperationExceptionsAddendum(t *testing.T) {
 		}
 	}
 }
+
+// TestOperationClusterCompareAddendum — v0.10.1374: küme kıyası eki sicilde
+// (PromptVersion kapsar), Türkçe yazılı, dil direktifi taşımaz (serbest döngü
+// prompt'u zaten Türkçe), ≤10 satır; aracı ve bloğu anar, uydurma yasağı,
+// hipotez kapısı ve tek öneri taşır.
+func TestOperationClusterCompareAddendum(t *testing.T) {
+	a := OperationClusterCompareAddendum()
+	if promptVersionRegistry["operationClusterCompareAddendum"] != a {
+		t.Fatal("ek promptVersionRegistry'de değil — PromptVersion değişimi görmez")
+	}
+	if strings.Contains(a, AnswerInTurkish) {
+		t.Fatal("ek Türkçe-native; dil direktifi taşımamalı")
+	}
+	if n := strings.Count(a, "\n") + 1; n > 10 {
+		t.Fatalf("ek %d satır, ≤10 olmalı", n)
+	}
+	for _, w := range []string{"cluster_compare", "KÜME KIYASI", "aynen aktar", "UYDURMA", "Hipotez", "tekrar sayısı × bölgeler arası gecikme", "toplu sorgu / önbellek", "veriye yaklaştır"} {
+		if !strings.Contains(a, w) {
+			t.Errorf("ek %q içermeli:\n%s", w, a)
+		}
+	}
+}

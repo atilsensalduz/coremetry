@@ -99,6 +99,9 @@ var promptVersionRegistry = map[string]string{
 
 	// v0.10.1331 — operasyonun Exceptions grubu varken serbest döngü eki.
 	"operationExceptionsAddendum": operationExceptionsAddendum,
+
+	// v0.10.1374 — endpoint küme kıyası varken serbest döngü eki.
+	"operationClusterCompareAddendum": operationClusterCompareAddendum,
 }
 
 var (
