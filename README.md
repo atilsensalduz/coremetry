@@ -29,10 +29,11 @@ apps ──▶ OTel Collector ──▶ Coremetry  (gRPC :4317  /  HTTP :8088)
 
 | | |
 |---|---|
-| [![SRE dashboard](docs/screenshots/dashboard.png)](docs/screenshots/dashboard.png) **Golden Signals / RED dashboard** | [![Service map](docs/screenshots/service-graph.png)](docs/screenshots/service-graph.png) **Service map from trace edges** |
-| [![Problems and incidents](docs/screenshots/problems.png)](docs/screenshots/problems.png) **Alerts grouped into incidents** | [![SLOs](docs/screenshots/slos.png)](docs/screenshots/slos.png) **SLOs with error-budget burn rate** |
+| [![Service operations](docs/screenshots/dashboard.png)](docs/screenshots/dashboard.png) **Per-operation RED view of a service (rate, errors, P50–P99, trends)** | [![Service map](docs/screenshots/service-graph.png)](docs/screenshots/service-graph.png) **Service map from trace edges, two hops around a focus service** |
+| [![Problems](docs/screenshots/problems.png)](docs/screenshots/problems.png) **Problems inbox: anomalies, alert rules and exception groups with priority** | [![SLOs](docs/screenshots/slos.png)](docs/screenshots/slos.png) **SLOs with error-budget burn rate** |
+| [![Endpoints](docs/screenshots/endpoints.png)](docs/screenshots/endpoints.png) **Endpoints across services with error rate, status mix and latency** | [![Logs](docs/screenshots/logs.png)](docs/screenshots/logs.png) **Logs with level histogram, KQL search and trace links** |
 
-More in [`docs/screenshots/`](docs/screenshots/): services list, profiling flamegraph, exception stack traces, Grafana Tempo data source.
+More in [`docs/screenshots/`](docs/screenshots/): services list, profiling flamegraph, exception stack traces, login, Grafana Tempo data source.
 
 ---
 
