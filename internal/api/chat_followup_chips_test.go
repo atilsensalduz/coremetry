@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/cilcenk/coremetry/internal/auth"
+	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/mcptools"
 	"github.com/cilcenk/coremetry/internal/sre"
 )
@@ -249,6 +250,52 @@ func TestFollowupTemplatesRouteGuided(t *testing.T) {
 			}
 		}
 	}
+	// v0.10.1383 — guided cevabın yapısal servis adımları (guidedFollowups) ve
+	// takım özeti çipleri (teamSummaryChips): her tür PİNLİ niyete, aynı
+	// servise ve kapsam yolunda da router'a düşer. Yeni tür pinsiz kalırsa kırılır.
+	stepPinned := map[string]guidedIntent{
+		fuKindOperations: guidedTopErrorOps,
+		fuKindExceptions: guidedServiceExceptions,
+		fuKindSlow:       guidedSlowTraces,
+		fuKindDeploy:     guidedDeployImpact,
+		fuKindReport:     guidedServiceReport,
+	}
+	checkStep := func(c chatFollowup, svc string) {
+		t.Helper()
+		want, ok := stepPinned[c.Kind]
+		if !ok {
+			t.Errorf("adım türü %q için pinli niyet yok", c.Kind)
+			return
+		}
+		if c.Label == "" || c.Action != nil || c.Href != "" {
+			t.Errorf("%s: etiketli metin çipi bekleniyordu: %+v", c.Kind, c)
+		}
+		r := routeGuidedIntent(c.Text, fuServices, fuEnvs, nil, "")
+		if r.Intent != want || r.Service != svc {
+			t.Errorf("%q → %s/%q, want %s/%q", c.Text, r.Intent, r.Service, want, svc)
+		}
+		if c.Scope == nil || len(c.Scope.Services) != 1 || c.Scope.Services[0] != svc {
+			t.Errorf("%s: kapsam %+v", c.Kind, c.Scope)
+			return
+		}
+		_, rest := cleanScopedQuestion(c.Text)
+		if pl := planChatScope("", *c.Scope, c.Text, rest, fuServices, fuEnvs); pl.Kind != "" {
+			t.Errorf("%s: kapsam planı router'ı atladı: %+v", c.Kind, pl)
+		}
+	}
+	for _, k := range append(append([]string(nil), serviceStepOrder...), fuKindReport) {
+		checkStep(serviceStepFollowup(k, "checkout-service", "prod"), "checkout-service")
+	}
+	for intent := range serviceStepCovered {
+		for _, c := range guidedFollowups(guidedRoute{Intent: intent, Service: "checkout-service"}, nil) {
+			checkStep(c, "checkout-service")
+		}
+	}
+	team := teamSummary{DeploysOK: true, Deploys: []chstore.RecentDeployEntry{{Service: "payments", Version: "1.2.0"}}}
+	for _, c := range teamSummaryChips([]string{"checkout-service", "payments"}, team, "", guidedFollowupMax) {
+		checkStep(c, c.Scope.Services[0])
+	}
+
 	// Aksiyon çipi: metin router'a GİTMEZ (yönlenmiyor — bu yüzden aksiyon);
 	// eski istemcinin suggestions'ına da girmez.
 	h, ok := renderFollowup(followupFact{Kind: fuKindHypothesis, ProblemID: "p-1", Hypothesis: sre.HypDeploy})

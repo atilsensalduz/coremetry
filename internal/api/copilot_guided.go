@@ -222,6 +222,10 @@ type guidedRoute struct {
 	// tıklandığında guidedTeamServices'e yönlenir, yani diyalog sunucuda
 	// durum tutmadan kapanır.
 	TeamOptions []string
+	// TeamFollowups — v0.10.1383: takım özetinin (copilot_team_summary.go)
+	// servis başına takip adımları; rotanın ÇIKTISI (bundle yazar,
+	// guidedFollowups okur). JSON'a girmez.
+	TeamFollowups []chatFollowup `json:"-"`
 	// TraceID (v0.9.537) — guidedTraceByID rotasının öznesi (32-hex).
 	TraceID string
 	// SpanID (v0.9.548) — guidedSpanByID rotasının öznesi (16-hex).
@@ -2086,7 +2090,8 @@ func (s *Server) runGuidedRoute(ctx context.Context, emit func(string, any), rou
 		if route.Intent == guidedAskService && disambigAskRescuable(route.AskIntent) {
 			markDisambiguation(ctx) // v0.10.1126 — wiki kurtarması (chat_disambig_rescue.go)
 		}
-		emit("answer", map[string]any{"text": route.DirectAnswer, "suggestions": guidedSuggestions(route)})
+		emit("answer", withGuidedFollowups(map[string]any{"text": route.DirectAnswer, "suggestions": guidedSuggestions(route)},
+			guidedFollowups(route, chatUserTexts(msgs)))) // v0.10.1383 — netleştirme turunda nil (aday çipleri kalır)
 		return true, true
 	}
 
@@ -2169,11 +2174,14 @@ func (s *Server) runGuidedRoute(ctx context.Context, emit func(string, any), rou
 	answer, links = s.wikiZeroMatchHint(ctx, question, answer, links)
 	// v0.9.411 — konuya-duyarlı takip önerileri (guidedSuggestions,
 	// copilot_followup.go). Eski frontend'ler alanı yok sayar.
-	emit("answer", map[string]any{
+	// v0.10.1383 — yapısal takip adımları (guidedFollowups, copilot_followup.go):
+	// servis cevabında "Operasyonları göster / Exception'ları göster …", takım
+	// cevabında servis başına özet çipleri. suggestions aynen (eski istemci).
+	emit("answer", withGuidedFollowups(map[string]any{
 		"text": answer, "exchangeId": copilot.MetaFromContext(ctx).ExchangeID,
 		"suggestions": guidedSuggestions(route),
 		"links":       dedupLinksByHref(links),
-	})
+	}, guidedFollowups(route, chatUserTexts(msgs))))
 	return true, true
 }
 
@@ -3008,7 +3016,10 @@ func (s *Server) guidedMyTeamBundle(ctx context.Context, emit func(string, any),
 	if err != nil {
 		return "", "", err
 	}
-	return header + evidence, fmt.Sprintf("takım: %s — %s", u.Team, src), nil
+	// v0.10.1383 — takım özeti + servis başına takip adımları (sıra özetten:
+	// P1 → açık problem → exception; katalog sırası eşitlik bozucu).
+	evidence += s.teamSummaryBlock(ctx, emit, route, route.Team, svcs, svcs, from, to, rangeS, true)
+	return header + evidence, fmt.Sprintf("takım: %s — %s + takım özeti", u.Team, src), nil
 }
 
 // guidedTeamAskMax — "hangi takım?" turunda sunulan çip sayısı. 8, çip
@@ -3197,6 +3208,9 @@ func (s *Server) guidedTeamServicesBundle(ctx context.Context, emit func(string,
 	redBlk := renderTeamServicesEvidenceTR(team, rows, len(svcs), trimmed, rangeS, route.Env)
 	emitGuidedStepResult(emit, nRED, "team_services_red", redBlk, nil)
 	b.WriteString(redBlk)
+	// v0.10.1383 — takım özeti (problem/deploy/exception) + servis başına
+	// takip adımları; çip sırası RED sırası (en kötü servis aynı kalır).
+	b.WriteString(s.teamSummaryBlock(ctx, emit, route, team, svcs, names, from, to, rangeS, false))
 	// En kötü servisin canlı error_rate kartı (aile bundle'ının emsali).
 	if len(rows) > 0 && rows[0].ErrorCount > 0 {
 		b.WriteString(chartFence(guidedChartSpec{

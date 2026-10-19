@@ -73,9 +73,11 @@ export function FollowupChips({ followups, suggestions, fallback, exchangeId, di
             const h = safeAppPath(f.href);
             return h ? <LinkChip key={`l:${f.text}`} href={h} text={f.text} disabled={disabled} onClicked={() => signal(f.kind)} /> : null;
           }
+          // v0.10.1383 — kısa etiket (label) görünür, tam cümle (text) gönderilir + title'da.
           return (
-            <Chip key={f.text} pill disabled={disabled} onClick={() => { signal(f.kind); onAsk(f.text, followupSendOpts(f)); }}>
-              ↳ {f.text}
+            <Chip key={f.text} pill disabled={disabled} title={f.label ? f.text : undefined}
+              onClick={() => { signal(f.kind); onAsk(f.text, followupSendOpts(f)); }}>
+              ↳ {f.label || f.text}
             </Chip>
           );
         })}

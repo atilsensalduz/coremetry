@@ -7314,6 +7314,11 @@ export interface ChatFollowup {
   action?: { kind: 'sre_hypothesis'; problemId: string; hypothesis: string; label: string };
   /** v0.10.1331 — link çipi (uygulama-içi yol, isSafeAppPath kapısından); doluysa mesaj gönderilmez. */
   href?: string;
+  /**
+   * v0.10.1383 — çipte GÖRÜNEN kısa metin ("Operasyonları göster"); yoksa
+   * `text` görünür. Tık yine `text`i (router'a yönlenen tam cümle) gönderir.
+   */
+  label?: string;
 }
 
 // One streamed event from the chat SSE. `step` = a tool the model

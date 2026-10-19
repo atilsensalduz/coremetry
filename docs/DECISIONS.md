@@ -7520,3 +7520,32 @@ satırı değişmedi. Sözleşme: her üretilen cümle LLM'siz yönlenir — `Te
 `planChatScope` problem planı, operasyon cümlesinde `opTokens` + `matchOperations` birebir eşleşme). Yan düzeltme:
 `api.copilotStarters` URL'sinde `?` eksikti (`qs` önek koymaz), istek "/api/copilot/startersrange_s=…" gidiyordu.
 Testler: `internal/api/copilot_starters_test.go`, `frontend/src/components/ai/CosreCapabilities.test.tsx`.
+
+## 2026-10-19 — v0.10.1383 — CoSRE: servis cevabı sonrası seçilebilir takip adımları + takım özeti
+
+**Operatör isteği:** "Servis sonrasında operationlar ve exceptionlar göster ister misin gibi soru sorabilir veya takım
+ismi verince onunla ilgili daha fazla detay verebilir." **Karar (B1):** guided cevap `suggestions`'ı (düz metin, eski
+istemci) AYNEN taşır ve yanına `answer.followups` ekler — `guidedFollowups(route, asked)` (`copilot_followup.go`).
+Servis-kapsamlı niyetlerde (sağlık, kök neden, problemler, log hataları, pod, yavaş trace / kırılım, deploy etkisi,
+teknik hatalar, en hatalı operasyonlar, rapor) en çok 4 adım: "Operasyonları göster" → "<svc> en hatalı operasyonları?",
+"Exception'ları göster" → "<svc> teknik hataları?", "Yavaş trace'ler" → "<svc> en yavaş trace'ler?", "Son deploy'dan beri
+ne değişti?" → "<svc> son deploy etkisi?", ve her zaman son aday "Tam rapor" → "<svc> servisini analiz et" (v0.10.1337
+D7 korunur; ilk üç yer sırayla dolar). `chatFollowup.Label` (yeni) çipte görünen kısa metin, `Text` router'a giden tam
+cümle; kapsam `{services:[svc], env}`. Niyetin zaten cevapladığı adım önerilmez (operasyon cevabında operasyon adımı
+yok; rapor operasyon + exception + raporu kapsar); konuşmada sorulmuş (normalize-eşit / Jaccard ≥0.8) adım düşer ve
+sıradaki aday gelir. Netleştirme turu (TeamOptions / ServiceOptions) ve konusuz / filo / aile rotası adım almaz — FE
+`suggestions`'a düşer. **Karar (B2):** takım cevabına (`guidedTeamServicesBundle` RED bloğunun arkası,
+`guidedMyTeamBundle` health kipi aile bloğunun arkası) tek TAKIM ÖZETİ bloğu (`copilot_team_summary.go`): açık
+problemler P1/P2/P3 + P1 servisleri (ProblemScanLimit taraması, okuma-anı önceliği; tavanda "en az"), son 24 sa
+`GetRecentDeploys(200)` ∩ takım (tavanda kesildiyse söylenir), pencerede aktif açık exception grupları (occurrences
+sırası, 5). Üç okuma paralel, her biri 3 s zaman aşımıyla soft-fail; okunamayan bölüm "OKUNAMADI", okunmuş boş bölüm
+"yok" — ikisi asla karışmaz ve prompt KURAL satırı OKUNAMADI'nın "yok" diye anlatılmasını yasaklar. Env yalnız
+problemlere uygulanır ve blok bunu söyler. Önbellek 60 s, `copilot:teamsum:v1:<fnv(takım, env, pencere uzunluğu,
+dakika kovası, sıralı servisler ayrı parçalar)>`; bir bölüm düştüyse YAZILMAZ (geçici hata 60 s donmasın). Çipler ilk
+iki servis için "<svc> detayı" → servis raporu, "<svc> exception'ları" → teknik hatalar, deploy bulunduysa ilk servisin
+ardına "<svc> deploy etkisi" → deploy etkisi; en çok 4. Sıra: adı geçen takımda RED hata-oranı sırası (cevabın "en kötü
+servis" iddiasıyla aynı servis), my_services'te özetten (P1 → açık problem → exception oluşumu; katalog sırası eşitlik
+bozucu). Yeni uç / MCP aracı / sohbet kademesi yok; api.go dokunulmadı. **Sözleşme:** her yeni metin LLM'siz pinli
+niyete yönlenir — `TestFollowupTemplatesRouteGuided` genişletildi (beş adım türü + guidedFollowups'ın her niyet çıktısı
++ takım çipleri; kapsam yolunda `planChatScope` router'ı atlamaz). Testler: `internal/api/copilot_team_summary_test.go`,
+`internal/api/chat_followup_chips_test.go`, `frontend/src/components/ai/FollowupChips.test.tsx`.

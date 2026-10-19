@@ -98,6 +98,9 @@ type chatFollowup struct {
 	// Href — v0.10.1331: LİNK çipi (uygulama-içi yol); doluysa çip mesaj
 	// GÖNDERMEZ, o sayfayı açar (FE isSafeAppPath kapısından geçirir).
 	Href string `json:"href,omitempty"`
+	// Label — v0.10.1383: çipte GÖRÜNEN kısa metin ("Operasyonları göster");
+	// boşsa Text görünür. Tık yine Text'i (router'a yönlenen tam cümle) gönderir.
+	Label string `json:"label,omitempty"`
 }
 
 var (

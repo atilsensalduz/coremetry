@@ -338,6 +338,162 @@ func guidedSuggestions(route guidedRoute) []string {
 	return nil
 }
 
+// ─── v0.10.1383 — servis cevabı sonrası yapısal takip adımları ─────────
+//
+// Operatör (2026-10-19): "Servis sonrasında operationlar ve exceptionlar
+// göster ister misin gibi soru sorabilir veya takım ismi verince onunla
+// ilgili daha fazla detay verebilir."
+//
+// guidedSuggestions düz metin çip listesi (eski istemci) olarak AYNEN kalır;
+// guidedFollowups aynı cevaba answer.followups olarak KISA ETİKETLİ, servis
+// kapsamlı adımlar ekler (FE önce followups'ı çizer). Label operatörün
+// gördüğü kısa soru ("Operasyonları göster"), Text router'a giden TAM cümle
+// ("<svc> en hatalı operasyonları?") — her Text guided router'da kendi
+// başına PİNLİ niyete yönlenir (TestFollowupTemplatesRouteGuided): çipe
+// tıklamak asla serbest döngüye düşmez, LLM'e sorulmaz.
+
+// Servis-adımı türleri (chatFollowup.Kind) — v0.10.1383.
+const (
+	fuKindOperations = "operations"
+	fuKindExceptions = "exceptions"
+	fuKindReport     = "report"
+)
+
+// guidedFollowupMax — v0.10.1383: takip adımı tavanı (çip şeridi tek satır).
+const guidedFollowupMax = 4
+
+// serviceStepTemplate — v0.10.1383 SAF: tür → (kısa etiket, tam cümle).
+func serviceStepTemplate(kind, svc string) (label, text string) {
+	switch kind {
+	case fuKindOperations:
+		return "Operasyonları göster", svc + " en hatalı operasyonları?"
+	case fuKindExceptions:
+		return "Exception'ları göster", svc + " teknik hataları?"
+	case fuKindSlow:
+		return "Yavaş trace'ler", svc + " en yavaş trace'ler?"
+	case fuKindDeploy:
+		return "Son deploy'dan beri ne değişti?", svc + " son deploy etkisi?"
+	case fuKindReport:
+		return "Tam rapor", serviceReportChip(svc)
+	}
+	return "", ""
+}
+
+// serviceStepOrder — v0.10.1383: adım sırası. Operasyon + exception önce
+// (operatörün adıyla istediği iki adım); "Tam rapor" her zaman SON aday ve
+// tavana takılmaz (aşağıda ayrı eklenir) — v0.10.1337 D7 "durumdan tam
+// rapora tek tık" korunur.
+var serviceStepOrder = []string{fuKindOperations, fuKindExceptions, fuKindSlow, fuKindDeploy}
+
+// serviceStepCovered — v0.10.1383: adım sunulan servis-kapsamlı niyetler ve
+// her birinin ZATEN cevapladığı türler (aynı adımı tekrar önermek çıkmaz).
+// Listede olmayan niyet servis adımı almaz (filo, takım, aile, çift…).
+var serviceStepCovered = map[guidedIntent][]string{
+	guidedServiceHealth:     nil,
+	guidedRootCause:         nil,
+	guidedProblems:          nil,
+	guidedLogErrors:         nil,
+	guidedPodHealth:         nil,
+	guidedSlowTraces:        {fuKindSlow},
+	guidedTraceDrill:        {fuKindSlow},
+	guidedDeployImpact:      {fuKindDeploy},
+	guidedServiceExceptions: {fuKindExceptions},
+	guidedTopErrorOps:       {fuKindOperations},
+	// Rapor operasyonları ve teknik hataları zaten içeriyor.
+	guidedServiceReport: {fuKindOperations, fuKindExceptions, fuKindReport},
+}
+
+// guidedFollowups — v0.10.1383 SAF: guided cevabın yapısal takip adımları.
+// asked = konuşmadaki kullanıcı metinleri (chatUserTexts); sorulmuş ya da
+// ≥0.8 benzer adım düşer ve sıradaki aday dener (followupChips kuralı).
+// Netleştirme turu (TeamOptions/ServiceOptions) ve konusuz rota → nil (FE
+// suggestions'a / statik listeye düşer). Takım rotaları bundle'ın yazdığı
+// route.TeamFollowups'ı taşır (copilot_team_summary.go).
+func guidedFollowups(route guidedRoute, asked []string) []chatFollowup {
+	if len(route.TeamOptions) > 0 || len(route.ServiceOptions) > 0 {
+		return nil
+	}
+	if route.Intent == guidedTeamServices || route.Intent == guidedMyServices {
+		return dedupFollowupsAsked(route.TeamFollowups, asked, guidedFollowupMax)
+	}
+	covered, ok := serviceStepCovered[route.Intent]
+	svc := strings.TrimSpace(route.Service)
+	if !ok || !fuServiceRe.MatchString(svc) {
+		return nil
+	}
+	skip := map[string]bool{}
+	for _, k := range covered {
+		skip[k] = true
+	}
+	var cands []chatFollowup
+	for _, k := range serviceStepOrder {
+		if !skip[k] {
+			cands = append(cands, serviceStepFollowup(k, svc, route.Env))
+		}
+	}
+	out := dedupFollowupsAsked(cands, asked, guidedFollowupMax-1)
+	if !skip[fuKindReport] {
+		out = append(out, dedupFollowupsAsked([]chatFollowup{serviceStepFollowup(fuKindReport, svc, route.Env)}, asked, 1)...)
+	}
+	return out
+}
+
+// serviceStepFollowup — v0.10.1383 SAF: tek servis adımı (servis + env kapsamlı).
+func serviceStepFollowup(kind, svc, env string) chatFollowup {
+	label, text := serviceStepTemplate(kind, svc)
+	return chatFollowup{Text: text, Label: label, Kind: kind, Scope: &chatScope{Services: []string{svc}, Env: env}}
+}
+
+// dedupFollowupsAsked — v0.10.1383 SAF: sorulmuş metinle normalize-eşit ya
+// da token Jaccard ≥0.8 olan ve kendi arasında tekrar eden çipleri düşürür;
+// en çok max.
+func dedupFollowupsAsked(cands []chatFollowup, asked []string, max int) []chatFollowup {
+	var askedNorm []string
+	var askedToks []map[string]bool
+	for _, q := range asked {
+		if strings.TrimSpace(q) == "" {
+			continue
+		}
+		askedNorm = append(askedNorm, normalizeGuidedMsg(q))
+		askedToks = append(askedToks, followupTokens(q))
+	}
+	seen := map[string]bool{}
+	var out []chatFollowup
+	for _, c := range cands {
+		if len(out) >= max {
+			break
+		}
+		n := normalizeGuidedMsg(c.Text)
+		if n == "" || seen[n] {
+			continue
+		}
+		dup := false
+		toks := followupTokens(c.Text)
+		for i := range askedNorm {
+			if askedNorm[i] == n || followupJaccard(toks, askedToks[i]) >= followupDedupJaccard {
+				dup = true
+				break
+			}
+		}
+		if dup {
+			continue
+		}
+		seen[n] = true
+		out = append(out, c)
+	}
+	return out
+}
+
+// withGuidedFollowups — v0.10.1383: guided answer olayına followups ekler;
+// suggestions'a DOKUNMAZ (eski istemci guidedSuggestions'ı aynen görür).
+// Çip yoksa olay bayt bayt eski.
+func withGuidedFollowups(ans map[string]any, chips []chatFollowup) map[string]any {
+	if len(chips) > 0 {
+		ans["followups"] = chips
+	}
+	return ans
+}
+
 // guidedAnswerLink — cevap altındaki derin-link çipi (v0.9.419).
 type guidedAnswerLink struct {
 	Label string `json:"label"`
