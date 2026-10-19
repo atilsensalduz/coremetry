@@ -7612,7 +7612,18 @@ export interface ChatTurn extends ChatMessage {
    * görünen cevabı saklar.
    */
   alternatives?: ChatTurn[];
+  /**
+   * v0.10.1384 — büyük parça VARIŞI (tüm cevap tek seferde ya da ≥240
+   * karakterlik delta): `at` = Date.now(), `from` = o ana dek ekranda olan
+   * önek uzunluğu. Yalnız CANLI turda yazılır (useChatThread); arşivden geri
+   * yüklenen / devralınan tur taşımaz → yazma efekti yalnız canlı cevapta
+   * (components/ai/revealSchedule.ts, useTypewriter.ts).
+   */
+  arrivedAt?: ChatArrival;
 }
+
+/** v0.10.1384 — yazma efekti varış damgası (ChatTurn.arrivedAt). */
+export interface ChatArrival { at: number; from: number }
 
 /** v0.10.1138 — composer @-anmalarının yapısal hâli (context.scope). */
 export interface ChatScope {

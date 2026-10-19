@@ -4,7 +4,7 @@ import { api } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Chip } from '@/components/ui/Chip';
 import { LinkButton } from '@/components/ui/LinkButton';
-import { Spinner, LoaderMark } from '@/components/Spinner';
+import { AiThinking } from '@/components/ai/AiThinking'; // v0.10.1384 — tek tip "düşünüyor" (LoaderMark AI dışı yüklemelere kaldı)
 import { useCopilotEnabled } from '@/components/ai/useCopilotEnabled';
 import { aiSubjectQuestion } from '@/components/ai/drawerChat';
 import type { AIKind } from '@/lib/aiSubject';
@@ -175,8 +175,11 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs, spanId, logLine,
   // BOŞ model cevabı bağlam olamaz: onAnswer'a boş string gider, çekmece
   // sohbeti açılmaz (bağlamsız sohbet operatör raporundaki hatanın ta
   // kendisiydi).
-  const applyText = (raw: string) => {
+  const applyText = (raw: string, cached?: boolean) => {
     setText(raw || '⚠ Model boş yanıt döndürdü (reasoning modu + düşük max_tokens olabilir).');
+    // v0.10.1384 — yazma efekti yalnız TEK SEFERDE gelen taze cevapta: akan
+    // (delta'lı) cevap zaten yazılarak geldi, önbellekten gelen "düşünülmedi".
+    setRevealAt(raw && !cached && !sawDeltaRef.current ? Date.now() : undefined);
     onAnswer?.(raw);
   };
 
@@ -192,8 +195,12 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs, spanId, logLine,
   // Sunucu şeffaf biçimde buffered'a düşerse (akıyamayan uç) sıfır delta
   // gelir ve cevap tek seferde görünür — bu bileşende ayrı bir dal YOK.
   const abortRef = useRef<AbortController | null>(null);
+  // v0.10.1384 — bu koşuda en az bir delta aktı mı (yazma efekti kararı).
+  const sawDeltaRef = useRef(false);
+  const [revealAt, setRevealAt] = useState<number | undefined>(undefined);
+  const [codeRevealAt, setCodeRevealAt] = useState<number | undefined>(undefined);
   const streamOpts = (ac: AbortController) => ({
-    onDelta: (d: string) => setText(prev => (prev ?? '') + d),
+    onDelta: (d: string) => { sawDeltaRef.current = true; setText(prev => (prev ?? '') + d); },
     signal: ac.signal,
   });
 
@@ -213,6 +220,7 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs, spanId, logLine,
     const opts = { ...streamOpts(ac), fresh, src: readAiSrcParam() ?? undefined }; // v0.10.432 (D8) kaynak etiketi
 
     setUsed(true);
+    sawDeltaRef.current = false; setRevealAt(undefined); // v0.10.1384
     setBusy(true); setError(null); setStopped(false); setText(null); setMeta(null); setCode(null); setEvidence({ spans: 0, traces: 0 });
     setExchangeId(undefined);
     setCachedAtMs(null);
@@ -224,7 +232,7 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs, spanId, logLine,
     try {
       if (kind === 'runbook') {
         const r = await api.copilotRunbook(id, opts);
-        applyText(r.explanation);
+        applyText(r.explanation, r.cached);
         setLinks(r.links);
         setExchangeId(r.exchangeId);
         setCachedAtMs(r.cached ? (r.cachedAtMs ?? 0) : null);
@@ -258,7 +266,7 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs, spanId, logLine,
                 : kind === 'anomaly'        ? await api.copilotExplainAnomaly(id, opts)
                 : kind === 'log'            ? await api.copilotExplainLog({ service: id, tsNs: logLine?.tsNs ?? '', pod: logLine?.pod ?? '', traceId: logLine?.traceId ?? '', hash: logLine?.hash ?? '' }, opts)
                 :                             await api.copilotExplainServiceHealth(id, fromNs ?? 0, toNs ?? 0, opts);
-        applyText(r.explanation);
+        applyText(r.explanation, r.cached);
         setLinks(r.links);
         setExchangeId(r.exchangeId);
         setCachedAtMs(r.cached ? (r.cachedAtMs ?? 0) : null);
@@ -305,15 +313,18 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs, spanId, logLine,
     // artık tek turda kodlu koşar; URL'e de yazılır (deep link).
     setIncludeCode(true);
     writeAiCodeParam(true);
-    const opts = { onDelta: (d: string) => setCodeText(prev => (prev ?? '') + d), signal: ac.signal, fresh: false, src: readAiSrcParam() ?? undefined };
+    let codeSawDelta = false; // v0.10.1384 — kod kartı da tek seferde gelirse yazılarak açılır
+    setCodeRevealAt(undefined);
+    const opts = { onDelta: (d: string) => { codeSawDelta = true; setCodeText(prev => (prev ?? '') + d); }, signal: ac.signal, fresh: false, src: readAiSrcParam() ?? undefined };
     try {
-      const finish = (r: { explanation: string; links?: IdLink[]; exchangeId?: string; code?: AICodeContext; evidenceSpanIds?: string[] }) => {
+      const finish = (r: { explanation: string; links?: IdLink[]; exchangeId?: string; code?: AICodeContext; evidenceSpanIds?: string[]; cached?: boolean }) => {
         // kod geçişi listeyi değiştirirse Kanıt sayısı da onu izler (trace: waterfall kutuları yenilenir)
         if (r.evidenceSpanIds?.length) { onEvidence?.(r.evidenceSpanIds); if (kind === 'trace') setEvidence(e => ({ ...e, spans: r.evidenceSpanIds?.length ?? 0 })); }
         setCodeCtx(r.code ?? null);
         setCodeLinks(r.links);
         setCodeExchangeId(r.exchangeId);
         setCodeText(r.explanation || '⚠ Model boş yanıt döndürdü.');
+        setCodeRevealAt(r.explanation && !codeSawDelta && !r.cached ? Date.now() : undefined);
       };
       if (kind === 'trace') {
         finish(await api.copilotExplainTrace(id, true, opts));
@@ -445,7 +456,8 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs, spanId, logLine,
              bunu ancak çağrı bitince öğrenir ("Kod okunamadı" uyarısı). Kodlu
              ipucu yalnız İSTENENİ söyler, yapılanı değil. */}
           <div className="cx-live">
-            <LoaderMark size="lg"
+            {/* v0.10.1384 — dönen OTel halkası yerine sohbetle AYNI gösterge (operatör: "dönme efektleri aynı değil"). */}
+            <AiThinking variant="block"
               label={includeCode ? 'CoSRE kodu okuyor…' : 'CoSRE düşünüyor…'}
               hint={includeCode ? 'Kaynak kodu da istendi; cevap bekleniyor — ilk bölüm gelince burada görünür.' : 'Cevap bekleniyor — ilk bölüm gelince burada görünür.'} />
             {stopButton}
@@ -457,7 +469,7 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs, spanId, logLine,
         <Button variant="accent" size="sm" onClick={() => void run(includeCode, true)} disabled={busy}
           className={used || auto ? undefined : 'ai-attn'}>
           {busy
-            ? <><IconSparkles /> <span>Thinking…</span></>
+            ? <AiThinking variant="inline" /> /* v0.10.1384 — "Thinking…" → tek tip, TR */
             : auto
               ? <><IconSparkles /> <span>Yeniden sor</span></>
               : (label ?? <><IconSparkles /> <span>AI explain</span></>)}
@@ -531,7 +543,7 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs, spanId, logLine,
             </div>
           )}
           {/* kod kartı açıkken Karar'ı o kart taşır — iki rakip KARAR şeridi olmaz */}
-          <ExplainBody text={text} busy={busy} links={links} evidence={evidence} verdict={codeAsk !== 'accepted'} />
+          <ExplainBody text={text} busy={busy} links={links} evidence={evidence} verdict={codeAsk !== 'accepted'} revealAt={revealAt} />
           {/* v0.9.1127 — akan cevabın imleci (ChatBubble'ın `.cm-ai-cursor`
               atomu). Cevap BİTMEDEN de metin görünür olduğu için, bittiğini
               gösteren bir işaret gerekiyor: imleçsiz akan metin yarıda
@@ -610,7 +622,7 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs, spanId, logLine,
           {codeBusy && codeText === null && (
             <div style={{ display: 'grid', placeItems: 'center', minHeight: 200, padding: '24px 16px' }}>
               {/* v0.10.944 — nötr ipucu (gerekçe yukarıdaki yükleniyor bloğunda): istenen söylenir, yapılan değil. */}
-              <LoaderMark size="lg" label="CoSRE kodu okuyor…" hint="Kaynak kodu da istendi; cevap bekleniyor — ilk bölüm gelince burada görünür." />
+              <AiThinking variant="block" label="CoSRE kodu okuyor…" hint="Kaynak kodu da istendi; cevap bekleniyor — ilk bölüm gelince burada görünür." />
             </div>
           )}
           {codeError && (
@@ -619,7 +631,7 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs, spanId, logLine,
           {/* v0.10.1041 — bu kartın künyesi KENDİ isteğinden (codeCtx); ilk kart onu çizmez. */}
           {/* v0.10.1330 — ilk kartla aynı durum satırı */}
           <CodeStatusNote code={codeCtx} />
-          {codeText && <ExplainBody text={codeText} busy={codeBusy} links={codeLinks} />}
+          {codeText && <ExplainBody text={codeText} busy={codeBusy} links={codeLinks} revealAt={codeRevealAt} />}
           {codeBusy && codeText !== null && <span className="cm-ai-cursor" />}
           {codeCtx && !!codeCtx.files?.length && (
             <div style={{ marginTop: 10, fontSize: 10.5, color: 'var(--text3)', lineHeight: 1.6 }}>

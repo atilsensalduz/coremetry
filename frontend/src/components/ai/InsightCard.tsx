@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Spinner, Empty } from '@/components/Spinner';
+import { AiThinking } from './AiThinking'; // v0.10.1384 — tek tip "düşünüyor" (Spinner veri toplama için kalır)
 import { RenderedMarkdown } from '@/components/Markdown';
 import { AIFeedbackButtons } from '@/components/ai/AIFeedbackButtons';
 import { RCAVerdictPanel } from '@/components/RCAVerdictPanel';
@@ -254,7 +255,7 @@ export function InsightCard({ kind, id, windowSec, onClose }: {
             {err} Yukarıdaki sinyaller yine de ölçülmüş veridir.
           </div>
         ) : waiting ? (
-          <Spinner label="CoSRE düşünüyor…" />
+          <AiThinking variant="row" label="CoSRE düşünüyor…" />
         ) : prose !== null && prose.trim() !== '' ? (
           // RenderedMarkdown ŞART: model **kalın** üretiyor ve ham basım
           // yıldızları ekrana döker (v0.9.641 → v0.9.696 → Faz 0.5'te üç

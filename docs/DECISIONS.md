@@ -7549,3 +7549,42 @@ bozucu). Yeni uç / MCP aracı / sohbet kademesi yok; api.go dokunulmadı. **Sö
 niyete yönlenir — `TestFollowupTemplatesRouteGuided` genişletildi (beş adım türü + guidedFollowups'ın her niyet çıktısı
 + takım çipleri; kapsam yolunda `planChatScope` router'ı atlamaz). Testler: `internal/api/copilot_team_summary_test.go`,
 `internal/api/chat_followup_chips_test.go`, `frontend/src/components/ai/FollowupChips.test.tsx`.
+
+## 2026-10-19 — v0.10.1384 — CoSRE: hızlı yazma efekti + tek tip "düşünüyor" göstergesi
+
+**Operatör:** "Cevabı yazarken yazma efekti olsa hızlı — daha çok LLM cevabı değil gerçekten düşünüyor hissiyatı
+olur. Ayrıca CoSRE düşünüyor derken ve explain trace'teki dönme efektleri aynı değil."
+
+**C — yazma efekti (yalnız frontend).** Tek seferde gelen metin (yönlendirilmiş / tamponlu cevabın tamamı ya da
+≥240 karakterlik tek delta) ekrana bir anda düşmek yerine ≤1,2 sn'de "yazılarak" açılır. Gerçek token akışı aynen
+kalır (küçük delta damga almaz → çift efekt yok). Karar noktası CANLI akış işleyicisi: `useChatThread` delta/answer
+olayında `withArrival` `ChatTurn.arrivedAt = {at, from}` yazar; arşivden geri yükleme (`restoreTurns`), devralma
+(adopt/resume) ve geçmiş turlar bu alanı hiç taşımaz → asla yeniden yazılmaz. Saf çekirdek
+`components/ai/revealSchedule.ts`: süre `clamp(4 ms × karakter, 220, 1200)` — 8 KB'lık rapor da 1,2 sn; kesme noktası
+kelime sınırı ve satır-içi işaret dengedeyken (açık `kod`, **kalın**, [bağlantı](…) ortasında kesilmez); kod çiti ve
+tablo satırında yalnız satır sonu; açılış başına ≤48 adım (karakter başına çizim yok, çözücü önbelleği taşmaz).
+Kanca `useTypewriter.ts`: zaman tabanlı (görünür = f(şimdi − at); yeniden bağlanan bileşen kaldığı yerden sürer, süresi
+geçmişse hiç açılmaz), tek rAF döngüsü + tek durum, `useLayoutEffect` ile ilk kare boyanmadan öneke iner (tam metin
+parlamaz), tıkla-bitir, `prefers-reduced-motion` (ya da matchMedia/rAF yok) → açılma yok; balon kaydırma kabı dipteyse
+her adımda dibe yapışır (stickToBottom yalnız `turns` değişiminde koşar). Açılırken gövde `streaming=true` ile çizilir:
+yarım satır / açık çit / yarım tablo kuralları ve imleç akıştakinin aynısı (yeni markdown kuralı yok). Kartlar
+(grafik, kanıt, servis raporu, aksiyonlar), kopya, 👍/👎, takip çipleri TAM metinle (`turn.*`) hemen çizilir — yalnız
+gövde düzyazısı açılır. CoSRE Explain (`CopilotExplain` → `ExplainBody revealAt`): yalnız delta'sız ve önbellek DIŞI
+taze cevapta; Karar / Kanıt / kod alıntıları tam metinden hemen, gövde açılır (kod incelemesi kartı aynı kural).
+Önbellekten gelen açıklama yazılmaz ("♻ önbellekten" etiketiyle "düşünüyor" izlenimi çelişirdi).
+
+**D — tek "düşünüyor" göstergesi.** `components/ai/AiThinking.tsx`: kıvılcım ikonu NABIZ atar (dönmez — dönen halka
+"sayfa yükleniyor" demek), etiket parıltılı, `role="status"`, varyantlar `inline` (düğme içi: dolgu üstünde gradyan
+okunmadığı için parıltı yerine soluklaşma) / `row` / `block`; reduced-motion dalı CSS'te (nabız + parıltı durur).
+Göçenler: ChatBubble `.cm-thinking` satırı, CopilotExplain'in iki LoaderMark'ı (ilk cevap + kod kartı) ve "Thinking…"
+düğme metni (→ "Düşünüyor…" / "CoSRE düşünüyor…" / "CoSRE kodu okuyor…"), DeployHistoryPanel "✨ Thinking…",
+InsightCard "CoSRE düşünüyor…" Spinner'ı, ServiceChartsExplainBody + LogSpikeExplainBody Spinner + "model yazıyor…"
+(planın listesine ek — aynı çekmecenin AI bekleyişi). AIDrawerBody kendi göstergesini çizmiyor (ChatBubble'ı
+kullanıyor) — dokunulmadı. LoaderMark AI DIŞI yüklemeler (PageLoader) için kalır; "Sinyaller toplanıyor…" (InsightCard
+veri okuması) ve "CoSRE yükleniyor…" (yapılandırma) Spinner kalır — düşünme değil yükleme. `.cm-thinking` + `cm-shimmer`
+CSS ailesi silindi. **Mandal:** `components/ai/aiThinkingRatchet.test.ts` — `cm-thinking`/`ai-thinking` sınıfı
+bileşen dışında, AI bekleme metni (Düşünüyor / Thinking… / model yazıyor / kodu okuyor) bir `<AiThinking>` etiketi
+dışında, düşünme metinli `<Spinner>`/`<LoaderMark>`, AI alanında LoaderMark: hepsi tavan 0; göçen altı yüzey adıyla
+pinli. Testler: `revealSchedule.test.ts`, `useTypewriter.test.tsx` (kanca + ChatBubble + ExplainBody), `AiThinking.test.tsx`,
+`aiThinkingRatchet.test.ts`; güncellenen pinler: `cosreLoading.test.ts`, `chatBlocks.pin.test.ts`, `codeAsk.test.ts`,
+`markdownSurfaces.test.ts`, `ChatBubble.rich.test.tsx`, `ChatBubble.render.test.tsx` (reduced-motion: çizim ölçümü).

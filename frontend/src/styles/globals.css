@@ -5525,9 +5525,31 @@ tbody td.tpm-more-cell { color: var(--text2); }
 /* v0.10.1274 — aktif bağlam şeridi (ChatContextBar): kapsam çipleriyle aynı ritim. */
 .cm-context-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1); padding: var(--sp-1) var(--sp-3) 0; }
 
-/* Akış: "Düşünüyor…" parıltısı */
-.cm-thinking { display: inline-block; color: var(--text3); background: linear-gradient(90deg, var(--text3) 0%, var(--text) 50%, var(--text3) 100%); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: cm-shimmer 1.6s linear infinite; }
-@keyframes cm-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+/* v0.10.1384 — AI "düşünüyor" TEK göstergesi (components/ai/AiThinking.tsx;
+   eski .cm-thinking parıltısı + Explain'in dönen LoaderMark'ı + "✨ Thinking…"
+   yerine). Kıvılcım NABIZ atar (dönme yok), etiket parıltılı. Renkler token. */
+.ai-thinking { display: inline-flex; align-items: center; gap: var(--sp-3); color: var(--text3); font-size: var(--fs-sm); line-height: 1.4; }
+.ai-thinking__icon { display: inline-grid; place-items: center; flex: none; color: var(--accent2); animation: ai-think-pulse 1.4s ease-in-out infinite; }
+.ai-thinking__text { display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: var(--sp-3); min-width: 0; }
+.ai-thinking__label { font-weight: 500; background: linear-gradient(90deg, var(--text3) 0%, var(--text) 50%, var(--text3) 100%); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: ai-think-shimmer 1.6s linear infinite; }
+.ai-thinking__hint { color: var(--text3); font-size: var(--fs-xs); }
+.ai-thinking--row { padding: var(--sp-1) 0; }
+/* Düğme içi: renk düğmenin kendisi (dolgu üstünde gradyan okunmaz) → parıltı yerine soluklaşma. */
+.ai-thinking--inline { gap: var(--sp-2); color: inherit; font-size: inherit; }
+.ai-thinking--inline .ai-thinking__icon { color: inherit; }
+.ai-thinking--inline .ai-thinking__label { background: none; -webkit-text-fill-color: currentColor; animation: ai-think-fade 1.6s ease-in-out infinite; }
+.ai-thinking--block { display: flex; flex-direction: column; justify-content: center; gap: var(--sp-5); text-align: center; font-size: var(--fs-md); }
+.ai-thinking--block .ai-thinking__icon { width: 56px; height: 56px; border-radius: 50%; background: var(--accent-bg); }
+.ai-thinking--block .ai-thinking__text { flex-direction: column; align-items: center; gap: var(--sp-2); }
+.ai-thinking--block .ai-thinking__label { font-size: var(--fs-lg); font-weight: 600; }
+.ai-thinking--block .ai-thinking__hint { max-width: 360px; font-size: var(--fs-sm); }
+@keyframes ai-think-pulse { 0%, 100% { opacity: .55; transform: scale(.9); } 50% { opacity: 1; transform: scale(1.08); } }
+@keyframes ai-think-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@keyframes ai-think-fade { 0%, 100% { opacity: .6; } 50% { opacity: 1; } }
+/* AI özet gövdesinin bekleme yuvası (ServiceChartsExplainBody; eski satır içi statik stil). */
+.ai-wait { display: grid; place-items: center; padding: var(--sp-8) 0; }
+/* v0.10.1384 — yazma efekti: açılan metin görünümü değişmez; sarmal yerleşime katılmaz (tıkla-bitir sahibi). */
+.ai-reveal { display: contents; }
 .cm-msg-ai .cm-ai-cursor { height: 1em; vertical-align: -0.15em; }
 
 /* ↓ En alta */
@@ -5763,7 +5785,8 @@ tbody td.tpm-more-cell { color: var(--text2); }
 .cosre-side__scrim { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  .cm-thinking { animation: none; -webkit-text-fill-color: currentColor; background: none; }
+  .ai-thinking .ai-thinking__icon, .ai-thinking .ai-thinking__label { animation: none; }
+  .ai-thinking .ai-thinking__label { -webkit-text-fill-color: currentColor; background: none; }
   .cm-msg-actions { transition: none; }
   .cosre-side { transition: none; }
 }

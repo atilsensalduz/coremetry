@@ -33,7 +33,8 @@ describe('CopilotExplain ask-for-code flow (source scan)', () => {
     expect(src).toMatch(/Hayır, yeterli/);
   });
   it('the code pass streams into codeText, never into the first answer', () => {
-    expect(src).toMatch(/onDelta: \(d: string\) => setCodeText\(prev => \(prev \?\? ''\) \+ d\)/);
+    // v0.10.1384 — gövde delta'yı da işaretler (codeSawDelta: yazma efekti kararı); hedef yine codeText.
+    expect(src).toMatch(/onDelta: \(d: string\) => \{ codeSawDelta = true; setCodeText\(prev => \(prev \?\? ''\) \+ d\); \}/);
     expect(src).toMatch(/Kod incelemesi/);
     // "Yeniden sor" hâlâ URL parametresine göre koşar (explainCacheFE pini).
     expect(src).toContain('void run(includeCode, true)');

@@ -2,7 +2,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Chip } from '@/components/ui/Chip';
-import { Spinner, Empty } from '@/components/Spinner';
+import { Empty } from '@/components/Spinner';
+import { AiThinking } from './AiThinking'; // v0.10.1384 — tek tip "düşünüyor"
 import { DrawerSection } from '@/components/ui/Drawer';
 import { KeyValue, KeyValueRow } from '@/components/ui/KeyValue';
 import { RenderedMarkdown } from '@/components/Markdown';
@@ -70,9 +71,8 @@ export function ServiceChartsExplainBody({ service, fromNs, toNs, scope, onAnswe
       </div>
 
       {q.isPending ? (
-        <div style={{ display: 'grid', placeItems: 'center', padding: '28px 0', gap: 8 }}>
-          <Spinner />
-          <div style={{ fontSize: 11, color: 'var(--text3)' }}>sinyaller toplandı, model yazıyor…</div>
+        <div className="ai-wait">
+          <AiThinking variant="block" label="CoSRE düşünüyor…" hint="sinyaller toplandı, cevap yazılıyor" />
         </div>
       ) : q.isError ? (
         <Empty icon="✨" title="AI özeti üretilemedi" compact

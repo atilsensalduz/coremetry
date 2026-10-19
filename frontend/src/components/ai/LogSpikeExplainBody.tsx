@@ -3,7 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Chip } from '@/components/ui/Chip';
-import { Spinner, Empty } from '@/components/Spinner';
+import { Empty } from '@/components/Spinner';
+import { AiThinking } from './AiThinking'; // v0.10.1384 — tek tip "düşünüyor"
 import { DrawerSection } from '@/components/ui/Drawer';
 import { TimeChart } from '@/components/charts/TimeChart';
 import { api } from '@/lib/api';
@@ -62,8 +63,7 @@ export function LogSpikeExplainBody({ service, fromNs, toNs, mode, env, q, level
       </div>
       {qr.isPending ? (
         <div className="ls-explain__wait">
-          <Spinner />
-          <div className="field-hint">log hacmi ve alan payları okunuyor, model yazıyor…</div>
+          <AiThinking variant="block" label="CoSRE düşünüyor…" hint="log hacmi ve alan payları okunuyor, cevap yazılıyor" />
         </div>
       ) : qr.isError ? (
         <Empty icon="✨" title="Log artışı açıklanamadı" compact

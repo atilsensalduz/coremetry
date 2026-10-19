@@ -197,9 +197,10 @@ describe('Nasıl cevapladım', () => {
 describe('akış + eylemler', () => {
   it('ilk token öncesi "Düşünüyor…"; metin gelince imleç metnin içinde', async () => {
     await mount(asst('', { pending: true }));
-    expect(q('.cm-thinking')?.textContent).toBe('Düşünüyor…');
+    // v0.10.1384 — tek tip gösterge (AiThinking row): role=status, kıvılcım + etiket.
+    expect(q('.ai-thinking[role="status"]')?.textContent).toBe('Düşünüyor…');
     await mount(asst('merhaba', { pending: true }));
-    expect(q('.cm-thinking')).toBeNull();
+    expect(q('.ai-thinking')).toBeNull();
     expect(q('.cm-md-p .cm-ai-cursor')).toBeTruthy();
   });
   it('Kopyala düz metin yazar (işaretsiz, link adresiyle)', async () => {

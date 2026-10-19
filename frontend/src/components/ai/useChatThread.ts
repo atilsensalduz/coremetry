@@ -9,6 +9,7 @@ import { isAbortError, settleStoppedTurn, settleTruncatedTurn } from './chatAbor
 import { failedQuestion, dropFailedTail } from './chatRetry';
 import { prevWikiRefs } from './chatWikiRefs';
 import { applyChatDelta } from './phaseTrail';
+import { withArrival } from './revealSchedule'; // v0.10.1384 — büyük parça varış damgası (yazma efekti)
 import { hasDrawerContext, parseChatInput, pickedServices, scopeForRequest, type ParsedChatInput } from './chatScope';
 import { ChatRequestError } from '@/lib/api';
 import { lastUserIndex, regenerateBase } from './chatRegenerate';
@@ -292,9 +293,11 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
         } else if (e.kind === 'delta') {
           // v0.10.1273 — `reset`: sunucu o ana dek akanı geri aldı (tool'lu turun
           // önsözü / düşünce bloğu); metin yeniden başlar. `answer` yine otoriter.
-          patchLast(t => ({ ...t, text: applyChatDelta(t.text, e) }));
+          // v0.10.1384 — ≥240 karakterlik tek delta varış damgası alır (yazma efekti); token akışı almaz.
+          patchLast(t => withArrival(t, applyChatDelta(t.text, e), false));
         } else if (e.kind === 'answer') {
-          patchLast(t => ({ ...t, text: e.text, exchangeId: e.exchangeId, callId: e.callId, sources: e.sources, suggestions: e.suggestions, followups: e.followups, links: e.links, allowedLinks: e.allowedLinks, evidence: e.evidence, pending: false })); // v0.10.1137 — link doğrulama listesi; v0.10.1272 — kanıt çipleri; v0.10.1280 — callId (👍/👎 → ai_calls); v0.10.1291 — kural-türevli takip çipleri
+          // v0.10.1384 — metin withArrival'dan: öncesinde akış yoksa tüm cevap varış damgası alır.
+          patchLast(t => ({ ...withArrival(t, e.text, true), exchangeId: e.exchangeId, callId: e.callId, sources: e.sources, suggestions: e.suggestions, followups: e.followups, links: e.links, allowedLinks: e.allowedLinks, evidence: e.evidence, pending: false })); // v0.10.1137 — link doğrulama listesi; v0.10.1272 — kanıt çipleri; v0.10.1280 — callId (👍/👎 → ai_calls); v0.10.1291 — kural-türevli takip çipleri
           // v0.10.434 (D7b) — yalnız uygulama-içi (kök-göreli) href; dış adres asla.
           // v0.10.1314 — kapı isSafeAppPath ("/\evil.com" react-router v6'da dışarı açılırdı).
           if (e.open && isSafeAppPath(e.open)) o.onOpen?.(e.open);

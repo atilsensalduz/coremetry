@@ -20,6 +20,7 @@ import { useMemo } from 'react';
 import { RenderedMarkdown, CodeBlock } from '@/components/Markdown';
 import type { IdLink } from '@/components/ai/inlineIdLinks';
 import { verdictLine, hoistCodeQuotes, dropVerdictSentence } from './explainAnatomy';
+import { useTypewriter } from './useTypewriter'; // v0.10.1384 — tüm cevap tek seferde gelince hızlı yazma
 
 // oracle — v0.10.921 (Kademe A): Explain'e giren Oracle hata satırı sayısı.
 export interface ExplainEvidence { spans: number; traces: number; oracle?: number }
@@ -39,7 +40,7 @@ function evidenceHint(ev: ExplainEvidence): string {
   return '';
 }
 
-export function ExplainBody({ text, busy, links, evidence, verdict: wantVerdict = true }: {
+export function ExplainBody({ text, busy, links, evidence, verdict: wantVerdict = true, revealAt }: {
   text: string;
   busy: boolean;
   links?: IdLink[];
@@ -47,6 +48,12 @@ export function ExplainBody({ text, busy, links, evidence, verdict: wantVerdict 
   evidence?: ExplainEvidence;
   /** false → Karar satırı çizilmez (kod kartı açıkken ilk kart) */
   verdict?: boolean;
+  /**
+   * v0.10.1384 — cevap TEK SEFERDE geldiyse (akış yok, önbellek değil) varış
+   * anı (Date.now()). Karar / Kanıt / kod alıntıları TAM metinden hemen çizilir;
+   * yalnız gövde düzyazısı ≤1,2 sn'de açılır, tıklayınca biter.
+   */
+  revealAt?: number;
 }) {
   const verdict = useMemo(() => (busy || !wantVerdict ? null : verdictLine(text)), [busy, text, wantVerdict]);
   const hoisted = useMemo(() => {
@@ -56,6 +63,7 @@ export function ExplainBody({ text, busy, links, evidence, verdict: wantVerdict 
   }, [busy, text, verdict]);
   const ev = evidence && (evidence.spans > 0 || evidence.traces > 0 || (evidence.oracle ?? 0) > 0) ? evidence : null;
   const hint = ev ? evidenceHint(ev) : '';
+  const tw = useTypewriter(hoisted.rest, revealAt != null && !busy ? { at: revealAt, from: 0 } : undefined);
   return (
     <>
       {verdict && (
@@ -72,7 +80,11 @@ export function ExplainBody({ text, busy, links, evidence, verdict: wantVerdict 
         </div>
       )}
       {hoisted.quotes.map((q, i) => <CodeBlock key={`q${i}`} lang={q.lang} lines={q.lines} anatomy />)}
-      <RenderedMarkdown text={hoisted.rest} idLinks={links} anatomy streaming={busy} />
+      {/* v0.10.1384 — açılırken akış kuralları (yarım satır/çit/tablo) + imleç; tıkla-bitir. */}
+      <div className="ai-reveal" onClick={tw.revealing ? tw.finish : undefined}>
+        <RenderedMarkdown text={tw.text} idLinks={links} anatomy streaming={busy || tw.revealing} />
+        {tw.revealing && <span className="cm-ai-cursor" />}
+      </div>
     </>
   );
 }

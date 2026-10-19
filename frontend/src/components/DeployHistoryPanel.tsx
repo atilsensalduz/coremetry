@@ -7,6 +7,7 @@ import type { Rollout, DeployImpact, TimeRange } from '@/lib/types';
 import { Link } from 'react-router-dom';
 import { entityHref } from '@/lib/entityHref';
 import { AIFeedbackButtons } from '@/components/ai/AIFeedbackButtons';
+import { AiThinking } from '@/components/ai/AiThinking'; // v0.10.1384 — tek tip "düşünüyor"
 import { rolloutHeadline, rolloutCounts, rolloutExplainVersion, rolloutRowKey } from '@/lib/serviceRolloutLabel';
 
 // Per-row Copilot explain state (v0.5.192). Keyed by rollout
@@ -202,11 +203,7 @@ export function DeployHistoryPanel({ service, onZoomWindow, cluster = '', range 
                     return (
                       <div style={{ marginTop: 10 }}
                         onClick={e => e.stopPropagation()}>
-                        {st.kind === 'busy' && (
-                          <span style={{ fontSize: 11, color: 'var(--text3)' }}>
-                            ✨ Thinking…
-                          </span>
-                        )}
+                        {st.kind === 'busy' && <AiThinking variant="row" label="CoSRE düşünüyor…" />}
                         {(st.kind === 'idle' || st.kind === 'err') && (
                           <Button variant="accent" size="sm"
                             onClick={() => askCopilot(r)}

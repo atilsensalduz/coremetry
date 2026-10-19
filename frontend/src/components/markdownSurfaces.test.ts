@@ -36,7 +36,9 @@ describe('AI açıklama yüzeyi markdown basıyor', () => {
     // İki halka birden pinli: CopilotExplain → ExplainBody → RenderedMarkdown.
     expect(src).toContain('<ExplainBody text={text}');
     const body = read('./ai/ExplainBody.tsx');
-    expect(body).toContain('<RenderedMarkdown text={hoisted.rest}');
+    // v0.10.1384 — gövde yazma efektinin önekini basar; kaynak yine hoisted.rest.
+    expect(body).toContain('useTypewriter(hoisted.rest,');
+    expect(body).toContain('<RenderedMarkdown text={tw.text}');
   });
 
   it('ham {text} bırakılmadı', () => {

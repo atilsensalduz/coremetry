@@ -12,7 +12,9 @@ describe('blok protokolü kablolaması', () => {
   it('hook block → appendChatBlock; balon chartBlocks + fence atlama + effLinks', () => {
     expect(hook).toContain("e.kind === 'block'");
     expect(hook).toContain('blocks: appendChatBlock(t.blocks,');
-    expect(bubble).toContain('renderMessage(turn.text, turn.pending, turn.blocks)');
+    // v0.10.1384 — gövde yazma efektinin görünen önekini çizer (açılırken akış kuralları).
+    expect(bubble).toContain('renderMessage(shown.text, streamingView, turn.blocks)');
+    expect(bubble).toContain('const streamingView = !!turn.pending || shown.revealing;');
     expect(bubble).toContain('if (typedCharts.length > 0) break;');
     expect(bubble).toContain('chartBlocks(turn.blocks).map(');
     expect(bubble).toContain('const effLinks = mergeBlockLinks(turn.links, turn.blocks)');

@@ -39,6 +39,8 @@ import { EvidenceChips } from './EvidenceChips'; // v0.10.1272 — kanıt çiple
 import { ctxAppliedLabel, stepEvidenceItems } from './evidenceChip'; // v0.10.1274 — ekran kapsamı künyesi; v0.10.1275 — hop listesi
 import { phaseTrail } from './phaseTrail'; // v0.10.1273 — Metrik → Log → Trace kırıntısı
 import { MdTable } from './MdTable'; // v0.10.1357 — paylaşılan markdown tablosu (RenderedMarkdown da çizer)
+import { AiThinking } from './AiThinking'; // v0.10.1384 — tek tip "düşünüyor" göstergesi
+import { useTypewriter } from './useTypewriter'; // v0.10.1384 — büyük parçada hızlı yazma efekti
 
 // ChatBubble — bir sohbet turunun ÇİZİMİ. v0.9.479'da CopilotChat.tsx'ten
 // buraya taşındı: AI çekmecesi içindeki sohbet (AIDrawer) aynı balonu
@@ -895,7 +897,13 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
   // CoSRE öğrenme Faz 2 — örtük olumlu sinyal (kopya, link, kanıt, not);
   // balon başına tür başına bir kez (tekrar tık ağırlığı şişirmesin).
   const signal = useCosreSignal(turn.exchangeId);
+  // v0.10.1384 — yazma efekti: yalnız canlı turun BÜYÜK parçası (arrivedAt;
+  // arşiv/geri yükleme taşımaz). Kartlar, kopya, takip çipleri TAM metinle
+  // (turn.*) hemen çizilir; yalnız gövde metni açılır. Dibe yapışma: balon.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const shown = useTypewriter(turn.text ?? '', isUser ? undefined : turn.arrivedAt, { stickRef: rootRef });
   const onBodyClick = (e: React.MouseEvent) => {
+    if (shown.revealing) shown.finish(); // v0.10.1384 — tıkla-bitir
     const a = (e.target as HTMLElement).closest?.('a[href]');
     if (a) signal('link_click', a.getAttribute('href') ?? undefined);
     navClick(e);
@@ -923,9 +931,12 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [turn.allowedLinks, turn.sources, turn.links, turn.blocks, cites, newTab]);
   // Çözüm + çizim metin/akış/blok kimliğine bağlı (chatMarkdown ayrıca önbellekli).
+  // v0.10.1384 — açılırken görünen önek `streaming=true` ile çizilir: yarım
+  // satır / açık çit / yarım tablo kuralları ve imleç akıştakiyle aynı.
+  const streamingView = !!turn.pending || shown.revealing;
   const body = useMemo(
-    () => (turn.text && !isUser ? renderMessage(turn.text, turn.pending, turn.blocks) : null),
-    [turn.text, turn.pending, turn.blocks, isUser],
+    () => (shown.text && !isUser ? renderMessage(shown.text, streamingView, turn.blocks) : null),
+    [shown.text, streamingView, turn.blocks, isUser],
   );
   const done = !isUser && !turn.pending && !turn.error && !!turn.text;
   // v0.10.1272 — cevabın kanıt çipleri: answer.evidence (arşivden de gelir);
@@ -947,7 +958,7 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
   return (
     <ChatMdContext.Provider value={mdCtx}>
     <EvidenceBlocksContext.Provider value={evBlocks}>
-    <div className="cm-msg cm-msg--ai">
+    <div className="cm-msg cm-msg--ai" ref={rootRef}>
       {/* v0.10.1137 — asistan cevabı kart DEĞİL: sayfadaki düz metin (Claude gibi),
           küçük marka etiketi. Explain paneli kendi .ai-answer-card'ını korur. */}
       <div className="cm-msg-ai__who" aria-hidden="true">
@@ -1014,10 +1025,8 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
         {turn.error && !turn.pending && onRetry && (
           <div style={{ marginTop: 6 }}><Button variant="secondary" size="sm" onClick={onRetry}>↺ Yeniden dene</Button></div>
         )}
-        {/* v0.10.1137 — ilk token gelene dek "Düşünüyor…" parıltısı. */}
-        {!turn.text && !turn.error && turn.pending && (
-          <span className="cm-thinking">Düşünüyor…</span>
-        )}
+        {/* v0.10.1137 — ilk token gelene dek "Düşünüyor…"; v0.10.1384 — tek tip gösterge (AiThinking). */}
+        {!turn.text && !turn.error && turn.pending && <AiThinking variant="row" />}
       </div>
 
       {/* v0.10.1137 — Kaynaklar: numaralı liste ([n] atıflarıyla aynı numara). */}

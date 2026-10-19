@@ -32,9 +32,12 @@ import { resolve } from 'node:path';
 
 // uPlot modül yüklenirken matchMedia çağırıyor; import zincirinden ÖNCE
 // durmalı (emsal: chatThreadPersist.test.tsx, CorePanel.smoke.test.tsx).
+// v0.10.1384 — reduced-motion SORUSUNA evet: tek seferde gelen cevaplar
+// (explain + çekmece sohbeti) yazma efektiyle açılmaz, metin anında tam —
+// bu dosya çizimi ölçüyor, efekt useTypewriter.test.tsx'te.
 vi.hoisted(() => {
   window.matchMedia = ((q: string) => ({
-    matches: false, media: q, onchange: null,
+    matches: q.includes('prefers-reduced-motion: reduce'), media: q, onchange: null,
     addListener() {}, removeListener() {},
     addEventListener() {}, removeEventListener() {}, dispatchEvent: () => false,
   })) as unknown as typeof window.matchMedia;
