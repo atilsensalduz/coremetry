@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { api, setUnauthorizedHandler, type AuthUser } from '@/lib/api';
+import { api, setUnauthorizedHandler, UnauthorizedError, type AuthUser } from '@/lib/api';
 import { isPublicPath, normalizePath } from '@/lib/auth-paths';
 import { isKioskBare } from '@/lib/kioskMode';
 import {
@@ -20,6 +20,25 @@ interface AuthState {
 }
 
 const Ctx = createContext<AuthState | null>(null);
+
+/** v0.10.1375 (operatör-bildirimi: OIDC çıkışından sonra /login'de kırmızı
+ *  `GET /api/auth/me → 401`) — açılış kontrolü 200 dönen oturum sondasını
+ *  okur: kimliksizlik bir HATA değil, beklenen cevap; Network sekmesi temiz
+ *  kalır ve küresel unauthorized işleyicisi tetiklenmez.
+ *  Geri düşüş me()'ye: rolling deploy'da eski pod rotayı tanımaz (SPA
+ *  catch-all 200 + index.html → request() undefined) ya da bir proxy yolu
+ *  engeller (404/5xx). 401 = eski pod + oturum yok → null. */
+async function resolveSessionUser(): Promise<AuthUser | null> {
+  let s: Awaited<ReturnType<typeof api.session>> | undefined;
+  try {
+    s = await api.session();
+  } catch (err) {
+    if (err instanceof UnauthorizedError) return null;
+    return api.me();
+  }
+  if (!s || typeof s.authenticated !== 'boolean') return api.me();
+  return s.authenticated && s.user ? s.user : null;
+}
 
 export function useAuth(): AuthState {
   const ctx = useContext(Ctx);
@@ -52,6 +71,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { userRef.current = user; }, [user]);
   // v0.10.1123 — has the first authed render handled the pending deep link?
   const firstAuthedDoneRef = useRef(false);
+  // v0.10.1375 — açık çıkış sürüyor: oturum çerezi silindikten sonra gelen
+  // 401'ler (uçuştaki polling) ve rota kapısı derin bağlantıyı KAYDETMEZ ve
+  // OIDC çıkışında /login'e SPA-içi atlamaz (tam sayfa IdP'ye gidiyor).
+  const loggingOutRef = useRef(false);
 
   // 401 from any api call drops the local user and pushes to /login.
   // The handler is registered once for the whole app.
@@ -66,6 +89,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSessionEnded(true);
         return;
       }
+      // v0.10.1375 — çıkış sürerken gelen 401 beklenen sonuç: OIDC dalında
+      // tarayıcı zaten IdP'ye gidiyor; /login'e atlamak sayfayı iki kez
+      // yükletiyordu, kaydedilen derin bağlantı da sonraki girişi oraya atıyordu.
+      if (loggingOutRef.current) return;
       setUser(null);
       if (!isPublicPath(window.location.pathname)) {
         // Keep the full deep link (path + query + hash) so signing
@@ -77,14 +104,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => setUnauthorizedHandler(null);
   }, [navigate]);
 
-  // On mount + on every route change, verify the cookie session.
+  // On mount, verify the cookie session (v0.10.1375 — 200'lük sonda,
+  // resolveSessionUser; /login'de 401 yok).
   useEffect(() => {
     let cancelled = false;
-    api.me()
+    resolveSessionUser()
       .then(u => { if (!cancelled) setUser(u); })
       .catch(() => { if (!cancelled) setUser(null); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
+  }, []);
+
+  // v0.10.1375 — IdP çıkış sayfasından "geri" ile bfcache'ten dönülürse
+  // çıkış bayrağı JS durumuyla birlikte geri gelir ve 401'ler yutulurdu
+  // (kimlikli görünen ölü uygulama). Bayrak düşer, oturum yeniden sorulur.
+  useEffect(() => {
+    const onShow = (e: PageTransitionEvent) => {
+      if (!e.persisted) return;
+      loggingOutRef.current = false;
+      resolveSessionUser().then(setUser).catch(() => setUser(null));
+    };
+    window.addEventListener('pageshow', onShow);
+    return () => window.removeEventListener('pageshow', onShow);
   }, []);
 
   // Redirect away from protected routes once we know we're not authed.
@@ -94,7 +135,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!user && !isPublicPath(path)) {
       // Capture the pasted deep link before bouncing (v0.8.367,
       // operator-reported — Dynatrace-style restore after login).
-      savePostLoginRedirect((pathname ?? '') + (search ?? '') + (hash ?? ''));
+      // v0.10.1375 — açık çıkışta DEĞİL: çıkılan sayfa sonraki girişin
+      // hedefi olmaz ('/').
+      if (!loggingOutRef.current) {
+        savePostLoginRedirect((pathname ?? '') + (search ?? '') + (hash ?? ''));
+      }
       navigate('/login');
     }
     // Authed on /login (fresh local login): restore the captured deep
@@ -120,20 +165,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback(async (email: string, password: string) => {
     const res = await api.login(email, password);
+    loggingOutRef.current = false; // v0.10.1375 — yeni oturum (SSO girişi zaten tam sayfa yükleme)
     setUser(res.user);
   }, []);
 
   // v0.10.1192 (operatör-bildirimi) — SSO oturumunda IdP oturumu da kapanır:
   // sunucunun döndürdüğü end_session adresine TAM sayfa gidilir (Keycloak
   // oturumu sonlandırıp /login'e geri yollar). Yerel girişte eski davranış.
+  //
+  // v0.10.1375 (operatör-bildirimi: "OIDC ile logout olunca sayfa bir daha
+  // yüklenir gibi oluyor") — kök neden: setUser(null) yönlendirmeden ÖNCE
+  // çalışıyordu; rota kapısı korumalı sayfada user=null görüp çıkılan sayfayı
+  // derin bağlantı olarak KAYDEDİYOR ve SPA-içi /login'e atlıyordu (giriş
+  // sayfası bir an çiziliyor), ardından tam sayfa IdP'ye gidip /login'e
+  // dönüyordu — iki yükleme. Şimdi: OIDC dalında user'a dokunulmaz, doğrudan
+  // tek tam sayfa yönlendirme. Her iki dalda bekleyen derin bağlantı silinir:
+  // açık çıkış sonrası giriş '/'e gider, çıkılan sayfaya değil.
   const logout = useCallback(async () => {
+    loggingOutRef.current = true;
     let redirect: string | undefined;
     try { redirect = (await api.logout())?.redirect; } catch { /* ignore */ }
-    setUser(null);
+    consumePostLoginRedirect(); // sil — dönüş değeri bilinçli atılır
     if (redirect && /^https?:\/\//.test(redirect)) {
       window.location.assign(redirect);
       return;
     }
+    setUser(null);
     navigate('/login');
   }, [navigate]);
 

@@ -5885,28 +5885,8 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"not authenticated"}`, http.StatusUnauthorized)
 		return
 	}
-	// Hydrate from the store so customRole + customRolePages reach
-	// the SPA on every page load. The JWT only carries the base
-	// role; custom-role assignments live in the row.
-	// v0.8.519 — 30s cache: bu okuma her cold tab'ın SERİ kapısı
-	// (SPA me() bitmeden route verisi istemiyor); FINAL'lı satır
-	// okumasını tab başına değil 30s'de bire indirir.
-	if u, ok := s.meUsers.get(c.UserID, time.Now()); ok && u != nil {
-		writeJSON(w, s.userPayload(u))
-		return
-	}
-	u, err := s.store.GetUserByID(r.Context(), c.UserID)
-	if err != nil || u == nil {
-		// Fall back to claim data — keeps /api/auth/me honest when
-		// the row is temporarily unreachable. Custom-role gating
-		// will simply not apply this round.
-		writeJSON(w, map[string]any{
-			"id": c.UserID, "email": c.Email, "role": c.Role,
-		})
-		return
-	}
-	s.meUsers.put(c.UserID, u, time.Now())
-	writeJSON(w, s.userPayload(u))
+	// v0.10.1375 — gövde auth_session.go meUserPayload'da (oturum sondasıyla ortak).
+	writeJSON(w, s.meUserPayload(r.Context(), c))
 }
 
 // loginViaLDAP runs the directory bind for the entered credentials,

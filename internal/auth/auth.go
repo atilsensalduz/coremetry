@@ -286,6 +286,12 @@ func SkipPath(method, path string) bool {
 	if path == "/api/branding" && method == http.MethodGet {
 		return true
 	}
+	// v0.10.1375 — oturum sondası: kimliksiz istekte de 200
+	// {"authenticated":false} döner (giriş sayfasında kırmızı 401 yok).
+	// Kimliği handler Authenticate ile KENDİ çözer; yalnız GET muaf.
+	if path == "/api/auth/session" && method == http.MethodGet {
+		return true
+	}
 	// v0.10.1110 — merkezi login yetki servisi: sunucudan-sunucuya çağrı,
 	// oturum yok. Sınır paylaşılan anahtar başlığı (X-Coremetry-Auth-Key,
 	// sabit-zamanlı karşılaştırma; internal/api/auth_permissions.go).
@@ -345,52 +351,65 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 			return
 		}
 
-		token := tokenFromRequest(r)
-		if token != "" {
-			// v0.8.444 — cmk_ servis token'ları: JWT değildir, parse
-			// denenmez; bellek-içi hash cache'inde aranır (istek yolunda
-			// CH yok). Harici agent platformları (GenAI Studio → MCP)
-			// bu yolla, iptal edilebilir kimlikle gelir.
-			if IsAPIToken(token) {
-				if claims := s.apiTokenClaims(token); claims != nil {
-					ctx := context.WithValue(r.Context(), userCtxKey, claims)
-					next.ServeHTTP(w, r.WithContext(ctx))
-					return
-				}
-			} else if claims, err := s.Parse(token); err == nil {
-				// v0.9.352 — the token proves WHO; the store decides WHAT
-				// they may do. Without this a deleted or demoted user kept
-				// their access until the 24h token expired.
-				role, ok := s.liveAuthz.resolve(r.Context(), claims.UserID, claims.Role)
-				if !ok {
-					// Deleted or disabled. Same 401 as a bad token — the
-					// difference must not be observable.
-					writeUnauth(w, "session no longer valid")
-					return
-				}
-				claims.Role = role
-				ctx := context.WithValue(r.Context(), userCtxKey, claims)
-				next.ServeHTTP(w, r.WithContext(ctx))
-				return
-			}
-		}
-
-		// Trusted-header fallback — only consulted when JWT was
-		// missing or invalid. Avoids the lookup cost on every
-		// authenticated request.
-		if claims, ok := s.trustedHeaderClaims(r.Context(), r); ok {
-			s.setSessionCookie(w, claims)
-			ctx := context.WithValue(r.Context(), userCtxKey, claims)
-			next.ServeHTTP(w, r.WithContext(ctx))
+		// v0.10.1375 — kimlik çözümü Authenticate'te: public oturum sondası
+		// (GET /api/auth/session) AYNI yolu 401'siz kullanır.
+		claims, reason := s.Authenticate(w, r)
+		if claims == nil {
+			writeUnauth(w, reason)
 			return
 		}
-
-		if token == "" {
-			writeUnauth(w, "missing credentials")
-		} else {
-			writeUnauth(w, "invalid or expired token")
-		}
+		ctx := context.WithValue(r.Context(), userCtxKey, claims)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// Authenticate — v0.10.1375 (operatör-bildirimi: OIDC çıkışından sonra
+// /login'de kırmızı 401). Middleware'in kimlik çözümünün TEK kopyası:
+// JWT çerezi/Bearer → cmk_ servis token'ı → güvenilir-başlık geri düşüşü.
+// Kimlik yoksa (nil, sebep) döner; sebep Middleware'in 401 gövdesidir.
+// Neden ayrı fonksiyon, sondada kopya DEĞİL: oturum sondası "bu istek
+// kimlikli mi" sorusuna Middleware'le bayt bayt aynı cevabı vermeli
+// (silinmiş/devre dışı kullanıcı, süresi geçmiş token, güvenilir başlık).
+// İki kopya zamanla ayrışır ve sonda "oturum var" derken her çağrı 401
+// alırdı — SPA döngüye girerdi.
+func (s *Service) Authenticate(w http.ResponseWriter, r *http.Request) (*Claims, string) {
+	token := tokenFromRequest(r)
+	if token != "" {
+		// v0.8.444 — cmk_ servis token'ları: JWT değildir, parse
+		// denenmez; bellek-içi hash cache'inde aranır (istek yolunda
+		// CH yok). Harici agent platformları (GenAI Studio → MCP)
+		// bu yolla, iptal edilebilir kimlikle gelir.
+		if IsAPIToken(token) {
+			if claims := s.apiTokenClaims(token); claims != nil {
+				return claims, ""
+			}
+		} else if claims, err := s.Parse(token); err == nil {
+			// v0.9.352 — the token proves WHO; the store decides WHAT
+			// they may do. Without this a deleted or demoted user kept
+			// their access until the 24h token expired.
+			role, ok := s.liveAuthz.resolve(r.Context(), claims.UserID, claims.Role)
+			if !ok {
+				// Deleted or disabled. Same 401 as a bad token — the
+				// difference must not be observable.
+				return nil, "session no longer valid"
+			}
+			claims.Role = role
+			return claims, ""
+		}
+	}
+
+	// Trusted-header fallback — only consulted when JWT was
+	// missing or invalid. Avoids the lookup cost on every
+	// authenticated request.
+	if claims, ok := s.trustedHeaderClaims(r.Context(), r); ok {
+		s.setSessionCookie(w, claims)
+		return claims, ""
+	}
+
+	if token == "" {
+		return nil, "missing credentials"
+	}
+	return nil, "invalid or expired token"
 }
 
 // trustedHeaderClaims is the trusted-header read path. Returns

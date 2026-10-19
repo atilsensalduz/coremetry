@@ -3658,6 +3658,10 @@ export const api = {
   // (Keycloak end_session_endpoint); yerel girişte yalnız status.
   logout: () => request<{ status: string; redirect?: string }>('/api/auth/logout', { method: 'POST' }),
   me:     () => request<AuthUser>('/api/auth/me'),
+  // v0.10.1375 — SPA açılış kontrolü: kimliksizken de 200 döner
+  // ({authenticated:false}); giriş sayfasında kırmızı 401 olmaz ve küresel
+  // unauthorized işleyicisi tetiklenmez. me() 401 sözleşmesiyle aynen kalır.
+  session: () => request<AuthSessionResponse>('/api/auth/session'),
   changeOwnPassword: (currentPassword: string, newPassword: string) =>
     request<void>('/api/auth/password', {
       method: 'POST',
@@ -4256,6 +4260,13 @@ export interface LoginResponse {
   token: string;
   expiresAt: number;
   user: AuthUser;
+}
+// v0.10.1375 — GET /api/auth/session (internal/api/auth_session.go
+// authSession): her zaman 200; user yalnız authenticated iken, /api/auth/me
+// gövdesiyle aynı (meUserPayload).
+export interface AuthSessionResponse {
+  authenticated: boolean;
+  user?: AuthUser;
 }
 export interface AuthConfigResponse {
   local: { enabled: boolean };

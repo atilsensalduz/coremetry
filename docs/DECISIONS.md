@@ -7289,3 +7289,33 @@ kurmasını ister. Tahmin edilen bir sayı yok.
 metin bloğu). Testler: `api/chat_cluster_compare_test.go`, `chstore/operation_env_red_test.go`,
 `copilot/prompt_language_test.go` `TestOperationClusterCompareAddendum`. Sohbet kademe sırası, MCP araç sayısı ve api.go
 değişmedi.
+
+## 2026-10-19 — v0.10.1375 — OIDC çıkışı: tek yönlendirme, giriş sayfasında 401 yok
+
+**Operator-reported** (prod/test, OIDC/Keycloak SSO): "OIDC ile logout olunca sayfa bir daha yüklenir gibi oluyor. Ve
+network'te hata oluyor." DevTools: çıkıştan sonra /login'de `GET /api/auth/me` → 401 (31 bayt
+`{"error":"missing credentials"}`, middleware'in gövdesi), kırmızı.
+**Kök neden (iki parça):** (1) `AuthProvider.logout` `setUser(null)`'ı IdP end_session yönlendirmesinden ÖNCE
+çağırıyordu. Rota kapısı korumalı sayfada `user=null` görünce çıkılan sayfayı derin bağlantı olarak KAYDEDİP SPA-içi
+`/login`'e atlıyordu (giriş sayfası bir an çizilir), ardından tam sayfa Keycloak'a gidilip `/login`'e dönülüyordu — iki
+yükleme hissi; yan etki: sonraki giriş '/' yerine çıkılan sayfaya dönüyordu. (2) Dönüşteki taze `/login` yüklemesinde
+açılış kontrolü `api.me()` oturum olmadığı için 401 alıyordu (işlevsel olarak doğru, ama Network'te hata ve küresel
+unauthorized işleyicisini de çağırıyordu — `/login`'de etkisiz, korumalı sayfada rota kapısıyla çift `/login`).
+**Karar:** (a) OIDC çıkışında user'a dokunulmaz: bekleyen derin bağlantı silinir, tek `window.location.assign`. Çıkış
+sürerken (`loggingOutRef`) uçuştaki 401'ler yönlendirmez ve rota kapısı derin bağlantı kaydetmez — açık çıkış hiçbir
+zaman derin bağlantı geri yüklemez. Bayrak `login()`'de ve bfcache dönüşünde (`pageshow` persisted → oturum yeniden
+sorulur) düşer; aksi hâlde IdP sayfasından "geri" ile dönen kimlikli görünen ama 401'leri yutan ölü uygulama kalırdı.
+Yerel çıkış: derin bağlantı silinir, `setUser(null)` + `navigate('/login')` (eskisi gibi). (b) Yeni public sonda
+`GET /api/auth/session` (`internal/api/auth_session.go`, `registerRoutesExtra("auth-session")`): HER ZAMAN 200 —
+`{"authenticated":false}` ya da `{"authenticated":true,"user":{…}}`; `Cache-Control: no-store`, rol kapısı/audit/
+serveCached yok. Kimlik çözümü middleware'den `auth.Service.Authenticate`'e çıkarıldı (JWT/cmk_/güvenilir başlık + canlı
+yetki, TEK kopya) — sonda ile middleware ayrışırsa SPA "oturum var" deyip her çağrıda 401 alırdı. `auth.SkipPath` yalnız
+GET'i muaf tutar. Kullanıcı gövdesi `meUserPayload` (api.go `me()`'den taşındı, api.go 20 satır küçüldü, taban
+11356'ya indi). SPA açılışı `api.session()` okur; gövdesiz 200 (eski pod, rolling deploy) ya da 404/5xx (proxy) →
+`api.me()`'ye düşer, 401 → null.
+**Neden `/api/auth/me` 200'e çevrilmedi:** 401 sözleşmesi diğer her çağıran (küresel unauthorized akışı, harici
+istemciler) için doğru; tek çağıranın kozmetiği için kırılmaz. **Neden sessionStorage "çıkış sonrası" işareti yok:**
+sonda 200 ve ucuz; işaret bayatlayınca girişten sonra oturumu yok sayma riski taşırdı.
+Testler: `internal/api/auth_session_test.go` (tablo: çerez yok / geçerli çerez / Bearer / süresi geçmiş / yabancı imza /
+bozuk / silinmiş kullanıcı → hepsi 200; me ile aynı gövde; me 401 aynen; fail-open eşliği; rota kaydı),
+`frontend/src/components/AuthProvider.logout.test.tsx`.
