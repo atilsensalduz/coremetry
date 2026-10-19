@@ -10,6 +10,7 @@ import (
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/logstore"
 	"github.com/cilcenk/coremetry/internal/promptfmt"
+	"github.com/cilcenk/coremetry/internal/tracechain"
 )
 
 // exception_context.go — exception kök-sebep girdi kurucusu (v0.9.415).
@@ -368,11 +369,17 @@ func BuildExceptionExplainInput(ctx context.Context, store *chstore.Store, logs 
 	stackVersion := exceptionStackVersion(samples, st.StackSample, traceID, st.Trace.Spans,
 		verSvc, st.Logs.StackSpan, st.Logs.StackRes, st.StackRaw != "")
 
+	// v0.10.1379 — örnek trace'in HATA ZİNCİRİ (ilk başarısız uç → kök;
+	// bağımlı çağrının HTTP kodu + hedefi). Trace yüklenmediyse / hatasızsa ""
+	// → User bayt bayt eski.
+	chain, chainOrigin := exceptionChainBlock(st.Trace.Spans, spanGroupChainException(g))
+	evSpans := tracechain.PrependUnique(chainOrigin, st.Trace.EvSpans) // kaynak önce kutulanır
+
 	return ExceptionExplainInput{
-		User: assembleExceptionPrompt(g, loc, trend, st.StackForPrompt, st.TraceBlock, logsBlock, deployBlock, // v0.10.1370 — logsBlock
+		User: assembleExceptionPromptChain(g, loc, trend, chain, st.StackForPrompt, st.TraceBlock, logsBlock, deployBlock, // v0.10.1370 — logsBlock
 			renderPodConcentration(pods)),
 		EvTraces:     st.EvTraces,
-		EvSpans:      st.Trace.EvSpans,
+		EvSpans:      evSpans,   // v0.10.1379
 		LogsBlock:    logsBlock, // v0.10.1370 — tek-trace + örnek trace logları
 		Stack:        st.StackRaw,
 		StackService: st.StackService,
@@ -530,6 +537,15 @@ func renderNearbyDeploys(nd []NearbyDeploy) []string {
 // yorumla" diyor ve yeni kanıtın o cümlenin ardında kalması, modelin
 // onu talimat kapsamı dışında saymasına yol açardı.
 func assembleExceptionPrompt(g *chstore.ExceptionGroup, loc *time.Location, trend, stack, traceBlock, logsBlock, deployBlock, podsBlock string) string {
+	return assembleExceptionPromptChain(g, loc, trend, "", stack, traceBlock, logsBlock, deployBlock, podsBlock)
+}
+
+// assembleExceptionPromptChain — v0.10.1379: assembleExceptionPrompt + HATA
+// ZİNCİRİ bloğu (exceptionChainBlock; "\n\n" önekli ya da ""). Zincir meta +
+// trend'in HEMEN ardında, stack'ten ÖNCE basılır: v0.10.1371 dersi — model
+// önce gördüğü yerel exception'la (NPE) açıyordu; neden (bağımlı çağrının
+// HTTP 500'ü) belirtiden önce okunmalı. chain "" → çıktı bayt bayt eski.
+func assembleExceptionPromptChain(g *chstore.ExceptionGroup, loc *time.Location, trend, chain, stack, traceBlock, logsBlock, deployBlock, podsBlock string) string {
 	if loc == nil {
 		loc = time.UTC
 	}
@@ -546,6 +562,7 @@ func assembleExceptionPrompt(g *chstore.ExceptionGroup, loc *time.Location, tren
 	if trend != "" {
 		sb.WriteString("\n\nOccurrence trendi: " + trend)
 	}
+	sb.WriteString(chain) // v0.10.1379 — "" → bayt bayt eski
 	if stack != "" {
 		sb.WriteString("\n\nTemsilî STACKTRACE:\n```\n" + promptfmt.FenceSafe(stack) + "\n```")
 	}
@@ -555,6 +572,32 @@ func assembleExceptionPrompt(g *chstore.ExceptionGroup, loc *time.Location, tren
 	sb.WriteString(podsBlock)
 	sb.WriteString("\n\nStacktrace + trace + logları BİRLİKTE yorumla: kök nedeni stack'in EN DERİN \"Caused by\" bölümündeki ilk uygulama-frame'ine (yoksa en üst uygulama-frame'ine) ve trace'te hatanın DOĞDUĞU (en derin error) span'a dayandır; yayılan (propagate) hataları kök sanma.")
 	return sb.String()
+}
+
+// exceptionChainBlock — SAF (v0.10.1379): örnek trace'in span'leri → "\n\n"
+// önekli HATA ZİNCİRİ bloğu (tracechain — trace explain'le AYNI kural ve
+// satırlar: en derin hatalı yaprak → kök, halka başına servis · tür · METOT
+// host → yol · HTTP kodu · süre) + kaynak span id'si. Kompakt span JSON'u
+// (liteSpan) DEĞİŞMEZ — TestSampleTraceEvidenceByteIdenticalToLegacy onu eski
+// satır içi koda karşı bayt bayt pinliyor; HTTP kodu / url.full / hedef host
+// / peer / db sistemi bu deterministik blokla girer. Zincir TÜM span'lerden
+// (60'lık kompakt kesimden ÖNCE) hesaplanır: derindeki kaynak kesimde düşse
+// bile adlandırılır. Hata yok / trace yüklenmedi → ("", ""). fallback =
+// zincirin ardından basılacak exception (halkanın kendi exception event'i
+// varsa o kazanır). Taban p50 yok (anomaly'de RED okuması yapılmaz).
+func exceptionChainBlock(spans []chstore.SpanRow, fallback tracechain.Exception) (string, string) {
+	c := tracechain.Of(spans)
+	b := c.Block(fallback)
+	if b == "" {
+		return "", ""
+	}
+	return "\n\n" + b, c.Origin.Span.SpanID
+}
+
+// spanGroupChainException — SAF (v0.10.1379): span grubunun kendisi zincirin
+// kapanış satırı (halkalarda exception event'i yoksa).
+func spanGroupChainException(g *chstore.ExceptionGroup) tracechain.Exception {
+	return tracechain.Exception{Service: g.Service, Type: g.Type, Msg: g.Message, Source: "exception grubu"}
 }
 
 // truncRunes — rune-güvenli kesme (api.truncate byte keserdi; Türkçe

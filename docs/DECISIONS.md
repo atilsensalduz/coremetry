@@ -7416,3 +7416,38 @@ eskiden var olan bir ortam "metrikte yok" görünebilir (bant söyler).
 üretmiyor, soru guided/servis yoluna kayabiliyordu. Artık iki dilde de `@wiki ` (kapsam belirteci, dilden bağımsız):
 composer `scope.wiki=true` üretir, wiki katmanı kesin devreye girer. Pin: `chatScope.test.ts` (çip metni + soru → wiki
 kapsamı), `CosreCapabilities.test.tsx` (EN/TR farklılık kuralından bu anahtar muaf).
+
+## 2026-10-19 — v0.10.1379 — Exception açıklaması: HATA ZİNCİRİ (bağımlı çağrının HTTP kodu ve hedefi)
+
+**Bağlam (v0.10.1371 kaydının takibi):** trace açıklaması deterministik HATA ZİNCİRİ'ni aldı; Exceptions sayfasının
+"Ask CoSRE"si (span grubu `BuildExceptionExplainInput`, Oracle grubu `BuildOracleExceptionExplainInput`) aynı boşluğu
+taşıyordu: kompakt span kanıtı (`trace_evidence.go` `liteSpan`) HTTP kodu / url.full / server.address / peer / metot
+taşımaz — bağımlı çağrıdan HTTP 500 alıp ardından NPE atan servisin açıklaması bağımlılığı adlandıramıyordu.
+**Karar (1) — span JSON'u değil, ayrı blok:** `liteSpan` DEĞİŞMEDİ. `TestSampleTraceEvidenceByteIdenticalToLegacy`
+yeni trace bloğunu v0.10.1102 satır içi kodunun donmuş kopyasına karşı bayt bayt pinliyor; omitempty alanlar fikstürde
+yeşil kalırdı ama pinin "eski şekil" sözünü sessizce delerdi, 60 span × alan prompt'u şişirirdi ve kaynak 60'lık kesimin
+dışında kalabilirdi. Bunun yerine hatalı örnek trace için trace explain'le AYNI deterministik blok: TÜM span'lerden
+(kesimden önce) en derin hatalı yaprak → kök, halka başına servis · tür · ad(METOT) host → yol · HTTP kodu (kolon ya da
+`http.response.status_code`/`http.status_code`) / exception · süre; db span'inde `db.system/db.name`, mesajlaşmada
+`messaging.system/hedef`, `peer.service` öncelikli. Kapanış satırı halkanın exception event'i, yoksa span grubunda
+grubun kendisi ("exception grubu"), Oracle'da "kod: operasyon (Oracle hata tablosu, kaynak …)". Taban p50 yok (anomaly
+RED okumaz). Yer: span grubunda meta + trend'in ARDINDA, stack ve trace JSON'undan ÖNCE (neden belirtiden önce —
+v0.10.1371 dersi; `assembleExceptionPromptChain`, eski `assembleExceptionPrompt` zincirsiz sarmalayıcı); Oracle'da
+yüklenen Coremetry trace bloğunun hemen önünde (CH ve v0.10.1370 Tempo-önce yolu). EvSpans kaynakla başlar. Hatasız /
+yüklenmeyen trace → blok yok, User bayt bayt eski.
+**Karar (2) — `internal/tracechain` (saf, depo bağımsız):** anomaly api'yi import edemez; kaynak kuralı (`Of`), halka
+satırı, `Block`, exception satırı, `PeerOf`/`SpanFailure`/`CallLabel`/`FmtMs`/`SpanDurNs`/`KindRank`/`PrependUnique`
+ve `SpanException` (mcptools'tan — mcptools → anomaly → tracechain döngüsü yüzünden ters yön olamaz) buraya taşındı.
+api'de takma ad + ince sarmalayıcı (`traceErrorChain`, `peerRef`, `drillFailure`, `peerOf`, …), mcptools'ta
+`ttSpanException` sarmalayıcı; api testleri DEĞİŞMEDEN yeşil. Parite: `tracechain/testdata/parity_v0.10.1379.json`
+taşıma ÖNCESİ api kodunun 8 fikstürdeki çıktısıdır (blok + kaynak + halkalar + hedef/hata/etiket). `oneLineSample` /
+`truncRunesN` api'de kaldı; tracechain'de ikizleri (`OneLine`/`TruncRunes`) var. Ad METOT içermiyorsa
+`http.request.method` eklenmez — trace açıklamasının çıktısı bayt bayt korunsun diye (semconv istemci span adı zaten
+metottur).
+**İstem:** `systemExceptionBody` ve `systemOracleException`'a TEK kural ("CAUSAL CHAIN OUTRANKS THE SYMPTOM", trace
+isteminin ikizi): 1. halka exception'ı atan servisin ALTINDA başarısız CLIENT/PRODUCER çağrısıysa exception (Oracle'da
+hata satırı) SONUÇTUR; zincir cümlesi + iki sonraki adım (bağımlılığın hatası + yerel savunmacı düzeltme). Bölüm adları
+değişmedi; `promptVersionRegistry` yeni metni taşır.
+**Testler:** `tracechain/tracechain_test.go` (parite, kaynak kuralı, tavanlar, çit, exception satırı, SpanException
+biçimleri), `anomaly/exception_chain_test.go` (span grubu blok + sıra + span JSON'u eski, kesim dışı kaynak, Oracle CH
+ve Tempo-önce, yokluk), `copilot/prompt_exception_chain_test.go`.

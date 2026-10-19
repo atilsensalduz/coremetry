@@ -30,8 +30,8 @@ var promptVersionRegistry = map[string]string{
 	"traceFollowUpAddendum":      traceFollowUpAddendum, // v0.10.948; v0.10.972 — aynı başlıklar
 	"systemSpan":                 systemSpan,
 	"systemProblem":              systemProblem,
-	"systemExceptionBody":        systemExceptionBody,   // v0.10.1370 — örnek trace logları
-	"systemOracleException":      systemOracleException, // v0.10.1100 — Oracle hata grubu; v0.10.1370 — örnek trace logları
+	"systemExceptionBody":        systemExceptionBody,   // v0.10.1370 — örnek trace logları; v0.10.1379 — HATA ZİNCİRİ kuralı
+	"systemOracleException":      systemOracleException, // v0.10.1100 — Oracle hata grubu; v0.10.1370 — örnek trace logları; v0.10.1379 — HATA ZİNCİRİ
 	"systemIncident":             systemIncident,
 	"systemAnomaly":              systemAnomaly,
 	"systemServiceHealth":        systemServiceHealth,

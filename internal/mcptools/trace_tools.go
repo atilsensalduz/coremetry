@@ -39,6 +39,7 @@ import (
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/mcp"
 	"github.com/cilcenk/coremetry/internal/sourcestate"
+	"github.com/cilcenk/coremetry/internal/tracechain"
 )
 
 // traceStoreSpanCap — chstore.GetTrace'in SQL tavanı (repo.go `LIMIT 50000`).
@@ -433,35 +434,10 @@ func buildTraceToolAnalysis(spans []chstore.SpanRow, storeCapped bool) traceTool
 }
 
 // ttSpanException — SAF (v0.10.1148): SpanRow.Events'teki İLK exception
-// event'inin (ad "exception" ya da exception.type/message taşıyan) tip ve
-// mesajı. CH yolu []any açar; başka tip (Tempo struct dilimi, ham JSON
-// string) JSON gidiş-dönüşüyle aynı şekle indirilir. Çözülemezse "".
-func ttSpanException(events any) (exType, exMsg string) {
-	arr, ok := events.([]any)
-	if !ok && events != nil {
-		raw, isStr := events.(string)
-		b := []byte(raw)
-		if !isStr {
-			var err error
-			if b, err = json.Marshal(events); err != nil {
-				return "", ""
-			}
-		}
-		if json.Unmarshal(b, &arr) != nil {
-			return "", ""
-		}
-	}
-	for _, e := range arr {
-		m, _ := e.(map[string]any)
-		attrs, _ := m["attributes"].(map[string]any)
-		t, _ := attrs["exception.type"].(string)
-		msg, _ := attrs["exception.message"].(string)
-		if name, _ := m["name"].(string); name == "exception" || t != "" || msg != "" {
-			return strings.TrimSpace(t), strings.TrimSpace(msg)
-		}
-	}
-	return "", ""
-}
+// event'inin tip ve mesajı. v0.10.1379 — gövde internal/tracechain'e taşındı
+// (exception açıklamasının HATA ZİNCİRİ'si anomaly'den okur; anomaly
+// mcptools'u import edemez); burası ince sarmalayıcı, davranış aynı.
+func ttSpanException(events any) (exType, exMsg string) { return tracechain.SpanException(events) }
 
 // SpanException — SAF (v0.10.1327): ttSpanException'ın dışa açık adı; sohbet
 // trace drill'i (api/chat_trace_drill.go) baskın span'in exception'ını aynı

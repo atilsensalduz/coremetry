@@ -37,8 +37,8 @@ import (
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/copilot"
 	"github.com/cilcenk/coremetry/internal/logstore"
-	"github.com/cilcenk/coremetry/internal/mcptools"
 	"github.com/cilcenk/coremetry/internal/sourcestate"
+	"github.com/cilcenk/coremetry/internal/tracechain"
 )
 
 // guidedTraceDrill — "nereye giderken timeout almış": servisin en yavaş
@@ -68,13 +68,8 @@ type drillPick struct {
 	OK     bool
 }
 
-func drillKindRank(kind string) int {
-	switch strings.ToLower(kind) {
-	case "client", "producer":
-		return 1
-	}
-	return 0
-}
+// drillKindRank — v0.10.1379: tracechain.KindRank'e devreder.
+func drillKindRank(kind string) int { return tracechain.KindRank(kind) }
 
 // dominantSpan — SAF: kritik yol span'leri arasında öz süresi en büyük olan;
 // eşitlikte hata durumlu, sonra CLIENT/PRODUCER türlü span kazanır (dış çağrı
@@ -123,97 +118,22 @@ func dominantSpan(spans []chstore.SpanRow, an chstore.TraceAnalysis) drillPick {
 	return best
 }
 
-// peerRef — baskın span'in hedefi. Target "ortak hedef" anahtarıdır.
-type peerRef struct {
-	Kind   string // peer.service | http | db | messaging | name
-	Target string
-	Path   string // yalnız url.full'den (sorgu/fragman atılır)
-}
-
-func spanAttr(sp chstore.SpanRow, keys ...string) string {
-	for _, k := range keys {
-		if v := strings.TrimSpace(sp.Attributes[k]); v != "" {
-			return v
-		}
-	}
-	return ""
-}
-
-// urlHostPath — SAF: url.full → (host, path); sorgu ve fragman atılır.
-func urlHostPath(raw string) (string, string) {
-	if raw == "" {
-		return "", ""
-	}
-	u, err := url.Parse(raw)
-	if err != nil {
-		return "", ""
-	}
-	return u.Hostname(), u.EscapedPath()
-}
+// peerRef / drillFailure — v0.10.1379: saf çekirdek internal/tracechain'de
+// (exception açıklaması da aynı zinciri basar); takma ad + ince sarmalayıcı,
+// davranış bayt bayt aynı.
+type (
+	peerRef      = tracechain.Peer
+	drillFailure = tracechain.Failure
+)
 
 // peerOf — SAF: öncelik peer.service → server.address / net.peer.name
 // (+ url.full yolu) → db.system + db.name → messaging.system + hedef → span
-// adı. Değerler AYNEN (redaksiyon yok, operatör tercihi).
-func peerOf(sp chstore.SpanRow) peerRef {
-	fullHost, path := urlHostPath(spanAttr(sp, "url.full", "http.url"))
-	if ps := strings.TrimSpace(sp.PeerService); ps != "" {
-		return peerRef{Kind: "peer.service", Target: ps, Path: path}
-	}
-	if ps := spanAttr(sp, "peer.service"); ps != "" {
-		return peerRef{Kind: "peer.service", Target: ps, Path: path}
-	}
-	if host := spanAttr(sp, "server.address", "net.peer.name"); host != "" {
-		return peerRef{Kind: "http", Target: host, Path: path}
-	}
-	if fullHost != "" {
-		return peerRef{Kind: "http", Target: fullHost, Path: path}
-	}
-	dbSys := strings.TrimSpace(sp.DBSystem)
-	if dbSys == "" {
-		dbSys = spanAttr(sp, "db.system", "db.system.name")
-	}
-	if dbSys != "" {
-		t := dbSys
-		if n := spanAttr(sp, "db.name", "db.namespace"); n != "" {
-			t += "/" + n
-		}
-		return peerRef{Kind: "db", Target: t}
-	}
-	if ms := spanAttr(sp, "messaging.system"); ms != "" {
-		t := ms
-		if d := spanAttr(sp, "messaging.destination.name", "messaging.destination"); d != "" {
-			t += "/" + d
-		}
-		return peerRef{Kind: "messaging", Target: t}
-	}
-	return peerRef{Kind: "name", Target: sp.Name}
-}
+// adı (tracechain.PeerOf).
+func peerOf(sp chstore.SpanRow) peerRef { return tracechain.PeerOf(sp) }
 
-// drillFailure — baskın span'in hata özeti.
-type drillFailure struct {
-	Status   string
-	HTTPCode int
-	ExType   string
-	ExMsg    string
-}
-
-// spanFailure — SAF: status + HTTP kodu (kolon, yoksa semconv attribute) +
-// ilk exception event'i (mcptools.SpanException — get_trace aracıyla aynı
-// çözücü); event yoksa hata mesajı status mesajından.
-func spanFailure(sp chstore.SpanRow) drillFailure {
-	f := drillFailure{Status: sp.StatusCode, HTTPCode: int(sp.HTTPStatus)}
-	if f.HTTPCode == 0 {
-		var c int
-		if _, err := fmt.Sscanf(spanAttr(sp, "http.response.status_code", "http.status_code"), "%d", &c); err == nil {
-			f.HTTPCode = c
-		}
-	}
-	f.ExType, f.ExMsg = mcptools.SpanException(sp.Events)
-	if f.ExType == "" && f.ExMsg == "" && sp.StatusCode == "error" {
-		f.ExMsg = strings.TrimSpace(sp.StatusMessage)
-	}
-	return f
-}
+// spanFailure — SAF: status + HTTP kodu + ilk exception event'i
+// (tracechain.SpanFailure; get_trace aracıyla aynı çözücü).
+func spanFailure(sp chstore.SpanRow) drillFailure { return tracechain.SpanFailure(sp) }
 
 // traceDrill — tek trace'in kırılım sonucu (render girdisi).
 type traceDrill struct {
@@ -263,21 +183,8 @@ func fmtDrillSelf(ns int64) string {
 	return fmt.Sprintf("%.0f ms", float64(ns)/1e6)
 }
 
-// drillCallLabel — SAF: "POST" + host (adda yoksa) + " → " + yol.
-func drillCallLabel(name string, p peerRef) string {
-	label := name
-	if p.Kind != "name" && p.Target != "" && !strings.Contains(name, p.Target) {
-		if p.Kind == "http" {
-			label += " " + p.Target
-		} else {
-			label += " → " + p.Target
-		}
-	}
-	if p.Path != "" && p.Path != "/" {
-		label += " → " + p.Path
-	}
-	return strings.TrimSpace(label)
-}
+// drillCallLabel — SAF: "POST" + host (adda yoksa) + " → " + yol (tracechain).
+func drillCallLabel(name string, p peerRef) string { return tracechain.CallLabel(name, p) }
 
 // renderTraceDrillTR — SAF: tek trace'in kanıt cümlesi. Hedef cümle (prod):
 // "50.02 s'nin 50.0 s'i (%100) CLIENT çağrısında: POST osbprod.bank.example →
@@ -336,22 +243,9 @@ func renderTraceDrillTR(d traceDrill) string {
 	return b.String()
 }
 
-func fmtDrillMs(ms float64) string {
-	if ms >= 1000 {
-		return fmt.Sprintf("%.2f s", ms/1000)
-	}
-	if ms < 10 {
-		return fmt.Sprintf("%.1f ms", ms)
-	}
-	return fmt.Sprintf("%.0f ms", ms)
-}
+func fmtDrillMs(ms float64) string { return tracechain.FmtMs(ms) } // v0.10.1379
 
-func spanDurNs(sp chstore.SpanRow) int64 {
-	if sp.EndTime > sp.StartTime {
-		return sp.EndTime - sp.StartTime
-	}
-	return int64(sp.DurationMs * 1e6)
-}
+func spanDurNs(sp chstore.SpanRow) int64 { return tracechain.SpanDurNs(sp) } // v0.10.1379
 
 // renderTraceDrillsTR — SAF: başlık + trace başına bir satır + paylaşılan
 // hedef ("ortak hedef: osbprod.bank.example (2/2)").

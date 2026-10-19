@@ -39,6 +39,7 @@ import (
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/logstore"
 	"github.com/cilcenk/coremetry/internal/promptfmt"
+	"github.com/cilcenk/coremetry/internal/tracechain"
 )
 
 const (
@@ -608,7 +609,7 @@ func BuildOracleExceptionExplainInput(ctx context.Context, rd OracleContextReade
 		cancel()
 	}
 	oc := assembleOracleExplainContext(g, facts, factsOK, rows, oracleExplainRowLimit, traceFacts, loc)
-	var traceBlock, logsBlock string
+	var traceBlock, logsBlock, chainOrigin string // v0.10.1379 — chainOrigin
 	var tev traceEvidenceResult
 	loadedID, loadedSrc := "", "" // v0.10.1370 — örnek log referanslarının kaynak etiketi
 	id := oracleCoremetryTrace(oc.Traces, traceFacts)
@@ -627,6 +628,11 @@ func BuildOracleExceptionExplainInput(ctx context.Context, rd OracleContextReade
 		lr := traceLogsEvidence(ctx, logs, id, tev.MinT, tev.MaxT)
 		oc.CoremetryTrace, oc.TraceSpans, oc.LogLines = id, len(tev.Compact), len(lr.Lines)
 		traceBlock = oracleTraceBlock(id, traceFacts[id].Service, tev)
+		// v0.10.1379 — yüklenen trace'in (CH ya da Tempo-önce) HATA ZİNCİRİ,
+		// kompakt span bloğunun HEMEN önünde; hatasız trace → "" (bayt bayt eski).
+		var chain string
+		chain, chainOrigin = exceptionChainBlock(tev.Spans, oracleChainException(oc))
+		traceBlock = chain + traceBlock
 		logsBlock = oracleLogsBlock(lr)
 		loadedID = id
 	}
@@ -643,8 +649,8 @@ func BuildOracleExceptionExplainInput(ctx context.Context, rd OracleContextReade
 	in := ExceptionExplainInput{
 		User:         renderOracleExplainPrompt(g, oc, loc, traceBlock, logsBlock, sl.Block), // v0.10.1370 — sl.Block
 		EvTraces:     ev,
-		EvSpans:      tev.EvSpans,
-		LogsBlock:    oracleInputLogsBlock(logsBlock, sl.Block), // v0.10.1370
+		EvSpans:      tracechain.PrependUnique(chainOrigin, tev.EvSpans), // v0.10.1379 — kaynak önce kutulanır
+		LogsBlock:    oracleInputLogsBlock(logsBlock, sl.Block),          // v0.10.1370
 		DBStatements: tev.DBStatements,
 		ErrorText:    truncRunes(g.Type+": "+g.Message, 2000),
 		Oracle:       &oc,
@@ -656,6 +662,16 @@ func BuildOracleExceptionExplainInput(ctx context.Context, rd OracleContextReade
 		in.TraceID = ev[0]
 	}
 	return in
+}
+
+// oracleChainException — SAF (v0.10.1379): Oracle grubunun HATA ZİNCİRİ
+// kapanış satırı (kod: operasyon; halkalarda exception event'i yoksa).
+func oracleChainException(c OracleExplainContext) tracechain.Exception {
+	src := "Oracle hata tablosu"
+	if c.SourceName != "" {
+		src += ", kaynak " + c.SourceName
+	}
+	return tracechain.Exception{Type: c.Code, Msg: c.Operation, Source: src}
 }
 
 // oracleInputLogsBlock — SAF (v0.10.1370): girdinin LogsBlock'u (çekmece

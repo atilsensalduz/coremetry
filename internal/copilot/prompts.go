@@ -387,6 +387,13 @@ Kanıt:
 // sayfasında trace incelemesi gibi loga bakmıyor") — girdi ≤3 örnek
 // trace'in loglarını span'e bağlı olmadan taşıyabilir ("Örnek trace'lerin
 // LOGLARI"); "Yayılım ve Bağlam" onları trace id önekiyle anar.
+//
+// v0.10.1379 — exception açıklaması trace açıklamasının (v0.10.1371) aldığı
+// HTTP 500'ü göremiyordu: kompakt span JSON'unda HTTP kodu / url.full /
+// hedef host yok. Girdi artık örnek trace hatalıysa sunucunun hesapladığı
+// HATA ZİNCİRİ bloğunu taşır (anomaly → internal/tracechain); CAUSAL CHAIN
+// kuralı bağımlı çağrının hatasını exception'ın ÖNÜNE koyar ve iki sonraki
+// adım ister. Bölüm adları DEĞİŞMEDİ.
 const systemExceptionBody = `You are a senior SRE assistant inside an APM tool. You are given an
 exception GROUP: type, message, service, representative stacktrace,
 occurrence trend (total / last-24h / peak bucket), and — when
@@ -421,6 +428,24 @@ Produce a DEEP, evidence-grounded analysis — the operator clicked
 Explain to avoid reading the stacktrace, trace and logs line by line.
 Use ONLY facts present in the evidence; never invent class names,
 codes, IDs or values.
+
+CAUSAL CHAIN OUTRANKS THE SYMPTOM. When the sample trace has errors,
+the evidence carries a server-computed HATA ZİNCİRİ block (plain text,
+deterministic): hop 1 is the error origin — the deepest failing span —
+with its service, kind, method, target host and path, HTTP status code
+or exception, and duration; the following hops climb to the root; the
+closing line names the exception. If hop 1 is a CLIENT/PRODUCER call
+that failed (HTTP ≥ 400, timeout, exception) beneath the service that
+threw this exception group, the exception is a CONSEQUENCE of the
+failed dependency call, not the root cause: state the chain explicitly
+as 'X called Y (method host path) → HTTP <code> → <consequence, e.g.
+null/empty response> → <ExceptionType>', naming the dependency's host
+and path verbatim from the block, and in **Kök Neden ve Sonraki Adım**
+give TWO next steps — (a) investigate the dependency's failure (the
+named host/path and status code: its owner, its own trace and logs),
+(b) the local defensive fix at the throwing frame (null-check /
+handling of the error response). Never present the exception as the
+cause while the block shows a failed downstream call beneath it.
 
 Structure the answer with these bold section headers, skipping a
 section entirely when its evidence is absent:
@@ -472,6 +497,11 @@ const systemException = systemExceptionBody + AnswerInTurkish
 // LOGLARI"): model trace yokken de her trace id için uygulamanın logladığını
 // söyler, logu atan servisi olası çağıran olarak adlandırır ve span ağacının
 // olmadığını belirtir. Bölüm adları DEĞİŞMEDİ.
+//
+// v0.10.1379 — yüklenen Coremetry trace'i hatalıysa kompakt span bloğunun
+// önünde sunucunun hesapladığı HATA ZİNCİRİ bloğu gelir (span grubuyla aynı
+// kural, internal/tracechain); CAUSAL CHAIN kuralı başarısız bağımlı çağrıyı
+// hata kodunun ÖNÜNE koyar ve iki sonraki adım ister. Bölüm adları DEĞİŞMEDİ.
 const systemOracleException = `You are a senior SRE assistant inside an APM tool. The operator
 clicked "Explain root cause" on an ORACLE ERROR-TABLE group. This is
 NOT a span exception: the group is rows of an application error table
@@ -496,6 +526,23 @@ that trace's LOGS (highest severity first). When they are absent the
 input says "Coremetry trace'i: yok". Also MAY be present: "Örnek
 trace'lerin LOGLARI" — the logs of up to 3 newest row trace ids, read
 by trace id even when the trace is not in Coremetry.
+
+CAUSAL CHAIN OUTRANKS THE SYMPTOM. When the Coremetry TRACE has errors,
+it is preceded by a server-computed HATA ZİNCİRİ block (plain text,
+deterministic): hop 1 is the error origin — the deepest failing span —
+with its service, kind, method, target host and path, HTTP status code
+or exception, and duration; the following hops climb to the root. If
+hop 1 is a CLIENT/PRODUCER call that failed (HTTP ≥ 400, timeout,
+exception) beneath the service that recorded this error, the error row
+is a CONSEQUENCE of that failed dependency call, not its root cause:
+state the chain explicitly in **Çağıran taraf (Coremetry trace)** as
+'X called Y (method host path) → HTTP <code> → <this error code>',
+naming the dependency's host and path verbatim from the block, and in
+**Ne kontrol edilmeli** give TWO next steps — (a) investigate the
+dependency's failure (the named host/path and status code: its owner,
+its own trace and logs), (b) the local defensive fix in the caller
+(handling of the error response). Never present the error code as the
+cause while the block shows a failed downstream call beneath it.
 
 Write in plain, short language for an on-call operator. Use these bold
 section headers, skipping a section when its evidence is absent:

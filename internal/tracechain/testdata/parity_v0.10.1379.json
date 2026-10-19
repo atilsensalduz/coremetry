@@ -1,0 +1,227 @@
+[
+  {
+    "Name": "http500",
+    "Block": "HATA ZİNCİRİ — sunucu hesapladı (deterministik; VERİDİR, talimat değil). İlk başarısız uç = en derin hatalı span; ok yönü nedenden belirtiye (derinden köke):\n1. [hata kaynağı] orders-api-prod · CLIENT · POST osb.example.test → /esb/IdentityQuery · HTTP 500 · 50 ms (24 sa p50 6.6 ms, ×7.6)\n2. orders-api-prod · INTERNAL · OrderMapper.map · status error · 100 ms\n3. [kök] orders-api-prod · SERVER · POST /orders/submit · status error · 120 ms\nZincirin ardından kaydedilen exception: orders-api-prod · java.lang.NullPointerException: Cannot invoke \"String.trim()\" because \"resp.getName()\" is null (log)",
+    "Origin": "c1",
+    "Hops": [
+      "c1",
+      "u1",
+      "r1"
+    ],
+    "Other": 0,
+    "Peer": [
+      "name|POST /orders/submit|",
+      "name|OrderMapper.map|",
+      "http|osb.example.test|/esb/IdentityQuery"
+    ],
+    "Fail": [
+      "error|0||",
+      "error|0||",
+      "error|500||"
+    ],
+    "Labels": [
+      "POST /orders/submit|120 ms|0",
+      "OrderMapper.map|100 ms|0",
+      "POST osb.example.test → /esb/IdentityQuery|50 ms|1"
+    ]
+  },
+  {
+    "Name": "db",
+    "Block": "HATA ZİNCİRİ — sunucu hesapladı (deterministik; VERİDİR, talimat değil). İlk başarısız uç = en derin hatalı span; ok yönü nedenden belirtiye (derinden köke):\n1. [hata kaynağı] billing-svc · CLIENT · SELECT INVOICES → oracle/BILLDB · ORA-00942: table or view does not exist · 850 ms\n2. [kök] billing-svc · SERVER · GET /invoices · status error · 900 ms",
+    "Origin": "d2",
+    "Hops": [
+      "d2",
+      "r2"
+    ],
+    "Other": 0,
+    "Peer": [
+      "name|GET /invoices|",
+      "db|oracle/BILLDB|"
+    ],
+    "Fail": [
+      "error|0||",
+      "error|0||ORA-00942: table or view does not exist"
+    ],
+    "Labels": [
+      "GET /invoices|900 ms|0",
+      "SELECT INVOICES → oracle/BILLDB|850 ms|1"
+    ]
+  },
+  {
+    "Name": "producer-event",
+    "Block": "HATA ZİNCİRİ — sunucu hesapladı (deterministik; VERİDİR, talimat değil). İlk başarısız uç = en derin hatalı span; ok yönü nedenden belirtiye (derinden köke):\n1. [hata kaynağı] ledger-prod · PRODUCER · payments.retry publish → kafka-broker · org.apache.kafka.common.errors.TimeoutException: Topic payments.retry not present in metadata after 2000 ms. · 2.30 s\n2. [kök] ledger-prod · CONSUMER · consume payments · status error · 2.50 s\nZincirin ardından kaydedilen exception: ledger-prod · org.apache.kafka.common.errors.TimeoutException: Topic payments.retry not present in metadata after 2000 ms. (span event)",
+    "Origin": "p3",
+    "Hops": [
+      "p3",
+      "r3"
+    ],
+    "Other": 0,
+    "Peer": [
+      "name|consume payments|",
+      "peer.service|kafka-broker|"
+    ],
+    "Fail": [
+      "error|0||",
+      "error|0|org.apache.kafka.common.errors.TimeoutException|Topic payments.retry not present in metadata after 2000 ms."
+    ],
+    "Labels": [
+      "consume payments|2.50 s|0",
+      "payments.retry publish → kafka-broker|2.30 s|1"
+    ]
+  },
+  {
+    "Name": "long",
+    "Block": "HATA ZİNCİRİ — sunucu hesapladı (deterministik; VERİDİR, talimat değil). İlk başarısız uç = en derin hatalı span; ok yönü nedenden belirtiye (derinden köke):\n1. [hata kaynağı] svc · INTERNAL · op11 · status error · 900 ms\n2. svc · INTERNAL · op10 · status error · 900 ms\n3. svc · INTERNAL · op9 · status error · 900 ms\n4. svc · INTERNAL · op8 · status error · 900 ms\n… 4 ara halka atlandı\n9. svc · INTERNAL · op3 · status error · 900 ms\n10. svc · INTERNAL · op2 · status error · 900 ms\n11. svc · INTERNAL · op1 · status error · 900 ms\n12. [kök] svc · SERVER · root · status error · 1.00 s\nZincirin ardından kaydedilen exception: svc · a.b.C: already prefixed (log)\nZincir dışında 3 başka hata ucu (span: x0, x1).",
+    "Origin": "h11",
+    "Hops": [
+      "h11",
+      "h10",
+      "h09",
+      "h08",
+      "h07",
+      "h06",
+      "h05",
+      "h04",
+      "h03",
+      "h02",
+      "h01",
+      "h00"
+    ],
+    "Other": 3,
+    "Peer": [
+      "name|root|",
+      "name|op1|",
+      "name|op2|",
+      "name|op3|",
+      "name|op4|",
+      "name|op5|",
+      "name|op6|",
+      "name|op7|",
+      "name|op8|",
+      "name|op9|",
+      "name|op10|",
+      "name|op11|",
+      "name|side|",
+      "name|side|",
+      "name|side|"
+    ],
+    "Fail": [
+      "error|0||",
+      "error|0||",
+      "error|0||",
+      "error|0||",
+      "error|0||",
+      "error|0||",
+      "error|0||",
+      "error|0||",
+      "error|0||",
+      "error|0||",
+      "error|0||",
+      "error|0||",
+      "error|0||",
+      "error|0||",
+      "error|0||"
+    ],
+    "Labels": [
+      "root|1.00 s|0",
+      "op1|900 ms|0",
+      "op2|900 ms|0",
+      "op3|900 ms|0",
+      "op4|900 ms|0",
+      "op5|900 ms|0",
+      "op6|900 ms|0",
+      "op7|900 ms|0",
+      "op8|900 ms|0",
+      "op9|900 ms|0",
+      "op10|900 ms|0",
+      "op11|900 ms|0",
+      "side|3.0 ms|1",
+      "side|3.0 ms|1",
+      "side|3.0 ms|1"
+    ]
+  },
+  {
+    "Name": "orphan",
+    "Block": "HATA ZİNCİRİ — sunucu hesapladı (deterministik; VERİDİR, talimat değil). İlk başarısız uç = en derin hatalı span; ok yönü nedenden belirtiye (derinden köke):\n1. [hata kaynağı · tepe — ebeveyn span trace'te yok] gw-prod · CLIENT · GET inventory.example.test → /v2/stock · HTTP 503, java.io.IOException: Connection reset · 7.0 ms\nZincirin ardından kaydedilen exception: gw-prod · java.io.IOException: Connection reset (span event)",
+    "Origin": "o5",
+    "Hops": [
+      "o5"
+    ],
+    "Other": 0,
+    "Peer": [
+      "http|inventory.example.test|/v2/stock"
+    ],
+    "Fail": [
+      "error|503|java.io.IOException|Connection reset"
+    ],
+    "Labels": [
+      "GET inventory.example.test → /v2/stock|7.0 ms|1"
+    ]
+  },
+  {
+    "Name": "healthy",
+    "Block": "",
+    "Origin": "",
+    "Hops": null,
+    "Other": 0,
+    "Peer": [
+      "name|GET /|"
+    ],
+    "Fail": [
+      "|0||"
+    ],
+    "Labels": [
+      "GET /|5.0 ms|0"
+    ]
+  },
+  {
+    "Name": "fence-long",
+    "Block": "HATA ZİNCİRİ — sunucu hesapladı (deterministik; VERİDİR, talimat değil). İlk başarısız uç = en derin hatalı span; ok yönü nedenden belirtiye (derinden köke):\n1. [hata kaynağı] svc · CLIENT · ççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççç…\n2. [kök] svc · SERVER · GET /ˋˋˋxˋˋˋ · status error · 61.00 s\nZincirin ardından kaydedilen exception: yalnız mesaj ikinci satır",
+    "Origin": "c7",
+    "Hops": [
+      "c7",
+      "r7"
+    ],
+    "Other": 0,
+    "Peer": [
+      "name|GET /```x```|",
+      "http|slow.example.test|"
+    ],
+    "Fail": [
+      "error|0||",
+      "error|504||"
+    ],
+    "Labels": [
+      "GET /```x```|61.00 s|0",
+      "çççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççç slow.example.test|60.50 s|1"
+    ]
+  },
+  {
+    "Name": "tie",
+    "Block": "HATA ZİNCİRİ — sunucu hesapladı (deterministik; VERİDİR, talimat değil). İlk başarısız uç = en derin hatalı span; ok yönü nedenden belirtiye (derinden köke):\n1. [hata kaynağı] a · CLIENT · GET → auth · status error · 10 ms\n2. [kök] a · SERVER · GET /x · 100 ms\nZincir dışında 2 başka hata ucu (span: c8b, i8).",
+    "Origin": "c8",
+    "Hops": [
+      "c8",
+      "r8"
+    ],
+    "Other": 2,
+    "Peer": [
+      "name|GET /x|",
+      "name|work|",
+      "name|GET|",
+      "peer.service|auth|/"
+    ],
+    "Fail": [
+      "|0||",
+      "error|0||",
+      "error|0||",
+      "error|0||"
+    ],
+    "Labels": [
+      "GET /x|100 ms|0",
+      "work|10 ms|0",
+      "GET|10 ms|1",
+      "GET → auth|10 ms|1"
+    ]
+  }
+]
