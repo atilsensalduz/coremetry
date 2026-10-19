@@ -5445,6 +5445,10 @@ export interface ExceptionSample {
   // id'si spans'ta bulundu mu. false → link YOK ("Coremetry'de yok");
   // true / undefined (bilinmiyor; span grubu) → link.
   traceInCoremetry?: boolean;
+  // v0.10.1369 — "tempo": CH'de yoktu ama Grafana Tempo'da bulundu; sunucu
+  // traceInCoremetry=true yapar (/trace sayfası Tempo'dan açar) → link +
+  // "Tempo" rozeti. Yok = CH'de (ya da bakılmadı).
+  traceSource?: 'tempo';
 }
 
 // One time-bucket of the "occurrences over time" histogram on the

@@ -33,9 +33,7 @@ import { PageControls } from '@/components/ui/PageControls';
 // point at /problems?problem=<id> and that contract is test-locked.
 import { AlertProblemHost } from './ProblemsSection';
 import { serviceHref } from '@/lib/serviceHref';
-import { traceHref } from '@/lib/traceHref';
-import { sampleTraceLinkable } from './sampleTrace'; // v0.10.1104
-import { TraceMissingId } from './ExceptionSampleRow';
+import { SampleTraceId } from './ExceptionSampleRow'; // v0.10.1369
 import { QueryErrorInline } from '@/components/QueryError';
 import { PageShell } from '@/components/ui/PageShell';
 import { stripMarkdown } from '@/components/Markdown';
@@ -893,12 +891,9 @@ function SampleCard({ sample, index }: { sample: ExceptionSample; index: number 
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12 }}>
         <span style={{ color: 'var(--text3)', fontFamily: 'var(--font-mono)' }}>#{index}</span>
-        {/* v0.10.1104 — Oracle grubunda Coremetry'de olmayan trace linksiz. */}
-        {sampleTraceLinkable(sample) ? (
-          <Link to={traceHref(sample.traceId)} style={{ fontFamily: 'var(--font-mono)' }}>
-            {sample.traceId.slice(0, 12)}…
-          </Link>
-        ) : sample.traceId ? <TraceMissingId traceId={sample.traceId} chars={12} /> : null}
+        {/* v0.10.1104 — Oracle grubunda Coremetry'de olmayan trace linksiz.
+            v0.10.1369 — tam id + kopyala; Tempo'da bulunan link + "Tempo". */}
+        <SampleTraceId s={sample} chars={12} />
         <span style={{ color: 'var(--text2)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
           span <code>{sample.spanId.slice(0, 8)}</code>
           {sample.spanName && <> · <b>{sample.spanName}</b></>}

@@ -7135,3 +7135,26 @@ endpoint kanıtı alır — `parseDrawerSubject` endpoint dalı; `drawerSubjectE
 `@wiki BSA cache refresh en sık karşılaşılan hatalar nelerdir?` — `@wiki` composer'da `scope.wiki=true` olur, sunucuda wiki
 katmanı kesin devreye girer (`chat_scope.go`). Pin: `chatScope.test.ts` (TR/EN örnek i18n'den okunur → wiki kapsamı, servis
 anması yok), `CosreCapabilities.test.tsx`.
+
+## 2026-10-19 — v0.10.1369 — Örnek trace'ler: Tempo'da ara, tam id kopyalanır
+
+**Operatör-bildirimli (prod, Exceptions › Oracle grubu `ora:…`):** "Sample traces kısmında trace'ler Coremetry'de yok
+diyor, sample etmediği için. Ama sanki Tempo üzerinden search yapsa güzel olmaz mı. Bir de traceId'nin yarısını yazmış,
+oraya onu kopyalayıp kendimde aratamıyorum." **Kök neden (iki):** (1) `traceInCoremetry` YALNIZ ClickHouse'a bakıyordu
+(`chstore/oracle_sample_traces.go`, `TraceFactsByIDs`); örneklemeye girmeyip Tempo'da tam duran trace — /trace sayfası onu
+zaten Tempo'dan açar (`resolveTraceSpans`, v0.9.632) — linksiz "Coremetry'de yok" görünüyordu. (2) DOM'da yalnız
+`traceId.slice(0, 16)…` vardı; seçip kopyalayan yarım id alıyordu. **Karar — sunucu:** karar örnekleri sunan api
+katmanında (`internal/api/exception_sample_tempo.go`; chstore tempo'yu import edemez, api.go satır sayısı aynı — tek satır
+değişti). Tempo yapılandırılmışsa CH'nin "yok" dediği ayrık id'lerden ≤10'u `LookupTrace` ile aranır (internal/tempo'da
+daha hafif bir varlık ucu yok): ≤4 paralel, TOPLAM 2,5 sn bütçe (bağlamı dinlemeyen Tempo da bütçeyi aşamaz). Sonuç:
+Tempo'da var → `traceInCoremetry=true` + `traceSource="tempo"` ("Coremetry'de AÇILIR"; eski istemci yine link basar,
+CoSRE'nin `exGroupSampleFacts` süzgeci değişmeden kullanır); Tempo'da da yok → false kalır; hata/bütçe → nil (bilinmiyor →
+link, bugünkü sözleşme). Kesin sonuçlar `cachedJSON` ile 10 dk (L1 + Redis + singleflight), anahtar hash-all-inputs:
+sıralı id kümesi + Tempo uç adresi + kiracı; bilinmeyen içeren kısmi sonuç `uncacheable`. Örnek çağrısı asla düşmez; Tempo
+yoksa davranış bugünkü. Sohbetin Exceptions okuyucusu (`chat_exception_groups.go`) aynı kararı `tempoMarkedSamples`
+sarmalayıcısıyla alır. **Karar — ön yüz:** tek bileşen `SampleTraceId` (örnek satırı, Oracle panelinin "Trace'ler" satırı,
+Anomalies örnek kartı): DOM'da TAM id, görsel kısaltma CSS ellipsis (`maxWidth: <n+1>ch`), title = tam id, `CopyButton`
+(lib/clipboard yedekli; ✓ + "Kopyalandı"; tık satıra çıkmaz). Tempo kaynaklı id gerçek link + nötr "Tempo" rozeti
+("Bu trace örneklemeye girmedi, Grafana Tempo'dan açılır"); hâlâ yoksa gri "Coremetry'de yok" (title metni güncellendi —
+"yalnız Oracle hata satırı taşıyor" artık eksikti). Testler: `exception_sample_tempo_test.go` (birleşim tablosu, işçi
+tavanı, toplam bütçe, anahtar, yalnız-kesin önbellek, CoSRE), `ExceptionSampleRow.render.test.tsx`.

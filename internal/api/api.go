@@ -7453,7 +7453,7 @@ func (s *Server) getExceptionGroupSamples(w http.ResponseWriter, r *http.Request
 	// cevaptır ve ekranda iki ayrı cümle olmalı. Bu uç serveCached'li
 	// DEĞİL (zaten fingerprint başına tek atış) — anahtar sürümü kuralı
 	// uygulanmıyor.
-	writeJSON(w, res)
+	writeJSON(w, s.withTempoSampleTraces(r.Context(), res)) // v0.10.1369 — CH'de yok → Tempo'da ara (exception_sample_tempo.go)
 }
 
 // getExceptionGroupOccurrences serves the "occurrences over time"

@@ -12,7 +12,9 @@ import { Button } from '@/components/ui/Button';
  * fell back when the API was missing and swallowed a rejection into a
  * flash-less no-op.
  */
-export function CopyButton({ value, title }: { value: string; title?: string }) {
+// v0.10.1369 — `copiedTitle` (isteğe bağlı): kopyalandıktan sonraki ~1.5 sn
+// title + aria-label (ör. "Kopyalandı"); verilmezse davranış bugünkü.
+export function CopyButton({ value, title, copiedTitle }: { value: string; title?: string; copiedTitle?: string }) {
   const [copied, setCopied] = useState(false);
 
   const onClick = async (e: React.MouseEvent) => {
@@ -33,9 +35,9 @@ export function CopyButton({ value, title }: { value: string; title?: string }) 
   return (
     <Button variant="ghost" size="xs"
       onClick={onClick}
-      title={title ?? (copied ? 'Copied!' : 'Copy to clipboard')}
+      title={copied && copiedTitle ? copiedTitle : (title ?? (copied ? 'Copied!' : 'Copy to clipboard'))}
       className={copied ? 'copy-btn is-ok' : 'copy-btn'}
-      aria-label="Copy"
+      aria-label={copied && copiedTitle ? copiedTitle : 'Copy'}
       style={{ marginLeft: 4, verticalAlign: 'middle', fontSize: 12, lineHeight: 1 }}
     >
       {copied ? '✓' : '⧉'}

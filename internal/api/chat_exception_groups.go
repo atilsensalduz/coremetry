@@ -109,7 +109,9 @@ func (s *Server) exceptionGroupsEvidence(ctx context.Context, sc exScope) except
 	if s == nil || s.store == nil {
 		return exceptionGroupsEvidence{Err: "exception deposu yok", LookbackS: lookbackSeconds(sc), at: sc.To}
 	}
-	return collectExceptionGroups(ctx, s.store, sc, exGroupHooks{
+	// v0.10.1369 — örnekler Tempo kararından geçer (exception_sample_tempo.go):
+	// CH'de olmayıp Tempo'da bulunan id artık "Coremetry'de yok" sayılmaz.
+	return collectExceptionGroups(ctx, tempoMarkedSamples{exGroupsReader: s.store, mark: s.withTempoSampleTraces}, sc, exGroupHooks{
 		priority: exceptionPriority,
 		oracleInfo: func(g chstore.ExceptionGroup) *chstore.OracleGroupInfo {
 			st, ok := oracleGroupStats(g)
@@ -206,7 +208,8 @@ func exGroupLineFrom(g chstore.ExceptionGroup, h exGroupHooks) exGroupLine {
 }
 
 // exGroupSampleFacts — SAF: en yeni örneğin mesajı (≤160 rune) + Coremetry'de
-// olmadığı BİLİNMEYEN örnek trace id'leri (≤2, tekil).
+// olmadığı BİLİNMEYEN örnek trace id'leri (≤2, tekil). v0.10.1369 — Tempo'da
+// bulunan id TraceInCoremetry=true (+TraceSource="tempo") gelir → kullanılır.
 func exGroupSampleFacts(samples []chstore.ExceptionSample) (string, []string) {
 	msg := ""
 	var ids []string

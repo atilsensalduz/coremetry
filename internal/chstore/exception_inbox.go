@@ -1054,6 +1054,13 @@ type ExceptionSample struct {
 	// TraceFactsByIDs tek sorgu). nil = bilinmiyor/bakılmadı (span grubu:
 	// örnek span'den doğar, trace zaten var; ya da sorgu düştü) → link kalır.
 	TraceInCoremetry *bool `json:"traceInCoremetry,omitempty"`
+	// TraceSource (v0.10.1369, operatör: "Sample traces kısmında trace'ler
+	// Coremetry'de yok diyor, sample etmediği için. Ama sanki Tempo üzerinden
+	// search yapsa güzel olmaz mı") — CH'de bulunmayan id Grafana Tempo'da
+	// bulunduysa "tempo" (api/exception_sample_tempo.go); o zaman
+	// TraceInCoremetry=true ("Coremetry'de AÇILIR": /trace sayfası Tempo'dan
+	// okur). Boş = CH'de (ya da bakılmadı).
+	TraceSource string `json:"traceSource,omitempty"`
 }
 
 // exSampleVersionKeys — örnek sorgusunun okuduğu resource anahtarları; sıra

@@ -14,12 +14,11 @@ import { fmtNum } from '@/lib/utils';
 import { KeyValue, KeyValueRow } from '@/components/ui/KeyValue';
 import { QueryErrorInline } from '@/components/QueryError';
 import { serviceHref } from '@/lib/serviceHref';
-import { traceHref } from '@/lib/traceHref';
 import type { ExceptionGroup, ExceptionSample } from '@/lib/types';
 import { oracleChannelsText, isSyntheticOracleService, oracleSourceName } from './oracleGroup';
 import { sampleTraceLinkable } from './sampleTrace'; // v0.10.1104
 import { useBranding } from '@/lib/branding'; // v0.10.1108
-import { TraceMissingId } from './ExceptionSampleRow';
+import { SampleTraceId } from './ExceptionSampleRow'; // v0.10.1369
 
 export function OracleGroupPanel({ group, samples }: { group: ExceptionGroup; samples: ExceptionSample[] }) {
   const q = useQuery({
@@ -73,11 +72,12 @@ export function OracleGroupPanel({ group, samples }: { group: ExceptionGroup; sa
             <KeyValueRow k="Trace'ler" v={traces.length === 0 ? '' : (
               <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 8 }}>
                 {/* v0.10.1104 — Coremetry'de olmayan trace (traceInCoremetry=false)
-                    linksiz + "Coremetry'de yok"; boş /trace sayfasına götürmez. */}
-                {traces.map(s => sampleTraceLinkable(s) ? (
-                  <Link key={s.traceId} to={traceHref(s.traceId)} className="mono"
-                    title="Trace'i aç — Logs sekmesinde bu Oracle satırları görünür">{s.traceId.slice(0, 16)}…</Link>
-                ) : <TraceMissingId key={s.traceId} traceId={s.traceId} />)}
+                    linksiz + "Coremetry'de yok"; boş /trace sayfasına götürmez.
+                    v0.10.1369 — tam id + kopyala; Tempo'da bulunan link + "Tempo". */}
+                {traces.map(s => (
+                  <SampleTraceId key={s.traceId} s={s}
+                    linkTitle="Trace'i aç — Logs sekmesinde bu Oracle satırları görünür" />
+                ))}
               </span>
             )} />
           </KeyValue>

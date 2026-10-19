@@ -13,6 +13,13 @@
 //   • traceInCoremetry=false → anchor YOK, satır tıklanmaz, "Coremetry'de yok"
 //     + açıklayıcı title; true / undefined → link;
 //   • Oracle panelinin "Trace'ler" satırı da aynı kuralı izler.
+//
+// v0.10.1369 (operatör, prod: "Bir de traceId'nin yarısını yazmış, oraya onu
+// kopyalayıp kendimde aratamıyorum" + "Tempo üzerinden search yapsa"):
+//   • DOM'da TAM 32 hex id (link ve "Coremetry'de yok" dalı) — kısaltma CSS'te;
+//   • kopyala düğmesi navigator.clipboard.writeText(TAM id) çağırır, gezinmez,
+//     satıra çıkmaz;
+//   • traceSource="tempo" → gerçek link + "Tempo" rozeti (açıklayıcı title).
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { act, useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -27,15 +34,16 @@ vi.mock('@/lib/api', () => ({
 
 import { ExceptionSampleRow } from './ExceptionSampleRow';
 import { OracleGroupPanel } from './OracleGroupPanel';
-import { TRACE_MISSING_TITLE } from './sampleTrace';
+import { TRACE_MISSING_TITLE, TRACE_TEMPO_TITLE } from './sampleTrace';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const T1 = '4bf92f3577b34da6a3ce929d0e0e4736';
 const T2 = '5af92f3577b34da6a3ce929d0e0e4737';
-const sample = (traceId: string, traceInCoremetry?: boolean): ExceptionSample => ({
+const sample = (traceId: string, traceInCoremetry?: boolean, traceSource?: 'tempo'): ExceptionSample => ({
   traceId, spanId: 'b7ad6b7169203331', time: 1_700_000_000e9, message: 'ORA-00001 · OP_A',
   stacktrace: '', spanName: 'OP_A', statusMsg: '', ...(traceInCoremetry === undefined ? {} : { traceInCoremetry }),
+  ...(traceSource ? { traceSource } : {}),
 });
 
 let host: HTMLDivElement | null = null;
@@ -136,12 +144,65 @@ describe('ExceptionSampleRow — trace id gerçek link (v0.10.1104)', () => {
     expect(tr.querySelector('a')).toBeNull();
     expect(tr.getAttribute('role')).toBeNull();
     expect(tr.getAttribute('tabindex')).toBeNull();
-    expect(tr.textContent).toContain(T1.slice(0, 16));
+    // v0.10.1369 — eskiden yalnız ilk 16 karakter + "…" DOM'daydı.
+    expect(tr.textContent).toContain(T1);
+    expect(tr.textContent).not.toContain('…');
     const badge = tr.querySelector('.badge.b-gray');
     expect(badge?.textContent).toBe("Coremetry'de yok");
     expect(tr.querySelector(`[title="${TRACE_MISSING_TITLE}"]`)).not.toBeNull();
     await act(async () => { tr.click(); });
     expect(visits).toEqual(['/problems']);
+  });
+});
+
+describe('ExceptionSampleRow — tam id + kopyala + Tempo (v0.10.1369)', () => {
+  const copyBtn = (el: HTMLElement) => el.querySelector('tr button.copy-btn') as HTMLButtonElement;
+  const stubClipboard = () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    return writeText;
+  };
+
+  it('linkli satır: DOM metni TAM 32 hex id (kısaltma CSS ellipsis), title = tam id', async () => {
+    const el = await mount(table(sample(T1)));
+    const a = el.querySelector('tr a') as HTMLAnchorElement;
+    expect(a.textContent).toBe(T1);
+    expect(a.getAttribute('title')).toBe(T1);
+    expect(a.style.textOverflow).toBe('ellipsis');
+    expect(a.style.overflow).toBe('hidden');
+  });
+
+  it('kopyala → navigator.clipboard.writeText(TAM id); gezinmez, satıra çıkmaz', async () => {
+    const writeText = stubClipboard();
+    for (const s of [sample(T1), sample(T2, false)]) {
+      const el = await mount(table(s));
+      const btn = copyBtn(el);
+      expect(btn).not.toBeNull();
+      await act(async () => { btn.click(); });
+      expect(writeText).toHaveBeenLastCalledWith(s.traceId);
+      expect(visits).toEqual(['/problems']);
+      expect(outer).not.toHaveBeenCalled();
+      expect(btn.getAttribute('title')).toBe('Kopyalandı');
+      act(() => root?.unmount());
+      host?.remove();
+      visits = [];
+    }
+    expect(writeText).toHaveBeenCalledTimes(2);
+  });
+
+  it('traceSource=tempo → gerçek link + "Tempo" rozeti, "Coremetry\'de yok" yok', async () => {
+    const el = await mount(table(sample(T1, true, 'tempo')));
+    const a = el.querySelector('tr a') as HTMLAnchorElement;
+    expect(a.getAttribute('href')).toBe(`/trace?id=${T1}`);
+    const badge = el.querySelector(`[title="${TRACE_TEMPO_TITLE}"]`);
+    expect(badge?.textContent).toBe('Tempo');
+    expect(TRACE_TEMPO_TITLE).toBe("Bu trace örneklemeye girmedi, Grafana Tempo'dan açılır");
+    expect(el.textContent).not.toContain("Coremetry'de yok");
+  });
+
+  it('CH\'de bulunan (kaynak yok) linkte Tempo rozeti YOK', async () => {
+    const el = await mount(table(sample(T1, true)));
+    expect(el.querySelector(`[title="${TRACE_TEMPO_TITLE}"]`)).toBeNull();
   });
 });
 
@@ -161,5 +222,19 @@ describe('OracleGroupPanel — Trace\'ler satırı (v0.10.1104)', () => {
     // Bulunan trace önce.
     const text = el.textContent ?? '';
     expect(text.indexOf(T2.slice(0, 16))).toBeLessThan(text.indexOf(T1.slice(0, 16)));
+  });
+
+  it('v0.10.1369 — TAM id\'ler DOM\'da + kopyala; Tempo\'da bulunan link + "Tempo" rozeti', async () => {
+    const T3 = '6cf92f3577b34da6a3ce929d0e0e4738';
+    const el = await mount(<OracleGroupPanel group={group} samples={[sample(T1, false), sample(T3, true, 'tempo')]} />);
+    const text = el.textContent ?? '';
+    expect(text).toContain(T1);
+    expect(text).toContain(T3);
+    expect(text).not.toContain(`${T1.slice(0, 16)}…`); // panelin "…" yükleniyor yer tutucuları ayrı
+    const links = Array.from(el.querySelectorAll('a')).filter(a => a.getAttribute('href')?.startsWith('/trace?'));
+    expect(links.map(a => a.getAttribute('href'))).toEqual([`/trace?id=${T3}`]);
+    expect(links[0].getAttribute('title')).toContain(T3);
+    expect(el.querySelector(`[title="${TRACE_TEMPO_TITLE}"]`)?.textContent).toBe('Tempo');
+    expect(el.querySelectorAll('button.copy-btn').length).toBe(2);
   });
 });
