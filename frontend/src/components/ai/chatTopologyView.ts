@@ -1,95 +1,49 @@
-// chatTopologyView — v0.10.1388 (CoSRE topoloji bloğu): ChatTopologyPayload →
-// TopologyPillGraph girdileri (düğüm / kenar / sütun). SAF, vitest'li.
+// chatTopologyView — ChatTopologyPayload → TopologyFlowGraph girdileri. SAF, vitest'li.
 //
-// Sütunlar: 'neighborhood' kipinde Topology sekmesinin odak yerleşimi
-// (assignFocusColumns: çağıranlar solda, bağımlılıklar sağda); 'trace' kipinde
-// köklerden (gelen kenarı olmayan düğümler) BFS derinliği — tek trace soldan
-// sağa akar. Renk: hata oranı ≥%5 kırmızı, ≥%1 sarı (sunucu metniyle aynı eşik).
-import type { ChatTopologyPayload, GraphEdge, GraphNode } from '@/lib/types';
-import type { PillEdge, PillLevel, PillNode } from '@/components/TopologyPillGraph';
-import { assignFocusColumns } from '@/components/topology/FocusedNeighborhood';
-import { fmtNum } from '@/lib/utils';
+// v0.10.1392 — operatör (prod ekran görüntüleri): "Bunu galiba eski service
+// map'ten getiriyor. Onun yerine 1 hop topology getirebilir." v0.10.1388 kartı
+// TopologyPillGraph'la çiziyordu (sütun kesirleri + kalabalık sütunda üst üste
+// binen alt satırlar, sol kenarda kırpılan adlar). Kart artık servis sayfasının
+// Topology sekmesinin grafiğini (TopologyFlowGraph, odak sütun yerleşimi)
+// kompakt kipte çizer; düğüm adaptörü sekmeyle ORTAK (graphNodeToMapNode /
+// graphEdgeToMapEdge), sütunlar sekmenin assignFocusColumns'u.
+//
+//  • 'neighborhood': odak sütun 0, çağıranlar −, bağımlılıklar + ; sunucunun
+//    "+N more" düğümü (more:<sütun>) kendi sütununa (moreNodeCol).
+//  • 'trace': yerleşim odağı trace'in KÖKÜ (gelen kenarı olmayan düğüm; sorulan
+//    servis kökse o) — tek trace soldan sağa akar; köke yönlü yoldan ulaşılmayan
+//    düğüm en sağ sütunun bir sağına.
+import type { ChatTopologyPayload, ServiceMap } from '@/lib/types';
+import { assignFocusColumns, graphEdgeToMapEdge, graphNodeToMapNode } from '@/components/topology/FocusedNeighborhood';
+import { isMoreNode, moreNodeCol } from '@/lib/topoFocusLayout';
 
-export const TOPO_WARN_PCT = 1;
-export const TOPO_ERR_PCT = 5;
-
-export function topoLevel(errorRate: number): PillLevel {
-  if (errorRate >= TOPO_ERR_PCT) return 'red';
-  if (errorRate >= TOPO_WARN_PCT) return 'amber';
-  return 'green';
+/** GraphNode/GraphEdge → ServiceMap (TopologyFlowGraph sözleşmesi). */
+export function chatTopologyMap(p: ChatTopologyPayload): ServiceMap {
+  return { sampledFrom: 0, totalSpans: 0, nodes: p.nodes.map(graphNodeToMapNode), edges: p.edges.map(graphEdgeToMapEdge) };
 }
 
-function fmtMs(ms: number): string {
-  if (ms >= 1000) return `${(ms / 1000).toFixed(2)} s`;
-  if (ms < 10) return `${ms.toFixed(1)} ms`;
-  return `${ms.toFixed(0)} ms`;
-}
-
-/** Düğümün p99'u: gelen kenarların en büyüğü, yoksa giden kenarların. */
-function nodeP99(id: string, edges: GraphEdge[]): number {
-  let inMax = 0, outMax = 0;
-  for (const e of edges) {
-    if (e.target === id) inMax = Math.max(inMax, e.p99Ms);
-    if (e.source === id) outMax = Math.max(outMax, e.p99Ms);
-  }
-  return inMax > 0 ? inMax : outMax;
-}
-
-const KIND_TR: Record<string, string> = { database: 'veritabanı', queue: 'kuyruk', external: 'dış' };
-
-export function topologyPillNodes(p: ChatTopologyPayload): PillNode[] {
-  return p.nodes.map((n: GraphNode) => {
-    const p99 = nodeP99(n.id, p.edges);
-    const kind = KIND_TR[n.kind];
-    return {
-      id: n.id,
-      name: n.name,
-      level: topoLevel(n.errorRate),
-      sub: `${fmtNum(n.calls)} çağrı · p99 ${fmtMs(p99)}`,
-      title: `${n.name}${kind ? ` (${kind})` : ''} — hata %${n.errorRate.toFixed(2)}`,
-    };
-  });
-}
-
-export function topologyPillEdges(p: ChatTopologyPayload): PillEdge[] {
-  return p.edges.map(e => ({
-    from: e.source,
-    to: e.target,
-    level: e.errorRate >= TOPO_ERR_PCT ? 'err' : e.errorRate >= TOPO_WARN_PCT ? 'warn' : undefined,
-  }));
-}
-
-/** Sütunlar (soldan sağa düğüm id'leri); her düğüm tam bir sütunda. */
-export function topologyColumns(p: ChatTopologyPayload): string[][] {
+/** Trace kipinin yerleşim odağı: kök (gelen kenarı yok; sorulan servis kökse o, yoksa en çok çağrı yapan kök). */
+export function chatTopologyLayoutFocus(p: ChatTopologyPayload): string {
+  if (p.scope !== 'trace') return p.focus;
+  const incoming = new Set(p.edges.map(e => e.target));
   const ids = p.nodes.map(n => n.id);
-  const col = new Map<string, number>();
-  if (p.scope === 'trace') {
-    const incoming = new Set(p.edges.map(e => e.target));
-    let frontier = ids.filter(id => !incoming.has(id));
-    if (frontier.length === 0 && ids.length > 0) frontier = [p.focus && ids.includes(p.focus) ? p.focus : ids[0]];
-    frontier.forEach(id => col.set(id, 0));
-    for (let d = 1; frontier.length > 0 && d <= ids.length; d++) {
-      const next: string[] = [];
-      for (const id of frontier) {
-        for (const e of p.edges) {
-          if (e.source === id && !col.has(e.target)) { col.set(e.target, d); next.push(e.target); }
-        }
-      }
-      frontier = next;
-    }
-  } else {
-    const hops = Math.max(1, p.hops || 1);
-    for (const [id, c] of assignFocusColumns(p.edges, p.focus, hops)) col.set(id, c);
-  }
-  // Ulaşılmayan düğüm (ör. odağın çağıranının diğer bağımlılığı) en sağ sütuna.
-  const maxCol = Math.max(0, ...[...col.values()]);
-  for (const id of ids) if (!col.has(id)) col.set(id, maxCol + (p.scope === 'trace' ? 1 : 0));
-  const keys = [...new Set(ids.map(id => col.get(id)!))].sort((a, b) => a - b);
-  return keys.map(k => ids.filter(id => col.get(id) === k));
+  if (ids.includes(p.focus) && !incoming.has(p.focus)) return p.focus;
+  const outCalls = new Map<string, number>();
+  for (const e of p.edges) outCalls.set(e.source, (outCalls.get(e.source) ?? 0) + e.calls);
+  const roots = ids.filter(id => !incoming.has(id))
+    .sort((a, b) => ((outCalls.get(b) ?? 0) - (outCalls.get(a) ?? 0)) || (a < b ? -1 : a > b ? 1 : 0));
+  return roots[0] ?? (ids.includes(p.focus) ? p.focus : ids[0] ?? p.focus);
 }
 
-/** Grafiğin yüksekliği: en kalabalık sütun × satır payı (160..420 px). */
-export function topologyHeight(columns: string[][]): number {
-  const rows = Math.max(1, ...columns.map(c => c.length));
-  return Math.min(420, Math.max(160, rows * 58 + 40));
+/** İşaretli sütunlar (id → sütun); yerleşim odağı 0. Her düğüm tam bir sütunda. */
+export function chatTopologyColumns(p: ChatTopologyPayload): Map<string, number> {
+  const focus = chatTopologyLayoutFocus(p);
+  const hops = p.scope === 'trace' ? Math.max(1, p.nodes.length) : Math.max(1, p.hops || 1);
+  const col = assignFocusColumns(p.edges, focus, hops);
+  for (const n of p.nodes) if (isMoreNode(n.id)) col.set(n.id, moreNodeCol(n.id));
+  const ids = new Set(p.nodes.map(n => n.id));
+  for (const id of [...col.keys()]) if (id !== focus && !ids.has(id)) col.delete(id);
+  const maxCol = Math.max(0, ...col.values());
+  for (const id of ids) if (!col.has(id)) col.set(id, maxCol + 1);
+  return col;
 }

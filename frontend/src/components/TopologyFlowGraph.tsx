@@ -56,6 +56,12 @@ import {
 //     YOK — bayat ?nsfold= yok sayılır, yeniden yazılmaz). animate="hover":
 //     akış kenarları durağan düz çizgi, kesik akış yalnız hover/yol vurgusunda.
 //
+//   • v0.10.1392 — `compact` (CoSRE sohbet kartı; operatör: "Bunu galiba eski
+//     service map'ten getiriyor. Onun yerine 1 hop topology getirebilir."):
+//     odak kipinin AYNI yerleşimi salt-okur — kutu içerik boyutunda (ölçek 1,
+//     viewport/pan/tekerlek-zoom/zoom düğmeleri/lejant yok; sohbetin kaydırması
+//     kaçırılmaz), "+N more" tıklanamaz etiket. Taşma çağıranın kabında kayar.
+//
 //   • v0.10.1305 — Genel servis haritası: sabit sütun, düz zincir, statik
 //     kenar. Global yerleşim sütunları sabit 240 px (görünüme gerilmez),
 //     şerit hücreleri üstten hizalı, uzun kenar zinciri düzleştirilir
@@ -80,7 +86,7 @@ const NEW_EDGE_DASH = '12 4';
 
 export function TopologyFlowGraph({
   data: rawData, focus, hoverNode, onHoverNode, onSelectNode, height = 560,
-  dropMessaging = true, columns, animate = 'hover', showSecondary = false, onExpandColumn, legend,
+  dropMessaging = true, columns, animate = 'hover', showSecondary = false, onExpandColumn, legend, compact = false,
 }: {
   data: ServiceMap;
   focus: string | null;
@@ -102,6 +108,8 @@ export function TopologyFlowGraph({
   onExpandColumn?: (col: number) => void;
   /** odak kipi lejant satırı (sağlık + kenar türleri); ns renkleri buraya eklenir */
   legend?: ReactNode;
+  /** v0.10.1392 — salt-okur kompakt kip (sohbet kartı): içerik boyutu, ölçek 1, sayfa kontrolü yok */
+  compact?: boolean;
 }) {
   const focusMode = !!columns && !!focus;
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -376,7 +384,8 @@ export function TopologyFlowGraph({
   // preventDefault sayfa scroll'unu ancak böyle keser.
   useEffect(() => {
     const el = wrapRef.current;
-    if (!el) return;
+    // v0.10.1392 — kompakt kipte tekerlek sohbetin/kabın kaydırmasıdır.
+    if (!el || compact) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const r = el.getBoundingClientRect();
@@ -386,7 +395,7 @@ export function TopologyFlowGraph({
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, [layoutW, layoutH, height]);
+  }, [layoutW, layoutH, height, compact]);
 
   // Drag pan — pill üstünde başlamaz (tıklama/focus davranışı bozulmaz).
   const [panning, setPanning] = useState(false);
@@ -454,6 +463,8 @@ export function TopologyFlowGraph({
   const geomAt = (g: Geom, t: number, rev = false): EdgeArrow =>
     (g.ctrl ? cubicArrow(g.pts[0], g.ctrl[0], g.ctrl[1], g.pts[1], t, rev) : pathArrow(g.pts, t, rev));
   // Namespace renk şeridi + lejant (odak kipi): yalnız renkli (≥2 üyeli) ns.
+  // v0.10.1392 — kompakt kip: sabit görünüm (ölçek 1, öteleme yok).
+  const view = compact ? COMPACT_VIEW : vp;
   const nsLegend = useMemo(() => {
     if (!focusMode) return [];
     const seen = new Set<string>();
@@ -468,13 +479,13 @@ export function TopologyFlowGraph({
   return (
     <div
       ref={wrapRef}
-      className={'topo ' + (panning ? 'panning' : 'pannable') + (focusMode ? ' focus-cols' : '') + (animate === 'hover' ? ' anim-hover' : '')}
-      style={{ height }}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={endPan}
-      onPointerCancel={endPan}
-      onDoubleClick={e => {
+      className={'topo ' + (compact ? 'compact' : panning ? 'panning' : 'pannable') + (focusMode ? ' focus-cols' : '') + (animate === 'hover' ? ' anim-hover' : '')}
+      style={compact ? { height: layoutH, width: layoutW } : { height }}
+      onPointerDown={compact ? undefined : onPointerDown}
+      onPointerMove={compact ? undefined : onPointerMove}
+      onPointerUp={compact ? undefined : endPan}
+      onPointerCancel={compact ? undefined : endPan}
+      onDoubleClick={compact ? undefined : e => {
         if ((e.target as HTMLElement).closest('.topo-node, .topo-zoomctl, .topo-nshdr, .topo-more, .topo-foldbar')) return;
         const r = e.currentTarget.getBoundingClientRect();
         const cx = e.clientX - r.left, cy = e.clientY - r.top;
@@ -482,7 +493,7 @@ export function TopologyFlowGraph({
       }}>
       <div
         className="topo-viewport"
-        style={{ width: layoutW, height: layoutH, transform: `translate(${vp.x}px, ${vp.y}px) scale(${vp.k})` }}>
+        style={{ width: layoutW, height: layoutH, transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})` }}>
       <svg className="topo-edges" width={layoutW} height={layoutH}>
         {hulls.map(h => (
           <rect key={`hull-${h.ns}`} x={h.x} y={h.y} width={h.w} height={h.h} rx={12}
@@ -673,6 +684,16 @@ export function TopologyFlowGraph({
         // (?texp=, FocusedNeighborhood). Hover inspector'a girmez.
         if (isMoreNode(n.service)) {
           const c = moreNodeCol(n.service);
+          // v0.10.1392 — kompakt (sohbet) kipte açılacak veri yok (sunucu
+          // kesti): tıklanamaz etiket, tümü Topology sekmesinde.
+          if (compact && !onExpandColumn) {
+            return (
+              <span key={n.service} className="topo-more badge b-gray" style={{ left: p.x, top: p.y }}
+                title={`${n.subkind ?? ''} — tümü Topology sekmesinde`}>
+                {n.subkind ?? '+ more'}
+              </span>
+            );
+          }
           return (
             <Button key={n.service} variant="secondary" size="xs" className="topo-more"
               style={{ left: p.x, top: p.y }}
@@ -780,7 +801,7 @@ export function TopologyFlowGraph({
 
       {/* v0.10.1294 — tek lejant satırı (transform DIŞINDA, sol alt): çağıranın
           sağlık + kenar türleri + bu bileşenin bildiği namespace renkleri. */}
-      {(legend || nsLegend.length > 0) && (
+      {!compact && (legend || nsLegend.length > 0) && (
         <div className="topo-legend">
           {legend}
           {nsLegend.map(l => (
@@ -804,19 +825,20 @@ export function TopologyFlowGraph({
         </div>
       )}
 
-      {/* v0.8.296 — zoom kontrolleri (transform DIŞINDA, sabit köşe) */}
-      <div className="topo-zoomctl">
+      {/* v0.8.296 — zoom kontrolleri (transform DIŞINDA, sabit köşe); kompakt kipte yok */}
+      {!compact && <div className="topo-zoomctl">
         <Button variant="secondary" size="sm" aria-label="Yakınlaştır" title="Zoom in" onClick={() => zoomStep(1.3)}>+</Button>
         <span className="pct">{Math.round(vp.k * 100)}%</span>
         <Button variant="secondary" size="sm" aria-label="Uzaklaştır" title="Zoom out" onClick={() => zoomStep(1 / 1.3)}>−</Button>
         <Button variant="secondary" size="sm" aria-label="Sığdır" title="Fit"
           onClick={() => setVp(fitViewport(layoutW, layoutH, wrapRef.current?.clientWidth ?? width, height))}>⛶</Button>
-      </div>
+      </div>}
     </div>
   );
 }
 
 const NO_FOLD: ReadonlySet<string> = new Set();
+const COMPACT_VIEW: Viewport = { x: 0, y: 0, k: 1 }; // v0.10.1392
 const SECONDARY_LABEL: Record<Exclude<EdgeClass, 'flow'>, string> = {
   peer: '↕ aynı sütun içi çağrı (yan bağlantı)',
   skip: '⇢ sütun atlayan çağrı (yan bağlantı)',

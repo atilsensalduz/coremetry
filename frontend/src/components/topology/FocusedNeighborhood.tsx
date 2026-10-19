@@ -8,7 +8,7 @@ import { healthToken } from '@/lib/health';
 import { encodeRange } from '@/lib/urlState';
 import { Spinner, Empty } from '@/components/Spinner';
 import { TopologyFlowGraph } from '@/components/TopologyFlowGraph';
-import type { TimeRange, ServiceGraphResponse, GraphNode, GraphEdge, ServiceMap, ServiceMapEdge } from '@/lib/types';
+import type { TimeRange, ServiceGraphResponse, GraphNode, GraphEdge, ServiceMap, ServiceMapEdge, ServiceMapNode } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
 import { SegmentedControl } from '@/components/ui'; // v0.10.914 dilim 2 (buton bütünlüğü)
@@ -214,6 +214,35 @@ export function graphEdgeToMapEdge(e: GraphEdge): ServiceMapEdge {
 }
 
 /**
+ * graphNodeToMapNode — GraphNode → ServiceMapNode (TopologyFlowGraph'ın
+ * sözleşmesi). v0.10.1392'de mapData'nın satır-içi adapter'ından çıkarıldı:
+ * CoSRE sohbet kartı (ChatTopologyCard) sekmenin AYNI görünümünü çizer, iki
+ * yerde ayrı adapter alan düşürme sınıfını (v0.8.322) geri getirirdi.
+ */
+export function graphNodeToMapNode(n: GraphNode): ServiceMapNode {
+  return {
+    service: n.id,
+    spanCount: n.calls,
+    errorRate: n.errorRate / 100,
+    kind: n.kind === 'database' ? 'db'
+      : n.kind === 'queue' ? 'queue'
+      : n.kind === 'external' || n.kind === 'internal' ? 'external'
+      : undefined,
+    // v0.8.297 — dep pill'in ana satırı motor adını okur ("oracle",
+    // "kafka"); instance/db.name alt satıra iner (depInstanceLabel).
+    subkind: (n.kind === 'database' || n.kind === 'queue')
+      ? (n.system || n.name)
+      : (n.name !== n.id ? n.name : undefined),
+    dbName: n.dbName || undefined,
+    // v0.8.383 — carry the env annotation so the service tab's
+    // neighborhood shows the same env chips as /service-map's focus
+    // view (this inline adapter dropping fields is the v0.8.322 bug
+    // class).
+    env: n.env || undefined,
+  };
+}
+
+/**
  * viaHostsInto — v0.10.1344. Düğüme GELEN kenarların viaHosts birleşimi
  * (sıralı, tekil). Sunucu `ext:<host>` kenarını gerçek servise katladığında
  * host'u kenarda bırakır; hover kartı "via <host>" satırını bundan basar.
@@ -382,26 +411,7 @@ export function FocusedNeighborhood({ range, focus, hops, errorsOnly, onHops, on
     // required by the type, not consumed by TopologyFlowGraph.
     sampledFrom: 0,
     totalSpans: 0,
-    nodes: nb.nodes.map(n => ({
-      service: n.id,
-      spanCount: n.calls,
-      errorRate: n.errorRate / 100,
-      kind: n.kind === 'database' ? 'db'
-        : n.kind === 'queue' ? 'queue'
-        : n.kind === 'external' || n.kind === 'internal' ? 'external'
-        : undefined,
-      // v0.8.297 — dep pill'in ana satırı motor adını okur ("oracle",
-      // "kafka"); instance/db.name alt satıra iner (depInstanceLabel).
-      subkind: (n.kind === 'database' || n.kind === 'queue')
-        ? (n.system || n.name)
-        : (n.name !== n.id ? n.name : undefined),
-      dbName: n.dbName || undefined,
-      // v0.8.383 — carry the env annotation so the service tab's
-      // neighborhood shows the same env chips as /service-map's focus
-      // view (this inline adapter dropping fields is the v0.8.322 bug
-      // class).
-      env: n.env || undefined,
-    })),
+    nodes: nb.nodes.map(graphNodeToMapNode),
     edges: nb.edges.map(graphEdgeToMapEdge),
   }), [nb]);
 

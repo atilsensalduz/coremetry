@@ -12,9 +12,11 @@ package api
 //     "what depends on X", "X'in upstream/downstream'i": topology_edges_5m
 //     (ReadServiceTopologyAggForFocus, 1 hop varsayılan, "2 adım" → 2) →
 //     gizli desen süzgeci → buildServiceGraphWith (Service Map ile AYNI kurucu)
-//     → sohbet bütçesi (≤15 düğüm / ≤30 kenar; doğrudan kenarlar önce) →
-//     deterministik metin (ÇAĞIRANLAR / BAĞIMLILIKLAR) + `topology` bloğu
-//     (FE ChatTopologyCard, TopologyPillGraph).
+//     → v0.10.1392: Topology sekmesinin görünümü (topoChatNeighbourhood —
+//     yönlü sütunlar, yalnız akış kenarları, sütun başına 12 / "+N more";
+//     copilot_topology_focus.go) → deterministik metin (ÇAĞIRANLAR /
+//     BAĞIMLILIKLAR, sayılar çizilen kümeden) + `topology` bloğu (FE
+//     ChatTopologyCard, sekmenin TopologyFlowGraph'ı, kompakt).
 //   - trace_topology — "örnek trace topolojisi", "<OP> operasyonunun
 //     topolojisi", "POST /api/payments topolojisi", "<traceId> topolojisi":
 //     temsilci trace (en yavaş 10'un hatasızları içinde span sayısı medyanı;
@@ -54,11 +56,15 @@ const (
 
 // v0.10.1388 — bütçeler (onaylı varsayılanlar: 1 hop, 15 düğüm / 30 kenar,
 // ⚠ ≥%1, kırmızı ≥%5, kenar gecikmesi p99).
+// v0.10.1392 — 15/30 artık YALNIZ trace topolojisinde; servis komşuluğu
+// Topology sekmesinin sütun tavanını kullanır (topoChatMaxPerCol).
+// topoChatReadLimit 2000 → 20000: sekmenin okuma tavanıyla aynı (servicegraph.go)
+// — hub serviste sohbet ile sekme farklı kenar kümesi görmesin.
 const (
 	topoChatDefaultRangeS = 3600
 	topoChatMaxNodes      = 15
 	topoChatMaxEdges      = 30
-	topoChatReadLimit     = 2000
+	topoChatReadLimit     = 20000
 	topoChatTimeout       = 10 * time.Second
 	topoChatCacheTTL      = 60 * time.Second
 	topoTraceCacheTTL     = 5 * time.Minute
@@ -403,9 +409,13 @@ func topologyLinks(route guidedRoute) []guidedAnswerLink {
 // ─── Bütçe + metin (SAF) ───────────────────────────────────────────────
 
 // topoTruncation — bütçenin dışarıda bıraktıkları (0 = kesilmedi).
+// v0.10.1392 — servis komşuluğunda Callers/Callees: sütun tavanının (Topology
+// sekmesi MAX_PER_COL) gizlediği çağıran / bağımlılık sayısı.
 type topoTruncation struct {
-	Nodes int `json:"nodes"`
-	Edges int `json:"edges"`
+	Nodes   int `json:"nodes"`
+	Edges   int `json:"edges"`
+	Callers int `json:"callers,omitempty"`
+	Callees int `json:"callees,omitempty"`
 }
 
 // topoChatBudget — SAF: sohbet bütçesi. Odak düğümü kalır; önce odağa değen
@@ -503,8 +513,10 @@ func topoEdgeLineTR(name string, e GraphEdge) string {
 	if e.Protocol != "" {
 		fmt.Fprintf(&b, " (%s)", e.Protocol)
 	}
-	if len(e.ViaHosts) > 0 {
-		b.WriteString(" via " + strings.Join(e.ViaHosts, ", "))
+	// v0.10.1392 — hedefin KENDİ adresi (k8s DNS adı) "via" diye basılmaz;
+	// yalnız bilgi taşıyan host (GSLB/route) kalır (topoViaInformative).
+	if via := topoInformativeVia(e); len(via) > 0 {
+		b.WriteString(" via " + strings.Join(via, ", "))
 	}
 	return b.String()
 }
@@ -521,7 +533,14 @@ func topoEmptyReasonsTR(focus string) []string {
 }
 
 // renderTopologyEvidenceTR — SAF: service_topology cevabı (LLM'siz, metin = cevap).
-func renderTopologyEvidenceTR(focus string, g ServiceGraphResponse, hops int, rangeS int64, env string, eonly bool, tr topoTruncation, totalEdges int) string {
+//
+// v0.10.1392 — sayılar ÇİZİLEN kümeden (topoChatNeighbourhood): başlıktaki
+// komşu/kenar toplamları sütun tavanından ÖNCEKİ akış kümesi, tavan notu
+// yalnız gerçekten kesildiyse ve gerçek gizlenen sayılarla; sabit bütçe
+// metni yok. "+N more" düğümleri satır olarak basılmaz. totalEdges = eonly
+// süzgecinden önceki kenar sayısı (boş eonly cevabı için).
+func renderTopologyEvidenceTR(focus string, nb topoNeighbourhood, hops int, rangeS int64, env string, eonly bool, totalEdges int) string {
+	g := nb.Graph
 	names := map[string]GraphNode{}
 	for _, n := range g.Nodes {
 		names[n.ID] = n
@@ -535,6 +554,9 @@ func renderTopologyEvidenceTR(focus string, g ServiceGraphResponse, hops int, ra
 	}
 	var up, down, far []GraphEdge
 	for _, e := range g.Edges {
+		if topoIsMore(e.Source) || topoIsMore(e.Target) {
+			continue
+		}
 		switch {
 		case e.Target == focus && e.Source != focus:
 			up = append(up, e)
@@ -544,18 +566,13 @@ func renderTopologyEvidenceTR(focus string, g ServiceGraphResponse, hops int, ra
 			far = append(far, e)
 		}
 	}
-	neigh := map[string]bool{}
-	for _, n := range g.Nodes {
-		if n.ID != focus {
-			neigh[n.ID] = true
-		}
-	}
 	var b strings.Builder
 	kind := "topolojisi"
 	if eonly {
 		kind = "hatalı bağımlılıkları"
 	}
-	fmt.Fprintf(&b, "%s %s (son %s, %d hop · %d komşu, %d kenar)\n", focus, kind, fmtAgoTR(rangeS), hops, len(neigh), len(g.Edges))
+	fmt.Fprintf(&b, "%s %s (son %s, %d hop · %d komşu: %d çağıran, %d bağımlılık · %d kenar)\n",
+		focus, kind, fmtAgoTR(rangeS), hops, nb.Neighbours, nb.Callers, nb.Callees, nb.Edges)
 	if len(g.Edges) == 0 {
 		if eonly && totalEdges > 0 {
 			fmt.Fprintf(&b, "Bu pencerede hatalı bağımlılık YOK: %d kenarın hiçbirinde hata görülmedi.\n", totalEdges)
@@ -577,16 +594,27 @@ func renderTopologyEvidenceTR(focus string, g ServiceGraphResponse, hops int, ra
 		}
 	}
 	section("ÇAĞIRANLAR (upstream):", up, func(e GraphEdge) string { return label(e.Source) })
-	if len(up) == 0 {
+	if nb.Callers == 0 {
 		b.WriteString("ÇAĞIRANLAR (upstream): enstrümante çağıran yok (giriş servisi olabilir).\n")
 	}
 	section("BAĞIMLILIKLAR (downstream):", down, func(e GraphEdge) string { return label(e.Target) })
-	if len(down) == 0 {
+	if nb.Callees == 0 {
 		b.WriteString("BAĞIMLILIKLAR (downstream): bu pencerede çağrı yok.\n")
 	}
 	section("2. ADIM:", far, func(e GraphEdge) string { return label(e.Source) + " → " + label(e.Target) })
-	if tr.Nodes > 0 || tr.Edges > 0 {
-		fmt.Fprintf(&b, "Bütçe: ilk %d düğüm / %d kenar gösterildi (+%d düğüm, +%d kenar Topology sekmesinde).\n", topoChatMaxNodes, topoChatMaxEdges, tr.Nodes, tr.Edges)
+	if tr := nb.Truncated; tr.Nodes > 0 {
+		var cut []string
+		if tr.Callers > 0 {
+			cut = append(cut, fmt.Sprintf("+%d çağıran", tr.Callers))
+		}
+		if tr.Callees > 0 {
+			cut = append(cut, fmt.Sprintf("+%d bağımlılık", tr.Callees))
+		}
+		fmt.Fprintf(&b, "Tavan (Topology sekmesiyle aynı): sütun başına en çok %d komşu; aşan sütunda ilk %d (önce hata >%%1, sonra çağrı sayısı) — %s (+%d kenar) \"+N more\" altında, tümü Topology sekmesinde.\n",
+			topoChatMaxPerCol, topoChatMaxPerCol-1, strings.Join(cut, ", "), tr.Edges)
+	}
+	if nb.SideLinks > 0 {
+		fmt.Fprintf(&b, "Komşular arası %d yan bağlantı (aynı sütun / sütun atlayan / döngü) çizilmedi ve sayılmadı — Topology sekmesinde \"Yan bağlantılar\".\n", nb.SideLinks)
 	}
 	note := "Not: kenar gecikmesi p99 (topology_edges_5m); (dış) hedefler enstrümante değil"
 	if env != "" {
@@ -610,7 +638,7 @@ func topoHasErrEdge(g ServiceGraphResponse) bool {
 func topoWarnNeighbours(g ServiceGraphResponse, focus string, max int) []string {
 	var ns []GraphNode
 	for _, n := range g.Nodes {
-		if n.ID != focus && n.Kind == "service" && n.ErrorRate >= topoWarnPct {
+		if n.ID != focus && n.Kind == "service" && !topoIsMore(n.ID) && n.ErrorRate >= topoWarnPct { // v0.10.1392 — "+N more" komşu değil
 			ns = append(ns, n)
 		}
 	}
@@ -633,7 +661,8 @@ func topoWarnNeighbours(g ServiceGraphResponse, focus string, max int) []string 
 // topologyCacheKey — SAF: servis, hop, eonly, 5 dk'ya oturtulmuş uçlar,
 // gizli desen özeti — hepsi FNV'de (v0.5.187).
 func topologyCacheKey(svc string, hops int, eonly bool, from, to time.Time, hidDigest string) string {
-	return "copilot:topo:v1:" + fnvStr(svc, fmt.Sprint(hops), fmt.Sprint(eonly), fmt.Sprint(from.Unix()/300), fmt.Sprint(to.Unix()/300), hidDigest)
+	// v0.10.1392 — v2: önbellek gövdesi topoNeighbourhood (sekme görünümü).
+	return "copilot:topo:v2:" + fnvStr(svc, fmt.Sprint(hops), fmt.Sprint(eonly), fmt.Sprint(from.Unix()/300), fmt.Sprint(to.Unix()/300), hidDigest)
 }
 
 // topologyTraceCacheKey — SAF: trace id + odak (bütçe odağa göre).
@@ -1005,10 +1034,11 @@ func (s *Server) serviceTopologyRun(ctx context.Context, emit func(string, any),
 	n := emitGuidedStep(emit, "get_topology", withEnvArg(fmt.Sprintf(`{"service":%s,"hops":%d,"range_s":%d}`, jsonStr(svc), hops, rangeS), route.Env))
 	hid := s.topologyHiddenPatterns(ctx)
 	key := topologyCacheKey(svc, hops, eonly, from, to, hiddenDigest(hid))
+	// v0.10.1392 — gövde Topology sekmesinin görünümü (topoChatNeighbourhood):
+	// çizilen küme ile metindeki sayılar aynı kaynaktan.
 	type cached struct {
-		Graph      ServiceGraphResponse `json:"graph"`
-		Truncated  topoTruncation       `json:"truncated"`
-		TotalEdges int                  `json:"totalEdges"`
+		Nb         topoNeighbourhood `json:"nb"`
+		TotalEdges int               `json:"totalEdges"`
 	}
 	var c cached
 	if s.metricChartCacheGet(ctx, key, &c) {
@@ -1024,14 +1054,15 @@ func (s *Server) serviceTopologyRun(ctx context.Context, emit func(string, any),
 		dbNames, _ := s.store.DbNamesBySystem(ctx, from, to)
 		g := buildServiceGraphWith(edges, svc, "neighborhood", hops, dbNames, serviceGraphWindowMinutes(from, to), s.knownServiceSet(ctx))
 		c.TotalEdges = len(g.Edges)
-		c.Graph, c.Truncated = topoChatBudget(g, svc, eonly, topoChatMaxNodes, topoChatMaxEdges)
+		c.Nb = topoChatNeighbourhood(g, svc, hops, eonly, topoChatMaxPerCol)
 		s.metricChartCacheSet(ctx, key, c, topoChatCacheTTL)
 	}
-	route.TopoHasErrEdge = topoHasErrEdge(c.Graph)
-	route.TopoNeighbours = topoWarnNeighbours(c.Graph, svc, topoNeighbourChips)
-	text := renderTopologyEvidenceTR(svc, c.Graph, hops, rangeS, route.Env, eonly, c.Truncated, c.TotalEdges)
+	graph := c.Nb.Graph
+	route.TopoHasErrEdge = topoHasErrEdge(graph)
+	route.TopoNeighbours = topoWarnNeighbours(graph, svc, topoNeighbourChips)
+	text := renderTopologyEvidenceTR(svc, c.Nb, hops, rangeS, route.Env, eonly, c.TotalEdges)
 	emitGuidedStepResult(emit, n, "get_topology", text, nil)
-	if len(c.Graph.Edges) == 0 {
+	if len(graph.Edges) == 0 {
 		return text, nil
 	}
 	win := linkWindowBetween(from, to)
@@ -1041,8 +1072,8 @@ func (s *Server) serviceTopologyRun(ctx context.Context, emit func(string, any),
 	}
 	return text, &topologyBlockPayload{Focus: svc, Scope: "neighborhood", Hops: hops,
 		Window: traceListWindow{FromNs: from.UnixNano(), ToNs: to.UnixNano()}, RangeS: rangeS,
-		Nodes: c.Graph.Nodes, Edges: c.Graph.Edges, DeepLink: win.apply(topologyTabHref(svc, hops, eonly)),
-		Truncated: c.Truncated, ErrorsOnly: eonly, Note: note}
+		Nodes: graph.Nodes, Edges: graph.Edges, DeepLink: win.apply(topologyTabHref(svc, hops, eonly)),
+		Truncated: c.Nb.Truncated, ErrorsOnly: eonly, Note: note}
 }
 
 // topoOpResolve — operasyon anmasını katalogla hedefe çevirir. choices dolu →

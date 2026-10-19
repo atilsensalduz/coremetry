@@ -4317,8 +4317,13 @@ thead th:hover .th-remove, .th-remove:focus-visible { opacity: 1; }
 }
 /* v0.10.688 — sohbette trace listesi bloğu (ChatTraceList). */
 .cm-trace-list { margin-top: var(--sp-3); overflow-x: auto; }
-/* v0.10.1388 — sohbet topoloji kartı: pil grafiği en az 420 px; dar çekmecede yatay kaydırma */
-.cm-topo-scroll { overflow-x: auto; }
+/* v0.10.1392 — sohbet topoloji kartı: Topology sekmesinin odak sütun grafiği
+   kompakt kipte (içerik boyutu, ölçek 1). Taşma kartın KENDİ kabında kayar
+   (sayfa/sohbet yatay kaymaz); kart balon genişliğini aşmaz. */
+.cm-topo-card { min-width: 0; max-width: 100%; }
+.cm-topo-flow { max-width: 100%; max-height: 480px; overflow: auto; overscroll-behavior: contain; border-radius: var(--radius); }
+.cm-topo-flow > .topo.compact { flex: none; }
+.topo-more.badge { pointer-events: auto; cursor: default; }
 /* v0.10.1291 — sohbet tablolarının satır başı ✨ sütunu (RowExplainCell): dar, satırı büyütmez. */
 .cm-md-table th.cm-row-ai, .cm-md-table td.cm-row-ai { width: 1%; white-space: nowrap; padding-left: var(--sp-1); padding-right: var(--sp-1); }
 .cm-trace-list__more { margin-top: var(--sp-2); font-size: var(--fs-xs); }

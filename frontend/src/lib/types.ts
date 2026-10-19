@@ -7531,8 +7531,10 @@ export interface ChatTopologyPayload {
   traceId?: string;
   traceHref?: string;
   operation?: string;
-  /** sohbet bütçesinin (≤15 düğüm / ≤30 kenar) dışarıda bıraktıkları. */
-  truncated: { nodes: number; edges: number };
+  /** dışarıda bırakılanlar (0 = kesilmedi). Trace kipi: ≤15 düğüm / ≤30 kenar
+   *  bütçesi. v0.10.1392 — servis komşuluğu: Topology sekmesinin sütun tavanı
+   *  (MAX_PER_COL); callers/callees = "+N more" altına inen çağıran/bağımlılık. */
+  truncated: { nodes: number; edges: number; callers?: number; callees?: number };
   errorsOnly?: boolean;
   note?: string;
 }

@@ -7818,3 +7818,37 @@ grafiği yerine (operasyon bulgusu olmayan cevapta 2 çit → 3 blok; çitler mo
 Testler: `copilot_service_http_red_test.go` (kaynak seçimi tablosu, üç PromQL bayt bayt, anahtar tüm girdiler, çip ↔ blok,
 demet kablolaması, salt-okur), `mcptools service_sweep_kinds_test.go` (giriş tercihi, başlık pini, blok düşürme),
 `chstore TestOpKindsSQLBounded`.
+
+## 2026-10-19 — v0.10.1392 — CoSRE topoloji kartı: Topology sekmesinin 1 hop görünümü, tutarlı sayılar, gereksiz "via" yok
+
+**Operatör (prod ekran görüntüleri, v0.10.1388 sohbet topolojisi):** "Bunu galiba eski service map'ten getiriyor. Onun
+yerine 1 hop topology getirebilir." Kart TopologyPillGraph'tı (sol kenarda kırpılan adlar, kalabalık sütunda üst üste
+binen "N çağrı · p99" satırları); başlık "1 hop · 14 komşu, 15 kenar" derken alt not "+216 düğüm, +222 kenar
+gösterilmedi", metin "bütçe: ilk 15 düğüm / 30 kenar"; her çağıran satırı odağın KENDİ k8s DNS adıyla ("via
+<svc>.<ns>.svc.cluster.local") bitiyordu.
+**Kök neden (sayılar):** okuma ve kurucu sekmeyle aynıydı (`ReadServiceTopologyAggForFocus(hops=1)` yalnız odağa değen
+kenarları + odağın k8s/etiket-önekli `ext:` çağıranlarını okur; `buildServiceGraphWith("neighborhood", 1)` odak +
+doğrudan komşular + aralarındaki kenarları bırakır) — 2. adım düğümü okunmuyordu. Bozuk olan sohbetin kendi katmanıydı:
+`topoChatBudget` 15 düğüm / 30 kenar kesiyor, `renderTopologyEvidenceTR` başlıktaki komşu/kenar sayısını KESİLMİŞ
+graftan, "+X düğüm" notunu kesilmemiş graftan, "ilk 15 / 30" metnini sabitlerden basıyordu (üç ayrı küme); 230
+doğrudan çağıranlı hub "14 komşu · +216" diye okunuyordu. Ayrıca 1 hop'ta komşular arası kenarlar "2. ADIM" başlığıyla
+basılıyor, okuma tavanı sekmeden farklıydı (2000 ↔ 20000).
+**Karar:**
+- Sohbet servis komşuluğu = Topology sekmesinin görünümü. `copilot_topology_focus.go`: `assignFocusColumns`
+  (yönlü işaretli sütunlar) + `capPerColumn` (sütun başına `MAX_PER_COL`=12, aşarsa 11 + "+N more" düğümü ve toplu
+  kenar) Go ikizleri; sabit ve `more:` öneki FE ile pinli (`TestTopoChatMaxPerColPinnedToTab`). 15/30 bütçesi yalnız
+  trace topolojisinde kaldı.
+- Çizilen = sayılan: yalnız akış (flow) kenarları — 1 hop'ta tam olarak odağa değenler. Yan bağlantılar
+  (peer/skip/back; sekmede de varsayılan gizli) çizilmez, sayılmaz, metinde ayrı satırda adlanır. Başlık toplamları
+  kesimden önceki aynı kümeden ("N komşu: A çağıran, B bağımlılık · M kenar"); tavan notu yalnız bir sütun gerçekten
+  kesildiyse ve gerçek gizlenen sayılarla. Okuma tavanı sekmeyle aynı (20000). Önbellek anahtarı `copilot:topo:v2`.
+- Kart: sekmenin `TopologyFlowGraph`'ı yeni `compact` kipte (içerik boyutu, ölçek 1; pan / tekerlek-zoom / zoom
+  düğmeleri / lejant yok — sohbetin kaydırması kaçırılmaz; "+N more" tıklanamaz etiket). Düğüm adaptörü sekmeyle
+  ortak (`graphNodeToMapNode`, FocusedNeighborhood'dan çıkarıldı). Sabit 170 px pil, elips + title; kart kendi kabında
+  (`.cm-topo-flow`, ≤480 px yükseklik) kayar. Trace kipi aynı grafikte, kök solda, tüm kenarlar görünür.
+- "via": host kenarın HEDEFİNİN kendi adresiyse (çıplak ad ya da küme-içi DNS adı, ilk etiketi `<ad>` /
+  `<ad>-<belirteç>`) basılmaz (`topoViaInformative`). GSLB/route host'u (küme dışı, ör. `<ad>-prod-kon.<kurum>`)
+  hangi kanaldan gelindiğini söylediği için KALIR — "ad ile başlıyor" kuralını yalnız k8s adına uyguladık.
+**Doğrulama sınırı:** prod verisine erişim yok; kök neden kod + fikstürle kanıtlandı (2. adım kenarları taşıyan okuma →
+ne çizilir ne sayılır; tavan yalnız aşınca). Hub'ın 230 komşusunun gerçekten doğrudan olup olmadığı (ör. v0.10.1344
+etiket-önek katlamasının `<odak>-<x>` kardeşini odağa katlaması) prod'da sekmenin "N of M nodes" sayısıyla kıyaslanmalı.

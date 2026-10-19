@@ -219,33 +219,37 @@ func TestTopoChatBudget(t *testing.T) {
 }
 
 func TestRenderTopologyEvidenceTR(t *testing.T) {
-	g, tr := topoChatBudget(topoGraph(), "payment-service", false, topoChatMaxNodes, topoChatMaxEdges)
-	text := renderTopologyEvidenceTR("payment-service", g, 2, 3600, "prod", false, tr, len(g.Edges))
+	// v0.10.1392 — metin topoChatNeighbourhood'dan (sekme görünümü): 2 hop'ta
+	// ledger → postgresql her iki ucu +1 sütununda (peer) → çizilmez, yan
+	// bağlantı olarak ayrı sayılır.
+	nb := topoChatNeighbourhood(topoGraph(), "payment-service", 2, false, topoChatMaxPerCol)
+	text := renderTopologyEvidenceTR("payment-service", nb, 2, 3600, "prod", false, len(topoGraph().Edges))
 	for _, want := range []string{
-		"payment-service topolojisi (son 1sa, 2 hop · 4 komşu, 5 kenar)",
+		"payment-service topolojisi (son 1sa, 2 hop · 4 komşu: 1 çağıran, 3 bağımlılık · 4 kenar)",
 		"ÇAĞIRANLAR (upstream):\n- checkout-service → 1.200 çağrı · hata %0.42 · p99 320 ms (http)",
 		"BAĞIMLILIKLAR (downstream):",
 		"- ledger-service → 900 çağrı · hata %6.11 ⚠ · p99 1.20 s (grpc)",
 		"- api.stripe.example (dış) → 300 çağrı",
 		"- postgresql (veritabanı) → 5.000 çağrı",
-		"2. ADIM:\n- ledger-service → postgresql (veritabanı) → 700 çağrı",
+		"Komşular arası 1 yan bağlantı",
 		"ortam (prod) topolojide süzgeç DEĞİL",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("metinde yok: %q\n%s", want, text)
 		}
 	}
-	empty := renderTopologyEvidenceTR("payment-service", ServiceGraphResponse{}, 1, 3600, "", false, topoTruncation{}, 0)
+	for _, bad := range []string{"2. ADIM", "Tavan", "gösterilmedi", "Bütçe"} {
+		if strings.Contains(text, bad) {
+			t.Errorf("kesim/2. adım yokken %q basılmamalı:\n%s", bad, text)
+		}
+	}
+	empty := renderTopologyEvidenceTR("payment-service", topoNeighbourhood{}, 1, 3600, "", false, 0)
 	if !strings.Contains(empty, "topoloji kenarı bulunamadı") || !strings.Contains(empty, "trace-context") {
 		t.Errorf("boş metin: %s", empty)
 	}
-	noErr := renderTopologyEvidenceTR("payment-service", ServiceGraphResponse{}, 1, 3600, "", true, topoTruncation{}, 4)
+	noErr := renderTopologyEvidenceTR("payment-service", topoNeighbourhood{}, 1, 3600, "", true, 4)
 	if !strings.Contains(noErr, "hatalı bağımlılık YOK: 4 kenarın hiçbirinde") {
 		t.Errorf("eonly boş metin: %s", noErr)
-	}
-	cut := renderTopologyEvidenceTR("payment-service", g, 1, 3600, "", false, topoTruncation{Nodes: 3, Edges: 7}, 12)
-	if !strings.Contains(cut, "+3 düğüm, +7 kenar Topology sekmesinde") {
-		t.Errorf("bütçe notu: %s", cut)
 	}
 }
 

@@ -102,7 +102,8 @@ export function serviceReportBlocks(blocks: ChatTypedBlock[] | undefined): ChatS
   return out;
 }
 
-/** v0.10.1388 — topoloji bloğu düğüm tavanı (sunucu bütçesi 15; bozuk/aşırı yük düşer). */
+/** v0.10.1388 — topoloji bloğu düğüm tavanı (bozuk/aşırı yük düşer). v0.10.1392 —
+ *  sunucu: trace ≤15; servis komşuluğu sütun başına ≤12 ("+N more" dahil) → 2 hop'ta ≤49. */
 export const TOPOLOGY_BLOCK_MAX_NODES = 60;
 
 /** v0.10.1388 — topoloji grafiği (copilot_service_topology.go). Şekil doğrulanır;
@@ -126,7 +127,11 @@ export function topologyBlocks(blocks: ChatTypedBlock[] | undefined): ChatTopolo
       nodes: p.nodes.filter(n => n && typeof n.id === 'string'),
       edges,
       traceHref: typeof p.traceHref === 'string' && isSafeAppPath(p.traceHref) ? p.traceHref : undefined,
-      truncated: { nodes: Number(p.truncated?.nodes) || 0, edges: Number(p.truncated?.edges) || 0 },
+      // v0.10.1392 — servis komşuluğunda sütun tavanının yön kırılımı da taşınır.
+      truncated: {
+        nodes: Number(p.truncated?.nodes) || 0, edges: Number(p.truncated?.edges) || 0,
+        callers: Number(p.truncated?.callers) || 0, callees: Number(p.truncated?.callees) || 0,
+      },
     });
   }
   return out;
