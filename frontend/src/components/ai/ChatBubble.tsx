@@ -948,6 +948,8 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
   );
   const evBlocks = useMemo(() => evidenceBlocksByRef(turn.blocks), [turn.blocks]);
   const hasSteps = !isUser && (!!turn.steps?.length || !!turn.stepDetails?.length);
+  // v0.10.1389 — metin henüz yokken (ilk token öncesi) yalnız gösterge.
+  const thinkingOnly = !isUser && turn.pending && !turn.text && !turn.error;
 
   if (isUser) {
     // Operatörün mesajı: sağa yaslı kompakt hap; v0.10.1145'ten beri markdown (ChatMarkdown).
@@ -962,9 +964,14 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
     <div className="cm-msg cm-msg--ai" ref={rootRef}>
       {/* v0.10.1137 — asistan cevabı kart DEĞİL: sayfadaki düz metin (Claude gibi),
           küçük marka etiketi. Explain paneli kendi .ai-answer-card'ını korur. */}
-      <div className="cm-msg-ai__who" aria-hidden="true">
-        <img src="/favicon.svg" width={14} height={14} alt="" draggable={false} /> CoSRE
-      </div>
+      {/* v0.10.1389 (operatör: "Düşünüyor yazarken telemetry logosu çakmasına gerek
+          yok ve ortalı olsun") — marka etiketi ilk metin gelince görünür; bekleyiş
+          yalnız ortalanmış AiThinking. */}
+      {!thinkingOnly && (
+        <div className="cm-msg-ai__who" aria-hidden="true">
+          <img src="/favicon.svg" width={14} height={14} alt="" draggable={false} /> CoSRE
+        </div>
+      )}
       <div onClick={onBodyClick} className="cm-msg-ai" style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
         {/* v0.10.1137 — adımlar tek açılırda (akarken açık, bitince kapanır). */}
         {hasSteps && <StepsDisclosure turn={turn} evId={evId} setEvId={openEvidence} initialOpen={stepsOpen} />}
@@ -1029,7 +1036,7 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
           <div style={{ marginTop: 6 }}><Button variant="secondary" size="sm" onClick={onRetry}>↺ Yeniden dene</Button></div>
         )}
         {/* v0.10.1137 — ilk token gelene dek "Düşünüyor…"; v0.10.1384 — tek tip gösterge (AiThinking). */}
-        {!turn.text && !turn.error && turn.pending && <AiThinking variant="row" />}
+        {thinkingOnly && <div className="cm-wait-center"><AiThinking variant="row" /></div>}
       </div>
 
       {/* v0.10.1137 — Kaynaklar: numaralı liste ([n] atıflarıyla aynı numara). */}

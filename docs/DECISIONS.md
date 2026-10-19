@@ -7748,3 +7748,10 @@ anması, bütçe, metin, trace grafı, temsilci seçimi, linkler, çiplerin yön
 tüm girdiler, blok sıralayıcısı, salt-okur, veto sırası pini), `chstore/oracle_op_traces_test.go`,
 `lib/chatBlocks.topology.test.ts`, `components/ai/ChatTopologyCard.test.tsx`; güncellenen pin:
 `TestFollowupTemplatesRouteGuided` (op_topology türü).
+
+## 2026-10-19 — v0.10.1389 — Sohbet bekleyişi: logo yok, gösterge ortalı
+
+**Operatör-bildirimli (ekran görüntüsü):** "Düşünüyor yazarken telemetry logosu çakmasına gerek yok ve ortalı olsun."
+İlk token gelmeden önce cevap balonu marka etiketini (logo + "CoSRE") ve altında sola yaslı "Düşünüyor…" gösteriyordu.
+Artık bekleyiş (`pending && !text && !error`) yalnız ortalanmış `AiThinking` (`.cm-wait-center`); marka etiketi ilk metinle
+gelir. Adım çipleri ve evre kırıntısı aynen. Pin: `chatThinkingCenter.pin.test.ts`.
