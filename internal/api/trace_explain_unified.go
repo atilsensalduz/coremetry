@@ -25,10 +25,10 @@ package api
 import (
 	"context"
 	"errors"
-	"net/url"
 	"strings"
 	"time"
 
+	"github.com/cilcenk/coremetry/internal/ai/aisurface"
 	"github.com/cilcenk/coremetry/internal/copilot"
 )
 
@@ -71,59 +71,34 @@ func (s *Server) guidedTraceExplain(ctx context.Context, emit func(string, any),
 		return false, false
 	}
 	emitGuidedStepResult(emit, n, "trace", in.User, nil)
-	// v0.10.460 (operatör: "hepsi Explain trace gibi olsun — çekmeceler de"):
-	// açıklama isteği (çip, yapıştırılan id, "açıkla") sohbette anlatılmaz;
-	// ✨ Explain ÇEKMECESİ açılır (?ai=trace:<id>&aisrc=chat → CopilotExplain,
-	// aynı bileşen, aynı önbellek anahtarı — tek uygulama, tek görünüm).
-	// Sohbet balonu deterministik bir yönlendirme yazar (LLM yok, exchangeId
-	// yok). Trace'e dair AÇIK soru ("neden yavaş") aşağıdaki odaklı yolda
-	// sohbette cevaplanır.
-	// v0.10.1036 — çekmecenin varsayılanı yine klasik toplayıcı + SystemPromptTrace
-	// (v0.10.948–1035 arası trace incelemesiydi): balondaki "aynı motor, aynı
-	// önbellek" yeniden birebir doğru — çekmece explainTraceClassicPrepared'ın
-	// klasik anahtarını kullanır, odaklı yol aynı kanıt ve aynı istemle cevaplar.
+	// v0.10.1400 (Tek CoSRE; operatör: "Explain trace'te çıkan loading ikonu
+	// güzel ama chat'ten 'bu trace'i açıkla' deyince aynı yerde devam etmiyor,
+	// sanki yeni drawer açılıyor.") — v0.10.460'ın `open` sıçrayışı KALKTI:
+	// açıklama isteği (çip, yapıştırılan id, "açıkla") sohbetin İÇİNDE, ✨
+	// düğmesinin klasik anahtarıyla (explainCacheKey(SystemPromptTrace(),
+	// in.User, "")) akar — chatExplainTurn ile aynı cevap gövdesi
+	// (emitTraceExplainAnswer, chat_explain_core.go çekirdeği). Trace'e dair
+	// AÇIK soru ("neden yavaş") aşağıdaki odaklı yolda, aynı çekirdekle ama
+	// soruya özel (anahtarsız).
+	links := guidedAnswerLinks(route, linkWindowBetween(from, to))
 	if isTraceExplainAsk(question) {
-		href := "/trace?id=" + url.QueryEscape(route.TraceID) + "&ai=" + url.QueryEscape("trace:"+route.TraceID) + "&aisrc=chat"
-		links := guidedAnswerLinks(route, linkWindowBetween(from, to))
-		emit("answer", map[string]any{
-			"text":        "✨ Explain açılıyor — trace " + route.TraceID + " açıklaması sağdaki Explain çekmecesinde (aynı motor, aynı önbellek).",
-			"suggestions": guidedSuggestions(route),
-			"links":       dedupLinksByHref(links),
-			"open":        href,
-		})
-		return true, true
+		return s.emitTraceExplainAnswer(ctx, emit, route.TraceID, in, route, links)
 	}
 	system := copilot.SystemPromptTrace()
 	user := in.User + "\n\nOperatörün sorusu (yalnız yukarıdaki kanıta dayanarak, kanıtta olmayanı söylemeden cevapla): " + strings.TrimSpace(question)
-	cacheKey := "" // soruya özel: önbelleğe girmez
-	xid := copilot.MetaFromContext(ctx).ExchangeID
-	var text string
-	cached := false
-	if env, hit := s.explainCacheGetCtx(ctx, cacheKey); hit {
-		text, cached, xid = env.Text, true, env.Xid
-		emit("delta", map[string]string{"text": text})
-	} else {
-		raw, exErr := s.copilotStreamSurface(ctx, "explain-trace:chat", system, user, func(delta string) {
-			emit("delta", map[string]string{"text": delta})
-		})
-		if exErr != nil {
-			emit("error", map[string]string{"error": exErr.Error()})
-			return true, false
-		}
-		text = strings.TrimSpace(raw)
-		s.explainCacheSet(ctx, cacheKey, text, xid)
+	// soruya özel: önbelleğe girmez (anahtar "").
+	res, ok := s.streamExplainCore(ctx, emit, aisurface.ExplainTraceChat, system, user, "")
+	if !ok {
+		return true, false
 	}
-	links := guidedAnswerLinks(route, linkWindowBetween(from, to))
+	text := trimExplainText(res)
 	links = append(links, s.answerRequestIDLinks(ctx, text, ctxService)...)
 	ans := map[string]any{
-		"text": text, "exchangeId": xid,
+		"text": text, "exchangeId": res.Xid,
 		"suggestions":     guidedSuggestions(route),
 		"links":           dedupLinksByHref(links),
 		"evidenceSpanIds": in.Evidence,
 	}
-	if cached {
-		ans["cached"] = true
-	}
-	emit("answer", ans)
+	emit("answer", withExplainCached(ans, res))
 	return true, true
 }

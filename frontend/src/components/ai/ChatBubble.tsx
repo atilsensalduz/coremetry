@@ -1,4 +1,4 @@
-import { Component, Fragment, createContext, memo, useContext, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
+import { Component, Fragment, createContext, memo, useContext, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
 import { chatErrorText } from './chatErrorText';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { chartBlocks, mergeBlockLinks, traceListBlocks, operationBlocks, serviceReportBlocks, topologyBlocks, evidenceBlocksByRef, type EvidenceBlockView } from '@/lib/chatBlocks';
@@ -41,6 +41,10 @@ import { phaseTrail } from './phaseTrail'; // v0.10.1273 — Metrik → Log → 
 import { MdTable } from './MdTable'; // v0.10.1357 — paylaşılan markdown tablosu (RenderedMarkdown da çizer)
 import { AiThinking } from './AiThinking'; // v0.10.1384 — tek tip "düşünüyor" göstergesi
 import { useTypewriter } from './useTypewriter'; // v0.10.1384 — büyük parçada hızlı yazma efekti
+import { ExplainBody } from './ExplainBody'; // v0.10.1400 — açıklama turu ✨ Explain anatomisiyle
+import { EvidenceRow } from './EvidenceRow'; // v0.10.1400 — kanıt trace satırları
+import { explainEvidence } from './explainTurn';
+import { emitAiEvidence, emitAiFocus, scrollToAttr } from './aiEvents';
 
 // ChatBubble — bir sohbet turunun ÇİZİMİ. v0.9.479'da CopilotChat.tsx'ten
 // buraya taşındı: AI çekmecesi içindeki sohbet (AIDrawer) aynı balonu
@@ -901,7 +905,11 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
   // arşiv/geri yükleme taşımaz). Kartlar, kopya, takip çipleri TAM metinle
   // (turn.*) hemen çizilir; yalnız gövde metni açılır. Dibe yapışma: balon.
   const rootRef = useRef<HTMLDivElement>(null);
-  const shown = useTypewriter(turn.text ?? '', isUser ? undefined : turn.arrivedAt, { stickRef: rootRef });
+  // v0.10.1400 — açıklama turu (trace / exception ✨ sohbet içinde): gövde
+  // ExplainBody (Karar şeridi, Kanıt satırı, kod alıntıları); yazma efekti
+  // YALNIZ ExplainBody'de — iki daktilo yarışmasın diye balonunki atlanır.
+  const ex = isUser ? undefined : turn.explain;
+  const shown = useTypewriter(turn.text ?? '', isUser || ex ? undefined : turn.arrivedAt, { stickRef: rootRef });
   const onBodyClick = (e: React.MouseEvent) => {
     if (shown.revealing) shown.finish(); // v0.10.1384 — tıkla-bitir
     const a = (e.target as HTMLElement).closest?.('a[href]');
@@ -935,9 +943,19 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
   // satır / açık çit / yarım tablo kuralları ve imleç akıştakiyle aynı.
   const streamingView = !!turn.pending || shown.revealing;
   const body = useMemo(
-    () => (shown.text && !isUser ? renderMessage(shown.text, streamingView, turn.blocks) : null),
-    [shown.text, streamingView, turn.blocks, isUser],
+    () => (shown.text && !isUser && !ex ? renderMessage(shown.text, streamingView, turn.blocks) : null),
+    [shown.text, streamingView, turn.blocks, isUser, ex],
   );
+  // v0.10.1400 — açıklama kanıtı sayfaya BİR KEZ duyurulur (waterfall span'leri /
+  // exception örnek-trace satırları kutulanır — çekmece kipindeki sözleşme).
+  // Yalnız canlı tur (exchangeId'li); arşivden geri yüklenen tur duyurmaz.
+  const evSentRef = useRef(false);
+  useEffect(() => {
+    if (!ex || turn.pending || turn.error || !turn.exchangeId || evSentRef.current) return;
+    evSentRef.current = true;
+    if (ex.evidenceSpanIds?.length) emitAiEvidence({ spanIds: ex.evidenceSpanIds });
+    if (ex.evidenceTraceIds?.length) emitAiEvidence({ traceIds: ex.evidenceTraceIds });
+  }, [ex, turn.pending, turn.error, turn.exchangeId]);
   const done = !isUser && !turn.pending && !turn.error && !!turn.text;
   // v0.10.1272 — cevabın kanıt çipleri: answer.evidence (arşivden de gelir);
   // yoksa (hata ile biten tur) adımların kendi kanıtları.
@@ -980,6 +998,34 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
           // `turn.pending` çözücüye GEÇİYOR: yarım tablo satırı / kapanmamış
           // çit kararı ona bağlı (chatMarkdown.ts); imleç de son metnin içinde.
           <>
+            {/* v0.10.1400 — açıklama turu: önbellek etiketi + ✨ Explain gövdesi + kanıt trace'leri. */}
+            {ex?.cached && !turn.pending && (
+              <div className="cm-msg-note" data-explain-cached="">
+                ♻ önbellekten{ex.cachedAtMs ? ` · ${Math.max(1, Math.round((Date.now() - ex.cachedAtMs) / 60000))} dk önce üretildi` : ''} — ✨ Explain düğmesiyle aynı cevap
+              </div>
+            )}
+            {ex && (
+              <ExplainBody text={turn.text} busy={!!turn.pending} evidence={turn.pending ? undefined : explainEvidence(ex)}
+                revealAt={ex.cached ? undefined : turn.arrivedAt?.at} />
+            )}
+            {ex && !turn.pending && !!ex.evidenceTraceIds?.length && (
+              <div data-explain-traces="" style={{ marginTop: 8 }}>
+                <div className="cell-hint" style={{ marginBottom: 4 }}>Kanıt trace'leri ({ex.evidenceTraceIds.length})</div>
+                {ex.evidenceTraceIds.map(id => (
+                  <EvidenceRow key={id} id={id} title="Örnek trace satırına git"
+                    onClick={() => {
+                      // Sayfada satır varsa ona odaklan; yoksa trace'i aç.
+                      const sel = `[data-trace-id="${id.replace(/["\\]/g, '\\$&')}"]`;
+                      if (typeof document !== 'undefined' && document.querySelector(sel)) {
+                        emitAiFocus({ traceId: id });
+                        scrollToAttr('data-trace-id', id);
+                      } else {
+                        navigate(traceHref(id));
+                      }
+                    }} />
+                ))}
+              </div>
+            )}
             {body}
             {/* v0.10.541 — tipli chart blokları (mutlak pencere; CosreChart fromNs/toNs'i önceler) */}
             {!turn.pending && chartBlocks(turn.blocks).map((spec, i) => <CosreChart key={`blk-${i}`} spec={spec as CosreChartSpec} />)}

@@ -41,7 +41,6 @@ import (
 	"github.com/cilcenk/coremetry/internal/ai/aisurface"
 	"github.com/cilcenk/coremetry/internal/anomaly"
 	"github.com/cilcenk/coremetry/internal/chstore"
-	"github.com/cilcenk/coremetry/internal/copilot"
 )
 
 const (
@@ -205,36 +204,26 @@ func (s *Server) opExceptionExplainInChat(ctx context.Context, emit func(string,
 	emitGuidedStepResult(emit, n, opExceptionExplainTool, in.User, nil)
 
 	// ✨ Explain root cause ile AYNI anahtar (copilot_exception.go, kod dalı kapalı).
-	cacheKey := explainCacheKey(system, in.User, "")
-	xid := copilot.MetaFromContext(ctx).ExchangeID
-	var raw string
-	cached := false
-	if env, hit := s.explainCacheGetCtx(ctx, cacheKey); hit {
-		raw, cached, xid = env.Text, true, env.Xid
-		emit("delta", map[string]string{"text": raw})
-	} else {
-		out, err := s.copilotStreamSurface(ctx, aisurface.ExplainExceptionChat, system, in.User, func(d string) {
-			if d != "" {
-				emit("delta", map[string]string{"text": d})
-			}
-		})
-		if err != nil {
-			emit("error", map[string]string{"error": err.Error()})
-			return true, false
-		}
-		raw = out
-		s.explainCacheSet(ctx, cacheKey, out, xid)
+	// v0.10.1400 — akış + önbellek gövdesi tek yerde (chat_explain_core.go
+	// streamExplainCore; chatExplainTurn ve guidedTraceExplain de oradan).
+	res, sok := s.streamExplainCore(ctx, emit, aisurface.ExplainExceptionChat, system, in.User, explainCacheKey(system, in.User, ""))
+	if !sok {
+		return true, false
 	}
-	text := strings.TrimSpace(raw) + opExceptionExplainFooterTR(top, p.Operation)
-	links := []guidedAnswerLink{{Label: "Exceptions grubu " + clipRunes(label, exGroupOpRunes), Href: top.ExplainHref}}
+	xid := res.Xid
+	text := trimExplainText(res) + opExceptionExplainFooterTR(top, p.Operation)
+	// v0.10.1400 — grup linki ÇIPLAK grup sayfası: açıklama zaten bu turda;
+	// `&ai=exception` artık sohbete yeni bir açıklama turu açar (çift tur olurdu).
+	groupHref := top.Href
+	if groupHref == "" {
+		groupHref = top.ExplainHref
+	}
+	links := []guidedAnswerLink{{Label: "Exceptions grubu " + clipRunes(label, exGroupOpRunes), Href: groupHref}}
 	if p.TracesHref != "" {
 		links = append(links, guidedAnswerLink{Label: clipRunes(p.Operation, exGroupOpRunes) + " trace'leri", Href: p.TracesHref})
 	}
 	links = append(links, s.answerRequestIDLinks(ctx, text, top.Service)...)
-	ans := map[string]any{"text": text, "exchangeId": xid, "links": dedupLinksByHref(links)}
-	if cached {
-		ans["cached"] = true
-	}
+	ans := withExplainCached(map[string]any{"text": text, "exchangeId": xid, "links": dedupLinksByHref(links)}, res)
 	emit("answer", withAnswerFollowups(ans, opExceptionExplainFollowups(others, p.followupFacts())))
 	return true, true
 }

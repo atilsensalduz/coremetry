@@ -40,7 +40,7 @@ describe('BAĞLANMA (kaynak pinleri)', () => {
     // olduğundan ref de aynı anda kırpılmalı, yoksa soru geçmişte iki kez.
     const i = hook.indexOf('turnsRef.current = trimmed');
     expect(i).toBeGreaterThan(-1);
-    expect(i).toBeLessThan(hook.indexOf("void send(q, { attempt: 'retry' })", i)); // CoSRE Faz 1 — deneme beyanı
+    expect(i).toBeLessThan(hook.indexOf("void send(q, { attempt: 'retry'", i)); // CoSRE Faz 1 — deneme beyanı (v0.10.1400 — + explainAsk)
     expect(hook).toMatch(/return \{[^}]*\bretry\b[^}]*\}/);
   });
   it('iki yüzey de son hatalı tura onRetry geçirir', () => {
@@ -62,8 +62,9 @@ describe('deneme beyanı (attempt)', () => {
   const src = (f: string) => readFileSync(new URL(f, import.meta.url), 'utf8');
   it('retry / regenerate / edit kendi beyanıyla gönderir; api gövdeye koyar', () => {
     const hook = src('./useChatThread.ts');
-    expect(hook).toContain("void send(q, { attempt: 'retry' })");
-    expect(hook).toMatch(/alternatives: r\.alternatives, attempt: 'regenerate' \}/);
+    // v0.10.1400 — açıklama turunun niyeti (explainAsk) de aynen yeniden gider.
+    expect(hook).toContain("void send(q, { attempt: 'retry', ...(ask ? { explainAsk: ask } : {}) })");
+    expect(hook).toMatch(/alternatives: r\.alternatives, attempt: 'regenerate', \.\.\.\(ask \? \{ explainAsk: ask \} : \{\}\) \}/);
     expect(hook).toMatch(/attempt: 'edit' \}\)/);
     const api = src('../../lib/api.ts');
     expect(api).toContain('...(contextAttempt ? { attempt: contextAttempt } : {})');

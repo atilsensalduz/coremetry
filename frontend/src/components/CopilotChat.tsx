@@ -5,7 +5,7 @@ import { useCopilotStarters } from '@/lib/queries/copilot'; // v0.10.702
 import { api } from '@/lib/api';
 import { pageContext } from '@/lib/pageContext';
 import { hasPinnableContext, legacyFromPinned, pinLabelTR, readPin, writePin } from '@/lib/pinnedContext';
-import type { PageContext } from '@/lib/types';
+import type { ChatExplainAsk, ChatTurn, PageContext } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Chip } from '@/components/ui/Chip';
 import { IconButton } from '@/components/ui/IconButton';
@@ -48,10 +48,12 @@ import { AI_PREFILL_EVENT, type AIPrefillDetail } from './ai/aiEvents'; // v0.10
 import { AI_DRAWER_WIDTH } from './ai/answerCard'; // v0.10.461
 import { AIDrawerBody } from './ai/AIDrawerBody'; // v0.10.483 — ✨ Explain gövdesi aynı çekmecede
 import { useAiSubject } from './ai/useAiSubject';
-import { aiSubjectSubtitle, aiSubjectTitle, formatAiParam, parseAiParam } from '@/lib/aiSubject';
+import { AI_SRC_PARAM, aiSubjectSubtitle, aiSubjectTitle, formatAiParam, parseAiParam } from '@/lib/aiSubject';
+import { activeExplainFrom, explainAskFor, explainContextLabel, explainFollowupContext, explainSubject, isExplainTurnKind } from './ai/explainTurn'; // v0.10.1400
+import { drawerFollowups } from './ai/drawerChat'; // v0.10.1400 — açıklama turunun takip çipleri
 import { greetHello, greetErrors, greetHref, greetTooltip } from './ai/greeting';
 import type { AiConversation, AiConversationSummary } from '@/lib/types';
-import { traceContextFromPage, useTraceAiContext } from '@/lib/traceAiContext'; // v0.10.944
+import { traceChatWindow, traceContextToPage, useTraceAiContext, type TraceAiContext } from '@/lib/traceAiContext'; // v0.10.944; v0.10.1400 — açıklama turunun trace bağlamı
 import { TraceContextStrip } from './ai/TraceContextStrip'; // v0.10.944
 import { ChatLinkNewTabContext } from './ai/chatLinkTarget'; // v0.10.1125 — /cosre
 import { ThemeToggle } from './ThemeToggle';
@@ -159,7 +161,12 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
   const open = isPage || openState; // v0.10.1125 — sayfa kipinde hep açık
   // v0.10.483 — ✨ Explain öznesi (`?ai=`): varsa çekmece AÇIK ve açıklama
   // kipinde (AIDrawerBody); genel sohbet kipi öznesizken. Tek kabuk.
-  const [subject, setSubject] = useAiSubject();
+  const [rawSubject, setSubject] = useAiSubject();
+  // v0.10.1400 (Tek CoSRE) — trace / exception öznesi çekmeceyi açıklama
+  // kipine ALMAZ: `?ai=` tek seferlik bir niyet olarak tüketilir ve sohbete
+  // açıklama turu gönderilir (aşağıdaki effect). Özne kipi yalnız diğer
+  // türler için (span, problem, … — v0.10.1401).
+  const subject = rawSubject && !isExplainTurnKind(rawSubject.kind) ? rawSubject : null;
   const drawerOpen = open || subject !== null;
   // v0.10.944 (CoSRE Faz A) — geçmişten açılan ÖZNELİ konuşma. Çekmece
   // sohbeti onu BİR KEZ devralır (`consumed`); öznesi/bağlamı ise şerit için
@@ -185,16 +192,6 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
     if (prev === subjectKey) return;
     setResume(r => (r && r.conv.subject === prev && r.conv.subject !== subjectKey ? null : r));
   }, [subjectKey]);
-  // v0.10.944 — trace öznesinin bağlamı: sayfanın CANLI yayını (Trace.tsx /
-  // TraceKiosk.tsx → lib/traceAiContext), yoksa konuşmanın kayıtlı anlık
-  // görüntüsü. Şerit ve çekmece sohbetinin her turu AYNI nesneyi okur.
-  const traceSubjectId = subject?.kind === 'trace' ? subject.id : null;
-  const liveTraceCtx = useTraceAiContext(traceSubjectId);
-  const savedTraceCtx = useMemo(() => {
-    const c = resumeFor ? traceContextFromPage(resumeFor.conv.context) : null;
-    return c && c.traceId === traceSubjectId ? c : null;
-  }, [resumeFor, traceSubjectId]);
-  const drawerTraceCtx = liveTraceCtx ?? savedTraceCtx;
   const navigate = useNavigate(); // v0.10.434 (D7b) — "sayfasını aç" cevabı SPA içinde gezer
   // v0.9.169 — proaktif rozet: açık KRİTİK problem sayısı (chat kapalıyken
   // FAB'da kırmızı rozet). Yalnız copilot açıkken pollar; RQ tab gizliyken durur.
@@ -303,10 +300,39 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
     pinnedPage: pinned ?? undefined, // v0.10.540 — sabitlenmiş bağlam
   }), [pinnedLegacy, currentService, currentOp, rangeS, toMs, currentTrace, env, page, pinned]);
   const reqCtx = useMemo(() => applyContextExclusions(screenReqCtx, ctxExcluded), [screenReqCtx, ctxExcluded]);
-  const ctxItems = useMemo(() => contextBarItems(reqCtx), [reqCtx]);
+  const baseCtxItems = useMemo(() => contextBarItems(reqCtx), [reqCtx]);
+  // v0.10.1400 (Tek CoSRE) — açıklama turunun TAKİP bağlamı: konuşmadaki son
+  // açıklama turu (explainTurn.activeExplainFrom) takip sorularına çekmece
+  // özne kipindeki AYNI iki alanı ekler — context.explain (künye + metin +
+  // kanıt) ve context.subject (`?ai=` kodeği; sunucu ham kanıtı yeniden
+  // kurar) — trace türünde ayrıca trace kimliği + sayfa bağlamı + trace
+  // penceresi (AIDrawerChat ile aynı kural). Gönderim ANINDA turlardan çözülür
+  // (useChatThread resolveOpts). Bağlam şeridinde "✨ trace …" öğesi; ✕ o
+  // açıklama turunu bağlamdan çıkarır (yeni açıklama turu yeniden bağlar).
+  const [explainOff, setExplainOff] = useState('');
+  const explainTraceCtxRef = useRef<TraceAiContext | null>(null);
+  const resolveExplainOpts = (ts: readonly ChatTurn[]) => {
+    const a = activeExplainFrom(ts);
+    if (!a || a.key === explainOff) return {};
+    const fc = explainFollowupContext(a);
+    if (a.meta.kind !== 'trace') return fc;
+    const live = explainTraceCtxRef.current?.traceId === a.meta.id ? explainTraceCtxRef.current : null;
+    const win = live ? traceChatWindow(live, Date.now()) : null;
+    const scoped = applyContextExclusions({
+      trace: a.meta.id,
+      page: live ? traceContextToPage(live) : { page: 'trace', path: '/trace', traceId: a.meta.id },
+      ...(live?.env ? { env: live.env } : {}),
+      ...(win ? { rangeS: win.rangeS, toMs: win.toMs } : {}),
+    }, ctxExcluded);
+    const out: Partial<ChatRequestContext> & { explain: string; subject: string } = { ...fc, trace: scoped.trace, page: scoped.page };
+    if (live?.env && scoped.env) out.env = scoped.env;
+    if (win && scoped.rangeS) { out.rangeS = scoped.rangeS; out.toMs = scoped.toMs; }
+    return out;
+  };
   const { turns, busy, send, retry, regenerate, editLast, stop, clear, load, flushSave, conversationId, last, showFollowups } =
     useChatThread({
       ...reqCtx,
+      resolveOpts: resolveExplainOpts, // v0.10.1400
       profile: profile || undefined,
       deep, // v0.10.1150 — açıkken context.deep: true
       // v0.10.1138 — sunucu seçili profili reddetti (rolüne kapalı / silinmiş) → varsayılana dön.
@@ -328,10 +354,20 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
   // konuşma değişince / yenilemede kaybolmaz, gönderimde silinir. (Konuşma
   // kimliği useChatThread'den geldiği için durum onun ALTINDA kurulur.)
   const draft = useComposerDraft('chat', conversationId);
+  // v0.10.1400 — etkin açıklama turu (✕ ile çıkarılmadıysa) + trace bağlamı.
+  const activeExplainAll = useMemo(() => activeExplainFrom(turns), [turns]);
+  const activeExplain = activeExplainAll && activeExplainAll.key !== explainOff ? activeExplainAll : null;
+  const explainTraceId = activeExplain?.meta.kind === 'trace' ? activeExplain.meta.id : null;
+  const liveTraceCtx = useTraceAiContext(explainTraceId);
+  explainTraceCtxRef.current = liveTraceCtx;
+  const ctxItems = useMemo(() => (activeExplain
+    ? [{ key: 'explain' as const, label: explainContextLabel(activeExplain.meta),
+        title: 'Takip soruları bu açıklamaya bağlanır (aynı kanıt) — ✕ ile bu konuşmadan çıkar' }, ...baseCtxItems]
+    : baseCtxItems), [activeExplain, baseCtxItems]);
   // v0.10.1274 — çıkarmalar konuşmaya bağlı: başka konuşmaya geçince sıfır.
   const prevConvRef = useRef(conversationId);
   useEffect(() => {
-    if (shouldResetExclusions(prevConvRef.current, conversationId)) setCtxExcluded(new Set());
+    if (shouldResetExclusions(prevConvRef.current, conversationId)) { setCtxExcluded(new Set()); setExplainOff(''); }
     prevConvRef.current = conversationId;
   }, [conversationId]);
   const input = draft.value;
@@ -421,7 +457,9 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
       // bağlam şeridi kayıtlı anlık görüntüyü gösterir. Eskiden özne
       // düşüyor, turlar genel pencereye bağlamsız yükleniyordu.
       const subj = parseAiParam(t.subject ?? '');
-      if (subj) {
+      // v0.10.1400 — trace / exception özneli ESKİ çekmece konuşması artık özne
+      // kipine dönmez (o kip yok); turları sohbete normal yüklenir.
+      if (subj && !isExplainTurnKind(subj.kind)) {
         const c = await api.aiConversation(t.id);
         setResume({ conv: { ...c, subject: c.subject || t.subject }, consumed: false });
         setSubject(subj);
@@ -530,6 +568,26 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
     window.addEventListener('coremetry:ai-ask', h);
     return () => window.removeEventListener('coremetry:ai-ask', h);
   }, [send]);
+  // v0.10.1400 (Tek CoSRE; operatör: "Explain trace'te çıkan loading ikonu
+  // güzel ama chat'ten 'bu trace'i açıkla' deyince aynı yerde devam etmiyor,
+  // sanki yeni drawer açılıyor.") — `?ai=trace|exception` TEK SEFERLİK bir
+  // niyet: ✨ düğmesi, nudge ve derin linkler (/trace?id=X&ai=trace,
+  // /problems?exc=…&ai=exception, /cosre?ai=…) sohbeti açar ve açıklamayı
+  // SOHBET TURU olarak gönderir (aynı thread, aynı composer, aynı Durdur);
+  // `?ai=` hemen düşer (konuşma kalıcılaşınca adres ?chat= taşır). Ref
+  // muhafızı: StrictMode'un çift effect'i ve aynı niyetin yeniden render'ı
+  // tek tur gönderir. Copilot yapılandırması gelene dek bekler.
+  const explainAskSentRef = useRef('');
+  const rawSubjectKey = rawSubject ? formatAiParam(rawSubject) : '';
+  useEffect(() => {
+    if (!rawSubject || !isExplainTurnKind(rawSubject.kind)) { explainAskSentRef.current = ''; return; }
+    if (enabled !== true || explainAskSentRef.current === rawSubjectKey) return;
+    explainAskSentRef.current = rawSubjectKey;
+    const ask = explainAskFor(rawSubject, sp.get(AI_SRC_PARAM) || 'ai-param');
+    setOpen(true);
+    setSubject(null);
+    if (ask) { pinBottom(); void send(ask.userText, { explainAsk: ask.explainAsk }); }
+  }, [rawSubject, rawSubjectKey, enabled, sp, send, pinBottom, setSubject]);
   // v0.10.1336 — rehberli tur köprüsü (aiEvents AI_PREFILL_EVENT): ai-ask'ın
   // kardeşi ama GÖNDERMEZ — çekmeceyi açar, composer'ı doldurur, imleç sonda,
   // odak (prefill: belgelenmiş "doldur + imleç + odak" yolu). send'e dokunmaz.
@@ -575,6 +633,11 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
   const askChip = (text: string, so?: ChatSendOpts) => {
     setInput(''); setChosen([]); pinBottom();
     void send(text, so);
+  };
+  // v0.10.1400 — bağlam çipi (trace / exception) açıklamayı sohbet turu olarak ister.
+  const askExplain = (a: ChatExplainAsk) => {
+    const x = explainAskFor(explainSubject(a), a.src);
+    if (x) askChip(x.userText, { explainAsk: x.explainAsk });
   };
   const acceptCompletion = (item: CompletionItem | undefined) => {
     if (!completion.cq || !item) return;
@@ -700,9 +763,10 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
           {/* v0.10.944 (CoSRE Faz A) — "Bağlam" şeridi: başlık satırının hemen
               altında, trace öznesinde. Başlığın TEK SATIR kararı (v0.10.483)
               korunur; şerit kendi satırında sarar. */}
-          {subject?.kind === 'trace' && (
-            <TraceContextStrip traceId={subject.id} ctx={drawerTraceCtx}
-              saved={!liveTraceCtx && !!savedTraceCtx} />
+          {/* v0.10.1400 — etkin açıklama turu bir trace ise ve sayfa onun canlı
+              bağlamını yayınlıyorsa şerit (takip soruları bu kapsamla gider). */}
+          {activeExplain?.meta.kind === 'trace' && liveTraceCtx && (
+            <TraceContextStrip traceId={activeExplain.meta.id} ctx={liveTraceCtx} />
           )}
 
           {/* Geçmiş bölümü (v0.9.1139) — başlık + son etkinlik + mesaj
@@ -783,7 +847,6 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
               {/* v0.10.1291 — açıklama kipi: satır başı ✨'ler gizlenir (aiDrawerContext). */}
               <InAiDrawerContext.Provider value={true}>
               <AIDrawerBody key={formatAiParam(subject)} subject={subject} onClose={closeDrawer}
-                traceCtx={drawerTraceCtx}
                 resume={resumeFor && !resumeFor.consumed ? resumeFor.conv : null}
                 onResumed={markResumed} />
               </InAiDrawerContext.Provider>
@@ -839,7 +902,7 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
                       Otomatik açıklama DEĞİL — sohbeti açmak bir LLM
                       çağrısı tetiklememeli (gerekçe lib/chatContext.ts). */}
                   {ctxStarter && (
-                    <Chip pill tone="accent" onClick={() => submit(ctxStarter.question)}>
+                    <Chip pill tone="accent" onClick={() => (ctxStarter.explainAsk ? askExplain(ctxStarter.explainAsk) : submit(ctxStarter.question))}>
                       ✨ {ctxStarter.chip}
                     </Chip>
                   )}
@@ -898,7 +961,8 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
               tık metni + yapısal kapsamı gönderir (FollowupChips). */}
           {showFollowups && (
             <div className="cm-followups">
-              <FollowupChips followups={last.followups} suggestions={last.suggestions} fallback={FOLLOWUPS}
+              <FollowupChips followups={last.followups} suggestions={last.suggestions}
+                fallback={last.explain ? drawerFollowups(explainSubject(last.explain)) : FOLLOWUPS /* v0.10.1400 — açıklama turunun özne çipleri */}
                 exchangeId={last.exchangeId} onAsk={askChip} />
             </div>
           )}
@@ -969,7 +1033,9 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
               </>} />
             {/* v0.10.1274 — aktif bağlam şeridi: sunucu bu kapsamı araçlara uygular; ✕ bu konuşmadan çıkarır. */}
             <ChatContextBar items={ctxItems}
-              onRemove={k => setCtxExcluded(prev => new Set(prev).add(k))} />
+              onRemove={k => (k === 'explain'
+                ? setExplainOff(activeExplain?.key ?? '') // v0.10.1400 — bu açıklama turu bağlamdan çıkar
+                : setCtxExcluded(prev => new Set(prev).add(k)))} />
             {/* v0.10.1138 — yapısal kapsam çipleri: gönderimde context.scope/command olarak gider. */}
             {composerChips.length > 0 && (
               <div className="cm-scope-chips" aria-label="Mesaj kapsamı">

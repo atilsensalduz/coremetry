@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { appendChatBlock } from '@/lib/chatBlocks';
 import { isSafeAppPath } from '@/lib/safeAppPath';
-import type { AiConversation, ChatAttempt, PageContext } from '@/lib/types';
+import type { AiConversation, ChatAttempt, ChatExplainAsk, PageContext } from '@/lib/types';
 import type { ChatMessage, ChatTurn } from '@/lib/types';
 import { capPageContext } from '@/lib/traceAiContext';
 import { isAbortError, settleStoppedTurn, settleTruncatedTurn } from './chatAbort';
@@ -108,6 +108,13 @@ export interface ChatThreadOpts {
    * "yeniden dene" ile varsayılan modelle tekrar gönderilir.
    */
   onProfileRejected?: (profile: string, code: string) => void;
+  /**
+   * v0.10.1400 — gönderim ANINDA turlardan çözülen ek bağlam (CoSRE penceresi:
+   * son açıklama turunun takip bağlamı — explain / subject / trace / page).
+   * Sonuç seçeneklerin ÜSTÜNE biner; yalnız istek gövdesine girer (kalıcı
+   * satırın öznesi/başlığı değişmez). Yokken davranış bayt bayt eski.
+   */
+  resolveOpts?: (turns: readonly ChatTurn[]) => Partial<ChatThreadOpts>;
 }
 
 /** v0.10.1138 — send'in isteğe bağlı ikinci argümanı. */
@@ -120,6 +127,12 @@ export interface ChatSendOpts {
   alternatives?: ChatTurn[];
   /** CoSRE öğrenme Faz 1 — sunucuya giden deneme beyanı (yeni soru = yok). */
   attempt?: ChatAttempt;
+  /**
+   * v0.10.1400 — yapısal açıklama niyeti (trace / exception ✨ sohbet içinde;
+   * components/ai/explainTurn.ts). Kullanıcı turu niyeti taşır (yeniden dene /
+   * üret aynısını yollar); bekleyen cevap baştan açıklama turu olarak çizilir.
+   */
+  explainAsk?: ChatExplainAsk;
 }
 
 export function useChatThread(opts: ChatThreadOpts = {}) {
@@ -219,7 +232,8 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
       abortRef.current?.abort();
       return;
     }
-    const o = optsRef.current;
+    const o0 = optsRef.current;
+    const o: ChatThreadOpts = o0.resolveOpts ? { ...o0, ...o0.resolveOpts(turnsRef.current) } : o0; // v0.10.1400
     // v0.10.1138 — @-anmalar / komut → yapısal kapsam. Yoksa ikisi de undefined
     // ve istek gövdesi bayt bayt eski (chatScope.ts).
     // v0.10.1139 — çekmece bağlamında (explain/subject/trace/sayfa traceId)
@@ -248,8 +262,9 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
     ];
     setTurns(prev => [
       ...prev,
-      { role: 'user', text: q, ...(parsed.scope ? { scope: parsed.scope } : {}), ...(parsed.command ? { command: parsed.command } : {}) },
-      { role: 'assistant', text: '', steps: [], pending: true, ...(so?.alternatives?.length ? { alternatives: so.alternatives } : {}), ...(o.deep ? { deep: true } : {}) },
+      { role: 'user', text: q, ...(parsed.scope ? { scope: parsed.scope } : {}), ...(parsed.command ? { command: parsed.command } : {}), ...(so?.explainAsk ? { explainAsk: so.explainAsk } : {}) },
+      // v0.10.1400 — açıklama turu: geçici künye (tür + kimlik) → balon baştan ExplainBody; answer gerçeğiyle değiştirir.
+      { role: 'assistant', text: '', steps: [], pending: true, ...(so?.alternatives?.length ? { alternatives: so.alternatives } : {}), ...(o.deep ? { deep: true } : {}), ...(so?.explainAsk ? { explain: { kind: so.explainAsk.kind, id: so.explainAsk.id } } : {}) },
     ]);
     busyRef.current = true;
     setBusy(true);
@@ -297,7 +312,7 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
           patchLast(t => withArrival(t, applyChatDelta(t.text, e), false));
         } else if (e.kind === 'answer') {
           // v0.10.1384 — metin withArrival'dan: öncesinde akış yoksa tüm cevap varış damgası alır.
-          patchLast(t => ({ ...withArrival(t, e.text, true), exchangeId: e.exchangeId, sources: e.sources, suggestions: e.suggestions, followups: e.followups, links: e.links, allowedLinks: e.allowedLinks, evidence: e.evidence, pending: false })); // v0.10.1137 — link doğrulama listesi; v0.10.1272 — kanıt çipleri; v0.10.1291 — kural-türevli takip çipleri
+          patchLast(t => ({ ...withArrival(t, e.text, true), exchangeId: e.exchangeId, sources: e.sources, suggestions: e.suggestions, followups: e.followups, links: e.links, allowedLinks: e.allowedLinks, evidence: e.evidence, explain: e.explain, pending: false })); // v0.10.1400 — açıklama künyesi (yoksa düz cevap); v0.10.1137 — link doğrulama listesi; v0.10.1272 — kanıt çipleri; v0.10.1291 — kural-türevli takip çipleri
           // v0.10.434 (D7b) — yalnız uygulama-içi (kök-göreli) href; dış adres asla.
           // v0.10.1314 — kapı isSafeAppPath ("/\evil.com" react-router v6'da dışarı açılırdı).
           if (e.open && isSafeAppPath(e.open)) o.onOpen?.(e.open);
@@ -314,7 +329,8 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
         wikiRefs.length > 0 ? wikiRefs : undefined, // v0.10.1134 — wiki takip sorusu
         parsed.scope, parsed.command, // v0.10.1138 — yapısal @-kapsam + /komut
         o.deep || undefined, // v0.10.1150 — Derin düşün (kapalıyken gövdede yok)
-        so?.attempt); // Faz 1 — retry/regenerate/edit beyanı
+        so?.attempt, // Faz 1 — retry/regenerate/edit beyanı
+        so?.explainAsk); // v0.10.1400 — yapısal açıklama niyeti
       // v0.10.648 — terminal olaysız EOF: tur asılı kalmasın (chatAbort.ts).
       patchLast(settleTruncatedTurn);
     } catch (err) {
@@ -422,10 +438,11 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
   const retry = useCallback(() => {
     const q = failedQuestion(turnsRef.current);
     if (!q || busyRef.current) return;
+    const ask = turnsRef.current[turnsRef.current.length - 2]?.explainAsk; // v0.10.1400 — aynı niyet
     const trimmed = dropFailedTail(turnsRef.current);
     turnsRef.current = trimmed;
     setTurns(trimmed);
-    void send(q, { attempt: 'retry' });
+    void send(q, { attempt: 'retry', ...(ask ? { explainAsk: ask } : {}) });
   }, [send]);
 
   const stop = useCallback(() => {
@@ -442,9 +459,10 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
     if (busyRef.current) return;
     const r = regenerateBase(turnsRef.current);
     if (!r) return;
+    const ask = turnsRef.current[turnsRef.current.length - 2]?.explainAsk; // v0.10.1400 — açıklama turu aynı niyetle (önbellek isabeti)
     turnsRef.current = r.base;
     setTurns(r.base);
-    void send(r.question, { parsed: r.parsed, alternatives: r.alternatives, attempt: 'regenerate' });
+    void send(r.question, { parsed: r.parsed, alternatives: r.alternatives, attempt: 'regenerate', ...(ask ? { explainAsk: ask } : {}) });
   }, [send]);
 
   // v0.10.1138 — son kullanıcı mesajını düzenle: o mesaj ve SONRASI düşer,

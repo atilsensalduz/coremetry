@@ -11,7 +11,9 @@ import type { PageContext } from '@/lib/types';
 // sunucu page.service'ten servisi geri kurardı (freeLoopScreenService).
 // Saf: vitest'li; durum bileşende (URL'ye yazılmaz).
 
-export type ContextKey = 'service' | 'env' | 'range' | 'trace';
+// v0.10.1400 — 'explain': son açıklama turunun takip bağlamı (CopilotChat;
+// explainTurn.ts). Düz alanı yok — çıkarma CopilotChat'te tura bağlı tutulur.
+export type ContextKey = 'service' | 'env' | 'range' | 'trace' | 'explain';
 
 export interface ContextBarItem {
   key: ContextKey;

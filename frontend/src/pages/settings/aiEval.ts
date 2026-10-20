@@ -341,7 +341,7 @@ export function expectLines(e: EvalExpect | null | undefined): string[] {
  *  beklenti satırı). Bilinmeyen kademe ham adıyla. */
 const TIER_LABEL: Record<string, string> = {
   loop: 'döngü', guided: 'kılavuz', intent: 'niyet', wiki: 'wiki', rag: 'doküman', drawer: 'çekmece',
-  scope: 'kapsam', 'doc-rows': 'doküman satırı', operation: 'operasyon', memory: 'hafıza', other: 'diğer',
+  scope: 'kapsam', 'doc-rows': 'doküman satırı', operation: 'operasyon', memory: 'hafıza', explain: 'açıklama', other: 'diğer', // v0.10.1400 — explain
 };
 export function tierLabel(tier: string | undefined | null): string {
   if (!tier) return '—';

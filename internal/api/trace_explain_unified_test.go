@@ -41,17 +41,18 @@ func TestChatTraceExplainMatchesExplainButton(t *testing.T) {
 	}
 	us := string(u)
 	for _, want := range []string{
-		// v0.10.460 — açıklama isteği Explain ÇEKMECESİNİ açar (tek uygulama).
-		`"open":        href`,
-		`"&aisrc=chat"`,
-		`s.copilotStreamSurface(ctx, "explain-trace:chat", system, user,`,
+		// v0.10.1400 (Tek CoSRE) — açıklama isteği çekmece AÇMAZ; sohbet içinde
+		// düğmenin klasik anahtarıyla akar (emitTraceExplainAnswer).
+		`return s.emitTraceExplainAnswer(ctx, emit, route.TraceID, in, route, links)`,
+		`s.streamExplainCore(ctx, emit, aisurface.ExplainTraceChat, system, user, "")`,
 		`"evidenceSpanIds": in.Evidence`,
 	} {
 		if !strings.Contains(us, want) {
 			t.Errorf("birleşik yol %q içermeli", want)
 		}
 	}
-	for _, no := range []string{"guidedNarrationUser(", "withAddressee(", `"\n\nKaynak: "`} {
+	// v0.10.1400 — v0.10.460'ın `open` sıçrayışı ve aisrc=chat çekmecesi yok.
+	for _, no := range []string{"guidedNarrationUser(", "withAddressee(", `"\n\nKaynak: "`, `"open":`, `aisrc=chat`} {
 		if strings.Contains(us, no) {
 			t.Errorf("birleşik yol %q kullanmamalı (Explain ile birebir)", no)
 		}

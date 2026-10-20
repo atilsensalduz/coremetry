@@ -168,7 +168,9 @@ describe('kaynak pinleri — çip tıkı kapsamla gönderilir', () => {
   const src = (f: string) => readFileSync(new URL(f, import.meta.url), 'utf8');
   it('CopilotChat: FollowupChips → askChip → send(text, so)', () => {
     const c = src('../CopilotChat.tsx');
-    expect(c).toContain('<FollowupChips followups={last.followups} suggestions={last.suggestions} fallback={FOLLOWUPS}');
+    // v0.10.1400 — açıklama turunda yedek çipler öznenin çipleri.
+    expect(c).toContain('<FollowupChips followups={last.followups} suggestions={last.suggestions}');
+    expect(c).toContain('fallback={last.explain ? drawerFollowups(explainSubject(last.explain)) : FOLLOWUPS');
     expect(c).toMatch(/const askChip = \(text: string, so\?: ChatSendOpts\) => \{[\s\S]{0,80}void send\(text, so\);/);
     expect(c).toContain('<InAiDrawerContext.Provider value={true}>');
   });

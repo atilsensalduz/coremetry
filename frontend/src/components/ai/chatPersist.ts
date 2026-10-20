@@ -33,9 +33,12 @@ export function persistMessages(turns: ChatTurn[]): ChatMessage[] {
     .filter(t => !t.error && !t.pending && (t.text ?? '').trim() !== '')
     // v0.10.1272 — asistan cevabının kanıt çipleri de arşive gider (yalnız varsa:
     // kanıtsız mesaj bayt-bayt {role,text} kalır).
-    .map<ChatMessage>(t => (t.role === 'assistant' && t.evidence?.length
-      ? { role: t.role, text: t.text ?? '', evidence: t.evidence }
-      : { role: t.role, text: t.text ?? '' }));
+    // v0.10.1400 — açıklama turunun künyesi de (yalnız asistan, yalnız varsa).
+    .map<ChatMessage>(t => ({
+      role: t.role, text: t.text ?? '',
+      ...(t.role === 'assistant' && t.evidence?.length ? { evidence: t.evidence } : {}),
+      ...(t.role === 'assistant' && t.explain ? { explain: t.explain } : {}),
+    }));
   return keep.length > PERSIST_MESSAGE_CAP ? keep.slice(-PERSIST_MESSAGE_CAP) : keep;
 }
 
@@ -51,9 +54,11 @@ export function restoreTurns(messages: ChatMessage[] | undefined): ChatTurn[] {
   if (!messages?.length) return [];
   return messages
     .filter(m => (m.role === 'user' || m.role === 'assistant') && (m.text ?? '').trim() !== '')
-    .map<ChatTurn>(m => (m.role === 'assistant' && m.evidence?.length
-      ? { role: m.role, text: m.text ?? '', evidence: m.evidence } // v0.10.1272 — geri yüklenen kanıt çipleri
-      : { role: m.role, text: m.text ?? '' }));
+    .map<ChatTurn>(m => ({
+      role: m.role, text: m.text ?? '',
+      ...(m.role === 'assistant' && m.evidence?.length ? { evidence: m.evidence } : {}), // v0.10.1272 — geri yüklenen kanıt çipleri
+      ...(m.role === 'assistant' && m.explain ? { explain: m.explain } : {}), // v0.10.1400 — açıklama yine yapısal çizilir
+    }));
 }
 
 /**

@@ -20,7 +20,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { act, useEffect } from 'react';
-import { MemoryRouter, useLocation, useNavigate, type NavigateFunction } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 vi.hoisted(() => {
@@ -72,13 +72,7 @@ const CTX: TraceAiContext = {
 let host: HTMLDivElement;
 let root: Root;
 let search = '';
-let nav: NavigateFunction | null = null;
-function Probe() { search = useLocation().search; nav = useNavigate(); return null; }
-async function go(to: string) {
-  const n = nav;
-  if (!n) throw new Error('router gezgini yok');
-  await act(async () => { void n(to); });
-}
+function Probe() { search = useLocation().search; return null; }
 
 const bodyText = () => document.body.textContent ?? '';
 const button = (label: string) =>
@@ -117,7 +111,6 @@ afterEach(() => {
   publishTraceAiContext(null);
   explainCtl.answer = EXPLAIN_TEXT;
   explainCtl.onAnswer = null;
-  nav = null;
   vi.restoreAllMocks();
   vi.useRealTimers();
 });
@@ -234,144 +227,48 @@ async function openSavedTrace() {
   await act(async () => { button('Explain trace · 0af76519…')?.click(); });
 }
 
-describe('CopilotChat — özneli konuşma geçmişten (3) ve canlı şerit (4)', () => {
+// v0.10.1400 (Tek CoSRE; operatör: "Trace ve exception üzerinden çalışan Ask
+// CoSRE açıklamaları güzel ama sanki ayrı drawer hissi, CoSRE bütünselliğine
+// uymuyor.") — trace / exception artık çekmecenin ÖZNE KİPİNE dönmez:
+// v0.10.944'ün (3)/(5)/(6) pinleri (geçmişten özne kipini yeniden açma,
+// açıklamadan bağımsız devralma, gezinmede devralmanın düşmesi) trace için
+// GEÇERSİZ — açıklama bir sohbet turu (CopilotChat.explainTurn.test.tsx).
+// Kalan sözleşme: eski trace-özneli konuşma Geçmiş'ten NORMAL yüklenir; canlı
+// şerit artık açıklama turunun bağlamında (yeni dosyada pinli).
+describe('CopilotChat — trace özneli eski konuşma (v0.10.1400)', () => {
   beforeEach(() => {
     vi.spyOn(api, 'me').mockResolvedValue({ id: 'u1', email: 'op@example.com', role: 'admin', firstName: 'Deniz' });
     vi.spyOn(api, 'problemsCount').mockResolvedValue({ count: 0 });
     vi.spyOn(api, 'problems').mockResolvedValue({ items: [], total: 0, truncated: false });
   });
 
-  it('satıra tıklamak özne kipini açar, şerit kayıtlı görüntüyü gösterir, turlar devralınır', async () => {
+  it('Geçmiş satırı özne kipini AÇMAZ; turlar sohbete yüklenir, devam AYNI konuşmaya', async () => {
     vi.spyOn(api, 'aiConversations').mockResolvedValue(THREADS);
     const get = vi.spyOn(api, 'aiConversation').mockResolvedValue(CONV);
     const chat = stubChat();
     vi.spyOn(api, 'saveAiConversation').mockResolvedValue({ ...CONV, messages: [] });
 
-    await act(async () => { root.render(shell('/')); });
-    const fab = document.querySelector<HTMLButtonElement>('.cm-ai-fab');
-    if (!fab) throw new Error('FAB çizilmedi');
-    await act(async () => { fab.click(); });
-    await act(async () => { button('Geçmiş')?.click(); });
-    await act(async () => { button('Explain trace · 0af76519…')?.click(); });
-
+    await openSavedTrace();
     expect(get).toHaveBeenCalledWith('d1');
-    expect(new URLSearchParams(search).get('ai')).toBe(`trace:${TRACE}`);
-    const strip = document.body.querySelector('.ai-ctx');
-    expect(strip?.getAttribute('role')).toBe('group');
-    expect(strip?.getAttribute('aria-label')).toBeTruthy();
-    expect(strip?.textContent).toContain('0af76519');
-    expect(strip?.textContent).toContain('payments');
-    expect(strip?.textContent).toContain('uat');
-    expect(strip?.textContent).toContain('cluster-a / billing');
-    // Kayıtlı görüntü olduğu SÖYLENİR (canlı sayfa değil).
-    expect(strip?.getAttribute('title')).toBeTruthy();
-    // Turlar devralındı.
+    expect(new URLSearchParams(search).get('ai')).toBeNull();
     expect(bodyText()).toContain('dünkü cevap');
+    expect(document.body.querySelector('.ai-ctx')).toBeNull();
+    // Tek composer (CoSRE'nin kendisi) — çekmece sohbetinin ikincisi yok.
+    expect(document.body.querySelectorAll('textarea').length).toBe(1);
 
-    // Devam turu AYNI konuşmaya, kayıtlı bağlamla gider.
-    await act(async () => { button('Bu neden oluyor?')?.click(); });
+    await act(async () => { button('Açık problemlerin kök nedeni?')?.click(); });
+    expect(chat).toHaveBeenCalledTimes(1);
     const a = argsOf(chat.mock.calls[0]);
     expect(a.conversation).toBe('d1');
-    expect(a.env).toBe('uat');
     expect(a.messages.map(m => m.text)).toContain('dünkü soru');
-  });
-
-  it('canlı bağlam varsa şerit onu gösterir (kayıt ipucu yok)', async () => {
-    vi.spyOn(api, 'aiConversations').mockResolvedValue([]);
-    publishTraceAiContext(CTX);
-    await act(async () => { root.render(shell(`/trace?id=${TRACE}&ai=trace`)); });
-    await act(async () => { await Promise.resolve(); });
-    const strip = document.body.querySelector('.ai-ctx');
-    expect(strip).toBeTruthy();
-    expect(strip?.textContent).toContain('charge');
-    expect(strip?.textContent).toContain('prod');
-    expect(strip?.getAttribute('title')).toBeNull();
   });
 
   it('trace DIŞI öznede şerit yok', async () => {
     vi.spyOn(api, 'aiConversations').mockResolvedValue([]);
+    stubChat(); // v0.10.1400 — ?ai=exception sohbete açıklama turu gönderir
     await act(async () => { root.render(shell('/problems?exc=fp-1&ai=exception')); });
     await act(async () => { await Promise.resolve(); });
     expect(document.body.querySelector('[role="dialog"]')).toBeTruthy();
     expect(document.body.querySelector('.ai-ctx')).toBeNull();
   });
-
-  // ── (5) v0.10.944 — devralınan konuşma açıklamadan bağımsız ──
-  it('açıklama hata/boş dönse de geçmişten açılan konuşma görünür; devam turu AYNI konuşmaya', async () => {
-    explainCtl.answer = null; // CopilotExplain onAnswer'ı hiç çağırmaz
-    vi.spyOn(api, 'aiConversations').mockResolvedValue(THREADS);
-    vi.spyOn(api, 'aiConversation').mockResolvedValue(CONV);
-    const chat = stubChat();
-    vi.spyOn(api, 'saveAiConversation').mockResolvedValue({ ...CONV, messages: [] });
-
-    await openSavedTrace();
-    expect(new URLSearchParams(search).get('ai')).toBe(`trace:${TRACE}`);
-    expect(bodyText()).toContain('dünkü soru');
-    expect(bodyText()).toContain('dünkü cevap');
-    expect(document.body.querySelector('.ai-ctx')?.textContent).toContain('uat');
-
-    await act(async () => { button('Bu neden oluyor?')?.click(); });
-    expect(chat).toHaveBeenCalledTimes(1);
-    const a = argsOf(chat.mock.calls[0]);
-    expect(a.conversation).toBe('d1');
-    expect(a.subject).toBe(`trace:${TRACE}`); // sunucu ham kanıtı özneden kurar
-    expect(chat.mock.calls[0][5]).toBeUndefined(); // açıklama yok → explain gönderilmez
-    expect(a.messages.map(m => m.text)).toContain('dünkü cevap');
-  });
-
-  it('"Yeniden sor" (onAnswer(\'\')) devralınmış sohbeti SÖKMEZ, yeni konuşma açmaz', async () => {
-    vi.spyOn(api, 'aiConversations').mockResolvedValue(THREADS);
-    vi.spyOn(api, 'aiConversation').mockResolvedValue(CONV);
-    const chat = stubChat();
-    vi.spyOn(api, 'saveAiConversation').mockResolvedValue({ ...CONV, messages: [] });
-
-    await openSavedTrace();
-    expect(bodyText()).toContain('dünkü cevap');
-    const reask = explainCtl.onAnswer;
-    if (!reask) throw new Error('açıklama gövdesi mount olmadı');
-    await act(async () => { reask(''); });
-    expect(bodyText()).toContain('dünkü cevap');
-
-    await act(async () => { button('Bu neden oluyor?')?.click(); });
-    expect(argsOf(chat.mock.calls[0]).conversation).toBe('d1');
-  });
-
-  // ── (6) v0.10.944 — gezinme özne kipini düşürünce devralma da düşer ──
-  for (const answers of [true, false]) {
-    it(`özneden çıkıp aynı özneye dönünce bayat konuşma/bağlam sızmaz (açıklama ${answers ? 'geliyor' : 'hiç gelmiyor'})`, async () => {
-      if (!answers) explainCtl.answer = null;
-      vi.spyOn(api, 'aiConversations').mockResolvedValue(THREADS);
-      vi.spyOn(api, 'aiConversation').mockResolvedValue(CONV);
-      const chat = stubChat();
-      vi.spyOn(api, 'saveAiConversation').mockResolvedValue({ ...CONV, messages: [] });
-
-      await openSavedTrace();
-      expect(document.body.querySelector('.ai-ctx')?.textContent).toContain('uat');
-      expect(bodyText()).toContain('dünkü cevap');
-
-      await go('/services'); // ?ai= düştü (gezinme / geri)
-      expect(new URLSearchParams(search).get('ai')).toBeNull();
-      await go(`/services?ai=trace:${TRACE}`); // aynı özne, trace DIŞI sayfa (canlı bağlam yok)
-
-      const strip = document.body.querySelector('.ai-ctx');
-      expect(strip).toBeTruthy();
-      expect(strip?.getAttribute('title')).toBeNull(); // "kayıtlı görüntü" ipucu yok
-      expect(strip?.textContent).toContain('0af76519');
-      expect(strip?.textContent).not.toContain('uat');
-      expect(strip?.textContent).not.toContain('b7ad6b71');
-      expect(bodyText()).not.toContain('dünkü cevap');
-
-      if (answers) {
-        await act(async () => { button('Bu neden oluyor?')?.click(); });
-        expect(chat).toHaveBeenCalledTimes(1);
-        const a = argsOf(chat.mock.calls[0]);
-        expect(a.conversation).toBeUndefined();
-        expect(a.env).toBeUndefined();
-        expect(a.page).toEqual({ page: 'trace', path: '/trace', traceId: TRACE });
-        expect(a.messages.map(m => m.text)).not.toContain('dünkü cevap');
-      } else {
-        expect(chat).not.toHaveBeenCalled();
-      }
-    });
-  }
 });

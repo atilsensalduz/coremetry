@@ -16,6 +16,7 @@ const TIER_LABELS: Record<string, string> = {
   'doc-rows': 'Doküman satırı',
   operation: 'Operasyon seçimi',
   memory: 'Hafıza (kurallar)', // v0.10.1289 — "bunu hatırla" (chat_memory.go)
+  explain: 'Açıklama turu', // v0.10.1400 — trace/exception ✨ sohbet içinde (chat_explain_turn.go)
   loop: 'Serbest döngü',
   other: 'Diğer',
 };

@@ -104,6 +104,9 @@ func (s *Server) copilotExplainTrace(w http.ResponseWriter, r *http.Request) {
 // v0.10.948 — anahtar klasik prompt'tan (explainCacheKey(SystemPromptTrace…)).
 // Sohbetle PAYLAŞILMAZ: sohbetin odaklı yolu anahtarsız (cacheKey ""),
 // açıklama isteği ise Explain çekmecesini açar.
+// v0.10.1400 — artık PAYLAŞILIR: sohbetin açıklama turu (chatExplainTurn) ve
+// "<id> açıkla" (guidedTraceExplain) bu anahtarla sohbet içinde akar; düğme
+// ile sohbet aynı önbellek satırını okur. Odaklı soru yine anahtarsız.
 //
 // v0.10.1036 — VARSAYILAN yol yine bu (copilotExplainTrace'in kodsuz dalı).
 func (s *Server) explainTraceClassicPrepared(r *http.Request) (explainPrepared, error) {

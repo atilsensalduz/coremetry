@@ -170,6 +170,11 @@ type chatRequest struct {
 		// Attempt (CoSRE öğrenme Faz 1) — istemcinin beyanı: retry | regenerate |
 		// edit; boş = yeni soru. cosre_interactions.attempt (örtük sinyal).
 		Attempt string `json:"attempt,omitempty"`
+		// ExplainAsk (v0.10.1400, chat_explain_turn.go) — yapısal açıklama
+		// niyeti {kind: trace|exception, id, src}: ✨ düğmesi / nudge / ?ai=
+		// derin linki / grup çipi açıklamayı sohbetin turu olarak ister.
+		// Yokken her yol bayt bayt eski.
+		ExplainAsk *chatExplainAsk `json:"explainAsk,omitempty"`
 	} `json:"context,omitempty"`
 }
 
@@ -350,6 +355,18 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 		emit("step", map[string]string{
 			"label": "pencere: " + anchorTo.UTC().Format("2006-01-02 15:04 UTC") + "'de bitiyor",
 		})
+	}
+
+	// v0.10.1400 (Tek CoSRE) — yapısal açıklama turu (chat_explain_turn.go):
+	// trace / exception ✨ açıklaması sohbetin İÇİNDE, düğmenin çekirdeği ve
+	// önbellek anahtarıyla. Niyet AÇIK olduğu için her metin eşlemesinden
+	// (kapsam, hafıza, wiki, operasyon, guided) ÖNCE. Geçersiz niyet → düşer.
+	if req.Context.ExplainAsk != nil {
+		if handled, xok := s.chatExplainTurn(ctx, emit, req.Context.ExplainAsk, chatLocationNamed(req.Context.Tz, req.Context.TzOffsetMin)); handled {
+			cspan.tier("explain", xok)
+			emit("done", map[string]bool{"ok": xok})
+			return
+		}
 	}
 
 	// v0.10.1138 — yapısal kapsam / eğik komut (chat_scope.go): router

@@ -26,7 +26,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -106,6 +105,10 @@ type chatFollowup struct {
 	// Label — v0.10.1383: çipte GÖRÜNEN kısa metin ("Operasyonları göster");
 	// boşsa Text görünür. Tık yine Text'i (router'a yönlenen tam cümle) gönderir.
 	Label string `json:"label,omitempty"`
+	// ExplainAsk — v0.10.1400 (Tek CoSRE): AÇIKLAMA çipi; tık Text'i kullanıcı
+	// turu olarak + bu yapısal niyeti context.explainAsk olarak gönderir
+	// (chat_explain_turn.go) — açıklama sohbet içinde akar, çekmece açılmaz.
+	ExplainAsk *chatExplainAsk `json:"explainAsk,omitempty"`
 }
 
 var (
@@ -422,13 +425,15 @@ func renderFollowup(f followupFact) (chatFollowup, bool) {
 			return chatFollowup{}, false
 		}
 		return chatFollowup{Text: id + " trace'ini açıkla", Scope: &chatScope{Trace: id, Env: f.Env}, Kind: f.Kind}, true
-	case fuKindExceptionGroup: // v0.10.1331 — link çipi, router'a gitmez
+	case fuKindExceptionGroup: // v0.10.1331 — router'a gitmez
 		code := strings.TrimSpace(f.Code)
 		if !fuExcCodeRe.MatchString(code) || !fuExcFPRe.MatchString(f.Fingerprint) {
 			return chatFollowup{}, false
 		}
+		// v0.10.1400 — link çipi (/problems?exc=…&ai=exception → çekmecenin
+		// özne kipi) yerine AÇIKLAMA çipi: grup açıklaması sohbetin turu olur.
 		return chatFollowup{Text: code + " grubunu açıkla", Kind: f.Kind,
-			Href: "/problems?exc=" + url.QueryEscape(f.Fingerprint) + "&ai=exception"}, true
+			ExplainAsk: &chatExplainAsk{Kind: explainAskException, ID: f.Fingerprint, Src: "chip"}}, true
 	case fuKindOpTopology: // v0.10.1388 — router trace_topology'ye (operasyonla) yönlenir
 		op := strings.TrimSpace(f.Operation)
 		if !fuOpTopoRe.MatchString(op) {
@@ -532,7 +537,7 @@ func withAnswerFollowups(ans map[string]any, chips []chatFollowup) map[string]an
 	ans["followups"] = chips
 	var texts []string
 	for _, c := range chips {
-		if c.Action == nil && c.Href == "" { // v0.10.1331 — link çipi eski istemcide metin olarak gönderilmez
+		if c.Action == nil && c.Href == "" && c.ExplainAsk == nil { // v0.10.1331 — link çipi eski istemcide metin olarak gönderilmez; v0.10.1400 — açıklama çipi de (niyetsiz metin yönlenmez)
 			texts = append(texts, c.Text)
 		}
 	}

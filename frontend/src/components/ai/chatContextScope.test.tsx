@@ -151,7 +151,7 @@ describe('global env seçicisi → sohbet', () => {
     expect(src).toContain('const [env] = useUrlEnv();');
     expect(src).toMatch(/env: pinnedLegacy \? \(pinnedLegacy\.env \?\? ''\) : env,/);
     expect(src).toContain('const reqCtx = useMemo(() => applyContextExclusions(screenReqCtx, ctxExcluded)');
-    expect(src).toContain('const ctxItems = useMemo(() => contextBarItems(reqCtx), [reqCtx]);');
+    expect(src).toContain('const baseCtxItems = useMemo(() => contextBarItems(reqCtx), [reqCtx]);'); // v0.10.1400 — + açıklama öğesi (ctxItems)
     expect(src).toMatch(/useChatThread\(\{\s*\.\.\.reqCtx,/);
     expect(src).toContain('<ChatContextBar items={ctxItems}');
   });

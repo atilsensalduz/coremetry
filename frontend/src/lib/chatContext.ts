@@ -14,8 +14,12 @@
 // Çip teklif eder, tık karar verir.
 
 import { aiSubjectQuestion } from '@/components/ai/drawerChat';
+import type { ChatExplainAsk } from './types';
 
-export type ChatContextStarter = { chip: string; question: string };
+// v0.10.1400 (Tek CoSRE) — trace / exception çipi `explainAsk` taşır: tık
+// açıklamayı SOHBET TURU olarak ister (✨ düğmesinin çekirdeği; çekmece özne
+// kipi yok). `question` metni eski istemci / düz gönderim için kalır.
+export type ChatContextStarter = { chip: string; question: string; explainAsk?: ChatExplainAsk };
 
 /**
  * contextStarter — ekrandaki özneyi bir başlangıç çipine çevirir.
@@ -91,6 +95,7 @@ export function contextStarter(pathname: string, search: string): ChatContextSta
     return {
       chip: "Bu trace'i açıkla",
       question: aiSubjectQuestion('trace', id),
+      explainAsk: { kind: 'trace', id: id.toLowerCase(), src: 'starter' }, // v0.10.1400
     };
   }
   if (TRIAGE_ROUTES.has(pathname)) {
@@ -101,7 +106,7 @@ export function contextStarter(pathname: string, search: string): ChatContextSta
     }
     const fp = sp.get('exception')?.trim() ?? '';
     if (looksLikeId(fp)) {
-      return { chip: "Bu exception'ın kök nedeni?", question: aiSubjectQuestion('exception', fp) };
+      return { chip: "Bu exception'ın kök nedeni?", question: aiSubjectQuestion('exception', fp), explainAsk: { kind: 'exception', id: fp, src: 'starter' } }; // v0.10.1400
     }
   }
   return null;

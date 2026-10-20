@@ -4,6 +4,7 @@ import { IconSparkles } from '@/components/icons';
 import { formatAiParam, type AISubject } from '@/lib/aiSubject';
 import { useAiSubject } from './useAiSubject';
 import { useCopilotEnabled } from './useCopilotEnabled';
+import { isExplainTurnKind } from './explainTurn';
 
 // AIExplainButton — TEK "✨ Explain" affordance'ı (v0.9.477, onaylı
 // AI-drawer mockup'ı). Eskiden her yüzey kendi CopilotExplain'ini gömüyor,
@@ -57,11 +58,17 @@ export function AIExplainButton({ subject, label, size, emphasis = 'normal', tit
   const quiet = used || open;
 
   const look = EMPHASIS_LOOK[emphasis];
+  // v0.10.1400 (Tek CoSRE) — trace / exception: `?ai=` tek seferlik niyet;
+  // CopilotChat onu tüketip açıklamayı SOHBET TURU olarak gönderir (çekmece
+  // özne kipi yok; adres anında temizlenir, ikinci tık yeni tur = önbellek
+  // isabeti). aria-expanded sözleşmesi aynen (CopilotChat yoksa — kiosk dışı
+  // testler — düğme yine aç/kapa yazar).
+  const asTurn = isExplainTurnKind(subject.kind);
   return (
     <Button variant={look.variant}
       size={size ?? look.size}
       aria-expanded={open}
-      title={title ?? 'AI açıklamasını sağ çekmecede aç'}
+      title={title ?? (asTurn ? 'CoSRE sohbetinde açıkla' : 'AI açıklamasını sağ çekmecede aç')}
       className={[quiet ? undefined : 'ai-attn', className].filter(Boolean).join(' ') || undefined}
       onClick={() => { setUsed(true); setAi(open ? null : subject); }}>
       {label ?? <><IconSparkles /> <span>AI explain</span></>}

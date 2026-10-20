@@ -170,13 +170,16 @@ const (
 	TierOperation = "operation"
 	// TierMemory — v0.10.1289: "bunu hatırla" / "hangi kuralları biliyorsun" (api/chat_memory.go).
 	TierMemory = "memory"
-	TierLoop   = "loop"
-	TierOther  = "other"
+	// TierExplain — v0.10.1400: yapısal açıklama turu (trace / exception ✨
+	// açıklaması sohbet içinde; api/chat_explain_turn.go).
+	TierExplain = "explain"
+	TierLoop    = "loop"
+	TierOther   = "other"
 )
 
 var tiers = map[string]bool{TierScope: true, TierWiki: true, TierGuided: true, TierDrawer: true,
 	TierRAG: true, TierIntent: true, TierLoop: true, TierOther: true, TierDocRows: true, TierOperation: true,
-	TierMemory: true}
+	TierMemory: true, TierExplain: true}
 
 // KnownTier — kademe adı kayıtlı mı (api kaynak testi copilotChat'in
 // cspan.tier(...) adlarını buna karşı denetler).

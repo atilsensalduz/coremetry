@@ -7211,6 +7211,42 @@ export interface ChatMessage {
    * sanitizeChatEvidence) — geri yüklenen cevap çiplerini korur.
    */
   evidence?: ChatQueryEvidence[];
+  /**
+   * v0.10.1400 — açıklama turunun künyesi (answer.explain; trace / exception ✨
+   * sohbet içinde). Arşive yazılır (sunucu sanitize eder: ai_conversations.go
+   * sanitizeChatExplain) — Geçmiş'ten açılan konuşma açıklamayı yine
+   * ExplainBody ile çizer ve takip bağlamını kurar.
+   */
+  explain?: ChatExplainMeta;
+}
+
+/**
+ * ChatExplainAsk — v0.10.1400: context.explainAsk, sohbete yapısal açıklama
+ * niyeti (internal/api/chat_explain_turn.go chatExplainAsk). `src` yalnız
+ * ölçüm (button | nudge | deeplink | chip | starter).
+ */
+export interface ChatExplainAsk {
+  kind: 'trace' | 'exception';
+  id: string;
+  src?: string;
+}
+
+/**
+ * ChatExplainMeta — v0.10.1400: answer.explain (Go chatExplainMeta aynası).
+ * Kanıt kimlikleri sayfaya duyurulur (waterfall / örnek trace kutulaması);
+ * `cached` ✨ düğmesiyle paylaşılan önbellek isabeti.
+ */
+export interface ChatExplainMeta {
+  kind: 'trace' | 'exception';
+  id: string;
+  surface?: string;
+  /** exception: grup kodu / tipi */
+  label?: string;
+  cached?: boolean;
+  cachedAtMs?: number;
+  evidenceSpanIds?: string[];
+  evidenceTraceIds?: string[];
+  oracleRows?: number;
 }
 
 /**
@@ -7319,6 +7355,8 @@ export interface ChatFollowup {
    * `text` görünür. Tık yine `text`i (router'a yönlenen tam cümle) gönderir.
    */
   label?: string;
+  /** v0.10.1400 — AÇIKLAMA çipi: tık `text`i + bu niyeti (context.explainAsk) gönderir; açıklama sohbet içinde. */
+  explainAsk?: ChatExplainAsk;
 }
 
 // One streamed event from the chat SSE. `step` = a tool the model
@@ -7644,6 +7682,11 @@ export interface ChatTurn extends ChatMessage {
    * (components/ai/revealSchedule.ts, useTypewriter.ts).
    */
   arrivedAt?: ChatArrival;
+  /**
+   * v0.10.1400 — kullanıcı turunun yapısal açıklama niyeti (yeniden dene /
+   * yeniden üret aynı niyeti yeniden yollar). Arşiv taşımaz.
+   */
+  explainAsk?: ChatExplainAsk;
 }
 
 /** v0.10.1384 — yazma efekti varış damgası (ChatTurn.arrivedAt). */
@@ -7941,7 +7984,8 @@ export type ChatStreamEvent =
   // kanıt span'leri ve önbellek isabeti (sohbet ile ✨ Explain aynı cevabı paylaşır).
   // evidence (v0.10.1272) — alışverişin kanıt çipleri (step-result.evidence'ların listesi).
   // followups (v0.10.1291) — kural-türevli takip çipleri (internal/api/chat_followup_chips.go); suggestions yalnız metinlerini taşır (eski istemci).
-  | { kind: 'answer'; text: string; exchangeId?: string; sources?: RagSource[]; suggestions?: string[]; followups?: ChatFollowup[]; links?: ChatAnswerLink[]; open?: string; evidenceSpanIds?: string[]; cached?: boolean; allowedLinks?: string[]; evidence?: ChatQueryEvidence[] }
+  // explain (v0.10.1400) — açıklama turunun künyesi (chat_explain_turn.go).
+  | { kind: 'answer'; text: string; exchangeId?: string; sources?: RagSource[]; suggestions?: string[]; followups?: ChatFollowup[]; links?: ChatAnswerLink[]; open?: string; evidenceSpanIds?: string[]; cached?: boolean; allowedLinks?: string[]; evidence?: ChatQueryEvidence[]; explain?: ChatExplainMeta }
   // v0.10.541 (Faz 3.3a) — tipli blok: model yalnız metin üretir; chart/link
   // (ileride trace_list/table/action/evidence) deterministik, tool sonucundan.
   | { kind: 'block'; id: string; type: ChatBlockType; seq: number; final: boolean; payload: unknown }

@@ -380,7 +380,9 @@ func TestLoopAnswerSitesCarryFollowups(t *testing.T) {
 // bozuk kod / parmak izi çip üretmez; öncelik sırasında hipotezden sonra ilk.
 func TestExceptionGroupFollowupChip(t *testing.T) {
 	c, ok := renderFollowup(followupFact{Kind: fuKindExceptionGroup, Code: "COR-30518", Fingerprint: "ora:0123456789abcdef"})
-	if !ok || c.Text != "COR-30518 grubunu açıkla" || c.Href != "/problems?exc=ora%3A0123456789abcdef&ai=exception" || c.Action != nil || c.Scope != nil {
+	// v0.10.1400 — link çipi yerine açıklama çipi (sohbet içi tur, çekmece yok).
+	if !ok || c.Text != "COR-30518 grubunu açıkla" || c.Href != "" || c.ExplainAsk == nil ||
+		*c.ExplainAsk != (chatExplainAsk{Kind: explainAskException, ID: "ora:0123456789abcdef", Src: "chip"}) || c.Action != nil || c.Scope != nil {
 		t.Fatalf("çip: %+v ok=%v", c, ok)
 	}
 	for _, bad := range []followupFact{

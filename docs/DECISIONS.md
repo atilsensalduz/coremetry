@@ -7983,3 +7983,58 @@ yayınının PRODUCER span'indeki Kafka TimeoutException cevabı domine etti. (3
 - Değişmeyenler: prompts.go sabitleri, MCP araç sayısı, api.go, frontend.
 - Testler: `chat_operation_exception_explain_test.go`, `chat_trace_drill_scope_test.go`; genişletilen:
   `ai_evalset_test.go`.
+
+## 2026-10-20 — v0.10.1400 — Tek CoSRE: trace/exception Ask CoSRE açıklaması sohbet turu olarak
+
+**Operatör:** "Trace ve exception üzerinden çalışan Ask CoSRE açıklamaları güzel ama sanki ayrı drawer hissi,
+CoSRE bütünselliğine uymuyor." — ve önce: "Explain trace'te çıkan loading ikonu güzel ama chat'ten 'bu trace'i
+açıkla' deyince aynı yerde devam etmiyor, sanki yeni drawer açılıyor."
+
+**Kök sebep:** `?ai=trace|exception` CoSRE çekmecesini "açıklama kipine" alıyordu: sohbetin yerine
+`AIDrawerBody` çiziliyordu (`CopilotExplain auto` + "Kanıt trace'leri" + İKİNCİ bir `useChatThread` ve İKİNCİ
+composer). Sohbete yazılan "<id> açıkla" da v0.10.460'tan beri `open` ile o kipe sıçrıyordu. Aynı CoSRE kabuğunda
+iki thread, iki composer, iki bekleme göstergesi; v0.10.1399'un "diğer gruplar" çipleri de
+`/problems?exc=…&ai=exception` ile aynı kipe gidiyordu.
+
+**Karar — açıklama sohbetin SIRADAN bir turu, yapısal niyetle:**
+- Tel: `context.explainAsk {kind: trace|exception, id, src}` (`chatRequest`). Yeni kademe
+  `chatExplainTurn` (`internal/api/chat_explain_turn.go`) her metin eşlemesinden ÖNCE (kapsam, hafıza, wiki,
+  operasyon ön-getirmesi, guided) — niyet açık. trace → `buildTraceExplainInput` + `SystemPromptTrace`, anahtar
+  `explainCacheKey(SystemPromptTrace(), in.User, "")` (= `explainTraceClassicPrepared`); exception →
+  `drawerExceptionInput` + `exceptionExplainSystem`, anahtar `explainCacheKey(system, in.User, "")`
+  (= `copilotExplainException`, kod dalı kapalı). Düğme ile sohbet aynı önbellek satırını paylaşır; isabet LLM
+  çağırmaz, saklanan exchangeId döner, `cached/cachedAtMs` etiketlenir. Yüzeyler `explain-trace:chat` /
+  `explain-exception:chat` (kayıtlı), kademe `explain` (aisurface `TierExplain`). answer çerçevesi olağan alanlar
+  + `explain` künyesi `{kind,id,surface,label,cached,cachedAtMs,evidenceSpanIds,evidenceTraceIds,oracleRows}`.
+  Geçersiz niyet → kademe düşer; bulunamayan trace/grup → LLM'siz dürüst cevap.
+- Tek çekirdek: `chat_explain_core.go streamExplainCore` (önbellek → akan üretim → ham çıktıyı sakla). Üç çağıran:
+  `chatExplainTurn`, `guidedTraceExplain`, v0.10.1399'un `opExceptionExplainInChat`.
+- v0.10.460 geri alındı: `guidedTraceExplain` artık `open` yaymaz; "<id> açıkla" sohbette, düğmenin anahtarıyla
+  akar (`emitTraceExplainAnswer`, aynı künye). Odaklı trace sorusu aynı çekirdekle, anahtarsız.
+- Grup çipi (`exception_group`, v0.10.1331/1399): link yerine `explainAsk` taşır → tık sohbete açıklama turu
+  gönderir; eski istemcinin `suggestions`'ına girmez. v0.10.1399 cevabının grup linki çıplak grup sayfası
+  (`&ai=exception` sohbete ikinci bir tur açardı).
+- Frontend: `?ai=trace|exception` TEK SEFERLİK niyet — `CopilotChat` effect'i (ref muhafızlı, StrictMode tek tur)
+  çekmeceyi açar, `explainAskFor` ile görünen kullanıcı turu ("Bu trace'i açıkla · 5b8efff7…" / "<KOD> grubunu
+  açıkla") + niyeti gönderir, `?ai=`'yi siler. ✨ düğmesi, nudge, bağlam çipi, `/trace?id=X&ai=trace`,
+  `/problems?exc=…&ai=exception`, `/cosre?ai=…` hepsi aynı yol. Diğer ✨ türleri (span, problem, incident, …)
+  çekmece özne kipinde kalır.
+- Çizim: `ChatTurn.explain` → balon `ExplainBody` (Karar şeridi, Kanıt satırı, kod alıntıları; yazma efekti
+  yalnız ExplainBody'de), "♻ önbellekten" etiketi, kanıt trace satırları (`ai/EvidenceRow.tsx`, AIDrawerBody'den
+  taşındı); kanıt sayfaya canlı turda BİR KEZ duyurulur (`emitAiEvidence`). Bekleme = mevcut AiThinking, Durdur =
+  composer'ın, takip çipleri = FollowupChips (yedek: öznenin çipleri).
+- Takip bağlamı: son açıklama turu (`activeExplainFrom`) gönderim anında `useChatThread.resolveOpts` ile özne
+  kipindeki AYNI alanları ekler — `explain` (künye + metin + kanıt), `subject` (`?ai=` kodeği); trace türünde
+  trace kimliği + canlı sayfa bağlamı + trace penceresi. Bağlam şeridinde "✨ trace 5b8e…" öğesi; ✕ o turu
+  bağlamdan çıkarır, Temizle sıfırlar. Kalıcı satırın öznesi yazılmaz (bağlam yalnız istekte).
+- Kalıcılık: `aiChatMessage.Explain` (`sanitizeChatExplain`: tür beyaz listesi, kimlik biçimi, ≤50 hex kanıt
+  kimliği, metin alanları kırpık; kullanıcı turunda düşer) + `persistMessages`/`restoreTurns` → Geçmiş açıklamayı
+  yine yapısal çizer. Eski trace/exception özneli çekmece konuşmaları Geçmiş'ten NORMAL yüklenir.
+- Değişmeyenler: prompts.go sabitleri ve `promptVersionRegistry`, MCP araç sayısı (74), api.go,
+  `TestChatTierOrderIsPinned` işaretleri (yeni pin: `TestChatExplainTurnTierIsFirst`).
+- 1401'e kalanlar: sohbette "Kodu da incele" / kod kartı ve `?aicode=`, taze üretim için "Yeniden sor"
+  (↻ Yeniden üret önbellek isabeti verir), diğer ✨ türlerinin sohbet turuna taşınması.
+- Testler: `chat_explain_turn_test.go`; güncellenen: `chat_operation_exception_explain_test.go`,
+  `trace_explain_unified_test.go`, `chat_followup_chips_test.go`; FE `explainTurn.test.ts`,
+  `ChatBubble.explain.test.tsx`, `CopilotChat.explainTurn.test.tsx`; `drawerTraceContext.test.tsx`'in v0.10.944
+  trace özne-kipi pinleri bu kararla geçersiz (yerlerine eski konuşmanın normal yüklenmesi).

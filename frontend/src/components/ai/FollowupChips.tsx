@@ -77,7 +77,7 @@ export function FollowupChips({ followups, suggestions, fallback, exchangeId, di
           return (
             <Chip key={f.text} pill disabled={disabled} title={f.label ? f.text : undefined}
               onClick={() => { signal(f.kind); onAsk(f.text, followupSendOpts(f)); }}>
-              ↳ {f.label || f.text}
+              {f.explainAsk ? '✨' : '↳'} {f.label || f.text}{/* v0.10.1400 — açıklama çipi sohbet içi tur */}
             </Chip>
           );
         })}

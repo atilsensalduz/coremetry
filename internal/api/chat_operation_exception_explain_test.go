@@ -272,7 +272,9 @@ func TestOpExceptionExplainStreams(t *testing.T) {
 	for _, l := range links {
 		hrefs = append(hrefs, l.Href)
 	}
-	if len(hrefs) < 2 || hrefs[0] != "/problems?exc=ora%3A00000000000000b2&ai=exception" || hrefs[1] != "/traces?op=ORDERS_GET_X" {
+	// v0.10.1400 — grup linki çıplak grup sayfası (açıklama zaten bu turda;
+	// &ai=exception sohbete ikinci bir açıklama turu açardı).
+	if len(hrefs) < 2 || hrefs[0] != "/problems?exc=ora%3A00000000000000b2" || hrefs[1] != "/traces?op=ORDERS_GET_X" {
 		t.Fatalf("grup + trace linkleri: %v", hrefs)
 	}
 	fb, _ := json.Marshal(ans["followups"])
@@ -298,9 +300,13 @@ func TestOpExceptionExplainStreams(t *testing.T) {
 	if evalSurfaceFromLabel(aisurface.ExplainExceptionChat) != "Exception" || aisurface.ExplainExceptionChat != "explain-exception:chat" {
 		t.Fatal("explain-exception:chat Exception ailesine çözülmüyor")
 	}
+	// v0.10.1400 — akış gövdesi paylaşılan çekirdekte (chat_explain_core.go).
 	src := funcBody(readRepoFile(t, "chat_operation_exception_explain.go"), "opExceptionExplainInChat")
-	if !strings.Contains(src, "s.copilotStreamSurface(ctx, aisurface.ExplainExceptionChat, system, in.User,") {
-		t.Fatal("akış explain-exception:chat yüzeyinde, sarmalayıcısız in.User ile çağrılmalı")
+	if !strings.Contains(src, "s.streamExplainCore(ctx, emit, aisurface.ExplainExceptionChat, system, in.User, explainCacheKey(system, in.User, \"\"))") {
+		t.Fatal("akış explain-exception:chat yüzeyinde, sarmalayıcısız in.User ve düğmenin anahtarıyla çekirdekten geçmeli")
+	}
+	if !strings.Contains(funcBody(readRepoFile(t, "chat_explain_core.go"), "streamExplainCore"), "s.copilotStreamSurface(ctx, surface, system, user,") {
+		t.Fatal("çekirdek copilotStreamSurface üzerinden akmalı (/ai atfı)")
 	}
 }
 

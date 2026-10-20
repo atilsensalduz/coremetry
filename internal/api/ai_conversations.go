@@ -91,10 +91,60 @@ const (
 // chat_evidence.go); geri yüklenen cevap çiplerini korur. omitempty: kanıtsız
 // mesajların gövdesi bayt-bayt eski şekil. İstemciden gelir → sanitize edilir
 // (sanitizeChatEvidence): yalnız asistan, tavanlı, href yalnız kök-göreli.
+// v0.10.1400 — Explain: açıklama turunun künyesi (answer.explain,
+// chat_explain_turn.go); Geçmiş'ten açılan konuşma açıklamayı yine yapısal
+// çizer (ExplainBody + kanıt satırları + takip bağlamı). İstemciden gelir →
+// sanitizeChatExplain (tür beyaz listesi, kimlik ≤200 rune, ≤50 kanıt id).
 type aiChatMessage struct {
 	Role     string                  `json:"role"`
 	Text     string                  `json:"text"`
 	Evidence []mcptools.ChatEvidence `json:"evidence,omitempty"`
+	Explain  *chatExplainMeta        `json:"explain,omitempty"`
+}
+
+// sanitizeChatExplain — v0.10.1400: arşive girecek açıklama künyesi. Tür
+// trace|exception dışıysa ya da kimlik biçimsizse künye DÜŞER (mesaj kalır,
+// düz metin çizilir); kanıt kimlikleri hex-only, ≤50; metin alanları kırpılır.
+// Saf.
+func sanitizeChatExplain(in *chatExplainMeta) *chatExplainMeta {
+	if in == nil {
+		return nil
+	}
+	a, ok := normalizeExplainAsk(&chatExplainAsk{Kind: in.Kind, ID: in.ID})
+	if !ok {
+		return nil
+	}
+	out := chatExplainMeta{
+		Kind: a.Kind, ID: a.ID,
+		Surface:          clampChatRunes(in.Surface, aiChatEvidenceHopMax),
+		Label:            clampChatRunes(in.Label, aiChatEvidenceFieldMax),
+		Cached:           in.Cached,
+		EvidenceSpanIDs:  hexIDsOnly(in.EvidenceSpanIDs),
+		EvidenceTraceIDs: hexIDsOnly(in.EvidenceTraceIDs),
+	}
+	if in.CachedAtMs > 0 {
+		out.CachedAtMs = in.CachedAtMs
+	}
+	if in.OracleRows > 0 {
+		out.OracleRows = in.OracleRows
+	}
+	return &out
+}
+
+// hexIDsOnly — SAF: yalnız 8..64 hex kimlikler, ≤chatExplainEvidenceMax.
+func hexIDsOnly(in []string) []string {
+	var out []string
+	for _, v := range in {
+		v = strings.ToLower(strings.TrimSpace(v))
+		if len(v) < 8 || len(v) > 64 || strings.Trim(v, "0123456789abcdef") != "" {
+			continue
+		}
+		out = append(out, v)
+		if len(out) >= chatExplainEvidenceMax {
+			break
+		}
+	}
+	return out
 }
 
 // Arşivlenen kanıtın tavanları (blob 64 KB; 40 mesajın hepsi kanıtlı olsa da
@@ -239,8 +289,10 @@ func sanitizeChatMessages(in []aiChatMessage) []aiChatMessage {
 		}
 		if m.Role == "assistant" {
 			m.Evidence = sanitizeChatEvidence(m.Evidence) // v0.10.1272
+			m.Explain = sanitizeChatExplain(m.Explain)    // v0.10.1400
 		} else {
 			m.Evidence = nil
+			m.Explain = nil
 		}
 		out = append(out, m)
 	}
