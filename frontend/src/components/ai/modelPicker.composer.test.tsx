@@ -2,8 +2,9 @@
 //
 // v0.10.1141 (operatör: "model seçici Claude'daki gibi mesaj kutusunun içinde
 // olsun") — ModelPicker sohbet BAŞLIĞINDAN composer'a taşındı. Render ile:
-//   (1) üç yüzeyde de (CoSRE çekmecesi, /cosre sayfası, ✨ Explain çekmecesi
-//       sohbeti) seçici composer formunun İÇİNDE, başlıkta YOK;
+//   (1) iki yüzeyde de (CoSRE çekmecesi, /cosre sayfası; v0.10.1407 — ✨ Explain
+//       çekmecesi sohbeti AIDrawerBody silindi) seçici composer formunun İÇİNDE,
+//       başlıkta YOK;
 //   (2) menü YUKARI açılır (composer ekranın dibinde), seçili satır ✓ +
 //       aria-checked ve açılışta odak onda;
 //   (3) klavye: ↑ hapı açar, ↑↓ gezinir, Esc kapatır ve odak hapa döner;
@@ -35,7 +36,6 @@ import { AuthProvider } from '@/components/AuthProvider';
 import { ConfirmProvider } from '@/components/ui/ConfirmDialog';
 import { CopilotChat } from '@/components/CopilotChat';
 import { __resetEscLayers, topEscLayer } from '@/lib/escLayer';
-import { AIDrawerBody } from './AIDrawerBody';
 import { ModelPicker } from './ModelPicker';
 import { compactModelLabel, shortModelName } from './chatProfileStore';
 import { __resetCopilotEnabledCache } from './useCopilotEnabled';
@@ -105,14 +105,6 @@ async function openPage() {
   await act(async () => { root.render(providers('/cosre', <CopilotChat variant="page" launcher={false} />)); });
   await flush();
 }
-async function openExplain() {
-  vi.spyOn(api, 'copilotExplainTrace').mockResolvedValue({ explanation: 'Kök neden: svc-a yavaş.', exchangeId: 'x1' });
-  await act(async () => {
-    root.render(<MemoryRouter><AIDrawerBody subject={{ kind: 'trace', id: '0af7651916cd43dd8448eb211c80319c' }} onClose={() => {}} /></MemoryRouter>);
-  });
-  await flush();
-}
-
 const pills = () => Array.from(document.body.querySelectorAll<HTMLButtonElement>('.cm-model-pill'));
 const pill = () => pills()[0];
 const menu = () => document.body.querySelector<HTMLElement>('[role="menu"][aria-label="Model profili"]');
@@ -121,11 +113,10 @@ const key = (el: Element, k: string) => act(async () => {
   el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
 });
 
-describe('ModelPicker composer içinde — üç yüzey (1)', () => {
+describe('ModelPicker composer içinde — iki yüzey (1)', () => {
   it.each([
     ['CoSRE çekmecesi', openDrawer],
     ['/cosre sayfası', openPage],
-    ['✨ Explain çekmecesi sohbeti', openExplain],
   ] as const)('%s: tek hap, composer formunun içinde; başlıkta yok', async (_n, open) => {
     config(PROFILES);
     await open();
@@ -237,7 +228,6 @@ describe('tek profil: tıklanamaz etiket aynı yerde (5)', () => {
   it.each([
     ['CoSRE çekmecesi', openDrawer],
     ['/cosre sayfası', openPage],
-    ['✨ Explain çekmecesi sohbeti', openExplain],
   ] as const)('%s', async (_n, open) => {
     config([]);
     await open();

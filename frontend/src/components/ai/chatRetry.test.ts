@@ -44,7 +44,7 @@ describe('BAĞLANMA (kaynak pinleri)', () => {
     expect(hook).toMatch(/return \{[^}]*\bretry\b[^}]*\}/);
   });
   it('iki yüzey de son hatalı tura onRetry geçirir', () => {
-    for (const f of ['../CopilotChat.tsx', './AIDrawerBody.tsx']) {
+    for (const f of ['../CopilotChat.tsx']) { // v0.10.1407 — AIDrawerBody silindi
       expect(src(f), f).toContain('onRetry={');
       expect(src(f), f).toContain('retry');
     }

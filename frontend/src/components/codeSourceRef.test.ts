@@ -17,12 +17,10 @@ describe('codeSourceRef', () => {
   });
   // v0.10.1041 panel kod durumunu `code` ve `codeCtx` diye ayırdı; iki çizim
   // yeri hangi adı okursa okusun aynı fonksiyondan geçmeli.
-  // v0.10.1406 — "Kaynak:" satırı tek bileşende (ai/CodeSourceFooter); CopilotExplain'in
-  // iki kartı ve sohbet balonunun kod turu onu çizer (CodeSourceFooter.test.tsx).
-  it('iki "Kaynak:" çizim yeri de aynı bileşenden (aynı fonksiyondan) çizer', () => {
-    const src = readFileSync(resolve(__dirname, 'CopilotExplain.tsx'), 'utf8');
-    expect(src.match(/<CodeSourceFooter code=\{(code|codeCtx)\} \/>/g)?.length).toBe(2);
-    expect(src).not.toContain('codeSourceRef(');
+  // v0.10.1406 — "Kaynak:" satırı tek bileşende (ai/CodeSourceFooter).
+  // v0.10.1407 — ✨ kartı (CopilotExplain) silindi; tek çizim yeri sohbet
+  // balonunun kod turu (CodeSourceFooter.test.tsx).
+  it('"Kaynak:" satırı tek bileşenden (aynı fonksiyondan) çizilir', () => {
     const footer = readFileSync(resolve(__dirname, 'ai/CodeSourceFooter.tsx'), 'utf8');
     expect(footer.match(/\{codeSourceRef\(code\)\}/g)?.length).toBe(1);
     expect(footer).not.toMatch(/code\.branch \? ` · \$\{code\.branch\}` : ''/);

@@ -20,6 +20,13 @@ package api
 // (chat_explain_registry_test.go her tür için pinler). trace / exception
 // v0.10.1400'ün kendi turlarıyla (chat_explain_turn.go) kayıtta durur.
 //
+// v0.10.1407 (Tek CoSRE adım 4) — charts (Service → Details grafik ✨'ları)
+// ve log-spike (Logs histogramı ✨) da kayıtta: kurucuları
+// buildChartsExplain / buildLogSpikeExplain (HTTP düğmesiyle ortak), cevabı
+// ölçülmüş kanıtın tipli bloğuyla (charts_signals / log_spike) birlikte
+// döner; künyenin renderer'ı "charts" / "log-spike" → istemci kartı çizer.
+// Bu iki tür KANIT-ÖNCE: model düşse de blok + dürüst satır cevaptır.
+//
 // Endpoint kayıtta YOK: ayrı bir explain yüzeyi/istemi yok — istemci görünür
 // soruyu (endpointAskQuestion) pencereyle gönderir, operasyon ön-getirmesi
 // deterministik çözer (v0.10.1367 davranışı, çekmecesiz).
@@ -45,10 +52,15 @@ const (
 	explainAskServiceHealth = "service-health"
 	explainAskRunbook       = "runbook"
 	explainAskLog           = "log"
+	explainAskCharts        = "charts"    // v0.10.1407
+	explainAskLogSpike      = "log-spike" // v0.10.1407
 
 	// explainRendererBody — künyenin çizim kipi: ExplainBody (Karar şeridi,
-	// Kanıt satırı). charts / log-spike kartları sonraki sürümde (1407).
+	// Kanıt satırı).
 	explainRendererBody = "body"
+	// v0.10.1407 — kanıt kartları: ChartsSignalsCard / LogSpikeCard (blok + metin).
+	explainRendererCharts   = "charts"
+	explainRendererLogSpike = "log-spike"
 	// chatExplainLabelMax — künye etiketinin tavanı (rune).
 	chatExplainLabelMax = 80
 	// chatExplainNoteMax — künye notunun tavanı (rune; arşiv sanitize'ı da aynı).
@@ -56,7 +68,7 @@ const (
 )
 
 // explainRenderers — künye `renderer` beyaz listesi (arşiv sanitize'ı).
-var explainRenderers = map[string]bool{explainRendererBody: true, "charts": true, "log-spike": true}
+var explainRenderers = map[string]bool{explainRendererBody: true, explainRendererCharts: true, explainRendererLogSpike: true}
 
 // explainBuilt — bir ✨ açıklamasının üretim girdisi + künye malzemesi. HTTP
 // düğmesi ve sohbet turu AYNI değeri kullanır (anahtar tek yerde hesaplanır).
@@ -70,6 +82,21 @@ type explainBuilt struct {
 	Links    []guidedAnswerLink
 	// Extra — HTTP gövdesinin ek alanları (similarCount, matched); sohbette yok.
 	Extra map[string]any
+	// Renderer — v0.10.1407: künyenin çizim kipi (boş = body).
+	Renderer string
+	// Blocks — v0.10.1407: cevapla birlikte yayılan tipli kanıt blokları
+	// (charts_signals / log_spike). Doluysa tür KANIT-ÖNCE: model düşse de
+	// bloklar + dürüst satır cevaptır (buildChartsResult sözleşmesi).
+	Blocks []explainBlock
+	// Unexplained — v0.10.1407: anlatılacak ölçüm yok (log-spike kanıtı
+	// okunamadı); LLM çağrılmaz, bu metin cevaptır (bloklar yine yayılır).
+	Unexplained string
+}
+
+// explainBlock — v0.10.1407: kurucunun tipli bloğu (blocks.Type* + gövde).
+type explainBlock struct {
+	Type    string
+	Payload any
 }
 
 // newExplainBuilt — istem çifti + düğmenin anahtar formülü.
@@ -88,6 +115,15 @@ func (e *explainNotFoundError) Error() string { return e.msg }
 
 func explainNotFound(msg string) error { return &explainNotFoundError{msg: msg} }
 
+// explainBadArgsError — v0.10.1407: öznenin argümanları geçersiz (log-spike
+// penceresi / kipi). HTTP 400 JSON (v0.10.1284 gövdesiyle birebir); sohbette
+// LLM'siz dürüst cevap.
+type explainBadArgsError struct{ msg string }
+
+func (e *explainBadArgsError) Error() string { return e.msg }
+
+func explainBadArgs(msg string) error { return &explainBadArgsError{msg: msg} }
+
 // writeExplainBuildErr — kurucu hatası, ilk bayttan önce: bulunamadı → 404
 // (gövde v0.10.1404'teki handler'larla birebir), gerisi writeErr.
 func writeExplainBuildErr(w http.ResponseWriter, err error) {
@@ -98,6 +134,11 @@ func writeExplainBuildErr(w http.ResponseWriter, err error) {
 			return
 		}
 		http.Error(w, nf.msg, http.StatusNotFound)
+		return
+	}
+	var ba *explainBadArgsError
+	if errors.As(err, &ba) {
+		writeJSONError(w, http.StatusBadRequest, ba.msg)
 		return
 	}
 	writeErr(w, err)
@@ -119,6 +160,9 @@ type explainStore interface {
 	GetServiceDeploys(ctx context.Context, service string, from, to time.Time) ([]chstore.Deploy, error)
 	QuerySpanMetricMulti(ctx context.Context, f chstore.SpanMetricBatchFilter) (map[string][]chstore.SpanMetricSeries, int, error)
 	FindSimilarResolvedProblems(ctx context.Context, service, ruleID string, limit int) ([]chstore.Problem, error)
+	// v0.10.1407 — grafik kanıtı (buildServiceChartsInput).
+	ListAnomalyEvents(ctx context.Context, f chstore.ListAnomalyEventsFilter) ([]chstore.AnomalyEvent, error)
+	GetOperationSummaryCompared(ctx context.Context, service string, since time.Duration, from, to time.Time, normalized bool, env string) ([]chstore.OperationSummary, error)
 }
 
 // explainStoreSeam — yalnız testler; üretimde nil (s.store okunur).
@@ -196,13 +240,34 @@ func explainKindFor(kind string) (explainKind, bool) {
 				}
 				return s.buildLogLineExplain(ctx, body)
 			}}, true
+	case explainAskCharts: // v0.10.1407
+		return explainKind{Kind: kind, Surface: aisurface.ExplainChartsChat, Step: "service_charts",
+			Build: func(ctx context.Context, s *Server, subj aiSubject) (explainBuilt, error) {
+				b, _ := s.buildChartsExplain(ctx, subj.ID, subj.Scope, subj.From, subj.To)
+				return b, nil
+			}}, true
+	case explainAskLogSpike: // v0.10.1407
+		return explainKind{Kind: kind, Surface: aisurface.ExplainLogSpikeChat, Step: "log_spike",
+			Build: func(ctx context.Context, s *Server, subj aiSubject) (explainBuilt, error) {
+				// copilotExplainLogSpike'ın gövdesiyle aynı alanlar (kodek → gövde).
+				b, _, err := s.buildLogSpikeExplain(ctx, logSpikeBodyFromSubject(subj))
+				return b, err
+			}}, true
 	}
 	return explainKind{}, false
 }
 
+// logSpikeBodyFromSubject — SAF (v0.10.1407): `log-spike` kodeği → HTTP
+// gövdesi (LogsHistogram'ın gönderdiği alanlar birebir).
+func logSpikeBodyFromSubject(subj aiSubject) logSpikeExplainBody {
+	return logSpikeExplainBody{Service: subj.ID, Env: subj.Env, Query: subj.Q, Level: subj.Level,
+		Mode: subj.Mode, FromNs: subj.From.UnixNano(), ToNs: subj.To.UnixNano()}
+}
+
 // explainTurnKinds — kayıttaki türler (testler + sanitize belgesi).
 var explainTurnKinds = []string{explainAskTrace, explainAskException, explainAskSpan, explainAskProblem,
-	explainAskIncident, explainAskAnomaly, explainAskServiceHealth, explainAskRunbook, explainAskLog}
+	explainAskIncident, explainAskAnomaly, explainAskServiceHealth, explainAskRunbook, explainAskLog,
+	explainAskCharts, explainAskLogSpike}
 
 // explainKindTR — bulunamadı cevabındaki tür adı.
 var explainKindTR = map[string]string{
@@ -223,26 +288,67 @@ func (s *Server) chatExplainRegistryTurn(ctx context.Context, emit func(string, 
 	b, err := k.Build(ctx, s, subj)
 	if err != nil {
 		var nf *explainNotFoundError
-		if errors.As(err, &nf) {
+		var ba *explainBadArgsError
+		switch {
+		case errors.As(err, &nf):
 			emitGuidedStepResult(emit, n, k.Step, "", errExplainTurnNotFound)
 			emit("answer", map[string]any{"text": explainTurnNotFoundTR(ask), "exchangeId": copilot.MetaFromContext(ctx).ExchangeID})
-			return true, false
+		case errors.As(err, &ba): // v0.10.1407 — geçersiz argüman: LLM'siz dürüst cevap
+			emitGuidedStepResult(emit, n, k.Step, "", err)
+			emit("answer", map[string]any{"text": "Açıklama kurulamadı — " + ba.msg + ".", "exchangeId": copilot.MetaFromContext(ctx).ExchangeID})
+		default:
+			emitGuidedStepResult(emit, n, k.Step, "", err)
+			emit("error", map[string]string{"error": err.Error()})
 		}
-		emitGuidedStepResult(emit, n, k.Step, "", err)
-		emit("error", map[string]string{"error": err.Error()})
 		return true, false
 	}
-	emitGuidedStepResult(emit, n, k.Step, b.User, nil)
+	if b.Unexplained != "" { // v0.10.1407 — ölçüm okunamadı: adım çipi hatalı
+		emitGuidedStepResult(emit, n, k.Step, "", errors.New(b.Unexplained))
+	} else {
+		emitGuidedStepResult(emit, n, k.Step, b.User, nil)
+	}
+	renderer := explainRendererBody
+	if b.Renderer != "" {
+		renderer = b.Renderer
+	}
+	meta := chatExplainMeta{Kind: ask.Kind, ID: ask.ID, Subject: ask.Subject, Surface: k.Surface,
+		Renderer: renderer, Label: clipRunes(strings.TrimSpace(b.Label), chatExplainLabelMax),
+		Note: clipRunes(strings.TrimSpace(b.Note), chatExplainNoteMax)}
+	// v0.10.1407 — kanıt blokları cevaptan ÖNCE (kart ölçülmüş veriyle hemen
+	// dolar; withBlockSeq sohbetin sıralayıcısına bağlar).
+	for _, bl := range b.Blocks {
+		emit(bl.Type, bl.Payload)
+	}
+	if b.Unexplained != "" { // ölçüm yok → LLM yok, dürüst cevap (blok yine çizilir)
+		emit("answer", map[string]any{"text": b.Unexplained, "exchangeId": copilot.MetaFromContext(ctx).ExchangeID, "explain": meta})
+		return true, false
+	}
 	// Düğmenin kurucusundan gelen anahtar (explainCacheKey(system, user, "")).
-	res, ok := s.streamExplainCore(ctx, emit, k.Surface, b.System, b.User, b.CacheKey, ask.Fresh) // v0.10.1406 — fresh: Yeniden üret
+	// v0.10.1407 — kanıt-önce türde model hatası turu düşürmez: `error` yerine
+	// bloklar + dürüst satır (HTTP buildChartsResult sözleşmesinin sohbet ikizi).
+	coreEmit, narrErr := emit, ""
+	if len(b.Blocks) > 0 {
+		coreEmit = func(kind string, p any) {
+			if kind == "error" {
+				if m, ok := p.(map[string]string); ok {
+					narrErr = m["error"]
+				}
+				return
+			}
+			emit(kind, p)
+		}
+	}
+	res, ok := s.streamExplainCore(ctx, coreEmit, k.Surface, b.System, b.User, b.CacheKey, ask.Fresh) // v0.10.1406 — fresh: Yeniden üret
+	if !ok && len(b.Blocks) == 0 {
+		return true, false
+	}
 	if !ok {
+		emit("answer", map[string]any{"text": explainNarrationFailedTR(narrErr), "exchangeId": res.Xid, "explain": meta})
 		return true, false
 	}
 	text := trimExplainText(res)
 	links := append(append([]guidedAnswerLink(nil), b.Links...), s.answerRequestIDLinks(ctx, text, b.Service)...)
-	meta := chatExplainMeta{Kind: ask.Kind, ID: ask.ID, Subject: ask.Subject, Surface: k.Surface,
-		Renderer: explainRendererBody, Label: clipRunes(strings.TrimSpace(b.Label), chatExplainLabelMax),
-		Note: clipRunes(strings.TrimSpace(b.Note), chatExplainNoteMax), Cached: res.Cached, CachedAtMs: res.CachedAtMs}
+	meta.Cached, meta.CachedAtMs = res.Cached, res.CachedAtMs
 	ans := map[string]any{
 		"text": text, "exchangeId": res.Xid,
 		"links":   dedupLinksByHref(links),
@@ -250,4 +356,14 @@ func (s *Server) chatExplainRegistryTurn(ctx context.Context, emit func(string, 
 	}
 	emit("answer", withExplainCached(ans, res))
 	return true, true
+}
+
+// explainNarrationFailedTR — SAF (v0.10.1407): kanıt-önce türde anlatım
+// düşünce cevabın dürüst satırı (ServiceChartsExplainBody'nin eski boş-anlatım
+// metni; kart bloğu ölçülmüş veriyi yine çizer).
+func explainNarrationFailedTR(err string) string {
+	if err = strings.TrimSpace(err); err != "" {
+		return "Anlatım üretilemedi (" + err + "). Aşağıdaki kanıt yine de ölçülmüş veridir."
+	}
+	return "Model boş yanıt döndürdü. Aşağıdaki kanıt yine de ölçülmüş veridir."
 }

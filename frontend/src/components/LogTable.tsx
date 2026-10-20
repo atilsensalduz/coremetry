@@ -15,7 +15,6 @@ import type { LogRow } from '@/lib/types';
 import { traceHref } from '@/lib/traceHref';
 import { logLineSubjectOf } from '@/lib/logLineSubject'; // v0.10.1291 — ✨ log satırı
 import { AIExplainButton } from './ai/AIExplainButton';
-import { useInAiDrawer } from './ai/aiDrawerContext';
 import { IconSparkles } from './icons';
 import { useT } from '@/lib/i18n'; // v0.10.1338
 import { Button, IconButton, KeyValue, KeyValueRow } from '@/components/ui';
@@ -352,14 +351,14 @@ export function LogTable({
   );
 }
 
-// LogLineExplain — v0.10.1291: açılan satırın ✨'i. AI çekmecesinin açıklama
-// kipinde GİZLİ (açık özneyi değiştirirdi); özne kurulamıyorsa (servis/zaman
-// yok) çizilmez. Ayrı bileşen: router kancaları yalnız açılan satırda koşar.
+// LogLineExplain — v0.10.1291: açılan satırın ✨'i; özne kurulamıyorsa
+// (servis/zaman yok) çizilmez. Ayrı bileşen: router kancaları yalnız açılan
+// satırda koşar. v0.10.1407 — çekmecenin açıklama kipi silindi: tık sohbete
+// bir tur gönderir, sohbet içindeki tablolarda da görünür.
 function LogLineExplain({ l }: { l: LogRow }) {
-  const inDrawer = useInAiDrawer();
   const tr = useT(); // v0.10.1338 — "Ask CoSRE" etiketi
   const subject = useMemo(() => logLineSubjectOf(l), [l]);
-  if (inDrawer || !subject) return null;
+  if (!subject) return null;
   return (
     <AIExplainButton subject={subject} size="sm" title={tr('ai.askCosreLogHint')}
       label={<><IconSparkles /> <span>{tr('ai.askCosre')}</span></>} />

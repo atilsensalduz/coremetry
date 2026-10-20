@@ -54,11 +54,4 @@ describe('CoSRE sohbeti', () => {
     expect(chat).not.toContain("boxShadow: '0 8px 40px rgba(0,0,0,0.5)'");
   });
 });
-
-// Explain'in davranışı DEĞİŞMEMELİ: o bir özneyi inceliyor, modal doğru.
-describe('Explain çekmecesi etkilenmedi', () => {
-  const ai = readFileSync(resolve(__dirname, '../ai/AIDrawer.tsx'), 'utf8');
-  it('AIDrawer backdrop kapatmıyor', () => {
-    expect(ai).not.toContain('backdrop={false}');
-  });
-});
+// v0.10.1407 — ayrı Explain çekmecesi (AIDrawer) silindi; tek CoSRE kabuğu.

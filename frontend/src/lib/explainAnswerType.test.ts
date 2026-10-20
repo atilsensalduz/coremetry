@@ -18,9 +18,12 @@ import { readFileSync } from 'node:fs';
 const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), 'utf8');
 
 describe('Explain yanıtı tip sisteminde', () => {
-  it('links için cast KALMADI', () => {
-    const src = read('../components/CopilotExplain.tsx');
+  // v0.10.1407 — CopilotExplain özne kipiyle silindi; açıklama turu linkleri
+  // answer çerçevesinin tipli `links` alanından (useChatThread) okur.
+  it('links için cast KALMADI (sohbet thread\'i)', () => {
+    const src = read('../components/ai/useChatThread.ts');
     expect(src).not.toContain('as { links?');
+    expect(src).toContain('links: e.links');
   });
 
   it('ortak taban tip lib/types.ts\'te', () => {

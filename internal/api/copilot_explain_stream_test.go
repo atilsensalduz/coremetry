@@ -346,10 +346,12 @@ var explainStreamDeferred = map[string]string{
 	"copilotChat":           "zaten SSE (kendi akışı)",
 	"copilotAnalyzeService": "ajanik döngü, prose değil",
 	"copilotNLToQuery":      "JSON kipi — akan token anlamsız",
-	"copilotExplainCharts":  "sunucu-cache'li yanıt (cache + akış ayrı dilim)",
+	// v0.10.1407 — ✨ düğmesi artık sohbete tur gönderir (akan cevap orada); HTTP
+	// ucu kanıt + anlatım tek JSON, explain önbelleğinde sohbetle tek satır.
+	"copilotExplainCharts": "kanıt + anlatım tek JSON; akan yol sohbet turu (v0.10.1407)",
 	// v0.10.1284 — explain-charts emsali: kanıt (grafik + katkı tablosu) + anlatım
-	// TEK JSON'da, model düşse de kanıt döner; akış ayrı dilim.
-	"copilotExplainLogSpike": "kanıt + anlatım tek JSON (explain-charts emsali) — akış ayrı dilim",
+	// TEK JSON'da, model düşse de kanıt döner.
+	"copilotExplainLogSpike": "kanıt + anlatım tek JSON; akan yol sohbet turu (v0.10.1407)",
 	"explainShift":           "bağımsız küçük panel — Faz 1.5 takibi",
 	"explainAlertNoise":      "bağımsız küçük panel — Faz 1.5 takibi",
 	"explainLogPatterns":     "bağımsız küçük panel — Faz 1.5 takibi",

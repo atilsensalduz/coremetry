@@ -59,6 +59,10 @@ const (
 	ExplainServiceHealthChat = "explain-service:chat"
 	ExplainRunbookChat       = "runbook:chat"
 	ExplainLogChat           = "explain-log:chat"
+	// v0.10.1407 (Tek CoSRE adım 4) — grafik ve log artışı açıklamaları da
+	// sohbet turu; etiket yine HTTP yüzeyi + ":chat".
+	ExplainChartsChat   = "explain-charts:chat"
+	ExplainLogSpikeChat = "explain-log-spike:chat"
 	// ChatRule — v0.10.1289: "bunu hatırla" → son soru + cevaptan tek cümlelik
 	// kural önerisi (hafıza kademesi, api/chat_memory.go). Öneri kaydedilmez;
 	// operatör onay kartında düzenleyip kaydeder.
@@ -122,6 +126,10 @@ var registry = []Spec{
 	{Label: ExplainServiceHealthChat, Role: RoleAnswer, Eval: "ServiceHealth"},
 	{Label: ExplainRunbookChat, Role: RoleAnswer, Eval: "Runbook"},
 	{Label: ExplainLogChat, Role: RoleAnswer},
+	// v0.10.1407 — grafik özeti HTTP'deki gibi ServiceCharts ailesi; log artışı
+	// istemi evalset koşucusunda yok (explain-log-spike → Unknown).
+	{Label: ExplainChartsChat, Role: RoleAnswer, Eval: "ServiceCharts"},
+	{Label: ExplainLogSpikeChat, Role: RoleAnswer},
 	// v0.10.1289 — kural önerisi cevabın kendisi (RoleAnswer); KB'ye terfi
 	// edemez (kanıt değil, öneri) ve evalset vakası olamaz (girdi sohbetin
 	// son turundan istek anında kurulur).

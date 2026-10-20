@@ -97,8 +97,8 @@ describe('AI düşünüyor göstergesi — tek bileşen (v0.10.1384)', () => {
       jsxOpenTags(f.src, tag).filter(t => /[Dd]üşün|Thinking|model yazıyor|kodu okuyor/.test(t.tag))
         .map(t => `${f.rel}:${t.line} <${tag}>`)));
     expect(hits).toEqual([]);
-    // LoaderMark AI alanında hiç çizilmez (CopilotExplain dahil).
-    const lm = FILES.filter(f => f.rel.startsWith('components/ai/') || f.rel === 'components/CopilotExplain.tsx')
+    // LoaderMark AI alanında hiç çizilmez.
+    const lm = FILES.filter(f => f.rel.startsWith('components/ai/'))
       .filter(f => jsxOpenTags(f.src, 'LoaderMark').length > 0).map(f => f.rel);
     expect(lm).toEqual([]);
   });
@@ -106,11 +106,10 @@ describe('AI düşünüyor göstergesi — tek bileşen (v0.10.1384)', () => {
   it('(d) göçen yüzeyler AiThinking kullanır', () => {
     const MIGRATED = [
       'components/ai/ChatBubble.tsx',
-      'components/CopilotExplain.tsx',
       'components/DeployHistoryPanel.tsx',
       'components/ai/InsightCard.tsx',
-      'components/ai/ServiceChartsExplainBody.tsx',
-      'components/ai/LogSpikeExplainBody.tsx',
+      // v0.10.1407 — CopilotExplain / ServiceChartsExplainBody / LogSpikeExplainBody
+      // özne kipiyle silindi; charts / log-spike bekleyişi ChatBubble'ınki.
     ];
     for (const rel of MIGRATED) {
       const f = FILES.find(x => x.rel === rel);

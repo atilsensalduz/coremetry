@@ -553,7 +553,11 @@ export function ServiceCharts({ service, range, onZoom, onZoomReset, opScope = '
             rollout + op-delta + anomali, üstelik yapısal sinyal tablosu ve
             pivot linkleriyle. `service-health` öznesi kodekte YAŞIYOR:
             guided sohbet ve eski paylaşılmış linkler onu kullanmaya
-            devam ediyor. */}
+            devam ediyor.
+
+            v0.10.1407 (Tek CoSRE adım 4) — tık CoSRE sohbetine bir tur
+            gönderir (çekmece özne kipi silindi); cevap ChartsSignalsCard
+            (sinyaller cevabın charts_signals bloğundan), dört ✨ aynı yol. */}
         <AIExplainButton
           subject={{ kind: 'charts', id: service, fromNs: from, toNs: to, scope: 'all' }}
           title="Görünen pencerenin tüm RED grafiklerini AI ile özetle"

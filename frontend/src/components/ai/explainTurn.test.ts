@@ -8,8 +8,10 @@ import { describe, it, expect } from 'vitest';
 import type { ChatFollowup, ChatTurn } from '@/lib/types';
 import {
   activeExplainFrom, explainAskFor, explainAskSubject, explainContextLabel, explainEvidence, explainFollowupContext,
-  explainSubject, explainTurnSendOpts, explainUserText, isExplainTurnKind, shortExplainId,
+  explainRenderer, explainSubject, explainTurnSendOpts, explainUserText, isExplainTurnKind, shortExplainId,
+  EXPLAIN_TURN_KINDS,
 } from './explainTurn';
+import { AI_KINDS } from '@/lib/aiSubject';
 import { endpointAskQuestion } from './drawerChat';
 import { starterAsk } from './capabilityHints';
 import { hasCompletedExchange, persistMessages, restoreTurns } from './chatPersist';
@@ -37,8 +39,8 @@ describe('explainAskFor', () => {
     expect(explainUserText('exception', '0000000000000c3', 'ORD-200')).toBe('ORD-200 grubunu açıkla · 00000000…');
     expect(isExplainTurnKind('trace')).toBe(true);
     expect(isExplainTurnKind('incident')).toBe(true); // v0.10.1405
-    expect(isExplainTurnKind('charts')).toBe(false);  // 1407'ye dek çekmece özne kipi
-    expect(isExplainTurnKind('log-spike')).toBe(false);
+    expect(isExplainTurnKind('charts')).toBe(true);    // v0.10.1407 — özne kipi silindi
+    expect(isExplainTurnKind('log-spike')).toBe(true);
   });
 });
 
@@ -78,9 +80,18 @@ describe('explainAskFor — tür başına (v0.10.1405)', () => {
     expect(x).toEqual({ userText: endpointAskQuestion(ep), window: { rangeS: 1800, toMs: 1_790_000_000_000 + 1_800_000 } });
     expect(explainTurnSendOpts(x!)).toEqual({ window: x!.window });
   });
-  it('charts / log-spike hâlâ çekmece özne kipi (null)', () => {
-    expect(explainAskFor({ kind: 'charts', id: 'orders-api', fromNs: 1, toNs: 2, scope: 'all' })).toBeNull();
-    expect(explainAskFor({ kind: 'log-spike', id: '', fromNs: 1, toNs: 2, mode: 'auto', env: '', q: '', level: 'all' })).toBeNull();
+  // v0.10.1407 — charts / log-spike da sohbet turu (kodekli niyet); log-spike'ta
+  // boş kimlik = filo geneli (null DEĞİL).
+  it('charts / log-spike → kodekli niyet (v0.10.1407)', () => {
+    expect(explainAskFor({ kind: 'charts', id: 'orders-api', fromNs: 1, toNs: 2, scope: 'err' }, 'button')).toEqual({
+      userText: 'orders-api grafiklerini açıkla · Error rate by operation',
+      explainAsk: { kind: 'charts', id: 'orders-api', subject: 'charts:orders-api:1:2:err', src: 'button' },
+    });
+    expect(explainAskFor({ kind: 'log-spike', id: '', fromNs: 1, toNs: 2, mode: 'auto', env: '', q: '', level: 'all' })).toEqual({
+      userText: 'Tüm servislerin log artışını açıkla',
+      explainAsk: { kind: 'log-spike', id: '', subject: 'log-spike:*:1:2:auto:::all' },
+    });
+    expect(explainAskFor({ kind: 'charts', id: ' ', fromNs: 1, toNs: 2, scope: 'all' })).toBeNull();
   });
   it('niyet → özne: kodekten ya da {kind, id}; kodeksiz span çözülmez', () => {
     expect(explainAskSubject({ kind: 'span', id: TRACE, subject: `span:${TRACE}:${SPAN}` })).toEqual({ kind: 'span', id: TRACE, spanId: SPAN });
@@ -188,5 +199,59 @@ describe('niyet taşıyan çipler', () => {
     expect(contextStarter('/trace', `?id=${TRACE.toUpperCase()}`)?.explainAsk).toEqual({ kind: 'trace', id: TRACE, src: 'starter' });
     expect(contextStarter('/inbox', '?exception=abc123ff')?.explainAsk).toEqual({ kind: 'exception', id: 'abc123ff', src: 'starter' });
     expect(contextStarter('/inbox', '?problem=pr-1')?.explainAsk).toBeUndefined();
+  });
+});
+
+// v0.10.1407 (Tek CoSRE adım 4; operatör: "Trace ve exception üzerinden çalışan
+// Ask CoSRE açıklamaları güzel ama sanki ayrı drawer hissi, CoSRE bütünselliğine
+// uymuyor.") — çekmecenin özne kipi silindi: AI_KINDS'in HER türü ya bir
+// açıklama turu niyetine ya da (endpoint) görünür soruya iner.
+describe('her ?ai= türü bir sohbet turu (v0.10.1407)', () => {
+  it('EXPLAIN_TURN_KINDS = AI_KINDS (eksik/fazla yok)', () => {
+    expect([...EXPLAIN_TURN_KINDS].sort()).toEqual([...AI_KINDS].sort());
+  });
+  it('her tür bir niyete ya da endpoint sorusuna çözülür', () => {
+    const fromNs = 1_790_000_000_000_000_000, toNs = fromNs + 3_600_000_000_000;
+    const subjects = {
+      trace: { kind: 'trace', id: TRACE }, span: { kind: 'span', id: TRACE, spanId: 'aaaaaaaaaaaaaaa1' },
+      problem: { kind: 'problem', id: 'p-1' }, incident: { kind: 'incident', id: 'i-1' }, anomaly: { kind: 'anomaly', id: 'a-1' },
+      'service-health': { kind: 'service-health', id: 'orders-api', fromNs, toNs }, runbook: { kind: 'runbook', id: 'p-1' },
+      exception: { kind: 'exception', id: 'fp-1' }, charts: { kind: 'charts', id: 'orders-api', fromNs, toNs, scope: 'all' },
+      'log-spike': { kind: 'log-spike', id: 'checkout', fromNs, toNs, mode: 'sel', env: 'prod', q: '', level: 'error' },
+      log: { kind: 'log', id: 'orders-api', tsNs: '1790000000123000000', pod: '', traceId: '', hash: 'ca29aa39' },
+      endpoint: { kind: 'endpoint', id: 'orders-api', route: '/orders', method: 'GET', fromNs, toNs },
+    } as const;
+    for (const k of AI_KINDS) {
+      const x = explainAskFor(subjects[k] as Parameters<typeof explainAskFor>[0]);
+      expect(x, k).not.toBeNull();
+      if (k === 'endpoint') {
+        expect(x!.explainAsk, k).toBeUndefined();
+        expect(x!.window, k).toEqual({ rangeS: 3600, toMs: Math.floor(toNs / 1e6) });
+      } else {
+        expect(x!.explainAsk?.kind, k).toBe(k);
+      }
+    }
+  });
+  it('çizim kipi: künyenin renderer\'ı, yoksa türden (canlı turun geçici künyesi)', () => {
+    expect(explainRenderer({ kind: 'charts' })).toBe('charts');
+    expect(explainRenderer({ kind: 'log-spike' })).toBe('log-spike');
+    expect(explainRenderer({ kind: 'trace' })).toBe('body');
+    expect(explainRenderer({ kind: 'charts', renderer: 'body' })).toBe('body');
+  });
+  it('charts takip bağlamı: kodek + servis + açıklanan pencere; bağlam etiketi', () => {
+    const CH = 'charts:orders-api:1790000000000000000:1790003600000000000:err';
+    const a = activeExplainFrom([
+      { role: 'user', text: 'orders-api grafiklerini açıkla', explainAsk: { kind: 'charts', id: 'orders-api', subject: CH } },
+      { role: 'assistant', text: 'deploy sonrası hata oranı arttı', exchangeId: 'x1',
+        explain: { kind: 'charts', id: 'orders-api', subject: CH, renderer: 'charts', label: 'orders-api' } },
+    ]);
+    if (!a) throw new Error('etkin açıklama yok');
+    const fc = explainFollowupContext(a);
+    expect(fc.subject).toBe(CH);
+    expect(fc.service).toBe('orders-api');
+    expect(fc.rangeS).toBe(3600);
+    expect(fc.toMs).toBe(1790003600000);
+    expect(explainContextLabel({ kind: 'charts', id: 'orders-api' })).toBe('✨ orders-api grafikleri');
+    expect(explainContextLabel({ kind: 'log-spike', id: '' })).toBe('✨ log artışı tüm servisler');
   });
 });

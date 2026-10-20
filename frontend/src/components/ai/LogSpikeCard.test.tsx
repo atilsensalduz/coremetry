@@ -1,27 +1,26 @@
 // @vitest-environment jsdom
 //
-// LogSpikeExplainBody — v0.10.1284 (AI SRE Faz 1a: explain_log_spike, log
-// artışını ne açıklıyor).
+// LogSpikeCard — v0.10.1284 (AI SRE Faz 1a: explain_log_spike, log artışını ne
+// açıklıyor) pinleri, v0.10.1407 (Tek CoSRE adım 4; operatör: "Trace ve
+// exception üzerinden çalışan Ask CoSRE açıklamaları güzel ama sanki ayrı
+// drawer hissi, CoSRE bütünselliğine uymuyor.") ile çekmece gövdesinden
+// (LogSpikeExplainBody, silindi) sohbet turunun kartına taşındı. Kart veri
+// ÇEKMEZ: kanıt cevabın `log_spike` bloğundan, anlatım `children`.
 //
 // NE ÇİVİLİYOR:
-//   • istek gövdesi öznenin TÜM girdilerini taşır (servis/env/arama/seviye/kip/pencere);
-//   • grafik taban + artış BÖLGELERİYLE çizilir (TimeChart `regions`);
+//   • künye çipleri bloğun kapsamından (servis/env/arama/kip/pencere);
+//   • grafik taban + artış BÖLGELERİYLE çizilir (TimeChart `regions`, tembel);
 //   • katkı tablosu sunucu sırasıyla, ≤5 satır, gerekçe sütunuyla (kanıt tablosu);
 //   • okunamayan boyut "okunamadı" der (yokluk ≠ okunamadı);
-//   • anlatım düşse de (error) kanıt görünür; v0.10.1393: 👍/👎 hiç çizilmez.
+//   • "logları aç" pivotu artış penceresiyle; v0.10.1393: 👍/👎 hiç çizilmez.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { LogSpikeExplain, LogSpikeExplainRequest } from '@/lib/types';
+import type { LogSpikeBlockPayload } from '@/lib/types';
 import type { ChartTimeRegion } from '@/lib/chart/overlays';
 
-const m = vi.hoisted(() => ({ data: null as unknown, body: null as unknown, regions: null as unknown }));
-vi.mock('@/lib/api', () => ({
-  api: { copilotExplainLogSpike: async (b: unknown) => { m.body = b; return m.data; } },
-  isCanceled: () => false,
-}));
+const m = vi.hoisted(() => ({ regions: null as unknown }));
 vi.mock('@/components/charts/TimeChart', () => ({
   TimeChart: (p: { regions?: ChartTimeRegion[]; times: number[] }) => {
     m.regions = p.regions;
@@ -29,7 +28,7 @@ vi.mock('@/components/charts/TimeChart', () => ({
   },
 }));
 
-import { LogSpikeExplainBody } from './LogSpikeExplainBody';
+import { LogSpikeCard } from './LogSpikeCard';
 import { logSpikeChart, logSpikeContributorTable, trPct } from './logSpikeView';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -38,9 +37,8 @@ const FROM = 1_700_000_000e9;
 const TO = 1_700_003_600e9;
 const S = 1_700_003_000_000; // ms
 
-const FULL: LogSpikeExplain = {
-  explanation: 'Artış: checkout logları ×5,9.\nKaynak:\n- pod checkout-7f9-abc',
-  exchangeId: 'x1',
+const FULL: LogSpikeBlockPayload = {
+  service: 'checkout', env: 'prod', q: 'timeout', level: 'all', mode: 'auto', fromNs: FROM, toNs: TO,
   spike: {
     tool: 'explain_log_spike', ok: true, partial: true, request: { service: 'checkout' },
     spike: { fromMs: S, toMs: S + 420_000, source: 'detected', factor: 5.9, ratePerMinSpike: 1840, ratePerMinBase: 310,
@@ -63,22 +61,19 @@ const FULL: LogSpikeExplain = {
 let host: HTMLDivElement | null = null;
 let root: Root | null = null;
 
-async function mount(data: LogSpikeExplain): Promise<HTMLElement> {
-  m.data = data;
+async function mount(p: LogSpikeBlockPayload): Promise<HTMLElement> {
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   await act(async () => {
     root!.render(
-      <QueryClientProvider client={qc}>
-        <MemoryRouter>
-          <LogSpikeExplainBody service="checkout" fromNs={FROM} toNs={TO} mode="auto" env="prod" q="timeout" level="all" />
-        </MemoryRouter>
-      </QueryClientProvider>,
+      <MemoryRouter>
+        <LogSpikeCard p={p}><p data-testid="narr">Artış: checkout logları ×5,9.</p></LogSpikeCard>
+      </MemoryRouter>,
     );
   });
-  await act(async () => { await new Promise(r => setTimeout(r, 20)); });
+  // tembel TimeChart (lazy + Suspense) çözülsün
+  for (let i = 0; i < 5; i++) await act(async () => { await new Promise(r => setTimeout(r, 10)); });
   return host;
 }
 
@@ -88,11 +83,11 @@ afterEach(() => {
   host = null; root = null;
 });
 
-describe('LogSpikeExplainBody', () => {
-  it('istek tüm girdileri taşır; grafik bölgeli, tablo sunucu sırasıyla', async () => {
+describe('LogSpikeCard', () => {
+  it('künye bloktan; grafik bölgeli, tablo sunucu sırasıyla; anlatım yuvada', async () => {
     const el = await mount(FULL);
-    const want: LogSpikeExplainRequest = { service: 'checkout', env: 'prod', query: 'timeout', level: 'all', mode: 'auto', fromNs: FROM, toNs: TO };
-    expect(m.body).toEqual(want);
+    for (const chip of ['checkout', 'otomatik tespit', 'prod', 'timeout']) expect(el.textContent).toContain(chip);
+    expect(el.querySelector('[data-testid="narr"]')).not.toBeNull();
     expect(el.querySelector('[data-testid="timechart"]')?.textContent).toBe('60 kova');
     const regions = m.regions as ChartTimeRegion[];
     expect(regions.map(r => r.label)).toEqual(['taban', 'artış']);
@@ -104,14 +99,17 @@ describe('LogSpikeExplainBody', () => {
     expect(el.textContent).toContain('logger: okunamadı (timeout)');
     expect(el.textContent).toContain('cluster: eşlenmedi');
     expect(el.textContent).toContain('×5,9');
-    // v0.10.1393 — exchangeId'li tam cevapta da oy rayı yok.
+    const cta = [...el.querySelectorAll('a')].find(a => a.textContent?.includes('Artış penceresinin loglarını aç'));
+    expect(cta?.getAttribute('href')).toContain('/logs');
+    // v0.10.1393 — oy rayı yok; v0.10.1407 — balonun kendi ↻'u var, kartta yok.
     expect(el.querySelector('[aria-label*="faydal"], [aria-label*="faydas"]')).toBeNull();
+    expect(el.textContent).not.toContain('Yeniden üret');
   });
 
-  it('anlatım düşse de kanıt görünür', async () => {
-    const el = await mount({ ...FULL, explanation: '', exchangeId: undefined, error: 'kota' });
-    expect(el.textContent).toContain('Anlatım üretilemedi (kota)');
-    expect(el.querySelectorAll('tbody tr')).toHaveLength(2);
+  it('tepe yoksa: "karşılaştırılacak artış yok", pivot yok', async () => {
+    const el = await mount({ ...FULL, spike: { ...FULL.spike, spike: undefined, contributors: [] } });
+    expect(el.textContent).toContain('karşılaştırılacak artış yok');
+    expect([...el.querySelectorAll('a')].some(a => a.textContent?.includes('loglarını aç'))).toBe(false);
   });
 });
 

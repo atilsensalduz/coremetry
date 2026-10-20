@@ -1,5 +1,5 @@
-import { formatAiParam, parseAiParam, type AISubject } from '@/lib/aiSubject';
-import type { ChatExplainAsk, ChatExplainKind, ChatExplainMeta, ChatSendWindow, ChatTurn } from '@/lib/types';
+import { chartScopeLabel, formatAiParam, parseAiParam, type AISubject } from '@/lib/aiSubject';
+import type { ChatExplainAsk, ChatExplainKind, ChatExplainMeta, ChatExplainRenderer, ChatSendWindow, ChatTurn } from '@/lib/types';
 import type { ExplainEvidence } from './ExplainBody';
 import { buildExplainContext, endpointAskQuestion } from './drawerChat';
 import { isOracleGroup } from '@/features/anomalies/oracleGroup';
@@ -21,13 +21,19 @@ import { isOracleGroup } from '@/features/anomalies/oracleGroup';
 // (span / service-health / log) niyete `subject` kodeğini (formatAiParam) koyar.
 // endpoint: ayrı açıklama yüzeyi yok — görünür soru (endpointAskQuestion) +
 // düğmeye basılan pencere (ChatSendWindow), operasyon ön-getirmesi çözer.
-// charts / log-spike çekmece özne kipinde kalır (1407).
+//
+// v0.10.1407 (Tek CoSRE adım 4) — charts (Service → Details grafik ✨'ları) ve
+// log-spike (Logs histogramı ✨) da sohbet turu: AI_KINDS'in HER türü artık bir
+// açıklama turuna (ya da endpoint sorusuna) iner; çekmecenin özne kipi silindi.
+// Bu iki türün cevabı ölçülmüş kanıtın tipli bloğunu taşır, balon kart çizer
+// (explainRenderer). log-spike'ta boş kimlik = filo geneli (meşru).
 //
 // Saf modül (vitest node) — React yok.
 
-/** Sohbet turu olarak açıklanan özne türleri (charts / log-spike çekmece özne kipinde — 1407). */
+/** Sohbet turu olarak açıklanan özne türleri — v0.10.1407: AI_KINDS'in TAMAMI (explainTurn.test pinler). */
 export const EXPLAIN_TURN_KINDS = [
   'trace', 'exception', 'span', 'problem', 'incident', 'anomaly', 'service-health', 'runbook', 'log', 'endpoint',
+  'charts', 'log-spike', // v0.10.1407
 ] as const;
 export type ExplainTurnKind = typeof EXPLAIN_TURN_KINDS[number];
 
@@ -66,13 +72,15 @@ export function explainTurnText(s: AISubject, label?: string): string {
     case 'runbook':        return `Bu problem için runbook çıkar · ${shortExplainId(s.id)}`;
     case 'log':            return `Bu log satırını açıkla · ${s.id}${s.pod ? ` · ${s.pod}` : ''}`;
     case 'endpoint':       return endpointAskQuestion(s);
+    case 'charts':         return `${s.id} grafiklerini açıkla · ${chartScopeLabel(s.scope)}`; // v0.10.1407
+    case 'log-spike':      return `${s.id || 'Tüm servislerin'} log artışını açıkla`; // v0.10.1407
     default:               return '';
   }
 }
 
 /**
  * explainCodeCapable — v0.10.1406: "Kodu da incele"nin anlamlı olduğu özne —
- * CopilotExplain'deki codeCapable'ın aynası (sunucu: chat_explain_turn.go
+ * eski ✨ kartındaki codeCapable'ın aynası (sunucu: chat_explain_turn.go
  * explainCodeCapable): trace ve span exception grubu (Oracle `ora:` stack taşımaz).
  */
 export function explainCodeCapable(kind: string, id: string): boolean {
@@ -110,9 +118,9 @@ export interface ExplainTurnIntent {
 }
 
 /**
- * explainAskFor — özne → {görünen metin, yapısal niyet}. Göç eden türlerin
- * hepsi (EXPLAIN_TURN_KINDS); charts / log-spike null (çekmecenin özne kipi).
- * Boş kimlik null. v0.10.1404 — `label`: görünen metindeki grup adı (CoSRE
+ * explainAskFor — özne → {görünen metin, yapısal niyet}. AI_KINDS'in her türü
+ * (EXPLAIN_TURN_KINDS). Boş kimlik null — v0.10.1407: log-spike hariç (boş =
+ * filo geneli). v0.10.1404 — `label`: görünen metindeki grup adı (CoSRE
  * başlangıcının exception çipi "ORDERS_GET_X · orders-api"); yoksa "Exception".
  * v0.10.1405 — span / service-health / log niyeti `subject` kodeğini taşır;
  * endpoint niyet taşımaz, `window` taşır.
@@ -120,7 +128,7 @@ export interface ExplainTurnIntent {
 export function explainAskFor(subject: AISubject | null | undefined, src?: string, label?: string, code?: boolean): ExplainTurnIntent | null {
   if (!subject || !isExplainTurnKind(subject.kind)) return null;
   const id = (subject.id ?? '').trim();
-  if (!id) return null;
+  if (!id && subject.kind !== 'log-spike') return null;
   const s = { ...subject, id } as AISubject;
   // v0.10.1406 — kod turu (?aicode=1) yalnız kod-yetenekli öznede; aksi kodsuz açıklama.
   const withCode = !!code && explainCodeCapable(s.kind, id);
@@ -159,7 +167,7 @@ export function explainAskSubject(a: ChatExplainAsk): AISubject | null {
   return subjectOf(a.kind, a.id, a.subject);
 }
 
-/** explainSubject — künye → çekmece öznesi (takip bağlamı / kodek / yedek çipler için). */
+/** explainSubject — künye → özne (takip bağlamı / kodek / yedek çipler için). */
 export function explainSubject(meta: Pick<ChatExplainMeta, 'kind' | 'id' | 'subject'>): AISubject | null {
   return subjectOf(meta.kind, meta.id, meta.subject);
 }
@@ -225,8 +233,26 @@ export function explainFollowupContext(a: ActiveExplain): ExplainFollowupContext
     out.toMs = Math.floor(s.toNs / 1e6);
   } else if (s.kind === 'log') {
     out.service = s.id;
+  } else if (s.kind === 'charts' || (s.kind === 'log-spike' && s.id)) {
+    // v0.10.1407 — grafik / log artışı: servis + açıklanan pencere (service-health kuralı).
+    out.service = s.id;
+    out.rangeS = Math.max(60, Math.round((s.toNs - s.fromNs) / 1e9));
+    out.toMs = Math.floor(s.toNs / 1e6);
   }
   return out;
+}
+
+/**
+ * explainRenderer — v0.10.1407: balonun çizim kipi. Künyenin `renderer`ı
+ * (sunucu) yoksa türden: charts / log-spike kartı (canlı turun geçici künyesi
+ * de kartı ilk metinle çizer), diğerleri body. Kart yine BLOK ister —
+ * ChatBubble blok yoksa ExplainBody'ye düşer.
+ */
+export function explainRenderer(meta: Pick<ChatExplainMeta, 'kind' | 'renderer'>): ChatExplainRenderer {
+  if (meta.renderer) return meta.renderer;
+  if (meta.kind === 'charts') return 'charts';
+  if (meta.kind === 'log-spike') return 'log-spike';
+  return 'body';
 }
 
 const clipLabel = (l: string): string => (l.length > 40 ? `${l.slice(0, 39)}…` : l);
@@ -244,6 +270,8 @@ export function explainContextLabel(meta: Pick<ChatExplainMeta, 'kind' | 'id' | 
     case 'service-health': return `✨ ${meta.id} sağlığı`;
     case 'runbook':        return `✨ runbook ${shortExplainId(meta.id)}`;
     case 'log':            return `✨ log ${meta.id}`;
+    case 'charts':         return `✨ ${meta.id} grafikleri`; // v0.10.1407
+    case 'log-spike':      return `✨ log artışı ${meta.id || 'tüm servisler'}`; // v0.10.1407
     default:               return `✨ ${shortExplainId(meta.id)}`;
   }
 }

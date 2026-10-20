@@ -4,8 +4,9 @@
 // Pinler: (1) followups tıkı metni + yapısal kapsamı gönderir, followup_click
 // sinyali yollanır; suggestions/statik geri düşüş korunur; aksiyon çipi mesaj
 // göndermez, verify çağırır. (2) Sohbet log tablosunda satır ✨ YALNIZ satır
-// öznesi varken ve AI çekmecesinin açıklama kipinde DEĞİLKEN; trace listesi
-// satırı ✨ trace. (3) CopilotChat / AIDrawerBody çipi kapsamla gönderir (kaynak pini).
+// öznesi varken; trace listesi satırı ✨ trace. v0.10.1407 — çekmecenin
+// açıklama kipi (aiDrawerContext) silindi: satır ✨'i sohbete tur gönderir,
+// sohbet içinde de görünür. (3) CopilotChat çipi kapsamla gönderir (kaynak pini).
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
@@ -25,7 +26,6 @@ import { FollowupChips } from './FollowupChips';
 import { followupSendOpts } from './followupSend';
 import { ChatBubble } from './ChatBubble';
 import { ChatTraceList } from './ChatTraceList';
-import { InAiDrawerContext } from './aiDrawerContext';
 
 let host: HTMLDivElement;
 let root: Root;
@@ -135,9 +135,9 @@ describe('satır ✨ — yalnız satır öznesiyle ve çekmece dışında', () =
       rows: [[1, 'boom'], [2, 'ok']], ...(rowSubjects ? { rowSubjects } : {}),
     } }],
   });
-  const html = (t: ChatTurn, inDrawer = false) => renderToStaticMarkup(
+  const html = (t: ChatTurn) => renderToStaticMarkup(
     <QueryClientProvider client={new QueryClient()}><MemoryRouter>
-      <InAiDrawerContext.Provider value={inDrawer}><ChatBubble turn={t} /></InAiDrawerContext.Provider>
+      <ChatBubble turn={t} />
     </MemoryRouter></QueryClientProvider>);
   const subj = 'log:1700000000123000000:payments:payments-a::ca29aa39';
 
@@ -150,17 +150,12 @@ describe('satır ✨ — yalnız satır öznesiyle ve çekmece dışında', () =
   it('rowSubjects yoksa sütun yok (eski sunucu)', () => {
     expect(html(turn())).not.toContain('data-row-ai');
   });
-  it('AI çekmecesinin açıklama kipinde gizli', () => {
-    expect(html(turn([subj]), true)).not.toContain('data-row-ai');
-  });
-  it('trace listesi satırı ✨ trace; çekmecede gizli', () => {
+  it('trace listesi satırı ✨ trace', () => {
     const tl = { query: 'q', window: { fromNs: 1, toNs: 2 }, deepLink: '/traces', truncated: false,
       traces: [{ traceId: 'a'.repeat(32), startTime: 1e6, serviceName: 'checkout', rootName: 'POST /pay', durationMs: 12, spanCount: 3, hasError: false }] };
     const out = renderToStaticMarkup(<MemoryRouter><ChatTraceList tl={tl} /></MemoryRouter>);
     expect(out).toContain('data-row-ai');
     expect(out).toContain('Bu trace&#x27;i AI ile açıkla');
-    const inDrawer = renderToStaticMarkup(<MemoryRouter><InAiDrawerContext.Provider value={true}><ChatTraceList tl={tl} /></InAiDrawerContext.Provider></MemoryRouter>);
-    expect(inDrawer).not.toContain('data-row-ai');
   });
 });
 
@@ -172,19 +167,15 @@ describe('kaynak pinleri — çip tıkı kapsamla gönderilir', () => {
     expect(c).toContain('<FollowupChips followups={last.followups} suggestions={last.suggestions}');
     expect(c).toContain('fallback={last.explain ? drawerFollowups(explainSubject(last.explain)) : FOLLOWUPS');
     expect(c).toMatch(/const askChip = \(text: string, so\?: ChatSendOpts\) => \{[\s\S]{0,80}void send\(text, so\);/);
-    expect(c).toContain('<InAiDrawerContext.Provider value={true}>');
-  });
-  it('AIDrawerBody: aynı bileşen, aynı kapsam yolu', () => {
-    const d = src('./AIDrawerBody.tsx');
-    expect(d).toContain('<FollowupChips followups=');
-    expect(d).toMatch(/const askChip = \(text: string, so\?: ChatSendOpts\) => \{[\s\S]{0,60}void send\(text, so\);/);
+    expect(c).not.toContain('InAiDrawerContext'); // v0.10.1407 — açıklama kipi yok
   });
   it('useChatThread followups alanını cevaba kopyalar', () => {
     expect(src('./useChatThread.ts')).toContain('followups: e.followups');
   });
-  it('Logs satırı ✨ çekmecede gizli', () => {
+  it('Logs satırı ✨ yalnız özne varken (v0.10.1407 — çekmece kapısı kalktı)', () => {
     const l = src('../LogTable.tsx');
-    expect(l).toContain('if (inDrawer || !subject) return null;');
+    expect(l).toContain('if (!subject) return null;');
+    expect(l).not.toContain('useInAiDrawer');
     expect(l).toContain('{!l.origin && <LogLineExplain l={l} />}');
   });
 });

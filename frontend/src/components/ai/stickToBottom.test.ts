@@ -41,16 +41,14 @@ describe('findScrollParent', () => {
 describe('BAĞLANMA (kaynak pinleri)', () => {
   const src = (f: string) => readFileSync(new URL(f, import.meta.url), 'utf8');
   it('iki yüzey de useStickToBottom kullanır ve her turns değişiminde dibe zorlamaz', () => {
+    // v0.10.1407 — çekmecenin özne-kipi sohbeti (AIDrawerBody) silindi: tek yüzey.
     const chat = src('../CopilotChat.tsx');
-    const drawer = src('./AIDrawerBody.tsx');
     expect(chat).toMatch(/useStickToBottom(State)?\(/); // v0.10.1137 — atBottom'lı varyant
-    expect(drawer).toContain('useStickToBottom(');
-    // Eski desenler: her delta'da koşulsuz dibe.
+    // Eski desen: her delta'da koşulsuz dibe.
     expect(chat).not.toContain("scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });\n  }, [turns, open]);");
-    expect(drawer).not.toContain("endRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });\n  }, [turns]);");
   });
   it('kullanıcı sorusu gönderince pin (koşulsuz dip)', () => {
-    for (const f of ['../CopilotChat.tsx', './AIDrawerBody.tsx']) {
+    for (const f of ['../CopilotChat.tsx']) {
       const s = src(f);
       const submit = s.indexOf('const submit = ');
       expect(submit, f).toBeGreaterThan(-1);

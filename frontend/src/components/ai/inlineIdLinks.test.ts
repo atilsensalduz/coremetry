@@ -83,17 +83,15 @@ describe('idLinkPattern', () => {
 // KABLOLAMA PİNİ — saf çekirdek yeşil ama çağrılmıyorsa satır içi link yok.
 describe('kablolama', () => {
   const md = readFileSync(new URL('../Markdown.tsx', import.meta.url), 'utf8');
-  const ex = readFileSync(new URL('../CopilotExplain.tsx', import.meta.url), 'utf8');
 
   it('Markdown deseni kuruyor ve renderInline\'a geçiriyor', () => {
     expect(md).toContain('idLinkPattern(idLinks)');
     expect(md).toContain('renderInline(');
   });
 
-  it('CopilotExplain sunucudan gelen links\'i geçiriyor', () => {
-    // v0.10.165 — kart gövdesi ExplainBody'ye taşındı: CopilotExplain links'i
-    // ExplainBody'ye, o da RenderedMarkdown'a (idLinks) geçirir — zincir pinli.
-    expect(ex).toContain('links={links}');
+  it('ExplainBody links\'i RenderedMarkdown\'a (idLinks) geçiriyor', () => {
+    // v0.10.165 — kart gövdesi ExplainBody; v0.10.1407 — ✨ kartı (CopilotExplain)
+    // silindi, zincirin kalan halkası ExplainBody → RenderedMarkdown.
     const body = readFileSync(new URL('./ExplainBody.tsx', import.meta.url), 'utf8');
     expect(body).toContain('idLinks={links}');
   });

@@ -182,7 +182,7 @@ describe('Derin düşün kablolaması', () => {
     expect(src).toMatch(/\.\.\.\(o\.deep \? \{ deep: true \} : \{\}\)/);
   });
   it('iki kabuk da hook\'u thread\'e ve composer\'a geçirir (akarken devre dışı)', () => {
-    for (const rel of ['./AIDrawerBody.tsx', '../CopilotChat.tsx']) {
+    for (const rel of ['../CopilotChat.tsx']) { // v0.10.1407 — AIDrawerBody silindi
       const src = read(rel);
       expect(src).toContain('useDeepThink(');
       expect(src).toMatch(/\n\s*deep, /);

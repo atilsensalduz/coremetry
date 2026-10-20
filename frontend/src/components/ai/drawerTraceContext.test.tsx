@@ -1,25 +1,17 @@
 // @vitest-environment jsdom
 //
-// v0.10.944 (CoSRE Faz A) — trace çekmecesinin BAĞLAM devri, çalışma
-// zamanında. Kaynak pini burada yetmez: iddiaların hepsi çalışma-zamanı
-// dalı (hangi alanın hangi turda tele gittiği, kaydetmenin neyi taşıdığı,
-// geçmişten açılan konuşmanın hangi kipe döndüğü).
-//
-//   (1) Çekmece sohbeti HER TURDA trace/env/page + trace penceresi ±5 dk
-//       (rangeS/toMs) gönderir; page Go aynasının alanlarıyla;
-//   (2) konuşma `subject` + ≤2 KB `context` anlık görüntüsüyle saklanır;
-//   (3) geçmişten açılan ÖZNELİ konuşma özne kipini yeniden açar: ?ai=
-//       adrese yazılır, "Bağlam" şeridi kayıtlı görüntüyü gösterir, sohbet
-//       turları devralınır ve devam yazımı AYNI kimliğe gider;
-//   (4) canlı bağlam (sayfanın yayını) varsa şerit onu gösterir; seçim
-//       değişince sonraki tur yeni span'i taşır;
-//   (5) devralınan konuşma açıklamadan BAĞIMSIZ görünür: açıklama hata/boş
-//       dönse de, "Yeniden sor" onAnswer('') bassa da turlar kalır;
-//   (6) özneden gezinip çıkınca (?ai= düştü) devralma da düşer — aynı özne
-//       sonra açılınca eski konuşma/bağlam (env, span, pencere) sızmaz.
+// v0.10.944 (CoSRE Faz A) — trace çekmecesinin BAĞLAM devri. v0.10.1400 trace /
+// exception'ı, v0.10.1407 (Tek CoSRE adım 4; operatör: "Trace ve exception
+// üzerinden çalışan Ask CoSRE açıklamaları güzel ama sanki ayrı drawer hissi,
+// CoSRE bütünselliğine uymuyor.") kalan charts / log-spike'ı da sohbet turu
+// yaptı ve çekmecenin ÖZNE KİPİNİ (AIDrawerBody / AIDrawerChat) sildi: v0.10.944'ün
+// (1)/(2) çekmece-sohbeti pinleri ve (3)/(5)/(6) özne kipine dönüş pinleri o
+// kodla gitti (açıklama turunun bağlamı: CopilotChat.explainTurn.test.tsx).
+// Kalan sözleşme: özneli ESKİ konuşma (trace / charts …) Geçmiş'ten NORMAL
+// yüklenir — özne kipi açılmaz, ?ai= yazılmaz, tek composer.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
-import { act, useEffect } from 'react';
+import { act } from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -31,43 +23,16 @@ vi.hoisted(() => {
   })) as unknown as typeof window.matchMedia;
 });
 
-// Açıklama gövdesi kapsam dışı: anında bir açıklama "üretir" ki çekmece
-// sohbeti (explain metni varken çizilir) açılsın. v0.10.944 — kontrol
-// nesnesi: `answer: null` = açıklama hata/boş döndü (onAnswer hiç çağrılmaz);
-// `onAnswer` dışarı verilir ki test "Yeniden sor"un onAnswer('')'ını bassın.
-const EXPLAIN_TEXT = 'Kök neden: payments yavaş.';
-const explainCtl = vi.hoisted(() => ({
-  answer: 'Kök neden: payments yavaş.' as string | null,
-  onAnswer: null as ((t: string) => void) | null,
-}));
-vi.mock('@/components/CopilotExplain', () => ({
-  CopilotExplain: ({ onAnswer }: { onAnswer?: (t: string) => void }) => {
-    useEffect(() => {
-      explainCtl.onAnswer = onAnswer ?? null;
-      if (explainCtl.answer !== null) onAnswer?.(explainCtl.answer);
-    }, [onAnswer]);
-    return null;
-  },
-}));
-
 import { api } from '@/lib/api';
 import type { AiConversation, AiConversationSummary, ChatStreamEvent, PageContext } from '@/lib/types';
-import { AIDrawerBody } from './AIDrawerBody';
 import { __resetCopilotEnabledCache } from './useCopilotEnabled';
 import { AuthProvider } from '@/components/AuthProvider';
 import { ConfirmProvider } from '@/components/ui/ConfirmDialog';
 import { CopilotChat } from '@/components/CopilotChat';
-import {
-  TRACE_CHAT_PAD_MS, publishTraceAiContext, traceContextToPage, type TraceAiContext,
-} from '@/lib/traceAiContext';
+import { publishTraceAiContext } from '@/lib/traceAiContext';
 
 const TRACE = '0af7651916cd43dd8448eb211c80319c';
 const FROM_MS = 1_790_000_000_000;
-const CTX: TraceAiContext = {
-  traceId: TRACE, spanId: 'b7ad6b7169203331', spanName: 'charge', service: 'payments',
-  env: 'prod', cluster: 'cluster-a', namespace: 'billing', pod: 'payments-0',
-  fromNs: FROM_MS * 1e6, toNs: (FROM_MS + 1_200) * 1e6,
-};
 
 let host: HTMLDivElement;
 let root: Root;
@@ -109,87 +74,8 @@ afterEach(() => {
   act(() => root.unmount());
   host.remove();
   publishTraceAiContext(null);
-  explainCtl.answer = EXPLAIN_TEXT;
-  explainCtl.onAnswer = null;
   vi.restoreAllMocks();
   vi.useRealTimers();
-});
-
-describe('AIDrawerChat — trace bağlamı her turda (1) + kalıcı görüntü (2)', () => {
-  it('trace/env/page + pencere ±5 dk gider; kaydetme subject + context taşır', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    const chat = stubChat();
-    const save = vi.spyOn(api, 'saveAiConversation').mockResolvedValue({
-      id: 'drw-1', title: 't', updatedAt: 1, messages: [],
-    });
-    await act(async () => {
-      root.render(
-        <MemoryRouter initialEntries={[`/trace?id=${TRACE}`]}>
-          <AIDrawerBody subject={{ kind: 'trace', id: TRACE }} onClose={() => {}} traceCtx={CTX} />
-        </MemoryRouter>,
-      );
-    });
-    await act(async () => { button('Bu neden oluyor?')?.click(); });
-
-    expect(chat).toHaveBeenCalledTimes(1);
-    const a = argsOf(chat.mock.calls[0]);
-    expect(a.subject).toBe(`trace:${TRACE}`);
-    expect(a.trace).toBe(TRACE);
-    expect(a.env).toBe('prod');
-    expect(a.service).toBeUndefined(); // guided'ın servis varsayılanı DEĞİŞMEDİ
-    expect(a.page).toEqual(traceContextToPage(CTX));
-    expect(a.page?.timeRange).toEqual({ preset: 'custom', fromMs: FROM_MS, toMs: FROM_MS + 1_200 });
-    // Trace 2026'da bitti, test saati gerçek → bitiş şimdiden geride, kırpılmaz.
-    expect(a.toMs).toBe(FROM_MS + 1_200 + TRACE_CHAT_PAD_MS);
-    expect(a.rangeS).toBe(Math.ceil((1_200 + 2 * TRACE_CHAT_PAD_MS) / 1000));
-
-    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
-    expect(save).toHaveBeenCalledTimes(1);
-    expect(save.mock.calls[0][0].subject).toBe(`trace:${TRACE}`);
-    expect(save.mock.calls[0][0].context).toEqual(traceContextToPage(CTX));
-
-    // İkinci tur da AYNI alanları taşır (her tur, yalnız ilki değil).
-    await act(async () => { button('Nasıl düzeltirim?')?.click(); });
-    expect(chat).toHaveBeenCalledTimes(2);
-    expect(argsOf(chat.mock.calls[1]).page?.spanId).toBe(CTX.spanId);
-    expect(argsOf(chat.mock.calls[1]).conversation).toBe('drw-1');
-  });
-
-  it('bağlam yoksa yalnız trace kimliği gider — env/pencere TAHMİN edilmez', async () => {
-    const chat = stubChat();
-    vi.spyOn(api, 'saveAiConversation').mockResolvedValue({ id: 'drw-2', title: 't', updatedAt: 1, messages: [] });
-    await act(async () => {
-      root.render(
-        <MemoryRouter>
-          <AIDrawerBody subject={{ kind: 'trace', id: TRACE }} onClose={() => {}} traceCtx={null} />
-        </MemoryRouter>,
-      );
-    });
-    await act(async () => { button('Bu neden oluyor?')?.click(); });
-    const a = argsOf(chat.mock.calls[0]);
-    expect(a.trace).toBe(TRACE);
-    expect(a.env).toBeUndefined();
-    expect(a.rangeS).toBeUndefined();
-    expect(a.toMs).toBeUndefined();
-    expect(a.page).toEqual({ page: 'trace', path: '/trace', traceId: TRACE });
-  });
-
-  it('trace DIŞI özne (exception) eski davranışta: trace/page/pencere gönderilmez', async () => {
-    const chat = stubChat();
-    vi.spyOn(api, 'saveAiConversation').mockResolvedValue({ id: 'drw-3', title: 't', updatedAt: 1, messages: [] });
-    await act(async () => {
-      root.render(
-        <MemoryRouter>
-          <AIDrawerBody subject={{ kind: 'exception', id: 'fp-checkout-npe' }} onClose={() => {}} traceCtx={CTX} />
-        </MemoryRouter>,
-      );
-    });
-    await act(async () => { button('Bu neden oluyor?')?.click(); });
-    const a = argsOf(chat.mock.calls[0]);
-    expect(a.trace).toBeUndefined();
-    expect(a.page).toBeUndefined();
-    expect(a.rangeS).toBeUndefined();
-  });
 });
 
 // ── (3)/(4) CopilotChat kabuğu: geçmişten özneli konuşma + şerit ──
@@ -261,6 +147,21 @@ describe('CopilotChat — trace özneli eski konuşma (v0.10.1400)', () => {
     const a = argsOf(chat.mock.calls[0]);
     expect(a.conversation).toBe('d1');
     expect(a.messages.map(m => m.text)).toContain('dünkü soru');
+  });
+
+  it('v0.10.1407 — charts özneli eski çekmece konuşması da normal yüklenir (özne kipi yok)', async () => {
+    const CH = 'charts:orders-api:1790000000000000000:1790003600000000000:err';
+    vi.spyOn(api, 'aiConversations').mockResolvedValue([{ ...THREADS[0], id: 'd2', title: 'Grafikler · orders-api', subject: CH }]);
+    vi.spyOn(api, 'aiConversation').mockResolvedValue({ ...CONV, id: 'd2', subject: CH, context: undefined });
+    const chat = stubChat();
+    await act(async () => { root.render(shell('/')); });
+    await act(async () => { document.querySelector<HTMLButtonElement>('.cm-ai-fab')?.click(); });
+    await act(async () => { button('Geçmiş')?.click(); });
+    await act(async () => { button('Grafikler · orders-api')?.click(); });
+    expect(new URLSearchParams(search).get('ai')).toBeNull();
+    expect(bodyText()).toContain('dünkü cevap');
+    expect(document.body.querySelectorAll('textarea').length).toBe(1);
+    expect(chat).not.toHaveBeenCalled(); // geçmişi açmak açıklama turu göndermez
   });
 
   it('trace DIŞI öznede şerit yok', async () => {

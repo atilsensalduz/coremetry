@@ -6,16 +6,11 @@ import { aiSubjectTopic, type AIKind, type AISubject } from '@/lib/aiSubject';
 // açıklamayı bilmiyordu — ekranda exception dururken CoSRE "bu trace
 // ID'ye ait veri yok" deyip filo geneli JVM GC uyarılarını anlattı).
 //
-// Devir İKİ parçadan oluşur, ikisi de burada saf üretilir:
+// v0.10.1407 (Tek CoSRE adım 4) — çekmecenin özne kipi (AIDrawerBody: ikinci
+// thread + çizilmeyen "seed" turu) SİLİNDİ; açıklama artık sohbetin sıradan
+// bir turu (explainTurn.ts). Burada kalanlar o turun takip bağlamı ve çipleri:
 //
-//   1. seed SORUSU (aiSubjectQuestion) — konuşmanın ilk kullanıcı turu
-//      olarak tele gider. Sunucudaki takip-devralma (v0.9.410
-//      applyFollowUpContext) bunu "önceki soru" olarak görür: çekmece
-//      bir SERVİS öznesindeyse "peki hata logları?" gibi takipler
-//      guided router'da gerçek telemetriye oturur. Ekranda bubble
-//      olarak ÇİZİLMEZ (açıklama zaten hemen üstünde duruyor).
-//
-//   2. explain BAĞLAMI (buildExplainContext) — chat isteğinin
+//   • explain BAĞLAMI (buildExplainContext) — chat isteğinin
 //      `context.explain` alanı. Sunucu narration bloğuna katar
 //      (internal/api/copilot_drawer.go). Konuşma geçmişine sentetik
 //      bir "asistan cevabı" turu koymak yetmezdi: guided narration
@@ -95,9 +90,9 @@ export function buildExplainContext(i: {
   return clampExplain(parts.join('\n'));
 }
 
-// aiSubjectQuestion — özneye karşılık gelen doğal soru. v0.9.165'te
-// CopilotExplain içindeki `chatSeed`'di; iki çağıran (satır-içi explain
-// ve çekmece sohbeti) olduğu için saf modüle taşındı — tek kaynak.
+// aiSubjectQuestion — özneye karşılık gelen doğal soru (v0.9.165 `chatSeed`).
+// v0.10.1407 — çağıranlar: sohbet başlangıç çipleri (lib/chatContext.ts) ve
+// insight kartı (lib/insightCard.ts); çekmece seed'i ve ✨ kartı silindi.
 export function aiSubjectQuestion(kind: AIKind, id: string): string {
   switch (kind) {
     case 'service-health': return `${id} servisinin sağlığı nasıl?`;

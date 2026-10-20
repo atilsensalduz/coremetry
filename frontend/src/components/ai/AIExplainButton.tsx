@@ -4,13 +4,13 @@ import { IconSparkles } from '@/components/icons';
 import { formatAiParam, type AISubject } from '@/lib/aiSubject';
 import { useAiSubject } from './useAiSubject';
 import { useCopilotEnabled } from './useCopilotEnabled';
-import { isExplainTurnKind } from './explainTurn';
 
 // AIExplainButton — TEK "✨ Explain" affordance'ı (v0.9.477, onaylı
-// AI-drawer mockup'ı). Eskiden her yüzey kendi CopilotExplain'ini gömüyor,
-// cevap butonun ALTINDA satır-içi bir panel olarak açılıyordu: aynı içerik
-// sekiz farklı genişlikte, sayfayı iterek. Artık buton yalnız adrese
-// `?ai=<kind>:<id>` yazar; içeriği AppShell'deki tek AIDrawer render eder.
+// AI-drawer mockup'ı). Eskiden her yüzey kendi satır-içi açıklama panelini
+// gömüyor, cevap butonun ALTINDA açılıyordu: aynı içerik sekiz farklı
+// genişlikte, sayfayı iterek. Artık buton yalnız adrese `?ai=<kind>:<id>`
+// yazar; CoSRE sohbeti (CopilotChat) onu tek seferlik niyet olarak tüketip
+// açıklamayı bir sohbet turu olarak gönderir (v0.10.1400–1407).
 //
 // Korunanlar:
 //   • copilot kapalıysa buton HİÇ görünmez (eski self-hide davranışı),
@@ -66,13 +66,12 @@ export function AIExplainButton({ subject, label, size, emphasis = 'normal', tit
   // çalışan Ask CoSRE açıklamaları güzel ama sanki ayrı drawer hissi, CoSRE
   // bütünselliğine uymuyor.") — tık HER ZAMAN özneyi yazar: aç/kapa
   // geçişi ve aria-expanded kalktı (düğme bir çekmeceyi açıp kapatmıyor,
-  // sohbete bir tur gönderiyor; charts / log-spike çekmecesi kendi ✕'iyle
-  // kapanır). Adres replace:true (useAiSubject).
-  const asTurn = isExplainTurnKind(subject.kind);
+  // sohbete bir tur gönderiyor). Adres replace:true (useAiSubject).
+  // v0.10.1407 — charts / log-spike da: HER tür bir sohbet turu (özne kipi silindi).
   return (
     <Button variant={look.variant}
       size={size ?? look.size}
-      title={title ?? (asTurn ? 'CoSRE sohbetinde açıkla' : 'AI açıklamasını sağ çekmecede aç')}
+      title={title ?? 'CoSRE sohbetinde açıkla'}
       className={[quiet ? undefined : 'ai-attn', className].filter(Boolean).join(' ') || undefined}
       onClick={() => { setUsed(true); setAi(subject); }}>
       {label ?? <><IconSparkles /> <span>AI explain</span></>}

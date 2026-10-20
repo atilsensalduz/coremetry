@@ -30,7 +30,6 @@ import type { AiConversation, ChatStreamEvent } from '@/lib/types';
 import { AuthProvider } from '@/components/AuthProvider';
 import { ConfirmProvider } from '@/components/ui/ConfirmDialog';
 import { CopilotChat } from '@/components/CopilotChat';
-import { AIDrawerBody } from './AIDrawerBody';
 import { __resetCopilotEnabledCache } from './useCopilotEnabled';
 import { DRAFT_MAX_CHARS, draftKey, useComposerDraft, type ComposerDraft } from './composerDraft';
 
@@ -265,20 +264,7 @@ describe('(3) araç çubuğu üç yüzeyde', () => {
     await flush();
     await expectToolbar();
   });
-  it('✨ Explain çekmecesi sohbeti (özne başına taslak)', async () => {
-    vi.spyOn(api, 'copilotExplainTrace').mockResolvedValue({ explanation: 'Kök neden: svc-a yavaş.', exchangeId: 'x1' });
-    const id = '0af7651916cd43dd8448eb211c80319c';
-    await act(async () => {
-      root.render(<MemoryRouter><AIDrawerBody subject={{ kind: 'trace', id }} onClose={() => {}} /></MemoryRouter>);
-    });
-    await flush();
-    await expectToolbar('anon'); // bu bağımsız mount'ta AuthProvider yok
-    await typeInto(ta(), 'bu trace neden yavaş');
-    const keys = Array.from({ length: session.length }, (_, i) => session.key(i) ?? '');
-    const k = keys.find(x => x.startsWith('cosre.draft.v1:explain:') && x.includes(id));
-    expect(k, keys.join(',')).toBeTruthy();
-    expect(session.getItem(k!)).toBe('bu trace neden yavaş');
-  });
+  // v0.10.1407 — ✨ Explain çekmecesi sohbeti (AIDrawerBody, özne başına taslak) silindi: tek composer.
 });
 
 describe('(4) @-anma popup\'ı ile birlikte', () => {

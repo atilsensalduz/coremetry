@@ -4962,17 +4962,13 @@ tr:hover .row-kiosk, .row-kiosk:focus-visible { opacity: 1; }
 .cx-verdict { margin: 0 0 8px; padding: 6px 10px; border-left: 3px solid var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; font-weight: 600; }
 .cx-verdict-k { display: inline-block; font-size: var(--fs-2xs); text-transform: uppercase; letter-spacing: .06em; color: var(--accent2); margin-right: 8px; font-weight: 700; }
 .cx-evidence { margin: 0 0 8px; font-size: var(--fs-xs); color: var(--text2); }
-/* v0.10.1284 — log artışı çekmecesi (ai/LogSpikeExplainBody, AI SRE Faz 1a). */
+/* v0.10.1284 — log artışı kartı (AI SRE Faz 1a); v0.10.1407 — sohbet turu: ai/LogSpikeCard. */
 .ls-explain { padding-top: var(--sp-4); }
 .ls-explain__meta { display: flex; flex-wrap: wrap; gap: var(--sp-3); margin-bottom: var(--sp-6); }
-.ls-explain__wait { display: grid; place-items: center; gap: var(--sp-4); padding: 28px 0; }
 .ls-explain__summary { font-size: var(--fs-sm); color: var(--text); margin-bottom: var(--sp-3); }
 .ls-explain__notes { margin: var(--sp-4) 0 0; padding-left: var(--sp-7); }
 .ls-explain__warn { margin-top: var(--sp-2); color: var(--warn); }
 .ls-explain__cta { color: var(--accent2); text-decoration: none; font-size: var(--fs-sm); }
-.ls-explain__foot { border-top: 1px solid var(--divider); padding-top: var(--sp-4); margin-top: var(--sp-2); display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; font-size: var(--fs-2xs); color: var(--text3); }
-.ls-explain__foot a { color: var(--accent2); text-decoration: none; }
-.ls-explain__spacer { flex: 1; }
 /* v0.10.948 — "CoSRE'ye sor" bekleme bloğu: yükleniyor işareti + Durdur.
    v0.10.1065 — inceleme adım listesi (.cx-step*) ve kaynak durumu dipnotu
    (.cx-sources) erişilemeyen inceleme hattıyla silindi. */
@@ -5558,8 +5554,6 @@ tbody td.tpm-more-cell { color: var(--text2); }
 @keyframes ai-think-pulse { 0%, 100% { opacity: .55; transform: scale(.9); } 50% { opacity: 1; transform: scale(1.08); } }
 @keyframes ai-think-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 @keyframes ai-think-fade { 0%, 100% { opacity: .6; } 50% { opacity: 1; } }
-/* AI özet gövdesinin bekleme yuvası (ServiceChartsExplainBody; eski satır içi statik stil). */
-.ai-wait { display: grid; place-items: center; padding: var(--sp-8) 0; }
 /* v0.10.1384 — yazma efekti: açılan metin görünümü değişmez; sarmal yerleşime katılmaz (tıkla-bitir sahibi). */
 .ai-reveal { display: contents; }
 .cm-msg-ai .cm-ai-cursor { height: 1em; vertical-align: -0.15em; }

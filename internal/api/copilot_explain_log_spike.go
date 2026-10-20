@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/cilcenk/coremetry/internal/ai/agent/blocks"
 	"github.com/cilcenk/coremetry/internal/copilot"
 	"github.com/cilcenk/coremetry/internal/mcptools"
 )
@@ -23,8 +25,14 @@ import (
 // kanıt döner (explain-charts v0.9.1034 emsali): tablo ve grafik ölçülmüş
 // veridir, anlatıma bağlı değil.
 //
-// ES maliyeti: tıkla-çek (çekmece açılınca bir kez), poll yok; RunLogSpike
+// ES maliyeti: tıkla-çek (✨ tıkında bir kez), poll yok; RunLogSpike
 // Deps.Memo ile 60 s / 5 dk önbellekli (kısmi sonuç saklanmaz).
+//
+// v0.10.1407 (Tek CoSRE adım 4) — ✨ düğmesi artık CoSRE sohbetine tur
+// gönderir (chat_explain_registry.go, kurucu buildLogSpikeExplain ortak);
+// anlatım explain önbelleğinde, sohbetle aynı anahtar. Kanıt paketi ölçülmüş
+// TÜM sayıları taşıdığı için yeni log hacmi anahtarı değiştirir (bayatlık
+// kendi kendini düzeltir).
 
 const logSpikeExplainMaxBytes = 4096
 
@@ -65,32 +73,97 @@ func (s *Server) copilotExplainLogSpike(w http.ResponseWriter, r *http.Request) 
 		writeJSONError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	req, err := logSpikeRequestFromBody(body)
+	b, res, err := s.buildLogSpikeExplain(r.Context(), body)
 	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err.Error())
+		writeExplainBuildErr(w, err)
 		return
 	}
-	res, err := mcptools.RunLogSpike(r.Context(), s.mcpDeps(), req)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	if res.Error != nil {
-		if res.Error.Code == "bad_args" {
-			writeJSONError(w, http.StatusBadRequest, res.Error.Message)
-			return
-		}
+	if b.Unexplained != "" {
 		// Kanıt okunamadı: anlatılacak paket yok — dürüst hata, LLM çağrısı yok.
 		writeJSON(w, map[string]any{"explanation": "", "error": res.Error.Message, "spike": res})
 		return
 	}
+	// v0.10.1407 — sohbet turuyla AYNI anahtar (explainCacheKey(system, user, "")):
+	// ✨ düğmesi ve sohbet tek satırı paylaşır; ?refresh=1 atlar ve üstüne yazar.
+	if env, hit := s.explainCacheGet(r, b.CacheKey); hit {
+		writeJSON(w, map[string]any{"explanation": env.Text, "exchangeId": env.Xid, "spike": res, "cached": true, "cachedAtMs": env.AtMs})
+		return
+	}
 	r, xid := withExchange(r)
-	out, err := s.copilotExplain(r, copilot.SystemPromptLogSpike(), renderLogSpikeTR(res))
+	out, err := s.copilotExplain(r, b.System, b.User)
 	if err != nil {
 		writeJSON(w, map[string]any{"explanation": "", "error": err.Error(), "spike": res})
 		return
 	}
+	s.explainCacheSet(r.Context(), b.CacheKey, out, xid)
 	writeJSON(w, map[string]any{"explanation": out, "exchangeId": xid, "spike": res})
+}
+
+// logSpikeBlockPayload — v0.10.1407: `log_spike` bloğunun gövdesi
+// (blocks.TypeLogSpike; FE LogSpikeCard): deterministik kanıt + kartın künye
+// çiplerini ve "logları aç" pivotunu kuran kapsam.
+type logSpikeBlockPayload struct {
+	Service string                  `json:"service"`
+	Env     string                  `json:"env,omitempty"`
+	Q       string                  `json:"q,omitempty"`
+	Level   string                  `json:"level"`
+	Mode    string                  `json:"mode"`
+	FromNs  int64                   `json:"fromNs"`
+	ToNs    int64                   `json:"toNs"`
+	Spike   mcptools.LogSpikeResult `json:"spike"`
+}
+
+// logSpikeRunSeam — yalnız testler; üretimde nil (mcptools.RunLogSpike).
+var logSpikeRunSeam func(ctx context.Context, req mcptools.LogSpikeRequest) (mcptools.LogSpikeResult, error)
+
+func (s *Server) runLogSpike(ctx context.Context, req mcptools.LogSpikeRequest) (mcptools.LogSpikeResult, error) {
+	if logSpikeRunSeam != nil {
+		return logSpikeRunSeam(ctx, req)
+	}
+	return mcptools.RunLogSpike(ctx, s.mcpDeps(), req)
+}
+
+// buildLogSpikeExplain — v0.10.1407 (Tek CoSRE adım 4): ✨ log artışı
+// açıklamasının TEK kurucusu (HTTP düğmesi + sohbet turu): gövde → çekirdek
+// isteği → RunLogSpike → kanıt paketi (renderLogSpikeTR) + SystemPromptLogSpike,
+// anahtar explainCacheKey(system, user, "") + `log_spike` bloğu. Kanıt
+// okunamadıysa (res.Error) Unexplained dolu döner: LLM çağrısı yok.
+func (s *Server) buildLogSpikeExplain(ctx context.Context, body logSpikeExplainBody) (explainBuilt, mcptools.LogSpikeResult, error) {
+	req, err := logSpikeRequestFromBody(body)
+	if err != nil {
+		return explainBuilt{}, mcptools.LogSpikeResult{}, explainBadArgs(err.Error())
+	}
+	res, err := s.runLogSpike(ctx, req)
+	if err != nil {
+		return explainBuilt{}, res, err
+	}
+	if res.Error != nil && res.Error.Code == "bad_args" {
+		return explainBuilt{}, res, explainBadArgs(res.Error.Message)
+	}
+	var b explainBuilt
+	if res.Error != nil {
+		b.Unexplained = "Log artışının kanıtı okunamadı — " + res.Error.Message + ". Anlatılacak ölçüm olmadığı için açıklama üretilmedi."
+	} else {
+		b = newExplainBuilt(copilot.SystemPromptLogSpike(), renderLogSpikeTR(res))
+	}
+	b.Service, b.Renderer = req.Service, explainRendererLogSpike
+	b.Label = req.Service
+	if b.Label == "" {
+		b.Label = "tüm servisler"
+	}
+	level := "all"
+	if req.Level == "error" {
+		level = "error"
+	}
+	mode := body.Mode
+	if mode == "" {
+		mode = "auto"
+	}
+	b.Blocks = []explainBlock{{Type: blocks.TypeLogSpike, Payload: logSpikeBlockPayload{
+		Service: req.Service, Env: req.Env, Q: req.Query, Level: level, Mode: mode,
+		FromNs: body.FromNs, ToNs: body.ToNs, Spike: res,
+	}}}
+	return b, res, nil
 }
 
 // renderLogSpikeTR — SAF: çekirdek sonucu → modelin kanıt paketi (≤4 KB,

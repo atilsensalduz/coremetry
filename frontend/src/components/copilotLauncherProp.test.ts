@@ -17,8 +17,13 @@ describe('CopilotChat launcher kipi (v0.10.732)', () => {
     expect(cc).toContain('{launcher && !drawerOpen && (');
     expect(cc).toContain("useOpenCriticalCount({ enabled: enabled === true && launcher })");
   });
-  it('çekmece launcher\'dan bağımsız: özne varken açılır', () => {
-    expect(cc).toContain('const drawerOpen = open || subject !== null;');
+  // v0.10.1407 — özne kipi silindi: ?ai= niyeti çekmeceyi setOpen(true) ile açar
+  // (sohbet turu); launcher'dan bağımsız (kiosk ✨ yine çalışır).
+  it('çekmece launcher\'dan bağımsız: ?ai= niyeti çekmeceyi açar', () => {
+    expect(cc).toContain('const drawerOpen = open;');
     expect(cc).toContain('{drawerOpen && (');
+    const eff = cc.slice(cc.indexOf('const explainAskSentRef'), cc.indexOf('const prefillRef'));
+    expect(eff).toContain('setOpen(true);');
+    expect(eff).not.toContain('launcher');
   });
 });

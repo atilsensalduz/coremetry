@@ -51,7 +51,5 @@ describe('kaynak pinleri — çip followups yalnız son cevaba', () => {
     expect(c).toContain('shownFollowups={isLast && showFollowups ? last?.followups : undefined}');
     expect(c).toContain('shownFollowups={showFollowups ? last?.followups : undefined}');
   });
-  it('AIDrawerBody', () => {
-    expect(src('./AIDrawerBody.tsx')).toContain('shownFollowups={i === turns.length - 1 && showFollowups ? last?.followups : undefined}');
-  });
+  // v0.10.1407 — AIDrawerBody (çekmece özne kipi) silindi; tek yüzey CopilotChat.
 });

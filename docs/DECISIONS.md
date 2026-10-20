@@ -8268,3 +8268,70 @@ veriyordu (aynı cevabı "yeniden üretmek").
 - Testler: `internal/api/chat_explain_code_test.go` (tür başına kod anahtarı = düğme, çip tablosu, fresh oku-yok/yaz,
   normalize/sanitize); FE `components/ai/explainCode.test.ts`, `components/CopilotChat.explainCode.test.tsx`
   (?aicode=1 tek tur, çip, ↻ fresh / ↺ fresh yok, kaynak satırı), `codeSourceRef.test.ts` (paylaşılan footer).
+
+## 2026-10-20 — v0.10.1407 — Tek CoSRE adım 4: grafik ve log spike açıklamaları sohbet turu; çekmece özne kipi kaldırıldı
+
+**Operatör:** "Trace ve exception üzerinden çalışan Ask CoSRE açıklamaları güzel ama sanki ayrı drawer hissi,
+CoSRE bütünselliğine uymuyor." — v0.10.1400/1405/1406 sonrası yalnız Service → Details grafik ✨'ları (`charts`,
+dört düğme) ve Logs histogramı ✨'ı (`log-spike`) çekmecenin "özne kipinde" (AIDrawerBody: ayrı gövde + ikinci
+useChatThread + ikinci composer) kalmıştı.
+
+**Karar — her `?ai=` türü bir sohbet turu; özne kipi silindi:**
+- Kayıt: `chat_explain_registry.go` `explainKindFor` charts / log-spike'ı da taşır. Ortak kurucular (HTTP düğmesi +
+  sohbet): `buildChartsExplain` (`buildServiceChartsInput` artık ctx tabanlı ve `explainReads()` yüzeyinden okur +
+  `buildServiceChartsUser` + `SystemPromptServiceCharts`) ve `buildLogSpikeExplain` (`logSpikeRequestFromBody` →
+  `RunLogSpike` → `renderLogSpikeTR` + `SystemPromptLogSpike`). Anahtar ikisinde de `explainCacheKey(system, user, "")`
+  → düğme ve sohbet TEK satır (iki yön testli). Yüzeyler `explain-charts:chat` (Eval ServiceCharts) /
+  `explain-log-spike:chat` (Eval yok; HTTP `explain-log-spike` de Unknown), kademe `explain`.
+- Önbellek duruşu TERSİNE döndü (v0.9.1031 "charts CACHE'LENMEZ"): o gerekçe (non-determinist + her üretim /ai'da
+  görünür) tek yüzeyli düğme içindi; artık düğme sohbete tur gönderiyor ve düğme ile sohbet AYNI cevabı paylaşmalı
+  (v0.10.1400 değişmezi). Bayatlık kendi kendini düzeltir: kullanıcı metni TÜM sinyalleri (RED özetleri, deploy,
+  problem, anomali, op-delta, pencere; log-spike'ta ölçülmüş hacim/katkı/örnek satırlar) hash'ler — yeni sinyal yeni
+  anahtar. Taze cevabın yolu var: HTTP `?refresh=1` ve sohbetin "↻ Yeniden üret"i (v0.10.1406 `fresh`) okumaz, üstüne
+  yazar. Singleflight korunur (anahtar artık `refresh`'i de taşır: taze istek önbellekli uçuşa binmez). HTTP charts
+  yanıtı `exchangeId` / `cached` / `cachedAtMs` taşır (withExchange — isabetin saklanan kimliği sohbete geçer).
+- Tipli kanıt blokları: `charts_signals` (servis, pencere, kapsam, sinyaller) ve `log_spike` (kapsam + tam
+  `LogSpikeResult`) — `blocks.go` + `ChatBlockType`; kurucudan, cevaptan ÖNCE, sohbetin sıralayıcısıyla
+  (`withBlockSeq`). Künye `renderer` "charts" / "log-spike".
+- Kanıt-önce sözleşme (HTTP `buildChartsResult`'un sohbet ikizi): model düşerse tur `error` değil, blok + dürüst satır
+  ("Anlatım üretilemedi (…). Aşağıdaki kanıt yine de ölçülmüş veridir."); log-spike kanıtı okunamazsa LLM HİÇ çağrılmaz
+  (`Unexplained`), HTTP gövdesi v0.10.1284 ile aynı; geçersiz argüman HTTP'de 400 JSON aynen, sohbette LLM'siz cevap.
+- Niyet: charts / log-spike `subject` kodeği ZORUNLU; log-spike'ta boş kimlik = filo geneli (`log-spike:*:…`) meşru.
+- Frontend: `EXPLAIN_TURN_KINDS` = `AI_KINDS` (pinli); görünen metin "orders-api grafiklerini açıkla · Error rate by
+  operation" / "Tüm servislerin log artışını açıkla"; takip bağlamı servis + açıklanan pencere. `ChatBubble` çizim kipi
+  dağıtımı (`explainRenderer`: künye yoksa türden): blok varsa `ai/ChartsSignalsCard` / `ai/LogSpikeCard` — SUNUM
+  bileşenleri, veri çekmez; eski çekmece gövdelerinden (ServiceChartsExplainBody / LogSpikeExplainBody, silindi)
+  çıkarıldı; anlatım kartın yuvasında ExplainBody (balonun ↻'u var, kartın "Yeniden üret"i yok); LogSpikeCard grafiği
+  tembel (uPlot yalnız kart çizilince). Blok yoksa / bozuksa düz ExplainBody.
+- Kalıcılık: `aiChatMessage` blok SAKLAMAZ (operation / service_report / topology bloklarıyla aynı politika; log-spike
+  yükü histogram + örnek satır taşır, 64 KB blob'a sınırlı sığdırmak ayrı sanitize ister) → Geçmiş'ten geri yüklenen
+  charts / log-spike turu künyesiyle (renderer saklı) ama kartsız, ExplainBody olarak çizilir. Kanıt yeniden gerekirse
+  ✨ yeniden tıklanır; sinyaller değişmediyse önbellek isabeti, LLM yok.
+- Özne kipi silindi (geriye dönük kalıntı yok): `ai/AIDrawerBody.tsx`, `ai/AIDrawer.tsx`, `ai/aiDrawerContext.ts`,
+  `CopilotExplain.tsx`, `codeAsk.ts`, `ai/ServiceChartsExplainBody.tsx`, `ai/LogSpikeExplainBody.tsx`,
+  `features/anomalies/OracleExplainContextLine.tsx` (yalnız CopilotExplain çiziyordu). CopilotChat'in özne dalı /
+  `resume` devralması / `InAiDrawerContext` sağlayıcısı kalktı; özneli ESKİ çekmece konuşması (trace, charts…)
+  Geçmiş'ten normal yüklenir. `api.ts`: `copilotExplainTrace/Span/Problem/Exception/Incident/Anomaly/Log/
+  ServiceHealth/Charts/LogSpike`, `copilotRunbook`, `explainInit` silindi (explainCall/explainStream kalır — runbook
+  güncelleme önerisi kullanır); `aiSubject.ts` `readAiCodeParam/writeAiCodeParam/readAiSrcParam/parseAiSrc`;
+  `types.ts` `ServiceChartsExplain`, `LogSpikeExplain(Request)`, `ExplainTraceAnswer`; kullanılmayan CSS
+  (`.ai-wait`, `.ls-explain__wait/__foot/__spacer`). `drawerChat.ts`'te `aiSubjectQuestion` (başlangıç çipleri,
+  insight kartı), `buildExplainContext`, `drawerFollowups`, `endpointAskQuestion` kullanımda — kaldı.
+- "Gizli satır ✨" davranışı: `useInAiDrawer` / `useRowExplain` kalktı; satır ✨'i (sohbet log tablosu, trace listesi,
+  Logs satırı) artık açık bir özneyi DEĞİŞTİRMEZ, sohbete tur gönderir → sohbet içinde de görünür.
+- Anomali çekmecesinin (AnomalyDetailDrawer) v0.9.477 satır-içi CopilotExplain istisnası → AIExplainButton (sohbet
+  turu); istisnanın gerekçesi (tek ESC iki çekmeceyi kapatır) v0.9.950'den beri katmanlı Esc ile geçersizdi.
+- Korunanlar: HTTP `/api/copilot/explain-*` uçları (ortak kurucular, evalset, make audit yüzeyi) ve
+  `copilotChatDrawer` takip kademesi; prompts.go sabitleri / `promptVersionRegistry`, MCP araç sayısı (74), api.go
+  (dokunulmadı), `TestChatTierOrderIsPinned` / `TestChatExplainTurnTierIsFirst`. `?ai=` tek tüketici CopilotChat
+  (AppShell, /cosre, TraceKiosk `launcher={false}`) — derin linkler çalışır, her tür tek tur.
+- Testler: `internal/api/chat_explain_cards_test.go` (tür başına sohbet anahtarı = HTTP anahtarı, cached:true + sıfır
+  LLM + saklanan exchangeId, ters yön + refresh, blok gövdeleri, kanıt-önce düşüş, Unexplained / 400, withBlockSeq,
+  niyet/arşiv); güncellenen `chat_explain_registry_test.go` (kayıt tablosu), `copilot_explain_log_spike_test.go`,
+  `copilot_explain_stream_test.go`. FE: `CopilotChat.explainCards.test.tsx` (?ai=charts / ?ai=log-spike tek tur, kart
+  bloktan, dağıtım + düşüş), `ai/subjectModeGone.pin.test.ts` (silinen modüller ve importları yok, CopilotChat'te özne
+  dalı yok, silinen istemci yöntemleri geri gelmedi), `ai/ChartsSignalsCard.test.tsx` / `ai/LogSpikeCard.test.tsx`
+  (eski gövde testlerinden), `explainTurn.test.ts` (AI_KINDS = EXPLAIN_TURN_KINDS, her tür bir niyete / endpoint
+  sorusuna). Silinen (yalnız silinen kodu sınayan): `CopilotExplain.{classicDefault,codeCard,oracleGroup,stream}`,
+  `AIDrawerBody.{evidence,endpointAutoAsk}`, `drawerParity`, `drawerChatAlwaysOpen`, `singleDrawer`,
+  `aiCodeParam(.scan)`, `explainCacheFE.scan`, `codeAsk`; `drawerTraceContext`'in özne-kipi pinleri.

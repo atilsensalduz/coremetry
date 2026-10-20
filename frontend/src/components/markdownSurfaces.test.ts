@@ -20,21 +20,20 @@ function read(rel: string) {
 
 describe('yorum sıyırma', () => {
   it('açıklamadaki alıntıyı koda saymaz', () => {
-    const src = read('./CopilotExplain.tsx');
-    // Bu dosyanın YORUMU "{text}" dizgisini alıntılıyor; sıyrılmazsa
-    // aşağıdaki test kendi açıklamasıyla eşleşip hep kırmızı kalırdı.
-    expect(src).not.toContain('HAM');
+    const src = read('./markdownSurfaces.test.ts');
+    // Bu dosyanın YORUMU "HAM" sözcüğünü taşıyor; sıyrılmazsa koda sayılırdı.
+    expect(src.slice(0, src.indexOf("describe('yorum"))).not.toContain('HAM');
   });
 });
 
+// v0.10.1407 — ✨ kartı (CopilotExplain) özne kipiyle silindi; açıklama yüzeyi
+// sohbet balonunun açıklama turu (ChatBubble → ExplainBody → RenderedMarkdown).
 describe('AI açıklama yüzeyi markdown basıyor', () => {
-  const src = read('./CopilotExplain.tsx');
+  const src = read('./ai/ChatBubble.tsx');
 
   it('RenderedMarkdown kullanıyor (v0.10.165: ExplainBody üzerinden)', () => {
-    // v0.10.165 — kart gövdesi ExplainBody'ye taşındı (Karar/Kanıt/kod
-    // alıntısı anatomisi); markdown basımı orada RenderedMarkdown ile.
-    // İki halka birden pinli: CopilotExplain → ExplainBody → RenderedMarkdown.
-    expect(src).toContain('<ExplainBody text={text}');
+    // İki halka birden pinli: ChatBubble → ExplainBody → RenderedMarkdown.
+    expect(src).toContain('<ExplainBody text={turn.text}');
     const body = read('./ai/ExplainBody.tsx');
     // v0.10.1384 — gövde yazma efektinin önekini basar; kaynak yine hoisted.rest.
     expect(body).toContain('useTypewriter(hoisted.rest,');

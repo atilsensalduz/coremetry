@@ -2,7 +2,8 @@ import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { Badge, Drawer } from '@/components/ui';
 import { ClusterChips } from '@/components/ClusterChips';
-import { CopilotExplain } from '@/components/CopilotExplain';
+import { AIExplainButton } from '@/components/ai/AIExplainButton';
+import { IconSparkles } from '@/components/icons';
 import { useT } from '@/lib/i18n'; // v0.10.1338 — "Ask CoSRE" etiketi
 import { RootCauseRibbon } from '@/components/RootCauseRibbon';
 import { tsLong } from '@/lib/utils';
@@ -144,13 +145,14 @@ export function AnomalyDetailDrawer({ event, onClose }: {
               title="Bu anomalinin tam sayfa detayını aç (Problems)">
               Tam detay →
             </Link>
-            {/* v0.9.477 — BİLEREK satır-içi kaldı (tek istisna). Bu yüzey
-                zaten bir ui/Drawer; AI çekmecesi üstüne ikinci bir çekmece
-                açardı ve iki kabuk da window'da Escape dinlediğinden tek
-                ESC ikisini birden kapatırdı. Detay çekmecesinde açıklamanın
-                yeri zaten burası. */}
-            {/* v0.10.1338 (operatör) — görünen ad "Ask CoSRE" / "CoSRE’ye sor". */}
-            <CopilotExplain kind="anomaly" id={event.id} label={`✨ ${tr('ai.askCosre')}`} />
+            {/* v0.10.1407 (Tek CoSRE adım 4) — v0.9.477'nin satır-içi istisnası
+                (CopilotExplain) kalktı: açıklama CoSRE sohbetinin bir turu
+                (?ai=anomaly:<id> tek seferlik niyet). İstisnanın gerekçesi (tek
+                ESC iki çekmeceyi kapatırdı) v0.9.950'den beri geçersiz — Esc
+                katmanlı (escLayer, LIFO): önce CoSRE çekmecesi kapanır.
+                v0.10.1338 (operatör) — görünen ad "Ask CoSRE" / "CoSRE’ye sor". */}
+            <AIExplainButton subject={{ kind: 'anomaly', id: event.id }}
+              label={<><IconSparkles /> <span>{tr('ai.askCosre')}</span></>} />
             {/* v0.10.6 — v0.9.1372'nin İKİZİ. O sürüm detay sayfalarının
                 pivotlarını `.accent`e taşımıştı; bu çekmecedeki aynı türden
                 pivot gözden kaçmıştı. */}

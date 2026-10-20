@@ -7261,14 +7261,41 @@ export interface ChatExplainAsk {
  * üzerinden çalışan Ask CoSRE açıklamaları güzel ama sanki ayrı drawer hissi,
  * CoSRE bütünselliğine uymuyor."): sohbet turu olarak açıklanan türler. Go
  * aynası: chat_explain_registry.go explainTurnKinds. endpoint burada YOK (ayrı
- * explain yüzeyi yok — görünür soru + pencere), charts / log-spike 1407'de.
+ * explain yüzeyi yok — görünür soru + pencere). v0.10.1407 — charts / log-spike
+ * eklendi (log-spike'ta boş `id` = filo geneli).
  */
 export type ChatExplainKind =
   | 'trace' | 'exception' | 'span' | 'problem' | 'incident' | 'anomaly'
-  | 'service-health' | 'runbook' | 'log';
+  | 'service-health' | 'runbook' | 'log' | 'charts' | 'log-spike';
 
-/** v0.10.1405 — künyenin çizim kipi (yok = body). */
+/**
+ * v0.10.1405 — künyenin çizim kipi (yok = body). v0.10.1407 — 'charts' /
+ * 'log-spike': balon cevabın kanıt bloğundan (charts_signals / log_spike) kartı
+ * çizer; blok yoksa (arşivden geri yüklenen tur — bloklar arşive girmez)
+ * ExplainBody'ye düşer.
+ */
 export type ChatExplainRenderer = 'body' | 'charts' | 'log-spike';
+
+/** v0.10.1407 — `charts_signals` bloğu (Go chartsSignalsBlockPayload): ölçülmüş sinyaller + pencere/kapsam. */
+export interface ChartsSignalsBlockPayload {
+  service: string;
+  fromNs: number;
+  toNs: number;
+  scope: string;
+  signals: ServiceChartsSignals;
+}
+
+/** v0.10.1407 — `log_spike` bloğu (Go logSpikeBlockPayload): deterministik kanıt + kapsam. */
+export interface LogSpikeBlockPayload {
+  service: string;
+  env?: string;
+  q?: string;
+  level: 'all' | 'error';
+  mode: 'sel' | 'auto';
+  fromNs: number;
+  toNs: number;
+  spike: LogSpikeResult;
+}
 
 /**
  * ChatSendWindow — v0.10.1405: TEK gönderimin sabit penceresi (endpoint "CoSRE'ye
@@ -7487,22 +7514,12 @@ export interface ExplainAnswerBase {
   cachedAtMs?: number;
 }
 
-// ExplainTraceAnswer — v0.10.948: explain-trace yanıtı (klasik kanıt
-// toplayıcı: kanıt span'leri, kod künyesi, Oracle satır sayısı; `links` taban
-// tipte, `id`li kimlik köprüleri). v0.10.1065 — v0.10.948 incelemesinin
-// `sources` kaynak durumu, `id`siz kanıt linkleri ve adım olayı tipi
-// (ExplainSourceStatus, ExplainStepEvent) erişilemeyen hatla birlikte silindi.
-export interface ExplainTraceAnswer extends ExplainAnswerBase {
-  evidenceSpanIds?: string[];
-  code?: AICodeContext;
-  oracleRows?: number;
-}
-
 // ChatTurn (v0.9.479) — ekranda çizilen bir sohbet turu: wire shape'i
 // (ChatMessage) + yalnız UI'ın bildiği alanlar. İKİ yüzey paylaşır —
 // global CoSRE penceresi (CopilotChat) ve AI çekmecesi içindeki sohbet
 // (AIDrawer) — bu yüzden bileşen dosyasında değil burada yaşar.
-export type ChatBlockType = 'text' | 'table' | 'chart' | 'trace_list' | 'link' | 'action' | 'evidence' | 'operation' | 'service_report' | 'topology'; // v0.10.1388 — topology
+export type ChatBlockType = 'text' | 'table' | 'chart' | 'trace_list' | 'link' | 'action' | 'evidence' | 'operation' | 'service_report' | 'topology' // v0.10.1388 — topology
+  | 'charts_signals' | 'log_spike'; // v0.10.1407 — açıklama turunun kanıt kartları (ChartsSignalsCard / LogSpikeCard)
 // ChatOperationPayload — operasyon adı ön-getirmesinin kartı (internal/api/
 // chat_operation_prefetch.go opPrefetch). measured=false → RED ölçülemedi.
 export interface ChatOperationRED { calls: number; errors: number; p99Ms: number; measured: boolean }
@@ -9192,17 +9209,9 @@ export interface ServiceChartsSignals {
   otherOps: number;
 }
 
-export interface ServiceChartsExplain {
-  explanation: string;
-  scope: string;
-  signals: ServiceChartsSignals;
-  /**
-   * Anlatım üretilemedi (kota/timeout/sağlayıcı hatası). İstek yine de
-   * 200 döner ve `signals` doludur — kanıt anlatımdan bağımsızdır
-   * (v0.9.1034).
-   */
-  error?: string;
-}
+// v0.10.1407 — ServiceChartsExplain (HTTP yanıtının istemci tipi) silindi: ✨
+// grafik açıklaması sohbet turu, sinyaller `charts_signals` bloğunda
+// (ChartsSignalsBlockPayload).
 
 // ── LOG ARTIŞI (v0.10.1284, AI SRE Faz 1a) — mcptools.LogSpikeResult ──
 /** Tespit edilen / verilen artış + taban (unix ms). factor 0 = taban hızı 0 (oran tanımsız). */
@@ -9235,13 +9244,9 @@ export interface LogSpikeResult {
     samples: LogSpikeSample[];
   };
 }
-/** POST /api/copilot/explain-log-spike gövdesi. */
-export interface LogSpikeExplainRequest {
-  service: string; env: string; query: string; level: 'all' | 'error';
-  mode: 'sel' | 'auto'; fromNs: number; toNs: number;
-}
-/** Anlatım düşse de 200 + kanıt (explain-charts emsali); exchangeId yalnız başarılı anlatımda. */
-export interface LogSpikeExplain { explanation: string; exchangeId?: string; error?: string; spike: LogSpikeResult }
+// v0.10.1407 — LogSpikeExplainRequest / LogSpikeExplain (HTTP istemci tipleri)
+// silindi: log artışı açıklaması sohbet turu, kanıt `log_spike` bloğunda
+// (LogSpikeBlockPayload).
 
 // ── ROLLOUTS (v0.10.201) — chstore.RolloutRow / RolloutStats / rollout.Run ──
 /** workload_rollouts satırı; zamanlar ms (0 = yok). Ad WorkloadRollout:

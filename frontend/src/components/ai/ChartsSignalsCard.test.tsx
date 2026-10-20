@@ -1,42 +1,35 @@
 // @vitest-environment jsdom
 //
-// ServiceChartsExplainBody.signals — v0.10.973 (tablo standardı T1, dilim 6).
+// ChartsSignalsCard — v0.10.973 (tablo standardı T1, dilim 6) pinleri, v0.10.1407
+// (Tek CoSRE adım 4; operatör: "Trace ve exception üzerinden çalışan Ask CoSRE
+// açıklamaları güzel ama sanki ayrı drawer hissi, CoSRE bütünselliğine
+// uymuyor.") ile çekmece gövdesinden (ServiceChartsExplainBody, silindi)
+// sohbet turunun kartına taşındı. Kart veri ÇEKMEZ: sinyaller cevabın
+// `charts_signals` bloğundan, anlatım `children`.
 //
-// NE ÇİVİLİYOR: AI çekmecesinin "İlişkili sinyaller" bölümü etiket → değer
-// satırlarından oluşan bir öznitelik paneli; ham `<table>` yerine KeyValue
-// (`<dl class="keyval">`). Göç yalnız YERLEŞİMİ değiştirir:
+// NE ÇİVİLİYOR: "İlişkili sinyaller" etiket → değer satırlarından oluşan bir
+// öznitelik paneli; ham `<table>` yerine KeyValue (`<dl class="keyval">`):
 //   • aynı dört satır türü (deploy/rollout · problem · anomali · operasyon),
 //     aynı sırada, aynı koşullarla;
 //   • problem linki /inbox?problem=<id> olarak kalır, "Sonraki adım"
 //     pivotları (hatalı izler, loglar, problem) yerinde;
 //   • sinyal yoksa bölüm hiç çizilmez;
-//   • KeyValue değeri `pre-wrap` — operasyon satırında çift boşluk görünmez.
-import { describe, it, expect, vi, afterEach } from 'vitest';
+//   • KeyValue değeri `pre-wrap` — operasyon satırında çift boşluk görünmez;
+//   • anlatım (children) "Ne oldu" yuvasında; künye çipleri servis/pencere/kapsam.
+import { describe, it, expect, afterEach } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { ServiceChartsExplain } from '@/lib/types';
-
-const m = vi.hoisted(() => ({ data: null as unknown }));
-vi.mock('@/lib/api', () => ({
-  api: { copilotExplainCharts: async () => m.data },
-  isCanceled: () => false,
-}));
-vi.mock('@/components/AuthProvider', () => ({
-  useAuth: () => ({ user: { username: 'op', role: 'admin' }, loading: false }),
-}));
-
-import { ServiceChartsExplainBody } from './ServiceChartsExplainBody';
+import type { ChartsSignalsBlockPayload } from '@/lib/types';
+import { ChartsSignalsCard } from './ChartsSignalsCard';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const FROM = 1_700_000_000e9;
 const TO = 1_700_003_600e9;
 
-const FULL: ServiceChartsExplain = {
-  explanation: 'p95 yükseldi.',
-  scope: 'err',
+const FULL: ChartsSignalsBlockPayload = {
+  service: 'payments', fromNs: FROM, toNs: TO, scope: 'err',
   signals: {
     deploy: { timeUnixNs: FROM + 60e9, kind: 'deploy', versionBefore: 'v1', versionAfter: 'v2', podsReplaced: 3 },
     problems: [{
@@ -55,22 +48,17 @@ const FULL: ServiceChartsExplain = {
 let host: HTMLDivElement | null = null;
 let root: Root | null = null;
 
-async function mount(data: ServiceChartsExplain): Promise<HTMLElement> {
-  m.data = data;
+async function mount(p: ChartsSignalsBlockPayload): Promise<HTMLElement> {
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   await act(async () => {
     root!.render(
-      <QueryClientProvider client={qc}>
-        <MemoryRouter>
-          <ServiceChartsExplainBody service="payments" fromNs={FROM} toNs={TO} scope="err" />
-        </MemoryRouter>
-      </QueryClientProvider>,
+      <MemoryRouter>
+        <ChartsSignalsCard p={p}><p data-testid="narr">p95 yükseldi.</p></ChartsSignalsCard>
+      </MemoryRouter>,
     );
   });
-  await act(async () => { await new Promise(r => setTimeout(r, 20)); });
   return host;
 }
 
@@ -84,7 +72,15 @@ const rows = (el: HTMLElement) => [...el.querySelectorAll('dl.keyval > .keyval__
 const label = (r: HTMLElement) => r.querySelector('dt')?.textContent;
 const value = (r: HTMLElement) => r.querySelector('dd')?.textContent ?? '';
 
-describe('ServiceChartsExplainBody — İlişkili sinyaller KeyValue (v0.10.973)', () => {
+describe('ChartsSignalsCard — İlişkili sinyaller KeyValue (v0.10.973)', () => {
+  it('v0.10.1407 — anlatım "Ne oldu" yuvasında; künye çipleri', async () => {
+    const el = await mount(FULL);
+    expect(el.querySelector('[data-testid="narr"]')?.textContent).toBe('p95 yükseldi.');
+    expect(el.textContent).toContain('payments');
+    expect(el.textContent).toContain('Error rate by operation');
+    expect(el.textContent).not.toContain('Yeniden üret'); // balonun kendi ↻'u var
+  });
+
   it('ham tablo yok; sinyaller tek <dl class="keyval"> içinde, sıra ve etiketler aynı', async () => {
     const el = await mount(FULL);
     expect(el.querySelector('table')).toBeNull();

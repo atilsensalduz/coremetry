@@ -22,7 +22,7 @@ import { act } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 
 // jsdom'da window.matchMedia YOK ve uPlot onu MODÜL YÜKLENİRKEN çağırıyor
-// (setPxRatio, uPlot.cjs.js:80). AIDrawer'ın import zinciri chart gövdesine
+// (setPxRatio, uPlot.cjs.js:80). CopilotChat'in import zinciri chart gövdesine
 // uzandığı için stub IMPORTLARDAN ÖNCE durmalı — `vi.hoisted` dosyanın
 // tepesine kaldırılır, normal bir beforeAll çok geç olurdu. Emsal:
 // components/chart/CorePanel.smoke.test.tsx.
@@ -34,7 +34,7 @@ vi.hoisted(() => {
   })) as unknown as typeof window.matchMedia;
 });
 
-import { AIDrawer } from './AIDrawer';
+import { CopilotChat } from '@/components/CopilotChat';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from '@/components/AuthProvider';
 import { ConfirmProvider } from '@/components/ui/ConfirmDialog';
@@ -51,9 +51,9 @@ async function mountDrawer() {
   await act(async () => {
     root.render(
       <MemoryRouter initialEntries={[OPEN]}>
-        {/* v0.10.483 — ✨ Explain aynı çekmecede: AIDrawer → CopilotChat (sağlayıcılar onun) */}
+        {/* v0.10.1407 — AIDrawer sarmalayıcısı silindi: ?ai= niyetini CopilotChat tüketir (sohbet turu) */}
         <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-          <AuthProvider><ConfirmProvider><AIDrawer /></ConfirmProvider></AuthProvider>
+          <AuthProvider><ConfirmProvider><CopilotChat /></ConfirmProvider></AuthProvider>
         </QueryClientProvider>
       </MemoryRouter>,
     );
@@ -73,10 +73,11 @@ beforeEach(() => {
   document.body.appendChild(host);
   root = createRoot(host);
   __resetCopilotEnabledCache();
-  // v0.10.1141 — çip composer'da: açıklama gelmeli ki çekmece sohbeti (ve
-  // composer'ı) çizilsin.
-  vi.spyOn(api, 'copilotExplainServiceHealth')
-    .mockResolvedValue({ explanation: 'payment sağlıklı.', exchangeId: 'e1' } as never);
+  // v0.10.1407 — ?ai= niyeti çekmeceyi açar ve açıklamayı sohbet turu olarak gönderir.
+  vi.spyOn(api, 'copilotChat').mockImplementation(async (_m, onEvent) => {
+    onEvent({ kind: 'answer', text: 'payment sağlıklı.', exchangeId: 'e1' });
+    onEvent({ kind: 'done', ok: true });
+  });
   (Element.prototype as unknown as { scrollTo: () => void }).scrollTo = () => {};
   // v0.10.483 — kabuk artık CopilotChat: AuthProvider `me` reddedince /login'e
   // yönlenir ve ?ai= silinirdi; sohbet kabuğunun diğer okumaları da mock.

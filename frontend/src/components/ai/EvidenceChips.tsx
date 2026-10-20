@@ -12,7 +12,7 @@ import { fmtClock, fmtDateTime } from '@/lib/utils';
 import { chatLinkTargetProps, useChatLinkNewTab } from './chatLinkTarget';
 import { ChatTraceList } from './ChatTraceList';
 import { RowExplainCell, RowExplainHead } from './RowExplainCell'; // v0.10.1291
-import { rowSubjectOf, useRowExplain } from './rowExplain';
+import { rowSubjectOf } from './rowExplain';
 import {
   evidenceChipParts, evidenceChipText, evidenceHref, evidenceKindLabel, evidenceWindowFull,
   evidenceChartGroups, evidenceDefaultOpen, evidenceCellText, evidenceSeverityTone,
@@ -160,7 +160,7 @@ export function EvidenceTable({ p }: { p: ChatEvidenceTablePayload }) {
   const linkProps = chatLinkTargetProps(useChatLinkNewTab());
   // v0.10.1291 — satır ✨ (log satırı açıkla): yalnız sunucu özne verdiyse ve
   // AI çekmecesinin açıklama kipinde değilken (RowExplainCell).
-  const rowAi = useRowExplain(!!p.rowSubjects?.some(Boolean));
+  const rowAi = !!p.rowSubjects?.some(Boolean); // v0.10.1407 — sohbet içinde de (tık sohbete tur gönderir)
   return (
     <div className="cm-md-tw cm-evblk__table">
       <table className="cm-md-table">

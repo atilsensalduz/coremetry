@@ -1,7 +1,7 @@
 import { Component, Fragment, createContext, memo, useContext, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
 import { chatErrorText } from './chatErrorText';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { chartBlocks, mergeBlockLinks, traceListBlocks, operationBlocks, serviceReportBlocks, topologyBlocks, evidenceBlocksByRef, type EvidenceBlockView } from '@/lib/chatBlocks';
+import { chartBlocks, mergeBlockLinks, traceListBlocks, operationBlocks, serviceReportBlocks, topologyBlocks, evidenceBlocksByRef, chartsSignalsBlock, logSpikeBlock, type EvidenceBlockView } from '@/lib/chatBlocks';
 import { ChatTraceList } from './ChatTraceList'; // v0.10.688 — trace_list bloğu
 import { evidenceBlocks } from '@/lib/chatEvidence'; // v0.10.558
 import { EvidenceCard } from './EvidenceCard';
@@ -43,7 +43,9 @@ import { AiThinking } from './AiThinking'; // v0.10.1384 — tek tip "düşünü
 import { useTypewriter } from './useTypewriter'; // v0.10.1384 — büyük parçada hızlı yazma efekti
 import { ExplainBody } from './ExplainBody'; // v0.10.1400 — açıklama turu ✨ Explain anatomisiyle
 import { EvidenceRow } from './EvidenceRow'; // v0.10.1400 — kanıt trace satırları
-import { explainEvidence } from './explainTurn';
+import { explainEvidence, explainRenderer } from './explainTurn';
+import { ChartsSignalsCard } from './ChartsSignalsCard'; // v0.10.1407 — charts açıklama turu kartı
+import { LogSpikeCard } from './LogSpikeCard'; // v0.10.1407 — log-spike açıklama turu kartı
 import { CodeStatusNote } from '../CodeStatusNote'; // v0.10.1406 — kod turunun durum satırı (✨ düğmesiyle aynı)
 import { CodeSourceFooter } from './CodeSourceFooter'; // v0.10.1406 — kod turunun kaynak satırı
 import { emitAiEvidence, emitAiFocus, scrollToAttr } from './aiEvents';
@@ -1006,9 +1008,8 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
                 ♻ önbellekten{ex.cachedAtMs ? ` · ${Math.max(1, Math.round((Date.now() - ex.cachedAtMs) / 60000))} dk önce üretildi` : ''} — ✨ Explain düğmesiyle aynı cevap
               </div>
             )}
-            {/* v0.10.1405 (Tek CoSRE adım 2) — künye etiketi (runbook: "RUNBOOK", CopilotExplain kart
-                başlığının aynısı) + not satırı ("Based on N past resolved…"). Çizim kipi (renderer)
-                bu sürümde hep body; charts / log-spike kartları 1407. */}
+            {/* v0.10.1405 (Tek CoSRE adım 2) — künye etiketi (runbook: "RUNBOOK", eski ✨ kart
+                başlığının aynısı) + not satırı ("Based on N past resolved…"). */}
             {ex?.kind === 'runbook' && (
               <div className="cm-msg-note" data-explain-label="" style={{ fontWeight: 700, letterSpacing: '.5px', color: 'var(--accent2)' }}>{ex.label || 'RUNBOOK'}</div>
             )}
@@ -1019,10 +1020,21 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
                 AYNI dürüstlük satırı (kod okunamadıysa cevabın BAŞINDA "kodsuz analiz") ve
                 kaynak satırı (depo/branş/dosyalar). */}
             {ex?.code && !turn.pending && <CodeStatusNote code={ex.code} />}
-            {ex && (
-              <ExplainBody text={turn.text} busy={!!turn.pending} evidence={turn.pending ? undefined : explainEvidence(ex)}
-                revealAt={ex.cached ? undefined : turn.arrivedAt?.at} />
-            )}
+            {/* v0.10.1407 (Tek CoSRE adım 4) — çizim kipi dağıtımı: charts / log-spike turu cevabın kanıt
+                bloğundan kart çizer (anlatım = ExplainBody, kartın "Ne oldu" / "Anlatım" yuvasında); blok
+                yoksa (arşivden geri yüklenen tur — bloklar arşive girmez) düz ExplainBody. */}
+            {ex && (() => {
+              const exBody = (
+                <ExplainBody text={turn.text} busy={!!turn.pending} evidence={turn.pending ? undefined : explainEvidence(ex)}
+                  revealAt={ex.cached ? undefined : turn.arrivedAt?.at} />
+              );
+              const r = explainRenderer(ex);
+              const charts = r === 'charts' ? chartsSignalsBlock(turn.blocks) : null;
+              if (charts) return <ChartsSignalsCard p={charts}>{exBody}</ChartsSignalsCard>;
+              const spike = r === 'log-spike' ? logSpikeBlock(turn.blocks) : null;
+              if (spike) return <LogSpikeCard p={spike}>{exBody}</LogSpikeCard>;
+              return exBody;
+            })()}
             {ex?.code && !turn.pending && <CodeSourceFooter code={ex.code} />}
             {ex && !turn.pending && !!ex.evidenceTraceIds?.length && (
               <div data-explain-traces="" style={{ marginTop: 8 }}>

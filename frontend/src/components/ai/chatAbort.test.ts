@@ -88,14 +88,8 @@ describe('kablolama', () => {
     expect(chat).toContain('{busy ? (');
   });
 
-  // v0.10.948 — çekmece sohbeti de: trace takibi tam araç döngüsünü (≤5 tur /
-  // 6 çağrı) koşuyor; tek durdurma yolu çekmeceyi kapatmaktı.
-  it('AI çekmecesi sohbeti de Durdur\'u stop\'a bağlıyor', () => {
-    const drawer = readFileSync(new URL('./AIDrawerBody.tsx', import.meta.url), 'utf8');
-    expect(drawer).toMatch(/\bstop\b[^}]*\} = useChatThread\(/);
-    expect(drawer).toContain('onClick={stop}');
-    expect(drawer).toContain('{busy ? (');
-  });
+  // v0.10.948'in çekmece-sohbeti pini v0.10.1407'de AIDrawerBody ile gitti: tek
+  // sohbet kabuğu (CopilotChat) — Durdur yukarıdaki pinlerde.
 });
 
 // ── v0.10.63 — BAYRAK YAZILIYOR AMA OKUNMUYORDU ─────────────────────────

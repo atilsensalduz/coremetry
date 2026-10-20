@@ -24,7 +24,6 @@ import { ChatBubble } from './ai/ChatBubble';
 import { TraceExplainNudge } from './ai/TraceExplainNudge';
 import { useChatThread, type ChatSendOpts } from './ai/useChatThread';
 import { FollowupChips } from './ai/FollowupChips'; // v0.10.1291 — kural-türevli takip çipleri
-import { InAiDrawerContext } from './ai/aiDrawerContext'; // v0.10.1291 — çekmecede satır ✨ gizli
 import { useStickToBottomState } from './ai/stickToBottom'; // v0.10.1137 — atBottom → "↓ En alta"
 import { CosreSidebar } from './ai/CosreSidebar'; // v0.10.1137 — /cosre sol kenar çubuğu
 import { readSidebarCollapsed, writeSidebarCollapsed } from './ai/chatHistoryGroups';
@@ -46,13 +45,12 @@ import { toast } from '@/lib/toast'; // v0.10.1139 — tam sayfa kayıt hatası
 import { useCopilotConfig } from './ai/useCopilotEnabled'; // v0.10.483
 import { AI_PREFILL_EVENT, type AIPrefillDetail } from './ai/aiEvents'; // v0.10.1336 — tur: aç + doldur, gönderme
 import { AI_DRAWER_WIDTH } from './ai/answerCard'; // v0.10.461
-import { AIDrawerBody } from './ai/AIDrawerBody'; // v0.10.483 — ✨ Explain gövdesi aynı çekmecede
 import { useAiSubject } from './ai/useAiSubject';
-import { AI_CODE_PARAM, AI_SRC_PARAM, aiSubjectSubtitle, aiSubjectTitle, formatAiParam, parseAiParam } from '@/lib/aiSubject';
-import { activeExplainFrom, explainAskFor, explainAskSubject, explainContextLabel, explainFollowupContext, explainSubject, explainTurnSendOpts, isExplainTurnKind } from './ai/explainTurn'; // v0.10.1400; v0.10.1405 — tüm göç eden türler
+import { AI_CODE_PARAM, AI_SRC_PARAM, formatAiParam } from '@/lib/aiSubject';
+import { activeExplainFrom, explainAskFor, explainAskSubject, explainContextLabel, explainFollowupContext, explainSubject, explainTurnSendOpts } from './ai/explainTurn'; // v0.10.1400; v0.10.1405; v0.10.1407 — AI_KINDS'in tümü
 import { drawerFollowups } from './ai/drawerChat'; // v0.10.1400 — açıklama turunun takip çipleri
 import { greetHello, greetErrors, greetHref, greetTooltip } from './ai/greeting';
-import type { AiConversation, AiConversationSummary } from '@/lib/types';
+import type { AiConversationSummary } from '@/lib/types';
 import { traceChatWindow, traceContextToPage, useTraceAiContext, type TraceAiContext } from '@/lib/traceAiContext'; // v0.10.944; v0.10.1400 — açıklama turunun trace bağlamı
 import { TraceContextStrip } from './ai/TraceContextStrip'; // v0.10.944
 import { ChatLinkNewTabContext } from './ai/chatLinkTarget'; // v0.10.1125 — /cosre
@@ -138,44 +136,16 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
   const [deep, setDeep] = useDeepThink(user?.id); // v0.10.1150 — "Derin düşün" (kullanıcı başına, kalıcı)
   const [openState, setOpen] = useState(false);
   const open = isPage || openState; // v0.10.1125 — sayfa kipinde hep açık
-  // v0.10.483 — ✨ Explain öznesi (`?ai=`): varsa çekmece AÇIK ve açıklama
-  // kipinde (AIDrawerBody); genel sohbet kipi öznesizken. Tek kabuk.
-  const [rawSubject, setSubject] = useAiSubject();
-  // v0.10.1400 (Tek CoSRE) — trace / exception öznesi çekmeceyi açıklama
-  // kipine ALMAZ: `?ai=` tek seferlik bir niyet olarak tüketilir ve sohbete
-  // açıklama turu gönderilir (aşağıdaki effect). Özne kipi yalnız diğer
-  // türler için (span, problem, … — v0.10.1401).
-  // v0.10.1405 (Tek CoSRE adım 2; operatör: "Trace ve exception üzerinden
+  // v0.10.483 — ✨ Explain öznesi (`?ai=`). v0.10.1400/1405 — tek seferlik
+  // niyet: aşağıdaki effect tüketir ve açıklamayı SOHBET TURU olarak gönderir.
+  // v0.10.1407 (Tek CoSRE adım 4; operatör: "Trace ve exception üzerinden
   // çalışan Ask CoSRE açıklamaları güzel ama sanki ayrı drawer hissi, CoSRE
-  // bütünselliğine uymuyor.") — span, problem, incident, anomaly, servis
-  // sağlığı, runbook, log ve endpoint de sohbet turu (explainTurn
-  // EXPLAIN_TURN_KINDS); özne kipi yalnız charts / log-spike için (1407).
-  const subject = rawSubject && !isExplainTurnKind(rawSubject.kind) ? rawSubject : null;
-  const drawerOpen = open || subject !== null;
-  // v0.10.944 (CoSRE Faz A) — geçmişten açılan ÖZNELİ konuşma. Çekmece
-  // sohbeti onu BİR KEZ devralır (`consumed`); öznesi/bağlamı ise şerit için
-  // durur. Çekmece kapanınca düşer — sonraki "CoSRE'ye sor" yeni sohbettir.
-  const [resume, setResume] = useState<{ conv: AiConversation; consumed: boolean } | null>(null);
-  const closeDrawer = () => { setSubject(null); setOpen(false); setResume(null); };
-  const markResumed = useCallback((id: string) => {
-    setResume(r => (r && r.conv.id === id ? { ...r, consumed: true } : r));
-  }, []);
-  // Devralma yalnız AYNI özne açıkken (kanonik kodek eşitliği).
-  const resumeFor = resume && subject && formatAiParam(subject) === (resume.conv.subject ?? '') ? resume : null;
-  // v0.10.944 — özne kipinden çıkılınca (gezinme/geri ?ai='yi düşürdü) devralma da düşer;
-  // yalnız closeDrawer'a bağlı kalsaydı aynı özne sonra bayat konuşmayı/bağlamı devralırdı
-  // (eski span/env/pencere YENİ konuşmanın bağlamı olarak gider ve saklanırdı). Yalnız
-  // devralmanın KENDİ öznesinden ayrılınca düşer — openThread A→B geçişinde yeni resume'un
-  // öznesi B'dir (önceki A değil), korunur; setResume ile router güncellemesinin aynı
-  // render'a düşmesine de bağlı değil.
-  const subjectKey = subject ? formatAiParam(subject) : '';
-  const prevSubjectKeyRef = useRef(subjectKey);
-  useEffect(() => {
-    const prev = prevSubjectKeyRef.current;
-    prevSubjectKeyRef.current = subjectKey;
-    if (prev === subjectKey) return;
-    setResume(r => (r && r.conv.subject === prev && r.conv.subject !== subjectKey ? null : r));
-  }, [subjectKey]);
+  // bütünselliğine uymuyor.") — charts / log-spike da sohbet turu; çekmecenin
+  // "özne kipi" (AIDrawerBody: ikinci thread + ikinci composer) SİLİNDİ. Tek
+  // kabuk, tek thread: çekmece yalnız `open` ile açık.
+  const [rawSubject, setSubject] = useAiSubject();
+  const drawerOpen = open;
+  const closeDrawer = () => { setSubject(null); setOpen(false); };
   const navigate = useNavigate(); // v0.10.434 (D7b) — "sayfasını aç" cevabı SPA içinde gezer
   // v0.9.169 — proaktif rozet: açık KRİTİK problem sayısı (chat kapalıyken
   // FAB'da kırmızı rozet). Yalnız copilot açıkken pollar; RQ tab gizliyken durur.
@@ -435,23 +405,9 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
 
   const openThread = async (t: AiConversationSummary) => {
     try {
-      // v0.10.944 (CoSRE Faz A) — ÖZNELİ konuşma (çekmece sohbeti, ör.
-      // `trace:<id>`) özne kipini YENİDEN açar: çekmece o özneye döner,
-      // sohbet konuşmayı devralır (aynı kimliğe yazmaya devam eder) ve
-      // bağlam şeridi kayıtlı anlık görüntüyü gösterir. Eskiden özne
-      // düşüyor, turlar genel pencereye bağlamsız yükleniyordu.
-      const subj = parseAiParam(t.subject ?? '');
-      // v0.10.1400 — trace / exception özneli ESKİ çekmece konuşması artık özne
-      // kipine dönmez (o kip yok); turları sohbete normal yüklenir.
-      if (subj && !isExplainTurnKind(subj.kind)) {
-        const c = await api.aiConversation(t.id);
-        setResume({ conv: { ...c, subject: c.subject || t.subject }, consumed: false });
-        setSubject(subj);
-        setShowHistory(false);
-        return;
-      }
-      setSubject(null); // v0.10.483 — öznesiz konuşma genel kipe döner
-      setResume(null);
+      // v0.10.1400 / v0.10.1407 — özneli ESKİ çekmece konuşması (ör. `trace:<id>`,
+      // `charts:…`) artık özne kipine dönmez (o kip yok); turları sohbete normal yüklenir.
+      setSubject(null);
       expectDraft(t.id); // v0.10.1145 — açık geçiş: o konuşmanın kayıtlı taslağı
       await load(t.id);
       setShowHistory(false);
@@ -563,12 +519,12 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
   // muhafızı: StrictMode'un çift effect'i ve aynı niyetin yeniden render'ı
   // tek tur gönderir. Copilot yapılandırması gelene dek bekler.
   // v0.10.1405 — aynı yol göç eden TÜM türler için (?ai=span|problem|incident|
-  // anomaly|service-health|runbook|log|endpoint): AIDrawerBody artık yalnız
-  // charts / log-spike'ta mount olur.
+  // anomaly|service-health|runbook|log|endpoint); v0.10.1407 — charts /
+  // log-spike da: AI_KINDS'in her türü bir sohbet turu (özne kipi silindi).
   const explainAskSentRef = useRef('');
   const rawSubjectKey = rawSubject ? formatAiParam(rawSubject) : '';
   useEffect(() => {
-    if (!rawSubject || !isExplainTurnKind(rawSubject.kind)) { explainAskSentRef.current = ''; return; }
+    if (!rawSubject) { explainAskSentRef.current = ''; return; }
     if (enabled !== true || explainAskSentRef.current === rawSubjectKey) return;
     explainAskSentRef.current = rawSubjectKey;
     // v0.10.1406 — ?aicode=1 (paylaşılan "Kodu da incele" linki): kod turu; ?ai= ile
@@ -693,27 +649,24 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
               </span>
               <span className="mono cosre-head__meta" style={{
                 flex: 1, minWidth: 0,
-                color: subject ? 'var(--text2)' : currentService ? 'var(--accent2)' : 'var(--text3)',
+                color: currentService ? 'var(--accent2)' : 'var(--text3)',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              }} title={subject ? `${aiSubjectTitle(subject)} · ${aiSubjectSubtitle(subject)}` : currentService ? `Sorular ${currentService} servisine kapsanır` : undefined}>
-                {subject
-                  ? `✨ ${aiSubjectTitle(subject)} · ${aiSubjectSubtitle(subject)}`
-                  : pinned
+              }} title={currentService ? `Sorular ${currentService} servisine kapsanır` : undefined}>
+                {pinned
                     ? ''
                     // v0.10.1295 (operatör 2026-10-17: "filo geneli yazmasına gerek yok") —
                     // servis yoksa etiket boş; yalnız env (varsa) kalır.
                     : [currentService ? `📍 ${currentService}` : '', env ? `env ${env}` : ''].filter(Boolean).join(' · ')}
               </span>
-              {/* v0.10.540 — pin çipi / sabitle düğmesi (özne kipinde yok: Explain
-                  zaten özne-kilitli). */}
-              {!subject && pinned && (
+              {/* v0.10.540 — pin çipi / sabitle düğmesi. */}
+              {pinned && (
                 <Chip pill size="sm" active onRemove={() => setPinned(null)} removeLabel="Sabitlemeyi kaldır"
                   title={`Sabitlenmiş bağlam — sayfa değişse de sorular buna kapsanır: ${pinLabelTR(pinned)}`}
                   style={{ flexShrink: 1, minWidth: 0, maxWidth: 260 }}>
                   📌 {pinLabelTR(pinned)}
                 </Chip>
               )}
-              {!subject && !pinned && hasPinnableContext(page) && (
+              {!pinned && hasPinnableContext(page) && (
                 <Button variant="ghost" size="sm" onClick={() => setPinned(page)}
                   title={`Bu sayfanın bağlamını sohbete sabitle: ${pinLabelTR(page)}`} aria-label="Sayfa bağlamını sabitle">📌</Button>
               )}
@@ -722,7 +675,7 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
                   (dropdown) sohbetin üstüne binerdi. */}
               {/* v0.10.1138 — çekmeceden /cosre'ye: gerçek <a href> (Ctrl/Cmd/orta tık yeni
                   sekme); düz tıkta önce bekleyen kayıt yazılır, çekmece kapanır, aynı sekmede gezer. */}
-              {!isPage && !subject && (
+              {!isPage && (
                 <Link to={fullPageHref} className="cosre-page__home cm-fullpage" data-fullpage=""
                   aria-disabled={busy || opening || undefined}
                   title={busy ? 'Cevap bitince tam sayfada açılabilir' : 'Bu konuşmayı /cosre tam sayfasında aç'}
@@ -737,7 +690,7 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
               {/* v0.10.1295 (operatör 2026-10-17: "en üstte iki tane tam ekran ve tam
                   sayfada aç çıkıyor") — "⤢ Tam ekran" (çekmeceyi 1100 px'e genişletme)
                   KALDIRILDI; tek yol "Tam sayfada aç ↗" (/cosre, geçmiş + kurallar). */}
-              {!subject && turns.length > 0 && (
+              {turns.length > 0 && (
                 <Button variant="secondary" size="sm" onClick={startNew}
                   title="Konuşmayı temizle ve yeni konuşma başlat">Temizle</Button>
               )}
@@ -832,18 +785,6 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
             </div>
           )}
 
-          {/* v0.10.483 — ✨ Explain kipi: aynı çekmece, açıklama + kanıt +
-              çekmece sohbeti (AIDrawerBody). key: özne değişince sıfırlanır. */}
-          {subject ? (
-            <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--sp-7)' }}>
-              {/* v0.10.1291 — açıklama kipi: satır başı ✨'ler gizlenir (aiDrawerContext). */}
-              <InAiDrawerContext.Provider value={true}>
-              <AIDrawerBody key={formatAiParam(subject)} subject={subject} onClose={closeDrawer}
-                resume={resumeFor && !resumeFor.consumed ? resumeFor.conv : null}
-                onResumed={markResumed} />
-              </InAiDrawerContext.Provider>
-            </div>
-          ) : (<>
           {/* Messages */}
           {/* v0.10.1137 — okuma sütunu (/cosre'de ≤760px), role=log + aria-live:
               akan cevap ekran okuyucuya bitince okunur (aria-busy). */}
@@ -1035,7 +976,6 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
               </div>
             )}
           </form>
-          </>)}
   </>);
 
   if (isPage) {

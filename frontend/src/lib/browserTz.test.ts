@@ -45,14 +45,13 @@ describe('browserTz — saf', () => {
 describe('browserTz — api.ts kablolaması', () => {
   const src = readFileSync(resolve(__dirname, 'api.ts'), 'utf8');
 
-  it('explainInit HER ZAMAN JSON gövde gönderir ve dilim çiftini taşır', () => {
-    const i = src.indexOf('function explainInit(');
-    expect(i).toBeGreaterThan(0);
-    const body = src.slice(i, src.indexOf('\n}\n', i));
-    expect(body).toContain('tzBodyFields()');
-    expect(body).toContain("'Content-Type': 'application/json'");
-    // Eski "gövdesiz POST" kısa devresi geri gelmemeli.
-    expect(body).not.toContain("return { method: 'POST' };");
+  // v0.10.1407 — ✨ Explain istemci yöntemleri (explainInit gövdesi: tz +
+  // tzOffsetMin) özne kipiyle silindi: her açıklama sohbet turu ve dilim
+  // çifti sohbet bağlamından gider (sunucu chatExplainTurn → chatLocationNamed).
+  it('explainInit kalktı; açıklama turu dilimi sohbet bağlamıyla taşır', () => {
+    expect(src).not.toContain('function explainInit(');
+    const chat = src.slice(src.indexOf('copilotChat: async ('), src.indexOf('copilotChat: async (') + 6000);
+    expect(chat).toContain('const { tz, tzOffsetMin } = browserTz();');
   });
 
   it('sohbet bağlamı ve insight yolu aynı yardımcıdan geçer', () => {
@@ -60,13 +59,5 @@ describe('browserTz — api.ts kablolaması', () => {
     expect(src).toContain('path = withTzQuery(path);');
     // Tek kaynak: ham getTimezoneOffset okuması api.ts'te kalmadı.
     expect(src).not.toContain('new Date().getTimezoneOffset()');
-  });
-
-  it('Explain uçları explainInit üzerinden gider (trace + exception)', () => {
-    for (const p of ['/api/copilot/explain-trace/', '/api/copilot/explain-exception/']) {
-      const i = src.indexOf(p);
-      expect(i, p).toBeGreaterThan(0);
-      expect(src.slice(i, i + 160)).toContain('explainInit(includeCode)');
-    }
   });
 });

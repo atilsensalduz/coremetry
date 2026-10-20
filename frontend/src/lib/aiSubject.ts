@@ -46,25 +46,9 @@ export const AI_PARAM = 'ai';
 // kapalı kalır, paylaşım ise gördüğünü aynen taşır.
 export const AI_CODE_PARAM = 'aicode';
 
-// readAiCodeParam — CANLI adres çubuğundan okur. Router'a bağlanmıyor,
-// bilerek: CopilotExplain router'sız da mount ediliyor (testler) ve bu
-// çekmece ailesi zaten ham history API'siyle konuşuyor (useAiSubject'in
-// "canlı adres çubuğu üst kümedir" gerekçesi).
-export function readAiCodeParam(): boolean {
-  if (typeof window === 'undefined') return false;
-  return new URLSearchParams(window.location.search).get(AI_CODE_PARAM) === '1';
-}
-
-// writeAiCodeParam — seçimi adrese yazar/siler. Ham replaceState:
-// /trace ve Dashboard emsali; yabancı parametreler AYNEN korunur ve
-// history'ye durak eklenmez.
-export function writeAiCodeParam(on: boolean): void {
-  if (typeof window === 'undefined') return;
-  const url = new URL(window.location.href);
-  if (on) url.searchParams.set(AI_CODE_PARAM, '1');
-  else url.searchParams.delete(AI_CODE_PARAM);
-  window.history.replaceState(window.history.state, '', url.toString());
-}
+// v0.10.1407 — readAiCodeParam / writeAiCodeParam (✨ kartının "Kodu da
+// incele" kutusu) silindi: kart özne kipiyle gitti; ?aicode=1 artık yalnız
+// sohbetin kod turu niyeti (CopilotChat ?ai= effect'i, v0.10.1406).
 
 // AI_SRC_PARAM (v0.10.432, CoSRE router boşlukları D8) — çekmecenin
 // hangi AFFORDANS'tan açıldığı: "nudge" = trace ilk açılış baloncuğu.
@@ -75,16 +59,6 @@ export function writeAiCodeParam(on: boolean): void {
 export const AI_SRC_PARAM = 'aisrc';
 export const AI_SRC_VALUES = ['nudge', 'chat'] as const; // chat (v0.10.460) — sohbetten açılan Explain
 export type AISrc = typeof AI_SRC_VALUES[number];
-
-export function parseAiSrc(raw: string | null | undefined): AISrc | null {
-  return raw && (AI_SRC_VALUES as readonly string[]).includes(raw) ? (raw as AISrc) : null;
-}
-
-// readAiSrcParam — readAiCodeParam'ın ikizi: CANLI adres çubuğundan.
-export function readAiSrcParam(): AISrc | null {
-  if (typeof window === 'undefined') return null;
-  return parseAiSrc(new URLSearchParams(window.location.search).get(AI_SRC_PARAM));
-}
 
 export const AI_KINDS = [
   'trace', 'span', 'problem', 'incident', 'anomaly',

@@ -136,7 +136,8 @@ export function LogsHistogram({ range, filter, onRangeSelect, onZoomReset, onSer
   // servis Logs sekmesi + anomali çekmecesi seviye modunda kalır).
   onBreakdown?: (b: LogsBreakdown) => void;
   // v0.10.1284 (AI SRE Faz 1a) — verilirse başlıkta ✨ "Artışı açıkla" (v0.10.1338: "CoSRE’ye sor")
-  // (`log-spike` öznesi; çekmece açılınca bir kez çekilir). Yalnız /logs
+  // (`log-spike` öznesi; v0.10.1407 — tık CoSRE sohbetine tur gönderir, cevap
+  // LogSpikeCard; kanıt tıkta bir kez okunur). Yalnız /logs
   // geçirir; copilot kapalıysa düğme kendini gizler (AIExplainButton).
   spikeSubject?: AISubject;
 }) {

@@ -53,7 +53,6 @@ vi.mock('@/components/CosreChart', () => ({
 }));
 
 import { ChatBubble } from './ChatBubble';
-import { AIDrawer } from './AIDrawer';
 import { api } from '@/lib/api';
 import type { AiConversation, ChatTurn } from '@/lib/types';
 import { AuthProvider } from '@/components/AuthProvider';
@@ -378,25 +377,20 @@ describe('CopilotChat (FAB) yüzeyi', () => {
   });
 });
 
-// ── YÜZEY (5): AI çekmecesi gerçek mount ile ─────────────────────────
+// ── YÜZEY (5): ✨ açıklama turu gerçek mount ile ─────────────────────
 //
-// İki yüzeyin AYRI ölçülmesinin sebebi tarih: v0.9.479'a dek sohbetin
-// İKİ implementasyonu vardı ve çekmece geride kalıyordu. Balon
-// paylaşıldığı sürece ikisi eşit — "paylaşıldığı sürece" kısmı ancak
-// mount'la doğrulanır.
-describe('AIDrawer (çekmece) yüzeyi', () => {
-  it('çekmece sohbetinde tablo cevabı tablo olarak çiziliyor', async () => {
+// v0.9.479'a dek sohbetin İKİ implementasyonu vardı; v0.10.1407 (Tek CoSRE
+// adım 4) çekmecenin özne kipini (AIDrawerBody) sildi — `?ai=` niyetinin
+// cevabı da AYNI CopilotChat thread'inde, aynı balonla çizilir.
+describe('?ai= açıklama turu yüzeyi', () => {
+  it('?ai= niyetinin cevabındaki tablo tablo olarak çiziliyor (ikinci kabuk yok)', async () => {
     (Element.prototype as unknown as { scrollTo: () => void }).scrollTo = () => {};
     (Element.prototype as unknown as { scrollIntoView: () => void }).scrollIntoView = () => {};
     vi.spyOn(api, 'copilotConfig').mockResolvedValue({ enabled: true, model: 'gemma4' });
-    // v0.10.483 — kabuk CopilotChat: AuthProvider `me` + kabuğun okumaları mock.
     vi.spyOn(api, 'me').mockResolvedValue({ id: 'u1', email: 'op@x.io', role: 'admin', firstName: 'Cenk' });
     vi.spyOn(api, 'problemsCount').mockResolvedValue({ count: 0 });
     vi.spyOn(api, 'aiConversations').mockResolvedValue([]);
-    vi.spyOn(api, 'copilotExplainProblem').mockResolvedValue({
-      explanation: 'kök neden: db havuzu doldu', exchangeId: 'e1',
-    });
-    vi.spyOn(api, 'copilotChat').mockImplementation(async (_msgs, onEvent) => {
+    const chat = vi.spyOn(api, 'copilotChat').mockImplementation(async (_msgs, onEvent) => {
       onEvent({ kind: 'answer', text: '| Servis | p95 |\n|---|---:|\n| checkout | 480 |\n', exchangeId: 'x2' });
       onEvent({ kind: 'done', ok: true });
     });
@@ -405,26 +399,16 @@ describe('AIDrawer (çekmece) yüzeyi', () => {
       root.render(
         <MemoryRouter initialEntries={['/problems?ai=problem:P-1']}>
           <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-            {/* v0.10.483 — ✨ Explain aynı çekmecede: AIDrawer → CopilotChat (sağlayıcılar onun) */}
-            <AuthProvider><ConfirmProvider><AIDrawer /></ConfirmProvider></AuthProvider>
+            <AuthProvider><ConfirmProvider><CopilotChat /></ConfirmProvider></AuthProvider>
           </QueryClientProvider>
         </MemoryRouter>
       );
     });
-    // Çekmece body'ye portallanıyor (Drawer.tsx).
-    const btn = (label: string) =>
-      Array.from(document.body.querySelectorAll('button')).find(b => b.textContent?.includes(label));
-    expect(document.body.textContent, 'explain çizilmedi').toContain('kök neden');
-
-    await act(async () => { btn("Chat'te devam et")?.click(); });
-    // İlk takip sorusu çipi (↳ …) — sohbeti başlatır.
-    const chip = Array.from(document.body.querySelectorAll('button'))
-      .find(b => b.textContent?.startsWith('↳'));
-    expect(chip, 'takip çipi yok').toBeTruthy();
-    await act(async () => { chip!.click(); });
-
+    for (let i = 0; i < 3; i++) await act(async () => { await Promise.resolve(); });
+    expect(chat).toHaveBeenCalledTimes(1);
     expect(document.body.querySelector('table.cm-md-table')).toBeTruthy();
     expect(document.body.textContent).not.toContain('|---');
+    expect(document.body.querySelectorAll('textarea')).toHaveLength(1);
   });
 });
 
@@ -435,7 +419,7 @@ describe('markdown yolu TEK', () => {
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .split('\n').map(l => l.replace(/\/\/.*$/, '')).join('\n');
 
-  for (const rel of ['./AIDrawerBody.tsx', '../CopilotChat.tsx']) { // v0.10.483 — gövde dosyası
+  for (const rel of ['../CopilotChat.tsx']) { // v0.10.1407 — AIDrawerBody silindi; tek sohbet kabuğu
     const name = rel.split('/').pop();
     it(`${name} — turları ChatBubble ile çiziyor, kendi HTML'ini basmıyor`, () => {
       const src = read(rel);

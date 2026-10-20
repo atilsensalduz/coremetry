@@ -26,11 +26,9 @@ vi.hoisted(() => {
   })) as unknown as typeof window.matchMedia;
 });
 
-// Çekmecenin açıklama gövdesi trace / exception için ARTIK mount olmamalı.
-const explainMounts = vi.hoisted(() => ({ n: 0 }));
-vi.mock('@/components/CopilotExplain', () => ({
-  CopilotExplain: () => { explainMounts.n++; return null; },
-}));
+// v0.10.1407 — çekmecenin açıklama gövdesi (AIDrawerBody / CopilotExplain)
+// SİLİNDİ; "ikinci kabuk yok" artık tek composer ile pinlenir.
+const oneComposer = () => document.body.querySelectorAll('textarea').length === 1;
 
 import { api } from '@/lib/api';
 import type { ChatExplainMeta, ChatFollowup, ChatStreamEvent } from '@/lib/types';
@@ -100,7 +98,6 @@ beforeEach(() => {
   document.body.appendChild(host);
   root = createRoot(host);
   search = '';
-  explainMounts.n = 0;
   __resetCopilotEnabledCache();
   vi.spyOn(api, 'copilotConfig').mockResolvedValue({ enabled: true, model: 'gemma4' });
   vi.spyOn(api, 'me').mockResolvedValue({ id: 'u1', email: 'op@example.com', role: 'admin', firstName: 'Deniz' });
@@ -134,7 +131,7 @@ describe('?ai=trace → sohbet içi açıklama turu', () => {
     // Aynı CoSRE: çekmece açık, tek composer, ✨ Explain anatomisi balonda.
     expect(document.body.querySelector('[role="dialog"]')).toBeTruthy();
     expect(document.body.querySelectorAll('textarea').length).toBe(1);
-    expect(explainMounts.n).toBe(0);
+    expect(oneComposer()).toBe(true);
     expect(bodyText()).toContain("Bu trace'i açıkla · 0af76519…");
     expect(document.body.querySelector('.cx-verdict')?.textContent).toContain('Ödeme sağlayıcısı kartı reddediyor.');
   });
@@ -191,7 +188,7 @@ describe('/cosre sayfası', () => {
     expect(chat).toHaveBeenCalledTimes(1);
     expect(argsOf(chat.mock.calls[0]).explainAsk).toEqual({ kind: 'exception', id: 'ora:00000000000000b2', src: 'ai-param' });
     expect(new URLSearchParams(search).get('ai')).toBeNull();
-    expect(explainMounts.n).toBe(0);
+    expect(oneComposer()).toBe(true);
     expect(bodyText()).toContain('Exception grubunu açıkla · ora:00000000…');
   });
 });
@@ -199,9 +196,8 @@ describe('/cosre sayfası', () => {
 // v0.10.1405 (Tek CoSRE adım 2; operatör: "Trace ve exception üzerinden çalışan
 // Ask CoSRE açıklamaları güzel ama sanki ayrı drawer hissi, CoSRE bütünselliğine
 // uymuyor.") — span / problem / service-health / runbook / endpoint `?ai=` de
-// aynı tek seferlik niyet: sohbet turu, adres temizlenir, çekmecenin açıklama
-// gövdesi (AIDrawerBody → CopilotExplain) hiç mount olmaz. charts hâlâ çekmece
-// özne kipinde (1407).
+// aynı tek seferlik niyet: sohbet turu, adres temizlenir, ikinci kabuk yok.
+// v0.10.1407 — charts / log-spike da (CopilotChat.explainCards.test.tsx).
 describe('?ai= göç eden türler (v0.10.1405)', () => {
   const SPAN = 'b7ad6b7169203331';
   it('span derin linki: kodekli niyet, kısa görünen tur, çekmece gövdesi yok', async () => {
@@ -212,7 +208,7 @@ describe('?ai= göç eden türler (v0.10.1405)', () => {
     expect(a.explainAsk).toEqual({ kind: 'span', id: TRACE, subject: `span:${TRACE}:${SPAN}`, src: 'ai-param' });
     expect(a.messages[a.messages.length - 1].text).toBe("Bu span'i açıkla · b7ad6b71…");
     expect(new URLSearchParams(search).get('ai')).toBeNull();
-    expect(explainMounts.n).toBe(0);
+    expect(oneComposer()).toBe(true);
     expect(document.body.querySelectorAll('textarea').length).toBe(1);
     expect(document.body.querySelector('.cx-verdict')?.textContent).toContain('Ödeme sağlayıcısı kartı reddediyor.');
     expect(bodyText()).toContain('✨ span charge');
@@ -225,7 +221,7 @@ describe('?ai= göç eden türler (v0.10.1405)', () => {
     expect(chat).toHaveBeenCalledTimes(1);
     expect(argsOf(chat.mock.calls[0]).explainAsk).toEqual({ kind: 'problem', id: PID, src: 'ai-param' });
     expect(bodyText()).toContain('Bu problemi açıkla · 00000000…');
-    expect(explainMounts.n).toBe(0);
+    expect(oneComposer()).toBe(true);
     await act(async () => { button('Bu neden oluyor?')?.click(); });
     expect(chat).toHaveBeenCalledTimes(2);
     const f = argsOf(chat.mock.calls[1]);
@@ -268,14 +264,5 @@ describe('?ai= göç eden türler (v0.10.1405)', () => {
     expect(a.rangeS).toBe(1800);
     expect(a.toMs).toBe(fromMs + 1_800_000);
     expect(new URLSearchParams(search).get('ai')).toBeNull();
-  });
-
-  it('charts hâlâ çekmece özne kipinde: sohbet turu gönderilmez', async () => {
-    const chat = stubChat();
-    const charts = vi.spyOn(api, 'copilotExplainCharts').mockRejectedValue(new Error('kapsam dışı'));
-    await mount('/service?name=orders-api&ai=' + encodeURIComponent('charts:orders-api:1000:2000:all'));
-    expect(chat).not.toHaveBeenCalled();
-    expect(charts).toHaveBeenCalled();
-    expect(new URLSearchParams(search).get('ai')).toBe('charts:orders-api:1000:2000:all');
   });
 });

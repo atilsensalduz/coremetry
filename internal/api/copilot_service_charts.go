@@ -1,12 +1,14 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/cilcenk/coremetry/internal/ai/agent/blocks"
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/copilot"
 )
@@ -24,9 +26,17 @@ import (
 // tek geçişte yalnız ANLATIR (tool-loop yok). Toplama mantığının kendisi
 // saf ve testli — explain_service_charts.go.
 //
-// Maliyet duruşu: AI üretimi CACHE'LENMEZ (non-determinist + her üretim
-// bir ai_calls satırı = /ai görünürlüğü). Sadece UÇUŞTA-TEK üretim
-// garantisi var: aynı (servis, kapsam, pencere) için eşzamanlı istekler
+// Maliyet duruşu — v0.10.1407 (Tek CoSRE adım 4) TERSİNE döndü: üretim
+// artık explain önbelleğinde, anahtar explainCacheKey(system, user, "")
+// (buildChartsExplain). Eski "CACHE'LENMEZ" gerekçesi (non-determinist +
+// her üretim bir ai_calls satırı) sohbet turuyla geçerliliğini yitirdi: ✨
+// kart düğmesi artık CoSRE sohbetine tur gönderiyor ve düğme ile sohbet AYNI
+// satırı paylaşmalı (v0.10.1400 değişmezi). Bayatlık kendi kendini düzeltir:
+// kullanıcı metni TÜM sinyalleri (RED özetleri, deploy, problem, anomali,
+// op-delta, pencere) taşır — yeni bir sinyal anahtarı değiştirir. Taze cevap
+// isteyen operatörün yolu var: ?refresh=1 / sohbetin "↻ Yeniden üret"i
+// (v0.10.1406 fresh) önbelleği atlar ve üstüne yazar. UÇUŞTA-TEK üretim
+// garantisi aynen: aynı (servis, kapsam, pencere) için eşzamanlı istekler
 // singleflight ile tek LLM çağrısına iner. Prefetch sorguları MV'ye
 // dayanıyor ve zaman-sınırlı; ayrı serveCached sarmalamaya gerek yok.
 func (s *Server) copilotExplainCharts(w http.ResponseWriter, r *http.Request) {
@@ -42,13 +52,28 @@ func (s *Server) copilotExplainCharts(w http.ResponseWriter, r *http.Request) {
 	// Uçuşta-tek anahtarı TÜM girdileri taşır (v0.5.187 dersinin
 	// singleflight karşılığı): servis adı QueryEscape'ten geçer, yoksa
 	// içindeki ':' iki farklı isteği aynı anahtara düşürebilirdi.
-	key := fmt.Sprintf("explain-charts:%s:%s:%d:%d",
-		url.QueryEscape(service), scope, from.UnixNano(), to.UnixNano())
+	// v0.10.1407 — refresh de anahtarda: taze istek önbellekli bir uçuşa binmesin.
+	key := fmt.Sprintf("explain-charts:%s:%s:%d:%d:%s",
+		url.QueryEscape(service), scope, from.UnixNano(), to.UnixNano(), q.Get("refresh"))
 
 	v, err, _ := s.sf.Do(key, func() (any, error) {
-		in := s.buildServiceChartsInput(r, service, scope, from, to)
-		out, nerr := s.copilotExplain(r, copilot.SystemPromptServiceCharts(), buildServiceChartsUser(in))
-		return buildChartsResult(scope, in.Signals, out, nerr), nil
+		b, sg := s.buildChartsExplain(r.Context(), service, scope, from, to)
+		// v0.10.1407 — sohbet turuyla AYNI anahtar (tek önbellek satırı).
+		if env, hit := s.explainCacheGet(r, b.CacheKey); hit {
+			res := buildChartsResult(scope, sg, env.Text, nil)
+			res.ExchangeID, res.Cached, res.CachedAtMs = env.Xid, true, env.AtMs
+			return res, nil
+		}
+		rx, xid := withExchange(r)
+		out, nerr := s.copilotExplain(rx, b.System, b.User)
+		if nerr == nil {
+			s.explainCacheSet(r.Context(), b.CacheKey, out, xid)
+		}
+		res := buildChartsResult(scope, sg, out, nerr)
+		if nerr == nil {
+			res.ExchangeID = xid
+		}
+		return res, nil
 	})
 	if err != nil {
 		writeErr(w, err)
@@ -57,14 +82,44 @@ func (s *Server) copilotExplainCharts(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, v)
 }
 
+// chartsSignalsBlockPayload — v0.10.1407: `charts_signals` bloğunun gövdesi
+// (blocks.TypeChartsSignals; FE ChartsSignalsCard): ölçülmüş sinyaller + kartın
+// pivot linklerini kuran pencere/kapsam. Model metninden BAĞIMSIZ (link
+// uydurulamaz, tablo anlatım düşse de doğru).
+type chartsSignalsBlockPayload struct {
+	Service string               `json:"service"`
+	FromNs  int64                `json:"fromNs"`
+	ToNs    int64                `json:"toNs"`
+	Scope   string               `json:"scope"`
+	Signals ServiceChartsSignals `json:"signals"`
+}
+
+// buildChartsExplain — v0.10.1407: ✨ grafik açıklamasının TEK kurucusu (HTTP
+// düğmesi + sohbet turu): kanıt (buildServiceChartsInput) → istem çifti
+// (SystemPromptServiceCharts + buildServiceChartsUser) → anahtar
+// explainCacheKey(system, user, "") + `charts_signals` bloğu.
+func (s *Server) buildChartsExplain(ctx context.Context, service, scope string, from, to time.Time) (explainBuilt, ServiceChartsSignals) {
+	scope = normalizeChartScope(scope)
+	in := s.buildServiceChartsInput(ctx, service, scope, from, to)
+	b := newExplainBuilt(copilot.SystemPromptServiceCharts(), buildServiceChartsUser(in))
+	b.Label, b.Service, b.Renderer = service, service, explainRendererCharts
+	b.Blocks = []explainBlock{{Type: blocks.TypeChartsSignals, Payload: chartsSignalsBlockPayload{
+		Service: service, FromNs: from.UnixNano(), ToNs: to.UnixNano(), Scope: scope, Signals: in.Signals,
+	}}}
+	return b, in.Signals
+}
+
 // buildServiceChartsInput — CH'den kanıt toplama. HER kaynak SOFT-FAIL:
 // bir sinyal alınamazsa o bölüm prompt'ta hiç görünmez ve anlatım kalan
 // kanıtla sürer. Tek bir yavaş/boş sorgu yüzünden operatörün hiç cevap
 // alamaması, eksik cevap almasından kötüdür.
+//
+// v0.10.1407 — ctx tabanlı (sohbet turu da çağırır); okumalar explainReads()
+// yüzeyinden (test dikişi explainStoreSeam, üretimde s.store).
 func (s *Server) buildServiceChartsInput(
-	r *http.Request, service, scope string, from, to time.Time,
+	ctx context.Context, service, scope string, from, to time.Time,
 ) serviceChartsInput {
-	ctx := r.Context()
+	rd := s.explainReads()
 	in := serviceChartsInput{Service: service, Scope: scope, From: from, To: to}
 
 	// RED — operasyon bazlı. Tek Multi çağrısı = tek CH taraması
@@ -78,7 +133,7 @@ func (s *Server) buildServiceChartsInput(
 		{Key: "service.name", Op: "=", Values: []string{service}},
 		{Key: "kind", Op: "IN", Values: []string{"server", "consumer"}},
 	}
-	redM, _, _ := s.store.QuerySpanMetricMulti(ctx, chstore.SpanMetricBatchFilter{
+	redM, _, _ := rd.QuerySpanMetricMulti(ctx, chstore.SpanMetricBatchFilter{
 		Filters: svcFilter, From: from, To: to, GroupBy: []string{"name"},
 		Aggs: []chstore.SpanMetricAggSpec{
 			{Name: "rate", Aggregation: "rate"},
@@ -97,7 +152,7 @@ func (s *Server) buildServiceChartsInput(
 	// TERCİH EDİLİR: operatörün sorduğu soru neredeyse her zaman sürüm
 	// değişimiyle ilgili (v0.8.405 kind ayrımı).
 	// v0.10.984 — source=v2 iken rollout_events (serviceRolloutsFor; işaretlerle aynı yol).
-	if rr, err := s.serviceRolloutsFor(ctx, service, from, to); err == nil && rr != nil {
+	if rr, err := s.explainRollouts(ctx, service, from, to); err == nil && rr != nil {
 		var pick *chstore.Rollout
 		for i := range rr.Rollouts {
 			ro := &rr.Rollouts[i]
@@ -124,7 +179,7 @@ func (s *Server) buildServiceChartsInput(
 	// Açık problemler — pencereye değil, "şu an açık" durumuna bakar
 	// (kapanmış bir problem grafikteki dalgayı açıklamaz ama açık olan
 	// operatörün bir sonraki adımıdır).
-	if probs, err := s.store.ListProblems(ctx, chstore.ProblemFilter{
+	if probs, err := rd.ListProblems(ctx, chstore.ProblemFilter{
 		Service: service, Status: "open", Limit: 5,
 	}); err == nil {
 		for _, p := range probs {
@@ -137,7 +192,7 @@ func (s *Server) buildServiceChartsInput(
 
 	// Anomaliler — pencerede BAŞLAYANLAR (FromNs/ToNs, v0.9.394 şeridiyle
 	// aynı sözleşme). Services STRICT IN: servissiz satır eşleşmez.
-	if evs, err := s.store.ListAnomalyEvents(ctx, chstore.ListAnomalyEventsFilter{
+	if evs, err := rd.ListAnomalyEvents(ctx, chstore.ListAnomalyEventsFilter{
 		Services: []string{service},
 		FromNs:   from.UnixNano(), ToNs: to.UnixNano(),
 		Limit: 5,
@@ -159,8 +214,23 @@ func (s *Server) buildServiceChartsInput(
 	// env "" — the /ai charts-explain subject carries no env (OUT of the
 	// env(a) scope, which is the rendered RED surfaces); op deltas stay
 	// service-wide for the narration.
-	if rows, err := s.store.GetOperationSummaryCompared(ctx, service, 0, from, to, false, ""); err == nil {
+	if rows, err := rd.GetOperationSummaryCompared(ctx, service, 0, from, to, false, ""); err == nil {
 		in.Signals.OpDeltas, in.Signals.OtherOps = selectOpDeltas(rows, 3)
 	}
 	return in
+}
+
+// explainRollouts — v0.10.1407: grafik kanıtının deploy/rollout okuması.
+// Üretimde serviceRolloutsFor (v0.10.984 v2 yolu dahil, işaretlerle aynı);
+// test dikişi rollout okuyucusu taşıyorsa ondan, taşımıyorsa yok.
+func (s *Server) explainRollouts(ctx context.Context, service string, from, to time.Time) (*chstore.RolloutsResult, error) {
+	if explainStoreSeam != nil {
+		if rr, ok := explainStoreSeam.(interface {
+			GetServiceRollouts(ctx context.Context, service string, from, to time.Time) (*chstore.RolloutsResult, error)
+		}); ok {
+			return rr.GetServiceRollouts(ctx, service, from, to)
+		}
+		return nil, nil
+	}
+	return s.serviceRolloutsFor(ctx, service, from, to)
 }

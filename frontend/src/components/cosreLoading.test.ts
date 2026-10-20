@@ -8,17 +8,13 @@ describe('CoSRE explain loading state (v0.10.152)', () => {
   // v0.10.1384 (operatör: "CoSRE düşünüyor derken ve explain trace'teki dönme
   // efektleri aynı değil") — dönen OTel halkası (LoaderMark) yerine sohbetle
   // AYNI AiThinking göstergesi, `block` varyantı; yerleşim pinleri aynen.
-  it('uses AiThinking (block) centered while waiting for the first token', () => {
-    const src = readFileSync(join(__dirname, 'CopilotExplain.tsx'), 'utf8').replace(/^\s*\/\/.*$/gm, '');
-    expect(src).toMatch(/auto && busy && text === null && \(/);
-    expect(src).toMatch(/<AiThinking variant="block"/);
+  // v0.10.1407 — ✨ kartı (CopilotExplain) özne kipiyle silindi; açıklama bir
+  // sohbet turu ve ilk token öncesi bekleyiş balonun ortalanmış AiThinking'i.
+  it('uses AiThinking centered while waiting for the first token (sohbet balonu)', () => {
+    const src = readFileSync(join(__dirname, 'ai/ChatBubble.tsx'), 'utf8').replace(/^\s*\/\/.*$/gm, '');
+    expect(src).toContain('const thinkingOnly = !isUser && turn.pending && !turn.text && !turn.error;');
+    expect(src).toContain('{thinkingOnly && <div className="cm-wait-center"><AiThinking variant="row" /></div>}');
     expect(src).not.toMatch(/<LoaderMark/);
-    expect(src).not.toMatch(/<Spinner label=\{includeCode/);
-    // v0.10.155 (operatör: "sayfanın ortasında değil") — çekmecede kök tam
-    // genişlik blok, yükleniyor bloğu tam genişlik + görünür alanın ortası.
-    expect(src).toMatch(/display: auto \? 'flex' : 'inline-flex'/);
-    expect(src).toMatch(/width: auto \? '100%' : undefined/);
-    expect(src).toMatch(/width: '100%', alignSelf: 'stretch', minHeight: 'min\(60vh, 420px\)'/);
   });
   it('PageLoader reuses LoaderMark (single mark, no drift)', () => {
     const src = readFileSync(join(__dirname, 'Spinner.tsx'), 'utf8').replace(/^\s*\/\/.*$/gm, '');

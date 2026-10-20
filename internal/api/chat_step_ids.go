@@ -194,6 +194,11 @@ func withBlockSeq(emit func(string, any), seq *blocks.Sequencer) func(string, an
 			emit("block", seq.Next(blocks.TypeTopology, payload))
 			return
 		}
+		// v0.10.1407 — açıklama turunun kanıt kartları (chat_explain_registry.go).
+		if (kind == blocks.TypeChartsSignals || kind == blocks.TypeLogSpike) && seq != nil {
+			emit("block", seq.Next(kind, payload))
+			return
+		}
 		// v0.10.1276 (CoSRE adım 7) — guided demetin bileşik araç bloğu
 		// (mcptools.ToolResultBlocks çıktısı: chart/table/trace_list; yük
 		// evidenceRef'iyle adım çipine bağlı). Serbest döngünün blok yoluyla AYNI

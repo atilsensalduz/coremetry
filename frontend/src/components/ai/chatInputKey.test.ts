@@ -41,7 +41,7 @@ describe('BAĞLANMA', () => {
     expect(c).toContain('<textarea');
     expect(c).toContain('chatInputSubmitKey(e)');
     expect(c).not.toMatch(/<textarea[\s\S]{0,600}disabled=/);
-    for (const f of ['../CopilotChat.tsx', './AIDrawerBody.tsx']) {
+    for (const f of ['../CopilotChat.tsx']) { // v0.10.1407 — AIDrawerBody silindi
       const s = src(f);
       expect(s, f).toContain('<ChatComposer');
       expect(s, f).not.toMatch(/<ChatComposer[\s\S]{0,400}disabled=\{busy\}/);

@@ -91,7 +91,8 @@ func TestLogSpikeRouteRegistered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(h), "s.copilotExplain(r, copilot.SystemPromptLogSpike()") || strings.Contains(string(h), "s.copilot.Explain(") {
+	// v0.10.1407 — istem çifti ortak kurucudan (buildLogSpikeExplain; sohbet turu da kullanır).
+	if !strings.Contains(string(h), "s.copilotExplain(r, b.System, b.User)") || !strings.Contains(string(h), "newExplainBuilt(copilot.SystemPromptLogSpike(), renderLogSpikeTR(res))") || strings.Contains(string(h), "s.copilot.Explain(") {
 		t.Fatal("yüzey s.copilotExplain üzerinden gitmeli (/ai atfı)")
 	}
 }

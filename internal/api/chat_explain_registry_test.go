@@ -103,6 +103,18 @@ func (xrStore) QuerySpanMetricMulti(context.Context, chstore.SpanMetricBatchFilt
 	s := []chstore.SpanMetricSeries{{GroupKey: []string{"GET /orders"}, Points: []chstore.SpanMetricPoint{{Value: 1}, {Value: 3}}}}
 	return map[string][]chstore.SpanMetricSeries{"rate": s, "error_rate": s, "p99": s}, 0, nil
 }
+func (xrStore) ListAnomalyEvents(context.Context, chstore.ListAnomalyEventsFilter) ([]chstore.AnomalyEvent, error) {
+	return []chstore.AnomalyEvent{{ID: xrAnomalyID, Kind: "log_pattern", Pattern: "connection reset", Service: "orders-api",
+		PeakRatio: 6.5, Status: "active", StartedAt: xrT0.UnixNano()}}, nil
+}
+func (xrStore) GetOperationSummaryCompared(context.Context, string, time.Duration, time.Time, time.Time, bool, string) ([]chstore.OperationSummary, error) {
+	return []chstore.OperationSummary{{Name: "GET /orders", SpanCount: 400, P95Ms: 2400, ErrorRate: 4,
+		HasPrior: true, PriorP95Ms: 600, PriorErrorRate: 0.5}}, nil
+}
+func (xrStore) GetServiceRollouts(context.Context, string, time.Time, time.Time) (*chstore.RolloutsResult, error) {
+	return &chstore.RolloutsResult{Rollouts: []chstore.Rollout{{TimeUnixNs: xrT0.Add(-20 * time.Minute).UnixNano(), Kind: "deploy",
+		VersionBefore: "1.4.1", VersionAfter: "1.4.2", PodsRemoved: 3}}}, nil
+}
 func (xrStore) FindSimilarResolvedProblems(context.Context, string, string, int) ([]chstore.Problem, error) {
 	at := xrT0.Add(-48 * time.Hour)
 	res := at.Add(12 * time.Minute).UnixNano()
@@ -211,6 +223,7 @@ func TestExplainRegistryKindsRegistered(t *testing.T) {
 		"span": "explain-span", "problem": "explain-problem", "incident": "explain-incident", "anomaly": "explain-anomaly",
 		"service-health": "explain-service", "runbook": "runbook", "log": "explain-log",
 		"trace": "explain-trace", "exception": "explain-exception",
+		"charts": "explain-charts", "log-spike": "explain-log-spike", // v0.10.1407
 	}
 	for _, kind := range explainTurnKinds {
 		k, ok := explainKindFor(kind)
@@ -231,9 +244,10 @@ func TestExplainRegistryKindsRegistered(t *testing.T) {
 			t.Errorf("%s: evalset ailesi %q, HTTP %q", kind, got, want)
 		}
 	}
-	for _, bad := range []string{"charts", "log-spike", "endpoint", ""} {
+	// v0.10.1407 — charts / log-spike kayıtta; endpoint hâlâ değil (ayrı açıklama yüzeyi yok).
+	for _, bad := range []string{"endpoint", ""} {
 		if _, ok := explainKindFor(bad); ok {
-			t.Errorf("%q bu sürümde kayıtta olmamalı", bad)
+			t.Errorf("%q kayıtta olmamalı", bad)
 		}
 	}
 }
@@ -388,7 +402,7 @@ func TestNormalizeExplainAskRegistryKinds(t *testing.T) {
 		{"service-health tür uyuşmaz", chatExplainAsk{Kind: "service-health", Subject: "charts:orders-api:1000:2000:all"}, chatExplainAsk{}, false},
 		{"kodek çok uzun", chatExplainAsk{Kind: "service-health", Subject: "service-health:" + strings.Repeat("a", chatExplainSubjectMax) + ":1:2"}, chatExplainAsk{}, false},
 		{"servis adında kontrol karakteri", chatExplainAsk{Kind: "service-health", Subject: "service-health:a%0Ab:1000:2000"}, chatExplainAsk{}, false},
-		{"charts kayıt dışı", chatExplainAsk{Kind: "charts", ID: "orders-api", Subject: "charts:orders-api:1000:2000:all"}, chatExplainAsk{}, false},
+		{"charts (v0.10.1407)", chatExplainAsk{Kind: "charts", ID: "orders-api", Subject: "charts:orders-api:1000:2000:all"}, chatExplainAsk{Kind: "charts", ID: "orders-api", Subject: "charts:orders-api:1000:2000:all"}, true},
 		{"endpoint kayıt dışı", chatExplainAsk{Kind: "endpoint", Subject: "endpoint:orders-api:%2Fcart:1000:2000"}, chatExplainAsk{}, false},
 	} {
 		got, ok := normalizeExplainAsk(&c.in)

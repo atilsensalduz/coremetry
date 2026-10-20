@@ -4,7 +4,6 @@ import { tsShort } from '@/lib/utils';
 import type { ChatTraceListPayload } from '@/lib/types';
 import { chatLinkTargetProps, useChatLinkNewTab } from './chatLinkTarget'; // v0.10.1125 — /cosre yeni sekme
 import { RowExplainCell, RowExplainHead } from './RowExplainCell'; // v0.10.1291 — satır ✨ trace
-import { useRowExplain } from './rowExplain';
 
 // ChatTraceList — v0.10.688 (endpoint_traces.go trace_list bloğu; D6 "trace
 // listesi cevabı"): LLM anlatımı yok, deterministik tablo. Satır = trace
@@ -15,7 +14,7 @@ export function ChatTraceList({ tl }: { tl: ChatTraceListPayload }) {
   const linkProps = chatLinkTargetProps(useChatLinkNewTab());
   // v0.10.1291 — satır ✨ trace (mevcut `trace` explain'i); AI çekmecesinin
   // açıklama kipinde gizli.
-  const rowAi = useRowExplain(tl.traces.length > 0);
+  const rowAi = tl.traces.length > 0; // v0.10.1407 — sohbet içinde de (tık sohbete tur gönderir)
   if (tl.traces.length === 0) return null;
   return (
     <div className="cm-trace-list">

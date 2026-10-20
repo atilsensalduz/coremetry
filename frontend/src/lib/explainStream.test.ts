@@ -3,9 +3,13 @@ import { api } from './api';
 
 // v0.9.1127 (AI Faz 1.5) — akan ✨ Explain'in İSTEMCİ sözleşmesi.
 //
-// Bu dosya `api.copilotExplain*` uçlarını GERÇEK çağrı yolundan test
-// ediyor (fetch mock'lu), iç yardımcıyı değil: sözleşmenin kendisi
-// "onDelta verirsen akar, vermezsen bugünkü gövdeyi alırsın".
+// Bu dosya akan ✨ uçlarını GERÇEK çağrı yolundan test ediyor (fetch
+// mock'lu), iç yardımcıyı değil: sözleşmenin kendisi "onDelta verirsen
+// akar, vermezsen bugünkü gövdeyi alırsın".
+//
+// v0.10.1407 — copilotExplain* istemci yöntemleri özne kipiyle silindi (her ✨
+// sohbet turu); explainCall/explainStream'in kalan çağıranı runbook güncelleme
+// önerisi (Runbook.tsx) — sözleşme onun üstünden pinli.
 //
 // Üç geri düşüş yolu da burada pinli, çünkü üçü de SESSİZ olmak zorunda:
 // operatör cevabını alır, taşımanın hangi yoldan geldiğini bilmez.
@@ -51,7 +55,7 @@ describe('akan ✨ Explain — SSE yolu', () => {
       'event: done\ndata: {"ok":true}\n\n',
     ));
     const seen: string[] = [];
-    const r = await api.copilotExplainProblem('p1', { onDelta: d => seen.push(d) });
+    const r = await api.runbookUpdateSuggestion('e1', { onDelta: d => seen.push(d) });
 
     expect(seen).toEqual(['Kök ', 'neden: ', 'redis.']);
     expect(r.explanation).toBe('Kök neden: redis.');
@@ -67,7 +71,7 @@ describe('akan ✨ Explain — SSE yolu', () => {
       'event: answer\ndata: {"text":"tam ve nihai cevap"}\n\n' +
       'event: done\ndata: {"ok":true}\n\n',
     ));
-    const r = await api.copilotExplainProblem('p1', { onDelta: () => {} });
+    const r = await api.runbookUpdateSuggestion('e1', { onDelta: () => {} });
     expect(r.explanation).toBe('tam ve nihai cevap');
   });
 
@@ -76,24 +80,25 @@ describe('akan ✨ Explain — SSE yolu', () => {
       'event: answer\ndata: {"text":"t","exchangeId":"x1","evidenceSpanIds":["s1","s2"]}\n\n' +
       'event: done\ndata: {"ok":true}\n\n',
     ));
-    const r = await api.copilotExplainTrace('t1', false, { onDelta: () => {} });
-    expect(r.evidenceSpanIds).toEqual(['s1', 's2']);
+    const r = await api.runbookUpdateSuggestion('e1', { onDelta: () => {} });
+    expect((r as unknown as { evidenceSpanIds?: string[] }).evidenceSpanIds).toEqual(['s1', 's2']);
     expect(r.exchangeId).toBe('x1');
   });
 
-  it('runbook similarCount akan kipte de gelir', async () => {
+  it('runbookId / problemId akan kipte de gelir', async () => {
     mockFetch(() => sseResponse(
-      'event: answer\ndata: {"text":"adımlar","exchangeId":"x2","similarCount":4}\n\n' +
+      'event: answer\ndata: {"text":"adımlar","exchangeId":"x2","runbookId":"rb-1","problemId":"p-1"}\n\n' +
       'event: done\ndata: {"ok":true}\n\n',
     ));
-    const r = await api.copilotRunbook('p1', { onDelta: () => {} });
-    expect(r.similarCount).toBe(4);
+    const r = await api.runbookUpdateSuggestion('e1', { onDelta: () => {} });
+    expect(r.runbookId).toBe('rb-1');
+    expect(r.problemId).toBe('p-1');
   });
 
-  it('sorgu taşıyan path stream=1 bayrağını & ile ekler', async () => {
+  it('sorgu taşıyan path stream=1 bayrağını & ile ekler (fresh → refresh=1)', async () => {
     mockFetch(() => sseResponse('event: answer\ndata: {"text":"x"}\n\nevent: done\ndata: {"ok":true}\n\n'));
-    await api.copilotExplainSpan('trace1', 'span1', { onDelta: () => {} });
-    expect(calls[0].url).toContain('?span=span1&stream=1');
+    await api.runbookUpdateSuggestion('e1', { onDelta: () => {}, fresh: true });
+    expect(calls[0].url).toContain('?refresh=1&stream=1');
   });
 });
 
@@ -103,7 +108,7 @@ describe('akan ✨ Explain — sessiz geri düşüşler', () => {
     // buffered çağrıya düşer ve tam gövdeyi yollar.
     mockFetch(() => jsonResponse({ explanation: 'buffered cevap', exchangeId: 'x3' }));
     const seen: string[] = [];
-    const r = await api.copilotExplainProblem('p1', { onDelta: d => seen.push(d) });
+    const r = await api.runbookUpdateSuggestion('e1', { onDelta: d => seen.push(d) });
 
     expect(r.explanation).toBe('buffered cevap');
     expect(r.exchangeId).toBe('x3');
@@ -116,14 +121,14 @@ describe('akan ✨ Explain — sessiz geri düşüşler', () => {
       'event: done\ndata: {"ok":false}\n\n',
     ));
     const seen: string[] = [];
-    const r = await api.copilotExplainProblem('p1', { onDelta: d => seen.push(d) });
+    const r = await api.runbookUpdateSuggestion('e1', { onDelta: d => seen.push(d) });
     expect(r.explanation).toBe('tek parça');
     expect(seen).toEqual([]);
   });
 
   it('onDelta VERİLMEZSE akan yola hiç girilmez (bayt bayt eski davranış)', async () => {
     mockFetch(() => jsonResponse({ explanation: 'eski yol', exchangeId: 'x5' }));
-    const r = await api.copilotExplainProblem('p1');
+    const r = await api.runbookUpdateSuggestion('e1');
     expect(r.explanation).toBe('eski yol');
     expect(calls[0].url).not.toContain('stream=1');
   });
@@ -136,7 +141,7 @@ describe('akan ✨ Explain — hata ve iptal', () => {
       'event: error\ndata: {"error":"model kotası doldu"}\n\n' +
       'event: done\ndata: {"ok":false}\n\n',
     ));
-    await expect(api.copilotExplainProblem('p1', { onDelta: () => {} }))
+    await expect(api.runbookUpdateSuggestion('e1', { onDelta: () => {} }))
       .rejects.toThrow('model kotası doldu');
   });
 
@@ -144,26 +149,26 @@ describe('akan ✨ Explain — hata ve iptal', () => {
     // Boş panel, hata mesajı olmadan: v0.9.1127 öncesi bu sınıfın en
     // sinsi hâli. Akış cevapsız kapanırsa çağıran bunu bilmeli.
     mockFetch(() => sseResponse('event: delta\ndata: {"text":"yarı"}\n\n'));
-    await expect(api.copilotExplainProblem('p1', { onDelta: () => {} })).rejects.toThrow();
+    await expect(api.runbookUpdateSuggestion('e1', { onDelta: () => {} })).rejects.toThrow();
   });
 
   it('HTTP hatası akan kipte de Error (SSE içine gizlenmez)', async () => {
     mockFetch(() => jsonResponse({ error: 'yapılandırılmamış' }, 503));
-    await expect(api.copilotExplainProblem('p1', { onDelta: () => {} })).rejects.toThrow(/503/);
+    await expect(api.runbookUpdateSuggestion('e1', { onDelta: () => {} })).rejects.toThrow(/503/);
   });
 
   it('iptal edilen signal isteği başlatmaz', async () => {
     mockFetch(() => sseResponse('event: answer\ndata: {"text":"x"}\n\n'));
     const ac = new AbortController();
     ac.abort();
-    await expect(api.copilotExplainProblem('p1', { onDelta: () => {}, signal: ac.signal }))
+    await expect(api.runbookUpdateSuggestion('e1', { onDelta: () => {}, signal: ac.signal }))
       .rejects.toThrow();
   });
 
   it('signal fetch\'e GEÇER — aksi halde "Yeniden sor" eskisini kesemez', async () => {
     mockFetch(() => sseResponse('event: answer\ndata: {"text":"x"}\n\nevent: done\ndata: {"ok":true}\n\n'));
     const ac = new AbortController();
-    await api.copilotExplainProblem('p1', { onDelta: () => {}, signal: ac.signal });
+    await api.runbookUpdateSuggestion('e1', { onDelta: () => {}, signal: ac.signal });
     expect(calls[0].init.signal).toBe(ac.signal);
   });
 });

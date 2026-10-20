@@ -1,13 +1,16 @@
 // @vitest-environment jsdom
 //
 // v0.10.1330 — stacktrace'siz trace'te "Kod incelemesi" ana operasyonun
-// koduna düşer; durum satırı (codeStatusLine) iki CopilotExplain kartında aynı.
+// koduna düşer; durum satırı (codeStatusLine) tek bileşenden.
+// v0.10.1407 — ✨ kartı (CopilotExplain) özne kipiyle silindi; satırı artık
+// yalnız sohbetin kod turu (ChatBubble, v0.10.1406) çizer — render testleri
+// bileşenin kendisini mount eder.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
-import { CopilotExplain } from './CopilotExplain';
+import { CodeStatusNote } from './CodeStatusNote';
 import { __resetCopilotEnabledCache } from './ai/useCopilotEnabled';
 import { api } from '@/lib/api';
 import type { AICodeContext } from '@/lib/types';
@@ -75,9 +78,9 @@ describe('codeStatusLine', () => {
     expect(codeStatusLine({ files: [], source: 'operation', operationLookup: 'none', reason: 'bu kayıtta stacktrace yok; trace\'in operasyon adı bulunamadı' }))
       .toEqual({ kind: 'missing', detail: 'bu kayıtta stacktrace yok; trace\'in operasyon adı bulunamadı' });
   });
-  it('iki CopilotExplain kartı da aynı bileşenden çizer', () => {
-    const src = readFileSync(resolve(__dirname, 'CopilotExplain.tsx'), 'utf8');
-    expect(src.match(/<CodeStatusNote code=\{(code|codeCtx)\} \/>/g)?.length).toBe(2);
+  it('v0.10.1407 — sohbetin kod turu aynı bileşenden çizer (✨ kartı silindi)', () => {
+    const src = readFileSync(resolve(__dirname, 'ai/ChatBubble.tsx'), 'utf8');
+    expect(src).toContain('<CodeStatusNote code={ex.code} />');
     expect(src).not.toContain('Kod okunamadı — <strong>');
   });
 });
@@ -110,12 +113,11 @@ afterEach(() => {
 });
 
 async function mountTrace(code: AICodeContext) {
-  vi.spyOn(api, 'copilotExplainTrace').mockResolvedValue({ explanation: 'öneri: dönüş kodu eşlemesi', exchangeId: 'x1', code });
-  await act(async () => { root.render(<CopilotExplain kind="trace" id="t1" auto />); });
+  await act(async () => { root.render(<CodeStatusNote code={code} />); });
   await settle();
 }
 
-describe('CopilotExplain — operasyon kodu durum satırı (v0.10.1330)', () => {
+describe('CodeStatusNote — operasyon kodu durum satırı (v0.10.1330)', () => {
   it('başarı: dosya linki + operasyon + okunmayanlar, "Kod okunamadı" YOK', async () => {
     await mountTrace(opOK);
     const t = host.textContent ?? '';

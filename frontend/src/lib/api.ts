@@ -43,7 +43,6 @@ OracleLogsResponse,
   InsightKind, InsightResponse, InsightSignal, InsightLink, InsightChartSpec,
   AnomalySensitivityConfig, TailPoint , MetricCompareReport , LogPatternsResult, LogTemplate, TraceFacet, TraceFacetsResponse, DBSlowQueryConfig, StatementSearchRow,
   CopilotStartersResponse,
-  ExplainTraceAnswer,
 } from './types';
 import { encodeMetricQuery, type MetricQuery } from './metricQuery';
 // withMetricSource — v0.9.1151 deneme modu. Sayfa URL'sindeki
@@ -61,7 +60,7 @@ import { readSSE } from './sse';
 // which has no day unit; see the type's comment in utils.ts.
 import type { GoDuration } from './utils';
 import { decodeBundle, SERIES_ENC, type CompactSeries } from './seriesCompact';
-import { browserTz, tzBodyFields, withTzQuery } from './browserTz'; // v0.10.745 — kanıt damgaları operatör diliminde
+import { browserTz, withTzQuery } from './browserTz'; // v0.10.745 — kanıt damgaları operatör diliminde
 
 // Empty base = same origin (works in production where Go serves both UI and API).
 // In dev, Next.js rewrites /api/* to http://localhost:8088 (see next.config.mjs).
@@ -88,22 +87,6 @@ export function setUnauthorizedHandler(fn: (() => void) | null) {
 // a stuck page. Callers that need longer can pass their own
 // signal via init.
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
-
-// explainInit (v0.9.831) — Explain uçlarının istek gövdesi.
-//
-// v0.10.745 — gövde ARTIK HER ZAMAN gider: tarayıcının saat dilimi
-// (tz + tzOffsetMin, sohbet bağlamıyla aynı çift) olmadan sunucu kanıt
-// damgalarını UTC yazıyor, model onu yerel saat sanıp aktarıyordu
-// (operatör: "tepe 22:30" dedi, ekran 01:30). includeCode yalnız
-// operatör isteyince true: kod okuma bir depo listelemesi + dosya
-// çekmesi demek, varsayılan KAPALI olması bilinçli.
-function explainInit(includeCode?: boolean): RequestInit {
-  return {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...(includeCode ? { includeCode: true } : {}), ...tzBodyFields() }),
-  };
-}
 
 /** Akan ✨ Explain'in çağıran tarafındaki isteğe bağlı kancaları. */
 export interface ExplainStreamOpts {
@@ -2627,73 +2610,19 @@ export const api = {
       { method: 'POST', signal }, // v0.10.537 — iptal (AIAnalysisPanel)
     ),
 
-  // v0.9.831 — includeCode: opsiyonel gövde. Verilmediğinde istek
-  // GÖVDESİZ gider, yani bugünkü davranış bayt-bayt korunur.
-  //
-  // v0.9.1119 (Faz 0.3) — `exchangeId`: tek-atış cevabın ai_calls
-  // kimliği. omitempty. Aynı alan aşağıdaki BÜTÜN prose explain uçlarında
-  // var — explain-charts HARİÇ (yanıtı sunucu-cache'li). v0.10.1393: FE
-  // 👍/👎 rayı kalktı; alan /ai atfı için sunucuda kalır.
-  //
-  // v0.9.1127 (Faz 1.5) — sekizi de opsiyonel `opts.onDelta` alıyor:
-  // verilince istek `?stream=1` ile gider ve cevap token token akar.
-  // VERİLMEYİNCE gövde de davranış da bayt bayt eskisi — akan kip bir
-  // TALEP, sözleşme değişikliği değil.
-  // v0.10.1065 — v0.10.948 incelemesinin `sources`u, adım olayları (`opts.onStep`)
-  // ve `spanId` odağı (`?span=`) erişilemeyen hatla birlikte kalktı.
-  copilotExplainTrace:   (id: string, includeCode?: boolean, opts?: ExplainStreamOpts) =>
-    explainCall<ExplainTraceAnswer>(
-      `/api/copilot/explain-trace/${id}`, explainInit(includeCode), opts),
-  // Per-span explain (v0.5.144). Backend pulls target span +
-  // parent + children + error siblings for a focused prompt.
-  copilotExplainSpan:    (traceId: string, spanId: string, opts?: ExplainStreamOpts) =>
-    explainCall<import('./types').ExplainAnswerBase>(
-      `/api/copilot/explain-span/${encodeURIComponent(traceId)}?span=${encodeURIComponent(spanId)}`,
-      { method: 'POST' }, opts),
-  copilotExplainProblem: (id: string, opts?: ExplainStreamOpts) =>
-    explainCall<import('./types').ExplainAnswerBase>(
-      `/api/copilot/explain-problem/${id}`, { method: 'POST' }, opts),
-  // v0.9.414 — exception grubu kök-sebep: backend örnek trace + trace
-  // loglarını + deploy penceresini otomatik toplar; kanıt trace/span
-  // id'leri deterministik döner (UI örnek satırlarını kutular).
-  copilotExplainException: (fingerprint: string, includeCode?: boolean, opts?: ExplainStreamOpts) =>
-    explainCall<import('./types').ExplainAnswerBase & { evidenceTraceIds?: string[]; evidenceSpanIds?: string[];
-                  code?: import('./types').AICodeContext }>(
-      `/api/copilot/explain-exception/${encodeURIComponent(fingerprint)}`, explainInit(includeCode), opts),
-  copilotExplainIncident: (id: string, opts?: ExplainStreamOpts) =>
-    explainCall<import('./types').ExplainAnswerBase>(
-      `/api/copilot/explain-incident/${id}`, { method: 'POST' }, opts),
+  // v0.10.1407 (Tek CoSRE adım 4) — ✨ Explain uçlarının istemci yöntemleri
+  // (copilotExplainTrace/Span/Problem/Exception/Incident/Anomaly/Log/
+  // ServiceHealth/Charts/LogSpike, copilotRunbook) SİLİNDİ: son çağıranları
+  // (CopilotExplain, ServiceChartsExplainBody, LogSpikeExplainBody) çekmecenin
+  // özne kipiyle gitti; her ✨ artık CoSRE sohbetinin bir turu (copilotChat +
+  // context.explainAsk). HTTP uçları sunucuda kalır (ortak kurucular, evalset,
+  // make audit yüzeyi).
   // v0.9.1197 (Faz 5.4) — incident kanıtından postmortem taslağı; taslak
   // editöre düşer, kaydeden yine updateIncident. Bilinçli buffered (akış
   // textarea imlecini bozar — copilot_explain_stream_test.go gerekçesi).
   draftPostmortem: (id: string) =>
     request<{ draft: string; exchangeId?: string }>(
       `/api/copilot/draft-postmortem/${encodeURIComponent(id)}`, { method: 'POST' }),
-  copilotExplainAnomaly: (id: string, opts?: ExplainStreamOpts) =>
-    explainCall<import('./types').ExplainAnswerBase>(
-      `/api/copilot/explain-anomaly/${id}`, { method: 'POST' }, opts),
-  // v0.10.1291 — tek log satırı ✨: sunucu satırı logstore üzerinden (ES ya da
-  // CH) YENİDEN okur; tsNs ondalık METİN (2^53 sınırı). Akan gövde (deliverExplain).
-  copilotExplainLog: (line: { tsNs: string; service: string; pod: string; traceId: string; hash: string }, opts?: ExplainStreamOpts) =>
-    explainCall<import('./types').ExplainAnswerBase>(
-      '/api/copilot/explain-log',
-      { method: 'POST', body: JSON.stringify(line), headers: { 'Content-Type': 'application/json' } }, opts),
-  copilotExplainServiceHealth: (service: string, fromNs: number, toNs: number, opts?: ExplainStreamOpts) =>
-    explainCall<import('./types').ExplainAnswerBase>(
-      `/api/copilot/explain-service?service=${encodeURIComponent(service)}&from=${fromNs}&to=${toNs}`,
-      { method: 'POST' }, opts),
-  // v0.9.1031 — ServiceCharts AI çekmecesi (onaylı mockup). Anlatımın
-  // YANINDA yapısal sinyaller döner: tablo model metnine bağlı değil,
-  // model kotayı doldursa/saçmalasa bile kanıt DOĞRU kalır.
-  // v0.10.1284 (AI SRE Faz 1a) — Logs histogramının ✨ "artışı açıkla" çekmecesi.
-  copilotExplainLogSpike: (body: import('./types').LogSpikeExplainRequest) =>
-    request<import('./types').LogSpikeExplain>('/api/copilot/explain-log-spike',
-      { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } }),
-  copilotExplainCharts: (service: string, fromNs: number, toNs: number, scope: string) =>
-    request<import('./types').ServiceChartsExplain>(
-      `/api/copilot/explain-charts?service=${encodeURIComponent(service)}`
-      + `&from=${fromNs}&to=${toNs}&scope=${encodeURIComponent(scope)}`,
-      { method: 'POST' }),
   // v0.9.1130 (AI Faz 2.2) — gömülü insight kartı.
   //
   // GET, POST DEĞİL: uç yalnız OKUYOR (deterministik projeksiyon +
@@ -2729,9 +2658,6 @@ export const api = {
     }
     return insightStream(path, opts);
   },
-  copilotRunbook: (id: string, opts?: ExplainStreamOpts) =>
-    explainCall<import('./types').ExplainAnswerBase & { similarCount: number }>(
-      `/api/copilot/runbook/${id}`, { method: 'POST' }, opts),
   // v0.9.1198 (Faz 5.5) — probleme bağlı koşudan runbook güncelleme
   // önerisi; id = execution. Öneri saklanmaz, uygulamak operatörün
   // runbook düzenlemesi.

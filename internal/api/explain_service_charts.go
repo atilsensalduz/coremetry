@@ -407,6 +407,11 @@ type ChartsExplainResult struct {
 	// Error — ANLATIM üretilemedi (kota/timeout/sağlayıcı hatası). Kanıt
 	// yine döner; alan boşsa anlatım sağlıklıdır.
 	Error string `json:"error,omitempty"`
+	// v0.10.1407 — explain önbelleği (sohbet turuyla tek satır): cevabı üreten
+	// çağrının exchange kimliği; isabette saklanan kimlik + cached/cachedAtMs.
+	ExchangeID string `json:"exchangeId,omitempty"`
+	Cached     bool   `json:"cached,omitempty"`
+	CachedAtMs int64  `json:"cachedAtMs,omitempty"`
 }
 
 // buildChartsResult — anlatım sonucu + ölçülmüş kanıt → yanıt.

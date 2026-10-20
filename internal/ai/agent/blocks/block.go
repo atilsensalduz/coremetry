@@ -30,6 +30,14 @@ const (
 	// TypeTopology — v0.10.1388: CoSRE servis topolojisi / örnek trace
 	// topolojisi grafiği (api/copilot_service_topology.go; FE ChatTopologyCard).
 	TypeTopology = "topology"
+	// TypeChartsSignals — v0.10.1407 (Tek CoSRE adım 4): Service → Details
+	// grafik açıklamasının ölçülmüş sinyalleri (deploy/problem/anomali/op-delta)
+	// + pencere/kapsam (api/copilot_service_charts.go; FE ChartsSignalsCard).
+	TypeChartsSignals = "charts_signals"
+	// TypeLogSpike — v0.10.1407: log artışı açıklamasının deterministik kanıtı
+	// (mcptools.LogSpikeResult + kapsam; api/copilot_explain_log_spike.go;
+	// FE LogSpikeCard).
+	TypeLogSpike = "log_spike"
 )
 
 // Sequencer — bir turn içinde blok kimliği/sırası. SAF: emit'e verilecek

@@ -242,9 +242,8 @@ export function AnomalyEventDetail({ event, isAdmin, onBack }: {
           <Sect title="Kök neden">
             {/* KAPALI şerit (operatör: "çok detay verince daha anlaşılır
                 olmuyor"): çip sıfır istek; tık tam kök-neden dökümünü O ZAMAN
-                çeker. AI açıklaması sağ AI çekmecesine açılır (?ai=anomaly:<id>);
-                satır-içi CopilotExplain yalnız /anomalies çekmecesinde kalır
-                (çekmece üstüne çekmece açılmasın, v0.9.477). */}
+                çeker. AI açıklaması CoSRE sohbetinin bir turu (?ai=anomaly:<id>;
+                v0.10.1407 — /anomalies çekmecesindeki satır-içi istisna da kalktı). */}
             <RootCauseRibbon anchor="anomaly" id={event.id} summary={event.rootCause}
               window={win}
               trailing={(

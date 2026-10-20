@@ -54,8 +54,8 @@ import (
 // (span / service-health / log) ZORUNLU, basit türlerde isteğe bağlı (verilirse
 // tür + kimlik eşleşmeli).
 type chatExplainAsk struct {
-	Kind    string `json:"kind"`              // trace | exception | span | problem | incident | anomaly | service-health | runbook | log
-	ID      string `json:"id"`                // trace id (32-hex) | grup parmak izi | problem/olay/anomali kimliği | servis
+	Kind    string `json:"kind"`              // trace | exception | span | problem | incident | anomaly | service-health | runbook | log | charts | log-spike
+	ID      string `json:"id"`                // trace id (32-hex) | grup parmak izi | problem/olay/anomali kimliği | servis ("" = log-spike filo geneli)
 	Subject string `json:"subject,omitempty"` // v0.10.1405 — kanonik `?ai=` kodeği
 	Src     string `json:"src,omitempty"`     // button | nudge | deeplink | chip | starter (ölçüm; karar değil)
 	// Code — v0.10.1406 (Tek CoSRE adım 3): "Kodu da incele" — ✨ düğmesinin kod
@@ -92,6 +92,9 @@ type chatExplainMeta struct {
 	Subject string `json:"subject,omitempty"`
 	Surface string `json:"surface,omitempty"`
 	// Renderer — v0.10.1405: çizim kipi ("body" = ExplainBody; boş = body).
+	// v0.10.1407 — "charts" / "log-spike": istemci cevabın kanıt bloğundan
+	// (charts_signals / log_spike) kart çizer; blok yoksa (arşivden geri
+	// yüklenen tur — bloklar arşive girmez) ExplainBody'ye düşer.
 	Renderer string `json:"renderer,omitempty"`
 	Label    string `json:"label,omitempty"` // exception: grup kodu / tipi; runbook: "RUNBOOK"; diğerleri: öznenin adı
 	// Note — v0.10.1405: künye satırı (runbook: "Based on N past resolved…").
@@ -112,6 +115,9 @@ type chatExplainMeta struct {
 // (küçük harfe indirilir); exception parmak izi 1..200 rune, yalnız
 // [A-Za-z0-9:._-] (ora: önekli Oracle grupları dahil). ok=false → kademe
 // düşer ve kullanıcı metni olağan yoldan cevaplanır.
+//
+// v0.10.1407 — charts / log-spike da kodek ister (log-spike'ta boş kimlik =
+// filo geneli, meşru).
 //
 // v0.10.1405 — kayıttaki türler: problem / incident / anomaly / runbook
 // kimliği parmak izi biçiminde (subject verilirse tür + kimlik eşleşmeli,
@@ -149,16 +155,19 @@ func normalizeExplainAsk(a *chatExplainAsk) (chatExplainAsk, bool) {
 				return chatExplainAsk{}, false
 			}
 		}
-	case explainAskSpan, explainAskServiceHealth, explainAskLog:
+	case explainAskSpan, explainAskServiceHealth, explainAskLog, explainAskCharts, explainAskLogSpike:
 		subj, ok := parseAiSubject(rawSubj)
 		if !ok || subj.Kind != kind || (id != "" && id != subj.ID) {
 			return chatExplainAsk{}, false
 		}
-		if kind == explainAskSpan {
+		switch {
+		case kind == explainAskSpan:
 			if !explainFingerprintOK(subj.ID) || !explainFingerprintOK(subj.SpanID) {
 				return chatExplainAsk{}, false
 			}
-		} else if !explainNameOK(subj.ID) {
+		case kind == explainAskLogSpike && subj.ID == "":
+			// v0.10.1407 — filo geneli log artışı (`log-spike:*:…`): kimlik boş meşru.
+		case !explainNameOK(subj.ID):
 			return chatExplainAsk{}, false
 		}
 		return chatExplainAsk{Kind: kind, ID: subj.ID, Subject: formatAiSubject(subj), Src: src, Fresh: a.Fresh}, true
