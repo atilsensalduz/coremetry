@@ -383,6 +383,13 @@ type RolloutRow struct {
 	// beri açık ∩ rollout'un servisleri (api/rollout_problems.go); liste
 	// yükleyicisi doldurur, store yazmaz.
 	ProblemsCaused int `json:"problemsCaused,omitempty"`
+	// Service / Services — v0.10.1420 (operatör: "Deployment Workload basınca
+	// service'e girsin"): iş yükünün span'lerde görülen servisleri
+	// (workload_revision_activity_1m, iş yükü düzeyi) ve Workload hücresinin
+	// birincil tıkının açacağı servis (deterministik seçim). Liste yükleyicisi
+	// doldurur (api/rollout_row_services.go); boşsa JSON'a anahtar GİRMEZ.
+	Service  string   `json:"-"`
+	Services []string `json:"-"`
 	// V2 — v0.10.984 (Rollouts v2 P2.3): satır rollout_events'ten geldiyse
 	// v2'ye özgü alanlar (rollout_v2_read.go RolloutRowFromV2). nil = v1
 	// satırı → JSON'a HİÇBİR ek anahtar girmez (v1 cevabı bayt bayt aynı).
@@ -405,6 +412,12 @@ func (r RolloutRow) MarshalJSON() ([]byte, error) {
 		"podsReadyAt": ms(r.PodsReadyAt), "ksmNotReadySince": ms(r.KSMNotReadySince), "completedAt": ms(r.CompletedAt),
 		"detectedBy": r.DetectedBy, "spanCount": r.SpanCount, "note": r.Note, "updatedAt": ms(r.UpdatedAt),
 		"problemsCaused": r.ProblemsCaused,
+	}
+	if r.Service != "" {
+		m["service"] = r.Service
+	}
+	if len(r.Services) > 0 {
+		m["services"] = r.Services
 	}
 	if r.V2 != nil {
 		for k, v := range r.V2.jsonFields(ms) {
@@ -567,9 +580,10 @@ type RolloutDayCount struct {
 
 // v0.10.1262 — imza RolloutFilter alır (yalnız ClusterID / Namespace /
 // ExcludeNamespaces okunur) ki platform dışlaması Toplu sekmesine de insin.
+// v0.10.1420 — + Workload (Toplu sekmesi de Workload seçicisiyle daralır).
 func (s *Store) RolloutStats(ctx context.Context, f RolloutFilter, from, to time.Time, topN int) (*RolloutStats, error) {
 	topN = clampRolloutLimit(topN, 10, 50)
-	where, args := rolloutWhere(RolloutFilter{ClusterID: f.ClusterID, Namespace: f.Namespace, ExcludeNamespaces: f.ExcludeNamespaces}, from, to)
+	where, args := rolloutWhere(RolloutFilter{ClusterID: f.ClusterID, Namespace: f.Namespace, Workload: f.Workload, ExcludeNamespaces: f.ExcludeNamespaces}, from, to)
 	st := &RolloutStats{From: from.UnixMilli(), To: to.UnixMilli(), TopRollback: []RolloutWorkloadN{}, TopDeploy: []RolloutWorkloadN{}, ByDay: []RolloutDayCount{}}
 	// 1) toplamlar + süre (completed_at − started_at, tamamlananlar)
 	var total, completed, rolled, inprog, stalled, superseded uint64

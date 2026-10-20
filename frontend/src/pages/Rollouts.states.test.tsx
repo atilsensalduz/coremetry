@@ -265,7 +265,8 @@ describe('Rollouts — workload hücresi servis hapı (v0.10.1328)', () => {
     expect(a.getAttribute('href')).toBeTruthy();
     expect(a.getAttribute('style')).toBe(refStyle('checkout'));
     expect(a.style.color).not.toBe('');
-    expect(a.title).toBe('prod-east / shop / checkout');
+    // v0.10.1420 — title bağlamla başlar, ardından hedefi söyler (servis / entity yedeği).
+    expect(a.title.split('\n')[0]).toBe('prod-east / shop / checkout');
     expect(a.closest('td')!.title).toBe('prod-east / shop / checkout');
   });
 
@@ -280,7 +281,8 @@ describe('Rollouts — workload hücresi servis hapı (v0.10.1328)', () => {
   it('kaynak: workload / çekmece servis adı artık a.sec değil', () => {
     const src = readFileSync(resolve(__dirname, './Rollouts.tsx'), 'utf8');
     expect(src).not.toContain('className="sec">{r.workload}');
-    expect(src).toContain('<SvcBadge name={r.workload} to={wlHref}');
+    // v0.10.1420 — birincil tık satırın servisi; eşleşme yoksa entity (wlHref).
+    expect(src).toContain('<SvcBadge name={r.workload} to={r.service ? serviceHref(r.service, { range }) : wlHref}');
     const drawer = readFileSync(resolve(__dirname, '../components/RolloutDrawer.tsx'), 'utf8');
     expect(drawer).not.toContain('className="sec">{s.service}');
     expect(drawer).toContain('<SvcBadge name={s.service} to={serviceHref(');

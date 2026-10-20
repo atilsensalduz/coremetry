@@ -42,7 +42,7 @@ export function Combobox({
   value, onChange, options, placeholder, width, onEnter,
   autoFocus, disabled, onBlurCommit, onEscape,
   serverFiltered, title, ariaLabel, className, shortcutSearch,
-  footer, optionMeta, resultCount, status, recentKey, dataTour,
+  footer, optionMeta, resultCount, status, recentKey, dataTour, onPick,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -114,6 +114,10 @@ export function Combobox({
   // değer sonuçların üstünde ayrı grupta gösterilir. Yalnız seçim
   // kaydedilir: Enter'la gönderilen serbest metin (joker sorgu) değil.
   recentKey?: string;
+  // v0.10.1420 — listeden SEÇİM (tık / ok+Enter / Tab) — onChange'den SONRA
+  // çağrılır. Yazmayla seçimi ayırmak için sezgisel (shouldAutoCommit) gerekmez:
+  // birebir eşleşmeli sunucu süzgeci (Rollouts Workload) yalnız seçimde uygular.
+  onPick?: (value: string) => void;
 }) {
   const id = useId();
   const listId = `${id}-list`;
@@ -195,6 +199,7 @@ export function Combobox({
   const pick = (v: string) => {
     if (recentKey) recordPickerRecent(recentKey, v);
     onChange(v);
+    onPick?.(v);
     setOpen(false);
     setHighlight(-1);
   };

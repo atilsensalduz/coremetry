@@ -30,7 +30,7 @@ export function useRollouts(p: RolloutListParams, enabled = true) {
   });
 }
 
-export function useRolloutStats(p: { from: number; to: number; cluster?: string; namespace?: string; topN?: number }, enabled = true) {
+export function useRolloutStats(p: { from: number; to: number; cluster?: string; namespace?: string; workload?: string; topN?: number }, enabled = true) {
   return useQuery<RolloutStats>({
     queryKey: keys.rollouts.stats(p),
     queryFn: ({ signal }) => api.rolloutStats(p, signal).catch((e: unknown) => {

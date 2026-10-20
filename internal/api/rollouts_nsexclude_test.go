@@ -80,7 +80,7 @@ func TestRolloutKeysCarryExclude(t *testing.T) {
 	if a == c || a == d || c == d {
 		t.Errorf("farklı desen kümeleri aynı anahtar: %s %s %s", a, c, d)
 	}
-	if rolloutStatsKey("v2", "", "", []string{"kube-*"}, 10, from, to) == rolloutStatsKey("v2", "", "", nil, 10, from, to) {
+	if rolloutStatsKey("v2", "", "", "", []string{"kube-*"}, 10, from, to) == rolloutStatsKey("v2", "", "", "", nil, 10, from, to) {
 		t.Error("stats anahtarı dışlamayı taşımalı")
 	}
 }

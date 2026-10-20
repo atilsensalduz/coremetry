@@ -9250,6 +9250,9 @@ export interface WorkloadRollout {
   detectedBy: string; spanCount: number; note: string; updatedAt: number;
   /** v0.10.244 — başlangıçtan beri açık ∩ rollout'un servisleri (liste yükleyicisi; çekmece sayımıyla aynı). */
   problemsCaused?: number;
+  /** v0.10.1420 — iş yükünün span'lerde görülen servisi (Workload hücresinin birincil tıkı; ad = workload kazanır, yoksa alfabetik ilk)
+   *  ve tüm servisleri (alfabetik, ≤20). Eşleşme yoksa ikisi de YOK → hücre entity sayfasına düşer. */
+  service?: string; services?: string[];
   /** v0.10.984 — Rollouts v2 P2.3: satır rollout_events'ten geldiyse (chstore.RolloutV2Fields; v1 satırında YOK).
    *  generation + incarnationAt (ms) + kind = 6 parçalı ?rollout= anahtarı. `status` yine v1 sözlüğünde; ham v2 durumu v2Status. */
   incarnationAt?: number; generation?: number;
@@ -9270,6 +9273,8 @@ export interface RolloutListResponse { rollouts: WorkloadRollout[]; from: number
    *  ve bu cevapta uygulandı mı (açık ?namespace= süzgecinde false — açık süzgeç kazanır). */
   excludeNamespaces?: string[]; excludeApplied?: boolean }
 export interface RolloutWorkloadN { clusterId: string; namespace: string; workload: string; n: number }
+/** v0.10.1420 — GET /api/rollouts/workloads: Workload seçicisinin sunucu araması (alfabetik; capped = tavandan fazlası var). */
+export interface RolloutWorkloadNamesResponse { names: string[]; capped?: boolean; disabled?: boolean }
 export interface RolloutStats {
   total: number; completed: number; rolledBack: number; inProgress: number; stalled: number; superseded: number;
   from: number; to: number;
@@ -9607,6 +9612,8 @@ export interface EntityDetailResponse {
   siblings?: EntityRecord[];
   /** v0.10.135 — pod: konteyner çocukları (entity kayıtları; durum için EntityContainersResponse). */
   containers?: EntityRecord[];
+  /** v0.10.1420 — istenen wl: kimliği birebir yoktu; aynı cluster/namespace/ad'ın envanter kaydına düşüldü (entity.id çözülen kimlik). */
+  resolvedFrom?: string;
 }
 /** thanos.ContainerStatus (v0.10.135) — KSM anlık konteyner durumu. */
 export interface EntityContainerStatus {

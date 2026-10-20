@@ -197,7 +197,7 @@ export const keys = {
     listAll: ['rollouts', 'list'] as const,
     list:  (p: { from: number; to: number; cluster?: string; namespace?: string; workload?: string; status?: string; kind?: string; limit?: number; sort?: string; dir?: string }) =>
              ['rollouts', 'list', p] as const,
-    stats: (p: { from: number; to: number; cluster?: string; namespace?: string; topN?: number }) => ['rollouts', 'stats', p] as const,
+    stats: (p: { from: number; to: number; cluster?: string; namespace?: string; workload?: string; topN?: number }) => ['rollouts', 'stats', p] as const, // v0.10.1420 — + workload
     runs:  () => ['rollouts', 'runs'] as const,
     // v0.10.984 — p 5 (workload_rollouts) ya da 6 parçalı (rollout_events) kimlik; tüm alanlar anahtarda.
     detail: (p: import('../rolloutRow').RolloutIdParam) => ['rollouts', 'detail', p] as const,

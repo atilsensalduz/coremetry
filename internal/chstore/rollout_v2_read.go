@@ -300,7 +300,7 @@ func rolloutV2StatsByDaySQL(where string) string {
 // (completed = succeeded, inProgress = progressing, stalled = stuck).
 func (s *Store) RolloutV2Stats(ctx context.Context, f RolloutFilter, from, to time.Time, topN int) (*RolloutStats, error) {
 	topN = clampRolloutLimit(topN, 10, 50)
-	where, args := rolloutV2Where(RolloutFilter{ClusterID: f.ClusterID, Namespace: f.Namespace, ExcludeNamespaces: f.ExcludeNamespaces}, from, to)
+	where, args := rolloutV2Where(RolloutFilter{ClusterID: f.ClusterID, Namespace: f.Namespace, Workload: f.Workload, ExcludeNamespaces: f.ExcludeNamespaces}, from, to)
 	st := &RolloutStats{From: from.UnixMilli(), To: to.UnixMilli(), TopRollback: []RolloutWorkloadN{}, TopDeploy: []RolloutWorkloadN{}, ByDay: []RolloutDayCount{}}
 	var total, completed, rolled, inprog, stalled, superseded uint64
 	var meanSec, p95Sec float64

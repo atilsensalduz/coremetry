@@ -3363,8 +3363,11 @@ export const api = {
   // v0.10.1267 — sort/dir: sunucu sıralaması (beyaz liste; yoksa started_at DESC).
   rollouts: (p: { from: number; to: number; cluster?: string; namespace?: string; workload?: string; status?: string; kind?: string; limit?: number; sort?: string; dir?: string }, signal?: AbortSignal) =>
     get<import('./types').RolloutListResponse>(`/api/rollouts?from=${p.from}&to=${p.to}${amp(qs({ cluster: p.cluster, namespace: p.namespace, workload: p.workload, status: p.status, kind: p.kind, limit: p.limit, sort: p.sort, dir: p.dir }))}`, signal),
-  rolloutStats: (p: { from: number; to: number; cluster?: string; namespace?: string; topN?: number }, signal?: AbortSignal) =>
-    get<import('./types').RolloutStats>(`/api/rollouts/stats?from=${p.from}&to=${p.to}${amp(qs({ cluster: p.cluster, namespace: p.namespace, topN: p.topN }))}`, signal),
+  rolloutStats: (p: { from: number; to: number; cluster?: string; namespace?: string; workload?: string; topN?: number }, signal?: AbortSignal) =>
+    get<import('./types').RolloutStats>(`/api/rollouts/stats?from=${p.from}&to=${p.to}${amp(qs({ cluster: p.cluster, namespace: p.namespace, workload: p.workload, topN: p.topN }))}`, signal),
+  // v0.10.1420 — Workload seçicisinin SUNUCU araması (rollout_workloads.go; tam katalog asla çekilmez).
+  rolloutWorkloads: (p: { q: string; from: number; to: number; cluster?: string; namespace?: string; limit?: number }, signal?: AbortSignal) =>
+    get<import('./types').RolloutWorkloadNamesResponse>(`/api/rollouts/workloads?from=${p.from}&to=${p.to}${amp(qs({ q: p.q || undefined, cluster: p.cluster, namespace: p.namespace, limit: p.limit }))}`, signal),
   // admin ucu (koşu hatası ham CH dizesi taşıyabilir); sunucu camelCase/ms yazar
   rolloutRuns: (signal?: AbortSignal) =>
     get<import('./types').RolloutRunsResponse>('/api/rollouts/runs', signal),

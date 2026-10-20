@@ -6,7 +6,7 @@ package api
 //
 //	GET /api/rollouts?from&to&cluster&namespace&workload&status&kind&limit&sort&dir   viewer — olay listesi (FINAL; varsayılan started_at DESC, v0.10.1267 sort/dir)
 //	GET /api/rollout?cluster=&namespace=&workload=&revision=&startedAt=       viewer — tekil (bileşik kimlik → ?id= yerine açık anahtar; entities.go:40 emsali)
-//	GET /api/rollouts/stats?from&to&cluster&namespace&topN                    viewer — agregat sekmesi (deploy sıklığı, rollback oranı, ort. süre, en çok rollback)
+//	GET /api/rollouts/stats?from&to&cluster&namespace&workload&topN           viewer — agregat sekmesi (deploy sıklığı, rollback oranı, ort. süre, en çok rollback)
 //	GET /api/rollouts/runs                                                     viewer — son reconciler koşuları
 //	GET /api/settings/rollouts   PUT /api/settings/rollouts                    admin — bayrak + vidalar (audit)
 //
@@ -131,7 +131,8 @@ func (s *Server) listRollouts(w http.ResponseWriter, r *http.Request) {
 		if rows == nil {
 			rows = []chstore.RolloutRow{}
 		}
-		s.attachProblemsCaused(ctx, rows) // v0.10.244 — D4 feed rozeti (hata = rozet yok)
+		s.attachProblemsCaused(ctx, rows)  // v0.10.244 — D4 feed rozeti (hata = rozet yok)
+		s.attachRolloutServices(ctx, rows) // v0.10.1420 — Workload hücresi → servis sayfası (tek toplu MV sorgusu)
 		if src == rollout.SourceV2 {
 			s.attachV2Traffic(ctx, rows, from, to) // v0.10.1212 — "trafik geçti" (rollouts_v2_traffic.go)
 		}
@@ -244,6 +245,7 @@ func (s *Server) getRolloutStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	ns := strings.TrimSpace(q.Get("namespace"))
+	wl := strings.TrimSpace(q.Get("workload")) // v0.10.1420 — Workload seçicisi Toplu sekmesini de daraltır
 	topN := parseInt(q.Get("topN"), 10)
 	if topN <= 0 {
 		topN = 10
@@ -254,8 +256,8 @@ func (s *Server) getRolloutStats(w http.ResponseWriter, r *http.Request) {
 	src := s.rolloutSource()
 	// v0.10.1262 — Toplu sekmesi de platform namespace'lerini saymaz (liste ile aynı kural).
 	excl := s.rolloutExcludeNamespaces()
-	f := chstore.RolloutFilter{ClusterID: cluster, Namespace: ns, ExcludeNamespaces: rollout.EffectiveNamespaceExclude(excl, ns)}
-	key := rolloutStatsKey(src, cluster, ns, f.ExcludeNamespaces, topN, from, to)
+	f := chstore.RolloutFilter{ClusterID: cluster, Namespace: ns, Workload: wl, ExcludeNamespaces: rollout.EffectiveNamespaceExclude(excl, ns)}
+	key := rolloutStatsKey(src, cluster, ns, wl, f.ExcludeNamespaces, topN, from, to)
 	s.serveCached(w, r, key, rolloutStatsTTL, func(ctx context.Context) (any, error) {
 		rd := rolloutReaderOf(s)
 		read := rd.RolloutStats

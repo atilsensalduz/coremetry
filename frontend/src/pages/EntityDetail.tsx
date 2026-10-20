@@ -36,7 +36,9 @@ export default function EntityDetail() {
   const { from, to } = useMemo(() => timeRangeToNs(range), [range]);
   const { enabled, loading } = useEntityEnabled();
   const entQ = useEntity(id, at || undefined, enabled && !!id);
-  const svcQ = useEntityServices(id, { from, to }, enabled && !!id && !!entQ.data);
+  // v0.10.1420 — sunucu wl: kimliğini envanter kaydına çözdüyse (resolvedFrom) çocuk sorguları ÇÖZÜLEN kimlikle.
+  const effId = entQ.data?.entity.id || id;
+  const svcQ = useEntityServices(effId, { from, to }, enabled && !!id && !!entQ.data);
   const name = entQ.data?.entity.name ?? (id.includes('/') ? id.slice(id.lastIndexOf('/') + 1) : id);
   const type = entQ.data?.entity.type ?? (id.includes(':') ? id.slice(0, id.indexOf(':')) : 'entity');
   return (
@@ -50,10 +52,32 @@ export default function EntityDetail() {
         {!!id && enabled && (entQ.isPending
           ? <Spinner />
           : (entQ.error || !entQ.data)
-            ? <Empty icon="—" title="Kayıt bulunamadı."><span className="mono">{id}</span></Empty>
+            ? <Empty icon="—" title="Kayıt bulunamadı.">
+                <span className="mono">{id}</span>
+                <EntityNotFoundLinks id={id} />
+              </Empty>
             : <Body data={entQ.data} svc={svcQ.data} svcError={svcQ.error ? String(svcQ.error) : undefined} at={at} pageRange={range} from={from} to={to} />)}
       </PageShell>
     </>
+  );
+}
+
+// v0.10.1420 (operatör: "Deployment Workload basınca service'e girsin, şu an
+// bulamıyor") — envanterde olmayan bir iş yükü kimliği çıkmaz sokak değil:
+// kimlikten (wl:<cid>/<ns>/<tür>/<ad>) servis araması ve rollout listesi.
+function EntityNotFoundLinks({ id }: { id: string }) {
+  if (!id.startsWith('wl:')) return null;
+  const parts = id.slice(3).split('/');
+  if (parts.length < 4) return null;
+  const [, ns, , ...rest] = parts;
+  const name = rest.join('/');
+  const svcQ = new URLSearchParams({ q: name, namespace: ns });
+  const roQ = new URLSearchParams({ workload: name, namespace: ns });
+  return (
+    <div style={{ marginTop: 8, display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+      <Link to={`/services?${svcQ.toString()}`}>Servislerde ara: {name}</Link>
+      <Link to={`/rollouts?${roQ.toString()}`}>Bu workload'un rollout'ları</Link>
+    </div>
   );
 }
 

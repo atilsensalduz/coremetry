@@ -224,6 +224,7 @@ func buildLink(a buildLinkArgs, clusterID string, filters []chstore.FilterExpr, 
 	case "rollouts":
 		set("cluster", clusterID)
 		set("namespace", a.Namespace)
+		set("workload", a.Workload) // v0.10.1420 — /rollouts ?workload= sunucu süzgeci
 	}
 	if withRange && rangeParam != "" {
 		q.Set("range", rangeParam)
@@ -243,7 +244,7 @@ func buildLinkTool(d Deps) mcp.Tool {
 		ShortDescription: "Coremetry UI deep-link'i (liste + tekil problem / exception / incident / endpoint / statement / topic / rollouts), süzgeç + pencere dolu. Link cevabın altına çip olur: metne URL/host/araç çıktısı YAZMA.",
 		Description: "Build a Coremetry UI deep-link with the filters, scope and time window pre-filled so the operator continues in the product with one click. " +
 			"Single-entity pages (v0.10.1222): problem (problem_id), exception (fingerprint), incident (incident_id), endpoint (service + path, signature=true when the path is an ID-collapsed template row, env, cluster), " +
-			"statement (stmt_hash = decimal statement hash, db_system), topic (messaging_system + cluster = broker cluster + destination), rollouts (cluster, namespace). " +
+			"statement (stmt_hash = decimal statement hash, db_system), topic (messaging_system + cluster = broker cluster + destination), rollouts (cluster, namespace, workload). " +
 			"Pages: traces (service, search, filters[], errors_only, min_ms/max_ms, env, cluster, sort, group_by/group_attr → aggregate view), trace (trace_id, span_id, tab), " +
 			"logs (query=KQL, service, cluster, severity or errors_only, trace_id/span_id, env), service (service, tab), pod (cluster, namespace, pod), clusters (cluster, namespace, " +
 			"tab=overview|pods|nodes), endpoints (service, search), problems (service). The window is written as range=custom:<fromMs>-<toMs> from range_s (default 1800) — " +

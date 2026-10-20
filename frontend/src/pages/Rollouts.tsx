@@ -25,6 +25,14 @@
 // span sayısı yok; Nesil + replika gelir) AYRI storageKey'le (kayıtlı
 // genişlikler öteki sete yanlış uygulanmasın). Durum süzgeci v1 sözlüğünde
 // kalır (sunucu çevirir); satır kimliği / ?rollout= 6 parçalı (rolloutRow.ts).
+// v0.10.1420 (operatör: "Workload seçilerek filtrelenebilsin" + "Deployment
+// Workload basınca service'e girsin, şu an bulamıyor"): ?workload= SUNUCU
+// süzgeci (liste 200'de kesilir — istemci süzgeci satır kaçırırdı), sunucu
+// aramalı RolloutWorkloadPicker; Canlı + Toplu ikisi de daralır. Workload
+// hapının BİRİNCİL tıkı satırın servisini açar (sunucu tek toplu MV sorgusuyla
+// `service` basar); eşleşme yoksa entity sayfası (wl: yedeği). Yanındaki küçük
+// süzgeç düğmesi ("Bu workload'a süz") ve Namespace hücresi ?workload= /
+// ?namespace= yazar.
 import { useEffect, useMemo, useState } from 'react';
 import { TabStrip } from '@/components/ui/TabStrip'; // v0.10.456 (D5)
 import { Link, useSearchParams } from 'react-router-dom';
@@ -44,6 +52,11 @@ import { api } from '@/lib/api';
 import { useAuth } from '@/components/AuthProvider';
 import { keys, useRollouts, useRolloutStats, useRolloutRuns, useEntityClusters } from '@/lib/queries';
 import { RolloutDrawer } from '@/components/RolloutDrawer';
+import { RolloutWorkloadPicker } from '@/components/RolloutWorkloadPicker'; // v0.10.1420
+import { IconButton } from '@/components/ui/IconButton';
+import { LinkButton } from '@/components/ui/LinkButton';
+import { Filter } from 'lucide-react';
+import { serviceHref } from '@/lib/serviceHref';
 import { SvcBadge } from '@/components/traces/shared'; // v0.10.1328 — Traces Service kolonuyla aynı hap
 import { tracesPivotHref } from '@/lib/pivotHref';
 import { entityHref } from '@/lib/entityHref';
@@ -112,6 +125,7 @@ export default function RolloutsPage() {
   const status = sp.get('status') ?? '';
   const cluster = sp.get('cluster') ?? '';
   const ns = sp.get('namespace') ?? '';
+  const wl = sp.get('workload') ?? ''; // v0.10.1420 — sunucu süzgeci (birebir ad)
   // v0.10.1267 — sunucu sırası doğrudan URL'den (tek kaynak; tanınmayan →
   // varsayılan). Hook başlık tıklamasında aynı parametreyi yazar.
   const sortParam = sp.get(ROLLOUT_SORT_URL_KEY);
@@ -140,8 +154,8 @@ export default function RolloutsPage() {
   const clustersQ = useEntityClusters();
   const clusters = clustersQ.data?.clusters ?? [];
   const clusterName = (id: string) => clusters.find(c => c.id === id)?.name ?? id;
-  const listQ = useRollouts({ from, to, cluster: cluster || undefined, namespace: ns || undefined, status: status || undefined, limit: 200, ...srvSort }, tab === 'live');
-  const statsQ = useRolloutStats({ from, to, cluster: cluster || undefined, namespace: ns || undefined, topN: 10 }, tab === 'stats');
+  const listQ = useRollouts({ from, to, cluster: cluster || undefined, namespace: ns || undefined, workload: wl || undefined, status: status || undefined, limit: 200, ...srvSort }, tab === 'live');
+  const statsQ = useRolloutStats({ from, to, cluster: cluster || undefined, namespace: ns || undefined, workload: wl || undefined, topN: 10 }, tab === 'stats');
   const runsQ = useRolloutRuns(isAdmin); // admin ucu: viewer'da 403 döngüsü açma
   const rows = useMemo(() => listQ.data?.rollouts ?? [], [listQ.data]);
   // v0.10.984 — iki kanca da her render'da çağrılır (kanca sırası sabit);
@@ -166,7 +180,7 @@ export default function RolloutsPage() {
   // Zincir sırası aynı: hata bayat satırları da gizler (showLiveRows).
   // Cluster / durum / namespace SUNUCU süzgeci → sıfır satır "eşleşme yok"
   // (üç ayrı denetim, tek temizle eylemi yok); sunucu notu korunur.
-  const liveFiltered = !!(cluster || ns || status);
+  const liveFiltered = !!(cluster || ns || wl || status);
   const showLiveRows = !listQ.isPending && !err && rows.length > 0;
   const liveState: Omit<DataTableStateProps<WorkloadRollout>, 'dt'> =
     listQ.isPending ? { kind: 'loading' }
@@ -213,6 +227,12 @@ export default function RolloutsPage() {
             Namespace
             <input value={nsDraft} placeholder="tümü" onChange={e => setNsDraft(e.target.value)} style={{ width: 160 }} />
           </label>
+          {/* v0.10.1420 — sunucu aramalı seçici; seçim ?workload= (replace) → liste/Toplu SUNUCUDA daralır. */}
+          <div style={{ display: 'grid', gap: 4, fontSize: 11, color: 'var(--text3)' }}>
+            Workload
+            <RolloutWorkloadPicker value={wl} onCommit={v => setParam('workload', v)} from={from} to={to}
+              cluster={cluster || undefined} namespace={ns || undefined} />
+          </div>
           {isAdmin && (
             <span className="field-hint" style={{ marginLeft: 'auto' }}>
               {/* v0.10.929 (K5) — arka plan işinin 'ok' bitişi normal sonuç: nötr.
@@ -269,11 +289,21 @@ export default function RolloutsPage() {
                         {/* v0.10.1328 (operatör-raporlu, prod): workload kutu düğme (a.sec) değil,
                             Traces Service kolonunun servis-renkli hapı (SvcBadge; aynı hash →
                             aynı renk). Gerçek <Link> kalır; tam bağlam hapın title'ında. */}
+                        {/* v0.10.1420 — birincil tık: satırın servisi (sunucu `service`); eşleşme yoksa
+                            entity sayfası (wl: yedeği). İkincil: küçük süzgeç düğmesi (?workload=). */}
                         <DataTableCell dt={dt} col="workload" row={r} title={`${cname} / ${r.namespace} / ${r.workload}`}>
-                          <SvcBadge name={r.workload} to={wlHref} title={`${cname} / ${r.namespace} / ${r.workload}`} />
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%' }}>
+                            <SvcBadge name={r.workload} to={r.service ? serviceHref(r.service, { range }) : wlHref} title={workloadLinkTitle(r, cname)} />
+                            <IconButton variant="bare" size="xs" aria-label="Bu workload'a süz" tooltip={`Bu workload'a süz: ${r.workload}`}
+                              active={wl === r.workload} onClick={() => setParam('workload', wl === r.workload ? '' : r.workload)}
+                              icon={<Filter size={11} aria-hidden />} />
+                          </span>
                         </DataTableCell>
-                        {/* v0.10.1262 — namespace kendi kolonunda (dizge value → title + ellipsis). */}
-                        <DataTableCell dt={dt} col="namespace" row={r} value={r.namespace} />
+                        {/* v0.10.1262 — namespace kendi kolonunda. v0.10.1420 — tık = bu namespace'e süz. */}
+                        <DataTableCell dt={dt} col="namespace" row={r} title={r.namespace}>
+                          <LinkButton tone="muted" underline="dotted" title={`Bu namespace'e süz: ${r.namespace}`}
+                            onClick={() => setParam('namespace', r.namespace)}>{r.namespace}</LinkButton>
+                        </DataTableCell>
                         {/* v0.10.565 — cluster kendi kolonunda; ad çözülemezse ham id (clusterName). */}
                         <DataTableCell dt={dt} col="cluster" row={r} value={cname} />
                         <DataTableCell dt={dt} col="kind" row={r} className="field-hint">{r.kind || '—'}</DataTableCell>
@@ -443,6 +473,14 @@ function PlatformNsBar({ patterns, applied, explicitNs, isAdmin, onSaved }: {
       {isAdmin && <Button variant="ghost" size="sm" onClick={() => { setDraft(patterns.join(', ')); setEditing(true); }}>Düzenle</Button>}
     </div>
   );
+}
+
+// v0.10.1420 — Workload hapının title'ı: nereye gidiyor (servis / entity yedeği).
+function workloadLinkTitle(r: WorkloadRollout, cname: string): string {
+  const where = `${cname} / ${r.namespace} / ${r.workload}`;
+  if (!r.service) return `${where}\nServis eşleşmedi — envanter kaydını açar`;
+  const others = (r.services ?? []).filter(s => s !== r.service);
+  return `${where}\nServis sayfasını açar: ${r.service}` + (others.length ? `\nDiğer servisler: ${others.join(', ')}` : '');
 }
 
 // v0.10.1212 — başladı / hazır / trafik tam zamanları (hücre title'ı).

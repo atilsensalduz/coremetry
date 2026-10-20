@@ -96,6 +96,8 @@ func TestBuildLinkEntityPages(t *testing.T) {
 		{buildLinkArgs{Page: "statement", StmtHash: "123", DBSystem: "my sql"}, "/databases/statement?range=custom%3A1000-2000&stmt=123%7Cmy%2520sql"},
 		{buildLinkArgs{Page: "topic", MsgSystem: "kafka", Cluster: "b1", Destination: "orders"}, "/messaging/topic?cluster=b1&destination=orders&range=custom%3A1000-2000&system=kafka"},
 		{buildLinkArgs{Page: "rollouts", Namespace: "shop"}, "/rollouts?cluster=c-1&namespace=shop&range=custom%3A1000-2000"},
+		// v0.10.1420 — workload süzgeci
+		{buildLinkArgs{Page: "rollouts", Namespace: "team-a", Workload: "orders-api"}, "/rollouts?cluster=c-1&namespace=team-a&range=custom%3A1000-2000&workload=orders-api"},
 	}
 	for _, c := range cases {
 		h, err := buildLink(c.a, "c-1", nil, rng)

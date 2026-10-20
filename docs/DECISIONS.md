@@ -8686,3 +8686,47 @@ v0.10.1412'deki operasyon kataloğu hatasının aynısı. 1412'nin go/ast koruma
 **Düzeltme:** iki bağlama `chDateTimeArg`; `TestNoDateTime64BindAgainstDateTimeColumnAST` artık `time_bucket|bucket`
 karşılaştırmalarını da tarar (eski kodda tam bu iki yeri yakalar). Ad tabanlı tarama: `first_seen` / `last_seen` / `ts`
 bazı tablolarda DateTime64 olduğu için listeye alınmadı (yanlış pozitif).
+
+## 2026-10-20 — v0.10.1420 — Deployment/Rollouts: workload süzgeci
+
+**Operatör (/rollouts "Canlı" ekran görüntüsü, "Liste sunucuda kesildi (limit 200)"):** "Workload seçilerek
+filtrelenebilsin." Ek: "Deployment Workload basınca service'e girsin, şu an bulamıyor." (hap
+`/entity?id=wl:<cid>/<ns>/Deployment/<ad>` açıyor, sayfa "Kayıt bulunamadı" diyordu).
+
+**Karar — süzgeç:** Namespace'in yanına sunucu aramalı `RolloutWorkloadPicker` (`usePickerSearch` + `Combobox`;
+tam katalog asla). Arama ucu `GET /api/rollouts/workloads?q=&from&to&cluster&namespace&limit` kendi dosyasında
+(`rollout_workloads.go`, `registerRoutesExtra`; api.go büyümedi): okuma kaynağının tablosundan (v1
+`workload_rollouts` | v2 `rollout_events`) pencerede rollout'u olan DISTINCT adlar — `started_at` penceresi,
+`ILIKE` (joker `*`/`?`, jokersiz alt-dizge, LIKE metakarakterleri kaçışlı), `LIMIT n+1` nöbetçisi (≤200),
+`max_execution_time = 5`; FINAL yok (RMT sürümleri aynı adı taşır). Platform namespace dışlaması liste ucuyla aynı.
+Anahtar `rollouts:workloads:` (TÜM girdiler, fnvStr; PUT/tail süpürmesi kapsar), TTL 30 s. `/api/entities`
+kullanılmadı: cluster ister ("tümü"de çalışmaz), ayrı bayrak, şu anki envanteri listeler. Seçim (listeden / Enter /
+temizle) `?workload=` yazar (replace, yabancı parametreler korunur); liste ucu zaten `workload`'u süzgeç + önbellek
+anahtarında taşıyordu, Toplu ucu (`/api/rollouts/stats`) da artık taşır (anahtar `rolloutStatsKey(..., workload, ...)`;
+store'daki iki stats okuması workload'u WHERE'e geçirir). Yarım yazılmış ad uygulanmaz (sunucu süzgeci birebir);
+`Combobox`'a isteğe bağlı `onPick` eklendi (seçim ≠ yazma, sezgisel gerekmez). Namespace kutusu serbest metin kaldı;
+Namespace hücresine tık = `?namespace=`.
+
+**Karar — Workload hücresi:** birincil tık satırın SERVİS sayfası. Eşleme span gerçeğinden:
+`workload_revision_activity_1m` (cluster span değeri, k8s_namespace, workload → service_name), listenin tüm satırları
+için TEK toplu sorgu (`RolloutWorkloadServicesBatch`, PK öneki demet IN, en eski başlangıç − 1 sa, 30 güne kelepçe),
+liste cevabıyla aynı serveCached girdisinde; satıra `service` + `services` (≤20) basılır, boşsa anahtar yok (v1 gövde
+eşliği). Seçim deterministik: ad = workload (harf duyarsız) kazanır, yoksa alfabetik ilk; adaylar zaten aynı
+cluster + namespace'ten (MV anahtarı). Eşleşme yoksa hap entity sayfasına gider. İkincil eylem: hapın yanında
+`IconButton` "Bu workload'a süz" (`?workload=`, ikinci tık kaldırır; satır çekmecesini açmaz).
+
+**Entity sayfası kök nedeni (kod okuması; canlı CH'de doğrulanmadı):** `/api/entity` BİREBİR `entity_id` arar.
+Rollout satırı türü rollout kaynağından alır (v2: KSM → "Deployment"); envanter türü pod sahiplik zincirinden çözer
+(`entity/normalize.go ResolveWorkload`): `kube_replicaset_owner` okunamazsa iş yükü `wl:…/ReplicaSet/<ad>-<hash>`,
+KSM pod'u görmezse span geçişi `wl:…/Derived/<ad>` yazar → aynı iş yükü, farklı kimlik. **Düzeltme:** birebir kayıt
+yoksa aynı cluster + namespace'te ada göre envanter araması (önce birebir ad, sonra `<ad>-` önekli RS; LIMIT 50) ve
+deterministik seçim (`pickWorkloadEntityFallback`: istenen tür önce; RS'de en son görülen; başka namespace/cluster
+asla); cevap `resolvedFrom` taşır, sayfa çocuk sorgularını çözülen kimlikle yapar. Hâlâ yoksa "Kayıt bulunamadı"
+kartı `wl:` kimliğinden "Servislerde ara" + "Bu workload'un rollout'ları" bağlantılarını gösterir (çıkmaz sokak yok).
+Prod'da hangi dalın ısırdığını doğrulamak için: `SELECT entity_id FROM entities FINAL WHERE name LIKE '<ad>%'`.
+
+**MCP:** rollout aracı yok (MCP 74 değişmedi). **Testler:** `chstore/rollout_workloads_test.go` (desen, SQL sınırları,
+v1/v2 WHERE workload), `api/rollout_workloads_test.go` (workload liste+Toplu depo süzgecine ve iki anahtara iner,
+arama ucu, anahtar, buildMux rotası), `api/rollout_row_services_test.go` (eşleşme/belirsiz/yok, tek toplu sorgu,
+JSON, entity yedeği), `pages/Rollouts.workloadFilter.test.tsx` (sunucu araması, replace ile `?workload=`, API
+parametresi, temizleme, hücrenin iki eylemi, Namespace tıkı).

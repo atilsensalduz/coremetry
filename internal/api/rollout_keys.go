@@ -72,8 +72,18 @@ func rolloutV2DetailKey(id chstore.RolloutV2ID, now time.Time) string {
 	return "rollouts:detail:v2key:" + rolloutV2IDDigest(id) + ":t=" + strconv.FormatInt(now.Truncate(30*time.Second).Unix(), 10)
 }
 
-func rolloutStatsKey(src, cluster, ns string, exclude []string, topN int, from, to time.Time) string {
-	return fmt.Sprintf("rollouts:stats:src=%s:%s:x=%s:top=%d:w=%s", src, fnvStr(cluster, ns), rolloutExcludeDigest(exclude), topN, cacheBucket(from, to))
+// v0.10.1420 — workload da anahtarda (Toplu sekmesi Workload seçicisiyle daralır).
+func rolloutStatsKey(src, cluster, ns, workload string, exclude []string, topN int, from, to time.Time) string {
+	return fmt.Sprintf("rollouts:stats:src=%s:%s:x=%s:top=%d:w=%s", src, fnvStr(cluster, ns, workload), rolloutExcludeDigest(exclude), topN, cacheBucket(from, to))
+}
+
+// rolloutWorkloadNamesKey — v0.10.1420 — Workload seçicisinin araması: kaynak,
+// cluster, namespace, desen (fnvStr — serbest metin ayrı ayrı özetlenir),
+// dışlama özeti, kelepçeli limit, 30 s pencere kovası. "rollouts:" öneki →
+// ayar PUT'u ve tail süpürmesi bunu da temizler.
+func rolloutWorkloadNamesKey(src string, f chstore.RolloutFilter, q string, limit int, from, to time.Time) string {
+	return fmt.Sprintf("rollouts:workloads:src=%s:%s:x=%s:lim=%d:w=%s",
+		src, fnvStr(f.ClusterID, f.Namespace, q), rolloutExcludeDigest(f.ExcludeNamespaces), limit, cacheBucket(from, to))
 }
 
 // rolloutRunsKey — v0.10.984 — v1 reconciler koşuları ile v2 dedektör

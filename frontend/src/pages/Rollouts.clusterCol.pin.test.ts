@@ -39,7 +39,9 @@ describe('Rollouts cluster kolonu', () => {
     const c = src.indexOf("{ id: 'cluster', label: 'Cluster'");
     expect(n).toBeGreaterThan(w);
     expect(c).toBeGreaterThan(n);
-    expect(src).toContain('<DataTableCell dt={dt} col="namespace" row={r} value={r.namespace} />');
+    // v0.10.1420 — hücre değeri "bu namespace'e süz" düğmesi (LinkButton), title tam ad.
+    expect(src).toContain('<DataTableCell dt={dt} col="namespace" row={r} title={r.namespace}>');
+    expect(src).toContain("onClick={() => setParam('namespace', r.namespace)}>{r.namespace}</LinkButton>");
     expect(src).not.toContain('<span className="field-hint"> · {r.namespace}</span>');
     const col = src.slice(n, c);
     expect(col).toMatch(/sortValue/);

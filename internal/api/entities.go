@@ -164,6 +164,18 @@ func (s *Server) getEntity(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return nil, err
 		}
+		// v0.10.1420 — wl: kimliği birebir yoksa aynı cluster/namespace/ad'ın
+		// envanterdeki iş yükü kaydına düş (tür farkı: KSM RS sahibi eksik →
+		// ReplicaSet, pod-adı türetmesi → Derived; entity_workload_fallback.go).
+		reqID := id
+		id := id
+		if cur == nil && ref.Type == entity.TypeWorkload {
+			if alt := s.workloadEntityFallback(ctx, ref); alt != "" && alt != id {
+				if c2, m2, a2, err2 := s.store.EntityLifetimesAt(ctx, alt, at); err2 == nil && c2 != nil {
+					cur, match, all, id = c2, m2, a2, alt
+				}
+			}
+		}
 		if cur == nil {
 			return nil, errNotFound
 		}
@@ -178,6 +190,9 @@ func (s *Server) getEntity(w http.ResponseWriter, r *http.Request) {
 		parents := s.store.EntityParents(ctx, id, eff)
 		children, _ := s.store.EntityChildrenCounts(ctx, ref.ClusterID, id, eff)
 		out := map[string]any{"entity": cur, "parents": parents, "children": children, "lifetimes": all, "atMatch": match}
+		if id != reqID {
+			out["resolvedFrom"] = reqID // v0.10.1420 — FE: istenen kimlik yedekle çözüldü
+		}
 		if ref.Type == entity.TypePod {
 			// node: runs_on — kaydın zamanına DEĞEN ilişki (canlı pod: son 1 saat)
 			wFrom, wTo := time.Now().Add(-time.Hour), time.Now()
