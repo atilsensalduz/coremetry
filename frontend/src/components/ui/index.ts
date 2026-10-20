@@ -45,6 +45,10 @@ export type { StatTileProps } from './StatTile';
 export { Badge } from './Badge';
 export type { BadgeProps, Tone } from './Badge';
 
+// v0.10.1425 — HTTP method rozeti; renk eşlemesi (GET mavi … DELETE kırmızı) tek yerde.
+export { MethodBadge, methodTone, normalizeMethod } from './MethodBadge';
+export type { MethodBadgeProps, MethodTone } from './MethodBadge';
+
 export { Drawer, DrawerSection, DrawerTrendRow } from './Drawer';
 
 export { Modal } from './Modal';

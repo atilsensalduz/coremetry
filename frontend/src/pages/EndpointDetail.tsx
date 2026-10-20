@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { navHref } from '@/lib/navHref';
 import { Topbar } from '@/components/Topbar';
-import { Card, LinkButton, SegmentedControl, StatTile } from '@/components/ui';
+import { Card, LinkButton, MethodBadge, SegmentedControl, StatTile } from '@/components/ui';
 import { Spinner, Empty } from '@/components/Spinner';
 import { TrendDelta } from '@/components/TrendDelta';
 import { useEndpoints, useEndpointDetail, useOperatorEvents } from '@/lib/queries';
@@ -241,8 +241,9 @@ export default function EndpointDetailPage() {
           flexWrap: 'wrap', marginBottom: 4,
         }}>
           {/* v0.10.1359 — metrik kipinde satır yok; method URL'den (?method=). */}
+          {/* v0.10.1425 — method rozeti atomdan (renk method'a göre). */}
           {(row?.method || refObj.method) && (
-            <span className="badge b-info" style={{ fontSize: 10 }}>{row?.method || refObj.method}</span>
+            <MethodBadge method={row?.method || refObj.method || ''} />
           )}
           <span className="mono" style={{ fontSize: 15, fontWeight: 600, wordBreak: 'break-all' }}
             title={refObj.path}>

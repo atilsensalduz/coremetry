@@ -10,7 +10,7 @@
 // etiketine çözülür (useHttpEnvScope), eşleyici her sorguda service_name'den
 // sonra; çözüm gelene dek sorgu atılmaz, uygulanamazsa bant söyler.
 import { useMemo, type ReactNode } from 'react';
-import { Card, PanelTitle, SectionHead, SelectField } from '@/components/ui';
+import { Card, MethodBadge, PanelTitle, SectionHead, SelectField } from '@/components/ui';
 import { HttpStat, HttpGauge, HttpChartPanel, HttpDonutPanel, HttpEnvScopeBand } from './httpMetricsViz';
 import { Spinner, Empty } from '@/components/Spinner';
 import {
@@ -179,7 +179,12 @@ export function ServiceHttpMetricsTab({ service, range, env = '', cluster = '' }
             ? <DataTableState dt={dt} {...(pending(loadingId) ? { kind: 'loading' as const } : { kind: 'empty' as const, message: 'Bu pencerede veri yok.' })} />
             : dt.sortedRows.map(r => (
               <tr key={keys.map(k => r[k]).join('|')}>
-                {keys.map(k => <DataTableCell key={k} dt={dt} col={k} row={r} value={String(r[k] ?? '')}><span className="dt-trunc">{String(r[k] ?? '') || '—'}</span></DataTableCell>)}
+                {/* v0.10.1425 — method hücresi atomdan (renk method'a göre); boş → soluk "—". */}
+                {keys.map(k => <DataTableCell key={k} dt={dt} col={k} row={r} value={String(r[k] ?? '')}>
+                  {k === 'http_request_method'
+                    ? (String(r[k] ?? '') ? <MethodBadge method={String(r[k])} /> : <span className="cell-empty">—</span>)
+                    : <span className="dt-trunc">{String(r[k] ?? '') || '—'}</span>}
+                </DataTableCell>)}
                 <DataTableCell dt={dt} col={`${prefix}Total`} row={r}>
                   <GaugeCell value={r[`${prefix}Total`]} max={maxOf(dt.sortedRows, `${prefix}Total`)} text={compact(r[`${prefix}Total`] as number)} />
                 </DataTableCell>

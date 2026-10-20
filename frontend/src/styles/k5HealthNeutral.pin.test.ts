@@ -53,6 +53,9 @@ const ALLOW_OK = new Map<string, string>([
   ['.pb-tl li.ok::after',                 'ProblemDetail zaman çizelgesi "Resolved" noktası (geçiş)'],
   // v0.10.1137 — sohbet diff bloğunda eklenen satır: sağlık değil DEĞİŞİM (geçiş) — +/- renk kodu.
   ['.cm-cl.is-add',                       'sohbet kod bloğu diff "+" satırı (değişiklik, sağlık değil)'],
+  // v0.10.1425 — HTTP method rozeti: POST yeşil, API araçlarının kategori eşlemesi (GET mavi, PUT/PATCH amber,
+  // DELETE kırmızı). Sağlık/sapma değil, kategorik etiket; ui/MethodBadge tek kaynak.
+  ['.badge.m-post',                       'HTTP method rozeti POST — kategori rengi (ui/MethodBadge), sağlık değil'],
   // v0.10.929 (K5, lider kararı) — ölü .pb-tile.ok kuralı silindi, girdisi de.
 ]);
 

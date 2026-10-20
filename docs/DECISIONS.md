@@ -8942,3 +8942,31 @@ ondalık (aynı satırdaki `fmtBytes` "1.5 MB" boşluklu kalır; iki ayrı büy�
 `(n / 1e6|1_000_000).toFixed(…) + 'M'` / `}M` / `} M` (B son eki dahil, " MB" bayt biçimleri hariç) görülürse düşer;
 desen kaymasına karşı utils.ts'nin yakalandığı doğrulanır. Aynı dosyada `Sparkline.fmtVal` tablosu (B/M/K, negatif,
 birimli ve sonsuz dallar).
+
+## 2026-10-20 — v0.10.1425 — HTTP method rozeti: method'a göre renk
+
+**Tasarım (kuyruk 2026-10-18, "Method badge per-method colours").** v0.10.1348'de method rozeti tek nötr tondaydı (T9:
+renk yalnız sapan değerde). Method bir sapma değil, **kategorik etiket**: API araçlarının (Postman/Swagger/Insomnia)
+alışık eşlemesi göz tarayıcıya hizmet eder — GET mavi (`--info`/`--info-bg`), POST yeşil (`--ok`/`--ok-bg`), PUT ve
+PATCH amber (`--warn`/`--warn-bg`), DELETE kırmızı (`--err`/`--err-bg`), geri kalanı (HEAD/OPTIONS/CONNECT/TRACE/
+`_OTHER`/bilinmeyen) nötr (`--bg3`/`--text2`). Tablo kuralı korunur: **yumuşak ton** (zemin tonu + koyu metin, `.b-ok`/
+`.b-err` gibi), dolu saturasyon yok; boyut/tipografi/mono `.badge`den aynen — yalnız renk değişir. Yeni token YOK: dört
+çift zaten üç temada (dark/light/redhat) AA (`contrastTokens`: `--X on --X-bg ≥ 4.5`). K5 (sağlık nötr) ihlali değil:
+POST'un yeşili bir durum değil kategori; `k5HealthNeutral` izin listesine gerekçeyle girdi.
+
+**Atom.** `ui/MethodBadge.tsx` (barrel'da): `methodTone(method)` → `get|post|put|patch|delete|other` (kırpılıp büyük
+harfe çevrilir; boş/bilinmeyen → `other`), `<MethodBadge method>` → `.badge.mono.m-<tone>` + `data-method="GET"`.
+Renk sınıfı `Record<MethodTone,string>` haritasında — `primitiveClasses` kapısı CSS karşılığını kendiliğinden tarar.
+CSS `globals.css`'te `.badge.m-*` (özgüllük 0,2,0; Badge'in `b-*` tonunu yener).
+
+**Siteler.** `pages/EndpointDetail.tsx` kimlik başlığı (`badge b-info` + satır içi 10px → atom, standart boy),
+`pages/service/ServiceHttpMetricsTab.tsx` iki tablo (`http_request_method` hücresi düz metindi → atom; boş → soluk
+"—"). `pages/Endpoints.tsx:944` (`<Badge tone="neutral" className="mono">{r.method}</Badge>`) bu dalgada paralel
+ajanın (v0.10.1424) dosyasıydı, düzenleme kilidi — göç tek satır (`<MethodBadge method={r.method} />`, import
+barrel'dan, `Badge` importu düşer); kaynak pininde gerekçeli tek istisna, satır göçünce pin "bayat istisna" der ve
+girdi silinir. Traces / Trace detayı / TopEndpointsCard / DetailsEndpointsSection method rozeti çizmiyor
+(TraceWaterfall `http.method`i yalnız tür sınıflamasında okur).
+
+**Testler:** `ui/MethodBadge.contract.test.tsx` (eşleme tablosu, bilinmeyen → nötr, DOM sınıfı/`data-method`, atom
+dışında method rozeti çizen sayfa yok — pin), `styles/methodBadge.pin.test.ts` (her `.badge.m-*` kuralı yalnız token
+okur, beklenen çift, üç temada metin/zemin ≥ 4.5, hex yok).

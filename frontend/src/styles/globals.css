@@ -1937,6 +1937,17 @@ td.col-actions, th.col-actions { text-align: right; }
    v0.10.922 (sade palet) — kategori renk almaz: mor ton kaldırıldı, nötr
    rozet + "WATCHER" yazısı ayrımı taşır. Sınıf adı çağıranlar için kalır. */
 .b-watcher { background: var(--bg3); color: var(--text2); }
+/* v0.10.1425 — HTTP method rozeti (ui/MethodBadge): API araçlarının alışık
+   eşlemesi, kategori rengi (sağlık değil — POST'un yeşili K5 izin listesinde).
+   Yumuşak ton: zemin tonu + koyu metin, .b-ok/.b-err ile aynı çiftler; dört
+   çift üç temada AA (contrastTokens). `.badge.m-*` (0,2,0) Badge'in b-*
+   tonunu yener. Diğerleri (HEAD/OPTIONS/CONNECT/TRACE/_OTHER) nötr.
+   Pin: styles/methodBadge.pin.test.ts. */
+.badge.m-get { background: var(--info-bg); color: var(--info); }
+.badge.m-post { background: var(--ok-bg); color: var(--ok); }
+.badge.m-put, .badge.m-patch { background: var(--warn-bg); color: var(--warn); }
+.badge.m-delete { background: var(--err-bg); color: var(--err); }
+.badge.m-other { background: var(--bg3); color: var(--text2); }
 /* v0.10.1027 — /databases satırının ad hücresindeki açık problem işareti
    (DependenciesTable OpenProblemsMark): adın önünde, rozet altı çizilmez.
    .dep-prob-note: işaret okuması ilk yüklemede düşünce tablonun üstündeki
