@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"github.com/cilcenk/coremetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/selfobs"
 )
 
 // EdgeStat is the weight carried by one directed edge over the
@@ -105,7 +106,8 @@ func (c *Correlator) Start(ctx context.Context) {
 	}
 }
 
-func (c *Correlator) refresh(ctx context.Context) error {
+func (c *Correlator) refresh(ctx context.Context) (err error) {
+	defer func(t time.Time) { selfobs.ObserveJob("correlator", t, err) }(time.Now()) // v0.10.1422 — worker RED
 	// v0.5.304 — read from the pre-aggregated topology_edges_5m MV
 	// instead of walking a sample of trace IDs over raw spans (which
 	// at billion-span scale tripped the 30s max_execution_time on

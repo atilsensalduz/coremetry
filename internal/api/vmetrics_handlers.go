@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/cilcenk/coremetry/internal/secretref"
+	"github.com/cilcenk/coremetry/internal/selfobs"
 	"github.com/cilcenk/coremetry/internal/vmetrics"
 )
 
@@ -49,6 +50,21 @@ type vmSettingsInput struct {
 	// kayıt eşlemeyi sessizce silerdi (aiTuning sınıfı). Boş nesne `{}` =
 	// bilinçli temizleme.
 	LabelMap *vmetrics.LabelMap `json:"labelMap"`
+	// SelfMetrics — v0.10.1422: auto | on | off. İŞARETÇİ (LabelMap gibi):
+	// alanı göndermeyen eski form saklı modu silmesin.
+	SelfMetrics *string `json:"selfMetrics"`
+}
+
+// vmSettingsView — GET/PUT cevabı: snapshot + BU pod'un kendi-metrik
+// dışa aktarım durumu (v0.10.1422). Durum pod başınadır (her pod kendi
+// metriklerini yazar); secret içermez.
+type vmSettingsView struct {
+	vmetrics.Snapshot
+	SelfMetricsStatus selfobs.VMExportStatus `json:"selfMetricsStatus"`
+}
+
+func vmView(snap vmetrics.Snapshot) vmSettingsView {
+	return vmSettingsView{Snapshot: snap, SelfMetricsStatus: selfobs.VMExportStatusNow()}
 }
 
 // mergeVMSettings validates the input and folds it over the CURRENT full
@@ -105,6 +121,18 @@ func mergeVMSettings(in vmSettingsInput, cur vmetrics.Settings) (vmetrics.Settin
 		}
 		labelMap = in.LabelMap.Normalized()
 	}
+	// v0.10.1422 — kendi metrikleri modu; nil = saklı olan korunur. "auto"
+	// blob'a BOŞ yazılır (omitempty: varsayılan blob eskisiyle bayt-aynı).
+	selfMetrics := cur.SelfMetrics
+	if in.SelfMetrics != nil {
+		if !vmetrics.ValidSelfMetrics(*in.SelfMetrics) {
+			return vmetrics.Settings{}, "selfMetrics must be one of: auto, on, off"
+		}
+		selfMetrics = vmetrics.NormalizeSelfMetrics(*in.SelfMetrics)
+		if selfMetrics == vmetrics.SelfMetricsAuto {
+			selfMetrics = ""
+		}
+	}
 	cfg := vmetrics.Settings{
 		WriteURL:                   in.WriteURL,
 		WriteEnabled:               in.WriteEnabled,
@@ -117,6 +145,7 @@ func mergeVMSettings(in vmSettingsInput, cur vmetrics.Settings) (vmetrics.Settin
 		RateWindowFloorS:           in.RateWindowFloorS,
 		AllowUnfilteredPercentiles: in.AllowUnfilteredPercentiles,
 		LabelMap:                   labelMap,
+		SelfMetrics:                selfMetrics,
 	}
 	if cfg.Token == "" {
 		cfg.Token = cur.Token
@@ -131,10 +160,10 @@ func (s *Server) getVMSettings(w http.ResponseWriter, r *http.Request) {
 		// Defensive — main() always wires the service. An empty snapshot
 		// renders the form in its "not configured" state, which is the
 		// truth, rather than crashing the Settings tab.
-		writeJSON(w, vmetrics.Snapshot{})
+		writeJSON(w, vmView(vmetrics.Snapshot{}))
 		return
 	}
-	writeJSON(w, s.vmetrics.Snapshot())
+	writeJSON(w, vmView(s.vmetrics.Snapshot()))
 }
 
 // putVMSettings persists a new config and swaps the live one.
@@ -189,6 +218,8 @@ func (s *Server) putVMSettings(w http.ResponseWriter, r *http.Request) {
 		// v0.10.944 — etiket eşlemesi: "env süzgeci neden şu etikete gitti"
 		// sorusunun cevabı audit'te.
 		"labelMap": snap.LabelMap,
+		// v0.10.1422 — Coremetry'nin kendi metriklerini bu VM'e kim açtı/kapadı.
+		"selfMetrics": snap.SelfMetrics,
 	})
 	// Action name follows the external-backend siblings
 	// (settings.tempo.update / settings.thanos.update /
@@ -197,7 +228,7 @@ func (s *Server) putVMSettings(w http.ResponseWriter, r *http.Request) {
 	// operator filters the audit log by when asking "who changed where our
 	// metrics come from".
 	s.audit(r, "settings.victoria_metrics.update", "settings", "victoria_metrics", string(details))
-	writeJSON(w, snap)
+	writeJSON(w, vmView(snap))
 }
 
 // testVMSettings probes the submitted form (with the stored-token merge)

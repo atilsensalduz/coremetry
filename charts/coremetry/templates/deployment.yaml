@@ -134,6 +134,11 @@ spec:
               value: {{ .Values.selfObs.endpoint | default (printf "%s-otelcol:%v" (include "coremetry.fullname" .) .Values.otelCollector.service.grpcPort) | quote }}
             - name: COREMETRY_SELF_OBS_SAMPLE_RATE
               value: {{ .Values.selfObs.sampleRate | quote }}
+            {{- with .Values.selfObs.deployEnv }}
+            # v0.10.1422 — kendi telemetrisinin deployment.environment'ı.
+            - name: COREMETRY_DEPLOY_ENV
+              value: {{ . | quote }}
+            {{- end }}
             {{- end }}
             {{- if .Values.selfObs.enabled }}
             # v0.10.91 — selfobs k8s kimliği (downward API, RBAC'sız):

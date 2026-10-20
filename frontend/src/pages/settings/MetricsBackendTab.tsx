@@ -3,8 +3,8 @@ import { Spinner } from '@/components/Spinner';
 import { Button, Field } from '@/components/ui';
 import { api } from '@/lib/api';
 import { useSettingsLoad, SettingsLoadError, ConfigStatusBanner } from './shared';
-import { vmFloorToForm, vmFloorToWire } from './vmForm';
-import type { VMAuthType, VMLabelMap, VMSettingsInput, VMTestResult } from '@/lib/types';
+import { vmFloorToForm, vmFloorToWire, vmSelfModeToForm, vmSelfStatusLine } from './vmForm';
+import type { VMAuthType, VMLabelMap, VMSelfMetricsMode, VMSettingsInput, VMSnapshot, VMTestResult } from '@/lib/types';
 
 // v0.10.948 (CoSRE Faz B) — etiket eşlemesi formu. Rol sırası ve adlar Go'nun
 // vmetrics.LabelRoles'ü; ad dilbilgisi vmetrics.ValidLabelName ile aynı (noktalı
@@ -69,6 +69,10 @@ export function MetricsBackendTab() {
   // okunur ve HER kayıtta tam nesne gider: sunucunun işaretçi sözleşmesinde
   // alan yoksa saklı korunur, boş alan temizler (vmetrics_handlers.go).
   const [labelMap, setLabelMap] = useState<Required<VMLabelMap>>(() => labelForm(undefined));
+  // v0.10.1422 — Coremetry'nin kendi metrikleri → bu VM (auto | on | off) +
+  // cevabı veren pod'un durum satırı (sunucudan; form yalnız gösterir).
+  const [selfMetrics, setSelfMetrics] = useState<VMSelfMetricsMode>('auto');
+  const [selfSnap, setSelfSnap] = useState<Pick<VMSnapshot, 'selfMetrics' | 'selfMetricsActive' | 'selfMetricsReason' | 'selfMetricsStatus'>>({});
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [test, setTest] = useState<VMTestResult | null>(null);
@@ -89,6 +93,8 @@ export function MetricsBackendTab() {
       setWriteUrl(s.writeUrl ?? '');
       setWriteEnabled(!!s.writeEnabled);
       setLabelMap(labelForm(s.labelMap));
+      setSelfMetrics(vmSelfModeToForm(s.selfMetrics));
+      setSelfSnap(s);
     },
   );
 
@@ -104,6 +110,7 @@ export function MetricsBackendTab() {
     writeUrl: writeUrl.trim() || undefined,
     writeEnabled,
     labelMap: labelForm(labelMap), // kırpılmış, altı rolün tamamı
+    selfMetrics,
   });
 
   const save = async (e: FormEvent) => {
@@ -122,6 +129,8 @@ export function MetricsBackendTab() {
       setAllowUnfilteredPercentiles(!!next.allowUnfilteredPercentiles);
       // v0.10.948 — eşleme de sunucunun kırpıp sakladığıyla tohumlanır.
       if (next.labelMap) setLabelMap(labelForm(next.labelMap));
+      setSelfMetrics(vmSelfModeToForm(next.selfMetrics));
+      setSelfSnap(next);
       setMsg({
         kind: 'ok',
         text: next.enabled
@@ -276,6 +285,38 @@ export function MetricsBackendTab() {
               (ClickHouse yazımı sürer; kaynak seçimi yukarıdaki anahtarla)
             </span>
           </span>
+        </label>
+
+        {/* v0.10.1422 — Coremetry'nin KENDİ metrikleri (api / ingest / worker /
+            sre pod'ları) bu VM'e: yazım hedefi yukarıdaki Yazma URL'i (boşsa
+            Base URL). Gelen OTLP iletiminden (çift yazım kutusu) BAĞIMSIZ. */}
+        <label style={{ display: 'block', marginBottom: 12 }}>
+          <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 4 }}>Coremetry’nin kendi metrikleri</div>
+          <select value={selfMetrics}
+            onChange={e => setSelfMetrics(e.target.value as VMSelfMetricsMode)}
+            style={{ width: '100%' }}>
+            <option value="auto">Otomatik — VM’den okuma açıkken bu VM’e yaz</option>
+            <option value="on">Açık — okuma kapalı olsa da yaz</option>
+            <option value="off">Kapalı</option>
+          </select>
+          {(() => {
+            const l = vmSelfStatusLine(selfSnap);
+            return (
+              <div style={{
+                fontSize: 11, marginTop: 4, lineHeight: 1.5,
+                color: l.kind === 'ok' ? 'var(--ok)' : l.kind === 'err' ? 'var(--err)' : 'var(--text3)',
+              }}>
+                {l.text}
+              </div>
+            );
+          })()}
+          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, lineHeight: 1.5 }}>
+            HTTP RED (<code>http_server_request_duration_seconds</code>, api + ingest OTLP/HTTP),
+            OTLP/gRPC (<code>rpc_server_duration_milliseconds</code>), worker işleri
+            (<code>worker_job_duration_seconds</code>), SRE araştırmaları ve Go runtime metrikleri;
+            etiket <code>service_name=coremetry-&lt;rol&gt;</code>. 30 sn’de bir, istek yolunun dışında.
+            Cluster VM’de Yazma URL’ine vminsert’i (<code>…/insert/&lt;tenant&gt;</code>) girin.
+          </div>
         </label>
 
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>

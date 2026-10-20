@@ -31,6 +31,7 @@ import (
 
 	"github.com/cilcenk/coremetry/internal/cache"
 	"github.com/cilcenk/coremetry/internal/mcptools"
+	"github.com/cilcenk/coremetry/internal/selfobs"
 )
 
 const (
@@ -446,6 +447,7 @@ func (dr *drainer) execute(fctx context.Context, fl *flight, inv Investigation, 
 		}
 	}
 	work := inv
+	started := time.Now()
 	dr.d.Runner(bctx, &work, checkpoint)
 	bcancel()
 	c, cancel := wctx()
@@ -458,6 +460,7 @@ func (dr *drainer) execute(fctx context.Context, fl *flight, inv Investigation, 
 		if work.Attempts > 0 {
 			work.Attempts--
 		}
+		selfobs.ObserveSREInvestigation("requeued", time.Since(started)) // v0.10.1422
 		if err := save(c, dr.d.Store, work); err != nil {
 			dr.logErr("kapanış requeue", err)
 		}
@@ -469,6 +472,9 @@ func (dr *drainer) execute(fctx context.Context, fl *flight, inv Investigation, 
 	if work.State == StateError && work.Error == "" {
 		work.Error = "hiçbir adım tamamlanamadı"
 	}
+	// v0.10.1422 — sre pod'u HTTP API sunmaz; görünür RED'i bu (result =
+	// done|partial|error, finalState'in kapalı kümesi).
+	selfobs.ObserveSREInvestigation(work.State, time.Since(started))
 	if err := save(c, dr.d.Store, work); err != nil {
 		dr.logErr("sonuç yazımı", err)
 		return

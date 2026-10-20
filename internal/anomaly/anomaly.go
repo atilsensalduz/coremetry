@@ -23,6 +23,7 @@ import (
 	"github.com/cilcenk/coremetry/internal/cache"
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/notify"
+	"github.com/cilcenk/coremetry/internal/selfobs"
 )
 
 const lockKey = "coremetry:lock:anomaly"
@@ -485,6 +486,7 @@ func (d *Detector) runIfLeader(ctx context.Context) {
 	if !d.leader.IsLeader() {
 		return
 	}
+	defer selfobs.ObserveJob("anomaly", time.Now(), nil) // v0.10.1422 — worker RED
 	d.scan(ctx)
 }
 

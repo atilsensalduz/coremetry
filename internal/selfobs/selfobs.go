@@ -69,6 +69,7 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/metric"
 	metricnoop "go.opentelemetry.io/otel/metric/noop"
+	"go.opentelemetry.io/otel/sdk/instrumentation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -97,21 +98,15 @@ var (
 	mpShutdown func(context.Context) error
 )
 
-// Init constructs both providers when COREMETRY_SELF_OBS_OTLP_ENDPOINT
-// is set. Returns a shutdown function the caller defers; safe to call
+// Init constructs the TracerProvider when COREMETRY_SELF_OBS_OTLP_ENDPOINT
+// is set; the MeterProvider is built ALWAYS (v0.10.1422 — VM self-export,
+// vmexport.go). Returns a shutdown function the caller defers; safe to call
 // even when disabled (no-op shutdown).
 //
 // mode is the running role string ("api", "ingest", "worker", "all")
 // — used to derive service.name. version is the binary version.
 func Init(ctx context.Context, mode, version string) func(context.Context) error {
 	endpoint := strings.TrimSpace(os.Getenv(envEndpoint))
-	if endpoint == "" {
-		log.Printf("[selfobs] %s unset — self-observability disabled", envEndpoint)
-		tracerSink = noop.NewTracerProvider().Tracer("coremetry")
-		meterSink = metricnoop.NewMeterProvider().Meter("coremetry")
-		return func(context.Context) error { return nil }
-	}
-	enabled = true
 
 	res, err := buildResource(mode, version)
 	if err != nil {
@@ -121,6 +116,56 @@ func Init(ctx context.Context, mode, version string) func(context.Context) error
 		return func(context.Context) error { return nil }
 	}
 
+	// ── Metrics ──────────────────────────────────────────────────
+	// v0.10.1422 — MeterProvider artık collector uç noktasından BAĞIMSIZ
+	// kurulur: Ayarlar'daki VictoriaMetrics hedefi (vmexport.go) collector'sız
+	// da yazabilsin ve trace'i self-loop yüzünden kapalı olan ingest pod'u da
+	// kendi metriklerini göndersin. Hedef takılı değilken okuyucu her turu
+	// sessizce düşürür. Collector yolu (uç nokta doluysa) gatedExporter
+	// arkasında: VM yazımı etkinken metrikler TEK hedefe gider.
+	mpOpts := []sdkmetric.Option{
+		sdkmetric.WithResource(res),
+		// otelhttp'nin kendi HTTP metrikleri düşürülür: auth.Middleware isteği
+		// kopyaladığı için http.route taşımıyorlar (ve server.address/port
+		// gürültüsü ekliyorlar). Yerine instruments.go'daki sınırlı-etiketli
+		// http.server.request.duration (internal/api/http_server_metrics.go).
+		sdkmetric.WithView(sdkmetric.NewView(
+			sdkmetric.Instrument{Scope: instrumentation.Scope{Name: otelhttpScope}},
+			sdkmetric.Stream{Aggregation: sdkmetric.AggregationDrop{}},
+		)),
+		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(&vmExporter{},
+			sdkmetric.WithInterval(metricInterval))),
+	}
+	if endpoint != "" {
+		if metricExp, err := otlpmetricgrpc.New(ctx,
+			otlpmetricgrpc.WithEndpoint(endpoint),
+			otlpmetricgrpc.WithInsecure(),
+		); err != nil {
+			log.Printf("[selfobs] metric exporter: %v — collector metric path off", err)
+		} else {
+			mpOpts = append(mpOpts, sdkmetric.WithReader(sdkmetric.NewPeriodicReader(
+				gatedExporter{inner: metricExp}, sdkmetric.WithInterval(metricInterval))))
+		}
+	}
+	mp := sdkmetric.NewMeterProvider(mpOpts...)
+	otel.SetMeterProvider(mp)
+	mpShutdown = mp.Shutdown
+	meterSink = mp.Meter("coremetry")
+	vmst.running.Store(true)
+	// Runtime metrics — heap, goroutines, GC. Same MeterProvider,
+	// no extra wiring required at call sites.
+	if err := runtime.Start(runtime.WithMinimumReadMemStatsInterval(15 * time.Second)); err != nil {
+		log.Printf("[selfobs] runtime metrics: %v", err)
+	}
+
+	if endpoint == "" {
+		log.Printf("[selfobs] %s unset — traces off; metrics → VictoriaMetrics only when Settings enables it (service=%s)",
+			envEndpoint, serviceName(mode))
+		tracerSink = noop.NewTracerProvider().Tracer("coremetry")
+		return shutdownAll
+	}
+	enabled = true
+
 	// ── Traces ────────────────────────────────────────────────────
 	// v0.6.45 — WithInsecure(), NOT WithDialOption(insecure creds).
 	// The first cut (v0.6.42) used WithDialOption which left
@@ -128,7 +173,7 @@ func Init(ctx context.Context, mode, version string) func(context.Context) error
 	// a TLS handshake against the collector's plaintext OTLP port →
 	// "tls: first record does not look like a TLS handshake" and
 	// every export hit the 10s deadline. WithInsecure flips the
-	// transport to h2c, matching the metric exporter below.
+	// transport to h2c, matching the metric exporter above.
 	traceExp, err := otlptracegrpc.New(ctx,
 		otlptracegrpc.WithEndpoint(endpoint),
 		otlptracegrpc.WithInsecure(),
@@ -138,10 +183,10 @@ func Init(ctx context.Context, mode, version string) func(context.Context) error
 		// collector.
 	)
 	if err != nil {
-		log.Printf("[selfobs] trace exporter: %v — disabled", err)
+		log.Printf("[selfobs] trace exporter: %v — traces off, metrics on", err)
+		enabled = false
 		tracerSink = noop.NewTracerProvider().Tracer("coremetry")
-		meterSink = metricnoop.NewMeterProvider().Meter("coremetry")
-		return func(context.Context) error { return nil }
+		return shutdownAll
 	}
 
 	sampleRate := parseSampleRate()
@@ -157,35 +202,16 @@ func Init(ctx context.Context, mode, version string) func(context.Context) error
 	tpShutdown = tp.Shutdown
 	tracerSink = tp.Tracer("coremetry")
 
-	// ── Metrics ──────────────────────────────────────────────────
-	metricExp, err := otlpmetricgrpc.New(ctx,
-		otlpmetricgrpc.WithEndpoint(endpoint),
-		otlpmetricgrpc.WithInsecure(),
-	)
-	if err != nil {
-		log.Printf("[selfobs] metric exporter: %v — metrics off but traces on", err)
-		meterSink = metricnoop.NewMeterProvider().Meter("coremetry")
-	} else {
-		mp := sdkmetric.NewMeterProvider(
-			sdkmetric.WithResource(res),
-			sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExp,
-				sdkmetric.WithInterval(30*time.Second))),
-		)
-		otel.SetMeterProvider(mp)
-		mpShutdown = mp.Shutdown
-		meterSink = mp.Meter("coremetry")
-
-		// Runtime metrics — heap, goroutines, GC. Same MeterProvider,
-		// no extra wiring required at call sites.
-		if err := runtime.Start(runtime.WithMinimumReadMemStatsInterval(15 * time.Second)); err != nil {
-			log.Printf("[selfobs] runtime metrics: %v", err)
-		}
-	}
-
 	log.Printf("[selfobs] enabled — endpoint=%s service=%s sample=%.2f",
 		endpoint, serviceName(mode), sampleRate)
 	return shutdownAll
 }
+
+// metricInterval — iki okuyucunun (VM + collector) export aralığı.
+const metricInterval = 30 * time.Second
+
+// otelhttpScope — otelhttp'nin meter kapsamı (View ile düşürülür).
+const otelhttpScope = "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 // Tracer returns the package-wide tracer. Noop when disabled.
 func Tracer() trace.Tracer { return tracerSink }

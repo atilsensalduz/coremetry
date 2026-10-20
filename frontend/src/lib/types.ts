@@ -1833,6 +1833,26 @@ export interface VMSnapshot {
   tokenError?: string;
   // v0.10.948 — etiket eşlemesi tam tur (secret değil; vmetrics.Snapshot.LabelMap).
   labelMap?: VMLabelMap;
+  // v0.10.1422 — Coremetry'nin KENDİ metrikleri bu VM'e (vmetrics/selfmetrics.go).
+  selfMetrics?: VMSelfMetricsMode;
+  selfMetricsActive?: boolean;
+  selfMetricsReason?: string;
+  /** Cevabı veren POD'un dışa aktarım durumu (selfobs.VMExportStatus). */
+  selfMetricsStatus?: VMSelfMetricsStatus;
+}
+// v0.10.1422 — '' gelmez (sunucu boşu "auto"ya çevirir); auto = okuma açık + hedef varken.
+export type VMSelfMetricsMode = 'auto' | 'on' | 'off';
+export interface VMSelfMetricsStatus {
+  running: boolean;
+  active: boolean;
+  /** Unix ms. */
+  lastOkAt?: number;
+  lastError?: string;
+  lastErrorAt?: number;
+  exported: number;
+  failed: number;
+  skipped?: number;
+  gatedDrops?: number;
 }
 // VMLabelMap — v0.10.948: rol → VM etiket adı (vmetrics.LabelMap aynası).
 // Boş alan = konvansiyon (service_name) / canlı keşif. Adlar MetricsQL
@@ -1865,6 +1885,8 @@ export interface VMSettingsInput {
   // eşleme korunur, `{}`/boş alan = temizle. Form artık altısını da bilir ve
   // her kayıtta tam nesneyi yollar.
   labelMap?: VMLabelMap;
+  // v0.10.1422 — İŞARETÇİ sözleşme: alan yoksa saklı mod korunur.
+  selfMetrics?: VMSelfMetricsMode;
 }
 // A failed probe answers HTTP 200 with ok:false — a connection failure is
 // a successful ANSWER to "is this URL right?", not a request error.

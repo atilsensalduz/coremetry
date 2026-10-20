@@ -111,6 +111,12 @@ type Settings struct {
 	// kurallar (service_name konvansiyonu, diğerleri yalnız keşifle). omitzero:
 	// eşlemesiz blob eskisiyle bayt-aynı kalır. Bkz. labelmap.go.
 	LabelMap LabelMap `json:"labelMap,omitzero"`
+	// SelfMetrics — v0.10.1422: Coremetry'nin KENDİ metrikleri bu VM'e
+	// yazılsın mı. "" / "auto" = okuma açık (Enabled) VE yazım hedefi varken;
+	// "on" = hedef varken her zaman (okuma kapalı olsa da); "off" = asla.
+	// WriteEnabled'dan BAĞIMSIZ (o, gelen OTLP gövdesinin iletimi). Karar
+	// selfmetrics.go SelfMetricsState'te. omitempty: eski blob bayt-aynı.
+	SelfMetrics string `json:"selfMetrics,omitempty"`
 }
 
 // Snapshot is what GET /api/settings/victoria-metrics returns: Settings
@@ -137,6 +143,11 @@ type Snapshot struct {
 	// v0.10.944 — etiket eşlemesi tam tur (secret değil); form (Faz B)
 	// kendi değerini okuyabilmeli, yoksa ilgisiz her kayıt boş gönderir.
 	LabelMap LabelMap `json:"labelMap"`
+	// v0.10.1422 — kendi metrikleri: saklı mod (boş → "auto") + etkin mi +
+	// neden değil (secret değil, tam tur).
+	SelfMetrics       string `json:"selfMetrics"`
+	SelfMetricsActive bool   `json:"selfMetricsActive"`
+	SelfMetricsReason string `json:"selfMetricsReason,omitempty"`
 }
 
 // Service is the per-process VM client. Config is swapped under an
@@ -307,6 +318,7 @@ func (s *Service) Snapshot() Snapshot {
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	selfActive, selfReason := SelfMetricsState(s.cfg)
 	return Snapshot{
 		Enabled:                    s.cfg.Enabled,
 		BaseURL:                    s.cfg.BaseURL,
@@ -321,6 +333,9 @@ func (s *Service) Snapshot() Snapshot {
 		WriteURL:                   s.cfg.WriteURL,
 		WriteEnabled:               s.cfg.WriteEnabled,
 		LabelMap:                   s.cfg.LabelMap.Normalized(),
+		SelfMetrics:                NormalizeSelfMetrics(s.cfg.SelfMetrics),
+		SelfMetricsActive:          selfActive,
+		SelfMetricsReason:          selfReason,
 	}
 }
 

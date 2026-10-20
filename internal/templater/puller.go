@@ -8,6 +8,7 @@ import (
 	"github.com/cilcenk/coremetry/internal/cache"
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/logstore"
+	"github.com/cilcenk/coremetry/internal/selfobs"
 )
 
 // Puller is the background goroutine that drives the Drain
@@ -91,6 +92,7 @@ func (p *Puller) tick(parent context.Context) {
 	if !p.leader.IsLeader() {
 		return
 	}
+	defer selfobs.ObserveJob("templater", time.Now(), nil) // v0.10.1422 — worker RED
 
 	// v0.8.3 — per-tick deadline so a slow/hung ES Search on the worker
 	// pod can't pile up against the process-lifetime ctx (no-op on CH,

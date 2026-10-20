@@ -341,6 +341,9 @@ func main() {
 		_ = os.Setenv("COREMETRY_SELF_OBS_OTLP_ENDPOINT", selfObsDefaultEndpoint(cfg.Listen.GRPC))
 	}
 	selfobsShutdown := selfobs.Init(ctx, selfobsMode, Version)
+	// v0.10.1422 — OTLP/gRPC alıcısının rpc.server.duration'ı (kanca; otlp
+	// paketi selfobs'a bağlanmaz — grpc_metrics.go).
+	otlp.SetRPCServerObserver(selfobs.RecordRPCServer)
 	defer func() {
 		sctx, scancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer scancel()
@@ -1359,6 +1362,10 @@ func main() {
 		log.Printf("[vmetrics] load persisted config: %v", err)
 	}
 	cfgRefresh.Add("vmetrics", func(ctx context.Context) error { return vmSvc.LoadPersisted(ctx, store) })
+	// v0.10.1422 — Coremetry'nin kendi metrikleri Ayarlar'daki VM'e: selfobs'un
+	// boot'ta kurulu okuyucusuna hedef GEÇ takılır (Init CH'den önce koşar).
+	// Karar her 30 sn'lik turda vmSvc.SelfMetricsActive() ile okunur.
+	selfobs.SetVMSink(vmSvc)
 	// v0.10.302 — facet kaydı çapraz-pod yenileme (DDL/probe sonraki boot'ta).
 	cfgRefresh.Add("trace-facets", func(ctx context.Context) error { return store.LoadTraceFacets(ctx) })
 	// v0.9.1213 — JVM GC alarmlarının VM dönüşü: evaluator GC çiftini
@@ -1998,6 +2005,7 @@ func runExceptionRefresher(ctx context.Context, store *chstore.Store, lock cache
 		// kilitlenme koruması). Her iki dal da main_test.go'da pinli.
 		var n int
 		var err error
+		defer func(t time.Time) { selfobs.ObserveJob("exception_refresher", t, err) }(time.Now()) // v0.10.1422 — worker RED
 		since, n, err = nextExceptionRefreshSince(
 			func(s time.Time) (int, time.Time, error) { return store.RefreshExceptionGroups(ctx, s) },
 			since, time.Now())

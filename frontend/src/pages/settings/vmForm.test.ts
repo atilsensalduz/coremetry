@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { vmFloorToForm, vmFloorToWire } from './vmForm';
+import { vmFloorToForm, vmFloorToWire, vmSelfModeToForm, vmSelfStatusLine } from './vmForm';
 
 // v0.9.1164 — "Rate penceresi tabanı" kutusunun çevirisi.
 //
@@ -86,5 +86,44 @@ describe('gidiş-dönüş', () => {
       expect(vmFloorToWire(box)).toBe(0);
       expect(vmFloorToForm(vmFloorToWire(box))).toBe('');
     }
+  });
+});
+
+// v0.10.1422 — operatör: 'Kendi metriclerini de VictoriaMetrics ayarlardaki
+// göndersin ve gözüksün'. Mod seçicisi + durum satırı: eksik mod "auto"
+// (sunucu kuralı), etkin değilse NEDEN, hata başarıdan tazeyse hata.
+describe('vmSelfModeToForm / vmSelfStatusLine', () => {
+  it.each([
+    [undefined, 'auto'], ['', 'auto'], ['auto', 'auto'], ['on', 'on'], ['off', 'off'], ['x', 'auto'],
+  ])('mod %s → %s', (v, want) => {
+    expect(vmSelfModeToForm(v as string | undefined)).toBe(want);
+  });
+  it('kapalı', () => {
+    expect(vmSelfStatusLine({ selfMetrics: 'off' }).text).toMatch(/^Kapalı/);
+  });
+  it('etkin değil → sunucunun nedeni', () => {
+    const l = vmSelfStatusLine({ selfMetrics: 'auto', selfMetricsActive: false, selfMetricsReason: 'otomatik: VictoriaMetrics okuması kapalı' });
+    expect(l.kind).toBe('muted');
+    expect(l.text).toContain('okuması kapalı');
+  });
+  it('başarılı gönderim → saat + sayaçlar (bu pod)', () => {
+    const l = vmSelfStatusLine({
+      selfMetrics: 'auto', selfMetricsActive: true,
+      selfMetricsStatus: { running: true, active: true, lastOkAt: Date.UTC(2026, 9, 20, 8, 5, 9), exported: 12, failed: 1 },
+    });
+    expect(l.kind).toBe('ok');
+    expect(l.text).toContain('08:05:09');
+    expect(l.text).toContain('12 gönderim, 1 hata (bu pod)');
+  });
+  it('hata başarıdan tazeyse hata gösterilir', () => {
+    const l = vmSelfStatusLine({
+      selfMetrics: 'on', selfMetricsActive: true,
+      selfMetricsStatus: { running: true, active: true, lastOkAt: 1000, lastErrorAt: 2000, lastError: 'HTTP 404', exported: 1, failed: 3 },
+    });
+    expect(l.kind).toBe('err');
+    expect(l.text).toContain('HTTP 404');
+  });
+  it('etkin ama henüz gönderim yok', () => {
+    expect(vmSelfStatusLine({ selfMetrics: 'on', selfMetricsActive: true }).text).toMatch(/ilk gönderim/);
   });
 });

@@ -10,6 +10,7 @@ import (
 
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/otlp"
+	"github.com/cilcenk/coremetry/internal/selfobs"
 )
 
 func (s *Server) getHealth(w http.ResponseWriter, r *http.Request) {
@@ -53,6 +54,7 @@ func (s *Server) getHealth(w http.ResponseWriter, r *http.Request) {
 	// çalışmaz; gövde de o kurulumda bayt-bayt eskisi gibi kalır.
 	dq, spoolDegraded, spoolDetail := s.distributionBacklog()
 	load, code := healthVerdict(overloaded, degraded, spoolDegraded, chOK)
+	selfStat := selfobs.VMExportStatusNow()
 	body := map[string]interface{}{
 		"status":                  load,
 		"spans_queued":            spansLen,
@@ -85,7 +87,9 @@ func (s *Server) getHealth(w http.ResponseWriter, r *http.Request) {
 		"vm_metrics_forward_dropped":  s.ing.MetricForwardDropped(),
 		"vm_metrics_forward_filtered": s.ing.MetricForwardFiltered(), // v0.10.373 — drop kuralları
 		"otlp_convert_degrades":       otlp.ConvertDegradeCounts(),   // v0.10.388 — sessiz degrade sayaçları
-		"otlp_ingest_rejects":         otlp.IngestRejectCounts(),     // v0.10.754 — sayaçsız kayıp noktaları (decode/oversize/gRPC oversize/boş id/geçersiz damga)
+		"self_metrics_exported":       selfStat.Exported,             // v0.10.1422 — kendi metrikleri → VM (bu pod)
+		"self_metrics_failed":         selfStat.Failed,
+		"otlp_ingest_rejects":         otlp.IngestRejectCounts(), // v0.10.754 — sayaçsız kayıp noktaları (decode/oversize/gRPC oversize/boş id/geçersiz damga)
 		// v0.10.300 — attribute hash indeksi: hazır mı, kaç yüklem bloom yolunda.
 		"attr_index_available":  chstore.AttrIndexAvailable(),
 		"attr_index_used":       chstore.AttrIndexUsed(),

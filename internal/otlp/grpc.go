@@ -109,6 +109,7 @@ func StartGRPC(addr string, ing *Ingester) (*GRPCHandle, error) {
 		// v0.10.754 — MaxRecvMsgSize aşımı handler'a hiç uğramaz; yalnız
 		// stats handler görür (ingest_counters.go rejectStats).
 		grpc.StatsHandler(rejectStats{}),
+		grpc.ChainUnaryInterceptor(rpcObserveUnary), // v0.10.1422 — rpc.server.duration (grpc_metrics.go)
 		// v0.8.x — recycle long-lived OTLP/gRPC connections so a fleet of
 		// collector exporters re-balances across api/ingest replicas instead of
 		// pinning to one. A k8s ClusterIP Service load-balances per CONNECTION,

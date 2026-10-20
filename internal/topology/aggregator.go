@@ -14,6 +14,7 @@ import (
 
 	"github.com/cilcenk/coremetry/internal/cache"
 	"github.com/cilcenk/coremetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/selfobs"
 )
 
 const (
@@ -166,6 +167,7 @@ func (a *Aggregator) tick(ctx context.Context, bootstrap bool) {
 	if !a.leader.IsLeader() {
 		return
 	}
+	defer selfobs.ObserveJob("topology", time.Now(), nil) // v0.10.1422 — worker RED
 
 	// Target the just-completed bucket. e.g. now=14:23 → bucket
 	// 14:15-14:20. Skipping the live bucket avoids partial-data

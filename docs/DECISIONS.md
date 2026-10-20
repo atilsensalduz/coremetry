@@ -8774,3 +8774,101 @@ succeededAt ya da açıkken geri alınan olayın finishedAt'i); devralınan olay
 Known dönüş → succeeded + gerekçe; gerçek geri alma → rolled_back; imaj backfill; STS imajsız; `v2RollbackUnproven` ve geç
 START imaj hedefi tabloları), mevcut rollback kural fixture'ları sentetik imajla (`detSim.autoImg`);
 `frontend/src/lib/rolloutLabels.test.ts` (her durum/tür → İngilizce), `rolloutRow.test.ts` çizelge tablosu.
+
+## 2026-10-20 — v0.10.1422 — Coremetry'nin kendi metrikleri VictoriaMetrics'e (Ayarlar'daki hedef)
+
+**Bağlam.** Operatör (prod, Service · coremetry-sre → Overview, "ALTIN SİNYALLER kaynak: metrik (vm)", "Bu filtrede veri
+yok — http_server_request_duration_seconds · service.name = coremetry-sre"): "Kendi metriclerini de VictoriaMetrics
+ayarlardaki göndersin ve gözüksün." Kapsam: "Coremetry api, worker ve ingester için yap." Bugüne kadar selfobs metrikleri
+yalnız `COREMETRY_SELF_OBS_OTLP_ENDPOINT` (collector) doluyken gidiyordu → collector → ingest → ClickHouse; VM'e ancak
+çift yazım açıksa ve o da VM'in `-opentelemetry.usePrometheusNaming` bayrağına bağlı bir adla (noktalı ad / `service.name`
+etiketi) ulaşıyordu — servis sayfasının metrik kipinin okuduğu `http_server_request_duration_seconds_*` + `service_name`
+ile hiç buluşmuyordu. HTTP histogramı da otelhttp'den geliyordu ve `http.route` taşımıyordu (auth.Middleware isteği
+kopyalıyor, otelhttp deseni göremiyor).
+
+**Karar 1 — doğrudan dışa aktarıcı, Ayarlar'daki hedef, geç bağlama.** `internal/selfobs/vmexport.go`: MeterProvider artık
+collector uç noktasından BAĞIMSIZ kurulur ve ikinci bir PeriodicReader (30 s) metrikleri vmetrics'in yazım istemcisiyle
+`POST <Yazma URL'i | Base URL>/opentelemetry/v1/metrics` (protobuf+gzip, bearer/tokenRef/TLS aynı) yazar. selfobs.Init CH ve
+ayar blob'undan önce koştuğu için hedef `selfobs.SetVMSink(vmSvc)` ile LoadPersisted'tan sonra takılır; karar her turda
+okunur (PUT ile açılır/kapanır, restart yok). Yeni ayar `victoria_metrics.selfMetrics`: `auto` (varsayılan — okuma açık VE
+hedef varken; Base URL vmselect `/select/` ise ve Yazma URL'i boşsa yazmaz, "vminsert girin" der), `on` (okuma kapalı olsa
+da), `off`. `WriteEnabled`'dan (gelen OTLP iletimi) bağımsız. PUT audit'te `selfMetrics`; alan işaretçi (eski form saklı
+modu silmez); "auto" blob'a boş yazılır (varsayılan blob bayt-aynı).
+
+**Karar 2 — gövde önceden Prometheus biçiminde (`internal/selfobs/otlpenc`, saf).** Ad: noktalar `_`, birim soneki
+(`s→_seconds`, `ms→_milliseconds`, `By→_bytes`, gauge `1→_ratio` — names.go okuma adaylarıyla aynı kısa liste), monoton
+sum'a `_total` (varsa eklenmez); **birim boş gönderilir**, böylece VM bayrağı açık da kapalı da aynı adı saklar
+(idempotent). Etiketler `PromLabel` ile sanitize; resource'tan dar bir izin listesi her veri noktasına terfi eder
+(`service_name`, `service_version`, `service_instance_id`, `deployment_environment_name` (eski `deployment.environment`
+dahil), `k8s_namespace_name`, `k8s_pod_name`, `k8s_node_name`) ve Resource BOŞ gider (telemetry.sdk.* gibi alanlar her
+seriye etiket olmasın). Üstel histogram / summary atlanır ve sayılır. Kod vmetrics'te değil çünkü vmetrics → chstore →
+selfobs import döngüsü; eşlik `vmetrics/selfmetrics_test.go` ile pinli (yazılan ad okuma adayları arasında, etiket
+sanitizasyonu promLabel ile aynı).
+
+**Karar 3 — tek hedef.** VM yazımı etkinken collector (gRPC) metrik yolu `gatedExporter` ile düşer: aynı seri iki yoldan
+(collector → ingest → VM iletimi) iki farklı etiket kümesiyle girip toplamları ikiye katlamasın. Bedel: VM etkinken
+Coremetry'nin kendi metrikleri ClickHouse `metric_points`'e artık YAZILMAZ (metrik yüzeyleri o kurulumda zaten VM'den
+okuyor). Trace yolu değişmedi. otelhttp'nin kendi metrikleri bir SDK View ile düşürülür (route yok, server.address/port
+gürültüsü).
+
+**Karar 4 — rol başına RED.**
+- **coremetry-api:** `http.server.request.duration` (s, semconv kovaları 0.005…10) → VM `http_server_request_duration_seconds_*`,
+  etiketler `http_request_method` (bilinen fiil ya da `_OTHER`), `http_route`, `http_response_status_code`. Kayıt
+  `withReqTag` içinde (req_tag.go + `internal/api/http_server_metrics.go`; api.go büyümedi). `http.route` = `r.Pattern`'in
+  yol kısmı (ServeMux eşlemeyi withReqTag'in verdiği isteğe yazar) — kayıtla sınırlı; `collapseRoute` bilinçli değil (slug
+  parçalarını açık bırakıyor). Eşleşmeyen istek (404/405, SPA "/") route etiketi taşımaz. Ölçülmez: `/api/health`,
+  `/livez`, `/readyz`, `text/event-stream` cevapları (`/api/events`, `/api/logs/tail`, `/api/mcp/sse`), `/api/` ve `/v1/`
+  dışı yollar, auth.Middleware'in 401'leri (dış katman). Kayıt: tek `time.Now` + önbellekli attribute.Set (tavan 4096)
+  + bloklamayan SDK Record.
+- **coremetry-ingest:** aynı mux'ı sunduğu için OTLP/HTTP (`/v1/traces|metrics|logs`) aynı histograma düşer → servis
+  sayfasının metrik kipi gösterir. OTLP/gRPC alıcısı `rpc.server.duration` (ms, semconv) `rpc_system`, `rpc_service`,
+  `rpc_method`, `rpc_grpc_status_code` ile — `internal/otlp/grpc_metrics.go` unary interceptor KANCASI (otlp paketi
+  selfobs'a bağlanmaz; main `otlp.SetRPCServerObserver(selfobs.RecordRPCServer)`). Ingest pod'unun trace'i (self-loop)
+  hâlâ kapalı, metrikleri artık açık. **Sınır:** servis sayfasının metrik kipi yalnız `http_server_*` okur; collector'lar
+  yalnız OTLP/gRPC ile yazıyorsa ingest'in HTTP RED'i boş kalır ve gRPC RED'i Metrics/Explore'da
+  `rpc_server_duration_milliseconds_*` adıyla görünür (metricTemplates.ts'teki `rpc.server.duration` şablonu VM adını
+  eşlemiyor — ayrı iş).
+- **coremetry-worker:** HTTP API sunmaz (yalnız sağlık) → HTTP RED boş kalır. Yerine `worker.job.duration` (s) +
+  `worker.job.runs{job, result=ok|error}` → `worker_job_duration_seconds_*`, `worker_job_runs_total`; `job` sabit küme:
+  evaluator, anomaly, correlator, topology, templater, monitor, exception_refresher (lider-kapılı tiklerin kendisi; lider
+  olmayan pod tik saymaz). Go runtime/process metrikleri her rolde gider. Görünüm: Metrics/Explore.
+- **coremetry-sre:** sre-only pod HTTP API SUNMAZ (yalnız `/livez`, `/readyz`, `/api/version`) → operatörün baktığı
+  coremetry-sre Overview HTTP RED kartı **dürüstçe boş kalır**; bu bir hata değil. Görünür sinyal
+  `sre.investigation.duration` + `sre.investigations{result=done|partial|error|requeued}` (drain.go) ve runtime metrikleri,
+  Metrics/Explore'da.
+- **all (monolitik):** hepsi `service_name=coremetry-monolithic` altında.
+
+**İstek yolu ve açılış güvenliği.** Dışa aktarım okuyucunun kendi goroutine'inde, 30 sn'de bir, en fazla bir 10 s POST;
+hata sayılır (`selfMetricsStatus.failed/lastError`, `/api/health` `self_metrics_exported|failed`), log seyreltilir (ilk +
+her 20.), Export hata dönmez. VM yokken / kapalıyken tur sessizce düşer. Hiçbir şey açılışı beklemez. Durum POD BAŞINA
+(Ayarlar satırı "bu pod" der).
+
+**Helm.** `selfObs.deployEnv` → `COREMETRY_DEPLOY_ENV` (iki şablon, dört rol; boşsa env yok). Deployment `maxUnavailable`
+kuralları dokunulmadı.
+
+**Operatör yapılandırması.** Tek düğüm VM + okuma açık: hiçbir şey (auto). Cluster VM: Ayarlar → Metrik backend →
+"Yazma URL'i" = `http://vminsert:8480/insert/<tenant>`. VM'i okumadan yalnız depo olarak kullanmak: mod "Açık". Kapatmak:
+"Kapalı". İsteğe bağlı `selfObs.deployEnv`.
+
+**Prod doğrulaması.** Ayarlar sekmesindeki durum satırı "Yazılıyor — son başarılı gönderim …" (ya da `curl
+/api/health | jq .self_metrics_exported,.self_metrics_failed`, her rolün pod'unda), sonra VM'de:
+
+```
+curl -s "$VM/api/v1/series" --data-urlencode 'match[]=http_server_request_duration_seconds_count{service_name=~"coremetry-.*"}' --data-urlencode 'start=-15m' | jq '.data[].service_name' | sort -u
+curl -s "$VM/api/v1/query" --data-urlencode 'query=sum by (service_name) (rate(http_server_request_duration_seconds_count{service_name=~"coremetry-.*"}[5m]))'
+curl -s "$VM/api/v1/query" --data-urlencode 'query=sum by (service_name, job) (rate(worker_job_runs_total[15m]))'
+curl -s "$VM/api/v1/query" --data-urlencode 'query=sum by (rpc_method, rpc_grpc_status_code) (rate(rpc_server_duration_milliseconds_count{service_name="coremetry-ingest"}[5m]))'
+```
+
+Beklenen: coremetry-api (ve OTLP/HTTP alıyorsa coremetry-ingest) HTTP serileri; Service · coremetry-api → Overview metrik
+kipi dolu. Çift yazım şüphesinde `{__name__=~"http_server_request_duration.*", service_name=~"coremetry-.*"}` adlarına bak:
+`http_server_request_duration_bucket` (birimsiz) ya da `service.name` etiketli seri YENİ yazılmamalı (eski kaynak
+collector → ingest yolu; gatedExporter onu düşürür).
+
+**Testler:** `internal/selfobs/otlpenc/encode_test.go` (ManualReader → `http_server_request_duration_seconds`, çift `_total`
+yok, birim boş, etiket kümesi tam, Resource boş, kümülatif; ad tablosu + idempotans), `internal/vmetrics/selfmetrics_test.go`
+(karar tablosu, WriteEnabled'dan bağımsız yazım + bearer/gzip, 400/401/503 sınıfları, JSON anahtarı + frontend pini,
+okuma adayı/etiket eşliği), `internal/selfobs/vmexport_test.go` (pasif hedef, hata sayılır ve bloklamaz, kapı tek hedef,
+rol adları), `internal/selfobs/instruments_test.go` (rol enstrümanları, sınırlı etiketler), `internal/api/http_server_metrics_test.go`
+(yol/metot/route, desen + durum yakalama, Flusher korunur, `selfMetrics` birleştirme), `internal/otlp/grpc_metrics_test.go`,
+`frontend/src/pages/settings/vmForm.test.ts` (mod + durum satırı).

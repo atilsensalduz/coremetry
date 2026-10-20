@@ -1,3 +1,5 @@
+import type { VMSnapshot, VMSelfMetricsMode } from '@/lib/types';
+
 // vmForm (v0.9.1164) — MetricsBackendTab'in SAYI kutusu ile tel arasındaki
 // çeviri. aiTuning.ts'in aynı deseni, aynı sebeple: SAF ve TABLO-TESTLİ,
 // çünkü buradaki tek bir yanlış dal SESSİZ AYAR DONMASI demek.
@@ -48,4 +50,37 @@ export function vmFloorToWire(v: string): number {
   // sunucunun "10 ile 3600 arasında olmalı" cevabını görmesi gerekir;
   // sessizce 10'a çekmek, sormadıkları bir pencereyi kaydetmek olurdu.
   return Math.round(n);
+}
+
+// ── v0.10.1422 — Coremetry'nin kendi metrikleri → VM: durum satırı ──
+// SAF: snapshot → tek satır. Durum CEVABI VEREN POD'undur (her pod kendi
+// metriklerini yazar); satır bunu söyler, "kurulum geneli" diye okunmasın.
+
+/** Sunucu modu → select değeri (bilinmeyen/eksik = auto, sunucu kuralı). */
+export function vmSelfModeToForm(v: string | undefined): VMSelfMetricsMode {
+  return v === 'on' || v === 'off' ? v : 'auto';
+}
+
+function hhmmss(ms: number): string {
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+export function vmSelfStatusLine(s: Pick<VMSnapshot, 'selfMetrics' | 'selfMetricsActive' | 'selfMetricsReason' | 'selfMetricsStatus'>): { kind: 'ok' | 'err' | 'muted'; text: string } {
+  if (vmSelfModeToForm(s.selfMetrics) === 'off') {
+    return { kind: 'muted', text: 'Kapalı — Coremetry’nin kendi metrikleri VictoriaMetrics’e yazılmıyor.' };
+  }
+  if (!s.selfMetricsActive) {
+    return { kind: 'muted', text: `Etkin değil — ${s.selfMetricsReason || 'yazım hedefi yok'}.` };
+  }
+  const st = s.selfMetricsStatus;
+  const counts = st ? ` · ${st.exported} gönderim, ${st.failed} hata (bu pod)` : '';
+  if (st?.lastError && (st.lastErrorAt ?? 0) > (st.lastOkAt ?? 0)) {
+    return { kind: 'err', text: `Son gönderim başarısız: ${st.lastError}${counts}` };
+  }
+  if (st?.lastOkAt) {
+    return { kind: 'ok', text: `Yazılıyor — son başarılı gönderim ${hhmmss(st.lastOkAt)}${counts}` };
+  }
+  return { kind: 'muted', text: 'Etkin — ilk gönderim 30 sn içinde (bu pod).' };
 }

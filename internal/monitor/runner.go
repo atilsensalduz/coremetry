@@ -20,6 +20,7 @@ import (
 	"github.com/cilcenk/coremetry/internal/cache"
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/notify"
+	"github.com/cilcenk/coremetry/internal/selfobs"
 )
 
 const (
@@ -114,7 +115,9 @@ func (r *Runner) tick(ctx context.Context) {
 	if !r.leader.IsLeader() {
 		return
 	}
+	started := time.Now()
 	monitors, err := r.store.ListMonitors(ctx)
+	defer selfobs.ObserveJob("monitor", started, err) // v0.10.1422 — worker RED (liste hatası = error)
 	if err != nil {
 		log.Printf("[monitor] list: %v", err)
 		return

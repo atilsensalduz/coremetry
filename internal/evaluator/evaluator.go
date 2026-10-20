@@ -20,6 +20,7 @@ import (
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/logstore"
 	"github.com/cilcenk/coremetry/internal/notify"
+	"github.com/cilcenk/coremetry/internal/selfobs"
 	"github.com/cilcenk/coremetry/internal/vmetrics"
 )
 
@@ -247,6 +248,7 @@ func (e *Evaluator) runIfLeader(ctx context.Context) {
 	defer cancel()
 
 	started := time.Now()
+	defer selfobs.ObserveJob("evaluator", started, nil) // v0.10.1422 — worker RED
 	e.opened.Store(0)
 	e.resolved.Store(0)
 
