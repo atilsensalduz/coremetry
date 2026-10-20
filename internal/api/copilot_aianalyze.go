@@ -72,7 +72,17 @@ type aiServiceContext struct {
 	// diye sunulmaz; renderServiceSnapshot ve guided adımları bunu okur.
 	curErr  error
 	baseErr error
+
+	// v0.10.1410 — komşu toplamları (Upstream/Downstream ilk
+	// serviceContextNeighbourCap ile kesilir; kalan "+N daha" diye söylenir).
+	upTotal, downTotal int
 }
+
+// serviceContextNeighbourCap — v0.10.1410: servis bağlamında yön başına
+// komşu tavanı (prompt bütçesi). Eski ham-span örneklemi (50 trace) fiilen
+// bu mertebede komşu görüyordu; özetten okunca hub servislerde yüzlerce
+// komşu olabilir.
+const serviceContextNeighbourCap = 20
 
 // buildServiceContext gathers + SUMMARISES the per-service signals. All numbers
 // are aggregates; no raw spans/logs leave the server.
@@ -163,15 +173,42 @@ func (s *Server) buildServiceContext(ctx context.Context, service string, from, 
 	}
 
 	// Dependency chain — 1-hop upstream callers + downstream callees.
-	if up, down, _, _, err := s.store.ServiceNeighbors(ctx, service, span, 50); err == nil {
-		for _, n := range up {
-			cx.Upstream = append(cx.Upstream, n.Service)
-		}
-		for _, n := range down {
-			cx.Downstream = append(cx.Downstream, n.Service)
-		}
+	// v0.10.1410 (operatör: "Downstream düzgün çalışmıyor") — topoloji
+	// özetinden (serviceNeighborsRollup, Topology sekmesinin okuması), AYNI
+	// pencere: DB / kuyruk / dış HTTP çağrıları artık downstream'de. Eski ham
+	// span yürüyüşü yalnız enstrümante çocuk servisleri görüyordu.
+	if up, down, err := s.serviceNeighborsRollup(ctx, service, from, to); err == nil {
+		setServiceContextNeighbours(cx, up, down)
 	}
 	return cx
+}
+
+// setServiceContextNeighbours — SAF (tablo testli): katlanmış komşuları
+// bağlamın etiket dizilerine yazar (calls DESC, yön başına
+// serviceContextNeighbourCap; toplam ayrıca tutulur).
+func setServiceContextNeighbours(cx *aiServiceContext, up, down []serviceNeighbor) {
+	cx.upTotal, cx.downTotal = len(up), len(down)
+	for i, n := range up {
+		if i >= serviceContextNeighbourCap {
+			break
+		}
+		cx.Upstream = append(cx.Upstream, neighbourEvidenceLabel(n, true))
+	}
+	for i, n := range down {
+		if i >= serviceContextNeighbourCap {
+			break
+		}
+		cx.Downstream = append(cx.Downstream, neighbourEvidenceLabel(n, true))
+	}
+}
+
+// neighbourListTR — "a, b, c" + kesildiyse " (+N daha)".
+func neighbourListTR(names []string, total int) string {
+	out := strings.Join(names, ", ")
+	if total > len(names) {
+		out += fmt.Sprintf(" (+%d daha)", total-len(names))
+	}
+	return out
 }
 
 // windowRED — v0.10.944: tek pencerenin RED özeti (chstore.ServiceWindowRED)
@@ -262,10 +299,10 @@ func renderServiceSnapshot(cx *aiServiceContext) string {
 		fmt.Fprintf(&b, "Deploy(lar): %s\n", strings.Join(parts, ", "))
 	}
 	if len(cx.Upstream) > 0 {
-		fmt.Fprintf(&b, "Upstream (çağıranlar): %s\n", strings.Join(cx.Upstream, ", "))
+		fmt.Fprintf(&b, "Upstream (çağıranlar): %s\n", neighbourListTR(cx.Upstream, cx.upTotal))
 	}
 	if len(cx.Downstream) > 0 {
-		fmt.Fprintf(&b, "Downstream (bağımlılıklar): %s\n", strings.Join(cx.Downstream, ", "))
+		fmt.Fprintf(&b, "Downstream (bağımlılıklar): %s\n", neighbourListTR(cx.Downstream, cx.downTotal))
 	}
 	return b.String()
 }

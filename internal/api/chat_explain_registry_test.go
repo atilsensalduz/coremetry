@@ -70,8 +70,13 @@ func (xrStore) EnrichProblemsWithDeploys(_ context.Context, ps []chstore.Problem
 func (xrStore) GetHypothesis(context.Context, string, string) (*chstore.RootCauseHypothesis, error) {
 	return nil, nil
 }
-func (xrStore) ServiceNeighbors(context.Context, string, time.Duration, int) ([]chstore.NeighborStat, []chstore.NeighborStat, int, int, error) {
-	return []chstore.NeighborStat{{Service: "checkout", SpanCount: 40}}, []chstore.NeighborStat{{Service: "db.example.test", SpanCount: 90}}, 50, 130, nil
+
+// v0.10.1410 — komşular topoloji özetinden (ServiceNeighbors silindi).
+func (xrStore) ReadServiceTopologyAggForFocus(context.Context, time.Time, time.Time, string, int, int) ([]chstore.ServiceTopologyEdge, error) {
+	return []chstore.ServiceTopologyEdge{
+		{ParentService: "checkout", ChildNode: "orders-api", NodeKind: "service", Protocol: "http", Calls: 40},
+		{ParentService: "orders-api", ChildNode: "db:postgresql@db.example.test", NodeKind: "db", Protocol: "db", Calls: 90},
+	}, nil
 }
 func (xrStore) GetTraces(context.Context, chstore.TraceFilter) ([]chstore.TraceRow, uint64, bool, error) {
 	return []chstore.TraceRow{{RootName: "GET /orders", DurationMs: 2400, SpanCount: 12}}, 1, false, nil

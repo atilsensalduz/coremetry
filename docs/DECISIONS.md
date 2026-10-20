@@ -8386,3 +8386,44 @@ diyordu; aynı Overview'un Top DB statements tablosu servisin oracle'ı ~938 kez
 yerine problems'e düşüyordu. **Karar:** çip her zaman "Takımımın exception'ları?" gönderir (my_exceptions): kartın
 takımı zaten sunucunun kullanıcı için çözdüğü takım, iyelik aynı takımı kimlikten çözer ve her durumda LLM'siz
 yönlenir. Takımım kartındaki seçili takım çipleri değişmedi (seçici aynı takım kataloğundan arar).
+
+## 2026-10-20 — v0.10.1410 — CoSRE servis bağlamı: komşular topoloji özetinden (DB ve dış çağrılar dahil)
+
+Operatör: "Downstream düzgün çalışmıyor". v0.10.1408 Bağlam panelini (`GET /api/services/{name}/neighbors`) topoloji
+özetine taşıdı ama `chstore.ServiceNeighbors` (ham `spans`, en büyük 50 trace) CoSRE'nin LLM bağlamlarını beslemeye
+devam ediyordu — aynı DB-kör downstream modele gidiyordu.
+
+- Kök neden (çağıran başına, hepsi aynı): `ServiceNeighbors` downstream'i yalnız "çocuk span'ın service_name'i ≠ bu
+  servis" kenarlarından kuruyor; DB / dış HTTP / messaging çağrısı servisin KENDİ CLIENT/PRODUCER span'ı, çocuğu yok →
+  kenar yok. (1) `buildServiceContext` → `renderServiceSnapshot` (guided "servis X sağlığı" demeti, kök-neden demeti,
+  servis raporu Faz 1 `service_context`): "Downstream (bağımlılıklar)" satırı DB'si olan serviste boş ya da yalnız
+  enstrümante servisler. (2) `serviceCorrelationContext` (problem ✨ Explain + sohbetin problem turu, anomali
+  açıklaması): "callees:" aynı şekilde DB-kör; üstüne pencere `now()-35m` idi — eski bir problemin açıklaması
+  ŞİMDİKİ komşuları okuyordu (yorum `[anchor-30m, anchor+5m]` diyordu). (3) `chat_explain_registry` `explainStore`
+  arayüzü bu metodu taşıyordu (test dikişi). MCP araçları çağırmıyordu (`internal/sre` zaten `GetServiceGraphTopN`).
+- Düzeltme: paylaşılan `s.serviceNeighborsRollup(ctx, svc, from, to)` (`service_neighbors.go`) — 1408'in okuması
+  aynen: `ReadServiceTopologyAggForFocus(hops=1, LIMIT 5000, max_execution_time 10 sn)` → `filterHiddenTopologyEdges`
+  → `serviceNeighborsFromEdges` (`buildServiceGraphWith "neighborhood"`, ext-merge, bilinen-servis yedeği). Uç da
+  artık bu yardımcıyı çağırıyor (`…RollupWith`, gizli desenler anahtar için zaten okunmuş). Okuma `s.explainReads()`
+  üstünden (üretimde `*chstore.Store`); `explainStore`'da `ServiceNeighbors` → `ReadServiceTopologyAggForFocus`.
+  `topologyHiddenPatterns` store'suz test sunucusunda varsayılanı döner.
+- Kanıt biçimi (bilinçli değişti; altın dosya yoktu, pin yeni testte): etiket Topology düğüm adı, servis olmayanda tür
+  köşeli parantezde, sayılar KENARIN (Topology kenar ipucuyla aynı): servis bağlamı `oracle@db.example.test [database]
+  (938 çağrı, %2.0 hata)`, açıklama bloğu İngilizce `… (938 calls, 2.0% err)`. Başlık "Topology neighbours (from trace
+  structure)" → "(topology rollup, 1 hop, in window)"; eski "svc(N sp)" span sayısı kalktı. Tavanlar: açıklama yön
+  başına ilk 5 + "+N more" (eskiden sessiz kesiliyordu); servis bağlamı yön başına 20 (`serviceContextNeighbourCap` —
+  eskisinde açık tavan yoktu, 50 trace örneklemi fiilen sınırlıyordu; özetten hub'da yüzlerce komşu olabilir) +
+  "(+N daha)". `aiServiceContext.Upstream/Downstream` hâlâ `[]string` (şekil aynı, eleman artık etiket+sayı);
+  toplamlar dışa aktarılmayan alanlarda.
+- Önbellek: açıklama anahtarları istem metnini hash'liyor (`explainCacheKey`) → kendiliğinden yenilendi; servis raporu
+  kanıt önbelleği `copilot:guided:svcreport:v2:` (60 sn gövde eski DB-kör listeyi taşıyordu). Uç anahtarı (v2)
+  değişmedi — yanıt şekli aynı.
+- Silinen: `internal/chstore/neighbors.go` (`ServiceNeighbors` + `NeighborStat` + iki ham-spans sorgusu), `topNeighborNames`'in
+  `NeighborStat` sürümü (artık `serviceNeighbor` alıyor), `explain_problem.go` `sort` importu. Şim yok.
+- Değişmeyenler: MCP araç sayısı 74, prompt sabitleri / `promptVersionRegistry`, CH şeması, api.go satır sayısı
+  (yalnız bayat yorum satırı yerinde düzeltildi).
+- Testler: `internal/api/service_context_neighbours_test.go` — `TestServiceContextNeighboursFromRollup` (callee'si sıfır
+  + db/dış HTTP/kuyruk → snapshot Downstream'de üçü, etiket+sayı+hata; hub tavanı "+3 daha"; boş),
+  `TestProblemExplainEvidenceListsDBAndExternalCallees` (`explainStoreSeam` ile uçtan uca `serviceCorrelationContext`:
+  callees db+ext+kuyruk, gizli desen `kafka:log*` süzülüyor, okuma hatası/boş → blok yok, pencere
+  `[anchor-30m, anchor+5m]`). `chat_explain_registry_test` sahte yüzeyi `ReadServiceTopologyAggForFocus`'a geçti.

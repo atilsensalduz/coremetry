@@ -3037,7 +3037,7 @@ func (s *Server) getServiceBlastRadius(w http.ResponseWriter, r *http.Request) {
 
 // getServiceMap returns the global service-level topology graph
 // (nodes + directed edges) derived from sampled recent traces.
-// Mirrors the per-service ServiceNeighbors handler but globally —
+// Global twin of the old per-service raw-span neighbour walk (gone v0.10.1410) —
 // no anchor service. Result is cached for 30s: the topology
 // changes on the order of deploys, not seconds, but operators
 // will hit the page repeatedly while reading it; a 30s cache

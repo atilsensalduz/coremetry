@@ -188,7 +188,7 @@ func spanStatusIsError(statusCode string) bool {
 }
 
 // GetServiceMap derives the global service-level topology from a
-// bounded sample of recent traces. Mirrors the ServiceNeighbors
+// bounded sample of recent traces. Mirrors the old (v0.10.1410: removed) ServiceNeighbors
 // approach but globally — no anchor service. Two queries:
 //
 //  1. Pick the heaviest N traces by span-count over the last

@@ -908,7 +908,9 @@ func serviceReportCacheKey(service, env string, from, to time.Time) string {
 		h.Write([]byte(p))
 		h.Write([]byte{0})
 	}
-	return fmt.Sprintf("copilot:guided:svcreport:%x", h.Sum64())
+	// v0.10.1410 — "v2": kanıttaki komşular topoloji özetinden (DB/dış
+	// çağrılar dahil); eski önbellek gövdesi DB-kör komşu listesini taşıyor.
+	return fmt.Sprintf("copilot:guided:svcreport:v2:%x", h.Sum64())
 }
 
 // reportRecorder — adım çiplerini yayınlar ve önbellek için kaydeder.

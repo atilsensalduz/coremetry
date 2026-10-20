@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"sort"
 	"strings"
 	"time"
 
@@ -117,8 +116,14 @@ func (s *Server) serviceCorrelationContext(ctx context.Context, service string, 
 	// 1) Topology neighbours — who calls / is called by this service.
 	// Direction is the key root-cause hint: a callee erroring points
 	// downstream, a caller spike points upstream.
-	if up, down, _, _, err := st.ServiceNeighbors(ctx, service, 35*time.Minute, 50); err == nil && (len(up) > 0 || len(down) > 0) {
-		b.WriteString("\n\nTopology neighbours (from trace structure):")
+	// v0.10.1410 — topology_edges_5m over the SAME [anchor-30m, anchor+5m]
+	// window (serviceNeighborsRollup, the Topology tab's read): DB /
+	// queue / external callees now appear (the old raw-span walk of the
+	// 50 largest traces only saw instrumented child services, and read
+	// now-35m regardless of the anchor). Numbers are the edge's calls +
+	// error rate, as on the Topology tab.
+	if up, down, err := s.serviceNeighborsRollup(ctx, service, from, to); err == nil && (len(up) > 0 || len(down) > 0) {
+		b.WriteString("\n\nTopology neighbours (topology rollup, 1 hop, in window):")
 		if len(up) > 0 {
 			b.WriteString("\n  callers: " + topNeighborNames(up, 5))
 		}
@@ -141,17 +146,17 @@ func (s *Server) serviceCorrelationContext(ctx context.Context, service string, 
 	return b.String()
 }
 
-// topNeighborNames renders the top-N neighbours by span volume as a
-// compact "svc(N sp), …" line for the root-cause prompt.
-func topNeighborNames(ns []chstore.NeighborStat, n int) string {
-	sorted := append([]chstore.NeighborStat(nil), ns...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].SpanCount > sorted[j].SpanCount })
-	parts := make([]string, 0, n)
-	for i, x := range sorted {
+// topNeighborNames renders the top-N neighbours (already calls-DESC from
+// serviceNeighborsFromEdges) as a compact "name [kind] (N calls, X% err), …"
+// line for the root-cause prompt; the rest is counted, not dropped silently.
+func topNeighborNames(ns []serviceNeighbor, n int) string {
+	parts := make([]string, 0, n+1)
+	for i, x := range ns {
 		if i >= n {
+			parts = append(parts, fmt.Sprintf("+%d more", len(ns)-n))
 			break
 		}
-		parts = append(parts, fmt.Sprintf("%s(%d sp)", x.Service, x.SpanCount))
+		parts = append(parts, neighbourEvidenceLabel(x, false))
 	}
 	return strings.Join(parts, ", ")
 }

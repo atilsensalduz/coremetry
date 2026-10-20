@@ -151,7 +151,9 @@ type explainStore interface {
 	GetProblem(ctx context.Context, id string) (*chstore.Problem, error)
 	EnrichProblemsWithDeploys(ctx context.Context, problems []chstore.Problem, lookback time.Duration) []chstore.Problem
 	GetHypothesis(ctx context.Context, anchorKind, anchorID string) (*chstore.RootCauseHypothesis, error)
-	ServiceNeighbors(ctx context.Context, service string, since time.Duration, sampleCount int) (upstream, downstream []chstore.NeighborStat, sampledFrom, totalSpans int, err error)
+	// v0.10.1410 — komşular topoloji özetinden (serviceNeighborsRollup);
+	// eski ServiceNeighbors (ham spans, DB/dış çağrıya kör) silindi.
+	ReadServiceTopologyAggForFocus(ctx context.Context, from, to time.Time, focus string, hops, limit int) ([]chstore.ServiceTopologyEdge, error)
 	GetTraces(ctx context.Context, f chstore.TraceFilter) ([]chstore.TraceRow, uint64, bool, error)
 	GetIncident(ctx context.Context, id string) (*chstore.Incident, error)
 	IncidentProblems(ctx context.Context, incidentID string) ([]string, error)

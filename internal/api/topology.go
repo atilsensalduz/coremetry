@@ -262,6 +262,9 @@ var defaultTopologyHiddenPatterns = []string{"kafka:log*", "kafka:bsa*"}
 // defaults. One tiny FINAL read per topology request — the graph reads
 // beside it are orders of magnitude heavier.
 func (s *Server) topologyHiddenPatterns(ctx context.Context) []string {
+	if s.store == nil { // v0.10.1410 — store'suz test sunucusu (explainStoreSeam)
+		return defaultTopologyHiddenPatterns
+	}
 	raw, err := s.store.GetTopologyHiddenRaw(ctx)
 	if err != nil || len(raw) == 0 {
 		return defaultTopologyHiddenPatterns

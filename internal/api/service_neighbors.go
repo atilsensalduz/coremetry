@@ -21,6 +21,10 @@ package api
 // filterHiddenTopologyEdges → buildServiceGraphWith("neighborhood", 1,
 // knownServiceSet) (ext-merge dahil). Örneklem yok; başlık bunu söylüyor.
 //
+// v0.10.1410 — okuma serviceNeighborsRollup'a çıkarıldı; CoSRE'nin LLM
+// bağlamları (servis bağlamı, problem/anomali açıklaması) da aynı yardımcıyı
+// kullanıyor ve chstore.ServiceNeighbors silindi.
+//
 // Rota kaydı init()'te (api.go büyümez; /api-route).
 
 import (
@@ -103,12 +107,10 @@ func (s *Server) getServiceNeighbors(w http.ResponseWriter, r *http.Request) {
 	s.serveCached(w, r, key, 5*time.Minute, func(ctx context.Context) (any, error) {
 		to := time.Now()
 		from := to.Add(-since)
-		edges, err := s.store.ReadServiceTopologyAggForFocus(ctx, from, to, name, 1, serviceNeighborsEdgeLimit)
+		up, down, err := s.serviceNeighborsRollupWith(ctx, name, from, to, hidPats)
 		if err != nil {
 			return nil, err
 		}
-		edges = filterHiddenTopologyEdges(edges, hidPats)
-		up, down := serviceNeighborsFromEdges(edges, name, s.knownServiceSet(ctx))
 		resp := serviceNeighborsResponse{
 			Service: name, From: from.UnixNano(), To: to.UnixNano(),
 			Source:        serviceNeighborsSource,
@@ -118,6 +120,55 @@ func (s *Server) getServiceNeighbors(w http.ResponseWriter, r *http.Request) {
 		resp.Downstream = capNeighbors(down, serviceNeighborsSideCap)
 		return resp, nil
 	})
+}
+
+// serviceNeighborsRollup — v0.10.1410: servisin 1-hop komşularının TEK
+// okuması. Bağlam paneli (yukarıdaki uç), CoSRE servis bağlamı
+// (buildServiceContext → guided sohbet / servis raporu) ve problem/anomali
+// açıklamasının kanıtı (serviceCorrelationContext) hepsi buradan okur —
+// Topology sekmesiyle aynı MV, aynı gizli-desen süzgeci, aynı ext-merge,
+// aynı düğüm etiketi (oracle@<instance>, kafka:<topic>, dış host). Eski
+// chstore.ServiceNeighbors (ham spans, en büyük 50 trace, DB/dış çağrıya
+// kör) kaldırıldı. Sınır: hops=1 → tek MV sorgusu, LIMIT
+// serviceNeighborsEdgeLimit + max_execution_time 10 sn (chstore).
+func (s *Server) serviceNeighborsRollup(ctx context.Context, svc string, from, to time.Time) (up, down []serviceNeighbor, err error) {
+	return s.serviceNeighborsRollupWith(ctx, svc, from, to, s.topologyHiddenPatterns(ctx))
+}
+
+// serviceNeighborsRollupWith — gizli-desen listesi çağırandan (uç onu
+// önbellek anahtarına da koyuyor; ikinci kez okumasın). Kenar okuması
+// s.explainReads() üstünden: üretimde *chstore.Store, testte sahte yüzey.
+func (s *Server) serviceNeighborsRollupWith(ctx context.Context, svc string, from, to time.Time, hidPats []string) (up, down []serviceNeighbor, err error) {
+	edges, err := s.explainReads().ReadServiceTopologyAggForFocus(ctx, from, to, svc, 1, serviceNeighborsEdgeLimit)
+	if err != nil {
+		return nil, nil, err
+	}
+	edges = filterHiddenTopologyEdges(edges, hidPats)
+	up, down = serviceNeighborsFromEdges(edges, svc, s.knownServiceSet(ctx))
+	return up, down, nil
+}
+
+// neighbourEvidenceLabel — SAF: LLM kanıtı için bir komşunun tek satırlık
+// etiketi. Ad Topology düğüm adı; servis olmayan düğümde tür köşeli
+// parantezde ([database] / [queue] / [external]) — model DB'yi servis
+// sanmasın. Sayılar kenarın (Topology kenar ipucuyla aynı): çağrı, hata
+// varsa hata oranı. tr → Türkçe birimler (servis bağlamı), değilse İngilizce
+// (problem/anomali açıklaması bloğu İngilizce).
+func neighbourEvidenceLabel(n serviceNeighbor, tr bool) string {
+	label := n.Name
+	if n.Kind != "" && n.Kind != "service" {
+		label += " [" + n.Kind + "]"
+	}
+	switch {
+	case tr && n.Errors > 0:
+		return fmt.Sprintf("%s (%d çağrı, %%%.1f hata)", label, n.Calls, n.ErrorRate)
+	case tr:
+		return fmt.Sprintf("%s (%d çağrı)", label, n.Calls)
+	case n.Errors > 0:
+		return fmt.Sprintf("%s (%d calls, %.1f%% err)", label, n.Calls, n.ErrorRate)
+	default:
+		return fmt.Sprintf("%s (%d calls)", label, n.Calls)
+	}
 }
 
 func capNeighbors(ns []serviceNeighbor, n int) []serviceNeighbor {
