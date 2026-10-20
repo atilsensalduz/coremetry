@@ -170,12 +170,22 @@ describe('Problems kuyruğu — satır tıkı nereye açılır', () => {
     expect(el.querySelector('[data-host]')).toBeNull();
   });
 
-  it('klavye Enter fare tıkıyla AYNI yere açar', async () => {
+  // v0.10.1414 (tablo satırları gerçek link) — satır artık role=button değil:
+  // klavye durağı başlık hücresindeki gerçek <a>; Enter = tarayıcının bağlantı
+  // etkinleştirmesi (a.click()). j/k + Enter (useTableNav) aşağıdaki düzenekte.
+  it('klavye: Tab durağı başlık linki, Enter (link etkinleştirme) fare tıkıyla AYNI yere açar', async () => {
     const el = await mount();
     const r = row(el, 'POST /pay');
-    act(() => { r.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    expect(r.getAttribute('role')).toBeNull();
+    expect(r.hasAttribute('tabindex')).toBe(false);
+    const a = r.querySelector('td a[href*="anomaly=e1"]') as HTMLAnchorElement;
+    expect(a).not.toBeNull();
+    a.focus();
+    expect(document.activeElement).toBe(a);
+    act(() => { a.click(); });
     await settle();
     expect(params(el).get('anomaly')).toBe('e1');
+    expect(params(el).get('prio')).toBe('P1,P2,P3');
   });
 
   it('incident satırı: çekmece YOK — incident tam sayfasına gezinir, geri bağlantı kuyruğa', async () => {
@@ -187,12 +197,14 @@ describe('Problems kuyruğu — satır tıkı nereye açılır', () => {
     expect(anyDrawer(el)).toBeNull();
   });
 
-  it('incident satırı: klavye Enter da tam sayfaya gider', async () => {
+  it('incident satırı: başlık linki (klavye durağı) da tam sayfaya gider, geri bağlantı kuyruğa', async () => {
     const el = await mount();
-    const r = row(el, 'Checkout outage');
-    act(() => { r.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    const a = row(el, 'Checkout outage').querySelector('td a[href="/incident?id=i1"]') as HTMLAnchorElement;
+    expect(a).not.toBeNull();
+    act(() => { a.click(); });
     await settle();
     expect(loc(el)).toBe('/incident?id=i1');
+    expect(back(el)).toBe('/inbox?prio=P1,P2,P3');
   });
 
   it('incident satırı düz cümleyi gösterir, "Declared incident" gerekçesini değil', async () => {

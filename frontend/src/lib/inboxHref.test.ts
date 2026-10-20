@@ -5,7 +5,7 @@
 // sayfa detaya (/inbox?anomaly=) taşınması.
 import { describe, it, expect } from 'vitest';
 import {
-  anomalyDetailHref, attentionRows, inboxItemHref, inboxItemIdTarget, inboxRowOpen, incidentBackState,
+  anomalyDetailHref, attentionRows, inboxItemHref, inboxItemIdTarget, inboxRowLink, inboxRowOpen, incidentBackState,
   isSloProblem, readIncidentBackTo, readInboxDetail, withInboxDetail,
 } from './inboxHref';
 import type { InboxItem } from './types';
@@ -188,5 +188,31 @@ describe('attentionRows', () => {
   });
   it('skips rows without a destination', () => {
     expect(attentionRows([item({ kind: 'problem' })]).rows).toHaveLength(0);
+  });
+});
+
+// v0.10.1414 (tablo satırları gerçek link) — satır kararının bağlantı hâli.
+// Adresler eski openRow / applyOpen ile AYNI: tam sayfa push (incident'te geri
+// dönüş durumu), yerinde detay withInboxDetail'in kuyruk adresi (replace).
+describe('inboxRowLink — v0.10.1414 satırın gerçek link hedefi', () => {
+  const Q = '?prio=P1%2CP2&item=problem%3Aold&env=prod';
+  it('tam sayfa (exception): o.href, push, durum yok', () => {
+    expect(inboxRowLink({ to: 'page', href: '/problems?exc=fp1' }, '/inbox', Q))
+      .toEqual({ to: '/problems?exc=fp1', replace: false, state: undefined });
+  });
+  it('tam sayfa (incident): kuyruk adresi geri dönüş durumunda', () => {
+    expect(inboxRowLink({ to: 'page', href: '/incident?id=i1' }, '/inbox', Q))
+      .toEqual({ to: '/incident?id=i1', replace: false, state: incidentBackState('/inbox' + Q) });
+  });
+  it('yerinde detay: withInboxDetail adresi (yabancı param kalır, ?item= ve öteki detay silinir), replace', () => {
+    const l = inboxRowLink({ to: 'detail', param: 'anomaly', id: 'e1' }, '/inbox', Q + '&problem=p0');
+    expect(l).toEqual({ to: '/inbox?prio=P1%2CP2&env=prod&anomaly=e1', replace: true });
+    const sp = new URLSearchParams(l!.to.split('?')[1]);
+    expect(sp.get('prio')).toBe('P1,P2');
+    expect(sp.has('problem')).toBe(false);
+    expect(sp.has('item')).toBe(false);
+  });
+  it('çözülemeyen satır: null (link / işaret yok)', () => {
+    expect(inboxRowLink({ to: 'none' }, '/inbox', Q)).toBeNull();
   });
 });

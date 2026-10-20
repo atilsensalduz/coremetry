@@ -1,12 +1,13 @@
 import { useMemo } from 'react';
-import { rowActivation } from '@/lib/a11y'; // v0.10.455 (dış denetim D3 dilim 3)
-import { Link, useSearchParams } from 'react-router-dom';
+import { stopRowClick } from '@/lib/a11y'; // v0.10.455 (dış denetim D3 dilim 3); v0.10.1414 satır linki
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { paramHref } from '@/lib/paramHref';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
 import { Drawer, DrawerSection, DrawerTrendRow } from '@/components/ui';
 import { api } from '@/lib/api';
-import { timeRangeToNs, fmtNum, fmtFixed } from '@/lib/utils';
+import { timeRangeToNs, fmtNum, fmtFixed, rowClickHandlers } from '@/lib/utils';
 import { useUrlRange, DEFAULT_RANGE_PRESET } from '@/lib/useUrlRange';
 import {
   useDataTable, DataTableHead, DataTableColgroup, DataTableCell, DataTableState,
@@ -91,6 +92,12 @@ export default function ExternalPage() {
     next.delete('host');
     return next;
   }, { replace: true });
+  // v0.10.1414 — satırın birincil hücresi çekmece adresine GERÇEK <Link
+  // replace> (openHost'un yazdığı adresin aynısı): Ctrl/⌘/orta tık çekmece
+  // açık yeni sekme, "bağlantıyı kopyala" aynı görünüm.
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const hostHref = (h: string) => paramHref(pathname, params, 'host', h);
 
   const dt = useDataTable<ExternalHost>({
     storageKey: 'external',
@@ -133,17 +140,18 @@ export default function ExternalPage() {
             <tbody>
               {dt.sortedRows.length === 0 ? <DataTableState dt={dt} {...tableState} /> : dt.sortedRows.map((r, i) => {
                 const rp = dt.rowProps(i, r);
+                const href = hostHref(r.host);
                 return (
                   <tr key={r.host} {...rp}
-                    {...rowActivation(() => openHost(r.host))}
+                    {...rowClickHandlers(href, () => navigate(href, { replace: true }))}
                     className={[rp.className, 'cv-row'].filter(Boolean).join(' ')}>
                     <DataTableCell dt={dt} col="host" row={r}>
-                      <span style={{ fontWeight: 500 }}
+                      <Link to={href} replace onClick={stopRowClick} className="cell-link cell-link--block" style={{ fontWeight: 500 }}
                         title={r.topLabels.length ? `Top operations:\n${r.topLabels.join('\n')}` : r.host}>
                         {r.display
                           ? <>{r.display} <span style={{ color: 'var(--text3)', fontWeight: 400 }}>({r.host})</span></>
                           : r.host}
-                      </span>
+                      </Link>
                     </DataTableCell>
                     <DataTableCell dt={dt} col="category" row={r}><CategoryBadge category={r.category} /></DataTableCell>
                     <DataTableCell dt={dt} col="calls" row={r} value={fmtNum(r.calls)} />

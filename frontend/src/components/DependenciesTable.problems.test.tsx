@@ -44,7 +44,7 @@ function render(node: React.ReactNode): HTMLElement {
   return host;
 }
 const mount = (kind: 'db' | 'queue', rows: DepRow[], withHref = true) => render(
-  <DependenciesTable rows={rows} kind={kind} range={RANGE} onRowNavigate={() => {}}
+  <DependenciesTable rows={rows} kind={kind} range={RANGE}
     rowHref={withHref ? hrefOf : undefined} />);
 afterEach(() => {
   act(() => { root?.unmount(); });

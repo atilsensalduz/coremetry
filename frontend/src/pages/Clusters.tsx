@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TabStrip } from '@/components/ui/TabStrip'; // v0.10.457 (D5 dilim B)
-import { rowActivation } from '@/lib/a11y'; // v0.10.455 (dış denetim D3 dilim 3)
+import { rowActivation, stopRowClick } from '@/lib/a11y'; // v0.10.455 (dış denetim D3 dilim 3); v0.10.1414 pod satırı linki
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueries } from '@tanstack/react-query';
 import { ChartSpline } from 'lucide-react';
@@ -25,7 +25,7 @@ import { Spinner, Empty } from '@/components/Spinner';
 import { Button, Card, CardLink, Drawer, DrawerSection, IconButton, LinkButton } from '@/components/ui';
 import { api } from '@/lib/api';
 import { useClusters } from '@/lib/queries';
-import { timeRangeToNs, fmtBytes, fmtNum } from '@/lib/utils';
+import { timeRangeToNs, fmtBytes, fmtNum, rowClickHandlers } from '@/lib/utils';
 import { clusterCapacityChip } from '@/lib/fmtEta'; // v0.10.912 — "kaç gün kaldı"
 import { clampThanosWindow, clampSuffix } from '@/lib/thanosWindow';
 import { useUrlRange, rememberRange } from '@/lib/useUrlRange';
@@ -200,11 +200,13 @@ export default function ClustersPage() {
   // v0.9.151 — pod'a tıklama artık cramped drawer yerine TAM /pod detay
   // sayfasına gider (H.Polat önerisi). r.service (eşleşen Coremetry servisi,
   // boş olabilir) RED'i, pod adından türetilen deploy JMX keşfini sürer.
-  const openPod = (r: ClusterPodRow) => navigate(podDetailPath({
+  // v0.10.1414 — adres ayrı: pod hücresi bu adrese GERÇEK <Link> (Ctrl/⌘/orta
+  // tık yeni sekme, "bağlantıyı kopyala"); satırın boş yeri rowClickHandlers.
+  const podHref = (r: ClusterPodRow) => podDetailPath({
     cluster: r.cluster, namespace: r.namespace, pod: r.pod,
     service: r.service ?? '', deploy: podWorkloadName(r.pod),
     range: params.get('range'), from: 'clusters',
-  }));
+  });
 
   // Genel görünüm: yalnız summary fan-out'u (skaler, kart başına).
   const summaryQs = useQueries({
@@ -965,15 +967,17 @@ export default function ClustersPage() {
                       <DataTableColgroup dt={dt} />
                       <DataTableHead dt={dt} />
                       <tbody>
-                        {dt.sortedRows.length === 0 ? <DataTableState dt={dt} {...podState} /> : dt.sortedRows.map(r => (
+                        {dt.sortedRows.length === 0 ? <DataTableState dt={dt} {...podState} /> : dt.sortedRows.map(r => {
+                          const href = podHref(r);
+                          return (
                           <tr key={`${r.cluster}|${r.namespace}|${r.pod}`} className="cv-row"
-                            {...rowActivation(() => openPod(r))}>
+                            {...rowClickHandlers(href, () => navigate(href))}>
                             <DataTableCell dt={dt} col="cluster" row={r} value={r.cluster} />
                             <DataTableCell dt={dt} col="namespace" row={r} value={r.namespace} />
                             <td>
-                              <span className="mono" style={{ fontWeight: 500 }} title={r.pod}>
+                              <Link to={href} onClick={stopRowClick} className="mono cell-link cell-link--block" style={{ fontWeight: 500 }} title={r.pod}>
                                 {r.pod}
-                              </span>
+                              </Link>
                             </td>
                             <td onClick={e => e.stopPropagation()}>
                               {r.service ? (
@@ -1019,7 +1023,8 @@ export default function ClustersPage() {
                                   {r.lastTermReason}</span>
                               )}</DataTableCell>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

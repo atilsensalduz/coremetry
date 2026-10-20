@@ -44,9 +44,10 @@ import type { PhysicalAddrs } from '@/lib/types';
 // CEVAP, DB İÇİN: yaşamıyor — ve bu HEAD'de yeniden ölçüldü, denetimin
 // sözüne güvenilmedi. `features/dependencies/DetailDrawer.tsx`in
 // `kind === 'db'` dalı ÇALIŞMA ZAMANINDA ERİŞİLEMEZ:
-// `DependenciesTable.tsx:469` `isOpen = !onRowNavigate && …` hesaplıyor ve
+// `DependenciesTable` `isOpen = !rowHref && …` hesaplıyor (v0.10.1414'e dek
+// `onRowNavigate`) ve
 // /databases'in İKİ mount noktası da (`Databases.tsx:339`, `:381`)
-// `onRowNavigate` geçiyor. Geçen tek gerçek tüketici `/messaging`
+// `rowHref` geçiyor. Geçen tek gerçek tüketici `/messaging`
 // (`Messaging.tsx:214`, `kind="queue"`, kontrollü kip). Yani db tarafında
 // çekmece v0.9.840'ta emekli oldu; ikisi AYNI ANDA açık OLAMAZ.
 //

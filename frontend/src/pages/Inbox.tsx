@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { SafeHref } from '@/components/ui/SafeHref'; // v0.10.1315 — olay/katalog linki XSS kapısı
-import { rowActivation } from '@/lib/a11y'; // v0.10.455 (dış denetim D3 dilim 3)
+import { stopRowClick } from '@/lib/a11y'; // v0.10.455 (dış denetim D3 dilim 3); v0.10.1414 satır linki
 import { PriorityBadge } from '@/components/ui/PriorityBadge';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { Button, Chip, SearchField } from '@/components/ui';
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Users, Shield } from 'lucide-react';
 import { Topbar } from '@/components/Topbar';
 import { useInbox, useServicesMetadata } from '@/lib/queries';
-import { tsCompact, tsLong, fmtFixed, fmtAgoNs } from '@/lib/utils';
+import { tsCompact, tsLong, fmtFixed, fmtAgoNs, rowClickHandlers } from '@/lib/utils';
 // v0.10.1084 — Exceptions listesiyle ortak başlık hücresi + satır metni (saf).
 import { TriageTitleCell } from '@/features/anomalies/TriageTitleCell';
 import { inboxRowHeadline, inboxRowLabel, inboxOccurrencesLabel } from '@/lib/inboxRowText';
@@ -23,8 +23,8 @@ import { SavedViewsBar } from '@/components/SavedViewsBar';
 // v0.10.1081 — triyaj çekmecesi (InboxTriageDrawer) KALDIRILDI: her satır tam
 // sayfa detayına açılır; eski ?item= linkleri oraya yönlendirilir.
 import {
-  isInboxExcFamily, inboxRowOpen, inboxItemIdTarget, incidentBackState, readInboxDetail, withInboxDetail,
-  type InboxDetailParam, type InboxRowOpen,
+  isInboxExcFamily, inboxRowOpen, inboxRowLink, inboxItemIdTarget, incidentBackState, readInboxDetail, withInboxDetail,
+  type InboxDetailParam,
 } from '@/lib/inboxHref';
 // v0.9.837 (operator-reported) — "Alert rules" bölümü Exceptions
 // sayfasından buraya taşındı: alert kuralları triage kuyruğunun
@@ -468,18 +468,16 @@ export default function InboxPage() {
   // parametreler (süzgeçler, ?env=) korunur; ?item= ve diğer detay silinir.
   const openDetail = (param: InboxDetailParam, id: string | null) =>
     setSearchParams(prev => withInboxDetail(prev, param, id), { replace: true });
-  const applyOpen = (o: InboxRowOpen, replace = false) => {
-    if (o.to === 'page') {
-      navigate(o.href, {
-        replace,
-        // Incident sayfasının geri bağlantısı kuyruğa döner (süzgeçler dahil).
-        state: o.href.startsWith('/incident?') ? incidentBackState(location.pathname + location.search) : undefined,
-      });
-    } else if (o.to === 'detail') {
-      openDetail(o.param, o.id);
-    }
+  // v0.10.1414 (tablo satırları gerçek link) — kararın BAĞLANTI hâli
+  // (lib/inboxHref inboxRowLink): başlık hücresi <Link to replace state>,
+  // satırın boş yeri rowClickHandlers, klavye Enter/o (onOpen) aynı hedef.
+  // Adresler değişmedi: tam sayfa push (incident'te kuyruğa geri dönüş
+  // durumu), yerinde detay withInboxDetail'in kuyruk adresi (replace).
+  const rowLinkOf = (it: InboxItem) => inboxRowLink(inboxRowOpen(it), location.pathname, location.search);
+  const openRow = (it: InboxItem) => {
+    const link = rowLinkOf(it);
+    if (link) navigate(link.to, { replace: link.replace, state: link.state });
   };
-  const openRow = (it: InboxItem) => applyOpen(inboxRowOpen(it));
   // Eski ?item= linki → satırın tam sayfası (çözülemeyen kimlikte yalnız
   // param silinir; kuyruk açık kalır). Yükü değil KİMLİĞİ okur: liste
   // yüklenmeden ve satır süzgeç dışında olsa da çalışır.
@@ -1161,13 +1159,16 @@ export default function InboxPage() {
             <tbody>
               {dt.sortedRows.length === 0 ? <DataTableState dt={dt} leading={[34]} {...inboxState} /> : dt.sortedRows.map((it, i) => {
                 const rp = dt.rowProps(i);
+                const link = rowLinkOf(it); // v0.10.1414 — null: satır açılmaz (işaret yok)
                 const spread = spreadOf(it.exception); // v0.10.949
                 // v0.10.1109 — Oracle hata tablosu grubu: Exceptions'taki etiket.
                 const ora = isExcFamily(it) && isOracleGroup(it.exception!.fingerprint);
                 return (
                 <tr key={it.id}
                   {...rp}
-                  {...rowActivation(() => openRow(it))}
+                  {...(link
+                    ? rowClickHandlers(link.to, () => navigate(link.to, { replace: link.replace, state: link.state }))
+                    : { 'data-row-action': undefined })}
                   onMouseEnter={() => dt.nav.setSelected(i)}
                   className={[rp.className, 'cv-row'].filter(Boolean).join(' ')}>
                   <td style={{ textAlign: 'center' }}
@@ -1188,6 +1189,9 @@ export default function InboxPage() {
                         (kaynak · kural · ölçü / mesaj), varsa AI özeti. */}
                     <TriageTitleCell
                       title={inboxRowHeadline(it)}
+                      titleNode={link
+                        ? <Link to={link.to} replace={link.replace} state={link.state} onClick={stopRowClick} className="cell-link">{inboxRowHeadline(it)}</Link>
+                        : undefined}
                       code={isExcFamily(it)}
                       chips={<RowChips it={it} real={verdictOf(it, verdicts) === 'real'} oraLabel={ora ? oraLabel : undefined} />}
                       detail={ora ? oracleInboxDetail(it.exception!.message, oraLabel) : <DetailLine it={it} />}

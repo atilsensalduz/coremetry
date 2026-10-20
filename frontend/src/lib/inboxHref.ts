@@ -130,6 +130,30 @@ export function withInboxDetail(prev: URLSearchParams, param: InboxDetailParam, 
   return p;
 }
 
+/** v0.10.1414 (tablo satırları gerçek link) — satır kararının (inboxRowOpen)
+ *  GERÇEK bağlantı hâli: satırın başlık hücresi `<Link to replace state>`,
+ *  satırın boş yeri `rowClickHandlers(to, () => navigate(to, { replace, state }))`
+ *  — Ctrl/⌘/orta tık yeni sekme, "bağlantıyı kopyala" aynı hedef. Adresler
+ *  bugünküyle AYNI: tam sayfa `o.href` (push; incident'te kuyruğa geri dönüş
+ *  durumu), yerinde detay `withInboxDetail`in yazdığı kuyruk adresi
+ *  (`replace`). 'none' → null: satır açılmaz, link / işaret / el imleci yok.
+ *  `pathname` + `search` = şu anki kuyruk adresi (useLocation). */
+export interface InboxRowLink { to: string; replace: boolean; state?: IncidentBackState }
+export function inboxRowLink(o: InboxRowOpen, pathname: string, search: string): InboxRowLink | null {
+  if (o.to === 'page') {
+    return {
+      to: o.href,
+      replace: false,
+      state: o.href.startsWith('/incident?') ? incidentBackState(pathname + search) : undefined,
+    };
+  }
+  if (o.to === 'detail') {
+    const qs = withInboxDetail(new URLSearchParams(search), o.param, o.id).toString();
+    return { to: qs ? `${pathname}?${qs}` : pathname, replace: true };
+  }
+  return null;
+}
+
 /** URL'deki açık tam sayfa detayı (yoksa null); ikisi birden varsa problem. */
 export function readInboxDetail(sp: URLSearchParams): { param: InboxDetailParam; id: string } | null {
   for (const param of INBOX_DETAIL_PARAMS) {

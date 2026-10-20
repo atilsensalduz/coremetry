@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueries } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useEndpoints, useClusters } from '@/lib/queries';
@@ -9,7 +9,8 @@ import { SectionHead, IconButton } from '@/components/ui';
 import { LazyMount } from '@/components/LazyMount';
 import type { DataTableColumn } from '@/lib/dataTable';
 import type { TimeRange } from '@/lib/types';
-import { rowActivation } from '@/lib/a11y';
+import { stopRowClick } from '@/lib/a11y';
+import { rowClickHandlers } from '@/lib/utils';
 import { encodeRange } from '@/lib/urlState';
 import { endpointDetailHref } from '@/pages/endpoints/endpointParam';
 import { tracesLink } from '@/pages/endpoints/links';
@@ -92,7 +93,11 @@ export function DetailsEndpointsSection({ service, range, rangeNs, env }: {
 
   const cols = useMemo(() => (mode === 'cluster' ? [COLS_BASE[0], COL_CLUSTER, ...COLS_BASE.slice(1)] : COLS_BASE), [mode]);
   const rangeParam = encodeRange(range);
-  const gotoEp = (r: ClusterEndpointRow) => endpointDetailHref({ service, path: r.path, sig: false },
+  // v0.10.1414 — satır GERÇEK link: düz tık SPA gezinmesi (eskiden
+  // window.location.assign = tam sayfa yeniden yükleme), Ctrl/⌘/orta tık yeni
+  // sekme; adres değişmedi.
+  const navigate = useNavigate();
+  const epHref = (r: ClusterEndpointRow) => endpointDetailHref({ service, path: r.path, sig: false },
     { range: rangeParam, env: env || undefined, cluster: (r.cluster || scopeCluster) || undefined });
   const dt = useDataTable<ClusterEndpointRow>({
     storageKey: 'svc-dtl-endpoints', columns: cols, rows,
@@ -126,11 +131,12 @@ export function DetailsEndpointsSection({ service, range, rangeNs, env }: {
               <DataTableColgroup dt={dt} />
               <DataTableHead dt={dt} />
               <tbody>
-                {dt.sortedRows.length === 0 ? <DataTableState dt={dt} {...tableState} /> : dt.sortedRows.map((r, i) => (
+                {dt.sortedRows.length === 0 ? <DataTableState dt={dt} {...tableState} /> : dt.sortedRows.map((r, i) => {
+                  const href = epHref(r);
+                  return (
                   <tr key={`${r.cluster}|${r.path}`} {...dt.rowProps(i)}
-                      {...rowActivation(() => { window.location.assign(gotoEp(r)); })}>
-                    <td><Link to={gotoEp(r)} className="mono row-link" onClick={e => e.stopPropagation()}
-                      style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }} title={r.path}>{r.path}</Link></td>
+                      {...rowClickHandlers(href, () => navigate(href))}>
+                    <td><Link to={href} onClick={stopRowClick} className="mono cell-link cell-link--block" title={r.path}>{r.path}</Link></td>
                     {mode === 'cluster' && (
                       <td className="mono" onClick={e => e.stopPropagation()}>
                         {r.cluster
@@ -153,7 +159,8 @@ export function DetailsEndpointsSection({ service, range, rangeNs, env }: {
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

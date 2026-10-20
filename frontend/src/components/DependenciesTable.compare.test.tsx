@@ -21,7 +21,7 @@ vi.mock('@/lib/queries/dependencies', () => ({
   useDepDetail: () => ({ isPending: false, data: null }),
 }));
 // db tarafında satır-altı çekmece çalışma zamanında erişilemez
-// (onRowNavigate); modülün ağır panel ağacını yüklemeye gerek yok.
+// (rowHref — v0.10.1414'e dek onRowNavigate); modülün ağır panel ağacını yüklemeye gerek yok.
 vi.mock('@/features/dependencies/DetailDrawer', () => ({ DetailDrawer: () => null }));
 
 const RANGE: TimeRange = { preset: '1h' };
@@ -44,7 +44,7 @@ function mount(compare: boolean, rows: DepRow[] = [ROW]): HTMLElement {
   act(() => {
     root!.render(
       <MemoryRouter>
-        <DependenciesTable rows={rows} kind="db" range={RANGE} compare={compare} onRowNavigate={() => {}} />
+        <DependenciesTable rows={rows} kind="db" range={RANGE} compare={compare} rowHref={() => '/database?system=x'} />
       </MemoryRouter>,
     );
   });
@@ -100,7 +100,7 @@ describe('DependenciesTable kind="db" — compare delta rozetleri (v0.10.1025)',
     act(() => {
       root!.render(
         <MemoryRouter>
-          <DependenciesTable rows={[q]} kind="queue" range={RANGE} compare onRowNavigate={() => {}} />
+          <DependenciesTable rows={[q]} kind="queue" range={RANGE} compare rowHref={() => '/database?system=x'} />
         </MemoryRouter>,
       );
     });

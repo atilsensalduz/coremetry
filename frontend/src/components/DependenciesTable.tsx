@@ -1,13 +1,13 @@
 import { Fragment, useMemo, useState, type ReactNode } from 'react';
-import { rowActivation } from '@/lib/a11y';
+import { rowActivation, stopRowClick } from '@/lib/a11y';
 import { dbTracesHref } from '@/lib/pivotHref';
 import { messagingTopicHref } from '@/pages/messaging/topicHref'; // v0.10.586
 import { dbSeverityBadgeClass } from '@/pages/databases/databaseProblems'; // v0.10.1027
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Sparkline } from './Sparkline';
 import { TrendDelta } from './TrendDelta';
 import { Button } from './ui/Button';
-import { fmtNum, timeRangeToNs } from '@/lib/utils';
+import { fmtNum, timeRangeToNs, rowClickHandlers } from '@/lib/utils';
 import { trendsEnabled, latencyPresent, depRowKey, resolveTrends } from '@/lib/depsTable';
 import { msgP99Delta } from '@/lib/msgBalance';
 import {
@@ -105,7 +105,7 @@ const NATURAL: Record<SortKey, 'asc' | 'desc'> = {
 // click lands on /explore scoped to that system+instance.
 export function DependenciesTable({
   rows, kind, range, compare, extraControls, openRowKey, onOpenRowChange,
-  onRowNavigate, rowHref, state,
+  rowHref, state,
 }: {
   rows: DepRow[];
   // 'db' → uses instance + filters by db.system; 'queue' → uses
@@ -137,10 +137,12 @@ export function DependenciesTable({
   // omit it and every existing consumer behaves exactly as before.
   // Both affordances move together: the mouse click and the keyboard
   // Enter/o must never disagree about what opening a row means.
-  onRowNavigate?: (row: DepRow) => void;
-  // v0.10.1027 — satırın detay sayfası adresi (onRowNavigate'in gittiği
-  // yerin AYNISI). Açık problem işareti bu adrese bağlanır; verilmezse
-  // işaret bağlantısız çizilir.
+  // v0.10.1027 — satırın detay sayfası adresi. Açık problem işareti bu
+  // adrese bağlanır; verilmezse işaret bağlantısız çizilir.
+  // v0.10.1414 — gezinme kipinin TEK anahtarı (eski `onRowNavigate`
+  // sarmalayıcısı kalktı): verilince satırın ilk hücresi bu adrese GERÇEK
+  // <Link> (Ctrl/⌘/orta tık yeni sekme, "bağlantıyı kopyala"), satırın boş
+  // yeri rowClickHandlers, klavye Enter/o aynı adrese navigate.
   rowHref?: (row: DepRow) => string;
   // v0.10.954 — tablo standardı T12 (VirtualTable `state` emsali): `rows`
   // boşken tablonun İÇİNDE çizilecek durum (ebeveynin yükleniyor / hata /
@@ -178,6 +180,7 @@ export function DependenciesTable({
   const [openKeyState, setOpenKeyState] = useState<string | null>(null);
   const controlled = onOpenRowChange !== undefined;
   const openKey = controlled ? (openRowKey ?? null) : openKeyState;
+  const navigate = useNavigate();
   const setOpen = (row: DepRow | null, key: string | null) => {
     if (controlled) onOpenRowChange!(row);
     else setOpenKeyState(key);
@@ -328,7 +331,7 @@ export function DependenciesTable({
     // drawer'ını Endpoints'teki gibi açar/kapar. /databases + /messaging
     // bu tablo üzerinden aynı anda kazandı.
     onOpen: (row) => {
-      if (onRowNavigate) { onRowNavigate(row); return; } // v0.9.840
+      if (rowHref) { navigate(rowHref(row)); return; } // v0.9.840; v0.10.1414 adres
       const rowKey = depRowKey(row);
       setOpen(openKey === rowKey ? null : row, openKey === rowKey ? null : rowKey);
     },
@@ -485,20 +488,25 @@ export function DependenciesTable({
               const rowKey = depRowKey(r);
               // v0.9.840 — navigate mode never has an open row: there is
               // no inline drawer to be open.
-              const isOpen = !onRowNavigate && openKey === rowKey;
+              const href = rowHref ? rowHref(r) : null;
+              const isOpen = !href && openKey === rowKey;
               return (
                 <Fragment key={`${rowKey}|${i}`}>
                   {/* scale-audit v0.8.203 — skip off-screen rows (cv-row); at a
                       bank with many DB schemas this list reaches 1000s. */}
-                  <tr {...rowActivation(() => (onRowNavigate
-                        ? onRowNavigate(r)
-                        : setOpen(isOpen ? null : r, isOpen ? null : rowKey)))}
+                  {/* v0.10.1414 — gezinme kipinde satır gerçek link (rowClickHandlers +
+                      ilk hücrede <Link>); çekmece kipi (/messaging) rowActivation'da. */}
+                  <tr {...(href
+                        ? rowClickHandlers(href, () => navigate(href))
+                        : rowActivation(() => setOpen(isOpen ? null : r, isOpen ? null : rowKey)))}
                       className="cv-row"
                       style={isOpen ? { background: 'var(--bg2)' } : undefined}>
                     {/* v0.10.943 — genişlik 24 colgroup'ta (leading); ortalama ve sabit ofset satır içi kalır. */}
-                    <td className="sticky-left cell-faint" style={{ textAlign: 'center', left: 0 }}
-                        title={onRowNavigate ? 'Open the detail page' : undefined}>
-                      {onRowNavigate ? '›' : isOpen ? '▾' : '▸'}
+                    <td className="sticky-left cell-faint" style={{ textAlign: 'center', left: 0 }}>
+                      {href
+                        ? <Link to={href} onClick={stopRowClick} className="cell-link cell-link--block"
+                            title="Open the detail page" aria-label={`Open the detail page: ${nameOf(r) || r.system}`}>›</Link>
+                        : isOpen ? '▾' : '▸'}
                     </td>
                     <td className="sticky-left" style={{ left: leftOffs['system'] }}>
                       <SystemBadge system={r.system} kind={kind} />

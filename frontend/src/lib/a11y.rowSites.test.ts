@@ -68,7 +68,10 @@ describe('clickable rows use rowActivation (D3)', () => {
   it('the D3 sites adopted the helper', () => {
     // v0.10.1356 (R4) — Profiling ve servis OverviewTables gezinen satırdı:
     // rowActivation'dan rowClickHandlers + <Link>'e geçtiler (aşağıdaki R4 kapısı).
-    for (const f of ['components/DBQueriesPanel.tsx', 'features/anomalies/AnomaliesPage.tsx', 'pages/AIObservability.tsx', 'pages/AdminElastic.tsx', 'pages/service/ServicePodsTable.tsx', 'pages/Clusters.tsx', 'pages/Inbox.tsx', 'pages/Hosts.tsx', 'pages/Databases.tsx', 'pages/SlowQueries.tsx', 'components/LogPatternsPanel.tsx']) {
+    // v0.10.1414 — Inbox, Hosts, Databases da (gezinen satır; aşağıdaki v0.10.1414
+    // kapısı). Clusters listede KALIR: namespace / deployment satırları sayfa içi
+    // süzgeç seçimi (aria-pressed), gezinme değil — rowActivation doğru.
+    for (const f of ['components/DBQueriesPanel.tsx', 'features/anomalies/AnomaliesPage.tsx', 'pages/AIObservability.tsx', 'pages/AdminElastic.tsx', 'pages/service/ServicePodsTable.tsx', 'pages/Clusters.tsx', 'pages/SlowQueries.tsx', 'components/LogPatternsPanel.tsx']) {
       expect(readFileSync(join(root, f), 'utf8')).toMatch(ROW_ACTIVATION_SPREAD);
     }
     for (const f of ['components/chart/StatsLegend.tsx', 'components/viz/TimeSeriesPanel.tsx', 'pages/Metrics.tsx']) {
@@ -161,7 +164,10 @@ describe('navigating rows are real links (R4, v0.10.1356)', () => {
       }
     }
     expect(offenders).toEqual([]);
-    expect(checked).toBeGreaterThanOrEqual(9); // R4'ün 6 sitesi + TracesResult + OperationsTable + Metrics
+    // R4'ün 6 sitesi + TracesResult + OperationsTable + Metrics (9) + v0.10.1414'ün
+    // 8'i (TopEndpoints, DetailsEndpoints, Hosts, External, Databases ifade,
+    // DependenciesTable, Clusters pod, Inbox).
+    expect(checked).toBeGreaterThanOrEqual(17);
   });
 
   it('the six R4 sites use rowClickHandlers + a Link guarded by stopRowClick', () => {
@@ -170,6 +176,41 @@ describe('navigating rows are real links (R4, v0.10.1356)', () => {
       expect(src, f).toContain('rowClickHandlers(');
       expect(src, f).not.toMatch(/rowActivation\(/);
       expect(src, f).toContain('onClick={stopRowClick}');
+    }
+  });
+});
+
+// v0.10.1414 (tablo satırları gerçek link) — v0.10.1356'nın "bilinçli sınırı":
+// SARMALAYICI fonksiyonla gezinen satırlar (`rowActivation(() => openPod(r))`,
+// `onRowNavigate`, `window.location.assign`) yukarıdaki kapıya takılmıyordu —
+// regex yalnız doğrudan `navigate(` görüyordu. Altı tablo aynı R4 desenine
+// geçti; bu kapı geri dönüşü (sarmalayıcıyla yeniden role=button satır) yakalar.
+// Davranış: lib/rowLinkSites1414.render.test.tsx.
+const WRAPPED_NAV_SITES = [
+  'pages/service/TopEndpointsCard.tsx',
+  'pages/service/DetailsEndpointsSection.tsx',
+  'pages/Hosts.tsx',
+  'pages/External.tsx',
+  'pages/Databases.tsx',
+  'components/DependenciesTable.tsx',
+  'pages/Clusters.tsx',
+  'pages/Inbox.tsx',
+];
+/** Gezinen satırın sarmalayıcı adları (v0.10.1414 öncesi). */
+const WRAPPED_NAV = /rowActivation\(\s*\(\)\s*=>\s*\(?\s*(?:\{\s*)?(?:window\.location|open(?:Pod|Host|Row|Stmt|DatabasePage)\b|gotoEp\b|onRowNavigate\b)/;
+
+describe('wrapper-navigating rows are real links too (v0.10.1414)', () => {
+  const root = resolve(__dirname, '..');
+  it.each(WRAPPED_NAV_SITES)('%s: rowClickHandlers + <Link onClick={stopRowClick}>, sarmalayıcıyla rowActivation yok', (f) => {
+    const src = readFileSync(join(root, f), 'utf8');
+    expect(src).toContain('rowClickHandlers(');
+    expect(src).toContain('onClick={stopRowClick}');
+    expect(src).not.toMatch(WRAPPED_NAV);
+    expect(src).not.toMatch(/window\.location\.assign\(/);
+  });
+  it('DependenciesTable gezinme kipinin anahtarı adres (rowHref) — onRowNavigate sarmalayıcısı yok', () => {
+    for (const f of ['components/DependenciesTable.tsx', 'pages/Databases.tsx']) {
+      expect(readFileSync(join(root, f), 'utf8'), f).not.toMatch(/onRowNavigate[=?:]/);
     }
   });
 });

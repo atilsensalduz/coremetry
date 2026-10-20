@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { rowActivation } from '@/lib/a11y'; // v0.10.455 (dış denetim D3 dilim 3)
+import { stopRowClick } from '@/lib/a11y'; // v0.10.455 (dış denetim D3 dilim 3); v0.10.1414 satır linki
+import { rowClickHandlers } from '@/lib/utils';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useEffect } from 'react';
 import { endpointDetailHref } from '@/pages/endpoints/endpointParam';
@@ -51,13 +52,17 @@ export function TopEndpointsCard({ service, range, endpoints }: {
   // (imza-gruplu) DEĞİL.
   const [params] = useSearchParams();
   const navigate = useNavigate();
-  const gotoEp = (path: string) => navigate(endpointDetailHref(
+  // v0.10.1414 — adres ayrı: satırın birincil hücresi bu adrese GERÇEK
+  // <Link> (Ctrl/⌘/orta tık yeni sekme, "bağlantıyı kopyala"); düz tık,
+  // klavye Enter/o ve eski ?ep= yönlendirmesi aynı adrese gider.
+  const epHref = (path: string) => endpointDetailHref(
     { service, path, sig: false },
     {
       range: rangeParam,
       env: params.get('env') ?? undefined,
       cluster: params.get('cluster') ?? undefined,
-    }));
+    });
+  const gotoEp = (path: string) => navigate(epHref(path));
   // Eski ?ep= derin linkleri (v0.9.379-1085 arası kopyalananlar) drawer
   // yerine detaya YÖNLENDİRİLİR — legacyEndpointTarget emsali: redirect,
   // compat shim değil; drawer'ı yazan hiçbir kod kalmadı.
@@ -101,10 +106,11 @@ export function TopEndpointsCard({ service, range, endpoints }: {
           <tbody>
             {dt.sortedRows.slice(0, 10).map((r, i) => {
               const share = maxTime > 0 ? totalTimeOf(r) / maxTime : 0;
+              const href = epHref(r.path);
               return (
                 <tr key={r.path} {...dt.rowProps(i)}
-                    {...rowActivation(() => gotoEp(r.path))}>
-                  <td><span className="mono" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }} title={r.path}>{r.path}</span></td>
+                    {...rowClickHandlers(href, () => navigate(href))}>
+                  <td><Link to={href} onClick={stopRowClick} className="mono cell-link cell-link--block" title={r.path}>{r.path}</Link></td>
                   <td className="num">{fmtCount(r.calls)}</td>
                   <td className="num"><span className={errBadge(r.errorRate)}>{r.errorRate.toFixed(1)}%</span></td>
                   <td className="num">{r.p50Ms != null ? `${r.p50Ms.toFixed(0)} ms` : '—'}</td>

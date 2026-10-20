@@ -9,13 +9,18 @@
 //             stripMarkdown'dan geçmiş gelir (kırpılmış yüzey, markdownSurfaces).
 //
 // Sınıflar globals.css `.triage-*`. Hücre (<td>) ve satır linki (<Link>)
-// çağıranın: Exceptions hücresi tıklanabilir link, Problems satırı rowActivation.
+// çağıranın: Exceptions hücresi tıklanabilir link; Problems satırında (v0.10.1414)
+// başlık metni `titleNode` ile gelen <Link> — çipler (runbook <a>'sı) linkin
+// DIŞINDA kalır (<a> içinde <a> geçersiz).
 import type { ReactNode } from 'react';
 import { IconSparkles } from '@/components/icons';
 
 export interface TriageTitleCellProps {
   /** Kalın başlık (title özniteliğinde tam hâli). */
   title: string;
+  /** v0.10.1414 — başlık metninin yerine çizilecek düğüm (ör. satırın <Link>'i);
+   *  verilmezse `title` düz metin. Kırpma (dt-trunc) ve ipucu aynı kalır. */
+  titleNode?: ReactNode;
   /** Exception tipi gibi kod kimliği: mono + hata rengi. Cümle başlığı düz metin. */
   code?: boolean;
   /** Başlığın yanındaki satır içi çipler. */
@@ -32,11 +37,11 @@ export interface TriageTitleCellProps {
   aiAge?: string;
 }
 
-export function TriageTitleCell({ title, code, chips, detail, detailTitle, detailMono, ai, aiAge }: TriageTitleCellProps) {
+export function TriageTitleCell({ title, titleNode, code, chips, detail, detailTitle, detailMono, ai, aiAge }: TriageTitleCellProps) {
   return (
     <>
       <div className={code ? 'triage-title triage-title--code mono' : 'triage-title'} title={title}>
-        <span className="dt-trunc">{title}</span>
+        <span className="dt-trunc">{titleNode ?? title}</span>
         {chips}
       </div>
       {detail !== undefined && (

@@ -14,8 +14,9 @@ import { join, resolve } from 'node:path';
 // zamanında ERİŞİLEMEZ. Bu ayrım bir kez zaten yanlış okundu: v0.9.846'da
 // bir bileşen "DetailDrawer hâlâ mount ediyor" gerekçesiyle yaşatıldı, oysa
 // dal erişilemezdi — union, ölü-kod muhakemesini yanlışladı. Erişilemezliği
-// sağlayan şey TEK BİR İFADE (`DependenciesTable.tsx` `isOpen = !onRowNavigate
-// && …`) ve TEK BİR PROP (/databases'in `onRowNavigate` geçmesi). İkisinden
+// sağlayan şey TEK BİR İFADE (`DependenciesTable.tsx` `isOpen = !href && …`,
+// href = rowHref(r)) ve TEK BİR PROP (/databases'in `rowHref` geçmesi;
+// v0.10.1414'e dek `onRowNavigate` — satır artık o adrese gerçek link). İkisinden
 // biri sessizce giderse db çekmecesi geri gelir ve /database sayfasıyla
 // AYNI payload'ı ikinci bir gövdeden çizmeye başlar — yani bu dilimin
 // çözdüğü kopya, kimse fark etmeden geri döner.
@@ -82,7 +83,7 @@ describe('db detay yüzeyi TEK — sayfa, çekmece değil', () => {
     expect(files.length).toBeGreaterThan(100);
   });
 
-  it('her <DependenciesTable kind="db"> mount noktası onRowNavigate GEÇİYOR', () => {
+  it('her <DependenciesTable kind="db"> mount noktası rowHref GEÇİYOR (v0.10.1414: gezinme kipinin anahtarı)', () => {
     const sites: string[] = [];
     const missing: string[] = [];
     for (const f of files) {
@@ -90,22 +91,24 @@ describe('db detay yüzeyi TEK — sayfa, çekmece değil', () => {
       for (const w of allTagWindows(readFileSync(join(SRC, f), 'utf8'), 'DependenciesTable')) {
         if (!/kind\s*=\s*["']db["']/.test(w)) continue;
         sites.push(f);
-        if (!/onRowNavigate\s*=/.test(w)) missing.push(f);
+        if (!/rowHref\s*=/.test(w)) missing.push(f);
       }
     }
     // Boş küme kapıyı yeşil bırakmasın: mount noktası kalmadıysa kapı
     // ölçmüyor demektir, "temiz" demek değil.
     expect(sites.length, 'kind="db" mount noktası bulunamadı — kapı ölçmüyor')
       .toBeGreaterThan(0);
-    expect(missing, 'onRowNavigate GEÇMEYEN db mount noktası: db çekmecesi geri gelir')
+    expect(missing, 'rowHref GEÇMEYEN db mount noktası: db çekmecesi geri gelir')
       .toEqual([]);
   });
 
-  it('DependenciesTable erişilemezlik muhafızını (isOpen = !onRowNavigate) hâlâ yazıyor', () => {
+  it('DependenciesTable erişilemezlik muhafızını (isOpen = !href, href = rowHref(r)) hâlâ yazıyor', () => {
     const src = readFileSync(join(SRC, 'components/DependenciesTable.tsx'), 'utf8');
     const line = src.split('\n').find(l => /const\s+isOpen\s*=/.test(l));
     expect(line, 'isOpen ataması bulunamadı').toBeTruthy();
-    expect(line!.replace(/\s/g, '')).toContain('!onRowNavigate');
+    expect(line!.replace(/\s/g, '')).toContain('!href');
+    const hrefLine = src.split('\n').find(l => /const\s+href\s*=\s*rowHref\s*\?/.test(l));
+    expect(hrefLine, 'href = rowHref ? rowHref(r) : null ataması bulunamadı').toBeTruthy();
   });
 
   it('/database sayfası gövdeyi detailSections.tsx\'ten tüketiyor', () => {
@@ -117,23 +120,23 @@ describe('db detay yüzeyi TEK — sayfa, çekmece değil', () => {
 // ── pencere tarayıcısının kendi meta-testi ──────────────────────────────
 describe('tagWindow — pencere etikete hapsediliyor', () => {
   it('basit self-closing etiketi tam okur', () => {
-    const w = tagWindow('<DependenciesTable rows={r} kind="db" onRowNavigate={go} />', 'DependenciesTable');
+    const w = tagWindow('<DependenciesTable rows={r} kind="db" rowHref={go} />', 'DependenciesTable');
     expect(w!.text).toContain('kind="db"');
-    expect(w!.text).toContain('onRowNavigate');
+    expect(w!.text).toContain('rowHref');
   });
 
   it('İÇ İÇE JSX taşıyan propta ERKEN KAPANMAZ (kapının asıl riski)', () => {
-    const src = '<DependenciesTable\n  extraControls={<label><input type="checkbox" /> Compare</label>}\n  kind="db" onRowNavigate={go} />';
+    const src = '<DependenciesTable\n  extraControls={<label><input type="checkbox" /> Compare</label>}\n  kind="db" rowHref={go} />';
     const w = tagWindow(src, 'DependenciesTable');
     expect(w!.text, 'iç <label> ve <input/> penceresi erken kapatmamalı').toContain('kind="db"');
-    expect(w!.text).toContain('onRowNavigate');
+    expect(w!.text).toContain('rowHref');
   });
 
   it('KOMŞU etikete TAŞMAZ — sonraki mount noktasının propunu kendi kanıtı saymaz', () => {
-    const src = '<DependenciesTable kind="db" />\n<DependenciesTable kind="queue" onRowNavigate={go} />';
+    const src = '<DependenciesTable kind="db" />\n<DependenciesTable kind="queue" rowHref={go} />';
     const first = tagWindow(src, 'DependenciesTable')!;
     expect(first.text).toContain('kind="db"');
-    expect(first.text, 'komşunun onRowNavigate\'i sızmamalı').not.toContain('onRowNavigate');
+    expect(first.text, 'komşunun rowHref\'i sızmamalı').not.toContain('rowHref');
   });
 
   it('iki pencereyi ayrı ayrı sayar', () => {

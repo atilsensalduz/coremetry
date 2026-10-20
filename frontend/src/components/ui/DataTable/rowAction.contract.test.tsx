@@ -99,7 +99,9 @@ describe('T2 — satır yardımcıları işaret basar', () => {
      rowActivation yalnız açılan satıra yayılır, satır içi koşullu cursor yok. */
   it('açılmayan satırlar işaret almaz (Databases / detailSections / ShapesView / LogPatternsPanel)', () => {
     const read = (p: string) => readFileSync(resolve(__dirname, '../../..', p), 'utf8');
-    expect(read('pages/Databases.tsx')).toContain('{...(r.stmtHash ? rowActivation(() => openStmt(r)) : {})}');
+    // v0.10.1414 — açılan ifade satırı gerçek link (rowClickHandlers işareti basar);
+    // adressiz (stmtHash'siz) satır yayılım almaz.
+    expect(read('pages/Databases.tsx')).toContain('{...(href ? rowClickHandlers(href, () => navigate(href)) : {})}');
     expect(read('pages/databases/detailSections.tsx')).toContain('{...(r.stmtHash ? rowActivation(() => onOpen(r)) : {})}');
     const shapes = read('components/traces/ShapesView.tsx');
     // v0.10.1356 (R4) — açılan satır rowClickHandlers (işareti o basar); açılmayan

@@ -254,6 +254,8 @@ describe('kablolama — /databases listesi (v0.10.1027)', () => {
   });
   it('iki db mount noktası da işareti satır tıkıyla AYNI adrese bağlar', () => {
     expect(page.match(/rowHref=\{databasePageHref\}/g)?.length).toBe(2);
-    expect(page).toContain('const openDatabasePage = (r: DepRow) => navigate(databasePageHref(r));');
+    // v0.10.1414 — satır tıkı ayrı bir onRowNavigate sarmalayıcısı değil: tablo
+    // aynı rowHref adresiyle satırı gerçek link yapar (DependenciesTable).
+    expect(page).not.toMatch(/onRowNavigate=|openDatabasePage/);
   });
 });

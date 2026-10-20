@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo } from 'react';
-import { rowActivation } from '@/lib/a11y'; // v0.10.455 (dış denetim D3 dilim 3)
+import { stopRowClick } from '@/lib/a11y'; // v0.10.455 (dış denetim D3 dilim 3); v0.10.1414 satır linki
 import { SavedViewsBar } from '@/components/SavedViewsBar';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
@@ -16,7 +16,7 @@ import { api } from '@/lib/api';
 import { useUrlRange, DEFAULT_RANGE_PRESET } from '@/lib/useUrlRange';
 import { encodeRange } from '@/lib/urlState';
 import { useUrlEnv } from '@/lib/useUrlEnv';
-import { timeRangeToNs } from '@/lib/utils';
+import { timeRangeToNs, rowClickHandlers } from '@/lib/utils';
 import { stmtDetailHref } from '@/pages/slowqueries/stmtParam';
 import { useStmtParamRedirect } from '@/pages/slowqueries/useStmtParamRedirect';
 import type { SlowQueryRow } from '@/lib/types';
@@ -69,7 +69,8 @@ export default function DatabasesPage() {
   //
   // DEĞİŞİKLİK DAR: DependenciesTable PAYLAŞILAN bir bileşen ve
   // /messaging onu satır-altı çekmecesiyle kullanmaya DEVAM ediyor.
-  // Emeklilik bir prop (onRowNavigate) — geçen tek tüketici bu sayfa.
+  // Emeklilik bir prop (v0.10.1414'ten beri `rowHref`; eskiden onRowNavigate) —
+  // geçen tek tüketici bu sayfa.
   const navigate = useNavigate();
   // Eski ?row= derin linkleri (saved_views satırları, postmortem'lere
   // yapıştırılmış bağlantılar) yeni sayfaya iner. Şim değil: arkasında
@@ -148,10 +149,10 @@ export default function DatabasesPage() {
   // (operatör bildirimi: "top statements çekmece açıyor bir satır
   // üzerine basınca"). Kimlik grameri aynı: stmtDetailHref pencereyi
   // de taşır, yoksa hedef kendi sticky penceresine düşer.
-  const openStmt = (r: SlowQueryRow) => {
-    const href = stmtDetailHref({ hash: r.stmtHash, system: r.dbSystem }, range);
-    if (href) navigate(href);
-  };
+  // v0.10.1414 — adres ayrı: ifade hücresi bu adrese GERÇEK <Link>; adressiz
+  // (stmtHash'siz) satır açılmaz — işaret, el imleci ve link yok.
+  const stmtHref = (r: SlowQueryRow): string | null =>
+    r.stmtHash ? stmtDetailHref({ hash: r.stmtHash, system: r.dbSystem }, range) : null;
   // v0.9.821 — GLOBAL ENV FİLTRESİ. Bu sayfa Topbar'ın env seçimini
   // SESSİZCE YOK SAYIYORDU: operatör env=uat seçince /endpoints ve
   // /services daralıyor, /databases ise tüm ortamların veritabanlarını
@@ -236,8 +237,9 @@ export default function DatabasesPage() {
   );
 
 
-  // openDatabasePage — satır tıkının ve klavye Enter/o'sunun TEK
-  // hedefi. Kimlik ÜÇLÜ (system, instance, dbName) ve ETİKETTEN
+  // databasePageHref — satır tıkının ve klavye Enter/o'sunun TEK
+  // hedefi (v0.10.1414: DependenciesTable bu adresle satırı gerçek link
+  // yapar; ayrı bir onRowNavigate sarmalayıcısı yok). Kimlik ÜÇLÜ (system, instance, dbName) ve ETİKETTEN
   // bağımsız (v0.9.821): nameOf() instance 'unknown' iken db.name'i
   // etiket olarak basıyor, onu kimlik sanmak boş bir sayfa demekti.
   // v0.10.1027 — adres ayrı bir fonksiyon: açık problem işareti (tablonun
@@ -248,7 +250,6 @@ export default function DatabasesPage() {
     dbName: r.dbName ?? '',
     source: r.source === 'receiver' ? 'receiver' : 'spans',
   }, { range: encodeRange(range), env: env || undefined });
-  const openDatabasePage = (r: DepRow) => navigate(databasePageHref(r));
 
   // v0.10.1027 — useCallback([problemSubjects]): toRow artık problem okumasına
   // bağlı; okuma satırlardan SONRA inerse tableRows yeniden kurulur ve
@@ -433,7 +434,7 @@ export default function DatabasesPage() {
             {problemsLoadFailed && (
               <div className="dep-prob-note">Problem işaretleri yüklenemedi.</div>
             )}
-            <DependenciesTable rows={tableRows} kind="db" range={range} compare={compare} onRowNavigate={openDatabasePage}
+            <DependenciesTable rows={tableRows} kind="db" range={range} compare={compare}
               rowHref={databasePageHref}
               state={dbsys || dbname
                 ? { kind: 'no-match', onClearFilters: clearFilters }
@@ -485,7 +486,7 @@ export default function DatabasesPage() {
                     {`env=${env} filtresi açıkken receiver keşfi hiç çalışmıyor (metric_points deploy_env taşımıyor) — bu panel "boş" değil, SORULMADI.`}
                   </EmptyHint>
                 ) : (
-                  <DependenciesTable rows={receiverRows.map(toRow)} kind="db" range={range} onRowNavigate={openDatabasePage}
+                  <DependenciesTable rows={receiverRows.map(toRow)} kind="db" range={range}
                     rowHref={databasePageHref}
                     state={dbsys
                       ? { kind: 'no-match', onClearFilters: clearFilters }
@@ -521,16 +522,21 @@ export default function DatabasesPage() {
                   <DataTableColgroup dt={stmtDt} />
                   <DataTableHead dt={stmtDt} />
                   <tbody>
-                    {stmtDt.sortedRows.length === 0 ? <DataTableState dt={stmtDt} {...stmtState} /> : stmtDt.sortedRows.map((r, i) => (
+                    {stmtDt.sortedRows.length === 0 ? <DataTableState dt={stmtDt} {...stmtState} /> : stmtDt.sortedRows.map((r, i) => {
                       /* v0.10.933 (tablo standardı T2) — stmtHash'siz satır açılmaz:
-                         rowActivation (role=button → el imleci + hover) yalnız
-                         açılan satıra; satır içi koşullu cursor kalktı.
+                         işaret (el imleci + hover) yalnız açılan satıra; satır içi
+                         koşullu cursor kalktı.
                          v0.10.943 (T7) — tam ifade ipucu satırdan ifade hücresine;
-                         maxWidth sabit düzende etkisizdi (genişlik colgroup'ta). */
+                         maxWidth sabit düzende etkisizdi (genişlik colgroup'ta).
+                         v0.10.1414 — açılan satır gerçek link (rowActivation → rowClickHandlers). */
+                      const href = stmtHref(r);
+                      return (
                       <tr key={r.stmtHash ?? i}
-                        {...(r.stmtHash ? rowActivation(() => openStmt(r)) : {})}>
+                        {...(href ? rowClickHandlers(href, () => navigate(href)) : {})}>
                         <td className="mono" title={r.sampleStatement || r.statement}>
-                          {r.statement}
+                          {href
+                            ? <Link to={href} onClick={stopRowClick} className="cell-link cell-link--block">{r.statement}</Link>
+                            : r.statement}
                         </td>
                         <td>{r.service}</td>
                         <DataTableCell dt={stmtDt} col="count" row={r} value={r.count} />
@@ -558,7 +564,8 @@ export default function DatabasesPage() {
                             : r.dbSystem}
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

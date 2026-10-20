@@ -8526,3 +8526,37 @@ seçenekler, yardımcılar, CSS ve anahtarlar yerinde kalmıştı. Davranış de
   seçenekler yok, silinen yardımcı adları üretim dosyalarında yok, `saved` / `ai.ctx.saved` / `ai.subject.trace`
   yok); silinen: `aiCodePref.test.ts`, `capPageContext` / `traceContextFromPage` / `tzBodyFields` /
   `oracleExplainLine` / `aiSubjectSubtitle` iddiaları.
+
+## 2026-10-20 — v0.10.1414 — Tablo satırları gerçek link: TopEndpoints, Hosts/External, Databases, Clusters, Inbox, Details Endpoints
+
+**Bağlam:** v0.10.1356'nın bilinçli sınırı — sarmalayıcı fonksiyonla gezinen satırlar (`rowActivation(() => gotoEp(…))`,
+`openHost`, `onRowNavigate`, `openStmt`, `openPod`, `openRow`, Details Endpoints'te `window.location.assign` = tam sayfa
+yeniden yükleme) ratchet'e takılmıyordu: satır role=button, Ctrl/⌘/orta tık, "yeni sekmede aç", "bağlantıyı kopyala"
+ölüydü. **Karar:** v0.10.1356 deseni aynen — birincil hücre gerçek `<Link to={href} onClick={stopRowClick}
+className="cell-link cell-link--block">`, satır `rowClickHandlers(href, () => navigate(href))` (düz tık aynı sekme,
+değiştiricili/orta tık `window.open`). Satır role/tabIndex taşımaz; klavye durağı link (Enter = bağlantı
+etkinleştirmesi), j/k + Enter (`onOpen`) aynı adrese. Hedef URL'ler DEĞİŞMEDİ (aynı yardımcılar: `endpointDetailHref`,
+`databaseDetailHref`, `stmtDetailHref`, `podDetailPath`, `inboxItemHref` / `withInboxDetail`).
+- **TopEndpointsCard / DetailsEndpointsSection:** yol hücresi link; Details artık SPA gezinmesi (tam yükleme yok).
+- **Hosts / External:** `?host=` çekmecesi — yeni saf `lib/paramHref.ts` (`setSearchParams(prev => set, replace)` ile
+  aynı adres, yabancı parametreler korunur); `<Link replace>` (geçmiş sözleşmesi aynı). AiEvalPanel `rowLinkReplace` emsali.
+- **Databases:** `DependenciesTable` gezinme kipinin TEK anahtarı `rowHref` (eski `onRowNavigate` sarmalayıcısı kalktı;
+  `isOpen = !href`, db çekmecesinin erişilemezliği `detailSurfaceGate` kapısında artık `rowHref` üzerinden); ilk hücredeki
+  `›` detay linki (`aria-label`). /messaging çekmece kipi `rowActivation`'da, değişmedi. "En pahalı ifadeler":
+  ifade hücresi link; `stmtHash`'siz satır link / işaret / el imleci almaz.
+- **Clusters:** Pods sekmesinde pod hücresi `/pod` linki. Namespace / deployment satırları sayfa içi süzgeç seçimi
+  (`aria-pressed`, replace) — gezinme değil, `rowActivation`'da kaldı (bilinçli).
+- **Inbox:** saf `inboxRowLink(inboxRowOpen(it), pathname, search)` (lib/inboxHref): tam sayfa push (incident'te kuyruğa
+  geri dönüş durumu), yerinde detay `withInboxDetail` adresi + `replace`; 'none' → link ve işaret yok (rowProps'un
+  `data-row-action`ı düşer). Link başlık METNİNDE (`TriageTitleCell` yeni `titleNode`): çiplerdeki runbook `<a>`sı
+  linkin dışında kalır (`<a>` içinde `<a>` geçersiz).
+- **Ratchet** (`lib/a11y.rowSites.test.ts`): yeni "wrapper-navigating rows" kapısı — sekiz dosyada `rowClickHandlers(` +
+  `onClick={stopRowClick}` zorunlu, eski sarmalayıcı adlarıyla `rowActivation` ve `window.location.assign` yasak;
+  `onRowNavigate=` geri gelemez; `rowClickHandlers ⇒ <Link to={X}>` taban sayımı 9 → 17. D3 "helper adopted" listesinden
+  Inbox / Hosts / Databases çıktı (Clusters süzgeç satırları için kaldı). CSS yok (mevcut `.cell-link` + `[data-row-action]`).
+- **Testler:** `lib/rowLinkSites1414.render.test.tsx` (10 site × 3: birincil `<a href>` bugünkü hedefe, satır
+  role/tabIndex yok, düz tık tek gezinme ve satıra çıkmaz; link'e Ctrl/⌘/orta tık gezinmez / ikinci sekme yok; boş
+  hücrede düz tık aynı hedef, Ctrl/⌘/Shift/orta tık `window.open(href)`; adressiz ifade satırı işaretsiz; incident geri
+  dönüş durumu), `lib/paramHref.test.ts`, `lib/inboxHref.test.ts` (`inboxRowLink`), `Inbox.rowOpen.test.tsx` (klavye
+  durağı link), kaynak pinleri güncellendi (`detailSurfaceGate`, `databaseProblems`, `rowAction.contract`,
+  `DependenciesTable.*`).
