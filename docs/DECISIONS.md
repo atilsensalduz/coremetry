@@ -8660,3 +8660,11 @@ kataloğunu çiziyordu; operatörün Grafana'dan/vmui'den kopyaladığı sorgu s
   aralık), `copilot_metric_chart_promql_test.go` (looksLikePromQL tablosu + "rate" düzyazı negatifleri, router, pencere,
   sahte VM demeti: kabul/var olmayan metrik/MetricsQL → link/alt sorgu/VM yok/okuma hatası/ortam, takip çipleri, JSON
   klonu, salt-okur).
+
+## 2026-10-20 — v0.10.1417 — Sayı biçimi: milyar (B) ve trilyon (T)
+
+**Operatör (System › Overview ekran görüntüsü, "2770.0M", "17970.6M", "68365.1M"):** "Burada da billion yazsın bence,
+milyon eksik." **Kök neden:** ortak `fmtNum` (`lib/utils.ts`) en büyük birim olarak M biliyordu. **Karar:** `fmtNum`
+1e9 → `B`, 1e12 → `T` (bir ondalık); System sayaçları, trace listesi ve fmtNum kullanan tüm tablolar düzelir. Grafik
+eksenleri (`chartFmt.ts`, SI G/T) değişmedi. Aynı "en fazla M" kalıbını taşıyan yerel kopyalar (FilterBuilder,
+FilterQueryBox, Sparkline, Endpoints, TopEndpointsCard, DetailsEndpointsSection) kuyrukta.

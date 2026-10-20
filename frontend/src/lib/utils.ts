@@ -87,7 +87,11 @@ function goDuration(secs: number): GoDuration {
   return `${secs}s`;
 }
 
+// v0.10.1417 (operatör, System sayfası "2770.0M" / "68365.1M": "billion yazsın") —
+// milyar ve trilyon basamakları; aksi hâlde büyük sayaçlar M ile uzuyordu.
 export function fmtNum(n: number): string {
+  if (n >= 1e12) return (n / 1e12).toFixed(1) + 'T';
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
   if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
   if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
   return String(n);

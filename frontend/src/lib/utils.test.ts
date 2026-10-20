@@ -218,11 +218,16 @@ describe('fmtNs (ns/µs/ms/s promotion)', () => {
   });
 });
 
-describe('fmtNum (K/M)', () => {
+// v0.10.1417 — operatör: System sayfasında "2770.0M" yerine milyar ("billion yazsın").
+describe('fmtNum (K/M/B/T)', () => {
   it.each([
     [999, '999'],
     [1500, '1.5K'],
     [1_500_000, '1.5M'],
+    [999_900_000, '999.9M'],
+    [2_770_000_000, '2.8B'],
+    [68_365_100_000, '68.4B'],
+    [1_200_000_000_000, '1.2T'],
   ] as Array<[number, string]>)('fmtNum(%d) = %s', (n, want) => {
     expect(fmtNum(n)).toBe(want);
   });
