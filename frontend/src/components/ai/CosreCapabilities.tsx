@@ -138,7 +138,7 @@ export function CosreCapabilities({ wiki, groups = [], team: serverTeam = '', on
         const group = groupForCapability(it.kind, groups);
         const items = onAsk ? (group?.items ?? []) : [];
         // v0.10.1404 — exceptions satırının son çipi (grup kapsamıyla aynı takım).
-        const allExcQ = it.kind === 'exceptions' ? allExceptionsQuestion(serverTeam, !!group?.fleet) : '';
+        const allExcQ = it.kind === 'exceptions' ? allExceptionsQuestion() : '';
         return (
           <div role="listitem" key={it.kind} className={`cosre-cap__item${it.kind === 'team' ? ' cosre-cap__item--team' : ''}`}>
             <Button variant="ghost" size="sm" className="cosre-cap__row"

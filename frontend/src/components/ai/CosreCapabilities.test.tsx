@@ -165,9 +165,9 @@ describe('capabilityHints — v0.10.1382 gruplar (saf)', () => {
   });
 
   it('v0.10.1404 — "Tüm son exception\'lar": takım kapsamlıysa adı geçen takım, filo ise iyelik', () => {
-    expect(allExceptionsQuestion('orders-team', false)).toBe('orders-team takımının exception\'ları?');
-    expect(allExceptionsQuestion('orders-team', true)).toBe('Takımımın exception\'ları?');
-    expect(allExceptionsQuestion('', false)).toBe('Takımımın exception\'ları?');
+    // v0.10.1409 — takım adıyla soru katalogda olmayan takımda problems'e düşüyordu;
+    // çip her zaman iyelikle sorar (my_exceptions, LLM'siz).
+    expect(allExceptionsQuestion()).toBe('Takımımın exception\'ları?');
   });
 
   it('istemci URL\'si sorgu dizesini ? ile ayırır; v0.10.1390 — range_s yok', async () => {
@@ -358,7 +358,7 @@ describe('CopilotChat çekmecesi — v0.10.1382 / v0.10.1390 başlangıçlar', (
     expect(args[args.length - 1]).toEqual({ kind: 'exception', id: ORA_FP, src: 'starter' });
   });
 
-  it('v0.10.1404 — "Tüm son exception\'lar" yönlenen takım sorusunu gönderir (takım biliniyorsa adıyla)', async () => {
+  it('v0.10.1409 — "Tüm son exception\'lar" takım bilinse de iyelikle sorar (my_exceptions)', async () => {
     vi.spyOn(api, 'copilotConfig').mockResolvedValue({ enabled: true, model: 'm' });
     vi.spyOn(api, 'copilotStarters').mockResolvedValue({ groups: [{ ...GROUPS[0], fleet: false }], team: 'orders-team' } as never);
     const send = vi.spyOn(api, 'copilotChat').mockResolvedValue(undefined as never);
@@ -368,7 +368,7 @@ describe('CopilotChat çekmecesi — v0.10.1382 / v0.10.1390 başlangıçlar', (
     await act(async () => { all.click(); });
     await act(async () => { await new Promise(r => setTimeout(r, 10)); });
     expect(send).toHaveBeenCalledTimes(1);
-    expect(lastSent(send)).toBe('orders-team takımının exception\'ları?');
+    expect(lastSent(send)).toBe('Takımımın exception\'ları?');
     const args = send.mock.calls[0] as unknown[];
     expect(args[args.length - 1]).toBeUndefined(); // açıklama niyeti YOK — guided router
   });

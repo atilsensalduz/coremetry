@@ -193,12 +193,13 @@ export function starterAsk(st: CopilotStarter): { text: string; so?: ChatSendOpt
 /**
  * SAF — v0.10.1404: exceptions satırının "Tüm son exception'lar" çipi → takım
  * exception cevabı (en son görülen önce, Exceptions'ta takım süzgeçli link).
- * Grup takım kapsamlıysa (fleet değil) sunucunun takımı adıyla (team_exceptions),
- * değilse iyelik (my_exceptions). İkisi de LLM'siz yönlenir:
- * copilot_starters_test TestStarterQuestionsRoute.
+ * v0.10.1409 — her zaman iyelik ("Takımımın exception'ları?" → my_exceptions):
+ * takım adıyla soru, takım yönlendiricinin takım kataloğunda yoksa problems'e
+ * düşüyordu. Kartın takımı zaten sunucunun kullanıcı için çözdüğü takım; iyelik
+ * aynı takımı kimlikten çözer ve her zaman LLM'siz yönlenir.
  */
-export function allExceptionsQuestion(team: string, fleet: boolean): string {
-  return teamCardQuestion('exceptions', fleet ? '' : team);
+export function allExceptionsQuestion(): string {
+  return teamCardQuestion('exceptions', '');
 }
 
 /** SAF — `|` imleç işaretini söker; işaret yoksa imleç metnin sonunda. */

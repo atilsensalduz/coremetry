@@ -8378,3 +8378,11 @@ diyordu; aynı Overview'un Top DB statements tablosu servisin oracle'ı ~938 kez
   post-check + few-shot birim pini), aianalyze_nilslice_test (model dizileri), copilot_schemas_test,
   prompt_language_test, copilot_explain_stream_test (deferred listesi), k5Residue / traceLogsLinkGate /
   Overview.windowKpi mock.
+
+## 2026-10-20 — v0.10.1409 — CoSRE başlangıç: "Tüm son exception'lar" çipi iyelikle sorar
+
+**Kuyruk (1404 bilinen sınırı):** exceptions kartının "Tüm son exception'lar" çipi, grup takım kapsamlıyken
+"<takım> takımının exception'ları?" gönderiyordu; takım yönlendiricinin takım kataloğunda yoksa soru team_exceptions
+yerine problems'e düşüyordu. **Karar:** çip her zaman "Takımımın exception'ları?" gönderir (my_exceptions): kartın
+takımı zaten sunucunun kullanıcı için çözdüğü takım, iyelik aynı takımı kimlikten çözer ve her durumda LLM'siz
+yönlenir. Takımım kartındaki seçili takım çipleri değişmedi (seçici aynı takım kataloğundan arar).
