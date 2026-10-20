@@ -8,7 +8,7 @@ import type { OidcSettingsSnapshot, OidcTestResult } from '@/lib/types';
 import { useSettingsLoad, SettingsLoadError, ConfigStatusBanner, FlashBox, humanize } from './shared';
 import {
   OIDC_ROLES, PERMISSION_ENDPOINT, PERMISSION_HEADER, PERMISSION_MAX_CIDRS, TLS_SKIP_VERIFY_WARNING, caPemInfo,
-  formToInput, oidcStatus, permissionNetWarnings, publicOidcSnapshot, snapshotToForm, trustUnverifiedEmailAllowed,
+  formToInput, ldapLinkInput, oidcStatus, permissionNetWarnings, publicOidcSnapshot, snapshotToForm, trustUnverifiedEmailAllowed,
   USERNAME_CLAIM_DEFAULT, type OidcForm,
 } from './oidcForm';
 import { SsoPresets } from './SsoPresets';
@@ -259,6 +259,39 @@ function OidcTrustEmailField({ form, patch }: {
       </label>
       {!allowed && <p className="sso-trust__hint">{t('sso.trustEmail.needsDomains')}</p>}
       <p className="sso-tls__warn" role={on ? 'alert' : undefined}>⚠ {t('sso.trustEmail.warning')}</p>
+      <OidcLdapLinkField form={form} patch={patch} trustOn={on} />
+    </div>
+  );
+}
+
+// Mevcut LDAP hesabını kullanıcı adıyla SSO'ya bağla — v0.10.1403 (operatör:
+// "Bu hesap doğrulanmamış e-posta ile SSO'dan açılamaz" → "Coremetry tarafını
+// yap" + "LDAP'ı bir süre sonra hiç kullanmayacağım, sadece merkezi login
+// Keycloak üzerinden olacak"). Güven kutusunun içinde, ona bağlı: güven
+// kapalıyken pasif (gövdeye false gider — ldapLinkInput). Admin alt seçeneği
+// yalnız bağlama açıkken. Kırmızı ön koşul uyarısı bağlama açıkken görünür.
+function OidcLdapLinkField({ form, patch, trustOn }: {
+  form: OidcForm;
+  patch: (p: Partial<OidcForm>) => void;
+  trustOn: boolean;
+}) {
+  const t = useT();
+  const { linkLdapByUsername: on, linkLdapByUsernameAllowAdmin: adminOn } = ldapLinkInput(form);
+  return (
+    <div className="sso-trust sso-trust--nested" data-testid="sso-ldap-link">
+      <label className={`sso-check sso-check--tight${trustOn ? '' : ' is-disabled'}`}>
+        <input type="checkbox" checked={on} disabled={!trustOn}
+          onChange={e => patch({ linkLdapByUsername: e.target.checked })} />
+        <span>{t('sso.ldapLink.label')}</span>
+      </label>
+      <p className="sso-note">{t('sso.ldapLink.note')}</p>
+      {on && <p className="sso-tls__warn" role="alert">⚠ {t('sso.ldapLink.warning')}</p>}
+      <label className={`sso-check sso-check--tight${on ? '' : ' is-disabled'}`}>
+        <input type="checkbox" checked={adminOn} disabled={!on}
+          onChange={e => patch({ linkLdapByUsernameAllowAdmin: e.target.checked })} />
+        <span>{t('sso.ldapLinkAdmin.label')}</span>
+      </label>
+      {adminOn && <p className="sso-tls__warn" role="alert">⚠ {t('sso.ldapLinkAdmin.warning')}</p>}
     </div>
   );
 }
@@ -274,6 +307,8 @@ function OidcUsernameFallbackField({ form, patch }: {
 }) {
   const t = useT();
   const on = form.usernameFallback;
+  // v0.10.1403 — claim adı LDAP bağlamasında da okunur.
+  const claimUsed = on || ldapLinkInput(form).linkLdapByUsername;
   return (
     <div className="sso-trust">
       <label className="sso-check sso-check--tight">
@@ -293,7 +328,7 @@ function OidcUsernameFallbackField({ form, patch }: {
       )}
       <div className="sso-row">
         <Field label={t('sso.usernameClaim.label')} value={form.usernameClaim} autoComplete="off" maxLength={64}
-          spellCheck={false} disabled={!on}
+          spellCheck={false} disabled={!claimUsed}
           onChange={e => patch({ usernameClaim: e.target.value })}
           placeholder={USERNAME_CLAIM_DEFAULT}
           hint={t('sso.usernameClaim.hint')} />

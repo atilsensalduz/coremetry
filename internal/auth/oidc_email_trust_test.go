@@ -167,3 +167,138 @@ func TestWarnTrustUnverifiedEmailOnlyWhenEnabled(t *testing.T) {
 		t.Fatalf("açıkken tek uyarı bekleniyordu: %d", n)
 	}
 }
+
+// v0.10.1403 (operatör: "Bu hesap doğrulanmamış e-posta ile SSO'dan açılamaz"
+// → "Coremetry tarafını yap" + "LDAP'ı bir süre sonra hiç kullanmayacağım,
+// sadece merkezi login Keycloak üzerinden olacak") — linkLdapByUsername açıkken
+// ViaTrust giriş imzalı id_token'daki kullanıcı adını (küçük harf) taşır;
+// kapalıyken, doğrulanmış girişte ya da geçersiz değerde taşımaz; ViaUsername
+// HİÇ açılmaz (admin kapısı F2 değişmez).
+func TestExchangeTrustLinkUsername(t *testing.T) {
+	idp := newFakeIdP(t)
+	o := newDevService(t, newFakeOIDCStore())
+	in := validInput(idp.URL)
+	in.AllowedDomains = []string{"corp.example.test"}
+	in.TrustUnverifiedEmail = true
+	save := func(link, admin bool) {
+		t.Helper()
+		in.LinkLdapByUsername, in.LinkLdapByUsernameAllowAdmin = link, admin
+		if _, err := o.SaveSettings(context.Background(), in); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exch := func(claims map[string]any) *OIDCClaims {
+		t.Helper()
+		idp.set(func(f *fakeIdP) { f.claims = claims; f.userinfo = nil })
+		cl, err := o.Exchange(context.Background(), "code", "verifier", "")
+		if err != nil {
+			t.Fatalf("Exchange: %v", err)
+		}
+		return cl
+	}
+	const mail = "first.last@corp.example.test"
+	save(false, false)
+	if o.LinkLdapByUsername() || o.LinkLdapAllowAdmin() {
+		t.Fatal("bayrak kapalıyken erişimci açık")
+	}
+	if cl := exch(map[string]any{"email": mail, "email_verified": false, "preferred_username": "N0000001"}); cl.Username != "" || !cl.ViaTrust {
+		t.Fatalf("bayrak kapalıyken Username dolmamalı: %+v", cl)
+	}
+	save(true, false)
+	if !o.LinkLdapByUsername() || o.LinkLdapAllowAdmin() {
+		t.Fatal("bağlama açık, admin kapalı bekleniyordu")
+	}
+	cl := exch(map[string]any{"email": mail, "email_verified": false, "preferred_username": "N0000001"})
+	if cl.Username != "n0000001" || !cl.ViaTrust || cl.ViaUsername || cl.EmailSource != OIDCEmailSourceIDToken {
+		t.Fatalf("Username küçük harfle dolmalı, ViaUsername kapalı: %+v", cl)
+	}
+	if cl := exch(map[string]any{"email": mail, "email_verified": true, "preferred_username": "n0000001"}); cl.Username != "" || cl.ViaTrust {
+		t.Fatalf("doğrulanmış girişte Username dolmamalı: %+v", cl)
+	}
+	for _, bad := range []any{"n0000001@corp.example.test", "n000000İ", "", 42} {
+		if cl := exch(map[string]any{"email": mail, "email_verified": false, "preferred_username": bad}); cl.Username != "" {
+			t.Fatalf("geçersiz kullanıcı adı %v taşındı: %+v", bad, cl)
+		}
+	}
+	// Yalnız yapılandırılan claim okunur — başka ad tahmin edilmez.
+	if cl := exch(map[string]any{"email": mail, "email_verified": false, "sAMAccountName": "n0000001"}); cl.Username != "" {
+		t.Fatalf("yapılandırılmamış claim okundu: %+v", cl)
+	}
+	in.UsernameClaim = "sAMAccountName"
+	save(true, true)
+	if !o.LinkLdapAllowAdmin() {
+		t.Fatal("admin açık-seçimi canlı istemciye uygulanmadı")
+	}
+	if cl := exch(map[string]any{"email": mail, "email_verified": false, "sAMAccountName": "n0000001"}); cl.Username != "n0000001" {
+		t.Fatalf("ayarlı claim okunmadı: %+v", cl)
+	}
+	// UserInfo yolu (id_token'da e-posta yok): kullanıcı adı önce id_token'dan.
+	in.UsernameClaim = UsernameClaimDefault
+	save(true, false)
+	idp.set(func(f *fakeIdP) {
+		f.claims = map[string]any{"email": "", "preferred_username": "N0000001"}
+		f.userinfo = map[string]any{"sub": "u-1", "email": mail, "email_verified": false, "preferred_username": "n0000009"}
+	})
+	cl, err := o.Exchange(context.Background(), "code", "verifier", "")
+	if err != nil || cl.EmailSource != OIDCEmailSourceUserInfo || !cl.ViaTrust || cl.Username != "n0000001" || cl.ViaUsername {
+		t.Fatalf("UserInfo ViaTrust yolu: %+v %v", cl, err)
+	}
+	// id_token'da yoksa sub'ı eşleşmiş UserInfo'dan.
+	idp.set(func(f *fakeIdP) {
+		f.claims = map[string]any{"email": ""}
+		f.userinfo = map[string]any{"sub": "u-1", "email": mail, "email_verified": false, "preferred_username": "N0000002"}
+	})
+	if cl, err := o.Exchange(context.Background(), "code", "verifier", ""); err != nil || cl.Username != "n0000002" {
+		t.Fatalf("UserInfo kullanıcı adı: %+v %v", cl, err)
+	}
+}
+
+// v0.10.1403 — bağlama yalnız güven anahtarıyla, admin açık-seçimi yalnız
+// bağlamayla anlamlı (normalize); blob/snapshot gidiş-dönüşü; güveni düşüren
+// elle yazılmış blob bağlamayı da düşürür.
+func TestLinkLdapByUsernameSettings(t *testing.T) {
+	s := NormalizeOIDCSettings(OIDCSettings{LinkLdapByUsername: true, LinkLdapByUsernameAllowAdmin: true}, testPublicURL)
+	if s.LinkLdapByUsername || s.LinkLdapByUsernameAllowAdmin {
+		t.Fatalf("güven kapalıyken bağlama açık kaldı: %v", s)
+	}
+	s = NormalizeOIDCSettings(OIDCSettings{TrustUnverifiedEmail: true, LinkLdapByUsernameAllowAdmin: true}, testPublicURL)
+	if s.LinkLdapByUsernameAllowAdmin {
+		t.Fatal("bağlama kapalıyken admin açık-seçimi açık kaldı")
+	}
+	if !strings.Contains(OIDCSettings{TrustUnverifiedEmail: true, LinkLdapByUsername: true}.String(), "linkLdap:true") {
+		t.Fatal("String() bağlama bayrağını taşımıyor")
+	}
+
+	idp := newFakeIdP(t)
+	st := newFakeOIDCStore()
+	o := newDevService(t, st)
+	in := validInput(idp.URL)
+	in.AllowedDomains = []string{"corp.example.test"}
+	in.TrustUnverifiedEmail, in.LinkLdapByUsername, in.LinkLdapByUsernameAllowAdmin = true, true, true
+	snap, err := o.SaveSettings(context.Background(), in)
+	if err != nil || !snap.LinkLdapByUsername || !snap.LinkLdapByUsernameAllowAdmin {
+		t.Fatalf("kayıt: %+v %v", snap, err)
+	}
+	raw := string(st.rows[OIDCSettingsKey])
+	if !strings.Contains(raw, `"linkLdapByUsername":true`) || !strings.Contains(raw, `"linkLdapByUsernameAllowAdmin":true`) {
+		t.Fatalf("blob alanları taşımıyor: %s", raw)
+	}
+	// Güven kapanınca bağlama da kapanır (kayıt yolu).
+	in.TrustUnverifiedEmail = false
+	if snap, err := o.SaveSettings(context.Background(), in); err != nil || snap.LinkLdapByUsername || snap.LinkLdapByUsernameAllowAdmin || o.LinkLdapByUsername() {
+		t.Fatalf("güven kapalıyken bağlama kaldı: %+v %v", snap, err)
+	}
+
+	// Elle yazılmış blob: alan adı yok + güven + bağlama → ikisi de düşer, SSO düşmez.
+	st2 := newFakeOIDCStore()
+	b, _ := json.Marshal(map[string]any{
+		"enabled": true, "issuerUrl": idp.URL, "clientId": "coremetry", "clientSecret": testSecret,
+		"scopes": []string{"openid", "email"}, "defaultRole": "viewer", "trustUnverifiedEmail": true,
+		"linkLdapByUsername": true, "linkLdapByUsernameAllowAdmin": true,
+	})
+	st2.rows[OIDCSettingsKey] = b
+	o2 := newDevService(t, st2)
+	if sn := o2.Snapshot(); !sn.Active || sn.TrustUnverifiedEmail || sn.LinkLdapByUsername || sn.LinkLdapByUsernameAllowAdmin || o2.LinkLdapByUsername() {
+		t.Fatalf("tutarsız blob bağlamayı düşürmedi: %+v", sn)
+	}
+}

@@ -48,6 +48,7 @@ const snap = (p: Partial<OidcSettingsSnapshot> = {}): OidcSettingsSnapshot => ({
   permissionServiceAllowedCIDRs: [], permissionServiceTrustedProxies: [],
   tlsCACertPEM: '', tlsInsecureSkipVerify: false, trustUnverifiedEmail: false,
   usernameFallback: false, usernameClaim: 'preferred_username', usernameFallbackAllowAdmin: false,
+  linkLdapByUsername: false, linkLdapByUsernameAllowAdmin: false,
   source: 'settings', active: true, ...p,
 });
 

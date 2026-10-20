@@ -74,6 +74,10 @@ type oidcClient struct {
 	usernameClaim    string
 	// usernameAllowAdmin — F2: kullanıcı adıyla eşleşme admin hesabını açabilir mi.
 	usernameAllowAdmin bool
+	// v0.10.1403 — güven anahtarıyla gelen girişi mevcut LDAP hesabına imzalı
+	// kullanıcı adıyla bağla (api/auth_oidc_ldap_link.go) + admin açık-seçimi.
+	linkLdapByUsername bool
+	linkLdapAllowAdmin bool
 }
 
 func (o *OIDCService) client() *oidcClient {
@@ -136,6 +140,11 @@ type OIDCClaims struct {
 	// id_token | userinfo | ldap | ldap_username. ldap_username'de Email BOŞ,
 	// Username (küçük harf) dolu: callback kullanıcıyı users.ldap_username
 	// ile bulur (api auth_oidc_email_resolve.go); bulamazsa email_missing.
+	//
+	// v0.10.1403 — ViaTrust girişte linkLdapByUsername açıkken Username, imzası
+	// doğrulanmış id_token'daki (yoksa sub'ı eşleşmiş UserInfo'daki)
+	// usernameClaim değeri (küçük harf, ASCII, `@` yok); callback bunu YALNIZ
+	// LDAP hesabına bağlama kanıtı olarak kullanır (ViaUsername false kalır).
 	EmailSource string `json:"-"`
 	Username    string `json:"-"`
 	// ViaUsername — güvenlik incelemesi F2: kimlik kullanıcı adıyla kuruldu
@@ -236,6 +245,15 @@ func (o *OIDCService) Exchange(ctx context.Context, code, codeVerifier, expected
 	}
 	cl := &OIDCClaims{Email: raw.Email, EmailVerified: dec.Verified, ViaTrust: dec.ViaTrust,
 		EmailSource: OIDCEmailSourceIDToken, Subject: idTok.Subject, Nonce: idTok.Nonce}
+	if dec.ViaTrust && c.linkLdapByUsername {
+		// v0.10.1403 — LDAP hesabına bağlama kanıtı: imzalı id_token'daki
+		// kullanıcı adı claim'i (oidc_email_resolve.go trustLinkUsername).
+		idClaims := map[string]json.RawMessage{}
+		if err := idTok.Claims(&idClaims); err != nil {
+			return nil, loginErr("claims_decode", err)
+		}
+		cl.Username = trustLinkUsername(c, idClaims, nil)
+	}
 	// v0.10.1110 — token claim'inden rol (oidc_permissions.go). Burada
 	// yalnız ÇÖZÜLÜR; depoya yazım callback'te (api auth_permissions.go
 	// oidcLoginUser — yalnız düşürür).

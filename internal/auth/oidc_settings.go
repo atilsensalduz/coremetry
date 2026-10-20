@@ -38,6 +38,10 @@ package auth
 //
 // v0.10.1121 — usernameFallback / usernameClaim (e-posta yoksa kullanıcı
 // adıyla eşleştir) aynı blobda; kurallar oidc_email_resolve.go'da.
+//
+// v0.10.1403 — linkLdapByUsername / linkLdapByUsernameAllowAdmin
+// (doğrulanmamış e-postalı SSO girişini mevcut LDAP hesabına imzalı kullanıcı
+// adıyla bağla) aynı blobda; kurallar api/auth_oidc_ldap_link.go'da.
 
 import (
 	"bytes"
@@ -133,18 +137,28 @@ type OIDCSettings struct {
 	// eşleşen giriş admin hesabını YALNIZ bu ayrı açık-seçimle açar (varsayılan
 	// kapalı; usernameFallback kapalıyken anlamsız → normalize false yapar).
 	UsernameFallbackAllowAdmin bool `json:"usernameFallbackAllowAdmin"`
+	// v0.10.1403 (operatör: "LDAP'ı bir süre sonra hiç kullanmayacağım, sadece
+	// merkezi login Keycloak üzerinden olacak") — güven anahtarıyla (ViaTrust)
+	// gelen giriş, imzalı id_token'daki kullanıcı adı claim'i users.ldap_username
+	// ile ve e-posta satırın e-postasıyla birebir eşleşirse mevcut LDAP hesabına
+	// bağlanır (api/auth_oidc_ldap_link.go). Varsayılan KAPALI; YALNIZ
+	// TrustUnverifiedEmail açıkken anlamlı (normalize düşürür). Admin hesabı
+	// yalnız AYRI açık-seçimle (LinkLdapByUsernameAllowAdmin).
+	LinkLdapByUsername           bool `json:"linkLdapByUsername"`
+	LinkLdapByUsernameAllowAdmin bool `json:"linkLdapByUsernameAllowAdmin"`
 }
 
 // String / GoString — %v, %+v, %#v ile kazara loglansa bile secret basılmasın.
 func (s OIDCSettings) String() string {
-	return fmt.Sprintf("{enabled:%v issuer:%q clientId:%q secretSet:%v redirect:%q scopes:%v display:%q role:%q domains:%v permSvc:%v permKeySet:%v permTTL:%d claim:%q roleFromClaim:%v permNoKey:%v permCIDRs:%v permProxies:%v tlsCABytes:%d tlsSkipVerify:%v trustUnverifiedEmail:%v usernameFallback:%v usernameClaim:%q usernameAllowAdmin:%v}",
+	return fmt.Sprintf("{enabled:%v issuer:%q clientId:%q secretSet:%v redirect:%q scopes:%v display:%q role:%q domains:%v permSvc:%v permKeySet:%v permTTL:%d claim:%q roleFromClaim:%v permNoKey:%v permCIDRs:%v permProxies:%v tlsCABytes:%d tlsSkipVerify:%v trustUnverifiedEmail:%v usernameFallback:%v usernameClaim:%q usernameAllowAdmin:%v linkLdap:%v linkLdapAllowAdmin:%v}",
 		s.Enabled, s.IssuerURL, s.ClientID, s.ClientSecret != "", s.RedirectURL,
 		s.Scopes, s.DisplayName, s.DefaultRole, s.AllowedDomains,
 		s.PermissionServiceEnabled, s.PermissionServiceKey != "", s.PermissionTTLSeconds,
 		s.PermissionsClaim, s.RoleFromClaim,
 		s.PermissionServiceAllowNoKey, s.PermissionServiceAllowedCIDRs, s.PermissionServiceTrustedProxies,
 		len(s.TLSCACertPEM), s.TLSInsecureSkipVerify, s.TrustUnverifiedEmail,
-		s.UsernameFallback, s.UsernameClaim, s.UsernameFallbackAllowAdmin)
+		s.UsernameFallback, s.UsernameClaim, s.UsernameFallbackAllowAdmin,
+		s.LinkLdapByUsername, s.LinkLdapByUsernameAllowAdmin)
 }
 
 func (s OIDCSettings) GoString() string { return "auth.OIDCSettings" + s.String() }
@@ -180,6 +194,9 @@ type oidcStored struct {
 	UsernameFallback           bool   `json:"usernameFallback,omitempty"`
 	UsernameClaim              string `json:"usernameClaim,omitempty"`
 	UsernameFallbackAllowAdmin bool   `json:"usernameFallbackAllowAdmin,omitempty"`
+	// v0.10.1403
+	LinkLdapByUsername           bool `json:"linkLdapByUsername,omitempty"`
+	LinkLdapByUsernameAllowAdmin bool `json:"linkLdapByUsernameAllowAdmin,omitempty"`
 }
 
 func (s OIDCSettings) stored() oidcStored   { return oidcStored(s) }
@@ -216,6 +233,9 @@ type OIDCSnapshot struct {
 	UsernameFallback           bool   `json:"usernameFallback"`
 	UsernameClaim              string `json:"usernameClaim"`
 	UsernameFallbackAllowAdmin bool   `json:"usernameFallbackAllowAdmin"`
+	// v0.10.1403 — LDAP hesabını kullanıcı adıyla SSO'ya bağla (secret değil).
+	LinkLdapByUsername           bool `json:"linkLdapByUsername"`
+	LinkLdapByUsernameAllowAdmin bool `json:"linkLdapByUsernameAllowAdmin"`
 	// Source — etkin yapılandırmanın kaynağı: settings (blob) | config (config.yaml).
 	Source string `json:"source"`
 	// Active — bu pod'da canlı istemci var mı (giriş düğmesi). İstenen
@@ -343,6 +363,10 @@ func NormalizeOIDCSettings(in OIDCSettings, publicURL string) OIDCSettings {
 	}
 	// F2 — admin açık-seçimi yalnız eşleştirme açıkken anlamlı.
 	s.UsernameFallbackAllowAdmin = s.UsernameFallbackAllowAdmin && s.UsernameFallback
+	// v0.10.1403 — LDAP bağlama yalnız güven anahtarıyla anlamlı; admin
+	// açık-seçimi yalnız bağlama açıkken.
+	s.LinkLdapByUsername = s.LinkLdapByUsername && s.TrustUnverifiedEmail
+	s.LinkLdapByUsernameAllowAdmin = s.LinkLdapByUsernameAllowAdmin && s.LinkLdapByUsername
 	return s
 }
 
@@ -668,6 +692,8 @@ func (o *OIDCService) LoadPersisted(ctx context.Context) error {
 	// KAPALI sayılır (Exchange'deki karar da listeyi ayrıca denetler).
 	if s.TrustUnverifiedEmail && !trustUnverifiedEffective(true, s.AllowedDomains) {
 		s.TrustUnverifiedEmail = false
+		// v0.10.1403 — güven düşünce LDAP bağlama da düşer (ikisi birlikte).
+		s.LinkLdapByUsername, s.LinkLdapByUsernameAllowAdmin = false, false
 		warns = append(warns, "trustUnverifiedEmail yok sayıldı — "+trustUnverifiedEmailMsg)
 	}
 	// v0.10.1121 — aynı kalıp: geçersiz kullanıcı adı claim'i SSO'yu düşürmez;
@@ -902,6 +928,8 @@ func (o *OIDCService) snapshotLocked() OIDCSnapshot {
 		UsernameFallback:                s.UsernameFallback,
 		UsernameClaim:                   s.UsernameClaim,
 		UsernameFallbackAllowAdmin:      s.UsernameFallbackAllowAdmin,
+		LinkLdapByUsername:              s.LinkLdapByUsername,
+		LinkLdapByUsernameAllowAdmin:    s.LinkLdapByUsernameAllowAdmin,
 		Source:                          src,
 		Active:                          o.live.Load() != nil,
 		LastError:                       o.st.lastErr,

@@ -1741,6 +1741,12 @@ export interface OidcSettingsSnapshot {
   // Kullanıcı adıyla eşleşen giriş admin hesabını açabilir mi (ayrı açık-seçim,
   // varsayılan kapalı; usernameFallback kapalıyken sunucu false yapar).
   usernameFallbackAllowAdmin: boolean;
+  // v0.10.1403 — güven anahtarıyla (email_verified=false) gelen girişi mevcut
+  // LDAP hesabına imzalı kullanıcı adı + e-posta eşleşmesiyle bağla (hesap
+  // oidc'ye taşınır). Varsayılan kapalı; trustUnverifiedEmail kapalıyken sunucu
+  // false yapar. Admin hesabı yalnız ayrı açık-seçimle.
+  linkLdapByUsername: boolean;
+  linkLdapByUsernameAllowAdmin: boolean;
   source: OidcSettingsSource;
   active: boolean;
   lastError?: string;
@@ -1769,6 +1775,8 @@ export interface OidcSettingsInput {
   usernameFallback: boolean;
   usernameClaim: string;
   usernameFallbackAllowAdmin: boolean;
+  linkLdapByUsername: boolean;
+  linkLdapByUsernameAllowAdmin: boolean;
 }
 export interface OidcDiscovery {
   issuer: string;

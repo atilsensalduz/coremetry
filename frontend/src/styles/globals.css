@@ -1739,6 +1739,8 @@ tbody td.dt-state.dt-state--loading, [data-density] tbody td.dt-state.dt-state--
 .sso-trust { margin-bottom: var(--sp-5); }
 .sso-trust .sso-check.is-disabled { color: var(--text3); }
 .sso-trust__hint { color: var(--text3); font-size: var(--fs-xs); margin-bottom: var(--sp-3); }
+/* v0.10.1403 — güven kutusuna bağlı LDAP hesabı bağlama alt bölümü (girintili). */
+.sso-trust--nested { margin: var(--sp-3) 0 0 var(--sp-5); }
 .sso-actions { display: flex; gap: var(--sp-4); justify-content: flex-end; margin-top: var(--sp-6); }
 .sso-result { margin-top: var(--sp-5); padding: var(--sp-5) var(--sp-6); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg1); font-size: var(--fs-sm); }
 .sso-result__head { font-weight: 600; margin-bottom: var(--sp-3); }

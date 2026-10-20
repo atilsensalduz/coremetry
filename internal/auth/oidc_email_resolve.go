@@ -120,6 +120,57 @@ func (c *oidcClient) applyEmailOptions(s OIDCSettings) {
 	c.usernameFallback = s.UsernameFallback
 	c.usernameClaim = s.UsernameClaim
 	c.usernameAllowAdmin = s.UsernameFallback && s.UsernameFallbackAllowAdmin
+	// v0.10.1403 — normalize zaten düşürür; burada da aynı koşullar (savunma).
+	c.linkLdapByUsername = s.TrustUnverifiedEmail && s.LinkLdapByUsername
+	c.linkLdapAllowAdmin = c.linkLdapByUsername && s.LinkLdapByUsernameAllowAdmin
+}
+
+// LinkLdapByUsername — v0.10.1403: güven anahtarıyla (ViaTrust) gelen giriş
+// mevcut LDAP hesabına imzalı kullanıcı adıyla bağlanabilir mi (canlı
+// istemciden; SSO kapalıyken false). Kurallar api/auth_oidc_ldap_link.go.
+func (o *OIDCService) LinkLdapByUsername() bool {
+	if c := o.client(); c != nil {
+		return c.linkLdapByUsername
+	}
+	return false
+}
+
+// LinkLdapAllowAdmin — v0.10.1403: bu bağlama admin hesabını açabilir mi
+// (ayrı açık-seçim; varsayılan kapalı).
+func (o *OIDCService) LinkLdapAllowAdmin() bool {
+	if c := o.client(); c != nil {
+		return c.linkLdapAllowAdmin
+	}
+	return false
+}
+
+// IssuerURL — v0.10.1403: canlı istemcinin issuer'ı (audit ayrıntısı için;
+// SSO kapalıyken "").
+func (o *OIDCService) IssuerURL() string {
+	if c := o.client(); c != nil {
+		return c.cfg.IssuerURL
+	}
+	return ""
+}
+
+// trustLinkUsername — v0.10.1403: ViaTrust girişin LDAP bağlama kanıtı.
+// Yapılandırılan claim (usernameClaim, varsayılan preferred_username; başka ad
+// tahmin edilmez) önce imzası doğrulanmış id_token'dan, yoksa sub'ı eşleşmiş
+// UserInfo'dan (uiClaims nil olabilir). Geçersiz değer (ASCII dışı, `@`,
+// boş, >256) = "" → callback bağlamaz. Küçük harf. SAF.
+func trustLinkUsername(c *oidcClient, idClaims, uiClaims map[string]json.RawMessage) string {
+	claim := c.usernameClaim
+	if claim == "" {
+		claim = UsernameClaimDefault
+	}
+	v, ok := usernameFromClaims(idClaims, claim)
+	if !ok && uiClaims != nil {
+		v, ok = usernameFromClaims(uiClaims, claim)
+	}
+	if !ok {
+		return ""
+	}
+	return strings.ToLower(v)
 }
 
 // UsernameFallbackAllowAdmin — F2: kullanıcı adıyla eşleşen giriş admin
@@ -318,6 +369,10 @@ func (o *OIDCService) resolveMissingEmail(ctx context.Context, c *oidcClient, to
 				}
 				cl := base(OIDCEmailSourceUserInfo)
 				cl.Email, cl.EmailVerified, cl.ViaTrust = email, dec.Verified, dec.ViaTrust
+				if dec.ViaTrust && c.linkLdapByUsername {
+					// v0.10.1403 — LDAP bağlama kanıtı (id_token önce, sonra UserInfo).
+					cl.Username = trustLinkUsername(c, idClaims, uiClaims)
+				}
 				return cl, nil
 			}
 		}

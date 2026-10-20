@@ -37,6 +37,10 @@ export interface OidcForm {
   usernameFallback: boolean;
   usernameClaim: string;
   usernameFallbackAllowAdmin: boolean;
+  // v0.10.1403 — mevcut LDAP hesabını kullanıcı adıyla SSO'ya bağla (güven
+  // anahtarı açıkken) + admin açık-seçimi.
+  linkLdapByUsername: boolean;
+  linkLdapByUsernameAllowAdmin: boolean;
 }
 
 /** Yetki servisi ucunun sabitleri (sunucu: internal/api/auth_permissions.go). */
@@ -115,6 +119,18 @@ export function parsePermissionTTL(v: string): number {
   return Math.min(3600, Math.max(60, n));
 }
 
+/**
+ * v0.10.1403 — "Mevcut LDAP hesaplarını kullanıcı adıyla SSO'ya bağla" yalnız
+ * doğrulanmamış e-postaya güven gerçekten açıkken (izinli alan adı dolu)
+ * anlamlı; admin alt seçeneği yalnız bağlama açıkken.
+ */
+export function ldapLinkInput(
+  f: Pick<OidcForm, 'allowedDomains' | 'trustUnverifiedEmail' | 'linkLdapByUsername' | 'linkLdapByUsernameAllowAdmin'>,
+): { linkLdapByUsername: boolean; linkLdapByUsernameAllowAdmin: boolean } {
+  const link = f.trustUnverifiedEmail && trustUnverifiedEmailAllowed(f) && f.linkLdapByUsername;
+  return { linkLdapByUsername: link, linkLdapByUsernameAllowAdmin: link && f.linkLdapByUsernameAllowAdmin };
+}
+
 /** Kullanıcı adı claim'inin varsayılanı (sunucu: auth.UsernameClaimDefault). */
 export const USERNAME_CLAIM_DEFAULT = 'preferred_username';
 
@@ -155,6 +171,8 @@ export function snapshotToForm(s: OidcSettingsSnapshot): OidcForm {
     usernameFallback: !!s.usernameFallback,
     usernameClaim: s.usernameClaim || USERNAME_CLAIM_DEFAULT,
     usernameFallbackAllowAdmin: !!s.usernameFallbackAllowAdmin,
+    linkLdapByUsername: !!s.linkLdapByUsername,
+    linkLdapByUsernameAllowAdmin: !!s.linkLdapByUsernameAllowAdmin,
   };
 }
 
@@ -186,6 +204,9 @@ export function formToInput(f: OidcForm): OidcSettingsInput {
     usernameClaim: f.usernameClaim.trim() || USERNAME_CLAIM_DEFAULT,
     // Admin açık-seçimi yalnız eşleştirme açıkken gönderilir (sunucu da düşürür).
     usernameFallbackAllowAdmin: f.usernameFallback && f.usernameFallbackAllowAdmin,
+    // v0.10.1403 — bağlama yalnız güven anahtarı gerçekten gönderilirken; admin
+    // açık-seçimi yalnız bağlama açıkken (sunucu da düşürür).
+    ...ldapLinkInput(f),
   };
 }
 
@@ -220,6 +241,8 @@ export function publicOidcSnapshot(c: AuthConfigResponse): OidcSettingsSnapshot 
     usernameFallback: false,
     usernameClaim: USERNAME_CLAIM_DEFAULT,
     usernameFallbackAllowAdmin: false,
+    linkLdapByUsername: false,
+    linkLdapByUsernameAllowAdmin: false,
     source: 'config',
     active: on,
   };

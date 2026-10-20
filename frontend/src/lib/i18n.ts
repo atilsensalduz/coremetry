@@ -270,8 +270,14 @@ const EN: Catalog = {
 
   // v0.10.1120 — Settings > SSO: trust unverified email (email_verified=false).
   'sso.trustEmail.label':        'Trust unverified email (not recommended)',
-  'sso.trustEmail.warning':      'Logins with email_verified=false are accepted, but only from the allowed domains. Risk: account takeover through an email collision — use only if the corporate IdP does not let users set or change their own email (no self-registration, no email editing, no social/brokered IdPs) and allowed domains are set. Admin and local/LDAP accounts are never linked this way. Preferred fix is on the IdP side (Keycloak "Trust Email").',
+  'sso.trustEmail.warning':      'Logins with email_verified=false are accepted, but only from the allowed domains. Risk: account takeover through an email collision — use only if the corporate IdP does not let users set or change their own email (no self-registration, no email editing, no social/brokered IdPs) and allowed domains are set. Admin and local/LDAP accounts are never linked this way (unless the LDAP account link option below is on). Preferred fix is on the IdP side (Keycloak "Trust Email").',
   'sso.trustEmail.needsDomains': 'Set allowed domains first — unverified email cannot be trusted while the list is empty.',
+  // v0.10.1403 — doğrulanmamış e-postalı SSO girişini mevcut LDAP hesabına kullanıcı adıyla bağla.
+  'sso.ldapLink.label':          'Link existing LDAP accounts to SSO by username',
+  'sso.ldapLink.note':           'For moving from LDAP login to SSO only. A login with an unverified email opens an existing LDAP account only if the username claim in the signed id_token equals the LDAP username Coremetry stored at that user\'s last LDAP login, the email equals the account\'s email, and exactly one active account has that LDAP username. The account then becomes an SSO account (audited). Each user needs at least one earlier LDAP login. Local/password accounts are never linked. Requires "Trust unverified email".',
+  'sso.ldapLink.warning':        'Use only if users cannot change their username or email on the IdP (Keycloak LDAP federation read-only, "Edit username" off, no self-registration, no brokered/social IdPs) — whoever can set both opens that account.',
+  'sso.ldapLinkAdmin.label':     'Also link admin accounts this way (not recommended)',
+  'sso.ldapLinkAdmin.warning':   'An admin account becomes reachable by whoever controls this username and email on the IdP; the check is repeated on every admin login. Leave off unless admins must move to SSO.',
 
   // v0.10.1121 — Settings > SSO: match by username when the IdP sends no email.
   'sso.usernameFallback.label':   'Match by username when email is missing (AD/LDAP)',
@@ -570,8 +576,14 @@ const TR: Catalog = {
   'rootCause.bubbleUnavailable': 'Attribute kıyası okunamadı — span taraması düştü ya da zaman aşımına uğradı. Bu, "ayrışan boyut yok" demek değildir.',
 
   'sso.trustEmail.label':        'Doğrulanmamış e-postaya güven (önerilmez)',
-  'sso.trustEmail.warning':      'email_verified=false olan girişler yalnız izinli alan adlarından kabul edilir. Risk: e-posta çarpışmasıyla hesap ele geçirme — yalnız kullanıcının e-postasını kendisinin belirleyemediği/değiştiremediği kurumsal IdP\'de (self-registration, e-posta düzenleme, sosyal/brokered IdP yok) ve izinli alan adları tanımlıyken kullanın. Admin ve yerel/LDAP hesaplar bu yolla bağlanmaz. Tercih edilen düzeltme IdP tarafında (Keycloak "Trust Email").',
+  'sso.trustEmail.warning':      'email_verified=false olan girişler yalnız izinli alan adlarından kabul edilir. Risk: e-posta çarpışmasıyla hesap ele geçirme — yalnız kullanıcının e-postasını kendisinin belirleyemediği/değiştiremediği kurumsal IdP\'de (self-registration, e-posta düzenleme, sosyal/brokered IdP yok) ve izinli alan adları tanımlıyken kullanın. Admin ve yerel/LDAP hesaplar bu yolla bağlanmaz (aşağıdaki LDAP hesabı bağlama seçeneği açık değilse). Tercih edilen düzeltme IdP tarafında (Keycloak "Trust Email").',
   'sso.trustEmail.needsDomains': 'Önce izinli alan adlarını girin — liste boşken doğrulanmamış e-postaya güvenilemez.',
+  // v0.10.1403 — doğrulanmamış e-postalı SSO girişini mevcut LDAP hesabına kullanıcı adıyla bağla.
+  'sso.ldapLink.label':          'Mevcut LDAP hesaplarını kullanıcı adıyla SSO\'ya bağla',
+  'sso.ldapLink.note':           'Yalnız LDAP girişinden SSO\'ya geçiş için. Doğrulanmamış e-postalı giriş mevcut LDAP hesabını ancak şu durumda açar: imzalı id_token\'daki kullanıcı adı claim\'i Coremetry\'nin o kullanıcının son LDAP girişinde kaydettiği LDAP kullanıcı adına, e-posta hesabın e-postasına eşit ve o LDAP kullanıcı adına sahip tam bir aktif hesap var. Hesap bundan sonra SSO hesabı olur (audit\'lenir). Her kullanıcının önceden en az bir LDAP girişi olmalı. Yerel/parola hesapları asla bağlanmaz. "Doğrulanmamış e-postaya güven" gerekir.',
+  'sso.ldapLink.warning':        'Yalnız kullanıcı IdP\'de kullanıcı adını ve e-postasını değiştiremiyorsa kullanın (Keycloak LDAP federasyonu salt-okunur, "Edit username" kapalı, self-registration ve brokered/sosyal IdP yok) — ikisini birden belirleyebilen o hesabı açar.',
+  'sso.ldapLinkAdmin.label':     'Admin hesaplarını da bu yolla bağla (önerilmez)',
+  'sso.ldapLinkAdmin.warning':   'Admin hesabına IdP\'de bu kullanıcı adını ve e-postayı denetleyen kişi erişir; denetim her admin girişinde yinelenir. Adminlerin SSO\'ya geçmesi gerekmiyorsa kapalı bırakın.',
 
   'sso.usernameFallback.label':   'E-posta yoksa kullanıcı adıyla eşleştir (AD/LDAP)',
   'sso.usernameFallback.on':      'Açık: id_token ve UserInfo e-posta taşımıyorsa doğrulanmış id_token\'daki kullanıcı adı claim\'i AD/LDAP\'ta (tam eşleşme) aranır ve dizindeki e-posta kullanılır; LDAP yoksa (ya da dizinde e-posta yoksa) kullanıcı LDAP kullanıcı adıyla mevcut Coremetry kullanıcısına eşlenir. E-postasız yeni kullanıcı açılmaz. İzinli alan adları yine uygulanır.',

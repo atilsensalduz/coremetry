@@ -8111,3 +8111,37 @@ kaldırabiliriz." + "Takımı da seçilebilir yapabiliriz, oradan devam eder."
   rotası ve sohbetteki deploy soruları aynen duruyor.
 - Testler: `internal/api/copilot_team_card_test.go` (yönlenme tablosu + kapsam + takip),
   `copilot_starters_test.go` (p1-only, v4), `frontend/src/components/ai/CosreTeamCard.test.tsx`.
+
+## 2026-10-20 — v0.10.1403 — OIDC: doğrulanmamış e-postalı SSO girişi mevcut LDAP hesabına kullanıcı adıyla bağlanır (Keycloak'a geçiş)
+
+**Operatör:** giriş sayfası "SSO sign-in failed: Bu hesap doğrulanmamış e-posta ile SSO'dan açılamaz; parola/LDAP ile
+girin veya IdP'de Trust Email açılsın" → "Coremetry tarafını yap" + "LDAP'ı bir süre sonra hiç kullanmayacağım,
+sadece merkezi login Keycloak üzerinden olacak."
+
+**Karar:**
+- v0.10.1120 kuralı (güven anahtarıyla — `trustUnverifiedEmail`, `email_verified=false` — gelen giriş yerel/LDAP ya da
+  admin hesabına bağlanmaz) korunur; TEK istisna yeni açık-seçim `linkLdapByUsername` (`auth_oidc` blobu, varsayılan
+  KAPALI, yalnız güven anahtarı açıkken anlamlı — normalize ve yükleme yolu düşürür).
+- Bağlama kanıtı (saf `oidcLdapLinkMatch`, `internal/api/auth_oidc_ldap_link.go`): imzalı id_token'daki (yoksa sub'ı
+  eşleşmiş UserInfo'daki) `usernameClaim` (varsayılan `preferred_username`, ASCII, `@` yok) == `users.ldap_username`
+  (yalnız başarılı LDAP bind'ı yazar; büyük-küçük harf duyarsız, ikisi de ASCII) VE satır e-postası == id_token
+  e-postası VE o `ldap_username`'e sahip TAM BİR aktif satır (`GetActiveUsersByLdapUsername`, LIMIT 2) ve o bu satır.
+  Yerel/parola hesabı (`auth_provider` local/boş) ASLA. Tehdit modeli: güven kipinde risk e-posta çarpışması; AD
+  federasyonlu salt-okunur Keycloak'ta sAMAccountName benzersiz ve kullanıcı tarafından değiştirilemez — kanıt
+  v0.10.1121 3b yolundan (yalnız kullanıcı adı) daha güçlü.
+- Canlı LDAP sorgusu YOK (LDAP emekliye ayrılıyor); kanıt Coremetry'nin kendi kaydı.
+- Bağlanan hesap `auth_provider=oidc`'ye taşınır (whole-row: tüm alanlar korunur), `/me` ve yetki önbelleği
+  boşaltılır, `auth.oidc.link_ldap_account` audit'lenir (from/to/issuer/sub/via). Ayrı `oidc_subject` sütunu yok.
+- Admin: ayrı açık-seçim `linkLdapByUsernameAllowAdmin` (varsayılan kapalı). Taşınmış admin her girişte kanıtı
+  yeniden verir (`oidcTrustLinkAllowed` admin'i hâlâ reddeder — derinlemesine savunma; eşleşme oidc + dolu
+  `ldap_username` satırını da kabul eder, yazmadan geçer).
+- Log: e-posta / kullanıcı adı YOK; başarı `[oidc] ldap account linked via username user id=<id>`, red sebebi sabit
+  kümeden, sebep başına dakikada bir. `OIDCClaims.ViaUsername` bu yolda açılmaz (F2 kapısı değişmez).
+- Sonraki LDAP girişi sağlayıcıyı yeniden `ldap` yapar (bugünkü davranış) — zararsız, sonraki SSO girişi yeniden
+  bağlar. `hasLdapUsernameCol=false` kurulumda bağlama reddedilir.
+- UI: Settings › SSO güven kutusunun içinde iki alt kutu + kırmızı ön koşul uyarıları; `usernameClaim` kutusu
+  bağlama açıkken de düzenlenebilir.
+- Kapsam dışı (kuyruk): Kullanıcılar sayfasında "SSO'ya taşı" + sağlayıcı sütunu.
+- Testler: `internal/api/auth_oidc_ldap_link_test.go`, `internal/auth/oidc_email_trust_test.go`
+  (`TestExchangeTrustLinkUsername`, `TestLinkLdapByUsernameSettings`), `frontend/src/pages/settings/
+  SsoTab.ldapLink.test.tsx`, `oidcForm.test.ts`.

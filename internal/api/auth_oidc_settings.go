@@ -160,6 +160,9 @@ func (s *Server) putOIDCSettings(w http.ResponseWriter, r *http.Request) {
 		"usernameFallback":           map[string]any{"old": prev.UsernameFallback, "new": snap.UsernameFallback},
 		"usernameClaim":              map[string]any{"old": prev.UsernameClaim, "new": snap.UsernameClaim},
 		"usernameFallbackAllowAdmin": map[string]any{"old": prev.UsernameFallbackAllowAdmin, "new": snap.UsernameFallbackAllowAdmin},
+		// v0.10.1403 — LDAP hesabını kullanıcı adıyla SSO'ya bağlama, eski→yeni.
+		"linkLdapByUsername":           map[string]any{"old": prev.LinkLdapByUsername, "new": snap.LinkLdapByUsername},
+		"linkLdapByUsernameAllowAdmin": map[string]any{"old": prev.LinkLdapByUsernameAllowAdmin, "new": snap.LinkLdapByUsernameAllowAdmin},
 	})
 	s.audit(r, "settings.oidc.update", "settings", "oidc", string(details))
 	writeJSON(w, snap)

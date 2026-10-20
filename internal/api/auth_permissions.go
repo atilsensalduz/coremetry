@@ -342,8 +342,16 @@ func (s *Server) oidcLoginUser(r *http.Request, email string, claims *auth.OIDCC
 		return nil, errOIDCAccountDisabled
 	}
 	if claims != nil && claims.ViaTrust && !oidcTrustLinkAllowed(*u) {
-		log.Printf("[oidc] login refused: class=%s user id=%s", oidcClassEmailUnverifiedPrivileged, u.ID)
-		return nil, errOIDCEmailUnverifiedPrivileged
+		// v0.10.1403 (operatör: "LDAP'ı bir süre sonra hiç kullanmayacağım,
+		// sadece merkezi login Keycloak üzerinden olacak") — linkLdapByUsername
+		// açıksa imzalı kullanıcı adı + e-posta + tek satır kanıtıyla LDAP
+		// hesabı SSO'ya bağlanır (auth_oidc_ldap_link.go); yoksa bugünkü red.
+		lu, linked := s.oidcTrustLdapLink(r, st, *u, email, claims)
+		if !linked {
+			log.Printf("[oidc] login refused: class=%s user id=%s", oidcClassEmailUnverifiedPrivileged, u.ID)
+			return nil, errOIDCEmailUnverifiedPrivileged
+		}
+		u = lu
 	}
 	// v0.10.1121 (güvenlik incelemesi F2) — kullanıcı adıyla kurulan kimlik
 	// admin hesabını yalnız usernameFallbackAllowAdmin ile açar.

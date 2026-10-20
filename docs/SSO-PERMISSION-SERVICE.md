@@ -1,4 +1,4 @@
-# SSO — merkezi login yetki servisi (v0.10.1110; anahtarsız kip + IP izin listesi v0.10.1111; IdP TLS v0.10.1112; doğrulanmamış e-posta v0.10.1120; e-posta çözüm zinciri v0.10.1121)
+# SSO — merkezi login yetki servisi (v0.10.1110; anahtarsız kip + IP izin listesi v0.10.1111; IdP TLS v0.10.1112; doğrulanmamış e-posta v0.10.1120; e-posta çözüm zinciri v0.10.1121; LDAP hesabını SSO'ya bağlama v0.10.1403)
 
 Merkezi OIDC login'i, kullanıcı oturumu başına **bir kez** (token yenilemede
 değil) Coremetry'ye "bu kullanıcının bu uygulamada hangi yetkileri var" diye
@@ -214,6 +214,8 @@ hesaplara bağlanmaz** — giriş sayfası "Bu hesap doğrulanmamış e-posta il
 SSO'dan açılamaz; parola/LDAP ile girin veya IdP'de Trust Email açılsın" der,
 loga yalnız kullanıcı id'si düşer (`class=email_unverified_privileged`). Yeni
 kullanıcı varsayılan rolle açılır; mevcut oidc viewer/editor normal girer.
+Tek istisna aşağıdaki ayrı açık-seçimdir (LDAP hesabını kullanıcı adıyla
+SSO'ya bağla, v0.10.1403).
 Bu anahtar sayesinde gelen girişte ASCII dışı karakter içeren e-posta
 `email_invalid` ile reddedilir (Unicode katlamasıyla alan adı/hesap çarpışması
 olmasın); doğrulanmış ya da claim'siz girişte Türkçe karakterli e-posta eskisi
@@ -223,6 +225,46 @@ bir `[auth] WARNING: OIDC email_verified=false accepted (trustUnverifiedEmail)
 domain=example.test` satırı bırakır (tam e-posta loglanmaz); anahtar açıkken her
 ayar yüklemesinde bir WARN daha düşer. Değişiklik audit'e eski→yeni girer
 (`settings.oidc.update`). IdP tarafı düzeltildiğinde anahtarı kapatın.
+
+### LDAP hesabını kullanıcı adıyla SSO'ya bağla (v0.10.1403)
+
+LDAP girişinden Keycloak'a geçişte mevcut LDAP kullanıcıları yukarıdaki kural
+yüzünden "Bu hesap doğrulanmamış e-posta ile SSO'dan açılamaz…" alıyordu.
+Settings > SSO'da güven kutusunun altındaki **"Mevcut LDAP hesaplarını
+kullanıcı adıyla SSO'ya bağla"** (`linkLdapByUsername`, varsayılan **kapalı**;
+yalnız `trustUnverifiedEmail` açıkken anlamlı — güven kapanınca sunucu bunu da
+kapatır) açıkken, güven anahtarıyla gelen giriş mevcut bir LDAP hesabına
+**yalnız şu koşulların hepsi** tutarsa bağlanır:
+
+1. imzası/issuer'ı/nonce'u doğrulanmış id_token'daki (yoksa `sub`'ı eşleşmiş
+   UserInfo'daki) *Kullanıcı adı claim'i* (`usernameClaim`, varsayılan
+   `preferred_username`; yalnız yazdırılabilir ASCII, `@` yok) var;
+2. hesap LDAP kaynaklı — **yerel/parola hesapları asla bağlanmaz**;
+3. bu claim, Coremetry'nin o kullanıcının son başarılı LDAP girişinde yazdığı
+   `ldap_username` ile (büyük-küçük harf duyarsız, ikisi de ASCII) aynı;
+4. id_token e-postası hesabın e-postasıyla birebir aynı;
+5. o `ldap_username`'e sahip **tam bir** aktif hesap var ve o bu hesap.
+
+Bağlanan hesap `auth_provider=oidc`'ye taşınır (rol, takım, özel rol, parola
+özeti, `ldap_username` dahil tüm alanlar korunur); audit'e
+`auth.oidc.link_ldap_account` (`from=ldap`, `to=oidc`, issuer, sub,
+`via=username+email`) girer, loga `[oidc] ldap account linked via username user
+id=<id>` düşer. Sonraki girişlerde hesap artık oidc viewer/editor'dür ve
+kullanıcı adı aranmaz. Koşul tutmazsa bugünkü mesaj aynen; loga sebep başına
+dakikada bir `[oidc] ldap account link refused: reason=no_username_claim|
+provider_not_ldap|ldap_username_missing|username_mismatch|email_mismatch|
+ldap_username_ambiguous|admin_refused|store_error user id=<id>` (e-posta ve
+kullanıcı adı loglanmaz).
+
+**Admin hesabı** yalnız ayrı açık-seçim "Admin hesaplarını da bu yolla bağla
+(önerilmez)" (`linkLdapByUsernameAllowAdmin`, varsayılan kapalı) ile bağlanır;
+taşınmış admin hesabı her girişte aynı kanıtı yeniden verir.
+
+**Ön koşul:** Keycloak'ta kullanıcı kullanıcı adını ve e-postasını
+değiştirememeli (LDAP federasyonu read-only, *Edit username* kapalı,
+self-registration ve brokered/sosyal IdP yok). Her kullanıcının Coremetry'ye
+önceden en az bir LDAP girişi olmalı (`ldap_username` ancak o zaman dolar).
+Ayar değişikliği audit'e eski→yeni girer (`settings.oidc.update`).
 
 ## E-posta yok — `email_missing`: çözüm zinciri (v0.10.1121)
 

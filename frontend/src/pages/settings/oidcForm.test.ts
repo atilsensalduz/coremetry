@@ -2,7 +2,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   OIDC_CA_PEM_MAX, PERMISSION_MAX_CIDRS, TLS_SKIP_VERIFY_WARNING, caPemInfo, formToInput, oidcStatus, parseCidrList,
-  parsePermissionTTL, permissionNetWarnings, publicOidcSnapshot, snapshotToForm, splitList, trustUnverifiedEmailAllowed,
+  ldapLinkInput, parsePermissionTTL, permissionNetWarnings, publicOidcSnapshot, snapshotToForm, splitList,
+  trustUnverifiedEmailAllowed,
 } from './oidcForm';
 import type { OidcSettingsSnapshot } from '@/lib/types';
 
@@ -16,6 +17,7 @@ const snap: OidcSettingsSnapshot = {
   permissionServiceAllowNoKey: false, permissionServiceAllowedCIDRs: [], permissionServiceTrustedProxies: [],
   tlsCACertPEM: '', tlsInsecureSkipVerify: false, trustUnverifiedEmail: false,
   usernameFallback: false, usernameClaim: 'preferred_username', usernameFallbackAllowAdmin: false,
+  linkLdapByUsername: false, linkLdapByUsernameAllowAdmin: false,
 };
 
 describe('oidcForm', () => {
@@ -202,5 +204,41 @@ describe('oidcForm — trustUnverifiedEmail', () => {
     expect(snapshotToForm(legacy as OidcSettingsSnapshot).trustUnverifiedEmail).toBe(false);
     const p = publicOidcSnapshot({ local: { enabled: true }, oidc: { enabled: true, displayName: 'SSO' } });
     expect(p.trustUnverifiedEmail).toBe(false);
+  });
+});
+
+// v0.10.1403 (operatör: "LDAP'ı bir süre sonra hiç kullanmayacağım, sadece
+// merkezi login Keycloak üzerinden olacak") — LDAP hesabını kullanıcı adıyla
+// SSO'ya bağlama yalnız güven anahtarı gerçekten giderken; admin alt seçeneği
+// yalnız bağlamayla.
+describe('oidcForm — linkLdapByUsername', () => {
+  const on = { ...snap, allowedDomains: ['corp.example.test'], trustUnverifiedEmail: true,
+    linkLdapByUsername: true, linkLdapByUsernameAllowAdmin: true };
+
+  it('snapshot → form → gövde: açıkken iki bayrak aynen gider', () => {
+    const f = snapshotToForm(on);
+    expect(f.linkLdapByUsername).toBe(true);
+    expect(f.linkLdapByUsernameAllowAdmin).toBe(true);
+    expect(formToInput(f)).toMatchObject({ trustUnverifiedEmail: true, linkLdapByUsername: true, linkLdapByUsernameAllowAdmin: true });
+  });
+
+  it('güven kapalı ya da alan adı boşsa ikisi de false; bağlama kapalıysa admin false', () => {
+    const f = snapshotToForm(on);
+    expect(ldapLinkInput({ ...f, trustUnverifiedEmail: false })).toEqual({ linkLdapByUsername: false, linkLdapByUsernameAllowAdmin: false });
+    expect(formToInput({ ...f, allowedDomains: '' })).toMatchObject({ linkLdapByUsername: false, linkLdapByUsernameAllowAdmin: false });
+    expect(ldapLinkInput({ ...f, linkLdapByUsername: false })).toEqual({ linkLdapByUsername: false, linkLdapByUsernameAllowAdmin: false });
+    expect(ldapLinkInput({ ...f, linkLdapByUsernameAllowAdmin: false })).toEqual({ linkLdapByUsername: true, linkLdapByUsernameAllowAdmin: false });
+  });
+
+  it('eski sunucu alanı göndermezse kapalı; viewer görünümü kapalı', () => {
+    const legacy: Partial<OidcSettingsSnapshot> = { ...on };
+    delete legacy.linkLdapByUsername;
+    delete legacy.linkLdapByUsernameAllowAdmin;
+    const g = snapshotToForm(legacy as OidcSettingsSnapshot);
+    expect(g.linkLdapByUsername).toBe(false);
+    expect(formToInput(g)).toMatchObject({ linkLdapByUsername: false, linkLdapByUsernameAllowAdmin: false });
+    const p = publicOidcSnapshot({ local: { enabled: true }, oidc: { enabled: true, displayName: 'SSO' } });
+    expect(p.linkLdapByUsername).toBe(false);
+    expect(p.linkLdapByUsernameAllowAdmin).toBe(false);
   });
 });

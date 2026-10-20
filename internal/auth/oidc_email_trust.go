@@ -28,6 +28,11 @@ package auth
 // oidcLoginUser → email_unverified_privileged); yeni kullanıcı varsayılan
 // rolle açılır, mevcut oidc viewer/editor girer.
 //
+// v0.10.1403 — TEK istisna, ayrı açık-seçim (linkLdapByUsername, varsayılan
+// KAPALI): imzalı id_token'daki kullanıcı adı claim'i users.ldap_username ile,
+// e-posta satırın e-postasıyla birebir eşleşen ve o ldap_username'e sahip TEK
+// aktif satır olan LDAP hesabı SSO'ya bağlanır (api/auth_oidc_ldap_link.go).
+//
 // Yetki servisi, rol mantığı ve TLS kuralları bu anahtardan BAĞIMSIZ.
 
 import (
@@ -188,9 +193,10 @@ func warnTrustUnverifiedEmail(s OIDCSettings, logf func(string, ...any)) {
 	if !s.Enabled || !s.TrustUnverifiedEmail {
 		return
 	}
-	logf("[auth] WARNING: OIDC doğrulanmamış e-postaya güveniliyor (trustUnverifiedEmail) issuer=%s domains=%d — "+
+	// v0.10.1403 — linkLdap: bu girişler mevcut LDAP hesabına kullanıcı adıyla bağlanabilir.
+	logf("[auth] WARNING: OIDC doğrulanmamış e-postaya güveniliyor (trustUnverifiedEmail) issuer=%s domains=%d linkLdap=%v linkLdapAdmin=%v — "+
 		"email_verified=false olan girişler izinli alan adlarıyla kabul edilir; tercih edilen düzeltme IdP'de "+
-		"\"Trust Email\"", s.IssuerURL, len(s.AllowedDomains))
+		"\"Trust Email\"", s.IssuerURL, len(s.AllowedDomains), s.LinkLdapByUsername, s.LinkLdapByUsernameAllowAdmin)
 }
 
 // trustUnverifiedEmailMsg — kayıt reddi (400) ve yükleme uyarısı metni.
