@@ -63,8 +63,9 @@ describe('deneme beyanı (attempt)', () => {
   it('retry / regenerate / edit kendi beyanıyla gönderir; api gövdeye koyar', () => {
     const hook = src('./useChatThread.ts');
     // v0.10.1400 — açıklama turunun niyeti (explainAsk) de aynen yeniden gider.
-    expect(hook).toContain("void send(q, { attempt: 'retry', ...(ask ? { explainAsk: ask } : {}) })");
-    expect(hook).toMatch(/alternatives: r\.alternatives, attempt: 'regenerate', \.\.\.\(ask \? \{ explainAsk: ask \} : \{\}\) \}/);
+    // v0.10.1405 — endpoint sorusunun sabit penceresi (window) de aynen yeniden gider.
+    expect(hook).toContain("void send(q, { attempt: 'retry', ...(ask ? { explainAsk: ask } : {}), ...(win ? { window: win } : {}) })");
+    expect(hook).toMatch(/alternatives: r\.alternatives, attempt: 'regenerate', \.\.\.\(ask \? \{ explainAsk: ask \} : \{\}\), \.\.\.\(win \? \{ window: win \} : \{\}\) \}/);
     expect(hook).toMatch(/attempt: 'edit' \}\)/);
     const api = src('../../lib/api.ts');
     expect(api).toContain('...(contextAttempt ? { attempt: contextAttempt } : {})');

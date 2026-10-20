@@ -61,16 +61,20 @@ export function AIExplainButton({ subject, label, size, emphasis = 'normal', tit
   // v0.10.1400 (Tek CoSRE) — trace / exception: `?ai=` tek seferlik niyet;
   // CopilotChat onu tüketip açıklamayı SOHBET TURU olarak gönderir (çekmece
   // özne kipi yok; adres anında temizlenir, ikinci tık yeni tur = önbellek
-  // isabeti). aria-expanded sözleşmesi aynen (CopilotChat yoksa — kiosk dışı
-  // testler — düğme yine aç/kapa yazar).
+  // isabeti).
+  // v0.10.1405 (Tek CoSRE adım 2; operatör: "Trace ve exception üzerinden
+  // çalışan Ask CoSRE açıklamaları güzel ama sanki ayrı drawer hissi, CoSRE
+  // bütünselliğine uymuyor.") — tık HER ZAMAN özneyi yazar: aç/kapa
+  // geçişi ve aria-expanded kalktı (düğme bir çekmeceyi açıp kapatmıyor,
+  // sohbete bir tur gönderiyor; charts / log-spike çekmecesi kendi ✕'iyle
+  // kapanır). Adres replace:true (useAiSubject).
   const asTurn = isExplainTurnKind(subject.kind);
   return (
     <Button variant={look.variant}
       size={size ?? look.size}
-      aria-expanded={open}
       title={title ?? (asTurn ? 'CoSRE sohbetinde açıkla' : 'AI açıklamasını sağ çekmecede aç')}
       className={[quiet ? undefined : 'ai-attn', className].filter(Boolean).join(' ') || undefined}
-      onClick={() => { setUsed(true); setAi(open ? null : subject); }}>
+      onClick={() => { setUsed(true); setAi(subject); }}>
       {label ?? <><IconSparkles /> <span>AI explain</span></>}
     </Button>
   );

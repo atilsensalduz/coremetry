@@ -6,8 +6,8 @@
 // sunucu yüzeyi (explain-trace) ve AIExplainButton davranışı aynı kalmalı.
 //
 // Neden gerçek mount + kaynak pini birlikte: ad/ipucu dil seçimine göre
-// çalışma zamanında çözülür (useT), akış (adrese yazma, aynı trace'e
-// ikinci tıkla kapanma, aria-expanded) da çalışma zamanı dalıdır; kaynak
+// çalışma zamanında çözülür (useT), akış (adrese yazma; v0.10.1405'ten beri
+// ikinci tık özneyi korur, aria-expanded yok) da çalışma zamanı dalıdır; kaynak
 // pini ise iki çağrı yerinin (/trace ve kiosk) bu anahtarları GERÇEKTEN
 // kullandığını ve eski "Explain this trace" metninin geri gelmediğini
 // çiviler — test kablosu çağrı yerinin kopyası olduğu için tek başına yetmez.
@@ -105,7 +105,8 @@ describe('trace düğmesi — ad, ipucu, erişilebilirlik', () => {
     expect(b.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
     expect(b.textContent?.trim()).toBe('CoSRE’ye sor');
     expect(b.getAttribute('title')).toBe('Bu trace hakkında CoSRE’ye soru sor.');
-    expect(b.getAttribute('aria-expanded')).toBe('false');
+    // v0.10.1405 — düğme çekmece açıp kapatmıyor (sohbet turu): aria-expanded yok.
+    expect(b.hasAttribute('aria-expanded')).toBe(false);
   });
 
   it('İngilizce: "Ask CoSRE" + "Ask CoSRE about this trace."', async () => {
@@ -118,7 +119,11 @@ describe('trace düğmesi — ad, ipucu, erişilebilirlik', () => {
 });
 
 describe('trace düğmesi — akış değişmedi', () => {
-  it('tık seçili trace\'i CoSRE çekmecesine özne yapar; ikinci tık kapatır', async () => {
+  // v0.10.1405 (operatör: "Trace ve exception üzerinden çalışan Ask CoSRE
+  // açıklamaları güzel ama sanki ayrı drawer hissi, CoSRE bütünselliğine
+  // uymuyor.") — ikinci tık artık KAPATMAZ: özne yeniden yazılır (CoSRE onu
+  // tüketip yeni tur gönderir — önbellek isabeti); aria-expanded yok.
+  it('tık seçili trace\'i CoSRE niyeti olarak yazar; ikinci tık özneyi korur', async () => {
     setUserLang('tr');
     await mount(`/trace?id=${TRACE_ID}&span=s1`);
 
@@ -129,13 +134,13 @@ describe('trace düğmesi — akış değişmedi', () => {
     expect(p.get('id')).toBe(TRACE_ID);
     expect(p.get('span')).toBe('s1'); // yabancı param korunur
     expect(parseAiParam(p.get('ai'), p)).toEqual({ kind: 'trace', id: TRACE_ID });
-    expect(button()!.getAttribute('aria-expanded')).toBe('true');
+    expect(button()!.hasAttribute('aria-expanded')).toBe(false);
 
     await act(async () => { button()!.click(); });
     p = new URLSearchParams(lastSearch);
-    expect(p.get('ai')).toBeNull();
+    expect(p.get('ai')).toBe('trace');
     expect(p.get('id')).toBe(TRACE_ID);
-    expect(button()!.getAttribute('aria-expanded')).toBe('false');
+    expect(p.get('span')).toBe('s1');
   });
 
   it('copilot kapalıyken düğme yine hiç çizilmez', async () => {

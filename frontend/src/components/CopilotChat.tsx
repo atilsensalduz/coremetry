@@ -49,7 +49,7 @@ import { AI_DRAWER_WIDTH } from './ai/answerCard'; // v0.10.461
 import { AIDrawerBody } from './ai/AIDrawerBody'; // v0.10.483 — ✨ Explain gövdesi aynı çekmecede
 import { useAiSubject } from './ai/useAiSubject';
 import { AI_SRC_PARAM, aiSubjectSubtitle, aiSubjectTitle, formatAiParam, parseAiParam } from '@/lib/aiSubject';
-import { activeExplainFrom, explainAskFor, explainContextLabel, explainFollowupContext, explainSubject, isExplainTurnKind } from './ai/explainTurn'; // v0.10.1400
+import { activeExplainFrom, explainAskFor, explainAskSubject, explainContextLabel, explainFollowupContext, explainSubject, explainTurnSendOpts, isExplainTurnKind } from './ai/explainTurn'; // v0.10.1400; v0.10.1405 — tüm göç eden türler
 import { drawerFollowups } from './ai/drawerChat'; // v0.10.1400 — açıklama turunun takip çipleri
 import { greetHello, greetErrors, greetHref, greetTooltip } from './ai/greeting';
 import type { AiConversation, AiConversationSummary } from '@/lib/types';
@@ -145,6 +145,11 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
   // kipine ALMAZ: `?ai=` tek seferlik bir niyet olarak tüketilir ve sohbete
   // açıklama turu gönderilir (aşağıdaki effect). Özne kipi yalnız diğer
   // türler için (span, problem, … — v0.10.1401).
+  // v0.10.1405 (Tek CoSRE adım 2; operatör: "Trace ve exception üzerinden
+  // çalışan Ask CoSRE açıklamaları güzel ama sanki ayrı drawer hissi, CoSRE
+  // bütünselliğine uymuyor.") — span, problem, incident, anomaly, servis
+  // sağlığı, runbook, log ve endpoint de sohbet turu (explainTurn
+  // EXPLAIN_TURN_KINDS); özne kipi yalnız charts / log-spike için (1407).
   const subject = rawSubject && !isExplainTurnKind(rawSubject.kind) ? rawSubject : null;
   const drawerOpen = open || subject !== null;
   // v0.10.944 (CoSRE Faz A) — geçmişten açılan ÖZNELİ konuşma. Çekmece
@@ -557,6 +562,9 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
   // `?ai=` hemen düşer (konuşma kalıcılaşınca adres ?chat= taşır). Ref
   // muhafızı: StrictMode'un çift effect'i ve aynı niyetin yeniden render'ı
   // tek tur gönderir. Copilot yapılandırması gelene dek bekler.
+  // v0.10.1405 — aynı yol göç eden TÜM türler için (?ai=span|problem|incident|
+  // anomaly|service-health|runbook|log|endpoint): AIDrawerBody artık yalnız
+  // charts / log-spike'ta mount olur.
   const explainAskSentRef = useRef('');
   const rawSubjectKey = rawSubject ? formatAiParam(rawSubject) : '';
   useEffect(() => {
@@ -566,7 +574,8 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
     const ask = explainAskFor(rawSubject, sp.get(AI_SRC_PARAM) || 'ai-param');
     setOpen(true);
     setSubject(null);
-    if (ask) { pinBottom(); void send(ask.userText, { explainAsk: ask.explainAsk }); }
+    // v0.10.1405 — niyet (span / service-health / log: + subject kodeği) ya da endpoint'in sabit penceresi.
+    if (ask) { pinBottom(); void send(ask.userText, explainTurnSendOpts(ask)); }
   }, [rawSubject, rawSubjectKey, enabled, sp, send, pinBottom, setSubject]);
   // v0.10.1336 — rehberli tur köprüsü (aiEvents AI_PREFILL_EVENT): ai-ask'ın
   // kardeşi ama GÖNDERMEZ — çekmeceyi açar, composer'ı doldurur, imleç sonda,
@@ -615,9 +624,10 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
     void send(text, so);
   };
   // v0.10.1400 — bağlam çipi (trace / exception) açıklamayı sohbet turu olarak ister.
+  // v0.10.1405 — niyetin öznesi kodekten (span / service-health / log) ya da {kind, id}'den.
   const askExplain = (a: ChatExplainAsk) => {
-    const x = explainAskFor(explainSubject(a), a.src);
-    if (x) askChip(x.userText, { explainAsk: x.explainAsk });
+    const x = explainAskFor(explainAskSubject(a), a.src);
+    if (x) askChip(x.userText, explainTurnSendOpts(x));
   };
   const acceptCompletion = (item: CompletionItem | undefined) => {
     if (!completion.cq || !item) return;

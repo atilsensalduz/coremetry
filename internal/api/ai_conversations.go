@@ -103,21 +103,31 @@ type aiChatMessage struct {
 }
 
 // sanitizeChatExplain — v0.10.1400: arşive girecek açıklama künyesi. Tür
-// trace|exception dışıysa ya da kimlik biçimsizse künye DÜŞER (mesaj kalır,
-// düz metin çizilir); kanıt kimlikleri hex-only, ≤50; metin alanları kırpılır.
+// açıklama kaydı dışıysa (v0.10.1405: chat_explain_registry.go) ya da kimlik
+// biçimsizse künye DÜŞER (mesaj kalır, düz metin çizilir); kanıt kimlikleri
+// hex-only, ≤50; metin alanları kırpılır.
 // Saf.
 func sanitizeChatExplain(in *chatExplainMeta) *chatExplainMeta {
 	if in == nil {
 		return nil
 	}
-	a, ok := normalizeExplainAsk(&chatExplainAsk{Kind: in.Kind, ID: in.ID})
+	// v0.10.1405 — tür beyaz listesi açıklama kaydından (normalizeExplainAsk);
+	// span / service-health / log künyesi geçerli `subject` (≤400 rune, tür
+	// eşleşmeli, kanonik biçime yazılır) olmadan DÜŞER; renderer beyaz listeli,
+	// not kırpık.
+	a, ok := normalizeExplainAsk(&chatExplainAsk{Kind: in.Kind, ID: in.ID, Subject: in.Subject})
 	if !ok {
 		return nil
 	}
+	renderer := strings.TrimSpace(in.Renderer)
+	if !explainRenderers[renderer] {
+		renderer = ""
+	}
 	out := chatExplainMeta{
-		Kind: a.Kind, ID: a.ID,
+		Kind: a.Kind, ID: a.ID, Subject: a.Subject, Renderer: renderer,
 		Surface:          clampChatRunes(in.Surface, aiChatEvidenceHopMax),
 		Label:            clampChatRunes(in.Label, aiChatEvidenceFieldMax),
+		Note:             clampChatRunes(in.Note, chatExplainNoteMax),
 		Cached:           in.Cached,
 		EvidenceSpanIDs:  hexIDsOnly(in.EvidenceSpanIDs),
 		EvidenceTraceIDs: hexIDsOnly(in.EvidenceTraceIDs),

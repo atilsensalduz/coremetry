@@ -3,8 +3,10 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -254,22 +256,23 @@ func dropSelf(recs []*logstore.LogRecord, self *logstore.LogRecord, n int) []*lo
 	return out
 }
 
-func (s *Server) copilotExplainLog(w http.ResponseWriter, r *http.Request) {
-	var body logLineExplainBody
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
-		return
-	}
-	body, err := validateLogLineBody(body)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err.Error())
-		return
-	}
+// errExplainLogsUnconfigured — log arka ucu yok (HTTP 503; sohbette hata).
+var errExplainLogsUnconfigured = errors.New("log arka ucu yapılandırılmamış")
+
+// logLineNotFoundMsg — satır yeniden okunamadı (HTTP 404 JSON gövdesi + sohbet).
+const logLineNotFoundMsg = "log satırı yeniden okunamadı (saklama süresi dolmuş ya da kaynak değişmiş olabilir)"
+
+// buildLogLineExplain — v0.10.1405: tek log satırı açıklamasının girdisi, ctx
+// tabanlı (gövde v0.10.1291 handler'ının aynısı). İki çağıran — HTTP düğmesi
+// ve sohbetin açıklama turu (operatör: "Trace ve exception üzerinden çalışan
+// Ask CoSRE açıklamaları güzel ama sanki ayrı drawer hissi, CoSRE
+// bütünselliğine uymuyor.") — aynı explainBuilt'i, yani aynı
+// explainCacheKey(SystemPromptLogLine(), user, "") anahtarını kullanır.
+// body validateLogLineBody'den geçmiş olmalı.
+func (s *Server) buildLogLineExplain(ctx context.Context, body logLineExplainBody) (explainBuilt, error) {
 	if s.logs == nil {
-		writeJSONError(w, http.StatusServiceUnavailable, "log arka ucu yapılandırılmamış")
-		return
+		return explainBuilt{}, errExplainLogsUnconfigured
 	}
-	ctx := r.Context()
 	at := time.Unix(0, body.tsNs)
 	f := logstore.Filter{Service: body.Service, Pod: body.Pod, Env: body.Env,
 		From: at.Add(-logLineReadWindow), To: at.Add(logLineReadWindow), Limit: logLineReadLimit, SkipTotal: true}
@@ -280,8 +283,7 @@ func (s *Server) copilotExplainLog(w http.ResponseWriter, r *http.Request) {
 		page, err = logstore.SearchWithTimeout(ctx, s.logs, f, logLineReadBudget)
 	}
 	if err != nil {
-		writeErr(w, err)
-		return
+		return explainBuilt{}, err
 	}
 	var recs []*logstore.LogRecord
 	if page != nil {
@@ -289,8 +291,7 @@ func (s *Server) copilotExplainLog(w http.ResponseWriter, r *http.Request) {
 	}
 	line, exact := pickLogLine(recs, body.tsNs, body.Hash)
 	if line == nil {
-		writeJSONError(w, http.StatusNotFound, "log satırı yeniden okunamadı (saklama süresi dolmuş ya da kaynak değişmiş olabilir)")
-		return
+		return explainBuilt{}, &explainNotFoundError{msg: logLineNotFoundMsg, jsonBody: true}
 	}
 	var fm logstore.FieldMapping
 	if m, ok := logstore.Unwrap(s.logs).(logstore.FieldMapper); ok {
@@ -331,9 +332,39 @@ func (s *Server) copilotExplainLog(w http.ResponseWriter, r *http.Request) {
 			in.Trace = &stub
 		}
 	}
-	user := renderLogLineTR(in)
+	b := newExplainBuilt(copilot.SystemPromptLogLine(), renderLogLineTR(in))
+	b.Extra = map[string]any{"matched": exact}
+	b.Service = line.ServiceName
+	b.Label = line.ServiceName
+	if !exact {
+		b.Note = "Tam eşleşme bulunamadı — aynı saniyedeki en yakın satır açıklandı."
+	}
+	if line.TraceID != "" {
+		b.Links = []guidedAnswerLink{{Label: "Trace'i aç", Href: "/trace?id=" + url.QueryEscape(line.TraceID)}}
+	}
+	return b, nil
+}
+
+func (s *Server) copilotExplainLog(w http.ResponseWriter, r *http.Request) {
+	var body logLineExplainBody
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	body, err := validateLogLineBody(body)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	b, err := s.buildLogLineExplain(r.Context(), body)
+	if errors.Is(err, errExplainLogsUnconfigured) {
+		writeJSONError(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	if err != nil {
+		writeExplainBuildErr(w, err)
+		return
+	}
 	r, xid := withExchange(r)
-	extra := map[string]any{"matched": exact}
-	s.deliverExplain(w, r, xid, extra, s.explainPrompt(r, copilot.SystemPromptLogLine(), user), line.ServiceName,
-		explainCacheKey(copilot.SystemPromptLogLine(), user, ""))
+	s.deliverExplain(w, r, xid, b.Extra, s.explainPrompt(r, b.System, b.User), b.Service, b.CacheKey)
 }

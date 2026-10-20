@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { appendChatBlock } from '@/lib/chatBlocks';
 import { isSafeAppPath } from '@/lib/safeAppPath';
-import type { AiConversation, ChatAttempt, ChatExplainAsk, PageContext } from '@/lib/types';
+import type { AiConversation, ChatAttempt, ChatExplainAsk, ChatSendWindow, PageContext } from '@/lib/types';
 import type { ChatMessage, ChatTurn } from '@/lib/types';
 import { capPageContext } from '@/lib/traceAiContext';
 import { isAbortError, settleStoppedTurn, settleTruncatedTurn } from './chatAbort';
@@ -133,6 +133,12 @@ export interface ChatSendOpts {
    * üret aynısını yollar); bekleyen cevap baştan açıklama turu olarak çizilir.
    */
   explainAsk?: ChatExplainAsk;
+  /**
+   * v0.10.1405 — bu gönderimin SABİT penceresi (endpoint "CoSRE'ye sor":
+   * düğmeye basılan pencere). rangeS/toMs'i yalnız bu istek için ezer;
+   * kullanıcı turunda durur, yeniden dene / üret aynısını yollar.
+   */
+  window?: ChatSendWindow;
 }
 
 export function useChatThread(opts: ChatThreadOpts = {}) {
@@ -233,7 +239,8 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
       return;
     }
     const o0 = optsRef.current;
-    const o: ChatThreadOpts = o0.resolveOpts ? { ...o0, ...o0.resolveOpts(turnsRef.current) } : o0; // v0.10.1400
+    const o1: ChatThreadOpts = o0.resolveOpts ? { ...o0, ...o0.resolveOpts(turnsRef.current) } : o0; // v0.10.1400
+    const o: ChatThreadOpts = so?.window ? { ...o1, rangeS: so.window.rangeS, toMs: so.window.toMs } : o1; // v0.10.1405
     // v0.10.1138 — @-anmalar / komut → yapısal kapsam. Yoksa ikisi de undefined
     // ve istek gövdesi bayt bayt eski (chatScope.ts).
     // v0.10.1139 — çekmece bağlamında (explain/subject/trace/sayfa traceId)
@@ -262,7 +269,7 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
     ];
     setTurns(prev => [
       ...prev,
-      { role: 'user', text: q, ...(parsed.scope ? { scope: parsed.scope } : {}), ...(parsed.command ? { command: parsed.command } : {}), ...(so?.explainAsk ? { explainAsk: so.explainAsk } : {}) },
+      { role: 'user', text: q, ...(parsed.scope ? { scope: parsed.scope } : {}), ...(parsed.command ? { command: parsed.command } : {}), ...(so?.explainAsk ? { explainAsk: so.explainAsk } : {}), ...(so?.window ? { window: so.window } : {}) },
       // v0.10.1400 — açıklama turu: geçici künye (tür + kimlik) → balon baştan ExplainBody; answer gerçeğiyle değiştirir.
       { role: 'assistant', text: '', steps: [], pending: true, ...(so?.alternatives?.length ? { alternatives: so.alternatives } : {}), ...(o.deep ? { deep: true } : {}), ...(so?.explainAsk ? { explain: { kind: so.explainAsk.kind, id: so.explainAsk.id } } : {}) },
     ]);
@@ -439,10 +446,11 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
     const q = failedQuestion(turnsRef.current);
     if (!q || busyRef.current) return;
     const ask = turnsRef.current[turnsRef.current.length - 2]?.explainAsk; // v0.10.1400 — aynı niyet
+    const win = turnsRef.current[turnsRef.current.length - 2]?.window; // v0.10.1405 — aynı pencere
     const trimmed = dropFailedTail(turnsRef.current);
     turnsRef.current = trimmed;
     setTurns(trimmed);
-    void send(q, { attempt: 'retry', ...(ask ? { explainAsk: ask } : {}) });
+    void send(q, { attempt: 'retry', ...(ask ? { explainAsk: ask } : {}), ...(win ? { window: win } : {}) });
   }, [send]);
 
   const stop = useCallback(() => {
@@ -460,9 +468,10 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
     const r = regenerateBase(turnsRef.current);
     if (!r) return;
     const ask = turnsRef.current[turnsRef.current.length - 2]?.explainAsk; // v0.10.1400 — açıklama turu aynı niyetle (önbellek isabeti)
+    const win = turnsRef.current[turnsRef.current.length - 2]?.window; // v0.10.1405 — aynı pencere
     turnsRef.current = r.base;
     setTurns(r.base);
-    void send(r.question, { parsed: r.parsed, alternatives: r.alternatives, attempt: 'regenerate', ...(ask ? { explainAsk: ask } : {}) });
+    void send(r.question, { parsed: r.parsed, alternatives: r.alternatives, attempt: 'regenerate', ...(ask ? { explainAsk: ask } : {}), ...(win ? { window: win } : {}) });
   }, [send]);
 
   // v0.10.1138 — son kullanıcı mesajını düzenle: o mesaj ve SONRASI düşer,

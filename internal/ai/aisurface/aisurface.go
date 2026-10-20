@@ -47,6 +47,18 @@ const (
 	// sorusunda Exceptions grubunun ✨ açıklaması sohbet içinde (aynı girdi,
 	// aynı prompt, aynı önbellek; api/chat_operation_exception_explain.go).
 	ExplainExceptionChat = "explain-exception:chat"
+	// v0.10.1405 (Tek CoSRE adım 2; operatör: "Trace ve exception üzerinden
+	// çalışan Ask CoSRE açıklamaları güzel ama sanki ayrı drawer hissi, CoSRE
+	// bütünselliğine uymuyor.") — kalan ✨ açıklamaları da sohbet turu
+	// (api/chat_explain_registry.go). Etiket = HTTP düğmesinin yüzeyi + ":chat"
+	// (explain-trace:chat emsali; /ai iki yolu yan yana sayar).
+	ExplainSpanChat          = "explain-span:chat"
+	ExplainProblemChat       = "explain-problem:chat"
+	ExplainIncidentChat      = "explain-incident:chat"
+	ExplainAnomalyChat       = "explain-anomaly:chat"
+	ExplainServiceHealthChat = "explain-service:chat"
+	ExplainRunbookChat       = "runbook:chat"
+	ExplainLogChat           = "explain-log:chat"
 	// ChatRule — v0.10.1289: "bunu hatırla" → son soru + cevaptan tek cümlelik
 	// kural önerisi (hafıza kademesi, api/chat_memory.go). Öneri kaydedilmez;
 	// operatör onay kartında düzenleyip kaydeder.
@@ -101,6 +113,15 @@ var registry = []Spec{
 	{Label: RAGChat, Role: RoleAnswer},
 	{Label: ExplainTraceChat, Role: RoleAnswer, Eval: "Trace"},
 	{Label: ExplainExceptionChat, Role: RoleAnswer, Eval: "Exception"}, // v0.10.1399
+	// v0.10.1405 — Eval ailesi HTTP yüzeyininkiyle aynı (ai_evalset.go);
+	// log satırının istemi evalset koşucusunda yok (explain-log → Unknown).
+	{Label: ExplainSpanChat, Role: RoleAnswer, Eval: "Span"},
+	{Label: ExplainProblemChat, Role: RoleAnswer, Eval: "Problem"},
+	{Label: ExplainIncidentChat, Role: RoleAnswer, Eval: "Incident"},
+	{Label: ExplainAnomalyChat, Role: RoleAnswer, Eval: "Anomaly"},
+	{Label: ExplainServiceHealthChat, Role: RoleAnswer, Eval: "ServiceHealth"},
+	{Label: ExplainRunbookChat, Role: RoleAnswer, Eval: "Runbook"},
+	{Label: ExplainLogChat, Role: RoleAnswer},
 	// v0.10.1289 — kural önerisi cevabın kendisi (RoleAnswer); KB'ye terfi
 	// edemez (kanıt değil, öneri) ve evalset vakası olamaz (girdi sohbetin
 	// son turundan istek anında kurulur).

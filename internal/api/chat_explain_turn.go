@@ -39,6 +39,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/cilcenk/coremetry/internal/ai/aisurface"
@@ -47,10 +48,16 @@ import (
 )
 
 // chatExplainAsk — context.explainAsk: istemcinin yapısal açıklama niyeti.
+// v0.10.1405 — tür kümesi kayıttan (chat_explain_registry.go: span, problem,
+// incident, anomaly, service-health, runbook, log); `subject` = `?ai=` kodeği
+// (aiSubject.ts formatAiParam) — kimliği tek alana sığmayan türlerde
+// (span / service-health / log) ZORUNLU, basit türlerde isteğe bağlı (verilirse
+// tür + kimlik eşleşmeli).
 type chatExplainAsk struct {
-	Kind string `json:"kind"`          // trace | exception
-	ID   string `json:"id"`            // trace id (32-hex) | grup parmak izi
-	Src  string `json:"src,omitempty"` // button | nudge | deeplink | chip | starter (ölçüm; karar değil)
+	Kind    string `json:"kind"`              // trace | exception | span | problem | incident | anomaly | service-health | runbook | log
+	ID      string `json:"id"`                // trace id (32-hex) | grup parmak izi | problem/olay/anomali kimliği | servis
+	Subject string `json:"subject,omitempty"` // v0.10.1405 — kanonik `?ai=` kodeği
+	Src     string `json:"src,omitempty"`     // button | nudge | deeplink | chip | starter (ölçüm; karar değil)
 }
 
 const (
@@ -61,16 +68,26 @@ const (
 	// chatExplainEvidenceMax — künyedeki kanıt kimliği tavanı (her liste).
 	chatExplainEvidenceMax = 50
 	chatExplainSrcMax      = 32
+	// chatExplainSubjectMax — v0.10.1405: `subject` kodeğinin tavanı (rune;
+	// arşiv sanitize'ı da aynı).
+	chatExplainSubjectMax = 400
 )
 
 // chatExplainMeta — answer.explain (ve arşivde aiChatMessage.explain): turun
 // açıklama künyesi. İstemci ExplainBody'yi, kanıt satırlarını ve takip
 // bağlamını bundan kurar.
 type chatExplainMeta struct {
-	Kind             string   `json:"kind"`
-	ID               string   `json:"id"`
-	Surface          string   `json:"surface,omitempty"`
-	Label            string   `json:"label,omitempty"` // exception: grup kodu / tipi
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
+	// Subject — v0.10.1405: kanonik `?ai=` kodeği (span / service-health / log);
+	// istemci takip bağlamını ve kanıtı bundan kurar. Basit türlerde boş.
+	Subject string `json:"subject,omitempty"`
+	Surface string `json:"surface,omitempty"`
+	// Renderer — v0.10.1405: çizim kipi ("body" = ExplainBody; boş = body).
+	Renderer string `json:"renderer,omitempty"`
+	Label    string `json:"label,omitempty"` // exception: grup kodu / tipi; runbook: "RUNBOOK"; diğerleri: öznenin adı
+	// Note — v0.10.1405: künye satırı (runbook: "Based on N past resolved…").
+	Note             string   `json:"note,omitempty"`
 	Cached           bool     `json:"cached,omitempty"`
 	CachedAtMs       int64    `json:"cachedAtMs,omitempty"`
 	EvidenceSpanIDs  []string `json:"evidenceSpanIds,omitempty"`
@@ -82,6 +99,13 @@ type chatExplainMeta struct {
 // (küçük harfe indirilir); exception parmak izi 1..200 rune, yalnız
 // [A-Za-z0-9:._-] (ora: önekli Oracle grupları dahil). ok=false → kademe
 // düşer ve kullanıcı metni olağan yoldan cevaplanır.
+//
+// v0.10.1405 — kayıttaki türler: problem / incident / anomaly / runbook
+// kimliği parmak izi biçiminde (subject verilirse tür + kimlik eşleşmeli,
+// normalize edilmiş niyette subject boş); span / service-health / log
+// subject'i ZORUNLU (≤400 rune, parseAiSubject, tür eşleşmeli; boş id
+// kodekten alınır, dolu id kodeğinkiyle aynı olmalı) ve kanonik biçime
+// (formatAiSubject) yeniden yazılır.
 func normalizeExplainAsk(a *chatExplainAsk) (chatExplainAsk, bool) {
 	if a == nil {
 		return chatExplainAsk{}, false
@@ -89,6 +113,10 @@ func normalizeExplainAsk(a *chatExplainAsk) (chatExplainAsk, bool) {
 	kind := strings.ToLower(strings.TrimSpace(a.Kind))
 	id := strings.TrimSpace(a.ID)
 	src := clampChatRunes(a.Src, chatExplainSrcMax)
+	rawSubj := strings.TrimSpace(a.Subject)
+	if utf8.RuneCountInString(rawSubj) > chatExplainSubjectMax {
+		return chatExplainAsk{}, false
+	}
 	switch kind {
 	case explainAskTrace:
 		id = strings.ToLower(id)
@@ -99,10 +127,54 @@ func normalizeExplainAsk(a *chatExplainAsk) (chatExplainAsk, bool) {
 		if !explainFingerprintOK(id) {
 			return chatExplainAsk{}, false
 		}
+	case explainAskProblem, explainAskIncident, explainAskAnomaly, explainAskRunbook:
+		if !explainFingerprintOK(id) {
+			return chatExplainAsk{}, false
+		}
+		if rawSubj != "" {
+			if subj, ok := parseAiSubject(rawSubj); !ok || subj.Kind != kind || subj.ID != id {
+				return chatExplainAsk{}, false
+			}
+		}
+	case explainAskSpan, explainAskServiceHealth, explainAskLog:
+		subj, ok := parseAiSubject(rawSubj)
+		if !ok || subj.Kind != kind || (id != "" && id != subj.ID) {
+			return chatExplainAsk{}, false
+		}
+		if kind == explainAskSpan {
+			if !explainFingerprintOK(subj.ID) || !explainFingerprintOK(subj.SpanID) {
+				return chatExplainAsk{}, false
+			}
+		} else if !explainNameOK(subj.ID) {
+			return chatExplainAsk{}, false
+		}
+		return chatExplainAsk{Kind: kind, ID: subj.ID, Subject: formatAiSubject(subj), Src: src}, true
 	default:
 		return chatExplainAsk{}, false
 	}
 	return chatExplainAsk{Kind: kind, ID: id, Src: src}, true
+}
+
+// explainNameOK — SAF (v0.10.1405): servis adı biçimli kimlik — boş değil,
+// ≤200 rune, kontrol karakteri yok.
+func explainNameOK(id string) bool {
+	if id == "" || utf8.RuneCountInString(id) > chatExplainIDMax {
+		return false
+	}
+	for _, r := range id {
+		if unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
+}
+
+// explainAskSubject — SAF (v0.10.1405): normalize edilmiş niyetin öznesi.
+func explainAskSubject(a chatExplainAsk) (aiSubject, bool) {
+	if a.Subject != "" {
+		return parseAiSubject(a.Subject)
+	}
+	return aiSubject{Kind: a.Kind, ID: a.ID}, a.Kind != "" && a.ID != ""
 }
 
 // explainFingerprintOK — SAF: grup parmak izinin kabul edilen biçimi.
@@ -144,10 +216,20 @@ var errExplainTurnNotFound = errors.New("bulunamadı")
 
 // explainTurnNotFoundTR — SAF: bulunamayan öznenin dürüst, LLM'siz cevabı.
 func explainTurnNotFoundTR(a chatExplainAsk) string {
-	if a.Kind == explainAskTrace {
+	switch a.Kind {
+	case explainAskTrace:
 		return "Trace `" + a.ID + "` bulunamadı — ne Tempo'da ne ClickHouse'ta var (saklama süresi dolmuş ya da kimlik yanlış olabilir)."
+	case explainAskException:
+		return "Exception grubu `" + a.ID + "` bulunamadı — silinmiş ya da kimlik yanlış olabilir."
+	case explainAskSpan: // v0.10.1405
+		return "Span bulunamadı — trace `" + a.ID + "` ya da içindeki span artık yok (saklama süresi dolmuş ya da kimlik yanlış olabilir)."
+	case explainAskLog: // v0.10.1405
+		return "Log satırı yeniden okunamadı (saklama süresi dolmuş ya da kaynak değişmiş olabilir)."
 	}
-	return "Exception grubu `" + a.ID + "` bulunamadı — silinmiş ya da kimlik yanlış olabilir."
+	if k := explainKindTR[a.Kind]; k != "" { // v0.10.1405
+		return k + " `" + a.ID + "` bulunamadı — silinmiş ya da kimlik yanlış olabilir."
+	}
+	return "`" + a.ID + "` bulunamadı."
 }
 
 // chatExplainTurn — yapısal açıklama turu. handled=false → explainAsk geçersiz
@@ -157,10 +239,17 @@ func (s *Server) chatExplainTurn(ctx context.Context, emit func(string, any), ra
 	if !valid || s == nil || s.copilot == nil {
 		return false, false
 	}
-	if ask.Kind == explainAskTrace {
-		return s.chatExplainTraceTurn(ctx, emit, ask)
+	// v0.10.1405 — tür kaydı (chat_explain_registry.go): trace / exception
+	// kendi turlarıyla (aşağıda, v0.10.1400 aynen), diğerleri düğmenin
+	// kurucusuyla genel turdan.
+	k, known := explainKindFor(ask.Kind)
+	if !known {
+		return false, false
 	}
-	return s.chatExplainExceptionTurn(ctx, emit, ask, loc)
+	if k.Turn != nil {
+		return k.Turn(s, ctx, emit, ask, loc)
+	}
+	return s.chatExplainRegistryTurn(ctx, emit, k, ask)
 }
 
 // chatExplainTraceTurn — ✨ Explain trace'in kodsuz klasik yolu, sohbet içinde.

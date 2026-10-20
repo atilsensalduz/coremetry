@@ -1004,6 +1004,15 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
                 ♻ önbellekten{ex.cachedAtMs ? ` · ${Math.max(1, Math.round((Date.now() - ex.cachedAtMs) / 60000))} dk önce üretildi` : ''} — ✨ Explain düğmesiyle aynı cevap
               </div>
             )}
+            {/* v0.10.1405 (Tek CoSRE adım 2) — künye etiketi (runbook: "RUNBOOK", CopilotExplain kart
+                başlığının aynısı) + not satırı ("Based on N past resolved…"). Çizim kipi (renderer)
+                bu sürümde hep body; charts / log-spike kartları 1407. */}
+            {ex?.kind === 'runbook' && (
+              <div className="cm-msg-note" data-explain-label="" style={{ fontWeight: 700, letterSpacing: '.5px', color: 'var(--accent2)' }}>{ex.label || 'RUNBOOK'}</div>
+            )}
+            {ex?.note && !turn.pending && (
+              <div className="cm-msg-note" data-explain-note="" style={{ fontStyle: 'italic' }}>{ex.note}</div>
+            )}
             {ex && (
               <ExplainBody text={turn.text} busy={!!turn.pending} evidence={turn.pending ? undefined : explainEvidence(ex)}
                 revealAt={ex.cached ? undefined : turn.arrivedAt?.at} />

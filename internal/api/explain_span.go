@@ -21,10 +21,12 @@ package api
 // tamamını hash'ler (explainCacheKey) → trace bağlamı da anahtarda.
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 
@@ -179,6 +181,37 @@ func spanExplainUser(traceID string, spans []chstore.SpanRow, target chstore.Spa
 	return b.String()
 }
 
+// buildSpanExplain — v0.10.1405: span açıklamasının girdisi, ctx tabanlı. İki
+// çağıran (HTTP düğmesi + sohbetin açıklama turu — operatör: "Trace ve
+// exception üzerinden çalışan Ask CoSRE açıklamaları güzel ama sanki ayrı
+// drawer hissi, CoSRE bütünselliğine uymuyor.") aynı explainBuilt'i, yani
+// aynı explainCacheKey(SystemPromptSpan(), user, "") anahtarını kullanır.
+// Trace yok → "trace not found"; span trace'te yok → "span not found in trace".
+func (s *Server) buildSpanExplain(ctx context.Context, traceID, spanID string) (explainBuilt, error) {
+	spans, _, err := s.resolveTraceSpans(ctx, traceID) // v0.9.632 — Tempo fallback dahil
+	if err != nil {
+		return explainBuilt{}, err
+	}
+	if len(spans) == 0 {
+		return explainBuilt{}, explainNotFound("trace not found")
+	}
+	var target *chstore.SpanRow
+	for i := range spans {
+		if spans[i].SpanID == spanID {
+			target = &spans[i]
+			break
+		}
+	}
+	if target == nil {
+		return explainBuilt{}, explainNotFound("span not found in trace")
+	}
+	b := newExplainBuilt(copilot.SystemPromptSpan(), spanExplainUser(traceID, spans, *target))
+	b.Label = clipRunes(target.Name, chatExplainLabelMax)
+	b.Service = target.ServiceName
+	b.Links = []guidedAnswerLink{{Label: "Span'i trace'te aç", Href: "/trace?id=" + url.QueryEscape(traceID) + "&span=" + url.QueryEscape(spanID)}}
+	return b, nil
+}
+
 // copilotExplainSpan — önce trace'in kısa özeti, sonra seçili span'in
 // vurgulu açıklaması (v0.10.1149). Herhangi bir yapılandırılmış backend
 // (Anthropic, OpenAI, OpenAI-uyumlu yerel LLM) ile çalışır.
@@ -189,27 +222,11 @@ func (s *Server) copilotExplainSpan(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "span query param required", http.StatusBadRequest)
 		return
 	}
-	spans, _, err := s.resolveTraceSpans(r.Context(), traceID) // v0.9.632 — Tempo fallback dahil
+	b, err := s.buildSpanExplain(r.Context(), traceID, spanID)
 	if err != nil {
-		writeErr(w, err)
+		writeExplainBuildErr(w, err)
 		return
 	}
-	if len(spans) == 0 {
-		http.Error(w, "trace not found", http.StatusNotFound)
-		return
-	}
-	var target *chstore.SpanRow
-	for i := range spans {
-		if spans[i].SpanID == spanID {
-			target = &spans[i]
-			break
-		}
-	}
-	if target == nil {
-		http.Error(w, "span not found in trace", http.StatusNotFound)
-		return
-	}
-	user := spanExplainUser(traceID, spans, *target)
 	r, xid := withExchange(r)
-	s.deliverExplain(w, r, xid, nil, s.explainPrompt(r, copilot.SystemPromptSpan(), user), "", explainCacheKey(copilot.SystemPromptSpan(), user, ""))
+	s.deliverExplain(w, r, xid, nil, s.explainPrompt(r, b.System, b.User), "", b.CacheKey)
 }

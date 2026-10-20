@@ -8174,3 +8174,52 @@ sadece merkezi login Keycloak üzerinden olacak."
 - Testler: `internal/api/copilot_starters_test.go` (TestStarterExceptionChips, TestStarterExceptionScope,
   TestStarterExceptionFilter, TestReadStarterExceptionsSoftFail, TestStarterQuestionsRoute, TestStartersKey),
   `frontend/src/components/ai/CosreCapabilities.test.tsx`, `frontend/src/pages/CoSRE.test.tsx`.
+
+## 2026-10-20 — v0.10.1405 — Tek CoSRE adım 2: span/problem/olay/anomali/servis sağlığı/runbook/log/endpoint açıklamaları sohbet turu
+
+**Operatör:** "Trace ve exception üzerinden çalışan Ask CoSRE açıklamaları güzel ama sanki ayrı drawer hissi,
+CoSRE bütünselliğine uymuyor." — v0.10.1400 trace/exception'ı sohbet turu yaptı; kalan ✨ türleri hâlâ çekmecenin
+"özne kipinde" (AIDrawerBody: CopilotExplain + ikinci useChatThread + ikinci composer) çiziliyordu.
+
+**Karar — açıklama türlerinin TEK kaydı, düğmenin kurucusuyla:**
+- Kodek: `internal/api/ai_subject.go` `parseAiSubject` / `formatAiSubject` — `lib/aiSubject.ts`'in TAM sunucu ikizi
+  (12 tür, aynı katılık; çözüm `PathUnescape` + geçerli UTF-8 = decodeURIComponent). `parseDrawerSubject` artık
+  bunun üstünde yalnız kanıt türlerini süzer (`drawerSubject = aiSubject`).
+- Kayıt: `chat_explain_registry.go` `explainKindFor` — tür → {yüzey, adım çipi, Turn|Build}. trace/exception
+  v0.10.1400 turlarıyla (kod aynen); span, problem, incident, anomaly, service-health, runbook, log genel turdan:
+  adım → düğmenin kurucusu → `streamExplainCore` → answer + künye. Endpoint kayıtta YOK (ayrı açıklama yüzeyi yok).
+- Kurucular api.go'dan çıktı: `explain_problem.go` (+ `serviceCorrelationContext`), `explain_incident.go`,
+  `explain_anomaly.go`, `explain_service_health.go` (`summarizeHealthSeries`), `explain_runbook.go`; span
+  `explain_span.go buildSpanExplain`, log `copilot_explain_log.go buildLogLineExplain`. Hepsi ctx tabanlı
+  `explainBuilt{System, User, CacheKey, Label, Note, Service, Links, Extra}` döndürür; HTTP handler'ları kurucu +
+  `deliverExplain(…, b.CacheKey)`'e indi. Düğme ve sohbet AYNI değeri kullanır → anahtar
+  `explainCacheKey(system, user, "")` bayt bayt aynı, tek önbellek satırı; ikinci çağrı `cached:true`, sıfır LLM.
+  Handler davranışı aynı (bulunamadı gövdeleri `writeExplainBuildErr` ile birebir, runbook `similarCount`, log
+  `matched`, 503/400 yolları). Test yüzeyi için `explainStore` arayüzü (üretimde `s.store`; `explainStoreSeam`).
+  api.go 11356 → 10912 satır (taban indirildi).
+- Tel: `context.explainAsk {kind, id, subject?, src}`. span / service-health / log `subject` (≤400 rune) ZORUNLU,
+  tür + kimlik eşleşmeli, kanonik biçime yazılır; problem/incident/anomaly/runbook kimliği parmak izi biçiminde,
+  subject verilirse eşleşmeli. Künye: `subject`, `renderer` ("body"), `label` (kural adı, olay başlığı, span adı,
+  "RUNBOOK"…), `note` (runbook: "Based on N past resolved…", log: tam eşleşme yoksa).
+- Yüzeyler (aisurface, Eval ailesi HTTP yüzeyininki): `explain-span:chat`, `explain-problem:chat`,
+  `explain-incident:chat`, `explain-anomaly:chat`, `explain-service:chat`, `runbook:chat`, `explain-log:chat`
+  (etiket = HTTP düğmesinin yüzeyi + ":chat", explain-trace:chat emsali). Kademe `explain` (aynı).
+- Kalıcılık: `sanitizeChatExplain` tür beyaz listesi kayıttan; kodeksiz span/service-health/log künyesi ve >400
+  rune kodek düşer; `renderer` beyaz listeli (body|charts|log-spike), `note` ≤200 rune.
+- Frontend: `explainTurn.ts` `EXPLAIN_TURN_KINDS` = trace, exception, span, problem, incident, anomaly,
+  service-health, runbook, log, endpoint; `explainAskFor` tür başına görünen metin ("Bu span'i açıkla · …",
+  "orders-api sağlığını açıkla", "Bu problemi açıkla · …", "Bu problem için runbook çıkar · …") + niyet; endpoint
+  niyetsiz görünen soru (`endpointAskQuestion`) + `ChatSendWindow` (düğmenin penceresi; `useChatThread.send`
+  yalnız o istek için rangeS/toMs'i ezer, yeniden dene/üret aynısını yollar). `CopilotChat` `?ai=` effect'i göç eden
+  tüm türleri tüketir; AIDrawerBody yalnız charts / log-spike'ta mount olur. Takip bağlamı künyenin kodeğinden
+  (`explainSubject`); service-health ayrıca servis + açıklanan pencere, log servis. Balon: runbook "RUNBOOK"
+  etiketi + not satırı, gövde ExplainBody. `AIExplainButton` her tıkta özneyi yazar (aç/kapa ve aria-expanded kalktı).
+- Değişmeyenler: prompts.go sabitleri / `promptVersionRegistry`, MCP araç sayısı (74), yeni route yok,
+  `TestChatTierOrderIsPinned` / `TestChatExplainTurnTierIsFirst` işaretleri.
+- Sonraki sürümlere kalanlar: 1406 — sohbette "Kodu da incele" + taze üretim (`fresh`); 1407 — charts / log-spike
+  kartları (blocks) + özne kipinin silinmesi (AIDrawerBody, CopilotExplain…). Sohbet içi log tablolarının satır ✨'i
+  çekmece bağlamında gizli kalmaya devam ediyor (`useRowExplain`).
+- Testler: `internal/api/ai_subject_test.go`, `chat_explain_registry_test.go` (tür başına düğme→sohbet isabeti,
+  ters yön, handler davranışı, normalize/sanitize), güncellenen `chat_explain_turn_test.go`; FE `explainTurn.test.ts`,
+  `CopilotChat.explainTurn.test.tsx`, `ChatBubble.explain.test.tsx`, `AIExplainButton.contract.test.tsx`,
+  `pages/traceAskCosre.contract.test.tsx`, `chatRetry.test.ts`, `singleDrawer.test.tsx` (çekmece pini charts'a geçti).

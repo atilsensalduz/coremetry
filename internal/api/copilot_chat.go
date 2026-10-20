@@ -173,7 +173,9 @@ type chatRequest struct {
 		// ExplainAsk (v0.10.1400, chat_explain_turn.go) — yapısal açıklama
 		// niyeti {kind: trace|exception, id, src}: ✨ düğmesi / nudge / ?ai=
 		// derin linki / grup çipi açıklamayı sohbetin turu olarak ister.
-		// Yokken her yol bayt bayt eski.
+		// v0.10.1405 — tür kümesi açıklama kaydından (span, problem, incident,
+		// anomaly, service-health, runbook, log; chat_explain_registry.go) +
+		// `subject` (`?ai=` kodeği). Yokken her yol bayt bayt eski.
 		ExplainAsk *chatExplainAsk `json:"explainAsk,omitempty"`
 	} `json:"context,omitempty"`
 }

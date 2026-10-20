@@ -124,7 +124,9 @@ export function aiSubjectQuestion(kind: AIKind, id: string): string {
 // şekiller guided router'da tek başına yönlenir (copilot_followup.go
 // guidedSuggestions ile aynı sözleşme) → çip tıklaması gerçek
 // telemetriye gider, açıklama özetine değil.
-export function drawerFollowups(s: AISubject): string[] {
+// v0.10.1405 — null (künyesi çözülemeyen arşiv turu) → genel liste.
+export function drawerFollowups(s: AISubject | null): string[] {
+  if (!s) return ['Bu neden oluyor?', 'Nasıl düzeltirim?', 'Hangi kanıta dayanıyorsun?'];
   if (s.kind === 'service-health' || s.kind === 'charts') {
     return [
       `${s.id} en yavaş trace'ler?`,

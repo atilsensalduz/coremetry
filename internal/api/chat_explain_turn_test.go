@@ -294,7 +294,8 @@ func TestSanitizeChatExplainRoundTrip(t *testing.T) {
 		{Role: "user", Text: "Bu trace'i açıkla · 4bf92f35…", Explain: &chatExplainMeta{Kind: "trace", ID: defTestTrace}},
 		{Role: "assistant", Text: "özet", Explain: &chatExplainMeta{Kind: "trace", ID: strings.ToUpper(defTestTrace), Surface: aisurface.ExplainTraceChat,
 			Cached: true, CachedAtMs: 5, EvidenceSpanIDs: append(many, "<script>"), OracleRows: 2}},
-		{Role: "assistant", Text: "kötü tür", Explain: &chatExplainMeta{Kind: "problem", ID: "p-1"}},
+		// v0.10.1405 — problem artık kayıtta; kayıt dışı tür (charts — 1407) düşer.
+		{Role: "assistant", Text: "kötü tür", Explain: &chatExplainMeta{Kind: "charts", ID: "orders-api"}},
 		{Role: "assistant", Text: "grup", Explain: &chatExplainMeta{Kind: "exception", ID: "ora:00000000000000b2", Label: strings.Repeat("L", 500),
 			EvidenceTraceIDs: []string{defTestTrace, "javascript:x"}}},
 	}

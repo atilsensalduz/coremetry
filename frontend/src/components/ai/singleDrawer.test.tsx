@@ -4,6 +4,9 @@
 // gelse de sayfada bir tane role="dialog" açılır (461 kabuğu eşitlemişti ama
 // iki bileşen iki çekmece açıyordu; 483 birleştirdi — bu test onu render'la
 // pinler, kaynak dizesiyle değil). Kapatma ?ai='i adresten siler.
+// v0.10.1405 — service-health artık sohbet turu (özne kipi yok); çekmece özne
+// kipi charts / log-spike'ta kaldığı için pin charts öznesiyle sürer (1407'de
+// özne kipi tümden kalkınca bu test de onunla gider).
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, useLocation } from 'react-router-dom';
@@ -30,6 +33,7 @@ beforeEach(() => {
   __resetCopilotEnabledCache();
   vi.spyOn(api, 'copilotConfig').mockResolvedValue({ enabled: true, model: 'gemma4' } as never);
   vi.spyOn(api, 'copilotExplainServiceHealth').mockRejectedValue(new Error('gövde kapsam dışı'));
+  vi.spyOn(api, 'copilotExplainCharts').mockRejectedValue(new Error('gövde kapsam dışı'));
   vi.spyOn(api, 'me').mockResolvedValue({ id: 'u1', email: 'op@x.io', role: 'admin', firstName: 'Cenk' } as never);
   vi.spyOn(api, 'problemsCount').mockResolvedValue({ count: 0 } as never);
   vi.spyOn(api, 'aiConversations').mockResolvedValue([] as never);
@@ -46,7 +50,7 @@ describe('tek AI çekmecesi', () => {
   it('?ai= + ?chat= birlikte: AppShell gibi iki bileşen mount edilse de tek dialog; ✕ ?ai=\'i siler', async () => {
     await act(async () => {
       root.render(
-        <MemoryRouter initialEntries={['/service?service=payment&chat=c1&ai=service-health%3Apayment%3A1000%3A2000']}>
+        <MemoryRouter initialEntries={['/service?service=payment&chat=c1&ai=charts%3Apayment%3A1000%3A2000%3Aall']}>
           <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
             <AuthProvider><ConfirmProvider><CopilotChat /><Probe /></ConfirmProvider></AuthProvider>
           </QueryClientProvider>
@@ -70,7 +74,7 @@ describe('tek AI çekmecesi', () => {
   it('AIDrawer sarmalayıcısı CopilotChat ile aynı tek çekmeceyi açar', async () => {
     await act(async () => {
       root.render(
-        <MemoryRouter initialEntries={['/service?service=payment&ai=service-health%3Apayment%3A1000%3A2000']}>
+        <MemoryRouter initialEntries={['/service?service=payment&ai=charts%3Apayment%3A1000%3A2000%3Aall']}>
           <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
             <AuthProvider><ConfirmProvider><AIDrawer /></ConfirmProvider></AuthProvider>
           </QueryClientProvider>

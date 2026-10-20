@@ -3,8 +3,6 @@ package api
 import (
 	"context"
 	"math"
-	"net/url"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -118,19 +116,9 @@ func clampDrawerExplain(s string) string {
 	return strings.TrimSpace(string(r[:drawerExplainMaxRunes])) + drawerTruncSuffix
 }
 
-// drawerSubject — çekmecenin öznesi (`?ai=<kind>:<id>[:<extra>]`).
-// frontend/src/lib/aiSubject.ts kodeğinin sunucu tarafı ikizi.
-type drawerSubject struct {
-	Kind   string
-	ID     string
-	SpanID string // yalnız kind=span
-	// v0.10.1367 — yalnız kind=endpoint: rota, beyaz listeli fiil ("" = yok)
-	// ve düğmeye basılan pencere (ns → time.Time).
-	Route  string
-	Method string
-	From   time.Time
-	To     time.Time
-}
+// drawerSubject — çekmecenin öznesi (`?ai=<kind>:<id>[:<extra>]`); v0.10.1405
+// itibarıyla tip ve kodek ai_subject.go'da (aiSubject — aiSubject.ts'in TAM
+// sunucu ikizi). Bu dosya yalnız kanıt kurulabilen türleri süzer.
 
 // drawerEvidenceKinds — kanıt paketi KURULABİLEN özneler. Diğer
 // özneler (problem/incident/anomaly/runbook/service-health) v0.9.479
@@ -139,80 +127,18 @@ type drawerSubject struct {
 // v0.10.1367 — endpoint: sohbet ön-getirmesinin AYNI kurucusu (opPrefetchForTarget).
 var drawerEvidenceKinds = map[string]bool{"trace": true, "span": true, "exception": true, "endpoint": true}
 
-// parseDrawerSubject — `kind:enc(id)[:enc(spanId)]` çözümü. aiSubject.ts
-// ile aynı katılıkta: id URL-decode edilir (servis adı/fingerprint ':'
-// içerebilir), span TAM 3 parça ister, basit özneler TAM 2 parça ister.
-// Yalnız kanıt kurulabilen kind'ler kabul edilir — geri kalanı için
-// çağıran zaten hiçbir şey yapmaz. Saf; tablo-testli.
+// parseDrawerSubject — kanıt kurulabilen öznelerin çözümü. v0.10.1405: kodek
+// parseAiSubject'e (ai_subject.go) taşındı — aiSubject.ts ile aynı katılık
+// (id URL-decode, span TAM 3 parça, basit özne TAM 2 parça, endpoint 5|6
+// parça + artan pencere, bilinmeyen fiil düşer). Yalnız kanıt kurulabilen
+// kind'ler kabul edilir — geri kalanı için çağıran zaten hiçbir şey yapmaz.
+// Bozuk link → kanıtsız devam. Saf; tablo-testli.
 func parseDrawerSubject(raw string) (drawerSubject, bool) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
+	s, ok := parseAiSubject(raw)
+	if !ok || !drawerEvidenceKinds[s.Kind] {
 		return drawerSubject{}, false
 	}
-	parts := strings.Split(raw, ":")
-	kind := parts[0]
-	if !drawerEvidenceKinds[kind] {
-		return drawerSubject{}, false
-	}
-	if kind == "endpoint" { // v0.10.1367
-		return parseDrawerEndpoint(parts)
-	}
-	id := ""
-	if len(parts) > 1 {
-		// Bozuk yüzdeli dizide QueryUnescape hata döner — çekmece sohbeti
-		// bir URL parçası yüzünden asla patlamamalı, kanıtsız devam eder.
-		dec, err := url.QueryUnescape(parts[1])
-		if err != nil {
-			return drawerSubject{}, false
-		}
-		id = dec
-	}
-	if id == "" {
-		return drawerSubject{}, false
-	}
-	if kind == "span" {
-		if len(parts) != 3 {
-			return drawerSubject{}, false
-		}
-		sp, err := url.QueryUnescape(parts[2])
-		if err != nil || sp == "" {
-			return drawerSubject{}, false
-		}
-		return drawerSubject{Kind: kind, ID: id, SpanID: sp}, true
-	}
-	if len(parts) != 2 {
-		return drawerSubject{}, false
-	}
-	return drawerSubject{Kind: kind, ID: id}, true
-}
-
-// parseDrawerEndpoint — v0.10.1367: `endpoint:enc(service):enc(route):fromNs:toNs[:METHOD]`.
-// aiSubject.ts parseEndpoint ile aynı katılık: TAM 5 ya da 6 parça, servis ve
-// rota decode edilir ve boş olamaz, pencere pozitif ve ARTAN; bilinmeyen fiil
-// özneyi reddettirmez, DÜŞER (fiilsiz endpoint). Bozuk link → kanıtsız devam.
-func parseDrawerEndpoint(parts []string) (drawerSubject, bool) {
-	if len(parts) != 5 && len(parts) != 6 {
-		return drawerSubject{}, false
-	}
-	svc, err := url.QueryUnescape(parts[1])
-	if err != nil || svc == "" {
-		return drawerSubject{}, false
-	}
-	route, err := url.QueryUnescape(parts[2])
-	if err != nil || route == "" {
-		return drawerSubject{}, false
-	}
-	fromNs, ferr := strconv.ParseInt(parts[3], 10, 64)
-	toNs, terr := strconv.ParseInt(parts[4], 10, 64)
-	if ferr != nil || terr != nil || fromNs <= 0 || toNs <= fromNs {
-		return drawerSubject{}, false
-	}
-	method := ""
-	if len(parts) == 6 && isHTTPVerb(parts[5]) {
-		method = strings.ToUpper(parts[5])
-	}
-	return drawerSubject{Kind: "endpoint", ID: svc, Route: route, Method: method,
-		From: time.Unix(0, fromNs), To: time.Unix(0, toNs)}, true
+	return s, true
 }
 
 // clampDrawerEvidence — kanıt paketini narration bütçesine sığdırır.

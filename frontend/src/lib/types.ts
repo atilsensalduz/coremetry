@@ -7234,9 +7234,41 @@ export interface ChatMessage {
  * ölçüm (button | nudge | deeplink | chip | starter).
  */
 export interface ChatExplainAsk {
-  kind: 'trace' | 'exception';
+  /** v0.10.1405 — açıklama kaydının türleri (internal/api/chat_explain_registry.go). */
+  kind: ChatExplainKind;
   id: string;
+  /**
+   * v0.10.1405 — kanonik `?ai=` kodeği (lib/aiSubject formatAiParam). span /
+   * service-health / log türünde ZORUNLU (kimlik tek alana sığmaz); basit
+   * türlerde yok.
+   */
+  subject?: string;
   src?: string;
+}
+
+/**
+ * ChatExplainKind — v0.10.1405 (Tek CoSRE adım 2; operatör: "Trace ve exception
+ * üzerinden çalışan Ask CoSRE açıklamaları güzel ama sanki ayrı drawer hissi,
+ * CoSRE bütünselliğine uymuyor."): sohbet turu olarak açıklanan türler. Go
+ * aynası: chat_explain_registry.go explainTurnKinds. endpoint burada YOK (ayrı
+ * explain yüzeyi yok — görünür soru + pencere), charts / log-spike 1407'de.
+ */
+export type ChatExplainKind =
+  | 'trace' | 'exception' | 'span' | 'problem' | 'incident' | 'anomaly'
+  | 'service-health' | 'runbook' | 'log';
+
+/** v0.10.1405 — künyenin çizim kipi (yok = body). */
+export type ChatExplainRenderer = 'body' | 'charts' | 'log-spike';
+
+/**
+ * ChatSendWindow — v0.10.1405: TEK gönderimin sabit penceresi (endpoint "CoSRE'ye
+ * sor" — düğmeye basılan pencere; v0.10.1367'de çekmecenin epWin'iydi). O
+ * gönderimde rangeS/toMs'i ezer; kullanıcı turunda durur ki yeniden dene / üret
+ * aynı pencereyi yollasın. Arşiv taşımaz.
+ */
+export interface ChatSendWindow {
+  rangeS: number;
+  toMs: number;
 }
 
 /**
@@ -7245,11 +7277,17 @@ export interface ChatExplainAsk {
  * `cached` ✨ düğmesiyle paylaşılan önbellek isabeti.
  */
 export interface ChatExplainMeta {
-  kind: 'trace' | 'exception';
+  kind: ChatExplainKind;
   id: string;
+  /** v0.10.1405 — kanonik `?ai=` kodeği (span / service-health / log); takip bağlamı bundan kurulur. */
+  subject?: string;
   surface?: string;
-  /** exception: grup kodu / tipi */
+  /** v0.10.1405 — çizim kipi (yok = body). */
+  renderer?: ChatExplainRenderer;
+  /** exception: grup kodu / tipi; runbook: "RUNBOOK"; diğerleri: öznenin adı (kural, olay başlığı, span, servis) */
   label?: string;
+  /** v0.10.1405 — künye satırı (runbook: "Based on N past resolved instances…"). */
+  note?: string;
   cached?: boolean;
   cachedAtMs?: number;
   evidenceSpanIds?: string[];
@@ -7695,6 +7733,8 @@ export interface ChatTurn extends ChatMessage {
    * yeniden üret aynı niyeti yeniden yollar). Arşiv taşımaz.
    */
   explainAsk?: ChatExplainAsk;
+  /** v0.10.1405 — kullanıcı turunun sabit penceresi (ChatSendWindow); arşiv taşımaz. */
+  window?: ChatSendWindow;
 }
 
 /** v0.10.1384 — yazma efekti varış damgası (ChatTurn.arrivedAt). */

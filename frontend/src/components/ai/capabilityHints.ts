@@ -19,7 +19,7 @@
 import { t, type Lang } from '@/lib/i18n';
 import type { CopilotStarter, CopilotStarterGroup, CopilotStarterGroupKind } from '@/lib/types';
 import type { ChatSendOpts } from './useChatThread';
-import { explainAskFor } from './explainTurn';
+import { explainAskFor, explainAskSubject, explainTurnSendOpts } from './explainTurn';
 
 /** CoSRE sohbet yüzeyinin dili — karşılama metinleriyle aynı (sabit Türkçe). */
 export const COSRE_LANG: Lang = 'tr';
@@ -183,8 +183,9 @@ export function operationErrorQuestion(op: string): string {
  */
 export function starterAsk(st: CopilotStarter): { text: string; so?: ChatSendOpts } {
   if (st.explainAsk) {
-    const x = explainAskFor({ kind: st.explainAsk.kind, id: st.explainAsk.id }, st.explainAsk.src || 'starter', st.chip);
-    if (x) return { text: x.userText, so: { explainAsk: x.explainAsk } };
+    // v0.10.1405 — öznesi niyetten (kodek ya da {kind, id}); gönderim seçenekleri tek yerden.
+    const x = explainAskFor(explainAskSubject(st.explainAsk), st.explainAsk.src || 'starter', st.chip);
+    if (x) return { text: x.userText, so: explainTurnSendOpts(x) };
   }
   return { text: st.question };
 }

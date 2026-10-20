@@ -114,3 +114,31 @@ describe('açıklama turu balonu', () => {
     expect(host.textContent).toContain('Ödeme sağlayıcısı kartı reddediyor.');
   });
 });
+
+// v0.10.1405 (Tek CoSRE adım 2; operatör: "Trace ve exception üzerinden
+// çalışan Ask CoSRE açıklamaları güzel ama sanki ayrı drawer hissi, CoSRE
+// bütünselliğine uymuyor.") — runbook / problem / … açıklama turları da balonda
+// ExplainBody ile çizilir; runbook "RUNBOOK" etiketi + "N geçmiş çözüm" notunu
+// (CopilotExplain kart başlığı + meta satırının aynısı) taşır.
+describe('göç eden türler (v0.10.1405)', () => {
+  it('runbook: RUNBOOK etiketi + not satırı + ExplainBody', async () => {
+    await render({
+      role: 'assistant', text: TEXT, exchangeId: 'x1',
+      explain: { kind: 'runbook', id: '0000000000000p01', label: 'RUNBOOK', renderer: 'body',
+        note: 'Based on 2 past resolved instances of this rule on this service.' },
+    });
+    expect(host.querySelector('[data-explain-label]')?.textContent).toBe('RUNBOOK');
+    expect(host.querySelector('[data-explain-note]')?.textContent).toBe('Based on 2 past resolved instances of this rule on this service.');
+    expect(host.querySelector('.cx-verdict')?.textContent).toContain('Ödeme sağlayıcısı kartı reddediyor.');
+  });
+  it('bekleyen runbook turu etiketi gösterir, notu göstermez', async () => {
+    await render({ role: 'assistant', text: 'yazıyor', pending: true, explain: { kind: 'runbook', id: 'p-42', note: 'x' } });
+    expect(host.querySelector('[data-explain-label]')?.textContent).toBe('RUNBOOK');
+    expect(host.querySelector('[data-explain-note]')).toBeNull();
+  });
+  it('problem: etiket satırı yok, gövde ExplainBody', async () => {
+    await render({ role: 'assistant', text: TEXT, exchangeId: 'x2', explain: { kind: 'problem', id: 'p-1', label: 'orders-api p99 latency', renderer: 'body' } });
+    expect(host.querySelector('[data-explain-label]')).toBeNull();
+    expect(host.querySelector('.cx-verdict')).toBeTruthy();
+  });
+});

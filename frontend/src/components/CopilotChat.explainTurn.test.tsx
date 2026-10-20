@@ -59,7 +59,7 @@ const byAria = (label: string) => document.body.querySelector<HTMLButtonElement>
 
 type ChatArgs = Parameters<typeof api.copilotChat>;
 const argsOf = (c: ChatArgs) => ({
-  messages: c[0], explain: c[5], subject: c[6], rangeS: c[7], trace: c[8], env: c[9], page: c[13], explainAsk: c[20],
+  messages: c[0], service: c[3], explain: c[5], subject: c[6], rangeS: c[7], trace: c[8], env: c[9], toMs: c[10], page: c[13], explainAsk: c[20],
 });
 
 function stubChat(meta?: (n: number) => ChatExplainMeta | undefined, followups?: ChatFollowup[]) {
@@ -193,5 +193,89 @@ describe('/cosre sayfası', () => {
     expect(new URLSearchParams(search).get('ai')).toBeNull();
     expect(explainMounts.n).toBe(0);
     expect(bodyText()).toContain('Exception grubunu açıkla · ora:00000000…');
+  });
+});
+
+// v0.10.1405 (Tek CoSRE adım 2; operatör: "Trace ve exception üzerinden çalışan
+// Ask CoSRE açıklamaları güzel ama sanki ayrı drawer hissi, CoSRE bütünselliğine
+// uymuyor.") — span / problem / service-health / runbook / endpoint `?ai=` de
+// aynı tek seferlik niyet: sohbet turu, adres temizlenir, çekmecenin açıklama
+// gövdesi (AIDrawerBody → CopilotExplain) hiç mount olmaz. charts hâlâ çekmece
+// özne kipinde (1407).
+describe('?ai= göç eden türler (v0.10.1405)', () => {
+  const SPAN = 'b7ad6b7169203331';
+  it('span derin linki: kodekli niyet, kısa görünen tur, çekmece gövdesi yok', async () => {
+    const chat = stubChat(() => ({ kind: 'span', id: TRACE, subject: `span:${TRACE}:${SPAN}`, label: 'charge', renderer: 'body' }));
+    await mount(`/trace?id=${TRACE}&ai=` + encodeURIComponent(`span:${TRACE}:${SPAN}`));
+    expect(chat).toHaveBeenCalledTimes(1);
+    const a = argsOf(chat.mock.calls[0]);
+    expect(a.explainAsk).toEqual({ kind: 'span', id: TRACE, subject: `span:${TRACE}:${SPAN}`, src: 'ai-param' });
+    expect(a.messages[a.messages.length - 1].text).toBe("Bu span'i açıkla · b7ad6b71…");
+    expect(new URLSearchParams(search).get('ai')).toBeNull();
+    expect(explainMounts.n).toBe(0);
+    expect(document.body.querySelectorAll('textarea').length).toBe(1);
+    expect(document.body.querySelector('.cx-verdict')?.textContent).toContain('Ödeme sağlayıcısı kartı reddediyor.');
+    expect(bodyText()).toContain('✨ span charge');
+  });
+
+  it('problem (SELF biçimi ?ai=problem): niyet + takip sorusu kodeği ve açıklamayı taşır', async () => {
+    const PID = '0000000000000p01';
+    const chat = stubChat(() => ({ kind: 'problem', id: PID, label: 'orders-api p99 latency', renderer: 'body' }));
+    await mount(`/problems?problem=${PID}&ai=problem`);
+    expect(chat).toHaveBeenCalledTimes(1);
+    expect(argsOf(chat.mock.calls[0]).explainAsk).toEqual({ kind: 'problem', id: PID, src: 'ai-param' });
+    expect(bodyText()).toContain('Bu problemi açıkla · 00000000…');
+    expect(explainMounts.n).toBe(0);
+    await act(async () => { button('Bu neden oluyor?')?.click(); });
+    expect(chat).toHaveBeenCalledTimes(2);
+    const f = argsOf(chat.mock.calls[1]);
+    expect(f.explainAsk).toBeUndefined();
+    expect(f.subject).toBe(`problem:${PID}`);
+    expect(f.explain).toContain('Ödeme sağlayıcısı kartı reddediyor');
+  });
+
+  it('service-health: kodekli niyet; takip sorusu servisi + açıklanan pencereyi taşır', async () => {
+    const SH = 'service-health:orders-api:1790000000000000000:1790003600000000000';
+    const chat = stubChat(() => ({ kind: 'service-health', id: 'orders-api', subject: SH, label: 'orders-api', renderer: 'body' }));
+    await mount('/cosre?' + new URLSearchParams({ ai: SH }).toString(), 'page');
+    expect(argsOf(chat.mock.calls[0]).explainAsk).toEqual({ kind: 'service-health', id: 'orders-api', subject: SH, src: 'ai-param' });
+    expect(bodyText()).toContain('orders-api sağlığını açıkla');
+    await act(async () => { button('orders-api hata logları?')?.click(); });
+    const f = argsOf(chat.mock.calls[1]);
+    expect(f.subject).toBe(SH);
+    expect(f.service).toBe('orders-api');
+    expect(f.rangeS).toBe(3600);
+    expect(f.toMs).toBe(1790003600000);
+  });
+
+  it('runbook: balonda RUNBOOK etiketi + not satırı', async () => {
+    stubChat(() => ({ kind: 'runbook', id: 'p-42', label: 'RUNBOOK', renderer: 'body', note: 'Based on 2 past resolved instances of this rule on this service.' }));
+    await mount('/cosre?ai=runbook%3Ap-42', 'page');
+    expect(bodyText()).toContain('Bu problem için runbook çıkar · p-42');
+    expect(document.body.querySelector('[data-explain-label]')?.textContent).toBe('RUNBOOK');
+    expect(document.body.querySelector('[data-explain-note]')?.textContent).toContain('Based on 2 past resolved');
+  });
+
+  it('endpoint: görünür soru düğmenin penceresiyle, niyet yok, çekmece yok', async () => {
+    const fromMs = 1_790_000_000_000;
+    const ep = `endpoint:orders-api:${encodeURIComponent('/orders')}:${fromMs * 1e6}:${(fromMs + 1_800_000) * 1e6}:GET`;
+    const chat = stubChat();
+    await mount('/cosre?' + new URLSearchParams({ ai: ep }).toString(), 'page');
+    expect(chat).toHaveBeenCalledTimes(1);
+    const a = argsOf(chat.mock.calls[0]);
+    expect(a.explainAsk).toBeUndefined();
+    expect(a.messages[a.messages.length - 1].text).toContain('orders-api GET /orders');
+    expect(a.rangeS).toBe(1800);
+    expect(a.toMs).toBe(fromMs + 1_800_000);
+    expect(new URLSearchParams(search).get('ai')).toBeNull();
+  });
+
+  it('charts hâlâ çekmece özne kipinde: sohbet turu gönderilmez', async () => {
+    const chat = stubChat();
+    const charts = vi.spyOn(api, 'copilotExplainCharts').mockRejectedValue(new Error('kapsam dışı'));
+    await mount('/service?name=orders-api&ai=' + encodeURIComponent('charts:orders-api:1000:2000:all'));
+    expect(chat).not.toHaveBeenCalled();
+    expect(charts).toHaveBeenCalled();
+    expect(new URLSearchParams(search).get('ai')).toBe('charts:orders-api:1000:2000:all');
   });
 });

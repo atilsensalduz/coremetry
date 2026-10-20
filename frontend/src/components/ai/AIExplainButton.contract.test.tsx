@@ -102,15 +102,21 @@ describe('AIExplainButton — `?ai=` gidiş-dönüşü', () => {
     expect(p.get('op')).toBe('POST /pay');
   });
 
-  it('aynı özneye ikinci tık çekmeceyi kapatır (?ai= silinir)', async () => {
+  // v0.10.1405 (Tek CoSRE adım 2; operatör: "Trace ve exception üzerinden
+  // çalışan Ask CoSRE açıklamaları güzel ama sanki ayrı drawer hissi, CoSRE
+  // bütünselliğine uymuyor.") — aç/kapa geçişi kalktı: tık HER ZAMAN özneyi
+  // yazar (sohbet türleri ?ai='yi tüketip yeni tur gönderir; charts çekmecesi
+  // kendi ✕'iyle kapanır). aria-expanded da yok — düğme bir çekmece açmıyor.
+  it('aynı özneye ikinci tık özneyi KORUR (aç/kapa yok), aria-expanded yok', async () => {
     await mount('/service/x?tab=details', <AIExplainButton subject={CHARTS_SUBJECT} />);
     await act(async () => { button()!.click(); });
-    expect(new URLSearchParams(lastSearch).get('ai')).not.toBeNull();
+    expect(new URLSearchParams(lastSearch).get('ai')).toBe('charts:payment-service:1000:2000:dur');
 
     await act(async () => { button()!.click(); });
     const p = new URLSearchParams(lastSearch);
-    expect(p.get('ai')).toBeNull();
-    expect(p.get('tab')).toBe('details'); // kapanış da yabancı paramı korur
+    expect(p.get('ai')).toBe('charts:payment-service:1000:2000:dur');
+    expect(p.get('tab')).toBe('details');
+    expect(button()!.hasAttribute('aria-expanded')).toBe(false);
   });
 
   // v0.9.1166 — ağırlık basamakları. Sınıf adları globals.css'in
