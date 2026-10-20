@@ -595,6 +595,11 @@ func (s *Server) chatOperationPrefetch(ctx context.Context, emit func(string, an
 	if topologyVetoesOpPrefetch(raw) {
 		return nil, false
 	}
+	// v0.10.1416 — yapıştırılan PromQL guided metric_chart'ındır (http_route="/api/x"
+	// etiket değeri endpoint anması sanılmasın; copilot_metric_chart_promql.go).
+	if promqlVetoesOpPrefetch(raw) {
+		return nil, false
+	}
 	pctx, cancel := context.WithTimeout(ctx, opPrefetchTimeout)
 	defer cancel()
 	t, kind, handled, ok := s.resolveEndpointMention(pctx, ctx, emit, raw)

@@ -338,6 +338,12 @@ type guidedRoute struct {
 	ChartHref       string   `json:"-"`
 	ChartEnvOptions []string `json:"-"`
 	ChartRangeS     int64    `json:"-"`
+	// v0.10.1416 — R2 (copilot_metric_chart_promql.go): ChartPromQL yapıştırılan
+	// sorgu (GİRDİ, JSON'a girer — "son 24 saate genişlet" klonu aynı sorguyu
+	// doğrulayıp koşar); ChartPromQLExtra mesajdaki diğer aday sorgu sayısı
+	// (router yazar, kanıt notu okur; JSON'a girmez).
+	ChartPromQL      string `json:",omitempty"`
+	ChartPromQLExtra int    `json:"-"`
 	// v0.10.1388 — service_topology / trace_topology (copilot_service_topology.go).
 	// GİRDİ (JSON'a girer, LastRoute takibinde klonlanır): TopoHops 1|2,
 	// TopoErrorsOnly yalnız hatalı kenarlar / hatalı örnek trace, TopoTraceID
@@ -571,6 +577,7 @@ func hasGuidedSignal(msg string) bool {
 		hasEndpointRequestSignal(toks) || // v0.10.688 — "X isteklerini getir"
 		hasServiceReportSignal(toks) || // v0.10.1337 — "X için rapor çıkar"
 		hasMetricChartSignal(toks) || // v0.10.1386 — "X heap grafiği", "kafka lag trendi"
+		looksLikePromQL(msg) || // v0.10.1416 — yapıştırılan PromQL ("sum(rate(x_total[5m])) çiz")
 		hasTopologySignal(toks) || // v0.10.1388 — "X topolojisi", "kimler çağırıyor"
 		// v0.9.537 — açık trace ID'si ya da "trace" kökü (prefix:
 		// Türkçe ekli hâlleri de yakalar — "tracei", "trace'in";
@@ -1164,6 +1171,13 @@ func routeGuidedIntentOpts(raw string, services, envs, teams []string, ctxServic
 	// örüntüleri o uzunlukta bir alnum bloğunun içinde eşleşemez.
 	if tok, ok := reqid.FindToken(raw); ok {
 		return guidedRoute{Intent: guidedRequestID, RequestID: tok}
+	}
+	// v0.10.1416 — YAPIŞTIRILAN PromQL (copilot_metric_chart_promql.go): yapıştırılan
+	// hata metninden ve 16-hex span kontrolünden ÖNCE (sorgudaki
+	// exception="…Exception" etiket değeri hata metni sanılmasın); sorgu
+	// metric_chart'a ChartPromQL olarak iner. Ortam yalnız sorgu DIŞI metinden.
+	if r, ok := routePastedPromQL(raw, envs); ok {
+		return r
 	}
 	// v0.10.819 — YAPIŞTIRILAN hata/stack trace metni (copilot_pasted_error.go):
 	// 16-hex span kontrolünden ÖNCE — .NET assembly kimliğindeki PublicKeyToken
@@ -1934,6 +1948,9 @@ func (s *Server) copilotChatGuided(ctx context.Context, emit func(string, any), 
 	// Rota none olsa da geçerli ("… arası servis süreleri" sinyalsiz).
 	// v0.10.819 — yapıştırılan hata metnindeki log damgaları (iki tarih) rotayı
 	// window_compare/ask_service'e ÇEVİRMEZ (inceleme 2026-09-19).
+	if route.ChartPromQL != "" { // v0.10.1416 — yapıştırılan sorgu göreli pencereyle (sorgu içi damga pencere değil)
+		absShape = false
+	}
 	if absShape && !(pasted && route.Intent == guidedLogField) {
 		loc := chatLocationNamed(tzName, tzOffsetMin)
 		if wins, ok := extractAbsoluteWindows(question, time.Now(), loc); ok {
@@ -2002,7 +2019,9 @@ func (s *Server) copilotChatGuided(ctx context.Context, emit func(string, any), 
 	}
 	// v0.10.1386 — metrik grafiği varsayılanı son 1 saat (D1; açık pencere 5 dk..24 sa kazanır).
 	if route.Intent == guidedMetricChart {
-		if _, explicit := guidedRangeSExplicit(norm); !explicit {
+		if route.ChartPromQL != "" { // v0.10.1416 — pencere sorgunun DIŞINDAKİ metinden ([1h] / "…_per_hour" sayılmaz)
+			rangeS, explicitRange = pastedPromQLRangeS(question)
+		} else if _, explicit := guidedRangeSExplicit(norm); !explicit {
 			rangeS = metricChartDefaultRangeS
 		}
 	}

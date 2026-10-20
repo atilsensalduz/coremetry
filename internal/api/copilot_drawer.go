@@ -210,6 +210,10 @@ func drawerSuppressesGuided(explain string, route guidedRoute, question string) 
 	if route.RequestID != "" || route.TraceID != "" || route.SpanID != "" {
 		return false
 	}
+	// v0.10.1416 — yapıştırılan PromQL de aynı sınıftan: somut özne sorgunun kendisi.
+	if route.ChartPromQL != "" {
+		return false
+	}
 	return !wantsFleetScope(guidedTokens(normalizeGuidedMsg(question)))
 }
 

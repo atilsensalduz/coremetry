@@ -211,6 +211,9 @@ const (
 // genişlet" (bağlam penceresi kipi — LastRoute klonu, chat_followups.go),
 // servisin en yavaş trace'leri, Metrics'te aç (PromQL editörü). Tavan 4.
 func metricChartFollowups(route guidedRoute, asked []string) []chatFollowup {
+	if route.ChartPromQL != "" { // v0.10.1416 — R2: 24 sa (sorgu izin veriyorsa) + Metrics'te aç
+		return pastedPromQLFollowups(route, asked)
+	}
 	t, ok := metricChartTemplateByID(route.ChartTemplate)
 	if !ok {
 		return nil
@@ -575,8 +578,11 @@ func (s *Server) metricChartLabelSet(ctx context.Context, rd metricChartReader, 
 // guidedMetricChartBundle — metric_chart rotasının kanıtı. Hiçbir okuma
 // hatası demeti düşürmez (serbest döngüye bırakmaz): dürüst metin döner.
 func (s *Server) guidedMetricChartBundle(ctx context.Context, emit func(string, any), route *guidedRoute, from, to time.Time, rangeS int64, loc *time.Location) (string, string, error) {
-	route.ChartEnvOptions = metricChartEnvOptions(s.guidedEnvNames(ctx), route.Env, metricChartEnvChipsMax)
 	rd, ok := s.metricChartReaderFor()
+	if route.ChartPromQL != "" { // v0.10.1416 — R2: yapıştırılan PromQL (copilot_metric_chart_promql.go)
+		return s.metricChartRunPromQL(ctx, emit, route, rd, ok, from, to, rangeS, loc)
+	}
+	route.ChartEnvOptions = metricChartEnvOptions(s.guidedEnvNames(ctx), route.Env, metricChartEnvChipsMax)
 	return s.metricChartRun(ctx, emit, route, rd, ok, from, to, rangeS, loc)
 }
 

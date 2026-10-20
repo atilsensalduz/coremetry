@@ -8610,3 +8610,53 @@ YOK — v0.10.1391 VM HTTP RED'i yalnız servis sağlığına getirmiş, raporu 
   `TestServiceVMREDChartsSharedHelper` (iki çağıran ortak kurucu/okuma, başlama/bekleme sırası, span yedeği yok),
   `TestServiceVMREDChartsReadOnly`; `TestServiceReportCacheKey` (v3 + dilim). FE: `ServiceReportCard.test.tsx`
   (grafikler özetle operasyonlar arasında, Metrics linki, not), `chatBlocks.serviceReport.test.ts` (süzgeç).
+
+## 2026-10-20 — v0.10.1416 — CoSRE metrik grafiği R2: yapıştırılan PromQL + doğrulayıcı
+
+**Operatör fikri (R1'in devamı):** "VictoriaMetrics sorgulayıp grafik getirse". R1 (v0.10.1386) yalnız kapalı şablon
+kataloğunu çiziyordu; operatörün Grafana'dan/vmui'den kopyaladığı sorgu sohbette serbest döngüye düşüyordu.
+**Karar (plan R2; planda v0.10.1387 numaralıydı, o numara CI düzeltmesine gitti).**
+- **Tanıma (SAF, `copilot_metric_chart_promql.go`):** `looksLikePromQL` — kod çiti (```` ```promql ``` ````) / ters
+  tırnak içeriği; yoksa çitsiz metinde sözcük sınırlarında (≤12 baş, ≤10 son sözcük) `internal/promql` ayrıştırıcısından
+  geçen en erken başlayan en uzun parça ("…[5m]))'yi çiz" eki kırpılır). Parça PromQL BİÇİMİ taşımalı: etiket
+  eşleştiricisi, [aralık] ya da bilinen fonksiyon/toplama + alt çizgili ad — düzyazıdaki "rate" sözcüğü, "rate(rps)",
+  `` `service_name` `` PromQL değil. Çitli içerik ayrıştırılamasa da biçimliyse ya da MetricsQL işareti taşıyorsa rotaya
+  iner (dürüst ret); çitsiz MetricsQL işareti (WITH(, keep_metric_names, rollup*(, [Ni]) varsa önce o denenir —
+  ayrıştırıcının kabul ettiği önek sorgunun bir kısmını sessizce düşürmesin. Ucuz ön kapı: `{`/`[`/ters tırnak ya da
+  `(` + `_` yoksa arama yok. `hasGuidedSignal`'a girdi.
+- **Rota:** router'da yapılandırılmış istek kimliğinden SONRA, yapıştırılan hata metninden ve 16-hex span'den ÖNCE
+  (`exception="…NullPointerException"` etiket değeri hata metni sanılmasın) → `metric_chart` + `ChartPromQL` (JSON'a girer:
+  "Son 24 saate genişlet" klonu aynı sorguyu yeniden doğrulayıp koşar). Ortam ve pencere YALNIZ sorgu dışı metinden
+  (`deployment_environment_name="prod-eu-a"` ortam anması değil; `[1h]` / `…_per_hour` pencere değil); açık pencere
+  5 dk..24 sa, yoksa 1 sa; mutlak pencere ezmesi bu rotada kapalı. Operasyon ön-getirmesi yapıştırılan sorguyu
+  sahiplenmez (`promqlVetoesOpPrefetch`; `http_route="/api/x"` endpoint anması sanılırdı); çekmece bağlamı sorguyu
+  bastırmaz (yapıştırılan kimlik sınıfı). Kademe sırası, `copilot_chat.go`, api.go, prompt sabitleri, MCP (74) DEĞİŞMEDİ.
+- **Doğrulayıcı (SAF, `metric_chart_validate.go`, AST yürüyüşü; yeni bağımlılık YOK — repo zaten kendi
+  `internal/promql` ayrıştırıcısını taşıyor, go.mod'da prometheus/metricsql yok):** uzunluk ≤2048; ayrıştırılabilir;
+  MetricsQL'e özgü (WITH, keep_metric_names, rollup_*, [Ni], aralıksız `rate(x)`, histogram_quantiles vb.) →
+  ÇALIŞTIRILMAZ, yalnız link; alt sorgu yok; aralık [adım, 1 sa] (24 sa penceresinde adım 12 dk → `[5m]` reddedilir,
+  gerekçe en az aralığı söyler); offset 0..7 gün; `@` yok; ≤6 seçici ve ≤10 farklı metrik adı (plana EK tavan: varlık
+  okuması sınırlı kalsın); her seçicide sabit ad ya da `__name__=~` ≤10 sabitlik alternasyon; etiket regex'i ≤128,
+  çıplak `.*`/`.+` değil, derlenebilir; fonksiyon izin listesi rate irate increase delta avg/max/min/sum/last_over_time
+  histogram_quantile (φ 0..1 sabit) abs ceil floor round clamp_min clamp_max (ikinci argüman sabit); toplama izin listesi
+  sum avg min max count topk bottomk (k 1..20 tam sayı) quantile; ikili işleçler serbest; label_replace/join, absent*,
+  sort*, vector, scalar, time, predict_linear, holt_winters, count_values, group, stddev/stdvar (+_over_time) gerekçeli ret.
+- **Yürütme:** her metrik adı VM'de var mı — R1'in 5 dk önbellekli etiket kümesi (`metricChartLabelSet`, ≤4 paralel);
+  yoksa ret (adlarıyla), okuma hatası "okunamadı ≠ yok". Dış ifade toplama değilse `topk(20, …)`; değişiklik yoksa
+  operatörün metni AYNEN gider. TEK `QueryPromQLRange`, 8 sn, `WithQueryRecorder`, adım ⌈aralık/120⌉ (≥15 sn), ≤20 seri /
+  ≤120 nokta, 60 sn önbellek (`metricChartCacheKey(vm, "promql", son ifade, env matcher, uçlar, adım)`). Kanıt + grafik
+  R1'le aynı (`emitGuidedEvidenceResult`, GRAFİK ÖZETİ, birim bilinmiyor notu); anlatım SystemPromptGuidedChat.
+- **Ortam (D8 genelleştirmesi):** `resolveMetricEnvScope` / `metricEnvLabelFor` / `metricEnvLabelValues` metrik
+  parametreli çekirdek; `resolveHTTPEnvScope` vb. httpEnvMetric ile sarmalayıcı (HTTP yüzeyleri ve R1 şablonları bayt
+  bayt eski). SORUDA anılan ortam sorgulanan (ilk) metriğin ortam etiketine çözülür ve her seçiciye eklenir; metriklerden
+  biri etiketi taşımıyorsa / değer eşleşmezse grafik YOK. Sorgu o etiketi zaten süzüyorsa eklenmez (not). Ekrandan
+  devralınan ortam sorguya EKLENMEZ — "UYGULANMADI, sorgu olduğu gibi koştu" notu.
+- **Ret cevabı:** reddedilen sorgu ASLA çalışmaz; cevap sunucunun yazdığı Türkçe gerekçe (`DirectAnswer`, anlatım çağrısı
+  yok) + `[Metrics'te aç](…)` (PromQL editörü, aynı mutlak pencere) + aynı link çipi. VM yok / sorgu hatası da aynı yolda.
+  Takip: "Son 24 saate genişlet" yalnız sorgunun en kısa aralığı 24 sa adımına (12 dk) yetiyorsa; "Metrics'te aç".
+- **Bilinçli dışarıda:** yeni MCP aracı (katalog dolu; `query_metrics` zaten var), R3 (LLM PromQL, kapalı), çitsiz çıplak
+  metrik adı ("x_total çiz" — biçim yok), `:` içeren kayıt kuralı adları (ayrıştırıcı reddeder).
+- Testler: `metric_chart_validate_test.go` (her kuralın kabul/ret tablosu, MetricsQL bayrağı, sarma, enjeksiyon, en kısa
+  aralık), `copilot_metric_chart_promql_test.go` (looksLikePromQL tablosu + "rate" düzyazı negatifleri, router, pencere,
+  sahte VM demeti: kabul/var olmayan metrik/MetricsQL → link/alt sorgu/VM yok/okuma hatası/ortam, takip çipleri, JSON
+  klonu, salt-okur).

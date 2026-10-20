@@ -122,11 +122,18 @@ type httpEnvValuesBody struct {
 // httpEnvLabelValues — v0.10.1376: etiketin canlı değerleri (≤1000, 24 sa,
 // 2 sn, 5 dk önbellek). Hata önbelleğe yazılmaz, çağırana döner.
 func (s *Server) httpEnvLabelValues(ctx context.Context, vm httpEnvLabelReader, label string, to time.Time) ([]string, bool, error) {
+	return s.metricEnvLabelValues(ctx, vm, httpEnvMetric, label, to)
+}
+
+// metricEnvLabelValues — v0.10.1416 (D8 genelleştirmesi): httpEnvLabelValues'un
+// metrik parametreli çekirdeği (yapıştırılan PromQL ortamı SORGULANAN metriğin
+// etiketine karşı çözer). Anahtar zaten metriği taşıyor (httpEnvValuesKey).
+func (s *Server) metricEnvLabelValues(ctx context.Context, vm httpEnvLabelReader, metric, label string, to time.Time) ([]string, bool, error) {
 	fn := func(c context.Context) (any, error) {
 		cctx, cancel := context.WithTimeout(c, httpEnvValuesTimeout)
 		defer cancel()
 		from, end := httpEnvValuesWindow(to)
-		vals, partial, err := vm.MetricLabelValuesIn(cctx, httpEnvMetric, label, from, end, httpEnvValuesLimit)
+		vals, partial, err := vm.MetricLabelValuesIn(cctx, metric, label, from, end, httpEnvValuesLimit)
 		if err != nil {
 			return nil, err
 		}
@@ -140,7 +147,7 @@ func (s *Server) httpEnvLabelValues(ctx context.Context, vm httpEnvLabelReader, 
 		b := v.(httpEnvValuesBody)
 		return b.Values, b.Partial, nil
 	}
-	raw, _, err := s.cachedJSON(ctx, httpEnvValuesKey(httpEnvMetric, label, to), httpEnvValuesTTL, false, fn)
+	raw, _, err := s.cachedJSON(ctx, httpEnvValuesKey(metric, label, to), httpEnvValuesTTL, false, fn)
 	if err != nil {
 		return nil, false, err
 	}
@@ -164,6 +171,12 @@ type httpEnvLabel struct {
 // değilse ilk aday değersiz döner (çağıran "eşleşmedi" der). Okuma hatası
 // çağırana döner.
 func (s *Server) httpEnvLabelFor(ctx context.Context, vm httpEnvLabelReader, to time.Time) (httpEnvLabel, error) {
+	return s.metricEnvLabelFor(ctx, vm, httpEnvMetric, to)
+}
+
+// metricEnvLabelFor — v0.10.1416: httpEnvLabelFor'un metrik parametreli çekirdeği
+// (aynı seçim kuralı; değerler `metric` üzerinden okunur).
+func (s *Server) metricEnvLabelFor(ctx context.Context, vm httpEnvLabelReader, metric string, to time.Time) (httpEnvLabel, error) {
 	lm := vm.MetricLabelMap().Normalized()
 	cands := httpEnvLabelCandidates(lm)
 	src := httpEnvSourceDefault
@@ -172,7 +185,7 @@ func (s *Server) httpEnvLabelFor(ctx context.Context, vm httpEnvLabelReader, to 
 	}
 	first := httpEnvLabel{Label: cands[0], Source: src}
 	for i, l := range cands {
-		vals, partial, err := s.httpEnvLabelValues(ctx, vm, l, to)
+		vals, partial, err := s.metricEnvLabelValues(ctx, vm, metric, l, to)
 		if err != nil {
 			return httpEnvLabel{}, err
 		}
@@ -204,7 +217,16 @@ var httpEnvRoles = []string{vmetrics.RoleEnv, vmetrics.RoleCluster}
 // değilse ortam etiketinde aranır; iki rol aynı etikette → değer KESİŞİMİ.
 // Bir terim bile çözülmezse Applied=false + Reason. Etiket okuma hatası → err.
 func (s *Server) resolveHTTPEnvScope(ctx context.Context, vm httpEnvLabelReader, terms map[string]string, to time.Time) (httpEnvScope, error) {
-	el, err := s.httpEnvLabelFor(ctx, vm, to)
+	return s.resolveMetricEnvScope(ctx, vm, httpEnvMetric, terms, to)
+}
+
+// resolveMetricEnvScope — v0.10.1416 (D8 genelleştirmesi): resolveHTTPEnvScope'un
+// metrik parametreli çekirdeği. HTTP yüzeyleri httpEnvMetric ile çağırır (bayt
+// bayt eski davranış); yapıştırılan PromQL (copilot_metric_chart_promql.go)
+// SORGULANAN metrikle — o metrik HTTP histogramı değilse ortam etiketi ve canlı
+// değerleri kendi serilerinden gelir.
+func (s *Server) resolveMetricEnvScope(ctx context.Context, vm httpEnvLabelReader, metric string, terms map[string]string, to time.Time) (httpEnvScope, error) {
+	el, err := s.metricEnvLabelFor(ctx, vm, metric, to)
 	if err != nil {
 		return httpEnvScope{}, err
 	}
@@ -220,7 +242,7 @@ func (s *Server) resolveHTTPEnvScope(ctx context.Context, vm httpEnvLabelReader,
 		label, live := el.Label, el.Values
 		if role == vmetrics.RoleCluster && clusterLabel != "" && clusterLabel != el.Label {
 			label = clusterLabel
-			vals, partial, err := s.httpEnvLabelValues(ctx, vm, label, to)
+			vals, partial, err := s.metricEnvLabelValues(ctx, vm, metric, label, to)
 			if err != nil {
 				return httpEnvScope{}, err
 			}
