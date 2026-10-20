@@ -20,6 +20,7 @@ import { useMemo } from 'react';
 import { RenderedMarkdown, CodeBlock } from '@/components/Markdown';
 import type { IdLink } from '@/components/ai/inlineIdLinks';
 import { verdictLine, hoistCodeQuotes, dropVerdictSentence } from './explainAnatomy';
+import { normalizeMathEscapes } from '@/components/mathEscapes'; // v0.10.1396
 import { useTypewriter } from './useTypewriter'; // v0.10.1384 — tüm cevap tek seferde gelince hızlı yazma
 
 // oracle — v0.10.921 (Kademe A): Explain'e giren Oracle hata satırı sayısı.
@@ -40,7 +41,7 @@ function evidenceHint(ev: ExplainEvidence): string {
   return '';
 }
 
-export function ExplainBody({ text, busy, links, evidence, verdict: wantVerdict = true, revealAt }: {
+export function ExplainBody({ text: rawText, busy, links, evidence, verdict: wantVerdict = true, revealAt }: {
   text: string;
   busy: boolean;
   links?: IdLink[];
@@ -55,6 +56,12 @@ export function ExplainBody({ text, busy, links, evidence, verdict: wantVerdict 
    */
   revealAt?: number;
 }) {
+  // v0.10.1396 (operatör: "yine rightarrow konusu") — Karar şeridi düz metin
+  // çizilir, RenderedMarkdown'ın normalizeMathEscapes'inden geçmiyordu:
+  // "$\rightarrow$" olduğu gibi görünüyordu. Metin GİRİŞTE bir kez normalize
+  // edilir; Karar, kod alıntıları ve gövde aynı metinden türer (Karar cümlesinin
+  // gövdeden düşürülmesi de böylece birebir eşleşir).
+  const text = useMemo(() => normalizeMathEscapes(rawText ?? '', { streaming: busy }), [rawText, busy]);
   const verdict = useMemo(() => (busy || !wantVerdict ? null : verdictLine(text)), [busy, text, wantVerdict]);
   const hoisted = useMemo(() => {
     if (busy) return { quotes: [], rest: text };

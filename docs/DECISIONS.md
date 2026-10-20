@@ -7887,3 +7887,10 @@ etiket-önek katlamasının `<odak>-<x>` kardeşini odağa katlaması) prod'da s
 çocuklarıydı, başlık boşluğu 8 px'ti; "🕘 Geçmiş" düğmesi ikon üstte / yazı altta kırılıyordu. **Karar:** ikon + yazı
 tek `.cosre-head__brand` grubunda (iç boşluk `--sp-5`), başlık boşluğu 12 px, `.cm-head-btn` satır içi tek satır.
 Yalnız CSS/JSX düzeni; davranış değişmez.
+
+## 2026-10-19 — v0.10.1396 — Karar şeridinde `$\rightarrow$` düz metin kalıyordu
+
+**Operatör (ekran görüntüsü):** "Yine right arrow konusu." **Kök neden:** `ExplainBody` gövdeyi markdown'dan geçirirken
+`normalizeMathEscapes` uyguluyordu ama KARAR şeridi (`verdictLine`) ham metinden çıkarılıp düz metin çiziliyordu;
+model `$\rightarrow$` yazınca şeritte aynen görünüyordu. **Düzeltme:** metin bir kez normalize edilir, şerit ve gövde
+aynı normalize metinden beslenir. Test: `ExplainBody.test.tsx` "Karar şeridi LaTeX oku".

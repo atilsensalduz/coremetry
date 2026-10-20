@@ -109,3 +109,23 @@ describe('ExplainBody — Kanıt satırının ipucu (v0.10.1033)', () => {
     expect(line({ spans: 0, traces: 0, oracle: 1 })).toBe('Kanıt: 1 Oracle satırı');
   });
 });
+
+// v0.10.1396 (operatör: "yine rightarrow konusu") — Karar şeridi düz metin
+// çizildiği için "$\rightarrow$" olduğu gibi görünüyordu; metin girişte
+// normalize edilir ve Karar cümlesi gövdede tekrarlanmaz.
+describe('ExplainBody Karar şeridi LaTeX oku (v0.10.1396)', () => {
+  const T = [
+    '**Kök Neden ve Sonraki Adım**',
+    '- Kök Neden: orders-api $\\rightarrow$ db.example.test (UPDATE) $\\rightarrow$ ORA-00001.',
+    '- Sonraki adım: kısıtı kontrol et.',
+  ].join('\n');
+  const html = renderToStaticMarkup(<ExplainBody text={T} busy={false} />);
+  it('Karar → içerir, ham LaTeX yok', () => {
+    const verdict = html.slice(html.indexOf('cx-verdict'), html.indexOf('</div>', html.indexOf('cx-verdict')));
+    expect(verdict).toContain('orders-api → db.example.test');
+    expect(html).not.toContain('rightarrow');
+  });
+  it('Karar cümlesi gövdede tekrarlanmaz', () => {
+    expect(html.split('orders-api → db.example.test').length - 1).toBe(1);
+  });
+});
