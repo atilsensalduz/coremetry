@@ -46,7 +46,7 @@ export function NamespaceCombobox({ namespaces, value, onPick, onClear }: {
         placeholder={value || 'Filter namespaces…'}
         style={{
           width: 220, padding: '4px 10px', fontSize: 12,
-          background: 'var(--bg)', color: 'var(--text)',
+          background: 'var(--field-bg)', color: 'var(--text)',
           border: '1px solid var(--border)', borderRadius: 4,
         }} />
       {/* v0.10.924 — buton bütünlüğü Faz 2: `all: unset` ✕ → IconButton bare

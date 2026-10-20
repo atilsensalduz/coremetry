@@ -29,9 +29,10 @@ describe('traceIdIdentityText', () => {
 
 describe('kablolama', () => {
   const src = readFileSync(resolve(__dirname, '../Traces.tsx'), 'utf8');
-  it('TracesEmpty traceId alır ve metni yardımcıdan çizer; başlık çipi pencereyi söyler', () => {
-    expect(src).toContain('traceId={filter.traceId}');
-    expect(src).toContain('traceIdIdentityText(identity, traceId, ');
+  it('TracesEmpty kimlik metnini yardımcıdan çizer; başlık çipi pencereyi söyler', () => {
+    // v0.10.1423 — Trace ID kutusu kalktı: 32-hex terim `search`te.
+    expect(src).not.toContain('traceId={filter.traceId}');
+    expect(src).toContain('traceIdIdentityText(identity, search, ');
     expect(src).toContain('pencere trace zamanına çıpalandı');
   });
 });

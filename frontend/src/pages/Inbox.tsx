@@ -936,7 +936,7 @@ export default function InboxPage() {
             onChange={e => setParam('since', e.target.value || null)}
             title="İlk görülme penceresi: yalnız bu pencerede ORTAYA ÇIKAN kayıtlar. Eski ama hâlâ açık kayıtlar 'any' seçiliyken görünür."
             style={{
-              background: 'var(--bg)', color: 'var(--text)',
+              background: 'var(--field-bg)', color: 'var(--text)',
               border: '1px solid var(--border)', borderRadius: 6,
               fontSize: 12, padding: '4px 8px',
             }}

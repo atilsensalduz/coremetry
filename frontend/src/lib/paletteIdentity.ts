@@ -20,8 +20,11 @@ export function paletteIdentityQuery(rawQuery: string): string | null {
   return v;
 }
 
+// v0.10.1423 — /traces'in Trace ID kutusu kalktı; kimlik operasyon kutusunun
+// terimi (`?search=`). Eski `?traceId=` linkleri sayfada bir kez yönlenir
+// (pages/traces/traceIdJump.ts), ama palet onları artık ÜRETMEZ.
 export function identityTracesHref(v: string): string {
-  return `/traces?traceId=${encodeURIComponent(v)}`;
+  return `/traces?search=${encodeURIComponent(v)}`;
 }
 
 // v0.10.706 — problem görüntü kimliği: "P-3f9a2" (harf duyarsız; kanonik

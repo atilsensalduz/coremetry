@@ -45,15 +45,14 @@ describe('/traces — işaret KONULDU (Ö31 kapandı)', () => {
     expect(traces).toMatch(/<ServicePicker[\s\S]{0,400}?shortcutSearch\s*\/>/);
   });
 
-  it('Trace ID kutusu DOM’da hâlâ ÖNCE — yani işaret gerçekten gerekli', () => {
-    // Bu satır düzeltmenin gerekçesini canlı tutuyor: biri kutuları
-    // yeniden sıralarsa ve işaret düşerse, test artık koruma sağlamaz
-    // sanılmasın diye premise burada ölçülüyor.
-    // v0.10.343 — kutu artık kimlik değeri de alıyor; v0.10.661 yer tutucu "Trace ID veya function_id…".
-    const traceIdAt = traces.indexOf('placeholder="Trace ID veya function_id…"');
-    const pickerAt = traces.indexOf('<ServicePicker');
-    expect(traceIdAt).toBeGreaterThan(-1);
-    expect(pickerAt).toBeGreaterThan(traceIdAt);
+  // v0.10.1423 — eski premise ("Trace ID kutusu DOM'da ÖNCE") kutuyla
+  // birlikte kalktı. İşaret yine de durur: `/` hedefi DOM sırasına değil
+  // açık işarete bağlı (SavedViewsBar ya da ileride eklenen bir kutu
+  // picker'ın önüne düşerse fallback yine yanlış kutuyu seçerdi).
+  it('Trace ID kutusu yok; sayfada TEK `/` hedefi servis picker', () => {
+    expect(traces).not.toContain('Trace ID veya function_id…');
+    expect(traces).not.toMatch(/className="trace-lookup"/);
+    expect((traces.match(/shortcutSearch\b/g) ?? []).length).toBe(1);
   });
 });
 

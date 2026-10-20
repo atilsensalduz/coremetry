@@ -95,7 +95,7 @@ export function ServiceAttrsPanel({ service, range }: {
         <input ref={filterRef} value={filter} onChange={e => setFilter(e.target.value)}
           placeholder="Filter by key or value…"
           style={{ marginLeft: 'auto', width: 220, padding: '4px 10px', fontSize: 12,
-                   background: 'var(--bg)', color: 'var(--text)',
+                   background: 'var(--field-bg)', color: 'var(--text)',
                    border: '1px solid var(--border)', borderRadius: 4 }} />
       </div>
       <AttrSection title="Resource attrs (stable per-process)" rows={resAttrs} storageKey="svc-attrs-resource"

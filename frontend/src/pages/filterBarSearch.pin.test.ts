@@ -72,14 +72,12 @@ describe('v0.10.1332 — Services filtre barı', () => {
 describe('v0.10.1332 — Traces', () => {
   const src = stripComments(read('pages/Traces.tsx'));
 
-  it('trace-lookup: Go düğmesi yok, Enter + ✕ temizle + Enter ipucu var', () => {
-    const a = at(src, '<div className="trace-lookup">');
-    const box = src.slice(a, src.indexOf('</div>', a));
-    expect(box).not.toMatch(/>Go<\/Button>/);
-    expect(box).not.toMatch(/<Button\b/);
-    expect(box).toMatch(/onKeyDown=\{e => e\.key === 'Enter' && apply\(\)\}/);
-    expect(box).toMatch(/aria-label="Trace ID'yi temizle"/);
-    expect(box).toMatch(/<EnterHint /);
+  // v0.10.1423 — trace-lookup kutusu kalktı (operatör: "Search'ten zaten
+  // aranabiliyor"); v0.10.1332'nin Go/✕/Enter pinleri onunla gitti.
+  it('trace-lookup yok; operasyon kutusu Enter ile apply', () => {
+    expect(src).not.toMatch(/trace-lookup/);
+    expect(src).not.toMatch(/aria-label="Trace ID'yi temizle"/);
+    expect(src).toMatch(/<OperationPicker[\s\S]{0,400}?onEnter=\{\(\) => apply\(\)\}/);
   });
 
   it('filtre barı: Search md + ipucu, Root\'tan SONRA, boşluk + görünüm anahtarından ÖNCE', () => {

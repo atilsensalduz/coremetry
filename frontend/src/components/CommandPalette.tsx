@@ -679,7 +679,7 @@ export function CommandPalette() {
                       disabled={running}
                       style={{
                         border: 'none', outline: 'none',
-                        background: 'transparent', color: 'var(--text)',
+                        background: 'var(--field-bg)', color: 'var(--text)',
                         padding: '14px 16px', fontSize: 14,
                       }} />
                     <div style={{
@@ -728,7 +728,7 @@ export function CommandPalette() {
                   disabled={running}
                   style={{
                     border: 'none', outline: 'none',
-                    background: 'transparent', color: 'var(--text)',
+                    background: 'var(--field-bg)', color: 'var(--text)',
                     padding: '14px 16px', fontSize: 14,
                   }} />
               );
@@ -772,7 +772,7 @@ export function CommandPalette() {
           placeholder="Search or paste a trace id…"
           style={{
             border: 'none', outline: 'none',
-            background: 'transparent', color: 'var(--text)',
+            background: 'var(--field-bg)', color: 'var(--text)',
             padding: '14px 16px', fontSize: 14,
             borderBottom: '1px solid var(--divider)',
           }} />

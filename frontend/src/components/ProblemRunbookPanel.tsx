@@ -141,7 +141,7 @@ function RunbookPicker({ problemId, onDone }: { problemId: string; onDone: () =>
         style={{
           width: '100%', boxSizing: 'border-box', marginBottom: 8,
           fontSize: 12, padding: '5px 8px', borderRadius: 4,
-          border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)',
+          border: '1px solid var(--border)', background: 'var(--field-bg)', color: 'var(--text)',
         }} />
 
       {rbQ.isLoading ? (

@@ -13,6 +13,13 @@
   --bg1: #24272b;
   --bg2: #2c3035;
   --bg3: #363a40;
+  /* v0.10.1423 — ALAN ZEMİNİ: input/select/textarea, FilterQueryBox barı,
+     seçici tetikleyicileri, topbar arama kutusu. Tek token, tema başına
+     tanımlı (styles/fieldBg.test.ts). Dark'ta bugünkü değer AYNEN (--bg2);
+     açık temalar beyaz (--bg1) — operatör (prod, redhat): "Filter service ve
+     filtre kısmı gri değil de beyaza yakın bir renk olsa daha belli olur"
+     (mockup Seçenek A: beyaz alan, aynı kenarlık). */
+  --field-bg: var(--bg2);
   /* --bg alias = YÜKSELTİLMİŞ YÜZEY, `--bg1` ile aynı değer.
      Anlamı v0.9.990'da (D7) sabitlendi; `styles/surfaceTokens.test.ts`
      üç temada da `--bg == --bg1` olduğunu çiviliyor.
@@ -244,6 +251,8 @@
   --bg1: #ffffff;
   --bg2: #f0f3f6;
   --bg3: #e4e8ed;
+  /* v0.10.1423 — alanlar beyaz; #f0f3f6 alan #f4f6f8 sayfada kayboluyordu. */
+  --field-bg: var(--bg1);
   /* v0.9.990 (D7) — alias `--bg1`e sabitlendi; gerekçe :root'taki blokta. */
   --bg:  #ffffff;
   --border: #dde2e9;
@@ -311,6 +320,9 @@
   --bg1: #ffffff;
   --bg2: #f5f5f5;
   --bg3: #ebebeb;
+  /* v0.10.1423 (Seçenek A) — alanlar beyaz; #f5f5f5 alan #f0f0f0 sayfada
+     %2 parlaklık farkıyla zemine karışıyordu. Kenarlık --border kalır. */
+  --field-bg: var(--bg1);
   /* v0.9.990 (D7) — DEĞER DEĞİŞMEDİ. redhat alias'ı zaten `--bg1` idi;
      D7 dark ve light'ı buna hizaladı, tersini değil. Varsayılan tema
      bu, yani operatörün ekranı bu dalgada bit-bit aynı kaldı. */
@@ -380,6 +392,9 @@
   --bg1: #151515;
   --bg2: #26292d;
   --bg3: #333333;
+  /* v0.10.1423 — --field-bg html'de beyaza çözülüp buraya öyle miras
+     kalırdı; koyu rayda alanlar bugünkü gibi rayın --bg2'si. */
+  --field-bg: var(--bg2);
   --bg:  #151515;
   --border: #3c3f42;
   /* v0.10.928 — ikisi de ELLE eşlenir: yoksa redhat'in açık değerleri koyu
@@ -522,13 +537,13 @@ code, pre, .mono { font-family: var(--font-mono); font-size: 12px; } /* v0.10.93
   display: flex; align-items: center; gap: 8px;
   flex: 1 1 auto; max-width: 520px; min-width: 0;
   height: 34px; box-sizing: border-box;
-  /* Zemin `--bg2` — depodaki GERÇEK input yüzeyi (`input, select`
-     aynı token). Mockup burada `--bg0` gösteriyordu ama o bu depoda
+  /* Zemin `--field-bg` (v0.10.1423; önce `--bg2`) — depodaki GERÇEK
+     input yüzeyi (`input, select` aynı token). Mockup burada `--bg0` gösteriyordu ama o bu depoda
      SAYFA zeminine ayrılmış (bgZeroIsPageOnly kapısı, v0.9.978):
      topbar `--bg1` üstünde `--bg0` bir "sayfa deliği" olurdu. Kutu
      zaten bir input gibi okunmalı, dolayısıyla input tokeni doğru
      cevap — mockup'ın NİYETİ (çukur, girilebilir yüzey) korunuyor. */
-  background: var(--bg2); color: var(--text3);
+  background: var(--field-bg); color: var(--text3);
   border: 1px solid var(--border); border-radius: var(--radius);
   padding: 0 10px; font-family: inherit; text-align: left;
   /* Metin imleci: kutu bir arama alanı gibi OKUNUYOR, imleç de öyle
@@ -605,13 +620,17 @@ code, pre, .mono { font-family: var(--font-mono); font-size: 12px; } /* v0.10.93
   border-bottom: 1px solid var(--border);
 }
 
+/* v0.10.1423 — alan zemini --field-bg (açık temalarda beyaz, dark'ta --bg2). */
 input, select {
-  background: var(--bg2); border: 1px solid var(--border); color: var(--text);
+  background: var(--field-bg); border: 1px solid var(--border); color: var(--text);
   border-radius: var(--radius-sm); padding: 5px 10px; font-size: 13px; outline: none;
   transition: border-color .15s; font-family: inherit;
 }
 input:focus, select:focus { border-color: var(--focus); }
-select option { background: var(--bg2); }
+select option { background: var(--field-bg); }
+/* textarea'nın taban kuralı yoktu (UA zemini); yalnız zemin + metin rengi
+   alanlarla hizalanır — dolgu/kenar/yazı tipi çağıranlarda kalır. */
+textarea { background: var(--field-bg); color: var(--text); }
 button {
   background: var(--accent); color: var(--on-accent); border: none;
   border-radius: var(--radius-sm); padding: 5px 14px; font-size: 13px; cursor: pointer;
@@ -1319,7 +1338,7 @@ button.btn-chip-label:hover { background: transparent; color: var(--accent2); }
 .fsel { position: relative; display: inline-block; }
 .fsel-btn { display: inline-flex; align-items: center; gap: 5px;
   font-size: 11.5px; padding: 4px 11px; border-radius: var(--radius-sm);
-  border: 1px solid var(--border); background: var(--bg2); color: var(--text);
+  border: 1px solid var(--border); background: var(--field-bg); color: var(--text);
   cursor: pointer; }
 .fsel-btn:hover { background: var(--bg3); }
 .fsel-btn .fsel-l { color: var(--text3); font-size: 10.5px;
@@ -2986,8 +3005,9 @@ button.accent.copied {
 }
 
 /* SearchField (v0.9.1012, M8/KN-5) — arama kutusunun TÜR tanımı.
-   `.trace-lookup` ve KqlSearchInput'un gömülü svg'si aynı problemi tek
-   kullanımlık çözmüştü; bu blok onların genelleştirilmiş hâli.
+   Eski Trace ID kutusu (v0.10.1423'te CSS'iyle birlikte silindi) ve
+   KqlSearchInput'un gömülü svg'si aynı problemi tek kullanımlık
+   çözmüştü; bu blok onların genelleştirilmiş hâli.
    DÜZEN DEĞİŞMİYOR: ikon + rozet kutunun İÇİNDE, dolgu üzerinden. */
 .sf-wrap { position: relative; display: inline-flex; align-items: center; }
 .sf-wrap .sf-input { width: 100%; padding-left: 26px; }
@@ -3020,34 +3040,13 @@ button.accent.copied {
    bizimkiyle üst üste gelirdi. Bizimki tema token'larını kullanıyor. */
 .sf-input::-webkit-search-cancel-button { display: none; }
 
-/* Dedicated trace-id lookup (pinned right of the view-toggle row) */
-.trace-lookup {
-  display: inline-flex; align-items: center; gap: 0;
-  background: var(--bg1);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-sm);
-  padding: 0 4px 0 8px;
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
-}
-.trace-lookup .tl-icon {
-  color: var(--accent2); font-size: 12px; margin-right: 4px;
-}
-.trace-lookup input {
-  background: transparent; border: 0; outline: none;
-  color: var(--text); font-family: var(--font-mono); font-size: 12px;
-  width: 320px; padding: 5px 4px;
-}
-.trace-lookup input::placeholder { color: var(--text3); font-style: italic; }
-/* v0.10.914 (buton bütünlüğü) — tl-go / tl-clear sayfaya özel stilleri
-   kalktı; kutu içindeki ortak Button/IconButton'a yalnız aralık verilir. */
-.trace-lookup > button { margin-left: 4px; }
 
 
 /* Advanced query DSL (Explore → Advanced) */
 .adv-query { width: 100%; margin-bottom: 10px; }
 .adv-query textarea {
   width: 100%; resize: vertical; min-height: 110px;
-  background: var(--bg1); color: var(--text);
+  background: var(--field-bg); color: var(--text);
   border: 1px solid var(--border); border-radius: var(--radius-sm);
   padding: 10px 12px; font-family: var(--font-mono); font-size: 12px;
   line-height: 1.55; outline: none; tab-size: 2;
@@ -3077,7 +3076,7 @@ button.accent.copied {
    yoğunluk cascade'i input ölçüsünü kapsıyor. Kardeş: .fb-chip (FilterBuilder). ── */
 .fq { position: relative; }
 .fq-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-height: 36px; padding: 4px 8px 4px 10px;
-  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: text; }
+  background: var(--field-bg); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: text; }
 .fq-bar.is-open, .fq-bar:focus-within { border-color: var(--focus); box-shadow: 0 0 0 3px var(--accent-soft); }
 .fq-lens { color: var(--text3); font-size: 13px; }
 .fq-chip { display: inline-flex; align-items: stretch; height: 24px; border-radius: var(--radius-xs); overflow: hidden; border: 1px solid var(--border); background: var(--bg1); font-size: 12px; max-width: 420px; }
@@ -3982,7 +3981,7 @@ tr.sl-off > td:not(:has(.tip)) { opacity: .4; }
 td > .cell-actions { display: flex; gap: var(--sp-3); align-items: center; }
 td > .cell-actions.end { justify-content: flex-end; }
 .mqe-code { display: flex; flex-direction: column; gap: 4px; }
-.mqe-code textarea { width: 100%; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.6; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg1); color: var(--text); resize: vertical; }
+.mqe-code textarea { width: 100%; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.6; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--field-bg); color: var(--text); resize: vertical; }
 .mqe-code-foot { font-size: 11px; }
 .mqe-code-err { color: var(--err); font-size: 11.5px; }
 /* v0.9.782 — PromQL etiket gezgini: katlanabilir anahtar/değer sütunları.
@@ -5891,7 +5890,6 @@ tbody td.tpm-more-cell { color: var(--text2); }
 .search-go { display: inline-flex; align-items: center; gap: var(--sp-3); flex-shrink: 0; }
 .pc-right { display: inline-flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; margin-left: auto; }
 .pc-push { margin-left: auto; }
-.trace-lookup > .kbd { margin: 0 var(--sp-2); }
 @media (max-width: 640px) {
   .search-go .kbd { display: none; }
   .pc-panel .pc-right,

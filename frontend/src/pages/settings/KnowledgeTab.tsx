@@ -342,10 +342,10 @@ export function KnowledgeTab() {
         <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 640 }}>
           <input value={pasteName} onChange={e => setPasteName(e.target.value)}
             placeholder="Doküman adı (ör. OneNote — DB failover runbook)"
-            style={{ padding: '7px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text)', fontSize: 13 }} />
+            style={{ padding: '7px 10px', background: 'var(--field-bg)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text)', fontSize: 13 }} />
           <textarea value={pasteText} onChange={e => setPasteText(e.target.value)}
             placeholder="OneNote sayfasında Ctrl+A → Ctrl+C, buraya yapıştır…" rows={8}
-            style={{ padding: '8px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text)', fontSize: 13, fontFamily: 'inherit', resize: 'vertical' }} />
+            style={{ padding: '8px 10px', background: 'var(--field-bg)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text)', fontSize: 13, fontFamily: 'inherit', resize: 'vertical' }} />
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <Button variant="primary" size="sm" type="button"
               disabled={busy || !uploadOn || !pasteName.trim() || !pasteText.trim()}

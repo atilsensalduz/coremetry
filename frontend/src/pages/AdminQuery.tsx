@@ -145,7 +145,7 @@ export default function AdminQueryPage() {
           style={{
             width: '100%', fontFamily: 'var(--font-mono)',
             fontSize: 13, padding: 10, marginBottom: 8,
-            background: 'var(--bg1)', border: '1px solid var(--border)',
+            background: 'var(--field-bg)', border: '1px solid var(--border)',
             borderRadius: 6, color: 'var(--text)', resize: 'vertical',
           }}
           onKeyDown={e => {

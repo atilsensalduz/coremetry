@@ -15,7 +15,7 @@ import { effectiveTraceSearch } from '@/lib/traceSearchTerm';
 
 export interface TraceScopeInput {
   filter: {
-    service: string; search: string; traceId: string;
+    service: string; search: string;
     minMs: string; maxMs: string; hasError: boolean; rootOnly: boolean;
     requireServices: string[];
   };
@@ -33,13 +33,11 @@ export type TraceScopeParams = Omit<TracesParams, 'limit' | 'offset' | 'sort' | 
 /** traceScopeParams — SAF: liste isteğinin süzgeç alanları. */
 export function traceScopeParams(i: TraceScopeInput): TraceScopeParams {
   const f = i.filter;
-  // Yalnız TAM 32-hex trace id sunucuya gider (önek araması v0.9.82'de
-  // kalktı); 32-hex olmayan değer effectiveTraceSearch ile arama terimidir.
-  const tid = f.traceId.trim().toLowerCase();
+  // v0.10.1423 — Trace ID kutusu kalktı: `traceId` artık sayfadan gitmez.
+  // Kimlik (function_id / trace id) operasyon kutusunun `search` terimidir.
   return {
     service: f.service || undefined,
     search: effectiveTraceSearch(f),
-    traceId: /^[0-9a-f]{32}$/.test(tid) ? tid : undefined,
     minMs: f.minMs || undefined,
     maxMs: f.maxMs || undefined,
     hasError: f.hasError || undefined,

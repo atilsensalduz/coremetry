@@ -8872,3 +8872,47 @@ okuma adayı/etiket eşliği), `internal/selfobs/vmexport_test.go` (pasif hedef,
 rol adları), `internal/selfobs/instruments_test.go` (rol enstrümanları, sınırlı etiketler), `internal/api/http_server_metrics_test.go`
 (yol/metot/route, desen + durum yakalama, Flusher korunur, `selfMetrics` birleştirme), `internal/otlp/grpc_metrics_test.go`,
 `frontend/src/pages/settings/vmForm.test.ts` (mod + durum satırı).
+
+## 2026-10-20 — v0.10.1423 — Traces: Trace ID kutusu kalktı; açık temalarda alanlar beyaz (--field-bg)
+
+Operatör (prod Traces ekranı): "Sağ üst köşedeki trace ID / function ID kısmına gerek yok artık. Search'ten zaten
+aranabiliyor. Filter service ve filtre kısmı gri değil de beyaza yakın bir renk olsa daha belli olur." → "Mockup'tan A
+seçeneğini yapalım." (mockup "Traces Filtre Alanı", Seçenek A: beyaz alan, aynı kenarlık).
+
+**Trace ID kutusu.** `/traces`in sağ üstündeki "Trace ID veya function_id…" kutusu (v0.9.304 atlayış kutusu, v0.10.343
+kimlik araması) `filter.traceId` durumu ve `.trace-lookup`/`.tl-icon` CSS'iyle birlikte silindi; shim yok. İki işi de
+operasyon kutusu ("Operation, or an id (function_id / trace ID)…") yapıyor: tam 32-hex trace id `apply()`'da atlayıştır
+(`pages/traces/traceIdJump.ts` `traceIdJump` → `/trace?id=…`, sayfa range'i taşınır), başka bir kimlik `search`
+terimidir ve sunucunun kimlik-önce yolunu (v0.10.342) koşar. `effectiveTraceSearch` tek satıra indi (kırpılmış `search`).
+`/` kısayolu hedefi değişmedi (ServicePicker `shortcutSearch`).
+
+**Eski linkler.** Kutunun yazdığı `?traceId=` (paylaşılmış linkler, yer imleri) `TracesPage` sarmalayıcısında, iç sayfa
+monte olmadan BİR KEZ okunur (`legacyTraceIdRedirect`): 32-hex → `/trace?id=…`, kimlik → `?search=<ham değer>` (arama
+zaten doluysa o kazanır), boş param düşer; `<Navigate replace>` — geçmişe ara durak yazılmaz. ⌘K'nın "Kimlikle trace ara"
+önerisi (`identityTracesHref`) artık doğrudan `?search=` üretir. Sunucunun `?traceId=` sözleşmesi (API/MCP) değişmedi.
+
+**--field-bg.** Açık temalarda alan dolgusu `--bg2` sayfa zeminine karışıyordu (redhat: #f5f5f5 alan / #f0f0f0 sayfa,
+%2 parlaklık; light: #f0f3f6 / #f4f6f8). Yeni tema tokeni `--field-bg`: redhat ve light = `var(--bg1)` (#fff), dark =
+`var(--bg2)` (bugünkü değer aynen), redhat koyu sidebar'ında rayın `--bg2`si (html'de beyaza çözülen değer oraya miras
+kalmasın). Okuyanlar: taban `input, select`, `select option`, `textarea` (taban kuralı yoktu; yalnız zemin + metin rengi),
+`.fq-bar` (FilterQueryBox), `.tb-search` (topbar genel arama), `.fsel-btn` (FacetMultiSelect tetikleyicisi), Knowledge
+sekmesindeki iki satır-içi alan. ServicePicker / OperationPicker / MetricNamePicker / KqlSearchInput girdileri tabandan
+miras alır. Kenarlık `--border`, odak halkası ve hover değişmedi. Alan olmayan `--bg2` yüzeyleri (hover, çip, şerit,
+segmented, popover, `.fb-form` gibi iç paneller) bilinçli olarak dokunulmadı; beyaz kart içindeki alanlar kenarlığıyla
+ayrışmaya devam eder. Uygulama geneli tek token — yalnız Traces değil.
+
+**Arama kutuları (operatör: "Uygula, search'e de uygula").** Her arama kutusu aynı tokeni okur: topbar genel arama
+(`.tb-search`), topbar env/cluster seçicileri (EnvPicker Combobox / ContextBar `<select>`, tabandan), Trace detayının
+"Filter spans…" kutusu, Services/Endpoints (SearchField, ServicePicker), Logs sorgu barı (KqlSearchInput) ve "Filter the N
+loaded rows" kutusu (`--bg0` — sayfa zemini — yazıyordu), Metrics ad seçicisi, Ayarlar aramaları, komut paletinin üç
+girdisi (şeffaftı; açık temada modal zaten beyaz, dark'ta alan bandı). Satır içi zemin yazan diğer alanlar (`--bg` /
+`--bg1`: Clusters, NamespaceCombobox, MethodHotspots, ServiceAttrsPanel, ProblemRunbookPanel, Inbox, TeamRouting,
+AdminClickhouse, AdminSql/AdminQuery editörleri; CSS'te `.adv-query`/`.mqe-code` textarea) da `--field-bg`'ye geçti —
+açık temalarda değer aynı (beyaz), dark'ta `--bg1` → `--bg2`. Mandal (`fieldBg.test.ts`): `.tsx`'te satır içi zemin
+yazan her input/select/textarea yalnız `var(--field-bg)` yazar.
+
+**Testler:** `styles/fieldBg.test.ts` (üç temada + sidebar tanım, redhat/light beyaz, dark #2c3035, alan kuralları
+`var(--field-bg)`, kenarlık/odak aynı, `.trace-lookup` CSS'i yok), `pages/traces/traceIdJump.test.ts` (saf çekirdek +
+kablolama), `pages/Traces.traceIdBox.test.tsx` (gerçek sayfa: kutu yok, 32-hex atlayış, function_id araması, eski
+paramın tek seferlik yönlenmesi), güncellenen pinler: `shortcutSearchTarget`, `searchFieldAdoption`,
+`filterBarSearch.pin`, `tracesCountUniverse`, `traceIdAnchor`, `traceSearchTerm`, `scopeParams`, `paletteIdentity`.

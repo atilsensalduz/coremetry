@@ -780,7 +780,7 @@ export default function ClustersPage() {
                 placeholder="Filter by name…"
                 title="Filters nodes, namespaces and pods by name substring"
                 style={{ marginLeft: 'auto', width: 220, padding: '4px 10px', fontSize: 12,
-                         background: 'var(--bg)', color: 'var(--text)',
+                         background: 'var(--field-bg)', color: 'var(--text)',
                          border: '1px solid var(--border)', borderRadius: 4 }} />
             </div>
 

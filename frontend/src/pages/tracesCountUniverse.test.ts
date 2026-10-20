@@ -20,7 +20,8 @@ describe('/traces sayımı listeyle aynı evren', () => {
     expect(call).toContain('filters: advGroupParam ? undefined');
     const deps = src.slice(src.indexOf('}, [view, listRangeNs', i), src.indexOf(']);', src.indexOf('}, [view, listRangeNs', i)));
     expect(deps).toContain('filter.search');
-    expect(deps).toContain('filter.traceId'); // v0.10.523 kimlik kutusu da sayımı yeniler
+    // v0.10.1423 — kimlik kutusu kalktı; kimlik `search` terimi (yukarıda).
+    expect(deps).not.toContain('filter.traceId');
   });
   it('liste bitmişse (hasMore=false) kesin toplam listeden; sayılamıyor metni yalnız devam eden listede', () => {
     expect(src).toContain("{countRes?.reason && !hasMore ? (");

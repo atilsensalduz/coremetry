@@ -93,7 +93,7 @@ export function MethodHotspots({ root }: { root: FlameNode }) {
           style={{
             marginLeft: 'auto',
             padding: '4px 10px', fontSize: 12,
-            background: 'var(--bg)', color: 'var(--text)',
+            background: 'var(--field-bg)', color: 'var(--text)',
             border: '1px solid var(--border)', borderRadius: 4,
             width: 220,
           }}

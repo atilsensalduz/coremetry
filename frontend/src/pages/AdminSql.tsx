@@ -426,7 +426,7 @@ export default function SQLPlaygroundPage() {
               flexShrink: 0, height: 220,
               fontFamily: 'var(--font-mono)',
               fontSize: 12, lineHeight: 1.5,
-              padding: 10, background: 'var(--bg1)',
+              padding: 10, background: 'var(--field-bg)',
               color: 'var(--text)',
               border: '1px solid var(--border)', borderRadius: 6,
               resize: 'vertical', outline: 'none',

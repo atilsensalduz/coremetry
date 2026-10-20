@@ -606,7 +606,7 @@ export function CoordinatorPanel() {
           value={windowS}
           onChange={e => setWindowS(Number(e.target.value))}
           style={{
-            background: 'var(--bg)', color: 'var(--text)',
+            background: 'var(--field-bg)', color: 'var(--text)',
             border: '1px solid var(--border)', borderRadius: 6,
             fontSize: 12, padding: '4px 8px',
           }}

@@ -22,10 +22,9 @@ import { ownedParamSig, nextUrlRemountKey, type UrlKeyState } from '@/lib/urlRem
 import { DEFAULT_RANGE_PRESET } from '@/lib/useUrlRange';
 import { rowActivation } from '@/lib/a11y';
 import { attrKeyWindowParams } from '@/lib/attrKeyWindow';
-import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Topbar } from '@/components/Topbar';
 import { SavedViewsBar } from '@/components/SavedViewsBar';
-import { IconSearch } from '@/components/icons';
 import { Spinner } from '@/components/Spinner';
 import { OperationPicker } from '@/components/OperationPicker';
 import { ServicePicker } from '@/components/ServicePicker';
@@ -66,6 +65,7 @@ import { mergeTraceExtras, missingExtraKeys } from '@/lib/traceExtrasMerge';
 import { DEFAULT_TRACE_COLUMNS, FIXED_COLS, traceColumnOrder } from '@/lib/traceColumns';
 import { opChipFor, opCellText, opCellTitle } from './traces/opPick'; // v0.10.752
 import { traceIdIdentityText } from './traces/emptyReason'; // v0.10.753
+import { legacyTraceIdRedirect, traceIdJump } from './traces/traceIdJump'; // v0.10.1423
 import { opDisplayName } from '@/lib/opDisplayName'; // v0.10.756
 import { useContextParams, type ContextPatch } from '@/hooks/useContextParams';
 import { useTablePrefs } from '@/lib/queries/prefs';
@@ -343,7 +343,6 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
     search:   searchParams.get('search')  ?? '',
     // v0.10.752 — seçiciden SEÇİLEN operasyon: tam eşleşme çipi (opPick.ts).
     op:       searchParams.get('op')      ?? '',
-    traceId:  searchParams.get('traceId') ?? '',
     minMs:    searchParams.get('minMs')   ?? '',
     maxMs:    searchParams.get('maxMs')   ?? '',
     hasError: searchParams.get('hasError') === 'true',
@@ -513,7 +512,6 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
       ['service',  filter.service],
       ['search',   filter.search],
       ['op',       filter.op],
-      ['traceId',  filter.traceId],
       ['minMs',    filter.minMs],
       ['maxMs',    filter.maxMs],
       ['hasError', filter.hasError ? 'true' : ''],
@@ -565,22 +563,12 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
     // Bayrak yine gerekli (iptal yarışı kazanmayabilir); ikisi birlikte.
     let cancelled = false;
     const ctl = new AbortController();
-    // Only a FULL 32-hex trace id is honoured server-side (prefix search
-    // removed v0.9.82 — startsWith defeats the trace_id bloom index and runs
-    // unbounded). A partial id is ignored here so the normal time-bounded
-    // list still renders; a complete id navigates away via apply().
-    const tid = filter.traceId.trim().toLowerCase();
-    const traceIdExact = /^[0-9a-f]{32}$/.test(tid) ? tid : undefined;
-    // v0.10.343 — Operator-reported: "Trace ID…" kutusuna function_id yazdı,
-    // kutu 32-hex dışını yok sayıp filtresiz liste gösterdi. 32-hex olmayan
-    // bir değer KİMLİKTİR (function_id gibi): arama terimi olarak gider,
-    // sunucu kimlik-önce yolunu (v0.10.342) koşar. Ham hâli — eşitlik
-    // büyük/küçük harf duyarlı, o yüzden lowercase edilmiş `tid` değil.
-    // v0.10.523 — dört yüzeyin (liste / şerit / sayım / RED) TEK arama terimi:
-    // lib/traceSearchTerm.effectiveTraceSearch (v0.10.343 kimlik terimini
-    // yalnız listeye eklemişti; şerit aramasız kalıyordu — prod 2,4M/8).
-    const useTimeRange = !traceIdExact;
-    const { from, to } = useTimeRange ? listRangeNs : { from: undefined, to: undefined };
+    // v0.10.1423 — Trace ID kutusu kalktı: liste her zaman pencereli. Tam
+    // 32-hex id operasyon kutusunda yazılınca apply() trace'e atlar
+    // (traceIdJump); başka bir kimlik (function_id) `search` terimidir ve
+    // sunucunun kimlik-önce yolunu koşar (v0.10.342). Dört yüzeyin tek terimi
+    // lib/traceSearchTerm.effectiveTraceSearch (v0.10.523).
+    const { from, to } = listRangeNs;
     const listParams: TracesParams = {
       limit: 50, offset: page * 50, from, to, sort, order,
       // v0.10.1082 — süzgeç alanları TEK kaynaktan (pages/traces/scopeParams.ts):
@@ -845,9 +833,11 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
 
   // apply commits the draft as the live filter (overrideService sidesteps the
   // picker auto-commit race).
+  // v0.10.1423 — operasyon kutusuna yazılan TAM 32-hex trace id arama değil
+  // atlayış: trace'e gider (eski Trace ID kutusunun işi; traceIdJump.ts).
   const apply = (overrideService?: string) => {
-    const tid = draft.traceId.trim().toLowerCase();
-    if (/^[0-9a-f]{32}$/.test(tid)) { navigate(traceHref(tid, { pageRange: range })); return; }
+    const tid = traceIdJump(draft.search);
+    if (tid) { navigate(traceHref(tid, { pageRange: range })); return; }
     const next = overrideService != null ? { ...draft, service: overrideService } : draft;
     setPage(0);
     if (overrideService != null) setDraft(next);
@@ -861,7 +851,7 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft, filter]);
   const reset = () => {
-    const empty = { service: '', search: '', op: '', traceId: '', minMs: '', maxMs: '', hasError: false, rootOnly: false, requireServices: [] as string[] };
+    const empty = { service: '', search: '', op: '', minMs: '', maxMs: '', hasError: false, rootOnly: false, requireServices: [] as string[] };
     setDraft(empty); setFilter(empty); setPage(0);
     setAdvFilters([]); setAdvGroup(null);
   };
@@ -959,7 +949,7 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
       .then(r => { if (!cancelled) setCountRes(r); })
       .catch((e: unknown) => { if (!cancelled && !isCanceled(e)) setCountRes(null); });
     return () => { cancelled = true; ctl.abort(); };
-  }, [view, listRangeNs, filter.service, filter.search, filter.traceId, filter.minMs, filter.maxMs,
+  }, [view, listRangeNs, filter.service, filter.search, filter.minMs, filter.maxMs,
       filter.hasError, filter.rootOnly, env, clusterScope, advFiltersEff, advGroupParam]);
   // v0.9.1372 — sessiz geri dönüş. Koşul, aşağıdaki "no traces found" boş
   // durumunun GÖRÜNME koşuluyla aynı: liste görünümü, hata yok, veri geldi,
@@ -1154,7 +1144,7 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
       kind: 'empty',
       message: data.narrowedFromNs ? 'Kısaltılmış pencerede trace yok' : 'Trace bulunamadı',
       detail: (
-        <TracesEmptyDetail service={filter.service} search={filter.search} traceId={filter.traceId} range={range} onSwitchView={() => setView('aggregate')}
+        <TracesEmptyDetail service={filter.service} search={filter.search} range={range} onSwitchView={() => setView('aggregate')}
           explainHref={explainHref ?? undefined}
           matchingSpans={data?.emptyDiag?.matchingSpans}
           matchingCapped={data?.emptyDiag?.matchingCapped}
@@ -1208,31 +1198,10 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
           geçersizleştirir, elle temizlik gerekmez. */}
       <Topbar title="Traces" context={{ ctx: ctxForBar, envApplies: true, hidden: TRACES_CONTEXT_HIDDEN }} />
       <PageShell>
-        {/* v0.9.304 (operatör) — Trace ID araması sayfanın SAĞ ÜSTÜNE,
-            zaman aralığı seçicisinin hemen altına taşındı. Filtre satırının
-            içinde marginLeft:auto ile duruyordu ve oradaki alanlarla aynı
-            şey sanılıyordu; oysa bir trace id ARAMASI değil bir ATLAYIŞTIR
-            — diğer her alanı geçersiz kılar ve tek bir trace'e gider. */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
-            <div className="trace-lookup">
-              <span className="tl-icon" aria-hidden><IconSearch size={14} /></span>
-              <input placeholder="Trace ID veya function_id…" title="32 karakterlik trace ID doğrudan trace'e gider; başka bir kimlik değeri (function_id gibi) terfi/facet anahtarlarında eşitlikle aranır"
-                value={draft.traceId}
-                onChange={e => setDraft({ ...draft, traceId: e.target.value })}
-                onKeyDown={e => e.key === 'Enter' && apply()} />
-              {/* v0.10.914 (buton bütünlüğü) — sayfaya özel Go/Clear sınıfları
-                  yerine ortak atomlar: IconButton (temizle).
-                  v0.10.1332 (operatör onaylı mockup) — "Go" primary'si kalktı:
-                  kutu bir ATLAYIŞ, Enter zaten gidiyor; sayfada ikinci bir
-                  dolu mavi Search'le yarışıyordu. Yerine "Enter ↵" ipucu. */}
-              {draft.traceId && (
-                <IconButton size="sm" variant="ghost" aria-label="Trace ID'yi temizle" tooltip="Clear"
-                  icon={<span aria-hidden="true">✕</span>}
-                  onClick={() => { setDraft({ ...draft, traceId: '' }); setFilter({ ...filter, traceId: '' }); }} />
-              )}
-              <EnterHint title="Enter ile trace'e git" />
-            </div>
-        </div>
+        {/* v0.10.1423 (operatör: "Sağ üst köşedeki trace ID / function ID
+            kısmına gerek yok artık. Search'ten zaten aranabiliyor.") — sağ
+            üstteki Trace ID kutusu kalktı; operasyon kutusu trace id'ye atlar,
+            function_id gibi kimlikleri arar (pages/traces/traceIdJump.ts). */}
 
         {/* v0.9.304 (operatör) — "Errors N / Slow >1s / servis pill'leri"
             şeridi TAMAMEN kaldırıldı; Reset ve CSV buraya, "Save current
@@ -1251,7 +1220,6 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
               p.set('from', String(from)); p.set('to', String(to));
               if (filter.service)  p.set('service',  filter.service);
               if (filter.search)   p.set('search',   filter.search);
-              if (filter.traceId)  p.set('traceId',  filter.traceId);
               if (filter.minMs)    p.set('minMs',    filter.minMs);
               if (filter.maxMs)    p.set('maxMs',    filter.maxMs);
               if (filter.hasError) p.set('hasError', 'true');
@@ -1376,7 +1344,7 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
           );
         })()}
 
-        {/* View toggle + query fields + trace-id lookup — ONE row (v0.9.246,
+        {/* View toggle + query fields — ONE row (v0.9.246,
             onaylı Seçenek A). Görünüm kipi ve sorgu alanları iki ayrı
             `.controls` sırasındaydı; ikisi de "hangi trace'ler" sorusunu
             yanıtladığı için tek şeritte topluluyor (~43px kazanç). `.controls`
@@ -1388,7 +1356,9 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
                   "Trace ID…": `/` basan operatör servis aramak isterken
                   trace-id kutusunda buluyordu kendini. Mekanizma
                   v0.5.454'te TAM bu vaka için yazılmıştı (yorumu da
-                  öyle diyor) ama işaret hiçbir sayfaya konmamıştı. */}
+                  öyle diyor) ama işaret hiçbir sayfaya konmamıştı.
+                  v0.10.1423 — Trace ID kutusu kalktı; işaret yerinde: `/`
+                  hedefi DOM sırasına değil bu açık işarete bağlı kalır. */}
               <ServicePicker value={draft.service} onChange={v => setDraft({ ...draft, service: v })}
                 placeholder="Filter by service…" width={170} onEnter={(v) => apply(v)}
                 dataTour="traces-service" shortcutSearch />
@@ -1794,7 +1764,7 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
                         title={`Arama terimi kimlik olarak eşleşti: ${data.identity.matchedKey ?? '?'} = ${filter.search} · ${data.identity.hits.toLocaleString()} trace${data.identity.bounded ? ' (tavan)' : ''}. Denenen anahtarlar: ${data.identity.keys.join(', ')}`}>
                         kimlik: {data.identity.matchedKey ?? '?'}{data.identity.traceId ? '' : ` (${data.identity.hits.toLocaleString()})`}
                         {data.identity.anchorMs ? ` · kimlikteki zaman ${tsLong(data.identity.anchorMs * 1e6)} ±12 s` : ''}
-                        {/* v0.10.753 — ?traceId=: pencere trace zamanına çıpalandı (1 saat varsayılanı değil). */}
+                        {/* v0.10.753 — trace id: pencere trace zamanına çıpalandı (1 saat varsayılanı değil). */}
                         {data.identity.traceId && data.identity.windowFromNs ? ` · pencere trace zamanına çıpalandı (${tsLong(data.identity.windowFromNs)} → ${tsLong(data.identity.windowToNs ?? data.identity.windowFromNs)})` : ''}
                       </span>
                     ) : null}
@@ -1972,7 +1942,7 @@ function fmtPerMin(n: number): string {
 // range/env/cluster/s_* canlı okunuyor — imzada YOK.
 const TRACES_OWNED_PARAMS = [
   'view', 'viz', 'rt', 'sort', 'order', 'page', 'groupBy', 'groupAttr', 'aggSort', 'aggOrder',
-  'having', 'service', 'search', 'op', 'traceId', 'minMs', 'maxMs', 'hasError', 'rootOnly',
+  'having', 'service', 'search', 'op', 'minMs', 'maxMs', 'hasError', 'rootOnly',
   'services', 'filters', 'filterGroup', 'cols',
 ] as const;
 
@@ -1984,6 +1954,11 @@ export default function TracesPage() {
     selfWriteSigRef.current = ownedParamSig(next, TRACES_OWNED_PARAMS);
   }, []);
   keyRef.current = nextUrlRemountKey(keyRef.current, ownedParamSig(search, TRACES_OWNED_PARAMS), selfWriteSigRef.current);
+  // v0.10.1423 — eski Trace ID kutusunun `?traceId=` derin bağlantısı BİR KEZ
+  // okunur: 32-hex → /trace?id=…, başka kimlik → `?search=`; param düşer
+  // (replace — geri tuşu bu ara durağa dönmez). İç sayfa onu hiç görmez.
+  const legacy = legacyTraceIdRedirect(search);
+  if (legacy) return <Navigate to={legacy} replace />;
   return (
     <Suspense fallback={<Spinner />}>
       <TracesPageInner key={keyRef.current.key} onSelfWrite={onSelfWrite} />
@@ -2012,10 +1987,8 @@ function serverErrorText(msg: string | null) {
 // sonuçta koşar. Düğmeyi değiştiren her girdi (servis / pencere) listeyi
 // yeniden çekip satırı 'loading'e döndürür — yuva bağlıyken düğme kalkmaz,
 // `detailKey` gerekmez.
-function TracesEmptyDetail({ service, search, traceId = '', range, onSwitchView, narrowedFromNs, explainHref, matchingSpans, matchingCapped, serviceSpans, promotedDiag, identity }: {
+function TracesEmptyDetail({ service, search, range, onSwitchView, narrowedFromNs, explainHref, matchingSpans, matchingCapped, serviceSpans, promotedDiag, identity }: {
   service: string; search: string; range: TimeRange; onSwitchView: () => void;
-  // v0.10.753 — ?traceId= ile gelen boş liste: metin kimlik çıpasına göre (emptyReason.ts).
-  traceId?: string;
   // v0.10.339 — terfi kolonu probu (host başına kolon/dizi sayımı) — boş kaldıysa da göster.
   promotedDiag?: TracesResponse['emptyDiag'];
   // v0.10.342 — kimlik-önce arama denendiyse (tek parçalı terim) sonucu.
@@ -2080,7 +2053,8 @@ function TracesEmptyDetail({ service, search, traceId = '', range, onSwitchView,
       </div>
       {identity?.traceId && (
         <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text3)' }}>
-          {traceIdIdentityText(identity, traceId, ns => tsLong(ns))}
+          {/* v0.10.753 kimlik çıpası; v0.10.1423 — 32-hex terim artık `search`te. */}
+          {traceIdIdentityText(identity, search, ns => tsLong(ns))}
         </div>
       )}
       {identity && !identity.traceId && (

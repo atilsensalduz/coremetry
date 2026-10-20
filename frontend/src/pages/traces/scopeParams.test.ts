@@ -12,7 +12,7 @@ const pod: FilterExpr = { k: 'k8s.pod.name', op: '=', v: ['svc-a-7d9f-x2'] };
 
 function input(over: Partial<TraceScopeInput['filter']> = {}, rest: Partial<Omit<TraceScopeInput, 'filter'>> = {}): TraceScopeInput {
   return {
-    filter: { service: '', search: '', traceId: '', minMs: '', maxMs: '', hasError: true, rootOnly: false, requireServices: [], ...over },
+    filter: { service: '', search: '', minMs: '', maxMs: '', hasError: true, rootOnly: false, requireServices: [], ...over },
     env: '', cluster: '', filtersEff: [fc], groupParam: '', ...rest,
   };
 }
@@ -21,7 +21,7 @@ describe('traceScopeParams — listenin süzgeç alanları', () => {
   it('çipler JSON, env/cluster birinci-sınıf, boşlar yazılmaz', () => {
     const p = traceScopeParams(input({ service: 'svc-a' }, { env: 'prod', cluster: 'c1' }));
     expect(p).toEqual({
-      service: 'svc-a', search: undefined, traceId: undefined, minMs: undefined, maxMs: undefined,
+      service: 'svc-a', search: undefined, minMs: undefined, maxMs: undefined,
       hasError: true, rootOnly: undefined, env: 'prod', cluster: 'c1', services: undefined,
       filterGroup: undefined, filters: JSON.stringify([fc]),
     });
@@ -31,12 +31,12 @@ describe('traceScopeParams — listenin süzgeç alanları', () => {
     expect(p.filterGroup).toBe('{"join":"OR"}');
     expect(p.filters).toBeUndefined();
   });
-  it('trace id: tam 32-hex id gider; 32-hex olmayan kimlik ARAMA terimi olur', () => {
-    const hex = 'ABCDEF0123456789abcdef0123456789';
-    expect(traceScopeParams(input({ traceId: hex })).traceId).toBe(hex.toLowerCase());
-    const p = traceScopeParams(input({ traceId: 'KYC-ID-42' }));
-    expect(p.traceId).toBeUndefined();
+  // v0.10.1423 — Trace ID kutusu kalktı: sayfa `traceId` göndermez; kimlik
+  // (function_id) operasyon kutusunun `search` terimidir.
+  it('kimlik operasyon kutusunun ARAMA terimi; traceId hiç yazılmaz', () => {
+    const p = traceScopeParams(input({ search: ' KYC-ID-42 ' }));
     expect(p.search).toBe('KYC-ID-42');
+    expect('traceId' in p).toBe(false);
   });
 });
 
@@ -57,8 +57,7 @@ describe('errorStripEligible — Go TraceErrorHistogramEligible aynası', () => 
     ['çip yok + arama → metric-batch', input({ search: 'timeout' }, { filtersEff: [] }), false],
     ['çip yok + süre → metric-batch', input({ minMs: '5' }, { filtersEff: [] }), false],
     ['arama', input({ search: 'timeout' }), false],
-    ['kimlik araması', input({ traceId: 'KYC-ID-42' }), false],
-    ['tam trace id', input({ traceId: '0123456789abcdef0123456789abcdef' }), false],
+    ['kimlik araması', input({ search: 'KYC-ID-42' }), false],
     ['minMs', input({ minMs: '5' }), false],
     ['maxMs', input({ maxMs: '900' }), false],
     ['services', input({ requireServices: ['a', 'b'] }), false],

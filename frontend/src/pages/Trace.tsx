@@ -865,7 +865,7 @@ function SpanFilterBar({ spans, value, onChange, critCount, critFocus, onCritFoc
         aria-label="Filter spans by name, service, or attribute value"
         placeholder="Filter spans (name, service, attr value)…"
         style={{ flex: 1, maxWidth: 360, padding: '4px 10px', fontSize: 12,
-                 background: 'var(--bg)', color: 'var(--text)',
+                 background: 'var(--field-bg)', color: 'var(--text)',
                  border: '1px solid var(--border)', borderRadius: 4 }} />
       <span style={{ fontSize: 11, color: 'var(--text3)' }}>
         {value.trim()

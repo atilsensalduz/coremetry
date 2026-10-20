@@ -27,7 +27,8 @@ describe('paletteIdentityQuery (v0.10.674)', () => {
   });
 
   it('href değeri kodlar, harfe dokunmaz', () => {
-    expect(identityTracesHref('A1:b2.c3-d4_e5')).toBe('/traces?traceId=A1%3Ab2.c3-d4_e5');
+    // v0.10.1423 — Trace ID kutusu kalktı: kimlik operasyon kutusunun terimi.
+    expect(identityTracesHref('A1:b2.c3-d4_e5')).toBe('/traces?search=A1%3Ab2.c3-d4_e5');
   });
 });
 

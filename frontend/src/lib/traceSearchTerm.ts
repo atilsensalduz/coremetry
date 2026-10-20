@@ -9,10 +9,11 @@
 // doluysa o; değilse kimlik kutusundaki 32-hex olmayan değer; ikisi de
 // boşsa undefined (parametre yazılmaz). 32-hex trace id ARAMA değil atlayış
 // (apply() navigate eder), o yüzden terim olarak dönmez.
-export function effectiveTraceSearch(f: { search?: string; traceId?: string }): string | undefined {
+//
+// v0.10.1423 — kimlik kutusu kalktı (operatör: "Search'ten zaten
+// aranabiliyor"): kimlik değeri artık operasyon kutusunun kendisi, yani
+// `search`. Kural tek satıra indi: kırpılmış arama terimi ya da undefined.
+export function effectiveTraceSearch(f: { search?: string }): string | undefined {
   const s = (f.search ?? '').trim();
-  if (s) return s;
-  const tid = (f.traceId ?? '').trim();
-  if (!tid || /^[0-9a-f]{32}$/i.test(tid)) return undefined;
-  return tid;
+  return s || undefined;
 }

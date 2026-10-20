@@ -39,11 +39,12 @@ const DELIBERATELY_OUT: Record<string, string> = {
   // birden değişirdi. Picker açılırları zaten G3'ün (mockup-first)
   // konusu.
   'pages/Services.tsx': 'kutu ServicePicker — picker değişikliği G3 hattında',
-  // /traces'in `.trace-lookup`ı bir ARAMA değil bir ATLAYIŞ: diğer
-  // her alanı geçersiz kılıp tek bir trace'e gider ve v0.9.304'te
-  // operatör kararıyla görsel olarak AYRIŞTIRILDI. Atoma indirmek o
-  // kararı geri alırdı.
-  'pages/Traces.tsx': 'trace-lookup bilinçli olarak ayrışık (v0.9.304)',
+  // /traces'in `.trace-lookup`ı (v0.9.304, ayrışık ATLAYIŞ kutusu)
+  // v0.10.1423'te kalktı (operatör: "Search'ten zaten aranabiliyor").
+  // Sayfanın arama kutusu artık sunucu-taraflı `OperationPicker` — trace
+  // id'ye atlar, function_id'yi arar. Services'teki gibi picker; atom
+  // değişikliği G3 hattında.
+  'pages/Traces.tsx': 'arama OperationPicker — Trace ID kutusu v0.10.1423te kalktı',
 };
 
 describe('M8 — SearchField atomu', () => {
@@ -94,7 +95,9 @@ describe('M8 — dönüştürülen yüzeyler', () => {
   it('bilinçli kapsam dışı ikisi hâlâ kendi gerekçesine uyuyor', () => {
     // Gerekçe bayatlarsa muafiyet de bayatlar.
     expect(read('pages/Services.tsx')).toMatch(/<ServicePicker[\s\S]{0,300}?Filter services/);
-    expect(read('pages/Traces.tsx')).toMatch(/className="trace-lookup"/);
+    const traces = read('pages/Traces.tsx');
+    expect(traces).not.toMatch(/trace-lookup/);
+    expect(traces).toMatch(/<OperationPicker[\s\S]{0,400}?function_id \/ trace ID/);
     expect(Object.keys(DELIBERATELY_OUT)).toHaveLength(2);
   });
 

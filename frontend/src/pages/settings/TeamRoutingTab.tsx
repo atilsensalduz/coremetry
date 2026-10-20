@@ -333,11 +333,11 @@ export function TeamAliasesCard() {
             <form onSubmit={add} style={{ display: 'flex', gap: 8, marginTop: 10 }}>
               <input value={newAlias} onChange={e => setNewAlias(e.target.value)}
                 placeholder="telemetri adı (örn. orionsy)" disabled={busy}
-                style={{ flex: 1, padding: '6px 9px', fontSize: 12, background: 'var(--bg)',
+                style={{ flex: 1, padding: '6px 9px', fontSize: 12, background: 'var(--field-bg)',
                   color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 6 }} />
               <input value={newCanon} onChange={e => setNewCanon(e.target.value)}
                 placeholder="kanonik ad (örn. SY-Ortak Servisler)" disabled={busy}
-                style={{ flex: 1, padding: '6px 9px', fontSize: 12, background: 'var(--bg)',
+                style={{ flex: 1, padding: '6px 9px', fontSize: 12, background: 'var(--field-bg)',
                   color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 6 }} />
               <Button variant="primary" type="submit" disabled={busy || !newAlias.trim() || !newCanon.trim()}>Ekle</Button>
             </form>

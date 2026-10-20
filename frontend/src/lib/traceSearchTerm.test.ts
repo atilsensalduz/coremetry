@@ -5,11 +5,11 @@ import { resolve } from 'node:path';
 import { effectiveTraceSearch } from './traceSearchTerm';
 
 describe('effectiveTraceSearch', () => {
-  it('arama kutusu önce; kimlik kutusundaki 32-hex olmayan değer yedek; 32-hex id terim değil', () => {
-    expect(effectiveTraceSearch({ search: ' POST /x ', traceId: 'abc' })).toBe('POST /x');
-    expect(effectiveTraceSearch({ search: '', traceId: ' 0301010778 ' })).toBe('0301010778');
-    expect(effectiveTraceSearch({ search: '', traceId: '0123456789abcdef0123456789abcdef' })).toBeUndefined();
-    expect(effectiveTraceSearch({ search: '', traceId: '' })).toBeUndefined();
+  // v0.10.1423 — kimlik kutusu kalktı: terim yalnız kırpılmış `search`.
+  it('kırpılmış arama terimi; boşsa undefined', () => {
+    expect(effectiveTraceSearch({ search: ' POST /x ' })).toBe('POST /x');
+    expect(effectiveTraceSearch({ search: ' 0301010778 ' })).toBe('0301010778');
+    expect(effectiveTraceSearch({ search: '   ' })).toBeUndefined();
     expect(effectiveTraceSearch({})).toBeUndefined();
   });
   it('kaynak pini: Traces.tsx dört yüzeyde de effectiveTraceSearch kullanır, ham filter.search hiçbir isteğe gitmez', () => {
