@@ -42,7 +42,7 @@ func TestWindowREDEmpty(t *testing.T) {
 }
 
 // Kaynak pini: kova yüzdeliği ortalaması AI yüzeylerine geri dönmesin.
-// aggRED silindi; analyze-service ve window_compare ServiceWindowRED okur.
+// aggRED silindi; servis bağlamı ve window_compare ServiceWindowRED okur.
 func TestNoBucketPercentileAveragingInAIPrompts(t *testing.T) {
 	for file, needles := range map[string][]string{
 		"copilot_aianalyze.go": {"func aggRED(", "wP99", "GetServiceSummary5m("},
@@ -72,78 +72,6 @@ func TestNoBucketPercentileAveragingInAIPrompts(t *testing.T) {
 	ev := renderWindowCompareTR("checkout", []absWindow{w1, w2}, []aiRED{{Spans: 100, P99Ms: 900}, {Spans: 120, P99Ms: 1200}}, ist)
 	if strings.Contains(ev, "tam sayım") || !strings.Contains(ev, "YAKLAŞIK") || !strings.Contains(ev, "örnekleme") {
 		t.Errorf("kanıt yaklaşık değeri tam diye sunmamalı:\n%s", ev)
-	}
-}
-
-// TestParseServiceAnalysis covers the tolerant JSON extraction: bare JSON,
-// code-fenced JSON, and surrounding prose; plus a non-JSON miss → nil.
-func TestParseServiceAnalysis(t *testing.T) {
-	good := `{"ozet":"x","olasi_neden":"y","kanit":["a","b"],"oneriler":["c"],"guven":"orta"}`
-	cases := []struct {
-		name, in string
-		nilWant  bool
-	}{
-		{"bare", good, false},
-		{"fenced", "```json\n" + good + "\n```", false},
-		{"prose-wrapped", "İşte analiz:\n" + good + "\nUmarım yardımcı olur.", false},
-		{"no-json", "model refused to answer", true},
-		{"empty", "", true},
-	}
-	for _, c := range cases {
-		got := parseServiceAnalysis(c.in)
-		if c.nilWant && got != nil {
-			t.Errorf("%s: want nil, got %+v", c.name, got)
-		}
-		if !c.nilWant {
-			if got == nil {
-				t.Errorf("%s: want parsed, got nil", c.name)
-			} else if got.Guven != "orta" || len(got.Kanit) != 2 {
-				t.Errorf("%s: fields wrong: %+v", c.name, got)
-			}
-		}
-	}
-}
-
-// TestPostCheckServiceAnalysis verifies hallucination detection: a service name
-// not present in the gathered context is flagged; known services + technical
-// hyphenated terms are not.
-func TestPostCheckServiceAnalysis(t *testing.T) {
-	cx := &aiServiceContext{
-		Service:    "payment-service",
-		Downstream: []string{"ledger-service"},
-		Upstream:   []string{"mobile-bff"},
-	}
-	// Mentions a known downstream + a technical term → verified.
-	clean := &serviceAnalysis{
-		Ozet:       "payment-service bozuldu",
-		OlasiNeden: "ledger-service çağrılarında timeout",
-		Kanit:      []string{"error-rate %0.4 → %8.3", "p99 artışı"},
-		Oneriler:   []string{"ledger-service DB havuzunu incele"},
-	}
-	if pc := postCheckServiceAnalysis(clean, cx); !pc.Verified || len(pc.UnknownServices) != 0 {
-		t.Errorf("clean analysis should verify, got %+v", pc)
-	}
-	// Invents "fraud-detector" which is not in the context → flagged.
-	halluc := &serviceAnalysis{
-		Ozet:       "sorun fraud-detector kaynaklı",
-		OlasiNeden: "auth-gateway yavaş",
-		Kanit:      []string{"error-rate yüksek"},
-		Oneriler:   []string{"x"},
-	}
-	pc := postCheckServiceAnalysis(halluc, cx)
-	if pc.Verified {
-		t.Error("hallucinated services should fail verification")
-	}
-	found := map[string]bool{}
-	for _, u := range pc.UnknownServices {
-		found[u] = true
-	}
-	if !found["fraud-detector"] || !found["auth-gateway"] {
-		t.Errorf("expected fraud-detector + auth-gateway flagged, got %v", pc.UnknownServices)
-	}
-	// error-rate is a technical term, must NOT be flagged.
-	if found["error-rate"] {
-		t.Error("error-rate is a technical term, must not be flagged as a service")
 	}
 }
 
@@ -203,17 +131,11 @@ func TestGuidedServiceContextStepCarriesReadError(t *testing.T) {
 // TestServiceSnapshotRateUnitIsSpanPerSecond — v0.10.944: snapshot'taki oran
 // service_summary_5m'in TÜM span türleri üzerinden hızıdır; "req/s" istek
 // hızını abartıyordu ve guided window_compare aynı sayıya "span/s" diyordu.
-// Few-shot örneği gerçek girdiyle aynı birimi taşımalı.
 func TestServiceSnapshotRateUnitIsSpanPerSecond(t *testing.T) {
 	got := renderServiceSnapshot(&aiServiceContext{Service: "checkout", RangeS: 1800, Current: aiRED{Spans: 900, Rate: 0.5}})
 	if !strings.Contains(got, "RED: rate=0.5 span/s (tüm span türleri)") || strings.Contains(got, "req/s") {
 		t.Errorf("birim span/s olmalı:\n%s", got)
 	}
-	b, err := os.ReadFile("../copilot/prompts.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if src := string(b); !strings.Contains(src, "RED: rate=42.0 span/s (tüm span türleri)") || strings.Contains(src, "RED: rate=42.0 req/s") {
-		t.Error("prompts.go few-shot örneği gerçek girdinin birimiyle (span/s) aynı olmalı")
-	}
+	// v0.10.1408 — few-shot örneğinin birim pini, örneği taşıyan
+	// analyze-service prompt'uyla birlikte kalktı.
 }

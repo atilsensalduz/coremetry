@@ -194,10 +194,10 @@ export function useClusters(from: number, to: number) {
   });
 }
 
-export function useServiceNeighbors(svc: string, since: GoDuration, samples: number) {
+export function useServiceNeighbors(svc: string, since: GoDuration) {
   return useQuery({
-    queryKey: keys.services.neighbors(svc, since, samples),
-    queryFn: () => api.serviceNeighbors(svc, since, samples),
+    queryKey: keys.services.neighbors(svc, since),
+    queryFn: () => api.serviceNeighbors(svc, since),
     enabled: !!svc,
     staleTime: 60 * 60_000, // neighbours shift on deploys, not seconds
   });

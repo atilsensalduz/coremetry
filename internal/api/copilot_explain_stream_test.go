@@ -343,9 +343,8 @@ var explainStreamWired = []string{
 // gövdesinden akan yüzeyleri kapsıyor; aşağıdakiler kendi küçük
 // panellerinde/farklı sözleşmelerde yaşıyor ve ayrı dilimde bağlanacak.
 var explainStreamDeferred = map[string]string{
-	"copilotChat":           "zaten SSE (kendi akışı)",
-	"copilotAnalyzeService": "ajanik döngü, prose değil",
-	"copilotNLToQuery":      "JSON kipi — akan token anlamsız",
+	"copilotChat":      "zaten SSE (kendi akışı)",
+	"copilotNLToQuery": "JSON kipi — akan token anlamsız",
 	// v0.10.1407 — ✨ düğmesi artık sohbete tur gönderir (akan cevap orada); HTTP
 	// ucu kanıt + anlatım tek JSON, explain önbelleğinde sohbetle tek satır.
 	"copilotExplainCharts": "kanıt + anlatım tek JSON; akan yol sohbet turu (v0.10.1407)",

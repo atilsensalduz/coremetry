@@ -91,26 +91,6 @@ func chOptimizeSchema() map[string]any {
 	})
 }
 
-// serviceAnalysisGuven — prompt'un dayattığı güven kümesi
-// (copilot_aianalyze.go:47). Diyakritiksiz: prompt öyle yazıyor ve
-// çözümleme tarafı da öyle bekliyor.
-var serviceAnalysisGuven = []string{"yuksek", "orta", "dusuk"}
-
-// serviceAnalysisSchema — servis analizi. Buradaki kazanç sınırlı ve
-// bunu açıkça söylemek gerekiyor: şema ŞEKLİ garantiler, İÇERİĞİ değil.
-// `postCheckServiceAnalysis` (uydurulmuş servis adı avı) yerinde KALIR —
-// o kontrol düzyazının İÇİNDEKİ tokenları tarıyor, ve hiçbir JSON şeması
-// bir string'in içindeki servis adının gerçek olup olmadığını kısıtlayamaz.
-func serviceAnalysisSchema() map[string]any {
-	return objSchema(map[string]any{
-		"ozet":        strProp(),
-		"olasi_neden": strProp(),
-		"kanit":       strArrayProp(),
-		"oneriler":    strArrayProp(),
-		"guven":       map[string]any{"type": "string", "enum": serviceAnalysisGuven},
-	})
-}
-
 // numProp — sayısal alan (v0.9.559). Şemalarda ilk kez RCA verdict'inin
 // `model_confidence` alanıyla gerekti.
 //

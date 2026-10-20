@@ -172,7 +172,6 @@ const CONVERTED = [
   'pages/slowqueries/StmtDetailDrawer.tsx',
   'features/dependencies/DetailDrawer.tsx',
   'components/HeatmapCellExemplars.tsx',
-  'components/AIAnalysisPanel.tsx',
   'components/RootCausePanel.tsx',
   'components/RootCauseRibbon.tsx',
   'components/CommandPalette.tsx',

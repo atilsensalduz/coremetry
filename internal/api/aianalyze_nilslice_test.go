@@ -97,29 +97,3 @@ func TestBuildServiceContextInitialisesArrays(t *testing.T) {
 		}
 	}
 }
-
-// TestParsedAnalysisArraysNeverNull — MODEL kaynaklı hat.
-//
-// Şema bu alanları required kılıyor ama şema YALNIZ OpenAI-uyumlu yolda
-// gönderiliyor; anthropic sağlayıcıda ya da json_schema reddedilip
-// merdiven json_object'e düştüğünde tek güvence prompt'un ricası
-// kalıyor. Bir modelin ricayı tutacağına güvenmek, çökmeyi modele
-// emanet etmektir.
-func TestParsedAnalysisArraysNeverNull(t *testing.T) {
-	cases := map[string]string{
-		"model kanit'i atladı":    `{"ozet":"o","olasi_neden":"n","oneriler":["a"],"guven":"orta"}`,
-		"model oneriler'i atladı": `{"ozet":"o","olasi_neden":"n","kanit":["a"],"guven":"orta"}`,
-		"model ikisini de atladı": `{"ozet":"o","olasi_neden":"n","guven":"dusuk"}`,
-		"model açıkça null yazdı": `{"ozet":"o","kanit":null,"oneriler":null,"guven":"orta"}`,
-		"kod çiti içinde eksik":   "```json\n{\"ozet\":\"o\",\"guven\":\"orta\"}\n```",
-	}
-	for name, raw := range cases {
-		t.Run(name, func(t *testing.T) {
-			a := parseServiceAnalysis(raw)
-			if a == nil {
-				t.Fatal("ayrıştırma nil döndü — vaka geçersiz")
-			}
-			assertNoNullArrays(t, "analysis", a, "kanit", "oneriler")
-		})
-	}
-}

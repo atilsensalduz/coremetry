@@ -3,8 +3,6 @@ package api
 import (
 	"encoding/json"
 	"testing"
-
-	"github.com/cilcenk/coremetry/internal/copilot"
 )
 
 // v0.9.527 — şema enum'ları sunucunun doğruladığı kümeden TÜRETİLMELİ.
@@ -83,9 +81,8 @@ func TestNLToQueryFilterOpEnum(t *testing.T) {
 // merdiven json_object'e düşer ve enum kazancı sessizce kaybolur.
 func TestSchemasAreStrictValid(t *testing.T) {
 	for name, sc := range map[string]map[string]any{
-		"nlToQuery":       nlToQuerySchema(),
-		"chOptimize":      chOptimizeSchema(),
-		"serviceAnalysis": serviceAnalysisSchema(),
+		"nlToQuery":  nlToQuerySchema(),
+		"chOptimize": chOptimizeSchema(),
 		// v0.9.559 — RCA verdict. İki varyant: enum DOLU hâli
 		// (normal yol) ve enum BOŞ hâli (zayıf hipotez → serbest
 		// string'e düşer). Strict kuralı ikisinde de geçerli.
@@ -124,9 +121,8 @@ func assertStrict(t *testing.T, node map[string]any, path string) {
 // bir değer (fonksiyon, kanal) sessizce boş gövde üretirdi.
 func TestSchemasMarshal(t *testing.T) {
 	for name, sc := range map[string]map[string]any{
-		"nlToQuery":       nlToQuerySchema(),
-		"chOptimize":      chOptimizeSchema(),
-		"serviceAnalysis": serviceAnalysisSchema(),
+		"nlToQuery":  nlToQuerySchema(),
+		"chOptimize": chOptimizeSchema(),
 		// v0.9.559 — RCA verdict. İki varyant: enum DOLU hâli
 		// (normal yol) ve enum BOŞ hâli (zayıf hipotez → serbest
 		// string'e düşer). Strict kuralı ikisinde de geçerli.
@@ -153,18 +149,6 @@ func TestSortedKeysDeterministic(t *testing.T) {
 			if got[j] != first[j] {
 				t.Fatalf("sortedKeys deterministik değil: %v vs %v", first, got)
 			}
-		}
-	}
-}
-
-// serviceAnalysis'in guven enum'u prompt'un dayattığı kümeyle aynı
-// olmalı (copilot.SystemPromptServiceAnalysis, v0.9.1128'den beri
-// internal/copilot/prompts.go). Ayrışırsa model şemanın izin verdiği
-// ama prompt'un tanımadığı bir değer üretir.
-func TestServiceAnalysisGuvenMatchesPrompt(t *testing.T) {
-	for _, v := range serviceAnalysisGuven {
-		if !contains(copilot.SystemPromptServiceAnalysis(), `"`+v+`"`) {
-			t.Errorf("guven değeri %q prompt'ta geçmiyor — şema ile prompt ayrışmış", v)
 		}
 	}
 }

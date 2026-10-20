@@ -332,17 +332,15 @@ export default function EndpointsPage() {
   // replace:true, dolayısıyla sig-guard'a da gerek yok.
   const expandedRows = useMemo(
     () => decodeExpandedParam(params.get(EXP_PARAM)), [params]);
-  // v0.9.257 — keyed `${service}@${since}`; value carries sampledFrom so the
-  // strip can state how many traces the counts came from instead of implying
-  // they are fleet totals.
+  // v0.9.257 — keyed `${service}@${since}`. v0.10.1408 — value carries the
+  // downstream total (the response caps each side at 50).
   const [depsByService, setDepsByService] = useState<Record<string, {
-    deps: import('@/lib/types').NeighborStat[]; sampledFrom: number;
+    deps: import('@/lib/types').NeighborStat[]; total: number;
   }>>({});
-  // Window for the dependency strip. Capped at 24h: this endpoint samples the
-  // top-N traces out of raw `spans`, so a 7d/30d selection would run a
-  // GROUP BY trace_id across the whole window and hit max_execution_time.
-  // `capped` is rendered, so the narrowing is stated rather than silent.
-  const dep = rangeToSince(range, 86_400);
+  // Window for the dependency strip. v0.10.1408 — the endpoint reads the
+  // topology_edges_5m rollup now (no raw-span sampling), so the cap follows
+  // the server's 30d ceiling. `capped` is rendered, so a narrowing is stated.
+  const dep = rangeToSince(range, 2_592_000);
 
   // v0.5.417 — toggle a row's dependency strip + lazy-load the
   // downstream neighbours for its service. Cache is per-service
@@ -373,12 +371,12 @@ export default function EndpointsPage() {
     for (const svc of wanted) {
       const ck = `${svc}@${dep.since}`;
       if (depsByService[ck]) continue;
-      api.serviceNeighbors(svc, dep.since, 100, false)
+      api.serviceNeighbors(svc, dep.since, false)
         .then(r => setDepsByService(prev => prev[ck] ? prev : ({
-          ...prev, [ck]: { deps: r?.downstream ?? [], sampledFrom: r?.sampledFrom ?? 0 },
+          ...prev, [ck]: { deps: r?.downstream ?? [], total: r?.downstreamTotal ?? 0 },
         })))
         .catch(() => setDepsByService(prev => prev[ck] ? prev : ({
-          ...prev, [ck]: { deps: [], sampledFrom: 0 },
+          ...prev, [ck]: { deps: [], total: 0 },
         })));
     }
   }, [expandedRows, dep.since, depsByService]);
@@ -1203,7 +1201,7 @@ function DependencyStrip({ service, window: win, capped, entry, range }: {
   // it can never drift from the data the way the old hardcoded "1h" did.
   window: string;
   capped: boolean;
-  entry?: { deps: import('@/lib/types').NeighborStat[]; sampledFrom: number };
+  entry?: { deps: import('@/lib/types').NeighborStat[]; total: number };
 }) {
   if (entry === undefined) {
     return (
@@ -1212,60 +1210,61 @@ function DependencyStrip({ service, window: win, capped, entry, range }: {
       </span>
     );
   }
-  const { deps, sampledFrom } = entry;
+  const { deps } = entry;
+  const total = Math.max(entry.total, deps.length);
   if (deps.length === 0) {
     return (
       <span style={{ fontSize: 11, color: 'var(--text3)' }}>
-        No downstream calls observed for {service} in the last {win}
-        {sampledFrom > 0
-          ? ` (sampled ${sampledFrom} trace${sampledFrom === 1 ? '' : 's'}).`
-          : '.'}
+        No downstream calls observed for {service} in the last {win}.
       </span>
     );
   }
-  const top = [...deps].sort((a, b) => b.spanCount - a.spanCount).slice(0, 5);
+  const top = [...deps].sort((a, b) => b.calls - a.calls).slice(0, 5);
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', gap: 6,
       fontSize: 11,
     }}>
-      {/* v0.9.257 — states the real window AND that the counts are
-          sample-scoped. The counts are crossing call-edges seen inside the
-          sampled traces, and ServiceNeighbors picks those traces with
-          ORDER BY count() DESC — the BIGGEST traces, not a uniform sample.
-          "top 5 by span volume" over an unqualified window read as a fleet
-          ranking; it is not one. */}
+      {/* v0.9.257 — states the real window. v0.10.1408 — counts are the
+          service's call totals per dependency from the topology_edges_5m
+          rollup (db / queue / external included), no longer a sample of the
+          largest traces. */}
       <div style={{
         fontSize: 10, color: 'var(--text3)',
         textTransform: 'uppercase', letterSpacing: 0.4,
       }}>
-        {service} → downstream · last {win}{capped && ' (capped)'} · top 5 of {deps.length}
-        {sampledFrom > 0 && ` · sampled ${sampledFrom} largest trace${sampledFrom === 1 ? '' : 's'}`}
+        {service} → downstream · last {win}{capped && ' (capped)'} · top 5 of {total}
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-        {top.map((d, i) => (
-          <Link key={i}
-            to={serviceHref(d.service, { range })}
-            title={`${service} → ${d.service}\n${fmtNum(d.spanCount)} call${d.spanCount === 1 ? '' : 's'} across ${fmtNum(d.traceCount)} of the ${sampledFrom} sampled traces (last ${win})`}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              padding: '3px 8px', borderRadius: 12,
-              background: 'var(--bg2)', border: '1px solid var(--border)',
-              color: 'var(--text2)', fontFamily: 'var(--font-mono)',
-              fontSize: 10, textDecoration: 'none',
-            }}>
-            <span style={{ fontWeight: 600 }}>{d.service}</span>
-            <span style={{ color: 'var(--text3)' }}>{fmtNum(d.spanCount)} calls</span>
-          </Link>
-        ))}
-        {deps.length > 5 && (
+        {top.map(d => {
+          const pill: React.CSSProperties = {
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '3px 8px', borderRadius: 12,
+            background: 'var(--bg2)', border: '1px solid var(--border)',
+            color: 'var(--text2)', fontFamily: 'var(--font-mono)',
+            fontSize: 10, textDecoration: 'none',
+          };
+          const title = `${service} → ${d.name}\n${fmtNum(d.calls)} call${d.calls === 1 ? '' : 's'} (last ${win})`;
+          const body = (
+            <>
+              <span style={{ fontWeight: 600 }}>{d.name}</span>
+              <span style={{ color: 'var(--text3)' }}>{fmtNum(d.calls)} calls</span>
+            </>
+          );
+          // v0.10.1408 — db / queue / external düğümleri servis değil:
+          // servis linki yalnız kind==='service' (diğerleri metin pill).
+          return d.kind === 'service'
+            ? <Link key={d.id} to={serviceHref(d.name, { range })} title={title} style={pill}>{body}</Link>
+            : <span key={d.id} title={title} style={pill}>{body}</span>;
+        })}
+        {total > 5 && (
           <Link to={`/topology?focus=${encodeURIComponent(service)}`}
             style={{
               padding: '3px 8px', fontSize: 10,
               color: 'var(--accent2)', textDecoration: 'none',
               alignSelf: 'center',
             }}>
-            +{deps.length - 5} more → topology
+            +{total - 5} more → topology
           </Link>
         )}
       </div>

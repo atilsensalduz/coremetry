@@ -1,40 +1,29 @@
 package api
 
+// copilot_aianalyze.go — servis bağlamı (RED + baseline + en sık hatalar +
+// deploy + komşular) toplayıcısı ve Türkçe özet çizicisi: buildServiceContext
+// / renderServiceSnapshot (guided sohbet, servis raporu, bubble-up) ve
+// buildOperationContext / renderOperationSnapshot (guided operasyon dalı).
+// Sunucu her şeyi Go'da toplar; modele yalnız küçük, temiz bir ÖZET gider —
+// ham span/log asla.
+//
+// v0.10.1408 — POST /api/copilot/analyze-service ("CoSRE Analizi — ✨ AI ile
+// analiz et", Service Overview'un alt bölümü) kalktı (operatör: "alttaki
+// servisi CoSRE analiz et kaldırabiliriz"); uç, verdict tipi, ayrıştırıcı,
+// post-check ve prompt'u (copilot.systemServiceAnalysis) onunla gitti.
+
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/cilcenk/coremetry/internal/chstore"
-	"github.com/cilcenk/coremetry/internal/copilot"
 	"github.com/cilcenk/coremetry/internal/sourcestate"
 )
 
-// Per-entity AI analysis (v0.8.85). SINGLE-SHOT, provider-neutral — the model
-// is WHATEVER the operator configured in Settings (no built-in/local model).
-// The server does all the filtering / aggregation / correlation in Go and feeds
-// the model only a small, clean SUMMARY (RED + baseline + top errors + deploys +
-// neighbours) — never raw spans/logs. The model is purely the language layer:
-// it reads the Turkish summary and returns a strict Turkish JSON verdict
-// {ozet, olasi_neden, kanit[], oneriler[], guven}. Embedded as an
-// "AI ile analiz et" button on a service / incident / error-group (NOT logs).
-
-// serviceAnalysis mirrors the required JSON so the server validates + hands the
-// frontend a typed object (raw text as fallback).
-type serviceAnalysis struct {
-	Ozet       string   `json:"ozet"`
-	OlasiNeden string   `json:"olasi_neden"`
-	Kanit      []string `json:"kanit"`
-	Oneriler   []string `json:"oneriler"`
-	Guven      string   `json:"guven"`
-}
-
-// ── Context (the summary the model sees) — also returned to the UI for the
-// "Bağlamı gör" panel and used for the post-check. ───────────────────────────
+// ── Context (the summary the model sees) ─────────────────────────────────────
 
 type aiRED struct {
 	Spans      uint64  `json:"spans"`
@@ -83,133 +72,6 @@ type aiServiceContext struct {
 	// diye sunulmaz; renderServiceSnapshot ve guided adımları bunu okur.
 	curErr  error
 	baseErr error
-}
-
-// aiAnalyzeResponse is the endpoint payload.
-type aiAnalyzeResponse struct {
-	Analysis  *serviceAnalysis  `json:"analysis"`
-	Context   *aiServiceContext `json:"context"`
-	Raw       string            `json:"raw"`
-	Parsed    bool              `json:"parsed"`
-	PostCheck *aiPostCheck      `json:"postCheck"`
-	Cached    bool              `json:"cached"`
-
-	// CorrelationLinks (v0.9.655, operatör: "Request Id bulduğunda
-	// prod'ta log izleme linkini de versin parametrik olarak") —
-	// örnek korelasyon kimliklerinden DIŞ log sistemine köprüler.
-	//
-	// Cevap METNİNE değil ayrı bir alana konuyor ve bu bilinçli: metin
-	// modelden geçiyor, bir URL'yi modele emanet etmek onu bozma riski.
-	// Burası sunucuda deterministik üretiliyor — "Kaynak:" alt
-	// bilgisiyle aynı ilke.
-	//
-	// Şablon yapılandırılmamışsa alan HİÇ gönderilmiyor: kırık bir
-	// link, link yokluğundan kötüdür.
-	CorrelationLinks []guidedAnswerLink `json:"correlationLinks,omitempty"`
-
-	// ExchangeID (v0.9.593) — bu CEVABIN kimliği; /ai atfı (ai_calls.exchange_id)
-	// bununla bağlanır (v0.10.1393: 👍/👎 rayı + POST /api/ai/feedback kaldırıldı).
-	//
-	// Panel operatöre "Bu analiz yararlı mıydı?" diye soruyor ve
-	// tıklayınca "Teşekkürler." yazıyordu — ama hiçbir yere
-	// yazmıyordu. Kimlik o ölü affordance'ı gerçek yapan parça.
-	//
-	// Önbelleğe ALINAN gövdenin parçası ve bu doğru: kimlik cevabı
-	// tanımlar, isteği değil. Aynı cevabı iki operatör oylarsa
-	// ai_feedback dedup'ı gereği son yazan kazanır (RCA yolundaki
-	// kabulün aynısı).
-	ExchangeID string `json:"exchangeId,omitempty"`
-}
-
-type aiPostCheck struct {
-	Verified        bool     `json:"verified"`
-	UnknownServices []string `json:"unknownServices"`
-	Note            string   `json:"note"`
-}
-
-// copilotAnalyzeService runs the per-service single-shot analysis. Read-only;
-// any authenticated user. Cached in Redis for 5 minutes per (service, rangeS).
-func (s *Server) copilotAnalyzeService(w http.ResponseWriter, r *http.Request) {
-	service := strings.TrimSpace(r.URL.Query().Get("service"))
-	if service == "" {
-		http.Error(w, `{"error":"service required"}`, http.StatusBadRequest)
-		return
-	}
-	rangeS := int64(parseInt(r.URL.Query().Get("rangeS"), 1800))
-	if rangeS <= 0 || rangeS > 7*24*3600 {
-		rangeS = 1800
-	}
-
-	// Cache: short TTL per (service, rangeS). Stale is acceptable (Redis pure
-	// cache). ?refresh=1 bypasses the read.
-	cacheKey := fmt.Sprintf("aianalyze:svc=%s:r=%d", service, rangeS)
-	if r.URL.Query().Get("refresh") != "1" {
-		if b, ok, _ := s.cache.Get(r.Context(), cacheKey); ok && len(b) > 0 {
-			var cached aiAnalyzeResponse
-			if json.Unmarshal(b, &cached) == nil {
-				cached.Cached = true
-				writeJSON(w, cached)
-				return
-			}
-		}
-	}
-
-	to := time.Now()
-	from := to.Add(-time.Duration(rangeS) * time.Second)
-
-	cx := s.buildServiceContext(r.Context(), service, from, to)
-	// v0.10.944 — güncel pencere OKUNAMADIYSA boş bağlam değil, hata: "veri
-	// yok" (Parsed:false) ile karışmasın.
-	if cx.curErr != nil {
-		writeErr(w, cx.curErr)
-		return
-	}
-	if cx.Current.Spans == 0 {
-		writeJSON(w, aiAnalyzeResponse{Context: cx, Parsed: false, Raw: "", Analysis: nil})
-		return
-	}
-	snapshot := renderServiceSnapshot(cx)
-
-	// v0.9.593 — cevaba kimlik. copilotExplainJSON ctx'teki kimliği
-	// taşır (ai_observability.go), böylece ai_calls satırı ve
-	// operatörün oyu AYNI anahtarda buluşur.
-	exchangeID := newRandID(16)
-	r = r.WithContext(copilot.WithMeta(r.Context(),
-		copilot.CallMeta{ExchangeID: exchangeID}))
-
-	// Single-shot through the /ai-attributed wrapper (CLAUDE.md: never call
-	// s.copilot.Explain direct). Provider-neutral — uses the configured model.
-	raw, err := s.copilotExplainJSON(r, copilot.SystemPromptServiceAnalysis(), snapshot, serviceAnalysisSchema())
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	parsed := parseServiceAnalysis(raw)
-	resp := aiAnalyzeResponse{
-		Analysis:   parsed,
-		Context:    cx,
-		Raw:        raw,
-		Parsed:     parsed != nil,
-		ExchangeID: exchangeID,
-	}
-	if parsed != nil {
-		resp.PostCheck = postCheckServiceAnalysis(parsed, cx)
-	}
-	// v0.9.655 — korelasyon kimliklerinden dış log sistemine köprüler.
-	// Şablon system_settings'te; yoksa alan hiç gönderilmiyor.
-	if cx != nil && len(cx.Correlation) > 0 {
-		// Ortam servis adının SONEKİNDEN çözülüyor (-int/-uat/-prep);
-		// soneksiz ad prod demek ve "default" şablonunu alıyor.
-		resp.CorrelationLinks = correlationLinks(cx.Correlation, service, s.correlationLinkTemplates(r.Context()))
-	}
-
-	// v0.10.944 — baseline okunamadıysa cevap önbelleğe ALINMAZ: geçici bir
-	// zaman aşımı 5 dakika boyunca "baseline okunamadı" analizi olarak
-	// servis edilmesin.
-	if b, err := json.Marshal(resp); err == nil && cx.baseErr == nil {
-		_ = s.cache.Set(r.Context(), cacheKey, b, 5*time.Minute)
-	}
-	writeJSON(w, resp)
 }
 
 // buildServiceContext gathers + SUMMARISES the per-service signals. All numbers
@@ -502,105 +364,4 @@ func renderOperationSnapshot(cx *aiOperationContext) string {
 		fmt.Fprintf(&b, "Deploy(lar) (servis geneli): %s\n", strings.Join(parts, ", "))
 	}
 	return b.String()
-}
-
-// parseServiceAnalysis tolerantly extracts the JSON verdict (same fence-stripping
-// as the system analysis). Returns nil on unparseable output.
-func parseServiceAnalysis(raw string) *serviceAnalysis {
-	t := strings.TrimSpace(raw)
-	if strings.HasPrefix(t, "```") {
-		t = strings.TrimPrefix(t, "```json")
-		t = strings.TrimPrefix(t, "```")
-		t = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(t), "```"))
-	}
-	i := strings.Index(t, "{")
-	j := strings.LastIndex(t, "}")
-	if i < 0 || j <= i {
-		return nil
-	}
-	var a serviceAnalysis
-	if err := json.Unmarshal([]byte(t[i:j+1]), &a); err != nil {
-		return nil
-	}
-	// v0.9.597 — MODELİN atladığı diziler de boş dilime normalize
-	// edilir. Yukarıdaki bağlam alanları sunucu kaynaklıydı; bunlar
-	// model kaynaklı ama sonuç AYNI: nil → `null` → frontend'de
-	// `a.kanit.length` TypeError → sayfa ErrorBoundary'ye düşer.
-	//
-	// Şema bu alanları required kılıyor ama şema YALNIZ OpenAI-uyumlu
-	// yolda gönderiliyor; anthropic sağlayıcıda ya da json_schema
-	// reddedilip merdiven json_object'e düştüğünde tek güvence
-	// prompt'un ricası kalıyor. Bir modelin ricayı tutacağına
-	// güvenmek, çökmeyi modele emanet etmektir.
-	if a.Kanit == nil {
-		a.Kanit = []string{}
-	}
-	if a.Oneriler == nil {
-		a.Oneriler = []string{}
-	}
-	return &a
-}
-
-// serviceTokenRe + nonServiceHyphenated v0.9.559'da entity_scan.go'ya
-// TAŞINDI: RCA verdict yüzeyi de aynı taramayı kullanıyor ve ikinci bir
-// kopya yazmak, birinin diğerinden sessizce ayrışması demekti.
-
-// postCheckServiceAnalysis verifies the model didn't invent a service name: any
-// service-style token in the output that isn't in the gathered context (the
-// only data the model saw) is flagged "doğrulanamadı". Numbers are constrained
-// by the prompt ("veride olmayan sayı uydurma") and the small snapshot surface.
-func postCheckServiceAnalysis(a *serviceAnalysis, cx *aiServiceContext) *aiPostCheck {
-	known := map[string]bool{}
-	add := func(v string) {
-		if v != "" {
-			known[strings.ToLower(v)] = true
-		}
-	}
-	add(cx.Service)
-	for _, n := range cx.Upstream {
-		add(n)
-	}
-	for _, n := range cx.Downstream {
-		add(n)
-	}
-	for _, d := range cx.Deploys {
-		add(d.Version)
-	}
-	for _, e := range cx.TopErrors {
-		add(e.Service)
-		// v0.9.598 — hata METNİ de gösterildi. Type boşsa etikete
-		// mesaj basılıyor (renderServiceSnapshot), yani içindeki bir
-		// servis adı modele gösterilmiş demektir.
-		addShownTokens(known, e.Type, e.Message)
-	}
-	// v0.9.598 — v0.9.580'in prompt'a bastığı SOMUT KİMLİKLER.
-	//
-	// Snapshot bunları basıyordu ama bilinen küme bilmiyordu, yani
-	// model kendisine verdiğimiz bir CHANNEL_CODE'u alıntıladığında
-	// kalkan "uydurma" diyordu. v0.9.580'in kendi yorumu bunun neden
-	// imkânsız olduğunu zaten yazıyor ("değerler doğrudan
-	// ClickHouse'tan geliyor, uydurulamaz") — eksik olan, o bilgiyi
-	// kalkana da söylemekti.
-	for _, sl := range cx.Business {
-		for _, v := range sl {
-			addShownTokens(known, v.Value)
-		}
-	}
-	for _, c := range cx.Correlation {
-		addShownTokens(known, c.Key)
-		addShownTokens(known, c.Values...)
-	}
-
-	// v0.9.559 — tarama entity_scan.go'daki paylaşılan yardımcıya
-	// indi. Alan listesi ve sırası AYNI; davranış değişmedi.
-	texts := []string{a.Ozet, a.OlasiNeden}
-	texts = append(texts, a.Kanit...)
-	texts = append(texts, a.Oneriler...)
-	unknown := scanUnknownEntities(known, texts...)
-
-	pc := &aiPostCheck{Verified: len(unknown) == 0, UnknownServices: unknown}
-	if !pc.Verified {
-		pc.Note = "Girdi verisinde olmayan servis adı/adları geçiyor — doğrulanamadı."
-	}
-	return pc
 }

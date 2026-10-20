@@ -5,18 +5,22 @@ import { Spinner } from './Spinner';
 import { Button, DisclosureButton } from '@/components/ui';
 import { api } from '@/lib/api';
 import { fmtNum, type GoDuration } from '@/lib/utils';
-import type { NeighborStat, TimeRange } from '@/lib/types';
+import type { NeighborStat, ServiceNeighborsResponse, TimeRange } from '@/lib/types';
 import { serviceHref } from '@/lib/serviceHref';
+import { encodeRange } from '@/lib/urlState';
+import { nodeDetailHref } from '@/components/topology/nodeDetailHref';
 
-// Service-level upstream / downstream summary derived from sampled
-// trace topology — no peer.service heuristic. Renders as a compact
+// Service-level upstream / downstream summary. Renders as a compact
 // arrow flow:
 //
-//   [caller-a] [caller-b] ──► <service> ──► [callee-x] [callee-y]
+//   [caller-a] [caller-b] ──► <service> ──► [callee-x] [db oracle@…]
 //
-// Each chip carries a (×N traces · M calls) badge so the operator
-// reads call frequency at a glance. Panel starts collapsed; the
-// first open lazy-fetches the data, identical to ServiceStructure.
+// v0.10.1408 (operatör: "Downstream düzgün çalışmıyor") — veri artık
+// topology_edges_5m'den, Topology sekmesiyle AYNI okuma: DB / kuyruk / dış
+// HTTP çağrıları da downstream sayılıyor (eski örneklemli ham-span yolu
+// yalnız başka service_name'li çocuk span'ları görüyordu → "0 downstream").
+// Chip'teki sayı KENARIN çağrı sayısı + ortalama süresi. Panel starts
+// collapsed; the first open lazy-fetches the data.
 export function ServiceNeighbors({ service, since = '10m', capped = false, defaultOpen = false, range }: {
   service: string;
   // v0.9.967 — the PAGE window the operator is reading, carried by every
@@ -32,9 +36,8 @@ export function ServiceNeighbors({ service, since = '10m', capped = false, defau
   range?: import('@/lib/types').TimeRange;
   since?: GoDuration;
   // v0.9.257 — true when the caller clamped `since` below the operator's
-  // selected range (this panel samples raw spans; see NEIGHBORS_CAP_S in
-  // pages/service/Overview.tsx). Surfaced in the header so a narrowed
-  // window is stated, not silent.
+  // selected range (see NEIGHBORS_CAP_S in pages/service/Overview.tsx).
+  // Surfaced in the header so a narrowed window is stated, not silent.
   capped?: boolean;
   // v0.5.294 — when true, the panel renders expanded on first
   // paint instead of waiting for the operator to click the
@@ -44,25 +47,23 @@ export function ServiceNeighbors({ service, since = '10m', capped = false, defau
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
-  const [data, setData] = useState<{
-    upstream?: NeighborStat[];
-    downstream?: NeighborStat[];
-    sampledFrom: number;
-    totalSpans: number;
-  } | null | undefined>(undefined);
+  const [data, setData] = useState<ServiceNeighborsResponse | null | undefined>(undefined);
   // Bumped to force a refetch with refresh=1 (cache bypass).
   const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
     if (!open || !service) return;
     setData(undefined);
-    api.serviceNeighbors(service, since, 50, refreshTick > 0)
+    api.serviceNeighbors(service, since, refreshTick > 0)
       .then(setData)
       .catch(() => setData(null));
   }, [open, service, since, refreshTick]);
 
   const upstream = data?.upstream ?? [];
   const downstream = data?.downstream ?? [];
+  const upTotal = data?.upstreamTotal ?? upstream.length;
+  const downTotal = data?.downstreamTotal ?? downstream.length;
+  const moreHref = serviceHref(service, { range, tab: 'topology' });
 
   return (
     <div style={{
@@ -86,10 +87,9 @@ export function ServiceNeighbors({ service, since = '10m', capped = false, defau
           </span>
           {open && data && (
             <span style={{ fontSize: 11, color: 'var(--text3)' }}>
-              {upstream.length} upstream · {downstream.length} downstream
+              {upTotal} upstream · {downTotal} downstream
               {' · '}last {since}{capped && ' (capped)'}
-              {' · '}sampled from {data.sampledFrom} trace{data.sampledFrom === 1 ? '' : 's'}
-              {' · '}{fmtNum(data.totalSpans)} spans inspected
+              {' · '}topology rollup (5-min)
             </span>
           )}
           <span style={{ flex: 1 }} />
@@ -129,8 +129,8 @@ export function ServiceNeighbors({ service, since = '10m', capped = false, defau
           )}
           {data && upstream.length === 0 && downstream.length === 0 && (
             <div style={{ fontSize: 12, color: 'var(--text3)', fontStyle: 'italic', padding: '12px 4px' }}>
-              No upstream or downstream services found in the sampled traces.
-              <code style={{ marginLeft: 6 }}>{service}</code> may be a leaf service in this window.
+              No upstream callers or downstream dependencies for
+              <code style={{ margin: '0 6px' }}>{service}</code>in this window.
             </div>
           )}
           {data && (upstream.length > 0 || downstream.length > 0) && (
@@ -140,8 +140,10 @@ export function ServiceNeighbors({ service, since = '10m', capped = false, defau
             }}>
               <Column
                 range={range}
-                label={`Upstream (${upstream.length})`}
+                label={`Upstream (${upTotal})`}
                 items={upstream}
+                total={upTotal}
+                moreHref={moreHref}
                 emptyText="No upstream callers"
                 align="right"
               />
@@ -150,9 +152,11 @@ export function ServiceNeighbors({ service, since = '10m', capped = false, defau
               <Arrow />
               <Column
                 range={range}
-                label={`Downstream (${downstream.length})`}
+                label={`Downstream (${downTotal})`}
                 items={downstream}
-                emptyText="No downstream callees"
+                total={downTotal}
+                moreHref={moreHref}
+                emptyText="No downstream dependencies"
                 align="left"
               />
             </div>
@@ -163,9 +167,11 @@ export function ServiceNeighbors({ service, since = '10m', capped = false, defau
   );
 }
 
-function Column({ label, items, emptyText, align, range }: {
+function Column({ label, items, total, moreHref, emptyText, align, range }: {
   label: string;
   items: NeighborStat[];
+  total: number;
+  moreHref: string;
   emptyText: string;
   align: 'left' | 'right';
   range?: TimeRange;
@@ -185,34 +191,61 @@ function Column({ label, items, emptyText, align, range }: {
           {emptyText}
         </span>
       ) : items.map(n => (
-        <Chip key={n.service} stat={n} range={range} />
+        <Chip key={n.id} stat={n} range={range} />
       ))}
+      {total > items.length && (
+        <Link to={moreHref} style={{ fontSize: 11, color: 'var(--accent2)', textDecoration: 'none' }}>
+          +{total - items.length} more → topology
+        </Link>
+      )}
     </div>
   );
 }
 
+// KIND_TAG — servis olmayan düğümün kısa türü (Topology sözlüğü).
+const KIND_TAG: Partial<Record<NeighborStat['kind'], string>> = {
+  database: 'db', queue: 'queue', external: 'ext', internal: 'int',
+};
+
+// neighborHref — chip hedefi. Servis → serviceHref (pencere taşır); diğer
+// türler Topology'nin nodeDetailHref'i (db → /database, kuyruk →
+// /messaging); hedefi olmayan düğüm (external) link çizmez.
+function neighborHref(stat: NeighborStat, range?: TimeRange): string | null {
+  if (stat.kind === 'service') return serviceHref(stat.name, { range });
+  return nodeDetailHref({ ...stat, rate: 0 }, range ? { range: encodeRange(range) } : {});
+}
+
 function Chip({ stat, range }: { stat: NeighborStat; range?: TimeRange }) {
-  const color = seriesColor(stat.service);
-  return (
-    <Link to={serviceHref(stat.service, { range })}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 8,
-            padding: '4px 10px', borderRadius: 6,
-            border: '1px solid var(--border)',
-            background: 'var(--bg2)', color: 'var(--text)',
-            textDecoration: 'none', fontSize: 12,
-          }}
-          title={`${stat.service}\n${stat.traceCount} trace${stat.traceCount === 1 ? '' : 's'} · ${stat.spanCount} call${stat.spanCount === 1 ? '' : 's'}`}>
+  const color = seriesColor(stat.name);
+  const tag = KIND_TAG[stat.kind];
+  const href = neighborHref(stat, range);
+  const title = `${stat.name}${stat.system ? ` (${stat.system})` : ''}\n`
+    + `${fmtNum(stat.calls)} call${stat.calls === 1 ? '' : 's'} · avg ${stat.avgMs.toFixed(1)} ms · p99 ${stat.p99Ms.toFixed(0)} ms`
+    + ` · ${stat.errorRate.toFixed(2)}% errors`
+    + (stat.protocols?.length ? `\n${stat.protocols.join(', ')}` : '');
+  const style: React.CSSProperties = {
+    display: 'inline-flex', alignItems: 'center', gap: 8,
+    padding: '4px 10px', borderRadius: 6,
+    border: '1px solid var(--border)',
+    background: 'var(--bg2)', color: 'var(--text)',
+    textDecoration: 'none', fontSize: 12,
+  };
+  const body = (
+    <>
       <span style={{
         width: 8, height: 8, borderRadius: '50%',
         background: color, flexShrink: 0,
       }} />
-      <span>{stat.service}</span>
+      {tag && <span style={{ color: 'var(--text3)', fontSize: 10, fontFamily: 'var(--font-mono)' }}>{tag}</span>}
+      <span>{stat.name}</span>
       <span style={{ color: 'var(--text3)', fontSize: 10, fontFamily: 'var(--font-mono)' }}>
-        ×{stat.traceCount} · {stat.spanCount}
+        {fmtNum(stat.calls)} · {stat.avgMs < 10 ? stat.avgMs.toFixed(1) : stat.avgMs.toFixed(0)} ms
       </span>
-    </Link>
+    </>
   );
+  return href
+    ? <Link to={href} style={style} title={title}>{body}</Link>
+    : <span style={style} title={title}>{body}</span>;
 }
 
 function SelfChip({ name }: { name: string }) {

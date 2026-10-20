@@ -31,7 +31,6 @@ describe('v0.10.929 — sağlıklı durum nötr (yeşil yok)', () => {
     'components/topology/FocusedNeighborhood.tsx',
     'components/SavedViewsBar.tsx',
     'components/RCAVerdictPanel.tsx',
-    'components/AIAnalysisPanel.tsx',
     'components/StackTrace.tsx',
     'components/CorrelationContextDrawer.tsx',
     'components/DBQueriesPanel.tsx',
@@ -92,9 +91,8 @@ describe('v0.10.929 — sağlıklı durum nötr (yeşil yok)', () => {
     expect(s).toMatch(/kind: 'empty', message: `Son 24 saatte aktif anomali yok/);
   });
 
-  it('ChatBubble araç adımı ok → gri; AI güven "yüksek" → gri', () => {
+  it('ChatBubble araç adımı ok → gri', () => {
     expect(code('components/ai/ChatBubble.tsx')).toContain('<span className="badge b-gray">ok</span>');
-    expect(code('components/AIAnalysisPanel.tsx')).toContain("yuksek: 'b-gray'");
   });
 
   it('healthToken: eşikler aynı, sağlıklı dal nötr', () => {

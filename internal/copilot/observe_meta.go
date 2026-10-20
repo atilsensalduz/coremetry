@@ -54,7 +54,6 @@ var promptVersionRegistry = map[string]string{
 	"systemSREInvestigation":     systemSREInvestigation, // v0.10.1287 — AI SRE Faz 1b
 	"systemPostmortem":           systemPostmortem,
 	"systemRunbookUpdate":        systemRunbookUpdate,
-	"systemServiceAnalysis":      systemServiceAnalysis,
 	"systemServiceReport":        systemServiceReport, // v0.10.1337 — guided servis raporu
 	"DataNotInstruction":         DataNotInstruction,
 	"systemGuidedChat":           systemGuidedChat,

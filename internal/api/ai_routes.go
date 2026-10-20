@@ -108,9 +108,6 @@ func (s *Server) registerAIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST   /api/copilot/chat", s.requireCopilot(s.copilotChat))
 	// v0.10.1138 — composer `@team:` tamamlaması (chat_scope_names.go).
 	mux.HandleFunc("GET    /api/copilot/scope-names", s.requireCopilot(s.copilotScopeNames))
-	// v0.8.75 — autonomous agentic root-cause analysis (same loop + tools,
-	// kicked off on a subject service/problem rather than user-driven).
-	mux.HandleFunc("POST   /api/copilot/analyze-service", s.requireCopilot(s.copilotAnalyzeService))
 	mux.HandleFunc("POST   /api/copilot/explain-trace/{id}", s.requireCopilot(s.copilotExplainTrace))
 	// v0.5.255 — natural-language → DSL filter converter. /explore
 	// gets a "✦ Natural language" input that feeds this endpoint.

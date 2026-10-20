@@ -53,7 +53,6 @@ import { OpsCard, DbCard } from './OverviewTables';
 import type { DataTableStateProps } from '@/components/ui/DataTable';
 import { TopEndpointsCard } from './TopEndpointsCard';
 import { MetricPanel } from '@/components/MetricPanel';
-import { AIAnalysisPanel } from '@/components/AIAnalysisPanel';
 import { ServiceNeighbors } from '@/components/ServiceNeighbors';
 import { metricQuery, type MetricQuery } from '@/lib/metricQuery';
 import { firstNum, vals } from './overviewKpi';
@@ -77,13 +76,12 @@ import { firstNum, vals } from './overviewKpi';
 // endpoint's 1h default for a 2d/7d selection. '30d' was missing entirely
 // and fell through the same `?? '1h'` hole.
 //
-// The window is also capped at 24h now: ServiceNeighbors samples the top-N
-// traces out of raw `spans`, and an uncapped 720h GROUP BY trace_id would
-// blow max_execution_time on a busy prod service. 24h is already the widest
-// window this panel served before (the '24h' preset), so the ceiling adds no
-// new worst case — and rangeToSince reports `capped` so the panel SAYS it
-// narrowed rather than quietly narrowing.
-const NEIGHBORS_CAP_S = 86_400;
+// v0.10.1408 — tavan 24h → 30d: ServiceNeighbors artık ham `spans` örneklemi
+// değil topology_edges_5m okuyor (Topology sekmesiyle aynı), yani geniş
+// pencere ucuz ve panel sayfanın penceresini — Top DB statements tablosuyla
+// aynı aralığı — gösterir. Tavan sunucunun serviceNeighborsMaxSince'iyle
+// aynı; rangeToSince `capped` raporlar, panel daralttığını SÖYLER.
+const NEIGHBORS_CAP_S = 2_592_000;
 
 interface Props {
   windowNs?: { from: number; to: number };
@@ -1292,9 +1290,8 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
           Details version "daha güzel gösteriyor"); the flat two-column
           Neighbors block it replaces is gone. Full graph on /topology. */}
       <ServiceNeighbors service={service} since={nb.since} capped={nb.capped} range={range} defaultOpen />
-
-      {/* AI Analizi — auto-sends this service + selected window (v0.8.89). */}
-      <AIAnalysisPanel service={service} rangeS={Math.round((to - from) / 1e9)} />
+      {/* v0.10.1408 — "CoSRE Analizi" (AIAnalysisPanel) bölümü kalktı
+          (operatör: "alttaki servisi CoSRE analiz et kaldırabiliriz"). */}
 
     </div>
   );

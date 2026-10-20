@@ -8335,3 +8335,46 @@ useChatThread + ikinci composer) kalmıştı.
   sorusuna). Silinen (yalnız silinen kodu sınayan): `CopilotExplain.{classicDefault,codeCard,oracleGroup,stream}`,
   `AIDrawerBody.{evidence,endpointAutoAsk}`, `drawerParity`, `drawerChatAlwaysOpen`, `singleDrawer`,
   `aiCodeParam(.scan)`, `explainCacheFE.scan`, `codeAsk`; `drawerTraceContext`'in özne-kipi pinleri.
+
+## 2026-10-20 — v0.10.1408 — Servis Overview: upstream/downstream DB ve dış çağrıları sayar; CoSRE Analizi bölümü kalktı
+
+Operatör (prod ekran görüntüsü, Service → Overview → Bağlam): "Downstream düzgün çalışmıyor bir de alttaki servisi
+CoSRE analiz et kaldırabiliriz." Panel "12 upstream · 0 downstream · sampled from 50 traces · 3.3M spans inspected"
+diyordu; aynı Overview'un Top DB statements tablosu servisin oracle'ı ~938 kez çağırdığını gösteriyordu.
+
+- Kök neden: `GET /api/services/{name}/neighbors` → `chstore.ServiceNeighbors` (neighbors.go) ham `spans`'tan en büyük
+  50 trace'i alıp downstream'i YALNIZ "çocuk span'ın service_name'i ≠ bu servis" kenarlarından kuruyordu. DB / dış
+  HTTP / messaging çağrısı servisin KENDİ CLIENT/PRODUCER span'ı — enstrümante callee yok, çocuk yok, kenar yok.
+  Ayrıca MV-first ihlaliydi (aggregate için ham spans).
+- Düzeltme: uç `internal/api/service_neighbors.go`'ya taşındı (registerRoutesExtra; api.go 56 satır küçüldü, taban
+  ratchet'i 10856) ve Topology sekmesiyle AYNI okumayı yapar: `ReadServiceTopologyAggForFocus(hops=1)`
+  (topology_edges_5m; infra pass'i db:/queue:/ext: kenarlarını zaten yazıyor) → `filterHiddenTopologyEdges` →
+  `buildServiceGraphWith("neighborhood", 1, knownServiceSet)` (ext-merge dahil) → komşu düğüm başına katlama
+  (`serviceNeighborsFromEdges`, saf). Düğüm kimliği/etiketi GraphNode'unki (ör. `oracle@<instance>`, `kafka:<topic>`,
+  dış host); sayılar KENARIN (calls, errors, avg, p99, protokoller). Yön başına ≤50 komşu + toplamlar; UI "+N more →
+  topology". Pencere tavanı 24h → 30d (MV okuması ucuz; panel Top DB tablosuyla aynı pencereyi gösterir). Önbellek
+  `service-neighbors:v2:svc:since:hid` (yeni şekil eski 24h SWR gövdesini okumasın), TTL 5 dk.
+- UI: başlık "… · last 3h · topology rollup (5-min)" — örneklem iddiası ("sampled from N traces", "spans inspected")
+  kalktı. Chip hedefi: servis → serviceHref, db/kuyruk → `nodeDetailHref` (Topology ile aynı), external → link yok.
+  Endpoints dependency şeridi aynı ucu kullanıyor: `spanCount/traceCount/sampledFrom` → `calls`/`downstreamTotal`,
+  servis olmayan düğüm metin pill. `NeighborStat` (lib/types.ts) GraphNode kimlik alanları + kenar RED'i;
+  `ServiceNeighborsResponse` eklendi; `api.serviceNeighbors(svc, since, refresh)` (samples parametresi yok).
+- `chstore.ServiceNeighbors` (ham spans) KALDI: `explain_problem.go`, `buildServiceContext` (guided sohbet / servis
+  raporu bağlamı) ve 1407'nin `chat_explain_registry` arayüzü hâlâ çağırıyor — aynı DB-kör davranış o LLM
+  bağlamlarında sürüyor; ayrı dilim (kuyruk).
+- CoSRE Analizi kaldırıldı (şimsiz): `components/AIAnalysisPanel.tsx`, Overview'daki bölüm, `api.analyzeService`,
+  `ServiceAnalysisResponse` + `ServiceAnalysisVerdict`/`AiRED`/`AiErrCount`/`AiDeploy`/`AiServiceContext`/
+  `AiPostCheck` TS tipleri; sunucuda `POST /api/copilot/analyze-service` (`copilotAnalyzeService`, tek çağıran panel
+  — MCP/evalset/başka sayfa yok), `aiAnalyzeResponse`, `serviceAnalysis`, `aiPostCheck`, `parseServiceAnalysis`,
+  `postCheckServiceAnalysis`, `serviceAnalysisSchema`/`serviceAnalysisGuven`, prompt `systemServiceAnalysis` +
+  `SystemPromptServiceAnalysis` (+ `promptVersionRegistry` girdisi → prompt_version değişir, beklenen).
+  `buildServiceContext`/`renderServiceSnapshot`/`buildOperationContext` KALDI (guided, servis raporu, bubble-up).
+  `addShownTokens`/`scanUnknownEntities` RCA kalkanında yaşıyor.
+- Değişmeyenler: MCP araç sayısı (74), CH şeması, topology_edges_5m yazıcısı.
+- Testler: `internal/api/service_neighbors_test.go` (tablo: callee'si sıfır + db/ext CLIENT kenarı → downstream ikisi;
+  kuyruk producer/consumer yönü; ext-merge; protokol katlaması + ağırlıklı ortalama; kendine-kenar; cap); FE
+  `ServiceNeighbors.contract.test.tsx` (db + external chip, başlıkta örneklem yok, db → /database linki). Silinen /
+  güncellenen pinler: postcheck_shown_test (yalnız addShownTokens sözleşmesi kaldı), copilot_aianalyze_test (parse +
+  post-check + few-shot birim pini), aianalyze_nilslice_test (model dizileri), copilot_schemas_test,
+  prompt_language_test, copilot_explain_stream_test (deferred listesi), k5Residue / traceLogsLinkGate /
+  Overview.windowKpi mock.

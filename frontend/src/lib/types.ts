@@ -4416,45 +4416,6 @@ export interface MetricExemplar {
   kind?: string;
 }
 
-// AI per-service analysis (POST /api/copilot/analyze-service, v0.8.85+). The
-// server summarises the service's signals; the operator-configured model returns
-// this strict-JSON verdict. Turkish field names match the prompt contract.
-export interface ServiceAnalysisVerdict {
-  ozet: string;
-  olasi_neden: string;
-  kanit: string[];
-  oneriler: string[];
-  guven: 'yuksek' | 'orta' | 'dusuk';
-}
-export interface AiRED {
-  spans: number; rate: number; errorRate: number; errorCount: number;
-  avgMs: number; p50Ms: number; p95Ms: number; p99Ms: number;
-}
-export interface AiErrCount { type: string; message: string; service: string; count: number; sampleTraceId: string; }
-export interface AiDeploy { version: string; timeUnixNs: number; }
-export interface AiServiceContext {
-  service: string; rangeS: number;
-  current: AiRED; baseline: AiRED;
-  topErrors: AiErrCount[]; deploys: AiDeploy[];
-  upstream: string[]; downstream: string[];
-}
-export interface AiPostCheck { verified: boolean; unknownServices: string[]; note: string; }
-export interface ServiceAnalysisResponse {
-  analysis: ServiceAnalysisVerdict | null;
-  context: AiServiceContext | null;
-  raw: string;
-  parsed: boolean;
-  postCheck: AiPostCheck | null;
-  cached: boolean;
-  /** v0.9.593 — bu CEVABIN kimliği; 👍/👎 bununla
-   *  POST /api/ai/feedback'e gider. Yoksa affordance ÇİZİLMEZ. */
-  exchangeId?: string;
-  /** v0.9.655 — örnek request_id'lerden dış log sistemine köprüler.
-   *  Şablon yapılandırılmamışsa alan HİÇ gelmez (kırık link, link
-   *  yokluğundan kötüdür). Ortam servis adının sonekinden çözülür. */
-  correlationLinks?: { label: string; href: string }[];
-}
-
 /** v0.9.594 — RCA hakem motorunun kalite özeti (GET /api/ai/rca-quality).
  *  Kardeş /ai uçları TRANSPORT sağlığını ölçüyor (kaç çağrı, kaç hata,
  *  kaç token); bu, cevabın KENDİSİNE bakan tek ölçüm. */
@@ -6583,10 +6544,28 @@ export interface LogPatternAnomaly {
 
 // One entry in the service-level neighbours response — a single
 // upstream caller or downstream callee of the inspected service.
-export interface NeighborStat {
+// v0.10.1408 — topology_edges_5m'den (Topology sekmesiyle aynı okuma):
+// kimlik alanları GraphNode'unki (db:/queue:/ext: düğümleri dahil), sayılar
+// odakla arasındaki KENARIN. Örneklem yok (eski traceCount/spanCount gitti).
+export interface NeighborStat extends Pick<GraphNode, 'id' | 'name' | 'kind' | 'system' | 'env' | 'cluster'> {
+  calls: number;
+  errors: number;
+  errorRate: number;   // (errors/calls)*100
+  avgMs: number;
+  p99Ms: number;
+  protocols?: string[];
+}
+
+// v0.10.1408 — GET /api/services/{svc}/neighbors yanıtı.
+export interface ServiceNeighborsResponse {
   service: string;
-  traceCount: number;
-  spanCount: number;
+  from: number;        // ns
+  to: number;          // ns
+  source: string;      // "topology_edges_5m"
+  upstream: NeighborStat[];
+  downstream: NeighborStat[];
+  upstreamTotal: number;
+  downstreamTotal: number;
 }
 
 // Technology fingerprint of a service. Derived from OTel

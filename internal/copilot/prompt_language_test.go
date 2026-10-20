@@ -70,19 +70,18 @@ func promptRegistry() map[string]promptClass {
 		// ── Chat kademeleri (Faz 1.6'da internal/api'den taşındı)
 		"GuidedChat": classDirective, // kademe 1 — guided router narration
 		"DrawerChat": classDirective, // kademe 2 — explain-grounded çekmece
-		// ── Türkçe-native talimatlar. İkisi (RCAVerdict, ServiceAnalysis)
-		// JSON üretir ama talimatı Türkçedir: 2B dersi (copilot_aianalyze.go)
+		// ── Türkçe-native talimatlar. RCAVerdict (ve IntentClassify/WikiSelect)
+		// JSON üretir ama talimatı Türkçedir: 2B dersi (v0.10.1408'de kalkan analyze-service)
 		// — küçük modelde "İngilizce talimat + Türkçe cevap" kod-değiştirme
 		// vergisidir. Bu yüzden classStructured'ın "Türkçe geçmesin" kuralı
 		// onlara UYGULANMAZ; ayrım çıktının şekli değil, TALİMATIN dilidir.
-		"RCAVerdict":      classTurkishNative,
-		"ServiceAnalysis": classTurkishNative, // JSON çıktı, Türkçe talimat
-		"ServiceReport":   classTurkishNative, // v0.10.1337 — guided servis raporu, sabit altı bölüm
-		"RAGChat":         classTurkishNative, // kademe 3 — doküman yolu
-		"WikiChat":        classTurkishNative, // v0.10.1124 — açık wiki sorusu kademesi
-		"WikiFollowUp":    classTurkishNative, // v0.10.1134 — wiki takip sorusu (sayfa yeniden okuma)
-		"WikiSelect":      classTurkishNative, // v0.10.1136 — iki aşamalı okuma: sayfa seçimi (JSON çıktı, Türkçe talimat)
-		"RAGChatWiki":     classTurkishNative, // v0.10.1136 — RAG kademesi + wiki atıf eki
+		"RCAVerdict":    classTurkishNative,
+		"ServiceReport": classTurkishNative, // v0.10.1337 — guided servis raporu, sabit altı bölüm
+		"RAGChat":       classTurkishNative, // kademe 3 — doküman yolu
+		"WikiChat":      classTurkishNative, // v0.10.1124 — açık wiki sorusu kademesi
+		"WikiFollowUp":  classTurkishNative, // v0.10.1134 — wiki takip sorusu (sayfa yeniden okuma)
+		"WikiSelect":    classTurkishNative, // v0.10.1136 — iki aşamalı okuma: sayfa seçimi (JSON çıktı, Türkçe talimat)
+		"RAGChatWiki":   classTurkishNative, // v0.10.1136 — RAG kademesi + wiki atıf eki
 		// v0.9.1232 — kademe 4 (serbest tool döngüsü) classDirective'ten
 		// buraya taşındı: metin artık Türkçe yazılmış. ChatRoundCap aynı
 		// döngünün tur-tavanı hâli; sicile girmesiyle copilot_chat.go'daki
@@ -128,9 +127,9 @@ func promptTexts() map[string]string {
 		"DrawerChat":     SystemPromptDrawerChat(), "Chat": SystemPromptChat(),
 		"ChatRoundCap": SystemPromptChatRoundCap(), "ChatAgentLoop": SystemPromptChatAgentLoop(),
 		"ChatAgentLoop.simple": SystemPromptChatAgentLoopFor(true), // v0.10.1302
-		"RCAVerdict":           SystemPromptRCAVerdict(), "ServiceAnalysis": SystemPromptServiceAnalysis(),
-		"ServiceReport": SystemPromptServiceReport(), // v0.10.1337
-		"RAGChat":       SystemPromptRAGChat(), "ShiftSummary": SystemPromptShiftSummary(),
+		"RCAVerdict":           SystemPromptRCAVerdict(),
+		"ServiceReport":        SystemPromptServiceReport(), // v0.10.1337
+		"RAGChat":              SystemPromptRAGChat(), "ShiftSummary": SystemPromptShiftSummary(),
 		"WikiChat":     SystemPromptWikiChat(),
 		"WikiFollowUp": SystemPromptWikiFollowUp(),
 		"WikiSelect":   SystemPromptWikiSelect(), "RAGChatWiki": SystemPromptRAGChatWiki(),

@@ -708,7 +708,6 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/services/{name}/metric-throughput", s.getServiceMetricThroughput) // v0.9.665 — job etiketinden metrik türevli throughput
 	// v0.8.383 — per-service env chips (Service header Envs group).
 	mux.HandleFunc("GET /api/services/{name}/environments", s.getServiceEnvironments)
-	mux.HandleFunc("GET /api/services/{name}/neighbors", s.getServiceNeighbors)
 	// v0.6.29 — Service dependency impact scorer ("blast
 	// radius"). Open Problem on service X → which OTHER
 	// services are seeing broken calls because they invoke X?
@@ -3005,19 +3004,6 @@ func (s *Server) getServiceBacktrace(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// getServiceNeighbors returns the service-level upstream / downstream
-// neighbours of `name` derived from sampled trace topology — the
-// callers that invoke this service and the services it calls in
-// turn. No peer.service heuristic; pure parent/child edge analysis
-// over the recent N traces.
-//
-// Result is cached for 1h — the upstream / downstream service set
-// shifts on a deploy / weekly / monthly cadence, not within a
-// session, so an hour-stale list is functionally identical to a
-// fresh one. The underlying query (top-N traces + bulk span fetch)
-// is otherwise the most expensive thing on the service detail page.
-// Cache key folds in service / since / samples so a range or
-// sample-count change still misses.
 // getServiceBlastRadius (v0.6.29) — caller-side impact summary
 // for an inspected service. Reads service_callers_5m FINAL,
 // rolls up per (caller_service) instead of per (caller_service,
@@ -3046,48 +3032,6 @@ func (s *Server) getServiceBlastRadius(w http.ResponseWriter, r *http.Request) {
 		// penceresini geçer, buradaki "şu an" anlamı değişmedi).
 		now := time.Now()
 		return s.store.GetServiceBlastRadius(ctx, name, now.Add(-since), now)
-	})
-}
-
-func (s *Server) getServiceNeighbors(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	if name == "" {
-		http.Error(w, "service name required", http.StatusBadRequest)
-		return
-	}
-	since := parseDuration(r.URL.Query().Get("since"), time.Hour)
-	// v0.9.257 — ceiling, mirroring getServiceBlastRadius above. ServiceNeighbors
-	// picks the top-N traces with GROUP BY trace_id over raw `spans`; left
-	// unbounded a 720h window blows max_execution_time and the panel just errors
-	// out. Callers clamp too (rangeToSince in lib/utils.ts) and SAY they clamped
-	// — this is the server-side backstop for anyone who doesn't.
-	if since > 24*time.Hour {
-		since = 24 * time.Hour
-	}
-	samples := parseInt(r.URL.Query().Get("samples"), 50)
-
-	key := fmt.Sprintf("service-neighbors:svc=%s:since=%s:samples=%d",
-		name, since, samples)
-	// v0.9.227 (operatör) — 1h → 24h. Bir servisin komşuluğu deploy
-	// temposunda değişir, dakika temposunda değil; 1 saat gereğinden sık
-	// yeniden hesaplatıyordu. serveCached'in SWR'ı bunu güvenli kılıyor:
-	// TTL geçse bile kayıt staleFactor×TTL boyunca ANINDA servis edilir ve
-	// arka planda tazelenir (singleflight ile tekilleştirilmiş), yani uzun
-	// TTL "eski veri" değil "ilk isteyen bekleme" demek. Taze veri şart
-	// olduğunda ?refresh=1 okumayı atlar.
-	s.serveCached(w, r, key, 24*time.Hour, func(ctx context.Context) (any, error) {
-		upstream, downstream, sampledFrom, totalSpans, err := s.store.ServiceNeighbors(
-			ctx, name, since, samples)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{
-			"service":     name,
-			"upstream":    upstream,
-			"downstream":  downstream,
-			"sampledFrom": sampledFrom,
-			"totalSpans":  totalSpans,
-		}, nil
 	})
 }
 

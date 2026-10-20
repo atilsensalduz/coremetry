@@ -30,8 +30,9 @@ export const keys = {
                    ['services', 'sparklines', range, names ?? []] as const,
     structure:   (svc: string, since: string, samples: number) =>
                    ['services', 'structure', svc, since, samples] as const,
-    neighbors:   (svc: string, since: string, samples: number) =>
-                   ['services', 'neighbors', svc, since, samples] as const,
+    // v0.10.1408 — örneklem yok (topology_edges_5m); anahtar 'v2'.
+    neighbors:   (svc: string, since: string) =>
+                   ['services', 'neighbors', 'v2', svc, since] as const,
     infra:       (svc: string, since: string) =>
                    ['services', 'infra', svc, since] as const,
     runtime:     (svc: string) =>

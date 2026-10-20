@@ -77,7 +77,6 @@ vi.mock('@/components/MetricPanel', () => ({
     <div>{typeof children === 'function' ? children({}) : children}</div>,
 }));
 vi.mock('@/components/chart/corePanelEntry', () => ({ CorePanelMulti: () => null }));
-vi.mock('@/components/AIAnalysisPanel', () => ({ AIAnalysisPanel: () => null }));
 vi.mock('@/components/ServiceNeighbors', () => ({ ServiceNeighbors: () => null }));
 vi.mock('@/features/anomalies/AnomalyWindowTable', () => ({ AnomalyWindowTable: () => null }));
 vi.mock('./TopEndpointsCard', () => ({ TopEndpointsCard: () => null }));

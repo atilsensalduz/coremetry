@@ -12,11 +12,16 @@ import type { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 
 const { serviceNeighbors } = vi.hoisted(() => ({
-  serviceNeighbors: vi.fn(async (_svc: string, _since?: string, _n?: number, _refresh?: boolean) => ({
-    upstream: [{ service: 'gw', traceCount: 3, spanCount: 5 }],
-    downstream: [],
-    sampledFrom: 3,
-    totalSpans: 42,
+  // v0.10.1408 — yanıt topology_edges_5m şekli (örneklem alanları yok).
+  serviceNeighbors: vi.fn(async (_svc: string, _since?: string, _refresh?: boolean) => ({
+    service: 'api', from: 0, to: 0, source: 'topology_edges_5m',
+    upstream: [{ id: 'gw', name: 'gw', kind: 'service' as const, calls: 5, errors: 0, errorRate: 0, avgMs: 2, p99Ms: 4 }],
+    downstream: [
+      { id: 'db:oracle@db.example.test', name: 'oracle@db.example.test', kind: 'database' as const, system: 'oracle', calls: 938, errors: 0, errorRate: 0, avgMs: 4, p99Ms: 9 },
+      { id: 'ext:payments.example.test', name: 'payments.example.test', kind: 'external' as const, calls: 12, errors: 0, errorRate: 0, avgMs: 30, p99Ms: 80 },
+    ],
+    upstreamTotal: 1,
+    downstreamTotal: 2,
   })),
 }));
 vi.mock('@/lib/api', () => ({ api: { serviceNeighbors } }));
@@ -63,11 +68,33 @@ describe('ServiceNeighbors — Refresh', () => {
     expect(btn.type).toBe('button');
     expect(btn.title).toBe('Bypass the cached result and recompute now');
     expect(serviceNeighbors).toHaveBeenCalledTimes(1);
-    expect(serviceNeighbors.mock.calls[0][3]).toBe(false);
+    expect(serviceNeighbors.mock.calls[0][2]).toBe(false);
     act(() => { btn.click(); });
     await flush();
     expect(serviceNeighbors).toHaveBeenCalledTimes(2);
-    expect(serviceNeighbors.mock.calls[1][3]).toBe(true);
+    expect(serviceNeighbors.mock.calls[1][2]).toBe(true);
     expect((el.querySelector('button[aria-expanded]') as HTMLButtonElement).getAttribute('aria-expanded')).toBe('true');
+  });
+});
+
+// v0.10.1408 — operatör: "Downstream düzgün çalışmıyor". DB / dış HTTP
+// bağımlılıkları (enstrümante callee'si olmayan CLIENT span'ları) downstream
+// sütununda görünmeli; başlık örneklem iddia etmemeli.
+describe('ServiceNeighbors — v0.10.1408 db/external downstream', () => {
+  it('downstream db + external chips; header names the rollup, not a sample', async () => {
+    const el = render(<ServiceNeighbors service="api" defaultOpen />);
+    await flush();
+    const text = el.textContent ?? '';
+    expect(text).toContain('1 upstream · 2 downstream');
+    expect(text).toContain('Downstream (2)');
+    expect(text).toContain('oracle@db.example.test');
+    expect(text).toContain('payments.example.test');
+    expect(text).not.toContain('No downstream');
+    expect(text).not.toMatch(/sampled from|spans inspected/);
+    // db düğümü /database'e, servis /service'e gider; external link çizmez.
+    const hrefs = Array.from(el.querySelectorAll('a')).map(a => a.getAttribute('href') ?? '');
+    expect(hrefs.some(h => h.startsWith('/database'))).toBe(true);
+    expect(hrefs.some(h => h.startsWith('/service?name=gw'))).toBe(true);
+    expect(hrefs.some(h => h.includes('payments.example.test'))).toBe(false);
   });
 });

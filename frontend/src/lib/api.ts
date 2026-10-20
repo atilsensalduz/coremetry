@@ -573,19 +573,13 @@ export const api = {
       internalOnly?: boolean;
     }>(`/api/services/${encodeURIComponent(svc)}/structure?since=${since}&samples=${samples}${internalOnly ? '&internal=true' : ''}`),
 
-  // Service-level upstream / downstream neighbours derived from
-  // sampled trace topology. No peer.service heuristic — purely
-  // parent/child edge analysis. Pass refresh=true to bypass the
-  // 1h cache when the operator knows the topology has shifted
-  // (new service / pod / route just deployed).
-  serviceNeighbors: (svc: string, since: GoDuration = '1h', samples = 50, refresh = false) =>
-    get<{
-      service: string;
-      upstream?: import('./types').NeighborStat[];
-      downstream?: import('./types').NeighborStat[];
-      sampledFrom: number;
-      totalSpans: number;
-    }>(`/api/services/${encodeURIComponent(svc)}/neighbors?since=${since}&samples=${samples}${refresh ? '&refresh=1' : ''}`),
+  // Service-level upstream / downstream neighbours. v0.10.1408 — reads the
+  // topology_edges_5m rollup (same read as the Topology tab), so db / queue /
+  // external callees count too; no trace sampling. refresh=true bypasses the
+  // server cache.
+  serviceNeighbors: (svc: string, since: GoDuration = '1h', refresh = false) =>
+    get<import('./types').ServiceNeighborsResponse>(
+      `/api/services/${encodeURIComponent(svc)}/neighbors?since=${since}${refresh ? '&refresh=1' : ''}`),
 
   // v0.6.29 — Blast radius for an open Problem. Returns upstream
   // callers + their RPS + cascade-flag (caller has own open
@@ -2600,16 +2594,6 @@ export const api = {
     // sınırı + bozuk çerçeveyi atlama), yalnız yazılış tek.
     await readSSE<import('./types').ChatStreamEvent>(r.body, onEvent);
   },
-  // analyzeService (v0.8.85) — per-service single-shot AI analysis. The server
-  // summarises RED + baseline + top errors + deploys + neighbours and the
-  // operator-configured model returns the {ozet, olasi_neden, kanit, oneriler,
-  // guven} verdict. refresh bypasses the 5-min Redis cache.
-  analyzeService: (service: string, rangeS?: number, refresh?: boolean, signal?: AbortSignal) =>
-    request<import('./types').ServiceAnalysisResponse>(
-      `/api/copilot/analyze-service?service=${encodeURIComponent(service)}${rangeS ? `&rangeS=${rangeS}` : ''}${refresh ? '&refresh=1' : ''}`,
-      { method: 'POST', signal }, // v0.10.537 — iptal (AIAnalysisPanel)
-    ),
-
   // v0.10.1407 (Tek CoSRE adım 4) — ✨ Explain uçlarının istemci yöntemleri
   // (copilotExplainTrace/Span/Problem/Exception/Incident/Anomaly/Log/
   // ServiceHealth/Charts/LogSpike, copilotRunbook) SİLİNDİ: son çağıranları
