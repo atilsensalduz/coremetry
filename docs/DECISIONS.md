@@ -8668,3 +8668,10 @@ milyon eksik." **Kök neden:** ortak `fmtNum` (`lib/utils.ts`) en büyük birim 
 1e9 → `B`, 1e12 → `T` (bir ondalık); System sayaçları, trace listesi ve fmtNum kullanan tüm tablolar düzelir. Grafik
 eksenleri (`chartFmt.ts`, SI G/T) değişmedi. Aynı "en fazla M" kalıbını taşıyan yerel kopyalar (FilterBuilder,
 FilterQueryBox, Sparkline, Endpoints, TopEndpointsCard, DetailsEndpointsSection) kuyrukta.
+
+## 2026-10-20 — v0.10.1418 — Trace başlığı: operasyon adı kopyalanabilir, çip biraz küçük
+
+**Operatör (Trace Detail ekran görüntüsü):** "Operasyon adı kopyalanabilir olsun, ayrıca biraz daha çok az küçük font
+size olabilir." **Karar:** `OracleOperationChip` (kesin ve sözlük dalı) operasyon adının yanına ortak `CopyButton`
+koyar (değer = tam operasyon adı, title "Operasyon adını kopyala"); link tıklaması aynı fonksiyon kodunun trace'lerine
+gitmeye devam eder. Çipin yazısı `a.sec.op-chip` ile 13 px → `--fs-sm` (12 px), iç boşluk 5/14 → 3/10.

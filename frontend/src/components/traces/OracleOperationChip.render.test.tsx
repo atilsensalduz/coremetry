@@ -77,7 +77,10 @@ describe('OracleOperationChip (v0.10.1329)', () => {
     const h = await mount([oracleRow(INQ, 'c', 5), oracleRow(TRX, 'r', 9)]);
     const chip = h.querySelector('[data-op-source]') as HTMLElement;
     expect(chip.dataset.opSource).toBe('oracle');
-    expect(chip.textContent).toBe(`Operasyon: ${TRX} (+1)`);
+    // v0.10.1418 — operasyon adının yanında kopyala düğmesi (⧉), değeri tam ad.
+    expect(chip.textContent).toBe(`Operasyon: ${TRX}⧉ (+1)`);
+    const copy = chip.querySelector('button[title="Operasyon adını kopyala"]');
+    expect(copy).not.toBeNull();
     expect(chip.textContent).not.toContain('(+15)');
     expect(chip.title).toContain("Kaynak: bu trace'in kendi Oracle hata satırları (operation.code, 2 satır) — kesin.");
     expect(chip.title).toContain(`Bu trace'teki diğer operasyonlar: ${INQ}.`);
@@ -91,7 +94,8 @@ describe('OracleOperationChip (v0.10.1329)', () => {
     const h = await mount([]);
     const chip = h.querySelector('[data-op-source]') as HTMLElement;
     expect(chip.dataset.opSource).toBe('dictionary');
-    expect(chip.textContent).toBe(`Operasyon (fonksiyon kodundan, 16 aday): ${INQ}`);
+    expect(chip.textContent).toBe(`Operasyon (fonksiyon kodundan, 16 aday): ${INQ}⧉`); // v0.10.1418 kopyala
+    expect(chip.querySelector('button[title="Operasyon adını kopyala"]')).not.toBeNull();
     expect(chip.title).toContain('kesin DEĞİL');
     expect(chip.title).toContain(`Bu kod 16 operasyonda görülüyor: ${INQ}, ${TRX}, OTHER_REST (+13 daha).`);
     const a = chip.querySelector('a')!;

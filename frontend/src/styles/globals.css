@@ -688,6 +688,8 @@ a.sec {
   text-decoration: none; transition: background .15s, border-color .15s;
 }
 a.sec:hover { background: var(--bg2); border-color: var(--border-strong); }
+/* v0.10.1418 (operatör: "biraz daha küçük font") — trace başlığındaki operasyon çipi. */
+a.sec.op-chip { font-size: var(--fs-sm); padding: 3px 10px; }
 a.sec:active { background: var(--bg3); }
 /* a.accent — `.sec` ikizinin accent kardeşi (v0.9.1372).
    v0.9.1210'un dersi bir varyant sonra aynen tekrarlanacaktı: `.accent`

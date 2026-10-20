@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
+import { CopyButton } from '@/components/CopyButton'; // v0.10.1418
 import { useOracleFunctionCodes } from '@/lib/queries';
 import type { LogRow, SpanRow, TimeRange } from '@/lib/types';
 import { functionCodeTracesHref } from '@/lib/pivotHref';
@@ -46,10 +47,11 @@ export function OracleOperationChip({ spans, pageRange, oracleRows }: {
           return (
             <span key={o.code} className="cell-hint" title={title} data-op-source="dictionary">
               {dictionaryOperationLabel(o)}{' '}
-              <Link className="sec mono" aria-label={`${o.operation} — ${title}`}
+              <Link className="sec mono op-chip" aria-label={`${o.operation} — ${title}`}
                 to={functionCodeTracesHref({ window: pageRange, attrKey: o.key, codes: [o.code] })}>
                 {o.operation}
               </Link>
+              <CopyButton value={o.operation} title="Operasyon adını kopyala" />
             </span>
           );
         })}
@@ -65,13 +67,16 @@ export function OracleOperationChip({ spans, pageRange, oracleRows }: {
     <span className="cell-hint" title={fc ? `${title} Tıkla: bu fonksiyon kodunun diğer trace'leri.` : title} data-op-source={pick.source}>
       Operasyon:{' '}
       {fc ? (
-        <Link className="sec mono" aria-label={`${pick.main} — ${title}`}
+        <Link className="sec mono op-chip" aria-label={`${pick.main} — ${title}`}
           to={functionCodeTracesHref({ window: pageRange, attrKey: fc.key, codes: [fc.code] })}>
           {pick.main}
         </Link>
       ) : (
         <span className="mono">{pick.main}<span className="sr-only"> — {title}</span></span>
       )}
+      {/* v0.10.1418 (operatör: "Operasyon adı kopyalanabilir olsun") — kopyala düğmesi;
+          link tıklaması aynı fonksiyon kodunun trace'lerine gitmeye devam eder. */}
+      <CopyButton value={pick.main} title="Operasyon adını kopyala" />
       {pick.others.length > 0 ? ` (+${pick.others.length})` : ''}
     </span>
   );
