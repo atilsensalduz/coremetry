@@ -10,7 +10,7 @@ import { LazyMount } from '@/components/LazyMount';
 import type { DataTableColumn } from '@/lib/dataTable';
 import type { TimeRange } from '@/lib/types';
 import { stopRowClick } from '@/lib/a11y';
-import { rowClickHandlers } from '@/lib/utils';
+import { rowClickHandlers, fmtNum } from '@/lib/utils';
 import { encodeRange } from '@/lib/urlState';
 import { endpointDetailHref } from '@/pages/endpoints/endpointParam';
 import { tracesLink } from '@/pages/endpoints/links';
@@ -40,9 +40,8 @@ const PER_CLUSTER_LIMIT = 20;
 function errBadge(rate: number): string {
   return `badge ${rate > 5 ? 'b-err' : rate > 1 ? 'b-warn' : 'b-gray'}`;
 }
-function fmtCount(n: number): string {
-  return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n);
-}
+// v0.10.1424 — Calls column uses the shared fmtNum (K/M/B/T); the local K/M
+// copy is gone.
 
 const COLS_BASE: DataTableColumn<ClusterEndpointRow>[] = [
   { id: 'path',  label: 'Endpoint', sortValue: r => r.path, naturalDir: 'asc', flex: true, minWidth: 220 },
@@ -144,7 +143,7 @@ export function DetailsEndpointsSection({ service, range, rangeNs, env }: {
                           : '—'}
                       </td>
                     )}
-                    <td className="num">{fmtCount(r.calls)}</td>
+                    <td className="num">{fmtNum(r.calls)}</td>
                     <td className="num"><span className={errBadge(r.errorRate)}>{r.errorRate.toFixed(1)}%</span></td>
                     <td className="num">{r.p50Ms != null ? `${r.p50Ms.toFixed(0)} ms` : '—'}</td>
                     <td className="num">{r.p99Ms.toFixed(0)} ms</td>

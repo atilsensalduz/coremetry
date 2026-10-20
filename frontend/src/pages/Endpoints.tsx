@@ -1153,16 +1153,16 @@ function StatusBreakdown({ r }: { r: EndpointRow }) {
     <span style={{ display: 'inline-flex', gap: 4 }}>
       {s2 > 0 && (
         // v0.10.929 (K5) — 2xx normal trafik: 3xx gibi nötr; renk yalnız 4xx/5xx sapmada.
-        <span className="badge b-gray" title={`${s2.toLocaleString()} 2xx responses`}>2xx {compactNum(s2)}</span>
+        <span className="badge b-gray" title={`${s2.toLocaleString()} 2xx responses`}>2xx {fmtNum(s2)}</span>
       )}
       {s3 > 0 && (
-        <span className="badge b-gray" title={`${s3.toLocaleString()} 3xx redirects`}>3xx {compactNum(s3)}</span>
+        <span className="badge b-gray" title={`${s3.toLocaleString()} 3xx redirects`}>3xx {fmtNum(s3)}</span>
       )}
       {s4 > 0 && (
-        <span className="badge b-warn" title={`${s4.toLocaleString()} 4xx client errors`}>4xx {compactNum(s4)}</span>
+        <span className="badge b-warn" title={`${s4.toLocaleString()} 4xx client errors`}>4xx {fmtNum(s4)}</span>
       )}
       {s5 > 0 && (
-        <span className="badge b-err" title={`${s5.toLocaleString()} 5xx server errors`}>5xx {compactNum(s5)}</span>
+        <span className="badge b-err" title={`${s5.toLocaleString()} 5xx server errors`}>5xx {fmtNum(s5)}</span>
       )}
     </span>
   );
@@ -1292,14 +1292,10 @@ function fmtMs(v?: number): string {
   return (v < 10 ? v.toFixed(1) : v.toFixed(0)) + ' ms';
 }
 
-// compactNum — 12345 → "12.3k". Keeps the pill width bounded
-// across two orders of magnitude. fmtNum (locale-formatted) would
-// blow the column out at 5+ digits.
-function compactNum(n: number): string {
-  if (n < 1000) return n.toString();
-  if (n < 1_000_000) return (n / 1000).toFixed(n < 10_000 ? 1 : 0) + 'k';
-  return (n / 1_000_000).toFixed(n < 10_000_000 ? 1 : 0) + 'M';
-}
+// v0.10.1424 — status-class pills use the shared fmtNum (K/M/B/T). The old
+// page-local compactNum (1 or 0 decimals by magnitude, lowercase k, no B)
+// is gone; its "fmtNum is locale-formatted" comment was stale — fmtNum has
+// been the compact K/M formatter all along and the pill stays bounded.
 
 // KPI karosu v0.9.819'da EndpointsSummary'ye taşınmıştı; v0.9.834'te
 // şeridin tamamı KALDIRILDI (operatör: bu metrikler gereksiz). Sayfa-

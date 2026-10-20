@@ -2,6 +2,7 @@ import { useCallback, useId, useRef, useState } from 'react';
 import { SparkReadout, type SparkReadoutRow } from './SparkReadout';
 import { SPARK_DEFAULT_WIDTH, barGeometry, barIndexAt, classifyThreshold, downsampleBuckets, maxBarsForWidth, maxLinePointsForWidth, sparkMarkerX, sparkRenderMode } from '@/lib/sparkline';
 import { downsampleXY } from '@/lib/perf/lttb';
+import { fmtNum } from '@/lib/utils';
 
 // Tiny inline SVG sparkline — no chart library. Auto-scales to its own
 // y-range so a service with 5 spans/min looks just as readable as one
@@ -399,13 +400,14 @@ function SparkMarker({ x, height }: { x: number | null; height: number }) {
   return <line x1={x} x2={x} y1={0} y2={height} stroke="var(--text2)" strokeWidth={1} data-spark-marker="" />;
 }
 
-function fmtVal(v: number, unit?: string): string {
+// v0.10.1424 — magnitudes ≥ 1e3 go through the shared fmtNum (K/M/B/T); the
+// local K/M/B copy is gone. fmtNum is unsigned, so the sign is carried here
+// (sparklines can plot deltas). Exported for the unit test only.
+export function fmtVal(v: number, unit?: string): string {
   if (!isFinite(v)) return '—';
   if (unit === 'ms' || unit === 's' || unit === '%') {
     return v.toFixed(v >= 100 ? 0 : 1) + (unit ? ' ' + unit : '');
   }
-  if (Math.abs(v) >= 1_000_000_000) return (v / 1_000_000_000).toFixed(1) + 'B';
-  if (Math.abs(v) >= 1_000_000)     return (v / 1_000_000).toFixed(1) + 'M';
-  if (Math.abs(v) >= 1_000)         return (v / 1_000).toFixed(1) + 'k';
+  if (Math.abs(v) >= 1_000) return (v < 0 ? '-' : '') + fmtNum(Math.abs(v));
   return Number.isInteger(v) ? String(v) : v.toFixed(2);
 }

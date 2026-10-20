@@ -22,7 +22,7 @@ import { useEscLayer } from '@/lib/escLayer';
 import { attrKeyWindowParams } from '@/lib/attrKeyWindow';
 import { useAttributeKeys } from '@/lib/useAttributeKeys';
 import { useUrlRange } from '@/lib/useUrlRange';
-import { timeRangeToNs } from '@/lib/utils';
+import { timeRangeToNs, fmtNum } from '@/lib/utils';
 import type { FilterExpr, FilterOp } from '@/lib/types';
 import {
   FILTER_OPS, OP_NEEDS_VALUE, OP_SHORT, opFromShorthand, parseInlineFilter, splitListValues,
@@ -71,12 +71,8 @@ export interface FilterQueryBoxProps {
   tourQuick?: string;
 }
 
-function fmtCount(n: number): string {
-  if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
-  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
-  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
-  return String(n);
-}
+// v0.10.1424 — hint/recent counts use the shared fmtNum (K/M/B/T); the local
+// K/M copy is gone.
 
 function loadRecent(key?: string): FilterExpr[] {
   if (!key) return [];
@@ -335,7 +331,7 @@ export function FilterQueryBox({ value, onChange, suggestedValues, quick = [], r
                   <div key={k} id={`${listId}-${i}`} role="option" aria-selected={i === hi} className={i === hi ? 'fq-opt sel' : 'fq-opt'}
                     onMouseEnter={() => setHi(i)} onMouseDown={e => { e.preventDefault(); setHi(i); setDraft({ ...draft, step: 'op', k, text: '' }); }}>
                     <span className="name mono">{k}</span>
-                    {hints[k] ? <span className="cnt">{fmtCount(hints[k])} span</span> : null}
+                    {hints[k] ? <span className="cnt">{fmtNum(hints[k])} span</span> : null}
                   </div>
                 ))
             )}
@@ -365,7 +361,7 @@ export function FilterQueryBox({ value, onChange, suggestedValues, quick = [], r
                     {r.count > 0 && (
                       <span className="cnt bar">
                         <i style={{ width: `${Math.max(2, Math.round((r.count / (maxCount || 1)) * 72))}px` }} />
-                        {fmtCount(r.count)}
+                        {fmtNum(r.count)}
                       </span>
                     )}
                   </div>

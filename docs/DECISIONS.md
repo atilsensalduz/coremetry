@@ -8916,3 +8916,29 @@ yazan her input/select/textarea yalnız `var(--field-bg)` yazar.
 kablolama), `pages/Traces.traceIdBox.test.tsx` (gerçek sayfa: kutu yok, 32-hex atlayış, function_id araması, eski
 paramın tek seferlik yönlenmesi), güncellenen pinler: `shortcutSearchTarget`, `searchFieldAdoption`,
 `filterBarSearch.pin`, `tracesCountUniverse`, `traceIdAnchor`, `traceSearchTerm`, `scopeParams`, `paletteIdentity`.
+
+## 2026-10-20 — v0.10.1424 — Yerel K/M sayı biçimlendiricileri ortak fmtNum'a bağlandı
+
+**Operatör (v0.10.1417, System › Overview "2770.0M"):** "Burada da billion yazsın bence, milyon eksik." 1417 ortak
+`fmtNum`a B/T öğretmişti; 1417'nin kuyruğa yazdığı yerel kopyalar bu sürümde kalktı. **Kök neden:** yedi dosya kendi
+"en fazla M" (ya da kendi B'li) sayı biçimini taşıyordu ve ortak düzeltme onlara ulaşmıyordu.
+
+**Karar:** hepsi `fmtNum` (`lib/utils.ts`, K/M/B/T, bir ondalık). Yerel yardımcılar silindi, shim yok:
+`FilterBuilder` + `FilterQueryBox` `fmtCount` (ipucu çipleri, küçük `k`), `Sparkline` `fmtVal` (≥1e3 dalı artık
+`fmtNum`; birimli ms/s/% dalı ve <1e3 dalı aynen, işaret yerel taşınır — `fmtNum` işaretsiz, sparkline delta
+çizebilir; test için dışa aktarıldı), `Endpoints` `compactNum` (durum sınıfı hapları), `TopEndpointsCard` +
+`DetailsEndpointsSection` `fmtCount` (Calls sütunu), `AdminClickhouse` `fmtCount` (geri doldurma sihirbazının canlı
+dilim satırı; "2.50 Mr / 1.5 M / 12 K" idi). `lib/chartFmt.ts` (grafik ekseni SI, G/T) ve bayt biçimleri (`fmtBytes`,
+`panels/shared.tsx`) bilinçli olarak ayrı kaldı; `ai-rates.ts`'teki `/ 1_000_000` fiyatlama, biçim değil.
+
+**Yuvarlama farkları (tutarlılık kazandı; hiçbir test eski çıktıyı pinlemiyordu):** `Endpoints` hapları büyüklüğe göre
+1/0 ondalık seçiyordu (12345 → "12.3k", 123456 → "123k", 12.3M → "12M"); artık her zaman bir ondalık ve büyük harf
+("12.3K", "123.5K", "12.3M") — hap en fazla iki karakter genişler, yorumdaki "fmtNum locale biçimli, sütunu
+patlatır" gerekçesi bayattı (fmtNum hiç locale biçimli olmadı). `FilterBuilder`/`FilterQueryBox`/`Sparkline`'da küçük
+`k` → `K`. `AdminClickhouse` canlı satırında boşluklu Türkçe "Mr" → boşluksuz "B", K dalı 0 → 1 ondalık, B dalı 2 → 1
+ondalık (aynı satırdaki `fmtBytes` "1.5 MB" boşluklu kalır; iki ayrı büyüklük, aynı biçim zorunlu değil).
+
+**Mandal:** `lib/fmtNumLocalCopies.test.ts` — `src/` taraması: `lib/utils.ts` ve `lib/chartFmt.ts` dışında
+`(n / 1e6|1_000_000).toFixed(…) + 'M'` / `}M` / `} M` (B son eki dahil, " MB" bayt biçimleri hariç) görülürse düşer;
+desen kaymasına karşı utils.ts'nin yakalandığı doğrulanır. Aynı dosyada `Sparkline.fmtVal` tablosu (B/M/K, negatif,
+birimli ve sonsuz dallar).

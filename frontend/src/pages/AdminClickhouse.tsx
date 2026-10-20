@@ -3265,13 +3265,8 @@ function fmtAge(ms: number): string {
 // ham spans'ten GÜN GÜN yeniden kurar (önce günün MV partition'ı düşer —
 // AggregatingMergeTree'de çifte-insert sayıları şişirir; span'lere
 // dokunulmaz). Desen: 2s poll + document.hidden.
-// fmtCount — canlı dilim satırı için kısa sayı biçimi (fmtBytes ortak import).
-function fmtCount(n: number): string {
-  if (n >= 1e9) return `${(n / 1e9).toFixed(2)} Mr`;
-  if (n >= 1e6) return `${(n / 1e6).toFixed(1)} M`;
-  if (n >= 1e3) return `${(n / 1e3).toFixed(0)} K`;
-  return String(n);
-}
+// v0.10.1424 — canlı dilim satırının satır sayısı ortak fmtNum (K/M/B/T);
+// yerel "2.50 Mr / 1.5 M / 12 K" kopyası kalktı (fmtBytes ortak import).
 // fmtMs — "12 s" / "3 dk 20 s" / "1 sa 5 dk" (ETA okunurluğu).
 function fmtMs(ms?: number): string {
   if (!ms || ms <= 0) return '—';
@@ -3400,7 +3395,7 @@ function TraceBackfillWizardPanel() {
             {run.live!.map((p, i) => (
               <span key={i} style={{ marginRight: 12 }}>
                 <code>{p.host}</code>{p.initial ? ' (initiator)' : ''} · {p.elapsedS.toFixed(1)} s ·{' '}
-                {fmtCount(p.readRows)} satır · {fmtBytes(p.readBytes)} · bellek {fmtBytes(p.memoryBytes)}
+                {fmtNum(p.readRows)} satır · {fmtBytes(p.readBytes)} · bellek {fmtBytes(p.memoryBytes)}
                 {p.peakBytes > p.memoryBytes ? ` (tepe ${fmtBytes(p.peakBytes)})` : ''}
               </span>
             ))}

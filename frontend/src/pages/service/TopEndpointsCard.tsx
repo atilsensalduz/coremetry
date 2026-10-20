@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { stopRowClick } from '@/lib/a11y'; // v0.10.455 (dış denetim D3 dilim 3); v0.10.1414 satır linki
-import { rowClickHandlers } from '@/lib/utils';
+import { rowClickHandlers, fmtNum } from '@/lib/utils';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useEffect } from 'react';
 import { endpointDetailHref } from '@/pages/endpoints/endpointParam';
@@ -35,10 +35,8 @@ const EP_COLS: DataTableColumn<EndpointRow>[] = [
   { id: 'share', label: 'Süre payı', sortValue: totalTimeOf, numeric: true, width: 110 },
 ];
 
-function fmtCount(n: number): string {
-  return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M`
-    : n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n);
-}
+// v0.10.1424 — Calls column uses the shared fmtNum (K/M/B/T); the local K/M
+// copy is gone.
 
 export function TopEndpointsCard({ service, range, endpoints }: {
   service: string; range: TimeRange; endpoints: EndpointRow[];
@@ -111,7 +109,7 @@ export function TopEndpointsCard({ service, range, endpoints }: {
                 <tr key={r.path} {...dt.rowProps(i)}
                     {...rowClickHandlers(href, () => navigate(href))}>
                   <td><Link to={href} onClick={stopRowClick} className="mono cell-link cell-link--block" title={r.path}>{r.path}</Link></td>
-                  <td className="num">{fmtCount(r.calls)}</td>
+                  <td className="num">{fmtNum(r.calls)}</td>
                   <td className="num"><span className={errBadge(r.errorRate)}>{r.errorRate.toFixed(1)}%</span></td>
                   <td className="num">{r.p50Ms != null ? `${r.p50Ms.toFixed(0)} ms` : '—'}</td>
                   <td className="num">{r.p99Ms.toFixed(0)} ms</td>

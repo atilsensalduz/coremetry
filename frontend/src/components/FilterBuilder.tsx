@@ -8,7 +8,7 @@ import { metricLabelQ } from '@/lib/metricLabelQuery'; // v0.10.875
 import type { FilterExpr, FilterOp } from '@/lib/types';
 import { useAttributeKeys } from '@/lib/useAttributeKeys';
 import { useUrlRange } from '@/lib/useUrlRange';
-import { timeRangeToNs } from '@/lib/utils';
+import { timeRangeToNs, fmtNum } from '@/lib/utils';
 
 const OPS: FilterOp[] = ['=', '!=', 'LIKE', 'NOT LIKE', 'IN', 'NOT IN', '>', '>=', '<', '<=', 'EXISTS', 'NOT EXISTS'];
 
@@ -233,13 +233,8 @@ function DraftEditor({ draft, onSave, onCancel, suggestedValues, keyOptions, top
     onSave({ k: local.k.trim(), op: local.op, v });
   };
 
-  // fmtCount — compact human-readable count for the hint chips.
-  const fmtCount = (n: number) => {
-    if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
-    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
-    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
-    return String(n);
-  };
+  // v0.10.1424 — hint chip counts go through the shared fmtNum (K/M/B/T);
+  // the local K/M copy is gone.
 
   return (
     <div className="fb-form">
@@ -265,7 +260,7 @@ function DraftEditor({ draft, onSave, onCancel, suggestedValues, keyOptions, top
                 onClick={() => setLocal({ ...local, k: h.key })}
                 title={`${h.count.toLocaleString()} spans carry this attribute under the active filter set`}>
                 {h.key}
-                <span style={{ color: 'var(--text3)' }}>{fmtCount(h.count)}</span>
+                <span style={{ color: 'var(--text3)' }}>{fmtNum(h.count)}</span>
               </Chip>
             ))}
           </div>
