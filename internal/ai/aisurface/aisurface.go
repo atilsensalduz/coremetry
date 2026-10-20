@@ -43,6 +43,10 @@ const (
 	RAGChat = "rag-chat"
 	// ExplainTraceChat — sohbette trace sorusu (Explain çekirdeği, sohbet içi).
 	ExplainTraceChat = "explain-trace:chat"
+	// ExplainExceptionChat — v0.10.1399: "operasyon neden hata veriyor"
+	// sorusunda Exceptions grubunun ✨ açıklaması sohbet içinde (aynı girdi,
+	// aynı prompt, aynı önbellek; api/chat_operation_exception_explain.go).
+	ExplainExceptionChat = "explain-exception:chat"
 	// ChatRule — v0.10.1289: "bunu hatırla" → son soru + cevaptan tek cümlelik
 	// kural önerisi (hafıza kademesi, api/chat_memory.go). Öneri kaydedilmez;
 	// operatör onay kartında düzenleyip kaydeder.
@@ -96,6 +100,7 @@ var registry = []Spec{
 	{Label: WikiSelect, Role: RoleSubCall},
 	{Label: RAGChat, Role: RoleAnswer},
 	{Label: ExplainTraceChat, Role: RoleAnswer, Eval: "Trace"},
+	{Label: ExplainExceptionChat, Role: RoleAnswer, Eval: "Exception"}, // v0.10.1399
 	// v0.10.1289 — kural önerisi cevabın kendisi (RoleAnswer); KB'ye terfi
 	// edemez (kanıt değil, öneri) ve evalset vakası olamaz (girdi sohbetin
 	// son turundan istek anında kurulur).

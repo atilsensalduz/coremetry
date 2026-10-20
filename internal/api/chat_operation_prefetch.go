@@ -182,6 +182,10 @@ type opTarget struct {
 	// türetilen fiil değil). Küme kıyasının VM sorgusu http_request_method
 	// süzgecini YALNIZ bu durumda ekler (operatör varsayılanı).
 	MethodAsked bool
+	// ErrorAsk — v0.10.1399: soru "operasyon neden hata veriyor" şekilli
+	// (opErrorWhyAsk). Yalnız sohbet ön-getirmesi doldurur; çekmece endpoint
+	// kanıtı (drawerEndpointEvidence) false bırakır → paket bayt bayt eski.
+	ErrorAsk bool
 }
 
 // opTargetFor — SAF.
@@ -263,6 +267,10 @@ type opPrefetch struct {
 	// (Oracle katalog satırı) → span anahtarının yazımı; "" = span operasyonu
 	// ya da kod yok (döngü linkleri yeniden yazılmaz).
 	codeKey string
+	// errorAsk — v0.10.1399: hedefin ErrorAsk'ı; copilotChat Exceptions grubu
+	// varken cevabı sohbet içinde Exceptions açıklamasından üretir
+	// (chat_operation_exception_explain.go). JSON'a girmez.
+	errorAsk bool
 }
 
 type opTraceRow struct {
@@ -395,18 +403,26 @@ func (p *opPrefetch) exceptionsPromptTR() string {
 	return copilot.OperationExceptionsAddendum() + "\n\n"
 }
 
-// exceptionFollowupFacts — v0.10.1331: en yeni grubun takip çipi olgusu
+// exceptionFollowupFacts — v0.10.1331: grubun takip çipi olgusu
 // ("<KOD> grubunu açıkla" → grubun Exceptions açıklaması). nil → yok.
+//
+// v0.10.1399 — en YENİ grup (Groups[0]) değil, en ÖNEMLİ grup önce
+// (pickExplainGroup: P1 → son saat → toplam → son görülme; ignored/resolved
+// düşer), ardından kalanlar aynı sırayla: çip ile sohbet içi açıklama aynı
+// grubu söyler. followupChips tür başına bir çip seçer → ilk (en önemli) kazanır.
 func (p *opPrefetch) exceptionFollowupFacts() []followupFact {
 	if p == nil || p.Exceptions == nil || p.Exceptions.Err != "" || len(p.Exceptions.Groups) == 0 {
 		return nil
 	}
-	g := p.Exceptions.Groups[0]
-	code := g.Code
-	if code == "" {
-		code = g.Type
+	top, others, ok := pickExplainGroup(p.Exceptions.Groups) // v0.10.1399
+	if !ok {
+		return nil
 	}
-	return []followupFact{{Kind: fuKindExceptionGroup, Code: code, Fingerprint: g.Fingerprint}}
+	out := make([]followupFact, 0, 1+len(others))
+	for _, g := range append([]exGroupLine{top}, others...) {
+		out = append(out, followupFact{Kind: fuKindExceptionGroup, Code: exGroupLabel(g), Fingerprint: g.Fingerprint})
+	}
+	return out
 }
 
 // followupFacts — v0.10.1388: ön-getirmenin takip olguları — en yeni Exceptions
@@ -614,6 +630,7 @@ func (s *Server) chatOperationPrefetch(ctx context.Context, emit func(string, an
 		}
 		t, kind = opTargetFor(m.Ops[0], cands), m.Kind
 	}
+	t.ErrorAsk = opErrorWhyAsk(raw) // v0.10.1399 — "neden hata veriyor" → Exceptions açıklaması sohbet içinde
 	if rangeS <= 0 {
 		rangeS = opDefaultRangeS
 	}
@@ -638,7 +655,7 @@ func (s *Server) opPrefetchForTarget(pctx context.Context, emit func(string, any
 	prevFrom := from.Add(-time.Duration(rangeS) * time.Second)
 	sc := s.oracleOpScope()
 	p := &opPrefetch{Operation: t.Name, MatchKind: kind, Services: t.Services, Codes: t.Codes, RangeS: rangeS, From: from, To: to,
-		Route: t.Route, Method: t.Method, Alternatives: t.Alternatives, endpoint: t.Endpoint}
+		Route: t.Route, Method: t.Method, Alternatives: t.Alternatives, endpoint: t.Endpoint, errorAsk: t.ErrorAsk} // v0.10.1399 errorAsk
 	argm := map[string]any{"operation": t.Name, "match": kind, "range_s": rangeS}
 	if t.HasRoute {
 		argm["route"] = t.Route
@@ -869,7 +886,11 @@ func (s *Server) endpointDrillPhase(pctx context.Context, emit func(string, any)
 			epCh <- epExResult{rows: rows, err: err}
 		}()
 	}
-	if picks := pickDrillTraces(merged); len(picks) > 0 {
+	// v0.10.1399 (operator-reported) — "neden hata veriyor" sorusunda Exceptions
+	// grubu varsa cevap grubun Exceptions açıklamasından gelir
+	// (opExceptionExplainInChat); örnek trace kırılımı (en yavaş hatalının
+	// tesadüfi yan hatası, ör. log yayınının PRODUCER timeout'u) okunmaz.
+	if picks := pickDrillTraces(merged); len(picks) > 0 && !opDrillSkippedForErrorAsk(t, p) {
 		dids := make([]string, len(picks))
 		for i, c := range picks {
 			dids[i] = c.Row.TraceID

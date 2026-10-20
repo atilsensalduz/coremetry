@@ -426,6 +426,18 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 		emit("done", map[string]bool{"ok": true})
 		return
 	}
+	// v0.10.1399 (operator-reported) — "<OP> operasyonu neden hata veriyor?":
+	// ön-getirme Exceptions grubu bulduysa cevap sohbet akışının İÇİNDE grubun
+	// Exceptions açıklamasından (aynı girdi + prompt + önbellek;
+	// chat_operation_exception_explain.go). Grup yok / okunamadı / soru
+	// hata-neden değil → handled=false, akış aşağıda bayt bayt eski.
+	if opPre != nil && opPre.errorAsk {
+		if handled, eok := s.opExceptionExplainInChat(ctx, emit, opPre, chatLocationNamed(req.Context.Tz, req.Context.TzOffsetMin)); handled {
+			cspan.tier("operation", eok)
+			emit("done", map[string]bool{"ok": eok})
+			return
+		}
+	}
 	if opPre == nil {
 		if handled, gok := s.copilotChatGuided(ctx, emit, req.Messages, req.Context.Service, req.Context.Operation, req.Context.Explain, req.Context.RangeS, req.Context.Trace, req.Context.Env, anchorTo, req.Context.TzOffsetMin, req.Context.Tz); handled {
 			cspan.tier("guided", gok)

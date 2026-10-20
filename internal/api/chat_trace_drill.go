@@ -155,6 +155,59 @@ type traceDrill struct {
 	// Shape — v0.10.1373: trace şekli (tekrar eden span'ler, DB/istemci payı);
 	// BuildTraceAnalysis'ten, ek okuma yok. Spans==0 → render yazmaz.
 	Shape traceShapeStats
+	// Scope — v0.10.1399: trace'teki hatanın kapsamı (drillFailureScope; ""
+	// = hatasız ya da sınıflanamadı → render yazmaz, metin bayt bayt eski).
+	Scope string
+}
+
+// v0.10.1399 (operator-reported: "operasyonu soruyorum ama bana kafka timeout
+// diyor") — hata kapsamı etiketleri. Kök/SERVER span'i hatalıysa hata
+// operasyonun yolundadır; tek hata kök hatasızken mesajlaşma PRODUCER/CLIENT
+// span'indeyse (log/olay yayını) yan yayındır — operasyonun sebebi değil.
+const (
+	drillScopeOpPath      = "operasyon yolu"
+	drillScopeSidePublish = "yan yayın (PRODUCER/messaging, kök hatasız)"
+)
+
+// drillMessagingSide — SAF: span bir mesajlaşma yayını mı (PRODUCER; ya da
+// messaging.* taşıyan CLIENT — tracechain.PeerOf messaging türü dahil).
+func drillMessagingSide(sp chstore.SpanRow) bool {
+	switch strings.ToLower(sp.Kind) {
+	case "producer":
+		return true
+	case "client":
+		return tracechain.PeerOf(sp).Kind == "messaging" || tracechain.SpanAttr(sp, "messaging.system", "messaging.destination.name") != ""
+	}
+	return false
+}
+
+// drillFailureScope — SAF (v0.10.1399): trace'in hata kapsamı. Kök (rootID;
+// boşsa ebeveyni trace'te olmayan ilk span) ya da herhangi bir SERVER span
+// hatalı → drillScopeOpPath; kök hatasız ve hatalı span'lerin HEPSİ
+// mesajlaşma yayını → drillScopeSidePublish; hatasız ya da karışık → "".
+func drillFailureScope(spans []chstore.SpanRow, rootID string) string {
+	ids := make(map[string]bool, len(spans))
+	for _, sp := range spans {
+		ids[sp.SpanID] = true
+	}
+	failed, side := 0, 0
+	for _, sp := range spans {
+		if sp.StatusCode != "error" {
+			continue
+		}
+		failed++
+		isRoot := sp.SpanID == rootID || (rootID == "" && (sp.ParentSpanID == "" || !ids[sp.ParentSpanID]))
+		if isRoot || strings.EqualFold(sp.Kind, "server") {
+			return drillScopeOpPath
+		}
+		if drillMessagingSide(sp) {
+			side++
+		}
+	}
+	if failed > 0 && side == failed {
+		return drillScopeSidePublish
+	}
+	return ""
 }
 
 func traceSourceTR(src string) string {
@@ -228,6 +281,9 @@ func renderTraceDrillTR(d traceDrill) string {
 	}
 	if len(fail) > 0 {
 		b.WriteString(" (" + strings.Join(fail, ", ") + ")")
+	}
+	if d.Scope != "" { // v0.10.1399 — hata kapsamı
+		b.WriteString(" [hata kapsamı: " + d.Scope + "]")
 	}
 	durMs := float64(spanDurNs(sp)) / 1e6
 	switch {
@@ -586,7 +642,8 @@ func (s *Server) traceDrillCore(ctx context.Context, c drillCandidate) traceDril
 			break
 		}
 	}
-	d.Shape = traceShape(spans, an) // v0.10.1373 — aynı analizden, ek I/O yok
+	d.Shape = traceShape(spans, an)                   // v0.10.1373 — aynı analizden, ek I/O yok
+	d.Scope = drillFailureScope(spans, an.RootSpanID) // v0.10.1399 — ek I/O yok
 	d.Pick = dominantSpan(spans, an)
 	if !d.Pick.OK {
 		return d
@@ -667,7 +724,23 @@ func composeDrillEvidenceTR(res []traceDrill, logText string) string {
 	b.WriteString(renderTraceDrillsTR(res))
 	b.WriteString(logText)
 	b.WriteString("KURAL: Kritik yol satırları HESAPLANMIŞ ölçümdür — hedefi, süreyi ve hatayı aynen aktar; log satırı yoksa log içeriği UYDURMA.\n")
+	if drillsHaveSidePublish(res) { // v0.10.1399 — yalnız yan yayın hatası varsa (aksi hâlde metin bayt bayt eski)
+		b.WriteString(drillSidePublishRuleTR)
+	}
 	return b.String()
+}
+
+// drillSidePublishRuleTR — v0.10.1399: yan yayın hatasının kuralı.
+const drillSidePublishRuleTR = "KURAL: \"hata kapsamı: yan yayın\" hatası (kök hatasızken mesajlaşma PRODUCER/CLIENT span'i) operasyonun hata sebebi DEĞİLDİR; sebep diye sunma, yan bulgu olarak an.\n"
+
+// drillsHaveSidePublish — SAF: kırılımlardan biri yan yayın kapsamlı mı.
+func drillsHaveSidePublish(res []traceDrill) bool {
+	for _, d := range res {
+		if d.Scope == drillScopeSidePublish {
+			return true
+		}
+	}
+	return false
 }
 
 // readDrillLogs — kırılan trace'lerin TEK çoklu-trace log okuması (zarf ±1 dk;

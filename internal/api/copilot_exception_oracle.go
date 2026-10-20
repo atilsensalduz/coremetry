@@ -77,7 +77,17 @@ func oracleInteractiveReader(s *Server, base anomaly.OracleContextReader) anomal
 // kurucusu + SystemPromptOracleException; aksi span kurucusu + SystemPromptException.
 func (s *Server) exceptionExplainInput(ctx context.Context, g *chstore.ExceptionGroup, loc *time.Location) (anomaly.ExceptionExplainInput, string) {
 	if chstore.IsOracleGroup(g.Fingerprint) {
-		return oracleExceptionInputFn(s, ctx, g, loc), copilot.SystemPromptOracleException()
+		return oracleExceptionInputFn(s, ctx, g, loc), exceptionExplainSystem(g.Fingerprint) // v0.10.1399 — seçim tek yerde
 	}
-	return spanExceptionInputFn(s, ctx, g, loc), copilot.SystemPromptException()
+	return spanExceptionInputFn(s, ctx, g, loc), exceptionExplainSystem(g.Fingerprint) // v0.10.1399
+}
+
+// exceptionExplainSystem — v0.10.1399: grubun ✨ açıklama sistem prompt'u
+// (parmak izinden; `ora:` → Oracle). exceptionExplainInput ve sohbet içi
+// açıklama (chat_operation_exception_explain.go) aynı seçimi kullanır.
+func exceptionExplainSystem(fp string) string {
+	if chstore.IsOracleGroup(fp) {
+		return copilot.SystemPromptOracleException()
+	}
+	return copilot.SystemPromptException()
 }

@@ -7943,3 +7943,43 @@ kaplıyor, aynı metin aşağıdaki "Stack trace" kartında (12 satır katlı) z
 saf `exceptionHeadline` ile ilk gömülü JVM/.NET çerçevesinden (" at a.b.C.m(") önce ve 320 karakterde (kelime
 sınırında, "…") kesilir; tam metin `title`'da ve "Tamamı / Kısalt" ile yerinde açılır. Yığın kartı değişmedi.
 Test: `features/anomalies/exceptionHeadline.test.ts`.
+
+## 2026-10-20 — v0.10.1399 — CoSRE: "operasyon neden hata veriyor" Exceptions açıklamasıyla aynı kanıttan, sohbet içinde
+
+**Operatör:** "Mesela bir operasyonu soruyorum ama bana kafka timeout vs diyor ama exceptions açıp explain
+ettirdiğimde daha mantıklı güzel cevap veriyor. Chatten de sorduğumda böyle bakıp buna cevap verebilir." Ayrıca
+ayrı açıklama çekmecesi CoSRE'den kopuk hissettiriyor — cevap sohbet akışında olmalı.
+
+**Kök neden (üç parça):** (1) operasyon ön-getirmesi Exceptions grubunu modele tek kompakt satır olarak veriyordu
+(`renderExceptionGroupsTR`); ✨ Exceptions açıklaması aynı grubu kendi girdi kurucusu (`exceptionExplainInput` →
+`anomaly.Build{,Oracle}ExceptionExplainInput`: çağıran span + SQL, örnek trace logları, patlama/sürekli akış) ve kendi
+sistem prompt'uyla anlatıyordu — farklı girdi, farklı cevap. (2) Örnek trace'ler hatalı-önce + süreye göre
+sıralanıp en yavaş hatalının kırılımı "hatayı aynen aktar" kuralıyla modele gidiyordu; kökü hatasız bir trace'te log
+yayınının PRODUCER span'indeki Kafka TimeoutException cevabı domine etti. (3) Takip çipi en YENİ grubu
+(`Groups[0]`) öneriyordu, en önemliyi değil.
+
+**Karar:**
+- Soru hata-neden şekilliyse (`opErrorWhyAsk`: "neden/niye hata", "hata veriyor/alıyor", "why … error/fail";
+  gecikme, oran/sayı, log ve topoloji soruları hayır) ve ön-getirme okunabilir Exceptions grubu bulduysa,
+  `copilotChat` ön-getirmeden hemen sonra, guided'dan önce `opExceptionExplainInChat`'e girer: adım çipi
+  `exception_explain` → delta* → answer, **sohbet içinde** (çekmece açılmaz). Girdi `drawerExceptionInput`
+  (→ `exceptionExplainInput`), prompt `exceptionExplainSystem` (dağıtıcının seçimi tek yerde), önbellek anahtarı
+  ✨ düğmesiyle aynı `explainCacheKey(system, in.User, "")` — biri üretir, diğeri isabet eder. Yüzey
+  `explain-exception:chat` (aisurface kaydı, evalset Exception ailesi). Cevabın sonunda sunucu künyesi
+  ("Kaynak: Exceptions grubu <kod> · <op> · Exceptions açıklamasıyla aynı kanıt"), linkler grup açıklaması + op
+  trace'leri, çipler diğer gruplar (≤3) + op topolojisi.
+- Grup seçimi deterministik (`pickExplainGroup`): ignored/resolved düşer; P1 → son 1 sa → toplam → son görülme →
+  parmak izi. Oylar hiçbir zaman girmez. Takip çipi (`exceptionFollowupFacts`) aynı sırayı kullanır — çip ile
+  cevap aynı grubu söyler.
+- Hata-neden + grup varken ön-getirmenin örnek trace kırılımı okunmaz (`opDrillSkippedForErrorAsk`). Grup yok /
+  okunamadı / girdi kurulamadı / soru hata-neden değil → akış bugünkü serbest döngüye düşer (girdi kurulamazsa
+  çip hatayı söyler; o durumda kırılım da atlanmış olur — bilinçli).
+- Bağımsız düzeltme: kırılım satırına hata kapsamı (`drillFailureScope`): kök ya da bir SERVER span hatalı →
+  "operasyon yolu"; kök hatasızken tek hatalar mesajlaşma PRODUCER/CLIENT span'lerindeyse → "yan yayın"; yan yayın
+  varsa ek KURAL satırı (sebep diye sunma). Kapsamsız kırılımın metni bayt bayt eski (goldenlar değişmedi).
+  `pickDrillTraces` sırası değişmedi: liste satırı (`TraceRow`) kök durumunu taşımaz, tercih ek okuma isterdi.
+- Gecikme: girdi kurucusu 30 sn dış tavanlı (kendi okumaları 5–6 sn), LLM çağrısı alışverişin tavanında
+  (`chatExchangeTimeout`, ≥180 sn); ön-getirmenin 15 sn'si ayrı.
+- Değişmeyenler: prompts.go sabitleri, MCP araç sayısı, api.go, frontend.
+- Testler: `chat_operation_exception_explain_test.go`, `chat_trace_drill_scope_test.go`; genişletilen:
+  `ai_evalset_test.go`.
