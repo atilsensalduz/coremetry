@@ -236,7 +236,7 @@ func (s *Store) RevisionFirstSpans(ctx context.Context, refs []WorkloadRevisionR
 		WHERE bucket >= ? AND bucket < ? AND workload IN (?) AND revision IN (?)
 		GROUP BY cluster, k8s_namespace, workload, revision
 		LIMIT 5000
-		SETTINGS max_execution_time = 10`, chDateTime64Arg(from), chDateTime64Arg(to), wls, revs)
+		SETTINGS max_execution_time = 10`, chDateTimeArg(from), chDateTimeArg(to), wls, revs) // v0.10.1419 — bucket DateTime: kesirli bağlama code 53
 	if err != nil {
 		return nil, err
 	}

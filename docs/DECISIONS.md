@@ -8675,3 +8675,14 @@ FilterQueryBox, Sparkline, Endpoints, TopEndpointsCard, DetailsEndpointsSection)
 size olabilir." **Karar:** `OracleOperationChip` (kesin ve sözlük dalı) operasyon adının yanına ortak `CopyButton`
 koyar (değer = tam operasyon adı, title "Operasyon adını kopyala"); link tıklaması aynı fonksiyon kodunun trace'lerine
 gitmeye devam eder. Çipin yazısı `a.sec.op-chip` ile 13 px → `--fs-sm` (12 px), iç boşluk 5/14 → 3/10.
+
+## 2026-10-20 — v0.10.1419 — ClickHouse DateTime bağlama: workload_revision_activity_1m.bucket
+
+**Operatör (prod trace, coremetry-api `clickhouse.query` ERROR):** "code: 53, message: Cannot convert string
+'2026-10-19 18:27:00.809' to type DateTime: while executing function greaterOrEquals on arguments __table1.bucket DateTime".
+**Kök neden:** `internal/chstore/rollout_problem_telemetry.go` (rollout revizyonlarının ilk görülme okuması)
+`workload_revision_activity_1m.bucket` (düz `DateTime`, dakika MV'si) kolonuna `chDateTime64Arg` (kesirli) bağlıyordu —
+v0.10.1412'deki operasyon kataloğu hatasının aynısı. 1412'nin go/ast koruma testi yalnız `time_bucket` adını tanıyordu.
+**Düzeltme:** iki bağlama `chDateTimeArg`; `TestNoDateTime64BindAgainstDateTimeColumnAST` artık `time_bucket|bucket`
+karşılaştırmalarını da tarar (eski kodda tam bu iki yeri yakalar). Ad tabanlı tarama: `first_seen` / `last_seen` / `ts`
+bazı tablolarda DateTime64 olduğu için listeye alınmadı (yanlış pozitif).

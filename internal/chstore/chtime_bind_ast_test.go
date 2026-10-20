@@ -44,7 +44,10 @@ import (
 // dateTimeColCmp — bare `?` compared against a column that is plain DateTime
 // (every toStartOfInterval-built MV bucket). Wrapped binds such as
 // toDateTime(?, 'UTC') do not match: CH converts those itself.
-var dateTimeColCmp = regexp.MustCompile(`\btime_bucket\s*(>=|<=|>|<|=)\s*\?`)
+// v0.10.1419 — `bucket` da (workload_revision_activity_1m.bucket DateTime; prod span'i:
+// "Cannot convert string '2026-10-19 18:27:00.809' to type DateTime … __table1.bucket").
+// Ad tabanlı: first_seen/last_seen/ts gibi adlar bazı tablolarda DateTime64, bu yüzden eklenmedi.
+var dateTimeColCmp = regexp.MustCompile(`\b(time_bucket|bucket)\s*(>=|<=|>|<|=)\s*\?`)
 
 // dateTime64Cmp — any comparison that may legitimately take a nanosecond bind
 // (raw `time`, `created_at`, …, or an explicit toDateTime64(?)). When the same
@@ -266,7 +269,7 @@ func dateTime64BindFindings(t *testing.T) []string {
 func TestNoDateTime64BindAgainstDateTimeColumnAST(t *testing.T) {
 	for _, pos := range dateTime64BindFindings(t) {
 		t.Errorf("%s — nanosecond chDateTime64Arg value bound into SQL that compares "+
-			"time_bucket (plain DateTime, toStartOfInterval MV) against a bare `?`. "+
+			"time_bucket/bucket (plain DateTime, toStartOfInterval MV) against a bare `?`. "+
 			"CH rejects the fraction with code 53 \"Cannot convert string … to type "+
 			"DateTime\"; bind chDateTimeArg (v0.9.581, v0.10.1412).", pos)
 	}
