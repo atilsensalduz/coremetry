@@ -249,13 +249,19 @@ const EN: Catalog = {
   // v0.10.1382 — data-grounded choices under the rows (/api/copilot/starters).
   'cosre.cap.p1':               'I can dig into the root cause of open P1 problems',
   'cosre.cap.p1.prompt':        'What is the root cause of |?',
-  'cosre.cap.deploy':           'I can show what the latest deploys changed',
-  'cosre.cap.deploy.prompt':    'Impact of the latest | deploy?',
   'cosre.cap.choices':          'Ready-made choices',
   'cosre.cap.fleet':            'fleet-wide',
   'cosre.cap.fleet.title':      'No team resolved — the fleet’s current hot spots',
   'cosre.cap.search.service':   'Search services…', // v0.10.1390
   'cosre.cap.search.operation': 'Search operations…', // v0.10.1390
+  // v0.10.1402 — Takımım kartı (en üstte): takım seçici + üç eylem çipi.
+  'cosre.cap.team':             'My team — I can check your team’s services and exceptions; pick another team',
+  'cosre.cap.team.prompt':      'How are the services of team |?',
+  'cosre.cap.search.team':      'Search teams…',
+  'cosre.cap.team.searchTitle': 'Pick a team — CoSRE answers for that team right away',
+  'cosre.team.ask.services':    'How are the services?',
+  'cosre.team.ask.exceptions':  'Exceptions?',
+  'cosre.team.ask.topErrors':   'Most failing services?',
   'cosre.chip.wiki':            'Search the wiki: …',
   'cosre.chip.wiki.prompt':     '@wiki ', // v0.10.1378 — kapsam belirteci, dilden bağımsız
 
@@ -542,13 +548,20 @@ const TR: Catalog = {
   // yalnız o grupta öğe varken.
   'cosre.cap.p1':               'Açık P1 problemlerinin kök nedenine bakabilirim',
   'cosre.cap.p1.prompt':        '| kök nedeni ne?',
-  'cosre.cap.deploy':           'Son deploy’ların neyi değiştirdiğini gösterebilirim',
-  'cosre.cap.deploy.prompt':    '| son deploy etkisi?',
   'cosre.cap.choices':          'Hazır seçenekler',
   'cosre.cap.fleet':            'filo geneli',
   'cosre.cap.fleet.title':      'Takımın çözülemedi — filonun şu anki sıcak noktaları',
   'cosre.cap.search.service':   'Servis ara…', // v0.10.1390
   'cosre.cap.search.operation': 'Operasyon ara…', // v0.10.1390
+  // v0.10.1402 (operatör: "Alttaki takımımın servisleri exceptionları yukarıda
+  // olsun. Takım seçilebilsin.") — Takımım kartı (en üstte).
+  'cosre.cap.team':             'Takımım — takımının servislerine ve exception’larına bakabilirim; başka bir takım da seçebilirsin',
+  'cosre.cap.team.prompt':      '| takımının servisleri nasıl?',
+  'cosre.cap.search.team':      'Takım ara…',
+  'cosre.cap.team.searchTitle': 'Takım seç — CoSRE o takımın servislerini hemen getirir',
+  'cosre.team.ask.services':    'Servisleri nasıl?',
+  'cosre.team.ask.exceptions':  'Exception\'ları?',
+  'cosre.team.ask.topErrors':   'En hatalı servisleri?',
   'cosre.chip.wiki':            'Wikide ara: …',
   // v0.10.1378 (operatör onaylı kuyruk) — "wikide " düz cümleydi, kapsam
   // üretmiyordu; `@wiki ` composer'da scope.wiki=true olur (1368'deki örnek soruyla aynı).

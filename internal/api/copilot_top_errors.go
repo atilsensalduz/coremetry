@@ -9,11 +9,13 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/cilcenk/coremetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/mcptools"
 )
 
 const topErrorRows = 10
@@ -78,6 +80,43 @@ func (s *Server) guidedTopErrorOpsBundle(ctx context.Context, emit func(string, 
 	ev := renderTopErrorsTR(service+" en hatalı operasyonları", rows, int64(to.Sub(from).Seconds()), "operasyon")
 	emitGuidedStepResult(emit, n, "top_error_operations", ev, nil)
 	return ev, "operasyon hata sıralaması (operation_summary_5m)", nil
+}
+
+// guidedTeamTopErrorsBundle — v0.10.1402: ADI GEÇEN takımın en hatalı
+// servisleri ("platform takımının en hatalı servisleri?" — CoSRE Takımım
+// kartının çipi). Takım → servis çözümü team_services ile AYNI katalog
+// kuralı (mcptools.ReadTeamServiceNames, alias farkındalıklı, 100'lük
+// tavan); sıralama my_top_errors ile AYNI okuma (TopErrorServices,
+// service_summary_5m). İki takım cevabı ayrışmasın diye ikinci uygulama yok.
+func (s *Server) guidedTeamTopErrorsBundle(ctx context.Context, emit func(string, any), route *guidedRoute, from, to time.Time, rangeS int64) (string, string, error) {
+	team := route.Team
+	if team == "" {
+		return "", "", errors.New("team_top_errors: takım adı boş")
+	}
+	nResolve := emitGuidedStep(emit, "resolve_team_services", `{"team":`+jsonStr(team)+`}`)
+	svcs, _, err := mcptools.ReadTeamServiceNames(ctx, s.mcpDeps(), team)
+	if err != nil {
+		emitGuidedStepResult(emit, nResolve, "resolve_team_services", "", err)
+		return "", "", err
+	}
+	if len(svcs) == 0 {
+		ev := fmt.Sprintf("%q takımı hiçbir serviste ownerTeam/sreTeam olarak geçmiyor (Service Catalog). "+
+			"Kullanıcıya söyle: katalogda takım ataması yapılmalı ya da başka bir takım adı denemeli.\n", team)
+		emitGuidedStepResult(emit, nResolve, "resolve_team_services", ev, nil)
+		return ev, fmt.Sprintf("servis kataloğu (takım: %s)", team), nil
+	}
+	emitGuidedStepResult(emit, nResolve, "resolve_team_services",
+		fmt.Sprintf("%q takımına eşleşen servisler (%d):\n- %s\n", team, len(svcs), strings.Join(svcs, "\n- ")), nil)
+	n := emitGuidedStep(emit, "top_error_services", fmt.Sprintf(`{"team":%s,"teamServices":%d}`, jsonStr(team), len(svcs)))
+	rows, err := s.store.TopErrorServices(ctx, from, to, svcs, topErrorRows)
+	if err != nil {
+		emitGuidedStepResult(emit, n, "top_error_services", "", err)
+		return "", "", err
+	}
+	ev := renderTopErrorsTR(team+" takımının en hatalı servisleri", rows, rangeS, "servis")
+	emitGuidedStepResult(emit, n, "top_error_services", ev, nil)
+	route.TeamServices = errorRankNames(rows) // takip çipleri için sıralı
+	return ev, fmt.Sprintf("takım: %s — servis hata sıralaması (service_summary_5m)", team), nil
 }
 
 // topErrorFollowups — SAF: ilk üç servisin operasyon çipi.

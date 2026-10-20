@@ -89,33 +89,12 @@ const FOLLOWUPS = [
   // orada bir CEVABIN devamı, burada ise bağlamsız bir menü maddesiydi.
 ];
 
-// v0.9.652 — BOŞ sohbetteki başlangıç çipleri.
-//
-// v0.9.579'da operatör "çıkar" demişti ve gerekçe kayıtlıydı: SEKİZ
-// sabit soru bir MENÜYDÜ, araç değil — operatörün kendi sorusu
-// neredeyse hiç listedekilerden biri olmuyor ve liste, asistanın yalnız
-// onları anlayabildiği izlenimini veriyordu.
-//
-// Operatör kararı değiştirdi (2026-08-05) ama gerekçeyi ÖLDÜRMEDİK:
-// sekiz değil ÜÇ çip, ve üçü de operatörün ADIYLA istediği sorular.
-//
-// Servis ADI taşımıyorlar ve taşıyamazlar: boş sohbette takım henüz
-// çözülmemiş. İlkine tıklayınca zincir devralıyor — v0.9.651 takım
-// servisleri listelendikten sonra servis-adlı çipler üretiyor, oradan
-// da service_health'in dört drill-down'u açılıyor (loglar, en yavaş
-// trace'ler, deploy etkisi, pod'lar).
-const STARTERS = [
-  'Takımımın servisleri nasıl?',
-  // v0.10.702 (operatör: "ilk sohbet önerileri zenginleşsin") — iki çip
-  // daha; ikisi de LLM'siz yönlenir (copilot_starters_test pinler).
-  // v0.10.1249 (operatör) — "açık problemleri" yerine takım exception'ları
-  // (takım süzgeçli Exceptions linki + kısa özet); filo geneli "son 1 saatteki
-  // log hataları" çok servisli kurulumda anlamsızdı, çıkarıldı.
-  "Takımımın exception'ları?",
-  // v0.10.1256 (operatör) — filo geneli "en yavaş trace'ler" anlamsızdı:
-  // takımın en hatalı servisleri, oradan operasyonlarına.
-  "Takımımın en hatalı servisleri?",
-];
+// v0.9.652 — BOŞ sohbetteki başlangıç çipleri (v0.9.579 "menü değil araç"
+// gerekçesiyle üç çip: takımın servisleri / exception'ları / en hatalı
+// servisleri). v0.10.1402 (operatör: "Alttaki takımımın servisleri
+// exceptionları yukarıda olsun. Takım seçilebilsin.") — üçü gevşek çip
+// satırından ÇIKTI, CosreCapabilities'in en üstteki Takımım kartına taşındı
+// (takım seçici + aynı üç soru; capabilityHints TEAM_ASKS / teamCardQuestion).
 
 // CoSRE markası — v0.10.498 (operatör: "direkt OpenTelemetry iconu olsun";
 // teleskop mockup'ı reddedildi): resmî OpenTelemetry ikonu, repodaki
@@ -533,7 +512,8 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
   // hata alan yolu (sunucu, 60 s). Yalnız çekmece açık + sohbet boşken.
   // v0.10.1382 — gruplu seçenekler (servis / operasyon / P1 / deploy) yetenek
   // satırlarının altında (CosreCapabilities); env yalnız P1'e uygulanır.
-  const starterGroups = useCopilotStarters(drawerOpen && enabled === true && turns.length === 0, env);
+  // v0.10.1402 — `team`: sunucunun çözdüğü kullanıcı takımı (Takımım kartının varsayılanı).
+  const starters = useCopilotStarters(drawerOpen && enabled === true && turns.length === 0, env);
   // v0.10.702 — şablon çipi: composer'ı doldurur, GÖNDERMEZ; imleç başta,
   // operatör yolu yazar ("/api/x hatalı trace'lerini getir" → endpoint_traces).
   // v0.10.1128 — genelleştirildi: yetenek satırları ve wiki çipi de aynı
@@ -891,9 +871,11 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
                     seçenek çipi HEMEN GÖNDERİR (askChip). v0.10.1390 — servis ve
                     operasyon satırlarında çip yok, her zaman görünen arama kutusu;
                     seçim de askChip ile gönderir. */}
-                <CosreCapabilities wiki={wikiOn} groups={starterGroups} onPrefill={prefill} onAsk={askChip} />
-                {/* v0.9.652 — başlangıç çipleri (operatör isteği). Gerekçe
-                    ve v0.9.579 ile ilişkisi STARTERS tanımında. */}
+                {/* v0.10.1402 — en üstte Takımım kartı (takım seçici + üç çip). */}
+                <CosreCapabilities wiki={wikiOn} groups={starters.groups} team={starters.team} onPrefill={prefill} onAsk={askChip} />
+                {/* v0.9.652 — başlangıç çipleri (operatör isteği). v0.10.1402 —
+                    "Takımımın …" çipleri Takımım kartına taşındı; burada bağlam,
+                    yol şablonu ve wiki çipi kalır. */}
                 <div className="cm-greet__chips">
                   {/* v0.9.653 — EKRANDAKİ özne, statik çiplerden ÖNCE.
                       Operatör bir trace'e bakarken sohbeti açtığında
@@ -906,11 +888,6 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
                       ✨ {ctxStarter.chip}
                     </Chip>
                   )}
-                  {/* v0.10.1382 — v0.10.702'nin veri çipleri (en kötü servis + en
-                      çok hata alan yolu) servis satırının seçeneklerine taşındı. */}
-                  {STARTERS.map(q => (
-                    <Chip key={q} pill onClick={() => submit(q)}>{q}</Chip>
-                  ))}
                   {/* v0.10.702 — şablon: composer'a doldurur, yol operatörden. */}
                   <Chip pill onClick={prefillEndpoint} title="Yolu yaz: /api/... hatalı trace'lerini getir">
                     ⌨ …/yol hatalı trace'leri

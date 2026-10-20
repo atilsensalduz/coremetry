@@ -13,6 +13,8 @@
 //   (5) v0.10.1390 (operatör: "filo geneli ve böyle birçok servis yazmasın,
 //       search kısmı çıksa yeter") — servis/operasyon satırlarında çip ve
 //       "filo geneli" yok; her zaman görünen arama kutusu, seçim HEMEN gönderir.
+//   (6) v0.10.1402 — Takımım kartı her zaman EN BAŞTA ('team'), deploy satırı
+//       yok (ayrıntı: CosreTeamCard.test.tsx).
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
@@ -75,8 +77,8 @@ afterEach(() => {
 
 describe('capabilityHints — saf', () => {
   it('wiki satırı yalnız bayrakla ve en başta', () => {
-    expect(capabilityItems(false).map(i => i.kind)).toEqual(['service', 'operation', 'navigate']);
-    expect(capabilityItems(true).map(i => i.kind)).toEqual(['wiki', 'service', 'operation', 'navigate']);
+    expect(capabilityItems(false).map(i => i.kind)).toEqual(['team', 'service', 'operation', 'navigate']);
+    expect(capabilityItems(true).map(i => i.kind)).toEqual(['team', 'wiki', 'service', 'operation', 'navigate']);
   });
 
   it('splitCaret: | imleç yeri, işaretsiz metinde imleç sonda', () => {
@@ -111,22 +113,20 @@ describe('capabilityHints — saf', () => {
 });
 
 // v0.10.1382 — gruplu başlangıç seçenekleri (sentetik adlar).
-// v0.10.1390 — sunucu yalnız p1 + deploys grubu döner.
+// v0.10.1390 — sunucu yalnız p1 + deploys grubu döner. v0.10.1402 — yalnız p1.
 const GROUPS: CopilotStarterGroup[] = [
   { kind: 'p1', fleet: true, items: [
     { chip: 'orders-api · error rate', question: 'orders-api kök nedeni ne?', kind: 'p1', scope: { problem: 'p-1' } },
   ] },
-  { kind: 'deploys', items: [] },
 ];
 
 describe('capabilityHints — v0.10.1382 gruplar (saf)', () => {
-  it('p1/deploy satırları yalnız öğeli grupla; sıra operasyon → p1 → deploy → navigate', () => {
-    expect(capabilityItems(false, GROUPS).map(i => i.kind)).toEqual(['service', 'operation', 'p1', 'navigate']);
-    const withDeploy: CopilotStarterGroup[] = [GROUPS[0],
-      { kind: 'deploys', items: [{ chip: 'orders-api → 2.0', question: 'orders-api son deploy etkisi?', kind: 'deploy' }] }];
-    expect(capabilityItems(true, withDeploy).map(i => i.kind)).toEqual(['wiki', 'service', 'operation', 'p1', 'deploy', 'navigate']);
-    expect(groupForCapability('deploy', GROUPS)).toBeUndefined();
+  it('p1 satırı yalnız öğeli grupla; sıra team → operasyon → p1 → navigate (v0.10.1402: deploy yok)', () => {
+    expect(capabilityItems(false, GROUPS).map(i => i.kind)).toEqual(['team', 'service', 'operation', 'p1', 'navigate']);
+    expect(capabilityItems(true, GROUPS).map(i => i.kind)).toEqual(['team', 'wiki', 'service', 'operation', 'p1', 'navigate']);
+    expect(capabilityItems(false, [{ kind: 'p1', items: [] }]).map(i => i.kind)).not.toContain('p1');
     expect(groupForCapability('navigate', GROUPS)).toBeUndefined();
+    expect(groupForCapability('team', GROUPS)).toBeUndefined();
     expect(groupForCapability('p1', GROUPS)?.fleet).toBe(true);
   });
 
@@ -144,7 +144,7 @@ describe('capabilityHints — v0.10.1382 gruplar (saf)', () => {
 
   it('kapsamlı çip → parsed.scope; kapsamsız → undefined (istek gövdesi eski)', () => {
     expect(starterSendOpts(GROUPS[0].items[0])).toEqual({ parsed: { scope: { problem: 'p-1' } } });
-    expect(starterSendOpts({ chip: 'a', question: 'a son deploy etkisi?', kind: 'deploy' })).toBeUndefined();
+    expect(starterSendOpts({ chip: 'a', question: 'a kök nedeni ne?', kind: 'p1' })).toBeUndefined();
   });
 
   it('istemci URL\'si sorgu dizesini ? ile ayırır; v0.10.1390 — range_s yok', async () => {
@@ -169,7 +169,7 @@ describe('capabilityHints — v0.10.1382 gruplar (saf)', () => {
   });
 
   it('anahtarlar iki katalogda da var; kaldırılan anahtarlar yok', () => {
-    for (const k of ['cosre.cap.p1', 'cosre.cap.p1.prompt', 'cosre.cap.deploy', 'cosre.cap.deploy.prompt',
+    for (const k of ['cosre.cap.p1', 'cosre.cap.p1.prompt',
       'cosre.cap.choices', 'cosre.cap.fleet', 'cosre.cap.fleet.title', 'cosre.cap.search.service', 'cosre.cap.search.operation']) {
       expect(t(k, 'en'), k).not.toBe(k);
       expect(t(k, 'tr'), k).not.toBe(k);
@@ -177,7 +177,7 @@ describe('capabilityHints — v0.10.1382 gruplar (saf)', () => {
     }
     expect(tCosre('cosre.cap.search.service')).toBe('Servis ara…');
     expect(tCosre('cosre.cap.search.operation')).toBe('Operasyon ara…');
-    for (const gone of ['cosre.cap.pickService', 'cosre.cap.pickService.placeholder']) {
+    for (const gone of ['cosre.cap.pickService', 'cosre.cap.pickService.placeholder', 'cosre.cap.deploy', 'cosre.cap.deploy.prompt']) {
       expect(t(gone, 'tr'), gone).toBe(gone);
     }
   });
@@ -215,7 +215,7 @@ describe('CopilotChat çekmecesi — yetenek ipucu', () => {
     vi.spyOn(api, 'copilotConfig').mockResolvedValue({ enabled: true, model: 'm' });
     setUserLang('tr');
     await openDrawer();
-    expect(rows().map(b => b.dataset.cap)).toEqual(['service', 'operation', 'navigate']);
+    expect(rows().map(b => b.dataset.cap)).toEqual(['team', 'service', 'operation', 'navigate']);
     expect(document.body.querySelector('[data-chip="wiki"]')).toBeNull();
     expect(document.body.textContent).toContain('Hata veren teknik operasyonları inceleyebilirim');
   });
@@ -225,7 +225,7 @@ describe('CopilotChat çekmecesi — yetenek ipucu', () => {
     const send = vi.spyOn(api, 'copilotChat').mockResolvedValue(undefined as never);
     setUserLang('tr');
     await openDrawer();
-    expect(rows().map(b => b.dataset.cap)).toEqual(['wiki', 'service', 'operation', 'navigate']);
+    expect(rows().map(b => b.dataset.cap)).toEqual(['team', 'wiki', 'service', 'operation', 'navigate']);
     expect(document.body.textContent).toContain('Kurum wiki’sinde arayabilirim');
 
     const wikiRow = rows().find(b => b.dataset.cap === 'wiki')!;
@@ -242,7 +242,7 @@ describe('CopilotChat çekmecesi — yetenek ipucu', () => {
     expect(textarea()?.value).toBe('@wiki ');
     expect(send).not.toHaveBeenCalled();
     // Hâlâ boş sohbet: ipucu yerinde (gönderilmedi).
-    expect(rows().length).toBe(4);
+    expect(rows().length).toBe(5);
   });
 
   it('UI dili EN: ipuçları, title, wiki çipi ve örnekler yine TÜRKÇE (karşılamayla aynı dil)', async () => {
@@ -301,7 +301,7 @@ describe('CopilotChat çekmecesi — v0.10.1382 / v0.10.1390 başlangıçlar', (
     const send = vi.spyOn(api, 'copilotChat').mockResolvedValue(undefined as never);
     setUserLang('en');
     await openDrawer();
-    expect(rows().map(b => b.dataset.cap)).toEqual(['service', 'operation', 'p1', 'navigate']);
+    expect(rows().map(b => b.dataset.cap)).toEqual(['team', 'service', 'operation', 'p1', 'navigate']);
     expect(document.body.querySelector('[data-cap-choices="service"]')).toBeNull();
     expect(document.body.querySelector('[data-cap-choices="operation"]')).toBeNull();
     expect(document.body.querySelector('[data-chip="pick-service"]')).toBeNull();
@@ -310,7 +310,7 @@ describe('CopilotChat çekmecesi — v0.10.1382 / v0.10.1390 başlangıçlar', (
     // UI dili EN iken de sohbetin dili (TR).
     expect(search('service')?.placeholder).toBe('Servis ara…');
     expect(search('operation')?.placeholder).toBe('Operasyon ara…');
-    // "filo geneli" yalnız P1/deploy grubunda (operatör onlara dokunmadı).
+    // "filo geneli" yalnız P1 grubunda (v0.10.1402: deploy grubu kalktı).
     const svcItem = search('service')!.closest('.cosre-cap__item')!;
     expect(svcItem.textContent).not.toContain('filo geneli');
     expect(document.body.querySelector('[data-cap-choices="p1"]')?.textContent).toContain('filo geneli');
@@ -388,7 +388,7 @@ describe('CopilotChat çekmecesi — v0.10.1382 / v0.10.1390 başlangıçlar', (
     await openDrawer();
     expect(st).toHaveBeenCalled();
     expect(typeof st.mock.calls[0][0]).toBe('string');
-    expect(rows().map(b => b.dataset.cap)).toEqual(['service', 'operation', 'navigate']);
+    expect(rows().map(b => b.dataset.cap)).toEqual(['team', 'service', 'operation', 'navigate']);
     expect(search('service')).not.toBeNull();
     expect(search('operation')).not.toBeNull();
     await act(async () => { rows().find(b => b.dataset.cap === 'operation')!.click(); });

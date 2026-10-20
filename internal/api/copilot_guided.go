@@ -117,7 +117,12 @@ const (
 	// servisin en hatalı operasyonları.
 	guidedTopErrorServices guidedIntent = "top_error_services"
 	guidedMyTopErrors      guidedIntent = "my_top_errors"
-	guidedTopErrorOps      guidedIntent = "top_error_operations"
+	// v0.10.1402 — ADI GEÇEN takımın en hatalı servisleri ("platform
+	// takımının en hatalı servisleri?" — CoSRE başlangıcındaki Takımım
+	// kartının çipi): my_top_errors'ın iyelik olmayan ikizi, aynı
+	// TopErrorServices okuması. Router-içi; sınıflandırıcı listesinde yok.
+	guidedTeamTopErrors guidedIntent = "team_top_errors"
+	guidedTopErrorOps   guidedIntent = "top_error_operations"
 	// v0.9.376 (operatör istegi, SRE perspektifi) — pod/JVM sağlığı:
 	// servisliyse instance listesi + JVM heap; servissizse filo-geneli
 	// heap doluluk sıralaması. Veri CH'den (OTel runtime metrikleri) —
@@ -1464,6 +1469,12 @@ func routeGuidedIntentOpts(raw string, services, envs, teams []string, ctxServic
 		if hasExceptionWord(toks) || hasServiceExceptionSignal(toks) {
 			return guidedRoute{Intent: guidedTeamExceptions, Team: team, Env: env, TechErr: hasTechErrorWord(toks)}
 		}
+		// v0.10.1402 — "platform takımının en hatalı servisleri": iyelik
+		// dalındaki my_top_errors'ın adı geçen takım hâli (team_services
+		// aynı cevabı verseydi Takımım kartının iki çipi tek cevaba düşerdi).
+		if hasTopErrorSignal(toks) {
+			return guidedRoute{Intent: guidedTeamTopErrors, Team: team, Env: env}
+		}
 		return guidedRoute{Intent: guidedTeamServices, Team: team, Env: env}
 	// v0.10.433 (D5) — alan süzgeçli log araması, "yavaş"/"hata" gibi
 	// içerik sözcükleri taşıyabilen tırnaklı değerlerden ÖNCE: "message
@@ -2164,6 +2175,8 @@ func (s *Server) runGuidedRoute(ctx context.Context, emit func(string, any), rou
 		route.TeamServices = errorRankNames(rows)
 	case guidedMyTopErrors:
 		evidence, sources, err = s.guidedMyTeamBundle(ctx, emit, "top_errors", &route, from, to, rangeS)
+	case guidedTeamTopErrors: // v0.10.1402
+		evidence, sources, err = s.guidedTeamTopErrorsBundle(ctx, emit, &route, from, to, rangeS)
 	case guidedTopErrorOps:
 		evidence, sources, err = s.guidedTopErrorOpsBundle(ctx, emit, route.Service, from, to)
 	case guidedTeamServices:

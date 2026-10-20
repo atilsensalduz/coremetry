@@ -132,7 +132,8 @@ describe('/cosre bağımsız sohbet sayfası', () => {
     await renderAt('/cosre');
     await tick();
     const caps = Array.from(document.querySelectorAll<HTMLButtonElement>('.cosre-page__body button[data-cap]'));
-    expect(caps.map(b => b.dataset.cap)).toEqual(['wiki', 'service', 'operation', 'navigate']);
+    // v0.10.1402 — Takımım kartı en başta (tam sayfada da aynı bileşen).
+    expect(caps.map(b => b.dataset.cap)).toEqual(['team', 'wiki', 'service', 'operation', 'navigate']);
     expect(document.querySelector('.cosre-page__body [data-chip="wiki"]')).not.toBeNull();
     // Prod hatası (v0.10.1130): UI dili burada EN (kullanıcı seçimi yok, marka
     // isteği ağa çıkmaz → İngilizce varsayılan) ama ipuçları karşılamayla aynı

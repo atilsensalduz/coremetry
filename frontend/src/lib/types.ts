@@ -9879,15 +9879,16 @@ export interface PageContext {
 // `scope` → çipin yapısal kapsamı (P1: problem kimliği), followup çipleriyle
 // aynı yoldan gider. `envScope: 'p1'` → env yalnız P1 problemlerine uygulandı.
 // v0.10.1390 — servis/operasyon grupları kalktı (yerlerinde arama kutuları);
-// yalnız p1 + deploys; yanıtta rangeS yok.
-export type CopilotStarterKind = 'p1' | 'deploy';
+// yanıtta rangeS yok. v0.10.1402 — deploys grubu da kalktı (yalnız p1);
+// `team` = kullanıcının sunucuda çözülen takımı → Takımım kartının varsayılanı.
+export type CopilotStarterKind = 'p1';
 export interface CopilotStarter {
   chip: string;
   question: string;
   kind: CopilotStarterKind;
   scope?: ChatScope;
 }
-export type CopilotStarterGroupKind = 'p1' | 'deploys';
+export type CopilotStarterGroupKind = 'p1';
 export interface CopilotStarterGroup {
   kind: CopilotStarterGroupKind;
   fleet?: boolean;

@@ -469,6 +469,10 @@ func applyChatScopeRoute(sc *chatScope, r guidedRoute) guidedRoute {
 			r = guidedRoute{Intent: guidedTeamExceptions, Team: sc.Team, Env: r.Env, TechErr: r.TechErr}
 		case guidedTeamExceptions:
 			r.Team = sc.Team
+		case guidedMyTopErrors: // v0.10.1402 — kapsamdaki takımın en hatalı servisleri
+			r = guidedRoute{Intent: guidedTeamTopErrors, Team: sc.Team, Env: r.Env}
+		case guidedTeamTopErrors:
+			r.Team = sc.Team
 		}
 	}
 	return r

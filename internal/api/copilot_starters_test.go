@@ -22,6 +22,9 @@ import (
 // arama kutuları. Kutulardan gönderilen İKİ cümle ("<svc> sağlığı nasıl?",
 // "<OP> operasyonu neden hata veriyor?") burada yönlenme pinini korur;
 // anahtar v3 (pencere girdisi yok).
+//
+// v0.10.1402 (operatör: "Son deploy etkisini kaldırabiliriz") — deploys grubu
+// kalktı (yalnız p1); anahtar v4. deploy_impact rotası sohbette durur.
 
 func TestStarterP1Chips(t *testing.T) {
 	probs := []chstore.Problem{
@@ -53,48 +56,23 @@ func TestStarterP1Chips(t *testing.T) {
 	}
 }
 
-func TestStarterDeployChips(t *testing.T) {
-	deps := []chstore.RecentDeployEntry{
-		{Service: "checkout-service", Version: "1.4.2"},
-		{Service: "checkout-service", Version: "1.4.1"},
-		{Service: "orders-api", Version: "2.0.0"},
-		{Service: "payment-service", Version: ""},
-	}
-	fleet := starterDeployChips(deps, nil, 2)
-	if len(fleet) != 2 || fleet[0].Question != "checkout-service son deploy etkisi?" || fleet[1].Question != "orders-api son deploy etkisi?" {
-		t.Fatalf("filo: servis başına bir çip, tavan 2: %+v", fleet)
-	}
-	if fleet[0].Chip != "checkout-service → 1.4.2" || fleet[0].Kind != "deploy" {
-		t.Errorf("etiket: %+v", fleet[0])
-	}
-	team := starterDeployChips(deps, []string{"payment-service", "inventory"}, 2)
-	if len(team) != 1 || team[0].Chip != "payment-service" {
-		t.Fatalf("takım kesişimi: %+v", team)
-	}
-	if len(starterDeployChips(deps, []string{}, 2)) != 0 {
-		t.Fatal("boş takım kümesi → çip yok (filo değil)")
-	}
-}
-
 func TestStarterGroupsOmitEmpty(t *testing.T) {
-	one := []copilotStarter{{Chip: "a", Question: "a son deploy etkisi?", Kind: "deploy"}}
-	gs := starterGroups(true, []copilotStarter{}, one)
-	if len(gs) != 1 || gs[0].Kind != "deploys" || !gs[0].Fleet {
-		t.Fatalf("boş grup yanıta girmez: %+v", gs)
-	}
 	p1 := []copilotStarter{{Chip: "b", Question: "b kök nedeni ne?", Kind: "p1"}}
-	if gs := starterGroups(false, p1, one); len(gs) != 2 || gs[0].Kind != "p1" || gs[1].Kind != "deploys" || gs[0].Fleet {
-		t.Fatalf("sıra sabit p1 → deploys: %+v", gs)
+	if gs := starterGroups(true, p1); len(gs) != 1 || gs[0].Kind != "p1" || !gs[0].Fleet {
+		t.Fatalf("p1 grubu: %+v", gs)
 	}
-	if len(starterGroups(false, nil, nil)) != 0 {
-		t.Fatal("hepsi boş → grup yok")
+	if gs := starterGroups(false, p1); len(gs) != 1 || gs[0].Fleet {
+		t.Fatalf("takım çözüldü → fleet yok: %+v", gs)
+	}
+	if gs := starterGroups(false, nil); gs == nil || len(gs) != 0 {
+		t.Fatal("boş → boş dizi (null değil), grup yok")
 	}
 }
 
 func TestStartersKey(t *testing.T) {
 	a := startersKey("u1", "")
-	if !strings.HasPrefix(a, "copilot:starters:v3:") {
-		t.Fatalf("v3 öneki (v0.10.1390 — gruplar değişti, v2 kayıtları okunmasın): %q", a)
+	if !strings.HasPrefix(a, "copilot:starters:v4:") {
+		t.Fatalf("v4 öneki (v0.10.1402 — deploys grubu kalktı, v3 kayıtları okunmasın): %q", a)
 	}
 	seen := map[string]string{}
 	for _, c := range []struct {
@@ -121,13 +99,11 @@ func TestStartersKey(t *testing.T) {
 // hem Oracle kodu hem span operasyonu (aramanın döndüğü ad şekilleri).
 func TestStarterQuestionsRoute(t *testing.T) {
 	chips := starterP1Chips([]chstore.Problem{{ID: "p-1", Service: "payment-service", Priority: "P1"}}, 3)
-	chips = append(chips, starterDeployChips([]chstore.RecentDeployEntry{{Service: "api-gateway", Version: "3.1"}}, nil, 2)...)
 	want := map[string]struct {
 		intent guidedIntent
 		svc    string
 	}{
-		"p1":     {guidedRootCause, "payment-service"},
-		"deploy": {guidedDeployImpact, "api-gateway"},
+		"p1": {guidedRootCause, "payment-service"},
 	}
 	kinds := map[string]bool{}
 	for _, c := range chips {

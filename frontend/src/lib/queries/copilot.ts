@@ -10,7 +10,9 @@ import type { CopilotStarterGroup } from '@/lib/types';
 // (sunucu anahtarı da env'i özetler). Env yalnız P1 grubuna uygulanır.
 // v0.10.1390 — pencere (rangeS) kalktı: yalnız kaldırılan servis/operasyon
 // gruplarının girdisiydi; anahtar artık yalnız env.
-export function useCopilotStarters(enabled: boolean, env = ''): CopilotStarterGroup[] {
+// v0.10.1402 — `team` da döner (sunucunun çözdüğü kullanıcı takımı): Takımım
+// kartının varsayılan takımı; ikinci istek yok.
+export function useCopilotStarters(enabled: boolean, env = ''): { groups: CopilotStarterGroup[]; team: string } {
   const q = useQuery({
     queryKey: ['copilot', 'starters', env],
     queryFn: ({ signal }) => api.copilotStarters(env, signal),
@@ -18,8 +20,9 @@ export function useCopilotStarters(enabled: boolean, env = ''): CopilotStarterGr
     staleTime: 60_000,
     retry: false,
   });
-  return q.data?.groups ?? [];
+  return { groups: q.data?.groups ?? EMPTY_GROUPS, team: q.data?.team ?? '' };
 }
+const EMPTY_GROUPS: CopilotStarterGroup[] = [];
 
 // v0.10.1289 — CoSRE operatör kuralları (GET /api/ai/rules, her rol). Yalnız
 // panel / modal açıkken (enabled); sunucu önbelleği yok, staleTime 30 s

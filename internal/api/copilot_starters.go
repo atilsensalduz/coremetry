@@ -20,8 +20,12 @@ package api
 //
 //   - p1         — açık P1 problemleri → "<svc> kök nedeni ne?" + scope.problem
 //     (kapsam kademesi problemin penceresinde root_cause koşar).
-//   - deploys    — son 24 sa deploy'ları (takım ∩ ya da filo) → "<svc> son
-//     deploy etkisi?" (deploy_impact).
+//
+// v0.10.1402 (operatör: "Son deploy etkisini kaldırabiliriz") — `deploys`
+// grubu (son 24 sa deploy'ları → "<svc> son deploy etkisi?") KALDIRILDI:
+// başlangıç ekranındaki deploy kartının tek kaynağıydı. deploy_impact
+// rotası sohbette aynen duruyor; yalnız başlangıç seçeneği gitti. Yanıtın
+// `team` alanı artık FE'deki Takımım kartının varsayılan takımı.
 //
 // v0.10.1390 (operatör: "Burada filo geneli ve böyle birçok servis yazmasın,
 // search kısmı çıksa yeter. Aynısı hata veren teknik operasyonlar için de
@@ -30,12 +34,12 @@ package api
 // satırında katalog araması (copilot_operation_search.go) var; o grupların
 // okumaları (takım RED'i / filo sıcak noktaları + en kötü yol, açık exception
 // grupları) artık yapılmaz. Pencere (range_s) yalnız o grupların girdisiydi —
-// p1/deploy ona bakmaz; parametre ve anahtar boyutu da kalktı (v3).
+// p1 ona bakmaz; parametre ve anahtar boyutu da kalktı (v3).
 //
-// Bütçe: her grup KENDİ 3 s zaman aşımıyla paralel okunur ve tek başına
-// düşer (soft-fail: o grup yok, diğeri gelir). Ortam (env) YALNIZ P1
-// problemlerine uygulanır (ProblemFilter.Env servis-üyeliği semantiği);
-// deploy okuması ortam boyutu taşımaz — yanıt bunu `envScope: "p1"` ile söyler.
+// Bütçe: P1 grubu KENDİ 3 s zaman aşımıyla okunur ve düşerse grup yok
+// (soft-fail). Ortam (env) YALNIZ P1 problemlerine uygulanır
+// (ProblemFilter.Env servis-üyeliği semantiği) — yanıt bunu `envScope: "p1"`
+// ile söyler.
 //
 // requireCopilot kapısı YOK — LLM kullanmıyor (config ucu gibi). Rol kapısı
 // yok — viewer de görür. api.go/ai_routes.go BÜYÜMEZ: route defteri (init).
@@ -47,7 +51,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/cilcenk/coremetry/internal/auth"
@@ -67,14 +70,14 @@ func (s *Server) registerCopilotStarterRoutes(mux *http.ServeMux) {
 type copilotStarter struct {
 	Chip     string     `json:"chip"`
 	Question string     `json:"question"`
-	Kind     string     `json:"kind"` // p1 | deploy (v0.10.1390: servis/operasyon türleri kalktı)
+	Kind     string     `json:"kind"` // p1 (v0.10.1390: servis/operasyon, v0.10.1402: deploy türü kalktı)
 	Scope    *chatScope `json:"scope,omitempty"`
 }
 
 // starterGroup — v0.10.1382: bir yetenek satırının seçenekleri. Fleet=true →
 // takım çözülemedi, öğeler filo genelinden (FE etiketi "filo geneli").
 type starterGroup struct {
-	Kind  string           `json:"kind"` // p1 | deploys (v0.10.1390)
+	Kind  string           `json:"kind"` // p1 (v0.10.1402: deploys kalktı)
 	Fleet bool             `json:"fleet,omitempty"`
 	Items []copilotStarter `json:"items"`
 }
@@ -82,19 +85,17 @@ type starterGroup struct {
 const (
 	// v0.10.1382 — grup tavanları (operatör onaylı varsayılanlar).
 	startersP1Max        = 3
-	startersDeploysMax   = 2
 	startersGroupTimeout = 3 * time.Second
 	startersProblemLimit = 50
-	startersDeployLookbk = 24 * time.Hour
-	startersDeployLimit  = 50
 	startersChipRunes    = 48
 )
 
 // startersKey — v0.10.1382 SAF (hash-all-inputs): kullanıcı (takım ondan
 // türer) + env FNV özeti. v2: yanıt şekli gruplu. v0.10.1390 — v3: servis/
 // operasyon grupları kalktı (v2 kayıtları okunmasın) ve pencere girdisi yok.
+// v0.10.1402 — v4: deploys grubu kalktı (v3 kayıtları deploy çipi taşır).
 func startersKey(userID, env string) string {
-	return fmt.Sprintf("copilot:starters:v3:u=%s:e=%s", fnvStr(userID), fnvStr(env))
+	return fmt.Sprintf("copilot:starters:v4:u=%s:e=%s", fnvStr(userID), fnvStr(env))
 }
 
 // starterServiceEligible — v0.10.1382 SAF: çip cümlesine girebilecek servis
@@ -153,53 +154,13 @@ func starterP1Chips(probs []chstore.Problem, max int) []copilotStarter {
 	return out
 }
 
-// starterDeployChips — v0.10.1382 SAF. deps en yeni önce (GetRecentDeploys);
-// svcs nil = filo, aksi hâlde takım kümesiyle kesişim. Servis başına bir çip.
-func starterDeployChips(deps []chstore.RecentDeployEntry, svcs []string, max int) []copilotStarter {
-	var allow map[string]bool
-	if svcs != nil {
-		allow = make(map[string]bool, len(svcs))
-		for _, s := range svcs {
-			allow[s] = true
-		}
+// starterGroups — v0.10.1382 SAF: boş grup yanıta GİRMEZ (FE boş satır
+// çizmez). v0.10.1402 — yalnız p1 grubu (deploys kalktı).
+func starterGroups(fleet bool, p1 []copilotStarter) []starterGroup {
+	if len(p1) == 0 {
+		return []starterGroup{}
 	}
-	out := []copilotStarter{}
-	seen := map[string]bool{}
-	for _, d := range deps {
-		if len(out) >= max {
-			break
-		}
-		svc := strings.TrimSpace(d.Service)
-		if !starterServiceEligible(svc) || seen[svc] || (allow != nil && !allow[svc]) {
-			continue
-		}
-		seen[svc] = true
-		chip := svc
-		if v := strings.TrimSpace(d.Version); v != "" {
-			chip = svc + " → " + v
-		}
-		out = append(out, copilotStarter{
-			Chip:     starterTrunc(chip, startersChipRunes),
-			Question: svc + " son deploy etkisi?",
-			Kind:     "deploy",
-		})
-	}
-	return out
-}
-
-// starterGroups — v0.10.1382 SAF: sabit sırada grupları toplar; boş grup
-// yanıta GİRMEZ (FE boş satır çizmez).
-func starterGroups(fleet bool, p1, deploys []copilotStarter) []starterGroup {
-	out := []starterGroup{}
-	for _, g := range []starterGroup{
-		{Kind: "p1", Fleet: fleet, Items: p1},
-		{Kind: "deploys", Fleet: fleet, Items: deploys},
-	} {
-		if len(g.Items) > 0 {
-			out = append(out, g)
-		}
-	}
-	return out
+	return []starterGroup{{Kind: "p1", Fleet: fleet, Items: p1}}
 }
 
 func (s *Server) copilotStarters(w http.ResponseWriter, r *http.Request) {
@@ -218,18 +179,10 @@ func (s *Server) copilotStarters(w http.ResponseWriter, r *http.Request) {
 			scope = svcs
 		}
 
-		var p1, deploys []copilotStarter
-		var wg sync.WaitGroup
-		run := func(dst *[]copilotStarter, read func(context.Context) []copilotStarter) {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				gctx, cancel := context.WithTimeout(ctx, startersGroupTimeout)
-				defer cancel()
-				*dst = read(gctx)
-			}()
-		}
-		run(&p1, func(c context.Context) []copilotStarter {
+		// v0.10.1402 — tek grup (p1): paralel koşturucu ve deploy okuması kalktı.
+		p1 := func() []copilotStarter {
+			c, cancel := context.WithTimeout(ctx, startersGroupTimeout)
+			defer cancel()
 			// Öncelik okuma anında hesaplanır (SQL'e inmez): P1 daraltması
 			// LIMIT'ten SONRA → tarama ProblemScanLimit ile açılır (CHECK 8 sınıfı).
 			probs, err := s.store.ListProblems(c, chstore.ProblemFilter{
@@ -240,17 +193,9 @@ func (s *Server) copilotStarters(w http.ResponseWriter, r *http.Request) {
 				return nil
 			}
 			return starterP1Chips(s.enrichProblemsForRead(c, probs), startersP1Max)
-		})
-		run(&deploys, func(c context.Context) []copilotStarter {
-			deps, err := s.store.GetRecentDeploys(c, startersDeployLookbk, startersDeployLimit)
-			if err != nil {
-				return nil
-			}
-			return starterDeployChips(deps, scope, startersDeploysMax)
-		})
-		wg.Wait()
+		}()
 		return map[string]any{
-			"groups":   starterGroups(fleet, p1, deploys),
+			"groups":   starterGroups(fleet, p1),
 			"team":     team,
 			"env":      env,
 			"envScope": "p1", // ortam yalnız P1 problemlerine uygulanır

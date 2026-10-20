@@ -8083,3 +8083,31 @@ prompt'a hiç girmiyordu.
 - Değişmeyenler: MCP araç sayısı (74), api.go, `TestChatTierOrderIsPinned`, frontend.
 - Testler: `stackparse/appframes_test.go`, `anomaly/exception_app_frames_test.go`,
   `api/chat_exception_appframes_test.go`.
+
+## 2026-10-20 — v0.10.1402 — CoSRE başlangıç: Takımım kartı üstte, takım seçilebilir; son deploy kartı kalktı
+
+**Operatör:** "Alttaki takımımın servisleri exceptionları yukarıda olsun. Takım seçilebilsin. Son deploy etkisini
+kaldırabiliriz." + "Takımı da seçilebilir yapabiliriz, oradan devam eder."
+
+**Karar:**
+- Boş sohbetin kart ızgarasında (çekmece + `/cosre`, tek bileşen `CosreCapabilities`) EN ÜSTTE, `/cosre`'de tam
+  genişlik **Takımım** kartı: sunucu-aramalı `TeamPicker` (`/api/copilot/scope-names?kind=team` — composer'ın
+  `@team:` tamamlamasıyla aynı uç ve sohbetin takımı çözdüğü aynı liste; katalog önden çekilmez) + üç çip
+  ("Servisleri nasıl?", "Exception'ları?", "En hatalı servisleri?"). Çipler kartların altındaki gevşek satırdan
+  TAŞINDI (CopilotChat `STARTERS` kalktı, tekrar yok); gevşek satırda bağlam çipi, yol şablonu ve wiki çipi kaldı.
+- Takım seçiliyse çip "<takım> takımının servisleri nasıl? / exception'ları? / en hatalı servisleri?" gönderir
+  (team_services / team_exceptions / **team_top_errors**), değilse bugünkü "Takımımın …" (my_*; sunucu takımı
+  kimlikten çözer). Seçicide takım seçmek (ya da sunucuda birebir doğrulanan Enter) TEK tur gönderir:
+  "<takım> takımının servisleri nasıl?" → v0.10.1397 takım özeti; sohbet oradan devam eder. Doğrulanmayan Enter
+  cümleyi composer'a doldurur (servis/operasyon kutularıyla aynı yol, sessiz no-op yok).
+- Varsayılan takım: bu tarayıcıda son seçilen (`localStorage` `coremetry.cosre.team`, try/catch — yalnız kolaylık)
+  > `/api/copilot/starters` yanıtının `team` alanı (sunucunun çözdüğü kullanıcı takımı; ikinci istek yok) > boş.
+- Yeni guided rota `team_top_errors`: "<takım> takımının en hatalı servisleri" adı geçen takım dalında; okuma
+  my_top_errors ile aynı (`TopErrorServices`, service_summary_5m), takım→servis çözümü team_services ile aynı
+  (`mcptools.ReadTeamServiceNames`). Gerekçe: team_services'e düşseydi kartın iki çipi aynı cevabı verirdi.
+  `@team:` kapsamı my_top_errors'ı buna çevirir; takip çipleri my_top_errors'ınki (operasyonlar).
+- Son deploy kartı ve "filo geneli" deploy çipleri kalktı; sunucudaki `deploys` grubu (son 24 sa deploy okuması)
+  yalnız bu kartı besliyordu, o da kalktı (`starterDeployChips` silindi, önbellek anahtarı v4). `deploy_impact`
+  rotası ve sohbetteki deploy soruları aynen duruyor.
+- Testler: `internal/api/copilot_team_card_test.go` (yönlenme tablosu + kapsam + takip),
+  `copilot_starters_test.go` (p1-only, v4), `frontend/src/components/ai/CosreTeamCard.test.tsx`.

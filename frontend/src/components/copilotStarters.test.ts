@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { TEAM_ASKS, teamCardQuestion } from './ai/capabilityHints';
 
 // v0.9.652 — boş sohbetteki başlangıç çipleri (operatör isteği).
 //
@@ -28,24 +29,26 @@ function arrayLiteral(name: string): string[] {
     .map(l => l.slice(1, -1));
 }
 
-describe('başlangıç çipleri', () => {
-  const starters = arrayLiteral('STARTERS');
+// v0.10.1402 (operatör: "Alttaki takımımın servisleri exceptionları yukarıda
+// olsun. Takım seçilebilsin.") — üç başlangıç sorusu gevşek çip satırından
+// (CopilotChat STARTERS) Takımım kartına taşındı (capabilityHints TEAM_ASKS);
+// aynı dersler orada çivili: takım seçilmemişken gönderilen cümleler.
+describe('başlangıç çipleri (Takımım kartı)', () => {
+  const starters = TEAM_ASKS.map(a => teamCardQuestion(a.kind, ''));
 
-  it('çipler okunabiliyor', () => {
-    expect(starters.length).toBeGreaterThan(0);
+  it('gevşek satırda STARTERS listesi yok (tekrar yok)', () => {
+    expect(src).not.toContain('const STARTERS = [');
   });
 
-  // v0.9.579'un dersi: sekiz çip menüydü. v0.10.702 (operatör: "önerileri
-  // zenginleştirelim") — tavan BEŞ; her çip LLM'siz yönlenir
-  // (copilot_starters_test.go Go tarafında pinler), menü değil araç.
+  // v0.9.579'un dersi: sekiz çip menüydü. Tavan BEŞ; her çip LLM'siz
+  // yönlenir (copilot_starters_test.go / copilot_team_card_test.go pinler).
   it('en fazla BEŞ çip — menü hissi eşiği', () => {
+    expect(starters.length).toBeGreaterThan(0);
     expect(starters.length).toBeLessThanOrEqual(5);
   });
 
-  // v0.10.702 — eklenen iki konu.
   // v0.10.1249 (operatör) — "açık problemleri" yerine takım exception'ları;
-  // filo geneli "son 1 saatteki log hataları" çok servisli kurulumda
-  // anlamsızdı, çıkarıldı. Geri gelmesin.
+  // filo geneli "son 1 saatteki log hataları" anlamsızdı. Geri gelmesin.
   it("takım exception'ları var; açık problemler ve filo log hataları yok", () => {
     const joined = starters.join(' | ').toLowerCase();
     expect(joined).toContain("exception'ları");
@@ -55,15 +58,15 @@ describe('başlangıç çipleri', () => {
 
   // Operatörün adıyla istediği üç soru.
   it('operatörün istediği konuları kapsıyor', () => {
-    const joined = starters.join(' | ').toLowerCase();
-    expect(joined).toContain('takımım');
-    expect(joined).toContain('exception');
-    // v0.10.1256 (operatör) — filo "en yavaş trace'ler" yerine takımın en hatalı servisleri.
-    expect(joined).toContain('en hatalı servis');
-    expect(joined).not.toContain('yavaş');
+    expect(starters).toEqual([
+      'Takımımın servisleri nasıl?',
+      "Takımımın exception'ları?",
+      'Takımımın en hatalı servisleri?',
+    ]);
+    expect(starters.join(' ').toLowerCase()).not.toContain('yavaş');
   });
 
-  // Operatör: "son deploy etkisine gerek yok".
+  // Operatör: "son deploy etkisine gerek yok" (v0.9.652, v0.10.1402).
   it('deploy sorusu YOK', () => {
     expect(starters.join(' ').toLowerCase()).not.toContain('deploy');
   });

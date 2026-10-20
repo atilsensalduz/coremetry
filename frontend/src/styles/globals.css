@@ -3278,7 +3278,7 @@ button.cosre-cap__row > .row { align-items: flex-start; min-width: 0; }
 .cosre-cap__icon { flex: none; margin-top: 2px; color: var(--accent); }
 /* v0.10.1382 — satır altındaki canlı veriden seçenekler: başlığın metniyle
    hizalı (ikon + boşluk kadar girinti), sarar; "filo geneli" soluk etiket
-   (yalnız p1/deploy). v0.10.1390 — servis/operasyon satırının her zaman
+   (yalnız p1; v0.10.1402 deploy satırı kalktı). v0.10.1390 — servis/operasyon satırının her zaman
    görünen arama kutusu (.cosre-cap__picker) tam genişlik. */
 .cosre-cap__item { display: flex; flex-direction: column; min-width: 0; }
 .cosre-cap__choices {
@@ -5847,6 +5847,8 @@ tbody td.tpm-more-cell { color: var(--text2); }
 .cosre-root .cm-greet .cosre-cap__row:hover { border-color: var(--accent); color: var(--text); background: var(--bg1); }
 .cosre-root .cm-greet .cosre-cap__choices,
 .cosre-root .cm-greet .cosre-cap__picker { padding: var(--cosre-s1) var(--cosre-s1) 0; gap: var(--cosre-s1); }
+/* v0.10.1402 — Takımım kartı ızgaranın ilk ve TAM GENİŞLİK hücresi (seçici + üç çip). */
+.cosre-root .cm-greet .cosre-cap__item--team { grid-column: 1 / -1; }
 .cosre-root .cm-greet__chips { display: flex; gap: var(--cosre-s2); flex-wrap: wrap; justify-content: center; max-width: 640px; }
 
 /* Composer: tek kart, metin üstte, araç satırı altta. */

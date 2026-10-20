@@ -312,9 +312,12 @@ func guidedSuggestions(route guidedRoute) []string {
 			return []string{svc + " sağlığı nasıl?", svc + " hata logları?", svc + " en yavaş trace'ler?"}
 		}
 		return nil
-	case guidedTopErrorServices, guidedMyTopErrors: // v0.10.1256 — ikinci adım: operasyonlar
+	case guidedTopErrorServices, guidedMyTopErrors, guidedTeamTopErrors: // v0.10.1256 — ikinci adım: operasyonlar (v0.10.1402: adı geçen takım)
 		if out := topErrorFollowups(route.TeamServices); len(out) > 0 {
 			return out
+		}
+		if t := strings.TrimSpace(route.Team); route.Intent == guidedTeamTopErrors && t != "" {
+			return []string{t + " takımının exception'ları?"} // v0.10.1402 — aynı takımda kal
 		}
 		return []string{"Takımımın exception'ları?"}
 	case guidedTopErrorOps:
