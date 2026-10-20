@@ -130,7 +130,8 @@ function EvidenceBlock({ id, block, ev }: { id: string; block: EvidenceBlockView
 
 // EvidenceChart — veri taşıyan chart bloğu: birim başına bir CorePanel (uPlot),
 // yeniden sorgu YOK. Seri/nokta tavanı sunucuda (≤20 × ≤120).
-function EvidenceChart({ p }: { p: ChatEvidenceChartPayload }) {
+// v0.10.1415 — dışa açık: servis raporu kartı VM HTTP grafiklerini AYNI çizimle basar.
+export function EvidenceChart({ p }: { p: ChatEvidenceChartPayload }) {
   const groups = evidenceChartGroups(p);
   // v0.10.1284 — isteğe bağlı x-bölgeleri (explain_log_spike: taban / artış).
   const regions = evidenceRegions(p.regions);

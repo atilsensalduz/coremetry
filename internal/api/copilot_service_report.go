@@ -18,6 +18,9 @@ package api
 //	Faz 3 (paralel, ≤8 sn): traceDrillFor (v0.10.1327 — ikinci uygulama yok).
 //	Faz 4 (≤5 sn): TEK log okuması, readDrillLogs (yapılandırılmış depo).
 //	Faz 5 (SAF): serviceReportVerdict → HÜKÜM kanıtın EN ÜSTÜNDE.
+//	v0.10.1415: VictoriaMetrics HTTP throughput / yanıt süresi (+5xx) —
+//	  startServiceHTTPRED (servis sağlığının 1391 okuması, 8 sn) Faz 1–4 ile
+//	  PARALEL; grafikler kartta, özetleri kanıtta (service_vm_red_charts.go).
 //
 // Goroutine'ler emit ETMEZ: adım çipleri okumalardan önce açılır, sonuçlar
 // hepsi bittikten sonra sırayla yazılır. Deterministik yük + kanıt 60 sn
@@ -41,6 +44,7 @@ import (
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/healthverdict"
 	"github.com/cilcenk/coremetry/internal/logstore"
+	"github.com/cilcenk/coremetry/internal/mcptools"
 	"github.com/cilcenk/coremetry/internal/sourcestate"
 )
 
@@ -63,7 +67,8 @@ const (
 	serviceReportLogsPerTrace  = traceDrillLogsPerTrace // kart: trace başına ≤8 satır
 	serviceReportEvLogLines    = 3                      // kanıt: trace başına ≤3 satır (bütçe)
 	serviceReportProblemsMax   = 5
-	serviceReportEvidenceMax   = 6144 // kanıt metni tavanı (bayt, ~6 KB)
+	serviceReportEvidenceMax   = 7424 // kanıt metni tavanı (bayt, ~7 KB; v0.10.1415 +1.25 KB HTTP bölümü)
+	serviceReportHTTPSection   = 1280 // v0.10.1415 — HTTP grafik özetleri bölüm tavanı
 	serviceReportCacheTTL      = 60 * time.Second
 	serviceReportBurstMin      = 10 // patlama Sorunlu sayılmak için son 1 sa asgari oluşum
 	serviceReportSlowRatio     = 2.0
@@ -439,6 +444,7 @@ type serviceReportData struct {
 	Problems     []chstore.Problem
 	ProbTotal    problemsTotal
 	ProbErr      error
+	HTTP         string // v0.10.1415 — renderReportHTTPTR (VM HTTP grafik özetleri ya da dürüst not)
 	Verdict      string
 	Reasons      []string
 	Now          time.Time
@@ -680,6 +686,9 @@ func renderServiceReportTR(d serviceReportData) string {
 		scope += " · ortam " + d.Env
 	}
 	fmt.Fprintf(&b, "SORU ŞEKLİ: servis raporu — %s; pencere son %s, teknik hatalar son 3sa.\n\n", scope, fmtAgoTR(d.RangeS))
+	if d.HTTP != "" { // v0.10.1415 — HTTP throughput / yanıt süresi (VictoriaMetrics) özetin hemen altında
+		b.WriteString(capSectionTR(d.HTTP, serviceReportHTTPSection) + "\n")
+	}
 	b.WriteString(capSectionTR(renderReportOpsTR(d.Ops, d.Snapshot, d.SnapshotErr, d.NoSpans), 1400) + "\n")
 	b.WriteString(capSectionTR(renderReportExceptionsTR(d.Ex, d.Env), 1400) + "\n")
 	b.WriteString(capSectionTR(renderReportTracesTR(d.Cands, d.Drills, d.TracesErr), 1200) + "\n")
@@ -753,6 +762,10 @@ type serviceReportPayload struct {
 	Drills          []traceDrillView         `json:"drills"`
 	LogBackend      string                   `json:"logBackend,omitempty"`
 	Links           []guidedAnswerLink       `json:"links"`
+	// v0.10.1415 — VictoriaMetrics HTTP grafikleri (throughput · yanıt süresi ·
+	// 5xx); kart özetten hemen sonra çizer. Boşsa HTTPChartsNote gerekçeyi söyler.
+	HTTPCharts     []serviceReportHTTPChart `json:"httpCharts,omitempty"`
+	HTTPChartsNote string                   `json:"httpChartsNote,omitempty"`
 }
 
 // buildTraceDrillViews — SAF: kırılımlar + gruplanmış loglar → kart satırları.
@@ -888,6 +901,8 @@ type reportStep struct {
 	Args string `json:"args"`
 	Text string `json:"text"`
 	Err  string `json:"err,omitempty"`
+	// v0.10.1415 — kanıt zarflı adım (metric_chart): isabette aynı çip.
+	Evidence *mcptools.ChatEvidence `json:"evidence,omitempty"`
 }
 
 // serviceReportCached — 60 sn önbellek gövdesi: deterministik yük + kanıt.
@@ -901,16 +916,24 @@ type serviceReportCached struct {
 }
 
 // serviceReportCacheKey — SAF: TÜM girdiler FNV'ye (servis, ortam, dakikaya
-// oturtulmuş from/to); uzunluk-yalnız anahtar yok (v0.5.187 kuralı).
-func serviceReportCacheKey(service, env string, from, to time.Time) string {
+// oturtulmuş from/to, saat dilimi); uzunluk-yalnız anahtar yok (v0.5.187 kuralı).
+func serviceReportCacheKey(service, env string, from, to time.Time, loc *time.Location) string {
+	if loc == nil {
+		loc = time.UTC
+	}
+	// v0.10.1415 — saat dilimi girdi: HTTP grafik özetindeki tepe saatleri
+	// (metricChartStatsTR "15:04") kullanıcının diliminde basılır.
+	_, off := to.In(loc).Zone()
 	h := fnv.New64a()
-	for _, p := range []string{service, env, fmt.Sprint(from.Unix() / 60), fmt.Sprint(to.Unix() / 60)} {
+	for _, p := range []string{service, env, fmt.Sprint(from.Unix() / 60), fmt.Sprint(to.Unix() / 60), loc.String(), fmt.Sprint(off)} {
 		h.Write([]byte(p))
 		h.Write([]byte{0})
 	}
 	// v0.10.1410 — "v2": kanıttaki komşular topoloji özetinden (DB/dış
 	// çağrılar dahil); eski önbellek gövdesi DB-kör komşu listesini taşıyor.
-	return fmt.Sprintf("copilot:guided:svcreport:v2:%x", h.Sum64())
+	// v0.10.1415 — "v3": gövde VictoriaMetrics HTTP grafiklerini (kart +
+	// kanıt + metric_chart çipleri) taşıyor; v2 gövdesi grafiksiz.
+	return fmt.Sprintf("copilot:guided:svcreport:v3:%x", h.Sum64())
 }
 
 // reportRecorder — adım çiplerini yayınlar ve önbellek için kaydeder.
@@ -941,6 +964,10 @@ func (r *reportRecorder) done(k int, text string, err error) {
 func replayReportSteps(emit func(string, any), steps []reportStep) {
 	for _, st := range steps {
 		i := emitGuidedStep(emit, st.Tool, st.Args)
+		if st.Evidence != nil && st.Err == "" { // v0.10.1415 — kanıt zarfı (ref yeni kimlikten)
+			emitGuidedEvidenceResult(emit, i, st.Tool, st.Text, *st.Evidence, nil)
+			continue
+		}
 		var err error
 		if st.Err != "" {
 			err = errors.New(st.Err)
@@ -981,12 +1008,15 @@ func (s *Server) logBackendName() string {
 
 // guidedServiceReportBundle — service_report rotasının kanıtı (dosya başı).
 // Hiçbir okuma hatası demeti düşürmez: kaynak OKUNAMADI diye yazılır.
-func (s *Server) guidedServiceReportBundle(ctx context.Context, emit func(string, any), route guidedRoute, from, to time.Time, rangeS int64) (string, string, error) {
+func (s *Server) guidedServiceReportBundle(ctx context.Context, emit func(string, any), route guidedRoute, from, to time.Time, rangeS int64, loc *time.Location) (string, string, error) {
 	svc, env := route.Service, route.Env
 	if s.store == nil {
 		return "", "", errors.New("servis raporu: depo yok")
 	}
-	key := serviceReportCacheKey(svc, env, from, to)
+	if loc == nil {
+		loc = time.UTC
+	}
+	key := serviceReportCacheKey(svc, env, from, to, loc)
 	if c, ok := s.serviceReportFromCache(ctx, key); ok {
 		emitGuidedContextStep(emit, "önbellek: aynı servis raporu (≤60 sn)")
 		replayReportSteps(emit, c.Steps)
@@ -998,6 +1028,9 @@ func (s *Server) guidedServiceReportBundle(ctx context.Context, emit func(string
 	}
 	bctx, cancel := context.WithTimeout(ctx, serviceReportBudget)
 	defer cancel()
+	// v0.10.1415 — servisin VictoriaMetrics HTTP RED'i (servis sağlığıyla ORTAK
+	// okuma, 8 sn bütçe) Faz 1–4 ile PARALEL; goroutine emit etmez.
+	waitHTTP := s.startServiceHTTPRED(bctx, svc, env, from, to, rangeS)
 	rec := &reportRecorder{emit: emit}
 	svcArg := `{"service":` + jsonStr(svc) + `}`
 
@@ -1138,10 +1171,17 @@ func (s *Server) guidedServiceReportBundle(ctx context.Context, emit func(string
 		Err:  cx.curErr, OpenProblems: len(probs), ErrTraces: len(errRows),
 	}
 	data.Verdict, data.Reasons = serviceReportVerdict(red, view, ex, drills)
+	// v0.10.1415 — VM HTTP grafikleri: çipler (kanıt zarflı), kart grafikleri, kanıt özeti.
+	httpRes := waitHTTP()
+	httpViews := reportHTTPViews(svc, rangeS, httpRes, loc)
+	recordReportHTTPSteps(rec, httpViews)
+	httpCharts, httpNote := reportHTTPCharts(httpRes, httpViews)
+	data.HTTP = renderReportHTTPTR(svc, rangeS, httpRes, httpViews)
 	evidence := renderServiceReportTR(data)
 
 	links := dedupLinksByHref(guidedAnswerLinks(route, linkWindowBetween(from, to)))
 	report := buildServiceReportPayload(data, red, links)
+	report.HTTPCharts, report.HTTPChartsNote = httpCharts, httpNote
 	var tl *traceListPayload
 	if len(cands) > 0 {
 		href := "/traces?service=" + url.QueryEscape(svc) + "&sort=duration"
@@ -1155,7 +1195,7 @@ func (s *Server) guidedServiceReportBundle(ctx context.Context, emit func(string
 	if backend == "" {
 		backend = "yok"
 	}
-	sources := fmt.Sprintf("servis RED + açık problemler + kök-neden hipotezleri + operasyonlar (önceki eşit pencereyle) + Exceptions grupları (son 3sa) + kırılan trace'lerin kritik yolu (Tempo/ClickHouse) + o trace'lerin logları (log deposu: %s) (son %s)", backend, fmtAgoTR(rangeS))
+	sources := fmt.Sprintf("servis RED + açık problemler + kök-neden hipotezleri + operasyonlar (önceki eşit pencereyle) + Exceptions grupları (son 3sa) + kırılan trace'lerin kritik yolu (Tempo/ClickHouse) + o trace'lerin logları (log deposu: %s)%s (son %s)", backend, reportHTTPSourcesTR(httpCharts), fmtAgoTR(rangeS))
 	if env != "" {
 		sources += fmt.Sprintf(", ortam: %s (RED ve Exceptions tüm ortamlar)", env)
 	}

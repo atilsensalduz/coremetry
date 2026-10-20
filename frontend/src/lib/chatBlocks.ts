@@ -97,6 +97,9 @@ export function serviceReportBlocks(blocks: ChatTypedBlock[] | undefined): ChatS
         explainHref: typeof e.explainHref === 'string' && isSafeAppPath(e.explainHref) ? e.explainHref : '',
       })),
       drills: (p.drills ?? []).filter(d => d && typeof d.traceId === 'string' && d.traceId !== ''),
+      // v0.10.1415 — VM HTTP grafikleri: serisiz yük düşer; güvensiz deepLink silinir (grafik kalır).
+      httpCharts: (p.httpCharts ?? []).filter(c => c && typeof c.title === 'string' && Array.isArray(c.series) && c.series.length > 0 && !!c.window)
+        .map(c => ({ ...c, deepLink: typeof c.deepLink === 'string' && isSafeAppPath(c.deepLink) ? c.deepLink : undefined })),
     });
   }
   return out;

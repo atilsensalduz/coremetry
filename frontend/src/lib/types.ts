@@ -7606,6 +7606,18 @@ export interface ChatServiceReportPayload {
   drills: ChatServiceReportDrill[] | null;
   logBackend?: string;
   links: ChatAnswerLink[] | null;
+  /** v0.10.1415 — VictoriaMetrics HTTP grafikleri (throughput · yanıt süresi · 5xx); kart özetten hemen sonra çizer. */
+  httpCharts?: ChatServiceReportHTTPChart[] | null;
+  /** v0.10.1415 — grafik çizilmediyse gerekçe (VM yok / histogram yok / servis serisi yok / okunamadı). */
+  httpChartsNote?: string;
+}
+/** v0.10.1415 — servis raporu kartının VM HTTP grafiği (service_vm_red_charts.go serviceReportHTTPChart). */
+export interface ChatServiceReportHTTPChart extends ChatEvidenceChartPayload {
+  /** rate | latency | 5xx */
+  kind: string;
+  unit: string;
+  /** VictoriaMetrics'e giden PromQL ("PromQL kopyala"). */
+  query: string;
 }
 /**
  * v0.10.1388 — `topology` bloğu (internal/api/copilot_service_topology.go

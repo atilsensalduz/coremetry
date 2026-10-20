@@ -89,6 +89,31 @@ describe('ServiceReportCard', () => {
     expect(text).toContain('kırılan trace yok');
     expect(host.querySelectorAll('table')).toHaveLength(0);
   });
+  // v0.10.1415 — operatör: "… tam rapor çekerken CoSRE VictoriaMetrics'ten HTTP grafiklerini getirsin. Response time ve throughput."
+  it('VM HTTP grafikleri özetin hemen altında (operasyonlardan önce), Metrics linki; yoksa dürüst not', () => {
+    const p = reportFixture();
+    const chart = (kind: string) => ({
+      title: `orders-api · ${kind} · VictoriaMetrics (örneklenmemiş)`, evidenceRef: '', deepLink: `/metrics?k=${kind}`,
+      window: { fromNs: 1, toNs: 2 }, kind, unit: 's', query: `q_${kind}`, series: [{ name: 'p99', unit: 's', points: [[1, 0.2]] as [number, number][] }],
+    });
+    p.httpCharts = [chart('rate'), chart('latency')];
+    render(p);
+    const charts = Array.from(host.querySelectorAll('[data-http-chart]')).map(e => e.getAttribute('data-http-chart'));
+    expect(charts).toEqual(['rate', 'latency']);
+    const html = host.innerHTML;
+    expect(html.indexOf('data-http-chart="rate"')).toBeGreaterThan(html.indexOf('ev-verdict'));
+    expect(html.indexOf('data-http-chart="latency"')).toBeLessThan(html.indexOf('En yavaş operasyonlar'));
+    expect(hrefs()).toContain('/metrics?k=rate');
+    expect(host.textContent).toContain('VictoriaMetrics (örneklenmemiş)');
+
+    const q = reportFixture();
+    q.httpChartsNote = 'VictoriaMetrics yapılandırılmamış';
+    render(q);
+    expect(host.querySelectorAll('[data-http-chart]')).toHaveLength(0);
+    expect(host.textContent).toContain('HTTP grafikleri yok — VictoriaMetrics yapılandırılmamış');
+    render(reportFixture());
+    expect(host.textContent).not.toContain('HTTP grafikleri yok');
+  });
   it('log durumu cümleleri ayrı; hüküm rengi yalnız sapan hükümde', () => {
     const d = reportFixture().drills![0];
     expect(drillLogsNote({ ...d, logsState: 'no_store' })).toContain('depo yok');

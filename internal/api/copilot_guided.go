@@ -2140,7 +2140,7 @@ func (s *Server) runGuidedRoute(ctx context.Context, emit func(string, any), rou
 	case guidedTraceDrill: // v0.10.1327 — en yavaş trace kritik yolu + o trace'lerin logları
 		evidence, sources, err = s.guidedTraceDrillBundle(ctx, emit, route.Service, route.Env, from, to, rangeS)
 	case guidedServiceReport: // v0.10.1337 — operasyonlar + teknik hatalar + trace/log kanıtı (copilot_service_report.go)
-		evidence, sources, err = s.guidedServiceReportBundle(ctx, emit, route, from, to, rangeS)
+		evidence, sources, err = s.guidedServiceReportBundle(ctx, emit, route, from, to, rangeS, loc) // v0.10.1415 — loc: HTTP grafik özeti saatleri
 	case guidedDeployImpact:
 		evidence, sources, err = s.guidedDeployBundle(ctx, emit, route.Service, route.Env, rangeS, anchorTo)
 	case guidedLogErrors:

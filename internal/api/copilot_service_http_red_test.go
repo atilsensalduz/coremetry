@@ -307,8 +307,14 @@ func TestServiceHTTPREDReadOnly(t *testing.T) {
 	if n := strings.Count(src, ".QueryPromQLRange("); n != 1 {
 		t.Errorf("TEK range sorgusu çağrı yeri bekleniyordu, %d", n)
 	}
+	// v0.10.1415 — grafik başına görünüm ortak kurucuya taşındı (service_vm_red_charts.go).
+	vb, err := os.ReadFile("service_vm_red_charts.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	both := src + stripGoCommentsAPI(string(vb))
 	for _, w := range []string{"s.metricChartLabelSet(ctx, rd, mcHTTPMetric, qTo)", "s.resolveHTTPEnvScope(", "svcHTTPREDCacheKey(q.Kind, q.Query, service, envMatcher, from, to, step)", "metricChartStatsTR("} {
-		if !strings.Contains(src, w) {
+		if !strings.Contains(both, w) {
 			t.Errorf("%q taşımalı (v0.10.1386 makinesi yeniden kullanılır)", w)
 		}
 	}

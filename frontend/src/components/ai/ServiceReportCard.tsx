@@ -5,7 +5,13 @@
 // (traceHref) + o trace'lerin logları (mono), link çipleri. Rapor anlatımdan
 // bağımsız: model ne yazarsa yazsın kanıt burada sunucu sırasıyla durur.
 // Hrefler lib/chatBlocks.ts serviceReportBlocks'ta isSafeAppPath'ten geçti.
+// v0.10.1415 (operatör: "… tam rapor çekerken CoSRE VictoriaMetrics'ten HTTP
+// grafiklerini getirsin. Response time ve throughput.") — özet satırlarının
+// hemen altında VictoriaMetrics HTTP grafikleri (throughput · yanıt süresi ·
+// 5xx; kanıt çipinin AYNI çizimi EvidenceChart) + "Metrics'te aç" / PromQL
+// kopyala; çizilmediyse sunucunun dürüst notu.
 import { Link } from 'react-router-dom';
+import { CopyButton } from '@/components/CopyButton';
 import type { ChatServiceReportOp, ChatServiceReportPayload } from '@/lib/types';
 import { fmtNum } from '@/lib/utils';
 import { traceHref } from '@/lib/traceHref';
@@ -13,6 +19,7 @@ import { fmtEvidenceTime, fmtRangeTR } from '@/lib/chatEvidence';
 import { chatLinkTargetProps, useChatLinkNewTab } from './chatLinkTarget';
 import { exceptionGroupRows, fmtMs } from './operationCardView';
 import { drillLogsNote, verdictBadgeClass } from './serviceReportCardView';
+import { EvidenceChart } from './EvidenceChips';
 
 function priorLabel(o: ChatServiceReportOp): string {
   return o.ratio && o.ratio > 0 && o.priorP99Ms ? `${fmtMs(o.priorP99Ms)} · ×${o.ratio.toFixed(1)}` : 'kıyas yok';
@@ -25,6 +32,7 @@ export function ServiceReportCard({ rep }: { rep: ChatServiceReportPayload }) {
   const exRows = exceptionGroupRows(rep.exceptions ?? []);
   const drills = rep.drills ?? [];
   const links = rep.links ?? [];
+  const httpCharts = rep.httpCharts ?? [];
   return (
     <section className="ev-card" aria-label={`Servis raporu · ${rep.service}`}>
       <div className="ev-head">
@@ -41,6 +49,22 @@ export function ServiceReportCard({ rep }: { rep: ChatServiceReportPayload }) {
             <span>hata %{rep.red.errorRate.toFixed(2)} (önce %{rep.red.baseErrorRate.toFixed(2)})</span>
             <span>p99 {fmtMs(rep.red.p99Ms)} (önce {fmtMs(rep.red.baseP99Ms)})</span>
           </div>)}
+
+      {/* v0.10.1415 — VictoriaMetrics HTTP grafikleri (örneklenmemiş), raporun en üstünde. */}
+      {httpCharts.length > 0 ? (
+        <>
+          <div className="ev-sub">HTTP throughput · yanıt süresi — VictoriaMetrics (örneklenmemiş)</div>
+          {httpCharts.map(c => (
+            <div key={c.kind} data-http-chart={c.kind}>
+              <EvidenceChart p={c} />
+              <div className="ev-foot">
+                {c.deepLink && <Link to={c.deepLink} className="ev-link" {...linkProps}>Metrics'te aç ↗</Link>}
+                {c.query && <CopyButton value={c.query} title="PromQL kopyala" />}
+              </div>
+            </div>
+          ))}
+        </>
+      ) : rep.httpChartsNote ? <div className="ev-empty">HTTP grafikleri yok — {rep.httpChartsNote}</div> : null}
 
       <div className="ev-sub">En yavaş operasyonlar</div>
       {rep.ops.err ? <div className="ev-empty">Operasyonlar okunamadı ({rep.ops.err})</div>

@@ -63,4 +63,19 @@ describe('serviceReportBlocks', () => {
     expect(got.exceptions).toEqual([]);
     expect(got.drills).toEqual([]);
   });
+  // v0.10.1415 — VM HTTP grafikleri (operatör: "… VictoriaMetrics'ten HTTP grafiklerini getirsin. Response time ve throughput.")
+  it('HTTP grafikleri: serisiz yük düşer, güvensiz deepLink silinir (grafik kalır), alan yoksa boş dizi', () => {
+    const p = reportFixture();
+    const chart = (kind: string, deepLink: string, points: [number, number][]) => ({
+      title: `orders-api · ${kind}`, evidenceRef: '', deepLink, window: { fromNs: 1, toNs: 2 }, kind, unit: 's', query: 'sum (rate(x[60s]))',
+      series: points.length ? [{ name: 'p99', unit: 's', points }] : [],
+    });
+    p.httpCharts = [chart('rate', '/metrics?q=1', [[1, 2]]), chart('latency', '//evil.com', [[1, 0.2]]), chart('5xx', '/metrics?q=2', [])];
+    const [got] = serviceReportBlocks([mk('b1', 1, 'service_report', p)]);
+    expect(got.httpCharts!.map(c => c.kind)).toEqual(['rate', 'latency']);
+    expect(got.httpCharts![0].deepLink).toBe('/metrics?q=1');
+    expect(got.httpCharts![1].deepLink).toBeUndefined();
+    const [none] = serviceReportBlocks([mk('b1', 1, 'service_report', reportFixture())]);
+    expect(none.httpCharts).toEqual([]);
+  });
 });

@@ -428,16 +428,20 @@ func TestServiceReportPayload(t *testing.T) {
 func TestServiceReportCacheKey(t *testing.T) {
 	from := time.Date(2026, 10, 18, 9, 0, 10, 0, time.UTC)
 	to := from.Add(time.Hour)
-	base := serviceReportCacheKey("svc", "prod", from, to)
-	if serviceReportCacheKey("svc", "prod", from.Add(20*time.Second), to.Add(20*time.Second)) != base {
+	base := serviceReportCacheKey("svc", "prod", from, to, time.UTC)
+	if serviceReportCacheKey("svc", "prod", from.Add(20*time.Second), to.Add(20*time.Second), time.UTC) != base {
 		t.Error("aynı dakika aynı anahtar")
 	}
+	if serviceReportCacheKey("svc", "prod", from, to, nil) != base || !strings.HasPrefix(base, "copilot:guided:svcreport:v3:") {
+		t.Errorf("nil dilim = UTC; v0.10.1415 ad alanı v3: %s", base)
+	}
 	for name, k := range map[string]string{
-		"servis": serviceReportCacheKey("svc2", "prod", from, to),
-		"ortam":  serviceReportCacheKey("svc", "uat", from, to),
-		"from":   serviceReportCacheKey("svc", "prod", from.Add(-time.Hour), to),
-		"to":     serviceReportCacheKey("svc", "prod", from, to.Add(time.Minute)),
-		"ayraç":  serviceReportCacheKey("svcp", "rod", from, to),
+		"servis": serviceReportCacheKey("svc2", "prod", from, to, time.UTC),
+		"ortam":  serviceReportCacheKey("svc", "uat", from, to, time.UTC),
+		"from":   serviceReportCacheKey("svc", "prod", from.Add(-time.Hour), to, time.UTC),
+		"to":     serviceReportCacheKey("svc", "prod", from, to.Add(time.Minute), time.UTC),
+		"ayraç":  serviceReportCacheKey("svcp", "rod", from, to, time.UTC),
+		"dilim":  serviceReportCacheKey("svc", "prod", from, to, time.FixedZone("TRT", 3*3600)), // v0.10.1415 — grafik özeti saatleri
 	} {
 		if k == base {
 			t.Errorf("%s anahtara girmiyor", name)
@@ -527,7 +531,7 @@ func TestServiceReportWiring(t *testing.T) {
 	gs := string(g)
 	for _, w := range []string{
 		"case guidedServiceReport: // v0.10.1337",
-		"s.guidedServiceReportBundle(ctx, emit, route, from, to, rangeS)",
+		"s.guidedServiceReportBundle(ctx, emit, route, from, to, rangeS, loc)",
 		"case svc != \"\" && serviceReportShape(toks):",
 		"hasServiceReportSignal(toks) ||",
 		"rangeS = serviceReportDefaultRangeS",

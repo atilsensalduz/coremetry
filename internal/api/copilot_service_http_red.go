@@ -296,36 +296,20 @@ func (s *Server) emitServiceHTTPRED(emit func(string, any), service string, rang
 	for _, nt := range res.Notes {
 		b.WriteString("Not: " + nt + ".\n")
 	}
+	// v0.10.1415 — grafik başına görünüm ORTAK kurucudan (service_vm_red_charts.go;
+	// servis raporu da aynısını kullanır). Metin/kanıt/blok 1391 ile bayt bayt aynı.
 	drawn := 0
-	for _, c := range res.Charts {
-		args := fmt.Sprintf(`{"template":%s,"service":%s,"range_s":%d}`, jsonStr("svc_http_red/"+c.Kind), jsonStr(service), rangeS)
-		n := emitGuidedStep(emit, "metric_chart", withEnvArg(args, res.Env))
-		var t strings.Builder
-		fmt.Fprintf(&t, "%s — PromQL: %s\n", c.Title, c.Query)
-		if c.Err != nil {
-			fmt.Fprintf(&t, "VictoriaMetrics sorgusu BAŞARISIZ (okunamadı ≠ yok): %v — bu grafik YOK.\n", c.Err)
-			emitGuidedStepResult(emit, n, "metric_chart", t.String(), c.Err)
-			b.WriteString(t.String())
+	for _, v := range svcHTTPREDViews(service, rangeS, res, loc) {
+		n := emitGuidedStep(emit, "metric_chart", v.Args)
+		b.WriteString(v.Text)
+		if v.Err != nil {
+			emitGuidedStepResult(emit, n, "metric_chart", v.Text, v.Err)
 			continue
 		}
-		if len(c.Series) == 0 {
-			t.WriteString("Bu pencerede SERİ YOK — grafik YOK.\n")
-		} else {
+		if v.Drawn {
 			drawn++
-			stats := metricChartStatsTR(c.Series, c.Unit, loc)
-			if _, body, ok := strings.Cut(stats, "\n"); ok {
-				stats = body // tek "GRAFİK ÖZETİ" başlığı aşağıda
-			}
-			t.WriteString(stats)
 		}
-		nSeries := len(c.Series)
-		ev := mcptools.ChatEvidence{Tool: "metric_chart", Source: "VictoriaMetrics", Query: c.Query, QueryKind: "promql",
-			Window: mcptools.EvidenceWindow{FromMs: res.From.UnixMilli(), ToMs: res.To.UnixMilli()}, Series: &nSeries,
-			DurationMs: c.DurationMs, Href: c.Href, Env: res.Env}
-		chart := &mcptools.EvChartPayload{Title: c.Title, DeepLink: c.Href,
-			Window: mcptools.EvBlockWindow{FromNs: res.From.UnixNano(), ToNs: res.To.UnixNano()}, Series: c.Series, Truncated: c.Truncated}
-		emitGuidedEvidenceResult(emit, n, "metric_chart", t.String(), ev, chart)
-		b.WriteString(t.String())
+		emitGuidedEvidenceResult(emit, n, "metric_chart", v.Text, v.Ev, v.Chart)
 	}
 	if drawn > 0 {
 		b.WriteString("GRAFİK ÖZETİ yukarıda (deterministik; model noktaları yeniden sayma). Bu sayılar ÖRNEKLENMEMİŞ metrikten: istek hacmi/oranı " +

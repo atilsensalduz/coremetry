@@ -8560,3 +8560,53 @@ etkinleştirmesi), j/k + Enter (`onOpen`) aynı adrese. Hedef URL'ler DEĞİŞME
   dönüş durumu), `lib/paramHref.test.ts`, `lib/inboxHref.test.ts` (`inboxRowLink`), `Inbox.rowOpen.test.tsx` (klavye
   durağı link), kaynak pinleri güncellendi (`detailSurfaceGate`, `databaseProblems`, `rowAction.contract`,
   `DependenciesTable.*`).
+
+## 2026-10-20 — v0.10.1415 — CoSRE servis raporu: VictoriaMetrics HTTP throughput ve yanıt süresi grafikleri
+
+**Operatör:** "bir servisle ilgili tam rapor çekerken CoSRE VictoriaMetrics'ten HTTP grafiklerini getirsin. Response time
+ve throughput." **Boşluk:** guided `service_report` ("… tam rapor", "servis raporu") kart + trace listesi basıyor, grafik
+YOK — v0.10.1391 VM HTTP RED'i yalnız servis sağlığına getirmiş, raporu bilinçli olarak değiştirmemişti.
+
+**Karar:**
+- Okuma ORTAK: rapor demeti 1391'in `startServiceHTTPRED`'ini (etiket keşfi 5 dk önbellek, `resolveHTTPEnvScope`,
+  istek hızı = varlık yoklaması, sonra 5xx + gecikme paralel, 60 sn sorgu önbelleği, 8 sn bütçe) önbellek kontrolünden
+  SONRA, Faz 1'den ÖNCE `bctx` (20 sn rapor bütçesi) ile başlatır; Faz 1–4 ile paralel koşar, sonuç hükümden sonra
+  beklenir. Grafik başına görünüm ORTAK kurucu `svcHTTPREDViews` (yeni `service_vm_red_charts.go`; servis sağlığının
+  `emitServiceHTTPRED` döngüsünden çıkarıldı — metin/kanıt/blok bayt bayt aynı, `TestEmitServiceHTTPRED` yeşil). VM
+  kanıt zarfı (`ChatEvidence{Tool: "metric_chart"}`) tek yerde kurulur (kaynak pini).
+- Grafikler: istek hızı = throughput (req/s), gecikme p95/p99 = yanıt süresi (1391'in TEK MetricsQL
+  `histogram_quantiles` sorgusu; p50 eklenmedi — sorgu ve önbellek servis sağlığıyla paylaşılsın), 5xx % (aynı
+  histogramdan, durum etiketi varsa). Rapor sırası throughput → yanıt süresi → 5xx. Pencere + ortam raporunkiyle aynı
+  (dakikaya oturur; ortam süzgeci uygulanamazsa 1391'in "UYGULANMADI" notu).
+- Yerleşim: grafikler rapor KARTININ içinde, özet satırlarının (hüküm + servis RED) hemen altında, "En yavaş
+  operasyonlar"dan önce (`serviceReportPayload.httpCharts`; FE `ServiceReportCard`, kanıt çipinin AYNI çizimi
+  `EvidenceChart` dışa açıldı — CorePanel/uPlot; "Metrics'te aç ↗" + "PromQL kopyala"). Neden kart: ChatBubble kanıt
+  çipi bloklarını cevabın EN ALTINDA çizer ve yalnız sonuncuyu açık başlatır; servis sağlığındaki gibi `ev_block`
+  bırakılsaydı grafikler raporun altında, tek açık kalırdı. metric_chart adım çipleri kanıt zarflı yayınlanır ama
+  `ev_block` YOK (aynı grafik altta ikinci kez açılmasın). FE değişikliği: `lib/types.ts` (`ChatServiceReportHTTPChart`,
+  iki isteğe bağlı alan), `chatBlocks.serviceReportBlocks` (serisiz yük düşer, güvensiz deepLink silinir),
+  `EvidenceChips.tsx` (`export`), `ServiceReportCard.tsx` (bölüm). ChatBubble sırası DEĞİŞMEDİ.
+- Anlatım: kanıtta yeni bölüm "HTTP GRAFİKLERİ (…; VictoriaMetrics, ÖRNEKLENMEMİŞ …)" SORU ŞEKLİ ile OPERASYONLAR
+  arasında; grafik başına `metricChartStatsTR` satırları "KANIT: HTTP throughput — req/s: min …" / "KANIT: HTTP yanıt
+  süresi — p99: …" biçiminde (prompt'un "KANIT satırlarını aynen alıntıla" kuralı), bölüm kuralı throughput/yanıt süresi
+  için örneklenmemiş VM sayılarını esas aldırır; okunamayan grafik "OKUNAMADI ≠ veri yok". Bölüm tavanı 1280 B, toplam
+  kanıt tavanı 6144 → 7424 B. Kaynak satırına "+ HTTP throughput / yanıt süresi grafikleri (VictoriaMetrics,
+  örneklenmemiş)". `SystemPromptServiceReport` / `promptVersionRegistry` DEĞİŞMEDİ.
+- Yedek (VM yok / histogram yok / servis etiketi yok / yoklama boş — ör. yalnız gRPC sunan servis / okunamadı / bütçe
+  doldu): grafik YOK; kanıtta "HTTP GRAFİKLERİ: YOK — … çizilmedi: <gerekçe>. Bu raporda grafik yok; servis RED ve
+  operasyon sayıları span verisinden (örneklenmiş)"; kartta "HTTP grafikleri yok — <gerekçe>". Rapor zaten span grafiği
+  basmadığı için span yedeği UYDURULMADI (1391'in span çitleri yalnız servis sağlığında).
+- Önbellek: `copilot:guided:svcreport:v3:` — gövde artık kart grafiklerini + metric_chart çiplerinin kanıt zarfını
+  (`reportStep.Evidence`; isabette `emitGuidedEvidenceResult` ile yeni `ev<i>` ref'iyle yeniden yayın) taşıyor; anahtara
+  kullanıcının saat dilimi (ad + ofset) girdi — özet satırlarındaki tepe saatleri o dilimde (`runGuidedRoute` `loc`'u
+  artık rapora geçirir; tek satır, `copilot_guided.go`).
+- Değişmeyenler: api.go, MCP araç sayısı (74), CH şeması, prompt sabitleri, servis sağlığı cevabı (bayt bayt),
+  `copilot_metric_chart.go` / `metric_chart_templates.go` (yalnız çağrıldı).
+- Testler: `internal/api/service_vm_red_charts_test.go` — `TestServiceReportHTTPCharts` (tablo: VM + histogram →
+  rate/latency/5xx doğru PromQL + rapor penceresi + kanıt KANIT satırları; VM yok → grafik yok + not, sorgu yok;
+  histogram yok; yoklama boş/gRPC-only → tek sorgu, grafik yok; etiket hatası; gecikme sorgusu hatası → o grafik yok +
+  OKUNAMADI), `TestServiceReportHTTPSteps` (çip kanıt zarflı, ev_block yok, JSON gidiş-dönüş + isabette yeni ref),
+  `TestServiceReportHTTPEvidencePlacement` (bölüm yeri, tavan, kart JSON şekli, omitempty),
+  `TestServiceVMREDChartsSharedHelper` (iki çağıran ortak kurucu/okuma, başlama/bekleme sırası, span yedeği yok),
+  `TestServiceVMREDChartsReadOnly`; `TestServiceReportCacheKey` (v3 + dilim). FE: `ServiceReportCard.test.tsx`
+  (grafikler özetle operasyonlar arasında, Metrics linki, not), `chatBlocks.serviceReport.test.ts` (süzgeç).
