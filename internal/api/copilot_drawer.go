@@ -466,7 +466,8 @@ func (s *Server) drawerSubjectEvidence(ctx context.Context, subj drawerSubject, 
 		// CoSRE öğrenme Faz 3 — aynı servis / aynı hata kodunda geçmiş vakalar
 		// (onaylı önce; onaysız "olgu değil" işaretli). Kanıt tavanının DIŞINDA
 		// eklenir: kırpma vakaları yemesin, blok kendi tavanlı (≤3 vaka).
-		ev := clampDrawerEvidence(in.User, in.LogsBlock)
+		// v0.10.1401 — UYGULAMA KODU bloğu DevOps önekleri + depo linkleriyle.
+		ev := clampDrawerEvidence(s.drawerExceptionUser(ectx, g, in), in.LogsBlock)
 		if ev != "" && g != nil {
 			ev += s.pastCasesBlock(ectx, g.Service, []string{g.Type}, chstore.CaseIDFor("exception", g.Fingerprint))
 		}

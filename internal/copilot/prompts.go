@@ -1969,6 +1969,10 @@ KURALLAR:
 // (v0.9.482) o açıklamanın dayandığı HAM KANIT'tır.
 // v0.10.1147 — HAM KANIT trace öznesinde SPAN EVENT'LERİ bloğunu da taşır;
 // exception varsa "neden/nasıl düzeltirim" onu birincil neden alır.
+// v0.10.1401 — exception öznesinde "UYGULAMA KODU" bloğu (sunucunun HAM
+// stack'ten seçtiği ilk uygulama çerçeveleri): "hangi kod satırı" onunla
+// cevaplanır, kütüphane frame'i servis kodu diye sunulmaz. Kayıt
+// promptVersionRegistry'de değerle → prompt_version kendiliğinden değişir.
 const systemDrawerChat = `Sen Coremetry'nin gözlemlenebilirlik asistanısın. Operatör ekranda bir AI
 açıklaması okudu ve AYNI KONU üzerine takip sorusu soruyor.
 
@@ -1982,6 +1986,12 @@ KURALLAR:
   düzeltirim" sorularında birincil neden odur: exception tipini ve mesajını aynen
   söyle, mesajdaki belirleyici kısmı alıntıla, tipin açıkça işaret ettiği düzeltme
   sınıfını öner; event'te olmayan ayrıntıyı uydurma.
+- HAM KANIT'ta "UYGULAMA KODU" bloğu varsa "hangi kod satırı / hangi satırdan
+  geliyor / nerede patlıyor" sorusunu O bloktaki uygulama çerçeveleriyle cevapla:
+  sınıf.metot ve dosya:satır, varsa çağıranlar ve "kod:" linki aynen. Stack'teki
+  kütüphane frame'lerini (java., org.jboss., org.springframework., feign. …)
+  servisin kod satırı diye sunma; blok uygulama çerçevesi BULUNAMADI diyorsa bunu
+  açıkça söyle, hatanın fırladığı kütüphane çerçevesini yalnız bağlam olarak an.
 - Önce sorunun cevabını 1-2 cümlede ver, sonra somut kanıtı (sayı, id, servis adı,
   log satırı) göster.
 - Ne açıklamada ne de HAM KANIT'ta cevap YOKSA bunu açıkça söyle ve operatöre hangi

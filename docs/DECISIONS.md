@@ -8038,3 +8038,48 @@ iki thread, iki composer, iki bekleme göstergesi; v0.10.1399'un "diğer gruplar
   `trace_explain_unified_test.go`, `chat_followup_chips_test.go`; FE `explainTurn.test.ts`,
   `ChatBubble.explain.test.tsx`, `CopilotChat.explainTurn.test.tsx`; `drawerTraceContext.test.tsx`'in v0.10.944
   trace özne-kipi pinleri bu kararla geçersiz (yerlerine eski konuşmanın normal yüklenmesi).
+
+## 2026-10-20 — v0.10.1401 — CoSRE: "hangi kod satırı" sorusu ilk uygulama çerçevesiyle cevaplanır
+
+**Operatör (prod /ai, kademe "Çekmece", yerel küçük model, ~4.5K girdi):** exception açıklamasından sonra
+"servisteki hangi kod satırından geliyor" sorusuna cevap kütüphane çerçevelerini gösterdi (org.jboss… IronJacamar
+`WrapperDataSource.java:275 (checkTransactionActive)`, `WrappedConnection.java:2002`) ve HAM KANIT'taki stack'i
+alıntıladı; servisin kendi paketindeki ilk çerçeveyi adlandırmalıydı.
+
+**Kök neden:** çekmece takibinin kanıtı explain girdisinin `User`'ı (`clampDrawerEvidence`, ≤6000 rune) ve oradaki
+stack, `pickExceptionStack`'in 1800 rune'luk prompt KOPYASI (`internal/anomaly/exception_context.go:42`). Derin bir
+JBoss/IronJacamar + Hibernate + Spring + Feign stack'inde bu kesim yalnız dış exception'ın kütüphane frame'lerini
+taşır; uygulama frame'leri ve kök neden ("Caused by") bölümü kesimin altında kalır. Kapanış talimatı "ilk
+uygulama-frame'ine dayandır" diyordu ama model o frame'i hiç görmüyordu. Uygulama/kütüphane ayrımı sunucuda vardı
+(`stackparse.IsAppClass`, `AppFrames`, `RankFrames`) ama yalnız "Kodu da incele" ve frame linkleri kullanıyordu —
+prompt'a hiç girmiyordu.
+
+**Karar (sunucu toplar, model anlatır):**
+- `stackparse.SummarizeAppFrames` (`internal/stackparse/appframes.go`, saf): HAM stack → ≤3 uygulama çerçevesi;
+  sıra operatörün DevOps `AppPrefixes`'i (verildiyse, kütüphane tablosunu ezer — `RankFrames` sözleşmesi) → en
+  derin "Caused by" bölümü önce → metin sırası (fırlatma noktası → çağıranlar). JVM (`deployment.X.war//`, JPMS
+  önekleri `ParseJava`'dan) + .NET (`ParseDotnet`: " in …:line N", iç exception önce basıldığı için segment
+  `--- End of inner exception stack trace ---` sayısından geriye sayar, async `<M>d__N.MoveNext` → `M`). Kütüphane
+  tablosu `IsLibraryClass` = `frameworkPrefixes` ∪ `extraLibraryPrefixes` (tablo-güdümlü; JDK iç, uygulama
+  sunucusu, ORM/HTTP/serileştirme, ajanlar, dil çalışma zamanları, JDBC sürücüleri, .NET BCL); üretilmiş vekiller
+  (`$$`, `$Proxy`) uygulama sayılmaz. `IsAppClass`/`frameworkPrefixes` DEĞİŞMEDİ — "Kodu da incele" ve frame
+  linklerinin aday sırası bu düzeltmenin içinde kaymasın; yeni tablo onun üst kümesi (testle pinli).
+- `anomaly.RenderAppFramesBlock`: etiketli "UYGULAMA KODU" bloğu — ilk çerçeve "hatanın servis kodundaki noktası",
+  sonrakiler "← çağıran" (bölüm değişirse "← dış exception bölümünden"), kök neden bölümü yalnız kütüphaneyse "en
+  yakın uygulama çağıranı" notu, hatanın fırladığı kütüphane çerçevesi "yalnız bağlam" satırı; hiç uygulama
+  çerçevesi yoksa dürüst "BULUNAMADI" (havuz/sürücü/çerçeve katmanı ya da kırpık stack). `BuildExceptionExplainInput`
+  bloğu zincirin ardına, stack'in ÖNÜNE basar (çekmecenin 6000'lik kırpmasında da korunur); stack yoksa "" → `User`
+  bayt bayt eski. Blok `ExceptionExplainInput.AppFramesBlock` olarak da taşınır (`LogsBlock` alt-dize sözleşmesi).
+- Çekmece (`chat_exception_appframes.go`, `drawerExceptionUser`): blok operatörün DevOps `AppPrefixes`'iyle yeniden
+  seçilir ve DevOps yapılandırılmışsa her çerçevenin altına depo linki ("kod: …") konur — `/api/devops/stack-frames`
+  ucunun AYNI çözücüsü `devops.ResolveFrameLinks` (pin `pinReadDecision`, fail-CLOSED), 4 sn alt-tavan; link
+  gelmezse blok linksiz. Blok `User`'da yerinde değişir; DevOps yoksa `User` aynen.
+- `systemDrawerChat` kuralı: "UYGULAMA KODU" bloğu varsa "hangi kod satırı / nerede patlıyor" onunla cevaplanır,
+  kütüphane frame'i servis kodu diye sunulmaz, "BULUNAMADI" dürüstçe söylenir. `promptVersionRegistry` değeri
+  taşıdığı için `prompt_version` kendiliğinden değişir. Explain prompt'u (`systemExceptionBody`) değişmedi — kapanış
+  cümlesi zaten "ilk uygulama-frame'i" diyor, eksik olan veriydi.
+- Kapsam dışı: Oracle (`ora:`) grubu stack taşımaz → blok yok. Explain önbellek anahtarı `User`'ı hash'lediği için
+  stack'li grupların açıklaması bir kez yeniden üretilir.
+- Değişmeyenler: MCP araç sayısı (74), api.go, `TestChatTierOrderIsPinned`, frontend.
+- Testler: `stackparse/appframes_test.go`, `anomaly/exception_app_frames_test.go`,
+  `api/chat_exception_appframes_test.go`.

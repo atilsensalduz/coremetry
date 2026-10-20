@@ -204,6 +204,11 @@ type ExceptionExplainInput struct {
 	// şema kanıtının girdisi (api buildSchemaEvidence).
 	DBStatements []string
 	ErrorText    string
+	// AppFramesBlock (v0.10.1401) — User'ın İÇİNDEKİ "UYGULAMA KODU" bloğu
+	// (önekli "\n\n" dahil; stack yoksa ""). Çekmece takibi bunu operatörün
+	// DevOps uygulama önekleri + depo linkleriyle kurulmuş hâliyle yerinde
+	// değiştirir (LogsBlock'un alt-dize sözleşmesiyle aynı).
+	AppFramesBlock string
 
 	// ── v0.9.1129 (AI Faz 2.1) — insight kartının YAPISAL yarısı ──
 	//
@@ -375,8 +380,15 @@ func BuildExceptionExplainInput(ctx context.Context, store *chstore.Store, logs 
 	chain, chainOrigin := exceptionChainBlock(st.Trace.Spans, spanGroupChainException(g))
 	evSpans := tracechain.PrependUnique(chainOrigin, st.Trace.EvSpans) // kaynak önce kutulanır
 
-	return ExceptionExplainInput{
-		User: assembleExceptionPromptChain(g, loc, trend, chain, st.StackForPrompt, st.TraceBlock, logsBlock, deployBlock, // v0.10.1370 — logsBlock
+	// v0.10.1401 (operatör-bildirimli) — UYGULAMA KODU bloğu HAM stack'ten
+	// (1800'lük prompt kopyası derin JBoss stack'inde yalnız kütüphane frame'i
+	// taşır). Zincirin ardında, stack'in ÖNÜNDE; stack yoksa "" → User bayt
+	// bayt eski. Çekmece aynı bloğu DevOps önekleri + linklerle yeniden
+	// basar (AppFramesBlock ile yerinde değiştirir).
+	appBlock := RenderAppFramesBlock(AppFramesFor(st.StackRaw, nil), nil)
+
+	out := ExceptionExplainInput{
+		User: assembleExceptionPromptChain(g, loc, trend, chain+appBlock, st.StackForPrompt, st.TraceBlock, logsBlock, deployBlock, // v0.10.1370 — logsBlock
 			renderPodConcentration(pods)),
 		EvTraces:     st.EvTraces,
 		EvSpans:      evSpans,   // v0.10.1379
@@ -391,6 +403,8 @@ func BuildExceptionExplainInput(ctx context.Context, store *chstore.Store, logs 
 		Deploys:      nearby,
 		Pods:         pods,
 	}
+	out.AppFramesBlock = appBlock
+	return out
 }
 
 // spanSampleLogRefs — SAF (v0.10.1370): span örnekleri → örnek-log
