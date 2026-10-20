@@ -249,7 +249,8 @@ describe('MK2 — yüzey ikili sıraları (kaynak-seviyesi matris)', () => {
   });
 
   it('Flame ipuçları nav\'ın ALTINDA (sidebar onları örter)', () => {
-    for (const f of ['components/FlameGraph.tsx', 'components/FlameDiff.tsx', 'components/AggregateFlame.tsx']) {
+    // v0.10.1426 — AggregateFlame.tsx silindi (hiçbir yerden import edilmiyordu).
+    for (const f of ['components/FlameGraph.tsx', 'components/FlameDiff.tsx']) {
       expect(z(rungOf(f, 'position:'))).toBeLessThan(z('nav'));
     }
   });

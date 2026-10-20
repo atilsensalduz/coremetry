@@ -9,7 +9,7 @@ OracleLogsResponse,
   ProfileRow, ProfileDetail, ProfileHotspotsResponse, SpanHotspotsResponse, AggregateRow, SpanMetricSeries, SpanMetricResult, HistogramResult,
   MetricQueryResult,
   MetricResolveResult,
-  EndpointRow, EndpointsListResponse, EndpointDetail, EndpointSplitResponse, EndpointDownstream, EndpointCallersResponse, ServiceAttrsResponse,
+  EndpointRow, EndpointsListResponse, EndpointDetail, EndpointSplitResponse, EndpointDownstream, EndpointCallersResponse,
   AlertRule, Problem, EvaluatorHealth, WatcherImportResult, WatcherSummaryEntry, WatcherHistory,
   Runbook, RunbookExecution,
   Dashboard, DashboardSummary, SLO, SLORow, SLOStatus,
@@ -41,7 +41,7 @@ OracleLogsResponse,
   OtlpExemplar, TraceLinks, TraceCountResponse, TraceErrorHistogramResponse, CorrelationLinkSettings,
   ExceptionTriageConfig, ProblemPriorityConfig, FailureSLOConfig, MetricExclusions, AnomalyTrackedConfig,
   InsightKind, InsightResponse, InsightSignal, InsightLink, InsightChartSpec,
-  AnomalySensitivityConfig, TailPoint , MetricCompareReport , LogPatternsResult, LogTemplate, TraceFacet, TraceFacetsResponse, DBSlowQueryConfig, StatementSearchRow,
+  AnomalySensitivityConfig, TailPoint, LogPatternsResult, LogTemplate, TraceFacet, TraceFacetsResponse, DBSlowQueryConfig, StatementSearchRow,
   CopilotStartersResponse,
 } from './types';
 import { encodeMetricQuery, type MetricQuery } from './metricQuery';
@@ -509,12 +509,6 @@ export const api = {
   environments: (q?: string) =>
     get<{ environments: string[]; total?: number }>(
       `/api/environments${q ? `?q=${encodeURIComponent(q)}` : ''}`),
-  // Per-service env list — the Envs chip group on the Service detail
-  // header (v0.8.383, the operator's "same mobile-bff in int/uat/prep"
-  // case).
-  serviceEnvironments: (svc: string, fromNs: number, toNs: number) =>
-    get<{ environments: string[] } | null>(
-      `/api/services/${encodeURIComponent(svc)}/environments?from=${fromNs}&to=${toNs}`),
   // Per-cluster RED breakdown for one service. Used by the
   // Service detail page when traffic spans 2+ clusters.
   serviceClusters: (svc: string, fromNs: number, toNs: number) =>
@@ -559,20 +553,6 @@ export const api = {
   cardinality: () =>
     get<import('./types').CardinalityReport>('/api/admin/cardinality'),
 
-  // Multi-trace path-aggregated structure for a service. Returns a
-  // tree of (service, operation, count, avgMs, maxMs, errorCount)
-  // nodes — Grafana-Drilldown style. Each unique `(parent_path,
-  // service, displayName)` triple appears once with `×N` for tight
-  // loops / fan-outs.
-  serviceStructure: (svc: string, since: GoDuration = '1h', samples = 50, internalOnly = false) =>
-    get<{
-      service: string;
-      roots?: import('./types').AggSpanNode[];
-      sampledFrom: number;
-      totalSpans: number;
-      internalOnly?: boolean;
-    }>(`/api/services/${encodeURIComponent(svc)}/structure?since=${since}&samples=${samples}${internalOnly ? '&internal=true' : ''}`),
-
   // Service-level upstream / downstream neighbours. v0.10.1408 — reads the
   // topology_edges_5m rollup (same read as the Topology tab), so db / queue /
   // external callees count too; no trace sampling. refresh=true bypasses the
@@ -589,9 +569,6 @@ export const api = {
   blastRadiusBatch: (services: string[], since: GoDuration = '1h', signal?: AbortSignal) =>
     request<{ items: Record<string, import('./types').BlastRadius>; since: string }>(
       `/api/blast-radius?services=${encodeURIComponent(services.join(','))}&since=${since}`, signal ? { signal } : undefined),
-  serviceBlastRadius: (svc: string, since: GoDuration = '1h') =>
-    get<import('./types').BlastRadius>(
-      `/api/services/${encodeURIComponent(svc)}/blast-radius?since=${since}`),
 
   // Curated runtime / process timeseries (cpu / memory / rps /
   // runtime) for the inspected service's pods. Powers the infra
@@ -637,12 +614,6 @@ export const api = {
     return get<import('./types').ServiceMap>(`/api/service-map?${qs}`, signal);
   },
 
-  // Topology — operation-level BFS rooted at one service, depth-
-  // bounded. Drives the /topology page; mirrors the backend at
-  // internal/api/topology.go.
-  topology: (params: { root: string; root_op?: string; depth?: number; from?: number; to?: number }) =>
-    get<import('./types').TopologyResponse>(`/api/topology?${qs(params)}`),
-
   // v0.8.10 — OTel-native service graph (topology rebuild). Compact
   // {nodes,edges} from the topology_edges_5m MV; one endpoint serves both the
   // global map (scope=global) and a service neighborhood (focus + scope).
@@ -652,32 +623,13 @@ export const api = {
   // absent/0/>500 to 500 and reports totalNodes/shownNodes.
   serviceGraph: (params: { focus?: string; scope?: 'neighborhood' | 'global'; hops?: number; topN?: number; from?: number; to?: number; compare?: 'prior' }) =>
     get<import('./types').ServiceGraphResponse>(`/api/servicegraph?${qs(params)}`),
-  // Ops list for a given root service (powers the op picker on
-  // the operation deep-dive view).
-  topologyOps: (params: { service: string; from?: number; to?: number }) =>
-    get<{ ops: string[] | null }>(`/api/topology/ops?${qs(params)}`),
-  // Per-instance breakdown for one infra edge (v0.5.142). 60s
-  // server cache; UI fetches lazily when the operator opens the
-  // edge detail panel for a db/queue edge.
-  topologyEdgeInstances: (params: { parent: string; system: string; kind: 'db' | 'queue'; from?: number; to?: number }) =>
-    get<{ instances: Array<{ instance: string; calls: number; avgMs: number; p99Ms: number }> }>(
-      `/api/topology/edge/instances?${qs(params)}`),
-  topologyDrawIOURL: (params: { root: string; depth?: number; from?: number; to?: number }) =>
-    `/api/topology/drawio?${qs(params)}`,
   // v0.9.1114 — serviceTopology + serviceTopologyDrawIOURL istemci
   // metodları söküldü (tüketicisiz; /service-map v0.8.273'ten beri
-  // /api/servicegraph okuyor). Backend uçları duruyor — MCP/dış
+  // /api/servicegraph okuyor). v0.10.1426 — /api/topology* ailesinin kalan
+  // istemci metodları da söküldü (topology, topologyOps, topologyEdgeInstances,
+  // topologyDrawIOURL, flowTopologyDrawIOURL, topologyFlows, topologyFlow,
+  // get/putTopologyHidden; tüketicisiz). Backend uçları duruyor — MCP/dış
   // tüketiciler bu dosyanın kapsamı dışında.
-  // Per-flow draw.io export (v0.5.145). Same XML shape as the
-  // service-level export, restricted to the one flow's traces.
-  flowTopologyDrawIOURL: (params: { root_service: string; root_op: string; from?: number; to?: number }) =>
-    `/api/topology/flow/drawio?${qs(params)}`,
-  // Root-anchored business flows (v0.5.103) — top entry points
-  // by trace volume + the subgraph for one flow.
-  topologyFlows: (params: { top?: number; from?: number; to?: number }) =>
-    get<import('./types').FlowsResponse>(`/api/topology/flows?${qs(params)}`),
-  topologyFlow: (params: { root_service: string; root_op: string; from?: number; to?: number }) =>
-    get<import('./types').ServiceTopologyResponse>(`/api/topology/flow?${qs(params)}`),
 
   // Inbound-callers backtrace — Dynatrace-style consumer view.
   // Returns a row per (caller service × pod/instance × client IP ×
@@ -706,10 +658,6 @@ export const api = {
   // services: comma-separated allow-list — server caps to 200 to keep
   // the payload small even on 10k+ service installs.
   // v0.10.286 — maxSlots: istemci piksel bütçesi (lib/sparkline sparkMaxSlotsForWidth).
-  // v0.10.294 — /api/metrics/compare (admin): /api/metrics/query parametreleri,
-  // ch ↔ vm nokta-nokta kıyas raporu (Aşama 2 doğrulama aracı).
-  metricsCompare: (params: Record<string, string | number | boolean | undefined>) =>
-    get<MetricCompareReport>(`/api/metrics/compare?${qs(params)}`),
   serviceSparklines: (r: RangeParams, services?: string[], maxSlots?: number) =>
     get<Record<string, SparklineBucket[]> | null>(
       `/api/services/sparklines?${qs({ ...r, services: services?.join(','), maxSlots })}`),
@@ -809,8 +757,6 @@ export const api = {
   attributeValues: (key: string, since: GoDuration = '1h', limit = 200, q?: string, range?: { from: number; to: number }) =>
     get<{ value: string; count: number }[] | null>(
       `/api/attribute-values?${qs({ key, since, limit, q, from: range?.from, to: range?.to })}`),
-  operations: (service: string, r: RangeParams) =>
-    get<string[] | null>(`/api/operations?${qs({ ...r, service })}`),
 
   // v0.9.603 (traces D2) — signal ile İPTAL EDİLEBİLİR. Sayfanın en pahalı
   // isteği bu; operatör aralığı/filtreyi hızlı değiştirdiğinde eski sorgu
@@ -1169,14 +1115,6 @@ export const api = {
         ilmPhase: string;
       }>;
     }>(`/api/admin/elastic/indices`),
-  // Topology hidden patterns (v0.8.241) — global glob list; matching
-  // nodes never render in any topology view. GET any role, PUT editor+.
-  getTopologyHidden: () => get<{ patterns: string[] }>(`/api/topology/hidden`),
-  putTopologyHidden: (patterns: string[]) =>
-    request<{ patterns: string[] }>(`/api/topology/hidden`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ patterns }),
-    }),
   // Recent failed ES queries + cumulative counter (v0.8.230). Per-pod
   // in-memory ring; uncached so the panel reflects the error the
   // operator just triggered. CH backend returns an empty list.
@@ -1226,18 +1164,6 @@ export const api = {
   logsContext: (params: { ts: number; service?: string; env?: string; pod?: string; n?: number; search?: string }) =>
     get<import('./types').LogsContextResponse>(`/api/logs/context?${qs(params)}`), // v0.10.415 — degraded/reason da telde
 
-
-  // Recent deploys + impact deltas for a service (v0.5.189).
-  // One round-trip; backend computes before/after RED for each
-  // deploy via partition-pruned spans queries.
-  // v0.5.308 — lookbackHours threaded through. Backend default
-  // was 24h, but DeployHistoryPanel on /service is the natural
-  // destination from /deploys (which scans up to 30d). 24h
-  // dropped deploys older than yesterday, panel self-hid → the
-  // history-→ link looked broken. Default raised to 30d.
-  deployHistory: (service: string, limit = 5, windowSec = 600, lookbackHours = 24 * 30) =>
-    get<import('./types').DeployHistoryRow[]>(
-      `/api/services/${encodeURIComponent(service)}/deploy-history?${qs({ limit, windowSec, lookbackHours })}`),
 
   // copilotExplainSlowQuery KALDIRILDI — v0.9.1137 (AI Faz 2.4).
   //
@@ -1358,11 +1284,6 @@ export const api = {
     get<import('./types').EvalCompare>(`/api/ai/evalset/compare?${qs({ base, head })}`, signal),
   aiRates: () =>
     get<Record<string, import('./types').AIRate>>(`/api/ai/rates`),
-  putAIRates: (rates: Record<string, import('./types').AIRate>) =>
-    request<Record<string, import('./types').AIRate>>(`/api/ai/rates`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(rates),
-    }),
   // v0.10.411 — AI bütçesi: tavanlar + son 24 saat kullanımı.
   aiBudget: () => get<import('./types').AIBudgetStatus>(`/api/ai/budget`),
   // v0.10.562 — Problem detayı insight şeridi (deterministik, 30 s cache).
@@ -1445,15 +1366,8 @@ export const api = {
   // v0.10.1167 — salt-okunur paylaşım bağlantısı (ai_conversation_share.go).
   shareAiConversation: (id: string) =>
     request<import('./types').AiConversationShare>(`/api/ai/conversations/${encodeURIComponent(id)}/share`, { method: 'POST' }),
-  unshareAiConversation: (id: string) =>
-    request<void>(`/api/ai/conversations/${encodeURIComponent(id)}/share`, { method: 'DELETE' }),
   sharedAiConversation: (id: string, token: string) =>
     get<import('./types').AiSharedConversation>(`/api/ai/shared/${encodeURIComponent(id)}?t=${encodeURIComponent(token)}`),
-  // v0.10.1168 — konuşmayı probleme / servise elle bağla (boş = elle bağı kaldır).
-  linkAiConversation: (id: string, link: { kind: '' | 'problem' | 'service'; id: string }) =>
-    request<{ id: string; link?: import('./types').AiConversationLink }>(`/api/ai/conversations/${encodeURIComponent(id)}/link`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(link),
-    }),
   // v0.10.1289 — CoSRE operatör kuralları (GET her rol; yazım editör+, audit).
   // rev verilirse If-Match olarak gider: bayat liste 409 döner (HTTP 409: …).
   cosreRules: (signal?: AbortSignal) =>
@@ -1561,11 +1475,6 @@ export const api = {
   // herkes): bu bir grafik çizgisi, viewer da görür. PUT admin.
   getFailureSLO: () =>
     get<FailureSLOConfig>(`/api/settings/failure-slo`),
-  putFailureSLO: (c: FailureSLOConfig) =>
-    request<FailureSLOConfig>(`/api/settings/failure-slo`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(c),
-    }),
   // v0.9.797 — metrik route dışlamaları. Admin; PUT desenleri sunucuda
   // regexp.Compile ile doğrular (bozuk desen 400) ve dropAtIngest'li
   // kuralların Pipeline ikizlerini senkronlar.
@@ -1609,9 +1518,6 @@ export const api = {
     }),
 
   // Runtime settings: AI Copilot
-  // spanBreakdown — Elastic-APM-style "where does this service
-  // spend its time?" stacked-area data. Per-bucket cumulative ms
-  // grouped by span category (db / queue / http / kind).
   // /databases overview — one row per (db_system, instance) over
   // the window. Drives the Dynatrace-style Databases page.
   // v0.9.821 — zarf: çıplak dizi yerine {rows, rowsCapped, rowLimit,
@@ -1772,9 +1678,6 @@ export const api = {
   redisMetrics: (instance: string, fromNs: number, toNs: number) =>
     get<import('./types').RedisMetrics | null>(
       `/api/databases/redis?instance=${encodeURIComponent(instance)}&from=${fromNs}&to=${toNs}`),
-  spanBreakdown: (service: string, fromNs: number, toNs: number) =>
-    get<import('./types').BreakdownPoint[] | null>(
-      `/api/services/${encodeURIComponent(service)}/span-breakdown?from=${fromNs}&to=${toNs}`),
   // spanRepeats — N+1 / fan-out finder. Picks per-(trace, group-by)
   // count + filters HAVING count >= minRepeats. Drives the
   // Explore "Repeats" result mode.
@@ -1805,29 +1708,13 @@ export const api = {
     get<import('./types').RedisStats>(`/api/admin/redis-stats`),
   cacheStats: () =>
     get<import('./types').CacheStats>(`/api/admin/cache-stats`),
-  // Causal correlations — ranked services that changed the most
-  // around `atUnixNs`. Drives the "Why did this fire?" panel on
-  // Problem rows. windowSec defaults to 10 min, baselineSec to
-  // 4× window if not passed.
-  correlations: (atUnixNs: number, windowSec?: number, baselineSec?: number) => {
-    const qs = new URLSearchParams({ at: String(atUnixNs) });
-    if (windowSec) qs.set('windowSec', String(windowSec));
-    if (baselineSec) qs.set('baselineSec', String(baselineSec));
-    return get<import('./types').ChangedService[] | null>(`/api/correlations?${qs}`);
-  },
   // Root-cause bundle — one cached read assembling deploy / correlations /
   // blast-radius / bubble-up / exemplar for a Problem. Powers the triage
   // drawer's RootCausePanel. Backend clamps the window + soft-fails each
   // sub-signal, so the bundle is always returned (404 only if id unknown).
-  problemRootCause: (id: string) =>
-    get<import('./types').RootCause>(`/api/problems/${encodeURIComponent(id)}/rootcause`),
-  // Anomaly-anchored root-cause bundle (rc #1) — same fan-out as
-  // problemRootCause but keyed on an AnomalyEvent's window. The
-  // RootCauseRibbon fetches this ON EXPAND for an anomaly row to show the
-  // ranked candidates + deploy + exemplar; the collapsed chip rides the list
-  // summary (AnomalyEvent.rootCause), so there's NO fetch on mount.
-  anomalyRootCause: (id: string) =>
-    get<import('./types').AnomalyRootCause>(`/api/anomalies/${encodeURIComponent(id)}/rootcause`),
+  // v0.10.1426 — the one-shot `problemRootCause` / `anomalyRootCause`
+  // readers were removed: every surface moved to the core/bubbleup split
+  // below (v0.10.1119) and nothing called the full-bundle methods any more.
   // v0.10.1119 — aşamalı kök-neden (soğuk açılış 30–45 sn → çekirdek ~sn).
   // core = tam demetin bubbleUp HARİÇ aynısı (MV / nokta okumaları, hızlı);
   // bubbleup = tek ham-spans kıyası, ayrı istek. Panel ikisini AYNI ANDA
@@ -2152,9 +2039,6 @@ export const api = {
   runEntitySync: () => request<{ ok: boolean; started: boolean }>(`/api/admin/entities/sync/run`, { method: 'POST' }),
   clusterNamespaces: (cluster: string) =>
     get<ClusterNamespacesResponse>(`/api/clusters/namespaces?cluster=${encodeURIComponent(cluster)}`),
-  clusterNamespaceDetail: (cluster: string, namespace: string, fromNs: number, toNs: number) =>
-    get<ClusterPodDetail>(`/api/clusters/namespaces/detail?cluster=${encodeURIComponent(cluster)}` +
-      `&namespace=${encodeURIComponent(namespace)}&from=${fromNs}&to=${toNs}`),
   clusterDeployments: (cluster: string, namespace: string) =>
     get<ClusterDeploymentsResponse>(`/api/clusters/deployments?cluster=${encodeURIComponent(cluster)}` +
       `&namespace=${encodeURIComponent(namespace)}`),
@@ -2647,12 +2531,6 @@ export const api = {
   runbookUpdateSuggestion: (execId: string, opts?: ExplainStreamOpts) =>
     explainCall<import('./types').ExplainAnswerBase & { runbookId: string; problemId: string }>(
       `/api/copilot/runbook-update/${encodeURIComponent(execId)}`, { method: 'POST' }, opts),
-  copilotCompareTraces: (aId: string, bId: string) =>
-    request<{ explanation: string; exchangeId?: string }>(`/api/copilot/compare-traces`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ aId, bId }),
-    }),
   // v0.10.1015 — Problems sekmesinde öğretme (imza → gerçek / problem değil).
   problemVerdicts: () =>
     get<import('./types').ProblemVerdictsResponse>(`/api/problem-verdicts`),
@@ -2812,7 +2690,6 @@ export const api = {
 
   // Synthetic monitoring
   listMonitors:    ()              => get<MonitorRow[] | null>(`/api/monitors`),
-  getMonitor:      (id: string)    => get<Monitor>(`/api/monitors/${id}`),
   createMonitor:   (m: Partial<Monitor>) =>
     request<Monitor>(`/api/monitors`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -3150,12 +3027,6 @@ export const api = {
   // (chstore.EndpointSplitDims — mirrored in ENDPOINT_SPLIT_DIMS).
   endpointSplit: (params: { service: string; path: string; by: string; from: number; to: number; sig?: '1'; env?: string; cluster?: string }, signal?: AbortSignal) =>
     get<EndpointSplitResponse>(`/api/endpoints/split?${qs(params)}`, signal),
-  serviceAttrs: (service: string, from: number, to: number, opts?: { top?: number; samples?: number }) =>
-    get<ServiceAttrsResponse>(
-      `/api/services/${encodeURIComponent(service)}/attrs?from=${from}&to=${to}` +
-      (opts?.top ? `&top=${opts.top}` : '') +
-      (opts?.samples ? `&samples=${opts.samples}` : ''),
-    ),
   // spanmetricsServices SİLİNDİ — v0.9.1209: sıfır sayfa tüketicisi
   // (eski /metrics doorway kalıntısı); sunucu ucu da kaldırıldı, shim yok.
   // v0.9.1191 — Distributed spool runbook'u (admin). GET taze durumu
@@ -3387,8 +3258,6 @@ export const api = {
 
   // ── SLOs ─────────────────────────────────────────────────────────────────
   listSLOs: () => get<SLORow[] | null>('/api/slos'),
-  getSLO:   (id: string) => get<SLO>(`/api/slos/${id}`),
-  sloStatus: (id: string) => get<SLOStatus>(`/api/slos/${id}/status`),
   // Per-day burn-rate timeseries — drives the sparkline on
   // /slos (v0.5.150). 60s server cache.
   sloBurnSeries: (id: string, days = 7) =>

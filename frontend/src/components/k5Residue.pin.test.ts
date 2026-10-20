@@ -46,7 +46,7 @@ describe('v0.10.929 — sağlıklı durum nötr (yeşil yok)', () => {
     'features/dependencies/DetailDrawer.tsx',
     'features/dependencies/panels/OraclePanel.tsx',
     'lib/health.ts',
-    'lib/serviceHealth.ts',
+    // v0.10.1426 — lib/serviceHealth.ts silindi (importsuz; lib/health.ts tek sağlık yardımcısı).
     'lib/eventRegions.ts',
     'lib/insightCard.ts',
   ];

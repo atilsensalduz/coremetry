@@ -65,7 +65,8 @@ const CONVERTED: Array<[file: string, release: string, what: string]> = [
   // ── v0.9.866 (tutarlılık denetimi MT1, özel) ─────────────────────────────
   ['pages/AdminAudit.tsx',                   'v0.9.866', 'yasak ≠ hatalı; null hiçbir dala girmiyordu'],
   ['pages/alerts/NoisyRulesPanel.tsx',       'v0.9.866', 'başlangıç null == hata null, sessiz gizlenme'],
-  ['components/ServiceAttrsPanel.tsx',       'v0.9.866', 'panel tamamen yok oluyordu'],
+  // v0.10.1426 — components/ServiceAttrsPanel.tsx girdisi düştü: dosya silindi
+  // (hiçbir yerden import edilmiyordu; sözleşme değil, yüzey yok oldu).
   // ── v0.9.867 (tutarlılık denetimi MT1, Explore çifti) ────────────────────
   ['pages/explore/TracesResult.tsx',         'v0.9.867', 'sonuç alanı bomboş'],
   ['pages/explore/RepeatsResult.tsx',        'v0.9.867', 'sonuç alanı bomboş ("N+1 yok")'],

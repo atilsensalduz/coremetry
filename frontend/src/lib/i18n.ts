@@ -42,7 +42,6 @@ const EN: Catalog = {
   'nav.problems':    'Exceptions/Errors', // v0.10.1107 (operatör) — Oracle hata grupları da burada; menüde iki ad
   'nav.anomalies':   'Anomalies',
   'nav.rollouts':    'Deployment/Rollouts', // v0.10.201 — Deployment Report → Rollouts; v0.10.984 (Rollouts v2 P2.3) — brief adı
-  'nav.analysis':    'Analysis',
   'nav.services':    'Services',
   'nav.endpoints':   'Endpoints',
   'nav.databases':   'Databases',
@@ -107,21 +106,14 @@ const EN: Catalog = {
   'nav.ai':          'AI insights',
   'nav.alerts':      'Alerts',
   'nav.watchers':    'Watchers',
-  'nav.serviceMap':  'Service map',
   'nav.topology':    'Topology',
-  'nav.clickhouse':  'ClickHouse',
-  'nav.elastic':     'Elasticsearch',
   'nav.slos':        'SLOs',
-  'nav.monitors':    'Monitors',
+  'nav.monitors':    'Monitors', // kalır: internal/api/pages.go sayfa defteri bu anahtarla etiketler (RolesTab t(p.label))
   'nav.events':      'Events',
   'nav.system':      'System',
-  'nav.cardinality': 'Cardinality',
-  'nav.cluster':     'Cluster',
-  'nav.catalog':     'Service catalog',
-  'nav.audit':       'Audit log',
-  'nav.sql':         'SQL playground',
-  'nav.query':       'Query (DQL)',
-  'nav.statusPage':  'Public Status Page',
+  // v0.10.1426 — nav.analysis / serviceMap / clickhouse / elastic / cardinality /
+  // cluster / catalog / audit / sql / query / statusPage silindi: Sidebar,
+  // CommandPalette ve pages.go hiçbirini okumuyordu.
 
   // Login
   'login.signIn':      'Sign in',
@@ -135,47 +127,15 @@ const EN: Catalog = {
   'login.invalid':     'Invalid username or password',
   'login.invalidHint': 'If you pasted from a document, a hyphen-minus (-) may have been replaced with a similar character (–, —, hidden whitespace). Try typing the password by hand.',
 
-  // Common buttons
-  'btn.save':    'Save',
-  'btn.cancel':  'Cancel',
-  'btn.delete':  'Delete',
-  'btn.reset':   'Reset',
-  'btn.create':  'Create',
-  'btn.edit':    'Edit',
-  'btn.close':   'Close',
-  'btn.refresh': 'Refresh',
-  'btn.search':  'Search',
-
-  // Status / states
-  'state.loading':       'Loading…',
-  'state.noData':        'No data',
-  'state.failed':        'Failed to load',
-  'state.tryWidening':   'Try widening the time range.',
+  // v0.10.1426 — the generic btn.* / state.* / label.* / sev.* keys were
+  // removed: no surface ever read them (every button / label / badge carries
+  // its own literal or a surface-specific key).
 
   // User menu
   'user.signOut':         'Sign out',
   'user.changePassword':  'Change password',
   'user.manageUsers':     'Manage users',
   'user.settings':        'Settings',
-
-  // Common labels
-  'label.service':    'Service',
-  'label.severity':   'Severity',
-  'label.status':     'Status',
-  'label.started':    'Started',
-  'label.duration':   'Duration',
-  'label.errorRate':  'Error rate',
-  'label.latency':    'Latency',
-  'label.count':      'Count',
-  'label.value':      'Value',
-  'label.threshold':  'Threshold',
-
-  // Severity badges
-  'sev.critical': 'CRITICAL',
-  'sev.warning':  'WARNING',
-  'sev.info':     'INFO',
-  'sev.open':     'OPEN',
-  'sev.resolved': 'RESOLVED',
 
   // Time range picker (Grafana-parity panel)
   'trp.quickRanges':   'Quick ranges',
@@ -348,7 +308,6 @@ const TR: Catalog = {
   'nav.problems':    'Exceptions/Errors', // v0.10.1107 (operatör: "menüde Exceptions/Errors olarak gözüksün")
   'nav.anomalies':   'Anomaliler',
   'nav.rollouts':    'Deployment/Rollout’lar', // v0.10.984 (Rollouts v2 P2.3)
-  'nav.analysis':    'Sistem Analizi',
   'nav.services':    'Servisler',
   'nav.endpoints':   'Endpoint’ler',
   'nav.databases':   'Veritabanları',
@@ -413,21 +372,11 @@ const TR: Catalog = {
   'nav.ai':          'AI gözlem',
   'nav.alerts':      'Alarmlar',
   'nav.watchers':    'Watcher\'lar',
-  'nav.serviceMap':  'Servis haritası',
   'nav.topology':    'Topoloji',
-  'nav.clickhouse':  'ClickHouse',
-  'nav.elastic':     'Elasticsearch',
   'nav.slos':        'SLO\'lar',
   'nav.monitors':    'Monitörler',
   'nav.events':      'Olaylar',
   'nav.system':      'Sistem',
-  'nav.cardinality': 'Kardinalite',
-  'nav.cluster':     'Küme',
-  'nav.catalog':     'Servis kataloğu',
-  'nav.audit':       'Denetim kaydı',
-  'nav.sql':         'SQL editörü',
-  'nav.query':       'Sorgu (DQL)',
-  'nav.statusPage':  'Genel Durum Sayfası',
   'navGroup.community': 'Topluluk',
   // v0.10.1340 — kabuk atlama bağlantısı (AppShell SkipToContent)
   'shell.skipToContent': 'İçeriğe atla',
@@ -445,47 +394,11 @@ const TR: Catalog = {
   'login.invalid':     'Geçersiz kullanıcı adı veya parola',
   'login.invalidHint': 'Parolayı bir dokümandan kopyaladıysanız tire (-) yerine başka bir karakter (–, —, gizli boşluk) yapışmış olabilir; tekrar elle yazıp deneyin.',
 
-  // Common buttons
-  'btn.save':    'Kaydet',
-  'btn.cancel':  'İptal',
-  'btn.delete':  'Sil',
-  'btn.reset':   'Sıfırla',
-  'btn.create':  'Oluştur',
-  'btn.edit':    'Düzenle',
-  'btn.close':   'Kapat',
-  'btn.refresh': 'Yenile',
-  'btn.search':  'Ara',
-
-  // Status / states
-  'state.loading':     'Yükleniyor…',
-  'state.noData':      'Veri yok',
-  'state.failed':      'Yüklenemedi',
-  'state.tryWidening': 'Zaman aralığını genişletmeyi deneyin.',
-
   // User menu
   'user.signOut':        'Çıkış yap',
   'user.changePassword': 'Parolayı değiştir',
   'user.manageUsers':    'Kullanıcıları yönet',
   'user.settings':       'Ayarlar',
-
-  // Common labels
-  'label.service':    'Servis',
-  'label.severity':   'Önem',
-  'label.status':     'Durum',
-  'label.started':    'Başladı',
-  'label.duration':   'Süre',
-  'label.errorRate':  'Hata oranı',
-  'label.latency':    'Gecikme',
-  'label.count':      'Adet',
-  'label.value':      'Değer',
-  'label.threshold':  'Eşik',
-
-  // Severity badges
-  'sev.critical': 'KRİTİK',
-  'sev.warning':  'UYARI',
-  'sev.info':     'BİLGİ',
-  'sev.open':     'AÇIK',
-  'sev.resolved': 'ÇÖZÜLDÜ',
 
   // Time range picker (Grafana-parity panel)
   'trp.quickRanges':   'Hızlı aralıklar',

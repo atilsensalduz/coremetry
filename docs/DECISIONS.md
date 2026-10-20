@@ -8970,3 +8970,55 @@ girdi silinir. Traces / Trace detayı / TopEndpointsCard / DetailsEndpointsSecti
 **Testler:** `ui/MethodBadge.contract.test.tsx` (eşleme tablosu, bilinmeyen → nötr, DOM sınıfı/`data-method`, atom
 dışında method rozeti çizen sayfa yok — pin), `styles/methodBadge.pin.test.ts` (her `.badge.m-*` kuralı yalnız token
 okur, beklenen çift, üç temada metin/zemin ≥ 4.5, hex yok).
+
+## 2026-10-20 — v0.10.1426 — Temizlik: özne kipiyle ilgisiz ölü kod
+
+v0.10.1413 çekmece özne kipinin artıklarını silerken "üretimde çağıranı olmayan ama bu dilime alınmayanları" kuyruğa
+yazmıştı. Bu dilim o listeyi tek tek grep'le (statik import, dinamik `import()`, `new URL(…)`, rota tabloları, index
+barrel'ları, testler, i18n anahtarı için şablon/`+` birleştirme) doğrulayıp sildi. Davranış değişikliği yok, şim yok
+(CLAUDE.md "backwards-compat shim" yasağı); Go, CSS ve MCP dokunulmadı.
+
+- **Silinen modüller (hiçbir yerden import edilmiyordu):** `components/AggregateFlame.tsx`,
+  `components/ServiceAttrsPanel.tsx` (v0.10.1423'ün `--field-bg` dokunuşuna rağmen — dosya hiçbir yüzeyde çizilmiyordu;
+  tek referanslar errorLeg pini ve bir yorumdu), `lib/serviceHealth.ts` (`lib/health.ts` tek sağlık yardımcısı),
+  `lib/tableColumns.ts` + `tableColumns.test.ts` (tek tüketici kendi testiydi; Traces sütun sırası `lib/dataTable`ta),
+  `lib/perf` worker hattı: `streaming.ts` (`streamNDJSON` sıfır çağıran — docs/ux-parity/10-foundation.md da öyle
+  diyordu), `useTransformWorker.ts`, `workerClient.ts`, `transform.worker.ts`. `transforms.ts` yalnız canlı ihracına
+  indi (`percentiles` ← ShapesView, `quantileSorted`); `runTransform` / `TransformRequest` / `TransformResult` /
+  `aggregateBuckets` / `buildFlameTree` / `FlameSpan` / `FlameNode` / `AggKind` ve perf.test.ts'teki iki describe
+  gitti (tek tüketicileri silinen dispatcher'dı).
+- **`lib/perf/*` TAMAMEN ölü DEĞİLDİ** — 1413 notu fazla genişti: `lttb` (Sparkline, LatencyScatter, TimeSeriesPanel),
+  `routePrefetch` (App), `useDebouncedValue` (Metrics), `useFpsMeter` (PerfMeter) kaldı.
+- **`lib/api.ts` — 29 tüketicisiz yöntem:** `anomalyRootCause`, `problemRootCause` (her yüzey v0.10.1119'un
+  core/bubbleup ayrımına geçmişti), `clusterNamespaceDetail`, `copilotCompareTraces`, `correlations`, `deployHistory`,
+  `flowTopologyDrawIOURL`, `getMonitor`, `getSLO`, `sloStatus`, `getTopologyHidden`, `putTopologyHidden`,
+  `linkAiConversation`, `unshareAiConversation`, `metricsCompare`, `operations`, `putAIRates`, `putFailureSLO`,
+  `serviceBlastRadius`, `serviceEnvironments`, `serviceStructure`, `spanBreakdown`, `topology`, `topologyDrawIOURL`,
+  `topologyEdgeInstances`, `topologyFlow`, `topologyFlows`, `topologyOps` ve `serviceAttrs` (tek tüketicisi silinen
+  ServiceAttrsPanel'di). Go tarafı: `copilot_explain_stream_test.go`nun `explainStreamDeferred` haritası `ai_routes.go`
+  HANDLER adını pinler (`s.copilotCompareTraces`), FE yöntem adını değil; hiçbir Go testi `api.ts`/`types.ts` okumuyor
+  (grep `frontend/src` *_test.go). Sunucu uçları duruyor (MCP / dış tüketici; v0.9.1114 emsali).
+- **`lib/types.ts`:** 1413'ün altı tipi (`AIExplainStreamAnswer`, `InsightSeverity`, `ClusterSourcesResponse`,
+  `ServiceEdgeStats`, `DeploymentReport`, `ArgoCDDiscoverError`) + yalnız onların / silinen yöntemlerin kullandığı
+  tipler: `ClusterSourceEntry`, `TopologyNode/Edge/Response` (v0.5.100), `ServiceTopologyNodeKind/Node/Edge/Response`
+  (v0.5.102 — /service-map v0.8.273'ten beri `ServiceGraphResponse` okuyor), `RootFlow`/`FlowsResponse`,
+  `BreakdownPoint`, `AggSpanNode`, `DeployHistoryRow`, `MetricCompareSeries/Report`, `ServiceAttrRow`/`ServiceAttrsResponse`.
+  Ölçüm: types.ts'te dış referansı olmayan ihraç listesi önce/sonra alındı; yeni yetim yalnız `AiConversationLink`
+  (KALDI — `AiConversation.link` alanı). Önceden de yetim olup bu dilime alınmayanlar: `InsightSignalKind` (wire gevşek
+  tüketim dar sözleşmesinin parçası), `RecentDeployEntry` — kuyruk adayı.
+- **i18n — 40 anahtar EN+TR:** `btn.*` (9), `state.*` (4), `label.*` (10), `sev.*` (5), `nav.analysis` / `serviceMap` /
+  `clickhouse` / `elastic` / `cardinality` / `cluster` / `catalog` / `audit` / `sql` / `query` / `statusPage`. Dinamik
+  anahtar üretimi yok (grep ``t(`btn.…`)``, `'sev.' +`, `startsWith('nav.')`; RolesTab'ın `p.label.replace('nav.','')`i
+  okuma yönü). **`nav.monitors` KALDI:** `internal/api/pages.go` sayfa defteri bu anahtarla etiketler, RolesTab
+  `t(p.label)` ile çevirir.
+- **Pinler:** `styles/zLayers.test.ts` (AggregateFlame girdisi düştü), `components/k5Residue.pin.test.ts`
+  (`lib/serviceHealth.ts` girdisi), `lib/errorLeg.test.ts` (ServiceAttrsPanel girdisi — sözleşme taşınmadı, yüzey yok
+  oldu). Yeni pin `lib/deadCode1426.pin.test.ts`: silinen dosyalar yok ve hiçbir kaynak dosya onları import etmiyor
+  (import / `import()` / `new URL` satırları taranır), `api` nesnesinde silinen 29 ad yok, types.ts'te silinen tipler
+  yeniden bildirilmemiş, silinen i18n anahtarları anahtar olarak düşüyor; `lib/perf` canlı modülleri ve `nav.monitors`
+  yerinde.
+- **Bilerek bırakılan yorum artıkları:** `MethodHotspots.tsx` "ServiceAttrsPanel emsali", `lib/dataTable.ts`
+  "tableColumns.ts" (dosyayı `copilot_team_exceptions_test.go` okuyor; yorum değişikliği gereksiz risk),
+  `TopologyPillGraph.tsx` "AggSpanNode". `lttb.ts` başlığı worker'a atıf yapmayacak şekilde güncellendi.
+- **CSS yok:** silinen dosyalar yalnız paylaşılan sınıfları (`mono`, `table-wrap`, `cv-row`) kullanıyordu;
+  `globals.css` v0.10.1425 diliminde.

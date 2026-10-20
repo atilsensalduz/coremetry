@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { lttb, downsampleXY, type Point } from './lttb';
-import { percentiles, quantileSorted, aggregateBuckets, buildFlameTree } from './transforms';
+import { percentiles, quantileSorted } from './transforms';
 
 describe('lttb', () => {
   const series = (n: number): Point[] =>
@@ -53,36 +53,5 @@ describe('quantiles', () => {
     const [p50, p99] = percentiles([5, 1, NaN, 3, 2, 4], [0.5, 0.99]);
     expect(p50).toBeCloseTo(3);
     expect(p99).toBeGreaterThanOrEqual(4);
-  });
-});
-
-describe('aggregateBuckets', () => {
-  it('buckets by interval and applies the aggregation', () => {
-    const times = [0, 10, 20, 1005, 1010];
-    const values = [2, 4, 6, 100, 200];
-    const { x, y } = aggregateBuckets(times, values, 1000, 'sum');
-    expect(x).toEqual([0, 1000]);
-    expect(y).toEqual([12, 300]);
-  });
-
-  it('supports quantile aggregations per bucket', () => {
-    const times = [0, 0, 0, 0];
-    const values = [1, 2, 3, 4];
-    const { y } = aggregateBuckets(times, values, 1000, 'p50');
-    expect(y[0]).toBeCloseTo(2.5);
-  });
-});
-
-describe('buildFlameTree', () => {
-  it('builds a hierarchy and computes self time', () => {
-    const root = buildFlameTree([
-      { spanId: 'a', parentId: null, name: 'root-op', durationMs: 100 },
-      { spanId: 'b', parentId: 'a', name: 'child', durationMs: 40 },
-    ]);
-    expect(root.children.length).toBe(1);
-    const a = root.children[0];
-    expect(a.name).toBe('root-op');
-    expect(a.children[0].name).toBe('child');
-    expect(a.self).toBe(60); // 100 − 40
   });
 });

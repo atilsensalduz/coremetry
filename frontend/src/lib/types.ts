@@ -39,109 +39,6 @@ export interface Service {
   namespaceCount?: number;
 }
 
-// Topology view (v0.5.100) — operation-level call graph rooted at
-// one service, BFS-bounded by depth. Mirrors api.TopologyResponse.
-export interface TopologyNode { id: string; service: string; op: string }
-export interface TopologyEdge {
-  parentService: string; parentOp: string;
-  childService: string;  childOp: string;
-  calls: number;
-}
-export interface TopologyResponse {
-  nodes: TopologyNode[];
-  edges: TopologyEdge[];
-  rootService: string;
-  depth: number;
-  from: number;
-  to: number;
-  truncated: boolean;
-}
-
-// Service-level topology (v0.5.102) — collapses ops into the
-// service node, includes synthetic infra nodes (db, queue, ext)
-// and protocol-tagged edges with top endpoint labels.
-export type ServiceTopologyNodeKind = 'service' | 'db' | 'queue' | 'external';
-export interface ServiceTopologyNode {
-  id: string;
-  name: string;
-  kind: ServiceTopologyNodeKind;
-  // v0.5.312 — Phase 2 redux fields. Namespace drives the
-  // soft-cluster grouping; health* drive the per-node
-  // red/yellow/green ring. All optional + nil-safe.
-  namespace?: string;
-  health?: '' | 'green' | 'yellow' | 'red';
-  healthReason?: string;
-  openCritical?: number;
-  openWarning?: number;
-  // v0.5.409 — known 3rd-party SaaS / cloud annotation. Set
-  // by backend external_catalogue lookup for nodes whose peer
-  // host matches a recognised vendor (Stripe, Twilio, AWS,
-  // Sentry, etc.). UI renders display + category badge in
-  // place of the raw hostname.
-  extDisplay?: string;
-  extKind?: string;
-  // v0.5.410 — display-only environment annotation
-  // (deployment.environment / service.namespace /
-  // k8s.namespace.name). UI renders as a small chip next to
-  // the service name on multi-env installs.
-  env?: string;
-  // v0.7.32 — for a collapsed broadcast queue node (a kafka topic with
-  // >threshold distinct consumers, e.g. cache.refresh), the real consumer
-  // count its fan-out was hidden behind. UI shows "→ N services (broadcast)"
-  // on the node instead of N edges; only set on collapsed queue nodes.
-  broadcastFanout?: number;
-}
-export interface ServiceTopologyEdge {
-  parentService: string;
-  childNode: string;
-  nodeKind: ServiceTopologyNodeKind;
-  protocol: string;       // "http" | "rpc" | "kafka" | "db" | "internal"
-  topLabels: string[];    // up to 5 most-frequent labels
-  distinctLabels: number;
-  calls: number;
-  // v0.5.393 — errors + error-rate on the edge. Drives the tooltip
-  // overlay (errors count + percentage) and the red-tinted edge
-  // stroke when errorRate ≥ 1%. Backend pipes through from
-  // topology_edges_5m.errors (added in v0.5.367).
-  errors: number;
-  errorRate: number;      // (errors / calls) * 100
-  avgMs: number;          // window-wide average latency (ms)
-  p99Ms: number;          // conservative window p99 (ms)
-  // v0.5.414 — prior-window comparison values. Populated when
-  // /api/topology is called with ?compare=prior. Drives the
-  // what-changed banner; UI computes the % delta client-side.
-  priorCalls?: number;
-  priorErrors?: number;
-  priorAvgMs?: number;
-  priorP99Ms?: number;
-  // v0.5.409 — known 3rd-party annotation. Populated by the
-  // backend external_catalogue lookup when the node represents
-  // a recognised SaaS / cloud endpoint (Stripe, Twilio, AWS,
-  // Sentry, etc.). Frontend renders a small category badge.
-  extDisplay?: string;    // "Stripe", "SendGrid", "AWS", ...
-  extKind?: string;       // "payments" | "messaging" | "email" | "cdn" | "auth" | "cloud" | "observability" | "ai" | ...
-}
-export interface ServiceTopologyResponse {
-  nodes: ServiceTopologyNode[];
-  edges: ServiceTopologyEdge[];
-  from: number;
-  to: number;
-  truncated: boolean;
-  // v0.6.48 — server-side scoping for thousand-service fabrics.
-  // totalServices is the full fabric size before the top-N / focus
-  // bound; scoped=true means the returned graph is a bounded subset
-  // (so the UI shows a "showing N of M — search/focus to refine"
-  // banner). scopeReason describes the bound, e.g. "top-60 by call
-  // volume" or "focus: checkout +2 hops".
-  totalServices?: number;
-  scoped?: boolean;
-  scopeReason?: string;
-  // v0.7.32 — number of broadcast queue topics whose consumer fan-out was
-  // collapsed by default. >0 → the UI shows a "N broadcast topics collapsed —
-  // show" toggle that flips ?broadcast=show to reveal the full mesh.
-  broadcastCollapsed?: number;
-}
-
 // OTel-native service graph (v0.8.10 — topology rebuild). One compact
 // {nodes,edges} payload from /api/servicegraph, built server-side off the
 // topology_edges_5m MV (no raw-span scan). Node kind is decoded from the MV's
@@ -197,27 +94,6 @@ export interface ServiceGraphResponse {
   // trimmed the global graph to the topN heaviest — "showing X of Y".
   totalNodes?: number;
   shownNodes?: number;
-}
-
-// Root-anchored business flows (v0.5.103) — top entry points by
-// trace volume; clicking a flow shows its restricted subgraph.
-export interface RootFlow {
-  rootService: string;
-  rootOp: string;
-  traceCount: number;
-  services: string[];
-  // p99 root-span duration in ns over the window (v0.5.156).
-  // Omitted when no roots matched the signature (e.g. transient
-  // empty bucket). Use ms = p99Ns / 1e6 for display.
-  p99Ns?: number;
-}
-export interface FlowsResponse {
-  flows: RootFlow[];
-  from: number;
-  to: number;
-  // v0.7.39 — total distinct flows in the window (the list is capped at ?top).
-  // >flows.length → UI shows "showing N of M flows — raise top".
-  totalFlows?: number;
 }
 
 // One row of the system status grid on /status. Mirrors the
@@ -1039,14 +915,6 @@ export interface DatabasesOverview {
    */
   receiverHorizonDays?: number;
   spanHorizonDays?: number;
-}
-
-// BreakdownPoint — one bucket of the Elastic-APM-style "span
-// breakdown" stacked-area chart. Cumulative ms of duration
-// grouped by span category for the service detail page.
-export interface BreakdownPoint {
-  time: number;                   // unix ns (bucket start)
-  kinds: Record<string, number>;  // category → ms summed in bucket
 }
 
 // ChangedService — one row of the causal-correlation report (what
@@ -2548,19 +2416,6 @@ export interface ThanosAssignSpanClusterResponse {
 export interface ThanosLabelCheck { ok: boolean; series: number; checkedAt: string; error?: string }
 export interface ThanosSettingsInput {
   clusters: ThanosClusterInput[];
-}
-/** v0.10.956 — api.clusterSourceEntry (thanos_handlers.go): GET /api/clusters/sources viewer-güvenli kayıt.
- *  URL / apiServerUrls / token BİLEREK yok. */
-export interface ClusterSourceEntry {
-  id: string;
-  name: string;
-  pairGroup?: string;
-  argoSuffix?: string;
-}
-/** GET /api/clusters/sources (viewer+). `clusters` = etkin adlar (eski şekil); `entries` v0.10.956 ek alanı. */
-export interface ClusterSourcesResponse {
-  clusters: string[];
-  entries?: ClusterSourceEntry[];
 }
 
 // ── v0.10.1306 — PromQL konsolu range cevabı (/metrics PromQL sekmesi, src=thanos) ──
@@ -5379,14 +5234,6 @@ export interface Problem {
   rootCause?: RootCauseSummary;
 }
 
-export interface ServiceEdgeStats {
-  service: string;
-  calls: number;
-  errorRate: number;
-  avgMs: number;
-  p99Ms: number;
-}
-
 // ── Errors Inbox ────────────────────────────────────────────────────────────
 
 export type ExceptionGroupState =
@@ -5977,24 +5824,6 @@ export interface SpanHotspotsResponse {
 export type SortOrder = 'asc' | 'desc';
 
 // EndpointRow — per (service, http.route|url.path) RED rollup
-// Service attrs surface (v0.5.381). One row per (scope, key)
-// combination the operator's SDK emits for a service, with
-// occurrence count + sample values. Mirrors backend
-// chstore.ServiceAttrRow.
-export interface ServiceAttrRow {
-  key: string;
-  scope: 'span' | 'resource';
-  occurrences: number;
-  sampleValues: string[];
-}
-
-export interface ServiceAttrsResponse {
-  service: string;
-  attrs: ServiceAttrRow[] | null;
-  from: number;
-  to: number;
-}
-
 // surfaced on /endpoints. Mirrors the backend chstore.EndpointRow
 // shape. Path falls back through the four OTel HTTP attribute
 // candidates server-side; the row carries the resolved value so
@@ -6519,12 +6348,6 @@ export interface ServiceReportSection {
   newErrors: ExceptionGroup[];
 }
 
-export interface DeploymentReport {
-  since: number;       // unix ns — the deploy timestamp the report was run against
-  generatedAt: number; // unix ns — when this report was computed
-  services: ServiceReportSection[];
-}
-
 // Per-operation error anomaly — a (service, operation) tuple
 // that is either failing for the first time in the window or
 // whose error count just doubled.
@@ -7023,18 +6846,6 @@ export interface SystemStats {
     }[];
     generated: number;
   };
-}
-
-export interface AggSpanNode {
-  service: string;
-  operation: string;
-  kind?: string;
-  count: number;
-  avgMs: number;
-  maxMs: number;
-  errorCount: number;
-  avgStartMs: number;
-  children?: AggSpanNode[];
 }
 
 // ServiceMetadata — operator-curated per-service catalog.
@@ -8097,15 +7908,6 @@ export interface AIStreamFrame {
   [k: string]: unknown;
 }
 
-// AIExplainStreamAnswer (v0.9.1127) — akan ✨ Explain'in çözülmüş cevabı.
-// `answer` çerçevesindeki `text` burada `explanation` olur: buffered
-// gövdenin alan adı odur ve iki kip arasında çağıranın hiçbir dalı
-// olmamalı.
-export interface AIExplainStreamAnswer {
-  explanation: string;
-  exchangeId?: string;
-}
-
 // ── Gömülü insight kartı (v0.9.1130, AI Faz 2.2) ─────────────────────
 //
 // internal/ai/insight/contract.go'nun AYNASI. Sunucu sözleşmesinin tek
@@ -8126,9 +7928,6 @@ export interface AIExplainStreamAnswer {
 // görünür. Runtime kümesi + derleyici kapısı:
 // components/ai/insightRow.tsx KIND_GATE.
 export type InsightKind = 'exception' | 'problem' | 'log-pattern' | 'slow-query';
-
-/** Şiddet — '' (alan hiç gelmemiş) GEÇERLİ ve "nötr bilgi" demek. */
-export type InsightSeverity = 'ok' | 'warn' | 'err';
 
 /** Sinyal türü — FE'nin görsel dili için kapalı küme (contract.go). */
 export type InsightSignalKind =
@@ -8385,16 +8184,6 @@ export interface DeployImpact {
   avgDeltaPct: number;
   errorRateDeltaPct: number;
 }
-export interface DeployHistoryRow {
-  deploy: {
-    service: string;
-    version: string;
-    timeUnixNs: number;
-    spanCount: number;
-  };
-  impact: DeployImpact | null;
-}
-
 // Rollout (v0.8.x) — one detected pod-churn event: a time bucket
 // where the service's active instance set turned over (old pods
 // gone + new in) = a rollout / restart. Replaces version-bump deploy
@@ -9753,33 +9542,6 @@ export interface TourStateResponse {
   enabled: boolean;
 }
 
-// /api/metrics/compare (v0.10.294, VM Dilim 1c) — aynı sorgu iki kaynakta
-// (ch ↔ vm), nokta-nokta kıyas. Sınıf: identical | tolerated (rel ≤ 1e-9)
-// | mismatch; onlyA/onlyB kafes hizası (değer değil zaman farkı).
-export interface MetricCompareSeries {
-  groupKey: string[];
-  class: 'identical' | 'tolerated' | 'mismatch';
-  points: number;
-  onlyA: number;
-  onlyB: number;
-  mismatches: number;
-  maxAbs: number;
-  maxRel: number;
-  firstMismatchTime?: number;
-}
-export interface MetricCompareReport {
-  a: string;
-  b: string;
-  class: 'identical' | 'tolerated' | 'mismatch';
-  tolerance: number;
-  seriesA: number;
-  seriesB: number;
-  matched: number;
-  series: MetricCompareSeries[];
-  noteA?: string;
-  noteB?: string;
-}
-
 // /api/logs/patterns (v0.10.296/297, log-search Dilim 2) — pencere içi log
 // desenleri: NormalizeSignature imzasıyla gruplanmış, ÖRNEKLEMELİ (≤cap
 // satır, en yeniden eskiye). Sayımlar örneğe göredir; sampled/total/
@@ -10137,7 +9899,6 @@ export interface ArgoCDSettingsResponse { settings: ArgoCDSettings; resolved: Ar
 export interface ArgoCDCandidate { id: string; hubClusterId: string; name: string; hubNamespace: string; metricsJob: string; appsAnyNamespace: boolean; discovered: boolean; namespaceCase?: 'A' | 'B' | 'C'; appNamespaces?: string[]; configuredId?: string; note?: string; error?: string; appCount?: number; shardCount?: number; shardCountTruncated?: boolean; countNote?: string }
 export interface ArgoCDDiscoverRequest { hubClusterId: string; injectClusterLabel?: boolean }
 export interface ArgoCDDiscoverResult { hubClusterId: string; hubName: string; injectClusterLabel: boolean; window: { start: number; end: number }; candidates: ArgoCDCandidate[]; jobsTruncated: boolean; incomplete?: boolean; countsIncomplete?: boolean; warnings?: string[]; calls: number; saved: false }
-export interface ArgoCDDiscoverError { error: string; errorType?: string; upstreamStatus?: number; hubClusterId?: string } // guardrail | timeout | unavailable | unauthorized (v0.10.978: hub Thanos 401/403, HTTP 502 stays; upstreamStatus = hub's code) | internal | bad_data | execution | response_too_large; 429 has only {error}
 
 /** GET /api/admin/function-code-shape (v0.10.1226) — function_code biçim ölçümü (son 1 saat). */
 export interface FunctionCodeShapeRow { conforms: boolean; len: number; distinct: number; spans: number; example: string }

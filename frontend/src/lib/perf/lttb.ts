@@ -8,8 +8,8 @@
 // 2k looks identical at chart resolution. Zoom triggers a refine round-trip for
 // the visible window, so detail is never lost — only the pixels you can't see.
 //
-// Pure + allocation-light so it runs equally on the main thread or inside the
-// transform Web Worker (see transforms.ts / transform.worker.ts).
+// Pure + allocation-light. (v0.10.1426 — the transform Web Worker that once
+// shared this code was deleted; callers run it on the main thread.)
 
 export interface Point {
   x: number;
