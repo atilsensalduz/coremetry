@@ -2,6 +2,7 @@ import { formatAiParam, parseAiParam, type AISubject } from '@/lib/aiSubject';
 import type { ChatExplainAsk, ChatExplainKind, ChatExplainMeta, ChatSendWindow, ChatTurn } from '@/lib/types';
 import type { ExplainEvidence } from './ExplainBody';
 import { buildExplainContext, endpointAskQuestion } from './drawerChat';
+import { isOracleGroup } from '@/features/anomalies/oracleGroup';
 
 // explainTurn — v0.10.1400 (Tek CoSRE; operatör: "Trace ve exception
 // üzerinden çalışan Ask CoSRE açıklamaları güzel ama sanki ayrı drawer hissi,
@@ -69,6 +70,33 @@ export function explainTurnText(s: AISubject, label?: string): string {
   }
 }
 
+/**
+ * explainCodeCapable — v0.10.1406: "Kodu da incele"nin anlamlı olduğu özne —
+ * CopilotExplain'deki codeCapable'ın aynası (sunucu: chat_explain_turn.go
+ * explainCodeCapable): trace ve span exception grubu (Oracle `ora:` stack taşımaz).
+ */
+export function explainCodeCapable(kind: string, id: string): boolean {
+  return kind === 'trace' || (kind === 'exception' && !isOracleGroup(id));
+}
+
+/** explainCodeTurnText — v0.10.1406: kod turunun GÖRÜNEN kullanıcı metni (?aicode=1 derin linki). */
+export function explainCodeTurnText(kind: 'trace' | 'exception', id: string, label?: string): string {
+  if (kind === 'trace') return `Bu trace'i kodla birlikte açıkla · ${shortExplainId(id)}`;
+  const l = (label ?? '').trim();
+  return `${l || 'Exception'} grubunu kodla birlikte açıkla · ${shortExplainId(id)}`;
+}
+
+/**
+ * withoutFresh — v0.10.1406: niyetin SAKLANAN hâli. `fresh` yalnız o isteğe
+ * aittir ("↻ Yeniden üret"); kullanıcı turunda kalırsa sonraki "yeniden dene"
+ * de önbelleği atlardı.
+ */
+export function withoutFresh(a: ChatExplainAsk): ChatExplainAsk {
+  if (!a.fresh) return a;
+  const { fresh: _fresh, ...rest } = a;
+  return rest;
+}
+
 /** endpointWindow — v0.10.1405: endpoint sorusunun sabit penceresi (v0.10.1367 çekmece epWin'i). */
 export function endpointWindow(s: Extract<AISubject, { kind: 'endpoint' }>): ChatSendWindow {
   return { rangeS: Math.max(60, Math.round((s.toNs - s.fromNs) / 1e9)), toMs: Math.floor(s.toNs / 1e6) };
@@ -89,17 +117,22 @@ export interface ExplainTurnIntent {
  * v0.10.1405 — span / service-health / log niyeti `subject` kodeğini taşır;
  * endpoint niyet taşımaz, `window` taşır.
  */
-export function explainAskFor(subject: AISubject | null | undefined, src?: string, label?: string): ExplainTurnIntent | null {
+export function explainAskFor(subject: AISubject | null | undefined, src?: string, label?: string, code?: boolean): ExplainTurnIntent | null {
   if (!subject || !isExplainTurnKind(subject.kind)) return null;
   const id = (subject.id ?? '').trim();
   if (!id) return null;
   const s = { ...subject, id } as AISubject;
-  const userText = explainTurnText(s, label);
+  // v0.10.1406 — kod turu (?aicode=1) yalnız kod-yetenekli öznede; aksi kodsuz açıklama.
+  const withCode = !!code && explainCodeCapable(s.kind, id);
+  const userText = withCode ? explainCodeTurnText(s.kind as 'trace' | 'exception', id, label) : explainTurnText(s, label);
   if (s.kind === 'endpoint') return { userText, window: endpointWindow(s) };
   const kind = s.kind as ChatExplainKind;
   return {
     userText,
-    explainAsk: { kind, id, ...(SIMPLE_KINDS.has(kind) ? {} : { subject: formatAiParam(s) }), ...(src ? { src } : {}) },
+    explainAsk: {
+      kind, id, ...(SIMPLE_KINDS.has(kind) ? {} : { subject: formatAiParam(s) }), ...(src ? { src } : {}),
+      ...(withCode ? { code: true } : {}),
+    },
   };
 }
 

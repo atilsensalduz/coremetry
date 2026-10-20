@@ -265,10 +265,10 @@ func TestChatExplainTurnTierIsFirst(t *testing.T) {
 	if !strings.Contains(tierBlock(src, iX), "return") {
 		t.Error("kademe handled olduğunda dönmüyor")
 	}
-	// Üç çağıran da tek çekirdekten akar.
+	// Üç çağıran da tek çekirdekten akar. v0.10.1406 — + fresh (Yeniden üret).
 	for f, want := range map[string]string{
-		"chat_explain_turn.go":                `s.streamExplainCore(ctx, emit, aisurface.ExplainTraceChat, system, in.User, cacheKey)`,
-		"trace_explain_unified.go":            `s.streamExplainCore(ctx, emit, aisurface.ExplainTraceChat, system, user, "")`,
+		"chat_explain_turn.go":                `s.streamExplainCore(ctx, emit, aisurface.ExplainTraceChat, system, in.User, cacheKey, ask.Fresh)`,
+		"trace_explain_unified.go":            `s.streamExplainCore(ctx, emit, aisurface.ExplainTraceChat, system, user, "", false)`,
 		"chat_operation_exception_explain.go": `s.streamExplainCore(ctx, emit, aisurface.ExplainExceptionChat, system, in.User,`,
 	} {
 		if !strings.Contains(readRepoFile(t, f), want) {

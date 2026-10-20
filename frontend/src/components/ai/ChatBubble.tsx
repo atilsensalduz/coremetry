@@ -44,6 +44,8 @@ import { useTypewriter } from './useTypewriter'; // v0.10.1384 — büyük parç
 import { ExplainBody } from './ExplainBody'; // v0.10.1400 — açıklama turu ✨ Explain anatomisiyle
 import { EvidenceRow } from './EvidenceRow'; // v0.10.1400 — kanıt trace satırları
 import { explainEvidence } from './explainTurn';
+import { CodeStatusNote } from '../CodeStatusNote'; // v0.10.1406 — kod turunun durum satırı (✨ düğmesiyle aynı)
+import { CodeSourceFooter } from './CodeSourceFooter'; // v0.10.1406 — kod turunun kaynak satırı
 import { emitAiEvidence, emitAiFocus, scrollToAttr } from './aiEvents';
 
 // ChatBubble — bir sohbet turunun ÇİZİMİ. v0.9.479'da CopilotChat.tsx'ten
@@ -1013,10 +1015,15 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
             {ex?.note && !turn.pending && (
               <div className="cm-msg-note" data-explain-note="" style={{ fontStyle: 'italic' }}>{ex.note}</div>
             )}
+            {/* v0.10.1406 (Tek CoSRE adım 3) — "Kodu da incele" turu: ✨ düğmesinin kod kartıyla
+                AYNI dürüstlük satırı (kod okunamadıysa cevabın BAŞINDA "kodsuz analiz") ve
+                kaynak satırı (depo/branş/dosyalar). */}
+            {ex?.code && !turn.pending && <CodeStatusNote code={ex.code} />}
             {ex && (
               <ExplainBody text={turn.text} busy={!!turn.pending} evidence={turn.pending ? undefined : explainEvidence(ex)}
                 revealAt={ex.cached ? undefined : turn.arrivedAt?.at} />
             )}
+            {ex?.code && !turn.pending && <CodeSourceFooter code={ex.code} />}
             {ex && !turn.pending && !!ex.evidenceTraceIds?.length && (
               <div data-explain-traces="" style={{ marginTop: 8 }}>
                 <div className="cell-hint" style={{ marginBottom: 4 }}>Kanıt trace'leri ({ex.evidenceTraceIds.length})</div>
@@ -1134,7 +1141,8 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
           {/* v0.10.1138 — yeniden üret: yalnız son cevapta, akarken kapalı. */}
           {onRegenerate && (
             <Button variant="ghost" size="sm" onClick={onRegenerate} disabled={busy}
-              title="Aynı soruyu yeniden sor; bu cevap 'önceki cevap' olarak saklanır" aria-label="Cevabı yeniden üret">
+              /* v0.10.1406 — açıklama turunda ↻ önbelleği atlar (useChatThread.regenerate fresh:true). */
+              title={ex ? 'Yeniden üret — taze cevap, önbellek atlanır' : "Aynı soruyu yeniden sor; bu cevap 'önceki cevap' olarak saklanır"} aria-label="Cevabı yeniden üret">
               ↻ Yeniden üret
             </Button>
           )}

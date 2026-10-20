@@ -302,7 +302,8 @@ func TestOpExceptionExplainStreams(t *testing.T) {
 	}
 	// v0.10.1400 — akış gövdesi paylaşılan çekirdekte (chat_explain_core.go).
 	src := funcBody(readRepoFile(t, "chat_operation_exception_explain.go"), "opExceptionExplainInChat")
-	if !strings.Contains(src, "s.streamExplainCore(ctx, emit, aisurface.ExplainExceptionChat, system, in.User, explainCacheKey(system, in.User, \"\"))") {
+	// v0.10.1406 — + fresh=false (operasyon sorusu Yeniden üret niyeti taşımaz).
+	if !strings.Contains(src, "s.streamExplainCore(ctx, emit, aisurface.ExplainExceptionChat, system, in.User, explainCacheKey(system, in.User, \"\"), false)") {
 		t.Fatal("akış explain-exception:chat yüzeyinde, sarmalayıcısız in.User ve düğmenin anahtarıyla çekirdekten geçmeli")
 	}
 	if !strings.Contains(funcBody(readRepoFile(t, "chat_explain_core.go"), "streamExplainCore"), "s.copilotStreamSurface(ctx, surface, system, user,") {

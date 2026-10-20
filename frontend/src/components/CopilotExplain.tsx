@@ -14,8 +14,8 @@ import { ExplainBody, type ExplainEvidence } from '@/components/ai/ExplainBody';
 import type { IdLink } from '@/components/ai/inlineIdLinks';
 import { readAiCodeParam, readAiSrcParam, writeAiCodeParam } from '@/lib/aiSubject';
 import { shouldAskForCode, type CodeAskState } from './codeAsk';
-import { codeSourceRef } from './codeSourceRef'; // v0.10.1044 — çalışan sürüm / dal
 import { CodeStatusNote } from './CodeStatusNote'; // v0.10.1330 — operasyon kodu durum satırı
+import { CodeSourceFooter } from '@/components/ai/CodeSourceFooter'; // v0.10.1406 — kaynak satırı tek yerde
 import { isOracleGroup } from '@/features/anomalies/oracleGroup'; // v0.10.1100
 import { OracleExplainContextLine } from '@/features/anomalies/OracleExplainContextLine';
 
@@ -540,41 +540,9 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs, spanId, logLine,
               kesilmiş bir cevaptan ayırt edilemez. */}
           {busy && <span className="cm-ai-cursor" />}
           {/* Kaynak satırı: hangi depo/branş okundu, hangi dosyalar.
-              Depo çözümü bir TAHMİN olabilir (konvansiyon) — cevabın
-              yanlış dosyaya dayandığından şüphelenen operatör bunu
-              görmeden anlayamaz. */}
-          {code && !!code.files?.length && (
-            <div style={{ marginTop: 10, fontSize: 10.5, color: 'var(--text3)', lineHeight: 1.6 }}>
-              <div>
-                📄 Kaynak: <strong>{code.repo}</strong>
-                {codeSourceRef(code)}
-                {code.source === 'pin' ? ' · katalog pini' : code.source === 'convention' ? ' · ad konvansiyonu' : ''}
-              </div>
-              {/* v0.9.1236 — kod GELDİĞİNDE de bir not olabilir: depo adı
-                  sunucunun listesine bakılarak düzeltilmiş olabilir
-                  ("cashmanagement-cashflow → CashManagement.CashFlow") ya
-                  da bütçe dolduğu için pencereler kısalmış olabilir.
-                  Eskiden bu satır yalnız kod GELMEYİNCE çiziliyordu, yani
-                  başarılı ama DÜZELTİLMİŞ bir çekmede operatör yukarıdaki
-                  depo adının neden beklediğinden farklı olduğunu hiçbir
-                  yerden öğrenemiyordu. */}
-              {code.reason && (
-                <div style={{ color: 'var(--warn, var(--text3))' }}>{code.reason}</div>
-              )}
-              {/* v0.10.973 — tablo standardı T5: tek monospace yığını. Eski `var(--mono, monospace)`
-                  tanımsız değişkene düşüp genel `monospace`i basıyordu (aşağıdaki kod incelemesi aynı). */}
-              {code.files.map(f => (
-                <div key={`${f.path}:${f.fromLine}`} style={{ fontFamily: 'var(--font-mono)' }}>
-                  {/* v0.10.353 (operatör) — dosya+satır DevOps'ta açılır (url sunucudan, FileURL). */}
-                  <SafeHref href={f.url} title={`DevOps'ta aç: ${f.path}${f.line ? ` satır ${f.line}` : ''}`}
-                    fallback={<>{f.path}:{f.fromLine}-{f.toLine}</>}>{f.path}:{f.fromLine}-{f.toLine} ↗</SafeHref>
-                  {/* v0.9.1254 — modelin ">>>" ile işaretlendiği satır;
-                      içerik tarayıcıya gitmez, numara yeter. */}
-                  {!!f.line && <span style={{ color: 'var(--text3)' }}> · hata satırı {f.line}</span>}
-                </div>
-              ))}
-            </div>
-          )}
+              v0.10.1406 — tek bileşen (ai/CodeSourceFooter): kod kartı ve
+              sohbet balonunun kod turu aynısını çizer. */}
+          <CodeSourceFooter code={code} />
           {/* v0.9.479 — çekmecede (auto) bu link ÇİZİLMEZ: sohbet aynı
               çekmecenin içinde, ekrandaki açıklamayı bağlam alarak açılır
               (AIDrawer). Satır-içi yüzeylerde köprü aynen duruyor. */}
@@ -620,18 +588,7 @@ export function CopilotExplain({ kind, id, label, fromNs, toNs, spanId, logLine,
           <CodeStatusNote code={codeCtx} />
           {codeText && <ExplainBody text={codeText} busy={codeBusy} links={codeLinks} revealAt={codeRevealAt} />}
           {codeBusy && codeText !== null && <span className="cm-ai-cursor" />}
-          {codeCtx && !!codeCtx.files?.length && (
-            <div style={{ marginTop: 10, fontSize: 10.5, color: 'var(--text3)', lineHeight: 1.6 }}>
-              <div>📄 Kaynak: <strong>{codeCtx.repo}</strong>{codeSourceRef(codeCtx)}{codeCtx.source === 'pin' ? ' · katalog pini' : codeCtx.source === 'convention' ? ' · ad konvansiyonu' : ''}</div>
-              {codeCtx.reason && <div style={{ color: 'var(--warn, var(--text3))' }}>{codeCtx.reason}</div>}
-              {codeCtx.files.map(f => (
-                <div key={`${f.path}:${f.fromLine}`} style={{ fontFamily: 'var(--font-mono)' }}>
-                  <SafeHref href={f.url} title={`DevOps'ta aç: ${f.path}${f.line ? ` satır ${f.line}` : ''}`}
-                    fallback={<>{f.path}:{f.fromLine}-{f.toLine}</>}>{f.path}:{f.fromLine}-{f.toLine} ↗</SafeHref>{!!f.line && <span style={{ color: 'var(--text3)' }}> · hata satırı {f.line}</span>}
-                </div>
-              ))}
-            </div>
-          )}
+          <CodeSourceFooter code={codeCtx} />{/* v0.10.1406 — ilk kartla aynı kaynak satırı */}
         </div>
       )}
     </div>

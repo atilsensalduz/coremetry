@@ -168,7 +168,8 @@ func TestChatSpanWiring(t *testing.T) {
 	if n := strings.Count(string(obs), "s.beginExplainSpanCtx("); n != 1 {
 		t.Fatalf("ctx explain span'ı yalnız aiCall'da açılmalı, %d", n)
 	}
-	if n := strings.Count(string(obs), "aiCallOpts{surface: surface"); n != 3 {
-		t.Fatalf("üç ctx sarmalayıcısı aiCall'a surface ile delege etmeli, %d", n)
+	// v0.10.1406 — dördüncüsü copilotExplainSurfaceMasked (sohbette "Kodu da incele").
+	if n := strings.Count(string(obs), "aiCallOpts{surface: surface"); n != 4 {
+		t.Fatalf("dört ctx sarmalayıcısı aiCall'a surface ile delege etmeli, %d", n)
 	}
 }

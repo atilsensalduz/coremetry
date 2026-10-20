@@ -329,6 +329,34 @@ func (s *Server) copilotExplainEvidence(r *http.Request, systemNoCode, systemWit
 	// v0.10.114 — kod bağlamı span'a gitsin diye isteğe iliştirilir
 	// (ai_span.go); sarmalayıcılar ctx'ten okur.
 	r = withExplainEvidence(r, cc, se)
+	// v0.10.1406 — gövde explainEvidenceRun'da (sohbet ikiziyle ortak); tek
+	// çağrı biçimi: copilotExplainMasked (logUser == user → maske yok, yani
+	// eski copilotExplain çağrısıyla birebir).
+	return explainEvidenceRun(func(system, u, logUser string) (string, error) {
+		return s.copilotExplainMasked(r, system, u, logUser)
+	}, systemNoCode, systemWithCode, user, cc, se)
+}
+
+// copilotExplainEvidenceCtx — v0.10.1406 (Tek CoSRE adım 3: sohbette "Kodu da
+// incele"): copilotExplainEvidence'ın ctx ikizi. Sohbet turunun *http.Request'i
+// /api/copilot/chat'tir — onu geçirmek yüzeyi "chat" yapar ve exchange
+// kimliğini kaybettirirdi; ctx yolu sohbet handler'ının kurduğu meta'yı
+// (kullanıcı, exchange) taşır, yalnız yüzeyi ezer (explain-…:chat). Maske,
+// taşma yarılaması, kod alıntısı genişletmesi BİREBİR aynı gövdeden.
+func (s *Server) copilotExplainEvidenceCtx(ctx context.Context, surface, systemNoCode, systemWithCode, user string, cc devops.CodeContext, se schemaEvidence) (string, error) {
+	return explainEvidenceRun(func(system, u, logUser string) (string, error) {
+		return s.copilotExplainSurfaceMasked(ctx, surface, system, u, logUser)
+	}, systemNoCode, systemWithCode, user, cc, se)
+}
+
+// explainMaskedCall — tek model çağrısı: gerçek prompt (system, user), ai_calls
+// kopyası logUser (== user → maske yok). v0.10.1406.
+type explainMaskedCall func(system, user, logUser string) (string, error)
+
+// explainEvidenceRun — v0.10.1406: copilotExplainEvidence'ın gövdesi (v0.10.115
+// davranışı aynen), çağrı biçiminden bağımsız — HTTP düğmesi istekle, sohbet
+// turu ctx ile çağırır.
+func explainEvidenceRun(call explainMaskedCall, systemNoCode, systemWithCode, user string, cc devops.CodeContext, se schemaEvidence) (string, error) {
 	block := cc.PromptBlock()
 	if block == "" {
 		// v0.10.112 — KOD İSTENDİ, ÇÖZÜLEMEDİ → modele SÖYLENİR (operatör
@@ -337,9 +365,9 @@ func (s *Server) copilotExplainEvidence(r *http.Request, systemNoCode, systemWit
 		// "kaynak çözülemedi" kuralı orada. Kayıt kopyası eskisi gibi
 		// yalnız ıska işaretini taşır — blok kod içermediği için maskeye
 		// gerek yok, ama kaydın sözleşmesi "[kod alınamadı: sınıf]".
-		return s.explainMissingCode(r, systemWithCode, user, cc, se)
+		return explainMissingCode(call, systemWithCode, user, cc, se)
 	}
-	out, err := s.explainWithCodeBlock(r, systemWithCode, user, block+se.Block, cc.LogSummary()+se.Summary)
+	out, err := explainWithCodeBlock(call, systemWithCode, user, block+se.Block, cc.LogSummary()+se.Summary)
 	if err == nil {
 		// v0.10.544 — kod alıntıları ±1 satır bağlam + vurgu (pencereden).
 		return devops.ExpandQuotes(out, cc), nil
@@ -357,10 +385,10 @@ func (s *Server) copilotExplainEvidence(r *http.Request, systemNoCode, systemWit
 		// v0.10.112 — model de öğrenir: pencereler düşürülür, gerekçe
 		// MissingBlock'la gider (kodsuz system prompt: bağlam zaten dar).
 		dropped := devops.CodeContext{Repo: cc.Repo, Reason: "bağlam taşması — kod bloğu prompt'a sığmadı"}
-		return s.explainNoCode(r, systemNoCode, user+dropped.MissingBlock()+se.Block,
+		return explainNoCode(call, systemNoCode, user+dropped.MissingBlock()+se.Block,
 			devops.FormatCodeMissNote("", "bağlam taşması — kod bloğu prompt'a sığmadı")+se.Summary)
 	}
-	out, err = s.explainWithCodeBlock(r, systemWithCode, user, hb+se.Block, half.LogSummary()+se.Summary)
+	out, err = explainWithCodeBlock(call, systemWithCode, user, hb+se.Block, half.LogSummary()+se.Summary)
 	if err == nil {
 		out = devops.ExpandQuotes(out, half) // v0.10.544
 	}
@@ -371,8 +399,8 @@ func (s *Server) copilotExplainEvidence(r *http.Request, systemNoCode, systemWit
 // prompt = kodlu system + user + MissingBlock (kod yok, yalnız gerekçe);
 // kayıt kopyası = user + "[kod alınamadı: sınıf]" (v0.9.1243 sözleşmesi
 // aynen — /ai "hiç istenmedi"den ayırt edebilsin).
-func (s *Server) explainMissingCode(r *http.Request, systemWithCode, user string, cc devops.CodeContext, se schemaEvidence) (string, error) {
-	return s.copilotExplainMasked(r, systemWithCode, user+cc.MissingBlock()+se.Block, user+cc.LogMissSummary()+se.Summary)
+func explainMissingCode(call explainMaskedCall, systemWithCode, user string, cc devops.CodeContext, se schemaEvidence) (string, error) {
+	return call(systemWithCode, user+cc.MissingBlock()+se.Block, user+cc.LogMissSummary()+se.Summary)
 }
 
 // mapperBlocks — kod bağlamındaki statement/kaynak pencerelerinin
@@ -393,16 +421,17 @@ func mapperBlocks(cc devops.CodeContext) []string {
 // v0.10.112 öncesi gerekçe ("modele 'kod alınamadı' demek olmayan kanıt
 // hakkında konuşmaya davetiye") yalnız kayıt için geçerli kaldı; gerçek
 // prompt'a ne gideceğine çağıran karar verir (MissingBlock).
-func (s *Server) explainNoCode(r *http.Request, system, user, missNote string) (string, error) {
+// v0.10.1406 — missNote boşsa logUser = user (maske yok; eski copilotExplain).
+func explainNoCode(call explainMaskedCall, system, user, missNote string) (string, error) {
 	if missNote == "" {
-		return s.copilotExplain(r, system, user)
+		return call(system, user, user)
 	}
-	return s.copilotExplainMasked(r, system, user, user+missNote)
+	return call(system, user, user+missNote)
 }
 
 // explainWithCodeBlock — tek çağrı: gerçek prompt = user + block,
 // log kopyası = user + summary.
-func (s *Server) explainWithCodeBlock(r *http.Request, system, user, block, summary string) (string, error) {
+func explainWithCodeBlock(call explainMaskedCall, system, user, block, summary string) (string, error) {
 	full := user + block
-	return s.copilotExplainMasked(r, system, full, devops.MaskCodeInPrompt(full, block, summary))
+	return call(system, full, devops.MaskCodeInPrompt(full, block, summary))
 }

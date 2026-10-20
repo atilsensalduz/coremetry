@@ -48,7 +48,7 @@ import { AI_PREFILL_EVENT, type AIPrefillDetail } from './ai/aiEvents'; // v0.10
 import { AI_DRAWER_WIDTH } from './ai/answerCard'; // v0.10.461
 import { AIDrawerBody } from './ai/AIDrawerBody'; // v0.10.483 — ✨ Explain gövdesi aynı çekmecede
 import { useAiSubject } from './ai/useAiSubject';
-import { AI_SRC_PARAM, aiSubjectSubtitle, aiSubjectTitle, formatAiParam, parseAiParam } from '@/lib/aiSubject';
+import { AI_CODE_PARAM, AI_SRC_PARAM, aiSubjectSubtitle, aiSubjectTitle, formatAiParam, parseAiParam } from '@/lib/aiSubject';
 import { activeExplainFrom, explainAskFor, explainAskSubject, explainContextLabel, explainFollowupContext, explainSubject, explainTurnSendOpts, isExplainTurnKind } from './ai/explainTurn'; // v0.10.1400; v0.10.1405 — tüm göç eden türler
 import { drawerFollowups } from './ai/drawerChat'; // v0.10.1400 — açıklama turunun takip çipleri
 import { greetHello, greetErrors, greetHref, greetTooltip } from './ai/greeting';
@@ -571,7 +571,9 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
     if (!rawSubject || !isExplainTurnKind(rawSubject.kind)) { explainAskSentRef.current = ''; return; }
     if (enabled !== true || explainAskSentRef.current === rawSubjectKey) return;
     explainAskSentRef.current = rawSubjectKey;
-    const ask = explainAskFor(rawSubject, sp.get(AI_SRC_PARAM) || 'ai-param');
+    // v0.10.1406 — ?aicode=1 (paylaşılan "Kodu da incele" linki): kod turu; ?ai= ile
+    // BİRLİKTE tek seferlik tüketilir (setSubject(null) ikisini de siler — useAiSubject).
+    const ask = explainAskFor(rawSubject, sp.get(AI_SRC_PARAM) || 'ai-param', undefined, sp.get(AI_CODE_PARAM) === '1');
     setOpen(true);
     setSubject(null);
     // v0.10.1405 — niyet (span / service-health / log: + subject kodeği) ya da endpoint'in sabit penceresi.

@@ -7244,6 +7244,16 @@ export interface ChatExplainAsk {
    */
   subject?: string;
   src?: string;
+  /**
+   * v0.10.1406 — "Kodu da incele": ✨ düğmesinin kod dalı (yalnız trace ve span
+   * exception; sunucu diğerlerinde düşürür). Anahtar düğmenin kod anahtarı.
+   */
+  code?: boolean;
+  /**
+   * v0.10.1406 — "↻ Yeniden üret": önbellek okunmaz (cevap yine yazılır).
+   * YALNIZ istekte: kullanıcı turunda saklanmaz (withoutFresh), arşive girmez.
+   */
+  fresh?: boolean;
 }
 
 /**
@@ -7288,6 +7298,12 @@ export interface ChatExplainMeta {
   label?: string;
   /** v0.10.1405 — künye satırı (runbook: "Based on N past resolved instances…"). */
   note?: string;
+  /**
+   * v0.10.1406 — "Kodu da incele" turunun kod künyesi (✨ düğmesinin `code`
+   * alanıyla aynı şekil); balon CodeStatusNote + CodeSourceFooter çizer.
+   * Yalnız canlı cevapta (arşive girmez).
+   */
+  code?: AICodeContext;
   cached?: boolean;
   cachedAtMs?: number;
   evidenceSpanIds?: string[];

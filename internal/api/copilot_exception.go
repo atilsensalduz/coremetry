@@ -1,8 +1,11 @@
 package api
 
 import (
+	"context"
 	"net/http"
 
+	"github.com/cilcenk/coremetry/internal/anomaly"
+	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/copilot"
 	"github.com/cilcenk/coremetry/internal/devops"
 )
@@ -43,21 +46,14 @@ func (s *Server) copilotExplainException(w http.ResponseWriter, r *http.Request)
 	// v0.10.83 — anahtar GERÇEK prompt'tan; kod dalında blok da kimlik.
 	cacheKey := explainCacheKey(system, in.User, "")
 	if opts.IncludeCode && in.Oracle == nil {
-		// v0.9.1225 — stack log-fallback'ten geldiyse depo çözümü logu
-		// atan servise gider (svc- önek deseni servis adından türetilir).
-		// v0.10.1053 — kural tek yerde (anomaly CodeService); exception
-		// takibinin kod kapsamı da oradan okur.
-		codeSvc := in.CodeService(g.Service)
-		// v0.10.1044 — örnek trace'ten çalışan sürüm (in.StackVersion; aynı
-		// servis, ek okuma yok); boşsa dal ucu.
-		cc = s.buildCodeContext(r.Context(), codeSvc, in.Stack, in.StackVersion)
-		// v0.10.115 — SQL hatasında şema kanıtı: grup tipi+mesajı ve örnek
-		// trace'in hata span'larındaki db_statement → katalog.
-		se := s.buildSchemaEvidence(in.ErrorText, in.DBStatements, mapperBlocks(cc))
-		cacheKey = explainCacheKey(copilot.SystemPromptExceptionWithCode(), in.User, cc.PromptBlock()+se.Block)
+		// v0.10.1406 — hazırlık tek kurucuda (exceptionCodeExplainPrep): sohbetteki
+		// "Kodu da incele" turu aynı anahtarı kullanır.
+		p := s.exceptionCodeExplainPrep(r.Context(), g, in)
+		cc = p.CC
+		cacheKey = p.CacheKey
 		run = explainPromptBuffered(func() (string, error) {
 			return s.copilotExplainEvidence(r,
-				copilot.SystemPromptException(), copilot.SystemPromptExceptionWithCode(), in.User, cc, se)
+				p.SystemNoCode, p.SystemWithCode, in.User, p.CC, p.SE)
 		})
 	}
 	// v0.9.1127 (Faz 1.5) — cevabın çıkışı tek yerden: `?stream=1` ise
@@ -67,4 +63,26 @@ func (s *Server) copilotExplainException(w http.ResponseWriter, r *http.Request)
 		"evidenceSpanIds":  in.EvSpans,
 		"code":             codePayload(cc, opts.IncludeCode && in.Oracle == nil),
 	}, run, g.Service, cacheKey)
+}
+
+// exceptionCodeExplainPrep — v0.10.1406: span exception grubunun kod dalı
+// (v0.9.831 / v0.9.1225 / v0.10.115 / v0.10.1044 / v0.10.1053 davranışı aynen;
+// handler'dan çıktı). ✨ düğmesi ve sohbet içi kod turu aynı kurucudan alır;
+// anahtar explainCacheKey(SystemPromptExceptionWithCode(), in.User,
+// cc.PromptBlock()+se.Block). Oracle grubunda çağrılmaz (stack yok).
+func (s *Server) exceptionCodeExplainPrep(ctx context.Context, g *chstore.ExceptionGroup, in anomaly.ExceptionExplainInput) codeExplainPrep {
+	// v0.9.1225 — stack log-fallback'ten geldiyse depo çözümü logu
+	// atan servise gider (svc- önek deseni servis adından türetilir).
+	// v0.10.1053 — kural tek yerde (anomaly CodeService); exception
+	// takibinin kod kapsamı da oradan okur.
+	codeSvc := in.CodeService(g.Service)
+	// v0.10.1044 — örnek trace'ten çalışan sürüm (in.StackVersion; aynı
+	// servis, ek okuma yok); boşsa dal ucu.
+	cc := s.buildCodeContext(ctx, codeSvc, in.Stack, in.StackVersion)
+	// v0.10.115 — SQL hatasında şema kanıtı: grup tipi+mesajı ve örnek
+	// trace'in hata span'larındaki db_statement → katalog.
+	se := s.buildSchemaEvidence(in.ErrorText, in.DBStatements, mapperBlocks(cc))
+	return codeExplainPrep{CC: cc, SE: se,
+		SystemNoCode: copilot.SystemPromptException(), SystemWithCode: copilot.SystemPromptExceptionWithCode(),
+		CacheKey: explainCacheKey(copilot.SystemPromptExceptionWithCode(), in.User, cc.PromptBlock()+se.Block)}
 }

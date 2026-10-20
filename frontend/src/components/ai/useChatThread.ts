@@ -13,6 +13,7 @@ import { withArrival } from './revealSchedule'; // v0.10.1384 — büyük parça
 import { hasDrawerContext, parseChatInput, pickedServices, scopeForRequest, type ParsedChatInput } from './chatScope';
 import { ChatRequestError } from '@/lib/api';
 import { lastUserIndex, regenerateBase } from './chatRegenerate';
+import { withoutFresh } from './explainTurn'; // v0.10.1406 — fresh yalnız istekte
 import {
   PERSIST_DEBOUNCE_MS, hasCompletedExchange, persistMessages, restoreTurns,
 } from './chatPersist';
@@ -267,9 +268,11 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
       })),
       { role: 'user', text: q },
     ];
+    // v0.10.1406 — kullanıcı turu niyeti `fresh`SİZ saklar (yalnız bu istek taze).
+    const keptAsk = so?.explainAsk ? withoutFresh(so.explainAsk) : undefined;
     setTurns(prev => [
       ...prev,
-      { role: 'user', text: q, ...(parsed.scope ? { scope: parsed.scope } : {}), ...(parsed.command ? { command: parsed.command } : {}), ...(so?.explainAsk ? { explainAsk: so.explainAsk } : {}), ...(so?.window ? { window: so.window } : {}) },
+      { role: 'user', text: q, ...(parsed.scope ? { scope: parsed.scope } : {}), ...(parsed.command ? { command: parsed.command } : {}), ...(keptAsk ? { explainAsk: keptAsk } : {}), ...(so?.window ? { window: so.window } : {}) },
       // v0.10.1400 — açıklama turu: geçici künye (tür + kimlik) → balon baştan ExplainBody; answer gerçeğiyle değiştirir.
       { role: 'assistant', text: '', steps: [], pending: true, ...(so?.alternatives?.length ? { alternatives: so.alternatives } : {}), ...(o.deep ? { deep: true } : {}), ...(so?.explainAsk ? { explain: { kind: so.explainAsk.kind, id: so.explainAsk.id } } : {}) },
     ]);
@@ -445,7 +448,8 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
   const retry = useCallback(() => {
     const q = failedQuestion(turnsRef.current);
     if (!q || busyRef.current) return;
-    const ask = turnsRef.current[turnsRef.current.length - 2]?.explainAsk; // v0.10.1400 — aynı niyet
+    const prevAsk = turnsRef.current[turnsRef.current.length - 2]?.explainAsk; // v0.10.1400 — aynı niyet
+    const ask = prevAsk ? withoutFresh(prevAsk) : undefined; // v0.10.1406 — yeniden dene önbelleği atlamaz
     const win = turnsRef.current[turnsRef.current.length - 2]?.window; // v0.10.1405 — aynı pencere
     const trimmed = dropFailedTail(turnsRef.current);
     turnsRef.current = trimmed;
@@ -467,7 +471,11 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
     if (busyRef.current) return;
     const r = regenerateBase(turnsRef.current);
     if (!r) return;
-    const ask = turnsRef.current[turnsRef.current.length - 2]?.explainAsk; // v0.10.1400 — açıklama turu aynı niyetle (önbellek isabeti)
+    // v0.10.1400 — açıklama turu aynı niyetle. v0.10.1406 — `fresh: true`: önbellek
+    // okunmaz, taze cevap üretilir ve satıra yazılır (eskiden ↻ önbellek isabeti
+    // veriyordu — aynı cevabı "yeniden üretmek"). Yeniden dene taze DEĞİL.
+    const prevAsk = turnsRef.current[turnsRef.current.length - 2]?.explainAsk;
+    const ask = prevAsk ? { ...prevAsk, fresh: true } : undefined;
     const win = turnsRef.current[turnsRef.current.length - 2]?.window; // v0.10.1405 — aynı pencere
     turnsRef.current = r.base;
     setTurns(r.base);

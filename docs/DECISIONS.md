@@ -8223,3 +8223,48 @@ CoSRE bütünselliğine uymuyor." — v0.10.1400 trace/exception'ı sohbet turu 
   ters yön, handler davranışı, normalize/sanitize), güncellenen `chat_explain_turn_test.go`; FE `explainTurn.test.ts`,
   `CopilotChat.explainTurn.test.tsx`, `ChatBubble.explain.test.tsx`, `AIExplainButton.contract.test.tsx`,
   `pages/traceAskCosre.contract.test.tsx`, `chatRetry.test.ts`, `singleDrawer.test.tsx` (çekmece pini charts'a geçti).
+
+## 2026-10-20 — v0.10.1406 — Tek CoSRE adım 3: sohbette Kodu da incele ve taze Yeniden üret
+
+**Operatör:** "Trace ve exception üzerinden çalışan Ask CoSRE açıklamaları güzel ama sanki ayrı drawer hissi,
+CoSRE bütünselliğine uymuyor." — v0.10.1400/1405 açıklamaları sohbet turu yaptı; "Kodu da incele" hâlâ yalnız
+çekmecenin özne kipindeki CopilotExplain'de vardı, sohbetteki "↻ Yeniden üret" açıklama turunda önbellek isabeti
+veriyordu (aynı cevabı "yeniden üretmek").
+
+**Karar — kod turu ve taze üretim aynı niyetin iki bayrağı:**
+- Tel: `context.explainAsk {…, code?, fresh?}`. `code` yalnız trace ve span exception grubunda kalır
+  (`explainCodeCapable`; Oracle `ora:` grubu ve diğer türlerde sessizce düşer → kodsuz açıklama). `fresh` her türde;
+  YALNIZ istekte yaşar: künyede alanı yok, `sanitizeChatExplain` kurmaz, istemci kullanıcı turunda saklamaz
+  (`withoutFresh`).
+- Kod dalı düğmenin kod dalının KENDİSİ: hazırlık handler'lardan tek kurucuya çıktı — `traceCodeExplainPrep`
+  (`traceCodeContext` + `buildSchemaEvidence` + `traceCodePromptAndKey`) ve `exceptionCodeExplainPrep`
+  (`buildCodeContext(in.CodeService…)` + şema, anahtar `explainCacheKey(SystemPromptExceptionWithCode(), in.User,
+  cc.PromptBlock()+se.Block)`). `copilotExplainTrace` / `copilotExplainException` ve sohbet turu aynı değeri kullanır
+  → kod anahtarı bayt bayt aynı, tek önbellek satırı (iki yön testli). Üretim `copilotExplainEvidence`'ın gövdesinden
+  (`explainEvidenceRun`: maske, taşma yarılaması, kod alıntısı genişletmesi); sohbet ctx ikizini kullanır
+  (`copilotExplainEvidenceCtx` → `copilotExplainSurfaceMasked`) — sohbetin `*http.Request`'i /api/copilot/chat olduğu
+  için onu geçirmek yüzeyi "chat" yapar, exchange kimliğini kaybettirirdi. Yüzey `explain-trace:chat` /
+  `explain-exception:chat` (yeni yüzey yok). Düğme gibi AKMAZ: cevap tek delta (taşmada çağrı baştan yapılır).
+- Künye `code` (düğmenin `code` alanıyla aynı şekil) → balon `CodeStatusNote` (okunamadıysa cevabın başında "kodsuz
+  analiz") + `ai/CodeSourceFooter` (depo/dal/sürüm, dosya+satır linkleri). Kaynak satırı CopilotExplain'deki iki
+  kopyadan çıkarıldı; iki kart ve sohbet balonu aynı bileşeni çizer. Kod künyesi arşive girmez (canlı turda).
+- Çip: kodsuz trace / span exception açıklama turunun cevabı `{text/label: "Kodu da incele", kind: "code",
+  explainAsk: {…aynı niyet, code: true, src: "chip"}}` taşır (`explainCodeChip`, guided "<id> açıkla" da dahil). Kod
+  entegrasyonu (DevOps) yapılandırılmamışsa çip YOK — sonucu baştan "kod entegrasyonu yapılandırılmamış" olan bir tık
+  ikinci bir LLM turu yakardı; düğmenin dürüst durumu derin linkte (`?aicode=1`) aynen görünür. Kod turu çipi yeniden
+  önermez. FollowupChips'te kod çipi EKTİR: açıklamanın özne çiplerinin ("Bu neden oluyor?") yerine geçmez.
+- Derin link: `?ai=trace|exception&aicode=1` tek kod turu ("Bu trace'i kodla birlikte açıkla · …"); iki parametre
+  `setSubject(null)` ile birlikte düşer (useAiSubject emsali).
+- Taze üretim: `streamExplainCore(…, fresh)` (ortak gövde `explainCoreRun`) — fresh önbelleği okumaz, cevabı aynı
+  anahtara YAZAR (düğmenin `?refresh=1` sözleşmesi); sonraki olağan istek (sohbet ya da ✨ düğmesi) taze cevaba isabet
+  eder. `useChatThread.regenerate` açıklama turunda `fresh: true` gönderir (başlık "Yeniden üret — taze cevap, önbellek
+  atlanır"), `retry` göndermez. Kapı aynı (requireCopilot), `attempt: 'regenerate'` aynı.
+- Değişmeyenler: api.go, MCP araç sayısı (74), prompts.go sabitleri / `promptVersionRegistry`,
+  `TestChatTierOrderIsPinned` / `TestChatExplainTurnTierIsFirst`, v0.10.1401 "UYGULAMA KODU" bloğu (girdi aynı
+  kurucudan). Kaynak pinleri güncellendi: sarmalayıcı sayıları (`chat_span_test`, `ai_shield_test`: +1 ctx sarmalayıcı),
+  `streamExplainCore` çağrı biçimleri (+fresh), kod çekici sürüm pinleri (kurucuya taşındı), `singleMonoStack` (dosya
+  satırları CodeSourceFooter'da).
+- 1407'ye kalanlar: charts / log-spike kartları + özne kipinin silinmesi.
+- Testler: `internal/api/chat_explain_code_test.go` (tür başına kod anahtarı = düğme, çip tablosu, fresh oku-yok/yaz,
+  normalize/sanitize); FE `components/ai/explainCode.test.ts`, `components/CopilotChat.explainCode.test.tsx`
+  (?aicode=1 tek tur, çip, ↻ fresh / ↺ fresh yok, kaynak satırı), `codeSourceRef.test.ts` (paylaşılan footer).

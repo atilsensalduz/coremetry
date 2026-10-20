@@ -192,6 +192,13 @@ func (s *Server) copilotStreamSurface(ctx context.Context, surface, system, user
 	return s.aiCall(ctx, nil, system, user, aiCallOpts{surface: surface, onDelta: onDelta})
 }
 
+// copilotExplainSurfaceMasked (v0.10.1406) — copilotExplainMasked'ın ctx ikizi:
+// sohbet içi "Kodu da incele" (copilotExplainEvidenceCtx). Kaynak kod modele
+// gider, ai_calls örneğine logUser (maskeli kopya) yazılır.
+func (s *Server) copilotExplainSurfaceMasked(ctx context.Context, surface, system, user, logUser string) (string, error) {
+	return s.aiCall(ctx, nil, system, user, aiCallOpts{surface: surface, logUser: logUser})
+}
+
 // explainCallCtx — tek-atış ✨ çağrısının atıf bağlamı: surface (istek
 // path'inden), kullanıcı kimliği (auth claims) ve çağıranın ctx'e koyduğu
 // exchange kimliği.

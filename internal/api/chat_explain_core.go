@@ -40,14 +40,46 @@ type explainCoreResult struct {
 
 // streamExplainCore — v0.10.1400: önbellek → akan üretim → önbellek yazımı.
 // ok=false → model hatası `error` olayı olarak yayınlandı.
-func (s *Server) streamExplainCore(ctx context.Context, emit func(string, any), surface, system, user, cacheKey string) (explainCoreResult, bool) {
+//
+// v0.10.1406 — fresh ("↻ Yeniden üret" açıklama turunda): önbellek OKUNMAZ,
+// cevap yine YAZILIR (aynı anahtarın üstüne) — düğmenin "Yeniden sor"u
+// (?refresh=1, explainCacheGet) ile aynı sözleşme: sonraki olağan istek taze
+// cevaba isabet eder.
+func (s *Server) streamExplainCore(ctx context.Context, emit func(string, any), surface, system, user, cacheKey string, fresh bool) (explainCoreResult, bool) {
+	return s.explainCoreRun(ctx, emit, cacheKey, fresh, func(onDelta func(string)) (string, error) {
+		return s.copilotStreamSurface(ctx, surface, system, user, onDelta)
+	})
+}
+
+// streamExplainCodeCore — v0.10.1406 (sohbette "Kodu da incele"): kod dalının
+// çekirdeği. Üretim ✨ düğmesinin kod yoluyla AYNI gövdeden
+// (copilotExplainEvidenceCtx: maske, taşma yarılaması, kod alıntısı
+// genişletmesi) ve düğme gibi AKMAZ (explainPromptBuffered gerekçesi: taşmada
+// çağrı baştan yapılır) — cevap tek delta olarak düşer. Anahtar kurucudan
+// (codeExplainPrep.CacheKey) → düğmeyle tek satır.
+func (s *Server) streamExplainCodeCore(ctx context.Context, emit func(string, any), surface string, p codeExplainPrep, user string, fresh bool) (explainCoreResult, bool) {
+	return s.explainCoreRun(ctx, emit, p.CacheKey, fresh, func(onDelta func(string)) (string, error) {
+		out, err := s.copilotExplainEvidenceCtx(ctx, surface, p.SystemNoCode, p.SystemWithCode, user, p.CC, p.SE)
+		if err == nil {
+			onDelta(out)
+		}
+		return out, err
+	})
+}
+
+// explainCoreRun — v0.10.1406: çekirdeğin ortak gövdesi (v0.10.1400 sözleşmesi
+// aynen): isabet → tek delta + saklanan exchangeId; ıska (ya da fresh) →
+// üretim, ham çıktı saklanır.
+func (s *Server) explainCoreRun(ctx context.Context, emit func(string, any), cacheKey string, fresh bool, gen func(onDelta func(string)) (string, error)) (explainCoreResult, bool) {
 	res := explainCoreResult{Xid: copilot.MetaFromContext(ctx).ExchangeID}
-	if env, hit := s.explainCacheGetCtx(ctx, cacheKey); hit {
-		res.Text, res.Xid, res.Cached, res.CachedAtMs = env.Text, env.Xid, true, env.AtMs
-		emit("delta", map[string]string{"text": env.Text})
-		return res, true
+	if !fresh {
+		if env, hit := s.explainCacheGetCtx(ctx, cacheKey); hit {
+			res.Text, res.Xid, res.Cached, res.CachedAtMs = env.Text, env.Xid, true, env.AtMs
+			emit("delta", map[string]string{"text": env.Text})
+			return res, true
+		}
 	}
-	out, err := s.copilotStreamSurface(ctx, surface, system, user, func(d string) {
+	out, err := gen(func(d string) {
 		if d != "" {
 			emit("delta", map[string]string{"text": d})
 		}

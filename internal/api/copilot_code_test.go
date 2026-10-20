@@ -651,9 +651,11 @@ func TestCodePayload(t *testing.T) {
 func TestCodeFetchCarriesRunningVersion(t *testing.T) {
 	for _, c := range []struct{ file, want string }{
 		// v0.10.1330 — trace yolu traceCodeContext üzerinden (stack yoksa operasyon kodu).
-		{"trace_explain_handler.go", "cc := s.traceCodeContext(r.Context(), in)"},
+		// v0.10.1406 — kod dalının hazırlığı handler'dan kurucuya çıktı (ctx): düğme ve
+		// sohbet içi "Kodu da incele" aynı kurucudan (traceCodeExplainPrep / exceptionCodeExplainPrep).
+		{"trace_explain_handler.go", "cc := s.traceCodeContext(ctx, in)"},
 		{"copilot_code_operation.go", "s.buildCodeContext(ctx, in.StackService, in.Stack, in.StackVersion)"},
-		{"copilot_exception.go", "s.buildCodeContext(r.Context(), codeSvc, in.Stack, in.StackVersion)"},
+		{"copilot_exception.go", "s.buildCodeContext(ctx, codeSvc, in.Stack, in.StackVersion)"},
 		{"explain_trace_input.go", "StackVersion: anomaly.StackVersion(allSpans, stackService, stackSpanID, stackRes),"},
 		{"explain_trace_input.go", "stackSpanID, stackRes = lg.SpanID, lg.ResourceAttributes"},
 		// v0.10.1047 — {service}: ResolveRepo'ya verilen AYNI servis adı kod

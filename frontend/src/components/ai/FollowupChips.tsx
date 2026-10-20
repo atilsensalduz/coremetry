@@ -59,34 +59,36 @@ function LinkChip({ href, text, disabled, onClicked }: { href: string; text: str
 
 export function FollowupChips({ followups, suggestions, fallback, exchangeId, disabled, onAsk }: FollowupChipsProps) {
   const signal = (detail: string) => { if (exchangeId) api.aiSignal(exchangeId, 'followup_click', detail); };
-  if (followups?.length) {
+  const chip = (f: ChatFollowup) => {
+    if (f.action) {
+      // Aksiyon bloğuyla AYNI doğrulama (kapalı tür kümesi); bozuk yük → çip yok.
+      const a = parseSREHypothesisAction(f.action);
+      return a ? <ActionChip key={`a:${f.text}`} action={a} disabled={disabled} onClicked={() => signal(f.kind)} /> : null;
+    }
+    if (f.href !== undefined) {
+      // v0.10.1331 — link çipi; güvensiz yol → çip yok (metin olarak da gönderilmez).
+      const h = safeAppPath(f.href);
+      return h ? <LinkChip key={`l:${f.text}`} href={h} text={f.text} disabled={disabled} onClicked={() => signal(f.kind)} /> : null;
+    }
+    // v0.10.1383 — kısa etiket (label) görünür, tam cümle (text) gönderilir + title'da.
     return (
-      <>
-        {followups.map(f => {
-          if (f.action) {
-            // Aksiyon bloğuyla AYNI doğrulama (kapalı tür kümesi); bozuk yük → çip yok.
-            const a = parseSREHypothesisAction(f.action);
-            return a ? <ActionChip key={`a:${f.text}`} action={a} disabled={disabled} onClicked={() => signal(f.kind)} /> : null;
-          }
-          if (f.href !== undefined) {
-            // v0.10.1331 — link çipi; güvensiz yol → çip yok (metin olarak da gönderilmez).
-            const h = safeAppPath(f.href);
-            return h ? <LinkChip key={`l:${f.text}`} href={h} text={f.text} disabled={disabled} onClicked={() => signal(f.kind)} /> : null;
-          }
-          // v0.10.1383 — kısa etiket (label) görünür, tam cümle (text) gönderilir + title'da.
-          return (
-            <Chip key={f.text} pill disabled={disabled} title={f.label ? f.text : undefined}
-              onClick={() => { signal(f.kind); onAsk(f.text, followupSendOpts(f)); }}>
-              {f.explainAsk ? '✨' : '↳'} {f.label || f.text}{/* v0.10.1400 — açıklama çipi sohbet içi tur */}
-            </Chip>
-          );
-        })}
-      </>
+      <Chip key={f.text} pill disabled={disabled} title={f.label ? f.text : undefined}
+        onClick={() => { signal(f.kind); onAsk(f.text, followupSendOpts(f)); }}>
+        {f.explainAsk ? '✨' : '↳'} {f.label || f.text}{/* v0.10.1400 — açıklama çipi sohbet içi tur */}
+      </Chip>
     );
+  };
+  // v0.10.1406 — "Kodu da incele" (kind 'code') EK çiptir: açıklama turunun özne
+  // çiplerinin ("Bu neden oluyor?" …) yerine geçmez, önlerine eklenir. Yalnız
+  // kod çipi varsa aşağıdaki öneri/statik listesi de çizilir.
+  const extra = followups?.filter(f => f.kind === 'code') ?? [];
+  if (followups?.length && extra.length < followups.length) {
+    return <>{followups.map(chip)}</>;
   }
   const server = !!suggestions?.length;
   return (
     <>
+      {extra.map(chip)}
       {(server ? suggestions ?? [] : fallback).map(q => (
         <Chip key={q} pill disabled={disabled} onClick={() => { if (server) signal('guided'); onAsk(q); }}>↳ {q}</Chip>
       ))}

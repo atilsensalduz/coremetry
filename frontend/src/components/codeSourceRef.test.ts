@@ -17,9 +17,18 @@ describe('codeSourceRef', () => {
   });
   // v0.10.1041 panel kod durumunu `code` ve `codeCtx` diye ayırdı; iki çizim
   // yeri hangi adı okursa okusun aynı fonksiyondan geçmeli.
-  it('iki "Kaynak:" çizim yeri de aynı fonksiyondan çizer', () => {
+  // v0.10.1406 — "Kaynak:" satırı tek bileşende (ai/CodeSourceFooter); CopilotExplain'in
+  // iki kartı ve sohbet balonunun kod turu onu çizer (CodeSourceFooter.test.tsx).
+  it('iki "Kaynak:" çizim yeri de aynı bileşenden (aynı fonksiyondan) çizer', () => {
     const src = readFileSync(resolve(__dirname, 'CopilotExplain.tsx'), 'utf8');
-    expect(src.match(/\{codeSourceRef\((code|codeCtx)\)\}/g)?.length).toBe(2);
-    expect(src).not.toMatch(/(code|codeCtx)\.branch \? ` · \$\{(code|codeCtx)\.branch\}` : ''/);
+    expect(src.match(/<CodeSourceFooter code=\{(code|codeCtx)\} \/>/g)?.length).toBe(2);
+    expect(src).not.toContain('codeSourceRef(');
+    const footer = readFileSync(resolve(__dirname, 'ai/CodeSourceFooter.tsx'), 'utf8');
+    expect(footer.match(/\{codeSourceRef\(code\)\}/g)?.length).toBe(1);
+    expect(footer).not.toMatch(/code\.branch \? ` · \$\{code\.branch\}` : ''/);
+    // Sohbet balonunun kod turu aynı bileşeni çizer (kopya yok).
+    const bubble = readFileSync(resolve(__dirname, 'ai/ChatBubble.tsx'), 'utf8');
+    expect(bubble).toContain('<CodeSourceFooter code={ex.code} />');
+    expect(bubble).not.toContain('📄 Kaynak:');
   });
 });

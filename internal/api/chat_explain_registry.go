@@ -234,7 +234,7 @@ func (s *Server) chatExplainRegistryTurn(ctx context.Context, emit func(string, 
 	}
 	emitGuidedStepResult(emit, n, k.Step, b.User, nil)
 	// Düğmenin kurucusundan gelen anahtar (explainCacheKey(system, user, "")).
-	res, ok := s.streamExplainCore(ctx, emit, k.Surface, b.System, b.User, b.CacheKey)
+	res, ok := s.streamExplainCore(ctx, emit, k.Surface, b.System, b.User, b.CacheKey, ask.Fresh) // v0.10.1406 — fresh: Yeniden üret
 	if !ok {
 		return true, false
 	}

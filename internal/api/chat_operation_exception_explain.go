@@ -206,7 +206,7 @@ func (s *Server) opExceptionExplainInChat(ctx context.Context, emit func(string,
 	// ✨ Explain root cause ile AYNI anahtar (copilot_exception.go, kod dalı kapalı).
 	// v0.10.1400 — akış + önbellek gövdesi tek yerde (chat_explain_core.go
 	// streamExplainCore; chatExplainTurn ve guidedTraceExplain de oradan).
-	res, sok := s.streamExplainCore(ctx, emit, aisurface.ExplainExceptionChat, system, in.User, explainCacheKey(system, in.User, ""))
+	res, sok := s.streamExplainCore(ctx, emit, aisurface.ExplainExceptionChat, system, in.User, explainCacheKey(system, in.User, ""), false)
 	if !sok {
 		return true, false
 	}

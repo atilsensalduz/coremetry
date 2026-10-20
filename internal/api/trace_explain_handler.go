@@ -29,6 +29,7 @@ package api
 // (chat_trace_followup.go traceCompareWindow).
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -84,18 +85,41 @@ func (s *Server) copilotExplainTrace(w http.ResponseWriter, r *http.Request) {
 	// (in.StackVersion; boşsa dal ucu).
 	// v0.10.1330 — stack YOKSA trace'in ana operasyonunun kodu
 	// (traceCodeContext → buildOperationCodeContext); stack yolu aynı.
-	cc := s.traceCodeContext(r.Context(), in)
+	// v0.10.1406 — kod dalının hazırlığı tek kurucuda (traceCodeExplainPrep):
+	// sohbetteki "Kodu da incele" turu AYNI değeri kullanır → anahtar bayt bayt
+	// aynı, tek önbellek satırı.
+	p := s.traceCodeExplainPrep(r.Context(), in)
+	cacheKey := p.CacheKey
+	run := explainPromptBuffered(func() (string, error) {
+		return s.copilotExplainEvidence(r,
+			p.SystemNoCode, p.SystemWithCode, in.User, p.CC, p.SE)
+	})
+	// v0.9.1127 (Faz 1.5) — cevabın çıkışı tek yerden (deliverExplain).
+	s.deliverExplain(w, r, xid, traceExplainExtra(in, p.CC, opts.IncludeCode), run, in.RootService, cacheKey)
+}
+
+// codeExplainPrep — v0.10.1406: "Kodu da incele" dalının hazırlığı (kod +
+// şema kanıtı, iki sistem prompt'u, önbellek anahtarı). ✨ düğmesi
+// (copilotExplainTrace / copilotExplainException) ve sohbet içi kod turu
+// (chat_explain_turn.go) AYNI kurucudan alır — anahtar tek yerde hesaplanır.
+type codeExplainPrep struct {
+	CC             devops.CodeContext
+	SE             schemaEvidence
+	SystemNoCode   string
+	SystemWithCode string
+	CacheKey       string
+}
+
+// traceCodeExplainPrep — trace'in kod dalı (v0.9.831 / v0.10.83 / v0.10.115 /
+// v0.10.1044 / v0.10.1330 davranışı aynen; v0.10.1406'da handler'dan çıktı).
+func (s *Server) traceCodeExplainPrep(ctx context.Context, in traceExplainInput) codeExplainPrep {
+	cc := s.traceCodeContext(ctx, in)
 	// v0.10.115 — SQL hatasında şema kanıtı (hata span'ının db_statement'ı
 	// → katalog); kod bloğunun arkasına, kendi bütçesiyle.
 	se := s.buildSchemaEvidence(in.ErrorText, in.DBStatements, mapperBlocks(cc))
 	systemWithCode, keyExtra := traceCodePromptAndKey(cc, se)
-	cacheKey := explainCacheKey(systemWithCode, in.User, keyExtra)
-	run := explainPromptBuffered(func() (string, error) {
-		return s.copilotExplainEvidence(r,
-			copilot.SystemPromptTrace(), systemWithCode, in.User, cc, se)
-	})
-	// v0.9.1127 (Faz 1.5) — cevabın çıkışı tek yerden (deliverExplain).
-	s.deliverExplain(w, r, xid, traceExplainExtra(in, cc, opts.IncludeCode), run, in.RootService, cacheKey)
+	return codeExplainPrep{CC: cc, SE: se, SystemNoCode: copilot.SystemPromptTrace(), SystemWithCode: systemWithCode,
+		CacheKey: explainCacheKey(systemWithCode, in.User, keyExtra)}
 }
 
 // explainTraceClassicPrepared — klasik kodsuz yol (Tempo önce, sonra CH). Trace

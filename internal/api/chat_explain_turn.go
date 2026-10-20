@@ -58,6 +58,14 @@ type chatExplainAsk struct {
 	ID      string `json:"id"`                // trace id (32-hex) | grup parmak izi | problem/olay/anomali kimliği | servis
 	Subject string `json:"subject,omitempty"` // v0.10.1405 — kanonik `?ai=` kodeği
 	Src     string `json:"src,omitempty"`     // button | nudge | deeplink | chip | starter (ölçüm; karar değil)
+	// Code — v0.10.1406 (Tek CoSRE adım 3): "Kodu da incele" — ✨ düğmesinin kod
+	// dalı (trace + span exception; Oracle grubunda ve diğer türlerde düşer).
+	// Anahtar düğmenin kod anahtarı (codeExplainPrep) → tek önbellek satırı.
+	Code bool `json:"code,omitempty"`
+	// Fresh — v0.10.1406: "↻ Yeniden üret" — önbellek okunmaz, cevap yine
+	// yazılır. YALNIZ istekte yaşar: arşive girmez (künyede alanı yok,
+	// sanitizeChatExplain kurmaz), istemci kullanıcı turunda saklamaz.
+	Fresh bool `json:"fresh,omitempty"`
 }
 
 const (
@@ -87,12 +95,17 @@ type chatExplainMeta struct {
 	Renderer string `json:"renderer,omitempty"`
 	Label    string `json:"label,omitempty"` // exception: grup kodu / tipi; runbook: "RUNBOOK"; diğerleri: öznenin adı
 	// Note — v0.10.1405: künye satırı (runbook: "Based on N past resolved…").
-	Note             string   `json:"note,omitempty"`
-	Cached           bool     `json:"cached,omitempty"`
-	CachedAtMs       int64    `json:"cachedAtMs,omitempty"`
-	EvidenceSpanIDs  []string `json:"evidenceSpanIds,omitempty"`
-	EvidenceTraceIDs []string `json:"evidenceTraceIds,omitempty"`
-	OracleRows       int      `json:"oracleRows,omitempty"`
+	Note string `json:"note,omitempty"`
+	// Code — v0.10.1406: "Kodu da incele" turunun kod künyesi (✨ düğmesinin
+	// `code` alanıyla aynı şekil: depo/dal/dosyalar ya da okunamama nedeni);
+	// istemci CodeStatusNote + CodeSourceFooter çizer. Yalnız canlı cevapta:
+	// arşive girmez (sanitizeChatExplain kurmaz).
+	Code             *codeContextPayload `json:"code,omitempty"`
+	Cached           bool                `json:"cached,omitempty"`
+	CachedAtMs       int64               `json:"cachedAtMs,omitempty"`
+	EvidenceSpanIDs  []string            `json:"evidenceSpanIds,omitempty"`
+	EvidenceTraceIDs []string            `json:"evidenceTraceIds,omitempty"`
+	OracleRows       int                 `json:"oracleRows,omitempty"`
 }
 
 // normalizeExplainAsk — SAF: tür beyaz listesi + kimlik biçimi. trace 32-hex
@@ -148,11 +161,50 @@ func normalizeExplainAsk(a *chatExplainAsk) (chatExplainAsk, bool) {
 		} else if !explainNameOK(subj.ID) {
 			return chatExplainAsk{}, false
 		}
-		return chatExplainAsk{Kind: kind, ID: subj.ID, Subject: formatAiSubject(subj), Src: src}, true
+		return chatExplainAsk{Kind: kind, ID: subj.ID, Subject: formatAiSubject(subj), Src: src, Fresh: a.Fresh}, true
 	default:
 		return chatExplainAsk{}, false
 	}
-	return chatExplainAsk{Kind: kind, ID: id, Src: src}, true
+	// v0.10.1406 — code yalnız kod-yetenekli öznede kalır (aksi sessizce düşer:
+	// kodsuz açıklama dürüst bir düşüş); fresh her türde.
+	return chatExplainAsk{Kind: kind, ID: id, Src: src, Code: a.Code && explainCodeCapable(kind, id), Fresh: a.Fresh}, true
+}
+
+// explainCodeCapable — SAF (v0.10.1406): "Kodu da incele"nin anlamlı olduğu
+// özne — ✨ düğmesindeki codeCapable'ın aynası (CopilotExplain.tsx): trace ve
+// span exception grubu. Oracle grubu (`ora:`) stack taşımaz.
+func explainCodeCapable(kind, id string) bool {
+	return kind == explainAskTrace || (kind == explainAskException && !chstore.IsOracleGroup(id))
+}
+
+// explainCodeChipLabel — sohbet içi kod çipinin metni (düğmedeki çip adı).
+const explainCodeChipLabel = "Kodu da incele"
+
+// explainCodeChip — SAF (v0.10.1406): açıklama turunun "Kodu da incele" takip
+// çipi. Aynı niyet + code:true + src:"chip"; tur zaten kod turuysa, özne
+// kod-yetenekli değilse (Oracle grubu, diğer türler) ya da kod entegrasyonu
+// (DevOps) yapılandırılmamışsa çip YOK — sonucu baştan "kod entegrasyonu
+// yapılandırılmamış" olan bir tık önermek ikinci bir LLM turu yakmaktır.
+// (Derin link ?aicode=1 yine kod turu açar; dürüst durum CodeStatusNote'ta.)
+func explainCodeChip(ask chatExplainAsk, codeConfigured bool) (chatFollowup, bool) {
+	if ask.Code || !codeConfigured || !explainCodeCapable(ask.Kind, ask.ID) {
+		return chatFollowup{}, false
+	}
+	a := chatExplainAsk{Kind: ask.Kind, ID: ask.ID, Subject: ask.Subject, Src: "chip", Code: true}
+	return chatFollowup{Text: explainCodeChipLabel, Label: explainCodeChipLabel, Kind: "code", ExplainAsk: &a}, true
+}
+
+// explainCodeConfigured — kod entegrasyonu (DevOps) yapılandırılmış mı.
+func (s *Server) explainCodeConfigured() bool {
+	return s != nil && s.devops != nil && s.devops.Configured()
+}
+
+// withExplainCodeChip — answer çerçevesine kod çipini ekler (çip yoksa aynen).
+func (s *Server) withExplainCodeChip(ans map[string]any, ask chatExplainAsk) map[string]any {
+	if c, ok := explainCodeChip(ask, s.explainCodeConfigured()); ok {
+		return withAnswerFollowups(ans, []chatFollowup{c})
+	}
+	return ans
 }
 
 // explainNameOK — SAF (v0.10.1405): servis adı biçimli kimlik — boş değil,
@@ -268,16 +320,34 @@ func (s *Server) chatExplainTraceTurn(ctx context.Context, emit func(string, any
 	}
 	emitGuidedStepResult(emit, n, "trace", in.User, nil)
 	route := guidedRoute{Intent: guidedTraceByID, TraceID: ask.ID}
-	return s.emitTraceExplainAnswer(ctx, emit, ask.ID, in, route, guidedAnswerLinks(route, noLinkWindow()))
+	return s.emitTraceExplainTurn(ctx, emit, ask, in, route, guidedAnswerLinks(route, noLinkWindow()))
 }
 
 // emitTraceExplainAnswer — v0.10.1400: trace açıklamasının sohbet cevabı.
 // chatExplainTraceTurn ve guidedTraceExplain'in açıklama dalı paylaşır: aynı
 // sistem/kullanıcı çifti, düğmenin anahtarı, aynı künye.
 func (s *Server) emitTraceExplainAnswer(ctx context.Context, emit func(string, any), traceID string, in traceExplainInput, route guidedRoute, links []guidedAnswerLink) (bool, bool) {
+	return s.emitTraceExplainTurn(ctx, emit, chatExplainAsk{Kind: explainAskTrace, ID: traceID}, in, route, links)
+}
+
+// emitTraceExplainTurn — v0.10.1406: emitTraceExplainAnswer'ın niyetli hâli.
+// ask.Code → ✨ düğmesinin kod dalı (traceCodeExplainPrep, düğmeyle aynı
+// anahtar; künyede `code`); ask.Fresh → önbellek okunmaz (Yeniden üret).
+// Kodsuz turun cevabı "Kodu da incele" çipini taşır (explainCodeChip).
+func (s *Server) emitTraceExplainTurn(ctx context.Context, emit func(string, any), ask chatExplainAsk, in traceExplainInput, route guidedRoute, links []guidedAnswerLink) (bool, bool) {
+	traceID := ask.ID
 	system := copilot.SystemPromptTrace()
 	cacheKey := explainCacheKey(system, in.User, "") // explainTraceClassicPrepared ile AYNI formül
-	res, ok := s.streamExplainCore(ctx, emit, aisurface.ExplainTraceChat, system, in.User, cacheKey)
+	var res explainCoreResult
+	var ok bool
+	var code *codeContextPayload
+	if ask.Code {
+		p := s.traceCodeExplainPrep(ctx, in) // copilotExplainTrace'in kod dalıyla AYNI kurucu
+		res, ok = s.streamExplainCodeCore(ctx, emit, aisurface.ExplainTraceChat, p, in.User, ask.Fresh)
+		code = codePayload(p.CC, true)
+	} else {
+		res, ok = s.streamExplainCore(ctx, emit, aisurface.ExplainTraceChat, system, in.User, cacheKey, ask.Fresh)
+	}
 	if !ok {
 		return true, false
 	}
@@ -286,7 +356,7 @@ func (s *Server) emitTraceExplainAnswer(ctx context.Context, emit func(string, a
 	links = append(links, s.answerRequestIDLinks(ctx, text, in.RootService)...)
 	meta := chatExplainMeta{Kind: explainAskTrace, ID: traceID, Surface: aisurface.ExplainTraceChat,
 		Cached: res.Cached, CachedAtMs: res.CachedAtMs,
-		EvidenceSpanIDs: clampExplainIDs(in.Evidence), OracleRows: in.OracleRows}
+		EvidenceSpanIDs: clampExplainIDs(in.Evidence), OracleRows: in.OracleRows, Code: code}
 	ans := map[string]any{
 		"text": text, "exchangeId": res.Xid,
 		"suggestions":     guidedSuggestions(route),
@@ -294,7 +364,7 @@ func (s *Server) emitTraceExplainAnswer(ctx context.Context, emit func(string, a
 		"evidenceSpanIds": in.Evidence, // v0.10.453 sözleşmesi (eski istemci)
 		"explain":         meta,
 	}
-	emit("answer", withExplainCached(ans, res))
+	emit("answer", s.withExplainCodeChip(withExplainCached(ans, res), ask))
 	return true, true
 }
 
@@ -312,7 +382,18 @@ func (s *Server) chatExplainExceptionTurn(ctx context.Context, emit func(string,
 	}
 	emitGuidedStepResult(emit, n, opExceptionExplainTool, in.User, nil)
 	// copilotExplainException ile AYNI anahtar (kod dalı kapalı).
-	res, ok := s.streamExplainCore(ctx, emit, aisurface.ExplainExceptionChat, system, in.User, explainCacheKey(system, in.User, ""))
+	// v0.10.1406 — ask.Code (yalnız span grubu; normalizeExplainAsk Oracle'da
+	// düşürür) → düğmenin kod dalı, AYNI kurucu (exceptionCodeExplainPrep).
+	var res explainCoreResult
+	var ok bool
+	var code *codeContextPayload
+	if ask.Code && in.Oracle == nil {
+		p := s.exceptionCodeExplainPrep(ctx, g, in)
+		res, ok = s.streamExplainCodeCore(ctx, emit, aisurface.ExplainExceptionChat, p, in.User, ask.Fresh)
+		code = codePayload(p.CC, true)
+	} else {
+		res, ok = s.streamExplainCore(ctx, emit, aisurface.ExplainExceptionChat, system, in.User, explainCacheKey(system, in.User, ""), ask.Fresh)
+	}
 	if !ok {
 		return true, false
 	}
@@ -322,14 +403,14 @@ func (s *Server) chatExplainExceptionTurn(ctx context.Context, emit func(string,
 	links = append(links, s.answerRequestIDLinks(ctx, text, g.Service)...)
 	meta := chatExplainMeta{Kind: explainAskException, ID: g.Fingerprint, Surface: aisurface.ExplainExceptionChat,
 		Label: clipRunes(label, exGroupOpRunes), Cached: res.Cached, CachedAtMs: res.CachedAtMs,
-		EvidenceSpanIDs: clampExplainIDs(in.EvSpans), EvidenceTraceIDs: clampExplainIDs(in.EvTraces)}
+		EvidenceSpanIDs: clampExplainIDs(in.EvSpans), EvidenceTraceIDs: clampExplainIDs(in.EvTraces), Code: code}
 	ans := map[string]any{
 		"text": text, "exchangeId": res.Xid,
 		"links":           dedupLinksByHref(links),
 		"evidenceSpanIds": in.EvSpans,
 		"explain":         meta,
 	}
-	emit("answer", withExplainCached(ans, res))
+	emit("answer", s.withExplainCodeChip(withExplainCached(ans, res), ask))
 	return true, true
 }
 
