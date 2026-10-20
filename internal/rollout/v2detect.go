@@ -45,8 +45,10 @@ import (
 //         o tikte update_revision yok) → hemen GENEL START (new_revision
 //         boş; §4.11 DS kuralı).
 //       observedGenWaitTicks × tik dolunca: tutma varsa GENEL START
-//         (Deployment + RS owner: yeni RS görünmedi → bilinen RS'ye dönüş =
-//         rollback) — ama hedef bilinmiyor + RS spec ailesi varsa emilir
+//         (Deployment + RS owner + RS spec ailesi YOK: yeni RS görünmedi →
+//         bilinen RS'ye dönüş = rollback; v0.10.1421: spec ailesi varken
+//         rollout — dönüş Known kanıtıyla görülürdü, hedef geciken yeni RS)
+//         — ama hedef bilinmiyor + RS spec ailesi varsa emilir
 //         (bootstrap'ta rollout ortası + HPA: gerçek geri alma Known
 //         kanıtıyla zaten görülür); tutma yoksa emilir (gate_timeout).
 //   KANIT (revizyon kümesi farkı; known_revisions ÖNCEKİ durumdan):
@@ -82,7 +84,10 @@ import (
 //     tarih olarak kalır.
 //   ROLLBACK START'ı en son olayın revizyonunu terk ediyorsa (initial hariç)
 //     o olay rolled_back (açık ya da succeeded; finished_at boşsa = geri
-//     almanın started_at'i). Başka START açık olayı superseded yapar
+//     almanın started_at'i) — v0.10.1421: YALNIZ olumlu kanıtla
+//     (v2RollbackUnproven: somut hedef revizyon + olayın yeni imajı
+//     biliniyor); kanıtsızsa açık olay superseded, başarılı olay başarılı
+//     kalır, gerekçe notta. Başka START açık olayı superseded yapar
 //     (finished_at = yeni started_at). İş yükünde en fazla bir açık olay.
 //   YENİ INCARNATION (§4.3, karar 9): _created varsa ve ≥ incarnation_at+1dk
 //     → yeni; ≥ K ardışık TAM okumada yoktu → yeni; generation <
@@ -202,6 +207,7 @@ import (
 //   generic_start ride_along paused_pending waiting scale_only
 //   scale_only_not_ignored gate_timeout adopt succeeded stuck absent gone
 //   family_absent ambiguous_revision no_revision known_over_bound rejected
+//   rollback_unproven images_backfill (v0.10.1421)
 
 // V2ReplicaSet — Deployment'a ait bir RS (kube_replicaset_owner ⋈ spec).
 type V2ReplicaSet struct {
@@ -647,6 +653,7 @@ func (d *v2Detector) advance(k V2Key, o V2Observation, st V2WorkloadState, last 
 	if last != nil {
 		c := v2NormEvent(*last)
 		w.lastUp = &c
+		d.backfillImages(w.lastUp, o)
 	}
 	if o.Generation > v2MaxU(st.Generation, st.PendingGeneration) {
 		w.ns.PendingGeneration, w.ns.PendingStartedAt = o.Generation, o.SampleAt
@@ -724,6 +731,29 @@ func (d *v2Detector) advance(k V2Key, o V2Observation, st V2WorkloadState, last 
 	d.putState(k, &w.st, w.ns, o.SampleAt)
 }
 
+// backfillImages — v0.10.1421 — kapanmış son olayın yeni imajı START tikinde
+// okunamadıysa (geç START aynı tikte succeeded kapanır; imaj sorgusu
+// sonraki tiklerde durum doldurma yolundan gelir) sonradan okunan revizyon
+// imajıyla tamamlanır: çekmece "yeni: —" göstermez, change_type imajla
+// yeniden hesaplanır. Açık olay evaluate'te zaten doldurulur.
+func (d *v2Detector) backfillImages(e *V2Event, o V2Observation) {
+	if v2IsOpen(e.Status) || len(e.Images) > 0 || e.NewRevision == "" {
+		return
+	}
+	im := v2ImagesOf(o, e.NewRevision)
+	if len(im) == 0 {
+		return
+	}
+	e.Images = im
+	if len(e.PrevImages) == 0 {
+		e.PrevImages = v2ImagesOf(o, e.OldRevision)
+	}
+	if e.ChangeType == V2ChangeRollout || e.ChangeType == V2ChangeConfig {
+		e.ChangeType = v2ChangeByImages(e.Images, e.PrevImages)
+	}
+	d.count("images_backfill")
+}
+
 // decidePending — kanıtsız bekleyen artış (dosya başlığı "NESİL KAPISI").
 func (d *v2Detector) decidePending(w *v2Work) {
 	o, ns := w.o, &w.ns
@@ -747,8 +777,14 @@ func (d *v2Detector) decidePending(w *v2Work) {
 		// gate_timeout ile emilir, yerleşince hedef sessizce benimsenir. Spec
 		// ailesi yoksa (V3 minimal profil) genel START korunur.
 		ct := V2ChangeRollout
-		if o.Kind == V2KindDeployment && d.pres.RSOwner {
-			ct = V2ChangeRollback // yeni RS görünmedi → hedef bilinen bir RS
+		if o.Kind == V2KindDeployment && d.pres.RSOwner && !d.pres.RSSpec {
+			// yeni RS görünmedi → hedef bilinen bir RS (YALNIZ minimal profil, V3).
+			// v0.10.1421 — RS spec ailesi varken bilinen RS'ye dönüş Known
+			// kanıtıyla zaten görülür; burada hedefi görünmeyen (geciken) yeni
+			// RS'dir — "rollback" tahmini önceki başarılı olayı sahte "geri
+			// alındı" yapıyordu. Genel START hiçbir zaman önceki olayı
+			// rolled_back yapmaz (v2RollbackUnproven: hedef boş).
+			ct = V2ChangeRollback
 		}
 		d.count("generic_start")
 		d.start(w, ns.PendingGeneration, ns.PendingStartedAt, "", ct, "zaman aşımı: şablon değişti ama hedef revizyon görülemedi")
@@ -780,9 +816,18 @@ func (d *v2Detector) start(w *v2Work, gen uint64, at time.Time, target, ct, note
 	} else {
 		if l != nil {
 			fin := v2MaxTime(at, l.StartedAt)
+			rb := ct == V2ChangeRollback && l.ChangeType != V2ChangeInitial && l.NewRevision != "" && l.NewRevision == oldRev &&
+				(v2IsOpen(l.Status) || l.Status == V2StatusSucceeded)
+			if rb && len(l.Images) == 0 {
+				// v0.10.1421 — olayın yeni revizyonu = durumun hedefi: imajı bu
+				// tikte (ya da durumda) biliniyorsa olaya da yazılır.
+				if l.Images = v2ImagesOf(w.o, oldRev); len(l.Images) == 0 {
+					l.Images = v2CloneStrings(w.st.Images)
+				}
+			}
+			unproven := v2RollbackUnproven(*l, target)
 			switch {
-			case ct == V2ChangeRollback && l.ChangeType != V2ChangeInitial && l.NewRevision != "" && l.NewRevision == oldRev &&
-				(v2IsOpen(l.Status) || l.Status == V2StatusSucceeded):
+			case rb && unproven == "":
 				l.Status = V2StatusRolledBack
 				if l.FinishedAt.IsZero() {
 					l.FinishedAt = fin
@@ -791,6 +836,15 @@ func (d *v2Detector) start(w *v2Work, gen uint64, at time.Time, target, ct, note
 			case v2IsOpen(l.Status):
 				l.Status, l.FinishedAt = V2StatusSuperseded, fin
 				l.Note = v2AppendNote(l.Note, fmt.Sprintf("yerini aldı: nesil %d", gen))
+				if rb {
+					d.count("rollback_unproven")
+				}
+			case rb:
+				// v0.10.1421 — Operator-reported ("bazen yeni image bulamadığında
+				// geri alındı yazıyor"): kanıtsız "geri alındı" yok; başarılı olay
+				// başarılı kalır, neden notta.
+				d.count("rollback_unproven")
+				l.Note = v2AppendNote(l.Note, fmt.Sprintf("nesil %d geri alma sayılmadı: %s", gen, unproven))
 			}
 		}
 		prev := v2ImagesOf(w.o, oldRev)
@@ -808,6 +862,25 @@ func (d *v2Detector) start(w *v2Work, gen uint64, at time.Time, target, ct, note
 	w.ns.Generation = v2MaxU(w.ns.Generation, gen)
 	w.ns.PendingGeneration, w.ns.PendingStartedAt = 0, time.Time{}
 	w.ns.CurrentRevision = target
+}
+
+// v2RollbackUnproven — v0.10.1421 — Operator-reported ("bazen yeni image
+// bulamadığında geri alındı yazıyor"): bir ROLLBACK START'ı önceki olayı
+// yalnız OLUMLU kanıtla rolled_back yapar — hedef somut bir revizyondur
+// (genel START'ın boş hedefi tahmindir), olayın kendi yeni revizyonu
+// değildir ve olayın yeni imajı bilinir (imajı bilinmeyen bir rollout'un
+// "eski sürüme dönüldü" iddiası doğrulanamaz). Boş dönüş = kanıtlı; aksi
+// hâlde not için gerekçe.
+func v2RollbackUnproven(l V2Event, target string) string {
+	switch {
+	case target == "":
+		return "hedef revizyon görülmedi"
+	case target == l.NewRevision:
+		return "hedef bu olayın revizyonu"
+	case len(l.Images) == 0:
+		return "yeni imaj bilinmiyor"
+	}
+	return ""
 }
 
 // evaluate — açık olayın ilerlemesi: SUCCEEDED / STUCK (dosya başlığı).

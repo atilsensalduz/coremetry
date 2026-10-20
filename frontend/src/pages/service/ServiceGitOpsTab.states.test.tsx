@@ -160,7 +160,7 @@ describe('ServiceGitOpsTab', () => {
     expect(appT.textContent).not.toContain('Hedef');
     expect(appT.textContent).not.toContain('2 başarılı · 1 başarısız');
     expect(appT.textContent).toContain('git.example/shop/deploy');
-    expect(roT.textContent).toContain('tamamlandı');
+    expect(roT.textContent).toContain('Completed'); // v0.10.1421 — rozet İngilizce
     expect(roT.textContent).toContain('1.4.1 → 1.4.2');
     expect(roT.textContent).toContain('p-shop-checkout-prod-e');
     expect(roT.textContent).toContain('autosync');

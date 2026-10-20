@@ -95,7 +95,8 @@ export function RolloutDrawer({ id, onClose }: { id: RolloutIdParam; onClose: ()
                 return (
                   <div style={{ display: 'grid', gap: 2 }}>
                     <div><span className="field-hint">önceki: </span>{im.prev}{im.hasPrev && <> <CopyButton value={im.prev} title="Önceki imajı (repo:tag) kopyala" /></>}</div>
-                    <div><span className="field-hint">yeni: </span><b>{im.next}</b>{im.hasNext && <> <CopyButton value={im.next} title="Yeni imajı (repo:tag) kopyala" /></>}
+                    {/* v0.10.1421 — yeni imaj okunamadıysa "—" yerine açıkça "bilinmiyor". */}
+                    <div><span className="field-hint">yeni: </span>{im.hasNext ? <b>{im.next}</b> : <span className="field-hint" title="KSM pod imajı bu revizyon için okunamadı">yeni imaj bilinmiyor</span>}{im.hasNext && <> <CopyButton value={im.next} title="Yeni imajı (repo:tag) kopyala" /></>}
                       {im.same && <> <Badge tone="neutral" title="önceki ve yeni imaj birebir aynı — değişen pod şablonu (config)">aynı</Badge></>}</div>
                   </div>
                 );

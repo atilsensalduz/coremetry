@@ -477,6 +477,11 @@ const (
 // okumaz) — ilk START'ta eski revizyonun pod'ları gitmişse prev_images
 // durumdan gelir; boşsa config değişimi (rollout restart) 'rollout' sanılırdı.
 // Çağıran fill'i yalnız primary'den artan sorgu bütçesiyle okur.
+//
+// v0.10.1421 — Operator-reported ("yeni: —" + sahte "geri alındı"): nesli
+// değişmeyen ama okumada BİLİNMEYEN bir revizyon gösteren iş yükü de primary
+// — emilen artıştan sonra geç gelen RS'nin geç START'ı (late_evidence) aynı
+// tikte succeeded kapanır; imajı o tikte okunmazsa olay yeni imajsız kalırdı.
 func V2ImageTargets(snap V2Snapshot, clusterID string, states []V2WorkloadState, events []V2Event, limit, fillLimit int) (primary, fill []V2Key, capped int) {
 	st := map[V2Key]V2WorkloadState{}
 	kindHasState := map[string]bool{}
@@ -519,7 +524,7 @@ func V2ImageTargets(snap V2Snapshot, clusterID string, states []V2WorkloadState,
 				primary = append(primary, k)
 			}
 		case s.OpenGeneration != 0 || s.PendingGeneration != 0 || o.Generation != s.Generation ||
-			openEv[incKey{k, v2ms(s.IncarnationAt).UnixMilli()}]:
+			openEv[incKey{k, v2ms(s.IncarnationAt).UnixMilli()}] || v2HasUnknownRevision(kind, o, s):
 			primary = append(primary, k)
 		case len(s.Images) == 0 && s.CurrentRevision != "" && o.SpecReplicas > 0:
 			fill = append(fill, k)
@@ -534,6 +539,29 @@ func V2ImageTargets(snap V2Snapshot, clusterID string, states []V2WorkloadState,
 		fill = fill[:max(fillLimit, 0)]
 	}
 	return primary, fill, capped
+}
+
+// v2HasUnknownRevision — v0.10.1421 — gözlem durumun bilmediği bir revizyon
+// gösteriyor mu (Deployment RS adı / DS hash'i known_revisions dışında, STS
+// update_revision hedeften farklı): geç START adayı.
+func v2HasUnknownRevision(kind string, o V2Observation, s V2WorkloadState) bool {
+	switch kind {
+	case V2KindStatefulSet:
+		return o.UpdateRevision != "" && o.UpdateRevision != s.CurrentRevision
+	case V2KindDaemonSet:
+		for _, h := range o.RevisionHashes {
+			if !v2Has(s.KnownRevisions, h) {
+				return true
+			}
+		}
+	default:
+		for _, rs := range o.ReplicaSets {
+			if !v2Has(s.KnownRevisions, rs.Name) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // V2ImageQuery — bir imaj sorgusu: namespace + aile (Deployment RS'leri ya

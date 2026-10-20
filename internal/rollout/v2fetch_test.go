@@ -347,7 +347,8 @@ func TestV2ImageTargetsNewAndFill(t *testing.T) {
 	}}
 	st := func(name, rev string, images ...string) V2WorkloadState {
 		return V2WorkloadState{ClusterID: cid, Namespace: "pay", WorkloadKind: V2KindDeployment, Workload: name,
-			Generation: 1, IncarnationAt: detT0, CurrentRevision: rev, Images: images}
+			Generation: 1, IncarnationAt: detT0, CurrentRevision: rev, Images: images,
+			KnownRevisions: []string{name + "-a"}} // v0.10.1421 — okumadaki RS biliniyor (geç START adayı değil)
 	}
 	states := []V2WorkloadState{st("bare", "bare-a"), st("bare2", "bare2-a"), st("full", "full-a", "reg/full:1"),
 		st("norev", ""), st("zero", "zero-a")}
@@ -392,6 +393,7 @@ func TestV2ImageTargetsAndQueries(t *testing.T) {
 		st(V2KindStatefulSet, "db", "pg", 6, 7, 0),
 		st(V2KindDeployment, "pay", "evopen", 1, 0, 0),
 	}
+	states[1].KnownRevisions = []string{"quiet-q"} // v0.10.1421 — bilinen RS: geç START adayı değil
 	events := []V2Event{{ClusterID: cid, Namespace: "pay", WorkloadKind: V2KindDeployment, Workload: "evopen",
 		IncarnationAt: detT0, Generation: 1, Status: V2StatusStuck}}
 	targets, fill, capped := V2ImageTargets(snap, cid, states, events, 100, 20)

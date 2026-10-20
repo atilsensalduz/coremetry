@@ -119,6 +119,29 @@ type detSim struct {
 	// chRT — v0.10.963 — P2.1: taşınan satırlar CH FINAL okumasındaki gibi
 	// döner (DEFAULT 0 → 1970 sentinel'i, bütün zamanlar UTC dışı dilimde).
 	chRT bool
+	// autoImg — v0.10.1421 — her gözlemde görünen her revizyona ayrı bir
+	// sentetik imaj (registry.example.test/<ad>:<revizyon>) yazılır: kanıtlı
+	// geri alma olayın yeni imajını ister (v2RollbackUnproven).
+	autoImg bool
+}
+
+// detAutoImages — v0.10.1421 — gözlemdeki her revizyonun (RS adı, STS
+// current/update, DS hash) imajı yoksa sentetik imajını ekler.
+func detAutoImages(o V2Observation) V2Observation {
+	revs := v2Present(o)
+	revs = append(revs, o.CurrentRevision, o.UpdateRevision)
+	revs = append(revs, o.RevisionHashes...)
+	m := map[string][]string{}
+	for k, v := range o.RevisionImages {
+		m[k] = v
+	}
+	for _, r := range revs {
+		if _, ok := m[r]; r != "" && !ok {
+			m[r] = []string{"registry.example.test/" + o.Name + ":" + r}
+		}
+	}
+	o.RevisionImages = m
+	return o
 }
 
 // detCHZone — sürücünün kolon/sunucu dilimiyle döndürmesini taklit eder.
@@ -169,6 +192,11 @@ func newDetSim(t *testing.T) *detSim {
 
 func (s *detSim) tick(at int, obs ...V2Observation) V2Output {
 	s.t.Helper()
+	if s.autoImg {
+		for i := range obs {
+			obs[i] = detAutoImages(obs[i])
+		}
+	}
 	return s.snap(at, V2Snapshot{Complete: true, Presence: s.pres, Workloads: obs})
 }
 
@@ -290,6 +318,7 @@ func TestDetectV2_Rules(t *testing.T) {
 		want   []string
 		counts map[string]int // birikimli, alt küme
 		check  func(t *testing.T, s *detSim)
+		imgs   bool // v0.10.1421 — detSim.autoImg
 	}{
 		{name: "ilk-ever koşu yalnız baseline (karar 10)",
 			run:    func(s *detSim) { s.tick(0, detSteady("api", 0, 5, "api-b", "api-a")) },
@@ -333,7 +362,7 @@ func TestDetectV2_Rules(t *testing.T) {
 				s.tick(60, detDep("api", 60, 2).rs("api-b", 3).rs("api-a", 0).img("api-b", "reg/checkout-api:1.4").V())
 			},
 			want: []string{"g2 config succeeded api-a>api-b"}},
-		{name: "ROLLBACK: bilinen RS yeniden etkin → önceki olay rolled_back",
+		{name: "ROLLBACK: bilinen RS yeniden etkin → önceki olay rolled_back", imgs: true,
 			run: func(s *detSim) {
 				s.tick(0, detSteady("api", 0, 1, "api-a"))
 				s.tick(30, detRolling("api", 30, 2, 2, "api-a", "api-b"))
@@ -347,7 +376,7 @@ func TestDetectV2_Rules(t *testing.T) {
 					t.Fatalf("başarılı olayın finished_at'i korunur, not düşülür: %+v", e)
 				}
 			}},
-		{name: "GC'lenmiş RS aynı adla yeniden kurulur → ROLLBACK (§4.4 durum c)",
+		{name: "GC'lenmiş RS aynı adla yeniden kurulur → ROLLBACK (§4.4 durum c)", imgs: true,
 			run: func(s *detSim) {
 				s.tick(0, detSteady("api", 0, 1, "api-a"))
 				s.tick(30, detRolling("api", 30, 2, 2, "api-a", "api-b"))
@@ -414,7 +443,7 @@ func TestDetectV2_Rules(t *testing.T) {
 				s.tick(60, detDep("api", 60, 2).reps(3, 4, 2, 3).rs("api-a", 2).rs("api-b", 2).pde().V())
 			},
 			want: []string{"g2 rollout stuck api-a>api-b stuck=progress_deadline"}},
-		{name: "rollout ortasında geri alma (undo): hedef eski RS'ye yakınsar → ROLLBACK",
+		{name: "rollout ortasında geri alma (undo): hedef eski RS'ye yakınsar → ROLLBACK", imgs: true,
 			run: func(s *detSim) {
 				s.tick(0, detSteady("api", 0, 1, "api-a"))
 				s.tick(30, detRolling("api", 30, 2, 2, "api-a", "api-b"))
@@ -642,7 +671,7 @@ func TestDetectV2_Rules(t *testing.T) {
 			},
 			want:   []string{},
 			counts: map[string]int{"baseline": 2, "initial_event": 0}},
-		{name: "StatefulSet: yeni update_revision rollout, bilinene dönüş rollback, ölçek emilir",
+		{name: "StatefulSet: yeni update_revision rollout, bilinene dönüş rollback, ölçek emilir", imgs: true,
 			kind: S, wl: "db",
 			run: func(s *detSim) {
 				s.tick(0, detSts("db", 0, 1, "db-r1", "db-r1").V())
@@ -654,7 +683,7 @@ func TestDetectV2_Rules(t *testing.T) {
 			},
 			want:   []string{"g2 rollout rolled_back db-r1>db-r2", "g3 rollback succeeded db-r2>db-r1"},
 			counts: map[string]int{"scale_only": 1}},
-		{name: "DaemonSet hash'leriyle: tutma + yeni hash rollout, bilinen hash rollback",
+		{name: "DaemonSet hash'leriyle: tutma + yeni hash rollout, bilinen hash rollback", imgs: true,
 			kind: DS, wl: "agent",
 			run: func(s *detSim) {
 				s.tick(0, detDs("agent", 0, 1, "h1").V())
@@ -745,7 +774,7 @@ func TestDetectV2_Rules(t *testing.T) {
 				s.tick(730, detDep("api", 730, 4).reps(3, 5, 1, 3).rs("api-a", 1).rs("api-b", 2).rs("api-c", 1).V())
 			},
 			want: []string{"g2 rollout superseded api-a>api-b", "g3 rollout stuck api-b>api-c stuck=timeout"}},
-		{name: "açık rollout'ta 3 etkin RS ile undo: yakınsayınca ROLLBACK, başlangıç bekleyen artışın ilk örneği",
+		{name: "açık rollout'ta 3 etkin RS ile undo: yakınsayınca ROLLBACK, başlangıç bekleyen artışın ilk örneği", imgs: true,
 			run: func(s *detSim) {
 				s.tick(0, detSteady("api", 0, 1, "api-a"))
 				s.tick(30, detRolling("api", 30, 2, 2, "api-a", "api-b"))
@@ -1089,6 +1118,7 @@ func TestDetectV2_Rules(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				s := newDetSim(t)
 				s.chRT = chRT
+				s.autoImg = tc.imgs
 				if tc.tune != nil {
 					tc.tune(&s.set, &s.pres)
 				}

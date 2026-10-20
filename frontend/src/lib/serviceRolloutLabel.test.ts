@@ -20,16 +20,17 @@ describe('serviceRolloutLabel', () => {
     expect(rolloutExplainVersion({ ...churn, versionAfter: '' })).toBe('rollout (3 pods)');
     expect(rolloutExplainVersion({ ...churn, versionAfter: '', kind: 'restart' })).toBe('restart (3 pods)');
   });
+  // v0.10.1421 — durum rozet sözlüğünden (İngilizce).
   it('KSM satırı: iş yükü + durum + replika; "0 pods replaced" basılmaz', () => {
     expect(isKsmRollout(ksm)).toBe(true);
     expect(rolloutMarkerLabel(ksm)).toBe('↻ pg');
-    expect(rolloutMarkerDescription(ksm)).toBe('rollout · StatefulSet pg · sürüyor · 2/3 replika (KSM) · 1.1→1.2');
-    expect(rolloutHeadline(ksm)).toBe('↻ StatefulSet pg · sürüyor');
+    expect(rolloutMarkerDescription(ksm)).toBe('rollout · StatefulSet pg · In progress · 2/3 replika (KSM) · 1.1→1.2');
+    expect(rolloutHeadline(ksm)).toBe('↻ StatefulSet pg · In progress');
     expect(rolloutCounts(ksm).text).toBe('2/3');
     expect(rolloutCounts(ksm).title).toContain('1 hazır');
     for (const s of [rolloutMarkerDescription(ksm), rolloutHeadline(ksm), rolloutCounts(ksm).text]) expect(s).not.toMatch(/replaced|−0/);
     expect(rolloutExplainVersion({ ...ksm, versionAfter: '' })).toBe('rollout (StatefulSet pg)');
-    expect(rolloutHeadline({ ...ksm, workloadKind: undefined, workload: undefined })).toBe('↻ Deployment ? · sürüyor');
+    expect(rolloutHeadline({ ...ksm, workloadKind: undefined, workload: undefined })).toBe('↻ Deployment ? · In progress');
   });
   it('satır anahtarı: aynı KSM scrape zamanlı iki iş yükü ayrışır; pod-churn zamanla kalır (İnceleme)', () => {
     expect(rolloutRowKey(churn)).toBe('1');

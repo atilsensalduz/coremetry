@@ -199,7 +199,27 @@ describe('rolloutTimeline', () => {
   });
   it('geri alma bitişi finishedAt, takılma adımı', () => {
     const t = rolloutTimeline({ startedAt: s, status: 'rolled_back', stuckAt: s + 600_000, finishedAt: s + 900_000 });
-    expect(t.map(x => x.label)).toEqual(['Başladı (yeni ReplicaSet)', 'Takıldı', 'Geri alındı']);
+    expect(t.map(x => x.label)).toEqual(['Başladı (yeni ReplicaSet)', 'Stalled', 'Rolled back']);
+  });
+  // v0.10.1421 — Operator-reported: "Başladı / Pod'lar hazır / Geri alındı" üçü +0s.
+  // Başarıdan sonra geri alınan v2 olayında succeededAt = finishedAt (pod'ların
+  // hazır olduğu an) — "Rolled back" o zamana basılmaz.
+  it.each([
+    ['başarıdan sonra geri alındı, ayrı zaman yok → Rolled back adımı uydurulmaz',
+      { status: 'rolled_back', v2Status: 'rolled_back', podsReadyAt: s, succeededAt: s, completedAt: s, finishedAt: s },
+      [['start', 'Başladı (yeni ReplicaSet)'], ['ready', "Pod'lar hazır"], ['end', 'Completed (eski sürüm devreden çıktı)']]],
+    ['başarıdan sonra geri alındı, finishedAt daha geç → iki ayrı adım',
+      { status: 'rolled_back', podsReadyAt: s + 60_000, succeededAt: s + 60_000, finishedAt: s + 600_000 },
+      [['start', 'Başladı (yeni ReplicaSet)'], ['ready', "Pod'lar hazır"], ['end', 'Completed (eski sürüm devreden çıktı)'], ['rolledBack', 'Rolled back']]],
+    ['açıkken geri alındı (v1 completedAt) → Rolled back bitişi',
+      { status: 'rolled_back', completedAt: s + 300_000 },
+      [['start', 'Başladı (yeni ReplicaSet)'], ['end', 'Rolled back']]],
+    ['devralındı → Superseded bitişi (Completed değil)',
+      { status: 'superseded', v2Status: 'superseded', completedAt: s + 120_000, finishedAt: s + 120_000 },
+      [['start', 'Başladı (yeni ReplicaSet)'], ['end', 'Superseded']]],
+  ] as const)('%s', (_n, extra, want) => {
+    const t = rolloutTimeline({ startedAt: s, ...extra });
+    expect(t.map(x => [x.key, x.label])).toEqual(want.map(w => [...w]));
   });
   it('başlangıç yoksa boş', () => {
     expect(rolloutTimeline({ startedAt: 0, status: '' })).toEqual([]);

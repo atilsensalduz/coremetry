@@ -5,7 +5,7 @@ import { IconFlame } from './icons';
 import { api } from '@/lib/api';
 import { fmtFixed, fmtDurShort } from '@/lib/utils';
 import type { RootCause, RootCauseBubbleUp, BubbleUpValue, RolloutEvidence, ChangedService } from '@/lib/types';
-import { rolloutEvidenceHref, shortRevision, statusTone as rolloutStatusTone } from '@/lib/rolloutRow';
+import { rolloutEvidenceHref, shortRevision, statusLabel as rolloutStatusLabel, statusTone as rolloutStatusTone } from '@/lib/rolloutRow';
 import { Badge } from '@/components/ui/Badge';
 import { DataTableState } from '@/components/ui/DataTable';
 // v0.10.929 (K5) — durum tonu tek sözlükten; hafif yaprak (ProblemDetail değil — döngü/ağır zincir yok).
@@ -324,7 +324,7 @@ export function RootCausePanel({ problemId, service, window: win, onLoaded }: {
                           değil), completed → success (GEÇİŞ), stalled → warning ve rolled_back →
                           danger (sapma kalır), superseded/bilinmeyen → nötr. */}
                       <Badge tone={rolloutStatusTone(ev.status)}>
-                        {ev.status}
+                        {rolloutStatusLabel(ev.status) /* v0.10.1421 — rozet sözlüğü (İngilizce) */}
                       </Badge>
                     </td>
                     <td className={`num cell-strong ${ev.band === 'high' ? 'cell-err' : 'cell-warn'}`}>

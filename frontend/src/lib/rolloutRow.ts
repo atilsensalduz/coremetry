@@ -51,13 +51,17 @@ export function statusTone(status: string): RolloutTone {
   }
 }
 
+/** v0.10.1421 — Operator-reported: "Türkçe 'ilk gözlem' ve 'tamamlandı' vs
+ * yerine İngilizce yazsın." Durum rozeti İngilizce (tablo, çekmece, Servis
+ * GitOps sekmesi, kök neden paneli, olay işaretçisi aynı sözlükten okur);
+ * açıklayıcı ipuçları (statusTitle) Türkçe kalır. */
 export function statusLabel(status: string): string {
   switch (status) {
-    case 'in_progress': return 'sürüyor';
-    case 'completed': return 'tamamlandı';
-    case 'rolled_back': return 'geri alındı';
-    case 'superseded': return 'devralındı';
-    case 'stalled': return 'takıldı';
+    case 'in_progress': return 'In progress';
+    case 'completed': return 'Completed';
+    case 'rolled_back': return 'Rolled back';
+    case 'superseded': return 'Superseded';
+    case 'stalled': return 'Stalled';
     default: return status || '—';
   }
 }
@@ -107,13 +111,14 @@ export function rolloutChangeKind(r: Pick<WorkloadRollout, 'image' | 'imageTag' 
   if (cur === ':' || prev === ':') return 'unknown';
   return cur === prev ? 'config' : 'deployment';
 }
+/** v0.10.1421 — tür rozeti de İngilizce ("ilk gözlem" → "First seen"). */
 export function changeKindLabel(k: RolloutChangeKind): string {
   switch (k) {
     case 'deployment': return 'Deployment';
     case 'config': return 'Rollout (config)';
-    case 'initial': return 'ilk gözlem';
+    case 'initial': return 'First seen';
     case 'rollback': return 'Rollback';
-    default: return 'bilinmiyor';
+    default: return 'Unknown';
   }
 }
 export function changeKindTitle(k: RolloutChangeKind): string {
@@ -274,6 +279,13 @@ export function replicaSummary(r: Pick<WorkloadRollout, 'updatedReplicas' | 'ava
 // v0.10.1223 — çekmece zaman çizelgesi: başladı → pod'lar hazır → ilk span
 // (trafik) → bitiş (tamamlandı / takıldı / geri alındı). Boş ya da başlangıçtan
 // 60 sn'den eski değerler atlanır (bayat alan); zaman sırasıyla.
+// v0.10.1421 — Operator-reported: "Başladı / Pod'lar hazır / Geri alındı" üçü
+// de +0s idi — başarıdan SONRA geri alınan v2 olayında bitiş succeededAt'ti
+// ve "Geri alındı" diye basılıyordu (pod'ların hazır olduğu AN). Artık
+// succeededAt "Completed" adımıdır; "Rolled back" adımı yalnız ayrı bir geri
+// alma zamanı varsa (finishedAt > succeededAt; açıkken geri alınan olayda
+// finishedAt) — yoksa uydurulmaz. Devralınan olayın bitişi "Superseded".
+// Bitiş etiketleri durum rozetiyle aynı sözlük (statusLabel).
 export interface RolloutTimelineStep { key: string; label: string; at: number; offsetSec: number }
 
 export function rolloutTimeline(r: Pick<WorkloadRollout, 'startedAt' | 'status'> & Partial<Pick<WorkloadRollout,
@@ -284,10 +296,22 @@ export function rolloutTimeline(r: Pick<WorkloadRollout, 'startedAt' | 'status'>
     ['ready', "Pod'lar hazır", r.podsReadyAt],
     ['traffic', 'Trafik yeni sürümde (ilk span)', r.firstSpanAt],
   ];
-  if (r.stuckAt) raw.push(['stuck', 'Takıldı', r.stuckAt]);
+  if (r.stuckAt) raw.push(['stuck', statusLabel('stalled'), r.stuckAt]);
   const rolledBack = r.status === 'rolled_back' || r.v2Status === 'rolled_back';
-  const end = r.succeededAt || r.completedAt || (rolledBack ? r.finishedAt : 0);
-  if (end) raw.push(['end', rolledBack ? 'Geri alındı' : 'Tamamlandı (eski sürüm devreden çıktı)', end]);
+  const superseded = r.status === 'superseded' || r.v2Status === 'superseded';
+  const done = `${statusLabel('completed')} (eski sürüm devreden çıktı)`;
+  const succ = r.succeededAt ?? 0;
+  if (rolledBack) {
+    if (succ) raw.push(['end', done, succ]);
+    const rb = succ ? ((r.finishedAt ?? 0) > succ ? r.finishedAt : 0) : (r.finishedAt || r.completedAt);
+    if (rb) raw.push([succ ? 'rolledBack' : 'end', statusLabel('rolled_back'), rb]);
+  } else if (superseded && !succ) {
+    const end = r.finishedAt || r.completedAt;
+    if (end) raw.push(['end', statusLabel('superseded'), end]);
+  } else {
+    const end = succ || r.completedAt;
+    if (end) raw.push(['end', done, end]);
+  }
   const out: RolloutTimelineStep[] = [];
   for (const [key, label, at] of raw) {
     if (!at || at < r.startedAt - 60_000) continue;

@@ -8730,3 +8730,47 @@ v1/v2 WHERE workload), `api/rollout_workloads_test.go` (workload liste+Toplu dep
 arama ucu, anahtar, buildMux rotası), `api/rollout_row_services_test.go` (eşleşme/belirsiz/yok, tek toplu sorgu,
 JSON, entity yedeği), `pages/Rollouts.workloadFilter.test.tsx` (sunucu araması, replace ile `?workload=`, API
 parametresi, temizleme, hücrenin iki eylemi, Namespace tıkı).
+
+## 2026-10-20 — v0.10.1421 — Rollouts: İngilizce durum etiketleri; yeni imaj bilinmiyorken 'rolled back' denmez
+
+**Operatör (prod /rollouts ekran görüntüleri):** (1) "Türkçe 'ilk gözlem' ve 'tamamlandı' vs yerine İngilizce
+yazsın." (2) "Bazen yeni image bulamadığında geri alındı yazıyor." — çekmece: nesil 18 · gözlenen 18, replika 4/4/4,
+imaj önceki dolu / yeni "—", durum "geri alındı", not "geç kanıt: …; geri alındı: nesil 19", Başladı / Pod'lar hazır /
+Geri alındı üçü +0s, kaynak ksm.
+
+**Karar 1 — rozetler İngilizce (`lib/rolloutRow.ts`):** `statusLabel` in_progress → In progress, completed → Completed,
+rolled_back → Rolled back, superseded → Superseded, stalled → Stalled (sözlük dışı değer aynen, boş "—");
+`changeKindLabel` initial → First seen, unknown → Unknown (Deployment / Rollout (config) / Rollback zaten İngilizce).
+Aynı sözlüğü okuyan her yüzey değişir: Canlı tablo + Durum süzgeci, çekmece başlığı ve "durum/tür" satırı, Servis GitOps
+sekmesi, servis olay işaretçisi (`serviceRolloutLabel`), kök neden paneli (ham `ev.status` yerine artık `statusLabel`).
+Zaman çizelgesinin bitiş adımları da rozet kelimesidir (Completed / Rolled back / Superseded / Stalled). Açıklayıcı
+ipuçları (`statusTitle`, `changeKindTitle`, "başladı … · tamamlandı …" zaman satırı) Türkçe kalır. Toplu sekmesinin sayı
+kutucukları ("Tamamlanan", "Geri alınan", …) rozet değil, `Rollouts.tsx` içinde — bu sürümde değişmedi.
+
+**Karar 2 — "geri alındı" yalnız olumlu kanıtla (`internal/rollout/v2detect.go`).** Kök neden: (a) kapı zaman aşımındaki
+GENEL START (şablon değişti, hedef revizyon görülmedi) Deployment + RS owner'da `change_type=rollback` tahminiyle
+açılıyordu ("yeni RS görünmedi → hedef bilinen bir RS") ve `start()` önceki başarılı olayı — revizyonu durumun hedefiyse
+— hiçbir kanıt aramadan `rolled_back` yapıyordu; RS spec ailesi varken gerçek dönüş Known kanıtıyla zaten görülür, bu
+yoldaki hedef geciken YENİ RS'dir. (b) Yeni imaj "—": emilen artıştan sonra gelen RS'nin geç START'ı (late_evidence)
+imaj hedefi değildi (`V2ImageTargets`: nesil değişmedi, açık olay yok) ve aynı tikte succeeded kapandığı için yeni imajı
+hiç okunmadı. Düzeltme: `v2RollbackUnproven` — önceki olay ancak hedef SOMUT bir revizyonsa (genel START'ın boş hedefi
+değil), olayın kendi revizyonu değilse ve olayın yeni imajı biliniyorsa (bu tikte okunan ya da durumdaki imajla
+tamamlanır) `rolled_back`; aksi hâlde açık olay superseded, başarılı olay başarılı kalır ve nota "nesil N geri alma
+sayılmadı: yeni imaj bilinmiyor | hedef revizyon görülmedi" düşer (teşhis `rollback_unproven`). Zaman aşımı genel
+START'ı yalnız minimal profilde (RS spec ailesi yok, V3) `rollback` türünü korur. `V2ImageTargets` okumada bilinmeyen
+revizyon gösteren iş yükünü de primary alır (geç START tikinde imaj okunur); kapanmış son olayın boş imajı sonradan okunan
+revizyon imajıyla tamamlanır (`backfillImages`, teşhis `images_backfill`), çekmece okunamayan yeni imaj için "—" yerine
+"yeni imaj bilinmiyor" yazar. Bedel: pod imaj birleşimi hiç olmayan kurulumda (ör. DS/STS `controller_revision_hash`
+etiketi yok) önceki olay hiç `rolled_back` olmaz — sonraki olay yine "Rollback" türüyle görünür. v1 (span) mutabakatı
+değişmedi.
+
+**Karar 3 — +0s "Geri alındı" uydurulmaz (`rolloutTimeline`).** v2'de podsReadyAt = succeededAt ve başarıdan sonra geri
+alınan olayın finished_at'i succeeded_at'te kalır (v0.10.963 sözleşmesi); çizelge bitişi `succeededAt`'i "Geri alındı"
+diye basıyordu. Artık succeededAt "Completed" adımıdır, "Rolled back" adımı yalnız ayrı bir zaman varsa (finishedAt >
+succeededAt ya da açıkken geri alınan olayın finishedAt'i); devralınan olayın bitişi "Superseded". Geç START'ın
+"Başladı = Pod'lar hazır" eşitliği gerçektir (RS ilk görüldüğünde pod'lar zaten hazırdı; not "geç kanıt" bunu söyler).
+
+**Testler:** `internal/rollout/v2rollback_proof_test.go` (KSM-only geç START + kapı zaman aşımı → succeeded kalır; imajsız
+Known dönüş → succeeded + gerekçe; gerçek geri alma → rolled_back; imaj backfill; STS imajsız; `v2RollbackUnproven` ve geç
+START imaj hedefi tabloları), mevcut rollback kural fixture'ları sentetik imajla (`detSim.autoImg`);
+`frontend/src/lib/rolloutLabels.test.ts` (her durum/tür → İngilizce), `rolloutRow.test.ts` çizelge tablosu.
