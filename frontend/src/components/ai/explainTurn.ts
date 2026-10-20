@@ -41,13 +41,15 @@ export function explainUserText(kind: ExplainTurnKind, id: string, label?: strin
 /**
  * explainAskFor — özne → {görünen metin, yapısal niyet}. Yalnız trace /
  * exception (diğer türler null: çekmecenin özne kipi). Boş kimlik null.
+ * v0.10.1404 — `label`: görünen metindeki grup adı (CoSRE başlangıcının
+ * exception çipi "ORDERS_GET_X · orders-api"); yoksa "Exception".
  */
-export function explainAskFor(subject: AISubject | null | undefined, src?: string): { userText: string; explainAsk: ChatExplainAsk } | null {
+export function explainAskFor(subject: AISubject | null | undefined, src?: string, label?: string): { userText: string; explainAsk: ChatExplainAsk } | null {
   if (!subject || !isExplainTurnKind(subject.kind)) return null;
   const id = (subject.id ?? '').trim();
   if (!id) return null;
   return {
-    userText: explainUserText(subject.kind, id),
+    userText: explainUserText(subject.kind, id, label),
     explainAsk: { kind: subject.kind, id, ...(src ? { src } : {}) },
   };
 }

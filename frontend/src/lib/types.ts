@@ -9881,22 +9881,26 @@ export interface PageContext {
 }
 
 // ── CoSRE başlangıç veri çipleri (v0.10.702, mirrors Go api.copilotStarter) ──
-// `question` gönderilen tam cümle (LLM'siz yönlenir; copilot_starters_test).
+// `question` kullanıcı turunun metni (copilot_starters_test).
 // v0.10.1382 — gruplu: yetenek satırlarının altındaki seçilebilir seçenekler
 // (Go api.starterGroup). `fleet` → takım çözülemedi, öğeler filo genelinden.
-// `scope` → çipin yapısal kapsamı (P1: problem kimliği), followup çipleriyle
-// aynı yoldan gider. `envScope: 'p1'` → env yalnız P1 problemlerine uygulandı.
 // v0.10.1390 — servis/operasyon grupları kalktı (yerlerinde arama kutuları);
-// yanıtta rangeS yok. v0.10.1402 — deploys grubu da kalktı (yalnız p1);
+// yanıtta rangeS yok. v0.10.1402 — deploys grubu da kalktı;
 // `team` = kullanıcının sunucuda çözülen takımı → Takımım kartının varsayılanı.
-export type CopilotStarterKind = 'p1';
+// v0.10.1404 (operatör: "P1 yerine en son exception'lara yönlendirsin.") — p1
+// grubu (ve öğesinin `scope`'u) kalktı; yerinde `exceptions`: en son açık
+// exception grupları. Öğe `explainAsk` (sohbet içi açıklama turu, v0.10.1400
+// yolu) + `title` (tam etiket) taşır; `envScope: 'exceptions'` → env exception
+// grubunun servis kümesine uygulandı.
+export type CopilotStarterKind = 'exception';
 export interface CopilotStarter {
   chip: string;
+  title?: string;
   question: string;
   kind: CopilotStarterKind;
-  scope?: ChatScope;
+  explainAsk?: ChatExplainAsk;
 }
-export type CopilotStarterGroupKind = 'p1';
+export type CopilotStarterGroupKind = 'exceptions';
 export interface CopilotStarterGroup {
   kind: CopilotStarterGroupKind;
   fleet?: boolean;
@@ -9906,7 +9910,7 @@ export interface CopilotStartersResponse {
   groups: CopilotStarterGroup[];
   team?: string;
   env?: string;
-  envScope?: 'p1';
+  envScope?: 'exceptions';
 }
 
 // ── Problem affected entities (v0.10.707, mirrors Go api.affectedEntity) ──

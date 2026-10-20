@@ -147,6 +147,33 @@ describe('/cosre bağımsız sohbet sayfası', () => {
     expect(caps[0].title).toBe('Kutuya örnek bir soru yazar — düzenleyip gönder');
   });
 
+  // v0.10.1404 (operatör: "P1 yerine en son exception'lara yönlendirsin.") — tam
+  // sayfada da P1 kartı yok; "Son exception gruplarına bakabilirim" + grup
+  // çipleri + "Tüm son exception'lar". Grup çipi sohbet içi açıklama turu.
+  it('v0.10.1404 — en son exception grupları kartı (P1 kartı yok); çip açıklama turu gönderir', async () => {
+    vi.spyOn(api, 'me').mockResolvedValue({ id: 'u1', email: 'op@example.test', role: 'viewer' } as never);
+    vi.spyOn(api, 'copilotStarters').mockResolvedValue({ team: 'orders-team', groups: [{ kind: 'exceptions', items: [
+      { chip: 'ORDERS_GET_X · orders-api', title: 'ORA-00060 · ORDERS_GET_X · orders-api', question: 'ORDERS_GET_X · orders-api grubunu açıkla',
+        kind: 'exception', explainAsk: { kind: 'exception', id: 'ora:00000000000000a1', src: 'starter' } },
+    ] }] } as never);
+    const send = vi.spyOn(api, 'copilotChat').mockResolvedValue(undefined as never);
+    await renderAt('/cosre');
+    await tick();
+    const caps = Array.from(document.querySelectorAll<HTMLButtonElement>('.cosre-page__body button[data-cap]'));
+    expect(caps.map(b => b.dataset.cap)).toEqual(['team', 'service', 'operation', 'exceptions', 'navigate']);
+    const body = document.querySelector('.cosre-page__body')!.textContent ?? '';
+    expect(body).toContain('Son exception gruplarına bakabilirim');
+    expect(body).not.toContain('P1 problemlerinin');
+    const chips = Array.from(document.querySelectorAll<HTMLButtonElement>('.cosre-page__body [data-cap-choices="exceptions"] button'));
+    expect(chips.map(b => b.textContent)).toEqual(['ORDERS_GET_X · orders-api', 'Tüm son exception\'lar']);
+    await act(async () => { chips[0].click(); });
+    await tick();
+    expect(send).toHaveBeenCalledTimes(1);
+    const args = send.mock.calls[0] as unknown[];
+    expect(args[args.length - 1]).toEqual({ kind: 'exception', id: 'ora:00000000000000a1', src: 'starter' });
+    expect(here.startsWith('/cosre')).toBe(true); // gezinme yok
+  });
+
   it('custom-rol kısıtlı kullanıcı /cosre\'de kalır (ilk izinli sayfaya ışınlanmaz)', async () => {
     vi.spyOn(api, 'me').mockResolvedValue({ id: 'u2', email: 'r@example.test', role: 'viewer', customRolePages: ['/services'] } as never);
     await renderAt('/cosre');

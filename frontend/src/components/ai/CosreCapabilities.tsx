@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BookOpen, Compass, Search, Siren, Users, Workflow, type LucideIcon } from 'lucide-react';
+import { BookOpen, Bug, Compass, Search, Users, Workflow, type LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Chip } from '@/components/ui/Chip';
 import { ServicePicker } from '@/components/ServicePicker';
@@ -9,8 +9,8 @@ import { api } from '@/lib/api';
 import type { CopilotStarterGroup } from '@/lib/types';
 import type { ChatSendOpts } from './useChatThread';
 import {
-  capabilityItems, groupForCapability, operationErrorQuestion, readStoredTeam, serviceHealthQuestion,
-  splitCaret, starterSendOpts, TEAM_ASKS, teamCardQuestion, teamPickQuestion, tCosre as t,
+  allExceptionsQuestion, capabilityItems, groupForCapability, operationErrorQuestion, readStoredTeam,
+  serviceHealthQuestion, splitCaret, starterAsk, TEAM_ASKS, teamCardQuestion, teamPickQuestion, tCosre as t,
   writeStoredTeam, type CapabilityKind,
 } from './capabilityHints';
 
@@ -54,12 +54,20 @@ import {
 // Varsayılan takım: bu tarayıcıda son seçilen (localStorage, kolaylık) >
 // sunucunun çözdüğü kullanıcı takımı (/api/copilot/starters `team`) > boş.
 // Deploy satırı ve "filo geneli" deploy çipleri kalktı (sunucu grubu da).
+//
+// v0.10.1404 (operatör, prod ekranı: "P1 yerine en son exception'lara
+// yönlendirsin.") — P1 satırı ("Açık P1 problemlerinin kök nedenine
+// bakabilirim" + "<svc> · <kural>" çipleri) yerine "Son exception gruplarına
+// bakabilirim": sunucunun en son açık exception grupları (takım ya da "filo
+// geneli"). Grup çipi SOHBET İÇİ açıklama turu başlatır (starterAsk →
+// send(text, {explainAsk}); gezinme yok, çekmece özne kipi yok); sonda "Tüm son
+// exception'lar" takım exception cevabını ister (allExceptionsQuestion).
 const ICON: Record<CapabilityKind, LucideIcon> = {
   team: Users,
   wiki: BookOpen,
   service: Search,
   operation: Workflow,
-  p1: Siren,
+  exceptions: Bug,
   navigate: Compass,
 };
 
@@ -129,6 +137,8 @@ export function CosreCapabilities({ wiki, groups = [], team: serverTeam = '', on
         const Icon = ICON[it.kind];
         const group = groupForCapability(it.kind, groups);
         const items = onAsk ? (group?.items ?? []) : [];
+        // v0.10.1404 — exceptions satırının son çipi (grup kapsamıyla aynı takım).
+        const allExcQ = it.kind === 'exceptions' ? allExceptionsQuestion(serverTeam, !!group?.fleet) : '';
         return (
           <div role="listitem" key={it.kind} className={`cosre-cap__item${it.kind === 'team' ? ' cosre-cap__item--team' : ''}`}>
             <Button variant="ghost" size="sm" className="cosre-cap__row"
@@ -172,12 +182,17 @@ export function CosreCapabilities({ wiki, groups = [], team: serverTeam = '', on
                   <span className="cosre-cap__fleet" title={t('cosre.cap.fleet.title')}>{t('cosre.cap.fleet')}</span>
                 )}
                 {items.map(st => (
-                  <Chip key={st.question} pill size="sm" tone={st.kind === 'p1' ? 'accent' : 'neutral'}
-                    data-starter={st.kind} title={st.question}
-                    onClick={() => onAsk?.(st.question, starterSendOpts(st))}>
+                  <Chip key={st.explainAsk?.id ?? st.question} pill size="sm" tone="neutral"
+                    data-starter={st.kind} title={st.title || st.question}
+                    onClick={() => { const a = starterAsk(st); onAsk?.(a.text, a.so); }}>
                     {st.chip}
                   </Chip>
                 ))}
+                {allExcQ && (
+                  <Chip pill size="sm" tone="accent" data-starter="exceptions-all" title={allExcQ} onClick={() => send(allExcQ)}>
+                    {t('cosre.cap.exceptions.all')}
+                  </Chip>
+                )}
               </div>
             )}
           </div>

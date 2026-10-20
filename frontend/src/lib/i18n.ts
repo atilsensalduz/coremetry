@@ -247,8 +247,10 @@ const EN: Catalog = {
   'cosre.cap.navigate':         'I can tell you where to look and take you to the right page',
   'cosre.cap.navigate.prompt':  'Where should I look to investigate |?',
   // v0.10.1382 — data-grounded choices under the rows (/api/copilot/starters).
-  'cosre.cap.p1':               'I can dig into the root cause of open P1 problems',
-  'cosre.cap.p1.prompt':        'What is the root cause of |?',
+  // v0.10.1404 — the P1 row became the latest-exceptions row.
+  'cosre.cap.exceptions':        'I can look at the latest exception groups',
+  'cosre.cap.exceptions.prompt': 'My team’s exceptions?',
+  'cosre.cap.exceptions.all':    'All recent exceptions',
   'cosre.cap.choices':          'Ready-made choices',
   'cosre.cap.fleet':            'fleet-wide',
   'cosre.cap.fleet.title':      'No team resolved — the fleet’s current hot spots',
@@ -552,8 +554,11 @@ const TR: Catalog = {
   // v0.10.1382 (operatör: "hazır soruları seçilebilir halde getirsek") — satırların
   // altındaki canlı veriden seçenekler (/api/copilot/starters); p1/deploy satırı
   // yalnız o grupta öğe varken.
-  'cosre.cap.p1':               'Açık P1 problemlerinin kök nedenine bakabilirim',
-  'cosre.cap.p1.prompt':        '| kök nedeni ne?',
+  // v0.10.1404 (operatör: "P1 yerine en son exception'lara yönlendirsin.") — P1
+  // satırı yerine en son exception grupları; şablon takım exception sorusu.
+  'cosre.cap.exceptions':        'Son exception gruplarına bakabilirim',
+  'cosre.cap.exceptions.prompt': 'Takımımın exception\'ları?',
+  'cosre.cap.exceptions.all':    'Tüm son exception\'lar',
   'cosre.cap.choices':          'Hazır seçenekler',
   'cosre.cap.fleet':            'filo geneli',
   'cosre.cap.fleet.title':      'Takımın çözülemedi — filonun şu anki sıcak noktaları',

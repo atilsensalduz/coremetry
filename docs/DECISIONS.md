@@ -8145,3 +8145,32 @@ sadece merkezi login Keycloak üzerinden olacak."
 - Testler: `internal/api/auth_oidc_ldap_link_test.go`, `internal/auth/oidc_email_trust_test.go`
   (`TestExchangeTrustLinkUsername`, `TestLinkLdapByUsernameSettings`), `frontend/src/pages/settings/
   SsoTab.ldapLink.test.tsx`, `oidcForm.test.ts`.
+
+## 2026-10-20 — v0.10.1404 — CoSRE başlangıç: P1 kartı yerine en son exception grupları
+
+**Operatör-bildirimli (v0.10.1402 sonrası prod ekranı):** "Açık P1 problemlerinin kök nedenine bakabilirim" kartı
+"filo geneli" çipiyle ("<svc> · Yaygın yavaşlama · …") — "P1 yerine en son exception'lara yönlendirsin."
+
+**Karar:**
+- `GET /api/copilot/starters` `p1` grubunu artık HESAPLAMAZ (ListProblems + öncelik zenginleştirmesi okuması kalktı);
+  yerinde `exceptions` grubu: Exceptions kutusunun (exception_groups — durum tablosu, FINAL + LIMIT 10 +
+  max_execution_time; ham span yok) AÇIK grupları (new/acknowledged/regressed — ignored/resolved değil), son görülme
+  yeni önce, en çok 3. Kapsam: kullanıcının takımı çözüldüyse takımın servisleri, değilse filo ("filo geneli" etiketi
+  aynen). Süzgeç takım exception cevabının (readTeamExceptions) aynısı — son 24 sa, sayfanın varsayılan tabanı
+  (çoklu-servis + regressed muaf), env ∩ servisler (üyelik okunamazsa daraltma yok; kesişim boşsa grup yok, filoya
+  kaçmaz) — yani çipler "Tüm son exception'lar" cevabının listesinin başıdır. Örnek okuması yok. Grup 3 s'lik kendi
+  bütçesiyle okunur; hata/zaman aşımı → grup yok (soft-fail). Yanıt `envScope: "exceptions"`. Anahtar `copilot:starters:v5`.
+- Öğe = açıklama niyeti: `{chip, title, question, kind: "exception", explainAsk: {kind: "exception", id: <parmak izi>,
+  src: "starter"}}`. Kısa etiket Oracle'da "ORDERS_GET_X · orders-api", span'de "KısaTip · servis" (48 rune tavanı),
+  `title` tam ("ORA-… · ORDERS_GET_X · servisler" / "tam.Tip · servis").
+- FE: "Son exception gruplarına bakabilirim" satırı (yalnız öğeli grupla, eski P1 satırının yerinde). Grup çipi SOHBET
+  İÇİ açıklama turu başlatır — v0.10.1400 yapısal yolu (`explainAskFor` + `send(text, {explainAsk})`); gezinme ve
+  çekmece özne kipi yok. Sonda "Tüm son exception'lar": grup takım kapsamlıysa "<takım> takımının exception'ları?"
+  (team_exceptions), filo ise "Takımımın exception'ları?" (my_exceptions) — ikisi de LLM'siz yönlenir.
+- Ölü kod yok: `starterP1Chips`, öğe `scope`'u, `starterSendOpts`, `cosre.cap.p1*` anahtarları kalktı. Şablon satırı
+  "Takımımın exception'ları?" doldurur.
+- Bilinen sınır: adı geçen takım cümlesi takım kataloğuyla yönlenir (Takımım kartının varsayılan takım çipiyle aynı
+  koşul); kullanıcı kaydındaki takım yazımı katalogda yoksa soru problemlere düşer.
+- Testler: `internal/api/copilot_starters_test.go` (TestStarterExceptionChips, TestStarterExceptionScope,
+  TestStarterExceptionFilter, TestReadStarterExceptionsSoftFail, TestStarterQuestionsRoute, TestStartersKey),
+  `frontend/src/components/ai/CosreCapabilities.test.tsx`, `frontend/src/pages/CoSRE.test.tsx`.
