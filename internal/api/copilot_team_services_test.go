@@ -312,47 +312,45 @@ func TestGuidedTeamServicesSuggestions(t *testing.T) {
 	}
 }
 
-// ÖLÜ-PARAM DİSİPLİNİ (v0.9.1130 emsali) — /services sayfası takım
-// süzgecini URL'den OKUMUYOR (Services.tsx: ownerTeam/sreTeam useState,
-// searchParams yalnız page/compare/cluster/namespace). Bu yüzden takım
-// linki DÜZ /services olmalı; param'lı hâli filtreli liste vaat edip
-// filtresiz listeyi açardı.
-func TestTeamServicesLinksAvoidDeadServicesParam(t *testing.T) {
+// v0.10.1397 — ÖLÜ-PARAM DİSİPLİNİ (v0.9.1130 emsali) TERSİNE döndü: /services
+// sayfası takım süzgecini v0.10.1229'dan beri URL'den OKUYOR
+// (servicesUrlSpec.ts ownerTeam/sreTeam), yani takım cevabının Servisler
+// linki artık takım süzgeçli. Exceptions linki Inbox'a değil Exceptions/Errors
+// sayfasına (operatör: "Takım Exceptions dediğimde Problems'i açıyor").
+func TestTeamServicesLinksTeamFiltered(t *testing.T) {
 	links := guidedAnswerLinks(guidedRoute{
 		Intent: guidedTeamServices, Team: "Orionsy",
 		TeamServices: []string{"päy ments", "checkout-service"},
 	}, noLinkWindow())
-	// v0.9.1246 — üçüncü link: takım-filtreli exception kuyruğu. /inbox
-	// ?team='i GERÇEKTEN okuyor (readInboxTeam, lib/inboxUrl.ts), yani
-	// bu link ölü param değil; aşağıdaki K4 pini o okumayı da çiviliyor.
 	if len(links) != 3 {
-		t.Fatalf("takım cevabı üç link taşımalı (Servisler + en kötü servis + takım exception'ları): %+v", links)
+		t.Fatalf("takım cevabı üç link taşımalı (Servisler + en kötü servis + takım Exceptions): %+v", links)
 	}
-	if links[2].Href != "/inbox?kind=exception&team=Orionsy" {
-		t.Errorf("takım exception linki beklenen şekilde değil: %s", links[2].Href)
+	if links[0].Href != "/services?ownerTeam=Orionsy" {
+		t.Errorf("Servisler linki takım süzgeçli olmalı, got %s", links[0].Href)
+	}
+	if !strings.Contains(links[1].Href, "p%C3%A4y+ments") {
+		t.Errorf("servis adı escape edilmeli: %s", links[1].Href)
+	}
+	if links[2].Href != "/problems?owner=Orionsy&s_exception-inbox-v2=lastSeen.desc" {
+		t.Errorf("takım exception linki Exceptions/Errors sayfasına gitmeli: %s", links[2].Href)
 	}
 	for _, l := range links {
 		if !strings.HasPrefix(l.Href, "/") || l.Label == "" {
 			t.Errorf("link uygulama-köklü ve etiketli olmalı: %+v", l)
 		}
-		if strings.Contains(l.Href, "ownerTeam=") || strings.Contains(l.Href, "sreTeam=") {
-			t.Errorf("ölü param: /services bu adları URL'den okumaz: %s", l.Href)
+		if strings.HasPrefix(l.Href, "/inbox") {
+			t.Errorf("takım cevabı Inbox'a link vermemeli: %s", l.Href)
 		}
 	}
-	if links[0].Href != "/services" {
-		t.Errorf("takım linki düz /services olmalı, got %s", links[0].Href)
-	}
-	if !strings.Contains(links[1].Href, "p%C3%A4y+ments") {
-		t.Errorf("servis adı escape edilmeli: %s", links[1].Href)
-	}
-	// Kaynak-pin: yasak adlar dosyanın hiçbir yerinde geçmesin (çip
-	// metni değişse de kural kalsın).
-	b, err := os.ReadFile("copilot_followup.go")
+	// K4: sayfa bu param'ları GERÇEKTEN okuyor.
+	spec, err := os.ReadFile("../../frontend/src/lib/servicesUrlSpec.ts")
 	if err != nil {
-		t.Fatalf("kaynak okunamadı: %v", err)
+		t.Skipf("servicesUrlSpec.ts okunamadı: %v", err)
 	}
-	if src := string(b); strings.Contains(src, "/services?ownerTeam") || strings.Contains(src, "/services?sreTeam") {
-		t.Error("copilot_followup.go /services'e takım param'ı basıyor — sayfa onu okumuyor")
+	for _, k := range []string{servicesPageOwnerParam + ": strParam()", servicesPageSREParam + ": strParam()"} {
+		if !strings.Contains(string(spec), k) {
+			t.Errorf("Servisler sayfası %q okumuyor — takım linki ölü param olur", k)
+		}
 	}
 }
 

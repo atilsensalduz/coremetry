@@ -7881,6 +7881,45 @@ basılıyor, okuma tavanı sekmeden farklıydı (2000 ↔ 20000).
 ne çizilir ne sayılır; tavan yalnız aşınca). Hub'ın 230 komşusunun gerçekten doğrudan olup olmadığı (ör. v0.10.1344
 etiket-önek katlamasının `<odak>-<x>` kardeşini odağa katlaması) prod'da sekmenin "N of M nodes" sayısıyla kıyaslanmalı.
 
+## 2026-10-19 — v0.10.1397 — CoSRE takım akışı: servis listesi + "hangi servis?" sorusu, Exceptions linki Exceptions/Errors sayfasına
+
+**Operatör (prod):** (A) "Takım Exceptions dediğimde Problems'i açıyor, halbuki ben Exceptions/Errors sayfasını
+filtrelemesini ve otomatik getirmesini istiyorum." (B) "Mesela bir takım seçtim veya 'takımımın servisleri nasıl'
+dedim. Arkada chip'e basmadan otomatik o takımın servislerini listelesin ve spesifik olarak kontrol etmek istediğin
+bir servis var mı diye sorsun." **Neden:** takım cevabının "<Takım> · Exceptions" çipi `inboxTeamExceptionsLink` ile
+`/inbox?kind=exception&team=` (Inbox) açıyordu; servisler ve RED yalnız KANITTAYDI, anlatım iki servis seçip gerisini
+düşürüyordu; `my_services` ayrıca aile-sağlık gövdesinden (hata SAYISI sırası) geçtiği için "takımımın servisleri"
+ile "<takım> takımının servisleri" iki farklı cevap veriyordu.
+- **Karar — sunucu eki (`route.AnswerTail`):** takım servis cevabının sonuna, anlatımdan SONRA ve "Kaynak:"
+  künyesinden önce sunucunun yazdığı deterministik bölüm (`copilot_team_overview.go`, saf render tablo testli):
+  (1) servis tablosu — ad · hata oranı · hata · span · p99, hata oranı azalan (ortak okuma
+  `mcptools.ReadTeamServicesRED`), en çok 15 satır + "+N servis daha (… daha düşük oranlı / … span üretmedi / …
+  okunmadı)" + takım süzgeçli Servisler linki; (2) son exception grupları — v0.10.1385'in paylaşılan okuması
+  (`readTeamExceptions`, `teamExceptionsBlock`'tan ayrıldı: ortam kesişimi, sayfanın varsayılan tabanı, en son
+  görülen önce), en çok 5 grup, pencere en az 24 sa, OKUNAMADI ≠ "yok"; (3) kapanış sorusu "Özellikle kontrol etmek
+  istediğin bir servis var mı?". **Neden ek, önek ya da yeni blok değil:** model ekleyemez/düşüremez (metin akış
+  bittikten sonra `answer` olayında eklenir); önek, delta'larla çizilen anlatımı answer gelince aşağı kaydırırdı;
+  yeni blok türü FE değişikliği isterdi — sohbet markdown'u GFM tablo + kök-göreli linki zaten çiziyor. Kanıta kısa
+  not girer ("tabloyu/listeyi tekrar yazma, soruyu sorma"); `renderTeamServicesEvidenceTR` KURAL'ı buna göre
+  güncellendi (2–4 cümle özet, en kötü servis adıyla).
+- **Çipler:** listenin ilk 6 servisi için etiket = servis adı, metin = "<svc> sağlığı nasıl?" (router'da LLM'siz
+  `service_health`, kapsam servis + env), ardından v0.10.1383 özet adımları; takım servis rotalarının çip tavanı
+  6 + 4 (`teamOverviewFollowupMax`), exception rotalarınınki aynen 4.
+- **`my_services` = kimlikten çözülen takımın `team_services` cevabı:** sağlık kipi artık
+  `guidedTeamServicesBundle`'dan geçer (aynı katalog çözümü, aynı sıra, aynı ek); özet çipleri onda eskisi gibi
+  P1 → açık problem sırasıyla (rerank). "Hangi takımdasın?" çipi çıplak takım adıdır ve router'da LLM'siz
+  `team_services`'e iner (servisle aynı adlı takım dahil, testli) — yani takım seçimi doğrudan bu cevabı verir.
+- **Linkler:** her takım cevabının Exceptions linki Exceptions/Errors sayfası
+  (`/problems?owner|sre=<takım>&s_exception-inbox-v2=lastSeen.desc`, `teamExceptionsLinks`); `inboxTeamExceptionsLink`
+  kaldırıldı (shim yok). İki eksenli takımda v0.10.1385'in Inbox birleşim linki de kaldırıldı: yerine aynı sayfanın
+  sre ekseni ("Exceptions'ta aç (SRE süzgeçli · …)"). Servisler linki `/services?ownerTeam|sreTeam=<takım>` —
+  v0.9.1134'ün "sayfa takım param'ını okumuyor" ölü-param gerekçesi v0.10.1229'dan beri geçersiz
+  (`servicesUrlSpec.ts`; K4 kaynak-pini artık okumayı pinliyor).
+- Bilinçli: tablo sütunu "Span" (istek değil) — `service_summary_5m` tüm span türlerini sayar (v0.10.944).
+  Eksen okunamazsa (katalog hatası) owner varsayılır.
+- Testler: `internal/api/copilot_team_overview_test.go`; güncellenen: `copilot_team_exceptions_test.go`,
+  `copilot_team_services_test.go`, `inbox_team_filter_test.go`.
+
 ## 2026-10-19 — v0.10.1395 — CoSRE başlığı: marka grubu ve Geçmiş tek satır
 
 **Operatör:** "En üstteki CoSRE yazısı ve telemetry ikonu çok sıkışık duruyor." İkon ile "CoSRE" yazısı ayrı flex

@@ -39,6 +39,12 @@ package api
 // yalnız bir eksende geçiyorsa link o ekseni taşır; ikisinde de geçiyorsa link
 // owner eksenini taşır, kanıt bunu SÖYLER ve birleşim görünümü için Inbox
 // (?team=, birleşim) linki de eklenir.
+//
+// v0.10.1397 (operatör: "Takım Exceptions dediğimde Problems'i açıyor, halbuki
+// ben Exceptions/Errors sayfasını filtrelemesini … istiyorum") — Inbox birleşim
+// linki KALDIRILDI: takımın her "Exceptions" linki Exceptions/Errors sayfasına
+// (/problems) gider. İki eksenli takımda ikinci link aynı sayfanın sre
+// eksenidir (owner linki + SRE linki = birleşim, iki tık, aynı sayfa).
 
 import (
 	"context"
@@ -177,9 +183,10 @@ func teamExceptionsLinks(route guidedRoute) []guidedAnswerLink {
 		}
 	}
 	if route.ExcAxis == teamAxisBoth {
-		// Sayfa süzgeci tek eksenli; birleşim (owner VEYA sre) Inbox'ta.
-		if h, ok := safelink.SafeLink("/inbox?kind=exception&team=" + url.QueryEscape(team)); ok {
-			out = append(out, guidedAnswerLink{Label: "Inbox (owner+SRE) · " + team, Href: h})
+		// v0.10.1397 — sayfa süzgeci tek eksenli; birleşimin öbür yarısı AYNI
+		// sayfanın sre ekseni (Inbox'a gitmez — operatör-raporlu).
+		if h, ok := exceptionsPageTeamHref(team, teamAxisSRE, route.Env, false); ok {
+			out = append(out, guidedAnswerLink{Label: "Exceptions'ta aç (SRE süzgeçli · " + team + ")", Href: h})
 		}
 	}
 	return out
@@ -272,7 +279,7 @@ func renderTeamExceptionsTR(v teamExcView) string {
 	if v.PageHref != "" {
 		fmt.Fprintf(&b, "Exceptions'ta aç (takım süzgeçli): %s\n", v.PageHref)
 		if v.Axis == teamAxisBoth {
-			b.WriteString("Not: sayfanın takım süzgeci tek eksenli — link ownerTeam eksenini açar; takımın SRE olarak geçtiği servisler Inbox (owner+SRE) linkinde.\n")
+			b.WriteString("Not: sayfanın takım süzgeci tek eksenli — ilk link ownerTeam eksenini açar; takımın SRE olarak geçtiği servisler ikinci (SRE süzgeçli) linkte.\n") // v0.10.1397
 		}
 	}
 	if v.Ev.Err == "" && len(v.Ev.Groups) > 0 {
@@ -342,40 +349,12 @@ type teamExcInput struct {
 // ListExceptionGroups (paylaşılan dikiş) → kanıt; rotaya link ekseni, Oracle
 // bayrağı ve grup çiplerini yazar. Okuma hatası kanıtta OKUNAMADI olur
 // (bundle düşmez — operatör "bilinmiyor"u görmeli, serbest döngüyü değil).
+// v0.10.1397 — okuma yarısı readTeamExceptions'a ayrıldı (takım servis
+// cevabının son-exception bölümü aynı okumayı kullanır).
 func (s *Server) teamExceptionsBlock(ctx context.Context, emit func(string, any), route *guidedRoute, in teamExcInput, from, to time.Time) string {
-	svcs := in.Services
-	envNote := ""
-	if env := strings.TrimSpace(route.Env); env != "" {
-		// Exceptions sayfasıyla AYNI kural: takım ∩ ortam üyeleri; harita
-		// okunamazsa kısıtsız (sayfanın soft-fail duruşu) ve kanıt bunu söyler.
-		if members, err := s.store.EnvMemberServices(ctx, env); err == nil {
-			if members == nil {
-				members = []string{}
-			}
-			svcs = intersectServices(svcs, members)
-			envNote = fmt.Sprintf("Ortam: %s (takımın bu ortamdaki %d servisi).\n", env, len(svcs))
-		} else {
-			envNote = fmt.Sprintf("Not: %q ortam üyeleri okunamadı — ortam daraltması UYGULANMADI.\n", env)
-		}
-	}
 	route.ExcAxis = in.Axis
-	view := teamExcView{Team: in.Team, Services: len(svcs), EnvNote: envNote, Axis: in.Axis}
-	if h, ok := exceptionsPageTeamHref(in.Team, in.Axis, route.Env, false); ok {
-		view.PageHref = h
-	}
-	n := emitGuidedStep(emit, "list_exception_groups", fmt.Sprintf(`{"team":%s,"services":%d,"state":"open","sort":"lastSeen"}`, jsonStr(in.Team), len(svcs)))
-	if len(svcs) == 0 {
-		view.Ev = exceptionGroupsEvidence{Groups: []exGroupLine{}, LookbackS: int64(to.Sub(from) / time.Second), at: to}
-		blk := renderTeamExceptionsTR(view)
-		emitGuidedStepResult(emit, n, "list_exception_groups", blk, nil)
-		return blk
-	}
-	floor := effectiveDefaultFloor(currentExceptionTriage())
-	view.Floor = floor
-	view.Ev = s.exceptionGroupsEvidence(ctx, exScope{
-		Services: svcs, State: "open", From: from, To: to,
-		MinOcc: floor, FloorExempt: s.exceptionSpread(ctx).ExemptBelow(floor), FloorExemptRegressed: true,
-	})
+	n := emitGuidedStep(emit, "list_exception_groups", fmt.Sprintf(`{"team":%s,"services":%d,"state":"open","sort":"lastSeen"}`, jsonStr(in.Team), len(in.Services)))
+	view := s.readTeamExceptions(ctx, route.Env, in, from, to, 0)
 	for _, g := range view.Ev.Groups {
 		if g.Oracle {
 			route.ExcOracle = true
@@ -390,6 +369,44 @@ func (s *Server) teamExceptionsBlock(ctx context.Context, emit func(string, any)
 	}
 	emitGuidedStepResult(emit, n, "list_exception_groups", blk, stepErr)
 	return blk
+}
+
+// readTeamExceptions — v0.10.1397: teamExceptionsBlock'un OKUMA yarısı, takım
+// servis cevabının "son exception grupları" bölümüyle (copilot_team_overview.go)
+// PAYLAŞILIR — ortam kesişimi, varsayılan taban, en son görülen önce sırası iki
+// yüzeyde ayrışmasın. max: gösterilen grup tavanı (0 = exGroupTeamRenderMax).
+// Rotaya YAZMAZ (çip/eksen kararı çağıranın).
+func (s *Server) readTeamExceptions(ctx context.Context, env string, in teamExcInput, from, to time.Time, max int) teamExcView {
+	svcs := in.Services
+	envNote := ""
+	if env := strings.TrimSpace(env); env != "" {
+		// Exceptions sayfasıyla AYNI kural: takım ∩ ortam üyeleri; harita
+		// okunamazsa kısıtsız (sayfanın soft-fail duruşu) ve kanıt bunu söyler.
+		if members, err := s.store.EnvMemberServices(ctx, env); err == nil {
+			if members == nil {
+				members = []string{}
+			}
+			svcs = intersectServices(svcs, members)
+			envNote = fmt.Sprintf("Ortam: %s (takımın bu ortamdaki %d servisi).\n", env, len(svcs))
+		} else {
+			envNote = fmt.Sprintf("Not: %q ortam üyeleri okunamadı — ortam daraltması UYGULANMADI.\n", env)
+		}
+	}
+	view := teamExcView{Team: in.Team, Services: len(svcs), EnvNote: envNote, Axis: in.Axis}
+	if h, ok := exceptionsPageTeamHref(in.Team, in.Axis, env, false); ok {
+		view.PageHref = h
+	}
+	if len(svcs) == 0 {
+		view.Ev = exceptionGroupsEvidence{Groups: []exGroupLine{}, LookbackS: int64(to.Sub(from) / time.Second), at: to}
+		return view
+	}
+	floor := effectiveDefaultFloor(currentExceptionTriage())
+	view.Floor = floor
+	view.Ev = s.exceptionGroupsEvidence(ctx, exScope{
+		Services: svcs, State: "open", From: from, To: to, Max: max,
+		MinOcc: floor, FloorExempt: s.exceptionSpread(ctx).ExemptBelow(floor), FloorExemptRegressed: true,
+	})
+	return view
 }
 
 // guidedTeamExceptionsBundle — ADI GEÇEN takımın teknik hataları

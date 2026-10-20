@@ -155,20 +155,11 @@ func TestInboxTeamParamPairing(t *testing.T) {
 		t.Error("?team= cache anahtarına girmiyor (v0.5.187 sınıfı çapraz-zehirlenme)")
 	}
 
-	// 2) Köprü: link tam olarak o paramı yazıyor.
-	link, ok := inboxTeamExceptionsLink("SY")
-	if !ok {
-		t.Fatal("takım çözülmüşken köprü linki üretilmedi")
-	}
-	if link.Href != "/inbox?kind=exception&team=SY" {
-		t.Errorf("köprü linki %q — beklenen /inbox?kind=exception&team=SY", link.Href)
-	}
-	if esc, _ := inboxTeamExceptionsLink("SY Dijital"); !strings.Contains(esc.Href, "SY+Dijital") {
-		t.Errorf("takım adı escape edilmemiş: %s", esc.Href)
-	}
-	if _, ok := inboxTeamExceptionsLink("   "); ok {
-		t.Error("boş takımda link üretildi — yanlış kapsamlı link linksizlikten kötü")
-	}
+	// 2) v0.10.1397 — sohbet köprüsü (inboxTeamExceptionsLink) KALDIRILDI:
+	// takım "Exceptions" linki artık Exceptions/Errors sayfasına gidiyor
+	// (operatör: "Takım Exceptions dediğimde Problems'i açıyor";
+	// copilot_team_overview_test.go). Inbox'ın ?team= okuması sayfanın kendi
+	// özelliği olarak pinli kalıyor (1 ve 3).
 
 	// 3) Sayfa: aynı param adını okuyor ve isteğe geçiriyor.
 	codec, err := os.ReadFile("../../frontend/src/lib/inboxUrl.ts")

@@ -426,7 +426,9 @@ func guidedFollowups(route guidedRoute, asked []string) []chatFollowup {
 		return nil
 	}
 	switch route.Intent { // v0.10.1385 — takım exception rotaları grup çiplerini taşır
-	case guidedTeamServices, guidedMyServices, guidedMyExceptions, guidedTeamExceptions:
+	case guidedTeamServices, guidedMyServices: // v0.10.1397 — servis başına "hangi servis?" çipleri + özet adımları
+		return dedupFollowupsAsked(route.TeamFollowups, asked, teamOverviewFollowupMax)
+	case guidedMyExceptions, guidedTeamExceptions:
 		return dedupFollowupsAsked(route.TeamFollowups, asked, guidedFollowupMax)
 	case guidedMetricChart: // v0.10.1386 — diğer ortam · 24 sa · yavaş trace'ler · Metrics'te aç
 		return metricChartFollowups(route, asked)
@@ -524,31 +526,6 @@ type guidedAnswerLink struct {
 	// env seçimi). İstemcide naif bir regex'le yeniden avlamak, aynı
 	// kararı iki yerde vermek olurdu ve ikisi sessizce ayrışırdı.
 	ID string `json:"id,omitempty"`
-}
-
-// inboxTeamExceptionsLink (v0.9.1246) — takım-filtreli exception kuyruğu
-// çipi. ok=false → takım çözülmedi, çip YOK (yanlış kapsamlı bir link
-// linksizlikten kötüdür).
-//
-// K4 ÖLÜ-PARAM DENETİMİ (v0.9.1130 sınıfı) — her iki param da hedefte
-// GERÇEKTEN okunuyor ve bu sıra bilinçli: sayfa okuması ÖNCE geldi
-// (v0.9.1246'nın ilk yarısı), köprü sonra.
-//
-//	kind=exception → Inbox.tsx searchParams.get('kind'), KIND_ALL içinde
-//	team=<ad>      → Inbox.tsx readInboxTeam (lib/inboxUrl.ts,
-//	                 INBOX_TEAM_PARAM) → useInbox({team}) → /api/inbox
-//
-// Ad KATALOG yazımıyla gider (mcptools.TeamDisplayName): sunucu tarafı
-// zaten katlamalı eşleştiriyor ("sy" = "SY"), ama URL operatöre çip
-// olarak görünüyor ve orada kataloğun yazımı doğru olan.
-func inboxTeamExceptionsLink(team string) (guidedAnswerLink, bool) {
-	if strings.TrimSpace(team) == "" {
-		return guidedAnswerLink{}, false
-	}
-	return guidedAnswerLink{
-		Label: team + " · Exceptions",
-		Href:  "/inbox?kind=exception&team=" + url.QueryEscape(team),
-	}, true
 }
 
 // guidedAnswerLinks (v0.9.419, CoSRE fikir #4) — cevabın konusuna giden
@@ -753,39 +730,15 @@ func guidedAnswerLinkTargets(route guidedRoute) []guidedAnswerLink {
 		return links
 	case guidedFamilyHealth:
 		return []guidedAnswerLink{{Label: "Servisler", Href: "/services"}}
-	case guidedMyServices:
-		return []guidedAnswerLink{{Label: "Servisler", Href: "/services"}}
 	case guidedMyProblems:
 		return []guidedAnswerLink{{Label: "Problemler", Href: "/problems"}}
-	// v0.9.1134 — takım cevabının derin linkleri.
-	//
-	// ÖLÜ-PARAM DENETİMİ (K4 sınıfı, v0.9.1130'un dersi): api istemcisi
-	// takım süzgecini SUNUCUYA gönderiyor ama /services sayfası o iki
-	// alanı URL'den OKUMUYOR — Services.tsx'te ikisi de `useState('')`,
-	// searchParams yalnız page/compare/cluster/namespace için okunuyor.
-	// Takım param'lı bir çip filtreli liste VAAT EDİP filtresiz listeyi
-	// açardı; link o yüzden DÜZ /services ve daraltma yerine EN KÖTÜ
-	// servisin kendi sayfası veriliyor (asıl gidilecek yer orası).
-	// Sayfa URL okumasını kazanırsa (frontend işi) link yükseltilebilir.
-	// Yasak param adları burada YAZILMIYOR — kaynak-pin testi onları
-	// adıyla arıyor (copilot_team_services_test.go).
-	case guidedTeamServices:
-		links := []guidedAnswerLink{{Label: "Servisler", Href: "/services"}}
-		if len(route.TeamServices) > 0 {
-			worst := route.TeamServices[0]
-			links = append(links, guidedAnswerLink{
-				Label: worst + " · Overview", Href: "/service?name=" + url.QueryEscape(worst),
-			})
-		}
-		// v0.9.1246 — adı geçen takımın exception'larına köprü. "X
-		// takımının exception'ları" bu rotaya düşüyor (iyelik sinyali
-		// yoksa my_* dalları açılmaz), ve cevap RED metrikleri
-		// anlatırken operatörün asıl gideceği yer o takımın hata
-		// kuyruğuydu — link olmadan elle owner/SRE seçmesi gerekiyordu.
-		if l, ok := inboxTeamExceptionsLink(route.Team); ok {
-			links = append(links, l)
-		}
-		return links
+	// v0.10.1397 — takım servis cevabının linkleri (my_services = kimlikten
+	// çözülen takımın team_services cevabı): takım süzgeçli Servisler, en kötü
+	// servis, takımın Exceptions/Errors sayfası (teamExceptionsLinks — Inbox'a
+	// DEĞİL; operatör: "Takım Exceptions dediğimde Problems'i açıyor").
+	// Gövde copilot_team_overview.go teamServicesAnswerLinks.
+	case guidedTeamServices, guidedMyServices:
+		return teamServicesAnswerLinks(route)
 	case guidedServiceExceptions:
 		if svc != "" {
 			return []guidedAnswerLink{{Label: svc + " · Exceptions", Href: "/problems?service=" + svcQ}}

@@ -148,7 +148,7 @@ func TestRenderTeamExceptionsTR(t *testing.T) {
 			},
 			strings.Replace(head, "son 1gün", "son 1sa", 1) + "Ortam: prod (takımın bu ortamdaki 3 servisi).\n" +
 				"Yok: son 1sa içinde takımın servislerinde Exceptions'ta açık teknik hata / exception grubu bulunmadı.\n" + page +
-				"Not: sayfanın takım süzgeci tek eksenli — link ownerTeam eksenini açar; takımın SRE olarak geçtiği servisler Inbox (owner+SRE) linkinde.\n"},
+				"Not: sayfanın takım süzgeci tek eksenli — ilk link ownerTeam eksenini açar; takımın SRE olarak geçtiği servisler ikinci (SRE süzgeçli) linkte.\n"}, // v0.10.1397
 	}
 	for _, c := range cases {
 		v := base
@@ -224,8 +224,9 @@ func TestTeamExceptionsLinks(t *testing.T) {
 			[]string{"/problems?env=prod&owner=platform&s_exception-inbox-v2=lastSeen.desc", "/problems?env=prod&oracle=only&owner=platform&s_exception-inbox-v2=lastSeen.desc"}},
 		{"sre ekseni", guidedRoute{Intent: guidedMyExceptions, Team: "payments-team", ExcAxis: teamAxisSRE},
 			[]string{"/problems?s_exception-inbox-v2=lastSeen.desc&sre=payments-team"}},
-		{"iki eksen → Inbox birleşim linki", guidedRoute{Intent: guidedMyExceptions, Team: "platform", ExcAxis: teamAxisBoth},
-			[]string{"/problems?owner=platform&s_exception-inbox-v2=lastSeen.desc", "/inbox?kind=exception&team=platform"}},
+		// v0.10.1397 — birleşimin öbür yarısı Inbox DEĞİL, aynı sayfanın sre ekseni.
+		{"iki eksen → owner + SRE Exceptions linki", guidedRoute{Intent: guidedMyExceptions, Team: "platform", ExcAxis: teamAxisBoth},
+			[]string{"/problems?owner=platform&s_exception-inbox-v2=lastSeen.desc", "/problems?s_exception-inbox-v2=lastSeen.desc&sre=platform"}},
 	}
 	for _, c := range cases {
 		ls := guidedAnswerLinks(c.route, linkWindowBetween(teNow.Add(-time.Hour), teNow)) // /problems pencere okumaz

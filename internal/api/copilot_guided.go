@@ -316,6 +316,11 @@ type guidedRoute struct {
 	// kurar, anlatım çağrısı yapılmaz (modelin ekleyebileceği tek şey
 	// uydurma bir ad olurdu).
 	DirectAnswer string
+	// AnswerTail — v0.10.1397: anlatımın ARKASINA ("Kaynak:" künyesinden önce)
+	// sunucunun eklediği deterministik bölüm; demet yazar, cevap kurulumu okur.
+	// Model onu düşüremez/değiştiremez (takım servis listesi + son exception
+	// grupları + "hangi servis?" sorusu, copilot_team_overview.go). JSON'a girmez.
+	AnswerTail string `json:"-"`
 	// v0.10.1386 — metric_chart (copilot_metric_chart.go). GİRDİ (JSON'a girer:
 	// LastRoute "son 24 saate genişlet" takibinde klonlanır): ChartTemplate
 	// şablon kimliği, ChartGroupBy kırılım (""|env|pod), ChartEnvAsked ortam
@@ -2258,7 +2263,7 @@ func (s *Server) runGuidedRoute(ctx context.Context, emit func(string, any), rou
 	// İzin listesi KANITTAN türüyor ve kanıt sunucu-yazımı; yani model
 	// listeye üye EKLEYEMEZ. İmzaya gerek yok: sunucu ne yazdığını zaten
 	// biliyor (guided_chart_allowlist.go).
-	answer := strings.TrimSpace(raw) + "\n\nKaynak: " + sources
+	answer := strings.TrimSpace(raw) + route.AnswerTail + "\n\nKaynak: " + sources // v0.10.1397 — sunucu eki (takım servis listesi)
 	answer, _ = filterModelChartFences(answer, serverChartScopes(evidence))
 	// v0.9.419 — rotadan türetilen deterministik derin linkler; frontend
 	// çip olarak çizer (eski frontend'ler yok sayar).
@@ -3035,7 +3040,7 @@ func (s *Server) guidedMyTeamBundle(ctx context.Context, emit func(string, any),
 	route.TeamServices = svcs
 	// v0.9.1246 — KİMLİK burada çözülüyor, LİNKTE değil: "takımımın
 	// exception'ları" cevabının altındaki derin link
-	// /inbox?kind=exception&team=<AD> yazacak, yani URL paylaşılabilir
+	// takımın adını yazacak (v0.10.1397: /problems?owner|sre=<AD>), yani URL paylaşılabilir
 	// olmalı ve "benim" kelimesini TAŞIYAMAZ (başkasının açtığı link
 	// onun takımını gösterirdi — kimlik URL'e girmez).
 	//
@@ -3107,14 +3112,19 @@ func (s *Server) guidedMyTeamBundle(ctx context.Context, emit func(string, any),
 		src := fmt.Sprintf("takım: %s (%d servis) — Exceptions kutusu (açık gruplar, en son görülen önce)", u.Team, len(svcs)+trimmed)
 		return header + blk, src, nil
 	}
-	evidence, src, err := s.guidedFamilyHealthBundle(ctx, emit, svcs, env, from, to, rangeS)
+	// v0.10.1397 (operatör: "bir takım seçtim veya 'takımımın servisleri
+	// nasıl' dedim. Arkada chip'e basmadan otomatik o takımın servislerini
+	// listelesin…") — kimlikten çözülen takımın cevabı, adı geçen takımın
+	// cevabıyla AYNI gövde (guidedTeamServicesBundle: hata oranı sırası,
+	// takım özeti, deterministik servis listesi + "hangi servis?" sorusu).
+	// Çözüm aynı katalog kuralı (mcptools.TeamServiceNames); route.Team
+	// yukarıda katalog yazımına çekildi. Eski aile-sağlık gövdesi (hata
+	// SAYISI sırası) iki takım cevabını ayrıştırıyordu.
+	evidence, src, err := s.guidedTeamServicesBundle(ctx, emit, route, from, to, rangeS)
 	if err != nil {
 		return "", "", err
 	}
-	// v0.10.1383 — takım özeti + servis başına takip adımları (sıra özetten:
-	// P1 → açık problem → exception; katalog sırası eşitlik bozucu).
-	evidence += s.teamSummaryBlock(ctx, emit, route, route.Team, svcs, svcs, from, to, rangeS, true)
-	return header + evidence, fmt.Sprintf("takım: %s — %s + takım özeti", u.Team, src), nil
+	return header + evidence, fmt.Sprintf("takım: %s — %s", u.Team, src), nil
 }
 
 // guidedTeamAskMax — "hangi takım?" turunda sunulan çip sayısı. 8, çip
@@ -3232,10 +3242,12 @@ func renderTeamServicesEvidenceTR(team string, rows []chstore.ServiceSummary, re
 	// kötü servisi ADIYLA söylemeli, yoksa 15 satırlık tablo operatöre
 	// karar bırakır. Hata yoksa bunu da açıkça söylemeli — "en kötü"
 	// diye temiz bir servisi işaretlemek yanlış alarm olurdu.
-	b.WriteString("KURAL: cevaba EN KÖTÜ servisi adıyla ve sayısıyla başla, sonra kısa sıralamayı ver. " +
+	// v0.10.1397 — tam liste + "hangi servis?" sorusu artık SUNUCU EKİ
+	// (copilot_team_overview.go); model listeyi tekrar yazmaz, soruyu sormaz.
+	b.WriteString("KURAL: cevaba EN KÖTÜ servisi adıyla ve sayısıyla başla; 2-4 cümlelik kısa özet ver. " +
 		"Hiçbir serviste hata yoksa bunu AÇIKÇA söyle ve kimseyi işaretleme. " +
-		"Son cümlede o servise nasıl inebileceğini söyle (servis sayfası / trace'leri) — " +
-		"cevabın altındaki çipler ve linkler zaten oraya gidiyor. Listede olmayan servis adı UYDURMA.\n")
+		"Servis tablosu, son exception grupları ve kapanış sorusu cevabın ALTINA sunucu tarafından ekleniyor — " +
+		"tabloyu/listeyi TEKRAR YAZMA, kapanış sorusu SORMA. Listede olmayan servis adı UYDURMA.\n")
 	return b.String()
 }
 
@@ -3305,7 +3317,13 @@ func (s *Server) guidedTeamServicesBundle(ctx context.Context, emit func(string,
 	b.WriteString(redBlk)
 	// v0.10.1383 — takım özeti (problem/deploy/exception) + servis başına
 	// takip adımları; çip sırası RED sırası (en kötü servis aynı kalır).
-	b.WriteString(s.teamSummaryBlock(ctx, emit, route, team, svcs, names, from, to, rangeS, false))
+	// v0.10.1397 — my_services da bu gövdeden geçiyor; onun özet çipleri
+	// eskisi gibi P1 → açık problem sırasıyla (rerank), team_services RED sırası.
+	b.WriteString(s.teamSummaryBlock(ctx, emit, route, team, svcs, names, from, to, rangeS, route.Intent == guidedMyServices))
+	// v0.10.1397 — deterministik servis listesi + son exception grupları +
+	// "Özellikle kontrol etmek istediğin bir servis var mı?" (route.AnswerTail)
+	// ve servis başına çipler; özet çiplerinden SONRA (onları öne ekler).
+	b.WriteString(s.teamOverviewBlock(ctx, emit, route, teamOverviewInput{Team: team, Services: svcs, Trimmed: trimmed, Rows: rows, Names: names}, from, to, rangeS))
 	// En kötü servisin canlı error_rate kartı (aile bundle'ının emsali).
 	if len(rows) > 0 && rows[0].ErrorCount > 0 {
 		b.WriteString(chartFence(guidedChartSpec{
