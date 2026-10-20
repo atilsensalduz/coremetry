@@ -26,6 +26,7 @@ import { fmtStartedTs } from './problemTime';
 import { emptySamplesNote } from './exceptionSamples';
 import { ExceptionPodsPanel } from './ExceptionPodsPanel';
 import { fmtOccTick } from './occTick'; // v0.10.734
+import { exceptionHeadline } from './exceptionHeadline'; // v0.10.1398
 import { occRegion } from './occRegion'; // v0.10.1365
 import { StackTrace } from '@/components/StackTrace'; // v0.10.735
 import { useStackFrameLinks } from '@/lib/queries'; // v0.10.735
@@ -469,6 +470,9 @@ export function ProblemDetail({ group, isAdmin, onBack, onChanged }: {
   const tr = useT(); // v0.10.1326
   const stackFolded = !stackOpen && stackLines.length > STACK_FOLD_AT;
   const shownStackLines = stackFolded ? stackLines.slice(0, STACK_FOLD_SHOW) : stackLines;
+  // v0.10.1398 — başlık mesajı kısaltılır (exceptionHeadline); "Tamamı" yerinde açar.
+  const headline = useMemo(() => exceptionHeadline(group.message), [group.message]);
+  const [msgOpen, setMsgOpen] = useState(false);
 
   // v0.9.882 (Dalga 2, W2.2) — bu dört buton bugüne dek HİÇBİR çift-tık
   // koruması taşımıyordu: ikinci tık ikinci PUT ve backend tarafında ikinci
@@ -539,8 +543,17 @@ export function ProblemDetail({ group, isAdmin, onBack, onChanged }: {
       <div className="mono" style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--err)', marginBottom: 4, wordBreak: 'break-all' }}>
         {group.type}
       </div>
-      <div className="mono" style={{ color: 'var(--text2)', fontSize: 13, marginBottom: 16, wordBreak: 'break-word' }}>
-        {group.message || '—'}
+      {/* v0.10.1398 (operatör: "Çok uzun bir exception geldiğinde tüm sayfayı
+          kaplıyor") — mesaj gömülü yığından önce + 320 karakterde kesilir; tam
+          metin title'da ve "Tamamı" ile; yığın zaten aşağıdaki Stack trace kartında. */}
+      <div className="mono" title={headline.cut ? group.message : undefined}
+        style={{ color: 'var(--text2)', fontSize: 13, marginBottom: 16, wordBreak: 'break-word', whiteSpace: msgOpen ? 'pre-wrap' : undefined }}>
+        {msgOpen ? group.message : (headline.text || '—')}
+        {headline.cut && (
+          <Button variant="ghost" size="xs" onClick={() => setMsgOpen(o => !o)} style={{ marginLeft: 6 }}>
+            {msgOpen ? 'Kısalt' : 'Tamamı'}
+          </Button>
+        )}
       </div>
 
       {/* Meta chips */}

@@ -7933,3 +7933,13 @@ Yalnız CSS/JSX düzeni; davranış değişmez.
 `normalizeMathEscapes` uyguluyordu ama KARAR şeridi (`verdictLine`) ham metinden çıkarılıp düz metin çiziliyordu;
 model `$\rightarrow$` yazınca şeritte aynen görünüyordu. **Düzeltme:** metin bir kez normalize edilir, şerit ve gövde
 aynı normalize metinden beslenir. Test: `ExplainBody.test.tsx` "Karar şeridi LaTeX oku".
+
+## 2026-10-20 — v0.10.1398 — Exception detayı: uzun mesaj sayfayı kaplamaz
+
+**Operatör (prod ekran görüntüsü):** "Çok uzun bir exception geldiğinde tüm sayfayı kaplıyor. Halbuki zaten aşağıda
+aynısı yazıyor." **Kök neden:** detay başlığının altındaki satır `group.message`'ın TAMAMINI basıyordu; bazı hata
+çözücüleri (Feign gibi) mesajın içine yığın çerçevelerini gömdüğü için yüzlerce satırlık yığın sayfanın üstünü
+kaplıyor, aynı metin aşağıdaki "Stack trace" kartında (12 satır katlı) zaten duruyordu. **Karar:** başlık mesajı
+saf `exceptionHeadline` ile ilk gömülü JVM/.NET çerçevesinden (" at a.b.C.m(") önce ve 320 karakterde (kelime
+sınırında, "…") kesilir; tam metin `title`'da ve "Tamamı / Kısalt" ile yerinde açılır. Yığın kartı değişmedi.
+Test: `features/anomalies/exceptionHeadline.test.ts`.
