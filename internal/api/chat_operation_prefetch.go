@@ -271,6 +271,11 @@ type opPrefetch struct {
 	// varken cevabı sohbet içinde Exceptions açıklamasından üretir
 	// (chat_operation_exception_explain.go). JSON'a girmez.
 	errorAsk bool
+	// explainPool — v0.10.1411: hata-neden sorusunda kapsamın AÇIK grupları
+	// (gösterilen 5'in dışındakiler dahil; chat_operation_exception_explain.go
+	// collectExplainPool). nil = okunmadı / okunamadı → seçim gösterilenden
+	// (bayt bayt eski). JSON'a girmez; gösterilen liste değişmez.
+	explainPool []exGroupLine
 }
 
 type opTraceRow struct {
@@ -414,7 +419,7 @@ func (p *opPrefetch) exceptionFollowupFacts() []followupFact {
 	if p == nil || p.Exceptions == nil || p.Exceptions.Err != "" || len(p.Exceptions.Groups) == 0 {
 		return nil
 	}
-	top, others, ok := pickExplainGroup(p.Exceptions.Groups) // v0.10.1399
+	top, others, ok := pickExplainGroup(p.explainCandidates()) // v0.10.1399; v0.10.1411 gösterilen ∪ açık havuz
 	if !ok {
 		return nil
 	}
@@ -716,8 +721,12 @@ func (s *Server) opPrefetchForTarget(pctx context.Context, emit func(string, any
 	if opWantsExceptions(t) { // v0.10.1331 — Exceptions'taki son grup + yorum
 		eargs, _ := json.Marshal(map[string]any{"operation": t.Name, "range_s": int64(opExceptionsLookback / time.Second)})
 		en := emitGuidedStep(emit, opExceptionsTool, string(eargs))
-		ev := s.exceptionGroupsEvidence(pctx, exScope{Messages: []string{t.Name}, From: to.Add(-opExceptionsLookback), To: to})
+		esc := exScope{Messages: []string{t.Name}, From: to.Add(-opExceptionsLookback), To: to}
+		ev := s.exceptionGroupsEvidence(pctx, esc)
 		p.Exceptions = &ev
+		if opExplainPoolWanted(t.ErrorAsk, ev) { // v0.10.1411 — seçim en yeni 5'ten değil, açık gruplardan
+			p.explainPool = s.exceptionExplainPool(pctx, esc)
+		}
 		var eerr error
 		if ev.Err != "" {
 			eerr = fmt.Errorf("exceptions okunamadı: %s", ev.Err)

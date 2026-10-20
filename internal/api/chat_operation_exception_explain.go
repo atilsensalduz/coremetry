@@ -29,6 +29,18 @@ package api
 // (pickExplainGroup: P1 → son saat → toplam → son görülme; oylar ASLA).
 // Grup yok / okunamadı / girdi kurulamadı / soru hata-neden değil → akış
 // bayt bayt eski (ön-getirme özetiyle serbest döngü).
+//
+// v0.10.1411 (operator-reported, aynı söz) — 1399'un bilinen sınırı: aday
+// havuzu yalnız ön-getirmenin GÖSTERDİĞİ en yeni 5 gruptu (son görülmeye göre,
+// okuma tavanı 20). Daha eski ama daha önemli bir P1 grubu 5'in dışında
+// kalınca cevap küçük, yeni bir grubu anlatıyordu. Şimdi hata-neden sorusunda
+// ve gösterilenden fazla grup varken (More > 0) aynı kapsamın AÇIK grupları
+// state tablosundan sınırlı okunur (exExplainPoolFilter: open, oluşum azalan,
+// LIMIT 100, FINAL + max_execution_time — ListExceptionGroups), gösterilen 5
+// ile birleşir (explainCandidates) ve pickExplainGroup bu kümeye uygulanır.
+// Gösterilen "en yeni 5" listesi (model + adım çipi) değişmez; cevap, künye,
+// grup linki ve diğer-grup çipleri aynı sıralı kümeden. Havuz okunamazsa ya da
+// gerekmezse (More == 0: gösterilen küme zaten tam küme) seçim bayt bayt eski.
 
 import (
 	"context"
@@ -52,7 +64,97 @@ const (
 	opExceptionExplainInputTimeout = 30 * time.Second
 	// opExceptionExplainOthersMax — diğer grupların çip tavanı.
 	opExceptionExplainOthersMax = 3
+	// opExceptionExplainPoolLimit — v0.10.1411: açıklama aday havuzunun
+	// (kapsamın açık grupları) CH okuma tavanı.
+	opExceptionExplainPoolLimit = 100
 )
+
+// exExplainPoolFilter — SAF (v0.10.1411): aday havuzu okumasının süzgeci.
+// Ön-getirmenin kapsamı (ex_message birebir / servis, aynı pencere örtüşmesi),
+// yalnız AÇIK durumlar ("open" = new/acknowledged/regressed — Exceptions
+// sayfasının kovası), oluşum azalan (öncelik Go'da hesaplanır; tavan dolarsa
+// hacimli gruplar kalır, en yeniler zaten gösterilen 5'te).
+func exExplainPoolFilter(sc exScope) chstore.ExceptionGroupFilter {
+	f := chstore.ExceptionGroupFilter{Service: sc.Service, Messages: sc.Messages, State: "open",
+		Sort: "occurrences", Dir: "desc", Limit: opExceptionExplainPoolLimit}
+	if !sc.From.IsZero() {
+		f.ActiveFromNs = sc.From.UnixNano()
+	}
+	if !sc.To.IsZero() {
+		f.ActiveToNs = sc.To.UnixNano()
+	}
+	return f
+}
+
+// collectExplainPool — v0.10.1411: kapsamın açık grupları (örnek okuması
+// YOK — seçim yalnız öncelik/son saat/toplam/son görülme ister). Hata →
+// nil + hata (çağıran bugünkü 5'li havuza düşer).
+func collectExplainPool(ctx context.Context, rd exGroupsReader, sc exScope, h exGroupHooks) ([]exGroupLine, error) {
+	if len(sc.Messages) == 0 && strings.TrimSpace(sc.Service) == "" {
+		return nil, errors.New("kapsam yok")
+	}
+	lctx, cancel := context.WithTimeout(ctx, exGroupListTimeout)
+	rows, err := rd.ListExceptionGroups(lctx, exExplainPoolFilter(sc))
+	cancel()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]exGroupLine, 0, len(rows))
+	for _, g := range rows {
+		out = append(out, exGroupLineFrom(g, h))
+	}
+	return out, nil
+}
+
+// opExplainPoolWanted — SAF (v0.10.1411): havuz okunur mu? Yalnız hata-neden
+// sorusunda, liste okunduysa ve gösterilenin dışında grup varsa (More > 0);
+// aksi hâlde gösterilen küme zaten tam küme — ek okuma yok, seçim bayt bayt eski.
+func opExplainPoolWanted(errorAsk bool, ev exceptionGroupsEvidence) bool {
+	return errorAsk && ev.Err == "" && len(ev.Groups) > 0 && ev.More > 0
+}
+
+// exceptionExplainPool — sunucunun gerçek okuyucusuyla; okunamazsa nil.
+func (s *Server) exceptionExplainPool(ctx context.Context, sc exScope) []exGroupLine {
+	if s == nil || s.store == nil {
+		return nil
+	}
+	pool, err := collectExplainPool(ctx, s.store, sc, serverExGroupHooks())
+	if err != nil {
+		return nil
+	}
+	return pool
+}
+
+// mergeExplainPool — SAF (v0.10.1411): gösterilen gruplar ∪ havuz, parmak
+// izine göre tekil; gösterilen satır kazanır (örnek mesajı taşır). pool nil →
+// gösterilen dilim AYNEN (bugünkü havuz).
+func mergeExplainPool(shown, pool []exGroupLine) []exGroupLine {
+	if pool == nil {
+		return shown
+	}
+	out := make([]exGroupLine, 0, len(shown)+len(pool))
+	seen := make(map[string]bool, len(shown)+len(pool))
+	for _, src := range [][]exGroupLine{shown, pool} {
+		for _, g := range src {
+			if seen[g.Fingerprint] {
+				continue
+			}
+			seen[g.Fingerprint] = true
+			out = append(out, g)
+		}
+	}
+	return out
+}
+
+// explainCandidates — v0.10.1411: açıklama seçiminin aday kümesi (gösterilen ∪
+// havuz). Sohbet içi açıklama, takip çipi ve kırılım atlama kararı AYNI kümeden
+// seçer — çip ile cevap aynı grubu söyler.
+func (p *opPrefetch) explainCandidates() []exGroupLine {
+	if p == nil || p.Exceptions == nil {
+		return nil
+	}
+	return mergeExplainPool(p.Exceptions.Groups, p.explainPool)
+}
 
 // opErrorWhyAsk — SAF: soru operasyonun NEDEN hata verdiğini mi soruyor?
 // "neden/niye hata", "hata veriyor/alıyor/veriyo", "why … error/fail(ing)".
@@ -187,12 +289,16 @@ func (s *Server) opExceptionExplainInChat(ctx context.Context, emit func(string,
 	if s == nil || s.copilot == nil || p == nil || !p.errorAsk || p.Exceptions == nil || p.Exceptions.Err != "" {
 		return false, false
 	}
-	top, others, found := pickExplainGroup(p.Exceptions.Groups)
+	top, others, found := pickExplainGroup(p.explainCandidates()) // v0.10.1411 — gösterilen ∪ açık havuz
 	if !found {
 		return false, false
 	}
 	label := exGroupLabel(top)
-	args, _ := json.Marshal(map[string]any{"operation": p.Operation, "group": label, "fingerprint": top.Fingerprint})
+	argm := map[string]any{"operation": p.Operation, "group": label, "fingerprint": top.Fingerprint}
+	if p.explainPool != nil { // v0.10.1411 — havuz okunmadıysa argümanlar bayt bayt eski
+		argm["candidates"] = len(p.explainCandidates())
+	}
+	args, _ := json.Marshal(argm)
 	n := emitGuidedStep(emit, opExceptionExplainTool, string(args))
 	ictx, cancel := context.WithTimeout(ctx, opExceptionExplainInputTimeout)
 	_, in, system, gok := s.chatExceptionExplainInput(ictx, top.Fingerprint, loc)
@@ -239,6 +345,6 @@ func opDrillSkippedForErrorAsk(t opTarget, p *opPrefetch) bool {
 	if !t.ErrorAsk || p == nil || p.Exceptions == nil || p.Exceptions.Err != "" {
 		return false
 	}
-	_, _, ok := pickExplainGroup(p.Exceptions.Groups)
+	_, _, ok := pickExplainGroup(p.explainCandidates()) // v0.10.1411
 	return ok
 }

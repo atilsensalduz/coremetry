@@ -8427,3 +8427,35 @@ devam ediyordu — aynı DB-kör downstream modele gidiyordu.
   `TestProblemExplainEvidenceListsDBAndExternalCallees` (`explainStoreSeam` ile uçtan uca `serviceCorrelationContext`:
   callees db+ext+kuyruk, gizli desen `kafka:log*` süzülüyor, okuma hatası/boş → blok yok, pencere
   `[anchor-30m, anchor+5m]`). `chat_explain_registry_test` sahte yüzeyi `ReadServiceTopologyAggForFocus`'a geçti.
+
+## 2026-10-20 — v0.10.1411 — CoSRE operasyon hatası: grup seçimi tüm açık gruplardan (yalnız en yeni 5 değil)
+
+**Operatör (1399'un aynı sözü):** "Mesela bir operasyonu soruyorum ama bana kafka timeout vs diyor ama exceptions
+açıp explain ettirdiğimde daha mantıklı güzel cevap veriyor." — 1399 kaydının bilinen sınırı.
+
+**Kök neden:** "<OP> operasyonu neden hata veriyor?" sohbet içi açıklamasında `pickExplainGroup` (P1 → son 1 sa →
+toplam → son görülme → parmak izi) yalnız `p.Exceptions.Groups`'a uygulanıyordu — ön-getirmenin GÖSTERDİĞİ en yeni 5
+grup (`collectExceptionGroups`: `Sort: lastSeen desc`, okuma tavanı 20, `exGroupRenderMax` 5'e kırpılır). Daha eski
+ama daha önemli bir P1 grubu 5'in dışında kalınca cevap küçük, yeni bir grubu anlatıyordu; takip çipi ve kırılım
+atlama kararı da aynı 5'li kümeden seçiyordu.
+
+**Karar:**
+- Hata-neden sorusunda (`errorAsk`) ve gösterilenin dışında grup varken (`More > 0`; `opExplainPoolWanted`)
+  ön-getirme AYNI kapsamla (ex_message birebir = operasyon, 24 sa pencere örtüşmesi) state tablosundan ikinci,
+  sınırlı bir okuma yapar: `ListExceptionGroups` (`exception_groups FINAL`, `max_execution_time`) süzgeci
+  `exExplainPoolFilter` — `State: open` (new/acknowledged/regressed, Exceptions sayfasının kovası), oluşum azalan,
+  `LIMIT 100`, örnek okuması yok. Satırlar aynı kancalardan (`serverExGroupHooks`: öncelik merdiveni + Oracle
+  istatistik önbelleği, CH'siz) geçer. Ham spans yok.
+- Aday kümesi = gösterilen ∪ havuz, parmak izine göre tekil, gösterilen satır kazanır (`explainCandidates` /
+  `mergeExplainPool`). Sohbet içi açıklama, `exceptionFollowupFacts` (serbest döngü çipi) ve
+  `opDrillSkippedForErrorAsk` AYNI kümeden seçer → çip ile cevap aynı grubu söyler; diğer gruplar ≤3 çip, aynı sıra.
+- Gösterim: model özeti ve adım çipindeki "en yeni 5" listesi DEĞİŞMEDİ (başlık "en yeni önce" dürüst kalır); cevap,
+  künye, grup linki seçilen grubu söyler. Havuz okunduysa `exception_explain` adım argümanına `candidates` eklenir.
+- Düşüş: `More == 0` (gösterilen zaten tam küme), soru hata-neden değil, liste okunamadı ya da havuz okunamadı →
+  `explainPool` nil → seçim, adım argümanları ve akış bayt bayt 1399. Önbellek anahtarı içerik tabanlı
+  (`explainCacheKey(system, in.User, "")` — farklı grup farklı girdi), sürüm artışı gerekmedi.
+- Değişmeyenler: prompts.go sabitleri, MCP araç sayısı (74), api.go, CH şeması, frontend,
+  `TestChatTierOrderIsPinned` / `TestOpExceptionExplainTierPinned`.
+- Testler: `internal/api/chat_exception_explain_pool_test.go` (5'in dışındaki eski P1 seçilir; eşitlikler; ignored /
+  resolved dışarıda; nil havuz = bugünkü seçim; çip olguları = seçim sırası; süzgeç pini; okuma hatası düşer; sohbet
+  turunda künye/link/çipler seçilen grupla, havuzsuz adım argümanları bayt bayt eski).

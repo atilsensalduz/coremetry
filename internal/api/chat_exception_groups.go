@@ -122,13 +122,20 @@ func (s *Server) exceptionGroupsEvidence(ctx context.Context, sc exScope) except
 	}
 	// v0.10.1369 — örnekler Tempo kararından geçer (exception_sample_tempo.go):
 	// CH'de olmayıp Tempo'da bulunan id artık "Coremetry'de yok" sayılmaz.
-	return collectExceptionGroups(ctx, tempoMarkedSamples{exGroupsReader: s.store, mark: s.withTempoSampleTraces}, sc, exGroupHooks{
+	return collectExceptionGroups(ctx, tempoMarkedSamples{exGroupsReader: s.store, mark: s.withTempoSampleTraces}, sc, serverExGroupHooks())
+}
+
+// serverExGroupHooks — sunucunun gerçek kancaları (öncelik merdiveni + Oracle
+// istatistik önbelleği; ikisi de CH okuması yapmaz). v0.10.1411 — açıklama
+// aday havuzu (chat_operation_exception_explain.go) aynı kancaları kullanır.
+func serverExGroupHooks() exGroupHooks {
+	return exGroupHooks{
 		priority: exceptionPriority,
 		oracleInfo: func(g chstore.ExceptionGroup) *chstore.OracleGroupInfo {
 			st, ok := oracleGroupStats(g)
 			return oracleGroupInfoFrom(g, st, ok, exGroupServicesMax)
 		},
-	})
+	}
 }
 
 func lookbackSeconds(sc exScope) int64 {
