@@ -8459,3 +8459,24 @@ atlama kararı da aynı 5'li kümeden seçiyordu.
 - Testler: `internal/api/chat_exception_explain_pool_test.go` (5'in dışındaki eski P1 seçilir; eşitlikler; ignored /
   resolved dışarıda; nil havuz = bugünkü seçim; çip olguları = seçim sırası; süzgeç pini; okuma hatası düşer; sohbet
   turunda künye/link/çipler seçilen grupla, havuzsuz adım argümanları bayt bayt eski).
+
+## 2026-10-20 — v0.10.1412 — ClickHouse DateTime bağlama hatası
+
+- Kuyruk (2026-10-19): "CH DateTime parse error in the demo stack"; tam metin kaydedilmemişti, demo yığını şu an
+  ayakta değil (yalnız duraklatılmış minikube) → canlı repro yok. Statik tarama tek çağrı noktası buldu:
+  `chstore.RefreshOperationCatalog` (v0.10.1191/1207, worker:operation-catalog tiki).
+- Kök neden: tek bir `chDateTime64Arg` (nanosaniye kesirli) değeri üç INSERT…SELECT'e bağlanıyordu. İkisi
+  `operation_summary_5m` / `spanmetrics_1m`'in `time_bucket`'ını okur — toStartOfInterval MV'si, düz `DateTime`;
+  CH kesirli dizgeyi code 53 ile reddeder (v0.9.581'in birebir sınıfı: "Cannot convert string … to type DateTime").
+  Sonuç: span + endpoint kataloğu hiç tazelenmiyordu; yalnız Oracle yarısı (`oracle_error_log.time` DateTime64(9))
+  doğru biçimi alıyordu.
+- Düzeltme: `operationCatalogBounds(now)` SAF — `time_bucket` için `chDateTimeArg`, Oracle `time` için
+  `chDateTime64Arg`. Şema, SQL metni, API, MCP (74), frontend değişmedi.
+- Neden eski kapı kaçırdı: `TestNoDateTime64BindAgainstTimeBucket` yalnız `time_bucket >= ?` satırının 25 satır
+  altına bakıyor; burada SQL uzak bir paket sabiti, bağlama yerel bir değişken. Yeni kapı AST ile iki ucu çözer:
+  Exec/Query/QueryRow'un SQL argümanı (literal, paket sabiti, `+`, paket fonksiyonunun literalleri) ve
+  `chDateTime64Arg`'dan atanmış yerel adlar / dilimler. Düzeltmeden önce tam bu iki satırı buldu, paketin geri
+  kalanı temiz.
+- Testler: `internal/chstore/chtime_bind_ast_test.go` (AST kapısı + çözücünün sabit SQL'i gerçekten gördüğü pini),
+  `internal/chstore/chtime_format_test.go` (iki biçimleyici tablo testi: ns/µs/ms/tam saniye/kesme-yuvarlama yok/
+  UTC dışı; `operationCatalogBounds` tablosu).

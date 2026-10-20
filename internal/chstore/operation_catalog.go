@@ -57,19 +57,31 @@ func oracleOperationCatalogSQL(nCodeSources int) string {
 	SETTINGS max_execution_time = 25`
 }
 
+// operationCatalogBounds — v0.10.1412 ("CH DateTime parse error in the demo
+// stack") SAF: pencere tabanının İKİ biçimi. Span ve endpoint sorguları
+// toStartOfInterval MV'lerinin time_bucket'ını (düz DateTime) okur →
+// kesirsiz chDateTimeArg; Oracle sorgusu oracle_error_log.time'ı
+// (DateTime64(9)) okur → chDateTime64Arg. Eskiden üçü de chDateTime64Arg
+// alıyordu; CH span tarafını her tikte code 53 ile reddediyordu ("Cannot
+// convert string '… .123456' to type DateTime") ve katalog tazelenmiyordu.
+func operationCatalogBounds(now time.Time) (bucketFrom, timeFrom string) {
+	from := now.Add(-operationCatalogWindow)
+	return chDateTimeArg(from), chDateTime64Arg(from)
+}
+
 // RefreshOperationCatalog — iki kaynağı yeniden yazar; Oracle tablosu yoksa
 // (kaynak yapılandırılmamış) yalnız span tarafı (oracleErr döner, span yazıldı).
 func (s *Store) RefreshOperationCatalog(ctx context.Context, codeSources []string, now time.Time) (spanErr, oracleErr error) {
-	from := chDateTime64Arg(now.Add(-operationCatalogWindow))
-	spanErr = s.conn.Exec(ctx, spanOperationCatalogSQL, from)
-	if err := s.conn.Exec(ctx, endpointCatalogSQL, from); err != nil && spanErr == nil {
+	bucketFrom, timeFrom := operationCatalogBounds(now)
+	spanErr = s.conn.Exec(ctx, spanOperationCatalogSQL, bucketFrom)
+	if err := s.conn.Exec(ctx, endpointCatalogSQL, bucketFrom); err != nil && spanErr == nil {
 		spanErr = fmt.Errorf("endpoint catalog: %w", err)
 	}
 	args := make([]any, 0, len(codeSources)+1)
 	for _, id := range codeSources {
 		args = append(args, id)
 	}
-	args = append(args, from)
+	args = append(args, timeFrom)
 	oracleErr = s.conn.Exec(ctx, oracleOperationCatalogSQL(len(codeSources)), args...)
 	return spanErr, oracleErr
 }
