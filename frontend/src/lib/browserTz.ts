@@ -42,8 +42,3 @@ export function withTzQuery(path: string, t: BrowserTz = browserTz()): string {
   if (!q) return path;
   return path + (path.includes('?') ? '&' : '?') + q;
 }
-
-/** JSON gövdesine giren alanlar — sıfır/boş olanlar atlanır (sohbet bağlamıyla aynı kural). */
-export function tzBodyFields(t: BrowserTz = browserTz()): Partial<BrowserTz> {
-  return { ...(t.tzOffsetMin !== 0 ? { tzOffsetMin: t.tzOffsetMin } : {}), ...(t.tz ? { tz: t.tz } : {}) };
-}

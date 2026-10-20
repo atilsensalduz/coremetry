@@ -66,16 +66,6 @@ export const STORAGE_KEYS = {
   // değil: operatör bunu bir kez kapatıp her trace'te yeniden kapatmakla
   // uğraşmasın (svcHeatmapCollapsed emsali).
   traceShowGrpcMsgs:   'trace.logs.grpcmsgs',
-  // v0.9.1238 — "Kodu da incele" (CopilotExplain). Operatörün SON
-  // açık tercihi; AI çekmecesi her özne için yeni bir mount kurduğundan
-  // (AIDrawer `key`) tercih aksi hâlde her açılışta unutuluyordu ve
-  // auto-koşu İLK turu her seferinde kodsuz atıyordu — kutuyu yeniden
-  // işaretleyen operatör aynı soruya İKİNCİ bir yerel LLM turu ödüyordu.
-  //
-  // Hatırlamak, VARSAYILANI AÇMAK DEĞİLDİR: anahtar yokken değer
-  // false kalır (v0.9.831'in bilinçli maliyet kararı — kod okumak bir
-  // depo listelemesi + dosya çekmesi demek).
-  aiIncludeCode:    'cm.ai.includeCode',
   // v0.10.432 (CoSRE router boşlukları D8) — trace ilk açılış baloncuğu
   // ("Bu trace'i açıklamamı ister misin?"). declined = kalıcı ret
   // (localStorage: "Bir daha sorma" bir daha sormaz); asked =

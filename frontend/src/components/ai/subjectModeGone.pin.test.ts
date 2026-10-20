@@ -10,6 +10,8 @@
 //   - CopilotChat'te özne-kipi dalı / açıklama-kipi bağlamı yok, ?ai= niyeti
 //     her türde tek seferlik sohbet turu;
 //   - silinen ✨ istemci yöntemleri api.ts'e geri gelmedi.
+// v0.10.1413 — kipten kalan ölü kod da silindi (useChatThread seed / title /
+// persistContext / adopt, kayıtlı-bağlam şeridi, ölü yardımcılar); ikinci describe.
 // Davranış yarısı: explainTurn.test.ts ("her ?ai= türü bir sohbet turu"),
 // CopilotChat.explainTurn.test.tsx, CopilotChat.explainCards.test.tsx.
 import { describe, it, expect } from 'vitest';
@@ -93,5 +95,28 @@ describe('çekmece özne kipi silindi (v0.10.1407)', () => {
   it('satır ✨ kapısı (useInAiDrawer) kalktı: sohbet içinde de görünür', () => {
     const hits = FILES.filter(f => !/\.test\.tsx?$/.test(f.rel) && /\b(useInAiDrawer|useRowExplain)\(/.test(f.src)).map(f => f.rel);
     expect(hits).toEqual([]);
+  });
+});
+
+// v0.10.1413 — özne kipinin geride bıraktığı ölü kod. Yalnız üretim dosyaları
+// taranır (pin dosyaları adları anmak zorunda).
+describe('özne kipinden kalan ölü kod silindi (v0.10.1413)', () => {
+  const PROD = FILES.filter(f => !/\.test\.tsx?$/.test(f.rel));
+
+  it('useChatThread: seed / title / persistContext / adopt yok', () => {
+    const h = read('components/ai/useChatThread.ts');
+    expect(h).not.toMatch(/\bseed\?:|\btitle\?:|persistContext|\badopt\b/);
+    expect(h).not.toMatch(/o\.seed|optsRef\.current\.(title|subject|persistContext)/);
+  });
+
+  it('silinen yardımcılar hiçbir üretim dosyasında yok', () => {
+    expect(existsSync(join(SRC, 'lib/aiCodePref.ts'))).toBe(false);
+    const GONE_NAMES = /\b(capPageContext|traceContextFromPage|CONTEXT_SNAPSHOT_MAX_BYTES|aiSubjectSubtitle|oracleExplainLine|tzBodyFields|emitAiFocus|AI_FOCUS_EVENT|aiIncludeCode|readIncludeCodePref|writeIncludeCodePref)\b/;
+    expect(PROD.filter(f => GONE_NAMES.test(f.src)).map(f => f.rel)).toEqual([]);
+  });
+
+  it('kayıtlı-bağlam şeridi (saved / ai.ctx.saved) yok', () => {
+    expect(read('components/ai/TraceContextStrip.tsx')).not.toMatch(/\bsaved\b/);
+    expect(read('lib/i18n.ts')).not.toMatch(/'ai\.ctx\.saved'|'ai\.subject\.trace'/);
   });
 });

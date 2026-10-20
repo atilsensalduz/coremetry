@@ -11,23 +11,15 @@ import { useEffect, useRef } from 'react';
 // evidenceSpanIds'i waterfall satırlarını, explain-exception'ın
 // evidenceTraceIds'i örnek-trace satırlarını `.wf-evidence` ile kutular.
 export const AI_EVIDENCE_EVENT = 'coremetry:ai-evidence';
-export const AI_FOCUS_EVENT = 'coremetry:ai-focus';
 
 export type AIEvidenceDetail = { spanIds?: string[]; traceIds?: string[] };
-// Çekmecedeki kanıt satırına tıklama. v0.10.1033 — yalnız trace satırı kaldı
-// ("Kanıt span'leri" listesi ve Trace.tsx'in span-seçim dinleyicisi
-// useAiFocus kaldırıldı; operatör: "Kanıt span'lere gerek yok"). Exception
-// örnek satırı DOM üzerinden kaydırılır (scrollToAttr), dinleyici gerekmez.
-export type AIFocusDetail = { traceId?: string };
+// Kanıt satırına tıklama: v0.10.1033'ten beri dinleyicisi yok (useAiFocus
+// kaldırıldı); satır DOM üzerinden kaydırılır (scrollToAttr). v0.10.1413 —
+// dinleyicisiz `coremetry:ai-focus` olayı ve yayıcısı da silindi.
 
 export function emitAiEvidence(detail: AIEvidenceDetail) {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent(AI_EVIDENCE_EVENT, { detail }));
-}
-
-export function emitAiFocus(detail: AIFocusDetail) {
-  if (typeof window === 'undefined') return;
-  window.dispatchEvent(new CustomEvent(AI_FOCUS_EVENT, { detail }));
 }
 
 // v0.10.1336 — rehberli tur adım 5: CoSRE çekmecesini AÇ + composer'ı

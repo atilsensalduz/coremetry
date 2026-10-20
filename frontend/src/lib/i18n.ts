@@ -219,8 +219,6 @@ const EN: Catalog = {
   'ai.askCosreLogSpikeHint': 'Ask CoSRE · log spike — explain this log increase.',
   // v0.10.1367 — Endpoint detay / arama endpoint sonucu: tek tık "Ask CoSRE".
   'ai.askCosreEndpointHint': 'Ask CoSRE · endpoint — what is happening, since when, where the time goes, which errors.',
-  // v0.10.948 (CoSRE Faz B) — çekmece başlığının trace alt satırı: "Ask CoSRE · trace <kısa kimlik>".
-  'ai.subject.trace':     'trace',
 
   // v0.10.944 (CoSRE Faz A) — çekmecenin "Bağlam" şeridi: sohbetin hangi
   // trace/span/servis/ortam/cluster/namespace ve pencereye kapsandığı.
@@ -232,7 +230,6 @@ const EN: Catalog = {
   'ai.ctx.env':       'Env',
   'ai.ctx.clusterNs': 'Cluster / namespace',
   'ai.ctx.window':    'Window',
-  'ai.ctx.saved':     'Saved with the conversation — the live page may differ.',
 
   // v0.10.1128 — empty CoSRE chat: "what I can do" hint (drawer + /cosre).
   // `|` in a prompt marks where the caret lands (the user types the name).
@@ -526,7 +523,6 @@ const TR: Catalog = {
   'ai.askCosreLogHint':      'CoSRE’ye sor · log — bu log satırını açıkla.',
   'ai.askCosreLogSpikeHint': 'CoSRE’ye sor · log artışı — bu log artışını açıkla.',
   'ai.askCosreEndpointHint': 'CoSRE’ye sor · endpoint — ne oluyor, ne zamandan beri, süre nereye gidiyor, hangi hatalar.', // v0.10.1367
-  'ai.subject.trace':     'trace',
 
   'ai.ctx.label':     'Bağlam',
   'ai.ctx.aria':      'CoSRE sohbet bağlamı',
@@ -536,7 +532,6 @@ const TR: Catalog = {
   'ai.ctx.env':       'Ortam',
   'ai.ctx.clusterNs': 'Cluster / namespace',
   'ai.ctx.window':    'Pencere',
-  'ai.ctx.saved':     'Konuşmayla kaydedilen bağlam — canlı sayfa farklı olabilir.',
 
   'cosre.cap.aria':             'CoSRE neler yapabilir',
   'cosre.cap.tryHint':          'Kutuya örnek bir soru yazar — düzenleyip gönder',
@@ -701,8 +696,8 @@ export function useLang(): Lang {
   const brand = useBranding();
   const userLang = useUserLang();
   const lang = userLang ?? (brand.language === 'tr' ? 'tr' : 'en');
-  // v0.10.948 — hook DIŞI metin üreticileri (aiSubjectTitle: çekmece başlığı
-  // ve Geçmiş satırı) için son çözülen dil. İdempotent önbellek: aynı girdi
+  // v0.10.948 — hook DIŞI metin üreticileri (aiSubjectTitle) için son
+  // çözülen dil. İdempotent önbellek: aynı girdi
   // aynı değeri yazar, render saflığını bozmaz.
   lastResolvedLang = lang;
   return lang;

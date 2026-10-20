@@ -182,12 +182,11 @@ describe('useChatThread — yapısal kapsam yükü (3)', () => {
   it('yeniden yükleme sonrası yeniden üret: "/rca @svc-orders" komut + kapsamla gider', async () => {
     const { calls } = stubChat();
     vi.spyOn(api, 'saveAiConversation').mockResolvedValue({ id: 'C1', title: 't', updatedAt: 1, messages: [] });
+    vi.spyOn(api, 'aiConversation').mockResolvedValue({ id: 'C1', title: 't', updatedAt: 1, messages: [
+      { role: 'user', text: '/rca @svc-orders' }, { role: 'assistant', text: 'eski cevap' },
+    ] } as AiConversation);
     await mountProbe();
-    await act(async () => {
-      thread.adopt({ id: 'C1', title: 't', updatedAt: 1, messages: [
-        { role: 'user', text: '/rca @svc-orders' }, { role: 'assistant', text: 'eski cevap' },
-      ] } as AiConversation);
-    });
+    await act(async () => { await thread.load('C1'); });
     await act(async () => { thread.regenerate(); });
     await act(async () => { await Promise.resolve(); });
     expect(calls).toHaveLength(1);

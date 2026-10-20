@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   formatAiParamForUrl, aiSelfParam,
-  formatAiParam, parseAiParam, aiSubjectTitle, aiSubjectSubtitle, aiSubjectTopic,
+  formatAiParam, parseAiParam, aiSubjectTitle, aiSubjectTopic,
   AI_KINDS, CHART_SCOPES, chartScopeLabel, type AISubject,
 } from './aiSubject';
 
@@ -123,8 +123,8 @@ describe('parseAiParam — reddedilenler', () => {
 describe('trace başlığı i18n (v0.10.948)', () => {
   const tr = { kind: 'trace', id: '0af7651916cd43dd8448eb211c80319c' } as const;
   it('açık dil', () => {
-    expect(`${aiSubjectTitle(tr, 'tr')} · ${aiSubjectSubtitle(tr, 'tr')}`).toBe('CoSRE’ye sor · trace 0af7651916cd43dd…');
-    expect(`${aiSubjectTitle(tr, 'en')} · ${aiSubjectSubtitle(tr, 'en')}`).toBe('Ask CoSRE · trace 0af7651916cd43dd…');
+    expect(aiSubjectTitle(tr, 'tr')).toBe('CoSRE’ye sor');
+    expect(aiSubjectTitle(tr, 'en')).toBe('Ask CoSRE');
   });
   it('öteki türler', () => {
     // v0.10.1338 — span de artık "CoSRE’ye sor" (aşağıdaki describe).
@@ -182,15 +182,6 @@ describe('başlık yardımcıları', () => {
     for (const c of CASES) {
       expect(aiSubjectTitle(c.subject).length).toBeGreaterThan(0);
     }
-  });
-  it('uzun id kısaltılır, servis adı olduğu gibi kalır', () => {
-    // v0.10.948 — trace alt satırı "trace <kısa kimlik>" (başlık "CoSRE’ye sor · trace …").
-    expect(aiSubjectSubtitle({ kind: 'trace', id: 'a'.repeat(32) })).toBe(`trace ${'a'.repeat(16)}…`);
-    expect(aiSubjectSubtitle({ kind: 'problem', id: 'b'.repeat(32) })).toBe(`${'b'.repeat(16)}…`);
-    expect(aiSubjectSubtitle({ kind: 'service-health', id: 'checkout-service-long', fromNs: 1, toNs: 2 }))
-      .toBe('checkout-service-long');
-    expect(aiSubjectSubtitle({ kind: 'span', id: 'trace-1', spanId: 'span-2' }))
-      .toBe('trace-1 · span span-2');
   });
 });
 
@@ -342,7 +333,6 @@ describe('log-spike öznesi', () => {
   it('başlık + alt satır', () => {
     const s: AISubject = { kind: 'log-spike', id: '', fromNs: 5, toNs: 9, mode: 'sel', env: '', q: '', level: 'error' };
     expect(aiSubjectTitle(s, 'tr')).toBe('CoSRE’ye sor'); // v0.10.1338 — konu: 'Log artışını açıkla'
-    expect(aiSubjectSubtitle(s, 'tr')).toBe('tüm servisler · seçili aralık · ERROR');
   });
 });
 
@@ -370,7 +360,6 @@ describe('log öznesi', () => {
   it('başlık + alt satır', () => {
     const s: AISubject = { kind: 'log', id: 'checkout', tsNs: '1', pod: 'checkout-7f9', traceId: '', hash: '0000abcd' };
     expect(aiSubjectTitle(s, 'tr')).toBe('CoSRE’ye sor'); // v0.10.1338 — konu: 'Log satırını açıkla'
-    expect(aiSubjectSubtitle(s, 'tr')).toBe('checkout · checkout-7f9');
   });
 });
 
@@ -395,7 +384,5 @@ describe('endpoint öznesi (v0.10.1367)', () => {
     expect(aiSubjectTitle(s, 'tr')).toBe('CoSRE’ye sor');
     expect(aiSubjectTitle(s, 'en')).toBe('Ask CoSRE');
     expect(aiSubjectTopic(s)).toBe('Endpoint analizi');
-    expect(aiSubjectSubtitle(s)).toBe('GET /cart · shop-api');
-    expect(aiSubjectSubtitle({ ...s, method: undefined })).toBe('/cart · shop-api');
   });
 });

@@ -165,14 +165,11 @@ describe('T10 — tek çerçeve', () => {
     expect(body, 'zemin bg1 kalmalı (sticky başlık/kolon opaklığı)').not.toMatch(/background/);
   });
 
-  it('istisna: AI cevap kartındaki markdown tablosu çerçeveli (de-frame listesinden SONRA)', () => {
-    /* v0.10.933 (tablo standardı T10) — tonlu kart yüzey değil; aynı özgüllük, sıra kazanır. */
-    const body = bodyOf('.ai-answer-card .table-wrap');
-    expect(body).toMatch(/border:\s*1px solid var\(--border\)/);
-    expect(body).toMatch(/border-radius:\s*var\(--radius-sm\)/);
-    for (const host of HOSTS) {
-      expect(indexOf('.ai-answer-card .table-wrap'), host).toBeGreaterThan(indexOf(`${host} .table-wrap`));
-    }
+  // v0.10.1413 — `.ai-answer-card` (v0.10.933 T10 istisnası) kartın son çizeni
+  // CopilotExplain ile v0.10.1407'de gitti; kural ve bu pin silindi. Sohbet
+  // markdown tablosunun çerçevesi chatTableWrap.pin.test.ts'te.
+  it('.ai-answer-card kuralı geri gelmedi', () => {
+    expect(CSS).not.toMatch(/\.ai-answer-card\b/);
   });
 
   it('sayfadaki .table-wrap çerçevesini korur', () => {

@@ -162,7 +162,7 @@ describe('ChatBubble — yazma efekti', () => {
 describe('ExplainBody — tek seferde gelen açıklama', () => {
   const answer = `Olası neden: ledger-writer v2.14.0 deploy sonrası hata oranı arttı. Kanıt: deploy 13:52 sonrası 5xx.\n\n${LONG}`;
   it('Karar kartı TAM metinden hemen; gövde açılır; tıkla-bitir', async () => {
-    await render(<div className="ai-answer-card"><ExplainBody text={answer} busy={false} revealAt={now} /></div>);
+    await render(<div><ExplainBody text={answer} busy={false} revealAt={now} /></div>);
     expect(host.querySelector('.cx-verdict')?.textContent).toContain('ledger-writer v2.14.0');
     expect(host.textContent).not.toContain('kelime119');
     expect(host.querySelector('.ai-reveal .cm-ai-cursor')).toBeTruthy();

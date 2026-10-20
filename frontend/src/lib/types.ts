@@ -7964,10 +7964,10 @@ export interface AiConversation {
   title: string;
   updatedAt: number;
   subject?: string;
-  // v0.10.944 (CoSRE Faz A) — konuşmanın BAĞLAM anlık görüntüsü (≤2 KB;
-  // trace çekmecesinde trace/span/servis/env/cluster/namespace/pod + trace
-  // penceresi). Geçmişten yeniden açılınca şerit bunu gösterir. Go aynası:
-  // internal/api/ai_conversations.go aiChatBlob.Context (agentctx.PageContext).
+  // v0.10.944 (CoSRE Faz A) — konuşmanın BAĞLAM anlık görüntüsü (≤2 KB). Go
+  // aynası: internal/api/ai_conversations.go aiChatBlob.Context
+  // (agentctx.PageContext). v0.10.1413 — FE artık yazmıyor ve okumuyor (eski
+  // çekmece konuşmalarında sunucu döndürür).
   context?: PageContext;
   messages: ChatMessage[];
 }

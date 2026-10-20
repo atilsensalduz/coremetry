@@ -4,7 +4,6 @@ import { appendChatBlock } from '@/lib/chatBlocks';
 import { isSafeAppPath } from '@/lib/safeAppPath';
 import type { AiConversation, ChatAttempt, ChatExplainAsk, ChatSendWindow, PageContext } from '@/lib/types';
 import type { ChatMessage, ChatTurn } from '@/lib/types';
-import { capPageContext } from '@/lib/traceAiContext';
 import { isAbortError, settleStoppedTurn, settleTruncatedTurn } from './chatAbort';
 import { failedQuestion, dropFailedTail } from './chatRetry';
 import { prevWikiRefs } from './chatWikiRefs';
@@ -19,29 +18,17 @@ import {
 } from './chatPersist';
 
 // useChatThread — sohbet turlarının state'i + gönderme döngüsü
-// (v0.9.479). CopilotChat.tsx'in içinden çıkarıldı; AI çekmecesindeki
-// sohbet AYNI çekirdeği kullanır (ikinci bir chat implementasyonu yok).
-// Yüzeyler yalnız KABUKTA ayrışır: global pencere sağ-alt FAB + kendi
-// drawer'ı, çekmece sohbeti ise açıklamanın altındaki bölüm.
+// (v0.9.479). CopilotChat.tsx'in içinden çıkarıldı; tek tüketicisi
+// CopilotChat (v0.10.1407 çekmece özne kipini sildi — ikinci sohbet yok).
 //
 // Her gönderimde tüm geçmiş /api/copilot/chat'e postlanır, SSE tüketilir.
 //
 // v0.9.1139 (Faz 4.1) — konuşma artık `persist: true` ile KALICI:
 // tamamlanan her alışverişten sonra saved_views(page='ai-chat') satırına
 // yazılır (POST /api/ai/conversations). Kimliği SUNUCU basar, istemci
-// yanıttan devralır ve sonraki yazımlarda taşır.
-//
-// v0.10.55 (operatör ürün kararı) — kalıcılık artık AI çekmecesine de
-// AÇIK: "Chat'te devam et" sohbeti de saved_views(page='ai-chat')
-// satırına yazılıyor, aynı "🕘 Geçmiş" listesinde CoSRE penceresiyle
-// yan yana görünür. v0.9.1139'daki "NPE fp-abc123 kabuğu" kaygısı iki
-// yerde zaten karşılanıyor: (1) başlık ÖZNE kodeğinden değil, ekrandaki
-// gerçek ilk kullanıcı mesajından türüyor (resolveChatTitle, backend) —
-// çekmece çağrısı ayrıca AÇIK bir `title` de basıyor (AIDrawer.tsx,
-// aiSubjectTitle+aiSubjectSubtitle) ki thread listede "Explain trace ·
-// a1b2c3d4…" gibi tanınabilir dursun; (2) tek-mesajlık boş açıklama
-// turları zaten arşive girmiyor — hasCompletedExchange en az bir takip
-// sorusu + tamamlanmış cevap şart koşuyor.
+// yanıttan devralır ve sonraki yazımlarda taşır. Başlık ekrandaki ilk
+// kullanıcı mesajından türer (resolveChatTitle, backend); tek-mesajlık boş
+// turlar arşive girmez (hasCompletedExchange).
 //
 // Kaydetme HİÇBİR ZAMAN gönderme yolunu bloklamaz: ateşle-ve-unut,
 // hatası yutulur (sonraki tur zaten tüm geçmişi yeniden yazacak).
@@ -57,17 +44,12 @@ export interface ChatThreadOpts {
   // narration bloğuna katar; boşken tüm davranış global chat'inkiyle
   // aynıdır (internal/api/copilot_drawer.go).
   explain?: string;
-  // subject (v0.9.482) — çekmecenin öznesi, `?ai=` kodeği biçiminde
+  // subject (v0.9.482) — açıklanan özne, `?ai=` kodeği biçiminde
   // (formatAiParam). Sunucu bundan ilgili explain'in HAM KANITINI
   // (trace span'leri + ilişkili loglar / exception paketi) yeniden kurar;
   // açıklamanın metni takip sorularına yetmiyordu (operatör raporu).
-  // Global sohbette YOKTUR — orada guided/tool yolları veriyi kendi çeker.
+  // v0.10.1400'den beri yalnız resolveOpts (son açıklama turu) doldurur.
   subject?: string;
-  // seed (v0.9.479) — tele giden ama EKRANDA ÇİZİLMEYEN ön turlar.
-  // Çekmece, öznesinin doğal sorusunu buraya koyar: sunucudaki
-  // takip-devralma (v0.9.410) onu "önceki soru" olarak görür, böylece
-  // "peki hata logları?" gibi takipler guided router'da servise oturur.
-  seed?: ChatMessage[];
   // rangeS (v0.9.529) — EKRANDAKİ zaman aralığı, saniye. Soru açık bir
   // pencere taşımıyorsa sunucu sabit 30dk yerine bunu kullanır; soru
   // pencere taşıyorsa ("son 24 saatte…") soru kazanır.
@@ -81,15 +63,8 @@ export interface ChatThreadOpts {
   trace?: string;
   // env (v0.9.1259) — Topbar'daki global env seçimi (rangeS aynası).
   env?: string;
-  // persist (v0.9.1139) — konuşma sunucuda saklansın mı. Global CoSRE
-  // penceresi ve (v0.10.55'ten beri) AI çekmecesi ikisi de true.
+  // persist (v0.9.1139) — konuşma sunucuda saklansın mı (CoSRE penceresi: true).
   persist?: boolean;
-  // title (v0.10.55) — kalıcı satır için AÇIK başlık. Boşsa backend ilk
-  // kullanıcı mesajından türetir (global CoSRE'nin bugüne kadarki
-  // davranışı); çekmece bunu ÖZNEYE göre basıyor (aiSubjectTitle +
-  // aiSubjectSubtitle) ki "Geçmiş" listesinde hangi trace/span/problem
-  // olduğu takip sorusunun lafından değil, açıklamanın öznesinden okunsun.
-  title?: string;
   /** v0.10.183 — istek başına model profili; boş = sunucu varsayılanı / yüzey eşlemesi */
   profile?: string;
   /** v0.10.1150 — "Derin düşün" (composer hapı, deepThink.ts); açıkken context.deep: true. */
@@ -97,12 +72,6 @@ export interface ChatThreadOpts {
   /** v0.10.539 — sayfa bağlamı (lib/pageContext, her turda) ve sabitlenmiş bağlam. */
   page?: PageContext;
   pinnedPage?: PageContext;
-  // persistContext (v0.10.944, CoSRE Faz A) — konuşmayla SAKLANAN bağlam
-  // anlık görüntüsü (≤2 KB, capPageContext). Çekmece trace öznesinde
-  // trace/span/servis/env/cluster/namespace/pod + pencereyi koyar; geçmişten
-  // yeniden açılınca şerit bunu gösterir. Boşsa sunucu satırdaki mevcut
-  // görüntüyü KORUR (ai_conversations.go) — gönderilmemesi silmek değildir.
-  persistContext?: PageContext;
   /**
    * v0.10.1138 — sunucu açık profil seçimini reddetti (400 profile_unknown /
    * 403 profile_forbidden). Kabuk seçimi varsayılana döndürür; tur hatası
@@ -179,11 +148,8 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
   //
   // v0.10.944 — kaydetme gövdesi `saveNow`a ayrıldı: anlık görüntü + kimlik
   // ÇAĞRI ANINDA okunur, yanıtın kimliği yalnız arada konuşma DEĞİŞMEDİYSE
-  // (genRef: adopt/clear her geçişte artırır) devralınır. Eskiden adopt
-  // bekleyen zamanlayıcıyı yalnız iptal ediyordu: çekmecenin devralma
-  // effect'i akış bitince (busy=false) koşup send'in finally'de kurduğu
-  // 600 ms'lik kaydı siliyordu → önceki konuşmanın SON alışverişi hiç
-  // yazılmıyordu. Artık geçişte bekleyen kayıt İPTAL değil, hemen yazılır.
+  // (genRef: load/clear her geçişte artırır) devralınır. Geçişte bekleyen
+  // kayıt İPTAL değil, hemen yazılır (önceki konuşmanın son alışverişi).
   const genRef = useRef(0);
   // v0.10.1139 — strict: hata yutulmaz, reddedilir ("Tam sayfada aç" kayıt
   // başarısızken gezinmemeli). Arka plan kaydı (schedulePersist) yine sessiz.
@@ -193,12 +159,9 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
     const gen = genRef.current;
     return api.saveAiConversation({
       id: convIdRef.current ?? undefined,
-      title: optsRef.current.title || undefined,
-      subject: optsRef.current.subject || undefined,
-      context: capPageContext(optsRef.current.persistContext) ?? undefined, // v0.10.944
       messages: persistMessages(snapshot),
     }).then(c => {
-      // Arada başka konuşmaya geçildiyse (adopt/clear) yeni kimlik korunur.
+      // Arada başka konuşmaya geçildiyse (load/clear) yeni kimlik korunur.
       if (gen !== genRef.current) return c.id;
       // Kimliği SUNUCU basar. Aynı thread'e yazmaya devam etmek için
       // yanıttan devralıyoruz — silinmiş bir thread'e yazım sunucuda
@@ -250,7 +213,6 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
     // v0.10.1134 — önceki cevabın wiki sayfaları (geçmiş yalnız {role,text}).
     const wikiRefs = prevWikiRefs(turnsRef.current);
     const history: ChatMessage[] = [
-      ...(o.seed ?? []),
       // v0.10.63 — DURDURULAN TUR YARIM OLDUĞUNU SÖYLER.
       //
       // ⚠ `stopped` bayrağı burada DÜŞÜYORDU: yalnız {role,text} geçiyor.
@@ -400,18 +362,14 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
 
   // load — arşivden bir thread'i ekrana getirir. Akış sürerken
   // yüklemiyoruz: yarı yazılmış bir cevabın üstüne başka bir konuşmayı
-  // basmak, gelen SSE parçalarının yanlış thread'e yapışması demekti.
-  //
-  // v0.10.944 — iki yarıya ayrıldı: `adopt` elde OLAN bir konuşmayı ekrana
-  // koyar (çekmece, geçmişten açılan özneli thread'i kabuktan hazır alır —
-  // ikinci okuma yok); `load` okur + adopt eder ve konuşmayı DÖNDÜRÜR ki
-  // çağıran öznesini/bağlamını da kullanabilsin. Akış sürerken ikisi de
-  // reddeder (false/null).
+  // basmak, gelen SSE parçalarının yanlış thread'e yapışması demekti
+  // (okuma sırasında akış başladıysa da yüklenmez).
   // v0.10.944 — geçişte bekleyen kayıt İPTAL edilmez, önceki konuşmaya
   // HEMEN yazılır (saveNow kimliği/turları şimdi okur); sonra kuşak artar ki
-  // o kaydın yanıtı yeni konuşmanın kimliğini ezmesin. load ayrıca iptal
-  // etmiyor: adopt'un boşaltması tek yol.
-  const adopt = useCallback((c: AiConversation): boolean => {
+  // o kaydın yanıtı yeni konuşmanın kimliğini ezmesin.
+  const load = useCallback(async (id: string): Promise<boolean> => {
+    if (busyRef.current) return false;
+    const c: AiConversation = await api.aiConversation(id);
     if (busyRef.current) return false;
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
@@ -426,12 +384,6 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
     setConversationId(c.id);
     return true;
   }, [saveNow]);
-
-  const load = useCallback(async (id: string): Promise<AiConversation | null> => {
-    if (busyRef.current) return null;
-    const c = await api.aiConversation(id);
-    return adopt(c) ? c : null;
-  }, [adopt]);
 
   // Takip çipleri yalnız son tur TAMAMLANMIŞ bir asistan cevabıysa görünür.
   const last = turns[turns.length - 1];
@@ -500,5 +452,5 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
     return true;
   }, [send]);
 
-  return { turns, busy, send, retry, regenerate, editLast, stop, clear, load, adopt, flushSave, conversationId, last, showFollowups };
+  return { turns, busy, send, retry, regenerate, editLast, stop, clear, load, flushSave, conversationId, last, showFollowups };
 }

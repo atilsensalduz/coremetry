@@ -5,12 +5,11 @@
 //     `deployment.environment.name` `deployment.environment`tan önce gelir;
 //   - pencere trace'in tamamı; sohbet penceresi ±5 dk, geleceğe taşmaz;
 //   - `page` Go aynasının alan adlarıyla (traceId/spanId/timeRange custom);
-//   - anlık görüntü ≤2 KB; kayıtlı görüntüden şerit geri kurulur;
 //   - depo yalnız kendi trace'inin bağlamını verir.
 import { describe, it, expect, afterEach } from 'vitest';
 import {
-  TRACE_CHAT_PAD_MS, capPageContext, clearTraceAiContext, formatTraceWindow, getTraceAiContext,
-  publishTraceAiContext, traceChatContext, traceChatWindow, traceContextFromPage, traceContextToPage,
+  TRACE_CHAT_PAD_MS, clearTraceAiContext, formatTraceWindow, getTraceAiContext,
+  publishTraceAiContext, traceChatContext, traceChatWindow, traceContextToPage,
   type TraceCtxSpan,
 } from './traceAiContext';
 
@@ -126,36 +125,6 @@ describe('traceContextToPage + traceChatWindow', () => {
 
   it('pencere bilinmiyorsa null (sunucu kendi varsayılanında kalır)', () => {
     expect(traceChatWindow({ fromNs: 0, toNs: 0 }, Date.now())).toBeNull();
-  });
-});
-
-describe('kalıcı anlık görüntü', () => {
-  it('kayıtlı görüntüden şerit geri kurulur (span adı yok, kimlik var)', () => {
-    const ctx = traceChatContext(SPANS, { traceId: TRACE, spanId: 'pay00002' });
-    if (!ctx) throw new Error('bağlam kurulamadı');
-    const back = traceContextFromPage(traceContextToPage(ctx));
-    expect(back).toMatchObject({ traceId: TRACE, spanId: 'pay00002', service: 'payments', env: 'uat', fromNs: T0 });
-    expect(back?.spanName).toBeUndefined();
-    expect(traceContextFromPage({ page: 'home', path: '/' })).toBeNull();
-    expect(traceContextFromPage(null)).toBeNull();
-  });
-
-  it('≤2 KB: sığan olduğu gibi; taşan önce filtre/arama bırakır, sonra alan kırpar', () => {
-    const small = { page: 'trace' as const, path: '/trace', traceId: TRACE };
-    expect(capPageContext(small)).toEqual(small);
-    const big = {
-      page: 'traces' as const, path: '/traces', traceId: TRACE, search: 'x'.repeat(3000),
-      activeFilters: [{ k: 'service', op: '=', v: ['checkout'.repeat(50)] }],
-    };
-    const c = capPageContext(big);
-    expect(c?.search).toBeUndefined();
-    expect(c?.activeFilters).toBeUndefined();
-    expect(c?.traceId).toBe(TRACE);
-    const huge = { page: 'trace' as const, path: '/trace', service: 'ş'.repeat(3000) };
-    const h = capPageContext(huge);
-    expect([...(h?.service ?? '')].length).toBe(200);
-    expect(new TextEncoder().encode(JSON.stringify(h)).length).toBeLessThanOrEqual(2048);
-    expect(capPageContext(null)).toBeNull();
   });
 });
 

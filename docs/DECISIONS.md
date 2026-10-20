@@ -8480,3 +8480,49 @@ atlama kararı da aynı 5'li kümeden seçiyordu.
 - Testler: `internal/chstore/chtime_bind_ast_test.go` (AST kapısı + çözücünün sabit SQL'i gerçekten gördüğü pini),
   `internal/chstore/chtime_format_test.go` (iki biçimleyici tablo testi: ns/µs/ms/tam saniye/kesme-yuvarlama yok/
   UTC dışı; `operationCatalogBounds` tablosu).
+
+## 2026-10-20 — v0.10.1413 — Temizlik: çekmece özne kipinden kalan ölü kod
+
+v0.10.1407 çekmecenin özne kipini (AIDrawerBody / AIDrawer / CopilotExplain …) sildi; o kodun tek tüketicisi olduğu
+seçenekler, yardımcılar, CSS ve anahtarlar yerinde kalmıştı. Davranış değişikliği yok, şim yok (CLAUDE.md).
+
+- `useChatThread`: `seed` (çizilmeyen ön turlar), `title` (çekmecenin açık başlığı), `persistContext` (kayıtlı bağlam
+  görüntüsü) seçenekleri ve `adopt` dönüşü silindi — tek çağıran CopilotChat hiçbirini vermiyor/kullanmıyor (grep).
+  `adopt`'un gövdesi `load`'a katlandı (aynı sıra: okuma öncesi ve sonrası akış kapısı, bekleyen kaydı önceki
+  konuşmaya yazma, kuşak artışı); `load` artık `boolean` döner (dönüşü kimse okumuyordu). Kayıt gövdesi yalnız
+  `{id, messages}`: `subject` alanı üretimde hep boştu (CopilotChat `subject`'i yalnız `resolveOpts` ile, istek için
+  verir). `api.saveAiConversation` gövde tipi buna daraldı; sunucu alanları hâlâ kabul eder (eski istemci / MCP
+  sözleşmesi), gönderilmeyen alan satırdakini korur. `AiConversation.context/subject` tip alanları kaldı (sunucu eski
+  çekmece konuşmalarında döndürür).
+- Kayıtlı bağlam şeridi: `TraceContextStrip`'in `saved` prop'u + `ai.ctx.saved` anahtarı (EN/TR);
+  `lib/traceAiContext` `capPageContext` + `CONTEXT_SNAPSHOT_MAX_BYTES` (tek tüketici persistContext) ve
+  `traceContextFromPage` (1407 öncesinde de çağıranı yoktu; kayıtlı görüntüden şerit kurmak içindi).
+- `lib/aiCodePref.ts` (+ test) ve `STORAGE_KEYS.aiIncludeCode`: "Kodu da incele" tercihi; son importu CopilotExplain.
+- `lib/browserTz` `tzBodyFields`: tek çağıranı silinen `explainInit` (api.ts, 1407).
+- `lib/aiSubject` `aiSubjectSubtitle` (+ yerel `short`) ve `ai.subject.trace` (EN/TR): çekmece başlığının ikinci
+  satırı, çağıranı yok. `aiSubjectTitle` KALDI — `aiSubjectTopic`'in yedeği (KONU satırı, model bağlamı).
+- `features/anomalies/oracleGroup` `oracleExplainLine`: tek çağıranı silinen OracleExplainContextLine.
+- `aiEvents` `emitAiFocus` / `AI_FOCUS_EVENT` / `AIFocusDetail`: dinleyicisi (useAiFocus) v0.10.1033'te gitti,
+  ChatBubble'ın yayını boşa gidiyordu; kaydırma `scrollToAttr` ile aynen sürer.
+- CSS: `.ai-answer-card` + `.ai-answer-card .table-wrap` (son çizeni CopilotExplain; tek referans T10 pini ve bir
+  test sarmalayıcısı), `.cx-live` (CopilotExplain bekleme bloğu), `.cm-composer--inline` (AIDrawerBody composer'ı).
+  T10 pini "kural geri gelmedi" pinine döndü; useTypewriter testi düz `div` ile sarar.
+- Bilerek KALANLAR (kullanımda ya da emin olunamadı): HTTP `/api/copilot/explain-*` ve `/api/copilot/runbook/{id}`
+  uçları (ortak kurucular, evalset, sohbet kayıt tablosu); sunucuda konuşma `title`/`subject`/`context` işleme
+  (`ai_conversations.go`, wire sözleşmesi); `drawerChat.ts` (`buildExplainContext`, `aiSubjectQuestion`,
+  `drawerFollowups`, `endpointAskQuestion` — sohbet turu kullanıyor); `AI_DRAWER_WIDTH` (CopilotChat çekmecesi);
+  `aiSelfParam` ve `getTraceAiContext` (yalnız testte, ama özne kipinden önce de öyleydi — test dikişi);
+  `.cm-md-h1…h4` (ChatBubble şablonla basıyor). Özne kipiyle ilgisiz olup üretimde çağıranı olmayan ama bu dilime
+  alınmayanlar (kuyruk adayı): `AggregateFlame.tsx`, `ServiceAttrsPanel.tsx`, `lib/serviceHealth.ts`,
+  `lib/tableColumns.ts`, `lib/perf/*`, `AIExplainStreamAnswer` / `InsightSeverity` / `ClusterSourcesResponse` /
+  `ServiceEdgeStats` / `DeploymentReport` / `ArgoCDDiscoverError` tipleri, ~20 kullanılmayan `api.*` yöntemi
+  (ör. `copilotCompareTraces`, `linkAiConversation`, `unshareAiConversation`, `topologyFlows`), genel i18n anahtarları
+  (`btn.*`, `label.*`, `nav.*`, `sev.*`, `state.*`).
+- Değişmeyenler: Go kodu (sunucu tarafında yalnız silinen FE'nin çağırdığı işleyici yok), MCP araç sayısı (74),
+  api.go, prompts.go, CH şeması.
+- Testler: `chatThreadPersist.test.tsx` (title testi silindi; adopt senaryosu `load` ile: cevaptan hemen sonra
+  yüklenen konuşma önceki konuşmanın son alışverişini düşürmez, kimliği ezmez; akış sürerken `load` reddedilir),
+  `chatImprovements.test.tsx` (yeniden yükleme senaryosu `load` ile), `subjectModeGone.pin.test.ts` (ikinci describe:
+  seçenekler yok, silinen yardımcı adları üretim dosyalarında yok, `saved` / `ai.ctx.saved` / `ai.subject.trace`
+  yok); silinen: `aiCodePref.test.ts`, `capPageContext` / `traceContextFromPage` / `tzBodyFields` /
+  `oracleExplainLine` / `aiSubjectSubtitle` iddiaları.

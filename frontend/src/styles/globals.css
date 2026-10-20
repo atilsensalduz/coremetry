@@ -1380,11 +1380,6 @@ button.btn-chip-label:hover { background: transparent; color: var(--accent2); }
 .card .table-wrap, .card-static .table-wrap, .ov-card-b .table-wrap,
 .drawer-panel .table-wrap, .drawer-section .table-wrap,
 .modal-dialog .table-wrap { border: 0; border-radius: 0; }
-/* v0.10.933 (tablo standardı T10) — istisna: CoSRE markdown tablosu renkli
-   (accent %8) cevap kartının İÇİNDE; kart onu bir yüzey gibi çevrelemiyor,
-   çerçevesiz tablo tonlu zemine akıyordu. Aynı özgüllük (0,2,0), SONRA
-   geldiği için de-frame listesini (kart bir .card/çekmece içindeyken) yener. */
-.ai-answer-card .table-wrap { border: 1px solid var(--border); border-radius: var(--radius-sm); }
 
 /* v0.9.644 — YAPIŞKAN TABLO BAŞLIĞI, tablo başına OPT-IN.
    (denetim bulgusu #10: "sticky tablo başlığı yok VE .table-wrap
@@ -4953,12 +4948,6 @@ tr:hover .row-kiosk, .row-kiosk:focus-visible { opacity: 1; }
 .ai-ctx .chip { min-width: 0; max-width: 100%; }
 .ai-ctx .chip b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.ai-answer-card {
-  padding: var(--sp-6); border-radius: var(--radius-sm);
-  font-size: var(--fs-md); line-height: 1.5; color: var(--text);
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
-}
 .cx-verdict { margin: 0 0 8px; padding: 6px 10px; border-left: 3px solid var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; font-weight: 600; }
 .cx-verdict-k { display: inline-block; font-size: var(--fs-2xs); text-transform: uppercase; letter-spacing: .06em; color: var(--accent2); margin-right: 8px; font-weight: 700; }
 .cx-evidence { margin: 0 0 8px; font-size: var(--fs-xs); color: var(--text2); }
@@ -4969,10 +4958,6 @@ tr:hover .row-kiosk, .row-kiosk:focus-visible { opacity: 1; }
 .ls-explain__notes { margin: var(--sp-4) 0 0; padding-left: var(--sp-7); }
 .ls-explain__warn { margin-top: var(--sp-2); color: var(--warn); }
 .ls-explain__cta { color: var(--accent2); text-decoration: none; font-size: var(--fs-sm); }
-/* v0.10.948 — "CoSRE'ye sor" bekleme bloğu: yükleniyor işareti + Durdur.
-   v0.10.1065 — inceleme adım listesi (.cx-step*) ve kaynak durumu dipnotu
-   (.cx-sources) erişilemeyen inceleme hattıyla silindi. */
-.cx-live { display: grid; justify-items: center; gap: var(--sp-6); }
 
 /* v0.10.280 — /logs alan paneli tip rozeti (lib/logFieldTypes) */
 .lf-type {
@@ -5737,8 +5722,6 @@ tbody td.tpm-more-cell { color: var(--text2); }
 .cm-composer__empty { color: var(--text3); }
 .cm-composer__note { flex: 0 0 100%; display: flex; align-items: center; gap: var(--sp-2); padding-top: var(--sp-1); font-size: var(--fs-xs); color: var(--text3); }
 .cosre-root .cm-composer__note { font-size: var(--cosre-fs-meta); }
-/* ✨ Explain sohbeti: composer bölümün içinde (çekmece dibi dolgusu yok). */
-.cm-composer.cm-composer--inline, .cosre-root .cm-composer.cm-composer--inline { padding: 0; margin-top: var(--sp-5); }
 /* Kullanıcı turu da markdown (ChatMarkdown): hap içinde sıkı ritim. */
 .cm-md-user { min-width: 0; }
 .cm-md-user > :last-child, .cm-md-user .cm-md-p:last-child { margin-bottom: 0; }

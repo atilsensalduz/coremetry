@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest';
 import type { ExceptionGroup } from '@/lib/types';
 import {
   isOracleGroup, isSyntheticOracleService, oracleRowTitle, oracleRowDetail, oracleSourceName,
-  oracleChannelsText, oracleRowTooltip, parseOracleFacet, oracleFacetParam, oracleExplainLine,
+  oracleChannelsText, oracleRowTooltip, parseOracleFacet, oracleFacetParam,
   oracleFacetLabels, oracleInboxDetail,
 } from './oracleGroup';
 import { DEFAULT_BRANDING, oracleGroupLabelOf, resolveBranding } from '@/lib/branding';
@@ -71,15 +71,6 @@ describe('oracleGroup', () => {
     expect(parseOracleFacet('ONLY')).toBe('all');
     expect(oracleFacetParam('all')).toBeUndefined();
     expect(oracleFacetParam('only')).toBe('only');
-  });
-
-  // v0.10.1100 — AI paneli başlık satırı (kod çipi yerine).
-  it('AI paneli Oracle bağlam satırı', () => {
-    expect(oracleExplainLine(g().oracle, L)).toBe('Teknik hata · app-err · APP_ERR_001 · OP_TRANSFER');
-    expect(oracleExplainLine({ sourceName: ' ', code: 'APP_ERR_001', operation: '' }, L)).toBe('Teknik hata · APP_ERR_001');
-    expect(oracleExplainLine(undefined, L)).toBe('Teknik hata grubu');
-    expect(oracleExplainLine(null, 'DB hatası')).toBe('DB hatası grubu');
-    expect(oracleExplainLine(g().oracle, 'DB hatası')).toBe('DB hatası · app-err · APP_ERR_001 · OP_TRANSFER');
   });
 
   // v0.10.1108 — çip etiketleri + branding erişimcisi.

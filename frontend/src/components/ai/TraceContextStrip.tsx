@@ -2,30 +2,24 @@ import { useMemo } from 'react';
 import { useT } from '@/lib/i18n';
 import { formatTraceWindow, type TraceAiContext } from '@/lib/traceAiContext';
 
-// TraceContextStrip — v0.10.944 (CoSRE Faz A): CoSRE çekmecesinin "Bağlam"
-// şeridi (trace öznesi). Sohbetin HANGİ trace/span/servis/ortam/cluster/
-// namespace ve pencereye kapsandığını başlığın hemen altında gösterir;
-// eskiden yalnız "Explain trace · a1b2c3d4…" yazıyordu ve operatör takip
-// sorusunun hangi env'e bakacağını bilemiyordu.
+// TraceContextStrip — v0.10.944 (CoSRE Faz A): CoSRE sohbetinin "Bağlam"
+// şeridi (etkin trace açıklama turu). Sohbetin HANGİ trace/span/servis/ortam/
+// cluster/namespace ve pencereye kapsandığını gösterir; operatör takip
+// sorusunun hangi env'e bakacağını bilsin diye.
 //
-// Veri iki kaynaktan, bu sırayla: sayfanın yayınladığı CANLI bağlam
-// (lib/traceAiContext deposu) ya da konuşmayla kaydedilmiş anlık görüntü
-// (geçmişten açılan thread) — ikincisi ipucunda AÇIKÇA söylenir. Bilinmeyen
-// alan hiç çizilmez ("—" bile değil): şerit iddia değil, bilinenin listesi.
-// Öğeler mevcut `.chip` anatomisi; kap `.ai-ctx` (globals.css).
-export function TraceContextStrip({ traceId, ctx, saved }: {
+// Veri sayfanın yayınladığı CANLI bağlamdan (lib/traceAiContext deposu).
+// Bilinmeyen alan hiç çizilmez ("—" bile değil): şerit iddia değil, bilinenin
+// listesi. Öğeler mevcut `.chip` anatomisi; kap `.ai-ctx` (globals.css).
+export function TraceContextStrip({ traceId, ctx }: {
   traceId: string;
   ctx: TraceAiContext | null;
-  /** Bağlam canlı sayfadan değil, konuşmanın kayıtlı anlık görüntüsünden. */
-  saved?: boolean;
 }) {
   const tr = useT();
   const win = useMemo(() => (ctx ? formatTraceWindow(ctx.fromNs, ctx.toNs) : null), [ctx]);
   const clusterNs = [ctx?.cluster, ctx?.namespace].filter(Boolean).join(' / ');
   return (
-    <div className="ai-ctx" role="group" aria-label={tr('ai.ctx.aria')}
-      title={saved ? tr('ai.ctx.saved') : undefined}>
-      <span className="ai-ctx__cap">{tr('ai.ctx.label')}{saved ? ' ⟲' : ''}</span>
+    <div className="ai-ctx" role="group" aria-label={tr('ai.ctx.aria')}>
+      <span className="ai-ctx__cap">{tr('ai.ctx.label')}</span>
       <span className="chip" title={traceId}>
         <span className="k">{tr('ai.ctx.trace')}</span><b className="mono">{traceId.slice(0, 8)}</b>
       </span>

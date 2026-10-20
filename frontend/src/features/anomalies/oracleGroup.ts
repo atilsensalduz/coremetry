@@ -82,16 +82,6 @@ export function oracleRowTooltip(g: Pick<ExceptionGroup, 'type' | 'message' | 's
   return lines.join('\n');
 }
 
-/**
- * AI paneli başlık satırı (v0.10.1100): "<etiket> · <kaynak> · <kod> · <operasyon>".
- * Oracle grubunda stack yok — panel "Kodu da incele" yerine bu bağlamı gösterir.
- * Bilgi henüz yoksa (yükleniyor / 404) yalnız "<etiket> grubu" (v0.10.1108).
- */
-export function oracleExplainLine(info: Pick<OracleGroupInfo, 'sourceName' | 'code' | 'operation'> | null | undefined, label: string): string {
-  const parts = [info?.sourceName, info?.code, info?.operation].map(s => (s ?? '').trim()).filter(Boolean);
-  return parts.length ? [label, ...parts].join(' · ') : `${label} grubu`;
-}
-
 /** Exceptions çipinin görünen etiketleri (v0.10.1108): "<etiket> N" / "<etiket> hariç". */
 export function oracleFacetLabels(label: string, count: number, fmt: (n: number) => string): { only: string; exclude: string } {
   return { only: count >= 0 ? `${label} ${fmt(count)}` : label, exclude: `${label} hariç` };

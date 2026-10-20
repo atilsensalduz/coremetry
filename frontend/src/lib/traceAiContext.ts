@@ -14,8 +14,7 @@
 //      yazmak, CLUSTER_KEYS/resolveResource ayrışmasının (traceMetrics.ts)
 //      yeni bir kopyası olurdu.
 //   2. traceContextToPage / traceChatWindow — sohbet isteğinin `page`
-//      (PageContext) ve rangeS/toMs alanları; aynı PageContext konuşmayla
-//      birlikte ≤2 KB'lık anlık görüntü olarak saklanır (capPageContext).
+//      (PageContext) ve rangeS/toMs alanları.
 //   3. Küçük bir depo (publish/useTraceAiContext) — Trace.tsx ve
 //      TraceKiosk.tsx yayınlar, AppShell'deki tek CopilotChat okur. Prop
 //      zinciri YOK: çekmece sayfanın çocuğu değil (AppShell mount'u).
@@ -135,31 +134,6 @@ export function traceContextToPage(ctx: TraceAiContext): PageContext {
   return p;
 }
 
-/**
- * traceContextFromPage — kayıtlı anlık görüntüden (konuşma arşivi) bağlam
- * şeridi için geri dönüşüm. Span ADI anlık görüntüde yok (PageContext
- * taşımıyor) — şerit kimliğin ilk 8 karakterini gösterir.
- */
-export function traceContextFromPage(p: PageContext | null | undefined): TraceAiContext | null {
-  if (!p || !p.traceId) return null;
-  const r = p.timeRange;
-  const fromMs = r && r.preset === 'custom' ? (r.fromMs ?? 0) : 0;
-  const toMs = r && r.preset === 'custom' ? (r.toMs ?? 0) : 0;
-  const hasWin = fromMs > 0 && toMs >= fromMs;
-  const ctx: TraceAiContext = {
-    traceId: p.traceId,
-    service: p.service ?? '',
-    fromNs: hasWin ? fromMs * 1e6 : 0,
-    toNs: hasWin ? toMs * 1e6 : 0,
-  };
-  if (p.spanId) ctx.spanId = p.spanId;
-  if (p.env) ctx.env = p.env;
-  if (p.cluster) ctx.cluster = p.cluster;
-  if (p.namespace) ctx.namespace = p.namespace;
-  if (p.pod) ctx.pod = p.pod;
-  return ctx;
-}
-
 /** Sohbet penceresinin trace kapsamına eklenen pay (her iki uç). */
 export const TRACE_CHAT_PAD_MS = 5 * 60_000;
 
@@ -175,35 +149,6 @@ export function traceChatWindow(ctx: Pick<TraceAiContext, 'fromNs' | 'toNs'>, no
   let toMs = Math.ceil(ctx.toNs / 1e6) + TRACE_CHAT_PAD_MS;
   if (nowMs > 0 && toMs > nowMs) toMs = Math.max(Math.floor(nowMs), fromMs + 1000);
   return { rangeS: Math.max(1, Math.ceil((toMs - fromMs) / 1000)), toMs };
-}
-
-/** Konuşmayla saklanan bağlam anlık görüntüsünün tavanı (sunucu da uygular). */
-export const CONTEXT_SNAPSHOT_MAX_BYTES = 2048;
-
-const byteLen = (s: string) => new TextEncoder().encode(s).length;
-
-/**
- * capPageContext — anlık görüntüyü ≤2 KB'a sığdırır. Önce en az bilgi
- * taşıyan boyutlar düşer (filtreler, arama), sonra alanlar 200 rune'a
- * kırpılır; yine sığmıyorsa null (bağlamsız kaydetmek, kaydetmemekten iyi —
- * sunucu da aynı sırayı uygular: ai_conversations.go fitChatContext).
- */
-export function capPageContext(p: PageContext | null | undefined, maxBytes = CONTEXT_SNAPSHOT_MAX_BYTES): PageContext | null {
-  if (!p || !p.page) return null;
-  let c: PageContext = { ...p };
-  if (byteLen(JSON.stringify(c)) <= maxBytes) return c;
-  delete c.activeFilters;
-  delete c.search;
-  if (byteLen(JSON.stringify(c)) <= maxBytes) return c;
-  const clip = (v: string | undefined) => (v && [...v].length > 200 ? [...v].slice(0, 199).join('') + '…' : v);
-  c = {
-    ...c,
-    path: clip(c.path) ?? '', env: clip(c.env), cluster: clip(c.cluster), namespace: clip(c.namespace),
-    service: clip(c.service), workload: clip(c.workload), pod: clip(c.pod), operation: clip(c.operation),
-    traceId: clip(c.traceId), spanId: clip(c.spanId), problemId: clip(c.problemId), exceptionId: clip(c.exceptionId),
-  };
-  for (const k of Object.keys(c) as (keyof PageContext)[]) if (c[k] === undefined) delete c[k];
-  return byteLen(JSON.stringify(c)) <= maxBytes ? c : null;
 }
 
 // ── Şeritteki zaman penceresi ──

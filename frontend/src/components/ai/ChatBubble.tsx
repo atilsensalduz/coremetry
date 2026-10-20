@@ -48,7 +48,7 @@ import { ChartsSignalsCard } from './ChartsSignalsCard'; // v0.10.1407 — chart
 import { LogSpikeCard } from './LogSpikeCard'; // v0.10.1407 — log-spike açıklama turu kartı
 import { CodeStatusNote } from '../CodeStatusNote'; // v0.10.1406 — kod turunun durum satırı (✨ düğmesiyle aynı)
 import { CodeSourceFooter } from './CodeSourceFooter'; // v0.10.1406 — kod turunun kaynak satırı
-import { emitAiEvidence, emitAiFocus, scrollToAttr } from './aiEvents';
+import { emitAiEvidence, scrollToAttr } from './aiEvents';
 
 // ChatBubble — bir sohbet turunun ÇİZİMİ. v0.9.479'da CopilotChat.tsx'ten
 // buraya taşındı: AI çekmecesi içindeki sohbet (AIDrawer) aynı balonu
@@ -984,7 +984,7 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
     <EvidenceBlocksContext.Provider value={evBlocks}>
     <div className="cm-msg cm-msg--ai" ref={rootRef}>
       {/* v0.10.1137 — asistan cevabı kart DEĞİL: sayfadaki düz metin (Claude gibi),
-          küçük marka etiketi. Explain paneli kendi .ai-answer-card'ını korur. */}
+          küçük marka etiketi. */}
       {/* v0.10.1389 (operatör: "Düşünüyor yazarken telemetry logosu çakmasına gerek
           yok ve ortalı olsun") — marka etiketi ilk metin gelince görünür; bekleyiş
           yalnız ortalanmış AiThinking. */}
@@ -1045,7 +1045,6 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
                       // Sayfada satır varsa ona odaklan; yoksa trace'i aç.
                       const sel = `[data-trace-id="${id.replace(/["\\]/g, '\\$&')}"]`;
                       if (typeof document !== 'undefined' && document.querySelector(sel)) {
-                        emitAiFocus({ traceId: id });
                         scrollToAttr('data-trace-id', id);
                       } else {
                         navigate(traceHref(id));

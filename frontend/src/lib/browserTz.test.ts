@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { browserTz, tzBodyFields, tzQuery, withTzQuery } from './browserTz';
+import { browserTz, tzQuery, withTzQuery } from './browserTz';
 
 describe('browserTz — saf', () => {
   it('ofset DOĞU POZİTİF: getTimezoneOffset işareti çevrilir', () => {
@@ -33,12 +33,6 @@ describe('browserTz — saf', () => {
     expect(tzQuery({ tz: 'UTC', tzOffsetMin: 0 })).toBe('tz=UTC');
     // Yalnız ofset (Intl yok): ad gitmez.
     expect(tzQuery({ tz: '', tzOffsetMin: 330 })).toBe('tzOffsetMin=330');
-  });
-
-  it('tzBodyFields — sohbet bağlamı kuralı: sıfır/boş alan gövdeye girmez', () => {
-    expect(tzBodyFields({ tz: '', tzOffsetMin: 0 })).toEqual({});
-    expect(tzBodyFields({ tz: 'Europe/Istanbul', tzOffsetMin: 180 })).toEqual({ tz: 'Europe/Istanbul', tzOffsetMin: 180 });
-    expect(tzBodyFields({ tz: 'Europe/Istanbul', tzOffsetMin: 0 })).toEqual({ tz: 'Europe/Istanbul' });
   });
 });
 

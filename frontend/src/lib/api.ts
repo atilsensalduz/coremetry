@@ -1429,14 +1429,13 @@ export const api = {
     get<import('./types').AiConversation>(
       `/api/ai/conversations/${encodeURIComponent(id)}`),
   // Kimlik SUNUCU tarafından basılır: ilk kaydetmede `id` gönderilmez,
-  // yanıttaki id sonraki yazımlarda taşınır. Başlık gönderilmezse
-  // sunucu ilk kullanıcı mesajından türetir (ve sonraki kaydetmelerde
-  // DEĞİŞTİRMEZ).
-  // v0.10.944 — `context`: konuşmanın bağlam anlık görüntüsü (PageContext,
-  // ≤2 KB; sunucu da tavanlar). Gönderilmezse satırdaki mevcut görüntü korunur.
+  // yanıttaki id sonraki yazımlarda taşınır. Başlığı sunucu ilk kullanıcı
+  // mesajından türetir (ve sonraki kaydetmelerde DEĞİŞTİRMEZ).
+  // v0.10.1413 — çekmecenin açık title / subject / context alanları (özne
+  // kipi, v0.10.1407'de silindi) gövdeden düştü; sunucu hâlâ kabul eder,
+  // gönderilmeyen alan satırdaki mevcut değeri korur.
   saveAiConversation: (body: {
-    id?: string; title?: string; subject?: string;
-    context?: import('./types').PageContext;
+    id?: string;
     messages: import('./types').ChatMessage[];
   }) =>
     request<import('./types').AiConversation>(`/api/ai/conversations`, {

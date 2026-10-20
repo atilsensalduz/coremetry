@@ -321,10 +321,10 @@ function parseEndpoint(parts: string[]): AISubject | null {
   return { kind: 'endpoint', id, route, ...(method ? { method } : {}), fromNs, toNs };
 }
 
-// Çekmece başlığı — operatör hangi soruyu sorduğunu görsün.
-// v0.10.948 (CoSRE Faz B) — trace öznesi artık kanıt toplayan inceleme; başlık
-// düğmenin adıyla aynı ("CoSRE’ye sor · trace <kısa kimlik>", EN "Ask CoSRE ·
-// trace …"). `lang` verilmezse etkin dil.
+// aiSubjectTitle — özne türünün görünen adı (eski çekmece başlığı; v0.10.1407
+// sonrası yalnız aiSubjectTopic'in yedeği — TOPIC'te olmayan türler).
+// v0.10.948 (CoSRE Faz B) — trace adı düğmenin adıyla aynı ("CoSRE’ye sor",
+// EN "Ask CoSRE"). `lang` verilmezse etkin dil.
 export function aiSubjectTitle(s: AISubject, lang: Lang = currentLang()): string {
   switch (s.kind) {
     case 'trace':          return t('ai.askCosre', lang);
@@ -367,19 +367,4 @@ const TOPIC: Partial<Record<AIKind, string>> = {
 };
 export function aiSubjectTopic(s: AISubject): string {
   return TOPIC[s.kind] ?? aiSubjectTitle(s, 'tr');
-}
-
-// Başlığın altındaki ikinci satır: hangi nesne (kısaltılmış id / servis).
-export function aiSubjectSubtitle(s: AISubject, lang: Lang = currentLang()): string {
-  if (s.kind === 'trace') return `${t('ai.subject.trace', lang)} ${short(s.id)}`; // v0.10.948
-  if (s.kind === 'span') return `${short(s.id)} · span ${short(s.spanId)}`;
-  if (s.kind === 'charts') return `${s.id} · ${chartScopeLabel(s.scope)}`;
-  if (s.kind === 'log-spike') return `${s.id || 'tüm servisler'} · ${s.mode === 'sel' ? 'seçili aralık' : 'otomatik tespit'}${s.level === 'error' ? ' · ERROR' : ''}`;
-  if (s.kind === 'log') return `${s.id}${s.pod ? ' · ' + s.pod : ''}`;
-  if (s.kind === 'endpoint') return `${s.method ? s.method + ' ' : ''}${s.route} · ${s.id}`; // v0.10.1367
-  return s.kind === 'service-health' ? s.id : short(s.id);
-}
-
-function short(id: string): string {
-  return id.length > 20 ? `${id.slice(0, 16)}…` : id;
 }

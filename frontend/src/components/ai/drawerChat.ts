@@ -39,8 +39,7 @@ export function clampExplain(s: string): string {
 }
 
 // subjectRef — açıklamanın hangi nesneye ait olduğunun tam (kısaltmasız)
-// künyesi. Model fingerprint/trace id'yi cevabında kullanabilsin diye
-// aiSubjectSubtitle'ın kısaltmalı hâli KULLANILMAZ.
+// künyesi (kısaltmasız): model fingerprint/trace id'yi cevabında kullanabilsin.
 function subjectRef(s: AISubject): string {
   switch (s.kind) {
     case 'trace':          return `trace ${s.id}`;
