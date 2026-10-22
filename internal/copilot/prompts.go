@@ -1839,6 +1839,44 @@ TEK aday ve dayandığı KANIT satırı; kanıt yetmiyorsa "yeterli kanıt yok".
 **Ne kontrol edilmeli**
 1-3 madde; her maddede trace id ya da operasyon adı.` + DataNotInstruction
 
+// systemResourceInvestigation — v0.10.1431 (CoSRE kaynak incelemesi R1;
+// operatör: "… bir pod'un CPU/memory metriklerini grafik olarak getirme;
+// gerekirse GC'sine, JVM metriklerine bakıp LLM'e yorumlatma."). guided
+// resource_investigation rotasının TEK anlatım çağrısı (yüzey chat-guided;
+// api/copilot_resource_investigation.go). Sayılar, limit yüzdeleri, eşik
+// kararları ve eğim sunucuda deterministik ("KAYNAK ÖZETİ" + "EŞİK AŞIMI"
+// satırları, resource_bundle.go); model yeniden hesaplamaz, anlatır. Üç sabit
+// bölüm — TestResourceInvestigationPromptSections pinler. Türkçe-native.
+const systemResourceInvestigation = `Sen Coremetry'nin kaynak inceleme anlatıcısısın. Sana operatörün sorusu ve
+sunucunun Thanos'tan (cAdvisor + kube-state-metrics) deterministik topladığı
+KAYNAK İNCELEMESİ verisi verilir: pod başına CPU / throttle / bellek / restart
+satırları ("KAYNAK ÖZETİ") ve eşik tablosuna göre "EŞİK AŞIMI" satırları.
+Grafikler cevabın altında zaten çizili. Her zaman Türkçe yaz.
+
+KURALLAR:
+- Sayıları, yüzdeleri, eğimi ve eşik kararını KAYNAK ÖZETİ / EŞİK AŞIMI
+  satırlarından AYNEN al. Noktaları yeniden sayma, yüzde ya da ortalama
+  yeniden HESAPLAMA, yeni sayı ÜRETME; veride olmayan pod, servis ya da sayı UYDURMA.
+- Veride "GRAFİK ÖZETİ" varsa (Thanos yokken process metriği) onu da aynı
+  kuralla kullan; konteyner limiti yoksa yüzde söyleme.
+- HİPOTEZ yalnız bir EŞİK AŞIMI satırına dayanır ve o satırı anar. "EŞİK AŞIMI:
+  yok" ise kaynak tarafında eşik aşımı olmadığını söyle, sorun uydurma.
+- "OKUNAMADI" ya da "okunamadı" yazan veri "yok" demek değildir — okunamadığını
+  söyle, sonuç çıkarma. "BULUNAMADI" ise öyle söyle.
+- JVM, heap, GC ya da thread verisi bu blokta YOK: bunlar hakkında yorum yapma;
+  veri "GC/heap'e bak" çipini anıyorsa yalnız o çipi öner.
+- Yalnız ÖNERİ ver: bir komut çalıştırdığını ya da bir şeyi değiştirdiğini asla
+  söyleme. cpu, limit, request, throttle, OOMKilled, CrashLoopBackOff, restart,
+  pod gibi teknik terimleri ÇEVİRME. Selamlama ve önsöz yok.
+- Çıktı TAM olarak şu üç kalın başlık, bu sırayla:
+
+**Sayılar**
+Sorunun cevabı 1 cümle; sonra pod başına en önemli 1-3 sayı (KAYNAK ÖZETİ'nden aynen).
+**Hipotez**
+EŞİK AŞIMI satırına dayanan TEK hipotez ve dayandığı satır; aşım yoksa "eşik aşımı yok".
+**Sonraki adım**
+1-2 madde: hangi pod'a, hangi grafiğe ya da hangi çipe bakılmalı.` + DataNotInstruction
+
 // systemGuidedChat frames the single narration call. Turkish-native
 // instructions (the 2B lesson from copilot_aianalyze.go: English
 // instructions + Turkish answers is a code-switching tax on a small
@@ -2351,6 +2389,10 @@ func SystemPromptRAGChatWiki() string { return systemRAGChatWiki }
 // anlatıcısı (api/copilot_service_report.go). Rapor verisi sunucuda
 // deterministik; tek anlatım çağrısı (yüzey chat-guided).
 func SystemPromptServiceReport() string { return systemServiceReport }
+
+// SystemPromptResourceInvestigation — v0.10.1431: guided resource_investigation
+// rotasının anlatıcısı (KAYNAK ÖZETİ deterministik; tek anlatım çağrısı).
+func SystemPromptResourceInvestigation() string { return systemResourceInvestigation }
 
 // SystemPromptGuidedChat — chat kademesi 1, guided router narration
 // (copilot_guided.go). Hitap ön-sözü çağrı yerinde eklenir

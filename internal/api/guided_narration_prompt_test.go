@@ -32,6 +32,9 @@ func TestGuidedNarrationPromptPerIntent(t *testing.T) {
 		// v0.9.1134 — takım listesi de SOHBET anlatıcısında kalır: kanıt
 		// bloğu RED tablosu, trace'in 3-bölümlü akış anlatısı değil.
 		{guidedTeamServices, chatSys},
+		// v0.10.1431 — kaynak incelemesi kendi üç bölümlü anlatıcısında; metric_chart sohbet anlatıcısında kalır (1386 D7).
+		{guidedResourceInvestigation, copilot.SystemPromptResourceInvestigation()},
+		{guidedMetricChart, chatSys},
 	}
 	for _, c := range cases {
 		t.Run(string(c.intent), func(t *testing.T) {

@@ -347,6 +347,8 @@ func guidedSuggestions(route guidedRoute) []string {
 		return []string{"Takımımın en hatalı servisleri?", "Açık problemler?"}
 	case guidedMetricChart: // v0.10.1386 (copilot_metric_chart.go)
 		return metricChartSuggestions(route)
+	case guidedResourceInvestigation: // v0.10.1431 (copilot_resource_investigation.go)
+		return resourceSuggestions(route)
 	case guidedServiceTopology, guidedTraceTopology: // v0.10.1388 (copilot_service_topology.go)
 		return topologySuggestions(route)
 	}
@@ -435,6 +437,8 @@ func guidedFollowups(route guidedRoute, asked []string) []chatFollowup {
 		return dedupFollowupsAsked(route.TeamFollowups, asked, guidedFollowupMax)
 	case guidedMetricChart: // v0.10.1386 — diğer ortam · 24 sa · yavaş trace'ler · Metrics'te aç
 		return metricChartFollowups(route, asked)
+	case guidedResourceInvestigation: // v0.10.1431 — hata logları · son deploy · GC/heap'e bak · diğer pod'lar
+		return resourceFollowups(route, asked)
 	case guidedServiceTopology, guidedTraceTopology: // v0.10.1388 — hop · örnek trace · hatalı bağımlılık · komşu
 		return topologyFollowups(route, asked)
 	}
@@ -557,6 +561,8 @@ func guidedAnswerLinkTargets(route guidedRoute) []guidedAnswerLink {
 	switch route.Intent {
 	case guidedMetricChart: // v0.10.1386 — PromQL editörü (mutlak pencereli) + Infrastructure
 		return metricChartLinks(route)
+	case guidedResourceInvestigation: // v0.10.1431 — Thanos editörü · Pod sayfası · Infrastructure
+		return resourceLinks(route)
 	case guidedServiceTopology, guidedTraceTopology: // v0.10.1388 — Topology sekmesi · Service Map · Overview (trace önce)
 		return topologyLinks(route)
 	case guidedServiceHealth:
@@ -916,6 +922,8 @@ func askServiceChipFor(route guidedRoute) []string {
 			out = append(out, opt+"'dan "+route.PairTo+"'ye gidenlerin hepsi "+route.FanoutTo+"'ye gidiyor mu")
 		case guidedMetricChart: // v0.10.1386 — "<svc> JVM heap grafiği" aynı şablona yönlenir
 			out = append(out, metricChartAskChip(route, opt))
+		case guidedResourceInvestigation: // v0.10.1431 — "<svc> CPU kullanımı nasıl?" aynı aileye yönlenir
+			out = append(out, resChipText(opt, route.ResFamily, route.ResCluster))
 		case guidedServiceTopology, guidedTraceTopology: // v0.10.1388 — "<svc> topolojisi?" aynı niyete yönlenir
 			out = append(out, topologyAskChip(route, opt))
 		default:

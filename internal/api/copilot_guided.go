@@ -358,6 +358,23 @@ type guidedRoute struct {
 	TopoNeighbours []string `json:"-"`
 	TopoHasErrEdge bool     `json:"-"`
 	TopoTraceOut   string   `json:"-"`
+	// v0.10.1431 — resource_investigation (copilot_resource_investigation.go).
+	// GİRDİ (JSON'a girer, LastRoute takibinde klonlanır): ResTarget pod/servis/
+	// workload adı, ResKind pod|service|workload, ResFamily cpu|memory|restarts|all,
+	// ResCluster sorudaki (ya da çözülen) Thanos cluster adı. ÇIKTI (demet yazar;
+	// çip + link okur): netleştirme adayları, BULUNAMADI, Pod sayfası kimlikleri,
+	// ilk grafiğin editör linki, JVM metriği var (drill çipi).
+	ResTarget         string   `json:",omitempty"`
+	ResKind           string   `json:",omitempty"`
+	ResFamily         string   `json:",omitempty"`
+	ResCluster        string   `json:",omitempty"`
+	ResPodOptions     []string `json:"-"`
+	ResClusterOptions []string `json:"-"`
+	ResNotFound       bool     `json:"-"`
+	ResClusterID      string   `json:"-"`
+	ResNamespace      string   `json:"-"`
+	ResHref           string   `json:"-"`
+	ResJVM            bool     `json:"-"`
 }
 
 // normalizeGuidedMsg lowercases for matching. Go's ToLower maps the
@@ -577,6 +594,7 @@ func hasGuidedSignal(msg string) bool {
 		hasEndpointRequestSignal(toks) || // v0.10.688 — "X isteklerini getir"
 		hasServiceReportSignal(toks) || // v0.10.1337 — "X için rapor çıkar"
 		hasMetricChartSignal(toks) || // v0.10.1386 — "X heap grafiği", "kafka lag trendi"
+		hasResourceSignal(toks) || // v0.10.1431 — "X cpu kullanımı nasıl", "<pod> neden restart ediyor"
 		looksLikePromQL(msg) || // v0.10.1416 — yapıştırılan PromQL ("sum(rate(x_total[5m])) çiz")
 		hasTopologySignal(toks) || // v0.10.1388 — "X topolojisi", "kimler çağırıyor"
 		// v0.9.537 — açık trace ID'si ya da "trace" kökü (prefix:
@@ -1226,6 +1244,12 @@ func routeGuidedIntentOpts(raw string, services, envs, teams []string, ctxServic
 	// hızı grafiği" endpoint aday turuna, "kafka lag trendi" servis-adayı
 	// sorusuna savrulmasın); fiilsiz soru (heap/db "nasıl") bugünkü yolunda.
 	if r, ok := routeMetricChart(raw, msg, toks, svc, env, services, envs, ctxService); ok {
+		return r
+	}
+	// v0.10.1431 — kaynak incelemesi (copilot_resource_investigation.go): fiilsiz
+	// cpu/bellek/restart/kaynak sorusu + pod/servis/workload hedefi. Grafik fiili
+	// yukarıda metric_chart'ta kalır (1386 D2); heap/gc/jvm R1'de pod_health'te.
+	if r, ok := routeResourceInvestigation(raw, msg, toks, svc, env, services, envs, ctxService); ok {
 		return r
 	}
 	// v0.10.1388 — zayıf topoloji sinyali: fan-out/periyot/çift/endpoint'ten ÖNCE.
@@ -2025,6 +2049,12 @@ func (s *Server) copilotChatGuided(ctx context.Context, emit func(string, any), 
 			rangeS = metricChartDefaultRangeS
 		}
 	}
+	// v0.10.1431 — kaynak incelemesi varsayılanı son 1 saat (açık pencere 5 dk..24 sa kazanır).
+	if route.Intent == guidedResourceInvestigation {
+		if _, explicit := guidedRangeSExplicit(norm); !explicit {
+			rangeS = resDefaultRangeS
+		}
+	}
 	// v0.10.688 — endpoint rotaları varsayılan son 1 saat (operatör kararı); açık
 	// pencere ve "son 6 saate genişlet" kipi kazanır.
 	if route.Intent == guidedEndpointCandidates || route.Intent == guidedEndpointTraces {
@@ -2204,6 +2234,8 @@ func (s *Server) runGuidedRoute(ctx context.Context, emit func(string, any), rou
 		evidence, sources, err = s.guidedPodHealthBundle(ctx, emit, route.Service, from, to)
 	case guidedMetricChart: // v0.10.1386 — tek VM range sorgusu + sohbet içi grafik
 		evidence, sources, err = s.guidedMetricChartBundle(ctx, emit, &route, from, to, rangeS, loc)
+	case guidedResourceInvestigation: // v0.10.1431 — Thanos cAdvisor/kube-state paketi + grafikler
+		evidence, sources, err = s.guidedResourceBundle(ctx, emit, &route, to, rangeS, loc)
 	case guidedShiftSummary:
 		evidence, sources, err = s.guidedShiftSummaryBundle(ctx, emit, route.Service, from, to, rangeS, loc) // v0.10.758
 	case guidedDBHealth:
@@ -4343,6 +4375,8 @@ func guidedNarrationPrompt(intent guidedIntent) string {
 		return copilot.SystemPromptTrace()
 	case guidedServiceReport: // v0.10.1337 — sabit altı bölümlü rapor anlatıcısı
 		return copilot.SystemPromptServiceReport()
+	case guidedResourceInvestigation: // v0.10.1431 — SAYILAR / HİPOTEZ / SONRAKİ ADIM; sayı yeniden hesaplanmaz
+		return copilot.SystemPromptResourceInvestigation()
 	}
 	return copilot.SystemPromptGuidedChat()
 }

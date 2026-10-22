@@ -102,6 +102,9 @@ func promptRegistry() map[string]promptClass {
 		"RuleProposal":         classTurkishNative, // v0.10.1289 — "bunu hatırla" tek cümlelik kural önerisi + tek örnek + veri çerçevesi
 		"Postmortem":           classTurkishNative, // Faz 5.4 — markdown taslak, Türkçe talimat
 		"RunbookUpdate":        classTurkishNative, // Faz 5.5 — güncelleme önerisi bloğu
+		// v0.10.1431 — guided kaynak incelemesi, sabit üç bölüm (kendi hizalama grubu).
+		"ResourceInvestigation": classTurkishNative,
+
 		// ── Makine-parse edilen çıktı
 		"NLToQuery":       classStructured,
 		"CHQueryOptimize": classStructured,
@@ -147,6 +150,8 @@ func promptTexts() map[string]string {
 		"TraceWithOperationCode": SystemPromptTraceWithOperationCode(),
 		// v0.10.1349 — operasyon fonksiyon kodu sözlüğünden ADAY.
 		"TraceWithOperationCandidate": SystemPromptTraceWithOperationCandidate(),
+		// v0.10.1431 — guided kaynak incelemesi.
+		"ResourceInvestigation": SystemPromptResourceInvestigation(),
 	}
 }
 

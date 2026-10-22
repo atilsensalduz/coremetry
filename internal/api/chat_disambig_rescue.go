@@ -174,6 +174,7 @@ func disambigAskRescuable(ask guidedIntent) bool {
 	switch ask {
 	case guidedRootCause, guidedServiceHealth, guidedWindowCompare, guidedServiceReport, // v0.10.1337 — rapor da servis seçimini bekler
 		guidedMetricChart,                          // v0.10.1386 — grafik de servis seçimini bekler (wiki cevabı değil)
+		guidedResourceInvestigation,                // v0.10.1431 — kaynak incelemesi de servis seçimini bekler
 		guidedServiceTopology, guidedTraceTopology: // v0.10.1388 — topoloji de servis seçimini bekler
 		return false
 	}

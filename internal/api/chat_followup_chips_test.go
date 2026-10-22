@@ -297,6 +297,20 @@ func TestFollowupTemplatesRouteGuided(t *testing.T) {
 			checkStep(c, "checkout-service")
 		}
 	}
+	// v0.10.1431 — kaynak incelemesinin takip adımları: hata logları / son deploy
+	// pinli adımlarla aynı; "GC/heap'e bak" 1386 JVM heap grafiğine, "Diğer
+	// pod'lar" aynı aileyle servis kipinde kaynak incelemesine yönlenir.
+	resRoute := guidedRoute{Intent: guidedResourceInvestigation, Service: "checkout-service", ResTarget: "checkout-service-6d4f8b9c7d-x2k9q",
+		ResKind: resKindPod, ResFamily: resFamCPU, ResJVM: true}
+	resPinned := map[string]guidedIntent{fuKindErrors: guidedLogErrors, fuKindDeploy: guidedDeployImpact,
+		fuKindResJVM: guidedMetricChart, fuKindResPods: guidedResourceInvestigation}
+	for _, c := range guidedFollowups(resRoute, nil) {
+		want, ok := resPinned[c.Kind]
+		r := routeGuidedIntent(c.Text, fuServices, fuEnvs, nil, "")
+		if !ok || r.Intent != want || r.Service != "checkout-service" || c.Scope == nil || c.Scope.Services[0] != "checkout-service" {
+			t.Errorf("kaynak takibi %+v → %s/%q", c, r.Intent, r.Service)
+		}
+	}
 	team := teamSummary{DeploysOK: true, Deploys: []chstore.RecentDeployEntry{{Service: "payments", Version: "1.2.0"}}}
 	for _, c := range teamSummaryChips([]string{"checkout-service", "payments"}, team, "", guidedFollowupMax) {
 		checkStep(c, c.Scope.Services[0])

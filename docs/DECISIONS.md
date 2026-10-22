@@ -9208,3 +9208,94 @@ taşıyan dosyaların kapalı listesi; ham setInterval'da document.hidden); `das
 **Riskler / bilinçli sınırlar:** çok görünür pencere × 60 s (hidden duruyor, sunucu singleflight; p99 oynarsa gözden
 geçir). Dashboard'daki davranış değişimi (OFF → 60 s) operatör isteği. `/overview` rotası yok, allowlist'e alınmadı.
 Mutlak aralıkta manuel ↻ aktif sorguları yeniden çeker (Grafana paritesi); auto tik orada hiç koşmaz.
+
+## 2026-10-22 — v0.10.1431 — CoSRE kaynak incelemesi: pod/servis CPU-bellek-restart paketi, grafik verbsüz yönlendirme (R1)
+
+**Operatör:** "CoSRE sorulan sorulara frontier model gibi anlamlandırarak gerekli toolset'lerini koşsun … bir pod'un
+CPU/memory metriklerini grafik olarak getirme; gerekirse GC'sine, JVM metriklerine bakıp LLM'e yorumlatma." **Boşluk:**
+grafik FİİLİ taşımayan kaynak soruları ("orders-api cpu kullanımı nasıl", "<pod> neden restart ediyor", "belleği limite
+yakın mı") metric_chart'a (1386 D2: fiil şart) giremiyordu; pod_health'e (OTel envanteri + Thanos envanter satırı) ya da
+sağlık / serbest döngüye düşüp cAdvisor + kube-state zaman serisini (Thanos) hiç okumadan cevaplanıyordu. Pod adı
+yapıştırmak hiçbir guided sinyali taşımıyordu. MCP kataloğu dolu (74) — yeni araç YOK; api.go, kademe sırası, sınıflandırıcı
+DEĞİŞMEDİ.
+
+**Karar (R1).**
+- **Niyet + kapı (SAF, `copilot_resource_investigation.go`):** router-içi `resource_investigation` (sınıflandırıcı
+  listesinde YOK — R3). Kaynak sözcüğü → aile: cpu/işlemci/throttle → `cpu`; bellek (k→ğ: "belle" kökü)/memory/ram (tam
+  jeton)/oom/working set → `memory`; restart/crash/"yeniden başla"/oomkilled (+ pod bağlamında ölüyor/düşüyor/çöküyor) →
+  `restarts`; ≥2 aile, "kaynak kullanımı/durumu" (nitelikli; "kaynak kodu" değil), resource/doygunluk/saturation, yalnız
+  "limit" (rate limit değil) → `all`. Hedef: pod adı şekli (`<ad>-<8–10>-<5>`; StatefulSet `<ad>-<n>` yalnız "pod"
+  sözcüğüyle) → pod (sahip servis Infrastructure'ın `ServicePodRegex`'iyle) | mesajdaki servis | "deployment/workload <ad>"
+  | tek servis adayı | çok aday → `ask_service` (AskIntent resource_investigation; çip "<svc> CPU/bellek/kaynak kullanımı
+  nasıl?" / "<svc> neden restart ediyor?" aynı aileye döner) | ekran servisi; hiçbiri yoksa rota DÖNMEZ (filo geneli
+  bugünkü yolunda). "<ad> cluster'ında" / "(ad cluster)" → ResCluster. Veto: grafik fiili, takım (iyelik + ad), çift
+  şekli, topoloji, log, deploy (workload sözcüğü hariç), "en yavaş", trace/span, exception, db, messaging, nasıl-yapılır,
+  derin tarama, iki+ servis adı. Router'da `routeMetricChart`'tan HEMEN sonra, zayıf topoloji / fan-out / periyot / çift /
+  endpoint dallarından önce; `hasGuidedSignal`'a `hasResourceSignal`. Rota alanları (JSON, LastRoute klonu):
+  ResTarget, ResKind, ResFamily, ResCluster; çıktılar (JSON'a girmez): aday pod/cluster listeleri, ResNotFound, Pod sayfası
+  kimlikleri, ilk grafiğin editör linki, ResJVM.
+- **D2 eki (1386):** grafik fiili olan soru metric_chart'ta kalır (pinli: "cpu grafiği", "bellek kullanımını çiz", "cpu
+  trendi"). Fiilsiz cpu/bellek/restart/kaynak sorusu artık pod_health / service_health yerine resource_investigation'a
+  gider ("checkout kaynak kullanımı nasıl" pini service_health → resource_investigation; kök neden değil, pin amacı aynı).
+  pod_health envanter sorularını korur ("pod'ları nasıl"). **heap / gc / jvm / thread sözcükleri R1'de bu niyete
+  GİRMEZ** — pod_health / metric_chart'ta kalır; onları R2 taşır (planın "heap kullanımı nasıl → yeni niyet" adımı R2'ye
+  ertelendi: R1 demeti JVM satırı okumuyor, taşımak cevabı fakirleştirirdi).
+- **Demet (`resource_bundle.go`, deterministik):** hedef çözümü etkin her Thanos cluster'ında `ConsoleLabelValues("pod",
+  match kube_pod_info{pod=~…, namespace kalkanı})`, son 24 sa, tavan 9 (8 + kesim nöbetçisi), ≤4 paralel, 4 sn, 60 sn
+  önbellek. Karar SAF (`decideResourceTarget`): pod tam adı tek cluster'da → koş; birden çok cluster → cluster çipleri;
+  önek 1 → koş, 2–8 → pod çipleri (`DirectAnswer`, anlatım yok), >8 → ilk 8 + "adı daraltın"; servis/workload pod'u tek
+  cluster'da → koş, çok → cluster çipleri; 0 → dürüst "BULUNAMADI (denenen seçici …; denenen cluster'lar …)" +
+  Infrastructure link çipi; hiçbir cluster okunamadı → "okunamadı ≠ yok". Sorgular TEK cluster'da, aile başına ≤4,
+  all ≤7: cpu = cpu_usage · cpu_throttle (range) + limits · requests (anlık); memory = mem_ws (range) + limits · requests ·
+  last_term; restarts = restart sayacı (range) + last_term · waiting; all = cpu_usage · cpu_throttle · mem_ws · restarts +
+  limits · last_term · waiting. Range adımı ⌈aralık/120⌉ (≥15 sn), rate penceresi max(4×adım, 60 sn), `topk(20)` +
+  `ConsoleLimits{Timeout 8 sn, MaxSeries 20}`, TEK 8 sn son tarih, ≤4 paralel; her sorgu 60 sn önbellekli, anahtar
+  `cosre-res:v1:<FNV(thanos:<id|ad>, sorgu kimliği, PromQL, pod regex'i, tür, from/60, to/60, adım)>`. Pencere varsayılanı
+  1 sa, açık pencere 5 dk..24 sa'e sıkıştırılır (not düşülür).
+- **Sayılar sunucuda:** pod başına CPU son/tepe(+saat)/limit yüzdesi/istek yüzdesi, throttle tepe/ort, bellek son/tepe/
+  limit yüzdesi + eğilim (üçte bir kuralı) + en küçük kareler eğimi (bayt/sa, ilk noktaya göre — epoch ölçeğinde hassasiyet
+  kaybı ölçüldü), uyarı eşiği üstünde geçen süre, pencere içi restart (sayacın pozitif adımları), son sonlanma / bekleme
+  sebebi. Eşik tablosu tek yerde (`resourceThresholds`): CPU limitin %80/%95'i, throttle %25, bellek limitin %80/%90'ı,
+  restart >0/≥3, bekleme sebebi (CrashLoopBackOff…) kritik. Limit pod düzeyinde toplanır (Infrastructure'ın podLimitQuery
+  sözleşmesi); limitsiz pod "limit yok" — yüzde UYDURULMAZ. Model bloğu "KAYNAK ÖZETİ (deterministik; model noktaları
+  yeniden sayma, yüzde/eğim yeniden hesaplama)" — gövde ≤12 satır: ≤6 pod satırı (kritik önce) + "EŞİK AŞIMI" satırları
+  (KRİTİK/UYARI, eşik değeriyle) ya da "EŞİK AŞIMI: yok (eşikler …)"; notlar (okunamayan sorgu/cluster, seri tavanı, limit
+  yok) ayrı. "JVM/GC: bu cevapta okunmadı — JVM/GC yorumu YAPMA" satırı her zaman.
+- **Çıktı:** range sorgusu başına bir `metric_chart` adımı + veri grafiği bloğu (kanıt: Source "Thanos · <cluster>",
+  Cluster, PromQL, pencere, seri, süre, href = Thanos PromQL editörü — `PromQLEditorHref(…, "thanos", <cluster adı>, …)`),
+  ayrıca `resource_investigation` adımı (evre "Altyapı") özet metniyle. Anlatım: yeni `systemResourceInvestigation`
+  (`prompts.go`, Türkçe-native, `promptVersionRegistry` + dil sicili) — **Sayılar / Hipotez / Sonraki adım**; sayılar AYNEN,
+  yeniden hesaplama ve yeni sayı yok, hipotez yalnız bir EŞİK AŞIMI satırına dayanır, aşım yoksa "eşik aşımı yok",
+  OKUNAMADI ≠ yok, JVM verisi yokken JVM yorumu yok. `guidedNarrationPrompt` bu niyet için onu seçer (yüzey chat-guided).
+- **Takip (≤4):** "Hata logları" (log_errors), "Son deploy'dan beri ne değişti?" (deploy_impact), **"GC/heap'e bak"** —
+  R1 drill kapısının TASLAĞI: yalnız VictoriaMetrics'te `jvm.memory.used` ailesi son 24 sa'te var VE servis etiketi
+  taşıyorsa (metric_chart'ın 5 dk önbellekli etiket kümesi, tek okuma) sunulur; çip 1386 "<svc> JVM heap grafiği"
+  şablonuna yönlenir (JVM satırı bu demette OKUNMAZ). Pod kipinde "Diğer pod'lar" (aynı aile, servis kipi). Linkler:
+  "Metrics'te aç (Thanos)", pod kipinde Pod sayfası (`/pod?cluster=<id>&namespace=&pod=&service=`), "<svc> ·
+  Infrastructure" (servissizse /clusters). Netleştirme turunda takip yok, aday çipleri var. Wiki kurtarması bu niyetin
+  servis sorusuna uygulanmaz (`disambigAskRescuable` false); kapsam servisi boş rotaya yazılabilir; pod / workload adı
+  (sahip servis çözülmese de) somut öznedir — çekmece bağlamı bastırmaz (`drawerSuppressesGuided`, PromQL emsali).
+- **Thanos yok:** pod konteyner CPU/bellek, limit yüzdesi ve restart "OKUNAMADI (yok demek değil)"; VM + servis varsa
+  1386'nın process şablonları (cpu / memory, pod kırılımlı) `metricChartRun` ile çizilir + "konteyner limitine göre yüzde
+  YOK" notu; restart için "kube-state-metrics ister — restart yok DENEMEZ"; VM de yoksa dürüst "kaynak verisi YOK".
+- **R2 (sonraki sürüm):** JVM ailesi (heap/gc/jvm/old gen/metaspace/leak/sızıntı) ve thread/havuz ailesi bu niyete taşınır
+  (heap/gc soruları pod_health'ten çıkar — D2'nin ikinci eki); VM sorguları NameCandidates varyant zincirleriyle
+  (semconv / micrometer / process.runtime.*): heap %, used_after_last_gc eğimi (>%5/sa ve ≥%70 → "sızıntı şüphesi"), GC
+  süresi payı (RuntimeAlertConfig %10/%25), GC hızı, old gen, thread/executor/tomcat havuz doluluğu (≥%90); drill kuralı
+  (JVM etiket kümesi dolu VE bellek ≥%80 / restart / OOMKilled / yavaşlık sorusu → otomatik, aksi hâlde çip) ve "GC'ye
+  bak" çipinin aynı niyetin jvm ailesine dönmesi; altın varyant testleri + drill karar tablosu.
+- **R3 (sonraki sürüm):** mevcut `copilotChatIntent` kademesinin içinde (yeni kademe yok) kaynak sözcüklü ama
+  deterministik kapıdan geçmeyen sorular için `systemResourceClassify` (şema intent/target/targetKind/family/rangeS/
+  confidence, ≥0.6 kabul, hedef canlı servis/pod değerlerine karşı doğrulanır, serbest PromQL ASLA), yüzey
+  chat-resource-classify, 10 dk önbellek; `intentAllowed` + sınıflandırıcı listesine resource_investigation.
+
+**Testler:** `copilot_resource_investigation_test.go` (TR/EN rota tablosu: servis/pod/StatefulSet/workload/cluster/ekran
+servisi/ask; negatifler: grafik fiili → metric_chart, "pod'ları nasıl" / heap / gc → pod_health, log/deploy/topoloji/takım,
+hedefsiz filo, "kaynak kodu", rate limit, iki servis; aile tablosu; çiplerin gidiş-dönüşü (aile × hedef × cluster);
+pod/cluster netleştirme çipleri; takip çiplerinin pinli niyetleri; linkler + protokol-göreli href reddi; BULUNAMADI link
+çipi), `resource_bundle_test.go` (altın PromQL + namespace kalkanı + kaçış, bütçe aile ≤4 / all ≤7, konsol çözücü,
+istatistik/eşik/özet biçimi ve ≤12 satır tavanı, önbellek anahtarı tüm girdiler, hedef kararı tablosu, sahte Thanos + VM
+demeti: koş / önbellek / cluster sor / istenen cluster / pod sor / tam pod / BULUNAMADI / okunamadı / sorgu hatası /
+Thanos yok / VM yok / JVM çipi taslağı, salt-okur kaynak pini), `copilot/prompt_resource_investigation_test.go`
+(sicil + üç başlık + kural çapaları); güncellenen pinler: `TestRouteGuidedIntentRootCause` (kaynak kullanımı),
+`TestFollowupTemplatesRouteGuided` (kaynak takip türleri), `TestGuidedNarrationPromptPerIntent`.

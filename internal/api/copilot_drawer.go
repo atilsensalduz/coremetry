@@ -214,6 +214,11 @@ func drawerSuppressesGuided(explain string, route guidedRoute, question string) 
 	if route.ChartPromQL != "" {
 		return false
 	}
+	// v0.10.1431 — kaynak incelemesinin pod / workload adı da somut öznedir
+	// (sahip servisi çözülemese bile; copilot_resource_investigation.go).
+	if route.ResTarget != "" {
+		return false
+	}
 	return !wantsFleetScope(guidedTokens(normalizeGuidedMsg(question)))
 }
 

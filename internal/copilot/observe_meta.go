@@ -101,6 +101,9 @@ var promptVersionRegistry = map[string]string{
 
 	// v0.10.1374 — endpoint küme kıyası varken serbest döngü eki.
 	"operationClusterCompareAddendum": operationClusterCompareAddendum,
+
+	// v0.10.1431 — guided kaynak incelemesi anlatıcısı (kendi hizalama grubu).
+	"systemResourceInvestigation": systemResourceInvestigation,
 }
 
 var (

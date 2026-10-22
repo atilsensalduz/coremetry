@@ -750,8 +750,10 @@ func TestRouteGuidedIntentRootCause(t *testing.T) {
 		{"açık problemler neler", guidedProblems},
 
 		// "kaynak" nedensellik DEĞİL — Türkçede kaynak kullanımı çok daha
-		// sık ve o soru doygunluk yolu.
-		{"checkout kaynak kullanımı nasıl", guidedServiceHealth},
+		// sık ve o soru doygunluk yolu. v0.10.1431 — doygunluk yolu artık
+		// kendi niyeti: resource_investigation (Thanos CPU/bellek/restart
+		// paketi; DECISIONS 1431 D2 eki). Kök neden DEĞİL — pin aynı.
+		{"checkout kaynak kullanımı nasıl", guidedResourceInvestigation},
 	}
 	for _, c := range cases {
 		got := routeGuidedIntent(c.msg, services, nil, nil, "")
