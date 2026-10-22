@@ -138,6 +138,17 @@ describe('Rollouts Toplu — statik top-N tabloları (P-2)', () => {
     expect(t.querySelector('tbody tr[data-dt-state="empty"]')!.textContent).toBe('Bu pencerede deploy alan workload yok');
   });
 
+  // v0.10.1436 — sayaç kutuları durum rozetiyle aynı İngilizce sözlükten
+  // (statusLabel, v0.10.1421); Türkçe başlık (Tamamlanan / Geri alınan /
+  // Devralınan / Sürüyor / Takılı) geri gelmez.
+  it('sayaç kutusu başlıkları İngilizce (v0.10.1436)', () => {
+    h.stats = { data: STATS, isPending: false, error: null };
+    const el = mount('/rollouts?tab=stats');
+    const text = el.textContent ?? '';
+    for (const want of ['Completed', 'Rolled back', 'Superseded', 'In progress', 'Stalled']) expect(text).toContain(want);
+    for (const tr of ['Tamamlanan', 'Geri alınan', 'Devralınan', 'Sürüyor', 'Takılı']) expect(text).not.toContain(tr);
+  });
+
   // DOM, DataTableState'in boş satırını dilim 4'ün elle yazılmış ara
   // işaretlemesinden AYIRAMAZ (ikisi aynı <tr data-dt-state><td.dt-state>);
   // göçün geri alınmasını yalnız kaynak yakalar.

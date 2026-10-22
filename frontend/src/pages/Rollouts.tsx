@@ -350,21 +350,24 @@ type DayRow = RolloutStats['byDay'][number];
 const DAY_COLS: ColumnDef<DayRow>[] = [
   { id: 'day', label: 'Gün', sortValue: d => d.day, naturalDir: 'asc', flex: true },
   { id: 'total', label: 'Rollout', sortValue: d => d.total, naturalDir: 'desc', numeric: true, width: 90 },
-  { id: 'rolledBack', label: 'Geri alınan', sortValue: d => d.rolledBack, naturalDir: 'desc', numeric: true, width: 110,
+  { id: 'rolledBack', label: statusLabel('rolled_back'), sortValue: d => d.rolledBack, naturalDir: 'desc', numeric: true, width: 110,
     tone: d => (d.rolledBack > 0 ? 'err' : undefined) },
 ];
 
 function StatsPanel({ st, clusterName }: { st: NonNullable<ReturnType<typeof useRolloutStats>['data']>; clusterName: (id: string) => string }) {
   const dayDt = useDataTable<DayRow>({ storageKey: 'rollouts-by-day', columns: DAY_COLS, rows: st.byDay });
+  // v0.10.1436 — Toplu sayaç kutuları da durum rozetiyle aynı İngilizce
+  // sözlükten (statusLabel, v0.10.1421); 1421 Canlı rozetlerini çevirmiş,
+  // buradaki Türkçe başlıkları (Tamamlanan / Geri alınan / …) bırakmıştı.
   return (
     <>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
         <StatTile label="Rollout"><span className="mono">{fmtNum(st.total)}</span> <span className="field-hint">{st.perDay.toFixed(1)} / gün</span></StatTile>
-        <StatTile label="Tamamlanan"><span className="mono">{fmtNum(st.completed)}</span></StatTile>
-        <StatTile label="Geri alınan" tone={st.rolledBack > 0 ? 'err' : undefined}><span className="mono">{fmtNum(st.rolledBack)}</span> <span className="field-hint">oran %{(st.rollbackRate * 100).toFixed(1)}</span></StatTile>
-        <StatTile label="Devralınan"><span className="mono">{fmtNum(st.superseded)}</span></StatTile>
-        <StatTile label="Sürüyor"><span className="mono">{fmtNum(st.inProgress)}</span></StatTile>
-        <StatTile label="Takılı" tone={st.stalled > 0 ? 'warn' : undefined}><span className="mono">{fmtNum(st.stalled)}</span></StatTile>
+        <StatTile label={statusLabel('completed')}><span className="mono">{fmtNum(st.completed)}</span></StatTile>
+        <StatTile label={statusLabel('rolled_back')} tone={st.rolledBack > 0 ? 'err' : undefined}><span className="mono">{fmtNum(st.rolledBack)}</span> <span className="field-hint">oran %{(st.rollbackRate * 100).toFixed(1)}</span></StatTile>
+        <StatTile label={statusLabel('superseded')}><span className="mono">{fmtNum(st.superseded)}</span></StatTile>
+        <StatTile label={statusLabel('in_progress')}><span className="mono">{fmtNum(st.inProgress)}</span></StatTile>
+        <StatTile label={statusLabel('stalled')} tone={st.stalled > 0 ? 'warn' : undefined}><span className="mono">{fmtNum(st.stalled)}</span></StatTile>
         <StatTile label="Ort. süre"><span className="mono">{fmtDurShort(Math.round(st.meanDurationSec))}</span> <span className="field-hint">p95 {fmtDurShort(Math.round(st.p95DurationSec))}</span></StatTile>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14 }}>
