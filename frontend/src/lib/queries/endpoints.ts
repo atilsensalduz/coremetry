@@ -7,9 +7,12 @@ import { api } from '@/lib/api';
 // part of the key so each combination caches separately.
 //
 // v0.8.356 — 30s polling (matches useServices; the audit found the
-// page never refreshed without a manual reload). React Query pauses
-// refetchInterval on hidden tabs by default, satisfying the
-// document.hidden house rule.
+// page never refreshed without a manual reload).
+// v0.10.1430 — o poll KALDIRILDI: anahtar pencereyi (from/to) taşıyor ve
+// pencere mount'ta donuyordu, yani 30 s'de bir AYNI geçmiş pencere
+// isteniyordu (garantili cache hit, sıfır yeni veri). /endpoints global
+// auto-refresh allowlist'inde (lib/autoRefresh.ts): tik pencereyi kaydırır,
+// anahtar değişir, gerçek veri gelir. staleTime sunucu TTL'inde kalır.
 // v0.9.812 — zarf döner (rows + pool + poolCapped). Boş yanıt, satırsız
 // ama zarf şekilli bir sabite düşer; çağıran `data.rows` okur.
 // v0.10.1352 — enabled: /endpoint metrik kipi satırı okumaz (PromQL'den).
@@ -19,10 +22,6 @@ export function useEndpoints(params: Parameters<typeof api.endpoints>[0], enable
     enabled,
     queryFn: async ({ signal }) =>
       (await api.endpoints(params, signal)) ?? { rows: [] },
-    refetchInterval: 30_000,
-    // v0.8.462 — staleTime = refetchInterval: poll penceresi içindeki
-    // re-mount, zaten planlı arka plan poll'unun üstüne ikinci fetch
-    // atmasın (anomalies.ts'teki v0.4.79 deseninin aynısı).
     staleTime: 30_000,
     // v0.8.511 (perf raporu #4) — serverSort açık: her kolon başlığı
     // tıklaması / range / limit değişimi key'i yeniler ve dolu tablo

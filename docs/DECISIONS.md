@@ -9134,3 +9134,77 @@ metrik kipinde kalıp boş paneller gösteriyordu.
 - **Bilinçli sınır:** gRPC istemci tarafı (`rpc.client.duration`) ve downstream paneli kapsam dışı; Explore/Metrics
   gRPC şablonu p99 (metricTemplates) değişmedi; ES/CH kaynağında /red-family 400 (sayfa HTTP sorgularını koşar, rozet
   "metrik ailesi bilinemedi" DEMEZ — uç hatası notu); Overview "ikisi" hâlinde gRPC karoları yok (sekmeye yönlendirir).
+
+## 2026-10-22 — v0.10.1430 — Üst çubukta Grafana tarzı otomatik yenileme (varsayılan 60 sn)
+
+**Operatör:** "Sağ üstte zaman yanında Grafana gibi ayrı refresh olabilir. 60 saniye default olabilir, özellikle metrikler
+için işe yarar."
+
+**Envanter bulgusu (karar bunun üstüne kuruldu):** göreli pencere ("son 3 saat") MOUNT'TA DONUYORDU. `useUrlRange`
+`range`i URL dizgesi üzerinden memo'lar (v0.5.184 kimlik sözleşmesi, lib/useUrlRange.ts), her sayfa pencereyi
+`useMemo(() => timeRangeToNs(range), [range])` ile türetir (~194 çağrı yeri: pages/service/Overview.tsx:210,
+ServiceHttpMetricsTab.tsx:114, Endpoints.tsx:419, EndpointDetail.tsx:106, Explore.tsx:295 …). Kimlik değişmeyince hiçbir
+fetch efekti yeniden koşmuyordu; pencere anahtarlı sorgulardaki `refetchInterval`ler (endpoints 30 s, service map
+30 s) 30 saniyede bir AYNI geçmiş pencereyi istiyordu — garantili cache hit, sıfır yeni veri. Metrik kipi kancaları
+(httpMetrics.ts, promql.ts) hiç yoklamıyordu. İki yerel yama aynı deliği örtüyordu: Dashboard `?refresh=` + refreshTick
+(v0.9.779, her panel efektine inen sayaç) ve Clusters `?live=1` + liveTick (v0.9.43). SSE veriyolu (eventInvalidations.ts)
+yalnız problem/anomali/inbox/incident/rollout/sre anahtarlarını geçersiz kılar — metrik yüzeyleriyle kesişmez.
+
+**Karar — tek saat, tek kayma noktası.**
+- `lib/autoRefresh.ts` (saf + modül mağazası): seçenekler Off/10s/30s/1m/5m/15m, varsayılan **60 s**; `?refresh=`
+  (replace:true, yabancı paramlar korunur) > localStorage `cm.refresh` > 60 s; taban 10 s (CLAUDE.md), /dashboard 30 s
+  (v0.9.779 gerekçesi: bundle 50 panele kadar). Eski Dashboard tam sayıları 30/60/300 okunmaya devam eder (paylaşılan
+  link anlamını korur); bilinmeyen değer varsayılana DEĞİL bir sonraki basamağa düşer. Kapalı allowlist (yalnız orada
+  saat çalışır): /services, /service, /endpoints, /endpoint, /metrics, /dashboard, /service-map, /topology, /hosts,
+  /clusters. Diğer her rota MANUEL: seçici devre dışı "Off · manuel" + neden, ↻ her yerde çalışır (log kuyruğunun ya da
+  trace şelalesinin kendini dakikada bir yeniden koşması maliyet, içgörü değil; o sayfaların SSE/30 s liste poll'ları
+  zaten var).
+- **Kayma mekanizması:** `useUrlRange` memo'suna TEK bağımlılık (`anchorMs`, useSyncExternalStore). `bumpRefresh()` onu
+  taşır → her `range` kimliği yenilenir → her downstream useMemo `timeRangeToNs`i taze Date.now() ile yeniden hesaplar →
+  yeni RQ anahtarı → pencere ilerler. 194 çağrı yerine dokunulmadı; `timeRangeToNs` JSX'te çıplak değil; mutlak
+  (custom:) pencere kaydırılmaz (kimlik sabit). Dashboard'un refreshTick'i, PanelRenderer'ın refreshTick prop'u (bundle
+  dışı stat/gauge/heatmap/promql/topN dahil — hepsi zaten `[range]` bağımlı) ve Clusters liveTick'i SİLİNDİ (şim yok).
+- `since` anahtarlı (GoDuration) sorgular kayamaz → `meta: LIVE_META` ile tik'te invalidate edilir, kendi
+  `refetchInterval`lerini kaybeder: useServiceMap (30 s poll gitti), useServiceInfra, useServiceNeighbors,
+  svc-instances-strip, Clusters'ın 9 anlık-durum sorgusu (summary/pods/nodes/ns/alerts/deployments/trend'ler).
+- **Duraklar (Grafana paritesi, altyazı nedenini söyler):** `document.hidden` (gizli sekmede istek yok; görünür olunca süre
+  dolmuşsa hemen tik — catch-up), mutlak aralık ("durakladı · mutlak aralık"), Dashboard düzenleme (`useRefreshHold`,
+  "durakladı · düzenleme"). Manuel ↻ = aynı kayma + yeniden anahtarlanMAYAN aktif sorguların tazelenmesi (bir görev
+  ertelenir ki kayma ile zaten uçuşta olanlar ikinci kez çekilmesin); mutlak aralıkta da çalışır. Sunucu `?refresh=1`
+  bypass'ı KULLANILMAZ — tazelik sunucu TTL'inde kalır.
+- **Ağır okumalar:** servis gecikme heatmap'i (ham spans, ≤3 s bütçe) ve endpoint downstream/callers yürüyüşleri
+  `snapHeavyWindow` ile runga oturur (≥1h pencere: 5 dk; kısa: 1 dk; `to` aşağı yuvarlanır, uzunluk korunur) — tik
+  dakikada bir kaydırsa da bunlar en çok rung başına bir kez taranır (v0.8.270, useRedFamily emsali). Services
+  sayfasının "sayfayı sıfırla" efekti range KİMLİĞİNE değil `encodeRange(range)` dizgesine bağlandı (tik 1. sayfaya
+  fırlatmasın). `/api/health` 5 s ve SSE dokunulmadı; problem/inbox 30 s poll'ları duruyor.
+- **Atom:** `components/RefreshPicker.tsx` — IconButton ↻ (lucide RefreshCw, `useIsFetching()>0` iken döner) + yerel
+  `<select>` (≤10 değer) + "güncellendi 12 sn önce" altyazısı (5 s yerel re-render, hidden guard; manuel tamamlanınca
+  aria-live "Yenilendi"). Topbar'da TimeRangePicker'ın sağında (zaman YA DA env taşıyan sayfalarda), ContextBar'da aynı
+  yuva. ≤640px: altyazı düşer, select sıkışır. i18n `rp.*` EN/TR. Dashboard'un kendi RefreshControl'ü ve Clusters'ın
+  LiveToggle'ı silindi; `?live=1` artık okunmuyor.
+
+**60 s tik sayfa başına ne kazandırır (sunucu TTL'leri):** `/api/metrics/promql` anahtarı dakikaya kovalı + 30 s TTL
+(internal/api/promql.go:111-113) → 60 s tik HER seferinde taze kovaya düşer (30 s tik yarı yarıya aynı dakikayı
+vururdu); red-family / topology 60 s (topology.go), service_metric_red.go:512 30 s, endpoint detay/downstream 30/60 s.
+Yani 60 s varsayılan "en sık anlamlı" aralık: daha sık sormak yük üretir, veri üretmez.
+
+**Operatörün göreceği:** /services, /service (Overview/HTTP Metrics/Infra), /endpoints, /endpoint, /metrics, /dashboard,
+/service-map, /hosts, /clusters: üst çubukta `↻ [1m ▾] güncellendi 12 sn önce`; grafikler ve karolar dakikada bir
+ilerler, mutlak aralığa brush'layınca "durakladı · mutlak aralık", sekme arka plandayken durur ve dönüşte yetişir.
+Dashboard'da `?refresh=` yokken eskiden KAPALI olan yenileme artık 60 s (operatör isteği); eski `?refresh=30` linkleri
+30 s olarak sürer; düzenlemede durur; TV (kiosk) görünümünde çalışır. /logs, /traces, /trace, /explore, /search, /inbox
+vb.: `↻ [Off · manuel]` — tık her şeyi yeniler, saat yok. Share linki `?refresh=5m` taşır; mutlak aralıklı link alıcıda
+duraklamış açılır ve altyazı söyler.
+
+**Testler:** `lib/autoRefresh.test.ts` (codec/öncelik/taban/politika/rung/mağaza), `lib/useAutoRefresh.test.tsx` (sahte
+zamanlayıcı: tik kimliği kaydırır + LIVE_META tazelenir, hidden + catch-up, mutlak dur, off/manuel/hold, /dashboard
+30 s tabanı, eski ?refresh=30, localStorage önceliği, manuel ↻ tek fetch), `components/RefreshPicker.render.test.tsx`
+(varsayılan 1m, URL+LS yazımı, /dashboard seçenekleri, manuel rota devre dışı, ↻ + aria-live, mutlak altyazı, env-only
+sayfa), `components/RefreshPicker.pin.test.ts` (yerleşim, kayma noktası, AppShell, kalkan poll'lar, rung, i18n parite),
+`lib/pollingBudget.pin.test.ts` (ratchet: her sayısal refetchInterval ≥10 s, health hariç; refetchInterval/setInterval
+taşıyan dosyaların kapalı listesi; ham setInterval'da document.hidden); `dashboardUrl.test.ts` ve
+`clustersPalette.pin.test.ts` güncellendi.
+
+**Riskler / bilinçli sınırlar:** çok görünür pencere × 60 s (hidden duruyor, sunucu singleflight; p99 oynarsa gözden
+geçir). Dashboard'daki davranış değişimi (OFF → 60 s) operatör isteği. `/overview` rotası yok, allowlist'e alınmadı.
+Mutlak aralıkta manuel ↻ aktif sorguları yeniden çeker (Grafana paritesi); auto tik orada hiç koşmaz.

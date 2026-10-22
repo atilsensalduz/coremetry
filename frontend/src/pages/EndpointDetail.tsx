@@ -11,6 +11,7 @@ import { TrendDelta } from '@/components/TrendDelta';
 import { useEndpoints, useEndpointDetail, useOperatorEvents } from '@/lib/queries';
 import { operatorEventsToRegions } from '@/lib/eventRegions';
 import { timeRangeToNs, fmtNum } from '@/lib/utils';
+import { snapHeavyWindow } from '@/lib/autoRefresh';
 import { usePageZoomRange } from '@/lib/chart/usePageZoomRange';
 import { useUrlEnv } from '@/lib/useUrlEnv';
 import type { EndpointDetail, EndpointRow } from '@/lib/types';
@@ -104,6 +105,7 @@ export default function EndpointDetailPage() {
   const canEditRules = user?.role === 'admin' || user?.role === 'editor';
   const [alertOpen, setAlertOpen] = useState(false);
   const { from, to } = useMemo(() => timeRangeToNs(range), [range]);
+  const heavy = useMemo(() => snapHeavyWindow(range, { from, to }), [range, from, to]);
   // v0.10.1200 (operatör: "cluster seçilebilse") — servisin pencerede
   // görülen cluster'ları (servis-sınırlı küçük liste, sunucu uç); seçim
   // ?cluster= — sayfanın her bölümü zaten bu parametreyle daralıyor.
@@ -413,12 +415,15 @@ export default function EndpointDetailPage() {
               display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
               gap: 12,
             }}>
-              <WhereTheTimeGoesSection refObj={refObj} from={from} to={to}
+              {/* v0.10.1430 — iki ham-spans yürüyüşü (downstream / callers)
+                  rung'lu pencere alır: global tik dakikada bir kaydırır,
+                  bunlar en çok 5 dk'da bir yeniden taranır (v0.8.270). */}
+              <WhereTheTimeGoesSection refObj={refObj} from={heavy.from} to={heavy.to}
                 env={env} cluster={cluster} />
               <SplitSection refObj={refObj} from={from} to={to}
                 env={env} cluster={cluster} />
             </div>
-            <CallersSection refObj={refObj} from={from} to={to}
+            <CallersSection refObj={refObj} from={heavy.from} to={heavy.to}
               env={env} cluster={cluster} />
             <FailingTracesSection detail={detail} />
             <ExceptionsSection detail={detail} />

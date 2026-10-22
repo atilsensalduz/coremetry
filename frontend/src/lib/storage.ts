@@ -30,6 +30,9 @@ export const STORAGE_KEYS = {
   // o kuyruğu keser — sekme kapanınca kayıt da gider.
   lastRange:        'cm.lastRange',
   env:              'coremetry-env',
+  // v0.10.1430 — global auto-refresh interval (Topbar RefreshPicker), the
+  // `?refresh=` token mirrored for cross-page continuity (URL > this > 60 s).
+  refresh:          'cm.refresh',
   lang:             'coremetry.lang',
   rum:              'coremetry-rum',
   recentServices:   'coremetry.recentServices',

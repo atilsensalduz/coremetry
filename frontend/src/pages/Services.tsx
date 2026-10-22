@@ -374,11 +374,16 @@ export default function ServicesPage() {
   // taşındıktan sonra bu, gelen `?page=12`yi ilk render'da silerdi.
   // Yani paylaşılan link kendi kendini bozardı. Sıfırlama artık yalnız
   // GERÇEK bir değişimde.
+  // v0.10.1430 — bağımlılık `range` NESNESİ değil, kodlanmış dizgesi: global
+  // auto-refresh tik'i her 60 s'de range kimliğini yeniler (pencere kayar);
+  // kimlik üzerinden bu efekt operatörü her tik'te 1. sayfaya fırlatırdı.
+  // Sıfırlama yalnız pencerenin KENDİSİ değişince.
+  const rangeSig = encodeRange(range);
   const filtersMounted = useRef(false);
   useEffect(() => {
     if (!filtersMounted.current) { filtersMounted.current = true; return; }
     setPage(0);
-  }, [committedFilter, range, sortBy, sortDir, ownerTeam, sreTeam, cluster, env, namespace, errorsOnly, minSpans, minP99, compare, setPage]);
+  }, [committedFilter, rangeSig, sortBy, sortDir, ownerTeam, sreTeam, cluster, env, namespace, errorsOnly, minSpans, minP99, compare, setPage]);
 
   // Pre-fetch the cluster options on first mount and whenever
   // the time range changes. The /api/clusters response is

@@ -22,10 +22,11 @@ import { clusterSearch } from '@/pages/clusters/clusterSearch'; // v0.10.928 (Y1
 import { MultiLineChart } from '@/components/MultiLineChart';
 import { Topbar } from '@/components/Topbar';
 import { Spinner, Empty } from '@/components/Spinner';
-import { Button, Card, CardLink, Drawer, DrawerSection, IconButton, LinkButton } from '@/components/ui';
+import { Card, CardLink, Drawer, DrawerSection, IconButton, LinkButton } from '@/components/ui';
 import { api } from '@/lib/api';
 import { useClusters } from '@/lib/queries';
 import { timeRangeToNs, fmtBytes, fmtNum, rowClickHandlers } from '@/lib/utils';
+import { LIVE_META } from '@/lib/autoRefresh';
 import { clusterCapacityChip } from '@/lib/fmtEta'; // v0.10.912 — "kaç gün kaldı"
 import { clampThanosWindow, clampSuffix } from '@/lib/thanosWindow';
 import { useUrlRange, rememberRange } from '@/lib/useUrlRange';
@@ -244,18 +245,12 @@ export default function ClustersPage() {
       return next;
     }, { replace: true });
 
-  // v0.9.38 (design handoff, Interactions §auto-refresh) — ?live=1
-  // canlı yenileme: aktif detay sorgularına refetchInterval. Aralık
-  // 10s (README 5s der; CLAUDE.md poll tabanı ≥10s kazanır). TanStack
-  // refetchInterval gizli sekmede varsayılan olarak durur
-  // (refetchIntervalInBackground=false) — document.hidden kuralı bedava.
-  const live = params.get('live') === '1';
-  const toggleLive = () => setParams(prev => {
-    const next = new URLSearchParams(prev);
-    if (live) next.delete('live'); else next.set('live', '1');
-    return next;
-  }, { replace: true });
-  const liveMs = live ? 10_000 : undefined;
+  // v0.9.38'in `?live=1` anahtarı (10 s refetchInterval + 60 s liveTick)
+  // v0.10.1430'da EMEKLİ: /clusters global auto-refresh allowlist'inde
+  // (lib/autoRefresh.ts, Topbar RefreshPicker, varsayılan 60 s, taban 10 s).
+  // Pencere anahtarlı trend sorguları tik'te kayar (range kimliği);
+  // anlık-durum sorguları (summary/pods/nodes/ns/alerts/deployments)
+  // `meta: LIVE_META` ile tik'te invalidate edilir. Tek saat, tek seçici.
   // v0.9.58 — grafik drag-seçimi global time picker'a yazar (operatör
   // isteği; Service.tsx onZoom emsali). setRange useUrlRange'ten.
   // Madde 4 sweep — Service.tsx v0.9.199 GERİ-YIĞIN deseninin birebiri:
@@ -306,22 +301,6 @@ export default function ClustersPage() {
     if (view) { zoomWroteRef.current = true; setRange(view); return; }
     if (rangeRef.current.preset === 'custom') { zoomWroteRef.current = true; setRange({ preset: '15m' }); }
   }, [setRange]);
-  // v0.9.43 (review MAJÖR) — trend pencere ilerletici: [from,to]
-  // memo'su Date.now()'u mount'ta bir kez yakalıyordu; live modda
-  // 10s'lik her refetch AYNI geçmiş pencereyi sorguluyor (Prometheus
-  // geçmişi immutable → grafikler donuk, istekler garantili no-op).
-  // 60s'lik tick memo'yu tazeler — dakika bucket'ları + 60s sunucu
-  // cache TTL'iyle hizalı, cache-key kardinalitesi sınırlı kalır.
-  const [liveTick, setLiveTick] = useState(0);
-  useEffect(() => {
-    if (!live) return;
-    const id = setInterval(() => {
-      if (document.hidden) return; // gizli sekmede pencere ilerletme yok
-      setLiveTick(t => t + 1);
-    }, 60_000);
-    return () => clearInterval(id);
-  }, [live]);
-
   // Detay başlık rozeti + Overview kartları: aynı skaler summary
   // (genel görünümle queryKey paylaşır — cache ortak).
   const detailSummaryQ = useQuery({
@@ -330,14 +309,13 @@ export default function ClustersPage() {
     staleTime: 60_000,
     retry: 1,
     enabled: isDetail,
-    refetchInterval: liveMs,
+    meta: LIVE_META,
   });
 
   // v0.9.10 — Overview throughput grafiği: sayfa range'i penceresi
   // (audit §4 kararı — ?tw= drawer-yerel kalır), fetch yalnız
   // Overview sekmesi aktifken.
   const { from: rangeFrom, to: rangeTo, netClamped } = useMemo(() => {
-    void liveTick; // v0.9.43 — live pencere ilerletici, yalnız tetikleyici
     const { from, to } = timeRangeToNs(range);
     // v0.9.21 — sunucu pencereyi SESSİZCE kelepçeliyordu; geniş sayfa
     // range'inde grafik başlıksız yanıltıyordu. İstemci de kelepçeler
@@ -345,8 +323,7 @@ export default function ClustersPage() {
     // gövdede (lib/thanosWindow, v0.9.1370).
     const { cFrom, cTo, clamped } = clampThanosWindow(from, to);
     return { from: cFrom, to: cTo, netClamped: clamped };
-    // liveTick: v0.9.43 — live modda pencereyi 60s'de bir ilerletir.
-  }, [range, liveTick]);
+  }, [range]);
   // v0.9.1042 (operator-reported: eksen 3h pencerede 00:00–21:00) —
   // Overview grafiklerinin x-ekseni sorgu penceresine mıhlanır
   // (ServiceCharts v0.9.725 paritesi; ns→unix sec).
@@ -359,7 +336,7 @@ export default function ClustersPage() {
     staleTime: 60_000,
     retry: 1,
     enabled: isDetail && section === 'overview',
-    refetchInterval: liveMs,
+    meta: LIVE_META,
   });
   // v0.9.35 (B2/F4) — CPU/Mem area chart'ları, per-kart Total/By-node
   // toggle (local UI state; fetch toggle'a göre). Pencere sayfa
@@ -372,20 +349,20 @@ export default function ClustersPage() {
     queryKey: ['cluster-res-trend', clusterParam, 'cpu', cpuByNode, rangeFrom, rangeTo],
     queryFn: () => api.clusterResourceTrend(clusterParam, 'cpu', cpuByNode, rangeFrom, rangeTo),
     staleTime: 60_000, retry: 1, enabled: isDetail && section === 'overview',
-    refetchInterval: liveMs,
+    meta: LIVE_META,
   });
   const memTrendQ = useQuery({
     queryKey: ['cluster-res-trend', clusterParam, 'mem', memByNode, rangeFrom, rangeTo],
     queryFn: () => api.clusterResourceTrend(clusterParam, 'mem', memByNode, rangeFrom, rangeTo),
     staleTime: 60_000, retry: 1, enabled: isDetail && section === 'overview',
-    refetchInterval: liveMs,
+    meta: LIVE_META,
   });
   // v0.9.36 (B3) — firing alerts (Overview panel).
   const alertsQ = useQuery({
     queryKey: ['cluster-alerts', clusterParam],
     queryFn: () => api.clusterAlerts(clusterParam),
     staleTime: 60_000, retry: 1, enabled: isDetail && section === 'overview',
-    refetchInterval: liveMs,
+    meta: LIVE_META,
   });
   const [alertsCriticalOnly, setAlertsCriticalOnly] = useState(false);
 
@@ -398,7 +375,7 @@ export default function ClustersPage() {
       staleTime: 60_000,
       retry: 1,
       enabled: section === 'pods',
-      refetchInterval: liveMs,
+      meta: LIVE_META,
     })),
   });
   const nodeQs = useQueries({
@@ -410,7 +387,7 @@ export default function ClustersPage() {
       // v0.9.32 — Overview heatmap de node verisini kullanır (aynı
       // cache slotu; sekme geçişinde tekrar fetch yok).
       enabled: section === 'nodes' || section === 'overview',
-      refetchInterval: liveMs,
+      meta: LIVE_META,
     })),
   });
   const nsQs = useQueries({
@@ -422,7 +399,7 @@ export default function ClustersPage() {
       // v0.9.34 — combobox tüm sekmelerde namespace listesine ihtiyaç
       // duyar; Namespaces sekmesiyle aynı cache slotu (tekrar fetch yok).
       enabled: isDetail,
-      refetchInterval: liveMs,
+      meta: LIVE_META,
     })),
   });
 
@@ -470,7 +447,7 @@ export default function ClustersPage() {
     staleTime: 60_000,
     retry: 1,
     enabled: isDetail && nsFilter !== '',
-    refetchInterval: liveMs,
+    meta: LIVE_META,
   });
   const depRows = useMemo(() => {
     const all = depQ.data?.deployments ?? [];
@@ -796,12 +773,6 @@ export default function ClustersPage() {
                   ?namespace= yazıp Namespaces (deployments) görünümüne
                   geçer; native select DEĞİL. */}
               <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-                {/* v0.9.38 — auto-refresh toggle (design handoff §2):
-                    açıkken nabız atan nokta + "Live · 10s", kapalıyken
-                    duran nokta + "Paused · Ns ago" (v0.10.922: ikisi de
-                    --text3, yeşil yok). Durum ?live=1 URL'de. */}
-                <LiveToggle live={live} onToggle={toggleLive}
-                  updatedAt={detailSummaryQ.dataUpdatedAt} />
                 <NamespaceCombobox
                   namespaces={(nsQs[0]?.data?.namespaces ?? []).map(r => r.namespace)}
                   value={nsFilter}
@@ -1303,48 +1274,10 @@ function NamespaceDrawer({ cluster, namespace, range, onClose, onZoom, onZoomRes
 // ResToggleHeader v0.9.49'da MetricArea'ya taşındı
 // (pages/clusters/MetricArea.tsx) — §8 Service sekmesiyle ortak.
 
-// fmtAgeShort — saniye → "Nm"/"Nh"/"Nd" (design handoff alert "Nm ago").
-// LiveToggle — auto-refresh anahtarı (v0.9.38, design handoff §2).
-// Açıkken aktif sorgular 10s refetchInterval alır (TanStack gizli
-// sekmede kendiliğinden durdurur); kapalıyken temsilci sorgunun
-// (summary) yaşı gösterilir. "ago" tazelemesi 10s'lik YEREL bir
-// re-render tick'idir, sunucuya istek atmaz.
-function LiveToggle({ live, onToggle, updatedAt }: {
-  live: boolean; onToggle: () => void; updatedAt: number;
-}) {
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    if (live || !updatedAt) return;
-    const id = setInterval(() => {
-      if (document.hidden) return; // gizli sekmede boşuna render yok
-      setTick(t => t + 1);
-    }, 10_000);
-    return () => clearInterval(id);
-  }, [live, updatedAt]);
-  const agoSec = updatedAt ? Math.max(0, Math.round((Date.now() - updatedAt) / 1000)) : 0;
-  const ago = agoSec < 90 ? `${agoSec}s` : fmtAgeShort(agoSec);
-  // v0.9.43 — "Live · 10s" vaadi abartıyordu: sunucu cache TTL'i 60s,
-  // efektif veri tazeliği ~60s. Etiket "Live", ayrıntı title'da.
-  const label = live ? 'Live'
-    : updatedAt ? `Paused · ${ago} ago` : 'Paused';
-  // v0.10.922 (sade palet adım 1) — nokta bir etkinlik göstergesi,
-  // sağlık sinyali değil: yeşil yok; canlı/duraklatılmış farkı nabız
-  // + etiket ("Live"/"Paused") taşır, renk hep --text3.
-  return (
-    <Button variant="secondary" size="sm" onClick={onToggle}
-      title={live
-        ? 'Auto-refresh on — polls every 10s; data freshness follows the 60s server cache. Click to pause.'
-        : 'Auto-refresh off — click to go live'}
-      style={{ whiteSpace: 'nowrap' }}
-      leftIcon={<span className={live ? 'pulse-dot' : ''} style={{
-        display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
-        background: 'var(--text3)',
-      }} />}>
-      {label}
-    </Button>
-  );
-}
+// LiveToggle (v0.9.38) v0.10.1430'da SİLİNDİ — auto-refresh global Topbar
+// RefreshPicker'ında (şim yok); ?live=1 artık okunmuyor.
 
+// fmtAgeShort — saniye → "Nm"/"Nh"/"Nd" (design handoff alert "Nm ago").
 function fmtAgeShort(sec?: number): string {
   if (!sec || sec <= 0) return '';
   if (sec < 3600) return `${Math.round(sec / 60)}m`;

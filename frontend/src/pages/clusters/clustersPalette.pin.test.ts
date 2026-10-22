@@ -33,8 +33,11 @@ describe('Clusters — sade palet adım 1', () => {
     expect(src).toContain("(p ?? 0) > 85 ? 'err' : (p ?? 0) > 60 ? 'warn' : 'faint'");
     expect(src.match(/tone: r => pctTone\(r\.(cpuPct|memPct)\)/g)?.length).toBe(4);
   });
-  it('Live noktası nabız atar ama renk nötr', () => {
-    expect(src).toContain("leftIcon={<span className={live ? 'pulse-dot' : ''}");
-    expect(src).toMatch(/borderRadius: '50%',\s*background: 'var\(--text3\)',/);
+  // v0.10.1430 — LiveToggle (ve ?live=1) emekli: auto-refresh global Topbar
+  // RefreshPicker'ında. Sayfada kendi canlı anahtarı / 10 s poll'u kalmadı.
+  it('kendi Live anahtarı yok; anlık-durum sorguları global tik etiketini taşır', () => {
+    expect(src).not.toMatch(/function LiveToggle|<LiveToggle|params\.get\('live'\)|const liveMs|setLiveTick/);
+    expect(src).toContain("import { LIVE_META } from '@/lib/autoRefresh';");
+    expect(src.match(/meta: LIVE_META,/g)?.length).toBe(9); // summary, net, cpu, mem, alerts, pods, nodes, ns, deployments
   });
 });

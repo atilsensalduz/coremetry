@@ -3401,6 +3401,15 @@ button.cosre-cap__row > .row { align-items: flex-start; min-width: 0; }
 .env-pick-wrap { width: 150px; flex-shrink: 0; }
 .env-pick-wrap input { padding: 4px 26px 4px 8px; font-size: 12px; }
 
+/* v0.10.1430 — global auto-refresh picker (Topbar / ContextBar, right of
+   the time picker). ↻ IconButton + ≤10-value native select + caption.
+   Sized to the .trp-btn rung so the three controls read as one group. */
+.rp { display: inline-flex; align-items: center; gap: var(--space-1, 4px); flex-shrink: 0; }
+.rp .btn-icon { width: 28px; height: 28px; }
+.rp-select { padding: 4px 6px; font-size: 12px; min-width: 0; }
+.rp-caption { font-size: var(--fs-xs, 11px); color: var(--text3); white-space: nowrap; }
+.rp-spin .btn-icon-glyph { animation: spin 1s linear infinite; }
+
 /* Time range picker (Grafana-parity panel, 2026-07 redesign):
    left column = absolute range (inputs + mini calendar + recents),
    right column = quick-range rail, footer = browser-UTC note. */
@@ -4614,6 +4623,10 @@ tr:hover .row-kiosk, .row-kiosk:focus-visible { opacity: 1; }
      satırına alınıyor, env kutusu daralıyor. */
   #topbar h1 { flex: 1 0 100%; font-size: 13px; }
   .env-pick-wrap { width: 108px; }
+  /* v0.10.1430 — telefonda yenileme: ↻ + sıkı select kalır, altyazı düşer
+     (bileşen de useIsNarrow ile çizmez; CSS ikinci kemer). */
+  .rp-caption { display: none; }
+  .rp-select { padding: 4px 2px; font-size: 11px; }
   .topbar-prefs { margin-left: auto; }
   .topbar-prefs-sep { display: none; }
 

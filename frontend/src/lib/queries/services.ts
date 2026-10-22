@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { keys } from './keys';
+import { LIVE_META } from '@/lib/autoRefresh';
 import type { GoDuration } from '@/lib/utils';
 import type { Service, ServiceMap, InfraMetricSeries, NeighborStat, ServiceRuntime, Deploy, ServiceMetadata, OperationRoutesFor, OperationRoutesResult } from '@/lib/types';
 
@@ -34,9 +35,10 @@ export function useServiceMap(since: GoDuration, samples: number, diff?: string,
   return useQuery<ServiceMap>({
     queryKey: keys.services.map(since, samples, diff, topN),
     queryFn: ({ signal }) => api.serviceMap(since, samples, diff, topN, signal),
-    refetchInterval: 30_000,
-    // v0.8.462 — 25s < 30s poll penceresi tab dönüşlerinde double-fetch
-    // üretiyordu (anomalies.ts v0.4.79 deseni); eşitlendi.
+    // v0.10.1430 — kendi 30 s poll'u yerine global tik: anahtar `since`
+    // (GoDuration) olduğu için pencere kaydırmasıyla değişmez; LIVE_META
+    // etiketi tik'te invalidate ettirir (useAutoRefresh.ts). Tek saat.
+    meta: LIVE_META,
     staleTime: 30_000,
   });
 }
@@ -46,6 +48,7 @@ export function useServiceInfra(svc: string, since: GoDuration) {
     queryKey: keys.services.infra(svc, since),
     queryFn: async () => (await api.serviceInfraMetrics(svc, since)) ?? [],
     enabled: !!svc,
+    meta: LIVE_META, // v0.10.1430 — since anahtarlı; tik'te tazelenir
     staleTime: 30_000,
   });
 }
@@ -199,6 +202,7 @@ export function useServiceNeighbors(svc: string, since: GoDuration) {
     queryKey: keys.services.neighbors(svc, since),
     queryFn: () => api.serviceNeighbors(svc, since),
     enabled: !!svc,
+    meta: LIVE_META, // v0.10.1430 — since anahtarlı; tik'te tazelenir
     staleTime: 60 * 60_000, // neighbours shift on deploys, not seconds
   });
 }

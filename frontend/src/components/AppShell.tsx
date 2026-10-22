@@ -11,6 +11,7 @@ import { Toaster } from './Toaster';
 import { useAuth } from './AuthProvider';
 import { SessionEndedCard } from './SessionEndedCard';
 import { useEventStream } from '@/lib/queries';
+import { useAutoRefresh } from '@/lib/useAutoRefresh';
 import { isPublicPath } from '@/lib/auth-paths';
 import { isKioskBare } from '@/lib/kioskMode';
 import { isCosrePage } from '@/lib/cosrePage';
@@ -139,6 +140,12 @@ export function AppShell() {
   // invalidates the matching React Query caches so live state
   // changes show up in <1s. Closes on logout / unmount.
   useEventStream(!!user && !isPublic && !kioskBare && !cosreBare);
+
+  // v0.10.1430 — global auto-refresh saati (Topbar RefreshPicker'ın
+  // arkasındaki TEK zamanlayıcı). Aynı kapı: kimlikli, kromlu kabuk.
+  // Dashboard'un ?kiosk=1 TV görünümü tam kabuk olduğu için saat orada
+  // çalışır (v0.9.779'un amacı); /trace?kiosk=1 çıplak kabuk + manuel rota.
+  useAutoRefresh(!!user && !isPublic && !kioskBare && !cosreBare);
 
   // v0.8.525 — 'g <x>' navigation shortcuts consolidated into the
   // single GlobalShortcuts registry (mounted below). This inline block

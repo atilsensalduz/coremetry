@@ -170,7 +170,7 @@ function CapHint() {
   );
 }
 
-export function PanelRenderer({ panel, range, vars, syncKey, onZoom, onZoomReset, refreshTick, dataOverride }: {
+export function PanelRenderer({ panel, range, vars, syncKey, onZoom, onZoomReset, dataOverride }: {
   panel: Panel;
   range: TimeRange;
   // Resolved values for the dashboard's variables (Grafana-style
@@ -191,14 +191,11 @@ export function PanelRenderer({ panel, range, vars, syncKey, onZoom, onZoomReset
   // Grafana-parite M1 — çift-tık: Dashboard.tsx zoom geri-yığınını pop
   // eder (chart çizen panellere aynen iletilir).
   onZoomReset?: () => void;
-  // v0.9.779 — auto-refresh sayacı (Dashboard.tsx). Her artış, KENDİ
-  // fetch'ini yapan panelin effect'ini yeniden koşturur. Bundle'dan
-  // beslenen metric / spanmetric panelleri için de bağımlılıkta duruyor:
-  // orada override'ı yeniden uygulamaktan başka bir şey yapmaz (istek
-  // yok), ama panel promql modundaysa ya da bundle o paneli
-  // kapsamıyorsa gerçek refetch olur. Tazelemeyen bir "yeniliyorum"
-  // düğmesi bırakmamanın tek yolu bu.
-  refreshTick?: number;
+  // v0.10.1430 — v0.9.779'un refreshTick sayacı KALDIRILDI: global
+  // auto-refresh (lib/autoRefresh.ts) useUrlRange'in `range` kimliğini
+  // yeniler; her panelin fetch effect'i zaten [range] bağımlı olduğu için
+  // tik'te kendiliğinden yeniden koşar (bundle dışı stat/gauge/heatmap/
+  // promql/topN dahil — v0.9.43'ün "donuk stat kutusu" dersi korunur).
   // Pre-fetched data from the dashboard bundle endpoint. When
   // provided, MetricPanel / SpanMetricPanel use it instead of
   // firing their own /api/{metrics,spans}/metric round trip.
@@ -224,23 +221,23 @@ export function PanelRenderer({ panel, range, vars, syncKey, onZoom, onZoomReset
   const h = panel.height;
   switch (panel.type) {
     case 'metric':
-      return <MetricPanel cfg={applyVarsToMetric(panel.config as MetricPanelConfig, vars)} range={effectiveRange} syncKey={syncKey} onZoom={onZoom} onZoomReset={onZoomReset} refreshTick={refreshTick} dataOverride={effectiveDataOverride} height={h} />;
+      return <MetricPanel cfg={applyVarsToMetric(panel.config as MetricPanelConfig, vars)} range={effectiveRange} syncKey={syncKey} onZoom={onZoom} onZoomReset={onZoomReset} dataOverride={effectiveDataOverride} height={h} />;
     case 'spanmetric':
-      return <SpanMetricPanel cfg={applyVarsToSpan(panel.config as SpanMetricPanelConfig, vars)} range={effectiveRange} syncKey={syncKey} onZoom={onZoom} onZoomReset={onZoomReset} refreshTick={refreshTick} dataOverride={effectiveDataOverride} height={h} />;
+      return <SpanMetricPanel cfg={applyVarsToSpan(panel.config as SpanMetricPanelConfig, vars)} range={effectiveRange} syncKey={syncKey} onZoom={onZoom} onZoomReset={onZoomReset} dataOverride={effectiveDataOverride} height={h} />;
     case 'stat':
-      return <StatPanel cfg={applyVarsToStat(panel.config as StatPanelConfig, vars)} range={effectiveRange} refreshTick={refreshTick} height={h} />;
+      return <StatPanel cfg={applyVarsToStat(panel.config as StatPanelConfig, vars)} range={effectiveRange} height={h} />;
     case 'gauge':
-      return <GaugePanel cfg={applyVarsToGauge(panel.config as GaugePanelConfig, vars)} range={effectiveRange} refreshTick={refreshTick} height={h} />;
+      return <GaugePanel cfg={applyVarsToGauge(panel.config as GaugePanelConfig, vars)} range={effectiveRange} height={h} />;
     case 'heatmap':
-      return <HeatmapPanel cfg={applyVarsToHeatmap(panel.config as HeatmapPanelConfig, vars)} range={effectiveRange} refreshTick={refreshTick} height={h} />;
+      return <HeatmapPanel cfg={applyVarsToHeatmap(panel.config as HeatmapPanelConfig, vars)} range={effectiveRange} height={h} />;
     case 'promql':
-      return <PromqlPanel cfg={applyVarsToPromql(panel.config as PromqlPanelConfig, vars)} range={effectiveRange} syncKey={syncKey} onZoom={onZoom} onZoomReset={onZoomReset} refreshTick={refreshTick} height={h} />;
+      return <PromqlPanel cfg={applyVarsToPromql(panel.config as PromqlPanelConfig, vars)} range={effectiveRange} syncKey={syncKey} onZoom={onZoom} onZoomReset={onZoomReset} height={h} />;
     // v0.9.781 — non-temporal (ranked bars, no time axis): no syncKey, no
     // onZoom — there is no cursor to sync and no x-range to drag. Carries
     // panelId instead so the dashboard's panel-actions menu can anchor to it
     // (frontend-dashboard-panel skill, step 9).
     case 'topn':
-      return <TopNPanel cfg={applyVarsToTopN(panel.config as TopNPanelConfig, vars)} range={effectiveRange} refreshTick={refreshTick} height={h} panelId={panel.id} />;
+      return <TopNPanel cfg={applyVarsToTopN(panel.config as TopNPanelConfig, vars)} range={effectiveRange} height={h} panelId={panel.id} />;
     case 'markdown':
       // Markdown flows with its text — no fixed height to size.
       return <MarkdownPanel cfg={panel.config as MarkdownPanelConfig} />;
@@ -363,11 +360,10 @@ export function applyVarsToTopN(cfg: TopNPanelConfig, vars?: Record<string, stri
 
 // ── Metric line chart ───────────────────────────────────────────────────────
 
-function MetricPanel({ cfg, range, syncKey, onZoom, onZoomReset, refreshTick, dataOverride, height }: {
+function MetricPanel({ cfg, range, syncKey, onZoom, onZoomReset, dataOverride, height }: {
   cfg: MetricPanelConfig; range: TimeRange; syncKey?: string;
   onZoom?: (fromUnixSec: number, toUnixSec: number) => void;
   onZoomReset?: () => void;
-  refreshTick?: number;
   dataOverride?: PanelDataOverride;
   height?: PanelHeight;
 }) {
@@ -436,10 +432,7 @@ function MetricPanel({ cfg, range, syncKey, onZoom, onZoomReset, refreshTick, da
       groupBy: cfg.groupBy, from, to, step,
     }).then(r => { setSeries(r?.series ?? []); setCapped(r?.rowsCapped ?? false); })
       .catch(e => setError(e.message));
-    // refreshTick: v0.9.779 — auto-refresh. Override'lı yolda yalnız
-    // aynı veriyi yeniden uygular (istek yok); promql modunda ve bundle
-    // kapsamayan panelde gerçek refetch.
-  }, [JSON.stringify(cfg), range, hasOverride, JSON.stringify(dataOverride), widthPx, refreshTick]);
+  }, [JSON.stringify(cfg), range, hasOverride, JSON.stringify(dataOverride), widthPx]);
 
   if (error) return <PanelError msg={error} height={boxPx} />;
   // v0.9.790 — markı da dispatch et. Bu dal v0.9.786'ya kadar KOŞULSUZ
@@ -467,8 +460,8 @@ function MetricPanel({ cfg, range, syncKey, onZoom, onZoomReset, refreshTick, da
 // /api/metrics/histogram (bounds + per-time bucket counts), adapts to the
 // LatencyHeatmap viz. Global distribution (no agg/groupBy — a heatmap blends
 // the whole distribution). Width-aware auto step like the metric panels.
-function HeatmapPanel({ cfg, range, refreshTick, height }: {
-  cfg: HeatmapPanelConfig; range: TimeRange; refreshTick?: number; height?: PanelHeight;
+function HeatmapPanel({ cfg, range, height }: {
+  cfg: HeatmapPanelConfig; range: TimeRange; height?: PanelHeight;
 }) {
   const boxPx = panelChartHeight(height);
   const [data, setData] = useState<HeatmapData | null | undefined>(undefined);
@@ -503,8 +496,7 @@ function HeatmapPanel({ cfg, range, refreshTick, height }: {
         setHonesty({ skipped: r?.skipped ?? 0, rowCapped: r?.rowCapped ?? false });
       })
       .catch(e => setError(e.message));
-    // refreshTick: v0.9.779 — auto-refresh (bundle DIŞI panel).
-  }, [JSON.stringify(cfg), range, widthPx, refreshTick]);
+  }, [JSON.stringify(cfg), range, widthPx]);
 
   if (error) return <PanelError msg={error} height={boxPx} />;
   return (
@@ -577,11 +569,10 @@ function HeatmapPanel({ cfg, range, refreshTick, height }: {
 // A dashboard chart driven by a raw PromQL query (/api/metrics/promql, the
 // Phase 1-3 engine). Own-fetch, width-aware step, standard loading/empty/error
 // states; a parse/eval error surfaces inline (the backend message).
-function PromqlPanel({ cfg, range, syncKey, onZoom, onZoomReset, refreshTick, height }: {
+function PromqlPanel({ cfg, range, syncKey, onZoom, onZoomReset, height }: {
   cfg: PromqlPanelConfig; range: TimeRange; syncKey?: string;
   onZoom?: (fromUnixSec: number, toUnixSec: number) => void;
   onZoomReset?: () => void;
-  refreshTick?: number;
   height?: PanelHeight;
 }) {
   const boxPx = panelChartHeight(height);
@@ -612,9 +603,8 @@ function PromqlPanel({ cfg, range, syncKey, onZoom, onZoomReset, refreshTick, he
     api.metricPromql({ query: debouncedQuery, from, to, step })
       .then(s => setSeries(s ?? []))
       .catch(e => setError(e.message));
-    // refreshTick: v0.9.779 — auto-refresh (bundle DIŞI panel).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery, cfg.step, range, widthPx, refreshTick]);
+  }, [debouncedQuery, cfg.step, range, widthPx]);
 
   if (error) return <PanelError msg={error} height={boxPx} />;
   const viz = cfg.viz ?? 'line';
@@ -636,8 +626,8 @@ function PromqlPanel({ cfg, range, syncKey, onZoom, onZoomReset, refreshTick, he
 //
 // The single-bucket step is the whole trick — see topN.ts for why anything
 // else silently lies about p99 / error_rate.
-function TopNPanel({ cfg, range, refreshTick, height, panelId }: {
-  cfg: TopNPanelConfig; range: TimeRange; refreshTick?: number;
+function TopNPanel({ cfg, range, height, panelId }: {
+  cfg: TopNPanelConfig; range: TimeRange;
   height?: PanelHeight; panelId?: string;
 }) {
   const boxPx = panelBoxHeight(height);
@@ -673,8 +663,7 @@ function TopNPanel({ cfg, range, refreshTick, height, panelId }: {
       setMore(topNMoreLabel(shown.length, series.length, r?.totalSeries));
       setCapped(r?.rowsCapped ?? false);
     }).catch(e => setError(e.message));
-    // refreshTick: v0.9.779 — auto-refresh (bundle DIŞI panel).
-  }, [JSON.stringify(cfg), range, limit, refreshTick]);
+  }, [JSON.stringify(cfg), range, limit]);
 
   if (error) return <PanelError msg={error} height={boxPx} />;
   if (rows === undefined) return <PanelLoading height={boxPx} />;
@@ -769,11 +758,10 @@ function topNRowHref(cfg: TopNPanelConfig, groupKey: string[], range: TimeRange)
 
 // ── Span metric line chart ──────────────────────────────────────────────────
 
-function SpanMetricPanel({ cfg, range, syncKey, onZoom, onZoomReset, refreshTick, dataOverride, height }: {
+function SpanMetricPanel({ cfg, range, syncKey, onZoom, onZoomReset, dataOverride, height }: {
   cfg: SpanMetricPanelConfig; range: TimeRange; syncKey?: string;
   onZoom?: (fromUnixSec: number, toUnixSec: number) => void;
   onZoomReset?: () => void;
-  refreshTick?: number;
   dataOverride?: PanelDataOverride;
   height?: PanelHeight;
 }) {
@@ -813,9 +801,7 @@ function SpanMetricPanel({ cfg, range, syncKey, onZoom, onZoomReset, refreshTick
       from, to, step,
     }).then(r => { setSeries(r?.series ?? []); setCapped(r?.rowsCapped ?? false); setTail(r?.tail); setTotal(r?.totalSeries); })
       .catch(e => setError(e.message));
-    // refreshTick: v0.9.779 — auto-refresh. Override'lı yolda istek yok
-    // (aynı veri yeniden uygulanır); bundle kapsamayan panelde refetch.
-  }, [JSON.stringify(cfg), range, hasOverride, JSON.stringify(dataOverride), widthPx, refreshTick]);
+  }, [JSON.stringify(cfg), range, hasOverride, JSON.stringify(dataOverride), widthPx]);
 
   if (error) return <PanelError msg={error} height={boxPx} />;
   // Dispatch on the configured viz. v0.9.808'den beri BEŞ mark da v2
@@ -852,8 +838,8 @@ function SpanMetricPanel({ cfg, range, syncKey, onZoom, onZoomReset, refreshTick
 // half computes the prior baseline. One round trip, no extra
 // API surface.
 
-function StatPanel({ cfg, range, refreshTick, height }: {
-  cfg: StatPanelConfig; range: TimeRange; refreshTick?: number; height?: PanelHeight;
+function StatPanel({ cfg, range, height }: {
+  cfg: StatPanelConfig; range: TimeRange; height?: PanelHeight;
 }) {
   const boxPx = panelBoxHeight(height);
   const [value, setValue] = useState<number | null | undefined>(undefined);
@@ -895,10 +881,7 @@ function StatPanel({ cfg, range, refreshTick, height }: {
         setPrior(priorPts.length > 0 ? mean(priorPts.map(p => p.value)) : null);
       })
       .catch(e => setError(e.message));
-    // refreshTick: v0.9.779 — auto-refresh (bundle DIŞI panel). Bunu
-    // atlamak, çevresindeki grafikler ilerlerken donuk kalan bir stat
-    // kutusu bırakırdı — en aldatıcı hâli.
-  }, [JSON.stringify(cfg), range, refreshTick]);
+  }, [JSON.stringify(cfg), range]);
 
   if (error) return <PanelError msg={error} height={boxPx} />;
   if (value === undefined) return <PanelLoading height={boxPx} />;
@@ -982,8 +965,8 @@ function StatPanel({ cfg, range, refreshTick, height }: {
 // recent half-window. No prior-period overlay (the gauge's
 // visual job is "current state", not "trend"; the Stat panel
 // covers the trend story).
-function GaugePanel({ cfg, range, refreshTick, height }: {
-  cfg: GaugePanelConfig; range: TimeRange; refreshTick?: number; height?: PanelHeight;
+function GaugePanel({ cfg, range, height }: {
+  cfg: GaugePanelConfig; range: TimeRange; height?: PanelHeight;
 }) {
   const boxPx = panelBoxHeight(height);
   const [value, setValue] = useState<number | null | undefined>(undefined);
@@ -1010,8 +993,7 @@ function GaugePanel({ cfg, range, refreshTick, height }: {
         setValue(flat.length > 0 ? flat[flat.length - 1].value : null);
       })
       .catch(e => setError(e.message));
-    // refreshTick: v0.9.779 — auto-refresh (bundle DIŞI panel).
-  }, [JSON.stringify(cfg), range, refreshTick]);
+  }, [JSON.stringify(cfg), range]);
 
   if (error) return <PanelError msg={error} height={boxPx} />;
   if (value === undefined) return <PanelLoading height={boxPx} />;

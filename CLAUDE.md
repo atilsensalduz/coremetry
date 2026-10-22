@@ -24,7 +24,7 @@ Datadog / Dynatrace / Honeycomb engineer this?"**
 
 - `/api/*` p99 < 200ms warm, < 1s cold; hot endpoints (`/api/services`, `/api/problems`, `/api/health`) < 50ms warm
 - `/api/spans/heatmap` < 3s ≤6h window (auto-sample beyond); `/api/logs/patterns` < 2s at billion docs
-- TTFI < 1.5s fresh tab; polling ≥ 10s (except `/api/health` 5s); every poller pauses on `document.hidden`
+- TTFI < 1.5s fresh tab; polling ≥ 10s (except `/api/health` 5s); every poller pauses on `document.hidden`. Range-keyed data refreshes through the ONE global clock (`lib/autoRefresh.ts` + Topbar `RefreshPicker`, default 60s, closed route allowlist): the tick slides `useUrlRange`'s identity, so never add a `refetchInterval` to a `from/to`-keyed query (it re-requests a frozen window); `since`-keyed queries opt in with `meta: LIVE_META`. New polling loops extend the closed list in `lib/pollingBudget.pin.test.ts` (v0.10.1430).
 
 ## Tech stack
 

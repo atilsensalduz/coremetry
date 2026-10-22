@@ -1,24 +1,19 @@
 // v0.9.779 — /dashboard adres kuralları.
 //
-// İki şey sabitleniyor:
+// REZERVE SET. Dashboard.tsx'teki değişken aynası rezerve olmayan HER
+// paramı siliyor. 'refresh' / 'kiosk' listeye girmezse effect paramı her
+// yazımda yok eder; auto-refresh açılır ve bir sonraki render'da
+// kendiliğinden kapanır — sessiz, "bazen çalışıyor" görünen bir hata
+// sınıfı.
 //
-//  1. REZERVE SET. Dashboard.tsx'teki değişken aynası rezerve olmayan
-//     HER paramı siliyor. 'refresh' / 'kiosk' listeye girmezse effect
-//     paramı her yazımda yok eder; auto-refresh açılır ve bir sonraki
-//     render'da kendiliğinden kapanır — sessiz, "bazen çalışıyor"
-//     görünen bir hata sınıfı.
-//  2. ARALIK AYRIŞTIRMA. ?refresh= elle düzenlenebilir. Tanımadığımız
-//     bir değer KAPALI'ya düşmeli, varsayılan bir aralığa değil:
-//     yapıştırılan bir link kimseye istemediği bir yenileme döngüsü
-//     miras bırakmamalı.
+// v0.10.1430 — aralık ayrıştırması (parseRefreshParam/refreshLabel/
+// REFRESH_CHOICES) global seçiciye taşındı; tabloları lib/autoRefresh.test.ts
+// taşıyor. 'refresh' rezerve kalır: param artık GLOBAL yazılıyor ve ayna
+// onu silerse seçim bu sayfada sessizce düşer.
 import { describe, it, expect } from 'vitest';
-import {
-  DASHBOARD_RESERVED_PARAMS,
-  isDashboardVariableParam,
-  parseRefreshParam,
-  refreshLabel,
-  REFRESH_CHOICES,
-} from './dashboardUrl';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { DASHBOARD_RESERVED_PARAMS, isDashboardVariableParam } from './dashboardUrl';
 
 describe('DASHBOARD_RESERVED_PARAMS', () => {
   it('sayfanın kendi paramlarını kapsar (refresh + kiosk dahil)', () => {
@@ -39,38 +34,14 @@ describe('DASHBOARD_RESERVED_PARAMS', () => {
   });
 });
 
-describe('parseRefreshParam', () => {
-  it('yok / boş → kapalı', () => {
-    expect(parseRefreshParam(null)).toBe(0);
-    expect(parseRefreshParam(undefined)).toBe(0);
-    expect(parseRefreshParam('')).toBe(0);
-  });
-
-  it('listedeki her seçim aynen döner', () => {
-    for (const sec of REFRESH_CHOICES) {
-      expect(parseRefreshParam(String(sec))).toBe(sec);
-    }
-  });
-
-  it('listede olmayan sayı → kapalı (10s dahil — bilinçli yok)', () => {
-    expect(parseRefreshParam('10')).toBe(0);
-    expect(parseRefreshParam('1')).toBe(0);
-    expect(parseRefreshParam('86400')).toBe(0);
-  });
-
-  it('çöp / negatif / NaN → kapalı', () => {
-    expect(parseRefreshParam('abc')).toBe(0);
-    expect(parseRefreshParam('-30')).toBe(0);
-    expect(parseRefreshParam('30s')).toBe(0);
-    expect(parseRefreshParam('Infinity')).toBe(0);
-  });
-});
-
-describe('refreshLabel', () => {
-  it('her seçim için okunur etiket', () => {
-    expect(refreshLabel(0)).toBe('Kapalı');
-    expect(refreshLabel(30)).toBe('30s');
-    expect(refreshLabel(60)).toBe('1m');
-    expect(refreshLabel(300)).toBe('5m');
+describe('v0.10.1430 — Dashboard kendi auto-refresh mekaniğini taşımaz', () => {
+  it('RefreshControl / refreshTick / parseRefreshParam Dashboard.tsx\'te yok; edit modu global saati tutar', () => {
+    const src = readFileSync(resolve(__dirname, '../pages/Dashboard.tsx'), 'utf8');
+    const code = src.replace(/\{\/\*[\s\S]*?\*\/\}/g, '').replace(/^\s*\/\/.*$/gm, '');
+    expect(code).not.toMatch(/function RefreshControl|<RefreshControl|refreshTick|parseRefreshParam|REFRESH_CHOICES/);
+    expect(code).toContain("useRefreshHold(editing, 'edit')");
+    const pr = readFileSync(resolve(__dirname, '../components/dashboard/PanelRenderer.tsx'), 'utf8')
+      .replace(/^\s*\/\/.*$/gm, '');
+    expect(pr).not.toContain('refreshTick');
   });
 });

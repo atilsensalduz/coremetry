@@ -6,6 +6,7 @@ import { useServiceGitOps } from '@/lib/queries/rollouts';
 import { imageRef } from '@/lib/rolloutRow';
 import { runtimeLabel, newestRollout } from './detailsProps';
 import { api } from '@/lib/api';
+import { LIVE_META } from '@/lib/autoRefresh';
 import { tsRel, rangeToSince, fmtDateTime } from '@/lib/utils';
 import { serviceHref } from '@/lib/serviceHref';
 import type { TimeRange } from '@/lib/types';
@@ -56,6 +57,7 @@ export function DetailsPropsStrip({ service, range }: { service: string; range: 
     queryKey: ['svc-instances-strip', service, instancesSince],
     queryFn: () => api.serviceInstances(service, instancesSince),
     enabled: !!service, staleTime: STALE, retry: false,
+    meta: LIVE_META, // v0.10.1430 — since anahtarlı; global tik'te tazelenir
   });
 
   const rt = runtimeQ.data;

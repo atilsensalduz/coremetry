@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { timeRangeToNs, fmtClock } from '@/lib/utils';
+import { snapHeavyWindow } from '@/lib/autoRefresh';
 import { heatmapBucketCount } from '@/lib/chartStep';
 import { getRaw, setRaw, STORAGE_KEYS } from '@/lib/storage';
 import { Spinner } from '@/components/Spinner';
@@ -61,7 +62,12 @@ export function ServiceLatencyHeatmap({ service, range, operation = '', rootOnly
   // globally (not per-service) so the preference is a one-time setting.
   const [collapsed, setCollapsed] = useState<boolean>(
     () => getRaw(STORAGE_KEYS.svcHeatmapCollapsed) === '1');
-  const { from, to } = useMemo(() => timeRangeToNs(range), [range]);
+  // v0.10.1430 — sayfanın en pahalı okuması (≤3 s bütçe, ham spans
+  // taraması). Global 60 s tik her göreli pencereyi kaydırır; bu pencere
+  // bir runga (≥1h: 5 dk) oturur ki heatmap dakikada bir değil, en çok
+  // rung başına bir kez yeniden taransın (v0.8.270 disiplini). Mutlak
+  // pencere olduğu gibi geçer.
+  const { from, to } = useMemo(() => snapHeavyWindow(range, timeRangeToNs(range)), [range]);
 
   // v0.8.116 — the parent already wraps this panel in <LazyMount> (mounts
   // within 200px of the viewport), so the former in-component

@@ -16,6 +16,7 @@
 
 import { useMemo, useState, type ReactNode } from 'react';
 import { TimeRangePicker } from '../TimeRangePicker';
+import { RefreshPicker } from '../RefreshPicker';
 import { EnvPicker } from '../EnvPicker';
 import { ServicePicker } from '../ServicePicker';
 import { Combobox } from '../Combobox';
@@ -91,6 +92,8 @@ export function ContextBar({ ctx, envApplies = false, hidden = [] }: ContextBarP
           : <Chip pill onClick={() => patch({ compare: 'prior' })} title="Önceki eş-boy pencereyle karşılaştır">Compare</Chip>
       )}
       {applies.has('range') && <TimeRangePicker value={params.range} onChange={r => patch({ range: r })} />}
+      {/* v0.10.1430 — global yenileme, Topbar'daki yuvanın aynısı (zaman seçicinin sağı). */}
+      <RefreshPicker />
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { TimeRangePicker } from './TimeRangePicker';
+import { RefreshPicker } from './RefreshPicker';
 import { TopbarShare } from './TopbarShare';
 import { EnvPicker } from './EnvPicker';
 import { LangToggle } from './LangToggle';
@@ -61,9 +62,14 @@ export function Topbar({ title, range, onRangeChange, showEnv, envApplies, conte
               <TimeRangePicker value={range} onChange={onRangeChange} />
             </>
           )}
+          {/* v0.10.1430 — Grafana tarzı global yenileme: zaman seçicinin
+              hemen sağında (operatör: "sağ üstte zaman yanında"). Zaman ya
+              da env taşıyan her sayfada; saat yalnız allowlist rotalarda
+              çalışır, ↻ her yerde (lib/autoRefresh.ts). */}
+          {(range || showEnv) && <RefreshPicker />}
         </>
       )}
-      {(range || context) && <div className="topbar-prefs-sep" />}
+      {(range || context || showEnv) && <div className="topbar-prefs-sep" />}
       <div className="topbar-prefs">
         <TopbarShare />
         <LangToggle />

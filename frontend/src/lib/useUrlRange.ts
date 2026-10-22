@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import type { TimeRange } from './types';
 import { encodeRange, decodeRange } from './urlState';
 import { STORAGE_KEYS, getSessionRaw, setSessionRaw } from './storage';
+import { useRefreshAnchor } from './autoRefresh';
 
 // useUrlRange (v0.7.87) — the SINGLE source of truth for a page's time
 // range: the URL `?range=` param, not component-local state.
@@ -144,9 +145,21 @@ export function useUrlRange(
   const stored = readStoredRange();
   const effective = raw ?? stored ?? preset;
 
+  // v0.10.1430 — AUTO-REFRESH SLIDE. The memo above froze a relative window
+  // at mount: "last 3h" kept the Date.now() of first render until the URL
+  // changed, so every range-keyed poll re-requested the same past window.
+  // The global tick (lib/autoRefresh.ts bumpRefresh) moves `anchorMs`; it
+  // is the ONE extra dependency here, so every downstream
+  // `useMemo(() => timeRangeToNs(range), [range])` recomputes with a fresh
+  // clock and the window advances — no edit at any of the ~194 call sites,
+  // and the v0.5.184 identity contract still holds (identity changes only
+  // on a URL change or a tick). Absolute (custom:) windows do not slide:
+  // `slide` is pinned to 0 so their identity is untouched by the tick.
+  const anchor = useRefreshAnchor();
+  const slide = effective.startsWith('custom:') ? 0 : anchor;
   const range = useMemo(
-    () => decodeRange(effective, { preset }),
-    [effective, preset],
+    () => { void slide; return decodeRange(effective, { preset }); },
+    [effective, preset, slide],
   );
 
   // v0.9.937 — oturumdaki aralığı URL'E DE YAZ (yalnız sahip çağıran).
