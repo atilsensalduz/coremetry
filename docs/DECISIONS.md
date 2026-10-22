@@ -9031,3 +9031,12 @@ yayımlandı (launch-editor GHSA-587h-7wmj-h5pm high + 4 moderate/low); ana dal�
 **Karar:** vite `^8.1.4` → `^8.1.6` (aynı minör; 8.3.x'e sıçramadık, build/HMR davranışı aynı kalsın diye). Kalan 6
 moderate (react-router, vitest/@vitest/mocker, @grafana/ui) kapı eşiğinin (high/critical) altında; ayrı değerlendirilecek.
 Doğrulama: `npm ci --dry-run`, tsc, eslint, `vite build`, vitest 955/11849.
+
+## 2026-10-22 — v0.10.1428 — CI: klauspost/compress 1.18.3 → 1.18.7 (Trivy HIGH)
+
+**Belirti:** v0.10.1427 sonrası ana dal CI "Security (vuln + dep scan)" yine kırmızı; bu kez `npm audit` temiz, düşen
+adım Trivy fs taraması (log bulguyu yazmıyor, yalnız exit 1 — bulgu Security sekmesindeki SARIF'te). **Kök neden:**
+`go.mod` `github.com/klauspost/compress v1.18.3` → CVE-2026-63209 (HIGH, sözlük işlemede tamsayı taşmasıyla DoS),
+düzeltme 1.18.7 — dependabot #76'nın önerdiği güncelleme; o PR vite duyurusu yüzünden kırmızıydı. govulncheck bunu
+"ulaşılabilir değil" sayıyor ama Trivy erişilebilirlik süzmez. **Karar:** doğrudan sürümle güncelleme (`go get
+…@v1.18.7`, tidy); `golang.org/x/net` zaten 0.60.0. Yerel Trivy (CI ayarları) `go.mod` için 0 HIGH/CRITICAL.
