@@ -9022,3 +9022,12 @@ barrel'ları, testler, i18n anahtarı için şablon/`+` birleştirme) doğrulay�
   `TopologyPillGraph.tsx` "AggSpanNode". `lttb.ts` başlığı worker'a atıf yapmayacak şekilde güncellendi.
 - **CSS yok:** silinen dosyalar yalnız paylaşılan sınıfları (`mono`, `table-wrap`, `cv-row`) kullanıyordu;
   `globals.css` v0.10.1425 diliminde.
+
+## 2026-10-22 — v0.10.1427 — CI: vite 8.1.4 → 8.1.6 (npm audit high)
+
+**Belirti:** dependabot dalında (klauspost/compress 1.18.7) CI "Security (vuln + dep scan)" kırmızı: `npm audit found 1
+high/critical advisories`. **Kök neden:** Go güncellemesiyle ilgisi yok — 20 Ekim'de vite ≥8.0.0 ≤8.1.5 için yeni duyurular
+yayımlandı (launch-editor GHSA-587h-7wmj-h5pm high + 4 moderate/low); ana dalın bir sonraki koşusu da aynı yerden düşerdi.
+**Karar:** vite `^8.1.4` → `^8.1.6` (aynı minör; 8.3.x'e sıçramadık, build/HMR davranışı aynı kalsın diye). Kalan 6
+moderate (react-router, vitest/@vitest/mocker, @grafana/ui) kapı eşiğinin (high/critical) altında; ayrı değerlendirilecek.
+Doğrulama: `npm ci --dry-run`, tsc, eslint, `vite build`, vitest 955/11849.
