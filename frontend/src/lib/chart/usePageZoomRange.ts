@@ -36,6 +36,11 @@ export function usePageZoomRange(defaultPreset: string, onChange?: () => void) {
   // derinliği (Traces'in Zoom back butonu). Ref render tetiklemez;
   // bu state yalnız derinlik değişiminde tetikler.
   const [zoomDepth, setZoomDepth] = useState(0);
+  // zoomBase (v0.10.1435) — yığının TABANI: ilk zoom'dan önceki görünüm
+  // (operatörün "penceresi"). Zoom'luyken URL'deki aralık operatörün BRUSH'ıdır;
+  // panelin "Bu grafiği açıkla"sı pencere = zoomBase, brush = güncel aralık
+  // gönderir. Yığın boşken null. State (ref değil): render'da okunur.
+  const [zoomBase, setZoomBase] = useState<TimeRange | null>(null);
   const rangeRef = useRef(range); rangeRef.current = range;
   const zoomWroteRef = useRef(false);
   const onChangeRef = useRef(onChange); onChangeRef.current = onChange;
@@ -44,11 +49,13 @@ export function usePageZoomRange(defaultPreset: string, onChange?: () => void) {
     if (zoomWroteRef.current) { zoomWroteRef.current = false; return; }
     zoomStackRef.current = [];
     setZoomDepth(0);
+    setZoomBase(null);
   }, [range.preset, range.fromMs, range.toMs]);
 
   const handleZoom = useCallback((fromUnixSec: number, toUnixSec: number) => {
     zoomStackRef.current = pushZoom(zoomStackRef.current, rangeRef.current);
     setZoomDepth(zoomStackRef.current.length);
+    setZoomBase(zoomStackRef.current[0] ?? null);
     zoomWroteRef.current = true;
     setRange({
       preset: 'custom',
@@ -62,6 +69,7 @@ export function usePageZoomRange(defaultPreset: string, onChange?: () => void) {
     const { stack, view } = popZoom(zoomStackRef.current);
     zoomStackRef.current = stack;
     setZoomDepth(stack.length);
+    setZoomBase(stack[0] ?? null);
     if (view) {
       zoomWroteRef.current = true;
       setRange(view);
@@ -75,5 +83,5 @@ export function usePageZoomRange(defaultPreset: string, onChange?: () => void) {
     }
   }, [setRange, defaultPreset]);
 
-  return { range, setRange, handleZoom, handleZoomReset, zoomDepth };
+  return { range, setRange, handleZoom, handleZoomReset, zoomDepth, zoomBase };
 }

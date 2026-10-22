@@ -184,6 +184,9 @@ const EN: Catalog = {
   // adını aldı. Görünen ad + ipucu yalnız ARAYÜZ metni: ?ai=trace:<id>,
   // explain-trace yüzeyi ve AIExplainButton aynı kalır.
   'ai.askCosre':          'Ask CoSRE',
+  // v0.10.1435 — panelden "Bu grafiği açıkla"
+  'ai.askCosreMetricPanelHint': 'Explain this chart in the CoSRE chat (brushed range and selected series included)',
+  // v0.10.1435 END
   'ai.askCosreTraceHint': 'Ask CoSRE about this trace.',
   // v0.10.1338 — span düğmesi Trace sayfasında trace düğmesiyle AYNI adı
   // taşır; ikisini ipucu ayırır.
@@ -500,6 +503,9 @@ const TR: Catalog = {
   'range.30d': 'Son 30 gün',
 
   'ai.askCosre':          'CoSRE’ye sor',
+  // v0.10.1435 — panelden "Bu grafiği açıkla"
+  'ai.askCosreMetricPanelHint': 'Bu grafiği CoSRE sohbetinde açıkla (seçili aralık ve seri dahil)',
+  // v0.10.1435 END
   'ai.askCosreTraceHint': 'Bu trace hakkında CoSRE’ye soru sor.',
   'ai.askCosreSpanHint':  'CoSRE’ye sor · span — bu span’i açıkla.',
   // v0.10.1338

@@ -1,7 +1,7 @@
 import { Component, Fragment, createContext, memo, useContext, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
 import { chatErrorText } from './chatErrorText';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { chartBlocks, mergeBlockLinks, traceListBlocks, operationBlocks, serviceReportBlocks, topologyBlocks, evidenceBlocksByRef, chartsSignalsBlock, logSpikeBlock, type EvidenceBlockView } from '@/lib/chatBlocks';
+import { chartBlocks, mergeBlockLinks, traceListBlocks, operationBlocks, serviceReportBlocks, topologyBlocks, evidenceBlocksByRef, chartsSignalsBlock, logSpikeBlock, metricPanelBlock, type EvidenceBlockView } from '@/lib/chatBlocks';
 import { ChatTraceList } from './ChatTraceList'; // v0.10.688 — trace_list bloğu
 import { evidenceBlocks } from '@/lib/chatEvidence'; // v0.10.558
 import { EvidenceCard } from './EvidenceCard';
@@ -46,6 +46,7 @@ import { EvidenceRow } from './EvidenceRow'; // v0.10.1400 — kanıt trace sat�
 import { explainEvidence, explainRenderer } from './explainTurn';
 import { ChartsSignalsCard } from './ChartsSignalsCard'; // v0.10.1407 — charts açıklama turu kartı
 import { LogSpikeCard } from './LogSpikeCard'; // v0.10.1407 — log-spike açıklama turu kartı
+import { MetricPanelCard } from './MetricPanelCard'; // v0.10.1435 — panel açıklaması kartı
 import { CodeStatusNote } from '../CodeStatusNote'; // v0.10.1406 — kod turunun durum satırı (✨ düğmesiyle aynı)
 import { CodeSourceFooter } from './CodeSourceFooter'; // v0.10.1406 — kod turunun kaynak satırı
 import { emitAiEvidence, scrollToAttr } from './aiEvents';
@@ -1033,6 +1034,8 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
               if (charts) return <ChartsSignalsCard p={charts}>{exBody}</ChartsSignalsCard>;
               const spike = r === 'log-spike' ? logSpikeBlock(turn.blocks) : null;
               if (spike) return <LogSpikeCard p={spike}>{exBody}</LogSpikeCard>;
+              const panel = r === 'metric-panel' ? metricPanelBlock(turn.blocks) : null; // v0.10.1435
+              if (panel) return <MetricPanelCard p={panel}>{exBody}</MetricPanelCard>;
               return exBody;
             })()}
             {ex?.code && !turn.pending && <CodeSourceFooter code={ex.code} />}

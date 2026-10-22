@@ -3,6 +3,7 @@ import {
   formatAiParamForUrl, aiSelfParam,
   formatAiParam, parseAiParam, aiSubjectTitle, aiSubjectTopic,
   AI_KINDS, CHART_SCOPES, chartScopeLabel, type AISubject,
+  dashboardPanelLoc, isMetricPanelLoc,
 } from './aiSubject';
 
 // v0.9.477 — AI-drawer'ın `?ai=` kodeği. Çekmece TEK yüzey olduğundan
@@ -50,6 +51,17 @@ const CASES: Array<{ name: string; subject: AISubject; param: string }> = [
     name: 'endpoint (fiilsiz)',
     subject: { kind: 'endpoint', id: 'ns:cart', route: '/cart', fromNs: 1000, toNs: 2000 },
     param: 'endpoint:ns%3Acart:%2Fcart:1000:2000',
+  },
+  {
+    // v0.10.1435 — panel: konum + pencere + brush + seçili seri (Go ai_subject_test.go aynası).
+    name: 'metric_panel',
+    subject: { kind: 'metric_panel', id: 'd.dash01.p_2', fromNs: 1000, toNs: 5000, brushFromNs: 2000, brushToNs: 3000, series: ['pod-a', 'ns:x y'] },
+    param: 'metric_panel:d.dash01.p_2:1000:5000:2000:3000:pod-a,ns%3Ax%20y',
+  },
+  {
+    name: 'metric_panel (Explore, kıyas)',
+    subject: { kind: 'metric_panel', id: 'x.B', fromNs: 1000, toNs: 5000, brushFromNs: 0, brushToNs: 0, series: [], cmp: true },
+    param: 'metric_panel:x.B:1000:5000:0:0::cmp',
   },
 ];
 
@@ -384,5 +396,41 @@ describe('endpoint öznesi (v0.10.1367)', () => {
     expect(aiSubjectTitle(s, 'tr')).toBe('CoSRE’ye sor');
     expect(aiSubjectTitle(s, 'en')).toBe('Ask CoSRE');
     expect(aiSubjectTopic(s)).toBe('Endpoint analizi');
+  });
+});
+
+// v0.10.1435 — metric_panel kodeği: konum biçimi, brush pencere içinde, ≤3 seri,
+// 8. parça yalnız cmp; seri adı 80'e kırpılır, 400'ü aşan kodekte sondaki seriler
+// düşer (Go TestAiSubjectMetricPanelFit aynası).
+describe('metric_panel kodeği (v0.10.1435)', () => {
+  it('geçersiz biçimleri reddeder', () => {
+    for (const raw of [
+      'metric_panel:m:1000:5000:0:0', 'metric_panel:q.A:1000:5000:0:0:', 'metric_panel:x.E:1000:5000:0:0:',
+      'metric_panel:d.a.b.c:1000:5000:0:0:', 'metric_panel:m:5000:1000:0:0:', 'metric_panel:m:1000:5000:500:3000:',
+      'metric_panel:m:1000:5000:2000:6000:', 'metric_panel:m:1000:5000:0:3000:', 'metric_panel:m:1000:5000:0:0:a,b,c,d',
+      'metric_panel:m:1000:5000:0:0:a,,b', 'metric_panel:m:1000:5000:0:0::x', 'metric_panel:m:1000:5000:0:0:%0A',
+    ]) {
+      expect(parseAiParam(raw), raw).toBeNull();
+    }
+  });
+  it('400 tavanına sığdırır, idempotent', () => {
+    const long = 's'.repeat(100) + 'ş';
+    const s: AISubject = {
+      kind: 'metric_panel', id: `d.${'a'.repeat(64)}.${'b'.repeat(64)}`,
+      fromNs: 1790000000000000000, toNs: 1790003600000000000, brushFromNs: 1790000600000000000, brushToNs: 1790001200000000000,
+      series: [long, long, long, 'x'], cmp: true,
+    };
+    const p = formatAiParam(s);
+    expect(p.length).toBeLessThanOrEqual(400);
+    const back = parseAiParam(p);
+    if (!back || back.kind !== 'metric_panel') throw new Error('ayrıştırılamadı');
+    expect(back.series.length).toBeGreaterThan(0);
+    for (const v of back.series) expect([...v].length).toBe(80);
+    expect(formatAiParam(back)).toBe(p);
+  });
+  it('dashboardPanelLoc: biçimsiz kimlik → null (✨ yok)', () => {
+    expect(dashboardPanelLoc('dash01', 'p1')).toBe('d.dash01.p1');
+    expect(dashboardPanelLoc('a.b', 'p1')).toBeNull();
+    expect(isMetricPanelLoc('x.D')).toBe(true);
   });
 });

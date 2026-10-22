@@ -25,6 +25,13 @@ type PageFilter struct {
 	V  []string `json:"v"`
 }
 
+// PageBrush — v0.10.1435: operatörün grafikte brush'ladığı (sürükleyip
+// seçtiği) aralık, mutlak ms. Pencerenin kendisi TimeRange'te kalır.
+type PageBrush struct {
+	FromMs int64 `json:"fromMs"`
+	ToMs   int64 `json:"toMs"`
+}
+
 type PageRange struct {
 	Preset string `json:"preset"`
 	FromMs int64  `json:"fromMs,omitempty"`
@@ -49,12 +56,19 @@ type PageContext struct {
 	Search      string       `json:"search,omitempty"`
 	TimeRange   *PageRange   `json:"timeRange,omitempty"`
 	Filters     []PageFilter `json:"activeFilters,omitempty"`
+	// v0.10.1435 — sayfanın YAYINLADIĞI (URL dışı) seçimler
+	// (lib/pageContextOverlay.ts): brush aralığı + seçili seriler (≤5 × 120 rune).
+	Brush          *PageBrush `json:"brush,omitempty"`
+	SelectedSeries []string   `json:"selectedSeries,omitempty"`
 }
 
 const (
 	maxValueRunes = 200
 	maxFilters    = 20
 	maxFilterVals = 10
+	// v0.10.1435 — seçili seri tavanları.
+	maxSelectedSeries     = 5
+	maxSelectedSeriesRune = 120
 )
 
 // clean — kırpar, kontrol karakterlerini düşürür, rune tavanı uygular.
@@ -112,6 +126,27 @@ func Sanitize(p *PageContext) *PageContext {
 		}
 		c.Filters = out
 	}
+	// v0.10.1435 — brush: pozitif ve ARTAN değilse düşer; seri adları kırpık.
+	if c.Brush != nil {
+		if c.Brush.FromMs > 0 && c.Brush.ToMs > c.Brush.FromMs {
+			br := *c.Brush
+			c.Brush = &br
+		} else {
+			c.Brush = nil
+		}
+	}
+	if len(c.SelectedSeries) > 0 {
+		var out []string
+		for _, v := range c.SelectedSeries {
+			if len(out) >= maxSelectedSeries {
+				break
+			}
+			if v = clipRunes(clean(v), maxSelectedSeriesRune); v != "" {
+				out = append(out, v)
+			}
+		}
+		c.SelectedSeries = out
+	}
 	if c.Page == "" {
 		return nil
 	}
@@ -125,7 +160,24 @@ func (p *PageContext) Empty() bool {
 	}
 	return p.Cluster == "" && p.Namespace == "" && p.Service == "" && p.Workload == "" && p.Pod == "" &&
 		p.Operation == "" && p.TraceID == "" && p.SpanID == "" && p.ProblemID == "" && p.ExceptionID == "" &&
-		p.Search == "" && p.TimeRange == nil && len(p.Filters) == 0
+		p.Search == "" && p.TimeRange == nil && len(p.Filters) == 0 && p.Brush == nil && len(p.SelectedSeries) == 0
+}
+
+// clipRunes — SAF: rune tavanı (fazlası "…").
+func clipRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
+}
+
+// brushTR — v0.10.1435: brush aralığı (UTC, saniyesiz).
+func brushTR(b *PageBrush) string {
+	if b == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s → %s UTC", time.UnixMilli(b.FromMs).UTC().Format("2006-01-02 15:04"), time.UnixMilli(b.ToMs).UTC().Format("2006-01-02 15:04"))
 }
 
 func rangeTR(r *PageRange) string {
@@ -175,6 +227,9 @@ func lines(b *strings.Builder, p *PageContext, full bool) {
 	w("exception", p.ExceptionID)
 	w("arama", p.Search)
 	w("filtreler", filtersTR(p.Filters))
+	// v0.10.1435 — grafikteki seçimler ("bu tepe", "seçili seri" soruları).
+	w("seçili aralık", brushTR(p.Brush))
+	w("seçili seri", strings.Join(p.SelectedSeries, ", "))
 }
 
 // PreambleTR — pin (varsa) ÖNCE, açık sayfa sonra. İkisi de boşsa "".

@@ -445,7 +445,7 @@ export function buildPanels(state: BuilderState, inputs: PanelInputs): PanelData
   return out;
 }
 
-export function PanelStack({ panels, viz, hiddenKeys, focusKey, zoomWindow, onZoom, onZoomReset, onExemplarClick, logScale, onPin, pinnableLetters, xRange }: {
+export function PanelStack({ panels, viz, hiddenKeys, focusKey, zoomWindow, onZoom, onZoomReset, onExemplarClick, logScale, onPin, pinnableLetters, xRange, onAsk }: {
   panels: PanelData[];
   viz: 'line' | 'area' | 'bars' | 'stacked';
   hiddenKeys: Set<string>;          // `${letter}:${label}`
@@ -463,6 +463,8 @@ export function PanelStack({ panels, viz, hiddenKeys, focusKey, zoomWindow, onZo
   // affordance per panel (formula / OR-group queries have no equivalent).
   onPin?: (letter: string) => void;
   pinnableLetters?: Set<string>;
+  // v0.10.1435 — "✨ CoSRE'ye sor" (harf başına; formül panelinde yok).
+  onAsk?: (letter: string) => void;
 }) {
   // Per-panel projections of the global hidden/focus keys.
   const perPanel = useMemo(() => panels.map(p => {
@@ -490,7 +492,8 @@ export function PanelStack({ panels, viz, hiddenKeys, focusKey, zoomWindow, onZo
           onExemplarClick={onExemplarClick}
           logScale={logScale}
           onPin={onPin && !p.isFormula && pinnableLetters?.has(p.letter)
-            ? () => onPin(p.letter) : undefined} />
+            ? () => onPin(p.letter) : undefined}
+          onAsk={onAsk && !p.isFormula ? () => onAsk(p.letter) : undefined} />
       ))}
     </div>
   );

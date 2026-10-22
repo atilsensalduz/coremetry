@@ -63,6 +63,10 @@ const (
 	// sohbet turu; etiket yine HTTP yüzeyi + ":chat".
 	ExplainChartsChat   = "explain-charts:chat"
 	ExplainLogSpikeChat = "explain-log-spike:chat"
+	// ExplainMetricPanelChat — v0.10.1435: panelden "Bu grafiği açıkla"
+	// (Metrics / Explore / dashboard paneli; api/explain_metric_panel.go). HTTP
+	// ikizi yok; istem SystemPromptServiceCharts (yeni sabit yok).
+	ExplainMetricPanelChat = "explain-metric-panel:chat"
 	// ChatRule — v0.10.1289: "bunu hatırla" → son soru + cevaptan tek cümlelik
 	// kural önerisi (hafıza kademesi, api/chat_memory.go). Öneri kaydedilmez;
 	// operatör onay kartında düzenleyip kaydeder.
@@ -130,6 +134,8 @@ var registry = []Spec{
 	// istemi evalset koşucusunda yok (explain-log-spike → Unknown).
 	{Label: ExplainChartsChat, Role: RoleAnswer, Eval: "ServiceCharts"},
 	{Label: ExplainLogSpikeChat, Role: RoleAnswer},
+	// v0.10.1435 — panel açıklaması: evalset vakası yok (girdi canlı sorgudan).
+	{Label: ExplainMetricPanelChat, Role: RoleAnswer},
 	// v0.10.1289 — kural önerisi cevabın kendisi (RoleAnswer); KB'ye terfi
 	// edemez (kanıt değil, öneri) ve evalset vakası olamaz (girdi sohbetin
 	// son turundan istek anında kurulur).

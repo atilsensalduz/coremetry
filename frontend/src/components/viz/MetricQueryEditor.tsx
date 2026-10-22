@@ -39,7 +39,10 @@ import {
 import { METRIC_SOURCE_LABELS, type MetricSourceParam } from '@/lib/metricSource';
 import { promConsoleError, promMatrixToSeries } from '@/lib/promMatrix';
 import { usePromqlConsoleRange } from '@/lib/queries/promql';
-import type { MetricInfo, SpanMetricSeries, FilterExpr, TimeRange, Panel, DashboardSummary } from '@/lib/types';
+import type { MetricInfo, SpanMetricSeries, FilterExpr, TimeRange, Panel, DashboardSummary, MetricPanelAsk } from '@/lib/types';
+// v0.10.1435 — panelden "Bu grafiği açıkla"
+import { metricPanelMenuAction, metricPanelSubject, useMetricPanelAsk } from '@/components/ai/metricPanelAsk';
+import { usePublishPageOverlay } from '@/lib/pageContextOverlay';
 
 // MetricQueryEditor (v0.7.126 — UX query editor, step 1) — a thin Grafana-
 // style builder over the REAL metric query API. Multiple queries (A/B/C…)
@@ -984,6 +987,33 @@ export function MetricQueryEditor({ range }: { range: TimeRange }) {
     : (anyError ? (anyError.error instanceof Error ? anyError.error.message : String(anyError.error)) : null);
   const chartEmpty = isPromql ? !promqlQ : noMetric;
 
+  // v0.10.1435 — önizlemenin ⋯ menüsünde "✨ CoSRE'ye sor": yük = önizlemeyi
+  // besleyen sorgu (PromQL sekmesi: debounce'lu sorgu, Thanos konsolu hariç;
+  // builder: ilk etkin metrik sorgusu). Pencere sayfa aralığı, brush yerel
+  // zoomWindow, seçili seri lejant izolasyonu (CorePanel onFocusChange).
+  const { enabled: askOn, ask: askPanel } = useMetricPanelAsk();
+  const [mqeSelected, setMqeSelected] = useState<string[]>([]);
+  const askPayload = useMemo<MetricPanelAsk | null>(() => {
+    if (isPromql) return !thanosSel && promqlQ ? { src: 'promql', promql: promqlQ, title: 'Metrics editörü · PromQL' } : null;
+    const q = debounced.queries.find(x => x.enabled && x.kind === 'metric' && x.metric);
+    if (!q) return null;
+    return {
+      src: 'builder', metricName: q.metric, agg: q.agg, groupBy: q.groupBy.join(',') || undefined,
+      filters: q.filters.length ? encodeFilters(q.filters) : undefined, unit: q.unit || undefined,
+      title: `Metrics editörü · ${q.alias || q.metric}`,
+    };
+  }, [isPromql, thanosSel, promqlQ, debounced]);
+  const askMqe = () => {
+    if (!askPayload) return;
+    const subj = metricPanelSubject('m', { fromNs: from, toNs: to },
+      zoomWindow ? { fromNs: zoomWindow.from * 1e9, toNs: zoomWindow.to * 1e9 } : null, mqeSelected);
+    if (subj) askPanel(subj, askPayload);
+  };
+  usePublishPageOverlay({
+    brush: zoomWindow ? { fromMs: zoomWindow.from * 1000, toMs: zoomWindow.to * 1000 } : undefined,
+    selectedSeries: mqeSelected,
+  });
+
   // ── mutators ──
   const setQuery = (i: number, q: MQQuery) => setModel(m => ({ ...m, queries: m.queries.map((x, j) => j === i ? q : x) }));
   const addQuery = () => setModel(m => ({ ...m, queries: [...m.queries, blankQuery(nextId(m.queries))] }));
@@ -1262,6 +1292,8 @@ export function MetricQueryEditor({ range }: { range: TimeRange }) {
                 logScale={model.logScale}
                 onZoom={(f, t) => setZoomWindow({ from: f, to: t })}
                 onZoomReset={() => setZoomWindow(null)}
+                onFocusChange={setMqeSelected}
+                menuExtra={askOn && askPayload ? [metricPanelMenuAction(askMqe)] : undefined}
               />
             </Suspense>
           ) : (

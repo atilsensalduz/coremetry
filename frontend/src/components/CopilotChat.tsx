@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-do
 import { useCopilotStarters } from '@/lib/queries/copilot'; // v0.10.702
 import { api } from '@/lib/api';
 import { pageContext } from '@/lib/pageContext';
+import { takeMetricPanelAsk, usePageOverlay, withPageOverlay } from '@/lib/pageContextOverlay'; // v0.10.1435
 import { hasPinnableContext, legacyFromPinned, pinLabelTR, readPin, writePin } from '@/lib/pinnedContext';
 import type { ChatExplainAsk, ChatTurn, PageContext } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
@@ -167,7 +168,10 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
   const loc = useLocation();
   // v0.10.539 (Faz 3.2) — sayfa bağlamı: URL'den saf serileştirici; rota
   // değişince yeniden hesaplanır (chat AppShell'de tek mount).
-  const page = useMemo(() => pageContext(loc.pathname, loc.search), [loc.pathname, loc.search]);
+  // v0.10.1435 — sayfanın yayınladığı grafik seçimleri (brush + seçili seri;
+  // lib/pageContextOverlay.ts) bağlama katılır: "bu tepe" soruları onları görür.
+  const pageOverlay = usePageOverlay();
+  const page = useMemo(() => withPageOverlay(pageContext(loc.pathname, loc.search), pageOverlay), [loc.pathname, loc.search, pageOverlay]);
   // v0.10.540 (Faz 3.2b) — PIN: operatör sayfa bağlamını sohbete sabitler;
   // sayfa değişse de özne kalır. Eski düz alanlar pinden türetilir (guided/
   // drawer kademeleri sunucu değişikliği olmadan pini izler); sunucu önsözde
@@ -529,7 +533,9 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
     explainAskSentRef.current = rawSubjectKey;
     // v0.10.1406 — ?aicode=1 (paylaşılan "Kodu da incele" linki): kod turu; ?ai= ile
     // BİRLİKTE tek seferlik tüketilir (setSubject(null) ikisini de siler — useAiSubject).
-    const ask = explainAskFor(rawSubject, sp.get(AI_SRC_PARAM) || 'ai-param', undefined, sp.get(AI_CODE_PARAM) === '1');
+    // v0.10.1435 — metric_panel: panelin sorgusu ✨ anında bırakıldı (kodek konum taşır).
+    const panel = rawSubject.kind === 'metric_panel' ? takeMetricPanelAsk(rawSubjectKey) : undefined;
+    const ask = explainAskFor(rawSubject, sp.get(AI_SRC_PARAM) || 'ai-param', undefined, sp.get(AI_CODE_PARAM) === '1', panel);
     setOpen(true);
     setSubject(null);
     // v0.10.1405 — niyet (span / service-health / log: + subject kodeği) ya da endpoint'in sabit penceresi.
@@ -584,7 +590,7 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
   // v0.10.1400 — bağlam çipi (trace / exception) açıklamayı sohbet turu olarak ister.
   // v0.10.1405 — niyetin öznesi kodekten (span / service-health / log) ya da {kind, id}'den.
   const askExplain = (a: ChatExplainAsk) => {
-    const x = explainAskFor(explainAskSubject(a), a.src);
+    const x = explainAskFor(explainAskSubject(a), a.src, undefined, undefined, a.panel); // v0.10.1435 — panel yükü korunur
     if (x) askChip(x.userText, explainTurnSendOpts(x));
   };
   const acceptCompletion = (item: CompletionItem | undefined) => {

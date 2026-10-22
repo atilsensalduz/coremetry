@@ -54,6 +54,7 @@ function subjectRef(s: AISubject): string {
     case 'runbook':        return `runbook (problem ${s.id})`;
     case 'log':            return `log satırı (servis ${s.id}${s.pod ? ' · pod ' + s.pod : ''} · zaman ${s.tsNs} ns${s.traceId ? ' · trace ' + s.traceId : ''})`; // v0.10.1291
     case 'endpoint':       return `endpoint ${s.method ? s.method + ' ' : ''}${s.route} · servis ${s.id}`; // v0.10.1367
+    case 'metric_panel':   return `grafik paneli ${s.id}${s.series.length ? ' · seçili seri ' + s.series.join(', ') : ''}`; // v0.10.1435
   }
 }
 

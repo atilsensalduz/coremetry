@@ -28,6 +28,14 @@ import { useRefreshHold } from '@/lib/useAutoRefresh';
 import { serializeDashboard, suggestedFilename } from '@/lib/dashboardIO';
 import { panelToExploreHref } from '@/pages/explore/panelToExplore';
 import { PageShell } from '@/components/ui/PageShell';
+// v0.10.1435 — panelden "Bu grafiği açıkla"
+import { AIExplainButton } from '@/components/ai/AIExplainButton';
+import { metricPanelSubject } from '@/components/ai/metricPanelAsk';
+import { useCopilotEnabled } from '@/components/ai/useCopilotEnabled';
+import { ASKABLE_PANEL_TYPES, dashboardPanelAsk } from '@/components/dashboard/panelAsk';
+import { dashboardPanelLoc, formatAiParam } from '@/lib/aiSubject';
+import { t } from '@/lib/i18n';
+import { stageMetricPanelAsk, usePublishPageOverlay } from '@/lib/pageContextOverlay';
 
 // Wrapper handles the Suspense requirement of useSearchParams() in App
 // Router with static export.
@@ -46,7 +54,9 @@ function Inner() {
   // v0.9.429 — zoom-yığını deseni paylaşılan usePageZoomRange hook'unda
   // (Dynatrace-style drag-to-zoom: her panel global range'i yazar, tüm
   // paneller yeni pencereyle refetch; çift-tık bir adım geri).
-  const { range, setRange, handleZoom, handleZoomReset } = usePageZoomRange(DEFAULT_RANGE_PRESET);
+  // v0.10.1435 — zoomBase: zoom'luyken operatörün PENCERESİ; URL'deki aralık
+  // brush'ı. Panelin ✨'ı ikisini ayrı gönderir.
+  const { range, setRange, handleZoom, handleZoomReset, zoomDepth, zoomBase } = usePageZoomRange(DEFAULT_RANGE_PRESET);
   const [doc, setDoc] = useState<Dashboard | null | undefined>(undefined);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Dashboard | null>(null);
@@ -512,6 +522,7 @@ function Inner() {
             onZoom={handleZoom}
             onZoomReset={handleZoomReset}
             dashboardId={id}
+            zoomBase={zoomDepth > 0 ? zoomBase : null}
             bundlePanelData={bundlePanelData} />
         )}
 
@@ -541,13 +552,19 @@ function Inner() {
 // Delete stays OUT. It lives on the edit-mode × where an accidental click is
 // already guarded by having entered edit mode on purpose; promoting it into
 // a hover menu that a viewer can also open is how boards lose panels.
-function PanelMenu({ panel, vars, range, canEdit, onDuplicate, onEdit }: {
+function PanelMenu({ panel, vars, range, canEdit, onDuplicate, onEdit, dashboardId, zoomBase, selected, editing }: {
   panel: Panel;
   vars?: Record<string, string>;
   range: TimeRange;
   canEdit: boolean;
   onDuplicate: (id: string) => void;
   onEdit: (id: string) => void;
+  // v0.10.1435 — "✨ CoSRE'ye sor": konum (pano + panel), zoom tabanı (pencere),
+  // panelin lejantta seçili serileri; düzenlemede YOK (taslak ≠ kayıtlı panel).
+  dashboardId: string;
+  zoomBase: TimeRange | null;
+  selected: readonly string[];
+  editing: boolean;
 }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -571,9 +588,23 @@ function PanelMenu({ panel, vars, range, canEdit, onDuplicate, onEdit }: {
     return () => window.removeEventListener('mousedown', onDown);
   }, [open]);
 
+  // v0.10.1435 — ✨ yalnız zaman serisi panelinde, düzenleme dışında, copilot
+  // açıkken ve kimlikler konum kodeğine sığıyorsa.
+  const copilotOn = useCopilotEnabled() === true;
+  const loc = dashboardPanelLoc(dashboardId, panel.id);
+  const askable = copilotOn && !editing && !!loc && ASKABLE_PANEL_TYPES.has(panel.type);
+  // Pencere: panelin kendi aralığı (override → brush yok) ya da zoom tabanı;
+  // zoom'luyken URL aralığı = brush. timeRangeToNs memo içinde (v0.5.184 kuralı).
+  const askSubject = useMemo(() => {
+    if (!askable || !loc) return null;
+    if (panel.rangeOverride) return metricPanelSubject(loc, nsWin(panel.rangeOverride), null, selected);
+    if (zoomBase) return metricPanelSubject(loc, nsWin(zoomBase), nsWin(range), selected);
+    return metricPanelSubject(loc, nsWin(range), null, selected);
+  }, [askable, loc, panel.rangeOverride, zoomBase, range, selected]);
+
   // A menu with nothing in it is worse than no menu: a viewer on a stat panel
   // has neither a convertible query nor edit rights.
-  if (!exploreHref && !canEdit) return null;
+  if (!exploreHref && !canEdit && !askSubject) return null;
 
   const item = (label: string, onClick: () => void) => (
     <MenuItem key={label} onClick={() => { setOpen(false); onClick(); }}>
@@ -604,6 +635,15 @@ function PanelMenu({ panel, vars, range, canEdit, onDuplicate, onEdit }: {
           {/* Absent for panel shapes the builder can't express (stat, gauge,
               markdown, heatmap, raw PromQL) — panelToExploreHref returns null
               rather than opening a query that isn't this panel's. */}
+          {askSubject && (
+            <span onClick={() => setOpen(false)} style={{ display: 'flex' }}>
+              <AIExplainButton subject={askSubject} size="xs" title={t('ai.askCosreMetricPanelHint')}
+                onAsk={() => {
+                  const ask = dashboardPanelAsk(panel, vars ?? {});
+                  if (ask) stageMetricPanelAsk(formatAiParam(askSubject), ask);
+                }} />
+            </span>
+          )}
           {exploreHref && item("↗ Explore'da aç", () => navigate(exploreHref))}
           {canEdit && item('⧉ Çoğalt', () => onDuplicate(panel.id))}
           {canEdit && item('✎ Düzenle', () => onEdit(panel.id))}
@@ -677,7 +717,7 @@ function normalizePanels(raw: unknown): Panel[] {
 // add a localStorage layer if users start asking for it).
 function DashboardGrid({
   panels, range, vars, editing, canEdit, onEditPanel, onEditRequest, onDuplicatePanel,
-  onDeletePanel, onMovePanel, onZoom, onZoomReset, dashboardId,
+  onDeletePanel, onMovePanel, onZoom, onZoomReset, dashboardId, zoomBase,
   bundlePanelData,
 }: {
   panels: Panel[];
@@ -707,6 +747,8 @@ function DashboardGrid({
   // the dashboard hovers in lockstep so the operator reads 8
   // panels as one view.
   dashboardId: string;
+  // v0.10.1435 — zoom'luyken ilk zoom'dan önceki görünüm (✨ penceresi); yoksa null.
+  zoomBase: TimeRange | null;
   // Pre-fetched panel data keyed by panel id (v0.5.81 bundle).
   // Each metric / spanmetric PanelRenderer reads its slot and
   // skips its own fetch. Missing entries fall through to the
@@ -718,6 +760,18 @@ function DashboardGrid({
   // visual drop indicator. Drag-source id rides on dataTransfer, no
   // need to mirror it into state.
   const [dropTarget, setDropTarget] = useState<string | null>(null);
+  // v0.10.1435 — panel başına lejantta seçili seriler (CorePanel onFocusChange)
+  // + son değişen panelin seçimi sohbet bağlamına (pageContextOverlay); zoom'luyken
+  // URL aralığı brush olarak yayınlanır.
+  const [selectedByPanel, setSelectedByPanel] = useState<Record<string, string[]>>({});
+  const [lastSelected, setLastSelected] = useState<string[]>([]);
+  const onPanelFocus = useCallback((panelId: string, names: string[]) => {
+    setSelectedByPanel(m => ((m[panelId] ?? []).join('\u001f') === names.join('\u001f') ? m : { ...m, [panelId]: names }));
+    if (names.length) setLastSelected(names);
+  }, []);
+  const brushOverlay = zoomBase && range.preset === 'custom' && range.fromMs && range.toMs
+    ? { fromMs: range.fromMs, toMs: range.toMs } : undefined;
+  usePublishPageOverlay({ brush: brushOverlay, selectedSeries: lastSelected });
 
   // Bucket panels into row groups.
   type RowGroup = { rowPanel: Panel | null; key: string; panels: Panel[] };
@@ -872,11 +926,14 @@ function DashboardGrid({
                           </>
                         )}
                         <PanelMenu panel={p} vars={vars} range={range} canEdit={canEdit}
-                          onDuplicate={onDuplicatePanel} onEdit={onEditRequest} />
+                          onDuplicate={onDuplicatePanel} onEdit={onEditRequest}
+                          dashboardId={dashboardId} zoomBase={zoomBase}
+                          selected={selectedByPanel[p.id] ?? NO_SELECTION} editing={editing} />
                       </span>
                     </div>
                     <PanelRenderer panel={p} range={range} vars={vars}
                                    syncKey={`dashboard:${dashboardId}`}
+                                   onFocusChange={names => onPanelFocus(p.id, names)}
                                    onZoom={onZoom}
                                    onZoomReset={onZoomReset}
                                    // v0.10.146 — düzenlerken override YOK: bundle kayıtlı doc'un
@@ -896,4 +953,13 @@ function DashboardGrid({
       })}
     </div>
   );
+}
+
+// v0.10.1435 — boş seçim (kararlı kimlik: PanelMenu memo'su her render'da kırılmasın).
+const NO_SELECTION: readonly string[] = [];
+
+// nsWin — v0.10.1435: TimeRange → ns penceresi (yalnız memo / tık anında çağrılır).
+function nsWin(r: TimeRange): { fromNs: number; toNs: number } {
+  const { from, to } = timeRangeToNs(r);
+  return { fromNs: from, toNs: to };
 }

@@ -66,6 +66,10 @@ type chatExplainAsk struct {
 	// yazılır. YALNIZ istekte yaşar: arşive girmez (künyede alanı yok,
 	// sanitizeChatExplain kurmaz), istemci kullanıcı turunda saklamaz.
 	Fresh bool `json:"fresh,omitempty"`
+	// Panel — v0.10.1435 (explain_metric_panel.go): metric_panel niyetinin
+	// yapısal yükü (≤8 KiB). Kodek konum taşır, sorgu buradadır; dashboard
+	// panelinde sunucu yalnız `vars`'a güvenir. Arşive girmez (künyede yok).
+	Panel *metricPanelAsk `json:"panel,omitempty"`
 }
 
 const (
@@ -171,6 +175,19 @@ func normalizeExplainAsk(a *chatExplainAsk) (chatExplainAsk, bool) {
 			return chatExplainAsk{}, false
 		}
 		return chatExplainAsk{Kind: kind, ID: subj.ID, Subject: formatAiSubject(subj), Src: src, Fresh: a.Fresh}, true
+	case explainAskMetricPanel:
+		// v0.10.1435 — kodek ZORUNLU (konum + pencere + brush + seri); yük
+		// isteğe bağlı (arşiv / derin link yüksüz meşru) ama verildiyse ≤8 KiB
+		// ve biçimli olmalı, aksi niyet reddedilir.
+		subj, ok := parseAiSubject(rawSubj)
+		if !ok || subj.Kind != kind || (id != "" && id != subj.ID) {
+			return chatExplainAsk{}, false
+		}
+		panel, ok := normalizeMetricPanelAsk(a.Panel)
+		if !ok {
+			return chatExplainAsk{}, false
+		}
+		return chatExplainAsk{Kind: kind, ID: subj.ID, Subject: formatAiSubject(subj), Src: src, Fresh: a.Fresh, Panel: panel}, true
 	default:
 		return chatExplainAsk{}, false
 	}
@@ -310,7 +327,7 @@ func (s *Server) chatExplainTurn(ctx context.Context, emit func(string, any), ra
 	if k.Turn != nil {
 		return k.Turn(s, ctx, emit, ask, loc)
 	}
-	return s.chatExplainRegistryTurn(ctx, emit, k, ask)
+	return s.chatExplainRegistryTurn(ctx, emit, k, ask, loc)
 }
 
 // chatExplainTraceTurn — ✨ Explain trace'in kodsuz klasik yolu, sohbet içinde.

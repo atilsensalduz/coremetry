@@ -49,6 +49,7 @@ import { visibleRangeStats } from '@/lib/chart/visibleStats';
 import { resolveLegendCollapsed, isAdditiveUnit } from '@/lib/chart/legendStats';
 import {
   toggleSeriesVisibility, isolateSeriesVisibility, resetSeriesVisibility,
+  selectedSeriesNames, // v0.10.1435
 } from '@/lib/chart/legendVisibility';
 import { resolveVar } from '@/lib/chart/resolveVar';
 import { isolatedPointsFilter } from '@/lib/chart/gapPolicy';
@@ -280,6 +281,11 @@ export interface CorePanelProps {
   // belgelenen boşluk). Panel KENDİ lejantını çiziyorsa satır hover'ı da
   // aynı kanaldan geçer — prop verilmediğinde iç hover kazanır.
   focusedLabel?: string | null;
+  // v0.10.1435 — operatörün SEÇİLİ serileri (panelden "Bu grafiği açıkla"):
+  // lejant tıkıyla izole edilen / gizlenmeyen ≤3 seri. Hepsi görünürken ya da
+  // 3'ten fazla seri görünürken boş liste. Yalnız seçim DEĞİŞİNCE çağrılır;
+  // bir çizim girdisi değil (config bağımlılığına girmez).
+  onFocusChange?: (names: string[]) => void;
   // v0.9.764 (mockup dilim 3) — frame-hizalı KESİKLİ çizim işareti:
   // önceki-dönem hayaleti (Grafana timeShift görünümü). true olan
   // frame 5-4 kesikli, dolgusuz çizilir; rol rengi aynen (muted
@@ -325,7 +331,7 @@ export function CorePanel({
   thresholds, regions, queryText,
   defaultHidden, xRange, note, onExpandClick, exemplars, onExemplarClick, onRegionClick, regionClickHint,
   onBucketClick, hiddenNames, hideLegend, onCursorTime, dashed, viz = 'line',
-  focusedLabel, menuExtra,
+  focusedLabel, menuExtra, onFocusChange,
 }: CorePanelProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -428,6 +434,13 @@ export function CorePanel({
       ? aligned.names.map(n => !hiddenNames.has(n))
       : visLocal,
     [hiddenNames, visLocal, aligned.names.join('|')]);
+  // v0.10.1435 — seçili seriler → çağıran (yalnız değişince; geri çağrı ref'te).
+  const onFocusChangeRef = useRef(onFocusChange);
+  onFocusChangeRef.current = onFocusChange;
+  const selectedKey = useMemo(() => selectedSeriesNames(aligned.names, vis).join('\u001f'), [aligned.names, vis]);
+  useEffect(() => {
+    onFocusChangeRef.current?.(selectedKey ? selectedKey.split('\u001f') : []);
+  }, [selectedKey]);
 
   // ── v0.9.788 — HAM VERİ KANALI (yığılmış alan) ────────────────────────
   //
@@ -1377,3 +1390,4 @@ export function CorePanel({
     </div>
   );
 }
+

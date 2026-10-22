@@ -63,6 +63,10 @@ import { SplitByPicker } from './explore/SplitByPicker';
 import { Button } from '@/components/ui/Button';
 import { Chip, SegmentedControl } from '@/components/ui'; // v0.10.914 dilim 2 (buton bütünlüğü)
 import { PageShell } from '@/components/ui/PageShell';
+// v0.10.1435 — panelden "Bu grafiği açıkla"
+import { metricPanelSubject, useMetricPanelAsk } from '@/components/ai/metricPanelAsk';
+import { usePublishPageOverlay } from '@/lib/pageContextOverlay';
+import { exploreQueryAsk, exploreSelectedSeries } from './explore/panelAsk';
 
 // Explore (explore-v2 Phase 2) — the metric result mode is now the
 // multi-query builder: up to four queries A–D (span signals or catalogue
@@ -469,6 +473,28 @@ function ExploreInner({ onSelfWrite }: {
      overlaysByLetter, totalByLetter, otlpExemplarsByLetter, cappedByLetter, noteByLetter,
      stepByLetter, compareByLetter, compareStepByLetter, compareOffsetNs],
   );
+  // v0.10.1435 — panelden "Bu grafiği açıkla": panelin ⋯ menüsündeki ✨ harfin
+  // FETCH edilen sorgusunu (scoped: env/cluster kapsamı dahil) yük olarak bırakır;
+  // pencere sayfa aralığı, brush yerel zoomWindow, seçili seri GroupTable
+  // izolasyonu / odağı. Aynı seçimler sohbet bağlamına da yayınlanır.
+  const { enabled: askOn, ask: askPanel } = useMetricPanelAsk();
+  const askLetter = useCallback((letter: string) => {
+    const q = scoped.queries.find(x => x.letter === letter);
+    const payload = q ? exploreQueryAsk(q) : null;
+    const p = panels.find(x => x.letter === letter);
+    if (!payload || !p) return;
+    const sel = exploreSelectedSeries(letter, p.series.map(x => x.label), hiddenKeys, focusKey);
+    const subj = metricPanelSubject(`x.${letter}`, { fromNs: exploreRange.from, toNs: exploreRange.to },
+      zoomWindow ? { fromNs: zoomWindow.from * 1e9, toNs: zoomWindow.to * 1e9 } : null, sel);
+    if (subj) askPanel(subj, payload);
+  }, [scoped, panels, hiddenKeys, focusKey, exploreRange, zoomWindow, askPanel]);
+  const overlaySeries = useMemo(
+    () => panels.flatMap(p => exploreSelectedSeries(p.letter, p.series.map(x => x.label), hiddenKeys, focusKey)),
+    [panels, hiddenKeys, focusKey]);
+  usePublishPageOverlay({
+    brush: zoomWindow ? { fromMs: zoomWindow.from * 1000, toMs: zoomWindow.to * 1000 } : undefined,
+    selectedSeries: overlaySeries,
+  });
   // Harf başına hata bandı — panellerin İÇİNDEKİ mesajın üstünde, sayfa
   // seviyesinde bir özet. Eskiden yalnız ilk hatayı basıyordu.
   const builderErrors = useMemo(
@@ -1105,6 +1131,7 @@ name ~ checkout`}
                     onZoomReset={handlePanelZoomReset}
                     onExemplarClick={(id) => setCorrelateAnchor({ kind: 'trace', traceId: id })}
                     pinnableLetters={pinnableLetters}
+                    onAsk={askOn && builderActive ? askLetter : undefined}
                     onPin={letter => {
                       const q = builder.queries.find(x => x.letter === letter);
                       // v0.9.786 — viz de gider. builder.viz (debounced değil):

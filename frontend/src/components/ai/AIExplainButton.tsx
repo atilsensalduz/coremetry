@@ -27,7 +27,7 @@ const EMPHASIS_LOOK = {
   strong: { variant: 'primary', size: 'md' },
 } as const satisfies Record<'normal' | 'strong', { variant: ButtonProps['variant']; size: NonNullable<ButtonProps['size']> }>;
 
-export function AIExplainButton({ subject, label, size, emphasis = 'normal', title, className }: {
+export function AIExplainButton({ subject, label, size, emphasis = 'normal', title, className, onAsk }: {
   subject: AISubject;
   label?: ReactNode;
   // 'xs' (v0.9.1033): kart başlığındaki mini ✨ — ikon-only etiketle
@@ -45,6 +45,9 @@ export function AIExplainButton({ subject, label, size, emphasis = 'normal', tit
   emphasis?: 'normal' | 'strong';
   title?: string;
   className?: string;
+  // v0.10.1435 — özne yazılmadan HEMEN önce (panel açıklaması: panelin
+  // sorgusunu stageMetricPanelAsk ile bırakır; kodek konum taşır, sorgu değil).
+  onAsk?: () => void;
 }) {
   const enabled = useCopilotEnabled();
   const [ai, setAi] = useAiSubject();
@@ -73,7 +76,7 @@ export function AIExplainButton({ subject, label, size, emphasis = 'normal', tit
       size={size ?? look.size}
       title={title ?? 'CoSRE sohbetinde açıkla'}
       className={[quiet ? undefined : 'ai-attn', className].filter(Boolean).join(' ') || undefined}
-      onClick={() => { setUsed(true); setAi(subject); }}>
+      onClick={() => { setUsed(true); onAsk?.(); setAi(subject); }}>
       {label ?? <><IconSparkles /> <span>AI explain</span></>}
     </Button>
   );

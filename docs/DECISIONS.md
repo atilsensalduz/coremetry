@@ -9399,3 +9399,52 @@ heap durumu".
 **Testler:** `mcptools/toolset_catalog_golden_test.go` (altın, 5 kapalı-küme biçimi), `toolset_test.go` (bölüntü = 74 / 12 set / sayılar, sıra korunur, meta + zorunlular kapatılamaz, kapalı set yalnız kendi araçlarını düşürür — full + simple, `ToolList` ve dış `tools/list` değişmez, `get_capabilities.toolsets` enabled:false, ek alan), `toolset_health_test.go` (Deps{} / tam / kısmi türetim tablosu, yoklama Memo üzerinden tek çağrı, Memo'suz yoklama yok, 401 → unauthorized, ham hata sızmaz); `chstore/ai_toolsets_test.go` (normalize, round-trip, bozuk blob, boş küme nil); `api/ai_toolsets_test.go` (viewer GET / editor+viewer PUT 403 / admin PUT + audit + süreç-içi küme, kapatılamaz 400, bozuk JSON, cache anahtarı tüm girdiler, kapı adlandırılmış ret + bütçe yanmaz + rol önce, rol başına altın); FE `AiToolsetsPanel.test.tsx` (12 satır, sağlık rozeti, zorunlu sette düğme yok, onaylı kapatma → sıralı liste, viewer salt-okunur, hata satırı + yeniden dene), `AiTab.contract.test.tsx` (`?tab=toolsets`).
 
 **Geri alma yolu:** `git revert <v0.10.1434 sha>` → yeni `v0.10.X+1` etiketi. `system_settings` `ai.toolsets` satırı okuyansız kalır ve zararsızdır (hiçbir kod yolu okumaz → katalog HEAD v0.10.1431 davranışına döner; süzgeç ve kapı kodla birlikte gider). Revert'ten ÖNCE geçici kapatma gerekiyorsa: Ayarlar › CoSRE › Kaynak araç setleri'nde hepsini aç (ya da `PUT /api/ai/toolsets {"disabled":[]}`) — boş küme altınla bayt-bayt aynı kataloğu verir. Blobu silmek istenirse ayrı ve elle: `ALTER TABLE system_settings DELETE WHERE key = 'ai.toolsets'` (gerekmez).
+
+## 2026-10-22 — v0.10.1435 — Panelden 'Bu grafiği açıkla': Metrics/Explore ve dashboard panelleri sohbet turu; brush aralığı ve seçili seri bağlamda
+
+**Operatör programı madde 2.** Metrics editörü, Explore sorgu panelleri ve dashboard'un metric / spanmetric / promql
+panellerinde "✨ CoSRE'ye sor": grafik açıklaması CoSRE sohbetinin bir turu (v0.10.1400/1405/1407 kaydı), operatörün
+brush'ladığı aralık ve lejantta seçtiği seri bağlamda.
+
+**Karar — kayıtta tek tür, tek kart (yeni kademe yok):**
+- Tür `metric_panel` (`chat_explain_registry.go` tek case; `aiSubjectKinds` 13, `AI_KINDS = EXPLAIN_TURN_KINDS`,
+  `ChatExplainKind`). Yüzey `explain-metric-panel:chat` (aisurface, RoleAnswer, Eval yok). İstem
+  `SystemPromptServiceCharts` — yeni sabit yok, `promptVersionRegistry` dokunulmadı. HTTP ucu yok, MCP 74, api.go aynı.
+- **Özne KONUM, sorgu değil** (400 rune; adresten sorgu koşturulmaz): `metric_panel:<konum>:<fromNs>:<toNs>:<bFrom|0>:<bTo|0>:<enc(seri),…>[:cmp]`;
+  konum `d.<pano>.<panel>` | `x.<A-D>` | `m`, kimlikler `[A-Za-z0-9_-]{1,64}`; brush ya 0:0 ya pencerenin içinde; ≤3 seri × ≤80;
+  400'ü aşan kodekte sondaki seriler düşer. TS `parseAiParam/formatAiParam` ↔ Go `parseAiSubject/formatAiSubject` ikiz, iki taraf tablo-testli.
+- **Yapısal yük** `chatExplainAsk.Panel` (≤8 KiB; src promql|builder|span + HTTP uçlarının parametreleri + `vars` + çip `by`).
+  ✨ anında sayfa yükü `stageMetricPanelAsk` ile bırakır, CopilotChat'in `?ai=` effect'i tek seferlik alır (≤60 sn, aynı kodek).
+  Yüksüz derin link (paylaşılan bağlantı): Explore/Metrics → LLM'siz dürüst cevap; dashboard → sunucu paneli kendisi yükler.
+- **Güven kuralı:** dashboard → kayıtlı panel sunucudan (`GetDashboard`), istemciden YALNIZ `vars`; `substitutePanelVars`
+  (promqlVars/`substituteVars` Go ikizi, `testdata/panel_vars_golden.json` iki taraftan altın-testli) çözümü istemcininkine
+  eşit değilse dürüst ret ("kayıtlı panelle uyuşmuyor"), çalışan sorgu hep sunucunun. Explore/Metrics PromQL →
+  `validateChartPromQL` + metrik varlığı (`promqlMetricLabelSets`) + `topk(20)` sarması; PromQL yalnız VictoriaMetrics.
+  Builder/span → `parseFilters` → `chstore.MetricQueryFilter`, `parseFiltersAndDSL` + `parseFilterGroup` → `SpanMetricFilter`.
+- **Bütçe:** pencere üzerinde TEK sorgu (≤120 nokta, ≤20 seri, seçili seriler önde, 8 sn), 60 sn önbellek (anahtar brush,
+  seri, kıyas dahil tüm girdiler); brush pencere adımında <8 kovaysa ince adımlı ikinci sorgu (⌈brush/60⌉, ≥15 sn).
+  "Önceki pencereyle karşılaştır" ikinci sorgu açmaz: tek sorgu iki pencere boyunca.
+- **Ölçüm** (`metric_panel_stats.go`, SAF): pencere min/max/ort/son, brush içi ↔ dışı ort/max/Δ%, ≤3 değişim noktası (≥2σ),
+  seçili seri ↔ diğerleri, kıyas; seçili seri top-20 dışıysa not.
+- **Kanıt-önce:** `metric_panel` bloğu (grafik + "seçili" bölgesi + ölçüm) cevaptan önce; model düşerse blok + dürüst satır;
+  seri yok / okuma hatası / ret → LLM'siz. Künye renderer `metric-panel` (arşiv beyaz listesi); blok arşive girmez, geri
+  yüklenen tur ExplainBody + künye notu (kısa ölçüm özeti).
+- **Takip çipleri (≤4):** pencereyi 4× genişlet, önceki pencereyle karşılaştır (kodek 8. parça), pod/ortam kırılımı (yalnız
+  PromQL'de, etiket metrikte varsa ve `sum by(…)` sarması doğrulayıcıdan geçerse), seçili aralığın trace'leri / logları (uygulama-içi link).
+- **Genel ekran bağlamı:** `PageContext.brush` + `selectedSeries` (TS + Go, Sanitize ≤5×120, önsözde "seçili aralık"/"seçili seri"),
+  sayfalar `lib/pageContextOverlay.ts` ile yayınlar. Soru brush'ı işaret ediyorsa ("bu tepe", "bu sıçrama", "seçili", "bu aralık",
+  EN ikizi) `buildToolScreenScope` araç penceresini brush yapar — yalnız mutlak `from_ms/to_ms` alan araçlara (göreli `range_s`
+  şimdiye çapalanıp geçmiş tepeyi ıskalardı → enjekte edilmez).
+- **FE:** Dashboard panel ⋯ menüsünde `AIExplainButton size="xs"` (zaman serisi panelleri, düzenleme dışında; pencere =
+  `usePageZoomRange.zoomBase`, brush = zoom'lu URL aralığı, panel `rangeOverride` → brush yok); Explore QueryPanel ve
+  Metrics editörü önizlemesinde CorePanel `menuExtra` satırı (brush = yerel zoomWindow). Seçili seri: CorePanel
+  `onFocusChange` (lejant izolasyonu, ≤3 görünen) / Explore GroupTable izolasyonu-odağı. Kart `MetricPanelCard` (tembel
+  grafik), i18n `ai.askCosreMetricPanelHint` TR/EN.
+
+**Operatörün göreceği:** dashboard panelinde ⋯ → "✨ CoSRE'ye sor"; grafiği brush'layıp sorunca sohbette
+"Bu grafiği açıkla · Checkout RPS · 14:05–14:20 seçili · seri: pod-a" turu, altında grafik (seçili bölge taralı), ölçüm satırları,
+anlatım ve çipler. Panoyu sonradan düzenleyip kaydetmeden sormak dürüst ret verir; PromQL panelleri VM yoksa "yalnız VictoriaMetrics" der.
+
+**Testler:** `explain_metric_panel_test.go`, `metric_panel_stats_test.go`, `metric_panel_vars_test.go`, `ai_subject_test.go`,
+`chat_tool_scope_test.go`, `agent/context/page_test.go`; FE `aiSubject.test.ts`, `explainTurn.test.ts`, `MetricPanelCard.test.tsx`,
+`CopilotChat.metricPanel.test.tsx`, `pageContextOverlay.test.ts`, `panelVarsGolden.test.ts`, `metricPanelAsk.test.ts`.

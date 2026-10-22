@@ -104,9 +104,21 @@ func TestHeartbeatSharesEmitLock(t *testing.T) {
 		t.Fatal("heartbeat emit kilidini paylaşmıyor — yarış")
 	}
 	em.mu.Unlock()
-	time.Sleep(8 * time.Millisecond)
-	if !strings.Contains(rec.Body.String(), ": ping\n\n") {
-		t.Fatal("kilit bırakılınca ping gelmeli")
+	// v0.10.1435 — sabit 8 ms bekleme -race altında yetmiyordu VE recorder
+	// gövdesi heartbeat goroutine'i yazarken kilitsiz okunuyordu (dedektör
+	// "race detected" ile düşürüyordu). Gövde yalnız em.mu altında okunur;
+	// ping 500 ms'e kadar beklenir. İlk iddia (kilitliyken yazılmaz) aynı.
+	hasPing := func() bool {
+		em.mu.Lock()
+		defer em.mu.Unlock()
+		return strings.Contains(rec.Body.String(), ": ping\n\n")
+	}
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for !hasPing() {
+		if time.Now().After(deadline) {
+			t.Fatal("kilit bırakılınca ping gelmeli")
+		}
+		time.Sleep(2 * time.Millisecond)
 	}
 	// Eager başlık: heartbeat varken ping'den önce başlık yazılmış olmalı.
 	if rec.Header().Get("Content-Type") != "text/event-stream" {

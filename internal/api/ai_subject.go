@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/cilcenk/coremetry/internal/mcptools"
@@ -44,6 +45,17 @@ type aiSubject struct {
 	Mode, Env, Q, Level string
 	// log — tsNs ONDALIK METİN (2^53 sınırı; kodekte basamaklar aynen).
 	TsNs, Pod, TraceID, Hash string
+	// v0.10.1435 — metric_panel: ID = panel KONUMU (d.<pano>.<panel> | x.<harf>
+	// | m); brush (sıfır = yok), ≤3 seçili seri adı, önceki pencereyle kıyas.
+	BrushFrom, BrushTo time.Time
+	Series             []string
+	Cmp                bool
+	// Panel — v0.10.1435: niyetin yapısal yükü (chatExplainAsk.Panel). KODEKTE
+	// YOK: yalnız kayıt turu (chatExplainRegistryTurn) niyetten doldurur.
+	Panel *metricPanelAsk
+	// Loc — v0.10.1435: operatörün saat dilimi (kodekte YOK; kayıt turu
+	// isteğin tz'sinden doldurur — ölçüm saatleri grafikteki yerel saatle aynı).
+	Loc *time.Location
 }
 
 // drawerSubject — çekmece kanıt kademesinin adı (v0.9.482); aynı tip.
@@ -54,6 +66,7 @@ var aiSubjectKinds = map[string]bool{
 	"trace": true, "span": true, "problem": true, "incident": true, "anomaly": true,
 	"service-health": true, "runbook": true, "exception": true, "charts": true,
 	"log-spike": true, "log": true, "endpoint": true,
+	"metric_panel": true, // v0.10.1435
 }
 
 // logSpikeQueryMax — aiSubject.ts LOG_SPIKE_QUERY_MAX.
@@ -98,6 +111,8 @@ func parseAiSubject(raw string) (aiSubject, bool) {
 		return parseAiLogLine(parts)
 	case "endpoint":
 		return parseAiEndpoint(parts)
+	case "metric_panel": // v0.10.1435
+		return parseAiMetricPanel(parts)
 	}
 	id, ok := decodeAiPart(parts[1])
 	if !ok || id == "" {
@@ -250,8 +265,111 @@ func formatAiSubject(s aiSubject) string {
 			level = "error"
 		}
 		return "log-spike:" + id + ":" + ns(s.From) + ":" + ns(s.To) + ":" + s.Mode + ":" + enc(s.Env) + ":" + enc(q) + ":" + level
+	case "metric_panel": // v0.10.1435
+		return formatAiMetricPanel(s)
 	}
 	return head
+}
+
+// metricPanelSeriesRunes — v0.10.1435: kodekteki seçili seri adının tavanı
+// (rune; aiSubject.ts METRIC_PANEL_SERIES_MAX). Biçimleyici kırpar, ayrıştırıcı
+// fazlasını reddeder.
+const metricPanelSeriesRunes = 80
+
+// metricPanelSelectedMax — kodekteki seçili seri tavanı.
+const metricPanelSelectedMax = 3
+
+// parseAiMetricPanel — v0.10.1435: aiSubject.ts parseMetricPanel ikizi.
+// `metric_panel:<konum>:<fromNs>:<toNs>:<bFromNs|0>:<bToNs|0>:<enc(seri),…>[:cmp]`
+// TAM 7|8 parça; konum biçimli (parseMetricPanelLoc), pencere ARTAN, brush ya
+// 0:0 ya da pencerenin İÇİNDE artan; seri ≤3, her biri 1..80 rune, kontrol
+// karakteri yok; 8. parça yalnız "cmp".
+func parseAiMetricPanel(parts []string) (aiSubject, bool) {
+	if len(parts) != 7 && len(parts) != 8 {
+		return aiSubject{}, false
+	}
+	loc, ok := decodeAiPart(parts[1])
+	if !ok {
+		return aiSubject{}, false
+	}
+	if _, ok := parseMetricPanelLoc(loc); !ok {
+		return aiSubject{}, false
+	}
+	from, to, ok := parseAiWindow(parts[2], parts[3])
+	if !ok {
+		return aiSubject{}, false
+	}
+	s := aiSubject{Kind: "metric_panel", ID: loc, From: from, To: to}
+	if parts[4] != "0" || parts[5] != "0" {
+		bf, bt, ok := parseAiWindow(parts[4], parts[5])
+		if !ok || bf.Before(from) || bt.After(to) {
+			return aiSubject{}, false
+		}
+		s.BrushFrom, s.BrushTo = bf, bt
+	}
+	if parts[6] != "" {
+		items := strings.Split(parts[6], ",")
+		if len(items) > metricPanelSelectedMax {
+			return aiSubject{}, false
+		}
+		for _, it := range items {
+			v, ok := decodeAiPart(it)
+			if !ok || v == "" || utf8.RuneCountInString(v) > metricPanelSeriesRunes || hasControlRune(v) {
+				return aiSubject{}, false
+			}
+			s.Series = append(s.Series, v)
+		}
+	}
+	if len(parts) == 8 {
+		if parts[7] != "cmp" {
+			return aiSubject{}, false
+		}
+		s.Cmp = true
+	}
+	return s, true
+}
+
+// formatAiMetricPanel — v0.10.1435: aiSubject.ts formatMetricPanel ikizi.
+// Seri adı 80 rune'a kırpılır; kodek 400 rune'u aşarsa sondaki seriler düşer
+// (konum + pencere her zaman sığar).
+func formatAiMetricPanel(s aiSubject) string {
+	enc := mcptools.EncodeURIComponent
+	ns := func(t time.Time) string { return strconv.FormatInt(t.UnixNano(), 10) }
+	brush := "0:0"
+	if !s.BrushFrom.IsZero() && !s.BrushTo.IsZero() {
+		brush = ns(s.BrushFrom) + ":" + ns(s.BrushTo)
+	}
+	var items []string
+	for _, v := range s.Series {
+		if len(items) >= metricPanelSelectedMax {
+			break
+		}
+		if r := []rune(v); len(r) > metricPanelSeriesRunes {
+			v = string(r[:metricPanelSeriesRunes])
+		}
+		if v != "" {
+			items = append(items, enc(v))
+		}
+	}
+	tail := ""
+	if s.Cmp {
+		tail = ":cmp"
+	}
+	head := "metric_panel:" + enc(s.ID) + ":" + ns(s.From) + ":" + ns(s.To) + ":" + brush + ":"
+	for len(items) > 0 && len(head)+len(strings.Join(items, ","))+len(tail) > chatExplainSubjectMax {
+		items = items[:len(items)-1]
+	}
+	return head + strings.Join(items, ",") + tail
+}
+
+// hasControlRune — SAF: kontrol karakteri var mı.
+func hasControlRune(s string) bool {
+	for _, r := range s {
+		if unicode.IsControl(r) {
+			return true
+		}
+	}
+	return false
 }
 
 func isLogTsNs(s string) bool {

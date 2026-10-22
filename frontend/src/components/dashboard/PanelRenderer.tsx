@@ -41,8 +41,10 @@ const DashCorePanelLazy = lazy(() =>
 // kaybederdi (foldTopN.ts sözleşmesi).
 import { foldTopN, foldNote, isOthersSeries } from '@/lib/chart/foldTopN';
 
-function DashChart({ series, tail, totalSeries, viz = 'line', unit, syncKey, onZoom, onZoomReset, storageKey, height, bands }: {
+function DashChart({ series, tail, totalSeries, viz = 'line', unit, syncKey, onZoom, onZoomReset, storageKey, height, bands, onFocusChange }: {
   series: import('@/lib/types').SpanMetricSeries[];
+  // v0.10.1435 — lejantta seçili seriler → panel menüsünün ✨'ı (CorePanel onFocusChange).
+  onFocusChange?: (names: string[]) => void;
   // v0.10.147 — sunucu kuyruğu (top-N dışı serilerin ham sum/count'u) +
   // kırpma öncesi toplam; foldTopN/foldNote kesin katlama için.
   tail?: TailPoint[];
@@ -107,6 +109,7 @@ function DashChart({ series, tail, totalSeries, viz = 'line', unit, syncKey, onZ
         }))}
         syncKey={syncKey}
         onZoom={onZoom} onZoomReset={onZoomReset}
+        onFocusChange={onFocusChange}
         thresholds={thresholds}
       />
     </Suspense>
@@ -170,8 +173,10 @@ function CapHint() {
   );
 }
 
-export function PanelRenderer({ panel, range, vars, syncKey, onZoom, onZoomReset, dataOverride }: {
+export function PanelRenderer({ panel, range, vars, syncKey, onZoom, onZoomReset, dataOverride, onFocusChange }: {
   panel: Panel;
+  // v0.10.1435 — zaman serisi panellerinde lejant seçimi (Dashboard ✨ bağlamı).
+  onFocusChange?: (names: string[]) => void;
   range: TimeRange;
   // Resolved values for the dashboard's variables (Grafana-style
   // ${name} references in DSL / service / groupBy fields). Empty
@@ -221,9 +226,9 @@ export function PanelRenderer({ panel, range, vars, syncKey, onZoom, onZoomReset
   const h = panel.height;
   switch (panel.type) {
     case 'metric':
-      return <MetricPanel cfg={applyVarsToMetric(panel.config as MetricPanelConfig, vars)} range={effectiveRange} syncKey={syncKey} onZoom={onZoom} onZoomReset={onZoomReset} dataOverride={effectiveDataOverride} height={h} />;
+      return <MetricPanel cfg={applyVarsToMetric(panel.config as MetricPanelConfig, vars)} range={effectiveRange} syncKey={syncKey} onZoom={onZoom} onZoomReset={onZoomReset} dataOverride={effectiveDataOverride} height={h} onFocusChange={onFocusChange} />;
     case 'spanmetric':
-      return <SpanMetricPanel cfg={applyVarsToSpan(panel.config as SpanMetricPanelConfig, vars)} range={effectiveRange} syncKey={syncKey} onZoom={onZoom} onZoomReset={onZoomReset} dataOverride={effectiveDataOverride} height={h} />;
+      return <SpanMetricPanel cfg={applyVarsToSpan(panel.config as SpanMetricPanelConfig, vars)} range={effectiveRange} syncKey={syncKey} onZoom={onZoom} onZoomReset={onZoomReset} dataOverride={effectiveDataOverride} height={h} onFocusChange={onFocusChange} />;
     case 'stat':
       return <StatPanel cfg={applyVarsToStat(panel.config as StatPanelConfig, vars)} range={effectiveRange} height={h} />;
     case 'gauge':
@@ -231,7 +236,7 @@ export function PanelRenderer({ panel, range, vars, syncKey, onZoom, onZoomReset
     case 'heatmap':
       return <HeatmapPanel cfg={applyVarsToHeatmap(panel.config as HeatmapPanelConfig, vars)} range={effectiveRange} height={h} />;
     case 'promql':
-      return <PromqlPanel cfg={applyVarsToPromql(panel.config as PromqlPanelConfig, vars)} range={effectiveRange} syncKey={syncKey} onZoom={onZoom} onZoomReset={onZoomReset} height={h} />;
+      return <PromqlPanel cfg={applyVarsToPromql(panel.config as PromqlPanelConfig, vars)} range={effectiveRange} syncKey={syncKey} onZoom={onZoom} onZoomReset={onZoomReset} height={h} onFocusChange={onFocusChange} />;
     // v0.9.781 — non-temporal (ranked bars, no time axis): no syncKey, no
     // onZoom — there is no cursor to sync and no x-range to drag. Carries
     // panelId instead so the dashboard's panel-actions menu can anchor to it
@@ -360,12 +365,13 @@ export function applyVarsToTopN(cfg: TopNPanelConfig, vars?: Record<string, stri
 
 // ── Metric line chart ───────────────────────────────────────────────────────
 
-function MetricPanel({ cfg, range, syncKey, onZoom, onZoomReset, dataOverride, height }: {
+function MetricPanel({ cfg, range, syncKey, onZoom, onZoomReset, dataOverride, height, onFocusChange }: {
   cfg: MetricPanelConfig; range: TimeRange; syncKey?: string;
   onZoom?: (fromUnixSec: number, toUnixSec: number) => void;
   onZoomReset?: () => void;
   dataOverride?: PanelDataOverride;
   height?: PanelHeight;
+  onFocusChange?: (names: string[]) => void; // v0.10.1435
 }) {
   const boxPx = panelChartHeight(height);
   const [series, setSeries] = useState<SpanMetricSeries[] | null | undefined>(undefined);
@@ -450,7 +456,7 @@ function MetricPanel({ cfg, range, syncKey, onZoom, onZoomReset, dataOverride, h
         // pariteli; yokluğu = eski birimsiz davranış).
         // v0.9.808 — mark ayıklaması KALKTI: beş mark da DashChart'a gider.
         // v0.9.844 — DashChart'ın içindeki eski-motor dalı da yok; tek yol.
-        : <DashChart series={series} viz={viz} unit={cfg.unit} syncKey={syncKey} onZoom={onZoom} onZoomReset={onZoomReset} bands={cfg.thresholds} storageKey={`dash-m-${cfg.metricName}`} height={boxPx} />}
+        : <DashChart series={series} viz={viz} unit={cfg.unit} syncKey={syncKey} onZoom={onZoom} onZoomReset={onZoomReset} bands={cfg.thresholds} storageKey={`dash-m-${cfg.metricName}`} height={boxPx} onFocusChange={onFocusChange} />}
     </div>
   );
 }
@@ -569,11 +575,12 @@ function HeatmapPanel({ cfg, range, height }: {
 // A dashboard chart driven by a raw PromQL query (/api/metrics/promql, the
 // Phase 1-3 engine). Own-fetch, width-aware step, standard loading/empty/error
 // states; a parse/eval error surfaces inline (the backend message).
-function PromqlPanel({ cfg, range, syncKey, onZoom, onZoomReset, height }: {
+function PromqlPanel({ cfg, range, syncKey, onZoom, onZoomReset, height, onFocusChange }: {
   cfg: PromqlPanelConfig; range: TimeRange; syncKey?: string;
   onZoom?: (fromUnixSec: number, toUnixSec: number) => void;
   onZoomReset?: () => void;
   height?: PanelHeight;
+  onFocusChange?: (names: string[]) => void; // v0.10.1435
 }) {
   const boxPx = panelChartHeight(height);
   const [series, setSeries] = useState<SpanMetricSeries[] | null | undefined>(undefined);
@@ -612,7 +619,7 @@ function PromqlPanel({ cfg, range, syncKey, onZoom, onZoomReset, height }: {
     <div ref={ref}>
       {series === undefined ? <PanelLoading height={boxPx} />
         : !series || series.length === 0 ? <PanelEmpty height={boxPx} />
-        : <DashChart series={series} viz={viz} unit={cfg.unit} syncKey={syncKey} onZoom={onZoom} onZoomReset={onZoomReset} bands={cfg.thresholds} storageKey={`dash-q-${cfg.query.slice(0, 60)}`} height={boxPx} />}
+        : <DashChart series={series} viz={viz} unit={cfg.unit} syncKey={syncKey} onZoom={onZoom} onZoomReset={onZoomReset} bands={cfg.thresholds} storageKey={`dash-q-${cfg.query.slice(0, 60)}`} height={boxPx} onFocusChange={onFocusChange} />}
     </div>
   );
 }
@@ -758,12 +765,13 @@ function topNRowHref(cfg: TopNPanelConfig, groupKey: string[], range: TimeRange)
 
 // ── Span metric line chart ──────────────────────────────────────────────────
 
-function SpanMetricPanel({ cfg, range, syncKey, onZoom, onZoomReset, dataOverride, height }: {
+function SpanMetricPanel({ cfg, range, syncKey, onZoom, onZoomReset, dataOverride, height, onFocusChange }: {
   cfg: SpanMetricPanelConfig; range: TimeRange; syncKey?: string;
   onZoom?: (fromUnixSec: number, toUnixSec: number) => void;
   onZoomReset?: () => void;
   dataOverride?: PanelDataOverride;
   height?: PanelHeight;
+  onFocusChange?: (names: string[]) => void; // v0.10.1435
 }) {
   const boxPx = panelChartHeight(height);
   const [series, setSeries] = useState<SpanMetricSeries[] | null | undefined>(undefined);
@@ -819,7 +827,7 @@ function SpanMetricPanel({ cfg, range, syncKey, onZoom, onZoomReset, dataOverrid
         // zaten alıyor ve hem y-ekseni etiketlerinde hem hover
         // okumasında fmtSmart'a veriyor. Geçilmeyince aynı panelin
         // çizgi hali "142 ms", bar hali çıplak "142" yazıyordu.
-        : <DashChart series={series} tail={tail} totalSeries={total} viz={viz} unit={cfg.unit} syncKey={syncKey} onZoom={onZoom} onZoomReset={onZoomReset} bands={cfg.thresholds} storageKey={`dash-s-${cfg.agg}-${cfg.groupBy ?? ''}`} height={boxPx} />}
+        : <DashChart series={series} tail={tail} totalSeries={total} viz={viz} unit={cfg.unit} syncKey={syncKey} onZoom={onZoom} onZoomReset={onZoomReset} bands={cfg.thresholds} storageKey={`dash-s-${cfg.agg}-${cfg.groupBy ?? ''}`} height={boxPx} onFocusChange={onFocusChange} />}
     </div>
   );
 }

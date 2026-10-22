@@ -142,3 +142,15 @@ export function saveLegendVisibility(
   if (!s) return;
   try { s.setItem(LEGEND_VIS_KEY_PREFIX + key, encodeHiddenLabels(labels, vis)); } catch { /* quota/priv — sessiz */ }
 }
+
+/**
+ * selectedSeriesNames — v0.10.1435 (SAF): görünürlük vektöründen operatörün
+ * seçimi: en az bir seri gizli VE görünen ≤3 seri → görünenlerin adları; aksi
+ * boş (hepsi görünürken "seçim" yoktur).
+ */
+export function selectedSeriesNames(names: readonly string[], vis: readonly boolean[]): string[] {
+  if (names.length < 2 || vis.length !== names.length) return [];
+  const shown = names.filter((_, i) => vis[i]);
+  if (shown.length === names.length || shown.length === 0 || shown.length > 3) return [];
+  return shown;
+}

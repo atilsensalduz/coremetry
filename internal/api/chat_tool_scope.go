@@ -39,6 +39,10 @@ import (
 //     zaten kesin, ortam süzgeci yalnız eşleşmeyi düşürebilir.
 //   - env-kör araç (mcptools.EnvBlindReason) + somut ekran env'i → sonuca
 //     "env uygulanmadı: <sebep>" notu (annotateEnvBlind).
+//   - brush (v0.10.1435): sayfa grafikte seçili bir aralık yayınladıysa
+//     (PageContext.Brush, lib/pageContextOverlay.ts) VE soru o aralığı
+//     işaret ediyorsa ("bu tepe", "bu sıçrama", "seçili", "bu aralık") pencere
+//     ekranın aralığı değil BRUSH'ın kendisi (mutlak, çıpalı).
 //
 // Uygulanan her değer mcptools.ScopeApplied'e girer: step-result.ctxApplied
 // ve kanıt çipi (ChatEvidence.CtxApplied). Dış MCP araçlarına DOKUNULMAZ
@@ -53,6 +57,10 @@ type toolScreenScope struct {
 	Anchored   bool
 	TraceID    string
 	TraceAsked bool // operatörün son mesajı trace'i anıyor mu
+	// Brush — v0.10.1435: pencere operatörün grafikteki brush'ı (RangeS +
+	// AnchorTo onun). Yalnız mutlak from_ms/to_ms alan araçlara iner; göreli
+	// range_s şimdiye çapalanırdı (geçmiş bir tepeyi ıskalar) → enjekte edilmez.
+	Brush bool
 }
 
 // serviceDetailPages — servis enjeksiyonunun izinli olduğu sayfalar.
@@ -103,8 +111,20 @@ func buildToolScreenScope(sc ChatScreenContext, page, pinned *agentctx.PageConte
 		out.TraceID = strings.ToLower(tid)
 		out.TraceAsked = traceDeixis(lastUser, out.TraceID)
 	}
+	// v0.10.1435 — brush işaret ediliyorsa araç penceresi brush'ın kendisi.
+	if eff != nil && eff.Brush != nil && eff.Brush.ToMs > eff.Brush.FromMs && eff.Brush.FromMs > 0 && brushDeixis(lastUser) {
+		out.RangeS = max((eff.Brush.ToMs-eff.Brush.FromMs)/1000, 1)
+		out.AnchorTo, out.Anchored, out.Brush = time.UnixMilli(eff.Brush.ToMs), true, true
+	}
 	return out
 }
+
+// brushDeixisRe — v0.10.1435: soru grafikteki seçili aralığı işaret ediyor mu
+// ("bu tepe", "bu sıçrama", "seçili …", "bu aralık"; TR ekleri dahil, EN ikizi).
+var brushDeixisRe = regexp.MustCompile(`(?i)\b(bu|şu)\s+(tepe|sıçrama|sicrama|spike|aralık|aralik|zirve)|seçili|secili|\bthis\s+(spike|peak|range)\b|\bselected\b`)
+
+// brushDeixis — SAF.
+func brushDeixis(text string) bool { return brushDeixisRe.MatchString(text) }
 
 // traceInjectTools — trace_id enjeksiyonunun izinli olduğu araçlar.
 // get_logs_for_trace doğası gereği trace'e bağlı (deixis gerekmez).
@@ -172,7 +192,15 @@ func applyScreenContext(tool string, args json.RawMessage, schema map[string]any
 		}
 	}
 
-	if sc.RangeS > 0 && !hasTrace && !argsHaveWindow(m) {
+	if sc.Brush && !hasTrace && !argsHaveWindow(m) {
+		// v0.10.1435 — brush: yalnız mutlak uçlar (enum / range_s yok).
+		if has("from_ms") && has("to_ms") {
+			m["from_ms"] = sc.AnchorTo.Add(-time.Duration(sc.RangeS) * time.Second).UnixMilli()
+			m["to_ms"] = sc.AnchorTo.UnixMilli()
+			applied.RangeS = int(sc.RangeS)
+			changed = true
+		}
+	} else if sc.RangeS > 0 && !hasTrace && !argsHaveWindow(m) {
 		switch {
 		case has("range_s"):
 			r := clampSchemaInt(props["range_s"], int(sc.RangeS))

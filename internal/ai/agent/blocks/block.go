@@ -38,6 +38,10 @@ const (
 	// (mcptools.LogSpikeResult + kapsam; api/copilot_explain_log_spike.go;
 	// FE LogSpikeCard).
 	TypeLogSpike = "log_spike"
+	// TypeMetricPanel — v0.10.1435: panelden "Bu grafiği açıkla" turunun
+	// kanıtı (grafik + brush bölgesi + ölçüm; api/explain_metric_panel.go;
+	// FE MetricPanelCard).
+	TypeMetricPanel = "metric_panel"
 )
 
 // Sequencer — bir turn içinde blok kimliği/sırası. SAF: emit'e verilecek

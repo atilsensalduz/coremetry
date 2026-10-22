@@ -1,6 +1,6 @@
 // chatBlocks.ts — v0.10.541 (Faz 3.3a): tipli blok biriktirme, SAF.
 // Aynı id ikinci kez gelirse (final güncellemesi) yerine geçer; sıra seq.
-import type { ChatTypedBlock, ChatAnswerLink, CosreChartSpecLike, ChatTraceListPayload, ChatOperationPayload, ChatEvidenceChartPayload, ChatEvidenceTablePayload, ChatServiceReportPayload, ChatTopologyPayload, ChartsSignalsBlockPayload, LogSpikeBlockPayload } from './types';
+import type { ChatTypedBlock, ChatAnswerLink, CosreChartSpecLike, ChatTraceListPayload, ChatOperationPayload, ChatEvidenceChartPayload, ChatEvidenceTablePayload, ChatServiceReportPayload, ChatTopologyPayload, ChartsSignalsBlockPayload, LogSpikeBlockPayload, MetricPanelBlockPayload } from './types'; // v0.10.1435 — MetricPanelBlockPayload
 import { isSafeAppPath } from './safeAppPath';
 
 export function appendChatBlock(blocks: ChatTypedBlock[] | undefined, b: ChatTypedBlock): ChatTypedBlock[] {
@@ -162,6 +162,26 @@ export function logSpikeBlock(blocks: ChatTypedBlock[] | undefined): LogSpikeBlo
     if (!p || typeof p.service !== 'string' || !p.spike || typeof p.spike !== 'object') continue;
     if (!(p.fromNs > 0) || !(p.toNs > p.fromNs)) continue;
     return p;
+  }
+  return null;
+}
+
+/**
+ * v0.10.1435 — panel açıklamasının kanıt bloğu (`metric_panel`). Şekil
+ * doğrulanır (bozuk yük atlanır → balon ExplainBody'ye düşer); İLK geçerli blok.
+ * Bağlantılar yalnız uygulama-içi yol.
+ */
+export function metricPanelBlock(blocks: ChatTypedBlock[] | undefined): MetricPanelBlockPayload | null {
+  for (const b of blocks ?? []) {
+    if (b.type !== 'metric_panel') continue;
+    const p = b.payload as MetricPanelBlockPayload | null;
+    if (!p || typeof p.title !== 'string' || !p.chart || !Array.isArray(p.chart.series) || !Array.isArray(p.stats)) continue;
+    if (!(p.fromNs > 0) || !(p.toNs > p.fromNs)) continue;
+    return {
+      ...p,
+      href: typeof p.href === 'string' && isSafeAppPath(p.href) ? p.href : undefined,
+      chart: { ...p.chart, deepLink: typeof p.chart.deepLink === 'string' && isSafeAppPath(p.chart.deepLink) ? p.chart.deepLink : undefined },
+    };
   }
   return null;
 }

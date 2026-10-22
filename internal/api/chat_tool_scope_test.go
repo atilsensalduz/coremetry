@@ -238,6 +238,52 @@ func TestBuildToolScreenScope(t *testing.T) {
 	}
 }
 
+// v0.10.1435 — brush: sayfa grafikte bir aralık yayınladı VE soru onu işaret
+// ediyor → araç penceresi brush'ın kendisi (mutlak, çıpalı); işaret yoksa ya
+// da brush yoksa ekran penceresi aynen.
+func TestBuildToolScreenScopeBrushDeixis(t *testing.T) {
+	br := &agentctx.PageBrush{FromMs: 1_790_000_000_000, ToMs: 1_790_000_420_000}
+	page := &agentctx.PageContext{Page: "dashboard", Brush: br}
+	for _, c := range []struct {
+		q     string
+		brush bool
+	}{
+		{"bu tepe neden oluştu?", true},
+		{"Bu sıçramanın sebebi ne", true},
+		{"seçili seride ne oldu", true},
+		{"bu aralıkta hangi deploy vardı", true},
+		{"what caused this spike", true},
+		{"servis neden yavaş", false},
+		{"son 1 saatte hata oranı", false},
+	} {
+		sc := buildToolScreenScope(ChatScreenContext{RangeS: 3600}, page, nil, "", c.q)
+		if sc.Brush != c.brush {
+			t.Errorf("%q: brush=%v", c.q, sc.Brush)
+			continue
+		}
+		if c.brush && (sc.RangeS != 420 || !sc.Anchored || sc.AnchorTo.UnixMilli() != br.ToMs) {
+			t.Errorf("%q: pencere %+v", c.q, sc)
+		}
+		if !c.brush && sc.RangeS != 3600 {
+			t.Errorf("%q: ekran penceresi bozuldu %+v", c.q, sc)
+		}
+	}
+	if sc := buildToolScreenScope(ChatScreenContext{RangeS: 3600}, &agentctx.PageContext{Page: "dashboard"}, nil, "", "bu tepe"); sc.Brush {
+		t.Error("brush yokken brush penceresi")
+	}
+	// Uygulama: yalnız mutlak uçlu araca iner; enum / range_s'e değil.
+	sc := buildToolScreenScope(ChatScreenContext{RangeS: 3600}, page, nil, "bu tepe", "bu tepe")
+	abs := map[string]any{"properties": map[string]any{"window": map[string]any{"enum": []any{"15m", "1h"}}, "from_ms": map[string]any{}, "to_ms": map[string]any{}}}
+	out, ap := applyScreenContext("query_logs", nil, abs, sc, time.Now())
+	if !strings.Contains(string(out), `"from_ms":1790000000000`) || !strings.Contains(string(out), `"to_ms":1790000420000`) || strings.Contains(string(out), "window") || ap.RangeS != 420 {
+		t.Fatalf("mutlak uçlar: %s %+v", out, ap)
+	}
+	rel := map[string]any{"properties": map[string]any{"range_s": map[string]any{"type": "integer"}}}
+	if out, _ := applyScreenContext("list_anomalies", nil, rel, sc, time.Now()); strings.Contains(string(out), "range_s") {
+		t.Fatalf("göreli range_s'e brush enjekte edildi: %s", out)
+	}
+}
+
 func TestAnnotateEnvBlind(t *testing.T) {
 	got := annotateEnvBlind(`{"edges":[]}`, "sebep", "prod")
 	m := map[string]any{}

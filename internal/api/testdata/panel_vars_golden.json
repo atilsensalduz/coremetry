@@ -1,0 +1,68 @@
+{
+  "_doc": "v0.10.1435 — dashboard panel ${var} genişletmesinin ALTIN tablosu. İki taraf okur: Go metric_panel_vars_test.go (substitutePanelVars) ve TS components/dashboard/panelVarsGolden.test.ts (applyVarsToMetric / applyVarsToSpan / applyVarsToPromql). Sunucu kayıtlı paneli yükleyip istemcinin vars'ıyla çözer ve istemcinin çözümüyle karşılaştırır — iki taraf ayrışırsa her dashboard ✨'ı 'kayıtlı panelle uyuşmuyor' der.",
+  "cases": [
+    {
+      "name": "promql paneli: dolu değişken yerinde",
+      "type": "promql",
+      "config": {"query": "sum by (pod) (rate(http_server_requests_total{service_name=\"${service}\"}[5m]))", "unit": "rps"},
+      "vars": {"service": "checkout"},
+      "want": {"src": "promql", "promql": "sum by (pod) (rate(http_server_requests_total{service_name=\"checkout\"}[5m]))"}
+    },
+    {
+      "name": "promql paneli: boş değişkenin eşleştiricisi silinir",
+      "type": "promql",
+      "config": {"query": "rate(http_server_requests_total{code=\"500\",service_name=\"${service}\"}[5m])"},
+      "vars": {"service": ""},
+      "want": {"src": "promql", "promql": "rate(http_server_requests_total{code=\"500\"}[5m])"}
+    },
+    {
+      "name": "promql paneli: tanımsız değişken (ilk eşleştirici) + virgül toplama",
+      "type": "promql",
+      "config": {"query": "x{a=\"${a}\", b=\"${b}\"}"},
+      "vars": {"b": "two"},
+      "want": {"src": "promql", "promql": "x{ b=\"two\"}"}
+    },
+    {
+      "name": "promql paneli: eşleştirici dışı referans yerinde",
+      "type": "promql",
+      "config": {"query": "topk(${n}, jvm_memory_used_bytes{area=~\"${area}\"})"},
+      "vars": {"n": "5", "area": "heap|nonheap"},
+      "want": {"src": "promql", "promql": "topk(5, jvm_memory_used_bytes{area=~\"heap|nonheap\"})"}
+    },
+    {
+      "name": "metric paneli PromQL kipi",
+      "type": "metric",
+      "config": {"metricName": "ignored", "promql": "avg(process_cpu_usage{service_name=\"${svc}\", env!=\"${env}\"})"},
+      "vars": {"svc": "orders-api", "env": ""},
+      "want": {"src": "promql", "promql": "avg(process_cpu_usage{service_name=\"orders-api\"})"}
+    },
+    {
+      "name": "metric paneli builder: servis + kırılım + filtre satırları",
+      "type": "metric",
+      "config": {"metricName": "http.server.request.duration", "service": "${svc}", "agg": "p95", "groupBy": "http.route", "filters": "[{\"k\":\"env\",\"op\":\"=\",\"v\":[\"${env}\"]}]", "unit": "s"},
+      "vars": {"svc": "payments", "env": "stage"},
+      "want": {"src": "builder", "metricName": "http.server.request.duration", "service": "payments", "agg": "p95", "groupBy": "http.route", "filters": "[{\"k\":\"env\",\"op\":\"=\",\"v\":[\"stage\"]}]"}
+    },
+    {
+      "name": "metric paneli builder: tüm referansları boş satır düşer",
+      "type": "metric",
+      "config": {"metricName": "jvm.memory.used", "service": "${svc}", "agg": "avg"},
+      "vars": {"svc": ""},
+      "want": {"src": "builder", "metricName": "jvm.memory.used", "service": "", "agg": "avg"}
+    },
+    {
+      "name": "spanmetric paneli: çok satırlı DSL, boş değişkenin satırı düşer",
+      "type": "spanmetric",
+      "config": {"agg": "p99", "field": "duration_ms", "groupBy": "name", "dsl": "service.name = \"${svc}\"\nhttp.route = \"${route}\"\nkind = server"},
+      "vars": {"svc": "inventory", "route": ""},
+      "want": {"src": "span", "agg": "p99", "field": "duration_ms", "groupBy": "name", "dsl": "service.name = \"inventory\"\nkind = server"}
+    },
+    {
+      "name": "spanmetric paneli: kısmen dolu satır kalır, eksik değer boş",
+      "type": "spanmetric",
+      "config": {"agg": "count", "groupBy": "${by}", "dsl": "service.name = \"${svc}\" AND deployment.environment = \"${env}\""},
+      "vars": {"svc": "search", "by": "name"},
+      "want": {"src": "span", "agg": "count", "groupBy": "name", "dsl": "service.name = \"search\" AND deployment.environment = \"\""}
+    }
+  ]
+}

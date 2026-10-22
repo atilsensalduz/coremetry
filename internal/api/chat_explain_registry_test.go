@@ -229,6 +229,7 @@ func TestExplainRegistryKindsRegistered(t *testing.T) {
 		"service-health": "explain-service", "runbook": "runbook", "log": "explain-log",
 		"trace": "explain-trace", "exception": "explain-exception",
 		"charts": "explain-charts", "log-spike": "explain-log-spike", // v0.10.1407
+		"metric_panel": "explain-metric-panel", // v0.10.1435 — HTTP ikizi yok; etiket aynı aileden
 	}
 	for _, kind := range explainTurnKinds {
 		k, ok := explainKindFor(kind)

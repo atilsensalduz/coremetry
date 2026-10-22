@@ -23,6 +23,13 @@
 //   endpoint        → "endpoint:<enc(service)>:<enc(route)>:<fromNs>:<toNs>[:<METHOD>]"
 //                     (v0.10.1367 — endpoint'in tek tık "CoSRE'ye sor"u; METHOD
 //                     beyaz listeli, bilinmeyen fiil REDDEDİLMEZ düşer; env kodekte yok)
+//   metric_panel    → "metric_panel:<konum>:<fromNs>:<toNs>:<bFromNs|0>:<bToNs|0>:<enc(seri),…>[:cmp]"
+//                     (v0.10.1435 — panelden "Bu grafiği açıkla". Kodek SORGU
+//                     taşımaz, KONUM taşır: d.<pano>.<panel> | x.<A-D> | m; sorgu
+//                     niyetin yapısal yükünde (ChatExplainAsk.panel). Brush ya
+//                     0:0 ya da pencerenin içinde; ≤3 seçili seri, her biri ≤80;
+//                     kodek 400'ü aşarsa sondaki seriler düşer. Go ikizi
+//                     internal/api/ai_subject.go parseAiMetricPanel)
 //
 // id HER ZAMAN encodeURIComponent'ten geçer: servis adı / fingerprint
 // içinde ':' geçse bile ayraç belirsizleşmez (parse ':' üzerinden böler).
@@ -66,6 +73,7 @@ export const AI_KINDS = [
   'log-spike', // v0.10.1284 — AI SRE Faz 1a: log artışını ne açıklıyor
   'log',       // v0.10.1291 — tek log satırını açıkla
   'endpoint',  // v0.10.1367 — endpoint "CoSRE'ye sor" (sohbet ön-getirmesiyle)
+  'metric_panel', // v0.10.1435 — panelden "Bu grafiği açıkla" (Metrics / Explore / dashboard)
 ] as const;
 
 export type AIKind = typeof AI_KINDS[number];
@@ -92,7 +100,7 @@ export function chartScopeLabel(s: ChartScope): string {
 }
 
 // Basit özneler: tek bir id yeter (backend geri kalanını kendi toplar).
-type SimpleKind = Exclude<AIKind, 'span' | 'service-health' | 'charts' | 'log-spike' | 'log' | 'endpoint'>; // v0.10.1367 — endpoint
+type SimpleKind = Exclude<AIKind, 'span' | 'service-health' | 'charts' | 'log-spike' | 'log' | 'endpoint' | 'metric_panel'>; // v0.10.1367 — endpoint; v0.10.1435 — metric_panel
 
 // v0.10.1284 — log-spike öznesinin kipi: sel = operatörün zoom'ladığı aralık
 // (verilen artış), auto = pencerede tepe otomatik bulunur.
@@ -132,7 +140,32 @@ export type AISubject =
   // endpoint → id = servis adı; rota + (isteğe bağlı) fiil + pencere linkte
   // taşınır (v0.10.1367). Çekmece görünür bir ilk soru sorar; sunucunun
   // operasyon/endpoint ön-getirmesi onu deterministik çözer.
-  | { kind: 'endpoint'; id: string; route: string; method?: string; fromNs: number; toNs: number };
+  | { kind: 'endpoint'; id: string; route: string; method?: string; fromNs: number; toNs: number }
+  // metric_panel → id = panel KONUMU (d.<pano>.<panel> | x.<harf> | m); pencere +
+  // brush (0 = yok) + ≤3 seçili seri (+ önceki pencereyle kıyas). Sorgu kodekte
+  // YOK (v0.10.1435).
+  | { kind: 'metric_panel'; id: string; fromNs: number; toNs: number; brushFromNs: number; brushToNs: number; series: string[]; cmp?: boolean };
+
+// v0.10.1435 — metric_panel kodeğinin tavanları (Go: ai_subject.go).
+export const METRIC_PANEL_SERIES_MAX = 80;
+export const METRIC_PANEL_SELECTED_MAX = 3;
+const AI_SUBJECT_MAX = 400;
+const METRIC_PANEL_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** v0.10.1435 — panel konumu: `m` | `x.<A-D>` | `d.<pano>.<panel>` (Go parseMetricPanelLoc ikizi). */
+export function isMetricPanelLoc(loc: string): boolean {
+  if (loc === 'm') return true;
+  if (/^x\.[A-D]$/.test(loc)) return true;
+  if (!loc.startsWith('d.')) return false;
+  const parts = loc.slice(2).split('.');
+  return parts.length === 2 && METRIC_PANEL_ID_RE.test(parts[0]) && METRIC_PANEL_ID_RE.test(parts[1]);
+}
+
+/** v0.10.1435 — dashboard panelinin konumu (kimlikler biçimsizse null → ✨ yok). */
+export function dashboardPanelLoc(dashId: string, panelId: string): string | null {
+  const loc = `d.${dashId}.${panelId}`;
+  return isMetricPanelLoc(loc) ? loc : null;
+}
 
 const KIND_SET = new Set<string>(AI_KINDS);
 
@@ -203,7 +236,24 @@ export function formatAiParam(s: AISubject): string {
     return `log-spike:${s.id ? encodeURIComponent(s.id) : '*'}:${s.fromNs}:${s.toNs}:${s.mode}`
       + `:${encodeURIComponent(s.env)}:${encodeURIComponent(q)}:${s.level}`;
   }
+  if (s.kind === 'metric_panel') return formatMetricPanel(s); // v0.10.1435
   return head;
+}
+
+// formatMetricPanel — v0.10.1435: seri adı 80 karaktere (kod noktası) kırpılır,
+// ≤3 seri; kodek 400'ü aşarsa sondaki seriler düşer (Go formatAiMetricPanel ikizi).
+function formatMetricPanel(s: Extract<AISubject, { kind: 'metric_panel' }>): string {
+  const brush = s.brushFromNs > 0 && s.brushToNs > s.brushFromNs ? `${s.brushFromNs}:${s.brushToNs}` : '0:0';
+  const items: string[] = [];
+  for (const v of s.series) {
+    if (items.length >= METRIC_PANEL_SELECTED_MAX) break;
+    const cut = [...v].slice(0, METRIC_PANEL_SERIES_MAX).join('');
+    if (cut) items.push(encodeURIComponent(cut));
+  }
+  const tail = s.cmp ? ':cmp' : '';
+  const head = `metric_panel:${encodeURIComponent(s.id)}:${s.fromNs}:${s.toNs}:${brush}:`;
+  while (items.length > 0 && head.length + items.join(',').length + tail.length > AI_SUBJECT_MAX) items.pop();
+  return head + items.join(',') + tail;
 }
 
 export function parseAiParam(
@@ -233,6 +283,7 @@ export function parseAiParam(
   if (kind === 'log-spike') return parseLogSpike(parts);
   if (kind === 'log') return parseLogLine(parts);
   if (kind === 'endpoint') return parseEndpoint(parts); // v0.10.1367
+  if (kind === 'metric_panel') return parseMetricPanel(parts); // v0.10.1435
   const id = safeDecode(parts[1] ?? '');
   if (!id) return null;
 
@@ -321,6 +372,44 @@ function parseEndpoint(parts: string[]): AISubject | null {
   return { kind: 'endpoint', id, route, ...(method ? { method } : {}), fromNs, toNs };
 }
 
+// parseMetricPanel — v0.10.1435: TAM 7|8 parça; konum biçimli, pencere artan,
+// brush 0:0 ya da pencerenin içinde artan, ≤3 seri (her biri 1..80, kontrol
+// karakteri yok), 8. parça yalnız "cmp". Go parseAiMetricPanel ikizi.
+// eslint-disable-next-line no-control-regex
+const CONTROL_RE = /[\u0000-\u001f\u007f-\u009f]/;
+const NS_RE = /^[0-9]{1,20}$/;
+function parseMetricPanel(parts: string[]): AISubject | null {
+  if (parts.length !== 7 && parts.length !== 8) return null;
+  const loc = safeDecode(parts[1] ?? '');
+  if (!isMetricPanelLoc(loc)) return null;
+  if (!NS_RE.test(parts[2] ?? '') || !NS_RE.test(parts[3] ?? '')) return null;
+  const fromNs = Number(parts[2]);
+  const toNs = Number(parts[3]);
+  if (!(fromNs > 0) || !(toNs > fromNs)) return null;
+  let brushFromNs = 0, brushToNs = 0;
+  if (parts[4] !== '0' || parts[5] !== '0') {
+    if (!NS_RE.test(parts[4] ?? '') || !NS_RE.test(parts[5] ?? '')) return null;
+    brushFromNs = Number(parts[4]); brushToNs = Number(parts[5]);
+    if (!(brushFromNs > 0) || !(brushToNs > brushFromNs) || brushFromNs < fromNs || brushToNs > toNs) return null;
+  }
+  const series: string[] = [];
+  if (parts[6]) {
+    const items = parts[6].split(',');
+    if (items.length > METRIC_PANEL_SELECTED_MAX) return null;
+    for (const it of items) {
+      const v = safeDecode(it);
+      if (!v || [...v].length > METRIC_PANEL_SERIES_MAX || CONTROL_RE.test(v)) return null;
+      series.push(v);
+    }
+  }
+  let cmp = false;
+  if (parts.length === 8) {
+    if (parts[7] !== 'cmp') return null;
+    cmp = true;
+  }
+  return { kind: 'metric_panel', id: loc, fromNs, toNs, brushFromNs, brushToNs, series, ...(cmp ? { cmp } : {}) };
+}
+
 // aiSubjectTitle — özne türünün görünen adı (eski çekmece başlığı; v0.10.1407
 // sonrası yalnız aiSubjectTopic'in yedeği — TOPIC'te olmayan türler).
 // v0.10.948 (CoSRE Faz B) — trace adı düğmenin adıyla aynı ("CoSRE’ye sor",
@@ -347,6 +436,7 @@ export function aiSubjectTitle(s: AISubject, lang: Lang = currentLang()): string
     case 'log-spike':                                    // v0.10.1284
     case 'log':            return t('ai.askCosre', lang); // v0.10.1291
     case 'endpoint':       return t('ai.askCosre', lang); // v0.10.1367
+    case 'metric_panel':   return t('ai.askCosre', lang); // v0.10.1435
   }
 }
 
@@ -364,6 +454,7 @@ const TOPIC: Partial<Record<AIKind, string>> = {
   'log-spike': 'Log artışını açıkla', // v0.10.1338
   log: 'Log satırını açıkla',         // v0.10.1338
   endpoint: 'Endpoint analizi',       // v0.10.1367
+  metric_panel: 'Grafiği açıkla',     // v0.10.1435
 };
 export function aiSubjectTopic(s: AISubject): string {
   return TOPIC[s.kind] ?? aiSubjectTitle(s, 'tr');

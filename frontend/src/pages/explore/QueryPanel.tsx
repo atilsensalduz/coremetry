@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { publishCursor } from '@/lib/chart/cursorBus';
 import type { PanelData } from './PanelStack';
 import type { ChartTimeRegion, ChartThreshold } from '@/lib/chart/overlays';
+import { metricPanelMenuAction } from '@/components/ai/metricPanelAsk'; // v0.10.1435
 
 // v0.9.745 (Explore v2) — line modunda panel gövdesi CorePanel'e
 // (@grafana/ui motoru, Overview ile AYNI render). Lazy: corePanelEntry
@@ -49,7 +50,7 @@ const SYNC_KEY = msSyncKey('explore-v2'); // v0.10.289 — ad alanı tek yerden
 const PANEL_HEIGHT = 200;
 
 export const QueryPanel = memo(function QueryPanel({
-  panel, mode, hiddenLabels, focusedLabel, zoomWindow, onZoom, onZoomReset, onExemplarClick, logScale, onPin, xRange,
+  panel, mode, hiddenLabels, focusedLabel, zoomWindow, onZoom, onZoomReset, onExemplarClick, logScale, onPin, xRange, onAsk,
 }: {
   panel: PanelData;
   mode: TSMode;
@@ -66,6 +67,8 @@ export const QueryPanel = memo(function QueryPanel({
   // panels and OR-group queries (no dashboard equivalent — see
   // pinToDashboard.ts header), so the 📌 simply doesn't render.
   onPin?: () => void;
+  // v0.10.1435 — "✨ CoSRE'ye sor" (panelin ⋯ menüsünde; formül panelinde yok).
+  onAsk?: () => void;
 }) {
   return (
     <div style={{
@@ -197,6 +200,7 @@ export const QueryPanel = memo(function QueryPanel({
             onExemplarClick={onExemplarClick}
             onZoom={onZoom}
             onZoomReset={onZoomReset}
+            menuExtra={onAsk ? [metricPanelMenuAction(onAsk)] : undefined}
           />
         </Suspense>
       )}

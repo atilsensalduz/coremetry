@@ -11,7 +11,7 @@ import {
   explainRenderer, explainSubject, explainTurnSendOpts, explainUserText, isExplainTurnKind, shortExplainId,
   EXPLAIN_TURN_KINDS,
 } from './explainTurn';
-import { AI_KINDS } from '@/lib/aiSubject';
+import { AI_KINDS, formatAiParam } from '@/lib/aiSubject'; // v0.10.1435 — formatAiParam
 import { endpointAskQuestion } from './drawerChat';
 import { starterAsk } from './capabilityHints';
 import { hasCompletedExchange, persistMessages, restoreTurns } from './chatPersist';
@@ -220,6 +220,7 @@ describe('her ?ai= türü bir sohbet turu (v0.10.1407)', () => {
       'log-spike': { kind: 'log-spike', id: 'checkout', fromNs, toNs, mode: 'sel', env: 'prod', q: '', level: 'error' },
       log: { kind: 'log', id: 'orders-api', tsNs: '1790000000123000000', pod: '', traceId: '', hash: 'ca29aa39' },
       endpoint: { kind: 'endpoint', id: 'orders-api', route: '/orders', method: 'GET', fromNs, toNs },
+      metric_panel: { kind: 'metric_panel', id: 'x.A', fromNs, toNs, brushFromNs: 0, brushToNs: 0, series: [] }, // v0.10.1435
     } as const;
     for (const k of AI_KINDS) {
       const x = explainAskFor(subjects[k] as Parameters<typeof explainAskFor>[0]);
@@ -253,5 +254,43 @@ describe('her ?ai= türü bir sohbet turu (v0.10.1407)', () => {
     expect(fc.toMs).toBe(1790003600000);
     expect(explainContextLabel({ kind: 'charts', id: 'orders-api' })).toBe('✨ orders-api grafikleri');
     expect(explainContextLabel({ kind: 'log-spike', id: '' })).toBe('✨ log artışı tüm servisler');
+  });
+});
+
+// v0.10.1435 — panelden "Bu grafiği açıkla": niyet kodek (konum + pencere +
+// brush + seri) + yapısal yük; görünen metin başlık + seçili aralık + seri;
+// takip bağlamı açıklanan pencere; balon metric-panel kartı.
+describe('metric_panel açıklama turu (v0.10.1435)', () => {
+  const fromNs = Date.UTC(2026, 9, 22, 14, 0) * 1e6, toNs = Date.UTC(2026, 9, 22, 15, 0) * 1e6;
+  const subj = {
+    kind: 'metric_panel' as const, id: 'd.dash01.p1', fromNs, toNs,
+    brushFromNs: Date.UTC(2026, 9, 22, 14, 5) * 1e6, brushToNs: Date.UTC(2026, 9, 22, 14, 20) * 1e6, series: ['pod-a'],
+  };
+  const panel = { src: 'promql' as const, promql: 'sum(rate(x_total[5m]))', vars: { svc: 'checkout' }, title: 'Checkout RPS' };
+  it('niyet: kodek + yük; görünen metin başlık · seçili aralık · seri', () => {
+    const x = explainAskFor(subj, 'button', undefined, false, panel);
+    expect(x?.explainAsk).toEqual({ kind: 'metric_panel', id: 'd.dash01.p1', subject: formatAiParam(subj), src: 'button', panel });
+    expect(x?.userText).toMatch(/^Bu grafiği açıkla · Checkout RPS · \d\d:05–\d\d:20 seçili · seri: pod-a$/);
+  });
+  it('yük yalnız metric_panel türünde; başlıksız konum adı', () => {
+    expect(explainAskFor({ kind: 'trace', id: TRACE }, 'x', undefined, false, panel)?.explainAsk?.panel).toBeUndefined();
+    const bare = explainAskFor({ ...subj, id: 'x.B', brushFromNs: 0, brushToNs: 0, series: [], cmp: true });
+    expect(bare?.userText).toBe('Bu grafiği açıkla · Explore · B · önceki pencereyle');
+    expect(bare?.explainAsk?.panel).toBeUndefined();
+  });
+  it('takip bağlamı: açıklanan pencere; bağlam etiketi; çizim kipi', () => {
+    const S = formatAiParam(subj);
+    const a = activeExplainFrom([
+      { role: 'user', text: 'Bu grafiği açıkla', explainAsk: { kind: 'metric_panel', id: 'd.dash01.p1', subject: S } },
+      { role: 'assistant', text: 'pod-a 14:07 sıçradı', exchangeId: 'x1',
+        explain: { kind: 'metric_panel', id: 'd.dash01.p1', subject: S, renderer: 'metric-panel', label: 'Checkout RPS' } },
+    ]);
+    if (!a) throw new Error('etkin açıklama yok');
+    const fc = explainFollowupContext(a);
+    expect(fc.subject).toBe(S);
+    expect(fc.rangeS).toBe(3600);
+    expect(fc.toMs).toBe(Math.floor(toNs / 1e6));
+    expect(explainContextLabel(a.meta)).toBe('✨ grafik Checkout RPS');
+    expect(explainRenderer({ kind: 'metric_panel' })).toBe('metric-panel');
   });
 });

@@ -54,6 +54,7 @@ const (
 	explainAskLog           = "log"
 	explainAskCharts        = "charts"    // v0.10.1407
 	explainAskLogSpike      = "log-spike" // v0.10.1407
+	// explainAskMetricPanel — v0.10.1435: explain_metric_panel.go.
 
 	// explainRendererBody — künyenin çizim kipi: ExplainBody (Karar şeridi,
 	// Kanıt satırı).
@@ -68,7 +69,8 @@ const (
 )
 
 // explainRenderers — künye `renderer` beyaz listesi (arşiv sanitize'ı).
-var explainRenderers = map[string]bool{explainRendererBody: true, explainRendererCharts: true, explainRendererLogSpike: true}
+var explainRenderers = map[string]bool{explainRendererBody: true, explainRendererCharts: true, explainRendererLogSpike: true,
+	explainRendererMetricPanel: true} // v0.10.1435
 
 // explainBuilt — bir ✨ açıklamasının üretim girdisi + künye malzemesi. HTTP
 // düğmesi ve sohbet turu AYNI değeri kullanır (anahtar tek yerde hesaplanır).
@@ -91,6 +93,9 @@ type explainBuilt struct {
 	// Unexplained — v0.10.1407: anlatılacak ölçüm yok (log-spike kanıtı
 	// okunamadı); LLM çağrılmaz, bu metin cevaptır (bloklar yine yayılır).
 	Unexplained string
+	// Followups — v0.10.1435: cevabın takip çipleri (metric_panel: genişlet /
+	// kıyasla / kırılım / aralığın trace-log linkleri); boşsa yok.
+	Followups []chatFollowup
 }
 
 // explainBlock — v0.10.1407: kurucunun tipli bloğu (blocks.Type* + gövde).
@@ -255,6 +260,11 @@ func explainKindFor(kind string) (explainKind, bool) {
 				b, _, err := s.buildLogSpikeExplain(ctx, logSpikeBodyFromSubject(subj))
 				return b, err
 			}}, true
+	case explainAskMetricPanel: // v0.10.1435 — panelden "Bu grafiği açıkla"
+		return explainKind{Kind: kind, Surface: aisurface.ExplainMetricPanelChat, Step: "metric_panel",
+			Build: func(ctx context.Context, s *Server, subj aiSubject) (explainBuilt, error) {
+				return s.buildMetricPanelExplain(ctx, subj)
+			}}, true
 	}
 	return explainKind{}, false
 }
@@ -269,22 +279,25 @@ func logSpikeBodyFromSubject(subj aiSubject) logSpikeExplainBody {
 // explainTurnKinds — kayıttaki türler (testler + sanitize belgesi).
 var explainTurnKinds = []string{explainAskTrace, explainAskException, explainAskSpan, explainAskProblem,
 	explainAskIncident, explainAskAnomaly, explainAskServiceHealth, explainAskRunbook, explainAskLog,
-	explainAskCharts, explainAskLogSpike}
+	explainAskCharts, explainAskLogSpike, explainAskMetricPanel}
 
 // explainKindTR — bulunamadı cevabındaki tür adı.
 var explainKindTR = map[string]string{
 	explainAskSpan: "Span", explainAskProblem: "Problem", explainAskIncident: "Olay",
 	explainAskAnomaly: "Anomali", explainAskServiceHealth: "Servis", explainAskRunbook: "Problem",
+	explainAskMetricPanel: "Panel", // v0.10.1435
 }
 
 // chatExplainRegistryTurn — kurucu tabanlı genel açıklama turu: adım çipi →
 // düğmenin kurucusu → streamExplainCore (önbellek → akan üretim → sakla) →
 // answer çerçevesi + künye. Bulunamayan özne → LLM'siz dürüst cevap.
-func (s *Server) chatExplainRegistryTurn(ctx context.Context, emit func(string, any), k explainKind, ask chatExplainAsk) (bool, bool) {
+func (s *Server) chatExplainRegistryTurn(ctx context.Context, emit func(string, any), k explainKind, ask chatExplainAsk, loc *time.Location) (bool, bool) {
 	subj, ok := explainAskSubject(ask)
 	if !ok { // normalizeExplainAsk geçtiyse olamaz; savunma
 		return false, false
 	}
+	// v0.10.1435 — kodek dışı alanlar: yapısal yük (metric_panel) + tz.
+	subj.Panel, subj.Loc = ask.Panel, loc
 	args, _ := json.Marshal(map[string]any{"kind": ask.Kind, "id": ask.ID})
 	n := emitGuidedStep(emit, k.Step, string(args))
 	b, err := k.Build(ctx, s, subj)
@@ -322,7 +335,7 @@ func (s *Server) chatExplainRegistryTurn(ctx context.Context, emit func(string, 
 		emit(bl.Type, bl.Payload)
 	}
 	if b.Unexplained != "" { // ölçüm yok → LLM yok, dürüst cevap (blok yine çizilir)
-		emit("answer", map[string]any{"text": b.Unexplained, "exchangeId": copilot.MetaFromContext(ctx).ExchangeID, "explain": meta})
+		emit("answer", withAnswerFollowups(map[string]any{"text": b.Unexplained, "exchangeId": copilot.MetaFromContext(ctx).ExchangeID, "explain": meta}, b.Followups))
 		return true, false
 	}
 	// Düğmenin kurucusundan gelen anahtar (explainCacheKey(system, user, "")).
@@ -345,7 +358,7 @@ func (s *Server) chatExplainRegistryTurn(ctx context.Context, emit func(string, 
 		return true, false
 	}
 	if !ok {
-		emit("answer", map[string]any{"text": explainNarrationFailedTR(narrErr), "exchangeId": res.Xid, "explain": meta})
+		emit("answer", withAnswerFollowups(map[string]any{"text": explainNarrationFailedTR(narrErr), "exchangeId": res.Xid, "explain": meta}, b.Followups))
 		return true, false
 	}
 	text := trimExplainText(res)
@@ -356,7 +369,7 @@ func (s *Server) chatExplainRegistryTurn(ctx context.Context, emit func(string, 
 		"links":   dedupLinksByHref(links),
 		"explain": meta,
 	}
-	emit("answer", withExplainCached(ans, res))
+	emit("answer", withAnswerFollowups(withExplainCached(ans, res), b.Followups))
 	return true, true
 }
 

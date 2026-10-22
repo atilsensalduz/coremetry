@@ -60,3 +60,31 @@ func TestSanitize(t *testing.T) {
 		t.Fatalf("filtre tavanları: %d filtre, ilkinde %d değer", len(p.Filters), len(p.Filters[0].V))
 	}
 }
+
+// v0.10.1435 — grafikteki seçimler (lib/pageContextOverlay.ts): brush pozitif
+// ve artan değilse düşer; seçili seri ≤5 × 120 rune; önsöz "seçili aralık" /
+// "seçili seri" yazar; Empty bunları sayar.
+func TestSanitizeBrushAndSelectedSeries(t *testing.T) {
+	sel := []string{strings.Repeat("ş", 150), " pod-a\n", "", "b", "c", "d", "e"}
+	p := Sanitize(&PageContext{Page: "dashboard", Brush: &PageBrush{FromMs: 1_790_000_000_000, ToMs: 1_790_000_600_000}, SelectedSeries: sel})
+	if p.Brush == nil || len(p.SelectedSeries) != maxSelectedSeries || p.SelectedSeries[1] != "pod-a" {
+		t.Fatalf("sanitize: %+v", p)
+	}
+	if n := len([]rune(p.SelectedSeries[0])); n != maxSelectedSeriesRune+1 {
+		t.Fatalf("seri rune tavanı %d", n)
+	}
+	for _, b := range []*PageBrush{{FromMs: 0, ToMs: 5}, {FromMs: 9, ToMs: 9}, {FromMs: 9, ToMs: 3}} {
+		if q := Sanitize(&PageContext{Page: "x", Brush: b}); q.Brush != nil {
+			t.Errorf("geçersiz brush kaldı: %+v", b)
+		}
+	}
+	if (&PageContext{Page: "x", SelectedSeries: []string{"a"}}).Empty() {
+		t.Error("seçili seri Empty sayılmamalı")
+	}
+	out := PreambleTR(&PageContext{Page: "explore", Brush: &PageBrush{FromMs: 1_790_000_000_000, ToMs: 1_790_000_600_000}, SelectedSeries: []string{"pod-a", "pod-b"}}, nil)
+	for _, want := range []string{"- seçili aralık: 2026-09-21 14:13 → 2026-09-21 14:23 UTC", "- seçili seri: pod-a, pod-b"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("eksik %q:\n%s", want, out)
+		}
+	}
+}

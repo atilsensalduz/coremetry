@@ -7102,7 +7102,55 @@ export interface ChatExplainAsk {
    * YALNIZ istekte: kullanıcı turunda saklanmaz (withoutFresh), arşive girmez.
    */
   fresh?: boolean;
+  /**
+   * v0.10.1435 — metric_panel niyetinin yapısal yükü (Go metricPanelAsk, ≤8 KiB):
+   * panelin sorgusu ✨ anında sayfadan. Dashboard panelinde sunucu yalnız
+   * `vars`'a güvenir (kayıtlı paneli kendisi yükler). Arşive girmez.
+   */
+  panel?: MetricPanelAsk;
 }
+
+// ── v0.10.1435 — panelden "Bu grafiği açıkla" ──────────────────────────────
+/** Panel sorgusunun yapısal yükü (Go explain_metric_panel.go metricPanelAsk). Alanlar HTTP uçlarının parametreleri. */
+export interface MetricPanelAsk {
+  src: 'promql' | 'builder' | 'span';
+  promql?: string;
+  metricName?: string;
+  service?: string;
+  agg?: string;
+  groupBy?: string;
+  /** JSON FilterExpr[] (HTTP `filters=` ile aynı). */
+  filters?: string;
+  filterGroup?: string;
+  dsl?: string;
+  field?: string;
+  unit?: string;
+  title?: string;
+  /** Dashboard değişkenleri — sunucunun güvendiği TEK istemci girdisi. */
+  vars?: Record<string, string>;
+  /** Takip çipinin kırılımı (sunucu çözer; yalnız PromQL). */
+  by?: 'pod' | 'env';
+}
+/** `metric_panel` bloğu (Go metricPanelBlockPayload; MetricPanelCard). */
+export interface MetricPanelBlockPayload {
+  title: string;
+  loc: string;
+  src: 'promql' | 'builder' | 'span';
+  query?: string;
+  unit?: string;
+  fromNs: number;
+  toNs: number;
+  brushFromNs?: number;
+  brushToNs?: number;
+  cmp?: boolean;
+  selected?: string[];
+  missing?: string[];
+  chart: ChatEvidenceChartPayload;
+  stats: string[];
+  notes?: string[];
+  href?: string;
+}
+// ── v0.10.1435 END
 
 /**
  * ChatExplainKind — v0.10.1405 (Tek CoSRE adım 2; operatör: "Trace ve exception
@@ -7114,7 +7162,8 @@ export interface ChatExplainAsk {
  */
 export type ChatExplainKind =
   | 'trace' | 'exception' | 'span' | 'problem' | 'incident' | 'anomaly'
-  | 'service-health' | 'runbook' | 'log' | 'charts' | 'log-spike';
+  | 'service-health' | 'runbook' | 'log' | 'charts' | 'log-spike'
+  | 'metric_panel'; // v0.10.1435
 
 /**
  * v0.10.1405 — künyenin çizim kipi (yok = body). v0.10.1407 — 'charts' /
@@ -7122,7 +7171,7 @@ export type ChatExplainKind =
  * çizer; blok yoksa (arşivden geri yüklenen tur — bloklar arşive girmez)
  * ExplainBody'ye düşer.
  */
-export type ChatExplainRenderer = 'body' | 'charts' | 'log-spike';
+export type ChatExplainRenderer = 'body' | 'charts' | 'log-spike' | 'metric-panel'; // v0.10.1435 — metric-panel
 
 /** v0.10.1407 — `charts_signals` bloğu (Go chartsSignalsBlockPayload): ölçülmüş sinyaller + pencere/kapsam. */
 export interface ChartsSignalsBlockPayload {
@@ -7367,7 +7416,8 @@ export interface ExplainAnswerBase {
 // global CoSRE penceresi (CopilotChat) ve AI çekmecesi içindeki sohbet
 // (AIDrawer) — bu yüzden bileşen dosyasında değil burada yaşar.
 export type ChatBlockType = 'text' | 'table' | 'chart' | 'trace_list' | 'link' | 'action' | 'evidence' | 'operation' | 'service_report' | 'topology' // v0.10.1388 — topology
-  | 'charts_signals' | 'log_spike'; // v0.10.1407 — açıklama turunun kanıt kartları (ChartsSignalsCard / LogSpikeCard)
+  | 'charts_signals' | 'log_spike' // v0.10.1407 — açıklama turunun kanıt kartları (ChartsSignalsCard / LogSpikeCard)
+  | 'metric_panel'; // v0.10.1435 — panel açıklaması (MetricPanelCard)
 // ChatOperationPayload — operasyon adı ön-getirmesinin kartı (internal/api/
 // chat_operation_prefetch.go opPrefetch). measured=false → RED ölçülemedi.
 export interface ChatOperationRED { calls: number; errors: number; p99Ms: number; measured: boolean }
@@ -9757,6 +9807,10 @@ export interface PageContext {
   timeRange?: TimeRange;
   activeFilters?: PageFilter[];
   search?: string;
+  /** v0.10.1435 — sayfanın yayınladığı grafik brush'ı (mutlak ms; lib/pageContextOverlay.ts). */
+  brush?: { fromMs: number; toMs: number };
+  /** v0.10.1435 — grafikte seçili seriler (≤5 × 120). */
+  selectedSeries?: string[];
 }
 
 // ── CoSRE başlangıç veri çipleri (v0.10.702, mirrors Go api.copilotStarter) ──
