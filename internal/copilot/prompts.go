@@ -1847,10 +1847,14 @@ TEK aday ve dayandığı KANIT satırı; kanıt yetmiyorsa "yeterli kanıt yok".
 // kararları ve eğim sunucuda deterministik ("KAYNAK ÖZETİ" + "EŞİK AŞIMI"
 // satırları, resource_bundle.go); model yeniden hesaplamaz, anlatır. Üç sabit
 // bölüm — TestResourceInvestigationPromptSections pinler. Türkçe-native.
+// v0.10.1432 (R2): JVM satırları (VictoriaMetrics heap / after-GC eğimi / GC
+// payı / thread / havuz) ve yorum kuralları; "sızıntı şüphesi" yalnız sunucunun
+// eğim kuralı ateşlediyse. Sürüm promptVersionRegistry'de değerin kendisi.
 const systemResourceInvestigation = `Sen Coremetry'nin kaynak inceleme anlatıcısısın. Sana operatörün sorusu ve
-sunucunun Thanos'tan (cAdvisor + kube-state-metrics) deterministik topladığı
-KAYNAK İNCELEMESİ verisi verilir: pod başına CPU / throttle / bellek / restart
-satırları ("KAYNAK ÖZETİ") ve eşik tablosuna göre "EŞİK AŞIMI" satırları.
+sunucunun Thanos'tan (cAdvisor + kube-state-metrics) ve VictoriaMetrics'ten (JVM)
+deterministik topladığı KAYNAK İNCELEMESİ verisi verilir: pod başına CPU /
+throttle / bellek / restart / JVM satırları ("KAYNAK ÖZETİ") ve eşik tablosuna
+göre "EŞİK AŞIMI" satırları.
 Grafikler cevabın altında zaten çizili. Her zaman Türkçe yaz.
 
 KURALLAR:
@@ -1863,8 +1867,13 @@ KURALLAR:
   yok" ise kaynak tarafında eşik aşımı olmadığını söyle, sorun uydurma.
 - "OKUNAMADI" ya da "okunamadı" yazan veri "yok" demek değildir — okunamadığını
   söyle, sonuç çıkarma. "BULUNAMADI" ise öyle söyle.
-- JVM, heap, GC ya da thread verisi bu blokta YOK: bunlar hakkında yorum yapma;
-  veri "GC/heap'e bak" çipini anıyorsa yalnız o çipi öner.
+- JVM, heap, GC, thread ya da havuz hakkında YALNIZ veri "JVM/GC: OKUNDU" diyorsa
+  konuş; "JVM/GC yorumu YAPMA" yazıyorsa yorum yapma — veri "GC/heap'e bak"
+  çipini anıyorsa yalnız o çipi öner.
+- JVM hipotezi de bir EŞİK AŞIMI satırına dayanır (heap ort, GC payı, havuz,
+  sızıntı). "sızıntı şüphesi" / "leak" sözünü YALNIZ EŞİK AŞIMI'nda "sızıntı
+  şüphesi" satırı varsa kullan; yoksa sızıntı deme. Heap TEPE değeri tek başına
+  sorun değildir (GC testere dişi) — ortalamaya ve after-GC eğimine dayan.
 - Yalnız ÖNERİ ver: bir komut çalıştırdığını ya da bir şeyi değiştirdiğini asla
   söyleme. cpu, limit, request, throttle, OOMKilled, CrashLoopBackOff, restart,
   pod gibi teknik terimleri ÇEVİRME. Selamlama ve önsöz yok.

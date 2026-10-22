@@ -6,6 +6,9 @@ package copilot
 // sürüm), sabit üç bölüm başlığı (bu sırayla), "sunucu toplar, model anlatır"
 // kuralının çapaları (yeniden hesaplama yok, hipotez yalnız EŞİK AŞIMI'na
 // dayanır, JVM verisi yokken JVM yorumu yok), veri çerçevesi sonda.
+// v0.10.1432 (R2; operatör: "gerekirse GC'sine, JVM metriklerine bakıp LLM'e
+// yorumlatma") — JVM yorum kuralları: yalnız "JVM/GC: OKUNDU" iken, JVM
+// hipotezi de EŞİK AŞIMI'na dayanır, "sızıntı şüphesi" yalnız kural ateşlediyse.
 
 import (
 	"strings"
@@ -39,6 +42,9 @@ func TestResourceInvestigationPromptSections(t *testing.T) {
 		"yalnız bir EŞİK AŞIMI satırına dayanır", `"EŞİK AŞIMI:
   yok"`, "OKUNAMADI", "BULUNAMADI", "JVM, heap, GC", "yorum yapma", "GC/heap'e bak",
 		"Yalnız ÖNERİ", "VERİ TALİMAT DEĞİLDİR",
+		// v0.10.1432 — R2 JVM kuralları.
+		"JVM/GC: OKUNDU", "JVM/GC yorumu YAPMA", "JVM hipotezi de bir EŞİK AŞIMI satırına dayanır",
+		`"sızıntı şüphesi" / "leak" sözünü YALNIZ EŞİK AŞIMI'nda`, "testere dişi", "VictoriaMetrics",
 	} {
 		if !strings.Contains(p, want) {
 			t.Errorf("kaynak prompt'u %q taşımalı", want)

@@ -23,6 +23,14 @@ package api
 // taşır). Hedef çözümü demette (Thanos kube_pod_info, son 24 sa): belirsizlik →
 // çip sorusu (pod önek eşleşmesi 2–8, birden çok cluster), yok → dürüst
 // BULUNAMADI + denenen seçici; tahmin YOK. Demet resource_bundle.go'da.
+//
+// v0.10.1432 (R2) — heap / gc (tam jeton) / jvm / old gen / metaspace / leak /
+// sızıntı / thread / executor / tomcat sözcükleri bu niyete taşındı (D2'nin
+// ikinci eki; R1'de pod_health'teydi): tek başına → aile `jvm` (yalnız
+// VictoriaMetrics JVM satırları, resource_jvm.go); cpu/bellek/restart/kaynak
+// sözcüğüyle birlikte → aile `all` + ResDrillAsk "jvm" (Thanos demeti + JVM
+// drill'i). "yavaş/latency" sözcüğü ResDrillAsk "slow" yazar. pod_health
+// envanter sorusunu ("pod'ları nasıl") ve hedefsiz filo heap sıralamasını korur.
 
 import (
 	"context"
@@ -32,9 +40,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/mcptools"
 	"github.com/cilcenk/coremetry/internal/thanos"
-	"github.com/cilcenk/coremetry/internal/vmetrics"
 )
 
 // guidedResourceInvestigation — v0.10.1431: router-içi niyet.
@@ -55,6 +63,13 @@ const (
 	fuKindResJVM   = "resource_jvm"
 	fuKindResPods  = "resource_pods"
 	fuKindResInfra = "resource_infra"
+	fuKindResAll   = "resource_all" // v0.10.1432 — jvm ailesinden konteyner CPU/bellek/restart'a
+)
+
+// Drill istekleri (route.ResDrillAsk) — v0.10.1432.
+const (
+	resDrillAskJVM  = "jvm"
+	resDrillAskSlow = "slow"
 )
 
 var (
@@ -77,7 +92,32 @@ func isWorkloadWord(t string) bool {
 	return false
 }
 
-// resourceFamilyOf — SAF: mesajın R1 kaynak ailesi ("" = kaynak sorusu değil).
+// hasResJVMWord — SAF (v0.10.1432): JVM/GC/thread/havuz sözcüğü. "gc" tam
+// jeton ("gcp" tuzağı); "old gen" iki jeton; havuz/pool yalnız thread /
+// executor / tomcat bağlamında (DB bağlantı havuzu db_health'te kalır).
+func hasResJVMWord(toks []string) bool {
+	if tokenHasPrefix(toks, "heap", "jvm", "metaspace", "leak", "sızıntı", "sizinti", "oldgen", "garbage",
+		"thread", "executor", "tomcat") || anyToken(toks, "gc") {
+		return true
+	}
+	return anyToken(toks, "old") && tokenHasPrefix(toks, "gen")
+}
+
+// resDrillAskOf — SAF (v0.10.1432): JVM drill isteği. JVM sözcüğü başka
+// kaynak ailesiyle birlikte → "jvm"; yavaş/latency/gecikme → "slow".
+func resDrillAskOf(toks []string, fam string) string {
+	switch {
+	case fam != resFamJVM && hasResJVMWord(toks):
+		return resDrillAskJVM
+	case tokenHasPrefix(toks, "yavaş", "yavas", "latency", "gecikm", "slow"):
+		return resDrillAskSlow
+	}
+	return ""
+}
+
+// resourceFamilyOf — SAF: mesajın kaynak ailesi ("" = kaynak sorusu değil).
+// v0.10.1432: JVM sözcüğü tek başına → jvm; R1 ailesiyle birlikte → all
+// (drill isteğini resDrillAskOf yazar).
 // Tek aile → o; ≥2 aile ya da genel kaynak sözcüğü (kaynak kullanımı / resource
 // / doygunluk) → all. "limit" yalnız başına all; aile sözcüğüyle o aile.
 // "ram" tam jeton ("rampa" tuzağı); "kaynak" nitelikle ("kaynak kullanımı",
@@ -113,6 +153,12 @@ func resourceFamilyOf(toks []string, podCtx bool) string {
 		if b {
 			n++
 		}
+	}
+	if hasResJVMWord(toks) {
+		if general || n > 0 {
+			return resFamAll
+		}
+		return resFamJVM
 	}
 	switch {
 	case general || n >= 2:
@@ -250,7 +296,7 @@ func routeResourceInvestigation(raw, msg string, toks []string, svc, env string,
 		return guidedRoute{}, false
 	}
 	cluster := resClusterMention(toks)
-	r := guidedRoute{Intent: guidedResourceInvestigation, Env: env, ResFamily: fam, ResCluster: cluster}
+	r := guidedRoute{Intent: guidedResourceInvestigation, Env: env, ResFamily: fam, ResCluster: cluster, ResDrillAsk: resDrillAskOf(toks, fam)}
 	if pod != "" {
 		owner := svc
 		if owner == "" {
@@ -273,7 +319,7 @@ func routeResourceInvestigation(raw, msg string, toks []string, svc, env string,
 		return r, true
 	case len(opts) > 1:
 		return guidedRoute{Intent: guidedAskService, AskIntent: guidedResourceInvestigation, ServiceOptions: opts, Env: env,
-			ResFamily: fam, ResCluster: cluster}, true
+			ResFamily: fam, ResCluster: cluster, ResDrillAsk: r.ResDrillAsk}, true
 	}
 	for _, s := range services {
 		if ctxService != "" && s == ctxService {
@@ -295,11 +341,26 @@ func resChipText(target, family, cluster string) string {
 		s = target + " bellek kullanımı nasıl?"
 	case resFamRestarts:
 		s = target + " neden restart ediyor?"
+	case resFamJVM: // v0.10.1432
+		s = target + " JVM heap ve GC durumu nasıl?"
 	default:
 		s = target + " kaynak kullanımı nasıl?"
 	}
 	if cluster != "" {
 		s += " (" + cluster + " cluster)"
+	}
+	return s
+}
+
+// resAskChipText — SAF (v0.10.1432): ask_service çipi; drill isteğini taşır
+// ("… JVM heap/GC dahil" → all + jvm; "… (yavaşlık var)" → slow).
+func resAskChipText(route guidedRoute, svc string) string {
+	s := resChipText(svc, route.ResFamily, route.ResCluster)
+	switch route.ResDrillAsk {
+	case resDrillAskJVM:
+		s += " JVM heap/GC dahil"
+	case resDrillAskSlow:
+		s += " (yavaşlık var)"
 	}
 	return s
 }
@@ -338,10 +399,10 @@ func resInfraHref(route guidedRoute) string {
 }
 
 // resourceFollowups — SAF: yapısal takip adımları (≤4): hata logları, son
-// deploy etkisi, "GC/heap'e bak" (R1 drill kapısının taslağı: yalnız
-// VictoriaMetrics'te servisin JVM metriği VARSA; çip 1386 JVM heap
-// grafiğine yönlenir — R2 bunu aynı niyetin jvm ailesine çevirecek),
-// "Diğer pod'lar" (pod kipinde servisin tüm pod'ları, aynı aile).
+// deploy etkisi, "GC/heap'e bak" (v0.10.1432: JVM metriği VAR ama drill bu
+// cevapta koşmadıysa; çip AYNI niyetin jvm ailesine döner — pod kipinde pod'a),
+// jvm ailesinde "CPU/bellek/restart" (aynı hedef, all ailesi), "Diğer pod'lar"
+// (pod kipinde servisin tüm pod'ları, aynı aile).
 // Netleştirme turunda nil; BULUNAMADI'da yalnız Infrastructure link çipi.
 func resourceFollowups(route guidedRoute, asked []string) []chatFollowup {
 	if len(route.ResPodOptions) > 0 || len(route.ResClusterOptions) > 0 {
@@ -362,8 +423,15 @@ func resourceFollowups(route guidedRoute, asked []string) []chatFollowup {
 		{Text: svc + " hata logları?", Label: "Hata logları", Kind: fuKindErrors, Scope: sc()},
 		serviceStepFollowup(fuKindDeploy, svc, route.Env),
 	}
-	if route.ResJVM {
-		cands = append(cands, chatFollowup{Text: svc + " JVM heap grafiği", Label: "GC/heap'e bak", Kind: fuKindResJVM, Scope: sc()})
+	target := svc
+	if route.ResKind == resKindPod && route.ResTarget != "" {
+		target = route.ResTarget
+	}
+	if route.ResJVM && route.ResFamily != resFamJVM {
+		cands = append(cands, chatFollowup{Text: resChipText(target, resFamJVM, ""), Label: "GC/heap'e bak", Kind: fuKindResJVM, Scope: sc()})
+	}
+	if route.ResFamily == resFamJVM {
+		cands = append(cands, chatFollowup{Text: resChipText(target, resFamAll, route.ResCluster), Label: "CPU/bellek/restart", Kind: fuKindResAll, Scope: sc()})
 	}
 	if route.ResKind == resKindPod {
 		cands = append(cands, chatFollowup{Text: resChipText(svc, route.ResFamily, ""), Label: "Diğer pod'lar", Kind: fuKindResPods, Scope: sc()})
@@ -375,7 +443,11 @@ func resourceFollowups(route guidedRoute, asked []string) []chatFollowup {
 func resourceLinks(route guidedRoute) []guidedAnswerLink {
 	var out []guidedAnswerLink
 	if href := route.ResHref; href != "" && strings.HasPrefix(href, "/") && !strings.HasPrefix(href, "//") {
-		out = append(out, guidedAnswerLink{Label: "Metrics'te aç (Thanos)", Href: href})
+		label := "Metrics'te aç (Thanos)"
+		if !strings.Contains(href, "src=thanos") { // v0.10.1432 — VM kaynaklı ilk grafik (jvm ailesi / Thanos yok)
+			label = "Metrics'te aç (VictoriaMetrics)"
+		}
+		out = append(out, guidedAnswerLink{Label: label, Href: href})
 	}
 	if route.ResKind == resKindPod && route.ResClusterID != "" && route.ResNamespace != "" {
 		q := url.Values{}
@@ -414,6 +486,8 @@ func resFamilyTR(f string) string {
 		return "bellek"
 	case resFamRestarts:
 		return "restart"
+	case resFamJVM:
+		return "JVM heap/GC/thread"
 	}
 	return "CPU + bellek + restart"
 }
@@ -451,6 +525,8 @@ type resourceDeps struct {
 	VM           metricChartReader
 	IsVM         bool
 	ServicePodRe string // servis kipinde Infrastructure'ın pod regex'i (metadata deployment adıyla)
+	// Runtime — v0.10.1432: operatörün JVM alarm eşikleri (GC payı); nil = varsayılan.
+	Runtime *chstore.RuntimeAlertConfig
 }
 
 // guidedResourceBundle — resource_investigation rotasının kanıtı.
@@ -460,6 +536,9 @@ func (s *Server) guidedResourceBundle(ctx context.Context, emit func(string, any
 		d.Thanos, d.Clusters = s.thanos, s.thanosEnabledClusters()
 	}
 	d.VM, d.IsVM = s.metricChartReaderFor()
+	if d.IsVM {
+		d.Runtime = s.resourceRuntimeAlerts(ctx)
+	}
 	if route.ResKind == resKindService && route.ResTarget != "" {
 		d.ServicePodRe = s.thanosPodRegexFor(ctx, route.ResTarget)
 	}
@@ -517,8 +596,15 @@ func (s *Server) resourceRun(ctx context.Context, emit func(string, any), route 
 	if route.ResTarget == "" {
 		return direct("Kaynak incelemesi için hedef (pod, servis ya da deployment adı) çözülemedi — adı yazar mısın?", "hedef yok")
 	}
+	if route.ResFamily == resFamJVM { // v0.10.1432 — yalnız VictoriaMetrics JVM satırları
+		var notes []string
+		if clamped != "" {
+			notes = append(notes, clamped)
+		}
+		return s.resourceJVMOnly(ctx, emit, route, d, n, head, qFrom, qTo, step, winS, rangeS, notes, loc)
+	}
 	if d.Thanos == nil || len(d.Clusters) == 0 {
-		text := s.resourceNoThanos(ctx, emit, route, d, qFrom, qTo, rangeS, loc, head+"):\n")
+		text := s.resourceNoThanos(ctx, emit, route, d, qFrom, qTo, step, winS, rangeS, loc, head+"):\n")
 		emitGuidedStepResult(emit, n, "resource_investigation", text, nil)
 		return text, "VictoriaMetrics process metriği (Thanos yok)", nil
 	}
@@ -634,7 +720,9 @@ func (s *Server) resourceRun(ctx context.Context, emit func(string, any), route 
 			}
 		}
 	}
-	route.ResJVM = s.resourceJVMPresent(ctx, d, route.Service, qTo)
+	// v0.10.1432 — R2 drill: JVM metriği VAR ve (bellek ≥%80 | restart | OOMKilled |
+	// yavaşlık/JVM sorusu) → JVM satırları aynı cevapta; aksi hâlde çip.
+	stats, jvmLines, jvmSrc := s.resourceJVMStage(ctx, emit, route, d, stats, qFrom, qTo, step, winS, rangeS, false)
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s; kaynak Thanos · %s — cAdvisor + kube-state-metrics; adım %ds, rate penceresi %ds):\n", head, c.Name, step, winS)
@@ -650,37 +738,19 @@ func (s *Server) resourceRun(ctx context.Context, emit func(string, any), route 
 			b.WriteString("Grafikler cevabın altında kanıt çiplerinde çizildi (sunucu verisi; grafik bloğu YAZMA).\n")
 		}
 	}
-	if route.ResJVM {
-		b.WriteString("JVM/GC: bu cevapta OKUNMADI (VictoriaMetrics'te servisin JVM metrikleri var; \"GC/heap'e bak\" çipiyle ayrıca bakılır) — JVM/GC yorumu YAPMA.\n")
-	} else {
-		b.WriteString("JVM/GC: bu cevapta okunmadı — JVM/GC yorumu YAPMA.\n")
+	for _, l := range jvmLines {
+		b.WriteString(l + "\n")
 	}
 	text := b.String()
 	emitGuidedStepResult(emit, n, "resource_investigation", text, nil)
-	return text, fmt.Sprintf("Thanos · %s (cAdvisor + kube-state-metrics) · resource_investigation/%s", c.Name, route.ResFamily), nil
-}
-
-// resourceJVMPresent — R1 drill kapısının taslağı: VictoriaMetrics'te
-// jvm.memory.used ailesi son 24 sa'te var VE servis etiketi taşıyor mu
-// (metric_chart'ın 5 dk önbellekli etiket kümesi; tek okuma). JVM satırı
-// OKUNMAZ — yalnız "GC/heap'e bak" çipi sunulur (R2 drill kuralı bunu
-// kendi koşullarıyla otomatik koşturacak).
-func (s *Server) resourceJVMPresent(ctx context.Context, d resourceDeps, service string, to time.Time) bool {
-	if service == "" || !d.IsVM || d.VM == nil {
-		return false
-	}
-	set, err := s.metricChartLabelSet(ctx, d.VM, "jvm.memory.used", to)
-	if err != nil || len(set) == 0 {
-		return false
-	}
-	return vmetrics.ResolveLabelRole(vmetrics.RoleService, d.VM.MetricLabelMap().Normalized(), set, true).Applied()
+	return text, fmt.Sprintf("Thanos · %s (cAdvisor + kube-state-metrics)%s · resource_investigation/%s", c.Name, jvmSrc, route.ResFamily), nil
 }
 
 // resourceNoThanos — Thanos yok: pod konteyner CPU/bellek ve restart
 // OKUNAMAZ (cAdvisor / kube-state yalnız Thanos'ta, D5). VictoriaMetrics
 // varsa ve servis biliniyorsa 1386'nın process şablonları (cpu / memory)
 // çizilir + dürüst not; yoksa dürüst "veri yok".
-func (s *Server) resourceNoThanos(ctx context.Context, emit func(string, any), route *guidedRoute, d resourceDeps, from, to time.Time, rangeS int64, loc *time.Location, head string) string {
+func (s *Server) resourceNoThanos(ctx context.Context, emit func(string, any), route *guidedRoute, d resourceDeps, from, to time.Time, step, winS int, rangeS int64, loc *time.Location, head string) string {
 	var b strings.Builder
 	b.WriteString(head)
 	b.WriteString("Thanos (cAdvisor + kube-state-metrics) yapılandırılmamış — pod KONTEYNER CPU/bellek, limit yüzdesi ve restart sayısı OKUNAMADI (yok demek değil).\n")
@@ -714,7 +784,16 @@ func (s *Server) resourceNoThanos(ctx context.Context, emit func(string, any), r
 	if route.ResFamily == resFamRestarts || route.ResFamily == resFamAll {
 		b.WriteString("Restart sayısı/sebebi kube-state-metrics ister (Thanos) — okunamadı, \"restart yok\" DENEMEZ.\n")
 	}
-	b.WriteString("EŞİK AŞIMI: değerlendirilemedi (konteyner limiti okunamadı).\n")
-	b.WriteString("JVM/GC: bu cevapta okunmadı — JVM/GC yorumu YAPMA.\n")
+	// v0.10.1432 — Thanos yokken drill yalnız soru tetikleriyle (yavaşlık/JVM);
+	// bellek yüzdesi / restart okunamadı.
+	stats, jvmLines, _ := s.resourceJVMStage(ctx, emit, route, d, nil, from, to, step, winS, rangeS, false)
+	if len(stats) > 0 {
+		b.WriteString(renderResourceSummaryTR(stats, loc))
+	} else {
+		b.WriteString("EŞİK AŞIMI: değerlendirilemedi (konteyner limiti okunamadı).\n")
+	}
+	for _, l := range jvmLines {
+		b.WriteString(l + "\n")
+	}
 	return b.String()
 }

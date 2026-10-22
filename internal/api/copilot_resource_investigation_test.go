@@ -10,6 +10,8 @@ package api
 // topoloji/log/deploy şekilleri), pod adı / statefulset / workload / cluster
 // anması, ask_service çiplerinin gidiş-dönüşü, takip çiplerinin pinli
 // niyetleri, linkler. Synthetic adlar yalnız (orders-api, kxzone).
+// v0.10.1432: heap/gc pinleri pod_health'ten resource_investigation'a taşındı
+// (resource_jvm_test.go); "GC/heap'e bak" çipi jvm ailesine döner.
 
 import (
 	"strings"
@@ -66,10 +68,9 @@ func TestRouteResourceInvestigation(t *testing.T) {
 		{"orders-api cpu grafiği", "", want{intent: guidedMetricChart}},
 		{"orders-api bellek kullanımını çiz", "", want{intent: guidedMetricChart}},
 		{"orders-api cpu trendi", "", want{intent: guidedMetricChart}},
-		// ── negatif: pod envanteri ve JVM (R1) pod_health'te
+		// ── negatif: pod envanteri pod_health'te (JVM sözcükleri v0.10.1432'de taşındı —
+		// resource_jvm_test.go TestRouteResourceJVM)
 		{"orders-api pod'ları nasıl", "", want{intent: guidedPodHealth}},
-		{"orders-api heap kullanımı nasıl", "", want{intent: guidedPodHealth}},
-		{"orders-api gc durumu", "", want{intent: guidedPodHealth}},
 		// ── negatif: spesifik şekiller kendi yolunda
 		{"orders-api restart sonrası hata logları", "", want{intent: guidedLogErrors}},
 		{"orders-api deploy sonrası bellek arttı mı", "", want{intent: guidedDeployImpact}},
@@ -204,7 +205,7 @@ func TestResourceFollowupsAndLinks(t *testing.T) {
 	route := guidedRoute{Intent: guidedResourceInvestigation, Service: "orders-api", ResTarget: riPod, ResKind: resKindPod, ResFamily: resFamMemory,
 		ResJVM: true, ResClusterID: "c-0001", ResNamespace: "shop", ResCluster: "kxzone", ResHref: "/metrics?editor=1"}
 	fus := guidedFollowups(route, nil)
-	pinned := map[string]guidedIntent{fuKindErrors: guidedLogErrors, fuKindDeploy: guidedDeployImpact, fuKindResJVM: guidedMetricChart, fuKindResPods: guidedResourceInvestigation}
+	pinned := map[string]guidedIntent{fuKindErrors: guidedLogErrors, fuKindDeploy: guidedDeployImpact, fuKindResJVM: guidedResourceInvestigation, fuKindResPods: guidedResourceInvestigation}
 	if len(fus) != 4 {
 		t.Fatalf("4 takip adımı bekleniyordu: %+v", fus)
 	}
@@ -218,7 +219,7 @@ func TestResourceFollowupsAndLinks(t *testing.T) {
 		if r.Intent != want || r.Service != "orders-api" {
 			t.Errorf("%q → %s/%q, want %s", f.Text, r.Intent, r.Service, want)
 		}
-		if f.Kind == fuKindResJVM && (f.Label != "GC/heap'e bak" || r.ChartTemplate != mcJVMHeap) {
+		if f.Kind == fuKindResJVM && (f.Label != "GC/heap'e bak" || r.ResFamily != resFamJVM || r.ResKind != resKindPod || r.ResTarget != riPod) {
 			t.Errorf("JVM çipi: %+v → %+v", f, r)
 		}
 		if f.Kind == fuKindResPods && (r.ResKind != resKindService || r.ResFamily != resFamMemory) {

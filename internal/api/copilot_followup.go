@@ -437,7 +437,7 @@ func guidedFollowups(route guidedRoute, asked []string) []chatFollowup {
 		return dedupFollowupsAsked(route.TeamFollowups, asked, guidedFollowupMax)
 	case guidedMetricChart: // v0.10.1386 — diğer ortam · 24 sa · yavaş trace'ler · Metrics'te aç
 		return metricChartFollowups(route, asked)
-	case guidedResourceInvestigation: // v0.10.1431 — hata logları · son deploy · GC/heap'e bak · diğer pod'lar
+	case guidedResourceInvestigation: // v0.10.1431 — hata logları · son deploy · GC/heap'e bak (v0.10.1432: jvm ailesi) · diğer pod'lar
 		return resourceFollowups(route, asked)
 	case guidedServiceTopology, guidedTraceTopology: // v0.10.1388 — hop · örnek trace · hatalı bağımlılık · komşu
 		return topologyFollowups(route, asked)
@@ -922,8 +922,8 @@ func askServiceChipFor(route guidedRoute) []string {
 			out = append(out, opt+"'dan "+route.PairTo+"'ye gidenlerin hepsi "+route.FanoutTo+"'ye gidiyor mu")
 		case guidedMetricChart: // v0.10.1386 — "<svc> JVM heap grafiği" aynı şablona yönlenir
 			out = append(out, metricChartAskChip(route, opt))
-		case guidedResourceInvestigation: // v0.10.1431 — "<svc> CPU kullanımı nasıl?" aynı aileye yönlenir
-			out = append(out, resChipText(opt, route.ResFamily, route.ResCluster))
+		case guidedResourceInvestigation: // v0.10.1431 — "<svc> CPU kullanımı nasıl?" aynı aileye yönlenir; v0.10.1432 drill isteği de
+			out = append(out, resAskChipText(route, opt))
 		case guidedServiceTopology, guidedTraceTopology: // v0.10.1388 — "<svc> topolojisi?" aynı niyete yönlenir
 			out = append(out, topologyAskChip(route, opt))
 		default:

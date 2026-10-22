@@ -20,6 +20,7 @@ import (
 	"net/http/httptest"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -87,6 +88,7 @@ type famReader struct {
 	present map[string]bool // aile ID → servisin serisi var
 	instErr error
 	rate    []chstore.SpanMetricSeries
+	mu      sync.Mutex // v0.10.1432 — readServiceHTTPRED sorguları paralel koşar; -race yakaladı
 	qs      []string
 }
 
@@ -106,7 +108,9 @@ func (r *famReader) QueryPromQLInstant(_ context.Context, q string, _ time.Time)
 }
 
 func (r *famReader) QueryPromQLRange(_ context.Context, q string, _, _ time.Time, _, _ int) ([]chstore.SpanMetricSeries, error) {
+	r.mu.Lock()
 	r.qs = append(r.qs, q)
+	r.mu.Unlock()
 	return r.rate, nil
 }
 

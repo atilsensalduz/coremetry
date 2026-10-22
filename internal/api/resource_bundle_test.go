@@ -9,7 +9,7 @@ package api
 // all ≤7), konsol çözücü, istatistik + eşikler + KAYNAK ÖZETİ biçimi (≤12
 // gövde satırı), önbellek anahtarı tüm girdiler, hedef kararı tablosu, sahte
 // Thanos + VM ile demet (koş / cluster sor / pod sor / BULUNAMADI / okunamadı /
-// Thanos yok / önbellek / JVM drill çipi taslağı), salt-okur kaynak pini.
+// Thanos yok / önbellek / JVM drill (v0.10.1432)), salt-okur kaynak pini.
 
 import (
 	"context"
@@ -482,7 +482,9 @@ func TestResourceRunService(t *testing.T) {
 			t.Errorf("sınırlar: %+v", l)
 		}
 	}
-	if route.ResCluster != "kxzone" || route.ResClusterID != "c-00000001" || !strings.HasPrefix(route.ResHref, "/metrics?") || !route.ResJVM {
+	// v0.10.1432 — bellek %88 + restart + OOMKilled → JVM drill koştu (sahte VM
+	// seri döndürmüyor): çip yok, dürüst "seri dönmedi".
+	if route.ResCluster != "kxzone" || route.ResClusterID != "c-00000001" || !strings.HasPrefix(route.ResHref, "/metrics?") || route.ResJVM {
 		t.Errorf("rota çıktıları: %+v", route)
 	}
 	if !strings.Contains(route.ResHref, "src=thanos") || !strings.Contains(route.ResHref, "cluster=kxzone") {
@@ -496,7 +498,8 @@ func TestResourceRunService(t *testing.T) {
 		`Pod seçici: pod=~"(orders-api)-.*",namespace=~"shop".`,
 		"KAYNAK ÖZETİ (deterministik", "- KRİTİK " + riPod, "OOMKilled",
 		"Grafikler cevabın altında kanıt çiplerinde çizildi",
-		"JVM/GC: bu cevapta OKUNMADI", "JVM/GC yorumu YAPMA",
+		"JVM drill tetiklendi (bellek limitin %88'i ≥ %80, pencerede 2 restart, son sonlanma OOMKilled).",
+		"JVM/GC: VictoriaMetrics'te JVM metriği var ama bu hedef/pencere için seri dönmedi", "JVM/GC yorumu YAPMA",
 	} {
 		if !strings.Contains(text, w) {
 			t.Errorf("kanıt %q taşımalı:\n%s", w, text)
@@ -619,12 +622,18 @@ func TestResourceRunNoThanos(t *testing.T) {
 // Salt-okur: yazma / denetim / model çağrısı yok; tek range ve tek anlık
 // çağrı yeri, sınırlar ve önbellek anahtarı kaynakta.
 func TestResourceInvestigationReadOnly(t *testing.T) {
-	for _, f := range []string{"copilot_resource_investigation.go", "resource_bundle.go"} {
+	for _, f := range []string{"copilot_resource_investigation.go", "resource_bundle.go", "resource_jvm.go"} {
 		b, err := os.ReadFile(f)
 		if err != nil {
 			t.Fatal(err)
 		}
 		src := stripGoCommentsAPI(string(b))
+		if f == "resource_jvm.go" { // v0.10.1432 — tek izinli okuma: operatörün JVM alarm eşikleri
+			if strings.Count(src, "s.store.GetRuntimeAlerts(ctx)") != 1 {
+				t.Errorf("%s: RuntimeAlertConfig tek yerden okunmalı", f)
+			}
+			src = strings.Replace(src, "s.store.GetRuntimeAlerts(ctx)", "", 1)
+		}
 		for _, w := range []string{"Upsert", "Insert", "Save", "audit", "Vote", "vote", "Feedback", "feedback", "Exec(", "ALTER ", "DELETE",
 			"s.store.", "copilotStreamSurface", "copilotExplain", "s.copilot", "http.Post", "NewRequest", "os.Getenv", "/api/v1/admin", "delete_series"} {
 			if strings.Contains(src, w) {

@@ -9299,3 +9299,81 @@ demeti: koş / önbellek / cluster sor / istenen cluster / pod sor / tam pod / B
 Thanos yok / VM yok / JVM çipi taslağı, salt-okur kaynak pini), `copilot/prompt_resource_investigation_test.go`
 (sicil + üç başlık + kural çapaları); güncellenen pinler: `TestRouteGuidedIntentRootCause` (kaynak kullanımı),
 `TestFollowupTemplatesRouteGuided` (kaynak takip türleri), `TestGuidedNarrationPromptPerIntent`.
+
+## 2026-10-22 — v0.10.1432 — CoSRE kaynak incelemesi R2: JVM/GC/thread derinleşmesi ve otomatik drill kuralı
+
+**Operatör:** "CoSRE sorulan sorulara frontier model gibi anlamlandırarak gerekli toolset'lerini koşsun … bir pod'un
+CPU/memory metriklerini grafik olarak getirme; gerekirse GC'sine, JVM metriklerine bakıp LLM'e yorumlatma." **Boşluk
+(R1 sonrası):** kaynak paketi JVM satırı okumuyordu ("JVM/GC: bu cevapta okunmadı"); heap/gc soruları hâlâ pod_health'in
+envanter + filo özetine düşüyordu; "GC/heap'e bak" çipi 1386'nın tek-grafik şablonuna gidiyordu (eşik yok, eğim yok,
+sızıntı kuralı yok). MCP kataloğu (74), api.go, kademe sırası, sınıflandırıcı DEĞİŞMEDİ.
+
+**Karar.**
+- **Yönlendirme (D2'nin ikinci eki):** heap / gc (tam jeton; "gcp" değil) / jvm / old gen / metaspace / leak / sızıntı /
+  thread / executor / tomcat sözcükleri pod_health'ten resource_investigation'a taşındı (`hasResJVMWord`). Tek başına →
+  aile **`jvm`** (yalnız VictoriaMetrics JVM satırları, Thanos okunmaz); cpu/bellek/restart/kaynak sözcüğüyle birlikte →
+  aile `all` + `ResDrillAsk="jvm"` ("bellek sızıntısı", "memory leak", "heap yüzünden restart"). "yavaş/latency/gecikme/
+  slow" → `ResDrillAsk="slow"` ("neden yavaş" hâlâ slow_traces). Havuz/pool YALNIZ thread/executor/tomcat bağlamında
+  ("db bağlantı havuzu" db_health'te). Grafik fiili metric_chart'ta (1386 D2 aynen: "heap grafiği", "gc grafiği").
+  pod_health korunur: envanter ("pod'ları nasıl") ve HEDEFSİZ filo heap sıralaması ("hangi podun heap kullanımı yüksek",
+  "jvm heap durumu nasıl" — servis/pod/ekran servisi yoksa rota üretilmez). Pin değişikliği: `copilot_metric_chart_test`
+  ve `copilot_resource_investigation_test`'teki "orders-api heap kullanımı nasıl" / "orders-api gc durumu" pod_health →
+  resource_investigation. Yeni rota alanı `ResDrillAsk` (JSON; copilot_guided.go'da tek alan + yorum).
+- **JVM zincirleri (`resource_jvm.go`, SAF kurucular, `vmetrics.NameCandidates` varyant zincirleri):** jvm_heap (ort/tepe
+  limit yüzdesi; semconv `jvm.memory.used/limit{jvm_memory_type="heap"}` → micrometer `jvm.memory.used/max{area="heap"}` →
+  `{type="heap"}` → `process.runtime.jvm.memory.usage/limit`), jvm_after_gc (semconv `jvm.memory.used_after_last_gc` →
+  type → `process.runtime…usage_after_last_gc` → micrometer `jvm.gc.live.data.size/max.data.size`), jvm_gc_share
+  (`100×rate(_sum)`; semconv `jvm.gc.duration` → micrometer `jvm.gc.pause` → `process.runtime.jvm.gc.duration` ms →
+  `0.1×`), jvm_gc_rate (`60×rate(_count)`), jvm_old_gen (havuz =~ `.*(Old|Tenured).*`; etiket jvm_memory_pool_name / id /
+  pool), jvm_threads (`jvm.thread.count` → `jvm.threads.count` → `jvm_threads_live_threads` → `process.runtime.jvm.
+  threads.count`), jvm_pool (`100×max by(pod)(aktif/(tavan>0))`; executor_active_threads/executor_pool_max_threads →
+  tomcat_threads_busy_threads/tomcat_threads_config_max_threads). Oran ifadesi `sum by(pod)(A)/sum by(pod)(B > 0)` —
+  micrometer'ın -1 tavanlı havuzları paydadan düşer. Varyant seçimi metric_chart'ın 5 dk önbellekli etiket kümesiyle
+  (probe dolu + NeedLabels kümede). Küme FİLO geneli olduğu için karma filoda seçilen varyant hedefe SIFIR seri dönerse
+  sıradaki uyan varyant bir kez denenir (zincir başına ≤2). Kapsam: servis kipinde servis etiketi (service_name /
+  LabelMap / keşif; çözülemezse JVM OKUNMAZ — yanlış servisin JVM'i yok), pod kipinde `ResolveLabelRole(RolePod)` etiketi
+  tam ad (kaçışlı), workload kipinde Infrastructure regex'i; kırılım pod etiketi (yoksa servis etiketi). VM tarafında
+  cluster süzgeci yok (kanıt "cluster ayrımı yok" der); ortam süzgeci JVM'e uygulanmaz (not düşülür).
+- **Bütçe:** JVM aşaması TEK 8 sn son tarih (etiket yoklamaları dâhil), ≤4 paralel, ≤9 VM sorgusu (7 zincir + 2
+  karma-filo yedeği; `resJVMQueryCap`); her sorgu topk(20), adım ⌈aralık/120⌉, rate penceresi Thanos'la aynı; 60 sn
+  önbellek, anahtar `cosre-res-jvm:v1:<FNV(vm, zincir, SEÇİLEN VARYANT, son PromQL, servis, servis etiketi, pod regex'i,
+  pod etiketi, kırılım, from/60, to/60, adım)>`. **all ailesi tavanı yükseldi:** drill ile all = Thanos ≤7 + VM ≤9
+  (R1'de all ≤7 yalnız Thanos); drill yoksa maliyet R1 ile aynı + ≤2 etiket yoklaması (5 dk önbellekli).
+- **Drill kuralı (SAF `decideResJVMDrill`):** cpu/memory/restarts/all incelemesi koşarken JVM metriği VAR (heap ailesi
+  yoklama kümesi dolu ve hedef kapsamı çözülebiliyor) **VE** (bellek tepe limitin ≥%80'i | pencerede restart >0 |
+  son sonlanma OOMKilled | soruda yavaşlık/latency | soruda JVM sözcüğü) → JVM ailesi AYNI cevapta koşar ("JVM drill
+  tetiklendi (<gerekçe>)" satırı). Aksi hâlde "GC/heap'e bak" çipi — artık 1386 grafiği DEĞİL, aynı niyetin jvm ailesi
+  (pod kipinde pod'un kendisi: "<pod> JVM heap ve GC durumu nasıl?"). Thanos yokken drill yalnız soru tetikleriyle.
+- **Eşikler (TEK `resourceThresholds` tablosu):** heap pencere ORTALAMASI limitin ≥%80 uyarı / ≥%90 kritik (tepe değil —
+  testere dişinin tepesi GC tetik noktası); sızıntı şüphesi = after-GC en küçük kareler eğimi >%5/sa (yüzde puanı) VE son
+  seviye ≥%70 VE pencere ≥30 dk (kısa pencerede kural uygulanmaz ve bu yazılır); GC payı ort ≥ `RuntimeAlertConfig`
+  GCShareWarnPct/CritPct (varsayılan %10/%25 = `chstore.DefaultRuntimeAlerts`; operatörün `runtime_alerts` ayarı her
+  koşuda canlı okunur — tek salt-okur `s.store.GetRuntimeAlerts`; ters eşik crit=2×warn); havuz tepe ≥%90 uyarı. Old gen
+  bilgi satırı (eşik yok).
+- **Özet:** JVM satırları aynı pod satırına (ad eşleşmesiyle) eklenir — "JVM heap ort limitin %85'i (tepe…), after-GC son
+  %74, eğim +8.1 %/sa (SIZINTI ŞÜPHESİ), GC payı ort %12, GC 4.0/dk, old gen son …, thread son …, thread havuzu tepe %95";
+  Thanos'ta görünmeyen JVM pod'u kendi satırını alır; EŞİK AŞIMI eşik metni JVM eşiklerini de söyler; gövde tavanı ≤12
+  aynen. "JVM okunmadı" satırı yerine: OKUNDU (kapsam, sorgu sayısı, zincir=varyant listesi, notlar) | VictoriaMetrics
+  yapılandırılmamış (okunamadı ≠ yok) | VM'de JVM metriği yok (denenen yazımlar) | etiket okunamadı | servis/pod etiketi
+  yok | drill koşulu yok (gerekçe + çip). jvm ailesinde okunamayan/olmayan durum DirectAnswer (anlatım çağrısı yok).
+  Grafik: heap · after-GC · GC payı · thread · havuz (Source VictoriaMetrics, href VM PromQL editörü); link etiketi
+  kaynağa göre "Metrics'te aç (Thanos|VictoriaMetrics)".
+- **Prompt:** `systemResourceInvestigation` genişledi — JVM yorumu YALNIZ "JVM/GC: OKUNDU" iken; JVM hipotezi de bir
+  EŞİK AŞIMI satırına dayanır; "sızıntı şüphesi"/"leak" YALNIZ EŞİK AŞIMI'nda o satır varsa; heap tepesi tek başına sorun
+  değil. Sürüm `promptVersionRegistry`'de değerin kendisi (bump yok).
+- **Takip çipleri:** jvm ailesinde "CPU/bellek/restart" (aynı hedef, all); ask_service çipi drill isteğini taşır
+  ("… JVM heap/GC dahil" / "… (yavaşlık var)").
+
+**Testler:** `resource_jvm_test.go` (altın PromQL: heap semconv/micrometer/process-runtime, after-GC micrometer, GC payı
+×3, GC sıklığı, thread ×3, old gen havuz etiketleri, havuz executor/tomcat, pod kapsamı; kapsam çözümü; varyant uyumu;
+sızıntı kural tablosu + eğim + yalnız ateşleyen pod'da ifade + kısa pencere; GC eşikleri + RuntimeAlertConfig ezmesi +
+ters eşik; heap ortalama/havuz tepe; drill karar tablosu; yönlendirme taşıması + pod_health/metric_chart/db_health
+negatifleri; çip dönüşleri; bütçe + önbellek anahtarı tüm girdiler; sahte VM: semconv tam koşu + önbellek + pod kipi +
+GC ezmesi, karma filo yedeği + kısmi zincirler, JVM yok, VM yok, servis etiketi yok; drill kapısı tetiksiz/yavaşlık/
+Thanos'suz; kaynak pinleri), güncellenen: `resource_bundle_test.go` (R1 servis koşusu artık drill'i tetikliyor, salt-okur
+pinine resource_jvm.go), `copilot_resource_investigation_test.go`, `copilot_metric_chart_test.go`,
+`chat_followup_chips_test.go`, `copilot/prompt_resource_investigation_test.go`.
+
+**Örnek sorular:** "orders-api heap kullanımı nasıl", "orders-api-6d4f8b9c7d-x2k9q GC durumu", "orders-api thread havuzu
+dolu mu", "orders-api bellek sızıntısı var mı", "orders-api yavaşladı, cpu kullanımı nasıl", "deployment orders-worker
+heap durumu".

@@ -375,6 +375,10 @@ type guidedRoute struct {
 	ResNamespace      string   `json:"-"`
 	ResHref           string   `json:"-"`
 	ResJVM            bool     `json:"-"`
+	// v0.10.1432 — R2 drill isteği (GİRDİ, JSON): "jvm" (JVM sözcüğü başka
+	// kaynak sözcüğüyle birlikte → aile all + JVM drill'i) | "slow"
+	// (yavaş/latency sorusu) | "". Drill yine JVM metriği VARSA koşar.
+	ResDrillAsk string `json:",omitempty"`
 }
 
 // normalizeGuidedMsg lowercases for matching. Go's ToLower maps the
@@ -1248,7 +1252,9 @@ func routeGuidedIntentOpts(raw string, services, envs, teams []string, ctxServic
 	}
 	// v0.10.1431 — kaynak incelemesi (copilot_resource_investigation.go): fiilsiz
 	// cpu/bellek/restart/kaynak sorusu + pod/servis/workload hedefi. Grafik fiili
-	// yukarıda metric_chart'ta kalır (1386 D2); heap/gc/jvm R1'de pod_health'te.
+	// yukarıda metric_chart'ta kalır (1386 D2); heap/gc/jvm/thread/havuz v0.10.1432
+	// (R2) ile buraya taşındı — pod_health envanter ("pod'ları nasıl") ve hedefsiz
+	// filo heap sıralaması için kalır.
 	if r, ok := routeResourceInvestigation(raw, msg, toks, svc, env, services, envs, ctxService); ok {
 		return r
 	}

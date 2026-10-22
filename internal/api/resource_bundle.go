@@ -33,11 +33,20 @@ package api
 //	CPU throttle        ≥%25 uyarı (tepe değer)
 //	bellek limit yüzdesi ≥%80 uyarı · ≥%90 kritik (tepe değer)
 //	restart (pencere)   >0 uyarı · ≥3 kritik; bekleme sebebi (CrashLoopBackOff …) kritik
+//	JVM heap (v0.10.1432) pencere ORTALAMASI limitin ≥%80'i uyarı · ≥%90'ı kritik
+//	                    (tepe değil: testere dişinin tepesi GC'nin tetik noktası)
+//	sızıntı şüphesi     after-GC eğimi >%5/sa (yüzde puanı) VE son seviye ≥%70,
+//	                    pencere ≥30 dk (uyarı)
+//	GC süresi payı      ort ≥ RuntimeAlertConfig.GCShareWarnPct (varsayılan %10) uyarı ·
+//	                    ≥ GCShareCritPct (%25) kritik — operatör ayarı canlı okunur
+//	thread havuzu       tepe doluluk ≥%90 uyarı
 //
 // Limit/istek pod düzeyinde toplanır (Infrastructure sekmesinin podLimitQuery
 // sözleşmesiyle aynı); limiti olmayan pod için yüzde YAZILMAZ ("limit yok").
-// R2 (JVM heap/GC/thread satırları + eğim + drill kuralı) ve R3 (sınıflandırıcı
-// yedeği) bu dosyada YOK.
+// R2 (v0.10.1432): JVM heap/GC/thread satırları + eğim + drill kuralı
+// resource_jvm.go'da; satırlar buradaki pod özetine (HasJVM) bağlanır ve
+// eşikleri bu tablodadır. Drill ile bütçe: all = Thanos ≤7 + VM ≤9
+// (resJVMQueryCap). R3 (sınıflandırıcı yedeği) bu dosyada YOK.
 
 import (
 	"context"
@@ -61,6 +70,7 @@ const (
 	resFamMemory   = "memory"
 	resFamRestarts = "restarts"
 	resFamAll      = "all"
+	resFamJVM      = "jvm" // v0.10.1432 — heap/GC/thread/havuz (VictoriaMetrics)
 )
 
 // Sorgu kimlikleri.
@@ -96,7 +106,16 @@ var resourceThresholds = struct {
 	ThrottleWarn             float64
 	MemWarn, MemCrit         float64
 	RestartWarn, RestartCrit int
-}{CPUWarn: 80, CPUCrit: 95, ThrottleWarn: 25, MemWarn: 80, MemCrit: 90, RestartWarn: 1, RestartCrit: 3}
+	// v0.10.1432 — JVM (R2). GC payı varsayılanı evaluator'ın
+	// chstore.DefaultRuntimeAlerts'ı; koşuda operatör ayarı ezer.
+	HeapWarn, HeapCrit          float64
+	LeakSlopePctH, LeakLevelPct float64
+	GCShareWarn, GCShareCrit    float64
+	PoolWarn                    float64
+}{CPUWarn: 80, CPUCrit: 95, ThrottleWarn: 25, MemWarn: 80, MemCrit: 90, RestartWarn: 1, RestartCrit: 3,
+	HeapWarn: 80, HeapCrit: 90, LeakSlopePctH: 5, LeakLevelPct: 70,
+	GCShareWarn: chstore.DefaultRuntimeAlerts().GCShareWarnPct, GCShareCrit: chstore.DefaultRuntimeAlerts().GCShareCritPct,
+	PoolWarn: 90}
 
 // resourceThresholdsTR — SAF: eşiklerin tek satırlık okunur hâli.
 func resourceThresholdsTR() string {
@@ -294,6 +313,10 @@ type resPodStats struct {
 	Restarts    int
 	LastReason  string // son sonlanma sebebi (OOMKilled …)
 	Waiting     string // şu anki bekleme sebebi (CrashLoopBackOff …)
+
+	// v0.10.1432 — JVM satırları (VictoriaMetrics; drill ya da jvm ailesi).
+	HasJVM bool
+	JVM    resJVMStats
 }
 
 // CPUPctMax / MemPctMax — limit yüzdesi (tepe); limit yoksa -1.
@@ -492,6 +515,9 @@ func resBreaches(p resPodStats) []resBreach {
 	if p.Waiting != "" {
 		out = append(out, resBreach{Pod: p.Pod, Crit: true, Text: "şu an bekleme sebebi " + p.Waiting})
 	}
+	if p.HasJVM {
+		out = append(out, resJVMBreaches(p.Pod, p.JVM)...)
+	}
 	return out
 }
 
@@ -606,6 +632,9 @@ func resPodLineTR(p resPodStats, loc *time.Location) string {
 		}
 		parts = append(parts, s)
 	}
+	if p.HasJVM {
+		parts = append(parts, resJVMLineTR(p.JVM, loc))
+	}
 	if len(parts) == 0 {
 		parts = append(parts, "seri yok")
 	}
@@ -641,14 +670,20 @@ func renderResourceSummaryTR(ps []resPodStats, loc *time.Location) string {
 		rows++
 	}
 	var all []resBreach
+	thr := resourceThresholdsTR()
+	jvmThr := false
 	for _, p := range sorted {
 		all = append(all, resBreaches(p)...)
+		if p.HasJVM && !jvmThr {
+			jvmThr = true
+			thr += "; " + resJVMThresholdsTR(p.JVM.GCWarn, p.JVM.GCCrit)
+		}
 	}
 	if len(all) == 0 {
-		b.WriteString("EŞİK AŞIMI: yok (" + resourceThresholdsTR() + ")\n")
+		b.WriteString("EŞİK AŞIMI: yok (" + thr + ")\n")
 		return b.String()
 	}
-	b.WriteString("EŞİK AŞIMI (" + resourceThresholdsTR() + "):\n")
+	b.WriteString("EŞİK AŞIMI (" + thr + "):\n")
 	rows++
 	budget := resSummaryMaxRows - rows
 	for i, br := range all {

@@ -53,7 +53,8 @@ func TestRouteMetricChart(t *testing.T) {
 		{q: "JVM heap grafiği", ctxSvc: "checkout", intent: guidedMetricChart, svc: "checkout", tpl: mcJVMHeap},
 		{q: "JVM heap grafiği", intent: guidedAskService, askIntent: guidedMetricChart, tpl: mcJVMHeap},
 		// Negatifler — fiil yok: bugünkü yollar.
-		{q: "orders-api heap kullanımı nasıl", intent: guidedPodHealth, svc: "orders-api"},
+		// v0.10.1432 — fiilsiz heap sorusu pod_health'ten kaynak incelemesine (jvm ailesi) taşındı.
+		{q: "orders-api heap kullanımı nasıl", intent: guidedResourceInvestigation, svc: "orders-api"},
 		{q: "checkout db bağlantı havuzu nasıl", intent: guidedDBHealth, svc: "checkout"},
 		{q: "orders-api p99 nasıl", intent: guidedServiceHealth, svc: "orders-api"},
 	}

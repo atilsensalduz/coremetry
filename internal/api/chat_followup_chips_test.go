@@ -298,12 +298,13 @@ func TestFollowupTemplatesRouteGuided(t *testing.T) {
 		}
 	}
 	// v0.10.1431 — kaynak incelemesinin takip adımları: hata logları / son deploy
-	// pinli adımlarla aynı; "GC/heap'e bak" 1386 JVM heap grafiğine, "Diğer
-	// pod'lar" aynı aileyle servis kipinde kaynak incelemesine yönlenir.
+	// pinli adımlarla aynı; "Diğer pod'lar" aynı aileyle servis kipinde kaynak
+	// incelemesine yönlenir. v0.10.1432 — "GC/heap'e bak" artık aynı niyetin jvm
+	// ailesine (1386 grafiği değil).
 	resRoute := guidedRoute{Intent: guidedResourceInvestigation, Service: "checkout-service", ResTarget: "checkout-service-6d4f8b9c7d-x2k9q",
 		ResKind: resKindPod, ResFamily: resFamCPU, ResJVM: true}
 	resPinned := map[string]guidedIntent{fuKindErrors: guidedLogErrors, fuKindDeploy: guidedDeployImpact,
-		fuKindResJVM: guidedMetricChart, fuKindResPods: guidedResourceInvestigation}
+		fuKindResJVM: guidedResourceInvestigation, fuKindResPods: guidedResourceInvestigation}
 	for _, c := range guidedFollowups(resRoute, nil) {
 		want, ok := resPinned[c.Kind]
 		r := routeGuidedIntent(c.Text, fuServices, fuEnvs, nil, "")
