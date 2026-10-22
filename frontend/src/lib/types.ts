@@ -4038,6 +4038,7 @@ export interface ServiceMetricRED {
 }
 
 // HttpEnvTerm / HttpEnvScope — v0.10.1377: GET /api/metrics/http-env-scope
+// (v0.10.1437'de kaldırıldı; şekil artık RedFamilyResolution aile envScope'u)
 // (Go internal/api/http_env_scope.go httpEnvTerm / httpEnvScope). Span'in
 // ortam adı ("eu-a") VM HTTP histogramının ortam ETİKETİNE ve o etiketin canlı
 // değer(ler)ine ("prod-eu-a") çözülür. applied=false → süzgeç UYGULANMAZ,

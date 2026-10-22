@@ -23,6 +23,10 @@ package api
 // (http_env_scope_route.go); Service → HTTP Metrics, endpoint sayfası, liste ve
 // Overview pencere karoları matcher'ı oradan alır. /metric-red aynı çözücüyü
 // sunucuda çağırır (httpEnvScopeFilters) — iki yüzey aynı değerlere süzülür.
+// v0.10.1437 — o uç KALDIRILDI: v0.10.1429'dan beri sayfalar eşleyiciyi
+// /api/services/{name}/red-family cevabından alır (service_red_family_route.go);
+// uçla paylaşılan üç SAF yardımcı (httpEnvScopeTermMax / httpEnvScopeTerms /
+// httpEnvScopeFailed) buraya taşındı.
 
 import (
 	"context"
@@ -32,6 +36,7 @@ import (
 	"time"
 
 	"github.com/cilcenk/coremetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/sourcestate"
 	"github.com/cilcenk/coremetry/internal/vmetrics"
 )
 
@@ -45,6 +50,28 @@ const (
 	httpEnvValuesLookback = 24 * time.Hour
 	httpEnvValuesSnap     = 10 * time.Minute
 )
+
+// httpEnvScopeTermMax — v0.10.1377: env/cluster adı uzunluk tavanı (anahtar
+// şişmesin). /red-family aynı tavanı uygular.
+const httpEnvScopeTermMax = 200
+
+// httpEnvScopeTerms — SAF (v0.10.1377): sorgu parametreleri → çözücü terimleri.
+func httpEnvScopeTerms(env, cluster string) map[string]string {
+	t := map[string]string{}
+	if env != "" {
+		t[vmetrics.RoleEnv] = env
+	}
+	if cluster != "" {
+		t[vmetrics.RoleCluster] = cluster
+	}
+	return t
+}
+
+// httpEnvScopeFailed — SAF (v0.10.1377): etiket okuma hatası → gövde. Ham hata
+// metni (VM host/port) viewer'a gitmez; yalnız sınıfı.
+func httpEnvScopeFailed(err error) httpEnvScope {
+	return httpEnvScope{Failed: true, Reason: "VM etiket sorgusu başarısız: " + string(sourcestate.Classify(err))}
+}
 
 // Etiket kaynağı — v0.10.1376.
 const (

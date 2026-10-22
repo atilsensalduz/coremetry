@@ -25,7 +25,8 @@ export interface HttpScope {
   /** v0.10.1352 — route REGEX (`=~`, VM tam-çapalı); şekil kipi (`/users/:id`). route'u ezer. */
   routeRe?: string;
   /**
-   * v0.10.1377 — ortam eşleyicisi (GET /api/metrics/http-env-scope `matcher`,
+   * v0.10.1377 — ortam eşleyicisi (ortam kapsamının `matcher`'ı — v0.10.1429'dan
+   * beri /red-family aile envScope'u; eski http-env-scope ucu v0.10.1437'de gitti;
    * ör. `deployment_environment_name="prod-eu-a"`); seçicide service_name'den
    * HEMEN sonra (Go altını httpMetrics.envScope.golden.json ile aynı yer).
    * Yoksa / boşsa her sorgu bugünküyle bayt bayt aynı.

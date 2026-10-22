@@ -1,5 +1,6 @@
 // httpEnvScopeNote.ts — v0.10.1377 (metrik kipi: env/cluster süzgeci VM
-// PromQL'inde). SAF: GET /api/metrics/http-env-scope cevabı → sayfanın
+// PromQL'inde). SAF: ortam kapsamı (v0.10.1429'dan beri /red-family aile
+// envScope'u; eski GET /api/metrics/http-env-scope v0.10.1437'de kaldırıldı) → sayfanın
 // durumu (sorgular hangi eşleyiciyle, ne zaman atılır) + bant metni.
 //
 // Durumlar:

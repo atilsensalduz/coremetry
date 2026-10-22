@@ -2986,7 +2986,7 @@ export const api = {
     get<SpanMetricSeries[] | null>(withMetricSource(`/api/metrics/promql?${qs(params)}`, 'vm')),
   // v0.10.1429 — servisin RED ailesi (HTTP / gRPC) + aile başına ortam
   // eşleyicisi, TEK istekte (v0.10.1377 httpEnvScope'un yerine — o istemci
-  // metodu kaldırıldı, GET /api/metrics/http-env-scope sunucuda duruyor; sunucu 60 sn önbellek).
+  // metodu kaldırıldı, GET /api/metrics/http-env-scope ucu da v0.10.1437'de; sunucu 60 sn önbellek).
   // Yalnız VM (metrik kipi yüzeyleri gibi sabit); `to` ns, sunucu 10 dk'ya yuvarlar.
   serviceRedFamily: (svc: string, params: { env?: string; cluster?: string; to: number }, signal?: AbortSignal) =>
     get<import('./types').RedFamilyResolution>(withMetricSource(`/api/services/${encodeURIComponent(svc)}/red-family?${qs(params)}`, 'vm'), signal),
