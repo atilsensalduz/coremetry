@@ -10,6 +10,8 @@ import { AiChatRetentionPanel } from './AiChatRetentionPanel'; // v0.10.561
 import { AiEvalPanel } from './AiEvalPanel'; // v0.10.940
 import { EVAL_URL_PARAMS } from './aiEval';
 import { CosreRulesPanel } from '@/components/ai/CosreRulesPanel'; // v0.10.1289
+import { AiToolsetsPanel } from './AiToolsetsPanel'; // v0.10.1434
+import { useT } from '@/lib/i18n'; // v0.10.1434
 import { tuningToForm, tuningToWire } from './aiTuning';
 import { IconSparkles } from '@/components/icons';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -29,13 +31,17 @@ import { Link, useSearchParams } from 'react-router-dom';
 // v0.10.1289 — üçüncü sekme "Kurallar" (`?tab=rules`): CoSRE operatör
 // kuralları (CosreRulesPanel; /cosre kenar çubuğundaki modalla aynı panel).
 // Ayarlar admin-only olduğu için burada düzenleme açık.
-type AiTabKey = 'provider' | 'eval' | 'rules';
+// v0.10.1434 — dördüncü sekme "Araç setleri" (`?tab=toolsets`): 74 aracın kaynak
+// bazlı 12 toolset'i, sağlık + aç/kapa (AiToolsetsPanel; kendi /api/ai/toolsets
+// ucuna dayanır, ayar okuması düşse de açılır).
+type AiTabKey = 'provider' | 'eval' | 'rules' | 'toolsets';
 
 function aiTabFromParam(v: string | null): AiTabKey {
-  return v === 'eval' || v === 'rules' ? v : 'provider';
+  return v === 'eval' || v === 'rules' || v === 'toolsets' ? v : 'provider';
 }
 
 export function AITab() {
+  const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
   const tab: AiTabKey = aiTabFromParam(searchParams.get('tab'));
   const setTab = (t: AiTabKey) =>
@@ -53,8 +59,9 @@ export function AITab() {
   return (
     <>
       <TabStrip ariaLabel="CoSRE ayar sekmeleri" value={tab} onChange={setTab}
-        tabs={[{ key: 'provider', label: 'Sağlayıcı ve profiller' }, { key: 'eval', label: 'Değerlendirme' }, { key: 'rules', label: 'Kurallar' }]} />
-      {tab === 'eval' ? <AiEvalPanel /> : tab === 'rules' ? <CosreRulesPanel canEdit storageKey="settings-cosre-rules" /> : <AiProviderSettings />}
+        tabs={[{ key: 'provider', label: 'Sağlayıcı ve profiller' }, { key: 'eval', label: 'Değerlendirme' }, { key: 'rules', label: 'Kurallar' }, { key: 'toolsets', label: t('aiToolsets.tab') }]} />
+      {tab === 'eval' ? <AiEvalPanel /> : tab === 'rules' ? <CosreRulesPanel canEdit storageKey="settings-cosre-rules" />
+        : tab === 'toolsets' ? <AiToolsetsPanel /> : <AiProviderSettings />}
     </>
   );
 }

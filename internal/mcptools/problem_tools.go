@@ -470,7 +470,16 @@ func getCapabilitiesTool(d Deps) mcp.Tool {
 			}
 			sort.Strings(enabled)
 			sort.Strings(disabled)
-			return map[string]any{"capabilities": caps, "enabled": enabled, "disabled": disabled}, nil
+			// v0.10.1434 (CoSRE araştırma PR 1) — ek alan `toolsets`: kaynak bazlı
+			// 12 set, operatörün aç/kapa durumu + türetilmiş sağlık (yoklama YOK —
+			// "zero cost" sözleşmesi; açıklama metni bilinçli DEĞİŞMEDİ, katalog
+			// bayt-bayt aynı). Mevcut üç alan aynen.
+			var off map[string]bool
+			if d.ToolsetsDisabled != nil {
+				off = d.ToolsetsDisabled()
+			}
+			return map[string]any{"capabilities": caps, "enabled": enabled, "disabled": disabled,
+				"toolsets": ToolsetStates(ctx, d, off, false)}, nil
 		},
 	}
 }

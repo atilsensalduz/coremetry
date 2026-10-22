@@ -20,6 +20,7 @@ const api = vi.hoisted(() => ({
   aiEvalsetStartRun: vi.fn(async (..._a: unknown[]) => ({})),
   aiEvalsetCancelRun: vi.fn(async (..._a: unknown[]) => ({ ok: true })),
   cosreRules: vi.fn(async (..._a: unknown[]) => ({ rules: [], rev: 0, limits: { maxRules: 200, maxPerScope: 20, minText: 8, maxText: 200 } })),
+  aiToolsets: vi.fn(async (..._a: unknown[]) => ({ toolsets: [], disabled: [], rev: 0 })), // v0.10.1434
 }));
 vi.mock('@/lib/api', () => ({ api }));
 
@@ -55,6 +56,17 @@ const tab = (el: HTMLElement, label: string) =>
   Array.from(el.querySelectorAll('[role="tab"]')).find(t => t.textContent === label) as HTMLButtonElement;
 
 describe('AITab — sekmeler', () => {
+  // v0.10.1434 — dördüncü sekme Kaynak araç setleri (?tab=toolsets); ayar okuması düşse de açılır.
+  it('Kaynak araç setleri sekmesi ?tab=toolsets ile açılır, panel kendi ucuna dayanır', async () => {
+    const el = render('/settings/ai?tab=toolsets');
+    await tick();
+    const ts = Array.from(el.querySelectorAll('[role="tab"]')).find(t => /Source toolsets|Kaynak araç setleri/.test(t.textContent ?? '')) as HTMLButtonElement;
+    expect(ts.getAttribute('aria-selected')).toBe('true');
+    expect(el.querySelector('[data-testid="ai-toolsets-panel"]')).not.toBeNull();
+    expect(api.aiToolsets).toHaveBeenCalled();
+    expect(el.textContent).not.toContain('Ayarlar okunamadı');
+  });
+
   it('ayar okuması düşse de şerit çizili; Değerlendirme açılır (replace)', async () => {
     const el = render('/settings/ai');
     await tick();

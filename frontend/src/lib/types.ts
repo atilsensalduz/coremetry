@@ -10213,3 +10213,38 @@ export interface SRESettings {
   updatedBy?: string;
   updatedAt?: number; // unix ns
 }
+
+// v0.10.1434 — CoSRE araştırma programı PR 1: AI araç setleri (toolset).
+// Go aynası: internal/mcptools/toolset.go ToolsetState + ToolsetHealth,
+// internal/api/ai_toolsets.go aiToolsetsResponse (GET/PUT /api/ai/toolsets).
+// health.state = sourcestate.State sözlüğü (yeni durum yok). Ad "Source" öneki:
+// AIToolset (v0.10.1302) modele göre simple|full katalog varyantıdır — başka kavram.
+export type AISourceToolsetHealthState =
+  | 'ok' | 'empty' | 'unreachable' | 'unauthorized' | 'timeout' | 'partial'
+  | 'delayed' | 'truncated' | 'not_configured' | 'error';
+export interface AISourceToolsetHealth {
+  state: AISourceToolsetHealthState;
+  backend?: string;
+  detail?: string;
+  notes?: string[];
+  usable: boolean;
+}
+export interface AISourceToolset {
+  name: string;
+  source: string;
+  /** Kapatılamaz (services / traces / problems / meta). */
+  required: boolean;
+  enabled: boolean;
+  health: AISourceToolsetHealth;
+  tools: string[];
+}
+export interface AISourceToolsetsPayload {
+  toolsets: AISourceToolset[];
+  disabled: string[];
+  updatedBy?: string;
+  updatedAt?: string; // RFC3339
+  rev: number;
+  /** Yalnız PUT cevabı: bilinmediği için düşen adlar. */
+  ignored?: string[];
+}
+// v0.10.1434 END

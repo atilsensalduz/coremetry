@@ -9,8 +9,9 @@ import (
 	"github.com/cilcenk/coremetry/internal/mcp"
 )
 
-// MCP çağrı kapısı — iki soru, bu SIRAYLA: (1) rol yetiyor mu,
-// (2) rate bütçesi var mı.
+// MCP çağrı kapısı — üç soru, bu SIRAYLA: (1) rol yetiyor mu,
+// (1b) aracın toolset'i operatörce kapalı mı (v0.10.1434), (2) rate
+// bütçesi var mı.
 //
 // Rate limiti (v0.9.14, audit §3): kimlik başına sabit pencere —
 // subRateBy'ın (api.go:174, IP-anahtarlı) map+mutex deseni, anahtar
@@ -136,6 +137,14 @@ func (s *Server) mcpGateDecide(role, id string, c mcp.GateCall, at time.Time) er
 			return mcp.Denied("%s %q requires the %q role or higher; this identity is %q — do not retry, ask the operator for a token with that role",
 				c.Kind, c.Name, c.MinRole, role)
 		}
+	}
+
+	// (1b) TOOLSET — v0.10.1434 (CoSRE araştırma PR 1): operatörün kapattığı
+	// toolset'in aracı adlandırılmış retle döner (ai_toolsets.go
+	// toolsetGateError). Rol reddi gibi rate bütçesini TÜKETMEZ: kapalı araca
+	// ısrar eden istemci meşru çağrılarının bütçesini yakmasın.
+	if err := toolsetGateError(c.Kind, c.Name, currentToolsetsDisabled()); err != nil {
+		return err
 	}
 
 	// (2) RATE.

@@ -1338,6 +1338,11 @@ export const api = {
   aiChatRetention: () => get<import('./types').AIChatRetention>(`/api/ai/chat-retention`),
   putAIChatRetention: (c: import('./types').AIChatRetention) =>
     request<import('./types').AIChatRetention>(`/api/ai/chat-retention`, { method: 'PUT', body: JSON.stringify(c) }),
+  // v0.10.1434 — AI araç setleri (toolset): durum + sağlık her rol; aç/kapa admin.
+  aiToolsets: (signal?: AbortSignal) => get<import('./types').AISourceToolsetsPayload>(`/api/ai/toolsets`, signal),
+  putAIToolsets: (disabled: string[]) =>
+    request<import('./types').AISourceToolsetsPayload>(`/api/ai/toolsets`, { method: 'PUT', body: JSON.stringify({ disabled }) }),
+  // v0.10.1434 END
   putAIBudget: (b: import('./types').AIBudget) =>
     request<import('./types').AIBudget>(`/api/ai/budget`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },

@@ -1033,6 +1033,13 @@ func main() {
 		log.Printf("[cosre-rules] load persisted rules: %v", err)
 	}
 	cfgRefresh.Add("cosre-rules", store.LoadCosreRules)
+	// v0.10.1434 — AI araç setleri (system_settings ai.toolsets) HER rolde:
+	// sohbet kataloğu + dış MCP çağrı kapısı (api) ve drain (sre/all) aynı
+	// mcpDeps kurucusundan okur; yüklenemezse hepsi açık (bugünkü davranış).
+	if err := store.LoadAIToolsets(ctx); err != nil {
+		log.Printf("[ai-toolsets] load persisted settings: %v", err)
+	}
+	cfgRefresh.Add("ai-toolsets", store.LoadAIToolsets)
 	// CoSRE öğrenme Faz 2+4 — gece kalite puanı; önce örneklem self-hosted
 	// hakeme (yapılandırılmış AI profili; ai_calls'a "cosre-selfeval" düşer).
 	if mode.worker {

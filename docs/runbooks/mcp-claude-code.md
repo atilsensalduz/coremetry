@@ -130,6 +130,37 @@ ERROR bandını açıklar. Maliyet: 1 histogram + 2 alan okuması (ES'te pencere
 başına TEK `_search`) + ≤2 desen örneklemi (≤500 satır) + ≤12 örnek satır;
 60 sn (artış 10 dk'dan eskiyse 5 dk) önbellekli. Salt okuma; sohbet + dış MCP.
 
+### Kaynak araç setleri (toolset) — v0.10.1434
+
+74 araç, okudukları veri kaynağına göre **12 toolset**'e bölünür
+(`internal/mcptools/toolset.go`; her araç tam bir sette —
+`TestToolsetsPartitionCatalog`). Sayı DEĞİŞMEDİ; gruplama yeni.
+
+| Toolset | Araç | Kapatılabilir | Sağlık türevi (sorgusuz) |
+|---|---|---|---|
+| `services` | 17 | hayır | ClickHouse deposu bağlı mı |
+| `traces` | 12 | hayır | ClickHouse deposu |
+| `problems` | 10 | hayır | ClickHouse deposu |
+| `changes` | 4 | evet | depo; rollouts bayrağı → not |
+| `metrics` | 6 | evet | VM/CH yönlendirici; Thanos yok → `partial` |
+| `logs` | 8 | evet | log deposu + arka uç; Ayarlar ekranında önbellekli (60 sn) 2 sn Ping |
+| `k8s` | 4 | evet | entity katmanı bayrağı |
+| `oracle` | 1 | evet | etkin Oracle kaynağı |
+| `devops-code` | 2 | evet | DevOps + Code Search / kaynak okuyucu |
+| `devops-wiki` | 2 | evet | wiki bilgisi + DevOps |
+| `knowledge` | 3 | evet | depo; RAG hazır değil → not |
+| `meta` | 5 | hayır | — |
+
+Operatör Ayarlar › CoSRE › **Kaynak araç setleri**'nden (admin; audit
+`settings.ai_toolsets.update`, ayar `system_settings` `ai.toolsets`) bir
+seti kapatırsa: uygulama içi sohbet o araçları HİÇ görmez; dış MCP
+`tools/list` boot anlık görüntüsü olduğu için aracı listelemeye devam
+eder ama `tools/call` adlandırılmış bir retle döner (**-32001**,
+`toolset "logs" is disabled by the operator …`; rate bütçesini tüketmez,
+"yeniden deneme" der). `get_capabilities` sonucunda ek `toolsets` alanı
+her setin `enabled` + `health` durumunu verir — kapalı/sağlıksız seti
+çağırmadan önce oradan bak.
+
 ### "Benim servislerim" MCP'de YOK (bilinçli)
 
 Takım tool'ları takım ADIYLA çalışır. Sebep yukarıdaki sınırın
@@ -194,6 +225,9 @@ yolu da test edilmiş olur).
   veri okumazlar.
 - **Rol reddi (-32001) bütçeyi TÜKETMEZ** ve "bekle" demez: metin
   gereken rolü söyler, model istemeden yeniden denemez.
+- **Kapalı toolset reddi (-32001, v0.10.1434)** de bütçeyi tüketmez:
+  metin aracı ve kapalı seti ADIYLA söyler, kimin/ne zaman kapattığını
+  söylemez.
 - Streamable-HTTP tamamen stateless: her POST bağımsız — LB hangi
   pod'a düşürürse düşürsün çalışır. SSE yolunda ise session pod-lokal:
   çok-pod'da `service.sessionAffinity: ClientIP` (chart v0.6.21) ya da

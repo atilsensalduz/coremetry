@@ -59,7 +59,8 @@
 //     doğru çağrının koşulu, orada kazanılan bayt yanlış argümanla
 //     harcanan bir tura değmez.
 //
-// Tool catalogue (74 tools; v0.10.1284 — 73 → 74: log_spike.go explain_log_spike (AI SRE Faz 1a,
+// Tool catalogue (74 tools · 12 toolsets — v0.10.1434: kaynak bazlı gruplama + operatör aç/kapa
+// toolset.go'da, sayı DEĞİŞMEDİ; v0.10.1284 — 73 → 74: log_spike.go explain_log_spike (AI SRE Faz 1a,
 // log artışını ne açıklıyor: tepe tespiti + önceki pencereyle pod / seviye / desen payı kıyası; salt okuma, sohbet + MCP);
 // v0.10.1276 — 72 → 73: service_sweep.go service_health_sweep (CoSRE adım 7,
 // servisin pod / operasyon / fonksiyon / JVM taraması + sorunluların logları, tek bileşik çağrı; salt okuma, sohbet + MCP);
@@ -299,6 +300,13 @@ type Deps struct {
 	// COREMETRY_PUBLIC_URL origin'i ("" = yapılandırılmamış). build_link yalnız bu
 	// doluysa mutlak `url` döner; boşken yalnız kök-göreli `href` — host UYDURULMAZ.
 	PublicURL func() string
+	// v0.10.1434 (CoSRE araştırma PR 1) — operatörün kapattığı toolset adları
+	// (system_settings `ai.toolsets`; api/mcp_deps.go chstore.CurrentAIToolsets
+	// okur). nil ya da boş küme = hepsi açık → katalog bayt-bayt eski. Bilinmeyen
+	// ve kapatılamaz (Required/meta) adlar yok sayılır (toolset.go
+	// effectiveDisabled). ChatToolList süzer; Register süzmez (dış çağrı
+	// api/mcp_gate.go'da adlandırılmış retle döner).
+	ToolsetsDisabled func() map[string]bool
 }
 
 // ArgoAppStatus — v0.10.1293: Deps.ArgoApps satırı (uygulama + durum + iş
@@ -580,7 +588,10 @@ func ChatToolList(d Deps) []mcp.Tool {
 			out = append(out, t)
 		}
 	}
-	return out
+	// v0.10.1434 — operatörün kapattığı toolset'ler EN SON düşer (bugünkü
+	// süzgeçlerden sonra; ChatToolListFor bunu okuduğu için iki varyant da
+	// süzülür). Kapalı küme boşsa dilim aynen döner (toolset.go).
+	return filterByToolsets(out, d.disabledToolsets())
 }
 
 // simpleHiddenTools — v0.10.1302 — CoSRE: modele göre araç seti (küçük
@@ -631,6 +642,9 @@ func WithToolset(ctx context.Context, toolset string) context.Context {
 }
 
 func Register(srv *mcp.Server, d Deps) {
+	// v0.10.1434 — toolset süzgeci BURADA YOK: tools/list boot'ta sabit bir
+	// anlık görüntü; kapalı toolset'in aracına çağrı api/mcp_gate.go'da
+	// adlandırılmış retle döner (toolset.go başlığı).
 	for _, t := range ToolList(d) {
 		if chatOnlyTools[t.Name] {
 			continue

@@ -88,6 +88,11 @@ func (s *Server) mcpDeps() mcptools.Deps {
 		ArgoApps: s.mcpArgoApps,
 		// v0.10.1297 — build_link mutlak `url`'i yalnız PUBLIC_URL doluyken (host uydurulmaz).
 		PublicURL: s.publicBaseURL,
+		// v0.10.1434 (CoSRE araştırma PR 1) — operatörün kapattığı toolset'ler
+		// (system_settings ai.toolsets, ai_toolsets.go). Dış MCP çağrı kapısı
+		// (mcp_gate.go) AYNI okumayı yapar; AI SRE drain bu kurucuyu aynen aldığı
+		// için (main.go srv.MCPDeps) arka plan da aynı kümeyi görür.
+		ToolsetsDisabled: currentToolsetsDisabled,
 		CopilotModel: func() string {
 			if s.copilot == nil || !s.copilot.Configured() {
 				return ""
