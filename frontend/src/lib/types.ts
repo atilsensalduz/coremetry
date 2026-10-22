@@ -4030,6 +4030,11 @@ export interface ServiceMetricRED {
   partial?: string[];
   note: string;
   series: Record<string, SpanMetricSeries[] | undefined>;
+  /** v0.10.1429 — aile: 'grpc' = gRPC sunucu histogramı (?family=grpc); yok = HTTP. */
+  family?: 'http' | 'grpc';
+  familyId?: string;
+  /** Route eşdeğeri OTel anahtarı (http.route / rpc.method). */
+  routeLabel?: string;
 }
 
 // HttpEnvTerm / HttpEnvScope — v0.10.1377: GET /api/metrics/http-env-scope
@@ -4055,6 +4060,34 @@ export interface HttpEnvScope {
   partial?: boolean;
   reason?: string;
   failed?: boolean;
+}
+
+// RedFamilyPresence / RedFamilyResolution — v0.10.1429: GET
+// /api/services/{name}/red-family (Go internal/api/red_family.go
+// redFamilyPresence / redFamilyResolution). Servisin VM'de yazdığı RED
+// aileleri: http (http_server_request_duration_seconds_*) ve/veya grpc
+// (grpc_legacy = rpc_server_duration_milliseconds_* ms, grpc_stable =
+// rpc_server_call_duration_seconds_* s). primary: http | grpc | none —
+// HTTP birincil, ikisi varsa both (toplanmaz, iki bölüm). state unknown =
+// okunamadı ≠ yok (sayfa HTTP sorgularını koşar). envScope aile başına
+// (o ailenin metriğine karşı çözülmüş ortam eşleyicisi).
+export type RedFamilyId = 'http' | 'grpc_legacy' | 'grpc_stable';
+export type RedFamilyKind = 'http' | 'grpc';
+export interface RedFamilyPresence {
+  id: RedFamilyId;
+  kind: RedFamilyKind;
+  statusLabel?: string;
+  envScope?: HttpEnvScope;
+}
+export interface RedFamilyResolution {
+  service: string;
+  state: 'known' | 'unknown';
+  reason?: string;
+  primary: RedFamilyKind | 'none';
+  http?: RedFamilyPresence;
+  grpc?: RedFamilyPresence;
+  both?: boolean;
+  tried: string[] | null;
 }
 
 // v0.10.345 — trace sayfası dış link şablonları (system_settings['external_links']).
@@ -5832,6 +5865,9 @@ export interface EndpointRow {
   service: string;
   path: string;
   method?: string;
+  /** v0.10.1429 — metrik kipi gRPC satırı: path = rpc_method, method = rpc_service;
+   *  sınıf sütunları ok→2xx, istemci→4xx, sunucu→5xx. Detay linki ?family=grpc taşır. */
+  family?: 'grpc';
   calls: number;
   errors: number;
   errorRate: number;

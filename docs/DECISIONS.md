@@ -9040,3 +9040,97 @@ adım Trivy fs taraması (log bulguyu yazmıyor, yalnız exit 1 — bulgu Securi
 düzeltme 1.18.7 — dependabot #76'nın önerdiği güncelleme; o PR vite duyurusu yüzünden kırmızıydı. govulncheck bunu
 "ulaşılabilir değil" sayıyor ama Trivy erişilebilirlik süzmez. **Karar:** doğrudan sürümle güncelleme (`go get
 …@v1.18.7`, tidy); `golang.org/x/net` zaten 0.60.0. Yerel Trivy (CI ayarları) `go.mod` için 0 HIGH/CRITICAL.
+
+## 2026-10-20 — v0.10.1429 — Servis sayfası metrik kipi: yalnız gRPC sunan servislerde RED (rpc.server.duration ailesi)
+
+**Operatör (prod, Service · coremetry-ingest → Overview, "ALTIN SİNYALLER kaynak: metrik (vm)"):** "Bu filtrede veri yok —
+http_server_request_duration_seconds". Ardından: "gRPC metriklerini de HTTP Metrics altına ekleyebiliriz bence." **Kök
+neden:** metrik kipinin dört yüzeyi (Overview karoları/durum kodu/toplam istek, HTTP Metrics sekmesi, /endpoints listesi,
+endpoint detayı) ve CoSRE servis sağlığı/raporu (v0.10.1391/1415) YALNIZ OTel HTTP sunucu histogramını
+(`http_server_request_duration_seconds_*`) okuyordu. v0.10.1422 ingest'in OTLP/gRPC alıcısını `rpc.server.duration` (ms)
+ile VM'e yazdırdı; collector'lar yalnız OTLP/gRPC ile yazdığı için coremetry-ingest'in (ve OTel-agent gRPC servislerinin)
+HTTP RED'i boş, gRPC RED'i yalnız Metrics/Explore'daydı. /metric-red'in `metricExists`'i filo geneli olduğu için sayfa
+metrik kipinde kalıp boş paneller gösteriyordu.
+
+**Karar — aile kataloğu + servis başına çözücü (tek kurucu).**
+- `internal/api/red_family.go` SAF katalog: `http` (http.server.request.duration, s — bugünkü aile, bayt bayt),
+  `grpc_legacy` (rpc.server.duration, ms → `rpc_server_duration_milliseconds_*`, etiketler rpc_system/rpc_service/
+  rpc_method/rpc_grpc_status_code — instrumentasyonların VARSAYILANI), `grpc_stable` (rpc.server.call.duration, s →
+  `rpc_server_call_duration_seconds_*`, rpc_response_status_code — opt-in `otel.semconv-stability.opt-in=rpc`). gRPC
+  ailelerinde VM adı TAM taban (Exact): `__name__` alternasyonu YOK — ms ↔ s aileleri tek sorguda asla toplanmaz;
+  rpc/dup kurulumunda legacy birincil, stable çizilmez (tried listesinde söylenir). HTTP seçicisi bugünkü
+  `NameCandidates(http.server.request.duration)` alternasyonu (TestServiceHTTPREDPromQLGolden bayt bayt yeşil).
+- **Hata kümesi (PİNLİ, gRPC):** sunucu-hatası kodları `2|4|8|12|13|14|15` (UNKNOWN, DEADLINE_EXCEEDED,
+  RESOURCE_EXHAUSTED, UNIMPLEMENTED, INTERNAL, UNAVAILABLE, DATA_LOSS) = grpc-gateway kod→HTTP eşlemesinin 5xx karşılığı;
+  istemci kodları `1|3|5|6|7|9|10|11|16` 4xx gibi ayrı oranda. "Sıfır olmayan = hata" DEĞİL: NOT_FOUND / PERMISSION_DENIED /
+  UNAUTHENTICATED sunucu hatası sayılmaz. Gecikme ÖLÇEĞİ ailenin BEYAN ETTİĞİ birimden (legacy ms: PromQL'de `/1000`,
+  SLI kovası `le="500"`; stable s: değişmez, `le="0.5"`), ad sonekinden tahmin değil.
+- **Çözücü `resolveServiceREDFamily(ctx, rd, service, terms, to)`:** aile sırasıyla etiket kümesi (`metricChartLabelSet`,
+  5 dk önbellek, son 24 sa) → servis etiketi (LabelMap / service_name) → TEK anlık yoklama
+  `sum(increase(<count>{service_name="svc"}[1h]))`; ≥1 seri = aile VAR. Ortam terimleri varsa aile başına
+  `resolveMetricEnvScope` (o ailenin metriğine karşı). Sonuç `{state known|unknown, primary http|grpc|none, http?, grpc?,
+  both, tried[]}`; okuma hatası → `unknown` + gerekçe (okunamadı ≠ yok; önbelleğe YAZILMAZ). 60 sn önbellek, anahtar
+  `red-family:v1:` fnv(kaynak, servis, env, cluster, LabelMap servis/env/cluster, 10 dk uç). HTTP + gRPC ASLA toplanmaz:
+  HTTP birincil, ikisi varsa `both`. Maliyet servis başına ≤3 etiket okuması (önbellekli) + ≤3 anlık sorgu / 60 sn.
+- **Uç:** `GET /api/services/{name}/red-family?env=&cluster=&to=` (`service_red_family_route.go`, registerRoutesExtra
+  `service-red-family`; api.go büyümedi, TestApiGoDoesNotGrow). Rol kapısı yok (salt-okur), yalnız VM (CH'de 400 —
+  yüzeyler zaten metricsrc=vm'e sabit); hata → 200 `{state:"unknown", primary:"http", reason:<sınıf>}` (ham VM hatası
+  viewer'a gitmez). v0.10.1377'nin `/api/metrics/http-env-scope`'unun yerine geçer: aile + aile başına ortam eşleyicisi
+  TEK istekte. **Bilinçli:** eski uç sunucuda DURUYOR (FE istemcisi `api.httpEnvScope` ve `useHttpEnvScope` kaldırıldı;
+  uç silimi sonraki sürüm — v0.10.1359'un /api/endpoints/metric deseni).
+- **CoSRE (servis sağlığı + raporu, aynı okuyucu `readServiceHTTPRED`):** çözücü gRPC derse grafikler
+  `svcREDFamilyQueries(fam, …)` — ifade gövdeleri HTTP şablonlarının AYNISI (mcHTTPRPS/5xx/P99), değişen `__name__`,
+  `ErrMatch` (metricChartQueryInput'a yeni alan; boş = `5..`) ve ms'de `/1000`. Başlıklar "gRPC istek hızı / gRPC
+  sunucu-hatası oranı / gRPC gecikme p95/p99"; kanıt başlığı `SERVİS gRPC RED GRAFİKLERİ (… hata = sunucu-hatası kodları
+  2|4|8|12|13|14|15 …)`; rapor etiketleri "gRPC throughput / gRPC yanıt süresi / gRPC sunucu-hatası oranı", kart grafiği
+  `family:"grpc"`; kaynak satırı "servis gRPC RED grafikleri". İkisi varsa HTTP çizilir + not "gRPC … HTTP ile
+  TOPLANMADI". Hiçbiri yoksa gerekçe gRPC'nin de yoklandığını söyler (`GRPCChecked`). Varlık yoklaması artık çözücünün
+  anlık sorgusu (range sorgusu sayılmaz — iki eski testin "tek yoklama sorgusu" beklentisi 0 range sorgusuna güncellendi).
+  `startServiceHTTPRED` okuyucuyu `redFamilyReader`'a (metricChartReader + QueryPromQLInstant) çevirir; prompt sabitleri,
+  MCP (74), `copilot_guided.go`/`copilot_service_report.go` DEĞİŞMEDİ.
+- **/metric-red `?family=grpc`:** kimlik `grpcMetricIdentity` (ilk var olan gRPC ailesi; VM'de tam taban, CH'de OTel adı;
+  instrument histogram), durum yoklaması `probeStatusLabelKeys(…, fam.StatusKeys)` (rpc.grpc.status_code /
+  rpc.response.status_code), hata `fam.IsServerError`, env `resolveMetricEnvScope(ailenin metriği)`. Zarf `family`,
+  `familyId`, `routeLabel` (http.route / rpc.method); not "Aile: gRPC … Failure rate = rpc_grpc_status_code sunucu-hatası
+  kodları …". Anahtar `svc-metric-red:v4:` (+`fam=`). `/metric-throughput`: `?family=grpc` → ad gRPC ailesine oturur
+  (açık istek gibi; bağ atlanır), `breakdown=rpc_method` → `rpc.method`. `chstore.ThroughputMetricCandidates`'a HTTP'den
+  SONRA `rpc.server.duration`, `rpc.server.call.duration` eklendi (yalnız gRPC sunan filo; HTTP varken sıra değişmez).
+- **FE — tek "HTTP Metrics" sekmesi (operatör: ayrı sekme/rota YOK):** `lib/redFamily.ts` katalog (Go ile çapraz pin
+  TestREDFamilyLabelsMatchFrontend) + `redFamilyView` / `pickFamilySection` / `familySections`; `lib/httpMetrics.ts`
+  `HttpScope.family?` — aile yoksa HTTP: her üretici BAYT BAYT eski (altın testler yeşil); gRPC'de `__name__`, etiketler,
+  hata kümeleri, `/1000`, `le="500"`, durum sınıfı `ok|client|server` (üç `label_replace`), lejant `pkg.Service/Method`,
+  kod adları `14 UNAVAILABLE`. Kanca `useRedFamily(service, env, cluster, to)` (`useHttpEnvScope`'un yerine; aynı RQ
+  anahtarı Service.tsx sekme rozeti + Overview + sekme arasında paylaşılır → tek istek) + `sectionEnvScope` (bölüm
+  başına eşleyici; aile yoksa `unresolved`, asla bekletmez). **Sekme:** `FamilySection` bileşeni; yalnız gRPC → aynı
+  karolar/grafikler/tablo rpc ailesinden, "gRPC" rozeti (sekme şeridinde `hint` "gRPC", ikisi varsa "+gRPC"), sütunlar
+  "Service / Method" (`routeTitle`/`methodTitle`), hata karoları "Sunucu/İstemci hatası oranı", downstream (http_client_*)
+  yalnız HTTP; ikisi varsa iki BÖLÜM önce HTTP (?hroute/?hmethod) altta gRPC (?groute/?gmethod) — toplanmaz.
+  **Overview:** `/metric-red?family=grpc`, `/metric-throughput?family=grpc&breakdown=rpc_method`, Response time paneli
+  `by rpc.method`, Explore linkleri `routeDim`, rozet "kaynak: metrik (vm) · gRPC" + "gRPC RED — rpc_server_duration_
+  milliseconds" (ikisi: " · +gRPC" + "gRPC de var → HTTP Metrics"); çözüm gelene dek metrik sorgusu yok. **/endpoints
+  listesi:** HTTP satırları + (varsa) gRPC satırları (path = rpc_method, method = rpc_service, sınıf sütunları
+  ok→2xx / istemci→4xx / sunucu→5xx, `EndpointRow.family:'grpc'`); havuz aile başına N; satır tıkı `?family=grpc` taşır
+  (`EndpointRef.family` — URL parametresi YALNIZ endpoint detayı için; sekme/liste aile çözümüyle çalışır).
+  **Endpoint detayı:** `?family=grpc` → gRPC ailesinin PromQL'i; metinler aileyi söyler. Method hücresi v0.10.1425
+  `MethodBadge` atomuna göçtü (gRPC satırında rpc_service düz mono — HTTP fiili değil, büyük harfe çevrilmez);
+  `MethodBadge.contract` EXEMPT listesi boşaldı. `metricTemplates.ts` RPC şablonu `rpc.server.call.duration`'ı da tanır.
+- **Operatörün göreceği:** coremetry-ingest → Overview: karolar/sparkline'lar/durum kodu/toplam istek dolu, rozet
+  "kaynak: metrik (vm) · gRPC", Response time paneli rpc.method kırılımlı; HTTP Metrics sekmesi "gRPC" rozetiyle aynı
+  pano; /endpoints metrik kipi satırları `opentelemetry.proto.collector.trace.v1.TraceService` / `Export`; CoSRE "…
+  sağlığı nasıl?" ve servis raporu gRPC RED grafikleri çizer. Bir HTTP servisi (orders-api): her şey bayt bayt eski;
+  ek olarak sayfa başına 60 sn'de bir `/red-family` isteği. Hem HTTP hem gRPC yazan servis: HTTP birincil, sekmede
+  altta gRPC bölümü, rozet "+gRPC".
+- **Testler:** Go `red_family_test.go` (hata kümeleri pini; katalog şekli — gRPC `__name__` TEK; çözüm tablosu: http→http,
+  http yok+legacy→grpc ms, yalnız stable, ikisi→http+both, rpc/dup, metrik yok→none, seri yok→none, etiket/yoklama
+  hatası→unknown; ortam aile başına; anahtar tüm girdiler; gRPC PromQL bayt bayt + HTTP==wrapper; FE çapraz pin;
+  aday sırası; durum yoklaması aile anahtarlarıyla; CoSRE yalnız gRPC → gRPC RED başlık/head/rapor + both notu + none
+  gerekçesi; `/metric-red?family=grpc` gövdesi (14 → hata, 5 → değil, ms birim, v4 anahtar, rpc_method kırılımı); rota
+  defteri + VM-only 400 + salt-okur + TEK anlık yoklama çağrı yeri). Mevcut: TestServiceHTTPREDPromQLGolden,
+  TestHTTPLabelsMatchFrontend, TestApiGoDoesNotGrow yeşil. FE `httpMetrics.family.test.ts` (HTTP ailesi == aile yok
+  bayt bayt; gRPC legacy/stable pinleri; liste havuzu + indirgeyici; lejant/renk/kod adı), `redFamily.test.ts`
+  (katalog, görünüm tablosu, bölüm seçimi, api yolu), `metricTemplates.test.ts` (iki rpc yazımı); sayfa testlerinin
+  `api` sahteleri `serviceRedFamily` ile; pinler yeni literallere güncellendi; mount tabanlı iki suite bir tur daha
+  `settle` (aile çözümü).
+- **Bilinçli sınır:** gRPC istemci tarafı (`rpc.client.duration`) ve downstream paneli kapsam dışı; Explore/Metrics
+  gRPC şablonu p99 (metricTemplates) değişmedi; ES/CH kaynağında /red-family 400 (sayfa HTTP sorgularını koşar, rozet
+  "metrik ailesi bilinemedi" DEMEZ — uç hatası notu); Overview "ikisi" hâlinde gRPC karoları yok (sekmeye yönlendirir).

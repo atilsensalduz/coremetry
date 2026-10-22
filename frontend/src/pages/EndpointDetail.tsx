@@ -29,7 +29,8 @@ import { PageShell } from '@/components/ui/PageShell';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/components/AuthProvider';
 import { RouteAlertModal } from '@/pages/alerts/RouteAlertModal'; // v0.10.705
-import { useHttpPromql, useHttpEnvScope } from '@/lib/queries/httpMetrics';
+import { useHttpPromql, useRedFamily, sectionEnvScope } from '@/lib/queries/httpMetrics';
+import { pickFamilySection } from '@/lib/redFamily'; // v0.10.1429 — ?family=grpc → gRPC ailesi
 import { httpEnvScopeReady } from '@/lib/httpEnvScopeNote';
 import { HttpEnvScopeBand } from './service/httpMetricsViz';
 import { endpointHttpQueries, type LatQ } from '@/lib/httpMetrics';
@@ -203,13 +204,17 @@ export default function EndpointDetailPage() {
   const windowSec = Math.max(60, (to - from) / 1e9);
   // v0.10.1377 — env/cluster metrik kipinde de süzer: ortam adı VM'in ortam
   // etiketine çözülür; çözüm gelene dek sorgu atılmaz (süzgeçsiz an yok).
-  const envScope = useHttpEnvScope(env, cluster, to, detailSrc === 'metric' && !!refObj);
+  // v0.10.1429 — aile: URL ?family=grpc → gRPC (liste satırından); yoksa servisin birincil ailesi.
+  const fam = useRedFamily(refObj?.service ?? '', env, cluster, to, detailSrc === 'metric' && !!refObj);
+  const famSec = pickFamilySection(fam, refObj?.family);
+  const family = famSec.family;
+  const envScope = sectionEnvScope(famSec, fam, env, cluster);
   const envSel = envScope.envSel;
   const httpItems = useMemo(() => (refObj
     // v0.10.1359 — ?method= (metrik liste satırı) karoları o methoda süzer; yoksa tüm methodlar.
-    ? endpointHttpQueries({ service: refObj.service, route: refObj.path, sig: refObj.sig, method: refObj.method, envSel }, windowSec, { latQ, compare })
-    : []), [refObj, envSel, windowSec, latQ, compare]);
-  const httpRes = useHttpPromql(httpItems, { from, to }, detailSrc === 'metric' && !!refObj && httpEnvScopeReady(envScope));
+    ? endpointHttpQueries({ service: refObj.service, route: refObj.path, sig: refObj.sig, method: refObj.method, envSel, family }, windowSec, { latQ, compare })
+    : []), [refObj, envSel, family, windowSec, latQ, compare]);
+  const httpRes = useHttpPromql(httpItems, { from, to }, detailSrc === 'metric' && !!refObj && fam.ready && httpEnvScopeReady(envScope));
 
   if (!refObj) {
     return (
@@ -322,14 +327,14 @@ export default function EndpointDetailPage() {
 
         {detailSrc === 'metric' ? (
           <>
-            <MetricREDStrip res={httpRes} windowSec={windowSec} compare={compare}
+            <MetricREDStrip res={httpRes} windowSec={windowSec} compare={compare} family={family}
               onToggleCompare={() => setCompare(!compare)} />
             {/* v0.10.1352 (operatör bildirimi) — şerit + grafikler sekmenin
                 PromQL'i (VM), alt bölümler span türevli. v0.10.1350 metni
                 "satırın kovaları" diyordu; o satır artık okunmuyor. */}
             <div className="badge b-info" style={{ marginTop: -6, marginBottom: 12 }}
               title="Metrik kipi: RED karoları ve grafikler Service → HTTP Metrics sekmesinin aynı sorguları (/api/metrics/promql, VictoriaMetrics), bu route'a süzülü; karolar gerçek pencere değerleri (increase[pencere]). Histogram, durum kırılımı, çağıranlar ve trace bölümleri span türevlidir">
-              Tüm RED karoları ve grafikler: VictoriaMetrics (HTTP Metrics sekmesiyle aynı sorgular{refObj.sig ? ', route şekle göre regex' : refObj.method ? `, method=${refObj.method}` /* v0.10.1359 */ : ', tüm methodlar'}) · histogram, durum kırılımı, çağıranlar ve trace bölümleri span türevli
+              Tüm RED karoları ve grafikler: VictoriaMetrics (HTTP Metrics sekmesiyle aynı sorgular{family.kind === 'grpc' ? `, gRPC ailesi ${family.names.count.replace(/_count$/, '_*')} — rpc_service=${refObj.method ?? '*'}, rpc_method=${refObj.path}` /* v0.10.1429 */ : refObj.sig ? ', route şekle göre regex' : refObj.method ? `, method=${refObj.method}` /* v0.10.1359 */ : ', tüm methodlar'}) · histogram, durum kırılımı, çağıranlar ve trace bölümleri span türevli
             </div>
             {/* v0.10.1377 — env/cluster süzgecinin metrikteki hâli (uygulandı / uygulanamadı / çözülemedi). */}
             <HttpEnvScopeBand view={envScope} style={{ display: 'block', marginTop: -6, marginBottom: 12 }} />
@@ -348,7 +353,7 @@ export default function EndpointDetailPage() {
             /api/events isteği + grafiğin x-scale'inden habersiz çizgiler
             (v0.9.396'nın ServiceCharts'ta söktüğü çift-işin ikizi). */}
         {detailSrc === 'metric' && (
-          <MetricCharts res={httpRes} windowSec={windowSec} latQ={latQ} onLatQ={setLatQ}
+          <MetricCharts res={httpRes} windowSec={windowSec} latQ={latQ} onLatQ={setLatQ} family={family}
             regions={eventRegions} onZoom={handleZoom} onZoomReset={handleZoomReset} />
         )}
         {detailSrc === 'span' && <div style={{
@@ -425,7 +430,7 @@ export default function EndpointDetailPage() {
           table's own path fallbacks — never the span name. Server / consumer
           spans only; outbound client spans count under the callee.
           {detailSrc === 'metric'
-            ? ' Metrik kipi: RED karoları ve grafikler VictoriaMetrics http_server_request_duration_seconds_* (HTTP Metrics sekmesiyle aynı PromQL, bu route\'a süzülü); P50/P95/P99 karoları penceredeki kova artışlarından (histogram_quantile over increase[pencere]).'
+            ? ` Metrik kipi: RED karoları ve grafikler VictoriaMetrics ${family.names.count.replace(/_count$/, '_*')} (HTTP Metrics sekmesiyle aynı PromQL, bu ${family.kind === 'grpc' ? 'rpc method\'una' : 'route\'a'} süzülü); P50/P95/P99 karoları penceredeki kova artışlarından (histogram_quantile over increase[pencere])${family.kind === 'grpc' ? `; hata = gRPC sunucu-hatası kodları (${family.serverErr})` : ''}.`
             : ' P50/P95/P99 are true window quantiles (tdigest).'}
         </div>
         {alertOpen && (

@@ -14,6 +14,7 @@
 //
 // SAF: React yok; kanca sonucu (HttpPromqlResult) girdi olarak gelir.
 import { windowQueries, scalarOf } from '@/lib/httpMetrics';
+import { HTTP_FAMILY, type RedFamilySpec } from '@/lib/redFamily';
 import type { HttpPromqlItem, HttpPromqlResult } from '@/lib/queries/httpMetrics';
 
 /** Karo kimlikleri: w* = bu pencere, pAvg = önceki pencere (yalnız compare açıkken). */
@@ -38,9 +39,11 @@ export function overviewWindowOffsetSec(compareOffNs: number): number {
  * çıktısının KENDİSİ (yeniden yazım yok; tutarlılık yapı gereği). offsetSec
  * > 0 → önceki pencerenin avg'ı (delta için; başka tüketici yok).
  */
-// v0.10.1377 — envSel: ortam eşleyicisi (useHttpEnvScope); yoksa bayt bayt eski sorgular.
-export function overviewWindowItems(service: string, windowSec: number, offsetSec = 0, envSel?: string): HttpPromqlItem[] {
-  const scope = envSel ? { app: service, envSel } : { app: service };
+// v0.10.1377 — envSel: ortam eşleyicisi (useRedFamily'nin aile kapsamı); yoksa bayt bayt eski sorgular.
+// v0.10.1429 — family: gRPC ailesinde aynı pencere sorguları rpc_server_duration_* adlarından (ms → /1000).
+export function overviewWindowItems(service: string, windowSec: number, offsetSec = 0, envSel?: string, family: RedFamilySpec = HTTP_FAMILY): HttpPromqlItem[] {
+  const fam = family.kind === 'http' ? {} : { family };
+  const scope = envSel ? { app: service, envSel, ...fam } : { app: service, ...fam };
   const w = windowQueries(scope, windowSec);
   const out: HttpPromqlItem[] = [
     { id: 'wAvg', expr: w.avg, instant: true },
@@ -66,7 +69,7 @@ export interface OverviewWindowKpi {
 const toMs = (v: number | null): number | null => (v !== null && Number.isFinite(v) && v >= 0 ? v * 1000 : null);
 
 /** Kanca sonucu → karo değerleri (saniye → ms). Hatalı kimlik = değer yok. */
-export function overviewWindowKpi(res: Pick<HttpPromqlResult, 'data' | 'pending' | 'error'>): OverviewWindowKpi {
+export function overviewWindowKpi(res: Pick<HttpPromqlResult, 'data' | 'pending' | 'error'>, family: RedFamilySpec = HTTP_FAMILY): OverviewWindowKpi {
   const pick = (id: OverviewWindowId) => (res.error(id) ? null : toMs(scalarOf(res.data[id])));
   const avgMs = pick('wAvg');
   const err = res.error('wAvg');
@@ -75,7 +78,7 @@ export function overviewWindowKpi(res: Pick<HttpPromqlResult, 'data' | 'pending'
     avgPending: res.pending('wAvg'),
     avgMissingReason: avgMs !== null ? null
       : err ? `pencere sorgusu başarısız: ${err.message}`
-        : 'HTTP histogram ailesi (http_server_request_duration_seconds) bu pencerede yok',
+        : `${family.label} histogram ailesi (${family.names.count.replace(/_count$/, '')}) bu pencerede yok`,
   };
 }
 

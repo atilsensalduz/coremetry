@@ -76,22 +76,39 @@ func svcHTTPREDTitle(service, what string) string {
 
 // svcHTTPREDQueries — SAF (v0.10.1391): servisin gelen HTTP RED'inin PromQL'leri.
 // statusLabel boşsa 5xx grafiği YOK (0 sanılmasın — çağıran notu yazar).
+// v0.10.1429 — HTTP ailesiyle svcREDFamilyQueries'in kısayolu (bayt bayt).
 func svcHTTPREDQueries(service, svcLabel, envMatcher, statusLabel string, winS int) []svcHTTPREDQuery {
+	return svcREDFamilyQueries(redFamilies[0], service, svcLabel, envMatcher, statusLabel, winS)
+}
+
+// svcREDFamilyQueries — SAF (v0.10.1429): ailenin gelen RED PromQL'leri. İfade
+// gövdeleri HTTP şablonlarının AYNISI (mcHTTPRPS / mcHTTP5xx / mcHTTPP99);
+// değişen yalnız __name__ (ailenin tam VM tabanı), hata kümesi (ErrMatch) ve
+// ms ailesinde gecikmenin /1000 ölçeği (birim s kalır — karo/eşik aynı).
+func svcREDFamilyQueries(fam redFamily, service, svcLabel, envMatcher, statusLabel string, winS int) []svcHTTPREDQuery {
 	rps, _ := metricChartTemplateByID(mcHTTPRPS)
 	fiveXX, _ := metricChartTemplateByID(mcHTTP5xx)
 	p99, _ := metricChartTemplateByID(mcHTTPP99)
 	in := func(v metricChartVariant) metricChartQueryInput {
-		return metricChartQueryInput{Variant: v, Service: service, SvcLabel: svcLabel, EnvMatcher: envMatcher, StatusLabel: statusLabel, WinS: winS}
+		v.Probe, v.Names = fam.Probe, []string{fam.names()}
+		return metricChartQueryInput{Variant: v, Service: service, SvcLabel: svcLabel, EnvMatcher: envMatcher, StatusLabel: statusLabel, ErrMatch: fam.ServerErr, WinS: winS}
 	}
-	out := []svcHTTPREDQuery{{Kind: svcHTTPREDRate, Title: svcHTTPREDTitle(service, "HTTP istek hızı"), Unit: "req/s", Name: "req/s",
+	errTitle, errName := fam.Label+" 5xx oranı", "5xx %"
+	if fam.Kind == redKindGRPC {
+		errTitle, errName = fam.Label+" sunucu-hatası oranı", "hata %"
+	}
+	out := []svcHTTPREDQuery{{Kind: svcHTTPREDRate, Title: svcHTTPREDTitle(service, fam.Label+" istek hızı"), Unit: "req/s", Name: "req/s",
 		Query: buildMetricChartPromQL(in(rps.Variants[0]))}}
 	if statusLabel != "" {
-		out = append(out, svcHTTPREDQuery{Kind: svcHTTPRED5xx, Title: svcHTTPREDTitle(service, "HTTP 5xx oranı"), Unit: "%", Name: "5xx %",
+		out = append(out, svcHTTPREDQuery{Kind: svcHTTPRED5xx, Title: svcHTTPREDTitle(service, errTitle), Unit: "%", Name: errName,
 			Query: buildMetricChartPromQL(in(fiveXX.Variants[0]))})
 	}
 	lat := p99.Variants[0]
 	lat.Expr = svcHTTPREDLatencyExpr
-	out = append(out, svcHTTPREDQuery{Kind: svcHTTPREDLatency, Title: svcHTTPREDTitle(service, "HTTP gecikme p95/p99"), Unit: "s", Name: "gecikme",
+	if fam.Unit == "ms" {
+		lat.Expr = "(" + svcHTTPREDLatencyExpr + ") / 1000" // ölçek ailenin beyan ettiği birimden
+	}
+	out = append(out, svcHTTPREDQuery{Kind: svcHTTPREDLatency, Title: svcHTTPREDTitle(service, fam.Label+" gecikme p95/p99"), Unit: "s", Name: "gecikme",
 		Query: buildMetricChartPromQL(in(lat))})
 	return out
 }
@@ -110,6 +127,9 @@ type svcHTTPREDProbe struct {
 	SvcLabelOK    bool
 	RateErr       error
 	RateSeries    int
+	// GRPCChecked — v0.10.1429: aile çözücüsü gRPC ailelerini de yokladı
+	// (gerekçe "gRPC serisi de yok" diyebilir; yoklanmadıysa demez).
+	GRPCChecked bool
 }
 
 // pickServiceChartSource — SAF (v0.10.1391): servis sağlığı grafiklerinin kaynağı.
@@ -122,12 +142,18 @@ func pickServiceChartSource(p svcHTTPREDProbe) (bool, string) {
 	case p.LabelErr != nil:
 		return false, "VictoriaMetrics etiket okuması BAŞARISIZ (okunamadı ≠ yok): " + p.LabelErr.Error()
 	case !p.MetricPresent:
+		if p.GRPCChecked {
+			return false, "OTel HTTP sunucu histogramı (http_server_request_duration_seconds_*) ya da gRPC sunucu histogramı (rpc_server_duration_milliseconds_* / rpc_server_call_duration_seconds_*) VictoriaMetrics'te bulunamadı (son 24 sa)"
+		}
 		return false, "OTel HTTP sunucu histogramı (http_server_request_duration_seconds_*) VictoriaMetrics'te bulunamadı (son 24 sa)"
 	case !p.SvcLabelOK:
 		return false, "HTTP histogramında servis etiketi bulunamadı (service_name / LabelMap) — servise süzülemez"
 	case p.RateErr != nil:
 		return false, "VictoriaMetrics sorgusu BAŞARISIZ (okunamadı ≠ yok): " + p.RateErr.Error()
 	case p.RateSeries == 0:
+		if p.GRPCChecked {
+			return false, "bu servisin HTTP sunucu histogramı serisi bu pencerede yok (gRPC serisi de yok; servis HTTP/gRPC sunucusu değil ya da metrik başka adla)"
+		}
 		return false, "bu servisin HTTP sunucu histogramı serisi bu pencerede yok (servis HTTP sunucusu değil ya da metrik başka adla)"
 	}
 	return true, ""
@@ -152,18 +178,32 @@ type svcHTTPREDResult struct {
 	Step     int
 	Env      string // uygulanan ortam (kanıt çipi)
 	Charts   []svcHTTPREDChart
+	// Family — v0.10.1429: çizilen aile (http | grpc); FamilyID katalog kimliği
+	// (grpc_legacy / grpc_stable). Boş = eski gövde = HTTP. Both: servis iki
+	// aileyi de yazıyor — HTTP çizildi, gRPC bir not satırı (toplanmaz).
+	Family   string
+	FamilyID string
+	Both     bool
 }
 
-// readServiceHTTPRED — VM tarafı: etiket keşfi (5 dk önbellek), ortam çözümü,
-// önce istek hızı sorgusu (servisin histogramı var mı — 60 sn önbellekli
-// varlık yoklaması), sonra 5xx + gecikme paralel. Hiçbir okuma hatası demeti
-// düşürmez; UseVM=false + gerekçe döner.
-func (s *Server) readServiceHTTPRED(ctx context.Context, rd metricChartReader, isVM bool, service, env string, from, to time.Time, rangeS int64) svcHTTPREDResult {
+// svcREDFamily — SAF: sonucun ailesi (boş → HTTP).
+func (r svcHTTPREDResult) family() redFamily {
+	f, _ := redFamilyByID(r.FamilyID)
+	return f
+}
+
+// readServiceHTTPRED — VM tarafı: aile çözümü (red_family.go — etiket keşfi
+// 5 dk önbellek + servis başına anlık yoklama, 60 sn önbellek; ortam çözümü
+// ailenin içinde), sonra ilk istek hızı sorgusu (grafik + ikinci varlık
+// yoklaması), sonra hata + gecikme paralel. Hiçbir okuma hatası demeti
+// düşürmez; UseVM=false + gerekçe döner. Yalnız gRPC sunan servis → gRPC
+// ailesi (v0.10.1429); ikisi de varsa HTTP + Both.
+func (s *Server) readServiceHTTPRED(ctx context.Context, rd redFamilyReader, isVM bool, service, env string, from, to time.Time, rangeS int64) svcHTTPREDResult {
 	qTo := to.Truncate(time.Minute)
 	qFrom := qTo.Add(-to.Sub(from))
 	step := metricChartStepS(rangeS)
 	res := svcHTTPREDResult{From: qFrom, To: qTo, Step: step}
-	probe := svcHTTPREDProbe{VM: isVM && rd != nil}
+	probe := svcHTTPREDProbe{VM: isVM && rd != nil, GRPCChecked: true}
 	fallback := func() svcHTTPREDResult {
 		res.UseVM, res.Reason = pickServiceChartSource(probe)
 		res.Charts = nil
@@ -172,12 +212,26 @@ func (s *Server) readServiceHTTPRED(ctx context.Context, rd metricChartReader, i
 	if !probe.VM || service == "" {
 		return fallback()
 	}
-	labels, err := s.metricChartLabelSet(ctx, rd, mcHTTPMetric, qTo)
-	if probe.LabelErr = err; err != nil {
+	terms := map[string]string{}
+	if env != "" {
+		terms[vmetrics.RoleEnv] = env
+	}
+	fr, ferr := s.resolveServiceREDFamily(ctx, rd, service, terms, qTo)
+	if probe.LabelErr = ferr; ferr != nil {
 		return fallback()
 	}
-	probe.MetricPresent = len(labels) > 0
-	if !probe.MetricPresent {
+	fam, pres := fr.primaryFamily()
+	if pres == nil {
+		// Hiçbir ailenin bu servise ait serisi yok: histogram hiç yoksa onu,
+		// varsa "servisin serisi yok"u söyle (ikisi farklı eylem ister).
+		probe.MetricPresent = fr.anyMetricPresent()
+		probe.SvcLabelOK, probe.RateSeries = true, 0
+		return fallback()
+	}
+	probe.MetricPresent, probe.SvcLabelOK = true, true
+	res.Family, res.FamilyID, res.Both = fam.Kind, fam.ID, fr.Both
+	labels, err := s.metricChartLabelSet(ctx, rd, fam.Probe, qTo)
+	if probe.LabelErr = err; err != nil {
 		return fallback()
 	}
 	lm := rd.MetricLabelMap().Normalized()
@@ -187,10 +241,14 @@ func (s *Server) readServiceHTTPRED(ctx context.Context, rd metricChartReader, i
 	}
 	envMatcher := ""
 	if env != "" {
-		sc, eerr := s.resolveHTTPEnvScope(ctx, rd, map[string]string{vmetrics.RoleEnv: env}, qTo)
+		sc := pres.EnvScope
 		switch {
-		case eerr != nil:
-			res.Notes = append(res.Notes, fmt.Sprintf("ortam %q süzgeci UYGULANMADI (ortam etiketi okunamadı: %v) — seriler TÜM ortamları kapsıyor", env, eerr))
+		case sc == nil || sc.Failed:
+			reason := "ortam etiketi okunamadı"
+			if sc != nil {
+				reason = sc.Reason
+			}
+			res.Notes = append(res.Notes, fmt.Sprintf("ortam %q süzgeci UYGULANMADI (%s) — seriler TÜM ortamları kapsıyor", env, reason))
 		case !sc.Applied:
 			res.Notes = append(res.Notes, fmt.Sprintf("ortam %q süzgeci UYGULANMADI (%s) — seriler TÜM ortamları kapsıyor", env, sc.Reason))
 		case !labels[sc.Label]:
@@ -199,11 +257,18 @@ func (s *Server) readServiceHTTPRED(ctx context.Context, rd metricChartReader, i
 			envMatcher, res.Env = sc.Matcher, env
 		}
 	}
-	status := metricChartStatusLabel(labels)
+	status := redFamilyStatusLabel(fam, labels)
 	if status == "" {
-		res.Notes = append(res.Notes, fmt.Sprintf("HTTP histogramında durum kodu etiketi yok (%s) — 5xx oranı ölçülemez, grafiği YOK (0 sanılmasın)", strings.Join(mcStatusLabels, " / ")))
+		if fam.Kind == redKindGRPC {
+			res.Notes = append(res.Notes, fmt.Sprintf("gRPC histogramında durum kodu etiketi yok (%s) — hata oranı ölçülemez, grafiği YOK (0 sanılmasın)", strings.Join(fam.StatusLabels, " / ")))
+		} else {
+			res.Notes = append(res.Notes, fmt.Sprintf("HTTP histogramında durum kodu etiketi yok (%s) — 5xx oranı ölçülemez, grafiği YOK (0 sanılmasın)", strings.Join(mcStatusLabels, " / ")))
+		}
 	}
-	qs := svcHTTPREDQueries(service, sr.Label, envMatcher, status, metricChartWinS(step))
+	if fr.Both {
+		res.Notes = append(res.Notes, "servis gRPC sunucu histogramı da yazıyor ("+redFamilies[1].Label+" RED'i HTTP ile TOPLANMADI; HTTP çizildi — gRPC bölümü Service → HTTP Metrics sekmesinde)")
+	}
+	qs := svcREDFamilyQueries(fam, service, sr.Label, envMatcher, status, metricChartWinS(step))
 	run := func(q svcHTTPREDQuery) svcHTTPREDChart {
 		return s.svcHTTPREDRunQuery(ctx, rd, q, service, envMatcher, qFrom, qTo, step)
 	}
@@ -280,6 +345,22 @@ func svcHTTPREDHeadTR(service string, rangeS int64, step int) string {
 		"http_server_request_duration_seconds_*, Service → HTTP Metrics sekmesiyle aynı metrik; adım %ds):\n", service, fmtAgoTR(rangeS), step)
 }
 
+// svcGRPCREDHeadTR — SAF (v0.10.1429): gRPC ailesinin kanıt başlığı; metrik
+// adı ve hata kümesi açık (anlatım "5xx" demesin).
+func svcGRPCREDHeadTR(fam redFamily, service string, rangeS int64, step int) string {
+	return fmt.Sprintf("SERVİS gRPC RED GRAFİKLERİ (%s, son %s; kaynak: VictoriaMetrics, örneklenmemiş — OTel gRPC sunucu histogramı "+
+		"%s_* (%s), Service → HTTP Metrics sekmesinin gRPC bölümüyle aynı metrik; servis HTTP sunucu histogramı yazmıyor; hata = %s; adım %ds):\n",
+		service, fmtAgoTR(rangeS), fam.names(), fam.Probe, fam.errorNoteTR(), step)
+}
+
+// svcREDHeadTR — SAF: sonucun ailesine göre başlık.
+func svcREDHeadTR(service string, rangeS int64, res svcHTTPREDResult) string {
+	if res.Family == redKindGRPC {
+		return svcGRPCREDHeadTR(res.family(), service, rangeS, res.Step)
+	}
+	return svcHTTPREDHeadTR(service, rangeS, res.Step)
+}
+
 // svcHTTPREDSpanNoteTR — SAF: span yedeğinin dürüst notu.
 func svcHTTPREDSpanNoteTR(reason string) string {
 	return "Not (grafik kaynağı): servis grafikleri span verisinden — örneklenmiş trace'ler (sayımlar örnekleme oranı kadar düşük); " +
@@ -292,7 +373,7 @@ func svcHTTPREDSpanNoteTR(reason string) string {
 // grafik başına deterministik özet.
 func (s *Server) emitServiceHTTPRED(emit func(string, any), service string, rangeS int64, res svcHTTPREDResult, loc *time.Location) string {
 	var b strings.Builder
-	b.WriteString(svcHTTPREDHeadTR(service, rangeS, res.Step))
+	b.WriteString(svcREDHeadTR(service, rangeS, res))
 	for _, nt := range res.Notes {
 		b.WriteString("Not: " + nt + ".\n")
 	}
@@ -322,7 +403,10 @@ func (s *Server) emitServiceHTTPRED(emit func(string, any), service string, rang
 // startServiceHTTPRED — v0.10.1391: VM tarafını arka planda başlatır (goroutine
 // emit ETMEZ); dönen fonksiyon sonucu bekler (bütçe ya da ctx sonunda yedek).
 func (s *Server) startServiceHTTPRED(ctx context.Context, service, env string, from, to time.Time, rangeS int64) func() svcHTTPREDResult {
-	rd, isVM := s.metricChartReaderFor()
+	rd0, isVM := s.metricChartReaderFor()
+	// v0.10.1429 — aile çözücüsü anlık yoklama ister (vmMetricSource karşılar).
+	rd, _ := rd0.(redFamilyReader)
+	isVM = isVM && rd != nil
 	ch := make(chan svcHTTPREDResult, 1)
 	vctx, cancel := context.WithTimeout(ctx, svcHTTPREDBudget)
 	go func() {
@@ -342,7 +426,10 @@ func (s *Server) startServiceHTTPRED(ctx context.Context, service, env string, f
 
 // svcHTTPREDSourcesTR — SAF: cevabın kaynak satırına ek.
 func svcHTTPREDSourcesTR(res svcHTTPREDResult) string {
-	if res.UseVM {
+	switch {
+	case res.UseVM && res.Family == redKindGRPC:
+		return " + servis gRPC RED grafikleri (VictoriaMetrics, örneklenmemiş: istek hızı · sunucu-hatası oranı · p95/p99)"
+	case res.UseVM:
 		return " + servis HTTP RED grafikleri (VictoriaMetrics, örneklenmemiş: istek hızı · 5xx oranı · p95/p99)"
 	}
 	return " + grafikler (span, örneklenmiş)"

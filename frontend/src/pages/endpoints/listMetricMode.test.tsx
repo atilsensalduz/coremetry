@@ -55,7 +55,8 @@ vi.mock('@/lib/api', () => {
     serviceNames: () => Promise.resolve({ names: [], total: 0 }),
     clusters: () => Promise.resolve([]),
     getPreference: (k: unknown) => Promise.resolve({ key: k, model: null }),
-    httpEnvScope: (p: unknown) => { m.scopeCalls.push(p); return m.gate.then(() => m.scope); },
+    // v0.10.1429 — aile çözümü sahtesi (useRedFamily): gate çözülene dek cevap gelmez; HTTP ailesi + ortam kapsamı m.scope.
+    serviceRedFamily: (svc: unknown, p: unknown) => { m.scopeCalls.push(p); return m.gate.then(() => ({ service: svc, state: 'known', primary: 'http', http: { id: 'http', kind: 'http', ...(m.scope ? { envScope: m.scope } : {}) }, tried: [] })); },
   };
   return {
     api: new Proxy({}, { get: (_t, k: string) => stub[k] ?? (() => Promise.resolve(null)) }),
@@ -95,6 +96,7 @@ async function mount(url: string) {
     );
   });
   await settle();
+  await settle(); // v0.10.1429 — aile çözümü (serviceRedFamily) bir tur daha: PromQL sorguları ondan sonra atılır.
 }
 
 afterEach(() => {
@@ -205,7 +207,7 @@ describe('/endpoints metrik kipi: env süzgeci (v0.10.1377)', () => {
     expect(host!.textContent).not.toContain('süzgeci bu tabloya uygulanmaz');
   });
 
-  it('kapsam ucu hata verirse süzgeçsiz sorgular + çözülemedi notu', async () => {
+  it('aile ucu hata verirse süzgeçsiz sorgular + çözülemedi notu', async () => {
     m.gate = Promise.reject(new Error('HTTP 502: VictoriaMetrics erişilemiyor'));
     m.gate.catch(() => {});
     await mount(`/endpoints?src=metric&range=3h&service=${SVC}&compare=0&env=eu-a`);

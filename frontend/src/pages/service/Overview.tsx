@@ -1,6 +1,9 @@
 import { statusCodeRateQuery, statusCodeSeries, totalRequestsQuery, scalarOf, HTTP_METRICS_POINTS, windowRange } from '@/lib/httpMetrics';
 // v0.10.1360 — metrik karoları pencere değeri (HTTP Metrics sekmesiyle aynı sorgu + kanca).
-import { useHttpPromql, useHttpEnvScope } from '@/lib/queries/httpMetrics';
+import { useHttpPromql, useRedFamily, sectionEnvScope } from '@/lib/queries/httpMetrics';
+// v0.10.1429 — RED ailesi (HTTP / gRPC): yalnız gRPC sunan serviste karolar, durum kodu, toplam istek ve
+// /metric-red + /metric-throughput gRPC ailesinden; ikisi varsa HTTP + "gRPC de var" (toplanmaz).
+import { pickFamilySection, familyBadgeSuffix, familyUnknownNote } from '@/lib/redFamily';
 // v0.10.1377 — metrik kipi env süzgeci VM PromQL'inde (karolar + /metric-red aynı çözücü).
 import { httpEnvScopeNote, httpEnvScopeReady } from '@/lib/httpEnvScopeNote';
 import { HttpEnvScopeBand } from './httpMetricsViz';
@@ -254,10 +257,18 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
     next.set('src', v ? 'metric' : 'span');
     return next;
   }, { replace: true });
+  // v0.10.1429 — önce servisin RED ailesi (GET /red-family, 60 sn önbellek; ortam
+  // eşleyicisi aile başına onun içinde). gRPC → /metric-red?family=grpc, karolar
+  // rpc_server_duration_*; çözüm gelene dek metrik sorgusu yok (önce HTTP sonra gRPC yanıltır).
+  const fam = useRedFamily(service, env, '', to, !!service && wantMetric);
+  const famSec = pickFamilySection(fam);
+  const family = famSec.family;
+  const famGrpc = family.kind === 'grpc';
+  const famOpt = famGrpc ? { family: 'grpc' as const } : {};
   const metricRedQ = useQuery({
-    queryKey: ['service-metric-red', service, from, to, redMdp, env],
-    queryFn: () => api.serviceMetricRED(service, from, to, redMdp, { rateWindow: 180, env: env || undefined }),
-    enabled: !!service && wantMetric,
+    queryKey: ['service-metric-red', service, from, to, redMdp, env, family.kind],
+    queryFn: () => api.serviceMetricRED(service, from, to, redMdp, { rateWindow: 180, env: env || undefined, ...famOpt }),
+    enabled: !!service && wantMetric && fam.ready,
     staleTime: 30_000,
   });
   // Otomatik kipte metrik yoksa span: sorgu bitene dek metrik varsayılır
@@ -266,27 +277,27 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
   // v0.10.1377 — env seçiliyken pencere karoları / durum kodu / toplam istek
   // sorguları VM ortam eşleyicisiyle süzülür (/metric-red sunucuda AYNI
   // çözücüyle süzer — iki yüzey aynı değerde). Çözüm gelene dek sorgu yok.
-  const envScope = useHttpEnvScope(env, '', to, metricMode && !!service);
+  const envScope = sectionEnvScope(famSec, fam, env, '');
   const envSel = envScope.envSel;
-  const envReady = httpEnvScopeReady(envScope);
+  const envReady = httpEnvScopeReady(envScope) && fam.ready;
   // v0.10.1253 (operatör) — metrik kipinde "Failure rate" yerine HTTP status
   // KODU başına istek hızı (VictoriaMetrics, HTTP Metrics sekmesiyle aynı
   // metrik). Seri yoksa (HTTP semconv metriği yayınlanmıyor) eski OK/Errors.
   const httpStatusQ = useQuery({
-    queryKey: ['ov-http-status', service, from, to, envSel ?? ''],
-    queryFn: () => api.httpMetricsPromql({ query: statusCodeRateQuery(service, Math.max(60, (to - from) / 1e9), envSel), from, to, maxDataPoints: HTTP_METRICS_POINTS }),
+    queryKey: ['ov-http-status', service, from, to, envSel ?? '', family.id],
+    queryFn: () => api.httpMetricsPromql({ query: statusCodeRateQuery(service, Math.max(60, (to - from) / 1e9), envSel, family), from, to, maxDataPoints: HTTP_METRICS_POINTS }),
     enabled: metricMode && envReady,
     staleTime: 30_000,
     retry: false,
   });
-  const httpStatus = useMemo(() => statusCodeSeries(httpStatusQ.data), [httpStatusQ.data]);
+  const httpStatus = useMemo(() => statusCodeSeries(httpStatusQ.data, family), [httpStatusQ.data, family]);
   const showHttpStatus = metricMode && httpStatus.series.length > 0;
   // v0.10.1259 (operatör: "Failure rate yerine toplam istek sayısı") — metrik
   // kipinde hata oranı hesaplanamıyorsa (durum etiketi yok, "—") karo
   // penceredeki TOPLAM isteği gösterir (VM anlık sorgu, HTTP Metrics'le aynı).
   const totalReqQ = useQuery({
-    queryKey: ['ov-http-total', service, from, to, envSel ?? ''],
-    queryFn: () => api.httpMetricsPromql({ query: totalRequestsQuery(service, Math.max(60, (to - from) / 1e9), envSel), from, to, maxDataPoints: HTTP_METRICS_POINTS, instant: '1' }),
+    queryKey: ['ov-http-total', service, from, to, envSel ?? '', family.id],
+    queryFn: () => api.httpMetricsPromql({ query: totalRequestsQuery(service, Math.max(60, (to - from) / 1e9), envSel, family), from, to, maxDataPoints: HTTP_METRICS_POINTS, instant: '1' }),
     enabled: metricMode && envReady,
     staleTime: 30_000,
     retry: false,
@@ -301,13 +312,13 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
   // sayfanın compare kaydırması; prior'da W) yalnız delta için.
   const ovWinSec = overviewWindowSec(from, to);
   const ovWinOffsetSec = overviewWindowOffsetSec(compareOff);
-  const ovWinItems = useMemo(() => overviewWindowItems(service, ovWinSec, ovWinOffsetSec, envSel), [service, ovWinSec, ovWinOffsetSec, envSel]);
-  const ovWin = overviewWindowKpi(useHttpPromql(ovWinItems, { from, to }, metricMode && !!service && envReady));
+  const ovWinItems = useMemo(() => overviewWindowItems(service, ovWinSec, ovWinOffsetSec, envSel, family), [service, ovWinSec, ovWinOffsetSec, envSel, family]);
+  const ovWin = overviewWindowKpi(useHttpPromql(ovWinItems, { from, to }, metricMode && !!service && envReady), family);
   const metricAutoFellBack = explicitSrc === null && !!metricRedQ.data && !metricRedQ.data.metricExists;
   const metricRedGhostQ = useQuery({
-    queryKey: ['service-metric-red', service, from - compareOff, to - compareOff, redMdp, env],
-    queryFn: () => api.serviceMetricRED(service, from - compareOff, to - compareOff, redMdp, { rateWindow: 180, env: env || undefined }),
-    enabled: !!service && metricMode && ghostEnabled,
+    queryKey: ['service-metric-red', service, from - compareOff, to - compareOff, redMdp, env, family.kind],
+    queryFn: () => api.serviceMetricRED(service, from - compareOff, to - compareOff, redMdp, { rateWindow: 180, env: env || undefined, ...famOpt }),
+    enabled: !!service && metricMode && ghostEnabled && fam.ready,
     staleTime: 30_000,
   });
   const metricErrorsUnknown = metricMode && !!metricRedQ.data?.errorsUnknown;
@@ -384,11 +395,15 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
     // v0.9.718 — route kırılımı + 180s rate penceresi (Grafana
     // by(http_route) + [3m] referansı).
     // v0.9.844 — bayrak anahtardan çıktı, breakdown='route' sabitlendi.
-    queryKey: ['service-metric-throughput', service, from, to, redMdp, env],
+    // v0.10.1429 — gRPC ailesinde kimlik ?family=grpc, kırılım rpc.method (aile çözülene dek bekler).
+    queryKey: ['service-metric-throughput', service, from, to, redMdp, env, family.kind],
     queryFn: () => api.serviceMetricThroughput(service, from, to, undefined, redMdp,
-      { breakdown: 'route', rateWindow: 180, env: env || undefined }),
+      { breakdown: famGrpc ? 'rpc_method' : 'route', rateWindow: 180, env: env || undefined, ...famOpt }),
+    enabled: !wantMetric || fam.ready,
     staleTime: 30_000,
   });
+  // Route eşdeğeri boyutu: HTTP http.route, gRPC rpc.method (Response time / Throughput panelleri + Explore linkleri).
+  const routeDim = famGrpc ? 'rpc.method' : 'http.route';
 
   const latencyQ = useQuery({
     queryKey: ['service-overview-entry-red', service, from, to, redMdp, env],
@@ -502,10 +517,10 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
       + `&range=${encodeURIComponent(r || encodeRange(range))}`; // v0.10.1233 — sayfa aralığı (URL'de yoksa da)
   };
   const rtExploreHref = () => metricsHref({
-    by: 'http.route', metric: metricName, agg: 'avg',
+    by: routeDim, metric: metricName, agg: 'avg',
     unit: metricRedQ.data?.latencyUnitKnown && metricRedQ.data.latencyUnit ? metricRedQ.data.latencyUnit : undefined,
   });
-  const tputExploreHref = () => metricsHref({ by: 'http.route', metric: metricTputQ.data?.metric ?? '', agg: 'rate' });
+  const tputExploreHref = () => metricsHref({ by: routeDim, metric: metricTputQ.data?.metric ?? '', agg: 'rate' });
   // v0.9.844 — kırılım sorgusu (useRootOpLatency + opsStep + buildRootOpLines
   // projeksiyonu) ve SLO hata-bütçesi eşikleri (useSLOs → failureThresholds)
   // de bu panellerle birlikte gitti. Eşik çizgisi % eksenine aitti; kalan
@@ -714,13 +729,13 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
     ]),
     [service, env]);
   const rtAvgQ = useQuery({
-    queryKey: ['service-rt-avg-route', service, metricName, from, to, rtStep, env],
+    queryKey: ['service-rt-avg-route', service, metricName, from, to, rtStep, env, routeDim],
     enabled: !!metricName,
     staleTime: 30_000,
     queryFn: ({ signal }) => api.metricQueryFull({
       name: metricName,
       agg: 'avg',
-      groupBy: 'http.route',
+      groupBy: routeDim, // v0.10.1429 — gRPC: rpc.method
       filters: rtFilters,
       from, to,
       step: rtStep,
@@ -881,7 +896,7 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
   // v0.10.1360 — pencere karosu kaynağını, pencereyi ve dört pencere değerini yazar.
   const fmtMs = (v: number | null) => (v == null ? '—' : `${v.toFixed(v < 10 ? 1 : 0)} ms`);
   const rtTileNote = rtFromWindow
-    ? `Kaynak: http_server_request_duration_seconds · karolar pencere değeri (increase[${windowRange(ovWinSec)}], HTTP Metrics ile aynı), service_name = ${service}`
+    ? `Kaynak: ${family.names.count.replace(/_count$/, '')} · karolar pencere değeri (increase[${windowRange(ovWinSec)}], HTTP Metrics ile aynı), service_name = ${service}`
       + ` · avg ${fmtMs(ovWin.avgMs)} · P50 ${fmtMs(ovWin.p50Ms)} · P95 ${fmtMs(ovWin.p95Ms)} · P99 ${fmtMs(ovWin.p99Ms)}`
       + (env ? ` · ${httpEnvScopeNote(envScope)?.text ?? 'env süzgeci yok'}` : '') // v0.10.1377
       + '; sparkline ve grafikler adım başına seri'
@@ -916,7 +931,7 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
     metricQuery({
       metric: metricName || 'duration_milliseconds_bucket',
       agg: 'avg', unit: 'ms', filters: svcFilter,
-      groupBy: ['http.route'], viz: 'line', range,
+      groupBy: [routeDim], viz: 'line', range,
     });
   // v0.9.798 — KARONUN kapı tanımlayıcısı: grupsuz (servis geneli) avg,
   // stat vitrini. Grafiğinkinden AYRI olmak zorunda (yukarıdaki v0.9.774
@@ -943,7 +958,7 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
         <span className={`badge ${metricMode ? 'b-info' : usingAllSpans ? 'b-warn' : 'b-gray'}`}
           style={{ textTransform: 'none', letterSpacing: 0 }} title={latScopeNote}>
           {metricMode
-            ? `kaynak: metrik (${metricRedQ.data?.source ?? '…'})`
+            ? `kaynak: metrik (${metricRedQ.data?.source ?? '…'})${familyBadgeSuffix(fam)}` /* v0.10.1429 — " · gRPC" | " · +gRPC" */
             : usingAllSpans ? 'kapsam: tüm span\u2019ler' : 'kapsam: giriş span\u2019leri'}
         </span>
       </div>
@@ -1045,6 +1060,18 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
           ].filter(Boolean).join(', ')}</span>
         )}
         {ghostEnabled && (seriesGhostQ.isError || latencyGhostQ.isError) && <span className="badge b-warn">önceki dönem yüklenemedi</span>}
+        {/* v0.10.1429 — aile: yalnız gRPC → rozet; ikisi → HTTP birincil + gRPC notu (toplanmadı); çözüm okunamadı → dürüst not. */}
+        {metricMode && famGrpc && (
+          <span className="badge b-info" title={`Servis HTTP sunucu histogramı yazmıyor; karolar ve grafikler gRPC sunucu histogramından (${family.names.count.replace(/_count$/, '_*')}, ${family.probe}). Failure rate = sunucu-hatası kodları ${family.serverErr}; route kırılımı rpc.method`}>
+            gRPC RED — {family.names.count.replace(/_count$/, '')}
+          </span>
+        )}
+        {metricMode && fam.both && (
+          <span className="badge b-gray" title="Servis hem HTTP hem gRPC sunucu histogramı yazıyor. Bu karolar HTTP; gRPC RED'i HTTP Metrics sekmesinin gRPC bölümünde (ikisi toplanmaz)">
+            gRPC de var → HTTP Metrics
+          </span>
+        )}
+        {metricMode && familyUnknownNote(fam) && <span className="badge b-warn" title={familyUnknownNote(fam) ?? ''}>metrik ailesi bilinemedi</span>}
         {/* v0.10.1377 — env süzgecinin metrikteki hâli (karolar + grafikler aynı eşleyici). */}
         {metricMode && <HttpEnvScopeBand view={envScope} />}
       </div>
@@ -1080,7 +1107,7 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
                 // ⋯ → "Sorguyu göster" metninde ve boş-durum ipucunda duruyor,
                 // yani keşfedilebilirlik kaybolmuyor — başlık ise panelin NE
                 // çizdiğini söylemeli, hangi seriden okuduğunu değil.
-                title="Response time · avg (by route)"
+                title={`Response time · avg (by ${famGrpc ? 'method' : 'route'})`}
                 // storageKey AYNEN: kullanıcının lejant/görünürlük tercihi
                 // panel yeniden bağlandı diye sıfırlanmasın.
                 // v0.9.794 (operatör bulgusu) — tık hedefi panelin ÇİZDİĞİ
@@ -1116,7 +1143,7 @@ export function ServiceOverview({ service, range, windowNs, info, operations, op
                 // Geliştirici detayı — mevcut ⋯ → "Sorguyu göster". Grupsuz
                 // sorgu burada YAZILMAZ (v0.9.799): panel onu çizmiyor,
                 // yalnız üstteki karo okuyor.
-                queryText={`avg(${metricName || '?'}) by (http.route), service.name="${service}", step=${rtStep}s`
+                queryText={`avg(${metricName || '?'}) by (${routeDim}), service.name="${service}", step=${rtStep}s`
                   + (rtAvgQ.isError ? `\n\nHATA: ${String(rtAvgQ.error)}` : '')}
                 regions={chartRegions} onRegionClick={onRegionClick}
                 onZoom={onZoom} onZoomReset={onZoomReset} syncKey={chartSync}

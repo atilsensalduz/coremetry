@@ -524,16 +524,20 @@ export const api = {
   // ayar kaydetmek zorunda kalmasın diye sorgudan da geçilebiliyor.
   // v0.10.337 — Overview RED'i metrikten (?src=metric). withMetricSource:
   // ?metricsrc= deneme modu diğer metrik uçlarıyla aynı depoya gitsin.
-  serviceMetricRED: (svc: string, fromNs: number, toNs: number, mdp?: number, opts?: { rateWindow?: number; env?: string }) =>
+  // v0.10.1429 — opts.family 'grpc': gRPC sunucu histogramı kimliği (aile çözücüsü gRPC derse).
+  serviceMetricRED: (svc: string, fromNs: number, toNs: number, mdp?: number, opts?: { rateWindow?: number; env?: string; family?: 'grpc' }) =>
     get<import('./types').ServiceMetricRED>(withMetricSource(
       `/api/services/${encodeURIComponent(svc)}/metric-red?from=${fromNs}&to=${toNs}`
       + (mdp ? `&maxDataPoints=${mdp}` : '')
       + (opts?.rateWindow ? `&rateWindow=${opts.rateWindow}` : '')
-      + (opts?.env ? `&env=${encodeURIComponent(opts.env)}` : ''))),
-  serviceMetricThroughput: (svc: string, fromNs: number, toNs: number, metric?: string, mdp?: number, opts?: { breakdown?: 'route'; rateWindow?: number; env?: string }) =>
+      + (opts?.env ? `&env=${encodeURIComponent(opts.env)}` : '')
+      + (opts?.family ? `&family=${opts.family}` : ''))),
+  // v0.10.1429 — breakdown 'rpc_method' + family 'grpc': gRPC ailesinin route kırılımı.
+  serviceMetricThroughput: (svc: string, fromNs: number, toNs: number, metric?: string, mdp?: number, opts?: { breakdown?: 'route' | 'rpc_method'; rateWindow?: number; env?: string; family?: 'grpc' }) =>
     get<import('./types').ServiceMetricThroughput>(
       `/api/services/${encodeURIComponent(svc)}/metric-throughput?from=${fromNs}&to=${toNs}`
       + (metric ? `&metric=${encodeURIComponent(metric)}` : '')
+      + (opts?.family ? `&family=${opts.family}` : '')
       // v0.9.706 — nokta bütçesi (parite px pilotu). panelMaxDataPoints
       // kuantalı üretir → sunucu cache anahtarı sınırlı kardinalitede.
       + (mdp ? `&maxDataPoints=${mdp}` : '')
@@ -2975,11 +2979,12 @@ export const api = {
   // (operatör: pano VM'den okunsun); sayfanın deneme kaynağı seçimi uygulanmaz.
   httpMetricsPromql: (params: { query: string; from: number; to: number; maxDataPoints: number; instant?: '1' }) =>
     get<SpanMetricSeries[] | null>(withMetricSource(`/api/metrics/promql?${qs(params)}`, 'vm')),
-  // v0.10.1377 — metrik kipi env/cluster süzgeci: ortam adı → VM HTTP
-  // histogramının ortam etiketi + canlı değer(ler)i (matcher). Yalnız VM
-  // (httpMetricsPromql gibi sabit); `to` ns, sunucu 10 dk'ya yuvarlar.
-  httpEnvScope: (params: { env?: string; cluster?: string; to: number }, signal?: AbortSignal) =>
-    get<import('./types').HttpEnvScope>(withMetricSource(`/api/metrics/http-env-scope?${qs(params)}`, 'vm'), signal),
+  // v0.10.1429 — servisin RED ailesi (HTTP / gRPC) + aile başına ortam
+  // eşleyicisi, TEK istekte (v0.10.1377 httpEnvScope'un yerine — o istemci
+  // metodu kaldırıldı, GET /api/metrics/http-env-scope sunucuda duruyor; sunucu 60 sn önbellek).
+  // Yalnız VM (metrik kipi yüzeyleri gibi sabit); `to` ns, sunucu 10 dk'ya yuvarlar.
+  serviceRedFamily: (svc: string, params: { env?: string; cluster?: string; to: number }, signal?: AbortSignal) =>
+    get<import('./types').RedFamilyResolution>(withMetricSource(`/api/services/${encodeURIComponent(svc)}/red-family?${qs(params)}`, 'vm'), signal),
   // v0.10.1306 — `src` (/metrics PromQL sekmesi ?src=vm|ch): bu TEK isteği o
   // backend'e sabitler (aynı metricsrc değeri); yoksa sayfa URL'inin
   // ?metricsrc= denemesi / kurulum varsayılanı. signal: sekme/pencere değişince iptal.

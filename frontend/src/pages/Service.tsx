@@ -47,6 +47,7 @@ import { QueryError } from '@/components/QueryError';
 import type { DataTableStateProps } from '@/components/ui/DataTable';
 import { PageShell } from '@/components/ui/PageShell';
 import { ServiceHttpMetricsTab } from './service/ServiceHttpMetricsTab';
+import { useRedFamily } from '@/lib/queries/httpMetrics';
 import { withPivotCtx, pivotCtxFromSearch, type PivotDim } from '@/lib/pivotContext';
 
 // v0.10.1231 — servis sayfasından traces/logs/endpoints pivotları ekrandaki
@@ -160,6 +161,10 @@ function ServiceDetailInner() {
   // the children's useEffect([fromNs, toNs, …]) deps thrash
   // into an infinite refetch.
   const rangeNs = useMemo(() => timeRangeToNs(range), [range]);
+  // v0.10.1429 — HTTP Metrics sekme rozeti ("gRPC" / "+gRPC"): aile çözümü (Overview ile AYNI
+  // RQ anahtarı → tek istek, 60 sn sunucu önbelleği). Yalnız VM; CH kurulumunda sessizce yok.
+  const redFam = useRedFamily(svc, env, scopeCluster, rangeNs.to);
+  const httpTabHint = redFam.primary === 'grpc' ? 'gRPC' : redFam.both ? '+gRPC' : undefined;
 
   // v0.5.292 — tab in URL so a refresh / shareable link lands
   // on the same sub-view. Default = Operations (the operator's
@@ -582,7 +587,8 @@ function ServiceDetailInner() {
             <TabStrip
               tab={tab}
               onChange={setTab}
-              opCount={rawOps.rows.length} />
+              opCount={rawOps.rows.length}
+              httpHint={httpTabHint} />
 
             {tab === 'overview' && (
               <ServiceOverview service={svc} range={range} windowNs={rangeNs} info={info} operations={operations}
@@ -830,10 +836,12 @@ function ServiceSLOChip({ slo }: { slo: SLORow }) {
 // per-tab body. Style mirrors the existing Topology tabs
 // (no separate component yet; both surfaces use a plain
 // button row + active-tab outline).
-function TabStrip({ tab, onChange, opCount }: {
+function TabStrip({ tab, onChange, opCount, httpHint }: {
   tab: ServiceTab;
   onChange: (t: ServiceTab) => void;
   opCount: number;
+  /** v0.10.1429 — "gRPC" (yalnız gRPC sunan servis) | "+gRPC" (ikisi); aile çözümünden. */
+  httpHint?: string;
 }) {
   const items: { key: ServiceTab; label: string; hint?: string }[] = [
     { key: 'overview',   label: 'Overview' },
@@ -841,7 +849,7 @@ function TabStrip({ tab, onChange, opCount }: {
     { key: 'details',    label: 'Details' },
     { key: 'infra',      label: 'Infrastructure' },
     { key: 'gitops',     label: 'GitOps' }, // v0.10.981
-    { key: 'http',       label: 'HTTP Metrics' }, // v0.10.1244
+    { key: 'http',       label: 'HTTP Metrics', hint: httpHint }, // v0.10.1244; v0.10.1429 aile rozeti
     { key: 'topology',   label: 'Topology' },
     { key: 'logs',       label: 'Logs' },
   ];

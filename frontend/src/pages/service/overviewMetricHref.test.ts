@@ -34,7 +34,9 @@ describe('Overview → Metrics tık hedefi (v0.9.794 + v0.10.370)', () => {
     const near = src.slice(i, i + 400);
     expect(near).toMatch(/onExpandClick=\{\(\) => navigate\(rtExploreHref\(\)\)\}/);
     // v0.10.512 — kapı RED'in bildiği birimi de taşır (unit:); by/metric/agg değişmez.
-    expect(src).toMatch(/const rtExploreHref = \(\) => metricsHref\(\{\s*by: 'http\.route', metric: metricName, agg: 'avg',\s*unit: metricRedQ\.data\?\.latencyUnitKnown && metricRedQ\.data\.latencyUnit \? metricRedQ\.data\.latencyUnit : undefined,\s*\}\);/);
+    // v0.10.1429 — kırılım aileden: HTTP http.route, gRPC rpc.method (routeDim).
+    expect(src).toMatch(/const routeDim = famGrpc \? 'rpc\.method' : 'http\.route';/);
+    expect(src).toMatch(/const rtExploreHref = \(\) => metricsHref\(\{\s*by: routeDim, metric: metricName, agg: 'avg',\s*unit: metricRedQ\.data\?\.latencyUnitKnown && metricRedQ\.data\.latencyUnit \? metricRedQ\.data\.latencyUnit : undefined,\s*\}\);/);
   });
 
   // v0.10.370 — operator-reported: "Overview'daki metrik grafiği artan trend
@@ -43,12 +45,12 @@ describe('Overview → Metrics tık hedefi (v0.9.794 + v0.10.370)', () => {
   // "4.63 days"). Throughput = _count + RATE; ad soruya göre çözülür
   // (v0.9.1274 dersinin kapı hâli).
   it('🔴 Throughput paneli _count adını RATE ile açar, avg ile değil', () => {
-    expect(src).toMatch(/const tputExploreHref = \(\) => metricsHref\(\{ by: 'http\.route', metric: metricTputQ\.data\?\.metric \?\? '', agg: 'rate' \}\);/);
+    expect(src).toMatch(/const tputExploreHref = \(\) => metricsHref\(\{ by: routeDim, metric: metricTputQ\.data\?\.metric \?\? '', agg: 'rate' \}\);/);
     expect(src).toMatch(/onExpandClick=\{\(\) => navigate\(tputExploreHref\(\)\)\}/);
   });
 
   it('iki panel AYNI kırılımı taşır', () => {
-    const calls = (src.match(/metricsHref\(\{\s*by: '([^']+)'/g) ?? []).map(c => c.replace(/\s+/g, ' '));
+    const calls = (src.match(/metricsHref\(\{\s*by: ([\w']+)/g) ?? []).map(c => c.replace(/\s+/g, ' '));
     expect(calls.length).toBe(2);
     expect(new Set(calls).size, 'iki panel aynı kırılımı kullanmalı').toBe(1);
   });

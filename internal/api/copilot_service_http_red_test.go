@@ -133,6 +133,15 @@ func (r *redReader) QueryPromQLRange(_ context.Context, q string, _, _ time.Time
 	return r.rate, r.rateErr
 }
 
+// v0.10.1429 — aile yoklaması: rate serisi varsa HTTP ailesi VAR (anlık sorgu
+// range sorgusu sayılmaz; qs yalnız grafik sorgularını sayar).
+func (r *redReader) QueryPromQLInstant(_ context.Context, q string, _ time.Time) ([]chstore.SpanMetricSeries, error) {
+	r.mu.Lock()
+	r.instants = append(r.instants, q)
+	r.mu.Unlock()
+	return r.rate, nil
+}
+
 func svcREDPts(from time.Time, vs ...float64) []chstore.SpanMetricPoint {
 	var out []chstore.SpanMetricPoint
 	for i, v := range vs {
@@ -199,11 +208,12 @@ func TestServiceChartSourceSelection(t *testing.T) {
 	if res.UseVM || !strings.Contains(res.Reason, "bulunamadı") || len(rd.qs) != 0 {
 		t.Errorf("histogram yok: %+v q=%v", res, rd.qs)
 	}
-	// Servisin serisi yok (ör. yalnız gRPC sunan servis) → tek yoklama sorgusu, span.
+	// Servisin serisi yok (ör. yalnız gRPC sunan servis ama gRPC histogramı da yok) →
+	// yoklama anlık sorguda (v0.10.1429 aile çözücüsü), range sorgusu YOK, span.
 	rd = full()
 	rd.rate = nil
 	res = s.readServiceHTTPRED(context.Background(), rd, true, "orders-api", "", from, to, 3600)
-	if res.UseVM || !strings.Contains(res.Reason, "serisi bu pencerede yok") || len(rd.qs) != 1 || len(res.Charts) != 0 {
+	if res.UseVM || !strings.Contains(res.Reason, "serisi bu pencerede yok") || len(rd.qs) != 0 || len(res.Charts) != 0 || len(rd.instants) != 1 {
 		t.Errorf("seri yok: %+v q=%v", res, rd.qs)
 	}
 	// Etiket okuması hatası ≠ yok.
@@ -313,7 +323,8 @@ func TestServiceHTTPREDReadOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	both := src + stripGoCommentsAPI(string(vb))
-	for _, w := range []string{"s.metricChartLabelSet(ctx, rd, mcHTTPMetric, qTo)", "s.resolveHTTPEnvScope(", "svcHTTPREDCacheKey(q.Kind, q.Query, service, envMatcher, from, to, step)", "metricChartStatsTR("} {
+	// v0.10.1429 — etiket keşfi ve ortam çözümü aile çözücüsünün içinde (red_family.go).
+	for _, w := range []string{"s.metricChartLabelSet(ctx, rd, fam.Probe, qTo)", "s.resolveServiceREDFamily(", "svcHTTPREDCacheKey(q.Kind, q.Query, service, envMatcher, from, to, step)", "metricChartStatsTR("} {
 		if !strings.Contains(both, w) {
 			t.Errorf("%q taşımalı (v0.10.1386 makinesi yeniden kullanılır)", w)
 		}

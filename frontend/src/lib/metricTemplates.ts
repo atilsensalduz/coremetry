@@ -75,7 +75,8 @@ const TEMPLATES: MetricTemplate[] = [
   },
   {
     id: 'RPC latency',
-    match: /^rpc\.(server|client)\.duration$/i,
+    // v0.10.1429 — stable semconv yazımı da (rpc.server.call.duration, s); legacy rpc.server.duration (ms).
+    match: /^rpc\.(server|client)\.(call\.)?duration$/i,
     agg: 'p99',
     unit: 'ms',
     groupBy: ['rpc.service', 'rpc.method'],

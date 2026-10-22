@@ -136,6 +136,10 @@ describe('classifyMetric — Prometheus yazımları (VM backend)', () => {
       .toBe('DB query latency');
     expect(classifyMetric(m('rpc_server_duration_seconds_bucket', 'histogram', 's'))?.id)
       .toBe('RPC latency');
+    // v0.10.1429 — iki semconv yazımı: legacy rpc.server.duration (ms) ve stable rpc.server.call.duration (s).
+    expect(classifyMetric(m('rpc.server.duration', 'histogram', 'ms'))?.id).toBe('RPC latency');
+    expect(classifyMetric(m('rpc.server.call.duration', 'histogram', 's'))?.id).toBe('RPC latency');
+    expect(classifyMetric(m('rpc_server_call_duration_seconds_bucket', 'histogram', 's'))?.id).toBe('RPC latency');
   });
 
   it('ham ad ÖNCE denenir — kayıt defterindeki Prometheus yazımları ezilmez', () => {

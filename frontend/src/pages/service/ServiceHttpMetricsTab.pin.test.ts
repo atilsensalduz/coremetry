@@ -8,7 +8,7 @@ const read = (p: string) => readFileSync(resolve(__dirname, p), 'utf8');
 describe('HTTP Metrics sekmesi', () => {
   it('Service sekme şeridinde ve render ediliyor', () => {
     const svc = read('../Service.tsx');
-    expect(svc).toContain("{ key: 'http',       label: 'HTTP Metrics' }");
+    expect(svc).toContain("{ key: 'http',       label: 'HTTP Metrics', hint: httpHint }"); // v0.10.1429 — aile rozeti (gRPC / +gRPC)
     // v0.10.1377 — env + Topbar cluster kapsamı sekmeye iner (VM ortam süzgeci).
     expect(svc).toContain("{tab === 'http' && <ServiceHttpMetricsTab service={svc} range={range} env={env} cluster={scopeCluster} />}");
   });
@@ -17,7 +17,9 @@ describe('HTTP Metrics sekmesi', () => {
     // v0.10.1352 — okuma paylaşılan kancada (endpoint sayfası da kullanır).
     // v0.10.1377 — ortam çözülene dek sorgu atılmaz (süzgeçsiz an yok).
     expect(read('ServiceHttpMetricsTab.tsx')).toContain('useHttpPromql(all, win, httpEnvScopeReady(envScope))');
-    expect(read('ServiceHttpMetricsTab.tsx')).toContain('useHttpEnvScope(env, cluster, win.to)');
+    // v0.10.1429 — aile (HTTP / gRPC) + ortam tek istekte; bölüm başına kapsam.
+    expect(read('ServiceHttpMetricsTab.tsx')).toContain('useRedFamily(service, env, cluster, win.to)');
+    expect(read('ServiceHttpMetricsTab.tsx')).toContain('sectionEnvScope(sec, fam, env, cluster)');
     expect(read('../../lib/queries/httpMetrics.ts')).toContain('api.httpMetricsPromql(');
     expect(read('../../lib/queries/httpMetrics.ts')).toContain('staleTime: 30_000');
   });
@@ -29,7 +31,7 @@ describe('HTTP Metrics Grafana paritesi', () => {
   it('stat / gauge / donut / tablo hücreleri; heatmap yok (v0.10.1258)', () => {
     expect(tab).toContain('<HttpStat label="P95 Latency"');
     expect(tab).toContain('<HttpGauge label="SLI: < 500ms"');
-    expect(tab).toContain("donut('İstek Dağılımı (Route, Top 10)'");
+    expect(tab).toContain("donut(`İstek Dağılımı (${T.RT}, Top 10)`"); // v0.10.1429 — RT: Route | Method (gRPC)
     expect(tab).toContain("donut('Status Code Dağılımı'");
     expect(tab).not.toContain('LatencyHeatmap');
     expect(tab).toContain('<GaugeCell');
@@ -49,13 +51,13 @@ describe('HTTP Metrics Grafana paritesi', () => {
 describe('HTTP Metrics etiketleri (v0.10.1352)', () => {
   const tab = read('ServiceHttpMetricsTab.tsx');
   it('route gecikme başlığı', () => {
-    expect(tab).toContain("chart('P95 gecikme (route)', 'p95ByRoute', MR, 's')");
+    expect(tab).toContain("chart(`P95 gecikme (${T.RT.toLowerCase()})`, 'p95ByRoute', MR, 's')"); // v0.10.1429 aile
     expect(tab).not.toContain('P95 Latency (Route bazında)');
   });
   it('route lejantları methodRouteLegend', () => {
-    expect(tab).toContain('const MR: LegendTpl = l => methodRouteLegend(l);');
-    expect(tab).toContain("chart('Request Rate (Route bazında)', 'rateByRoute', MR, 'req/s')");
-    expect(tab).toContain("chart('5xx Hataları (Route bazında)', 'err5ByRoute', SMR, 'req/s')");
+    expect(tab).toContain('const MR: LegendTpl = l => methodRouteLegend(l, false, family);'); // v0.10.1429 — gRPC "pkg.Service/Method"
+    expect(tab).toContain("chart(`Request Rate (${T.RT} bazında)`, 'rateByRoute', MR, 'req/s')");
+    expect(tab).toContain("chart(`${T.err5Chart} (${T.RT} bazında)`, 'err5ByRoute', SMR, 'req/s')");
     expect(tab).not.toContain("'{{http_request_method}} {{http_route}}'");
   });
 });

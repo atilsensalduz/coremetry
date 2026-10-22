@@ -21,6 +21,9 @@ export interface EndpointRef {
   /** v0.10.1359 — metrik liste satırının methodu (satır greni method+route);
    *  detay karoları bu methoda süzülür. Yoksa bugünkü tüm-method toplamı. */
   method?: string;
+  /** v0.10.1429 — metrik kipi gRPC satırı (path = rpc_method, method = rpc_service):
+   *  detay sayfası gRPC ailesinin PromQL'ini okur (`?family=grpc`). */
+  family?: 'grpc';
 }
 
 // ── /endpoint full-page detail (v0.9.839) ────────────────────────────
@@ -69,6 +72,7 @@ export function endpointDetailHref(
   p.set('path', ref.path);
   if (ref.sig) p.set('sig', '1');
   if (ref.method) p.set('method', ref.method); // v0.10.1359
+  if (ref.family === 'grpc') p.set('family', 'grpc'); // v0.10.1429
   if (scope.range) p.set('range', scope.range);
   if (scope.env) p.set('env', scope.env);
   if (scope.cluster) p.set('cluster', scope.cluster);
@@ -142,7 +146,8 @@ export function parseEndpointPageRef(search: string): EndpointRef | null {
   if (!service || !path) return null;
   // v0.10.1359 — ?method= (metrik liste satırından) yalnız varsa taşınır.
   const method = (p.get('method') ?? '').trim();
-  return { service, path, sig: p.get('sig') === '1', ...(method ? { method } : {}) };
+  const family = p.get('family') === 'grpc' ? { family: 'grpc' as const } : {}; // v0.10.1429
+  return { service, path, sig: p.get('sig') === '1', ...(method ? { method } : {}), ...family };
 }
 
 export function encodeEndpointParam(ref: EndpointRef): string {

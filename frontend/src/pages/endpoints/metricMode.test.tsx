@@ -58,7 +58,8 @@ vi.mock('@/lib/api', () => {
     httpMetricsPromql: (p: unknown) => { const c = p as PromCall; m.prom.push(c); return Promise.resolve(answer(c.query)); },
     savedViews: () => Promise.resolve([]),
     endpointDetail: () => Promise.resolve(null),
-    httpEnvScope: (p: unknown) => { m.scopeCalls.push(p); return m.gate.then(() => m.scope); },
+    // v0.10.1429 — aile çözümü sahtesi (useRedFamily): gate çözülene dek cevap gelmez; HTTP ailesi + ortam kapsamı m.scope.
+    serviceRedFamily: (svc: unknown, p: unknown) => { m.scopeCalls.push(p); return m.gate.then(() => ({ service: svc, state: 'known', primary: 'http', http: { id: 'http', kind: 'http', ...(m.scope ? { envScope: m.scope } : {}) }, tried: [] })); },
   };
   return {
     api: new Proxy({}, { get: (_t, k: string) => stub[k] ?? (() => Promise.resolve(null)) }),
@@ -103,6 +104,7 @@ async function mount(extra = '') {
     );
   });
   await settle();
+  await settle(); // v0.10.1429 — aile çözümü (serviceRedFamily) bir tur daha: PromQL sorguları ondan sonra atılır.
 }
 
 afterEach(() => {
@@ -244,29 +246,13 @@ describe('/endpoint metrik kipi: env/cluster süzgeci (v0.10.1377)', () => {
     expect(host!.textContent).toContain('Ortam süzgeci uygulanamadı (metrikte bu ortam yok: deployment_environment_name değerleri arasında "us-x" eşleşmedi) — seriler TÜM ortamları kapsıyor');
   });
 
-  it('env yok: kapsam sorulmaz, sorgular bayt bayt eski', async () => {
+  it('env yok: aile çözümü env\'siz sorulur (v0.10.1429), sorgular bayt bayt eski', async () => {
     await mount();
-    expect(m.scopeCalls).toHaveLength(0);
+    expect(m.scopeCalls).toHaveLength(1);
+    expect(m.scopeCalls[0]).toMatchObject({ env: undefined, cluster: undefined });
     expect(m.prom.length).toBeGreaterThanOrEqual(15);
+    for (const c of m.prom) expect(c.query).toContain(`{service_name="${SVC}", http_route="${ROUTE}"`);
   });
 });
 
-describe('api.httpEnvScope yolu (v0.10.1377)', () => {
-  it('/api/metrics/http-env-scope + metricsrc=vm; boş cluster gönderilmez', async () => {
-    const { api } = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
-    const urls: string[] = [];
-    const orig = globalThis.fetch;
-    globalThis.fetch = (async (u: RequestInfo | URL) => {
-      urls.push(String(u));
-      return new Response('{"label":"","source":"","terms":null,"applied":false}', { status: 200, headers: { 'Content-Type': 'application/json' } });
-    }) as typeof fetch;
-    try {
-      await api.httpEnvScope({ env: 'eu-a', cluster: undefined, to: 1_800_000_000_000_000_000 });
-    } finally { globalThis.fetch = orig; }
-    const u = new URL(urls[0], 'http://x');
-    expect(u.pathname).toBe('/api/metrics/http-env-scope');
-    expect(u.searchParams.get('metricsrc')).toBe('vm');
-    expect(u.searchParams.get('env')).toBe('eu-a');
-    expect(u.searchParams.has('cluster')).toBe(false);
-  });
-});
+// v0.10.1429 — api.httpEnvScope kaldırıldı (aile + ortam tek istekte: api.serviceRedFamily; yol redFamily.test.ts'te).

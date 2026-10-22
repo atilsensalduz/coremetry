@@ -24,19 +24,20 @@ import { fmtSmart } from '@/lib/chartFmt';
 import {
   relabel, barsOf, endpointRed, methodRouteLegend, statusCodeColorVar,
   fmtCount, fmtRatio, fmtSeconds, fmtCompact, errorRatioTone, latencyTone,
-  HTTP_LABELS, HTTP_QUANTILE_NOTE, stepSeconds, type LatQ, type LegendTpl,
+  HTTP_QUANTILE_NOTE, stepSeconds, type LatQ, type LegendTpl,
 } from '@/lib/httpMetrics';
 import type { HttpPromqlResult } from '@/lib/queries/httpMetrics';
 import type { ChartTimeRegion } from '@/lib/chart/overlays';
+import { HTTP_FAMILY, statusCodeLabel, type RedFamilySpec } from '@/lib/redFamily';
 
 const sec = (v: number | null) => fmtSeconds(v, n => fmtSmart(n, 's'));
-const MR: LegendTpl = l => methodRouteLegend(l);
-const SMR: LegendTpl = l => methodRouteLegend(l, true);
 const und = (v: number | null) => (v === null ? undefined : v);
+// v0.10.1429 — family: gRPC ailesinde lejant "pkg.Service/Method", durum etiketi rpc_grpc_status_code,
+// başlıklar "Method bazında", hata = sunucu-hatası / istemci-hatası (5xx/4xx değil). HTTP metinleri aynen.
 
 /** Metrik kipinin RED şeridi — sekmenin pencere sorgularından. */
-export function MetricREDStrip({ res, windowSec, compare, onToggleCompare }: {
-  res: HttpPromqlResult; windowSec: number; compare: boolean; onToggleCompare: () => void;
+export function MetricREDStrip({ res, windowSec, compare, onToggleCompare, family = HTTP_FAMILY }: {
+  res: HttpPromqlResult; windowSec: number; compare: boolean; onToggleCompare: () => void; family?: RedFamilySpec;
 }) {
   const d = res.data;
   const cur = endpointRed({ total: d.wTotal, err5: d.wErr5, avg: d.wAvg, p50: d.wP50, p95: d.wP95, p99: d.wP99 }, windowSec);
@@ -45,9 +46,9 @@ export function MetricREDStrip({ res, windowSec, compare, onToggleCompare }: {
   if (err) {
     return (
       <Card style={{ marginBottom: 12 }}>
-        <Empty icon="!" title="HTTP metrikleri okunamadı">
+        <Empty icon="!" title={`${family.label} metrikleri okunamadı`}>
           {err.message} — metrik kipi VictoriaMetrics'ten okur
-          (http_server_request_duration_seconds_*, HTTP Metrics sekmesiyle aynı sorgular).
+          ({family.names.count.replace(/_count$/, '_*')}, HTTP Metrics sekmesiyle aynı sorgular).
         </Empty>
       </Card>
     );
@@ -89,8 +90,9 @@ export function MetricREDStrip({ res, windowSec, compare, onToggleCompare }: {
 }
 
 /** Metrik kipinin grafikleri — sekmenin panelleri, route'a süzülü. */
-export function MetricCharts({ res, windowSec, latQ, onLatQ, regions, onZoom, onZoomReset }: {
+export function MetricCharts({ res, windowSec, latQ, onLatQ, regions, onZoom, onZoomReset, family = HTTP_FAMILY }: {
   res: HttpPromqlResult;
+  family?: RedFamilySpec;
   /** v0.10.1355 — sorgu penceresi (sn); adım = stepSeconds(windowSec), boşluk dolgusu buna göre. */
   windowSec: number;
   latQ: LatQ; onLatQ: (v: string) => void;
@@ -100,25 +102,30 @@ export function MetricCharts({ res, windowSec, latQ, onLatQ, regions, onZoom, on
 }) {
   const d = res.data;
   const common = { syncKey: 'ep-http', stepSec: stepSeconds(windowSec), regions, onZoom, onZoomReset };
+  const grpc = family.kind === 'grpc';
+  const RT = family.routeTitle;
+  const MR: LegendTpl = l => methodRouteLegend(l, false, family);
+  const SMR: LegendTpl = l => methodRouteLegend(l, true, family);
+  const statusRows = barsOf(d.statusCodes, family.labels.status, 20).map(r => (grpc ? { ...r, label: statusCodeLabel(family, r.label) } : r));
   return (
     <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', marginBottom: 12 }}>
-      <HttpChartPanel title="Request Rate (Route bazında)" unit="req/s" legendKey="ep-http:rateByRoute"
+      <HttpChartPanel title={`Request Rate (${RT} bazında)`} unit="req/s" legendKey="ep-http:rateByRoute"
         series={relabel(d.rateByRoute, MR)} loading={res.pending('rateByRoute')} {...common} />
       {/* v0.10.1354 (operatör: "5xx hataları ile latency yer değiştirsin") — yüzdelikler istek hızının yanında. */}
       <HttpChartPanel title="Latency Yüzdelikleri (p50 / p90 / p95 / p99)" unit="s" legendKey="ep-http:p50"
         series={[...relabel(d.p50, 'p50'), ...relabel(d.p90, 'p90'), ...relabel(d.p95, 'p95'), ...relabel(d.p99, 'p99')]}
         loading={res.pending('p50')} note={HTTP_QUANTILE_NOTE} {...common} />
-      <HttpChartPanel title="4xx Hataları (Route bazında)" unit="req/s" legendKey="ep-http:err4ByRoute"
+      <HttpChartPanel title={grpc ? 'İstemci Hataları (Method bazında)' : '4xx Hataları (Route bazında)'} unit="req/s" legendKey="ep-http:err4ByRoute"
         series={relabel(d.err4ByRoute, SMR)} loading={res.pending('err4ByRoute')} {...common} />
-      <HttpChartPanel title="5xx Hataları (Route bazında)" unit="req/s" legendKey="ep-http:err5ByRoute"
+      <HttpChartPanel title={grpc ? 'Sunucu Hataları (Method bazında)' : '5xx Hataları (Route bazında)'} unit="req/s" legendKey="ep-http:err5ByRoute"
         series={relabel(d.err5ByRoute, SMR)} loading={res.pending('err5ByRoute')} {...common} />
-      <HttpChartPanel title={`${latQ.toUpperCase()} gecikme (route)`} unit="s" legendKey="ep-http:latByRoute"
+      <HttpChartPanel title={`${latQ.toUpperCase()} gecikme (${RT.toLowerCase()})`} unit="s" legendKey="ep-http:latByRoute"
         series={relabel(d.latByRoute, MR)} loading={res.pending('latByRoute')}
         right={<SegmentedControl size="sm" aria-label="Gecikme yüzdeliği" value={latQ} onChange={onLatQ}
           options={[{ value: 'p50', label: 'p50' }, { value: 'p95', label: 'p95' }, { value: 'p99', label: 'p99' }]} />}
         {...common} />
-      <HttpDonutPanel title="Status Code Dağılımı" rows={barsOf(d.statusCodes, HTTP_LABELS.status, 20)}
-        loading={res.pending('statusCodes')} fmt={v => fmtCompact(v)} colorOf={statusCodeColorVar} />
+      <HttpDonutPanel title="Status Code Dağılımı" rows={statusRows}
+        loading={res.pending('statusCodes')} fmt={v => fmtCompact(v)} colorOf={code => statusCodeColorVar(code, family)} />
     </div>
   );
 }

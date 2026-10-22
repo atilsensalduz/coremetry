@@ -54,11 +54,13 @@ describe('Overview pencere sorguları = windowQueries({ app }, W)', () => {
 
   it('Overview.tsx sorguları bu yardımcıdan + sekmenin kancasından okur', () => {
     const src = readFileSync(resolve(__dirname, 'Overview.tsx'), 'utf8');
-    expect(src).toContain("import { useHttpPromql, useHttpEnvScope } from '@/lib/queries/httpMetrics';");
+    expect(src).toContain("import { useHttpPromql, useRedFamily, sectionEnvScope } from '@/lib/queries/httpMetrics';");
     // v0.10.1377 — ortam eşleyicisi geçer; çözüm gelene dek sorgu yok.
-    expect(src).toContain('overviewWindowItems(service, ovWinSec, ovWinOffsetSec, envSel)');
+    // v0.10.1429 — aile de geçer (gRPC: rpc_server_duration_* adları, ms → /1000); aile çözülene dek sorgu yok.
+    expect(src).toContain('overviewWindowItems(service, ovWinSec, ovWinOffsetSec, envSel, family)');
     expect(src).toContain('useHttpPromql(ovWinItems, { from, to }, metricMode && !!service && envReady)');
-    expect(src).toContain("useHttpEnvScope(env, '', to, metricMode && !!service)");
+    expect(src).toContain("useRedFamily(service, env, '', to, !!service && wantMetric)");
+    expect(src).toContain('const envReady = httpEnvScopeReady(envScope) && fam.ready;');
   });
 });
 

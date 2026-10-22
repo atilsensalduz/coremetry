@@ -101,20 +101,31 @@ type serviceReportHTTPChart struct {
 	Kind  string `json:"kind"`
 	Unit  string `json:"unit"`
 	Query string `json:"query"`
+	// Family — v0.10.1429: grafiğin ailesi ("grpc" yalnız gRPC sunan serviste; boş = HTTP).
+	Family string `json:"family,omitempty"`
 }
 
 // svcReportHTTPOrder — kart / kanıt sırası: operatörün istediği throughput ve
 // yanıt süresi önce, 5xx oranı (aynı histogramdan, bedava) sonra.
 var svcReportHTTPOrder = map[string]int{svcHTTPREDRate: 0, svcHTTPREDLatency: 1, svcHTTPRED5xx: 2}
 
-// svcReportHTTPLabel — SAF: kanıt satırının okunur adı.
-func svcReportHTTPLabel(kind string) string {
+// svcReportFamilyLabel — SAF: kanıt satırının okunur adı; v0.10.1429 aileye
+// göre (HTTP cümleleri bayt bayt eski; gRPC'de "5xx" yerine sunucu-hatası —
+// hata kümesi red_family.go'da pinli).
+func svcReportFamilyLabel(kind, family string) string {
+	lbl := "HTTP"
+	if family == redKindGRPC {
+		lbl = "gRPC"
+	}
 	switch kind {
 	case svcHTTPREDRate:
-		return "HTTP throughput"
+		return lbl + " throughput"
 	case svcHTTPREDLatency:
-		return "HTTP yanıt süresi"
+		return lbl + " yanıt süresi"
 	case svcHTTPRED5xx:
+		if family == redKindGRPC {
+			return "gRPC sunucu-hatası oranı"
+		}
 		return "HTTP 5xx oranı"
 	}
 	return kind
@@ -141,7 +152,11 @@ func reportHTTPCharts(res svcHTTPREDResult, views []svcHTTPREDView) ([]serviceRe
 		if !v.Drawn || v.Chart == nil {
 			continue
 		}
-		out = append(out, serviceReportHTTPChart{EvChartPayload: *v.Chart, Kind: v.Kind, Unit: v.Unit, Query: v.Query})
+		c := serviceReportHTTPChart{EvChartPayload: *v.Chart, Kind: v.Kind, Unit: v.Unit, Query: v.Query}
+		if res.Family == redKindGRPC {
+			c.Family = redKindGRPC
+		}
+		out = append(out, c)
 	}
 	if len(out) == 0 {
 		return nil, "VictoriaMetrics HTTP sorguları bu pencerede seri döndürmedi ya da okunamadı"
@@ -164,14 +179,21 @@ func renderReportHTTPTR(service string, rangeS int64, res svcHTTPREDResult, view
 		return svcReportHTTPNoteTR(res.Reason)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "HTTP GRAFİKLERİ (%s, son %s; VictoriaMetrics, ÖRNEKLENMEMİŞ — http_server_request_duration_seconds_*; adım %ds; kartta çizildi):\n",
-		service, fmtAgoTR(rangeS), res.Step)
+	if res.Family == redKindGRPC {
+		// v0.10.1429 — yalnız gRPC sunan servis: aynı bölüm, gRPC ailesi (HTTP ile toplanmadı).
+		fam := res.family()
+		fmt.Fprintf(&b, "HTTP GRAFİKLERİ (%s, son %s; VictoriaMetrics, ÖRNEKLENMEMİŞ — servis HTTP sunucu histogramı yazmıyor, gRPC sunucu histogramı %s_* çizildi; hata = %s; adım %ds; kartta çizildi):\n",
+			service, fmtAgoTR(rangeS), fam.names(), fam.errorNoteTR(), res.Step)
+	} else {
+		fmt.Fprintf(&b, "HTTP GRAFİKLERİ (%s, son %s; VictoriaMetrics, ÖRNEKLENMEMİŞ — http_server_request_duration_seconds_*; adım %ds; kartta çizildi):\n",
+			service, fmtAgoTR(rangeS), res.Step)
+	}
 	for _, nt := range res.Notes {
 		b.WriteString("Not: " + nt + ".\n")
 	}
 	drawn := 0
 	for _, v := range views {
-		label := svcReportHTTPLabel(v.Kind)
+		label := svcReportFamilyLabel(v.Kind, res.Family)
 		switch {
 		case v.Err != nil:
 			fmt.Fprintf(&b, "%s: VictoriaMetrics sorgusu OKUNAMADI (%s) — 'veri yok' DEMEK DEĞİL; sayı uydurma.\n", label, clipRunes(oneLine(v.Err.Error()), 120))
@@ -197,6 +219,9 @@ func renderReportHTTPTR(service string, rangeS int64, res svcHTTPREDResult, view
 func reportHTTPSourcesTR(charts []serviceReportHTTPChart) string {
 	if len(charts) == 0 {
 		return ""
+	}
+	if charts[0].Family == redKindGRPC {
+		return " + gRPC throughput / yanıt süresi grafikleri (VictoriaMetrics, örneklenmemiş)"
 	}
 	return " + HTTP throughput / yanıt süresi grafikleri (VictoriaMetrics, örneklenmemiş)"
 }

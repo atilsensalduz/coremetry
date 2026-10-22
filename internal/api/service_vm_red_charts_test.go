@@ -59,7 +59,7 @@ func TestServiceReportHTTPCharts(t *testing.T) {
 	cases := []struct {
 		name      string
 		isVM      bool
-		mutate    func(*redReader) metricChartReader
+		mutate    func(*redReader) redFamilyReader
 		kinds     string // kart grafiklerinin sırası
 		queries   int    // VM'e giden sorgu sayısı
 		note      string // kart notu (boş = not yok)
@@ -74,16 +74,16 @@ func TestServiceReportHTTPCharts(t *testing.T) {
 		{name: "VM yapılandırılmamış → grafik yok + dürüst not, sorgu yok", isVM: false, queries: 0, note: "VictoriaMetrics yapılandırılmamış",
 			evWant: []string{"HTTP GRAFİKLERİ: YOK", "VictoriaMetrics yapılandırılmamış", "span verisinden (örneklenmiş"}, evNot: []string{"KANIT: HTTP", "```chart"}},
 		{name: "histogram yok → grafik yok", isVM: true, queries: 0, note: "bulunamadı",
-			mutate: func(r *redReader) metricChartReader { r.labels = map[string][]string{}; return r },
+			mutate: func(r *redReader) redFamilyReader { r.labels = map[string][]string{}; return r },
 			evWant: []string{"HTTP GRAFİKLERİ: YOK", "bulunamadı"}, evNot: []string{"KANIT: HTTP"}},
-		{name: "varlık yoklaması boş (yalnız gRPC sunan servis) → tek yoklama, grafik yok", isVM: true, queries: 1, note: "serisi bu pencerede yok",
-			mutate: func(r *redReader) metricChartReader { r.rate = nil; return r },
+		{name: "varlık yoklaması boş (servisin serisi yok) → yoklama anlık sorguda (v0.10.1429), range sorgusu yok, grafik yok", isVM: true, queries: 0, note: "serisi bu pencerede yok",
+			mutate: func(r *redReader) redFamilyReader { r.rate = nil; return r },
 			evWant: []string{"HTTP GRAFİKLERİ: YOK", "serisi bu pencerede yok"}, evNot: []string{"KANIT: HTTP"}},
 		{name: "etiket okuması hatası ≠ yok", isVM: true, queries: 0, note: "okunamadı ≠ yok",
-			mutate: func(r *redReader) metricChartReader { r.labelErr = errors.New("vm down"); return r },
+			mutate: func(r *redReader) redFamilyReader { r.labelErr = errors.New("vm down"); return r },
 			evWant: []string{"HTTP GRAFİKLERİ: YOK", "okunamadı ≠ yok"}},
 		{name: "yanıt süresi sorgusu hatası → o grafik yok, OKUNAMADI cümlesi; diğerleri çizilir", isVM: true, kinds: "rate,5xx", queries: 2,
-			mutate:    func(r *redReader) metricChartReader { return latErrReader{r} },
+			mutate:    func(r *redReader) redFamilyReader { return latErrReader{r} },
 			evWant:    []string{"KANIT: HTTP throughput — req/s: min", "HTTP yanıt süresi: VictoriaMetrics sorgusu OKUNAMADI (vm: query timeout) — 'veri yok' DEMEK DEĞİL"},
 			sourcesVM: true},
 	}
@@ -91,7 +91,7 @@ func TestServiceReportHTTPCharts(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			rr := reportHTTPReader(from)
-			var rd metricChartReader = rr
+			var rd redFamilyReader = rr
 			if c.mutate != nil {
 				rd = c.mutate(rr)
 			}

@@ -59,15 +59,20 @@ type serviceMetricREDPlan struct {
 	// MCP çözer, buildServiceMetricRED SAF kalır). nil → eski yol
 	// (src.EnvFilterExpr: CH süzer, VM reddeder).
 	EnvScope *httpEnvScope
+	// Family — v0.10.1429: "" = bugünkü HTTP kimliği; "grpc" = gRPC sunucu
+	// histogramı (ilk var olan aile: rpc.server.duration ms / rpc.server.call.duration s).
+	// Overview, aile çözücüsü (GET /red-family) gRPC derse bunu geçer.
+	Family string
 }
 
 // v0.10.1350 — v2: zarf statusState/statusReason taşır, hata veri güdümlü.
 // v0.10.1377 — v3: VM'de env canlı değerlere çözülüp süzülür; zarf envScope
 // taşır. lm = LabelMap'in env/cluster etiketlerinin özeti (Settings'te etiket
 // değişirse eski süzgeç servis edilmesin); CH'de "-".
+// v0.10.1429 — v4: aile anahtarda (fam=); zarf family/familyId/routeLabel taşır.
 func serviceMetricREDKey(p serviceMetricREDPlan, srcName, mx, lm string) string {
-	return fmt.Sprintf("svc-metric-red:v3:src=%s:%s:%s:mdp%d:rw%d:env=%s:mx=%s:lm=%s",
-		srcName, p.Service, cacheBucket(p.From, p.To), p.Mdp, p.RateWin, p.Env, mx, lm)
+	return fmt.Sprintf("svc-metric-red:v4:src=%s:%s:%s:mdp%d:rw%d:env=%s:mx=%s:lm=%s:fam=%s",
+		srcName, p.Service, cacheBucket(p.From, p.To), p.Mdp, p.RateWin, p.Env, mx, lm, p.Family)
 }
 
 // serviceMetricREDLabelDigest — v0.10.1377: anahtarın lm bileşeni.
@@ -85,11 +90,24 @@ func serviceMetricREDLabelDigest(src metricSource) string {
 // süzülür, "ikili hâl" yok). CH kaynağı ya da boş env → nil (eski yol).
 // Okuma hatası → Failed kapsamı (süzgeç uygulanmaz, not söyler).
 func (s *Server) serviceMetricREDEnvScope(ctx context.Context, src metricSource, env string, to time.Time) *httpEnvScope {
+	return s.serviceMetricREDEnvScopeFor(ctx, src, env, to, "")
+}
+
+// serviceMetricREDEnvScopeFor — v0.10.1429: metric "" = HTTP histogramı (bayt
+// bayt eski); gRPC kimliğinde o ailenin metriği (ortam etiketi ve canlı
+// değerleri kendi serilerinden).
+func (s *Server) serviceMetricREDEnvScopeFor(ctx context.Context, src metricSource, env string, to time.Time, metric string) *httpEnvScope {
 	r, ok := src.(httpEnvLabelReader)
 	if !ok || strings.TrimSpace(env) == "" {
 		return nil
 	}
-	sc, err := s.resolveHTTPEnvScope(ctx, r, map[string]string{"env": env}, to)
+	var sc httpEnvScope
+	var err error
+	if metric == "" {
+		sc, err = s.resolveHTTPEnvScope(ctx, r, map[string]string{"env": env}, to)
+	} else {
+		sc, err = s.resolveMetricEnvScope(ctx, r, metric, map[string]string{"env": env}, to)
+	}
 	if err != nil {
 		f := httpEnvScopeFailed(err)
 		return &f
@@ -120,6 +138,12 @@ type serviceMetricREDResponse struct {
 	Partial          []string                              `json:"partial,omitempty"`
 	Note             string                                `json:"note"`
 	Series           map[string][]chstore.SpanMetricSeries `json:"series"`
+	// v0.10.1429 — aile: "http" | "grpc"; FamilyID katalog kimliği; RouteLabel
+	// route eşdeğeri OTel anahtarı (http.route / rpc.method — Overview'ın
+	// route kırılımı buna göre). Boş = eski gövde = HTTP.
+	Family     string `json:"family,omitempty"`
+	FamilyID   string `json:"familyId,omitempty"`
+	RouteLabel string `json:"routeLabel,omitempty"`
 }
 
 // seriesStep — noktalar arası en küçük pozitif aralık (sn); tek nokta → 0.
@@ -224,6 +248,31 @@ type httpMetricIdentity struct {
 	Filters    []chstore.FilterExpr
 	MatchedBy  string
 	Tried      []string
+	// Family — v0.10.1429: nil = HTTP (durum anahtarları httpStatusKeyCandidates,
+	// hata isHTTP5xx); gRPC kimliğinde ailenin anahtarları ve hata kümesi.
+	Family *redFamily
+}
+
+// grpcMetricIdentity — v0.10.1429: /metric-red?family=grpc kimliği — ilk var
+// olan gRPC ailesi (VM'de tam taban, CH'de OTel adı), servis service_name ile,
+// instrument histogram (kaynak başka derse o). Yoksa ok=false + denenenler.
+func grpcMetricIdentity(ctx context.Context, src metricSource, service string) (httpMetricIdentity, bool) {
+	fam, name, ok, tried := redFamilyIdentity(ctx, src)
+	id := httpMetricIdentity{Service: service, MatchedBy: "service_name", Tried: tried}
+	if !ok {
+		return id, false
+	}
+	f := fam
+	id.Family, id.Metric, id.RTMetric = &f, name, src.LatencyMetricName(name)
+	id.MatchedBy = "family:" + fam.ID
+	id.Instrument = src.MetricInstrument(ctx, name, service)
+	if id.Instrument == "" {
+		id.Instrument = src.MetricInstrument(ctx, name, "")
+	}
+	if id.Instrument == "" {
+		id.Instrument = "histogram" // OTel rpc.server.* histogramdır; kaynak susarsa sözleşme
+	}
+	return id, true
 }
 
 func (s *Server) httpMetricIdentity(ctx context.Context, src metricSource, service, env string) (httpMetricIdentity, bool) {
@@ -285,6 +334,12 @@ func buildServiceMetricRED(ctx context.Context, src metricSource, id httpMetricI
 		MetricExists: true,
 		Series:       map[string][]chstore.SpanMetricSeries{},
 	}
+	// v0.10.1429 — aile: durum anahtarları ve hata kümesi aileden (HTTP bayt bayt eski).
+	fam := redFamilies[0]
+	if id.Family != nil {
+		fam = *id.Family
+		resp.Family, resp.FamilyID, resp.RouteLabel = fam.Kind, fam.ID, fam.RouteKey
+	}
 	base := chstore.MetricQueryFilter{
 		Name: id.Metric, Service: id.Service, Filters: id.Filters,
 		From: p.From, To: p.To, MaxDataPoints: p.Mdp, RateWindowSec: p.RateWin,
@@ -320,11 +375,11 @@ func buildServiceMetricRED(ctx context.Context, src metricSource, id httpMetricI
 	// v0.10.1350 — veri güdümlü durum yoklaması (http_labels.go): rate
 	// sorgusu durum adayıyla gruplanır; rate = durumların toplamı, hata =
 	// 5xx serileri. Ayrı 5xx sorgusu ve 7 günlük etiket taraması yok.
-	probe := probeStatusLabel(func(key string) ([]chstore.SpanMetricSeries, error) {
+	probe := probeStatusLabelKeys(func(key string) ([]chstore.SpanMetricSeries, error) {
 		f := base
 		f.GroupBy = []string{key}
 		return statusRowsChecked(rate(ctx, f, "rate"))
-	}, 0)
+	}, 0, fam.StatusKeys)
 	resp.StatusState, resp.StatusKey = probe.State, probe.Key
 	resp.ErrorsUnknown = probe.State != statusLabelPresent
 	byStatus := probe.Series
@@ -344,7 +399,7 @@ func buildServiceMetricRED(ctx context.Context, src metricSource, id httpMetricI
 	if probe.State == statusLabelPresent {
 		var errSer []chstore.SpanMetricSeries
 		for _, sr := range byStatus {
-			if len(sr.GroupKey) > 0 && isHTTP5xx(sr.GroupKey[0]) {
+			if len(sr.GroupKey) > 0 && fam.IsServerError(sr.GroupKey[0]) {
 				errSer = append(errSer, sr)
 			}
 		}
@@ -380,7 +435,11 @@ func serviceMetricREDNote(r serviceMetricREDResponse) string {
 		return b.String()
 	}
 	fmt.Fprintf(&b, " — %s, kimlik %s.", r.Metric, r.MatchedBy)
-	b.WriteString(statusLabelNote(r.StatusState, r.StatusKey, r.StatusReason, r.Source, "Failure rate", ""))
+	fam, _ := redFamilyByID(r.FamilyID) // v0.10.1429 — boş/bilinmeyen → HTTP (eski cümleler)
+	if r.Family == redKindGRPC {
+		b.WriteString(" Aile: gRPC sunucu histogramı (servis HTTP sunucu histogramı yazmıyor); route kırılımı rpc.method.")
+	}
+	b.WriteString(statusLabelNoteFamily(r.StatusState, r.StatusKey, r.StatusReason, r.Source, "Failure rate", "", fam))
 	if r.LatencyUnitKnown {
 		// v0.10.1360 — grafik = adım serisi, karo = pencere değeri (Overview
 		// karoları artık HTTP Metrics'in windowQueries'inden okur).
@@ -439,6 +498,10 @@ func (s *Server) getServiceMetricRED(w http.ResponseWriter, r *http.Request) {
 		rateWin = 600
 	}
 	p := serviceMetricREDPlan{Service: name, From: from, To: to, Mdp: mdp, RateWin: rateWin, Env: strings.TrimSpace(r.URL.Query().Get("env"))}
+	// v0.10.1429 — ?family=grpc: gRPC sunucu histogramı kimliği; başka değer yok sayılır (400 değil).
+	if r.URL.Query().Get("family") == redKindGRPC {
+		p.Family = redKindGRPC
+	}
 	src, err := s.metricSourceFor(r)
 	if err != nil {
 		writeErr(w, err)
@@ -447,15 +510,28 @@ func (s *Server) getServiceMetricRED(w http.ResponseWriter, r *http.Request) {
 	mx := s.store.MetricExclusions().Digest()
 	key := serviceMetricREDKey(p, src.Name(), mx, serviceMetricREDLabelDigest(src))
 	s.serveCached(w, r, key, 30*time.Second, func(ctx context.Context) (any, error) {
-		id, ok := s.httpMetricIdentity(ctx, src, name, p.Env)
+		var id httpMetricIdentity
+		var ok bool
+		if p.Family == redKindGRPC {
+			id, ok = grpcMetricIdentity(ctx, src, name)
+		} else {
+			id, ok = s.httpMetricIdentity(ctx, src, name, p.Env)
+		}
 		if !ok {
 			resp := serviceMetricREDResponse{Service: name, Source: src.Name(), Tried: id.Tried, Series: map[string][]chstore.SpanMetricSeries{}}
+			if p.Family == redKindGRPC {
+				resp.Family = redKindGRPC
+			}
 			resp.Note = serviceMetricREDNote(resp)
 			return resp, nil
 		}
 		// v0.10.1377 — closure'ın kendi ctx'i (SWR tazelemesi istek bağlamına bağlanmaz).
 		pp := p
-		pp.EnvScope = s.serviceMetricREDEnvScope(ctx, src, p.Env, p.To)
+		if id.Family != nil {
+			pp.EnvScope = s.serviceMetricREDEnvScopeFor(ctx, src, p.Env, p.To, id.Family.Probe) // v0.10.1429 — ailenin metriği
+		} else {
+			pp.EnvScope = s.serviceMetricREDEnvScope(ctx, src, p.Env, p.To)
+		}
 		return buildServiceMetricRED(ctx, src, id, pp)
 	})
 }

@@ -185,8 +185,13 @@ func withEnvFilter(f chstore.MetricQueryFilter, env string, src metricSource) ch
 // breakdownGroupBy — panelin kırılım seçenekleri. Yalnız bilinen değerler:
 // keyfi attr'a açmak yüksek-kardinalite kapısı olurdu.
 func breakdownGroupBy(breakdown string) []string {
-	if breakdown == "route" {
+	switch breakdown {
+	case "route":
 		return []string{"http.route"}
+	case "rpc_method":
+		// v0.10.1429 — gRPC ailesinin route eşdeğeri (rpc.service sabit önek;
+		// kardinalite method sayısı kadar).
+		return []string{"rpc.method"}
 	}
 	return nil
 }
@@ -224,7 +229,7 @@ func (s *Server) getServiceMetricThroughput(w http.ResponseWriter, r *http.Reque
 	// en çok 600 sn (Grafana referansı [3m]@1s). step bilinmiyorsa
 	// (auto) 180 sn.
 	breakdown := strings.TrimSpace(r.URL.Query().Get("breakdown"))
-	if breakdown != "" && breakdown != "route" {
+	if breakdown != "" && breakdown != "route" && breakdown != "rpc_method" {
 		breakdown = "" // bilinmeyen kırılım sessizce kapalı — 400 değil
 	}
 	rateWin, _ := strconv.Atoi(r.URL.Query().Get("rateWindow"))
@@ -252,6 +257,17 @@ func (s *Server) getServiceMetricThroughput(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		writeErr(w, err)
 		return
+	}
+	// v0.10.1429 — ?family=grpc (Overview, aile çözücüsü gRPC dediğinde): ad
+	// açık istek gibi ilk VAR OLAN gRPC ailesine oturur (VM'de tam taban —
+	// ms ↔ s aileleri tek alternasyonda toplanmaz); hiçbiri yoksa ilk ailenin
+	// adıyla "metrik yok" + denenenler. ?metric= verilmişse o kazanır.
+	if metric == "" && strings.TrimSpace(r.URL.Query().Get("family")) == redKindGRPC {
+		if _, name, ok, tried := redFamilyIdentity(r.Context(), src); ok {
+			metric = name
+		} else if len(tried) > 0 {
+			metric = tried[0]
+		}
 	}
 
 	// mx: dışlama seti özeti — seri QueryMetricRate'ten geliyor ve o yol

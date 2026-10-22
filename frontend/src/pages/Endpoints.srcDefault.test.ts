@@ -18,7 +18,10 @@ describe('endpoints source defaults (v0.10.454 + v0.10.788)', () => {
     expect(list).toContain("const metricMode = src === 'metric';");
     expect(list).toContain('}, !metricMode);');
     // v0.10.1377 — env/cluster seçiliyse ortam eşleyicisi çözülene dek bekler.
-    expect(list).toContain('const metricRes = useHttpPromql(metricItems, { from, to }, metricMode && !!service && httpEnvScopeReady(envScope));');
+    // v0.10.1429 — aile (HTTP / gRPC) çözülene dek de bekler; gRPC satırları ayrı okuma (toplanmaz).
+    expect(list).toContain('const metricOn = metricMode && !!service && fam.ready && httpEnvScopeReady(envScope);');
+    expect(list).toContain('const metricRes = useHttpPromql(metricItems, { from, to }, metricOn);');
+    expect(list).toContain('const grpcRes = useHttpPromql(grpcItems, { from, to }, metricOn);');
   });
   it('detail page defaults to metric, ?src=span forces span, rpc entries stay span', () => {
     expect(detail).toContain("params.get('src') === 'span' || entry ? 'span' : 'metric'");
@@ -26,7 +29,7 @@ describe('endpoints source defaults (v0.10.454 + v0.10.788)', () => {
     // şerit + grafikler sekmenin PromQL'i (useHttpPromql, yalnız metrikte).
     expect(detail).toContain("useEndpoints(refObj && detailSrc === 'span' ? {");
     expect(detail).toContain("}, detailSrc === 'span');");
-    expect(detail).toContain("useHttpPromql(httpItems, { from, to }, detailSrc === 'metric' && !!refObj && httpEnvScopeReady(envScope))");
+    expect(detail).toContain("useHttpPromql(httpItems, { from, to }, detailSrc === 'metric' && !!refObj && fam.ready && httpEnvScopeReady(envScope))"); // v0.10.1429 aile
     expect(detail).toContain('<option value="metric">Kaynak: metrik</option>');
     // v0.10.1350 → v0.10.1352 (operatör bildirimi) — metrik kipinde TÜM RED
     // karoları ve grafikler VM'den (sekmenin sorguları); alt bölümler span.

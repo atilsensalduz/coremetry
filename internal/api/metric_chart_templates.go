@@ -189,7 +189,11 @@ type metricChartQueryInput struct {
 	EnvMatcher  string // resolveHTTPEnvScope matcher'ı; "" = süzgeç yok
 	By          []string
 	StatusLabel string // yalnız {sel5xx} taşıyan ifade
-	WinS        int
+	// ErrMatch — v0.10.1429: {sel5xx}'in durum regex gövdesi; boş = "5.."
+	// (HTTP, bayt bayt eski). gRPC ailesi sunucu-hatası kodlarını verir
+	// (red_family.go grpcServerFaultMatch).
+	ErrMatch string
+	WinS     int
 }
 
 // metricChartSelector — SAF: `{__name__…, svc="…", env…, sabit}`.
@@ -221,7 +225,11 @@ func buildMetricChartPromQL(in metricChartQueryInput) string {
 	}
 	sel5xx := ""
 	if in.StatusLabel != "" {
-		sel5xx = metricChartSelector(in, in.StatusLabel+`=~"5.."`)
+		m := in.ErrMatch
+		if m == "" {
+			m = httpServerFaultMatch
+		}
+		sel5xx = metricChartSelector(in, in.StatusLabel+`=~"`+m+`"`)
 	}
 	q := strings.NewReplacer(
 		"{sel5xx}", sel5xx,

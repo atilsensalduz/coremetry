@@ -213,6 +213,11 @@ var ThroughputMetricCandidates = []string{
 	"http.server.requests",                       // Micrometer/Spring (counter)
 	"http_server_request_duration_seconds_count", // Prometheus çevirisi
 	"http_server_requests_seconds_count",         // Micrometer → Prometheus
+	// v0.10.1429 — HTTP'den SONRA gRPC sunucu histogramları (yalnız gRPC sunan
+	// filo; HTTP varken sıra değişmez). Legacy ms ailesi stable s ailesinden
+	// önce; ikisi ayrı ad, tek sorguda birleşmez (internal/api/red_family.go).
+	"rpc.server.duration",      // OTel semconv eski (ms, histogram) — rpc_server_duration_milliseconds_*
+	"rpc.server.call.duration", // OTel semconv stable (s, histogram) — rpc_server_call_duration_seconds_*
 }
 
 // EnvValueRegex — ortam değeri deseni.

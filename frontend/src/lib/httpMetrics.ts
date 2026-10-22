@@ -10,9 +10,18 @@
 //   $__rate_interval→ rateWindow(step)
 //   $__range        → pencere saniyesi (range sorgusunun SON noktası okunur)
 import type { SpanMetricSeries } from './types';
+import { HTTP_FAMILY, statusClassOf, statusClassToken, statusCodeLabel, type RedFamilySpec } from './redFamily';
 
 export interface HttpScope {
   app: string; route?: string; method?: string;
+  /**
+   * v0.10.1429 — RED ailesi (lib/redFamily.ts). Yoksa HTTP_FAMILY: her üretici
+   * bugünküyle BAYT BAYT aynı (altın dosyalar). gRPC ailesinde yalnız
+   * __name__ (rpc_server_duration_milliseconds_* / rpc_server_call_duration_
+   * seconds_*), etiketler (rpc_method / rpc_service / rpc_grpc_status_code),
+   * hata kümesi ve ms ölçeği (/1000) değişir; ifade gövdeleri aynı.
+   */
+  family?: RedFamilySpec;
   /** v0.10.1352 — route REGEX (`=~`, VM tam-çapalı); şekil kipi (`/users/:id`). route'u ezer. */
   routeRe?: string;
   /**
@@ -35,9 +44,23 @@ export const HTTP_LABELS = {
   status: 'http_response_status_code',
 } as const;
 const L = HTTP_LABELS;
-const ST5 = `${L.status}=~"5.."`;
 const ST4 = `${L.status}=~"4.."`;
 const ST5C = `${L.status}=~"5..|"`; // downstream: bağlantı hatası (boş kod) da hata
+
+// v0.10.1429 — aile yardımcıları. famOf(scope) → HTTP varsayılanı; st5/st4
+// ailenin hata kümeleri; scaleS ms ailesinde gecikme ifadesini saniyeye
+// böler (karolar/eşikler/tablolar hep saniye okur, ölçek ailenin BEYAN
+// ETTİĞİ birimden).
+export const famOf = (s: Pick<HttpScope, 'family'> | undefined): RedFamilySpec => s?.family ?? HTTP_FAMILY;
+const st5 = (F: RedFamilySpec) => `${F.labels.status}=~"${F.serverErr}"`;
+const st4 = (F: RedFamilySpec) => `${F.labels.status}=~"${F.clientErr}"`;
+const scaleS = (F: RedFamilySpec, expr: string) => (F.unit === 'ms' ? `(${expr}) / 1000` : expr);
+/** Durum sınıfı ifadesi: HTTP `${1}xx` (bayt bayt eski); gRPC ok | client | server (kod kümeleri). */
+function statusClassExpr(F: RedFamilySpec, inner: string, by = ''): string {
+  const st = F.labels.status;
+  if (F.kind === 'http') return `sum by (${by}cls) (label_replace(${inner}, "cls", "\${1}xx", "${st}", "([0-9]).*"))`;
+  return `sum by (${by}cls) (label_replace(label_replace(label_replace(${inner}, "cls", "ok", "${st}", "^0$"), "cls", "client", "${st}", "^(${F.clientErr})$"), "cls", "server", "${st}", "^(${F.serverErr})$"))`;
+}
 
 /** PromQL dize kaçışı (" ve \). */
 export function promStr(v: string): string {
@@ -46,11 +69,12 @@ export function promStr(v: string): string {
 
 /** Inbound seçici: service_name + isteğe bağlı ortam (v0.10.1377) + route/method. */
 export function serverSel(s: HttpScope, extra = ''): string {
-  const parts = [`${L.service}=${promStr(s.app)}`];
+  const FL = famOf(s).labels; // v0.10.1429 — aile etiketleri (HTTP: HTTP_LABELS)
+  const parts = [`${FL.service}=${promStr(s.app)}`];
   if (s.envSel) parts.push(s.envSel);
-  if (s.routeRe !== undefined) parts.push(`${L.route}=~${promStr(s.routeRe)}`);
-  else if (s.route) parts.push(`${L.route}=${promStr(s.route)}`);
-  if (s.method) parts.push(`${L.method}=${promStr(s.method)}`);
+  if (s.routeRe !== undefined) parts.push(`${FL.route}=~${promStr(s.routeRe)}`);
+  else if (s.route) parts.push(`${FL.route}=${promStr(s.route)}`);
+  if (s.method) parts.push(`${FL.method}=${promStr(s.method)}`);
   if (extra) parts.push(extra);
   return `{${parts.join(', ')}}`;
 }
@@ -72,9 +96,6 @@ export function rateWindow(windowSec: number): string {
   return `${Math.max(60, 4 * stepSeconds(windowSec))}s`;
 }
 
-const SC = 'http_server_request_duration_seconds_count';
-const SB = 'http_server_request_duration_seconds_bucket';
-const SS = 'http_server_request_duration_seconds_sum';
 const CC = 'http_client_request_duration_seconds_count';
 const CB = 'http_client_request_duration_seconds_bucket';
 const CS = 'http_client_request_duration_seconds_sum';
@@ -100,7 +121,8 @@ function winInc(s: HttpScope, windowSec: number, m: string, extra = '', offsetSe
  */
 export function quantileQuery(s: HttpScope, windowSec: number, p: number, by = ''): string {
   const R = rateWindow(windowSec);
-  return `histogram_quantile(${p}, sum by (le${by ? ', ' + by : ''}) (rate(${SB}${serverSel(s)}[${R}])))`;
+  const F = famOf(s);
+  return scaleS(F, `histogram_quantile(${p}, sum by (le${by ? ', ' + by : ''}) (rate(${F.names.bucket}${serverSel(s)}[${R}])))`);
 }
 
 export interface HttpWindowQueries {
@@ -116,16 +138,18 @@ export interface HttpWindowQueries {
  * DEĞİL). offsetSec > 0 → aynı sorgular bir önceki pencere için (compare).
  */
 export function windowQueries(s: HttpScope, windowSec: number, by = '', offsetSec = 0): HttpWindowQueries {
+  const F = famOf(s);
+  const { count: SC, bucket: SB, sum: SS } = F.names;
   const inc = (m: string, x = '') => winInc(s, windowSec, m, x, offsetSec);
   const agg = (x: string) => (by ? `sum by (${by}) (${x})` : `sum(${x})`);
-  const qt = (p: number) => `histogram_quantile(${p}, sum by (le${by ? ', ' + by : ''}) (${inc(SB)}))`;
+  const qt = (p: number) => scaleS(F, `histogram_quantile(${p}, sum by (le${by ? ', ' + by : ''}) (${inc(SB)}))`);
   const ratio = (st: string) => `(${agg(inc(SC, st))} or (0 * ${agg(inc(SC))})) / ${agg(inc(SC))}`;
   return {
     total: agg(inc(SC)),
-    err5Count: `${agg(inc(SC, ST5))} or (0 * ${agg(inc(SC))})`,
-    avg: `${agg(inc(SS))} / ${agg(inc(SC))}`,
+    err5Count: `${agg(inc(SC, st5(F)))} or (0 * ${agg(inc(SC))})`,
+    avg: scaleS(F, `${agg(inc(SS))} / ${agg(inc(SC))}`),
     p50: qt(0.5), p95: qt(0.95), p99: qt(0.99),
-    err5: ratio(ST5), err4: ratio(ST4),
+    err5: ratio(st5(F)), err4: ratio(st4(F)),
   };
 }
 
@@ -133,6 +157,11 @@ export function windowQueries(s: HttpScope, windowSec: number, by = '', offsetSe
 export function httpQueries(s: HttpScope, windowSec: number): Record<string, string> {
   const R = rateWindow(windowSec);
   const W = windowRange(windowSec);
+  const F = famOf(s); // v0.10.1429 — aile (HTTP: bayt bayt eski)
+  const { count: SC, bucket: SB } = F.names;
+  const FL = F.labels;
+  const ST5 = st5(F);
+  const ST4 = st4(F);
   const sel = (x = '') => serverSel(s, x);
   const csel = (x = '') => clientSel(s, x);
   const rate = (m: string, x = '') => `rate(${m}${sel(x)}[${R}])`;
@@ -140,7 +169,7 @@ export function httpQueries(s: HttpScope, windowSec: number): Record<string, str
   const cinc = (m: string, x = '') => `increase(${m}${csel(x)}[${W}])`;
   const q = (p: number) => quantileQuery(s, windowSec, p);
   const cq = (p: number, by = 'le') => `histogram_quantile(${p}, sum by (${by}) (${crate(CB)}))`;
-  const byMR = `${L.method}, ${L.route}`;
+  const byMR = `${FL.method}, ${FL.route}`;
   const byDM = `server_address, ${L.method}`;
   const tw = windowQueries(s, windowSec, byMR);
   return {
@@ -150,18 +179,18 @@ export function httpQueries(s: HttpScope, windowSec: number): Record<string, str
     err5: `(sum(${rate(SC, ST5)}) or vector(0)) / sum(${rate(SC)})`,
     err4: `(sum(${rate(SC, ST4)}) or vector(0)) / sum(${rate(SC)})`,
     p95: q(0.95),
-    sli: `sum(${rate(SB, 'le="0.5"')}) / sum(${rate(SC)})`,
+    sli: `sum(${rate(SB, `le="${F.sliLe}"`)}) / sum(${rate(SC)})`,
     // Trafik
     rateByRoute: `sum by (${byMR}) (${rate(SC)})`,
-    topRoutes: `topk(10, sum by (${L.route}) (${winInc(s, windowSec, SC)}))`,
-    statusClass: `sum by (cls) (label_replace(${rate(SC)}, "cls", "\${1}xx", "${L.status}", "([0-9]).*"))`,
-    statusCodes: `sum by (${L.status}) (${winInc(s, windowSec, SC)})`,
+    topRoutes: `topk(10, sum by (${FL.route}) (${winInc(s, windowSec, SC)}))`,
+    statusClass: statusClassExpr(F, rate(SC)),
+    statusCodes: `sum by (${FL.status}) (${winInc(s, windowSec, SC)})`,
     // Gecikme
     p50: q(0.5), p90: q(0.9), p99: q(0.99),
     p95ByRoute: quantileQuery(s, windowSec, 0.95, byMR),
     // Hatalar
-    err5ByRoute: `sum by (${L.route}, ${L.method}, ${L.status}) (${rate(SC, ST5)}) > 0`,
-    err4ByRoute: `sum by (${L.route}, ${L.method}, ${L.status}) (${rate(SC, ST4)}) > 0`,
+    err5ByRoute: `sum by (${FL.route}, ${FL.method}, ${FL.status}) (${rate(SC, ST5)}) > 0`,
+    err4ByRoute: `sum by (${FL.route}, ${FL.method}, ${FL.status}) (${rate(SC, ST4)}) > 0`,
     // Endpoint özeti
     tRps: `sum by (${byMR}) (rate(${SC}${sel()}[5m]))`, // panodaki gibi [5m]
     tTotal: tw.total, tAvg: tw.avg, tP95: tw.p95, tP99: tw.p99, tErr5: tw.err5, tErr4: tw.err4,
@@ -271,13 +300,13 @@ export function mergeTable(
 }
 
 /** Route/method seçenekleri route-bazlı rate serisinden (ek sorgu yok). */
-export function filterOptions(series: SpanMetricSeries[] | null | undefined): { routes: string[]; methods: string[] } {
+export function filterOptions(series: SpanMetricSeries[] | null | undefined, family: RedFamilySpec = HTTP_FAMILY): { routes: string[]; methods: string[] } {
   const routes = new Set<string>();
   const methods = new Set<string>();
   for (const s of series ?? []) {
     const l = seriesLabels(s);
-    const r = l[L.route];
-    const m = l[L.method];
+    const r = l[family.labels.route];
+    const m = l[family.labels.method];
     if (r && r !== 'none') routes.add(r);
     if (m) methods.add(m);
   }
@@ -392,26 +421,31 @@ export const HTTP_INSTANT_IDS: ReadonlySet<string> = new Set([
 // v0.10.1253 (operatör: Overview'da "Failure rate · metrik" yerine HTTP
 // status; yalnız sınıflar değil kodlar) — status KODU başına istek hızı.
 // v0.10.1377 — envSel: Overview'ın ortam eşleyicisi (yoksa bayt bayt eski sorgu).
-export function statusCodeRateQuery(app: string, windowSec: number, envSel?: string): string {
-  return `sum by (${L.status}) (rate(${SC}${serverSel({ app, envSel })}[${rateWindow(windowSec)}]))`;
+// v0.10.1429 — family: gRPC ailesinde rpc_grpc_status_code (kodlar 0..16).
+export function statusCodeRateQuery(app: string, windowSec: number, envSel?: string, family: RedFamilySpec = HTTP_FAMILY): string {
+  return `sum by (${family.labels.status}) (rate(${family.names.count}${serverSel({ app, envSel, family })}[${rateWindow(windowSec)}]))`;
 }
 
-/** Kod serileri: ad = kod, sıra 2xx→5xx (kod artan); renk tokenı sınıftan. */
-export function statusCodeSeries(series: SpanMetricSeries[] | null | undefined): { series: SpanMetricSeries[]; tokens: Map<string, string> } {
-  const out = relabel(series, `{{${L.status}}}`)
+/** Kod serileri: ad = kod, sıra 2xx→5xx (kod artan); renk tokenı sınıftan. gRPC (v0.10.1429): ad "14 UNAVAILABLE", sıra sayısal, renk ok/client/server sınıfından. */
+export function statusCodeSeries(series: SpanMetricSeries[] | null | undefined, family: RedFamilySpec = HTTP_FAMILY): { series: SpanMetricSeries[]; tokens: Map<string, string> } {
+  const grpc = family.kind === 'grpc';
+  const codes = relabel(series, `{{${family.labels.status}}}`)
     .filter(s => s.groupKey[0] && s.groupKey[0] !== '—')
-    .sort((a, b) => a.groupKey[0].localeCompare(b.groupKey[0]));
+    .sort((a, b) => (grpc ? Number(a.groupKey[0]) - Number(b.groupKey[0]) : a.groupKey[0].localeCompare(b.groupKey[0])));
   const tokens = new Map<string, string>();
-  for (const s of out) {
-    const tok = HTTP_SERIES_TOKENS[`${s.groupKey[0].charAt(0)}xx`];
-    if (tok) tokens.set(s.groupKey[0], tok);
-  }
+  const out = codes.map(s => {
+    const code = s.groupKey[0];
+    const name = statusCodeLabel(family, code);
+    const tok = HTTP_SERIES_TOKENS[statusClassToken(statusClassOf(family, code))];
+    if (tok) tokens.set(name, tok);
+    return grpc ? { ...s, groupKey: [name] } : s;
+  });
   return { series: out, tokens };
 }
 
 // v0.10.1259 — Overview "Toplam istek" karosu: penceredeki toplam (anlık sorgu).
-export function totalRequestsQuery(app: string, windowSec: number, envSel?: string): string {
-  return `sum(increase(${SC}${serverSel({ app, envSel })}[${Math.max(60, Math.round(windowSec))}s]))`;
+export function totalRequestsQuery(app: string, windowSec: number, envSel?: string, family: RedFamilySpec = HTTP_FAMILY): string {
+  return `sum(increase(${family.names.count}${serverSel({ app, envSel, family })}[${Math.max(60, Math.round(windowSec))}s]))`;
 }
 
 // ── v0.10.1352 — endpoint sayfası metrik kipi = HTTP Metrics sekmesinin
@@ -421,16 +455,23 @@ export function totalRequestsQuery(app: string, windowSec: number, envSel?: stri
 // başına yüzdelik + çağrı-ağırlıklı karo ortalaması) okuyordu; sekmeyle
 // tutmuyordu.
 
-/** Lejant: "GET /a"; route etiketi yoksa "GET (route yok)" (çıplak "GET" değil). */
-export function methodRouteLegend(labels: Record<string, string>, withStatus = false): string {
-  const route = labels[L.route] ? labels[L.route] : '(route yok)';
-  return [withStatus ? labels[L.status] : '', labels[L.method] ?? '', route]
+/** Lejant: "GET /a"; route etiketi yoksa "GET (route yok)" (çıplak "GET" değil). gRPC (v0.10.1429): "pkg.Service/Method". */
+export function methodRouteLegend(labels: Record<string, string>, withStatus = false, family: RedFamilySpec = HTTP_FAMILY): string {
+  const FL = family.labels;
+  if (family.kind === 'grpc') {
+    const svc = labels[FL.method] ?? '';
+    const m = labels[FL.route] ? labels[FL.route] : '(method yok)';
+    const call = svc ? `${svc}/${m}` : m;
+    return [withStatus ? statusCodeLabel(family, labels[FL.status] ?? '') : '', call].filter(Boolean).join(' ');
+  }
+  const route = labels[FL.route] ? labels[FL.route] : '(route yok)';
+  return [withStatus ? labels[FL.status] : '', labels[FL.method] ?? '', route]
     .filter(Boolean).join(' ');
 }
 
-/** Kod → sınıf rengi (`var(--ok)` …); bilinmeyen sınıf → undefined. */
-export function statusCodeColorVar(code: string): string | undefined {
-  const tok = HTTP_SERIES_TOKENS[`${code.charAt(0)}xx`];
+/** Kod → sınıf rengi (`var(--ok)` …); bilinmeyen sınıf → undefined. gRPC: ok/client/server sınıfından (v0.10.1429). */
+export function statusCodeColorVar(code: string, family: RedFamilySpec = HTTP_FAMILY): string | undefined {
+  const tok = HTTP_SERIES_TOKENS[statusClassToken(statusClassOf(family, code.split(' ')[0]))];
   return tok ? `var(${tok})` : undefined;
 }
 
@@ -458,15 +499,18 @@ export interface EndpointIdentity {
   sig?: boolean;
   /** v0.10.1377 — ortam eşleyicisi (HttpScope.envSel). */
   envSel?: string;
+  /** v0.10.1429 — RED ailesi (gRPC: route = rpc_method, method = rpc_service). */
+  family?: RedFamilySpec;
 }
 
 /** Endpoint kimliği → sekme üreticilerinin kapsamı. Route HER ZAMAN süzer (boşsa `http_route=~""` = route'suz seriler; servis geneline genişlemez). */
 export function endpointScope(ep: EndpointIdentity): HttpScope {
   const method = ep.method?.trim() || undefined;
   const env = ep.envSel ? { envSel: ep.envSel } : {}; // v0.10.1377
-  if (ep.sig) return { app: ep.service, ...env, routeRe: shapeRouteRegex(ep.route), method };
-  if (!ep.route) return { app: ep.service, ...env, routeRe: '', method };
-  return { app: ep.service, ...env, route: ep.route, method };
+  const fam = ep.family ? { family: ep.family } : {}; // v0.10.1429
+  if (ep.sig) return { app: ep.service, ...env, ...fam, routeRe: shapeRouteRegex(ep.route), method };
+  if (!ep.route) return { app: ep.service, ...env, ...fam, routeRe: '', method };
+  return { app: ep.service, ...env, ...fam, route: ep.route, method };
 }
 
 /** Endpoint'in inbound etiket seçicisi (`{service_name="…", http_route="…"[, http_request_method="…"]}`). */
@@ -489,7 +533,7 @@ export function endpointHttpQueries(ep: EndpointIdentity, windowSec: number, opt
   const sc = endpointScope(ep);
   const tab = httpQueries(sc, windowSec);
   const w = windowQueries(sc, windowSec);
-  const byMR = `${L.method}, ${L.route}`;
+  const byMR = `${famOf(sc).labels.method}, ${famOf(sc).labels.route}`;
   const out: EndpointHttpQuery[] = [
     { id: 'rateByRoute', expr: tab.rateByRoute, instant: false },
     { id: 'err5ByRoute', expr: tab.err5ByRoute, instant: false },
@@ -623,8 +667,8 @@ type EndpointListRow = import('./types').EndpointRow; // v0.10.1359
 /** v0.10.1359 — metrik liste havuz tavanı: N = min(limit, 300). */
 export const ENDPOINT_LIST_POOL_MAX = 300;
 
-/** v0.10.1359 — liste satır greni (sekmenin byMR'ı). */
-const LIST_BY = `${L.method}, ${L.route}`;
+/** v0.10.1359 — liste satır greni (sekmenin byMR'ı); v0.10.1429 aileden. */
+const listBy = (F: RedFamilySpec) => `${F.labels.method}, ${F.labels.route}`;
 
 /** v0.10.1359 — yol araması → büyük/küçük harf duyarsız alt-dize route regex'i (VM `=~` tam çapalar). */
 export function routeSubstringRegex(search: string): string {
@@ -632,10 +676,11 @@ export function routeSubstringRegex(search: string): string {
 }
 
 /** v0.10.1359 — liste kapsamı: servis (zorunlu) + isteğe bağlı yol araması (route regex); v0.10.1377 ortam eşleyicisi. */
-export function endpointListScope(service: string, search = '', envSel?: string): HttpScope {
+export function endpointListScope(service: string, search = '', envSel?: string, family?: RedFamilySpec): HttpScope {
   const q = search.trim();
   const env = envSel ? { envSel } : {};
-  return q ? { app: service, ...env, routeRe: routeSubstringRegex(q) } : { app: service, ...env };
+  const fam = family ? { family } : {}; // v0.10.1429
+  return q ? { app: service, ...env, ...fam, routeRe: routeSubstringRegex(q) } : { app: service, ...env, ...fam };
 }
 
 export type EndpointListId =
@@ -652,10 +697,12 @@ export interface EndpointListQuery { id: EndpointListId; expr: string; instant: 
  */
 export function listQueries(scope: HttpScope, windowSec: number, n: number, compare: boolean): EndpointListQuery[] {
   const N = Math.max(1, Math.min(ENDPOINT_LIST_POOL_MAX, Math.floor(n)));
+  const F = famOf(scope);
+  const LIST_BY = listBy(F);
   const w = windowQueries(scope, windowSec, LIST_BY);
   const pool = `topk(${N}, ${w.total})`;
   const inPool = (m: string) => `(${m}) and on (${LIST_BY}) ${pool}`;
-  const cls = `sum by (${LIST_BY}, cls) (label_replace(${winInc(scope, windowSec, SC)}, "cls", "\${1}xx", "${L.status}", "([0-9]).*"))`;
+  const cls = statusClassExpr(F, winInc(scope, windowSec, F.names.count), `${LIST_BY}, `);
   const q = (id: EndpointListId, expr: string): EndpointListQuery => ({ id, expr, instant: true });
   const out: EndpointListQuery[] = [
     q('total', pool),
@@ -688,8 +735,11 @@ export function listQueries(scope: HttpScope, windowSec: number, n: number, comp
  */
 export function endpointListRows(
   data: Partial<Record<EndpointListId, SpanMetricSeries[] | null | undefined>>, windowSec: number, service: string,
+  family: RedFamilySpec = HTTP_FAMILY,
 ): EndpointListRow[] {
-  const key = (l: Record<string, string>) => `${l[L.method] ?? ''}\u0000${l[L.route] ?? ''}`;
+  const FL = family.labels; // v0.10.1429 — gRPC: method = rpc_service, path = rpc_method
+  const grpc = family.kind === 'grpc';
+  const key = (l: Record<string, string>) => `${l[FL.method] ?? ''}\u0000${l[FL.route] ?? ''}`;
   const val = (s: SpanMetricSeries) => { const v = lastValue(s); return v !== null && Number.isFinite(v) ? v : null; };
   const index = (series: SpanMetricSeries[] | null | undefined) => {
     const m = new Map<string, number>();
@@ -718,14 +768,17 @@ export function endpointListRows(
     const errors = err5.get(k) ?? 0;
     const c = cls.get(k) ?? {};
     const row: EndpointListRow = {
-      service, path: l[L.route] ?? '', method: l[L.method] || undefined,
+      service, path: l[FL.route] ?? '', method: l[FL.method] || undefined,
       calls, errors,
       errorRate: calls > 0 ? (errors / calls) * 100 : 0,
       reqPerMin: calls / (W / 60),
       avgMs: ms(avg.get(k)) ?? 0,
       p50Ms: ms(p50.get(k)), p95Ms: ms(p95.get(k)),
       p99Ms: ms(p99.get(k)) ?? 0,
-      http2xx: c['2xx'] ?? 0, http3xx: c['3xx'] ?? 0, http4xx: c['4xx'] ?? 0, http5xx: c['5xx'] ?? 0,
+      // gRPC: sınıf sütunları HTTP karşılığına oturur (ok→2xx, istemci→4xx, sunucu→5xx; 3xx yok).
+      http2xx: (grpc ? c['ok'] : c['2xx']) ?? 0, http3xx: grpc ? 0 : (c['3xx'] ?? 0),
+      http4xx: (grpc ? c['client'] : c['4xx']) ?? 0, http5xx: (grpc ? c['server'] : c['5xx']) ?? 0,
+      ...(grpc ? { family: 'grpc' as const } : {}),
     };
     if (hasPrior) {
       row.priorCalls = pTotal.get(k) ?? 0;

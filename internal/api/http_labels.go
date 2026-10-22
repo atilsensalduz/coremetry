@@ -98,8 +98,15 @@ func statusRowsChecked(ser []chstore.SpanMetricSeries, err error) ([]chstore.Spa
 // GroupBy'a `key` ekleyerek koşar (tavan denetimi query'nin işi:
 // statusRowsChecked). Hata ⇒ unknown, "yok" DEĞİL.
 func probeStatusLabel(query func(key string) ([]chstore.SpanMetricSeries, error), groupIdx int) statusProbe {
+	return probeStatusLabelKeys(query, groupIdx, httpStatusKeyCandidates)
+}
+
+// probeStatusLabelKeys — v0.10.1429: aday anahtarlar AİLEDEN (HTTP:
+// httpStatusKeyCandidates; gRPC: rpc.grpc.status_code / rpc.response.status_code,
+// red_family.go). Davranış probeStatusLabel ile aynı.
+func probeStatusLabelKeys(query func(key string) ([]chstore.SpanMetricSeries, error), groupIdx int, keys []string) statusProbe {
 	var last []chstore.SpanMetricSeries
-	for _, k := range httpStatusKeyCandidates {
+	for _, k := range keys {
 		ser, err := query(k)
 		if err != nil {
 			return statusProbe{State: statusLabelUnknown, Reason: err.Error(), Series: last}
@@ -117,15 +124,21 @@ func probeStatusLabel(query func(key string) ([]chstore.SpanMetricSeries, error)
 // absentTail yok-hâlinin kuyruğu. VM'de anahtar VM etiket yazımıyla
 // okunur (HTTP Metrics sekmesiyle aynı ad).
 func statusLabelNote(state statusLabelState, key, reason, backend, subject, absentTail string) string {
+	return statusLabelNoteFamily(state, key, reason, backend, subject, absentTail, redFamilies[0])
+}
+
+// statusLabelNoteFamily — v0.10.1429: aileye göre hata tanımı ve aday listesi
+// (HTTP cümleleri bayt bayt eski).
+func statusLabelNoteFamily(state statusLabelState, key, reason, backend, subject, absentTail string, fam redFamily) string {
 	switch state {
 	case statusLabelPresent:
 		if backend == metricSourceVM {
 			key = vmetrics.PromLabel(key)
 		}
-		return " " + subject + " = " + key + " 5xx (4xx hata sayılmaz)."
+		return " " + subject + " = " + key + " " + fam.errorNoteTR() + "."
 	case statusLabelAbsent:
 		return " " + subject + " BİLİNMİYOR: metrikte durum-kodu etiketi yok (" +
-			strings.Join(httpStatusKeyCandidates, " / ") + ")" + absentTail + "."
+			strings.Join(fam.StatusKeys, " / ") + ")" + absentTail + "."
 	case statusLabelUnknown:
 		return " " + subject + " BİLİNMİYOR: durum sorgusu başarısız (" + reason + ") — etiket yok DEĞİL."
 	}

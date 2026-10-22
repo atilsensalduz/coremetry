@@ -86,4 +86,4 @@ export {
 export { useOracleFunctionCodes } from './oracleFunctionCodes'; // v0.10.1003 — fonksiyon kodu → Oracle operasyon adı sözlüğü
 export { useProblemVerdicts, useSetProblemVerdict, useSetProblemVerdictPolicy } from './problemVerdicts'; // v0.10.1015 — Problems sekmesinde öğretme
 export { usePromqlConsoleRange } from './promql'; // v0.10.1306 — /metrics PromQL sekmesi Thanos yolu
-export { useHttpPromql, useHttpEnvScope, type HttpPromqlItem, type HttpPromqlResult } from './httpMetrics'; // v0.10.1352; v0.10.1377 env kapsamı
+export { useHttpPromql, useRedFamily, sectionEnvScope, type HttpPromqlItem, type HttpPromqlResult } from './httpMetrics'; // v0.10.1352; v0.10.1377 env kapsamı; v0.10.1429 RED ailesi

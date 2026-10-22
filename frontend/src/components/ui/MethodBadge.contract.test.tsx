@@ -127,12 +127,8 @@ const BADGE_WITH_METHOD = /<(Badge|span)\b[^>]*?(className=["'{][^>]*\bbadge\b|t
  * Gerekçeli istisnalar — her girdi hâlâ EŞLEŞMEK zorunda (bayat girdi
  * kırmızı). Yeni satır = bilinçli karar.
  */
-const EXEMPT = new Map<string, string>([
-  ['pages/Endpoints.tsx',
-    'v0.10.1425 dalgasında dosya paralel ajanın (v0.10.1424 fmtNum göçü) — düzenleme kilidi. '
-    + 'Göç tek satır: `<Badge tone="neutral" className="mono">{r.method}</Badge>` → `<MethodBadge method={r.method} />` '
-    + '(import `MethodBadge` from \'@/components/ui\'; `Badge` importu düşer) + bu girdi silinir.'],
-]);
+// v0.10.1429 — Endpoints.tsx göçü yapıldı (`<MethodBadge method={r.method} />`); istisna kalmadı.
+const EXEMPT = new Map<string, string>([]);
 
 describe('MethodBadge — atom dışında method rozeti yok (kaynak pini)', () => {
   it('method değeri .badge/Badge içine yalnız atomdan basılır', () => {
@@ -154,7 +150,7 @@ describe('MethodBadge — atom dışında method rozeti yok (kaynak pini)', () =
   });
 
   it('göç eden siteler atomu okur', () => {
-    for (const rel of ['pages/EndpointDetail.tsx', 'pages/service/ServiceHttpMetricsTab.tsx']) {
+    for (const rel of ['pages/EndpointDetail.tsx', 'pages/service/ServiceHttpMetricsTab.tsx', 'pages/Endpoints.tsx']) {
       const src = readFileSync(resolve(SRC, rel), 'utf8');
       expect(src, rel).toMatch(/<MethodBadge\b/);
       expect(src, `${rel} MethodBadge'i barrel'dan almalı`).toMatch(/import \{[^}]*\bMethodBadge\b[^}]*\} from '@\/components\/ui'/);

@@ -377,10 +377,28 @@ type fakeChartReader struct {
 	envVals  map[string][]string // etiket → HTTP metriğindeki değerler
 	series   []chstore.SpanMetricSeries
 	queryErr error
+	// v0.10.1429 — aile çözücüsünün anlık yoklaması (red_family.go): nil →
+	// series (varsa aile var); instantErr → çözüm unknown.
+	instant    []chstore.SpanMetricSeries
+	instantErr error
 
-	mu      sync.Mutex
-	queries []string
-	steps   []int
+	mu       sync.Mutex
+	queries  []string
+	steps    []int
+	instants []string
+}
+
+func (f *fakeChartReader) QueryPromQLInstant(_ context.Context, q string, _ time.Time) ([]chstore.SpanMetricSeries, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.instants = append(f.instants, q)
+	if f.instantErr != nil {
+		return nil, f.instantErr
+	}
+	if f.instant != nil {
+		return f.instant, nil
+	}
+	return f.series, nil
 }
 
 func (f *fakeChartReader) MetricLabelNamesIn(_ context.Context, metric string, _, _ time.Time) ([]string, bool, error) {

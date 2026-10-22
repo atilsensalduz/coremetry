@@ -37,6 +37,8 @@ vi.mock('@/lib/api', async (orig) => {
   return {
     ...actual,
     api: {
+      // v0.10.1429 — aile çözümü: HTTP (karolar/okumalar buna bakar).
+      serviceRedFamily: async () => ({ service: 'checkout', state: 'known', primary: 'http', http: { id: 'http', kind: 'http' }, tried: [] }),
       serviceMetricRED: async () => ({
         service: 'checkout', source: 'vm', metricExists: true, latencyUnitKnown: true, latencyUnit: 's',
         stepSeconds: 60, note: 'Kaynak: METRİK (vm)',

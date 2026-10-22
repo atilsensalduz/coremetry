@@ -50,6 +50,8 @@ vi.mock('@/lib/api', () => {
     savedViews: () => Promise.resolve([]),
     serviceNames: () => Promise.resolve({ names: [], total: 0 }),
     clusters: () => Promise.resolve([]),
+    // v0.10.1429 — aile çözümü: HTTP (metrik kipi sorguları buna bakar).
+    serviceRedFamily: (svc: unknown) => Promise.resolve({ service: svc, state: 'known', primary: 'http', http: { id: 'http', kind: 'http' }, tried: [] }),
     // v0.10.1359 — metrik kipi satırları PromQL'den (sekmenin sorguları):
     // aynı satır (POST /BSAWeb/api/allocate, 1400 çağrı, p50 10 ms).
     httpMetricsPromql: (p: unknown) => {
@@ -120,6 +122,7 @@ async function mount(url: string) {
     );
   });
   await settle();
+  await settle(); // v0.10.1429 — aile çözümü (serviceRedFamily) bir tur daha: PromQL sorguları ondan sonra atılır.
 }
 
 beforeEach(() => {
@@ -263,10 +266,11 @@ describe('/endpoints başlık ↔ gövde hizası + Method rozeti (v0.10.1348)', 
     for (const tr of dataRows()) expect(tr.querySelectorAll('td').length).toBe(ths.length);
   });
 
-  it('Method nötr mono rozet', async () => {
+  it('Method rozeti atomdan (v0.10.1425 MethodBadge; v0.10.1429 göçü): POST yeşil ton', async () => {
     await mount('/endpoints?range=1h');
     const badge = dataRows()[0].querySelector('.badge.mono');
     expect(badge?.textContent).toBe('POST');
-    expect(badge?.classList.contains('b-gray')).toBe(true);
+    expect(badge?.classList.contains('m-post')).toBe(true);
+    expect(badge?.getAttribute('data-method')).toBe('POST');
   });
 });

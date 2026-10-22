@@ -33,13 +33,16 @@ import type { EndpointRow } from '@/lib/types';
 import { traceHref } from '@/lib/traceHref';
 import { PageControls } from '@/components/ui/PageControls';
 import { Button } from '@/components/ui/Button';
-import { Badge } from '@/components/ui/Badge';
+import { MethodBadge } from '@/components/ui'; // v0.10.1429 — method rozeti atomdan (v0.10.1425)
 import { IconButton } from '@/components/ui/IconButton';
 import { useAuth } from '@/components/AuthProvider';
 import { RouteAlertModal } from '@/pages/alerts/RouteAlertModal'; // v0.10.705
 import { PageShell } from '@/components/ui/PageShell';
 // v0.10.1359 — metrik kipi: Service → HTTP Metrics sekmesinin PromQL'i.
-import { useHttpPromql, useHttpEnvScope } from '@/lib/queries/httpMetrics';
+import { useHttpPromql, useRedFamily, sectionEnvScope } from '@/lib/queries/httpMetrics';
+// v0.10.1429 — RED ailesi: yalnız gRPC sunan serviste liste rpc_server_duration_* ailesinden
+// (satır = rpc_service + rpc_method); ikisi varsa HTTP satırları + gRPC satırları (toplanmaz).
+import { HTTP_FAMILY, familyUnknownNote } from '@/lib/redFamily';
 import { httpEnvScopeNote, httpEnvScopeReady } from '@/lib/httpEnvScopeNote';
 import { ENDPOINT_LIST_POOL_MAX, endpointListRows, endpointListScope, listQueries } from '@/lib/httpMetrics';
 
@@ -401,8 +404,9 @@ export default function EndpointsPage() {
   // aynı soruyu sormalı (v0.9.307 kuralı).
   // v0.10.1359 — metrik satırı method taşır (?method=): detay karoları satırla
   // aynı (method, route) dilimini okur. Route etiketsiz satırın detayı yok.
+  // v0.10.1429 — gRPC satırı ?family=grpc taşır (detay gRPC ailesinin PromQL'ini okur).
   const openEndpointPage = (r: EndpointRow) => (metricMode && !r.path) ? undefined : navigate(endpointDetailHref(
-    { service: r.service, path: r.path, sig: bySignature, ...(metricMode && r.method ? { method: r.method } : {}) },
+    { service: r.service, path: r.path, sig: bySignature, ...(metricMode && r.method ? { method: r.method } : {}), ...(metricMode && r.family === 'grpc' ? { family: 'grpc' as const } : {}) },
     {
       range: encodeRange(range),
       env: env || undefined,
@@ -553,22 +557,42 @@ export default function EndpointsPage() {
   const searchQ = search.trim();
   // v0.10.1377 — env/cluster metrik kipinde de süzer (ortam adı → VM ortam
   // etiketi); çözüm gelene dek sorgu atılmaz, uygulanamazsa not söyler.
-  const envScope = useHttpEnvScope(env, cluster, to, metricMode && !!service);
-  const envSel = envScope.envSel;
-  const metricItems = useMemo(() => (metricMode && service
-    ? listQueries(endpointListScope(service, searchQ, envSel), windowSec, metricN, compare)
-    : []), [metricMode, service, searchQ, envSel, windowSec, metricN, compare]);
-  const metricRes = useHttpPromql(metricItems, { from, to }, metricMode && !!service && httpEnvScopeReady(envScope));
+  // v0.10.1429 — önce aile çözümü (GET /red-family; ortam eşleyicisi aile başına onun içinde).
+  const fam = useRedFamily(service, env, cluster, to, metricMode && !!service);
+  const httpSec = fam.http ?? (fam.grpc ? undefined : { family: HTTP_FAMILY });
+  const grpcSec = fam.grpc;
+  const envScope = sectionEnvScope(httpSec ?? grpcSec, fam, env, cluster);
+  const envSelHttp = sectionEnvScope(httpSec, fam, env, cluster).envSel;
+  const envSelGrpc = sectionEnvScope(grpcSec, fam, env, cluster).envSel;
+  const grpcFamily = grpcSec?.family;
+  const metricItems = useMemo(() => (metricMode && service && httpSec
+    ? listQueries(endpointListScope(service, searchQ, envSelHttp), windowSec, metricN, compare)
+    : []), [metricMode, service, searchQ, envSelHttp, windowSec, metricN, compare, !!httpSec]); // eslint-disable-line react-hooks/exhaustive-deps
+  const grpcItems = useMemo(() => (metricMode && service && grpcFamily
+    ? listQueries(endpointListScope(service, searchQ, envSelGrpc, grpcFamily), windowSec, metricN, compare)
+    : []), [metricMode, service, searchQ, envSelGrpc, windowSec, metricN, compare, grpcFamily]);
+  const metricOn = metricMode && !!service && fam.ready && httpEnvScopeReady(envScope);
+  const metricRes = useHttpPromql(metricItems, { from, to }, metricOn);
+  const grpcRes = useHttpPromql(grpcItems, { from, to }, metricOn);
   const md = metricRes.data;
+  const gd = grpcRes.data;
   const metricRows = useMemo(
-    () => endpointListRows({
-      total: md.total, err5: md.err5, avg: md.avg, p50: md.p50, p95: md.p95, p99: md.p99, cls: md.cls,
-      ...(compare ? { pTotal: md.pTotal, pErr5: md.pErr5, pAvg: md.pAvg, pP99: md.pP99 } : {}),
-    }, windowSec, service),
-    // md her render'da yeni nesne; anahtar seriler tek tek (v0.10.1359).
-    [md.total, md.err5, md.avg, md.p50, md.p95, md.p99, md.cls, md.pTotal, md.pErr5, md.pAvg, md.pP99, compare, windowSec, service]);
-  const metricPending = metricItems.some(q => metricRes.pending(q.id));
-  const metricErr = metricItems.map(q => metricRes.error(q.id)).find((e): e is Error => !!e) ?? null;
+    () => [
+      ...endpointListRows({
+        total: md.total, err5: md.err5, avg: md.avg, p50: md.p50, p95: md.p95, p99: md.p99, cls: md.cls,
+        ...(compare ? { pTotal: md.pTotal, pErr5: md.pErr5, pAvg: md.pAvg, pP99: md.pP99 } : {}),
+      }, windowSec, service),
+      // gRPC satırları ayrı aileden (path = rpc_method, method = rpc_service; sınıflar ok/istemci/sunucu) — toplanmaz, eklenir.
+      ...(grpcFamily ? endpointListRows({
+        total: gd.total, err5: gd.err5, avg: gd.avg, p50: gd.p50, p95: gd.p95, p99: gd.p99, cls: gd.cls,
+        ...(compare ? { pTotal: gd.pTotal, pErr5: gd.pErr5, pAvg: gd.pAvg, pP99: gd.pP99 } : {}),
+      }, windowSec, service, grpcFamily) : []),
+    ],
+    // md/gd her render'da yeni nesne; anahtar seriler tek tek (v0.10.1359).
+    [md.total, md.err5, md.avg, md.p50, md.p95, md.p99, md.cls, md.pTotal, md.pErr5, md.pAvg, md.pP99,
+      gd.total, gd.err5, gd.avg, gd.p50, gd.p95, gd.p99, gd.cls, gd.pTotal, gd.pErr5, gd.pAvg, gd.pP99, grpcFamily, compare, windowSec, service]);
+  const metricPending = !fam.ready || metricItems.some(q => metricRes.pending(q.id)) || grpcItems.some(q => grpcRes.pending(q.id));
+  const metricErr = [...metricItems.map(q => metricRes.error(q.id)), ...grpcItems.map(q => grpcRes.error(q.id))].find((e): e is Error => !!e) ?? null;
   // v0.9.812 — zarf: satırlar + sıralama havuzunun gerçeği.
   // v0.9.818 — MEMO. Üçlü koşul her render'da YENİ bir dizi kimliği
   // üretiyordu; `rows`'a bağlı her useMemo (KPI toplamları) fiilen her
@@ -608,6 +632,11 @@ export default function EndpointsPage() {
   const metricNote = metricMode && (env || cluster)
     ? httpEnvScopeNote(envScope)?.text ?? 'Metrik kipi: servis seçilince env/cluster süzgeci VictoriaMetrics ortam etiketine çözülüp uygulanır.'
     : null;
+  // v0.10.1429 — aile notu: yalnız gRPC / ikisi / çözüm bilinemedi.
+  const familyNote = !metricMode || !service ? null
+    : familyUnknownNote(fam) ?? (fam.primary === 'grpc' ? `gRPC RED: servis HTTP sunucu histogramı yazmıyor; satırlar ${grpcFamily?.names.count.replace(/_count$/, '_*') ?? 'rpc_server_duration_*'} ailesinden — Method sütunu = rpc_service, Path = rpc_method; hata = sunucu-hatası kodları (${grpcFamily?.serverErr ?? ''}), 2xx/4xx/5xx sütunları ok / istemci / sunucu kodları`
+      : fam.both ? 'HTTP satırlarının altında gRPC satırları (rpc_service + rpc_method; HTTP ile toplanmaz) — detayı ?family=grpc ile açılır'
+        : null);
 
   // v0.10.954 — tablo standardı T12: yükleniyor / hata / eşleşme yok / boş
   // tablonun İÇİNDE, başlık durur. Koşullar eskisiyle aynı (rows tri-state);
@@ -650,7 +679,7 @@ export default function EndpointsPage() {
     : metricMode ? {
       // v0.10.1359
       kind: 'empty',
-      message: `Bu pencerede VictoriaMetrics'te service_name="${service}" etiketli http_server_request_duration_seconds metriği yok. Zaman aralığını genişletin ya da Kaynak: span'e dönün.`,
+      message: `Bu pencerede VictoriaMetrics'te service_name="${service}" etiketli ${fam.primary === 'grpc' ? (grpcFamily?.names.count.replace(/_count$/, '') ?? 'rpc_server_duration_milliseconds') : 'http_server_request_duration_seconds'} metriği yok${fam.tried.length ? ` (denenen aileler: ${fam.tried.join('; ')})` : ''}. Zaman aralığını genişletin ya da Kaynak: span'e dönün.`,
     }
     : {
       kind: 'empty',
@@ -940,8 +969,9 @@ export default function EndpointsPage() {
                     {/* v0.10.1348 — Method rozet (tek nötr ton: renk yalnız
                         sapan değerde, T9); boş metot (RPC) düz tire. */}
                     {cellOn.has('method') && <td>
+                      {/* v0.10.1429 — method rozeti atomdan (v0.10.1425 göçü); gRPC satırında rpc_service düz mono (HTTP fiili değil, büyük harfe çevrilmez). */}
                       {r.method
-                        ? <Badge tone="neutral" className="mono">{r.method}</Badge>
+                        ? (r.family === 'grpc' ? <span className="mono" title="rpc_service (gRPC)">{r.method}</span> : <MethodBadge method={r.method} />)
                         : <span className="cell-muted">—</span>}
                     </td>}
                     {cellOn.has('calls') && <td className="num">
@@ -1098,6 +1128,9 @@ export default function EndpointsPage() {
                 borderRadius: 6, background: 'var(--bg2)', color: 'var(--text2)',
                 lineHeight: 1.5,
               }}>{metricNote ?? sourceNote}</div>
+            )}
+            {familyNote && (
+              <div style={{ marginTop: 8, fontSize: 11, padding: '6px 8px', borderRadius: 6, background: 'var(--bg2)', color: 'var(--text2)', lineHeight: 1.5 }}>{familyNote}</div>
             )}
             {src === 'metric' ? (
               <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text3)' }}>
