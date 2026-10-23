@@ -9086,6 +9086,8 @@ export interface AnomalyCalendarConfig {
   days: AnomalySpecialDay[];
   monthEndAuto: boolean;
   monthEndBusinessDays: number;
+  // v0.10.1490 — özel günlerin yerel günü (IANA adı); boş/yok = UTC.
+  timezone?: string;
 }
 
 export interface AnomalySensitivityConfig {

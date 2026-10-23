@@ -70,3 +70,30 @@ describe('CalendarSubsection', () => {
     expect(last?.days).toHaveLength(1);
   });
 });
+
+describe('CalendarSubsection — takvim saat dilimi (v0.10.1490)', () => {
+  it('eski blob: dilim boş (UTC), tarayıcı dilimi yalnız önerilir; tık yazar', () => {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const h = mount({ days: [], monthEndAuto: false, monthEndBusinessDays: 2 });
+    const input = h.querySelector('[aria-label="Takvim saat dilimi"]') as HTMLInputElement;
+    expect(input.value).toBe('');
+    expect(last).toBeUndefined(); // çizim alanı kendiliğinden doldurmaz
+    const suggest = [...h.querySelectorAll('button')].find(b => b.textContent?.startsWith('Tarayıcının dilimini kullan'));
+    if (tz) {
+      expect(input.placeholder).toContain(tz);
+      act(() => suggest!.click());
+      expect(last?.timezone).toBe(tz);
+    }
+  });
+
+  it('elle yazılan dilim taşınır, silinince alan düşer (UTC)', () => {
+    const h = mount({ days: [], monthEndAuto: false, monthEndBusinessDays: 2, timezone: 'Europe/Berlin' });
+    const input = h.querySelector('[aria-label="Takvim saat dilimi"]') as HTMLInputElement;
+    expect(input.value).toBe('Europe/Berlin');
+    act(() => setInput(input, 'Europe/Istanbul'));
+    expect(last?.timezone).toBe('Europe/Istanbul');
+    act(() => setInput(input, ''));
+    expect(last?.timezone).toBeUndefined();
+    expect(last?.days).toEqual([]);
+  });
+});

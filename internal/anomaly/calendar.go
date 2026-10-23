@@ -22,6 +22,11 @@ package anomaly
 // etmez (behavior_scan.go behaviorEvent); motorun 28 günlük haftanın-saati
 // baseline'ından geçmiş holiday / half-day kovaları çıkarılır
 // (dropCalendarBaselineRows) — tatil pazartesisi sıradan pazartesiyi kirletmez.
+//
+// v0.10.1490 — takvim dilimi (cal.Timezone, boş = UTC): özel gün üyeliği ve ay
+// sonu iş günü hesabı YEREL günle; gün sınıfı (dayClass) ve slot (saniye-of-
+// day) UTC'de kalır. Önceki özel günlerin SQL yüklemi yerel günün UTC
+// anlarıyla kurulur (calendarDayWindows → buildCalendarSeasonalQuery).
 
 import (
 	"strings"
@@ -44,19 +49,21 @@ const calendarMinDays = 2
 // calendarTrafficDropKind — bastırılan düşüşün anomaly_events türü.
 const calendarTrafficDropKind = "calendar_traffic_drop"
 
-// isBusinessDay — SAF: hafta içi ve takvimde holiday değil.
+// isBusinessDay — SAF: YEREL gün hafta içi ve takvimde holiday değil.
 func isBusinessDay(t time.Time, cal chstore.AnomalyCalendarConfig) bool {
-	switch t.Weekday() {
+	switch t.In(cal.Location()).Weekday() {
 	case time.Saturday, time.Sunday:
 		return false
 	}
 	return cal.SpecialKindOn(t) != chstore.CalendarHoliday
 }
 
-// isAutoMonthEnd — SAF: t (UTC günü) ayın son n iş gününden biri mi.
+// isAutoMonthEnd — SAF: t'nin YEREL günü (cal.Timezone) ayın son n iş
+// gününden biri mi.
 func isAutoMonthEnd(t time.Time, n int, cal chstore.AnomalyCalendarConfig) bool {
-	t = t.UTC()
-	day := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
+	loc := cal.Location()
+	t = t.In(loc)
+	day := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, loc)
 	if !isBusinessDay(day, cal) {
 		return false
 	}
@@ -106,14 +113,16 @@ func calendarFallbackClass(class string, t time.Time) string {
 }
 
 // calendarSameKindDates — SAF: at'ten ÖNCEKİ (bugün hariç) lookback günü
-// içinde at ile aynı takvim türünü taşıyan UTC günleri, "YYYY-MM-DD", artan.
+// içinde at ile aynı takvim türünü taşıyan YEREL günler (cal.Timezone),
+// "YYYY-MM-DD", artan.
 func calendarSameKindDates(at time.Time, days int, cal chstore.AnomalyCalendarConfig) []string {
 	kind := calendarDayKind(at, cal)
 	if kind == "" {
 		return nil
 	}
-	at = at.UTC()
-	today := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, time.UTC)
+	loc := cal.Location()
+	at = at.In(loc)
+	today := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, loc)
 	var out []string
 	for i := days; i >= 1; i-- {
 		d := today.AddDate(0, 0, -i)
@@ -122,6 +131,42 @@ func calendarSameKindDates(at time.Time, days int, cal chstore.AnomalyCalendarCo
 		}
 	}
 	return out
+}
+
+// calendarWindow — yerel bir özel günün UTC anları [start, end).
+type calendarWindow struct{ start, end time.Time }
+
+// calendarDayWindows — SAF (v0.10.1490): yerel tarih listesi → UTC pencereleri
+// (buildCalendarSeasonalQuery'nin bağları). Geçersiz tarih atlanır.
+func calendarDayWindows(dates []string, cal chstore.AnomalyCalendarConfig) []calendarWindow {
+	out := make([]calendarWindow, 0, len(dates))
+	for _, d := range dates {
+		if s, e, ok := cal.DayWindowUTC(d); ok {
+			out = append(out, calendarWindow{s, e})
+		}
+	}
+	return out
+}
+
+// inCalendarWindows — SAF: SQL yükleminin Go ikizi (time_bucket >= start AND
+// time_bucket < end, herhangi bir pencere). Uyum testi bununla koşar.
+func inCalendarWindows(unix int64, ws []calendarWindow) bool {
+	for _, w := range ws {
+		if unix >= w.start.Unix() && unix < w.end.Unix() {
+			return true
+		}
+	}
+	return false
+}
+
+// calendarLocalDayKey — SAF: unix anının YEREL gün anahtarı (YYYYMMDD) — özel
+// gün örneklerinin gün çeşitliliği yerel günle sayılır (İstanbul'da bir
+// tatilin 21:00 UTC sınırındaki slotu iki UTC gününe düşer, tek gündür).
+func calendarLocalDayKey(loc *time.Location) func(int64) int64 {
+	return func(unix int64) int64 {
+		t := time.Unix(unix, 0).In(loc)
+		return int64(t.Year())*10000 + int64(t.Month())*100 + int64(t.Day())
+	}
 }
 
 // pickCalendarSeasonal — SAF: servis başına özel sınıfın örnekleri yeterliyse
@@ -185,14 +230,17 @@ func dropCalendarBaselineRows(in map[string][]behaviorRow, cal chstore.AnomalyCa
 	if len(cal.Days) == 0 {
 		return in
 	}
-	special := map[int64]bool{} // UTC gün → özel mi (önbellek)
+	// v0.10.1490 — önbellek 15 dk diliminde: her IANA ofseti 15 dk'nın katı,
+	// yerel gün sınırı bir dilimin içine düşmez (UTC gün anahtarı yerel
+	// sınırı kaçırırdı).
+	special := map[int64]bool{}
 	isSpecial := func(unix int64) bool {
-		day := unix / 86400
-		v, ok := special[day]
+		slot := unix / 900
+		v, ok := special[slot]
 		if !ok {
-			k := cal.SpecialKindOn(time.Unix(day*86400, 0).UTC())
+			k := cal.SpecialKindOn(time.Unix(slot*900, 0))
 			v = k == chstore.CalendarHoliday || k == chstore.CalendarHalfDay
-			special[day] = v
+			special[slot] = v
 		}
 		return v
 	}

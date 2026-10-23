@@ -1444,16 +1444,31 @@ func buildAllSeasonalQuery(vexpr string) string {
 const calendarLookbackDays = 90
 
 // buildCalendarSeasonalQuery — SAF (v0.10.1483): buildAllSeasonalQuery'nin
-// özel-gün ikizi; gün sınıfı eşitliği yerine UTC tarih listesi
-// (toDate(time_bucket, 'UTC') IN (…)). Geri kalan her şey (slot penceresi,
-// üst sınır, LIMIT'ler, max_execution_time) aynı sorgu metni.
-func buildCalendarSeasonalQuery(vexpr string, nDates int) string {
+// özel-gün ikizi; gün sınıfı eşitliği yerine özel günlerin pencereleri.
+// v0.10.1490 — pencere UTC tarihi değil, YEREL günün (cal.Timezone) Go'da
+// hesaplanmış UTC anları: (time_bucket >= ? AND time_bucket < ?) OR … —
+// CH tarafında dilim / oturum TZ'si yok (v0.8.323 dersi: Go ve SQL aynı
+// saati görmeli). Geri kalan her şey (slot penceresi, üst sınır, LIMIT'ler,
+// max_execution_time) aynı sorgu metni.
+func buildCalendarSeasonalQuery(vexpr string, nWindows int) string {
 	const classPred = "multiIf(toDayOfWeek(time_bucket, 0, 'UTC') = 6, 'saturday', toDayOfWeek(time_bucket, 0, 'UTC') = 7, 'sunday', 'weekday') = ?"
-	if nDates < 1 {
-		nDates = 1
+	if nWindows < 1 {
+		nWindows = 1
 	}
-	ph := strings.TrimSuffix(strings.Repeat("?, ", nDates), ", ")
-	return strings.Replace(buildAllSeasonalQuery(vexpr), classPred, "toDate(time_bucket, 'UTC') IN ("+ph+")", 1)
+	ph := strings.TrimSuffix(strings.Repeat("(time_bucket >= ? AND time_bucket < ?) OR ", nWindows), " OR ")
+	return strings.Replace(buildAllSeasonalQuery(vexpr), classPred, "("+ph+")", 1)
+}
+
+// calendarSeasonalArgs — SAF (v0.10.1490): buildCalendarSeasonalQuery'nin bağ
+// sırası: ilk pencerenin başı (bölüm budaması), üst sınır, pencere çiftleri,
+// slot hedefi (iki kez), yarıçap.
+func calendarSeasonalArgs(ws []calendarWindow, upper time.Time, targetSod, radius int) []any {
+	args := make([]any, 0, 5+2*len(ws))
+	args = append(args, ws[0].start, upper)
+	for _, w := range ws {
+		args = append(args, w.start, w.end)
+	}
+	return append(args, targetSod, targetSod, radius)
 }
 
 // fetchAllSeasonal runs buildAllSeasonalQuery once for a metric and returns the
@@ -1490,21 +1505,17 @@ func (d *Detector) fetchAllSeasonal(ctx context.Context, metric string, at time.
 	class := dayClassCal(at, cal)
 	sqlClass := calendarFallbackClass(class, at)
 
-	out, rates, err := d.querySeasonal(ctx, metric, buildAllSeasonalQuery(vexpr), []any{cutoff, upper, sqlClass, targetSod, targetSod, radius}, seasonalMinDaysFor(sqlClass))
+	out, rates, err := d.querySeasonal(ctx, metric, buildAllSeasonalQuery(vexpr), []any{cutoff, upper, sqlClass, targetSod, targetSod, radius}, seasonalMinDaysFor(sqlClass), nil)
 	if err != nil || class == sqlClass {
 		return out, rates, err
 	}
 	dates := calendarSameKindDates(at, calendarLookbackDays, cal)
-	if len(dates) == 0 {
+	// v0.10.1490 — yerel günler UTC anlarına Go'da çevrilir (calendarDayWindows).
+	ws := calendarDayWindows(dates, cal)
+	if len(ws) == 0 {
 		return out, rates, nil
 	}
-	first, _ := time.Parse("2006-01-02", dates[0])
-	args := []any{first, upper}
-	for _, dt := range dates {
-		args = append(args, dt)
-	}
-	args = append(args, targetSod, targetSod, radius)
-	sp, spRates, serr := d.querySeasonal(ctx, metric, buildCalendarSeasonalQuery(vexpr, len(dates)), args, calendarMinDays)
+	sp, spRates, serr := d.querySeasonal(ctx, metric, buildCalendarSeasonalQuery(vexpr, len(ws)), calendarSeasonalArgs(ws, upper, targetSod, radius), calendarMinDays, calendarLocalDayKey(cal.Location()))
 	if serr != nil {
 		// Soft-fail: yedek sınıfın (pazar / cumartesi) tabanı kalır.
 		log.Printf("[anomaly] takvim mevsimseli (%s, %d gün): %v — yedek sınıf %s", class, len(dates), serr, sqlClass)
@@ -1517,7 +1528,10 @@ func (d *Detector) fetchAllSeasonal(ctx context.Context, metric string, at time.
 // querySeasonal — mevsimsel okumanın satır döngüsü (v0.10.1483'te
 // fetchAllSeasonal'dan ayrıldı; gövde bayt bayt aynı): servis başına değer
 // serisi, p99_ms'te hacim serisi, gün çeşitliliği budaması.
-func (d *Detector) querySeasonal(ctx context.Context, metric, q string, args []any, minDays int) (map[string][]float64, map[string][]float64, error) {
+//
+// dayKey — gün çeşitliliğinin gün anahtarı; nil = UTC günü (t/86400). Takvim
+// okuması yerel günü verir (v0.10.1490).
+func (d *Detector) querySeasonal(ctx context.Context, metric, q string, args []any, minDays int, dayKey func(int64) int64) (map[string][]float64, map[string][]float64, error) {
 	rows, err := d.store.TelemetryReadConn().Query(ctx, q, args...)
 	if err != nil {
 		return nil, nil, err
@@ -1548,6 +1562,9 @@ func (d *Detector) querySeasonal(ctx context.Context, metric, q string, args []a
 			accumulateSeries(rates, svc, rate)
 		}
 		day := int64(t) / 86400
+		if dayKey != nil {
+			day = dayKey(int64(t))
+		}
 		if daysSeen[svc] == nil {
 			daysSeen[svc] = map[int64]struct{}{}
 		}

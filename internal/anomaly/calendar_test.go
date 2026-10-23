@@ -100,10 +100,16 @@ func TestCalendarBaselineSelection(t *testing.T) {
 
 func TestBuildCalendarSeasonalQuery(t *testing.T) {
 	q := buildCalendarSeasonalQuery("X", 3)
-	if !strings.Contains(q, "toDate(time_bucket, 'UTC') IN (?, ?, ?)") || strings.Contains(q, "multiIf(") {
-		t.Fatalf("tarih yüklemi:\n%s", q)
+	// v0.10.1490 — yerel günün Go'da hesaplanmış UTC anları; CH'de tarih /
+	// dilim dönüşümü yok (oturum TZ'sine güvenilmez).
+	const pred = "((time_bucket >= ? AND time_bucket < ?) OR (time_bucket >= ? AND time_bucket < ?) OR (time_bucket >= ? AND time_bucket < ?))"
+	if !strings.Contains(q, pred) || strings.Contains(q, "multiIf(") || strings.Contains(q, "toDate(") {
+		t.Fatalf("pencere yüklemi:\n%s", q)
 	}
-	if legacy := strings.Replace(q, "toDate(time_bucket, 'UTC') IN (?, ?, ?)",
+	if n := strings.Count(q, "?"); n != 5+2*3 {
+		t.Errorf("yer tutucu %d", n)
+	}
+	if legacy := strings.Replace(q, pred,
 		"multiIf(toDayOfWeek(time_bucket, 0, 'UTC') = 6, 'saturday', toDayOfWeek(time_bucket, 0, 'UTC') = 7, 'sunday', 'weekday') = ?", 1); legacy != buildAllSeasonalQuery("X") {
 		t.Fatal("takvim sorgusu yalnız sınıf yüklemini değiştirmeli")
 	}

@@ -95,6 +95,13 @@ func (s *Server) putAnomalySensitivity(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	// v0.10.1490 — takvim dilimi kelepçelenmez, REDDEDİLİR: bilinmeyen bir ad
+	// sessizce UTC'ye dönseydi tatil pencereleri operatörün haberi olmadan
+	// 3 saat kayardı (yukarıdaki "kelepçe" kuralının bilinçli istisnası).
+	if err := chstore.ValidateCalendarTimezone(in.Calendar.Timezone); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	cfg := chstore.NormalizeAnomalySensitivity(in)
 	// v0.10.1478 — RED kaynağı değişikliği ayrı denetim satırı alır (geri alma
 	// = redSource span); önceki değer KAYITLI blobdan, okunamazsa yayınlanandan.

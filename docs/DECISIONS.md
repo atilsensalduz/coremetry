@@ -10770,3 +10770,32 @@ tikler arasında değişirse (VM okuma hatası) açık problemin değeri o tik s
 **Geri alma.** Settings → Anomaly → Dedektör hassasiyeti → "Alarm kuralı kaynağı: Span" (`alertSource=span`) → davranış
 v0.10.1488 ile aynı (kanıt satırı "VM kullanılmadı: alarm kaynağı ayarı span" olarak kalır). Tam: revert + yeni etiket
 (eski sürüm `alertSource` alanını yok sayar).
+
+## 2026-10-24 — v0.10.1490 — Takvim özel günleri yerel saat diliminde (calendar.timezone)
+
+**Bağlam.** v0.10.1483 özel günleri UTC günü olarak eşliyordu (motorun UTC pini). Türkiye'de (UTC+3) bir tatilin ilk 3
+yerel saati (UTC 21:00–24:00, önceki UTC günü) tatil sayılmıyor, son 3 saat yerine ertesi günün ilk 3 yerel saati
+tatil sayılıyordu; otomatik ay sonu iş günleri de UTC günüyle hesaplanıyordu. Operatör bir dilim ayarını onayladı.
+
+**Karar.** (1) `anomaly_sensitivity.calendar.timezone` (IANA adı). **Varsayılan BOŞ = UTC**: mevcut kurulumlar bayt bayt
+v0.10.1489 davranışında kalır (Europe/Istanbul varsayılanı yükseltmede tatil pencerelerini sessizce 3 saat kaydırırdı).
+UI (Settings → Anomaly → Dedektör hassasiyeti → Takvim etkileri) tarayıcının dilimini placeholder'da ve tek tıklık
+"Tarayıcının dilimini kullan" düğmesinde ÖNERİR, alana kendiliğinden YAZMAZ (ilgisiz bir Kaydet pencereleri
+kaydırmasın). (2) Doğrulama: mevcut admin PUT; `time.LoadLocation` (tzdata main.go'da gömülü) — bilinmeyen ad ve
+sunucuya bağlı "Local" **400** (blob'un "kelepçe, reddetme" kuralının bilinçli istisnası: sessiz UTC'ye dönüş fark
+edilmeyen 3 saatlik kayma olurdu); elle bozulmuş blob Normalize'da UTC'ye düşer. Denetim: mevcut `settings.update`
+satırı tam blob'u taşır. (3) Dilim YALNIZ iki soruyu yanıtlar: kova hangi özel güne ait (`SpecialKindOn` yerel gün) ve
+ay sonu iş günü (yerel gün, yerel hafta günü). Mevsimsel baseline'ın gün sınıfı (`dayClass`, SQL `multiIf`) ve slot
+eşlemesi (saniye-of-day) UTC'ye pinli kalır (v0.8.323). (4) SQL/Go uyumu: önceki özel günlerin okuması artık
+`toDate(time_bucket,'UTC') IN (…)` değil; Go her yerel günü `DayWindowUTC` ile UTC anlarına ([başlangıç, bitiş), DST
+günü 23/25 saat) çevirir ve `(time_bucket >= ? AND time_bucket < ?) OR …` olarak bağlar — CH'de dilim/oturum TZ'si
+yok. Özel gün örneklerinin gün çeşitliliği yerel günle sayılır (İstanbul'da 21:00 UTC sınırındaki iki slot tek gün).
+Davranış motorunun baseline'dan tatil kovası düşürmesi 15 dk dilim önbelleğiyle yerel günü görür; VM RED yolu yedek
+sınıfa yerel takvimle iner. Testler: UTC+3 sınır tablosu, Europe/Berlin DST, yerel ay sonu, 5 dilimde her 5 dk kovada
+SQL penceresi ≡ SpecialKindOn, settings round-trip, PUT 400.
+
+**Operatör.** Settings → Anomaly → Takvim saat dilimi = `Europe/Istanbul` (ya da "Tarayıcının dilimini kullan") →
+Kaydet. Mevcut tatil satırları yeniden girilmez: aynı YYYY-MM-DD artık yerel gün olarak okunur.
+
+**Geri alma.** Dilim alanını boşalt → Kaydet: davranış v0.10.1489 ile bayt bayt aynı (UTC günü). Tam: revert + yeni etiket
+(eski sürüm `timezone` alanını yok sayar, UTC'ye döner).

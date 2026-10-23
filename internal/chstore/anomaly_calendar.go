@@ -9,12 +9,19 @@ package chstore
 // ayar blob'unun (system_settings "anomaly_sensitivity") Calendar bölümüne
 // yazar; dedektör (internal/anomaly/calendar.go) o gün sınıfı değiştirir.
 //
-// Tarihler UTC takvim günüdür (YYYY-MM-DD): mevsimsel motorun tamamı UTC'ye
-// pinli (v0.8.323) ve SQL tarafı toDate(time_bucket, 'UTC') ile aynı günü görür.
+// Tarihler takvim günüdür (YYYY-MM-DD) ve v0.10.1490'dan beri Timezone'un
+// (IANA adı; boş = UTC, eski blob'lar) YEREL günü olarak okunur: İstanbul'da
+// tatilin ilk 3 yerel saati (UTC 21:00–24:00, önceki UTC günü) artık tatile
+// aittir. Dilim YALNIZ "hangi kova hangi özel güne ait" sorusunu (ve ay sonu
+// iş günü hesabını) yanıtlar; mevsimsel baseline'ın saat dilimi / gün sınıfı
+// UTC'ye pinli kalır (v0.8.323). SQL'e yerel gün gitmez: Go yerel günü UTC
+// anlarına ([başlangıç, bitiş)) çevirip bağlar — CH oturum dilimine güvenilmez.
 
 import (
+	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 )
@@ -51,6 +58,64 @@ type AnomalyCalendarConfig struct {
 	// "month-end-like" sınıfı (varsayılan KAPALI).
 	MonthEndAuto         bool `json:"monthEndAuto"`
 	MonthEndBusinessDays int  `json:"monthEndBusinessDays"`
+	// Timezone — v0.10.1490: özel günlerin hangi yerel güne ait olduğu (IANA
+	// adı, ör. "Europe/Istanbul"). Boş = UTC: eski kurulumlar bayt bayt eski
+	// davranışta kalır; UI tarayıcının dilimini ÖNERİR, kendiliğinden yazmaz.
+	Timezone string `json:"timezone,omitempty"`
+}
+
+// ValidateCalendarTimezone — SAF: PUT kapısı. Boş = UTC (geçerli); "Local"
+// sunucuya bağlı olduğu için reddedilir; aksi time.LoadLocation (tzdata
+// main.go'da gömülü).
+func ValidateCalendarTimezone(name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil
+	}
+	if strings.EqualFold(name, "local") {
+		return fmt.Errorf("calendar.timezone: %q is server-dependent; use an IANA name such as Europe/Istanbul", name)
+	}
+	if _, err := time.LoadLocation(name); err != nil {
+		return fmt.Errorf("calendar.timezone: unknown IANA time zone %q", name)
+	}
+	return nil
+}
+
+// calendarLocCache — ad → *time.Location (LoadLocation gömülü tzdata'yı her
+// çağrıda açar; SpecialKindOn bir tikte binlerce kez koşar).
+var calendarLocCache sync.Map
+
+// Location — takvimin dilimi; boş ya da çözülemeyen ad = UTC (Normalize
+// geçersizi zaten boşaltır; elle düzenlenmiş blob da UTC'ye düşer).
+func (c AnomalyCalendarConfig) Location() *time.Location {
+	name := c.Timezone
+	if name == "" || strings.EqualFold(name, "local") {
+		return time.UTC
+	}
+	if v, ok := calendarLocCache.Load(name); ok {
+		return v.(*time.Location)
+	}
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		loc = time.UTC
+	}
+	calendarLocCache.Store(name, loc)
+	return loc
+}
+
+// DayWindowUTC — SAF: "YYYY-MM-DD" yerel gününün UTC anları [start, end).
+// DST günü 23 / 25 saattir (time.Date normalizasyonu). SQL'e giden takvim
+// yüklemi bu anlarla kurulur; SpecialKindOn ile aynı sınırı görür
+// (TestCalendarWindowAgreesWithSpecialKindOn).
+func (c AnomalyCalendarConfig) DayWindowUTC(date string) (start, end time.Time, ok bool) {
+	d, ok := calendarDate(date)
+	if !ok {
+		return time.Time{}, time.Time{}, false
+	}
+	loc := c.Location()
+	start = time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, loc)
+	end = time.Date(d.Year(), d.Month(), d.Day()+1, 0, 0, 0, 0, loc)
+	return start.UTC(), end.UTC(), true
 }
 
 // calendarDate — SAF: "YYYY-MM-DD" → UTC gün başı.
@@ -77,6 +142,10 @@ func validCalendarKind(k string) bool {
 // satır tavanı 200; MonthEndBusinessDays 1..5 (aralık dışı → 2).
 func NormalizeAnomalyCalendar(c AnomalyCalendarConfig) AnomalyCalendarConfig {
 	out := AnomalyCalendarConfig{Days: []AnomalySpecialDay{}, MonthEndAuto: c.MonthEndAuto, MonthEndBusinessDays: c.MonthEndBusinessDays}
+	// v0.10.1490 — geçersiz dilim (elle düzenlenmiş blob; PUT 400 verir) → UTC.
+	if tz := strings.TrimSpace(c.Timezone); ValidateCalendarTimezone(tz) == nil {
+		out.Timezone = tz
+	}
 	if out.MonthEndBusinessDays < 1 || out.MonthEndBusinessDays > calendarMonthEndMaxN {
 		out.MonthEndBusinessDays = CalendarMonthEndDefaultN
 	}
@@ -110,10 +179,11 @@ func NormalizeAnomalyCalendar(c AnomalyCalendarConfig) AnomalyCalendarConfig {
 	return out
 }
 
-// SpecialKindOn — SAF: t'nin UTC gününün AÇIK satır türü ("" = yok). Birden
-// çok satır aynı güne düşerse öncelik holiday > half-day > month-end-like.
+// SpecialKindOn — SAF: t'nin YEREL gününün (Timezone; boş = UTC) AÇIK satır
+// türü ("" = yok). Birden çok satır aynı güne düşerse öncelik holiday >
+// half-day > month-end-like.
 func (c AnomalyCalendarConfig) SpecialKindOn(t time.Time) string {
-	day := t.UTC().Format("2006-01-02")
+	day := t.In(c.Location()).Format("2006-01-02")
 	best := ""
 	rank := map[string]int{CalendarHoliday: 3, CalendarHalfDay: 2, CalendarMonthEnd: 1}
 	for _, d := range c.Days {
