@@ -162,7 +162,7 @@ describe('/cosre bağımsız sohbet sayfası', () => {
     const caps = Array.from(document.querySelectorAll<HTMLButtonElement>('.cosre-page__body button[data-cap]'));
     expect(caps.map(b => b.dataset.cap)).toEqual(['team', 'service', 'operation', 'exceptions', 'navigate']);
     const body = document.querySelector('.cosre-page__body')!.textContent ?? '';
-    expect(body).toContain('Son exception gruplarına bakabilirim');
+    expect(body).toContain('Takımının son exception\'larına bakabilirim');
     expect(body).not.toContain('P1 problemlerinin');
     const chips = Array.from(document.querySelectorAll<HTMLButtonElement>('.cosre-page__body [data-cap-choices="exceptions"] button'));
     expect(chips.map(b => b.textContent)).toEqual(['ORDERS_GET_X · orders-api', 'Tüm son exception\'lar']);

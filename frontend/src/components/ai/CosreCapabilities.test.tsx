@@ -200,7 +200,7 @@ describe('capabilityHints — v0.10.1382 gruplar (saf)', () => {
     }
     expect(tCosre('cosre.cap.search.service')).toBe('Servis ara…');
     expect(tCosre('cosre.cap.search.operation')).toBe('Operasyon ara…');
-    expect(tCosre('cosre.cap.exceptions')).toBe('Son exception gruplarına bakabilirim');
+    expect(tCosre('cosre.cap.exceptions')).toBe('Takımının son exception\'larına bakabilirim'); // v0.10.1472
     expect(tCosre('cosre.cap.exceptions.all')).toBe('Tüm son exception\'lar');
     for (const gone of ['cosre.cap.pickService', 'cosre.cap.pickService.placeholder', 'cosre.cap.deploy', 'cosre.cap.deploy.prompt',
       'cosre.cap.p1', 'cosre.cap.p1.prompt']) {
@@ -330,7 +330,7 @@ describe('CopilotChat çekmecesi — v0.10.1382 / v0.10.1390 başlangıçlar', (
     expect(rows().map(b => b.dataset.cap)).toEqual(['team', 'service', 'operation', 'exceptions', 'navigate']);
     expect(document.body.querySelector('[data-cap="p1"]')).toBeNull();
     expect(document.body.textContent).not.toContain('P1 problemlerinin');
-    expect(document.body.textContent).toContain('Son exception gruplarına bakabilirim');
+    expect(document.body.textContent).toContain('Takımının son exception\'larına bakabilirim');
     expect(document.body.querySelector('[data-cap-choices="service"]')).toBeNull();
     expect(document.body.querySelector('[data-cap-choices="operation"]')).toBeNull();
     expect(document.body.querySelector('[data-chip="pick-service"]')).toBeNull();

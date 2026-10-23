@@ -228,7 +228,7 @@ const EN: Catalog = {
   'cosre.cap.navigate.prompt':  'Where should I look to investigate |?',
   // v0.10.1382 — data-grounded choices under the rows (/api/copilot/starters).
   // v0.10.1404 — the P1 row became the latest-exceptions row.
-  'cosre.cap.exceptions':        'I can look at the latest exception groups',
+  'cosre.cap.exceptions':        'I can look at your team’s latest exceptions', // v0.10.1472
   'cosre.cap.exceptions.prompt': 'My team’s exceptions?',
   'cosre.cap.exceptions.all':    'All recent exceptions',
   'cosre.cap.choices':          'Ready-made choices',
@@ -577,7 +577,7 @@ const TR: Catalog = {
   // yalnız o grupta öğe varken.
   // v0.10.1404 (operatör: "P1 yerine en son exception'lara yönlendirsin.") — P1
   // satırı yerine en son exception grupları; şablon takım exception sorusu.
-  'cosre.cap.exceptions':        'Son exception gruplarına bakabilirim',
+  'cosre.cap.exceptions':        'Takımının son exception\'larına bakabilirim', // v0.10.1472 (operatör)
   'cosre.cap.exceptions.prompt': 'Takımımın exception\'ları?',
   'cosre.cap.exceptions.all':    'Tüm son exception\'lar',
   'cosre.cap.choices':          'Hazır seçenekler',
