@@ -5669,6 +5669,12 @@ export interface PromqlPanelConfig {
   unit?: string;           // y-axis unit override (ms | % | rps | free text)
   step?: number;           // bucket seconds; absent/0 = width-aware auto
   viz?: PanelVizType;      // line (default) / bar / area / stacked
+  /**
+   * v0.10.1443 — kaynak pini: sohbetten gelen VM-only MetricsQL
+   * (histogram_quantiles …) CH yolunda kırılır, bu yüzden panel kaynağını
+   * taşır. Yok = kurulum varsayılanı (eski paneller bayt-aynı).
+   */
+  source?: 'vm' | 'ch';
 }
 
 // v0.9.781 — Top-N bar panel. The "which N are worst right now" surface every
@@ -5772,6 +5778,18 @@ export interface Dashboard extends DashboardSummary {
   panels?: Panel[];
   variables?: DashboardVariable[];
 }
+// v0.10.1443 — POST /api/dashboards/{id}/panels + /api/dashboards/from-chat
+// (internal/api/dashboard_panels_routes.go dashPanelsReq / dashPanelsResult).
+export interface DashboardPanelsRequest {
+  panels: Panel[];
+  /** yalnız from-chat: yeni panonun adı (çakışırsa sunucu "ad (2)" yapar). */
+  dashboard?: { name: string };
+  /** sohbet kökeni: verilirse (boş nesne de) sunucu PromQL'i sohbet izin listesiyle doğrular;
+   *  audit satırına girer (panolar paylaşılan; kim hangi konuşmadan ekledi). Explore göndermez. */
+  origin?: { conversation?: string; exchangeId?: string };
+}
+export interface DashboardPanelSkip { title: string; reason: 'duplicate' | 'invalid' | 'cap' | 'size' | string; detail?: string }
+export interface DashboardPanelsResult { id: string; name: string; added: number; skipped: DashboardPanelSkip[]; href: string }
 
 // ── Profiling ────────────────────────────────────────────────────────────────
 

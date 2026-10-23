@@ -36,6 +36,9 @@ import { StateBadges } from './StateBadges'; // v0.10.948 — paylaşılan durum
 import { chatLinkTargetProps, useChatLinkNewTab } from './chatLinkTarget'; // v0.10.1125 — /cosre yeni sekme
 import { sourceChips, SOURCE_KIND_LABEL, type SourceChip } from './sourceChips'; // v0.10.1127 — hedef başına tek kaynak çipi
 import { EvidenceChips } from './EvidenceChips'; // v0.10.1272 — kanıt çipleri + Explore'da aç
+import { AddToDashboardButton } from './AddToDashboard'; // v0.10.1443
+import { ChatDashContext, useChatDashOrigin, type ChatDashOrigin } from './chatDash'; // v0.10.1443
+import { turnToPanels } from '@/lib/chatPanelSpec'; // v0.10.1443
 import { ctxAppliedLabel, stepEvidenceItems } from './evidenceChip'; // v0.10.1274 — ekran kapsamı künyesi; v0.10.1275 — hop listesi
 import { phaseTrail } from './phaseTrail'; // v0.10.1273 — Metrik → Log → Trace kırıntısı
 import { MdTable } from './MdTable'; // v0.10.1357 — paylaşılan markdown tablosu (RenderedMarkdown da çizer)
@@ -843,6 +846,8 @@ interface ChatBubbleProps {
    * "hipotezi doğrula" çipi varsa action bloğunun düğmesi çizilmez (çift yok).
    */
   shownFollowups?: ChatFollowup[];
+  /** v0.10.1443 — bu cevabın sorusu (önceki kullanıcı turu); dashboard paneli açıklaması. */
+  question?: string;
 }
 
 // BubbleBoundary — v0.10.1137 inceleme: tek bir cevabın çiziminde beklenmedik
@@ -889,7 +894,7 @@ export const ChatBubble = memo(function ChatBubble(props: ChatBubbleProps) {
   return <BubbleBoundary turn={props.turn}><ChatBubbleView {...props} /></BubbleBoundary>;
 });
 
-function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions, onEdit, shownFollowups }: ChatBubbleProps) {
+function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions, onEdit, shownFollowups, question }: ChatBubbleProps) {
   const effLinks = mergeBlockLinks(turn.links, turn.blocks); // v0.10.541 — link blokları çiplere katılır
   const isUser = turn.role === 'user';
   const navigate = useNavigate();
@@ -969,6 +974,18 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
     [turn.evidence, turn.stepDetails],
   );
   const evBlocks = useMemo(() => evidenceBlocksByRef(turn.blocks), [turn.blocks]);
+  // v0.10.1443 — sohbetten dashboard: konuşma (CopilotChat) + soru + exchange bağlamı;
+  // cevabın çevrilebilen bütün grafikleri ("Hepsini dashboard yap", ≥2 panelde).
+  const outerDash = useChatDashOrigin();
+  const dashOrigin = useMemo<ChatDashOrigin>(
+    () => ({ conversationId: outerDash?.conversationId, question, exchangeId: turn.exchangeId }),
+    [outerDash?.conversationId, question, turn.exchangeId],
+  );
+  const dashPanels = useMemo(
+    () => (isUser || turn.pending ? [] : turnToPanels(turn, dashOrigin)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- turn alanları tek tek: blok/kanıt/metin kimliği
+    [isUser, turn.pending, turn.blocks, turn.evidence, turn.stepDetails, turn.text, dashOrigin],
+  );
   const hasSteps = !isUser && (!!turn.steps?.length || !!turn.stepDetails?.length);
   // v0.10.1389 — metin henüz yokken (ilk token öncesi) yalnız gösterge.
   const thinkingOnly = !isUser && turn.pending && !turn.text && !turn.error;
@@ -983,6 +1000,7 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
   return (
     <ChatMdContext.Provider value={mdCtx}>
     <EvidenceBlocksContext.Provider value={evBlocks}>
+    <ChatDashContext.Provider value={dashOrigin}>
     <div className="cm-msg cm-msg--ai" ref={rootRef}>
       {/* v0.10.1137 — asistan cevabı kart DEĞİL: sayfadaki düz metin (Claude gibi),
           küçük marka etiketi. */}
@@ -1160,6 +1178,8 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
               ↻ Yeniden üret
             </Button>
           )}
+          {/* v0.10.1443 — cevabın bütün grafikleri tek panoya (≥2 çevrilebilen panel). */}
+          {dashPanels.length >= 2 && <AddToDashboardButton panels={dashPanels} mode="all" />}
           {versions && versions.total > 1 && (
             <span className="cm-msg-versions" role="group" aria-label="Cevap sürümleri">
               <Button variant="ghost" size="sm" disabled={versions.index === 0 || busy}
@@ -1174,6 +1194,7 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
         </div>
       )}
     </div>
+    </ChatDashContext.Provider>
     </EvidenceBlocksContext.Provider>
     </ChatMdContext.Provider>
   );

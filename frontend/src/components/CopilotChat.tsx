@@ -58,6 +58,7 @@ import { ChatLinkNewTabContext } from './ai/chatLinkTarget'; // v0.10.1125 — /
 import { ThemeToggle } from './ThemeToggle';
 import { CosreCapabilities } from './ai/CosreCapabilities'; // v0.10.1128
 import { tCosre } from './ai/capabilityHints';
+import { ChatDashContext } from './ai/chatDash'; // v0.10.1443
 
 // CopilotChat (v0.6.53, v0.9.163 interaktif) — global in-app AI assistant.
 // Sağ-alt animasyonlu sparkline logo (operatör seçimi B) bir drawer açar;
@@ -312,6 +313,7 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
   // konuşma değişince / yenilemede kaybolmaz, gönderimde silinir. (Konuşma
   // kimliği useChatThread'den geldiği için durum onun ALTINDA kurulur.)
   const draft = useComposerDraft('chat', conversationId);
+  const dashCtx = useMemo(() => ({ conversationId }), [conversationId]); // v0.10.1443 — sohbetten dashboard
   // v0.10.1400 — etkin açıklama turu (✕ ile çıkarılmadıysa) + trace bağlamı.
   const activeExplainAll = useMemo(() => activeExplainFrom(turns), [turns]);
   const activeExplain = activeExplainAll && activeExplainAll.key !== explainOff ? activeExplainAll : null;
@@ -861,26 +863,30 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
                 </div>
               </div>
             )}
+            {/* v0.10.1443 — sohbetten dashboard: konuşma kimliği panel açıklamasına + audit'e. */}
+            <ChatDashContext.Provider value={dashCtx}>
             {turns.map((t, i) => {
               const isLast = i === turns.length - 1;
+              const question = i > 0 && turns[i - 1].role === 'user' ? turns[i - 1].text : undefined; // v0.10.1443
               // v0.10.1138 — son cevap: ↻ yeniden üret + sürüm geçişi; son kullanıcı mesajı: ✎ düzenle.
               if (isLast && t.role === 'assistant' && !t.pending && t.alternatives?.length) {
                 const v = answerVersion(t, versionSel && versionSel.turn === t ? versionSel.idx : null);
                 return (
-                  <ChatBubble key={i} turn={v.view} busy={busy}
+                  <ChatBubble key={i} turn={v.view} busy={busy} question={question}
                     shownFollowups={showFollowups ? last?.followups : undefined}
                     onRegenerate={canRegenerate(turns) ? regenerate : undefined}
                     versions={{ index: v.index, total: v.total, onSelect: idx => setVersionSel({ turn: t, idx }) }} />
                 );
               }
               return (
-                <ChatBubble key={i} turn={t} busy={busy}
+                <ChatBubble key={i} turn={t} busy={busy} question={question}
                   shownFollowups={isLast && showFollowups ? last?.followups : undefined}
                   onRetry={isLast && t.error && !busy ? retry : undefined}
                   onRegenerate={isLast && canRegenerate(turns) ? regenerate : undefined}
                   onEdit={i === lastUserIdx && t.role === 'user' ? editLastAndPin : undefined} />
               );
             })}
+            </ChatDashContext.Provider>
             </div>
           </div>
           {/* v0.10.1137 — kullanıcı yukarı kaydırdıysa yapışma bırakılır; düğme dibe indirir ve yeniden yapıştırır. */}

@@ -607,11 +607,12 @@ function PromqlPanel({ cfg, range, syncKey, onZoom, onZoomReset, height, onFocus
     if (step === null) return; // panel width not measured yet — defer
     setSeries(undefined);
     setError(null);
-    api.metricPromql({ query: debouncedQuery, from, to, step })
+    // v0.10.1443 — cfg.source: kaynak pini (sohbetten gelen VM-only MetricsQL); yoksa kurulum varsayılanı.
+    api.metricPromql({ query: debouncedQuery, from, to, step, src: cfg.source })
       .then(s => setSeries(s ?? []))
       .catch(e => setError(e.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery, cfg.step, range, widthPx]);
+  }, [debouncedQuery, cfg.step, cfg.source, range, widthPx]);
 
   if (error) return <PanelError msg={error} height={boxPx} />;
   const viz = cfg.viz ?? 'line';

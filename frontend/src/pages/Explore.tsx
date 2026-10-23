@@ -1382,7 +1382,7 @@ name ~ checkout`}
           anchor={correlateAnchor}
           onClose={() => setCorrelateAnchor(null)} />
         {pinPanel && (
-          <PinToDashboardModal panel={pinPanel}
+          <PinToDashboardModal panels={[pinPanel]}
             onClose={() => setPinPanel(null)} />
         )}
       </PageShell>

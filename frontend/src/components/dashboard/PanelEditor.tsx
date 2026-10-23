@@ -371,7 +371,7 @@ function PromqlFields({ cfg, onChange }: {
           className="mono" style={{ width: '100%' }}
           placeholder={'sum by (service.name) (rate(http.server.duration[5m]))'} />
       </Field>
-      <div className="grid-3" style={{ display: 'grid', gap: 12 }}>
+      <div className="grid-4" style={{ display: 'grid', gap: 12 }}>
         <Field label="Viz">
           <select value={cfg.viz ?? 'line'}
             onChange={e => update('viz', e.target.value as PromqlPanelConfig['viz'])}>
@@ -387,6 +387,15 @@ function PromqlFields({ cfg, onChange }: {
         </Field>
         <Field label="Step">
           <StepSelect value={cfg.step} onChange={v => update('step', v)} />
+        </Field>
+        {/* v0.10.1443 — kaynak pini (sohbetten gelen VM-only MetricsQL CH'de kırılır). */}
+        <Field label="Kaynak">
+          <select value={cfg.source ?? ''}
+            onChange={e => update('source', (e.target.value || undefined) as PromqlPanelConfig['source'])}>
+            <option value="">Varsayılan</option>
+            <option value="vm">VictoriaMetrics</option>
+            <option value="ch">ClickHouse</option>
+          </select>
         </Field>
       </div>
       {/* v0.10.314 (chart-layer Dilim 2.2) — yatay eşik çizgileri; stat/gauge

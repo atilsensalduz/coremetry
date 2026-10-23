@@ -3330,6 +3330,20 @@ export const api = {
     }),
   deleteDashboard: (id: string) =>
     request<void>(`/api/dashboards/${id}`, { method: 'DELETE' }),
+  // v0.10.1443 — sohbetten dashboard (dashboard_panels_routes.go): sunucu
+  // PromQL'i yeniden doğrular, tekrarı atlar (skipped[]), ad çakışmasını çözer.
+  appendDashboardPanels: (id: string, body: import('./types').DashboardPanelsRequest) =>
+    request<import('./types').DashboardPanelsResult>(`/api/dashboards/${encodeURIComponent(id)}/panels`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  createDashboardFromChat: (body: import('./types').DashboardPanelsRequest) =>
+    request<import('./types').DashboardPanelsResult>('/api/dashboards/from-chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
 
   alertRules: () => get<AlertRule[] | null>('/api/alert-rules'),
   // v0.9.1109 — /alerts satır rozeti: kural başına açık problem sayısı.

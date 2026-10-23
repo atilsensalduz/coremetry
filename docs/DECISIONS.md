@@ -9483,3 +9483,36 @@ girdiler, serbest PromQL yok, niyet kademesi içinde konum), `prompt_resource_cl
 
 **Geri alma yolu:** `git revert <v0.10.1442 sha>` → yeni `v0.10.X+1` etiketi. Kalıcı durum yok (yalnız 10 dk'lık önbellek
 satırları, kendiliğinden düşer); genel sınıflandırıcı R2 davranışına döner.
+
+## 2026-10-23 — v0.10.1443 — Sohbetten dashboard R1: cevaptaki grafikler tek tıkla panoya ("Dashboard'a ekle" / "Hepsini dashboard yap")
+
+**Operatör programı madde 3 (Grafana-Assistant), R1.** Sohbet cevabındaki çevrilebilen grafik (VM PromQL kanıt grafiği,
+servis raporunun HTTP grafikleri, span spec-chart) panelin "▦ Dashboard'a ekle" düğmesiyle, ≥2 çevrilebilen grafikte cevap
+eylem satırının "Hepsini dashboard yap" düğmesiyle panoya gider. Yazım YALNIZ modaldaki "Ekle" tıkıyla.
+
+**Kararlar:**
+- **Panolar paylaşılan, audit konuşmayı taşır.** `dashboards` tablosunda sahip kolonu yok (her pano herkesin); "kişisel pano"
+  kapsam dışı. Sohbetten doğan pano `cosre` etiketi alır; audit satırı (`dashboard.panels_append` /
+  `dashboard.create_from_chat`) `{count, skipped, conversation, exchangeId}` taşır — "bu paneli kim, hangi konuşmadan ekledi"
+  sorusunun tek cevabı. Panel açıklaması `CoSRE · <soru> · /cosre?chat=<id>` (konuşmayı açar, turu değil).
+- **Kaynak pini (`PromqlPanelConfig.source?: 'vm'|'ch'`).** Sohbetin VM sorgusu MetricsQL taşıyabilir (`histogram_quantiles`);
+  kurulum varsayılanı CH olan yerde panel kırılırdı. Sohbet panelleri `source:'vm'` ile yazılır; PanelRenderer `src: cfg.source`
+  geçer, PanelEditor'da "Kaynak" seçimi. Alan yoksa eski davranış (kurulum varsayılanı + `?metricsrc=`) bayt-aynı.
+- **Sunucu yeniden doğrular** (`internal/api/dashboard_panels_routes.go`, editorRoles, route_registry — api.go aynı):
+  promql paneli `validateChartPromQL` izin listesinden; MetricsQL'e özgü sorgu yalnız `source:'vm'` ile. Tekrar (FNV: tür +
+  normalize sorgu/süzgeç + agg + birim + kaynak) yazılmaz → `skipped[]`; tavanlar ≤50 panel, panels JSON ≤512 KiB, başlık ≤120;
+  yeni panoda ad çakışması "ad (2)". Var olana ekleme sunucuda tam satır (mergeDashboardUpdate, değişmez #4).
+  İzin listesi yalnız **sohbet kökenli** istekte (gövdede `origin` var — boş nesne de; from-chat ucu her zaman): Explore pini
+  `origin` göndermez ve eskiden GET+PUT ile her PromQL'i yazabiliyordu; `/panels` ucuna taşınınca alt sorgu / >1h aralık gibi
+  sohbet tavanlarıyla geriye dönük kırılmasın diye orada yalnız tür + kaynak + boş-olmayan sorgu denetlenir. Mevcut panellerin
+  tekrar anahtarı hep gevşek okunur (izin listesi dışındaki eski panel de tekrar sayılır).
+- **Eşleme SAF** (`frontend/src/lib/chatPanelSpec.ts`): charts_signals / log_spike / topology / trace_list / tablolar çevrilmez
+  (düğme yok); pencere → ≥ rangeS en yakın preset, dashboard varsayılanından (3h) farklıysa `rangeOverride`; mutlak pencere göreliye döner.
+- **Rol:** editör/admin; viewer düğmeyi kapalı + gerekçeyle görür. Explore pini aynı modalda (`panels[]`), ekleme artık
+  `/panels` ucundan, yeni pano eski `POST /api/dashboards` ('Pinned from Explore', etiketsiz).
+
+**Testler:** `dashboard_panels_routes_test.go` (doğrulama tablosu, dedupe/tavan/boyut/ad çakışması sahte depoyla);
+FE `chatPanelSpec.test.ts`, `AddToDashboard.test.tsx` (görünürlük/rol, Hepsini dashboard yap, çok panelli modal, tıksız yazım yok).
+
+**Geri alma yolu:** `git revert <v0.10.1443 sha>` → yeni etiket. Şema yok; yazılmış paneller sıradan panel JSON'u olarak
+kalır (`source` alanını eski renderer yok sayar → kurulum varsayılanı). İki uç kaybolur, Explore pini eski GET+PUT yoluna döner.

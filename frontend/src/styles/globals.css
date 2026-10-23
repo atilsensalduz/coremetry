@@ -4959,6 +4959,8 @@ tr:hover .row-kiosk, .row-kiosk:focus-visible { opacity: 1; }
 .cm-evidence-wrap.cm-evidence--step { margin-top: 0; margin-bottom: var(--sp-2); }
 .cm-evblk { margin-top: var(--sp-3); max-width: 720px; }
 .cm-evblk__chart { display: flex; flex-direction: column; gap: var(--sp-3); }
+/* v0.10.1443 — sohbet grafiğinin "Dashboard'a ekle" düğmesi (sağ üst). */
+.cm-evblk__dash { display: flex; justify-content: flex-end; margin-bottom: calc(-1 * var(--sp-3)); }
 .cm-evblk__table { max-height: 360px; overflow: auto; }
 .cm-evblk__body { white-space: normal; overflow-wrap: anywhere; min-width: 240px; }
 .cm-evidence__tip { display: flex; flex-direction: column; gap: var(--sp-2); max-width: 520px; }

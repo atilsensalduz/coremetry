@@ -20,6 +20,8 @@ import { chatLinkTargetProps, useChatLinkNewTab } from './chatLinkTarget';
 import { exceptionGroupRows, fmtMs } from './operationCardView';
 import { drillLogsNote, verdictBadgeClass } from './serviceReportCardView';
 import { EvidenceChart } from './EvidenceChips';
+import { useChatDashOrigin } from './chatDash'; // v0.10.1443
+import { serviceReportChartToPanel } from '@/lib/chatPanelSpec';
 
 function priorLabel(o: ChatServiceReportOp): string {
   return o.ratio && o.ratio > 0 && o.priorP99Ms ? `${fmtMs(o.priorP99Ms)} · ×${o.ratio.toFixed(1)}` : 'kıyas yok';
@@ -33,6 +35,7 @@ export function ServiceReportCard({ rep }: { rep: ChatServiceReportPayload }) {
   const drills = rep.drills ?? [];
   const links = rep.links ?? [];
   const httpCharts = rep.httpCharts ?? [];
+  const dashOrigin = useChatDashOrigin(); // v0.10.1443
   return (
     <section className="ev-card" aria-label={`Servis raporu · ${rep.service}`}>
       <div className="ev-head">
@@ -56,7 +59,8 @@ export function ServiceReportCard({ rep }: { rep: ChatServiceReportPayload }) {
           <div className="ev-sub">HTTP throughput · yanıt süresi — VictoriaMetrics (örneklenmemiş)</div>
           {httpCharts.map(c => (
             <div key={c.kind} data-http-chart={c.kind}>
-              <EvidenceChart p={c} />
+              {/* v0.10.1443 — "Dashboard'a ekle": grafiğin PromQL'i satır-içi (kaynak VM). */}
+              <EvidenceChart p={c} dashPanel={dashOrigin ? serviceReportChartToPanel(rep.service, c, dashOrigin) : null} />
               <div className="ev-foot">
                 {c.deepLink && <Link to={c.deepLink} className="ev-link" {...linkProps}>Metrics'te aç ↗</Link>}
                 {c.query && <CopyButton value={c.query} title="PromQL kopyala" />}

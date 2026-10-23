@@ -1,11 +1,14 @@
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/Badge';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { DisclosureButton } from '@/components/ui/DisclosureButton';
 import { CopyButton } from '@/components/CopyButton';
 import { Spinner } from '@/components/Spinner';
-import type { ChatQueryEvidence, ChatEvidenceChartPayload, ChatEvidenceTablePayload } from '@/lib/types';
+import type { ChatQueryEvidence, ChatEvidenceChartPayload, ChatEvidenceTablePayload, Panel } from '@/lib/types';
+import { chartBlockToPanel } from '@/lib/chatPanelSpec'; // v0.10.1443
+import { AddToDashboardButton } from './AddToDashboard'; // v0.10.1443
+import { useChatDashOrigin } from './chatDash'; // v0.10.1443
 import type { EvidenceBlockView } from '@/lib/chatBlocks';
 import { traceHref } from '@/lib/traceHref';
 import { fmtClock, fmtDateTime } from '@/lib/utils';
@@ -120,7 +123,7 @@ export function EvidenceChip({ ev, block, expanded, onToggle }: {
 function EvidenceBlock({ id, block, ev }: { id: string; block: EvidenceBlockView; ev: ChatQueryEvidence }) {
   return (
     <div id={id} className="cm-evblk" role="region" aria-label={`Veri: ${evidenceChipText(ev)}`}>
-      {block.type === 'chart' && <EvidenceChart p={block.payload} />}
+      {block.type === 'chart' && <EvidenceChart p={block.payload} ev={ev} />}
       {block.type === 'table' && <EvidenceTable p={block.payload} />}
       {/* trace_list: mevcut ChatTraceList (aynı yük şekli); "Daha fazla → Traces" = Explore'da aç. */}
       {block.type === 'trace_list' && <ChatTraceList tl={block.payload} />}
@@ -131,12 +134,21 @@ function EvidenceBlock({ id, block, ev }: { id: string; block: EvidenceBlockView
 // EvidenceChart — veri taşıyan chart bloğu: birim başına bir CorePanel (uPlot),
 // yeniden sorgu YOK. Seri/nokta tavanı sunucuda (≤20 × ≤120).
 // v0.10.1415 — dışa açık: servis raporu kartı VM HTTP grafiklerini AYNI çizimle basar.
-export function EvidenceChart({ p }: { p: ChatEvidenceChartPayload }) {
+// v0.10.1443 — "Dashboard'a ekle": `ev` VM PromQL kanıtıysa (lib/chatPanelSpec)
+// ya da çağıran paneli verdiyse (`dashPanel`, servis raporu); düğme yalnız
+// sohbet içinde (AddToDashboard ChatDashContext) ve çevrilebilen grafikte.
+export function EvidenceChart({ p, ev, dashPanel }: { p: ChatEvidenceChartPayload; ev?: ChatQueryEvidence; dashPanel?: Panel | null }) {
   const groups = evidenceChartGroups(p);
   // v0.10.1284 — isteğe bağlı x-bölgeleri (explain_log_spike: taban / artış).
   const regions = evidenceRegions(p.regions);
+  const origin = useChatDashOrigin();
+  const panel = useMemo(
+    () => (origin ? (dashPanel !== undefined ? dashPanel : chartBlockToPanel(p, ev, origin)) : null),
+    [origin, dashPanel, p, ev],
+  );
   return (
     <div className="cm-evblk__chart">
+      {panel && <div className="cm-evblk__dash"><AddToDashboardButton panels={[panel]} /></div>}
       <Suspense fallback={<Spinner />}>
         {groups.map(g => (
           <CorePanelMulti key={g.unit || '_'} title={groups.length > 1 ? `${p.title} · ${g.unit}` : p.title}

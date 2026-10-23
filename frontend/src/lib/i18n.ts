@@ -348,6 +348,20 @@ const EN: Catalog = {
   'aiToolsets.src.knowledge':   'Runbooks, document RAG, static product guide',
   'aiToolsets.src.meta':        'Chat state and pure helpers',
   // v0.10.1434 END
+  // v0.10.1443 — sohbetten dashboard (components/ai/AddToDashboard.tsx, PinToDashboardModal)
+  'dash.addFromChat.one':          'Add to dashboard',
+  'dash.addFromChat.all':          'Make a dashboard from all',
+  'dash.addFromChat.title':        'Add to dashboard',
+  'dash.addFromChat.submit':       'Add',
+  'dash.addFromChat.viewerReason': 'Adding to dashboards needs the editor or admin role.',
+  'dash.addFromChat.added':        '{n} panel(s) added',
+  'dash.addFromChat.panels':       '{n} panels',
+  'dash.addFromChat.hint':         'Nothing is saved until you click Add. Panels already on the dashboard are skipped; dashboards are shared.',
+  'dash.addFromChat.skip.duplicate': 'already on the dashboard',
+  'dash.addFromChat.skip.invalid':   'query rejected',
+  'dash.addFromChat.skip.cap':       'dashboard panel limit reached',
+  'dash.addFromChat.skip.size':      'dashboard size limit reached',
+  // v0.10.1443 END
 };
 
 const TR: Catalog = {
@@ -665,6 +679,20 @@ const TR: Catalog = {
   'aiToolsets.src.knowledge':   'Runbook\'lar, doküman RAG, statik ürün rehberi',
   'aiToolsets.src.meta':        'Sohbet durumu ve saf yardımcılar',
   // v0.10.1434 END
+  // v0.10.1443 — sohbetten dashboard (components/ai/AddToDashboard.tsx, PinToDashboardModal)
+  'dash.addFromChat.one':          "Dashboard'a ekle",
+  'dash.addFromChat.all':          'Hepsini dashboard yap',
+  'dash.addFromChat.title':        "Dashboard'a ekle",
+  'dash.addFromChat.submit':       'Ekle',
+  'dash.addFromChat.viewerReason': "Dashboard'a eklemek editör ya da admin rolü ister.",
+  'dash.addFromChat.added':        '{n} panel eklendi',
+  'dash.addFromChat.panels':       '{n} panel',
+  'dash.addFromChat.hint':         "Ekle'ye basmadan hiçbir şey kaydedilmez. Panoda zaten olan panel atlanır; panolar paylaşılır.",
+  'dash.addFromChat.skip.duplicate': 'panoda zaten var',
+  'dash.addFromChat.skip.invalid':   'sorgu reddedildi',
+  'dash.addFromChat.skip.cap':       'pano panel tavanı doldu',
+  'dash.addFromChat.skip.size':      'pano boyut tavanı doldu',
+  // v0.10.1443 END
 };
 
 const CATALOGS: Record<Lang, Catalog> = { en: EN, tr: TR };
