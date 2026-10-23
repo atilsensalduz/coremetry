@@ -580,10 +580,40 @@ redis:
 # bundled <release>-otelcol Service. The pure-ingest pod self-disables (avoids
 # a span-about-receiving-spans loop). If you run WITHOUT the bundled collector,
 # set endpoint to the ingest Service, e.g. "<release>-ingest:4317".
+#
+# v0.10.1471 — investigation traces (sre.investigation, CoSRE D1) and the /ai
+# "Trace" link. Every role (incl. the separate `sre` Deployment) gets
+# COREMETRY_SELF_OBS_OTLP_ENDPOINT from here. Blank endpoint = THIS install's
+# own receiver, so the traces land in this Coremetry and the /ai drawer can
+# link them:
+#   - bundled collector on  → <fullname>-otelcol:<grpcPort> (it forwards to
+#     the ingest role / monolithic pod; unchanged default)
+#   - bundled collector off → distributed: <fullname>-ingest:<service.grpcPort>,
+#     monolithic: localhost:4317 (before v0.10.1471 this pointed at the
+#     non-existent -otelcol Service and every export failed)
+# A chart-default endpoint also renders COREMETRY_SELF_OBS_TRACES_LOCAL=true
+# (the /ai Trace link shows). An explicit endpoint (external collector) does
+# not: the binary then shows the link only for a loopback endpoint — set
+# tracesLocal: "true" if your external collector forwards back into this
+# Coremetry.
 selfObs:
   enabled: true
-  endpoint: ""           # blank → <fullname>-otelcol:<otelCollector.service.grpcPort>
+  endpoint: ""           # blank → this install's receiver (see above)
   sampleRate: "0.1"
+  # Root span names ALWAYS sampled regardless of sampleRate (comma separated;
+  # COREMETRY_SELF_OBS_ALWAYS_SAMPLE). Blank → env not rendered → binary
+  # default "sre.investigation" (one trace per background investigation;
+  # volume ≤ the SRE queue cap). "-" = none (everything follows sampleRate).
+  alwaysSample: ""
+  # "" (auto: "true" for the chart-default endpoint, binary loopback check
+  # otherwise) | "true" | "false" — COREMETRY_SELF_OBS_TRACES_LOCAL.
+  tracesLocal: ""
+  # Per-role overrides (distributed mode only; keys: endpoint, alwaysSample,
+  # tracesLocal). Example — ship only the sre pod's investigation traces to
+  # an external collector while api/worker stay local:
+  #   roles:
+  #     sre: { endpoint: "otel.example.test:4317" }
+  roles: {}
   # v0.10.1422 — deployment.environment of Coremetry's OWN telemetry
   # (COREMETRY_DEPLOY_ENV). In VictoriaMetrics it lands as the
   # deployment_environment_name label the Service page's env filter reads.

@@ -10281,3 +10281,31 @@ gider. Loopback'te bir yan-araç collector dışarı iletiyorsa `TRACES_LOCAL=fa
 TracesQueryable false; açık: traceparent/tracestate/baggage); api `TestOtelServerHandlerJoinsIncomingTraceparent`
 (W3C yayıcıyla SERVER span'ı tarayıcı trace'inin uzak çocuğu, ad `GET /api/traces/:id`; boş yayıcıda kendi kökü; listen
 sarmalayıcıdan geçer), `TestAICallDetailShape`; frontend `aiCallTraceLink.pin.test.ts` + traceQueryable kapısı.
+
+## 2026-10-23 — v0.10.1471 — Helm: self-obs uç noktası kendi kurulumuna, `alwaysSample` / `tracesLocal` / rol başına ezme
+
+**Bağlam.** D1 takipleri (operatör kararı 2026-10-23). Chart `COREMETRY_SELF_OBS_OTLP_ENDPOINT`'i tüm rollere (ayrı `sre`
+Deployment'ı dahil) zaten veriyordu: varsayılan `<fullname>-otelcol:<grpcPort>` — bundled collector'ın exporter'ı kendi
+ingest'ine gittiği için `sre.investigation` trace'leri bu Coremetry'ye düşüyordu. Eksikler: (1) `otelCollector.enabled:
+false` iken varsayılan VAR OLMAYAN `-otelcol` servisini gösteriyordu (her export başarısız, araştırma trace'i yok);
+(2) `COREMETRY_SELF_OBS_ALWAYS_SAMPLE` (v0.10.1463) ve `COREMETRY_SELF_OBS_TRACES_LOCAL` (v0.10.1470) values'ta yoktu —
+chart kurulumunda uç nokta loopback olmadığı için /ai Trace linki hiç çıkmazdı; (3) rol başına ayar yoktu.
+
+**Karar.** `_helpers.tpl` `coremetry.selfObsEnv` (tek kaynak; iki deployment şablonu da çağırır). Uç nokta:
+`selfObs.roles.<rol>.endpoint` → `selfObs.endpoint` → chart varsayılanı = bu kurulumun alıcısı (collector açık:
+`-otelcol`, DEĞİŞMEDİ; kapalı: distributed `-ingest:<service.grpcPort>`, monolitik `localhost:4317`). Chart varsayılanı
+uç noktada `COREMETRY_SELF_OBS_TRACES_LOCAL=true` basılır; operatörün verdiği uç noktada basılmaz (binary otomatiği).
+`selfObs.alwaysSample` boşken env YAZILMAZ (binary varsayılanı `sre.investigation`). `selfObs.tracesLocal` ""/"true"/
+"false" (bool false da korunur — `default` değil `kindIs`). `selfObs.roles: {}` (distributed; anahtarlar endpoint /
+alwaysSample / tracesLocal). CI Helm job'una "self-obs endpoints" adımı (9 iddia).
+
+**Render farkı (ayar vermeyen kullanıcı).** (a) Varsayılan (collector açık, iki kip): YALNIZ her coremetry pod'una
+`COREMETRY_SELF_OBS_TRACES_LOCAL=true` eklenir — uç nokta / oran aynı; /ai Trace linkini açar, davranışa başka etkisi yok.
+(b) `otelCollector.enabled=false`: uç nokta `-otelcol` → `-ingest` / `localhost:4317` — açıkça daha güvenli (eskisi
+çalışmayan bir adresti). (c) Dış `selfObs.endpoint` verenler: render bayt bayt aynı (diff boş).
+
+**Geri alma.** Değerle: `selfObs.tracesLocal: "false"` (link gizli), `selfObs.endpoint: "<eski adres>"`. Tam: commit revert
++ yeni etiket.
+
+**Testler.** `helm lint` (0 failed); `helm template` mono / distributed / distributed+collector kapalı / mono+collector
+kapalı / dış uç nokta — öncesi-sonrası diff yukarıdaki gibi; skill §10 duman render'ları; CI adımı yerelde 9/9.

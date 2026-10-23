@@ -175,10 +175,9 @@ spec:
               value: {{ $redisURL | quote }}
             {{- end }}
             {{- if $.Values.selfObs.enabled }}
-            - name: COREMETRY_SELF_OBS_OTLP_ENDPOINT
-              value: {{ $.Values.selfObs.endpoint | default (printf "%s-otelcol:%v" (include "coremetry.fullname" $) $.Values.otelCollector.service.grpcPort) | quote }}
-            - name: COREMETRY_SELF_OBS_SAMPLE_RATE
-              value: {{ $.Values.selfObs.sampleRate | quote }}
+            {{- /* v0.10.1471 — uç nokta / oran / always-sample / traces-local tek
+                   yardımcıdan (_helpers.tpl coremetry.selfObsEnv). */}}
+            {{- include "coremetry.selfObsEnv" (dict "root" $ "role" $role.name) | nindent 12 }}
             {{- with $.Values.selfObs.deployEnv }}
             # v0.10.1422 — kendi telemetrisinin deployment.environment'ı.
             - name: COREMETRY_DEPLOY_ENV

@@ -263,3 +263,63 @@ eder, o env Secret'tan gelir (internal/mcpclient/seed.go).
 {{- end -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+  v0.10.1471 — self-obs env'leri (selfObs bloğu + rol başına selfObs.roles.<rol>).
+  Argüman: (dict "root" $ "role" "<all|api|worker|sre|…>").
+
+  Uç nokta çözümü (ilk dolu kazanır):
+    1. selfObs.roles.<rol>.endpoint  (yalnız distributed rolleri)
+    2. selfObs.endpoint
+    3. chart varsayılanı — BU kurulumun alıcısı:
+       bundled collector açıksa <fullname>-otelcol:<grpcPort> (exporter'ı
+       kendi ingest'ine gider; eski varsayılan, değişmedi); collector
+       kapalıysa distributed'da <fullname>-ingest:<service.grpcPort>,
+       monolitikte localhost:4317 (pod'un kendi alıcısı). v0.10.1471 öncesi
+       collector kapalıyken var olmayan -otelcol servisine gidiyordu.
+  COREMETRY_SELF_OBS_TRACES_LOCAL (/ai "Trace" linki kapısı, v0.10.1470):
+  selfObs.roles.<rol>.tracesLocal → selfObs.tracesLocal → uç nokta chart
+  varsayılanıysa "true" (trace bu Coremetry'ye düşer); operatörün verdiği
+  uç noktada env YAZILMAZ (binary otomatiği: loopback mı).
+  COREMETRY_SELF_OBS_ALWAYS_SAMPLE: rol → global; boşsa env YAZILMAZ
+  (binary varsayılanı sre.investigation; "-" = hiçbiri).
+*/}}
+{{- define "coremetry.selfObsEnv" -}}
+{{- $root := .root -}}
+{{- $so := $root.Values.selfObs -}}
+{{- $rv := dict -}}
+{{- if and $so.roles (ne .role "all") -}}
+{{- $rv = (get $so.roles .role) | default dict -}}
+{{- end -}}
+{{- $ep := $rv.endpoint | default $so.endpoint | default "" -}}
+{{- $chartDefault := eq $ep "" -}}
+{{- if $chartDefault -}}
+{{- if $root.Values.otelCollector.enabled -}}
+{{- $ep = printf "%s-otelcol:%v" (include "coremetry.fullname" $root) $root.Values.otelCollector.service.grpcPort -}}
+{{- else if eq .role "all" -}}
+{{- $ep = "localhost:4317" -}}
+{{- else -}}
+{{- $ep = printf "%s-ingest:%v" (include "coremetry.fullname" $root) $root.Values.service.grpcPort -}}
+{{- end -}}
+{{- end -}}
+- name: COREMETRY_SELF_OBS_OTLP_ENDPOINT
+  value: {{ $ep | quote }}
+- name: COREMETRY_SELF_OBS_SAMPLE_RATE
+  value: {{ $so.sampleRate | quote }}
+{{- $always := $rv.alwaysSample | default $so.alwaysSample | default "" }}
+{{- with $always }}
+- name: COREMETRY_SELF_OBS_ALWAYS_SAMPLE
+  value: {{ . | quote }}
+{{- end }}
+{{- /* bool false da "false" olarak kalsın diye default yerine kindIs. */}}
+{{- $local := "" }}
+{{- if not (kindIs "invalid" $rv.tracesLocal) }}{{ $local = toString $rv.tracesLocal }}{{ end }}
+{{- if and (eq $local "") (not (kindIs "invalid" $so.tracesLocal)) }}{{ $local = toString $so.tracesLocal }}{{ end }}
+{{- if and (eq $local "") $chartDefault }}
+{{- $local = "true" }}
+{{- end }}
+{{- with $local }}
+- name: COREMETRY_SELF_OBS_TRACES_LOCAL
+  value: {{ . | quote }}
+{{- end }}
+{{- end -}}

@@ -367,3 +367,22 @@ jobs:
           echo "envFrom roles: $roles"
           test "$roles" = "ci-coremetry-api ci-coremetry-ingest ci-coremetry-sre ci-coremetry-worker "
           test "$(helm template ci charts/coremetry --set deployment.mode=distributed --set secrets.jwtSecret=ci-test | grep -c 'envFrom:')" -eq 0
+      # v0.10.1471 — self-obs uç noktası (sre.investigation trace'leri) BU
+      # kurulumun alıcısına gider: collector açıkken -otelcol, kapalıyken
+      # -ingest (distributed) / localhost (monolitik); chart varsayılanı
+      # TRACES_LOCAL=true basar (/ai Trace linki), dış uç nokta basmaz;
+      # alwaysSample boşken env yok (binary varsayılanı); rol başına ezme.
+      - name: helm template (self-obs endpoints)
+        run: |
+          d="--set deployment.mode=distributed --set secrets.jwtSecret=ci-test"
+          ep() { helm template ci charts/coremetry "$@" | grep -A1 'COREMETRY_SELF_OBS_OTLP_ENDPOINT' | grep value: | sort | uniq -c | awk '{print $1, $3}' | tr '\n' ' '; }
+          cnt() { k="$1"; shift; helm template ci charts/coremetry "$@" | grep -c "$k" || true; }
+          test "$(ep $d)" = '4 "ci-coremetry-otelcol:4317" '
+          test "$(ep $d --set otelCollector.enabled=false)" = '4 "ci-coremetry-ingest:4317" '
+          test "$(ep --set otelCollector.enabled=false)" = '1 "localhost:4317" '
+          test "$(cnt COREMETRY_SELF_OBS_TRACES_LOCAL $d)" -eq 4
+          test "$(cnt COREMETRY_SELF_OBS_TRACES_LOCAL $d --set selfObs.endpoint=otel.example.test:4317)" -eq 0
+          test "$(cnt COREMETRY_SELF_OBS_ALWAYS_SAMPLE $d)" -eq 0
+          test "$(cnt COREMETRY_SELF_OBS_ALWAYS_SAMPLE $d --set selfObs.alwaysSample=sre.investigation)" -eq 4
+          test "$(ep $d --set selfObs.roles.sre.endpoint=otel.example.test:4317)" = '3 "ci-coremetry-otelcol:4317" 1 "otel.example.test:4317" '
+          test "$(cnt COREMETRY_SELF_OBS_OTLP_ENDPOINT $d --set selfObs.enabled=false)" -eq 0
