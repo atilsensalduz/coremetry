@@ -1216,6 +1216,9 @@ export const api = {
   // CoSRE öğrenme Faz 3 — vaka kartı (taslak/onaylı) ve tek düğmeli onay (editor+).
   incidentCase: (source: 'problem' | 'exception', id: string) =>
     get<import('./types').IncidentCaseLookup>(`/api/cases/lookup?${qs({ source, id })}`),
+  // v0.10.1475 — /ai onay bekleyen vakalar (taslak, sayfalı; yazma yukarıdaki onay ucu).
+  pendingCases: (params: { source: import('./types').PendingCaseSource; days: number; offset: number; limit: number }, signal?: AbortSignal) =>
+    get<import('./types').PendingCasesPage>(`/api/cases/pending?${qs(params)}`, signal),
   confirmIncidentCase: (caseId: string, body: { finalCause: string; category: string; resolution: string }) =>
     request<{ case: import('./types').IncidentCase }>(`/api/cases/${encodeURIComponent(caseId)}/confirm`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },

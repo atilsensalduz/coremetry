@@ -7812,6 +7812,29 @@ export interface IncidentCaseLookup {
   case: IncidentCase | null;
   categories: string[];
 }
+// v0.10.1475 — /ai "Onay bekleyen vakalar" (GET /api/cases/pending). Go aynası:
+// internal/api/cosre_cases_pending.go pendingCasesResponse / pendingCaseCounts.
+export interface PendingCaseCounts {
+  draftProblem: number;
+  draftException: number;
+  confirmedProblem: number;
+  confirmedException: number;
+  /** Onaylı problem vakalarından öneriyi aynen kabul ETMEYENLER (eval manşeti). */
+  independentProblem: number;
+  independentCapped?: boolean;
+}
+export type PendingCaseSource = 'problem' | 'exception' | 'all';
+export interface PendingCasesPage {
+  items: IncidentCase[];
+  /** Süzgeçteki taslak sayısı (sayfalama). */
+  total: number;
+  counts: PendingCaseCounts;
+  categories: string[];
+  days: number;
+  offset: number;
+  limit: number;
+  evalMinConfirmed: number;
+}
 
 // v0.10.1289 — CoSRE operatör kuralları ("bunu hatırla"). Go aynası:
 // internal/ai/cosrerules Rule / Scope / Doc ve internal/api/cosre_rules.go

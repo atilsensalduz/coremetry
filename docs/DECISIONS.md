@@ -10341,3 +10341,42 @@ v0.10.1472 ile aynı. Tam geri alma: commit'i revert + yeni etiket (blob'daki `t
 `TestTeamLogsEnabledReadsOnceThenCache`, `TestTeamLogsTimeoutAndErrors`, `TestRenderTeamLogsTRStates`,
 `TestTeamLogLabelValues`, `TestTeamLogsKeyHashesAllInputs`, `TestTeamLogsHref`, `TestTeamFieldSettingsRoundTrip`,
 `TestTeamServicesBundleWiresTeamLogs`, `TestRoutingRegression` satırı "takımımın servisleri" → my_services; fe `crossSourceMapping.contract.test.tsx` (Team field).
+
+## 2026-10-23 — v0.10.1475 — /ai "Onay bekleyen vakalar": eval'in onaylı vaka girdisi tek listede
+
+**Karar.** AI SRE doğruluk ölçümü (v0.10.1301/1450) yalnız insan ONAYLI `incident_cases` okur ve prod'da 0 vaka buldu:
+taslaklar Problem sayfalarında tek tek bekliyordu. `GET /api/cases/pending` (kendi dosyası `cosre_cases_pending.go`,
+`registerRoutesExtra`) taslakları sınırlı listeler (status=draft, opened_at penceresi 7/30/90/180/365 g basamağı,
+sayfa ≤100, OFFSET ≤2000, FINAL, `max_execution_time=5`, serveCached 15 s) + sayaç (durum × kaynak; onaylı problem
+vakalarından öneriyi aynen kabul ETMEYEN "bağımsız" sayı — `chstore.SameCause`, eval'in AcceptedSuggestion'ıyla aynı
+fonksiyon). /ai'de SREEvalPanel'in üstünde `PendingCasesPanel`: DataTable (sunucu-sayfalı, resize-only), satır açılımı
+Problem kartının AYNI `ConfirmForm`'u (export edildi, çatal yok). YAZMA yeni uç değil: mevcut
+`POST /api/cases/{caseId}/confirm` (editorRoles, doğrulama, cosre_correct hükmü, `incident_case.confirm` audit);
+onay `cases-pending:` cache önekini düşürür.
+
+**Neden böyle.** (1) Toplu-onay ucu bilerek YOK: manşet ölçü bağımsız vakalar, toplu kabul = öneriyi okumadan
+kabul. Hız akıştan gelir: Onayla → satır düşer, sıradaki açılır; "Atla" yalnız oturumda (yazım yok). (2) Düzeltmek
+kabul etmek kadar kolay: formda "Öneriyi temizle" + canlı not (öneri aynen → "manşete sayılmaz", düzeltildi →
+"bağımsız"); bu Problem kartına da geldi. (3) "Gürültü" yeni durum DEĞİL (şema yok): kapalı kümedeki `noise`
+kategorisini seçer, yine Onayla ister; eval noise'u "eşlenmeyen" sayar. (4) Varsayılan kaynak problem (eval yalnız
+problem vakalarını sayar); sayaç penceresi eval'inkiyle aynı kolon (opened_at). (5) GET rol kapısız: viewer listeyi
+salt-okunur görür (aynı öneri metni zaten kapısız `/api/cases/lookup` ile görünüyor); yazma editor+.
+Otomatik onay yok, 👍/👎 bu yüzeye girmez (TestEvalIgnoresFeedback yeşil).
+
+**Model sınırı.** `incident_cases` CoSRE için önerilen KATEGORİ taşımıyor (yalnız neden + kaynak); form kategoriyi
+pencerede deploy varsa deploy, yoksa diğer ile açar (Problem kartının mevcut davranışı) — öneri diye sunulmaz.
+
+**Geri alma.** Sürüm commit'ini revert + yeni etiket. Şema değişikliği yok (yalnız okuma sorguları); onaylanmış
+vakalar `incident_cases`'te kalır ve eval bunları okumaya devam eder. Yalnız paneli gizlemek için
+`AIObservability.tsx`'ten `<PendingCasesPanel />` satırını kaldırmak yeter.
+
+**Testler.** chstore `TestPendingCasesSQLBounds` (yalnız taslak, FINAL, kaynak süzgeci, LIMIT/OFFSET tavanı,
+max_execution_time, placeholder/arg hizası), `TestIncidentCaseCountsSQL`; api `TestParsePendingCasesParams`
+(basamak/kırpma/kapalı kaynak), `TestPendingCasesKeyHashesAllInputs`, `TestTallyCaseCounts`,
+`TestPendingCasesListAndRoleGates` (viewer GET 200, viewer onay 403 + yazım/audit yok, liste okuması durum
+değiştirmez), `TestPendingCaseConfirmUsesSameHandler` (listeden onay = aynı uç: confirmed_by, audit
+`incident_case.confirm`, aynen kabul cosre_correct=1, kategori doğrulaması, onay sonrası cache düşer → liste/sayaç
+taze); fe `PendingCasesPanel.test.tsx` (satırlar + sayaç + ≥20 ipucu, açılım = ortak form, düzeltme notu canlı,
+Onayla → aynı uç + sıradaki açılır, temizle/Gürültü yazmaz, Atla yazmaz, viewer salt-okunur, boş durum),
+`pendingCasesView.test.ts`, `incidentCaseView.test.ts` (sameCause Go aynası). Kademe sırası, MCP 74, api.go boyu
+değişmedi.

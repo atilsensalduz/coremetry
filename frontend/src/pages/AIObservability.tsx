@@ -9,6 +9,7 @@ import { ExchangesPanel } from './ai/ExchangesPanel';
 import { CosreQualityPanel } from './ai/CosreQualityPanel';
 import { RoutingReportPanel } from './ai/RoutingReportPanel'; // v0.10.1464 — haftalık yanlış-yönlendirme adayları
 import { SREEvalPanel } from './ai/SREEvalPanel'; // v0.10.1301 — AI SRE Faz 5 doğruluk ölçümü
+import { PendingCasesPanel } from './ai/PendingCasesPanel'; // v0.10.1475 — eval'in onaylı vaka girdisi
 import { useUrlRange } from '@/lib/useUrlRange';
 import { rcaPctText, rcaEngineTone, rcaSatisfactionText, rcaBucketLabel, rcaBucketSatisfaction, rcaCalibrationNote } from './ai/rcaQualityView';
 import type { RCAVerdictQuality, AIBudgetStatus, NegativeFeedbackCall } from '@/lib/types';
@@ -420,6 +421,7 @@ export default function AIObservabilityPage() {
         <RoutingReportPanel />
         <NegativeFeedbackPanel />
         <CosreQualityPanel /> {/* CoSRE öğrenme Faz 2 — örtük sinyal gece puanı */}
+        <PendingCasesPanel /> {/* v0.10.1475 — onay bekleyen vakalar: eval yalnız onaylı vaka okur */}
         <SREEvalPanel /> {/* v0.10.1301 — AI SRE Faz 5: geçmiş problemlerle doğruluk (onaylı vakalar; 👎 yalnız inceleme) */}
 
         {open && <CallDrawer call={open} rates={rates} onClose={() => setOpen(null)} />}

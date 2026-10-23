@@ -208,6 +208,111 @@ func (s *Store) ListIncidentCases(ctx context.Context, q IncidentCaseQuery) ([]I
 	return out, rows.Err()
 }
 
+// PendingCaseQuery — v0.10.1475: /ai "Onay bekleyen vakalar" listesi.
+// Yalnız status=draft; Source "" = iki kaynak; pencere opened_at >= From
+// (değerlendirmenin penceresiyle aynı kolon — sayaç ile eval aynı kümeyi
+// sayar).
+type PendingCaseQuery struct {
+	Source string
+	From   time.Time
+	Limit  int
+	Offset int
+}
+
+// Bekleyen vaka listesi tavanları — sayfa ≤100, derinlik ≤2000 (operatör
+// 20 onaylı vaka arıyor; binlerce sayfalık gezinme hedef değil).
+const (
+	PendingCaseListMax   = 100
+	PendingCaseOffsetMax = 2000
+)
+
+// pendingCasesSQL — SAF: taslak vakalar, en yeni açılış önce (case_id eşitlik
+// bozucu: sayfalar arası sıra kararlı). FINAL: onaylanan vakanın eski taslak
+// sürümü listeye geri sızmasın.
+func pendingCasesSQL(q PendingCaseQuery) (string, []any) {
+	limit := q.Limit
+	if limit <= 0 || limit > PendingCaseListMax {
+		limit = PendingCaseListMax
+	}
+	offset := q.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > PendingCaseOffsetMax {
+		offset = PendingCaseOffsetMax
+	}
+	where := "status = ? AND opened_at >= ?"
+	args := []any{CaseDraft, chDateTime64Arg(q.From)}
+	if q.Source != "" {
+		where += " AND source = ?"
+		args = append(args, q.Source)
+	}
+	args = append(args, limit, offset)
+	return "SELECT " + strings.ReplaceAll(incidentCaseCols, "\n", " ") + `
+		FROM incident_cases FINAL
+		WHERE ` + where + `
+		ORDER BY opened_at DESC, case_id
+		LIMIT ? OFFSET ?
+		SETTINGS max_execution_time = 5`, args
+}
+
+// ListPendingIncidentCases — v0.10.1475: onay bekleyen (taslak) vakalar.
+func (s *Store) ListPendingIncidentCases(ctx context.Context, q PendingCaseQuery) ([]IncidentCase, error) {
+	sql, args := pendingCasesSQL(q)
+	rows, err := s.conn.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []IncidentCase{}
+	for rows.Next() {
+		c, err := scanIncidentCase(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// IncidentCaseCount — durum × kaynak başına vaka sayısı.
+type IncidentCaseCount struct {
+	Status string `json:"status"`
+	Source string `json:"source"`
+	N      uint64 `json:"n"`
+}
+
+// incidentCaseCountsSQL — SAF: pencerede durum × kaynak sayıları (en çok
+// 2×2 satır; LIMIT yine konur).
+func incidentCaseCountsSQL(from time.Time) (string, []any) {
+	return `SELECT status, source, count() AS n
+		FROM incident_cases FINAL
+		WHERE opened_at >= ?
+		GROUP BY status, source
+		ORDER BY status, source
+		LIMIT 50
+		SETTINGS max_execution_time = 5`, []any{chDateTime64Arg(from)}
+}
+
+// CountIncidentCases — v0.10.1475: /ai sayacı ("onaylı: N / taslak: M").
+func (s *Store) CountIncidentCases(ctx context.Context, from time.Time) ([]IncidentCaseCount, error) {
+	sql, args := incidentCaseCountsSQL(from)
+	rows, err := s.conn.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []IncidentCaseCount{}
+	for rows.Next() {
+		var c IncidentCaseCount
+		if err := rows.Scan(&c.Status, &c.Source, &c.N); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // ExistingCaseIDs — verilen kimliklerden zaten kurulmuş olanlar.
 func (s *Store) ExistingCaseIDs(ctx context.Context, ids []string) (map[string]bool, error) {
 	out := map[string]bool{}

@@ -4,6 +4,12 @@
 // Onaylanmamış vaka hiçbir yerde olgu sayılmaz (similar_incidents, çekmece
 // kanıtı "ONAYSIZ" işaretler). Viewer kartı salt-okunur görür. Vaka yoksa
 // (açık problem / taslak henüz kurulmadı) kart çizilmez.
+//
+// v0.10.1475: ConfirmForm + CaseSignals /ai "Onay bekleyen vakalar"
+// listesinin satır açılımında da kullanılır (tek form, çatal yok). Form
+// öneriyle dolu ama düzeltmek kabul etmek kadar kolay: "Öneriyi temizle"
+// tek tık, canlı not onayın manşet "bağımsız" ölçüye sayılıp sayılmadığını
+// söyler (chstore.SameCause aynası). Hiçbir şey otomatik onaylanmaz.
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
@@ -12,7 +18,7 @@ import { Button, SelectField, TextareaField } from '@/components/ui';
 import { toast } from '@/lib/toast';
 import type { IncidentCase } from '@/lib/types';
 import { Sect } from './detailSections';
-import { caseSignalLines, categoryLabel, correctnessLabel } from './incidentCaseView';
+import { caseSignalLines, categoryLabel, correctnessLabel, defaultCaseCategory, independenceNote } from './incidentCaseView';
 
 export function IncidentCaseCard({ source, sourceId }: { source: 'problem' | 'exception'; sourceId: string }) {
   const q = useQuery({
@@ -35,7 +41,7 @@ export function IncidentCaseCard({ source, sourceId }: { source: 'problem' | 'ex
   );
 }
 
-function CaseSignals({ c }: { c: IncidentCase }) {
+export function CaseSignals({ c }: { c: IncidentCase }) {
   const lines = caseSignalLines(c);
   if (lines.length === 0) return null;
   return (
@@ -56,12 +62,17 @@ function ConfirmedCase({ c }: { c: IncidentCase }) {
   );
 }
 
-function ConfirmForm({ c, categories }: { c: IncidentCase; categories: string[] }) {
+export function ConfirmForm({ c, categories, onConfirmed }: {
+  c: IncidentCase;
+  categories: string[];
+  /** Onay sunucuda yazıldıktan SONRA (ör. /ai listesi sıradaki satırı açar). */
+  onConfirmed?: (confirmed: IncidentCase) => void;
+}) {
   const { user } = useAuth();
   const isEditor = user?.role === 'admin' || user?.role === 'editor';
   const qc = useQueryClient();
   const [cause, setCause] = useState(c.suggestedCause);
-  const [category, setCategory] = useState(c.deployInWindow ? 'deploy' : 'other');
+  const [category, setCategory] = useState(defaultCaseCategory(c));
   const [resolution, setResolution] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => { setCause(c.suggestedCause); }, [c.caseId, c.suggestedCause]);
@@ -73,12 +84,14 @@ function ConfirmForm({ c, categories }: { c: IncidentCase; categories: string[] 
       </div>
     );
   }
+  const note = independenceNote(c.suggestedCause, cause);
   const confirm = async () => {
     setBusy(true);
     try {
-      await api.confirmIncidentCase(c.caseId, { finalCause: cause, category, resolution });
+      const out = await api.confirmIncidentCase(c.caseId, { finalCause: cause, category, resolution });
       toast.success('Vaka onaylandı — CoSRE benzer olaylarda bunu kullanacak');
       await qc.invalidateQueries({ queryKey: ['incident-case', c.source, c.sourceId] });
+      onConfirmed?.(out?.case ?? c);
     } catch (e) {
       toast.error(`Onaylanamadı: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -89,14 +102,31 @@ function ConfirmForm({ c, categories }: { c: IncidentCase; categories: string[] 
     <div style={{ display: 'grid', gap: 8, maxWidth: 720 }}>
       <TextareaField label="Kök neden" rows={3} value={cause} onChange={e => setCause(e.target.value)}
         hint={c.suggestedCause ? 'CoSRE önerisiyle dolu — doğru değilse düzeltin' : 'CoSRE bir neden önermedi'} />
+      {c.suggestedCause && (
+        <div className={note.independent ? 'field-hint' : 'field-hint case-accepts-suggestion'} data-testid="case-independence">
+          {note.text}
+        </div>
+      )}
       <SelectField label="Kategori" value={category} onChange={e => setCategory(e.target.value)}>
         {categories.map(k => <option key={k} value={k}>{categoryLabel(k)}</option>)}
       </SelectField>
       <TextareaField label="Çözüm (isteğe bağlı)" rows={2} value={resolution} onChange={e => setResolution(e.target.value)} />
-      <div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <Button variant="primary" size="sm" onClick={confirm} loading={busy} disabled={!cause.trim()}>
           Onayla
         </Button>
+        {c.suggestedCause && (
+          <Button variant="secondary" size="sm" disabled={busy || cause === ''} onClick={() => setCause('')}
+            title="Öneriyi silip kök nedeni kendiniz yazın">
+            Öneriyi temizle
+          </Button>
+        )}
+        {categories.includes('noise') && (
+          <Button variant="ghost" size="sm" disabled={busy || category === 'noise'} onClick={() => setCategory('noise')}
+            title="Kategoriyi Gürültü yapar (gerçek olay değil) — yine Onayla ister; değerlendirme gürültü vakasını puanlamaz">
+            Gürültü
+          </Button>
+        )}
       </div>
     </div>
   );

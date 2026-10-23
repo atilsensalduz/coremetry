@@ -9,6 +9,8 @@ package api
 //        çözüm, confirmed_by/at yazılır, audit satırı düşer. cosre_correct:
 //        nihai metin öneriyle aynıysa 1 (insan onayladı); farklıysa
 //        self-hosted model karşılaştırır; model yoksa -1 (bilinmiyor).
+//        v0.10.1475: /ai "Onay bekleyen vakalar" (cosre_cases_pending.go)
+//        aynı ucu çağırır; store dikişi caseStoreFor orada.
 //
 // Taslak (cosrelearn.BuildCases) hiçbir yüzeyde olgu diye sunulmaz:
 // similar_incidents ve çekmece kanıtı onaysızı "ONAYSIZ" işaretler.
@@ -49,7 +51,7 @@ func (s *Server) getIncidentCase(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "source=problem|exception and id required", http.StatusBadRequest)
 		return
 	}
-	c, err := s.store.GetIncidentCase(r.Context(), chstore.CaseIDFor(source, id))
+	c, err := caseStoreFor(s).GetIncidentCase(r.Context(), chstore.CaseIDFor(source, id))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -91,7 +93,8 @@ func (s *Server) confirmIncidentCase(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	c, err := s.store.GetIncidentCase(r.Context(), caseID)
+	st := caseStoreFor(s)
+	c, err := st.GetIncidentCase(r.Context(), caseID)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -111,12 +114,14 @@ func (s *Server) confirmIncidentCase(w http.ResponseWriter, r *http.Request) {
 	c.Status, c.ConfirmedBy, c.ConfirmedAt = chstore.CaseConfirmed, who, time.Now()
 	c.Provenance = "confirmed by " + who + " (" + c.Provenance + ")"
 	c.CosreCorrect, c.CorrectNote = s.judgeSuggestion(r.Context(), c.SuggestedCause, c.FinalCause)
-	if err := s.store.UpsertIncidentCases(r.Context(), []chstore.IncidentCase{*c}); err != nil {
+	if err := st.UpsertIncidentCases(r.Context(), []chstore.IncidentCase{*c}); err != nil {
 		writeErr(w, err)
 		return
 	}
 	s.audit(r, "incident_case.confirm", "incident_case", c.CaseID,
 		fmt.Sprintf("category=%s cosre_correct=%d", c.Category, c.CosreCorrect))
+	// v0.10.1475 — /ai bekleyen listesi onaylanan satırı 15 s taşımasın.
+	s.cacheInvalidatePrefix(r.Context(), pendingCasesCachePrefix)
 	writeJSON(w, map[string]any{"case": c})
 }
 

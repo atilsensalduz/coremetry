@@ -5904,6 +5904,11 @@ tbody td.tpm-more-cell { color: var(--text2); }
 .sre-eval-form { margin-bottom: var(--sp-6); }
 .sre-eval-form .row { align-items: flex-end; }
 .sre-eval-hyp { margin-right: var(--sp-2); }
+/* v0.10.1475 — onay formu: öneri aynen kabul ediliyor (manşete sayılmaz) */
+.case-accepts-suggestion { color: var(--warn); }
+.pending-cases-counter { display: flex; gap: var(--sp-4); flex-wrap: wrap; align-items: baseline; margin-bottom: var(--sp-4); }
+.pending-cases-form { padding: var(--sp-4) var(--sp-2); }
+.pending-cases-skipped td { opacity: .55; }
 
 /* ── v0.10.1332 BEGIN — filtre barı: Search son filtrenin arkasında ──────
    (operatör onaylı mockup "Filtre barı · Search son filtrenin arkasında")

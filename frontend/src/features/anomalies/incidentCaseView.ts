@@ -34,3 +34,36 @@ export function caseSignalLines(c: IncidentCase): string[] {
   out.push(c.deployInWindow ? `Pencerede deploy: ${c.deployVersion || 'evet'}` : 'Pencerede deploy yok');
   return out;
 }
+
+// ── v0.10.1475 — onay formu (Problem kartı + /ai bekleyen liste ORTAK) ──
+
+/** Go aynası: chstore.SameCause — boşluk/harf farkı dışında aynı metin
+ *  (onaylayan CoSRE önerisini değiştirmeden kabul etti). Eval'in
+ *  AcceptedSuggestion bayrağı ve sunucunun cosre_correct=1 kararı bunu kullanır. */
+export function sameCause(a: string, b: string): boolean {
+  const norm = (s: string) => s.toLowerCase().split(/\s+/).filter(Boolean).join(' ');
+  const na = norm(a);
+  return na !== '' && na === norm(b);
+}
+
+/** Formun ilk kategorisi (öneri DEĞİL — model kategori önermiyor): pencerede
+ *  deploy varsa deploy, yoksa diğer. Yalnız seçim; hiçbir şey yazılmaz. */
+export function defaultCaseCategory(c: Pick<IncidentCase, 'deployInWindow'>): string {
+  return c.deployInWindow ? 'deploy' : 'other';
+}
+
+/** Formun altındaki canlı not: onay manşet "bağımsız" ölçüye sayılacak mı. */
+export function independenceNote(suggested: string, cause: string): { independent: boolean; text: string } {
+  if (!suggested.trim()) return { independent: true, text: 'CoSRE öneri vermemişti — onay bağımsız vaka sayılır' };
+  if (sameCause(suggested, cause)) {
+    return { independent: false, text: 'Öneri aynen kabul ediliyor — doğruluk manşetine (bağımsız vakalar) sayılmaz; yanlışsa düzeltin' };
+  }
+  return { independent: true, text: 'Öneri düzeltildi — bağımsız vaka olarak manşet ölçüye sayılır' };
+}
+
+/** Vakanın kaynak sayfası (Problem çekmecesi / exception grubu). */
+export function caseHref(c: Pick<IncidentCase, 'source' | 'sourceId'>): string {
+  return c.source === 'exception'
+    ? `/problems?exception=${encodeURIComponent(c.sourceId)}`
+    : `/problems?problem=${encodeURIComponent(c.sourceId)}`;
+}

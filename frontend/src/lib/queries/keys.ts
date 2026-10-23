@@ -101,6 +101,13 @@ export const keys = {
     evalCompare: (base: string, cand: string) => ['sre', 'eval', 'compare', base, cand] as const, // v0.10.1450
   },
 
+  // v0.10.1475 — /ai onay bekleyen vakalar. sre dalının DIŞINDA: SSE
+  // 'sre.investigation' her araştırmada bu listeyi düşürmesin.
+  cases: {
+    all:     ['cases'] as const,
+    pending: (f: { source: string; days: number; offset: number; limit: number }) => ['cases', 'pending', f] as const,
+  },
+
   anomalies: {
     all:         ['anomalies'] as const,
     logPatterns: ['anomalies', 'log-patterns'] as const,
