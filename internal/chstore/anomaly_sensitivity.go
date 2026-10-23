@@ -147,6 +147,20 @@ type AnomalySensitivityConfig struct {
 	// operasyon p99 ≥ 5 s VE ≥ 20× kendi tabanı → servis üzerinde P1. Vidalar
 	// ve gerekçe anomaly_sensitivity_slowdown.go'da; Enabled nil = AÇIK.
 	ServiceSlowdown ServiceSlowdownConfig `json:"serviceSlowdown"`
+	// REDSource — v0.10.1478 (operatör: "Servislerin kendi içerisinde haftalık
+	// olağan akışlarını takip etse ve gerçek bir anomaly öyle yakalasa"): metrik
+	// dedektörü + davranış motorunun RED serisinin KAYNAĞI. "auto" (varsayılan,
+	// boş dahil) = VictoriaMetrics yapılandırılmışsa ve servisin OTel HTTP/gRPC
+	// sunucu histogramı varsa ÖRNEKLENMEMİŞ VM serisi, yoksa servis başına span
+	// MV'si; "span" = v0.10.1477 davranışı (geri alma yolu). Mantık
+	// anomaly_sensitivity_red_source.go + internal/anomaly/red_vm_*.go.
+	REDSource string `json:"redSource,omitempty"`
+	// REDSourceEnv — v0.10.1478: VM serisinin ortam kapsamı (boş = tüm
+	// ortamlar; span MV'si de servis adına göre TÜM ortamları toplar). Dolu
+	// ise ortam etiketi + canlı değerler resolveHTTPEnvScope kuralıyla
+	// (LabelMap.Env > deployment_environment_name > keşif; toleranslı eşleme);
+	// eşleşmezse VM KULLANILMAZ (span yedeği) — ortamlar sessizce karışmaz.
+	REDSourceEnv string `json:"redSourceEnv,omitempty"`
 }
 
 const (
@@ -514,6 +528,8 @@ func DefaultAnomalySensitivity() AnomalySensitivityConfig {
 		LogTemplateNew:        boolPtr(false), // v0.10.1061 — operatör onaylı: varsayılan KAPALI
 		// v0.10.1091 — yaygın yavaşlama hızlı yolu, operatör onaylı: AÇIK.
 		ServiceSlowdown: DefaultServiceSlowdown(),
+		// v0.10.1478 — operatör isteği: VM varsa örneklenmemiş seri (auto).
+		REDSource: AnomalyREDSourceAuto,
 	}
 }
 
@@ -562,6 +578,9 @@ func NormalizeAnomalySensitivity(c AnomalySensitivityConfig) AnomalySensitivityC
 		// v0.10.1091 — kopyalanmazsa PUT'ta düşerdi. Eksik bölüm (eski blob)
 		// sıfır değerdir → kelepçe varsayılanlara doldurur, bayrak nil → açık.
 		ServiceSlowdown: NormalizeServiceSlowdown(c.ServiceSlowdown),
+		// v0.10.1478 — kopyalanmazsa PUT'ta düşer ve kaynak her kayıtta auto'ya dönerdi.
+		REDSource:    normalizeREDSource(c.REDSource),
+		REDSourceEnv: normalizeREDSourceEnv(c.REDSourceEnv),
 	}
 	for _, m := range AnomalySensitivityMetrics {
 		def := d.Metrics[m]

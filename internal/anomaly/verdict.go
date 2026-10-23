@@ -25,6 +25,9 @@ type anomalyOutcome struct {
 	// LatestHasData — son kovada gerçek trafik var mı (padlenmiş sıfır
 	// değil). Resolve gerekçe dürüstlüğü (v0.9.1051) bunu okur.
 	LatestHasData bool
+	// Evidence — v0.10.1478: serinin kaynak satırı (redSourceEvidenceTR);
+	// karar fazı YAZMAZ (kaynaktan bağımsız), scan iliştirir.
+	Evidence string
 }
 
 // evaluateAnomaly — karar fazı. checkOne'ın v0.9.1052 hâlindeki

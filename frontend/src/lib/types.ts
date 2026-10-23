@@ -9103,6 +9103,13 @@ export interface AnomalySensitivityConfig {
   // v0.10.700 — kök neden hipotezinde zamansal çarpan: 'shadow' (varsayılan,
   // yok dahil) yalnız yazar, 'on' skoru çarpar. Okuma `=== 'on'`.
   temporalRanking?: 'shadow' | 'on';
+  // v0.10.1478 — metrik dedektörü + davranış motorunun RED serisi kaynağı:
+  // 'auto' (varsayılan, yok dahil) = VictoriaMetrics yapılandırılmışsa ve
+  // servisin OTel HTTP/gRPC sunucu histogramı varsa ÖRNEKLENMEMİŞ VM serisi,
+  // yoksa span; 'span' = eski davranış (geri alma). Okuma `=== 'span'`.
+  redSource?: 'auto' | 'span';
+  // v0.10.1478 — VM serisinin ortam kapsamı ('' = tüm ortamlar).
+  redSourceEnv?: string;
   /** v0.10.890 (paritesi #4 dilim 2) — JVM heap bandı → Problem vidaları
    *  (chstore.AnomalyRuntimeConfig). heapMode varsayılan 'off'; 'on' Problem'i
    *  v0.10.892'den itibaren açar (öncesinde gölge gibi). */
@@ -10581,3 +10588,36 @@ export interface AISourceToolsetsPayload {
   ignored?: string[];
 }
 // v0.10.1434 END
+
+/** v0.10.1478 — GET /api/settings/anomaly-red-source/status (Go:
+ *  anomaly.REDSourceStats / REDSourceFamilyStats). Dedektörün son tikinin
+ *  ölçümü; lider olmayan pod boş döner (lastUnix 0). */
+export interface AnomalyREDSourceFamilyStats {
+  id: string;
+  present: boolean;
+  usable: boolean;
+  reason?: string;
+  serviceLabel?: string;
+  envMatcher?: string;
+  statusLabels?: string;
+  statusServices: number;
+  readyDetector: string;
+  readyBehavior: string;
+}
+export interface AnomalyREDSourceStats {
+  mode: string;
+  configured: boolean;
+  reason?: string;
+  lastUnix: number;
+  lastMs: number;
+  lastQueries: number;
+  lastQueryErrors: number;
+  lastBucketsFetched: number;
+  pendingBuckets: number;
+  frames: number;
+  services: number;
+  droppedServices?: number;
+  lastError?: string;
+  families: AnomalyREDSourceFamilyStats[];
+  sources?: Record<string, Record<string, number>>;
+}

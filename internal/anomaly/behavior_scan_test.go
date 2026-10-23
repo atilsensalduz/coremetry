@@ -36,7 +36,7 @@ func TestScanCallsBehavior(t *testing.T) {
 	if j := strings.Index(rest[1:], "\nfunc "); j > 0 {
 		rest = rest[:j]
 	}
-	if !strings.Contains(rest, "d.scanBehavior(ctx, now, sens)") {
+	if !strings.Contains(rest, "d.scanBehavior(ctx, now, sens, redView)") {
 		t.Error("scan() davranış taramasını çağırmıyor — motor gemide ama ÖLÜ")
 	}
 }

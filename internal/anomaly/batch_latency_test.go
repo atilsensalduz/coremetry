@@ -885,7 +885,10 @@ func TestBehaviorScanWiresActiveRead(t *testing.T) {
 	}
 	src := regexp.MustCompile(`(?m)^\s*//.*$`).ReplaceAllString(string(b), "")
 	for _, want := range []string{
-		"behaviorFleetCandidates(rowsByService, deploysByService, recentCutoff, cfg, d.batchLatBehaviorActive(ctx, cfg))",
+		// v0.10.1478 — kaynak bölünmesi: tek tembel işlev iki çağrıda ortak.
+		"batchActive := d.batchLatBehaviorActive(ctx, cfg)",
+		"behaviorFleetCandidates(spanRows, deploysByService, recentCutoff, cfg, batchActive)",
+		"behaviorFleetCandidates(vmRows, deploysByService, vmRecent, cfg, batchActive)",
 		// Davranış: p99 pattern'i WHERE'de, varsayılan 10 dk aktiflik.
 		"d.store.ListActiveAnomalyKeys(ctx, behaviorKind, behaviorPattern(batchLatencyMetric), 0, cond, args, batchLatActiveCap+1)",
 		"exempt = batchLatBehaviorExempt(keys, err)",

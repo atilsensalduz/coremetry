@@ -7,6 +7,7 @@ import type { AnomalyTrackedConfig, AnomalySensitivityConfig, AnomalyBehaviorCon
 import { Field, FlashBox, humanize } from './shared';
 import { droppedPatternCount, formatBatchPatterns, parseBatchPatterns } from './batchPatterns'; // v0.10.1039
 import { ServiceSlowdownSubsection } from './ServiceSlowdownSubsection'; // v0.10.1091
+import { REDSourceSubsection } from './REDSourceSubsection'; // v0.10.1478
 
 // ── Anomaly promotion tab ───────────────────────────────────────
 //
@@ -578,6 +579,9 @@ function SensitivitySection() {
               sıçramaları etkilenmez.
             </div>
           </div>
+          {/* v0.10.1478 — RED serisi kaynağı (auto = VM örneklenmemiş, span = eski). */}
+          <REDSourceSubsection source={cfg.redSource} env={cfg.redSourceEnv}
+            onChange={(redSource, redSourceEnv) => setCfg({ ...cfg, redSource, redSourceEnv })} />
           {/* v0.10.700 — kök neden hipotezinde zamansal çarpan. Gölge
               (varsayılan): faktör ve gerekçe adaya yazılır, sıra değişmez;
               açık: skor = yapısal × (0.5 + 0.5·t). Önce gölgede izle. */}

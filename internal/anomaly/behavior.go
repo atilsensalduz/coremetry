@@ -298,6 +298,9 @@ type behaviorCandidate struct {
 	// içinde görülen deploy. nil = korelasyon yok (deploy'suz kalıcı
 	// kaymalar da yakalanır — brief).
 	Deploy *chstore.RecentDeployEntry
+	// Source — v0.10.1478: satırların kaynağı ("vm" = VictoriaMetrics
+	// örneklenmemiş, "span" = örneklenmiş span MV'si; boş = span).
+	Source string
 }
 
 // behaviorConfigView — evalBehavior'ın ihtiyaç duyduğu eşikler. Ayrı
@@ -627,6 +630,8 @@ type behaviorDetails struct {
 	// aranmadı" ile "arandı, bulunamadı" ayırt edilemezdi; motor her
 	// adayda arıyor, yani yokluk = bulunamadı.
 	Deploy *behaviorDeployRef `json:"deploy,omitempty"`
+	// Source — v0.10.1478: "vm" | "span" (omitempty: eski satırlar span).
+	Source string `json:"source,omitempty"`
 }
 
 type behaviorDeployRef struct {
@@ -646,6 +651,7 @@ func encodeBehaviorDetails(c behaviorCandidate) string {
 		Unit:       unitOf(c.Metric),
 		HourOfWeek: c.HOW, Dwell: c.Dwell,
 		OnsetNs: c.OnsetUnix * int64(time.Second),
+		Source:  c.Source,
 	}
 	if c.Deploy != nil {
 		d.Deploy = &behaviorDeployRef{

@@ -96,6 +96,12 @@ func (s *Server) putAnomalySensitivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cfg := chstore.NormalizeAnomalySensitivity(in)
+	// v0.10.1478 — RED kaynağı değişikliği ayrı denetim satırı alır (geri alma
+	// = redSource span); önceki değer KAYITLI blobdan, okunamazsa yayınlanandan.
+	prev, perr := s.store.ReadAnomalySensitivity(r.Context())
+	if perr != nil {
+		prev = s.store.AnomalySensitivity()
+	}
 	if err := s.store.SaveAnomalySensitivity(r.Context(), cfg); err != nil {
 		writeErr(w, err)
 		return
@@ -103,6 +109,9 @@ func (s *Server) putAnomalySensitivity(w http.ResponseWriter, r *http.Request) {
 	s.store.SetAnomalySensitivity(cfg)
 	details, _ := json.Marshal(cfg)
 	s.audit(r, "settings.update", "anomaly_sensitivity", "anomaly_sensitivity", string(details))
+	if d, changed := anomalyREDSourceAuditDetail(prev, cfg); changed {
+		s.audit(r, "anomaly.red_source", "anomaly_sensitivity", "redSource", d)
+	}
 	log.Printf("[settings] anomaly_sensitivity: dwell=%d criticalZ=%.1f", cfg.DwellBuckets, cfg.CriticalZ)
 	writeJSON(w, cfg)
 }

@@ -10460,3 +10460,66 @@ my-team isteği (ES değil) liste isteğinden önce.
 `TestLogsCacheKeys_IncludeTeam`, `TestLogsMyTeamKey`, `TestLogsMyTeamGates`, `TestTeamLogsHref`; fe `logsTeam.test.ts`,
 `logsUrl.test.ts` (team), `Logs.teamDefault.test.tsx` (bir kez uygula, açık URL kazanır, kapalı/no-team no-op, × vazgeçme
 kalıcı + geri açma, picker, CoSRE linki, uygulanmadı çipi, tek liste okuması).
+
+## 2026-10-23 — v0.10.1478 — Anomali RED serisi VictoriaMetrics'ten (örneklenmemiş), servis başına span yedeği
+
+**Bağlam.** Operatör: "Servislerin kendi içerisinde haftalık olağan akışlarını takip etse ve gerçek bir anomaly öyle
+yakalasa." Mevsimsel makine zaten vardı (metrik dedektörü: 14 gün aynı slot ±15 dk, hafta içi/cmt/paz, MAD tabanları,
+dwell; davranış motoru: 28 gün × 168 haftanın-saati kovası). Açık olan GİRDİ idi: iki motor RED'i span MV'sinden
+(`service_summary_5m`) okuyordu ve prod trace'leri gateway'de kuyruk örnekleniyor (hatalar hep + ~%5 taban) — error_rate
+yukarı yanlı ve örnekleme politikasıyla oynuyor, istek hızı gürültülü bir %5 örneği (gece / küçük servis sahte "trafik
+düşüşü"). VictoriaMetrics OTel collector'ın ÖRNEKLENMEMİŞ HTTP/gRPC sunucu histogramını taşıyor (CoSRE servis sağlığı
+aynı aileyi okuyor, `api/red_family.go`).
+
+**Karar.** (1) Kaynak ayarı mevcut `anomaly_sensitivity` blobunda: `redSource` = `auto` (varsayılan; boş/bilinmeyen dahil)
+| `span`; `redSourceEnv` (boş = tüm ortamlar — span MV'si de servis adına göre tüm ortamları topluyor). Admin PUT'ta
+kaynak/ortam değişince ayrı denetim satırı `anomaly.red_source` (from → to). (2) `auto`'da servis × metrik başına seçim
+(`anomaly/red_vm_select.go` `pickREDSource`, SAF): VM yapılandırılmış + servis bir ailede (HTTP birincil → gRPC legacy →
+gRPC stable; aileler ASLA toplanmaz) + metrik ölçülebilir (error_rate için servis durum kodu etiketi taşımalı — etiketsiz
+servisin "seri yok"u 0 hata değil) + VM serisi taban+dwell kadar uzun → VM; aksi span, GEREKÇELİ. (3) Tek kaynak kuralı:
+VM seçilen çiftin ardışık serisi, hacmi, mevsimsel tabanı ve mevsimsel hacmi birlikte VM'den; VM mevsimsel tabanı
+yetersizse span'inki SİLİNİR (VM ardışık penceresine düşülür) — örneklenmiş span değeri VM'e karışmaz. Karar fazı
+(`evaluateAnomaly`), dwell, tabanlar, batch yük kapıları, kümeleme, terfi, Problem akışı DEĞİŞMEDİ; kova kümeleri span
+okumalarının WHERE yüklemlerinin Go ikizi (`seasonalBinds` / `behaviorBinds` iki yolun ortak bağları). (4) Okuma
+(`anomaly/red_vm_source.go`): filo geneli `sum by (servis)` (count, 5xx/sunucu-hatası, `histogram_quantile(0.99, sum by
+(servis, le))`), adım = 5 dk kova, `increase([300s] offset Ns)`; aynı uzunluktaki koşular `label_set(…,"cm_off",N) or …`
+ile TEK sorguda (geçmiş günlerin slotu, geçmiş haftaların saati). Tamamlanmış kova değişmediği için lider belleğinde tutulur
+(float32, servis kimliği tavanı 20 000), gerekli küme dışı atılır; tik başına yalnız eksik kovalar okunur. Kova
+`vmIngestLag` = 2 dk sonra okunur (collector dışa aktarımı + VM latencyOffset) — VM kaynağında "son kova" span'e göre en çok
+2 dk eski. Ortam: `redSourceEnv` doluysa resolveHTTPEnvScope kuralı (LabelMap.Env > deployment_environment_name > keşif,
+`vmetrics.MatchEnvValue` toleranslı); eşleşmezse o aile KULLANILMAZ (span yedeği), ortamlar sessizce karışmaz.
+(5) Kanıt: Problem açıklamasının sonu "kaynak: VictoriaMetrics (örneklenmemiş) · HTTP sunucu histogramı." ya da
+"kaynak: span (örneklenmiş) — VM kullanılmadı: <gerekçe>."; davranış olayı ayrıntısı `"source":"vm"|"span"`.
+(6) Ölçüm: `GET /api/settings/anomaly-red-source/status` (admin, kendi dosyası — api.go büyümedi) + Settings → Anomaly →
+"RED serisi kaynağı" satırı + değiştikçe `[anomaly] RED kaynağı:` log satırı.
+
+**Maliyet (tik bütçesi).** VM yolu span okumalarıyla PARALEL; sert tavan 20 s/tik, ≤ 24 sorgu/tik, sorgu başına 10 s,
+4 paralel, sorgu ≤ 6 ofset × ≤ 12 kova (≤ 6 sa veri), sorgu metni ≤ 6000 karakter. Sabit durum, aile başına: 5 dk'da bir
+≈ 6 range sorgusu (3 tür × 1–2 grup; her biri 1 kova × ≤ 6 ofset) + saat başı 3 (davranış haftaları) + 30 dk'da 1 anlık
+(durum etiketli servis kümesi) + 10 dk'da 1–3 etiket okuması. Isınma (boot / lider değişimi): yerel ölçüm 2 aile, 300
+servis, 15.6k seri → 3 tik (26 + 24 + 6 sorgu; 166 ms / 28 ms / 2 ms), sabit durum tiki 12 sorgu 21 ms. Isınma bitene dek
+servisler span'de (kanıt "VM geçmişi ısınıyor"). Hata/zaman aşımı: (aile, tür) 5 dk geri çekilir, koşu uzunluğu yarıya iner
+(başarıda iki katına) — ağır filo histogramı daha küçük dilimlerle ısınır, o tür bu arada span. Bellek ≈ 463 kova × aile ×
+3 tür × servis × 4 B (1500 servis, 2 aile ≈ 17 MB).
+
+**Bedel / anlam değişiklikleri.** VM'de request_rate = sunucu istek/sn (span: tüm span türleri / 300), error_rate = 5xx
+(gRPC: pinli sunucu-hatası kodları) payı — 4xx hata DEĞİL, p99 = sunucu histogramının kova-enterpolasyonlu p99'u (tDigest
+değil). `minBaselineRate` hacim kapısı artık gerçek istek/sn ile karşılaştırılır (örneklenmiş span/sn değil). Kaynak
+değişiminde span'le açılmış bir anomali ilk VM tikinde bandın içindeyse dürüst "recovered" ile kapanır. Batch yüklemi
+(`IsBatchService`) ve "batch load is not an anomaly" semantiği aynen (kapılar bindirilmiş seriyi okur).
+
+**Geri alma.** Settings → Anomaly → Dedektör hassasiyeti → "RED serisi kaynağı" = Span → Kaydet (ya da
+`PUT /api/settings/anomaly-sensitivity` ile `"redSource":"span"`). Bir sonraki tikte VM'e hiç gidilmez (0 sorgu),
+kanıt "kaynak: span (örneklenmiş) — VM kullanılmadı: kaynak ayarı span" der; davranış v0.10.1477 ile aynı. Denetimde
+`anomaly.red_source` satırı görünür.
+
+**Testler.** anomaly `TestPickREDSourceTable`, `TestREDSourceSelection` (VM var / aile yok / histogram yok / etiket hatası /
+sorgu hatası + geri çekilme / yapılandırılmamış / span ayarında 0 sorgu / durum etiketsiz servis), `TestREDSourceEnvScope`,
+`TestREDBaselineEquivalence` (aynı kova verisi → kaynaktan bağımsız aynı karar, açılış dahil),
+`TestOverlayNeverMixesSampledSpanErrorRate` (aiops kalkanı), `TestScanOverlaysBeforeVerdict`, `TestBehaviorRowsSplitBySource`,
+`TestREDSourceEvidenceTR`, `TestVMREDExprShape`, `TestVMREDQueryUnionAndLabels`, `TestVMREDQueryBounds`,
+`TestVMRunsAndGroups`, `TestVMNextRunLen`, `TestVMParseGroupKey`, `TestVMSeasonalBucketsMatchSQLPredicate`,
+`TestVMBehaviorAndConsecutiveBuckets`, `TestVMREDStore`, canlı duman `TestREDVMLive` (COREMETRY_TEST_VM_URL ile; CI'da
+atlanır); chstore `TestREDSourceSettingRoundTrip`; api `TestAnomalyREDSourceAuditDetail`, `TestAnomalyREDFamiliesMatchAPI`.
+Kaynak pinleri güncellendi: `TestScanCallsBehavior`, `TestBehaviorScanWiresActiveRead`. MCP 74, kademe sırası, api.go boyu
+değişmedi.

@@ -1549,6 +1549,10 @@ func main() {
 		// (çağrı anında; anomaly_sensitivity.runtime.heapSource zorlayabilir).
 		if anomDet != nil {
 			anomDet.SetHeapSource(anomaly.NewHeapSource(vmSvc, store))
+			// v0.10.1478 — RED serisi: VM yapılandırılmışsa servisin örneklenmemiş
+			// HTTP/gRPC sunucu histogramı (anomaly_sensitivity.redSource=auto),
+			// yoksa span MV'si; karar tik anında, servis başına.
+			anomDet.SetREDSource(vmSvc)
 		}
 	}
 

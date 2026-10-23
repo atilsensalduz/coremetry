@@ -415,6 +415,9 @@ type Detector struct {
 	// sonrası takılabilir) ve lider belleği (halka; kip off'ta nil).
 	heapWire heapWiring
 	heap     *heapState
+	// v0.10.1478 — RED serisi kaynağı: VM (örneklenmemiş) okuyucusu + lider
+	// kova belleği (red_vm_*.go). Kablo atomik (SetREDSource, Start sonrası da).
+	red *vmREDSource
 }
 
 // sensitivityLogLine — hassasiyet ayarının tek satırlık, KARARLI özeti.
@@ -438,6 +441,8 @@ func sensitivityLogLine(c chstore.AnomalySensitivityConfig) string {
 	// v0.10.1039 — etkin batch kalıpları ("neden açılmadı" sorusunun ilk
 	// cevabı); boş liste `[]` = kural kapalı.
 	fmt.Fprintf(&b, " | batch=%q", c.BatchServicePatternList())
+	// v0.10.1478 — RED serisi kaynağı (auto = VM varsa örneklenmemiş).
+	fmt.Fprintf(&b, " | red=%s env=%q", c.REDSourceMode(), c.REDSourceEnvScope())
 	return b.String()
 }
 
@@ -452,6 +457,7 @@ func New(store *chstore.Store, interval time.Duration, lock cache.Lock, notifier
 		lock:     lock,
 		leader:   cache.NewLeaderHolder(lock, lockKey, cache.LeaderTTL(interval)),
 		notifier: notifier,
+		red:      newVMREDSource(),
 	}
 }
 
@@ -559,10 +565,22 @@ func (d *Detector) scan(ctx context.Context) {
 	if !seasonalBaseline {
 		fetchSeasonal = nil
 	}
+	// v0.10.1478 — VM RED görünümü span okumalarıyla PARALEL hazırlanır
+	// (kendi bütçesi vmTickBudget; tik süresine en çok onu ekler, çoğu tikte
+	// birkaç küçük sorgu). Görünüm asla nil; VM yok/okunamadı → gerekçe.
+	redCh := make(chan *vmREDView, 1)
+	go func() { redCh <- d.red.prepare(ctx, now, sens, days, neighbor) }()
 	bucketsByMetric, seasonalByMetric, ratesByMetric := batchSeries(tracked,
 		func(m string) (map[string][]float64, map[string][]float64, error) {
 			return d.fetchAllBuckets(ctx, m, now)
 		}, fetchSeasonal)
+	// v0.10.1478 — servis × metrik başına kaynak: VM (örneklenmemiş) varsa
+	// span serisinin YERİNE geçer (dört seri birlikte — red_vm_select.go
+	// sözleşmesi); karar fazı, kapılar, taban mantığı aynen.
+	redView := <-redCh
+	redUsed := overlayREDSeries(redView, services, tracked, sens.DwellBuckets,
+		bucketsByMetric, seasonalByMetric, ratesByMetric, seasonalRatesByMetric)
+	recordSources(redUsed)
 
 	// v0.9.691 (perf taraması #2) — AÇIK PROBLEMLER TEK SORGUDA.
 	//
@@ -620,6 +638,7 @@ func (d *Detector) scan(ctx context.Context) {
 			if !reachesApply(oc.Action, hasOpen) {
 				continue
 			}
+			oc.Evidence = redSourceEvidenceTR(redUsed[svc+"|"+m]) // v0.10.1478
 			pending = append(pending, pendingApply{service: svc, metric: m, oc: oc})
 		}
 	}
@@ -738,7 +757,7 @@ func (d *Detector) scan(ctx context.Context) {
 	// ÖNCESİ; kendi içinde soft-fail. Kip off'ta hiç koşmaz.
 	d.scanHeap(ctx, now, snap, sens)
 
-	d.scanBehavior(ctx, now, sens)
+	d.scanBehavior(ctx, now, sens, redView)
 
 	// v0.9.1194 — FIRTINA dedektörü, aynı tikin sonunda ve aynı gerekçeyle:
 	// kendi içinde soft-fail, ani-sapma hattına gecikme bindirmez. Tik
@@ -856,6 +875,9 @@ func (d *Detector) applyOutcome(ctx context.Context, service, metric string, oc 
 		severity := oc.Severity
 		desc := fmt.Sprintf("%s %s on %s — current %.2f%s vs baseline %.2f%s (%.1fσ, sustained %d buckets).",
 			displayMetric(metric), oc.Direction, service, current, unitOf(metric), median, unitOf(metric), z, dwell)
+		// v0.10.1478 — serinin kaynağı kanıtta: "kaynak: VictoriaMetrics
+		// (örneklenmemiş)" ya da "kaynak: span (örneklenmiş) — VM kullanılmadı: …".
+		desc = withREDEvidence(desc, oc.Evidence)
 		if hasOpen {
 			open.Value = current
 			// v0.9.978 — yön her tazelemede YENİDEN yazılır. evalWindow
@@ -1430,15 +1452,7 @@ func (d *Detector) fetchAllSeasonal(ctx context.Context, metric string, at time.
 	// UTC-pinned toHour/toDayOfWeek (see buildAllSeasonalQuery). With no DST
 	// in TR, a constant offset keeps slot-matching consistent either way —
 	// but only when BOTH sides share one clock.
-	at = at.UTC()
-	cutoff := at.Add(-time.Duration(days) * 24 * time.Hour)
-	targetSod := slotSecondsOfDay(at)         // 5-min-aligned centre of the window
-	radius := neighborBuckets * bucketSeconds // ±window half-width in seconds
-	class := dayClass(at)
-	// v0.9.1052 (Q1) — üst sınır: bugünün yargılanan penceresi (slot
-	// ±radius) ve tamamlanmamış cari kova baseline'a giremez; dünün aynı
-	// slotu (24s−radius uzakta) güvenle içeride kalır.
-	upper := at.Add(-time.Duration(radius+bucketSeconds) * time.Second)
+	cutoff, upper, class, targetSod, radius := seasonalBinds(at, days, neighborBuckets)
 
 	rows, err := d.store.TelemetryReadConn().Query(ctx, buildAllSeasonalQuery(vexpr), cutoff, upper, class, targetSod, targetSod, radius)
 	if err != nil {
@@ -1483,6 +1497,22 @@ func (d *Detector) fetchAllSeasonal(ctx context.Context, metric string, at time.
 		pruneSeasonalByDayDiversity(rates, daysSeen, seasonalMinDaysFor(class))
 	}
 	return out, rates, nil
+}
+
+// seasonalBinds — SAF (v0.10.1478'de fetchAllSeasonal'dan ayrıldı): mevsimsel
+// okumanın bağları. VM kaynağı (vmSeasonalBuckets) AYNI bağlardan kova kümesi
+// kurar — iki kaynağın tabanı aynı kovalardan olsun.
+func seasonalBinds(at time.Time, days, neighborBuckets int) (cutoff, upper time.Time, class string, targetSod, radius int) {
+	at = at.UTC()
+	cutoff = at.Add(-time.Duration(days) * 24 * time.Hour)
+	targetSod = slotSecondsOfDay(at)         // 5-min-aligned centre of the window
+	radius = neighborBuckets * bucketSeconds // ±window half-width in seconds
+	class = dayClass(at)
+	// v0.9.1052 (Q1) — üst sınır: bugünün yargılanan penceresi (slot
+	// ±radius) ve tamamlanmamış cari kova baseline'a giremez; dünün aynı
+	// slotu (24s−radius uzakta) güvenle içeride kalır.
+	upper = at.Add(-time.Duration(radius+bucketSeconds) * time.Second)
+	return cutoff, upper, class, targetSod, radius
 }
 
 // seasonalMinDays — mevsimsel baseline'ın en az kaç FARKLI günden örnek

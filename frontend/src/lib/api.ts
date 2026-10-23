@@ -41,7 +41,7 @@ OracleLogsResponse,
   OtlpExemplar, TraceLinks, TraceCountResponse, TraceErrorHistogramResponse, CorrelationLinkSettings,
   ExceptionTriageConfig, ProblemPriorityConfig, FailureSLOConfig, MetricExclusions, AnomalyTrackedConfig,
   InsightKind, InsightResponse, InsightSignal, InsightLink, InsightChartSpec,
-  AnomalySensitivityConfig, TailPoint, LogPatternsResult, LogTemplate, TraceFacet, TraceFacetsResponse, DBSlowQueryConfig, StatementSearchRow,
+  AnomalySensitivityConfig, AnomalyREDSourceStats, TailPoint, LogPatternsResult, LogTemplate, TraceFacet, TraceFacetsResponse, DBSlowQueryConfig, StatementSearchRow,
   CopilotStartersResponse,
 } from './types';
 import { encodeMetricQuery, type MetricQuery } from './metricQuery';
@@ -1534,6 +1534,9 @@ export const api = {
   // neyin kaydedildiğini gösterir.
   getAnomalySensitivity: () =>
     get<AnomalySensitivityConfig>(`/api/settings/anomaly-sensitivity`),
+  // v0.10.1478 — RED kaynağının son tik ölçümü (admin).
+  getAnomalyREDSourceStatus: () =>
+    get<AnomalyREDSourceStats>(`/api/settings/anomaly-red-source/status`),
   putAnomalySensitivity: (c: AnomalySensitivityConfig) =>
     request<AnomalySensitivityConfig>(`/api/settings/anomaly-sensitivity`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },

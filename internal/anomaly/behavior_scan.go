@@ -105,7 +105,12 @@ func BehaviorObservability() BehaviorStats {
 // HATA DURUŞU: her dal SOFT-FAIL. Sorgu hata verirse tik biter, sayaç
 // hatayı taşır, ani-sapma dedektörü etkilenmez. Bu motor bir EK sinyal;
 // çökmesi mevcut anomali hattını sessizleştirmemeli.
-func (d *Detector) scanBehavior(ctx context.Context, now time.Time, cfg chstore.AnomalySensitivityConfig) {
+//
+// v0.10.1478 — red: tikin VM RED görünümü. Ailesi + üç türü hazır olan
+// servisin satırları ÖRNEKLENMEMİŞ VM kovalarından kurulur (aynı 168 kova
+// kuralı, aynı karar; VM'in zaman tabanı vmIngestLag geride), kalanlar span.
+// Aday kaynağı olay ayrıntısında (`source`).
+func (d *Detector) scanBehavior(ctx context.Context, now time.Time, cfg chstore.AnomalySensitivityConfig, red *vmREDView) {
 	b := cfg.Behavior
 	if !b.IsEnabled() {
 		return
@@ -138,10 +143,22 @@ func (d *Detector) scanBehavior(ctx context.Context, now time.Time, cfg chstore.
 	}
 
 	recentCutoff := lastCompleteBucketStart(now).Add(-behaviorRecentHours * time.Hour).Unix()
+	// v0.10.1478 — kaynak bölünmesi: VM satırı olan servis span haritasından
+	// çıkar (iki kaynak aynı serviste ASLA birleşmez).
+	spanRows, vmRows, srcBySvc := splitBehaviorRowsBySource(rowsByService, red)
 	// v0.10.1046 — batch p99 kapısının aktif-olay muafiyeti TEMBEL: okuma
 	// yalnız bir batch p99 adayı susturulmak üzereyken, tik başına en çok bir
 	// kez yapılır (batch_latency_active.go).
-	cands, scarce := behaviorFleetCandidates(rowsByService, deploysByService, recentCutoff, cfg, d.batchLatBehaviorActive(ctx, cfg))
+	batchActive := d.batchLatBehaviorActive(ctx, cfg)
+	cands, scarce := behaviorFleetCandidates(spanRows, deploysByService, recentCutoff, cfg, batchActive)
+	if len(vmRows) > 0 {
+		vmRecent := time.Unix(red.upper, 0).Add(-behaviorRecentHours * time.Hour).Unix()
+		vc, vs := behaviorFleetCandidates(vmRows, deploysByService, vmRecent, cfg, batchActive)
+		cands, scarce = append(cands, vc...), scarce+vs
+	}
+	for i := range cands {
+		cands[i].Source = srcBySvc[cands[i].Service]
+	}
 	cands = capBehaviorCandidates(cands, b.MaxCandidatesPerTick)
 
 	// TEK TOPLU YAZIM (v0.9.957). Eskiden burada aday başına bir
@@ -313,10 +330,7 @@ func behaviorEvent(c behaviorCandidate, now time.Time) chstore.AnomalyEvent {
 // Satırlar zamana göre ARTAN gelir (SQL ORDER BY service_name, t);
 // splitBehaviorSeries ve dwell penceresi buna dayanıyor.
 func (d *Detector) fetchBehaviorBuckets(ctx context.Context, now time.Time, b chstore.AnomalyBehaviorConfig) (map[string][]behaviorRow, error) {
-	upper := lastCompleteBucketStart(now)
-	cutoff := upper.Add(-behaviorBaselineDays * 24 * time.Hour)
-	recentFrom := upper.Add(-behaviorRecentHours * time.Hour)
-	target := hourOfWeek(now)
+	upper, cutoff, recentFrom, target := behaviorBinds(now)
 
 	rows, err := d.store.TelemetryReadConn().Query(ctx, buildBehaviorBucketsQuery(),
 		cutoff, upper, target, target, behaviorNeighborHours, recentFrom)
@@ -341,6 +355,32 @@ func (d *Detector) fetchBehaviorBuckets(ctx context.Context, now time.Time, b ch
 		})
 	}
 	return out, rows.Err()
+}
+
+// splitBehaviorRowsBySource — v0.10.1478 SAF-ımsı: span satırlarını VM
+// satırı olan servislerden ayırır. Döner: span haritası, VM haritası, servis →
+// kaynak ("vm" | "span"). red nil → her şey span.
+func splitBehaviorRowsBySource(rows map[string][]behaviorRow, red *vmREDView) (span, vm map[string][]behaviorRow, src map[string]string) {
+	span = make(map[string][]behaviorRow, len(rows))
+	vm = map[string][]behaviorRow{}
+	src = make(map[string]string, len(rows))
+	for svc, r := range rows {
+		if vr, _, ok := red.behaviorRowsFor(svc); ok {
+			vm[svc], src[svc] = vr, redSourceVM
+			continue
+		}
+		span[svc], src[svc] = r, redSourceSpan
+	}
+	return span, vm, src
+}
+
+// behaviorBinds — SAF (v0.10.1478'de ayrıldı): davranış okumasının bağları;
+// VM kaynağı (vmBehaviorBuckets) aynı bağlardan kova kümesi kurar.
+func behaviorBinds(now time.Time) (upper, cutoff, recentFrom time.Time, target int) {
+	upper = lastCompleteBucketStart(now)
+	cutoff = upper.Add(-behaviorBaselineDays * 24 * time.Hour)
+	recentFrom = upper.Add(-behaviorRecentHours * time.Hour)
+	return upper, cutoff, recentFrom, hourOfWeek(now)
 }
 
 // ── Log yardımcıları (Türkçe, operatörün okuduğu dil) ────────────────

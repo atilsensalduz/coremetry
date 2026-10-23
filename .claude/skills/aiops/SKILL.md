@@ -162,6 +162,18 @@ dedektörü atlar + açık satırı kapatır; `self-volume-spike` açılmaz; `tr
 `error_spike` için **SAYIM VE PAY** ister (`traceOpBatchShareHolds`, SQL HAVING'de) —
 SAF SUSTURMA: batch olayları eski kümenin alt kümesi, batch olmayan çiftler LIMIT/ilk
 50'de yalnız yer kazanır; pay kuralını sayımın YERİNE koyma (yeni olay açar).
+**RED serisi kaynağı (v0.10.1478,** operatör: "Servislerin kendi içerisinde haftalık olağan akışlarını takip
+etse ve gerçek bir anomaly öyle yakalasa"**):** metrik dedektörü + davranış motoru RED'i `anomaly_sensitivity.redSource`
+= `auto` (varsayılan) iken servis başına VictoriaMetrics'in ÖRNEKLENMEMİŞ HTTP/gRPC sunucu histogramından okur, yoksa span
+MV'si (`internal/anomaly/red_vm_*.go`; seçim SAF `pickREDSource`, gerekçeli). TEK KAYNAK kuralı: VM seçilen çiftin
+dört serisi (değer, hacim, mevsimsel, mevsimsel hacim) birlikte bindirilir, VM mevsimseli yoksa span'inki SİLİNİR
+(`overlayREDSeries`; kalkan `TestOverlayNeverMixesSampledSpanErrorRate`). Karar/dwell/taban/batch kapısı/terfi
+DEĞİŞMEZ; kova kümeleri span WHERE'lerinin ikizi (`seasonalBinds`/`behaviorBinds` ortak). Kanıt: Problem açıklaması
+"kaynak: VictoriaMetrics (örneklenmemiş)" / "kaynak: span (örneklenmiş) — VM kullanılmadı: …", davranış olayı `source`.
+Okuma lider belleğinde (tamamlanmış kova bir kez), tik ≤ 24 sorgu / 20 s, span okumalarıyla paralel; durum ucu
+`GET /api/settings/anomaly-red-source/status`. Geri alma `redSource=span`. Yeni bir RED tüketicisi eklerken span serisini
+VM'li serviste DOĞRUDAN okuma — bindirilmiş haritayı oku.
+
 **Yük altında gecikme (v0.10.1046, operatör: "Batch servislerde yük altındaki gecikme
 artışı da anomali sayılmasın"):** hacim işin OLAĞAN ÇALIŞMA hacminin ≥ 2 katıyken gecikme
 artışı YENİ olay açmaz. Tek sabit `batchLoadSurgeFactor = 2`; kollar `batchLoadSurge`
