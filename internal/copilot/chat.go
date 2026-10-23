@@ -249,6 +249,7 @@ func chatRequest(ctx context.Context, req aiprov.Request, system string, msgs []
 		Messages:    msgs,
 		Tools:       tools,
 		NoToolCalls: noToolCallsFrom(ctx),
+		StrictTools: req.StrictTools, // v0.10.1456 (C1) — profil StrictToolArgs
 	}
 }
 

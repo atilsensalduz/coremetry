@@ -79,6 +79,7 @@ func (s *Service) callSnapshot(ctx context.Context) (cfg provider.Config, req pr
 	// ayarı ailenin gövde anahtarına çevrilir; aile anahtar bilmiyorsa ya da
 	// düşünen model küçük bütçeyle koşuyorsa modele göre BİR kez uyarılır.
 	req.ExtraBody = s.thinkingBody(model, p.Thinking, maxTok)
+	req.StrictTools = p.StrictToolArgs // v0.10.1456 (C1) — yalnız openai-uyumlu tool gövdesi okur
 	return cfg, req, prov, base, model
 }
 

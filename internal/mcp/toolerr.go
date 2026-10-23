@@ -167,6 +167,12 @@ var toolErrPolicy = map[string]struct {
 // internal döner, panik değil — hata yolunda panik atmak, hata
 // yolunun kendisini bozar.
 func ClassifyToolError(err error) ToolError {
+	// v0.10.1456 (C1) — şema doğrulayıcının reddi kendi alan-adlı ipucunu
+	// taşır (schema_validate.go); metin sinyallerine düşmez.
+	var ae *ArgIssuesErr
+	if errors.As(err, &ae) {
+		return ae.ToolError()
+	}
 	class := classifyToolErrorClass(err)
 	p := toolErrPolicy[class]
 	te := ToolError{Error: class, Retryable: p.retryable, Hint: p.hint}

@@ -891,7 +891,14 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	if evm != nil {
 		execHooks.Audit = nil // v0.10.1316 (D4) — koşu düzeyi audit ai.evalset.run kalır
 	}
+	// v0.10.1456 (C1) — argüman şema doğrulaması (ai_toolarg_settings.go): kip
+	// off → nil, Executor bugünkü yol; warn → çağrı aynen koşar, modelin gördüğü
+	// değişmez (log + metrik + span özniteliği + ai_calls notu).
+	argObs, argScope := applyChatToolArgScope(&execHooks, toolSchemas)
 	exec := agenttools.NewExecutor(byName, extNames, execHooks)
+	if argScope != nil {
+		exec.WithScope(argScope)
+	}
 
 	// v0.10.1280 (CoSRE adım 8) — döngünün TEK ai_calls satırı cevaptan SONRA
 	// yazılır (RecordUsage, aşağıda); cevap olayının callId'si o satırla
@@ -1357,6 +1364,8 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	if lastErr != nil {
 		status, errMsg = "error", lastErr.Error()
 	}
+	// v0.10.1456 (C1) — doğrulama notu; sorun yoksa errMsg aynen.
+	errMsg = withToolArgNote(status, errMsg, argObs.note())
 	cspan.finish(totalIn, totalOut, totalCached, lastErr) // v0.10.425 — span ve satır aynı toplamlar
 	// v0.10.1050 — read_source_code okunduysa örneğe maskeli "[kod: …]" özetleri
 	// eklenir (explain yolunun sözleşmesi); okunmadıysa bayt bayt eski örnek.

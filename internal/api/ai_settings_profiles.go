@@ -68,6 +68,8 @@ type aiProfileView struct {
 	Headers map[string]string `json:"headers,omitempty"`
 	// v0.10.1451 (karar 8) — "Yerel (self-hosted) model": kod/wiki içeriği yalnız buna.
 	LocalOnly bool `json:"localOnly,omitempty"`
+	// v0.10.1456 (C1) — openai-uyumlu araç tanımlarında strict:true (guided decoding).
+	StrictToolArgs bool `json:"strictToolArgs,omitempty"`
 }
 
 func aiProfileViews(profiles []copilot.ModelProfile, defaultID string) []aiProfileView {
@@ -79,7 +81,8 @@ func aiProfileViews(profiles []copilot.ModelProfile, defaultID string) []aiProfi
 			Thinking: p.Thinking, Default: p.ID == defaultID,
 			Toolset: p.Toolset, EffectiveToolset: modelcaps.ResolveToolset(p.Toolset, p.Model), // v0.10.1302
 			Description: p.Description, Roles: p.Roles, Deep: p.Deep, Headers: p.Headers,
-			LocalOnly: p.LocalOnly, // v0.10.1451
+			LocalOnly:      p.LocalOnly,      // v0.10.1451
+			StrictToolArgs: p.StrictToolArgs, // v0.10.1456 (C1)
 		})
 	}
 	return out
@@ -138,6 +141,9 @@ type aiProfileInput struct {
 	Headers map[string]string `json:"headers"`
 	// v0.10.1451 — admin beyanı (yalnız openai-uyumlu + özel host; ValidateProfile).
 	LocalOnly bool `json:"localOnly"`
+	// v0.10.1456 (C1) — nil = MEVCUT değer korunur (UI'sı sürüm 6'da; bugünkü
+	// form alanı göndermez ve kaydetme anahtarı sessizce kapatmamalı).
+	StrictToolArgs *bool `json:"strictToolArgs"`
 }
 
 // aiProfileFromInput — SAF: gövdeden profil (kırpma + normalizasyon;
@@ -157,6 +163,19 @@ func aiProfileFromInput(id string, in aiProfileInput) copilot.ModelProfile {
 	}
 }
 
+// resolveStrictToolArgs — v0.10.1456 (C1), SAF: gövdede yoksa saklanan değer.
+func resolveStrictToolArgs(in *bool, id string, existing []copilot.ModelProfile) bool {
+	if in != nil {
+		return *in
+	}
+	for _, p := range existing {
+		if p.ID == id {
+			return p.StrictToolArgs
+		}
+	}
+	return false
+}
+
 func (s *Server) putAIProfile(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("id"))
 	var in aiProfileInput
@@ -165,6 +184,8 @@ func (s *Server) putAIProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := aiProfileFromInput(id, in)
+	existing, _, _ := s.copilot.ProfilesSnapshot()
+	p.StrictToolArgs = resolveStrictToolArgs(in.StrictToolArgs, id, existing)
 	if err := copilot.ValidateProfile(p); err != nil {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
@@ -230,7 +251,15 @@ func profileHeadersAudit(h map[string]string) string {
 // açık araç seti " toolset=simple|full" eki (otomatikte satır bayt bayt eski).
 func aiProfileUpsertAudit(p copilot.ModelProfile, hasKey bool) string {
 	return fmt.Sprintf("provider=%s model=%s baseUrl=%s hasKey=%v roles=%s", p.Provider, p.Model, p.BaseURL, hasKey, profileRolesAudit(p.Roles)) +
-		profileDeepAudit(p.Deep) + profileToolsetAudit(p.Toolset) + profileHeadersAudit(p.Headers) + profileLocalOnlyAudit(p.LocalOnly)
+		profileDeepAudit(p.Deep) + profileToolsetAudit(p.Toolset) + profileHeadersAudit(p.Headers) + profileLocalOnlyAudit(p.LocalOnly) + profileStrictAudit(p.StrictToolArgs)
+}
+
+// profileStrictAudit — v0.10.1456 (C1), SAF: yalnız açıksa; kapalı satır bayt bayt eski.
+func profileStrictAudit(strict bool) string {
+	if !strict {
+		return ""
+	}
+	return " strictToolArgs=true"
 }
 
 // profileLocalOnlyAudit — v0.10.1451, SAF: yerel model beyanı audit satırına

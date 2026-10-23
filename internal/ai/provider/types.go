@@ -82,6 +82,11 @@ type Request struct {
 	// gönderilmez (sağlayıcı varsayılanı). Derinlik prompt'la değil
 	// bununla ayarlanır; openai-compat yolu yok sayar.
 	Effort string
+	// StrictTools — v0.10.1456 (C1, opsiyonel guided decoding): profilin
+	// StrictToolArgs anahtarı. Yalnız openai-uyumlu TOOL gövdesi okur
+	// (tools[].function.strict=true + additionalProperties:false); explain
+	// gövdeleri ve Anthropic yolu yok sayar. false = gövde bayt bayt aynı.
+	StrictTools bool
 }
 
 // Response — çözümlenmiş yanıt. Token sayıları `usage` alanından

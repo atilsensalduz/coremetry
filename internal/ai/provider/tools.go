@@ -104,6 +104,8 @@ type ChatRequest struct {
 	// barındırılan OpenAI / GitHub'da tool_choice "none". Yerel openai-compat
 	// uçlarında bugünkü şekil (boş tools dizisi) korunur.
 	NoToolCalls bool
+	// StrictTools — v0.10.1456: bkz. Request.StrictTools (yalnız openai-uyumlu gövde).
+	StrictTools bool
 }
 
 // ChatResponse — çözümlenmiş tur. ToolCalls doluysa çağıran onları
@@ -435,12 +437,14 @@ func buildOpenAIToolsBody(cfg Config, req ChatRequest, fallbackModel string, too
 	apiTools := make([]map[string]any, 0, len(req.Tools))
 	if !req.NoToolCalls || toolChoiceNone {
 		for _, t := range req.Tools {
-			apiTools = append(apiTools, map[string]any{
-				"type": "function",
-				"function": map[string]any{
-					"name": t.Name, "description": t.Description, "parameters": t.InputSchema,
-				},
-			})
+			fn := map[string]any{
+				"name": t.Name, "description": t.Description, "parameters": t.InputSchema,
+			}
+			if req.StrictTools { // v0.10.1456 (C1) — profil StrictToolArgs; kapalıyken gövde aynı
+				fn["strict"] = true
+				fn["parameters"] = strictToolSchema(t.InputSchema)
+			}
+			apiTools = append(apiTools, map[string]any{"type": "function", "function": fn})
 		}
 	}
 
@@ -565,4 +569,50 @@ func parseOpenAIToolsChat(respBody []byte, label string, offered []string) (Chat
 		out.Text = MarkSalvagedThinking(out.Text)
 	}
 	return out, nil
+}
+
+// strictToolSchema — v0.10.1456 (C1), SAF: şemanın derin kopyası; `properties`
+// taşıyan ve additionalProperties belirtmeyen her nesne düğümüne
+// additionalProperties:false eklenir (OpenAI-uyumlu `strict:true` araç
+// tanımının ön şartı; vLLM guided decoding aynı tanımı okur). Girdi DEĞİŞMEZ
+// (katalog haritaları istekler arasında paylaşılıyor). Asıl kapı sunucu
+// tarafı doğrulayıcıdır (mcp/schema_validate.go); bu yalnız üretimi daraltır.
+// Barındırılan OpenAI strict kipte TÜM alanların required olmasını ister —
+// opsiyonel argümanlı katalog orada 400 alabilir; anahtar bu yüzden profil
+// başına ve varsayılan kapalı (self-hosted vLLM / uyumlu uçlar için).
+func strictToolSchema(schema map[string]any) map[string]any {
+	if schema == nil {
+		return nil
+	}
+	c, _ := strictCopy(schema, false).(map[string]any)
+	return c
+}
+
+// strictCopy — inProps: v bir `properties` haritası (ad → şema); onun
+// kendisi bir şema düğümü değildir, ek anahtar almaz.
+func strictCopy(v any, inProps bool) any {
+	switch x := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(x)+1)
+		for k, e := range x {
+			out[k] = strictCopy(e, !inProps && k == "properties")
+		}
+		if !inProps {
+			if _, hasProps := x["properties"]; hasProps {
+				if _, set := x["additionalProperties"]; !set {
+					out["additionalProperties"] = false
+				}
+			}
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, e := range x {
+			out[i] = strictCopy(e, false)
+		}
+		return out
+	case []string:
+		return append([]string(nil), x...)
+	}
+	return v
 }

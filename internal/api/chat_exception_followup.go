@@ -274,8 +274,10 @@ func (s *Server) exceptionCodeLoop(ctx context.Context, emit func(string, any), 
 
 	byName := make(map[string]mcp.ToolHandler, len(tools))
 	specs := make([]copilot.ToolSpec, 0, len(tools))
+	schemas := make(map[string]map[string]any, len(tools)) // v0.10.1456 (C1)
 	for _, t := range tools {
 		byName[t.Name] = t.Handler
+		schemas[t.Name] = t.InputSchema
 		specs = append(specs, copilot.ToolSpec{
 			Name: t.Name, Description: t.ChatDescription(), InputSchema: t.InputSchema,
 		})
@@ -285,12 +287,17 @@ func (s *Server) exceptionCodeLoop(ctx context.Context, emit func(string, any), 
 			byName[n] = chatLoopHandlerSeam(n, h)
 		}
 	}
-	exec := agenttools.NewExecutor(byName, nil, agenttools.Hooks{
+	hooks := agenttools.Hooks{
 		Span: env.span.tool,
 		Audit: func(name string, args json.RawMessage, dur time.Duration, err error, bytes int) {
 			s.audit(env.r, "mcp.tool.call", "mcp_tool", name, chatToolAuditDetails(name, args, dur, err, bytes))
 		},
-	})
+	}
+	argObs, argScope := applyChatToolArgScope(&hooks, schemas) // v0.10.1456 (C1) — sohbet kipi
+	exec := agenttools.NewExecutor(byName, nil, hooks)
+	if argScope != nil {
+		exec.WithScope(argScope)
+	}
 
 	// Ek ÖNDE, çekmece çekirdeği arkada: DataNotInstruction sonda kalır.
 	system := chatSourceCodePromptTR(tools) + copilot.SystemPromptDrawerChat()
@@ -427,6 +434,7 @@ func (s *Server) exceptionCodeLoop(ctx context.Context, emit func(string, any), 
 	if lastErr != nil {
 		status, errMsg = "error", lastErr.Error()
 	}
+	errMsg = withToolArgNote(status, errMsg, argObs.note()) // v0.10.1456 (C1)
 	// Düşüşte kök span'ın sonucu anlatımınkidir (tier); döngünün hatası tur
 	// span'ında ve ai_calls satırında kalır.
 	spanErr := lastErr

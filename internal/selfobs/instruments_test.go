@@ -29,6 +29,8 @@ func TestRoleInstruments(t *testing.T) {
 	ObserveJob("evaluator", time.Now().Add(-time.Second), nil)
 	ObserveJob("correlator", time.Now(), errors.New("boom"))
 	ObserveSREInvestigation("done", time.Minute)
+	ObserveToolArgValidation("warn", "invalid") // v0.10.1456 (C1)
+	ObserveToolArgValidation("enforce", "ok")
 
 	var rm metricdata.ResourceMetrics
 	if err := rd.Collect(context.Background(), &rm); err != nil {
@@ -71,6 +73,7 @@ func TestRoleInstruments(t *testing.T) {
 		"worker.job.runs":              "",
 		"sre.investigation.duration":   "s",
 		"sre.investigations":           "",
+		"ai.tool.args_validation":      "",
 	}
 	for n, u := range want {
 		in, ok := got[n]
@@ -102,5 +105,9 @@ func TestRoleInstruments(t *testing.T) {
 	}
 	if runs := got["worker.job.runs"].attrs; len(runs) != 2 {
 		t.Fatalf("job runs points = %v (ok + error)", runs)
+	}
+	// v0.10.1456 (C1) — yalnız mode + result (araç adı kardinaliteye girmez).
+	if pts := got["ai.tool.args_validation"].attrs; len(pts) != 2 || len(pts[0]) != 2 || pts[0][0] != "mode" || pts[0][1] != "result" {
+		t.Fatalf("args_validation points = %v", pts)
 	}
 }

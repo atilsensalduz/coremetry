@@ -88,6 +88,11 @@ type ModelProfile struct {
 	// kaynak kod ve wiki içeriği yalnız buna gidebilir". Yalnız openai-uyumlu
 	// + özel host (validateLocalOnly); model adından çıkarım YOK (sensitive.go).
 	LocalOnly bool `json:"localOnly,omitempty"`
+	// StrictToolArgs — v0.10.1456 (C1, opsiyonel guided decoding): openai-
+	// uyumlu araç tanımlarına `strict:true` + additionalProperties:false
+	// (provider/tools.go). Varsayılan kapalı = modele giden katalog bayt bayt
+	// aynı. Anthropic yolunda yok sayılır; model ailesinden çıkarım YOK.
+	StrictToolArgs bool `json:"strictToolArgs,omitempty"`
 }
 
 // ErrProfileForbidden — çağıranın rolü profili seçemez (API 403'e çevirir).
@@ -139,7 +144,7 @@ func sameProfile(a, b ModelProfile) bool {
 	if a.ID != b.ID || a.Label != b.Label || a.Provider != b.Provider || a.BaseURL != b.BaseURL ||
 		a.APIKey != b.APIKey || a.Model != b.Model || a.SkipTLS != b.SkipTLS ||
 		a.MaxTokens != b.MaxTokens || a.TimeoutS != b.TimeoutS || a.Thinking != b.Thinking || a.Toolset != b.Toolset ||
-		a.Description != b.Description || !sameStrings(a.Roles, b.Roles) || a.Deep != b.Deep || a.LocalOnly != b.LocalOnly ||
+		a.Description != b.Description || !sameStrings(a.Roles, b.Roles) || a.Deep != b.Deep || a.LocalOnly != b.LocalOnly || a.StrictToolArgs != b.StrictToolArgs ||
 		!sameHeaders(a.Headers, b.Headers) {
 		return false
 	}

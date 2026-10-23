@@ -14,6 +14,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -56,6 +57,11 @@ const (
 	// KindCancelled — v0.10.948: ctx çağrıdan ÖNCE bitmişti (istemci iptali ya da
 	// alışveriş tavanı); handler hiç çağrılmadı.
 	KindCancelled = "cancelled"
+	// KindBadArgs — v0.10.1456 (C1): SchemaScope enforce kipinde argüman
+	// şemaya uymadı (mcp.ArgIssuesErr); handler çağrılmadı, hak yine düşer.
+	// KindScope'tan ayrı: döngü/sohbet muhasebesi "kapsam reddi" ile "model
+	// argümanı yanlış yazdı"yı ayırt eder.
+	KindBadArgs = "bad_args"
 )
 
 // Outcome — bir çağrının sonucu.
@@ -66,7 +72,7 @@ type Outcome struct {
 	// Executed — handler gerçekten koştu (bilinmeyen ad, tekrar, kapsam reddi,
 	// iptal: false; süre yazılmaz).
 	Executed bool
-	// Kind — ok | error | unknown | repeated | scope | cancelled
+	// Kind — ok | error | unknown | repeated | scope | cancelled | bad_args
 	Kind     string
 	Duration time.Duration
 	Err      error
@@ -129,7 +135,12 @@ func (x *Executor) Call(ctx context.Context, name string, args json.RawMessage) 
 	}
 	cargs, serr := x.scope.Constrain(ctx, name, args)
 	if serr != nil {
-		return Outcome{Content: mcp.ToolErrorJSON(serr), IsError: true, Kind: KindScope, Err: serr}
+		kind := KindScope
+		var ae *mcp.ArgIssuesErr
+		if errors.As(serr, &ae) {
+			kind = KindBadArgs // v0.10.1456 (C1)
+		}
+		return Outcome{Content: mcp.ToolErrorJSON(serr), IsError: true, Kind: kind, Err: serr}
 	}
 	end := func(int, bool) {}
 	if x.hooks.Span != nil {

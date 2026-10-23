@@ -9780,3 +9780,63 @@ messaging / kaynak / endpoint / pair öncelikleri), `TestOutboundLiveHostMatches
 `TestOutboundHostGuidedMV` (uçtan uca, LLM 0 çağrı, MV-first), `TestOutboundHostGuidedEnvs`,
 `TestOutboundHostGuidedAskAndErrors`, `TestOutboundProbeWindowWiden`, `TestOutboundR2SourcePins`. SQL şekilleri yerel
 `clickhouse local` üzerinde sentetik spans tablosuyla koşturuldu (ortam / seri / iş kodu).
+
+## 2026-10-23 — v0.10.1456 — CoSRE C1: araç argümanı şema doğrulaması Executor Scope dikişinde (sohbet warn, AI SRE döngüsü enforce)
+
+**Bağlam.** Faz 2 planı §3.2 (karar 6) + operatör kararı 3 (2026-10-23: sohbette ilk gün `warn`, bir hafta ölç, sonra
+`enforce`). Modelin tool_call `arguments`'ı hiçbir katmanda şemaya karşı denetlenmiyordu (denetim §9.4c/e): `"30"` gibi
+tip hatası handler'ın `json.Unmarshal`'ında tüm çağrıyı düşürüyor, Executor'ın `Scope.Constrain` dikişi boş
+(`Unrestricted`) duruyordu.
+
+**Karar.** (1) Yerli, bağımlılıksız doğrulayıcı `internal/mcp/schema_validate.go` — `ValidateArgs(schema, raw)
+[]ArgIssue{Path,Rule,Got,Want}`: 74 aracın kullandığı type/properties/required/enum/minimum/maximum/items/maxItems/
+maxLength/additionalProperties (+ minItems/minLength/pattern) desteklenir, başka anahtar YOK SAYILIR. Yumuşaklıklar Go
+`json.Unmarshal` hizasında: `null` alan yok sayılır (zorunluysa eksik), enum büyük/küçük harf duyarsız (aracın
+coercion'ı normalize eder), integer = tam sayı değerli JSON sayısı, `"30"` metni hata; boş/`null` gövde `{}`; bulgu ≤8.
+(2) `*mcp.ArgIssuesErr` → `ClassifyToolError` bunu tanır: `bad_args`, retryable, alan-adlı Türkçe ipucu ("limit: tam
+sayı bekleniyor (gelen metin "25") — sayıyı tırnaksız gönder … BİR kez daha çağır"); `Final` (aynı aracın ardışık
+ikinci reddi) retryable=false, "bu aracı BIRAK". (3) `internal/ai/agent/tools/schema_scope.go` `SchemaScope{Schemas,
+Mode, Next, Observe}` Scope'u uygular: `off` geçer; `warn` doğrular + Observe + log + metrik, çağrı AYNEN koşar;
+`enforce` handler'ı koşturmaz (Executor `Kind=bad_args`, yeni sabit `KindBadArgs`; `KindScope`'tan ayrı), ardışık
+ret sayacı geçerli çağrıda sıfırlanır; ardından `Next.Constrain` (G13 bileşimi). `NewExecutor` değişmedi.
+(4) Kip ayarı `system_settings["ai.toolArgValidation"]` `{chat:"warn", sreLoop:"enforce", mcp:"off"}`
+(`chstore/ai_toolarg_settings.go`, ai_toolsets deseni: boot + 30 s cfgRefresh, atomic); admin `GET/PUT
+/api/ai/toolarg-validation` (`internal/api/ai_toolarg_settings.go`, registerRoutesExtra; viewer görür, admin yazar,
+audit `settings.ai_toolarg_validation.update`; gönderilmeyen alan korunur; `mcp` yalnız `off` — dış MCP teli
+doğrulanmıyor). (5) Sohbet yüzeyleri (serbest döngü `copilot_chat.go` + exception takibi `chat_exception_followup.go`)
+`applyChatToolArgScope` ile kapsamı takar — yalnız YERLİ araç şemaları (dış MCP aracı doğrulanmaz). warn'da modele
+giden hiçbir bayt değişmez; gözlem = log `[tool-args] warn <araç>: alan:kural` + metrik `ai.tool.args_validation{mode,
+result=ok|invalid|gave_up}` (araç adı bilerek etiket değil) + `ai.tool` span özniteliği `coremetry.ai.tool.args_valid`
++ ai_calls `error_msg` notu `tool_args warn: list_problems(limit:type)` (yalnız status ok satırında; sorun yoksa
+error_msg aynen). (6) AI SRE döngüsü (2b) henüz yok: enforce yolu ve "1 retry, sonra skipped" muhasebesi sahte döngü
+yüzeyiyle test edildi; 2b `newLoopExecutor(...).WithScope(tools.NewSchemaScope(schemas,
+chstore.CurrentAIToolArgValidation().SreLoop, nil))` takar ve `ArgIssuesErr.Final` → `LoopToolCall{State:"skipped"}`.
+(7) Opsiyonel guided decoding: `ModelProfile.StrictToolArgs` (`strictToolArgs`, varsayılan kapalı) → `provider.Request
+/ChatRequest.StrictTools` → openai-uyumlu araç gövdesinde `function.strict=true` + `properties`'li nesne düğümlerine
+`additionalProperties:false` (derin kopya; katalog haritası değişmez; açık additionalProperties korunur). Anthropic
+yolu yok sayar; model ailesinden çıkarım yok (çoklu model: Gemma/Qwen3 aynı profil anahtarı). Barındırılan OpenAI strict
+kipte tüm alanları required ister → anahtar self-hosted vLLM/uyumlu uçlar için; asıl kapı sunucu doğrulayıcısıdır.
+Profil PUT'unda alan yoksa saklanan değer korunur (UI sürüm 6'da). Ayarlar UI'ı (kip seçici + strict tiki) sürüm 6.
+
+**Ölçüm → enforce (operatör).** Bir hafta sonra VictoriaMetrics'te `ai_tool_args_validation_total{mode="warn"}`
+result=invalid / (ok+invalid) oranına ve /ai'de `error_msg LIKE 'tool_args warn%'` satırlarına bak; hangi araç/alanın
+düştüğü not metninde. Karar verilirse: `curl -X PUT /api/ai/toolarg-validation -d '{"chat":"enforce"}'` (admin).
+
+**Geri alma.** Kod değişmeden: `PUT /api/ai/toolarg-validation {"chat":"off","sreLoop":"off"}` — Executor bugünkü
+Unrestricted yolla koşar (kip off'ta kapsam hiç takılmaz). Tam geri alma: sürüm commit'ini revert + yeni etiket;
+`ai.toolArgValidation` blobu ve profillerdeki `strictToolArgs` alanı okuyansız kalır (eski binary bilinmeyen alanı yok
+sayar, sonraki AI ayarı yazımında düşer). Şema/MV/CH DDL yok, api.go büyümedi, MCP 74 + altın katalog aynı (şemalar
+dokunulmadı), kademe sırası aynı, StrictToolArgs kapalıyken araç listesi bayt bayt aynı.
+
+**Testler.** mcp `TestValidateArgsTable` (34 durum: her anahtar, tipler, required/null, enum case, pattern,
+additionalProperties bool/şema, bilinmeyen anahtar, bozuk JSON), `TestValidateArgsAnyStyleSchema`,
+`TestValidateArgsCapsIssues`, `TestArgIssuesErrorContract`; mcptools `TestAllCatalogSchemasValidateTheirOwnExamples`
+(74 aracın her biri: `{}` → tam required listesi, türetilmiş asgari + tam örnek geçerli, her sayı/boolean alanı metin
+olarak → tek `type` bulgusu; desteklenmeyen şema anahtarı girerse düşer); tools `TestSchemaScopeModes` (off / bilinmeyen
+kip / warn içerik bayt kimliği / enforce bad_args / şemasız dış araç / Next zinciri), `TestLoopBadArgsOneRetryThenSkipped`
+(sahte sre-loop yüzeyi); chstore `TestAIToolArgValidation*`; selfobs metrik + etiket kardinalitesi; provider
+`TestOpenAIToolsBodyStrictOffUnchanged`, `TestOpenAIToolsBodyStrictOn`, `TestAnthropicToolsBodyIgnoresStrict`;
+copilot `TestProfileStrictRoundTrip`, `TestCallSnapshotCarriesStrictTools`; api `TestToolArgModeConstantsAgree`,
+`TestAIToolArgValidationRolesAuditRoundTrip`, `TestChatToolArgNote`, `TestChatToolArgWarnIsByteIdenticalForModel`
+(uçtan uca: off↔warn ikinci model isteği bayt bayt aynı, ai_calls notu yalnız warn'da),
+`TestChatToolArgEnforceBurnsSlotNoWork`, `TestProfileStrictToolArgsReachesToolBody`, `TestPutAIProfileStrictToolArgsPreserved`.

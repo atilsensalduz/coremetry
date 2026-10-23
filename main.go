@@ -1040,6 +1040,13 @@ func main() {
 		log.Printf("[ai-toolsets] load persisted settings: %v", err)
 	}
 	cfgRefresh.Add("ai-toolsets", store.LoadAIToolsets)
+	// v0.10.1456 (C1) — araç argümanı şema doğrulama kipleri (system_settings
+	// ai.toolArgValidation) HER rolde: sohbet (api) ve AI SRE döngüsü (sre/all);
+	// yüklenemezse varsayılan chat=warn, sreLoop=enforce.
+	if err := store.LoadAIToolArgValidation(ctx); err != nil {
+		log.Printf("[tool-args] load persisted settings: %v", err)
+	}
+	cfgRefresh.Add("ai-toolarg-validation", store.LoadAIToolArgValidation)
 	// CoSRE öğrenme Faz 2+4 — gece kalite puanı; önce örneklem self-hosted
 	// hakeme (yapılandırılmış AI profili; ai_calls'a "cosre-selfeval" düşer).
 	if mode.worker {

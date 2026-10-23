@@ -250,3 +250,36 @@ func ObserveSREInvestigation(result string, d time.Duration) {
 		sreRuns.Add(context.Background(), 1, opt)
 	}
 }
+
+// ── AI araç argümanı doğrulaması (v0.10.1456, C1) ──────────────────
+
+type toolArgKey struct {
+	mode, result string
+}
+
+var (
+	toolArgOnce sync.Once
+	toolArgRuns metric.Int64Counter
+	toolArgSets setCache[toolArgKey]
+)
+
+// ObserveToolArgValidation — şema doğrulayıcının (SchemaScope) her kararı.
+// mode: warn | enforce; result: ok | invalid | gave_up. Araç adı BİLEREK
+// yok (kardinalite = kip × sonuç); hangi aracın düştüğü log + ai_calls notunda.
+// Sohbet `warn`'dan `enforce`'a geçiş kararı bu sayaçla ölçülür (operatör
+// kararı 3, 2026-10-23).
+func ObserveToolArgValidation(mode, result string) {
+	toolArgOnce.Do(func() {
+		var e error
+		if toolArgRuns, e = Meter().Int64Counter("ai.tool.args_validation",
+			metric.WithDescription("AI araç argümanı şema doğrulaması, mode=warn|enforce result=ok|invalid|gave_up")); e != nil {
+			log.Printf("[selfobs] ai.tool.args_validation: %v", e)
+		}
+	})
+	set := toolArgSets.get(toolArgKey{mode, result}, func() attribute.Set {
+		return attribute.NewSet(attribute.String("mode", mode), attribute.String("result", result))
+	})
+	if toolArgRuns != nil {
+		toolArgRuns.Add(context.Background(), 1, metric.WithAttributeSet(set))
+	}
+}
