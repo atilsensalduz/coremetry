@@ -8588,6 +8588,9 @@ export interface ESLogstoreFieldMap {
   namespace?: string;
   pod?: string;
   version?: string;
+  // v0.10.1473 — takım etiketi alan(lar)ı (virgülle ≤3); CoSRE takım cevabının
+  // son-log kontrolü. Boş = kapalı; aynı işaretçi sözleşmesi.
+  team?: string;
 }
 
 export interface ESLogstoreSnapshot {

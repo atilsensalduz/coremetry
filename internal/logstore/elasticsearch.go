@@ -275,6 +275,13 @@ type ESFieldMap struct {
 	Namespace string `json:"namespace,omitempty"`
 	Pod       string `json:"pod,omitempty"`
 	Version   string `json:"version,omitempty"`
+	// Team — v0.10.1473 (CoSRE takım cevabı, son-log kontrolü): takım
+	// etiketini taşıyan belge alan(lar)ı, virgülle en çok TeamLogsMaxFields
+	// (ParseTeamFields). Örn. bir k8s pod etiketinin log belgesindeki yolu.
+	// BOŞ = özellik KAPALI (ES'e hiç gidilmez); aday listesi / keşif YOK —
+	// takım etiketi pipeline'a özgü, tahmin edilmez. Env anahtarı
+	// COREMETRY_ES_FIELD_TEAM (withESFieldEnv).
+	Team string `json:"team,omitempty"`
 }
 
 func (c *ESConfig) defaults() {
@@ -1977,26 +1984,7 @@ func buildSeverityHistogramBody(query any, timestampField string, candidateField
 	dateAgg := histogramDateAgg(timestampField, bucketSec)
 	bandFilters := make(map[string]any, len(severityBands))
 	for _, b := range severityBands {
-		should := make([]any, 0, len(candidateFields)*len(b.Prefixes)+1)
-		for _, field := range candidateFields {
-			for _, p := range b.Prefixes {
-				should = append(should, map[string]any{
-					"prefix": map[string]any{
-						field: map[string]any{"value": p, "case_insensitive": true},
-					},
-				})
-			}
-		}
-		if severityNoField != "" {
-			should = append(should, map[string]any{
-				"range": map[string]any{
-					severityNoField: map[string]any{"gte": b.NumGte, "lte": b.NumLte},
-				},
-			})
-		}
-		bandFilters[b.Name] = map[string]any{
-			"bool": map[string]any{"should": should, "minimum_should_match": 1},
-		}
+		bandFilters[b.Name] = severityBandClause(b, candidateFields, severityNoField)
 	}
 	return map[string]any{
 		"size":  0,
@@ -2010,6 +1998,35 @@ func buildSeverityHistogramBody(query any, timestampField string, candidateField
 		},
 		"track_total_hits": false,
 		"timeout":          esTimeout,
+	}
+}
+
+// severityBandClause — bir bandın filtre yan tümcesi: aday keyword alanların
+// her biri × bant öneki için case_insensitive `prefix` + (yapılandırıldıysa)
+// OTel severity_number aralığı, tek bool.should altında. v0.10.1473 — şerit
+// histogramından ÇIKARILDI (gövde bayt-bayt aynı): takım son-log kontrolü
+// (team_logs.go) "hata seviyesi" için AYNI ERROR bandını kullanır — iki
+// yüzeyin "hata logu" tanımı ayrışmasın. SAF.
+func severityBandClause(b severityBandDef, candidateFields []string, severityNoField string) map[string]any {
+	should := make([]any, 0, len(candidateFields)*len(b.Prefixes)+1)
+	for _, field := range candidateFields {
+		for _, p := range b.Prefixes {
+			should = append(should, map[string]any{
+				"prefix": map[string]any{
+					field: map[string]any{"value": p, "case_insensitive": true},
+				},
+			})
+		}
+	}
+	if severityNoField != "" {
+		should = append(should, map[string]any{
+			"range": map[string]any{
+				severityNoField: map[string]any{"gte": b.NumGte, "lte": b.NumLte},
+			},
+		})
+	}
+	return map[string]any{
+		"bool": map[string]any{"should": should, "minimum_should_match": 1},
 	}
 }
 

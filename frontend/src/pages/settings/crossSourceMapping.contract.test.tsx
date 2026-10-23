@@ -92,6 +92,31 @@ describe('ElasticTab — cluster / namespace / pod / version alan eşlemesi', ()
   });
 });
 
+// v0.10.1473 — takım alanı (CoSRE son-log kontrolü): saklı değer dolar, PUT
+// her kayıtta `team` anahtarını taşır (boş = kapat), yardım metni görünür.
+describe('ElasticTab — takım alanı (CoSRE son loglar)', () => {
+  it('saklı takım alanı dolar; PUT team anahtarını taşır, boş = kapalı', async () => {
+    m.es = {
+      backend: 'elasticsearch', addresses: ['https://es-0:9200'], username: '', hasPassword: false, hasApiKey: false,
+      insecureSkipVerify: false, index: 'app-*', indexTemplate: '', source: 'ui',
+      fields: { team: 'kubernetes.labels.team-x' },
+    };
+    const el = render(<ElasticTab />);
+    await tick();
+    expect(input(el, 'Team field').value).toBe('kubernetes.labels.team-x');
+    expect(input(el, 'Team field').placeholder).toBe('empty = off');
+    expect(el.textContent).toContain('recent-log check');
+    await submit(el);
+    expect(m.putES[0].fields!.team).toBe('kubernetes.labels.team-x');
+
+    act(() => { setInput(input(el, 'Team field'), ''); });
+    await submit(el);
+    const f = m.putES[1].fields!;
+    expect(Object.prototype.hasOwnProperty.call(f, 'team')).toBe(true);
+    expect(f.team).toBe('');
+  });
+});
+
 describe('MetricsBackendTab — VM etiket eşlemesi (labelMap)', () => {
   const snap = (labelMap?: VMSnapshot['labelMap']): VMSnapshot => ({
     enabled: true, baseUrl: 'http://victoria-metrics:8428', hasToken: false, tokenResolved: false, writeEnabled: false, labelMap,

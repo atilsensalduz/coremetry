@@ -597,6 +597,13 @@ type Store interface {
 	// column/attribute with grouping caps.
 	FieldStats(ctx context.Context, f Filter, field string, limit int) (*FieldStatsResult, error)
 
+	// TeamRecentLogs — v0.10.1473: bir takımın son penceredeki (varsayılan
+	// 15 dk, tavan 60 dk) HATA loglarının sınırlı özeti (top servis, örneklem
+	// desenleri, en yeni satırlar). ES: TEK size:0 _search (team_logs.go
+	// maliyet sözleşmesi); takım alanı yapılandırılmamışsa ErrTeamLogsDisabled
+	// ve ağ çağrısı YOK. CH: ErrTeamLogsUnsupported.
+	TeamRecentLogs(ctx context.Context, q TeamLogsQuery) (*TeamLogsResult, error)
+
 	// Backend returns a short identifier shown in /api/health so an operator
 	// can tell at a glance which log source is wired in.
 	Backend() string

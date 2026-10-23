@@ -3416,6 +3416,10 @@ func (s *Server) guidedTeamServicesBundle(ctx context.Context, emit func(string,
 	// `trimmed` tavana takılıp hiç okunmayanları sayıyor.
 	emitGuidedStepResult(emit, nResolve, "resolve_team_services",
 		fmt.Sprintf("%q takımına eşleşen servisler (%d):\n- %s\n", team, len(svcs), strings.Join(svcs, "\n- ")), nil)
+	// v0.10.1473 — takımın son HATA logları (ES, tek sınırlı _search) RED +
+	// takım özeti okunurken PARALEL koşar; Settings'te takım alanı boşsa nil
+	// (okuma yok). Sonuç aşağıda en çok teamLogsWait beklenir.
+	teamLogs := s.startTeamLogs(ctx, team, nil, time.Now())
 	nRED := emitGuidedStep(emit, "team_services_red", fmt.Sprintf(`{"team":%s,"services":%d}`, jsonStr(team), len(svcs)))
 	// v0.9.1244 — okuma + hata-oranı sırası ortak katmanda
 	// (get_team_services AYNI çağrıyı yapıyor): "en kötü servis" iddiası
@@ -3459,6 +3463,8 @@ func (s *Server) guidedTeamServicesBundle(ctx context.Context, emit func(string,
 	// "Özellikle kontrol etmek istediğin bir servis var mı?" (route.AnswerTail)
 	// ve servis başına çipler; özet çiplerinden SONRA (onları öne ekler).
 	b.WriteString(s.teamOverviewBlock(ctx, emit, route, teamOverviewInput{Team: team, Services: svcs, Trimmed: trimmed, Rows: rows, Names: names}, from, to, rangeS))
+	// v0.10.1473 — "Son loglar (takım)" bölümü + kanıt çipi (kapalıysa "").
+	b.WriteString(s.teamLogsBlock(emit, team, teamLogs))
 	// En kötü servisin canlı error_rate kartı (aile bundle'ının emsali).
 	if len(rows) > 0 && rows[0].ErrorCount > 0 {
 		b.WriteString(chartFence(guidedChartSpec{

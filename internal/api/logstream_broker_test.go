@@ -54,6 +54,9 @@ func (stubLogStore) FieldValues(context.Context, string, string, int, time.Time,
 func (stubLogStore) FieldStats(context.Context, logstore.Filter, string, int) (*logstore.FieldStatsResult, error) {
 	return nil, nil
 }
+func (stubLogStore) TeamRecentLogs(context.Context, logstore.TeamLogsQuery) (*logstore.TeamLogsResult, error) {
+	return nil, logstore.ErrTeamLogsUnsupported
+}
 func (stubLogStore) Backend() string            { return "stub" }
 func (stubLogStore) Ping(context.Context) error { return nil }
 

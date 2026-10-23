@@ -41,6 +41,9 @@ export function ElasticTab() {
   const [fNamespace, setFNamespace] = useState('');
   const [fPod, setFPod] = useState('');
   const [fVersion, setFVersion] = useState('');
+  // v0.10.1473 — takım etiketi alan(lar)ı: CoSRE takım cevabının son-log
+  // kontrolü. Boş = kapalı (ES'e hiç gidilmez).
+  const [fTeam, setFTeam] = useState('');
 
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
@@ -67,6 +70,7 @@ export function ElasticTab() {
       setFNamespace(s.fields?.namespace || '');
       setFPod(s.fields?.pod || '');
       setFVersion(s.fields?.version || '');
+      setFTeam(s.fields?.team || '');
     },
   );
 
@@ -84,6 +88,7 @@ export function ElasticTab() {
       // dize "temizle → keşif", sunucunun işaretçi sözleşmesi. Anahtarı hiç
       // göndermemek (eski form) saklı değeri korur — bu form artık onu bilir.
       cluster: fCluster, namespace: fNamespace, pod: fPod, version: fVersion,
+      team: fTeam, // v0.10.1473 — aynı işaretçi sözleşmesi ("" = kapat)
     },
   });
 
@@ -243,6 +248,7 @@ export function ElasticTab() {
                 {fieldRow('Namespace', fNamespace, setFNamespace, 'empty = self-discover')}
                 {fieldRow('Pod', fPod, setFPod, 'empty = self-discover')}
                 {fieldRow('Version', fVersion, setFVersion, 'empty = self-discover')}
+                {fieldRow('Team field', fTeam, setFTeam, 'empty = off')}
               </div>
               <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6 }}>
                 Environment backs the global env picker on /logs. Left empty,
@@ -257,6 +263,15 @@ export function ElasticTab() {
                 kubernetes.pod_name, service.version and friends) via field_caps;
                 a filter it cannot map is reported as partial, never silently
                 dropped. Set one only when your pipeline uses another path.
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6 }}>
+                Team field turns on CoSRE’s recent-log check in team answers
+                (“how are my team’s services?”): the document path that carries
+                the team label, e.g. a Kubernetes pod label such
+                as <code>kubernetes.labels.team</code> (comma-separate up to 3
+                paths). One bounded search per answer — last 15 min, error
+                level, 3 s timeout, cached 60 s. Team values come from the
+                service catalog, so no value mapping is needed. Empty = off.
               </div>
             </details>
 

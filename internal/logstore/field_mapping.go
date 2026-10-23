@@ -273,6 +273,7 @@ func withESFieldEnv(m ESFieldMap) ESFieldMap {
 	fill(&m.Namespace, "COREMETRY_ES_FIELD_NAMESPACE")
 	fill(&m.Pod, "COREMETRY_ES_FIELD_POD")
 	fill(&m.Version, "COREMETRY_ES_FIELD_VERSION")
+	fill(&m.Team, "COREMETRY_ES_FIELD_TEAM") // v0.10.1473
 	return m
 }
 

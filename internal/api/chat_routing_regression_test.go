@@ -182,6 +182,10 @@ var routingRegressionRows = []routingRow{
 		q: "durum nasıl?", ctx: rrSvcPage(), wantTier: aisurface.TierGuided, wantRoute: string(guidedServiceHealth)},
 	{release: "komşu v0.10.1388", name: "topoloji sözcüğü → service_topology",
 		q: rrSvc + " topolojisi", wantTier: aisurface.TierGuided, wantRoute: string(guidedServiceTopology)},
+	// v0.10.1473 — takım cevabı "Son loglar (takım)" bölümünü my_services /
+	// team_services gövdesinde taşır; soru o gövdeye gitmeye devam etmeli.
+	{release: "komşu v0.10.1473", name: "takımımın servisleri → my_services (son loglar bölümü bu gövdede)",
+		q: "takımımın servisleri nasıl?", wantTier: aisurface.TierGuided, wantRoute: string(guidedMyServices)},
 }
 
 // routingPassThrough — dikişin demeti koşturduğu rotalar (store'suz çalışanlar).

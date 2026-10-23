@@ -10309,3 +10309,35 @@ alwaysSample / tracesLocal). CI Helm job'una "self-obs endpoints" adımı (9 idd
 
 **Testler.** `helm lint` (0 failed); `helm template` mono / distributed / distributed+collector kapalı / mono+collector
 kapalı / dış uç nokta — öncesi-sonrası diff yukarıdaki gibi; skill §10 duman render'ları; CI adımı yerelde 9/9.
+
+## 2026-10-23 — v0.10.1473 — Takım cevabında "Son loglar (takım)": yapılandırılabilir takım alanı, tek sınırlı ES okuması
+
+**Bağlam.** Operatör: ES log belgeleri pod etiketlerini taşıyor (takım etiketi dahil); "takımımın servisleri nasıl?"
+cevabı logları da takıma göre, Elastic'e yük bindirmeden kontrol edebilmeli.
+
+**Karar.** (1) Ayar `logstore_es` blob'unun `fields.team` alanı (Settings → Elasticsearch → "Team field"; env tohumu
+`COREMETRY_ES_FIELD_TEAM`); virgülle ≤3 belge yolu, `ParseTeamFields` boşluk/wildcard/sorgu dilini 400'le reddeder,
+`.keyword` sonekini atar. **Boş = kapalı**: bundle hiçbir okuma başlatmaz, ES'e sıfır çağrı (`TestTeamLogsDisabledZeroCalls`,
+`TestESTeamRecentLogs_DisabledZeroCalls`). Alan adı repoda sabit değil. PUT işaretçi sözleşmesi (yok = koru, "" = kapat),
+denetim `settings.logstore.update` ayrıntısındaki `fields` (team dahil). (2) `logstore.Store.TeamRecentLogs` — ES: TEK
+`_search`, size 0, `track_total_hits` 10k, gövdede `timeout` 3 s + `terminate_after` 50k, `request_cache`, pencere sorguda
+(varsayılan 15 dk, tavan 60 dk, çağıran dakikaya oturtur), takım yüklemi `.keyword` + exists-korumalı çıplak alanda `terms`
+(metin wildcard'ı yok), seviye = şerit histogramının ERROR bandı (`severityBandClause` çıkarıldı, histogram gövdesi bayt-bayt
+aynı), aggs: `by_service` terms 5 (çözümlü keyword yazımı) + `top_hits` 50 dar `_source`; desenler örneklemden
+`NormalizeSignature` ile (/logs Desenler imzası), en yeni 3 satır (200 rune, trace_id). CH: `ErrTeamLogsUnsupported`.
+(3) Takım DEĞERİ eşlemesi yok: Coremetry takımları zaten aynı pod etiketinden türetiliyor (span resource takım etiketleri →
+owner/sre, `*_auto`); sorgu kanonik takıma (alias + katlama) düşen tüm ham yazımları OR'lar (≤10). (4) `guidedTeamServicesBundle`
+(team_services + my_services) okumayı servis çözümünden hemen sonra PARALEL başlatır, takım özeti/genel bakıştan sonra en çok
+3,5 s bekler; zaman aşımı/hata/CH → tek dürüst satır ("OKUNAMADI — 'log yok' DEME"), cevap yine gider. Başarılı sonuç 60 s
+Redis (`copilot:teamlogs:v1:<fnv>`; backend özeti + alanlar + sıralı değerler + pencere). Kanıt çipi "Son loglar (takım)" →
+`/logs?q=<alan>:"<değer>"&severity=17&range=custom:…`. Team exceptions bundle'ına eklenmedi (soru exception; log bölümü gürültü).
+
+**Geri alma.** Settings → Elasticsearch → Team field'ı temizle (ya da env'i boşalt) → bölüm kaybolur, ES'e çağrı yok, cevap
+v0.10.1472 ile aynı. Tam geri alma: commit'i revert + yeni etiket (blob'daki `team` anahtarı zararsız, okuyan kalmaz).
+
+**Testler.** logstore `TestParseTeamFields`, `TestTeamLogsWindowClamp`, `TestBuildTeamLogsBody_CostGuards`,
+`TestTeamValueClause_MultiField`, `TestTeamLogsFromRecords`, `TestCHTeamRecentLogsUnsupported`,
+`TestESTeamRecentLogs_DisabledZeroCalls`, `TestESTeamRecentLogs_SingleSearch`; api `TestTeamLogsDisabledZeroCalls`,
+`TestTeamLogsEnabledReadsOnceThenCache`, `TestTeamLogsTimeoutAndErrors`, `TestRenderTeamLogsTRStates`,
+`TestTeamLogLabelValues`, `TestTeamLogsKeyHashesAllInputs`, `TestTeamLogsHref`, `TestTeamFieldSettingsRoundTrip`,
+`TestTeamServicesBundleWiresTeamLogs`, `TestRoutingRegression` satırı "takımımın servisleri" → my_services; fe `crossSourceMapping.contract.test.tsx` (Team field).

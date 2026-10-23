@@ -44,6 +44,9 @@ type esFieldMapInput struct {
 	Namespace *string `json:"namespace,omitempty"`
 	Pod       *string `json:"pod,omitempty"`
 	Version   *string `json:"version,omitempty"`
+	// Team — v0.10.1473: takım son-log kontrolünün belge alan(lar)ı; aynı
+	// işaretçi sözleşmesi (yok = koru, "" = temizle → özellik kapalı).
+	Team *string `json:"team,omitempty"`
 }
 
 // mergeESFieldMap — SAF: girdi alan haritasını saklı haritanın üstüne
@@ -61,6 +64,7 @@ func mergeESFieldMap(in esFieldMapInput, cur logstore.ESFieldMap) logstore.ESFie
 	out.Namespace = pick(in.Namespace, cur.Namespace)
 	out.Pod = pick(in.Pod, cur.Pod)
 	out.Version = pick(in.Version, cur.Version)
+	out.Team = pick(in.Team, cur.Team)
 	return out
 }
 
@@ -97,6 +101,14 @@ func mergeESSettings(in esSettingsInput, cur logstore.ESSettings) (logstore.ESSe
 		IndexTemplate:      strings.TrimSpace(in.IndexTemplate),
 		Fields:             mergeESFieldMap(in.Fields, cur.Fields), // v0.10.944
 	}
+	// v0.10.1473 — takım alanı: yalnız alan yolu (boşluk / wildcard / sorgu
+	// dili yok, ≤3 alan). Yanlış yazım sessiz boş sonuç değil 400; saklanan
+	// biçim kanonik ("a,b", `.keyword` soneki atılmış).
+	teamFields, terr := logstore.ParseTeamFields(cfg.Fields.Team)
+	if terr != nil {
+		return logstore.ESSettings{}, terr.Error()
+	}
+	cfg.Fields.Team = strings.Join(teamFields, ",")
 	if cfg.Password == "" {
 		cfg.Password = cur.Password
 	}
