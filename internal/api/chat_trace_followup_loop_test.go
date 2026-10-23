@@ -266,7 +266,18 @@ var (
 )
 
 // anchoredToMs — tam saniyede, bir saat önce (çıpa kabul aralığında).
-func anchoredToMs() int64 { return time.Now().UTC().Truncate(time.Second).Add(-time.Hour).UnixMilli() }
+//
+// v0.10.1469 — PAKET BOYU SABİT (önceden her çağrıda time.Now()). İki kollu
+// bayt-kimliği testleri (TestReadSourceCodeOfferedOnlyWithDevOpsAndPromptByteIdentical,
+// chat_code_turn / chat_local_only kıyasları) çıpayı her kolda AYRI çağırıyordu:
+// kollar arasında saniye sınırı geçince AKTİF BAĞLAM'ın trace / sorgu / kıyas
+// pencereleri 1 s kayıyor ve "TEK fark ek olmalı" kırmızıya dönüyordu — tam paket
+// -race koşusunda kol ~100 ms+ sürdüğü için ara sıra. Üretim prompt'u zamana
+// bağlı kalmalı; kararlı olması gereken testin girdisi. Çıpa yaşı (≤ paket
+// süresi + 1 sa) chatAnchorMaxAge'in (400 gün) çok içinde.
+var testAnchorToMs = time.Now().UTC().Truncate(time.Second).Add(-time.Hour).UnixMilli()
+
+func anchoredToMs() int64 { return testAnchorToMs }
 
 // ── 1. bağlam: sistem mesajı → modelin araç argümanları ──────────────────
 
