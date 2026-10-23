@@ -166,12 +166,20 @@ func TestParseArgoTimeFormats(t *testing.T) {
 func TestSyncWebhookValidationAndCaps(t *testing.T) {
 	now := time.Date(2026, 10, 21, 9, 14, 0, 0, time.UTC)
 	for name, mut := range map[string]func(string) string{
-		"instanceId yok":     func(s string) string { return strings.Replace(s, `"instanceId":"argo-main"`, `"instanceId":""`, 1) },
-		"app adı yok":        func(s string) string { return strings.Replace(s, `"name":"shop-checkout-prod"`, `"name":"<no value>"`, 1) },
-		"startedAt yok":      func(s string) string { return strings.Replace(s, `"startedAt":"2026-10-21T09:12:00Z"`, `"startedAt":""`, 1) },
-		"startedAt bozuk":    func(s string) string { return strings.Replace(s, `"startedAt":"2026-10-21T09:12:00Z"`, `"startedAt":"yesterday"`, 1) },
-		"faz sözlük dışı":    func(s string) string { return strings.Replace(s, `"phase":"Succeeded"`, `"phase":"Done"`, 1) },
-		"Succeeded revizyon": func(s string) string { return strings.Replace(s, `"revision":"4b7d0aa3","repoURL"`, `"revision":"<no value>","repoURL"`, 1) },
+		"instanceId yok": func(s string) string { return strings.Replace(s, `"instanceId":"argo-main"`, `"instanceId":""`, 1) },
+		"app adı yok": func(s string) string {
+			return strings.Replace(s, `"name":"shop-checkout-prod"`, `"name":"<no value>"`, 1)
+		},
+		"startedAt yok": func(s string) string {
+			return strings.Replace(s, `"startedAt":"2026-10-21T09:12:00Z"`, `"startedAt":""`, 1)
+		},
+		"startedAt bozuk": func(s string) string {
+			return strings.Replace(s, `"startedAt":"2026-10-21T09:12:00Z"`, `"startedAt":"yesterday"`, 1)
+		},
+		"faz sözlük dışı": func(s string) string { return strings.Replace(s, `"phase":"Succeeded"`, `"phase":"Done"`, 1) },
+		"Succeeded revizyon": func(s string) string {
+			return strings.Replace(s, `"revision":"4b7d0aa3","repoURL"`, `"revision":"<no value>","repoURL"`, 1)
+		},
 	} {
 		_, err := RowsFromSyncWebhook(seDecode(t, mut(seRawPayload())), now, nil)
 		if !errors.Is(err, ErrSyncWebhookInvalid) {

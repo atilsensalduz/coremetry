@@ -72,7 +72,7 @@ func TestMatchSyncForRolloutWindowAndNearest(t *testing.T) {
 		originSync("a", "r1", originT0.Add(-72*time.Hour), true),
 		originSync("a", "r2", originT0.Add(-24*time.Hour), true),
 		originSync("a", "r3", originT0.Add(-2*time.Minute), false, "Deployment/shop/checkout"),
-		originSync("a", "r3", originT0.Add(-2*time.Minute), true), // aynı senkronun tohum ikizi
+		originSync("a", "r3", originT0.Add(-2*time.Minute), true),                          // aynı senkronun tohum ikizi
 		originSync("a", "rX", originT0.Add(3*time.Minute), false, "Deployment/shop/other"), // başka kaynak: aday değil
 		originSync("a", "r9", originT0.Add(30*time.Minute), false),                         // pencere dışı
 	}
@@ -213,7 +213,7 @@ func TestRolloutRowJSONOriginShapeAndV1Unchanged(t *testing.T) {
 	auto := true
 	r := originRow("checkout", rollout.V2ChangeRollback, "2026.10.18.3", "2026.10.17.1", originT0)
 	r.Origin = &rollout.RolloutOrigin{Kind: rollout.OriginRollback, Confidence: 95, Reason: "x", Basis: rollout.OriginBasisArgo,
-		App: &rollout.OriginApp{InstanceID: "argo-main", AppNamespace: "argocd", AppName: "shop-checkout-prod", MatchMethod: "resource", MatchClass: "exact"},
+		App:          &rollout.OriginApp{InstanceID: "argo-main", AppNamespace: "argocd", AppName: "shop-checkout-prod", MatchMethod: "resource", MatchClass: "exact"},
 		PrevRevision: "4b7d0aa3", NewRevision: "9f3c2e1b", TagOrder: rollout.TagOlder, Automated: &auto, HistoryDepth: 2}
 	b, _ := json.Marshal(r)
 	var m map[string]any

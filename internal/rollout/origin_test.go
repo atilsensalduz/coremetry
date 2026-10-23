@@ -19,7 +19,10 @@ func TestClassifyRolloutOriginTable(t *testing.T) {
 		conf       uint8
 		reasonPart string
 	}{
-		{"0 ambiguous", with(func(i *OriginInput) { i.Ambiguous, i.AmbiguousApps, i.AmbiguousSyncs, i.KSMChangeType = true, 2, 1, V2ChangeRollback; i.SeenBefore = true }), OriginUnknown, 0, "ambiguous: 2 Argo apps"},
+		{"0 ambiguous", with(func(i *OriginInput) {
+			i.Ambiguous, i.AmbiguousApps, i.AmbiguousSyncs, i.KSMChangeType = true, 2, 1, V2ChangeRollback
+			i.SeenBefore = true
+		}), OriginUnknown, 0, "ambiguous: 2 Argo apps"},
 		{"1 no argo (KSM rollback)", with(func(i *OriginInput) { i.ArgoNewRevision, i.KSMChangeType = "", V2ChangeRollback }), OriginUnknown, 0, "no Argo sync matched this rollout (±5m)"},
 		{"2 same revision", with(func(i *OriginInput) { i.ArgoPrevRevision, i.KSMChangeType = "4b7d0aa3", V2ChangeConfig }), OriginUnknown, 0, "same git revision"},
 		{"3 seen + KSM rollback", with(func(i *OriginInput) { i.SeenBefore, i.KSMChangeType = true, V2ChangeRollback }), OriginRollback, 95, "re-activated the known ReplicaSet"},
@@ -28,7 +31,9 @@ func TestClassifyRolloutOriginTable(t *testing.T) {
 		{"4 seen + initial", with(func(i *OriginInput) { i.SeenBefore, i.KSMChangeType = true, V2ChangeInitial }), OriginRollback, 75, "garbage-collected"},
 		{"5 new rev + KSM rollback", with(func(i *OriginInput) { i.KSMChangeType = V2ChangeRollback }), OriginRedeployOlder, 85, "history depth 7"},
 		{"5 shallow history", with(func(i *OriginInput) { i.KSMChangeType, i.HistoryDepth = V2ChangeRollback, 2 }), OriginRedeployOlder, 70, "history depth 2"},
-		{"6 rollout + older tag", with(func(i *OriginInput) { i.KSMChangeType, i.PrevTag, i.NewTag = V2ChangeRollout, "2026.10.18.3", "2026.10.17.1" }), OriginRedeployOlder, 60, "tag ordering only"},
+		{"6 rollout + older tag", with(func(i *OriginInput) {
+			i.KSMChangeType, i.PrevTag, i.NewTag = V2ChangeRollout, "2026.10.18.3", "2026.10.17.1"
+		}), OriginRedeployOlder, 60, "tag ordering only"},
 		{"7 rollout + newer tag", with(func(i *OriginInput) { i.KSMChangeType, i.PrevTag, i.NewTag = V2ChangeRollout, "1.4.2", "1.5.0" }), OriginForward, 80, "new build"},
 		{"7 rollout + sha tags", with(func(i *OriginInput) { i.KSMChangeType, i.PrevTag, i.NewTag = V2ChangeRollout, "9f3c2e1", "1a2b3c4" }), OriginForward, 80, "new build"},
 		{"7 config", with(func(i *OriginInput) { i.KSMChangeType = V2ChangeConfig }), OriginForward, 80, "config-only"},
@@ -41,7 +46,9 @@ func TestClassifyRolloutOriginTable(t *testing.T) {
 			t.Errorf("%s: %+v; beklenen %s/%d ⊃ %q", c.name, got, c.want, c.conf, c.reasonPart)
 		}
 	}
-	if got := ClassifyRolloutOrigin(with(func(i *OriginInput) { i.KSMChangeType, i.PrevTag, i.NewTag = V2ChangeRollout, "2026.10.18.3", "2026.10.17.1" })); got.TagOrder != TagOlder {
+	if got := ClassifyRolloutOrigin(with(func(i *OriginInput) {
+		i.KSMChangeType, i.PrevTag, i.NewTag = V2ChangeRollout, "2026.10.18.3", "2026.10.17.1"
+	})); got.TagOrder != TagOlder {
 		t.Errorf("TagOrder: %s", got.TagOrder)
 	}
 }
@@ -81,7 +88,7 @@ func TestCompareImageTags(t *testing.T) {
 		{"2026.10.17.1", "2026.10.18.3", TagNewer},
 		{"release-2026.08.21.3", "release-2026.08.22.1", TagNewer},
 		{"release-2026.08.21.3", "release-2026.08.21.2", TagOlder},
-		{"9f3c2e1", "1a2b3c4", TagUnordered},                                                                      // 7-hex sha
+		{"9f3c2e1", "1a2b3c4", TagUnordered}, // 7-hex sha
 		{"9f3c2e1b4d5e6f708192a3b4c5d6e7f809102030", "0a1b2c3d4e5f60718293a4b5c6d7e8f901122334", TagUnordered}, // 40-hex sha
 		{"1.2.3", "9f3c2e1", TagUnordered},
 		{"latest", "1.2.3", TagUnordered},

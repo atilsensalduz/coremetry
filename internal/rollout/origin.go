@@ -170,7 +170,10 @@ func CompareImageTags(prev, new string) TagOrder {
 	if p == n {
 		return TagEqual
 	}
-	isSha := func(s string) bool { s = strings.ToLower(s); return tagShaRE.MatchString(s) && tagLetterRE.MatchString(s) }
+	isSha := func(s string) bool {
+		s = strings.ToLower(s)
+		return tagShaRE.MatchString(s) && tagLetterRE.MatchString(s)
+	}
 	if isSha(p) || isSha(n) {
 		return TagUnordered
 	}
