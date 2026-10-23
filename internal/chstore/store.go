@@ -4345,6 +4345,13 @@ func (s *Store) migrate(ctx context.Context) error {
 		// Kapalı küme (3 değer) → LowCardinality güvenli. Aynı iki-boot
 		// sözleşmesi (probeCosreInteractionsColumns). Geri alma: DROP COLUMN.
 		`ALTER TABLE cosre_interactions ADD COLUMN IF NOT EXISTS toolset LowCardinality(String) DEFAULT ''`,
+		// v0.10.1444 — cosre_interactions: turun zengin bloklarının (grafik /
+		// log_spike / metric_panel / servis raporu / kanıt kartı + kod künyesi)
+		// sürümlü JSON zarfı, ≤256 KiB (api chat_turn_blocks.go). Geçmiş ve
+		// ?chat= kartları yeniden çizer. '' = blok yok (C4: Nullable yok).
+		// Aynı iki-boot sözleşmesi (probeCosreInteractionsColumns). Geri alma:
+		// DROP COLUMN (okuyucu bayrağa bağlı).
+		`ALTER TABLE cosre_interactions ADD COLUMN IF NOT EXISTS blocks String DEFAULT '' CODEC(ZSTD(3))`,
 		// v0.8.20 — drop the dead topology-mute setting. The
 		// "Mute on topology" chip was removed from the service detail
 		// page in v0.8.19; this migration removes the now-orphaned

@@ -155,7 +155,7 @@ func (s *Store) reprobePromotedAttrs() {
 		if !AIFeedbackCallCols() { // v0.10.1280
 			s.probeAIFeedbackCallColumns(ctx)
 		}
-		if !CosreInteractionsEvidenceCol() || !CosreInteractionsToolsetCol() { // v0.10.1280; v0.10.1302 + toolset
+		if !CosreInteractionsEvidenceCol() || !CosreInteractionsToolsetCol() || !CosreInteractionsBlocksCol() { // v0.10.1280; v0.10.1302 + toolset; v0.10.1444 + blocks
 			s.probeCosreInteractionsColumns(ctx)
 		}
 		// v0.10.1049 — anomaly_events bölüm kolonları (episode_count,

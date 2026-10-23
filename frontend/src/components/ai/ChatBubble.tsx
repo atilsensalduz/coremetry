@@ -53,6 +53,7 @@ import { MetricPanelCard } from './MetricPanelCard'; // v0.10.1435 — panel aç
 import { CodeStatusNote } from '../CodeStatusNote'; // v0.10.1406 — kod turunun durum satırı (✨ düğmesiyle aynı)
 import { CodeSourceFooter } from './CodeSourceFooter'; // v0.10.1406 — kod turunun kaynak satırı
 import { emitAiEvidence, scrollToAttr } from './aiEvents';
+import { agoTR } from '@/lib/utils'; // v0.10.1444 — arşiv notu
 
 // ChatBubble — bir sohbet turunun ÇİZİMİ. v0.9.479'da CopilotChat.tsx'ten
 // buraya taşındı: AI çekmecesi içindeki sohbet (AIDrawer) aynı balonu
@@ -978,8 +979,9 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
   // cevabın çevrilebilen bütün grafikleri ("Hepsini dashboard yap", ≥2 panelde).
   const outerDash = useChatDashOrigin();
   const dashOrigin = useMemo<ChatDashOrigin>(
-    () => ({ conversationId: outerDash?.conversationId, question, exchangeId: turn.exchangeId }),
-    [outerDash?.conversationId, question, turn.exchangeId],
+    // v0.10.1444 — Geçmiş turu: exchangeId boş, köken archiveExchangeId.
+    () => ({ conversationId: outerDash?.conversationId, question, exchangeId: turn.exchangeId ?? turn.archiveExchangeId }),
+    [outerDash?.conversationId, question, turn.exchangeId, turn.archiveExchangeId],
   );
   const dashPanels = useMemo(
     () => (isUser || turn.pending ? [] : turnToPanels(turn, dashOrigin)),
@@ -1021,6 +1023,12 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
           // `turn.pending` çözücüye GEÇİYOR: yarım tablo satırı / kapanmamış
           // çit kararı ona bağlı (chatMarkdown.ts); imleç de son metnin içinde.
           <>
+            {/* v0.10.1444 — Geçmiş'ten açılan turun kartları turun ANLIK GÖRÜNTÜSÜ (cosre_interactions.blocks). */}
+            {turn.archiveExchangeId && !!turn.blocks?.length && (
+              <div className="cm-msg-note" data-archive-note="">
+                Arşiv anlık görüntüsü{turn.blocksAt ? ` · ${agoTR(turn.blocksAt * 1e6)}` : ''}{turn.blocksDropped?.length ? ` · ${turn.blocksDropped.length} kart sığmadı` : ''}
+              </div>
+            )}
             {/* v0.10.1400 — açıklama turu: önbellek etiketi + ✨ Explain gövdesi + kanıt trace'leri. */}
             {ex?.cached && !turn.pending && (
               <div className="cm-msg-note" data-explain-cached="">
@@ -1041,7 +1049,7 @@ function ChatBubbleView({ turn, onRetry, stepsOpen, onRegenerate, busy, versions
             {ex?.code && !turn.pending && <CodeStatusNote code={ex.code} />}
             {/* v0.10.1407 (Tek CoSRE adım 4) — çizim kipi dağıtımı: charts / log-spike turu cevabın kanıt
                 bloğundan kart çizer (anlatım = ExplainBody, kartın "Ne oldu" / "Anlatım" yuvasında); blok
-                yoksa (arşivden geri yüklenen tur — bloklar arşive girmez) düz ExplainBody. */}
+                yoksa düz ExplainBody. v0.10.1444 — Geçmiş turu da blokları taşır (zarfsız eski tur → ExplainBody). */}
             {ex && (() => {
               const exBody = (
                 <ExplainBody text={turn.text} busy={!!turn.pending} evidence={turn.pending ? undefined : explainEvidence(ex)}

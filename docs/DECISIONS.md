@@ -9516,3 +9516,45 @@ FE `chatPanelSpec.test.ts`, `AddToDashboard.test.tsx` (görünürlük/rol, Hepsi
 
 **Geri alma yolu:** `git revert <v0.10.1443 sha>` → yeni etiket. Şema yok; yazılmış paneller sıradan panel JSON'u olarak
 kalır (`source` alanını eski renderer yok sayar → kurulum varsayılanı). İki uç kaybolur, Explore pini eski GET+PUT yoluna döner.
+
+## 2026-10-23 — v0.10.1444 — CoSRE turunun zengin blokları arşivde: cosre_interactions.blocks (256 KiB zarf), Geçmiş ve ?chat= kartları yeniden çizer
+
+**Operatör bulgusu.** Tek CoSRE'den (v0.10.1400–1407, 1435) beri ✨ açıklaması bir sohbet turu; ama charts_signals /
+log_spike / metric_panel / service_report httpCharts / kanıt grafikleri ve `code` künyesi yalnız canlı SSE'de yaşıyordu —
+Geçmiş'ten (ya da `?chat=<convId>`) açılan tur düz metne düşüyordu (ChatBubble "blok yoksa ExplainBody").
+
+**Karar — bloklar sohbet blob'unda DEĞİL, turun kendi satırında:** `saved_views(page='ai-chat')` 64 KB duvarı (A1 onayı,
+invariant #5) korunur; `cosre_interactions` zaten tur başına bir satır (`exchange_id` = turun kök kimliği) → yeni kolon
+`blocks String DEFAULT '' CODEC(ZSTD(3))` (`alters` dilimi; Nullable yok), iki-boot sözleşmesi (probe; küme kipinde ilk boot
+kolonsuz yazar, `ddl_defer` yeniden probe eder; okuma da aynı bayrağa bağlı). Zarf
+`{v:1, at, blocks:[wire çerçeveleri], code?, dropped?, ds?}`; tavan 256 KiB: önce seriler 60 noktaya indirilir (kova başına
+tepe, ilk/son korunur), yine sığmazsa en büyük blok düşer ve `dropped`a yazılır; `action` ve final olmayan bloklar arşive
+girmez. Yakalama `withBlockSeq`'in altında (`turnBlockCapture`, tur başına ≤1 MiB ham), sıkıştırma turun TEK defer'inde
+(`recordChatExchange → buildCosreInteraction`); mevcut sınırlı asenkron kuyruk + 64 MiB bayt bütçesi (aşımda yalnız `blocks`
+boşalır, satır yazılır). SSE yoluna gecikme yok, tur asla başarısız olmaz.
+
+**Değerle mi, spec'le mi:** DEĞERLE (sıkıştırılmış anlık görüntü). Anlatım o veriyi anlatıyor; yeniden sorgu zamanla
+farklı resim verir, VM/ES erişimi ister ve Geçmiş tıklamasına N sorgu bindirirdi. Spec grafikleri (`chart`) zaten spec'tir,
+CosreChart canlı çeker. Her değer bloğu deepLink/window taşır; FE "Arşiv anlık görüntüsü · <zaman> [· N kart sığmadı]" notu basar.
+
+**Kimlik:** blob'daki asistan mesajı `exchangeId` taşır (32-hex, sunucu sanitize eder; kullanıcı mesajında düşer). Açıklama
+önbellek isabetinde cevabın `exchangeId`si saklanan üretimindir (👍/👎 o çağrıya) → `tap` cevaba `turnId` = turun kökü ekler;
+FE arşive `turnId ?? exchangeId` yazar. Geri yüklenen turda `exchangeId` yine BOŞ (oy/sinyal/kanıt duyurusu canlı-tur sözleşmesi),
+kimlik `archiveExchangeId`de → yeniden kaydetmede kaybolmaz; chat→dashboard köprüsü de bunu kullanabilir.
+
+**Okuma:** GET /api/ai/conversations/{id} tek sınırlı sorgu (`exchange_id IN (?)` ≤40, `created_at` DateTime64 penceresi
+blob `firstAt`−15 dk .. `updatedAt`+20 dk — `firstAt` yeni, ilk kaydetmede damgalanır ve taşınır; eski satırda 180 g —,
+`blocks != ''`, LIMIT, `max_execution_time=5`; soft-fail) → `messages[].blocks / blocksAt / blocksDropped` ve
+`explain.code` (sunucu kaynaklı; istemciden gelen `code` / `blocks` yine düşer). exchangeId'siz eski satırlar bayt bayt eski.
+
+**Saklama / maliyet:** blocks 180 g (tablo TTL) — `ai_chat_retention` daha uzunsa konuşma metne düşer (bugünkü hâl). Tur
+başına tipik 5–40 KB ham, ZSTD ~5×. Okuyucusu olmayan mevcut CoSRE kalite/grounding sorguları adlı kolon seçer → maliyetsiz.
+Okuma-yazma boşluğu: kuyruk ≤2 s flush; açık thread blokları bellekte tutar, yalnız hemen başka sekmede açılan son tur kartsız olabilir.
+
+**Geri alma:** `git revert` → yeni etiket; kolon kalır (DEFAULT'lu, okuyucusuz → zararsız); istenirse
+`ALTER TABLE cosre_interactions DROP COLUMN blocks` (küme: `ON CLUSTER`). Blob'lardaki `exchangeId`/`firstAt` eski sunucuda
+bilinmeyen alan → yok sayılır, sonraki upsert'te düşer. Bayrak yok: probe anahtardır.
+
+**Testler:** `chat_turn_blocks_test.go`, `ai_conversations_blocks_test.go`, `cosre_interactions_test.go` (kuyruk bayt bütçesi,
+bloklamama); chstore `cosre_interactions_test.go` (INSERT hizası, okuma SQL sınırları), `cosre_interactions_toolset_test.go`
+(ALTER + yeniden probe); FE `chatPersist.test.ts`, `chatThreadPersist.test.tsx`, `CopilotChat.explainCards.test.tsx` (?chat= kart + not).

@@ -97,16 +97,18 @@ type chatExplainMeta struct {
 	Surface string `json:"surface,omitempty"`
 	// Renderer — v0.10.1405: çizim kipi ("body" = ExplainBody; boş = body).
 	// v0.10.1407 — "charts" / "log-spike": istemci cevabın kanıt bloğundan
-	// (charts_signals / log_spike) kart çizer; blok yoksa (arşivden geri
-	// yüklenen tur — bloklar arşive girmez) ExplainBody'ye düşer.
+	// (charts_signals / log_spike) kart çizer; blok yoksa ExplainBody'ye düşer.
+	// v0.10.1444 — bloklar arşivde (cosre_interactions.blocks, chat_turn_blocks.go):
+	// Geçmiş'ten açılan tur da kartı çizer; zarfsız eski tur ExplainBody'de kalır.
 	Renderer string `json:"renderer,omitempty"`
 	Label    string `json:"label,omitempty"` // exception: grup kodu / tipi; runbook: "RUNBOOK"; diğerleri: öznenin adı
 	// Note — v0.10.1405: künye satırı (runbook: "Based on N past resolved…").
 	Note string `json:"note,omitempty"`
 	// Code — v0.10.1406: "Kodu da incele" turunun kod künyesi (✨ düğmesinin
 	// `code` alanıyla aynı şekil: depo/dal/dosyalar ya da okunamama nedeni);
-	// istemci CodeStatusNote + CodeSourceFooter çizer. Yalnız canlı cevapta:
-	// arşive girmez (sanitizeChatExplain kurmaz).
+	// istemci CodeStatusNote + CodeSourceFooter çizer. İstemciden ASLA kabul
+	// edilmez (sanitizeChatExplain kurmaz); v0.10.1444 — arşivden açılan turda
+	// sunucu kendi blok zarfından doldurur (decorateTurnBlocks).
 	Code             *codeContextPayload `json:"code,omitempty"`
 	Cached           bool                `json:"cached,omitempty"`
 	CachedAtMs       int64               `json:"cachedAtMs,omitempty"`

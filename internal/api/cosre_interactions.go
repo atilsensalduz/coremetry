@@ -9,6 +9,10 @@ package api
 // Yazım ASLA sohbeti bloklamaz: sınırlı kanal + tek yazıcı gorutin, dolu
 // kanalda satır DÜŞER (sayaç + seyrek log). Toplu INSERT: 64 satır ya da
 // 2 s, hangisi önce.
+//
+// v0.10.1444 — satır turun blok zarfını (≤256 KiB) taşıyabilir; 2048'lik
+// kanal 512 MiB'ı rehin tutamasın diye BAYT bütçesi (64 MiB): aşımda yalnız
+// Blocks boşalır (satır yine yazılır, sayaç + seyrek log).
 
 import (
 	"context"
@@ -31,6 +35,7 @@ const (
 	cosreToolArgsMax   = 1 << 10
 	cosreToolErrMax    = 512
 	cosreToolOutputMax = 4 << 10
+	cosreQueueBytesCap = 64 << 20 // v0.10.1444 — kuyruktaki blok zarflarının toplam tavanı
 )
 
 type cosreInteractionSink interface {
@@ -42,6 +47,11 @@ type cosreInteractionWriter struct {
 	sink    cosreInteractionSink
 	dropped atomic.Uint64
 	failed  atomic.Uint64
+
+	// v0.10.1444 — blok zarfı bayt bütçesi (kanal + yazıcı tamponu).
+	bytesCap       int64
+	pendingBytes   atomic.Int64
+	blocksStripped atomic.Uint64
 }
 
 var (
@@ -50,15 +60,30 @@ var (
 )
 
 func newCosreInteractionWriter(sink cosreInteractionSink) *cosreInteractionWriter {
-	return &cosreInteractionWriter{ch: make(chan chstore.CosreInteraction, cosreQueueCap), sink: sink}
+	return &cosreInteractionWriter{ch: make(chan chstore.CosreInteraction, cosreQueueCap), sink: sink, bytesCap: cosreQueueBytesCap}
 }
 
-// enqueue — bloklamaz; kuyruk doluysa satır düşer.
+// stripBlocksForBudget — SAF (v0.10.1444): n baytlık zarf bütçeyi aşar mı.
+func stripBlocksForBudget(pending, capBytes int64, n int) bool {
+	return n > 0 && pending+int64(n) > capBytes
+}
+
+// enqueue — bloklamaz; kuyruk doluysa satır düşer. v0.10.1444 — bayt
+// bütçesi aşılırsa yalnız Blocks düşer.
 func (w *cosreInteractionWriter) enqueue(r chstore.CosreInteraction) bool {
+	if stripBlocksForBudget(w.pendingBytes.Load(), w.bytesCap, len(r.Blocks)) {
+		r.Blocks = ""
+		if n := w.blocksStripped.Add(1); n == 1 || n%1000 == 0 {
+			log.Printf("cosre_interactions: kuyruk bayt bütçesi dolu, %d satırın blokları düştü", n)
+		}
+	}
+	n := int64(len(r.Blocks))
+	w.pendingBytes.Add(n) // gönderimden ÖNCE: yazıcı flush'ı iadeyi önce yapamasın
 	select {
 	case w.ch <- r:
 		return true
 	default:
+		w.pendingBytes.Add(-n)
 		if n := w.dropped.Add(1); n == 1 || n%1000 == 0 {
 			log.Printf("cosre_interactions: kuyruk dolu, %d satır düştü", n)
 		}
@@ -74,6 +99,11 @@ func (w *cosreInteractionWriter) run() {
 		if len(buf) == 0 {
 			return
 		}
+		var held int64 // v0.10.1444 — tampon boşalınca bütçeye iade
+		for i := range buf {
+			held += int64(len(buf[i].Blocks))
+		}
+		defer w.pendingBytes.Add(-held)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		err := w.sink.InsertCosreInteractions(ctx, buf)
 		cancel()

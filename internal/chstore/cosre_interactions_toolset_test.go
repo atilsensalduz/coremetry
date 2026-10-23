@@ -36,3 +36,26 @@ func TestCosreInteractionsToolsetMigration(t *testing.T) {
 		}
 	}
 }
+
+// v0.10.1444 — blocks kolonu: aynı alters dilimi, boş-dize DEFAULT'lu String (Nullable
+// yok) + ZSTD; kolon varken ikinci boot göndermez.
+func TestCosreInteractionsBlocksMigration(t *testing.T) {
+	var mine []string
+	for _, q := range migrateDDLSlice(t, "alters") {
+		if tbl, col, ok := ddlAddsColumn(q); ok && tbl == "cosre_interactions" && col == "blocks" {
+			mine = append(mine, q)
+		}
+	}
+	if len(mine) != 1 {
+		t.Fatalf("alters diliminde %d blocks ALTER'ı (beklenen 1)", len(mine))
+	}
+	if !strings.Contains(mine[0], "String DEFAULT '' CODEC(ZSTD(3))") || strings.Contains(mine[0], "Nullable") {
+		t.Errorf("tip/DEFAULT/CODEC: %s", mine[0])
+	}
+	if send, skipped := planAlterDDL(mine, map[string]bool{"cosre_interactions.blocks": true}); len(send) != 0 || skipped != 1 {
+		t.Error("kolon varken ALTER gitmemeli (idempotent)")
+	}
+	if !strings.Contains(readFileT(t, "ddl_defer.go"), "!CosreInteractionsBlocksCol()") {
+		t.Error("ertelenen DDL sonrası yeniden probe blocks bayrağına bakmalı (küme kipi)")
+	}
+}

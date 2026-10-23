@@ -7093,6 +7093,23 @@ export interface ChatMessage {
    * ExplainBody ile çizer ve takip bağlamını kurar.
    */
   explain?: ChatExplainMeta;
+  /**
+   * v0.10.1444 — asistan turunun kimliği (cosre_interactions satırının
+   * exchange_id'si; sunucu 32-hex sanitize eder). Arşive yazılır: Geçmiş'ten
+   * açılan konuşmada sunucu turun blok zarfını bununla bulur.
+   */
+  exchangeId?: string;
+  /**
+   * v0.10.1444 — turun zengin blokları (charts_signals / log_spike / metric_panel /
+   * service_report / kanıt grafikleri …). YALNIZ sunucu → istemci: GET
+   * /api/ai/conversations/{id} cosre_interactions.blocks zarfından doldurur;
+   * istemcinin gönderdiği her zaman düşer (internal/api/chat_turn_blocks.go).
+   */
+  blocks?: ChatTypedBlock[];
+  /** v0.10.1444 — blok zarfının damgası (unix ms) — "Arşiv anlık görüntüsü" notu. */
+  blocksAt?: number;
+  /** v0.10.1444 — 256 KiB tavanına sığmayıp düşen blok türleri. */
+  blocksDropped?: string[];
 }
 
 /**
@@ -7187,8 +7204,9 @@ export type ChatExplainKind =
 /**
  * v0.10.1405 — künyenin çizim kipi (yok = body). v0.10.1407 — 'charts' /
  * 'log-spike': balon cevabın kanıt bloğundan (charts_signals / log_spike) kartı
- * çizer; blok yoksa (arşivden geri yüklenen tur — bloklar arşive girmez)
- * ExplainBody'ye düşer.
+ * çizer; blok yoksa ExplainBody'ye düşer. v0.10.1444 — bloklar arşivde
+ * (cosre_interactions.blocks): Geçmiş'ten açılan tur da kartı çizer; zarfsız
+ * eski tur ExplainBody'de kalır.
  */
 export type ChatExplainRenderer = 'body' | 'charts' | 'log-spike' | 'metric-panel'; // v0.10.1435 — metric-panel
 
@@ -7244,7 +7262,8 @@ export interface ChatExplainMeta {
   /**
    * v0.10.1406 — "Kodu da incele" turunun kod künyesi (✨ düğmesinin `code`
    * alanıyla aynı şekil); balon CodeStatusNote + CodeSourceFooter çizer.
-   * Yalnız canlı cevapta (arşive girmez).
+   * İstemci arşive YAZAMAZ (sunucu düşürür); v0.10.1444 — Geçmiş'ten açılan
+   * turda sunucu turun blok zarfından doldurur.
    */
   code?: AICodeContext;
   cached?: boolean;
@@ -7631,8 +7650,21 @@ export interface ChatEvidence {
 }
 
 export interface ChatTurn extends ChatMessage {
-  /** v0.10.541 — tipli bloklar (seq sıralı, id tekil); arşiv taşımaz (fence yeter). */
+  /** v0.10.541 — tipli bloklar (seq sıralı, id tekil). v0.10.1444 — arşive istemci yazmaz; Geçmiş'te sunucu doldurur (ChatMessage.blocks). */
   blocks?: ChatTypedBlock[];
+  /**
+   * v0.10.1444 — Geçmiş'ten geri yüklenen asistan turunun kimliği. `exchangeId`
+   * BİLEREK boş kalır (👍/👎, sinyal ve kanıt duyurusu canlı-tur sözleşmesi);
+   * bu alan yalnız yeniden kaydetmede kimliği korur + arşiv notu / dashboard
+   * köprüsü içindir.
+   */
+  archiveExchangeId?: string;
+  /**
+   * v0.10.1444 — cevabın `turnId`si: önbellek isabetinde `exchangeId` saklanan
+   * üretimin kimliği, turnId bu turun kendi kimliği (blok zarfı ona yazılır).
+   * Arşive turnId ?? exchangeId gider.
+   */
+  turnId?: string;
   steps?: string[];
   // v0.9.1181 (Faz 4.3) — çiplerin arkasındaki kanıt. `steps` (etiketler)
   // AYRI kalıyor ve bilerek: arşivden geri yüklenen turlar detay taşımaz
@@ -7995,7 +8027,7 @@ export type ChatStreamEvent =
   // evidence (v0.10.1272) — alışverişin kanıt çipleri (step-result.evidence'ların listesi).
   // followups (v0.10.1291) — kural-türevli takip çipleri (internal/api/chat_followup_chips.go); suggestions yalnız metinlerini taşır (eski istemci).
   // explain (v0.10.1400) — açıklama turunun künyesi (chat_explain_turn.go).
-  | { kind: 'answer'; text: string; exchangeId?: string; sources?: RagSource[]; suggestions?: string[]; followups?: ChatFollowup[]; links?: ChatAnswerLink[]; open?: string; evidenceSpanIds?: string[]; cached?: boolean; allowedLinks?: string[]; evidence?: ChatQueryEvidence[]; explain?: ChatExplainMeta }
+  | { kind: 'answer'; text: string; exchangeId?: string; turnId?: string; sources?: RagSource[]; suggestions?: string[]; followups?: ChatFollowup[]; links?: ChatAnswerLink[]; open?: string; evidenceSpanIds?: string[]; cached?: boolean; allowedLinks?: string[]; evidence?: ChatQueryEvidence[]; explain?: ChatExplainMeta }
   // v0.10.541 (Faz 3.3a) — tipli blok: model yalnız metin üretir; chart/link
   // (ileride trace_list/table/action/evidence) deterministik, tool sonucundan.
   | { kind: 'block'; id: string; type: ChatBlockType; seq: number; final: boolean; payload: unknown }

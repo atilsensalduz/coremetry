@@ -60,6 +60,10 @@ type CosreInteraction struct {
 	// Toolset — v0.10.1302: serbest döngünün araç seti (full | simple); guided /
 	// niyet / LLM'siz kademeler "". Kolon iki-boot sözleşmesiyle (probe).
 	Toolset string
+	// Blocks — v0.10.1444: turun zengin bloklarının sürümlü zarfı (JSON; api
+	// chat_turn_blocks.go compactTurnBlocks, ≤256 KiB). "" = blok yok (eski
+	// satır, eval, bütçe aşımı). Kolon iki-boot sözleşmesiyle (probe).
+	Blocks string
 }
 
 const cosreInteractionsBaseCols = `exchange_id, conversation_id, turn, created_at, user_id, user_email,
@@ -77,14 +81,22 @@ var cosreInteractionsEvidenceCol atomic.Bool
 // cosreInteractionsToolsetCol — v0.10.1302 toolset kolonu (aynı sözleşme).
 var cosreInteractionsToolsetCol atomic.Bool
 
+// cosreInteractionsBlocksCol — v0.10.1444 blocks kolonu (aynı sözleşme). Hem
+// INSERT hem okuma (TurnBlocksByExchange çağıranı) bu bayrağa bağlı: küme
+// kipinde ilk boot kolonsuz yazar, okuma hiç denenmez.
+var cosreInteractionsBlocksCol atomic.Bool
+
 // CosreInteractionsEvidenceCol — kolon bayrağı (test/teşhis).
 func CosreInteractionsEvidenceCol() bool { return cosreInteractionsEvidenceCol.Load() }
 
 // CosreInteractionsToolsetCol — v0.10.1302 kolon bayrağı (test/teşhis).
 func CosreInteractionsToolsetCol() bool { return cosreInteractionsToolsetCol.Load() }
 
+// CosreInteractionsBlocksCol — v0.10.1444 kolon bayrağı (yazım + Geçmiş okuması).
+func CosreInteractionsBlocksCol() bool { return cosreInteractionsBlocksCol.Load() }
+
 // cosreInteractionsOptionalCols — iki-boot sözleşmeli kolonlar (probe sırası).
-var cosreInteractionsOptionalCols = []string{"tool_evidence", "toolset"}
+var cosreInteractionsOptionalCols = []string{"tool_evidence", "toolset", "blocks"}
 
 // probeCosreInteractionsColumns — INSERT hedefi cosre_interactions'ta (küme
 // kipinde Distributed) iki-boot kolonları var mı; v0.10.1302'den beri TEK
@@ -94,7 +106,7 @@ func (s *Store) probeCosreInteractionsColumns(ctx context.Context) {
 	have := map[string]bool{}
 	rows, err := s.conn.Query(ctx,
 		`SELECT name FROM system.columns
-		 WHERE database = currentDatabase() AND table = 'cosre_interactions' AND name IN ('tool_evidence', 'toolset')`)
+		 WHERE database = currentDatabase() AND table = 'cosre_interactions' AND name IN ('tool_evidence', 'toolset', 'blocks')`)
 	if err == nil {
 		for rows.Next() {
 			var name string
@@ -109,20 +121,23 @@ func (s *Store) probeCosreInteractionsColumns(ctx context.Context) {
 	}
 	cosreInteractionsEvidenceCol.Store(have["tool_evidence"])
 	cosreInteractionsToolsetCol.Store(have["toolset"])
+	cosreInteractionsBlocksCol.Store(have["blocks"]) // v0.10.1444
 }
 
 // cosreInteractionCols — INSERT'in iki-boot kolon bayrakları.
 type cosreInteractionCols struct {
 	Evidence bool // v0.10.1280 tool_evidence
 	Toolset  bool // v0.10.1302 toolset
+	Blocks   bool // v0.10.1444 blocks
 }
 
 func loadCosreInteractionCols() cosreInteractionCols {
-	return cosreInteractionCols{Evidence: cosreInteractionsEvidenceCol.Load(), Toolset: cosreInteractionsToolsetCol.Load()}
+	return cosreInteractionCols{Evidence: cosreInteractionsEvidenceCol.Load(), Toolset: cosreInteractionsToolsetCol.Load(),
+		Blocks: cosreInteractionsBlocksCol.Load()}
 }
 
 // cosreInteractionsInsertSQL — SAF: kolon listesi bayraklara göre (sıra:
-// tool_evidence, toolset — cosreInteractionArgs ile aynı).
+// tool_evidence, toolset, blocks — cosreInteractionArgs ile aynı).
 func cosreInteractionsInsertSQL(c cosreInteractionCols) string {
 	cols := cosreInteractionsBaseCols
 	if c.Evidence {
@@ -130,6 +145,9 @@ func cosreInteractionsInsertSQL(c cosreInteractionCols) string {
 	}
 	if c.Toolset {
 		cols += ", toolset"
+	}
+	if c.Blocks {
+		cols += ", blocks"
 	}
 	return "INSERT INTO cosre_interactions (\n\t" + cols + ")"
 }
@@ -144,7 +162,7 @@ func b2u8(b bool) uint8 {
 // cosreInteractionArgs — SAF: satırın INSERT argümanları; tool dizileri
 // paralel ve her zaman aynı uzunlukta.
 // v0.10.1280 — Evidence iken paralel tool_evidence dizisi; v0.10.1302 —
-// Toolset iken en sonda toolset dizgesi.
+// Toolset iken toolset dizgesi; v0.10.1444 — Blocks iken EN SONDA blok zarfı.
 func cosreInteractionArgs(r CosreInteraction, c cosreInteractionCols) []any {
 	n := len(r.Tools)
 	names, origins, args := make([]string, n), make([]string, n), make([]string, n)
@@ -178,6 +196,9 @@ func cosreInteractionArgs(r CosreInteraction, c cosreInteractionCols) []any {
 	if c.Toolset {
 		out = append(out, r.Toolset)
 	}
+	if c.Blocks {
+		out = append(out, r.Blocks)
+	}
 	return out
 }
 
@@ -197,4 +218,64 @@ func (s *Store) InsertCosreInteractions(ctx context.Context, rows []CosreInterac
 		}
 	}
 	return batch.Send()
+}
+
+// cosreTurnBlocksSQL — v0.10.1444: Geçmiş'ten açılan konuşmanın turlarının
+// blok zarfları. exchange_id bloom indeksli + created_at (DateTime64(3))
+// penceresi aylık bölümleri budar; alt sorgu yok (küme kipinde GLOBAL derdi
+// yok), literal `IN (?)` listesi (≤40 kimlik). Bind: from, to, ids, limit.
+const cosreTurnBlocksSQL = `SELECT exchange_id, blocks
+		FROM cosre_interactions
+		WHERE created_at >= toDateTime64(?, 3, 'UTC')
+		  AND created_at <  toDateTime64(?, 3, 'UTC')
+		  AND exchange_id IN (?)
+		  AND blocks != ''
+		ORDER BY created_at DESC
+		LIMIT ?
+		SETTINGS max_execution_time = 5`
+
+// cosreTurnBlocksMaxIDs — okuma başına kimlik tavanı (konuşma blob'u ≤40 mesaj).
+const cosreTurnBlocksMaxIDs = 40
+
+// dedupTurnBlockIDs — SAF: boşları atar, tekilleştirir, tavanlar (sıra korunur).
+func dedupTurnBlockIDs(ids []string) []string {
+	seen := make(map[string]bool, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+		if len(out) >= cosreTurnBlocksMaxIDs {
+			break
+		}
+	}
+	return out
+}
+
+// TurnBlocksByExchange — v0.10.1444: exchange_id → blok zarfı (yalnız dolu
+// satırlar; aynı kimlikte birden çok satır varsa EN YENİ). Kolon yoksa
+// (CosreInteractionsBlocksCol false) çağıran hiç çağırmaz.
+func (s *Store) TurnBlocksByExchange(ctx context.Context, ids []string, from, to time.Time) (map[string]string, error) {
+	out := map[string]string{}
+	ids = dedupTurnBlockIDs(ids)
+	if s == nil || len(ids) == 0 || !to.After(from) {
+		return out, nil
+	}
+	rows, err := s.conn.Query(ctx, cosreTurnBlocksSQL, chDateTime64Arg(from), chDateTime64Arg(to), ids, len(ids))
+	if err != nil {
+		return out, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, env string
+		if err := rows.Scan(&id, &env); err != nil {
+			return out, err
+		}
+		if _, ok := out[id]; !ok {
+			out[id] = env
+		}
+	}
+	return out, rows.Err()
 }

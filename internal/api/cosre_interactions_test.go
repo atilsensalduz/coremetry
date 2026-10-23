@@ -6,7 +6,9 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -127,4 +129,103 @@ func TestCosreWriterFlushesBatch(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("flush olmadı")
 	}
+}
+
+// v0.10.1444 — kuyruk ASLA bloklamaz (blok zarflı satırlarla da): dolu,
+// tüketilmeyen kanalda enqueue hemen döner.
+func TestCosreWriterEnqueueNeverBlocks(t *testing.T) {
+	w := newCosreInteractionWriter(&fakeCosreSink{rows: make(chan int, 1)})
+	for k := 0; k < cosreQueueCap; k++ {
+		w.enqueue(chstore.CosreInteraction{ExchangeID: "x", Blocks: `{"v":1}`})
+	}
+	done := make(chan bool, 1)
+	go func() { done <- w.enqueue(chstore.CosreInteraction{ExchangeID: "y", Blocks: `{"v":1}`}) }()
+	select {
+	case ok := <-done:
+		if ok {
+			t.Fatal("dolu kanalda satır düşmeli")
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("enqueue blokladı")
+	}
+	if got := w.pendingBytes.Load(); got != int64(cosreQueueCap*len(`{"v":1}`)) {
+		t.Fatalf("düşen satır bütçeye yazılmamalı: %d", got)
+	}
+}
+
+// v0.10.1444 — bayt bütçesi aşılınca YALNIZ Blocks düşer; satırın geri kalanı
+// aynen yazılır, sayaç artar; flush bütçeyi iade eder.
+func TestCosreWriterBlocksByteBudgetStripsOnlyBlocks(t *testing.T) {
+	sink := &captureCosreSink{}
+	w := newCosreInteractionWriter(sink)
+	if w.bytesCap != cosreQueueBytesCap {
+		t.Fatalf("varsayılan bütçe %d", w.bytesCap)
+	}
+	w.bytesCap = 10 << 10
+	env := strings.Repeat("z", 4<<10)
+	for k := 0; k < 5; k++ {
+		w.enqueue(chstore.CosreInteraction{ExchangeID: fmt.Sprintf("x%d", k), Question: "q", Answer: "a", Tier: "guided", Blocks: env})
+	}
+	if got := w.blocksStripped.Load(); got != 3 {
+		t.Fatalf("bütçe dışı satır sayısı %d (beklenen 3)", got)
+	}
+	if got := w.pendingBytes.Load(); got != 8<<10 {
+		t.Fatalf("bekleyen bayt %d", got)
+	}
+	go w.run()
+	deadline := time.After(5 * time.Second)
+	for sink.count() < 5 {
+		select {
+		case <-deadline:
+			t.Fatalf("flush olmadı (%d)", sink.count())
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+	rows := sink.all()
+	for k, r := range rows {
+		wantBlocks := k < 2
+		if (r.Blocks != "") != wantBlocks || r.Question != "q" || r.Answer != "a" || r.Tier != "guided" || r.ExchangeID != fmt.Sprintf("x%d", k) {
+			t.Errorf("satır %d: blocks=%d %+v", k, len(r.Blocks), r.ExchangeID)
+		}
+	}
+	for w.pendingBytes.Load() != 0 {
+		select {
+		case <-deadline:
+			t.Fatalf("flush bütçeyi iade etmedi: %d", w.pendingBytes.Load())
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	for _, c := range []struct {
+		pending, capB int64
+		n             int
+		want          bool
+	}{{0, 10, 0, false}, {0, 10, 10, false}, {1, 10, 10, true}, {64 << 20, 64 << 20, 1, true}} {
+		if got := stripBlocksForBudget(c.pending, c.capB, c.n); got != c.want {
+			t.Errorf("stripBlocksForBudget(%d,%d,%d)=%v", c.pending, c.capB, c.n, got)
+		}
+	}
+}
+
+type captureCosreSink struct {
+	mu   sync.Mutex
+	rows []chstore.CosreInteraction
+}
+
+func (c *captureCosreSink) InsertCosreInteractions(_ context.Context, rows []chstore.CosreInteraction) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.rows = append(c.rows, rows...)
+	return nil
+}
+
+func (c *captureCosreSink) count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.rows)
+}
+
+func (c *captureCosreSink) all() []chstore.CosreInteraction {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]chstore.CosreInteraction(nil), c.rows...)
 }

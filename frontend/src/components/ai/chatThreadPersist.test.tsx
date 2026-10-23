@@ -118,7 +118,7 @@ describe('useChatThread — kalıcılık', () => {
       id: undefined, subject: undefined,
       messages: [
         { role: 'user', text: 'checkout yavaş mı?' },
-        { role: 'assistant', text: 'p95 480ms' },
+        { role: 'assistant', text: 'p95 480ms', exchangeId: 'x1' }, // v0.10.1444 — tur kimliği (blok zarfı anahtarı)
       ],
     });
     expect(thread.conversationId).toBe('srv-1');

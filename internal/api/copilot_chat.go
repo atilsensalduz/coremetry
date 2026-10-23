@@ -245,6 +245,9 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	// üretir ve frontend kanıtı yanlış çipe yapıştırırdı.
 	emit := withStepIDs(em.Emit)
 	var blockSeq blocks.Sequencer // v0.10.557 — tek sıralayıcı (chart/link/action + guided evidence)
+	// v0.10.1444 — sıralayıcının ürettiği `block` çerçeveleri → arşiv zarfı.
+	blockCap := &turnBlockCapture{}
+	emit = blockCap.wrap(emit) // sıralayıcının ALTINDA: kimlik/sıra atanmış çerçeveyi görür
 	emit = withBlockSeq(emit, &blockSeq)
 
 	// Attribution: tag ctx so RecordUsage attributes the exchange to
@@ -305,6 +308,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	xch := newChatExchange(exchangeID, lastUserText(req.Messages), dm.On, chatT0)
 	xch.setInteraction(req.Context.Conversation, chatUserTurns(req.Messages), req.Context.Attempt,
 		agentctx.Sanitize(req.Context.Page), req.Context.Service, req.Context.Trace) // Faz 1 — cosre_interactions
+	xch.setBlockCapture(blockCap) // v0.10.1444
 	ctx = withChatExchange(ctx, xch)
 	ctx = copilot.WithCallSink(ctx, xch.noteModelCall)
 	emit = xch.tap(emit)

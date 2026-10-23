@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ChatTurn } from '@/lib/types';
 import {
-  PERSIST_MESSAGE_CAP, hasCompletedExchange, persistMessages, restoreTurns,
+  PERSIST_MESSAGE_CAP, hasCompletedExchange, persistMessages, restoreTurns, turnArchiveId,
 } from './chatPersist';
 
 // v0.9.1139 (AI Faz 4.1) — arşive NE gider, ekrana NE geri döner.
@@ -18,13 +18,13 @@ import {
 const t = (turn: Partial<ChatTurn> & { role: ChatTurn['role'] }): ChatTurn => turn as ChatTurn;
 
 describe('persistMessages', () => {
-  it('tamamlanmış turları role+text olarak taşır', () => {
+  it('tamamlanmış turları role+text olarak taşır (v0.10.1444 — asistan + exchangeId)', () => {
     expect(persistMessages([
       t({ role: 'user', text: 'checkout yavaş mı?' }),
       t({ role: 'assistant', text: 'p95 480ms', exchangeId: 'x1', steps: ['red'] }),
     ])).toEqual([
       { role: 'user', text: 'checkout yavaş mı?' },
-      { role: 'assistant', text: 'p95 480ms' },
+      { role: 'assistant', text: 'p95 480ms', exchangeId: 'x1' },
     ]);
   });
 
@@ -89,5 +89,41 @@ describe('hasCompletedExchange', () => {
       t({ role: 'assistant', text: '', error: 'kesildi' }),
     ])).toBe(false);
     expect(hasCompletedExchange([])).toBe(false);
+  });
+});
+
+// v0.10.1444 — arşiv turun KİMLİĞİNİ taşır (sunucu blok zarfını bununla bulur),
+// blokları ASLA (64 KB blob; sunucu zaten düşürür). Geri yükleme sunucunun
+// doldurduğu blokları tura koyar; exchangeId yine boş (canlı-tur sözleşmesi).
+describe('v0.10.1444 — tur blokları arşivi', () => {
+  const blk = { id: 'b1', type: 'charts_signals' as const, seq: 1, final: true, payload: { service: 'orders-api' } };
+
+  it('persistMessages — asistan turu exchangeId taşır, blocks taşımaz; turnId (önbellek isabeti) önce gelir', () => {
+    expect(persistMessages([
+      t({ role: 'user', text: 'q', exchangeId: 'u1' }),
+      t({ role: 'assistant', text: 'a', exchangeId: 'x1', blocks: [blk] }),
+      t({ role: 'assistant', text: 'b', exchangeId: 'stored', turnId: 'x2' }),
+      t({ role: 'assistant', text: 'c', archiveExchangeId: 'x3', blocks: [blk], blocksAt: 5 }),
+    ])).toEqual([
+      { role: 'user', text: 'q' },
+      { role: 'assistant', text: 'a', exchangeId: 'x1' },
+      { role: 'assistant', text: 'b', exchangeId: 'x2' },
+      { role: 'assistant', text: 'c', exchangeId: 'x3' },
+    ]);
+    expect(turnArchiveId(t({ role: 'assistant' }))).toBeUndefined();
+  });
+
+  it('restoreTurns — blocks/archiveExchangeId/blocksAt/blocksDropped taşır, exchangeId boş', () => {
+    const [u, a, old] = restoreTurns([
+      { role: 'user', text: 'q' },
+      { role: 'assistant', text: 'a', exchangeId: 'x1', blocks: [blk], blocksAt: 7, blocksDropped: ['table'] },
+      { role: 'assistant', text: 'eski' },
+    ]);
+    expect(u).toEqual({ role: 'user', text: 'q' });
+    expect(a).toEqual({ role: 'assistant', text: 'a', archiveExchangeId: 'x1', blocks: [blk], blocksAt: 7, blocksDropped: ['table'] });
+    expect(a.exchangeId).toBeUndefined();
+    expect(old).toEqual({ role: 'assistant', text: 'eski' });
+    // Geri yüklenen tur yeniden kaydedilince kimliği kaybolmaz.
+    expect(persistMessages([a])).toEqual([{ role: 'assistant', text: 'a', exchangeId: 'x1' }]);
   });
 });

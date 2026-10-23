@@ -78,6 +78,22 @@ type chatExchange struct {
 	// v0.10.1302 — serbest döngünün koştuğu araç seti (full | simple);
 	// guided / niyet / LLM'siz kademeler "" bırakır.
 	toolset string
+
+	// v0.10.1444 — turun zengin blokları (chat_turn_blocks.go): yakalayıcı
+	// emit zincirinde withBlockSeq'in altında (copilotChat kurar); code =
+	// son cevabın answer.explain.code künyesi (son cevap kazanır).
+	blockCap *turnBlockCapture
+	code     *codeContextPayload
+}
+
+// setBlockCapture — v0.10.1444: copilotChat'in yakalayıcısını bağlar.
+func (x *chatExchange) setBlockCapture(c *turnBlockCapture) {
+	if x == nil {
+		return
+	}
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	x.blockCap = c
 }
 
 // setToolset — v0.10.1302: serbest döngü kataloğunu kurarken çağrılır.
@@ -364,6 +380,8 @@ func (x *chatExchange) tap(emit func(string, any)) func(string, any) {
 				x.firstOut = now
 			}
 			v = answerWithCallID(v, x.root, x.finalCallID) // v0.10.1280 — opsiyonel callId
+			x.code = answerExplainCode(v)                  // v0.10.1444 — kod künyesi arşiv zarfına
+			v = answerWithTurnID(v, x.root)                // v0.10.1444 — önbellek isabetinde turun kendi kimliği
 			x.mu.Unlock()
 		case "delta":
 			x.mu.Lock()
@@ -384,6 +402,61 @@ func (x *chatExchange) tap(emit func(string, any)) func(string, any) {
 			x.noteStep(v, now)
 		}
 	}
+}
+
+// answerExplainCode — SAF (v0.10.1444): answer.explain.code (açıklama
+// turunun kod künyesi); yoksa nil.
+func answerExplainCode(v any) *codeContextPayload {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil
+	}
+	switch e := m["explain"].(type) {
+	case chatExplainMeta:
+		return e.Code
+	case *chatExplainMeta:
+		if e != nil {
+			return e.Code
+		}
+	}
+	return nil
+}
+
+// answerWithTurnID — SAF (v0.10.1444): cevabın exchangeId'si turun kökü
+// DEĞİLSE (açıklama önbellek isabeti saklanan üretimin kimliğini taşır; 👍/👎
+// o çağrıya gider) `turnId` = kök eklenir. İstemci arşive bunu yazar: turun
+// cosre_interactions satırı (blok zarfı) kökle anahtarlı. Kökle aynıysa
+// cevap bayt-bayt eski.
+func answerWithTurnID(v any, root string) any {
+	if root == "" {
+		return v
+	}
+	switch m := v.(type) {
+	case map[string]any:
+		if xid, _ := m["exchangeId"].(string); xid == root {
+			return v
+		}
+		if _, has := m["turnId"]; has {
+			return v
+		}
+		out := make(map[string]any, len(m)+1)
+		for k, val := range m {
+			out[k] = val
+		}
+		out["turnId"] = root
+		return out
+	case map[string]string:
+		if m["exchangeId"] == root || m["turnId"] != "" {
+			return v
+		}
+		out := make(map[string]string, len(m)+1)
+		for k, val := range m {
+			out[k] = val
+		}
+		out["turnId"] = root
+		return out
+	}
+	return v
 }
 
 // eventField — SAF: SSE yükünden dize alan (yükler map[string]any ya da
@@ -475,6 +548,9 @@ func buildCosreInteraction(x *chatExchange, tier string, m copilot.CallMeta, sta
 		EmptyAnswer: answer == "",
 		NoEvidence:  answerAdmitsNoEvidence(answer),
 	}
+	// v0.10.1444 — blok zarfı (≤256 KiB; blok/kod yoksa ""). Akış bitti: tek
+	// defer'de, SSE yolunun dışında.
+	r.Blocks, _ = compactTurnBlocks(x.blockCap.snapshot(), x.code, now, turnBlocksCapBytes)
 	if p := x.page; p != nil {
 		r.Page, r.ProblemID, r.ExceptionID = p.Page, p.ProblemID, p.ExceptionID
 		if p.Service != "" {

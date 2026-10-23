@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -95,11 +97,19 @@ const (
 // chat_explain_turn.go); Geçmiş'ten açılan konuşma açıklamayı yine yapısal
 // çizer (ExplainBody + kanıt satırları + takip bağlamı). İstemciden gelir →
 // sanitizeChatExplain (tür beyaz listesi, kimlik ≤200 rune, ≤50 kanıt id).
+// v0.10.1444 — ExchangeID: asistan turunun kimliği (32-hex, sanitize; yalnız
+// istemci → blob). Blocks / BlocksAt / BlocksDropped YALNIZ sunucu → istemci:
+// GET turun cosre_interactions.blocks zarfından doldurur (chat_turn_blocks.go);
+// istemciden gelen her zaman nil'lenir, blob'a hiç girmez.
 type aiChatMessage struct {
-	Role     string                  `json:"role"`
-	Text     string                  `json:"text"`
-	Evidence []mcptools.ChatEvidence `json:"evidence,omitempty"`
-	Explain  *chatExplainMeta        `json:"explain,omitempty"`
+	Role          string                  `json:"role"`
+	Text          string                  `json:"text"`
+	Evidence      []mcptools.ChatEvidence `json:"evidence,omitempty"`
+	Explain       *chatExplainMeta        `json:"explain,omitempty"`
+	ExchangeID    string                  `json:"exchangeId,omitempty"`
+	Blocks        json.RawMessage         `json:"blocks,omitempty"`
+	BlocksAt      int64                   `json:"blocksAt,omitempty"` // zarfın `at`ı (unix ms)
+	BlocksDropped []string                `json:"blocksDropped,omitempty"`
 }
 
 // sanitizeChatExplain — v0.10.1400: arşive girecek açıklama künyesi. Tür
@@ -243,6 +253,10 @@ type aiChatBlob struct {
 	// Link — v0.10.1168: konuşmanın bağlı olduğu problem / servis
 	// (ai_conversation_link.go). Elle bağlanmadıysa bağlamdan türer.
 	Link *aiChatLink `json:"link,omitempty"`
+	// FirstAt — v0.10.1444: ilk kaydetmenin damgası (unix ns); her upsert
+	// taşır. GET'in blok okumasına gerçek bir alt zaman sınırı verir (0 =
+	// eski satır → tablo TTL'i kadar geriye).
+	FirstAt int64 `json:"firstAt,omitempty"`
 }
 
 // aiConversationSummary — liste yanıtı. MESAJ GÖVDESİ TAŞIMAZ: çekmece
@@ -300,13 +314,27 @@ func sanitizeChatMessages(in []aiChatMessage) []aiChatMessage {
 		if m.Role == "assistant" {
 			m.Evidence = sanitizeChatEvidence(m.Evidence) // v0.10.1272
 			m.Explain = sanitizeChatExplain(m.Explain)    // v0.10.1400
+			m.ExchangeID = hex32Only(m.ExchangeID)        // v0.10.1444
 		} else {
 			m.Evidence = nil
 			m.Explain = nil
+			m.ExchangeID = ""
 		}
+		// v0.10.1444 — bloklar yalnız sunucu kaynaklı (GET süsler).
+		m.Blocks, m.BlocksAt, m.BlocksDropped = nil, 0, nil
 		out = append(out, m)
 	}
 	return out
+}
+
+// hex32Only — SAF (v0.10.1444): tam 32 küçük-hex karakter (copilotChat
+// newRandID(16)); aksi "". Büyük harf küçültülür.
+func hex32Only(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if len(s) != 32 || strings.Trim(s, "0123456789abcdef") != "" {
+		return ""
+	}
+	return s
 }
 
 // collapseChatWS — başlık için tek satıra indirger (bir soru satır
@@ -545,9 +573,12 @@ func (s *Server) getAIConversation(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusInternalServerError, "stored conversation is unreadable: "+err.Error())
 		return
 	}
+	// v0.10.1444 — turların zengin blokları (soft-fail: hata = düz metin).
+	stamp := conversationStamp(blob.UpdatedAt, cur.CreatedAt)
+	s.decorateConversationBlocks(r.Context(), blob.Messages, blob.FirstAt, stamp)
 	writeJSON(w, aiConversation{
 		ID: cur.ID, Title: cur.Name, Subject: blob.Subject, Context: blob.Context,
-		UpdatedAt: conversationStamp(blob.UpdatedAt, cur.CreatedAt),
+		UpdatedAt: stamp,
 		Messages:  blob.Messages,
 	})
 }
@@ -636,7 +667,8 @@ func (s *Server) upsertAIConversation(w http.ResponseWriter, r *http.Request) {
 		existingTitle, pinned, existingBlob = cur.Name, cur.Pinned, cur.QueryString
 	}
 	blob := aiChatBlob{
-		ShareToken: carriedShareToken(existingBlob), // v0.10.1167 — tüm satır değişir, paylaşım taşınır
+		FirstAt:    carriedFirstAt(existingBlob, now), // v0.10.1444 — ilk kaydetme damgası taşınır
+		ShareToken: carriedShareToken(existingBlob),   // v0.10.1167 — tüm satır değişir, paylaşım taşınır
 		Messages:   msgs,
 		Subject:    clampChatRunes(body.Subject, aiChatMaxSubjectRunes),
 		Context:    resolveChatContext(body.Context, existingBlob, aiChatMaxContextBytes), // v0.10.944
@@ -703,4 +735,113 @@ func (s *Server) deleteAIConversation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ── v0.10.1444: turların zengin blokları (cosre_interactions.blocks) ──
+
+const (
+	// turnBlocksLeadSlack — tur ilk kaydetmeden ÖNCE başlar (kayıt cevaptan
+	// sonra, 600 ms debounce); uzun bir tur dakikalar sürebilir.
+	turnBlocksLeadSlack = 15 * time.Minute
+	// turnBlocksTailSlack — satır toplu yazıcıdan ≤2 s sonra iner; son
+	// kaydetmeden sonra pay (aiExchangeCallSlack emsali).
+	turnBlocksTailSlack = 20 * time.Minute
+	// turnBlocksRetention — cosre_interactions TTL'i; firstAt'sız eski
+	// satırlarda pencerenin alt sınırı.
+	turnBlocksRetention = 180 * 24 * time.Hour
+)
+
+// carriedFirstAt — SAF: ilk kaydetme damgası. Satır yoksa now; varsa
+// blob'daki değer (eski satırda 0 kalır — bilinmeyeni uydurmayız).
+func carriedFirstAt(existingBlob string, now int64) int64 {
+	if strings.TrimSpace(existingBlob) == "" {
+		return now
+	}
+	var b struct {
+		FirstAt int64 `json:"firstAt"`
+	}
+	if json.Unmarshal([]byte(existingBlob), &b) != nil {
+		return 0
+	}
+	return b.FirstAt
+}
+
+// turnBlocksWindow — SAF: blok okumasının created_at penceresi.
+// [firstAt−15 dk, updatedAt+20 dk]; firstAt yoksa updatedAt'ten 180 g geri.
+func turnBlocksWindow(firstAtNs, updatedAtNs int64) (from, to time.Time) {
+	to = time.Unix(0, updatedAtNs).Add(turnBlocksTailSlack)
+	if firstAtNs > 0 && firstAtNs <= updatedAtNs {
+		return time.Unix(0, firstAtNs).Add(-turnBlocksLeadSlack), to
+	}
+	return to.Add(-turnBlocksRetention), to
+}
+
+// conversationExchangeIDs — SAF: blob'daki asistan exchangeId'leri (sıra korunur).
+func conversationExchangeIDs(msgs []aiChatMessage) []string {
+	var ids []string
+	for _, m := range msgs {
+		if m.Role == "assistant" && m.ExchangeID != "" {
+			ids = append(ids, m.ExchangeID)
+		}
+	}
+	return ids
+}
+
+// turnBlocksFetch — okuma dikişi (prod: Store.TurnBlocksByExchange).
+type turnBlocksFetch func(ctx context.Context, ids []string, from, to time.Time) (map[string]string, error)
+
+// applyConversationBlocks — SAF: zarflar mesajlara. Blocks = çerçeve dizisi
+// (ham geçiş), BlocksAt, BlocksDropped; explain varsa explain.code SUNUCU
+// kaynaklı (istemcinin gönderdiği code sanitizeChatExplain'de zaten düşer).
+func applyConversationBlocks(msgs []aiChatMessage, envs map[string]string) {
+	for i := range msgs {
+		m := &msgs[i]
+		if m.Role != "assistant" || m.ExchangeID == "" {
+			continue
+		}
+		env, ok := parseTurnBlocksEnvelope(envs[m.ExchangeID])
+		if !ok {
+			continue
+		}
+		if len(env.Blocks) > 0 {
+			if raw, err := json.Marshal(env.Blocks); err == nil {
+				m.Blocks = raw
+				m.BlocksAt = env.At
+				m.BlocksDropped = env.Dropped
+			}
+		}
+		if m.Explain != nil && env.Code != nil {
+			ex := *m.Explain
+			ex.Code = env.Code
+			m.Explain = &ex
+		}
+	}
+}
+
+// decorateTurnBlocks — bayrak kapalıysa (kolon yok: küme kipinde ilk boot)
+// ya da exchangeId'li mesaj yoksa okuma YAPILMAZ (eski satırlar bayt-bayt
+// eski). Okuma hatası soft-fail: tek log satırı, transkript yine döner.
+func decorateTurnBlocks(ctx context.Context, msgs []aiChatMessage, firstAtNs, updatedAtNs int64, enabled bool, fetch turnBlocksFetch) {
+	if !enabled || fetch == nil {
+		return
+	}
+	ids := conversationExchangeIDs(msgs)
+	if len(ids) == 0 {
+		return
+	}
+	from, to := turnBlocksWindow(firstAtNs, updatedAtNs)
+	envs, err := fetch(ctx, ids, from, to)
+	if err != nil {
+		log.Printf("ai conversation: tur blokları okunamadı (%d tur, düz metin): %v", len(ids), err)
+		return
+	}
+	applyConversationBlocks(msgs, envs)
+}
+
+// decorateConversationBlocks — GET /api/ai/conversations/{id} süsü.
+func (s *Server) decorateConversationBlocks(ctx context.Context, msgs []aiChatMessage, firstAtNs, updatedAtNs int64) {
+	if s == nil || s.store == nil {
+		return
+	}
+	decorateTurnBlocks(ctx, msgs, firstAtNs, updatedAtNs, chstore.CosreInteractionsBlocksCol(), s.store.TurnBlocksByExchange)
 }

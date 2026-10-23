@@ -11,8 +11,8 @@
 //   - balon künyenin çizim kipine göre kartı cevabın kanıt bloğundan çizer
 //     (charts_signals → ChartsSignalsCard, log_spike → LogSpikeCard), anlatım
 //     kartın yuvasında (ExplainBody);
-//   - blok yoksa (arşivden geri yüklenen tur — bloklar arşive girmez) düz
-//     ExplainBody'ye düşer.
+//   - blok yoksa (zarfsız eski arşiv turu) düz ExplainBody'ye düşer;
+//     v0.10.1444 — Geçmiş turu sunucudan blokları alır, kartı yeniden çizer.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { act, StrictMode } from 'react';
@@ -195,5 +195,57 @@ describe('ChatBubble çizim kipi dağıtımı', () => {
     await render({ role: 'assistant', text: NARR, explain: { ...meta, renderer: 'body' },
       blocks: [{ id: 'b1', type: 'charts_signals', seq: 1, final: true, payload: CHARTS }] });
     expect(host.querySelector('[data-charts-card]')).toBeNull();
+  });
+});
+
+// v0.10.1444 — Geçmiş / ?chat=<convId>: sunucu turun blok zarfını
+// (cosre_interactions.blocks) mesajla döndürür → kart canlı turdaki gibi
+// çizilir + "Arşiv anlık görüntüsü" notu; kod künyesi sunucu kaynaklı.
+describe('Geçmiş turu (?chat=) blokları yeniden çizer', () => {
+  const X = 'aaaa0000aaaa0000aaaa0000aaaa0000';
+  const meta: ChatExplainMeta = { kind: 'charts', id: 'orders-api', subject: CH, renderer: 'charts', label: 'orders-api' };
+
+  it('?chat= açılışı: charts_signals → ChartsSignalsCard + arşiv notu; exchangeId boş, archiveExchangeId dolu', async () => {
+    const get = vi.spyOn(api, 'aiConversation').mockResolvedValue({
+      id: 'c9', title: 't', updatedAt: 1, messages: [
+        { role: 'user', text: 'orders-api grafiklerini açıkla' },
+        { role: 'assistant', text: NARR, explain: meta, exchangeId: X, blocksAt: Date.now() - 3 * 86_400_000, blocksDropped: ['table'],
+          blocks: [{ id: 'b1', type: 'charts_signals', seq: 1, final: true, payload: CHARTS }] },
+      ],
+    });
+    await act(async () => { root.render(shell('/cosre?chat=c9')); });
+    await settle();
+    expect(get).toHaveBeenCalledWith('c9');
+    const card = document.body.querySelector('[data-charts-card]');
+    expect(card, 'arşiv turu kartı çizmedi').not.toBeNull();
+    expect(card!.textContent).toContain('1.4.1 → 1.4.2');
+    expect(card!.textContent).toContain('Deploy sonrası orders-api hata oranı arttı.');
+    const note = document.body.querySelector('[data-archive-note]');
+    expect(note?.textContent).toBe('Arşiv anlık görüntüsü · 3 gün önce · 1 kart sığmadı');
+  });
+
+  it('blok yok (eski satır) → düz ExplainBody, arşiv notu yok', async () => {
+    vi.spyOn(api, 'aiConversation').mockResolvedValue({
+      id: 'c8', title: 't', updatedAt: 1, messages: [
+        { role: 'user', text: 'soru' }, { role: 'assistant', text: NARR, explain: meta },
+      ],
+    });
+    await act(async () => { root.render(shell('/cosre?chat=c8')); });
+    await settle();
+    expect(document.body.querySelector('[data-charts-card]')).toBeNull();
+    expect(document.body.querySelector('[data-archive-note]')).toBeNull();
+    expect(document.body.textContent).toContain('Deploy sonrası orders-api hata oranı arttı.');
+  });
+
+  it('canlı turda arşiv notu yok; sunucu kaynaklı explain.code → CodeStatusNote', async () => {
+    await act(async () => { root.render(<MemoryRouter><ChatBubble turn={{ role: 'assistant', text: NARR, exchangeId: 'x1', explain: meta,
+      blocks: [{ id: 'b1', type: 'charts_signals', seq: 1, final: true, payload: CHARTS }] }} /></MemoryRouter>); });
+    await settle();
+    expect(host.querySelector('[data-charts-card]')).not.toBeNull();
+    expect(host.querySelector('[data-archive-note]')).toBeNull();
+    await act(async () => { root.render(<MemoryRouter><ChatBubble turn={{ role: 'assistant', text: NARR, archiveExchangeId: X,
+      explain: { kind: 'trace', id: 'abc', code: { reason: 'kod entegrasyonu yapılandırılmamış' } } }} /></MemoryRouter>); });
+    await settle();
+    expect(host.textContent).toContain('Kod okunamadı');
   });
 });
