@@ -3023,17 +3023,29 @@ func (s *Server) guidedServiceHealthBundle(ctx context.Context, emit func(string
 	b.Reset()
 	b.WriteString(verdict)
 	b.WriteString(body)
+	routeDrawn := false
 	if httpRED.UseVM {
 		// v0.10.1391 — servisin gelen HTTP RED'i: istek hızı · 5xx % · p95/p99,
 		// VictoriaMetrics (örneklenmemiş) veri grafiği blokları; span çitleri YOK.
 		b.WriteString("\n")
 		b.WriteString(s.emitServiceHTTPRED(emit, service, rangeS, httpRED, loc))
+		// v0.10.1481 — taramanın sorumlu operasyonu: http_route'a eşlenirse aynı
+		// VM histogramından rota grafikleri; eşlenmezse tek satır not (span YOK).
+		if sweepOK {
+			if op, kind, ok := sw.res.ResponsibleOperation(); ok {
+				rd, isVM := s.metricChartReaderFor()
+				rr := s.readServiceRouteRED(ctx, rd, isVM, service, op, kind, httpRED)
+				txt, drawn := s.emitServiceRouteRED(emit, service, rangeS, httpRED, rr, loc)
+				b.WriteString(txt)
+				routeDrawn = drawn
+			}
+		}
 	} else {
 		// v0.10.1453 — span grafiği YEDEĞİ YOK: VM çizemiyorsa grafik yerine
 		// sebebi söyleyen not (servis sağlığında grafik kaynağı yalnız VM).
 		b.WriteString(svcHTTPREDNoChartNoteTR(httpRED.Reason))
 	}
-	src := fmt.Sprintf("SLO durumu + deterministik sağlık hükmü + servis RED özeti + baseline + en sık hatalar + deploy işaretçileri + açık problemler + hatalı trace'ler + error logları + servis taraması (pod/operasyon/fonksiyon + sorunluların logları)%s (son %s)", svcHTTPREDSourcesTR(httpRED), fmtAgoTR(rangeS))
+	src := fmt.Sprintf("SLO durumu + deterministik sağlık hükmü + servis RED özeti + baseline + en sık hatalar + deploy işaretçileri + açık problemler + hatalı trace'ler + error logları + servis taraması (pod/operasyon/fonksiyon + sorunluların logları)%s (son %s)", svcHTTPREDSourcesTR(httpRED)+svcRouteREDSourcesTR(routeDrawn), fmtAgoTR(rangeS))
 	if env != "" {
 		src += fmt.Sprintf("; RED tüm ortamlar, problemler ortam: %s", env)
 	}

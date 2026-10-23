@@ -132,6 +132,10 @@ func TestSweepPrefersEntryOpChart(t *testing.T) {
 		t.Fatalf("bulgu türleri: %v", kinds)
 	}
 
+	// v0.10.1481 — sorumlu operasyon = çizilen giriş operasyonu (grafik düşse de).
+	if n, k, ok := res.ResponsibleOperation(); !ok || n != http || k != "SERVER" {
+		t.Fatalf("sorumlu operasyon: %q %q %v", n, k, ok)
+	}
 	// DropOperationCharts: ops grafiği düşer, tablo blokları kalır.
 	before := len(res.Data.Blocks)
 	shared := res.Data.Blocks
@@ -145,5 +149,32 @@ func TestSweepPrefersEntryOpChart(t *testing.T) {
 	}
 	if len(shared) != before {
 		t.Fatal("paylaşılan dilim yerinde değişmemeli")
+	}
+}
+
+// TestSweepResponsibleOperation — v0.10.1481: grafik seçimiyle aynı kural
+// (giriş önce; giden çağrı yalnız tek aday olduğunda; bulgu yoksa ok=false).
+func TestSweepResponsibleOperation(t *testing.T) {
+	op := func(name, kind string) SweepFinding {
+		return SweepFinding{Kind: sweepKindOperation, Name: name, SpanKind: kind}
+	}
+	cases := []struct {
+		name     string
+		findings []SweepFinding
+		want     string
+		wantKind string
+		ok       bool
+	}{
+		{"bulgu yok", nil, "", "", false},
+		{"yalnız pod", []SweepFinding{{Kind: "pod", Name: "p-1"}}, "", "", false},
+		{"giriş giden çağrıyı geçer", []SweepFinding{op("grpc.Call", "CLIENT"), op("GET /api/orders", "SERVER")}, "GET /api/orders", "SERVER", true},
+		{"tür bilinmiyor: bulgu sırası", []SweepFinding{op("GET /a", ""), op("GET /b", "")}, "GET /a", "", true},
+		{"yalnız giden çağrı", []SweepFinding{op("POST /pay", "CLIENT")}, "POST /pay", "CLIENT", true},
+	}
+	for _, c := range cases {
+		n, k, ok := SweepResult{Findings: c.findings}.ResponsibleOperation()
+		if n != c.want || k != c.wantKind || ok != c.ok {
+			t.Errorf("%s: (%q,%q,%v) beklenen (%q,%q,%v)", c.name, n, k, ok, c.want, c.wantKind, c.ok)
+		}
 	}
 }

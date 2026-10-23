@@ -184,6 +184,10 @@ type svcHTTPREDResult struct {
 	Family   string
 	FamilyID string
 	Both     bool
+	// v0.10.1481 — çözülmüş girdiler (sorumlu operasyonun rota grafikleri aynı
+	// histogramı aynı süzgeçlerle okur; copilot_service_route_red.go).
+	svcLabel, envMatcher, statusLabel string
+	routeLabelOK, methodLabelOK       bool
 }
 
 // svcREDFamily — SAF: sonucun ailesi (boş → HTTP).
@@ -289,6 +293,8 @@ func (s *Server) readServiceHTTPRED(ctx context.Context, rd redFamilyReader, isV
 	}
 	wg.Wait()
 	res.UseVM, res.Charts = true, charts
+	res.svcLabel, res.envMatcher, res.statusLabel = sr.Label, envMatcher, status
+	res.routeLabelOK, res.methodLabelOK = labels[fam.RouteLabel], labels[fam.MethodLabel]
 	return res
 }
 

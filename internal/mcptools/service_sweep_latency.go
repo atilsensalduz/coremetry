@@ -421,6 +421,32 @@ func (r *SweepResult) DropOperationCharts() int {
 	return n
 }
 
+// ResponsibleOperation — SAF (v0.10.1481): taramanın "sorumlu operasyon"u —
+// operasyon grafiği çizilecek İLK bulgu (sweepPickChartOps ile aynı seçim:
+// giriş sınıfı önce, giden çağrı yalnız başka aday yoksa) ve span türü.
+// Guided servis sağlığı bunu VictoriaMetrics'te http_route'a eşleyip rota
+// grafiğini çizer (span grafiği değil). Operasyon bulgusu yoksa ok=false.
+func (r SweepResult) ResponsibleOperation() (name, spanKind string, ok bool) {
+	var names []string
+	kinds := map[string][]string{}
+	byName := map[string]string{}
+	for _, f := range r.Findings {
+		if f.Kind != sweepKindOperation {
+			continue
+		}
+		names = append(names, f.Name)
+		byName[f.Name] = f.SpanKind
+		if f.SpanKind != "" {
+			kinds[f.Name] = []string{f.SpanKind}
+		}
+	}
+	picked := sweepPickChartOps(names, kinds)
+	if len(picked) == 0 {
+		return "", "", false
+	}
+	return picked[0], byName[picked[0]], true
+}
+
 // sweepOpChartTitle — SAF (v0.10.1391): grafik başlığı. Arayüz birim başına bir
 // panel çizer ve başlığa " · <birim>" ekler (ms paneli + count paneli); bu yüzden
 // başlık GECİKMEYE özgü bir şey ("p50/p99") SÖYLEMEZ — count panelinde yanıltıcıydı

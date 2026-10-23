@@ -10571,3 +10571,19 @@ bellek tükenmesi). zod doğrudan bağımlılık değil: @grafana/data (`^4.3.0`
 Doğrulama: tsc + eslint + vitest + vite build yeşil, `npm audit` high/critical 0.
 
 **Geri alma.** `go get github.com/klauspost/compress@v1.19.1 go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp@v0.71.0 && go mod tidy` + yeni etiket.
+
+## 2026-10-23 — v0.10.1481 — Servis sağlığı: sorumlu operasyon grafiği VictoriaMetrics'ten (http_route)
+
+**Bağlam.** v0.10.1453'ten beri servis sağlığı cevabı yalnız VM'den çizer; taramanın operasyon grafiği
+(spanmetrics_1m, örneklenmiş) her zaman düşüyor, bu yüzden bulgunun hangi uç noktada olduğu grafiksiz kalıyordu.
+
+**Karar.** Sorumlu operasyon = taramanın grafik seçimiyle aynı kural (`SweepResult.ResponsibleOperation`, giriş sınıfı
+önce). Ad OTel HTTP sunucu span adıysa (`<fiil> /rota` ya da `/rota`; `httpRouteFromOperation`) ve servis RED'i VM'den
+HTTP ailesiyle çizildiyse, AYNI histogram + aynı çözülmüş girdilerle (servis etiketi, ortam eşleyicisi, durum etiketi;
+`readServiceHTTPRED` sonuçta taşır) `http_route` (+ histogram taşıyorsa `http_request_method`) süzgeçli üç grafik:
+istek hızı · 5xx % · p95/p99 (`copilot_service_route_red.go`). Eşleşme yoksa (rota adı değil, giden çağrı, gRPC ailesi,
+histogramda `http_route` yok, rotanın serisi yok, okuma hatası) grafik YOK, tek satır dürüst not; span grafiği hiçbir
+dalda yok. Bütçe 5 sn (tarama sonrası, üç sorgu paralel, 60 sn önbellek). Cevaptaki VM grafik sayısı 3 → en çok 6.
+
+**Geri alma.** `guidedServiceHealthBundle`'daki `ResponsibleOperation` bloğunu sil (servis RED'i 1480 ile aynı kalır) +
+yeni etiket.
