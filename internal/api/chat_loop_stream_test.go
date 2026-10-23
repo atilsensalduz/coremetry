@@ -156,7 +156,7 @@ func TestChatLoopStreamsFinalTurnOnly(t *testing.T) {
 func TestChatLoopStreamAbortCancelsUpstream(t *testing.T) {
 	upstreamCancelled := make(chan struct{})
 	llm := newSSELoopLLM(t, func(n int, w http.ResponseWriter, r *http.Request) {
-		sseChunk(w, map[string]any{"content": strings.Repeat("akan cevap ", 30)})
+		sseChunk(w, map[string]any{"content": streamFillerText(30)}) // v0.10.1452 — yinelemesiz (kural 3)
 		<-r.Context().Done()
 		close(upstreamCancelled)
 	})
@@ -208,4 +208,14 @@ func TestStepPhaseTR(t *testing.T) {
 	if _, has := got[1].payload["phase"]; has {
 		t.Errorf("bilinmeyen araç evre taşımamalı: %v", got[1].payload)
 	}
+}
+
+// streamFillerText — v0.10.1452: uzun ama YİNELEMESİZ akış metni; aynı öbeği
+// tekrarlayan dolgu artık yineleme muhafızının kural 3'ünü tetikler.
+func streamFillerText(n int) string {
+	var b strings.Builder
+	for i := 0; i < n; i++ {
+		fmt.Fprintf(&b, "akan cevap %d ", i)
+	}
+	return b.String()
 }

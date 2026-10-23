@@ -30,6 +30,13 @@ import (
 //  2. Son degenTailN dolu birimde (≥ degenTailMinRunes rune) en çok
 //     degenTailDistinct farklı değer var (A B A B A B).
 //
+//  3. v0.10.1452 (operatör-bildirimli: "lükste lükste lükste …" tek satırda,
+//     noktasız aktı; birim hiç kapanmadığı için 1 ve 2 tetiklenmedi) — AÇIK
+//     birimin kuyruğunda 1–degenTokPeriodMax kelimelik bir öbek arka arkaya
+//     degenTokRepeatN kez yinelendi. Öbekte ≥2 harf/rakamlı en az bir kelime
+//     şart ("0 0 0 …" ya da "- - -" tetiklemez). Kesim: öbeğin İKİNCİ
+//     görünüşünün başı (bir kopya kalır).
+//
 // ``` çiti içi SAYILMAZ (kod satırları "}" / "end" yineler) ve tablo satırı
 // ("|" ile başlayan) cümleye bölünmez. Numaralı/madde listeleri önekleri
 // soyulduktan sonra DEĞERLERİYLE karşılaştırılır — benzer önekli farklı
@@ -48,6 +55,8 @@ const (
 	degenTailMinRunes  = 8
 	degenFenceMarker   = "```"
 	degenTableLeadChar = '|'
+	degenTokRepeatN    = 8 // v0.10.1452 — kural 3
+	degenTokPeriodMax  = 4
 )
 
 type degenUnit struct {
@@ -89,6 +98,13 @@ func (d *degenGuard) Feed(s string) bool {
 		if (c == ' ' || c == '\t') && i > d.unitStart && !d.fence && isSentenceEnd(t[i-1]) && !d.lineIsTableOrFence(t, i) && !onlyListMarker(t[d.unitStart:i]) {
 			d.addUnit(t, d.unitStart, i)
 			d.unitStart = i + 1
+			if d.tripped {
+				return true
+			}
+		}
+		// v0.10.1452 — kural 3: kelime sınırında açık birimin kuyruğu.
+		if (c == ' ' || c == '\t') && !d.fence && !d.lineIsTableOrFence(t, i) {
+			d.tokenRun(t, i)
 			if d.tripped {
 				return true
 			}
@@ -185,6 +201,68 @@ func (d *degenGuard) addUnit(t string, from, to int) {
 		}
 		seen[w.norm] = true
 	}
+}
+
+// tokenRun — kural 3 (v0.10.1452): t[from:end] kuyruğunda (from = açık birim/
+// satır başı) en çok degenTokPeriodMax*degenTokRepeatN kelime geriye bakılır.
+func (d *degenGuard) tokenRun(t string, end int) {
+	from := d.unitStart
+	if d.lineStart > from {
+		from = d.lineStart
+	}
+	const maxTok = degenTokPeriodMax * degenTokRepeatN
+	var toks []string
+	var offs []int
+	i := end
+	for i > from && len(toks) < maxTok {
+		for i > from && (t[i-1] == ' ' || t[i-1] == '\t') {
+			i--
+		}
+		j := i
+		for i > from && t[i-1] != ' ' && t[i-1] != '\t' {
+			i--
+		}
+		if i < j {
+			toks = append(toks, degenToken(t[i:j]))
+			offs = append(offs, i)
+		}
+	}
+	// toks ters sırada (son kelime başta): toks[k] == toks[k+p] ⇔ yinelenme.
+	for p := 1; p <= degenTokPeriodMax; p++ {
+		need := p * degenTokRepeatN
+		if len(toks) < need {
+			break
+		}
+		ok, word := true, false
+		for k := 0; k < need-p && ok; k++ {
+			ok = toks[k] != "" && toks[k] == toks[k+p]
+		}
+		for k := 0; k < p && ok; k++ {
+			if alnumRunes(toks[k]) >= 2 {
+				word = true
+			}
+		}
+		if ok && word {
+			// öbeğin ikinci görünüşünün başı: ilk görünüş en eski p kelime.
+			d.trip(offs[need-p-1])
+			return
+		}
+	}
+}
+
+// degenToken — kelime karşılaştırma biçimi: küçük harf, kenar noktalaması atılmış.
+func degenToken(s string) string {
+	return strings.ToLower(strings.Trim(s, "*_,.;:!?\"'`()[]"))
+}
+
+func alnumRunes(s string) int {
+	n := 0
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			n++
+		}
+	}
+	return n
 }
 
 func (d *degenGuard) trip(cut int) {

@@ -62,6 +62,13 @@ func TestDegenGuardTriggers(t *testing.T) {
 		{"iki satır dönüşümlü (A B A B A B)",
 			"Giriş.\n" + strings.Repeat("hata oranı yüksek\np99 artışta\n", 3),
 			"Giriş.\nhata oranı yüksek\np99 artışta"},
+		// v0.10.1452 (operatör-bildirimli) — noktasız tek kelime yinelemesi.
+		{"tek kelime noktasız (prod)", "Sütunlar ve tablo adları maskeli gelmiş mi? la" + strings.Repeat(" lükste", 60),
+			"Sütunlar ve tablo adları maskeli gelmiş mi? la lükste"},
+		{"iki kelimelik öbek noktasız", "Sonuç:" + strings.Repeat(" hata yok", 12),
+			"Sonuç: hata yok"},
+		{"dört kelimelik öbek, noktalama farkı", "Özet" + strings.Repeat(" bağlantı havuzu dolu, tekrar", 9),
+			"Özet bağlantı havuzu dolu, tekrar"},
 		{"büyük/küçük harf ve boşluk farkı", "Toplam üç çağrı hatalı döndü bugün\n  toplam ÜÇ   çağrı hatalı döndü bugün\n**Toplam üç çağrı hatalı döndü bugün**\n",
 			"Toplam üç çağrı hatalı döndü bugün"},
 	}
@@ -102,6 +109,11 @@ func TestDegenGuardLegitContentDoesNotTrigger(t *testing.T) {
 		"iki kez geçen cümle":             twice,
 		"ayraç satırları":                 "Bölüm A\n---\nmetin bir\n---\nmetin iki\n---\nmetin üç\n---\n",
 		"ondalıklı sayılar":               "p95 1.5 s, p99 2.5 s, ortalama 0.5 s. Önceki pencere 1.5 s idi.\n",
+		// v0.10.1452 — kural 3 yanlış pozitifleri.
+		"tek haneli sayı dizisi":    "Bucket sayıları: 0 0 0 0 0 0 0 0 0 0 0 0 1 3\n",
+		"yedi kez yinelenen kelime": "Durum" + strings.Repeat(" tamam", 7) + ", bitti.\n",
+		"tablo satırında yineleme":  "| a | " + strings.Repeat("yok | ", 12) + "\n",
+		"kod çitinde yineleme":      "```\n" + strings.Repeat("nop ", 20) + "\n```\nSon.\n",
 	}
 	for name, in := range cases {
 		for _, n := range []int{1, 7, 4096} {
