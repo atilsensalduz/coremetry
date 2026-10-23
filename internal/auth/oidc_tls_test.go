@@ -214,8 +214,10 @@ func TestOIDCCACertCanonicalStorageAndDisabledValidation(t *testing.T) {
 		t.Fatalf("prev kayıttan önceki snapshot değil: %+v", prev)
 	}
 	stored := st.storedSettings(t).TLSCACertPEM
+	// v0.10.1469 — iğne "PGP" değil zırh başlığı: rastgele CA'nın base64
+	// gövdesinde "PGP" ~1/1300 olasılıkla geçer (api tarafında flake).
 	for name, v := range map[string]string{"blob": stored, "snapshot": snap.TLSCACertPEM, "canlı": o.client().tls.caPEM} {
-		if v != strings.TrimSpace(a.caPEM) || strings.Contains(v, "PGP") || strings.Contains(v, "secretkeymaterial") {
+		if v != strings.TrimSpace(a.caPEM) || strings.Contains(v, "PGP PRIVATE KEY BLOCK") || strings.Contains(v, "secretkeymaterial") {
 			t.Fatalf("%s yalnız sertifikayı taşımıyor: %q", name, v)
 		}
 	}

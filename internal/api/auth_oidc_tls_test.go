@@ -46,6 +46,16 @@ func testCAPEM(t *testing.T, cn string) (certPEM, keyPEM string) {
 		string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: kd}))
 }
 
+// pgpBlockLeaked — v0.10.1469: saklanan blob / GET gövdesi PGP bloğunu taşıyor
+// mu. Eskiden iğne yalnız "PGP" idi; rastgele üretilen CA'nın (testCAPEM, her
+// koşuda yeni ECDSA anahtarı + imza) base64 gövdesi ~%0.075 olasılıkla "PGP"
+// içeriyor ve TestOIDCSettingsTLSFieldsRoundTripAndAudit tam paket koşusunda
+// ara sıra "kanonik saklama yok" ile düşüyordu. İğne artık base64'te çıkamayan
+// zırh başlığı (boşluk içerir) + bloğun gövde işareti.
+func pgpBlockLeaked(s string) bool {
+	return strings.Contains(s, "PGP PRIVATE KEY BLOCK") || strings.Contains(s, "secretkeymaterial")
+}
+
 func (e *oidcTestEnv) tlsBody(secret, caPEM string, skip bool) string {
 	var m map[string]any
 	_ = json.Unmarshal([]byte(e.body(secret)), &m)
@@ -110,7 +120,7 @@ func TestOIDCSettingsTLSFieldsRoundTripAndAudit(t *testing.T) {
 	_ = e.audits()
 	g = e.do(t, "GET", "/api/settings/oidc", "", auth.RoleAdmin)
 	if err := json.Unmarshal(g.Body.Bytes(), &snap); err != nil || snap.TLSCACertPEM != strings.TrimSpace(ca) ||
-		strings.Contains(string(e.store.rows[auth.OIDCSettingsKey]), "PGP") || strings.Contains(g.Body.String(), "yorum") {
+		pgpBlockLeaked(string(e.store.rows[auth.OIDCSettingsKey])) || strings.Contains(g.Body.String(), "# yorum") {
 		t.Fatalf("kanonik saklama yok: %s", g.Body)
 	}
 	// 2) CA kaldırıldı, skip kapandı: eski→yeni ters yönde.
@@ -207,5 +217,26 @@ func TestOIDCSettingsTestEndpointUsesUnsavedTLSFields(t *testing.T) {
 	if au := e.audits(); len(au) != 1 || !strings.Contains(au[0].Details, `"customCA":false`) ||
 		!strings.Contains(au[0].Details, `"tlsInsecureSkipVerify":false`) {
 		t.Fatalf("TLS'siz test audit'i: %+v", au)
+	}
+}
+
+// v0.10.1469 — kararsızlığın kök nedeni: base64 gövdesinde "PGP" geçen
+// GEÇERLİ bir CA (aranarak bulunur, ~1/1300) eski iğneyle "sızıntı" sayılırdı;
+// pgpBlockLeaked onu temiz, gerçek PGP bloğunu sızıntı sayar.
+func TestPGPLeakNeedleIgnoresBase64Collision(t *testing.T) {
+	var ca string
+	for i := 0; i < 50000 && ca == ""; i++ {
+		if c, _ := testCAPEM(t, "Kurum İç CA"); strings.Contains(c, "PGP") {
+			ca = c
+		}
+	}
+	if ca == "" {
+		t.Skip("50000 denemede çakışan CA bulunamadı (olasılık ~e^-37)")
+	}
+	if pgpBlockLeaked(ca) {
+		t.Fatalf("base64 çakışması sızıntı sayıldı: %q", ca)
+	}
+	if !pgpBlockLeaked("-----BEGIN PGP PRIVATE KEY BLOCK-----\n\nlQOYBGVsZWN0AQgAsecretkeymaterial\n") {
+		t.Fatal("gerçek PGP bloğu yakalanmadı")
 	}
 }

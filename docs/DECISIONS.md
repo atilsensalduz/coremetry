@@ -10208,3 +10208,41 @@ JSON'unda kalırsa eski binary yok sayar. Şema, ayar, MV, rota, MCP 74, kademe 
 mutasyonla doğrulandı), `TestOutboundAmbiguousStemKeepsChips`; yönlendirme regresyon kümesine (v0.10.1464,
 `chat_routing_regression_test.go`) iki satır: "ortam yalnız ekrandan → MV + beyan" ve komşusu "ortam soruda → ham"
 (satır şemasına `ansHas` eklendi); mevcut R1/R2 testleri yeşil.
+
+## 2026-10-23 — v0.10.1469 — İki kararsız test: bayt-kimliği çıpası paket boyu sabit + OIDC PGP iğnesi
+
+**Bağlam.** `TestReadSourceCodeOfferedOnlyWithDevOpsAndPromptByteIdentical` tam `go test ./internal/api/` koşusunda bir kez
+"araç sunulunca sistem mesajındaki TEK fark ek olmalı (bayt-kimliği)" ile düştü, tek başına geçiyordu (operatör kararı
+2026-10-23, D1 takipleri). Kök neden ölçüldü: test iki kolu (DevOps yok / var) ayrı ayrı kurar ve her kol
+`traceDrawerBody(…, anchoredToMs(), …)` ile çıpayı YENİDEN hesaplar; `anchoredToMs` her çağrıda `time.Now()` (saniyeye
+kesik). Kollar arasında saniye sınırı geçince AKTİF BAĞLAM bloğunun üç satırı (trace penceresi, sorgu penceresi, kıyas
+penceresi) 1 s kayıyor ve "tek fark ek" iddiası kırılıyordu. Kanıt: kollar arasına saniye sınırını geçen bir uyku
+konunca test HER koşuda kırmızı, fark tam bu üç satır (`…16:23:42Z` / `…16:23:40Z`). Tek başına koşuda kol ~60 ms,
+tam paket `-race` altında ~100 ms+ → ara sıra. Paylaşılan durum / test dikişi (`localOnlyTestSeam`), harita sırası,
+paralel test (pakette `t.Parallel` yok), önbellek değil; v0.10.1461 kod turu yolu ilgisiz (kod değişmedi).
+
+**Karar.** Üretim prompt'u zamana bağlı kalır (doğru davranış); kararlı olması gereken TEST girdisi. `anchoredToMs`
+paket başlangıcında bir kez hesaplanan `testAnchorToMs`'i döndürür (şimdi − 1 sa, saniyeye kesik). Aynı desen
+`chat_code_turn_test` ve `chat_local_only_test` iki kollu kıyaslarını da (aynı yarış) kapatır. Çıpa yaşı ≤ paket süresi
++ 1 sa, `chatAnchorMaxAge` (400 gün) içinde; kıyas penceresi şimdiye kırpılmaz (trace ~1 sa geride). Yeniden deneme yok.
+
+**İkinci kararsızlık (ayrı sınıf).** `TestOIDCSettingsTLSFieldsRoundTripAndAudit` tam pakette bir kez "kanonik saklama
+yok" ile düştü (koordinatör bildirimi). Ortak kök değil: paylaşılan durum / settings tekili / sıra değil (her test kendi
+`oidcFakeStore` + `OIDCService`'ini kurar, yollar senkron). Neden: saklanan blob'da PGP bloğu kalmadı mı iddiasının iğnesi
+yalnız `"PGP"` idi; `testCAPEM` her koşuda yeni ECDSA anahtarı + imzayla CA üretir ve base64 gövdesi rastgele — ölçüldü:
+20000 CA'da 15'inde (~%0.075) "PGP" geçiyor → iddia GEÇERLİ kanonik blob'da kırmızı. Düzeltme: iğne `pgpBlockLeaked`
+= zırh başlığı `"PGP PRIVATE KEY BLOCK"` (boşluk içerir, base64'te çıkamaz) ∪ gövde işareti `secretkeymaterial`; aynı
+kısa iğne `internal/auth/oidc_tls_test.go` (rastgele `newTestPKI`) içinde de düzeltildi; `"yorum"` → `"# yorum"`.
+Yeni `TestPGPLeakNeedleIgnoresBase64Collision`: çakışan geçerli bir CA'yı arayıp bulur (~1/1300), yeni iğne onu temiz,
+gerçek PGP bloğunu sızıntı sayar (eski iğneyle kırmızı).
+
+**Geri alma.** Commit revert (yalnız test dosyaları); üretim kodu değişmedi.
+
+**Testler.** Yeni `TestAnchoredToMsStableAcrossSecondBoundary` (saniye sınırının iki yanında çıpa ve gövde aynı; eski
+tanımla kırmızı). Doğrulama: zorlanmış saniye sınırıyla hedef test 3/3 yeşil (önce 1/1 kırmızı); `-count=20` yeşil;
+tam paket `go test -race -shuffle=on ./internal/api/` 3/3 yeşil; golangci-lint `0 issues.`
+
+**Not (sürüm kazası).** `v0.10.1469` etiketi yanlışlıkla ara commit'e (`d91d23c7 wip1469`, yalnız çıpa düzeltmesi —
+yeşil, yalnız test) basıldı ve main'e gitti: kapanış zincirinde rebase reddedilince heredoc'tan sonraki satır (tag + push)
+ayrı komut olarak koştu. Yayınlanmış ref yeniden yazılmadı; OIDC iğnesi + bu girdi etiketsiz takip commit'iyle main'e
+geldi. Ders: release zinciri tek satırda `&&`; heredoc'lu commit'ten sonra tag/push aynı `&&` zincirinde.
