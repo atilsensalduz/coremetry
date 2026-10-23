@@ -226,6 +226,6 @@ func (s *Service) noteLocalOnlyHint() {
 		return
 	}
 	localOnlyHintOnce.Do(func() {
-		log.Printf("[copilot] hiçbir model profili 'Yerel (self-hosted) model' işaretli değil — kod/wiki okuma kapalı; Ayarlar › AI › profil › Yerel model")
+		log.Printf("[copilot] hiçbir model profili 'Yerel (self-hosted) model' işaretli değil — kod/wiki okuma kapalı; Settings › CoSRE › Model profilleri › Düzenle › «Yerel (self-hosted) model»")
 	})
 }

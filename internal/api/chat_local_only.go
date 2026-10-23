@@ -23,10 +23,10 @@ import (
 
 // localOnlyClosedReason — yerel profil yokken kod/wiki yollarının dürüst
 // gerekçesi (kod bağlamı Reason'ı, sohbet step etiketi, wiki cevabı).
-const localOnlyClosedReason = "kapalı: yerel profil yok — kod ve wiki içeriği yalnız yerel (self-hosted) model profiline gider (Ayarlar › AI › profil › Yerel model)"
+const localOnlyClosedReason = "kapalı: yerel profil yok — kod ve wiki içeriği yalnız yerel (self-hosted) model profiline gider (Settings › CoSRE › Model profilleri › Düzenle › «Yerel (self-hosted) model»)" // v0.10.1457 — sekme adı CoSRE
 
 // localOnlyWikiClosedText — açık wiki sorusunun yerel profil yokken cevabı.
-const localOnlyWikiClosedText = "Wiki okuma kapalı: yerel profil yok. Wiki içeriği yalnız yerel (self-hosted) model profiline gider; bir admin Ayarlar › AI › profil › «Yerel model» işaretini vermeli."
+const localOnlyWikiClosedText = "Wiki okuma kapalı: yerel profil yok. Wiki içeriği yalnız yerel (self-hosted) model profiline gider; bir admin Settings › CoSRE › Model profilleri › Düzenle › «Yerel (self-hosted) model» kutusunu işaretlemeli." // v0.10.1457
 
 // localOnlyTestSeam — YALNIZ testte dolu: copilot'suz sunucu (sahte wiki
 // anlatıcısı, wikiNarrateFn) için yerel profil kararını sabitler. Üretimde nil:

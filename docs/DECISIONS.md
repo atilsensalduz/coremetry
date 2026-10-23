@@ -9641,7 +9641,7 @@ planı R1 (`plan-operation-card.md` §2.1) onaylıydı; kodda 0 referans vardı.
 çözülürse ona gidiyordu.
 
 **Karar 1 — tik admin BEYANIDIR, anında yürürlükte (operatör kararı 1).** `ModelProfile.LocalOnly` (`localOnly`,
-system_settings AI blobunda, omitempty). Ayarlar › AI › profil › "Yerel (self-hosted) model" kutusu (yalnız
+system_settings AI blobunda, omitempty). Settings › CoSRE › Model profilleri › "Yerel (self-hosted) model" kutusu (yalnız
 OpenAI-uyumlu), tabloda «yerel» rozeti; audit satırına ` localOnly=true`. `ValidateProfile`: anthropic/github, boş
 baseURL ya da bilinen genel LLM hostu (api.openai.com, *.openai.azure.com, openrouter.ai, … `publicLLMHosts`) → 400.
 Model adından/hosttan otomatik çıkarım YOK; boot'ta hiçbir profil işaretli değilse bir kez log ipucu.
@@ -9673,7 +9673,7 @@ tur, kullanıcı yerel olmayan bir profil seçmiş olsa da yerel profile gider (
 görünür kılacak).
 
 **Deploy notu (operatör).** R1 deploy edildiği anda tiksiz kurulumda kod ve wiki okuma her yerde "kapalı: yerel profil
-yok" der. Deploy'dan sonra Ayarlar › AI › Model profilleri'nde kod/wiki için kullanılacak HER self-hosted profili
+yok" der. Deploy'dan sonra Settings › CoSRE › Model profilleri'nde kod/wiki için kullanılacak HER self-hosted profili
 (model ailesi fark etmez: Gemma, Qwen3 …) Düzenle → "Yerel (self-hosted) model" → Kaydet. /ai'de `local_only`
 sınıfı 0 kalmalı.
 

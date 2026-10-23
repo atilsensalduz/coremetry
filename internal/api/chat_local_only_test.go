@@ -235,3 +235,21 @@ func TestLocalOnlySitesWired(t *testing.T) {
 		t.Fatal("localOnly katalog kararı byName'den önce olmalı")
 	}
 }
+
+// TestLocalOnlyHintNamesRealSettingsTab — v0.10.1457 (operator-reported:
+// "Settings altında AI yok"): the honest closed text must point at the tab
+// that exists (Settings › CoSRE, slug "ai"), not "Ayarlar › AI".
+func TestLocalOnlyHintNamesRealSettingsTab(t *testing.T) {
+	for _, s := range []string{localOnlyClosedReason, localOnlyWikiClosedText} {
+		if !strings.Contains(s, "Settings › CoSRE › Model profilleri") || strings.Contains(s, "Ayarlar › AI") {
+			t.Errorf("yanlış ayar yolu: %q", s)
+		}
+	}
+	tab, err := os.ReadFile("../../frontend/src/pages/settings/tabIndex.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(tab), "{ slug: 'ai', label: 'CoSRE' }") {
+		t.Error("Settings sekme adı değişti — localOnly metnindeki yolu güncelle")
+	}
+}
