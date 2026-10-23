@@ -218,6 +218,21 @@ func topologyOpMention(raw string, services, envs []string) string {
 	return ""
 }
 
+// topologyYieldsToRootCause — SAF (v0.10.1479): "X neden yavaşladı, hangi
+// bağımlılık" nedensellik sorusu; bağımlılık sözcüğü şüpheliyi adlandırır,
+// harita istemez → root_cause. Kapı dar: neden/sebep + bozulma (yavaş/gecikme/
+// hata) birlikte ve açık harita sözcüğü (topoloji/servis haritası/map) YOK.
+// "X bağımlılıkları neler" / "X topolojisi" topolojide kalır.
+func topologyYieldsToRootCause(toks []string) bool {
+	if !hasWhySignal(toks) {
+		return false
+	}
+	if !tokenHasPrefix(toks, "yavaş", "yavas", "slow", "gecik", "latenc") && !hasErrorSignal(toks) {
+		return false
+	}
+	return !tokenHasPrefix(toks, "topolo", "topology", "harita", "map")
+}
+
 // routeTopologyAsk — SAF: topoloji rotası. Router'ın servis/ortam
 // çıkarımından hemen sonra; güçlü sözcükte metrik grafiğinden ÖNCE, zayıf
 // sözcükte SONRA çağrılır (copilot_guided.go). Fan-out/periyot/çift/endpoint
@@ -229,7 +244,7 @@ func topologyOpMention(raw string, services, envs []string) string {
 // kökü. Servis çözümü: mesaj → tek aday → çok aday (ask_service, seçenekli) →
 // ekran servisi → ask_service.
 func routeTopologyAsk(raw, msg string, toks []string, svc, env string, services, envs []string, ctxService string) (guidedRoute, bool) {
-	if !hasTopologySignal(toks) || hasTeamSelfSignal(toks) {
+	if !hasTopologySignal(toks) || hasTeamSelfSignal(toks) || topologyYieldsToRootCause(toks) {
 		return guidedRoute{}, false
 	}
 	if !hasStrongTopologySignal(toks) {

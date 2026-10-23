@@ -550,3 +550,20 @@ func TestOpPrefetchTopologyVetoFirst(t *testing.T) {
 		t.Errorf("topoloji vetosu ilk okumadan önce olmalı (veto=%d okuma=%d)", veto, read)
 	}
 }
+
+// v0.10.1479 — nedensellik + bozulma + bağımlılık sözcüğü kök-nedene bırakır.
+func TestTopologyYieldsToRootCause(t *testing.T) {
+	for q, want := range map[string]bool{
+		"orders-api neden yavaşladı, hangi bağımlılık":       true,
+		"orders-api yavaşlamasının sebebi hangi downstream?": true,
+		"orders-api neden hata alıyor, hangi bağımlılık":     true,
+		"orders-api bağımlılıkları neler":                    false,
+		"orders-api neden yavaş, topolojisini göster":        false,
+		"orders-api hatalı bağımlılıkları göster":            false,
+		"orders-api neden bu bağımlılıklara sahip":           false,
+	} {
+		if got := topologyYieldsToRootCause(guidedTokens(normalizeGuidedMsg(q))); got != want {
+			t.Errorf("%q: got %v want %v", q, got, want)
+		}
+	}
+}

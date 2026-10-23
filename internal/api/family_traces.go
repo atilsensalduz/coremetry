@@ -32,12 +32,48 @@ const guidedFamilyTraces guidedIntent = "family_traces"
 
 const familyTracesMaxServices = 40 // extractServiceFamily tavanıyla aynı
 
+// exceptionTraceQualifiers — exception sözcüğünü trace'in SIFATI yapan
+// ekler / komşular ("exception'lı trace", "exception alan trace").
+var exceptionTraceQualifiers = map[string]bool{"lı": true, "li": true, "lu": true, "lü": true,
+	"alan": true, "veren": true, "olan": true, "fırlatan": true, "firlatan": true, "atan": true, "with": true}
+
+// exceptionOwnsTraceAsk — SAF (v0.10.1479): mesajda exception/istisna sözcüğü
+// var ve hiçbiri trace'i niteleyen sıfat değil → soru exception gruplarının
+// (trace ancak örneği). Nitelik: bitişik ek ("exceptionlı"), kesme sonrası ek
+// ("exception'lı" → "exception","lı") ya da fiil komşusu ("exception alan").
+func exceptionOwnsTraceAsk(toks []string) bool {
+	found := false
+	for i, t := range toks {
+		var rest string
+		switch {
+		case strings.HasPrefix(t, "exception"):
+			rest = strings.TrimPrefix(t, "exception")
+		case strings.HasPrefix(t, "istisna"):
+			rest = strings.TrimPrefix(t, "istisna")
+		default:
+			continue
+		}
+		if exceptionTraceQualifiers[rest] || (i+1 < len(toks) && exceptionTraceQualifiers[toks[i+1]]) {
+			return false
+		}
+		found = true
+	}
+	return found
+}
+
 func routeFamilyTraces(msg string, toks []string, svc, env string, services, envs []string, ctxService string) (guidedRoute, bool) {
 	if !tokenHasPrefix(toks, "trace") {
 		return guidedRoute{}, false
 	}
 	errSig, slowSig := hasErrorSignal(toks), hasSlowTraceSignal(msg)
 	if !errSig && !slowSig {
+		return guidedRoute{}, false
+	}
+	// v0.10.1479 — "X exception grupları neler, örnek stack ve ilgili trace'i
+	// bul": soru exception GRUPLARINI soruyor, trace yalnız örnek → servisli
+	// service_exceptions dalına bırak. "exception'lı / exception alan trace'ler"
+	// (exception trace'i niteliyor) burada kalır.
+	if (svc != "" || ctxService != "") && exceptionOwnsTraceAsk(toks) {
 		return guidedRoute{}, false
 	}
 	var fam []string

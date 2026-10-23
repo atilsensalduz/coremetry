@@ -10523,3 +10523,33 @@ sorgu hatası + geri çekilme / yapılandırılmamış / span ayarında 0 sorgu 
 atlanır); chstore `TestREDSourceSettingRoundTrip`; api `TestAnomalyREDSourceAuditDetail`, `TestAnomalyREDFamiliesMatchAPI`.
 Kaynak pinleri güncellendi: `TestScanCallsBehavior`, `TestBehaviorScanWiresActiveRead`. MCP 74, kademe sırası, api.go boyu
 değişmedi.
+
+## 2026-10-23 — v0.10.1479 — CoSRE yönlendirme: exception sorusundaki "trace" ve kök-neden sorusundaki "bağımlılık" sözcüğü niyeti ezmez
+
+**Bağlam.** v0.10.1476 sondasında iki yanlış yönlendirme görüldü (operatör onayı 2026-10-23):
+"<svc> exception grupları neler, örnek stack ve ilgili trace'i bul" → `family_traces` (exception sözcüğü hata sinyali
+sayılıp trace kökü + hata = trace listesi kademesi `service_exceptions`'tan önce kazanıyordu); "<svc> neden yavaşladı,
+hangi bağımlılık" → `service_topology` (güçlü topoloji kökü "bağımlılı" router'ın başında, kök-neden dalından önce).
+
+**Karar.** İki dar, deterministik veto; yeni rota/kademe yok. (1) `routeFamilyTraces` (family_traces.go):
+servis çözülmüşse (mesaj ya da ekran) ve `exceptionOwnsTraceAsk` doğruysa — exception/istisna sözcüğü var ve hiçbiri
+trace'i niteleyen sıfat değil ("exception'lı", "exceptionlı", "exception alan/veren/olan …") — kademe reddeder, soru
+mevcut `svc != "" && hasServiceExceptionSignal` dalında `service_exceptions`'a gider. "<svc> exception'lı trace'leri",
+"<svc> hatalı trace'leri" trace listesinde kalır. (2) `routeTopologyAsk` (copilot_service_topology.go):
+`topologyYieldsToRootCause` — neden/sebep VE bozulma (yavaş/gecikme/latency ya da hata sinyali) VE açık harita sözcüğü
+(topoloji/harita/map) YOK → topoloji reddeder, `svc != "" && hasWhySignal` dalı `root_cause` verir. "<svc> bağımlılıkları
+neler", "<svc> hatalı bağımlılıkları", "<svc> neden yavaş, topolojisini göster", "<svc> topolojisi" topolojide kalır.
+Hem güçlü hem zayıf topoloji çağrısı aynı fonksiyondan geçtiği için veto ikisini de kapsar.
+
+**Bilinen boşluk (inşa edilmedi).** `service_exceptions` demeti grup başına tür · sayı · mesaj yazar; `ExceptionRow`
+`SampleTraceID/SampleSpanID` taşıdığı hâlde örnek trace ve stack cevaba basılmıyor. Sorunun "örnek stack ve ilgili trace"
+yarısı şimdilik Exceptions sayfası linkiyle karşılanıyor; demetin örnek trace + stack yazması ayrı iş.
+Ayrıca (bu sürümün kapsamı dışı, değiştirilmedi): çıplak "<svc> trace'leri" / "<svc> trace'i bul" bugün `find_entity`'e
+gidiyor (hata/yavaş sinyali olmadan trace listesi kademesi açılmaz).
+
+**Geri alma.** Commit revert + yeni etiket; iki veto fonksiyonu tek çağrı yerinden çıkarılırsa eski sıra aynen döner.
+
+**Testler.** `TestRoutingRegression` +13 satır (6 bildirilen/varyant: 3 exception+trace → service_exceptions, 3 neden+
+bağımlılık/downstream → root_cause; 7 komşu: exception'lı / exception alan trace → family_traces, bağımlılıkları neler /
+hangi bağımlılıkları / hatalı bağımlılıkları / neden yavaş + topoloji → service_topology, çıplak neden yavaşladı →
+root_cause); saf `TestExceptionOwnsTraceAsk`, `TestTopologyYieldsToRootCause`.

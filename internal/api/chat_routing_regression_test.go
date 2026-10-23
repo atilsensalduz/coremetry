@@ -179,7 +179,41 @@ var routingRegressionRows = []routingRow{
 			s.cache["copilot:guided:svcnames"] = []byte(`["orders-api","billing-api","shop-payment-api","shop-payment-worker"]`)
 		}},
 
+	// ── v0.10.1479: 1476 sondasında görülen iki yanlış yönlendirme ──────
+	// (1) exception sorusundaki "trace'i bul" exception niyetini ezip
+	// family_traces'e gidiyordu; örnek stack + ilgili trace exception
+	// cevabının parçası. (2) "neden yavaşladı, hangi bağımlılık" topolojiye
+	// gidiyordu; soru bir kök-neden sorusu (bağımlılık = şüpheli), harita değil.
+	{release: "v0.10.1479", name: "exception grupları + örnek stack + ilgili trace → service_exceptions (family_traces değil)",
+		q: rrSvc + " exception grupları neler, örnek stack ve ilgili trace'i bul", wantTier: aisurface.TierGuided, wantRoute: string(guidedServiceExceptions)},
+	{release: "v0.10.1479", name: "exception'lar + ilgili trace'leri göster → service_exceptions",
+		q: rrSvc + " exception'ları neler, ilgili trace'leri göster", wantTier: aisurface.TierGuided, wantRoute: string(guidedServiceExceptions)},
+	{release: "v0.10.1479", name: "en sık exception + örnek trace → service_exceptions",
+		q: rrSvc + " servisinde en sık exception hangisi, örnek trace bul", wantTier: aisurface.TierGuided, wantRoute: string(guidedServiceExceptions)},
+	{release: "v0.10.1479", name: "neden yavaşladı + hangi bağımlılık → root_cause (service_topology değil)",
+		q: rrSvc + " neden yavaşladı, hangi bağımlılık", wantTier: aisurface.TierGuided, wantRoute: string(guidedRootCause)},
+	{release: "v0.10.1479", name: "neden yavaş + hangi bağımlılıktan → root_cause",
+		q: rrSvc + " neden yavaş, hangi bağımlılıktan kaynaklanıyor?", wantTier: aisurface.TierGuided, wantRoute: string(guidedRootCause)},
+	{release: "v0.10.1479", name: "yavaşlamanın sebebi hangi downstream → root_cause",
+		q: rrSvc + " yavaşlamasının sebebi hangi downstream?", wantTier: aisurface.TierGuided, wantRoute: string(guidedRootCause)},
+
 	// ── komşular (düzeltmeler bunları bozmamalı) ────────────────────────
+	{release: "komşu v0.10.1479", name: "exception'lı trace'ler (exception trace'i niteliyor) → family_traces",
+		q: rrSvc + " exception'lı trace'leri göster", wantTier: aisurface.TierGuided, wantRoute: string(guidedFamilyTraces)},
+	{release: "komşu v0.10.1479", name: "exception alan trace'ler → family_traces",
+		q: rrSvc + " exception alan trace'leri bul", wantTier: aisurface.TierGuided, wantRoute: string(guidedFamilyTraces)},
+	{release: "komşu v0.10.1479", name: "hatalı trace'leri → family_traces (exception sözcüğü yok)",
+		q: rrSvc + " hatalı trace'leri göster", wantTier: aisurface.TierGuided, wantRoute: string(guidedFamilyTraces)},
+	{release: "komşu v0.10.1479", name: "bağımlılıkları neler → service_topology",
+		q: rrSvc + " bağımlılıkları neler", wantTier: aisurface.TierGuided, wantRoute: string(guidedServiceTopology)},
+	{release: "komşu v0.10.1479", name: "hangi bağımlılıkları var (neden yok) → service_topology",
+		q: rrSvc + " hangi bağımlılıkları var?", wantTier: aisurface.TierGuided, wantRoute: string(guidedServiceTopology)},
+	{release: "komşu v0.10.1479", name: "hatalı bağımlılıkları (neden yok) → service_topology",
+		q: rrSvc + " hatalı bağımlılıkları göster", wantTier: aisurface.TierGuided, wantRoute: string(guidedServiceTopology)},
+	{release: "komşu v0.10.1479", name: "neden yavaş + açık topoloji isteği → service_topology",
+		q: rrSvc + " neden yavaş, topolojisini göster", wantTier: aisurface.TierGuided, wantRoute: string(guidedServiceTopology)},
+	{release: "komşu v0.10.1479", name: "neden yavaşladı (bağımlılık yok) → root_cause",
+		q: rrSvc + " neden yavaşladı?", wantTier: aisurface.TierGuided, wantRoute: string(guidedRootCause)},
 	{release: "komşu v0.10.1468", name: "ortam soruda (ekran başka) → ham, ortama süzülmüş okuma",
 		q: rrESBHost + " prod ortamında gecikme arttı mı", ctx: rrScreenEnv("uat"), setup: withHostCallers,
 		wantTier: aisurface.TierGuided, wantRoute: string(guidedOutboundCall), noLLM: true,

@@ -103,3 +103,21 @@ func TestFamilyTracesChipsAndLinks(t *testing.T) {
 		t.Fatalf("linkler: %+v", links)
 	}
 }
+
+// v0.10.1479 — exception sözcüğü trace'i niteliyor mu, yoksa soru exception
+// gruplarının mı (trace yalnız örnek)?
+func TestExceptionOwnsTraceAsk(t *testing.T) {
+	for q, want := range map[string]bool{
+		"orders-api exception grupları neler, örnek stack ve ilgili trace'i bul": true,
+		"orders-api en sık exception hangisi, örnek trace bul":                   true,
+		"orders-api istisnaları ve trace'leri":                                   true,
+		"orders-api exception'lı trace'leri göster":                              false,
+		"orders-api exceptionlı trace'ler":                                       false,
+		"orders-api exception alan trace'leri bul":                               false,
+		"orders-api hatalı trace'leri göster":                                    false,
+	} {
+		if got := exceptionOwnsTraceAsk(guidedTokens(normalizeGuidedMsg(q))); got != want {
+			t.Errorf("%q: got %v want %v", q, got, want)
+		}
+	}
+}
