@@ -916,7 +916,6 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/alert-rules/{id}", auth.RequireAnyRole(editorRoles, s.deleteAlertRule))
 	mux.HandleFunc("POST   /api/alert-rules/{id}/enable", auth.RequireAnyRole(editorRoles, s.enableAlertRule))
 	mux.HandleFunc("POST   /api/alert-rules/{id}/disable", auth.RequireAnyRole(editorRoles, s.disableAlertRule))
-	mux.HandleFunc("GET    /api/alert-rules/baseline", auth.RequireAnyRole(editorRoles, s.getAlertBaseline))
 	// ES Watcher import (Faz-1) — raw PUT _watcher/watch body →
 	// projected alert rule (Metric="watcher") with a field-by-field
 	// mapping report; dryRun previews without persisting. Same gate
@@ -9626,109 +9625,6 @@ func (s *Server) disableAlertRule(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, "alert_rule.disable", "alert_rule", id, "")
 	writeJSON(w, map[string]string{"status": "ok"})
-}
-
-// getAlertBaseline computes recent percentile distribution
-// for the requested service + metric so the alert-rule editor
-// can pre-fill a sane threshold instead of making the operator
-// guess. Lookback defaults to 7d (capped server-side); the
-// service param is optional — empty returns a global
-// baseline.
-//
-// Drives the ✨ "suggest threshold" panel next to the rule
-// form's threshold input. Pure stats, no LLM round-trip, so
-// the response lands in ms.
-//
-// Response also carries `suggestedWarning` / `suggestedCritical`
-// — interpreted relative to the comparator the operator
-// picked:
-//   - `>`  / `>=` → high values trip (p95 → warn, p99 → crit)
-//   - `<`  / `<=` → low values trip (5×p99/100 capped, 0.01 fallback)
-//
-// Operator can ignore them and use the raw percentiles too.
-//
-// Cached 5 min per (service, metric, comparator) tuple — the
-// distribution doesn't shift by the second.
-func (s *Server) getAlertBaseline(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	metric := strings.TrimSpace(q.Get("metric"))
-	if metric == "" {
-		http.Error(w, "metric required", http.StatusBadRequest)
-		return
-	}
-	service := strings.TrimSpace(q.Get("service"))
-	comparator := strings.TrimSpace(q.Get("comparator"))
-	if comparator == "" {
-		comparator = ">"
-	}
-	cacheKey := fmt.Sprintf("alert-baseline:%s:%s:%s", service, metric, comparator)
-	s.serveCached(w, r, cacheKey, 5*time.Minute, func(ctx context.Context) (any, error) {
-		b, err := s.store.GetMetricBaseline(ctx, service, metric, 7*24*time.Hour)
-		if err != nil {
-			return nil, err
-		}
-		warn, crit := suggestThresholds(b, comparator)
-		return map[string]any{
-			"metric":  b.Metric,
-			"service": b.Service,
-			"p50":     b.P50, "p95": b.P95, "bucketSec": b.BucketSec, // v0.10.877 — oran dağılımlarının kova genişliği (300; gecikme 0)
-			"p99":               b.P99,
-			"max":               b.Max,
-			"mean":              b.Mean,
-			"sampleCount":       b.SampleCount,
-			"windowSec":         b.WindowSec,
-			"suggestedWarning":  warn,
-			"suggestedCritical": crit,
-		}, nil
-	})
-}
-
-// suggestThresholds picks "safe to page on" levels from the
-// distribution, biased by the comparator the operator chose.
-//
-//   - `>` / `>=` (alert on spike): warn at p95, crit at p99 —
-//     fires when ~5% / ~1% of samples already crossed. Pure
-//     percentile floors keep operators from setting "1 / 5"
-//     thresholds that page nightly because the actual baseline
-//     is 800ms / 8%.
-//   - `<` / `<=` (alert on drop): warn at p5, crit at p1
-//     approximated as max(0.01, value/2 / value/5) — fires
-//     when traffic genuinely fell below the floor instead of
-//     just dipping at a quiet hour.
-//   - Round to a reasonable precision so the threshold input
-//     doesn't end up at 412.7345 ms.
-func suggestThresholds(b *chstore.MetricBaseline, comparator string) (warn, crit float64) {
-	switch comparator {
-	case "<", "<=":
-		// Low-side: floor at 1% of the typical value to avoid
-		// "alert when traffic = 0" being meaningless during
-		// known quiet windows. Operator can tighten manually.
-		warn = b.P50 * 0.20
-		crit = b.P50 * 0.05
-		if crit < 0.01 {
-			crit = 0.01
-		}
-	default:
-		// High-side: lean on the actual distribution.
-		warn = b.P95
-		crit = b.P99
-	}
-	return roundThreshold(warn), roundThreshold(crit)
-}
-
-// roundThreshold drops absurd decimals from a float so the UI
-// shows "420 ms" not "419.7833... ms".
-func roundThreshold(v float64) float64 {
-	switch {
-	case v >= 1000:
-		return float64(int64(v/10+0.5)) * 10
-	case v >= 100:
-		return float64(int64(v + 0.5))
-	case v >= 10:
-		return float64(int64(v*10+0.5)) / 10
-	default:
-		return float64(int64(v*100+0.5)) / 100
-	}
 }
 
 // ── Dashboards ───────────────────────────────────────────────────────────────

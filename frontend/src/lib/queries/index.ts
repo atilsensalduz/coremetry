@@ -36,7 +36,7 @@ export {
   useCreateIncident, useUpdateIncident,
 } from './incidents';
 export {
-  useAlertRules, useAlertRuleProblemCounts, useAlertRuleSeries,
+  useAlertRules, useAlertRuleProblemCounts, useAlertRuleSeries, useAlertPreviewSeries,
   useCreateAlertRule, useUpdateAlertRule,
   useDeleteAlertRule, useEnableAlertRule, useDisableAlertRule,
 } from './alerts';

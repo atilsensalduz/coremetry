@@ -112,6 +112,10 @@ func (s *Server) putAnomalySensitivity(w http.ResponseWriter, r *http.Request) {
 	if d, changed := anomalyREDSourceAuditDetail(prev, cfg); changed {
 		s.audit(r, "anomaly.red_source", "anomaly_sensitivity", "redSource", d)
 	}
+	// v0.10.1489 — alarm kuralı kaynağı da ayrı satır (geri alma = alertSource span).
+	if d, changed := alertSourceAuditDetail(prev, cfg); changed {
+		s.audit(r, "alert.source", "anomaly_sensitivity", "alertSource", d)
+	}
 	log.Printf("[settings] anomaly_sensitivity: dwell=%d criticalZ=%.1f", cfg.DwellBuckets, cfg.CriticalZ)
 	writeJSON(w, cfg)
 }

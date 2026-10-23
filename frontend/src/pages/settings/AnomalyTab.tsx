@@ -585,8 +585,10 @@ function SensitivitySection() {
             </div>
           </div>
           {/* v0.10.1478 — RED serisi kaynağı (auto = VM örneklenmemiş, span = eski). */}
-          <REDSourceSubsection source={cfg.redSource} env={cfg.redSourceEnv}
-            onChange={(redSource, redSourceEnv) => setCfg({ ...cfg, redSource, redSourceEnv })} />
+          {/* v0.10.1489 — alarm kurallarının kaynağı (alertSource) aynı bölümde. */}
+          <REDSourceSubsection source={cfg.redSource} env={cfg.redSourceEnv} alertSource={cfg.alertSource}
+            onChange={(redSource, redSourceEnv) => setCfg({ ...cfg, redSource, redSourceEnv })}
+            onAlertSourceChange={alertSource => setCfg({ ...cfg, alertSource })} />
           {/* v0.10.700 — kök neden hipotezinde zamansal çarpan. Gölge
               (varsayılan): faktör ve gerekçe adaya yazılır, sıra değişmez;
               açık: skor = yapısal × (0.5 + 0.5·t). Önce gölgede izle. */}

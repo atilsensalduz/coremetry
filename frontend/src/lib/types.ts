@@ -6413,6 +6413,17 @@ export interface AlertRuleSeries {
   /** v0.10.1091 — grafiğin eşik çizgisi; varsa problemin threshold'unu EZER
    *  (yalnız sentetik kural: yaygın yavaşlamada ayardaki minP99Ms). */
   threshold?: number;
+  /** v0.10.1489 — dizinin kaynağı = değerlendiricinin kaynağı (VM örneklenmemiş / span + gerekçe). */
+  source?: AlertSourceInfo;
+}
+
+/** v0.10.1489 — alarm kuralı ölçüsünün kaynağı (Go: api.alertSourceView). evidence
+ *  Problem açıklamasındaki satırla aynı metin. */
+export interface AlertSourceInfo {
+  vm: boolean;
+  family?: string;
+  reason?: string;
+  evidence: string;
 }
 
 export interface AnomalyVerdict { eventId: string; fingerprint: string; kind: string; pattern: string; service: string; verdict: AnomalyVerdictKind; note?: string; createdBy: string; createdAt: number }
@@ -9129,6 +9140,10 @@ export interface AnomalySensitivityConfig {
   redSource?: 'auto' | 'span';
   // v0.10.1478 — VM serisinin ortam kapsamı ('' = tüm ortamlar).
   redSourceEnv?: string;
+  // v0.10.1489 — ALARM KURALLARININ ölçü kaynağı: 'auto' (varsayılan, yok
+  // dahil) = VM varsa ve servisin HTTP/gRPC sunucu histogramı varsa örneklenmemiş
+  // pencere, yoksa span; 'span' = eski davranış (geri alma). Okuma `=== 'span'`.
+  alertSource?: 'auto' | 'span';
   /** v0.10.890 (paritesi #4 dilim 2) — JVM heap bandı → Problem vidaları
    *  (chstore.AnomalyRuntimeConfig). heapMode varsayılan 'off'; 'on' Problem'i
    *  v0.10.892'den itibaren açar (öncesinde gölge gibi). */
@@ -10638,5 +10653,21 @@ export interface AnomalyREDSourceStats {
   droppedServices?: number;
   lastError?: string;
   families: AnomalyREDSourceFamilyStats[];
+  sources?: Record<string, Record<string, number>>;
+  /** v0.10.1489 — alarm kuralı okuyucusunun son evaluator tiki (Go: anomaly.AlertVMStats). */
+  alert?: AlertVMSourceStats;
+}
+export interface AlertVMSourceStats {
+  mode: string;
+  configured: boolean;
+  reason?: string;
+  lastUnix: number;
+  lastMs: number;
+  lastQueries: number;
+  lastQueryErrors: number;
+  lastSkipped: number;
+  lastDiscoveryQueries: number;
+  lastError?: string;
+  families: { id: string; usable: boolean; reason?: string; services: number }[];
   sources?: Record<string, Record<string, number>>;
 }

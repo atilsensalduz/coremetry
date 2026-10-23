@@ -9,12 +9,18 @@ import { humanize } from './shared';
 // (anomaly_sensitivity.redSource / redSourceEnv; Dedektör hassasiyeti bölümü,
 // aynı Kaydet). Altında dedektörün son tikinin ölçümü (yalnız okunur; açılışta
 // bir kez — ayar sayfası, polling yok).
-export function REDSourceSubsection({ source, env, onChange }: {
+//
+// v0.10.1489 — alarm kurallarının kaynağı da burada (anomaly_sensitivity
+// .alertSource; aynı VM kapsamı / ortam). Altında evaluator'ın son tiki.
+export function REDSourceSubsection({ source, env, alertSource, onChange, onAlertSourceChange }: {
   source?: 'auto' | 'span';
   env?: string;
+  alertSource?: 'auto' | 'span';
   onChange: (source: 'auto' | 'span', env: string) => void;
+  onAlertSourceChange?: (alertSource: 'auto' | 'span') => void;
 }) {
   const mode = source === 'span' ? 'span' : 'auto';
+  const alertMode = alertSource === 'span' ? 'span' : 'auto';
   const [st, setSt] = useState<AnomalyREDSourceStats | null>(null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
@@ -39,7 +45,7 @@ export function REDSourceSubsection({ source, env, onChange }: {
       <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10, marginLeft: 24 }}>
         <span style={{ fontSize: 12, color: 'var(--text2)' }}>Ortam</span>
         <input type="text" aria-label="RED kaynağı ortamı" placeholder="boş = tüm ortamlar" maxLength={200}
-          value={env ?? ''} disabled={mode === 'span'}
+          value={env ?? ''} disabled={mode === 'span' && alertMode === 'span'}
           onChange={e => onChange(mode, e.target.value)} />
       </label>
       <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, marginLeft: 24, lineHeight: 1.5 }}>
@@ -67,6 +73,37 @@ export function REDSourceSubsection({ source, env, onChange }: {
           </>
         )}
       </div>
+      {onAlertSourceChange && (
+        <>
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 14 }}>
+            <span style={{ fontSize: 13, color: 'var(--text)' }}>Alarm kuralı kaynağı</span>
+            <select aria-label="Alarm kuralı kaynağı" value={alertMode}
+              onChange={e => onAlertSourceChange(e.target.value === 'span' ? 'span' : 'auto')}>
+              <option value="auto">Otomatik — VictoriaMetrics varsa örneklenmemiş metrik</option>
+              <option value="span">Span — örneklenmiş trace (eski davranış)</option>
+            </select>
+          </label>
+          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, marginLeft: 24, lineHeight: 1.5 }}>
+            Otomatik (varsayılan): alarm kuralları (error_rate, error_count, request_rate, avg_ms, p50/p95/p99_ms)
+            servisin HTTP/gRPC sunucu histogramından, kuralın kendi penceresiyle ölçülür; yoksa kural×servis başına
+            span&apos;e düşülür. Eşik, sürdürme ve bekleme aynıdır; VM verisi ~2 dk geriden gelir ve minSamples gerçek
+            istek sayısını sayar. Kural önizlemesi ve eşik önerisi aynı kaynağı kullanır. Ortam yukarıdaki alandan.
+          </div>
+          {!err && st?.alert && !!st.alert.lastUnix && (
+            <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 8, marginLeft: 24, lineHeight: 1.6 }}>
+              <div>
+                Son evaluator tiki: {st.alert.configured ? 'VictoriaMetrics bağlı' : (st.alert.reason || 'VM yok')} · {st.alert.lastQueries} sorgu
+                {st.alert.lastQueryErrors ? ` (${st.alert.lastQueryErrors} hata)` : ''}
+                {st.alert.lastSkipped ? ` · ${st.alert.lastSkipped} bütçe dışı` : ''} · {st.alert.lastMs} ms
+              </div>
+              {st.alert.sources && Object.entries(st.alert.sources).map(([m, c]) => (
+                <div key={m}>{m}: VM {c.vm ?? 0} · span {c.span ?? 0} kural×servis</div>
+              ))}
+              {st.alert.lastError && <div>Son hata: {st.alert.lastError}</div>}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

@@ -141,6 +141,9 @@ type alertRuleSeriesResponse struct {
 	// EZER (yalnız sentetik kural — yaygın yavaşlamada minP99Ms). Yok = istemci
 	// problemin eşiğini çizer (bugünkü davranış).
 	Threshold *float64 `json:"threshold,omitempty"`
+	// Source — v0.10.1489: dizinin kaynağı = değerlendiricinin kaynağı (VM
+	// örneklenmemiş ya da span + gerekçe; alert_source.go).
+	Source *alertSourceView `json:"source,omitempty"`
 }
 
 func (s *Server) getAlertRuleSeries(w http.ResponseWriter, r *http.Request) {
@@ -198,11 +201,13 @@ func (s *Server) getAlertRuleSeries(w http.ResponseWriter, r *http.Request) {
 	if thr != nil {
 		thrKey = *thr
 	}
-	key := alertRuleSeriesKey(id, metric, service, windowSec, f, t, spec.StepSec, thrKey)
+	// v0.10.1489 — kaynak girdileri anahtarda (ayar kipi / ortam / okuyucu).
+	key := alertRuleSeriesKey(id, metric, service, windowSec, f, t, spec.StepSec, thrKey) + ":" +
+		alertSourceKeyPart(st.AnomalySensitivity(), alertVMReaderPtr.Load() != nil)
 	s.serveCached(w, r, key, alertRuleSeriesTTL, func(ctx context.Context) (any, error) {
-		pts, err := st.AlertMetricSeries(ctx, chstore.AlertMetricSeriesQuery{
+		pts, src, err := alertSeriesWithSource(ctx, st, chstore.AlertMetricSeriesQuery{
 			Metric: metric, Service: service, WindowSec: windowSec, From: f, To: t, Now: time.Now(),
-		})
+		}, spec.StepSec, synthetic)
 		if err != nil {
 			return nil, err
 		}
@@ -211,7 +216,7 @@ func (s *Server) getAlertRuleSeries(w http.ResponseWriter, r *http.Request) {
 		}
 		return alertRuleSeriesResponse{
 			Metric: metric, Service: service, WindowSec: windowSec, StepSec: spec.StepSec, Threshold: thr,
-			From: f.UnixNano(), To: t.UnixNano(), Points: pts,
+			From: f.UnixNano(), To: t.UnixNano(), Points: pts, Source: newAlertSourceView(src),
 		}, nil
 	})
 }

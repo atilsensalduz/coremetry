@@ -1,5 +1,6 @@
 import { lazy, Suspense, useMemo } from 'react';
 import { Spinner } from '@/components/Spinner';
+import { AlertSourceBadge } from '@/components/AlertSourceBadge';
 import { useAlertRuleSeries } from '@/lib/queries';
 import type { Problem } from '@/lib/types';
 import { Sect } from './detailSections';
@@ -54,7 +55,8 @@ export function AlertMetricChartSection({ problem }: { problem: Problem }) {
   if (state === 'gone') return null;
   const title = `${metric} · ${service}`;
   return (
-    <Sect title={title} sub={data ? windowLabel(data.windowSec) : undefined}>
+    // v0.10.1489 — dizinin kaynağı (= değerlendiricinin kaynağı) başlıkta.
+    <Sect title={title} sub={data ? <>{windowLabel(data.windowSec)}{data.source && <> · <AlertSourceBadge source={data.source} /></>}</> : undefined}>
       <Suspense fallback={<Spinner />}>
         <CorePanelMultiLazy
           title=""

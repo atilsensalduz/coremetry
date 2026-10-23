@@ -696,6 +696,11 @@ func main() {
 	// v0.9.550 — kalp atışına binary kimliği gömülür; bir dağıtım
 	// sonrası eski pod'un bıraktığı bayat kaydı taze sanmamak için.
 	evalr.SetVersion(BuildVersion)
+	// v0.10.1489 — alarm kurallarının VM kaynağı: süreç başına TEK okuyucu,
+	// evaluator + Alerts önizlemesi/taban önerisi paylaşır (önizleme = canlı
+	// karar). Start'tan ÖNCE takılır; VM bağlantısı aşağıda SetVM (atomik).
+	alertVM := anomaly.NewAlertVMReader(store.AnomalySensitivity)
+	evalr.SetAlertVM(alertVM)
 	var anomDet *anomaly.Detector // v0.10.891 — heap kaynağı vmSvc'den sonra takılır
 	if mode.worker {
 		// ── Alert evaluator (background — opens & resolves problems) ─────
@@ -1393,6 +1398,7 @@ func main() {
 	// YALNIZ vmetrics yapılandırılmışken, VM'den okuyarak değerlendirir
 	// (SetLogs geç-bağlama emsali; runtime_vm.go başlığı).
 	evalr.SetVMetrics(vmSvc)
+	alertVM.SetVM(vmSvc) // v0.10.1489 — yapılandırılmamışsa Configured()=false → span
 	// v0.10.293 (VM tek metrik deposu Dilim 1b) — OTLP metrik gövdesinin
 	// VM'e HAM iletimi: ayrı, bayt bütçeli kuyruk (ingest yolunda ikinci ağ
 	// çağrısı ASLA senkron — audit R5). Yazım kapalıyken ingester kopya bile
@@ -1683,6 +1689,7 @@ func main() {
 		srv.StartRolloutTail(ctx) // v0.10.200 — pod-yerel SSE tail (audit §3 T); yalnız api
 	}
 	srv.SetVMetrics(vmSvc)
+	srv.SetAlertVM(alertVM)  // v0.10.1489 — evaluator ile aynı örnek
 	srv.SetOracle(oracleSvc) // v0.10.580 — Oracle kaynakları (her rol)
 	srv.SetDevOps(devopsSvc)
 	// v0.10.1122 — wiki bilgisi: servis yukarıda kuruldu (sohbet okuması her

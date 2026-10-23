@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
+import { AlertSourceBadge } from '@/components/AlertSourceBadge';
 
 // ThresholdField — the numeric threshold input plus a ✨
 // "suggest" button that reads the metric's last 7d
@@ -13,11 +14,13 @@ import { Button } from '@/components/ui/Button';
 // the data is thin enough to flag the suggestion as low-
 // confidence.
 // Split out of the Alerts.tsx monolith (v0.8.252 refactor) verbatim.
-export function ThresholdField({ value, service, metric, comparator, onChange, onApplySeverity }: {
+export function ThresholdField({ value, service, metric, comparator, windowSec, onChange, onApplySeverity }: {
   value: number;
   service: string;
   metric: string;
   comparator: string;
+  /** v0.10.1489 — kuralın penceresi: taban önerisinin kaynak kararı (2 dk altı span). */
+  windowSec?: number;
   onChange: (v: number) => void;
   onApplySeverity: (s: string) => void;
 }) {
@@ -28,7 +31,7 @@ export function ThresholdField({ value, service, metric, comparator, onChange, o
   const suggest = async () => {
     setBusy(true); setError(null);
     try {
-      const r = await api.alertBaseline({ service: service || undefined, metric, comparator });
+      const r = await api.alertBaseline({ service: service || undefined, metric, comparator, windowSec });
       setData(r);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Suggestion failed');
@@ -41,7 +44,7 @@ export function ThresholdField({ value, service, metric, comparator, onChange, o
   // change — the cached panel becomes stale relative to the
   // new context. Cheap because the data is just dropped, not
   // re-fetched until the operator clicks again.
-  useEffect(() => { setData(null); }, [service, metric, comparator]);
+  useEffect(() => { setData(null); }, [service, metric, comparator, windowSec]);
 
   const fmt = (v: number) => {
     if (metric.endsWith('_ms')) return `${v} ms`;
@@ -87,6 +90,8 @@ export function ThresholdField({ value, service, metric, comparator, onChange, o
               <span style={{ marginLeft: 6, color: 'var(--warn)' }}>· thin data</span>
             )}
           </div>
+          {/* v0.10.1489 — dağılımın kaynağı = değerlendiricinin kaynağı. */}
+          {data.source && <AlertSourceBadge source={data.source} />}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             <Button variant="secondary" size="sm"
               onClick={() => apply(data.p50)} title="Apply p50 to threshold">

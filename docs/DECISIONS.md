@@ -10730,3 +10730,43 @@ hata kipinde, tek serviste "yavaş trace'leri" `slow_traces`'te, "nedir / hangi 
 find_entity, yavaş → slow_traces, trace id → trace_by_id, exception grupları + trace → service_exceptions, trace
 sayfasını aç → open_page) — 5 satır değişiklik öncesi kırmızıydı; saf `TestPlainTraceListAsk`,
 `TestFamilyTracesRecentMode` (süzgeç, link, kip önceliği, kapsamsız → rota yok).
+
+## 2026-10-23 — v0.10.1489 — Alarm kuralları VictoriaMetrics'ten (örneklenmemiş), kural×servis başına span yedeği
+
+**Bağlam.** Prod trace'leri gateway'de kuyruk örnekleniyor (hatalar hep + ~%5 taban). Alarm kuralları (evaluator
+`evaluateOne`) error_rate / request_rate / gecikmeyi span MV'sinden ölçüyordu: error_rate yukarı yanlı, request_rate %5'lik
+gürültülü örnek → sahte alarm. v0.10.1478 aynı düzeltmeyi anomali dedektörüne yapmıştı; kurallar dışarıda kalmıştı.
+
+**Karar.** (1) Ayar `anomaly_sensitivity.alertSource` = `auto` (varsayılan) | `span`; ortam kapsamı 1478'in `redSourceEnv`'i
+(aynı VM kapsamı). Admin PUT; değişince ayrı audit `alert.source`. (2) Okuyucu `anomaly.AlertVMReader`: aile kataloğu,
+kapsam keşfi (servis/durum/ortam etiketi), durum-etiketli servis kümesi ve geri çekilme 1478'in kodu (`vmREDSource`
+yöntemleri, ayrı örnek); süreç başına TEK örnek, evaluator + Alerts önizlemesi + taban önerisi paylaşır. (3) Kural×servis
+kaynak kararı (`alertVMState.decide` → SAF `pickAlertSource`): ayar span → span; VM yok → span; metrik temel RED değil
+(http_/db_/rpc_/mq_*) → span; pencere < 2 dk → span; servis hiçbir ailede değil (son 1 sa istek serisi) → span; aile okuma
+hatası (okunamadı ≠ yok, sonraki aileye geçilmez) → span; hata metriğinde durum etiketi yok → span; tür geri çekilmede →
+span; aksi VM. Aileler ASLA toplanmaz: HTTP > gRPC legacy > gRPC stable. (4) Eşleme (pencere W = kuralın WindowSec,
+anlık sorgu t = şimdi − 2 dk, 1478'in `vmIngestLag`'i): request_rate = increase(count[W])/W; error_count =
+increase(count{durum=~5.. | gRPC pinli sunucu-hatası kümesi}[W]); error_rate = o / increase(count[W]) · 100; avg_ms =
+increase(sum)/increase(count) · ölçek; p50/p95/p99 = `histogram_quantiles("phi", 0.5, 0.95, 0.99, …)` · ölçek; minSamples =
+increase(count[W]). Pencerede ölçü yoksa span'in boş-sonuç anlamı (`absentMeasure`). (5) TEK KAYNAK: değer + minSamples
+sayımı aynı kaynaktan; VM'in gereken bir türü bu tikte okunamazsa (hata/bütçe) çift BÜTÜNÜYLE span. Eşik / forSec /
+cooldown / karşılaştırıcı DEĞİŞMEZ (kapılar `ruleMeasurement`'ı okur). (6) Kanıt: açılan Problem açıklaması (ve dolayısıyla
+bildirim) "kaynak: VictoriaMetrics (örneklenmemiş) · HTTP sunucu histogramı" ya da "kaynak: span (örneklenmiş) — VM
+kullanılmadı: <neden>". (7) Önizleme ≠ canlı olmasın: ConditionPreview `GET /api/alert-rules/preview-series` (taslağın
+servisi + metriği + penceresi; servis yoksa çizmez), problem grafiği `/api/alert-rules/{id}/series` ve ✨ taban
+`/api/alert-rules/baseline` (api.go'dan `alert_source.go`'ya taşındı; `windowSec` girdisi) aynı okuyucu + aynı kararı
+kullanır ve `source` döner (rozet). Yaygın yavaşlama grafiği span kalır (dedektörü span MV'sinden karar verir). Taban VM'de:
+oran/sayı = 7 gün × 5 dk kovaların dağılımı (span ile aynı kova), gecikme = 7 günlük histogramın yüzdelikleri.
+(8) Bütçe: tik başına distinct pencere × kullanılabilir aile × gereken tür (count her zaman; err / sum / quantile metriğe
+göre) filo geneli `sum by (servis)` anlık sorgu, ≤ 24, 4 paralel, sorgu 10 s, toplam 15 s, CH prefetch'iyle PARALEL;
+tüm kurallar servise sabitse servis süzgeci. Keşif: aile başına 10 dk'da bir etiket okuması + üyelik sorgusu, 30 dk'da bir
+durum kümesi. Hata veren (aile, tür) 5 dk geri çekilir. Durum: `GET /api/settings/anomaly-red-source/status` → `alert`.
+
+**Davranış kayması (bilinçli).** VM penceresi şimdi − 2 dk'da biter (açılış ~2 dk gecikir); minSamples artık GERÇEK istek
+sayısı (span'de %5 örnek → taban daha kolay geçilir); request_rate gerçek sunucu isteği/sn (span'de servisin TÜM span'leri,
+örneklenmiş) — span değerine göre ayarlanmış `request_rate` eşikleri farklı sayı okur, önizleme bunu gösterir. Kaynak
+tikler arasında değişirse (VM okuma hatası) açık problemin değeri o tik span'den tazelenir.
+
+**Geri alma.** Settings → Anomaly → Dedektör hassasiyeti → "Alarm kuralı kaynağı: Span" (`alertSource=span`) → davranış
+v0.10.1488 ile aynı (kanıt satırı "VM kullanılmadı: alarm kaynağı ayarı span" olarak kalır). Tam: revert + yeni etiket
+(eski sürüm `alertSource` alanını yok sayar).

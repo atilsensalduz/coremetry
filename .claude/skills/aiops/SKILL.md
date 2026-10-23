@@ -173,6 +173,15 @@ DEĞİŞMEZ; kova kümeleri span WHERE'lerinin ikizi (`seasonalBinds`/`behaviorB
 Okuma lider belleğinde (tamamlanmış kova bir kez), tik ≤ 24 sorgu / 20 s, span okumalarıyla paralel; durum ucu
 `GET /api/settings/anomaly-red-source/status`. Geri alma `redSource=span`. Yeni bir RED tüketicisi eklerken span serisini
 VM'li serviste DOĞRUDAN okuma — bindirilmiş haritayı oku.
+**Alarm kuralı kaynağı (v0.10.1489):** `evaluateOne` ölçüsünü `anomaly_sensitivity.alertSource` = `auto` (varsayılan)
+iken kural×servis başına VM'in örneklenmemiş HTTP/gRPC histogramından, kuralın KENDİ penceresiyle alır (anlık sorgu,
+t = şimdi − 2 dk; `internal/anomaly/alert_vm*.go`, seçim `alertVMState.decide` → SAF `pickAlertSource`); taşıma metrikleri
+(http_/db_/rpc_/mq_*), < 2 dk pencere, durum etiketsiz hata metriği, okuma hatası → span, gerekçeli. TEK KAYNAK: değer +
+minSamples sayımı aynı kaynaktan; VM'in bir türü düşerse çift bütünüyle span (`TestRuleMeasurementNeverMixesSources`).
+Kapılar (`ruleMeasurement`) kaynağı bilmez. Kanıt: Problem açıklaması/bildirim aynı "kaynak: …" satırı. Önizleme
+(`/api/alert-rules/preview-series`, problem grafiği `/series`) ve ✨ taban (`/api/alert-rules/baseline`) AYNI süreç-içi
+okuyucu + aynı karar (`TestAlertPreviewEvaluatorSourceParity`); yaygın yavaşlama grafiği span kalır. Tik ≤ 24 değer
+sorgusu / 15 s, CH prefetch'iyle paralel. Geri alma `alertSource=span`.
 
 **Yük altında gecikme (v0.10.1046, operatör: "Batch servislerde yük altındaki gecikme
 artışı da anomali sayılmasın"):** hacim işin OLAĞAN ÇALIŞMA hacminin ≥ 2 katıyken gecikme

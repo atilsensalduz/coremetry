@@ -45,3 +45,36 @@ func TestREDSourceSettingRoundTrip(t *testing.T) {
 		t.Errorf("tavanı aşan ortam düşmeli: %q", got)
 	}
 }
+
+// v0.10.1489 — alarm kuralı kaynağı: varsayılan auto, span korunur (geri
+// alma), bilinmeyen auto, Normalize PUT'ta düşürmez, redSource'tan bağımsız.
+func TestAlertSourceSettingRoundTrip(t *testing.T) {
+	if d := DefaultAnomalySensitivity(); d.AlertSourceMode() != AnomalyREDSourceAuto || d.AlertSource != AnomalyREDSourceAuto {
+		t.Fatalf("varsayılan auto olmalı: %q", d.AlertSource)
+	}
+	if (AnomalySensitivityConfig{}).AlertSourceMode() != AnomalyREDSourceAuto {
+		t.Fatal("alan yok (eski blob) = auto")
+	}
+	for in, want := range map[string]string{"span": "span", " Span ": "span", "auto": "auto", "vm": "auto", "": "auto"} {
+		if got := NormalizeAnomalySensitivity(AnomalySensitivityConfig{AlertSource: in}).AlertSource; got != want {
+			t.Errorf("Normalize(%q) = %q, beklenen %q", in, got, want)
+		}
+	}
+	in := DefaultAnomalySensitivity()
+	in.AlertSource = "span"
+	b, err := json.Marshal(NormalizeAnomalySensitivity(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"alertSource":"span"`) {
+		t.Fatalf("blob alanı taşımalı: %s", b)
+	}
+	var back AnomalySensitivityConfig
+	if err := json.Unmarshal(b, &back); err != nil {
+		t.Fatal(err)
+	}
+	back = NormalizeAnomalySensitivity(back)
+	if back.AlertSourceMode() != AnomalyREDSourceSpan || back.REDSourceMode() != AnomalyREDSourceAuto {
+		t.Fatalf("gidiş-dönüş / bağımsızlık: alert=%q red=%q", back.AlertSource, back.REDSource)
+	}
+}

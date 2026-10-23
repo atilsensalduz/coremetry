@@ -579,6 +579,7 @@ export default function AlertsPage() {
                   service={draft.service ?? ''}
                   metric={draft.metric ?? 'error_rate'}
                   comparator={draft.comparator ?? '>'}
+                  windowSec={draft.windowSec}
                   onChange={v => setDraft({ ...draft, threshold: v })}
                   onApplySeverity={sev => setDraft(d => ({ ...d, severity: sev }))}
                 />

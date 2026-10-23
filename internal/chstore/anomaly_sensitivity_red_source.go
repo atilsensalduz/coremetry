@@ -49,3 +49,7 @@ func (c AnomalySensitivityConfig) REDSourceMode() string { return normalizeREDSo
 func (c AnomalySensitivityConfig) REDSourceEnvScope() string {
 	return normalizeREDSourceEnv(c.REDSourceEnv)
 }
+
+// AlertSourceMode — v0.10.1489: alarm kurallarının ölçü kaynağı ("auto" |
+// "span"); aynı normalizasyon (bilinmeyen/boş → auto).
+func (c AnomalySensitivityConfig) AlertSourceMode() string { return normalizeREDSource(c.AlertSource) }

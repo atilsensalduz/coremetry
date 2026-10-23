@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cilcenk/coremetry/internal/anomaly"
 	"github.com/cilcenk/coremetry/internal/cache"
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/logstore"
@@ -32,6 +33,9 @@ type Evaluator struct {
 	// vmetrics — v0.9.1213: JVM GC alarmlarının VM dönüşü. nil = VM
 	// kurulmamış, GC değerlendirmesi emekli kalır (runtime_vm.go).
 	vmetrics *vmetrics.Service
+	// alertVM — v0.10.1489: kural ölçüsünün VM kaynağı (alert_source.go). nil =
+	// her kural span (v0.10.1488 davranışı).
+	alertVM alertVMPreparer
 	// pollerSourceLive — v0.10.605 (SetPollerSourceLive); nil = tüm poller Problem'leri muaf.
 	pollerSourceLive func(subject string) bool
 	interval         time.Duration
@@ -547,6 +551,11 @@ func (e *Evaluator) evaluateAll(ctx context.Context) int {
 	// instead of one measure + one count query per (rule, service). The
 	// measured ~70k evaluator queries/hour collapse to ~tens; evaluateOne
 	// consumes the maps below. See prefetch.go.
+	// v0.10.1489 — kural×servis VM ölçüleri (örneklenmemiş; alert_source.go)
+	// CH okumalarıyla PARALEL (≤ 15 s bütçe). Span prefetch'i yine koşar: VM'e
+	// düşmeyen her çift onu okur.
+	vtCh := make(chan *anomaly.AlertVMTick, 1)
+	go func(now time.Time) { vtCh <- e.prepareAlertVM(ctx, rules, now) }(time.Now())
 	pre := prefetchMeasures(ctx, e.store, rules, time.Now())
 
 	// v0.8.520 (perf raporu #9) — açık problem seti tick başında TEK
@@ -558,6 +567,7 @@ func (e *Evaluator) evaluateAll(ctx context.Context) int {
 		openSnap = nil
 	}
 
+	vt := <-vtCh
 	evaluated := 0
 	for _, r := range evaluableRules(rules) {
 		evaluated++
@@ -589,9 +599,10 @@ func (e *Evaluator) evaluateAll(ctx context.Context) int {
 			targets = filterFreshTargets(targets, freshSet)
 		}
 		for _, svc := range targets {
-			e.evaluateOne(ctx, r, svc, pre, openSnap)
+			e.evaluateOne(ctx, r, svc, pre, vt, openSnap)
 		}
 	}
+	vt.Publish()
 
 	// SLO burn-rate alarms — independent of the user-defined
 	// alert rules above. Each configured SLO gets two passes
@@ -838,7 +849,7 @@ func filterFreshTargets(targets []string, fresh map[string]bool) []string {
 	return kept
 }
 
-func (e *Evaluator) evaluateOne(ctx context.Context, r chstore.AlertRule, service string, pre *tickMeasures, openSnap *chstore.OpenProblems) {
+func (e *Evaluator) evaluateOne(ctx context.Context, r chstore.AlertRule, service string, pre *tickMeasures, vt *anomaly.AlertVMTick, openSnap *chstore.OpenProblems) {
 	// Saved-search log alerts (v0.5.242) bypass the per-service
 	// span-metric path entirely. The KQL itself carries any
 	// service / pod / level filter the operator wants; the
@@ -859,86 +870,19 @@ func (e *Evaluator) evaluateOne(ctx context.Context, r chstore.AlertRule, servic
 	if service == "" {
 		return
 	}
-	window := time.Duration(r.WindowSec) * time.Second
-	// v0.8.352 (perf P2-A) — windows the 5m MV serves consume the per-tick
-	// batched prefetch (see prefetch.go). Sub-5m custom windows keep the
-	// per-service raw path below: they're rare (builtins are 5m/10m) and
-	// the 5m MV grid can't reconstruct them (useSummaryMV).
-	batched := pre != nil && useSummaryMV(window)
-
-	// Sample floor (v0.5.128). For sample-dependent metrics
-	// (error_rate / percentiles / avg_ms) a single bad request
-	// in a low-traffic window pushes the value to scary levels
-	// without any real signal — skip the eval entirely below
-	// MinSamples. request_rate / error_count are absolute and
-	// inherently sample-aware, so the gate doesn't apply.
-	if r.MinSamples > 0 && metricNeedsSampleFloor(r.Metric) {
-		var count uint64
-		counted := false
-		if batched {
-			counts, failed, ok := pre.countFor(int(r.WindowSec))
-			if failed {
-				// Batched count read errored this tick (logged at
-				// prefetch) — skip, same as a per-service error.
-				return
-			}
-			if ok {
-				count = counts[service] // absent = no MV buckets = 0 spans
-				counted = true
-			}
-		}
-		if !counted {
-			// Sub-5m window, or a defensive fallback when the pair was
-			// never prefetched (a collectMeasureKeys mismatch — bug).
-			var err error
-			count, err = e.measureCount(ctx, service, window)
-			if err != nil {
-				log.Printf("[evaluator] measure-count %s/%s: %v", r.ID, service, err)
-				return
-			}
-		}
-		if count < uint64(r.MinSamples) {
-			// Also clear any stamped breach so a sustain gate
-			// doesn't carry over once the service warms up.
-			e.clearBreach(ctx, breachKey{RuleID: r.ID, Service: service})
-			return
-		}
+	// v0.10.1489 — ölçü TEK kaynaktan (VM örneklenmemiş ya da span; değer +
+	// minSamples sayımı birlikte). Kapılar aşağıda kaynaktan bağımsız.
+	m := e.measureRule(ctx, r, service, pre, vt)
+	if m.belowFloor {
+		// Also clear any stamped breach so a sustain gate
+		// doesn't carry over once the service warms up.
+		e.clearBreach(ctx, breachKey{RuleID: r.ID, Service: service})
+		return
 	}
-
-	var value float64
-	measured := false
-	if batched {
-		vals, failed, ok := pre.measureFor(r.Metric, int(r.WindowSec))
-		if failed {
-			// Batched read errored this tick (logged at prefetch) —
-			// skip every service on this rule, same blast radius as
-			// the old per-service measure() error.
-			return
-		}
-		if ok {
-			v, present := vals[service]
-			if !present {
-				// Zero traffic in the window. absentMeasure reproduces
-				// what the per-service query returned for an empty
-				// result (0 / NaN / skip) — see prefetch.go.
-				av, evaluate := absentMeasure(r.Metric)
-				if !evaluate {
-					return
-				}
-				v = av
-			}
-			value = v
-			measured = true
-		}
+	if !m.evaluate {
+		return
 	}
-	if !measured {
-		var err error
-		value, err = e.measure(ctx, service, r.Metric, window)
-		if err != nil {
-			log.Printf("[evaluator] measure %s/%s: %v", r.ID, service, err)
-			return
-		}
-	}
+	value := m.value
 
 	breached := compare(value, r.Comparator, r.Threshold)
 
@@ -1005,10 +949,12 @@ func (e *Evaluator) evaluateOne(ctx context.Context, r chstore.AlertRule, servic
 			// ters-çevirme kolu buna bakıyor: alan yokken eşiğin ALTINDA
 			// kalan her ">" kuralı (error_rate 3.9 / eşik 15) ters çevrilip
 			// "3.8x büyük ihlal" sayılıyor ve SAHTE P1 üretiyordu.
-			Comparator:  r.Comparator,
-			Threshold:   r.Threshold,
-			Status:      "open",
-			Description: describeProblem(r, service, value),
+			Comparator: r.Comparator,
+			Threshold:  r.Threshold,
+			Status:     "open",
+			// v0.10.1489 — kaynak satırı: "kaynak: VictoriaMetrics (örneklenmemiş)"
+			// ya da "kaynak: span (örneklenmiş) — VM kullanılmadı: <neden>".
+			Description: anomaly.WithAlertSourceEvidence(describeProblem(r, service, value), m.src),
 			Assignee:    e.defaultAssignee(ctx, service),
 			StartedAt:   time.Now().UnixNano(),
 		}
@@ -1016,8 +962,8 @@ func (e *Evaluator) evaluateOne(ctx context.Context, r chstore.AlertRule, servic
 			log.Printf("[evaluator] open problem: %v", err)
 		} else {
 			e.countOpened() // v0.9.550 — kalp atışı sayacı
-			log.Printf("[evaluator] PROBLEM OPENED: %s · %s = %.2f (threshold %.2f)",
-				service, r.Metric, value, r.Threshold)
+			log.Printf("[evaluator] PROBLEM OPENED: %s · %s = %.2f (threshold %.2f) [%s]",
+				service, r.Metric, value, r.Threshold, m.src.Label())
 			// Auto-group into an Incident — same-service same-severity
 			// problems within 30min get folded under one declared
 			// incident so the oncall has a single place to drive

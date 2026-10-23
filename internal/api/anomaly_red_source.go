@@ -34,12 +34,23 @@ func (s *Server) registerAnomalyREDSourceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/settings/anomaly-red-source/status", auth.RequireRole(auth.RoleAdmin, s.getAnomalyREDSourceStatus))
 }
 
+// redSourceStatusResponse — v0.10.1489: anomali ölçümü + alarm kuralı
+// okuyucusunun son evaluator tiki (`alert`; evaluator lideri olmayan pod boş).
+type redSourceStatusResponse struct {
+	anomaly.REDSourceStats
+	Alert anomaly.AlertVMStats `json:"alert"`
+}
+
 func (s *Server) getAnomalyREDSourceStatus(w http.ResponseWriter, _ *http.Request) {
 	st := anomaly.REDSourceObservability()
 	if st.Families == nil {
 		st.Families = []anomaly.REDSourceFamilyStats{}
 	}
-	writeJSON(w, st)
+	al := anomaly.AlertVMObservability()
+	if al.Families == nil {
+		al.Families = []anomaly.AlertVMFamilyStats{}
+	}
+	writeJSON(w, redSourceStatusResponse{REDSourceStats: st, Alert: al})
 }
 
 // anomalyREDSourceAuditDetail — SAF: kaynak ya da ortam kapsamı değiştiyse

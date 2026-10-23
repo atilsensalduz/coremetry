@@ -54,6 +54,31 @@ export function useAlertRuleSeries(
   });
 }
 
+// useAlertPreviewSeries — v0.10.1489: kural editörünün önizlemesi; sunucu
+// değerlendiricinin kaynağını (VM örneklenmemiş / span) ve taslağın penceresini
+// kullanır, cevap kaynağı söyler. Yoklama YOK (pencere açılışta sabitlenir);
+// servis yoksa sorgu yok (kural servis başına değerlendirilir).
+export function useAlertPreviewSeries(
+  args: { service: string; metric: string; windowSec: number; fromNs: number; toNs: number } | null,
+) {
+  return useQuery<AlertRuleSeries | null>({
+    queryKey: ['alerts', 'preview-series', args?.service ?? '', args?.metric ?? '', args?.windowSec ?? 0,
+      args?.fromNs ?? 0, args?.toNs ?? 0],
+    queryFn: async ({ signal }) => {
+      if (!args) return null;
+      try {
+        return (await api.alertPreviewSeries(args, signal)) ?? null;
+      } catch (err) {
+        if (err instanceof Error && err.message.startsWith('HTTP 404')) return null;
+        throw err;
+      }
+    },
+    enabled: !!args,
+    staleTime: 60_000,
+    placeholderData: undefined,
+  });
+}
+
 // Kural başına açık problem sayısı — /alerts "Open problems" kolonu
 // (v0.9.1109). Sunucu 15s TTL'li; 30s poll rozetle aynı tazelikte,
 // RQ gizli sekmede zaten duraklatır.

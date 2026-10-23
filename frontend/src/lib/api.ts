@@ -3387,11 +3387,19 @@ export const api = {
       `/api/alert-rules/${encodeURIComponent(p.ruleId)}/series?service=${encodeURIComponent(p.service)}` +
         `&metric=${encodeURIComponent(p.metric)}&from=${p.fromNs}${p.toNs ? `&to=${p.toNs}` : ''}`,
       signal),
-  alertBaseline: (params: { service?: string; metric: string; comparator?: string }) => {
+  // v0.10.1489 — kural taslağının önizleme dizisi: değerlendiricinin kaynağı
+  // (VM örneklenmemiş / span) ve taslağın penceresiyle; cevap `source` taşır.
+  alertPreviewSeries: (p: { service: string; metric: string; windowSec: number; fromNs: number; toNs: number }, signal?: AbortSignal) =>
+    get<import('./types').AlertRuleSeries>(
+      `/api/alert-rules/preview-series?service=${encodeURIComponent(p.service)}&metric=${encodeURIComponent(p.metric)}` +
+        `&windowSec=${p.windowSec}&from=${p.fromNs}&to=${p.toNs}`,
+      signal),
+  alertBaseline: (params: { service?: string; metric: string; comparator?: string; windowSec?: number }) => {
     const qs = new URLSearchParams();
     if (params.service)    qs.set('service',    params.service);
     qs.set('metric', params.metric);
     if (params.comparator) qs.set('comparator', params.comparator);
+    if (params.windowSec)  qs.set('windowSec',  String(params.windowSec)); // v0.10.1489 — kaynak kararının girdisi
     return get<{
       metric: string; service: string;
       p50: number; p95: number; p99: number;
@@ -3400,6 +3408,8 @@ export const api = {
       /** v0.10.877 — oran/sayı dağılımlarının kova genişliği (300 = 5 dk); gecikme 0. */
       bucketSec?: number;
       suggestedWarning: number; suggestedCritical: number;
+      /** v0.10.1489 — dağılımın kaynağı = değerlendiricinin kaynağı. */
+      source?: import('./types').AlertSourceInfo;
     }>(`/api/alert-rules/baseline?${qs.toString()}`);
   },
   createAlertRule: (rule: Partial<AlertRule>) =>

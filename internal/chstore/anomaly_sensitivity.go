@@ -165,6 +165,13 @@ type AnomalySensitivityConfig struct {
 	// günler + isteğe bağlı otomatik ay sonu sınıfı; anomaly_calendar.go).
 	// Eksik bölüm (eski blob) = takvim yok, davranış bayt bayt eski.
 	Calendar AnomalyCalendarConfig `json:"calendar"`
+	// AlertSource — v0.10.1489: ALARM KURALLARININ (evaluator evaluateOne +
+	// Alerts önizlemesi / taban önerisi) ölçü kaynağı. "auto" (varsayılan, boş
+	// dahil) = VM yapılandırılmışsa ve servisin HTTP/gRPC sunucu histogramı
+	// varsa ÖRNEKLENMEMİŞ VM penceresi, yoksa kural×servis başına span MV'si;
+	// "span" = v0.10.1488 davranışı (geri alma). Ortam kapsamı REDSourceEnv
+	// (aynı VM kapsamı). Mantık internal/anomaly/alert_vm*.go.
+	AlertSource string `json:"alertSource,omitempty"`
 }
 
 const (
@@ -536,6 +543,8 @@ func DefaultAnomalySensitivity() AnomalySensitivityConfig {
 		REDSource: AnomalyREDSourceAuto,
 		// v0.10.1483 — takvim boş, otomatik ay sonu KAPALI.
 		Calendar: NormalizeAnomalyCalendar(AnomalyCalendarConfig{}),
+		// v0.10.1489 — alarm kuralları da VM varsa örneklenmemiş pencereden (auto).
+		AlertSource: AnomalyREDSourceAuto,
 	}
 }
 
@@ -587,6 +596,8 @@ func NormalizeAnomalySensitivity(c AnomalySensitivityConfig) AnomalySensitivityC
 		// v0.10.1478 — kopyalanmazsa PUT'ta düşer ve kaynak her kayıtta auto'ya dönerdi.
 		REDSource:    normalizeREDSource(c.REDSource),
 		REDSourceEnv: normalizeREDSourceEnv(c.REDSourceEnv),
+		// v0.10.1489 — kopyalanmazsa PUT'ta düşer (kaynak her kayıtta auto'ya dönerdi).
+		AlertSource: normalizeREDSource(c.AlertSource),
 		// v0.10.1483 — kopyalanmazsa PUT'ta düşerdi.
 		Calendar: NormalizeAnomalyCalendar(c.Calendar),
 	}
