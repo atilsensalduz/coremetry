@@ -8,7 +8,8 @@
 // Satır v2 mi → generation + incarnationAt dolu mu (isV2Rollout). ?rollout=
 // kodeki parça sayısıyla ayırır: 5 → workload_rollouts (eski bağlantılar
 // TTL'e dek çalışır), 6 → rollout_events.
-import type { WorkloadRollout } from './types';
+import type { WorkloadRollout, RolloutOrigin } from './types';
+import { fmtDateTime } from './utils';
 
 /** v0.10.984 — satır rollout_events'ten mi (6 parçalı kimlik taşıyor mu). */
 export function isV2Rollout(r: { generation?: number; incarnationAt?: number }): boolean {
@@ -138,6 +139,67 @@ export function changeKindTone(k: RolloutChangeKind): RolloutTone {
     default: return 'neutral';
   }
 }
+/** v0.10.1445 — operatör: "KSM dedektörü doğru mu". KSM `Rollback` türü gerçek
+ * geri almayı (git eski revizyona döndü) eski bir yapının ileri commit'le
+ * yeniden deploy'undan ayıramaz; ayrım Argo CD senkron kaydından gelir
+ * (rollouts_origin.go). İkinci rozet YALNIZ sapmada: forward / unknown → null
+ * (renk yalnız sapan değerde); çekmece hepsini gösterir (originSummary). */
+export interface OriginBadge { label: string; tone: RolloutTone; title: string }
+
+/** git revizyonunu kısalt (sha → 7). */
+export function shortGitRevision(rev?: string): string {
+  const v = (rev ?? '').trim();
+  return /^[0-9a-f]{8,}$/i.test(v) ? v.slice(0, 7) : v || '?';
+}
+
+export function originLabel(kind: string): string {
+  switch (kind) {
+    case 'rollback': return 'Rollback (git)';
+    case 'redeploy_older': return 'Redeploy (older)';
+    case 'forward': return 'Forward';
+    default: return 'Unknown';
+  }
+}
+
+/** Satır ipucu / çekmece açıklaması: prev → new revizyon + güven + sunucunun (EN) gerekçesi. */
+export function originTitle(o: RolloutOrigin): string {
+  const revs = `${shortGitRevision(o.prevRevision)} → ${shortGitRevision(o.newRevision)}`;
+  const conf = o.confidence > 0 ? `güven %${o.confidence}` : '';
+  let head: string;
+  switch (o.kind) {
+    case 'rollback':
+      head = `Argo daha önce senkronlanmış bir revizyona döndü: ${revs}${o.firstSyncedAt ? ` (ilk senkron ${fmtDateTime(new Date(o.firstSyncedAt))})` : ''}`;
+      break;
+    case 'redeploy_older':
+      head = `Yeni git revizyonu (daha önce senkronlanmamış): ${revs}${o.prevTag || o.newTag ? `, imaj ${o.prevTag || '?'} → ${o.newTag || '?'}` : ''} — eski bir yapının ileri commit'le yeniden deploy'u`;
+      break;
+    case 'forward':
+      head = `Yeni git revizyonu: ${revs}`;
+      break;
+    default:
+      head = o.basis === 'argocd_webhook' ? `Argo senkronu bulundu ama kaynak belirsiz: ${revs}` : 'Git kaynağı bilinmiyor';
+  }
+  return [head, conf, o.reason].filter(Boolean).join(' · ');
+}
+
+/** Tablodaki ikinci rozet: yalnız rollback / redeploy_older. */
+export function originBadge(r: Pick<WorkloadRollout, 'origin'>): OriginBadge | null {
+  const o = r.origin;
+  if (!o) return null;
+  if (o.kind === 'rollback') return { label: originLabel(o.kind), tone: 'danger', title: originTitle(o) };
+  if (o.kind === 'redeploy_older') return { label: originLabel(o.kind), tone: 'warning', title: originTitle(o) };
+  return null;
+}
+
+/** Çekmece "kaynak" satırının ek bilgisi: app · başlatan. */
+export function originAppLine(o: RolloutOrigin): string {
+  const parts: string[] = [];
+  if (o.app) parts.push(`${o.app.appNamespace}/${o.app.appName}${o.app.matchClass ? ` (${o.app.matchClass})` : ''}`);
+  if (o.automated !== undefined) parts.push(o.automated ? 'auto-sync' : `elle sync${o.initiator ? ` · ${o.initiator}` : ''}`);
+  if (o.historyDepth) parts.push(`geçmiş ${o.historyDepth} senkron`);
+  return parts.join(' · ');
+}
+
 /** Tam imaj kimliği `repo:tag`; ikisi de boşsa '—'. */
 export function imageRef(image: string, tag: string): string {
   if (!image && !tag) return '—';

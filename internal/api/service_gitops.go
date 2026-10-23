@@ -304,6 +304,9 @@ func (s *Server) serviceGitOpsRollouts(ctx context.Context, resp *serviceGitOpsR
 		resp.Rollouts.Note = "rollout listesi okunamadı (geçici CH hatası olabilir; ayrıntı: sunucu logları)"
 		return
 	}
+	if src == rollout.SourceV2 {
+		s.attachRolloutOrigin(ctx, rows) // v0.10.1445 — "change" hücresinin git kaynağı rozeti (rollouts_origin.go)
+	}
 	resp.Rollouts.Rows = rows
 	resp.Rollouts.Capped = len(rows) >= serviceGitOpsRolloutsCap
 }

@@ -394,6 +394,9 @@ type RolloutRow struct {
 	// v2'ye özgü alanlar (rollout_v2_read.go RolloutRowFromV2). nil = v1
 	// satırı → JSON'a HİÇBİR ek anahtar girmez (v1 cevabı bayt bayt aynı).
 	V2 *RolloutV2Fields `json:"-"`
+	// Origin — v0.10.1445: v2 satırının git kaynağı (Argo CD senkron kaydı;
+	// api/rollouts_origin.go okuma anında doldurur). nil → anahtar GİRMEZ.
+	Origin *rollout.RolloutOrigin `json:"-"`
 }
 
 // MarshalJSON — camelCase alanlar (lib/types.ts aynası); sıfır zamanlar 0.
@@ -423,6 +426,9 @@ func (r RolloutRow) MarshalJSON() ([]byte, error) {
 		for k, v := range r.V2.jsonFields(ms) {
 			m[k] = v
 		}
+	}
+	if r.Origin != nil {
+		m["origin"] = r.Origin
 	}
 	return json.Marshal(m)
 }

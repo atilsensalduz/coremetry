@@ -9214,6 +9214,25 @@ export interface WorkloadRollout {
   /** progress_deadline | timeout | '' */
   stuckReason?: string;
   succeededAt?: number; stuckAt?: number; finishedAt?: number;
+  /** v0.10.1445 — git kaynağı (Argo CD senkron webhook'u; okuma anında). Yalnız v2 satırında ve Argo entegrasyonu açıkken. */
+  origin?: RolloutOrigin;
+}
+/** v0.10.1445 — rollout.RolloutOrigin aynası. rollback = Argo daha önce senkronlanmış bir revizyona döndü;
+ *  redeploy_older = YENİ git revizyonu ama yapı eski sürüme döndü; Argo kanıtı yoksa her zaman unknown. Zamanlar ms. */
+export interface RolloutOrigin {
+  kind: 'rollback' | 'redeploy_older' | 'forward' | 'unknown' | string;
+  confidence: number;
+  reason: string;
+  basis: 'argocd_webhook' | 'none' | string;
+  app?: { instanceId: string; appNamespace: string; appName: string; matchMethod?: string; matchClass?: string };
+  prevRevision?: string; newRevision?: string;
+  prevRevisionAt?: number; newRevisionAt?: number;
+  /** rollback: yeni revizyonun daha önceki (ilk) senkronu. */
+  firstSyncedAt?: number;
+  prevTag?: string; newTag?: string;
+  tagOrder?: 'older' | 'newer' | 'equal' | 'unordered' | string;
+  automated?: boolean; initiator?: string;
+  historyDepth?: number;
 }
 /** v2: true — v0.10.984, sunucu rollout_events okudu (rollouts.source="v2"); v1 cevabında anahtar yok. */
 export interface RolloutListResponse { rollouts: WorkloadRollout[]; from: number; to: number; limit: number; capped?: boolean; note?: string; disabled?: boolean; v2?: boolean;

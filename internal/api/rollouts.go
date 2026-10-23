@@ -135,6 +135,7 @@ func (s *Server) listRollouts(w http.ResponseWriter, r *http.Request) {
 		s.attachRolloutServices(ctx, rows) // v0.10.1420 — Workload hücresi → servis sayfası (tek toplu MV sorgusu)
 		if src == rollout.SourceV2 {
 			s.attachV2Traffic(ctx, rows, from, to) // v0.10.1212 — "trafik geçti" (rollouts_v2_traffic.go)
+			s.attachRolloutOrigin(ctx, rows)       // v0.10.1445 — git kaynağı: rollback | redeploy_older (rollouts_origin.go)
 		}
 		resp := map[string]any{"rollouts": rows, "from": from.UnixMilli(), "to": to.UnixMilli(), "limit": limit,
 			// v0.10.1262 — viewer de görsün (ayar ucu admin): uygulanan desenler + bu cevapta uygulandı mı.
@@ -204,6 +205,7 @@ func (s *Server) getRollout(w http.ResponseWriter, r *http.Request) {
 			if row == nil {
 				return nil, errNotFound
 			}
+			s.attachRolloutOriginOne(ctx, row) // v0.10.1445
 			return map[string]any{"rollout": row}, nil
 		})
 		return

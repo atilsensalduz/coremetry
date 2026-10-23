@@ -789,6 +789,8 @@ TTL toDate(changed_at) + INTERVAL 180 DAY
 
 #### 10.3.4 `argocd_sync_events`: operations from the Argo API
 
+> v0.10.1445 — first writer: Argo CD Notifications webhook `POST /api/argocd/sync-events` (`internal/api/argocd_sync_webhook.go`, rows from `argocd.RowsFromSyncWebhook`, `status.history[]` seeded). Reader: Rollouts git-origin badge (`internal/api/rollouts_origin.go`). The API worker can fill the same table later without a schema change.
+
 ```sql
 CREATE TABLE IF NOT EXISTS argocd_sync_events (
   instance_id          LowCardinality(String),

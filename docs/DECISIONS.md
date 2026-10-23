@@ -9558,3 +9558,38 @@ bilinmeyen alan → yok sayılır, sonraki upsert'te düşer. Bayrak yok: probe 
 **Testler:** `chat_turn_blocks_test.go`, `ai_conversations_blocks_test.go`, `cosre_interactions_test.go` (kuyruk bayt bütçesi,
 bloklamama); chstore `cosre_interactions_test.go` (INSERT hizası, okuma SQL sınırları), `cosre_interactions_toolset_test.go`
 (ALTER + yeniden probe); FE `chatPersist.test.ts`, `chatThreadPersist.test.tsx`, `CopilotChat.explainCards.test.tsx` (?chat= kart + not).
+
+## 2026-10-23 — v0.10.1445 — Rollouts: geri almanın KAYNAĞI (git) — Argo CD senkron webhook'u + okuma anında sınıflandırma
+
+**Operatör:** "KSM dedektörü rollback'i doğru hesaplıyor mu?" — v0.10.1421 kanıtsız 'rolled back'i kaldırdı; kalan boşluk
+GERÇEK geri alma (git eski revizyona döndü) ile ESKİ commit'in yeniden deploy'u (git ileri gitti, imaj geri geldi) ayrımı.
+KSM ikisini ayıramaz: pod şablonu bayt bayt aynı olunca Kubernetes eski ReplicaSet'i yeniden kullanır; `kubectl rollout undo`
+ile GitOps revert'i KSM'de özdeştir. Argo metrikleri revizyon taşımaz (argo-annex §3: argocd_app_info'da SHA yok) — Thanos/VM
+yolu kapalı.
+
+**Karar 1 — kaynak: Argo CD Notifications webhook'u → `POST /api/argocd/sync-events` (editor token) → MEVCUT
+`argocd_sync_events` tablosu** (§10.3.4 DDL'i vardı, yazıcısı yoktu; şema değişmedi). `events` tablosuna yazılmadı: revizyon/app/
+iş yükü kolonu yok; `argocd_app_mapping` zaten app→iş yükü kenarını verir. `status.history[]` tohum satırı olarak yazılır →
+"daha önce senkronlanmış mı" API işçisi olmadan cevaplanır. Tohum version'ı = op_started_at Unix **ms**, canlı version = now
+Unix **ns** (planın "now−1"i değil: bir SONRAKİ webhook'un tohumu önceki canlı satırı ezip automated/initiator/iş yükü
+kolonlarını silerdi). İleride argocd-api işçisi aynı tabloyu doldurur. Instance kayıtlı+etkin değilse 400.
+
+**Karar 2 — sınıflandırma okuma anında** (`rollout.ClassifyRolloutOrigin` SAF; `api/rollouts_origin.go attachRolloutOrigin`;
+liste, tek satır, çekmece ve Servis GitOps sekmesi): rollback | redeploy_older | forward | unknown. Argo kanıtı yoksa HER ZAMAN
+unknown — tag sırası tek başına geri alma kanıtı değil. Çapa KSM started_at ∈ [op_started − W, max(finished, op_started) + W]
+(W = classification.windowMin, 5 dk); senkronlanan iş yükü listesi doluysa ve bu iş yükünü içermiyorsa aday değil; pencerede
+iki ayrı revizyon ya da iş yüküne iki uygulama → unknown; zayıf (namespace) kenar kanıt değil. Liste başına iki sınırlı sorgu
+(kenarlar + senkronlar, FINAL + LIMIT BY + LIMIT + max_execution_time), hata → log, alan yok. Argo entegrasyonu kapalıysa
+sorgu yok. `rollout_classification` tablosu dokunulmadı.
+
+**Karar 3 — FE:** "change" rozetinin yanında ikinci rozet yalnız sapmada: "Rollback (git)" (danger) / "Redeploy (older)"
+(warning); forward/unknown yalnız çekmecede ("kaynak" satırı: prev → new revizyon, app, başlatan, gerekçe). Toplu sekmesi
+"Rollback (git)" kutusu bu sürümde YOK (1000 satırlık ek liste sorgusu ölçülmeden eklenmedi; kuyrukta).
+
+**Geri alma:** sürüm commit'i revert → yeni etiket; `argocd_sync_events` satırları zararsız (purge.go, TTL), şema değişikliği
+yok; `origin` isteğe bağlı anahtar — eski FE yok sayar. Operatör tarafı: `argocd-notifications-cm`'deki `coremetry`
+aboneliğini kaldır.
+
+**Testler:** origin_test.go (doğruluk tablosu + "Argo yoksa unknown"), sync_event_test.go, argocd_sync_store_test.go,
+argocd_sync_webhook_test.go (rol kapısı, kayıtsız instance, 413, audit), rollouts_origin_test.go (pencere, tohumdan
+SeenBefore, belirsiz eşleme, soft-fail, JSON şekli); FE rolloutOrigin.test.ts.

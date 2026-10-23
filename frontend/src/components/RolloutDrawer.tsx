@@ -21,7 +21,7 @@ import { fmtDateTime, fmtNum, fmtDurShort } from '@/lib/utils';
 import { useRolloutDetail, useEntityClusters } from '@/lib/queries';
 import { CopyButton } from '@/components/CopyButton';
 import { useDataTable, DataTableHead, DataTableColgroup, DataTableCell, DataTableState, type ColumnDef } from '@/components/ui/DataTable';
-import { statusTone, statusLabel, statusTitle, shortRevision, imageDiff, rolloutChangeKind, changeKindLabel, changeKindTitle, changeKindTone, rolloutPlaceLabel, isV2Rollout, replicaSummary, rolloutTimeline, imageLines } from '@/lib/rolloutRow';
+import { statusTone, statusLabel, statusTitle, shortRevision, imageDiff, rolloutChangeKind, changeKindLabel, changeKindTitle, changeKindTone, rolloutPlaceLabel, isV2Rollout, replicaSummary, rolloutTimeline, imageLines, originLabel, originTitle, originAppLine } from '@/lib/rolloutRow';
 import type { RolloutIdParam } from '@/lib/rolloutRow';
 import type { ServiceReportSection } from '@/lib/types';
 
@@ -82,6 +82,8 @@ export function RolloutDrawer({ id, onClose }: { id: RolloutIdParam; onClose: ()
           <DrawerSection title="Geçiş">
             <KeyValue>
               <KeyValueRow k="tür" v={<><Badge tone={changeKindTone(k)}>{changeKindLabel(k)}</Badge> <span className="field-hint">{changeKindTitle(k)}</span></>} />
+              {/* v0.10.1445 — git kaynağı (Argo CD senkron webhook'u): forward / unknown dahil hepsi burada; tabloda yalnız sapma. */}
+              {r.origin && <KeyValueRow k="kaynak" v={<><Badge tone={r.origin.kind === 'rollback' ? 'danger' : r.origin.kind === 'redeploy_older' ? 'warning' : 'neutral'}>{originLabel(r.origin.kind)}</Badge> <span className="field-hint">{originTitle(r.origin)}{originAppLine(r.origin) ? ` · ${originAppLine(r.origin)}` : ''}</span></>} />}
               <KeyValueRow k="durum" v={<><Badge tone={statusTone(r.status)}>{statusLabel(r.status)}</Badge> <span className="field-hint">{statusTitle(r.status, v2)}{r.stuckReason ? ` · neden ${r.stuckReason}` : ''}</span></>} />
               <KeyValueRow k="küme" mono title={`cluster id ${r.clusterId}`} v={rolloutPlaceLabel(r, clusterName)} />
               <KeyValueRow k="revizyon" mono v={<>{r.prevRevision || '—'} → <b>{r.revision || '—'}</b> {r.revision && <CopyButton value={r.revision} title="Revizyonu kopyala" />}</>} />

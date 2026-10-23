@@ -60,7 +60,7 @@ import { serviceHref } from '@/lib/serviceHref';
 import { SvcBadge } from '@/components/traces/shared'; // v0.10.1328 — Traces Service kolonuyla aynı hap
 import { tracesPivotHref } from '@/lib/pivotHref';
 import { entityHref } from '@/lib/entityHref';
-import { rolloutKey, statusTone, statusLabel, statusTitle, rolloutDurationSec, shortRevision, imageDiff, encodeRolloutParam, decodeRolloutParam, rolloutTracesFilters, rolloutChangeKind, changeKindLabel, changeKindTitle, changeKindTone, replicaSummary, parseNamespacePatterns, invalidNamespacePatterns, namespaceExcluded } from '@/lib/rolloutRow';
+import { rolloutKey, statusTone, statusLabel, statusTitle, rolloutDurationSec, shortRevision, imageDiff, encodeRolloutParam, decodeRolloutParam, rolloutTracesFilters, rolloutChangeKind, changeKindLabel, changeKindTitle, changeKindTone, originBadge, replicaSummary, parseNamespacePatterns, invalidNamespacePatterns, namespaceExcluded } from '@/lib/rolloutRow';
 import { ROLLOUT_SORT_DEFAULT, ROLLOUT_SORT_IDS, ROLLOUT_SORT_URL_KEY, parseRolloutSort, rolloutSortApiParams } from '@/lib/rolloutSort';
 import type { RolloutStats, WorkloadRollout } from '@/lib/types';
 
@@ -307,7 +307,7 @@ export default function RolloutsPage() {
                         {/* v0.10.565 — cluster kendi kolonunda; ad çözülemezse ham id (clusterName). */}
                         <DataTableCell dt={dt} col="cluster" row={r} value={cname} />
                         <DataTableCell dt={dt} col="kind" row={r} className="field-hint">{r.kind || '—'}</DataTableCell>
-                        <DataTableCell dt={dt} col="change" row={r}>{(() => { const k = rolloutChangeKind(r); return <Badge tone={changeKindTone(k)} title={changeKindTitle(k)}>{changeKindLabel(k)}</Badge>; })()}</DataTableCell>
+                        <DataTableCell dt={dt} col="change" row={r}>{(() => { const k = rolloutChangeKind(r); const ob = originBadge(r); /* v0.10.1445 — git kaynağı rozeti yalnız sapmada */ return <><Badge tone={changeKindTone(k)} title={changeKindTitle(k)}>{changeKindLabel(k)}</Badge>{ob && <> <Badge tone={ob.tone} title={ob.title}>{ob.label}</Badge></>}</>; })()}</DataTableCell>
                         <DataTableCell dt={dt} col="revision" row={r} title={r.revision || undefined}>{r.revision ? shortRevision(r.revision, r.workload) : '—'}{r.prevRevision ? <span className="field-hint"> ← {shortRevision(r.prevRevision, r.workload)}</span> : null}</DataTableCell>
                         {v2 && <DataTableCell dt={dt} col="gen" row={r} title="nesil · güncel/hazır/istenen replika (KSM)">{fmtNum(r.generation ?? 0)}<span className="field-hint"> · {replicaSummary(r)}</span></DataTableCell>}
                         <DataTableCell dt={dt} col="image" row={r} title={r.image || undefined}>{imageDiff(r)}</DataTableCell>

@@ -129,6 +129,7 @@ func (s *Server) getRolloutDetailV2(w http.ResponseWriter, r *http.Request, id c
 		if row == nil {
 			return nil, errNotFound
 		}
+		s.attachRolloutOriginOne(ctx, row) // v0.10.1445 — çekmecenin "origin" satırı
 		if !haveCluster {
 			return rolloutDetailNoCluster(*row), nil
 		}

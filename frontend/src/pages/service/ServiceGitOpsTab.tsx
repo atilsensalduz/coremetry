@@ -34,6 +34,7 @@ import { fmtDateTime, fmtDurShort } from '@/lib/utils';
 import {
   rolloutKey, statusTone, statusLabel, statusTitle, rolloutDurationSec, imageDiff, isV2Rollout,
   encodeRolloutParam, rolloutChangeKind, changeKindLabel, changeKindTitle, changeKindTone,
+  originBadge,
 } from '@/lib/rolloutRow';
 import {
   appsForWorkload, syncTone, healthTone,
@@ -188,7 +189,7 @@ function RolloutsSection({ d, pending, err, onRetry, clusterName }: {
                     {r.workload}<span className="field-hint"> · {r.namespace}</span>
                   </DataTableCell>
                   <DataTableCell dt={dt} col="cluster" row={r} value={cname} />
-                  <DataTableCell dt={dt} col="change" row={r}><Badge tone={changeKindTone(k)} title={changeKindTitle(k)}>{changeKindLabel(k)}</Badge></DataTableCell>
+                  <DataTableCell dt={dt} col="change" row={r}><Badge tone={changeKindTone(k)} title={changeKindTitle(k)}>{changeKindLabel(k)}</Badge>{(() => { const ob = originBadge(r); return ob && <> <Badge tone={ob.tone} title={ob.title}>{ob.label}</Badge></>; })() /* v0.10.1445 */}</DataTableCell>
                   <DataTableCell dt={dt} col="image" row={r} title={r.image || undefined} value={imageDiff(r)} />
                   <DataTableCell dt={dt} col="argo" row={r}
                     title={own.length ? own.map(a => `${a.name} · autosync ${autoSyncLabel(a.autoSync)}`).join('\n') : 'Bu iş yüküne eşlenen Argo uygulaması yok'}>
