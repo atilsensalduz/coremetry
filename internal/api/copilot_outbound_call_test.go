@@ -367,6 +367,14 @@ type fakeOutboundReader struct {
 	aggErr    error
 	calls     []string
 	lastQuery chstore.OutboundQuery
+	// v0.10.1455 (R2)
+	codes       []chstore.OutboundCode
+	codeQuery   chstore.OutboundQuery
+	hostCallers func(from, to time.Time) []chstore.ExternalCaller
+	hostErr     error
+	hostWins    []time.Duration
+	trend       []chstore.ExternalTrendPoint
+	aggsFn      func(q chstore.OutboundQuery) []chstore.OutboundAgg
 }
 
 func (f *fakeOutboundReader) note(s string) {
@@ -405,12 +413,39 @@ func (f *fakeOutboundReader) OutboundAggs(_ context.Context, q chstore.OutboundQ
 	f.lastQuery = q
 	f.mu.Unlock()
 	f.note("aggs")
+	if f.aggsFn != nil {
+		return f.aggsFn(q), f.aggErr
+	}
 	return f.aggs, f.aggErr
 }
 
 func (f *fakeOutboundReader) OutboundSeries(context.Context, chstore.OutboundQuery, int64, bool) ([]chstore.OutboundPoint, error) {
 	f.note("series")
 	return f.points, nil
+}
+
+func (f *fakeOutboundReader) OutboundCodes(_ context.Context, q chstore.OutboundQuery) ([]chstore.OutboundCode, error) {
+	f.mu.Lock()
+	f.codeQuery = q
+	f.mu.Unlock()
+	f.note("codes")
+	return f.codes, nil
+}
+
+func (f *fakeOutboundReader) OutboundHostCallers(_ context.Context, host string, from, to time.Time) ([]chstore.ExternalCaller, error) {
+	f.mu.Lock()
+	f.hostWins = append(f.hostWins, to.Sub(from))
+	f.mu.Unlock()
+	f.note("hostcallers:" + host)
+	if f.hostCallers == nil {
+		return nil, f.hostErr
+	}
+	return f.hostCallers(from, to), f.hostErr
+}
+
+func (f *fakeOutboundReader) OutboundHostTrend(_ context.Context, host, caller string, _, _ time.Time) ([]chstore.ExternalTrendPoint, error) {
+	f.note("trend:" + host + ":" + caller)
+	return f.trend, nil
 }
 
 func installOutboundReader(t *testing.T, f *fakeOutboundReader) {
@@ -613,8 +648,16 @@ func TestOutboundGuidedReadError(t *testing.T) {
 	if m, _ := last.payload.(map[string]any); last.kind != "answer" || !strings.Contains(m["text"].(string), "OKUNAMADI") {
 		t.Errorf("son olay: %+v", last)
 	}
-	if h, _ := (&Server{}).guidedOutboundAnswer(context.Background(), emit, guidedRoute{Intent: guidedOutboundCall}, nil, to, to); h {
-		t.Error("yolsuz / çağıransız rota sahiplenilmemeli")
+	// v0.10.1455 (R2): yolsuz rota artık host özetine gider; host da aday da
+	// yoksa (katalog boş / okunamadı) dürüst "çözülemedi" cevabı, ölçüm yok.
+	// Yollu ama çağıransız rota hâlâ sahiplenilmez.
+	evs2, emit2 := captureEmit()
+	if h, _ := (&Server{}).guidedOutboundAnswer(context.Background(), emit2, guidedRoute{Intent: guidedOutboundCall}, nil, to, to); !h ||
+		len(*evs2) != 1 || !strings.Contains((*evs2)[0].payload.(map[string]any)["text"].(string), "Dış host kataloğu boş ya da okunamadı") {
+		t.Errorf("yolsuz + hostsuz rota: %+v", *evs2)
+	}
+	if h, _ := (&Server{}).guidedOutboundAnswer(context.Background(), emit, guidedRoute{Intent: guidedOutboundCall, OutboundPath: obTestPath}, nil, to, to); h {
+		t.Error("yollu / çağıransız rota sahiplenilmemeli")
 	}
 }
 

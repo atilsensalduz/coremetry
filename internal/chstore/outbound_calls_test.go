@@ -156,3 +156,92 @@ func TestOutboundTailArgs(t *testing.T) {
 		t.Errorf("env/peer'siz bağ sayısı %d, want 5", n)
 	}
 }
+
+// ─── v0.10.1455 (R2) — host-yalnız, ortam kırılımı, iş kodları ─────────
+
+// TestOutboundR2SQLBounded — R2 ham okumaları da R1 sınırlarını taşır
+// (FROM spans + PREWHERE client + service_name IN + DateTime64 + LIMIT +
+// max_execution_time, audit CHECK 6 penceresi); ortam ob_env ile en iç
+// katmandan taşınır, iş kodları tür başına LIMIT 5 BY kind.
+func TestOutboundR2SQLBounded(t *testing.T) {
+	codes, codeArgs := outboundCodesSQL(true, true)
+	variants := map[string]string{
+		"agg-env":    outboundSQLWith(outboundSQLOpts{sel: outboundAggSelWith(true, true, true), group: "env, service_name, peer, path, win", order: "calls DESC", limit: outboundAggLimit, withEnv: true, pass: []outboundPass{outboundEnvPass}}),
+		"series-env": outboundSQLWith(outboundSQLOpts{sel: outboundSeriesSelBy(OutboundSeriesByEnv), group: "b, svc", order: "b ASC", limit: outboundSeriesLimit, withEnv: true, pass: []outboundPass{outboundEnvPass}}),
+		"codes":      codes,
+	}
+	for name, sql := range variants {
+		for _, m := range []string{"FROM spans", "PREWHERE kind = 'client' AND db_system = '' AND msg_system = ''",
+			"WHERE service_name IN ? AND time >= toDateTime64(?, 9, 'UTC') AND time < toDateTime64(?, 9, 'UTC')",
+			"SETTINGS max_execution_time = 8", externalPeerHostSQL + " AS peer", "AND deploy_env IN ?"} {
+			if !strings.Contains(sql, m) {
+				t.Errorf("%s: %q yok", name, m)
+			}
+		}
+		lines := strings.Split(sql, "\n")
+		at, ok := -1, false
+		for i, l := range lines {
+			if strings.Contains(l, "FROM spans") {
+				at = i
+			}
+		}
+		for i := at + 1; i < len(lines) && i <= at+10; i++ {
+			if strings.Contains(lines[i], "LIMIT") {
+				ok = true
+			}
+		}
+		if !ok {
+			t.Errorf("%s: LIMIT FROM spans'ten sonraki 10 satırda değil (audit CHECK 6)", name)
+		}
+	}
+	if !strings.Contains(variants["agg-env"], "deploy_env AS ob_env") || !strings.Contains(variants["agg-env"], "ob_env AS env") {
+		t.Error("ortam en iç katmandan ob_env olarak taşınmalı")
+	}
+	if !strings.Contains(variants["agg-env"], "'(tüm yollar)' AS path") {
+		t.Error("host-yalnız okuma yol başına bölünmemeli")
+	}
+	if !strings.Contains(variants["series-env"], "ob_env AS svc") {
+		t.Error("seri ortam başına")
+	}
+	for _, m := range []string{"HAVING code != ''", "LIMIT 5 BY kind", "LIMIT 10", "arrayJoin([tuple('function_code', toString(ob_fc)), tuple('channel_code', toString(ob_cc))])"} {
+		if !strings.Contains(codes, m) {
+			t.Errorf("codes: %q yok", m)
+		}
+	}
+	if strings.Count(codes, "?") < 7+len(codeArgs) {
+		t.Errorf("codes bağ sayısı: %d ? / %d pass bağı", strings.Count(codes, "?"), len(codeArgs))
+	}
+	// R1 sorgusu bayt bayt korunur: outboundSQL == pass'siz outboundSQLWith.
+	if outboundSQL("x", "g", "o", 5, true, true) != outboundSQLWith(outboundSQLOpts{sel: "x", group: "g", order: "o", limit: 5, withEnv: true, withPeer: true}) {
+		t.Error("outboundSQL sarmalayıcısı farklı metin üretiyor")
+	}
+	if strings.Contains(outboundAggSel(true), "ob_env") || !strings.Contains(outboundAggSel(true), "'' AS env") {
+		t.Error("R1 ölçümünde ortam sütunu boş sabit")
+	}
+}
+
+// TestOutboundHostMVSQL — host-yalnız özet MV-first: externalCallersSQL /
+// externalTrendSQL'in KENDİSİ (enstrümante servis dışlaması dahil); tek
+// çağıranlı trend yalnız parent_service yüklemi ekler, ham spans yok.
+func TestOutboundHostMVSQL(t *testing.T) {
+	if outboundHostTrendSQL(false) != externalTrendSQL() {
+		t.Error("çağıransız trend externalTrendSQL olmalı")
+	}
+	one := outboundHostTrendSQL(true)
+	if one == externalTrendSQL() || !strings.Contains(one, outboundTrendHostPred+" AND parent_service = ?") {
+		t.Errorf("tek çağıran yüklemi eklenmedi:\n%s", one)
+	}
+	if strings.Count(one, "?") != strings.Count(externalTrendSQL(), "?")+1 {
+		t.Error("tek ek bağ")
+	}
+	for _, sql := range []string{one, externalCallersSQL()} {
+		for _, m := range []string{"FROM topology_edges_5m FINAL", "node_kind = 'external'", "time_bucket >= ? AND time_bucket < ?", "LIMIT ", "max_execution_time", "NOT arrayExists"} {
+			if !strings.Contains(sql, m) {
+				t.Errorf("%q yok", m)
+			}
+		}
+		if strings.Contains(sql, "FROM spans") {
+			t.Error("MV okuması ham spans'e gitmemeli")
+		}
+	}
+}

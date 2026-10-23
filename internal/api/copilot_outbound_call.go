@@ -69,6 +69,8 @@ type outboundHit struct {
 	Env     string   // tek ortam süzgeci
 	Scan    bool     // çağıran belirsizdi: ≤100 dış çağıran tarandı (beyan)
 	Src     string   // "mv" | "raw"
+	Envs    []string // v0.10.1455 — ≥2 ortam anıldı: ortam başına kırılım
+	ProbeS  int64    // v0.10.1455 — MV sondasının penceresi (sn); ham sonda 0
 }
 
 // outboundSlot — copilotChat'in ön-getirmeden ÖNCE kurduğu tutucu.
@@ -119,7 +121,7 @@ func (o *outboundSlot) get() *outboundHit {
 func (h outboundHit) route() guidedRoute {
 	return guidedRoute{Intent: guidedOutboundCall, Service: h.Service, Env: h.Env,
 		OutboundPath: h.Path, OutboundPeer: h.Peer, OutboundCallers: append([]string(nil), h.Callers...),
-		OutboundScan: h.Scan, OutboundSrc: h.Src}
+		OutboundScan: h.Scan, OutboundSrc: h.Src, EnvSet: append([]string(nil), h.Envs...), OutboundProbeS: h.ProbeS}
 }
 
 // ─── sonda kararı (SAF) ───────────────────────────────────────────────
@@ -310,6 +312,9 @@ type outboundRender struct {
 	ReadErr    error // ana ölçüm okunamadı
 	WeekErr    error
 	Clamped    string
+	Envs       []string // v0.10.1455 — ≥2 ortam: ortam başına kırılım
+	EnvLines   string   // v0.10.1455 — "KÜME KIYASI" satırları (outboundEnvLinesTR)
+	Source     string   // "" = outboundSourceTR
 }
 
 // outboundSubjectTR — SAF: "orders-api → esbprod.example.internal · /yol".
@@ -338,13 +343,24 @@ func renderOutboundTR(in outboundRender) string {
 		return b.String()
 	}
 	envNote := ""
-	if in.Env != "" {
+	switch {
+	case len(in.Envs) >= 2:
+		envNote = ", ortamlar " + strings.Join(in.Envs, ", ")
+	case in.Env != "":
 		envNote = ", ortam " + in.Env
 	}
+	src := in.Source
+	if src == "" {
+		src = outboundSourceTR
+	}
 	if in.Cur.Calls == 0 {
-		fmt.Fprintf(&b, "%s (%s%s, kaynak: %s): bu pencerede bu yola giden client span YOK (boş küme = sıfır çağrı değil, örneklenmiş trace'te görünmedi).", subj, win, envNote, outboundSourceTR)
+		where := "bu yola"
+		if in.Path == "(tüm yollar)" { // v0.10.1455 — yolsuz host özeti
+			where = "bu hosta"
+		}
+		fmt.Fprintf(&b, "%s (%s%s, kaynak: %s): bu pencerede %s giden client span YOK (boş küme = sıfır çağrı değil, örneklenmiş trace'te görünmedi).", subj, win, envNote, src, where)
 	} else {
-		fmt.Fprintf(&b, "%s (%s%s, kaynak: %s): %s çağrı, ort %s", subj, win, envNote, outboundSourceTR, fmtCountTR(in.Cur.Calls), fmtMsTR(in.Cur.AvgMs))
+		fmt.Fprintf(&b, "%s (%s%s, kaynak: %s): %s çağrı, ort %s", subj, win, envNote, src, fmtCountTR(in.Cur.Calls), fmtMsTR(in.Cur.AvgMs))
 		var refs []string
 		if in.Prev.measured() {
 			refs = append(refs, "önceki pencere "+fmtMsTR(in.Prev.AvgMs))
@@ -360,7 +376,7 @@ func renderOutboundTR(in outboundRender) string {
 			}
 			b.WriteString(" (" + strings.Join(refs, ", ") + ratio + ")")
 		}
-		if in.Cur.P95Exact {
+		if in.Cur.P95Exact && in.Cur.P95Ms > 0 {
 			b.WriteString(", p95 " + fmtMsTR(in.Cur.P95Ms))
 		}
 		fmt.Fprintf(&b, ", hata %%%s", trNum(in.Cur.errPct()))
@@ -382,6 +398,9 @@ func renderOutboundTR(in outboundRender) string {
 		default:
 			b.WriteString("Belirgin fark yok (±%20 / +2 puan eşiği altında).")
 		}
+	}
+	if in.EnvLines != "" {
+		b.WriteString("\n" + in.EnvLines)
 	}
 	if in.Cur.Groups > 1 || in.PathGroups > 1 {
 		fmt.Fprintf(&b, "\n%d çağıran·host·yol grubu eşleşti; ayrıntı tabloda (p95 grup başına).", in.Cur.Groups)
@@ -412,6 +431,12 @@ func outboundChartTitle(callers []string, peer, path string) string {
 // outboundChartPayload — SAF: ort ms + p95 ms (secondary) + hata %; Group =
 // çağıran (perCaller). Nokta [unixMs, değer]; ≤120 kova sunucu adımından.
 func outboundChartPayload(points []chstore.OutboundPoint, title, href string, from, to time.Time) *mcptools.EvChartPayload {
+	return outboundChartPayloadP(points, title, href, "p95 ms", from, to)
+}
+
+// outboundChartPayloadP — v0.10.1455: yüzdelik serinin adı parametre (MV
+// trendi p99 kova maksimumu taşır: "p99 ms").
+func outboundChartPayloadP(points []chstore.OutboundPoint, title, href, pctName string, from, to time.Time) *mcptools.EvChartPayload {
 	type key struct{ grp, name string }
 	idx := map[key]int{}
 	var series []mcptools.EvChartSeries
@@ -433,7 +458,7 @@ func outboundChartPayload(points []chstore.OutboundPoint, title, href string, fr
 		}
 		ms := p.Bucket * 1000
 		add(p.Service, "ort ms", "ms", "", ms, p.AvgMs)
-		add(p.Service, "p95 ms", "ms", "secondary", ms, p.P95Ms)
+		add(p.Service, pctName, "ms", "secondary", ms, p.P95Ms)
 		add(p.Service, "hata %", "%", "", ms, float64(p.Errors)*100/float64(p.Calls))
 	}
 	if len(series) == 0 {
@@ -461,26 +486,51 @@ var outboundTableColumns = []mcptools.EvTableColumn{
 // outboundTableRows — SAF: cur satırları (çağrı sırası, ≤10) + önceki /
 // geçen hafta ort farkı (%; referansta <20 çağrı → boş).
 func outboundTableRows(rows []chstore.OutboundAgg, week []chstore.OutboundAgg) (out [][]any, truncated bool) {
-	type k struct{ s, p, path string }
+	return outboundTableRowsX(rows, week, false, true)
+}
+
+// outboundTableColumnsFor — v0.10.1455: byEnv → başta "Ortam"; pct yüzdelik
+// sütun adı (MV: p99); traces=false → örnek trace sütunları yok (MV taşımaz).
+func outboundTableColumnsFor(byEnv bool, pct string, traces bool) []mcptools.EvTableColumn {
+	var cols []mcptools.EvTableColumn
+	if byEnv {
+		cols = append(cols, mcptools.EvTableColumn{Key: "env", Label: "Ortam", Kind: "text"})
+	}
+	for _, c := range outboundTableColumns {
+		if !traces && c.Kind == "trace" {
+			continue
+		}
+		if c.Key == "p95" {
+			c.Label = pct + " ms"
+		}
+		cols = append(cols, c)
+	}
+	return cols
+}
+
+// outboundTableRowsX — SAF: outboundTableRows + ortam sütunu / trace'siz biçim.
+// Δ anahtarı ortamı da taşır (ortam başına önceki / geçen hafta).
+func outboundTableRowsX(rows []chstore.OutboundAgg, week []chstore.OutboundAgg, byEnv, traces bool) (out [][]any, truncated bool) {
+	type k struct{ e, s, p, path string }
 	prev, wk := map[k]chstore.OutboundAgg{}, map[k]chstore.OutboundAgg{}
 	var cur []chstore.OutboundAgg
 	for _, r := range rows {
 		switch r.Win {
 		case "prev":
-			prev[k{r.Service, r.Peer, r.Path}] = r
+			prev[k{r.Env, r.Service, r.Peer, r.Path}] = r
 		case "cur":
 			cur = append(cur, r)
 		}
 	}
 	for _, r := range week {
-		wk[k{r.Service, r.Peer, r.Path}] = r
+		wk[k{r.Env, r.Service, r.Peer, r.Path}] = r
 	}
 	sort.SliceStable(cur, func(i, j int) bool { return cur[i].Calls > cur[j].Calls })
 	if len(cur) > outboundTableMax {
 		cur, truncated = cur[:outboundTableMax], true
 	}
 	delta := func(m map[k]chstore.OutboundAgg, r chstore.OutboundAgg) any {
-		ref, ok := m[k{r.Service, r.Peer, r.Path}]
+		ref, ok := m[k{r.Env, r.Service, r.Peer, r.Path}]
 		if !ok || ref.Calls < outboundMinCalls || ref.AvgMs <= 0 {
 			return nil
 		}
@@ -491,10 +541,141 @@ func outboundTableRows(rows []chstore.OutboundAgg, week []chstore.OutboundAgg) (
 		if r.Calls > 0 {
 			errPct = float64(r.Errors) * 100 / float64(r.Calls)
 		}
-		out = append(out, []any{r.Service, r.Peer, r.Path, r.Calls, round1(errPct), round1(r.AvgMs), round1(r.P95Ms),
-			delta(prev, r), delta(wk, r), r.SlowTrace, r.ErrTrace})
+		row := []any{r.Service, r.Peer, r.Path, r.Calls, round1(errPct), round1(r.AvgMs), round1(r.P95Ms),
+			delta(prev, r), delta(wk, r)}
+		if traces {
+			row = append(row, r.SlowTrace, r.ErrTrace)
+		}
+		if byEnv {
+			row = append([]any{r.Env}, row...)
+		}
+		out = append(out, row)
 	}
 	return out, truncated
+}
+
+// ─── v0.10.1455 (R2) — ortam kıyası, iş kodları, host sorusu (SAF) ────
+
+// outboundEnvLinesTR — SAF: ≥2 ortamda ortam başına hüküm satırları
+// ("KÜME KIYASI"); her ortam kendi önceki penceresi / geçen haftasıyla.
+func outboundEnvLinesTR(rows, week []chstore.OutboundAgg) string {
+	envs := map[string]bool{}
+	for _, r := range rows {
+		if r.Win == "cur" {
+			envs[r.Env] = true
+		}
+	}
+	if len(envs) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(envs))
+	for e := range envs {
+		names = append(names, e)
+	}
+	sort.Strings(names)
+	only := func(src []chstore.OutboundAgg, env string) []chstore.OutboundAgg {
+		var out []chstore.OutboundAgg
+		for _, r := range src {
+			if r.Env == env {
+				out = append(out, r)
+			}
+		}
+		return out
+	}
+	var b strings.Builder
+	b.WriteString("KÜME KIYASI (ortam başına):")
+	for _, e := range names {
+		er, ew := only(rows, e), only(week, e)
+		cur, prev, wk := outboundTotal(er, "cur"), outboundTotal(er, "prev"), outboundTotal(ew, "cur")
+		label := e
+		if label == "" {
+			label = "(ortamsız)"
+		}
+		fmt.Fprintf(&b, "\n- %s: %s çağrı, ort %s", label, fmtCountTR(cur.Calls), fmtMsTR(cur.AvgMs))
+		if prev.measured() {
+			fmt.Fprintf(&b, " (önceki %s)", fmtMsTR(prev.AvgMs))
+		}
+		kind, _ := outboundVerdict(cur, prev, wk)
+		fmt.Fprintf(&b, ", hata %%%s — %s", trNum(cur.errPct()), outboundVerdictLabelTR(kind))
+	}
+	return b.String()
+}
+
+// outboundCodeColumns — iş kodu tablosu (function_code / channel_code top-5).
+var outboundCodeColumns = []mcptools.EvTableColumn{
+	{Key: "kind", Label: "Tür", Kind: "text"},
+	{Key: "code", Label: "Kod", Kind: "text"},
+	{Key: "calls", Label: "Çağrı", Kind: "num"},
+	{Key: "err", Label: "Hata %", Kind: "num"},
+	{Key: "avg", Label: "Ort ms", Kind: "num"},
+}
+
+// outboundCodeRows — SAF: boş kod elenir; tür sırası function_code önce.
+func outboundCodeRows(codes []chstore.OutboundCode) [][]any {
+	sorted := append([]chstore.OutboundCode(nil), codes...)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		if sorted[i].Kind != sorted[j].Kind {
+			return sorted[i].Kind > sorted[j].Kind // function_code > channel_code
+		}
+		return sorted[i].Calls > sorted[j].Calls
+	})
+	var out [][]any
+	for _, c := range sorted {
+		if strings.TrimSpace(c.Code) == "" {
+			continue
+		}
+		errPct := 0.0
+		if c.Calls > 0 {
+			errPct = float64(c.Errors) * 100 / float64(c.Calls)
+		}
+		out = append(out, []any{c.Kind, c.Code, c.Calls, round1(errPct), round1(c.AvgMs)})
+	}
+	return out
+}
+
+// fuKindOutboundHost — "hangi dış host?" çipi (mesaj gönderir, router'a yönlenir).
+const fuKindOutboundHost = "outbound_host"
+
+// outboundHostChipText — SAF: çip metni yeniden AYNI rotaya çözülür: "dış
+// host" ikilisi (ön-getirme vetosu + hedef) + tam host adı (canlı eşleşme) +
+// "çağrı süreleri" (ölçü ipucu); servis / ortam taşınır.
+func outboundHostChipText(route guidedRoute, host string) string {
+	t := "dış host " + host + " çağrı süreleri"
+	if route.Service != "" {
+		t = route.Service + " " + t
+	}
+	if route.Env != "" {
+		t += " " + route.Env
+	}
+	return t
+}
+
+// outboundAskHostTR — SAF: host tek adaya inmedi — tahmin yok, adaylar.
+func outboundAskHostTR(route guidedRoute) string {
+	term := route.OutboundTerm
+	who := ""
+	if route.Service != "" {
+		who = " (" + route.Service + " çağırıyor)"
+	}
+	list := strings.Join(route.OutboundOptions, ", ")
+	switch {
+	case len(route.OutboundOptions) == 0:
+		return "Dış host kataloğu boş ya da okunamadı (son 24 saat, topology_edges_5m) — giden çağrı için host çözülemedi. External sayfasından bakabilirsin."
+	case route.OutboundMiss:
+		return fmt.Sprintf("'%s' hiçbir canlı dış host adında geçmiyor (son 24 saat). En yoğun dış hostlar%s: %s. Hangisine bakayım?", term, who, list)
+	case term != "":
+		return fmt.Sprintf("'%s' birden çok dış hostla eşleşti%s: %s. Hangisine bakayım? (tahmin etmiyorum)", term, who, list)
+	}
+	return fmt.Sprintf("Hangi dış host? En yoğun dış hostlar%s: %s.", who, list)
+}
+
+// outboundAskHostFollowups — SAF: aday başına çip (≤guidedFollowupMax).
+func outboundAskHostFollowups(route guidedRoute, asked []string) []chatFollowup {
+	var cands []chatFollowup
+	for _, h := range route.OutboundOptions {
+		cands = append(cands, chatFollowup{Text: outboundHostChipText(route, h), Label: h, Kind: fuKindOutboundHost})
+	}
+	return dedupFollowupsAsked(cands, asked, guidedFollowupMax)
 }
 
 func round1(v float64) float64 {
@@ -533,7 +714,11 @@ func outboundSampleTraces(rows []chstore.OutboundAgg) []string {
 // outboundTracesHref — SAF: /traces serbest arama (yol parçaları; opTracesHref deseni).
 func outboundTracesHref(route guidedRoute, errorsOnly bool) string {
 	q := url.Values{}
-	q.Set("search", pathSearchText(route.OutboundPath))
+	if route.OutboundPath != "" {
+		q.Set("search", pathSearchText(route.OutboundPath))
+	} else {
+		q.Set("search", route.OutboundPeer) // v0.10.1455 — yolsuz: host adı
+	}
 	if len(route.OutboundCallers) == 1 {
 		q.Set("service", route.OutboundCallers[0])
 	}
@@ -546,7 +731,14 @@ func outboundTracesHref(route guidedRoute, errorsOnly bool) string {
 // outboundLinks — SAF: Traces (pencereli, guidedAnswerLinks tek çıkışta) ·
 // External host çekmecesi · ≤3 örnek trace.
 func outboundLinks(route guidedRoute) []guidedAnswerLink {
-	out := []guidedAnswerLink{{Label: "Traces · " + route.OutboundPath, Href: outboundTracesHref(route, false)}}
+	what := route.OutboundPath
+	if what == "" {
+		what = route.OutboundPeer
+	}
+	if what == "" { // v0.10.1455 — "hangi dış host?" turu: yalnız External
+		return []guidedAnswerLink{{Label: "External", Href: "/external"}}
+	}
+	out := []guidedAnswerLink{{Label: "Traces · " + what, Href: outboundTracesHref(route, false)}}
 	if route.OutboundPeer != "" {
 		out = append(out, guidedAnswerLink{Label: route.OutboundPeer + " · External", Href: "/external?host=" + url.QueryEscape(route.OutboundPeer)})
 	} else {
@@ -560,6 +752,13 @@ func outboundLinks(route guidedRoute) []guidedAnswerLink {
 
 // outboundSuggestions — SAF: düz öneriler (çip metni router'a yönlenir).
 func outboundSuggestions(route guidedRoute) []string {
+	if route.OutboundPath == "" && route.OutboundPeer == "" && len(route.OutboundOptions) > 0 { // v0.10.1455
+		out := make([]string, 0, len(route.OutboundOptions))
+		for _, h := range route.OutboundOptions {
+			out = append(out, outboundHostChipText(route, h))
+		}
+		return out
+	}
 	svc := route.Service
 	if svc == "" && len(route.OutboundCallers) == 1 {
 		svc = route.OutboundCallers[0]
@@ -577,6 +776,9 @@ const fuKindOutboundLink = "outbound_link"
 // JSON'dan klonlanır) · hatalı çağrıların trace'leri (link, cevabın
 // penceresi) · host'un tüm yolları (External çekmecesi).
 func outboundFollowups(route guidedRoute, asked []string) []chatFollowup {
+	if route.OutboundPath == "" && route.OutboundPeer == "" { // v0.10.1455 — "hangi dış host?"
+		return outboundAskHostFollowups(route, asked)
+	}
 	var cands []chatFollowup
 	if route.OutboundRangeS > 0 && route.OutboundRangeS < int64(outboundMaxWindow/time.Second) {
 		cands = append(cands, chatFollowup{Text: "Son 6 saate genişlet", Label: "Son 6 saate genişlet", Kind: fuKindMetricWindow})

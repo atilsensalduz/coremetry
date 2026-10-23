@@ -9728,3 +9728,55 @@ CHECK 6 penceresi), `TestOutboundMVSQLBounded`, `TestOutboundTailArgs`; api `Tes
 `TestRenderOutboundTR`, `TestOutboundChartPayload`, `TestOutboundTableRows`, `TestOutboundRouteJSONRoundTrip`,
 `TestOutboundLinksAndChips`, `TestOutboundProbe` (MV/ham/tarama/MISS/hata), `TestOutboundGuidedHandler` (LLM 0 çağrı,
 chart + table, ARTIŞ VAR, linkler), `TestOutboundGuidedReadError`, `TestOutboundTierSourcePins`.
+
+## 2026-10-23 — v0.10.1455 — CoSRE "giden çağrı / outbound_call" R2: yolsuz hedef sözcüğü, MV-first host özeti, LLM'siz
+
+**Bağlam (prod).** "<servis> mainframe cevap sürelerimde artış var mı?" hiçbir guided sinyal taşımadığı için doküman/RAG
+kademesine düşüyordu (v0.10.1446 yalnız reddi düzeltti); "esbprod'a giden çağrılar yavaşladı mı?" servisin GELEN
+isteklerini ölçen yollara gidiyordu (yanlış popülasyon). R1 (v0.10.1454) yalnız yol anan mesajı çözüyordu. Plan:
+scratchpad plan-outbound-call.md §1.2 / §4 / §5, yalnız R2 + operatör kararları.
+
+**Karar.** (1) Router (`routeGuidedIntentExt`, `routeGuidedIntentOpts` nil katalogla sarmalar): HEDEF (canlı dış host
+tam adı ya da ilk DNS etiketi — ≥4 karakter, ortam kademesi / canlı servis adı / genel sözcük / sayı değil; ya da sabit
+kök esb·osb·tibco·mainframe·anamakine·soap·wsdl; ya da "dış servis / giden çağrı / üçüncü parti" ikilisi) VE ÖLÇÜ ipucu
+(gecikme / hata / grafik fiili / ortalama / artış / cevap-yanıt süresi) → `outbound_call`, svc/env çıkarımından hemen
+sonra, topolojiden ve metrik grafiğinden ÖNCE. Kendi yolunda kalanlar: Oracle ve diğer DB (hasDBSignal → db_health),
+kuyruk/log/pod/kaynak şekilleri, yol anması (R1 sondası / endpoint), servis→servis çifti; "A'dan <dış host>'a giden"
+çifti giden çağrıdır (çağıran = A). Servis çıkarımı hedef jetonundan geldiyse ("esb" → canlı "esb-adapter", tam ad
+mesajda yok) o servis çağıran sayılmaz. Sınıflandırıcı listesine ve prompt'a girmez (router-içi niyet). (2) Canlı dış
+host kataloğu `guidedOutboundHosts`: GetExternalHosts (son 24 sa, MV, enstrümante servisler SQL'de dışlı, LIMIT 500),
+Redis 60 sn `copilot:guided:exthosts`, yalnız ölçü ipucu taşıyan mesajda okunur; hata → sabit kökler. `hasGuidedSignal`
+ucuz ön kapıya `hasOutboundSignal` eklendi (RAG'a düşüşün kökü). (3) Host tek adaya inmezse tahmin YOK: "hangi dış
+host?" cevabı + aday çipleri (≤5, çağıranın hostları önce; terim hiçbir hostta geçmiyorsa açıkça söylenir). Çip metni
+"<svc> dış host <host> çağrı süreleri" aynı rotaya döner; tam host adı katalogdaki "POST <host>" client operasyonuna
+bulanık eşleşmesin diye genel ikili + ölçü taşıyan mesaj operasyon ön-getirmesinden vetolanır
+(`outboundVetoesOpPrefetch`; sabit kökler plan §1.2 gereği ön-getirmede kalır). (4) Yolsuz özet MV-first:
+externalCallersSQL (cur / önceki eşit pencere / geçen hafta, paralel) + externalTrendSQL (tek çağıranda yalnız
+`parent_service = ?` eklenmiş türevi) — ikinci kriter yok, enstrümante servis dışlaması aynen; p99 kova maksimumu
+olduğu için hüküm ortalama + hata üzerinden, metin "p99 (5 dk kova maksimumu, MV)" der. Ortam süzgeci istendiyse
+(mesaj ya da ekran ortamı) MV `parent_env` kullanılmaz (ORDER BY dışı, eski satırlarda boş) → R1'in ham client-span
+okuması `OutboundAllPaths` deseniyle (yol başına bölünmeden); ≥2 ortam → `deploy_env` en iç katmandan taşınır, GROUP BY
+ortam, ortam başına seri ve "KÜME KIYASI" satırları (her ortam kendi önceki penceresi / geçen haftasıyla). (5) İş kodu:
+function_code / channel_code top-5 (tür başına, `businessDimExpr` terfi kolonu / iki yazım), ham yolda ölçümle paralel,
+MV yolunda en yoğun ≤5 çağıranda sınırlı ham okuma; yalnız boş-olmayan kod varsa ayrı `outbound_codes` kanıtı + tablo.
+(6) Cevap LLM'siz deterministik (S1), başlıklar ve kaynak "trace (örneklenmiş)"; exchangeId yok. (7) R1 açık notu
+çözüldü: sonda yolu ölçümden geniş MV penceresinde (≤24 sa) bulduysa ve açık pencere yazılmamış varsayılan 1 sa boş
+dönerse ölçüm bir kez sondanın penceresine (≤6 sa tavanıyla) genişler ve cevap bunu söyler; açık pencere genişlemez.
+
+**Bilerek yok.** "Ortam başına kıyasla" takip çipi (ortam listesi demette yok — kullanıcı ortamları yazınca aynı yol
+koşar), `cluster` MATERIALIZED kolonu ile küme adı çözümü, sınıflandırıcı vakası, Dashboard'a ekle (kanıt CH SQL),
+enstrümante servise çözülen host'un service_health devri (katalog bu hostları zaten dışlıyor).
+
+**Geri alma.** Şema/ayar/MV/rota yok → sürüm commit'ini revert + yeni etiket. Kalıcı iz: LastRoute JSON'unda
+OutboundTerm/OutboundOptions/OutboundMiss/EnvSet (eski binary yok sayar), 60 sn'lik `copilot:guided:exthosts` ve
+`cosre-outbound:v2:` önbellek anahtarları. Sorgu izi `system.query_log`'da `/* cosre:outbound_calls */`; MV okumaları
+external sayfasının sorgularıyla aynı metin. MCP 74, api.go büyümedi, kademe sırası (TestChatTierOrderIsPinned) aynı.
+
+**Testler.** chstore `TestOutboundR2SQLBounded` (ortam taşıma, host-yalnız etiket, iş kodu LIMIT 5 BY kind, audit
+CHECK 6 penceresi, R1 metni bayt bayt), `TestOutboundHostMVSQL`; api `TestRouteOutboundCall` (24 satır: prod
+tetikleri, çip, eşanlam, çift, ≥2 ortam ve service_health / root_cause / metric_chart / topology / db_health /
+messaging / kaynak / endpoint / pair öncelikleri), `TestOutboundLiveHostMatches`, `TestHasOutboundSignal` (RAG kapısı),
+`TestOutboundVetoesOpPrefetch`, `TestOutboundAskHostChips` (çip → aynı rota), `TestOutboundEnvLinesAndTable`,
+`TestOutboundHostGuidedMV` (uçtan uca, LLM 0 çağrı, MV-first), `TestOutboundHostGuidedEnvs`,
+`TestOutboundHostGuidedAskAndErrors`, `TestOutboundProbeWindowWiden`, `TestOutboundR2SourcePins`. SQL şekilleri yerel
+`clickhouse local` üzerinde sentetik spans tablosuyla koşturuldu (ortam / seri / iş kodu).

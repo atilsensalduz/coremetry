@@ -393,6 +393,15 @@ type guidedRoute struct {
 	OutboundRangeS  int64    `json:"-"`
 	OutboundFromMs  int64    `json:"-"`
 	OutboundToMs    int64    `json:"-"`
+	// v0.10.1455 — R2 (yolsuz hedef, copilot_outbound_call_route.go): anılan
+	// sabit kök jetonu ("mainframe", "esbprod"), host tek adaya inmediyse
+	// "hangi dış host?" adayları (≤5) ve terimin hiçbir canlı hostta
+	// geçmediği. OutboundProbeS (çıktı değil, tur içi): ön-getirme sondasının
+	// MV penceresi — ölçüm varsayılan 1 sa'te boş dönerse o pencereye genişler.
+	OutboundTerm    string   `json:",omitempty"`
+	OutboundOptions []string `json:",omitempty"`
+	OutboundMiss    bool     `json:",omitempty"`
+	OutboundProbeS  int64    `json:"-"`
 }
 
 // normalizeGuidedMsg lowercases for matching. Go's ToLower maps the
@@ -615,6 +624,7 @@ func hasGuidedSignal(msg string) bool {
 		hasResourceSignal(toks) || // v0.10.1431 — "X cpu kullanımı nasıl", "<pod> neden restart ediyor"
 		looksLikePromQL(msg) || // v0.10.1416 — yapıştırılan PromQL ("sum(rate(x_total[5m])) çiz")
 		hasTopologySignal(toks) || // v0.10.1388 — "X topolojisi", "kimler çağırıyor"
+		hasOutboundSignal(msg, toks) || // v0.10.1455 — "<svc> mainframe cevap sürelerinde artış var mı" (RAG'a düşüyordu)
 		// v0.9.537 — açık trace ID'si ya da "trace" kökü (prefix:
 		// Türkçe ekli hâlleri de yakalar — "tracei", "trace'in";
 		// ekrandaki trace'e bağlamdan gitmek için, ctxTrace çözümü
@@ -1173,7 +1183,14 @@ func routeGuidedIntent(raw string, services, envs, teams []string, ctxService st
 // routeGuidedIntentOpts — v0.10.1133: routeGuidedIntent + oracleOps bayrağı
 // (etkin Oracle kaynağı var mı; çağıran söyler, router SAF kalır). false iken
 // rota bayt-bayt eskisi: Oracle operasyon adı kuralı hiç denenmez.
-func routeGuidedIntentOpts(raw string, services, envs, teams []string, ctxService string, oracleOps bool) (route guidedRoute) {
+func routeGuidedIntentOpts(raw string, services, envs, teams []string, ctxService string, oracleOps bool) guidedRoute {
+	return routeGuidedIntentExt(raw, services, envs, teams, ctxService, oracleOps, nil)
+}
+
+// routeGuidedIntentExt — v0.10.1455: routeGuidedIntentOpts + canlı dış host
+// kataloğu (outbound_call R2; çağıran okur, router SAF kalır). nil = yalnız
+// sabit hedef kökleri (esb/mainframe/…); diğer rotalar bayt-bayt aynı.
+func routeGuidedIntentExt(raw string, services, envs, teams []string, ctxService string, oracleOps bool, extHosts []outboundHostEntry) (route guidedRoute) {
 	msg := normalizeGuidedMsg(raw)
 	toks := guidedTokens(msg)
 	// v0.9.537 — açık 32-hex trace ID'si EN GÜÇLÜ sinyaldir ve her şeyi
@@ -1247,6 +1264,14 @@ func routeGuidedIntentOpts(raw string, services, envs, teams []string, ctxServic
 		defer func() { route.EnvSet = envSet }()
 	}
 	team := extractTeamEntity(msg, teams)
+	// v0.10.1455 — giden çağrı R2 (copilot_outbound_call_route.go): hedef
+	// sözcüğü (canlı dış host / esb·mainframe… / "dış servis") + ölçü ipucu
+	// topolojiden ve metrik grafiğinden ÖNCE ("ESB gecikme grafiği" sunucu
+	// p99'u değil, "dış bağımlılıklarım yavaş mı" topoloji değil). Oracle /
+	// kuyruk / log / pod / kaynak şekli ve yol anması kendi yollarında.
+	if r, ok := routeOutboundCall(raw, msg, toks, svc, env, services, envs, extHosts, ctxService); ok {
+		return r
+	}
 	// v0.10.1388 — topoloji (copilot_service_topology.go): AÇIK topoloji
 	// sözcüğü (topoloji/upstream/bağımlılık/servis haritası) metrik grafiğinden
 	// de önce kazanır ("topolojisini çiz, hatalılar" 5xx grafiği değil);
@@ -1873,7 +1898,7 @@ func (s *Server) copilotChatGuided(ctx context.Context, emit func(string, any), 
 	}
 	svcNames, envNames := s.guidedServiceNames(ctx), s.guidedEnvNames(ctx)
 	teamNames := s.guidedTeamNames(ctx)
-	route := routeGuidedIntentOpts(question, svcNames, envNames, teamNames, ctxService, s.oracleOpsEnabled())
+	route := routeGuidedIntentExt(question, svcNames, envNames, teamNames, ctxService, s.oracleOpsEnabled(), s.guidedOutboundHosts(ctx, norm))
 	// v0.10.479 (F4-2, G10) — TAKİP MUTASYONU: "son 1 saate genişlet" / "sadece
 	// hatalı olanlar" / "bunun pod'larını göster" / "aynı filtreyle loglara bak"
 	// → aktif bağlamın son rotası klonlanır, alan değişir, aynı dispatch; router'ın
@@ -2065,6 +2090,12 @@ func (s *Server) copilotChatGuided(ctx context.Context, emit func(string, any), 
 	if route.Intent == guidedServiceTopology || route.Intent == guidedTraceTopology {
 		if _, explicit := guidedRangeSExplicit(norm); !explicit {
 			rangeS = topoChatDefaultRangeS
+		}
+	}
+	// v0.10.1455 — giden çağrı (yolsuz, R2) varsayılanı son 1 saat; açık pencere kazanır.
+	if route.Intent == guidedOutboundCall {
+		if _, explicit := guidedRangeSExplicit(norm); !explicit {
+			rangeS = outboundDefaultRangeS
 		}
 	}
 	// v0.10.1386 — metrik grafiği varsayılanı son 1 saat (D1; açık pencere 5 dk..24 sa kazanır).

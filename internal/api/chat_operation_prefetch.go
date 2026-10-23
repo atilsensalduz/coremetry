@@ -600,6 +600,12 @@ func (s *Server) chatOperationPrefetch(ctx context.Context, emit func(string, an
 	if promqlVetoesOpPrefetch(raw) {
 		return nil, false
 	}
+	// v0.10.1455 — "dış host <ad> çağrı süreleri" (giden çağrı çipi) guided
+	// outbound_call'ındır: tam host adı "POST <host>" client operasyonuna
+	// bulanık eşleşmesin (copilot_outbound_call_route.go).
+	if outboundVetoesOpPrefetch(raw) {
+		return nil, false
+	}
 	pctx, cancel := context.WithTimeout(ctx, opPrefetchTimeout)
 	defer cancel()
 	t, kind, handled, ok := s.resolveEndpointMention(pctx, ctx, emit, raw)
