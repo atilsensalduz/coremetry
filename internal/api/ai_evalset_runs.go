@@ -157,6 +157,7 @@ func (j *evalJob) summaryLocked() evalRunSummary {
 	sum := evalSummaryFromRow(j.row, time.Now(), true)
 	sum.BySurface = evalSurfaceSummaries(j.plan, j.cases)
 	sum.Toolset, sum.ToolsetPinned = j.toolset, j.toolsetPinned()
+	sum.Infra = evalInfraTotal(sum.BySurface) // v0.10.1476
 	return sum
 }
 

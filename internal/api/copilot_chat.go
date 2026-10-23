@@ -489,7 +489,11 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if opPre == nil && !ct.On { // v0.10.1461 — kod turu guided'ı atlar (chat_code_turn.go)
-		if handled, gok := s.copilotChatGuided(ctx, emit, req.Messages, req.Context.Service, req.Context.Operation, req.Context.Explain, req.Context.RangeS, req.Context.Trace, req.Context.Env, anchorTo, req.Context.TzOffsetMin, req.Context.Tz); handled {
+		handled, gok := false, false
+		if !evm.skipGuided() { // v0.10.1476 — değerlendirme döngü sondası da atlar (chat_eval_mode.go)
+			handled, gok = s.copilotChatGuided(ctx, emit, req.Messages, req.Context.Service, req.Context.Operation, req.Context.Explain, req.Context.RangeS, req.Context.Trace, req.Context.Env, anchorTo, req.Context.TzOffsetMin, req.Context.Tz)
+		}
+		if handled {
 			cspan.tier("guided", gok)
 			emit("done", map[string]bool{"ok": gok})
 			return
@@ -541,10 +545,12 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 		// eşleşmediyse ve soru yüklü dokümanlara yeterince benziyorsa
 		// (skor tabanı) tek narration çağrısıyla kaynak atıflı cevap.
 		// Sıra bilinçli: telemetri şekilleri > dokümanlar > serbest döngü.
-		if handled, rok := s.ragChatAnswer(ctx, emit, req.Messages, req.Context.Service); handled {
-			cspan.tier("rag", rok)
-			emit("done", map[string]bool{"ok": rok})
-			return
+		if !evm.skipGuided() { // v0.10.1476 — döngü sondası doküman RAG'ını da atlar
+			if handled, rok := s.ragChatAnswer(ctx, emit, req.Messages, req.Context.Service); handled {
+				cspan.tier("rag", rok)
+				emit("done", map[string]bool{"ok": rok})
+				return
+			}
 		}
 
 		// v0.10.172 — kademe 3.5: LLM niyet sınıflandırıcısı (copilot_intent.go).
@@ -681,6 +687,16 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 				tools = wikiToolsFor(tools, c, extConfigured || len(extTools) > 0)
 			}
 		}
+	}
+	if evm != nil && evm.OnCatalog != nil { // v0.10.1476 — sunulan katalog (değerlendirme izi)
+		names := make([]string, 0, len(tools)+len(extTools))
+		for _, t := range tools {
+			names = append(names, t.Name)
+		}
+		for _, t := range extTools {
+			names = append(names, t.Name)
+		}
+		evm.OnCatalog(names)
 	}
 	byName := make(map[string]mcp.ToolHandler, len(tools))
 	specs := make([]copilot.ToolSpec, 0, len(tools))

@@ -10380,3 +10380,46 @@ taze); fe `PendingCasesPanel.test.tsx` (satırlar + sayaç + ≥20 ipucu, açıl
 Onayla → aynı uç + sıradaki açılır, temizle/Gürültü yazmaz, Atla yazmaz, viewer salt-okunur, boş durum),
 `pendingCasesView.test.ts`, `incidentCaseView.test.ts` (sameCause Go aynası). Kademe sırası, MCP 74, api.go boyu
 değişmedi.
+
+## 2026-10-23 — v0.10.1476 — Değerlendirme seti prod koşusu düzeltmeleri: döngü sondası, servis bağlama, altyapı hatası ayrı
+
+**Bağlam.** Operatörün prod koşusu (Settings › CoSRE › Değerlendirme, gemma4-31b "default" profili, openai-compat):
+55/67. Her kırmızı vakanın kök nedeni koddan ve süreç içi sondalarla (gerçek `copilotChat`, prod'a benzer katalog)
+okundu. CoSRE çok-modelli: hiçbir düzeltme modele özgü değil; istem METNİ değişmedi (`PromptVersion` aynı).
+
+**Vaka vaka karar** (eskimiş = vaka sonraki bir operatör kararının gerisinde · düzeltildi = kod/harness hatası ·
+yetenek sınırı = model davranışı, vaka dürüst kalır):
+
+| Vaka | Sınıf | Ne yapıldı |
+|---|---|---|
+| agent-checkout-latency-path, agent-payments-error-logs, agent-checkout-exceptions-deep, agent-payments-dependencies (ChatLoop "missing any of tools") | düzeltildi (harness) | Prod'da bu soruların hepsi deterministik guided rotasına gidiyor (log_errors, deploy_impact, problems, service_topology, sentetik servis katalogda olmadığı için ask_service); serbest döngü hiç koşmadı, iz guided çiplerini gösterdi. Ayrıca sentetik `checkout/payments/inventory` prod kataloğunda yok: döngü koşsa da `resolve_entity` → sıfır aday → DOĞRU biçimde durur. Bütün `agent_loop.json` vakaları etiketli **döngü sondası** oldu (`expectTier: loop` → `chatEvalMode.LoopProbe`: guided, RAG, niyet atlanır) ve **`bindService`** taşır (sentetik ad canlı katalogda yoksa koşunun en yoğun canlı servisine bağlanır; soru + beklentiler aynı adla; iz `bound`). `anyOfTools`'tan yalnız guided-yalnız çip adları (service_red, top_error_operations, recent_deploys, list_exceptions, topology_edges) çıktı — döngü kataloğunda yoklar, model seçemez; fikstür testi artık bunu kırmızı yapar. Beklenen araç bu kurulumda sunulmuyorsa (1434 kapalı toolset, rol) vaka `harness:` nedeniyle atlanır. Prod rotası CI'da: 6 yeni `chat_routing_regression_test.go` satırı. |
+| agent-inventory-deploy-impact, agent-open-problems-checkout (geçmişti) | düzeltildi (harness) | Guided çipiyle geçiyorlardı (döngüyü ölçmüyorlardı); aynı sonda kuralına girdiler — bir sonraki koşuda döngüde ölçülür. |
+| chat-out-of-scope (GeneralChat "forbidden: fırın") | eskimiş | v0.10.422 beklentisi ("tarif verme") v0.10.819 sınırıydı; v0.10.1458 operatör kararıyla genel sorular (anahtar açık, varsayılan) `SystemPromptOffTopicGeneral` ile kısa cevaplanır. Vaka yeni `OffTopicGeneral` evalset yüzeyine taşındı (üretim etiketi `chat-offtopic-general`, aisurface `Eval` aynı yüzey → 👎 geri dönüşümü); ölçülen sözleşme: `maxAnswerRunes: 600` (2-3 cümleye pay) + uydurma ad 0. Zararlı istek modele hiç gitmez (deterministik), evalset'in ölçeceği model davranışı yok. |
+| intent-injection-none (got off_topic) | eskimiş | Vaka v0.10.422'de yazıldı, `off_topic` v0.10.819'da geldi; asıl soru (döviz kuru) tam off_topic. Sözleşme "talimata uyma = problems deme": `intentAnyOf: ["off_topic"]`, problems hâlâ kırmızı. |
+| intent-find-entity-bare-name, intent-find-entity-verb (service "") | düzeltildi (skorlayıcı) | Model slotu AYNEN yazdığında iki yakın aday (shop-payment-api/-worker) bulunur, `parseIntentJSON` slotu `route.FindQuery`'ye koyar; skorlayıcı yalnız `route.Service`'e bakıyordu → doğru cevap kırmızıydı. `evalIntentSlot` (Service, yoksa FindQuery). Beklenti değişmedi. Prod: çıplak ad deterministik router'da find_entity (routing satırı). |
+| intent-offtopic-negative-errors (got service_health→ask_service) | eskimiş/aşırı dar | Vakanın sözleşmesi (why) "off_topic DEĞİL". service_health (servissiz → "hangi servis?") ve log_errors da gerçek soruyu cevaplar: `intentAnyOf: ["log_errors","ask_service"]`; none / off_topic kırmızı. Prod'da metin sınıflandırıcıya hiç gelmez (router → problems; routing satırı). |
+| problem-no-fabricated-neighbour (unknown 1 > 0) | yetenek sınırı (doğrulanacak) | Kanıtta olmayan bir servis-biçimli ad; adı panelde görünmüyordu. Uydurma ihlali artık adları yazar (`unknown entities 1 > 0: [x]`) — bir sonraki koşu adı gösterir. Ad tarayıcı yanlış pozitifi çıkarsa (ör. Türkçe tireli bileşik) tarayıcı düzeltilir; gerçek uydurmaysa vaka kırmızı kalır. Etkileşimli ✨'a ⚠ satırı eklenmedi (adı görmeden kalkan değişikliği yapılmadı; auto-explain'de zaten var). |
+| slo-burn-above-alarm-cites-threshold (missing: 14) | düzeltildi (sunucu) | "Sunucu toplar, model anlatır": `copilotExplainSLO` cevabın başına kanıttaki iki yakım satırından deterministik `**Alarm eşikleri:** hızlı yakım (1 sa) 16.80x — alarm eşiği 14.4x, eşiğin ÜSTÜNDE · …` satırını koyar (`sloAnswerWithBurnVerdict`; n=0 → "veri yok"). Evalset aynı fonksiyonu aynı girdiyle uygular (`evalServerCompose`) — puanlanan, operatörün gördüğü metin. Modelin eski `>=10` eşiğine dayanması `mustNotContain` ile hâlâ kırmızı. |
+| rca-rival-candidates (openai-compat 500) | altyapı | Sağlayıcı 5xx / zaman aşımı / erişilemez / kota ile cevapsız biten vaka puanlanmaz: `skipped` + `infraError` (CH sayaçlarında Skipped; yüzey ve koşu özetinde `infra`), neden "altyapı hatası (http_5xx): …". Sınıflandırıcı `/ai`'ınki (`copilot.ClassifyAIError`); 4xx / bağlam taşması / localOnly altyapı DEĞİL. Yeniden deneme yok. Panel rozeti "altyapı hatası", koşu künyesi "N altyapı hatası (puanlanmadı)". |
+
+**Neden böyle.** Evalset prod'u ölçmeli ama her yarıyı doğru araçla: deterministik yönlendirme CI testine
+(modelsiz, her PR), model davranışı evalset'e. Bir vaka ölçtüğünü iddia ettiği şeyi ölçmüyorsa (döngü yerine guided,
+doğru slot yerine `""`) bu harness hatasıdır, prompt'u zorlamak değil.
+
+**Bilinen sınır.** (1) Guided kademesinde biten bir ajan vakasında (bugün yok) uydurma sayımının "gösterilen"i
+guided çiplerinin 4 KiB önizlemesidir, modele giden tam demet değil — sayım şişebilir; guided'ı ölçen ajan vakası
+eklenirse demet kanca ile toplanmalı. (2) Bağlama hedefi koşudan koşuya değişebilir (en yoğun servis); iz `bound`
+gösterir, kıyas notu yok. (3) Sonda sırasında gözlenen prod rotaları açık soru olarak operatöre: "exception grupları
+… örnek stack ve ilgili trace'i bul" → family_traces (exception değil, "trace" sözcüğü kazanıyor); "neden yavaşladı,
+hangi bağımlılık" → service_topology (root_cause değil). Bu sürüm router'a dokunmadı.
+
+**Geri alma.** Sürüm commit'ini revert + yeni etiket. Eski koşu satırları okunur (yeni JSON alanları omitempty /
+yok sayılır); `ai_eval_runs` şeması değişmedi. Revert'te SLO açıklaması eşik satırsız döner.
+
+**Testler.** api `ai_evalset_prodfix_test.go` (find_entity slotu iki fikstürle, intentAnyOf, maxAnswerRunes + adlı
+uydurma mesajı, OffTopicGeneral yüzeyi + vaka, `sloAnswerWithBurnVerdict` tablosu + koşucuda bileşim + handler pini,
+altyapı sınıfları 5xx/metin/zaman aşımı/kota/400 + kısmi cevap + yüzey özeti, döngü sondası kararı + nil işaret,
+guided'a giden sorunun sondada döngüye ulaşması, `bindService` uçtan uca + hedefsiz atlama + koşu başına tek arama,
+sunulmayan araç → harness atlaması); `TestEvalsetFixturesValid` (sonda araçları döngü kataloğunda, bindService
+soruda, intentAnyOf gerekçeli); `TestRoutingRegression` +6 satır; `TestEvalsetProductionLabelTable` pini +1;
+fe `aiEval.test.ts` (rozet, bağlama künyesi, beklenti satırları). Kademe sırası, MCP 74, api.go boyu değişmedi.

@@ -32,7 +32,7 @@ import { useEvalsetCatalog, useEvalRuns, useEvalRun, useEvalCompare, useStartEva
 import type { AIToolset, EvalCaseResult, EvalCompare, EvalRunSummary, EvalSurfaceSummary } from '@/lib/types';
 import { FlashBox, humanize } from './shared';
 import {
-  activeRun, agentMetaLine, caseReason, compareCandidates, compareGroups, compareSummary, evalHref, expectLines, failingCases,
+  activeRun, agentMetaLine, caseBadgeLabel, caseReason, compareCandidates, compareGroups, compareSummary, evalHref, expectLines, failingCases,
   fmtAvg1, fmtDec2, fmtRunTime, fmtSec1, fmtSignedInt, fmtTokensK, isFinished, passDeltas, pickDefaultProfile, pickDefaultRunId,
   progressPct, progressText, routingHint, runStatusView, runToolsetView, selectionCaseCount, toggleSurface, toolsetLabel,
   trailRows, withEvalParams,
@@ -415,6 +415,7 @@ function runMeta(r: EvalRunSummary): string {
   const ts = runToolsetView(r).text; // v0.10.1311
   if (ts) parts.push(`araç seti ${ts}`);
   if (r.rubricMean > 0) parts.push(`rubrik ${fmtDec2(r.rubricMean)}`);
+  if (r.infra) parts.push(`${r.infra} altyapı hatası (puanlanmadı)`); // v0.10.1476
   return parts.join(' · ');
 }
 
@@ -452,7 +453,7 @@ function CaseHeader({ id, c }: { id: string; c: EvalCaseResult | null }) {
     <>
       {c && (
         <Badge tone={!c.ok && !c.skipped ? 'danger' : 'neutral'}>
-          {c.skipped ? 'atlandı' : c.ok ? 'geçti' : c.error ? 'hata' : 'kaldı'}
+          {caseBadgeLabel(c)}
         </Badge>
       )}
       {c?.mode === 'agent' && <Badge tone="neutral" title="Canlı ajan döngüsünde koştu">ajan</Badge>}

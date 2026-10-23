@@ -124,9 +124,9 @@ var registry = []Spec{
 	{Label: ChatIntentNone, Role: RoleMarker, Eval: "GeneralChat", RouterGap: true},
 	{Label: ChatOffTopic, Role: RoleMarker, Eval: "GeneralChat"},
 	// v0.10.1458 — kanıtsız genel bilgi: KB'ye terfi edemez (chat-general
-	// emsali). Evalset vakası yok: istem (OffTopicGeneral) evalset koşucusunda
-	// değil; 👎 satırı Unknown'a düşer (wiki-chat emsali).
-	{Label: ChatOffTopicGeneral, Role: RoleAnswer, NoKB: true},
+	// emsali). v0.10.1476 — istem evalset koşucusunda (OffTopicGeneral yüzeyi,
+	// exception_chat.json chat-out-of-scope); 👎 satırı oraya düşer.
+	{Label: ChatOffTopicGeneral, Role: RoleAnswer, Eval: "OffTopicGeneral", NoKB: true},
 	// v0.10.1442 — evalset vakası yok (istem evalset koşucusunda değil; karar
 	// canlı katalog/pod doğrulamasına bağlı, yeniden üretilemez).
 	{Label: ChatResourceClassify, Role: RoleSubCall},

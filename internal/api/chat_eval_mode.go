@@ -20,6 +20,9 @@ package api
 //     ai.evalset.run kalır);
 //   - v0.10.1321 — niyet kademesi atlanır (SkipIntent; vaka expectTier
 //     "intent" sabitlemediyse);
+//   - v0.10.1476 — döngü sondası (LoopProbe; vaka expectTier "loop"
+//     sabitlediyse): guided, RAG ve niyet kademeleri de atlanır, soru serbest
+//     araç döngüsüne ulaşır; döngünün sunduğu katalog OnCatalog'a bildirilir;
 //   - her model turu OnTurn'e, her Executor çağrısı OnTool'a bildirilir.
 //
 // İşaret nil iken (üretim) her yol bayt bayt eskisidir
@@ -48,6 +51,17 @@ type chatEvalMode struct {
 	// evalsetServerAgent kurar (evalAgentSkipIntent: vaka expectTier "intent"
 	// sabitlemediyse true).
 	SkipIntent bool
+	// LoopProbe — v0.10.1476 (DECISIONS "Değerlendirme seti prod koşusu
+	// düzeltmeleri"): vaka serbest döngünün ARAÇ SEÇİMİNİ ölçer. Prod bu
+	// soruların çoğunu deterministik guided rotasına gönderir (o yarı
+	// chat_routing_regression_test.go'da CI'da pinli); sonda guided'ı, RAG'ı
+	// ve niyet kademesini atlar. evalsetServerAgent kurar (evalAgentLoopProbe).
+	LoopProbe bool
+	// OnCatalog — v0.10.1476: serbest döngünün bu turda modele SUNDUĞU araç
+	// adları (rol / araç seti / kapalı toolset / localOnly süzgeçlerinden
+	// sonra). nil = bildirim yok. Beklenen araç sunulmadıysa vaka model
+	// hatası değil kurulum (harness) farkıdır.
+	OnCatalog func(names []string)
 	// OnTurn — serbest döngünün her model turu; round < 0 = tavan turu
 	// (araç çağrısı yasak son tur). nil = bildirim yok.
 	OnTurn func(round int, turn copilot.ChatTurn, err error)
@@ -72,6 +86,9 @@ type evalAgentOutcome struct {
 	// (niyet, guided anlatımı, döngü) — copilot.CallSink toplamı.
 	ModelCalls                uint16
 	InputTokens, OutputTokens uint32
+	// BoundTo — v0.10.1476: koşucunun vakayı bağladığı canlı servis (handler
+	// doldurmaz; evalsetServerAgent yazar).
+	BoundTo string
 }
 
 type chatEvalModeKey struct{}
@@ -95,7 +112,11 @@ func chatEvalModeFrom(ctx context.Context) *chatEvalMode {
 
 // skipIntent — v0.10.1321: niyet kademesi atlanır mı. nil (üretim) → false,
 // yani kademe kararı bayt bayt eski.
-func (em *chatEvalMode) skipIntent() bool { return em != nil && em.SkipIntent }
+func (em *chatEvalMode) skipIntent() bool { return em != nil && (em.SkipIntent || em.LoopProbe) }
+
+// skipGuided — v0.10.1476: döngü sondasında guided ve RAG kademeleri
+// atlanır. nil (üretim) → false, kademe sırası bayt bayt eski.
+func (em *chatEvalMode) skipGuided() bool { return em != nil && em.LoopProbe }
 
 // evalOutcomeFromExchange — SAF (x kilidi altında okur): Sink yükü.
 func evalOutcomeFromExchange(x *chatExchange, tier, status, msg string) evalAgentOutcome {

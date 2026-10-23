@@ -316,7 +316,11 @@ export function expectLines(e: EvalExpect | null | undefined): string[] {
   if (e.forbiddenTools?.length) out.push(`Denenmemesi gereken araçlar: ${e.forbiddenTools.join(', ')}`);
   if (e.maxToolCalls !== undefined && e.maxToolCalls !== null) out.push(`Araç çağrısı üst sınırı: ${e.maxToolCalls}`);
   if (e.expectTier) out.push(`Beklenen kademe: ${tierLabel(e.expectTier)} (${e.expectTier})`);
-  if (e.intent) out.push(`Niyet: ${e.intent}${e.intentService ? ` · servis: ${e.intentService}` : ''}`);
+  if (e.intent) {
+    const intents = [e.intent, ...(e.intentAnyOf ?? [])].join(' / '); // v0.10.1476 — kabul kümesi
+    out.push(`Niyet: ${intents}${e.intentService ? ` · servis: ${e.intentService}` : ''}`);
+  }
+  if (e.maxAnswerRunes) out.push(`Cevap uzunluğu üst sınırı: ${e.maxAnswerRunes.toLocaleString('tr-TR')} karakter`); // v0.10.1476
   if (e.verdicts?.length) out.push(`Kabul edilen hüküm: ${e.verdicts.join(' / ')}`);
   if (e.minEvidenceCitationRate !== undefined && e.minEvidenceCitationRate !== null) {
     out.push(`Asgari kanıt atıf oranı: ${fmtDec2(e.minEvidenceCitationRate)}`);
@@ -363,6 +367,13 @@ export function fmtAvg1(n: number | null | undefined): string | null {
   return n.toLocaleString('tr-TR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 }
 
+/** Vaka rozeti (T9: kalan kırmızı, geçen/atlanan nötr). v0.10.1476 —
+ *  altyapı hatası (sağlayıcı 5xx / zaman aşımı / kota) ayrı ad: puanlanmadı. */
+export function caseBadgeLabel(c: Pick<EvalCaseResult, 'ok' | 'skipped' | 'error' | 'infraError'>): string {
+  if (c.skipped) return c.infraError ? 'altyapı hatası' : 'atlandı';
+  return c.ok ? 'geçti' : c.error ? 'hata' : 'kaldı';
+}
+
 /** v0.10.1316 — çekmecenin "Araç izi" künyesi:
  *  "döngü · 3 tur · 4 çağrı (1 atlandı) · 6,1k token" (+ bütçe doldu / derin). */
 export function agentMetaLine(tr: EvalAgentTrail): string {
@@ -370,6 +381,7 @@ export function agentMetaLine(tr: EvalAgentTrail): string {
     `${fmtTokensK(tr.inputTokens + tr.outputTokens) ?? '0'} token`];
   if (tr.capped) parts.push('bütçe doldu');
   if (tr.deep) parts.push('derin');
+  if (tr.bound) parts.push(`servis ${tr.bound}`); // v0.10.1476
   return parts.join(' · ');
 }
 

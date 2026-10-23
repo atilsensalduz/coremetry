@@ -159,6 +159,25 @@ var routingRegressionRows = []routingRow{
 		q: rrESBHost + "'a giden çağrılar yavaşladı mı?", ctx: rrScreenEnv("uat"), setup: withHostCallers,
 		wantTier: aisurface.TierGuided, wantRoute: string(guidedOutboundCall), noLLM: true,
 		ansHas: []string{"tüm ortamlar (MV)", "ekran ortamı (uat) süzgeci uygulanmadı"}, ansNot: []string{"ham client span okuması"}},
+	// ── v0.10.1476: evalset ajan vakalarının PROD rotası ────────────────
+	// agent_loop.json vakaları artık döngü sondası (guided'ı atlar); aynı
+	// soruların prod'da gittiği deterministik guided rotası burada pinli
+	// (prod koşusu 2026-10-23: döngü hiç koşmamıştı). Adlar sentetik.
+	{release: "v0.10.1476", name: "evalset agent-payments-error-logs → log_errors",
+		q: rrSvc + " servisinde son 30 dakikadaki hata loglarını özetle; en sık hata mesajı ne?", wantTier: aisurface.TierGuided, wantRoute: string(guidedLogErrors)},
+	{release: "v0.10.1476", name: "evalset agent-inventory-deploy-impact → deploy_impact",
+		q: rrSvc + " servisinde son 24 saatte deploy oldu mu? Deploy sonrasında hata oranı ya da gecikme değişti mi?", wantTier: aisurface.TierGuided, wantRoute: string(guidedDeployImpact)},
+	{release: "v0.10.1476", name: "evalset agent-open-problems-checkout → problems",
+		q: "Şu an açık problemler neler? Hangisi " + rrSvc + " servisini etkiliyor?", wantTier: aisurface.TierGuided, wantRoute: string(guidedProblems)},
+	{release: "v0.10.1476", name: "servisli exception grubu sorusu → service_exceptions",
+		q: rrSvc + " servisinde son 1 saatte hangi exception grupları arttı?", wantTier: aisurface.TierGuided, wantRoute: string(guidedServiceExceptions)},
+	{release: "v0.10.1476", name: "evalset intent-offtopic-negative-errors metni sınıflandırıcıya gitmez → problems",
+		q: "son 3 saatte kaç hata oldu?", wantTier: aisurface.TierGuided, wantRoute: string(guidedProblems), noLLM: true},
+	{release: "v0.10.1476", name: "evalset intent-find-entity-bare-name metni: çıplak ad → find_entity (deterministik)",
+		q: "shop-payment", wantTier: aisurface.TierGuided, wantRoute: string(guidedFindEntity), noLLM: true,
+		setup: func(_ *testing.T, s *routingRig) {
+			s.cache["copilot:guided:svcnames"] = []byte(`["orders-api","billing-api","shop-payment-api","shop-payment-worker"]`)
+		}},
 
 	// ── komşular (düzeltmeler bunları bozmamalı) ────────────────────────
 	{release: "komşu v0.10.1468", name: "ortam soruda (ekran başka) → ham, ortama süzülmüş okuma",

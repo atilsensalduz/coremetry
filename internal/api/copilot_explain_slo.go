@@ -3,6 +3,8 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -67,6 +69,8 @@ func (s *Server) copilotExplainSLO(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
+	// v0.10.1476 — alarm eşiği karşılaştırması SUNUCUDAN (aynı kanıt metni).
+	out = sloAnswerWithBurnVerdict(sb.String(), out)
 	writeJSON(w, map[string]any{
 		"explanation": out,
 		"exchangeId":  xid,
@@ -80,4 +84,59 @@ func (s *Server) copilotExplainSLO(w http.ResponseWriter, r *http.Request) {
 		"fastRate":    pol.FastRate,
 		"slowRate":    pol.SlowRate,
 	})
+}
+
+// sloBurnLineRe — kanıttaki yakım satırı; biçim yukarıdaki Fprintf'lerle
+// birebir ("Fast burn (1h0m0s): rate=16.80, n=11950 (alarm threshold 14.4x)").
+var sloBurnLineRe = regexp.MustCompile(`(?m)^(Fast|Slow) burn \(([^)]+)\): rate=([0-9]+(?:\.[0-9]+)?), n=([0-9]+) \(alarm threshold ([0-9]+(?:\.[0-9]+)?)x\)`)
+
+// sloAnswerWithBurnVerdict — SAF, v0.10.1476 (prod evalset 2026-10-23,
+// slo-burn-above-alarm-cites-threshold "missing: 14"): yakım oranlarının
+// alarm eşikleriyle karşılaştırması model anlatısına bırakılmaz — sunucu
+// kanıt metnindeki iki satırdan tek bir deterministik satır kurar ve
+// cevabın BAŞINA koyar ("sunucu toplar, model anlatır"). Sayılar kanıttaki
+// yazımıyla aynen; n=0 penceresi "veri yok". Satır çözülemezse cevap aynen.
+// Evalset SLOBurn yüzeyi aynı fonksiyonu aynı girdiyle çağırır
+// (evalServerCompose) — puanlanan, operatörün gördüğü metindir.
+func sloAnswerWithBurnVerdict(evidence, answer string) string {
+	var parts []string
+	for _, m := range sloBurnLineRe.FindAllStringSubmatch(evidence, 2) {
+		label := "hızlı yakım"
+		if m[1] == "Slow" {
+			label = "yavaş yakım"
+		}
+		win := m[2]
+		if d, err := time.ParseDuration(m[2]); err == nil {
+			win = sloWindowTR(d)
+		}
+		if m[4] == "0" {
+			parts = append(parts, fmt.Sprintf("%s (%s): veri yok — eşik %sx", label, win, m[5]))
+			continue
+		}
+		rate, err1 := strconv.ParseFloat(m[3], 64)
+		thr, err2 := strconv.ParseFloat(m[5], 64)
+		if err1 != nil || err2 != nil {
+			continue
+		}
+		side := "eşiğin altında"
+		if rate >= thr {
+			side = "eşiğin ÜSTÜNDE"
+		}
+		parts = append(parts, fmt.Sprintf("%s (%s) %sx — alarm eşiği %sx, %s", label, win, m[3], m[5], side))
+	}
+	if len(parts) == 0 {
+		return answer
+	}
+	return "**Alarm eşikleri:** " + strings.Join(parts, " · ") + "\n\n" + answer
+}
+
+// sloWindowTR — "1h0m0s" → "1 sa", "30m0s" → "30 dk".
+func sloWindowTR(d time.Duration) string {
+	if d >= time.Hour && d%time.Hour == 0 {
+		return fmt.Sprintf("%d sa", int(d/time.Hour))
+	}
+	if d >= time.Minute && d%time.Minute == 0 {
+		return fmt.Sprintf("%d dk", int(d/time.Minute))
+	}
+	return d.String()
 }

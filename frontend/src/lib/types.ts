@@ -3232,6 +3232,9 @@ export interface EvalSurfaceSummary {
   agentCases?: number;
   avgToolCalls?: number | null;
   avgTokens?: number | null;
+  /** v0.10.1476 — atlananların altyapı hatası (sağlayıcı 5xx / zaman aşımı /
+   *  kota) olanları; skipped'in alt kümesi, geçme oranına girmez. */
+  infra?: number;
 }
 
 /** Koşu özeti — liste satırı ve detayın `run` alanı. */
@@ -3263,6 +3266,8 @@ export interface EvalRunSummary {
    *  yüzeyi yok / eski koşu); toolsetPinned: koşu isteğinde açık seçildi. */
   toolset?: AIToolset;
   toolsetPinned?: boolean;
+  /** v0.10.1476 — altyapı hatasıyla atlanan vaka sayısı (skipped'in alt kümesi). */
+  infra?: number;
 }
 
 /** Fikstürün `expect` nesnesi AYNEN (evalExpect JSON etiketleri). */
@@ -3288,6 +3293,9 @@ export interface EvalExpect {
   maxToolCalls?: number;
   expectTier?: string;
   maxTokens?: number;
+  /** v0.10.1476 — intent'e ek kabul edilen niyetler; cevap uzunluk tavanı (rune). */
+  intentAnyOf?: string[];
+  maxAnswerRunes?: number;
 }
 
 /** v0.10.1316 — ajan vakası izinin bir adımı (Go evalAgentStep). Argüman
@@ -3311,6 +3319,8 @@ export interface EvalAgentStep {
  *  ölçü aşımları (token / süre) — vakayı kaldırmaz. */
 export interface EvalAgentTrail {
   tier: string;
+  /** v0.10.1476 — "sentetik → canlı" servis bağlaması (sentetik ad katalogda yoksa). */
+  bound?: string;
   route?: string;
   rounds: number;
   calls: number;
@@ -3354,6 +3364,8 @@ export interface EvalCaseResult {
   /** v0.10.1316 — 'agent' = canlı ajan döngüsünde koştu (iz `agent`'ta); yok = tek çağrı. */
   mode?: 'agent';
   agent?: EvalAgentTrail;
+  /** v0.10.1476 — altyapı hatası sınıfı (skipped ile; vaka puanlanmadı). */
+  infraError?: string;
 }
 
 /** Karşılaştırmanın bir tarafı (koşu künyesi). */

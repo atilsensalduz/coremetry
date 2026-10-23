@@ -74,6 +74,15 @@ type evalExpect struct {
 	MaxToolCalls   *int     `json:"maxToolCalls,omitempty"`
 	ExpectTier     string   `json:"expectTier,omitempty"`
 	MaxTokens      int      `json:"maxTokens,omitempty"`
+	// IntentAnyOf — v0.10.1476: intent'e EK kabul edilen niyetler (yalnız
+	// IntentClassify). Vakanın sözleşmesi tek niyet değil bir sınırsa
+	// ("off_topic DEĞİL", "talimata uyup problems DEME") kabul kümesi açık
+	// yazılır; gerekçe vakanın note alanında.
+	IntentAnyOf []string `json:"intentAnyOf,omitempty"`
+	// MaxAnswerRunes — v0.10.1476: cevap uzunluk tavanı (rune; 0 = yok).
+	// Kısa-cevap sözleşmesi taşıyan yüzeyler için (OffTopicGeneral: "en
+	// fazla 2-3 cümle"); model-bağımsız, deterministik.
+	MaxAnswerRunes int `json:"maxAnswerRunes,omitempty"`
 }
 
 type evalCase struct {
@@ -101,6 +110,16 @@ type evalCase struct {
 	// Deep — ajan vakasının "Derin düşün" anahtarı (yalnız agent ile).
 	Mode string `json:"mode,omitempty"`
 	Deep bool   `json:"deep,omitempty"`
+	// BindService — v0.10.1476 (yalnız ajan kipi): sorudaki SENTETİK servis
+	// adı (checkout …). Canlı katalogda yoksa koşucu vakayı katalogdaki en
+	// yoğun servise bağlar (soru, mustContain, knownEntities aynı adla
+	// değişir; iz "bound" alanında). Prod kataloğunda sentetik ad olmadığı
+	// için döngü resolve_entity'de "bulunamadı" ile DOĞRU biçimde durur ve
+	// araç seçimi hiç ölçülmezdi.
+	BindService string `json:"bindService,omitempty"`
+	// Note — v0.10.1476: beklenti değişikliğinin yazılı gerekçesi (insan
+	// okur; koşucu kullanmaz). Bir beklenti gevşetildiyse neden burada.
+	Note string `json:"note,omitempty"`
 	file string
 	// expectRaw — v0.10.940: fikstürdeki expect nesnesi HARFİYEN (panel
 	// çekmecesi "Beklenti"yi gösterir; struct gidiş-dönüşü bilinmeyen
@@ -315,6 +334,8 @@ func evalSystemPromptFor(surface string, simple bool) (string, bool) {
 		return copilot.SystemPromptServiceCharts(), true
 	case "GeneralChat":
 		return copilot.SystemPromptGeneralChat(), true
+	case "OffTopicGeneral": // v0.10.1476 — v0.10.1458 genel soru cevabı (chat_offtopic_general.go)
+		return copilot.SystemPromptOffTopicGeneral(), true
 	case "Chat":
 		return copilot.SystemPromptChat(), true
 	case "ChatCodeResolve": // v0.10.1210 — iş kodu / kod arama eki (serbest döngü prompt'u + ek)
@@ -352,9 +373,10 @@ func scoreEvalCase(c evalCase, system, answer string, err error) (fails []string
 	}
 	fails = evalTextGateFails(c, answer) // v0.10.1316 — ajan kipiyle ortak
 	sys, user := evalCaseInput(c, system)
-	unknown = int(rca.CountUnknownEntities(rca.LowerKnownSet(c.Expect.KnownEntities...), sys+"\n"+user, answer))
+	names := evalUnknownNames(c.Expect.KnownEntities, sys+"\n"+user, answer)
+	unknown = len(names)
 	if c.Expect.MaxUnknownEntities != nil && unknown > *c.Expect.MaxUnknownEntities {
-		fails = append(fails, fmt.Sprintf("unknown entities %d > %d", unknown, *c.Expect.MaxUnknownEntities))
+		fails = append(fails, fmt.Sprintf("unknown entities %d > %d: %v", unknown, *c.Expect.MaxUnknownEntities, names))
 	}
 	if c.Expect.Intent != "" {
 		route, _, matched := parseIntentJSON(answer, c.Expect.KnownEntities, nil, c.Expect.KnownTeams, "")
@@ -362,13 +384,55 @@ func scoreEvalCase(c evalCase, system, answer string, err error) (fails []string
 		if matched {
 			got = string(route.Intent)
 		}
-		if got != c.Expect.Intent {
-			fails = append(fails, fmt.Sprintf("intent %q, want %q (raw %s)", got, c.Expect.Intent, strings.TrimSpace(answer)))
-		} else if matched && c.Expect.IntentService != "" && route.Service != c.Expect.IntentService {
-			fails = append(fails, fmt.Sprintf("intent service %q, want %q", route.Service, c.Expect.IntentService))
+		if !evalIntentAccepted(c.Expect, got) {
+			fails = append(fails, fmt.Sprintf("intent %q, want %q (raw %s)", got, evalIntentWant(c.Expect), strings.TrimSpace(answer)))
+		} else if matched && c.Expect.IntentService != "" && evalIntentSlot(route) != c.Expect.IntentService {
+			fails = append(fails, fmt.Sprintf("intent service %q, want %q (raw %s)", evalIntentSlot(route), c.Expect.IntentService, strings.TrimSpace(answer)))
 		}
 	}
 	return fails, unknown
+}
+
+// evalUnknownNames — SAF, v0.10.1476: CountUnknownEntities'in AYNI tanımı
+// (bilinen ∪ gösterilen jetonlar), sayı yerine adlar — kırmızı vakanın
+// mesajı uydurulan adı söylesin (UInt8 kıstırması burada yok).
+func evalUnknownNames(known []string, shown, answer string) []string {
+	set := rca.LowerKnownSet(known...)
+	rca.AddShownTokens(set, shown)
+	return rca.ScanUnknownEntities(set, answer)
+}
+
+// evalIntentAccepted — SAF, v0.10.1476: niyet beklentisi (intent ∪ intentAnyOf).
+func evalIntentAccepted(e evalExpect, got string) bool {
+	if got == e.Intent {
+		return true
+	}
+	for _, alt := range e.IntentAnyOf {
+		if got == alt {
+			return true
+		}
+	}
+	return false
+}
+
+// evalIntentWant — fail mesajının "want" kısmı (tek niyet ya da küme).
+func evalIntentWant(e evalExpect) string {
+	if len(e.IntentAnyOf) == 0 {
+		return e.Intent
+	}
+	return strings.Join(append([]string{e.Intent}, e.IntentAnyOf...), "|")
+}
+
+// evalIntentSlot — SAF, v0.10.1476: sınıflandırıcının servis slotunun
+// rotadaki karşılığı. Çözülen ad route.Service'te; find_entity birden çok
+// yakın aday bulduğunda (aday çipleri) slot route.FindQuery'de kalır —
+// skorlayıcı yalnız Service'e bakıp doğru slotu "" sanıyordu (prod koşusu
+// 2026-10-23: intent-find-entity-bare-name / -verb).
+func evalIntentSlot(route guidedRoute) string {
+	if route.Service != "" {
+		return route.Service
+	}
+	return route.FindQuery
 }
 
 // evalTextGateFails — SAF (v0.10.1316'da scoreEvalCase'ten ayrıldı; metinler
@@ -389,6 +453,11 @@ func evalTextGateFails(c evalCase, answer string) []string {
 	for _, f := range c.Expect.KeyFacts {
 		if !strings.Contains(low, strings.ToLower(f)) {
 			fails = append(fails, "missing fact: "+f)
+		}
+	}
+	if lim := c.Expect.MaxAnswerRunes; lim > 0 { // v0.10.1476
+		if n := utf8.RuneCountInString(strings.TrimSpace(answer)); n > lim {
+			fails = append(fails, fmt.Sprintf("answer %d runes > %d", n, lim))
 		}
 	}
 	return fails
@@ -502,6 +571,7 @@ var evalProductionLabels = map[string]string{
 	"RCAVerdict":      rcaVerdictSurface,
 	"ServiceCharts":   "explain-charts",
 	"GeneralChat":     "chat-general",
+	"OffTopicGeneral": "chat-offtopic-general", // v0.10.1476
 	"Chat":            "chat",
 	"IntentClassify":  "chat-intent",
 }
@@ -562,6 +632,46 @@ type evalCaseOutcome struct {
 	// Mode / Agent — v0.10.1316: ajan kipi vakasının kipi ve izi (tek çağrıda "" / nil).
 	Mode  string
 	Agent *evalAgentTrail
+	// Infra — v0.10.1476: sağlayıcı/taşıma hatası sınıfı (timeout | http_5xx |
+	// unavailable | quota); doluysa vaka PUANLANMAZ (Skipped) — kalite
+	// başarısızlığı değil, geçme oranını kirletmez. Yeniden deneme YOK.
+	Infra string
+}
+
+// evalInfraClass — SAF, v0.10.1476: hata modelin değil altyapının mı
+// (copilot.ClassifyAIError — /ai'ın sınıflandırıcısı). 4xx / bağlam taşması /
+// localOnly / ret altyapı DEĞİL: istek bizim, düzeltmesi bizde.
+func evalInfraClass(err error) string {
+	if err == nil {
+		return ""
+	}
+	switch c := copilot.ClassifyAIError(err); c {
+	case copilot.ErrClassTimeout, copilot.ErrClassHTTP5xx, copilot.ErrClassUnavailable, copilot.ErrClassQuota:
+		return c
+	}
+	return ""
+}
+
+// evalInfraReasonMax — atlama nedenindeki hata metni tavanı (bayt).
+const evalInfraReasonMax = 300
+
+// evalMarkInfra — SAF, v0.10.1476: cevapsız + altyapı sınıflı hata → vaka
+// atlanır (Infra + SkipReason "altyapı hatası (…)"), ihlal ve rubrik boşalır.
+// Kısmi cevap varsa puanlanır (model konuştu). Zaten atlanmış vaka aynen.
+func evalMarkInfra(out evalCaseOutcome) evalCaseOutcome {
+	if out.Skipped || out.Err == nil || strings.TrimSpace(out.Answer) != "" {
+		return out
+	}
+	cls := evalInfraClass(out.Err)
+	if cls == "" {
+		return out
+	}
+	msg, _ := evalTruncate(out.Err.Error(), evalInfraReasonMax)
+	out.Skipped, out.Infra = true, cls
+	out.SkipReason = "altyapı hatası (" + cls + "): " + msg
+	out.Fails = nil
+	out.Rubric = evalrubric.Result{}
+	return out
 }
 
 // runEvalsetCase — v0.10.940: CLI (evalset_test.go) ve sunucu koşucusunun
@@ -590,7 +700,7 @@ func runEvalsetCase(ctx context.Context, call evalCallFn, agent evalAgentFn, c e
 		}
 	}
 	if evalAgentCase(c) { // v0.10.1316 — canlı ajan döngüsü
-		return runEvalAgentCase(ctx, agent, c, toolset)
+		return evalMarkInfra(runEvalAgentCase(ctx, agent, c, toolset)) // v0.10.1476
 	}
 	system, ok := evalSystemPromptFor(c.Surface, simple)
 	if !ok {
@@ -612,6 +722,11 @@ func runEvalsetCase(ctx context.Context, call evalCallFn, agent evalAgentFn, c e
 	}
 	t0 := time.Now()
 	answer, err := call(ctx, c.Surface, sys, user, schema, evalJSONSurface(c.Surface))
+	if err == nil {
+		// v0.10.1476 — üretimin bu yüzeyde cevaba eklediği SUNUCU metni (aynı
+		// fonksiyon, aynı girdi): puanlanan, operatörün gördüğü cevaptır.
+		answer = evalServerCompose(c.Surface, user, answer)
+	}
 	out := evalCaseOutcome{User: user, Answer: answer, Err: err, LatencyMs: time.Since(t0).Milliseconds(), RCA: rcaH != nil, Toolset: toolset}
 	if rcaH != nil && err == nil {
 		out.Fails, out.Unknown = scoreRCACase(c, rcaH, rcaCat, answer)
@@ -619,7 +734,19 @@ func runEvalsetCase(ctx context.Context, call evalCallFn, agent evalAgentFn, c e
 		out.Fails, out.Unknown = scoreEvalCase(c, system, answer, err)
 	}
 	out.Rubric = evalrubric.Score(evalRubricInput(c, answer, err, out.Unknown, rcaH != nil))
-	return out
+	return evalMarkInfra(out) // v0.10.1476
+}
+
+// evalServerCompose — SAF, v0.10.1476: üretim handler'ının model cevabına
+// deterministik olarak eklediği sunucu metni, yüzey başına. Tek kaynak
+// handler'ın kullandığı fonksiyon; burada yalnız çağrılır. Eşlemesiz yüzey
+// cevabı aynen döndürür.
+func evalServerCompose(surface, user, answer string) string {
+	switch surface {
+	case "SLOBurn": // copilot_explain_slo.go — alarm eşiği satırı
+		return sloAnswerWithBurnVerdict(user, answer)
+	}
+	return answer
 }
 
 // ── Panel şekilleri (HTTP sözleşmesi — frontend lib/types.ts aynası) ────
@@ -690,6 +817,9 @@ type evalSurfaceSummary struct {
 	AgentCases   int      `json:"agentCases"`
 	AvgToolCalls *float64 `json:"avgToolCalls"`
 	AvgTokens    *float64 `json:"avgTokens"`
+	// Infra — v0.10.1476: atlananların altyapı hatası olanları (Skipped'in
+	// alt kümesi; geçme oranına girmez).
+	Infra int `json:"infra"`
 }
 
 type evalRunSummary struct {
@@ -717,6 +847,9 @@ type evalRunSummary struct {
 	// isteğinde açık seçildi (otomatik çözüm değil).
 	Toolset       string `json:"toolset"`
 	ToolsetPinned bool   `json:"toolsetPinned"`
+	// Infra — v0.10.1476: altyapı hatasıyla atlanan vaka sayısı (Skipped'in
+	// alt kümesi; yüzey özetlerinin toplamı — CH kolonu yok).
+	Infra int `json:"infra"`
 }
 
 type evalCaseResult struct {
@@ -738,6 +871,9 @@ type evalCaseResult struct {
 	AnswerTruncated bool            `json:"answerTruncated"`
 	Error           string          `json:"error"`
 	Expect          json.RawMessage `json:"expect"`
+	// InfraError — v0.10.1476: altyapı hatası sınıfı (skipped=true ile);
+	// "" = model cevabı puanlandı ya da başka nedenle atlandı.
+	InfraError string `json:"infraError,omitempty"`
 	// Toolset — v0.10.1311: full | simple; döngü dışı yüzey "".
 	Toolset string `json:"toolset"`
 	// Mode / Agent — v0.10.1316: ajan kipi ("agent") ve izi; tek çağrıda yok.
@@ -855,6 +991,7 @@ func evalCaseResultFrom(c evalCase, o evalCaseOutcome, profileID, model string) 
 		Input: in, InputTruncated: inT, Answer: ans, AnswerTruncated: ansT,
 		Expect: evalExpectJSON(c), Toolset: o.Toolset,
 		Mode: o.Mode, Agent: o.Agent, // v0.10.1316
+		InfraError: o.Infra, // v0.10.1476
 	}
 	if o.Err != nil {
 		res.Error = o.Err.Error()
@@ -925,6 +1062,9 @@ func evalSurfaceSummaries(plan []evalCase, results []evalCaseResult) []evalSurfa
 		switch {
 		case r.Skipped:
 			out[i].Skipped++
+			if r.InfraError != "" {
+				out[i].Infra++ // v0.10.1476
+			}
 		case r.OK:
 			out[i].Pass++
 		default:
@@ -987,7 +1127,17 @@ func evalSummaryFromRow(r chstore.EvalRun, now time.Time, ownedHere bool) evalRu
 		Total: int(r.Total), Done: int(r.Done), Pass: int(r.Pass), Fail: int(r.Fail), Skipped: int(r.Skipped),
 		RubricMean: r.RubricMean, Error: r.Error, BySurface: blob.BySurface,
 		Toolset: blob.Toolset, ToolsetPinned: blob.ToolsetPinned, // v0.10.1311
+		Infra: evalInfraTotal(blob.BySurface), // v0.10.1476
 	}
+}
+
+// evalInfraTotal — SAF, v0.10.1476: yüzey özetlerinden altyapı hatası toplamı.
+func evalInfraTotal(by []evalSurfaceSummary) int {
+	n := 0
+	for _, s := range by {
+		n += s.Infra
+	}
+	return n
 }
 
 // evalCasesFromRow — SAF: cases kolonu → dilim; boş/bozuk → [] (ilerleme

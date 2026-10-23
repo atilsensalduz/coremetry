@@ -33,6 +33,7 @@ func TestEvalsetProductionLabelTable(t *testing.T) {
 		"NLToQuery": "nl-to-query", "CHQueryOptimize": "ch-optimize",
 		"RCAVerdict": "rootcause-verdict", "ServiceCharts": "explain-charts",
 		"GeneralChat": "chat-general", "Chat": "chat", "IntentClassify": "chat-intent",
+		"OffTopicGeneral": "chat-offtopic-general", // v0.10.1476
 	}
 	if len(evalProductionLabels) != len(want) {
 		t.Fatalf("tablo %d girdi, pin %d", len(evalProductionLabels), len(want))

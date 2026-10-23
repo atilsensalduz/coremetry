@@ -4,7 +4,7 @@ import {
   evalHref, expectLines, failingCases, fmtDurationMs, fmtRunTime, fmtSec1, fmtSigned2, fmtSignedInt,
   passDeltas, pickDefaultProfile, pickDefaultRunId, progressPct, progressText, routingHint, runElapsedMs,
   runStatusView, runToolsetView, selectionCaseCount, toggleSurface, toolsetLabel, withEvalParams,
-  agentMetaLine, fmtAvg1, fmtTokensK, tierLabel, trailRows,
+  agentMetaLine, caseBadgeLabel, fmtAvg1, fmtTokensK, tierLabel, trailRows,
 } from './aiEval';
 import type { EvalAgentTrail, EvalCaseResult, EvalCompare, EvalRunSummary, EvalsetCatalogSurface } from '@/lib/types';
 
@@ -266,6 +266,18 @@ describe('ajan kipi (v0.10.1316)', () => {
     expect(agentMetaLine(trail)).toBe('döngü · 3 tur · 4 çağrı (1 atlandı) · 6,1k token');
     expect(agentMetaLine({ ...trail, tier: 'intent', rounds: 0, calls: 0, skipped: 0, inputTokens: 300, outputTokens: 40, capped: true, deep: true }))
       .toBe('niyet · 0 tur · 0 çağrı · 340 token · bütçe doldu · derin');
+  });
+  it('v0.10.1476 — bağlanan servis künyede; altyapı hatası rozeti; niyet kabul kümesi ve uzunluk tavanı', () => {
+    expect(agentMetaLine({ ...trail, bound: 'checkout → orders-api' })).toBe('döngü · 3 tur · 4 çağrı (1 atlandı) · 6,1k token · servis checkout → orders-api');
+    expect(caseBadgeLabel({ ok: false, skipped: true, error: 'openai-compat 500: x', infraError: 'http_5xx' })).toBe('altyapı hatası');
+    expect(caseBadgeLabel({ ok: false, skipped: true, error: '' })).toBe('atlandı');
+    expect(caseBadgeLabel({ ok: false, skipped: false, error: 'x' })).toBe('hata');
+    expect(caseBadgeLabel({ ok: false, skipped: false, error: '' })).toBe('kaldı');
+    expect(caseBadgeLabel({ ok: true, skipped: false, error: '' })).toBe('geçti');
+    expect(expectLines({ intent: 'none', intentAnyOf: ['off_topic'], maxAnswerRunes: 600 })).toEqual([
+      'Niyet: none / off_topic',
+      'Cevap uzunluğu üst sınırı: 600 karakter',
+    ]);
   });
   it('trailRows: sıra korunur; durum metni; atlanan adımda süre yok; ön-yükleme kökeni', () => {
     const rows = trailRows(trail);

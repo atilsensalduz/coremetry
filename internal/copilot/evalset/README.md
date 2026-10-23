@@ -110,3 +110,31 @@ adları sohbet kataloğundan ya da guided ön-yükleme çiplerinden olmalı
 (`TestEvalsetFixturesValid`). Sonuç izi (`agent`: kademe, tur, çağrı,
 token, ≤12 adım) koşunun cases JSON'unda; ai_calls satırları
 `evalset-ChatLoop` (döngü öncesi kademeler de `evalset-` önekli).
+
+## Prod koşusu düzeltmeleri (v0.10.1476)
+
+- **Döngü sondası** (`"expectTier": "loop"`, ajan kipi): guided, doküman RAG'ı
+  ve niyet kademesi atlanır (`chatEvalMode.LoopProbe`) — vaka modelin serbest
+  döngüdeki ARAÇ SEÇİMİNİ ölçer. Prod bu soruları deterministik guided
+  rotasına gönderir; o yarı CI'da `internal/api/chat_routing_regression_test.go`.
+  Sondanın `anyOfTools` / `expectedTools` adları sohbet DÖNGÜSÜ kataloğunda
+  olmalı (guided-yalnız çip adı model tarafından seçilemez; fikstür testi).
+  Beklenen araç bu kurulumda sunulmuyorsa (kapalı toolset, rol) vaka
+  `harness: …` nedeniyle atlanır — model hatası sayılmaz.
+- **`bindService`** (ajan kipi): sorudaki sentetik servis canlı katalogda
+  yoksa koşu, son 1 saatin en yoğun canlı servisine bağlanır (koşu başına bir
+  MV okuması); soru, `mustContain`, `keyFacts`, `knownEntities` aynı adla
+  değişir, iz `bound` alanında. Hedef yoksa vaka atlanır.
+- **Altyapı hatası**: sağlayıcı 5xx / zaman aşımı / erişilemez / kota ile
+  cevapsız biten vaka PUANLANMAZ (`skipped` + `infraError`, neden
+  "altyapı hatası (…)"); yeniden deneme yok. 4xx / bağlam taşması kalite ya da
+  harness hatası olarak kalır.
+- **Yeni beklentiler**: `intentAnyOf` (intent'e ek kabul edilen niyetler,
+  gerekçe `note`'ta zorunlu), `maxAnswerRunes` (cevap uzunluk tavanı).
+  `note`: beklenti değişikliğinin yazılı gerekçesi (koşucu okumaz).
+- **`OffTopicGeneral`** yüzeyi: v0.10.1458 genel soru istemi
+  (`chat-offtopic-general`).
+- **Sunucu bileşimi** (`evalServerCompose`): üretim handler'ının cevaba
+  deterministik eklediği metin puanlamadan önce AYNI fonksiyonla uygulanır
+  (SLOBurn: `sloAnswerWithBurnVerdict` alarm eşiği satırı).
+- Uydurma ad ihlali artık adları da yazar (`unknown entities 1 > 0: [x]`).

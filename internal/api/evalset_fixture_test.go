@@ -17,6 +17,7 @@ import (
 	"go/parser"
 	"go/token"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/cilcenk/coremetry/internal/ai/aisurface"
 	"github.com/cilcenk/coremetry/internal/ai/evalrubric"
+	"github.com/cilcenk/coremetry/internal/ai/modelcaps"
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/mcptools"
 )
@@ -85,6 +87,12 @@ func TestEvalsetFixturesValid(t *testing.T) {
 		if (c.Surface == "IntentClassify") != (e.Intent != "") {
 			t.Errorf("%s/%s: intent beklentisi yalnız IntentClassify yüzeyinde ve orada zorunlu", c.file, c.ID)
 		}
+		if len(e.IntentAnyOf) > 0 && (e.Intent == "" || strings.TrimSpace(c.Note) == "") { // v0.10.1476
+			t.Errorf("%s/%s: intentAnyOf yalnız intent ile ve yazılı gerekçeyle (note)", c.file, c.ID)
+		}
+		if e.MaxAnswerRunes < 0 {
+			t.Errorf("%s/%s: maxAnswerRunes negatif", c.file, c.ID)
+		}
 		checkAgentFixture(t, c, knownTools)
 	}
 	if agentN < 6 { // v0.10.1316 — agent_loop.json
@@ -110,6 +118,10 @@ func checkAgentFixture(t *testing.T, c evalCase, knownTools map[string]bool) {
 	if c.Deep && !agent {
 		t.Errorf("%s/%s: deep yalnız ajan kipiyle", c.file, c.ID)
 	}
+	// v0.10.1476 — bindService yalnız ajan kipinde ve sorunun içinde (sınırlı).
+	if c.BindService != "" && (!agent || !regexp.MustCompile(`\b`+regexp.QuoteMeta(c.BindService)+`\b`).MatchString(c.User)) {
+		t.Errorf("%s/%s: bindService %q yalnız ajan kipinde ve soruda geçmeli", c.file, c.ID, c.BindService)
+	}
 	agentOnly := len(e.AnyOfTools) > 0 || len(e.ForbiddenTools) > 0 || e.MaxToolCalls != nil || e.ExpectTier != "" || e.MaxTokens > 0
 	if agentOnly && !agent {
 		t.Errorf("%s/%s: anyOfTools / forbiddenTools / maxToolCalls / expectTier / maxTokens yalnız ajan kipinde", c.file, c.ID)
@@ -133,6 +145,27 @@ func checkAgentFixture(t *testing.T, c evalCase, knownTools map[string]bool) {
 			}
 		}
 	}
+	// v0.10.1476 — döngü sondası guided'ı atlar: beklenen araçlar SERBEST
+	// DÖNGÜ kataloğunda olmalı (guided-yalnız çip adını model seçemez).
+	if evalAgentLoopProbe(c) {
+		loop := evalLoopCatalogNames()
+		for _, list := range [][]string{e.ExpectedTools, e.AnyOfTools} {
+			for _, name := range list {
+				if !loop[name] {
+					t.Errorf("%s/%s: döngü sondası aracı %q sohbet döngüsü kataloğunda yok (guided-yalnız çip?)", c.file, c.ID, name)
+				}
+			}
+		}
+	}
+}
+
+// evalLoopCatalogNames — v0.10.1476: serbest döngünün (full) sohbet kataloğu.
+func evalLoopCatalogNames() map[string]bool {
+	out := map[string]bool{}
+	for _, tl := range mcptools.ChatToolListFor(mcptools.Deps{}, modelcaps.ToolsetFull) {
+		out[tl.Name] = true
+	}
+	return out
 }
 
 // evalFixtureToolNames — v0.10.1316: sohbet kataloğunun adları + guided

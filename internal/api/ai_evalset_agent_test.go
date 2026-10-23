@@ -555,7 +555,7 @@ func TestScoreEvalAgentCase(t *testing.T) {
 		{"uydurma: araç metnindeki ad bilinir", evalExpect{MaxUnknownEntities: intp(0)},
 			evalAgentOutcome{Status: "ok", Answer: "fraud-scorer yavaş"}, `{"service":"fraud-scorer"}`, nil, 0},
 		{"uydurma: hiçbir yerde olmayan ad", evalExpect{MaxUnknownEntities: intp(0)},
-			evalAgentOutcome{Status: "ok", Answer: "ledger-writer yavaş"}, "", []string{"unknown entities 1 > 0"}, 1},
+			evalAgentOutcome{Status: "ok", Answer: "ledger-writer yavaş"}, "", []string{"unknown entities 1 > 0: [ledger-writer]"}, 1}, // v0.10.1476 — ad mesajda
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c := agentCase("x", tc.e)

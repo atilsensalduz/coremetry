@@ -36,6 +36,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -49,7 +50,6 @@ import (
 	"github.com/cilcenk/coremetry/internal/copilot"
 	"github.com/cilcenk/coremetry/internal/mcp"
 	"github.com/cilcenk/coremetry/internal/mcptools"
-	"github.com/cilcenk/coremetry/internal/rca"
 )
 
 // evalModeAgent — fikstürün `mode` değeri: vaka canlı ajan döngüsünden koşar.
@@ -150,6 +150,9 @@ type evalAgentStats struct {
 	// ToolText — yürüyen başarılı çağrıların argümanı + TAM çıktısı (uydurma
 	// sayımının kanıtı; saklanmaz).
 	ToolText string
+	// Offered — v0.10.1476: serbest döngünün modele sunduğu araç adları
+	// (chatEvalMode.OnCatalog); nil = döngü kataloğu kurulmadı.
+	Offered []string
 }
 
 // CapSkipped — tavanı aşıp Executor'a hiç gitmeyen çağrı sayısı.
@@ -203,6 +206,12 @@ func (c *evalAgentCollector) onTool(name string, args json.RawMessage, oc agentt
 	c.toolText.WriteByte('\n')
 	c.toolText.WriteString(oc.Content)
 	c.toolText.WriteByte('\n')
+}
+
+func (c *evalAgentCollector) onCatalog(names []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.st.Offered = append([]string{}, names...)
 }
 
 func (c *evalAgentCollector) sink(o evalAgentOutcome) {
@@ -269,6 +278,118 @@ func (w *evalDiscardResponse) status() int {
 // açık kalır.
 func evalAgentSkipIntent(c evalCase) bool { return c.Expect.ExpectTier != aisurface.TierIntent }
 
+// evalAgentLoopProbe — SAF, v0.10.1476 (prod koşusu 2026-10-23, ChatLoop 2/6):
+// vaka expectTier "loop" sabitlediyse serbest döngünün ARAÇ SEÇİMİNİ ölçen
+// bir sondadır → guided, RAG ve niyet kademeleri atlanır. Ölçüm: prod
+// kataloğunda bu soruların hepsi deterministik guided rotasına gidiyordu
+// (service_topology / log_errors / ask_service …); döngü hiç koşmuyor, iz
+// guided çiplerini gösteriyor, anyOfTools "missing" kalıyordu. Prod rotası
+// deterministik olduğu için onun pini CI'da (chat_routing_regression_test.go).
+func evalAgentLoopProbe(c evalCase) bool { return c.Expect.ExpectTier == aisurface.TierLoop }
+
+// evalAgentSkipError — koşucunun vakayı model çağırmadan atlama kararı
+// (bağlanacak canlı servis yok, beklenen araç sunulmuyor …).
+type evalAgentSkipError struct{ reason string }
+
+func (e *evalAgentSkipError) Error() string { return e.reason }
+
+// evalNameIn — SAF: ad canlı listede mi (harf duyarsız tam eş).
+func evalNameIn(name string, live []string) bool {
+	for _, n := range live {
+		if strings.EqualFold(n, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// evalBindCase — SAF, v0.10.1476: vakanın sentetik servis adını (from) canlı
+// bir adla (to) değiştirir: sorudaki SINIRLI geçişler, mustContain / keyFacts
+// / knownEntities'teki tam eşler. Dilimler kopyalanır (fikstür değişmez);
+// to bilinen kümeye eklenir. from boş ya da from == to → aynen.
+func evalBindCase(c evalCase, from, to string) evalCase {
+	if from == "" || to == "" || strings.EqualFold(from, to) {
+		return c
+	}
+	re := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(from) + `\b`)
+	c.User = re.ReplaceAllLiteralString(c.User, to)
+	swap := func(in []string) []string {
+		if in == nil {
+			return nil
+		}
+		out := make([]string, len(in))
+		for i, v := range in {
+			if strings.EqualFold(v, from) {
+				v = to
+			}
+			out[i] = v
+		}
+		return out
+	}
+	c.Expect.MustContain = swap(c.Expect.MustContain)
+	c.Expect.KeyFacts = swap(c.Expect.KeyFacts)
+	c.Expect.KnownEntities = swap(c.Expect.KnownEntities)
+	if !evalNameIn(to, c.Expect.KnownEntities) {
+		c.Expect.KnownEntities = append(c.Expect.KnownEntities, to)
+	}
+	return c
+}
+
+// evalAgentHarnessGap — SAF, v0.10.1476: döngü sondasında beklenen araçlar
+// bu kurulumun kataloğunda (rol / araç seti / kapalı toolset / localOnly
+// süzgecinden sonra) SUNULMUYORSA neden metni; model sunulmayan aracı
+// seçemez → vaka model hatası sayılmaz, atlanır. offered nil (katalog
+// kurulmadı) → "" (karar kademe kapısına kalır).
+func evalAgentHarnessGap(c evalCase, offered []string) string {
+	if offered == nil || !evalAgentLoopProbe(c) {
+		return ""
+	}
+	have := make(map[string]bool, len(offered))
+	for _, n := range offered {
+		have[n] = true
+	}
+	var missing []string
+	for _, n := range c.Expect.ExpectedTools {
+		if !have[n] {
+			missing = append(missing, n)
+		}
+	}
+	if len(c.Expect.AnyOfTools) > 0 {
+		hit := false
+		for _, n := range c.Expect.AnyOfTools {
+			hit = hit || have[n]
+		}
+		if !hit {
+			missing = append(missing, c.Expect.AnyOfTools...)
+		}
+	}
+	if len(missing) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("harness: beklenen araç(lar) bu kurulumun sohbet kataloğunda sunulmuyor (kapalı toolset / rol / araç seti): %v", missing)
+}
+
+// evalBindTargetSeam — v0.10.1476: bağlama hedefi (son 1 saatin en yoğun
+// canlı servisi, MV okuması). var: test dikişi.
+var evalBindTargetSeam = func(ctx context.Context, s *Server, live []string) string {
+	if s == nil || s.store == nil {
+		return ""
+	}
+	qctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	now := time.Now()
+	rows, err := s.store.GetServicesAgg(qctx, now.Add(-time.Hour), now, 20)
+	if err != nil {
+		return ""
+	}
+	for _, r := range rows {
+		if r.SpanCount > 0 && (len(live) == 0 || evalNameIn(r.Name, live)) {
+			return r.Name
+		}
+	}
+	return ""
+}
+
 // evalAgentRequest — SAF: vakanın sohbet isteği (tek kullanıcı turu,
 // konuşmasız, sayfasız; Derin vakadan).
 func evalAgentRequest(c evalCase) chatRequest {
@@ -281,6 +402,8 @@ func evalAgentRequest(c evalCase) chatRequest {
 // evalsetServerAgent — sunucu koşucusunun evalAgentFn'i: copilotChat süreç
 // içinde, koşuyu başlatanın kimliğiyle (rol süzgeci canlıdaki gibi).
 func (s *Server) evalsetServerAgent(job *evalJob) evalAgentFn {
+	var bindOnce sync.Once // v0.10.1476 — koşu başına bir bağlama hedefi
+	var bindTarget string
 	return func(ctx context.Context, c evalCase) (evalAgentOutcome, evalAgentStats, error) {
 		if s == nil || s.copilot == nil {
 			return evalAgentOutcome{}, evalAgentStats{}, errors.New("CoSRE yapılandırılmamış")
@@ -289,11 +412,25 @@ func (s *Server) evalsetServerAgent(job *evalJob) evalAgentFn {
 		if mcp.SimpleToolsetFrom(ctx) {
 			toolset = modelcaps.ToolsetSimple
 		}
+		// v0.10.1476 — sentetik servis canlı katalogda yoksa koşunun TEK
+		// hedefine bağlanır (koşu başına bir MV okuması).
+		boundTo := ""
+		if c.BindService != "" {
+			if live := s.guidedServiceNames(ctx); !evalNameIn(c.BindService, live) {
+				bindOnce.Do(func() { bindTarget = evalBindTargetSeam(ctx, s, live) })
+				if bindTarget == "" {
+					return evalAgentOutcome{}, evalAgentStats{}, &evalAgentSkipError{reason: fmt.Sprintf("bağlanacak canlı servis yok: %q katalogda değil, son 1 saatte trafikli servis bulunamadı", c.BindService)}
+				}
+				boundTo = bindTarget
+				c = evalBindCase(c, c.BindService, boundTo)
+			}
+		}
 		col := &evalAgentCollector{}
 		em := &chatEvalMode{
 			Surface: evalsetSurfacePrefix + c.Surface, ExchangeID: job.row.ID + "/" + c.ID, Toolset: toolset,
 			SkipIntent: evalAgentSkipIntent(c), // v0.10.1321
-			OnTurn:     col.onTurn, OnTool: col.onTool, Sink: col.sink,
+			LoopProbe:  evalAgentLoopProbe(c),  // v0.10.1476
+			OnTurn:     col.onTurn, OnTool: col.onTool, Sink: col.sink, OnCatalog: col.onCatalog,
 		}
 		cctx := copilot.WithRecordSurfacePrefix(ctx, evalsetSurfacePrefix)
 		cctx = auth.ContextWithClaims(cctx, &auth.Claims{UserID: job.userID, Email: job.userEmail, Role: job.userRole})
@@ -311,6 +448,7 @@ func (s *Server) evalsetServerAgent(job *evalJob) evalAgentFn {
 		w := newEvalDiscardResponse()
 		s.copilotChat(w, req)
 		o, st, ok := col.result()
+		o.BoundTo = boundTo
 		if !ok {
 			return o, st, fmt.Errorf("sohbet handler'ı sonuç bildirmedi (HTTP %d)", w.status())
 		}
@@ -328,6 +466,16 @@ func runEvalAgentCase(ctx context.Context, agent evalAgentFn, c evalCase, toolse
 	}
 	t0 := time.Now()
 	o, st, err := agent(ctx, c)
+	var skip *evalAgentSkipError
+	if errors.As(err, &skip) { // v0.10.1476 — model çağrılmadı
+		return evalCaseOutcome{Skipped: true, SkipReason: skip.reason, User: c.User, Toolset: toolset, Mode: evalModeAgent}
+	}
+	if o.BoundTo != "" { // v0.10.1476 — koşucunun bağladığı adla AYNI vaka puanlanır
+		c = evalBindCase(c, c.BindService, o.BoundTo)
+	}
+	if gap := evalAgentHarnessGap(c, st.Offered); gap != "" && err == nil {
+		return evalCaseOutcome{Skipped: true, SkipReason: gap, User: c.User, Answer: o.Answer, Toolset: toolset, Mode: evalModeAgent}
+	}
 	out := evalCaseOutcome{User: c.User, Answer: o.Answer, Err: err, LatencyMs: time.Since(t0).Milliseconds(), Toolset: toolset, Mode: evalModeAgent}
 	if o.Toolset != "" {
 		out.Toolset = o.Toolset
@@ -444,9 +592,10 @@ func scoreEvalAgentCase(c evalCase, o evalAgentOutcome, st evalAgentStats, fullT
 		// guided ön-yüklemesinin önizlemesi de modele gösterilen veridir.
 		shown.WriteString("\n" + t.Name + " " + t.Args + "\n" + t.Output)
 	}
-	unknown = int(rca.CountUnknownEntities(rca.LowerKnownSet(c.Expect.KnownEntities...), shown.String(), answer))
+	names := evalUnknownNames(c.Expect.KnownEntities, shown.String(), answer) // v0.10.1476 — adlarıyla
+	unknown = len(names)
 	if c.Expect.MaxUnknownEntities != nil && unknown > *c.Expect.MaxUnknownEntities {
-		fails = append(fails, fmt.Sprintf("unknown entities %d > %d", unknown, *c.Expect.MaxUnknownEntities))
+		fails = append(fails, fmt.Sprintf("unknown entities %d > %d: %v", unknown, *c.Expect.MaxUnknownEntities, names))
 	}
 	_ = st // tur / token metrikleri trail'de; puanı değiştirmez
 	return fails, unknown
@@ -469,7 +618,9 @@ type evalAgentStep struct {
 
 // evalAgentTrail — ajan vakasının izi (≤ evalAgentTrailMax bayt JSON).
 type evalAgentTrail struct {
-	Tier         string `json:"tier"`
+	Tier string `json:"tier"`
+	// Bound — v0.10.1476: "sentetik → canlı" bağlaması (yoksa boş).
+	Bound        string `json:"bound,omitempty"`
 	Route        string `json:"route,omitempty"`
 	Rounds       int    `json:"rounds"`
 	Calls        int    `json:"calls"`
@@ -494,6 +645,9 @@ func evalAgentTrailFrom(c evalCase, o evalAgentOutcome, st evalAgentStats, laten
 		Tier: o.Tier, Route: o.Route, Rounds: st.Rounds, Calls: len(steps), ModelCalls: int(o.ModelCalls),
 		InputTokens: o.InputTokens, OutputTokens: o.OutputTokens, CachedTokens: st.CachedTokens,
 		Capped: st.Capped, Deep: o.Deep, Steps: []evalAgentStep{},
+	}
+	if o.BoundTo != "" && c.BindService != "" {
+		tr.Bound = c.BindService + " → " + o.BoundTo
 	}
 	for i, t := range steps {
 		if evalStepSkipped(t) {
