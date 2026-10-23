@@ -301,6 +301,9 @@ type guidedRoute struct {
 	FindQuery string
 	// v0.10.465 (D2, family_traces.go) — yalnız hatalı trace'ler (yavaş değil).
 	TraceErrorsOnly bool
+	// TraceRecent — v0.10.1487 (family_traces.go): düz trace listesi isteği
+	// (hata/yavaş sözcüğü yok) → süzgeçsiz, en yeni önce. TraceErrorsOnly kazanır.
+	TraceRecent bool `json:",omitempty"`
 	// v0.10.476 (F3-5, trace_nl_search.go) — değerin bulunduğu attribute anahtarları
 	// (bundle yazar; link süzgeç çipine döner).
 	SearchKeys []string

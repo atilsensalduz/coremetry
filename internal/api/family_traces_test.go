@@ -48,18 +48,18 @@ func TestRouteFamilyTraces(t *testing.T) {
 
 func TestFamilyTraceFilterAndHref(t *testing.T) {
 	fam := []string{"mobile-commercial-bff-prod", "mobile-retail-bff-prod"}
-	f := familyTraceFilter(fam, true, "prod", time.Now().Add(-time.Hour), time.Now())
+	f := familyTraceFilter(fam, familyModeErrors, "prod", time.Now().Add(-time.Hour), time.Now())
 	if f.Service != "" || len(f.Filters) != 1 || f.Filters[0].Op != "IN" || len(f.Filters[0].Values) != 2 || !f.HasError || f.Sort != "time" || f.Limit != 10 || f.Env != "prod" {
 		t.Fatalf("aile süzgeci: %+v", f)
 	}
 	if err := chstore.ValidateFilters(f.Filters); err != nil {
 		t.Fatalf("çip geçersiz: %v", err)
 	}
-	f1 := familyTraceFilter([]string{"checkout-service"}, false, "", time.Now().Add(-time.Hour), time.Now())
+	f1 := familyTraceFilter([]string{"checkout-service"}, familyModeSlow, "", time.Now().Add(-time.Hour), time.Now())
 	if f1.Service != "checkout-service" || len(f1.Filters) != 0 || f1.HasError || f1.Sort != "duration" {
 		t.Fatalf("tek servis süzgeci: %+v", f1)
 	}
-	h := familyTracesHref(fam, true)
+	h := familyTracesHref(fam, familyModeErrors)
 	u, err := url.Parse(h)
 	if err != nil || u.Path != "/traces" {
 		t.Fatalf("href: %s %v", h, err)
@@ -68,20 +68,20 @@ func TestFamilyTraceFilterAndHref(t *testing.T) {
 	if q.Get("hasError") != "true" || q.Get("sort") != "time" || q.Get("order") != "desc" || !strings.Contains(q.Get("filters"), `"op":"IN"`) || !strings.Contains(q.Get("filters"), "mobile-retail-bff-prod") {
 		t.Fatalf("href paramları: %s", h)
 	}
-	if h1 := familyTracesHref([]string{"checkout-service"}, false); !strings.Contains(h1, "service=checkout-service") || strings.Contains(h1, "hasError") || !strings.Contains(h1, "sort=duration") {
+	if h1 := familyTracesHref([]string{"checkout-service"}, familyModeSlow); !strings.Contains(h1, "service=checkout-service") || strings.Contains(h1, "hasError") || !strings.Contains(h1, "sort=duration") {
 		t.Fatalf("tek servis href: %s", h1)
 	}
 }
 
 func TestRenderFamilyTraces(t *testing.T) {
 	rows := []chstore.TraceRow{{TraceID: "a1", RootName: "POST /pay", ServiceName: "mobile-retail-bff-prod", DurationMs: 812, SpanCount: 14, HasError: true, StartTime: 1_700_000_000_000_000_000}}
-	txt := renderFamilyTracesEvidenceTR(rows, []string{"mobile-commercial-bff-prod", "mobile-retail-bff-prod"}, true, "", 3600)
+	txt := renderFamilyTracesEvidenceTR(rows, []string{"mobile-commercial-bff-prod", "mobile-retail-bff-prod"}, familyModeErrors, "", 3600)
 	for _, want := range []string{"Hatalı trace'ler", "en yeniden eskiye", "812ms", "HATA", "trace=a1", "Kapsam 2 servis"} {
 		if !strings.Contains(txt, want) {
 			t.Errorf("%q yok:\n%s", want, txt)
 		}
 	}
-	if e := renderFamilyTracesEvidenceTR(nil, []string{"x"}, false, "prod", 60); !strings.Contains(e, "En yavaş trace'ler") || !strings.Contains(e, "bulunamadı") || !strings.Contains(e, "ortam: prod") {
+	if e := renderFamilyTracesEvidenceTR(nil, []string{"x"}, familyModeSlow, "prod", 60); !strings.Contains(e, "En yavaş trace'ler") || !strings.Contains(e, "bulunamadı") || !strings.Contains(e, "ortam: prod") {
 		t.Errorf("boş liste:\n%s", e)
 	}
 }
@@ -119,5 +119,68 @@ func TestExceptionOwnsTraceAsk(t *testing.T) {
 		if got := exceptionOwnsTraceAsk(guidedTokens(normalizeGuidedMsg(q))); got != want {
 			t.Errorf("%q: got %v want %v", q, got, want)
 		}
+	}
+}
+
+// v0.10.1487 — düz trace listesi isteği nötr "son trace'ler" kipine girer;
+// ek sözcük taşıyan sorular bugünkü yollarında kalır.
+func TestPlainTraceListAsk(t *testing.T) {
+	names, envs := []string{"orders-api"}, []string{"prod", "uat"}
+	for _, c := range []struct {
+		q    string
+		want bool
+	}{
+		{"orders-api trace'leri", true},
+		{"orders-api trace'i bul", true},
+		{"orders-api son trace'ler", true},
+		{"orders-api trace'lerini göster", true},
+		{"orders-api servisinin son 1 saatteki traceleri", true},
+		{"orders-api prod son trace'leri getir", true},
+		{"show recent traces for orders-api", true},
+		{"orders-api nedir", false},
+		{"orders-api trace sayfasını aç", false},
+		{"orders-api trace'leri neden gelmiyor", false},
+		{"orders-api trace sayısı", false},
+		{"orders-api trace topolojisi", false},
+		{"orders-api trace örnekleme oranı", false},
+		{"orders-api tracing nasıl kurulur", false},
+	} {
+		if got := plainTraceListAsk(guidedTokens(normalizeGuidedMsg(c.q)), names, envs); got != c.want {
+			t.Errorf("%q: got %v want %v", c.q, got, c.want)
+		}
+	}
+}
+
+func TestFamilyTracesRecentMode(t *testing.T) {
+	services := []string{"orders-api", "billing-api"}
+	r, ok := routeFamilyTraces("orders-api son trace'ler", guidedTokens("orders-api son trace'ler"), "orders-api", "", services, nil, "")
+	if !ok || !r.TraceRecent || r.TraceErrorsOnly || r.Service != "orders-api" {
+		t.Fatalf("nötr kip: ok=%v %+v", ok, r)
+	}
+	// Ekran servisi: servis adı yok, sayfa bağlamı kapsam.
+	if r, ok := routeFamilyTraces("son trace'ler", guidedTokens("son trace'ler"), "", "", services, nil, "billing-api"); !ok || r.Service != "billing-api" || !r.TraceRecent {
+		t.Errorf("ekran servisi: ok=%v %+v", ok, r)
+	}
+	// Kapsam yok → rota yok (bulanık aday üretimi nötr kipte kapalı).
+	if _, ok := routeFamilyTraces("son trace'ler", guidedTokens("son trace'ler"), "", "", services, nil, ""); ok {
+		t.Error("kapsamsız düz trace sorusu family_traces'e girmemeli")
+	}
+	f := familyTraceFilter([]string{"orders-api"}, familyModeRecent, "", time.Now().Add(-time.Hour), time.Now())
+	if f.HasError || f.Sort != "time" || f.Order != "desc" || f.Limit != 10 || f.CountMode != "skip" || f.Service != "orders-api" {
+		t.Errorf("son kip süzgeci (MV yolu: CountMode skip, LIMIT 10): %+v", f)
+	}
+	if h := familyTracesHref([]string{"orders-api"}, familyModeRecent); strings.Contains(h, "hasError") || !strings.Contains(h, "sort=time") {
+		t.Errorf("son kip linki: %s", h)
+	}
+	// "sadece hatalı olanlar" takibi TraceErrorsOnly ekler: hata kipi kazanır.
+	if m := familyTraceMode(guidedRoute{TraceRecent: true, TraceErrorsOnly: true}); m != familyModeErrors {
+		t.Errorf("hata kipi önce olmalı: %s", m)
+	}
+	if e := renderFamilyTracesEvidenceTR(nil, []string{"orders-api"}, familyModeRecent, "", 3600); !strings.Contains(e, "Son trace'ler") {
+		t.Errorf("son kip kanıtı: %s", e)
+	}
+	links := guidedAnswerLinks(guidedRoute{Intent: guidedFamilyTraces, Family: []string{"orders-api"}, Service: "orders-api", TraceRecent: true}, linkWindow{})
+	if len(links) == 0 || links[0].Label != "Trace'ler (en yeni)" {
+		t.Errorf("link: %+v", links)
 	}
 }

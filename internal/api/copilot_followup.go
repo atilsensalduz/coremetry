@@ -613,10 +613,14 @@ func guidedAnswerLinkTargets(route guidedRoute) []guidedAnswerLink {
 		return []guidedAnswerLink{{Label: "Clusters", Href: "/clusters"}}
 	case guidedFamilyTraces: // v0.10.465 (D2) — aynı süzgeçle /traces
 		label := "Trace'ler (en yavaş)"
-		if route.TraceErrorsOnly {
+		mode := familyTraceMode(route)
+		switch mode {
+		case familyModeErrors:
 			label = "Trace'ler (hatalı)"
+		case familyModeRecent: // v0.10.1487
+			label = "Trace'ler (en yeni)"
 		}
-		out := []guidedAnswerLink{{Label: label, Href: familyTracesHref(route.Family, route.TraceErrorsOnly)}}
+		out := []guidedAnswerLink{{Label: label, Href: familyTracesHref(route.Family, mode)}}
 		for i, m := range route.Family {
 			if i >= 2 {
 				break

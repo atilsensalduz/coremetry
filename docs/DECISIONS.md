@@ -10705,3 +10705,28 @@ LLM bu parçalar için gerekmez; ES/logs okuması yok. Yeni rota/kademe/MCP arac
 `TestExcStacksCacheKeyHashesAllInputs`, `TestServiceExceptionsBundleSamples` (tek toplu okuma, önbellek, hata hâli,
 boş hâl); chstore `TestExceptionSampleStacksQueryBounds`; `TestRoutingRegression` +1 satır (cevapta
 `/trace?id=…&span=…` ve stack kesiti) — regresyon düzeneği `service_exceptions` demetini sahte okuyucuyla koşturur.
+
+## 2026-10-23 — v0.10.1487 — CoSRE yönlendirme: düz "<svc> trace'leri" sorusu servisin son trace listesine
+
+**Bağlam.** v0.10.1479 DECISIONS'ta not edilen boşluk: "<svc> trace'leri", "<svc> trace'i bul", "<svc> son
+trace'ler" `find_entity` varlık kartına, "<svc> trace'lerini göster" / "<svc> servisinin son traceleri" niyet
+sınıflandırıcısına düşüyordu; `routeFamilyTraces` yalnız hata/yavaş sözcüğüyle açılıyordu. Operatör onayı 2026-10-23.
+
+**Karar.** Yeni rota/kademe yok; `family_traces`'e nötr "son" kipi (`guidedRoute.TraceRecent`): hata/yavaş sinyali yoksa
+kademe ancak `plainTraceListAsk` doğruysa açılır — mesaj trace isminden (trace/traces/traceler/trace'leri…), kapsam
+adlarından (servis / aile üyesi adı ya da ≥3 harfli ad bölümü, ortam), sayılardan ve KAPALI bir dolgu listesinden
+(ekler, bul/göster/getir/listele, son/en/yeni/örnek, servisinin, saat/dakika/bugün, var mı, EN show/recent…) ibaret
+olmalı. Başka her sözcük (nedir, neden, sayfa/aç, sayı, topoloji, örnekleme, tracing …) soruyu bugünkü yoluna bırakır.
+Kapsam: açık servis (2+ ad → çoklu), ad-parçası ailesi ya da ekran servisi; nötr kipte bulanık `serviceCandidates`
+YOK. Okuma aynı `GetTraces` (MV-öncelikli trace_summary_5m, `CountMode: skip`, `LIMIT 10`, zaman desc, hata
+süzgeci yok); link `/traces?service=…&sort=time&order=desc`, etiket "Trace'ler (en yeni)". Kip önceliği hata > son >
+yavaş (`familyTraceMode`): "sadece hatalı olanlar" takibi `TraceErrorsOnly` ekler ve kazanır. Sıra korunur:
+trace-id → `trace_by_id` (router başı), 1479 exception vetosu nötr kipte de geçerli, "exception'lı / hatalı trace'leri"
+hata kipinde, tek serviste "yavaş trace'leri" `slow_traces`'te, "nedir / hangi takımın" `find_entity`'de.
+
+**Geri alma.** Commit revert + yeni etiket; ya da `routeFamilyTraces`'teki `recent` dalını kaldır (eski erken dönüş).
+
+**Testler.** `TestRoutingRegression` +13 satır (6 bildirilen/varyant → family_traces, 7 komşu: nedir / hangi takımın →
+find_entity, yavaş → slow_traces, trace id → trace_by_id, exception grupları + trace → service_exceptions, trace
+sayfasını aç → open_page) — 5 satır değişiklik öncesi kırmızıydı; saf `TestPlainTraceListAsk`,
+`TestFamilyTracesRecentMode` (süzgeç, link, kip önceliği, kapsamsız → rota yok).
