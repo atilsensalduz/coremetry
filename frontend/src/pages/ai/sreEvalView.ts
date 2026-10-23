@@ -2,7 +2,7 @@
 // ölçümü. SREEvalPanel'in SAF yardımcıları (bileşen dosyası yalnız bileşen
 // dışa aktarsın — react-refresh). Ölçüler Go'da (sre.scoreEval) hesaplanır;
 // burada yalnız biçim + vaka satırının isabet etiketi (Go ile aynı kural).
-import type { SREEvalCase, SREEvalCaseState, SREHypothesisKind } from '@/lib/types';
+import type { SREEvalCase, SREEvalCaseState, SREEvalDetOutcome, SREEvalDetOutcomeValue, SREEvalHit, SREEvalRatio, SREEvalRun, SREHypothesisKind } from '@/lib/types';
 
 /** Go hypothesisTable etiketlerinin aynası (eval özetleri etiket taşımaz). */
 export const HYP_KIND_LABEL: Record<SREHypothesisKind, string> = {
@@ -109,4 +109,51 @@ export function validateEvalForm(from: string, to: string, limit: number): { fro
   if (t - f > 366 * 86_400_000) return 'pencere en çok 366 gün';
   if (!Number.isInteger(limit) || limit < 1 || limit > 50) return 'vaka sayısı 1–50';
   return { from: f, to: t, limit };
+}
+
+// ── v0.10.1450 — dondurulmuş küme + karşılaştırma (program 2a) ─────────────
+
+/** Deterministik sonuç (Go evalDetOutcome) — Türkçe ad. */
+export const DET_OUTCOME_LABEL: Record<SREEvalDetOutcomeValue, string> = {
+  confirmed: 'doğrulandı', likely: 'olası', ambiguous: 'belirsiz', inconclusive: 'sonuçsuz', no_data: 'veri yok', error: 'hata',
+};
+
+const DET_REASON_LABEL: Record<string, string> = { low_score: 'düşük skor', low_coverage: 'düşük kapsam', no_steps: 'adım yok' };
+
+/** "olası" / "sonuçsuz (düşük kapsam)"; sonuç yoksa "—". */
+export function detOutcomeText(o: SREEvalDetOutcome | undefined): string {
+  if (!o) return '—';
+  const v = DET_OUTCOME_LABEL[o.value] ?? o.value;
+  return o.reason ? `${v} (${DET_REASON_LABEL[o.reason] ?? o.reason})` : v;
+}
+
+export const PAIR_HIT_LABEL: Record<SREEvalHit, string> = { top1: 'ilk sırada', top3: 'ilk 3\'te', miss: 'kaçtı', unscored: 'puansız' };
+
+/** Oran farkı (0..1 ölçeği) → yüzde puanı: "+5 puan" / "−12 puan" / "0"; null "—". */
+export function evalDelta(v: number | null | undefined, scale = 100): string {
+  if (v == null || !Number.isFinite(v)) return '—';
+  const p = Math.sign(v) * Math.round(Math.abs(v * scale)); // simetrik yuvarlama (−12,5 → −13)
+  if (p === 0) return '0';
+  return `${p > 0 ? '+' : '−'}${Math.abs(p)} puan`;
+}
+
+/** Oran + pay/payda: "%67 (2/3)"; payda 0 → "— (0/0)". */
+export function ratioText(r: SREEvalRatio | undefined): string {
+  if (!r) return '—';
+  return `${evalPct(r.v)} (${r.n}/${r.d})`;
+}
+
+/** Koşunun kipi (2c "döngü" doldurur). */
+export function runMode(r: Pick<SREEvalRun, 'loop'>): 'deterministik' | 'döngü' {
+  return r.loop ? 'döngü' : 'deterministik';
+}
+
+/** Manşet (bağımsız) top-1 metni; bayrak bilinmiyorsa null (eski koşu). */
+export function independentTop1(r: Pick<SREEvalRun, 'score' | 'suggestionKnown'>): { pct: string; hint: string } | null {
+  if (!r.suggestionKnown) return null;
+  const sc = r.score;
+  return {
+    pct: evalPct(sc.independentTop1Acc),
+    hint: `${sc.independentTop1Hits ?? 0}/${sc.independentScored ?? 0} vaka · ${sc.acceptedSuggestion ?? 0} öneri aynen kabul (manşet dışı)`,
+  };
 }

@@ -53,6 +53,15 @@ type IncidentCase struct {
 	ConfirmedAt     time.Time `json:"confirmedAt"`
 }
 
+// SameCause — SAF: boşluk/harf farkı dışında aynı metin (onaylayan CoSRE'nin
+// önerisini değiştirmeden kabul etti). v0.10.1450: api/cosre_cases.go'daki
+// sameCause buraya taşındı — onay ucu (cosre_correct=1) ve değerlendirme
+// (sre.EvalCase.AcceptedSuggestion) TEK yazımı paylaşır.
+func SameCause(a, b string) bool {
+	norm := func(s string) string { return strings.Join(strings.Fields(strings.ToLower(s)), " ") }
+	return norm(a) != "" && norm(a) == norm(b)
+}
+
 // CaseIDFor — SAF: kaynak + kimlik → vaka kimliği (tekil, yeniden kurulabilir).
 func CaseIDFor(source, sourceID string) string {
 	switch source {

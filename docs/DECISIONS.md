@@ -9593,3 +9593,43 @@ aboneliğini kaldır.
 **Testler:** origin_test.go (doğruluk tablosu + "Argo yoksa unknown"), sync_event_test.go, argocd_sync_store_test.go,
 argocd_sync_webhook_test.go (rol kapısı, kayıtsız instance, 413, audit), rollouts_origin_test.go (pencere, tohumdan
 SeenBefore, belirsiz eşleme, soft-fail, JSON şekli); FE rolloutOrigin.test.ts.
+
+## 2026-10-23 — v0.10.1450 — AI SRE eval 2a: dondurulmuş küme + yeniden koşu + karşılaştırma (döngüden ÖNCE)
+
+**Neden:** CoSRE araştırma programı PR 2 (döngü) açılmadan önce taban ölçüsü B alınmalı; döngü açıldıktan sonra AYNI problemler
+ölçülüp "gerçek SRE'ye ne kadar yaklaştı" sorusuna sayı verilecek (plan-pr2-eval §2, §4, §5 satır 2a). Bu sürüm yalnız ölçüm
+aletini getirir; varsayılan tekrar LLM'siz ve bayt bayt aynı kalır (Investigation kaydına dokunulmadı).
+
+**Karar 1 — dondurulmuş küme = taban koşu satırı.** Yeni varlık/tablo yok: B'nin `cases[]`'i kümedir, `runId`'si kimliği.
+`POST /api/sre/eval/runs {rerunOf}` → `sre.startEvalRerun` → SAF `rerunCases`: kimlik, beklenen, çıpa (`StartedAt`), öneri
+bayrağı aynen; eşlenmeyen ve kalıcı atlanan (servis problemi değil / çıpa yok) vakalar "dondurulmuş: …" ile korunur, geri
+kalan her vaka mevcut `EnqueueReplay` ile YENİ koşu kimliğiyle kuyruğa girer (aynı AsOf ve plan pencereleri). Vakalar yeniden
+okunmaz. rerunOf + pencere → 400; taban yok → 404. Koşu satırı `build` (sunucu sürümü), `rerunOf`, `suggestionKnown` taşır;
+`loop` alanı 2c içindir, `loop:true` bu sürümde 400.
+
+**Karar 2 — `acceptedSuggestion` + manşet "bağımsız" (operatör kararı 2).** Vaka başına `chstore.SameCause(SuggestedCause,
+FinalCause)` (api/cosre_cases.go'daki `sameCause` buraya taşındı: tek yazım; `cosre_correct=1` ile aynı kural). `EvalScore`
+`independent*` ölçülerini taşır; /ai ilk karo ve karşılaştırmanın ilk satırı bağımsız vakalardır, tüm vakalar ikinci satır.
+v0.10.1450 öncesi koşularda bayrak bilinmez (`suggestionKnown=false`) → bağımsız oran null, not bunu yazar. LLM-yargılı
+`cosre_correct` okunmaz (etiket değil).
+
+**Karar 3 — `GET /api/sre/eval/compare?base=&cand=` (yeni dosya `api/sre_eval_compare.go`, viewer, 15 s cachedJSON).**
+SAF `sre.compareEvalRuns`: CaseID kümesi aynı değilse 409. Bloklar: independent (manşet), control (Δ ≈ 0 beklenir; ≠ 0 =
+veri kayması/gerileme, `driftCases`), calibration (depolanan Top[] skor + Coverage'dan deterministik sonuç — plan-pr2 §3.2
+kuralları döngüsüz; 2b'nin `outcomeOf`'u gelince `evalDetOutcome` ona devreder), cost (tekrar LLM 0 + koşu süresi),
+agreement (top-1 türü / det. sonuç aynı). Sabit dürüstlük notu (`EvalCompareNote`). MCP aracı yok (74), api.go büyümedi.
+2c ve 2b'nin işleri (eval-only döngü anahtarı, vaka başına alt-hipotez etiketi, döngü sonucu/maliyeti) BU sürümde YOK.
+
+**Korkuluk:** `TestEvalIgnoresFeedback` genişledi: yasak liste `human` içerir, `EvalCompare` tipi de yürünür, `eval_compare.go`
+AST taraması. 👍/👎 ve `human_*` işaretleri puanlamaya/karşılaştırmaya girmez.
+
+**Geri alma:** sürüm commit'ini revert → yeni etiket. Yeni JSON anahtarları (`rerunOf/build/suggestionKnown/
+acceptedSuggestion`) eski `decodeEvalRun`'da yok sayılır; yeniden koşu satırları sıradan koşu olarak görünür; tekrar işleri
+kendi `replay-<runId>-<pid>` anahtarındadır (30 g TTL). Şema değişikliği yok.
+
+**Runbook:** `docs/runbooks/sre-eval-replay.md` (B, yeniden koşu, compare okuma; curl'ler).
+
+**Testler:** sre `eval_compare_test.go` (`TestEvalDetOutcomeTable`, `TestCompareEvalRunsTable`, `TestScoreEvalIndependent`,
+`TestRerunCasesFrozen`, `TestNormalizeEvalRequestRerun`, `TestStartEvalRunRerun`), `TestEvalIgnoresFeedback`; chstore
+`TestSameCauseMoved`; api `TestEvalRerunAndCompare`, `TestSREEvalCompareRouteRegistered`; FE `sreEvalView.test.ts`,
+`SREEvalPanel.test.tsx`.

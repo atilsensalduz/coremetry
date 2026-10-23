@@ -27,6 +27,14 @@ package sre
 //     normalize FinalCause'da geçiyor mu), kapsam % (telemetri okuyucularının
 //     veri döndürdüğü adım payı — saklaması dolmuş pencere "veri yok"), canlı
 //     koşularda ilk hipoteze varış p50/p90.
+//  4. v0.10.1450 (program 2a) — dondurulmuş küme: taban koşusunun Cases[]'i
+//     kümenin kendisidir (yeni varlık yok). POST {rerunOf:<runId>} aynı vaka
+//     listesini AYNI çıpalarla yeni bir koşu kimliğiyle yeniden kuyruğa alır
+//     (rerunCases, SAF); koşu satırı sunucu sürümünü (Build) taşır. Vaka başına
+//     AcceptedSuggestion = onaylayan CoSRE'nin önerisini değiştirmeden kabul
+//     etti (chstore.SameCause) — etiket ajandan bağımsız değil; manşet ölçü
+//     "bağımsız" vakalardır (operatör kararı 2). Karşılaştırma eval_compare.go.
+//     Döngü (loop) bu sürümde YOK: istek loop:true → ErrEvalInvalid.
 
 import (
 	"context"
@@ -87,6 +95,20 @@ var (
 	ErrEvalBusy = errors.New("değerlendirme sürüyor — önceki koşu bitmeden yenisi başlamaz")
 	// ErrEvalInvalid — geçersiz pencere / limit.
 	ErrEvalInvalid = errors.New("geçersiz değerlendirme isteği")
+	// ErrEvalBaseMissing — rerunOf'un gösterdiği taban koşusu yok.
+	ErrEvalBaseMissing = errors.New("taban koşusu bulunamadı")
+)
+
+// Dondurulmuş vaka nedenleri — tekrar edilemeyen vaka yeniden koşuda da
+// edilemez (rerunCases bu öneklere bakar; kodlama tavanı nedeni 60 runeye
+// kısaltsa da önek kalır).
+const (
+	evalReasonNotServiceKey = "servis problemi değil"
+	evalReasonNotService    = evalReasonNotServiceKey + " (AI SRE yalnız servis problemlerini araştırır)"
+	evalReasonNoAnchorKey   = "vakada servis / problem"
+	evalReasonNoAnchor      = evalReasonNoAnchorKey + " / başlangıç yok"
+	evalReasonQueueFull     = "kuyruk payı dolu (değerlendirme MaxQueue'nun yarısını aşamaz)"
+	evalFrozenPrefix        = "dondurulmuş: "
 )
 
 // evalUnmappedCategories — hiçbir hipotez türünün karşılamadığı incident_cases
@@ -155,6 +177,11 @@ type EvalCase struct {
 	Top        []EvalHyp     `json:"top,omitempty"` // ≤3
 	Coverage   *EvalCoverage `json:"coverage,omitempty"`
 	FinishedAt int64         `json:"finishedAt,omitempty"`
+	// AcceptedSuggestion — v0.10.1450: onaylayan CoSRE'nin önerdiği nedeni
+	// değiştirmeden kabul etti (chstore.SameCause(SuggestedCause, FinalCause))
+	// → bu vakanın etiketi ajandan bağımsız değil. Başlatmada vakadan, yeniden
+	// koşuda tabandan kopyalanır.
+	AcceptedSuggestion bool `json:"acceptedSuggestion,omitempty"`
 }
 
 // EvalRun — koşu satırının gövdesi.
@@ -169,6 +196,16 @@ type EvalRun struct {
 	FinishedAt int64      `json:"finishedAt,omitempty"`
 	Found      int        `json:"found"` // penceredeki onaylı problem vakası (≤limit)
 	Cases      []EvalCase `json:"cases,omitempty"`
+	// RerunOf — v0.10.1450: bu koşu taban koşusunun dondurulmuş kümesinin
+	// yeniden koşusu ("" = pencereden okunan yeni küme).
+	RerunOf string `json:"rerunOf,omitempty"`
+	// Loop — döngü açık değerlendirme (sürüm 2c doldurur; 2a'da hep false).
+	Loop bool `json:"loop,omitempty"`
+	// Build — koşuyu başlatan sunucunun sürümü (/api/version buildVersion).
+	Build string `json:"build,omitempty"`
+	// SuggestionKnown — vakaların AcceptedSuggestion bayrağı hesaplandı
+	// (v0.10.1450 öncesi koşularda false: "bağımsız" ayrımı bilinmez).
+	SuggestionKnown bool `json:"suggestionKnown,omitempty"`
 }
 
 // ── başlatma ────────────────────────────────────────────────────────────────
@@ -203,13 +240,47 @@ type EvalRunRequest struct {
 	Limit    int
 	By       string
 	Now      time.Time
+	// RerunOf — taban koşusunun kimliği: pencere yerine onun dondurulmuş
+	// vaka listesi (From/To/Limit verilmez).
+	RerunOf string
+	// Loop — döngü açık değerlendirme; 2a'da reddedilir (sahibi sürüm 2c).
+	Loop bool
+	// Build — sunucu sürümü (api doldurur).
+	Build string
+}
+
+// ValidEvalRunID — SAF: koşu kimliği alfabesi (base36 küçük harf / rakam, '-'
+// yok — tekrar anahtarı "replay-<runId>-<problemId>" tek koşuya ait kalır), ≤40.
+func ValidEvalRunID(id string) bool {
+	if id == "" || len(id) > 40 {
+		return false
+	}
+	for _, r := range id {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') {
+			return false
+		}
+	}
+	return true
 }
 
 // NormalizeEvalRequest — SAF: limit 0 → 20, >50 → hata değil kırpma; pencere
-// ters / boş / gelecekte biten / 366 günden uzun → ErrEvalInvalid.
+// ters / boş / gelecekte biten / 366 günden uzun → ErrEvalInvalid. rerunOf
+// pencereyle birlikte verilmez; loop bu sürümde yok.
 func NormalizeEvalRequest(req EvalRunRequest) (EvalRunRequest, error) {
 	if req.Now.IsZero() {
 		req.Now = time.Now()
+	}
+	if req.Loop {
+		return req, fmt.Errorf("%w: döngü değerlendirmesi bu sürümde yok", ErrEvalInvalid)
+	}
+	if req.RerunOf != "" {
+		switch {
+		case !ValidEvalRunID(req.RerunOf):
+			return req, fmt.Errorf("%w: geçersiz rerunOf", ErrEvalInvalid)
+		case !req.From.IsZero() || !req.To.IsZero() || req.Limit != 0:
+			return req, fmt.Errorf("%w: rerunOf ile pencere birlikte verilmez", ErrEvalInvalid)
+		}
+		return req, nil
 	}
 	switch {
 	case req.Limit <= 0:
@@ -249,6 +320,9 @@ func StartEvalRun(ctx context.Context, st EvalStore, req EvalRunRequest, cfg Set
 	} else if busy {
 		return EvalRun{}, ErrEvalBusy
 	}
+	if req.RerunOf != "" {
+		return startEvalRerun(ctx, st, req, cfg)
+	}
 	cases, err := st.ListIncidentCases(ctx, chstore.IncidentCaseQuery{Status: chstore.CaseConfirmed, Source: "problem",
 		From: req.From, To: req.To, Limit: req.Limit})
 	if err != nil {
@@ -260,10 +334,12 @@ func StartEvalRun(ctx context.Context, st EvalStore, req EvalRunRequest, cfg Set
 	}
 	room := evalQueueRoom(cfg, queued)
 	run := EvalRun{RunID: newEvalRunID(now), State: EvalRunning, From: req.From.UnixNano(), To: req.To.UnixNano(),
-		Limit: req.Limit, By: req.By, CreatedAt: now.UnixNano(), Found: len(cases), Cases: make([]EvalCase, 0, len(cases))}
+		Limit: req.Limit, By: req.By, CreatedAt: now.UnixNano(), Found: len(cases), Cases: make([]EvalCase, 0, len(cases)),
+		Build: req.Build, SuggestionKnown: true}
 	for _, c := range cases {
 		ec := EvalCase{CaseID: c.CaseID, ProblemID: c.SourceID, Service: c.Service, Category: c.Category,
-			FinalCause: truncRunes(strings.TrimSpace(c.FinalCause), evalCauseRunes), StartedAt: c.OpenedAt.UnixNano(), State: StateQueued}
+			FinalCause: truncRunes(strings.TrimSpace(c.FinalCause), evalCauseRunes), StartedAt: c.OpenedAt.UnixNano(), State: StateQueued,
+			AcceptedSuggestion: chstore.SameCause(c.SuggestedCause, c.FinalCause)}
 		if !evalCategoryMapped(c.Category) {
 			ec.State, ec.Reason = CaseUnmapped, "kategori hipotez türlerine eşlenmiyor: "+firstNonEmpty(evalUnmappedCategories[c.Category], c.Category)
 			run.Cases = append(run.Cases, ec)
@@ -272,7 +348,7 @@ func StartEvalRun(ctx context.Context, st EvalStore, req EvalRunRequest, cfg Set
 		priority := ""
 		if p, err := st.GetProblem(ctx, c.SourceID); err == nil && p != nil && p.ID != "" {
 			if p.Service == "" || chstore.ProblemSubjectKind(p.Kind) != chstore.ProblemKindService {
-				ec.State, ec.Reason = CaseSkipped, "servis problemi değil (AI SRE yalnız servis problemlerini araştırır)"
+				ec.State, ec.Reason = CaseSkipped, evalReasonNotService
 				run.Cases = append(run.Cases, ec)
 				continue
 			}
@@ -286,21 +362,7 @@ func StartEvalRun(ctx context.Context, st EvalStore, req EvalRunRequest, cfg Set
 		} else {
 			ec.Reason = "problem satırı yok — çıpa vakanın açılışı"
 		}
-		switch {
-		case ec.Service == "" || ec.ProblemID == "" || ec.StartedAt <= 0:
-			ec.State, ec.Reason = CaseSkipped, "vakada servis / problem / başlangıç yok"
-		case room <= 0:
-			ec.State, ec.Reason = CaseSkipped, "kuyruk payı dolu (değerlendirme MaxQueue'nun yarısını aşamaz)"
-		default:
-			created, err := EnqueueReplay(ctx, st, ReplayRequest{RunID: run.RunID, CaseID: c.CaseID, ProblemID: ec.ProblemID,
-				DisplayID: ec.DisplayID, Service: ec.Service, Priority: priority, ProblemStartedAt: ec.StartedAt, By: req.By, Now: now}, cfg)
-			switch {
-			case err != nil:
-				ec.State, ec.Reason = CaseSkipped, truncRunes("kuyruğa alınamadı: "+err.Error(), 200)
-			case created:
-				room--
-			}
-		}
+		room = enqueueEvalCase(ctx, st, run.RunID, &ec, priority, req.By, now, cfg, room)
 		run.Cases = append(run.Cases, ec)
 	}
 	run = finalizeEvalRun(run, now)
@@ -308,6 +370,94 @@ func StartEvalRun(ctx context.Context, st EvalStore, req EvalRunRequest, cfg Set
 		return EvalRun{}, err
 	}
 	return run, nil
+}
+
+// enqueueEvalCase — vakanın tekrar işini kuyruğa alır (ya da nedeniyle
+// atlar); kalan kuyruk payını döner. Başlatma ve yeniden koşu ortak yolu.
+func enqueueEvalCase(ctx context.Context, st EvalStore, runID string, ec *EvalCase, priority, by string, now time.Time, cfg Settings, room int) int {
+	switch {
+	case ec.Service == "" || ec.ProblemID == "" || ec.StartedAt <= 0:
+		ec.State, ec.Reason = CaseSkipped, evalReasonNoAnchor
+	case room <= 0:
+		ec.State, ec.Reason = CaseSkipped, evalReasonQueueFull
+	default:
+		created, err := EnqueueReplay(ctx, st, ReplayRequest{RunID: runID, CaseID: ec.CaseID, ProblemID: ec.ProblemID,
+			DisplayID: ec.DisplayID, Service: ec.Service, Priority: priority, ProblemStartedAt: ec.StartedAt, By: by, Now: now}, cfg)
+		switch {
+		case err != nil:
+			ec.State, ec.Reason = CaseSkipped, truncRunes("kuyruğa alınamadı: "+err.Error(), 200)
+		case created:
+			room--
+		}
+	}
+	return room
+}
+
+// startEvalRerun — v0.10.1450: taban koşusunun dondurulmuş vaka listesini
+// yeni koşu kimliğiyle, AYNI çıpalarla (StartedAt → AsOf, plan pencereleri)
+// yeniden kuyruğa alır. Vakalar yeniden OKUNMAZ: etiket, kategori, öneri
+// bayrağı tabandaki gibidir (sonradan düzeltilen bir vaka tabanı değiştirmez).
+// Öncelik "" — tekrarın alış sırası zaten hepsinden sonra (drain).
+func startEvalRerun(ctx context.Context, st EvalStore, req EvalRunRequest, cfg Settings) (EvalRun, error) {
+	v, err := st.GetSREEvalRun(ctx, req.RerunOf)
+	if err != nil {
+		return EvalRun{}, err
+	}
+	if v == nil {
+		return EvalRun{}, fmt.Errorf("%w: %s", ErrEvalBaseMissing, req.RerunOf)
+	}
+	base, ok := decodeEvalRun(*v)
+	if !ok {
+		return EvalRun{}, fmt.Errorf("%w: %s", ErrEvalBaseMissing, req.RerunOf)
+	}
+	queued, err := st.CountSREQueued(ctx)
+	if err != nil {
+		return EvalRun{}, err
+	}
+	now := req.Now
+	room := evalQueueRoom(cfg, queued)
+	run := EvalRun{RunID: newEvalRunID(now), State: EvalRunning, From: base.From, To: base.To, Limit: base.Limit, By: req.By,
+		CreatedAt: now.UnixNano(), Found: base.Found, Cases: rerunCases(base), RerunOf: base.RunID, Build: req.Build,
+		SuggestionKnown: base.SuggestionKnown}
+	for i := range run.Cases {
+		if ec := &run.Cases[i]; ec.State == StateQueued {
+			room = enqueueEvalCase(ctx, st, run.RunID, ec, "", req.By, now, cfg, room)
+		}
+	}
+	run = finalizeEvalRun(run, now)
+	if err := saveEvalRun(ctx, st, run); err != nil {
+		return EvalRun{}, err
+	}
+	return run, nil
+}
+
+// frozenSkip — SAF: tabanda tekrar EDİLEMEYEN vaka (servis problemi değil /
+// çıpa yok) — yeniden koşuda da edilemez. Kuyruk payı / kuyruk hatası
+// geçicidir: yeniden kuyruğa girer.
+func frozenSkip(c EvalCase) bool {
+	if c.State != CaseSkipped {
+		return false
+	}
+	r := strings.TrimPrefix(c.Reason, evalFrozenPrefix)
+	return c.Service == "" || c.ProblemID == "" || c.StartedAt <= 0 ||
+		strings.HasPrefix(r, evalReasonNotServiceKey) || strings.HasPrefix(r, evalReasonNoAnchorKey)
+}
+
+// rerunCases — SAF: taban koşusunun vakaları → yeniden koşunun vakaları.
+// Kimlik + beklenen + çıpa + öneri bayrağı aynen; eşlenmeyen ve dondurulmuş
+// atlanan vaka durumunu "dondurulmuş: <neden>" ile korur; geri kalan her vaka
+// (bitmiş / hata / sürüyor / geçici atlanmış) "queued" ve sonuçsuz başlar.
+func rerunCases(base EvalRun) []EvalCase {
+	out := make([]EvalCase, 0, len(base.Cases))
+	for _, c := range base.Cases {
+		ec := EvalCase{CaseID: c.CaseID, ProblemID: c.ProblemID, DisplayID: c.DisplayID, Service: c.Service, Category: c.Category,
+			FinalCause: c.FinalCause, StartedAt: c.StartedAt, AcceptedSuggestion: c.AcceptedSuggestion, State: StateQueued}
+		if c.State == CaseUnmapped || frozenSkip(c) {
+			ec.State, ec.Reason = c.State, evalFrozenPrefix+strings.TrimPrefix(c.Reason, evalFrozenPrefix)
+		}
+		out = append(out, ec)
+	}
+	return out
 }
 
 // evalQueueRoom — SAF: tekrara ayrılan kuyruk payı = MaxQueue/2 − kuyruktaki.
@@ -701,10 +851,12 @@ func LoadLiveSamples(ctx context.Context, st EvalReadStore) ([]LiveSample, error
 
 // evalInput — scoreEval'in TEK girdisi: vakalar (beklenen = onaylı vaka,
 // gözlenen = tekrarın hipotez sırası) + canlı varış örneklemi. Oy / geri
-// bildirim alanı YOK ve olmayacak (TestEvalIgnoresFeedback).
+// bildirim / insan işareti alanı YOK ve olmayacak (TestEvalIgnoresFeedback).
+// SuggestionKnown — vakaların öneri bayrağı hesaplandı mı (koşu satırından).
 type evalInput struct {
-	Cases []EvalCase
-	Live  []LiveSample
+	Cases           []EvalCase
+	Live            []LiveSample
+	SuggestionKnown bool
 }
 
 // EvalLive — canlı koşularda ilk hipoteze varış.
@@ -734,6 +886,17 @@ type EvalScore struct {
 	// CoveragePct — biten tekrarlarda veri döndüren telemetri adımı payı (%).
 	CoveragePct *float64 `json:"coveragePct"`
 	Live        EvalLive `json:"live"`
+	// v0.10.1450 — "bağımsız" vakalar (operatör kararı 2: MANŞET). Onaylayan
+	// CoSRE'nin önerisini değiştirmeden kabul ettiyse (AcceptedSuggestion)
+	// etiket ajandan bağımsız değildir; bu alt küme yalnız öteki vakalardır.
+	// AcceptedSuggestion = bayraklı vaka sayısı (tümü); Independent* puanlı
+	// alt küme. Bayrak bilinmiyorsa (eski koşu) Independent*Acc null.
+	AcceptedSuggestion  int      `json:"acceptedSuggestion"`
+	IndependentScored   int      `json:"independentScored"`
+	IndependentTop1Hits int      `json:"independentTop1Hits"`
+	IndependentTop3Hits int      `json:"independentTop3Hits"`
+	IndependentTop1Acc  *float64 `json:"independentTop1Acc"`
+	IndependentTop3Acc  *float64 `json:"independentTop3Acc"`
 }
 
 func ratio(n, d int) *float64 {
@@ -797,6 +960,9 @@ func scoreEval(in evalInput) EvalScore {
 	sc := EvalScore{Cases: len(in.Cases)}
 	data, total := 0, 0
 	for _, c := range in.Cases {
+		if c.AcceptedSuggestion {
+			sc.AcceptedSuggestion++
+		}
 		switch c.State {
 		case CaseUnmapped:
 			sc.Unmapped++
@@ -825,16 +991,29 @@ func scoreEval(in evalInput) EvalScore {
 			continue
 		}
 		sc.Scored++
-		if c.Top[0].Category == c.Category {
-			sc.Top1Hits++
-		}
+		top1, top3 := c.Top[0].Category == c.Category, false
 		for i, h := range c.Top {
 			if i >= evalTopN {
 				break
 			}
 			if h.Category == c.Category {
-				sc.Top3Hits++
+				top3 = true
 				break
+			}
+		}
+		if top1 {
+			sc.Top1Hits++
+		}
+		if top3 {
+			sc.Top3Hits++
+		}
+		if !c.AcceptedSuggestion {
+			sc.IndependentScored++
+			if top1 {
+				sc.IndependentTop1Hits++
+			}
+			if top3 {
+				sc.IndependentTop3Hits++
 			}
 		}
 		if subj := c.Top[0].Subject; subj != "" {
@@ -846,6 +1025,9 @@ func scoreEval(in evalInput) EvalScore {
 	}
 	sc.Top1Acc, sc.Top3Acc = ratio(sc.Top1Hits, sc.Scored), ratio(sc.Top3Hits, sc.Scored)
 	sc.EntityAcc = ratio(sc.EntityHits, sc.EntityScored)
+	if in.SuggestionKnown {
+		sc.IndependentTop1Acc, sc.IndependentTop3Acc = ratio(sc.IndependentTop1Hits, sc.IndependentScored), ratio(sc.IndependentTop3Hits, sc.IndependentScored)
+	}
 	if total > 0 {
 		v := math.Round(float64(data)/float64(total)*1000) / 10
 		sc.CoveragePct = &v
@@ -861,7 +1043,7 @@ func scoreEval(in evalInput) EvalScore {
 // ScoreEvalRun — dışa açık sarmalayıcı (api ucu): koşunun vakaları + canlı
 // örneklem → ölçüler.
 func ScoreEvalRun(run EvalRun, live []LiveSample) EvalScore {
-	return scoreEval(evalInput{Cases: run.Cases, Live: live})
+	return scoreEval(evalInput{Cases: run.Cases, Live: live, SuggestionKnown: run.SuggestionKnown})
 }
 
 // EvalUnmappedReason — kategorinin eşlenmeme nedeni ("" = eşleniyor).

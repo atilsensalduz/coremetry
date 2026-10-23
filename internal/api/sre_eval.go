@@ -5,6 +5,10 @@ package api
 //   POST /api/sre/eval/runs          {from, to (unix ms), limit ≤50} → admin,
 //        audit sre.eval.run. Onaylı problem vakaları için Kind=replay kuyruk
 //        işleri (sre.StartEvalRun); 409 = ajan kapalı / koşu sürüyor.
+//        v0.10.1450: {rerunOf:<runId>} → tabanın dondurulmuş vaka listesi aynı
+//        çıpalarla (pencere verilmez; 404 taban yok); koşu satırı sunucu
+//        sürümünü (build) taşır. loop:true → 400 (döngü değerlendirmesi 2c).
+//        Karşılaştırma ucu ayrı dosyada (sre_eval_compare.go).
 //   GET  /api/sre/eval/runs          → son 50 koşu + ölçüler + canlı ilk
 //        hipoteze varış p50/p90 (viewer görür; serveCached 15 s).
 //   GET  /api/sre/eval/runs/{id}     → koşu + vaka tablosu + ölçüler (viewer).
@@ -159,9 +163,11 @@ func (s *Server) getSREEvalRun(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) postSREEvalRun(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		From  int64 `json:"from"` // unix ms
-		To    int64 `json:"to"`   // unix ms
-		Limit int   `json:"limit"`
+		From    int64  `json:"from"` // unix ms
+		To      int64  `json:"to"`   // unix ms
+		Limit   int    `json:"limit"`
+		RerunOf string `json:"rerunOf"`
+		Loop    bool   `json:"loop"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
@@ -176,9 +182,15 @@ func (s *Server) postSREEvalRun(w http.ResponseWriter, r *http.Request) {
 	if c := auth.FromContext(r.Context()); c != nil {
 		by = c.Email
 	}
-	run, err := sre.StartEvalRun(r.Context(), sreEvalStoreOf(s), sre.EvalRunRequest{
-		From: time.UnixMilli(in.From), To: time.UnixMilli(in.To), Limit: in.Limit, By: by,
-	}, sre.CurrentSettings())
+	if in.Loop {
+		writeJSONError(w, http.StatusBadRequest, "döngü değerlendirmesi bu sürümde yok")
+		return
+	}
+	req := sre.EvalRunRequest{Limit: in.Limit, By: by, RerunOf: strings.TrimSpace(in.RerunOf), Build: s.buildVersion}
+	if in.From != 0 || in.To != 0 { // rerunOf ile pencere verilmez → sıfır zaman (NormalizeEvalRequest)
+		req.From, req.To = time.UnixMilli(in.From), time.UnixMilli(in.To)
+	}
+	run, err := sre.StartEvalRun(r.Context(), sreEvalStoreOf(s), req, sre.CurrentSettings())
 	switch {
 	case errors.Is(err, sre.ErrDisabled):
 		writeJSONError(w, http.StatusConflict, "AI SRE kapalı — yönetici Ayarlar → AI SRE (/settings/ai-sre) bölümünden açabilir")
@@ -188,6 +200,9 @@ func (s *Server) postSREEvalRun(w http.ResponseWriter, r *http.Request) {
 		return
 	case errors.Is(err, sre.ErrEvalInvalid):
 		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	case errors.Is(err, sre.ErrEvalBaseMissing):
+		writeJSONError(w, http.StatusNotFound, err.Error())
 		return
 	case err != nil:
 		writeErr(w, err)
@@ -200,7 +215,7 @@ func (s *Server) postSREEvalRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	details, _ := json.Marshal(map[string]any{"runId": run.RunID, "from": in.From, "to": in.To, "limit": run.Limit,
-		"found": run.Found, "queued": queued})
+		"found": run.Found, "queued": queued, "rerunOf": run.RerunOf, "loop": run.Loop, "build": run.Build})
 	s.audit(r, "sre.eval.run", "sre-eval", run.RunID, string(details))
 	s.cacheInvalidate(r.Context(), sreEvalRunsKey)
 	s.cacheInvalidate(r.Context(), sreStatusKey)

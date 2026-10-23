@@ -98,6 +98,7 @@ export const keys = {
     evalRuns: ['sre', 'eval', 'runs'] as const,
     evalRun:  (id: string) => ['sre', 'eval', 'run', id] as const,
     evalReview: (days: number) => ['sre', 'eval', 'review', days] as const,
+    evalCompare: (base: string, cand: string) => ['sre', 'eval', 'compare', base, cand] as const, // v0.10.1450
   },
 
   anomalies: {

@@ -3,7 +3,7 @@
 // form sınırları sunucuyla aynı.
 import { describe, it, expect } from 'vitest';
 import type { SREEvalCase, SREHypothesisKind } from '@/lib/types';
-import { caseHit, caseScored, caseUnscoredReason, coverageText, dateInputMs, durationTR, evalPct, coveragePct, validateEvalForm, defaultEvalWindow, HYP_KIND_LABEL, CATEGORY_LABEL } from './sreEvalView';
+import { DET_OUTCOME_LABEL, detOutcomeText, evalDelta, independentTop1, ratioText, runMode, caseHit, caseScored, caseUnscoredReason, coverageText, dateInputMs, durationTR, evalPct, coveragePct, validateEvalForm, defaultEvalWindow, HYP_KIND_LABEL, CATEGORY_LABEL } from './sreEvalView';
 
 const base: SREEvalCase = { caseId: 'p:1', problemId: '1', service: 'pay', category: 'dependency', finalCause: 'db', startedAt: 0, state: 'done',
   coverage: { data: 2, noData: 1, failed: 0 } };
@@ -45,5 +45,30 @@ describe('sreEvalView', () => {
   it('Go aynaları: 8 hipotez türü, 10 vaka kategorisi', () => {
     expect(Object.keys(HYP_KIND_LABEL)).toHaveLength(8);
     expect(Object.keys(CATEGORY_LABEL).sort()).toEqual(['capacity', 'code_bug', 'config', 'data', 'dependency', 'deploy', 'external', 'infra', 'noise', 'other']);
+  });
+  it('v0.10.1450 karşılaştırma biçimleri', () => {
+    expect(evalDelta(null)).toBe('—');
+    expect(evalDelta(0)).toBe('0');
+    expect(evalDelta(0.004)).toBe('0');
+    expect(evalDelta(0.0525)).toBe('+5 puan');
+    expect(evalDelta(-0.1667)).toBe('−17 puan');
+    expect(evalDelta(-12.5, 1)).toBe('−13 puan');
+    expect(ratioText({ n: 2, d: 3, v: 0.6667 })).toBe('%67 (2/3)');
+    expect(ratioText({ n: 0, d: 0, v: null })).toBe('— (0/0)');
+    expect(detOutcomeText(undefined)).toBe('—');
+    expect(detOutcomeText({ value: 'inconclusive', reason: 'low_coverage', confidence: 0.8, coverage: 0.3 })).toBe('sonuçsuz (düşük kapsam)');
+    expect(detOutcomeText({ value: 'likely', confidence: 0.6, coverage: 1 })).toBe(DET_OUTCOME_LABEL.likely);
+    expect(runMode({})).toBe('deterministik');
+    expect(runMode({ loop: true })).toBe('döngü');
+  });
+  it('manşet bağımsız top-1: eski koşuda yok', () => {
+    const score = { cases: 3, pending: 0, unmapped: 0, skipped: 0, errored: 0, noData: 0, scored: 3, top1Hits: 2, top3Hits: 3, top1Acc: 0.6667,
+      top3Acc: 1, entityScored: 0, entityHits: 0, entityAcc: null, coveragePct: 100, live: { runs: 0, p50Ms: null, p90Ms: null },
+      acceptedSuggestion: 1, independentScored: 2, independentTop1Hits: 1, independentTop3Hits: 2, independentTop1Acc: 0.5, independentTop3Acc: 1 };
+    expect(independentTop1({ score })).toBeNull();
+    const v = independentTop1({ score, suggestionKnown: true });
+    expect(v?.pct).toBe('%50');
+    expect(v?.hint).toContain('1/2 vaka');
+    expect(v?.hint).toContain('1 öneri aynen kabul');
   });
 });

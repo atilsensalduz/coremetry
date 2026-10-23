@@ -10256,6 +10256,8 @@ export interface SREEvalCase {
   top?: SREEvalHyp[];
   coverage?: SREEvalCoverage;
   finishedAt?: number;
+  /** v0.10.1450 — onaylayan CoSRE önerisini değiştirmeden kabul etti (etiket ajandan bağımsız değil). */
+  acceptedSuggestion?: boolean;
 }
 export interface SREEvalLive {
   runs: number;
@@ -10279,6 +10281,14 @@ export interface SREEvalScore {
   entityAcc: number | null;
   coveragePct: number | null; // 0..100
   live: SREEvalLive;
+  // v0.10.1450 — "bağımsız" vakalar (MANŞET; operatör kararı 2). Bayrak
+  // bilinmiyorsa (eski koşu, suggestionKnown yok) oranlar null.
+  acceptedSuggestion?: number;
+  independentScored?: number;
+  independentTop1Hits?: number;
+  independentTop3Hits?: number;
+  independentTop1Acc?: number | null;
+  independentTop3Acc?: number | null;
 }
 export interface SREEvalRun {
   runId: string;
@@ -10293,6 +10303,94 @@ export interface SREEvalRun {
   /** yalnız GET /api/sre/eval/runs/{id} ve POST cevabında. */
   cases?: SREEvalCase[];
   score: SREEvalScore;
+  /** v0.10.1450 — taban koşusunun dondurulmuş kümesinin yeniden koşusu. */
+  rerunOf?: string;
+  /** döngü açık değerlendirme (sürüm 2c). */
+  loop?: boolean;
+  /** koşuyu başlatan sunucu sürümü. */
+  build?: string;
+  /** vakaların öneri bayrağı hesaplandı (v0.10.1450+). */
+  suggestionKnown?: boolean;
+}
+// v0.10.1450 — Go: sre.EvalCompare (GET /api/sre/eval/compare?base=&cand=).
+export type SREEvalHit = 'top1' | 'top3' | 'miss' | 'unscored';
+export type SREEvalDetOutcomeValue = 'confirmed' | 'likely' | 'ambiguous' | 'inconclusive' | 'no_data' | 'error';
+export interface SREEvalDetOutcome {
+  value: SREEvalDetOutcomeValue;
+  reason?: string;
+  confidence: number;
+  coverage: number; // 0..1
+}
+export interface SREEvalPairSide {
+  state: SREEvalCaseState;
+  top1?: SREEvalHyp;
+  hit: SREEvalHit;
+  coverage?: SREEvalCoverage;
+  detOutcome?: SREEvalDetOutcome;
+}
+export interface SREEvalPair {
+  caseId: string;
+  problemId: string;
+  displayId?: string;
+  service: string;
+  category: string;
+  finalCause: string;
+  acceptedSuggestion?: boolean;
+  base: SREEvalPairSide;
+  cand: SREEvalPairSide;
+  coverageDrift?: boolean;
+}
+export interface SREEvalSideScore {
+  scored: number;
+  top1Hits: number;
+  top3Hits: number;
+  entityScored: number;
+  entityHits: number;
+  top1Acc: number | null;
+  top3Acc: number | null;
+  entityAcc: number | null;
+  coveragePct: number | null;
+}
+export interface SREEvalCompareBlock {
+  cases: number;
+  base: SREEvalSideScore;
+  cand: SREEvalSideScore;
+  deltaTop1: number | null;
+  deltaTop3: number | null;
+  deltaEntity: number | null;
+  deltaCoverage: number | null; // yüzde puanı
+}
+export interface SREEvalRatio { n: number; d: number; v: number | null }
+export interface SREEvalCalibration {
+  outcomes: Record<string, number>;
+  decisive: SREEvalRatio;
+  confirmedPrecision: SREEvalRatio;
+  abstainOnMiss: SREEvalRatio;
+  confidentWrong: number;
+}
+export interface SREEvalCost { llmFree: boolean; llmCalls: number; replayed: number; wallMs?: number }
+export interface SREEvalCompareRun {
+  runId: string;
+  state: 'running' | 'done';
+  rerunOf?: string;
+  loop: boolean;
+  build?: string;
+  createdAt: number;
+  finishedAt?: number;
+}
+export interface SREEvalCompare {
+  base: SREEvalCompareRun;
+  cand: SREEvalCompareRun;
+  pairs: SREEvalPair[];
+  headline: 'independent';
+  independentKnown: boolean;
+  independent: SREEvalCompareBlock;
+  control: SREEvalCompareBlock;
+  driftCases: string[];
+  calibration: { base: SREEvalCalibration; cand: SREEvalCalibration };
+  cost: { base: SREEvalCost; cand: SREEvalCost };
+  agreement: { top1Same: SREEvalRatio; detOutcomeSame: SREEvalRatio };
+  note: string;
 }
 export interface SREEvalRunsResponse {
   runs: SREEvalRun[];

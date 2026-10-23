@@ -31,6 +31,18 @@ export function useSREEvalRun(id: string) {
   });
 }
 
+// v0.10.1450 — taban ↔ yeniden koşu karşılaştırması. Kendi yoklaması YOK
+// (pollingBudget.pin): koşu sürerken useSREEvalRun'ın 15 s yoklaması +
+// SSE keys.sre.all dalını düşürür; bu anahtar da o dalın altında.
+export function useSREEvalCompare(base: string, cand: string) {
+  return useQuery({
+    queryKey: keys.sre.evalCompare(base, cand),
+    queryFn: ({ signal }) => api.sreEvalCompare(base, cand, signal),
+    enabled: !!base && !!cand,
+    staleTime: SRE_EVAL_POLL_MS,
+  });
+}
+
 // 👎 inceleme adayları — admin ucu; viewer/editor için hiç istenmez (enabled).
 export function useSREEvalReview(days: number, enabled: boolean) {
   return useQuery({

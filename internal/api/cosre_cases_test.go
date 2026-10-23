@@ -27,8 +27,8 @@ func TestValidateCaseConfirm(t *testing.T) {
 }
 
 func TestSameCauseAndVerdictParse(t *testing.T) {
-	if !sameCause("DB  havuzu doldu", "db havuzu doldu") || sameCause("", "") || sameCause("a", "b") {
-		t.Error("sameCause")
+	if !chstore.SameCause("DB  havuzu doldu", "db havuzu doldu") || chstore.SameCause("", "") || chstore.SameCause("a", "b") {
+		t.Error("SameCause")
 	}
 	for in, want := range map[string]int8{"EVET\naynı bileşen": 1, "**Hayır**\nfarklı": 0, "KISMEN\n…": -1, "belki": -1, "Yes.": 1} {
 		if got, _ := parseCaseVerdict(in); got != want {

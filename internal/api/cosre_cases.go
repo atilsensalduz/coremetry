@@ -79,12 +79,6 @@ func validateCaseConfirm(req caseConfirmRequest) (caseConfirmRequest, error) {
 	return req, nil
 }
 
-// sameCause — SAF: boşluk/harf farkı dışında aynı metin (form değiştirilmeden onay).
-func sameCause(a, b string) bool {
-	norm := func(s string) string { return strings.Join(strings.Fields(strings.ToLower(s)), " ") }
-	return norm(a) != "" && norm(a) == norm(b)
-}
-
 func (s *Server) confirmIncidentCase(w http.ResponseWriter, r *http.Request) {
 	caseID := r.PathValue("caseId")
 	var req caseConfirmRequest
@@ -131,7 +125,7 @@ func (s *Server) judgeSuggestion(ctx context.Context, suggested, final string) (
 	switch {
 	case strings.TrimSpace(suggested) == "":
 		return -1, "öneri yoktu"
-	case sameCause(suggested, final):
+	case chstore.SameCause(suggested, final):
 		return 1, "onaylayan öneriyi değiştirmeden kabul etti"
 	case s.copilot == nil:
 		return -1, "model yok — karşılaştırılamadı"

@@ -35,7 +35,7 @@ const HEAVY: { file: string; hooks: string[] }[] = [
   // o istek kesilmezse, kimsenin bakmayacağı bir cevap için dış
   // sisteme yük binmeye devam eder.
   { file: 'devops.ts', hooks: ['api.stackFrameLinks('] },
-  { file: 'sreEval.ts', hooks: ['api.sreEvalRuns(', 'api.sreEvalRun(', 'api.sreEvalReview('] }, // v0.10.1301 — değerlendirme koşuları (≤50 satır + uzlaştırma) panel kapanınca iptal
+  { file: 'sreEval.ts', hooks: ['api.sreEvalRuns(', 'api.sreEvalRun(', 'api.sreEvalReview(', 'api.sreEvalCompare('] }, // v0.10.1301 — değerlendirme koşuları (≤50 satır + uzlaştırma) panel kapanınca iptal
   { file: 'copilot.ts', hooks: ['api.copilotStarters('] }, // v0.10.702 — çekmece kapanınca iptal
   { file: 'endpoints.ts', hooks: ['api.endpoints(', 'api.endpointDetail(', 'api.endpointSplit(', 'api.endpointDownstream('] },
   // v0.10.576 — /databases + /messaging'in paylaştığı iki okuma. Trend

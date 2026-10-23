@@ -545,7 +545,9 @@ func TestLiveSamples(t *testing.T) {
 // yok; eval.go hiçbir geri bildirim okuyucusunu anmıyor. 👎 listesi yalnız
 // api/sre_eval.go'nun inceleme ucunda (cosrelearn ratchet'i oraya izin verir).
 func TestEvalIgnoresFeedback(t *testing.T) {
-	banned := []string{"feedback", "vote", "verdict", "thumb", "downvote", "review"}
+	// v0.10.1450: "human" — hipotezin insan işaretleri (human_*) de puanlamaya /
+	// karşılaştırmaya girmez; karşılaştırma gövdesi (EvalCompare) de taranır.
+	banned := []string{"feedback", "vote", "verdict", "thumb", "downvote", "review", "human"}
 	seen := map[reflect.Type]bool{}
 	var walk func(rt reflect.Type, path string)
 	walk = func(rt reflect.Type, path string) {
@@ -568,11 +570,33 @@ func TestEvalIgnoresFeedback(t *testing.T) {
 		}
 	}
 	walk(reflect.TypeOf(evalInput{}), "evalInput")
+	walk(reflect.TypeOf(EvalCompare{}), "EvalCompare")
+	// Yeni bayrak + bağımsız ölçüler evalInput'un içinde (yürüyüş onları da kapsar).
+	if _, ok := reflect.TypeOf(EvalCase{}).FieldByName("AcceptedSuggestion"); !ok {
+		t.Fatal("EvalCase.AcceptedSuggestion beklenir (öneri kabulü = etiket kaynağı, oy değil)")
+	}
 
 	fset := token.NewFileSet()
 	af, err := parser.ParseFile(fset, "eval.go", nil, 0)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, f := range []string{"eval_compare.go"} {
+		cf, err := parser.ParseFile(fset, f, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(cf, func(n ast.Node) bool {
+			if id, ok := n.(*ast.Ident); ok {
+				low := strings.ToLower(id.Name)
+				for _, b := range []string{"feedback", "downvote", "vote", "thumb", "human"} {
+					if strings.Contains(low, b) {
+						t.Errorf("%s: %s — karşılaştırma oy / insan işareti okumaz", fset.Position(id.Pos()), id.Name)
+					}
+				}
+			}
+			return true
+		})
 	}
 	ast.Inspect(af, func(n ast.Node) bool {
 		id, ok := n.(*ast.Ident)

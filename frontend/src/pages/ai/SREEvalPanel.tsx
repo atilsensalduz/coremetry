@@ -11,12 +11,18 @@
 //   - 👎 listesi: YALNIZ "incelemeye değer" adayları (admin). Operatör kuralı
 //     "oylara çok güvenmeyelim": oy etiket değil, puan girdisi değil.
 //   - Admin "Değerlendirme başlat" formu (POST /api/sre/eval/runs, audit).
+//   - v0.10.1450 (program 2a): manşet karo "bağımsız top-1" (onaylayan CoSRE
+//     önerisini aynen kabul etmediği vakalar — operatör kararı 2); koşu
+//     tablosunda Kip + Taban; admin "Aynı kümeyi yeniden koş" ({rerunOf});
+//     seçili koşu yeniden koşuysa taban ↔ bu koşu karşılaştırması
+//     (SREEvalCompare).
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useAuth } from '@/components/AuthProvider';
 import { Badge, Button, Field, Row, StatTile } from '@/components/ui';
+import { SREEvalCompare } from './SREEvalCompare';
 import { rowActivation, stopRowClick } from '@/lib/a11y';
 import { tsLong, fmtNum } from '@/lib/utils';
 import { keys } from '@/lib/queries/keys';
@@ -25,7 +31,7 @@ import type { SREEvalCase, SREEvalRun, SREReviewDownvote } from '@/lib/types';
 import { useDataTable, DataTableHead, DataTableColgroup, DataTableCell, DataTableState, type ColumnDef, type DataTableStateProps, type DataTable } from '@/components/ui/DataTable';
 import {
   HYP_KIND_LABEL, HIT_LABEL, CASE_STATE_LABEL, categoryLabel, caseHit, caseUnscoredReason, coverageText,
-  coveragePct, defaultEvalWindow, durationTR, evalPct, validateEvalForm,
+  coveragePct, defaultEvalWindow, durationTR, evalPct, independentTop1, runMode, validateEvalForm,
 } from './sreEvalView';
 
 const dayTR = (ns: number) => new Date(ns / 1e6).toISOString().slice(0, 10);
@@ -36,9 +42,12 @@ const RUN_COLS: ColumnDef<SREEvalRun>[] = [
   { id: 'state',    label: 'Durum',     sortValue: r => r.state, naturalDir: 'asc', width: 110, minWidth: 90, priority: 1 },
   { id: 'cases',    label: 'Vaka',      sortValue: r => r.found, numeric: true, width: 70, minWidth: 60, priority: 2 },
   { id: 'scored',   label: 'Puanlı',    sortValue: r => r.score.scored, numeric: true, width: 75, minWidth: 60, priority: 2 },
+  { id: 'ind1',     label: 'Bağımsız top-1', sortValue: r => r.score.independentTop1Acc ?? -1, numeric: true, width: 110, minWidth: 80, priority: 1 },
   { id: 'top1',     label: 'Top-1',     sortValue: r => r.score.top1Acc ?? -1, numeric: true, width: 75, minWidth: 60, priority: 1 },
   { id: 'top3',     label: 'Top-3',     sortValue: r => r.score.top3Acc ?? -1, numeric: true, width: 75, minWidth: 60, priority: 2 },
   { id: 'coverage', label: 'Kapsam',    sortValue: r => r.score.coveragePct ?? -1, numeric: true, width: 80, minWidth: 64, priority: 2 },
+  { id: 'mode',     label: 'Kip',       sortValue: r => runMode(r), naturalDir: 'asc', width: 115, minWidth: 90, priority: 3 },
+  { id: 'base',     label: 'Taban',     sortValue: r => r.rerunOf ?? '', naturalDir: 'asc', width: 120, minWidth: 90, priority: 2 },
   { id: 'by',       label: 'Başlatan',  sortValue: r => r.by ?? '', naturalDir: 'asc', width: 170, minWidth: 110, priority: 3 },
 ];
 
@@ -92,6 +101,7 @@ export function SREEvalPanel() {
 
   const selected = runQ.data ?? runs?.find(r => r.runId === selectedId);
   const score = selected?.score;
+  const ind = selected ? independentTop1(selected) : null;
   const live = runsQ.data?.live;
 
   const runDt = useDataTable<SREEvalRun>({ storageKey: 'ai-sre-eval-runs', columns: RUN_COLS, rows: runs ?? [] });
@@ -106,10 +116,14 @@ export function SREEvalPanel() {
         <span className="ov-sub">ajan onaylı vakalarda yeniden koşar; doğruluk etiketi YALNIZ onaylı kök neden (👍/👎 puana girmez)</span>
       </div>
       <div className="ov-card-b">
-        {isAdmin && <StartForm onStarted={select} enabled={runsQ.data?.enabled ?? true} />}
+        {isAdmin && <StartForm onStarted={select} enabled={runsQ.data?.enabled ?? true} selected={selected} />}
 
         <div className="stat-grid">
-          <StatTile label="Top-1 isabet">
+          <StatTile label="Bağımsız top-1 (manşet)">
+            <span className="mono">{ind ? ind.pct : '—'}</span>{' '}
+            <span className="field-hint">{ind ? ind.hint : selected ? 'eski koşu — öneri bayrağı yok' : ''}</span>
+          </StatTile>
+          <StatTile label="Top-1 isabet · tüm vakalar">
             <span className="mono">{evalPct(score?.top1Acc)}</span>{' '}
             <span className="field-hint">{score ? `${score.top1Hits}/${score.scored} vaka` : ''}</span>
           </StatTile>
@@ -146,15 +160,25 @@ export function SREEvalPanel() {
                     <DataTableCell dt={runDt} col="state" row={r} value={r.state === 'done' ? 'bitti' : 'sürüyor'} />
                     <DataTableCell dt={runDt} col="cases" row={r} value={fmtNum(r.found)} />
                     <DataTableCell dt={runDt} col="scored" row={r} value={fmtNum(r.score.scored)} />
+                    <DataTableCell dt={runDt} col="ind1" row={r} value={r.suggestionKnown ? evalPct(r.score.independentTop1Acc) : null} />
                     <DataTableCell dt={runDt} col="top1" row={r} value={evalPct(r.score.top1Acc)} />
                     <DataTableCell dt={runDt} col="top3" row={r} value={evalPct(r.score.top3Acc)} />
                     <DataTableCell dt={runDt} col="coverage" row={r} value={coveragePct(r.score.coveragePct)} />
+                    <DataTableCell dt={runDt} col="mode" row={r}><Badge tone={r.loop ? 'info' : 'neutral'}>{runMode(r)}</Badge></DataTableCell>
+                    <DataTableCell dt={runDt} col="base" row={r}>
+                      {r.rerunOf
+                        ? <Button variant="ghost" size="sm" className="mono" title="taban koşusunu seç"
+                          onClick={e => { stopRowClick(e); select(r.rerunOf!); }}>{r.rerunOf}</Button>
+                        : <span className="cell-empty">—</span>}
+                    </DataTableCell>
                     <DataTableCell dt={runDt} col="by" row={r} value={r.by || null} />
                   </tr>
                 ))}
             </tbody>
           </table>
         </div>
+
+        {selected?.rerunOf && <SREEvalCompare base={selected.rerunOf} cand={selected.runId} />}
 
         {selectedId && (
           <>
@@ -240,7 +264,7 @@ function CaseRow({ c, dt }: { c: SREEvalCase; dt: DataTable<SREEvalCase> }) {
   );
 }
 
-function StartForm({ onStarted, enabled }: { onStarted: (id: string) => void; enabled: boolean }) {
+function StartForm({ onStarted, enabled, selected }: { onStarted: (id: string) => void; enabled: boolean; selected?: SREEvalRun }) {
   const qc = useQueryClient();
   const init = useMemo(() => defaultEvalWindow(Date.now()), []);
   const [from, setFrom] = useState(init.from);
@@ -248,8 +272,8 @@ function StartForm({ onStarted, enabled }: { onStarted: (id: string) => void; en
   const [limit, setLimit] = useState('20');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const submit = async () => {
-    const v = validateEvalForm(from, to, Number(limit));
+  const submit = async (rerunOf?: string) => {
+    const v = rerunOf ? { rerunOf } : validateEvalForm(from, to, Number(limit));
     if (typeof v === 'string') { setErr(v); return; }
     setBusy(true);
     setErr(null);
@@ -273,6 +297,14 @@ function StartForm({ onStarted, enabled }: { onStarted: (id: string) => void; en
           title={enabled ? 'Onaylı problem vakalarını ajanla yeniden koştur (düşük öncelik, LLM çağrısı yok)' : 'AI SRE kapalı'}>
           Değerlendirme başlat
         </Button>
+        {selected && (
+          <Button variant="secondary" size="sm" disabled={busy || !enabled || selected.state !== 'done'} onClick={() => { void submit(selected.runId); }}
+            title={selected.state === 'done'
+              ? `Seçili koşunun (${selected.runId}) vaka kümesini aynı çıpalarla yeniden koştur — sonra taban ↔ yeni koşu karşılaştırılır (LLM çağrısı yok)`
+              : 'seçili koşu bitmeden yeniden koşulamaz'}>
+            Aynı kümeyi yeniden koş
+          </Button>
+        )}
       </Row>
       {err && <p className="field-error" role="alert">{err}</p>}
     </div>
