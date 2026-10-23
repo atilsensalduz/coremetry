@@ -1,0 +1,13 @@
+KAYITLI ARAŞTIRMA (17:25) — AI SRE ajanı, problem P-1042. Bu bir ÖNERİDİR, hiçbir şey değiştirilmedi; yaşı yukarıdaki saatte.
+- [crit] deploy orders-api@rev 42: başlangıçtan 12 dk önce rollout (rev 42←rev 41); rollout stalled
+- [crit] operasyon POST /orders: hata oranı %9
+(önceki %0,5)
+- [warn] bağımlılık db.example.test: p99 +180%; aşağı akış; nedensellik değil; dördüncü gerekçe düşer
+Ajanın hipotezleri (kod skoru — değiştirme):
+- orders-api@rev 42 rollout'u: yüksek 0.71 — deploy başlangıçtan
+12 dk önce; ikinci destek
+- db.example.test yavaşlığı: orta 0.44 (operatör onayladı)
+- node baskısı: düşük 0.12 (operatör eledi)
+Ajanın özeti:
+Ne oldu: POST /orders hata oranı arttı.
+Kanıt: rev 42.

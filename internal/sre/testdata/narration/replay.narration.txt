@@ -1,0 +1,13 @@
+PROBLEM: p-replay · servis=orders-api
+KURAL: rule-err-001
+BAŞLANGIÇ: 14:05 UTC · pencere 13:50–14:35 UTC
+ADIMLAR:
+- servis taraması: tamam — Sorunlu: POST /orders hata %9 (önceki %0,5)
+- deploy: tamam — 2 değişiklik (son 2 sa); başlangıca yakın: orders-api@rev 42
+- bağımlılık: kısmi — topoloji okunamadı; korele bağımlılık yok
+SENTEZLEYİCİ: belirgin şüpheli yok
+AJAN HİPOTEZİ: operatör tüm hipotezleri eledi
+DİĞER HİPOTEZLER: eleme yüksek 0.90 (operatör eledi)
+BULGULAR (sunucu sırası):
+1. [crit] deploy orders-api@rev 42 — başlangıçtan 12 dk önce rollout (rev 42←rev 41); rollout stalled
+2. [crit] operasyon POST /orders — hata oranı %9 (önceki %0,5)

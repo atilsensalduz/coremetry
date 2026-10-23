@@ -1,0 +1,3 @@
+PROBLEM: p-min · servis=orders-api
+ADIMLAR:
+BULGULAR: yok — okunan bölümlerde eşik aşan bulgu çıkmadı

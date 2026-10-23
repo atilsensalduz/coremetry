@@ -1,0 +1,15 @@
+PROBLEM: P-1045 · servis=orders-api · env=prod · belirti=error
+KURAL: Error rate > 5% · error_rate=9.123 (eşik 5)
+BAŞLANGIÇ: 14:05 UTC · pencere 13:50–14:35 UTC
+ADIMLAR:
+- servis taraması: tamam — Sorunlu: POST /orders hata %9 (önceki %0,5)
+- deploy: tamam — 2 değişiklik (son 2 sa); başlangıca yakın: orders-api@rev 42
+- bağımlılık: kısmi — topoloji okunamadı; korele bağımlılık yok
+- trace pivotu: tamam — POST /orders — 2300 ms, 41 span (3 hatalı)
+- log artışı: OKUNAMADI — log arka ucu bağlı değil
+- olaylar: atlandı
+- node baskısı: tamam — node baskısı yok
+- custom_step: weird — bilinmeyen adım adı aynen
+AJAN HİPOTEZİ (kod skoru): orders-api@rev 42 rollout'u — yüksek 0.71 — deploy başlangıçtan 12 dk önce
+DİĞER HİPOTEZLER: db.example.test yavaşlığı orta 0.44 (operatör onayladı) · node baskısı düşük 0.12 (operatör eledi)
+BULGULAR: yok — okunan bölümlerde eşik aşan bulgu çıkmadı

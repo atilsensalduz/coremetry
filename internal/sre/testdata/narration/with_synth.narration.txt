@@ -1,0 +1,9 @@
+PROBLEM: P-1044 · servis=orders-api · öncelik=P2 · belirti=error
+KURAL: Error rate > 5% · error_rate=9.123 (eşik 5)
+BAŞLANGIÇ: 17:05 +03 · pencere 16:50–17:35 +03
+ADIMLAR:
+- servis taraması: tamam — Sorunlu: POST /orders hata %9 (önceki %0,5)
+- deploy: tamam — 2 değişiklik (son 2 sa); başlangıca yakın: orders-api@rev 42
+SENTEZLEYİCİ: şüpheli kxzone/orders-api (güven %100)
+BULGULAR (sunucu sırası):
+1. [crit] deploy orders-api@rev 42 — başlangıçtan 12 dk önce rollout (rev 42←rev 41); rollout stalled

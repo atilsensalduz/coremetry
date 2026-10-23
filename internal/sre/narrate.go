@@ -227,73 +227,13 @@ func kindTR(k string) string {
 }
 
 // renderInvestigationTR — SAF: kayıt → anlatım girdisi (≤4 KB, rune sınırında
-// kesilir). Sıra: başlık → pencere → adımlar → sentezleyici → bulgular (serbest
-// metin, EN SONDA — veri talimat değildir). Damga loc diliminde (nil → UTC).
+// kesilir). v0.10.1462 (A1): gövde Context Pack'ten (contextpack.go
+// BuildContextPack + RenderTR, narrationBudget) — metin bayt-bayt aynı.
+// Sıra: başlık → pencere → adımlar → sentezleyici → bulgular (serbest metin,
+// EN SONDA — veri talimat değildir). Damga loc diliminde (nil → UTC).
 func renderInvestigationTR(inv Investigation, p chstore.Problem, loc *time.Location) string {
-	if loc == nil {
-		loc = time.UTC
-	}
-	hm := func(ns int64) string { return time.Unix(0, ns).In(loc).Format("15:04") }
-	zone := time.Unix(0, inv.Anchor.To).In(loc).Format("MST")
-	var b strings.Builder
-	head := []string{firstNonEmpty(inv.DisplayID, inv.ProblemID), "servis=" + inv.Service}
-	if inv.Env != "" {
-		head = append(head, "env="+inv.Env)
-	}
-	if inv.Priority != "" {
-		head = append(head, "öncelik="+inv.Priority)
-	}
-	if inv.Anchor.Symptom != "" {
-		head = append(head, "belirti="+inv.Anchor.Symptom)
-	}
-	b.WriteString("PROBLEM: " + strings.Join(head, " · ") + "\n")
-	if rule := firstNonEmpty(p.RuleName, p.RuleID); rule != "" {
-		fmt.Fprintf(&b, "KURAL: %s", truncRunes(rule, 120))
-		if p.Metric != "" {
-			fmt.Fprintf(&b, " · %s=%.4g (eşik %.4g)", p.Metric, p.Value, p.Threshold)
-		}
-		b.WriteString("\n")
-	}
-	if inv.ProblemAt > 0 {
-		fmt.Fprintf(&b, "BAŞLANGIÇ: %s %s · pencere %s–%s %s\n", hm(inv.ProblemAt), zone, hm(inv.Anchor.From), hm(inv.Anchor.To), zone)
-	}
-	b.WriteString("ADIMLAR:\n")
-	for _, s := range inv.Steps {
-		if s.Name == stepSummary {
-			continue
-		}
-		fmt.Fprintf(&b, "- %s: %s", stepLabelTR(s.Name), stepStateTR(s.State))
-		if s.Summary != "" {
-			b.WriteString(" — " + truncRunes(oneLine(s.Summary), 240))
-		}
-		b.WriteString("\n")
-	}
-	if sr := inv.SynthRef; sr != nil {
-		if sr.TopSuspect != "" {
-			fmt.Fprintf(&b, "SENTEZLEYİCİ: şüpheli %s (güven %%%.0f)\n", sr.TopSuspect, sr.Confidence*100)
-		} else {
-			b.WriteString("SENTEZLEYİCİ: belirgin şüpheli yok\n")
-		}
-	}
-	b.WriteString(renderHypothesesTR(inv.Hypotheses))
-	b.WriteString(renderRecommendationsTR(inv.Recommendations)) // v0.10.1293 — ≤2 öneri, bulgulardan önce
-	if len(inv.Findings) == 0 {
-		b.WriteString("BULGULAR: yok — okunan bölümlerde eşik aşan bulgu çıkmadı\n")
-	} else {
-		b.WriteString("BULGULAR (sunucu sırası):\n")
-		for i, f := range inv.Findings {
-			fmt.Fprintf(&b, "%d. [%s] %s %s", i+1, f.Level, kindTR(f.Kind), truncRunes(oneLine(f.Name), 120))
-			if len(f.Reasons) > 0 {
-				rs := f.Reasons
-				if len(rs) > 3 {
-					rs = rs[:3]
-				}
-				b.WriteString(" — " + truncRunes(oneLine(strings.Join(rs, "; ")), 260))
-			}
-			b.WriteString("\n")
-		}
-	}
-	return capBytes(b.String(), renderMaxBytes)
+	txt, _ := RenderTR(BuildContextPack(inv, p, loc), narrationBudget)
+	return txt
 }
 
 func oneLine(s string) string {

@@ -1,0 +1,6 @@
+KAYITLI ARAŞTIRMA (14:10) — AI SRE ajanı, problem p-replay · kısmi (bazı adımlar okunamadı). Bu bir ÖNERİDİR, hiçbir şey değiştirilmedi; yaşı yukarıdaki saatte.
+- [crit] deploy orders-api@rev 42: başlangıçtan 12 dk önce rollout (rev 42←rev 41); rollout stalled
+- [crit] operasyon POST /orders: hata oranı %9
+(önceki %0,5)
+Ajanın hipotezleri (kod skoru — değiştirme):
+- eleme: yüksek 0.90 (operatör eledi)

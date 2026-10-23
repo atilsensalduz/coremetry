@@ -1,0 +1,14 @@
+PROBLEM: P-1043 · servis=orders-api · env=staging · belirti=error
+KURAL: uzun kural adı uzun kural adı uzun kural adı uzun kural adı uzun kural adı uzun kural adı uzun kural adı uzun kural adı… · p99_ms=2300 (eşik 800)
+BAŞLANGIÇ: 14:05 UTC · pencere 13:50–14:35 UTC
+ADIMLAR:
+- trace pivotu: tamam — POST /orders — 2300 ms, 41 span (3 hatalı)
+- log artışı: OKUNAMADI — log arka ucu bağlı değil
+- olaylar: atlandı
+AJAN HİPOTEZİ (kod skoru): belirgin hipotez yok — en yüksek node baskısı düşük 0.18
+DİĞER HİPOTEZLER: db.example.test yavaşlığı orta 0.44 (operatör onayladı)
+BULGULAR (sunucu sırası):
+1. [warn] bağımlılık db.example.test — p99 +180%; aşağı akış; nedensellik değil
+2. [warn] JVM orders-api-7d9f
+3. [info] Kubernetes kxzone/orders-api — restart 3
+4. [warn] fonksiyon fn-0042 — hata payı %40

@@ -96,31 +96,18 @@ func LoadSummary(ctx context.Context, st QueueStore, problemID string) (*mcptool
 
 // RenderSavedTR — SAF: guided kök-neden demetinin "KAYITLI ARAŞTIRMA (HH:MM)"
 // bloğu (damga loc diliminde). Bitmemiş ya da bulgusuz-özetsiz kayıt "".
+// v0.10.1462 (A1): Context Pack'ten (BuildSavedPack + RenderTR, chatBudget —
+// tavansız, bugünkü davranış); metin bayt-bayt aynı.
 func RenderSavedTR(problemRef string, s mcptools.InvestigationSummary, loc *time.Location) string {
-	switch s.State {
-	case StateDone, StatePartial, StateShared:
-	default:
-		return ""
-	}
-	if len(s.Findings) == 0 && s.Summary == "" && len(s.Hypotheses) == 0 {
-		return ""
-	}
-	if loc == nil {
-		loc = time.UTC
-	}
+	txt, _ := RenderTR(BuildSavedPack(problemRef, s, loc), chatBudget)
+	return txt
+}
+
+// renderSavedHypothesesTR — SAF: sohbet bloğunun hipotez satırları (kod
+// skoru; operatör işareti etiket olarak, skora girmez).
+func renderSavedHypothesesTR(hs []mcptools.InvestigationHypothesis) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "KAYITLI ARAŞTIRMA (%s) — AI SRE ajanı, problem %s", time.Unix(0, s.At).In(loc).Format("15:04"), problemRef)
-	switch s.State {
-	case StatePartial:
-		b.WriteString(" · kısmi (bazı adımlar okunamadı)")
-	case StateShared:
-		b.WriteString(" · aynı servisin yakın araştırması (" + s.SharedFrom + ")")
-	}
-	b.WriteString(". Bu bir ÖNERİDİR, hiçbir şey değiştirilmedi; yaşı yukarıdaki saatte.\n")
-	for _, f := range s.Findings {
-		b.WriteString("- " + f + "\n")
-	}
-	for i, h := range s.Hypotheses {
+	for i, h := range hs {
 		if i == 0 {
 			b.WriteString("Ajanın hipotezleri (kod skoru — değiştirme):\n")
 		}
@@ -135,9 +122,6 @@ func RenderSavedTR(problemRef string, s mcptools.InvestigationSummary, loc *time
 			line += " (operatör onayladı)"
 		}
 		b.WriteString(truncRunes(line, 400) + "\n")
-	}
-	if s.Summary != "" {
-		b.WriteString("Ajanın özeti:\n" + truncRunes(s.Summary, 1200) + "\n")
 	}
 	return b.String()
 }

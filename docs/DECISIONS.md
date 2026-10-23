@@ -9934,3 +9934,38 @@ ErrLocalOnly, sağlayıcı 0 istek), `TestCodeTurnTokenCallerDenied`, `TestCodeT
 copilot `TestCodeTurnAddendumContract`; fe `codeRead.test.tsx` (gövde, hap varsayılan kapalı + kullanıcı başına kalıcılık,
 devre dışı + gerekçe, normalizer, kablolama). Kademe pini (`traceFollowUpBlock`) kod turu koşulunu da içerecek şekilde
 güncellendi; sıra, MCP 74, api.go boyu değişmedi.
+
+## 2026-10-23 — v0.10.1462 — CoSRE A1: Context Pack (saf refactor, bayt-bayt aynı metin)
+
+**Bağlam.** CoSRE araştırma programı Faz 2 planı Paket A (Context Pack), sürüm A1; operatör kararı 2 (audit
+2026-10-23): modele giden deterministik bağlamın tek kurucusu `internal/sre/contextpack.go` olur, anlatım + (2b) döngü
+dalı + sohbetin "KAYITLI ARAŞTIRMA" bloğu ondan okur. Bugün iki ayrı el yazımı metin vardı: `renderInvestigationTR`
+(anlatım girdisi, tek 4 KB `capBytes` kesimi) ve `RenderSavedTR` (sohbet bloğu, tavansız).
+
+**Karar.** (1) `contextpack.go` SAF (ctx yok, okuma yok): `PackSection{Key, Priority, Text, Rows}`, `ContextPack`,
+`PackBudget{Mode, MaxBytes}`, `PackMeta{mode, bytes, estTokens, capped, sections[{key,bytes,rows}]}`,
+`BuildContextPack(inv, p, loc)` (problem → rule → start → steps → synth → hypotheses → recommendations → findings),
+`BuildSavedPack(ref, summary, loc)` (saved_head → saved_findings → saved_hypotheses → saved_summary),
+`RenderTR(pack, budget)` (legacy kip: bölümler birleşir + MaxBytes > 0 ise tek `capBytes`), `estimateTokens` (4 B/token).
+(2) `renderInvestigationTR` = `RenderTR(BuildContextPack(…), narrationBudget{legacy, 4096})`; `RenderSavedTR` =
+`RenderTR(BuildSavedPack(…), chatBudget{legacy, tavansız})` — imzalar aynı, `internal/api` değişmedi. (3) Metin
+bayt-bayt aynı: 7 senaryonun (min/full/replay/verify/with_synth/no_findings/capped) anlatım + sohbet altınları
+(`internal/sre/testdata/narration/*.txt`) refactor ÖNCESİ HEAD'de üretildi, `TestNarrationGoldenByteIdentical`
+karşılaştırır. (4) `PackMeta` A1'de kayda YAZILMAZ (`Investigation` alanı yok → kayıt bayt-bayt aynı); öncelikli
+kırpma, `MaxTokens`, `trimmedRows/dropped`, yeni veri bölümleri ve `sre_agent.contextpack` blobu A2'de bayrak arkasında.
+(5) Pack oy / geri bildirim / insan işareti / model güveni / operatör kuralı okumaz: hipotez satırları
+`renderHypothesesTR` (narrate.go) ve `renderSavedHypothesesTR` (summary.go) üzerinden aynen gelir.
+
+**Plandan sapma.** Plan sohbet bütçesini "≤2 KB bugünkü davranış" diye yazıyordu; HEAD'de `RenderSavedTR` tavansızdır
+(3 bulgu × 300 + 3 hipotez × 400 + özet 1200 rune → 2 KB'ı aşabilir). Bayt-bayt kuralı gereği `chatBudget` tavansız
+kaldı; 2 KB tavanı A2'de bayrak arkasında değerlendirilir. Sohbet `SummaryOf` özeti üzerinden çalıştığı için (MCP
+`get_problem` da aynı özeti kullanır) ayrı kurucu `BuildSavedPack` eklendi; render yolu ortak.
+
+**Geri alma.** Sürüm commit'ini revert + yeni etiket — metin zaten aynı olduğundan sıfır etki; kayıt şeması, ayar,
+rota, MCP kataloğu değişmedi.
+
+**Testler.** sre `TestNarrationGoldenByteIdentical` (14 altın), `TestContextPackSectionsOrder`,
+`TestRenderTRLegacyEqualsCapBytes`, `TestEstimateTokens`, `TestContextPackNeverCarriesHumanOrVotes` (AST + girdi tipi
+yürüyüşü); mevcut `TestRenderInvestigationTRGolden`, `TestSummaryOfAndRenderSaved`, `TestRenderHypothesesTR`,
+`TestRulesNeverReachScoring`, `TestSRENoMutatingCalls`, `TestEvalIgnoresFeedback`, `TestHypothesisMarkNeverChangesScore`
+yeşil.

@@ -1,0 +1,2 @@
+KAYITLI ARAŞTIRMA (17:30) — AI SRE ajanı, problem P-1044. Bu bir ÖNERİDİR, hiçbir şey değiştirilmedi; yaşı yukarıdaki saatte.
+- [crit] deploy orders-api@rev 42: başlangıçtan 12 dk önce rollout (rev 42←rev 41); rollout stalled

@@ -1,0 +1,25 @@
+PROBLEM: P-1042 · servis=orders-api · env=prod · öncelik=P1 · belirti=error
+KURAL: Error rate > 5% · error_rate=9.123 (eşik 5)
+BAŞLANGIÇ: 17:05 +03 · pencere 16:50–17:35 +03
+ADIMLAR:
+- servis taraması: tamam — Sorunlu: POST /orders hata %9 (önceki %0,5)
+- deploy: tamam — 2 değişiklik (son 2 sa); başlangıca yakın: orders-api@rev 42
+- bağımlılık: kısmi — topoloji okunamadı; korele bağımlılık yok
+- trace pivotu: tamam — POST /orders — 2300 ms, 41 span (3 hatalı)
+- log artışı: OKUNAMADI — log arka ucu bağlı değil
+- olaylar: atlandı
+- node baskısı: tamam — node baskısı yok
+- custom_step: weird — bilinmeyen adım adı aynen
+SENTEZLEYİCİ: şüpheli db.example.test (güven %58)
+AJAN HİPOTEZİ (kod skoru): orders-api@rev 42 rollout'u — yüksek 0.71 — deploy başlangıçtan 12 dk önce
+DİĞER HİPOTEZLER: db.example.test yavaşlığı orta 0.44 (operatör onayladı) · node baskısı düşük 0.12 (operatör eledi)
+AJAN ÖNERİLERİ (yalnız öneri — hiçbiri uygulanmadı; uygulamayı insan yapar):
+- orders-api rev 41'e geri dönmeyi değerlendir
+- db.example.test bağlantı havuzunu kontrol et (operatör uyguladığını işaretledi)
+BULGULAR (sunucu sırası):
+1. [crit] deploy orders-api@rev 42 — başlangıçtan 12 dk önce rollout (rev 42←rev 41); rollout stalled
+2. [crit] operasyon POST /orders — hata oranı %9 (önceki %0,5)
+3. [warn] bağımlılık db.example.test — p99 +180%; aşağı akış; nedensellik değil
+4. [warn] JVM orders-api-7d9f
+5. [info] Kubernetes kxzone/orders-api — restart 3
+6. [warn] fonksiyon fn-0042 — hata payı %40
