@@ -85,15 +85,18 @@ func TestSystemGeneralChatCarriesAntiFabricationRules(t *testing.T) {
 }
 
 // v0.10.1458 — konu dışı genel cevap (systemOffTopicGeneral) da SIFIR kanıtla
-// konuşur: kısa cevap + "telemetriden değil" cümlesi + Coremetry verisi UYDURMA.
+// konuşur: Coremetry verisi UYDURMA. v0.10.1485 (operatör: not iki kez, kod tek
+// satırda): model kapsam notunu YAZMAZ (not sunucudan, altta), uzunluk soruyla
+// orantılı, kod dil etiketli çitte; "en fazla 2-3 cümle / liste yok" tavanı yok.
 func TestSystemOffTopicGeneralCarriesAntiFabricationRules(t *testing.T) {
 	p := SystemPromptOffTopicGeneral()
-	for _, want := range []string{"UYDURMA", "KISA", "Coremetry telemetrisinden gelmediğini", "erişimin YOK", answerInTurkishLine} {
+	for _, want := range []string{"UYDURMA", "erişimin YOK", answerInTurkishLine,
+		"Coremetry telemetrisinden gelmediğini YAZMA", "DOĞRUDAN", "orantılı", "dil etiketli", "```python", "tek satıra sıkıştırma"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("OffTopicGeneral %q cümlesini taşımıyor", want)
 		}
 	}
-	for _, bad := range []string{"gemma", "Gemma", "tool çağır", "araç çağır"} {
+	for _, bad := range []string{"gemma", "Gemma", "qwen", "Qwen", "tool çağır", "araç çağır", "en fazla 2-3 cümle", "liste yok", "tek kısa cümleyle belirt"} {
 		if strings.Contains(p, bad) {
 			t.Errorf("OffTopicGeneral %q içermemeli (model-bağımsız, araçsız)", bad)
 		}

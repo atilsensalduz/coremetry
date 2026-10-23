@@ -45,11 +45,27 @@ const offTopicBoundaryGoldenTR = "Bu soru Coremetry'nin izlediği telemetriyle i
 
 const offTopicFakeAnswer = "Türkiye'nin başkenti Ankara'dır. Bu genel bilgidir, Coremetry telemetrisinden gelmez."
 
+// offTopicFakeClean — v0.10.1485: süzgeçten sonra kalan model metni (modelin
+// kendi kapsam notu düştü; tek not sunucunun, altta).
+const offTopicFakeClean = "Türkiye'nin başkenti Ankara'dır."
+
+// offTopicPalindromeQ — v0.10.1485 operatör ekranındaki soru (Qwen profili).
+const offTopicPalindromeQ = "Bana Python dilinde öyle bir fonksiyon yaz ki, aldığı bir kelimenin palindrom olup olmadığını büyük/küçük harf duyarsız ve boşlukları yoksayarak kontrol etsin."
+
+// offTopicPalindromeChunks — modelin prod'daki gibi kendi notuyla başlayan,
+// ama bu kez kodu çitte veren akışı (parçalar çitin ortasından bölünür).
+var offTopicPalindromeChunks = []string{
+	"Bu, Coremetry telemetrisinden değil genel Python bilgisindendir; aşağıdaki fonksiyonu kullanabilirsin:\n\n```py",
+	"thon\ndef is_palindrome(s: str) -> bool:\n    t = ''.join(s.split()).lower()\n    return t == t[::-1]\n```\n\n",
+	"Fonksiyon boşlukları atar, harfleri küçültür ve metni tersiyle karşılaştırır.",
+}
+
 // offTopicLLM — sahte uç: JSON istek (sınıflandırıcı) → script'teki niyet;
 // akış isteği (genel cevap) → SSE metin. Her gövde kaydedilir.
 type offTopicLLM struct {
 	mu     sync.Mutex
 	intent string
+	chunks []string // v0.10.1485 — akış parçaları (nil = başkent cevabı)
 	bodies []map[string]any
 	srv    *httptest.Server
 }
@@ -66,7 +82,13 @@ func newOffTopicLLM(t *testing.T, intent string) *offTopicLLM {
 		l.mu.Unlock()
 		if st, _ := body["stream"].(bool); st {
 			w.Header().Set("Content-Type", "text/event-stream")
-			for _, d := range []string{"Türkiye'nin başkenti Ankara'dır. ", "Bu genel bilgidir, Coremetry telemetrisinden gelmez."} {
+			l.mu.Lock()
+			chunks := l.chunks
+			l.mu.Unlock()
+			if chunks == nil {
+				chunks = []string{"Türkiye'nin başkenti Ankara'dır. ", "Bu genel bilgidir, Coremetry telemetrisinden gelmez."}
+			}
+			for _, d := range chunks {
 				chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": d}}}})
 				_, _ = w.Write([]byte("data: " + string(chunk) + "\n\n"))
 			}
@@ -161,7 +183,7 @@ func TestOffTopicGeneralRoutingTable(t *testing.T) {
 		wantRow    string // ai_calls yüzeyi (sınıflandırıcı satırı dışında)
 		noRow      string // YAZILMAMASI gereken yüzey
 	}{
-		{"açık · off_topic → kısa genel cevap", true, "off_topic", offTopicCapitalQ, offTopicGeneralNoteTR, true, true, aisurface.ChatOffTopicGeneral, aisurface.ChatOffTopic},
+		{"açık · off_topic → genel cevap üstte (not altta)", true, "off_topic", offTopicCapitalQ, offTopicFakeClean, true, true, aisurface.ChatOffTopicGeneral, aisurface.ChatOffTopic},
 		{"kapalı · off_topic → v0.10.819 sınırı", false, "off_topic", offTopicCapitalQ, offTopicBoundaryTR, false, false, aisurface.ChatOffTopic, aisurface.ChatOffTopicGeneral},
 		{"açık · off_topic + veto → none yolu (chat-general)", true, "off_topic", "checkout neden yavaş", intentGeneralNoteTR, true, true, aisurface.ChatGeneral, aisurface.ChatOffTopicGeneral},
 		{"kapalı · off_topic + veto → none yolu (chat-general)", false, "off_topic", "checkout neden yavaş", intentGeneralNoteTR, true, true, aisurface.ChatGeneral, aisurface.ChatOffTopic},
@@ -202,14 +224,15 @@ func TestOffTopicGeneralRoutingTable(t *testing.T) {
 				t.Errorf("genel cevap satırı kök exchange'i taşımalı (oylanabilir): %q", rows[tc.wantRow])
 			}
 			if tc.wantRow == aisurface.ChatOffTopicGeneral {
-				if !strings.Contains(text, offTopicFakeAnswer) || !strings.Contains(text, "Şöyle sorabilirsin") {
-					t.Errorf("genel cevap model metni + yol tarifi taşımalı: %q", text)
+				// v0.10.1485 — cevap + tek not (altta); modelin notu, liste, bağlantı yok.
+				if want := offTopicFakeClean + "\n\n" + offTopicGeneralNoteTR; text != want {
+					t.Errorf("genel cevap metni:\n got %q\nwant %q", text, want)
 				}
-				if sugg, _ := ans["suggestions"].([]string); !reflect.DeepEqual(sugg, offTopicChips("")) {
-					t.Errorf("yol tarifi çipleri v0.10.819 ile aynı olmalı: %v", sugg)
+				if sugg, _ := ans["suggestions"].([]string); !reflect.DeepEqual(sugg, offTopicGeneralChips("")) || len(sugg) > offTopicGeneralMaxChips {
+					t.Errorf("çipler ≤%d (v0.10.819 sırasıyla): %v", offTopicGeneralMaxChips, sugg)
 				}
-				if links, _ := ans["links"].([]guidedAnswerLink); !reflect.DeepEqual(links, offTopicLinks("")) {
-					t.Errorf("bağlantılar v0.10.819 ile aynı olmalı: %v", links)
+				if _, has := ans["links"]; has {
+					t.Errorf("genel cevapta bağlantı listesi olmamalı: %v", ans["links"])
 				}
 			}
 		})
@@ -289,8 +312,12 @@ func TestOffTopicGeneralTextFallback(t *testing.T) {
 		t.Fatalf("boş çıktı v0.10.819 sınırına düşmeli: general=%v %q", general, text)
 	}
 	text, general := offTopicGeneralText(" Ankara. ", offTopicCapitalQ, "")
-	if !general || !strings.HasPrefix(text, offTopicGeneralNoteTR+"\n\nAnkara.\n\n") || !strings.HasSuffix(text, offTopicGuidanceTR("")) {
-		t.Fatalf("genel metin: general=%v %q", general, text)
+	if !general || text != "Ankara.\n\n"+offTopicGeneralNoteTR {
+		t.Fatalf("genel metin (v0.10.1485: cevap üstte, tek not altta, liste yok): general=%v %q", general, text)
+	}
+	// Model YALNIZ kendi notunu yazdıysa süzgeçten sonra metin boş → sınır.
+	if text, general := offTopicGeneralText("Bu soru Coremetry telemetrisiyle ilgili değil.", offTopicCapitalQ, ""); general || text != offTopicBoundaryGoldenTR {
+		t.Fatalf("yalnız-not çıktısı v0.10.819 sınırına düşmeli: general=%v %q", general, text)
 	}
 	if !offTopicUsesModel(true, offTopicCapitalQ) || offTopicUsesModel(false, offTopicCapitalQ) || offTopicUsesModel(true, "hack nasıl yapılır") {
 		t.Fatal("offTopicUsesModel: açık+zararsız → true; kapalı ya da zararlı → false")
@@ -373,5 +400,104 @@ func TestOffTopicGeneralSourceGates(t *testing.T) {
 	none := i[strings.Index(i, "if !matched {"):strings.Index(i, "if route.Intent == guidedOffTopic && !s.offTopicGeneralEnabled")]
 	if strings.Contains(none, "AIGeneralQuestions") || strings.Contains(none, "offTopicGeneral") {
 		t.Fatal("none dalı genel soru anahtarını okumamalı")
+	}
+}
+
+// TestStripScopeDisclaimers — v0.10.1485 (operatör: "Coremetry izlediği
+// telemetri ile ilgili değil'i 2 defa söylüyor"): modelin kendi kapsam notu
+// nerede olursa olsun düşer (TR + EN; Gemma/Qwen ayrımı yok), asıl içerik ve
+// kod blokları harfiyen kalır.
+func TestStripScopeDisclaimers(t *testing.T) {
+	fence := "```python\ndef f(s):\n    # Coremetry telemetrisi değil\n    return s\n```"
+	cases := []struct{ name, in, want string }{
+		{"prod: baştaki yan cümle düşer, kalan büyük harfle başlar",
+			"Bu, Coremetry telemetrisinden değil genel Python bilgisindendir; aşağıdaki fonksiyonu kullanabilirsin:",
+			"Aşağıdaki fonksiyonu kullanabilirsin:"},
+		{"sondaki cümle düşer", offTopicFakeAnswer, offTopicFakeClean},
+		{"ayrı not satırı (italik) düşer",
+			"Ankara'dır.\n\n_Not: Bu cevap Coremetry verilerine dayanmaz._", "Ankara'dır."},
+		{"giriş satırı düşer", "Bu soru Coremetry'nin izlediği telemetriyle ilgili değil.\n\nAnkara'dır.", "Ankara'dır."},
+		{"tire ile bağlı yan cümle", "Genel bilgiyle cevaplıyorum — Coremetry verisine dayanmaz. Ankara'dır.", "Genel bilgiyle cevaplıyorum — Ankara'dır."},
+		{"İngilizce", "Note: this is general knowledge, not based on Coremetry telemetry. Paris is the capital.", "Paris is the capital."},
+		{"İngilizce: unrelated", "Paris is the capital.\n\nThis answer is unrelated to your Coremetry data.", "Paris is the capital."},
+		{"İ büyütme Türkçe", "Coremetry telemetrisine dayanmaz; işte cevap.", "İşte cevap."},
+		{"kod bloğunun içi korunur", "Kod:\n\n" + fence, "Kod:\n\n" + fence},
+		{"satır içi kod taşıyan cümle korunur", "Coremetry değil: `telemetry := false` yaz.", "Coremetry değil: `telemetry := false` yaz."},
+		{"konu yoksa dokunulmaz", "Bu genel bir bilgidir. Ankara'dır.", "Bu genel bir bilgidir. Ankara'dır."},
+		{"hedge yoksa dokunulmaz", "Coremetry ile de Python kullanılabilir.", "Coremetry ile de Python kullanılabilir."},
+		{"uzun içerik cümlesi korunur", "Coremetry " + strings.Repeat("çok uzun bir açıklama ", 12) + "değil.", "Coremetry " + strings.Repeat("çok uzun bir açıklama ", 12) + "değil."},
+		{"yalnız not → boş", "_Bu soru Coremetry telemetrisiyle ilgili değil._", ""},
+		{"boş satırlar teke iner", "A.\n\nBu, Coremetry verisi değil.\n\nB.", "A.\n\nB."},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := stripScopeDisclaimers(tc.in); got != tc.want {
+				t.Fatalf("\n got %q\nwant %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestOffTopicGeneralPalindromeAnswerShape — v0.10.1485 operatör ekranı: kod
+// sorusunun cevabı ÜSTTE model içeriğiyle başlar, kod dil etiketli çitte,
+// kapsam notu TEK ve EN ALTTA (çiplerden önceki son satır), "Şöyle
+// sorabilirsin" listesi ve bağlantılar yok, ≤3 çip. Bütçe profilin tabanı
+// (sabit küçük tavan yok — düşünen model kodu yarıda kesmesin).
+func TestOffTopicGeneralPalindromeAnswerShape(t *testing.T) {
+	setGeneralQuestions(t, true)
+	l := newOffTopicLLM(t, "off_topic")
+	l.chunks = offTopicPalindromeChunks
+	s, _ := offTopicTestServer(t, l)
+	ctx := copilot.WithDeepAnswer(copilot.WithMeta(context.Background(), copilot.CallMeta{ExchangeID: "xpal"}))
+	ev, handled := runIntentTurn(t, s, ctx, offTopicPalindromeQ)
+	if !handled {
+		t.Fatal("kademe cevaplamalı")
+	}
+	ans := answerOf(t, ev)
+	text, _ := ans["text"].(string)
+	assertOffTopicGeneralShape(t, text)
+	if !strings.HasPrefix(text, "Aşağıdaki fonksiyonu kullanabilirsin:\n\n```python\ndef is_palindrome") {
+		t.Errorf("cevap model içeriğiyle başlamalı: %q", text)
+	}
+	if sugg, _ := ans["suggestions"].([]string); len(sugg) == 0 || len(sugg) > offTopicGeneralMaxChips {
+		t.Errorf("çipler 1..%d: %v", offTopicGeneralMaxChips, sugg)
+	}
+	if _, has := ans["links"]; has {
+		t.Error("bağlantı listesi olmamalı")
+	}
+	st := l.streams()
+	if len(st) != 1 {
+		t.Fatalf("tek akış çağrısı: %d", len(st))
+	}
+	if mt, _ := st[0]["max_tokens"].(float64); int(mt) != s.copilot.MaxTokensFor(context.Background()) {
+		t.Errorf("bütçe profilin tabanı olmalı: max_tokens=%v, taban %d", st[0]["max_tokens"], s.copilot.MaxTokensFor(context.Background()))
+	}
+	// Akışın başına not basılmaz (cevap üstte; `answer` otoriter).
+	for _, e := range ev {
+		if e.kind == "delta" {
+			if d, _ := e.v.(map[string]string); strings.Contains(d["text"], offTopicGeneralNoteTR) {
+				t.Errorf("not akışa basılmamalı: %q", d["text"])
+			}
+		}
+	}
+}
+
+// assertOffTopicGeneralShape — genel cevap metninin sözleşmesi (regresyon
+// satırı da kullanır): tek not, en altta; dil etiketli çit; liste yok.
+func assertOffTopicGeneralShape(t *testing.T, text string) {
+	t.Helper()
+	if !strings.HasSuffix(text, "\n\n"+offTopicGeneralNoteTR) {
+		t.Errorf("son satır kapsam notu olmalı: %q", text)
+	}
+	if n := strings.Count(strings.ToLower(text), "coremetry"); n != 1 {
+		t.Errorf("kapsam notu TEK olmalı (Coremetry %d kez): %q", n, text)
+	}
+	for _, bad := range []string{"telemetri", "Şöyle sorabilirsin", offTopicBoundaryTR} {
+		if strings.Contains(text, bad) {
+			t.Errorf("cevapta %q olmamalı: %q", bad, text)
+		}
+	}
+	if !strings.Contains(text, "```python\n") || strings.Count(text, "```")%2 != 0 {
+		t.Errorf("kod dil etiketli kapalı çitte olmalı: %q", text)
 	}
 }

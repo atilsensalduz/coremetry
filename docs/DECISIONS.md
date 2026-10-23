@@ -10642,3 +10642,39 @@ kalite panelleri admin kalır ve editöre hiç istek atmaz. Sidebar'daki /ai gir
 /api/ai/* uçlarının kapısı değişmedi.
 
 **Geri alma.** `aiRoutingReportRoles`'u `[admin]`'e, Sidebar `/ai` girişinden `editorToo`'yu kaldır + yeni etiket.
+
+## 2026-10-23 — v0.10.1485 — Genel (konu dışı) cevap: cevap üstte, tek kısa not altta, kod çitte
+
+**Bağlam.** Operatör ekranı (prod, Qwen profili, Derin açık): "Bana Python dilinde … palindrom … fonksiyon yaz"
+sorusu v0.10.1458 genel-cevap yolunda (1) iki kez "Coremetry telemetrisiyle ilgili değil" dedi (sunucunun üst notu +
+istemin "tek kısa cümleyle belirt" kuralının ürettiği model cümlesi), (2) kodu tek satıra satır içi sıkıştırdı
+(istem: "en fazla 2-3 cümle, başlık ya da liste yok"), (3) altına v0.10.819'un "Şöyle sorabilirsin" listesi + çipler +
+bağlantılar bindi. Operatör: "düzgün cevap versin, cevap net gözüksün"; ek: "uyarı olacaksa en altta not diye düşsün,
+doğru cevabı versin üstte".
+
+**Karar.**
+- Tek not, SUNUCUDAN, EN ALTTA: `offTopicGeneralNoteTR = "_Not: genel bilgi — Coremetry verilerine dayanmaz._"`.
+  Akışın başına artık not basılmaz; `answer` olayının metni otoriter (FE zaten değiştiriyor).
+- İstem (`systemOffTopicGeneral`): ilk cümle cevabın kendisi; kapsam notunu YAZMA (sistem ekler); uzunluk soruyla
+  orantılı (basit soru 1-3 cümle, kod/how-to eksiksiz ama öz); Markdown; kod dil etiketli çok satırlı çitte, ardından
+  1-3 cümle açıklama. Uydurma yasağı aynen. Model adı/ailesi yok.
+- Deterministik süzgeç `stripScopeDisclaimers` (SAF, tablo testli): satırları cümle/yan cümle parçalarına böler (". ",
+  "; ", " — "; satır içi `kod` ve ``` çitleri dokunulmaz), KONU (coremetry/telemetri/…) + YÜKLEM (değil/dayanmaz/genel
+  bilgi/not based/unrelated …) taşıyan ≤220 rune parçayı nerede olursa olsun düşürür; baştaki parça düştüyse kalan
+  Türkçe kuralıyla büyük harfle başlar. Model yalnız not yazdıysa metin boş → v0.10.819 sınırı (eski düşüş kuralı).
+  Gemma/Qwen için ayrı kural yok.
+- Kalabalık: model cevabının altında liste ve bağlantı YOK; v0.10.819 çiplerinin ilk 3'ü kalır (servis sayfasında
+  servis soruları önce) — CoSRE keşfi çiplerden. Anahtar KAPALI / zararlı / boş-hata düşüşü v0.10.819 ile bayt bayt aynı
+  (`offTopicBoundaryGoldenTR` pini değişmedi).
+- Bütçe: değişiklik yok — `WithoutDeepAnswer` + profilin tabanı (varsayılan 4096; Qwen3 düşünme profilin `thinking`
+  ayarından, modelcaps). Sabit küçük tavan yok; test genel çağrının max_tokens'ının profil tabanı olduğunu pinler.
+- Evalset: `chat-out-of-scope` tavanı 600 → 1500 rune (listeli kısa tarif meşru), `telemetri`/`coremetry` yasak (model
+  notu); yeni `chat-out-of-scope-code` (operatörün sorusu): ```` ```py ```` + `def ` zorunlu, notsuz, uydurma ad 0,
+  2500 rune tavan. Koşucu süzgeci UYGULAMAZ — vaka istemin model sözleşmesini ölçer.
+- Yönlendirme regresyonu: başkent satırı (cevap üstte, not sonek) + palindrom satırı (off_topic rotası, çitli kod,
+  tek not son satır, liste yok).
+
+**Geri alma.** `offTopicGeneralText`'i `offTopicGeneralNoteTR + "\n\n" + raw + "\n\n" + offTopicGuidanceTR(ctxService)`
+hâline, `offTopicGeneralAnswer`'ı not deltası + `offTopicChips`/`offTopicLinks`'e döndür, `systemOffTopicGeneral`'i
+v0.10.1458 metnine geri al + yeni etiket. Yalnız süzgeci kapatmak: `offTopicGeneralText`'te `stripScopeDisclaimers`
+çağrısını kaldır.

@@ -48,12 +48,25 @@
     {
       "id": "chat-out-of-scope",
       "surface": "OffTopicGeneral",
-      "why": "v0.10.1458 genel soru (ai.generalQuestions açık, varsayılan): telemetri dışı soru KISA genel bilgiyle cevaplanır (en fazla 2-3 cümle, başlık/liste yok) ve Coremetry'ye dair hiçbir ad uydurulmaz",
-      "note": "v0.10.1476: eski beklenti (v0.10.422, GeneralChat: 'fırın/şeker/yumurta geçmesin', yani tarif VERME) v0.10.819'un kapsam sınırıydı; v0.10.1458 operatör kararıyla tersine döndü — prod bu soruyu (off_topic, zararsız) SystemPromptOffTopicGeneral ile cevaplar. Vaka o yüzeye taşındı; ölçülen sözleşme kısalık (600 rune tavanı, 2-3 Türkçe cümleye pay) + uydurma ad yok. Zararlı istek modele hiç gitmez (offTopicIsHarmful, deterministik) — evalset'in ölçeceği model davranışı yok.",
+      "why": "v0.10.1458 genel soru (ai.generalQuestions açık, varsayılan): telemetri dışı soru genel bilgiyle, soruyla orantılı ve öz cevaplanır; model kendi Coremetry/telemetri notunu yazmaz (not sunucudan, altta) ve Coremetry'ye dair hiçbir ad uydurulmaz",
+      "note": "v0.10.1476: eski beklenti (v0.10.422, GeneralChat: 'fırın/şeker/yumurta geçmesin', yani tarif VERME) v0.10.819'un kapsam sınırıydı; v0.10.1458 operatör kararıyla tersine döndü — prod bu soruyu (off_topic, zararsız) SystemPromptOffTopicGeneral ile cevaplar. Zararlı istek modele hiç gitmez (offTopicIsHarmful, deterministik) — evalset'in ölçeceği model davranışı yok. v0.10.1485: istem 'en fazla 2-3 cümle, liste yok' tavanını kaldırdı (uzunluk soruyla orantılı; tarif kısa malzeme/adım listesi alabilir) → tavan 600'den 1500 rune'a; model kendi kapsam notunu yazmamalı (prod'da not iki kez çıkıyordu) → 'telemetri'/'coremetry' yasak.",
       "user": "Bana bir çikolatalı kek tarifi ver.",
       "expect": {
-        "maxAnswerRunes": 600,
-        "mustNotContain": ["kubectl"],
+        "maxAnswerRunes": 1500,
+        "mustNotContain": ["kubectl", "telemetri", "coremetry"],
+        "maxUnknownEntities": 0
+      }
+    },
+    {
+      "id": "chat-out-of-scope-code",
+      "surface": "OffTopicGeneral",
+      "why": "v0.10.1485 operatör ekranı (Qwen profili): kod isteyen genel soru — kod dil etiketli çok satırlı çitte gelir (tek satıra sıkıştırılmaz), model kendi Coremetry/telemetri notunu yazmaz (tek not sunucudan, altta), Coremetry'ye dair ad uydurulmaz",
+      "note": "v0.10.1485: kod cevabı kısa-cevap tavanına sığmaz; tavan 2500 rune (fonksiyon + 1-3 cümle açıklama + kısa kullanım örneğine pay, deneme değil). '```py' öneki ```python'ı da kapsar. Sunucunun kapsam süzgeci (stripScopeDisclaimers) koşucuda UYGULANMAZ: vaka istemin model sözleşmesini ölçer.",
+      "user": "Bana Python dilinde öyle bir fonksiyon yaz ki, aldığı bir kelimenin palindrom olup olmadığını büyük/küçük harf duyarsız ve boşlukları yoksayarak kontrol etsin.",
+      "expect": {
+        "mustContain": ["```py", "def "],
+        "mustNotContain": ["telemetri", "coremetry"],
+        "maxAnswerRunes": 2500,
         "maxUnknownEntities": 0
       }
     }

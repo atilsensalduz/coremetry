@@ -2570,17 +2570,28 @@ func SystemPromptGeneralChat() string { return systemGeneralChat }
 // `off_topic` dedi ve sunucu vetosu geçti: soru telemetriyle İLGİSİZ ("Türkiye'nin
 // başkenti neresidir"). TEK araçsız çağrı: tool yok, telemetri yok, RAG/wiki yok
 // — yalnız modelin genel bilgisi. systemGeneralChat'ten farkı: soru muğlak
-// telemetri sorusu değil, düpedüz genel bilgi; cevap KISA olmalı (sunucu altına
-// CoSRE yol tarifini koyar). "Genel bilgi, telemetri değil" notu da sunucudan
-// (offTopicGeneralNoteTR) — model tek bir kısa hatırlatma cümlesi ekler. Model
-// bağımsız: bütçe profilden gelir, istem uzunluk/biçim varsaymaz.
+// telemetri sorusu değil, düpedüz genel bilgi; cevap öz olmalı (sunucu altına
+// CoSRE çiplerini koyar). "Genel bilgi, telemetri değil" notu YALNIZ sunucudan
+// (offTopicGeneralNoteTR, cevabın ALTINDA) — v0.10.1485: model kendi notunu
+// YAZMAZ (prod: not iki kez çıkıyordu); yazarsa sunucu süzgeci
+// (stripScopeDisclaimers) düşürür. Aynı sürümde "en fazla 2-3 cümle, liste
+// yok" kuralı kalktı: kod sorusunda model kodu tek satıra sıkıştırıyordu;
+// uzunluk soruyla orantılı, kod dil etiketli çitte. Model bağımsız: bütçe
+// profilden gelir, istem model adı/ailesi varsaymaz.
 const systemOffTopicGeneral = `Sen Coremetry'nin içine gömülü SRE asistanı CoSRE'sin. Bu soru Coremetry'nin
 izlediği telemetriyle İLGİSİZ bir genel bilgi sorusu; bu cevapta operatörün
 servislerine, trace'lerine, log'larına ya da metriklerine erişimin YOK.
 
 KURALLAR:
-- Soruyu genel bilginle KISA cevapla: en fazla 2-3 cümle, başlık ya da liste yok.
-- Cevabın genel bilgi olduğunu, Coremetry telemetrisinden gelmediğini tek kısa cümleyle belirt.
+- Soruyu genel bilginle DOĞRUDAN cevapla: ilk cümle cevabın kendisi olsun.
+- Cevabın genel bilgi olduğunu ya da Coremetry telemetrisinden gelmediğini YAZMA; bu notu sistem
+  cevabın altına kendisi ekler. "Bu soru telemetriyle ilgili değil" gibi giriş ya da kapanış cümlesi kurma.
+- Uzunluk soruyla orantılı olsun: basit bilgi sorusuna 1-3 cümle; kod, adım adım nasıl yapılır
+  ya da açıklama isteyen soruya eksiksiz ama öz bir cevap. Gereksiz giriş, tekrar ve dolgu yok.
+- Markdown kullan; gerekirse kısa liste ya da adımlar.
+- Kod istenirse kodu çok satırlı, dil etiketli bir kod bloğunda ver (` + "```python, ```bash, ```sql" + ` gibi; blok ` + "```" + ` ile kapanır);
+  kodu cümlenin içine tek satıra sıkıştırma. Kodun ardından ne yaptığını 1-3 cümleyle açıkla;
+  yararlıysa kısa bir kullanım örneği ekle.
 - Coremetry'ye ya da operatörün sistemine dair hiçbir sayı, servis adı, hata ya da durum UYDURMA.
 - Emin değilsen bunu söyle; tahmini olgu gibi sunma. Güncel olaylarda bilgin eski olabilir, bunu belirt.
 - ` + answerInTurkishLine

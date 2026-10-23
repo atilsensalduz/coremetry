@@ -118,12 +118,46 @@ func TestEvalOffTopicGeneralSurface(t *testing.T) {
 	if c.Surface != "OffTopicGeneral" || c.Expect.MaxAnswerRunes == 0 || strings.TrimSpace(c.Note) == "" {
 		t.Fatalf("vaka 1458 sözleşmesine taşınmalı (yüzey, tavan, gerekçe): %+v", c)
 	}
-	short := "Çikolatalı kek için un, kakao, şeker ve yumurtayı karıştırıp fırında pişirin. Bu genel bilgidir, Coremetry telemetrisinden gelmez."
+	short := "Çikolatalı kek için un, kakao, şeker ve yumurtayı karıştırıp fırında pişirin."
 	if fails, _ := scoreEvalCase(c, sys, short, nil); len(fails) != 0 {
 		t.Fatalf("kısa genel cevap geçmeli: %v", fails)
 	}
-	if fails, _ := scoreEvalCase(c, sys, strings.Repeat("Malzemeler: 200 g un. ", 40), nil); len(fails) == 0 {
+	// v0.10.1485 — kısa malzeme/adım listesi artık meşru (600 → 1500 rune).
+	recipe := "**Malzemeler**\n- 200 g un\n- 40 g kakao\n- 150 g şeker\n- 3 yumurta\n\n**Yapılışı**\n1. Yumurta ve şekeri çırpın.\n2. Un ve kakaoyu ekleyin.\n3. 180 °C fırında 35 dk pişirin."
+	if fails, _ := scoreEvalCase(c, sys, recipe, nil); len(fails) != 0 {
+		t.Fatalf("listeli kısa tarif geçmeli: %v", fails)
+	}
+	if fails, _ := scoreEvalCase(c, sys, strings.Repeat("Malzemeler: 200 g un. ", 80), nil); len(fails) == 0 {
 		t.Fatal("uzun tarif kırmızı olmalı")
+	}
+	// Model kendi kapsam notunu yazarsa kırmızı (not sunucudan, altta).
+	if fails, _ := scoreEvalCase(c, sys, short+" Bu genel bilgidir, Coremetry telemetrisinden gelmez.", nil); len(fails) == 0 {
+		t.Fatal("modelin kendi kapsam notu kırmızı olmalı")
+	}
+}
+
+// TestEvalOffTopicGeneralCodeCase — v0.10.1485 operatör ekranı: kod sorusu
+// vakası çitli kod ister, modelin kapsam notunu ve tek satıra sıkıştırılmış
+// kodu kırmızıya boyar, meşru bir kod cevabını uzunluk tavanında düşürmez.
+func TestEvalOffTopicGeneralCodeCase(t *testing.T) {
+	sys, _ := evalSystemPrompt("OffTopicGeneral")
+	c := fixtureCase(t, "chat-out-of-scope-code")
+	if c.Surface != "OffTopicGeneral" || strings.TrimSpace(c.Note) == "" || c.Expect.MaxUnknownEntities == nil || *c.Expect.MaxUnknownEntities != 0 {
+		t.Fatalf("vaka sözleşmesi (yüzey, gerekçe, uydurma ad 0): %+v", c)
+	}
+	good := "Aşağıdaki fonksiyon kelimeyi normalize edip tersiyle karşılaştırır:\n\n```python\ndef is_palindrome(word: str) -> bool:\n    \"\"\"Büyük/küçük harf duyarsız, boşlukları yoksayan palindrom kontrolü.\"\"\"\n    cleaned = \"\".join(word.split()).casefold()\n    return cleaned == cleaned[::-1]\n\n\nprint(is_palindrome(\"Ey Edip Adanada pide ye\"))  # True\nprint(is_palindrome(\"Python\"))  # False\n```\n\n`split()` boşlukları atar, `casefold()` harf farkını kaldırır, `[::-1]` metni ters çevirir."
+	if fails, _ := scoreEvalCase(c, sys, good, nil); len(fails) != 0 {
+		t.Fatalf("meşru kod cevabı geçmeli: %v", fails)
+	}
+	for name, bad := range map[string]string{
+		"prod: not + tek satır kod": "Bu, Coremetry telemetrisinden değil genel Python bilgisindendir; aşağıdaki fonksiyonu kullanabilirsin: `def is_palindrome(s): t=''.join(s.split()).lower(); return t == t[::-1]`",
+		"çit yok":                   "def is_palindrome(s): return s == s[::-1]",
+		"uydurma Coremetry adı":     good + "\n\nBunu orders-gateway servisinde de kullanabilirsin.",
+		"deneme uzunluğu":           good + strings.Repeat(" Ayrıca bu yöntem çok kullanışlıdır.", 80),
+	} {
+		if fails, _ := scoreEvalCase(c, sys, bad, nil); len(fails) == 0 {
+			t.Errorf("%s: kırmızı olmalı", name)
+		}
 	}
 }
 

@@ -76,11 +76,13 @@ type routingRow struct {
 	wantTier  string // aisurface.Tier*
 	wantRoute string // guided rota (guidedIntent); "" = rota YOK (guided'a hiç girmemeli)
 
-	noLLM       bool     // model hiç çağrılmamalı (deterministik cevap)
-	noSpanChart bool     // servis sağlığı: span grafiği çiti yok (v0.10.1453)
-	ansPrefix   string   // cevap bu önekle başlamalı
-	ansNot      []string // cevapta OLMAMALI (ör. "veri bulunamadı")
-	ansHas      []string // v0.10.1468 — cevapta OLMALI (ör. ortam beyanı)
+	noLLM        bool     // model hiç çağrılmamalı (deterministik cevap)
+	noSpanChart  bool     // servis sağlığı: span grafiği çiti yok (v0.10.1453)
+	ansPrefix    string   // cevap bu önekle başlamalı
+	ansNot       []string // cevapta OLMAMALI (ör. "veri bulunamadı")
+	ansHas       []string // v0.10.1468 — cevapta OLMALI (ör. ortam beyanı)
+	ansSuffix    string   // v0.10.1485 — cevap bu sonekle bitmeli (genel cevap: kapsam notu en altta)
+	generalShape bool     // v0.10.1485 — genel cevap sözleşmesi (assertOffTopicGeneralShape)
 }
 
 // routingRig — satırın sahte dünyası.
@@ -150,6 +152,14 @@ func withOffTopic(allow bool) func(t *testing.T, s *routingRig) {
 	}
 }
 
+// withOffTopicAnswer — v0.10.1485: anahtar açık, model verilen parçaları akıtır.
+func withOffTopicAnswer(chunks []string) func(t *testing.T, s *routingRig) {
+	return func(t *testing.T, s *routingRig) {
+		withOffTopic(true)(t, s)
+		s.offLLM.chunks = chunks
+	}
+}
+
 // routingRegressionRows — KÜME. Yeni satır: dosya başlığındaki akış.
 var routingRegressionRows = []routingRow{
 	// ── operatör bildirimleri ───────────────────────────────────────────
@@ -162,8 +172,12 @@ var routingRegressionRows = []routingRow{
 		ansNot: []string{"veri bulunamadı", "Bu soru telemetriyle eşleşmedi"}},
 	{release: "v0.10.1453", name: "servis sağlığı → service_health, grafik yalnız VM",
 		q: rrSvc + " sağlığı nasıl?", wantTier: aisurface.TierGuided, wantRoute: string(guidedServiceHealth), noLLM: true, noSpanChart: true},
-	{release: "v0.10.1458", name: "genel soru, anahtar AÇIK → kısa genel cevap",
-		q: offTopicCapitalQ, setup: withOffTopic(true), wantTier: aisurface.TierIntent, wantRoute: string(guidedOffTopic), ansPrefix: offTopicGeneralNoteTR},
+	{release: "v0.10.1458", name: "genel soru, anahtar AÇIK → kısa genel cevap (v0.10.1485: cevap üstte, tek not altta)",
+		q: offTopicCapitalQ, setup: withOffTopic(true), wantTier: aisurface.TierIntent, wantRoute: string(guidedOffTopic),
+		ansPrefix: offTopicFakeClean, ansSuffix: "\n\n" + offTopicGeneralNoteTR, ansNot: []string{"telemetri", "Şöyle sorabilirsin"}},
+	{release: "v0.10.1485", name: "Python palindrom fonksiyonu, anahtar AÇIK → kod çitte, tek not en altta (prod: not iki kez, kod tek satır)",
+		q: offTopicPalindromeQ, setup: withOffTopicAnswer(offTopicPalindromeChunks), wantTier: aisurface.TierIntent, wantRoute: string(guidedOffTopic),
+		ansPrefix: "Aşağıdaki fonksiyonu kullanabilirsin:\n\n```python\n", ansSuffix: "\n\n" + offTopicGeneralNoteTR, generalShape: true},
 	{release: "v0.10.1458", name: "genel soru, anahtar KAPALI → sınır metni, model cevabı yok",
 		q: offTopicCapitalQ, setup: withOffTopic(false), wantTier: aisurface.TierIntent, wantRoute: string(guidedOffTopic), ansPrefix: offTopicBoundaryTR},
 	{release: "v0.10.1460", name: "@wiki trace çekmecesinde → wiki kapsamı, telemetri değil",
@@ -353,6 +367,12 @@ func TestRoutingRegression(t *testing.T) {
 			}
 			if row.ansPrefix != "" && !strings.HasPrefix(text, row.ansPrefix) {
 				t.Errorf("cevap öneki:\n got %.160q\nwant %.160q…", text, row.ansPrefix)
+			}
+			if row.ansSuffix != "" && !strings.HasSuffix(text, row.ansSuffix) {
+				t.Errorf("cevap soneki:\n got %.400q\nwant …%q", text, row.ansSuffix)
+			}
+			if row.generalShape {
+				assertOffTopicGeneralShape(t, text)
 			}
 			for _, want := range row.ansHas {
 				if !strings.Contains(text, want) {
