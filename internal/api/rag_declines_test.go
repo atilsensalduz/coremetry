@@ -21,6 +21,10 @@ func TestRAGDeclined(t *testing.T) {
 		{"noktasız", "Yüklü dokümanlarda bu bilgi yok"},
 		{"türkçe karaktersiz varyant", "Yuklu dokumanlarda bu bilgi yok."},
 		{"cümle içinde", "Maalesef yüklü dokümanlarda bu bilgi yok, başka bir şey sorabilirsiniz."},
+		// v0.10.1446 (operatör-bildirimli) — model konuyu araya sokuyor.
+		{"konu araya girmiş", "Yüklü dokümanlarda orders-api servisinin mainframe cevap süreleri ile ilgili bir bilgi yok."},
+		{"konu araya girmiş — maalesef", "Maalesef, dokümanlarda orders-api gecikmesiyle ilgili bilgi bulunmuyor."},
+		{"yer almıyor", "Yüklü dokümanlarda bu servisin hata oranı yer almıyor."},
 		{"boş cevap", ""},
 		{"yalnız boşluk", "   \n  "},
 	}
@@ -40,6 +44,9 @@ func TestRAGDeclined(t *testing.T) {
 		{"belirsizlik İÇEREN ama cevap veren", "Kesin bilmiyorum ama kaynak §2'ye göre bu alan zorunlu."},
 		{"kısmi bilgi", "Dokümanlarda yalnız kısmi bilgi var: §1 şunu diyor…"},
 		{"başka bir yokluk ifadesi — konu dışı", "Bu serviste açık problem yok."},
+		// v0.10.1446 — cümle kalıbı yalnız TEK cümlelik yokluk cevabını yakalar.
+		{"yokluk + bilgi veren ikinci cümle", "Dokümanlarda gecikme eşiği hakkında bilgi yok. Ancak §3 zaman aşımını 30 sn olarak veriyor."},
+		{"dokümanlarda başlayıp bilgi veren", "Dokümanlarda orders-api için zaman aşımı 30 sn olarak geçiyor"},
 	}
 	for _, tc := range keeps {
 		t.Run("SAHİPLEN/"+tc.name, func(t *testing.T) {

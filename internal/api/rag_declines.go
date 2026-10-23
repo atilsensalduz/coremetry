@@ -61,5 +61,45 @@ func ragDeclined(answer string) bool {
 			return true
 		}
 	}
+	return ragDeclineSentence(a)
+}
+
+// v0.10.1446 (operatör-bildirimli): model sabit cümleye konuyu araya
+// sokarak sapıyor — "Yüklü dokümanlarda orders-api servisinin mainframe
+// cevap süreleri ile ilgili bir bilgi yok." İşaretler ("bu bilgi") tutmadı,
+// reddetme son söz oldu ve gecikme sorusu serbest döngüye hiç düşmedi.
+//
+// Kalıp yine DAR: cevabın TAMAMI tek cümle, "(yüklü) dokümanlarda" ile
+// başlıyor ve bir yokluk ifadesiyle bitiyor. Çok cümleli ya da bilgi
+// veren cevap ("Dokümanlarda yalnız kısmi bilgi var: …") sahiplenilir.
+var (
+	ragDeclineSentencePrefixes = []string{"yüklü dokümanlarda ", "yuklu dokumanlarda ", "dokümanlarda ", "dokumanlarda "}
+	ragDeclineSentenceSuffixes = []string{"bilgi yok", "bilgi bulunmuyor", "bilgi bulunmamaktadır", "bilgi bulunmamaktadir", "yer almıyor", "yer almiyor"}
+)
+
+// ragDeclineSentence — a zaten küçük harfli ve kırpılmış.
+func ragDeclineSentence(a string) bool {
+	for _, p := range []string{"maalesef, ", "maalesef "} {
+		a = strings.TrimPrefix(a, p)
+	}
+	a = strings.TrimRight(a, ".! ")
+	if strings.ContainsAny(a, ".!?:\n") {
+		return false
+	}
+	prefixOK := false
+	for _, p := range ragDeclineSentencePrefixes {
+		if strings.HasPrefix(a, p) {
+			prefixOK = true
+			break
+		}
+	}
+	if !prefixOK {
+		return false
+	}
+	for _, s := range ragDeclineSentenceSuffixes {
+		if strings.HasSuffix(a, s) {
+			return true
+		}
+	}
 	return false
 }
