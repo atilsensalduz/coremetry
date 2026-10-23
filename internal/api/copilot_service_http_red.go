@@ -361,10 +361,11 @@ func svcREDHeadTR(service string, rangeS int64, res svcHTTPREDResult) string {
 	return svcHTTPREDHeadTR(service, rangeS, res.Step)
 }
 
-// svcHTTPREDSpanNoteTR — SAF: span yedeğinin dürüst notu.
-func svcHTTPREDSpanNoteTR(reason string) string {
-	return "Not (grafik kaynağı): servis grafikleri span verisinden — örneklenmiş trace'ler (sayımlar örnekleme oranı kadar düşük); " +
-		"VictoriaMetrics HTTP RED çizilmedi: " + reason + ".\n"
+// svcHTTPREDNoChartNoteTR — v0.10.1453: VM çizemediğinde grafik YOK, yalnız
+// sebep (1391'deki span yedeği kaldırıldı; operatör: yalnız VictoriaMetrics).
+func svcHTTPREDNoChartNoteTR(reason string) string {
+	return "Not (grafik kaynağı): VictoriaMetrics HTTP RED çizilmedi — " + reason +
+		". Servis sağlığı grafikleri yalnız VictoriaMetrics'ten (örneklenmemiş) çizilir; span tabanlı grafik gösterilmiyor.\n"
 }
 
 // emitServiceHTTPRED — bundle goroutine'inde: grafik başına bir metric_chart
@@ -432,5 +433,5 @@ func svcHTTPREDSourcesTR(res svcHTTPREDResult) string {
 	case res.UseVM:
 		return " + servis HTTP RED grafikleri (VictoriaMetrics, örneklenmemiş: istek hızı · 5xx oranı · p95/p99)"
 	}
-	return " + grafikler (span, örneklenmiş)"
+	return " (grafik yok: VictoriaMetrics çizemedi — span grafiği gösterilmez, v0.10.1453)"
 }

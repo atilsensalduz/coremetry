@@ -2927,11 +2927,11 @@ func (s *Server) guidedServiceHealthBundle(ctx context.Context, emit func(string
 	httpRED := waitHTTPRED()
 	sweepOK := sw.err == nil && sw.res.OK
 	if sweepOK {
-		if httpRED.UseVM {
-			// v0.10.1391 — VM HTTP RED çizilecek: taramanın span operasyon
-			// grafiği (operatör ekranında servisin giden gRPC çağrısıydı) düşer.
-			sw.res.DropOperationCharts()
-		}
+		// v0.10.1453 (operatör: "servis sağlığı grafikleri hâlâ span metrics, bunu
+		// istemiyorum, yalnız VictoriaMetrics; Service Overview zaten öyle") —
+		// taramanın span operasyon grafiği (spanmetrics_1m, örneklenmiş) HER
+		// ZAMAN düşer; 1391'de yalnız VM kipinde düşüyordu.
+		sw.res.DropOperationCharts()
 		if body, merr := json.Marshal(sw.res); merr == nil {
 			emitGuidedCompositeResult(emit, nSw, mcptools.ServiceHealthSweepName, string(body))
 		}
@@ -2960,13 +2960,9 @@ func (s *Server) guidedServiceHealthBundle(ctx context.Context, emit func(string
 		b.WriteString("\n")
 		b.WriteString(s.emitServiceHTTPRED(emit, service, rangeS, httpRED, loc))
 	} else {
-		b.WriteString(svcHTTPREDSpanNoteTR(httpRED.Reason)) // v0.10.1391 — yedek: span (örneklenmiş)
-		b.WriteString(chartFence(guidedChartSpec{Title: service + " · error_rate", Service: service, Agg: "error_rate", RangeS: rangeS}))
-		// CoSRE Faz-2 — ikinci deterministik kart: p99 latency. Guided yol
-		// tool çağrısı yapamayan küçük modelde (gemma4) de zengin görsel
-		// versin diye server iki kart basar; serbest döngüdeki eşdeğeri
-		// render_chart tool'udur (copilot_chat.go).
-		b.WriteString(chartFence(guidedChartSpec{Title: service + " · p99", Service: service, Agg: "p99", RangeS: rangeS}))
+		// v0.10.1453 — span grafiği YEDEĞİ YOK: VM çizemiyorsa grafik yerine
+		// sebebi söyleyen not (servis sağlığında grafik kaynağı yalnız VM).
+		b.WriteString(svcHTTPREDNoChartNoteTR(httpRED.Reason))
 	}
 	src := fmt.Sprintf("SLO durumu + deterministik sağlık hükmü + servis RED özeti + baseline + en sık hatalar + deploy işaretçileri + açık problemler + hatalı trace'ler + error logları + servis taraması (pod/operasyon/fonksiyon + sorunluların logları)%s (son %s)", svcHTTPREDSourcesTR(httpRED), fmtAgoTR(rangeS))
 	if env != "" {

@@ -266,13 +266,13 @@ func TestEmitServiceHTTPRED(t *testing.T) {
 	if strings.Contains(text, "```chart") || len(serverChartScopes(text)) != 0 {
 		t.Error("VM kipinde span çiti olmamalı")
 	}
-	if n := svcHTTPREDSpanNoteTR("VictoriaMetrics yapılandırılmamış"); !strings.Contains(n, "örneklenmiş") || !strings.Contains(n, "yapılandırılmamış") {
-		t.Errorf("yedek notu: %s", n)
+	if n := svcHTTPREDNoChartNoteTR("VictoriaMetrics yapılandırılmamış"); !strings.Contains(n, "yalnız VictoriaMetrics") || !strings.Contains(n, "yapılandırılmamış") {
+		t.Errorf("grafiksiz not: %s", n)
 	}
 }
 
-// TestServiceHealthBundleChartWiring — demet: VM kipinde tarama operasyon
-// grafiği düşer ve span çitleri yalnız yedek dalında; grafik sayısı artmaz.
+// TestServiceHealthBundleChartWiring — demet: tarama operasyon grafiği HER
+// ZAMAN düşer (v0.10.1453), span çiti HİÇ yok; VM çizemiyorsa yalnız not.
 func TestServiceHealthBundleChartWiring(t *testing.T) {
 	b, err := os.ReadFile("copilot_guided.go")
 	if err != nil {
@@ -283,21 +283,19 @@ func TestServiceHealthBundleChartWiring(t *testing.T) {
 	j := strings.Index(src[i:], "\n}\n")
 	body := stripGoCommentsAPI(src[i : i+j])
 	for _, w := range []string{"s.startServiceHTTPRED(ctx, service, env, from, to, rangeS)", "httpRED := waitHTTPRED()",
-		"sw.res.DropOperationCharts()", "s.emitServiceHTTPRED(emit, service, rangeS, httpRED, loc)", "svcHTTPREDSpanNoteTR(httpRED.Reason)"} {
+		"sw.res.DropOperationCharts()", "s.emitServiceHTTPRED(emit, service, rangeS, httpRED, loc)", "svcHTTPREDNoChartNoteTR(httpRED.Reason)"} {
 		if !strings.Contains(body, w) {
 			t.Errorf("guidedServiceHealthBundle %q taşımalı", w)
 		}
 	}
-	if d := strings.Index(body, "sw.res.DropOperationCharts()"); d < 0 || !strings.Contains(body[max(0, d-120):d], "if httpRED.UseVM {") {
-		t.Error("tarama operasyon grafiği YALNIZ VM kipinde düşer")
+	if d := strings.Index(body, "sw.res.DropOperationCharts()"); d < 0 || strings.Contains(body[max(0, d-120):d], "if httpRED.UseVM {") {
+		t.Error("tarama operasyon grafiği koşulsuz düşmeli (v0.10.1453)")
 	}
-	vm := strings.Index(body, "s.emitServiceHTTPRED(")
-	els := strings.Index(body[vm:], "} else {")
-	if els < 0 || strings.Contains(body[:vm+els], "chartFence(") || strings.Count(body[vm+els:], "chartFence(") != 2 {
-		t.Error("span çitleri (error_rate, p99) YALNIZ yedek dalında olmalı")
+	if strings.Contains(body, "chartFence(") {
+		t.Error("servis sağlığında span grafiği çiti olmamalı (v0.10.1453 — yalnız VictoriaMetrics)")
 	}
 	if strings.Index(body, "httpRED := waitHTTPRED()") > strings.Index(body, "json.Marshal(sw.res)") {
-		t.Error("VM sonucu tarama bloklarından ÖNCE beklenmeli (operasyon grafiği düşürme kararı)")
+		t.Error("VM sonucu tarama bloklarından ÖNCE beklenmeli")
 	}
 }
 

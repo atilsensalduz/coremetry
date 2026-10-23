@@ -299,7 +299,7 @@ func TestServiceVMREDChartsSharedHelper(t *testing.T) {
 			t.Errorf("rapor demeti %q taşımalı", w)
 		}
 	}
-	if strings.Contains(rb, "chartFence(") || strings.Contains(rb, "svcHTTPREDSpanNoteTR(") {
+	if strings.Contains(rb, "chartFence(") || strings.Contains(rb, "svcHTTPREDNoChartNoteTR(") {
 		t.Error("rapor span grafiği UYDURMAZ (1391'in span yedeği yalnız servis sağlığında)")
 	}
 }
