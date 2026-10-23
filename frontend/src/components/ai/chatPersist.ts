@@ -42,6 +42,8 @@ export function persistMessages(turns: ChatTurn[]): ChatMessage[] {
       // ASLA istemciden gitmez (64 KB blob; sunucu zaten düşürür). Geri yüklenen
       // tur kimliğini archiveExchangeId'de taşır → yeniden kaydetmede kaybolmaz.
       ...(t.role === 'assistant' && turnArchiveId(t) ? { exchangeId: turnArchiveId(t) } : {}),
+      // v0.10.1465 — konuşmanın kod kilidi (yalnız varsa; kilitsiz mesaj bayt bayt eski).
+      ...(t.role === 'assistant' && t.codeRead ? { codeRead: true } : {}),
     }));
   return keep.length > PERSIST_MESSAGE_CAP ? keep.slice(-PERSIST_MESSAGE_CAP) : keep;
 }
@@ -71,6 +73,7 @@ export function restoreTurns(messages: ChatMessage[] | undefined): ChatTurn[] {
       ...(m.role === 'assistant' && m.blocks?.length ? { blocks: m.blocks } : {}),
       ...(m.role === 'assistant' && m.blocks?.length && m.blocksAt ? { blocksAt: m.blocksAt } : {}),
       ...(m.role === 'assistant' && m.blocksDropped?.length ? { blocksDropped: m.blocksDropped } : {}),
+      ...(m.role === 'assistant' && m.codeRead ? { codeRead: true } : {}), // v0.10.1465 — kod kilidi
     }));
 }
 

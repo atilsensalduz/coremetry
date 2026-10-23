@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import type { ChatTurn } from '@/lib/types';
 
 // codeRead.ts — v0.10.1461 (operasyon kartı planı R2, "bağımsız sohbette kod
 // turu"): composer'daki "Kod" hapı. deepThink.ts'in ikizi: durum kullanıcı
@@ -31,6 +32,17 @@ export function writeCodeRead(user: string | undefined | null, on: boolean): voi
   try { window.localStorage.setItem(codeReadKey(user), on ? '1' : '0'); } catch { /* yok — bellekte */ }
   const me = user || 'anon';
   listeners.forEach(l => l(me, on));
+}
+
+/**
+ * v0.10.1465 — konuşma KİLİTLİ mi: bir asistan turunda kod okundu (sunucunun
+ * `code-lock` olayı ya da arşivdeki codeRead). Kilitli konuşmada hap açık ve
+ * değiştirilemez görünür, her tur context.code + context.codeLocked gönderir;
+ * sunucu konuşmayı yerel modelde tutar (internal/api/chat_code_sticky.go).
+ * Yalnız yeni konuşma ("Temizle") sıfırlar — turlar boşalınca kilit düşer.
+ */
+export function codeLockedOf(turns: readonly ChatTurn[]): boolean {
+  return turns.some(t => t.role === 'assistant' && !!t.codeRead);
 }
 
 /** Kullanıcının "Kod" tercihi + değiştirici (kalıcı, sekme içi senkron). */

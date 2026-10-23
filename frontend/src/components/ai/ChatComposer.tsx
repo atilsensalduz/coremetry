@@ -99,13 +99,18 @@ export interface ChatComposerProps {
   onCodeChange?: (on: boolean) => void;
   codeDisabled?: boolean;
   codeReason?: string;
+  /**
+   * v0.10.1465 — konuşmada kod okundu: hap AÇIK ve kilitli görünür (konuşma
+   * yerel modelde kalır; yeni konuşma için Temizle). Gerekçeden önce gelir.
+   */
+  codeLocked?: boolean;
 }
 
 export function ChatComposer({
   value, onChange, onSubmit, onCaret, onBeforeKey, popup, actions,
   placeholder, ariaLabel, textareaRef, autoFocus, comboboxProps,
   deep, onDeepChange, deepDisabled,
-  code, onCodeChange, codeDisabled, codeReason,
+  code, onCodeChange, codeDisabled, codeReason, codeLocked,
 }: ChatComposerProps) {
   const innerRef = useRef<HTMLTextAreaElement>(null);
   const ref = textareaRef ?? innerRef;
@@ -376,7 +381,7 @@ export function ChatComposer({
             onClick={() => onDeepChange(!deep)}>Derin</Button>
         )}
         {onCodeChange && (
-          <CodePill on={!!code} onChange={onCodeChange} disabled={codeDisabled} reason={codeReason} />
+          <CodePill on={!!code} onChange={onCodeChange} disabled={codeDisabled} reason={codeReason} locked={codeLocked} />
         )}
         {actions}
       </div>
@@ -397,15 +402,21 @@ export function ChatComposer({
  * çizildiğinde çağrılır. Gerekçe varken (sunucu kod okuyamıyor) devre dışı ve
  * basılı görünmez; tooltip gerekçeyi söyler.
  */
-function CodePill({ on, onChange, disabled, reason }: { on: boolean; onChange: (on: boolean) => void; disabled?: boolean; reason?: string }) {
+function CodePill({ on, onChange, disabled, reason, locked }: { on: boolean; onChange: (on: boolean) => void; disabled?: boolean; reason?: string; locked?: boolean }) {
   const tr = useT();
   const closed = !!reason;
+  // v0.10.1465 — kilitli konuşma: hap açık + değiştirilemez; tooltip kilidi söyler
+  // (yerel profil de yoksa gerekçe eklenir — sunucu turu dürüstçe kapatır).
+  const title = locked
+    ? (closed ? `${tr('ai.codeTurnLocked')} — ${reason}` : tr('ai.codeTurnLocked'))
+    : closed ? `${tr('ai.codeTurnUnavailable')} — ${reason}` : tr('ai.codeTurnHint');
   return (
     <Button variant="ghost" size="sm" type="button" className="cm-deep-pill cm-code-pill"
-      aria-pressed={on && !closed} aria-label={tr('ai.codeTurn')}
-      disabled={disabled || closed}
+      aria-pressed={locked || (on && !closed)} aria-label={tr('ai.codeTurn')}
+      disabled={disabled || closed || locked}
+      data-locked={locked ? '' : undefined}
       leftIcon={<FileCode size={14} strokeWidth={2} aria-hidden="true" />}
-      title={closed ? `${tr('ai.codeTurnUnavailable')} — ${reason}` : tr('ai.codeTurnHint')}
+      title={title}
       onMouseDown={e => e.preventDefault()}
       onClick={() => onChange(!on)}>{tr('ai.codeTurn')}</Button>
   );

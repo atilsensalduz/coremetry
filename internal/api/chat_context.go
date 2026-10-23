@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/cilcenk/coremetry/internal/auth"
@@ -49,6 +50,12 @@ type ChatContext struct {
 	// (chat_followups.go) bunu klonlayıp alan değiştirir.
 	LastRoute *guidedRoute `json:"lastRoute,omitempty"`
 	UpdatedAt int64        `json:"updatedAt,omitempty"`
+	// CodeSticky — v0.10.1465 (chat_code_sticky.go): bu konuşmada kod okundu
+	// (açık kod turu ya da başarılı read_source_code / search_code). Konuşmanın
+	// ömrü boyunca her tur yerel profile sabitlenir, dış MCP kurulmaz. Çalışma
+	// kümesi DEĞİLDİR: Empty / çip / önsöz / get_context görmez, clear_context
+	// silmez; yalnız yeni konuşma (yeni kimlik) sıfırlar.
+	CodeSticky bool `json:"codeSticky,omitempty"`
 }
 
 func (c ChatContext) Empty() bool {
@@ -76,6 +83,12 @@ type chatContextState struct {
 	// bridged — v0.10.487: id'li konuşma bağlamı "_" köprüsünden devraldı;
 	// flush köprüyü siler (başka konuşmaya sızmasın).
 	bridged bool
+	// codeRead / codeLockSent — v0.10.1465 (chat_code_sticky.go): bu turda kod
+	// okundu ya da konuşma zaten yapışkan (flush CodeSticky'yi yazar ve TTL'i
+	// tazeler); code-lock olayı tur başına bir kez yayınlandı. Atomik: işaret
+	// araç handler'ından konur.
+	codeRead     atomic.Bool
+	codeLockSent atomic.Bool
 }
 
 type chatCtxKey struct{}
@@ -133,7 +146,13 @@ func (s *Server) loadChatContext(ctx context.Context, conv string, firstTurn boo
 // flushChatContext — kirliyse yaz: id'li konuşma KENDİ anahtarına (24 s) ve
 // köprüden devraldıysa köprüyü siler; id'siz tur yalnız köprüye (10 dk).
 func (s *Server) flushChatContext(ctx context.Context, st *chatContextState) {
-	if st == nil || !st.dirty || st.user == "" || s.cache == nil {
+	if st == nil {
+		return
+	}
+	if st.codeRead.Load() { // v0.10.1465 — yapışkan işaret her turda yeniden yazılır (24 s TTL tazelenir)
+		st.ctx.CodeSticky, st.dirty = true, true
+	}
+	if !st.dirty || st.user == "" || s.cache == nil {
 		return
 	}
 	st.ctx.UpdatedAt = time.Now().UnixNano()
@@ -267,7 +286,7 @@ func applyContextPatch(c ChatContext, patch map[string]any) (ChatContext, error)
 // clearContextFields — SAF: alan listesi boşsa hepsi.
 func clearContextFields(c ChatContext, fields []string) (ChatContext, error) {
 	if len(fields) == 0 {
-		return ChatContext{}, nil
+		return ChatContext{CodeSticky: c.CodeSticky}, nil // v0.10.1465 — yapışkan kod işareti çalışma kümesi değil
 	}
 	for _, f := range fields {
 		switch strings.TrimSpace(f) {

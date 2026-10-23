@@ -7117,6 +7117,12 @@ export interface ChatMessage {
   blocksAt?: number;
   /** v0.10.1444 — 256 KiB tavanına sığmayıp düşen blok türleri. */
   blocksDropped?: string[];
+  /**
+   * v0.10.1465 — bu asistan turunda konuşma kod okunmuş (yapışkan) idi (SSE
+   * `code-lock`; internal/api/chat_code_sticky.go). Arşive yazılır (yalnız
+   * asistan): Geçmiş'ten açılan konuşma "Kod" kilidini bundan kurar.
+   */
+  codeRead?: boolean;
 }
 
 /**
@@ -8081,6 +8087,8 @@ export type ChatStreamEvent =
   // (ileride trace_list/table/action/evidence) deterministik, tool sonucundan.
   | { kind: 'block'; id: string; type: ChatBlockType; seq: number; final: boolean; payload: unknown }
   | { kind: 'error'; error: string }
+  // v0.10.1465 — konuşmada kod okundu: konuşma yerel modelde kalır (chat_code_sticky.go).
+  | { kind: 'code-lock'; locked: boolean }
   | { kind: 'done'; ok: boolean };
 
 // AIStreamFrame (v0.9.1127, Faz 1.5) — bir SSE çerçevesinin HAM şekli:

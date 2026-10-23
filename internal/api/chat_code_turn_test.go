@@ -541,7 +541,7 @@ func TestCodeTurnWired(t *testing.T) {
 		t.Fatal("yerel profile geçiş araç seti okunmadan ÖNCE olmalı")
 	}
 	idx("if opPre == nil && !ct.On {")
-	idx("if !isTraceFollowUp && evm == nil && !ct.On && s.mcpClient != nil && s.mcpClient.Configured() {")
+	idx("if !isTraceFollowUp && evm == nil && !ct.On && !codeSticky && s.mcpClient != nil && s.mcpClient.Configured() {") // v0.10.1465 — yapışkan konuşmada da
 	idx("codeScope := !isTraceFollowUp && ct.On")
 	idx(`s.audit(r, "copilot.code_turn", "chat", exchangeID,`)
 }

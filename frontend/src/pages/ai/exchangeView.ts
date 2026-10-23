@@ -17,6 +17,7 @@ const TIER_LABELS: Record<string, string> = {
   operation: 'Operasyon seçimi',
   memory: 'Hafıza (kurallar)', // v0.10.1289 — "bunu hatırla" (chat_memory.go)
   explain: 'Açıklama turu', // v0.10.1400 — trace/exception ✨ sohbet içinde (chat_explain_turn.go)
+  'code-sticky': 'Kod kilidi (yerel profil yok)', // v0.10.1465 — kod okunmuş konuşma, LLM'siz kapalı cevap (chat_code_sticky.go)
   loop: 'Serbest döngü',
   other: 'Diğer',
 };

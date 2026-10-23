@@ -294,7 +294,7 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
     if (win && scoped.rangeS) { out.rangeS = scoped.rangeS; out.toMs = scoped.toMs; }
     return out;
   };
-  const { turns, busy, send, retry, regenerate, editLast, stop, clear, load, flushSave, conversationId, last, showFollowups } =
+  const { turns, busy, send, retry, regenerate, editLast, stop, clear, load, flushSave, conversationId, last, showFollowups, codeLocked } =
     useChatThread({
       ...reqCtx,
       resolveOpts: resolveExplainOpts, // v0.10.1400
@@ -937,7 +937,7 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
               placeholder="CoSRE'ye sor… (Shift+Enter: yeni satır · @ kapsam · / komutlar)"
               ariaLabel="CoSRE'ye mesaj"
               deep={deep} onDeepChange={setDeep} deepDisabled={busy}
-              {...(codeRead ? { code: codePill, onCodeChange: setCodePill, codeDisabled: busy, codeReason: codeRead.available ? undefined : (codeRead.reason || 'kapalı') } : {})}
+              {...(codeRead || codeLocked ? { code: codePill, onCodeChange: setCodePill, codeDisabled: busy, codeReason: codeRead?.available ? undefined : (codeRead?.reason || 'kapalı'), codeLocked } : {})}
               comboboxProps={{
                 'aria-autocomplete': 'list',
                 'aria-controls': 'chat-complete',

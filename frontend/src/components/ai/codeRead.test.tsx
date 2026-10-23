@@ -182,13 +182,13 @@ describe('Kod hapı — config ve kablolama', () => {
   it('useChatThread opts.code → copilotChat son argüman (açıklama niyetinin ardında)', () => {
     const src = read('./useChatThread.ts');
     expect(src).toMatch(/code\?: boolean;/);
-    expect(src).toMatch(/so\?\.explainAsk,[\s\S]{0,80}o\.code \|\| undefined\);/);
+    expect(src).toMatch(/so\?\.explainAsk,[\s\S]{0,80}\(o\.code \|\| codeLocked\) \|\| undefined,/); // v0.10.1465 — kilitli konuşmada da açık
   });
   it('kabuk: yalnız available iken gövdeye; config yoksa hap yok', () => {
     const src = read('../CopilotChat.tsx');
     expect(src).toContain('useCodeRead(');
     expect(src).toContain('const code = codePill && !!codeRead?.available;');
     expect(src).toMatch(/\n\s*code, /);
-    expect(src).toMatch(/codeRead \? \{ code: codePill, onCodeChange: setCodePill, codeDisabled: busy,/);
+    expect(src).toMatch(/codeRead \|\| codeLocked \? \{ code: codePill, onCodeChange: setCodePill, codeDisabled: busy,/); // v0.10.1465 — kilit hapı config'siz de çizer
   });
 });

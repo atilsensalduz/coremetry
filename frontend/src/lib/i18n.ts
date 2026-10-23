@@ -187,6 +187,8 @@ const EN: Catalog = {
   'ai.codeTurn':            'Code',
   'ai.codeTurnHint':        'Read source code this turn — goes only to the self-hosted model; external tools are off for the turn.',
   'ai.codeTurnUnavailable': 'Code reading is unavailable',
+  // v0.10.1465 — kod okunmuş konuşmanın kilidi (chat_code_sticky.go)
+  'ai.codeTurnLocked':      'Code was read in this conversation — it stays on the self-hosted model; use Clear for a new conversation',
   'ai.askCosre':          'Ask CoSRE',
   // v0.10.1435 — panelden "Bu grafiği açıkla"
   'ai.askCosreMetricPanelHint': 'Explain this chart in the CoSRE chat (brushed range and selected series included)',
@@ -536,6 +538,7 @@ const TR: Catalog = {
   'ai.codeTurn':            'Kod',
   'ai.codeTurnHint':        'Bu turda kaynak kodu okur — yalnız yerel (self-hosted) modele gider; o turda dış araçlar kapalı.',
   'ai.codeTurnUnavailable': 'Kod okuma kapalı',
+  'ai.codeTurnLocked':      'Bu konuşmada kod okundu — konuşma yerel modelde kalır; yeni konuşma için Temizle', // v0.10.1465
   'ai.askCosre':          'CoSRE’ye sor',
   // v0.10.1435 — panelden "Bu grafiği açıkla"
   'ai.askCosreMetricPanelHint': 'Bu grafiği CoSRE sohbetinde açıkla (seçili aralık ve seri dahil)',

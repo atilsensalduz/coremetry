@@ -2451,6 +2451,9 @@ export const api = {
     // v0.10.1461 — composer'ın "Kod" hapı (internal/api/chat_code_turn.go):
     // bağımsız sohbette kod turu. Kapalıyken anahtar gövdede HİÇ yok (bayt bayt eski).
     contextCode?: boolean,
+    // v0.10.1465 — konuşma kod okunmuş (kilitli): sunucuya ipucu, yalnız sıkılaştırır
+    // (internal/api/chat_code_sticky.go). Kilitsizken anahtar gövdede HİÇ yok.
+    contextCodeLocked?: boolean,
   ): Promise<void> => {
     // v0.10.437 (D6) — tarayıcı saat dilimi: mutlak tarih/saat soruları
     // ("08/08/2026 04-08 arası") operatörün yerel saatinde yorumlanır.
@@ -2458,7 +2461,7 @@ export const api = {
     // v0.10.745 — çift lib/browserTz'den; Explain/insight uçlarıyla aynı kaynak.
     const { tz, tzOffsetMin } = browserTz();
     const context =
-      contextService || contextOperation || contextExplain || contextSubject || contextRangeS || contextTrace || contextEnv || contextToMs || contextProfile || contextConversation || contextPage || contextPinnedPage || (contextWikiRefs && contextWikiRefs.length > 0) || contextScope || contextCommand || contextDeep || contextAttempt || contextExplainAsk || contextCode || tzOffsetMin !== 0 || tz
+      contextService || contextOperation || contextExplain || contextSubject || contextRangeS || contextTrace || contextEnv || contextToMs || contextProfile || contextConversation || contextPage || contextPinnedPage || (contextWikiRefs && contextWikiRefs.length > 0) || contextScope || contextCommand || contextDeep || contextAttempt || contextExplainAsk || contextCode || contextCodeLocked || tzOffsetMin !== 0 || tz
         ? {
             ...(tzOffsetMin !== 0 ? { tzOffsetMin } : {}),
             ...(tz ? { tz } : {}),
@@ -2481,6 +2484,7 @@ export const api = {
             ...(contextAttempt ? { attempt: contextAttempt } : {}),
             ...(contextExplainAsk ? { explainAsk: contextExplainAsk } : {}),
             ...(contextCode ? { code: true } : {}),
+            ...(contextCodeLocked ? { codeLocked: true } : {}),
           }
         : undefined;
     const r = await fetch(API_BASE + '/api/copilot/chat', {

@@ -9916,6 +9916,8 @@ bazında kapanıyor; hap turun onayıdır (çağrı başına onay akan döngüy�
 kapatılınca sonraki tur o geçmişi dış araçlı döngüye ve çözülen profile taşır (wiki için v0.10.1122'nin "dış MCP
 yapılandırılmışsa wiki aracı yok" kuralının konuşmalar arası gerekçesi). Prod profilleri self-hosted; konuşma düzeyinde
 yapışkan işaret (Redis sohbet bağlamı) ayrı karar.
+**Güncelleme (v0.10.1465).** Kapandı: kod okunan konuşma ömrü boyunca yerel profilde, dış MCP yok; yerel profil
+yoksa fail-closed (aşağıdaki v0.10.1465 kaydı). Wiki araçları kod turunda kalır, dış MCP kapalı kalır (aynı kayıt).
 
 **Geri alma.** Geçici: hapı kapat (kullanıcı) ya da profil tikini kaldır (tur "kapalı: yerel profil yok" der, kod aracı
 kurulmaz — sızıntı yönünde değil). Tam: sürüm commit'ini revert + yeni etiket; `context.code` eski sunucu tarafından yok
@@ -10063,3 +10065,55 @@ dikişler nil kaldıkça zararsız, istenirse iki `if …Seam != nil` dalı ve `
 **Testler.** api `TestRoutingRegression` (14 satır: 6 operatör bildirimi + 8 komşu), `TestRoutingRegressionRowsWellFormed`,
 `TestRoutingTurnReasons`, `TestRoutingReaskFlags`, `TestBuildRoutingReport`, `TestRoutingReportVotesNeverScore`,
 `TestRoutingReportDaysAndGate`; chstore `TestCosreRoutingTurnsSQLBounded`; fe `routingReportView.test.ts`.
+
+## 2026-10-23 — v0.10.1465 — Kod turu konuşmaya yapışır: kod okunan konuşma ömrü boyunca yerel modelde, dış MCP yok
+
+**Karar.** (Operatör onayı 2026-10-23 "Önerini yapalım"; v0.10.1461 "Bilinen sınır"ının kapanışı.) Bir konuşmada kod
+okunduğunda — açık kod turu uygulandığında ya da herhangi bir yolda (bağımsız sohbet, trace takibi döngüsü, exception
+takibinin tek araçlı döngüsü) `read_source_code` / `search_code` BAŞARIYLA döndüğünde — sunucu sohbet bağlamı
+(v0.10.478, Redis `copilot:ctx:<user>:<conv>`) `codeSticky=true` olur (`internal/api/chat_code_sticky.go`). İşaretli
+konuşmanın HER turu, hap ne olursa olsun, her kademeden (açıklama turu dahil) ÖNCE `RouteSensitive(SensitiveCode)` ile
+yerel profile sabitlenir (guided / çekmece / RAG / niyet / döngünün tüm model çağrıları copilot kapısından geçer;
+araç seti yerel profilinkidir — modelcaps, aile varsayımı yok); dış MCP kataloğu, köprüsü ve `extNames` kurulmaz.
+Yerel profil artık yoksa tur dürüst kapalı cevap verir (`code-sticky` kademesi, LLM'siz) ve biter: sağlayıcıya tek
+istek gitmez, kodlu geçmiş yerel olmayan profile hiç gönderilmez (fail-closed). İşaret çalışma kümesi değildir:
+`Empty` / çip / önsöz / `get_context` görmez, `clear_context` silmez; işaretli her tur yeniden yazar (24 s TTL
+tazelenir). Sıfırlama yalnız yeni konuşma ("Temizle" / yeni kimlik; yeni konuşmanın ilk turu `_` köprüsünü okumaz).
+İstemci tarafı: SSE `code-lock` → asistan turunda `codeRead` (arşive yazılır, `ai_conversations` yalnız asistanda
+tutar); kilitli konuşmada "Kod" hapı AÇIK + devre dışı, tooltip "Bu konuşmada kod okundu — konuşma yerel modelde
+kalır; yeni konuşma için Temizle" (i18n EN+TR), her tur `context.code` + `context.codeLocked` gönderir. `codeLocked`
+yalnız SIKILAŞTIRIR (Redis TTL'i dolmuş ya da Geçmiş'ten açılmış konuşma); asla gevşetmez.
+
+**Wiki (1461 Bilinen sınır, ikinci yarı).** Kod turunda ve yapışkan konuşmada dış MCP yapılandırılmış olsa da wiki
+araçları KALIR, dış MCP KAPALI kalır: wiki gövdesi de localOnly kapısında (1451) ve tur yerel modelde; v0.10.1122'nin
+"dış MCP yapılandırılmışsa wiki aracı yok" kuralının konuşmalar arası gerekçesi (wiki metni sonraki turda dış araca
+taşınır) kod okunan konuşmada yapışkan işaretle kapanır — sonraki turlarda da dış araç yoktur. Kod okunmamış konuşmada
+1122 kuralı aynen. Wiki okuması tek başına konuşmayı yapışkan YAPMAZ (kapsam: kod; açık soru aşağıda).
+
+**Neden.** Tur bazlı kapı (1461) kodu o turda yerel tutuyordu ama cevap geçmişte kaldığı için hap kapatılınca sonraki
+tur kodu çözülen profile ve dış araçlı döngüye taşıyabiliyordu. İşaret sunucuda (istemci ipucu ikinci anahtar) ve
+alışverişin en başında uygulanıyor: hiçbir kademe ya da yeni eklenecek bir yol işaretsiz ctx ile model çağıramaz.
+
+**Bilinen sınır / açık soru.** (1) Sunucu işareti 24 s hareketsizlikte düşer; o konuşma Geçmiş'ten açılırsa kilit
+arşivdeki `codeRead`'den gelir — arşivi okumayan bir API istemcisi (cmk_ token zaten kod turu alamaz) için yalnız
+Redis işareti vardır. (2) Kimliksiz ilk turdan hemen sonra "Temizle" + yeni konuşmanın İKİNCİ turu `_` köprüsünden
+eski işareti devralabilir (aşırı kilit; sızıntı yönünde değil — 487 köprüsünün bilinen davranışı). (3) Wiki-okunan
+konuşmanın da yapışkan olması ayrı karar.
+
+**Geri alma.** Geçici: yeni konuşma (Temizle). Tam: sürüm commit'ini revert + yeni etiket; Redis'teki `codeSticky`
+alanı ve arşivdeki `codeRead` eski sunucu/istemci tarafından yok sayılır (omitempty, bilinmeyen JSON alanı),
+`context.codeLocked` yok sayılır, `code-lock` SSE olayını eski istemci yok sayar. Revert 1461'in bilinen sınırını geri
+getirir.
+
+**Testler.** api `TestCodeStickyAfterOneCodeTurn` (kod turu → hap kapalı ikinci tur: yerel olmayan uca 0 istek,
+her çağrıda "__" yok, read_source_code yok, kodlu geçmiş yerel modele, `code-lock`, adım etiketi, Redis işareti),
+`TestCodeStickyFailClosedWithoutLocalProfile` (hap açık/kapalı × sunucu işareti, Redis'siz istemci ipucu: iki uca
+da 0 istek, dürüst cevap), `TestCodeStickyNewConversationResets` (kimliksiz ilk tur + başka kimlik: varsayılan profil
++ dış araçlar), `TestInjectedLogLineCannotExfiltrateCodeAcrossTurns` (ekilmiş log satırı ikinci turda geçmişteki kodu
+`tracker__create_issue`'ya göndertmeye çalışır → "unknown tool", tracker 0 tools/call), `TestCodeStickyFromCodeReadInDrawerFollowUp`
+(kod okumayan trace takibi bayt bayt eski; okuyan yapışkan yapar), `TestWrapCodeReadHandlers`, `TestCodeStickyContextState`,
+`TestCodeStickyNotStickyWithoutCode`, `TestCodeStickyWired`, `TestConversationArchiveKeepsCodeRead`; 1461 testleri
+(`TestInjectedLogLineCannotExfiltrateCode` dahil) yeşil, `TestCodeTurnWired` pini yapışkan koşulu içerecek şekilde
+güncellendi; aisurface `code-sticky` kademesi (kayıt + FE etiketleri); fe `codeSticky.test.tsx` (code-lock → hap kapalı
+turda da code + codeLocked, Temizle sıfırlar; arşiv gidiş-dönüş; kilitli hap açık + devre dışı + tooltip). Kademe
+sırası, MCP 74, api.go boyu değişmedi.

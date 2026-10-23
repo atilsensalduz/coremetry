@@ -222,13 +222,16 @@ const (
 	// TierExplain — v0.10.1400: yapısal açıklama turu (trace / exception ✨
 	// açıklaması sohbet içinde; api/chat_explain_turn.go).
 	TierExplain = "explain"
-	TierLoop    = "loop"
-	TierOther   = "other"
+	// TierCodeSticky — v0.10.1465: kod okunmuş konuşmada yerel profil yok →
+	// dürüst kapalı cevap, LLM'siz (api/chat_code_sticky.go).
+	TierCodeSticky = "code-sticky"
+	TierLoop       = "loop"
+	TierOther      = "other"
 )
 
 var tiers = map[string]bool{TierScope: true, TierWiki: true, TierGuided: true, TierDrawer: true,
 	TierRAG: true, TierIntent: true, TierLoop: true, TierOther: true, TierDocRows: true, TierOperation: true,
-	TierMemory: true, TierExplain: true}
+	TierMemory: true, TierExplain: true, TierCodeSticky: true}
 
 // KnownTier — kademe adı kayıtlı mı (api kaynak testi copilotChat'in
 // cspan.tier(...) adlarını buna karşı denetler).

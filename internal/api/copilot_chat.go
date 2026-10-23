@@ -171,6 +171,9 @@ type chatRequest struct {
 		// sohbette açık kod turu (yerel profil, dış MCP yok). Yokken/false iken
 		// bağımsız sohbet v0.10.1050 duruşunda (kod aracı yok), bayt bayt.
 		Code bool `json:"code,omitempty"`
+		// CodeLocked (v0.10.1465, chat_code_sticky.go) — istemcinin "bu konuşmada
+		// kod okundu" ipucu. Yalnız sıkılaştırır (sunucu işareti TTL'le düştüyse).
+		CodeLocked bool `json:"codeLocked,omitempty"`
 		// Attempt (CoSRE öğrenme Faz 1) — istemcinin beyanı: retry | regenerate |
 		// edit; boş = yeni soru. cosre_interactions.attempt (örtük sinyal).
 		Attempt string `json:"attempt,omitempty"`
@@ -366,6 +369,15 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	}()
 	if chip := chatContextChipTR(cst.ctx); chip != "" {
 		emit("step", map[string]string{"label": chip})
+	}
+	// v0.10.1465 — yapışkan kod konuşması (chat_code_sticky.go): kod okunmuş
+	// konuşmanın HER turu her kademeden önce yerel profile sabitlenir; yerel
+	// profil yoksa dürüst kapalı cevap, sağlayıcı çağrısı yok.
+	ctx, codeSticky, stickyClosed := s.applyCodeSticky(ctx, emit, cst, req.Context.CodeLocked && evm == nil)
+	if stickyClosed {
+		cspan.tier("code-sticky", true)
+		emit("done", map[string]bool{"ok": true})
+		return
 	}
 	anchorTo, anchored := chatAnchorTime(req.Context.ToMs, time.Now())
 	if anchored {
@@ -578,6 +590,9 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	if ct.On {
 		ctx = s.applyCodeTurn(ctx, &ct) // yerel profil karardan sonra kaybolduysa kapalı düşer
 		emit("step", map[string]string{"label": ct.stepLabel(extReady)})
+		if ct.On {
+			noteCodeRead(cst, emit) // v0.10.1465 — kod turu konuşmayı yapışkan yapar
+		}
 	}
 	toolset := s.copilot.ToolsetFor(ctx)
 	if evm != nil && evm.Toolset != "" {
@@ -618,7 +633,8 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	// v0.10.948 — trace takibi YALNIZ yerli salt-okur katalog: dış MCP tool'ları (yazma yetkisi Coremetry'de denetlenmez, chat_mcp_bridge.go) çekmeceye sızmaz — DECISIONS v0.10.86-89 "guided/drawer/RAG'a sızmaz" + Faz B gereksinim 7.
 	var extTools []mcp.Tool
 	// v0.10.1461 (R2) — kod turunda dış MCP KURULMAZ: katalog, köprü, extNames boş.
-	if !isTraceFollowUp && evm == nil && !ct.On && s.mcpClient != nil && s.mcpClient.Configured() { // v0.10.1316 — değerlendirmede dış MCP yok
+	// v0.10.1465 — yapışkan kod konuşmasında da (hap ne olursa olsun).
+	if !isTraceFollowUp && evm == nil && !ct.On && !codeSticky && s.mcpClient != nil && s.mcpClient.Configured() { // v0.10.1316 — değerlendirmede dış MCP yok
 		ext := externalChatTools(
 			s.mcpClient.Registry().Tools(ctx),
 			s.mcpClient.ToolRules,
@@ -637,8 +653,8 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	// Tur arası taşıma da kapansın: dış MCP YAPILANDIRILMIŞSA (katalog bu tur
 	// boş düşse bile) wiki araçları sunulmaz.
 	extConfigured := !isTraceFollowUp && s.mcpClient != nil && s.mcpClient.Configured()
-	if ct.On {
-		extConfigured = false // v0.10.1461 (R2) — kod turunda dış araç kurulmadı → wiki araçları kalır (ikisi de yerel modele)
+	if ct.On || codeSticky {
+		extConfigured = false // v0.10.1461 (R2) — kod turunda dış araç kurulmadı → wiki araçları kalır (ikisi de yerel modele); v0.10.1465 — yapışkan konuşmada da
 	}
 	tools = wikiToolsFor(tools, c, extConfigured || len(extTools) > 0)
 	// v0.10.1451 — R1 localOnly kapısı (karar 8; chat_local_only.go): katalogda
@@ -915,6 +931,8 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 			byName[n] = chatLoopHandlerSeam(n, h)
 		}
 	}
+	// v0.10.1465 — başarılı kod okuması konuşmayı yapışkan yapar (trace takibi dahil).
+	wrapCodeReadHandlers(byName, func() { noteCodeRead(cst, emit) })
 	execHooks := agenttools.Hooks{
 		Span: cspan.tool,
 		Audit: func(name string, args json.RawMessage, dur time.Duration, err error, bytes int) {

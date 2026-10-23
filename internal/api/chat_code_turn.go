@@ -143,15 +143,7 @@ func (s *Server) applyCodeTurn(ctx context.Context, ct *codeTurn) context.Contex
 		return ctx
 	}
 	ct.Profile = s.copilot.ProfileIDFor(rctx)
-	ct.Label = ct.Profile
-	if l, _, model, _, ok := s.copilot.ProfileView(ct.Profile); ok {
-		switch {
-		case strings.TrimSpace(l) != "":
-			ct.Label = l
-		case ct.Label == "" && model != "":
-			ct.Label = model
-		}
-	}
+	ct.Label = s.chatProfileLabel(rctx) // v0.10.1465 — yapışkan turla ortak
 	return rctx
 }
 

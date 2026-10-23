@@ -287,6 +287,8 @@ func (s *Server) exceptionCodeLoop(ctx context.Context, emit func(string, any), 
 			byName[n] = chatLoopHandlerSeam(n, h)
 		}
 	}
+	// v0.10.1465 — başarılı kod okuması konuşmayı yapışkan yapar (chat_code_sticky.go).
+	wrapCodeReadHandlers(byName, func() { noteCodeRead(chatContextFromCtx(ctx), emit) })
 	hooks := agenttools.Hooks{
 		Span: env.span.tool,
 		Audit: func(name string, args json.RawMessage, dur time.Duration, err error, bytes int) {

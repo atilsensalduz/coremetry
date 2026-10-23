@@ -13,6 +13,7 @@ import { hasDrawerContext, parseChatInput, pickedServices, scopeForRequest, type
 import { ChatRequestError } from '@/lib/api';
 import { lastUserIndex, regenerateBase } from './chatRegenerate';
 import { withoutFresh } from './explainTurn'; // v0.10.1406 — fresh yalnız istekte
+import { codeLockedOf } from './codeRead'; // v0.10.1465 — konuşmanın kod kilidi
 import {
   PERSIST_DEBOUNCE_MS, hasCompletedExchange, persistMessages, restoreTurns,
 } from './chatPersist';
@@ -232,6 +233,8 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
       })),
       { role: 'user', text: q },
     ];
+    // v0.10.1465 — kod okunmuş konuşma kilitli: hap ne olursa olsun kod turu + ipucu.
+    const codeLocked = codeLockedOf(turnsRef.current);
     // v0.10.1406 — kullanıcı turu niyeti `fresh`SİZ saklar (yalnız bu istek taze).
     const keptAsk = so?.explainAsk ? withoutFresh(so.explainAsk) : undefined;
     setTurns(prev => [
@@ -290,6 +293,9 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
           // v0.10.434 (D7b) — yalnız uygulama-içi (kök-göreli) href; dış adres asla.
           // v0.10.1314 — kapı isSafeAppPath ("/\evil.com" react-router v6'da dışarı açılırdı).
           if (e.open && isSafeAppPath(e.open)) o.onOpen?.(e.open);
+        } else if (e.kind === 'code-lock') {
+          // v0.10.1465 — konuşma kilitlendi (kod okundu); arşive asistan turuyla gider.
+          if (e.locked) patchLast(t => ({ ...t, codeRead: true }));
         } else if (e.kind === 'error') {
           patchLast(t => ({ ...t, error: e.error, pending: false }));
         } else if (e.kind === 'done') {
@@ -305,7 +311,8 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
         o.deep || undefined, // v0.10.1150 — Derin düşün (kapalıyken gövdede yok)
         so?.attempt, // Faz 1 — retry/regenerate/edit beyanı
         so?.explainAsk, // v0.10.1400 — yapısal açıklama niyeti
-        o.code || undefined); // v0.10.1461 — Kod hapı (kapalıyken gövdede yok)
+        (o.code || codeLocked) || undefined, // v0.10.1461 — Kod hapı (kapalıyken gövdede yok); v0.10.1465 — kilitli konuşmada açık
+        codeLocked || undefined); // v0.10.1465 — kod kilidi ipucu (yalnız sıkılaştırır)
       // v0.10.648 — terminal olaysız EOF: tur asılı kalmasın (chatAbort.ts).
       patchLast(settleTruncatedTurn);
     } catch (err) {
@@ -455,5 +462,6 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
     return true;
   }, [send]);
 
-  return { turns, busy, send, retry, regenerate, editLast, stop, clear, load, flushSave, conversationId, last, showFollowups };
+  const codeLocked = codeLockedOf(turns); // v0.10.1465 — composer hapının kilidi
+  return { turns, busy, send, retry, regenerate, editLast, stop, clear, load, flushSave, conversationId, last, showFollowups, codeLocked };
 }

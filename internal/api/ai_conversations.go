@@ -110,6 +110,10 @@ type aiChatMessage struct {
 	Blocks        json.RawMessage         `json:"blocks,omitempty"`
 	BlocksAt      int64                   `json:"blocksAt,omitempty"` // zarfın `at`ı (unix ms)
 	BlocksDropped []string                `json:"blocksDropped,omitempty"`
+	// CodeRead — v0.10.1465 (chat_code_sticky.go): bu asistan turunda konuşma
+	// kod okunmuş (yapışkan) idi. Yalnız asistan; Geçmiş'ten açılan konuşma
+	// kilidi bundan kurar ve context.codeLocked gönderir (Redis TTL'inden bağımsız).
+	CodeRead bool `json:"codeRead,omitempty"`
 }
 
 // sanitizeChatExplain — v0.10.1400: arşive girecek açıklama künyesi. Tür
@@ -319,6 +323,7 @@ func sanitizeChatMessages(in []aiChatMessage) []aiChatMessage {
 			m.Evidence = nil
 			m.Explain = nil
 			m.ExchangeID = ""
+			m.CodeRead = false // v0.10.1465 — yalnız asistan turu
 		}
 		// v0.10.1444 — bloklar yalnız sunucu kaynaklı (GET süsler).
 		m.Blocks, m.BlocksAt, m.BlocksDropped = nil, 0, nil
