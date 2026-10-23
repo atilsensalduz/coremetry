@@ -10183,3 +10183,28 @@ rota, MCP 74, kademe sırası değişmedi.
 1 step; ikinci çağrı 0; yerel seçili/varsayılan 0; yerel yok ok=false 0; nil emit), `TestChatFreeLoopSwitchStep`,
 `TestCodeTurnSwitchMergedIntoCodeStep` (ayrı step yok; ek yalnız geçişte), `TestCodeStickySwitchMergedIntoStickyStep`, `TestUploadedDocRAGWorksWithoutLocalProfile`;
 `TestLocalOnlySitesWired` pinleri `routeSensitiveStep`'e güncellendi; 1461 testleri aynen yeşil.
+
+## 2026-10-23 — v0.10.1468 — outbound_call ardılları: ekrandan gelen ortam MV özetini bozmaz; belirsiz kök çip kalır
+
+**Bağlam.** v0.10.1455 karar 4: "ortam süzgeci istendiyse (mesaj YA DA ekran ortamı) MV kullanılmaz → ham client-span".
+Ekrandaki ortam seçimi sorulmadan popülasyonu MV özetinden (tüm çağıranlar, 24 sa'e kadar) örneklenmiş ham okumaya
+çeviriyordu. Operatör kararı 2026-10-23 ("önerilerle geç").
+
+**Karar a.** `guidedRoute.EnvInherited` (JSON omitempty): `copilotChatGuided`'ın ekran ortamı devri (v0.9.1259) Env'i
+ctxEnv'den doldurduğunda işaretlenir. Yolsuz host özetinde (`guidedOutboundHostAnswer`) SAF `outboundHostEnvScope`:
+ortam yalnız ekrandan geldiyse rota Env'siz devam eder (MV, tüm ortamlar; kanıt/grafik/takip çipleri/LastRoute ortam
+iddia etmez), başlık ", tüm ortamlar (MV)" ve not "ekran ortamı (X) süzgeci uygulanmadı (MV ortam taşımaz); ortam adıyla
+sorarsan (ör. «X ortamında …») ortama göre bakarım". Soruda anılan ortam (devir yok) ve ≥2 ortam (EnvSet) bugünkü ham,
+ortama süzülmüş okumayı korur. R1 yol sondası (`outboundProbe`, yol anan mesaj) değişmedi — zaten ham okumadır.
+
+**Karar b — kayıt.** Belirsiz genel kök ("esb", "mainframe" birden çok hosta uyuyorsa) aday host çiplerini korur;
+toplama/tahmin yok. Pin: `TestOutboundAmbiguousStemKeepsChips` (ekran ortamı olsa da okuma 0, çipler).
+
+**Geri alma.** Sürüm commit'ini revert + yeni etiket: ekran ortamı yine ham okumaya geçirir. `EnvInherited` LastRoute
+JSON'unda kalırsa eski binary yok sayar. Şema, ayar, MV, rota, MCP 74, kademe sırası değişmedi.
+
+**Testler.** api `TestOutboundHostEnvScope` (tablo: ortam yok / yalnız ekran / soruda / ≥2), `TestOutboundHostScreenEnvStaysOnMV`
+(uçtan uca guided: ekran ortamı → MV okumaları, "aggs" yok, beyan; soruda ortam → ham okuma `deploy_env IN (prod-eu-a)`;
+mutasyonla doğrulandı), `TestOutboundAmbiguousStemKeepsChips`; yönlendirme regresyon kümesine (v0.10.1464,
+`chat_routing_regression_test.go`) iki satır: "ortam yalnız ekrandan → MV + beyan" ve komşusu "ortam soruda → ham"
+(satır şemasına `ansHas` eklendi); mevcut R1/R2 testleri yeşil.

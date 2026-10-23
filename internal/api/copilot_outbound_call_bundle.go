@@ -343,6 +343,7 @@ type outboundOutcome struct {
 	perCaller        bool
 	clamp            string
 	notes            []string
+	allEnvs          bool // v0.10.1468 — ekran ortamı uygulanmadı: başlıkta "tüm ortamlar (MV)"
 }
 
 // emitOutboundOutcome — kanıt + tablo + grafik + iş kodları + hüküm + cevap.
@@ -350,7 +351,7 @@ func (s *Server) emitOutboundOutcome(ctx context.Context, emit func(string, any)
 	route, c := o.route, o.c
 	rangeS := int64(o.qTo.Sub(o.qFrom) / time.Second)
 	in := outboundRender{Path: o.display, Peer: route.OutboundPeer, Callers: route.OutboundCallers, RangeS: rangeS,
-		Env: route.Env, Scan: route.OutboundScan, ReadErr: o.readErr, Clamped: o.clamp, Notes: o.notes, Source: o.source}
+		Env: route.Env, Scan: route.OutboundScan, ReadErr: o.readErr, Clamped: o.clamp, Notes: o.notes, Source: o.source, AllEnvs: o.allEnvs}
 	if o.byEnv {
 		in.Envs = route.EnvSet
 	}
@@ -530,6 +531,13 @@ func (s *Server) guidedOutboundHostAnswer(ctx context.Context, emit func(string,
 	if rd == nil {
 		return false, false
 	}
+	// v0.10.1468 — ortam YALNIZ ekrandan geldiyse süzgeç uygulanmaz: özet MV'de
+	// (tüm ortamlar) kalır ve cevap bunu söyler; soruda anılan ortam ham okuma.
+	route, screenEnv := outboundHostEnvScope(route)
+	var envNotes []string
+	if screenEnv != "" {
+		envNotes = []string{outboundScreenEnvNoteTR(screenEnv)}
+	}
 	actx, cancel := context.WithTimeout(ctx, outboundAnswerTimeout)
 	defer cancel()
 	host, clamp := route.OutboundPeer, ""
@@ -547,10 +555,11 @@ func (s *Server) guidedOutboundHostAnswer(ctx context.Context, emit func(string,
 	if err != nil {
 		emitGuidedStepResult(emit, pn, outboundProbeTool, "dış host çağıranları okunamadı", err)
 		return s.emitOutboundOutcome(ctx, emit, emitGuidedStep(emit, outboundCallsTool, string(args)), outboundOutcome{route: route,
-			display: "(tüm yollar)", qFrom: from, qTo: to, readErr: err, source: outboundHostSourceTR}, asked)
+			display: "(tüm yollar)", qFrom: from, qTo: to, readErr: err, source: outboundHostSourceTR, allEnvs: screenEnv != ""}, asked)
 	}
 	emitGuidedStepResult(emit, pn, outboundProbeTool, outboundHostCallersTextTR(cur, host), nil)
 	sel, notes := outboundHostCallerScope(cur, route.Service, host)
+	notes = append(envNotes, notes...)
 	names := make([]string, 0, len(sel))
 	keep := map[string]bool{}
 	for _, c := range sel {
@@ -615,7 +624,27 @@ func (s *Server) guidedOutboundHostAnswer(ctx context.Context, emit func(string,
 	query += " → sum(calls) · sum(errors) · sum_duration/calls · max(p99_ms) (cur · önceki · geçen hafta)"
 	return s.emitOutboundOutcome(ctx, emit, n, outboundOutcome{route: route, display: "(tüm yollar)", qFrom: from, qTo: to, c: c,
 		pct: "p99", mv: true, source: outboundHostSourceTR, evSource: outboundHostEvSource, query: query, step: outboundMVStepS,
-		clamp: clamp, notes: notes}, asked)
+		clamp: clamp, notes: notes, allEnvs: screenEnv != ""}, asked)
+}
+
+// outboundHostEnvScope — SAF (v0.10.1468, operatör kararı 2026-10-23): yolsuz
+// host özetinin ortam kapsamı. Ortam yalnız EKRANDAN devralındıysa (soruda
+// anılmadı) süzgeç düşer — MV ortam taşımaz, ham okumaya geçmek ekranın
+// sessizce popülasyonu değiştirmesi olurdu; dönen rota Env'siz (takip çipleri
+// ve LastRoute da tüm ortamlar), screenEnv cevaptaki beyan için. Soruda anılan
+// ortam (EnvInherited=false) ve ≥2 ortam (EnvSet) aynen kalır → ham okuma.
+func outboundHostEnvScope(route guidedRoute) (guidedRoute, string) {
+	if route.Env == "" || !route.EnvInherited || len(route.EnvSet) >= 2 {
+		return route, ""
+	}
+	env := route.Env
+	route.Env, route.EnvInherited = "", false
+	return route, env
+}
+
+// outboundScreenEnvNoteTR — SAF: ekran ortamının uygulanmadığı beyanı.
+func outboundScreenEnvNoteTR(env string) string {
+	return "tüm ortamlar (MV) — ekran ortamı (" + env + ") süzgeci uygulanmadı (MV ortam taşımaz); ortam adıyla sorarsan (ör. «" + env + " ortamında …») ortama göre bakarım"
 }
 
 // outboundVerdictLabelTR — SAF: hüküm çipinin kısa metni.

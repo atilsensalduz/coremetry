@@ -51,6 +51,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cilcenk/coremetry/internal/ai/aisurface"
 	"github.com/cilcenk/coremetry/internal/chstore"
@@ -79,6 +80,7 @@ type routingRow struct {
 	noSpanChart bool     // servis sağlığı: span grafiği çiti yok (v0.10.1453)
 	ansPrefix   string   // cevap bu önekle başlamalı
 	ansNot      []string // cevapta OLMAMALI (ör. "veri bulunamadı")
+	ansHas      []string // v0.10.1468 — cevapta OLMALI (ör. ortam beyanı)
 }
 
 // routingRig — satırın sahte dünyası.
@@ -99,6 +101,21 @@ func rrTraceDrawer() map[string]any {
 		"subject": "trace:" + tfTrace, "trace": tfTrace, "service": rrSvc,
 		"page": map[string]any{"page": "trace", "path": "/trace", "traceId": tfTrace, "service": rrSvc},
 	}
+}
+
+// rrScreenEnv — v0.10.1468: ekranda ortam seçili (servis sayfası + env).
+func rrScreenEnv(env string) map[string]any {
+	m := rrSvcPage()
+	m["env"] = env
+	return m
+}
+
+// withHostCallers — v0.10.1468: dış hostu orders-api çağırıyor (MV), ölçüm boş.
+func withHostCallers(t *testing.T, s *routingRig) {
+	t.Helper()
+	s.outRead = &fakeOutboundReader{hostCallers: func(time.Time, time.Time) []chstore.ExternalCaller {
+		return []chstore.ExternalCaller{{Service: rrSvc, Calls: 400, AvgMs: 300}}
+	}}
 }
 
 func withOutboundHits(t *testing.T, s *routingRig) {
@@ -138,7 +155,16 @@ var routingRegressionRows = []routingRow{
 		},
 		wantTier: aisurface.TierScope}, // yerel model wiki sayfasını anlatır (localOnly)
 
+	{release: "v0.10.1468", name: "ortam yalnız ekrandan → host özeti MV'de, 'tüm ortamlar' beyanı",
+		q: rrESBHost + "'a giden çağrılar yavaşladı mı?", ctx: rrScreenEnv("uat"), setup: withHostCallers,
+		wantTier: aisurface.TierGuided, wantRoute: string(guidedOutboundCall), noLLM: true,
+		ansHas: []string{"tüm ortamlar (MV)", "ekran ortamı (uat) süzgeci uygulanmadı"}, ansNot: []string{"ham client span okuması"}},
+
 	// ── komşular (düzeltmeler bunları bozmamalı) ────────────────────────
+	{release: "komşu v0.10.1468", name: "ortam soruda (ekran başka) → ham, ortama süzülmüş okuma",
+		q: rrESBHost + " prod ortamında gecikme arttı mı", ctx: rrScreenEnv("uat"), setup: withHostCallers,
+		wantTier: aisurface.TierGuided, wantRoute: string(guidedOutboundCall), noLLM: true,
+		ansHas: []string{"ortam prod", "ham client span okuması"}, ansNot: []string{"süzgeci uygulanmadı", "tüm ortamlar (MV)"}},
 	{release: "komşu v0.10.1455", name: "oracle cevap süresi → db_health (giden çağrı değil)",
 		q: "oracle cevap süreleri arttı mı", wantTier: aisurface.TierGuided, wantRoute: string(guidedDBHealth)},
 	{release: "komşu v0.10.1455", name: "esb gecikme grafiği → giden çağrı (metric_chart değil)",
@@ -241,6 +267,11 @@ func TestRoutingRegression(t *testing.T) {
 			}
 			if row.ansPrefix != "" && !strings.HasPrefix(text, row.ansPrefix) {
 				t.Errorf("cevap öneki:\n got %.160q\nwant %.160q…", text, row.ansPrefix)
+			}
+			for _, want := range row.ansHas {
+				if !strings.Contains(text, want) {
+					t.Errorf("cevapta %q olmalı: %.400s", want, text)
+				}
 			}
 			for _, bad := range row.ansNot {
 				if strings.Contains(text, bad) {

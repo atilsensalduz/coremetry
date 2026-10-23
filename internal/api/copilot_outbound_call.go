@@ -315,6 +315,7 @@ type outboundRender struct {
 	Envs       []string // v0.10.1455 — ≥2 ortam: ortam başına kırılım
 	EnvLines   string   // v0.10.1455 — "KÜME KIYASI" satırları (outboundEnvLinesTR)
 	Source     string   // "" = outboundSourceTR
+	AllEnvs    bool     // v0.10.1468 — ekran ortamı uygulanmadı (MV, tüm ortamlar)
 }
 
 // outboundSubjectTR — SAF: "orders-api → esbprod.example.internal · /yol".
@@ -348,6 +349,8 @@ func renderOutboundTR(in outboundRender) string {
 		envNote = ", ortamlar " + strings.Join(in.Envs, ", ")
 	case in.Env != "":
 		envNote = ", ortam " + in.Env
+	case in.AllEnvs:
+		envNote = ", tüm ortamlar (MV)"
 	}
 	src := in.Source
 	if src == "" {

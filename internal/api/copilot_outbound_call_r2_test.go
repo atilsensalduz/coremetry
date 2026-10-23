@@ -292,8 +292,14 @@ type obRun struct {
 
 func runOutboundGuided(t *testing.T, s *Server, ctx context.Context, msg, ctxSvc string) obRun {
 	t.Helper()
+	return runOutboundGuidedEnv(t, s, ctx, msg, ctxSvc, "")
+}
+
+// runOutboundGuidedEnv — v0.10.1468: ekran ortamıyla (ctxEnv).
+func runOutboundGuidedEnv(t *testing.T, s *Server, ctx context.Context, msg, ctxSvc, ctxEnv string) obRun {
+	t.Helper()
 	evs, emit := captureEmit()
-	handled, ok := s.copilotChatGuided(ctx, emit, []copilot.ChatMessage{{Role: "user", Text: msg}}, ctxSvc, "", "", 0, "", "", time.Time{}, 0, "")
+	handled, ok := s.copilotChatGuided(ctx, emit, []copilot.ChatMessage{{Role: "user", Text: msg}}, ctxSvc, "", "", 0, "", ctxEnv, time.Time{}, 0, "")
 	if !handled || !ok {
 		t.Fatalf("guided sahiplenmedi (RAG'a düşerdi): %q", msg)
 	}

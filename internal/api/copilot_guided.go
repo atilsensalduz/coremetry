@@ -314,6 +314,10 @@ type guidedRoute struct {
 	// EnvSet — v0.10.1373: mesaj ≥2 canlı ortam andı (extractEnvSet); Env bu
 	// durumda "" (tek ortama sessizce daraltma yok), liste özet çipinde söylenir.
 	EnvSet []string `json:",omitempty"`
+	// EnvInherited — v0.10.1468: Env sorudan değil EKRANDAN devralındı
+	// (ctxEnv). Yolsuz giden çağrı özeti bu durumda MV'de (tüm ortamlar) kalır
+	// ve süzgecin uygulanmadığını söyler; soruda anılan ortam ham okumaya gider.
+	EnvInherited bool `json:",omitempty"`
 	// v0.10.479 (F4-2) — namespace_services: yalnız pod listesi ("bunun pod'ları").
 	FindPods bool
 	// DirectAnswer — netleştirme sorusu (hangi servis / hangi takım): aday
@@ -1991,6 +1995,7 @@ func (s *Server) copilotChatGuided(ctx context.Context, emit func(string, any), 
 	// (withEnvArg) — devralınan env de oradan görünür.
 	if route.Env == "" && ctxEnv != "" && len(route.EnvSet) < 2 { // v0.10.1373 — çok ortamlı soru ekran env'ini devralmaz
 		route.Env = ctxEnv
+		route.EnvInherited = true // v0.10.1468
 	}
 	if len(route.EnvSet) >= 2 { // v0.10.1373 — özet çipi: hangi ortamlar anıldı, süzgeç neden yok
 		emitGuidedContextStep(emit, envSetNoteTR(route.EnvSet))
