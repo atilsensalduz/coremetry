@@ -405,6 +405,11 @@ func renderOutboundTR(in outboundRender) string {
 	if in.EnvLines != "" {
 		b.WriteString("\n" + in.EnvLines)
 	}
+	// v0.10.1482 — sarmalayıcısız "/x/**": LIKE '/x/%' zaten önekin altındaki her
+	// yolu topluyor; cevap bunun bir ÖNEK TOPLAMI olduğunu söyler.
+	if p, ok := pathPrefixOf(in.Path); ok && in.Cur.Calls > 0 {
+		fmt.Fprintf(&b, "\nÖnek toplamı: %s altındaki tüm yollar (%d yol); çağrı, hata %% ve ortalama toplamdır, p95 yalnız yol başına (yüzdelikler toplanmaz).", p, in.PathGroups)
+	}
 	if in.Cur.Groups > 1 || in.PathGroups > 1 {
 		fmt.Fprintf(&b, "\n%d çağıran·host·yol grubu eşleşti; ayrıntı tabloda (p95 grup başına).", in.Cur.Groups)
 	}

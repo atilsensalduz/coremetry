@@ -622,6 +622,11 @@ func (s *Server) chatOperationPrefetch(ctx context.Context, emit func(string, an
 	}
 	pctx, cancel := context.WithTimeout(ctx, opPrefetchTimeout)
 	defer cancel()
+	// v0.10.1482 — sarmalayıcısız "/x/**": önekin altındaki tüm rotaların toplamı
+	// (chat_endpoint_prefix.go); rota yoksa / okunamadıysa aşağısı bayt bayt.
+	if s.endpointPrefixPrefetch(pctx, ctx, emit, raw, rangeS, anchor) {
+		return nil, true
+	}
 	t, kind, handled, ok := s.resolveEndpointMention(pctx, ctx, emit, raw)
 	if handled {
 		return nil, true

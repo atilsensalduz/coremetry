@@ -10587,3 +10587,22 @@ dalda yok. Bütçe 5 sn (tarama sonrası, üç sorgu paralel, 60 sn önbellek). 
 
 **Geri alma.** `guidedServiceHealthBundle`'daki `ResponsibleOperation` bloğunu sil (servis RED'i 1480 ile aynı kalır) +
 yeni etiket.
+
+## 2026-10-23 — v0.10.1482 — `/x/**` önek kipi: önekin altındaki tüm rotaların toplamı
+
+**Bağlam.** v0.10.1373 sondaki `/**` / `/*` parçasını joker olarak bıraktı; v0.10.1447 baştaki Markdown sarmalayıcısını
+(`**/x/**`) joker değil sarmalayıcı yaptı. Sarmalayıcısız `/x/** yavaş mı` ise katalogda yalnız tek seviye çocukları
+şablon eşitliğiyle buluyordu (çok seviyeli rotalar eşleşmiyor) ve cevap tek bir rotayı anlatıyordu.
+
+**Karar.** Sarmalayıcısız ve sonu `/**` ya da `/*` olan ilk yol anması (`endpointPrefixOf`; elipsli/ek jokerli önek
+hariç) önek kipidir. Endpoint sorusunda `chstore.RoutePrefixRED` (spanmetrics_1m, `http_route = önek OR
+startsWith(http_route, önek/)`, client/producer hariç): rota başına satır (çağrı sırası, LIMIT 11) + TÜM rotaların cur/prev
+toplamı (LIMIT 2; çağrı, hata, çağrı ağırlıklı ort, rota sayısı); ikisi de max_execution_time=5. Cevap deterministik
+(model yok, operasyon kademesi): ilk cümle "önek toplamı", hüküm giden çağrının eşikleriyle (×1,2 + 50 ms, +2 puan),
+p95 yalnız satır başına ("yüzdelikler toplanmaz"), ilk 10 rota tabloda, listelenmeyenler sayıyla. http_route fiil
+taşımadığından fiil süzgeci uygulanmaz ve bu söylenir. Önekin altında rota yoksa ya da okuma düştüyse (çipte görünür) akış
+bayt bayt eskidir (tam-yol katalog → yol-yalnız → dış-yol sondası). outbound_call: `/x/**` zaten LIKE `/x/%` ile
+önekin altını topluyordu; cevaba "Önek toplamı … p95 yalnız yol başına" satırı eklendi.
+
+**Geri alma.** `chatOperationPrefetch`'teki `endpointPrefixPrefetch` çağrısını ve `renderOutboundTR`'deki önek satırını
+sil + yeni etiket.

@@ -160,9 +160,19 @@ func stripMarkdownWrapText(raw string) string {
 // çevrilir ("" = fiil yok), path ham metnin harfiyle. v0.10.1373 — `*…*` /
 // `_…_` ile sarılı yol da anmadır (eskiden "*/yol*" belirteci atlanıyordu).
 func endpointMention(raw string) (method, path string, ok bool) {
+	method, path, _, ok = endpointMentionWrap(raw)
+	return method, path, ok
+}
+
+// endpointMentionWrap — SAF (v0.10.1482): endpointMention + anmanın baştaki
+// Markdown sarmalayıcısı (`*` / `_`) taşıyıp taşımadığı. Önek kipi
+// (chat_endpoint_prefix.go) yalnız sarmalayıcısız `/x/**` anmasında açılır.
+func endpointMentionWrap(raw string) (method, path string, wrapped, ok bool) {
 	fields := strings.Fields(raw)
 	for i, f := range fields {
-		tok := stripMarkdownWrap(strings.TrimLeft(f, "\"'`(<[")) // v0.10.1373 — "*" ve "_" sarmalayıcı
+		tok0 := strings.TrimLeft(f, "\"'`(<[")
+		wrapped = strings.HasPrefix(tok0, "*") || strings.HasPrefix(tok0, "_")
+		tok := stripMarkdownWrap(tok0) // v0.10.1373 — "*" ve "_" sarmalayıcı
 		lower := strings.ToLower(tok)
 		var p string
 		switch {
@@ -187,9 +197,9 @@ func endpointMention(raw string) (method, path string, ok bool) {
 		if i > 0 && isHTTPVerb(fields[i-1]) {
 			method = strings.ToUpper(fields[i-1])
 		}
-		return method, p, true
+		return method, p, wrapped, true
 	}
-	return "", "", false
+	return "", "", false, false
 }
 
 // endpointChipShape — SAF: belirsizlik çipinin kendi cümlesi ("… endpointine bak").

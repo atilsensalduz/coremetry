@@ -125,6 +125,24 @@ func withOutboundHits(t *testing.T, s *routingRig) {
 	}}
 }
 
+// withRoutePrefix — v0.10.1482: önek okuması dikişi; forbid → çağrılırsa hata.
+func withRoutePrefix(forbid bool) func(t *testing.T, s *routingRig) {
+	return func(t *testing.T, _ *routingRig) {
+		t.Helper()
+		prev := routePrefixSeam
+		routePrefixSeam = func(_ context.Context, _, prefix string, _, _ time.Time, _ int) (chstore.RoutePrefixREDResult, error) {
+			if forbid {
+				t.Errorf("önek okuması bu soruda koşmamalı (önek %q)", prefix)
+			}
+			return chstore.RoutePrefixREDResult{
+				Rows: []chstore.RoutePrefixRow{{Service: rrSvc, Route: prefix + "/{id}", Calls: 500, Errors: 5, AvgMs: 90, P95Ms: 300}},
+				Cur:  chstore.RoutePrefixTotal{Calls: 500, Errors: 5, AvgMs: 90, Routes: 1},
+				Prev: chstore.RoutePrefixTotal{Calls: 480, Errors: 4, AvgMs: 88, Routes: 1}}, nil
+		}
+		t.Cleanup(func() { routePrefixSeam = prev })
+	}
+}
+
 func withOffTopic(allow bool) func(t *testing.T, s *routingRig) {
 	return func(t *testing.T, s *routingRig) {
 		setGeneralQuestions(t, allow)
@@ -196,6 +214,17 @@ var routingRegressionRows = []routingRow{
 		q: rrSvc + " neden yavaş, hangi bağımlılıktan kaynaklanıyor?", wantTier: aisurface.TierGuided, wantRoute: string(guidedRootCause)},
 	{release: "v0.10.1479", name: "yavaşlamanın sebebi hangi downstream → root_cause",
 		q: rrSvc + " yavaşlamasının sebebi hangi downstream?", wantTier: aisurface.TierGuided, wantRoute: string(guidedRootCause)},
+
+	// ── v0.10.1482: önek kipi (sarmalayıcısız "/x/**") ──────────────────
+	{release: "v0.10.1482", name: "'/x/** yavaş mı' → önek toplamı (deterministik, operasyon kademesi)",
+		q: "/api/orders/** yavaş mı?", setup: withRoutePrefix(false),
+		wantTier: aisurface.TierOperation, noLLM: true, ansHas: []string{"/api/orders/** önek toplamı", "p95 yalnız rota başına"}},
+	{release: "v0.10.1482", name: "'**/x/**' kalın sarmalayıcı → tam yol akışı, önek DEĞİL",
+		q: rrSvc + " **/api/orders/** endpoint'i neden yavaş", setup: withRoutePrefix(true),
+		wantTier: aisurface.TierGuided, wantRoute: string(guidedEndpointCandidates), ansNot: []string{"önek toplamı"}},
+	{release: "v0.10.1482", name: "'/x/y' tam yol → tam yol akışı, önek DEĞİL",
+		q: rrSvc + " /api/orders/list endpoint'i neden yavaş", setup: withRoutePrefix(true),
+		wantTier: aisurface.TierGuided, wantRoute: string(guidedEndpointCandidates), ansNot: []string{"önek toplamı"}},
 
 	// ── komşular (düzeltmeler bunları bozmamalı) ────────────────────────
 	{release: "komşu v0.10.1479", name: "exception'lı trace'ler (exception trace'i niteliyor) → family_traces",
