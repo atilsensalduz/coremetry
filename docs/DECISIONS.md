@@ -10020,3 +10020,46 @@ attribute sözlüğü, kayıt kimliği, gövde iğne taraması), `TestStepSpanEr
 (span yok / örneklenmemiş / örneklenmiş × Explain, RecordUsage, RecordExchange); chstore `TestAICallsInsertBranches`
 (8 kombinasyon + SELECT/Scan), `TestAICallsProbeTargetsInsertTable`; api `TestExplainSpanCarriesEvidenceAndTokens`
 (sağlayıcı `HTTP POST` span'ı `ai.explain`'in çocuğu); fe `aiCallTraceLink.pin.test.ts`.
+
+## 2026-10-23 — v0.10.1464 — CoSRE yönlendirme regresyon kümesi + haftalık yanlış-yönlendirme raporu
+
+**Bağlam.** Operatör (2026-10-23): her yanlış yönlendirme bir ekran görüntüsüyle bulunuyor ve kendi sürümünde tek tek
+yamanıyordu (bugün 1446/1447/1453/1454/1455/1458/1460). Düzeltmelerin testleri kendi dosyalarında, birbirinin
+komşusunu görmüyor; bir düzeltmenin başka bir soruyu kaydırıp kaydırmadığını tek yerde soran bir şey yoktu. Yanlış
+yönlendirmeyi kayıtlı verilerden önceden gösteren bir liste de yoktu.
+
+**Karar.** (1) `internal/api/chat_routing_regression_test.go` — tablo-sürümlü küme: her satır soruyu GERÇEK
+`copilotChat` handler'ından geçirir (kapsam/çekmece kapısı, hafıza, wiki, operasyon ön-getirmesi + dış-yol sondası,
+guided router, çekmece, RAG, niyet, döngü — kademe sırası neyse o) ve turun `cosre_interactions` satırından
+(`cosreInteractionSeam`) KADEME + rota (cosre-turn etiketi) ile bayrakları (araç döngüsü yok, LLM yok, cevap öneki /
+yasak metin, servis sağlığında span grafiği yok) doğrular. Her satır düzeltmeyi taşıyan sürümü atfeder; "komşu" satırlar
+düzeltmenin bozmaması gerekenler (oracle → db_health, kafka → messaging_health, esb grafiği → outbound_call, endpoint,
+metric_chart, pod_health, topoloji, servis sayfasında "durum nasıl"). Satır ekleme akışı dosya başlığında (operatörün
+yeni iş akışı). (2) İki TEST DİKİŞİ (prod'da nil, `cosreInteractionSeam` emsali): `guidedDispatchSeam`
+(`runGuidedRoute` girişinde, `noteRoute`'tan sonra — rota kararını görür, store isteyen demeti koşturmaz) ve
+`opCatalogSeam` (`chatOperationPrefetch`'in katalog okuması; store'suz test sunucusunda yol anan tur gerçek ön-getirmeden
+geçer). Prod davranışı bayt bayt aynı: dikiş nil iken kod yolu eskisi. (3) Sınıflandırıcının LLM yarısı evalset'te:
+`intent.json` `intent-offtopic-capital` ("Türkiye'nin başkenti neresidir" → off_topic). (4)
+`GET /api/ai/routing-report?days=1|7|30` (`internal/api/ai_routing_report.go`, `registerAIRoutes` içinden; admin, kardeş
+/api/ai okumaları gibi; requireCopilot YOK — LLM yok; serveCached 5 dk, anahtar `ai:routing-report:v1:d=N`). Tek okuma
+`chstore.CosreRoutingTurns` (`cosre_interactions`, iki uçtan zaman sınırı, `ORDER BY created_at DESC LIMIT 20000`,
+`max_execution_time = 15`, metinler `substringUTF8` kırpık, araç dizilerinden yalnız uzunluk). YENİ ŞEMA / MV YOK. Saf
+puan (`routingReasonWeight`): hata 3, boş 3, doküman "bilgi yok" 3 (1446 sınıfı), döngü "veri bulunamadı" 3 (1447
+sınıfı), guided'a oturmayan telemetri sorusu 2 (`hasGuidedSignal` + kademe döngü/RAG/niyet-genel/konu dışı), 10 dk
+içinde benzer soru ya da retry/regenerate/edit beyanı 2 (`cosrelearn.QuestionSimilarity`), diğer kanıtsız 1, iptal 1;
+eşik 2. 👍/👎 YALNIZ ikincil kolon (`downvote`): puana, listeye, sıraya girmez (operatör kuralı 2026-10-17). (5) /ai
+sayfasında "Şüpheli yönlendirmeler" paneli (Router boşluklarının altında): özet satırı, en çok şüpheli kademe·rota,
+puan sıralı ≤50 tur, neden rozetleri, "arşivi aç" (`/cosre?chat=`).
+
+**Bilinçli sınırlar.** Kayıtlı veride "degraded" nedeni ve RAG reddinin döngüye düşüşü ayrı kolon olarak yok; ikisi de
+turun kendi işaretlerinden (kademe = döngü + kanıtsız / guided sinyali) görünür. Katalogda BULUNAN endpoint (operation
+kademesi) ve servis sağlığı demeti store ister: kümede katalog boş dal + demet kaynağı okunur, kendi testleri ayrıca.
+
+**Geri alma.** Rapor: `ai_routes.go`'daki `s.registerAIRoutingReportRoutes(mux)` satırını ve AIObservability'deki
+`<RoutingReportPanel />`'i kaldır (yeni şema yok, temizlenecek veri yok). Küme: test dosyası silinirse prod değişmez;
+dikişler nil kaldıkça zararsız, istenirse iki `if …Seam != nil` dalı ve `opCatalogCandidates` sarmalayıcısı
+`s.store.CatalogCandidates`'a geri çevrilir. Tam geri alma: sürüm commit'ini revert + yeni etiket.
+
+**Testler.** api `TestRoutingRegression` (14 satır: 6 operatör bildirimi + 8 komşu), `TestRoutingRegressionRowsWellFormed`,
+`TestRoutingTurnReasons`, `TestRoutingReaskFlags`, `TestBuildRoutingReport`, `TestRoutingReportVotesNeverScore`,
+`TestRoutingReportDaysAndGate`; chstore `TestCosreRoutingTurnsSQLBounded`; fe `routingReportView.test.ts`.

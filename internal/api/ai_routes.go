@@ -93,6 +93,8 @@ func (s *Server) registerAIRoutes(mux *http.ServeMux) {
 	// prompt örnekleriyle; yeni guided-intent adayları veriden çıkar.
 	mux.HandleFunc("GET /api/ai/feedback/negative", auth.RequireRole(auth.RoleAdmin, s.listNegativeAIFeedback))
 	s.registerCosreQualityRoutes(mux) // CoSRE öğrenme Faz 2 — örtük sinyal + kalite görünümü, cosre_quality.go
+	// v0.10.1464 — haftalık yanlış-yönlendirme raporu (ai_routing_report.go).
+	s.registerAIRoutingReportRoutes(mux)
 
 	// ── AI ayarları (Settings→AI sekmesi) ──
 	mux.HandleFunc("GET /api/settings/ai", auth.RequireRole(auth.RoleAdmin, s.getAISettings))

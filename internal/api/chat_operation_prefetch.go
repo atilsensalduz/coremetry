@@ -584,8 +584,22 @@ func mergeErrorsFirst(sets [][]chstore.TraceRow, limit int) []chstore.TraceRow {
 
 // chatOperationPrefetch — copilotChat'in guided'dan önceki adımı.
 // handled=true → seçim çipleri yayınlandı, tur bitti.
+// opCatalogSeam — v0.10.1464 TEST DİKİŞİ (prod'da nil; cosreInteractionSeam
+// emsali): ön-getirmenin katalog adayı okuması. Yönlendirme regresyon kümesi
+// (chat_routing_regression_test.go) store'suz sunucuda yol anan turu gerçek
+// ön-getirmeden (endpoint anması → yol-yalnız → dış-yol sondası) geçirir.
+var opCatalogSeam func(ctx context.Context, toks []string, limit int) ([]chstore.CatalogOperation, error)
+
+// opCatalogCandidates — katalog adayları (dikiş kuruluysa ondan).
+func (s *Server) opCatalogCandidates(ctx context.Context, toks []string, limit int) ([]chstore.CatalogOperation, error) {
+	if opCatalogSeam != nil {
+		return opCatalogSeam(ctx, toks, limit)
+	}
+	return s.store.CatalogCandidates(ctx, toks, limit)
+}
+
 func (s *Server) chatOperationPrefetch(ctx context.Context, emit func(string, any), msgs []copilot.ChatMessage, rangeS int64, anchor time.Time) (*opPrefetch, bool) {
-	if s == nil || s.store == nil {
+	if s == nil || (s.store == nil && opCatalogSeam == nil) {
 		return nil, false
 	}
 	raw := lastUserText(msgs)
@@ -620,7 +634,7 @@ func (s *Server) chatOperationPrefetch(ctx context.Context, emit func(string, an
 		if len(toks) == 0 {
 			return nil, false
 		}
-		cands, err := s.store.CatalogCandidates(pctx, toks, opCandidateLimit)
+		cands, err := s.opCatalogCandidates(pctx, toks, opCandidateLimit)
 		if err != nil { // v0.10.1373 — katalog okuması düştü (3 sn tavanı): sessiz değil, çipte görünür
 			emitCatalogStep(emit, toks, 0, err)
 		}
@@ -798,7 +812,7 @@ func (s *Server) resolveEndpointMention(pctx, ctx context.Context, emit func(str
 		return pt, endpointPathKind, false, true
 	}
 	toks := endpointCatalogTokens(path)
-	cands, err := s.store.CatalogCandidates(pctx, toks, opCandidateLimit)
+	cands, err := s.opCatalogCandidates(pctx, toks, opCandidateLimit)
 	emitCatalogStep(emit, toks, len(cands), err) // v0.10.1373 — gözlemlenebilirlik
 	if err != nil || len(cands) == 0 {
 		return pathOnly()

@@ -7883,6 +7883,41 @@ export interface CosreQualityView {
   tools: CosreWorstTool[];
 }
 
+// v0.10.1464 — GET /api/ai/routing-report: haftalık yanlış-yönlendirme adayları
+// (internal/api/ai_routing_report.go RoutingReport). Deterministik puan; 👎
+// yalnız ikincil kolon (downvote), puana girmez.
+export interface RoutingReportItem {
+  exchangeId: string;
+  conversationId?: string;
+  turn?: number;
+  createdAt: string;
+  userEmail?: string;
+  question: string;
+  answer?: string;
+  tier: string;
+  route?: string;
+  service?: string;
+  page?: string;
+  score: number;
+  reasons: string[];
+  downvote?: boolean;
+}
+export interface RoutingReportTier {
+  tier: string;
+  route?: string;
+  turns: number;
+  suspicious: number;
+}
+export interface RoutingReport {
+  days: number;
+  turns: number;
+  suspicious: number;
+  truncated: boolean;
+  tiers: RoutingReportTier[];
+  items: RoutingReportItem[];
+  generatedAt: number;
+}
+
 // CoSRE öğrenme Faz 1 — istemcinin deneme beyanı (chat context.attempt;
 // internal/api/chat_exchange.go normalizeChatAttempt). Yeni soru = yok.
 export type ChatAttempt = 'retry' | 'regenerate' | 'edit';

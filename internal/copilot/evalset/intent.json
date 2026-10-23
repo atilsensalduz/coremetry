@@ -310,6 +310,20 @@
         ],
         "maxLatencyMs": 20000
       }
+    },
+    {
+      "id": "intent-offtopic-capital",
+      "surface": "IntentClassify",
+      "why": "v0.10.1458 operatör sorusu: başkent → off_topic (sunucu yarısı chat_routing_regression_test.go'da sahte sınıflandırıcıyla pinli)",
+      "user": "Türkiye'nin başkenti neresidir",
+      "expect": {
+        "intent": "off_topic",
+        "knownEntities": [
+          "orders-api",
+          "billing-api"
+        ],
+        "maxLatencyMs": 20000
+      }
     }
   ]
 }

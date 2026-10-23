@@ -2131,6 +2131,12 @@ func (s *Server) copilotChatGuided(ctx context.Context, emit func(string, any), 
 	return handled, ok
 }
 
+// guidedDispatchSeam — v0.10.1464 TEST DİKİŞİ (prod'da nil; cosreInteractionSeam
+// emsali). Yönlendirme regresyon kümesi (chat_routing_regression_test.go) gerçek
+// copilotChat'ten geçen turun ROTA KARARINI burada görür; true dönerse demet
+// koşmaz (store'suz test sunucusu prefetch yapamaz) ve tur guided olarak biter.
+var guidedDispatchSeam func(route guidedRoute) bool
+
 // runGuidedRoute — v0.10.172: ÇÖZÜLMÜŞ bir rota için prefetch → anlatım →
 // answer. copilotChatGuided'dan ayrıldı ki LLM niyet sınıflandırıcısı
 // (copilot_intent.go) deterministik router'ı atlayıp aynı paketleri ve aynı
@@ -2150,6 +2156,10 @@ func (s *Server) runGuidedRoute(ctx context.Context, emit func(string, any), rou
 	// sorulmaz, env/takım/servis süzgeci rotaya yazılır. Kapsamsız ctx → aynen.
 	route = applyChatScopeRoute(chatScopeFromCtx(ctx), route)
 	chatExchangeFrom(ctx).noteRoute(string(route.Intent)) // v0.10.1153 — /ai etkileşim satırının rotası
+	// v0.10.1464 — yönlendirme regresyon kümesinin dikişi (prod'da nil).
+	if guidedDispatchSeam != nil && guidedDispatchSeam(route) {
+		return true, true
+	}
 
 	// v0.10.434 (D7b) — open_page: overview özne ister; yoksa "hangisini
 	// kastettin?" (çip: "X sayfasını aç"). Deterministik cevap, LLM yok.

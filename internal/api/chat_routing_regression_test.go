@@ -1,0 +1,309 @@
+package api
+
+// chat_routing_regression_test.go — v0.10.1464: CoSRE YÖNLENDİRME REGRESYON
+// KÜMESİ (operatör, 2026-10-23: "her yanlış yönlendirme bir ekran görüntüsüyle
+// bulunuyor ve tek tek yamanıyor").
+//
+// Her satır operatörün bildirdiği (ya da bir düzeltmenin bozmaması gereken
+// komşu) bir soruyu GERÇEK copilotChat handler'ından geçirir: sohbet geçmişi
+// süzgeci, kapsam/çekmece kapısı (chatScopeDrawerGate + withWikiMention),
+// hafıza, wiki, operasyon ön-getirmesi (endpoint anması → yol-yalnız →
+// dış-yol sondası), guided router (routeGuidedIntentExt), çekmece, RAG, niyet
+// sınıflandırıcısı (sahte model) ve serbest döngü — kademe sırası neyse o.
+// Turun cosre_interactions satırı (cosreInteractionSeam) KADEMEYİ + rotayı
+// söyler; guided rota kararı guidedDispatchSeam'de yakalanır.
+//
+// Sahteler: model = httptest OpenAI-uyumlu uç (loopLLM / offTopicLLM), katalog
+// = önbellek (svcnames/envnames/exthosts), giden çağrı okuyucusu =
+// fakeOutboundReader, operasyon kataloğu = opCatalogSeam, wiki = fakeWikiAPI.
+// Store YOK: prefetch demetleri (servis sağlığı, db, pod…) koşmaz — dikiş rota
+// kararından sonra turu bitirir. outbound_call demeti LLM'siz ve store'suz
+// koştuğu için uçtan uca çalışır (passThrough).
+//
+// Bilinçli sınırlar (her biri kendi testinde):
+//   - RAG kademesi etkin değil (s.rag nil): telemetri sorusunun guided'da
+//     kalması RAG'ın ÖNÜNDE karar verildiğini kanıtlar (TestChatTierOrderIsPinned).
+//   - Katalogda BULUNAN endpoint (operation kademesi) store ister; burada katalog
+//     boş, yol-yalnız dal koşar. Katalog dalı: chat_operation_prefetch testleri.
+//   - Servis sağlığı grafiği demetin içinde çizilir; "span grafiği yok" bayrağı
+//     demetin kaynağını okur (TestServiceHealthBundleChartWiring ile aynı kural).
+//   - Sınıflandırıcının KENDİSİ (model off_topic diyecek mi) LLM'e bağlı:
+//     o yarı evalset'te (internal/copilot/evalset/intent.json, intent-offtopic-*);
+//     burada sahte model off_topic der, test sunucunun ne yaptığını pinler.
+//
+// ── YENİ YANLIŞ YÖNLENDİRME BİLDİRİLDİĞİNDE (operatörün akışı) ──────────────
+//  1. Sorunun METNİNİ (adları sentetikle: orders-api, billing-api,
+//     *.example.test; kurum adı YOK) ve bağlamını (servis sayfası? trace
+//     çekmecesi?) routingRegressionRows'a bir satır olarak ekle; release
+//     alanına düzeltmeyi taşıyacak sürümü yaz, wantTier/wantRoute BEKLENEN
+//     (doğru) yönlendirme.
+//  2. `go test ./internal/api/ -run TestRoutingRegression -v` — satır kırmızı
+//     olmalı (bugünkü yanlış kademe/rota mesajda görünür). Yeşilse bildirilen
+//     hata yönlendirme değil (cevap/demet kusuru): satırı yine de bırak.
+//  3. Düzelt; satır yeşile döner. Düzeltmenin komşusu olan soruları da ekle
+//     (aynı sözcüğü taşıyıp BAŞKA yere gitmesi gerekenler) — kırılmasınlar.
+//  4. Sınıflandırıcı (LLM) yarısı ise vakayı evalset intent.json'a da ekle.
+//  Haftalık aday listesi: /ai › "Şüpheli yönlendirmeler" (GET /api/ai/routing-report).
+
+import (
+	"context"
+	"os"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/cilcenk/coremetry/internal/ai/aisurface"
+	"github.com/cilcenk/coremetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/wiki"
+)
+
+const (
+	rrSvc      = "orders-api"
+	rrMainHost = "mainframe-gw.example.test"
+	rrESBHost  = "esbprod.example.test"
+	rrConv     = "conv-routing"
+)
+
+// routingRow — tek regresyon satırı.
+type routingRow struct {
+	release string         // satırı pinleyen sürüm ("komşu" = düzeltmenin bozmaması gereken)
+	name    string         // kısa açıklama
+	q       string         // kullanıcının sorusu (sentetik adlar)
+	ctx     map[string]any // istek bağlamı (servis sayfası, çekmece…); nil = global CoSRE
+	setup   func(t *testing.T, s *routingRig)
+
+	wantTier  string // aisurface.Tier*
+	wantRoute string // guided rota (guidedIntent); "" = rota YOK (guided'a hiç girmemeli)
+
+	noLLM       bool     // model hiç çağrılmamalı (deterministik cevap)
+	noSpanChart bool     // servis sağlığı: span grafiği çiti yok (v0.10.1453)
+	ansPrefix   string   // cevap bu önekle başlamalı
+	ansNot      []string // cevapta OLMAMALI (ör. "veri bulunamadı")
+}
+
+// routingRig — satırın sahte dünyası.
+type routingRig struct {
+	offLLM  *offTopicLLM // set edilirse model bu (niyet = off_topic); yoksa noLLM
+	cache   map[string][]byte
+	outRead *fakeOutboundReader
+}
+
+func rrSvcPage() map[string]any {
+	return map[string]any{"service": rrSvc, "page": map[string]any{"page": "service", "path": "/services/" + rrSvc, "service": rrSvc}}
+}
+
+// rrTraceDrawer — trace çekmecesi bağlamı (AIDrawerBody şekli).
+func rrTraceDrawer() map[string]any {
+	return map[string]any{
+		"explain": "KONU: CoSRE'ye sor · trace 4bf92f35\n**Bulgu** — orders-api p95 1830 ms.",
+		"subject": "trace:" + tfTrace, "trace": tfTrace, "service": rrSvc,
+		"page": map[string]any{"page": "trace", "path": "/trace", "traceId": tfTrace, "service": rrSvc},
+	}
+}
+
+func withOutboundHits(t *testing.T, s *routingRig) {
+	t.Helper()
+	s.outRead = &fakeOutboundReader{mv: func(string, string) ([]chstore.OutboundCaller, error) {
+		return []chstore.OutboundCaller{{Service: rrSvc, Host: rrESBHost, Calls: 40}}, nil
+	}}
+}
+
+func withOffTopic(allow bool) func(t *testing.T, s *routingRig) {
+	return func(t *testing.T, s *routingRig) {
+		setGeneralQuestions(t, allow)
+		s.offLLM = newOffTopicLLM(t, "off_topic")
+	}
+}
+
+// routingRegressionRows — KÜME. Yeni satır: dosya başlığındaki akış.
+var routingRegressionRows = []routingRow{
+	// ── operatör bildirimleri ───────────────────────────────────────────
+	{release: "v0.10.1455", name: "mainframe cevap süresi artışı → giden çağrı (1446'da RAG 'bilgi yok' idi)",
+		q: rrSvc + " mainframe cevap sürelerimde artış var mı?", setup: withOutboundHits,
+		wantTier: aisurface.TierGuided, wantRoute: string(guidedOutboundCall), noLLM: true},
+	{release: "v0.10.1454", name: "kalın + '/**' + U+2026 yol → dış-yol sondası → giden çağrı (1447'de serbest döngü 'veri bulunamadı')",
+		q: "**/esb/external/…/customer-kvkk/** kısmı için grafikleri ortalamayı gösterebilirsin", ctx: rrSvcPage(), setup: withOutboundHits,
+		wantTier: aisurface.TierGuided, wantRoute: string(guidedOutboundCall), noLLM: true,
+		ansNot: []string{"veri bulunamadı", "Bu soru telemetriyle eşleşmedi"}},
+	{release: "v0.10.1453", name: "servis sağlığı → service_health, grafik yalnız VM",
+		q: rrSvc + " sağlığı nasıl?", wantTier: aisurface.TierGuided, wantRoute: string(guidedServiceHealth), noLLM: true, noSpanChart: true},
+	{release: "v0.10.1458", name: "genel soru, anahtar AÇIK → kısa genel cevap",
+		q: offTopicCapitalQ, setup: withOffTopic(true), wantTier: aisurface.TierIntent, wantRoute: string(guidedOffTopic), ansPrefix: offTopicGeneralNoteTR},
+	{release: "v0.10.1458", name: "genel soru, anahtar KAPALI → sınır metni, model cevabı yok",
+		q: offTopicCapitalQ, setup: withOffTopic(false), wantTier: aisurface.TierIntent, wantRoute: string(guidedOffTopic), ansPrefix: offTopicBoundaryTR},
+	{release: "v0.10.1460", name: "@wiki trace çekmecesinde → wiki kapsamı, telemetri değil",
+		q: "@wiki DBeaver nasıl kurulur?", ctx: rrTraceDrawer(),
+		setup: func(t *testing.T, _ *routingRig) {
+			withWikiService(t, wiki.Config{Enabled: true}, &fakeWikiAPI{pages: map[string]string{"/Araçlar/DBeaver kurulumu": "# DBeaver\nKurulum: paket yöneticisinden dbeaver-ce kurun."}})
+		},
+		wantTier: aisurface.TierScope}, // yerel model wiki sayfasını anlatır (localOnly)
+
+	// ── komşular (düzeltmeler bunları bozmamalı) ────────────────────────
+	{release: "komşu v0.10.1455", name: "oracle cevap süresi → db_health (giden çağrı değil)",
+		q: "oracle cevap süreleri arttı mı", wantTier: aisurface.TierGuided, wantRoute: string(guidedDBHealth)},
+	{release: "komşu v0.10.1455", name: "esb gecikme grafiği → giden çağrı (metric_chart değil)",
+		q: rrSvc + " esb gecikme grafiği", setup: withOutboundHits,
+		wantTier: aisurface.TierGuided, wantRoute: string(guidedOutboundCall), noLLM: true},
+	{release: "komşu v0.10.1455", name: "kafka kuyruğu birikmesi → messaging_health",
+		q: rrSvc + " kafka kuyruğunda birikme var mı", wantTier: aisurface.TierGuided, wantRoute: string(guidedMessagingHealth)},
+	{release: "komşu v0.10.1454", name: "servis + iç endpoint yavaşlığı → endpoint (katalog boş: aday turu)",
+		q: rrSvc + " /api/x endpoint'i neden yavaş", wantTier: aisurface.TierGuided, wantRoute: string(guidedEndpointCandidates)},
+	{release: "komşu v0.10.1386", name: "grafik fiili → metric_chart",
+		q: rrSvc + " latency grafiğini çiz", wantTier: aisurface.TierGuided, wantRoute: string(guidedMetricChart)},
+	{release: "komşu v0.10.1431", name: "pod sürekli restart → pod_health",
+		q: rrSvc + "-7d9f pod sürekli restart oluyor", wantTier: aisurface.TierGuided, wantRoute: string(guidedPodHealth)},
+	{release: "komşu v0.10.1453", name: "servis sayfasında 'durum nasıl' → service_health",
+		q: "durum nasıl?", ctx: rrSvcPage(), wantTier: aisurface.TierGuided, wantRoute: string(guidedServiceHealth)},
+	{release: "komşu v0.10.1388", name: "topoloji sözcüğü → service_topology",
+		q: rrSvc + " topolojisi", wantTier: aisurface.TierGuided, wantRoute: string(guidedServiceTopology)},
+}
+
+// routingPassThrough — dikişin demeti koşturduğu rotalar (store'suz çalışanlar).
+var routingPassThrough = map[guidedIntent]bool{guidedOutboundCall: true, guidedOffTopic: true}
+
+func TestRoutingRegression(t *testing.T) {
+	for _, row := range routingRegressionRows {
+		t.Run(row.release+" "+row.name, func(t *testing.T) {
+			rig := &routingRig{cache: map[string][]byte{
+				"copilot:guided:svcnames":   []byte(`["orders-api","billing-api"]`),
+				"copilot:guided:envnames":   []byte(`["prod","uat"]`),
+				"copilot:guided:teamcat:v2": []byte(`[]`),
+				outboundHostsCacheKey:       []byte(`[{"h":"` + rrMainHost + `","c":["orders-api"],"n":120},{"h":"` + rrESBHost + `","c":["orders-api"],"n":400}]`),
+			}}
+			rig.outRead = &fakeOutboundReader{}
+			if row.setup != nil {
+				row.setup(t, rig)
+			}
+			installOutboundReader(t, rig.outRead)
+			prevCat := opCatalogSeam
+			opCatalogSeam = func(context.Context, []string, int) ([]chstore.CatalogOperation, error) { return nil, nil }
+			t.Cleanup(func() { opCatalogSeam = prevCat })
+			var mu sync.Mutex
+			var routes []string
+			prevSeam := guidedDispatchSeam
+			guidedDispatchSeam = func(r guidedRoute) bool {
+				mu.Lock()
+				routes = append(routes, string(r.Intent))
+				mu.Unlock()
+				return !routingPassThrough[r.Intent]
+			}
+			t.Cleanup(func() { guidedDispatchSeam = prevSeam })
+
+			rows := captureCosreRows(t)
+			llm := noLLM(t)
+			if rig.offLLM != nil {
+				llm = &loopLLM{srv: rig.offLLM.srv}
+			}
+			s, mc := newLoopTestServer(t, llm, "u-route")
+			for k, v := range rig.cache {
+				mc.m[k] = v
+			}
+			body := map[string]any{"messages": []map[string]any{{"role": "user", "text": row.q}}}
+			ctx := map[string]any{"conversation": rrConv}
+			for k, v := range row.ctx {
+				ctx[k] = v
+			}
+			body["context"] = ctx
+			fr := postLoopChat(t, s, context.Background(), "u-route", body)
+
+			got := rows()
+			if len(got) != 1 {
+				t.Fatalf("tur başına tek etkileşim satırı bekleniyordu, %d", len(got))
+			}
+			r := got[0]
+			tier, route, _, _ := aisurface.ParseTurnLabel(r.Surface)
+			text := ""
+			if a := framesOf(fr, "answer"); len(a) > 0 {
+				text, _ = a[len(a)-1]["text"].(string)
+			}
+			mu.Lock()
+			seen := append([]string(nil), routes...)
+			mu.Unlock()
+			if r.Tier != row.wantTier || route != row.wantRoute {
+				t.Fatalf("YANLIŞ YÖNLENDİRME\n  soru:  %q\n  bugün: kademe=%q rota=%q (guided kararları %v)\n  beklenen: kademe=%q rota=%q\n  cevap: %.200s",
+					row.q, r.Tier, route, seen, row.wantTier, row.wantRoute, text)
+			}
+			if tier != r.Tier {
+				t.Errorf("etiket kademesi %q ≠ satır kademesi %q", tier, r.Tier)
+			}
+			if row.wantRoute == "" && len(seen) > 0 {
+				t.Errorf("guided'a hiç girmemeliydi, kararlar: %v", seen)
+			}
+			// Serbest araç döngüsü koşmadı: araç seti yalnız döngüde yazılır.
+			if r.Toolset != "" || r.Tier == aisurface.TierLoop {
+				t.Errorf("serbest araç döngüsü koştu (toolset=%q)", r.Toolset)
+			}
+			if r.Status != "ok" {
+				t.Errorf("tur sonucu %q (%s)", r.Status, r.ErrorMsg)
+			}
+			if row.noLLM && (r.ModelCalls > 0 || len(llm.calls()) > 0) {
+				t.Errorf("deterministik olmalıydı: %d model çağrısı", r.ModelCalls)
+			}
+			if row.ansPrefix != "" && !strings.HasPrefix(text, row.ansPrefix) {
+				t.Errorf("cevap öneki:\n got %.160q\nwant %.160q…", text, row.ansPrefix)
+			}
+			for _, bad := range row.ansNot {
+				if strings.Contains(text, bad) {
+					t.Errorf("cevapta %q olmamalı: %.200s", bad, text)
+				}
+			}
+			if strings.Contains(text, "```chart") {
+				t.Errorf("cevapta span grafiği çiti var: %.200s", text)
+			}
+			if row.noSpanChart {
+				assertServiceHealthNoSpanChart(t)
+			}
+			if row.offTopicOff() && len(rig.offLLM.streams()) != 0 {
+				t.Error("anahtar kapalıyken genel cevap akışı koşmamalı")
+			}
+		})
+	}
+}
+
+// offTopicOff — satır genel-soru anahtarı KAPALI satırı mı (sınır metni).
+func (row routingRow) offTopicOff() bool { return row.ansPrefix == offTopicBoundaryTR }
+
+// assertServiceHealthNoSpanChart — v0.10.1453: servis sağlığı demeti span
+// grafiği çiti basmaz (yalnız VictoriaMetrics; çizemiyorsa not). Demet store
+// ister; kural demetin kaynağında okunur.
+func assertServiceHealthNoSpanChart(t *testing.T) {
+	t.Helper()
+	b, err := os.ReadFile("copilot_guided.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	i := strings.Index(src, "func (s *Server) guidedServiceHealthBundle(")
+	if i < 0 {
+		t.Fatal("guidedServiceHealthBundle bulunamadı")
+	}
+	j := strings.Index(src[i:], "\n}\n")
+	if body := stripGoCommentsAPI(src[i : i+j]); strings.Contains(body, "chartFence(") || !strings.Contains(body, "DropOperationCharts()") {
+		t.Error("servis sağlığı demeti span grafiği çizebilir (v0.10.1453: yalnız VictoriaMetrics)")
+	}
+}
+
+// TestRoutingRegressionRowsWellFormed — kümenin kendi sözleşmesi: her satır
+// sürüm atfı taşır, kademe bilinen bir kademe, guided rotası yalnız guided'da.
+func TestRoutingRegressionRowsWellFormed(t *testing.T) {
+	known := map[string]bool{aisurface.TierScope: true, aisurface.TierWiki: true, aisurface.TierGuided: true,
+		aisurface.TierDrawer: true, aisurface.TierIntent: true, aisurface.TierOperation: true, aisurface.TierMemory: true,
+		aisurface.TierExplain: true, "rag": true, "doc-rows": true}
+	seen := map[string]bool{}
+	for _, r := range routingRegressionRows {
+		key := r.release + " " + r.name
+		if seen[key] {
+			t.Errorf("yinelenen satır: %s", key)
+		}
+		seen[key] = true
+		if !strings.Contains(r.release, "v0.10.") || r.name == "" || r.q == "" {
+			t.Errorf("satır sürüm atfı / ad / soru taşımalı: %+v", r)
+		}
+		if !known[r.wantTier] {
+			t.Errorf("%s: bilinmeyen kademe %q (serbest döngü beklenen bir yönlendirme değildir)", key, r.wantTier)
+		}
+		if r.wantRoute != "" && r.wantTier != aisurface.TierGuided && r.wantTier != aisurface.TierIntent {
+			t.Errorf("%s: rota yalnız guided / niyet kademesinde anlamlı", key)
+		}
+	}
+}

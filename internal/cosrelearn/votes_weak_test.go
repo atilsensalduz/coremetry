@@ -46,6 +46,10 @@ var reviewSurfaces = map[string]bool{
 	// v0.10.1301 — api/sre_eval.go: değerlendirme panelinin "incelemeye değer"
 	// 👎 listesi (admin, salt-okunur liste; etiket / puan girdisi değil).
 	"sre_eval.go": true,
+	// v0.10.1464 — api/ai_routing_report.go: /ai "Şüpheli yönlendirmeler"
+	// inceleme listesi (admin). 👎 yalnız ikincil kolon; puan/liste/sıra
+	// oydan bağımsız (TestRoutingReportVotesNeverScore pinler).
+	"ai_routing_report.go": true,
 }
 
 func TestVotesNeverReachRuntimeDecisions(t *testing.T) {

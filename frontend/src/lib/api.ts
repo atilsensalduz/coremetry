@@ -1234,6 +1234,9 @@ export const api = {
   // CoSRE öğrenme Faz 2 — haftanın en kötü cevapları + tool'ları (admin).
   cosreQuality: (days: 7 | 30 = 7) =>
     get<import('./types').CosreQualityView>(`/api/ai/quality?days=${days}`),
+  // v0.10.1464 — haftalık yanlış-yönlendirme raporu (admin; days sabit basamak).
+  aiRoutingReport: (days: 1 | 7 | 30 = 7) =>
+    get<import('./types').RoutingReport>(`/api/ai/routing-report?days=${days}`),
   // v0.9.423 — 👎 madenciliği: düşük puanlı cevaplar prompt örnekleriyle.
   // v0.9.549 — guided router'ın yakalayamadığı sorular (serbest tool
   // döngüsüne düşenler). days sabit basamak: cache anahtarına giriyor.
