@@ -48,7 +48,7 @@ export {
   useRunbookExecutions, useRunbookExecution,
   useExecuteRunbook, useRunbookStepAction, useCancelRunbookExecution,
 } from './runbooks';
-export { useLogs, useLogsPatterns, useLogsTemplates } from './logs';
+export { useLogs, useLogsPatterns, useLogsTemplates, useLogsMyTeam } from './logs';
 export {
   useMonitors, useMonitorTimeline,
   useCreateMonitor, useUpdateMonitor, useDeleteMonitor,

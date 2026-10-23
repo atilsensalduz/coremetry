@@ -3847,6 +3847,20 @@ export interface LogsResponse {
   // that cap. The identical field from the CH backend IS exact, so the
   // label has to say which one it is.
   totalIsLowerBound?: boolean;
+  // v0.10.944 / v0.10.1477 — backend'in uygulayamadığı istenmiş süzgeçler
+  // (logstore.Page.UnappliedFilters): 'team' = takım alanı yapılandırılmamış
+  // ya da CH backend'i; sonuçlar o boyutta SÜZÜLMEMİŞTİR.
+  unappliedFilters?: string[];
+}
+
+// v0.10.1477 — /api/logs/my-team (internal/api/logs_team.go logsMyTeamPayload).
+// team '' = kullanıcının takımı yok / kimliksiz; available = takım alanı
+// yapılandırılmış VE log backend'i Elasticsearch (otomatik varsayılan yalnız o
+// zaman devreye girer).
+export interface LogsMyTeam {
+  team: string;
+  available: boolean;
+  fields: string[];
 }
 
 // /api/notifications/log (v0.8.247 backend, v0.8.263 UI) — one sent

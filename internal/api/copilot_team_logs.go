@@ -285,14 +285,22 @@ func teamLogsQueryString(fields, values []string) string {
 	return "(" + strings.Join(parts, " OR ") + ")"
 }
 
-// teamLogsHref — SAF: /logs ön-süzgeçli bağlantı (takım sorgusu + hata
-// seviyesi tabanı 17 + mutlak pencere). Değer yoksa "".
-func teamLogsHref(fields, values []string, fromMs, toMs int64) string {
+// teamLogsHref — SAF: /logs ön-süzgeçli bağlantı (takım + hata seviyesi
+// tabanı 17 + mutlak pencere). Değer yoksa "".
+// v0.10.1477 — takım artık birinci sınıf `team=` süzgeci (sunucu aynı
+// genişletmeyi ve exact-term yan tümceyi uygular; /logs çipi "Takım: <ad>").
+// team boşsa eski ham `q=` sorgusu (geriye uyum; eski bağlantılar da `q=`
+// olarak çalışmaya devam eder — serbest metin kutusu).
+func teamLogsHref(team string, fields, values []string, fromMs, toMs int64) string {
 	if len(fields) == 0 || len(values) == 0 || toMs <= fromMs {
 		return ""
 	}
 	q := url.Values{}
-	q.Set("q", teamLogsQueryString(fields, values))
+	if t := strings.TrimSpace(team); t != "" {
+		q.Set("team", t)
+	} else {
+		q.Set("q", teamLogsQueryString(fields, values))
+	}
 	q.Set("severity", "17")
 	q.Set("range", fmt.Sprintf("custom:%d-%d", fromMs, toMs))
 	return "/logs?" + q.Encode()
@@ -397,7 +405,7 @@ func (s *Server) teamLogsBlock(emit func(string, any), team string, p *teamLogsP
 		Query:      teamLogsQueryString(o.Fields, o.Values),
 		Window:     mcptools.EvidenceWindow{FromMs: o.FromMs, ToMs: o.ToMs},
 		DurationMs: o.DurMs,
-		Href:       teamLogsHref(o.Fields, o.Values, o.FromMs, o.ToMs),
+		Href:       teamLogsHref(team, o.Fields, o.Values, o.FromMs, o.ToMs),
 	}
 	if o.Res != nil {
 		rows := len(o.Res.Lines)

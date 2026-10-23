@@ -275,19 +275,27 @@ func TestTeamLogsKeyHashesAllInputs(t *testing.T) {
 }
 
 func TestTeamLogsHref(t *testing.T) {
-	h := teamLogsHref([]string{"kubernetes.labels.team-x"}, []string{`team "alpha"`}, 1000, 2000)
+	// v0.10.1477 — takım adı varken birinci sınıf `team=` süzgeci (ham q YOK).
+	h := teamLogsHref("orders-team", []string{"kubernetes.labels.team-x"}, []string{"orders-team", "Orders"}, 1000, 2000)
 	u, err := url.Parse(h)
 	if err != nil || u.Path != "/logs" {
 		t.Fatalf("href: %q %v", h, err)
 	}
 	q := u.Query()
-	if q.Get("q") != `kubernetes.labels.team-x:"team \"alpha\""` || q.Get("severity") != "17" || q.Get("range") != "custom:1000-2000" {
+	if q.Get("team") != "orders-team" || q.Has("q") || q.Get("severity") != "17" || q.Get("range") != "custom:1000-2000" {
 		t.Errorf("parametreler: %v", q)
+	}
+	// Geriye uyum: takım adı yoksa eski ham sorgu.
+	h = teamLogsHref("", []string{"kubernetes.labels.team-x"}, []string{`team "alpha"`}, 1000, 2000)
+	u, _ = url.Parse(h)
+	q = u.Query()
+	if q.Get("q") != `kubernetes.labels.team-x:"team \"alpha\""` || q.Has("team") || q.Get("severity") != "17" || q.Get("range") != "custom:1000-2000" {
+		t.Errorf("eski biçim parametreleri: %v", q)
 	}
 	if got := teamLogsQueryString([]string{"a", "b"}, []string{"x"}); got != `(a:"x" OR b:"x")` {
 		t.Errorf("çoklu alan: %s", got)
 	}
-	if teamLogsHref(nil, []string{"x"}, 1, 2) != "" || teamLogsHref([]string{"a"}, nil, 1, 2) != "" {
+	if teamLogsHref("t", nil, []string{"x"}, 1, 2) != "" || teamLogsHref("t", []string{"a"}, nil, 1, 2) != "" {
 		t.Error("eksik girdi → bağlantı yok")
 	}
 }

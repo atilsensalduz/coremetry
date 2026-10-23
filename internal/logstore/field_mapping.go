@@ -55,6 +55,10 @@ const (
 // değil: eşlemede alanı raporlanmaz, yalnız uygulanmadıysa itiraf edilir).
 const FilterSeverity = "severity"
 
+// FilterTeam — v0.10.1477: Page.UnappliedFilters'ta takım süzgecinin adı
+// (`/logs?team=`; ES'te takım alanı yapılandırılmamışsa ya da CH backend'i).
+const FilterTeam = "team"
+
 // FieldRoles — raporlanan rollerin kanonik sırası.
 var FieldRoles = []string{
 	RoleService, RoleEnv, RoleCluster, RoleNamespace, RolePod,

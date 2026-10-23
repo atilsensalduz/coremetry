@@ -10423,3 +10423,40 @@ guided'a giden sorunun sondada döngüye ulaşması, `bindService` uçtan uca + 
 sunulmayan araç → harness atlaması); `TestEvalsetFixturesValid` (sonda araçları döngü kataloğunda, bindService
 soruda, intentAnyOf gerekçeli); `TestRoutingRegression` +6 satır; `TestEvalsetProductionLabelTable` pini +1;
 fe `aiEval.test.ts` (rozet, bağlama künyesi, beklenti satırları). Kademe sırası, MCP 74, api.go boyu değişmedi.
+
+## 2026-10-23 — v0.10.1477 — /logs birinci sınıf `team=` süzgeci + "Takımım" otomatik varsayılanı
+
+**Bağlam.** Operatör: "Uygulama takımımı da karşılamak isterim; hatta mümkünse giren kişinin takımına göre logs sayfası
+filtrelensin otomatik." v0.10.1473 takım alanını (`fields.team`) ve kanonik takım → ham yazım genişletmesini CoSRE için
+getirmişti; /logs'a giden kanıt çipi ham `q=` Lucene metni taşıyordu (CH'de gövde araması, ES'te query_string).
+
+**Karar.** (1) `team=<takım>` mevcut /logs okumalarının (search GET/POST, timeseries, fieldstats, patterns, stream)
+parametresi — yeni okuma rotası yok (`pattern=` emsali). API katmanı (`logs_team.go` `applyLogsTeamParam`) değeri doğrular
+(≤128, kontrol karakteri → 400) ve 1473'ün `teamLogLabelValues` genişletmesiyle ≤10 ham yazıma açar; takım alanı boşsa
+çözüm yapılmaz. `logstore.Filter.Team/TeamValues` → ES `buildQuery` filtre bağlamında `teamValueClause` (alan × değer
+exact-term OR, `.keyword` + exists-korumalı çıplak alan; wildcard/query_string YOK — TeamRecentLogs ile aynı yan tümce,
+parite testi). Alan yapılandırılmamışsa ya da CH backend'inde süzgeç uygulanmaz ve `Page.unappliedFilters` "team" der;
+/logs dürüst uyarı çipi gösterir. Önbellek anahtarları (liste, histogram, fieldstats, patterns, canlı kuyruk grubu) takım +
+sıralı değer özetini taşır; takımsız anahtar bayt-bayt aynı. (2) `GET /api/logs/my-team` → `{team, available, fields}`:
+users.team (CoSRE starters'la aynı kaynak); available = alan dolu VE backend Elasticsearch; kapalıyken kullanıcı satırı
+okunmaz; 60 s cache, anahtar kullanıcı + alanlar + backend; rol kapısı yok. (3) FE: URL'de süzgeç parametresi YOKSA
+(service/cluster/q/severity/traceId/spanId/hasTrace/pattern/team/filters/doc; range/env/cols/panel süzgeç değil) ve
+takım + özellik varsa sayfa `team=` BİR KEZ yazar (replace:true), "Takımım: <takım>" çipi; karar beklenirken liste,
+histogram, seviye çipleri ve desen paneli istek ATMAZ (süzgeçsiz bir ES okuması atılıp çöpe gitmesin). Çip × → vazgeçme
+kullanıcı başına localStorage'da (`coremetry.logs.myTeamOptOut.<id>`, try/catch); "Takımım" düğmesi geri açar ve bayrağı
+siler; "Değiştir" mevcut TeamPicker'ı açar. Açık URL (paylaşılan link, CoSRE çipi, kayıtlı görünüm) her zaman kazanır.
+Kibana bağlantısı takım etkinken gizli (değerler sunucuda çözülür, KQL'e çevrilmez). (4) CoSRE "Son loglar (takım)"
+çipi artık `/logs?team=<takım>&severity=17&range=…`; eski `q=` bağlantıları serbest metin olarak çalışmaya devam eder.
+
+**Bedel.** Takımlı istek başına bir süreç-içi katalog + tek satır alias okuması; temiz /logs açılışında bir küçük
+my-team isteği (ES değil) liste isteğinden önce.
+
+**Geri alma.** Settings → Elasticsearch → Team field'ı temizle → my-team `available:false`, otomatik varsayılan devre dışı,
+/logs v0.10.1476 ile aynı davranır (açık `team=` linkleri "uygulanmadı" çipi gösterir, sonuç süzülmez). Kullanıcı tarafı:
+çipteki × (kalıcı vazgeçme). Tam: commit revert + yeni etiket (URL'deki `team=` eski sürümde yok sayılır).
+
+**Testler.** logstore `TestTeamFilterValues`, `TestESTeamFilterClauseTable`, `TestBuildQueryTeamFilterContext`,
+`TestTeamFilterUnappliedHonesty`; api `TestLogsTeamFromQuery`, `TestLogsReads_TeamParam`, `TestLogsTeamExpansionIntoFilter`,
+`TestLogsCacheKeys_IncludeTeam`, `TestLogsMyTeamKey`, `TestLogsMyTeamGates`, `TestTeamLogsHref`; fe `logsTeam.test.ts`,
+`logsUrl.test.ts` (team), `Logs.teamDefault.test.tsx` (bir kez uygula, açık URL kazanır, kapalı/no-team no-op, × vazgeçme
+kalıcı + geri açma, picker, CoSRE linki, uygulanmadı çipi, tek liste okuması).

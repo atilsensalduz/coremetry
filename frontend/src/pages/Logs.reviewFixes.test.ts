@@ -20,7 +20,7 @@ describe('log-search slice 1 review fixes (v0.10.420)', () => {
     expect(src).toContain("message: 'Canlı kuyruk açık — yeni satır bekleniyor.");
   });
   it('statik sorgu canlıyken kapalı', () => {
-    expect(src).toContain('{ enabled: !live }');
+    expect(src).toContain('{ enabled: !live && !teamGate }'); // v0.10.1477 — takım kararı beklenirken de kapalı
     expect(read('../lib/queries/logs.ts')).toContain('enabled: opts?.enabled ?? true');
   });
   it('wrap düğmesi adı sabit, durum aria-pressed', () => {

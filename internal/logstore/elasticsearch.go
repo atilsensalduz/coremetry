@@ -1700,10 +1700,16 @@ func (s *ESStore) Search(ctx context.Context, f Filter) (*Page, error) {
 // döndürüyordu. Davranış değişmez (metin seviyesine çeviri /logs'un
 // sözleşmesini değiştirirdi) — yalnız itiraf edilir.
 func esSearchUnapplied(f Filter, fields ESFieldMap) []string {
+	var out []string
 	if f.SeverityMin > 0 && fields.SeverityNo == "" {
-		return []string{FilterSeverity}
+		out = append(out, FilterSeverity)
 	}
-	return nil
+	// v0.10.1477 — takım istendi ama takım alanı yapılandırılmamış (ya da
+	// geçersiz): sonuçlar takıma göre SÜZÜLMEMİŞTİR.
+	if _, ok := esTeamFilter(f, fields.Team); !ok {
+		out = append(out, FilterTeam)
+	}
+	return out
 }
 
 // searchForward is the live-tail read (Filter.SinceNs > 0): a plain
@@ -2862,6 +2868,12 @@ func (s *ESStore) buildQuery(f Filter) map[string]any {
 	// grafiğinin yan tümcesinin AYNISI, filtre bağlamında; serbest metinle AND.
 	if f.Pattern != nil {
 		filter = append(filter, patternFilterClause(f.Pattern, s.fields.Body))
+	}
+	// v0.10.1477 — takım süzgeci (`/logs?team=`): TeamRecentLogs'un exact-term
+	// yan tümcesi (alan × değer OR, iki eşleme biçimi), filtre bağlamında.
+	// Alan yapılandırılmamışsa yan tümce YOK ve esSearchUnapplied "team" der.
+	if tc, ok := esTeamFilter(f, s.fields.Team); ok && tc != nil {
+		filter = append(filter, tc)
 	}
 	if f.SeverityMin > 0 && s.fields.SeverityNo != "" {
 		filter = append(filter, map[string]any{

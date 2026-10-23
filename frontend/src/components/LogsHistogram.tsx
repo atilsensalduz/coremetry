@@ -44,6 +44,9 @@ type Filter = {
   // farklı nüfus. Sunucu dedektörün yüklemini uygular (anomali grafiğiyle
   // aynı sayım).
   pattern?: string;
+  // v0.10.1477 — takım süzgeci (`?team=`); liste taşıyıp grafik taşımasaydı
+  // v0.9.216 sınıfı (aynı ekranda iki nüfus).
+  team?: string;
   severity: number;
   traceId: string;
   spanId: string;
@@ -112,7 +115,7 @@ export function histogramFeedsChips(bd: LogsBreakdown, severityFloor: number): b
   return severityFloor === 0 && bd === 'severity';
 }
 
-export function LogsHistogram({ range, filter, onRangeSelect, onZoomReset, onSeries, breakdown, onBreakdown, onSeriesPick, spikeSubject }: {
+export function LogsHistogram({ range, filter, onRangeSelect, onZoomReset, onSeries, breakdown, onBreakdown, onSeriesPick, spikeSubject, paused }: {
   range: { from?: number; to?: number };
   filter: Filter;
   // Drag-select a horizontal span → called with the selection as unix-ns
@@ -140,6 +143,8 @@ export function LogsHistogram({ range, filter, onRangeSelect, onZoomReset, onSer
   // LogSpikeCard; kanıt tıkta bir kez okunur). Yalnız /logs
   // geçirir; copilot kapalıysa düğme kendini gizler (AIExplainButton).
   spikeSubject?: AISubject;
+  // v0.10.1477 — true iken fetch YOK (ebeveynin süzgeç kararı bekleniyor).
+  paused?: boolean;
 }) {
   const [data, setData] = useState<Series[] | null | undefined>(undefined);
   // v0.9.358 — the per-band series this chart ALREADY fetches, exposed to the
@@ -153,6 +158,9 @@ export function LogsHistogram({ range, filter, onRangeSelect, onZoomReset, onSer
 
   useEffect(() => {
     setData(undefined);
+    // v0.10.1477 — ebeveyn süzgeç kararını bekliyor ("Takımım" varsayılanı
+    // çözülüyor): süzgeçsiz bir ES isteği atılıp hemen çöpe gitmesin.
+    if (paused) return;
     if (!range.from && !range.to && !filter.traceId) {
       // No bounded window AND no trace pin → don't blow the chart up on full
       // retention; the table below applies its own bound.
@@ -167,6 +175,7 @@ export function LogsHistogram({ range, filter, onRangeSelect, onZoomReset, onSer
       env:     filter.env     || undefined, // v0.8.400 — global env filter
       search:  filter.search  || undefined,
       pattern: filter.pattern || undefined, // v0.10.1071
+      team:    filter.team    || undefined, // v0.10.1477
       severity: filter.severity > 0 ? filter.severity : undefined,
       traceId: filter.traceId || undefined,
       hasTrace: filter.hasTrace || undefined, // v0.9.287
@@ -197,7 +206,7 @@ export function LogsHistogram({ range, filter, onRangeSelect, onZoomReset, onSer
         if (bd === 'severity') onSeriesRef.current?.(null);
       });
     return () => { alive = false; };
-  }, [range.from, range.to, filter.service, filter.cluster, filter.env, filter.search, filter.pattern, filter.severity, filter.traceId, filter.hasTrace, bd]);
+  }, [range.from, range.to, filter.service, filter.cluster, filter.env, filter.search, filter.pattern, filter.team, filter.severity, filter.traceId, filter.hasTrace, bd, paused]);
 
   const { times, series, totals } = useMemo(
     // v0.9.1250 — seviye DIŞINDAKİ her eksen grup katlamasını kullanır

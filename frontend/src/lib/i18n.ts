@@ -380,9 +380,31 @@ const EN: Catalog = {
   'dash.addFromChat.skip.cap':       'dashboard panel limit reached',
   'dash.addFromChat.skip.size':      'dashboard size limit reached',
   // v0.10.1443 END
+  // v0.10.1477 — /logs takım süzgeci ("Takımım" varsayılanı)
+  'logs.team.mine':           'My team',
+  'logs.team.label':          'Team',
+  'logs.team.change':         'Change',
+  'logs.team.pick':           'Pick a team…',
+  'logs.team.remove':         'Remove team filter',
+  'logs.team.removeTitle':    'Remove the team filter (your team is no longer applied automatically on this browser; use “My team” to turn it back on)',
+  'logs.team.applyTitle':     'Filter logs to your team (team label fields from Settings → Elasticsearch)',
+  'logs.team.chipTitle':      'Exact match on the configured team field(s), every spelling of this team',
+  'logs.team.unapplied':      'team filter not applied — no team field on this log source',
+  'logs.team.unappliedTitle': 'The team filter could not be applied: the log backend is ClickHouse or no Team field is set in Settings → Elasticsearch. The rows below are NOT filtered by team.',
 };
 
 const TR: Catalog = {
+  // v0.10.1477 — /logs takım süzgeci
+  'logs.team.mine':           'Takımım',
+  'logs.team.label':          'Takım',
+  'logs.team.change':         'Değiştir',
+  'logs.team.pick':           'Takım seç…',
+  'logs.team.remove':         'Takım süzgecini kaldır',
+  'logs.team.removeTitle':    'Takım süzgecini kaldır (takımın bu tarayıcıda artık otomatik uygulanmaz; geri açmak için “Takımım”)',
+  'logs.team.applyTitle':     'Logları takımına göre süz (takım etiketi alanları: Ayarlar → Elasticsearch)',
+  'logs.team.chipTitle':      'Yapılandırılmış takım alan(lar)ında bu takımın tüm yazımlarıyla tam eşleşme',
+  'logs.team.unapplied':      'takım süzgeci uygulanmadı — bu log kaynağında takım alanı yok',
+  'logs.team.unappliedTitle': 'Takım süzgeci uygulanamadı: log backend\'i ClickHouse ya da Ayarlar → Elasticsearch\'te Team alanı boş. Aşağıdaki satırlar takıma göre SÜZÜLMEMİŞTİR.',
   // Sidebar group headings
   'navGroup.triage':     'Olay yönetimi',
   'navGroup.services':   'Servisler',

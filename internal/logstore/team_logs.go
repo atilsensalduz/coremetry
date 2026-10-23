@@ -472,3 +472,39 @@ func (s *CHStore) TeamRecentLogs(ctx context.Context, q TeamLogsQuery) (*TeamLog
 func (s *Switchable) TeamRecentLogs(ctx context.Context, q TeamLogsQuery) (*TeamLogsResult, error) {
 	return s.Current().TeamRecentLogs(ctx, q)
 }
+
+// ── /logs `team=` süzgeci (v0.10.1477) ──────────────────────────────────────
+//
+// TeamRecentLogs'un yan tümcesi (teamValueClause) /logs listesine, histogramına,
+// alan istatistiklerine ve desen örneklemesine de uygulanır: Filter.TeamValues
+// (API katmanının çözdüğü ham yazımlar) × yapılandırılmış takım alanları.
+// İki yüzey aynı "takımın logları"nı görür — CoSRE kanıt çipi ile /logs
+// arasında ayrışma yok.
+
+// TeamFilterValues — SAF: Filter'ın takım değerleri (kırpılmış, tekil,
+// ≤TeamLogsMaxValues). TeamValues boş ama Team doluysa [Team] — boş IN listesi
+// "tüm filo" demek olurdu (sessiz kapsam patlaması). Takım istenmemişse nil.
+func TeamFilterValues(f Filter) []string {
+	vals := teamLogValues(f.TeamValues)
+	if len(vals) == 0 {
+		if t := strings.TrimSpace(f.Team); t != "" {
+			vals = []string{t}
+		}
+	}
+	return vals
+}
+
+// esTeamFilter — SAF: ES filtre yan tümcesi + uygulandı mı. Takım istenmemişse
+// (nil, true). Alan yapılandırılmamış / geçersizse (nil, false): çağıran
+// yan tümce EKLEMEZ, Page.UnappliedFilters "team" der.
+func esTeamFilter(f Filter, teamField string) (map[string]any, bool) {
+	vals := TeamFilterValues(f)
+	if len(vals) == 0 {
+		return nil, true
+	}
+	fields, err := ParseTeamFields(teamField)
+	if err != nil || len(fields) == 0 {
+		return nil, false
+	}
+	return teamValueClause(fields, vals), true
+}

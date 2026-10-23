@@ -133,6 +133,11 @@ func chSearchUnapplied(f Filter) []string {
 	if f.Namespace != "" {
 		out = append(out, RoleNamespace)
 	}
+	// v0.10.1477 — takım etiketi CH logs tablosunda yapılandırılmış bir rol
+	// değil (takım alanı ayarı ES belge yolu): `/logs?team=` burada uygulanmaz.
+	if len(TeamFilterValues(f)) > 0 {
+		out = append(out, FilterTeam)
+	}
 	return out
 }
 

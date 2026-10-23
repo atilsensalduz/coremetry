@@ -1,7 +1,7 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type { LogsParams, LogsTemplatesParams } from '@/lib/api';
-import type { LogsResponse, LogPatternsResult, LogTemplate } from '@/lib/types';
+import type { LogsResponse, LogsMyTeam, LogPatternsResult, LogTemplate } from '@/lib/types';
 
 // /api/logs query — keyed on the full filter object so a
 // pagination click or filter change caches separately.
@@ -66,5 +66,18 @@ export function useLogsTemplates(params: LogsTemplatesParams, enabled: boolean) 
     refetchOnWindowFocus: false,
     placeholderData: keepPreviousData,
     enabled,
+  });
+}
+
+// v0.10.1477 — /logs "Takımım" otomatik varsayılanı: kullanıcının takımı +
+// özelliğin açık olup olmadığı. Ucuz uç (ES'e gitmez; sunucu 60 s cache) —
+// staleTime = sunucu TTL. Hata = takımsız davranış (sayfa bugünkü gibi).
+export function useLogsMyTeam() {
+  return useQuery<LogsMyTeam>({
+    queryKey: ['logs', 'my-team'],
+    queryFn: ({ signal }) => api.logsMyTeam(signal),
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+    retry: false,
   });
 }

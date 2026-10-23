@@ -32,7 +32,7 @@ import { ShareButton } from '@/components/ShareButton';
 import { buildKibanaURL, buildKQLFromFilter } from '@/lib/kibanaLink';
 import { logsUseTimeRange } from '@/lib/logsTraceWindow'; // v0.10.690
 import type { KibanaSettings } from '@/lib/types';
-import { useLogs } from '@/lib/queries';
+import { useLogs, useLogsMyTeam } from '@/lib/queries';
 import { usePageZoomRange } from '@/lib/chart/usePageZoomRange';
 import { useUrlEnv } from '@/lib/useUrlEnv';
 import { useTablePrefs } from '@/lib/queries/prefs';
@@ -50,7 +50,11 @@ import {
   extractHighlightTerms, toggleExistsFilter, replaceFilterAt,
 } from '@/lib/logFilters';
 import type { LogFilter } from '@/lib/logFilters';
-import { logsUrlSig, writeLogsParams, readLogsUrlState, buildDocPermalink, parseDocParam, parseLogsPanel } from '@/lib/logsUrl';
+import { logsUrlSig, writeLogsParams, readLogsUrlState, buildDocPermalink, parseDocParam, parseLogsPanel, logsUrlHasFilterState } from '@/lib/logsUrl';
+import { decideTeamAutoApply, isSameTeam, readTeamOptOut, writeTeamOptOut } from '@/lib/logsTeam';
+import { TeamPicker } from '@/components/TeamPicker';
+import { useAuth } from '@/components/AuthProvider';
+import { useT } from '@/lib/i18n';
 import type { LogsResponse, LogRow, TimeRange } from '@/lib/types';
 import { PageControls } from '@/components/ui/PageControls';
 import { EnterHint } from '@/components/ui/EnterHint';
@@ -206,6 +210,30 @@ function LogsInner() {
   const [initialUrl] = useState(() => readLogsUrlState(searchParams));
   const [filter, setFilter] = useState(initialUrl.filter);
   const [draft, setDraft] = useState(filter);
+  // v0.10.1477 (operatör 2026-10-23: "giren kişinin takımına göre logs sayfası
+  // filtrelensin otomatik") — "Takımım" varsayılanı. Karar SAF çekirdekte
+  // (lib/logsTeam.ts): URL'de süzgeç varsa hiç dokunulmaz (açık link kazanır);
+  // takım çözüldüyse VE takım süzgeci açıksa (ES + takım alanı) team= BİR KEZ
+  // yazılır (replace). Çip kaldırılırsa vazgeçme kullanıcı başına hatırlanır.
+  // Karar beklenirken liste/histogram/desen okuması ATILMAZ — süzgeçsiz bir ES
+  // isteği atıp hemen takımlısıyla değiştirmek ES-maliyet disiplinini bozardı.
+  const tr = useT();
+  const userId = useAuth().user?.id;
+  const myTeamQ = useLogsMyTeam();
+  const myTeam = myTeamQ.isError ? null : myTeamQ.data;
+  const [urlHadFilters] = useState(() => logsUrlHasFilterState(searchParams));
+  const teamAutoDone = useRef(false);
+  const [teamOptOut, setTeamOptOutState] = useState(() => readTeamOptOut(userId));
+  useEffect(() => { setTeamOptOutState(readTeamOptOut(userId)); }, [userId]);
+  const teamDecision = decideTeamAutoApply({ urlHadFilters, optedOut: teamOptOut, done: teamAutoDone.current, myTeam });
+  // Süzgeç kararı bekleniyor (my-team çözülüyor ya da uygulanmak üzere):
+  // statik okumalar o arada koşmaz.
+  const teamGate = teamDecision.kind !== 'none';
+  const myTeamName = myTeam?.available ? (myTeam.team ?? '').trim() : '';
+  const [teamPickerOpen, setTeamPickerOpen] = useState(false);
+  const [teamDraft, setTeamDraft] = useState('');
+  // teamAutoDone bir ref; kilitlendiğinde kapıyı açmak için bir render gerekir.
+  const [, setTeamGateTick] = useState(0);
   // v0.10.298 — "Desenler" paneli (log-search Dilim 2b): açık/kapalı kalıcı;
   // fetch yalnız açıkken. Satır/"Ara" → türetilmiş sorgu serbest metne.
   // v0.10.448 (log arama denetimi C8) — Desenler paneli URL'den de
@@ -515,10 +543,11 @@ function LogsInner() {
     env: env || undefined, // v0.8.400 — global env filter
     search: compiledSearch || undefined,
     pattern: filter.pattern || undefined, // v0.10.1071
+    team: filter.team || undefined, // v0.10.1477
     severity: filter.severity > 0 ? filter.severity : undefined,
     traceId: filter.traceId || undefined,
     spanId: filter.spanId || undefined,
-  }), [from, to, filter.service, filter.cluster, env, compiledSearch, filter.pattern, filter.severity, filter.traceId, filter.spanId]);
+  }), [from, to, filter.service, filter.cluster, env, compiledSearch, filter.pattern, filter.team, filter.severity, filter.traceId, filter.spanId]);
   const staticQ = useLogs({
     limit: 100, after: cursor || undefined, from, to,
     service: filter.service || undefined,
@@ -526,12 +555,13 @@ function LogsInner() {
     env: env || undefined, // v0.8.400 — global env filter
     search: compiledSearch || undefined,
     pattern: filter.pattern || undefined, // v0.10.1071 — desen süzgeci (sunucuda dedektörün yüklemi)
+    team: filter.team || undefined, // v0.10.1477 — takım süzgeci (sunucu ham yazımlara açar)
     severity: filter.severity > 0 ? filter.severity : undefined,
     traceId: filter.traceId || undefined,
     spanId:  filter.spanId  || undefined,
     hasTrace: filter.hasTrace || undefined, // v0.8.406 — trace-only filter
     asc: asc || undefined, // v0.9.295 — oldest-first
-  }, { enabled: !live }); // v0.10.420 — canlıyken statik sorgu koşmaz
+  }, { enabled: !live && !teamGate }); // v0.10.420 — canlıyken statik sorgu koşmaz; v0.10.1477 — takım kararı beklenirken de
 
   // Level-facet counts. A per-severity timeseries query feeds the
   // toolbar facet chip badges (the duplicate Logs-local stacked-bar
@@ -568,11 +598,11 @@ function LogsInner() {
     // dep: ERROR tabanındayken onSeries ALT-KÜME toplamları vermişti;
     // All'a dönüşte o alt-küme "tüm seviyelerin sayımı" gibi görünmesin.
     setHistTotals(undefined);
-  }, [from, to, filter.service, filter.cluster, env, compiledSearch, filter.pattern, filter.severity, filter.traceId, filter.hasTrace, breakdown]);
+  }, [from, to, filter.service, filter.cluster, env, compiledSearch, filter.pattern, filter.team, filter.severity, filter.traceId, filter.hasTrace, breakdown]);
   const volumeQ = useQuery({
     // v0.9.216 — cluster joins the key AND the request: without it the chips
     // counted every cluster while the table below showed one.
-    queryKey: ['logs', 'sev-volume', from, to, filter.service, filter.cluster, env, compiledSearch, filter.pattern, filter.traceId, filter.hasTrace, volumeBucket],
+    queryKey: ['logs', 'sev-volume', from, to, filter.service, filter.cluster, env, compiledSearch, filter.pattern, filter.team, filter.traceId, filter.hasTrace, volumeBucket],
     queryFn: () => api.logsTimeseries({
       from, to,
       service: filter.service || undefined,
@@ -580,12 +610,13 @@ function LogsInner() {
       env:     env || undefined, // v0.8.400 — global env filter
       search:  compiledSearch || undefined,
       pattern: filter.pattern || undefined, // v0.10.1071
+      team:    filter.team || undefined, // v0.10.1477
       traceId: filter.traceId || undefined,
       hasTrace: filter.hasTrace || undefined, // v0.8.406 — trace-only filter
       groupBy: 'severity',
       bucketSec: volumeBucket,
     }),
-    enabled: volumeEnabled && !chipsFromHistogram,
+    enabled: volumeEnabled && !chipsFromHistogram && !teamGate,
     staleTime: 30_000,
   });
   const sevSeries: SevSeries[] = volumeQ.data ?? [];
@@ -633,6 +664,7 @@ function LogsInner() {
       if (filter.severity > 0) p.set('severity', String(filter.severity));
       if (filter.hasTrace) p.set('hasTrace', '1'); // v0.8.406 — trace-only filter
       if (filter.pattern) p.set('pattern', filter.pattern); // v0.10.1071 — desen süzgeci canlı kuyrukta da
+      if (filter.team) p.set('team', filter.team); // v0.10.1477 — takım süzgeci canlı kuyrukta da
       // v0.10.416 (log arama denetimi B2) — trace kilidi canlı kuyruğa da
       // taşınır; eskiden "Filtered to trace" şeridi dururken kuyruk tüm
       // servisi akıtıyordu. Sunucu zaten okuyor (streamLogs traceId/spanId).
@@ -666,7 +698,7 @@ function LogsInner() {
       es?.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, filter.service, filter.cluster, env, compiledSearch, filter.pattern, filter.severity, filter.hasTrace, filter.traceId, filter.spanId]); // v0.10.416 — kilit değişince akış yeniden açılır
+  }, [live, filter.service, filter.cluster, env, compiledSearch, filter.pattern, filter.team, filter.severity, filter.hasTrace, filter.traceId, filter.spanId]); // v0.10.416 — kilit değişince akış yeniden açılır
 
   // When live, the table renders the SSE buffer; otherwise the static
   // windowed query. Live has no loading/error gate — rows fill in as they
@@ -757,7 +789,7 @@ function LogsInner() {
     if (range.preset === 'custom') void staticQ.refetch(); else setNowTick(t => t + 1);
   };
   const reset = () => {
-    const empty = { service: '', cluster: '', search: '', severity: 0, traceId: '', spanId: '', hasTrace: false, pattern: '' };
+    const empty = { service: '', cluster: '', search: '', severity: 0, traceId: '', spanId: '', hasTrace: false, pattern: '', team: '' };
     setDraft(empty); setFilter(empty); setFilters([]); resetPaging();
     writeUrl(empty, []);
   };
@@ -806,6 +838,39 @@ function LogsInner() {
     resetPaging();
     writeUrl(next, filters);
   };
+  // v0.10.1477 — takım süzgeci (oto-uygula, desen çipiyle aynı). Kendi
+  // takımını seçmek vazgeçmeyi siler; çipin ×'i vazgeçmeyi yazar (otomatik
+  // varsayılan bu tarayıcıda bu kullanıcı için bir daha uygulanmaz).
+  const setTeam = (team: string) => {
+    const t = team.trim();
+    const next = { ...filter, team: t };
+    setFilter(next); setDraft(d => ({ ...d, team: t }));
+    resetPaging();
+    writeUrl(next, filters);
+    if (t && myTeamName && isSameTeam(t, myTeamName) && teamOptOut) {
+      writeTeamOptOut(userId, false); setTeamOptOutState(false);
+    }
+  };
+  const clearTeam = () => {
+    writeTeamOptOut(userId, true); setTeamOptOutState(true);
+    setTeamPickerOpen(false);
+    setTeam('');
+  };
+  // Otomatik varsayılan — BİR KEZ. Karar verildiği anda (uygula ya da hiçbir
+  // şey) teamAutoDone kilitlenir; sonraki URL değişimleri (sıfırlama, SPA
+  // gezinmesi) yeniden uygulamaz. Operatör bu arada kendisi bir süzgeç
+  // kurduysa onun seçimi kazanır.
+  useEffect(() => {
+    if (teamAutoDone.current || teamDecision.kind === 'pending') return;
+    teamAutoDone.current = true;
+    if (teamDecision.kind !== 'apply') { setTeamGateTick(t => t + 1); return; }
+    const pristine = !filter.service && !filter.cluster && !filter.search && !filter.severity
+      && !filter.traceId && !filter.spanId && !filter.hasTrace && !filter.pattern && !filter.team
+      && filters.length === 0;
+    if (pristine) setTeam(teamDecision.team);
+    else setTeamGateTick(t => t + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamDecision.kind]);
   const toggle = (id: number) => {
     const next = new Set(expanded);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -987,6 +1052,9 @@ function LogsInner() {
             // istemci token bilmez); desen etkinken Kibana bağlantısı başka bir
             // dilimi açardı — "aynı dilim" sözü tutmayacaksa bağlantı çizilmez.
             if (filter.pattern) return null;
+            // v0.10.1477 — takım süzgeci de KQL'e çevrilmez (değerler sunucuda
+            // çözülür); aynı dilim sözü tutmayacaksa bağlantı yok.
+            if (filter.team) return null;
             const kql = buildKQLFromFilter({ ...filter, search: compiledSearch });
             const href = buildKibanaURL(kibana, {
               fromNs: from ?? undefined,
@@ -1030,6 +1098,33 @@ function LogsInner() {
             <Button variant="ghost" size="sm" onClick={clearPattern}
               aria-label={`Desen süzgecini kaldır: ${filter.pattern}`}
               title="Desen süzgecini kaldır (arama metni ve diğer süzgeçler kalır)">×</Button>
+          </div>
+        )}
+        {/* v0.10.1477 — takım süzgeci ÇİP olarak (desen çipinin eşi): sunucu
+            takımı ham etiket yazımlarına açar ve takım alan(lar)ında exact-term
+            OR uygular. "Değiştir" mevcut TeamPicker'ı açar; × süzgeci kaldırır
+            ve otomatik varsayılandan vazgeçmeyi hatırlar. */}
+        {filter.team && (
+          <div className="trace-lock" data-testid="logs-team-chip">
+            <span>{myTeamName && isSameTeam(filter.team, myTeamName) ? tr('logs.team.mine') : tr('logs.team.label')}:</span>
+            <code title={tr('logs.team.chipTitle')}>{filter.team}</code>
+            <Button variant="ghost" size="sm" data-testid="logs-team-change"
+              onClick={() => { setTeamDraft(filter.team); setTeamPickerOpen(o => !o); }}>{tr('logs.team.change')}</Button>
+            {teamPickerOpen && (
+              <TeamPicker value={teamDraft} onChange={setTeamDraft} width={190}
+                placeholder={tr('logs.team.pick')}
+                onEnter={v => { const t = (v ?? teamDraft).trim(); if (t) { setTeam(t); setTeamPickerOpen(false); } }} />
+            )}
+            <Button variant="ghost" size="sm" onClick={clearTeam}
+              aria-label={`${tr('logs.team.remove')}: ${filter.team}`}
+              title={tr('logs.team.removeTitle')}>×</Button>
+          </div>
+        )}
+        {!filter.team && !!myTeamName && !teamGate && (
+          <div style={{ marginBottom: 8 }}>
+            <Button variant="ghost" size="sm" data-testid="logs-team-apply"
+              title={tr('logs.team.applyTitle')}
+              onClick={() => setTeam(myTeamName)}>{tr('logs.team.mine')}: {myTeamName}</Button>
           </div>
         )}
         <PageControls sticky>
@@ -1181,6 +1276,17 @@ function LogsInner() {
           </div>
         )}
 
+        {/* v0.10.1477 — HONEST team-filter chip (env çipinin eşi): takım alanı
+            yapılandırılmamış ya da CH backend'i → sonuçlar takıma göre
+            SÜZÜLMEMİŞ; sessiz "takımın logları" yerine söylenir. */}
+        {!live && !!filter.team && !!staticQ.data?.unappliedFilters?.includes('team') && (
+          <div style={{ marginBottom: 10 }} data-testid="logs-team-unapplied">
+            <span className="badge b-warn" title={tr('logs.team.unappliedTitle')}>
+              ⚠ {tr('logs.team.unapplied')}
+            </span>
+          </div>
+        )}
+
         {/* Faz 0.5 — ham metin yerine markdown. Bkz. Shift.tsx'teki aynı
             düzeltme; pre-wrap kalkıyor çünkü RenderedMarkdown kendi blok
             düzenini kuruyor. AŞAĞIDAKİ "Query failed" hata kutusundaki
@@ -1200,7 +1306,7 @@ function LogsInner() {
           </div>
         )}
 
-        <LogPatternsPanel open={patternsOpen} onSearch={searchFromPattern} tab={panelTab} onTab={onPanelTab}
+        <LogPatternsPanel open={patternsOpen && !teamGate} onSearch={searchFromPattern} tab={panelTab} onTab={onPanelTab}
           params={{ ...filter, env, search: compiledSearch, from: from ?? undefined, to: to ?? undefined }} />
 
         {/* v0.9.1084 — HONEST with-trace chip (EnvUnapplied ikizi;
@@ -1448,7 +1554,8 @@ function LogsInner() {
           breakdown={breakdown} onBreakdown={setBreakdown}
           onSeries={setHistTotals}
           onSeriesPick={addFromRow} /* v0.10.503 (B8) — lejant ⊕ → pill */
-          spikeSubject={spikeSubject} /* v0.10.1284 — ✨ Artışı açıkla */ />
+          spikeSubject={spikeSubject} /* v0.10.1284 — ✨ Artışı açıkla */
+          paused={teamGate} /* v0.10.1477 — takım kararı beklenirken fetch yok */ />
 
         {/* v0.9.294 — narrow within results. Sits directly above the
             table because it acts on the table, and it says LOADED in

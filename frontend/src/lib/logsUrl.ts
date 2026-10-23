@@ -30,6 +30,12 @@ export interface LogsUrlFilter {
    * grafiğiyle aynı sayım); serbest metin (`q`) onunla AND'lenir.
    */
   pattern: string;
+  /**
+   * v0.10.1477 — takım süzgeci (`?team=`), boş = yok. Ham `q` DEĞİL: sunucu
+   * takımı kanonik takıma düşen tüm etiket yazımlarına açar ve yapılandırılmış
+   * takım alan(lar)ında exact-term OR uygular. Arama kutusuna yazılmaz — çip.
+   */
+  team: string;
 }
 
 // The identity of a URL-bearing view. Every field the URL carries must be
@@ -37,7 +43,7 @@ export interface LogsUrlFilter {
 export function logsUrlSig(f: LogsUrlFilter, filtersRaw: string, colsRaw: string): string {
   return JSON.stringify([
     f.service, f.cluster, f.search, f.severity, f.traceId, f.spanId, f.hasTrace,
-    filtersRaw, colsRaw, f.pattern,
+    filtersRaw, colsRaw, f.pattern, f.team,
   ]);
 }
 
@@ -57,6 +63,7 @@ export function writeLogsParams(
   setOrDel('spanId', f.spanId);
   setOrDel('hasTrace', f.hasTrace ? '1' : ''); // v0.8.406
   setOrDel('pattern', f.pattern); // v0.10.1071
+  setOrDel('team', f.team); // v0.10.1477
   setOrDel('filters', filtersRaw);
   setOrDel('cols', colsRaw);
   return p;
@@ -75,7 +82,22 @@ export function readLogsParams(p: URLSearchParams): LogsUrlFilter {
     spanId:   p.get('spanId')  ?? '',
     hasTrace: p.get('hasTrace') === '1', // v0.8.406
     pattern:  (p.get('pattern') ?? '').trim(), // v0.10.1071
+    team:     (p.get('team') ?? '').trim(), // v0.10.1477
   };
+}
+
+// LOGS_FILTER_PARAMS — v0.10.1477. /logs'un SÜZGEÇ taşıyan parametreleri:
+// "Takımım" otomatik varsayılanı yalnız bunların HİÇBİRİ yokken devreye girer
+// (paylaşılan link, CoSRE çipi, kayıtlı görünüm, doküman kalıcı linki her zaman
+// kazanır). Görünüm parametreleri (range, env, cols, panel, breakdown) süzgeç
+// değildir — Topbar'ın yapışkan `range=`'i otomatik varsayılanı engellemesin.
+export const LOGS_FILTER_PARAMS = [
+  'service', 'cluster', 'q', 'search', 'severity', 'traceId', 'spanId',
+  'hasTrace', 'pattern', 'team', 'filters', 'doc',
+] as const;
+
+export function logsUrlHasFilterState(p: URLSearchParams): boolean {
+  return LOGS_FILTER_PARAMS.some(k => (p.get(k) ?? '').trim() !== '');
 }
 
 // readLogsUrlState — v0.10.1076. URL → {süzgeç, ham filters/cols, sig} tek
@@ -231,6 +253,8 @@ export interface LogsPivot {
    * uygular, /logs anomali grafiğinin saydığını listeler.
    */
   pattern?: string;
+  /** v0.10.1477 — takım süzgeci (`team=`); sunucu ham etiket yazımlarına açar. */
+  team?: string;
   /** OTel severity-number FLOOR; 0/undefined = all levels (13 = warn). */
   severity?: number;
   /** Exact trace-id column filter. See the service/q note above. */
@@ -292,6 +316,7 @@ export function logsHref(p: LogsPivot): string {
   if (p.cluster) q.set('cluster', p.cluster);
   if (p.q) q.set('q', p.q);
   if (p.pattern) q.set('pattern', p.pattern); // v0.10.1071
+  if (p.team) q.set('team', p.team); // v0.10.1477
   if (p.severity && p.severity > 0) q.set('severity', String(p.severity));
   if (p.traceId) q.set('traceId', p.traceId);
   if (p.spanId) q.set('spanId', p.spanId);

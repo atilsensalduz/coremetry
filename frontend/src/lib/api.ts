@@ -4,7 +4,7 @@ OracleLogsResponse,
   PurgeResult,
   Service, ServiceEdge, TracesResponse, TracesExtrasResponse, TraceDetailResponse, TraceBundleResponse,
   CHMeasureResponse,
-  LogsResponse, LogFieldStats, NotificationLogEntry, MetricInfo, MetricNameSearchResult,
+  LogsResponse, LogsMyTeam, LogFieldStats, NotificationLogEntry, MetricInfo, MetricNameSearchResult,
   MetricPoint, HealthInfo, SortColumn, SortOrder,
   ProfileRow, ProfileDetail, ProfileHotspotsResponse, SpanHotspotsResponse, AggregateRow, SpanMetricSeries, SpanMetricResult, HistogramResult,
   MetricQueryResult,
@@ -882,6 +882,7 @@ export const api = {
     env?: string; // v0.8.400 — global ?env= deployment-environment filter
     search?: string;
     pattern?: string; // v0.10.1071 — küratörlü log deseni adı (liste ile aynı süzgeç)
+    team?: string; // v0.10.1477 — takım süzgeci (sunucu ham yazımlara açar)
     from?: number;
     to?: number;
     severity?: number;
@@ -933,6 +934,7 @@ export const api = {
     traceId?: string;
     spanId?: string;
     pattern?: string; // v0.10.1071 — küratörlü log deseni adı (liste ile aynı süzgeç)
+    team?: string; // v0.10.1477 — takım süzgeci (sunucu ham yazımlara açar)
     size?: number; // v0.9.1223 — yalnız 5|20 basamakları (sunucu kıskacı)
     errorLift?: 1; // v0.10.509 (C5) — hata seçimi vs taban lift'i (iki fieldstats)
   }) =>
@@ -1090,6 +1092,10 @@ export const api = {
   // "Ara" sorgusu). Sunucu 30 s cache; yalnız Şablonlar sekmesi açıkken.
   logsTemplates: (params: LogsTemplatesParams, signal?: AbortSignal) =>
     get<LogTemplate[]>(`/api/logs/templates?${qs(params)}`, signal),
+  // v0.10.1477 — giriş yapan kullanıcının takımı + takım süzgecinin açık olup
+  // olmadığı (takım alanı yapılandırılmış VE ES backend). /logs otomatik
+  // varsayılanı için; sunucu 60 s cache, kapalıyken kullanıcı satırı okunmaz.
+  logsMyTeam: (signal?: AbortSignal) => get<LogsMyTeam>('/api/logs/my-team', signal),
   logsFields: () => get<{ fields: string[]; total?: number; types?: Record<string, string>; backend: string }>(
     `/api/logs/fields`),
   // Top values of one keyword field prefix-matched against `q`.
@@ -4267,6 +4273,10 @@ export interface LogsParams {
   // pattern (v0.10.1071) — küratörlü log deseni ADI; sunucu dedektörün
   // yüklemini uygular (anomali grafiğiyle aynı sayım), `search` ile AND.
   pattern?: string;
+  // team (v0.10.1477) — takım süzgeci: sunucu takımı kanonik takıma düşen ham
+  // etiket yazımlarına açar, ES takım alan(lar)ında exact-term OR uygular.
+  // Uygulanamazsa yanıt unappliedFilters:['team'] der.
+  team?: string;
   severity?: number;
   traceId?: string;
   spanId?: string;

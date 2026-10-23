@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { logsUrlSig, writeLogsParams, readLogsParams, logsRangeParam, buildDocPermalink, parseDocParam, logsHref, type LogsUrlFilter, parseLogsPanel, readLogsUrlState } from './logsUrl';
+import { logsUrlSig, writeLogsParams, readLogsParams, logsRangeParam, buildDocPermalink, parseDocParam, logsHref, type LogsUrlFilter, parseLogsPanel, readLogsUrlState, logsUrlHasFilterState, LOGS_FILTER_PARAMS } from './logsUrl';
 import { decodeRange } from './urlState';
 
 // v0.8.546 — /logs `severity` was a live filter that never round-tripped
@@ -14,7 +14,7 @@ import { decodeRange } from './urlState';
 
 const base: LogsUrlFilter = {
   service: '', cluster: '', search: '', severity: 0,
-  traceId: '', spanId: '', hasTrace: false, pattern: '',
+  traceId: '', spanId: '', hasTrace: false, pattern: '', team: '',
 };
 const rt = (f: LogsUrlFilter) => readLogsParams(writeLogsParams(new URLSearchParams(), f, '', ''));
 
@@ -93,7 +93,7 @@ describe('logsUrlSig — the guard', () => {
     // clobbers the state the operator just set.
     const f: LogsUrlFilter = {
       service: 'api', cluster: 'eu', search: 'boom', severity: 17,
-      traceId: 'abc', spanId: 'def', hasTrace: true, pattern: 'External system rejected',
+      traceId: 'abc', spanId: 'def', hasTrace: true, pattern: 'External system rejected', team: 'orders-team',
     };
     expect(logsUrlSig(rt(f), '', '')).toBe(logsUrlSig(f, '', ''));
   });
@@ -316,11 +316,12 @@ describe('logsHref — agrees with readLogsParams, its own consumer', () => {
       service: 'checkout', cluster: 'prod-eu', q: 'timeout',
       severity: 17, traceId: 'abc', spanId: 'def', hasTrace: true,
       pattern: 'Disk full', // v0.10.1071
+      team: 'orders-team', // v0.10.1477
     });
     expect(readLogsParams(lp(href))).toEqual({
       service: 'checkout', cluster: 'prod-eu', search: 'timeout',
       severity: 17, traceId: 'abc', spanId: 'def', hasTrace: true,
-      pattern: 'Disk full',
+      pattern: 'Disk full', team: 'orders-team',
     });
   });
 
@@ -386,3 +387,26 @@ describe('readLogsUrlState (v0.10.1076)', () => {
   });
 });
 
+
+// v0.10.1477 — takım süzgeci (`?team=`) tur atar, sig'e girer, boşken yazılmaz;
+// süzgeç-durumu dedektörü görünüm parametrelerini süzgeç saymaz.
+describe('logsUrl — team (v0.10.1477)', () => {
+  it('round-trips team and keeps it out of the URL when empty', () => {
+    expect(rt({ ...base, team: 'orders-team' }).team).toBe('orders-team');
+    const p = writeLogsParams(new URLSearchParams('team=x'), base, '', '');
+    expect(p.has('team')).toBe(false);
+    expect(readLogsParams(new URLSearchParams('team=%20orders-team%20')).team).toBe('orders-team');
+  });
+  it('team is part of the sig (a team change is noticed by the import guard)', () => {
+    expect(logsUrlSig({ ...base, team: 'a' }, '', '')).not.toBe(logsUrlSig({ ...base, team: 'b' }, '', ''));
+    expect(logsUrlSig({ ...base, team: 'a' }, '', '')).not.toBe(logsUrlSig(base, '', ''));
+  });
+  it('logsUrlHasFilterState: view params are not filters; every filter param is', () => {
+    expect(logsUrlHasFilterState(new URLSearchParams(''))).toBe(false);
+    expect(logsUrlHasFilterState(new URLSearchParams('range=1h&env=prod&cols=a,b&panel=patterns&breakdown=service'))).toBe(false);
+    for (const k of LOGS_FILTER_PARAMS) {
+      expect(logsUrlHasFilterState(new URLSearchParams(`${k}=x`))).toBe(true);
+    }
+    expect(logsUrlHasFilterState(new URLSearchParams('q=%20'))).toBe(false);
+  });
+});

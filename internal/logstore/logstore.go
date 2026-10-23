@@ -56,6 +56,18 @@ type Filter struct {
 	// chLogsNamespaceExpr. CH Search (chstore.GetLogs) bu alanı TAŞIMIYOR —
 	// o yol Page.UnappliedFilters'a "namespace" yazar (sessiz no-op yok).
 	Namespace string
+	// Team / TeamValues (v0.10.1477 — /logs `team=` süzgeci, operatör
+	// 2026-10-23: "giren kişinin takımına göre logs sayfası filtrelensin").
+	// Team = istenen takım adı (önbellek anahtarı + teşhis); TeamValues =
+	// API katmanının çözdüğü ham etiket yazımları (kanonik takım → alias +
+	// katalog yazımları, ≤TeamLogsMaxValues — copilot_team_logs.go
+	// teamLogLabelValues). ES: yapılandırılmış takım alan(lar)ı
+	// (ESFieldMap.Team) × değerler üzerinde exact-term OR (teamValueClause —
+	// TeamRecentLogs ile AYNI yan tümce), filtre bağlamında; wildcard /
+	// query_string YOK. Alan yapılandırılmamışsa ya da CH backend'inde
+	// uygulanmaz ve Page.UnappliedFilters "team" der (sessiz no-op yok).
+	Team       string
+	TeamValues []string
 	// Env (v0.8.400 — env-separation Phase 4) — the global ?env=
 	// deployment-environment filter. CH backend: bounded res-array
 	// lookup over BOTH semconv spellings (deployment.environment.name
