@@ -161,6 +161,10 @@ type AnomalySensitivityConfig struct {
 	// (LabelMap.Env > deployment_environment_name > keşif; toleranslı eşleme);
 	// eşleşmezse VM KULLANILMAZ (span yedeği) — ortamlar sessizce karışmaz.
 	REDSourceEnv string `json:"redSourceEnv,omitempty"`
+	// Calendar — v0.10.1483: mevsimsel baseline'ların takvim etkileri (özel
+	// günler + isteğe bağlı otomatik ay sonu sınıfı; anomaly_calendar.go).
+	// Eksik bölüm (eski blob) = takvim yok, davranış bayt bayt eski.
+	Calendar AnomalyCalendarConfig `json:"calendar"`
 }
 
 const (
@@ -530,6 +534,8 @@ func DefaultAnomalySensitivity() AnomalySensitivityConfig {
 		ServiceSlowdown: DefaultServiceSlowdown(),
 		// v0.10.1478 — operatör isteği: VM varsa örneklenmemiş seri (auto).
 		REDSource: AnomalyREDSourceAuto,
+		// v0.10.1483 — takvim boş, otomatik ay sonu KAPALI.
+		Calendar: NormalizeAnomalyCalendar(AnomalyCalendarConfig{}),
 	}
 }
 
@@ -581,6 +587,8 @@ func NormalizeAnomalySensitivity(c AnomalySensitivityConfig) AnomalySensitivityC
 		// v0.10.1478 — kopyalanmazsa PUT'ta düşer ve kaynak her kayıtta auto'ya dönerdi.
 		REDSource:    normalizeREDSource(c.REDSource),
 		REDSourceEnv: normalizeREDSourceEnv(c.REDSourceEnv),
+		// v0.10.1483 — kopyalanmazsa PUT'ta düşerdi.
+		Calendar: NormalizeAnomalyCalendar(c.Calendar),
 	}
 	for _, m := range AnomalySensitivityMetrics {
 		def := d.Metrics[m]

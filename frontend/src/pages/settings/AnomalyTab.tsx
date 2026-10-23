@@ -8,6 +8,7 @@ import { Field, FlashBox, humanize } from './shared';
 import { droppedPatternCount, formatBatchPatterns, parseBatchPatterns } from './batchPatterns'; // v0.10.1039
 import { ServiceSlowdownSubsection } from './ServiceSlowdownSubsection'; // v0.10.1091
 import { REDSourceSubsection } from './REDSourceSubsection'; // v0.10.1478
+import { CalendarSubsection } from './CalendarSubsection'; // v0.10.1483
 
 // ── Anomaly promotion tab ───────────────────────────────────────
 //
@@ -562,6 +563,10 @@ function SensitivitySection() {
               gelmedi" → "Onay"). Operasyon gecikmesinin yanında, aynı Kaydet. */}
           <ServiceSlowdownSubsection value={cfg.serviceSlowdown}
             onChange={serviceSlowdown => setCfg({ ...cfg, serviceSlowdown })} />
+          {/* v0.10.1483 — takvim etkileri: özel günler mevsimsel baseline'ı ve
+              tatil/yarım günde istek hızı düşüşü terfisini değiştirir; aynı Kaydet. */}
+          <CalendarSubsection value={cfg.calendar}
+            onChange={calendar => setCfg({ ...cfg, calendar })} />
           {/* v0.10.1061 — log_template_new dedektörü: VARSAYILAN KAPALI (operatör
               onaylı: "Bu log anomalileri de false pozitif geliyor"). Alan yoksa
               kapalı okunur; kayıt açık boolean gönderir. log_pattern etkilenmez. */}

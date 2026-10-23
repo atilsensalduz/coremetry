@@ -6284,7 +6284,9 @@ export interface AnomalyEvent {
   // `sample` alanı serbest metin değil, BehaviorChangeDetails JSON'u.
   // v0.10.162 — `trace_op_latency`: recorder.go:187 (v0.9.1064) bu türü yazıyor,
   // birleşimde yoktu (tablo rengi/etiketi boş kalırdı).
-  kind: 'log_pattern' | 'trace_op' | 'trace_op_latency' | 'elastic_ml' | 'log_template_new' | 'behavior_change';
+  // v0.10.1483 — `calendar_traffic_drop`: takvim günü (tatil / yarım gün)
+  // bastırılan istek hızı düşüşü; Problem açılmadı, bildirim gitmedi.
+  kind: 'log_pattern' | 'trace_op' | 'trace_op_latency' | 'elastic_ml' | 'log_template_new' | 'behavior_change' | 'calendar_traffic_drop';
   pattern: string;
   service: string;
   startedAt: number;     // unix ns — first observation of the CURRENT episode (v0.10.1045)
@@ -9061,6 +9063,20 @@ export interface ServiceSlowdownConfig {
   maxNewPerTick: number;
 }
 
+// v0.10.1483 — özel gün türü ve satırı (tarihler UTC günü, YYYY-MM-DD).
+export type AnomalySpecialDayKind = 'holiday' | 'half-day' | 'month-end-like';
+export interface AnomalySpecialDay {
+  from: string;
+  to?: string;
+  label: string;
+  kind: AnomalySpecialDayKind;
+}
+export interface AnomalyCalendarConfig {
+  days: AnomalySpecialDay[];
+  monthEndAuto: boolean;
+  monthEndBusinessDays: number;
+}
+
 export interface AnomalySensitivityConfig {
   metrics: Record<string, AnomalyMetricSensitivity>;
   // Açılmak için üst üste ateşlemesi gereken 5-dk bucket sayısı.
@@ -9100,6 +9116,9 @@ export interface AnomalySensitivityConfig {
   // onaylı). Bölüm yoksa sunucu varsayılanlarla doldurur; enabled okuması
   // `!== false` (backend *bool, yok = AÇIK).
   serviceSlowdown?: ServiceSlowdownConfig;
+  // v0.10.1483 — mevsimsel baseline'ların takvim etkileri (özel günler +
+  // otomatik ay sonu). Bölüm yoksa (eski backend) takvim yok.
+  calendar?: AnomalyCalendarConfig;
   // v0.10.700 — kök neden hipotezinde zamansal çarpan: 'shadow' (varsayılan,
   // yok dahil) yalnız yazar, 'on' skoru çarpar. Okuma `=== 'on'`.
   temporalRanking?: 'shadow' | 'on';

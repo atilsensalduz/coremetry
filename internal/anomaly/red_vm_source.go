@@ -159,8 +159,7 @@ func (s *vmREDSource) prepare(ctx context.Context, now time.Time, sens chstore.A
 	v.upper = lastCompleteBucketStart(vnow).Unix()
 	v.vnow = vnow
 	v.consec = vmConsecutiveBuckets(vnow)
-	v.seasonal = vmSeasonalBuckets(vnow, days, neighbor)
-	v.seasonalClass = dayClass(vnow.UTC())
+	v.seasonal, v.seasonalClass = vmSeasonalBucketsCal(vnow, days, neighbor, sens.Calendar) // v0.10.1483 — takvim yedek sınıfı
 	if sens.Behavior.IsEnabled() {
 		v.behavior = vmBehaviorBuckets(vnow)
 	}

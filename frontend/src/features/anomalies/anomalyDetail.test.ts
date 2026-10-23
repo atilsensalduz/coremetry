@@ -109,6 +109,7 @@ describe('tür sınıfları ve etiketler', () => {
     expect(ANOMALY_KIND_PLAIN).toEqual({
       log_pattern: 'Log deseni', log_template_new: 'Yeni log biçimi', trace_op: 'Operasyon hatası',
       trace_op_latency: 'Operasyon gecikmesi', behavior_change: 'Davranış değişimi', elastic_ml: 'Elastic ML',
+      calendar_traffic_drop: 'Takvim günü düşüşü', // v0.10.1483
     });
   });
 });

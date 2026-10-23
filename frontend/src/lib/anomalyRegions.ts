@@ -21,6 +21,7 @@ export const ANOMALY_KIND_COLOR: Record<AnomalyEvent['kind'], string> = {
   log_template_new: 'var(--warn)',
   elastic_ml: 'var(--warn)',
   behavior_change: 'var(--teal)',
+  calendar_traffic_drop: 'var(--text3)', // v0.10.1483 — bastırılmış, sayfa açmaz
 };
 
 export const ANOMALY_KIND_TR: Record<AnomalyEvent['kind'], string> = {
@@ -30,6 +31,7 @@ export const ANOMALY_KIND_TR: Record<AnomalyEvent['kind'], string> = {
   log_template_new: 'yeni log şablonu',
   elastic_ml: 'elastic ML',
   behavior_change: 'davranış',
+  calendar_traffic_drop: 'takvim düşüşü', // v0.10.1483
 };
 
 /** Pencereyle kesişen, bu servise ait olaylar; başlangıca göre artan. */

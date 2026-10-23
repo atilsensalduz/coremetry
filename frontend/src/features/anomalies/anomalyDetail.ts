@@ -26,6 +26,7 @@ export const ANOMALY_KIND_LABEL: Record<AnomalyKind, string> = {
   elastic_ml: 'ELASTIC ML',
   log_template_new: 'NEW LOG SHAPE',
   behavior_change: 'BEHAVIOR',
+  calendar_traffic_drop: 'CALENDAR DROP', // v0.10.1483
 };
 
 // v0.10.1032 (operatör: "Anlaşılır olsun") — tam sayfanın tür rozeti düz
@@ -37,6 +38,7 @@ export const ANOMALY_KIND_PLAIN: Record<AnomalyKind, string> = {
   trace_op: 'Operasyon hatası',
   trace_op_latency: 'Operasyon gecikmesi',
   behavior_change: 'Davranış değişimi',
+  calendar_traffic_drop: 'Takvim günü düşüşü', // v0.10.1483
   elastic_ml: 'Elastic ML',
 };
 

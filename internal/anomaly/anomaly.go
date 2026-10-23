@@ -556,7 +556,7 @@ func (d *Detector) scan(ctx context.Context) {
 	// yazılmaz, kapı o metrikte hacmi bilinmiyor sayar.
 	seasonalRatesByMetric := make(map[string]map[string][]float64, len(tracked))
 	fetchSeasonal := func(m string) (map[string][]float64, error) {
-		vals, rates, err := d.fetchAllSeasonal(ctx, m, now, days, neighbor)
+		vals, rates, err := d.fetchAllSeasonal(ctx, m, now, days, neighbor, sens.Calendar, minSamples)
 		if err == nil {
 			seasonalRatesByMetric[m] = rates
 		}
@@ -878,6 +878,18 @@ func (d *Detector) applyOutcome(ctx context.Context, service, metric string, oc 
 		// v0.10.1478 — serinin kaynağı kanıtta: "kaynak: VictoriaMetrics
 		// (örneklenmemiş)" ya da "kaynak: span (örneklenmiş) — VM kullanılmadı: …".
 		desc = withREDEvidence(desc, oc.Evidence)
+		// v0.10.1483 — takvim günü (holiday / half-day): YENİ request_rate
+		// düşüşü Problem açmaz, olay olarak kaydedilir (/anomalies'te görünür,
+		// bildirim/incident yok). Açık Problem'in tazelenmesi aynen sürer.
+		if !hasOpen {
+			if kind := calendarDayKind(time.Now(), cfg.Calendar); calendarSuppressesDropPromotion(kind, metric, oc.Direction) {
+				if err := d.store.UpsertAnomalyEvent(ctx, calendarDropEvent(service, kind, current, median, time.Now())); err != nil {
+					log.Printf("[anomaly] takvim düşüşü kaydı %s: %v", ruleID, err)
+				}
+				log.Printf("[anomaly] SUPPRESSED (takvim %s) %s · %s = %.2f%s (med=%.2f z=%.1f) — Problem açılmadı", kind, service, metric, current, unitOf(metric), median, z)
+				return
+			}
+		}
 		if hasOpen {
 			open.Value = current
 			// v0.9.978 — yön her tazelemede YENİDEN yazılır. evalWindow
@@ -1426,6 +1438,24 @@ func buildAllSeasonalQuery(vexpr string) string {
 		SETTINGS max_execution_time = 25`, vexpr, sodExpr, classExpr)
 }
 
+// calendarLookbackDays — v0.10.1483: özel sınıfın (holiday / half-day /
+// month-end-like) önceki günleri bu kadar geriden aranır (service_summary_5m
+// TTL'i 90 gün). Okuma ilk eşleşen günden başlar (time_bucket >= ilk gün).
+const calendarLookbackDays = 90
+
+// buildCalendarSeasonalQuery — SAF (v0.10.1483): buildAllSeasonalQuery'nin
+// özel-gün ikizi; gün sınıfı eşitliği yerine UTC tarih listesi
+// (toDate(time_bucket, 'UTC') IN (…)). Geri kalan her şey (slot penceresi,
+// üst sınır, LIMIT'ler, max_execution_time) aynı sorgu metni.
+func buildCalendarSeasonalQuery(vexpr string, nDates int) string {
+	const classPred = "multiIf(toDayOfWeek(time_bucket, 0, 'UTC') = 6, 'saturday', toDayOfWeek(time_bucket, 0, 'UTC') = 7, 'sunday', 'weekday') = ?"
+	if nDates < 1 {
+		nDates = 1
+	}
+	ph := strings.TrimSuffix(strings.Repeat("?, ", nDates), ", ")
+	return strings.Replace(buildAllSeasonalQuery(vexpr), classPred, "toDate(time_bucket, 'UTC') IN ("+ph+")", 1)
+}
+
 // fetchAllSeasonal runs buildAllSeasonalQuery once for a metric and returns the
 // per-service seasonal samples (the same time-of-day slot as `at` PLUS its
 // ±neighborBuckets neighbours, across the last `days` days, matched on `at`'s
@@ -1443,7 +1473,7 @@ func buildAllSeasonalQuery(vexpr string) string {
 // serisiyle hizalı, aynı gün-çeşitliliği budaması). YALNIZ p99_ms için
 // biriktirilir (tek tüketen batch gecikme kapısı); diğer metriklerde nil →
 // kapı orada zaten koşmaz, koşsaydı da "bilinmiyor → susturma yok".
-func (d *Detector) fetchAllSeasonal(ctx context.Context, metric string, at time.Time, days, neighborBuckets int) (map[string][]float64, map[string][]float64, error) {
+func (d *Detector) fetchAllSeasonal(ctx context.Context, metric string, at time.Time, days, neighborBuckets int, cal chstore.AnomalyCalendarConfig, minSamples int) (map[string][]float64, map[string][]float64, error) {
 	vexpr, err := metricValueExpr(metric)
 	if err != nil {
 		return nil, nil, err
@@ -1452,9 +1482,43 @@ func (d *Detector) fetchAllSeasonal(ctx context.Context, metric string, at time.
 	// UTC-pinned toHour/toDayOfWeek (see buildAllSeasonalQuery). With no DST
 	// in TR, a constant offset keeps slot-matching consistent either way —
 	// but only when BOTH sides share one clock.
-	cutoff, upper, class, targetSod, radius := seasonalBinds(at, days, neighborBuckets)
+	cutoff, upper, _, targetSod, radius := seasonalBinds(at, days, neighborBuckets)
+	at = at.UTC()
+	// v0.10.1483 — takvimli sınıf: özel gün (holiday / half-day /
+	// month-end-like) SQL'e yedek sınıfıyla gider; özel sınıfın kendi
+	// örnekleri aşağıda tarih listesiyle ayrıca okunur (calendar.go).
+	class := dayClassCal(at, cal)
+	sqlClass := calendarFallbackClass(class, at)
 
-	rows, err := d.store.TelemetryReadConn().Query(ctx, buildAllSeasonalQuery(vexpr), cutoff, upper, class, targetSod, targetSod, radius)
+	out, rates, err := d.querySeasonal(ctx, metric, buildAllSeasonalQuery(vexpr), []any{cutoff, upper, sqlClass, targetSod, targetSod, radius}, seasonalMinDaysFor(sqlClass))
+	if err != nil || class == sqlClass {
+		return out, rates, err
+	}
+	dates := calendarSameKindDates(at, calendarLookbackDays, cal)
+	if len(dates) == 0 {
+		return out, rates, nil
+	}
+	first, _ := time.Parse("2006-01-02", dates[0])
+	args := []any{first, upper}
+	for _, dt := range dates {
+		args = append(args, dt)
+	}
+	args = append(args, targetSod, targetSod, radius)
+	sp, spRates, serr := d.querySeasonal(ctx, metric, buildCalendarSeasonalQuery(vexpr, len(dates)), args, calendarMinDays)
+	if serr != nil {
+		// Soft-fail: yedek sınıfın (pazar / cumartesi) tabanı kalır.
+		log.Printf("[anomaly] takvim mevsimseli (%s, %d gün): %v — yedek sınıf %s", class, len(dates), serr, sqlClass)
+		return out, rates, nil
+	}
+	out, rates = pickCalendarSeasonal(sp, spRates, out, rates, minSamples)
+	return out, rates, nil
+}
+
+// querySeasonal — mevsimsel okumanın satır döngüsü (v0.10.1483'te
+// fetchAllSeasonal'dan ayrıldı; gövde bayt bayt aynı): servis başına değer
+// serisi, p99_ms'te hacim serisi, gün çeşitliliği budaması.
+func (d *Detector) querySeasonal(ctx context.Context, metric, q string, args []any, minDays int) (map[string][]float64, map[string][]float64, error) {
+	rows, err := d.store.TelemetryReadConn().Query(ctx, q, args...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1492,9 +1556,9 @@ func (d *Detector) fetchAllSeasonal(ctx context.Context, metric string, at time.
 	if err := rows.Err(); err != nil {
 		return nil, nil, err
 	}
-	pruneSeasonalByDayDiversity(out, daysSeen, seasonalMinDaysFor(class))
+	pruneSeasonalByDayDiversity(out, daysSeen, minDays)
 	if rates != nil {
-		pruneSeasonalByDayDiversity(rates, daysSeen, seasonalMinDaysFor(class))
+		pruneSeasonalByDayDiversity(rates, daysSeen, minDays)
 	}
 	return out, rates, nil
 }

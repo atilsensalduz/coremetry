@@ -10606,3 +10606,27 @@ bayt bayt eskidir (tam-yol katalog → yol-yalnız → dış-yol sondası). outb
 
 **Geri alma.** `chatOperationPrefetch`'teki `endpointPrefixPrefetch` çağrısını ve `renderOutboundTR`'deki önek satırını
 sil + yeni etiket.
+
+## 2026-10-23 — v0.10.1483 — Mevsimsel baseline'lara takvim etkileri (özel günler, ay sonu)
+
+**Bağlam.** Mevsimsel baseline gün sınıfıyla eşleşir (hafta içi / cumartesi / pazar). Hafta içine düşen resmi tatilin
+trafiği pazara benzer ama baseline sıradan bir hafta içi günüdür → yapay istek hızı düşüşü anomalisi ve Problem/bildirim.
+
+**Karar.** (1) Ayar: `anomaly_sensitivity` blob'unun `calendar` bölümü — özel gün satırları (from[/to] UTC günü, etiket,
+tür `holiday | half-day | month-end-like`; geçersiz tarih/tür satırı DÜŞER, aralık ≤ 31 gün, ≤ 200 satır) + isteğe bağlı
+otomatik ay sonu (ayın son N iş günü, varsayılan KAPALI, N=2, 1–5). Mevcut admin PUT + audit; UI Settings → Anomaly →
+Dedektör hassasiyeti "Takvim etkileri". (2) Gün sınıfı (`dayClassCal`): holiday → baseline son 90 gün içindeki önceki
+holiday günlerinin aynı slotundan (`toDate(time_bucket,'UTC') IN (…)`, ≥ min örnek ve ≥ 2 farklı gün), yetmezse PAZAR
+sınıfı; half-day → önceki half-day günleri, yetmezse CUMARTESİ; month-end-like → önceki ay sonu benzeri günler, yetmezse
+günün kendi sınıfı. Özel gün sorgusu yalnız özel günlerde koşar (metrik başına +1 okuma); hata → yedek sınıf.
+(3) En dar güvenli terfi bastırma: holiday ve half-day günlerinde metrik dedektörünün YENİ `request_rate` DÜŞÜŞ kararı
+Problem açmaz; `calendar_traffic_drop` anomaly_event olarak yazılır (/anomalies'te "Takvim günü düşüşü", oran < 1 olduğu
+için terfi kapısını geçmez, bildirim/incident yok). Kapsam DIŞI (bilinçli): sıçramalar, hata oranı, gecikme,
+service_silent (tam kesinti tatilde de alarm), zaten açık Problem'in tazelenmesi/kapanması, month-end-like günleri.
+(4) Davranış motoru: düşüş adayları zaten terfi etmiyor; 28 günlük haftanın-saati baseline'ından geçmiş holiday/half-day
+kovaları çıkarılır (span ve VM satırları). (5) v0.10.1478'in VM RED yolu: özel günde VM mevsimseli yedek sınıfı
+kullanır (önceki özel günlerin örnekleri yalnız CH yolunda; VM deposu mevsimsel pencereyi tutar). Tarihler UTC günü
+(motorun tamamı UTC'ye pinli, v0.8.323).
+
+**Geri alma.** Settings'te takvimi boşalt + otomatik ay sonunu kapat → davranış v0.10.1482 ile bayt bayt aynı. Tam: revert
++ yeni etiket (eski sürüm `calendar` bölümünü yok sayar).

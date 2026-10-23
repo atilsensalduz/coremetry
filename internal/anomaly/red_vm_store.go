@@ -24,6 +24,8 @@ package anomaly
 import (
 	"math"
 	"time"
+
+	"github.com/cilcenk/coremetry/internal/chstore"
 )
 
 // vmMaxServices — servis kimliği tavanı (bellek sınırı).
@@ -192,7 +194,18 @@ func vmConsecutiveBuckets(now time.Time) []int64 {
 // fetchAllSeasonal ile AYNI bağlar): cutoff = at−days, üst = at−(radius+5dk),
 // sınıf = dayClass(at), dairesel saniye-of-day uzaklığı ≤ radius. UTC (v0.8.323).
 func vmSeasonalBuckets(at time.Time, days, neighborBuckets int) []int64 {
-	cutoff, upper, class, target, radius := seasonalBinds(at, days, neighborBuckets)
+	out, _ := vmSeasonalBucketsCal(at, days, neighborBuckets, chstore.AnomalyCalendarConfig{})
+	return out
+}
+
+// vmSeasonalBucketsCal — v0.10.1483: takvimli ikiz. Özel günde (holiday /
+// half-day / month-end-like) VM yolu YEDEK sınıfı kullanır (pazar / cumartesi /
+// günün sınıfı): önceki özel günlerin örnekleri CH yolunda 90 günden okunur,
+// VM deposu yalnız mevsimsel pencereyi tutar. Takvim boşsa vmSeasonalBuckets
+// ile bayt bayt aynı küme. Dönen sınıf gün çeşitliliği eşiğinin girdisi.
+func vmSeasonalBucketsCal(at time.Time, days, neighborBuckets int, cal chstore.AnomalyCalendarConfig) ([]int64, string) {
+	cutoff, upper, _, target, radius := seasonalBinds(at, days, neighborBuckets)
+	class := calendarFallbackClass(dayClassCal(at.UTC(), cal), at.UTC())
 	var out []int64
 	for _, b := range vmBucketsBetween(cutoff.Unix(), upper.Unix()) {
 		t := time.Unix(b, 0).UTC()
@@ -211,7 +224,7 @@ func vmSeasonalBuckets(at time.Time, days, neighborBuckets int) []int64 {
 			out = append(out, b)
 		}
 	}
-	return out
+	return out, class
 }
 
 // vmBehaviorBuckets — buildBehaviorBucketsQuery'nin WHERE'i (behaviorBinds):

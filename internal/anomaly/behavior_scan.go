@@ -150,9 +150,14 @@ func (d *Detector) scanBehavior(ctx context.Context, now time.Time, cfg chstore.
 	// yalnız bir batch p99 adayı susturulmak üzereyken, tik başına en çok bir
 	// kez yapılır (batch_latency_active.go).
 	batchActive := d.batchLatBehaviorActive(ctx, cfg)
+	// v0.10.1483 — geçmişteki holiday / half-day kovaları haftanın-saati
+	// baseline'ından çıkar (sıradan bir pazartesinin kovası geçen ayın tatil
+	// pazartesisiyle kirlenmesin). "Şimdi" penceresine dokunulmaz.
+	spanRows = dropCalendarBaselineRows(spanRows, cfg.Calendar, recentCutoff)
 	cands, scarce := behaviorFleetCandidates(spanRows, deploysByService, recentCutoff, cfg, batchActive)
 	if len(vmRows) > 0 {
 		vmRecent := time.Unix(red.upper, 0).Add(-behaviorRecentHours * time.Hour).Unix()
+		vmRows = dropCalendarBaselineRows(vmRows, cfg.Calendar, vmRecent)
 		vc, vs := behaviorFleetCandidates(vmRows, deploysByService, vmRecent, cfg, batchActive)
 		cands, scarce = append(cands, vc...), scarce+vs
 	}

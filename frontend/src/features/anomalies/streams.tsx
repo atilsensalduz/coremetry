@@ -398,6 +398,7 @@ function anomalyKindLabel(kind: AnomalyEvent['kind']): string {
     // rozeti "TRACE OP" basardı (fallback dalı): yanlış etiket, yanlış
     // sıralama, ve operatör iz anomalisi sanıp trace arardı.
     : kind === 'behavior_change' ? 'BEHAVIOR'
+    : kind === 'calendar_traffic_drop' ? 'CALENDAR DROP' // v0.10.1483
     : 'TRACE OP';
 }
 
