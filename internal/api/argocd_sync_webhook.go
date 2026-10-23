@@ -6,8 +6,13 @@ package api
 // webhook'u". Editor rolü (Coremetry API token'ı); instanceId kayıtlı ve
 // etkin bir argocd.Settings.Instances[].ID olmalı (aksi 400). Gövde
 // http.MaxBytesReader ile 256 KiB; satırlar SAF argocd.RowsFromSyncWebhook
-// (canlı satır + status.history[] tohumları). Önbellek süpürmesi yok: liste
-// TTL'i kısa, rozet bir sonraki yüklemede görünür.
+// (canlı satır + status.history[] tohumları).
+//
+// v0.10.1466 — başarılı yazım "rollouts:" önbelleğini (liste / tek satır /
+// çekmece / istatistik; origin okuma anında eklenir ve listeyle birlikte
+// önbellektedir) süpürür ki rozet hemen görünsün. Süpürme birleştirilir
+// (rolloutSweepGate): Argo'nun toplu senkron fırtınasında en çok
+// argocdSyncSweepGap başına bir SCAN+UNLINK + bir artçı — istek başına değil.
 
 import (
 	"context"
@@ -15,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/cilcenk/coremetry/internal/argocd"
@@ -108,5 +114,74 @@ func (s *Server) postArgoCDSyncEvent(w http.ResponseWriter, r *http.Request) {
 	live := rows[0]
 	s.audit(r, "argocd.sync_event.create", "argocd_app", live.InstanceID+"/"+live.AppNamespace+"/"+live.AppName,
 		fmt.Sprintf(`{"phase":%q,"revision":%q,"rows":%d}`, live.Phase, live.Identity(), len(rows)))
+	argocdSyncSweep(s)
 	writeJSON(w, map[string]any{"written": len(rows)})
+}
+
+// argocdSyncSweepGap — iki "rollouts:" süpürmesi arası en kısa aralık.
+const argocdSyncSweepGap = 2 * time.Second
+
+// argocdSyncSweepTimeout — süpürme bağlamı (istekten kopuk: Argo bağlantıyı
+// kapatsa da süpürme biter; Redis takılırsa sınırlı).
+const argocdSyncSweepTimeout = 5 * time.Second
+
+// rolloutSweepGate — v0.10.1466 — eşzamanlı webhook'larda süpürme birleştirici.
+// Kural (SAF, request): son süpürmeden ≥ gap geçtiyse hemen süpür; değilse ve
+// bekleyen artçı yoksa kalan süre sonra TEK artçı planla; artçı zaten varsa hiçbir
+// şey (o artçı bu yazımı da kapsar — yazım artçıdan ÖNCE işlendi).
+type rolloutSweepGate struct {
+	mu       sync.Mutex
+	last     time.Time
+	trailing bool
+}
+
+// request — (şimdi süpür, artçı gecikmesi; 0 = artçı yok).
+func (g *rolloutSweepGate) request(now time.Time, gap time.Duration) (bool, time.Duration) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.trailing {
+		return false, 0
+	}
+	if g.last.IsZero() || now.Sub(g.last) >= gap {
+		g.last = now
+		return true, 0
+	}
+	g.trailing = true
+	return false, g.last.Add(gap).Sub(now)
+}
+
+// fire — artçı çalışırken çağrılır.
+func (g *rolloutSweepGate) fire(now time.Time) {
+	g.mu.Lock()
+	g.trailing, g.last = false, now
+	g.mu.Unlock()
+}
+
+var argocdSyncGate = &rolloutSweepGate{}
+
+// argocdSyncInvalidate — tek süpürme (test dikişi). Önbellek bağlı değilse no-op.
+var argocdSyncInvalidate = func(s *Server) {
+	if s == nil || s.cache == nil || s.l1 == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), argocdSyncSweepTimeout)
+	defer cancel()
+	s.cacheInvalidatePrefix(ctx, "rollouts:")
+}
+
+// argocdSyncAfter — artçı zamanlayıcı (test dikişi).
+var argocdSyncAfter = func(d time.Duration, f func()) { time.AfterFunc(d, f) }
+
+func argocdSyncSweep(s *Server) {
+	now, d := argocdSyncGate.request(time.Now(), argocdSyncSweepGap)
+	if now {
+		argocdSyncInvalidate(s)
+		return
+	}
+	if d > 0 {
+		argocdSyncAfter(d, func() {
+			argocdSyncGate.fire(time.Now())
+			argocdSyncInvalidate(s)
+		})
+	}
 }

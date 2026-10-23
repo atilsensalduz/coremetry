@@ -3,7 +3,8 @@ package api
 // argocd_sync_webhook_test.go — v0.10.1445 — POST /api/argocd/sync-events:
 // defter kaydı (api.go büyümez), rol kapısı (anonim 401, viewer 403),
 // kayıtsız/kapalı instance 400, doğrulama 400, gövde tavanı 413, yazım +
-// audit, depo hatası 500.
+// audit, depo hatası 500. v0.10.1466: başarılı yazım "rollouts:" önbelleğini
+// birleştirilmiş süpürmeyle temizler.
 
 import (
 	"context"
@@ -12,7 +13,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/cilcenk/coremetry/internal/argocd"
 	"github.com/cilcenk/coremetry/internal/auth"
@@ -129,5 +133,115 @@ func TestArgoSyncWebhookWritesAndAudits(t *testing.T) {
 	w.err = errors.New("ch down")
 	if c := syncWebhookDo(mux, syncWebhookBody, auth.RoleEditor).Code; c != http.StatusInternalServerError {
 		t.Fatalf("depo hatası: %d", c)
+	}
+}
+
+// v0.10.1466 — başarılı yazım "rollouts:" önbelleğini süpürür (rozet hemen);
+// reddedilen / yazılamayan istek süpürmez; süpürme birleştirilir.
+func TestArgoSyncWebhookSweepsRolloutsCache(t *testing.T) {
+	w := &fakeSyncWriter{}
+	_, mux := syncWebhookEnv(t, w, map[string]bool{"argo-main": true})
+	prevInv, prevAfter, prevGate := argocdSyncInvalidate, argocdSyncAfter, argocdSyncGate
+	var sweeps atomic.Int32
+	var trailing []func()
+	argocdSyncInvalidate = func(*Server) { sweeps.Add(1) }
+	argocdSyncAfter = func(_ time.Duration, f func()) { trailing = append(trailing, f) }
+	argocdSyncGate = &rolloutSweepGate{}
+	t.Cleanup(func() { argocdSyncInvalidate, argocdSyncAfter, argocdSyncGate = prevInv, prevAfter, prevGate })
+
+	bad := strings.Replace(syncWebhookBody, `"revision":"4b7d0aa3","repoURL"`, `"revision":"","repoURL"`, 1)
+	if c := syncWebhookDo(mux, bad, auth.RoleEditor).Code; c != http.StatusBadRequest || sweeps.Load() != 0 {
+		t.Fatalf("400 süpürmemeli: %d sweeps=%d", c, sweeps.Load())
+	}
+	w.err = errors.New("ch down")
+	if c := syncWebhookDo(mux, syncWebhookBody, auth.RoleEditor).Code; c != http.StatusInternalServerError || sweeps.Load() != 0 {
+		t.Fatalf("yazım hatası süpürmemeli: %d sweeps=%d", c, sweeps.Load())
+	}
+	w.err = nil
+	if c := syncWebhookDo(mux, syncWebhookBody, auth.RoleEditor).Code; c != http.StatusOK || sweeps.Load() != 1 {
+		t.Fatalf("ilk yazım hemen süpürmeli: %d sweeps=%d", c, sweeps.Load())
+	}
+	// Aralık içinde üç yazım daha → tek artçı, hemen süpürme yok.
+	for i := 0; i < 3; i++ {
+		syncWebhookDo(mux, syncWebhookBody, auth.RoleEditor)
+	}
+	if sweeps.Load() != 1 || len(trailing) != 1 {
+		t.Fatalf("birleştirme: sweeps=%d artçı=%d", sweeps.Load(), len(trailing))
+	}
+	trailing[0]()
+	if sweeps.Load() != 2 {
+		t.Fatalf("artçı süpürmeli: %d", sweeps.Load())
+	}
+}
+
+func TestRolloutSweepGateTable(t *testing.T) {
+	g := &rolloutSweepGate{}
+	t0 := time.Date(2026, 10, 23, 10, 0, 0, 0, time.UTC)
+	gap := 2 * time.Second
+	steps := []struct {
+		at      time.Duration
+		now     bool
+		trailIn time.Duration
+		fire    bool
+	}{
+		{0, true, 0, false}, // ilk: hemen
+		{500 * time.Millisecond, false, 1500 * time.Millisecond, false}, // aralıkta: artçı
+		{900 * time.Millisecond, false, 0, false},                       // artçı bekliyor: hiçbir şey
+		{2 * time.Second, false, 0, true},                               // artçı ateşlendi (son = 2 s)
+		{3 * time.Second, false, time.Second, false},                    // artçıdan 1 s sonra: yeni artçı
+		{3500 * time.Millisecond, false, 0, true},                       // artçı (son = 3.5 s)
+		{6 * time.Second, true, 0, false},                               // aralık geçti: hemen
+	}
+	for i, st := range steps {
+		if st.fire {
+			g.fire(t0.Add(st.at))
+			continue
+		}
+		now, d := g.request(t0.Add(st.at), gap)
+		if now != st.now || d != st.trailIn {
+			t.Fatalf("adım %d: (%v,%v) beklenen (%v,%v)", i, now, d, st.now, st.trailIn)
+		}
+	}
+}
+
+// Eşzamanlı istekler: -race temiz, aralık içinde en çok 1 hemen + 1 artçı.
+func TestRolloutSweepGateConcurrent(t *testing.T) {
+	g := &rolloutSweepGate{}
+	now := time.Now()
+	var immediate, trailing atomic.Int32
+	var wg sync.WaitGroup
+	for i := 0; i < 64; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			n, d := g.request(now, time.Minute)
+			if n {
+				immediate.Add(1)
+			}
+			if d > 0 {
+				trailing.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	if immediate.Load() != 1 || trailing.Load() != 1 {
+		t.Fatalf("hemen=%d artçı=%d (1/1 beklenir)", immediate.Load(), trailing.Load())
+	}
+}
+
+// v0.10.1466 — çok kaynaklı uygulama (syncResult.revision boş) docs'taki
+// çok kaynaklı şablon gövdesiyle (çıplak "{{...revisions}}" → "[a b]") 400
+// değil yazım; kimlik sıralı birleşim (audit'te de).
+func TestArgoSyncWebhookMultiSourceAccepted(t *testing.T) {
+	w := &fakeSyncWriter{}
+	s, mux := syncWebhookEnv(t, w, map[string]bool{"argo-main": true})
+	body := strings.Replace(syncWebhookBody, `"revision":"4b7d0aa3","repoURL"`, `"revision":"","revisions":"[bbb222 aaa111]","repoURL"`, 1)
+	r := syncWebhookDo(mux, body, auth.RoleEditor)
+	if r.Code != http.StatusOK || len(w.rows) == 0 || w.rows[0].Identity() != "aaa111,bbb222" {
+		t.Fatalf("çok kaynaklı: %d %s %+v", r.Code, r.Body.String(), w.rows)
+	}
+	a := <-s.auditQ
+	if !strings.Contains(a.Details, `"revision":"aaa111,bbb222"`) {
+		t.Fatalf("audit: %s", a.Details)
 	}
 }

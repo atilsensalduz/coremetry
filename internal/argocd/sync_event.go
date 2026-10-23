@@ -24,6 +24,7 @@ package argocd
 // ve aynı tohumun tekrarı bayt bayt aynı satırdır (RMT tekilleştirir).
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -129,10 +130,10 @@ type SyncWebhookPayload struct {
 		Message    string `json:"message"`
 	} `json:"operation"`
 	Sync struct {
-		Revision       string   `json:"revision"`
-		Revisions      []string `json:"revisions"`
-		RepoURL        string   `json:"repoURL"`
-		TargetRevision string   `json:"targetRevision"`
+		Revision       string       `json:"revision"`
+		Revisions      RevisionList `json:"revisions"`
+		RepoURL        string       `json:"repoURL"`
+		TargetRevision string       `json:"targetRevision"`
 	} `json:"sync"`
 	History     []SyncWebhookHistory `json:"history"`
 	Resources   []string             `json:"resources"`
@@ -145,10 +146,63 @@ type SyncWebhookPayload struct {
 
 // SyncWebhookHistory — status.history[] girdisi.
 type SyncWebhookHistory struct {
-	ID              int64  `json:"id"`
-	Revision        string `json:"revision"`
-	DeployStartedAt string `json:"deployStartedAt"`
-	DeployedAt      string `json:"deployedAt"`
+	ID              int64        `json:"id"`
+	Revision        string       `json:"revision"`
+	Revisions       RevisionList `json:"revisions"` // v0.10.1466 — çok kaynaklı uygulama
+	DeployStartedAt string       `json:"deployStartedAt"`
+	DeployedAt      string       `json:"deployedAt"`
+}
+
+// RevisionList — v0.10.1466 — çok kaynaklı Argo uygulamasının revizyonları
+// (syncResult.revisions / history[].revisions; syncResult.revision boş gelir).
+// İki gövde biçimi kabul edilir: JSON dizi (["a","b"], şablonda range ile) ya
+// da dize — Notifications şablonundaki çıplak
+// "{{.app.status.operationState.syncResult.revisions}}" Go'nun fmt biçimini
+// basar ("[a b]"); tek kaynaklı uygulamada anahtar yoktur → "<no value>" /
+// "[]" / "" = boş. Dize ayırıcısı boşluk ya da virgül.
+type RevisionList []string
+
+// UnmarshalJSON — dizi | dize | null.
+func (l *RevisionList) UnmarshalJSON(b []byte) error {
+	var arr []string
+	if err := json.Unmarshal(b, &arr); err == nil {
+		*l = arr
+		return nil
+	}
+	var str string
+	if err := json.Unmarshal(b, &str); err != nil {
+		return fmt.Errorf("revisions: dizi ya da dize beklenir")
+	}
+	*l = ParseRevisionList(str)
+	return nil
+}
+
+// ParseRevisionList — SAF: Go fmt biçimi "[a b]" / "a,b" / "<no value>" →
+// revizyonlar (boşlar atılır, girdi sırası).
+func ParseRevisionList(s string) []string {
+	s = strings.TrimSpace(s)
+	if s == "<no value>" || s == "<nil>" {
+		return nil
+	}
+	s = strings.TrimSuffix(strings.TrimPrefix(s, "["), "]")
+	var out []string
+	for _, f := range strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' || r == '\n' }) {
+		if f = cleanStr(strings.Trim(f, `"`)); f != "" {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// cleanRevisions — kırp, boşları at, SyncWebhookMaxRevisions tavanı.
+func cleanRevisions(in []string) []string {
+	var out []string
+	for _, r := range in {
+		if r = cleanStr(r); r != "" && len(out) < SyncWebhookMaxRevisions {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // ErrSyncWebhookInvalid — 400'e eşlenen doğrulama hatalarının kökü.
@@ -240,14 +294,9 @@ func RowsFromSyncWebhook(p SyncWebhookPayload, now time.Time, clusterOf func(des
 		return nil, syncInvalid("operation.phase %q (Running|Succeeded|Failed|Error|Terminating)", phase)
 	}
 	rev := cleanStr(p.Sync.Revision)
-	var revs []string
-	for _, r := range p.Sync.Revisions {
-		if r = cleanStr(r); r != "" && len(revs) < SyncWebhookMaxRevisions {
-			revs = append(revs, r)
-		}
-	}
+	revs := cleanRevisions(p.Sync.Revisions)
 	if phase == SyncPhaseSucceeded && rev == "" && len(revs) == 0 {
-		return nil, syncInvalid("Succeeded sync without sync.revision")
+		return nil, syncInvalid("Succeeded sync without sync.revision (multi-source app: send sync.revisions)")
 	}
 	if revs == nil {
 		revs = []string{}
@@ -271,8 +320,10 @@ func RowsFromSyncWebhook(p SyncWebhookPayload, now time.Time, clusterOf func(des
 		hist = hist[len(hist)-SyncWebhookMaxHistory:] // Argo artan id: en yeniler sonda
 	}
 	historyID := int64(-1)
+	liveID := SyncEventRow{SyncRevision: rev, Revisions: revs}.Identity()
 	for _, h := range hist {
-		if rev != "" && cleanStr(h.Revision) == rev && h.ID > historyID {
+		hID := SyncEventRow{SyncRevision: cleanStr(h.Revision), Revisions: cleanRevisions(h.Revisions)}.Identity()
+		if liveID != "" && hID == liveID && h.ID > historyID {
 			historyID = h.ID
 		}
 	}
@@ -288,18 +339,22 @@ func RowsFromSyncWebhook(p SyncWebhookPayload, now time.Time, clusterOf func(des
 	seen := map[int64]bool{started.UnixMilli(): true}
 	for _, h := range hist {
 		hrev := cleanStr(h.Revision)
+		hrevs := []string{}
+		if hrev == "" {
+			hrevs = append(hrevs, cleanRevisions(h.Revisions)...) // v0.10.1466 — çok kaynaklı tohum
+		}
 		at, ok := ParseArgoTime(h.DeployStartedAt)
 		if !ok {
 			at, ok = ParseArgoTime(h.DeployedAt)
 		}
-		if hrev == "" || !ok || seen[at.UnixMilli()] {
+		if (hrev == "" && len(hrevs) == 0) || !ok || seen[at.UnixMilli()] {
 			continue
 		}
 		seen[at.UnixMilli()] = true
 		done, _ := ParseArgoTime(h.DeployedAt)
 		out = append(out, SyncEventRow{
 			InstanceID: inst, AppNamespace: ns, AppName: name, OpStartedAt: at, Phase: SyncPhaseSucceeded, FinishedAt: done,
-			SyncRevision: hrev, Revisions: []string{}, HistoryID: h.ID, SyncedWorkloads: []string{}, ManagedWorkloads: []string{},
+			SyncRevision: hrev, Revisions: hrevs, HistoryID: h.ID, SyncedWorkloads: []string{}, ManagedWorkloads: []string{},
 			DestServer: ds, DestNamespace: dns, ClusterID: cluster,
 			Version: uint64(at.UnixMilli()), // dosya başı: her canlı satırın (ns) altında
 		})

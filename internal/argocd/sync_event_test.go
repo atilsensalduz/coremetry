@@ -223,3 +223,62 @@ func TestSyncWebhookValidationAndCaps(t *testing.T) {
 		t.Fatal("sıfır op_started_at / version reddedilmeli")
 	}
 }
+
+// v0.10.1466 — çok kaynaklı Argo uygulaması: syncResult.revision boş,
+// revisions dizi YA DA şablonun çıplak "{{...revisions}}" dizesi ("[a b]");
+// history[].revisions tohumları; kimlik sıralı birleşim; tek kaynaklı
+// uygulamada "<no value>" zararsız.
+func TestSyncWebhookMultiSourceRevisions(t *testing.T) {
+	now := time.Date(2026, 10, 21, 9, 14, 0, 0, time.UTC)
+	const multiTpl = `{"instanceId":"argo-main","app":{"namespace":"argocd","name":"shop-multi"},
+"operation":{"phase":"Succeeded","startedAt":"2026-10-21T09:12:00Z","finishedAt":"2026-10-21T09:13:30Z"},
+"sync":{"revision":"","revisions":%s},
+"history":[{"id":3,"revision":"","revisions":%s,"deployStartedAt":"2026-10-18T09:12:00Z","deployedAt":"2026-10-18T09:13:00Z"},
+{"id":4,"revision":"","revisions":%s,"deployStartedAt":"2026-10-21T09:12:00Z","deployedAt":"2026-10-21T09:13:30Z"}],
+"resources":["Deployment/shop/checkout"],"managed":[],"destination":{"server":"","namespace":"shop"}}`
+	for name, c := range map[string][3]string{
+		"JSON dizi":     {`["bbb222","aaa111"]`, `["ccc333","aaa111"]`, `["aaa111","bbb222"]`},
+		"Go fmt dizesi": {`"[bbb222 aaa111]"`, `"[ccc333 aaa111]"`, `"[aaa111 bbb222]"`},
+		"virgüllü dize": {`"bbb222, aaa111"`, `"ccc333,aaa111"`, `"aaa111,bbb222"`},
+	} {
+		rows, err := RowsFromSyncWebhook(seDecode(t, fmt.Sprintf(multiTpl, c[0], c[1], c[2])), now, nil)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if len(rows) != 2 || rows[0].Identity() != "aaa111,bbb222" || rows[0].SyncRevision != "" || rows[0].HistoryID != 4 {
+			t.Fatalf("%s: canlı satır %+v", name, rows)
+		}
+		if seed := rows[1]; !seed.IsHistorySeed() || seed.Identity() != "aaa111,ccc333" || seed.HistoryID != 3 {
+			t.Fatalf("%s: tohum %+v", name, seed)
+		}
+	}
+	// Tek kaynaklı uygulama, çok kaynaklı şablon: revisions "<no value>" / "[]" → boş, revision kullanılır.
+	for _, v := range []string{`"<no value>"`, `"[]"`, `""`, `null`} {
+		single := strings.Replace(seRawPayload(), `"revision":"4b7d0aa3","repoURL"`, `"revision":"4b7d0aa3","revisions":`+v+`,"repoURL"`, 1)
+		rows, err := RowsFromSyncWebhook(seDecode(t, single), now, nil)
+		if err != nil || rows[0].Identity() != "4b7d0aa3" || len(rows[0].Revisions) != 0 {
+			t.Fatalf("tek kaynaklı %s: %v %+v", v, err, rows[0])
+		}
+	}
+	// Revizyonsuz çok kaynaklı Succeeded hâlâ 400 (ipucu gövdede).
+	empty := fmt.Sprintf(multiTpl, `"<no value>"`, `[]`, `[]`)
+	if _, err := RowsFromSyncWebhook(seDecode(t, empty), now, nil); !errors.Is(err, ErrSyncWebhookInvalid) || !strings.Contains(err.Error(), "sync.revisions") {
+		t.Fatalf("boş çok kaynaklı: %v", err)
+	}
+	// Dizi/dize dışı tür → çözme hatası (API 400 "invalid JSON body").
+	var p SyncWebhookPayload
+	if err := json.Unmarshal([]byte(`{"sync":{"revisions":42}}`), &p); err == nil {
+		t.Fatal("sayı revisions reddedilmeli")
+	}
+}
+
+func TestParseRevisionList(t *testing.T) {
+	for in, want := range map[string][]string{
+		"[a b]": {"a", "b"}, "a,b": {"a", "b"}, " [a,  b ] ": {"a", "b"}, "<no value>": nil, "[]": nil, "": nil,
+		`["a" "b"]`: {"a", "b"}, "abc": {"abc"},
+	} {
+		if got := ParseRevisionList(in); !reflect.DeepEqual(got, want) {
+			t.Errorf("%q → %q, beklenen %q", in, got, want)
+		}
+	}
+}

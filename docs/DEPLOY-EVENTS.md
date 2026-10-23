@@ -108,6 +108,26 @@ subscriptions: |
     triggers: [on-sync-finished]
 ```
 
+**Çok kaynaklı uygulamalar (`spec.sources`, v0.10.1466).** Argo bu
+uygulamalarda `syncResult.revision`'ı boş gönderir (revizyonlar
+`syncResult.revisions` dizisindedir; `history[]` girdilerinde de
+`revisions`). Yukarıdaki şablon böyle bir uygulamada `400 Succeeded sync
+without sync.revision` alır. Şablonun `"sync"` ve `"history"` satırlarını
+şu varyantla değiştirin (tek kaynaklı uygulamalarda da güvenli: eksik
+anahtar `<no value>` basar, Coremetry onu boş sayar):
+
+```yaml
+         "sync":{"revision":"{{.app.status.operationState.syncResult.revision}}","revisions":"{{.app.status.operationState.syncResult.revisions}}","repoURL":"{{.app.spec.source.repoURL}}","targetRevision":"{{.app.spec.source.targetRevision}}"},
+         "history":[{{range $i,$h := .app.status.history}}{{if $i}},{{end}}{"id":{{$h.id}},"revision":"{{$h.revision}}","revisions":"{{$h.revisions}}","deployStartedAt":"{{$h.deployStartedAt}}","deployedAt":"{{$h.deployedAt}}"}{{end}}],
+```
+
+`revisions` hem JSON dizi (`["a","b"]`) hem dize kabul edilir — çıplak
+`{{…revisions}}` Go biçimini (`[a b]`) basar, virgüllü liste de olur.
+Senkronun git kimliği revizyonların **sıralı birleşimidir** (`a,b`): kaynaklardan
+biri bile değişirse yeni kimlik sayılır; tümü daha önce senkronlanmış bir
+birleşime dönerse "Rollback (git)". Çok kaynaklı uygulamada `repoURL` /
+`targetRevision` `<no value>` gelir (boş kaydedilir; sınıflandırmaya girmez).
+
 Davranış: gövde ≤ 256 KiB; `history[]` (Argo varsayılan 10 girdi) tohum
 satırı olarak yazılır → ilk webhook'tan itibaren "bu revizyon daha önce
 senkronlandı mı" cevaplanır. Tekrar gönderim zararsızdır
@@ -116,7 +136,14 @@ Doğrulama: `curl -H "Authorization: Bearer $TOKEN" -X POST
 https://coremetry.example.invalid/api/argocd/sync-events -d @sample.json`
 → `{"written":N}`; Admin › Audit'te `argocd.sync_event.create`.
 Eşleşme penceresi: KSM `started_at` ∈ [senkron başlangıcı − W, bitiş + W],
-W = Ayarlar › Argo CD › `classification.windowMin` (5 dk).
+W = Ayarlar › Argo CD › `classification.windowMin` (5 dk). Başarılı yazım
+`/rollouts` önbelleğini süpürür (v0.10.1466; toplu senkron fırtınasında en
+çok 2 sn'de bir) — rozet sayfa yenilenince hemen görünür.
+
+Bilinen sınır (kabul edildi, v0.10.1466): geçmiş penceresi 90 gün ve
+uygulama başına 200 senkrondur. Bunlardan daha eski bir revizyona dönüş
+"daha önce senkronlandı" kanıtını bulamaz ve **Redeploy (older)** ya da
+ileri (rozetsiz) görünür — "Rollback (git)" değil.
 
 Geri alma: aboneliği `argocd-notifications-cm`'den kaldırın; yazılmış
 satırlar TTL ile düşer.

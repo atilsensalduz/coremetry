@@ -10117,3 +10117,38 @@ da 0 istek, dürüst cevap), `TestCodeStickyNewConversationResets` (kimliksiz il
 güncellendi; aisurface `code-sticky` kademesi (kayıt + FE etiketleri); fe `codeSticky.test.tsx` (code-lock → hap kapalı
 turda da code + codeLocked, Temizle sıfırlar; arşiv gidiş-dönüş; kilitli hap açık + devre dışı + tooltip). Kademe
 sırası, MCP 74, api.go boyu değişmedi.
+
+## 2026-10-23 — v0.10.1466 — Argo CD geri alma kaynağı ardılları: önbellek süpürmesi, çok kaynaklı uygulama
+
+**Bağlam.** v0.10.1445'in açık soruları; operatör kararı 2026-10-23 ("önerilerle geç").
+
+**Karar a — başarılı webhook yazımı `rollouts:` önbelleğini süpürür.** Origin okuma anında eklenir ve liste/tek
+satır/çekmece ile birlikte önbellektedir; 1445'te süpürme yoktu (rozet TTL sonunda görünüyordu). Yazım
+`wait_for_async_insert=1` ile görünür olduktan SONRA mevcut `cacheInvalidatePrefix(ctx, "rollouts:")` (L2 SCAN+UNLINK,
+L1, pub/sub ile öteki pod'lar — ayar PUT'u ve tail tikiyle aynı yol) çağrılır. Sınırlı: `rolloutSweepGate` birleştirir —
+son süpürmeden ≥ 2 sn geçtiyse istek içinde hemen, değilse TEK artçı (`time.AfterFunc`, kalan süre); artçı bekliyorken
+gelen yazım hiçbir şey planlamaz (artçı onu kapsar). Argo'nun toplu senkron fırtınasında 2 sn başına en çok bir SCAN.
+Süpürme bağlamı istekten kopuk + 5 sn tavan. Reddedilen (400/413) ya da yazılamayan (500) istek süpürmez.
+
+**Karar b — çok kaynaklı uygulama (`spec.sources`).** Model 1445'te `sync.revisions` dizisini zaten kabul ediyordu,
+ama belgedeki şablon onu göndermiyordu → `400 Succeeded sync without sync.revision`. Şimdi: (1) `RevisionList` tipi
+`sync.revisions` ve `history[].revisions` için JSON dizi YA DA dize kabul eder — çıplak
+`{{.app.status.operationState.syncResult.revisions}}` Go fmt biçimini (`[a b]`) basar, virgüllü liste de olur,
+`<no value>`/`[]` boş; (2) çok kaynaklı history girdileri de tohum satırı olur (`sync_revision` boş, `revisions` dolu);
+(3) `history_id` eşlemesi `Identity()` (sıralı birleşim) üzerinden. Kimlik modeli değişmedi: senkronun git kimliği
+revizyonların sıralı birleşimi — "ilk" revizyon seçilmedi, çünkü kaynaklardan biri (ör. values reposu) geri dönüp
+diğeri ilerleyince "ilk"e bakmak yanlış rollback derdi. Docs/DEPLOY-EVENTS.md'ye tek ve çok kaynaklıda güvenli şablon
+varyantı eklendi. Revizyonsuz Succeeded hâlâ 400 (mesajda ipucu).
+
+**Karar c — kabul edilen sınır (kod yok).** 90 günlük geçmiş penceresi / uygulama başına 200 senkron dışında kalan
+eski bir revizyona dönüş `redeploy_older` ya da `forward` görünür, `rollback` değil. Docs'a yazıldı.
+
+**Geri alma.** Sürüm commit'ini revert + yeni etiket. Süpürme kalkar (rozet yine TTL sonunda görünür); `revisions`
+dizesi gönderen çok kaynaklı şablon eski sunucuda `invalid JSON body` 400 alır → operatör şablon varyantını geri alır
+(dizi biçimi `["a","b"]` eski sunucuda da çalışır). Şema, rota, MCP kataloğu değişmedi.
+
+**Testler.** argocd `TestSyncWebhookMultiSourceRevisions` (dizi / Go fmt dizesi / virgüllü × canlı + tohum + history_id;
+tek kaynaklıda `<no value>`/`[]`/`""`/null zararsız; boş çok kaynaklı 400; sayı reddi), `TestParseRevisionList`; api
+`TestArgoSyncWebhookSweepsRolloutsCache` (400/500 süpürmez, ilk yazım hemen, aralıkta tek artçı),
+`TestRolloutSweepGateTable`, `TestRolloutSweepGateConcurrent` (-race, 64 eşzamanlı → 1 hemen + 1 artçı),
+`TestArgoSyncWebhookMultiSourceAccepted`.
