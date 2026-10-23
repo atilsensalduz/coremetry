@@ -54,8 +54,6 @@ import (
 	"github.com/cilcenk/coremetry/internal/tempo"
 	"github.com/cilcenk/coremetry/internal/thanos"
 	"github.com/cilcenk/coremetry/internal/vmetrics"
-
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 type Server struct {
@@ -1379,20 +1377,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 }
 
 func (s *Server) listen(mux *http.ServeMux) error {
-	handler := otelhttp.NewHandler(s.cors.middleware(s.auth.Middleware(s.presence.middleware(withReqTag(mux)))),
-		"coremetry-api",
-		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
-			// "GET /api/traces/:id" — method + cardinality-collapsed
-			// path. v0.6.46 — the raw r.URL.Path includes path params
-			// (trace IDs, service names, problem IDs), so naming the
-			// span after it would mint one distinct span name per ID.
-			// The spans table's `name` column is LowCardinality(String)
-			// — unbounded distinct names degrade it (CLAUDE.md anti-
-			// pattern). collapseRoute() rewrites the volatile segments
-			// to :id so the span name stays a bounded route template.
-			return r.Method + " " + collapseRoute(r.URL.Path)
-		}),
-	)
+	handler := otelServerHandler(s.cors.middleware(s.auth.Middleware(s.presence.middleware(withReqTag(mux))))) // v0.10.1470 — http_root.go
 	s.httpSrv = &http.Server{Addr: s.addr, Handler: handler}
 	return s.httpSrv.ListenAndServe()
 }

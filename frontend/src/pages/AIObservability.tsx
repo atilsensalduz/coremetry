@@ -48,6 +48,15 @@ export default function AIObservabilityPage() {
   const [status, setStatus] = useState('');
   const surfaceRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState<AICall | null>(null);
+  // v0.10.1470 — tablo satırı çekmeceyi HEMEN açar, sonra ayrıntı yanıtı
+  // (traceQueryable bayrağı yalnız GET /api/ai/calls/{id}'de) aynı satırın
+  // üstüne biner; arada başka satır açıldıysa ezmez.
+  const openCallRow = (c: AICall) => {
+    setOpen(c);
+    api.aiCall(c.id)
+      .then(d => { if (d) setOpen(prev => (prev?.id === d.id ? d : prev)); })
+      .catch(() => { /* satır TTL'le düşmüş olabilir — liste satırı kalır */ });
+  };
   const [rates, setRates] = useState<AIRateTable>(() => mergeRates(null));
   // v0.10.940 (operatör onayı K2) — Kaynak: Üretim (varsayılan, parametre
   // YOK) / Değerlendirme (?source=evalset). Settings › CoSRE › Değerlendirme
@@ -358,7 +367,7 @@ export default function AIObservabilityPage() {
               {dt.sortedRows.length === 0 ? <DataTableState dt={dt} {...callsState} /> : dt.sortedRows.map(c => {
                 const cost = costForCall(rates, c.model, c.inputTokens, c.outputTokens);
                 return (
-                <tr key={c.id} className="cv-row" {...rowActivation(() => setOpen(c))}>
+                <tr key={c.id} className="cv-row" {...rowActivation(() => openCallRow(c))}>
                   {/* v0.10.947 — zaman damgası mono kalır (S2 yalnız sayıyı kapsar). */}
                   <DataTableCell dt={dt} col="time" row={c} value={tsLong(c.createdAt)} className="mono" />
                   <DataTableCell dt={dt} col="surface" row={c} value={c.surface} />
@@ -812,9 +821,14 @@ function CallDrawer({ call, rates, onClose }: { call: AICall; rates: AIRateTable
           {/* v0.10.1463 (CoSRE D1) — çağrının self-telemetri trace'i: yalnız
               örneklenmiş (sorgulanabilir) trace'te dolu; arka plan anlatımında
               sre.investigation ağacını, sohbette ai.chat ağacını açar. */}
+          {/* v0.10.1470 — link yalnız trace BU Coremetry'de sorgulanabilirken
+              (traceQueryable, sunucu süreç bayrağı); dış collector'da kimlik
+              düz metin + ipucu, boş /trace sayfasına link yok. */}
           {call.traceId && (
             <div style={{ fontSize: 12 }}>
-              <Link to={traceHref(call.traceId)} title="Coremetry self-telemetry trace of this call">Trace</Link>
+              {call.traceQueryable
+                ? <Link to={traceHref(call.traceId)} title="Coremetry self-telemetry trace of this call">Trace</Link>
+                : <span title="trace harici collector'da — bu Coremetry'de sorgulanamaz" style={{ color: 'var(--text3)' }}>Trace (harici collector)</span>}
               <span className="mono" style={{ marginLeft: 8, color: 'var(--text3)' }}>{call.traceId}</span>
             </div>
           )}

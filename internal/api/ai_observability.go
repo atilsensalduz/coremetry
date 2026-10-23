@@ -18,6 +18,7 @@ import (
 	"github.com/cilcenk/coremetry/internal/auth"
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/copilot"
+	"github.com/cilcenk/coremetry/internal/selfobs"
 )
 
 // AIRate is the per-model price quote used by the /ai cost
@@ -370,7 +371,22 @@ func (s *Server) getAICall(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	writeJSON(w, c)
+	writeJSON(w, aiCallDetailOf(c, selfobs.TracesQueryable()))
+}
+
+// aiCallDetail — v0.10.1470: çağrı satırı + bu kurulumun self-obs trace'leri
+// sorgulanabilir mi (/ai çekmecesi "Trace" linkini yalnız o zaman gösterir;
+// dış collector'da trace yok → link boş /trace sayfasına giderdi). Bayrak
+// süreç ayarı (selfobs.TracesQueryable), satır alanı değil; yeni rota yerine
+// çekmecenin zaten okuduğu yanıta biner. Gömülü işaretçi → alanlar düz.
+type aiCallDetail struct {
+	*chstore.AICall
+	TraceQueryable bool `json:"traceQueryable"`
+}
+
+// aiCallDetailOf — SAF (ai_call_detail_test).
+func aiCallDetailOf(c *chstore.AICall, queryable bool) aiCallDetail {
+	return aiCallDetail{AICall: c, TraceQueryable: queryable}
 }
 
 // aiStats — overview KPIs + per-surface + per-provider breakdown.

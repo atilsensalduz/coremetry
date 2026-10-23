@@ -2996,6 +2996,8 @@ export interface AICall {
   responseSample?: string;
   /** v0.10.1463 (CoSRE D1) — Coremetry'nin kendi self-telemetri trace'i (yalnız örneklenmişse; sohbet → ai.chat, arka plan anlatımı → sre.investigation). */
   traceId?: string;
+  /** v0.10.1470 — yalnız GET /api/ai/calls/{id}: self-obs trace'leri bu Coremetry'de sorgulanabilir mi (uç nokta kendi alıcısı / aynı kurulum). false → trace dış collector'da, link yok. Go: api.aiCallDetail. */
+  traceQueryable?: boolean;
 }
 
 export interface AIStats {

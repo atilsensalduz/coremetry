@@ -205,9 +205,13 @@ func Init(ctx context.Context, mode, version string) func(context.Context) error
 	otel.SetTracerProvider(tp)
 	tpShutdown = tp.Shutdown
 	tracerSink = tp.Tracer("coremetry")
+	// v0.10.1470 — W3C yayıcı + /ai Trace linki kapısı (propagation.go):
+	// frontend traceparent'ı backend trace'ine katılır. Yalnız trace hattı
+	// kurulunca; kapalıyken süreç geneli yayıcı boş kalır (eski davranış).
+	installTraceGlobals(endpoint, os.Getenv(envTracesLocal))
 
-	log.Printf("[selfobs] enabled — endpoint=%s service=%s sample=%.2f always=%v",
-		endpoint, serviceName(mode), sampleRate, parseAlwaysSample(os.Getenv(envAlwaysSample)))
+	log.Printf("[selfobs] enabled — endpoint=%s service=%s sample=%.2f always=%v queryable=%v",
+		endpoint, serviceName(mode), sampleRate, parseAlwaysSample(os.Getenv(envAlwaysSample)), TracesQueryable())
 	return shutdownAll
 }
 

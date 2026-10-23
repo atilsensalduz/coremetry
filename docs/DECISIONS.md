@@ -10246,3 +10246,38 @@ tam paket `go test -race -shuffle=on ./internal/api/` 3/3 yeşil; golangci-lint 
 yeşil, yalnız test) basıldı ve main'e gitti: kapanış zincirinde rebase reddedilince heredoc'tan sonraki satır (tag + push)
 ayrı komut olarak koştu. Yayınlanmış ref yeniden yazılmadı; OIDC iğnesi + bu girdi etiketsiz takip commit'iyle main'e
 geldi. Ders: release zinciri tek satırda `&&`; heredoc'lu commit'ten sonra tag/push aynı `&&` zincirinde.
+
+## 2026-10-23 — v0.10.1470 — Self-obs: süreç geneli W3C yayıcı + `/ai` Trace linki yalnız sorgulanabilirken
+
+**Bağlam.** D1 (v0.10.1463) takipleri, operatör kararı 2026-10-23 ("önerilerle geç"). (a) v0.6.42'den beri frontend
+(`lib/otel.ts`) her fetch'e `traceparent` basıyor ve `api.listen` `otelhttp.NewHandler` ile sarılı; ama otelhttp yayıcı
+verilmezse `otel.GetTextMapPropagator()` kullanır ve süreçte hiç kurulmamıştı (boş bileşik) → gelen başlık okunmuyor,
+her backend isteği kendi kökünü açıyordu (D1 bu yüzden copilot istemcisine AÇIK TraceContext vermişti). (b) `/ai` çağrı
+çekmecesinin "Trace" linki `traceId` doluyken her zaman çıkıyordu; self-obs bir DIŞ collector'a gidiyorsa trace bu
+Coremetry'de yok ve link boş `/trace` sayfasına gidiyordu.
+
+**Karar.** (1) `selfobs/propagation.go`: `Propagator()` = tracecontext + baggage; `Init` trace hattını kurduğunda
+(`enabled`) `otel.SetTextMapPropagator` — self-obs kapalıyken HİÇ kurulmaz (aksi halde gelen başlık noop span bağlamına
+girer ve copilot'un açık yayıcısı onu sağlayıcıya iletirdi; kapalıyken davranış bayt bayt eski). otelhttp sarmalı
+`internal/api/http_root.go` `otelServerHandler`'a taşındı (test edilebilsin; api.go 10856 → 10841, taban ratchet aşağı);
+yayıcı vermez, süreç genelini kullanır. (2) `selfobs.TracesQueryable()` = enabled && (`COREMETRY_SELF_OBS_TRACES_LOCAL`
+true/false ezer; boşsa uç nokta loopback mı — `all` kipinin varsayılanı `localhost:<grpc>`). (3) Bayrak yeni rota yerine
+çekmecenin zaten okuduğu `GET /api/ai/calls/{id}` yanıtına biner: `aiCallDetail{*chstore.AICall; traceQueryable}`
+(gömülü işaretçi → satır alanları düz, tek ek alan). Görev "config uç noktası" diyordu; /ai sayfasının okuduğu config
+uçları (`/api/ai/rates` = oran haritası, `/api/ai/budget` = bütçe) bu bayrağın doğal yeri değil ve linkin tek tüketicisi
+çekmece. (4) `CallDrawer`: `traceQueryable` → `<Link>`; değilse "Trace (harici collector)" düz metin + ipucu
+"trace harici collector'da — bu Coremetry'de sorgulanamaz", kimlik yine görünür. Tablo satırı çekmeceyi hemen açar,
+ardından ayrıntıyı (`api.aiCall`) çekip aynı satırın üstüne bindirir (önceden liste satırıyla açılıyordu, bayrak gelmezdi).
+
+**Sınır.** Bayrak api pod'unun KENDİ self-obs ayarından; split kurulumda sre pod'u farklı bir uç noktaya gönderiyorsa
+(chart `selfObs.roles.sre.endpoint`, v0.10.1471) api pod'u bunu bilemez — chart varsayılanında tüm roller aynı kuruluma
+gider. Loopback'te bir yan-araç collector dışarı iletiyorsa `TRACES_LOCAL=false`.
+
+**Geri alma.** `COREMETRY_SELF_OBS_TRACES_LOCAL=true` → link eskisi gibi hep görünür. Yayıcıyı kapatmanın env'i yok:
+`COREMETRY_SELF_OBS_OTLP_ENDPOINT` boş → self-obs kapalı, yayıcı kurulmaz. Tam geri alma: commit revert + yeni etiket
+(şema yok).
+
+**Testler.** selfobs `TestTracesLocalTable` (16 satır), `TestInitInstallsW3CPropagatorOnlyWhenEnabled` (kapalı: alan yok,
+TracesQueryable false; açık: traceparent/tracestate/baggage); api `TestOtelServerHandlerJoinsIncomingTraceparent`
+(W3C yayıcıyla SERVER span'ı tarayıcı trace'inin uzak çocuğu, ad `GET /api/traces/:id`; boş yayıcıda kendi kökü; listen
+sarmalayıcıdan geçer), `TestAICallDetailShape`; frontend `aiCallTraceLink.pin.test.ts` + traceQueryable kapısı.

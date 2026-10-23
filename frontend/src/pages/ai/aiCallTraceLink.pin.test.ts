@@ -13,6 +13,23 @@ describe('v0.10.1463 — ai_calls satırından trace linki', () => {
     expect(src).toContain('<Link to={traceHref(call.traceId)}');
     expect(src).not.toContain('/trace?id=${call.traceId}');
   });
+  // v0.10.1470 — link ayrıca traceQueryable kapısının arkasında: dış
+  // collector'a giden trace bu Coremetry'de yok, link boş sayfaya giderdi.
+  it('link traceQueryable kapısının arkasında; aksi halde ipuçlu düz metin', () => {
+    const src = readFileSync(resolve(__dirname, '../AIObservability.tsx'), 'utf8');
+    const gate = src.indexOf('{call.traceQueryable');
+    const link = src.indexOf('<Link to={traceHref(call.traceId)}');
+    expect(gate).toBeGreaterThan(-1);
+    expect(link).toBeGreaterThan(gate);
+    expect(src.slice(gate, link)).toMatch(/^\{call\.traceQueryable\s*\?\s*$/);
+    expect(src).toContain("title=\"trace harici collector'da");
+  });
+  it('tablo satırı da ayrıntı yanıtını (traceQueryable) çeker', () => {
+    const src = readFileSync(resolve(__dirname, '../AIObservability.tsx'), 'utf8');
+    expect(src).toContain('rowActivation(() => openCallRow(c))');
+    expect(src).not.toContain('rowActivation(() => setOpen(c))');
+    expect(src).toMatch(/const openCallRow = [\s\S]{0,400}api\.aiCall\(c\.id\)/);
+  });
   it('hedef /trace sayfası', () => {
     expect(traceHref('0af7651916cd43dd8448eb211c80319c')).toBe('/trace?id=0af7651916cd43dd8448eb211c80319c');
   });
