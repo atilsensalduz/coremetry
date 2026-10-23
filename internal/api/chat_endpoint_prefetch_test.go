@@ -80,6 +80,13 @@ func TestEndpointMention(t *testing.T) {
 		{"(*/shop/orders/detail*) yavaş", "", "/shop/orders/detail", true},
 		{"*/shop/.../detail* çağrılıyor", "", "/shop/.../detail", true},
 		{"/x/** bak", "", "/x/**", true},
+		// v0.10.1447 (operator-reported) — "/" ile biten yolun kalın sarmalayıcısı
+		// joker değildir; başta sarmalayıcı yoksa (üstteki satır) joker kalır.
+		{"**/esb/external/rest/kvkk/customer-kvkk/** kısmı için grafikleri ortalamayı gösterebilirsin", "", "/esb/external/rest/kvkk/customer-kvkk", true},
+		{"*/shop/x/* bak", "", "/shop/x", true},
+		{"(**/shop/x/**).", "", "/shop/x", true},
+		{"_/shop/x/_ yavaş", "", "/shop/x", true},
+		{"**/shop/x/*** bak", "", "/shop/x/*", true}, // eşten artan `*` joker
 	}
 	for _, c := range cases {
 		m, p, ok := endpointMention(c.raw)

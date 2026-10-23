@@ -111,8 +111,33 @@ func trimWrapSuffix(tok string) string {
 // sarmalayıcısı (`*/yol*`, `**/yol**`, `_/yol_`) belirteçten atılır. Baştaki
 // `*`/`_` her zaman, sondaki yalnız trimWrapSuffix kuralıyla. Hem anma
 // (endpointMention) hem veto (endpointMentionVetoed) aynı kırpmayı görür.
+//
+// v0.10.1447 (operator-reported): "**/esb/.../customer-kvkk/** için grafikleri
+// göster" — yol "/" ile bitince sondaki `**` joker sayılıp kalıyor, belirteç
+// "/esb/.../customer-kvkk/**" oluyor ve katalogda hiçbir aday eşlemiyordu
+// (yol-yalnız hedef → "veri bulunamadı"). BAŞTA sarmalayıcı varsa sondaki
+// eşi (sondaki noktalamadan önce, en çok baştaki kadar) "/"den sonra da
+// sarmalayıcıdır (trimWrapPair); başta yoksa eski joker kuralı aynen.
 func stripMarkdownWrap(tok string) string {
-	return trimWrapSuffix(strings.TrimLeft(tok, "*_"))
+	lead := len(tok) - len(strings.TrimLeft(tok, "*_"))
+	tok = tok[lead:]
+	if lead > 0 {
+		return trimWrapPair(tok, lead)
+	}
+	return trimWrapSuffix(tok)
+}
+
+// trimWrapPair — SAF (v0.10.1447): baştaki sarmalayıcının sondaki eşini atar;
+// sondaki noktalama ("**/x/**)." → ")." ) korunur, cleanEndpointPath kırpar.
+// Eşten artan `*` (örn. "*/x/y**") trimWrapSuffix'e kalır.
+func trimWrapPair(tok string, lead int) string {
+	body := strings.TrimRight(tok, ".,;:!)]>\"`")
+	tail := tok[len(body):]
+	n := 0
+	for n < lead && n < len(body) && (body[len(body)-1-n] == '*' || body[len(body)-1-n] == '_') {
+		n++
+	}
+	return trimWrapSuffix(body[:len(body)-n]) + tail
 }
 
 // stripMarkdownWrapText — SAF (v0.10.1373): metnin her belirtecine
