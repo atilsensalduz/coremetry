@@ -170,7 +170,7 @@ describe('/cosre bağımsız sohbet sayfası', () => {
     await tick();
     expect(send).toHaveBeenCalledTimes(1);
     const args = send.mock.calls[0] as unknown[];
-    expect(args[args.length - 1]).toEqual({ kind: 'exception', id: 'ora:00000000000000a1', src: 'starter' });
+    expect(args[20]).toEqual({ kind: 'exception', id: 'ora:00000000000000a1', src: 'starter' });
     expect(here.startsWith('/cosre')).toBe(true); // gezinme yok
   });
 

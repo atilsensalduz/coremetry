@@ -69,6 +69,8 @@ export interface ChatThreadOpts {
   profile?: string;
   /** v0.10.1150 — "Derin düşün" (composer hapı, deepThink.ts); açıkken context.deep: true. */
   deep?: boolean;
+  /** v0.10.1461 — "Kod" hapı (codeRead.ts); açıkken context.code: true (bağımsız sohbet kod turu). */
+  code?: boolean;
   /** v0.10.539 — sayfa bağlamı (lib/pageContext, her turda) ve sabitlenmiş bağlam. */
   page?: PageContext;
   pinnedPage?: PageContext;
@@ -302,7 +304,8 @@ export function useChatThread(opts: ChatThreadOpts = {}) {
         parsed.scope, parsed.command, // v0.10.1138 — yapısal @-kapsam + /komut
         o.deep || undefined, // v0.10.1150 — Derin düşün (kapalıyken gövdede yok)
         so?.attempt, // Faz 1 — retry/regenerate/edit beyanı
-        so?.explainAsk); // v0.10.1400 — yapısal açıklama niyeti
+        so?.explainAsk, // v0.10.1400 — yapısal açıklama niyeti
+        o.code || undefined); // v0.10.1461 — Kod hapı (kapalıyken gövdede yok)
       // v0.10.648 — terminal olaysız EOF: tur asılı kalmasın (chatAbort.ts).
       patchLast(settleTruncatedTurn);
     } catch (err) {

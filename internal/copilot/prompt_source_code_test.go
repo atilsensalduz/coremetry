@@ -38,3 +38,31 @@ func TestSourceCodeChatAddendumContract(t *testing.T) {
 		t.Error("sohbet çekirdeği read_source_code'u anıyor — araç sunulmadığında olmayan bir aracı vaat eder")
 	}
 }
+
+// v0.10.1461 (R2) — kod turu eki: dış araç yok, servis ekrandan / araç
+// sonucundan, alıntı dosya:satır; kısa, aile-nötr (model adı yok), sicilde.
+func TestCodeTurnAddendumContract(t *testing.T) {
+	a := CodeTurnAddendum()
+	for _, want := range []string{"dış araç yok", "ekrandan", "list_services", "resolve_entity", "uydurma", "dosya:satır"} {
+		if !strings.Contains(flat(a), want) {
+			t.Errorf("ekte %q yok", want)
+		}
+	}
+	if n := len(a); n > 400 {
+		t.Errorf("ek %d B — kısa tut", n)
+	}
+	for _, fam := range []string{"gemma", "qwen", "Gemma", "Qwen"} {
+		if strings.Contains(a, fam) {
+			t.Errorf("ek model ailesi anıyor (%s) — aile-nötr olmalı", fam)
+		}
+	}
+	if strings.HasPrefix(a, "\n") || strings.HasSuffix(a, "\n") || strings.Contains(a, AnswerInTurkish) || strings.Contains(a, DataNotInstruction) {
+		t.Error("ek kendi boşluğunu / dil direktifini / çerçeveyi taşımaz")
+	}
+	if promptVersionRegistry["codeTurnAddendum"] != a {
+		t.Error("ek promptVersionRegistry'de değil")
+	}
+	if strings.Contains(SystemPromptChat(), "KOD TURU") || strings.Contains(SystemPromptChatAgentLoop(), "KOD TURU") {
+		t.Error("sohbet çekirdeği kod turunu anıyor — hap kapalıyken prompt bayt bayt eski olmalı")
+	}
+}

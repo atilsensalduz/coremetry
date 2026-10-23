@@ -5867,6 +5867,8 @@ tbody td.tpm-more-cell { color: var(--text2); }
 .cosre-root .cm-composer__input { min-height: 44px; padding: var(--cosre-s2) 0 0; }
 .cosre-root .cm-composer__actions { width: 100%; justify-content: flex-end; }
 .cosre-root .cm-composer__actions .cm-deep-pill { margin-right: auto; }
+/* v0.10.1461 — "Kod" hapı Derin'in yanında: itme yalnız sondaki hapta */
+.cosre-root .cm-composer__actions .cm-deep-pill:has(+ .cm-code-pill) { margin-right: 0; }
 .cosre-root .cm-send {
   width: 32px; height: 32px; min-width: 32px; padding: 0; border-radius: 999px;
   font-size: 16px; line-height: 1; display: inline-flex; align-items: center; justify-content: center;

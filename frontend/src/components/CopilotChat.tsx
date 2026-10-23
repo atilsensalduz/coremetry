@@ -36,6 +36,7 @@ import { applyCompletion, type CompletionItem } from './ai/chatCompletion';
 import { ModelPicker } from './ai/ModelPicker'; // v0.10.1138 — kompakt "model ▾" menüsü
 import { useChatProfile } from './ai/chatProfileStore'; // v0.10.1138 — kullanıcı başına seçim
 import { useDeepThink } from './ai/deepThink'; // v0.10.1150 — "Derin düşün"
+import { useCodeRead } from './ai/codeRead'; // v0.10.1461 — "Kod" hapı (bağımsız sohbet kod turu)
 import { hasDrawerContext, parseChatInput, removeToken, scopeChips, scopeForRequest } from './ai/chatScope'; // v0.10.1138 — @/ kapsamı
 import { ChatContextBar } from './ai/ChatContextBar'; // v0.10.1274 — aktif bağlam şeridi
 import { applyContextExclusions, contextBarItems, shouldResetExclusions, type ChatRequestContext, type ContextKey } from './ai/chatContextScope';
@@ -136,6 +137,11 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
   const { user } = useAuth();
   const { profile, setProfile, activeModel } = useChatProfile(user?.id, profiles, defaultProfile, model);
   const [deep, setDeep] = useDeepThink(user?.id); // v0.10.1150 — "Derin düşün" (kullanıcı başına, kalıcı)
+  // v0.10.1461 — "Kod" hapı: yalnız DevOps bağlıyken (config.codeRead var) çizilir;
+  // sunucu kod okuyamıyorsa (yerel profil yok) devre dışı + gerekçe, istek gövdesine gitmez.
+  const [codePill, setCodePill] = useCodeRead(user?.id);
+  const codeRead = cfg?.codeRead;
+  const code = codePill && !!codeRead?.available;
   const [openState, setOpen] = useState(false);
   const open = isPage || openState; // v0.10.1125 — sayfa kipinde hep açık
   // v0.10.483 — ✨ Explain öznesi (`?ai=`). v0.10.1400/1405 — tek seferlik
@@ -294,6 +300,7 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
       resolveOpts: resolveExplainOpts, // v0.10.1400
       profile: profile || undefined,
       deep, // v0.10.1150 — açıkken context.deep: true
+      code, // v0.10.1461 — açıkken context.code: true
       // v0.10.1138 — sunucu seçili profili reddetti (rolüne kapalı / silinmiş) → varsayılana dön.
       onProfileRejected: () => setProfile(''),
       persist: true,
@@ -930,6 +937,7 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
               placeholder="CoSRE'ye sor… (Shift+Enter: yeni satır · @ kapsam · / komutlar)"
               ariaLabel="CoSRE'ye mesaj"
               deep={deep} onDeepChange={setDeep} deepDisabled={busy}
+              {...(codeRead ? { code: codePill, onCodeChange: setCodePill, codeDisabled: busy, codeReason: codeRead.available ? undefined : (codeRead.reason || 'kapalı') } : {})}
               comboboxProps={{
                 'aria-autocomplete': 'list',
                 'aria-controls': 'chat-complete',

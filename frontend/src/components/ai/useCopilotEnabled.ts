@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import type { CopilotProfileOption } from '@/lib/types';
+import type { CopilotCodeRead, CopilotProfileOption } from '@/lib/types';
 
 // useCopilotEnabled — /api/copilot/config'in TEK, paylaşılan cevabı
 // (v0.9.477). Önceden her CopilotExplain mount'u kendi isteğini atıyordu;
@@ -24,6 +24,9 @@ export interface CopilotConfig {
   /** v0.10.1128 — sohbet bu kullanıcıya wiki'den cevap verebilir mi (yalnız
    *  boolean; karşılamadaki "wiki'de arayabilirim" ipucu). Yoksa false. */
   wiki?: boolean;
+  /** v0.10.1451 / v0.10.1461 — kod okuma durumu (yalnız DevOps bağlıyken); "Kod"
+   *  hapı bunu okur: yoksa hap çizilmez, available=false → devre dışı + reason. */
+  codeRead?: CopilotCodeRead;
 }
 
 const OFF: CopilotConfig = { enabled: false };
@@ -44,6 +47,10 @@ export function normalizeCopilotConfig(c: Partial<CopilotConfig> | null | undefi
     wiki: !!c.wiki,
     ...(profiles.length > 0 ? { profiles } : {}),
     ...(c.defaultProfile ? { defaultProfile: c.defaultProfile } : {}),
+    // v0.10.1461 — codeRead de taşınır (1138'deki profiles düşüşünün ikizi olmasın).
+    ...(c.codeRead && typeof c.codeRead === 'object'
+      ? { codeRead: { available: !!c.codeRead.available, ...(c.codeRead.reason ? { reason: c.codeRead.reason } : {}), ...(c.codeRead.profileLabel ? { profileLabel: c.codeRead.profileLabel } : {}) } }
+      : {}),
   };
 }
 

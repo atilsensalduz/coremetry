@@ -389,6 +389,15 @@ func (s *Service) profileID(ctx context.Context) string {
 	return ""
 }
 
+// ProfileIDFor — v0.10.1461: çağrının ÇÖZÜLEN profil kimliği (kod turu step
+// etiketi ve audit satırı; RouteSensitive sonrası yerel profil).
+func (s *Service) ProfileIDFor(ctx context.Context) string {
+	if s == nil {
+		return ""
+	}
+	return s.profileID(ctx)
+}
+
 func (s *Service) profileIdentity(ctx context.Context) (provider, model, baseURL string) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

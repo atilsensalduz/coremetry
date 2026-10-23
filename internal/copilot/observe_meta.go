@@ -76,6 +76,7 @@ var promptVersionRegistry = map[string]string{
 	"chatDeepAddendum":           chatDeepAddendum,           // v0.10.1150 — Derin düşün üslubu
 	"chatDeepLoopBudget":         chatDeepLoopBudget,         // v0.10.1150 — Derin düşün araç bütçesi
 	"sourceCodeChatAddendum":     sourceCodeChatAddendum,
+	"codeTurnAddendum":           codeTurnAddendum,        // v0.10.1461 — R2 kod turu
 	"codeResolveChatAddendum":    codeResolveChatAddendum, // v0.10.1210
 	"codeSearchChatAddendum":     codeSearchChatAddendum,  // v0.10.1210     // v0.10.1050 — read_source_code sunulunca
 	"wikiChatAddendum":           wikiChatAddendum,        // v0.10.1122 — search_wiki / read_wiki_page sunulunca

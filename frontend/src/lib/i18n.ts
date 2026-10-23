@@ -183,6 +183,10 @@ const EN: Catalog = {
   // v0.10.944 (operatör) — trace sayfasının ✨ Explain düğmesi "CoSRE'ye sor"
   // adını aldı. Görünen ad + ipucu yalnız ARAYÜZ metni: ?ai=trace:<id>,
   // explain-trace yüzeyi ve AIExplainButton aynı kalır.
+  // v0.10.1461 — composer "Kod" hapı (R2, bağımsız sohbette kod turu)
+  'ai.codeTurn':            'Code',
+  'ai.codeTurnHint':        'Read source code this turn — goes only to the self-hosted model; external tools are off for the turn.',
+  'ai.codeTurnUnavailable': 'Code reading is unavailable',
   'ai.askCosre':          'Ask CoSRE',
   // v0.10.1435 — panelden "Bu grafiği açıkla"
   'ai.askCosreMetricPanelHint': 'Explain this chart in the CoSRE chat (brushed range and selected series included)',
@@ -528,6 +532,10 @@ const TR: Catalog = {
   'range.7d':  'Son 7 gün',
   'range.30d': 'Son 30 gün',
 
+  // v0.10.1461 — composer "Kod" hapı (R2)
+  'ai.codeTurn':            'Kod',
+  'ai.codeTurnHint':        'Bu turda kaynak kodu okur — yalnız yerel (self-hosted) modele gider; o turda dış araçlar kapalı.',
+  'ai.codeTurnUnavailable': 'Kod okuma kapalı',
   'ai.askCosre':          'CoSRE’ye sor',
   // v0.10.1435 — panelden "Bu grafiği açıkla"
   'ai.askCosreMetricPanelHint': 'Bu grafiği CoSRE sohbetinde açıkla (seçili aralık ve seri dahil)',

@@ -2,7 +2,7 @@ import {
   useCallback, useEffect, useId, useLayoutEffect, useRef, useState,
   type ClipboardEvent, type KeyboardEvent, type ReactNode, type RefObject, type TextareaHTMLAttributes,
 } from 'react';
-import { Bold, Brain, Code, Eye, Italic, Link as LinkIcon, List, ListOrdered, SquareCode, TextQuote, type LucideIcon } from 'lucide-react';
+import { Bold, Brain, Code, FileCode, Eye, Italic, Link as LinkIcon, List, ListOrdered, SquareCode, TextQuote, type LucideIcon } from 'lucide-react';
 import { IconButton } from '@/components/ui/IconButton';
 import { Button } from '@/components/ui/Button';
 import { LinkButton } from '@/components/ui/LinkButton';
@@ -14,6 +14,7 @@ import { actionEdit, ariaShortcut, composerShortcut, isMacPlatform, shortcutLabe
 import { planPaste } from './composerPaste';
 import { readToolsOpen, writeToolsOpen } from './composerDraft';
 import { DEEP_THINK_TOOLTIP } from './deepThink';
+import { useT } from '@/lib/i18n';
 
 // ChatComposer — v0.10.1145 (operatör: "rich text editör"): CoSRE sohbetinin
 // composer'ı — çekmece, /cosre sayfası ve ✨ Explain sohbeti AYNI bileşen.
@@ -35,6 +36,9 @@ import { DEEP_THINK_TOOLTIP } from './deepThink';
 //   - Önizleme: cevaplarla AYNI çizici (ChatMarkdown), dış link doğrulanmamış;
 //   - v0.10.1150 "Derin" hapı (Aa'nın yanında): context.deep; durum kabukta
 //     (deepThink.ts, kullanıcı başına), akış sürerken devre dışı.
+//   - v0.10.1461 "Kod" hapı (Derin'in yanında): context.code — bağımsız sohbette
+//     kod turu (yerel model, o turda dış araç yok); durum kabukta (codeRead.ts),
+//     sunucu kod okuyamıyorsa devre dışı + tooltip gerekçe.
 //
 // Geri al: düzenlemeler `document.execCommand('insertText')` ile uygulanır →
 // tarayıcının yerel Ctrl+Z yığını korunur. Komut yoksa / reddedilirse
@@ -86,12 +90,22 @@ export interface ChatComposerProps {
   onDeepChange?: (on: boolean) => void;
   /** Akış sürerken Derin değiştirilemez (model hapı gibi). */
   deepDisabled?: boolean;
+  /**
+   * v0.10.1461 — "Kod" hapı (bağımsız sohbette kod turu). Durumu kabuk tutar
+   * (useCodeRead); onCodeChange yoksa çizilmez. codeReason: sunucu kod
+   * okuyamıyorsa gerekçe (hap devre dışı, tooltip bu metin).
+   */
+  code?: boolean;
+  onCodeChange?: (on: boolean) => void;
+  codeDisabled?: boolean;
+  codeReason?: string;
 }
 
 export function ChatComposer({
   value, onChange, onSubmit, onCaret, onBeforeKey, popup, actions,
   placeholder, ariaLabel, textareaRef, autoFocus, comboboxProps,
   deep, onDeepChange, deepDisabled,
+  code, onCodeChange, codeDisabled, codeReason,
 }: ChatComposerProps) {
   const innerRef = useRef<HTMLTextAreaElement>(null);
   const ref = textareaRef ?? innerRef;
@@ -361,6 +375,9 @@ export function ChatComposer({
             onMouseDown={e => e.preventDefault()}
             onClick={() => onDeepChange(!deep)}>Derin</Button>
         )}
+        {onCodeChange && (
+          <CodePill on={!!code} onChange={onCodeChange} disabled={codeDisabled} reason={codeReason} />
+        )}
         {actions}
       </div>
       {liveNote && (
@@ -372,5 +389,24 @@ export function ChatComposer({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * v0.10.1461 — "Kod" hapı (Derin'in ikizi). Ayrı bileşen: useT yalnız hap
+ * çizildiğinde çağrılır. Gerekçe varken (sunucu kod okuyamıyor) devre dışı ve
+ * basılı görünmez; tooltip gerekçeyi söyler.
+ */
+function CodePill({ on, onChange, disabled, reason }: { on: boolean; onChange: (on: boolean) => void; disabled?: boolean; reason?: string }) {
+  const tr = useT();
+  const closed = !!reason;
+  return (
+    <Button variant="ghost" size="sm" type="button" className="cm-deep-pill cm-code-pill"
+      aria-pressed={on && !closed} aria-label={tr('ai.codeTurn')}
+      disabled={disabled || closed}
+      leftIcon={<FileCode size={14} strokeWidth={2} aria-hidden="true" />}
+      title={closed ? `${tr('ai.codeTurnUnavailable')} — ${reason}` : tr('ai.codeTurnHint')}
+      onMouseDown={e => e.preventDefault()}
+      onClick={() => onChange(!on)}>{tr('ai.codeTurn')}</Button>
   );
 }

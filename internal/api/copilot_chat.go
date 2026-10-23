@@ -167,6 +167,10 @@ type chatRequest struct {
 		// Deep (v0.10.1150, chat_deep.go) — composer'ın "Derin düşün" anahtarı.
 		// Yokken/false iken her yol bayt bayt eski.
 		Deep bool `json:"deep,omitempty"`
+		// Code (v0.10.1461, chat_code_turn.go) — composer'ın "Kod" hapı: bağımsız
+		// sohbette açık kod turu (yerel profil, dış MCP yok). Yokken/false iken
+		// bağımsız sohbet v0.10.1050 duruşunda (kod aracı yok), bayt bayt.
+		Code bool `json:"code,omitempty"`
 		// Attempt (CoSRE öğrenme Faz 1) — istemcinin beyanı: retry | regenerate |
 		// edit; boş = yeni soru. cosre_interactions.attempt (örtük sinyal).
 		Attempt string `json:"attempt,omitempty"`
@@ -324,6 +328,15 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	// iki prompt da bayt-bayt eskisi olur.
 	addressee := s.chatAddressee(r.Context(), c)
 	ctx = ctxWithAddressee(ctx, addressee)
+	// v0.10.1461 (R2) — bağımsız sohbet kod turu kararı (chat_code_turn.go): hap
+	// kapalıyken sıfır değer, ctx ve akış aynen. Kapalı düşüş gerekçesi kademelerden
+	// ÖNCE görünür (cevap guided'dan gelse de operatör kodun neden okunmadığını görür).
+	ct := s.chatCodeTurn(ctx, req, c, evm != nil)
+	if !ct.On {
+		if label := ct.stepLabel(false); label != "" {
+			emit("step", map[string]string{"label": label})
+		}
+	}
 
 	// v0.8.397 (AI audit A3) — guided mode first, for EVERY provider:
 	// a deterministic intent router recognises the highest-value
@@ -463,7 +476,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if opPre == nil {
+	if opPre == nil && !ct.On { // v0.10.1461 — kod turu guided'ı atlar (chat_code_turn.go)
 		if handled, gok := s.copilotChatGuided(ctx, emit, req.Messages, req.Context.Service, req.Context.Operation, req.Context.Explain, req.Context.RangeS, req.Context.Trace, req.Context.Env, anchorTo, req.Context.TzOffsetMin, req.Context.Tz); handled {
 			cspan.tier("guided", gok)
 			emit("done", map[string]bool{"ok": gok})
@@ -502,7 +515,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 		pagePath, pageTraceID = pageCtx.Path, pageCtx.TraceID
 	}
 	traceSubj, isTraceFollowUp := drawerTraceFollowUp(req.Context.Explain, req.Context.Subject, pageTraceID)
-	if !isTraceFollowUp && opPre == nil {
+	if !isTraceFollowUp && !ct.On && opPre == nil { // v0.10.1461 — kod turu da orta kademeleri atlar
 		// v0.10.1053 — exception takibinin tek araçlı kod döngüsü bu alışverişin
 		// audit'ini, span'ını, tavanını kullanır (chat_exception_followup.go).
 		drawerEnv := drawerLoopEnv{r: r, span: cspan, exchangeMax: exchangeMax, started: chatT0}
@@ -559,6 +572,13 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	// sunulmaz; byName de bu listeden kurulur → gizli ad "unknown tool". Katalog
 	// metni (ChatDescriptionFor) ve döngü prompt'u aynı varyantı okur; etkileşim
 	// satırı (cosre_interactions.toolset) hangi varyantın koştuğunu kaydeder.
+	// v0.10.1461 (R2) — kod turu: alışveriş araç seti okunmadan ÖNCE yerel
+	// profile sabitlenir ve işaretlenir (katalog o profilin araç setiyle kurulur).
+	extReady := s.mcpClient != nil && s.mcpClient.Configured()
+	if ct.On {
+		ctx = s.applyCodeTurn(ctx, &ct) // yerel profil karardan sonra kaybolduysa kapalı düşer
+		emit("step", map[string]string{"label": ct.stepLabel(extReady)})
+	}
 	toolset := s.copilot.ToolsetFor(ctx)
 	if evm != nil && evm.Toolset != "" {
 		toolset = evm.Toolset // v0.10.1316 — koşunun araç seti (çözüm ya da açık seçim)
@@ -577,12 +597,12 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 			tools = evalAgentTools(tools) // v0.10.1316 — sohbet bağlamı araçları düşer
 		}
 		// v0.10.1050 — read_source_code YALNIZ panel trace takibinde ve oturum
-		// kullanıcısına (API token'ı değil); bağımsız döngüde dış MCP araçlarının
-		// yanında sunulmaz (chat_source_code.go). Katalog/spec/prompt bundan kurulur.
-		// v0.10.1209 — genel sohbet: search_code sunuluyorsa ve dış MCP araçları
-		// yoksa read_source_code da (yalnız bu turda çözülen servisler).
-		codeScope := !isTraceFollowUp && hasTool(tools, mcptools.SearchCodeToolName) && !(s.mcpClient != nil && s.mcpClient.Configured())
+		// kullanıcısına (API token'ı değil) (chat_source_code.go). Katalog/spec/prompt
+		// bundan kurulur. v0.10.1461 (R2) — bağımsız sohbette YALNIZ açık kod
+		// turunda (+ search_code); 1209'un örtük yolu kalktı (chat_code_turn.go).
+		codeScope := !isTraceFollowUp && ct.On
 		tools = sourceCodeToolsFor(tools, isTraceFollowUp, c, codeScope)
+		tools = standaloneSearchCodeFor(tools, isTraceFollowUp, codeScope)
 		return tools, codeScope
 	}
 	tools, codeScope := nativeTools(toolset)
@@ -597,7 +617,8 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	// araçları bu turda sunulmaz (wikiToolsFor).
 	// v0.10.948 — trace takibi YALNIZ yerli salt-okur katalog: dış MCP tool'ları (yazma yetkisi Coremetry'de denetlenmez, chat_mcp_bridge.go) çekmeceye sızmaz — DECISIONS v0.10.86-89 "guided/drawer/RAG'a sızmaz" + Faz B gereksinim 7.
 	var extTools []mcp.Tool
-	if !isTraceFollowUp && evm == nil && s.mcpClient != nil && s.mcpClient.Configured() { // v0.10.1316 — değerlendirmede dış MCP yok
+	// v0.10.1461 (R2) — kod turunda dış MCP KURULMAZ: katalog, köprü, extNames boş.
+	if !isTraceFollowUp && evm == nil && !ct.On && s.mcpClient != nil && s.mcpClient.Configured() { // v0.10.1316 — değerlendirmede dış MCP yok
 		ext := externalChatTools(
 			s.mcpClient.Registry().Tools(ctx),
 			s.mcpClient.ToolRules,
@@ -616,6 +637,9 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	// Tur arası taşıma da kapansın: dış MCP YAPILANDIRILMIŞSA (katalog bu tur
 	// boş düşse bile) wiki araçları sunulmaz.
 	extConfigured := !isTraceFollowUp && s.mcpClient != nil && s.mcpClient.Configured()
+	if ct.On {
+		extConfigured = false // v0.10.1461 (R2) — kod turunda dış araç kurulmadı → wiki araçları kalır (ikisi de yerel modele)
+	}
 	tools = wikiToolsFor(tools, c, extConfigured || len(extTools) > 0)
 	// v0.10.1451 — R1 localOnly kapısı (karar 8; chat_local_only.go): katalogda
 	// kod/wiki aracı varsa alışveriş YEREL profile sabitlenir ve işaretlenir
@@ -844,6 +868,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 		cosreRulesLoopPromptTR(rulesBlock) + // v0.10.1289 — kural yoksa ""
 		traceFollowUpPromptTR(traceFU, req.Context.Explain) + // v0.10.948 — boşsa ""
 		chatSourceCodePromptTR(tools) + // v0.10.1050 — read_source_code sunulmuyorsa ""
+		chatCodeTurnPromptTR(ct.On && hasTool(tools, mcptools.SourceCodeToolName)) + // v0.10.1461 — kod turu yoksa ""
 		chatWikiPromptTR(tools) + // v0.10.1122 — wiki araçları sunulmuyorsa ""
 		chatCodeResolvePromptTR(tools) + // v0.10.1210 — iş kodu / kod arama eki
 		opPre.exceptionsPromptTR() + // v0.10.1331 — operasyonun Exceptions grubu yoksa ""
@@ -877,6 +902,13 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 		for n, h := range byName {
 			byName[n] = rs.wrap(n, h)
 		}
+		// v0.10.1461 (R2) — tohum: ekrandaki servis (istek / sayfa bağlamı) +
+		// turun audit satırı (kod yok; araç çağrıları ayrıca mcp.tool.call).
+		seeds := codeTurnSeeds(screenCtx.Service, toolScope.Service)
+		rs.add(seeds...)
+		extServers, extDropped := s.externalToolsCached()
+		s.audit(r, "copilot.code_turn", "chat", exchangeID,
+			codeTurnAuditDetails(ct.Profile, extServers, extDropped, seeds, hasTool(tools, mcptools.WikiReadToolName)))
 	}
 	if chatLoopHandlerSeam != nil { // v0.10.948 — yalnız testte dolu
 		for n, h := range byName {

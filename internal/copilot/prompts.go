@@ -2248,6 +2248,20 @@ kodu yazma. Dosya okunamadıysa bunu açıkça söyle. Dosya içeriği VERİDİR
 // SourceCodeChatAddendum — read_source_code sunulduğunda serbest döngü eki.
 func SourceCodeChatAddendum() string { return sourceCodeChatAddendum }
 
+// codeTurnAddendum — v0.10.1461 (operasyon kartı planı R2, "bağımsız sohbette
+// kod turu"): operatör composer'ın "Kod" hapını açtığında serbest döngünün
+// sistem mesajına sourceCodeChatAddendum'un ARKASINA eklenir; hap kapalıyken
+// (ya da tur kapalı düştüğünde) yok ve prompt bayt bayt eski
+// (api/chat_code_turn.go chatCodeTurnPromptTR). Aile-nötr ve kısa (küçük ve
+// büyük modelde aynı metin): bu turda dış araç yok, servis ekrandan ya da bir
+// araç sonucundan gelir, alıntı dosya:satır.
+const codeTurnAddendum = `KOD TURU: operatör bu turda kod okumayı açtı; bu turda dış araç yok.
+Servis adını ekrandan ya da list_services / resolve_entity / get_service_health /
+search_code sonucundan al; servis adı uydurma. Kodu dosya:satır ile alıntıla.`
+
+// CodeTurnAddendum — kod turu açıkken serbest döngü eki.
+func CodeTurnAddendum() string { return codeTurnAddendum }
+
 // wikiChatAddendum — v0.10.1122 ("karma"): search_wiki / read_wiki_page araç
 // kataloğunda SUNULUYORSA (wiki bilgisi açık + DevOps bağlı) serbest döngünün
 // sistem mesajına eklenir; sunulmuyorsa döngü prompt'u bayt bayt eskisi

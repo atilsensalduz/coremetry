@@ -355,7 +355,7 @@ describe('CopilotChat çekmecesi — v0.10.1382 / v0.10.1390 başlangıçlar', (
     const args = send.mock.calls[0] as unknown[];
     expect(lastSent(send)).toBe('ORDERS_GET_X · orders-api grubunu açıkla · ora:00000000…');
     // Yapısal açıklama niyeti (v0.10.1400 yolu) son argüman; gezinme yok.
-    expect(args[args.length - 1]).toEqual({ kind: 'exception', id: ORA_FP, src: 'starter' });
+    expect(args[20]).toEqual({ kind: 'exception', id: ORA_FP, src: 'starter' });
   });
 
   it('v0.10.1409 — "Tüm son exception\'lar" takım bilinse de iyelikle sorar (my_exceptions)', async () => {
@@ -370,7 +370,7 @@ describe('CopilotChat çekmecesi — v0.10.1382 / v0.10.1390 başlangıçlar', (
     expect(send).toHaveBeenCalledTimes(1);
     expect(lastSent(send)).toBe('Takımımın exception\'ları?');
     const args = send.mock.calls[0] as unknown[];
-    expect(args[args.length - 1]).toBeUndefined(); // açıklama niyeti YOK — guided router
+    expect(args[20]).toBeUndefined(); // açıklama niyeti YOK — guided router
   });
 
   it('servis kutusu: listeden seçim HEMEN gönderir "<svc> sağlığı nasıl?"', async () => {

@@ -9,15 +9,23 @@ package api
 // mcptools/source_code.go'da, DevOps zinciri devops/source_read.go'da; bu
 // dosya ikisinin arasındaki SUNUCU kararlarını tutar.
 //
-// ── NEREDE SUNULUR (güvenlik incelemesi, v0.10.1050) ───────────────────────
+// ── NEREDE SUNULUR (güvenlik incelemesi, v0.10.1050; v0.10.1461 R2) ───────
 //
-//   - YALNIZ panel takibinde: trace/span öznesi → serbest döngü (yalnız YERLİ
+//   - Panel takibinde: trace/span öznesi → serbest döngü (yalnız YERLİ
 //     araçlar); v0.10.1053 — exception öznesi → çekmecenin TEK araçlı döngüsü
-//     (yalnız bu araç; chat_exception_followup.go). Bağımsız sohbetin
-//     döngüsünde dış MCP araçları da var ve onay adımı yok: OTLP ingest
+//     (yalnız bu araç; chat_exception_followup.go). (Değişmedi.)
+//   - v0.10.1461 — bağımsız sohbette YALNIZ açık KOD TURUNDA (composer "Kod"
+//     hapı; chat_code_turn.go): o turda dış MCP araçları HİÇ kurulmaz, tur
+//     yalnız yerel (localOnly) profile gider, kapsam ekrandaki servis + araç
+//     sonucunun döndürdüğü servisler, tur başına copilot.code_turn audit'i.
+//     Hap kapalıyken bağımsız döngüde kod aracı (read_source_code, search_code)
+//     YOK. Neden: bağımsız döngüde onaysız dış MCP araçları var; OTLP ingest
 //     kimliksiz, yani ekilmiş bir log satırı modeli bir dosyayı okuyup kodunu
-//     bir dış aracın argümanına koymaya yönlendirebilirdi — kod üçüncü tarafa
-//     çıkardı.
+//     bir dış aracın argümanına koymaya yönlendirebilirdi — kod turu o aracı
+//     katalogdan çıkararak kapatır (TestInjectedLogLineCannotExfiltrateCode).
+//   - Tarihçe: v0.10.1209 örtük bir yol açmıştı (search_code sunuluyor ve dış
+//     MCP yapılandırılmamışsa read_source_code da); v0.10.1461 onu açık hapla
+//     değiştirdi — tek yol, tek test kümesi.
 //   - YALNIZ oturum kullanıcısına: cmk_ API token'ı da /api/copilot/chat'e
 //     girer (claims UserID "token:<id>"); ek modelden AYNEN alıntı istediği
 //     için "MCP sunucusunda yok" sözleşmesi token'la dolanılırdı. Token ve
@@ -95,10 +103,10 @@ func sourceCodeCallerAllowed(c *auth.Claims) bool {
 // çekmecesinin tek araçlı döngüsü de) + oturum kullanıcısı (rol ve DevOps
 // kapıları zaten tools'a uygulandı).
 //
-// v0.10.1209 (operatör onayı): genel sohbette de sunulur — search_code
-// sunuluyorsa (resolvedCode) ve dış MCP araçları yoksa; okuma o zaman yalnız
-// AYNI turda search_code / resolve_business_code'un döndürdüğü servislere
-// (resolvedCodeScope, readSourceCode).
+// v0.10.1461 (R2) — bağımsız sohbette resolvedCode = AÇIK kod turu
+// (chat_code_turn.go codeTurnTools); okuma yalnız ekrandaki servis ve AYNI turda
+// bir araç sonucunun döndürdüğü servisler (resolvedCodeScope, readSourceCode).
+// (v0.10.1209'un "search_code var + dış MCP yok" örtük koşulu kalktı.)
 func sourceCodeToolsFor(tools []mcp.Tool, panelFollowUp bool, c *auth.Claims, resolvedCode bool) []mcp.Tool {
 	if (panelFollowUp || resolvedCode) && sourceCodeCallerAllowed(c) {
 		return tools
@@ -141,12 +149,13 @@ func (s *Server) readSourceCode(ctx context.Context, req mcptools.SourceCodeRequ
 	// KAPSAM: servis sohbetin trace öznesinde geçmeli.
 	sub, _ := ctx.Value(sourceSubjectKey{}).(*sourceSubject)
 	if sub == nil {
-		// v0.10.1209 — genel sohbet: aynı turda bir araç sonucunun döndürdüğü servis.
+		// v0.10.1461 (R2) — kod turu: ekrandaki servis ya da aynı turda bir araç
+		// sonucunun döndürdüğü servis (chat_resolved_code_scope.go).
 		if rs := resolvedCodeScopeFrom(ctx); rs != nil {
 			if rs.has(svc) {
-				return s.readScopedSource(ctx, req, "", "search_code / resolve_business_code ile çözülen servis (dal ucu)"), nil
+				return s.readScopedSource(ctx, req, "", "kod turu: ekrandaki ya da araç sonucuyla çözülen servis (dal ucu)"), nil
 			}
-			out.Outcome, out.Reason = devops.SourceOutOfScope, "servis bu turda çözülmedi — önce search_code ya da resolve_business_code ile servisi bulun"
+			out.Outcome, out.Reason = devops.SourceOutOfScope, "servis bu turda çözülmedi — servis adını ekrandan ya da list_services / resolve_entity / search_code sonucundan alın"
 			return out, nil
 		}
 		out.Outcome, out.Reason = devops.SourceOutOfScope, "kod yalnız panelde incelenen trace'in servisleri için okunur — bu sohbette trace öznesi yok"

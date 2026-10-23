@@ -9885,3 +9885,52 @@ eşitliği + model çağrısı yok), `TestOffTopicGeneralTextFallback`, `TestAIG
 `TestOffTopicGeneralSourceGates`; chstore `TestAIGeneralQuestionsDefaultOnWhenBlobMissing`,
 `TestAIGeneralQuestionsSetRoundTrip`; copilot `TestSystemOffTopicGeneralCarriesAntiFabricationRules`,
 `TestWithoutDeepAnswerRestoresBase`; fe `AiGeneralQuestionsPanel.test.tsx`.
+
+## 2026-10-23 — v0.10.1461 — R2 bağımsız sohbette kod turu: composer "Kod" hapı, yerel profil, o turda dış MCP yok
+
+**Karar.** (Operasyon kartı planı R2; operatör onayı 2026-10-23 "bağımsız sohbette kod okumayı açalım".) Bağımsız
+sohbette kod okuma TEK ve AÇIK yoldan: composer'ın "Kod" hapı (kullanıcı başına `localStorage`, varsayılan KAPALI) →
+`context.code` → `internal/api/chat_code_turn.go`. Koşullar sırayla (ilki başarısız → kapalı + dürüst step): hap ·
+çekmece/panel bağlamı değil (açıklama/özne varsa sessizce kapalı — panel takibinin kendi kod yolu var) · evalset değil ·
+oturum kullanıcısı (cmk_ token / kimliksiz değil) · DevOps bağlı · `devops-code` toolset'i açık · yerel profil var
+(v0.10.1451 `LocalOnlyAvailable`). Açık turda: (1) `RouteSensitive` profili yerel profile sabitler + `SensitiveCode`
+işaretler — araç seti okunmadan ÖNCE, katalog o profilin toolset'iyle kurulur (modelcaps; aile varsayımı yok);
+(2) dış MCP kataloğu, köprüsü ve `extNames` o turda HİÇ kurulmaz (kurulum bazlı `Configured()` kapısı yerine tur bazlı);
+wiki araçları kalır (ikisi de yerel modele); (3) `read_source_code` + (Code Search açıksa) `search_code` sunulur,
+prompt'a `copilot.CodeTurnAddendum` (aile-nötr, promptVersionRegistry); (4) kapsam = ekrandaki servis (tohum) + bu turda
+`list_services` / `resolve_entity` (service adayları) / `get_service_health` (found) / `search_code` /
+`resolve_business_code` sonucunun döndürdüğü servisler — model metnindeki ad kapsam değil; (5) tur başına audit
+`copilot.code_turn` (profile, extServers, extDropped = önbellekli dış araç sayısı — ağ yok, scopeSeed, wikiOffered).
+Açık turda guided / çekmece / RAG / niyet kademeleri atlanır, soru doğrudan serbest döngüye gider (trace takibi kapısının
+ikizi; kademe SIRASI değişmedi, yeni kademe yok — prod'da niyet kademesi on_no_loop'ta kod sorusunu araçsız genel cevaba
+çevirirdi). Açık kapsam/komut, hafıza, wiki, operasyon ön-getirmesi ve açıklama turu önce koşmaya devam eder.
+v0.10.1209'un örtük yolu ("search_code sunuluyor + dış MCP yapılandırılmamış → read_source_code") KALKTI; hap kapalıyken
+bağımsız sohbette `read_source_code` ve `search_code` yok (v0.10.1050 duruşu, bayt bayt). Panel takibi değişmedi.
+`/api/copilot/config` `codeRead` (1451) FE normalizer'ında artık taşınıyor (önce düşüyordu); alan yoksa hap çizilmez,
+`available=false` → devre dışı + tooltip gerekçe ("kapalı: yerel profil yok …").
+
+**Neden.** v0.10.1050 güvenlik notunun iki kusuru (onaysız dış araçların yanında kod; kodun dış modele gitmesi) tur
+bazında kapanıyor; hap turun onayıdır (çağrı başına onay akan döngüyü keser). Tek yol, tek test kümesi.
+
+**Bilinen sınır (açık soru).** Kod turunun cevabı (alıntılanan satırlar) konuşma geçmişinde kalır; aynı konuşmada hap
+kapatılınca sonraki tur o geçmişi dış araçlı döngüye ve çözülen profile taşır (wiki için v0.10.1122'nin "dış MCP
+yapılandırılmışsa wiki aracı yok" kuralının konuşmalar arası gerekçesi). Prod profilleri self-hosted; konuşma düzeyinde
+yapışkan işaret (Redis sohbet bağlamı) ayrı karar.
+
+**Geri alma.** Geçici: hapı kapat (kullanıcı) ya da profil tikini kaldır (tur "kapalı: yerel profil yok" der, kod aracı
+kurulmaz — sızıntı yönünde değil). Tam: sürüm commit'ini revert + yeni etiket; `context.code` eski sunucu tarafından yok
+sayılır, hap durumu `localStorage`'da zararsız kalır, `copilot.code_turn` audit satırları tarihsel. Revert 1209 örtük
+yolunu da geri getirir (bilinçli).
+
+**Testler.** api `TestInjectedLogLineCannotExfiltrateCode` (gerçek döngü + gerçek read_source_code + sahte git + gerçek
+dış MCP istemcisi: ekilmiş log satırı → kod okunur → `tracker__create_issue` "unknown tool", tracker 0 tools/call; hap
+kapalı → read_source_code yok, dosya isteği yok), `TestCodeTurnNeverOffersExternalTools` (her turda "__" yok, `mcp.call`
+audit'i yok, `copilot.code_turn` extDropped>0), `TestStandaloneWithoutCodePillHasNoCodeTools` (DevOps yok/var/var+Code
+Search × dış MCP yok/var → kod aracı yok, katalog + prompt bayt bayt), `TestCodeTurnWithoutLocalProfileHonestStep`,
+`TestCodeTurnLocalOnlyHardFail` (karar→uygulama arası yerel profil kaybı; işaretli ctx yerel olmayan profilde
+ErrLocalOnly, sağlayıcı 0 istek), `TestCodeTurnTokenCallerDenied`, `TestCodeTurnSwitchesToLocalProfile`,
+`TestCodeTurnToolsetFollowsLocalProfile` (gemma/qwen adlı × simple/full), `TestCodeTurnPromptDiffIsOnlyAddenda`,
+`TestCodeTurnTraceFollowUpUnaffected`, `TestResolvedCodeScopeSeedsAndFeeders`, `TestDecideCodeTurn`, `TestCodeTurnWired`;
+copilot `TestCodeTurnAddendumContract`; fe `codeRead.test.tsx` (gövde, hap varsayılan kapalı + kullanıcı başına kalıcılık,
+devre dışı + gerekçe, normalizer, kablolama). Kademe pini (`traceFollowUpBlock`) kod turu koşulunu da içerecek şekilde
+güncellendi; sıra, MCP 74, api.go boyu değişmedi.
