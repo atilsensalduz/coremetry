@@ -443,6 +443,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	// katalogdaki bir operasyon adı varsa model çağrılmadan trace/RED/Oracle
 	// getirilir ve serbest döngüye tool kaydı olarak verilir; çok eşleşmede
 	// seçim çipleri. Eşleşme yoksa opPre nil ve akış bayt bayt eski.
+	ctx = armOutboundSlot(ctx, req.Context.Service, req.Context.Env, int64(req.Context.RangeS), anchorTo) // v0.10.1454 — giden çağrı yuvası (copilot_outbound_call.go)
 	opPre, opHandled := s.chatOperationPrefetch(ctx, emit, req.Messages, int64(req.Context.RangeS), anchorTo)
 	if opHandled {
 		cspan.tier("operation", true)

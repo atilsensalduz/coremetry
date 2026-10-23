@@ -9688,3 +9688,43 @@ kimliği), `TestChatCodeTurnGoesToLocalProfile`, `TestExplainCodeClosedWithoutLo
 `TestWikiTierHonestWithoutLocalProfile`, `TestLocalOnlySitesWired` (kaynak pini), `TestCodeReadConfigShape`; FE
 `AiProfilesPanel.localOnly.test.tsx`. Mevcut fikstürler yerel tikle kurulur (`tickLocalOnly`; copilot'suz sunucular
 `localOnlyTestSeam`).
+
+## 2026-10-23 — v0.10.1454 — CoSRE "giden çağrı / outbound_call" R1: katalogda olmayan yol client span'den, LLM'siz
+
+**Bağlam (operator-reported).** Servis sayfasında "**/esb/external/…/customer-kvkk/** kısmı için grafikleri ortalamayı
+gösterebilirsin" → 32,8 sn, 75K token, "veri bulunamadı". Yol bir CLIENT span'inin url.path'i (ESB'ye giden çağrı);
+katalog (operation_summary_5m / spanmetrics_1m) bilmiyor, v0.10.1373'ün yol-yalnız geri dönüşü RED ölçmeden paketi
+serbest döngüye tohum veriyordu ve döngüde client-span grafiği üretecek araç yok. Ayrıca "…" (U+2026) anmayı
+öldürüyordu (validEndpointPath yalnız ASCII). Plan: scratchpad plan-outbound-call.md, yalnız R1 + operatör kararları.
+
+**Karar.** (1) `cleanEndpointPath` kırpmalardan SONRA "…" → "..." (önce çevrilse sondaki elips noktalama diye
+kırpılırdı). (2) Ön-getirmenin `pathOnly` kapanışında (katalog adayı yok / eşleşmedi, log vetosu yok) dış-yol sondası:
+MV ön süzgeci (`topology_edges_5m.top_labels`, yolun son belirleyici segmenti) → boşsa ham sonda (son 1 sa, çağıran =
+mesaj/ekran servisi; çağıran belirsizse ya da ekran servisi çağırmıyorsa ≤100 dış çağıran — operatör kararı S2:
+tara + cevapta beyan). HIT → ctx yuvası (`armOutboundSlot`, copilot_chat.go'da tek satır, armDisambigRescue emsali),
+ön-getirme nil döner, guided yuvayı sinyal kapısından önce okur → rota `outbound_call` (router-içi; sınıflandırıcı
+listesine girmez). MISS / hata → eski yol-yalnız hedef bayt bayt. (3) Ölçüm ham `spans` (MV YOK — v0.9.1255 gerekçesi:
+url grain'i kenar MV'sini url kardinalitesiyle çarpar): yol/host/normalize ifadeleri external_paths.go sabitlerinin
+AYNISI; `service_name IN ?` ön eki + DateTime64 sınırları (`chDateTime64Arg`) + PREWHERE client/db/msg + LIMIT +
+max_execution_time 8; pencere ≤6 sa (>5 çağıranda ≤1 sa, beyanlı); cur+prev tek geçiş, geçen hafta ve zaman serisi
+paralel, demet bütçesi 10 sn, 60 sn önbellek (tüm girdiler FNV). (4) Cevap LLM'siz deterministik (operatör kararı S1):
+hüküm `outboundVerdict` (referans = ölçülen önceki pencere / geçen hafta EN YÜKSEĞİ; ARTIŞ ≥×1,2 ve ≥50 ms; HATA ARTIŞI
+≥+2 puan; <20 çağrı "yetersiz veri"), `outbound_calls` tablo bloğu (örnek trace linkli) + ayrı `outbound_series`
+grafik bloğu (FE ref başına tek blok — tablo grafiği ezmesin), başlık ve kanıt kaynağı "trace (örneklenmiş)" (VM'de dış
+çağrı metriği yok). exchangeId yok (oylanmaz). Takip: "Son 6 saate genişlet" (LastRoute JSON klonu — girdi alanları
+JSON'a girer), hatalı çağrıların trace'leri, host'un tüm yolları (/external?host=).
+
+**Bilerek yok (R2+).** Yolsuz hedef sözcükleri (esb/mainframe/dış servis…) ve canlı dış host kataloğu, ≥2 ortam
+kırılımı, iş kodu tablosu, "Dashboard'a ekle" (kanıt CH SQL; panel çevirisi yok — cevap bunu söyler).
+
+**Geri alma.** Şema/ayar/MV/rota yok → sürüm commit'ini revert + yeni etiket. Kalıcı tek iz LastRoute JSON'undaki
+Outbound* alanları (eski binary bilinmeyen alanı yok sayar) ve 60 sn'lik `cosre-outbound:v1:` önbellek anahtarları.
+Prod'da sorgu izi: `system.query_log`'da `/* cosre:outbound_calls */` / `/* cosre:outbound_probe */` ön ekleri.
+MCP 74, api.go büyümedi, kademe sırası (TestChatTierOrderIsPinned) aynı.
+
+**Testler.** chstore `TestOutboundPathPattern`, `TestOutboundPathNeedle`, `TestOutboundSQLBounded` (sabit kimliği + audit
+CHECK 6 penceresi), `TestOutboundMVSQLBounded`, `TestOutboundTailArgs`; api `TestCleanEndpointPathEllipsis`,
+`TestOutboundCallersFrom`, `TestOutboundWindowFor`, `TestOutboundStepS`, `TestOutboundTotal`, `TestOutboundVerdict`,
+`TestRenderOutboundTR`, `TestOutboundChartPayload`, `TestOutboundTableRows`, `TestOutboundRouteJSONRoundTrip`,
+`TestOutboundLinksAndChips`, `TestOutboundProbe` (MV/ham/tarama/MISS/hata), `TestOutboundGuidedHandler` (LLM 0 çağrı,
+chart + table, ARTIŞ VAR, linkler), `TestOutboundGuidedReadError`, `TestOutboundTierSourcePins`.

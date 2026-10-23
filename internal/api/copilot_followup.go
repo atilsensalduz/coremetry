@@ -351,6 +351,8 @@ func guidedSuggestions(route guidedRoute) []string {
 		return resourceSuggestions(route)
 	case guidedServiceTopology, guidedTraceTopology: // v0.10.1388 (copilot_service_topology.go)
 		return topologySuggestions(route)
+	case guidedOutboundCall: // v0.10.1454 (copilot_outbound_call.go)
+		return outboundSuggestions(route)
 	}
 	return nil
 }
@@ -441,6 +443,8 @@ func guidedFollowups(route guidedRoute, asked []string) []chatFollowup {
 		return resourceFollowups(route, asked)
 	case guidedServiceTopology, guidedTraceTopology: // v0.10.1388 — hop · örnek trace · hatalı bağımlılık · komşu
 		return topologyFollowups(route, asked)
+	case guidedOutboundCall: // v0.10.1454 — son 6 sa · hatalı çağrıların trace'leri · host'un yolları
+		return outboundFollowups(route, asked)
 	}
 	covered, ok := serviceStepCovered[route.Intent]
 	svc := strings.TrimSpace(route.Service)
@@ -565,6 +569,8 @@ func guidedAnswerLinkTargets(route guidedRoute) []guidedAnswerLink {
 		return resourceLinks(route)
 	case guidedServiceTopology, guidedTraceTopology: // v0.10.1388 — Topology sekmesi · Service Map · Overview (trace önce)
 		return topologyLinks(route)
+	case guidedOutboundCall: // v0.10.1454 — Traces (yol araması) · External host · örnek trace'ler
+		return outboundLinks(route)
 	case guidedServiceHealth:
 		// Sağlık özeti (2026-10-15, operatör: "kullanıcıyı yönlendirsin") —
 		// hükmün kanıt sayfaları tek tık; otomatik geçiş YOK.

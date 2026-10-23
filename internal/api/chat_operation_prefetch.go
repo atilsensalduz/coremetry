@@ -606,6 +606,9 @@ func (s *Server) chatOperationPrefetch(ctx context.Context, emit func(string, an
 	if handled {
 		return nil, true
 	}
+	if outboundSlotFrom(ctx).get() != nil { // v0.10.1454 — giden çağrı: guided outbound_call sahiplenir
+		return nil, false
+	}
 	if !ok { // endpoint anması yok / vetolu / eşleşmedi → bugünkü belirteç yolu
 		toks := opTokens(raw)
 		if len(toks) == 0 {
@@ -758,6 +761,7 @@ func (s *Server) opPrefetchForTarget(pctx context.Context, emit func(string, any
 // yoluna düşüyordu. Artık yol-yalnız hedef (endpointPathOnlyTarget, kind
 // endpoint_path); katalog okuması operation_catalog çipinde görünür.
 func (s *Server) resolveEndpointMention(pctx, ctx context.Context, emit func(string, any), raw string) (t opTarget, kind string, handled, ok bool) {
+	raw = strings.ReplaceAll(raw, "…", "...") // v0.10.1454 — anma yolu "..." yazımında; Replace(raw, path) eşlesin
 	method, path, mentioned := endpointMention(raw)
 	if !mentioned {
 		return t, "", false, false
@@ -774,6 +778,15 @@ func (s *Server) resolveEndpointMention(pctx, ctx context.Context, emit func(str
 		}
 		pt := endpointPathOnlyTarget(raw, method, path, s.guidedServiceNames(pctx), envs)
 		pt.Envs = endpointEnvSet(raw, path, envs) // v0.10.1374 — küme kıyası
+		// v0.10.1454 — yol bir CLIENT span'inin url.path'i olabilir (ESB'ye giden
+		// çağrı): dış-yol sondası HIT → yuvaya yaz, ön-getirme nil döner, guided
+		// outbound_call cevaplar (copilot_outbound_call.go). MISS/hata → aşağısı bayt bayt.
+		if slot := outboundSlotFrom(ctx); slot != nil {
+			if hit, hok := s.outboundProbe(pctx, emit, slot, path, firstString(pt.Services), pt.Envs); hok {
+				slot.set(hit)
+				return opTarget{}, "", false, false
+			}
+		}
 		// v0.10.1380 — kısa adla anılan kümenin canlı değeri çipte ("eu-a → prod-eu-a").
 		emitEnvAliasStep(emit, endpointEnvAliasNote(raw, path, envs, pt.Envs))
 		return pt, endpointPathKind, false, true

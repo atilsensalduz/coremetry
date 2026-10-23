@@ -379,6 +379,20 @@ type guidedRoute struct {
 	// kaynak sözcüğüyle birlikte → aile all + JVM drill'i) | "slow"
 	// (yavaş/latency sorusu) | "". Drill yine JVM metriği VARSA koşar.
 	ResDrillAsk string `json:",omitempty"`
+	// v0.10.1454 — outbound_call (copilot_outbound_call.go). GİRDİ (JSON'a
+	// girer: LastRoute "son 6 saate genişlet" takibinde klonlanır, gizli alan
+	// düşerdi): anılan yol, tek dış host, ölçülen çağıranlar, çağıransız tarama
+	// beyanı, sonda kaynağı (mv|raw). ÇIKTI (demet yazar; çip + link okur):
+	// örnek trace'ler, cevabın penceresi.
+	OutboundPath    string   `json:",omitempty"`
+	OutboundPeer    string   `json:",omitempty"`
+	OutboundCallers []string `json:",omitempty"`
+	OutboundScan    bool     `json:",omitempty"`
+	OutboundSrc     string   `json:",omitempty"`
+	OutboundTraces  []string `json:"-"`
+	OutboundRangeS  int64    `json:"-"`
+	OutboundFromMs  int64    `json:"-"`
+	OutboundToMs    int64    `json:"-"`
 }
 
 // normalizeGuidedMsg lowercases for matching. Go's ToLower maps the
@@ -1848,6 +1862,12 @@ func (s *Server) copilotChatGuided(ctx context.Context, emit func(string, any), 
 	// kelime taşımayabilir; önceki tur gecikme/hata andıysa katalog okumasını
 	// hak eder (geçmişsiz ya da konusu başka geçmişli soru bugünkü yolunda).
 	peerCue := len(prior) > 0 && hasPeerSignal(guidedTokens(norm)) && prevTurnMentionsLatencyFailure(msgs, chatLastIntent(ctx))
+	// v0.10.1454 — ön-getirmenin dış-yol sondası HIT verdi (yol bir client
+	// span'inin url.path'i): rota outbound_call, sinyal kapısından ÖNCE (mesaj
+	// "grafikleri ortalamayı göster" guided sinyali taşımayabilir).
+	if hit := outboundSlotFrom(ctx).get(); hit != nil {
+		return s.guidedOutboundRoute(ctx, emit, *hit, question, norm, msgs, explain, ctxService, ctxOperation, anchorTo, chatLocationNamed(tzName, tzOffsetMin))
+	}
 	if !hasGuidedSignal(norm) && !followCue && !mayNameTeam(norm) && !absShape && !findCue && !peerCue && !affirm && !pasted {
 		return false, false // zero-cost fast path: no catalogue read
 	}
@@ -2136,6 +2156,9 @@ func (s *Server) runGuidedRoute(ctx context.Context, emit func(string, any), rou
 	// v0.10.1388 — servis topolojisi / örnek trace topolojisi: LLM'siz (copilot_service_topology.go).
 	if route.Intent == guidedServiceTopology || route.Intent == guidedTraceTopology {
 		return s.guidedTopologyAnswer(ctx, emit, route, chatUserTexts(msgs), from, to, rangeS)
+	}
+	if route.Intent == guidedOutboundCall { // v0.10.1454 — giden çağrı: LLM'siz (copilot_outbound_call.go)
+		return s.guidedOutboundAnswer(ctx, emit, route, chatUserTexts(msgs), from, to)
 	}
 	if route.Intent == guidedOffTopic { // v0.10.819 — LLM'siz kibar sınır + yol tarifi
 		return s.guidedOffTopicAnswer(emit, question, ctxService)

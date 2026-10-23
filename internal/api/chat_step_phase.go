@@ -39,7 +39,9 @@ var stepPhaseByTool = map[string]string{
 	"get_service_health": "Sağlık", "get_operation_health": "Sağlık", "get_db_health": "Sağlık",
 	"get_messaging_health": "Sağlık", "list_slo_status": "Sağlık", "explain_service_health": "Sağlık",
 	"service_health_sweep": "Sağlık", // v0.10.1276 — CoSRE adım 7: pod/operasyon/fonksiyon taraması
-	"list_operations":      "Sağlık", "list_services": "Sağlık",
+	// v0.10.1454 — giden çağrı (client span): sonda · ölçüm · grafik · hüküm
+	"outbound_probe": "Sağlık", "outbound_calls": "Sağlık", "outbound_series": "Sağlık", "outbound_verdict": "Sağlık",
+	"list_operations": "Sağlık", "list_services": "Sağlık",
 	"top_operations": "Sağlık", // v0.10.1337 — servis raporu: en yavaş / en hatalı operasyonlar
 	// Problem / anomali / exception
 	"list_problems": "Problem", "get_problem": "Problem", "get_problem_root_cause": "Problem",

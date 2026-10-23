@@ -56,6 +56,12 @@ func isHTTPVerb(s string) bool { return httpVerbSet[strings.ToUpper(s)] }
 // cleanEndpointPath — SAF: Türkçe ek (kesme işaretinden sonrası), sorgu /
 // fragman, sondaki noktalama ve sondaki "/" atılır. v0.10.1373 — sondaki
 // Markdown vurgu sarmalayıcısı (`*…*`, `_…_`) da atılır (trimWrapSuffix).
+//
+// v0.10.1454 (operator-reported) — "**/esb/external/…/customer-kvkk/**": tek
+// karakterlik elips (U+2026) ASCII değil, validEndpointPath belirteci anma
+// olmaktan çıkarıyordu (yol tetiği hiç ateşlemiyordu). Kırpmalardan SONRA
+// "..." yazımına çevrilir (önce çevrilse sondaki "…" noktalama diye kırpılırdı);
+// pathSearchText / OutboundPathPattern iki yazımı da bilir.
 func cleanEndpointPath(p string) string {
 	if i := strings.IndexAny(p, "'’"); i >= 0 {
 		p = p[:i]
@@ -68,7 +74,7 @@ func cleanEndpointPath(p string) string {
 	for len(p) > 1 && strings.HasSuffix(p, "/") {
 		p = strings.TrimSuffix(p, "/")
 	}
-	return p
+	return strings.ReplaceAll(p, "…", "...") // v0.10.1454
 }
 
 // validEndpointPath — SAF: "/" ile başlar ("//" değil), yalnız ASCII yol
