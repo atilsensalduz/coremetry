@@ -71,12 +71,17 @@ var intentAllowed = map[string]guidedIntent{
 	// v0.10.1337 — servis raporu (operasyonlar + teknik hatalar + trace/log
 	// kanıtı; copilot_service_report.go). Servis şart (intentNeedsService).
 	"service_report": guidedServiceReport,
+	// v0.10.1442 (R3) — hedefli kaynak sorusu (CPU/bellek/restart/JVM). Servis
+	// slotu canlı katalogla; servissiz → bağlam servisi ya da "hangi servis?".
+	// Pod/workload hedefi dar ön-sınıflandırıcıda (chat_resource_classify.go).
+	"resource_investigation": guidedResourceInvestigation,
 }
 
 // intentNeedsService — servissiz anlamsız şekiller: model servis vermediyse
 // ve ekranda bağlam servisi yoksa none. pod_health DIŞARIDA: servissiz hâli
 // filo-geneli sıralama (copilot_guided.go, bilinçli).
-var intentNeedsService = map[guidedIntent]bool{guidedServiceHealth: true, guidedRootCause: true, guidedServiceReport: true}
+var intentNeedsService = map[guidedIntent]bool{guidedServiceHealth: true, guidedRootCause: true, guidedServiceReport: true,
+	guidedResourceInvestigation: true} // v0.10.1442 — hedefsiz kaynak incelemesi yok
 
 func intentClassifySchema() map[string]any {
 	names := make([]string, 0, len(intentAllowed)+1)
@@ -385,6 +390,12 @@ func (s *Server) copilotChatIntent(ctx context.Context, emit func(string, any), 
 	if len(svcNames) == 0 {
 		return false, false
 	}
+	// v0.10.1442 (R3) — kaynak ismi taşıyan soruda önce dar kaynak
+	// sınıflandırıcısı (chat_resource_classify.go): güven ≥0.6 + canlı hedef
+	// doğrulaması geçerse rota oradan; aksi hâlde aşağıdaki yol AYNEN koşar.
+	if rroute, rrange, ok := s.resourceClassifyFallback(ctx, emit, question, ctxService, svcNames, anchorTo); ok {
+		return s.intentDispatch(ctx, emit, rroute, rrange, question, msgs, explain, ctxService, ctxOperation, ctxRangeS, ctxEnv, anchorTo, tzOffsetMin, tzName)
+	}
 	// Sınıflandırıcıya kırpık KOPYA; anlatıma (runGuidedRoute) tam metin (#13).
 	q := question
 	if r := []rune(q); len(r) > 1500 {
@@ -491,9 +502,17 @@ func (s *Server) copilotChatIntent(ctx context.Context, emit func(string, any), 
 			ExchangeID: aisurface.ChildExchangeID(m.ExchangeID, aisurface.ChatOffTopic)}), t0, // v0.10.1153 — turun altında
 			0, 0, 0, "ok", "", question, offTopicAnswerText(question, ctxService))
 	}
+	return s.intentDispatch(ctx, emit, route, rangeS, question, msgs, explain, ctxService, ctxOperation, ctxRangeS, ctxEnv, anchorTo, tzOffsetMin, tzName)
+}
+
+// intentDispatch — eşlenen rotanın ortak kuyruğu (genel sınıflandırıcı ve
+// v0.10.1442 kaynak ön-sınıflandırıcısı): ortam/pencere varsayılanları →
+// runGuidedRoute → sohbet bağlamı.
+func (s *Server) intentDispatch(ctx context.Context, emit func(string, any), route guidedRoute, rangeS int64, question string, msgs []copilot.ChatMessage, explain, ctxService, ctxOperation string, ctxRangeS int64, ctxEnv string, anchorTo time.Time, tzOffsetMin int, tzName string) (handled, ok bool) {
 	// v0.10.1327 — log_errors + hedef sorusu ("hangi servise giderken hata
 	// alıyor") → en yavaş trace kırılımı (chat_trace_drill.go).
 	route = intentTraceDrillUpgrade(route, question)
+	route = intentResourceEnrich(route, question)
 	if route.Env == "" && ctxEnv != "" {
 		route.Env = ctxEnv
 	}
@@ -503,6 +522,8 @@ func (s *Server) copilotChatIntent(ctx context.Context, emit func(string, any), 
 			rangeS = 12 * 3600 // guided ile aynı varsayılan (vardiya)
 		case route.Intent == guidedServiceReport:
 			rangeS = serviceReportDefaultRangeS // v0.10.1337 — guided ile aynı varsayılan (son 1 saat)
+		case route.Intent == guidedResourceInvestigation:
+			rangeS = resDefaultRangeS // v0.10.1442 — guided ile aynı varsayılan (son 1 saat)
 		case ctxRangeS > 0:
 			rangeS = snapRangeS(ctxRangeS)
 		default:
@@ -514,6 +535,23 @@ func (s *Server) copilotChatIntent(ctx context.Context, emit func(string, any), 
 		s.noteChatContextRoute(ctx, route, rangeS, false) // v0.10.478 (F4-1)
 	}
 	return handled, ok
+}
+
+// intentResourceEnrich — SAF (v0.10.1442): genel sınıflandırıcının
+// resource_investigation rotası yalnız servis taşır; aile / cluster / drill
+// isteği router'ın aynı jeton kurallarından doldurulur (ön-sınıflandırıcı
+// rotası zaten dolu gelir).
+func intentResourceEnrich(route guidedRoute, question string) guidedRoute {
+	if route.Intent != guidedResourceInvestigation || route.ResFamily != "" {
+		return route
+	}
+	toks := guidedTokens(normalizeGuidedMsg(question))
+	if route.ResFamily = resourceFamilyOf(toks, true); route.ResFamily == "" {
+		route.ResFamily = resFamAll
+	}
+	route.ResCluster = resClusterMention(toks)
+	route.ResDrillAsk = resDrillAskOf(toks, route.ResFamily)
+	return route
 }
 
 // matchLiveTeam — v0.10.429 (D1): takım adı/kodu canlı katalogla; katlanmış

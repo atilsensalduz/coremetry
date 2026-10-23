@@ -9448,3 +9448,38 @@ anlatım ve çipler. Panoyu sonradan düzenleyip kaydetmeden sormak dürüst ret
 **Testler:** `explain_metric_panel_test.go`, `metric_panel_stats_test.go`, `metric_panel_vars_test.go`, `ai_subject_test.go`,
 `chat_tool_scope_test.go`, `agent/context/page_test.go`; FE `aiSubject.test.ts`, `explainTurn.test.ts`, `MetricPanelCard.test.tsx`,
 `CopilotChat.metricPanel.test.tsx`, `pageContextOverlay.test.ts`, `panelVarsGolden.test.ts`, `metricPanelAsk.test.ts`.
+
+## 2026-10-23 — v0.10.1442 — CoSRE kaynak incelemesi R3: niyet kademesi içinde LLM kaynak sınıflandırıcısı (beyaz liste, serbest PromQL yok)
+
+**Operatör:** "CoSRE sorulan sorulara frontier model gibi anlamlandırarak gerekli toolset'lerini koşsun … bir pod'un
+CPU/memory metriklerini grafik olarak getirme; gerekirse GC'sine, JVM metriklerine bakıp LLM'e yorumlatma." **Boşluk
+(R1/R2 sonrası):** jeton router'ının sözlüğüne oturmayan kaynak soruları ("orders-api'nin işlemcisi zorlanıyor mu",
+"<pod> sürekli kapanıp açılıyor", "payments deployment'ı hafızayı şişirdi mi") niyet kademesine düşüp genel
+sınıflandırıcının kaba pod_health / service_health eşlemesine kalıyordu.
+
+**Karar.**
+- **Yeni kademe YOK** (`TestChatTierOrderIsPinned` aynen). `copilotChatIntent` içinde, mesaj kaynak ismi taşıyorsa
+  (`hasResourceNoun`: R1/R2 aile sözlüğü + pod/konteyner/kapasite/replika/çekirdek) genel sınıflandırıcıdan ÖNCE dar JSON
+  çağrısı `systemResourceClassify` (Türkçe-native, ≤40 satır, `promptVersionRegistry`'de), yüzey
+  `chat-resource-classify` (aisurface RoleSubCall, çocuk exchange kimliği, Eval yok). Şema {intent ∈
+  [resource_investigation, metric_chart, pod_health, none], target, targetKind, family, rangeS, confidence}.
+- **Kabul kapıları (SAF `decideResourceClassify`):** güven ≥0.6; bozuk JSON / bilinmeyen niyet / none → ret. Hedef canlı
+  doğrulanır: servis → canlı katalog + soruda geçiyor ya da ekran servisi; pod → soruda jeton + pod adı şekli + Thanos
+  `kube_pod_info` (son 24 sa, demetin `resourceLookupPods`'u ve 60 sn önbelleği) — Thanos yok/okunamadıysa sahibi canlı
+  servis şart; workload → canlı servis ya da Thanos'ta pod'u var. Grafik fiili metric_chart'ı kazandırır (1386 D2), fiilsiz
+  metric_chart reddedilir, metric_chart şablonu yalnız 1386 beyaz listesinden (cpu/memory/jvm_heap). resource_investigation
+  router vetolarına (`resourceVetoed`) uyar. **Reddedilen her şey none'dır ve mevcut genel sınıflandırıcı yolu değişmeden koşar;**
+  sınıflandırıcı hatası cevabı kesmez.
+- **Serbest PromQL yok:** model yalnız niyet + aile + hedef SEÇER; sorguları R1/R2 deterministik demeti kurar
+  (`TestResourceClassifyNoFreePromQL`: modelin döndürdüğü PromQL/metrik alanları rotaya hiç girmez).
+- **Önbellek** 10 dk, anahtar `cosre-rclass:v1:<FNV(normalize soru, ekran servisi, FNV(sistem istemi))>`; yalnız parse edilen
+  çıktı yazılır. Genel sınıflandırıcıya da `resource_investigation` eklendi (`intentAllowed`, `intentNeedsService`,
+  istem listesi); onun rotası aile/cluster/drill'i `intentResourceEnrich` ile router'ın jeton kurallarından alır.
+- **Maliyet:** kaynak ismi taşıyan ve guided'ın yakalamadığı soruda +1 yardımcı çağrı (timeout = genel sınıflandırıcınınki,
+  client/4, 5–25 sn); oylar karar girdisi değil. MCP 74, api.go, kademe sırası, HTTP ucu, FE değişmedi.
+
+**Testler:** `chat_resource_classify_test.go` (kabul/ret/veto tablosu, sahte sağlayıcıyla uçtan uca, önbellek anahtarı tüm
+girdiler, serbest PromQL yok, niyet kademesi içinde konum), `prompt_resource_classify_test.go`, `prompt_language_test.go`.
+
+**Geri alma yolu:** `git revert <v0.10.1442 sha>` → yeni `v0.10.X+1` etiketi. Kalıcı durum yok (yalnız 10 dk'lık önbellek
+satırları, kendiliğinden düşer); genel sınıflandırıcı R2 davranışına döner.

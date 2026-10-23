@@ -104,6 +104,9 @@ var promptVersionRegistry = map[string]string{
 
 	// v0.10.1431 — guided kaynak incelemesi anlatıcısı (kendi hizalama grubu).
 	"systemResourceInvestigation": systemResourceInvestigation,
+
+	// v0.10.1442 — kaynak sorusu ön-sınıflandırıcısı (niyet kademesi içi, JSON).
+	"systemResourceClassify": systemResourceClassify,
 }
 
 var (

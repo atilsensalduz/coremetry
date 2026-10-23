@@ -104,6 +104,8 @@ func promptRegistry() map[string]promptClass {
 		"RunbookUpdate":        classTurkishNative, // Faz 5.5 — güncelleme önerisi bloğu
 		// v0.10.1431 — guided kaynak incelemesi, sabit üç bölüm (kendi hizalama grubu).
 		"ResourceInvestigation": classTurkishNative,
+		// v0.10.1442 — kaynak sorusu ön-sınıflandırıcısı (JSON çıktı, Türkçe talimat; IntentClassify emsali).
+		"ResourceClassify": classTurkishNative,
 
 		// ── Makine-parse edilen çıktı
 		"NLToQuery":       classStructured,
@@ -152,6 +154,8 @@ func promptTexts() map[string]string {
 		"TraceWithOperationCandidate": SystemPromptTraceWithOperationCandidate(),
 		// v0.10.1431 — guided kaynak incelemesi.
 		"ResourceInvestigation": SystemPromptResourceInvestigation(),
+		// v0.10.1442 — kaynak sorusu ön-sınıflandırıcısı.
+		"ResourceClassify": SystemPromptResourceClassify(),
 	}
 }
 

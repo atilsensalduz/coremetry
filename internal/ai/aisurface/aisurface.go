@@ -35,6 +35,9 @@ const (
 	ChatIntentNone = "chat-intent-none"
 	// ChatOffTopic — konu dışı (model koşmayan işaret satırı).
 	ChatOffTopic = "chat-offtopic"
+	// ChatResourceClassify — v0.10.1442: niyet kademesinin içinde kaynak
+	// sorusu ön-sınıflandırıcısı (yardımcı JSON çağrısı; api/chat_resource_classify.go).
+	ChatResourceClassify = "chat-resource-classify"
 	// WikiChat — wiki anlatımı (açık kademe, takip, yoklama, kurtarma, /wiki).
 	WikiChat = "wiki-chat"
 	// WikiSelect — iki aşamalı wiki okumasının sayfa seçimi (yardımcı çağrı).
@@ -116,6 +119,9 @@ var registry = []Spec{
 	{Label: ChatIntent, Role: RoleSubCall, Eval: "IntentClassify"},
 	{Label: ChatIntentNone, Role: RoleMarker, Eval: "GeneralChat", RouterGap: true},
 	{Label: ChatOffTopic, Role: RoleMarker, Eval: "GeneralChat"},
+	// v0.10.1442 — evalset vakası yok (istem evalset koşucusunda değil; karar
+	// canlı katalog/pod doğrulamasına bağlı, yeniden üretilemez).
+	{Label: ChatResourceClassify, Role: RoleSubCall},
 	{Label: WikiChat, Role: RoleAnswer},
 	{Label: WikiSelect, Role: RoleSubCall},
 	{Label: RAGChat, Role: RoleAnswer},
