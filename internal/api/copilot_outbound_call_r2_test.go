@@ -517,7 +517,7 @@ func TestOutboundProbeWindowWiden(t *testing.T) {
 	s, _ = obHostServer(t)
 	ctx := armOutboundSlot(context.Background(), obTestSvc, "", 0, time.Time{})
 	f.calls = nil
-	evs, emit = captureEmit()
+	_, emit = captureEmit()
 	s.guidedOutboundRoute(ctx, emit, outboundHit{Path: obTestPath, Callers: []string{obTestSvc}, Src: "mv", ProbeS: 86400}, obTestAsk+" son 1 saat", normalizeGuidedMsg(obTestAsk+" son 1 saat"),
 		[]copilot.ChatMessage{{Role: "user", Text: obTestAsk + " son 1 saat"}}, "", obTestSvc, "", time.Time{}, time.UTC)
 	if n := strings.Count(strings.Join(f.calls, " "), "aggs"); n != 1 {
