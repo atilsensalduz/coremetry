@@ -279,7 +279,7 @@ func (s *Server) wikiNarratedAnswer(ctx context.Context, w *wiki.Service, questi
 	// + bütçe + anlatım YEREL profilde ve işaretli; yerel profil yoksa hiçbir
 	// sayfa okunmaz (çağıranlar kademe kapısında zaten elemiştir — arka kapı).
 	if wikiHitsSensitive(hits) {
-		rctx, ok := s.routeSensitive(ctx, copilot.SensitiveWiki)
+		rctx, ok := s.routeSensitiveStep(ctx, copilot.SensitiveWiki, selectEmit) // v0.10.1467 — geçiş step'i
 		if !ok {
 			return nil, nil, copilot.ErrLocalOnly
 		}

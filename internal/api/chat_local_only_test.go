@@ -211,9 +211,10 @@ func TestLocalOnlySitesWired(t *testing.T) {
 		"copilot_drawer.go":         {"s.routeSensitive(ctx, copilot.SensitiveCode)"},
 		"copilot_code.go":           {"if !s.localOnlyAvailable(ctx) {", "copilot.SensitiveCode)", "devops.MaskCodeInPrompt(full, block, summary), true)"},
 		"copilot_code_operation.go": {"if !s.localOnlyAvailable(ctx) {"},
-		"chat_wiki_tier.go":         {"s.routeSensitive(ctx, copilot.SensitiveWiki)", "if !s.localOnlyAvailable(ctx) {"},
-		"chat_wiki_followup.go":     {"s.routeSensitive(ctx, copilot.SensitiveWiki)"},
-		"rag.go":                    {"s.routeSensitive(ctx, copilot.SensitiveWiki)", "wikiHits = localDocHitsOnly(wikiHits)"},
+		"chat_wiki_tier.go":         {"s.routeSensitiveStep(ctx, copilot.SensitiveWiki, selectEmit)", "if !s.localOnlyAvailable(ctx) {"},
+		"chat_wiki_followup.go":     {"s.routeSensitiveStep(ctx, copilot.SensitiveWiki, emit)"},
+		"rag.go":                    {"s.routeSensitiveStep(ctx, copilot.SensitiveWiki, emit)", "wikiHits = localDocHitsOnly(wikiHits)"},
+		"chat_local_only.go":        {"rctx, ok := s.routeSensitive(ctx, kind)"}, // v0.10.1467 — Step/Switch aynı kapıdan
 		"ai_observability.go":       {"s.routeSensitive(ctx, o.sensitive)"},
 	}
 	for f, want := range pins {

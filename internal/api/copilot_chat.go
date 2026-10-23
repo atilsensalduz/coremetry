@@ -668,6 +668,9 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 		tools = dropSensitiveChatTools(tools)
 		emit("step", map[string]string{"label": "Kod/wiki okuma " + localOnlyClosedReason})
 	case localOnlySwitch:
+		// v0.10.1467 — geçiş görünür (kod turu kendi step'inde söyler; orada
+		// profil zaten yerel → buraya localOnlyKeep ile gelir, çift step yok).
+		emit("step", map[string]string{"label": localOnlySwitchLabel(s.chatProfileLabel(ctx))})
 		if evm == nil || evm.Toolset == "" {
 			if ts := s.copilot.ToolsetFor(ctx); ts != toolset {
 				toolset = ts

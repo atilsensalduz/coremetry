@@ -61,6 +61,41 @@ func (s *Server) routeSensitive(ctx context.Context, kind copilot.SensitiveKind)
 	return s.copilot.RouteSensitive(ctx, claimsRole(ctx), kind)
 }
 
+// localOnlySwitchNote — v0.10.1467 — profil geçişinin gerekçe metni (step).
+const localOnlySwitchNote = "kod/wiki içeriği yalnız yerel modele gider"
+
+// localOnlySwitchLabel — SAF: sohbet turu kullanıcının (seçtiği ya da
+// çözülen) yerel olmayan profilinden işaretli yerel profile taşındığında
+// yayınlanan step etiketi.
+func localOnlySwitchLabel(label string) string {
+	return "Yerel modele geçildi: " + label + " (" + localOnlySwitchNote + ")"
+}
+
+// routeSensitiveSwitch — routeSensitive + geçiş oldu mu: çözülen profil
+// yerel DEĞİLDİ ve yerel profile sabitlendi (RouteSensitive yerel çözülen
+// profili aynen sabitler → geçiş yok). Copilot'suz test sunucusunda geçiş yok.
+func (s *Server) routeSensitiveSwitch(ctx context.Context, kind copilot.SensitiveKind) (context.Context, bool, bool) {
+	if s == nil || s.copilot == nil {
+		rctx, ok := s.routeSensitive(ctx, kind)
+		return rctx, ok, false
+	}
+	before := s.copilot.ProfileLocalOnly(ctx)
+	rctx, ok := s.routeSensitive(ctx, kind)
+	return rctx, ok, ok && !before
+}
+
+// routeSensitiveStep — v0.10.1467 — sohbet yollarının (wiki anlatımı, wiki
+// takibi, RAG kurum wiki bağlamı) routeSensitive'i: geçiş olduysa ve emit
+// varsa görünür step. Aynı turda ikinci çağrı zaten yerel profildedir → tekrar
+// step yok.
+func (s *Server) routeSensitiveStep(ctx context.Context, kind copilot.SensitiveKind, emit func(string, any)) (context.Context, bool) {
+	rctx, ok, switched := s.routeSensitiveSwitch(ctx, kind)
+	if switched && emit != nil {
+		emit("step", map[string]string{"label": localOnlySwitchLabel(s.chatProfileLabel(rctx))})
+	}
+	return rctx, ok
+}
+
 // isSensitiveChatTool — SAF: aracın sonucu kaynak kod ya da wiki sayfa
 // gövdesi taşır mı (read_source_code, search_code parçaları, search_wiki
 // parçaları, read_wiki_page).

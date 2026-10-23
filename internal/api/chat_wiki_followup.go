@@ -528,7 +528,7 @@ func (s *Server) wikiFollowUpAnswer(ctx context.Context, emit func(string, any),
 		return false, false // servis adı + telemetri sinyali: guided'ın sorusu
 	}
 	// v0.10.1451 — R1 localOnly (karar 8): sayfa gövdesi yalnız yerel profile.
-	rctx, lok := s.routeSensitive(ctx, copilot.SensitiveWiki)
+	rctx, lok := s.routeSensitiveStep(ctx, copilot.SensitiveWiki, emit) // v0.10.1467 — geçiş step'i
 	if !lok {
 		return false, false
 	}

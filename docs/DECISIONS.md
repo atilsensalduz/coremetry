@@ -10152,3 +10152,34 @@ tek kaynaklıda `<no value>`/`[]`/`""`/null zararsız; boş çok kaynaklı 400; 
 `TestArgoSyncWebhookSweepsRolloutsCache` (400/500 süpürmez, ilk yazım hemen, aralıkta tek artçı),
 `TestRolloutSweepGateTable`, `TestRolloutSweepGateConcurrent` (-race, 64 eşzamanlı → 1 hemen + 1 artçı),
 `TestArgoSyncWebhookMultiSourceAccepted`.
+
+## 2026-10-23 — v0.10.1467 — localOnly ardılları: görünür profil geçişi; yüklenen belgeler karar 8 dışında
+
+**Bağlam.** v0.10.1451 "Plandan sapma" notu (kod/wiki turu kullanıcının profilini sessizce ezer) ve aynı girişteki
+yüklenen belge istisnası; operatör kararı 2026-10-23 ("önerilerle geç").
+
+**Karar a — geçiş görünür.** Sohbet turu kullanıcının (açıkça seçtiği ya da çözülen) yerel OLMAYAN profilinden
+işaretli yerel profile taşındığında step: «Yerel modele geçildi: <profil etiketi> (kod/wiki içeriği yalnız yerel
+modele gider)». Tek ilkel `routeSensitiveSwitch` (`chat_local_only.go`): geçiş = önce `ProfileLocalOnly` false VE
+`routeSensitive` ok (RouteSensitive yerel çözülen profili aynen sabitler → geçiş değil). Yerleri: serbest döngü
+`localOnlySwitch` dalı (trace takibi vb.), `wikiNarratedAnswer` (açık wiki kademesi, netleştirme/yoklama, RAG belge
+yolu — `selectEmit` nil ise sessiz), wiki takibi, RAG kurum wiki bağlamı (`routeSensitiveStep`). Aynı turda ikinci
+çağrı ctx'i zaten yerel bulur → tek step. Kod turu (v0.10.1461) ayrı step ATMAZ: `codeTurn.Switched` mevcut
+"Kod okuma: <etiket>" step'ine « · yerel modele geçildi (…)» eki olarak girer (dış araç eki sonda); kod turunda
+profil zaten yereldir, serbest döngü `localOnlyKeep` görür — çift step yok. Geçiş yoksa etiketler bayt bayt eski.
+Etiket v0.10.1465'in `chatProfileLabel`'ından (Label > kimlik > model; kod turu, yapışkan tur ve geçiş ortak).
+Yapışkan kod konuşması (v0.10.1465) da ayrı step atmaz: "Kod okunan konuşma: …" step'ine aynı ek girer. ✨ açıklama
+butonları (sohbet dışı) değişmedi.
+
+**Karar b — kayıt (kod yok).** Yüklenen belgeler (`wiki.LocalWikiID`) karar 8 kapsamı DIŞINDA kalır; yalnız Azure
+DevOps wiki sayfaları ve kaynak kod yerel modele kapılıdır. Pin: `TestUploadedDocRAGWorksWithoutLocalProfile` (hiçbir
+profil işaretsizken yüklenen belge RAG'i cevap verir, anlatım işaretsiz, geçiş step'i yok; `wikiHitsSensitive`
+yüklenen belgeyi hassas sayarsa test kırmızı — mutasyonla doğrulandı).
+
+**Geri alma.** Sürüm commit'ini revert + yeni etiket: step'ler kalkar, yönlendirme aynı (sessiz geçiş). Şema, ayar,
+rota, MCP 74, kademe sırası değişmedi.
+
+**Testler.** api `TestLocalOnlySwitchLabel`, `TestRouteSensitiveStepOnlyOnSwitch` (yerel olmayan çözülen/seçili →
+1 step; ikinci çağrı 0; yerel seçili/varsayılan 0; yerel yok ok=false 0; nil emit), `TestChatFreeLoopSwitchStep`,
+`TestCodeTurnSwitchMergedIntoCodeStep` (ayrı step yok; ek yalnız geçişte), `TestCodeStickySwitchMergedIntoStickyStep`, `TestUploadedDocRAGWorksWithoutLocalProfile`;
+`TestLocalOnlySitesWired` pinleri `routeSensitiveStep`'e güncellendi; 1461 testleri aynen yeşil.

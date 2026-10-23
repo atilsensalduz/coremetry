@@ -85,14 +85,18 @@ func (s *Server) applyCodeSticky(ctx context.Context, emit func(string, any), st
 		return ctx, false, false
 	}
 	noteCodeRead(st, emit)
-	rctx, ok := s.routeSensitive(ctx, copilot.SensitiveCode)
+	rctx, ok, switched := s.routeSensitiveSwitch(ctx, copilot.SensitiveCode) // v0.10.1467 — geçiş step'e katılır
 	if !ok {
 		emit("step", map[string]string{"label": codeStickyStepLabel("", true)})
 		emit("answer", map[string]any{"text": codeStickyClosedText, "exchangeId": copilot.MetaFromContext(ctx).ExchangeID,
 			"sources": []any{}, "links": []guidedAnswerLink{}, "allowedLinks": []string{}})
 		return ctx, true, true
 	}
-	emit("step", map[string]string{"label": codeStickyStepLabel(s.chatProfileLabel(rctx), false)})
+	label := codeStickyStepLabel(s.chatProfileLabel(rctx), false)
+	if switched {
+		label += " · yerel modele geçildi (" + localOnlySwitchNote + ")"
+	}
+	emit("step", map[string]string{"label": label})
 	return rctx, true, false
 }
 

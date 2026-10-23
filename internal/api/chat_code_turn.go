@@ -67,6 +67,9 @@ type codeTurn struct {
 	Reason string
 	// Profile / Label — applyCodeTurn sonrası turun yerel profili (kimlik + etiket).
 	Profile, Label string
+	// Switched — v0.10.1467: tur kullanıcının yerel olmayan profilinden yerel
+	// profile taşındı (step etiketine "yerel modele geçildi" eki).
+	Switched bool
 }
 
 // codeTurnInputs — kararın SAF girdileri.
@@ -137,11 +140,12 @@ func (s *Server) applyCodeTurn(ctx context.Context, ct *codeTurn) context.Contex
 	if !ct.On {
 		return ctx
 	}
-	rctx, ok := s.routeSensitive(ctx, copilot.SensitiveCode)
+	rctx, ok, switched := s.routeSensitiveSwitch(ctx, copilot.SensitiveCode)
 	if !ok {
 		ct.On, ct.Reason = false, localOnlyClosedReason
 		return ctx
 	}
+	ct.Switched = switched // v0.10.1467 — geçiş kod turu step'ine katılır (ayrı step yok)
 	ct.Profile = s.copilot.ProfileIDFor(rctx)
 	ct.Label = s.chatProfileLabel(rctx) // v0.10.1465 — yapışkan turla ortak
 	return rctx
@@ -150,10 +154,15 @@ func (s *Server) applyCodeTurn(ctx context.Context, ct *codeTurn) context.Contex
 // stepLabel — turun step etiketi ("" = yayınlanmaz).
 func (ct codeTurn) stepLabel(extConfigured bool) string {
 	switch {
-	case ct.On && extConfigured:
-		return "Kod okuma: " + ct.Label + " · dış araçlar bu turda kapalı"
 	case ct.On:
-		return "Kod okuma: " + ct.Label
+		l := "Kod okuma: " + ct.Label
+		if ct.Switched {
+			l += " · yerel modele geçildi (" + localOnlySwitchNote + ")" // v0.10.1467
+		}
+		if extConfigured {
+			l += " · dış araçlar bu turda kapalı"
+		}
+		return l
 	case ct.Pill && ct.Reason != "":
 		return "Kod okuma " + ct.Reason
 	}

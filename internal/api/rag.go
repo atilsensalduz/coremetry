@@ -410,7 +410,7 @@ func (s *Server) ragChatAnswer(ctx context.Context, emit func(string, any), msgs
 	// RAG anlatımı YEREL profilde ve işaretli; yerel profil yoksa kurum wiki
 	// isabetleri düşer (yüklenen belgeler kalır) — wiki yokmuş gibi bayt bayt.
 	if wikiHitsSensitive(wikiHits) {
-		if rctx, lok := s.routeSensitive(ctx, copilot.SensitiveWiki); lok {
+		if rctx, lok := s.routeSensitiveStep(ctx, copilot.SensitiveWiki, emit); lok { // v0.10.1467 — geçiş step'i
 			ctx = rctx
 		} else {
 			wikiHits = localDocHitsOnly(wikiHits)
