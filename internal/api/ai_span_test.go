@@ -28,6 +28,18 @@ func attrMap(kvs []attribute.KeyValue) map[string]attribute.Value {
 	return m
 }
 
+// explainSpansOnly — v0.10.1463: sağlayıcı istemcisinin otelhttp span'ı
+// ("HTTP POST") hariç; testler ai.* sözlüğünü pinler.
+func explainSpansOnly(in tracetest.SpanStubs) tracetest.SpanStubs {
+	var out tracetest.SpanStubs
+	for _, s := range in {
+		if s.Name != "HTTP POST" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 func spanServer(t *testing.T, fp *fakeProvider) (*Server, *tracetest.InMemoryExporter) {
 	t.Helper()
 	s := codeServer(t, fp, newCapRecorder())
@@ -53,9 +65,15 @@ func TestExplainSpanCarriesEvidenceAndTokens(t *testing.T) {
 	if _, err := s.copilotExplainCode(r, copilot.SystemPromptException(), copilot.SystemPromptExceptionWithCode(), "Exception GRUBU: x", cc); err != nil {
 		t.Fatal(err)
 	}
-	spans := exp.GetSpans()
+	all := exp.GetSpans()
+	spans := explainSpansOnly(all)
 	if len(spans) != 1 || spans[0].Name != "ai.explain" {
 		t.Fatalf("span sayısı/adı: %d %v", len(spans), spans)
+	}
+	// v0.10.1463 (D1) — sağlayıcı HTTP çağrısı ai.explain'in ÇOCUĞU (otelhttp;
+	// traceparent sağlayıcıya gider).
+	if len(all) != 2 || all[0].Name != "HTTP POST" || all[0].Parent.SpanID() != spans[0].SpanContext.SpanID() {
+		t.Fatalf("sağlayıcı istemci span'ı ai.explain altında olmalı: %v", all)
 	}
 	a := attrMap(spans[0].Attributes)
 	want := map[string]any{
@@ -105,7 +123,7 @@ func TestExplainSpanWithoutCodeAndOnError(t *testing.T) {
 	if _, err := s.copilotExplain(r, copilot.SystemPromptProblem(), "PROBLEM: x"); err != nil {
 		t.Fatal(err)
 	}
-	spans := exp.GetSpans()
+	spans := explainSpansOnly(exp.GetSpans())
 	if len(spans) != 1 {
 		t.Fatalf("span=%d", len(spans))
 	}

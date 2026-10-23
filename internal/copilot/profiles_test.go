@@ -251,7 +251,7 @@ func TestProfiles_LegacySaveKeepsLabelAndTuning_SkipTLSReachesTransport(t *testi
 	}
 	s.mu.RLock()
 	rt := s.profiles[DefaultProfileID]
-	tr, _ := rt.cli.Transport.(*http.Transport)
+	tr := baseTransport(rt.cli)
 	s.mu.RUnlock()
 	if rt.cli.Timeout != 45*time.Second || tr == nil || tr.TLSClientConfig == nil || tr.TLSClientConfig.InsecureSkipVerify {
 		t.Fatalf("istemci profil ayarlarını taşımıyor: timeout=%v tls=%v", rt.cli.Timeout, tr != nil && tr.TLSClientConfig != nil && tr.TLSClientConfig.InsecureSkipVerify)
@@ -259,7 +259,7 @@ func TestProfiles_LegacySaveKeepsLabelAndTuning_SkipTLSReachesTransport(t *testi
 	_ = s.UpsertProfile(context.Background(), store, ModelProfile{ID: "x", Provider: ProviderOpenAI, BaseURL: "https://x/v1", Model: "mx", SkipTLS: true})
 	s.mu.RLock()
 	xr := s.profiles["x"]
-	xtr, _ := xr.cli.Transport.(*http.Transport)
+	xtr := baseTransport(xr.cli)
 	s.mu.RUnlock()
 	if xtr == nil || xtr.TLSClientConfig == nil || !xtr.TLSClientConfig.InsecureSkipVerify {
 		t.Fatal("profil skipTls taşıyıcıya ulaşmadı")

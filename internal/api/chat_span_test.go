@@ -117,7 +117,7 @@ func TestCtxWrapperOpensExplainSpan(t *testing.T) {
 	if _, err := s.copilotExplainSurface(ctx, "chat-guided", "sys", "user"); err != nil {
 		t.Fatal(err)
 	}
-	spans := exp.GetSpans()
+	spans := explainSpansOnly(exp.GetSpans()) // v0.10.1463 — otelhttp "HTTP POST" çocuğu hariç
 	if len(spans) != 1 || spans[0].Name != "ai.explain" {
 		t.Fatalf("span: %v", spans)
 	}

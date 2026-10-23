@@ -176,6 +176,10 @@ type Investigation struct {
 	// (unix ns; yeniden koşuda taşınır). İlk hipoteze varış süresi =
 	// FirstHypothesisAt − ProblemAt (değerlendirme paneli p50/p90).
 	FirstHypothesisAt int64 `json:"firstHypothesisAt,omitempty"`
+	// TraceID — v0.10.1463 (CoSRE D1): son koşunun sre.investigation trace'i
+	// (32 hex; yalnız örneklenmişse — self-obs kapalı = boş). PR 3'te
+	// ai_investigations.trace_id kolonuna taşınır; PR 6 "Trace'te aç".
+	TraceID string `json:"traceId,omitempty"`
 }
 
 // QueueKey — v0.10.1301: kuyruk anahtarı (satır kimliği

@@ -37,6 +37,8 @@
 //     frontend's traceparent indicates "sampled", we follow; root
 //     spans the backend creates itself get sampled at 10%. Operator
 //     can override via COREMETRY_SELF_OBS_SAMPLE_RATE.
+//     v0.10.1463: root spans named in COREMETRY_SELF_OBS_ALWAYS_SAMPLE
+//     (default sre.investigation) are always sampled (sampler.go).
 //
 //   - Self-loop guard: this package is NEVER imported by code that
 //     runs inside the OTLP receiver paths (`internal/otlp/*`). The
@@ -196,14 +198,16 @@ func Init(ctx context.Context, mode, version string) func(context.Context) error
 			sdktrace.WithMaxExportBatchSize(512),
 			sdktrace.WithBatchTimeout(5*time.Second),
 		),
-		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(sampleRate))),
+		// v0.10.1463 (D1) — ada duyarlı kök: sre.investigation HER ZAMAN
+		// örneklenir, geri kalan kökler oranla (sampler.go).
+		sdktrace.WithSampler(newSelfObsSampler(sampleRate)),
 	)
 	otel.SetTracerProvider(tp)
 	tpShutdown = tp.Shutdown
 	tracerSink = tp.Tracer("coremetry")
 
-	log.Printf("[selfobs] enabled — endpoint=%s service=%s sample=%.2f",
-		endpoint, serviceName(mode), sampleRate)
+	log.Printf("[selfobs] enabled — endpoint=%s service=%s sample=%.2f always=%v",
+		endpoint, serviceName(mode), sampleRate, parseAlwaysSample(os.Getenv(envAlwaysSample)))
 	return shutdownAll
 }
 

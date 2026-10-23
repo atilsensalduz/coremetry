@@ -14,43 +14,67 @@ import (
 )
 
 func TestAICallsInsertBranches(t *testing.T) {
-	c := AICall{ID: "x", PromptVersion: "v", ErrorClass: "timeout", TTFTMs: 12, StreamFallback: true, ShieldHits: 1, CachedTokens: 77}
-	// v0.10.807 — dört kombinasyon: ext × cached (ayrı probe, ayrı bayrak).
+	c := AICall{ID: "x", PromptVersion: "v", ErrorClass: "timeout", TTFTMs: 12, StreamFallback: true, ShieldHits: 1, CachedTokens: 77,
+		TraceID: "0af7651916cd43dd8448eb211c80319c"}
+	// v0.10.807 — ext × cached; v0.10.1463 — × traced (üç ayrı probe, üç
+	// bayrak → sekiz kombinasyon; her biri ilk boot'ta tek başına false
+	// olabilir).
+	sqls := map[string]bool{}
 	for _, ext := range []bool{false, true} {
 		for _, cached := range []bool{false, true} {
-			sql := aiCallsInsertSQL(ext, cached)
-			inner := sql[strings.Index(sql, "(")+1 : strings.LastIndex(sql, ")")]
-			n := len(strings.Split(inner, ","))
-			args := aiCallsInsertArgs(c, time.Unix(0, 0).UTC(), ext, cached)
-			if n != len(args) {
-				t.Fatalf("ext=%v cached=%v: SQL %d kolon, %d arg", ext, cached, n, len(args))
-			}
-			for _, col := range strings.Split(aiCallsExtCols, ", ") {
-				if strings.Contains(inner, col) != ext {
-					t.Errorf("ext=%v: kolon %q beklenmedik durumda", ext, col)
+			for _, traced := range []bool{false, true} {
+				sql := aiCallsInsertSQL(ext, cached, traced)
+				sqls[sql] = true
+				inner := sql[strings.Index(sql, "(")+1 : strings.LastIndex(sql, ")")]
+				n := len(strings.Split(inner, ","))
+				args := aiCallsInsertArgs(c, time.Unix(0, 0).UTC(), ext, cached, traced)
+				if n != len(args) {
+					t.Fatalf("ext=%v cached=%v traced=%v: SQL %d kolon, %d arg", ext, cached, traced, n, len(args))
 				}
-			}
-			if strings.Contains(inner, "cached_tokens") != cached {
-				t.Errorf("cached=%v: cached_tokens kolonu beklenmedik durumda", cached)
-			}
-			if cached && args[len(args)-1] != uint32(77) {
-				t.Errorf("cached_tokens son arg olmalı, %v", args[len(args)-1])
-			}
-			if ext && !cached && args[len(args)-2] != uint8(1) {
-				t.Errorf("stream_fallback UInt8(1) olmalı, %v", args[len(args)-2])
+				for _, col := range strings.Split(aiCallsExtCols, ", ") {
+					if strings.Contains(inner, col) != ext {
+						t.Errorf("ext=%v: kolon %q beklenmedik durumda", ext, col)
+					}
+				}
+				if strings.Contains(inner, "cached_tokens") != cached {
+					t.Errorf("cached=%v: cached_tokens kolonu beklenmedik durumda", cached)
+				}
+				if strings.Contains(inner, "trace_id") != traced {
+					t.Errorf("traced=%v: trace_id kolonu beklenmedik durumda", traced)
+				}
+				last := args[len(args)-1]
+				switch {
+				case traced:
+					if last != c.TraceID {
+						t.Errorf("trace_id son arg olmalı, %v", last)
+					}
+				case cached:
+					if last != uint32(77) {
+						t.Errorf("cached_tokens son arg olmalı, %v", last)
+					}
+				case ext:
+					if args[len(args)-2] != uint8(1) {
+						t.Errorf("stream_fallback UInt8(1) olmalı, %v", args[len(args)-2])
+					}
+				}
 			}
 		}
 	}
-	if aiCallsInsertSQL(false, false) == aiCallsInsertSQL(true, false) || aiCallsInsertSQL(false, false) == aiCallsInsertSQL(false, true) {
-		t.Fatal("dallar aynı SQL'i üretiyor")
+	if len(sqls) != 8 {
+		t.Fatalf("sekiz dal sekiz ayrı SQL üretmeli, %d", len(sqls))
 	}
 	// Satır okuması da bayrağa uyar: SELECT kolon sayısı == Scan hedefi.
 	for _, cached := range []bool{false, true} {
-		sel := aiCallsRowSelect(cached)
-		n := len(strings.Split(strings.TrimPrefix(sel, "SELECT "), ","))
-		var row AICall
-		if got := len(aiCallsRowScan(&row, cached)); got != n {
-			t.Errorf("cached=%v: SELECT %d kolon, Scan %d hedef", cached, n, got)
+		for _, traced := range []bool{false, true} {
+			sel := aiCallsRowSelect(cached, traced)
+			n := len(strings.Split(strings.TrimPrefix(sel, "SELECT "), ","))
+			var row AICall
+			if got := len(aiCallsRowScan(&row, cached, traced)); got != n {
+				t.Errorf("cached=%v traced=%v: SELECT %d kolon, Scan %d hedef", cached, traced, n, got)
+			}
+			if strings.Contains(sel, "trace_id") != traced {
+				t.Errorf("traced=%v: SELECT trace_id beklenmedik durumda", traced)
+			}
 		}
 	}
 }
@@ -71,6 +95,9 @@ func TestAICallsProbeTargetsInsertTable(t *testing.T) {
 	}
 	if !strings.Contains(src, "table = 'ai_calls' AND name = 'cached_tokens'") { // v0.10.807
 		t.Fatal("cached_tokens probe'u da INSERT hedefine bakmalı")
+	}
+	if !strings.Contains(src, "table = 'ai_calls' AND name = 'trace_id'") { // v0.10.1463
+		t.Fatal("trace_id probe'u da INSERT hedefine bakmalı")
 	}
 }
 

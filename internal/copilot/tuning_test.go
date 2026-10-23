@@ -440,6 +440,6 @@ func TestClientRebuildOnTuningChange(t *testing.T) {
 }
 
 func skipTLSOf(c *http.Client) bool {
-	tr, ok := c.Transport.(*http.Transport)
-	return ok && tr.TLSClientConfig != nil && tr.TLSClientConfig.InsecureSkipVerify
+	tr := baseTransport(c)
+	return tr != nil && tr.TLSClientConfig != nil && tr.TLSClientConfig.InsecureSkipVerify
 }

@@ -3100,6 +3100,10 @@ func canonicalTables(sd, ld, md int) []string {
 		// token'ı; aynı iki-boot sözleşmesi, AYRI probe (409 kolonları var,
 		// bu yokken INSERT kırılmasın).
 		`ALTER TABLE ai_calls ADD COLUMN IF NOT EXISTS cached_tokens UInt32 DEFAULT 0`,
+		// v0.10.1463 (CoSRE D1) — self-telemetri trace kimliği (32 hex, '' =
+		// örneklenmedi / self-obs kapalı). Kimlik: LowCardinality DEĞİL, ORDER
+		// BY'a girmez; aynı iki-boot sözleşmesi, AYRI probe.
+		`ALTER TABLE ai_calls ADD COLUMN IF NOT EXISTS trace_id String DEFAULT ''`,
 
 		// rca_verdicts — kök-neden hakem kararının KALICI kaydı
 		// (v0.9.591). Öncesinde verdict istek başına üretilip
@@ -4895,6 +4899,7 @@ func (s *Store) migrate(ctx context.Context) error {
 	// v0.10.409 — ai_calls genişletilmiş kolon probe'u (iki-boot).
 	s.probeAICallsColumns(ctx)
 	s.probeAICallsCachedColumn(ctx)      // v0.10.807
+	s.probeAICallsTraceColumn(ctx)       // v0.10.1463
 	s.probeAIFeedbackCallColumns(ctx)    // v0.10.1280
 	s.probeCosreInteractionsColumns(ctx) // v0.10.1280 tool_evidence; v0.10.1302 + toolset
 

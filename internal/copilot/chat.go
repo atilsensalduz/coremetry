@@ -164,6 +164,7 @@ func (s *Service) RecordUsage(ctx context.Context, started time.Time, inTok, out
 		UserEmail:      meta.UserEmail,
 		PromptSample:   truncForSample(promptSample),
 		ResponseSample: truncForSample(respSample),
+		TraceID:        callTraceID(ctx), // v0.10.1463 (D1)
 	}
 	if status == "error" {
 		rec.ErrorMsg = truncErr(errMsg)
@@ -210,6 +211,7 @@ func (s *Service) RecordExchange(ctx context.Context, started time.Time, status,
 		UserEmail:      meta.UserEmail,
 		PromptSample:   truncForSample(question),
 		ResponseSample: truncForSample(answer),
+		TraceID:        callTraceID(ctx), // v0.10.1463 (D1)
 	}
 	switch status {
 	case "error":

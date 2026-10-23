@@ -251,6 +251,41 @@ func ObserveSREInvestigation(result string, d time.Duration) {
 	}
 }
 
+// ── SRE araştırma adımları (v0.10.1463, D1) ─────────────────────────
+
+type sreStepKey struct{ step, state string }
+
+// sreStepBuckets — adım tavanları saniyeler mertebesinde (okuyucu cap'i).
+var sreStepBuckets = []float64{0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20, 30, 60}
+
+var (
+	sreStepOnce sync.Once
+	sreStepHist metric.Float64Histogram
+	sreStepSets setCache[sreStepKey]
+)
+
+// ObserveSREStep — deterministik adımın süresi (sre.step.duration). step
+// planın kapalı adım kümesinden (sweep / deploys / deps / pivot / log_spike /
+// events / node / summary), state ok|partial|error|skipped → kardinalite
+// sabit. Span ağacının (sre.step) metrik ikizi: örneklemeden bağımsız sayar.
+func ObserveSREStep(step, state string, d time.Duration) {
+	sreStepOnce.Do(func() {
+		var e error
+		if sreStepHist, e = Meter().Float64Histogram("sre.step.duration",
+			metric.WithUnit("s"),
+			metric.WithDescription("AI SRE araştırma adımının süresi, step × state"),
+			metric.WithExplicitBucketBoundaries(sreStepBuckets...)); e != nil {
+			log.Printf("[selfobs] sre.step.duration: %v", e)
+		}
+	})
+	set := sreStepSets.get(sreStepKey{step, state}, func() attribute.Set {
+		return attribute.NewSet(attribute.String("step", step), attribute.String("state", state))
+	})
+	if sreStepHist != nil {
+		sreStepHist.Record(context.Background(), d.Seconds(), metric.WithAttributeSet(set))
+	}
+}
+
 // ── AI araç argümanı doğrulaması (v0.10.1456, C1) ──────────────────
 
 type toolArgKey struct {

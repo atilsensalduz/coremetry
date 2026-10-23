@@ -229,6 +229,9 @@ type CallRecord struct {
 	TTFTMs         uint32
 	StreamFallback bool
 	ShieldHits     uint8
+	// TraceID — v0.10.1463 (CoSRE D1): çağrı anındaki ÖRNEKLENMİŞ
+	// self-telemetri trace'i (callTraceID); '' = örneklenmedi / self-obs kapalı.
+	TraceID string
 }
 
 // metaKey is the unexported type for ctx.WithValue lookups so other
@@ -596,7 +599,7 @@ func buildCopilotHTTPClient(skipTLS bool, timeout time.Duration) *http.Client {
 	}
 	return &http.Client{
 		Timeout:   timeout,
-		Transport: tr,
+		Transport: tracedProviderTransport(tr),
 	}
 }
 
@@ -845,6 +848,7 @@ func (s *Service) recordNarration(ctx context.Context, started time.Time,
 		UserEmail:      meta.UserEmail,
 		PromptSample:   truncForSample(logPrompt),
 		ResponseSample: truncForSample(out),
+		TraceID:        callTraceID(ctx), // v0.10.1463 (D1)
 	}
 	if err != nil {
 		rec.Status = "error"

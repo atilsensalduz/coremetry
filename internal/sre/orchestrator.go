@@ -325,7 +325,9 @@ func runInvestigation(ctx context.Context, rd readers, inv *Investigation, check
 	inv.Recommendations = carryRecState(recommend(ctx, rd, inv, p), inv.Recommendations)
 	checkpoint(inv)
 	if forced[stepSummary] || !fresh(inv.step(stepSummary), t0) || inv.Summary == nil {
-		apply(stepOutcome{step: narrate(ctx, rd, inv, p, now), findings: groups[stepSummary]})
+		// v0.10.1463 (D1) — anlatım sre.narrate span'ı içinde (trace.go).
+		st := narrateTraced(ctx, func(nctx context.Context) Step { return narrate(nctx, rd, inv, p, now) }, inv)
+		apply(stepOutcome{step: st, findings: groups[stepSummary]})
 	}
 }
 
@@ -340,12 +342,14 @@ func runWave(ctx context.Context, rd readers, service string, batch []StepSpec, 
 		go func(s StepSpec) {
 			sctx, cancel := context.WithTimeout(ctx, s.Cap)
 			defer cancel()
+			sctx, endSpan := beginStepSpan(sctx, s.Name) // v0.10.1463 (D1) — sre.step
 			t := now()
 			o := execStep(sctx, rd, service, s)
 			end := now()
 			o.step.Name = s.Name
 			o.step.DurationMs = end.Sub(t).Milliseconds()
 			o.step.At = end.UnixNano()
+			endSpan(o, end.Sub(t))
 			ch <- o
 		}(s)
 	}

@@ -22,6 +22,7 @@ package sre
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sort"
@@ -32,6 +33,8 @@ import (
 	"github.com/cilcenk/coremetry/internal/cache"
 	"github.com/cilcenk/coremetry/internal/mcptools"
 	"github.com/cilcenk/coremetry/internal/selfobs"
+
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -75,6 +78,10 @@ type DrainDeps struct {
 	Poll          time.Duration
 	Runner        Runner
 	ShutdownGrace time.Duration
+	// Tracer — v0.10.1463 (D1): sre.investigation kökünün kaynağı; nil →
+	// selfobs.Tracer() (prod; self-obs kapalıyken noop). Testler in-memory
+	// exporter'lı SDK tracer'ı verir.
+	Tracer trace.Tracer
 }
 
 type flight struct {
@@ -448,7 +455,11 @@ func (dr *drainer) execute(fctx context.Context, fl *flight, inv Investigation, 
 	}
 	work := inv
 	started := time.Now()
+	// v0.10.1463 (D1) — kök span (trace.go); kimlik kayda (örneklenmişse).
+	bctx, traceID, endSpan := beginInvestigationSpan(bctx, dr.d.Tracer, inv)
+	work.TraceID = traceID
 	dr.d.Runner(bctx, &work, checkpoint)
+	overBudget := errors.Is(bctx.Err(), context.DeadlineExceeded)
 	bcancel()
 	c, cancel := wctx()
 	defer cancel()
@@ -461,6 +472,7 @@ func (dr *drainer) execute(fctx context.Context, fl *flight, inv Investigation, 
 			work.Attempts--
 		}
 		selfobs.ObserveSREInvestigation("requeued", time.Since(started)) // v0.10.1422
+		endSpan(work, overBudget)
 		if err := save(c, dr.d.Store, work); err != nil {
 			dr.logErr("kapanış requeue", err)
 		}
@@ -475,6 +487,7 @@ func (dr *drainer) execute(fctx context.Context, fl *flight, inv Investigation, 
 	// v0.10.1422 — sre pod'u HTTP API sunmaz; görünür RED'i bu (result =
 	// done|partial|error, finalState'in kapalı kümesi).
 	selfobs.ObserveSREInvestigation(work.State, time.Since(started))
+	endSpan(work, overBudget)
 	if err := save(c, dr.d.Store, work); err != nil {
 		dr.logErr("sonuç yazımı", err)
 		return

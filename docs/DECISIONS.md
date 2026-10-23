@@ -9969,3 +9969,54 @@ rota, MCP kataloğu değişmedi.
 yürüyüşü); mevcut `TestRenderInvestigationTRGolden`, `TestSummaryOfAndRenderSaved`, `TestRenderHypothesesTR`,
 `TestRulesNeverReachScoring`, `TestSRENoMutatingCalls`, `TestEvalIgnoresFeedback`, `TestHypothesisMarkNeverChangesScore`
 yeşil.
+
+## 2026-10-23 — v0.10.1463 — CoSRE D1: arka plan araştırmasının OTel span ağacı + `ai_calls.trace_id`
+
+**Bağlam.** Program planı `cosre-contextpack-plan.md` §4.1/§4.2 (D1, operatör kararı 7). Denetim maddesi 7/8:
+`internal/sre` yalnız metrik bırakıyordu (`ObserveSREInvestigation`); drain'in bütçe bağlamı kök span açmadığı için
+okuyucuların `clickhouse.query` span'ları öksüzdü; self-obs örnekleyicisi `ParentBased(TraceIDRatioBased(0.1))` bir kök
+açılsa bile araştırmaların %90'ını düşürürdü; copilot sağlayıcı istemcisinde otelhttp yoktu (vLLM'e `traceparent`
+gitmiyordu); `ai_calls` satırı ile span arasında yalnız `coremetry.ai.exchange_id` attribute'u vardı.
+
+**Karar.** (1) `internal/sre/trace.go`: `sre.investigation` kökü (`WithNewRoot`, INTERNAL; `drain.execute` bütçe
+bağlamında) → her deterministik adım `sre.step` (`runWave` goroutine'i; altında okuyucunun `clickhouse.query`
+span'ları) + tek anlatım `sre.narrate` (altında otelhttp `HTTP POST`). Attribute'lar: kökte
+`coremetry.sre.{problem_id,kind,run,attempt,service,env,priority,eval_run,case_id}` + sonda
+`coremetry.sre.{state,outcome_reason,steps,llm_calls,wall_ms,budget_exceeded}` ve `gen_ai.usage.input/output_tokens`;
+adımda `coremetry.sre.step.{name,state,nodata,findings,evidence,duration_ms}`; anlatımda `gen_ai.system /
+request.model / usage.*` (copilot `CallMeta.Observe` kancasından) + `coremetry.ai.call_id`. Gövde (prompt / argüman /
+çıktı / anlatım metni) hiçbir attribute'a girmez (ai_span.go kuralı, iğne taraması testte). Metrik ikizi
+`sre.step.duration` (step × state, sabit kardinalite). `sre.loop / sre.loop.branch / sre.llm / ai.tool` dalları 2b'nin
+(plan §4.1 ağacı; dikiş `childTracer(ctx)`). (2) `selfobs/sampler.go` ada duyarlı kök örnekleyici:
+`ParentBased(rootSampler)` — kök adı `COREMETRY_SELF_OBS_ALWAYS_SAMPLE` (varsayılan `sre.investigation`, `-` = hiçbiri)
+kümesindeyse `RecordAndSample`, aksi eski oran (0.1). Hacim ≤ `maxLLMCallsPerHour` anlatım + kuyruk tavanı kadar koşu.
+/otel-conventions §6 "binary'de örnekleme yok" kuralı INGEST yoluna aittir; bu yalnız Coremetry'nin kendi SDK'sı.
+(3) `copilot/trace.go`: sağlayıcı istemcisi (tek kurulum yeri `buildCopilotHTTPClient`, profiller dahil)
+`otelhttp.NewTransport(base, WithPropagators(TraceContext{}))` — süreç geneli propagator hiç kurulmadığı için (boş
+bileşik) yayıcı açıkça W3C; self-obs kapalıyken span bağlamı yok → başlık yok. (4) `CallRecord.TraceID` /
+`chstore.AICall.TraceID` — çağrı anındaki span **örneklenmişse** (`selfobs.SampledTraceID`; örneklenmemiş kimlik
+sorgulanamaz) Explain / RecordUsage / RecordExchange satırlarına yazılır: arka plan anlatımı `sre.investigation`
+trace'ine, sohbet satırları `ai.chat` trace'ine (oranla örneklendiğinde) bağlanır. `Investigation.TraceID` (kayıt JSON'u)
+de dolar. (5) DDL: `ALTER TABLE ai_calls ADD COLUMN IF NOT EXISTS trace_id String DEFAULT ''` (düşük hacimli MergeTree,
+/clickhouse-schema §3 güvenli sınıf; kimlik → LowCardinality değil, ORDER BY'a girmez); iki-boot: `probeAICallsTraceColumn`
+(INSERT hedefi `ai_calls`) + `ddl_defer.go` yeniden probe; INSERT ve SELECT kolonu yalnız bayrakla anar
+(`aiCallsInsertSQL(ext, cached, traced)` sekiz dal). (6) `/ai` çağrı çekmecesi (`CallDrawer`): `traceId` doluysa
+"Trace" linki → `traceHref(id)` (`/trace?id=…`; CH, sonra Tempo).
+
+**Sapma / not.** `ai_investigations.trace_id` (karar 7'nin ikinci yarısı) PR 3'e kalır — tablo henüz yok; o zamana dek
+kimlik araştırma kaydının JSON'unda (`traceId`). `tool_calls` kök attribute'u 2b döngüsüyle gelir (bugün araştırma araç
+çağırmaz). `TestSRENoMutatingCalls` muhafızı değişmedi: span'ın `Set*` çağrıları `selfobs.EndSpan`'da, sre paketinde
+yazım-benzeri çağrı yok.
+
+**Geri alma.** Kod değişmeden: `COREMETRY_SELF_OBS_ALWAYS_SAMPLE=-` → araştırma kökleri yine orana tabi (eski hacim);
+`COREMETRY_SELF_OBS_OTLP_ENDPOINT` boş (all kipinde dış bir değer verilmedikçe varsayılan kendi alıcısıdır) → hiç span yok,
+`trace_id=''`, `traceparent` gitmez. Tam geri alma: sürüm commit'ini revert + yeni etiket; `ai_calls.trace_id` kolonu kalır
+(zararsız, `DEFAULT ''`, okuyan yok), env satırı silinir.
+
+**Testler.** selfobs `TestRootSamplerTable`, `TestParseAlwaysSample`, `TestSelfObsSamplerChildrenFollowRoot`,
+`TestSampledTraceID`; sre `TestInvestigationSpanTree` (gerçek drain + orkestratör, in-memory exporter: kök/çocuk ilişkisi,
+attribute sözlüğü, kayıt kimliği, gövde iğne taraması), `TestStepSpanErrorStatus`, `TestNoopWhenSelfObsOff`; copilot
+`TestOtelhttpTransportWraps` (sağlayıcı `traceparent`'ı ebeveyn trace'iyle görür), `TestCallRecordCarriesTraceID`
+(span yok / örneklenmemiş / örneklenmiş × Explain, RecordUsage, RecordExchange); chstore `TestAICallsInsertBranches`
+(8 kombinasyon + SELECT/Scan), `TestAICallsProbeTargetsInsertTable`; api `TestExplainSpanCarriesEvidenceAndTokens`
+(sağlayıcı `HTTP POST` span'ı `ai.explain`'in çocuğu); fe `aiCallTraceLink.pin.test.ts`.

@@ -103,6 +103,7 @@ func narrate(ctx context.Context, rd readers, inv *Investigation, p chstore.Prob
 	callID, exchangeID := copilot.NewCallID(), newNarrationExchangeID()
 	nctx = copilot.WithCallID(copilot.WithMeta(nctx, copilot.CallMeta{
 		Surface: NarrationSurface, UserID: "system", ExchangeID: exchangeID,
+		Observe: copilot.MetaFromContext(ctx).Observe, // v0.10.1463 (D1) — sre.narrate token attribute'ları
 		Shield: func(prompt, answer string) uint8 {
 			return rca.CountUnknownEntities(rca.LowerKnownSet(known...), prompt, answer)
 		},

@@ -21,7 +21,8 @@ import {
   type AICall, type AIStats, type AICallsTimePoint, type TimeRange, type AICallSource,
   EVALSET_SURFACE_PREFIX,
 } from '@/lib/types';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
+import { traceHref } from '@/lib/traceHref';
 import { PageControls } from '@/components/ui/PageControls';
 import { PageShell } from '@/components/ui/PageShell';
 
@@ -806,6 +807,15 @@ function CallDrawer({ call, rates, onClose }: { call: AICall; rates: AIRateTable
             <Kv k="User" v={call.userEmail || call.userId || '—'} />
             {call.baseUrl && <Kv k="Base URL" v={call.baseUrl} />}
           </div>
+          {/* v0.10.1463 (CoSRE D1) — çağrının self-telemetri trace'i: yalnız
+              örneklenmiş (sorgulanabilir) trace'te dolu; arka plan anlatımında
+              sre.investigation ağacını, sohbette ai.chat ağacını açar. */}
+          {call.traceId && (
+            <div style={{ fontSize: 12 }}>
+              <Link to={traceHref(call.traceId)} title="Coremetry self-telemetry trace of this call">Trace</Link>
+              <span className="mono" style={{ marginLeft: 8, color: 'var(--text3)' }}>{call.traceId}</span>
+            </div>
+          )}
           {call.errorMsg && (
             <Section title="Error">
               <pre style={{

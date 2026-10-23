@@ -2994,6 +2994,8 @@ export interface AICall {
   userEmail?: string;
   promptSample?: string;
   responseSample?: string;
+  /** v0.10.1463 (CoSRE D1) — Coremetry'nin kendi self-telemetri trace'i (yalnız örneklenmişse; sohbet → ai.chat, arka plan anlatımı → sre.investigation). */
+  traceId?: string;
 }
 
 export interface AIStats {

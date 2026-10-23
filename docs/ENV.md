@@ -259,6 +259,7 @@ Binary kendi trace + metriklerini `service.name = coremetry-<rol>`
 |---|---|---|---|---|---|
 | `COREMETRY_SELF_OBS_OTLP_ENDPOINT` | `selfobs.go:81,109`; `main.go:289-301` | `all` modda boş → `localhost:<grpc port>` (kendi alıcısı, v0.8.218); `api`/`worker`/`agent`'ta boş → SDK **kapalı**; saf `ingest`'te **zorla boş** (self-loop önlemi) | OTel SDK (trace + runtime metrik, 30 s export) hedefi, plaintext gRPC. Compose: `otel-collector:4317`. | all, api, worker, agent | hayır |
 | `COREMETRY_SELF_OBS_SAMPLE_RATE` | `selfobs.go:266-277` | `0.1`; `[0,1]` dışı / parse hatası → `0.1` + log | `ParentBased(TraceIDRatioBased)` — frontend `traceparent` "sampled" ise takip edilir. | aynı | hayır |
+| `COREMETRY_SELF_OBS_ALWAYS_SAMPLE` | `selfobs/sampler.go` | `sre.investigation`; `-` = hiçbiri | v0.10.1463 (CoSRE D1): virgüllü kök span adları; bu adla açılan kökler orandan bağımsız HER ZAMAN örneklenir (çocukları ParentBased ile izler), diğer kökler `COREMETRY_SELF_OBS_SAMPLE_RATE` ile. | aynı + sre | hayır |
 | `COREMETRY_DEPLOY_ENV` | `selfobs.go:225` | `""` | Kendi telemetrisine `deployment.environment` resource attribute'u. | aynı | hayır |
 | `COREMETRY_K8S_NAMESPACE` | `selfobs.go:239` | boş → attribute **hiç yazılmaz** | `k8s.namespace.name`; chart downward API (`deployment.yaml:142-157`). | aynı | hayır |
 | `COREMETRY_K8S_POD_NAME` | `selfobs.go:240` | boş → yazılmaz | `k8s.pod.name` | aynı | hayır |
