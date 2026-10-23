@@ -164,11 +164,17 @@ func withFakeNarrator(t *testing.T, reply string) *[]string {
 	t.Helper()
 	var seen []string
 	prev := wikiNarrateFn
-	wikiNarrateFn = func(_ *Server, _ context.Context, system, user string) (string, error) {
+	wikiNarrateFn = func(_ *Server, ctx context.Context, system, user string) (string, error) {
+		// v0.10.1451 — karar 8: wiki gövdesi taşıyan anlatım işaretli olmalı.
+		if copilot.SensitiveFromContext(ctx) == "" {
+			t.Errorf("wiki anlatımı localOnly işaretsiz çağrıldı")
+		}
 		seen = append(seen, system+"\n----\n"+user)
 		return reply, nil
 	}
-	t.Cleanup(func() { wikiNarrateFn = prev })
+	prevSeam := localOnlyTestSeam
+	localOnlyTestSeam = func() bool { return true } // sahte anlatıcı = yerel profil
+	t.Cleanup(func() { wikiNarrateFn = prev; localOnlyTestSeam = prevSeam })
 	return &seen
 }
 

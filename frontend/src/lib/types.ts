@@ -1485,7 +1485,11 @@ export interface AIModelProfile {
   deep?: boolean;
   /** v0.10.1238 — her LLM isteğine eklenen HTTP başlıkları (ör. x-cluster) */
   headers?: Record<string, string>;
+  /** v0.10.1451 (karar 8) — "Yerel (self-hosted) model": kod/wiki içeriği yalnız bu profile gider */
+  localOnly?: boolean;
 }
+/** v0.10.1451 — /api/copilot/config kod okuma durumu (yalnız DevOps bağlıyken; adres yok). */
+export interface CopilotCodeRead { available: boolean; reason?: string; profileLabel?: string }
 /** v0.10.1138 — /api/copilot/config profil seçeneği (sırsız: id/label/model/açıklama). */
 export interface CopilotProfileOption { id: string; label?: string; model?: string; description?: string }
 /** Yüzey grubu → profil kimliği ('' = varsayılan). intent = chat-intent; background = *-auto-explain. */
@@ -1507,6 +1511,7 @@ export interface AIModelProfileInput {
   roles?: Role[];       // v0.10.1138 — boş = herkes
   deep?: boolean;       // v0.10.1150 — "Derin düşün" profili (tek)
   headers?: Record<string, string>; // v0.10.1238 — tam liste; gönderilmeyen başlık silinir
+  localOnly?: boolean;  // v0.10.1451 — admin beyanı; yalnız openai-uyumlu + özel host
 }
 export interface AIProfilesPayload { profiles: AIModelProfile[]; defaultProfile: string; surfaceMap: AISurfaceMap }
 export interface AIProfileTestResult { ok: boolean; ms: number; profile: string; error?: string; sample?: string }

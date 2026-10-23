@@ -157,6 +157,7 @@ func newLoopTestServer(t *testing.T, llm *loopLLM, users ...string) (*Server, *c
 	t.Helper()
 	cop := copilot.New(copilot.ProviderOpenAI, "test-key", "gemma4")
 	cop.Configure(copilot.ProviderOpenAI, "test-key", "gemma4", llm.srv.URL, false, true)
+	tickLocalOnly(cop) // v0.10.1451 — sahte uç yerel profil (karar 8)
 	if !cop.Active() {
 		t.Fatal("sahte copilot aktif değil")
 	}

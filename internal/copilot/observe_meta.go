@@ -149,6 +149,9 @@ const (
 	// düşünce /ai "timeout" sayısı operatör davranışını ölçüyordu).
 	ErrClassCancelled = "cancelled"
 	ErrClassOther     = "other"
+	// ErrClassLocalOnly — v0.10.1451 (karar 8, R1): kod/wiki içeriği taşıyan
+	// istek LocalOnly olmayan profile gidecekti; sağlayıcıya tek bayt gitmedi.
+	ErrClassLocalOnly = "local_only"
 )
 
 // httpStatusRe — metin yolunda durum kodu: boşluk/iki nokta/parantezle
@@ -162,6 +165,9 @@ func ClassifyAIError(err error) string {
 	}
 	if errors.Is(err, context.Canceled) {
 		return ErrClassCancelled
+	}
+	if errors.Is(err, ErrLocalOnly) { // v0.10.1451
+		return ErrClassLocalOnly
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return ErrClassTimeout
@@ -197,6 +203,8 @@ func ClassifyAIErrorText(msg string) string {
 	switch {
 	case m == "":
 		return ""
+	case strings.Contains(m, localOnlyErrMarker): // v0.10.1451 — ErrLocalOnly metni (sohbet RecordUsage)
+		return ErrClassLocalOnly
 	case strings.Contains(m, "refusal") || strings.Contains(m, "reddetti"):
 		return ErrClassRefusal
 	case strings.Contains(m, "context length") || strings.Contains(m, "maximum context") ||

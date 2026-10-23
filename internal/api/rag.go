@@ -406,6 +406,16 @@ func (s *Server) ragChatAnswer(ctx context.Context, emit func(string, any), msgs
 	// v0.10.1122 — kurum wiki'si: doküman parçalarının ARDINA (yalnız oturum
 	// kullanıcısı, kendi tabanıyla; chat_wiki.go ragWikiHits).
 	wikiHits := s.ragWikiHits(ctx, question)
+	// v0.10.1451 — R1 localOnly (karar 8): kurum wiki sayfası bağlama girecekse
+	// RAG anlatımı YEREL profilde ve işaretli; yerel profil yoksa kurum wiki
+	// isabetleri düşer (yüklenen belgeler kalır) — wiki yokmuş gibi bayt bayt.
+	if wikiHitsSensitive(wikiHits) {
+		if rctx, lok := s.routeSensitive(ctx, copilot.SensitiveWiki); lok {
+			ctx = rctx
+		} else {
+			wikiHits = localDocHitsOnly(wikiHits)
+		}
+	}
 	if len(hits) == 0 && len(wikiHits) == 0 {
 		return false, false
 	}

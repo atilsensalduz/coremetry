@@ -9633,3 +9633,58 @@ kendi `replay-<runId>-<pid>` anahtarındadır (30 g TTL). Şema değişikliği y
 `TestRerunCasesFrozen`, `TestNormalizeEvalRequestRerun`, `TestStartEvalRunRerun`), `TestEvalIgnoresFeedback`; chstore
 `TestSameCauseMoved`; api `TestEvalRerunAndCompare`, `TestSREEvalCompareRouteRegistered`; FE `sreEvalView.test.ts`,
 `SREEvalPanel.test.tsx`.
+
+## 2026-10-23 — v0.10.1451 — R1 localOnly kapısı: kod/wiki içeriği yalnız "Yerel model" işaretli profile (karar 8)
+
+**Bağlam.** CoSRE araştırma programının karar 8'i ("kaynak kod / wiki içeriği yalnız self-hosted modele") ve operasyon kartı
+planı R1 (`plan-operation-card.md` §2.1) onaylıydı; kodda 0 referans vardı. Bugüne dek kod/wiki yolları hangi profil
+çözülürse ona gidiyordu.
+
+**Karar 1 — tik admin BEYANIDIR, anında yürürlükte (operatör kararı 1).** `ModelProfile.LocalOnly` (`localOnly`,
+system_settings AI blobunda, omitempty). Ayarlar › AI › profil › "Yerel (self-hosted) model" kutusu (yalnız
+OpenAI-uyumlu), tabloda «yerel» rozeti; audit satırına ` localOnly=true`. `ValidateProfile`: anthropic/github, boş
+baseURL ya da bilinen genel LLM hostu (api.openai.com, *.openai.azure.com, openrouter.ai, … `publicLLMHosts`) → 400.
+Model adından/hosttan otomatik çıkarım YOK; boot'ta hiçbir profil işaretli değilse bir kez log ipucu.
+
+**Karar 2 — işaret + saf kapı + hard fail (`internal/copilot/sensitive.go`).** `WithSensitiveContent(ctx, code|wiki)`,
+`SensitiveFromContext`, saf `LocalOnlyAllowed(profil)` / `CheckLocalOnly(kind, profil)`, `RouteSensitive(ctx, role, kind)`
+(çözülen profil yerelse o profil `WithProfile` ile SABİTLENİR — alt çağrılar yüzey haritasıyla kaymasın; değilse role
+açık yerel profil: varsayılan önce, sonra kimlik sırası), `LocalOnlyAvailable`. Dört giriş noktası (Explain, StreamText,
+ChatWithTools, ChatWithToolsStream) sağlayıcıdan ÖNCE `localOnlyGate`: işaretli ctx + yerel olmayan profil →
+`ErrLocalOnly`, sağlayıcıya 0 bayt, log + `ai_calls.error_class=local_only`. Bu ARKA KAPIDIR; asıl yol içeriği
+yalnız yerel profil varken kurmaktır. Araştırma döngüsü (internal/sre, program PR 2) aynı `CheckLocalOnly` +
+işaretçiyi çağırır, yeniden yazmaz (internal/sre'ye bu sürümde dokunulmadı).
+
+**Karar 3 — işaretlenen yollar (api, `chat_local_only.go`).** ✨ "Kodu da incele" (buildCodeContext /
+buildOperationCodeContext: yerel profil yoksa kod HİÇ çekilmez, Reason "kapalı: yerel profil yok …"; kod bloğu taşıyan
+çağrı `aiCallOpts.sensitive` ile yerel profile yönlenir — buton ve sohbet içi ikizi); sohbet serbest döngüsü
+(katalogda read_source_code / search_code / search_wiki / read_wiki_page varsa alışveriş yerel profile sabitlenir;
+gerekirse katalog o profilin araç setiyle yeniden kurulur; yerel profil yoksa bu araçlar düşer, katalog + döngü prompt'u
+o özellikler kapalıymış gibi bayt bayt, step "Kod/wiki okuma kapalı: yerel profil yok"); exception takibinin tek araçlı
+kod döngüsü (yerel profil yoksa kurulmaz, araçsız anlatım aynen); wiki anlatımı (`wikiNarratedAnswer`, takip, açık
+kademe: yerel profil yoksa açık wiki sorusu dürüst "Wiki okuma kapalı" cevabı, işaretsiz soru sessizce geçer; `/wiki`
+komutu aynı metin; yoklama ve netleştirme kurtarması kurulmaz); RAG wiki bağlamı (kurum wiki isabeti varsa yerel
+profile; yoksa kurum wiki isabetleri düşer, yüklenen belgeler kalır). Yüklenen belgeler (`wiki.LocalWikiID`) karar 8
+kapsamı DIŞINDA sayıldı (operatörün Coremetry'ye kendi koyduğu doküman). `/api/copilot/config` `codeRead`
+({available, reason?, profileLabel?}; yalnız DevOps bağlıyken) ve `wiki` ipucu yerel profil yoksa söner.
+
+**Plandan sapma.** Plan profil geçişini "kullanıcı seçimini de ezer" diye yazıyor (R2 testi); uygulandı: kod/wiki araçlı
+tur, kullanıcı yerel olmayan bir profil seçmiş olsa da yerel profile gider (step yok — sessiz geçiş; R2 hapı bunu
+görünür kılacak).
+
+**Deploy notu (operatör).** R1 deploy edildiği anda tiksiz kurulumda kod ve wiki okuma her yerde "kapalı: yerel profil
+yok" der. Deploy'dan sonra Ayarlar › AI › Model profilleri'nde kod/wiki için kullanılacak HER self-hosted profili
+(model ailesi fark etmez: Gemma, Qwen3 …) Düzenle → "Yerel (self-hosted) model" → Kaydet. /ai'de `local_only`
+sınıfı 0 kalmalı.
+
+**Geri alma.** Sürüm commit'ini revert → yeni etiket. `localOnly` alanı blobda kalır; eski binary bilmediği alanı bir
+sonraki AI ayarı yazımında düşürür (ileri sürümde tik yenilenir). Geçici kapatma: tiki kaldırmak kod/wikiyi "kapalı"ya
+düşürür (sızıntı yönünde değil). Şema değişikliği yok, api.go büyümedi, MCP 74, kademe sırası aynı.
+
+**Testler.** copilot `TestLocalOnlyHardFail` (dört giriş × işaretli/yerel olmayan → ErrLocalOnly, sahte sağlayıcı 0
+istek, ai_calls error/local_only; yerel profil geçer), `TestValidateProfileLocalOnly`, `TestLocalOnlyBlobRoundTrip`,
+`TestRouteSensitive`, `TestSameProfileSeesLocalOnly`; api `TestCodeToolsAbsentWithoutLocalProfile` (katalog + prompt bayt
+kimliği), `TestChatCodeTurnGoesToLocalProfile`, `TestExplainCodeClosedWithoutLocalProfile`,
+`TestWikiTierHonestWithoutLocalProfile`, `TestLocalOnlySitesWired` (kaynak pini), `TestCodeReadConfigShape`; FE
+`AiProfilesPanel.localOnly.test.tsx`. Mevcut fikstürler yerel tikle kurulur (`tickLocalOnly`; copilot'suz sunucular
+`localOnlyTestSeam`).

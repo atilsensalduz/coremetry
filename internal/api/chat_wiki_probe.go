@@ -200,7 +200,7 @@ func (s *Server) armWikiProbe(ctx context.Context, msgs []copilot.ChatMessage, t
 		return ctx
 	}
 	q := strings.TrimSpace(lastUserText(msgs))
-	if q == "" {
+	if q == "" || !s.localOnlyAvailable(ctx) { // v0.10.1451 — karar 8: yerel profil yoksa yoklama yok
 		return ctx
 	}
 	return context.WithValue(ctx, wikiProbeKey{}, &wikiProbeState{w: w, question: q})

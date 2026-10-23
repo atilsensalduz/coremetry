@@ -2265,7 +2265,7 @@ export const api = {
   // copilot.ActiveModel) ve uç kimlik ister, yani anonim /public/*
   // yüzeyleri bu alanı hiç göremez. baseUrl/apiKey burada YOK ve
   // olmayacak — o yüzey admin'e özel getAISettings.
-  copilotConfig:         () => get<{ enabled: boolean; model?: string; wiki?: boolean; profiles?: import('./types').CopilotProfileOption[]; defaultProfile?: string }>(`/api/copilot/config`),
+  copilotConfig:         () => get<{ enabled: boolean; model?: string; wiki?: boolean; profiles?: import('./types').CopilotProfileOption[]; defaultProfile?: string; codeRead?: import('./types').CopilotCodeRead }>(`/api/copilot/config`),
   // v0.10.1138 — composer `@team:` tamamlaması (sunucu araması, ≤20).
   copilotScopeNames:     (kind: 'team', q: string) =>
     get<{ names: string[] }>(`/api/copilot/scope-names?kind=${kind}&q=${encodeURIComponent(q)}`),

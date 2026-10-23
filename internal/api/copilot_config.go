@@ -75,6 +75,31 @@ type copilotConfigResponse struct {
 	// boolean: proje/wiki adı, mod, DevOps adresi ASLA). Kapı sohbetteki
 	// kapıyla aynı (chatWikiAvailable); false iken alan hiç görünmez.
 	Wiki bool `json:"wiki,omitempty"`
+	// v0.10.1451 (karar 8, R1) — kod okuma durumu: yalnız DevOps bağlıyken
+	// döner. available=false iken reason ("kapalı: yerel profil yok");
+	// profileLabel kod/wiki turlarının gideceği yerel profilin ETİKETİ (adres yok).
+	CodeRead *copilotCodeRead `json:"codeRead,omitempty"`
+}
+
+type copilotCodeRead struct {
+	Available    bool   `json:"available"`
+	Reason       string `json:"reason,omitempty"`
+	ProfileLabel string `json:"profileLabel,omitempty"`
+}
+
+// copilotCodeReadFor — v0.10.1451, SAF: DevOps bağlı değilse nil (alan yok);
+// yerel profil yoksa kapalı + gerekçe.
+func copilotCodeReadFor(devopsConfigured bool, localID, localLabel string) *copilotCodeRead {
+	if !devopsConfigured {
+		return nil
+	}
+	if localID == "" {
+		return &copilotCodeRead{Reason: localOnlyClosedReason}
+	}
+	if localLabel == "" {
+		localLabel = localID
+	}
+	return &copilotCodeRead{Available: true, ProfileLabel: localLabel}
 }
 
 // chatWikiAvailable — SAF kapı: sohbetin wiki kademesi/araçları bu çağırana
@@ -102,7 +127,21 @@ func (s *Server) copilotConfig(w http.ResponseWriter, r *http.Request) {
 			resp.Profiles = opts
 		}
 	}
+	// v0.10.1451 — kod/wiki turlarının yerel profili (karar 8): yoksa wiki
+	// ipucu da söner (kademe "kapalı: yerel profil yok" der).
+	localID, localLabel := "", ""
+	if s.copilot.ProfileLocalOnly(r.Context()) {
+		localID = s.copilot.DefaultProfileID()
+	} else if id, ok := s.copilot.LocalOnlyProfileFor(role); ok {
+		localID = id
+	}
+	if localID != "" {
+		localLabel, _, _, _, _ = s.copilot.ProfileView(localID)
+	}
 	wk := wikiKB()
-	resp.Wiki = chatWikiAvailable(active, wk != nil && wk.Enabled(), claims)
+	resp.Wiki = chatWikiAvailable(active, wk != nil && wk.Enabled(), claims) && localID != ""
+	if active {
+		resp.CodeRead = copilotCodeReadFor(s.devops != nil && s.devops.Configured(), localID, localLabel)
+	}
 	writeJSON(w, resp)
 }

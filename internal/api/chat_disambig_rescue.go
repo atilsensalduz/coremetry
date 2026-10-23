@@ -87,6 +87,9 @@ func (s *Server) armDisambigRescue(ctx context.Context, emit func(string, any), 
 	if guidedTelemetrySignal(q) {
 		return ctx, emit // telemetri sorusu: netleştirme gerçekten servis seçimi
 	}
+	if !s.localOnlyAvailable(ctx) {
+		return ctx, emit // v0.10.1451 — karar 8: yerel profil yok → wiki kurtarması yok
+	}
 	if strong, weak := wikiQuestionCue(q); strong || weak {
 		// Kademe bu soruyu ZATEN aradı ve iyi isabet bulamadı (bulsaydı
 		// cevaplardı): ikinci bir canlı arama gecikmeden başka şey eklemez.

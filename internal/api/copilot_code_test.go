@@ -222,6 +222,7 @@ func codeServer(t *testing.T, fp *fakeProvider, rec copilot.Recorder) *Server {
 	t.Helper()
 	cop := copilot.New(copilot.ProviderOpenAI, "test-key", "gemma4")
 	cop.Configure(copilot.ProviderOpenAI, "test-key", "gemma4", fp.srv.URL, false, true)
+	tickLocalOnly(cop) // v0.10.1451 — sahte uç yerel profil (karar 8)
 	cop.SetRecorder(rec)
 	if !cop.Active() {
 		t.Fatal("sahte copilot aktif değil")

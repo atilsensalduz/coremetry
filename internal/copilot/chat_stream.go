@@ -39,6 +39,9 @@ func (s *Service) ChatWithToolsStream(ctx context.Context, system string, msgs [
 	if !s.activeFor(ctx, true) {
 		return ChatTurn{}, errors.New("AI copilot not available (disabled or not configured — open Settings → AI Copilot)")
 	}
+	if err := s.localOnlyGate(ctx); err != nil { // v0.10.1451 — karar 8: sağlayıcıdan ÖNCE
+		return ChatTurn{}, err
+	}
 	if onDelta == nil {
 		onDelta = func(TextDelta) {}
 	}

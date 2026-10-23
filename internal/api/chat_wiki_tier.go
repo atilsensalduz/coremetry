@@ -123,6 +123,18 @@ var wikiNarrateFn = func(s *Server, ctx context.Context, system, user string) (s
 	return s.copilotStreamSurface(ctx, "wiki-chat", system, user, func(string) {})
 }
 
+// wikiHitsSensitive — v0.10.1451, SAF: isabetlerde kurum wiki sayfası var mı
+// (yüklenen belgeler — wiki.LocalWikiID — operatörün Coremetry'ye kendi
+// koyduğu dokümanlardır; karar 8'in "wiki içeriği" kapsamı DevOps wiki'si).
+func wikiHitsSensitive(h []wiki.Hit) bool {
+	for _, x := range h {
+		if x.WikiID != wiki.LocalWikiID {
+			return true
+		}
+	}
+	return false
+}
+
 // wikiTierSelect — SAF: tabanı geçen isabetler, en çok wikiSelectMaxCandidates
 // farklı sayfadan (v0.10.1136: aday kümesi; hangi sayfaların okunacağına
 // wikiPlanPages karar verir — model seçimi ya da skor tabanlı ≤5 sayfa).
@@ -189,6 +201,18 @@ func (s *Server) wikiChatAnswer(ctx context.Context, emit func(string, any), msg
 	if question == "" {
 		return false, false
 	}
+	// v0.10.1451 — R1 localOnly (karar 8): wiki gövdesi yalnız yerel profile.
+	// Yerel profil yoksa AÇIK wiki sorusu dürüst "kapalı" cevabı alır; işaretsiz
+	// / zayıf işaretli soru sessizce sonraki kademelere akar (bayt bayt eski).
+	if !s.localOnlyAvailable(ctx) {
+		if strong, _ := wikiQuestionCue(question); strong {
+			emit("step", map[string]string{"label": "kurum wiki'si"})
+			emit("answer", map[string]any{"text": localOnlyWikiClosedText, "exchangeId": copilot.MetaFromContext(ctx).ExchangeID,
+				"sources": []any{}, "links": []guidedAnswerLink{}, "allowedLinks": []string{}})
+			return true, true
+		}
+		return false, false
+	}
 	// v0.10.1134 — önceki tur wiki cevabıysa ve soru eliptik/geri atıflıysa
 	// ("pipeline linki nedir") önce önceki sayfa yeniden okunur, sonra bağlamlı
 	// arama (chat_wiki_followup.go). Cevaplamazsa aşağıdaki akış AYNEN.
@@ -251,6 +275,16 @@ func (s *Server) wikiChatAnswer(ctx context.Context, emit func(string, any), msg
 // genişletilmiş bölümler, modelin penceresinden türeyen bütçe. Dönen used:
 // GERÇEKTEN okunan sayfaların isabetleri (çipler ve hafıza bunlardan).
 func (s *Server) wikiNarratedAnswer(ctx context.Context, w *wiki.Service, question, prior string, hits []wiki.Hit, selectEmit func(string, any)) (map[string]any, []wiki.Hit, error) {
+	// v0.10.1451 — R1 localOnly (karar 8): kurum wiki sayfası okunacaksa seçim
+	// + bütçe + anlatım YEREL profilde ve işaretli; yerel profil yoksa hiçbir
+	// sayfa okunmaz (çağıranlar kademe kapısında zaten elemiştir — arka kapı).
+	if wikiHitsSensitive(hits) {
+		rctx, ok := s.routeSensitive(ctx, copilot.SensitiveWiki)
+		if !ok {
+			return nil, nil, copilot.ErrLocalOnly
+		}
+		ctx = rctx
+	}
 	pages, selected := s.wikiPlanPages(ctx, w, hits, question, prior, selectEmit)
 	budget := s.wikiBudget(ctx, w, "wiki-chat")
 	wctx, in := s.wikiReadContext(ctx, w, pages, budget, selected, numberSources(wikiHitSources(wikiPagesHits(pages))))

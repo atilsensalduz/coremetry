@@ -66,6 +66,8 @@ type aiProfileView struct {
 	Deep        bool     `json:"deep,omitempty"` // v0.10.1150 — "Derin düşün" profili
 	// v0.10.1238 — her LLM isteğine eklenen başlıklar (yalnız admin görür).
 	Headers map[string]string `json:"headers,omitempty"`
+	// v0.10.1451 (karar 8) — "Yerel (self-hosted) model": kod/wiki içeriği yalnız buna.
+	LocalOnly bool `json:"localOnly,omitempty"`
 }
 
 func aiProfileViews(profiles []copilot.ModelProfile, defaultID string) []aiProfileView {
@@ -77,6 +79,7 @@ func aiProfileViews(profiles []copilot.ModelProfile, defaultID string) []aiProfi
 			Thinking: p.Thinking, Default: p.ID == defaultID,
 			Toolset: p.Toolset, EffectiveToolset: modelcaps.ResolveToolset(p.Toolset, p.Model), // v0.10.1302
 			Description: p.Description, Roles: p.Roles, Deep: p.Deep, Headers: p.Headers,
+			LocalOnly: p.LocalOnly, // v0.10.1451
 		})
 	}
 	return out
@@ -133,6 +136,8 @@ type aiProfileInput struct {
 	Deep        bool     `json:"deep"`        // v0.10.1150 — "Derin düşün" profili (tek)
 	// v0.10.1238 — ek HTTP başlıkları; tam liste (gönderilmeyen = silinir).
 	Headers map[string]string `json:"headers"`
+	// v0.10.1451 — admin beyanı (yalnız openai-uyumlu + özel host; ValidateProfile).
+	LocalOnly bool `json:"localOnly"`
 }
 
 // aiProfileFromInput — SAF: gövdeden profil (kırpma + normalizasyon;
@@ -148,6 +153,7 @@ func aiProfileFromInput(id string, in aiProfileInput) copilot.ModelProfile {
 		Roles:       normalizeProfileRoles(in.Roles),
 		Deep:        in.Deep,
 		Headers:     normalizeProfileHeaders(in.Headers),
+		LocalOnly:   in.LocalOnly, // v0.10.1451
 	}
 }
 
@@ -224,7 +230,16 @@ func profileHeadersAudit(h map[string]string) string {
 // açık araç seti " toolset=simple|full" eki (otomatikte satır bayt bayt eski).
 func aiProfileUpsertAudit(p copilot.ModelProfile, hasKey bool) string {
 	return fmt.Sprintf("provider=%s model=%s baseUrl=%s hasKey=%v roles=%s", p.Provider, p.Model, p.BaseURL, hasKey, profileRolesAudit(p.Roles)) +
-		profileDeepAudit(p.Deep) + profileToolsetAudit(p.Toolset) + profileHeadersAudit(p.Headers)
+		profileDeepAudit(p.Deep) + profileToolsetAudit(p.Toolset) + profileHeadersAudit(p.Headers) + profileLocalOnlyAudit(p.LocalOnly)
+}
+
+// profileLocalOnlyAudit — v0.10.1451, SAF: yerel model beyanı audit satırına
+// (yalnız işaretliyse; işaretsiz satır bayt bayt eski).
+func profileLocalOnlyAudit(local bool) string {
+	if !local {
+		return ""
+	}
+	return " localOnly=true"
 }
 
 // profileToolsetAudit — v0.10.1302, SAF: açık araç seti ayarı; otomatik "".

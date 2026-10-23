@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cilcenk/coremetry/internal/copilot"
 	"github.com/cilcenk/coremetry/internal/devops"
 	"github.com/cilcenk/coremetry/internal/stackparse"
 )
@@ -101,6 +102,11 @@ func (s *Server) buildCodeContext(ctx context.Context, service, stack, version s
 			Reason:  "kod entegrasyonu yapılandırılmamış",
 			Outcome: devops.CodeUnconfigured,
 		}
+	}
+	// v0.10.1451 — R1 localOnly (karar 8): kod yalnız yerel profile gider;
+	// yerel profil yoksa kod HİÇ çekilmez, model ve panel dürüst gerekçeyi görür.
+	if !s.localOnlyAvailable(ctx) {
+		return devops.CodeContext{Reason: localOnlyClosedReason, Outcome: devops.CodeUnconfigured}
 	}
 	if strings.TrimSpace(stack) == "" {
 		const reason = "bu kayıtta stacktrace yok"
@@ -332,7 +338,10 @@ func (s *Server) copilotExplainEvidence(r *http.Request, systemNoCode, systemWit
 	// v0.10.1406 — gövde explainEvidenceRun'da (sohbet ikiziyle ortak); tek
 	// çağrı biçimi: copilotExplainMasked (logUser == user → maske yok, yani
 	// eski copilotExplain çağrısıyla birebir).
-	return explainEvidenceRun(func(system, u, logUser string) (string, error) {
+	return explainEvidenceRun(func(system, u, logUser string, sensitive bool) (string, error) {
+		if sensitive { // v0.10.1451 — kod bloğu → yalnız yerel profil (karar 8)
+			return s.copilotExplainMaskedSensitive(r, system, u, logUser, copilot.SensitiveCode)
+		}
 		return s.copilotExplainMasked(r, system, u, logUser)
 	}, systemNoCode, systemWithCode, user, cc, se)
 }
@@ -344,14 +353,19 @@ func (s *Server) copilotExplainEvidence(r *http.Request, systemNoCode, systemWit
 // (kullanıcı, exchange) taşır, yalnız yüzeyi ezer (explain-…:chat). Maske,
 // taşma yarılaması, kod alıntısı genişletmesi BİREBİR aynı gövdeden.
 func (s *Server) copilotExplainEvidenceCtx(ctx context.Context, surface, systemNoCode, systemWithCode, user string, cc devops.CodeContext, se schemaEvidence) (string, error) {
-	return explainEvidenceRun(func(system, u, logUser string) (string, error) {
-		return s.copilotExplainSurfaceMasked(ctx, surface, system, u, logUser)
+	return explainEvidenceRun(func(system, u, logUser string, sensitive bool) (string, error) {
+		kind := copilot.SensitiveKind("")
+		if sensitive { // v0.10.1451
+			kind = copilot.SensitiveCode
+		}
+		return s.copilotExplainSurfaceMasked(ctx, surface, system, u, logUser, kind)
 	}, systemNoCode, systemWithCode, user, cc, se)
 }
 
 // explainMaskedCall — tek model çağrısı: gerçek prompt (system, user), ai_calls
-// kopyası logUser (== user → maske yok). v0.10.1406.
-type explainMaskedCall func(system, user, logUser string) (string, error)
+// kopyası logUser (== user → maske yok). v0.10.1406. v0.10.1451 — sensitive:
+// prompt kod bloğu taşıyor (yalnız explainWithCodeBlock) → localOnly kapısı.
+type explainMaskedCall func(system, user, logUser string, sensitive bool) (string, error)
 
 // explainEvidenceRun — v0.10.1406: copilotExplainEvidence'ın gövdesi (v0.10.115
 // davranışı aynen), çağrı biçiminden bağımsız — HTTP düğmesi istekle, sohbet
@@ -400,7 +414,7 @@ func explainEvidenceRun(call explainMaskedCall, systemNoCode, systemWithCode, us
 // kayıt kopyası = user + "[kod alınamadı: sınıf]" (v0.9.1243 sözleşmesi
 // aynen — /ai "hiç istenmedi"den ayırt edebilsin).
 func explainMissingCode(call explainMaskedCall, systemWithCode, user string, cc devops.CodeContext, se schemaEvidence) (string, error) {
-	return call(systemWithCode, user+cc.MissingBlock()+se.Block, user+cc.LogMissSummary()+se.Summary)
+	return call(systemWithCode, user+cc.MissingBlock()+se.Block, user+cc.LogMissSummary()+se.Summary, false)
 }
 
 // mapperBlocks — kod bağlamındaki statement/kaynak pencerelerinin
@@ -424,14 +438,14 @@ func mapperBlocks(cc devops.CodeContext) []string {
 // v0.10.1406 — missNote boşsa logUser = user (maske yok; eski copilotExplain).
 func explainNoCode(call explainMaskedCall, system, user, missNote string) (string, error) {
 	if missNote == "" {
-		return call(system, user, user)
+		return call(system, user, user, false)
 	}
-	return call(system, user, user+missNote)
+	return call(system, user, user+missNote, false)
 }
 
 // explainWithCodeBlock — tek çağrı: gerçek prompt = user + block,
 // log kopyası = user + summary.
 func explainWithCodeBlock(call explainMaskedCall, system, user, block, summary string) (string, error) {
 	full := user + block
-	return call(system, full, devops.MaskCodeInPrompt(full, block, summary))
+	return call(system, full, devops.MaskCodeInPrompt(full, block, summary), true)
 }

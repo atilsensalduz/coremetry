@@ -581,13 +581,20 @@ func (s *Server) copilotChatDrawer(ctx context.Context, emit func(string, any), 
 	}
 	if exScope != nil && exScope.loaded {
 		if tools := s.exceptionCodeToolsFor(env); len(tools) > 0 {
-			lok, fallback := s.exceptionCodeLoop(ctx, emit, env, tools, msgs, question, ex, evidence, evidenceKind, exScope, ctxService)
-			if !fallback {
-				return true, lok
+			// v0.10.1451 — R1 localOnly (karar 8): kod okuyan döngü YALNIZ yerel
+			// profilde (sabitlenir + işaretlenir); yerel profil yoksa döngü hiç
+			// kurulmaz, bugünkü araçsız anlatım bayt bayt aynen + dürüst çip.
+			if lctx, lok := s.routeSensitive(ctx, copilot.SensitiveCode); !lok {
+				emitGuidedContextStep(emit, "Kod okuma "+localOnlyClosedReason)
+			} else {
+				lok, fallback := s.exceptionCodeLoop(lctx, emit, env, tools, msgs, question, ex, evidence, evidenceKind, exScope, ctxService)
+				if !fallback {
+					return true, lok
+				}
+				// Döngü cevap üretemedi (sağlayıcı / taşma): bugünkü tek çağrı aynen;
+				// kanıtsız tek düz çip (çip kimliği katmanından).
+				emitGuidedContextStep(emit, exceptionCodeFallbackLabel)
 			}
-			// Döngü cevap üretemedi (sağlayıcı / taşma): bugünkü tek çağrı aynen;
-			// kanıtsız tek düz çip (çip kimliği katmanından).
-			emitGuidedContextStep(emit, exceptionCodeFallbackLabel)
 		}
 	}
 

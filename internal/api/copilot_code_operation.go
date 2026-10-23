@@ -51,6 +51,10 @@ func (s *Server) buildOperationCodeContext(ctx context.Context, in traceExplainI
 		out.Reason = devops.OperationSearchOffReason
 		return out
 	}
+	if !s.localOnlyAvailable(ctx) { // v0.10.1451 — karar 8 (buildCodeContext ile aynı kapı)
+		out.Reason, out.Outcome = localOnlyClosedReason, devops.CodeUnconfigured
+		return out
+	}
 	service := strings.TrimSpace(in.RootService)
 	pin := ""
 	if service != "" && s.store != nil {

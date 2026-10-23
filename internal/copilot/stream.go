@@ -61,6 +61,11 @@ func (s *Service) StreamText(ctx context.Context, systemPrompt, userPrompt strin
 		return "", errors.New("AI copilot not available (disabled or not configured — open Settings → AI Copilot)")
 	}
 	provider, model, baseURL := s.profileIdentity(ctx) // v0.10.175
+	// v0.10.1451 — karar 8: sağlayıcıdan ÖNCE
+	if err := s.localOnlyGate(ctx); err != nil {
+		s.recordNarration(ctx, time.Now(), provider, model, baseURL, systemPrompt, userPrompt, "", 0, 0, err)
+		return "", err
+	}
 	// v0.10.409 (CoSRE denetimi O4) — ilk token damgası + akış düşüşü.
 	st := &streamStats{started: time.Now()}
 	ctx = withStreamStats(ctx, st)

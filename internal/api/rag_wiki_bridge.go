@@ -100,6 +100,18 @@ func (s *Server) ragWikiBackfill(ctx context.Context) {
 	}
 }
 
+// localDocHitsOnly — v0.10.1451, SAF: yalnız yüklenen belge isabetleri (sıra
+// korunur; hiç yoksa nil — "wiki isabeti yok" ile aynı).
+func localDocHitsOnly(h []wiki.Hit) []wiki.Hit {
+	var out []wiki.Hit
+	for _, x := range h {
+		if x.WikiID == wiki.LocalWikiID {
+			out = append(out, x)
+		}
+	}
+	return out
+}
+
 // hasLocalDocHit — SAF: isabetlerde yüklenen belge var mı (v0.10.1176).
 func hasLocalDocHit(h []wiki.Hit) bool {
 	for _, x := range h {

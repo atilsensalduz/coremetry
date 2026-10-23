@@ -711,6 +711,11 @@ func (s *Service) explain(ctx context.Context, systemPrompt, userPrompt string, 
 		return "", errors.New("AI copilot not available (disabled or not configured — open Settings → AI Copilot)")
 	}
 	provider, model, baseURL := s.profileIdentity(ctx) // v0.10.175 — çağrının profili
+	// v0.10.1451 — karar 8: sağlayıcıdan ÖNCE; satır error_class=local_only
+	if err := s.localOnlyGate(ctx); err != nil {
+		s.recordNarration(ctx, time.Now(), provider, model, baseURL, systemPrompt, userPrompt, "", 0, 0, err)
+		return "", err
+	}
 
 	started := time.Now()
 	// v0.10.807 — cached_tokens taşıyıcısı (buffered yolda TTFT 0 kalır,
@@ -1216,6 +1221,7 @@ func (s *Service) LoadPersisted(ctx context.Context, store SettingsStore) error 
 	s.ConfigureTuning(p.MaxTokens, p.Temperature, p.TimeoutS)
 	s.SetAutoExplain(p.AutoExplain)
 	s.SetIntentClassify(p.IntentClassify)
+	s.noteLocalOnlyHint() // v0.10.1451 — bir kez log, otomatik işaret yok
 	return nil
 }
 

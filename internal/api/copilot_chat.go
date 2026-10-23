@@ -567,17 +567,23 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	// metinlerindeki ⟦full|simple⟧ işaretleri ctx'ten basılır (exec.Call bu
 	// ctx'ten türer); dış MCP istemcisi işaretsiz ctx ile full kalır.
 	ctx = mcptools.WithToolset(ctx, toolset)
-	tools := toolsForRole(mcptools.ChatToolListFor(s.mcpDeps(), toolset), role) // v0.10.993 — dış-yalnız araçlar (bubble_up) hariç
-	if evm != nil {
-		tools = evalAgentTools(tools) // v0.10.1316 — sohbet bağlamı araçları düşer
+	// v0.10.1451 — yerli katalog kurucusu (araç setine göre); localOnly yerel
+	// profile geçerse o profilin araç setiyle bir kez daha çağrılır (aşağıda).
+	nativeTools := func(toolset string) ([]mcp.Tool, bool) {
+		tools := toolsForRole(mcptools.ChatToolListFor(s.mcpDeps(), toolset), role) // v0.10.993 — dış-yalnız araçlar (bubble_up) hariç
+		if evm != nil {
+			tools = evalAgentTools(tools) // v0.10.1316 — sohbet bağlamı araçları düşer
+		}
+		// v0.10.1050 — read_source_code YALNIZ panel trace takibinde ve oturum
+		// kullanıcısına (API token'ı değil); bağımsız döngüde dış MCP araçlarının
+		// yanında sunulmaz (chat_source_code.go). Katalog/spec/prompt bundan kurulur.
+		// v0.10.1209 — genel sohbet: search_code sunuluyorsa ve dış MCP araçları
+		// yoksa read_source_code da (yalnız bu turda çözülen servisler).
+		codeScope := !isTraceFollowUp && hasTool(tools, mcptools.SearchCodeToolName) && !(s.mcpClient != nil && s.mcpClient.Configured())
+		tools = sourceCodeToolsFor(tools, isTraceFollowUp, c, codeScope)
+		return tools, codeScope
 	}
-	// v0.10.1050 — read_source_code YALNIZ panel trace takibinde ve oturum
-	// kullanıcısına (API token'ı değil); bağımsız döngüde dış MCP araçlarının
-	// yanında sunulmaz (chat_source_code.go). Katalog/spec/prompt bundan kurulur.
-	// v0.10.1209 — genel sohbet: search_code sunuluyorsa ve dış MCP araçları
-	// yoksa read_source_code da (yalnız bu turda çözülen servisler).
-	codeScope := !isTraceFollowUp && hasTool(tools, mcptools.SearchCodeToolName) && !(s.mcpClient != nil && s.mcpClient.Configured())
-	tools = sourceCodeToolsFor(tools, isTraceFollowUp, c, codeScope)
+	tools, codeScope := nativeTools(toolset)
 	if codeScope {
 		ctx = withResolvedCodeScope(ctx)
 	}
@@ -609,6 +615,28 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 	// boş düşse bile) wiki araçları sunulmaz.
 	extConfigured := !isTraceFollowUp && s.mcpClient != nil && s.mcpClient.Configured()
 	tools = wikiToolsFor(tools, c, extConfigured || len(extTools) > 0)
+	// v0.10.1451 — R1 localOnly kapısı (karar 8; chat_local_only.go): katalogda
+	// kod/wiki aracı varsa alışveriş YEREL profile sabitlenir ve işaretlenir
+	// (her model turu copilot kapısından geçer). Yerel profil yoksa araçlar
+	// düşer — katalog ve döngü prompt'u o özellikler kapalıymış gibi bayt bayt.
+	var lo localOnlyChatDecision
+	ctx, lo = s.chatLocalOnly(ctx, tools)
+	switch lo {
+	case localOnlyDrop:
+		tools = dropSensitiveChatTools(tools)
+		emit("step", map[string]string{"label": "Kod/wiki okuma " + localOnlyClosedReason})
+	case localOnlySwitch:
+		if evm == nil || evm.Toolset == "" {
+			if ts := s.copilot.ToolsetFor(ctx); ts != toolset {
+				toolset = ts
+				simpleTools = toolset == modelcaps.ToolsetSimple
+				xch.setToolset(toolset)
+				ctx = mcptools.WithToolset(ctx, toolset)
+				tools, _ = nativeTools(toolset)
+				tools = wikiToolsFor(tools, c, extConfigured || len(extTools) > 0)
+			}
+		}
+	}
 	byName := make(map[string]mcp.ToolHandler, len(tools))
 	specs := make([]copilot.ToolSpec, 0, len(tools))
 	// v0.9.1230 (AI perf) — katalog DİYETİ: spec'e t.Description değil

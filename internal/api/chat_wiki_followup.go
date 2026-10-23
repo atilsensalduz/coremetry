@@ -527,6 +527,12 @@ func (s *Server) wikiFollowUpAnswer(ctx context.Context, emit func(string, any),
 	if s.wikiWeakCueVetoed(ctx, question) {
 		return false, false // servis adı + telemetri sinyali: guided'ın sorusu
 	}
+	// v0.10.1451 — R1 localOnly (karar 8): sayfa gövdesi yalnız yerel profile.
+	rctx, lok := s.routeSensitive(ctx, copilot.SensitiveWiki)
+	if !lok {
+		return false, false
+	}
+	ctx = rctx
 	prior := wikiPriorTurns(msgs)
 	prevUser, _ := wikiPriorPair(msgs)
 

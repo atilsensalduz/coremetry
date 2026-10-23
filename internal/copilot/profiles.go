@@ -84,6 +84,10 @@ type ModelProfile struct {
 	// başlıkları (ör. geçit yönlendirmesi `x-cluster: test-v2`). Auth/sürüm
 	// başlıklarını ezemez (provider.ValidateHeaders ayrılmış adları reddeder).
 	Headers map[string]string `json:"headers,omitempty"`
+	// LocalOnly — v0.10.1451 (karar 8, R1): admin BEYANI "bu uç self-hosted;
+	// kaynak kod ve wiki içeriği yalnız buna gidebilir". Yalnız openai-uyumlu
+	// + özel host (validateLocalOnly); model adından çıkarım YOK (sensitive.go).
+	LocalOnly bool `json:"localOnly,omitempty"`
 }
 
 // ErrProfileForbidden — çağıranın rolü profili seçemez (API 403'e çevirir).
@@ -135,7 +139,7 @@ func sameProfile(a, b ModelProfile) bool {
 	if a.ID != b.ID || a.Label != b.Label || a.Provider != b.Provider || a.BaseURL != b.BaseURL ||
 		a.APIKey != b.APIKey || a.Model != b.Model || a.SkipTLS != b.SkipTLS ||
 		a.MaxTokens != b.MaxTokens || a.TimeoutS != b.TimeoutS || a.Thinking != b.Thinking || a.Toolset != b.Toolset ||
-		a.Description != b.Description || !sameStrings(a.Roles, b.Roles) || a.Deep != b.Deep ||
+		a.Description != b.Description || !sameStrings(a.Roles, b.Roles) || a.Deep != b.Deep || a.LocalOnly != b.LocalOnly ||
 		!sameHeaders(a.Headers, b.Headers) {
 		return false
 	}
@@ -207,6 +211,9 @@ func ValidateProfile(p ModelProfile) error {
 		return errors.New("description ≤ 120 karakter")
 	}
 	if err := provider.ValidateHeaders(p.Headers); err != nil {
+		return err
+	}
+	if err := validateLocalOnly(p); err != nil { // v0.10.1451
 		return err
 	}
 	seen := map[string]bool{}

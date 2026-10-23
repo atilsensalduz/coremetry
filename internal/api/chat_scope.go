@@ -706,6 +706,9 @@ func (s *Server) wikiForcedAnswer(ctx context.Context, emit func(string, any), m
 	if question == "" {
 		return answer("Wikide ne arayayım? Örnek: `/wiki svc-orders deploy runbook'u`.")
 	}
+	if !s.localOnlyAvailable(ctx) { // v0.10.1451 — karar 8: wiki gövdesi yalnız yerel profile
+		return answer(localOnlyWikiClosedText)
+	}
 	res, hits, err := wikiTierSearch(ctx, w, question, "", wiki.LiveOnWeak) // v0.10.1150 — Derin: geniş havuz
 	noTerms := errors.Is(err, wiki.ErrNoTerms)
 	if err != nil && !noTerms && ctx.Err() != nil {

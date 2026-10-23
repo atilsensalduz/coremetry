@@ -113,6 +113,10 @@ type aiCallOpts struct {
 	schema  map[string]any
 	logUser string
 	onDelta func(string)
+	// sensitive — v0.10.1451 (karar 8): prompt kaynak kod / wiki gövdesi
+	// taşıyor → çağrı yerel profile sabitlenir ve işaretlenir; yerel profil
+	// yoksa yine işaretlenir ve copilot kapısı ErrLocalOnly döner (arka kapı).
+	sensitive copilot.SensitiveKind
 }
 
 func (s *Server) aiCall(ctx context.Context, r *http.Request, system, user string, o aiCallOpts) (string, error) {
@@ -141,6 +145,13 @@ func (s *Server) aiCall(ctx context.Context, r *http.Request, system, user strin
 		}
 	}
 	ctx = copilot.WithMeta(ctx, meta)
+	if o.sensitive != "" { // v0.10.1451
+		if rctx, ok := s.routeSensitive(ctx, o.sensitive); ok {
+			ctx = rctx
+		} else {
+			ctx = copilot.WithSensitiveContent(ctx, o.sensitive)
+		}
+	}
 	var done func(error)
 	if r != nil {
 		ctx, done = s.beginExplainSpan(r, ctx)
@@ -176,6 +187,12 @@ func (s *Server) copilotExplainMasked(r *http.Request, system, user, logUser str
 	return s.aiCall(r.Context(), r, system, user, aiCallOpts{logUser: logUser})
 }
 
+// copilotExplainMaskedSensitive — v0.10.1451: copilotExplainMasked + localOnly
+// işareti (kod bloğu taşıyan prompt; explainEvidenceRun).
+func (s *Server) copilotExplainMaskedSensitive(r *http.Request, system, user, logUser string, kind copilot.SensitiveKind) (string, error) {
+	return s.aiCall(r.Context(), r, system, user, aiCallOpts{logUser: logUser, sensitive: kind})
+}
+
 // copilotExplainJSON (v0.9.517) — katı JSON; schema (v0.9.527) verilirse o şekle.
 func (s *Server) copilotExplainJSON(r *http.Request, system, user string, schema map[string]any) (string, error) {
 	return s.aiCall(r.Context(), r, system, user, aiCallOpts{json: true, schema: schema})
@@ -195,8 +212,8 @@ func (s *Server) copilotStreamSurface(ctx context.Context, surface, system, user
 // copilotExplainSurfaceMasked (v0.10.1406) — copilotExplainMasked'ın ctx ikizi:
 // sohbet içi "Kodu da incele" (copilotExplainEvidenceCtx). Kaynak kod modele
 // gider, ai_calls örneğine logUser (maskeli kopya) yazılır.
-func (s *Server) copilotExplainSurfaceMasked(ctx context.Context, surface, system, user, logUser string) (string, error) {
-	return s.aiCall(ctx, nil, system, user, aiCallOpts{surface: surface, logUser: logUser})
+func (s *Server) copilotExplainSurfaceMasked(ctx context.Context, surface, system, user, logUser string, kind copilot.SensitiveKind) (string, error) {
+	return s.aiCall(ctx, nil, system, user, aiCallOpts{surface: surface, logUser: logUser, sensitive: kind}) // v0.10.1451 — kind
 }
 
 // explainCallCtx — tek-atış ✨ çağrısının atıf bağlamı: surface (istek

@@ -113,6 +113,9 @@ func (s *Service) ChatWithTools(ctx context.Context, system string, msgs []ChatM
 	if !s.activeFor(ctx, true) { // v0.10.175 — çözülen profilin kimliği (#1)
 		return ChatTurn{}, errors.New("AI copilot not available (disabled or not configured — open Settings → AI Copilot)")
 	}
+	if err := s.localOnlyGate(ctx); err != nil { // v0.10.1451 — karar 8: sağlayıcıdan ÖNCE (handler RecordUsage error_class=local_only)
+		return ChatTurn{}, err
+	}
 	provider, _, _ := s.profileIdentity(ctx) // v0.10.175
 	switch provider {
 	case ProviderGitHub:

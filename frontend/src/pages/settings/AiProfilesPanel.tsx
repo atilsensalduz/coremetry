@@ -36,8 +36,8 @@ const COLS: ColumnDef<AIModelProfile>[] = [
   { id: 'actions',  label: 'Eylemler',  kind: 'actions', width: 340, minWidth: 340 },
 ];
 
-type Draft = { id: string; label: string; provider: AIProvider; baseUrl: string; apiKey: string; model: string; skipTls: boolean; maxTokens: string; temperature: string; timeoutS: string; thinking: AIThinking; toolset: AIToolset; description: string; roles: Role[]; deep: boolean; headers: string };
-const emptyDraft = (): Draft => ({ id: '', label: '', provider: 'openai', baseUrl: '', apiKey: '', model: '', skipTls: false, maxTokens: '', temperature: '', timeoutS: '', thinking: '', toolset: '', description: '', roles: [], deep: false, headers: '' });
+type Draft = { id: string; label: string; provider: AIProvider; baseUrl: string; apiKey: string; model: string; skipTls: boolean; maxTokens: string; temperature: string; timeoutS: string; thinking: AIThinking; toolset: AIToolset; description: string; roles: Role[]; deep: boolean; headers: string; localOnly: boolean };
+const emptyDraft = (): Draft => ({ id: '', label: '', provider: 'openai', baseUrl: '', apiKey: '', model: '', skipTls: false, maxTokens: '', temperature: '', timeoutS: '', thinking: '', toolset: '', description: '', roles: [], deep: false, headers: '', localOnly: false });
 const draftOf = (p: AIModelProfile): Draft => ({
   id: p.id, label: p.label ?? '', provider: p.provider, baseUrl: p.baseUrl ?? '', apiKey: '', model: p.model ?? '', skipTls: !!p.skipTls,
   maxTokens: p.maxTokens ? String(p.maxTokens) : '', temperature: p.temperature === undefined || p.temperature === null ? '' : String(p.temperature), timeoutS: p.timeoutS ? String(p.timeoutS) : '',
@@ -46,6 +46,7 @@ const draftOf = (p: AIModelProfile): Draft => ({
   description: p.description ?? '', roles: p.roles ?? [], // v0.10.1138
   deep: !!p.deep, // v0.10.1150
   headers: formatHeaderLines(p.headers), // v0.10.1238
+  localOnly: !!p.localOnly, // v0.10.1451
 });
 
 export function AiProfilesPanel({ payload, onChange }: { payload: AIProfilesPayload; onChange: (p: AIProfilesPayload) => void }) {
@@ -86,6 +87,7 @@ export function AiProfilesPanel({ payload, onChange }: { payload: AIProfilesPayl
       roles: draft.roles, // v0.10.1138 — boş = herkes (sunucu üçü de seçiliyse boşa indirir)
       deep: draft.deep, // v0.10.1150 — "Derin düşün" profili (tek; sunucu öncekini düşürür)
       headers: hdr.headers, // v0.10.1238 — tam liste; boş = hepsi silinir
+      localOnly: draft.provider === 'openai' && draft.localOnly, // v0.10.1451 — yalnız openai-uyumlu (sunucu da reddeder)
     };
     await run(() => api.putAIProfile(id, body), isNew ? `Profil eklendi: ${id}` : `Profil güncellendi: ${id}`);
     setDraft(null);
@@ -129,6 +131,8 @@ export function AiProfilesPanel({ payload, onChange }: { payload: AIProfilesPayl
                       {!!p.roles?.length && <span className="badge b-gray" title="Sohbette bu profili açıkça seçebilen roller">{rolesSummary(p.roles)}</span>}
                       {/* v0.10.1150 — sohbette "Derin" açıkken (açık seçim yoksa) bu profil */}
                       {p.deep && <span className="badge b-gray" title="Derin düşün profili: sohbette Derin açıkken ve model açıkça seçilmemişken kullanılır">derin</span>}
+                      {/* v0.10.1451 (karar 8) — kod ve wiki içeriği yalnız bu işaretli profillere gider */}
+                      {p.localOnly && <span className="badge b-gray" title="Yerel (self-hosted) model: kaynak kod ve wiki içeriği yalnız bu işaretli profillere gider">yerel</span>}
                       {/* v0.10.1302 — CoSRE araç seti: yalnız basit katalogda görünür (açık ayar ya da ≤12B otomatik) */}
                       {p.effectiveToolset === 'simple' && <span className="badge b-gray" title={p.toolset === 'simple' ? 'Araç seti: basit (açık ayar) — CoSRE sohbetinde serbest-sorgu araçları (query_metric, search_logs, search_traces, list_metric_labels) gizli' : 'Araç seti: basit (otomatik — model adı ≤12B) — CoSRE sohbetinde serbest-sorgu araçları gizli'}>basit</span>}
                     </div>
@@ -208,6 +212,15 @@ export function AiProfilesPanel({ payload, onChange }: { payload: AIProfilesPayl
             <Field2 label="Ek HTTP başlıkları" hint="Satır başına «Ad: değer», ör. x-cluster: test-v2 — bu profilin her LLM isteğine eklenir. Authorization / api-key / Content-Type verilemez.">
               <textarea className="mono" rows={3} value={draft.headers} onChange={e => setDraft({ ...draft, headers: e.target.value })} placeholder="x-cluster: test-v2" spellCheck={false} />
             </Field2>
+            {/* v0.10.1451 (karar 8) — admin beyanı, anında yürürlükte; model adından çıkarım yok */}
+            {draft.provider === 'openai' && (
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12 }}>
+                  <input type="checkbox" checked={draft.localOnly} onChange={e => setDraft({ ...draft, localOnly: e.target.checked })} /> Yerel (self-hosted) model — kod ve wiki içeriği yalnız bu profile gider
+                </label>
+                <div className="field-hint">Kaynak kod («Kodu da incele», read_source_code, search_code) ve wiki sayfa içeriği YALNIZ bu işaretli profillere gönderilir. Hiçbir profil işaretli değilse kod/wiki okuma her yerde «kapalı: yerel profil yok» der. Yalnız kurumunuzda barınan uçlar için işaretleyin; genel LLM adresleri reddedilir.</div>
+              </div>
+            )}
             {draft.provider === 'openai' && <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, marginBottom: 12 }}><input type="checkbox" checked={draft.skipTls} onChange={e => setDraft({ ...draft, skipTls: e.target.checked })} /> TLS doğrulamasını atla (öz-imzalı yerel uç)</label>}
             <Row>
               <Field2 label="Max tokens" small hint="boş = küresel"><input value={draft.maxTokens} onChange={e => setDraft({ ...draft, maxTokens: e.target.value })} inputMode="numeric" /></Field2>
