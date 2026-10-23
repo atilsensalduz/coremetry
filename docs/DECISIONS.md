@@ -10553,3 +10553,21 @@ gidiyor (hata/yavaş sinyali olmadan trace listesi kademesi açılmaz).
 bağımlılık/downstream → root_cause; 7 komşu: exception'lı / exception alan trace → family_traces, bağımlılıkları neler /
 hangi bağımlılıkları / hatalı bağımlılıkları / neden yavaş + topoloji → service_topology, çıplak neden yavaşladı →
 root_cause); saf `TestExceptionOwnsTraceAsk`, `TestTopologyYieldsToRootCause`.
+## 2026-10-23 — v0.10.1480 — Go bağımlılık grubu (dependabot #78): klauspost/compress v1.20.3, otelhttp v0.72.0
+
+**Bağlam.** Dependabot PR #78 (go minor/patch grubu) `Security (vuln + dep scan)` işinde kırmızıydı. Log: kırmızıyı
+çeviren adım `npm audit` (frontend) — `dompurify <=3.4.16` için iki advisory (GHSA-cg2g-xh64-v4q7 critical,
+GHSA-mrv2-3pqr-j5jr high); ardından Trivy adımı hiç koşmadığından SARIF yüklemesi "Path does not exist" dedi. Go
+bump'ıyla ilgisi YOK: PR dalı eski bir main'den kesilmişti; main'de dompurify zaten 3.4.17 ve main'in Security işi yeşil.
+
+**Karar.** Bump dependabot dalı yerine kendi dalımızda, güncel main üzerine uygulandı (yalnız go.mod/go.sum).
+Yerel doğrulama: `govulncheck@v1.8.0` (go1.26.10) → "affected by 0 vulnerabilities" (bump yeni bulgu getirmiyor);
+`trivy fs --severity HIGH,CRITICAL` (offline) → go.mod 0, package-lock.json 0. En yakın güvenli sürüm araması
+gerekmedi. PR #78 "Shipped in v0.10.1480" yorumuyla kapatıldı.
+
+**Ek (dependabot alert #20, HIGH).** `zod <4.6.6` — GHSA-mrhx-c7xc-m3w5 (aşırı büyük kısıtlı koleksiyon doğrulamasında
+bellek tükenmesi). zod doğrudan bağımlılık değil: @grafana/data (`^4.3.0`) ve eslint-plugin-react-hooks
+(`^3.25.0 || ^4.0.0`) üzerinden geçişli; `npm update zod` kilidi 4.4.3 → 4.6.7'ye taşıdı (iki aralığın içinde, minor).
+Doğrulama: tsc + eslint + vitest + vite build yeşil, `npm audit` high/critical 0.
+
+**Geri alma.** `go get github.com/klauspost/compress@v1.19.1 go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp@v0.71.0 && go mod tidy` + yeni etiket.
