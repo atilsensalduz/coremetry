@@ -45,6 +45,21 @@ func TestDeepMaxTokensForOnlyWithFlag(t *testing.T) {
 	}
 }
 
+// v0.10.1458 — konu dışı genel cevap Derin kipi yok sayar: bütçe tabana döner.
+func TestWithoutDeepAnswerRestoresBase(t *testing.T) {
+	ctx := context.Background()
+	if WithoutDeepAnswer(ctx) != ctx {
+		t.Fatal("Derin değilken ctx aynen dönmeli")
+	}
+	off := WithoutDeepAnswer(WithDeepAnswer(ctx))
+	if DeepAnswerFrom(off) {
+		t.Fatal("WithoutDeepAnswer sonrası Derin sayıldı")
+	}
+	if got := deepMaxTokensFor(off, 4096, "unknown-model"); got != 4096 {
+		t.Fatalf("bütçe tabana dönmedi: %d", got)
+	}
+}
+
 func TestMaxTokensForDeep(t *testing.T) {
 	s := New("anthropic", "", "")
 	s.SetProfiles([]ModelProfile{

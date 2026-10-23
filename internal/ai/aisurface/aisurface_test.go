@@ -83,10 +83,11 @@ func TestRegistryDerivedLists(t *testing.T) {
 		t.Errorf("RouterGapLabels = %v", got)
 	}
 	// v0.10.1289 — kural önerisi (chat-rule) da KB adayı olamaz.
-	if got := NoKBLabels(); len(got) != 2 || got[0] != ChatGeneral || got[1] != ChatRule {
+	// v0.10.1458 — konu dışı genel cevap (chat-offtopic-general) da kanıtsız.
+	if got := NoKBLabels(); len(got) != 3 || got[0] != ChatGeneral || got[1] != ChatOffTopicGeneral || got[2] != ChatRule {
 		t.Errorf("NoKBLabels = %v", got)
 	}
-	if IsLLMCall(ChatOffTopic) || IsLLMCall(ChatIntentNone) || !IsLLMCall(WikiSelect) || !IsLLMCall("explain-problem") {
+	if IsLLMCall(ChatOffTopic) || IsLLMCall(ChatIntentNone) || !IsLLMCall(WikiSelect) || !IsLLMCall("explain-problem") || !IsLLMCall(ChatOffTopicGeneral) {
 		t.Error("IsLLMCall işaret satırını ayırmıyor")
 	}
 }

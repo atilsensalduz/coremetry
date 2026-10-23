@@ -85,6 +85,7 @@ var promptVersionRegistry = map[string]string{
 	"systemIntentClassify":       systemIntentClassify,
 	"IntentNoInstructionLine":    IntentNoInstructionLine,
 	"systemGeneralChat":          systemGeneralChat,
+	"systemOffTopicGeneral":      systemOffTopicGeneral, // v0.10.1458
 	"AnswerInTurkish":            AnswerInTurkish,
 
 	// v0.10.1330 — stack yokken operasyon kodu eki (kendi hizalama grubu).

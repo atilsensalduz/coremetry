@@ -35,6 +35,10 @@ const (
 	ChatIntentNone = "chat-intent-none"
 	// ChatOffTopic — konu dışı (model koşmayan işaret satırı).
 	ChatOffTopic = "chat-offtopic"
+	// ChatOffTopicGeneral — v0.10.1458: konu dışı soruya kısa genel bilgi
+	// cevabı (ai.generalQuestions açıkken; api/chat_offtopic_general.go).
+	// Araçsız, kanıtsız tek model çağrısı — cevabın kendisi, oylanabilir.
+	ChatOffTopicGeneral = "chat-offtopic-general"
 	// ChatResourceClassify — v0.10.1442: niyet kademesinin içinde kaynak
 	// sorusu ön-sınıflandırıcısı (yardımcı JSON çağrısı; api/chat_resource_classify.go).
 	ChatResourceClassify = "chat-resource-classify"
@@ -119,6 +123,10 @@ var registry = []Spec{
 	{Label: ChatIntent, Role: RoleSubCall, Eval: "IntentClassify"},
 	{Label: ChatIntentNone, Role: RoleMarker, Eval: "GeneralChat", RouterGap: true},
 	{Label: ChatOffTopic, Role: RoleMarker, Eval: "GeneralChat"},
+	// v0.10.1458 — kanıtsız genel bilgi: KB'ye terfi edemez (chat-general
+	// emsali). Evalset vakası yok: istem (OffTopicGeneral) evalset koşucusunda
+	// değil; 👎 satırı Unknown'a düşer (wiki-chat emsali).
+	{Label: ChatOffTopicGeneral, Role: RoleAnswer, NoKB: true},
 	// v0.10.1442 — evalset vakası yok (istem evalset koşucusunda değil; karar
 	// canlı katalog/pod doğrulamasına bağlı, yeniden üretilemez).
 	{Label: ChatResourceClassify, Role: RoleSubCall},

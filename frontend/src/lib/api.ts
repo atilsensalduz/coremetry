@@ -1342,6 +1342,11 @@ export const api = {
   aiChatRetention: () => get<import('./types').AIChatRetention>(`/api/ai/chat-retention`),
   putAIChatRetention: (c: import('./types').AIChatRetention) =>
     request<import('./types').AIChatRetention>(`/api/ai/chat-retention`, { method: 'PUT', body: JSON.stringify(c) }),
+  // v0.10.1458 — konu dışı sorulara genel cevap anahtarı: GET her rol, PUT admin + audit.
+  aiGeneralQuestions: (signal?: AbortSignal) =>
+    get<import('./types').AIGeneralQuestions>(`/api/ai/general-questions`, signal),
+  putAIGeneralQuestions: (allow: boolean) =>
+    request<import('./types').AIGeneralQuestions>(`/api/ai/general-questions`, { method: 'PUT', body: JSON.stringify({ allow }) }),
   // v0.10.1434 — AI araç setleri (toolset): durum + sağlık her rol; aç/kapa admin.
   aiToolsets: (signal?: AbortSignal) => get<import('./types').AISourceToolsetsPayload>(`/api/ai/toolsets`, signal),
   putAIToolsets: (disabled: string[]) =>

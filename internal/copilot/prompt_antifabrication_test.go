@@ -84,6 +84,22 @@ func TestSystemGeneralChatCarriesAntiFabricationRules(t *testing.T) {
 	}
 }
 
+// v0.10.1458 — konu dışı genel cevap (systemOffTopicGeneral) da SIFIR kanıtla
+// konuşur: kısa cevap + "telemetriden değil" cümlesi + Coremetry verisi UYDURMA.
+func TestSystemOffTopicGeneralCarriesAntiFabricationRules(t *testing.T) {
+	p := SystemPromptOffTopicGeneral()
+	for _, want := range []string{"UYDURMA", "KISA", "Coremetry telemetrisinden gelmediğini", "erişimin YOK", answerInTurkishLine} {
+		if !strings.Contains(p, want) {
+			t.Errorf("OffTopicGeneral %q cümlesini taşımıyor", want)
+		}
+	}
+	for _, bad := range []string{"gemma", "Gemma", "tool çağır", "araç çağır"} {
+		if strings.Contains(p, bad) {
+			t.Errorf("OffTopicGeneral %q içermemeli (model-bağımsız, araçsız)", bad)
+		}
+	}
+}
+
 func TestAntiFabricationRulesNotDuplicatedInBody(t *testing.T) {
 	p := SystemPromptProblem()
 	for _, phrase := range []string{"kanıt yetersiz", "SEBEP olarak"} {

@@ -494,7 +494,10 @@ func (s *Server) copilotChatIntent(ctx context.Context, emit func(string, any), 
 		emit("answer", ans)
 		return true, true
 	}
-	if route.Intent == guidedOffTopic {
+	// v0.10.1458 — anahtar (ai.generalQuestions) açıksa model cevaplar ve
+	// satırını kendi yüzeyiyle (chat-offtopic-general) yazar: işaret satırı o
+	// durumda YAZILMAZ. Kapalıyken (ya da zararlı istekte) bayt bayt v0.10.819.
+	if route.Intent == guidedOffTopic && !s.offTopicGeneralEnabled(question) {
 		// Konu dışı satırı ayrı yüzeyle (chat-offtopic): /ai kullanım listesi
 		// kullanıcıların ne sorduğunu türüyle görür; model koşmadı (0 token),
 		// exchange'siz (oylanmaz). Cevap runGuidedRoute → guidedOffTopicAnswer.

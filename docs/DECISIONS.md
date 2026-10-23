@@ -9840,3 +9840,48 @@ copilot `TestProfileStrictRoundTrip`, `TestCallSnapshotCarriesStrictTools`; api 
 `TestAIToolArgValidationRolesAuditRoundTrip`, `TestChatToolArgNote`, `TestChatToolArgWarnIsByteIdenticalForModel`
 (uçtan uca: off↔warn ikinci model isteği bayt bayt aynı, ai_calls notu yalnız warn'da),
 `TestChatToolArgEnforceBurnsSlotNoWork`, `TestProfileStrictToolArgsReachesToolBody`, `TestPutAIProfileStrictToolArgsPreserved`.
+
+## 2026-10-23 — v0.10.1458 — CoSRE genel (konu dışı) sorulara kısa model cevabı, anahtarlı (varsayılan AÇIK) — v0.10.819'un tersine çevrilmesi
+
+**Bağlam.** v0.10.819 (operatör kararı 2026-09-19, `internal/api/copilot_offtopic.go`): sınıflandırıcı `off_topic`
+dediğinde ve sunucu vetosu (`offTopicVeto`: canlı servis/ortam/takım adı, kimlik, telemetri sözcüğü) geçirdiğinde soru
+MODEL cevabı almıyordu — deterministik kibar sınır + ürün yol tarifi ("Türkiye'nin başkenti neresidir" → "Bu soru
+Coremetry'nin izlediği telemetriyle ilgili değil…"). Operatör kararı 2026-10-23: "Genel soruları açık bırakalım,
+anahtar da olabilir."
+
+**Karar.** (1) Ayar `system_settings["ai.generalQuestions"]` `{allow}` (`chstore/ai_general_questions.go`,
+ai_toolarg_settings deseni: boot + 30 s cfgRefresh, atomic). Blob yoksa ya da `allow` alanı yoksa **allow=true**; yalnız
+açık `false` kapatır. `GET /api/ai/general-questions` her rol, `PUT` admin + audit
+`settings.ai_general_questions.update` (`internal/api/ai_general_questions.go`, registerRoutesExtra; `allow` zorunlu,
+boş gövde 400). (2) Açıkken off_topic dalı (`runGuidedRoute` → `guidedOffTopicDispatch`,
+`internal/api/chat_offtopic_general.go`) TEK araçsız akış çağrısı yapar: `copilotStreamSurface` + yeni istem
+`SystemPromptOffTopicGeneral` (Türkçe-native, "2-3 cümle, genel bilgi olduğunu söyle, Coremetry verisi UYDURMA"). Tool
+tanımı, telemetri döngüsü, RAG/wiki içeriği yok — prompt yalnız soru, localOnly kapısı söz konusu değil. Derin kip
+`copilot.WithoutDeepAnswer` ile yok sayılır; sabit max_tokens tavanı konmaz (düşünen modeller küçük tavanda boş döner),
+bütçe profilden — model-bağımsız. Sunucu notu (`offTopicGeneralNoteTR`) cevabın üstünde, v0.10.819'un yol tarifi metni +
+çipleri + bağlantıları altında aynen. (3) ai_calls yüzeyi yeni `chat-offtopic-general` (aisurface RoleAnswer, NoKB,
+Eval yok): kök exchange'i aynen taşır → chat-general gibi oylanabilir, KB'ye terfi edemez; kalkan sayılmaz
+(`shieldCountsSurface`). Açıkken `chat-offtopic` işaret satırı yazılmaz (model satırı onun yerine). (4) Zararlı istek
+(`offTopicIsHarmful`) anahtar açıkken de modele gitmez — kesin sınır bayt bayt. Model boş/hata → v0.10.819 sınırı
+(exchangeId'siz); akış ortasında kopan çağrının kısmi metni korunur. Veto ve `none` dalı anahtardan bağımsız (none →
+v0.10.194 chat-general, değişmedi). (5) Ayarlar › CoSRE (sağlayıcı sekmesi) `AiGeneralQuestionsPanel`: "Genel sorulara
+cevap ver (telemetri dışı sorular modelle cevaplanır; kapalıyken kibar sınır + yol tarifi)" kutusu, tıklayınca kaydeder;
+admin olmayan rol salt-okunur.
+
+**Neden.** Operatör kararı; v0.10.819'un gerekçesi (model genel soruya cevap verince CoSRE'nin kapsamı bulanıklaşır)
+sunucu notu + altındaki yol tarifiyle karşılanıyor, zararlı istek sınırı korunuyor. Anahtar, kararın kod değişmeden geri
+alınabilmesi için.
+
+**Geri alma.** Kod değişmeden: Ayarlar › CoSRE'de kutuyu kaldır ya da `curl -X PUT /api/ai/general-questions -d
+'{"allow":false}'` (admin) — off_topic cevabı v0.10.819 ile bayt bayt aynıdır (`TestOffTopicBoundaryByteIdenticalWhenOff`)
+ve `chat-offtopic` işaret satırı geri gelir. Tam geri alma: sürüm commit'ini revert + yeni etiket; `ai.generalQuestions`
+blobu okuyansız kalır (zararsız).
+
+**Testler.** api `TestOffTopicGeneralRoutingTable` (açık/kapalı × off_topic / off_topic+veto / none + zararlı; gerçek
+copilotChatIntent + gerçek copilot.Service + sahte uç; cevap öneki, akış çağrısı, exchangeId, ai_calls yüzeyleri),
+`TestOffTopicGeneralOffersNoTools` (gövdede tools/tool_choice/response_format yok, sistem = OffTopicGeneral, kullanıcı =
+yalnız soru, Derin bütçeyi değiştirmez), `TestOffTopicBoundaryByteIdenticalWhenOff` (sabit metin pini + olay dizisi
+eşitliği + model çağrısı yok), `TestOffTopicGeneralTextFallback`, `TestAIGeneralQuestionsRolesAuditRoundTrip`,
+`TestOffTopicGeneralSourceGates`; chstore `TestAIGeneralQuestionsDefaultOnWhenBlobMissing`,
+`TestAIGeneralQuestionsSetRoundTrip`; copilot `TestSystemOffTopicGeneralCarriesAntiFabricationRules`,
+`TestWithoutDeepAnswerRestoresBase`; fe `AiGeneralQuestionsPanel.test.tsx`.

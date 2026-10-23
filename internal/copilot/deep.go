@@ -40,6 +40,15 @@ func WithDeepAnswer(ctx context.Context) context.Context {
 	return context.WithValue(ctx, deepAnswerKey{}, true)
 }
 
+// WithoutDeepAnswer — v0.10.1458: bu çağrı alışverişin Derin kipini YOK sayar
+// (konu dışı genel cevap kısa kalır; bütçe profilin tabanı). Derin değilse ctx aynen.
+func WithoutDeepAnswer(ctx context.Context) context.Context {
+	if !DeepAnswerFrom(ctx) {
+		return ctx
+	}
+	return context.WithValue(ctx, deepAnswerKey{}, false)
+}
+
 // DeepAnswerFrom — ctx Derin kipte mi.
 func DeepAnswerFrom(ctx context.Context) bool {
 	v, _ := ctx.Value(deepAnswerKey{}).(bool)

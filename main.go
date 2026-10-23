@@ -1047,6 +1047,13 @@ func main() {
 		log.Printf("[tool-args] load persisted settings: %v", err)
 	}
 	cfgRefresh.Add("ai-toolarg-validation", store.LoadAIToolArgValidation)
+	// v0.10.1458 — konu dışı sorulara genel cevap anahtarı (system_settings
+	// ai.generalQuestions) HER rolde (sohbet api'de); yüklenemezse varsayılan
+	// AÇIK (operatör kararı 2026-10-23).
+	if err := store.LoadAIGeneralQuestions(ctx); err != nil {
+		log.Printf("[general-questions] load persisted settings: %v", err)
+	}
+	cfgRefresh.Add("ai-general-questions", store.LoadAIGeneralQuestions)
 	// CoSRE öğrenme Faz 2+4 — gece kalite puanı; önce örneklem self-hosted
 	// hakeme (yapılandırılmış AI profili; ai_calls'a "cosre-selfeval" düşer).
 	if mode.worker {

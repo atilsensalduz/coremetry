@@ -42,7 +42,8 @@ func aiShieldWith(known []string) func(prompt, answer string) uint8 {
 // sohbet yalnız kullanıcı sorusunu görür → sayılmaz (nil = 0).
 func shieldCountsSurface(surface string) bool {
 	switch surface {
-	case "chat-intent", "chat-intent-none", "chat-general", "chat-offtopic": // chat-offtopic v0.10.819
+	case "chat-intent", "chat-intent-none", "chat-general", "chat-offtopic", // chat-offtopic v0.10.819
+		"chat-offtopic-general": // v0.10.1458 — prompt yalnız kullanıcı sorusu
 		return false
 	}
 	return true

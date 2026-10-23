@@ -7636,6 +7636,13 @@ export interface ProblemInsight {
 
 // AIChatRetention — /api/ai/chat-retention (v0.10.561): sohbet arşivi saklama; days 0 = süpürme kapalı.
 export interface AIChatRetention { days: number }
+// AIGeneralQuestions — /api/ai/general-questions (v0.10.1458): konu dışı sorulara
+// kısa genel cevap anahtarı; blob yokken allow=true. Go: chstore.AIGeneralQuestions.
+export interface AIGeneralQuestions {
+  allow: boolean;
+  updatedBy?: string;
+  updatedAt?: string; // RFC3339
+}
 
 // ChatEvidence — v0.10.558: guided kök-neden rotasının yapısal kanıt bloğu
 // (internal/api/copilot_guided.go guidedEvidencePayload, v0.10.557). Listeler

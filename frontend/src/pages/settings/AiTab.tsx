@@ -11,6 +11,7 @@ import { AiEvalPanel } from './AiEvalPanel'; // v0.10.940
 import { EVAL_URL_PARAMS } from './aiEval';
 import { CosreRulesPanel } from '@/components/ai/CosreRulesPanel'; // v0.10.1289
 import { AiToolsetsPanel } from './AiToolsetsPanel'; // v0.10.1434
+import { AiGeneralQuestionsPanel } from './AiGeneralQuestionsPanel'; // v0.10.1458
 import { useT } from '@/lib/i18n'; // v0.10.1434
 import { tuningToForm, tuningToWire } from './aiTuning';
 import { IconSparkles } from '@/components/icons';
@@ -291,6 +292,7 @@ function AiProviderSettings() {
       )}
       <AiBudgetPanel />
       <AiChatRetentionPanel />
+      <AiGeneralQuestionsPanel />
       <div style={{ maxWidth: 640 }}>
       <form onSubmit={save} style={{
         marginTop: 18, padding: 16, borderRadius: 8,

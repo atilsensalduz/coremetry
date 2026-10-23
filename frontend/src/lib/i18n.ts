@@ -348,6 +348,18 @@ const EN: Catalog = {
   'aiToolsets.src.knowledge':   'Runbooks, document RAG, static product guide',
   'aiToolsets.src.meta':        'Chat state and pure helpers',
   // v0.10.1434 END
+  // v0.10.1458 — Settings › CoSRE › provider tab (AiGeneralQuestionsPanel): off-topic questions toggle
+  'aiGeneralQ.title':      'General questions',
+  'aiGeneralQ.label':      'Answer general questions (non-telemetry questions are answered by the model; when off: a polite boundary + directions)',
+  'aiGeneralQ.hint':       'Questions unrelated to telemetry (e.g. "What is the capital of Türkiye?") get a short general-knowledge answer from the model, marked as not coming from Coremetry telemetry, with the usual CoSRE suggestions below. No tools, telemetry or documents are used. Harmful requests are always refused.',
+  'aiGeneralQ.readOnly':   'Read-only: only admins can change this setting.',
+  'aiGeneralQ.lastChange': 'Last change: {by} · {at}',
+  'aiGeneralQ.saved':      'General questions: {state}',
+  'aiGeneralQ.on':         'on',
+  'aiGeneralQ.off':        'off',
+  'aiGeneralQ.saveFailed': 'Could not save: {err}',
+  'aiGeneralQ.loadFailed': 'Setting could not be loaded: {err}',
+  // v0.10.1458 END
   // v0.10.1443 — sohbetten dashboard (components/ai/AddToDashboard.tsx, PinToDashboardModal)
   'dash.addFromChat.one':          'Add to dashboard',
   'dash.addFromChat.all':          'Make a dashboard from all',
@@ -679,6 +691,18 @@ const TR: Catalog = {
   'aiToolsets.src.knowledge':   'Runbook\'lar, doküman RAG, statik ürün rehberi',
   'aiToolsets.src.meta':        'Sohbet durumu ve saf yardımcılar',
   // v0.10.1434 END
+  // v0.10.1458 — Ayarlar › CoSRE › sağlayıcı sekmesi (AiGeneralQuestionsPanel): konu dışı sorular anahtarı
+  'aiGeneralQ.title':      'Genel sorular',
+  'aiGeneralQ.label':      'Genel sorulara cevap ver (telemetri dışı sorular modelle cevaplanır; kapalıyken kibar sınır + yol tarifi)',
+  'aiGeneralQ.hint':       'Telemetriyle ilgisiz sorular ("Türkiye\'nin başkenti neresidir" gibi) modelden kısa bir genel bilgi cevabı alır; cevap Coremetry telemetrisinden gelmediği notuyla işaretlenir, altında her zamanki CoSRE önerileri durur. Araç, telemetri ya da doküman kullanılmaz. Zararlı istekler her zaman reddedilir.',
+  'aiGeneralQ.readOnly':   'Salt-okunur: bu ayarı yalnız admin değiştirebilir.',
+  'aiGeneralQ.lastChange': 'Son değişiklik: {by} · {at}',
+  'aiGeneralQ.saved':      'Genel sorular: {state}',
+  'aiGeneralQ.on':         'açık',
+  'aiGeneralQ.off':        'kapalı',
+  'aiGeneralQ.saveFailed': 'Kaydedilemedi: {err}',
+  'aiGeneralQ.loadFailed': 'Ayar okunamadı: {err}',
+  // v0.10.1458 END
   // v0.10.1443 — sohbetten dashboard (components/ai/AddToDashboard.tsx, PinToDashboardModal)
   'dash.addFromChat.one':          "Dashboard'a ekle",
   'dash.addFromChat.all':          'Hepsini dashboard yap',

@@ -2550,6 +2550,29 @@ KURALLAR:
 
 func SystemPromptGeneralChat() string { return systemGeneralChat }
 
+// systemOffTopicGeneral — v0.10.1458 (operatör kararı 2026-10-23: "Genel
+// soruları açık bırakalım, anahtar da olabilir."; v0.10.819'un deterministik
+// sınırını tersine çevirir, anahtar ai.generalQuestions). Sınıflandırıcı
+// `off_topic` dedi ve sunucu vetosu geçti: soru telemetriyle İLGİSİZ ("Türkiye'nin
+// başkenti neresidir"). TEK araçsız çağrı: tool yok, telemetri yok, RAG/wiki yok
+// — yalnız modelin genel bilgisi. systemGeneralChat'ten farkı: soru muğlak
+// telemetri sorusu değil, düpedüz genel bilgi; cevap KISA olmalı (sunucu altına
+// CoSRE yol tarifini koyar). "Genel bilgi, telemetri değil" notu da sunucudan
+// (offTopicGeneralNoteTR) — model tek bir kısa hatırlatma cümlesi ekler. Model
+// bağımsız: bütçe profilden gelir, istem uzunluk/biçim varsaymaz.
+const systemOffTopicGeneral = `Sen Coremetry'nin içine gömülü SRE asistanı CoSRE'sin. Bu soru Coremetry'nin
+izlediği telemetriyle İLGİSİZ bir genel bilgi sorusu; bu cevapta operatörün
+servislerine, trace'lerine, log'larına ya da metriklerine erişimin YOK.
+
+KURALLAR:
+- Soruyu genel bilginle KISA cevapla: en fazla 2-3 cümle, başlık ya da liste yok.
+- Cevabın genel bilgi olduğunu, Coremetry telemetrisinden gelmediğini tek kısa cümleyle belirt.
+- Coremetry'ye ya da operatörün sistemine dair hiçbir sayı, servis adı, hata ya da durum UYDURMA.
+- Emin değilsen bunu söyle; tahmini olgu gibi sunma. Güncel olaylarda bilgin eski olabilir, bunu belirt.
+- ` + answerInTurkishLine
+
+func SystemPromptOffTopicGeneral() string { return systemOffTopicGeneral }
+
 // SystemPromptChatRoundCap — aynı döngünün tur-tavanı çağrısı: tool
 // listesi boş gider (tools=nil), prompt "artık tool çağırma, elindekiyle
 // cevapla" der. Hitap ön-sözü çağrı yerinde eklenir.

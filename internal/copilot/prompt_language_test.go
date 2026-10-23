@@ -86,11 +86,12 @@ func promptRegistry() map[string]promptClass {
 		// buraya taşındı: metin artık Türkçe yazılmış. ChatRoundCap aynı
 		// döngünün tur-tavanı hâli; sicile girmesiyle copilot_chat.go'daki
 		// satır-içi İngilizce ek de dil kapısının kapsamına girdi.
-		"Chat":           classTurkishNative,
-		"IntentClassify": classTurkishNative, // v0.10.172 — JSON çıktı, Türkçe talimat (RCAVerdict emsali)
-		"GeneralChat":    classTurkishNative, // v0.10.194 — none → genel bilgi cevabı (tool'suz)
-		"ChatRoundCap":   classTurkishNative,
-		"ChatAgentLoop":  classTurkishNative, // v0.10.482 — telemetri ajanı çekirdek döngüsü (Ek A, Türkçe/kısa)
+		"Chat":            classTurkishNative,
+		"IntentClassify":  classTurkishNative, // v0.10.172 — JSON çıktı, Türkçe talimat (RCAVerdict emsali)
+		"GeneralChat":     classTurkishNative, // v0.10.194 — none → genel bilgi cevabı (tool'suz)
+		"OffTopicGeneral": classTurkishNative, // v0.10.1458 — off_topic → kısa genel cevap (tool'suz, anahtarlı)
+		"ChatRoundCap":    classTurkishNative,
+		"ChatAgentLoop":   classTurkishNative, // v0.10.482 — telemetri ajanı çekirdek döngüsü (Ek A, Türkçe/kısa)
 		// v0.10.1302 — simple araç seti varyantı (SystemPromptChatAgentLoopFor(true)).
 		"ChatAgentLoop.simple": classTurkishNative,
 		"ShiftSummary":         classTurkishNative,
@@ -127,9 +128,10 @@ func promptTexts() map[string]string {
 		"Runbook": SystemPromptRunbook(), "CompareTraces": SystemPromptCompareTraces(),
 		"DeployImpact": SystemPromptDeployImpact(), "SLOBurn": SystemPromptSLOBurn(),
 		"SlowQuery": SystemPromptSlowQuery(), "GuidedChat": SystemPromptGuidedChat(),
-		"IntentClassify": SystemPromptIntentClassify(),
-		"GeneralChat":    SystemPromptGeneralChat(),
-		"DrawerChat":     SystemPromptDrawerChat(), "Chat": SystemPromptChat(),
+		"IntentClassify":  SystemPromptIntentClassify(),
+		"GeneralChat":     SystemPromptGeneralChat(),
+		"OffTopicGeneral": SystemPromptOffTopicGeneral(), // v0.10.1458
+		"DrawerChat":      SystemPromptDrawerChat(), "Chat": SystemPromptChat(),
 		"ChatRoundCap": SystemPromptChatRoundCap(), "ChatAgentLoop": SystemPromptChatAgentLoop(),
 		"ChatAgentLoop.simple": SystemPromptChatAgentLoopFor(true), // v0.10.1302
 		"RCAVerdict":           SystemPromptRCAVerdict(),
