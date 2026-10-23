@@ -27,6 +27,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { traceHref } from '@/lib/traceHref';
 import { PageControls } from '@/components/ui/PageControls';
 import { PageShell } from '@/components/ui/PageShell';
+import { useAuthRole } from '@/components/AuthProvider'; // v0.10.1484
 
 // /ai — Coremetry-native AI observability dashboard. The
 // Langfuse-alike: every Copilot Explain call lands as one
@@ -38,7 +39,34 @@ import { PageShell } from '@/components/ui/PageShell';
 //
 // Admin-only — prompts can carry telemetry the viewer role
 // might not otherwise have access to.
+//
+// v0.10.1484 (operatör kararı) — "Şüpheli yönlendirmeler" raporu editörlere de
+// açık (GET /api/ai/routing-report editor + admin). Editör /ai'de YALNIZ o
+// paneli görür; diğer paneller (çağrılar, prompt örnekleri, bütçe, kalite)
+// admin kalır ve editöre hiç çizilmez (403 hata kutuları yerine).
 export default function AIObservabilityPage() {
+  const role = useAuthRole();
+  if (role === 'editor') return <EditorAIObservabilityPage />;
+  return <AdminAIObservabilityPage />;
+}
+
+// EditorAIObservabilityPage — v0.10.1484: editörün /ai görünümü.
+export function EditorAIObservabilityPage() {
+  return (
+    <>
+      <Topbar title="AI observability" />
+      <PageShell>
+        <div style={{ color: 'var(--text2)', fontSize: 12, marginBottom: 12 }}>
+          Editör görünümü: CoSRE yönlendirme raporu. Çağrı ayrıntıları, prompt örnekleri,
+          bütçe ve kalite panelleri yalnız admin.
+        </div>
+        <RoutingReportPanel />
+      </PageShell>
+    </>
+  );
+}
+
+function AdminAIObservabilityPage() {
   const [range, setRange] = useUrlRange('24h');
   const [stats, setStats] = useState<AIStats | null | undefined>(undefined);
   const [budget, setBudget] = useState<AIBudgetStatus | null>(null); // v0.10.411

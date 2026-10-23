@@ -10630,3 +10630,15 @@ kullanır (önceki özel günlerin örnekleri yalnız CH yolunda; VM deposu mevs
 
 **Geri alma.** Settings'te takvimi boşalt + otomatik ay sonunu kapat → davranış v0.10.1482 ile bayt bayt aynı. Tam: revert
 + yeni etiket (eski sürüm `calendar` bölümünü yok sayar).
+
+## 2026-10-23 — v0.10.1484 — "Şüpheli yönlendirmeler" raporu editörlere de açık
+
+**Bağlam.** v0.10.1464 `GET /api/ai/routing-report`'u kardeş /api/ai/* okumaları gibi yalnız admin'e açmıştı. Operatör
+kararı: yanlış yönlendirme adaylarını editörler de görmeli (regresyon satırı ekleyen ekip).
+
+**Karar.** Rol kapısı `RequireAnyRole([admin, editor])`; viewer 403 kalır (rapor soru metni ve kullanıcı e-postası
+taşır). /ai sayfası editöre kısıtlı görünüm çizer: yalnız RoutingReportPanel; çağrılar, prompt örnekleri, bütçe ve
+kalite panelleri admin kalır ve editöre hiç istek atmaz. Sidebar'daki /ai girişi editöre görünür (`editorToo`). Diğer
+/api/ai/* uçlarının kapısı değişmedi.
+
+**Geri alma.** `aiRoutingReportRoles`'u `[admin]`'e, Sidebar `/ai` girişinden `editorToo`'yu kaldır + yeni etiket.

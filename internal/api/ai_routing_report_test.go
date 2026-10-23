@@ -181,13 +181,19 @@ func TestRoutingReportDaysAndGate(t *testing.T) {
 			t.Errorf("days(%q)=%d want %d", in, got, want)
 		}
 	}
+	// v0.10.1484 — rol kapısı: viewer 403, editor 200, admin 200. Gövde
+	// önbellekten (store'suz sunucu; anahtar handler'ınkiyle aynı).
+	s := &Server{cache: &fakeCache{}, l1: newL1Cache(8), stats: newCacheStats()}
+	s.l1.set("ai:routing-report:v1:d=7", []byte(`{"days":7,"rows":[]}`), time.Minute)
 	mux := http.NewServeMux()
-	(&Server{}).registerAIRoutingReportRoutes(mux)
-	r := httptest.NewRequest(http.MethodGet, "/api/ai/routing-report?days=7", nil)
-	r = r.WithContext(auth.ContextWithClaims(context.Background(), &auth.Claims{UserID: "v", Role: auth.RoleViewer}))
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, r)
-	if w.Code != http.StatusForbidden {
-		t.Errorf("viewer %d, want 403 (admin kapılı, kardeş /api/ai okumaları gibi)", w.Code)
+	s.registerAIRoutingReportRoutes(mux)
+	for role, want := range map[string]int{auth.RoleViewer: http.StatusForbidden, auth.RoleEditor: http.StatusOK, auth.RoleAdmin: http.StatusOK} {
+		r := httptest.NewRequest(http.MethodGet, "/api/ai/routing-report?days=7", nil)
+		r = r.WithContext(auth.ContextWithClaims(context.Background(), &auth.Claims{UserID: "u-" + role, Role: role}))
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, r)
+		if w.Code != want {
+			t.Errorf("%s: kod %d, beklenen %d (%s)", role, w.Code, want, w.Body.String())
+		}
 	}
 }

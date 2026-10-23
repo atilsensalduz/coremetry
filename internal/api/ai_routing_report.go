@@ -21,9 +21,9 @@ package api
 // (TestRoutingReportVotesNeverScore pinler).
 //
 // Kayıt: ai_routes.go registerAIRoutes → registerAIRoutingReportRoutes
-// (registerCosreQualityRoutes emsali). Rol: admin — /api/ai/* kardeş
-// okumaları (router-gaps, quality) gibi; soru metni ve kullanıcı e-postası
-// taşır. requireCopilot ile SARILMAZ (kardeş okumalar gibi): rapor LLM
+// (registerCosreQualityRoutes emsali). Rol: admin + editor (v0.10.1484,
+// operatör kararı; 1464'te yalnız admin — kardeş /api/ai/* okumaları gibi);
+// soru metni ve kullanıcı e-postası taşır, viewer'a kapalı. requireCopilot ile SARILMAZ (kardeş okumalar gibi): rapor LLM
 // istemez, AI kapalıyken de geçmiş turlar okunur.
 
 import (
@@ -40,8 +40,13 @@ import (
 	"github.com/cilcenk/coremetry/internal/cosrelearn"
 )
 
+// aiRoutingReportRoles — v0.10.1484: editor + admin (operatör: rapor editörlere
+// de açık). Soru metni ve kullanıcı e-postası taşır → viewer'a kapalı kalır.
+var aiRoutingReportRoles = []string{auth.RoleAdmin, auth.RoleEditor}
+
 func (s *Server) registerAIRoutingReportRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/ai/routing-report", auth.RequireRole(auth.RoleAdmin, s.aiRoutingReport))
+	// v0.10.1484 (operatör kararı) — editörler de görür; viewer 403.
+	mux.HandleFunc("GET /api/ai/routing-report", auth.RequireAnyRole(aiRoutingReportRoles, s.aiRoutingReport))
 }
 
 const (

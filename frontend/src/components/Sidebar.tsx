@@ -30,6 +30,9 @@ type NavItem = {
   label: string;
   icon: LucideIcon;
   adminOnly?: boolean;
+  // editorToo — v0.10.1484: adminOnly giriş editöre de görünür (sayfa editöre
+  // kısıtlı görünüm çizer; /ai → yalnız "Şüpheli yönlendirmeler").
+  editorToo?: boolean;
 };
 
 // NavItem labels are i18n keys; the actual label is resolved
@@ -154,7 +157,7 @@ const NAV_GROUPS: NavGroup[] = [
       // consolidated into the System area's own left sub-nav, so the global
       // sidebar carries ONE "System" entry. AI stays a sibling (not a System tab).
       { href: '/system', label: 'nav.system', icon: CircleGauge },
-      { href: '/ai',     label: 'nav.ai',     icon: Sparkles, adminOnly: true },
+      { href: '/ai',     label: 'nav.ai',     icon: Sparkles, adminOnly: true, editorToo: true }, // v0.10.1484
       // v0.9.1088 (operatör isteği): "shift summary şimdilik menüde
       // gözükmesin, adminler görebilsin sadece System altında."
       // v0.9.1072'de üst gruplanmamış alana konmuştu; sayfa/rota
@@ -398,7 +401,7 @@ export function Sidebar() {
             //       state but no usable links.
             const allowed = user?.customRolePages;
             const items = group.items.filter(n => {
-              if (n.adminOnly && user?.role !== 'admin') return false;
+              if (n.adminOnly && user?.role !== 'admin' && !(n.editorToo && user?.role === 'editor')) return false;
               if (allowed && !allowed.includes(n.href)) return false;
               return true;
             });
