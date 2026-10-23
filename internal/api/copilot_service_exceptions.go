@@ -8,6 +8,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -23,9 +24,17 @@ func hasServiceExceptionSignal(toks []string) bool {
 	return tokenHasPrefix(toks, "teknik") && tokenHasPrefix(toks, "hata")
 }
 
-func (s *Server) guidedServiceExceptionsBundle(ctx context.Context, emit func(string, any), service string, from, to time.Time) (string, string, error) {
+// v0.10.1486 — route alır: örnek trace + stack tablosu route.AnswerTail'e,
+// örnek trace çipleri route.ExcSampleLinks'e yazılır
+// (copilot_service_exc_samples.go).
+func (s *Server) guidedServiceExceptionsBundle(ctx context.Context, emit func(string, any), route *guidedRoute, from, to time.Time) (string, string, error) {
+	service := route.Service
+	rd := serviceExcReadFn(s)
+	if rd == nil {
+		return "", "", errors.New("exception okuyucusu yok")
+	}
 	n := emitGuidedStep(emit, "list_exceptions", `{"service":`+jsonStr(service)+`}`)
-	exs, err := s.store.GetExceptions(ctx, chstore.ExceptionFilter{
+	exs, err := rd.GetExceptions(ctx, chstore.ExceptionFilter{
 		Services: []string{service}, GroupBy: "type-service", From: from, To: to, Limit: 30,
 	})
 	if err != nil {
@@ -34,6 +43,23 @@ func (s *Server) guidedServiceExceptionsBundle(ctx context.Context, emit func(st
 	}
 	ev := renderServiceExceptionsTR(service, exs, int64(to.Sub(from).Seconds()))
 	emitGuidedStepResult(emit, n, "list_exceptions", ev, nil)
+	if len(exs) > 0 {
+		refs := excSampleRefs(exs)
+		var stacks map[string]string
+		var stErr error
+		sn, read := 0, len(refs) > 0
+		if read {
+			sn = emitGuidedStep(emit, "exception_sample_stacks", fmt.Sprintf(`{"service":%s,"samples":%d}`, jsonStr(service), len(refs)))
+			stacks, stErr = s.readServiceExcStacks(ctx, rd, service, refs)
+		}
+		rows := buildExcSampleRows(exs, stacks, stErr, s.serviceExcAppPrefixes())
+		if read {
+			emitGuidedStepResult(emit, sn, "exception_sample_stacks", excSampleEvidenceTR(rows), stErr)
+		}
+		route.AnswerTail = renderServiceExcSamplesTR(service, rows, len(exs))
+		route.ExcSampleLinks = excSampleLinks(rows)
+		ev += "\n" + excSampleEvidenceTR(rows)
+	}
 	return ev, fmt.Sprintf("%s exception grupları (teknik hatalar, son %s)", service, fmtAgoTR(int64(to.Sub(from).Seconds()))), nil
 }
 

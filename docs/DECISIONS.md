@@ -10678,3 +10678,30 @@ doğru cevabı versin üstte".
 hâline, `offTopicGeneralAnswer`'ı not deltası + `offTopicChips`/`offTopicLinks`'e döndür, `systemOffTopicGeneral`'i
 v0.10.1458 metnine geri al + yeni etiket. Yalnız süzgeci kapatmak: `offTopicGeneralText`'te `stripScopeDisclaimers`
 çağrısını kaldır.
+
+## 2026-10-23 — v0.10.1486 — Servis exception cevabı: grup başına örnek trace linki + kısa stack kesiti
+
+**Bağlam.** v0.10.1479 "<svc> exception grupları neler, örnek stack ve ilgili trace'i bul" sorusunu
+`service_exceptions`'a yönlendirdi; demet yalnız tür · sayı · mesaj yazıyordu ("bilinen boşluk"). `ExceptionRow`
+grup başına örnek `SampleTraceID/SampleSpanID` (argMax(…, time)) zaten taşıyor. Operatör onayı 2026-10-23.
+
+**Karar.** Sunucu toplar, model anlatır. (1) En çok görülen ilk 5 grup için sunucu eki (`route.AnswerTail`,
+copilot_team_overview emsali; model düşüremez, trace ID uyduramaz): tablo `# · Exception · Sayı · Örnek trace ·
+Stack kesiti`; link `/trace?id=…&span=…` (span geçersizse span'siz), ilk 3 örnek ayrıca link çipi
+(`route.ExcSampleLinks`, Exceptions çipinin ardından). (2) Stack metni ayrı, TEK ve sınırlı okuma
+(`chstore.ExceptionSampleStacks`): servis + örnek başına ±1 sn zaman dilimi (örnek zamanı = grubun `LastSeen`'i) +
+trace/span eşitliği + `LIMIT 1 BY` + `LIMIT n` + `max_execution_time = 5`, MATERIALIZED `ex_stack` (yoksa JSON
+ifadesi), metin SQL'de 16 KB'ye kırpılı; 4 sn alt-tavan; Redis 10 dk (anahtar sıralı FNV, tüm işaretçiler). (3) Kesit
+`stackparse.SummarizeAppFrames`: ilk ≤4 uygulama çerçevesi (DevOps uygulama önekleri önce), yoksa fırlatma noktası
+"(kütüphane)" etiketiyle, çözümlenemeyen biçimde ilk ≤4 satır; satır başı 140 rune; tam stack asla basılmaz.
+(4) Dürüstlük: örnek işaretçisi yok → "örnek yok"; okuma düştü → "stack okunamadı" (yok DEĞİL, linkler durur);
+okundu ama alan boş → "stack yok"; kalan gruplar Exceptions linkiyle. Kanıta kısa not + grup başına ilk çerçeve.
+LLM bu parçalar için gerekmez; ES/logs okuması yok. Yeni rota/kademe/MCP aracı yok.
+
+**Geri alma.** Commit revert + yeni etiket; ya da `guidedServiceExceptionsBundle`'daki `len(exs) > 0` bloğunu sil
+(cevap 1485 ile bayt bayt aynı, stack okuması kalkar).
+
+**Testler.** `TestRenderServiceExcSamplesTable`, `TestBuildExcSampleRowsHonestStates`, `TestExcSampleBounds`,
+`TestExcStacksCacheKeyHashesAllInputs`, `TestServiceExceptionsBundleSamples` (tek toplu okuma, önbellek, hata hâli,
+boş hâl); chstore `TestExceptionSampleStacksQueryBounds`; `TestRoutingRegression` +1 satır (cevapta
+`/trace?id=…&span=…` ve stack kesiti) — regresyon düzeneği `service_exceptions` demetini sahte okuyucuyla koşturur.

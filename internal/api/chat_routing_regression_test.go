@@ -90,6 +90,7 @@ type routingRig struct {
 	offLLM  *offTopicLLM // set edilirse model bu (niyet = off_topic); yoksa noLLM
 	cache   map[string][]byte
 	outRead *fakeOutboundReader
+	excRead *fakeSvcExcReader // v0.10.1486 — service_exceptions demeti store'suz koşar
 }
 
 func rrSvcPage() map[string]any {
@@ -118,6 +119,12 @@ func withHostCallers(t *testing.T, s *routingRig) {
 	s.outRead = &fakeOutboundReader{hostCallers: func(time.Time, time.Time) []chstore.ExternalCaller {
 		return []chstore.ExternalCaller{{Service: rrSvc, Calls: 400, AvgMs: 300}}
 	}}
+}
+
+// withExcSamples — v0.10.1486: servisin exception grupları örnek trace + stack taşır.
+func withExcSamples(t *testing.T, s *routingRig) {
+	t.Helper()
+	s.excRead = &fakeSvcExcReader{rows: excFixtureRows(), stacks: excFixtureStacks()}
 }
 
 func withOutboundHits(t *testing.T, s *routingRig) {
@@ -218,6 +225,12 @@ var routingRegressionRows = []routingRow{
 	// gidiyordu; soru bir kök-neden sorusu (bağımlılık = şüpheli), harita değil.
 	{release: "v0.10.1479", name: "exception grupları + örnek stack + ilgili trace → service_exceptions (family_traces değil)",
 		q: rrSvc + " exception grupları neler, örnek stack ve ilgili trace'i bul", wantTier: aisurface.TierGuided, wantRoute: string(guidedServiceExceptions)},
+	// v0.10.1486 — aynı soru artık cevabın SONUNDA grup başına örnek trace
+	// linki (/trace?id=…&span=…) ve stack kesiti taşır (sunucu eki).
+	{release: "v0.10.1486", name: "exception grupları + örnek stack + trace → cevapta trace linki ve stack kesiti",
+		q: rrSvc + " exception grupları neler, örnek stack ve ilgili trace'i bul", setup: withExcSamples,
+		wantTier: aisurface.TierGuided, wantRoute: string(guidedServiceExceptions),
+		ansHas: []string{"**Örnek trace ve stack**", "(/trace?id=" + excTID1 + "&span=" + excSID1 + ")", "OrderService.reserve (OrderService.java:42)", "örnek yok"}},
 	{release: "v0.10.1479", name: "exception'lar + ilgili trace'leri göster → service_exceptions",
 		q: rrSvc + " exception'ları neler, ilgili trace'leri göster", wantTier: aisurface.TierGuided, wantRoute: string(guidedServiceExceptions)},
 	{release: "v0.10.1479", name: "en sık exception + örnek trace → service_exceptions",
@@ -285,7 +298,9 @@ var routingRegressionRows = []routingRow{
 }
 
 // routingPassThrough — dikişin demeti koşturduğu rotalar (store'suz çalışanlar).
-var routingPassThrough = map[guidedIntent]bool{guidedOutboundCall: true, guidedOffTopic: true}
+// v0.10.1486 — service_exceptions da: okuyucu dikişi (serviceExcReadFn) sahte,
+// anlatım sahte modelden; sunucu eki (örnek trace tablosu) cevapta görünür.
+var routingPassThrough = map[guidedIntent]bool{guidedOutboundCall: true, guidedOffTopic: true, guidedServiceExceptions: true}
 
 func TestRoutingRegression(t *testing.T) {
 	for _, row := range routingRegressionRows {
@@ -297,10 +312,12 @@ func TestRoutingRegression(t *testing.T) {
 				outboundHostsCacheKey:       []byte(`[{"h":"` + rrMainHost + `","c":["orders-api"],"n":120},{"h":"` + rrESBHost + `","c":["orders-api"],"n":400}]`),
 			}}
 			rig.outRead = &fakeOutboundReader{}
+			rig.excRead = &fakeSvcExcReader{}
 			if row.setup != nil {
 				row.setup(t, rig)
 			}
 			installOutboundReader(t, rig.outRead)
+			installExcReader(t, rig.excRead)
 			prevCat := opCatalogSeam
 			opCatalogSeam = func(context.Context, []string, int) ([]chstore.CatalogOperation, error) { return nil, nil }
 			t.Cleanup(func() { opCatalogSeam = prevCat })

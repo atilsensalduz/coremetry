@@ -755,8 +755,8 @@ func guidedAnswerLinkTargets(route guidedRoute) []guidedAnswerLink {
 	case guidedTeamServices, guidedMyServices:
 		return teamServicesAnswerLinks(route)
 	case guidedServiceExceptions:
-		if svc != "" {
-			return []guidedAnswerLink{{Label: svc + " · Exceptions", Href: "/problems?service=" + svcQ}}
+		if svc != "" { // v0.10.1486 — örnek trace çipleri Exceptions linkinin ardından
+			return append([]guidedAnswerLink{{Label: svc + " · Exceptions", Href: "/problems?service=" + svcQ}}, route.ExcSampleLinks...)
 		}
 		return nil
 	case guidedTopErrorOps: // v0.10.1256

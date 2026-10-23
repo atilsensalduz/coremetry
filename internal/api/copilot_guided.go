@@ -330,6 +330,9 @@ type guidedRoute struct {
 	// Model onu düşüremez/değiştiremez (takım servis listesi + son exception
 	// grupları + "hangi servis?" sorusu, copilot_team_overview.go). JSON'a girmez.
 	AnswerTail string `json:"-"`
+	// ExcSampleLinks — v0.10.1486: service_exceptions demetinin örnek trace
+	// çipleri (/trace?id=…&span=…; copilot_service_exc_samples.go). JSON'a girmez.
+	ExcSampleLinks []guidedAnswerLink `json:"-"`
 	// v0.10.1386 — metric_chart (copilot_metric_chart.go). GİRDİ (JSON'a girer:
 	// LastRoute "son 24 saate genişlet" takibinde klonlanır): ChartTemplate
 	// şablon kimliği, ChartGroupBy kırılım (""|env|pod), ChartEnvAsked ortam
@@ -2292,7 +2295,7 @@ func (s *Server) runGuidedRoute(ctx context.Context, emit func(string, any), rou
 	case guidedTeamExceptions: // v0.10.1385
 		evidence, sources, err = s.guidedTeamExceptionsBundle(ctx, emit, &route, from, to)
 	case guidedServiceExceptions:
-		evidence, sources, err = s.guidedServiceExceptionsBundle(ctx, emit, route.Service, from, to)
+		evidence, sources, err = s.guidedServiceExceptionsBundle(ctx, emit, &route, from, to)
 	case guidedTopErrorServices:
 		var rows []chstore.ErrorRank
 		evidence, sources, rows, err = s.guidedTopErrorServicesFleet(ctx, emit, from, to)
