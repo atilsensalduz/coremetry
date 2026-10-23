@@ -5,564 +5,477 @@
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Go Report Card](https://goreportcard.com/badge/github.com/cosretr/coremetry)](https://goreportcard.com/report/github.com/cosretr/coremetry)
 
-**Open-source, OpenTelemetry-native, enterprise-grade APM.**
-Traces, metrics, logs, profiles, RUM — all on ClickHouse, all
-behind a single Go binary, all manageable via Helm. Designed
-for billion-span/day production scale; runs on a laptop in
-docker-compose for evaluation.
+**Open-source, OpenTelemetry-native APM with a built-in AI SRE assistant.**
+
+Coremetry takes OTLP over gRPC and HTTP, with no proprietary agent or SDK,
+and keeps traces, logs and span-derived aggregates in **ClickHouse**. Metrics are read with
+**PromQL**, either from ClickHouse or from an external **VictoriaMetrics**
+or other Prometheus-compatible store. Logs come from ClickHouse or an existing
+**Elasticsearch** cluster and are joined to traces by `trace_id`. A
+**Tempo** backend can serve as the fallback for traces that were sampled out
+before they reached Coremetry. All of this ships as one Go binary with the
+web UI embedded and is installed with one Helm chart.
 
 <p align="center">
   <a href="docs/screenshots/trace-waterfall.png"><img src="docs/screenshots/trace-waterfall.png" alt="Coremetry trace waterfall view" width="900" /></a>
 </p>
 
-```
-apps ──▶ OTel Collector ──▶ Coremetry  (gRPC :4317  /  HTTP :8088)
-                              │
-                              ├── ClickHouse  — primary store (spans / logs / metrics / profiles)
-                              ├── Redis       — response cache + leader lock (optional)
-                              └── Web UI      — Vite SPA embedded into the binary
-```
-
----
-
-## Screenshots
-
 | | |
 |---|---|
-| [![Service operations](docs/screenshots/dashboard.png)](docs/screenshots/dashboard.png) **Per-operation RED view of a service (rate, errors, P50–P99, trends)** | [![Service map](docs/screenshots/service-graph.png)](docs/screenshots/service-graph.png) **Service map from trace edges, two hops around a focus service** |
-| [![Problems](docs/screenshots/problems.png)](docs/screenshots/problems.png) **Problems inbox: anomalies, alert rules and exception groups with priority** | [![SLOs](docs/screenshots/slos.png)](docs/screenshots/slos.png) **SLOs with error-budget burn rate** |
-| [![Endpoints](docs/screenshots/endpoints.png)](docs/screenshots/endpoints.png) **Endpoints across services with error rate, status mix and latency** | [![Logs](docs/screenshots/logs.png)](docs/screenshots/logs.png) **Logs with level histogram, KQL search and trace links** |
+| [![Service operations](docs/screenshots/dashboard.png)](docs/screenshots/dashboard.png) **Per-operation RED view of a service** | [![Service map](docs/screenshots/service-graph.png)](docs/screenshots/service-graph.png) **Service map built from trace edges** |
+| [![Problems](docs/screenshots/problems.png)](docs/screenshots/problems.png) **Problems inbox: anomalies, alert rules and exception groups, prioritised** | [![SLOs](docs/screenshots/slos.png)](docs/screenshots/slos.png) **SLOs with error-budget burn rate** |
+| [![Endpoints](docs/screenshots/endpoints.png)](docs/screenshots/endpoints.png) **Endpoints across services: error rate, status mix, latency** | [![Logs](docs/screenshots/logs.png)](docs/screenshots/logs.png) **Logs with level histogram, KQL search and trace links** |
 
-More in [`docs/screenshots/`](docs/screenshots/): services list, profiling flamegraph, login.
-
----
-
-## What it is
-
-Coremetry collects every signal the OpenTelemetry ecosystem
-produces and turns them into the dashboards an SRE actually
-opens during an incident. Native OTLP ingest (gRPC + HTTP) on
-the same wire format Datadog, Honeycomb, Dynatrace, Grafana
-Cloud agents already speak — drop the Coremetry endpoint into
-your existing OTel collector or SDK and you're shipping data.
-No proprietary SDK, no vendor agent, no shim layer.
+More in [`docs/screenshots/`](docs/screenshots/): services list, profiling
+flamegraph, login.
 
 ---
 
-## How Coremetry compares
+## Contents
 
-The closest open-source neighbours are SigNoz, Uptrace and HyperDX,
-which also build on ClickHouse, and the Grafana stack (Tempo, Loki,
-Mimir, Grafana). Commercial APMs (Datadog, Dynatrace, New Relic,
-Honeycomb) are the usual incumbents. Rather than a feature matrix
-that goes stale, here is what Coremetry deliberately chooses:
-
-| Choice | What Coremetry does |
-|---|---|
-| **Moving parts** | One Go binary with the UI embedded, ClickHouse as the only store, Redis optional. One Helm chart, one image tag per release. No separate query, ingest, UI or rules services to version together. |
-| **Ingest** | OTLP only (gRPC + HTTP). No proprietary agent, no vendor SDK, no second wire protocol. Whatever the OTel collector or SDK already emits is the input. |
-| **Day-one SRE workflow** | Golden Signals / RED / USE and an Incident War Room are pre-seeded. Alerts are auto-grouped into incidents by a topological correlator; SLOs carry error-budget burn rate; runbooks can execute automated steps. These are built in, not dashboards you assemble. |
-| **Enterprise access** | OIDC, LDAP / Active Directory with group-to-role mapping, RBAC and an append-only audit log ship in the open-source build, because that is the bar for running inside a regulated organisation. |
-| **Existing log pipelines** | Logs always land in ClickHouse, but the read path can be pointed at an existing Elasticsearch cluster so teams keep their current log tooling while adopting traces and metrics. |
-| **Platforms** | Helm for Kubernetes, flat manifests for OpenShift (restricted-v2 SCC), docker-compose for evaluation. |
-| **LLM access** | A built-in MCP server exposes services, problems, traces, logs and metrics to Claude Desktop or any MCP client, with the same RBAC as the UI. |
-| **Scale shape** | Same image runs monolithic for small installs or as ingest / api / worker deployments for billion-span/day. Switching is a Helm values change and a rolling upgrade. |
-
-Where another tool may be the better fit: the Grafana ecosystem
-offers a far larger catalogue of community dashboards, data sources
-and plugins; commercial vendors offer managed hosting, APM agents
-for languages without good OTel coverage, and support contracts;
-and projects with longer histories have more battle-tested
-migration tooling. Coremetry is pre-1.0 and says so in
-[Status](#status).
+- [Features](#features)
+- [Architecture](#architecture)
+- [Quick start (docker compose)](#quick-start-docker-compose)
+- [Production install (Helm)](#production-install-helm)
+- [Configuration essentials](#configuration-essentials)
+- [Sending data](#sending-data)
+- [Development](#development)
+- [License](#license) · [Status](#status)
 
 ---
 
 ## Features
 
-### Signal coverage
+### Traces
 
-- **Distributed tracing** — full waterfall view, critical-path
-  highlighting, side-by-side trace compare with per-operation
-  delta diff, Tempo-compatible `/api/traces` for Grafana.
-- **Metrics** — OTLP metrics ingestion, span-derived RED
-  metrics (rate / errors / duration aggregated per service +
-  operation), built-in dashboards.
-- **Logs** — native OTLP logs with token-bloom-filter search
-  on the body, optional external Elasticsearch read backend
-  for organisations whose pipeline already terminates there.
-- **Profiles** — pprof / pyroscope-compatible ingestion +
-  flamegraph viewer.
-- **Frontend RUM** — built-in browser SDK dogfooding so the UI
-  ships its own page-load + click + fetch traces back through
-  OTLP. Use the pattern as a template for instrumenting your
-  own apps.
+- Trace waterfall with the critical path highlighted, the error chain
+  (which downstream call failed first) and span-to-log and span-to-pod pivots.
+- A side-by-side trace compare that diffs each operation.
+- Trace search by service, operation, attributes, duration and errors,
+  plus a volume strip and CSV export.
+- Trace links you can share, and a read-only public trace snapshot.
+- A Tempo-compatible `/api/traces/{id}` endpoint for Grafana. When Tempo is configured
+  (Settings › Tempo backend), traces missing from ClickHouse are looked up in Tempo.
 
-### SRE workflow
+### Services, endpoints, operations
 
-- **SRE-perspective dashboards** out of the box — Golden
-  Signals (Google), RED (Tom Wilkie), USE (Brendan Gregg) +
-  Incident War Room, Latency Investigation, Error Hunting,
-  Database Performance, External Dependencies, Infrastructure
-  Saturation. Inspired by Datadog / Honeycomb / Dynatrace
-  patterns.
-- **Custom dashboards** — drag-droppable panels, Grafana-style
-  template variables (`$service`, `$env` …). Versioned preset
-  bundle migration so upgrades update the seed dashboards
-  without clobbering user-built ones.
-- **Service map** — force-directed topology graph derived from
-  sampled trace edges; node colour = error rate, edge weight =
-  call frequency. Click-through to per-service detail.
-- **Alert rules + incidents** — configurable rules over RED
-  metrics, auto-grouped into incidents using the built-in
-  topological correlator (a payment-service timeout + an
-  upstream api-gateway saturation alert end up in one incident
-  the oncall drives end-to-end).
-- **Anomaly detection** — log-pattern anomalies (curated
-  regex fingerprints for Oracle errors, OOM, NPE, deadlocks,
-  panics, etc.) + trace-op anomalies (per-endpoint error-rate
-  spikes) + metric anomalies (z-score baseline). Snooze /
-  silence with TTL.
-- **SLOs** — availability + latency targets with error-budget
-  burn rate computation.
-- **Synthetic monitors** — HTTP probes + heartbeat ping URLs;
-  state changes flow through the same notifier path as alert
-  rules.
+- A services catalogue with RED metrics (rate, errors, duration), runtime badges,
+  team ownership and pinning.
+- Each service page has these tabs: Overview, Operations, Endpoints, HTTP
+  Metrics (PromQL panels), Infrastructure (clusters and pods inline),
+  Topology, Exceptions, Logs and Deployments.
+- Endpoint detail shows a "where the time goes" breakdown, the latency
+  percentiles and a split by cluster and environment.
+- Databases (statements and slow queries), external dependencies, hosts,
+  Kubernetes clusters, namespaces and pods, and Kafka messaging (topics and
+  consumer lag).
+- A unified search page (`/search`), a command palette and a guided in-app tour.
 
-### Performance + scale
+### Metrics
 
-- **ClickHouse-first** — every read path is a CH query;
-  no in-app indexing or rollup engine. Designed for billion-
-  span/day with proper schema (LowCardinality columns,
-  primary-key prefix, `tokenbf_v1` skip indexes on log body,
-  bloom-filter on trace_id, MergeTree partitioning by day).
-- **Distributed CH support** — the schema migrator emits
-  `ON CLUSTER` DDL when `cluster_name` is set, creating
-  `Replicated*MergeTree` tables on each shard plus a
-  `Distributed` wrapper that fans out queries.
-- **Async insert + parallel flushers** — 8-worker pool, 500k
-  buffer, 5 s flush window (v0.10.240; was 2 s). Consumer pushback via bounded
-  channels.
-- **Trace sampling** — head sampling with always-keep-errors
-  + always-keep-roots + per-service ratios. Optional buffered
-  tail sampling that decides keep/drop based on aggregate
-  trace properties (error / slow / probabilistic).
-- **uPlot frontend charts** — replaces Chart.js for ~10× the
-  render speed, ~100 KB smaller bundle.
-- **Live updates via SSE** — problem.open / problem.resolve /
-  anomaly.* events push to the browser; React Query
-  invalidates the matching cache. Sub-second alert-to-UI
-  latency vs the typical 30-s polling lag.
+- OTLP metrics ingest, with RED metrics derived from spans and kept in
+  ClickHouse materialized views.
+- A PromQL engine over the ClickHouse metric store. External reads come
+  from VictoriaMetrics or another Prometheus-compatible API, and from Thanos
+  Querier for remote clusters (Settings › Metric backend / Remote clusters).
+  Incoming OTLP metrics can optionally be forwarded to VictoriaMetrics.
+- An Explore view with a PromQL editor whose suggestions come from the
+  selected source, and a pipe-style query language (DQL) over spans and metrics.
 
-### Enterprise
+### Logs
 
-- **OIDC SSO** — Google, Microsoft, Okta, generic OIDC.
-  Central-login permission service (`POST /api/auth/permissions`):
-  [docs/SSO-PERMISSION-SERVICE.md](docs/SSO-PERMISSION-SERVICE.md).
-- **LDAP / Active Directory** — AD group → role mapping,
-  recursive memberOf lookup, LDAPS + StartTLS, internal-CA
-  paste-in.
-- **RBAC** — admin / editor / viewer roles. Editor manages
-  dashboards / monitors / alerts / incidents; admin owns
-  user + system settings.
-- **Audit log** — append-only, partitioned monthly, 365-day
-  TTL. Filterable by actor / action / target.
-- **Notification channels** — Slack, Microsoft Teams, generic
-  webhook, email (SMTP), WhatsApp (Twilio). Per-channel min
-  severity filter; channel CRUD + send-test from the UI.
-- **AI Copilot** — explain-this-trace / explain-this-anomaly
-  via Anthropic Claude or GitHub Copilot; key configured at
-  runtime, hidden from the UI after save.
-- **SQL playground** — admin-only direct ClickHouse query
-  console with three-layer defence (role gate, app-level
-  allow-list, CH `readonly=2` + 60-s exec cap).
-- **Resource sampling settings UI** — adjust head + tail
-  sampling ratios live without process restart.
+- OTLP logs are stored in ClickHouse with a token bloom-filter index on the
+  body. The read path can instead point at an existing Elasticsearch
+  cluster (read-only user, `_msearch` batching).
+- Logs are joined to traces by `trace_id`. The view has a Lucene/KQL-subset search,
+  a level histogram, live tail, surrounding context and saved searches.
+- Log patterns (Drain templates), significant terms, and a deep link to Kibana.
+
+### Problems, anomalies, exceptions
+
+- A **Problems inbox** that ranks issues P1/P2/P3. Every problem carries a
+  plain-language reason: alert rules, anomalies and exception groups land
+  in one list.
+- **Exception groups** with fingerprinting, occurrence bands, sample traces
+  with their logs, and resolve and ignore actions.
+- **Anomaly detection**: log-pattern detectors (curated regexes, new templates,
+  batch patterns), per-operation error and latency anomalies, service slowdown,
+  SLO burn and metric baselines. Elastic ML anomaly jobs can also be imported (read-only).
+- **Incidents**: a topological correlator groups related problems into one incident.
+- **SLOs** with error-budget burn rate. **Synthetic monitors** (HTTP probes)
+  and heartbeats. Maintenance windows and a public status page.
+
+### Topology
+
+- A service map built from sampled trace edges, with hops counted from a
+  focus service and namespace lanes.
+- Kubernetes DNS and gateway hostnames resolve to the real service.
+- One-hop topology cards appear inside CoSRE answers.
+
+### Rollouts and Argo CD
+
+- A rollouts timeline per workload, based on ReplicaSet and kube-state-metrics
+  revisions. It shows when traffic moved, image changes and a workload
+  filter, and links to the service.
+- Argo CD integration covers hub and instance discovery and app sync status. Rollbacks are
+  attributed to their git source through an Argo CD sync webhook.
+- Deploy events and a deployment report. Change events also feed problem
+  context. See [docs/DEPLOY-EVENTS.md](docs/DEPLOY-EVENTS.md).
+
+### Dashboards
+
+- Preset dashboards for the APM overview, service performance, HTTP services,
+  databases, JVM, Node.js, Go runtime, Kafka, errors and exceptions, and dependencies.
+  Presets are versioned, so upgrades re-seed them without losing your edits.
+- Custom dashboards with uPlot panels, template variables (`$service`, …),
+  sharable links that pin the time range, and a global auto-refresh picker.
+- "Explain this chart" on any panel. Charts in a CoSRE answer can be added
+  to a dashboard in one click.
+
+### Alerts and notifications
+
+- Alert rules over RED metrics and PromQL. Elasticsearch Watcher definitions
+  can be imported as alert rules.
+- Notification channels: email (SMTP), Slack, Mattermost, Microsoft Teams,
+  Zoom Chat, generic webhook and WhatsApp (Twilio), each with a minimum
+  severity. Team routing mails the owning team when a problem first opens.
+- Runbooks with automated steps (HTTP, JavaScript or bash), which the
+  isolated `agent` role executes.
+
+### CoSRE: AI assistant
+
+CoSRE is the chat assistant built into every page ("Ask CoSRE").
+
+- **Guided intents.** Common questions are answered by deterministic,
+  evidence-first intents before any free-form tool loop runs. Examples
+  are service health, the service report, a team's latest exceptions,
+  why an operation fails, endpoint and cluster comparisons, outbound
+  calls, a pod or JVM resource review, topology and metric charts. Starter
+  questions offer choices taken from live data.
+- **Evidence.** Answers carry evidence chips that open the underlying query
+  in Explore, Logs or Traces. Charts, tables and topology render inline, and
+  turns are archived so history and shared chats redraw them.
+- **Context.** CoSRE knows the current page (service, trace, exception, problem,
+  log line, panel), and you can pivot across signals (trace → pod → JVM → logs).
+- **Knowledge.** Answers can draw on wiki pages (Azure DevOps Server), uploaded
+  documents (`.xlsx`, `.csv`, JSON, YAML, text) and RAG with cited sources.
+  Code review can read the source of the failing operation through Azure
+  DevOps code search. Rules and memory ("remember this") persist.
+- **Model profiles.** You can configure up to 20 profiles for Anthropic,
+  GitHub Copilot or **any OpenAI-compatible endpoint**. Self-hosted models
+  such as Gemma and Qwen work through Ollama, vLLM or LM Studio. Admins pick a
+  default and can map individual surfaces to a different profile. Each
+  profile can set its own headers, TLS and tuning.
+- **`localOnly` gate.** Source code and wiki content are sent only to a
+  profile that an admin has marked "local (self-hosted) model". Without one,
+  that content is not fetched at all.
+- **AI SRE background investigations** run in the `sre` role. Open P1 and P2
+  problems are queued for read-only investigation, and the results appear
+  on the Problem page as a hypothesis card, timeline and verify/dismiss
+  actions, plus a matched runbook and rollback text. This is
+  **recommendation-only**: nothing is executed or changed. An evaluation
+  harness replays past problems against a frozen set and compares runs.
+- AI usage, latency and errors are recorded per call on the `/ai` page.
+  Budget and retention controls live in Settings › CoSRE.
+
+### MCP server
+
+- A built-in [Model Context Protocol](https://modelcontextprotocol.io) server
+  exposes **74 tools**. They are grouped into toolsets (services, traces,
+  problems, changes, metrics, logs, knowledge, …), and each toolset can be
+  switched on or off and shows a health status. The server also exposes
+  resources (`coremetry://…`) and prompts.
+- Transports are Streamable HTTP (`POST /api/mcp`) and legacy HTTP+SSE
+  (`GET /api/mcp/sse` + `POST /api/mcp/messages`).
+- Authentication uses the UI session or a service API token (Settings › API
+  Tokens), with the same role checks as the REST API.
+- **Outbound MCP client**: CoSRE can call tools on external MCP servers that
+  you configure (Settings › MCP servers). A Grafana MCP example is in
+  [`docker-compose.grafana-mcp.yml`](docker-compose.grafana-mcp.yml).
+
+### Auth and administration
+
+- Local accounts, **LDAP / Active Directory** (group-to-role mapping, LDAPS and
+  StartTLS), **OIDC SSO** with presets for common IdPs and IdP logout, and a
+  trusted-header mode for oauth2-proxy or IAP.
+  Central permission service: [docs/SSO-PERMISSION-SERVICE.md](docs/SSO-PERMISSION-SERVICE.md).
+- The **admin / editor / viewer** roles, plus custom roles that limit the pages a
+  viewer can see. Viewers see everything read-only.
+- An append-only audit log for every admin write, and backup and restore of
+  settings.
+- Ingest pipeline rules (drop, enrich, sample) and data retention, editable in
+  the UI.
+- An admin-only, read-only SQL console with role and allow-list checks.
+  ClickHouse runs it as `readonly` with an execution cap.
+- Branding, themes (dark, light, corporate), announcement banner.
+
+### Self-observability
+
+- Coremetry traces itself over OTLP (`COREMETRY_SELF_OBS_*`), and the web UI
+  ships browser traces through the OpenTelemetry JS SDK.
+- Its own metrics (api, worker, ingest) go to the configured VictoriaMetrics,
+  so its service page renders like any other.
+- `/system` shows ingest, store and worker stats, and `/ai` shows AI calls.
 
 ---
 
-## Quick start (docker-compose, evaluation)
+## Architecture
 
-Boots ClickHouse, Redis, OTel Collector, Coremetry plus a
-Java + Go demo emitting realistic traffic.
+```mermaid
+flowchart LR
+  apps["Apps (OTel SDKs / agents)"] --> col["OTel Collector"]
+  col -- "OTLP gRPC :4317 / HTTP :4318" --> ingest
+  subgraph cm["coremetry (one image, COREMETRY_MODE)"]
+    ingest["ingest"]
+    api["api: UI + REST + SSE + MCP"]
+    worker["worker: evaluator, anomaly, notifier"]
+    sre["sre: AI SRE drain"]
+    agent["agent: runbook steps"]
+  end
+  ingest --> ch[("ClickHouse")]
+  ingest -. "optional metric forward" .-> vm[("VictoriaMetrics")]
+  api --> ch
+  api -. "PromQL" .-> vm
+  api -. "logs read" .-> es[("Elasticsearch")]
+  api -. "trace fallback" .-> tempo[("Tempo")]
+  worker --> ch
+  cm <--> redis[("Redis: cache, leader lock, SSE bridge")]
+  api -. "optional" .-> llm["LLM endpoint(s)"]
+```
+
+**One binary, six roles.** The same image runs every role. `COREMETRY_MODE` picks it
+([`main.go`](main.go) `parseRunModeValue`):
+
+| Mode | Runs |
+|---|---|
+| `all` (default) | Everything in one process, including the AI SRE drain. Use it for POC or small installs. |
+| `ingest` | OTLP gRPC/HTTP receivers and the ClickHouse writers. Scales horizontally. |
+| `api` | Web UI, REST API, SSE event stream and MCP server. Scales horizontally. |
+| `worker` | Alert evaluator, anomaly detectors, topology aggregation, notifier, AI SRE enqueue. Background jobs are leader-elected through a Redis lock. |
+| `agent` | Runs automated runbook steps in an isolated pod. Each step is claimed through a Redis lock. |
+| `sre` | AI SRE investigation drain. Reads only and never writes problems. |
+
+**Dependencies**
+
+| | Required? | Role |
+|---|---|---|
+| ClickHouse 24+ | **required** | Warm store for spans, logs, metrics, profiles and saved state. Reads go through materialized views first. A distributed cluster (`ON CLUSTER`, Replicated + Distributed tables) is supported, see [docs/clickhouse-cluster.md](docs/clickhouse-cluster.md). |
+| Redis 7+ | required for more than one replica or distributed mode | L2 cache, leader lock, cross-pod SSE bridge. Without it, Coremetry runs single-instance and always holds the lock. |
+| OTel Collector | recommended | Fan-in, batching, and optional head sampling (Coremetry stores 100% of what it receives). |
+| VictoriaMetrics / Prometheus-compatible store, Thanos | optional | PromQL metric reads, plus remote clusters through Thanos. |
+| Elasticsearch | optional | Log read backend. |
+| Tempo | optional | Trace-by-id fallback for traces sampled out before Coremetry. |
+| LLM endpoint | optional | CoSRE and AI SRE. With no key configured, the AI features stay hidden. |
+
+Schema reference: [docs/SCHEMA.md](docs/SCHEMA.md). Architectural decisions:
+[docs/DECISIONS.md](docs/DECISIONS.md).
+
+---
+
+## Quick start (docker compose)
 
 ```bash
 git clone https://github.com/cosretr/coremetry
 cd coremetry
-docker compose up -d
+docker compose up -d --build                  # core: coremetry, clickhouse, redis, elasticsearch, otel-collector
+docker compose --profile demo up -d --build   # + Tempo, Grafana, Pyroscope and the Java/Go demo apps
 ```
 
-Web UI: `http://localhost:8088` — login with
-`admin@coremetry.local` / `admin`. The demo apps populate
-data within ~30 seconds; the SRE dashboards are pre-seeded.
-OTLP endpoints for your own apps:
+The Makefile has the same two commands: `make docker-up` and `make docker-up-demo`.
 
-- gRPC: `localhost:4317`
-- HTTP: `localhost:8088/v1/{traces,logs,metrics}`
+- Web UI: <http://localhost:8088>. Sign in as `admin@coremetry.local` / `admin`,
+  or set `COREMETRY_INITIAL_PASSWORD` in `.env` first.
+- OTLP for your own apps goes to the collector at `localhost:14317` (gRPC) or
+  `localhost:14318` (HTTP).
+- In the compose stack, logs are read from the bundled Elasticsearch
+  (`COREMETRY_LOGS_BACKEND=elasticsearch`). The collector sends 30% of traces
+  to Coremetry and 100% to Tempo.
+- To enable CoSRE, set `COREMETRY_AI_API_KEY` (plus `COREMETRY_AI_PROVIDER` /
+  `COREMETRY_AI_BASE_URL` for an OpenAI-compatible endpoint), or add a model
+  profile under Settings › CoSRE.
+
+A distributed overlay is also available (`make docker-distributed-up`). The full
+local guide, including ports, the dev loop and minikube, is in [docs/local-dev.md](docs/local-dev.md).
 
 ---
 
 ## Production install (Helm)
 
-The chart in `charts/coremetry` is the supported install
-path. Bundles ClickHouse + Redis + the Coremetry app plus an
-OTel Collector for ingest. External ClickHouse / Redis is
-fully supported — point the chart values at them and disable
-the bundled subcharts.
-
-### Add the chart repository
-
-The chart ships as an OCI artifact. From a Helm 3.8+ install:
+The chart in [`charts/coremetry`](charts/coremetry) is the supported install
+path. Each release publishes it as an OCI artifact, and chart versions are
+**un-prefixed** (`0.10.1462`, not `v0.10.1462`):
 
 ```bash
-helm install coremetry oci://ghcr.io/cosretr/charts/coremetry \
-  --version <release-tag> \
-  --create-namespace --namespace coremetry
-```
-
-Replace `<release-tag>` with a published release (see
-[Releases](https://github.com/cosretr/coremetry/releases)) or
-omit `--version` to take latest.
-
-### Or install from a checkout
-
-```bash
-git clone https://github.com/cosretr/coremetry
-cd coremetry
-helm install coremetry charts/coremetry \
-  --create-namespace --namespace coremetry \
-  --set ingress.enabled=true \
-  --set 'ingress.hosts[0].host=coremetry.example.com' \
-  --set 'ingress.hosts[0].paths[0].path=/' \
-  --set 'ingress.hosts[0].paths[0].pathType=Prefix' \
-  --set secrets.jwtSecret="$(openssl rand -hex 32)"
-```
-
-### Pointing at an external ClickHouse cluster
-
-```bash
-helm install coremetry charts/coremetry \
-  --set clickhouse.enabled=false \
-  --set clickhouse.external.addr="ch1:9000,ch2:9000,ch3:9000,ch4:9000" \
-  --set clickhouse.database="coremetry_prod" \
-  --set clickhouse.username="coremetry" \
-  --set secrets.clickHousePassword="<password>"
-```
-
-The driver round-robins / fails over across the seed list —
-no upstream LB needed.
-
-### Connect external apps
-
-Inside the cluster the OTLP receiver lives at
-`coremetry-otelcol:4317` (gRPC) or
-`coremetry:8088/v1/{traces,logs,metrics}` (HTTP). Point your
-apps' `OTEL_EXPORTER_OTLP_ENDPOINT` at it.
-
-### Reset schema on a fresh deploy
-
-For first-install convenience the chart can drop + recreate
-the entire CH database before the app pod starts:
-
-```bash
-helm install coremetry charts/coremetry \
-  --set clickhouse.resetSchema=true
-```
-
-The pre-install hook Job runs `coremetry --reset-schema`,
-which `DROP DATABASE IF EXISTS` + lets the app's normal
-startup migrations rebuild the schema. **Destructive** — only
-use on first install. Flip back to `false` for upgrades.
-
-### OpenShift
-
-A flat manifest set lives in `examples/openshift/` for
-clusters that don't run Helm. Restricted-v2 SCC compatible
-(no `runAsUser` pin), TLS-edge `Route` for the Web UI.
-
-### Deployment topology — monolithic vs distributed (v0.6+)
-
-The same Coremetry image runs in two shapes, picked via a
-single values key. Switch at any time with a rolling upgrade:
-
-```yaml
-# values.yaml
-deployment:
-  mode: monolithic     # default — one Deployment, COREMETRY_MODE unset
-  # OR
-  mode: distributed    # three Deployments: ingest + api + worker
-  roles:
-    ingest: { replicas: 5 }   # scale up for OTLP fan-in load
-    api:    { replicas: 2 }   # scale up for read HA / RPS
-    worker: { replicas: 1 }   # MUST be 1 — leader-elected jobs
-```
-
-| Topology | When to use |
-|---|---|
-| `monolithic` (default) | POC, SME installs, dev clusters. One pod, one container, every subsystem in-process. Matches every Coremetry release up to v0.5.x — no migration cost for existing users. |
-| `distributed` | Production at billion-spans/day scale. Three Deployments running the same image with `COREMETRY_MODE=ingest|api|worker`. Ingest scales horizontally for OTLP load; api scales for read HA; worker stays singleton (alert evaluator, anomaly detector, topology aggregator are leader-elected via Redis lock and a single replica avoids the lock-contention overhead). |
-
-### Distributed install — one command, all components
-
-A single `helm install` brings up the **entire** distributed stack —
-the four Coremetry roles plus the bundled ClickHouse, Redis, and OTel
-Collector. No external dependency is required: logs default to the
-ClickHouse read backend, so Elasticsearch is optional (see below).
-
-```bash
-helm install coremetry oci://ghcr.io/cosretr/charts/coremetry \
-  --version 0.7.109 \
+helm upgrade --install coremetry oci://ghcr.io/cosretr/charts/coremetry \
+  --version <version> \
   --namespace coremetry --create-namespace \
-  --set deployment.mode=distributed \
-  --set deployment.roles.ingest.replicas=3 \
-  --set deployment.roles.api.replicas=2 \
-  --set deployment.roles.worker.replicas=1 \
-  --set deployment.roles.agent.enabled=true \
   --set secrets.jwtSecret="$(openssl rand -hex 32)" \
   --set secrets.initialAdminPassword="<choose-a-password>"
 ```
 
-That one command renders, in namespace `coremetry`:
+By default this brings up a **monolithic** Coremetry Deployment plus a bundled
+single-node ClickHouse, Redis and OTel Collector. You can also install from a
+checkout with `helm install coremetry charts/coremetry …`.
 
-| Workload | Kind | Role (`COREMETRY_MODE`) |
-|---|---|---|
-| `coremetry-ingest` | Deployment ×3 | OTLP receivers + CH writers (`ingest`) |
-| `coremetry-api` | Deployment ×2 | Web UI + REST API + SSE + MCP (`api`) |
-| `coremetry-worker` | Deployment ×1 | evaluator + anomaly + topology agg + notifier — leader-elected, **keep at 1** (`worker`) |
-| `coremetry-agent` | Deployment ×1 | runbook automated-step executor (http/js/bash), Redis-locked |
-| `coremetry-clickhouse` | StatefulSet ×1 | bundled warm store (20Gi PVC) |
-| `coremetry-redis` | Deployment ×1 | cache + leader lock + cross-pod SSE bridge |
-| `coremetry-otelcol` | Deployment ×1 | OTLP collector → forwards to `coremetry-ingest:4317` |
+**Distributed topology.** You switch to it by changing values and doing a
+rolling upgrade:
 
-Fronted by seven Services: the stable **`coremetry`** (aliases the api
-role — point your Ingress/Route here), plus `coremetry-ingest`,
-`coremetry-api`, `coremetry-worker`, and the `coremetry-clickhouse` /
-`coremetry-redis` / `coremetry-otelcol` backends. With
-`autoscaling.enabled=true` the HPA targets the api role.
+```bash
+  --set deployment.mode=distributed \
+  --set deployment.roles.ingest.replicas=3 \
+  --set deployment.roles.api.replicas=2 \
+  --set deployment.roles.agent.enabled=true      # worker stays at 1; sre is on by default
+```
 
-> **Version pinning.** The chart's `appVersion` sets the default image
-> tag, and published image tags are **un-prefixed** (`0.7.109`, *not*
-> `v0.7.109`). To deploy a different build add `--set image.tag=<version>`.
+This renders `coremetry-ingest`, `coremetry-api`, `coremetry-worker` (keep it at 1),
+`coremetry-sre` and, if enabled, `coremetry-agent`. The stable `coremetry`
+Service aliases the api role, so point your Ingress or Route at it.
+Distributed mode requires Redis.
 
-**Production: external ClickHouse + Redis.** At billion-span scale,
-disable the bundled single-node backends and point at your own cluster:
+**External ClickHouse and Redis**
 
 ```bash
   --set clickhouse.enabled=false \
   --set clickhouse.external.addr="ch1:9000,ch2:9000,ch3:9000" \
   --set secrets.clickHousePassword="<password>" \
   --set redis.enabled=false \
-  --set redis.external.url="redis://redis.internal:6379/0"
+  --set redis.external.url="redis://redis.example.internal:6379/0"
 ```
 
-**Optional: Elasticsearch logs backend.** Coremetry always *writes*
-logs to ClickHouse; this switches only the *read* path to an existing
-ES pipeline. ES is **not bundled** — point at your cluster:
+The driver round-robins and fails over across the seed list, so no load
+balancer is needed. Use `clickhouse.secure=true` for native TLS (9440).
+
+**Elasticsearch log reads** (Elasticsearch is not bundled):
 
 ```bash
   --set logs.backend=elasticsearch \
-  --set 'logs.elasticsearch.addresses={https://es.internal:9200}' \
-  --set logs.elasticsearch.index="coremetry-logs" \
+  --set 'logs.elasticsearch.addresses={https://es.example.internal:9200}' \
+  --set logs.elasticsearch.index="logs-otel-default" \
   --set secrets.esApiKey="<base64 id:api_key>"
 ```
 
-Distributed mode requires Redis (the lock + SSE pub/sub
-bridge for cross-pod event fan-out). Without it, worker-fired
-`problem.opened` events wouldn't reach the api pods' SSE
-streams; v0.6.3 wires that bridge so browsers connected to any
-api pod see every event regardless of where it fired.
+**Other knobs**
 
-Same binary contract from v0.5.x: one image, one release
-pipeline, one tag. Container runtime picks its role from a
-single env var; the chart wires it from `deployment.mode`.
+- `ingress.*` (Kubernetes) or `route.*` (OpenShift, edge TLS).
+- `autoscaling.*` (the HPA targets the api role).
+- `secrets.existingSecret` to use a Secret you manage.
+- `extraEnv` / `envFrom` for integration tokens.
+- `clickhouse.resetSchema=true` is **destructive** and runs on pre-install only.
 
-### Model Context Protocol (MCP) — external LLM access (v0.6.4+)
-
-Coremetry exposes its telemetry as an [MCP](https://modelcontextprotocol.io)
-server so Claude Desktop, the Anthropic API tool-calling flow,
-and internal copilots can investigate incidents via a uniform
-JSON-RPC protocol instead of bespoke REST integrations.
-
-Three capability surfaces are advertised:
-
-- **Tools** (v0.6.5) — invokable functions: `list_services`,
-  `get_service_health`, `list_problems`, `list_anomalies`,
-  `search_logs`, `get_trace`, `query_metric`. Each has a JSON
-  Schema for args and reads from the same MV path the UI uses.
-- **Resources** (v0.6.6) — URI-addressed read-only references:
-  `coremetry://services`, `coremetry://problems/open`, and
-  templated URIs like `coremetry://trace/{trace_id}` or
-  `coremetry://service/{name}`.
-- **Prompts** (v0.6.7) — curated system+user message templates
-  that surface the in-app ✨ Explain workflows over MCP:
-  `explain_trace`, `explain_problem`, `suggest_runbook`,
-  `explain_service_health`, `explain_exception`. The renderer
-  fetches the data + combines with the canonical system prompt
-  so the LLM gets a complete conversation seed.
-
-Transport: HTTP+SSE per MCP spec 2024-11-05. GET
-`/api/mcp/sse` opens the stream, POST `/api/mcp/messages?
-sessionId=…` carries JSON-RPC requests. Auth via the existing
-JWT/cookie middleware — viewer/editor/admin roles carry into
-MCP just like REST.
-
-Multi-pod note: MCP sessions are pod-local. In distributed
-deployments, add session affinity at the ingress (sticky
-cookie keyed on `Mcp-Session-Id` or the original sessionId
-query param) so reconnects land on the same pod.
+Every key is documented inline in [`values.yaml`](charts/coremetry/values.yaml).
+More guides: [charts/coremetry/README.md](charts/coremetry/README.md), the
+OpenShift distributed guide
+[charts/coremetry/docs/openshift-distributed.md](charts/coremetry/docs/openshift-distributed.md)
+(restricted-v2 SCC, air-gapped registries, MCP session affinity), and flat
+manifests in [`examples/openshift/`](examples/openshift/README.md).
 
 ---
 
-## OpenTelemetry agents
+## Configuration essentials
 
-Coremetry consumes the same OTLP wire format every OTel SDK
-emits. Sample setups:
+Configuration is resolved in this order: env > `config.yaml` > built-in
+default. Every variable is listed in [docs/ENV.md](docs/ENV.md). Integrations
+such as Tempo, VictoriaMetrics/Thanos, Argo CD, LDAP, OIDC, AI profiles, MCP
+servers, wiki and code search are configured live in **Settings**. They are
+stored in ClickHouse `system_settings` and apply without a restart.
 
-- **Java**: `OTEL_EXPORTER_OTLP_ENDPOINT=http://coremetry:4317
-  OTEL_EXPORTER_OTLP_PROTOCOL=grpc OTEL_SERVICE_NAME=my-service`
-  with the OTel Java auto-instrumentation agent.
-- **Go**: `otel-go` SDK with the standard
-  `otlptracegrpc.WithEndpoint` exporter setup.
-- **Python**: `opentelemetry-instrument` CLI plus
-  `OTEL_EXPORTER_OTLP_ENDPOINT` env.
-- **Node.js / .NET**: equivalent `OTEL_EXPORTER_OTLP_*`
-  env-var setup.
+| Variable | Purpose |
+|---|---|
+| `COREMETRY_MODE` | `all` \| `ingest` \| `api` \| `worker` \| `agent` \| `sre` |
+| `COREMETRY_CH_ADDR`, `_DATABASE`, `_USERNAME`, `_PASSWORD`, `_SECURE`, `_CLUSTER_NAME` | ClickHouse connection (comma-separated seeds) and distributed mode |
+| `COREMETRY_REDIS_URL` | Cache, leader lock and SSE bridge (empty means single-instance) |
+| `COREMETRY_JWT_SECRET` | Session signing key. **Set it in production.** If empty, a new key is generated on every boot. |
+| `COREMETRY_INITIAL_ADMIN`, `COREMETRY_INITIAL_PASSWORD` | Bootstrap admin (only used on first boot) |
+| `COREMETRY_PUBLIC_URL` | External URL used for deep links in notifications |
+| `COREMETRY_LOGS_BACKEND`, `COREMETRY_ES_*` | `clickhouse` (default) or `elasticsearch`, plus ES address, index and credentials |
+| `COREMETRY_OIDC_*`, `COREMETRY_TRUSTED_HEADER_*` | SSO bootstrap (the Settings › SSO entry overrides these) |
+| `COREMETRY_AI_PROVIDER`, `_API_KEY`, `_MODEL`, `_BASE_URL` | Default AI profile (`anthropic` \| `github` \| `openai`-compatible) |
+| `COREMETRY_SELF_OBS_OTLP_ENDPOINT`, `_SAMPLE_RATE` | Self-tracing |
+| `COREMETRY_HTTP_ADDR`, `COREMETRY_GRPC_ADDR`, `COREMETRY_OTLP_HTTP_ADDR` | Listeners (`:8088`, `:4317`, `:4318`) |
 
-Resource attributes Coremetry surfaces in the UI:
-`service.name` (required), `service.version` (deploy
-tracking), `telemetry.sdk.language`,
-`process.runtime.{name,version,description}` (runtime badge),
-`host.name` / `os.type` (saturation panel host attribution).
+Retention, ingest batching and the rest of `config.yaml` are shown in
+[`config.yaml`](config.yaml). The full schema is in
+[`internal/config/config.go`](internal/config/config.go).
 
 ---
 
-## Configuration
+## Sending data
 
-Highest-impact knobs in `config.yaml` (all overridable via
-`COREMETRY_*` env vars):
+Point any OpenTelemetry SDK or collector at Coremetry, or at the bundled
+collector, with standard settings:
 
-```yaml
-listen:
-  http: ":8088"
-  grpc: ":4317"
-
-clickhouse:
-  addr: "ch1:9000,ch2:9000"     # comma-separated for cluster
-  database: "coremetry"
-  username: "default"
-  cluster_name: ""              # set to enable Distributed CH
-  secure: false                 # native TLS (port 9440)
-
-retention:
-  spans_days: 30
-  logs_days: 30
-  metrics_days: 7
-
-ingestion:
-  batch_size: 10000
-  buffer_size: 500000
-  flush_interval: 5s
-  workers: 8
-
-sampling:
-  default: 1.0                  # head sampling ratio
-  always_keep_errors: true
-  always_keep_roots: true
-  tail:
-    enabled: false
-    window_sec: 30
-    slow_ms: 1000
-
-auth:
-  initial_admin: "admin@coremetry.local"
-  initial_password: "admin"     # rotate after first login
-  oidc:
-    enabled: false              # or manage live from Settings > SSO (overrides this block)
-  # LDAP / AD configured live from Settings UI.
-
-logs:
-  backend: "clickhouse"         # or "elasticsearch"
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://coremetry-otelcol:4317   # in-cluster collector (Helm)
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+OTEL_SERVICE_NAME=checkout-service
+OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=prod,service.version=1.4.2
 ```
 
-See `internal/config/config.go` for the full schema +
-defaults.
+The UI reads these resource attributes:
 
----
+- `service.name` (required)
+- `service.version` (deploy tracking)
+- `deployment.environment.name` (environment filter)
+- `telemetry.sdk.language` and `process.runtime.*` (runtime badge)
+- `k8s.*` (pods, workloads, clusters)
+- `host.name` (hosts)
 
-## Architecture
-
-- **Single Go binary** (~30 MB statically linked) embeds the
-  Vite SPA via `go:embed`. One artifact to deploy.
-- **OTLP/gRPC + OTLP/HTTP** on the same listener config; the
-  binary terminates both and writes to ClickHouse via the
-  async insert path.
-- **Background workers**: alert evaluator (1 min), anomaly
-  detector (2 min), anomaly recorder (1 min), correlator
-  (5 min), monitor runner (5 s), errors-inbox refresher
-  (1 min), tail sampler sweeper (1 s when enabled). All
-  leader-gated via Redis lock so HA replicas don't double-run.
-- **HTTP/REST API** at `/api/...` (typed; see
-  [`internal/api/api.go`](internal/api/api.go) for routes).
-- **SSE event bus** at `/api/events` for sub-second push of
-  problem / anomaly state changes to the browser.
-- **Sub-binary `--reset-schema` mode** for the Helm
-  pre-install hook + `--migrate-from <addr>` for one-shot
-  bulk copy from a legacy CH cluster.
+Profiles are accepted from Pyroscope-compatible agents at `POST /ingest`.
 
 ---
 
 ## Development
 
-Contributor docs (read in this order): [CONTRIBUTING.md](CONTRIBUTING.md)
-(gates, commit/tag format, PR template) · [docs/local-dev.md](docs/local-dev.md)
-(prerequisites, compose stack, dev loop, minikube) · [docs/ENV.md](docs/ENV.md)
-(every `COREMETRY_*` variable) · [SECURITY.md](SECURITY.md) · the
-`/codebase-tour` skill ([.claude/skills/codebase-tour/SKILL.md](.claude/skills/codebase-tour/SKILL.md))
-for the reading order, invariants and glossary · [CLAUDE.md](CLAUDE.md) for the
-hard constraints an AI pair follows.
+Contributor docs, in reading order:
 
-Backend (Go 1.25+). The binary embeds `frontend/dist` (`//go:embed`), so a
-fresh clone needs the UI built once before `go build` succeeds:
+1. [CONTRIBUTING.md](CONTRIBUTING.md): gates, commit and tag format, PR template.
+2. [docs/local-dev.md](docs/local-dev.md): prerequisites, compose stack, dev loop.
+3. [docs/ENV.md](docs/ENV.md).
+4. [SECURITY.md](SECURITY.md).
+5. The codebase tour ([.claude/skills/codebase-tour/SKILL.md](.claude/skills/codebase-tour/SKILL.md)).
+6. [CLAUDE.md](CLAUDE.md) for hard constraints and invariants.
+
+Requirements are Go 1.26 (see `go.mod`) and Node 22. The binary embeds `frontend/dist`
+through `//go:embed`, so build the UI once before `go build`:
 
 ```bash
-make build-ui                      # frontend → frontend/dist (once, or after UI changes)
+make build-ui                                  # frontend → frontend/dist
 go build ./... && ./coremetry --config config.yaml
+cd frontend && npm run dev                     # Vite dev server, /api proxied to :8088
 ```
 
-Frontend (Node 22+):
+**Gates.** These run before every release, and CI runs the same set:
 
 ```bash
-cd frontend
-npm install
-npm run dev          # Vite dev server with /api proxied to localhost:8088
-npm run build        # production build (TypeScript check + Vite bundle)
-npm run build:analyze # bundle treemap → dist/bundle-analysis.html
-```
-
-Tests (CI runs the frontend suite in UTC — do the same locally):
-
-```bash
+# frontend
+cd frontend && npx tsc --noEmit && npx eslint src && TZ=UTC npx vitest run
+# backend
+go build ./... && go vet ./...
 go test ./...
-cd frontend && TZ=UTC npx vitest run && npm run lint
-make audit                         # repo-specific static checks; 🔴 blocks a tag
+make audit                  # repo-specific static checks; a 🔴 finding blocks a tag
+golangci-lint run ./...     # CI hard gate, pinned to golangci-lint v2.12.2 (.github/workflows/ci.yml)
 ```
+
+CI also runs `go test -race` on the concurrency packages, a ClickHouse smoke
+test, `helm lint`, govulncheck, npm audit and Trivy.
+
+**Releases.** Every functional change ships as its own `v0.10.X` tag, and the tag
+is the changelog. Pushing a tag builds the image and the OCI Helm chart
+([`.github/workflows/release.yml`](.github/workflows/release.yml)). The flow is
+described in [CONTRIBUTING.md](CONTRIBUTING.md) and the `/release` skill
+([.claude/skills/release](.claude/skills/release)). The 1.0 cut procedure is in
+[docs/RELEASE-1.0.md](docs/RELEASE-1.0.md).
 
 ---
 
 ## License
 
-[Apache License 2.0](LICENSE) — the same license as OpenTelemetry
-itself. Free for any use — commercial, non-commercial, modification,
-redistribution — with an explicit patent grant from contributors, so
-banks and SaaS operators can ship Coremetry into production without
-per-seat negotiations. See [NOTICE](NOTICE) for attribution; versions
-up to v0.10.1371 were released under the MIT License.
-
----
+[Apache License 2.0](LICENSE), the same license as OpenTelemetry. You may use,
+modify and redistribute Coremetry, commercially or not, under an explicit
+patent grant from contributors. See [NOTICE](NOTICE) for attribution.
 
 ## Status
 
-Active development — see
-[Releases](https://github.com/cosretr/coremetry/releases) for
-the per-version changelog. Open issues + feature requests
-welcome via GitHub Issues.
+Active development, pre-1.0. See
+[Releases](https://github.com/cosretr/coremetry/releases) for the per-version
+changelog. Issues and feature requests are welcome on GitHub Issues.
