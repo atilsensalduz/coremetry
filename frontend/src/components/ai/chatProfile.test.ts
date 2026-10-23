@@ -13,7 +13,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { normalizeCopilotConfig } from './useCopilotEnabled';
-import { activeProfileModel, readChatProfile, resolveChatProfile, writeChatProfile, chatProfileKey } from './chatProfileStore';
+import { activeProfileModel, readChatProfile, readChatProfileChoice, parseChatProfileChoice, resolveChatProfile, writeChatProfile, chatProfileKey } from './chatProfileStore';
 
 const read = (rel: string) => readFileSync(resolve(__dirname, rel), 'utf8').replace(/^\s*\/\/.*$/gm, '');
 
@@ -78,6 +78,35 @@ describe('chatProfileStore — kullanıcı başına kalıcılık', () => {
     expect(resolveChatProfile('deep', profiles)).toBe('deep');
     expect(resolveChatProfile('gone', profiles)).toBe('');
     expect(resolveChatProfile('deep', [profiles[0]])).toBe(''); // tek seçenek: seçici yok
+  });
+  // v0.10.1448 (operatör-bildirimli) — admin varsayılanı değiştirince kayıtlı
+  // seçim bayatlar: kullanıcı yeni varsayılana döner, eski model kalmaz.
+  it('seçim o anki varsayılanla damgalanır; varsayılan değişince düşer', () => {
+    writeChatProfile('u-3', 'deep', 'fast');
+    expect(readChatProfileChoice('u-3')).toEqual({ id: 'deep', def: 'fast' });
+    expect(parseChatProfileChoice(JSON.stringify({ id: 'deep', def: 'fast' }))).toEqual({ id: 'deep', def: 'fast' }); // depo biçimi
+    expect(resolveChatProfile('deep', profiles, 'fast', 'fast')).toBe('deep'); // varsayılan aynı → seçim kalır
+    expect(resolveChatProfile('deep', profiles, 'fast2', 'fast')).toBe('');   // varsayılan değişti → varsayılana dön
+    expect(resolveChatProfile('deep', profiles, 'fast', undefined)).toBe(''); // damgasız (eski kayıt) → bayat
+    expect(resolveChatProfile('deep', profiles, 'deep', 'fast')).toBe('');    // yeni varsayılan zaten seçilen → ''
+    expect(resolveChatProfile('deep', profiles, undefined, 'fast')).toBe('deep'); // config'de varsayılan yok → eski kural
+    expect(resolveChatProfile('', profiles, 'fast', 'fast')).toBe('');
+  });
+  it('eski düz-dize kayıt okunur ama damgasızdır; bozuk JSON varsayılana düşer', () => {
+    const legacy = parseChatProfileChoice('deep'); // v0.10.1138 düz-dize kayıt
+    expect(legacy).toEqual({ id: 'deep' });
+    expect(resolveChatProfile(legacy.id, profiles, 'fast', legacy.def)).toBe('');
+    expect(parseChatProfileChoice('{bozuk')).toEqual({ id: '' });
+    expect(parseChatProfileChoice('{"id":7}')).toEqual({ id: '' });
+    expect(parseChatProfileChoice(null)).toEqual({ id: '' });
+    writeChatProfile('u-4', 'deep', 'fast');
+    writeChatProfile('u-4', '', 'fast'); // varsayılan seçimi damgasız silinir
+    expect(readChatProfileChoice('u-4')).toEqual({ id: '' });
+    expect(readChatProfile('u-4')).toBe('');
+  });
+  it('CopilotChat seçimi config varsayılanıyla damgalar (useChatProfile defaultProfile alır)', () => {
+    expect(read('../CopilotChat.tsx')).toMatch(/useChatProfile\(user\?\.id, profiles, defaultProfile, model\)/);
+    expect(read('./chatProfileStore.ts')).toMatch(/writeChatProfile\(user, id, id \? defaultProfile : undefined\)/);
   });
   it('rozet etkin modeli gösterir (seçim > varsayılan profil > genel model)', () => {
     expect(activeProfileModel('deep', profiles, 'fast', 'x')).toBe('big');
