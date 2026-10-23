@@ -9,7 +9,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { SREEvalCompare, SREEvalRun, SREEvalRunsResponse, SREEvalScore } from '@/lib/types';
 
-const m = vi.hoisted(() => ({
+const m = vi.hoisted(() => ({ empty: false,
   role: 'viewer',
   started: [] as unknown[],
   reviewCalls: 0,
@@ -44,7 +44,7 @@ const detail: SREEvalRun = { ...run, cases: [
 vi.mock('@/lib/api', () => ({
   api: {
     sreEvalRuns: vi.fn(async () => list),
-    sreEvalRun: vi.fn(async () => (m.rerun ? { ...detail, rerunOf: 'e0', suggestionKnown: true } : detail)),
+    sreEvalRun: vi.fn(async () => (m.empty ? { ...run, cases: undefined } : m.rerun ? { ...detail, rerunOf: 'e0', suggestionKnown: true } : detail)),
     sreEvalReview: vi.fn(async () => { m.reviewCalls++; return { days: 7, note: 'incelemeye değer — 👎 etiket DEĞİL, değerlendirme puanına girmez', items: [
       { exchangeId: 'x1', surface: 'sre-investigation', createdAt: 1.71e18, reason: 'wrong', comment: 'yanlış neden' }] }; }),
     startSREEval: vi.fn(async (b: unknown) => { m.started.push(b); return { ...run, runId: 'e2' }; }),
@@ -95,6 +95,16 @@ describe('SREEvalPanel', () => {
     expect(text).not.toContain('Değerlendirme başlat');
     expect(text).toContain('yalnız yöneticiye görünür');
     expect(m.reviewCalls).toBe(0); // admin ucu viewer için hiç istenmez
+  });
+
+  // v0.10.1474 (operatör ekranı) — vakasız koşuda sunucu `cases` göndermez; tablo
+  // sonsuz iskelet yerine boş durumu göstermeli.
+  it('v0.10.1474: 0 vakalı koşu boş durumu gösterir, iskelette takılmaz', async () => {
+    m.role = 'viewer'; m.empty = true;
+    try {
+      const el = await render();
+      expect(el.textContent ?? '').toContain('Penceredeki onaylı problem vakası yok');
+    } finally { m.empty = false; }
   });
 
   it('admin: 👎 listesi "etiket değil" beyanıyla; başlat → POST', async () => {

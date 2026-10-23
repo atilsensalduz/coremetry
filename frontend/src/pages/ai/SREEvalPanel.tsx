@@ -192,7 +192,7 @@ export function SREEvalPanel() {
                 <DataTableHead dt={caseDt} />
                 <tbody>
                   {caseDt.sortedRows.length === 0
-                    ? <DataTableState dt={caseDt} {...stateOf(cases, runQ.isError, 'Penceredeki onaylı problem vakası yok')} />
+                    ? <DataTableState dt={caseDt} {...stateOf(runQ.data ? (cases ?? []) : undefined, runQ.isError, 'Penceredeki onaylı problem vakası yok')} />
                     : caseDt.sortedRows.map(c => <CaseRow key={c.caseId || c.problemId} c={c} dt={caseDt} />)}
                 </tbody>
               </table>
