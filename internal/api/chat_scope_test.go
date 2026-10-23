@@ -499,3 +499,45 @@ func TestChatShapedAndDrawerScopeNoHardReply(t *testing.T) {
 		t.Fatalf("/rca tek servis sert cevabı: %s", text)
 	}
 }
+
+// TestWikiMentionSurvivesDrawerContext — v0.10.1460 (operator-reported:
+// "@wiki dememe rağmen telemetriye baktı"): an explicit @wiki must reach the
+// wiki tier even inside a trace/exception drawer context, and even when the
+// client sent no scope flag.
+func TestWikiMentionSurvivesDrawerContext(t *testing.T) {
+	if got := chatScopeDrawerGate(&chatScope{Wiki: true, Services: []string{"svc-orders"}}, "", "", "abc123"); got == nil || !got.Wiki || len(got.Services) != 0 {
+		t.Errorf("çekmecede @wiki kalmalı, diğer kapsam düşmeli: %+v", got)
+	}
+	if got := chatScopeDrawerGate(&chatScope{Services: []string{"svc-orders"}}, "x"); got != nil {
+		t.Errorf("wiki'siz kapsam çekmecede düşmeli: %+v", got)
+	}
+	cases := []struct {
+		text string
+		want bool
+	}{
+		{"@wiki DBeaver nasıl kurulur?", true},
+		{"DBeaver kurulumu @wiki", true},
+		{"@WIKI deploy runbook", true},
+		{"wiki'de DBeaver var mı", false},
+		{"mail@wikipedia.org adresi", false},
+		{"@wikipedia nedir", false},
+	}
+	for _, c := range cases {
+		got := withWikiMention(nil, c.text)
+		if (got != nil && got.Wiki) != c.want {
+			t.Errorf("%q → wiki=%v, want %v", c.text, got != nil && got.Wiki, c.want)
+		}
+	}
+	keep := &chatScope{Env: "prod"}
+	if got := withWikiMention(keep, "@wiki x"); !got.Wiki || got.Env != "prod" || keep.Wiki {
+		t.Errorf("kapsam korunmalı, girdi değişmemeli: got=%+v in=%+v", got, keep)
+	}
+	src, err := os.ReadFile("copilot_chat.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, w, a := strings.Index(string(src), "chatScopeDrawerGate(req.Context.Scope"), strings.Index(string(src), "withWikiMention(req.Context.Scope"), strings.Index(string(src), "if chatScopeActive(req.Context.Scope, req.Context.Command)")
+	if !(g >= 0 && g < w && w < a) {
+		t.Errorf("sıra: drawer kapısı → withWikiMention → chatScopeActive olmalı (%d %d %d)", g, w, a)
+	}
+}

@@ -59,6 +59,9 @@ describe('parseChatInput', () => {
     expect(scopeForRequest(p, true)).toEqual({ command: 'rca' });
     expect(scopeForRequest(parseChatInput('@svc-orders logda ne var'), true)).toEqual({});
     expect(scopeForRequest(p, false)).toBe(p);
+    // v0.10.1460 (operatör-bildirimli) — açık @wiki çekmece bağlamında da kalır; diğer kapsam düşer.
+    expect(scopeForRequest(parseChatInput('@wiki @svc-orders DBeaver nasıl kurulur?'), true)).toEqual({ scope: { wiki: true } });
+    expect(scopeForRequest(parseChatInput('/wiki DBeaver'), true)).toEqual({ command: 'wiki' });
   });
 });
 

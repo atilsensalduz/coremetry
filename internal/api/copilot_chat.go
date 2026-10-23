@@ -383,6 +383,7 @@ func (s *Server) copilotChat(w http.ResponseWriter, r *http.Request) {
 		pageTID = req.Context.Page.TraceID
 	}
 	req.Context.Scope = chatScopeDrawerGate(req.Context.Scope, req.Context.Explain, req.Context.Subject, req.Context.Trace, pageTID)
+	req.Context.Scope = withWikiMention(req.Context.Scope, lastUserText(req.Messages)) // v0.10.1460 — @wiki metinde de kapsam
 	if chatScopeActive(req.Context.Scope, req.Context.Command) {
 		rq := chatScopeReq{Msgs: req.Messages, Scope: req.Context.Scope, Command: req.Context.Command,
 			Service: req.Context.Service, Env: req.Context.Env, Operation: req.Context.Operation,

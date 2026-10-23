@@ -89,6 +89,9 @@ func (sc *chatScope) isShaped(name string) bool {
 func chatScopeDrawerGate(sc *chatScope, drawerCtx ...string) *chatScope {
 	for _, v := range drawerCtx {
 		if strings.TrimSpace(v) != "" {
+			if sc != nil && sc.Wiki { // v0.10.1460 — açık @wiki çekmecede de kalır
+				return &chatScope{Wiki: true}
+			}
 			return nil
 		}
 	}
@@ -135,6 +138,22 @@ func normalizeChatCommand(cmd string) (string, bool) {
 
 // chatScopeActive — SAF: istek kapsam ya da komut taşıyor mu. false iken
 // chatScopeTier dokunmaz (serbest metin bayt bayt eski yol).
+// withWikiMention — SAF (v0.10.1460, operator-reported: "@wiki dememe rağmen
+// telemetriye baktı"): istemci trace/exception bağlamında @-kapsamı düşürüyordu
+// (scopeForRequest); mesajdaki @wiki belirteci sunucuda da kapsam sayılır —
+// açık wiki isteği hiçbir bağlamda kaybolmaz.
+func withWikiMention(scope *chatScope, text string) *chatScope {
+	if (scope != nil && scope.Wiki) || !chatWikiMention.MatchString(text) {
+		return scope
+	}
+	out := chatScope{}
+	if scope != nil {
+		out = *scope
+	}
+	out.Wiki = true
+	return &out
+}
+
 func chatScopeActive(scope *chatScope, command string) bool {
 	return strings.TrimSpace(command) != "" || !scope.empty()
 }

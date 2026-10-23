@@ -105,7 +105,9 @@ export function hasDrawerContext(c: DrawerContextFields): boolean {
  */
 export function scopeForRequest(p: ParsedChatInput, drawer: boolean): ParsedChatInput {
   if (!drawer) return p;
-  return p.command ? { command: p.command } : {};
+  // v0.10.1460 (operatör-bildirimli) — açık @wiki isteği çekmece bağlamında da kalır.
+  const wiki = p.scope?.wiki ? { scope: { wiki: true } } : {};
+  return { ...(p.command ? { command: p.command } : {}), ...wiki };
 }
 
 /** pickedServices — SAF: kapsamdaki AÇIKÇA seçilmiş servisler (biçim-eşleşmeleri hariç). */
