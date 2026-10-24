@@ -17,6 +17,8 @@ vi.mock('@/lib/api', () => ({
   api: {
     sreSettings: vi.fn(() => m.get()),
     putSRESettings: vi.fn(async (c: SRESettings) => { m.puts.push(c); return { ...c, updatedBy: 'admin@x', updatedAt: Date.now() * 1e6 }; }),
+    sreContextPackSettings: vi.fn(async () => ({ enabled: false, maxTokens: 2000, baselines: ['previous', 'week_before'], topAnomalies: 5 })),
+    putSREContextPackSettings: vi.fn(async (c: unknown) => c),
     sreStatus: vi.fn(async () => ({ enabled: true, launcher: 'inprocess', roleSeen: true, pods: [], queueDepth: 0, running: 0 })),
   },
 }));

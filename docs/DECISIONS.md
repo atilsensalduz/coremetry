@@ -11212,3 +11212,23 @@ Kod/wiki turu localOnly kuralı (karar 8) aynen: `search_code` zaten yalnız kod
 
 **Geri alma.** `git revert <sha>` + yeni etiket; şema/ayar yok. Yalnız bölümü kapatmak için `buildOperationCardCode`'da
 `FetchMethodUsages` çağrısı kaldırılır (`usages: null`, FE bölümü çizmez).
+## 2026-10-24 — v0.10.1510 — Context Pack ayar bölümü (Settings › AI SRE)
+
+**Karar.** v0.10.1494'ün `sre_agent.contextpack` ayarı (GET/PUT /api/settings/sre/contextpack, admin, PUT audit'li)
+artık UI'den yönetilir: `ContextPackPanel` (pages/settings), AI SRE formunun ALTINDA kendi formu ve kendi Kaydet'iyle —
+ayar ayrı anahtarda ve ayrı uçta durur (sre_agent formu tüm blobu yazar); tek düğme iki ucu yazsaydı biri düştüğünde
+diğeri yarım kalırdı. Alanlar: etkin kutusu, token tavanı (512–8000, boş = 2000), taban referansları (sunucunun
+doğruladığı `previous` / `day_before` / `week_before`, en az biri; tel sırası sunucu sözlüğü), en çok anomali (1–10,
+boş = 5). Sınırlar `contextPackForm.ts`'te (SAF, testli) Go `NormalizeContextPackSettings`'in aynası: aralık dışı alan
+hatası olur, PUT gitmez (sunucu sessizce kırpardı). Yardım metni paketin anlatıma ne eklediğini ve hipotez skorunun
+paketi okumadığını söyler. Okuma düşerse form çizilmez (`useSettingsLoad` kapısı); hiç kaydedilmemişse varsayılanlar +
+"Henüz kaydedilmedi". Admin olmayan (`canEdit=false`) salt okunur görür: alanlar kapalı, Kaydet yok.
+
+**Yer.** Görev "Settings › CoSRE (slug `ai`)" diyordu; sre_agent ayarlarının bugünkü evi `ai-sre` (AI SRE) bölümü
+olduğu için bölüm oraya, diğer SRE ajan ayarlarının yanına kondu. Taşımak tek satır (`<ContextPackPanel/>`).
+
+**Değişmeyenler.** Uç, rol kapısı, denetim, normalize kuralı, bayrağın varsayılanı (kapalı). Settings sayfası bugün
+admin kapılı ve GET admin'e açık; salt okunur kip bu kapılar gevşerse yazma açmamak içindir.
+
+**Geri alma.** `git revert <sha>` + yeni etiket (yalnız UI). Bayrağı kapatmak için UI'den ya da
+`PUT /api/settings/sre/contextpack {"enabled":false}` (≤30 s tüm pod'larda).

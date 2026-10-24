@@ -1351,6 +1351,11 @@ export const api = {
   sreSettings: (signal?: AbortSignal) => get<import('./types').SRESettings>(`/api/settings/sre`, signal),
   putSRESettings: (c: import('./types').SRESettings) =>
     request<import('./types').SRESettings>(`/api/settings/sre`, { method: 'PUT', body: JSON.stringify(c) }),
+  // v0.10.1494 — CoSRE Context Pack ayarı (admin; PUT audit settings.sre_agent_contextpack.update).
+  sreContextPackSettings: (signal?: AbortSignal) =>
+    get<import('./types').SREContextPackSettings>(`/api/settings/sre/contextpack`, signal),
+  putSREContextPackSettings: (c: import('./types').SREContextPackSettings) =>
+    request<import('./types').SREContextPackSettings>(`/api/settings/sre/contextpack`, { method: 'PUT', body: JSON.stringify(c) }),
   // v0.10.561 — sohbet arşivi saklama süresi (admin).
   aiChatRetention: () => get<import('./types').AIChatRetention>(`/api/ai/chat-retention`),
   putAIChatRetention: (c: import('./types').AIChatRetention) =>

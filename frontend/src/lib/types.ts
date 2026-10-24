@@ -10800,6 +10800,24 @@ export interface SREEvalReviewResponse {
 // system_settings["sre_agent"]). Sunucu NormalizeSettings'ten geçirir: 0 =
 // varsayılan, aralık dışı tavana kırpılır (sınırlar: settings/sreSettingsForm.ts).
 export type SREPriority = 'P1' | 'P2' | 'P3';
+/** v0.10.1494 — Context Pack baseline referans türleri (Go sre.Baseline*; sunucu
+ *  bilinmeyeni düşürür). */
+export type SREContextPackBaseline = 'previous' | 'day_before' | 'week_before';
+
+/** v0.10.1494 — system_settings["sre_agent.contextpack"] (Go sre.ContextPackSettings);
+ *  GET/PUT /api/settings/sre/contextpack (admin, PUT audit'li). */
+export interface SREContextPackSettings {
+  enabled: boolean;
+  /** 512–8000 (≈ 4 bayt/token); 0/eksik = 2000. */
+  maxTokens: number;
+  /** sıra korunur, tekrarsız; boş = [previous, week_before]. */
+  baselines: SREContextPackBaseline[];
+  /** 1–10; 0/eksik = 5. */
+  topAnomalies: number;
+  updatedBy?: string;
+  updatedAt?: number; // unix ns
+}
+
 export interface SRESettings {
   /** yok = açık (varsayılan). */
   enabled?: boolean;

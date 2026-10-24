@@ -15,6 +15,8 @@ import { keys } from '@/lib/queries';
 import { agoTR, tsLong } from '@/lib/utils';
 import type { SRESettings } from '@/lib/types';
 import { AiSreStatusPanel } from './AiSreStatusPanel';
+import { ContextPackPanel } from './ContextPackPanel'; // 2026-10-24
+import { useAuthRole } from '@/components/AuthProvider';
 import {
   SRE_NUM_BOUNDS, SRE_PRIORITIES, sreDefaultForm, sreFormToWire, sreSavedSummaryTR,
   sreToForm, togglePriority, validateSREForm, type SREForm, type SRENumKey,
@@ -34,6 +36,7 @@ export function AiSreTab() {
   const [flash, setFlash] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const qc = useQueryClient();
   const prioHintId = useId();
+  const role = useAuthRole();
 
   const { loaded, error: loadErr, retry } = useSettingsLoad(
     () => api.sreSettings(),
@@ -139,6 +142,9 @@ export function AiSreTab() {
           {flash && <FlashBox kind={flash.kind}>{flash.text}</FlashBox>}
         </SettingsSection>
       </form>
+      {/* Ayrı anahtar + ayrı uç (sre_agent.contextpack) — kendi formu. Rol
+          bilinmiyorsa (AuthProvider dışı) Settings'in admin kapısı geçerli. */}
+      <ContextPackPanel canEdit={role === undefined || role === 'admin'} />
     </div>
   );
 }
