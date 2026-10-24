@@ -62,6 +62,9 @@ type RootCauseBubbleUp struct {
 	FromNs   int64                   `json:"fromNs"`
 	ToNs     int64                   `json:"toNs"`
 	BubbleUp *chstore.BubbleUpResult `json:"bubbleUp,omitempty"`
+	// Mode — v0.10.1495: kıyasın türü (rootCauseBubbleMode; çekirdekteki
+	// bubbleMode ile aynı). none → tarama koşmadı, BubbleUp yok.
+	Mode string `json:"mode"`
 }
 
 // rootCausePartKey — parça anahtarı: tam demetin kimlik anahtarı + önek.
@@ -114,6 +117,10 @@ func (s *Server) getProblemRootCauseBubbleUp(w http.ResponseWriter, r *http.Requ
 	}
 	key := rootCausePartKey("bubbleup", p.ID, p.StartedAt, p.ResolvedAt)
 	s.serveCached(w, r, key, rootCausePartTTL, func(ctx context.Context) (any, error) {
+		// v0.10.1495 — taramasız tür yuva beklemez.
+		if rootCauseBubbleMode(p) == bubbleModeNone {
+			return s.problemRootCauseBubbleUp(ctx, p)
+		}
 		// v0.10.1119 (inceleme) — yuva ÖZGÜN ctx yaşarken beklenir; bekleyen
 		// iptal edilirse ya da bekleme dolarsa tarama başlamaz, hata önbelleğe
 		// yazılmaz. Kopma yalnız yuva alındıktan SONRA.
@@ -134,12 +141,15 @@ func (s *Server) getProblemRootCauseBubbleUp(w http.ResponseWriter, r *http.Requ
 // (önbelleğe yazılmaz).
 func (s *Server) problemRootCauseBubbleUp(ctx context.Context, p *chstore.Problem) (RootCauseBubbleUp, error) {
 	started, end := problemRootCauseWindow(p, time.Now())
-	bu, err := rootCauseStoreOf(s).ServiceBubbleUp(ctx, p.Service,
-		exemplarKindForMetric(p.Metric) == chstore.ExemplarError, started, end)
+	mode := rootCauseBubbleMode(p)
+	if mode == bubbleModeNone {
+		return RootCauseBubbleUp{FromNs: started.UnixNano(), ToNs: end.UnixNano(), Mode: mode}, nil
+	}
+	bu, err := rootCauseStoreOf(s).ServiceBubbleUp(ctx, p.Service, mode == bubbleModeErrors, started, end)
 	if err != nil {
 		return RootCauseBubbleUp{}, fmt.Errorf("rootcause bubbleup: %w", err)
 	}
-	return RootCauseBubbleUp{FromNs: started.UnixNano(), ToNs: end.UnixNano(), BubbleUp: bu}, nil
+	return RootCauseBubbleUp{FromNs: started.UnixNano(), ToNs: end.UnixNano(), BubbleUp: bu, Mode: mode}, nil
 }
 
 // getAnomalyRootCauseCore — GET /api/anomalies/{id}/rootcause/core

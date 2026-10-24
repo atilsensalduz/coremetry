@@ -112,6 +112,15 @@ type fakeAlertRuleSeriesStore struct {
 	calls    int
 	gotQuery chstore.AlertMetricSeriesQuery
 	sens     *chstore.AnomalySensitivityConfig // v0.10.1091; nil = varsayılan
+	// v0.10.1495 — minSamples sayım dizisi
+	counts     []chstore.AlertMetricPoint
+	countErr   error
+	countCalls int
+}
+
+func (f *fakeAlertRuleSeriesStore) AlertSampleCountSeries(context.Context, chstore.AlertMetricSeriesQuery) ([]chstore.AlertMetricPoint, error) {
+	f.countCalls++
+	return f.counts, f.countErr
 }
 
 func (f *fakeAlertRuleSeriesStore) GetAlertRule(context.Context, string) (*chstore.AlertRule, error) {

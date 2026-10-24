@@ -4,8 +4,9 @@ import { AlertSourceBadge } from '@/components/AlertSourceBadge';
 import { useAlertRuleSeries } from '@/lib/queries';
 import type { Problem } from '@/lib/types';
 import { Sect } from './detailSections';
+import { useT } from '@/lib/i18n';
 import {
-  ALERT_SERIES_TEXT, alertChartThresholds, alertMetricUnit, alertSeriesArgs, alertSeriesState, alertSeriesToSpan, alertSeriesXRange,
+  ALERT_SERIES_TEXT, alertBelowFloorCount, alertChartThresholds, alertMetricUnit, alertSeriesArgs, alertSeriesState, alertSeriesToSpan, alertSeriesXRange,
   isProblemLive, problemRegion, windowLabel,
 } from './alertMetricSeries';
 
@@ -52,11 +53,24 @@ export function AlertMetricChartSection({ problem }: { problem: Problem }) {
     () => alertChartThresholds({ ruleId, ruleName, threshold, comparator, severity, metric }, serverThr),
     [ruleId, ruleName, threshold, comparator, severity, metric, serverThr]);
 
+  const t = useT();
   if (state === 'gone') return null;
   const title = `${metric} · ${service}`;
+  const belowFloor = data ? alertBelowFloorCount(data) : 0;
   return (
-    // v0.10.1489 — dizinin kaynağı (= değerlendiricinin kaynağı) başlıkta.
-    <Sect title={title} sub={data ? <>{windowLabel(data.windowSec)}{data.source && <> · <AlertSourceBadge source={data.source} /></>}</> : undefined}>
+    // v0.10.1489 — dizinin kaynağı (= değerlendiricinin kaynağı).
+    // v0.10.1495 (operatör, prod: p99 grafiğinde rozet görünmüyordu) — kaynak
+    // satırı başlığın sağ ucundan GÖVDEYE indi ve HER cevapta çizilir: kaynak
+    // alanı yoksa "bilinmiyor" der (sessiz yokluk değil); span'e düşüldüyse
+    // gerekçe rozetin yanında.
+    <Sect title={title} sub={data ? windowLabel(data.windowSec) : undefined}>
+      {data && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 6 }} data-alert-source>
+          {data.source
+            ? <AlertSourceBadge source={data.source} />
+            : <span style={{ fontSize: 11, color: 'var(--text3)' }}>{t('alertChart.sourceUnknown')}</span>}
+        </div>
+      )}
       <Suspense fallback={<Spinner />}>
         <CorePanelMultiLazy
           title=""
@@ -74,6 +88,11 @@ export function AlertMetricChartSection({ problem }: { problem: Problem }) {
           thresholds={thresholds}
           items={[{ name: metric, role: 'data', series }]} />
       </Suspense>
+      {belowFloor > 0 && (
+        <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }} data-alert-below-floor>
+          {belowFloor} {t('alertChart.belowFloor')}
+        </div>
+      )}
     </Sect>
   );
 }

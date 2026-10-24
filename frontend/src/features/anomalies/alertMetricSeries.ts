@@ -158,6 +158,12 @@ export function alertSeriesToSpan(s: AlertRuleSeries): SpanMetricSeries[] {
   return [{ groupKey: [], points: (s.points ?? []).map(p => ({ time: p.t, value: p.v ?? Number.NaN })) }];
 }
 
+/** v0.10.1495 — minSamples tabanı altında kalan (değerlendiricinin ölçmediği,
+ *  boşluk çizilen) nokta sayısı. */
+export function alertBelowFloorCount(s: AlertRuleSeries): number {
+  return (s.points ?? []).filter(p => p.belowFloor === true).length;
+}
+
 /** x ekseni: sunucunun hizalı başlangıcı → son nokta (açık problemde "şimdi"). */
 export function alertSeriesXRange(s: AlertRuleSeries): { from: number; to: number } {
   const pts = s.points ?? [];

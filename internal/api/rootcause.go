@@ -34,7 +34,11 @@ type RootCause struct {
 	TopologyKnown bool                    `json:"topologyKnown"`
 	BlastRadius   *chstore.BlastRadius    `json:"blastRadius,omitempty"`
 	BubbleUp      *chstore.BubbleUpResult `json:"bubbleUp,omitempty"`
-	Exemplar      *chstore.Exemplar       `json:"exemplar,omitempty"`
+	// BubbleMode (v0.10.1495) — attribute kıyası bölümünün TÜRÜ problem
+	// türünden (rootcause_bubble_mode.go): errors | window | none. Panel
+	// başlığı ve manşet buna göre; none'da kıyas hiç koşmaz.
+	BubbleMode string            `json:"bubbleMode,omitempty"`
+	Exemplar   *chstore.Exemplar `json:"exemplar,omitempty"`
 	// Hypothesis (v0.9.1066, Faz 3.1 / K6+K7) — sentezleyicinin kalıcı
 	// hipotezi TEK pakette: adaylar+gerekçeler, deploy (ölçülmüş
 	// etkisiyle), temsilî trace ve Deep (P1/deploy soruşturması +
@@ -266,6 +270,7 @@ func (s *Server) problemRootCauseBundle(ctx, waitCtx context.Context, p *chstore
 	windowSec := int(end.Sub(started).Seconds())
 	out = RootCause{
 		ProblemID: p.ID, Service: p.Service, Metric: p.Metric,
+		BubbleMode:   rootCauseBubbleMode(p), // v0.10.1495
 		StartedAt:    p.StartedAt,
 		FromNs:       started.UnixNano(),
 		ToNs:         end.UnixNano(),
@@ -351,7 +356,9 @@ func (s *Server) problemRootCauseBundle(ctx, waitCtx context.Context, p *chstore
 	// patladı". v0.10.992 — kıyas chstore.ServiceBubbleUp'ta (CoSRE
 	// kök-neden demetiyle ORTAK), davranış aynı. v0.10.1119 — çekirdek
 	// demette (withBubble=false) koşmaz; ayrı uç aynı çağrıyı yapar.
-	if withBubble {
+	// v0.10.1495 — kıyas türü problem türünden; none (runtime / db / monitor
+	// / self) → tarama YOK.
+	if withBubble && out.BubbleMode != bubbleModeNone {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -361,7 +368,7 @@ func (s *Server) problemRootCauseBundle(ctx, waitCtx context.Context, p *chstore
 				return
 			}
 			defer release()
-			if bu, e := st.ServiceBubbleUp(ctx, p.Service, exemplarKindForMetric(p.Metric) == chstore.ExemplarError, started, end); e == nil {
+			if bu, e := st.ServiceBubbleUp(ctx, p.Service, out.BubbleMode == bubbleModeErrors, started, end); e == nil {
 				out.BubbleUp = bu
 			}
 		}()
@@ -445,7 +452,8 @@ func (s *Server) anomalyRootCauseBundle(ctx, waitCtx context.Context, id string,
 		RootCause: RootCause{
 			ProblemID:    "", // anomaly-anchored — no parent Problem
 			Service:      ev.Service,
-			Metric:       ev.Kind, // shared-render label: the anomaly kind
+			Metric:       ev.Kind,                    // shared-render label: the anomaly kind
+			BubbleMode:   anomalyBubbleMode(ev.Kind), // v0.10.1495
 			StartedAt:    ev.StartedAt,
 			FromNs:       started.UnixNano(),
 			ToNs:         end.UnixNano(),

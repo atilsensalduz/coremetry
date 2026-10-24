@@ -972,6 +972,10 @@ export interface RootCause {
   // gecikme/diğer ailelerde ZAMAN-KAYDIRMALI kıyas (baseline = önceki
   // eş-boy pencere).
   bubbleUp?: BubbleUpResult;
+  // v0.10.1495 — attribute kıyası bölümünün türü, problem türünden (Go
+  // rootCauseBubbleMode): errors = hatalı span'ler / window = önceki eş-boy
+  // pencereye karşı / none = kıyas anlamsız (runtime, db, monitor) — bölüm yok.
+  bubbleMode?: RootCauseBubbleMode;
   exemplar?: SpanExemplar;
   // v0.9.1066 (Faz 3.1) — sentezleyicinin kalıcı hipotezi tek pakette
   // (adaylar+gerekçeler, deploy etkisi, temsilî trace, Deep + "neye
@@ -998,7 +1002,10 @@ export interface RootCauseBubbleUp {
   fromNs: number;
   toNs: number;
   bubbleUp?: BubbleUpResult;
+  /** v0.10.1495 — kıyasın türü (çekirdekteki bubbleMode ile aynı). */
+  mode?: RootCauseBubbleMode;
 }
+export type RootCauseBubbleMode = 'errors' | 'window' | 'none';
 
 // ── Root-cause hypothesis (rc #2/#3) ────────────────────────────────────────
 // The PERSISTED, pre-computed root-cause ranking the worker synthesizes per
@@ -6487,7 +6494,9 @@ export interface AlertRuleSeries {
   stepSec: number;
   from: number;
   to: number;
-  points: { t: number; v: number | null }[];
+  /** belowFloor (v0.10.1495): penceredeki örnek sayısı kuralın minSamples
+   *  tabanının altında — değerlendirici ölçmedi, v null (boşluk). */
+  points: { t: number; v: number | null; belowFloor?: boolean }[];
   /** v0.10.1091 — grafiğin eşik çizgisi; varsa problemin threshold'unu EZER
    *  (yalnız sentetik kural: yaygın yavaşlamada ayardaki minP99Ms). */
   threshold?: number;
@@ -10152,6 +10161,8 @@ export interface CopilotStartersResponse {
 export interface AffectedEntity {
   kind: 'service' | 'pod' | 'cluster';
   id: string;
+  /** v0.10.1495 — özneye doğrulanmış bağ (Go affectedEntity.Relation). */
+  relation?: 'caller' | 'subject-pod' | 'evidence-pod' | 'cluster';
   calls?: number;
   errors?: number;
   errorRate?: number;
@@ -10166,6 +10177,15 @@ export interface ProblemAffectedResponse {
   windowToNs: number;
   entities: AffectedEntity[];
   total: number;
+  /** v0.10.1495 — bağı doğrulanmış ama pencerede etkisi görülmeyen çağıranlar
+   *  ("etkilenen" sayılmaz; ayrı, kapalı grup). */
+  linked?: AffectedEntity[];
+  linkedTotal?: number;
+  /** false = çağıran (topoloji) okuması düştü — liste yalnız doğrulanabilen. */
+  topologyKnown?: boolean;
+  podScoped?: boolean;
+  /** pod kapsamlı problemde servis birden çok cluster'da — pod'unki doğrulanamadı. */
+  clustersUnverified?: boolean;
 }
 
 // ── v0.10.1335 — birleşik arama, GET /api/search ─────────────────────────

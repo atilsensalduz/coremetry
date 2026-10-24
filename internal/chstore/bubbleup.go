@@ -315,7 +315,10 @@ func runBubbleUp(ctx context.Context, ops bubbleUpOps) (*BubbleUpResult, error) 
 		}
 		// Skip keys that produced no usable values (every value
 		// fell under the HAVING threshold or had empty strings).
-		if len(perKey[ki].Values) > 0 {
+		// v0.10.1495 — sayısal ve dağınık değerli attribute (boyut, sıra,
+		// ofset gibi ölçü) "nerede yoğunlaşıyor" sorusuna cevap değildir;
+		// anlamsız bir attribute göstermektense hiç gösterme (bubbleup_rank.go).
+		if len(perKey[ki].Values) > 0 && !isScatteredNumericAttribute(perKey[ki]) {
 			out.Attributes = append(out.Attributes, perKey[ki])
 		}
 	}
@@ -469,20 +472,6 @@ func selectionPredicateArgs(filters []FilterExpr) []any {
 	return wc.args
 }
 
-// isHighCardinalityKey — quick heuristic for keys whose
-// values are almost always unique (UUID-shaped, request IDs,
-// trace IDs, span IDs). BubbleUp on these surfaces no
-// signal — every value occurs once in either set.
-func isHighCardinalityKey(k string) bool {
-	lk := strings.ToLower(k)
-	if strings.HasSuffix(lk, "_id") || strings.HasSuffix(lk, ".id") || lk == "id" {
-		return true
-	}
-	if strings.HasSuffix(lk, ".uuid") || strings.Contains(lk, "trace_id") || strings.Contains(lk, "span_id") {
-		return true
-	}
-	if strings.Contains(lk, "request_id") || strings.Contains(lk, "correlation") {
-		return true
-	}
-	return false
-}
+// isHighCardinalityKey — anahtar adına bakan süzgeç; gövde v0.10.1495'ten
+// beri bubbleup_rank.go'da (ölçü/kimlik/zaman damgası son ekleri eklendi).
+func isHighCardinalityKey(k string) bool { return isUnrankableAttributeKey(k) }

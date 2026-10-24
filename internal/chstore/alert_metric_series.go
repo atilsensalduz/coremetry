@@ -41,6 +41,14 @@ import (
 type AlertMetricPoint struct {
 	T int64    `json:"t"`
 	V *float64 `json:"v"`
+	// BelowFloor — v0.10.1495: penceredeki örnek sayısı kuralın minSamples
+	// tabanının altında — değerlendirici bu anda ÖLÇMEDİ (belowFloor), nokta
+	// boşluk (V nil). Seyrek örneklenmiş span'lerde birkaç kısa span'in p99'u
+	// "~0 ms" diye çizilip eşik kararıyla çelişiyordu.
+	BelowFloor bool `json:"belowFloor,omitempty"`
+	// N — penceredeki örnek (istek) sayısı, kaynağın kendi sayımı; yalnız
+	// sunucu içi (taban kararı), JSON'a çıkmaz. nil = kaynak sayım vermedi.
+	N *float64 `json:"-"`
 }
 
 // AlertSeriesSpec — bir (metrik, pencere) çiftinin dizi ızgarası. SAF.
@@ -306,6 +314,68 @@ func (s *Store) AlertMetricSeries(ctx context.Context, q AlertMetricSeriesQuery)
 		return nil, err
 	}
 	return buildAlertSeriesPoints(vals, q, sp, p.scan), nil
+}
+
+// AlertSampleCountSeries — v0.10.1495: değerlendiricinin minSamples kapısının
+// sayımı (measureCount ikizi: servisin TÜM span'leri; ≥ 5 dk pencerede
+// service_summary_5m span_count_state, altında ham spans count()), kural
+// penceresinde kova kova — AlertMetricSeries ile AYNI ızgara ve çerçeve. V =
+// pencereye ölçeklenmiş sayım (değerlendiricinin v0.8.315 ölçeklemesi).
+func (s *Store) AlertSampleCountSeries(ctx context.Context, q AlertMetricSeriesQuery) ([]AlertMetricPoint, error) {
+	sp, err := AlertMetricSeriesSpec(q.Metric, q.WindowSec)
+	if err != nil {
+		return nil, err
+	}
+	p := alertSampleCountPlan(!UseSummaryMV(time.Duration(q.WindowSec) * time.Second))
+	rows, err := s.telemetryReadConn().Query(ctx, alertMetricSeriesSQL(p, sp), alertMetricSeriesArgs(q, sp)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	vals := make(map[int64]float64)
+	for rows.Next() {
+		var b time.Time
+		var v float64
+		if err := rows.Scan(&b, &v); err != nil {
+			return nil, err
+		}
+		vals[b.Unix()] = v
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return buildAlertSeriesPoints(vals, q, sp, p.scan), nil
+}
+
+// alertSampleCountPlan — SAF: minSamples sayımının planı (measureCount ikizi).
+func alertSampleCountPlan(raw bool) alertSeriesPlan {
+	if raw {
+		return alertSeriesPlan{table: "spans", from: "spans", tcol: "time",
+			inner: `count() AS e`, value: seriesSumE, scan: seriesScanCountScaled, bucket: rawBucket}
+	}
+	return alertSeriesPlan{table: "service_summary_5m", from: "service_summary_5m", tcol: "time_bucket",
+		inner: `countMerge(span_count_state) AS e`, value: seriesSumE, scan: seriesScanCountScaled, bucket: mvBucket}
+}
+
+// ApplyAlertSampleFloor — SAF (v0.10.1495): sayımı minSamples altındaki
+// noktalar boşluk + BelowFloor (değerlendiricinin belowFloor kapısı).
+// counts T'ye anahtarlı; sayımı bilinmeyen nokta DOKUNULMAZ (kaynak sayım
+// vermediyse uydurma taban yok). min ≤ 0 → aynen.
+func ApplyAlertSampleFloor(pts []AlertMetricPoint, counts map[int64]float64, min int) []AlertMetricPoint {
+	if min <= 0 {
+		return pts
+	}
+	for i := range pts {
+		n, ok := counts[pts[i].T]
+		if !ok {
+			continue
+		}
+		if n < float64(min) {
+			pts[i].V = nil
+			pts[i].BelowFloor = true
+		}
+	}
+	return pts
 }
 
 // buildAlertSeriesPoints — SAF. [From, To) ızgarasının her kovası bir nokta

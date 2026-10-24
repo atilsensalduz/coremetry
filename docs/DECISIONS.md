@@ -10875,3 +10875,42 @@ bitince yeni koşuyu seç: "Taban → Bu koşu" bloğu kontrol/bağımsız Δ (�
 bayt aynı (yeni kayıt alanları yok; eski kayıtlardaki `facts.baseline/anomalies/errors` + `contextPack` okunmaz).
 `list_deployments.origin` Argo entegrasyonu kapalıyken zaten yoktur. Tam: revert + yeni etiket (eski sürüm yeni JSON
 anahtarlarını yok sayar; blob okuyansız kalır).
+
+
+## 2026-10-24 — v0.10.1495 — Problem detayı: doğrulanmış etki alanı, türe göre kıyas, alarm grafiği tabanı
+
+**Karar (operatör bildirimi, prod ekran görüntüleri).** (1) **Etkilenen varlıklar** (`GET /api/problems/{id}/affected`,
+`affectedSet`) yalnız bağı DOĞRULANMIŞ ve etkisi GÖZLENMİŞ varlıkları sayar: problemin pod'u (pod kapsamlı problem), hata
+gören ya da kendi problemi açık çağıranlar (service_callers_5m — gerçek ebeveyn→çocuk span kenarı), hipotezin pod kanıtı,
+öznenin cluster'ı (pod kapsamlıda yalnız servis tek cluster'daysa). Hata görmeyen çağıranlar ayrı `linked` grubu ("Bağlı,
+etki görülmedi", kapalı); her satır `relation` taşır. Çağıran okuması düşerse `topologyKnown=false` ve panel bunu söyler.
+Kök-neden panelinde topoloji kenarı olmayan co-mover'lar "What else changed" tablosundan çıkıp kapalı, sayımlı "Aynı
+pencerede hareket edenler (bağlantı doğrulanmadı)" grubuna iner; Blast radius tablosunun üstünde bağın türü yazar.
+(2) **Attribute sıralaması** (chstore `runBubbleUp`, tüm tüketiciler: panel, hakem kataloğu, CoSRE, MCP `bubble_up`): ad
+süzgeci kimlik/ölçü/zaman damgası son eklerini (id, uuid, size, length, count, bytes, rows, offset, timestamp, time, …)
+eler; değer süzgeci tüm değerleri sayısal olup en çok 6 değeri seçimin %50'sini kapsamayan (dağınık sayısal) attribute'u
+eler — anlamsız attribute yerine hiçbiri. (3) **Kıyas bölümü problem türünden** (`rootCauseBubbleMode`, SAF, tek yer):
+`errors` (hata metriği — hatalı span alt kümesi), `window` (gecikme/trafik — önceki eş-boy pencere, hata dili yok),
+`none` (runtime:, db-capacity:, db-health:, monitor:, self-, servis olmayan özne — ham spans taraması HİÇ koşmaz). Çekirdek
+`bubbleMode`, bubbleup cevabı `mode` taşır. (4) **Alarm grafiği** (`/api/alert-rules/{id}/series`): değerlendiricinin
+minSamples kapısı grafikte de uygulanır — örnek-duyarlı metrikte (`evaluator.MetricNeedsSampleFloor`) penceredeki örnek
+sayısı tabanın altındaki nokta null + `belowFloor`; sayım AYNI kaynaktan (VM: dizinin istek sayısı; span:
+`AlertSampleCountSeries`, measureCount ikizi, aynı ızgara). VM dizisinde sıfır istekli pencerede gecikme/oran null (sayım
+metrikleri 0 kalır — değerlendirici de 0 okur). Kaynak satırı başlıktan gövdeye indi ve her cevapta çizilir; alan yoksa
+"kaynak: bilinmiyor".
+
+**Neden.** JVM GC (tek pod) problemi: "AFFECTED ENTITIES (37)" hata görmeyen 25 çağıranı + cluster'ları etkilenen sayıyordu;
+"Where errors concentrate — over the error spans" başlığı, sunucu o türde hata alt kümesini değil zaman-kaydırmalı kıyası
+koşarken yanlıştı ve `messaging.message.body.size` (749, 725…) gösterdi. p99 alarm grafiği 12:00–12:45 ~0 ms'e düşüp
+sıçrıyordu: boş kovalar zaten null'du (CH yerel doğrulama: boş t-digest durumu `nan` → null); ~0 değerler seyrek
+örneklenmiş birkaç kısa span'in gerçek p99'uydu ve değerlendirici o anlarda minSamples altında ÖLÇMÜYORDU — grafik
+karardan sapıyordu. Problem grafiği yolu zaten 1489'un okuyucusundan geçiyor (`getAlertRuleSeries` →
+`alertSeriesWithSource`); rozetin yokluğu koddan yeniden üretilemedi, bu yüzden kaynak satırı artık koşulsuz.
+
+**Sınırlar.** Çağrı kenarları servis düzeyinde: pod kapsamlı problemde çağrının hangi pod'a gittiği ayrıştırılamaz (panel
+söyler). Ham pencere (<5 dk) sayımı kapsanan süreye ölçeklenir (değerlendirici ölçeklemez) — sınırdaki noktada ±1 kova
+farkı olabilir. Topolojinin prod'da neden "okunamadı" düştüğü (GetServiceGraphTopN, 10 sn) bu sürümde ölçülmedi. Yeni
+tablo/kolon/rota yok; MCP 74, api.go, kademe sırası değişmedi.
+
+**Geri alma.** `git revert <sha>` + yeni etiket. Önbellek anahtarları (`problem:affected:v2`, `:ms=` eki) 60 s'de söner;
+eski FE yeni cevabı okur (alanlar ek), yeni FE eski cevabı metrikten türeterek okur.

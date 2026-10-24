@@ -738,12 +738,28 @@ func (r *AlertVMReader) Series(ctx context.Context, service, metric string, wind
 		if s == nil {
 			s = &alertVMSample{Scale: alertVMScale(vmREDFamilies[fi]), WindowSec: windowSec}
 		}
-		if v, ok := alertVMValue(metric, *s); ok {
+		// v0.10.1495 — penceredeki istek sayısı (minSamples tabanı, çağıranda)
+		// ve sıfır istekli pencerede gecikme/oran BOŞLUK: histogram yüzdeliği
+		// boş pencerede tanımsızdır, sıfır diye çizilmez. Sayım türleri
+		// (request_rate / error_count) seri yokluğunda 0 kalır — değerlendirici
+		// de 0 okur (trafik düşüşü kuralı çöküşü görmeli).
+		n := 0.0
+		if s.HaveCount && s.Count > 0 {
+			n = s.Count
+		}
+		pt.N = &n
+		if v, ok := alertVMValue(metric, *s); ok && (n > 0 || !alertVMNeedsTraffic(metric)) {
 			pt.V = &v
 		}
 		pts = append(pts, pt)
 	}
 	return pts, src, true
+}
+
+// alertVMNeedsTraffic — SAF: değeri ancak istek varken tanımlı metrikler
+// (oran / gecikme). Sayımlar (request_rate / error_count) sıfır istekte 0'dır.
+func alertVMNeedsTraffic(metric string) bool {
+	return metric != "request_rate" && metric != "error_count"
 }
 
 // Baseline — taban önerisi (son 7 gün) değerlendiricinin kaynağından. Oran /

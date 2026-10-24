@@ -16,6 +16,10 @@ import { traceHref } from '@/lib/traceHref';
 import { coMovingCause, localizedNote } from '@/lib/rootCauseCandidates';
 import { withBubbleUp, headlineNeedsBubble } from '@/lib/rootCauseProgressive';
 import { useT } from '@/lib/i18n';
+import { DisclosureButton } from '@/components/ui/DisclosureButton';
+// v0.10.1495 — kıyas bölümü problem türünden; bağlantısız co-mover'lar ayrı grup.
+import { bubbleModeOf, bubbleCopyKeys, splitCorrelations } from '@/lib/rootCauseBubbleMode';
+import type { RootCauseBubbleMode } from '@/lib/types';
 
 // RootCausePanel — the single "what changed / likely cause" surface for a
 // Problem (v0.7.52, backend bundle shipped v0.7.51). Fetches
@@ -52,6 +56,7 @@ export function RootCausePanel({ problemId, service, window: win, onLoaded }: {
   // Manşet bu durumda bubbleUp'sız tam demetin manşetine döner (bu = null).
   const [buFailed, setBuFailed] = useState(false);
   const t = useT();
+  const [coMoversOpen, setCoMoversOpen] = useState(false);
   useEffect(() => {
     setRc(undefined);
     setBu(undefined);
@@ -75,21 +80,29 @@ export function RootCausePanel({ problemId, service, window: win, onLoaded }: {
     </div>;
   }
 
-  const bubblePending = bu === undefined;
-  const full = withBubbleUp(rc, bu);
-  const bubble = topBubble(full);
+  // v0.10.1495 — kıyasın türü sunucudan (problem türü). none (runtime / db /
+  // monitor): bölüm yok, manşet kıyası beklemez.
+  const mode = bubbleModeOf(rc, bu);
+  const bubbleOn = mode !== 'none';
+  const copy = bubbleOn ? bubbleCopyKeys(mode) : null;
+  const bubblePending = bubbleOn && bu === undefined;
+  const full = withBubbleUp(rc, bubbleOn ? bu : null);
+  const bubble = bubbleOn ? topBubble(full) : null;
   const blast = full.blastRadius && full.blastRadius.totalCallers > 0 ? full.blastRadius : null;
   // v0.9.836 — `?? []`: correlations da null gelebiliyordu (rootcause.go
   // goroutine'i nil dönüşle `[]` zarfını eziyordu). Aynı çökme sınıfı,
   // farklı metot ('filter').
   const corr = (full.correlations ?? []).filter(c => c.service !== service);
+  // v0.10.1495 — topoloji kenarlı olanlar tabloda; yalnız zamanla birlikte
+  // hareket edenler ayrı, kapalı grup (asla karışık değil).
+  const { linked: corrLinked, unlinked: corrUnlinked } = splitCorrelations(corr);
   const rollouts: RolloutEvidence[] = full.hypothesis?.deep?.rollouts ?? [];
   // Manşet bubbleUp'a bağlıysa (deploy / sıcak rollout yok) o gelene dek
   // "inceleniyor" der — önce "localized" deyip sonra fikir değiştirmez.
   const headlinePending = bubblePending && headlineNeedsBubble(full, rollouts);
-  const headline = likelyCause(full, service, bubble, rollouts);
+  const headline = likelyCause(full, service, bubble, rollouts, mode);
   // buFailed: bubbleUp bilinmiyor — "ilişkili sinyal yok" boş hâli iddia edilmez.
-  const nothing = !bubblePending && !buFailed && !full.recentDeploy && !bubble && !blast && corr.length === 0 && !full.exemplar && rollouts.length === 0;
+  const nothing = !bubblePending && !(bubbleOn && buFailed) && !full.recentDeploy && !bubble && !blast && corr.length === 0 && !full.exemplar && rollouts.length === 0;
 
   if (nothing) {
     return (
@@ -131,21 +144,21 @@ export function RootCausePanel({ problemId, service, window: win, onLoaded }: {
 
       {/* 2. Smoking-gun dimension (bubble-up). v0.10.1119 — ayrı istekle
           gelir; beklerken bölüm yerinde bir yükleniyor satırı durur. */}
-      {bubblePending && (
-        <Section title="Where errors concentrate" subtitle="scanning spans in the analysis window">
+      {bubblePending && copy && (
+        <Section title={t(copy.title)} subtitle="scanning spans in the analysis window">
           <Spinner label="Comparing attribute values…" />
         </Section>
       )}
-      {buFailed && (
-        <Section title="Where errors concentrate">
+      {bubbleOn && buFailed && copy && (
+        <Section title={t(copy.title)}>
           <div style={{ fontSize: 12, color: 'var(--text3)' }} data-bubble-unavailable>
             {t('rootCause.bubbleUnavailable')}
           </div>
         </Section>
       )}
-      {bubble && (
-        <Section title="Where errors concentrate"
-                 subtitle={`top attribute over the error spans (${rootWindow(bu ?? rc)})`}>
+      {bubble && copy && (
+        <Section title={t(copy.title)}
+                 subtitle={`${t(copy.sub)} (${rootWindow(bu ?? rc)})`}>
           <div style={{ fontSize: 12, marginBottom: 6 }}>
             <code>{bubble.key}</code>
           </div>
@@ -165,7 +178,7 @@ export function RootCausePanel({ problemId, service, window: win, onLoaded }: {
             </div>
           ))}
           <div style={{ fontSize: 10.5, color: 'var(--text3)', marginTop: 4 }}>
-            bar = % of error spans with this value · right = error% / baseline%
+            {t(copy.legend)}
           </div>
         </Section>
       )}
@@ -174,6 +187,11 @@ export function RootCausePanel({ problemId, service, window: win, onLoaded }: {
       {blast && (
         <Section title="Blast radius"
                  subtitle={`${blast.totalCallers} caller${blast.totalCallers === 1 ? '' : 's'}, ${blast.cascadingCallers} already cascading`}>
+          {/* v0.10.1495 (operatör: "0.0% hatalı 25 çağıran — ilişki söylenmeli") —
+              bağın türü ve hata sütununun anlamı tablonun üstünde. */}
+          <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 4 }} data-blast-relation>
+            {t('rootCause.blast.relation')}
+          </div>
           <div className="table-wrap">
             {/* v0.10.945 — statik tablo (T1): en çok 6 çağıran, sabit öncelik sırası (hata → RPS); sıralanmaz. */}
             <table>
@@ -222,7 +240,7 @@ export function RootCausePanel({ problemId, service, window: win, onLoaded }: {
       )}
 
       {/* 4. What changed — correlated services (folded-in CorrelationsPanel). */}
-      {corr.length > 0 && (
+      {corrLinked.length > 0 && (
         <Section title="What else changed"
                  subtitle="services that moved around the fire (current vs prior window; connected + worsening first, improved / quieter last, then by composite score)">
           <div className="table-wrap">
@@ -236,7 +254,7 @@ export function RootCausePanel({ problemId, service, window: win, onLoaded }: {
                 <th className="num" style={{ width: 64 }}>Score</th>
               </tr></thead>
               <tbody>
-                {corr.slice(0, 8).map((c, i) => (
+                {corrLinked.slice(0, 8).map((c, i) => (
                   <tr key={c.service}>
                     <td className="num cell-faint">{i + 1}</td>
                     <td>
@@ -256,6 +274,35 @@ export function RootCausePanel({ problemId, service, window: win, onLoaded }: {
             </table>
           </div>
         </Section>
+      )}
+
+      {/* 4b. v0.10.1495 (operatör: "bağlantı doğrulanamadı" denip aynı servisler
+          etkilenen gibi listeleniyordu) — topoloji kenarı OLMAYAN, yalnız aynı
+          pencerede hareket eden servisler: ayrı, KAPALI grup, sayımlı. Kök neden
+          adayı değil; topoloji okunamadıysa bu da söylenir. */}
+      {corrUnlinked.length > 0 && (
+        <div data-co-movers>
+          <DisclosureButton anatomy="row" expanded={coMoversOpen} onClick={() => setCoMoversOpen(o => !o)}>
+            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--text2)' }}>
+              {t('rootCause.coMovers.title')} ({corrUnlinked.length})
+            </span>
+          </DisclosureButton>
+          <div style={{ fontSize: 10.5, color: 'var(--text3)', margin: '2px 0 6px' }}>
+            {rc.topologyKnown === true ? t('rootCause.coMovers.note') : t('rootCause.coMovers.topoUnknown')}
+          </div>
+          {coMoversOpen && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {corrUnlinked.slice(0, 12).map(c => (
+                <div key={c.service} style={{ display: 'flex', gap: 8, fontSize: 12, alignItems: 'baseline' }}>
+                  <Link to={serviceHref(c.service, { range: win })} className="mono">{c.service}</Link>
+                  {changeBadge(c)}
+                  <span style={{ color: 'var(--text3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                        title={c.reasons.join(' · ')}>{c.reasons[0] ?? ''}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {/* 5. Exemplar trace. */}
@@ -413,6 +460,7 @@ function likelyCause(
   rc: RootCause, service: string,
   bubble: { key: string; values: BubbleUpValue[] } | null,
   rollouts: RolloutEvidence[] = [],
+  mode: RootCauseBubbleMode = 'errors',
 ): { text: ReactNode; accent: string; bg: string; border: string } {
   const deploy = { accent: 'var(--warn)', bg: 'color-mix(in srgb, var(--warn) 10%, transparent)', border: 'color-mix(in srgb, var(--warn) 40%, transparent)' };
   const dim = { accent: 'var(--err)', bg: 'color-mix(in srgb, var(--err) 8%, transparent)', border: 'color-mix(in srgb, var(--err) 35%, transparent)' };
@@ -439,11 +487,16 @@ function likelyCause(
     };
   }
   const top = bubble?.values[0];
-  if (bubble && top && top.score >= 0.2) {
+  if (mode !== 'none' && bubble && top && top.score >= 0.2) {
+    // v0.10.1495 — hata dili yalnız hata problemlerinde; diğerlerinde kıyas
+    // önceki eş-boy pencereye karşı.
     return {
       ...dim,
-      text: <>Errors concentrate in <code>{bubble.key}={top.value || '(empty)'}</code> — <b>{pct(top.selectionPct)}</b> of
-        error spans vs {pct(top.baselinePct)} of all spans.</>,
+      text: mode === 'errors'
+        ? <>Errors concentrate in <code>{bubble.key}={top.value || '(empty)'}</code> — <b>{pct(top.selectionPct)}</b> of
+          error spans vs {pct(top.baselinePct)} of all spans.</>
+        : <>In this window <code>{bubble.key}={top.value || '(empty)'}</code> stands out — <b>{pct(top.selectionPct)}</b> of
+          spans vs {pct(top.baselinePct)} in the previous window.</>,
     };
   }
   const co = coMovingCause(rc, service);

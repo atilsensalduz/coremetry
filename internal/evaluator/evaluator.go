@@ -1679,6 +1679,11 @@ func nextSeverity(cur string, openFor time.Duration, cfg chstore.ProblemEscalati
 // versus an absolute count whose value carries the signal
 // directly. v0.5.128's MinSamples gate only applies to the
 // former.
+// MetricNeedsSampleFloor — dışa açık ikiz (v0.10.1495): problem grafiği
+// (api alert_rule_series) minSamples altındaki noktaları değerlendiriciyle
+// AYNI kuralla boşluk çizer.
+func MetricNeedsSampleFloor(metric string) bool { return metricNeedsSampleFloor(metric) }
+
 func metricNeedsSampleFloor(metric string) bool {
 	// v0.8.314 — request_rate is ABSOLUTE (spans/second), not a ratio: at
 	// low traffic it IS the signal, so gating it on MinSamples suppressed

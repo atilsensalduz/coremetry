@@ -57,6 +57,8 @@ const alertRuleSeriesTTL = 60 * time.Second
 type alertRuleSeriesStore interface {
 	GetAlertRule(ctx context.Context, id string) (*chstore.AlertRule, error)
 	AlertMetricSeries(ctx context.Context, q chstore.AlertMetricSeriesQuery) ([]chstore.AlertMetricPoint, error)
+	// AlertSampleCountSeries — v0.10.1495: minSamples sayımı, aynı ızgara.
+	AlertSampleCountSeries(ctx context.Context, q chstore.AlertMetricSeriesQuery) ([]chstore.AlertMetricPoint, error)
 	// AnomalySensitivity — v0.10.1091: yaygın yavaşlamanın GÖRÜNTÜ eşiği
 	// (serviceSlowdown.minP99Ms; atomic yayın, CH okuması yok).
 	AnomalySensitivity() chstore.AnomalySensitivityConfig
@@ -202,12 +204,13 @@ func (s *Server) getAlertRuleSeries(w http.ResponseWriter, r *http.Request) {
 		thrKey = *thr
 	}
 	// v0.10.1489 — kaynak girdileri anahtarda (ayar kipi / ortam / okuyucu).
-	key := alertRuleSeriesKey(id, metric, service, windowSec, f, t, spec.StepSec, thrKey) + ":" +
+	// v0.10.1495 — minSamples tabanı da girdi (kural düzenlenince anahtar döner).
+	key := alertRuleSeriesKey(id, metric, service, windowSec, f, t, spec.StepSec, thrKey) + fmt.Sprintf(":ms=%d:", rule.MinSamples) +
 		alertSourceKeyPart(st.AnomalySensitivity(), alertVMReaderPtr.Load() != nil)
 	s.serveCached(w, r, key, alertRuleSeriesTTL, func(ctx context.Context) (any, error) {
 		pts, src, err := alertSeriesWithSource(ctx, st, chstore.AlertMetricSeriesQuery{
 			Metric: metric, Service: service, WindowSec: windowSec, From: f, To: t, Now: time.Now(),
-		}, spec.StepSec, synthetic)
+		}, spec.StepSec, synthetic, int(rule.MinSamples))
 		if err != nil {
 			return nil, err
 		}

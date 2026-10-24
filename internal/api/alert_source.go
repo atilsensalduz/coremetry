@@ -25,6 +25,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -34,6 +35,7 @@ import (
 	"github.com/cilcenk/coremetry/internal/anomaly"
 	"github.com/cilcenk/coremetry/internal/auth"
 	"github.com/cilcenk/coremetry/internal/chstore"
+	"github.com/cilcenk/coremetry/internal/evaluator"
 )
 
 func init() { registerRoutesExtra("alert-source", (*Server).registerAlertSourceRoutes) }
@@ -83,17 +85,54 @@ const alertSourceSpanOnlyReason = "yaygın yavaşlama span MV'sinden karar verir
 // seçildiyse VM aralık okuması, değilse span (chstore.AlertMetricSeries).
 // spanOnly: kuralın kararı alarm değerlendiricisinde değil, span MV'sinden
 // veren başka bir dedektörde (yaygın yavaşlama) — dizi de span.
-func alertSeriesWithSource(ctx context.Context, st alertRuleSeriesStore, q chstore.AlertMetricSeriesQuery, stepSec int, spanOnly bool) ([]chstore.AlertMetricPoint, anomaly.AlertSource, error) {
-	if spanOnly {
-		pts, err := st.AlertMetricSeries(ctx, q)
-		return pts, anomaly.SpanAlertSource(alertSourceSpanOnlyReason), err
+//
+// v0.10.1495 — minSamples > 0 ve metrik örnek-duyarlıysa (değerlendiricinin
+// MetricNeedsSampleFloor'u) penceredeki örnek sayısı tabanın altındaki
+// noktalar BOŞLUK + belowFloor: değerlendirici o anlarda ölçmedi. Sayım AYNI
+// kaynaktan — VM'de dizinin kendi istek sayısı, span'de measureCount ikizi
+// (AlertSampleCountSeries). Sayım okunamazsa dizi tabansız döner (grafik
+// düşmez; kaynak satırı yine söyler).
+func alertSeriesWithSource(ctx context.Context, st alertRuleSeriesStore, q chstore.AlertMetricSeriesQuery, stepSec int, spanOnly bool, minSamples int) ([]chstore.AlertMetricPoint, anomaly.AlertSource, error) {
+	floor := minSamples > 0 && evaluator.MetricNeedsSampleFloor(q.Metric)
+	if !spanOnly {
+		pts, src, used := alertVMReaderPtr.Load().Series(ctx, q.Service, q.Metric, q.WindowSec, q.From, q.To, stepSec)
+		if used {
+			if floor {
+				counts := make(map[int64]float64, len(pts))
+				for _, p := range pts {
+					if p.N != nil {
+						counts[p.T] = *p.N
+					}
+				}
+				pts = chstore.ApplyAlertSampleFloor(pts, counts, minSamples)
+			}
+			return pts, src, nil
+		}
+		spanPts, err := spanSeriesWithFloor(ctx, st, q, floor, minSamples)
+		return spanPts, src, err
 	}
-	pts, src, used := alertVMReaderPtr.Load().Series(ctx, q.Service, q.Metric, q.WindowSec, q.From, q.To, stepSec)
-	if used {
-		return pts, src, nil
+	pts, err := spanSeriesWithFloor(ctx, st, q, floor, minSamples)
+	return pts, anomaly.SpanAlertSource(alertSourceSpanOnlyReason), err
+}
+
+// spanSeriesWithFloor — span dizisi + (floor ise) aynı ızgarada sayım dizisi.
+func spanSeriesWithFloor(ctx context.Context, st alertRuleSeriesStore, q chstore.AlertMetricSeriesQuery, floor bool, minSamples int) ([]chstore.AlertMetricPoint, error) {
+	pts, err := st.AlertMetricSeries(ctx, q)
+	if err != nil || !floor || len(pts) == 0 {
+		return pts, err
 	}
-	spanPts, err := st.AlertMetricSeries(ctx, q)
-	return spanPts, src, err
+	cs, cerr := st.AlertSampleCountSeries(ctx, q)
+	if cerr != nil {
+		log.Printf("[alert-series] minSamples sayımı okunamadı %s/%s: %v — dizi tabansız", q.Service, q.Metric, cerr)
+		return pts, nil
+	}
+	counts := make(map[int64]float64, len(cs))
+	for _, c := range cs {
+		if c.V != nil {
+			counts[c.T] = *c.V
+		}
+	}
+	return chstore.ApplyAlertSampleFloor(pts, counts, minSamples), nil
 }
 
 // getAlertPreviewSeries — kural taslağının dizisi (son 1 sa varsayılan).
@@ -130,7 +169,7 @@ func (s *Server) getAlertPreviewSeries(w http.ResponseWriter, r *http.Request) {
 	s.serveCached(w, r, key, alertRuleSeriesTTL, func(ctx context.Context) (any, error) {
 		pts, src, err := alertSeriesWithSource(ctx, st, chstore.AlertMetricSeriesQuery{
 			Metric: metric, Service: service, WindowSec: windowSec, From: f, To: t, Now: time.Now(),
-		}, spec.StepSec, false)
+		}, spec.StepSec, false, 0) // taslak: taban yok (kural formu henüz kaydedilmedi)
 		if err != nil {
 			return nil, err
 		}

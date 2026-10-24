@@ -24,7 +24,7 @@ const T0 = 1_791_015_960 * 1e9; // 10:26 civarı, dakikaya hizalı
 
 const m = vi.hoisted(() => ({
   calls: [] as { ruleId: string; service: string; metric: string; fromNs: number; toNs?: number }[],
-  mode: 'ok' as 'ok' | 'empty' | 'fail' | 'gone',
+  mode: 'ok' as 'ok' | 'empty' | 'fail' | 'gone' | 'floor' | 'vm',
 }));
 
 function series(vals: (number | null)[]): AlertRuleSeries {
@@ -44,6 +44,13 @@ vi.mock('@/lib/api', () => ({
         case 'fail': throw new Error('HTTP 500: code: 159, timeout');
         case 'gone': throw new Error('HTTP 404: log sorgusu kuralı — metrik dizisi yok');
         case 'empty': return series([null, null, null]);
+        // v0.10.1495 — prod: seyrek örneklenmiş span, taban altı noktalar boşluk; kaynak alanı YOK.
+        case 'floor': {
+          const sr = series([820, null, null, 4100]);
+          sr.points[1].belowFloor = true; sr.points[2].belowFloor = true;
+          return sr;
+        }
+        case 'vm': return { ...series([820, 910]), source: { vm: false, reason: 'VictoriaMetrics yapılandırılmamış', evidence: 'kaynak: span (örneklenmiş) — VM kullanılmadı: VictoriaMetrics yapılandırılmamış' } };
         default: return series([820, 910, null, 3400, 3872.62]);
       }
     },
@@ -174,5 +181,25 @@ describe('AlertMetricChartSection', () => {
   it('"<" kuralı: eşik gölgesi altta', async () => {
     const p = panel(await mount(prob({ metric: 'request_rate', comparator: '<', threshold: 2, ruleId: 'r-low-traffic' })));
     expect(JSON.parse(p.dataset.thresholds!)).toEqual([{ value: 2, label: '< 2/s', color: 'var(--warn)', side: 'below' }]);
+  });
+
+  // v0.10.1495 (operatör, prod `p99_ms · <svc> · 5 dk pencere`: çizgi ~0 ms'e
+  // düşüp sıçrıyordu, kaynak rozeti görünmüyordu) — boşluk NaN (uPlot boşluğu),
+  // taban altı noktaların sayısı yazılır; kaynak satırı HER cevapta gövdede.
+  it('taban altı noktalar boşluk + açıklama; kaynak alanı yoksa "bilinmiyor" (sessiz yokluk değil)', async () => {
+    m.mode = 'floor';
+    const el = await mount(prob({ metric: 'p99_ms' }));
+    expect(panel(el).dataset.points).toBe('820,NaN,NaN,4100');
+    expect(el.querySelector('[data-alert-below-floor]')?.textContent).toContain('2 ');
+    expect(el.querySelector('[data-alert-source]')?.textContent).toMatch(/source: unknown|kaynak: bilinmiyor/);
+  });
+
+  it('span kaynağı: rozet "span (örneklenmiş)" + gerekçe görünür', async () => {
+    m.mode = 'vm';
+    const el = await mount(prob());
+    const src = el.querySelector('[data-alert-source]')?.textContent ?? '';
+    expect(src).toContain('kaynak: span (örneklenmiş)');
+    expect(src).toContain('VM kullanılmadı: VictoriaMetrics yapılandırılmamış');
+    expect(el.querySelector('[data-alert-below-floor]')).toBeNull();
   });
 });

@@ -47,7 +47,7 @@ func sequentialBubbleUpRef(ctx context.Context, ops bubbleUpOps) (*BubbleUpResul
 		if err != nil {
 			return nil, err
 		}
-		if len(a.Values) > 0 {
+		if len(a.Values) > 0 && !isScatteredNumericAttribute(a) { // v0.10.1495
 			out.Attributes = append(out.Attributes, a)
 		}
 	}
