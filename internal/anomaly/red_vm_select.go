@@ -26,6 +26,7 @@ package anomaly
 
 import (
 	"math"
+	"sort"
 	"time"
 )
 
@@ -46,9 +47,22 @@ const (
 	redReasonShort         = "VictoriaMetrics serisi yetersiz (taban + dwell kovası yok)"
 )
 
+// vmStrictMetric — VM'de serisi olan serviste örneklenmiş span'in HİÇ karar
+// vermediği metrik (operatör 2026-10-24: "VM serisi varken örneklenmiş span
+// karar kaynağı olmasın"). Kuyruk örneklemesi hata oranını politikayla
+// oynatır (hatalar hep tutulur + ~%5 taban); VM okunamadığında / ısınırken
+// span'e düşmek, kaynağın tik tik VM ↔ span arasında salınması ve rampanın
+// örneklenmiş seride kaybolması demekti. Böyle bir tikte çift BEKLETİLİR
+// (Hold): yeni karar yok, açık satır yalnız tazelenir. Yalnız servis VM'de
+// durum etiketi TAŞIMIYORSA (hata oranı VM'den ölçülemez) span karar verir.
+const vmStrictMetric = "error_rate"
+
 // redSourceUsed — çiftin kaynağı (kanıt).
 type redSourceUsed struct {
-	VM     bool
+	VM bool
+	// Hold — VM bu servisi biliyor ama bu tik karar veremiyor (ısınma /
+	// okuma hatası / kısa seri): span'e DÜŞÜLMEZ (vmStrictMetric), karar yok.
+	Hold   bool
 	Family string // VM: "HTTP" | "gRPC"
 	Reason string // span: neden VM değil ("" = VM hiç denenmedi değil, ayar)
 }
@@ -56,6 +70,9 @@ type redSourceUsed struct {
 // redSourceEvidenceTR — SAF: Problem açıklamasına / olay ayrıntısına eklenen
 // kaynak satırı. Operatörün prod'da arayacağı metin budur.
 func redSourceEvidenceTR(u redSourceUsed) string {
+	if u.Hold {
+		return "kaynak: VictoriaMetrics — bu tik beklemede: " + u.Reason
+	}
 	if u.VM {
 		s := "kaynak: VictoriaMetrics (örneklenmemiş)"
 		if u.Family != "" {
@@ -137,8 +154,12 @@ type vmREDView struct {
 	seasonalClass string
 	behavior      []int64
 	readyDet      [vmFamN][vmKindN]bool
-	readyBeh      [vmFamN][vmKindN]bool
-	failed        [vmFamN][vmKindN]bool // son okuma hata verdi (geri çekilme sürüyor)
+	// readyConsec — yalnız ardışık 24 sa kovaları hazır (mevsimsel eksik
+	// olabilir). vmStrictMetric bununla VM'de kalır: mevsimsel taban yoksa VM'in
+	// ardışık penceresi kullanılır, span'inki DEĞİL.
+	readyConsec [vmFamN][vmKindN]bool
+	readyBeh    [vmFamN][vmKindN]bool
+	failed      [vmFamN][vmKindN]bool // son okuma hata verdi (geri çekilme sürüyor)
 	// ölçüm
 	queries, queryErrs, bucketsFetched, pending int
 	lastErr                                     string
@@ -159,7 +180,11 @@ type redSeriesProvider interface {
 // famFor — servisin ailesi: sıradaki ilk aile ki kapsamı kullanılabilir,
 // istek türü hazır ve servisin ardışık pencerede en az bir isteği var.
 // Aileler ASLA toplanmaz. ok=false → gerekçe.
-func (v *vmREDView) famFor(service string) (int, string) {
+func (v *vmREDView) famFor(service string) (int, string) { return v.famForMode(service, false) }
+
+// famForMode — consecOnly: istek türünün yalnız ARDIŞIK kovaları hazır olsa
+// yeter (vmStrictMetric; mevsimsel ısınması VM'den çıkarmaz).
+func (v *vmREDView) famForMode(service string, consecOnly bool) (int, string) {
 	reason := ""
 	for fi := range vmREDFamilies {
 		if fi >= len(v.meta) {
@@ -172,7 +197,11 @@ func (v *vmREDView) famFor(service string) (int, string) {
 			}
 			continue
 		}
-		if !v.readyDet[fi][vmKindCount] {
+		ready := v.readyDet[fi][vmKindCount]
+		if consecOnly {
+			ready = v.readyConsec[fi][vmKindCount]
+		}
+		if !ready {
 			reason = v.notReadyReason(fi, vmKindCount)
 			continue
 		}
@@ -189,6 +218,72 @@ func (v *vmREDView) famFor(service string) (int, string) {
 		reason = redReasonNoFamily // hiçbir aile VM'de yok
 	}
 	return -1, reason
+}
+
+// vmKnows — VM bu servisi biliyor mu: kullanılabilir bir ailede, BELLEKTEKİ
+// ardışık kovalardan birinde isteği var (hazır olmasa da). vmStrictMetric'in
+// "span'e düşme" kapısı: ısınma / okuma hatası sırasında bile servisin VM'de
+// olduğu bellekten görülebiliyorsa karar span'e devredilmez.
+func (v *vmREDView) vmKnows(service string) bool {
+	for fi := range vmREDFamilies {
+		if fi >= len(v.meta) || !v.meta[fi].ok {
+			continue
+		}
+		for _, b := range v.consec {
+			if c, ok := v.store.get(fi, vmKindCount, b, service); ok && c > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// vmServices — SAF-ımsı: son ardışık pencerede kullanılabilir bir ailede
+// isteği olan servisler (sıralı). scan bunları span MV'sinin aktif servis
+// listesine BİRLEŞTİRİR: VM'de olup span'de olmayan (ya da span adı farklı)
+// servis önceden HİÇ değerlendirilmiyordu.
+func (v *vmREDView) vmServices() []string {
+	if v == nil || v.mode == "span" || !v.configured || v.store == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for fi := range vmREDFamilies {
+		if fi >= len(v.meta) || !v.meta[fi].ok || !v.readyConsec[fi][vmKindCount] {
+			continue
+		}
+		for _, b := range v.consec {
+			for _, svc := range v.store.servicesAt(fi, vmKindCount, b) {
+				if !seen[svc] {
+					seen[svc] = true
+					out = append(out, svc)
+				}
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// mergeServices — SAF: span listesine VM-yalnız servisleri ekler (sıra: span
+// listesi aynen, sonra eksikler). Kaç tane eklendiği döner (log / durum).
+func mergeServices(span, vm []string) ([]string, int) {
+	if len(vm) == 0 {
+		return span, 0
+	}
+	have := make(map[string]bool, len(span))
+	for _, s := range span {
+		have[s] = true
+	}
+	out := append([]string(nil), span...)
+	added := 0
+	for _, s := range vm {
+		if !have[s] {
+			out = append(out, s)
+			added++
+		}
+	}
+	return out, added
 }
 
 // metricOK — metriğin bu ailede ölçülebilirliği.
@@ -211,7 +306,11 @@ func (v *vmREDView) metricOK(fi int, service, metric string) (bool, string) {
 		need = append(need, vmKindP99)
 	}
 	for _, k := range need {
-		if !v.readyDet[fi][k] {
+		ready := v.readyDet[fi][k]
+		if metric == vmStrictMetric {
+			ready = v.readyConsec[fi][k]
+		}
+		if !ready {
 			return false, v.notReadyReason(fi, k)
 		}
 	}
@@ -260,10 +359,14 @@ func (v *vmREDView) seriesFor(service, metric string, dwell int) (vmSeries, redS
 		_, r := pickREDSource(in)
 		return vmSeries{}, redSourceUsed{Reason: r}
 	}
-	fi, freason := v.famFor(service)
+	strict := metric == vmStrictMetric
+	fi, freason := v.famForMode(service, strict)
 	in.FamilyFound, in.FamilyReason = fi >= 0, freason
 	if !in.FamilyFound {
 		_, r := pickREDSource(in)
+		if strict && v.vmKnows(service) {
+			return vmSeries{}, redSourceUsed{Hold: true, Reason: r}
+		}
 		return vmSeries{}, redSourceUsed{Reason: r}
 	}
 	in.MetricOK, in.MetricReason = v.metricOK(fi, service, metric)
@@ -274,6 +377,12 @@ func (v *vmREDView) seriesFor(service, metric string, dwell int) (vmSeries, redS
 	in.Enough = enoughHistory(len(s.Values), dwell)
 	useVM, r := pickREDSource(in)
 	if !useVM {
+		// Durum etiketi yoksa hata oranı VM'den ÖLÇÜLEMEZ — span'in tek dürüst
+		// kullanım yeri. Diğer her gerekçe (ısınma, okuma hatası, kısa seri)
+		// bekletir.
+		if strict && r != redReasonNoStatus {
+			return vmSeries{}, redSourceUsed{Hold: true, Reason: r}
+		}
 		return vmSeries{}, redSourceUsed{Reason: r}
 	}
 	return s, redSourceUsed{VM: true, Family: vmREDFamilies[fi].Label}
@@ -307,10 +416,29 @@ func (v *vmREDView) buildSeries(fi int, service, metric string) vmSeries {
 		seasRates = append(seasRates, rate)
 		days[b/86400] = struct{}{}
 	}
-	if len(days) >= seasonalMinDaysFor(v.seasonalClass) {
+	if len(days) >= seasonalMinDaysFor(v.seasonalClass) && v.seasonalReady(fi, metric) {
 		s.Seasonal, s.SeasonalRates = seas, seasRates
 	}
 	return s
+}
+
+// seasonalReady — metriğin türlerinin mevsimsel kovaları da tam mı. Tam
+// değilse mevsimsel taban KULLANILMAZ (eksik slotlu taban yalan söyler);
+// overlay span'in mevsimselini de siler → VM ardışık penceresi.
+func (v *vmREDView) seasonalReady(fi int, metric string) bool {
+	need := []vmREDKind{vmKindCount}
+	switch metric {
+	case "error_rate":
+		need = append(need, vmKindErr)
+	case "p99_ms":
+		need = append(need, vmKindP99)
+	}
+	for _, k := range need {
+		if !v.readyDet[fi][k] {
+			return false
+		}
+	}
+	return true
 }
 
 // overlayREDSeries — SAF (sağlayıcı verilince): span toplu okumasının
@@ -330,6 +458,16 @@ func overlayREDSeries(p redSeriesProvider, services, tracked []string, dwell int
 		for _, metric := range tracked {
 			s, u := p.seriesFor(svc, metric, dwell)
 			used[svc+"|"+metric] = u
+			if u.Hold {
+				// Bekletilen çift: span serileri SİLİNİR (karar verilmez; scan
+				// açık satırı yalnız tazeler).
+				for _, m := range []map[string]map[string][]float64{buckets, rates, seasonal, seasonalRates} {
+					if m[metric] != nil {
+						delete(m[metric], svc)
+					}
+				}
+				continue
+			}
 			if !u.VM {
 				continue
 			}

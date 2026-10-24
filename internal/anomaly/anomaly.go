@@ -578,9 +578,13 @@ func (d *Detector) scan(ctx context.Context) {
 	// span serisinin YERİNE geçer (dört seri birlikte — red_vm_select.go
 	// sözleşmesi); karar fazı, kapılar, taban mantığı aynen.
 	redView := <-redCh
+	// VM'de olup span MV'sinde olmayan (ya da span adı farklı) servisler de
+	// değerlendirilir: önceden yalnız span'in aktif listesi taranıyordu ve
+	// VM serisi ne kadar net olursa olsun o servis HİÇ değerlendirilmiyordu.
+	services, vmOnly := mergeServices(services, redView.vmServices())
 	redUsed := overlayREDSeries(redView, services, tracked, sens.DwellBuckets,
 		bucketsByMetric, seasonalByMetric, ratesByMetric, seasonalRatesByMetric)
-	recordSources(redUsed)
+	recordSources(redUsed, vmOnly)
 
 	// v0.9.691 (perf taraması #2) — AÇIK PROBLEMLER TEK SORGUDA.
 	//
@@ -633,6 +637,15 @@ func (d *Detector) scan(ctx context.Context) {
 			ruleID := "anomaly:" + svc + ":" + m
 			existing := snap.ByKey(ruleID, svc)
 			hasOpen := existing != nil && existing.ID != ""
+			// VM bu servisi biliyor ama bu tik karar veremiyor (vmStrictMetric):
+			// örneklenmiş span'e DÜŞÜLMEZ; açık satır yalnız tazelenir (bayat
+			// süpürme "kaynak sustu" diye kapatmasın).
+			if redUsed[svc+"|"+m].Hold {
+				if hasOpen {
+					pending = append(pending, pendingApply{service: svc, metric: m, oc: anomalyOutcome{Action: "none"}})
+				}
+				continue
+			}
 			bl := batchLatSeries{Batch: batchSvc, SeasonalRates: seriesFor(seasonalRatesByMetric[m], svc)}
 			oc := evaluateAnomaly(m, buckets, seasonal, rates, minSamples, hasOpen, bl, sens)
 			if !reachesApply(oc.Action, hasOpen) {
@@ -875,6 +888,9 @@ func (d *Detector) applyOutcome(ctx context.Context, service, metric string, oc 
 		severity := oc.Severity
 		desc := fmt.Sprintf("%s %s on %s — current %.2f%s vs baseline %.2f%s (%.1fσ, sustained %d buckets).",
 			displayMetric(metric), oc.Direction, service, current, unitOf(metric), median, unitOf(metric), z, dwell)
+		if oc.OpenedBy == "error_ramp" {
+			desc = errorRampDescription(service, oc.Ramp)
+		}
 		// v0.10.1478 — serinin kaynağı kanıtta: "kaynak: VictoriaMetrics
 		// (örneklenmemiş)" ya da "kaynak: span (örneklenmiş) — VM kullanılmadı: …".
 		desc = withREDEvidence(desc, oc.Evidence)

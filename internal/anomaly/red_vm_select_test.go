@@ -359,6 +359,8 @@ func floatsClose(a, b []float64) bool {
 func roundOutcome(o anomalyOutcome) anomalyOutcome {
 	r := func(x float64) float64 { return math.Round(x*100) / 100 }
 	o.Current, o.Median, o.MAD, o.Z = r(o.Current), r(o.Median), r(o.MAD), math.Round(o.Z*10)/10
+	o.Ramp.Threshold, o.Ramp.Median, o.Ramp.P90 = r(o.Ramp.Threshold), r(o.Ramp.Median), r(o.Ramp.P90)
+	o.Ramp.CurRatio, o.Ramp.CurEPS = r(o.Ramp.CurRatio), r(o.Ramp.CurEPS)
 	return o
 }
 
@@ -493,7 +495,7 @@ func TestSourceReasonHiddenOnlyWhenVMNotConfigured(t *testing.T) {
 		if got := c.src.Evidence(); got != c.wantEv {
 			t.Errorf("%s: kanıt %q, beklenen %q", c.name, got, c.wantEv)
 		}
-		if got := redSourceEvidenceTR(redSourceUsed(c.src)); got != c.wantEv {
+		if got := redSourceEvidenceTR(redSourceUsed{VM: c.src.VM, Family: c.src.Family, Reason: c.src.Reason}); got != c.wantEv {
 			t.Errorf("%s: anomali kanıtı %q", c.name, got)
 		}
 		if got := c.src.ShownReason(); got != c.shown {

@@ -11435,3 +11435,50 @@ liste satırı. FE: colFilter (NOT HAS yazımı, birleşme, eski çipin katlanma
 **Geri alma.** `git revert <sha>` + yeni etiket. Şema / ayar yok. Yalnız UI'yi eski yazıma döndürmek için
 `colFilter.ts` exclude dalında `op: 'NOT HAS'` → eski `!=` / `NOT IN` satırı; `NOT HAS` taşıyan paylaşılmış linkler
 sunucu tarafında çalışmaya devam eder (operatör kaldırılırsa API 400 verir — revert ile birlikte düşünülmeli).
+
+## 2026-10-24 — v0.10.1518 — Kaçan 5xx rampası: sürekli teknik hata yükselişi + VM karar kaynağı + "neden açılmadı" replay'i
+
+**Operatör bildirimi (prod).** Mobil BFF gateway'inin (`http_route=""` taşıyan) 5xx hızı 06:00'da ~0.5–1/sn'den 10:00'da
+~6/sn, 11:45'te ~8/sn'ye YAVAŞÇA çıktı (09:40'ta kısa sıçrama), ekip 11:47'de müdahale etti; anomali / Problem yok.
+Ek yönergeler: BFF'te 5xx = "teknik hata", 4xx = "business başarısız" (karıştırılmaz); bu sinyal VM'in örneklenmemiş
+`http_server_request_duration_seconds_count{http_response_status_code}` serisinden okunmalı, VM'de seri varken
+örneklenmiş span karar kaynağı olmamalı.
+
+**Kök nedenler (kod + sentetik replay).**
+1. *Mutlak oran tabanı.* Ani-sapma kolu error_rate'te `absFloor` %1 (v0.9.180) ister; yüksek hacimli gateway'de 8 hata/sn
+   ≈ %0.5–0.8. Sentetik vaka (trafik 300 → 1300 istek/sn, taban %0.05): z 30–79σ, ama her adımda kapı "değer mutlak
+   tabanın altında" — pencere boyunca SIFIR açılış (pin `TestBFFSlowRampOperatorCase`). Davranış motorunun
+   `minErrorRatePct` %1'i aynı sınıf.
+2. *Örneklenmiş span'e düşüş.* VM okuyucusu (v0.10.1478) bir (aile, tür) hazır değilken — ısınma, tek sorgu hatası
+   sonrası 5 dk geri çekilme, mevsimsel slotun eksik kenarı — TÜM servislerin error_rate'ini span'e düşürüyordu; kuyruk
+   örneklemeli gateway'de kaynak tik tik değişiyordu.
+3. *Yalnız span listesi taranıyordu.* Servis kümesi `service_summary_5m`'den; VM'de olup span MV'sinde olmayan (ya da adı
+   farklı) servis hiç değerlendirilmiyordu.
+VM okuyucusu boş route'u DÜŞÜRMÜYOR (sorgu `sum by (service_name)`, route süzgeci/gruplaması yok — pin
+`TestTechnicalErrorIs5xxOnly`); stable-semconv HTTP ailesi + `http_response_status_code` okunuyor. Prod'da hangi kapının
+(1/2/3, ortam kapsamı, izlenen metrik) devrede olduğu ayardan/veriden bağımlı → replay ucu.
+
+**Karar.**
+- *Sürekli teknik hata yükselişi* (`internal/anomaly/error_ramp.go`, vida `anomaly_sensitivity.errorRamp`, nil = AÇIK):
+  son W (6 = 30 dk) tamamlanmış kovanın HER BİRİNDE oran ≥ max(2 × taban medyanı, taban p90'ı, %0.2) VE hata hızı ≥ 1/sn
+  → AYNI `anomaly:<svc>:error_rate` satırı (critical; servis başına tek Problem, dedup aynı kimlik). Taban ani-sapmanınki
+  (mevsimsel 14 g ±15 dk, yoksa pencere öncesi ardışık). Açık satır en yeni kova eşiğin üstündeyken kapanmaz (histerezis).
+  Hacim kapısı `minBaselineRate` bu kola da uygulanır. Oran düz / hız yüksek (trafik 3× → hata 3×) AÇMAZ — yük sinyali,
+  teknik arıza değil. 4xx girmez (VM hata kümesi `5..` pinli; span sunucu ERROR).
+- *error_rate'te VM karar kaynağı* (`vmStrictMetric`): VM servisi biliyorsa span'e düşülmez; karar veremediği tikte çift
+  BEKLETİLİR (`Hold`: karar yok, açık satır tazelenir → bayat süpürme kapatmaz); mevsimsel kovalar eksikse VM'in ardışık
+  tabanı (span'inki değil). Yalnız durum etiketi olmayan serviste span. p99/request_rate eski kuralda.
+- *VM-yalnız servisler* scan listesine eklenir (`mergeServices`).
+- *Görünürlük:* durum ucu `sources.<metrik>.hold`, `fallbacks` (metrik → gerekçe → sayı + ≤ 5 örnek servis),
+  `vmOnlyServices`. Yeni admin ucu `GET /api/settings/anomaly-red-source/explain?service=&metric=&from=&to=`: tek servis
+  × tek metrik, ≤ 12 sa, 5 dk adımlarla dedektör kararını replay eder (kaynak + gerekçe, taban, z, ilk durduran kapı,
+  rampa sayıları, simüle açık/kapalı); span'e servis-filtreli tek MV sorgusu, VM'e servis eşleştiricili ≤ 60 sorgu, lider
+  belleğine dokunmaz, her podda çalışır; ortam kapsamı servisi dışarıda bırakıyorsa söyler.
+
+**Bedeller.** Hacimli servislerde %1'in altındaki ama tabanının 2×'i ve ≥ 1 hata/sn olan 30 dk'lık yükselişler artık
+Problem açar (amaç bu). Hold süresince (VM geri çekilmesi ≤ 5 dk) error_rate'te yeni karar yok. VM-yalnız servislerde p99
+de değerlendirilir. Mevsimsel tabana sinmiş kronik (günlerdir süren) oran artışı yakalanmaz. Davranış motoru replay
+edilmez; FE ayar formu yeni bölümü göstermez (GET → PUT yayılımı alanı korur).
+
+**Geri alma.** Kural: `errorRamp.enabled=false`. VM katılığı + VM-yalnız servisler: `redSource=span` (v0.10.1477
+davranışı). Tamamı: `git revert <sha>` + yeni etiket. Şema yok.

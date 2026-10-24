@@ -203,7 +203,8 @@ func (s *vmREDSource) prepare(ctx context.Context, now time.Time, sens chstore.A
 			if until, ok := s.backoff[[2]int{fi, int(k)}]; ok && vnow.Before(until) {
 				v.failed[fi][k] = true
 			}
-			v.readyDet[fi][k] = len(s.store.missing(fi, k, v.consec)) == 0 && len(s.store.missing(fi, k, v.seasonal)) == 0
+			v.readyConsec[fi][k] = len(s.store.missing(fi, k, v.consec)) == 0
+			v.readyDet[fi][k] = v.readyConsec[fi][k] && len(s.store.missing(fi, k, v.seasonal)) == 0
 			v.readyBeh[fi][k] = len(s.store.missing(fi, k, v.behavior)) == 0
 			v.pending += len(s.store.missing(fi, k, required))
 		}
@@ -518,9 +519,26 @@ type REDSourceStats struct {
 	Dropped        int                    `json:"droppedServices,omitempty"`
 	LastError      string                 `json:"lastError,omitempty"`
 	Families       []REDSourceFamilyStats `json:"families"`
-	// Sources — son tikte (metrik → kaynak → servis sayısı): "vm" | "span".
+	// Sources — son tikte (metrik → kaynak → servis sayısı): "vm" | "span" |
+	// "hold" (VM biliyor, bu tik karar yok — span'e düşülmedi).
 	Sources map[string]map[string]int `json:"sources,omitempty"`
+	// Fallbacks — son tikte VM KULLANILMAYAN çiftlerin gerekçeleri (metrik →
+	// gerekçe → sayı + ≤ 5 örnek servis). "VM yapılandırılmış ama servis X
+	// span'e düştü" sorusunun cevabı; servis bazında ayrıntı explain ucunda.
+	Fallbacks map[string]map[string]REDFallback `json:"fallbacks,omitempty"`
+	// VMOnlyServices — span MV'sinde olmayıp yalnız VM'den değerlendirilen
+	// servis sayısı (son tik).
+	VMOnlyServices int `json:"vmOnlyServices"`
 }
+
+// REDFallback — bir gerekçenin sayımı + örnekler.
+type REDFallback struct {
+	Count    int      `json:"count"`
+	Services []string `json:"services,omitempty"`
+}
+
+// redFallbackSamples — gerekçe başına örnek servis tavanı.
+const redFallbackSamples = 5
 
 var redObs atomic.Pointer[REDSourceStats]
 
@@ -556,6 +574,7 @@ func (s *vmREDSource) publish(v *vmREDView, took time.Duration) {
 	}
 	if prev := redObs.Load(); prev != nil && prev.Sources != nil {
 		st.Sources = prev.Sources // tikin kaynak sayımı overlay'den sonra yazılır (recordSources)
+		st.Fallbacks, st.VMOnlyServices = prev.Fallbacks, prev.VMOnlyServices
 	}
 	redObs.Store(&st)
 	line := fmt.Sprintf("mode=%s configured=%v reason=%q pending=%d frames=%d svc=%d", st.Mode, st.Configured, st.Reason, st.PendingBuckets, st.Frames, st.Services)
@@ -568,10 +587,26 @@ func (s *vmREDSource) publish(v *vmREDView, took time.Duration) {
 	}
 }
 
-// recordSources — overlay sonrası kaynak sayımı (metrik → kaynak → servis).
-func recordSources(used map[string]redSourceUsed) {
+// recordSources — overlay sonrası kaynak sayımı (metrik → kaynak → servis) +
+// span'e düşüş / bekletme gerekçeleri.
+func recordSources(used map[string]redSourceUsed, vmOnly int) {
+	counts, fb := redSourceCounts(used)
+	prev := REDSourceObservability()
+	prev.Sources, prev.Fallbacks, prev.VMOnlyServices = counts, fb, vmOnly
+	redObs.Store(&prev)
+}
+
+// redSourceCounts — SAF: sayım + gerekçeler (örnekler sıralı, ≤ redFallbackSamples).
+func redSourceCounts(used map[string]redSourceUsed) (map[string]map[string]int, map[string]map[string]REDFallback) {
 	counts := map[string]map[string]int{}
-	for k, u := range used {
+	fb := map[string]map[string]REDFallback{}
+	keys := make([]string, 0, len(used))
+	for k := range used {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		u := used[k]
 		i := strings.LastIndexByte(k, '|')
 		if i < 0 {
 			continue
@@ -581,12 +616,29 @@ func recordSources(used map[string]redSourceUsed) {
 			counts[m] = map[string]int{}
 		}
 		src := redSourceSpan
-		if u.VM {
+		switch {
+		case u.VM:
 			src = redSourceVM
+		case u.Hold:
+			src = "hold"
 		}
 		counts[m][src]++
+		if u.VM || u.Reason == "" || u.Reason == redReasonNotConfigured || u.Reason == redReasonSpanSetting {
+			continue
+		}
+		if fb[m] == nil {
+			fb[m] = map[string]REDFallback{}
+		}
+		reason := u.Reason
+		if u.Hold {
+			reason = "hold: " + reason
+		}
+		f := fb[m][reason]
+		f.Count++
+		if len(f.Services) < redFallbackSamples {
+			f.Services = append(f.Services, k[:i])
+		}
+		fb[m][reason] = f
 	}
-	prev := REDSourceObservability()
-	prev.Sources = counts
-	redObs.Store(&prev)
+	return counts, fb
 }

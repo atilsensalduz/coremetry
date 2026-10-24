@@ -105,7 +105,7 @@ Ne üretiyorsun?
 | `exception:fatal-infrastructure` | `fatal_exception.go:28-74` | 1 oluşum, IsFatalExceptionType | 24 sa / 15 dk | id kova TAŞIMAZ |
 | `self-*` (5) | `selfhealth.go:54-69`, `selfhealth_volume.go` | ingest-stall / spool / disk ETA / kanal / hacim ×4 | 10 dk … 24 sa | Service="" (hacim hariç); `self-volume-spike` eskalasyondan muaf ve **batch servislerde açılmaz** (v0.10.1039, `dropBatchVolumeRows` saatlik önbellekten SONRA); `self-disk-eta` **varsayılan KAPALI** (v0.10.1031, `self_health.diskEta`; ölçüm + kalıcı seri sürer) — yeniden önerme |
 | `anomaly-auto:<fp>` | `evaluator.go:1296` terfi | PeakRatio + Count + MinSustained (`promotionGate`, saf) — üçü de anomali BÖLÜMÜNÜN değerleri (§5); kapı yalnız AÇILIŞI yönetir, olayı aktif açık satır kapı geçmese de tazelenir (`anomalyPromotionStep`, v0.10.1045) | son 1 sa anomaly_events | mute'lara uyar; rule_id'nin `<fp>`'si = olay kimliği (`PromotedAnomalyEventID`, sorgusuz; problem id `…:<servis>`). Deploy atfı anomaliyle AYNI kural (v0.10.1054, `promoted_anomaly_source.go`): kaynak olay tek toplu okumayla, yalnız aynı bölümdeyse (`StartedAt` eşit) |
-| `anomaly:<svc>:<metric>` | `anomaly.go:579-797`, `verdict.go:34` | \|z\| ≥ CriticalZ, DwellBuckets | 5 dk kova; 24 sa ardışık ya da mevsimsel 14 g ±3 | Threshold = baseline medyanı, Comparator yöne göre (v0.9.978); batch serviste `request_rate` faz 1'de atlanır, açık satırı `resolveBatchLoadProblems` dürüst gerekçeyle kapatır (v0.10.1039, `batch_load.go`); batch serviste `p99_ms` her dwell kovasının hızı ≥ 2× p99 tabanının kendi kovalarının (mevsimsel ya da ardışık) hız medyanıyken AÇILMAZ — yalnız açık satır yokken (v0.10.1046, `evaluateAnomaly` + `batch_latency.go`) |
+| `anomaly:<svc>:<metric>` | `anomaly.go:579-797`, `verdict.go:34` | \|z\| ≥ CriticalZ, DwellBuckets; error_rate'te YA DA sürekli teknik hata yükselişi (v0.10.1518, `error_ramp.go`: W=6 kovanın her biri oran ≥ max(2×taban medyanı, p90, %0.2) VE ≥ 1 hata/sn; açık satır en yeni kova eşik üstündeyken kapanmaz) | 5 dk kova; 24 sa ardışık ya da mevsimsel 14 g ±3 | Threshold = baseline medyanı, Comparator yöne göre (v0.9.978); batch serviste `request_rate` faz 1'de atlanır, açık satırı `resolveBatchLoadProblems` dürüst gerekçeyle kapatır (v0.10.1039, `batch_load.go`); batch serviste `p99_ms` her dwell kovasının hızı ≥ 2× p99 tabanının kendi kovalarının (mevsimsel ya da ardışık) hız medyanıyken AÇILMAZ — yalnız açık satır yokken (v0.10.1046, `evaluateAnomaly` + `batch_latency.go`) |
 | `anomaly:<svc>:service_silent` | `anomaly.go:876-1023` | 3 sıfır kova + %90 aktif taban | — | **varsayılan KAPALI** (v0.10.543) — yeniden önerme |
 | `anomaly-cluster:<source>` | `clustering.go:23-441` | ≥3 yayılım-bağlı taze açılış, katılım ≤30 dk | 60 dk kanıt | üyeler bastırılır |
 | `exception-storm` | `exception_storm.go:31-129` | ≥N servis yeni grup / pencere | exception_triage | Service="" — filo düzeyi, tanım gereği P1; `ora:` Oracle grupları SAYILMAZ (v0.10.1092, `NotOracleGroupSQL`) |
@@ -173,6 +173,16 @@ DEĞİŞMEZ; kova kümeleri span WHERE'lerinin ikizi (`seasonalBinds`/`behaviorB
 Okuma lider belleğinde (tamamlanmış kova bir kez), tik ≤ 24 sorgu / 20 s, span okumalarıyla paralel; durum ucu
 `GET /api/settings/anomaly-red-source/status`. Geri alma `redSource=span`. Yeni bir RED tüketicisi eklerken span serisini
 VM'li serviste DOĞRUDAN okuma — bindirilmiş haritayı oku.
+**Kaçan 5xx rampası (v0.10.1518,** operatör: "BFF'lerin metriklerinde http500 hataları arttı … bunu bir anomali olarak
+algılamadı"; 5xx = teknik hata, 4xx = iş hatası**):** (1) error_rate ani-sapma kolunun `absFloor` %1'i hacimli gateway'de
+saatlik rampayı susturuyordu → ek kol `anomaly_sensitivity.errorRamp` (nil = açık; oran tabanı yerine HATA HIZI tabanı),
+aynı `anomaly:<svc>:error_rate` satırı; `absFloor`'u DÜŞÜRME (v0.9.180 gürültüsü). Oran düz / hız yüksek AÇMAZ (yük).
+(2) error_rate'te VM karar kaynağı (`vmStrictMetric`): VM servisi biliyorsa span'e DÜŞÜLMEZ — karar veremediği tik
+`Hold` (karar yok, açık satır touch), mevsimsel eksikse VM ardışık tabanı; yalnız durum etiketsiz serviste span.
+(3) VM-yalnız servisler scan listesine (`mergeServices`). Teşhis: durum ucu `fallbacks` / `sources.*.hold` /
+`vmOnlyServices` + replay ucu `GET /api/settings/anomaly-red-source/explain?service=&metric=&from=&to=` (tek servis,
+≤ 12 sa, her adımda kaynak + ilk durduran kapı; `anomaly_explain.go`, karar `evaluateAnomaly`'nin kendisi). Yeni bir
+kapı eklerken `decideBlocker` ikizini de güncelle (`TestDecideBlockerMatchesDecideAnomaly`).
 **Alarm kuralı kaynağı (v0.10.1489):** `evaluateOne` ölçüsünü `anomaly_sensitivity.alertSource` = `auto` (varsayılan)
 iken kural×servis başına VM'in örneklenmemiş HTTP/gRPC histogramından, kuralın KENDİ penceresiyle alır (anlık sorgu,
 t = şimdi − 2 dk; `internal/anomaly/alert_vm*.go`, seçim `alertVMState.decide` → SAF `pickAlertSource`); taşıma metrikleri

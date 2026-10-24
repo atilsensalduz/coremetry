@@ -129,6 +129,21 @@ func (s *vmREDStore) get(fam int, k vmREDKind, bucket int64, svc string) (float6
 	return float64(v), true
 }
 
+// servicesAt — kovada türün değeri > 0 olan servisler.
+func (s *vmREDStore) servicesAt(fam int, k vmREDKind, bucket int64) []string {
+	ff := s.famFrame(bucket, fam, false)
+	if ff == nil {
+		return nil
+	}
+	var out []string
+	for id, v := range ff.vals[k] {
+		if !math.IsNaN(float64(v)) && v > 0 && id < len(s.names) {
+			out = append(out, s.names[id])
+		}
+	}
+	return out
+}
+
 // has — kova bu tür için okundu mu.
 func (s *vmREDStore) has(fam int, k vmREDKind, bucket int64) bool {
 	ff := s.famFrame(bucket, fam, false)

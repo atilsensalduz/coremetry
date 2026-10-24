@@ -1,6 +1,8 @@
 package anomaly
 
 import (
+	"math"
+
 	"github.com/cilcenk/coremetry/internal/chstore"
 )
 
@@ -28,6 +30,18 @@ type anomalyOutcome struct {
 	// Evidence — v0.10.1478: serinin kaynak satırı (redSourceEvidenceTR);
 	// karar fazı YAZMAZ (kaynaktan bağımsız), scan iliştirir.
 	Evidence string
+	// OpenedBy — açılış/tazeleme kararını veren kol: "z" (ani sapma) ya da
+	// "error_ramp" (sürekli teknik hata yükselişi, error_ramp.go).
+	OpenedBy string
+	// Ramp — error_rate'te sürekli yükseliş kuralının kararı (kanıt + açıklama
+	// ucu); diğer metriklerde sıfır.
+	Ramp errorRampResult
+	// ZBlocker — ani-sapma kolunda pencerenin İLK açılmayan kovasını durduran
+	// kapı ("" = pencerenin tamamı açılma eşiğinde). Açıklama ucu okur.
+	ZBlocker string
+	// Baseline — kullanılan taban: "seasonal" | "consecutive" (+ örnek sayısı).
+	BaselineKind string
+	BaselineN    int
 }
 
 // evaluateAnomaly — karar fazı. checkOne'ın v0.9.1052 hâlindeki
@@ -94,8 +108,46 @@ func evaluateAnomaly(
 			usesSeasonalBaseline(seasonal, seasonalMinSamples), seasonal, bl.SeasonalRates) {
 		allOpen = false
 	}
+	zOpen := allOpen
+	zBlocker := ""
+	if !zOpen {
+		zBlocker = windowBlocker(metric, median, mad, window, pol, cfg.CriticalZ)
+		if zBlocker == "" {
+			zBlocker = "hacim kapısı (minBaselineRate) / batch yük kapısı"
+		}
+	}
+	// Sürekli teknik hata yükselişi (error_ramp.go): ani-sapma açmadıysa
+	// AÇABİLİR; açık satırı en yeni kova ihlaldeyken kapatmaz. Hacim kapısı
+	// (minBaselineRate) bu kola da uygulanır — operatörün "bu hacmin altını
+	// sayma" vidası.
+	var ramp errorRampResult
+	if metric == errorRampMetric {
+		w := chstore.NormalizeErrorRamp(cfg.ErrorRamp).WindowBuckets
+		ramp = errorRampCheck(buckets, rates, errorRampBaseline(buckets, seasonal, rates, w, seasonalMinSamples), cfg.ErrorRamp)
+	}
+	openedBy := ""
+	if allOpen {
+		openedBy = "z"
+	} else if ramp.Holds && hasEnoughVolume(rates, pol.minBaselineRate) {
+		allOpen = true
+		openedBy = "error_ramp"
+		cur = anomalyDecision{open: true, severity: "critical", direction: "spiked"}
+	}
+	action := anomalyAction(hasOpen, allOpen, metric, z)
+	if action == "resolve" && ramp.Latest {
+		action = "none" // oran hâlâ eşiğin üstünde: toparlanma değil (histerezis)
+	}
+	bkind := "consecutive"
+	if usesSeasonalBaseline(seasonal, seasonalMinSamples) {
+		bkind = "seasonal"
+	}
 	out = anomalyOutcome{
-		Action:        anomalyAction(hasOpen, allOpen, metric, z),
+		Action:        action,
+		OpenedBy:      openedBy,
+		Ramp:          ramp,
+		ZBlocker:      zBlocker,
+		BaselineKind:  bkind,
+		BaselineN:     len(baseline),
 		Severity:      cur.severity,
 		Direction:     cur.direction,
 		Current:       current,
@@ -106,4 +158,67 @@ func evaluateAnomaly(
 		LatestHasData: len(rates) > 0 && rates[len(rates)-1] > 0,
 	}
 	return out
+}
+
+// Ani-sapma kapılarının gerekçeleri (decideAnomaly'nin sırasıyla).
+const (
+	zBlockDirection = "z açılma eşiğinin altında (openZ)"
+	zBlockFloorPct  = "göreli değişim tabanın altında (floorPct)"
+	zBlockAbsDelta  = "mutlak fark tabanın altında (minAbsDelta)"
+	zBlockAbsFloor  = "değer mutlak tabanın altında (absFloor)"
+	zBlockCritical  = "z critical eşiğinin altında (criticalZ)"
+	zBlockFlip      = "pencere içinde yön değişti"
+)
+
+// decideBlocker — SAF: decideAnomaly'nin İKİZİ; açmayan örnekte ilk kapının
+// adı, açanda "". Sözleşme (TestDecideBlockerMatchesDecideAnomaly): blocker ==
+// "" ⇔ decideAnomaly(...).open.
+func decideBlocker(metric string, z, current, median float64, pol metricPolicy, criticalZ float64) string {
+	dirOpen := false
+	switch pol.direction {
+	case "up":
+		dirOpen = z >= openZ
+	case "down":
+		dirOpen = z <= -openZ
+	default:
+		dirOpen = math.Abs(z) >= openZ
+	}
+	if !dirOpen {
+		return zBlockDirection
+	}
+	absDelta := math.Abs(current - median)
+	if absDelta/math.Max(math.Abs(median), magnitudeEps) < pol.floorPct {
+		return zBlockFloorPct
+	}
+	if pol.minAbsDelta > 0 && absDelta < pol.minAbsDelta {
+		return zBlockAbsDelta
+	}
+	if z > 0 && pol.absFloor > 0 && current < pol.absFloor {
+		return zBlockAbsFloor
+	}
+	if math.Abs(z) < criticalZ && !(metric == "request_rate" && z < 0) {
+		return zBlockCritical
+	}
+	return ""
+}
+
+// windowBlocker — SAF: dwell penceresinde açılmayı durduran ilk kapı.
+func windowBlocker(metric string, median, mad float64, window []float64, pol metricPolicy, criticalZ float64) string {
+	dir := ""
+	for i, v := range window {
+		zv := madScale * (v - median) / mad
+		if b := decideBlocker(metric, zv, v, median, pol, criticalZ); b != "" {
+			return b
+		}
+		d := "spiked"
+		if zv < 0 {
+			d = "dropped"
+		}
+		if i == 0 {
+			dir = d
+		} else if d != dir {
+			return zBlockFlip
+		}
+	}
+	return ""
 }

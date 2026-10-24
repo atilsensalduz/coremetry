@@ -172,6 +172,10 @@ type AnomalySensitivityConfig struct {
 	// "span" = v0.10.1488 davranışı (geri alma). Ortam kapsamı REDSourceEnv
 	// (aynı VM kapsamı). Mantık internal/anomaly/alert_vm*.go.
 	AlertSource string `json:"alertSource,omitempty"`
+	// ErrorRamp — teknik hata (5xx) oranının SÜREKLİ yükselişi: ani-sapma
+	// kolunun z + %1 mutlak tabanının göremediği saatlik rampa
+	// (anomaly_sensitivity_error_ramp.go). Eksik bölüm = varsayılan (açık).
+	ErrorRamp ErrorRampConfig `json:"errorRamp"`
 }
 
 const (
@@ -539,6 +543,7 @@ func DefaultAnomalySensitivity() AnomalySensitivityConfig {
 		LogTemplateNew:        boolPtr(false), // v0.10.1061 — operatör onaylı: varsayılan KAPALI
 		// v0.10.1091 — yaygın yavaşlama hızlı yolu, operatör onaylı: AÇIK.
 		ServiceSlowdown: DefaultServiceSlowdown(),
+		ErrorRamp:       DefaultErrorRamp(),
 		// v0.10.1478 — operatör isteği: VM varsa örneklenmemiş seri (auto).
 		REDSource: AnomalyREDSourceAuto,
 		// v0.10.1483 — takvim boş, otomatik ay sonu KAPALI.
@@ -600,6 +605,8 @@ func NormalizeAnomalySensitivity(c AnomalySensitivityConfig) AnomalySensitivityC
 		AlertSource: normalizeREDSource(c.AlertSource),
 		// v0.10.1483 — kopyalanmazsa PUT'ta düşerdi.
 		Calendar: NormalizeAnomalyCalendar(c.Calendar),
+		// Sürekli teknik hata yükselişi — kopyalanmazsa PUT'ta düşerdi.
+		ErrorRamp: NormalizeErrorRamp(c.ErrorRamp),
 	}
 	for _, m := range AnomalySensitivityMetrics {
 		def := d.Metrics[m]

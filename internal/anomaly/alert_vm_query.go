@@ -290,7 +290,7 @@ func SpanAlertSource(reason string) AlertSource { return AlertSource{Reason: rea
 // ile aynı metin): "kaynak: VictoriaMetrics (örneklenmemiş) · HTTP sunucu
 // histogramı" ya da "kaynak: span (örneklenmiş) — VM kullanılmadı: <neden>".
 func (s AlertSource) Evidence() string {
-	return redSourceEvidenceTR(redSourceUsed(s))
+	return redSourceEvidenceTR(redSourceUsed{VM: s.VM, Family: s.Family, Reason: s.Reason})
 }
 
 // ShownReason — SAF: kullanıcıya gösterilen gerekçe (shownSourceReason; VM
