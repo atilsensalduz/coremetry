@@ -11098,3 +11098,24 @@ satırı partiden partiye farklı şablona yazar, sayımlar ve şablon yaşam d�
 
 **Geri alma.** `git revert <sha>` + yeni etiket. Yalnız davranışı kapatmak için `sigEnumKeys` boş dönsün (ya da
 `patternEnumMaxDistinct = 0`): imzalar v0.10.1496'ya döner, `splitKeys` yanıttan düşer. Kalıcı veri/şema yok.
+
+## 2026-10-24 — v0.10.1505 — Traces Aggregated: boş cevap hata değil + servis daraltmasında kök düşüş yolu
+
+**Operatör bildirimi (prod).** /traces → Aggregated, gRPC callee servis + operasyon çipi
+(`…grpc.BagService/callBagService`) + `kind = server` + `http.method = POST`, ~20 dk, group by Operation: her denemede
+"Toplu sorgu hata verdi ya da zaman aşımına uğradı".
+
+**Kök neden (iki yarı).** (1) Çipler MV hızlı yolunu kapatır; ham yolun iç `GROUP BY trace_id`'si yalnız WHERE'in
+bıraktığı span'leri görür ve grup anahtarını KÖK span'den okur (`anyIf(name, parent_id = '')`). Servis ya da span
+çipi daraltması kökü (çağıran serviste yaşar) kümeden atınca anahtar her trace'te boş kaldı, `HAVING group_key != ''`
+hepsini eledi → sıfır grup. (2) Sıfır grup Go'da nil dilim → JSON `null`; sayfa `null`u hata dalına soktu (v0.9.858).
+Sorgu hata vermiyordu, zaman aşımı yoktu.
+
+**Karar.** `aggSpanSetNarrowed(f)` (servis / env / cluster / çip / span-yerel hata) doğruysa yerleşik gruplamalar
+`if(countIf(kök) > 0, anyIf(col, kök), argMin(col, time))` — kök kümedeyse aynı değer, değilse servisin en erken
+(giriş) span'i; group_extra aynı. Daraltmasız küme bayt bayt eski SQL (TestAggregateBuiltinsKeepRootOnly). İki yolun
+dilimi nil değil (`[]`). FE `null`u boş tabloya çevirir (`aggRowsOf`); hata başlığı sınıfını söyler (`aggErrorHeadline`:
+zaman aşımı / bellek / geçersiz / genel), sunucu metni ayrıntıda kalır. CH sınırları (LIMIT 200000, max_execution_time 25)
+değişmedi. MV yolu (çipsiz) değişmedi: kök operasyonu gösterir; ham yol daraltmada servisin giriş operasyonunu — bilinen fark.
+
+**Geri alma.** `git revert <sha>` + yeni etiket. Kalıcı veri/şema yok.

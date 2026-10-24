@@ -4536,7 +4536,9 @@ func (s *Store) GetTraceAggregate(ctx context.Context, f AggregateFilter) ([]Agg
 		return nil, err
 	}
 	defer rows.Close()
-	var out []AggregateRow
+	// v0.10.1505 — never nil: a nil slice encodes as JSON `null` and the
+	// /traces Aggregated tab rendered null as "query failed / timed out".
+	out := []AggregateRow{}
 	for rows.Next() {
 		var a AggregateRow
 		if err := rows.Scan(
@@ -4753,7 +4755,9 @@ func (s *Store) getTraceAggregateFromMV(ctx context.Context, f AggregateFilter) 
 		return nil, err
 	}
 	defer rows.Close()
-	var out []AggregateRow
+	// v0.10.1505 — never nil: a nil slice encodes as JSON `null` and the
+	// /traces Aggregated tab rendered null as "query failed / timed out".
+	out := []AggregateRow{}
 	for rows.Next() {
 		var a AggregateRow
 		if err := rows.Scan(
@@ -5987,15 +5991,48 @@ func aggregateGroupExpr(f AggregateFilter) (groupExpr, extraExpr string, groupAr
 		groupArgs = append(groupArgs, valArgs...)
 		extraExpr = "anyIf(service_name, (parent_id = '' OR parent_id = '0000000000000000'))"
 	case f.GroupBy == "service":
-		groupExpr = "anyIf(service_name, (parent_id = '' OR parent_id = '0000000000000000'))"
+		groupExpr = aggBuiltinRootExpr("service_name", aggSpanSetNarrowed(f))
 		extraExpr = "''"
 	default:
 		col, ok := groupBuiltin[f.GroupBy]
 		if !ok {
 			col = "name" // default = operation
 		}
-		groupExpr = "anyIf(" + col + ", (parent_id = '' OR parent_id = '0000000000000000'))"
-		extraExpr = "anyIf(service_name, (parent_id = '' OR parent_id = '0000000000000000'))"
+		narrowed := aggSpanSetNarrowed(f)
+		groupExpr = aggBuiltinRootExpr(col, narrowed)
+		extraExpr = aggBuiltinRootExpr("service_name", narrowed)
 	}
 	return groupExpr, extraExpr, groupArgs
+}
+
+// aggRootPred — kök span yüklemi (ham Aggregated yolunun tek yazımı).
+const aggRootPred = "(parent_id = '' OR parent_id = '0000000000000000')"
+
+// aggSpanSetNarrowed — v0.10.1505 (operator-reported, /traces Aggregated
+// "Toplu sorgu hata verdi" on a gRPC callee): the raw path's inner
+// GROUP BY trace_id only sees the spans its WHERE kept. With a service
+// (or a span-level chip / env / cluster / span-local error) narrowing,
+// the trace's ROOT span usually lives in ANOTHER service and is filtered
+// out — so the root-only `anyIf(col, root)` was empty for every trace,
+// the non-empty group_key HAVING dropped them all, and the page got an empty
+// answer. SAF; table-tested. Over-approximating is harmless: when the
+// root IS in the set the fallback expression returns the same value.
+func aggSpanSetNarrowed(f AggregateFilter) bool {
+	return f.Service != "" || f.Env != "" || f.Cluster != "" ||
+		len(f.Filters) > 0 || f.FilterRoot.hasPredicate() ||
+		(f.HasError && aggHasErrorSpanLocal(f))
+}
+
+// aggBuiltinRootExpr — built-in group column read from the root span;
+// when the span set is narrowed (aggSpanSetNarrowed) and the root is not
+// in it, the EARLIEST kept span's value (the service's entry span —
+// argMin is deterministic, same reason as the GroupAttr fallback
+// v0.9.635). Un-narrowed sets keep the root-only semantics byte-for-byte
+// (TestAggregateBuiltinsKeepRootOnly).
+func aggBuiltinRootExpr(col string, narrowed bool) string {
+	root := "anyIf(" + col + ", " + aggRootPred + ")"
+	if !narrowed {
+		return root
+	}
+	return "if(countIf(" + aggRootPred + ") > 0, " + root + ", argMin(" + col + ", time))"
 }

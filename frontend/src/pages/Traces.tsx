@@ -64,6 +64,7 @@ import { mergeTraceExtras, missingExtraKeys } from '@/lib/traceExtrasMerge';
 // testli (traceColumns.ts). İkisi de karar; mekanik değil.
 import { DEFAULT_TRACE_COLUMNS, FIXED_COLS, traceColumnOrder } from '@/lib/traceColumns';
 import { opChipFor, opCellText, opCellTitle } from './traces/opPick'; // v0.10.752
+import { aggRowsOf, aggErrorHeadline } from './traces/aggResult'; // v0.10.1505 — boş cevap ≠ hata
 import { traceIdIdentityText } from './traces/emptyReason'; // v0.10.753
 import { legacyTraceIdRedirect, traceIdJump } from './traces/traceIdJump'; // v0.10.1423
 import { opDisplayName } from '@/lib/opDisplayName'; // v0.10.756
@@ -820,7 +821,7 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
       filterGroup: advGroupParam || undefined,
       filters: advGroupParam ? undefined : (advFiltersEff.length ? JSON.stringify(advFiltersEff) : undefined),
       having: debouncedHaving.length ? encodeHavingParam(debouncedHaving) : undefined,
-    }).then(a => { if (!cancelled) { setAgg(a); setAggErr(null); setAggRefreshing(false); } })
+    }).then(a => { if (!cancelled) { setAgg(aggRowsOf(a)); setAggErr(null); setAggRefreshing(false); } })
       // v0.9.858 (UX denetimi K6) — agg null HİÇBİR render dalına
       // girmiyordu: sorgu hatası BOŞ EKRAN demekti (spinner yok, mesaj yok).
       .catch(e => {
@@ -1161,7 +1162,8 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
     }
     : agg === null ? {
       kind: 'error',
-      message: 'Toplu sorgu hata verdi ya da zaman aşımına uğradı — daha dar bir zaman aralığı ya da daha az grup deneyip yeniden dene.',
+      // v0.10.1505 — başlık hatanın sınıfını söyler (zaman aşımı / bellek / geçersiz / genel).
+      message: aggErrorHeadline(aggErr),
       onRetry: retry,
       detail: serverErrorText(aggErr),
     }

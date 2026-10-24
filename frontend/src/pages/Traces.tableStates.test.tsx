@@ -22,7 +22,7 @@ import { ConfirmProvider } from '@/components/ui/ConfirmDialog';
 
 const m = vi.hoisted(() => ({
   list: 'rows' as 'rows' | 'empty' | 'error' | 'pending',
-  agg: 'rows' as 'rows' | 'empty' | 'error' | 'pending',
+  agg: 'rows' as 'rows' | 'empty' | 'null' | 'error' | 'pending',
   listCalls: 0,
   aggCalls: 0,
 }));
@@ -49,6 +49,7 @@ vi.mock('@/lib/api', () => {
         case 'pending': return new Promise(() => {});
         case 'error': return Promise.reject(new Error('aggregate timeout'));
         case 'empty': return Promise.resolve([]);
+        case 'null': return Promise.resolve(null);
         default: return Promise.resolve(aggRows);
       }
     },
@@ -202,6 +203,16 @@ describe('/traces toplu görünüm durumları tablonun içinde (v0.10.967)', () 
     await act(async () => { buttonIn(r, 'Retry')!.click(); });
     await settle();
     expect(m.aggCalls).toBeGreaterThan(before);
+  });
+
+  // v0.10.1505 (operator-reported) — sunucu sıfır grupta `null` dönünce
+  // sayfa "Toplu sorgu hata verdi ya da zaman aşımına uğradı" diyordu.
+  it('null cevap = boş tablo, hata satırı DEĞİL', async () => {
+    m.agg = 'null';
+    await mountTraces('/traces?view=aggregate');
+    const r = stateRow(aggTable());
+    expect(r?.dataset.dtState).toBe('empty');
+    expect(r?.textContent).not.toContain('Toplu sorgu hata verdi');
   });
 
   it('boş (öneri yok): tek cümle, sayı satırı yok', async () => {
