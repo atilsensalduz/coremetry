@@ -126,3 +126,71 @@ export function exploreLink(
     ['cluster', cluster ?? ''],
   ])}`;
 }
+
+// ── Operasyon kartı (v0.10.1491, R3) ─────────────────────────────────
+//
+// Kart /endpoint sayfasının bir bölümü ("Kod ve çağrılar", çapa #opcard);
+// Trace sayfası çipi ve Operations satır eylemi ONA gider — yeni sayfa,
+// yeni uç yok. Kimlik /endpoint ailesinin kimliği (servis + rota, ya da
+// RPC/mesajlaşma girişinde span adı + entry=rpc).
+
+/** OPCARD_ANCHOR — kart bölümünün DOM kimliği / URL çapası. */
+export const OPCARD_ANCHOR = 'opcard';
+
+/**
+ * operationCardHref — SAF: kartın açık olduğu /endpoint bağlantısı.
+ * endpointDetailHref ile aynı parametre dili (boş alan yazılmaz), sonuna
+ * `#opcard`.
+ */
+export function operationCardHref(
+  r: EndpointPivotRef, scope: { range?: string; env?: string; cluster?: string } = {},
+): string {
+  const p = new URLSearchParams();
+  p.set('service', r.service);
+  p.set('path', r.path);
+  if (r.sig) p.set('sig', '1');
+  if (scope.range) p.set('range', scope.range);
+  if (scope.env) p.set('env', scope.env);
+  if (scope.cluster) p.set('cluster', scope.cluster);
+  if (r.entry === 'rpc') p.set('entry', 'rpc');
+  return `/endpoint?${p.toString()}#${OPCARD_ANCHOR}`;
+}
+
+/** Kartın kimliğini çıkarmak için span'den gereken alanlar (SpanRow alt kümesi). */
+export interface OpCardSpanLike {
+  serviceName: string;
+  name: string;
+  kind: string;
+  httpRoute?: string;
+  attributes?: Record<string, string>;
+}
+
+/**
+ * traceRootOpCardRef — SAF: trace'in kök span'inden kart kimliği. Rota
+ * varsa HTTP kimliği (http_route kolonu ya da `http.route` özniteliği),
+ * yoksa span adı + entry=rpc (gRPC / tüketici girişi). İstemci / üretici
+ * kökü bir GİRİŞ değil (kart sunucu tarafı span'leri örnekler) → null.
+ */
+export function traceRootOpCardRef(root: OpCardSpanLike | null | undefined): EndpointPivotRef | null {
+  if (!root || !root.serviceName) return null;
+  const kind = (root.kind || '').toLowerCase();
+  if (kind === 'client' || kind === 'producer') return null;
+  const route = (root.httpRoute || root.attributes?.['http.route'] || '').trim();
+  if (route) return { service: root.serviceName, path: route };
+  const name = (root.name || '').trim();
+  return name ? { service: root.serviceName, path: name, entry: 'rpc' } : null;
+}
+
+/**
+ * operationRowOpCardRef — SAF: servis Operations satırından kart kimliği.
+ * Normalized (op_group şekli) ve rotasız bölünme artığı satırlarında null —
+ * o satırın adı hiçbir span adına eşit değil (OperationsTable ?op= gizleme
+ * kuralıyla aynı gerekçe).
+ */
+export function operationRowOpCardRef(
+  service: string, op: { name: string; route?: string; splitResidual?: boolean }, normalized: boolean,
+): EndpointPivotRef | null {
+  if (normalized || op.splitResidual || !service || !op.name) return null;
+  if (op.route) return { service, path: op.route };
+  return { service, path: op.name, entry: 'rpc' };
+}

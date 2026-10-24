@@ -32,6 +32,7 @@ import { useAuth } from '@/components/AuthProvider';
 import { RouteAlertModal } from '@/pages/alerts/RouteAlertModal'; // v0.10.705
 import { useHttpPromql, useRedFamily, sectionEnvScope } from '@/lib/queries/httpMetrics';
 import { pickFamilySection } from '@/lib/redFamily'; // v0.10.1429 — ?family=grpc → gRPC ailesi
+import { OperationCardSection } from './endpoints/OperationCardSection'; // v0.10.1491
 import { httpEnvScopeReady } from '@/lib/httpEnvScopeNote';
 import { HttpEnvScopeBand } from './service/httpMetricsViz';
 import { endpointHttpQueries, type LatQ } from '@/lib/httpMetrics';
@@ -429,6 +430,11 @@ export default function EndpointDetailPage() {
             <ExceptionsSection detail={detail} />
           </>
         )}
+        {/* v0.10.1491 — operasyon kartı (R3 trace yarısı): kendi ucundan,
+            detail okumasından BAĞIMSIZ (o düşse de çizilir). Rung'lu pencere
+            (downstream/callers gibi iki ham geçiş); RPC girişinde span adı. */}
+        <OperationCardSection refObj={refObj} entry={entry} from={heavy.from} to={heavy.to}
+          env={env} cluster={cluster} />
 
         <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text3)', lineHeight: 1.6 }}>
           Endpoint identity is <code>http.route</code> (templated) with the

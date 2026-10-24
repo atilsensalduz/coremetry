@@ -95,3 +95,18 @@ export function useEndpointCallers(
     staleTime: 60_000,
   });
 }
+
+// v0.10.1491 — operasyon kartı (R3 trace yarısı, /endpoint "Kod ve
+// çağrılar"). İki ham-spans geçişi + bir MV okuması, 60 sn sunucu
+// önbelleği: downstream/callers kardeşleriyle aynı disiplin — sayfa
+// açılışında bir kez, ASLA yoklanmaz, staleTime sunucu TTL'ine eşit.
+export function useOperationCard(
+  params: Parameters<typeof api.operationCard>[0] | null,
+) {
+  return useQuery({
+    queryKey: ['endpoints', 'operation-card', params],
+    queryFn: async ({ signal }) => api.operationCard(params!, signal),
+    enabled: params !== null,
+    staleTime: 60_000,
+  });
+}

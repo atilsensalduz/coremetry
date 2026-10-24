@@ -6033,6 +6033,84 @@ export interface EndpointDownstream {
   totalMs: number;
 }
 
+// OperationCardPayload — v0.10.1491 (operasyon kartı R3, trace yarısı).
+// Go: internal/api/operation_card.go operationCardPayload +
+// internal/chstore/operation_calltree.go OpCallTree / OpCallNode /
+// OpCallEdge / OpBizCode / OpWindowEdge. ÖRNEKLEM: son ≤200 trace;
+// yüzdelikler örneklem üzerinden (UI "örneklem · N trace" der). Değer yok:
+// db_statement / http.url hiç okunmaz.
+export interface OpCallNode {
+  service: string;
+  op: string;
+  kind: string;
+  calls: number;
+  errors: number;
+  errPct: number;
+  p50Ms: number;
+  p95Ms: number;
+  maxMs: number;
+}
+export interface OpCallEdge {
+  depth: number;
+  /** Üst satırın key'i; derinlik 1'de 'entry'. */
+  parentKey: string;
+  key: string;
+  /** service | db | messaging | external */
+  kind: string;
+  /** http | grpc | db | kafka | messaging | '' */
+  protocol: string;
+  /** servis adı | db:<sys> | queue:<sys>[:<dest>] | ext:<host> */
+  target: string;
+  op: string;
+  calls: number;
+  errors: number;
+  errPct: number;
+  p50Ms: number;
+  p95Ms: number;
+  maxMs: number;
+  /** ≤3: en yavaş, bir hatalı, medyan. */
+  sampleTraceIds: string[];
+}
+export interface OpBizCode {
+  kind: 'function_code' | 'channel_code' | string;
+  code: string;
+  count: number;
+}
+export interface OpWindowEdge {
+  childService: string;
+  childOp: string;
+  calls: number;
+}
+export interface OpCallTree {
+  entry: OpCallNode;
+  operationCode: string;
+  version: string;
+  /** Ağaç sırası (üst, sonra çocukları çağrıya göre). */
+  children: OpCallEdge[];
+  others: number;
+  codes: OpBizCode[];
+  sampledTraces: number;
+  sampled: boolean;
+  sampleOrder: 'slow' | 'random' | string;
+  truncated: boolean;
+  windowEdges: OpWindowEdge[];
+}
+export interface OperationCardPayload {
+  service: string;
+  path: string;
+  sig: boolean;
+  entry: 'http' | 'rpc';
+  fromNs: number;
+  toNs: number;
+  windowClamped?: boolean;
+  /** null = ağaç okunamadı (treeError). */
+  tree: OpCallTree | null;
+  treeError?: string;
+  windowEdgesNote?: string;
+  /** R4 yuvası (kod yarısı) — bugün her zaman null. */
+  code: null;
+}
+
 // EndpointCallers — v0.9.839. "Who calls this endpoint", the panel the
 // operator asked for on the /endpoint page in the /databases caller
 // table's exact shape (service · calls · error % · p95 · impact).

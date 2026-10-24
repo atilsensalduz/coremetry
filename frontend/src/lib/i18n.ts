@@ -391,6 +391,31 @@ const EN: Catalog = {
   'logs.team.chipTitle':      'Exact match on the configured team field(s), every spelling of this team',
   'logs.team.unapplied':      'team filter not applied — no team field on this log source',
   'logs.team.unappliedTitle': 'The team filter could not be applied: the log backend is ClickHouse or no Team field is set in Settings → Elasticsearch. The rows below are NOT filtered by team.',
+  // v0.10.1491 — operasyon kartı (R3 trace yarısı, /endpoint "Kod ve çağrılar")
+  'endpoint.opcard.title':      'Code & calls',
+  'endpoint.opcard.sub':        'sample · {n} traces',
+  'endpoint.opcard.slowest':    'slowest',
+  'endpoint.opcard.random':     'random',
+  'endpoint.opcard.colTarget':  'Target',
+  'endpoint.opcard.colOp':      'Operation',
+  'endpoint.opcard.colProtocol': 'Protocol',
+  'endpoint.opcard.colCalls':   'Calls',
+  'endpoint.opcard.colErr':     'Err %',
+  'endpoint.opcard.colSamples': 'Sample traces',
+  'endpoint.opcard.error':      'Call-tree query failed — the sections above are still valid.',
+  'endpoint.opcard.noSample':   'No trace of this operation in the window — widen the time range or clear the env / cluster filter.',
+  'endpoint.opcard.empty':      'No downstream call seen in this window — the operation is a leaf, or its children are not instrumented.',
+  'endpoint.opcard.sampleNote': 'Calls, error % and P95 are over the sampled traces, not the whole window. Values (SQL text, URLs, payloads) are never read.',
+  'endpoint.opcard.others':     '+{n} more rows not shown (row cap 25).',
+  'endpoint.opcard.truncated':  'Some sampled traces were too large to walk completely.',
+  'endpoint.opcard.clamped':    'Window clamped to the last 24 hours for this section.',
+  'endpoint.opcard.window':     'Whole window (all traces, service→service calls)',
+  'endpoint.opcard.opCode':     'Operation code (span attribute)',
+  'endpoint.opcard.version':    'Running version (majority of sampled entry spans)',
+  'endpoint.opcard.codeSlot':   'Code half (entry method, request / response fields, call sites) comes in a later release.',
+  'endpoint.opcard.chip':       'Operation card',
+  'endpoint.opcard.chipHint':   'Open this operation\'s call tree (code & calls) on the endpoint page',
+  // v0.10.1491 END
 };
 
 const TR: Catalog = {
@@ -750,6 +775,31 @@ const TR: Catalog = {
   'dash.addFromChat.skip.cap':       'pano panel tavanı doldu',
   'dash.addFromChat.skip.size':      'pano boyut tavanı doldu',
   // v0.10.1443 END
+  // v0.10.1491 — operasyon kartı (R3 trace yarısı)
+  'endpoint.opcard.title':      'Kod ve çağrılar',
+  'endpoint.opcard.sub':        'örneklem · {n} trace',
+  'endpoint.opcard.slowest':    'en yavaş',
+  'endpoint.opcard.random':     'rastgele',
+  'endpoint.opcard.colTarget':  'Hedef',
+  'endpoint.opcard.colOp':      'Operasyon',
+  'endpoint.opcard.colProtocol': 'Protokol',
+  'endpoint.opcard.colCalls':   'Çağrı',
+  'endpoint.opcard.colErr':     'Hata %',
+  'endpoint.opcard.colSamples': 'Örnek trace',
+  'endpoint.opcard.error':      'Çağrı ağacı sorgusu başarısız — üstteki bölümler hâlâ geçerli.',
+  'endpoint.opcard.noSample':   'Bu pencerede bu operasyonun trace\'i yok — pencereyi genişletin ya da env / cluster süzgecini kaldırın.',
+  'endpoint.opcard.empty':      'Bu pencerede alt çağrı görülmedi — operasyon yaprak ya da çocuklar enstrümante değil.',
+  'endpoint.opcard.sampleNote': 'Çağrı, hata % ve P95 örneklenen trace\'ler üzerinden, pencerenin tamamı değil. Değerler (SQL metni, URL, gövde) hiç okunmaz.',
+  'endpoint.opcard.others':     '+{n} satır gösterilmedi (satır tavanı 25).',
+  'endpoint.opcard.truncated':  'Bazı örnek trace\'ler tam yürünemeyecek kadar büyüktü.',
+  'endpoint.opcard.clamped':    'Bu bölüm için pencere son 24 saate kırpıldı.',
+  'endpoint.opcard.window':     'Pencerenin tamamı (tüm trace\'ler, servis→servis çağrı)',
+  'endpoint.opcard.opCode':     'Operasyon kodu (span özniteliği)',
+  'endpoint.opcard.version':    'Çalışan sürüm (örneklenen giriş span\'lerinin çoğunluğu)',
+  'endpoint.opcard.codeSlot':   'Kod yarısı (giriş metodu, istek / cevap alanları, çağrı yerleri) sonraki sürümde gelecek.',
+  'endpoint.opcard.chip':       'Operasyon kartı',
+  'endpoint.opcard.chipHint':   'Bu operasyonun çağrı ağacını (kod ve çağrılar) endpoint sayfasında aç',
+  // v0.10.1491 END
 };
 
 const CATALOGS: Record<Lang, Catalog> = { en: EN, tr: TR };

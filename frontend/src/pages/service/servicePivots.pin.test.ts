@@ -8,8 +8,9 @@ import { resolve } from 'node:path';
 const read = (f: string) => readFileSync(resolve(__dirname, f), 'utf8');
 
 describe('servis sekmesi pivotları', () => {
-  it('OperationsTable iki traces linki env+cluster taşır', () => {
-    expect(read('OperationsTable.tsx').match(/pctx, \{ carry: \['env', 'cluster'\] \}\)/g)?.length).toBe(2);
+  // v0.10.1491 — üçüncü taşıyıcı: Operasyon kartı satır eylemi (/endpoint#opcard).
+  it('OperationsTable iki traces linki + operasyon kartı eylemi env+cluster taşır', () => {
+    expect(read('OperationsTable.tsx').match(/pctx, \{ carry: \['env', 'cluster'\] \}\)/g)?.length).toBe(3);
   });
   it('ServicePodsTable traces linkleri env taşır', () => {
     expect(read('ServicePodsTable.tsx').match(/pctx, \{ carry: \['env'\] \}\)/g)?.length).toBe(2);

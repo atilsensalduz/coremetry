@@ -18,6 +18,7 @@ import { serviceHref } from '@/lib/serviceHref';
 import { opDisplayName } from '@/lib/opDisplayName';
 import type { TimeRange, OperationRow, SpanMetricSeries, SpanAgg } from '@/lib/types';
 import { opRowKey, opTraceFilters } from './operationRoutes';
+import { operationCardHref, operationRowOpCardRef } from '../endpoints/links'; // v0.10.1491
 
 // OperationsTable — per-operation aggregate (count / err / avg / p50 /
 // p95 / p99 / apdex). Click an operation to drill into Traces with
@@ -221,6 +222,14 @@ export function OperationsTable({ service, rows, range, preset, onWiden, normali
   // the metrics-shaped sibling.
   const detailsHref = (op: string) =>
     serviceHref(service, { range, tab: 'details', params: { op } });
+
+  // v0.10.1491 — satır eylemi "Operasyon kartı": /endpoint#opcard (çağrı
+  // ağacı). Kimlik: rota varsa rota, yoksa span adı + entry=rpc; Normalized
+  // ve rotasız artık satırda yok (operationRowOpCardRef). env/cluster taşınır.
+  const opCardHref = (op: OperationRow) => {
+    const ref = operationRowOpCardRef(service, op, normalized);
+    return ref ? withPivotCtx(operationCardHref(ref, { range: encodeRange(range) }), pctx, { carry: ['env', 'cluster'] }) : null;
+  };
 
   // v0.5.374 — client-side filter. Case-insensitive substring
   // match on the operation name, same idiom as the /endpoints
@@ -541,6 +550,22 @@ export function OperationsTable({ service, rows, range, preset, onWiden, normali
                         /metrics" satırından ya da rotasız artık "GET"
                         satırından açılan panel TÜM GET'leri gösterirdi
                         (inceleme R5). Bölünmemiş ham satırda kalır. */}
+                    {opCardHref(op) && (
+                      <Link
+                        to={opCardHref(op)!}
+                        onClick={e => e.stopPropagation()}
+                        onAuxClick={e => e.stopPropagation()}
+                        data-testid="op-opcard-link"
+                        title="Operasyon kartı — bu operasyonun çağrı ağacı (kod ve çağrılar)"
+                        aria-label={`Operasyon kartı: ${opText(op)}`}
+                        style={{
+                          marginLeft: 8, color: 'var(--accent2)',
+                          textDecoration: 'none', verticalAlign: 'middle',
+                          display: 'inline-flex', fontSize: 12,
+                        }}>
+                        <span aria-hidden="true">⇄</span>
+                      </Link>
+                    )}
                     {!normalized && !op.route && !op.splitResidual && (
                       <Link
                         to={detailsHref(op.name)}

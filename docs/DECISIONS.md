@@ -10799,3 +10799,32 @@ Kaydet. Mevcut tatil satırları yeniden girilmez: aynı YYYY-MM-DD artık yerel
 
 **Geri alma.** Dilim alanını boşalt → Kaydet: davranış v0.10.1489 ile bayt bayt aynı (UTC günü). Tam: revert + yeni etiket
 (eski sürüm `timezone` alanını yok sayar, UTC'ye döner).
+
+## 2026-10-24 — v0.10.1491 — Operasyon kartı R3: trace yarısı (çağrı ağacı, /endpoint "Kod ve çağrılar")
+
+**Karar.** Plan `plan-operation-card.md` §2.3.1 (R3). Yeni uç `GET /api/endpoints/operation-card` (kendi dosyası
+`internal/api/operation_card.go`, `registerRoutesExtra("operation-card")`, rol kapısı yok — viewer görür, serveCached 60 s,
+anahtar `operationCardKey` servis+yol+env+cluster NUL ayraçlı FNV + sig/entry/sample/code + dakika penceresi). Okuyucu
+`internal/chstore/operation_calltree.go`: (1) Q1 örneklem — `EndpointWhereTheTimeGoes` şablonu, ≤200 giriş span'i
+(`duration DESC` ya da `cityHash64` rastgele), yalnız ucuz kolonlar; HTTP girişte `endpointDetailWhere` ile aynı
+konjonktlar, RPC girişte (`entry=rpc`) rota yerine span adı. (2) Q2 yürüyüş — `trace_id IN (…)` + zaman ± `traceFetchPad`,
+LIMIT 60000, yalnız adlandırılmış öznitelikler (rota, rpc metodu, db.operation + tablo, kuyruk hedefi, peer host, promoted
+FUNCTION_CODE/CHANNEL_CODE/operation.code, sürüm). (3) Q3 MV — `topology_op_edges_5m` pencere geneli servis→servis çağrı
+sayısı (bilgi dipnotu; şekil kipinde atlanır). SAF `foldOpCallTree`: satır = sınır geçişi (başka servis / db / kuyruk /
+dış), aynı servisin iç span'leri geçiş, istemci sarmalayıcısı çift sayılmaz, derinlik ≤3, aynı (üst, tür, hedef, op)
+birleşir, örneklem p50/p95/max + hata %, satır başına ≤3 örnek trace (en yavaş, hatalı, medyan), ≤25 satır + `others`.
+FE: `OperationCardSection` (DataTable `endpoint-calltree`, ağaç sırası, T12 durumları; iki ayrı boş: örneklem yok ≠ alt
+çağrı yok), Trace sayfası çipi (kök span rotası / adı → `/endpoint…#opcard`, trace ±30 dk), Operations satır eylemi.
+`data-opcard-slot="code"` R4'ün (kod yarısı, Code Search `def:/ref:/class:` kararı) yuvası; `code` alanı bugün hep null.
+
+**Neden.** Downstream bölümü süre PAYINI düz liste olarak veriyor; geliştiricinin sorusu "operasyonum neyi, hangi
+operasyonunu çağırıyor, hangisi hatalı" ağaç + örnek trace istiyor. Rota × alt çağrı × hedef MV'si kardinalite yüzünden
+reddedilmişti (endpoints_downstream başlığı) → sınırlı örneklem, ekranda "örneklem · N trace".
+
+**Sınırlar / değer yok.** Pencere en çok 24 saat (aşan istek kırpılır, `windowClamped`). SELECT'lerde `db_statement`,
+`events`, `http.url/target`, `url.*`, `status_msg`, ham `attr_values` yok (metin testi); span adı `opNameSafe` ile sorgu
+dizesi + şema/host atılır, db adı çok kelimeliyse yalnız fiil. Ağaç okunamazsa `tree:null` + temiz `treeError` (ham CH
+hatası loga), MV okunamazsa `windowEdges:[]` + not. Yeni tablo/kolon/MV yok; MCP 74, api.go, kademe sırası değişmedi.
+
+**Geri alma.** `git revert <sha>` + yeni etiket: uç ve bölüm birlikte gider; önbellek girdileri 60 s'de söner, `#opcard`
+çapası sayfayı bozmaz. Şema değişikliği olmadığından veri tarafında iş yok.

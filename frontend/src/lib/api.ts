@@ -9,7 +9,7 @@ OracleLogsResponse,
   ProfileRow, ProfileDetail, ProfileHotspotsResponse, SpanHotspotsResponse, AggregateRow, SpanMetricSeries, SpanMetricResult, HistogramResult,
   MetricQueryResult,
   MetricResolveResult,
-  EndpointRow, EndpointsListResponse, EndpointDetail, EndpointSplitResponse, EndpointDownstream, EndpointCallersResponse,
+  EndpointRow, EndpointsListResponse, EndpointDetail, EndpointSplitResponse, EndpointDownstream, EndpointCallersResponse, OperationCardPayload,
   AlertRule, Problem, EvaluatorHealth, WatcherImportResult, WatcherSummaryEntry, WatcherHistory,
   Runbook, RunbookExecution,
   Dashboard, DashboardSummary, SLO, SLORow, SLOStatus,
@@ -3058,6 +3058,11 @@ export const api = {
   // cache, so this is fetch-on-open and never polled.
   endpointDownstream: (params: { service: string; path: string; from: number; to: number; sig?: '1'; env?: string; cluster?: string; sample?: 'random' }, signal?: AbortSignal) =>
     get<EndpointDownstream>(`/api/endpoints/downstream?${qs(params)}`, signal),
+  // v0.10.1491 — operasyon kartı (R3 trace yarısı): son ≤200 trace'ten
+  // derinlik ≤3 çağrı ağacı. İki ham geçiş + MV, sunucu önbelleği 60 sn;
+  // açılışta çekilir, yoklanmaz.
+  operationCard: (params: { service: string; path: string; from: number; to: number; sig?: '1'; entry?: 'rpc'; env?: string; cluster?: string; sample?: 'random' }, signal?: AbortSignal) =>
+    get<OperationCardPayload>(`/api/endpoints/operation-card?${qs(params)}`, signal),
   // v0.9.839 — "Who calls this endpoint" (operator ask). Same columns
   // as the /databases caller table. SAMPLED: no MV pairs route with
   // caller, so the backend resolves parents over a bounded, unbiased
