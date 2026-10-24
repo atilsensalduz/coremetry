@@ -65,6 +65,15 @@ func newOcGit(t *testing.T, codeSearch bool) (*ocGit, *devops.Service) {
 				SearchText string `json:"searchText"`
 			}
 			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body.SearchText == "ref:approve ext:java" {
+				// v0.10.1509 — koleksiyon geneli kullanım araması; parça kopyalanmamalı.
+				_ = json.NewEncoder(w).Encode(map[string]any{"results": []any{
+					map[string]any{"path": "/src/OrdersFlow.java", "repository": map[string]string{"name": "web-bff", "type": "git"},
+						"matches": map[string]any{"content": []any{map[string]any{"line": 88, "codeSnippet": "ordersClient.approve(MARKER_USAGE)"}}}},
+					map[string]any{"path": "/src/Batch.java", "repository": map[string]string{"name": "misc-batch", "type": "git"}},
+				}})
+				return
+			}
 			if body.SearchText != `"approve" ext:java` {
 				_ = json.NewEncoder(w).Encode(map[string]any{"results": []any{}})
 				return
@@ -105,6 +114,12 @@ func (g *ocGit) count() int {
 	return g.reqs
 }
 
+type fakeOpCardCallers struct{ svcs []string }
+
+func (f fakeOpCardCallers) OperationWindowCallers(context.Context, string, string, time.Time, time.Time) ([]string, error) {
+	return f.svcs, nil
+}
+
 type fakeOpCardMeta struct {
 	md  *chstore.ServiceMetadata
 	err error
@@ -131,9 +146,14 @@ func ocTestTree() *chstore.OpCallTree {
 
 func TestOperationCardCodePayloadCarriesNoCodeBodies(t *testing.T) {
 	g, dv := newOcGit(t, true)
-	code, err := buildOperationCardCode(context.Background(), dv, nil, ocTestParams(), ocTestTree())
+	code, err := buildOperationCardCode(context.Background(), dv, nil, fakeOpCardCallers{svcs: []string{"web-bff"}}, ocTestParams(), ocTestTree())
 	if err != nil {
 		t.Fatal(err)
+	}
+	// v0.10.1509 — "Bu metodu kim kullanıyor?": çağıran deposu önce, konum yalnız.
+	if code.Usages == nil || code.Usages.Outcome != "ok" || code.Usages.Method != "approve" || len(code.Usages.Hits) != 2 ||
+		code.Usages.Hits[0].Repo != "web-bff" || !code.Usages.Hits[0].Caller || code.Usages.Hits[0].Line != 88 {
+		t.Fatalf("kullanımlar: %+v", code.Usages)
 	}
 	if code.Entry == nil || code.Entry.Found != "route" || !strings.Contains(code.Entry.Signature, "approve(") {
 		t.Fatalf("giriş bulunmalıydı: %+v reason=%q", code.Entry, code.Reason)
@@ -161,7 +181,7 @@ func TestOperationCardCodePayloadCarriesNoCodeBodies(t *testing.T) {
 	js := string(b)
 	// Fixture kaynaklarındaki gövde-içi sabitler (dize, SQL, payload,
 	// ilklendirici) ve satır numaralı içerik HİÇBİR alanda yok.
-	for _, leak := range []string{"MARKER_42", "MARKER_SQL", "MARKER_PAYLOAD", "MARKER_BODY", "MARKER_DEFAULT", "MARKER_CONST", "UPDATE orders", "| ", "ResponseEntity.ok("} {
+	for _, leak := range []string{"MARKER_42", "MARKER_USAGE", "MARKER_SQL", "MARKER_PAYLOAD", "MARKER_BODY", "MARKER_DEFAULT", "MARKER_CONST", "UPDATE orders", "| ", "ResponseEntity.ok("} {
 		if strings.Contains(js, leak) {
 			t.Errorf("kod gövdesi yanıta sızdı (%q): %s", leak, js)
 		}
@@ -191,24 +211,24 @@ func TestOperationCardCodePayloadCarriesNoCodeBodies(t *testing.T) {
 func TestOperationCardCodeGates(t *testing.T) {
 	ctx := context.Background()
 	t.Run("DevOps yok → unconfigured, null değil", func(t *testing.T) {
-		d, err := buildOperationCardCode(ctx, nil, nil, ocTestParams(), ocTestTree())
+		d, err := buildOperationCardCode(ctx, nil, nil, nil, ocTestParams(), ocTestTree())
 		if err != nil || d.Outcome != string(devops.CodeUnconfigured) || d.Reason == "" || d.Request == nil || d.CallSites == nil {
 			t.Fatalf("%+v %v", d, err)
 		}
 	})
 	t.Run("Code Search kapalı → search-off + 0 istek", func(t *testing.T) {
 		g, dv := newOcGit(t, false)
-		d, err := buildOperationCardCode(ctx, dv, nil, ocTestParams(), ocTestTree())
+		d, err := buildOperationCardCode(ctx, dv, nil, nil, ocTestParams(), ocTestTree())
 		if err != nil || d.Outcome != opCardSearchOff || d.Reason != devops.OperationCardSearchOffReason || d.Entry != nil {
 			t.Fatalf("%+v %v", d, err)
 		}
-		if g.count() != 0 {
-			t.Errorf("kapalıyken %d istek", g.count())
+		if g.count() != 0 || d.Usages != nil {
+			t.Errorf("kapalıyken %d istek / kullanım %+v", g.count(), d.Usages)
 		}
 	})
 	t.Run("katalog okunamadı → fail-closed, 0 istek, ham hata yok", func(t *testing.T) {
 		g, dv := newOcGit(t, true)
-		d, err := buildOperationCardCode(ctx, dv, fakeOpCardMeta{err: errors.New("dial tcp clickhouse-0:9000 password=hunter2")}, ocTestParams(), ocTestTree())
+		d, err := buildOperationCardCode(ctx, dv, fakeOpCardMeta{err: errors.New("dial tcp clickhouse-0:9000 password=hunter2")}, nil, ocTestParams(), ocTestTree())
 		if err != nil || d.Outcome != string(devops.CodeCatalogError) || g.count() != 0 {
 			t.Fatalf("%+v %v istek=%d", d, err, g.count())
 		}
@@ -218,7 +238,7 @@ func TestOperationCardCodeGates(t *testing.T) {
 	})
 	t.Run("pin depoyu ezer", func(t *testing.T) {
 		_, dv := newOcGit(t, true)
-		d, _ := buildOperationCardCode(ctx, dv, fakeOpCardMeta{md: &chstore.ServiceMetadata{Repository: "pinned-repo"}}, ocTestParams(), ocTestTree())
+		d, _ := buildOperationCardCode(ctx, dv, fakeOpCardMeta{md: &chstore.ServiceMetadata{Repository: "pinned-repo"}}, nil, ocTestParams(), ocTestTree())
 		if d.Source != devops.RepoSourcePin {
 			t.Errorf("kaynak pin olmalı: %+v", d)
 		}
@@ -227,7 +247,7 @@ func TestOperationCardCodeGates(t *testing.T) {
 		_, dv := newOcGit(t, true)
 		cctx, cancel := context.WithCancel(ctx)
 		cancel()
-		if _, err := buildOperationCardCode(cctx, dv, nil, ocTestParams(), ocTestTree()); !errors.Is(err, context.Canceled) {
+		if _, err := buildOperationCardCode(cctx, dv, nil, nil, ocTestParams(), ocTestTree()); !errors.Is(err, context.Canceled) {
 			t.Fatalf("iptal yutuldu: %v", err)
 		}
 	})

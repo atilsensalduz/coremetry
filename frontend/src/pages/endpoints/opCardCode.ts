@@ -1,5 +1,5 @@
 import type { DataTableColumn } from '@/lib/dataTable';
-import type { AICodeContext, CallSite, DTOField, OpCallEdge, OperationCardCode } from '@/lib/types';
+import type { AICodeContext, CallSite, DTOField, MethodUsages, OpCallEdge, OperationCardCode } from '@/lib/types';
 import { targetLabel } from './opCallTreeCols';
 
 // opCardCode — v0.10.1506 (operasyon kartı R4, kod yarısı). "Kod" açılır
@@ -78,4 +78,12 @@ export function callSiteKindGlyph(kind: string): string {
     case 'grpc': return '⇉';
     default: return '⇄';
   }
+}
+
+/** usagesNote — SAF (v0.10.1509): "kim kullanıyor" bölümünün dürüst satırı
+ *  ('' = sonuç var, not yok). */
+export function usagesNote(u: MethodUsages, tr: (k: string) => string): string {
+  if (u.outcome === 'ok') return '';
+  if (u.outcome === 'no_hits') return u.reason || tr('endpoint.opcard.usages.none');
+  return u.reason || tr('endpoint.opcard.usages.failed');
 }

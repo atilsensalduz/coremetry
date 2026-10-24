@@ -1,7 +1,7 @@
 // opCardCode — v0.10.1506 (operasyon kartı R4): "Kod" bölümünün saf yarısı.
 import { describe, it, expect } from 'vitest';
 import type { OperationCardCode, OpCallEdge } from '@/lib/types';
-import { callSiteCols, codeNote, dtoRows, fileTail, footerContext, matchedEdge, matchedLabel } from './opCardCode';
+import { callSiteCols, codeNote, dtoRows, fileTail, footerContext, matchedEdge, matchedLabel, usagesNote } from './opCardCode';
 
 const tr = (k: string) => k;
 const base: OperationCardCode = {
@@ -44,5 +44,12 @@ describe('opCardCode', () => {
     expect(f?.files).toEqual([{ path: '/a/b/C.java', fromLine: 3, toLine: 9, url: 'https://x', kind: 'operation' }]);
     expect(f?.version).toBe('1.4.2');
     expect(footerContext({ ...base, entry: null })).toBeNull();
+  });
+  it('usagesNote (v0.10.1509): ok boş, yoksa sunucu nedeni ya da genel metin', () => {
+    const u = { method: 'approve', outcome: 'ok', hits: [], total: 0 };
+    expect(usagesNote(u, tr)).toBe('');
+    expect(usagesNote({ ...u, outcome: 'no_hits' }, tr)).toBe('endpoint.opcard.usages.none');
+    expect(usagesNote({ ...u, outcome: 'skipped', reason: 'çok genel' }, tr)).toBe('çok genel');
+    expect(usagesNote({ ...u, outcome: 'error' }, tr)).toBe('endpoint.opcard.usages.failed');
   });
 });

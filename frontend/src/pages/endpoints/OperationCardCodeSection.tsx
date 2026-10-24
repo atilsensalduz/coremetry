@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Button, DisclosureButton, KeyValue } from '@/components/ui';
+import { Badge, Button, DisclosureButton, KeyValue } from '@/components/ui';
 import {
   useDataTable, DataTableHead, DataTableColgroup, DataTableState, type DataTableStateProps,
 } from '@/components/ui/DataTable';
@@ -7,9 +7,9 @@ import { SafeHref } from '@/components/ui/SafeHref';
 import { CodeSourceFooter } from '@/components/ai/CodeSourceFooter';
 import { useOperationCardCode } from '@/lib/queries';
 import { useT } from '@/lib/i18n';
-import type { CallSite, OpCallEdge } from '@/lib/types';
+import type { CallSite, MethodUsages, OpCallEdge } from '@/lib/types';
 import {
-  callSiteCols, callSiteKindGlyph, codeNote, dtoRows, fileTail, footerContext, matchedEdge, matchedLabel,
+  callSiteCols, callSiteKindGlyph, codeNote, dtoRows, fileTail, footerContext, matchedEdge, matchedLabel, usagesNote,
 } from './opCardCode';
 
 // OperationCardCodeSection — v0.10.1506 (plan-operation-card §6, R4): kartın
@@ -132,7 +132,43 @@ export function OperationCardCodeSection({ params, treeRows }: {
           {code?.entry && (
             <div style={{ fontSize: 10.5, color: 'var(--text3)', marginTop: 6 }}>{tr('endpoint.opcard.code.matchNote')}</div>
           )}
+          {code?.usages && <MethodUsagesBlock u={code.usages} />}
           {code && <CodeSourceFooter code={footerContext(code)} />}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// MethodUsagesBlock — v0.10.1509: "Bu metodu kim kullanıyor?" (Code Search
+// ref:). ≤10 satırlık bir KONUM listesi (kayıt tablosu değil: sıralanmaz,
+// sunucu kanıta göre sıraladı — çağıran servis deposu önce). Ad bazlı
+// eşleşme olduğu için her satır "olası".
+function MethodUsagesBlock({ u }: { u: MethodUsages }) {
+  const tr = useT();
+  const note = usagesNote(u, tr);
+  return (
+    <div data-testid="opcard-usages" style={{ marginTop: 12 }}>
+      <div style={{ fontSize: 10.5, color: 'var(--text3)', marginBottom: 4 }}>
+        {tr('endpoint.opcard.usages.title').replace('{m}', u.method)}
+      </div>
+      {note && <div data-testid="opcard-usages-note" style={{ fontSize: 11, color: 'var(--text3)' }}>{note}</div>}
+      {u.hits.map(h => (
+        <div key={`${h.repo}:${h.path}:${h.line ?? 0}`} data-usage-caller={h.caller ? '1' : undefined}
+          style={{ display: 'flex', gap: 6, alignItems: 'baseline', fontSize: 11.5, padding: '2px 0', minWidth: 0 }}>
+          <Badge title={tr('endpoint.opcard.usages.possibleHint')}>{tr('endpoint.opcard.usages.possible')}</Badge>
+          {h.caller && <Badge tone="info" title={tr('endpoint.opcard.usages.callerHint')}>{tr('endpoint.opcard.usages.caller')}</Badge>}
+          <strong style={{ whiteSpace: 'nowrap' }}>{h.repo}</strong>
+          <span className="dt-trunc mono" title={`${h.path}${h.line ? `:${h.line}` : ''}`}>
+            <SafeHref href={h.url} fallback={<>{fileTail(h.path)}{h.line ? `:${h.line}` : ''}</>}>
+              {fileTail(h.path)}{h.line ? `:${h.line}` : ''} ↗
+            </SafeHref>
+          </span>
+        </div>
+      ))}
+      {u.total > u.hits.length && (
+        <div style={{ fontSize: 10.5, color: 'var(--text3)' }}>
+          {tr('endpoint.opcard.usages.more').replace('{n}', String(u.total - u.hits.length))}
         </div>
       )}
     </div>

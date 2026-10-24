@@ -342,6 +342,8 @@ func TestOpCallTreeSQLCarriesNoPayloadColumns(t *testing.T) {
 		"sample": opCardSampleSQL(wc.sql(), "duration DESC", "x"),
 		"walk":   opCardWalkSQL(3, "x"),
 		"window": opCardWindowSQL,
+		// v0.10.1509 — çağıran servisler (yalnız ad + sayı).
+		"callers": opCardCallersSQL,
 	}
 	for name, sql := range texts {
 		low := strings.ToLower(sql)
@@ -397,6 +399,15 @@ func TestOpCallTreeSQLIsBounded(t *testing.T) {
 		if !strings.Contains(opCardWindowSQL, g) {
 			t.Errorf("pencere sorgusu %q taşımıyor", g)
 		}
+	}
+	// v0.10.1509 — çağıran servisler: aynı MV sınırları.
+	for _, g := range []string{"toDateTime(?, 'UTC')", "LIMIT 10", "max_execution_time = 5", "FINAL", "child_service = ? AND child_op = ?"} {
+		if !strings.Contains(opCardCallersSQL, g) {
+			t.Errorf("çağıran sorgusu %q taşımıyor", g)
+		}
+	}
+	if n := strings.Count(opCardCallersSQL, "?"); n != 4 {
+		t.Errorf("çağıran sorgusu: %d yer tutucu, 4 bekleniyordu", n)
 	}
 	// RPC girişi rota yerine span ADI.
 	rpc := opCardWhere(OpCallTreeQuery{EndpointDetailQuery: EndpointDetailQuery{Service: "s", Path: "orders.Approve"}, Entry: EntryRPC}, "cluster")

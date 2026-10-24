@@ -7,6 +7,7 @@ package devops
 
 import (
 	"context"
+	"net/http"
 	"strings"
 	"testing"
 )
@@ -249,5 +250,29 @@ func TestOperationCardCacheKeyHashesAllInputs(t *testing.T) {
 	r.Children = []CardChildHint{{Kind: "db"}}
 	if operationCardCacheKey(cfg, "orders-api", src, r, 9000) != k0 {
 		t.Error("Children anahtarı değiştirmemeli")
+	}
+}
+
+// v0.10.1509 — geçici DevOps hatası (arama 500) önbelleğe yazılmaz: sonraki
+// istek yeniden dener.
+func TestFetchOperationCard_TransientErrorNotCached(t *testing.T) {
+	f, svc := opCardFixtureTFS(t, true)
+	fail := true
+	inner := f.srv.Config.Handler
+	f.srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if fail && strings.HasSuffix(r.URL.Path, "/_apis/search/codesearchresults") {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		inner.ServeHTTP(w, r)
+	})
+	cc := svc.FetchOperationCard(context.Background(), opCardTestReq())
+	if cc.Entry != nil || !strings.Contains(cc.Reason, "rota araması başarısız") {
+		t.Fatalf("ilk istek: %+v", cc)
+	}
+	fail = false
+	cc2 := svc.FetchOperationCard(context.Background(), opCardTestReq())
+	if cc2.Entry == nil {
+		t.Fatalf("geçici hata önbellekten döndü: %q", cc2.Reason)
 	}
 }

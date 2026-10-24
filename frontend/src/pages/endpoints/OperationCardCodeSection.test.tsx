@@ -34,6 +34,10 @@ const CODE_OK: OperationCardCode = {
     { path: '/src/main/java/com/example/orders/service/OrderServiceImpl.java', line: 16, kind: 'db', callee: 'jdbcTemplate.update', matchedChild: -1 },
   ],
   stats: { fetched: 6, searches: 2 },
+  usages: { method: 'approve', outcome: 'ok', total: 12, hits: [
+    { repo: 'web-bff', path: '/src/OrdersFlow.java', line: 88, url: 'https://tfs.example.test/web-bff?line=88', caller: true },
+    { repo: 'misc-batch', path: '/src/Batch.java' },
+  ] },
 };
 
 const payload = (code: OperationCardCode | null): OperationCardPayload => ({
@@ -112,6 +116,13 @@ describe('OperationCardCodeSection', () => {
     expect(rows[1].textContent).toMatch(/eşleşme yok|no match/);
     expect(el.querySelector('[data-testid="opcard-code-note"]')?.textContent).toMatch(/AuditClient/);
     expect(el.querySelector('[data-code-source]')?.textContent).toMatch(/orders-api/);
+    // v0.10.1509 — "Bu metodu kim kullanıyor?": olası etiketi, çağıran işareti, kalan sayısı.
+    const usages = el.querySelector('[data-testid="opcard-usages"]');
+    expect(usages?.textContent).toMatch(/approve/);
+    expect(usages?.textContent).toMatch(/olası|possible/);
+    expect(usages?.querySelectorAll('[data-usage-caller="1"]').length).toBe(1);
+    expect(usages?.textContent).toMatch(/OrdersFlow\.java:88/);
+    expect(usages?.textContent).toMatch(/\+10/);
     // "HAR": ağdan gelen gövde kod içeriği taşıyan bir anahtar içermez.
     expect(bodies.length).toBe(1);
     const code = JSON.parse(bodies[0]).code as Record<string, unknown>;
@@ -127,6 +138,7 @@ describe('OperationCardCodeSection', () => {
     expect(el.querySelector('[data-testid="opcard-code-note"]')?.textContent).toMatch(/Code Search gerekli/);
     expect(el.querySelector('table')).toBeNull();
     expect(el.querySelector('[data-code-source]')).toBeNull();
+    expect(el.querySelector('[data-testid="opcard-usages"]')).toBeNull();
   });
 
   it('giriş bulunamadı (reason boş): genel dürüst metin', async () => {

@@ -34,6 +34,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"time"
 
 	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/devops"
@@ -57,6 +58,9 @@ type operationCardCodeDTO struct {
 	Response  []devops.DTOField          `json:"response"`
 	CallSites []devops.CallSite          `json:"callSites"`
 	Stats     opCardCodeStats            `json:"stats"`
+	// Usages — v0.10.1509 "Bu metodu kim kullanıyor?" (ref: araması, yalnız
+	// konum, "olası"); giriş metodu bulunamadıysa null.
+	Usages *devops.MethodUsages `json:"usages"`
 }
 
 type opCardCodeStats struct {
@@ -129,9 +133,19 @@ type opCardMetaReader interface {
 	GetServiceMetadataStrict(ctx context.Context, service string) (*chstore.ServiceMetadata, error)
 }
 
+// opCardCallerReader — v0.10.1509: pencere geneli çağıran servisler
+// (*chstore.Store.OperationWindowCallers, MV; testte sahte).
+type opCardCallerReader interface {
+	OperationWindowCallers(ctx context.Context, service, op string, from, to time.Time) ([]string, error)
+}
+
+// opCardUsageCallerCap — sıralama ipucu için depo çözülen çağıran tavanı.
+const opCardUsageCallerCap = 10
+
 // buildOperationCardCode — kod yarısı (bkz. dosya başı). meta nil = katalog
-// yok (konvansiyon). İptal hatası yukarı döner (önbelleğe yazılmasın).
-func buildOperationCardCode(ctx context.Context, dv *devops.Service, meta opCardMetaReader, p operationCardParams, tree *chstore.OpCallTree) (*operationCardCodeDTO, error) {
+// yok (konvansiyon); callers nil = çağıran ipucu yok. İptal hatası yukarı
+// döner (önbelleğe yazılmasın).
+func buildOperationCardCode(ctx context.Context, dv *devops.Service, meta opCardMetaReader, callers opCardCallerReader, p operationCardParams, tree *chstore.OpCallTree) (*operationCardCodeDTO, error) {
 	if dv == nil || !dv.Configured() {
 		return newOperationCardCodeDTO(string(devops.CodeUnconfigured), "kod entegrasyonu yapılandırılmamış (Ayarlar → Kod entegrasyonu) — kart trace yarısıyla geçerli"), nil
 	}
@@ -169,7 +183,42 @@ func buildOperationCardCode(ctx context.Context, dv *devops.Service, meta opCard
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
-	return operationCardCodeFrom(cc, res.Source), nil
+	d := operationCardCodeFrom(cc, res.Source)
+	if cc.Entry != nil {
+		u := dv.FetchMethodUsages(ctx, methodUsageRequest(ctx, dv, callers, p, tree, cc))
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		d.Usages = &u
+	}
+	return d, nil
+}
+
+// methodUsageRequest — giriş metodunun adı + sınıfı + trace'te ÇAĞIRAN
+// servislerin depoları (ad konvansiyonu; yalnız sıralama ipucu, okuma yok —
+// pin aramak çağıran başına bir CH okuması olurdu). Çağıran okunamazsa ipucu
+// yok, bölüm yine çalışır.
+func methodUsageRequest(ctx context.Context, dv *devops.Service, callers opCardCallerReader, p operationCardParams, tree *chstore.OpCallTree, cc devops.OperationCardCode) devops.MethodUsageRequest {
+	_, _, name, _ := devops.MethodSignatureTypes(cc.Entry.Signature)
+	base := cc.Entry.Path[strings.LastIndexByte(cc.Entry.Path, '/')+1:]
+	req := devops.MethodUsageRequest{Method: name, Class: strings.TrimSuffix(base, ".java"), EntryRepo: cc.Repo, EntryPath: cc.Entry.Path}
+	if callers == nil || tree == nil || tree.Entry.Op == "" || p.Sig {
+		return req
+	}
+	svcs, err := callers.OperationWindowCallers(ctx, p.Service, tree.Entry.Op, p.From, p.To)
+	if err != nil {
+		return req
+	}
+	rc := dv.ResolveConfig()
+	for i, svc := range svcs {
+		if i >= opCardUsageCallerCap {
+			break
+		}
+		if r := devops.ResolveRepo(svc, "", rc); r.Repo != "" {
+			req.CallerRepos = append(req.CallerRepos, r.Repo)
+		}
+	}
+	return req
 }
 
 // operationCardWithCode — code=1: trace yarısı code=0 anahtarının önbellek
@@ -188,10 +237,11 @@ func (s *Server) operationCardWithCode(ctx context.Context, p operationCardParam
 		return nil, err
 	}
 	var meta opCardMetaReader
+	var callers opCardCallerReader
 	if s.store != nil {
-		meta = s.store
+		meta, callers = s.store, s.store
 	}
-	code, err := buildOperationCardCode(ctx, s.devops, meta, p, out.Tree)
+	code, err := buildOperationCardCode(ctx, s.devops, meta, callers, p, out.Tree)
 	if err != nil {
 		return nil, err
 	}

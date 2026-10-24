@@ -11119,6 +11119,7 @@ zaman aşımı / bellek / geçersiz / genel), sunucu metni ayrıntıda kalır. C
 değişmedi. MV yolu (çipsiz) değişmedi: kök operasyonu gösterir; ham yol daraltmada servisin giriş operasyonunu — bilinen fark.
 
 **Geri alma.** `git revert <sha>` + yeni etiket. Kalıcı veri/şema yok.
+
 ## 2026-10-24 — v0.10.1506 — Operasyon kartı R4: kod yarısı (giriş metodu, DTO alanları, çağrı yerleri)
 
 **Karar.** `/endpoint` "Kod ve çağrılar" kartına "Kod" açılır bölümü geldi (plan-operation-card §2.3.2, R4; operatör
@@ -11189,3 +11190,25 @@ codec'leri ve Inbox.tsx'ten okunan sabitlerle çözer; yapışkan env varken de 
 Inbox varsayılanları (yalnız P1, yapışkan env) değişmedi.
 
 **Geri alma.** `git revert <sha>` + yeni etiket. Kalıcı veri/şema yok.
+
+## 2026-10-24 — v0.10.1509 — Operasyon kartı R4 (2/2): "Bu metodu kim kullanıyor?" + search_code kind
+
+**Karar.** Plan sonundaki operatör kararının (2026-10-23 gece) 2. ve 3. maddesi. (1) Kartın "Kod" bölümüne
+"Bu metodu kim kullanıyor?" geldi: giriş metodunun ADIYLA koleksiyon geneli `ref:<metot> ext:java` (operatör prod Azure
+DevOps Server'da `ref:`'in çalıştığını doğruladı; depo süzgeci YOK çünkü çağıranın Feign istemcisi/sarmalayıcısı başka
+depodadır). `devops.FetchMethodUsages`: TEK arama (≤50 isabet, `operationDeadline`), ham konumlar 10 dk önbellekte
+(anahtar sunucu/koleksiyon/sorgu), sıralama her istekte (`RankMethodUsages`, SAF): trace'te bu operasyonu ÇAĞIRAN
+servislerin deposu önce (yeni MV okuması `OperationWindowCallers`, `topology_op_edges_5m` child tarafı, LIMIT 10 +
+max_execution_time 5; depo ad konvansiyonuyla — yalnız ipucu), sonra istemci/sarmalayıcı dosya adları, en çok 10 satır.
+Giriş dosyası + test yolları elenir; çok genel adlar (get/save/handle…) aranmaz (dürüst "skipped"). Ad bazlı olduğu için
+her satır "olası". YALNIZ konum: `codeSnippet` okunur ama hiçbir alana kopyalanmaz
+(`TestParseUsageHitsDropsSnippet`, api pini `MARKER_USAGE`). (2) Sohbet `search_code` aracına `kind: text|def|ref|class`
+kipi: araç sayısı 74 değişmedi, şema genişledi (katalog altını güncellendi); def/ref/class'ta sorgu
+`devops.BuildCodeQuery` ile kurulur, tek tanımlayıcı değilse istek atılmadan ipucu döner; kind yok/text bayt bayt eski.
+Kod/wiki turu localOnly kuralı (karar 8) aynen: `search_code` zaten yalnız kod turunda/yerel profilde sunuluyor.
+
+**Ek.** Kartın kod yarısı geçici bir DevOps hatasıyla (arama/dosya 5xx, ağ) düştüğünde sonuç 10 dk önbelleğe YAZILMAZ
+(`TestFetchOperationCard_TransientErrorNotCached`); tavan ve "bulunamadı" sonuçları yazılmaya devam eder.
+
+**Geri alma.** `git revert <sha>` + yeni etiket; şema/ayar yok. Yalnız bölümü kapatmak için `buildOperationCardCode`'da
+`FetchMethodUsages` çağrısı kaldırılır (`usages: null`, FE bölümü çizmez).

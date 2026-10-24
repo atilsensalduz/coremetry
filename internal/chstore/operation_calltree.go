@@ -251,6 +251,44 @@ const opCardWindowSQL = `
 		LIMIT 20
 		SETTINGS max_execution_time = 5`
 
+// opCardCallersSQL — v0.10.1509 (kartın "Bu metodu kim kullanıyor?"
+// sıralama ipucu): pencere geneli bu operasyonu ÇAĞIRAN servisler, aynı MV
+// (topology_op_edges_5m; ORDER BY time_bucket önde — çocuk tarafı süzgeci
+// ebeveyn tarafıyla aynı maliyette), aynı sınırlar. Yalnız servis ADI döner.
+const opCardCallersSQL = `
+		SELECT parent_service, sum(calls) AS calls
+		FROM topology_op_edges_5m FINAL
+		WHERE time_bucket >= toStartOfFiveMinute(toDateTime(?, 'UTC'))
+		  AND time_bucket <  toStartOfFiveMinute(toDateTime(?, 'UTC')) + INTERVAL 5 MINUTE
+		  AND child_service = ? AND child_op = ? AND parent_service != child_service
+		GROUP BY parent_service
+		ORDER BY calls DESC, parent_service
+		LIMIT 10
+		SETTINGS max_execution_time = 5`
+
+// OperationWindowCallers — pencere geneli bu operasyonu çağıran servisler
+// (çağrı sayısına göre, ≤10). op = giriş span adı (MV span adıyla tutulur).
+func (s *Store) OperationWindowCallers(ctx context.Context, service, op string, from, to time.Time) ([]string, error) {
+	out := []string{}
+	if service == "" || op == "" {
+		return out, nil
+	}
+	rows, err := s.conn.Query(ctx, opCardCallersSQL, from.Unix(), to.Unix(), service, op)
+	if err != nil {
+		return nil, fmt.Errorf("operation card callers: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var svc string
+		var calls uint64
+		if serr := rows.Scan(&svc, &calls); serr != nil {
+			return nil, serr
+		}
+		out = append(out, svc)
+	}
+	return out, rows.Err()
+}
+
 // OperationCallTree — örneklem + yürüyüş + katlama. Örneklem boşsa boş
 // (nil değil) bir ağaç döner; UI "bu pencerede çağrı yok" der.
 func (s *Store) OperationCallTree(ctx context.Context, q OpCallTreeQuery) (*OpCallTree, error) {

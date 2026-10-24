@@ -31,3 +31,47 @@ func TestSearchCodeTool(t *testing.T) {
 		t.Error("koşullu + yalnız sohbet")
 	}
 }
+
+// v0.10.1509 — kind kipi (def/ref/class): sorgu devops.BuildCodeQuery ile
+// kurulur; geçersiz tanımlayıcı istek ATMAZ; kind yok / text → sorgu aynen.
+func TestSearchCodeToolKind(t *testing.T) {
+	var gotQ []string
+	tl := searchCodeTool(Deps{CodeSearch: func(_ context.Context, _, q string, _ int) (CodeSearchResult, error) {
+		gotQ = append(gotQ, q)
+		return CodeSearchResult{Outcome: "ok"}, nil
+	}})
+	cases := []struct {
+		args, wantQ, wantOutcome string
+	}{
+		{`{"service":"orders-api","query":"approve","kind":"ref"}`, "ref:approve", "ok"},
+		{`{"service":"orders-api","query":"approve","kind":"DEF"}`, "def:approve", "ok"},
+		{`{"service":"orders-api","query":"OrderService","kind":"class"}`, "class:OrderService", "ok"},
+		{`{"service":"orders-api","query":"a b repo:x","kind":"text"}`, "a b repo:x", "ok"},
+		{`{"service":"orders-api","query":"\"x\" ext:java"}`, `"x" ext:java`, "ok"},
+		{`{"service":"orders-api","query":"approve repo:other","kind":"ref"}`, "", "error"},
+		{`{"service":"orders-api","query":"com.x.Y","kind":"class"}`, "", "error"},
+		{`{"service":"orders-api","query":"x","kind":"repo"}`, "", "error"},
+	}
+	for _, c := range cases {
+		gotQ = nil
+		out, err := tl.Handler(context.Background(), json.RawMessage(c.args))
+		r, _ := out.(CodeSearchResult)
+		if err != nil || r.Outcome != c.wantOutcome {
+			t.Errorf("%s: %+v %v", c.args, out, err)
+			continue
+		}
+		if c.wantQ == "" {
+			if len(gotQ) != 0 || r.Hint == "" {
+				t.Errorf("%s: istek atılmamalı + ipucu: %v %q", c.args, gotQ, r.Hint)
+			}
+			continue
+		}
+		if len(gotQ) != 1 || gotQ[0] != c.wantQ {
+			t.Errorf("%s: sorgu %v, want %q", c.args, gotQ, c.wantQ)
+		}
+	}
+	props := tl.InputSchema["properties"].(map[string]any)
+	if k, ok := props["kind"].(map[string]any); !ok || len(k["enum"].([]string)) != 4 {
+		t.Errorf("şema kind enum: %+v", props["kind"])
+	}
+}

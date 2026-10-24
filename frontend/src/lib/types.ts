@@ -6171,6 +6171,30 @@ export interface OperationCardCode {
   response: DTOField[];
   callSites: CallSite[];
   stats: { fetched: number; searches: number };
+  /** v0.10.1509 — "Bu metodu kim kullanıyor?"; giriş bulunamadıysa null. */
+  usages?: MethodUsages | null;
+}
+
+// MethodUsages — v0.10.1509 (Go: internal/devops/method_usages.go). Code
+// Search `ref:<metot>` koleksiyon geneli; YALNIZ konum, AD bazlı ("olası").
+export interface MethodUsage {
+  repo: string;
+  path: string;
+  line?: number;
+  url?: string;
+  /** Depo trace'te bu operasyonu çağıran bir servisin. */
+  caller?: boolean;
+  /** Giriş servisinin kendi deposu. */
+  sameRepo?: boolean;
+}
+export interface MethodUsages {
+  method: string;
+  /** ok | no_hits | skipped | search-off | error */
+  outcome: string;
+  reason?: string;
+  hits: MethodUsage[];
+  /** Eleme sonrası toplam (hits ≤10 kesilmiş olabilir). */
+  total: number;
 }
 
 // EndpointCallers — v0.9.839. "Who calls this endpoint", the panel the

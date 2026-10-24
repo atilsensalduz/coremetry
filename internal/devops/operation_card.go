@@ -366,8 +366,15 @@ func (s *Service) fetchOperationCard(ctx context.Context, req OperationCardReque
 	}
 	rd := &opCardReader{s: s, ctx: ctx, repo: ch.repo, sc: sc, files: map[string]string{}}
 	var notes []string
+	// transient — bir arama/dosya isteği ağ/sunucu hatasıyla düştü: sonuç
+	// önbelleğe YAZILMAZ (geçici bir DevOps arızası 10 dk "bulunamadı"
+	// diye saklanmasın; v0.10.1509).
+	transient := false
 	addNote := func(n string) { notes = append(notes, n) }
 	errNote := func(what string, err error) {
+		if !errors.Is(err, errOpCardCap) {
+			transient = true
+		}
 		if errors.Is(err, errOpCardCap) {
 			addNote(what + ": kart istek tavanı doldu (≤" + fmt.Sprint(opCardSearchCap) + " arama, ≤" + fmt.Sprint(opCardFileCap) + " dosya)")
 			return
@@ -386,7 +393,7 @@ func (s *Service) fetchOperationCard(ctx context.Context, req OperationCardReque
 			return out
 		}
 		if class == CodeOK || class == CodePartial || class == CodeTreeMiss || class == CodeWindowFailed {
-			if out.Outcome != CodeDeadline {
+			if out.Outcome != CodeDeadline && !transient {
 				s.cardCache().put(key, out)
 			}
 		}
