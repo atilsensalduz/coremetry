@@ -5,7 +5,8 @@ package api
 // Problem açılmadı). Metrik dedektörünün kararını tek servis × tek metrik için
 // geçmiş pencerede replay eder (internal/anomaly/anomaly_explain.go): kaynak
 // (VM / span / hold + gerekçe), taban, z, sürekli teknik hata yükselişi ve
-// açmayı durduran İLK kapı, adım adım.
+// açmayı durduran İLK kapı, adım adım. v0.10.1521 — aynı adımlarda davranış
+// motorunun hükmü de (`steps[].behavior`, `behaviorVerdict`).
 //
 //	GET /api/settings/anomaly-red-source/explain?service=<ad>&metric=error_rate
 //	    &from=<unix sn | RFC3339>&to=<unix sn | RFC3339>

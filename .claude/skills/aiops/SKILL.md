@@ -187,6 +187,15 @@ kapı eklerken `decideBlocker` ikizini de güncelle (`TestDecideBlockerMatchesDe
 (`pages/settings/ErrorRampSubsection.tsx`, aynı Kaydet). `NormalizeErrorRamp` aralık dışını KELEPÇELEMEZ, varsayılana döndürür
 → form aralık dışını kayıttan ÖNCE reddeder; aralıklar `pages/settings/errorRamp.ts` `ERROR_RAMP_BOUNDS` — Go
 `errRamp*Lo/Hi` ile birebir, pin `chstore/anomaly_sensitivity_error_ramp_ui_pin_test.go` (birini değiştirirsen ikisini).
+**Davranış motorunun hacim farkında hata tabanı (v0.10.1521,** 1518'in ikizi**):** `behavior.minErrorRatePct` %1 + ani-sapmanın paylaşılan
+error_rate `absFloor` %1'i yüksek hacimde dev, kalıcı 5xx yükselişini gizliyordu. Yukarı yönlü error_rate penceresinin HER dilimi
+≥ `behavior.highVolumeErrorsPerSec` (1) hata/sn ise iki taban min(taban, `highVolumeMinErrorRatePct` %0.2)'ye İNER (`behaviorHighVolumeErrors`,
+`evalBehaviorWindowWhy`); oran/z, dwell, aynı yön, sıçrama bandı, floorPct/minAbsDelta, kova kıtlığı AYNEN; düşüş yönü ve düşük hacim %1'de.
+`highVolumeErrorFloor` *bool nil = açık; sayılar errorRamp'a pinli (`TestBehaviorHVFloorDefaultsMatchErrorRamp`). Tabanı GLOBAL düşürme.
+Karar artık gerekçeli: `evalBehaviorWhy` (açmayı durduran kapı, `behBlock*`); yeni kapı = yeni sabit. Explain replay'i davranış hükmünü de yazar
+(`anomaly_explain_behavior.go`: adım başına `steps[].behavior` + `behaviorVerdict`; kaynak canlıdaki gibi VM `behaviorRowsFor` hazırsa VM, değilse
+span; span'e servis-filtreli tek 28 g sorgusu, VM'e AYRI tavanlı (`explainMaxVMBehaviorQueries` 48) kova planı; batch p99 aktif-olay muafiyeti ve
+fırtına tavanı replay EDİLMEZ). WHERE ikizleri: `behaviorRowsAt` ↔ `vmBehaviorBuckets` ↔ `buildBehaviorBucketsQuery` (`TestBehaviorRowsAtMirrorsSQLWhere`).
 **Alarm kuralı kaynağı (v0.10.1489):** `evaluateOne` ölçüsünü `anomaly_sensitivity.alertSource` = `auto` (varsayılan)
 iken kural×servis başına VM'in örneklenmemiş HTTP/gRPC histogramından, kuralın KENDİ penceresiyle alır (anlık sorgu,
 t = şimdi − 2 dk; `internal/anomaly/alert_vm*.go`, seçim `alertVMState.decide` → SAF `pickAlertSource`); taşıma metrikleri

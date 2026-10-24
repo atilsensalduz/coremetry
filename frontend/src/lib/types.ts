@@ -9445,6 +9445,14 @@ export interface AnomalyBehaviorConfig {
   minP99Ms?: number;
   minErrorRatePct?: number;
   spikyBandFactor?: number;
+  // v0.10.1521 — hacim farkında hata tabanı (v0.10.1518 errorRamp'ın ikizi):
+  // yukarı yönlü error_rate penceresinin HER dilimi ≥ highVolumeErrorsPerSec
+  // hata/sn ise iki %1 tabanı (minErrorRatePct + ani-sapma absFloor)
+  // highVolumeMinErrorRatePct'e iner. Bayrak backend'de *bool, yok = AÇIK:
+  // okuma `!== false`. Sayılar yoksa sunucu doldurur (1 hata/sn, %0.2).
+  highVolumeErrorFloor?: boolean;
+  highVolumeErrorsPerSec?: number;
+  highVolumeMinErrorRatePct?: number;
 }
 
 // BehaviorChangeDetails — `behavior_change` kindli bir AnomalyEvent'in

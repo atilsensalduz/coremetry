@@ -422,7 +422,12 @@ func behaviorLogLine(b chstore.AnomalyBehaviorConfig) string {
 	}
 	// v0.10.1070 — mutlak taban + sıçrama bandı da satırda: vida
 	// çevrildiğinde canlıya indiği buradan doğrulanır.
-	return fmt.Sprintf(" | davranış: seasonalZ=%.1f regimeRatio=%.2f dwell=%d/%d tavan=%d taban=%.0fms/%.2f%% bant=%.2f×p90",
+	// v0.10.1521 — hacim farkında hata tabanı da satırda.
+	hv := "kapalı"
+	if b.HighVolumeErrorFloorOn() {
+		hv = fmt.Sprintf("≥%.2f hata/sn→%.2f%%", b.HighVolumeErrorsPerSec, b.HighVolumeMinErrorRatePct)
+	}
+	return fmt.Sprintf(" | davranış: seasonalZ=%.1f regimeRatio=%.2f dwell=%d/%d tavan=%d taban=%.0fms/%.2f%% bant=%.2f×p90 hacimTabanı=%s",
 		b.SeasonalZ, b.RegimeRatio, b.DwellSeasonal, b.DwellRegime, b.MaxCandidatesPerTick,
-		b.MinP99Ms, b.MinErrorRatePct, b.SpikyBandFactor)
+		b.MinP99Ms, b.MinErrorRatePct, b.SpikyBandFactor, hv)
 }

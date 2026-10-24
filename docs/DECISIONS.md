@@ -11514,3 +11514,34 @@ boolean gönderir.
 
 **Geri alma.** `git revert <sha>` + yeni etiket (yalnız FE + test; şema/ayar biçimi değişmedi, kayıtlı blob aynen okunur).
 
+## 2026-10-24 — v0.10.1521 — Davranış motoru: hacim farkında hata tabanı + explain replay'inde davranış hükmü
+
+**Bağlam.** v0.10.1518 kök nedeninin ikinci yarısı (operatör onaylı takip): davranış motorunda error_rate için İKİ %1 mutlak
+taban var — kendi `behavior.minErrorRatePct` (v0.10.1070) ve ani-sapmanın paylaşılan `absFloor`'u (v0.9.180). 1000 istek/sn'lik
+gateway'de 5 hata/sn %0.5'tir; kendi haftanın-saati kovasının 30σ+ üstündeki kalıcı yükseliş bile aday olmuyordu.
+
+**Seçenekler.** (a) error_rate'i davranış motorunda ramp kuralına devretmek — reddedildi: iki motor farklı soru cevaplar (ramp 14 g aynı
+saat tabanı + Problem; davranış 28 g haftanın-saati + behavior_change olayı), devretmek haftalık kalıcı kaymayı kör ederdi. (b) Tabanı
+global düşürmek — reddedildi (v0.9.180 / v0.10.1070 gürültüsü). (c) **Hacim farkında taban** — seçildi, v0.10.1518'in "oran tabanı
+yerine hata HIZI" kararının aynısı.
+
+**Karar.** `behavior.highVolumeErrorFloor` (*bool, nil = AÇIK), `highVolumeErrorsPerSec` (vars. 1, 0.05–100000),
+`highVolumeMinErrorRatePct` (vars. 0.2, 0.01–100) — sayılar errorRamp'ınkiyle aynı, testle pinli. YUKARI yönlü error_rate adayında
+pencerenin (rejim 6 / mevsimsel 3 dilim) HER dilimi ≥ 1 hata/sn ise iki mutlak taban min(taban, %0.2)'ye iner; yalnız iner (operatör
+tabanı daha düşükse o kalır). Diğer bütün kapılar aynen (rejim 1.5× / mevsimsel 4σ her dilimde, aynı yön, 1.5×p90 sıçrama bandı,
+floorPct, minAbsDelta, kova örnek/gün kıtlığı, minBaselineRate). Düşük hacim (bir dilim bile < 1 hata/sn), düşüş yönü, p99 ve
+request_rate etkilenmez. Olağan günlük yükseliş zaten haftanın-saati tabanında; trafikle orantılı hata artışı oranı değiştirmez.
+Ayar formu: Davranış değişimi bölümünde kutu + iki alan.
+Karar fonksiyonu gerekçeli oldu: `evalBehaviorWhy` / `evalBehaviorWindowWhy` açmayı durduran kapıyı döndürür (davranış birebir;
+eski imzalar sarmalayıcı). Explain ucu (`GET /api/settings/anomaly-red-source/explain`) aynı adımlarda davranış hükmünü yazar
+(`steps[].behavior`: kaynak, aday/yok, sinyal, z, oran, durduran kapı, son dilim hata/sn, hacim tabanı devrede mi; özet
+`behaviorVerdict` / `behaviorFirstAt` / `behaviorTopBlockers`). Kaynak canlıdaki gibi: VM davranış kovaları hazırsa VM, değilse span.
+Ek okuma: span MV'sine servis-filtreli tek 28 g sorgusu (LIMIT 12 000, 20 s) + VM'e ayrı tavanlı (48) kova planı. Replay edilmeyen:
+batch p99 aktif-olay muafiyeti, fırtına tavanı.
+
+**Bedeller.** Yüksek hacimli serviste %0.2–%1 arası kalıcı 5xx yükselişleri behavior_change adayı olur (amaç); terfi kapısı
+(peak oran / sayım / süre) Problem'e geçişi yönetmeye devam eder. v0.10.1070'in iki "%0.2 → %0.8 aday YOK" test vakası düşük hacme
+taşındı — yüksek hacimdeki ikizleri artık aday (bilinçli davranış değişikliği). Explain ucu davranış için ~30 ek VM sorgusu yapabilir.
+
+**Geri alma.** Taban: `behavior.highVolumeErrorFloor=false` (v0.10.1070 davranışı). Tamamı: `git revert <sha>` + yeni etiket; şema yok.
+

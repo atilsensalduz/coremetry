@@ -693,7 +693,10 @@ function BehaviorSubsection({ behavior, onChange }: {
     dwellSeasonal: 3, dwellRegime: 6, maxCandidatesPerTick: 50,
     minSamplesPerBucket: 12, minBucketRepeats: 3,
     minP99Ms: 200, minErrorRatePct: 1, spikyBandFactor: 1.5,
+    highVolumeErrorFloor: true, highVolumeErrorsPerSec: 1, highVolumeMinErrorRatePct: 0.2,
   };
+  // v0.10.1521 — hacim farkında hata tabanı; yok = AÇIK.
+  const hvOn = b.highVolumeErrorFloor !== false;
   // `!== false` ŞART: alan yoksa (eski satır) motor AÇIKtır.
   const on = b.enabled !== false;
   const set = (patch: Partial<AnomalyBehaviorConfig>) => onChange({ ...b, ...patch });
@@ -848,6 +851,41 @@ function BehaviorSubsection({ behavior, onChange }: {
             Hata oranı bu yüzdenin altındaysa oran ne olursa olsun bulgu üretilmez. Varsayılan <b>1</b>.
           </div>
         </Field>
+
+        {/* v0.10.1521 — hacim farkında hata tabanı (v0.10.1518 errorRamp'ın ikizi). */}
+        <div>
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input type="checkbox" aria-label="Yüksek hacimde düşük hata tabanı"
+              checked={hvOn} disabled={!on}
+              onChange={e => set({ highVolumeErrorFloor: e.target.checked })} />
+            <span style={{ fontSize: 12, color: 'var(--text)' }}>Yüksek hacimde düşük hata tabanı</span>
+          </label>
+          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, marginLeft: 24, lineHeight: 1.5 }}>
+            Açık (varsayılan): yükselen hata oranının penceresindeki <b>her</b> dilim saniyede en az{' '}
+            {b.highVolumeErrorsPerSec ?? 1} teknik hata taşıyorsa, %1 tabanı yerine aşağıdaki taban kullanılır
+            &mdash; 1000 istek/sn&apos;de 5 hata/sn yalnız %0,5&apos;tir ama kendi haftalık normalinin çok
+            üstündeyse gerçek bir olaydır. Oran, kalıcılık, sıçrama bandı kapıları aynen geçerli; düşük hacimli
+            servisler %1 tabanında kalır.
+          </div>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 8, marginLeft: 24, opacity: hvOn ? 1 : 0.5 }}>
+            <Field label="Hata hızı eşiği (hata/sn)">
+              <input type="number" min={0.05} max={100000} step={0.5}
+                aria-label="Yüksek hacim: hata hızı eşiği"
+                value={b.highVolumeErrorsPerSec ?? 1}
+                onChange={e => set({ highVolumeErrorsPerSec: Number(e.target.value) })}
+                disabled={!on || !hvOn} />
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>0,05–100000, varsayılan <b>1</b>.</div>
+            </Field>
+            <Field label="Yüksek hacimde hata oranı tabanı (%)">
+              <input type="number" min={0.01} max={100} step={0.05}
+                aria-label="Yüksek hacim: hata oranı tabanı"
+                value={b.highVolumeMinErrorRatePct ?? 0.2}
+                onChange={e => set({ highVolumeMinErrorRatePct: Number(e.target.value) })}
+                disabled={!on || !hvOn} />
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>0,01–100, varsayılan <b>0,2</b>.</div>
+            </Field>
+          </div>
+        </div>
 
         <Field label="Sıçramalı geçmiş toleransı (× geçmiş p90)">
           <input type="number" min={1} max={10} step={0.1}

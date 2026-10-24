@@ -331,8 +331,38 @@ func evalBehavior(
 	pol metricPolicy,
 	cfg behaviorConfigView,
 ) (behaviorCandidate, bool) {
+	c, ok, _ := evalBehaviorWhy(service, metric, baseline, recent, pol, cfg)
+	return c, ok
+}
+
+// Davranış motorunun engelleyici gerekçeleri (v0.10.1521 — açıklama ucu
+// `behaviorBlocker` + testler). Sıra evalBehaviorWindowWhy'daki kapı sırası.
+const (
+	behBlockNoRecent  = "son pencerede veri yok"
+	behBlockVolume    = "hacim tabanının altında (minBaselineRate)"
+	behBlockShort     = "pencere için dilim yetersiz"
+	behBlockScarce    = "kova geçmişi yetersiz (örnek / farklı gün)"
+	behBlockNoFire    = "eşik aşılmadı"
+	behBlockFlip      = "yön değişti (salınım)"
+	behBlockBand      = "sıçramalı geçmiş bandının altında (spikyBandFactor × p90)"
+	behBlockFloorPct  = "göreli değişim tabanının altında (floorPct)"
+	behBlockAbsDelta  = "mutlak fark tabanının altında (minAbsDelta)"
+	behBlockAbsFloor  = "ani-sapma mutlak tabanının altında (absFloor)"
+	behBlockOwnFloor  = "davranış mutlak tabanının altında (minErrorRatePct / minP99Ms)"
+	behBlockBatchSkip = "batch serviste request_rate değerlendirilmez"
+)
+
+// evalBehaviorWhy — evalBehavior + açmayı durduran kapı (açıldıysa "").
+// Rejim ve mevsimsel ikisi de durursa ikisinin gerekçesi birlikte yazılır.
+func evalBehaviorWhy(
+	service, metric string,
+	baseline map[int]behaviorBucket,
+	recent []behaviorRow,
+	pol metricPolicy,
+	cfg behaviorConfigView,
+) (behaviorCandidate, bool, string) {
 	if len(recent) == 0 {
-		return behaviorCandidate{}, false
+		return behaviorCandidate{}, false, behBlockNoRecent
 	}
 	// Hacim kapısı — son dilimin istek hızı. Ani-sapma dedektörüyle aynı
 	// gerekçe: 20 isteğin 1'i hata %5'tir ama olay değildir. AÇILMAYA
@@ -340,13 +370,18 @@ func evalBehavior(
 	// kendiliğinden temizlenir), o yüzden asimetri sorusu doğmuyor.
 	last := recent[len(recent)-1]
 	if !hasEnoughVolume([]float64{behaviorMetricValue("request_rate", last)}, pol.minBaselineRate) {
-		return behaviorCandidate{}, false
+		return behaviorCandidate{}, false, behBlockVolume
 	}
 	// Rejim önce (daha spesifik), sonra mevsimsel.
-	if c, ok := evalBehaviorWindow(service, metric, baseline, recent, pol, cfg, "regime", cfg.DwellRegime); ok {
-		return c, true
+	c, ok, rb := evalBehaviorWindowWhy(service, metric, baseline, recent, pol, cfg, "regime", cfg.DwellRegime)
+	if ok {
+		return c, true, ""
 	}
-	return evalBehaviorWindow(service, metric, baseline, recent, pol, cfg, "seasonal", cfg.DwellSeasonal)
+	c, ok, sb := evalBehaviorWindowWhy(service, metric, baseline, recent, pol, cfg, "seasonal", cfg.DwellSeasonal)
+	if ok {
+		return c, true, ""
+	}
+	return behaviorCandidate{}, false, "rejim: " + rb + " · mevsimsel: " + sb
 }
 
 // evalBehaviorWindow — tek bir sinyalin dwell penceresini puanlar.
@@ -378,8 +413,22 @@ func evalBehaviorWindow(
 	signal string,
 	dwell int,
 ) (behaviorCandidate, bool) {
+	c, ok, _ := evalBehaviorWindowWhy(service, metric, baseline, recent, pol, cfg, signal, dwell)
+	return c, ok
+}
+
+// evalBehaviorWindowWhy — evalBehaviorWindow + durduran kapı ("" = açıldı).
+func evalBehaviorWindowWhy(
+	service, metric string,
+	baseline map[int]behaviorBucket,
+	recent []behaviorRow,
+	pol metricPolicy,
+	cfg behaviorConfigView,
+	signal string,
+	dwell int,
+) (behaviorCandidate, bool, string) {
 	if dwell <= 0 || len(recent) < dwell {
-		return behaviorCandidate{}, false
+		return behaviorCandidate{}, false, behBlockShort
 	}
 	window := recent[len(recent)-dwell:]
 
@@ -394,7 +443,7 @@ func evalBehaviorWindow(
 			// değildir. v0.9.957: kapı artık örnek SAYISINA ek olarak
 			// gün ÇEŞİTLİLİĞİNE de bakıyor — 24 örneğin hepsi iki günden
 			// geliyorsa yayılım kestirilemez ve z patlar (ölçülmüş vaka).
-			return behaviorCandidate{}, false
+			return behaviorCandidate{}, false, behBlockScarce
 		}
 		med, rawMAD := medianMAD(bucket.Values)
 		mad := effectiveMAD(metric, med, rawMAD, pol.minMAD)
@@ -404,20 +453,20 @@ func evalBehaviorWindow(
 
 		d := behaviorFires(signal, z, ratio, cfg)
 		if d == "" {
-			return behaviorCandidate{}, false
+			return behaviorCandidate{}, false, behBlockNoFire
 		}
 		if i == 0 {
 			dir = d
 		} else if d != dir {
 			// Yön değiştirdi: bu kalıcı bir kayma değil, salınım.
-			return behaviorCandidate{}, false
+			return behaviorCandidate{}, false, behBlockFlip
 		}
 		// v0.10.1070 — sıçramalı geçmiş: kovanın KENDİ üst bandını
 		// (p90) aşmayan yükseliş, o saatte zaten görülen şeydir. Medyan
 		// düzenli kısa sıçramaları görmez; dilim başına sorulur ki rejim
 		// penceresinin her dilimi bandın üstünde olsun.
 		if d == "up" && !aboveSpikyBand(v, bucket.Values, cfg.SpikyBandFactor) {
-			return behaviorCandidate{}, false
+			return behaviorCandidate{}, false, behBlockBand
 		}
 		spans += r.Spans
 		lastZ, lastRatio, lastMedian, lastValue = z, ratio, med, v
@@ -427,20 +476,30 @@ func evalBehaviorWindow(
 	// v0.9.826'nın vidaları; gerekçe evalBehavior yorumunda.
 	absDelta := math.Abs(lastValue - lastMedian)
 	if absDelta/math.Max(math.Abs(lastMedian), magnitudeEps) < pol.floorPct {
-		return behaviorCandidate{}, false
+		return behaviorCandidate{}, false, behBlockFloorPct
 	}
 	if pol.minAbsDelta > 0 && absDelta < pol.minAbsDelta {
-		return behaviorCandidate{}, false
+		return behaviorCandidate{}, false, behBlockAbsDelta
 	}
-	if dir == "up" && pol.absFloor > 0 && lastValue < pol.absFloor {
-		return behaviorCandidate{}, false
+	// v0.10.1521 — hacim farkında hata tabanı: yukarı yönlü error_rate
+	// penceresinin HER dilimi ≥ HighVolumeErrorsPerSec hata/sn taşıyorsa iki
+	// mutlak taban HighVolumeMinErrorRatePct'e iner (yalnız İNER — operatör
+	// tabanı daha düşük kurduysa o kalır). Yukarıdaki bütün kapılar geçilmiş
+	// olmalı: oran 1.5× / z ≥ seasonalZ her dilimde, aynı yön, sıçrama bandı.
+	sharedFloor, ownFloor := pol.absFloor, behaviorAbsFloor(metric, cfg)
+	if dir == "up" && behaviorHighVolumeErrors(metric, window, cfg) {
+		sharedFloor = math.Min(sharedFloor, cfg.HighVolumeMinErrorRatePct)
+		ownFloor = math.Min(ownFloor, cfg.HighVolumeMinErrorRatePct)
+	}
+	if dir == "up" && sharedFloor > 0 && lastValue < sharedFloor {
+		return behaviorCandidate{}, false, behBlockAbsFloor
 	}
 	// v0.10.1070 — motorun KENDİ mutlak tabanı (ani-sapmanın absFloor'undan
 	// ayrı ve daha yüksek: kalıcı değişim ancak operasyonel olarak anlamlı
 	// bir değerde olay). Yön fark etmez: tabanın altına inen p99 / hata
 	// oranı da olay değildir.
-	if f := behaviorAbsFloor(metric, cfg); f > 0 && lastValue < f {
-		return behaviorCandidate{}, false
+	if ownFloor > 0 && lastValue < ownFloor {
+		return behaviorCandidate{}, false, behBlockOwnFloor
 	}
 
 	return behaviorCandidate{
@@ -453,7 +512,23 @@ func evalBehaviorWindow(
 		OnsetUnix: window[0].Unix,
 		Spans:     spans,
 		Score:     behaviorScore(lastZ, lastRatio),
-	}, true
+	}, true, ""
+}
+
+// behaviorHighVolumeErrors — v0.10.1521 SAF: error_rate penceresinin HER
+// dilimi ≥ HighVolumeErrorsPerSec hata/sn mi? (dilim = 5 dk kova, hata/sn =
+// Errs / 300 — behaviorMetricValue'nun request_rate tanımıyla aynı bölen).
+// Kapalı / başka metrik / boş pencere → false (normal tabanlar).
+func behaviorHighVolumeErrors(metric string, window []behaviorRow, cfg behaviorConfigView) bool {
+	if metric != "error_rate" || !cfg.HighVolumeErrorFloorOn() || cfg.HighVolumeErrorsPerSec <= 0 || len(window) == 0 {
+		return false
+	}
+	for _, r := range window {
+		if float64(r.Errs)/300.0 < cfg.HighVolumeErrorsPerSec {
+			return false
+		}
+	}
+	return true
 }
 
 // behaviorAbsFloor — v0.10.1070: metriğin davranış motoru mutlak tabanı.

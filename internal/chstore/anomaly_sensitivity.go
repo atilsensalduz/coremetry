@@ -331,6 +331,26 @@ type AnomalyBehaviorConfig struct {
 	// görür ve o sıçramalar zaten "normal"in parçasıdır. p90, medyan+MAD
 	// ile AYNI örnek kümesinden (kova.Values) — ek sorgu yok.
 	SpikyBandFactor float64 `json:"spikyBandFactor"`
+	// HighVolumeErrorFloor / HighVolumeErrorsPerSec / HighVolumeMinErrorRatePct
+	// — v0.10.1521, v0.10.1518'in (sürekli teknik hata yükselişi) davranış
+	// motoru ikizi. MinErrorRatePct (%1) ve ani-sapmanın paylaşılan error_rate
+	// AbsFloor'u (%1) yüksek hacimli serviste istatistiksel olarak dev, kalıcı
+	// 5xx yükselişini gizliyordu: 1000 istek/sn'de 5 hata/sn %0.5'tir. HACİM
+	// FARKINDA taban: YUKARI yönlü error_rate adayında pencerenin HER dilimi
+	// ≥ HighVolumeErrorsPerSec hata/sn taşıyorsa iki mutlak taban
+	// min(taban, HighVolumeMinErrorRatePct)'e iner. Diğer bütün kapılar (rejim
+	// oranı / mevsimsel z, dwell, aynı yön, sıçrama bandı, göreli ve mutlak
+	// fark, kova kıtlığı) AYNEN. Düşük hacimli servis (dilimlerden biri bile
+	// hız tabanının altında) %1 tabanında kalır. Sayılar ramp'ınkiyle aynı
+	// (1 hata/sn, %0.2). Enabled *bool, nil = AÇIK.
+	HighVolumeErrorFloor      *bool   `json:"highVolumeErrorFloor,omitempty"`
+	HighVolumeErrorsPerSec    float64 `json:"highVolumeErrorsPerSec"`
+	HighVolumeMinErrorRatePct float64 `json:"highVolumeMinErrorRatePct"`
+}
+
+// HighVolumeErrorFloorOn — nil-güvenli: yazılmamış = AÇIK.
+func (b AnomalyBehaviorConfig) HighVolumeErrorFloorOn() bool {
+	return b.HighVolumeErrorFloor == nil || *b.HighVolumeErrorFloor
 }
 
 // IsEnabled — nil-güvenli okuma. Yazılmamış = AÇIK.
@@ -370,6 +390,10 @@ const (
 	behaviorMinErrRateHi      = 100.0
 	behaviorSpikyBandFactorLo = 1.0
 	behaviorSpikyBandFactorHi = 10.0
+	// v0.10.1521 — hacim farkında hata tabanı; aralıklar errorRamp'ın
+	// (errRampEPS*, errRampRatio* alt sınırı) ikizi.
+	behaviorHVEPSLo, behaviorHVEPSHi = 0.05, 100000.0
+	behaviorHVPctLo, behaviorHVPctHi = 0.01, 100.0
 )
 
 // DefaultAnomalyBehavior — spec'te onaylanan varsayılanlar
@@ -392,6 +416,10 @@ func DefaultAnomalyBehavior() AnomalyBehaviorConfig {
 		MinP99Ms:        200,
 		MinErrorRatePct: 1.0,
 		SpikyBandFactor: 1.5,
+		// v0.10.1521 — v0.10.1518 errorRamp'ın sayıları (1 hata/sn, %0.2).
+		HighVolumeErrorFloor:      boolPtr(true),
+		HighVolumeErrorsPerSec:    1.0,
+		HighVolumeMinErrorRatePct: 0.2,
 	}
 }
 
@@ -419,6 +447,10 @@ func NormalizeAnomalyBehavior(b AnomalyBehaviorConfig) AnomalyBehaviorConfig {
 		MinP99Ms:        clampRangeF(b.MinP99Ms, behaviorMinP99MsLo, behaviorMinP99MsHi, d.MinP99Ms),
 		MinErrorRatePct: clampRangeF(b.MinErrorRatePct, behaviorMinErrRateLo, behaviorMinErrRateHi, d.MinErrorRatePct),
 		SpikyBandFactor: clampRangeF(b.SpikyBandFactor, behaviorSpikyBandFactorLo, behaviorSpikyBandFactorHi, d.SpikyBandFactor),
+		// v0.10.1521 — kopyalanmazsa PUT'ta düşerdi; bayrak somutlaşır.
+		HighVolumeErrorFloor:      boolPtr(b.HighVolumeErrorFloorOn()),
+		HighVolumeErrorsPerSec:    clampRangeF(b.HighVolumeErrorsPerSec, behaviorHVEPSLo, behaviorHVEPSHi, d.HighVolumeErrorsPerSec),
+		HighVolumeMinErrorRatePct: clampRangeF(b.HighVolumeMinErrorRatePct, behaviorHVPctLo, behaviorHVPctHi, d.HighVolumeMinErrorRatePct),
 	}
 	return out
 }

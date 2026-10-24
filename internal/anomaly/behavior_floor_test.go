@@ -64,6 +64,14 @@ func errRows(n int, pct float64) []behaviorRow {
 	return rowsAt(10, n, 100_000, uint64(math.Round(pct*1000)), 0)
 }
 
+// errRowsLow — `n` dilim, spans=10.000 (~33 istek/sn), hata oranı pct (%).
+// v0.10.1521: %1'in altındaki taban vakaları DÜŞÜK hacimde çivilenir — %0.8'de
+// 0.27 hata/sn, hacim farkında tabanın (1 hata/sn) altı. Yüksek hacimdeki
+// ikizleri behavior_hv_floor_test.go'da (orada açılırlar).
+func errRowsLow(n int, pct float64) []behaviorRow {
+	return rowsAt(10, n, 10_000, uint64(math.Round(pct*100)), 0)
+}
+
 func TestBehaviorFloorAndSpikyBand(t *testing.T) {
 	sens := chstore.DefaultAnomalySensitivity()
 	p99Pol := policyFor("p99_ms", sens)
@@ -106,9 +114,11 @@ func TestBehaviorFloorAndSpikyBand(t *testing.T) {
 		{"rejim: tek dilim bandın altında → rejim YOK, son 3 dilim mevsimsel", "p99_ms", shiftBaseline(), perSlice, p99Pol, nil, true, "seasonal", "up"},
 
 		// ── error_rate tabanı ──
-		{"error_rate %0.2 → %0.8 → aday YOK (taban %1)", "error_rate", bucketFrom(10, spread(48, 0.2, 0.002)...), errRows(6, 0.8), errPolNoShared, nil, false, "", ""},
-		{"error_rate %0.03 → %0.84 (28×) → aday YOK (taban %1)", "error_rate", bucketFrom(10, spread(48, 0.03, 0.001)...), errRows(6, 0.84), errPolNoShared, nil, false, "", ""},
-		{"error_rate %0.2 → %0.8, taban kapalı → aday (eleme sebebi taban)", "error_rate", bucketFrom(10, spread(48, 0.2, 0.002)...), errRows(6, 0.8), errPolNoShared, noFloor, true, "regime", "up"},
+		{"error_rate %0.2 → %0.8, düşük hacim → aday YOK (taban %1)", "error_rate", bucketFrom(10, spread(48, 0.2, 0.002)...), errRowsLow(6, 0.8), errPolNoShared, nil, false, "", ""},
+		{"error_rate %0.03 → %0.84 (28×), düşük hacim → aday YOK (taban %1)", "error_rate", bucketFrom(10, spread(48, 0.03, 0.001)...), errRowsLow(6, 0.84), errPolNoShared, nil, false, "", ""},
+		{"error_rate %0.2 → %0.8, düşük hacim, taban kapalı → aday (eleme sebebi taban)", "error_rate", bucketFrom(10, spread(48, 0.2, 0.002)...), errRowsLow(6, 0.8), errPolNoShared, noFloor, true, "regime", "up"},
+		{"error_rate %0.2 → %0.8, yüksek hacim, hacim tabanı kapalı → aday YOK (v0.10.1070 davranışı)", "error_rate", bucketFrom(10, spread(48, 0.2, 0.002)...), errRows(6, 0.8), errPolNoShared,
+			func(c *chstore.AnomalyBehaviorConfig) { c.HighVolumeErrorFloor = boolPtrT(false) }, false, "", ""},
 		{"error_rate %0.5 → %6 → rejim ↑", "error_rate", bucketFrom(10, spread(48, 0.5, 0.005)...), errRows(6, 6), errPol, nil, true, "regime", "up"},
 
 		// ── Sıçramalı geçmiş: 3× medyan ama < 1.5× p90 ──
