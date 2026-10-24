@@ -10914,3 +10914,39 @@ tablo/kolon/rota yok; MCP 74, api.go, kademe sırası değişmedi.
 
 **Geri alma.** `git revert <sha>` + yeni etiket. Önbellek anahtarları (`problem:affected:v2`, `:ms=` eki) 60 s'de söner;
 eski FE yeni cevabı okur (alanlar ek), yeni FE eski cevabı metrikten türeterek okur.
+
+
+## 2026-10-24 — v0.10.1496 — Desenler: kimlik belirteci maskesi + JSON gövde imzası; ES desen satırında servis/seviye
+
+**Bağlam (operatör, prod ES).** /logs tek servis seçiliyken "Desenler" 256 örnek satırdan 164 desen veriyordu. Gövdeler
+`{"request_id":"SPE1015…202610240340413867 00", …}` biçiminde JSON; harf+rakam karışık uzun kimlikler maskelenmiyordu
+(`\b\d{2,}` kelime içine giremez, hex kuralı harf karışımını tutmaz) → her request_id ayrı desen, sayı 1. Ayrıca
+satırlarda Servisler "–", Seviye 0 (hacim çubuğu DEBUG 260).
+
+**Karar.** (1) Tek SAF yüklem `logstore.IsIDLikeToken` + `MaskIDTokens` (harf/rakam koşusu; ayraç = harf/rakam dışı her
+şey): yalnız rakam ≥4, hex ≥8 (rakamlı), ≥5 rakam ve rakam > yarı, ≥10 & ≥3 rakam ya da ≥16 & ≥2 rakam, base64-benzeri
+(≥16, büyük/küçük harf her biri ≥¼, durum değişimi ≥⅓). Rakamsız sözcükler, camelCase sınıf adları, `OP12`/`sha256`/
+`iso8601`/`log4j2`/`x86_64` kalır. `NormalizeSignature` bunu mevcut kuralların ARDINDAN uygular; kesik JSON'da
+`"k":"değer"` değeri bütün olarak kimlikse `"<x>"`; ayraçla bağlı ardışık `<x>` tek `<x>`. (2) Gövde ≤64 KiB bir JSON
+NESNESİYSE imza `{"a":<x>,"msg":"<maskeli>",…}`: anahtarlar sıralı, mesaj alanı (message|msg|log|error|event, büyük-küçük
+duyarsız, ilk dolu dizge) maskeli metin, diğer TÜM değerler `<x>` — kimlik değerleri imzaya hiç girmez. Çözülemezse
+maskeli ham metin. "Ara" dizesi JSON'da mesaj metninden (mesaj yoksa anahtar adlarından), anahtar kümesinden değil.
+(3) Drain (`templater.Mask`) aynı yüklemi son geçiş olarak uygular (`<*>` birleştirme YOK — mevcut `$<*>.<*>` biçimleri
+kimlik değiştirmesin). (4) Kök neden (d): desen örneklemesinin lean `_source`u (v0.10.500) mapHit'in servis zincirini
+hiç içermiyordu ve seviye zincirinden `SeverityText`'i atlıyordu → ES'te satır servissiz. Liste artık mapHit'in servis +
+seviye için okuduğu her yolu taşır (gerçek _source izdüşümüyle test). Varsayılan ES alan haritasında `severity_number`
+boş olduğundan sayı metinden türetilir (`severityFromText`, bant önekleri); kayıtta metin yoksa JSON gövdenin `level`
+alanı; servis boşsa ve süzgeç tek servise kilitliyse o servis (`patternRowIdentity`).
+
+**Şablon kimliği / göç.** Desen imzaları kalıcı değil (her istekte örneklemden; Trend tabanı aynı fonksiyonla aynı anda
+hesaplanır) — göç yok. Drain şablon kimliği = belirteçlerin sha1'i: maskelenen kimlik belirteci taşıyan aileler YENİ
+`log_templates` satırına geçer, eski satırlar güncellenmez ve `last_seen + 30 gün` TTL'iyle söner (yetim, zararsız; elle
+silme gerekmez). `log_template_new` dedektörü varsayılan KAPALI (v0.10.1061); açık kurulumda ilk tiklerde yeni kimlikler
+aile süzgecinden (`SameTemplateFamily`) geçer — ilk belirteç değiştiyse yönlendirme öneki farklı olabilir ve birkaç
+"yeni şablon" olayı 10 dk içinde düşer. CH şeması değişmedi.
+
+**Bedel.** Rakamlı uzun gerçek sözcükler (`sha256digest`) ve ≥16 harflik büyük-küçük karışık tanımlayıcılar maskelenebilir;
+JSON'da mesaj dışı enum değerleri (status OK/FAILED) desenleri artık AYIRMAZ (seviye en yükseği gösterilir). Bütçe:
+2000 JSON imzası test makinesinde ≪500 ms (uç bütçesi 2 s; ES sayfa okuması baskın).
+
+**Geri alma.** `git revert <sha>` + yeni etiket. Drain yeni kimlikleri 30 günde söner; eski kimlikler geri döner.

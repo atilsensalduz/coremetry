@@ -167,9 +167,19 @@ func (s *ESStore) termsAggField(ctx context.Context, bare string) string {
 // includes: yalnız gövde + zaman + severity (mapHit'in bu üçü için
 // okuduğu her yol). Desen örneklemesi 2000 dokümanı tam _source ile
 // çekiyordu; okunan yalnız bunlardı.
+//
+// v0.10.1496 (operatör, prod ES): desen satırlarında Servisler "–" ve
+// Seviye 0 idi. Liste mapHit'in servis zincirini HİÇ içermiyordu (desen
+// satırı servisi `rec.ServiceName`den sayar) ve seviye zincirinden
+// `SeverityText`'i atlıyordu. Artık mapHit'in servis + seviye için
+// okuduğu HER yol burada (TestLeanSourceKeepsRowIdentity, gerçek bir
+// _source izdüşümüyle).
 func (s *ESStore) leanSourceFields() []string {
 	cands := []string{s.fields.Body, s.fields.Timestamp, s.fields.SeverityTx, s.fields.SeverityNo,
-		"level", "log.level", "severity_text", "severity"}
+		"level", "log.level", "severity_text", "severity", "SeverityText",
+		s.fields.Service, "service.name",
+		"kubernetes.container_name", "kubernetes.container.name",
+		"service_name", "serviceName", "ServiceName"}
 	seen := make(map[string]struct{}, len(cands))
 	out := make([]string, 0, len(cands))
 	for _, c := range cands {

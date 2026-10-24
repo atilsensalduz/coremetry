@@ -66,7 +66,8 @@ func TestLeanSourceFields(t *testing.T) {
 	s := &ESStore{}
 	s.fields.Body, s.fields.Timestamp, s.fields.SeverityTx, s.fields.SeverityNo = "message", "@timestamp", "log.level", "severity_number"
 	got := strings.Join(s.leanSourceFields(), ",")
-	want := "message,@timestamp,log.level,severity_number,level,severity_text,severity"
+	want := "message,@timestamp,log.level,severity_number,level,severity_text,severity,SeverityText," +
+		"service.name,kubernetes.container_name,kubernetes.container.name,service_name,serviceName,ServiceName" // v0.10.1496
 	if got != want {
 		t.Fatalf("lean _source = %s, want %s", got, want)
 	}

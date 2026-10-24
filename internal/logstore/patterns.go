@@ -165,8 +165,9 @@ func GroupBySignatureN(ctx context.Context, st Store, f Filter, limit, sampleCap
 	f.LeanSource = true // v0.10.500 (A4) — örnekleme yalnız body/zaman/severity okur
 	f.Offset, f.Cursor, f.Ascending = 0, "", false
 	type acc struct {
-		g    SignatureGroup
-		svcs map[string]int64
+		g     SignatureGroup
+		svcs  map[string]int64
+		query string // v0.10.1496 — JSON gövdede mesaj metni (anahtar kümesi değil)
 	}
 	groups := map[string]*acc{}
 	res := &PatternsResult{Cap: sampleCap}
@@ -211,17 +212,19 @@ func GroupBySignatureN(ctx context.Context, st Store, f Filter, limit, sampleCap
 					res.CoveredToNs = ts
 				}
 			}
-			sig := NormalizeSignature(rec.Body)
+			info := signatureOf(rec.Body)
+			sig := info.sig
 			if sig == "" {
 				continue
 			}
+			sev, sevText, svcName := patternRowIdentity(rec, info.level, f.Service)
 			a, ok := groups[sig]
 			if !ok {
 				a = &acc{g: SignatureGroup{
 					Hash: fmt.Sprintf("%016x", SignatureHash(sig)), Template: sig,
-					Sample: rec.Body, Severity: rec.Severity, SeverityText: rec.SeverityText,
+					Sample: rec.Body, Severity: sev, SeverityText: sevText,
 					FirstSeen: rec.Timestamp, LastSeen: rec.Timestamp,
-				}, svcs: map[string]int64{}}
+				}, svcs: map[string]int64{}, query: info.query}
 				groups[sig] = a
 			}
 			a.g.Count++
@@ -231,11 +234,11 @@ func GroupBySignatureN(ctx context.Context, st Store, f Filter, limit, sampleCap
 			if rec.Timestamp > a.g.LastSeen {
 				a.g.LastSeen = rec.Timestamp
 			}
-			if rec.Severity > a.g.Severity {
-				a.g.Severity, a.g.SeverityText = rec.Severity, rec.SeverityText
+			if sev > a.g.Severity {
+				a.g.Severity, a.g.SeverityText = sev, sevText
 			}
-			if rec.ServiceName != "" {
-				a.svcs[rec.ServiceName]++
+			if svcName != "" {
+				a.svcs[svcName]++
 			}
 		}
 		if len(page.Logs) == 0 || page.NextCursor == "" || len(page.Logs) < f.Limit {
@@ -251,7 +254,7 @@ func GroupBySignatureN(ctx context.Context, st Store, f Filter, limit, sampleCap
 	out := make([]SignatureGroup, 0, len(groups))
 	for _, a := range groups {
 		a.g.ServiceCount = len(a.svcs)
-		a.g.Query = PatternSearchQuery(a.g.Template)
+		a.g.Query = PatternSearchQuery(a.query)
 		type sc struct {
 			n string
 			c int64
@@ -288,6 +291,26 @@ func GroupBySignatureN(ctx context.Context, st Store, f Filter, limit, sampleCap
 	}
 	res.Groups = out
 	return res, nil
+}
+
+// patternRowIdentity — v0.10.1496 (d), SAF: desen satırının seviye +
+// servis kimliği. Operatör (prod ES): Servisler "–", Seviye 0 — hacim
+// çubuğu DEBUG 260 derken. (1) severity_number alanı olmayan kurulumda
+// sayı metinden türetilir (severityFromText); (2) kayıtta metin yoksa
+// JSON gövdenin seviye alanı; (3) servis boşsa ve süzgeç TEK servise
+// kilitliyse (ES servis süzgeci tek değer eşler) satır o servise aittir.
+func patternRowIdentity(rec *LogRecord, bodyLevel, filterService string) (uint8, string, string) {
+	sev, txt, svc := rec.Severity, rec.SeverityText, rec.ServiceName
+	if txt == "" && sev == 0 {
+		txt = bodyLevel
+	}
+	if sev == 0 {
+		sev = severityFromText(txt)
+	}
+	if svc == "" && filterService != "" && !strings.Contains(filterService, ",") {
+		svc = filterService
+	}
+	return sev, txt, svc
 }
 
 // PatternSearchQuery — bir şablondan, iki backend'in de anladığı arama

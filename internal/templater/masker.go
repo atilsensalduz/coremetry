@@ -13,6 +13,8 @@ package templater
 
 import (
 	"regexp"
+
+	"github.com/cilcenk/coremetry/internal/logstore"
 )
 
 // maskRule is one regex + replacement pass over tokens. Order
@@ -93,12 +95,20 @@ var maskRules = []maskRule{
 // Mask returns the input line with every variable substring
 // replaced by "<*>". Order-dependent regex set defined in
 // maskRules — see comments there for ordering rationale.
+//
+// v0.10.1496 — son geçiş logstore.MaskIDTokens (Desenler imzasıyla ORTAK
+// yüklem): `\b` sınırı olmadığı için bare-number kuralının giremediği
+// harf+rakam karışık uzun kimlikler (`SPE1015060201ZTod…`, ULID, kısa hex,
+// `ab12345`) her satırı ayrı şablona bölüyordu. Kurallardan SONRA koşar:
+// `ord_12345` gibi önekli kimlikler önce bütün olarak `<*>` olur.
 func Mask(line string) string {
 	out := line
 	for _, r := range maskRules {
 		out = r.re.ReplaceAllString(out, r.repl)
 	}
-	return out
+	// Ardışık `<*>` birleştirilmez (imzadan farklı olarak): mevcut
+	// şablonların `$<*>.<*>` gibi biçimleri kimlik değiştirmesin.
+	return logstore.MaskIDTokens(out, "<*>")
 }
 
 // Tokenize splits on whitespace AFTER masking, preserving the
