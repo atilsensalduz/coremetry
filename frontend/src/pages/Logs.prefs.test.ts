@@ -25,4 +25,13 @@ describe('Logs sunucu sütun tercihi', () => {
   it('kendi-kendine-yazım yarışı: prefs bekliyorken cols yazılmaz', () => {
     expect(src).toContain("(prefs.model === undefined && !urlHadCols.current) ? '' : colsParam(cols ?? logCols)");
   });
+  it('v0.10.1502 — Columns ▾ seçicisi tek yoldan (changeCols) yazar; kendisi sunucuya yazmaz', () => {
+    expect(src).toContain('columns={logCols} fields={fields} onColumns={changeCols}');
+    for (const rel of ['logs/LogsColumnPicker.tsx', 'logs/LogsTableToolbar.tsx', 'logs/logColumns.ts']) {
+      const f = readFileSync(resolve(__dirname, rel), 'utf8');
+      expect(f, rel).not.toContain('prefs.save(');
+      expect(f, rel).not.toContain('setRaw(');
+      expect(f, rel).not.toContain('setSearchParams');
+    }
+  });
 });

@@ -97,18 +97,19 @@ describe('K3 — durum birincil dolgu değil (v0.10.1318)', () => {
   });
 
   it('(b) Logs ve ProblemVerdictActions `active` ile — koşullu birincile dönmedi', () => {
+    // v0.10.1502 — /logs'un son anahtarı (⤶ sar) da tablo araç satırına
+    // taşındı; Logs.tsx'te Button kalmadı ama koşullu birincil de yok.
     for (const rel of ['pages/Logs.tsx', 'components/ProblemVerdictActions.tsx']) {
       const f = FILES.find(x => x.rel === rel);
       expect(f, rel).toBeDefined();
-      expect(f!.src, rel).toContain('active=');
+      if (rel !== 'pages/Logs.tsx') expect(f!.src, rel).toContain('active=');
       expect([...f!.src.matchAll(COND_PRIMARY)].length, rel).toBe(0);
     }
     // v0.10.1498 — /logs anahtarları saf sunum bileşenlerine taşındı:
     // ◆ With trace → + Filter ▾ (LogsActionsMenus), Live → LogsQueryBar.
     // İkisi de `active` ile, koşullu birincil yok.
-    const logs = FILES.find(x => x.rel === 'pages/Logs.tsx')!.src;
-    expect(logs).toContain('active={wrapLines}');
     for (const [rel, needle] of [
+      ['pages/logs/LogsTableToolbar.tsx', 'active={p.wrap}'],
       ['pages/logs/LogsActionsMenus.tsx', 'active={p.hasTrace}'],
       ['pages/logs/LogsQueryBar.tsx', 'active={p.live}'],
     ] as const) {

@@ -56,6 +56,7 @@ import { LogsFilterRow } from './logs/LogsFilterRow';
 import { LogsNotices } from './logs/LogsNotices';
 import { LogsAddFilterMenu, LogsShareMenu, LogsMoreMenu } from './logs/LogsActionsMenus';
 import { isDraftDirty, bareTraceIdOf } from './logs/logsQuery';
+import { LogsTableToolbar } from './logs/LogsTableToolbar';
 import { parseLogsView, effectiveLogsView, writeLogsView, logsListEnabled, type LogsView } from './logs/logsView';
 
 // v0.10.1498 — Share affordance (Copy link) moved into pages/logs/LogsActionsMenus.tsx (Share ▾).
@@ -1157,8 +1158,7 @@ function LogsInner() {
             <>
               <SavedViewsBar page="logs" variant="compact" />
               <LogsShareMenu kibanaHref={kibanaHref} />
-              <LogsMoreMenu onReset={reset}
-                exportCount={data ? logs.length : 0} onExport={exportLoaded} />
+              <LogsMoreMenu onReset={reset} />
             </>
           )} />
         <LogsFilterRow
@@ -1281,61 +1281,16 @@ function LogsInner() {
             )} />
         ) : (<>
 
-        {/* v0.9.294 — narrow within results. Sits directly above the
-            table because it acts on the table, and it says LOADED in
-            the placeholder: this filters the rows already in the page,
-            it does not re-query. Every narrowing used to cost a full
-            round trip to Elasticsearch; at 10B docs/day the cheapest
-            query is the one you don't send. */}
-        {data && loadedRows.length > 0 && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            marginBottom: 8, fontSize: 11.5,
-          }}>
-            <input
-              ref={narrowRef}
-              value={narrow}
-              onChange={e => setNarrow(e.target.value)}
-              placeholder={`Filter the ${loadedRows.length.toLocaleString()} loaded rows… (no new query)`}
-              title="Filters the rows already loaded into this page — body, service, severity and trace id. It does NOT search the rest of the window; widen the query above for that."
-              style={{
-                flex: '0 1 340px', fontSize: 11.5, padding: '3px 8px',
-                background: 'var(--field-bg)', color: 'var(--text)',
-                border: '1px solid var(--border)', borderRadius: 4,
-              }} />
-            {narrow.trim() && (
-              <>
-                <span style={{ color: logs.length === 0 ? 'var(--warn)' : 'var(--text2)' }}>
-                  {logs.length.toLocaleString()} of {loadedRows.length.toLocaleString()} loaded rows match
-                </span>
-                <Button variant="ghost" size="sm" onClick={() => setNarrow('')}>clear</Button>
-              </>
-            )}
-            <span style={{ flex: 1 }} />
-            {/* v0.10.417 (B5) — satır sarma anahtarı. v0.10.1318 (K3): aç/kapa deseni
-                artık `active` (tint + aria-pressed), birincil dolgu değil. */}
-            <Button variant="secondary" size="sm" active={wrapLines}
-              onClick={toggleWrap}
-              title={wrapLines
-                ? 'Mesajlar sarılı. Tıkla: tek satır + … (tam metin hücre başlığında).'
-                : 'Mesajlar tek satır (…). Tıkla: sar — uzun satırlar tam görünür, satır yüksekliği değişir.'}>
-              ⤶ sar
-            </Button>
-            {/* v0.9.295 — sort direction. Both backends have honoured
-                oldest-first since v0.7.83; only the Context modal ever
-                asked for it, so the list never had the control. Hidden
-                in live tail, where "oldest first" has no meaning — the
-                stream is by definition newest-arriving. */}
-            {!live && (
-              <Button variant="secondary" size="sm" onClick={toggleAsc}
-                title={asc
-                  ? 'Showing oldest first. Click for newest first. Changing the direction returns you to the first page — the keyset cursor is tied to the order it was created in.'
-                  : 'Showing newest first. Click for oldest first — useful for reading an incident forwards from where it started. Returns you to the first page.'}>
-                {asc ? '↑ oldest first' : '↓ newest first'}
-              </Button>
-            )}
-          </div>
-        )}
+        {/* v0.10.1502 (Discover dilim 4) — tablonun araç satırı: yerel daraltma
+            (v0.9.294, yeni sorgu yok) · Columns ▾ · ⤶ sar · sıra · dışa aktarma ⋯.
+            Sütun değişikliği tek yoldan (changeCols). */}
+        <LogsTableToolbar
+          loadedCount={data ? loadedRows.length : 0} shownCount={data ? logs.length : 0}
+          narrow={narrow} onNarrow={setNarrow} narrowRef={narrowRef}
+          columns={logCols} fields={fields} onColumns={changeCols}
+          wrap={wrapLines} onToggleWrap={toggleWrap}
+          live={live} asc={asc} onToggleAsc={toggleAsc}
+          onExport={exportLoaded} />
         {/* v0.10.967 — tablo HER durumda (başlık kalır); durum satırı
             logsState'ten. Pager eskisi gibi yalnız satır varken. */}
         <LogTable logs={shownLogs} nav={tableNav} state={logsState}

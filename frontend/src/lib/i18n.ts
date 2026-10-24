@@ -461,6 +461,19 @@ const EN: Catalog = {
   'logs.dv.asTrace':          'filter as trace',
   'logs.dv.asTraceTitle':     'The search box holds a bare trace id — filter to that trace instead of a free-text match',
   // v0.10.1498 END
+  // v0.10.1502 — /logs Columns ▾ + tablo araç çubuğu
+  'logs.dv.columns':          'Columns',
+  'logs.dv.columnsTitle':     'Table columns — reorder, remove, add from the loaded fields',
+  'logs.dv.columnsShown':     'Shown columns',
+  'logs.dv.colUp':            'Move left',
+  'logs.dv.colDown':          'Move right',
+  'logs.dv.colRemove':        'Remove column',
+  'logs.dv.colMessageFixed':  'The Message column can be moved but not removed',
+  'logs.dv.colAddPlaceholder': 'Add a column — filter loaded fields…',
+  'logs.dv.colNoMatch':       'No matching field in the loaded list',
+  'logs.dv.colReset':         'Reset columns',
+  'logs.dv.export':           'Export loaded rows',
+  // v0.10.1502 END
 };
 
 const TR: Catalog = {
@@ -480,6 +493,19 @@ const TR: Catalog = {
   'logs.dv.asTrace':          'trace olarak süz',
   'logs.dv.asTraceTitle':     'Arama kutusunda çıplak bir trace id var — serbest metin eşleşmesi yerine o trace\'e süz',
   // v0.10.1498 END
+  // v0.10.1502 — /logs Columns ▾ + tablo araç çubuğu
+  'logs.dv.columns':          'Sütunlar',
+  'logs.dv.columnsTitle':     'Tablo sütunları — sırala, kaldır, yüklenmiş alanlardan ekle',
+  'logs.dv.columnsShown':     'Görünen sütunlar',
+  'logs.dv.colUp':            'Sola taşı',
+  'logs.dv.colDown':          'Sağa taşı',
+  'logs.dv.colRemove':        'Sütunu kaldır',
+  'logs.dv.colMessageFixed':  'Message sütunu taşınabilir ama kaldırılamaz',
+  'logs.dv.colAddPlaceholder': 'Sütun ekle — yüklenmiş alanları süz…',
+  'logs.dv.colNoMatch':       'Yüklenmiş listede eşleşen alan yok',
+  'logs.dv.colReset':         'Sütunları sıfırla',
+  'logs.dv.export':           'Yüklenen satırları indir',
+  // v0.10.1502 END
   // v0.10.1477 — /logs takım süzgeci
   'logs.team.mine':           'Takımım',
   'logs.team.label':          'Takım',

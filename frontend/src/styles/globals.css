@@ -6187,4 +6187,25 @@ a.cell-link--block { display: block; overflow: hidden; text-overflow: ellipsis; 
   .ld-body:has(> .ld-fields) { grid-template-columns: minmax(0, 1fr); }
   .ld-fields { width: auto; position: static; max-height: 50vh; }
 }
+/* v0.10.1502 (dilim 4) — tablo araç satırı + Columns ▾ seçicisi. */
+.ld-tbar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-4); margin-bottom: var(--sp-4); font-size: var(--fs-sm); }
+.ld-narrow {
+  flex: 0 1 340px; min-width: 160px; font-size: var(--fs-sm); padding: 3px var(--sp-4);
+  background: var(--field-bg); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-xs);
+}
+.ld-tbar-note { color: var(--text2); }
+.ld-tbar-note.is-warn { color: var(--warn); }
+.ld-tbar-right { margin-left: auto; display: inline-flex; align-items: center; flex-wrap: wrap; gap: var(--sp-3); }
+.ld-cols-head { font-size: var(--fs-xs); color: var(--text2); }
+.ld-cols-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-1); max-height: 240px; overflow-y: auto; }
+.ld-cols-row { display: flex; align-items: center; gap: var(--sp-2); }
+.ld-cols-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-sm); }
+.ld-cols-add { display: flex; flex-wrap: wrap; gap: var(--sp-2); max-height: 160px; overflow-y: auto; }
+.ld-cols-cand { font-family: var(--font-mono); }
+.ld-cols-none { color: var(--text3); font-size: var(--fs-xs); }
+.ld-cols-fixed { display: inline-block; width: 22px; text-align: center; color: var(--text3); font-size: var(--fs-xs); }
+@media (max-width: 640px) {
+  .ld-narrow { flex-basis: 100%; }
+  .ld-tbar-right { margin-left: 0; }
+}
 /* ── v0.10.1498 END ──────────────────────────────────────────────────── */

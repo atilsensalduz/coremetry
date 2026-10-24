@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { TabStrip } from '@/components/ui/TabStrip'; // v0.10.456 (D5)
 import { rowActivation } from '@/lib/a11y';
 import { Link } from 'react-router-dom';
@@ -17,6 +17,7 @@ import { logLineSubjectOf } from '@/lib/logLineSubject'; // v0.10.1291 — ✨ l
 import { AIExplainButton } from './ai/AIExplainButton';
 import { IconSparkles } from './icons';
 import { useT } from '@/lib/i18n'; // v0.10.1338
+import { getRaw, setRaw } from '@/lib/storage'; // v0.10.1502 — doc viewer sekme hafızası
 import { Button, IconButton, KeyValue, KeyValueRow } from '@/components/ui';
 
 // Column model (Discover revamp step 3): Time is fixed left, Message
@@ -58,9 +59,26 @@ export function normalizeLogColumns(columns?: string[]): string[] {
 const COL_LABELS: Record<string, string> = {
   level: 'Level', service: 'Service', cluster: 'Cluster', pod: 'Pod',
 };
+// v0.10.1502 (/logs Columns ▾ seçicisi, pages/logs/LogsColumnPicker.tsx) —
+// başlıkla AYNI ad/kaldırılabilirlik kuralı tek yerden.
+export const BUILTIN_LOG_COLUMNS: readonly string[] = ['level', 'service', 'cluster', 'pod'];
+export function logColumnLabel(id: string): string {
+  return id === 'message' ? 'Message' : (COL_LABELS[id] ?? id);
+}
+export function isRemovableLogColumn(id: string): boolean {
+  return !NON_REMOVABLE_COL_IDS.has(id);
+}
 const COL_WIDTHS: Record<string, number> = {
   level: 80, service: 140, cluster: 120, pod: 140,
 };
+
+// v0.10.1502 — doc viewer sekme hafızası (localStorage, try/catch'li
+// lib/storage). Bilinmeyen/boş değer → 'table' (bugünkü varsayılan).
+export const DOC_TAB_KEY = 'logs.docTab';
+export function readDocTab(): 'table' | 'json' {
+  return getRaw(DOC_TAB_KEY) === 'json' ? 'json' : 'table';
+}
+function writeDocTab(t: 'table' | 'json') { setRaw(DOC_TAB_KEY, t); }
 
 // Middle-truncate so long pod names like `payment-api-7d6f9b54c5-xkv2m`
 // stay scannable in a column (keeps the deployment prefix + the
@@ -393,7 +411,14 @@ function LogRow({
   // Doc viewer tab (Discover revamp 7/7). Per-row state — sticky
   // across collapse/re-expand of the same row, which matches how
   // Kibana keeps the doc viewer's last tab.
-  const [docTab, setDocTab] = useState<'table' | 'json'>('table');
+  // v0.10.1502 (/logs Discover dilim 4) — son seçilen sekme tarayıcıda
+  // HATIRLANIR (Kibana doc viewer davranışı): her yeni açılış onunla başlar.
+  // Okuma görünümü tercihi — URL'e girmez (wrap/narrow gibi).
+  const [docTab, setDocTabState] = useState<'table' | 'json'>(readDocTab);
+  const setDocTab = (t: 'table' | 'json') => { setDocTabState(t); writeDocTab(t); };
+  // Satır bileşeni tablo çizilirken bağlanır, açılırken değil: açılışta saklı
+  // sekme yeniden okunur ki başka satırda yapılan seçim burada da geçerli olsun.
+  useEffect(() => { if (expanded) setDocTabState(readDocTab()); }, [expanded]);
   // k8s pod + cluster columns. v0.5.224 promoted the operator's
   // actual fields to the front of each chain (kubernetes.pod_name,
   // openshift.labels.cluster) — earlier order had k8s.pod.name

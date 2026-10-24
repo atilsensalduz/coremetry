@@ -10,8 +10,9 @@
 //                 Takımım, + alan süzgeci (LogPillEditor, yeni pill).
 //   • Share ▾     (menu): Copy link · ↗ Discover in Elastic (desen/takım
 //                 etkinken çizilmez — aynı dilim sözü tutmaz, bugünkü kural).
-//   • ⋯           (menu): Reset · Export CSV / NDJSON. (v0.10.1499: ✨ Desenleri
-//                 anlat desen görünümünün araç çubuğuna taşındı.)
+//   • ⋯           (menu): Reset. (v0.10.1499: ✨ Desenleri anlat desen
+//                 görünümünün araç çubuğuna; v0.10.1502: Export CSV/NDJSON
+//                 tablo araç çubuğunun ⋯'ine — LogsExportMenu.)
 // Saf sunum: durum ve eylemler Logs.tsx'ten prop olarak gelir.
 import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/Button';
@@ -145,23 +146,15 @@ export function LogsShareMenu({ kibanaHref }: LogsShareMenuProps) {
 
 export interface LogsMoreMenuProps {
   onReset: () => void;
-  /** Sayfada görünen (yüklenmiş + yerel daraltılmış) satır sayısı. */
-  exportCount: number;
-  onExport: (kind: 'csv' | 'ndjson') => void;
 }
 
+// v0.10.1502 — Export CSV/NDJSON tablo araç çubuğunun ⋯ menüsüne taşındı
+// (LogsExportMenu, dışa aktardığı satırların hemen üstünde); sayfa ⋯'i
+// sayfa düzeyi eylemleri taşır.
 export function LogsMoreMenu(p: LogsMoreMenuProps) {
   const tr = useT();
   const anchorRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  const pick = (fn: () => void) => () => { setOpen(false); fn(); };
-  const n = p.exportCount.toLocaleString();
-  // v0.9.302 — export what is ALREADY loaded: zero backend calls, the file
-  // matches the screen (local narrow filter included). A synchronous
-  // unbounded export is deliberately not offered.
-  const exportTitle = p.exportCount > 0
-    ? `Downloads the ${n} rows currently in the page — not the whole query. Load more first if you need more, or narrow the query.`
-    : tr('logs.dv.exportNone');
   return (
     <>
       <Button ref={anchorRef} variant="secondary" aria-haspopup="menu" aria-expanded={open}
@@ -170,15 +163,46 @@ export function LogsMoreMenu(p: LogsMoreMenuProps) {
         ⋯
       </Button>
       <Popover anchorRef={anchorRef} open={open} onClose={() => setOpen(false)} kind="menu"
-        ariaLabel={tr('logs.dv.more')} width={260}>
-        <MenuItem onClick={pick(p.onReset)} title="Clear every filter and the search box">Reset</MenuItem>
-        <div className="ld-menu-sep" role="separator" />
-        <MenuItem disabled={p.exportCount === 0} title={exportTitle} onClick={pick(() => p.onExport('csv'))}>
+        ariaLabel={tr('logs.dv.more')} width={240}>
+        <MenuItem onClick={() => { setOpen(false); p.onReset(); }} title="Clear every filter and the search box">Reset</MenuItem>
+      </Popover>
+    </>
+  );
+}
+
+export interface LogsExportMenuProps {
+  /** Sayfada görünen (yüklenmiş + yerel daraltılmış) satır sayısı. */
+  exportCount: number;
+  onExport: (kind: 'csv' | 'ndjson') => void;
+}
+
+export function LogsExportMenu(p: LogsExportMenuProps) {
+  const tr = useT();
+  const anchorRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const n = p.exportCount.toLocaleString();
+  // v0.9.302 — export what is ALREADY loaded: zero backend calls, the file
+  // matches the screen (local narrow filter included). A synchronous
+  // unbounded export is deliberately not offered.
+  const exportTitle = p.exportCount > 0
+    ? `Downloads the ${n} rows currently in the page — not the whole query. Load more first if you need more, or narrow the query.`
+    : tr('logs.dv.exportNone');
+  const pick = (kind: 'csv' | 'ndjson') => () => { setOpen(false); p.onExport(kind); };
+  return (
+    <>
+      <Button ref={anchorRef} variant="secondary" size="sm" aria-haspopup="menu" aria-expanded={open}
+        aria-label={tr('logs.dv.export')} title={tr('logs.dv.export')}
+        onClick={() => setOpen(o => !o)}>
+        ⋯
+      </Button>
+      <Popover anchorRef={anchorRef} open={open} onClose={() => setOpen(false)} kind="menu"
+        ariaLabel={tr('logs.dv.export')} width={260}>
+        <MenuItem disabled={p.exportCount === 0} title={exportTitle} onClick={pick('csv')}>
           Export CSV ({n})
         </MenuItem>
         <MenuItem disabled={p.exportCount === 0}
           title={p.exportCount > 0 ? 'One JSON object per line — unambiguous for bodies containing commas, quotes or newlines, and what log pipelines ingest.' : exportTitle}
-          onClick={pick(() => p.onExport('ndjson'))}>
+          onClick={pick('ndjson')}>
           Export NDJSON ({n})
         </MenuItem>
       </Popover>

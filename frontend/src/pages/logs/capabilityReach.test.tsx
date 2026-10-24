@@ -162,13 +162,25 @@ describe('/logs — her yetenek ≤ 1 tık (v0.10.1498)', () => {
     expect(menuItems().some(t => t.includes('Discover in Elastic'))).toBe(false);
   });
 
-  it('⋯ (1 tık): Reset, Export CSV / NDJSON', async () => {
+  it('⋯ (1 tık): Reset', async () => {
     await mountLogs(`/logs?range=${RANGE}`);
     await click(document.querySelector('button[aria-label="More actions"]'));
+    expect(menuItems().some(t => t.includes('Reset'))).toBe(true);
+  });
+
+  it('tablo araç satırı (v0.10.1502): ⤶ sar + sıra yüzeyde; dışa aktarma ⋯ ve Columns ▾ 1 tık', async () => {
+    await mountLogs(`/logs?range=${RANGE}`);
+    expect(btn('⤶ sar')).toBeTruthy();
+    expect(btn('newest first')).toBeTruthy();
+    await click(document.querySelector('button[aria-label="Export loaded rows"]'));
     const items = menuItems();
-    for (const n of ['Reset', 'Export CSV', 'Export NDJSON']) {
-      expect(items.some(t => t.includes(n)), n).toBe(true);
-    }
+    for (const n of ['Export CSV', 'Export NDJSON']) expect(items.some(t => t.includes(n)), n).toBe(true);
+    await closeAll();
+    await click(btn('Columns'));
+    expect(document.querySelector('[role="dialog"] ol[aria-label="Shown columns"]')).not.toBeNull();
+    expect(btn('Reset columns')).toBeTruthy();
+    // yüklenmiş alan listesinden aday (yeni istek yok)
+    expect(btn('+ k8s.pod.name')).toBeTruthy();
   });
 
   it('görünüm anahtarı (1 tık): Desenler → ✨ Desenleri anlat; Şablonlar; Logs geri', async () => {

@@ -11029,3 +11029,20 @@ ve rastgele kimlikler farklıydı). Yalnız test; üretim kodu değişmedi.
 
 **Geri alma.** `git revert <sha>` + yeni etiket; ya da yalnız varsayılanı geri almak için `fieldsPanelOpen`'da `return
 wide` → `return false`. Saklı tercihler (`logs.fieldsPanel.open`) iki yönde de geçerli.
+
+## 2026-10-24 — v0.10.1502 — /logs Kibana-Discover dilim 4: Columns ▾ seçicisi + tablo araç satırı
+
+**Karar.** Tablonun üstünde TEK araç satırı (`pages/logs/LogsTableToolbar.tsx`): yerel daraltma kutusu (v0.9.294, yalnız
+yüklenmiş satırlar, yeni sorgu yok) · `Columns ▾` · ⤶ sar · sıra (canlıda gizli) · dışa aktarma ⋯ (Export CSV/NDJSON
+sayfa ⋯'inden buraya taşındı — dışa aktardığı satırların yanında; sayfa ⋯'i artık yalnız Reset). `Columns ▾`
+(`LogsColumnPicker.tsx`, dialog): sırala ↑↓, kaldır × (Message taşınır, kaldırılamaz), YÜKLENMİŞ alan listesinden ve
+yerleşik level/service/cluster/pod'dan ekle (yeni istek yok), "Reset columns" → `DEFAULT_LOG_COLUMNS`. Saf dönüşümler
+`pages/logs/logColumns.ts`; her değişiklik `changeCols`tan geçer (state + `dt.logs.columns` + sunucu tercihi + URL `cols=`),
+`prefs.save(` Logs.tsx'te tek kalır (Logs.prefs pini genişletildi). Genişletilen kaydın Table/JSON sekmesi localStorage'da
+(`logs.docTab`) hatırlanır — satır açılırken yeniden okunur (Kibana doc viewer davranışı; trace detay Logs sekmesi de
+aynı tercihi paylaşır). Ad/kaldırılabilirlik kuralı LogTable'dan dışa açıldı (`logColumnLabel`, `isRemovableLogColumn`).
+
+**Değişmeyenler.** URL parametresi yok/eklenmedi (cols= biçimi aynı); yeni fetch yok; wrap/narrow URL'e girmez.
+
+**Geri alma.** `git revert <sha>` + yeni etiket. `logs.docTab` anahtarı eski sürümde okunmaz (zararsız); sütun tercihi
+biçimi değişmediği için iki yönde de geçerli.
