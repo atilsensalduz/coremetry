@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pickTraceOpCard, entrySelfFraction, isOwnWorkSpan, GATEWAY_NAME_RE, type OpCardPickSpan, type OpCardPick } from './traceOpCardPick';
+import { pickTraceOpCard, entrySelfFraction, isOwnWorkSpan, isCacheDbSpan, GATEWAY_NAME_RE, type OpCardPickSpan, type OpCardPick } from './traceOpCardPick';
 
 // v0.10.1503 — Trace operasyon kartı çipi: gateway kökü → ilk iç servis.
 const ms = 1e6;
@@ -114,12 +114,65 @@ describe('pickTraceOpCard', () => {
     },
     {
       // Ad eşleşse de (gevşek yol) kendi DB işi olan servis gateway değil.
+      // v0.10.1527 — DB redis'ten postgresql'e: önbellek/KV artık kendi iş değil (aşağıdaki vakalar).
       name: 'gateway adlı kök ama kendi DB span\'i var → kök kalır',
       spans: [
         sp({ spanId: 'r', serviceName: 'api-gateway', kind: 'server', httpRoute: '/x', start: 0, end: 100 }),
-        sp({ spanId: 'd', parentSpanId: 'r', serviceName: 'api-gateway', kind: 'client', name: 'SELECT tokens', dbSystem: 'redis', start: 0, end: 3 }),
+        sp({ spanId: 'd', parentSpanId: 'r', serviceName: 'api-gateway', kind: 'client', name: 'SELECT tokens', dbSystem: 'postgresql', start: 0, end: 3 }),
         sp({ spanId: 'c', parentSpanId: 'r', serviceName: 'api-gateway', kind: 'client', start: 3, end: 99 }),
         sp({ spanId: 'i', parentSpanId: 'c', serviceName: 'orders-api', kind: 'server', httpRoute: '/orders', start: 4, end: 98 }),
+      ],
+      want: { ref: { service: 'api-gateway', path: '/x' }, service: 'api-gateway', via: 'root' },
+    },
+    {
+      // v0.10.1527 — prod şekli (operatör 2026-10-24): gateway kökü oran sınırlama /
+      // önbellek için iki redis span'i (GET, PTTL) atıp tek BFF'e yönlendiriyor.
+      // Önbellek/KV DB'si kendi iş değil → gateway; kart BFF'i gösterir.
+      name: 'gateway: yalnız redis (GET, PTTL) + tek HTTP yönlendirme → alt servis (BFF)',
+      spans: [
+        sp({ spanId: 'r', serviceName: 'apigateway-mobile-prod', kind: 'server', name: 'POST /mobile/transfer', httpRoute: '/mobile/transfer', start: 0, end: 100 }),
+        sp({ spanId: 'g', parentSpanId: 'r', serviceName: 'apigateway-mobile-prod', kind: 'client', name: 'GET', dbSystem: 'redis', start: 1, end: 2 }),
+        sp({ spanId: 't', parentSpanId: 'r', serviceName: 'apigateway-mobile-prod', kind: 'client', name: 'PTTL', attributes: { 'db.system': 'redis' }, start: 2, end: 3 }),
+        sp({ spanId: 'h', parentSpanId: 'r', serviceName: 'apigateway-mobile-prod', kind: 'client', name: 'POST', start: 3, end: 99 }),
+        sp({ spanId: 'b', parentSpanId: 'h', serviceName: 'mobile-bff', kind: 'server', httpRoute: '/transfer', start: 4, end: 98 }),
+        sp({ spanId: 'bd', parentSpanId: 'b', serviceName: 'mobile-bff', kind: 'client', name: 'SELECT', dbSystem: 'oracle', start: 10, end: 20 }),
+      ],
+      want: { ref: { service: 'mobile-bff', path: '/transfer' }, service: 'mobile-bff', via: 'structure',
+        gateway: { service: 'apigateway-mobile-prod', path: '/mobile/transfer' } },
+    },
+    {
+      // Ad nötr + başka önbellek sistemleri (db.system.name memcached; kind=internal valkey) → yine gateway.
+      name: 'yönlendirici: memcached + valkey (internal) + tek HTTP → alt servis',
+      spans: [
+        sp({ spanId: 'r', serviceName: 'edge-svc', kind: 'server', httpRoute: '/x', start: 0, end: 100 }),
+        sp({ spanId: 'm', parentSpanId: 'r', serviceName: 'edge-svc', kind: 'client', name: 'get', attributes: { 'db.system.name': 'memcached' }, start: 1, end: 2 }),
+        sp({ spanId: 'v', parentSpanId: 'r', serviceName: 'edge-svc', kind: 'internal', name: 'GET', attributes: { 'db.system': 'Valkey' }, start: 2, end: 3 }),
+        sp({ spanId: 'c', parentSpanId: 'r', serviceName: 'edge-svc', kind: 'client', start: 3, end: 99 }),
+        sp({ spanId: 'i', parentSpanId: 'c', serviceName: 'orders-api', kind: 'server', httpRoute: '/orders', start: 4, end: 98 }),
+      ],
+      want: { ref: { service: 'orders-api', path: '/orders' }, service: 'orders-api', via: 'structure',
+        gateway: { service: 'edge-svc', path: '/x' } },
+    },
+    {
+      // Önbellek + ilişkisel DB birlikte: ilişkisel DB kendi iş → kök kalır.
+      name: 'redis + SQL (mssql) + tek HTTP → kök kalır',
+      spans: [
+        sp({ spanId: 'r', serviceName: 'atm-core', kind: 'server', httpRoute: '/atm/core/inquiry', start: 0, end: 100 }),
+        sp({ spanId: 'g', parentSpanId: 'r', serviceName: 'atm-core', kind: 'client', name: 'GET', dbSystem: 'redis', start: 1, end: 2 }),
+        sp({ spanId: 'q', parentSpanId: 'r', serviceName: 'atm-core', kind: 'client', name: 'SELECT cards', dbSystem: 'mssql', start: 2, end: 5 }),
+        sp({ spanId: 'h', parentSpanId: 'r', serviceName: 'atm-core', kind: 'client', name: 'POST', start: 5, end: 99 }),
+        sp({ spanId: 'o', parentSpanId: 'h', serviceName: 'otp-api', kind: 'server', httpRoute: '/otp/send', start: 6, end: 98 }),
+      ],
+      want: { ref: { service: 'atm-core', path: '/atm/core/inquiry' }, service: 'atm-core', via: 'root' },
+    },
+    {
+      name: 'gateway adlı kök: redis + mongodb (belge DB) + tek HTTP → kök kalır',
+      spans: [
+        sp({ spanId: 'r', serviceName: 'api-gateway', kind: 'server', httpRoute: '/x', start: 0, end: 100 }),
+        sp({ spanId: 'g', parentSpanId: 'r', serviceName: 'api-gateway', kind: 'client', name: 'GET', dbSystem: 'redis', start: 1, end: 2 }),
+        sp({ spanId: 'd', parentSpanId: 'r', serviceName: 'api-gateway', kind: 'client', name: 'find sessions', attributes: { 'db.system': 'mongodb' }, start: 2, end: 4 }),
+        sp({ spanId: 'c', parentSpanId: 'r', serviceName: 'api-gateway', kind: 'client', start: 4, end: 99 }),
+        sp({ spanId: 'i', parentSpanId: 'c', serviceName: 'orders-api', kind: 'server', httpRoute: '/orders', start: 5, end: 98 }),
       ],
       want: { ref: { service: 'api-gateway', path: '/x' }, service: 'api-gateway', via: 'root' },
     },
@@ -218,6 +271,20 @@ describe('pickTraceOpCard', () => {
     expect(isOwnWorkSpan(sp({ ...b, kind: 'client', attributes: { 'messaging.system': 'kafka' } }))).toBe(true);
     expect(isOwnWorkSpan(sp({ ...b, kind: 'client', attributes: { 'http.request.method': 'POST' } }))).toBe(false);
     expect(isOwnWorkSpan(sp({ ...b, kind: 'client', dbSystem: '  ' }))).toBe(false);
+  });
+  it('v0.10.1527 — önbellek/KV DB kendi iş DEĞİL; ilişkisel / belge / arama DB kendi iş', () => {
+    const b = { serviceName: 'a', start: 0, end: 1, kind: 'client' };
+    for (const sys of ['redis', 'REDIS', 'memcached', 'valkey', 'hazelcast', 'aerospike', 'etcd']) {
+      expect(isCacheDbSpan(sp({ ...b, dbSystem: sys })), sys).toBe(true);
+      expect(isOwnWorkSpan(sp({ ...b, dbSystem: sys })), sys).toBe(false);
+      expect(isOwnWorkSpan(sp({ ...b, attributes: { 'db.system.name': sys } })), sys).toBe(false);
+    }
+    for (const sys of ['oracle', 'mssql', 'postgresql', 'mysql', 'db2', 'mongodb', 'cassandra', 'elasticsearch']) {
+      expect(isCacheDbSpan(sp({ ...b, dbSystem: sys })), sys).toBe(false);
+      expect(isOwnWorkSpan(sp({ ...b, dbSystem: sys })), sys).toBe(true);
+      expect(isOwnWorkSpan(sp({ ...b, attributes: { 'db.system': sys } })), sys).toBe(true);
+    }
+    expect(isOwnWorkSpan(sp({ ...b, kind: 'producer', dbSystem: 'redis' }))).toBe(true); // üretici her zaman kendi iş
   });
   it('ad deseni listesi (zayıf sinyal)', () => {
     for (const s of ['api-gateway', 'apigw', 'nginx-ingress', 'envoy', 'kong', 'apisix', 'edge-proxy']) expect(GATEWAY_NAME_RE.test(s), s).toBe(true);

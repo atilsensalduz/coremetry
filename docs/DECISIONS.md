@@ -11728,3 +11728,32 @@ v0.10.1503'teki "HTTP giriş → producer → consumer" vakası artık kökte ka
 **Geri alma.** `git revert <sha>` + yeni etiket. Yalnız seçiciyi geri almak: `gatewayHop` içindeki
 `if (rest.some(isOwnWorkSpan)) return null;` satırı ve `isForward`'ın eski `client || producer` tanımı; tablo testleri
 (`traceOpCardPick.test.ts`) ilgili vakaları işaretler.
+
+## 2026-10-24 — v0.10.1527 — Trace id sekme satırında ("Trace ID: <12 hex>…"); gateway seçicisi önbellek/KV DB'yi kendi iş saymaz
+
+**Bağlam.** Operatör (prod ekran görüntüsü, v0.10.1526): "Traceid bence Trace / Logs / Metrics başlıkları ile aynı hizada solda
+olabilir. 'Trace ID: 152548b8270d…' şeklinde. Şu anda Log İzleme üstünde yine boşu boşuna bir satır kaplıyor." Kimlik çipleri
+satırı doldurunca sağa dayalı id grubu kendi satırına sarıyordu. Aynı ekranda kök `apigateway-mobile-prod` oran sınırlama /
+önbellek için iki redis span'i (GET, PTTL) atıp tek BFF'e yönlendiriyordu; 1526 her DB span'ini kendi iş saydığı için kart
+gateway'in kendisini gösteriyordu.
+
+**Karar 1 — yerleşim.** `.trace-hdr__trace` grubu (`role="group"`, `data-testid="trace-hdr-traceid"`, aria-label aynen) başlık
+kartından çıktı, kartın altındaki yeni `.trace-tabrow` satırına girdi: `<TabStrip>` (Trace | Logs | Metrics) + hemen ardından
+SOLDA "Trace ID: <ilk 12 hex>…" (tam id `title`'da), kopyala (TAM id), ERROR rozeti (sağlıklıda sr-only OK), "N error span".
+Grup tablist'in DIŞINDA (ARIA: tablist yalnız sekme taşır; TabStrip `children`'ı kullanılmadı); alt çizgi şeritten satıra
+geçti, sekme düğmesinin -1px bindirmesi aynen çalışır. Kart: başlık satırı, kimlik çipleri, eylem satırı — `.trace-hdr__idrow`
+kalktı, satır 2 yalnız span varken çizilir (boş satır yok). ≤640px sekme satırı sarar; yana kayma yok. Bilinen bedel: id grubu
+artık yalnız span yüklenince (sekme satırıyla) görünür; yükleniyor / bulunamadı / yaşlanmış durumda id URL'de ve başlık
+`title`'ında. Kiosk / public trace dokunulmadı. i18n: `trace.hdr.traceId`.
+
+**Karar 2 — gateway seçicisi (traceOpCardPick.ts).** `CACHE_DB_SYSTEMS` (redis, valkey, keydb, dragonfly, garnet, memcached,
+hazelcast, aerospike, etcd, coherence, infinispan, geode, ignite, caffeine, ehcache; küçük harfe indirgenmiş `dbSystem` kolonu →
+`db.system` → `db.system.name`) kendi iş DEĞİL: `isOwnWorkSpan` = önbellek dışı DB || mesajlaşma; önbellek span'i (kind ne
+olursa olsun, üretici hariç) yönlendiren span gibi sayılır. İlişkisel / belge / arama DB'leri (oracle, mssql, postgresql, mysql,
+db2, mongodb, cassandra, elasticsearch …) ve üreticiler kendi iş olmaya devam eder. Böylece yalnız redis + tek HTTP yönlendirmeli
+gateway atlanır, SQL span'li servis (atm-core) kökte kalır. Liste dışı bir sistem güvenli tarafta (kendi iş) kalır. 1526'nın
+"gateway adlı kök + DB" vakası redis → postgresql'e çevrildi (anlamı korunur); redis/memcached/valkey yönlendirici, redis+mssql
+ve redis+mongodb kök-kalır vakaları ve sınıflandırıcı tablo testi eklendi.
+
+**Geri alma.** `git revert <sha>` + yeni etiket. Yalnız seçiciyi geri almak: `isOwnWorkSpan`'ı `isDbSpan(s) || isMessagingSpan(s)`,
+`isForward`'ı `kindOf(s) === 'client' && !isOwnWorkSpan(s)` yap; yeni tablo vakaları kırmızıya döner.

@@ -559,8 +559,9 @@ function TraceDetailInner() {
         {/* Başlık kartı. Satır 1: solda breadcrumb · servis rozeti + operasyon/rota
             başlığı (mono, ellipsis + title, tek satır); sağda ölçü kümesi
             (TraceMeasures; ≤1280px'te başlığın altına iner). Satır 2 (ince çizgi):
-            kimlik satırı — solda çipler (OPERASYON / FUNCTION / CHANNEL —
-            ui/IdentityChip), sağda trace id + kopyala + durum (v0.10.1526).
+            kimlik çipleri (OPERASYON / FUNCTION / CHANNEL — ui/IdentityChip), altında
+            eylem satırı. Trace id + kopyala + durum v0.10.1527'den beri kartta DEĞİL,
+            sekme satırında (Trace | Logs | Metrics yanında).
             v0.10.1522 (operatör, prod: "üstteki bar çok büyük… Ask CoSRE solda, Log
             İzleme sağda") — kart sıkıştı (başlık + meta tek satır, küçük ölçüler) ve
             kartın altındaki ayrı dış link satırı kalktı: TEK eylem satırı, solda
@@ -592,39 +593,20 @@ function TraceDetailInner() {
                 spanCount={spans.length} svcCount={svcCount} startNs={root?.startTime} />
             )}
           </div>
+          {spans && spans.length > 0 && (
           <div className="trace-hdr__row2">
-            {/* v0.10.1526 — kimlik satırı: solda OPERASYON / FUNCTION / CHANNEL çipleri,
-                SAĞDA trace id + kopyala + ERROR rozeti + hatalı span sayısı (operatör:
-                "Traceid ve error status, channel/operation ile aynı hizada sağda").
-                Trace id span yüklenmeden de görünür; çipler ve durum yalnız span varken. */}
-            <div className="trace-hdr__idrow">
-              {/* v0.10.1003 / v0.10.1329 — Oracle operasyon adı: önce bu trace'in kendi
-                  Oracle satırları / span attribute'u (kesin), yoksa FUNCTION_CODE
-                  sözlüğü etiketli yedek; hiçbiri yoksa hiçbir şey çizilmez (:empty
-                  gizler). v0.10.1497 — fonksiyon/kanal kodu çipleri yanında. */}
-              {spans && spans.length > 0 && (
-                <div className="trace-summary__ops" role="list" aria-label={tr('trace.hdr.identity')}>
-                  <OracleOperationChip spans={spans} pageRange={range} oracleRows={chipOracleRows} />
-                  <TraceEntryCodes spans={spans} pageRange={range} />{/* v0.10.1497 */}
-                </div>
-              )}
-              <div className="trace-hdr__trace" role="group" data-testid="trace-hdr-traceid" aria-label={tr('trace.hdr.traceStatus')}>
-                <code className="trace-hdr__id">{id}</code>
-                <CopyButton value={id} title="Copy trace ID" />
-                {spans && spans.length > 0 && (
-                  <>
-                    {/* v0.10.922 (sade palet adım 1) — K5: sağlıklı trace NÖTR; yeşil
-                        "OK" rozeti kalktı, görsel sinyal yalnız sapmada (ERROR). Kelime
-                        ekran okuyucuya kalır (sr-only) — bilgi renge/yokluğa bırakılmaz. */}
-                    {hasErr
-                      ? <span className="badge b-err">ERROR</span>
-                      : <span className="sr-only">OK</span>}
-                    {errSpans > 0 && <span className="cell-hint">{errSpans} error span{errSpans === 1 ? '' : 's'}</span>}
-                  </>
-                )}
-              </div>
+            {/* v0.10.1527 (operatör, prod 2026-10-24: "Traceid … Trace / Logs / Metrics
+                başlıkları ile aynı hizada solda olabilir … Log İzleme üstünde boşu boşuna
+                bir satır kaplıyor") — trace id grubu kimlik satırından sekme satırına
+                taşındı; kartta yalnız çipler ve eylem satırı kalır (boş sarma satırı yok). */}
+            {/* v0.10.1003 / v0.10.1329 — Oracle operasyon adı: önce bu trace'in kendi
+                Oracle satırları / span attribute'u (kesin), yoksa FUNCTION_CODE
+                sözlüğü etiketli yedek; hiçbiri yoksa hiçbir şey çizilmez (:empty
+                gizler). v0.10.1497 — fonksiyon/kanal kodu çipleri yanında. */}
+            <div className="trace-summary__ops" role="list" aria-label={tr('trace.hdr.identity')}>
+              <OracleOperationChip spans={spans} pageRange={range} oracleRows={chipOracleRows} />
+              <TraceEntryCodes spans={spans} pageRange={range} />{/* v0.10.1497 */}
             </div>
-            {spans && spans.length > 0 && (
               <div className="trace-hdr__actrow" data-testid="trace-hdr-actions">
                 <div className="trace-hdr__ask">
                   {/* v0.9.477 — tek sağ-kenar AI çekmecesi (?ai=trace:<id>). v0.9.1166 —
@@ -667,8 +649,8 @@ function TraceDetailInner() {
                   <ExternalLinkButtons spans={spans ?? []} traceId={id} selectedSpanId={selectedId} />
                 </div>
               </div>
-            )}
           </div>
+          )}
         </section>
 
         {spans === undefined && <Spinner />}
@@ -754,7 +736,12 @@ function TraceDetailInner() {
             {/* Trace vs Logs (Uptrace-style) — uses the shared
                 .tab-strip pattern so it visually matches Settings,
                 Exceptions inbox, and Status Page admin tabs. */}
-            <TabStrip ariaLabel="Trace görünümü" value={tab} onChange={setTab} style={{ marginBottom: 10 }} tabs={[
+            {/* v0.10.1527 — sekme satırı: Trace | Logs | Metrics, hemen ardından SOLDA
+                "Trace ID: <ilk 12 hex>…" (tam id title'da, kopyala TAM id'yi kopyalar) +
+                ERROR rozeti + hatalı span sayısı. Grup tablist'in DIŞINDA (ARIA: tablist
+                yalnız sekme taşır); alt çizgi satırın kendisinde. ≤640px satır sarar. */}
+            <div className="trace-tabrow">
+            <TabStrip ariaLabel="Trace görünümü" value={tab} onChange={setTab} tabs={[
               { key: 'trace', label: <>Trace <span style={{ color: 'var(--text3)', marginLeft: 4 }}>{spans.length}</span></> },
               // v0.8.407 — count covers ES logs + span-event rows once fetched;
               // before the lazy ES fetch a ● hints that the trace already
@@ -768,6 +755,19 @@ function TraceDetailInner() {
               // v0.10.913 — pod sayısı span'lardan (ek sorgu yok); pod'suz trace'te "—".
               { key: 'metrics', label: <>Metrics <span style={{ color: 'var(--text3)', marginLeft: 4 }}>{tracePodCount > 0 ? `${tracePodCount} pod` : '—'}</span></> },
             ]} />
+              <div className="trace-hdr__trace" role="group" data-testid="trace-hdr-traceid" aria-label={tr('trace.hdr.traceStatus')}>
+                <span className="trace-hdr__idlabel">{tr('trace.hdr.traceId')}:</span>
+                <code className="trace-hdr__id" title={id}>{id.length > 12 ? `${id.slice(0, 12)}…` : id}</code>
+                <CopyButton value={id} title="Copy trace ID" />
+                {/* v0.10.922 (sade palet adım 1) — K5: sağlıklı trace NÖTR; yeşil
+                    "OK" rozeti kalktı, görsel sinyal yalnız sapmada (ERROR). Kelime
+                    ekran okuyucuya kalır (sr-only) — bilgi renge/yokluğa bırakılmaz. */}
+                {hasErr
+                  ? <span className="badge b-err">ERROR</span>
+                  : <span className="sr-only">OK</span>}
+                {errSpans > 0 && <span className="cell-hint">{errSpans} error span{errSpans === 1 ? '' : 's'}</span>}
+              </div>
+            </div>
 
             {tab === 'trace' && (
               <>

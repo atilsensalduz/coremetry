@@ -32,6 +32,15 @@ import { traceRootOpCardRef, type EndpointPivotRef, type OpCardSpanLike } from '
 // servise HTTP/gRPC istemci span'leri, DB/MQ yok, düşük öz süre. Yalnız
 // yapılandırılmış liste (1) bunu geçersiz kılar (operatörün açık beyanı).
 //
+// v0.10.1527 (operatör, prod 2026-10-24) — 1526 HER DB span'ini kendi iş
+// sayınca, oran sınırlama / önbellek için iki redis span'i (GET, PTTL) atıp
+// tek BFF'e yönlendiren apigateway-mobile kökü gateway sayılmaz oldu; kart
+// gateway'in kendisini gösteriyordu. Önbellek / anahtar-değer DB sistemleri
+// (CACHE_DB_SYSTEMS: redis, memcached, valkey, hazelcast, aerospike, etcd…)
+// kendi iş DEĞİL — yönlendirme yolunun parçası (yönlendiren span gibi sayılır).
+// İlişkisel ve belge DB'leri (oracle, mssql, postgresql, mysql, db2, mongodb,
+// cassandra, elasticsearch…) ve mesajlaşma üreticileri kendi iş olmaya devam eder.
+//
 // Zincir (ingress → api-gateway → servis) en çok MAX_HOPS adım yürünür.
 
 /** Seçicinin span'den okuduğu alanlar (SpanRow alt kümesi). */
@@ -67,15 +76,28 @@ const MAX_HOPS = 4;
 const kindOf = (s: OpCardPickSpan) => (s.kind || '').toLowerCase();
 const isEntry = (s: OpCardPickSpan) => { const k = kindOf(s); return k === 'server' || k === 'consumer'; };
 const attr = (s: OpCardPickSpan, k: string) => (s.attributes?.[k] || '').trim();
+/** Span'in DB sistemi (kolon, sonra db.system, sonra semconv 1.26+ db.system.name), küçük harf; DB değilse ''. */
+const dbSystemOf = (s: OpCardPickSpan) =>
+  ((s.dbSystem || '').trim() || attr(s, 'db.system') || attr(s, 'db.system.name')).toLowerCase();
 /** DB istemci span'i: db.system (kolon ya da öznitelik; semconv 1.26+ db.system.name). */
-export const isDbSpan = (s: OpCardPickSpan) =>
-  !!((s.dbSystem || '').trim() || attr(s, 'db.system') || attr(s, 'db.system.name'));
+export const isDbSpan = (s: OpCardPickSpan) => dbSystemOf(s) !== '';
+/**
+ * v0.10.1527 — önbellek / anahtar-değer DB sistemleri (semconv db.system
+ * değerleri + yaygın uyumlu sunucular). Gateway'in oran sınırlama / token /
+ * yanıt önbelleği okumaları bunlara gider; servisin KENDİ işi sayılmaz.
+ */
+export const CACHE_DB_SYSTEMS: ReadonlySet<string> = new Set([
+  'redis', 'valkey', 'keydb', 'dragonfly', 'garnet', 'memcached', 'hazelcast', 'aerospike',
+  'etcd', 'coherence', 'infinispan', 'geode', 'ignite', 'caffeine', 'ehcache',
+]);
+/** Önbellek / KV DB span'i (redis, memcached, …): yönlendirme yolunun parçası. */
+export const isCacheDbSpan = (s: OpCardPickSpan) => CACHE_DB_SYSTEMS.has(dbSystemOf(s));
 /** Mesajlaşma span'i: üretici kind'ı ya da messaging.system (Kafka/MQ istemci olarak da yazılır). */
 export const isMessagingSpan = (s: OpCardPickSpan) => kindOf(s) === 'producer' || !!attr(s, 'messaging.system');
-/** Servisin KENDİ İŞİ sayılan span: DB ya da mesajlaşma. */
-export const isOwnWorkSpan = (s: OpCardPickSpan) => isDbSpan(s) || isMessagingSpan(s);
-/** Yönlendiren span: HTTP/gRPC istemci çağrısı (DB / MQ değil). */
-const isForward = (s: OpCardPickSpan) => kindOf(s) === 'client' && !isOwnWorkSpan(s);
+/** Servisin KENDİ İŞİ sayılan span: önbellek/KV dışı DB (ilişkisel, belge, arama) ya da mesajlaşma. */
+export const isOwnWorkSpan = (s: OpCardPickSpan) => (isDbSpan(s) && !isCacheDbSpan(s)) || isMessagingSpan(s);
+/** Yönlendiren span: HTTP/gRPC istemci çağrısı ya da önbellek/KV okuması (kendi iş DB / MQ değil). */
+const isForward = (s: OpCardPickSpan) => !isOwnWorkSpan(s) && (kindOf(s) === 'client' || isCacheDbSpan(s));
 const byStart = (a: OpCardPickSpan, b: OpCardPickSpan) => a.startTime - b.startTime || (a.spanId < b.spanId ? -1 : a.spanId > b.spanId ? 1 : 0);
 
 /** Bir giriş span'i altındaki aynı-servis span'leri + ilk başka-servis giriş span'leri. */
@@ -127,7 +149,7 @@ export function gatewayHop(
   if (gatewayServices.includes(entry.serviceName)) return { next, via: 'config' };
   if (new Set(downstream.map(d => d.serviceName)).size !== 1) return null; // fan-out = kendi mantığı
   const rest = own.filter(s => s !== entry);
-  if (rest.some(isOwnWorkSpan)) return null; // kendi DB / MQ işi = saf yönlendirici değil
+  if (rest.some(isOwnWorkSpan)) return null; // kendi DB / MQ işi = saf yönlendirici değil (önbellek/KV hariç, v0.10.1527)
   const forwardOnly = rest.every(isForward);
   const self = entrySelfFraction(entry, children.get(entry.spanId) ?? []);
   if (forwardOnly && self <= GATEWAY_MAX_SELF_FRACTION) return { next, via: 'structure' };
