@@ -444,6 +444,9 @@ const EN: Catalog = {
   'endpoint.opcard.codeSlot':   'Code half (entry method, request / response fields, call sites) comes in a later release.',
   'endpoint.opcard.chip':       'Operation card',
   'endpoint.opcard.chipHint':   'Open this operation\'s call tree (code & calls) on the endpoint page',
+  'endpoint.opcard.chipInnerHint': 'The trace enters through {gw}; the card opens {svc}, the first service behind it that handles the request',
+  'endpoint.opcard.gatewayChip': 'gateway: {op}',
+  'endpoint.opcard.gatewayHint': 'Open the operation card of the gateway ({gw}) instead',
   // v0.10.1491 END
   // v0.10.1498 — /logs Kibana-Discover sorgu çubuğu + süzgeç satırı
   'logs.dv.addFilter':        '+ Filter',
@@ -912,6 +915,9 @@ const TR: Catalog = {
   'endpoint.opcard.codeSlot':   'Kod yarısı (giriş metodu, istek / cevap alanları, çağrı yerleri) sonraki sürümde gelecek.',
   'endpoint.opcard.chip':       'Operasyon kartı',
   'endpoint.opcard.chipHint':   'Bu operasyonun çağrı ağacını (kod ve çağrılar) endpoint sayfasında aç',
+  'endpoint.opcard.chipInnerHint': 'Trace {gw} üzerinden giriyor; kart, arkasında isteği işleyen ilk servis olan {svc} için açılır',
+  'endpoint.opcard.gatewayChip': 'gateway: {op}',
+  'endpoint.opcard.gatewayHint': 'Bunun yerine gateway\'in ({gw}) operasyon kartını aç',
   // v0.10.1491 END
 };
 

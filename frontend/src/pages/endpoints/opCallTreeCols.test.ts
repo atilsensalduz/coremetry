@@ -63,6 +63,12 @@ describe('operasyon kartı pivotları', () => {
     const trace = read('../Trace.tsx');
     expect(trace).toMatch(/data-testid="trace-opcard-chip"/);
     expect(trace).toMatch(/operationCardHref\(opCardRef/);
+    // v0.10.1503 — kimlik kökten değil seçiciden (gateway kökü → ilk iç servis);
+    // çip seçilen servisi yazar, gateway atlandıysa ikincil bağlantı gateway'in kartına.
+    expect(trace).toMatch(/pickTraceOpCard\(spans\)/);
+    expect(trace).not.toMatch(/traceRootOpCardRef\(root\)/);
+    expect(trace).toMatch(/data-testid="trace-opcard-svc"/);
+    expect(trace).toMatch(/data-testid="trace-opcard-gateway"[\s\S]*operationCardHref\(opCardPick\.gateway/);
     const ops = read('../service/OperationsTable.tsx');
     expect(ops).toMatch(/data-testid="op-opcard-link"/);
     // Satır eylemi yalnız bağlantı: Operations listesi kart ucunu ÇAĞIRMAZ.

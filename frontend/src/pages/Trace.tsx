@@ -5,7 +5,8 @@ import { TabStrip } from '@/components/ui/TabStrip'; // v0.10.457 (D5 dilim B)
 import { useEscLayer } from '@/lib/escLayer';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { windowRangeParam } from '@/lib/urlState';
-import { operationCardHref, traceRootOpCardRef } from './endpoints/links'; // v0.10.1491
+import { operationCardHref } from './endpoints/links'; // v0.10.1491
+import { pickTraceOpCard } from './endpoints/traceOpCardPick'; // v0.10.1503 — gateway kökü → ilk iç servis
 import { useQuery } from '@tanstack/react-query';
 import { Topbar } from '@/components/Topbar';
 import { DrillButton } from '@/components/DrillButton';
@@ -445,8 +446,10 @@ function TraceDetailInner() {
   // early return since they only feed the render below.
   const sel = spans?.find(s => s.spanId === selectedId) ?? null;
   const root = spans?.find(s => !s.parentSpanId) ?? spans?.[0];
-  // v0.10.1491 — operasyon kartı çipinin kimliği (SAF: links.ts).
-  const opCardRef = traceRootOpCardRef(root);
+  // v0.10.1491 — operasyon kartı çipinin kimliği. v0.10.1503 — kök gateway /
+  // proxy ise arkasındaki İLK İÇ servis (SAF: endpoints/traceOpCardPick.ts).
+  const opCardPick = pickTraceOpCard(spans);
+  const opCardRef = opCardPick?.ref ?? null;
   const minT = spans && spans.length ? Math.min(...spans.map(s => s.startTime)) : 0;
   const maxT = spans && spans.length ? Math.max(...spans.map(s => s.endTime)) : 0;
   const criticalPathIds = (showCritical && criticalPath) ? criticalPath.ids : undefined;
@@ -697,11 +700,23 @@ function TraceDetailInner() {
               {/* v0.10.1491 — operasyon kartı çipi: kök span'in rotası (yoksa
                   span adı, entry=rpc) → /endpoint#opcard, trace başlangıcı ±30 dk
                   penceresiyle. Sohbet değil, sayfa; istemci/üretici kökte yok. */}
-              {opCardRef && root && (
+              {/* v0.10.1503 — çip seçilen servisi yazar; gateway atlandıysa ipucu
+                  bunu söyler ve ikincil "gateway: <op>" bağlantısı gateway'in kartına gider. */}
+              {opCardRef && opCardPick && root && (
                 <Link className="chip" data-testid="trace-opcard-chip"
                   to={operationCardHref(opCardRef, { range: windowRangeParam({ fromNs: root.startTime - 18e11, toNs: root.startTime + 18e11 }) })}
-                  title={tr('endpoint.opcard.chipHint')}>
+                  title={opCardPick.gateway
+                    ? tr('endpoint.opcard.chipInnerHint').replace('{svc}', opCardPick.service).replace('{gw}', opCardPick.gateway.service)
+                    : tr('endpoint.opcard.chipHint')}>
                   <span className="k">⇄</span><b>{tr('endpoint.opcard.chip')}</b>
+                  <span data-testid="trace-opcard-svc"> · {opCardPick.service}</span>
+                </Link>
+              )}
+              {opCardPick?.gateway && root && (
+                <Link className="chip" data-testid="trace-opcard-gateway"
+                  to={operationCardHref(opCardPick.gateway, { range: windowRangeParam({ fromNs: root.startTime - 18e11, toNs: root.startTime + 18e11 }) })}
+                  title={tr('endpoint.opcard.gatewayHint').replace('{gw}', opCardPick.gateway.service)}>
+                  {tr('endpoint.opcard.gatewayChip').replace('{op}', opCardPick.gateway.path)}
                 </Link>
               )}
               {/* v0.10.347 (operatör) — alt "Compare with…" (AI karşılaştırma formu)

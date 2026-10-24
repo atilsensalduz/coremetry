@@ -11046,3 +11046,22 @@ aynı tercihi paylaşır). Ad/kaldırılabilirlik kuralı LogTable'dan dışa a�
 
 **Geri alma.** `git revert <sha>` + yeni etiket. `logs.docTab` anahtarı eski sürümde okunmaz (zararsız); sütun tercihi
 biçimi değişmediği için iki yönde de geçerli.
+
+## 2026-10-24 — v0.10.1503 — Trace operasyon kartı çipi: gateway kökü → ilk iç servis
+
+**Karar.** Operatör isteği (2026-10-24): Trace sayfasındaki operasyon kartı çipi (v0.10.1491) kök span'in rotasına
+gidiyordu; kökü API gateway olan trace'lerde kart gateway'in operasyonunu gösteriyordu. Çip artık SAF bir seçiciden
+(`frontend/src/pages/endpoints/traceOpCardPick.ts`, `pickTraceOpCard`) kimlik alır: kök gateway/proxy ise arkasındaki
+isteği gerçekten işleyen ilk iç servisin giriş span'i (server/consumer; rota, yoksa span adı + `entry=rpc`). Tespit
+sırası: (1) yapılandırılmış liste — kod tabanında gateway SERVİS ayarı yok (topology.go `gatewayHosts` çıkış geçidi
+host'u, servis değil), yeni ayar İCAT EDİLMEDİ; seçici `gatewayServices` parametresini taşır, bugün boş; (2) yapısal —
+kök servisin o giriş altındaki kendi span'leri yalnız giriş + istemci/üretici, TEK bir alt servise gidiyor, öz süre
+≤ %25 (doğrudan çocukların birleşik kapsamı dışı); (3) ad deseni (`gateway|apigw|ingress|proxy|nginx|envoy|kong|apisix`)
+yalnız bağ bozucu: eşleşirse iç ara katman span'lerine izin verilir ve öz süre eşiği %50'ye gevşer, ad tek başına
+gateway yapmaz. Birden çok alt servise dağılan ya da yüksek öz süreli kök (BFF) kök kalır; iç giriş yoksa kök kalır.
+En erken başlayan iç giriş seçilir; zincir (ingress → api-gateway → servis) en çok 4 adım yürünür. Çip seçilen servisi
+yazar (`· <servis>`); gateway atlandıysa ipucu bunu söyler ve ikincil `gateway: <op>` çipi en dış gateway'in kartına
+gider. Yeni istek, uç, ayar yok; istemci/üretici kökte çip yine yok.
+
+**Geri alma.** `git revert <sha>` + yeni etiket; ya da yalnız Trace.tsx'te `pickTraceOpCard(spans)` →
+`traceRootOpCardRef(root)` (eski kök davranışı; links.ts'teki fonksiyon değişmedi).
