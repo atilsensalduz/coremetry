@@ -47,9 +47,23 @@ const dbSummary1mGolden = `CREATE MATERIALIZED VIEW IF NOT EXISTS db_summary_1m 
 	`GROUP BY db_system, instance, db_name, time_bucket`
 
 func TestDBSummary1mInCatalogueLast(t *testing.T) {
+	// v0.10.1525 — "sonda" = yalnız kendisinden YENİ MV'ler ardında
+	// (db_statement_summary_1m, kendi testinde son-pinini taşır).
 	names := canonicalMVNames()
-	if len(names) == 0 || names[len(names)-1] != "db_summary_1m" {
-		t.Fatalf("db_summary_1m katalogun SONUNDA olmalı (konumsal pinler), son: %v", names[len(names)-1])
+	newer := map[string]bool{"db_statement_summary_1m": true}
+	idx := -1
+	for i, n := range names {
+		if n == "db_summary_1m" {
+			idx = i
+		}
+	}
+	if idx < 0 {
+		t.Fatal("db_summary_1m katalogda yok")
+	}
+	for _, n := range names[idx+1:] {
+		if !newer[n] {
+			t.Fatalf("db_summary_1m'den sonra daha eski bir MV var (%s) — konumsal pinler kayar", n)
+		}
 	}
 	if canonicalMVDDL("db_summary_1m") == "" {
 		t.Fatal("canonicalMVDDL(db_summary_1m) boş")

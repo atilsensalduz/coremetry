@@ -63,9 +63,15 @@ type DBStmtDetailQuery struct {
 // pencere bir kova örtüşüyor, yani delta'nın "önce" tarafı "şimdi"nin
 // trafiğini sayıyordu. Örtüşme testi: dbstmt_bucket_bound_test.go.
 func dbStmtDetailWhere(q DBStmtDetailQuery) whereClause {
+	return dbStmtDetailWhereGrain(q, 5*time.Minute)
+}
+
+// dbStmtDetailWhereGrain — aynı yüklem, alt sınır kaynağın kova ızgarasına
+// hizalı (v0.10.1525: 1 dk trend kaynağı db_statement_summary_1m için 1 dk).
+func dbStmtDetailWhereGrain(q DBStmtDetailQuery, grain time.Duration) whereClause {
 	var wc whereClause
 	wc.add("stmt_hash = ?", q.Hash)
-	wc.add("time_bucket >= ?", q.From.Truncate(5*time.Minute))
+	wc.add("time_bucket >= ?", q.From.Truncate(grain))
 	wc.add("time_bucket < ?", q.To)
 	if q.DBSystem != "" {
 		wc.add("db_system = ?", q.DBSystem)
@@ -175,11 +181,72 @@ func dbStmtTrendBucketSec(from, to time.Time) int64 {
 	return b
 }
 
+// ── v0.10.1525 — 1 dk trend kaynağı ───────────────────────────────────────
+//
+// Operatör (prod, 2026-10-24): Statement detayının Calls/s · Errors · P95
+// grafikleri 5 dk kovaydı — "düzgün/doğru değil". db_summary_1m'in
+// (v0.10.1095) /database detayına yaptığını burada db_statement_summary_1m
+// yapar: kısa pencerede (≤ 6 sa = 360 kova, LIMIT 400'ün altında) ve 1m
+// tablo pencere başını kapsıyorsa 1 dk kova; aksi hâlde bugünkü 5m yolu
+// (24 sa'e kadar 5 dk, üstü kabalaşır). Yalnız TREND taşınır: özet,
+// çağıranlar ve exemplar 5m'de (1m ikiz o state'leri taşımaz).
+
+// dbStmtTrendFineMaxWindow — 1 dk kova bu pencereye kadar (dahil).
+// Servis grafiklerinin metricAutoStep merdiveni de 6 sa'e kadar 60 sn verir.
+const dbStmtTrendFineMaxWindow = 6 * time.Hour
+
+// Trend kaynakları — SQL'e YALNIZ bu sabitlerden girer.
+const (
+	dbStmtTrendTableFine   = "db_statement_summary_1m"
+	dbStmtTrendTableCoarse = "db_statement_summary_5m"
+)
+
+// DBStmtTrendGrain — trend kaynağı: tablo, tablonun kova ızgarası (sn) ve
+// çizilecek kova genişliği (sn; kaba yolda ızgaranın katı).
+type DBStmtTrendGrain struct {
+	Table     string
+	GrainSec  int64
+	BucketSec int64
+}
+
+// dbStmtTrendGrainFor — SAF seçici (tablo testi dbstmt_trend_grain_test.go).
+//
+//	pencere ≤ 6 sa VE 1m tablo pencere başını kapsıyor → 1m tablo, 60 sn kova
+//	aksi hâlde → 5m tablo, dbStmtTrendBucketSec (≥ 300 sn)
+//
+// fineCovers=false: tablo yok (kolon kapısı / ertelenmiş DDL), boş ya da
+// ilk kovası pencere başından sonra (geriye dolmaz, TTL 7 gün). Hepsinde
+// SESSİZCE 5m — eksik bir 1m serisi çizmektense doğru bir 5m serisi.
+func dbStmtTrendGrainFor(from, to time.Time, fineCovers bool) DBStmtTrendGrain {
+	if w := to.Sub(from); w > 0 && w <= dbStmtTrendFineMaxWindow && fineCovers {
+		return DBStmtTrendGrain{Table: dbStmtTrendTableFine, GrainSec: 60, BucketSec: 60}
+	}
+	return DBStmtTrendGrain{Table: dbStmtTrendTableCoarse, GrainSec: 300, BucketSec: dbStmtTrendBucketSec(from, to)}
+}
+
+// DBStmtTrendGrain — pencere için kaynağı seçer; kapsama probu yalnız kısa
+// pencerede ve kolon kapısı açıkken koşar (60 sn önbellekli, hata →
+// kapsamıyor). Önbellek anahtarı seçimi taşır (api/dbstmt_detail.go):
+// 1m tablo yeni dolduğunda eski 5m yükü 1m anahtarında servis edilmez.
+func (s *Store) DBStmtTrendGrain(ctx context.Context, from, to time.Time) DBStmtTrendGrain {
+	fine := false
+	if w := to.Sub(from); s != nil && s.hasDBStmtHashCol && w > 0 && w <= dbStmtTrendFineMaxWindow {
+		fine = s.sourceCovers(ctx, priorSrcDBStmtSummary1m, from.Truncate(time.Minute))
+	}
+	return dbStmtTrendGrainFor(from, to, fine)
+}
+
 // dbStmtTrendSQL — pure builder. Buckets via intDiv over the MV's
 // time_bucket (the GetEndpointsMV sparkline shape); the two intDiv args
 // (bucket start unix, bucket width) bind BEFORE the WHERE args. LIMIT
 // carries headroom over dbStmtTrendMaxPoints for rounding at the edges.
-func dbStmtTrendSQL(where string) string {
+// v0.10.1525 — kaynak tablo parametreli (bilinmeyen ad → 5m); 1m yolu ≤ 361 kova.
+func dbStmtTrendSQL(where string) string { return dbStmtTrendSQLFrom(dbStmtTrendTableCoarse, where) }
+
+func dbStmtTrendSQLFrom(table, where string) string {
+	if table != dbStmtTrendTableFine {
+		table = dbStmtTrendTableCoarse
+	}
 	return `
 		SELECT
 			intDiv(toUnixTimestamp(time_bucket) - ?, ?)     AS b,
@@ -187,7 +254,7 @@ func dbStmtTrendSQL(where string) string {
 			countIfMerge(error_count_state)                 AS err_cnt,
 			sumMerge(duration_sum_state) / 1e6              AS total_ms,
 			arrayElement(quantilesTDigestMerge(0.5, 0.95, 0.99)(duration_q_state), 2) / 1e6 AS p95_ms
-		FROM db_statement_summary_5m ` + where + `
+		FROM ` + table + ` ` + where + `
 		GROUP BY b
 		ORDER BY b
 		LIMIT 400
@@ -198,12 +265,19 @@ func dbStmtTrendSQL(where string) string {
 // GROUP BY coarsened bucket. Buckets with no data are absent (sparse);
 // the returned bucketSec lets the frontend densify against the window
 // exactly (gaps render as zeros) without re-deriving the coarsening.
-func (s *Store) GetDBStmtTrend(ctx context.Context, q DBStmtDetailQuery) (points []DBStmtTrendPoint, bucketSec int64, err error) {
-	bucketStart := q.From.Truncate(5 * time.Minute)
-	bucketSec = dbStmtTrendBucketSec(q.From, q.To)
-	wc := dbStmtDetailWhere(q)
+//
+// v0.10.1525 — g kaynağı seçer (DBStmtTrendGrain); ızgara başı g.GrainSec'e
+// hizalı, böylece istemci aynı ızgarayı yanıttaki trendGrainSec ile kurar.
+func (s *Store) GetDBStmtTrend(ctx context.Context, q DBStmtDetailQuery, g DBStmtTrendGrain) (points []DBStmtTrendPoint, bucketSec int64, err error) {
+	if g.Table != dbStmtTrendTableFine || g.GrainSec <= 0 || g.BucketSec <= 0 {
+		g = dbStmtTrendGrainFor(q.From, q.To, false)
+	}
+	grain := time.Duration(g.GrainSec) * time.Second
+	bucketStart := q.From.Truncate(grain)
+	bucketSec = g.BucketSec
+	wc := dbStmtDetailWhereGrain(q, grain)
 	args := append([]any{bucketStart.Unix(), bucketSec}, wc.args...)
-	rows, err := s.telemetryReadConn().Query(ctx, dbStmtTrendSQL(wc.sql()), args...)
+	rows, err := s.telemetryReadConn().Query(ctx, dbStmtTrendSQLFrom(g.Table, wc.sql()), args...)
 	if err != nil {
 		return nil, bucketSec, err
 	}

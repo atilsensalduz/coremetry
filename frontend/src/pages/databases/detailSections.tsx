@@ -1,4 +1,5 @@
 import { lazy, Suspense, useMemo } from 'react';
+import { useT } from '@/lib/i18n';
 import { rowActivation } from '@/lib/a11y'; // v0.10.455 (dış denetim D3 dilim 3)
 import { msSyncKey } from '@/lib/chart/syncNamespace';
 import { Link, useLocation } from 'react-router-dom';
@@ -92,6 +93,7 @@ export function DatabaseIdentityHeader({ refObj, env, range, physicalAddrs }: {
   /** v0.10.19 (F0.8) — ölçülmüş fiziksel adres kümesi; yoksa beyan yok. */
   physicalAddrs?: PhysicalAddrs;
 }) {
+  const tr = useT(); // v0.10.1525 — "All statements" / "Tüm sorgular"
   // v0.10.19 — `instance` bir MAKİNE DEĞİL, peer.service etiketi. Aynı
   // etiketi paylaşan adresler MV'de tek satıra çöküyor ve Scope satırı
   // bunu söylemiyordu (addressScope.ts).
@@ -139,7 +141,7 @@ export function DatabaseIdentityHeader({ refObj, env, range, physicalAddrs }: {
           <Link className="accent" style={{ fontSize: 12, padding: '3px 10px', gap: 5 }}
             to={`/databases/slow-queries?dbsys=${encodeURIComponent(refObj.system)}`
               + (refObj.dbName ? `&dbname=${encodeURIComponent(refObj.dbName)}` : '')}>
-            <Turtle size={13} strokeWidth={1.75} /> Top statements →
+            <Turtle size={13} strokeWidth={1.75} /> {tr('stmt.allStatements')} →
           </Link>
         </span>
       </div>

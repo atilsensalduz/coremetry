@@ -253,6 +253,7 @@ var tablesWithoutTraceID = map[string]bool{
 	"db_caller_summary_5m":   true,
 	// v0.8.375 — statement-identity MV projects stmt_hash, never trace_id.
 	"db_statement_summary_5m": true,
+	"db_statement_summary_1m": true, // v0.10.1525 — 1 dk trend ikizi, aynı projeksiyon (trace_id yok)
 	// v0.8.396 — metric-name catalog: (service, metric) rows, no trace_id.
 	"metric_catalog": true,
 	// v0.9.249 — service/version rollup: (service_name, version,
@@ -385,6 +386,8 @@ var defaultShardPolicy = map[string]string{
 	// `WHERE stmt_hash = ?`. toString because cityHash64 wants the same
 	// arg shape the exemplars fingerprint policy uses for a UInt64.
 	"db_statement_summary_5m": "cityHash64(toString(stmt_hash))",
+	// v0.10.1525 — 1 dk ikiz: kardeşle aynı anahtar; ORDER BY stmt_hash ile başlar.
+	"db_statement_summary_1m": "cityHash64(toString(stmt_hash))",
 	// v0.9.249 — deploy/version rollup. Reads are always
 	// `WHERE service_name = ?` (GetServiceDeploys is per-service), so
 	// service_name is the honest key even though the MV's own writes
@@ -948,6 +951,7 @@ var highVolumeTables = map[string]bool{
 	// silently returned ONE shard's slice (the v0.8.356/358 undercount
 	// class). Creation is gated on hasDBStmtHashCol in migrate().
 	"db_statement_summary_5m": true,
+	"db_statement_summary_1m": true, // v0.10.1525 — gün-bir kayıt: _local + Distributed (tek-shard eksik-sayım sınıfı)
 	// v0.8.396 — metric-name catalog MV reading FROM metric_points
 	// (prod /api/metrics/names timeout fix): registered day one per
 	// the same D1 rule.

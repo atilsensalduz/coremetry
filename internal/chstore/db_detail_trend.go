@@ -24,8 +24,8 @@ import (
 // Karolar (CALLS / ERRORS / …) DEĞİŞMEDİ: GetDatabaseDetail →
 // dbDetailAggregate (db_caller_summary_5m). db-health dedektörü de 5m'de
 // kalır (db_health.go) — bu dosya yalnız grafiklerin kaynağıdır.
-// Statement detayı 5m'de kalır: MV'si ifade başına (db_statement_summary_5m),
-// 1 dk ikizi yok.
+// Statement detayının trendi v0.10.1525'den beri kendi 1 dk ikizinden
+// (db_statement_summary_1m, ≤ 6 sa; dbstmt_detail.go dbStmtTrendGrainFor).
 
 // dbTrendFineMaxWindow — bu süreye kadar (dahil) pencereler 1 dk kovadan
 // okunur. 3 sa = 180 nokta: 150 px'lik üç panelde okunur kalır, operatör

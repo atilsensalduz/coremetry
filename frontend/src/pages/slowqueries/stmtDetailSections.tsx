@@ -11,7 +11,8 @@ import {
 } from '@/components/ui/DataTable';
 import { fmtNum } from '@/lib/utils';
 import type { TimeRange, DBStmtDetail, DBStmtCaller } from '@/lib/types';
-import { stmtTrendGrid, stmtTrendSeries, stmtBucketLabel } from './stmtTrend';
+import { stmtTrendGrid, stmtTrendSeries, DEFAULT_GRAIN_SEC } from './stmtTrend';
+import { dbTrendBucketLabel, dbTrendPanelTitle } from '@/pages/databases/trendBucket';
 import { serviceHref } from '@/lib/serviceHref';
 import { repeatsExploreHref, stmtIdentityTracesHref } from '@/lib/pivotHref';
 import { traceHref } from '@/lib/traceHref';
@@ -151,7 +152,7 @@ export function StmtTrendSection({ detail, compare = false, onZoom, onZoomReset 
 }) {
   const view = useMemo(() => {
     const g = stmtTrendGrid(detail.trend ?? [], detail.fromNs, detail.toNs,
-      detail.trendBucketSec ?? 0);
+      detail.trendBucketSec ?? 0, detail.trendGrainSec ?? DEFAULT_GRAIN_SEC);
     return g ? stmtTrendSeries(g, detail.toNs) : null;
   }, [detail]);
   if (!detail.trend) return (
@@ -160,14 +161,17 @@ export function StmtTrendSection({ detail, compare = false, onZoom, onZoomReset 
       <SectionUnavailable what="Trend" />
     </div>
   );
-  const bucket = stmtBucketLabel(detail.trendBucketSec ?? 0);
+  // v0.10.1525 — kova etiketi dürüst ve /database detayıyla aynı dilde
+  // ("Calls / s · 1 dk"; trendBucket.ts). ≤ 6 sa pencerede 1 dk kova
+  // (db_statement_summary_1m), aksi 5 dk ve üstü.
+  const bucket = dbTrendBucketLabel(detail.trendBucketSec);
   const empty = view?.hasCalls ? undefined : 'Bu pencerede bu ifade için çağrı yok';
   const charts = [
-    { key: 'calls', title: 'Calls / s', unit: 'reqps', role: 'data' as const,
+    { key: 'calls', title: dbTrendPanelTitle('Calls / s', detail.trendBucketSec), unit: 'reqps', role: 'data' as const,
       series: view?.callsPerSec ?? [] },
-    { key: 'errors', title: bucket ? `Errors / ${bucket}` : 'Errors', unit: 'short',
+    { key: 'errors', title: dbTrendPanelTitle('Errors / min', detail.trendBucketSec), unit: 'short',
       role: 'error' as const, series: view?.errors ?? [] },
-    { key: 'p95', title: 'P95 latency', unit: 'ms', role: 'data' as const,
+    { key: 'p95', title: dbTrendPanelTitle('P95 latency', detail.trendBucketSec), unit: 'ms', role: 'data' as const,
       series: view?.p95Ms ?? [] },
   ];
   return (
@@ -176,7 +180,7 @@ export function StmtTrendSection({ detail, compare = false, onZoom, onZoomReset 
         Trend
         {bucket && (
           <span style={{ fontWeight: 400, fontSize: 10, color: 'var(--text3)', marginLeft: 6 }}>
-            {bucket} buckets
+            {bucket} kova
             {compare && ' · vs prior yalnız özet karolarında'}
           </span>
         )}

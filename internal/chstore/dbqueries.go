@@ -1,8 +1,10 @@
 package chstore
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -172,16 +174,125 @@ func slowQueriesGlobalMVSQL(where string) string {
 // ifadeleri). Arama HAVING'de (örnek SQL'de büyük/küçük harfsiz alt-dize);
 // sıra kararlı olsun diye toplam süreden sonra kimlik (sayfa sınırında satır
 // yinelenmez / atlanmaz). Bağ sırası: where…, [arama], limit, offset.
-func dbStatementsMVSQL(where string, withSearch bool) string {
+//
+// v0.10.1525 — sıra SUNUCUDA, tüm küme üzerinden (DataTable serverSort):
+// istemcinin bir sayfayı kendi içinde yeniden sıralaması "en çok çağrılan"
+// diye 200 satırlık toplam-süre dilimini gösterirdi (v0.8.318 exception
+// inbox sınıfı). order yalnız dbStatementsOrderExpr'in beyaz listesinden.
+func dbStatementsMVSQL(where string, withSearch bool, sort DBStatementsSort) string {
 	having := ""
 	if withSearch {
 		having = `
 		HAVING positionCaseInsensitiveUTF8(sample_stmt, ?) > 0`
 	}
 	return slowQueriesMVHead(where) + having + `
-		ORDER BY total_ms DESC, stmt_hash, service_name
+		ORDER BY ` + dbStatementsOrderExpr(sort) + `, stmt_hash, service_name
 		LIMIT ? OFFSET ?
 		SETTINGS max_execution_time = 25`
+}
+
+// DBStatementsSort — GET /api/databases/statements ?sort=&dir= (v0.10.1525).
+// Key DataTable kolon kimliğidir (SlowQueries.tsx SLOW_COLS); bilinmeyen
+// anahtar varsayılana (toplam süre, azalan) düşer — sunucu ORDER BY'ına
+// dışarıdan metin girmez.
+type DBStatementsSort struct {
+	Key  string
+	Desc bool
+}
+
+// dbStatementsSortCols — kolon kimliği → MV okumasının SELECT takma adı.
+// avgMs: total/cnt (MV ortalama state'i taşımaz; cnt ≥ 1 her grupta).
+var dbStatementsSortCols = map[string]string{
+	"totalMs":    "total_ms",
+	"count":      "cnt",
+	"avgMs":      "total_ms / cnt",
+	"p50Ms":      "p50_ms",
+	"p95Ms":      "p95_ms",
+	"p99Ms":      "p99_ms",
+	"maxMs":      "max_ms",
+	"errorCount": "err_cnt",
+	"service":    "service_name",
+	"dbSystem":   "db_sys",
+	"dbName":     "db_nm",
+}
+
+// DefaultDBStatementsSort — operatörün varsayılanı: toplam süre, azalan.
+var DefaultDBStatementsSort = DBStatementsSort{Key: "totalMs", Desc: true}
+
+// NormalizeDBStatementsSort — SAF: ham ?sort/?dir → beyaz listeli sıra.
+// dir boşsa kolonun doğal yönü (metin artan, sayı azalan).
+func NormalizeDBStatementsSort(key, dir string) DBStatementsSort {
+	if _, ok := dbStatementsSortCols[key]; !ok {
+		return DefaultDBStatementsSort
+	}
+	switch dir {
+	case "asc":
+		return DBStatementsSort{Key: key}
+	case "desc":
+		return DBStatementsSort{Key: key, Desc: true}
+	}
+	textual := key == "service" || key == "dbSystem" || key == "dbName"
+	return DBStatementsSort{Key: key, Desc: !textual}
+}
+
+func dbStatementsOrderExpr(sort DBStatementsSort) string {
+	col, ok := dbStatementsSortCols[sort.Key]
+	if !ok {
+		sort = DefaultDBStatementsSort
+		col = dbStatementsSortCols[sort.Key]
+	}
+	if sort.Desc {
+		return col + " DESC"
+	}
+	return col + " ASC"
+}
+
+// sortDBStatementRows — ham yolun (≤ 500 satırlık tavanlı küme) Go-tarafı
+// aynası: aynı anahtar, aynı bağ kırıcı (kimlik, servis). Kararlı.
+func sortDBStatementRows(rows []SlowQueryRow, sort DBStatementsSort) {
+	val := func(r SlowQueryRow) (float64, string) {
+		switch sort.Key {
+		case "count":
+			return float64(r.Count), ""
+		case "avgMs":
+			return r.AvgMs, ""
+		case "p50Ms":
+			return r.P50Ms, ""
+		case "p95Ms":
+			return r.P95Ms, ""
+		case "p99Ms":
+			return r.P99Ms, ""
+		case "maxMs":
+			return r.MaxMs, ""
+		case "errorCount":
+			return float64(r.ErrorCount), ""
+		case "service":
+			return 0, r.Service
+		case "dbSystem":
+			return 0, r.DBSystem
+		case "dbName":
+			return 0, r.DBName
+		}
+		return r.TotalMs, ""
+	}
+	slices.SortStableFunc(rows, func(a, b SlowQueryRow) int {
+		af, as := val(a)
+		bf, bs := val(b)
+		c := cmp.Compare(af, bf)
+		if c == 0 {
+			c = strings.Compare(as, bs)
+		}
+		if sort.Desc {
+			c = -c
+		}
+		if c != 0 {
+			return c
+		}
+		if c = strings.Compare(a.StmtHash, b.StmtHash); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Service, b.Service)
+	})
 }
 
 func slowQueriesMVHead(where string) string {
@@ -262,19 +373,26 @@ func pageDBStatements(rows []SlowQueryRow, search string, limit, offset int) DBS
 // aranabilir (operatör: "sadece slow queries değil, tüm sorgulara ulaşayım").
 // GetSlowQueriesGlobal ile aynı MV okuması ve aynı satır şekli; fark sayfa ve
 // arama. limit+1 okunur → HasMore sayım sorgusu olmadan bilinir.
+//
+// v0.10.1525 — sort: sunucu sırası (NormalizeDBStatementsSort); ham yolda
+// tavanlı küme Go'da aynı anahtarla sıralanır, sonra sayfalanır.
 func (s *Store) GetDBStatements(
-	ctx context.Context, from, to time.Time, dbSystem, dbName, search string, limit, offset int,
+	ctx context.Context, from, to time.Time, dbSystem, dbName, search string, limit, offset int, sort DBStatementsSort,
 ) (DBStatementsPage, error) {
 	limit, offset = ClampDBStatementsPage(limit, offset)
 	search = strings.TrimSpace(search)
+	if _, ok := dbStatementsSortCols[sort.Key]; !ok {
+		sort = DefaultDBStatementsSort
+	}
 	if !slowQueriesUseMV(s.hasDBStmtHashCol, from, to) {
 		rows, err := s.GetSlowQueriesGlobal(ctx, from, to, dbSystem, dbName, dbStatementsRawCap)
 		if err != nil {
 			return DBStatementsPage{}, err
 		}
+		sortDBStatementRows(rows, sort)
 		return pageDBStatements(rows, search, limit, offset), nil
 	}
-	rows, err := s.getSlowQueriesGlobalMV(ctx, from, to, dbSystem, dbName, limit+1, &dbStmtPage{search: search, offset: offset})
+	rows, err := s.getSlowQueriesGlobalMV(ctx, from, to, dbSystem, dbName, limit+1, &dbStmtPage{search: search, offset: offset, sort: sort})
 	if err != nil {
 		return DBStatementsPage{}, err
 	}
@@ -289,6 +407,7 @@ func (s *Store) GetDBStatements(
 type dbStmtPage struct {
 	search string
 	offset int
+	sort   DBStatementsSort
 }
 
 func (s *Store) GetSlowQueriesGlobal(
@@ -387,7 +506,7 @@ func (s *Store) getSlowQueriesGlobalMV(
 	sql := slowQueriesGlobalMVSQL(wc.sql())
 	args := append(wc.args, limit)
 	if page != nil { // v0.10.1162 — sayfalı + aranabilir kip
-		sql = dbStatementsMVSQL(wc.sql(), page.search != "")
+		sql = dbStatementsMVSQL(wc.sql(), page.search != "", page.sort)
 		args = wc.args
 		if page.search != "" {
 			args = append(args, page.search)

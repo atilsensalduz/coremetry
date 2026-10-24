@@ -38,7 +38,10 @@ func (s *Server) getTrace(w http.ResponseWriter, r *http.Request) {
 	// "not found" entries within a short window — hence the
 	// short TTL. `source` distinguishes CH-resident vs Tempo-
 	// fallback so the frontend can banner-tag the result.
-	key := "trace:v3:" + id // v0.10.275 — analysis alanı eklendi; eski gövde yeni FE'ye servis edilmesin
+	// v0.10.275 — analysis alanı eklendi; eski gövde yeni FE'ye servis edilmesin.
+	// v0.10.1525 — v4: DB span'leri Databases kimliğiyle damgalı (dbInstance /
+	// dbName / dbStmtHash); v3 gövdesi linksiz span'ler servis ederdi.
+	key := "trace:v4:" + id
 	s.serveCached(w, r, key, 30*time.Second, func(ctx context.Context) (any, error) {
 		out, _, err := s.traceDetailPayload(ctx, id)
 		return out, err
@@ -62,6 +65,9 @@ func (s *Server) traceDetailPayload(ctx context.Context, id string) (map[string]
 		return nil, nil, err
 	}
 	if len(spans) > 0 {
+		// v0.10.1525 — DB span → Databases / ifade detayı linkleri için kimlik
+		// sunucuda, MV kurallarıyla (chstore/db_span_identity.go).
+		chstore.StampDBSpanIdentity(spans)
 		out := map[string]any{"traceId": id, "spans": spans, "source": src}
 		// v0.9.457 (dürüstlük A2) — 50k tavanına çarpan trace "tam"
 		// diye render ediliyordu: kesilen çocuklar orphan olup
@@ -101,6 +107,7 @@ func (s *Server) traceDetailPayload(ctx context.Context, id string) (map[string]
 		// tüm replikalardan yedek okuma, o da boşsa dürüst "replika eşsiz".
 		if !s.traceAgedOut(ctx, stub.StartTimeNs) {
 			if rows, rerr := s.store.GetTraceAllReplicas(ctx, id, stub.StartTimeNs, stub.EndTimeNs); rerr == nil && len(rows) > 0 {
+				chstore.StampDBSpanIdentity(rows)
 				log.Printf("[trace] %s: Distributed okuma 0 span, tüm replikalardan %d span — replika ıraksaması (Admin → Replika tutarlılığı)", id, len(rows))
 				out := map[string]any{"traceId": id, "spans": rows, "source": traceSourceAllReplicas, "replicaMiss": true}
 				out["analysis"] = chstore.BuildTraceAnalysis(rows, false)

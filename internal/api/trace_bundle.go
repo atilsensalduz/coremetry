@@ -62,7 +62,7 @@ const (
 // traceBundleKey — SAF: id + iki limit. Limit cevabın uzunluğunu değiştirir;
 // eksik bırakılsaydı 500'lük cevap 1000 isteyene servis edilirdi.
 func traceBundleKey(id string, logLimit, oracleLimit int) string {
-	return fmt.Sprintf("trace-bundle:v1:%s:ll=%d:ol=%d", id, logLimit, oracleLimit)
+	return fmt.Sprintf("trace-bundle:v2:%s:ll=%d:ol=%d", id, logLimit, oracleLimit)
 }
 
 // clampBundleLimit — boş/0/negatif/çöp → varsayılan, tavan üstü → TAVAN

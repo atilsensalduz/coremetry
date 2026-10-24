@@ -1,4 +1,5 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useT } from '@/lib/i18n';
 import { DEFAULT_RANGE_PRESET } from '@/lib/useUrlRange';
 import { TabStrip as UiTabStrip } from '@/components/ui/TabStrip'; // v0.10.456 (D5) — sayfanın yerel TabStrip sarmalayıcısıyla ad çakışmasın
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
@@ -76,6 +77,7 @@ function serviceHeadDot(errorRate: number): { cls: 'red' | 'amber' | 'green'; la
 }
 
 function ServiceDetailInner() {
+  const tr = useT(); // v0.10.1525 — "All statements" / "Tüm sorgular"
   const [searchParams, setSearchParams] = useSearchParams();
   // v0.10.717 (multi-cluster ilkesi) — Topbar Cluster kapsamı ve Details
   // bölüm kipleri (?dbmode= / ?perfmode= = cluster). Kapsam seçiliyken kip
@@ -669,7 +671,7 @@ function ServiceDetailInner() {
                     {scopeCluster && <span className="badge b-info mono">cluster: {scopeCluster}</span>}
                     {!scopeCluster && <ClusterModeToggle value={dbByCluster} onChange={v => setModeParam('dbmode', v)} label="DB ifadeleri kırılımı" />}
                   </>}
-                  actions={<Link to="/databases/slow-queries">Slow queries →</Link>} />
+                  actions={<Link to="/databases/slow-queries">{tr('stmt.allStatements')} →</Link>} />
                 <div className="ov-mb">
                   <LazyMount minHeight={300}>
                     <DBQueriesPanel service={svc}

@@ -50,6 +50,9 @@ const (
 	// grafikleri db_summary_1m'i yalnız ilk kovası pencere başından önceyse
 	// okur (db_detail_trend.go). Geriye dolmayan MV + 60 sn prob deseni.
 	priorSrcDBSummary1m
+	// v0.10.1525 — Statement detay trendi db_statement_summary_1m'i yalnız ilk
+	// kovası pencere başından önceyse okur (dbstmt_detail.go).
+	priorSrcDBStmtSummary1m
 	priorSourceCount
 )
 
@@ -60,6 +63,7 @@ var priorSourceProbeSQL = [priorSourceCount]string{
 	priorSrcMsgSummary:       "SELECT min(time_bucket), count() FROM messaging_summary_5m SETTINGS max_execution_time = 5",
 	priorSrcMsgCallerSummary: "SELECT min(time_bucket), count() FROM messaging_caller_summary_5m SETTINGS max_execution_time = 5",
 	priorSrcDBSummary1m:      "SELECT min(time_bucket), count() FROM db_summary_1m SETTINGS max_execution_time = 5",
+	priorSrcDBStmtSummary1m:  "SELECT min(time_bucket), count() FROM db_statement_summary_1m SETTINGS max_execution_time = 5",
 }
 
 // spansLiveBeforeSQL — ham yolun varlık probu: [pFrom − 24 sa, pFrom)

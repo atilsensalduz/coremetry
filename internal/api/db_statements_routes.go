@@ -1,7 +1,7 @@
 package api
 
 // db_statements_routes.go — v0.10.1162: bir veritabanının TÜM ifadeleri.
-// GET /api/databases/statements?from&to&db_system&db_name[&q][&limit][&offset]
+// GET /api/databases/statements?from&to&db_system&db_name[&q][&limit][&offset][&sort][&dir]
 // → {rows, hasMore}. /api/databases/slow-queries ile aynı MV okuması ve satır
 // şekli; fark sayfalama + örnek SQL'de arama (operatör: "sadece slow queries
 // değil, bir veritabanının tüm sorgularına ulaşabilmeliyim"). Kimlikli her rol.
@@ -36,11 +36,19 @@ func (s *Server) getDBStatements(w http.ResponseWriter, r *http.Request) {
 		search = string(rs[:dbStatementsSearchMax])
 	}
 	limit, offset := chstore.ClampDBStatementsPage(parseInt(q.Get("limit"), 100), parseInt(q.Get("offset"), 0))
-	// Anahtar TÜM girdileri taşır (v0.5.187 çapraz zehirlenme sınıfı).
-	key := fmt.Sprintf("db-statements:from=%d:to=%d:sys=%q:db=%q:q=%q:limit=%d:offset=%d",
-		from.UnixNano()/int64(time.Minute), to.UnixNano()/int64(time.Minute),
-		dbSystem, dbName, strings.ToLower(search), limit, offset)
+	// v0.10.1525 — sunucu sırası (DataTable serverSort); beyaz listeye anahtardan
+	// ÖNCE indirgenir, crafted ?sort= ayrı önbellek yuvası basamaz.
+	sort := chstore.NormalizeDBStatementsSort(strings.TrimSpace(q.Get("sort")), strings.TrimSpace(q.Get("dir")))
+	key := dbStatementsKey(from, to, dbSystem, dbName, search, limit, offset, sort)
 	s.serveCached(w, r, key, 60*time.Second, func(ctx context.Context) (any, error) {
-		return s.store.GetDBStatements(ctx, from, to, dbSystem, dbName, search, limit, offset)
+		return s.store.GetDBStatements(ctx, from, to, dbSystem, dbName, search, limit, offset, sort)
 	})
+}
+
+// dbStatementsKey — SAF: anahtar TÜM girdileri taşır (v0.5.187 çapraz
+// zehirlenme sınıfı); sıra v0.10.1525'de girdi oldu.
+func dbStatementsKey(from, to time.Time, dbSystem, dbName, search string, limit, offset int, sort chstore.DBStatementsSort) string {
+	return fmt.Sprintf("db-statements:from=%d:to=%d:sys=%q:db=%q:q=%q:limit=%d:offset=%d:sort=%s:desc=%v",
+		from.UnixNano()/int64(time.Minute), to.UnixNano()/int64(time.Minute),
+		dbSystem, dbName, strings.ToLower(search), limit, offset, sort.Key, sort.Desc)
 }

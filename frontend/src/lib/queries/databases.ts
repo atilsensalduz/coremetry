@@ -16,8 +16,10 @@ export function useSlowQueries(params: {
 }
 
 // v0.10.1162 — bir veritabanının TÜM ifadeleri (sayfalı + aranabilir).
+// v0.10.1525 — sort/dir sunucu sırası (anahtarda: params nesnesinin tamamı).
 export function useDBStatements(params: {
   from?: number; to?: number; db_system?: string; db_name?: string; q?: string; limit?: number; offset?: number;
+  sort?: string; dir?: 'asc' | 'desc';
 }) {
   return useQuery<DBStatementsPage>({
     queryKey: ['databases', 'statements', params],

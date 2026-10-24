@@ -106,7 +106,8 @@ describe('stmtTrendSeries — grafik serileri', () => {
     const s = stmtTrendSeries(g, toNs);
     expect(s.callsPerSec[0].points.map(p => p.time)).toEqual([T0, T0 + 300, T0 + 600].map(t => t * 1e9));
     expect(s.callsPerSec[0].points.map(p => p.value)).toEqual([2, 0, 1]);
-    expect(s.errors[0].points.map(p => p.value)).toEqual([2, 0, 0]);
+    // v0.10.1525 — dakika başına: 2 hata / 5 dk = 0.4/dk.
+    expect(s.errors[0].points.map(p => p.value)).toEqual([0.4, 0, 0]);
     expect(s.p95Ms[0].points[0].value).toBe(12);
     expect(Number.isNaN(s.p95Ms[0].points[1].value)).toBe(true);
     expect(s.xRange).toEqual({ from: T0, to: T0 + 900 });
@@ -130,5 +131,32 @@ describe('stmtTrendSeries — grafik serileri', () => {
 describe('stmtBucketLabel', () => {
   it.each([[300, '5m'], [2100, '35m'], [7200, '2h'], [90, '90s'], [0, '']] as const)('%i → %s', (s, want) => {
     expect(stmtBucketLabel(s)).toBe(want);
+  });
+});
+
+// v0.10.1525 — 1 dk kaynak (db_statement_summary_1m, ≤ 6 sa): ızgara başı
+// from'un 1 dk tabanı (5 dk değil), kapsama 60 sn taneli, hata dakika başı.
+describe('1 dk taneli ızgara (trendGrainSec = 60)', () => {
+  it('ızgara başı 1 dk tabanı; kovalar 60 sn', () => {
+    const fromNs = (T0 + 207) * 1e9; // 08:03:27 → 08:03
+    const toNs = (T0 + 600) * 1e9;
+    const g = stmtTrendGrid([P(T0 + 180, 60, { errors: 3 }), P(T0 + 240, 120)], fromNs, toNs, 60, 60)!;
+    expect(g.startSec).toBe(T0 + 180);
+    expect(g.grainSec).toBe(60);
+    expect(g.tsNs).toHaveLength(7);
+    const s = stmtTrendSeries(g, toNs);
+    expect(s.callsPerSec[0].points.slice(0, 2).map(p => p.value)).toEqual([1, 2]);
+    // 1 dk kovada dakika başı hata = adedin kendisi.
+    expect(s.errors[0].points[0].value).toBe(3);
+  });
+  it('kapsama 60 sn taneli: to kovanın ortasında → bütün 1 dk kova', () => {
+    expect(stmtBucketCoveredSec(T0, 60, T0 + 30, 60)).toBe(60);
+    expect(stmtBucketCoveredSec(T0, 300, T0 + 90, 60)).toBe(120);
+    // eski varsayılan (5 dk tanecik) değişmedi
+    expect(stmtBucketCoveredSec(T0, 900, T0 + 450)).toBe(600);
+  });
+  it('6 sa pencere 1 dk kovada 400 sınırının altında', () => {
+    const g = stmtTrendGrid([], T0 * 1e9, (T0 + 6 * 3600) * 1e9, 60, 60)!;
+    expect(g.tsNs.length).toBe(360);
   });
 });

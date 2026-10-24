@@ -53,13 +53,16 @@ func (s *Server) registerDBStmtDetailRoutes(mux *http.ServeMux) {
 // hash, the (system, db) filter digest (NUL-separated FNV-64a — two
 // different tuples can never alias), the compare flag, and the
 // minute-bucketed window. Pinned by dbstmt_detail_key_test.go.
-func dbStmtDetailKey(hash uint64, system, db string, compare bool, from, to time.Time) string {
+//
+// v0.10.1525 — trendGrainSec (60 | 300) anahtarda: 1m kaynak yeni dolduğunda
+// (kapsama probu çevrilince) eski 5m yükü aynı pencerede servis edilmesin.
+func dbStmtDetailKey(hash uint64, system, db string, compare bool, trendGrainSec int64, from, to time.Time) string {
 	h := fnv.New64a()
 	h.Write([]byte(system))
 	h.Write([]byte{0})
 	h.Write([]byte(db))
-	return fmt.Sprintf("dbstmt-detail:h=%d:sd=%x:cmp=%v:from=%d:to=%d",
-		hash, h.Sum64(), compare, pivotMinuteBucket(from), pivotMinuteBucket(to))
+	return fmt.Sprintf("dbstmt-detail:v2:h=%d:sd=%x:cmp=%v:g=%d:from=%d:to=%d",
+		hash, h.Sum64(), compare, trendGrainSec, pivotMinuteBucket(from), pivotMinuteBucket(to))
 }
 
 // dbStmtExemplars carries the two representative trace_ids for the
@@ -87,9 +90,14 @@ type dbStmtDetailPayload struct {
 	// TrendBucketSec — the trend series' bucket width (5m-grain multiple,
 	// coarsened on wide windows). Lets the frontend densify the sparse
 	// series against the window without re-deriving the coarsening rule.
-	TrendBucketSec int64                  `json:"trendBucketSec,omitempty"`
-	Callers        []chstore.DBStmtCaller `json:"callers"`
-	Exemplars      *dbStmtExemplars       `json:"exemplars"`
+	TrendBucketSec int64 `json:"trendBucketSec,omitempty"`
+	// v0.10.1525 — kaynağın kova ızgarası (60 = db_statement_summary_1m, 300 =
+	// 5m) ve kaynak adı: istemci ızgara başını bununla hizalar ve başlıkta
+	// kova genişliğini dürüstçe söyler ("1 dk").
+	TrendGrainSec int64                  `json:"trendGrainSec,omitempty"`
+	TrendSource   string                 `json:"trendSource,omitempty"`
+	Callers       []chstore.DBStmtCaller `json:"callers"`
+	Exemplars     *dbStmtExemplars       `json:"exemplars"`
 }
 
 // getDBStmtDetail serves GET /api/databases/statements/detail. Window
@@ -107,7 +115,10 @@ func (s *Server) getDBStmtDetail(w http.ResponseWriter, r *http.Request) {
 	compare := q.Get("compare") == "prior"
 	from, to := parseFromTo(r, time.Hour)
 
-	key := dbStmtDetailKey(hash, system, dbName, compare, from, to)
+	// Trend kaynağı anahtardan ÖNCE seçilir (prob 60 sn önbellekli, hata → 5m;
+	// db_detail_trend.go emsali).
+	tg := s.store.DBStmtTrendGrain(r.Context(), from, to)
+	key := dbStmtDetailKey(hash, system, dbName, compare, tg.GrainSec, from, to)
 	s.serveCached(w, r, key, 30*time.Second, func(ctx context.Context) (any, error) {
 		dq := chstore.DBStmtDetailQuery{
 			Hash: hash, DBSystem: system, DBName: dbName,
@@ -129,9 +140,11 @@ func (s *Server) getDBStmtDetail(w http.ResponseWriter, r *http.Request) {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		if tr, bucketSec, err := s.store.GetDBStmtTrend(ctx, dq); err == nil {
+		if tr, bucketSec, err := s.store.GetDBStmtTrend(ctx, dq, tg); err == nil {
 			out.Trend = tr
 			out.TrendBucketSec = bucketSec
+			out.TrendGrainSec = tg.GrainSec
+			out.TrendSource = tg.Table
 		}
 		if ctx.Err() != nil {
 			return nil, ctx.Err()

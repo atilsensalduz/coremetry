@@ -202,6 +202,14 @@ const EN: Catalog = {
   'ai.askCosreLogSpikeHint': 'Ask CoSRE · log spike — explain this log increase.',
   // v0.10.1367 — Endpoint detay / arama endpoint sonucu: tek tık "Ask CoSRE".
   'ai.askCosreEndpointHint': 'Ask CoSRE · endpoint — what is happening, since when, where the time goes, which errors.',
+  // v0.10.1525 — DB span → Databases / ifade detayı (SpanDetail) + ifade listesi adı
+  'dbspan.openDatabase':       'Open in Databases',
+  'dbspan.openDatabaseHint':   'Open this database on the Databases page (span window)',
+  'dbspan.statementDetail':    'Statement detail',
+  'dbspan.statementDetailHint': 'Open this statement class (normalised fingerprint) — calls, errors, latency, callers',
+  'dbspan.engineHint':         'All databases of this engine on the Databases page',
+  'dbspan.tableHint':          'Statements touching this table (statement list, search)',
+  'stmt.allStatements':        'All statements',
 
   // v0.10.944 (CoSRE Faz A) — çekmecenin "Bağlam" şeridi: sohbetin hangi
   // trace/span/servis/ortam/cluster/namespace ve pencereye kapsandığı.
@@ -751,6 +759,13 @@ const TR: Catalog = {
   'ai.askCosreLogHint':      'CoSRE’ye sor · log — bu log satırını açıkla.',
   'ai.askCosreLogSpikeHint': 'CoSRE’ye sor · log artışı — bu log artışını açıkla.',
   'ai.askCosreEndpointHint': 'CoSRE’ye sor · endpoint — ne oluyor, ne zamandan beri, süre nereye gidiyor, hangi hatalar.', // v0.10.1367
+  'dbspan.openDatabase':       "Database'de aç",
+  'dbspan.openDatabaseHint':   'Bu veritabanını Databases sayfasında aç (span penceresi)',
+  'dbspan.statementDetail':    'Sorgu detayı',
+  'dbspan.statementDetailHint': 'Bu sorgu sınıfını aç (normalize parmak izi) — çağrı, hata, gecikme, çağıranlar',
+  'dbspan.engineHint':         'Bu motorun tüm veritabanları (Databases sayfası)',
+  'dbspan.tableHint':          'Bu tabloya dokunan sorgular (sorgu listesi, arama)',
+  'stmt.allStatements':        'Tüm sorgular',
 
   'ai.ctx.label':     'Bağlam',
   'ai.ctx.aria':      'CoSRE sohbet bağlamı',

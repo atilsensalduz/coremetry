@@ -88,7 +88,7 @@ var telemetryPurgeTables = []string{
 	// derecelendirdiği ai_calls satırları da purge ediliyor; verdict'i
 	// bırakmak öksüz kayıt üretirdi. Operatörün YAZDIĞI ai_feedback ise
 	// preserve tarafında kalmaya devam ediyor.
-	"db_statement_summary_5m", "metric_catalog", "service_seen",
+	"db_statement_summary_5m", "db_statement_summary_1m", "metric_catalog", "service_seen",
 	"service_version_5m", "rca_verdicts",
 }
 

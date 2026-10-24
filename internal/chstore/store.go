@@ -2081,6 +2081,47 @@ func canonicalMVs() []string {
 		 FROM spans
 		 WHERE db_system != ''
 		 GROUP BY db_system, instance, db_name, time_bucket`,
+
+		// v0.10.1525 — db_statement_summary_1m: Statement detayının üç trend
+		// grafiği (Calls/s · Errors · P95) için db_statement_summary_5m'in
+		// 1 DAKİKALIK ikizi (operatör, prod 2026-10-24: "5 dk kova düzgün/
+		// doğru değil"). db_summary_1m (v0.10.1095) emsali: geriye DOLMAZ,
+		// okuyucu (dbStmtTrendGrainFor) ilk kovayı ölçer, kapsamıyorsa ya da
+		// tablo yoksa (küme kipinde DDL ertelendi) sessizce 5m'e düşer — iki
+		// boot gerekmez. TTL 7 gün (yalnız ≤ 6 sa pencere okur).
+		//
+		// Kardeşten BİLEREK ayrışan iki yer:
+		//   · ORDER BY stmt_hash İLE BAŞLAR — yüzeyin filtre öznesi o
+		//     (/clickhouse-schema O2: "filtre öznesi önce"). Okuma
+		//     `stmt_hash = ?` nokta-araması; kardeşin (db_system, db_name,
+		//     service_name, stmt_hash) öneki 1 dk satır hacminde pencerenin
+		//     tüm ifadelerini tarardı.
+		//   · Yalnız trend'in dört state'i: örnek SQL / max / exemplar YOK
+		//     (özet, çağıranlar, exemplar 5m'den okunur — db_summary_1m'in
+		//     karoları 5m'de bırakması gibi).
+		// GATED: SELECT'i db_stmt_hash okur → mvGuardedOff (kolon yokken
+		// yaratmak her span INSERT'ini kod 16 ile düşürür, v0.8.186 sınıfı).
+		// Gün-bir üç kayıt (highVolumeTables + defaultShardPolicy +
+		// tablesWithoutTraceID); DİLİMİN SONUNDA (konumsal pinler).
+		`CREATE MATERIALIZED VIEW IF NOT EXISTS db_statement_summary_1m
+		 ENGINE = AggregatingMergeTree
+		 PARTITION BY toDate(time_bucket)
+		 ORDER BY (stmt_hash, db_system, db_name, service_name, time_bucket)
+		 TTL toDate(time_bucket) + INTERVAL 7 DAY
+		 SETTINGS index_granularity = 8192
+		 AS SELECT
+		   db_system,
+		   coalesce(nullIf(attr_values[indexOf(attr_keys, 'db.name')], ''), 'default') AS db_name,
+		   service_name,
+		   db_stmt_hash                                  AS stmt_hash,
+		   toStartOfInterval(time, INTERVAL 1 MINUTE)    AS time_bucket,
+		   countState()                                  AS span_count_state,
+		   countIfState(status_code = 'error')           AS error_count_state,
+		   sumState(duration)                            AS duration_sum_state,
+		   quantilesTDigestState(0.5, 0.95, 0.99)(duration)  AS duration_q_state
+		 FROM spans
+		 WHERE db_stmt_hash != 0
+		 GROUP BY db_system, db_name, service_name, stmt_hash, time_bucket`,
 	}
 	return mvs
 }
@@ -2111,6 +2152,7 @@ func mvNameFromDDL(ddl string) string {
 //
 //	operation_group_summary_5m — SELECT'i op_group okur (v0.8.186)
 //	db_statement_summary_5m    — SELECT'i db_stmt_hash okur (v0.8.375)
+//	db_statement_summary_1m    — aynı kolon (v0.10.1525, 1 dk trend ikizi)
 //
 // Kolon yokken bu MV'leri yaratmak insert-trigger'ı kod 16 ile düşürür ve
 // TÜM ingest'i bloklar. v0.10.825: MV kapsama kartı (mv_coverage.go) aynı
@@ -2121,7 +2163,7 @@ func (s *Store) mvGuardedOff(name string) bool {
 	switch name {
 	case "operation_group_summary_5m":
 		return !s.hasOpGroupCol
-	case "db_statement_summary_5m":
+	case "db_statement_summary_5m", "db_statement_summary_1m": // v0.10.1525 — 1 dk ikiz aynı kolonu okur
 		return !s.hasDBStmtHashCol
 	}
 	return false
@@ -4936,6 +4978,7 @@ func (s *Store) migrate(ctx context.Context) error {
 	// ölçen, guard-safe yoldan geçmeli (dropIngestBlockingMV).
 	if !s.hasDBStmtHashCol && dhProbeErr == nil {
 		s.dropIngestBlockingMV(ctx, "db_statement_summary_5m", "db_stmt_hash")
+		s.dropIngestBlockingMV(ctx, "db_statement_summary_1m", "db_stmt_hash") // v0.10.1525
 	}
 
 	// Materialized views — katalog canonicalMVs() içinde (v0.10.564: sihirbaz

@@ -18,6 +18,7 @@ import {
 } from '@/pages/slowqueries/stmtDetailSections';
 import { stmtShortId } from '@/lib/filterQuery';
 import type { DBStmtDetail } from '@/lib/types';
+import { useT } from '@/lib/i18n';
 
 // /databases/statement — the full-page statement detail (v0.9.1374).
 //
@@ -44,6 +45,7 @@ import type { DBStmtDetail } from '@/lib/types';
 // the same statement class. Only the DESTINATION moved; the identity
 // grammar did not.
 export default function StatementDetailPage() {
+  const tr = useT();
   const [params, setParams] = useSearchParams();
   const search = params.toString();
   const refObj = useMemo(() => decodeStmtParam(params.get('stmt')), [params]);
@@ -102,7 +104,8 @@ export default function StatementDetailPage() {
         <div style={{ fontSize: 11.5, color: 'var(--text3)', marginBottom: 8 }}>
           <Link to={navHref('/databases', search)}>Databases</Link>
           {' › '}
-          <Link to={navHref('/databases/slow-queries', search)}>Top statements</Link>
+          {/* v0.10.1525 (operatör) — "Top statements" değil: liste eşiksiz, sayfalı. */}
+          <Link to={navHref('/databases/slow-queries', search)}>{tr('stmt.allStatements')}</Link>
           {' › statement detail'}
         </div>
 

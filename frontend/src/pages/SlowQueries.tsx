@@ -23,6 +23,7 @@ import type { SlowQueryRow, TimeRange } from '@/lib/types';
 import { PageControls } from '@/components/ui/PageControls';
 import { serviceHref } from '@/lib/serviceHref';
 import { PageShell } from '@/components/ui/PageShell';
+import { useT } from '@/lib/i18n';
 // v0.9.1137 (AI Faz 2.4) satır-içi ✨ Explain yerine insight kartı gelmişti;
 // v0.10.652 (operatör) kart yuvası + "Ne oldu?" çipi bu sayfadan söküldü.
 
@@ -41,7 +42,9 @@ const SLOW_COLS: ColumnDef<SlowQueryRow>[] = [
   // which database it actually was. 'Engine' above keeps the old value under
   // an honest label rather than being repurposed.
   { id: 'dbName',     label: 'Database',               sortValue: r => r.dbName ?? '', naturalDir: 'asc', width: 130, minWidth: 110, priority: 2, mono: true, tone: () => 'muted' },
-  { id: 'statement',  label: 'Statement (normalised)', sortValue: r => r.statement,  naturalDir: 'asc', flex: true, minWidth: 220, priority: 1, mono: true },
+  // v0.10.1525 — sıra sunucuda (serverSort); normalize metin MV'de saklanmıyor
+  // (örnekten türetiliyor), o yüzden bu kolon sıralanmaz.
+  { id: 'statement',  label: 'Statement (normalised)', flex: true, minWidth: 220, priority: 1, mono: true },
   { id: 'count',      label: 'Calls',      sortValue: r => r.count,      numeric: true, width: 90, minWidth: 72, priority: 2 },
   { id: 'avgMs',      label: 'Avg ms',     sortValue: r => r.avgMs,      numeric: true, width: 90, minWidth: 72, priority: 3 },
   // v0.9.265 — P50 next to Avg so a row reads "typical" then "tail".
@@ -86,7 +89,13 @@ const SLOW_COLS: ColumnDef<SlowQueryRow>[] = [
 // times beats a 5s query running once.
 const PAGE_SIZE = 200;
 
+// v0.10.1525 — sunucu sırasının beyaz listesi (chstore dbStatementsSortCols ile
+// birebir; kolon kimliği = sunucu anahtarı). Varsayılan toplam süre ↓.
+const STMT_SORT_KEYS = ['totalMs', 'count', 'avgMs', 'p50Ms', 'p99Ms', 'errorCount', 'service', 'dbSystem', 'dbName'] as const;
+const DEFAULT_STMT_SORT = { id: 'totalMs', dir: 'desc' as const };
+
 export default function SlowQueriesPage() {
+  const tr = useT();
   const [range, setRange] = useUrlRange(DEFAULT_RANGE_PRESET);
   // v0.9.399 (desen paritesi) — aynı filtre çifti /databases'te URL'de
   // (dbsys/dbname), kardeş sayfada oturum state'indeydi. Aynı adlarla
@@ -146,6 +155,42 @@ export default function SlowQueriesPage() {
   // Bounds memoized on [range] so the query key stays stable across
   // renders (the v0.5.184 incident shape).
   const { from, to } = useMemo(() => timeRangeToNs(range), [range]);
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  // v0.10.1525 — SUNUCU SIRASI (Endpoints v0.8.356 / exception inbox v0.8.318
+  // kalıbı). Eskiden sayfa toplam süreye göre sunucudan geliyor, başlık
+  // tıklaması yalnız o 200 satırı istemcide yeniden diziyordu — "en çok
+  // çağrılan" diye toplam-süre diliminin içini gösteriyordu. Hook başlık
+  // UX'ini + `s_slowqueries` URL paramını taşır, sıra çifti fetch'e gider;
+  // hook sorgudan ÖNCE geldiği için satırlar bir state aynasından.
+  const [tableRows, setTableRows] = useState<SlowQueryRow[]>([]);
+  const dt = useDataTable<SlowQueryRow>({
+    storageKey: 'slowqueries',
+    columns: SLOW_COLS,
+    rows: tableRows,
+    serverSort: true,
+    sortIds: STMT_SORT_KEYS,
+    initialSort: DEFAULT_STMT_SORT,
+    // v0.9.404 (desen paritesi) — j/k/Enter: Enter satırı genişletir.
+    onOpen: (r) => {
+      const key = `${r.service}::${r.statement}`;
+      setExpanded(cur => (cur === key ? null : key));
+    },
+  });
+  const sortOk = (STMT_SORT_KEYS as readonly string[]).includes(dt.sort.id ?? '');
+  const sortBy = sortOk ? (dt.sort.id as string) : DEFAULT_STMT_SORT.id;
+  const sortDir = sortOk ? dt.sort.dir : DEFAULT_STMT_SORT.dir;
+  // Sıra değişince sayfa başa döner — effect İÇİNDE (hook'un URL yazımıyla
+  // aynı tikte ikinci bir setSearchParams onu ezerdi, v0.8.253 sınıfı);
+  // derin-linkli ?page= mount'ta korunur.
+  const sortSig = `${sortBy}.${sortDir}`;
+  const lastSortSigRef = useRef(sortSig);
+  useEffect(() => {
+    if (lastSortSigRef.current === sortSig) return;
+    lastSortSigRef.current = sortSig;
+    if (page !== 0) setPage(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortSig]);
   const rowsQ = useDBStatements({
     from, to,
     db_system: dbSystem || undefined,
@@ -153,11 +198,15 @@ export default function SlowQueriesPage() {
     q: q || undefined,
     limit: PAGE_SIZE,
     offset: page * PAGE_SIZE,
+    sort: sortBy,
+    dir: sortDir,
   });
-  const rows: SlowQueryRow[] | null | undefined =
-    rowsQ.isPending ? undefined : rowsQ.isError ? null : rowsQ.data?.rows ?? [];
+  // Memo: `?? []` her render'da yeni dizi üretip ayna effect'ini döngüye sokmasın.
+  const rows: SlowQueryRow[] | null | undefined = useMemo(
+    () => (rowsQ.isPending ? undefined : rowsQ.isError ? null : rowsQ.data?.rows ?? []),
+    [rowsQ.isPending, rowsQ.isError, rowsQ.data]);
+  useEffect(() => { setTableRows(rows ?? []); }, [rows]);
   const hasMore = rowsQ.data?.hasMore ?? false;
-  const [expanded, setExpanded] = useState<string | null>(null);
   const systems = rows
     ? Array.from(new Set(rows.map(r => r.dbSystem).filter(Boolean))).sort()
     : [];
@@ -183,21 +232,6 @@ export default function SlowQueriesPage() {
     if (href) navigate(href);
   };
 
-  // Shared sortable + resizable table. Called unconditionally (hooks
-  // rule) with [] while loading; default sort = total time desc to match
-  // the backend's wall-clock ordering on first paint.
-  const dt = useDataTable<SlowQueryRow>({
-    storageKey: 'slowqueries',
-    columns: SLOW_COLS,
-    rows: rows ?? [],
-    initialSort: { id: 'totalMs', dir: 'desc' },
-    // v0.9.404 (desen paritesi) — j/k/Enter: Enter satırı genişletir.
-    onOpen: (r) => {
-      const key = `${r.service}::${r.statement}`;
-      setExpanded(cur => (cur === key ? null : key));
-    },
-  });
-
   // v0.10.954 — tablo standardı T12: yükleniyor / hata / boş / eşleşme yok
   // tablonun İÇİNDE, başlık durur. dbsys/dbname sunucuya giden süzgeç:
   // seçiliyken boş sonuç "eşleşme yok" + sayfanın kendi Clear eylemi.
@@ -212,12 +246,15 @@ export default function SlowQueriesPage() {
 
   return (
     <>
-      <Topbar title="Slow queries" range={range} onRangeChange={setRange} />
+      {/* v0.10.1525 (operatör) — "Top statements" / "Slow queries" değil: liste
+          eşiksiz ve sunucu-sayfalı, penceredeki HER ifade. */}
+      <Topbar title={tr('stmt.allStatements')} range={range} onRangeChange={setRange} />
       <PageShell>
         <div style={{ color: 'var(--text2)', fontSize: 12, marginBottom: 12 }}>
-          Cross-service slow-query catalog. Sorted by total wall-clock time —
-          what's actually worth optimising. Click a row to expand a real
-          sample with literals.
+          Every statement class in the window, across services. Sorted by total
+          wall-clock time by default (server-side, across all pages) — what's
+          actually worth optimising. Click a row to open its detail; the chevron
+          expands a real sample with literals.
         </div>
         {/* v0.9.405 — URL-state (dbsys/dbname, v0.9.399) taşıyan sayfa
             görünüm kaydedebilmeli (Endpoints emsali). */}
@@ -368,8 +405,7 @@ export default function SlowQueriesPage() {
         </div>
         {/* v0.10.1162 — tavan beyanı (v0.9.1018: "en yavaş 200, daha fazlası
             için daralt") yerine sunucu sayfalaması: 201. ifade de ulaşılır.
-            Sıra sunucuda toplam süreye göre; kolon sıralaması yüklü sayfanın
-            içinde kalır. */}
+            v0.10.1525 — kolon sıralaması da sunucuda, tüm küme üzerinden. */}
         {rows && (page > 0 || hasMore) && (
           <Pager mode="offset" count="skip" page={page} pageSize={PAGE_SIZE} hasMore={hasMore} onPage={setPage} />
         )}

@@ -12,6 +12,10 @@ import { getRaw, setRaw } from '@/lib/storage';
 import { logsRangeParam, logsHref } from '@/lib/logsUrl';
 import { serviceHref } from '@/lib/serviceHref';
 import { spanAttrHref, spanEndpointHref, type SpanLinkCtx } from './spanEntityLinks';
+import {
+  dbSpanRef, dbLinkWindow, dbSpanAttrHref, dbSpanDatabaseHref, dbSpanStatementHref,
+  type DbSpanRef, type DbLinkKind,
+} from '@/lib/dbSpanLinks';
 import { IconFlame, IconSparkles } from './icons';
 import { CopyButton } from './CopyButton';
 import { IconButton } from './ui/IconButton';
@@ -148,12 +152,26 @@ export function SpanDetail({ span, onClose, logsFrom, logsTo, serviceLinks = tru
     service: span.serviceName,
     kind: span.kind,
     httpRoute: span.httpRoute,
-  }), [serviceLinks, logsFromBound, logsToBound, span.serviceName, span.kind, span.httpRoute]);
+    // v0.10.1525 — DB KENARI (lib/dbSpanLinks.ts). Kimlik sunucunun damgası
+    // (dbInstance/dbName/dbStmtHash); pencere span'in ±15 dk'sı (DB
+    // yüzeyleri 1/5 dk kovalı — ±1 dk'lık log penceresi tek kova olurdu).
+    db: serviceLinks ? dbSpanRef(span) : null,
+    dbWindow: dbLinkWindow(span),
+  }), [serviceLinks, logsFromBound, logsToBound, span]);
   // INFO bölümündeki "Endpoint" satırı — attribute listesinden BAĞIMSIZ:
   // span http.route attribute'unu taşımasa bile sunucu route'u çözmüş
   // olabilir (ingest'teki http.target fallback'i) ve o durumda da
   // endpoint'e gidilebilmeli.
   const endpointLink = useMemo(() => spanEndpointHref(spanLinkCtx), [spanLinkCtx]);
+  // v0.10.1525 — başlık satırındaki "Database'de aç" / "Sorgu detayı" çifti.
+  const dbLinks = useMemo(() => {
+    const ref = spanLinkCtx.db;
+    if (!ref) return null;
+    return {
+      database: dbSpanDatabaseHref(ref, spanLinkCtx.dbWindow),
+      statement: dbSpanStatementHref(ref, spanLinkCtx.dbWindow),
+    };
+  }, [spanLinkCtx]);
   const [spanLogs, setSpanLogs] = useState<LogRow[]>([]);
   // v0.9.461 (dürüstlük A5) — zarf düşürülmesin: degraded/hata "log yok"
   // gibi OKUNMASIN (ES brownout'ta emin bir "No logs attached" basılıyordu);
@@ -296,6 +314,16 @@ export function SpanDetail({ span, onClose, logsFrom, logsTo, serviceLinks = tru
         <div className="kiosk-span__facts">
           <span><b>Service:</b> {serviceLinks ? <Link to={serviceHref(span.serviceName, { range: spanLinkCtx.window })}>{span.serviceName}</Link> : span.serviceName}</span>
           {endpointLink && <span><b>Endpoint:</b> <Link to={endpointLink.href} title="Bu endpoint'in sayfasını aç">{endpointLink.label}</Link></span>}
+          {dbLinks && (
+            <span>
+              <b>DB:</b>{' '}
+              <Link to={dbLinks.database} title={tr('dbspan.openDatabaseHint')}>{tr('dbspan.openDatabase')}</Link>
+              {dbLinks.statement && <>
+                {' · '}
+                <Link to={dbLinks.statement} title={tr('dbspan.statementDetailHint')}>{tr('dbspan.statementDetail')}</Link>
+              </>}
+            </span>
+          )}
           <span><b>Duration:</b> {span.durationMs.toFixed(3)} ms{traceSpans && traceSpans.length > 0 && (() => {
             const self = selfTimeMs(span, traceSpans);
             const pct = span.durationMs > 0 ? (self / span.durationMs) * 100 : 100;
@@ -711,7 +739,18 @@ function serviceAttrHref(
 const ServiceLinkCtx = createContext<SpanLinkCtx & {
   on: boolean;
   window?: { fromNs: number; toNs: number };
+  // v0.10.1525 — DB span kimliği + link penceresi (lib/dbSpanLinks.ts).
+  db?: DbSpanRef | null;
+  dbWindow?: { fromNs: number; toNs: number };
 }>({ on: true });
+
+// v0.10.1525 — DB attribute linkinin ipucu (hedef türüne göre).
+const DB_LINK_HINT: Record<DbLinkKind, string> = {
+  engine: 'dbspan.engineHint',
+  database: 'dbspan.openDatabaseHint',
+  statement: 'dbspan.statementDetailHint',
+  table: 'dbspan.tableHint',
+};
 
 // SpanK8sCtx — v0.10.150: span başına TEK çözülmüş Kubernetes bağlamı;
 // Resource satırları (k8s.pod.name / namespace / node / cluster) değeri
@@ -726,18 +765,22 @@ function Row({ k, v, copyable }: {
 }) {
   const links = useContext(ServiceLinkCtx);
   const k8s = useContext(SpanK8sCtx);
+  const tr = useT();
   // v0.10.34 — servis + endpoint tek çözücüde (spanEntityLinks.ts).
   // v0.10.150 — k8s attribute'ları entity odağına (k8sAttrHref).
+  // v0.10.1525 — DB attribute'ları Databases / ifade detayına (dbSpanLinks.ts).
   const svcHref = spanAttrHref(k, v, links);
-  const k8sHref = svcHref ? undefined : k8sAttrHref(k, k8s);
-  const href = svcHref ?? k8sHref;
+  const dbLink = svcHref || !links.on ? null : dbSpanAttrHref(k, v, links.db ?? null, links.dbWindow);
+  const k8sHref = svcHref || dbLink ? undefined : k8sAttrHref(k, k8s);
+  const href = svcHref ?? dbLink?.href ?? k8sHref;
+  const title = dbLink ? tr(DB_LINK_HINT[dbLink.kind])
+    : k8sHref ? `${k} → entity detayı (span anı)` : `Open ${v} service page`;
   return (
     <tr>
       <td>{k}</td>
       <td>
         {href
-          ? <Link to={href} title={k8sHref ? `${k} → entity detayı (span anı)` : `Open ${v} service page`}
-              >{v}</Link>
+          ? <Link to={href} title={title}>{v}</Link>
           : v}
         {copyable && v && <CopyButton value={v} title={`Copy ${k.toLowerCase()}`} />}
       </td>

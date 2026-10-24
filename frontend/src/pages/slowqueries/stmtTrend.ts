@@ -12,8 +12,10 @@ import type { DBStmtTrendPoint, SpanMetricSeries } from '@/lib/types';
 // zamanı ATIP yalnız indeks tutmasıydı. Bu modül zamanı taşır.
 //
 // IZGARA SÖZLEŞMESİ (sunucuyla birebir, dbStmtDetailWhere):
-//   · Başlangıç `from`un 5 dk tabanı (MV taneciği) — sunucunun
-//     `time_bucket >= toStartOf5m(from)` yüklemi.
+//   · Başlangıç `from`un KAYNAK tabanı — sunucunun `time_bucket >=
+//     from.Truncate(grain)` yüklemi. v0.10.1525: grain yanıttan
+//     (`trendGrainSec`: 60 = db_statement_summary_1m, ≤ 6 sa; 300 = 5m);
+//     yoksa (eski sunucu) 300.
 //   · Kova i = YARI-AÇIK [start + i·B, start + (i+1)·B). Bir nokta tam kova
 //     sonunda ise SONRAKİ kovadır (eski `Math.round` yarım kovada komşuya
 //     kayabiliyordu).
@@ -25,18 +27,22 @@ import type { DBStmtTrendPoint, SpanMetricSeries } from '@/lib/types';
 //     detay "Calls / s", reqps). Bölen kovanın MV'de KAPSANAN süresi: son
 //     kaba kova pencere sonunu aşıyorsa yalnız `to`dan önceki 5 dk'lık MV
 //     kovaları sayılır, yoksa son nokta yapay olarak düşük çizilirdi.
-//   · Errors → kova başına ADET (birim 'short'; başlık kova genişliğini
-//     söyler).
+//   · Errors → DAKİKA BAŞINA hata (v0.10.1525, operatör: "Errors dakika başı
+//     okunsun"): kova adedi / kapsanan dakika. 1 dk kovada adedin kendisi;
+//     kaba kovada dakika ortalaması — başlık kova genişliğini söyler.
 //   · P95 → ms; çağrısız kova NaN (= grafikte BOŞLUK). "0 ms" ölçülmemiş
 //     bir gecikmeyi ölçülmüş gibi gösterirdi — eski şeridin çukurları.
 
-const GRAIN_SEC = 300;
+/** Eski sunucunun (trendGrainSec göndermeyen) MV taneciği. */
+export const DEFAULT_GRAIN_SEC = 300;
 const MAX_BUCKETS = 400;
 
 export interface StmtTrendGrid {
-  /** Izgara başlangıcı, unix sn (from'un 5 dk tabanı). */
+  /** Izgara başlangıcı, unix sn (from'un kaynak-tanecik tabanı). */
   startSec: number;
   bucketSec: number;
+  /** Kaynağın kova taneciği, sn (60 | 300). */
+  grainSec: number;
   /** Kova başlangıçları, unix NANOSANİYE (SpanMetricSeries sözleşmesi). */
   tsNs: number[];
   /** Kovanın MV'de kapsanan süresi, sn (rate böleni). */
@@ -63,11 +69,12 @@ export function stmtBucketIndex(tsNs: number, startSec: number, bucketSec: numbe
   return i >= 0 && i < n ? i : -1;
 }
 
-/** Kovanın MV kapsamı: [s, min(s+B, to)) aralığına başlayan 5 dk'lık MV kovaları. */
-export function stmtBucketCoveredSec(bucketStartSec: number, bucketSec: number, toSec: number): number {
+/** Kovanın MV kapsamı: [s, min(s+B, to)) aralığına başlayan kaynak kovaları (grain sn). */
+export function stmtBucketCoveredSec(bucketStartSec: number, bucketSec: number, toSec: number, grainSec = DEFAULT_GRAIN_SEC): number {
   const span = Math.min(bucketSec, toSec - bucketStartSec);
   if (span <= 0) return 0;
-  return Math.min(bucketSec, Math.ceil(span / GRAIN_SEC) * GRAIN_SEC);
+  const g = grainSec > 0 ? grainSec : DEFAULT_GRAIN_SEC;
+  return Math.min(bucketSec, Math.ceil(span / g) * g);
 }
 
 export function stmtTrendGrid(
@@ -75,15 +82,17 @@ export function stmtTrendGrid(
   fromNs: number,
   toNs: number,
   bucketSec: number,
+  grainSec: number = DEFAULT_GRAIN_SEC,
 ): StmtTrendGrid | null {
   if (!(bucketSec > 0) || !(toNs > fromNs)) return null;
-  const startSec = Math.floor(fromNs / 1e9 / GRAIN_SEC) * GRAIN_SEC;
+  const grain = grainSec > 0 ? grainSec : DEFAULT_GRAIN_SEC;
+  const startSec = Math.floor(fromNs / 1e9 / grain) * grain;
   const toSec = toNs / 1e9;
   let n = Math.ceil((Math.ceil(toSec) - startSec) / bucketSec);
   if (n < 1) n = 1;
   if (n > MAX_BUCKETS) n = MAX_BUCKETS;
   const g: StmtTrendGrid = {
-    startSec, bucketSec,
+    startSec, bucketSec, grainSec: grain,
     tsNs: new Array<number>(n),
     coveredSec: new Array<number>(n),
     calls: new Array<number>(n).fill(0),
@@ -93,7 +102,7 @@ export function stmtTrendGrid(
   for (let i = 0; i < n; i++) {
     const [s] = stmtBucketBounds(startSec, bucketSec, i);
     g.tsNs[i] = s * 1e9;
-    g.coveredSec[i] = stmtBucketCoveredSec(s, bucketSec, toSec);
+    g.coveredSec[i] = stmtBucketCoveredSec(s, bucketSec, toSec, grain);
   }
   for (const p of points) {
     const i = stmtBucketIndex(p.tsNs, startSec, bucketSec, n);
@@ -120,7 +129,8 @@ export function stmtTrendSeries(g: StmtTrendGrid, toNs: number): StmtTrendSeries
     [{ groupKey: [label], points: g.tsNs.map((t, i) => ({ time: t, value: vals(i) })) }];
   return {
     callsPerSec: one('Calls / s', i => (g.coveredSec[i] > 0 ? g.calls[i] / g.coveredSec[i] : NaN)),
-    errors: one('Errors', i => g.errors[i]),
+    // v0.10.1525 — dakika başına (kova adedi / kapsanan dakika).
+    errors: one('Errors / min', i => (g.coveredSec[i] > 0 ? g.errors[i] / (g.coveredSec[i] / 60) : NaN)),
     p95Ms: one('P95', i => g.p95Ms[i]),
     xRange: { from: g.startSec, to: toNs / 1e9 },
     hasCalls: g.calls.some(v => v > 0),

@@ -3719,6 +3719,12 @@ export interface SpanRow {
   httpRoute?: string;
   httpStatus?: number;
   peerService?: string;
+  // v0.10.1525 — DB span kimliği (chstore.StampDBSpanIdentity, yalnız trace
+  // yükünde): Databases sayfalarının üçlüsü (dbSystem + dbInstance + dbName)
+  // ve ifade kimliği (stmt_hash, ondalık dizge). DB olmayan span'de yok.
+  dbInstance?: string;
+  dbName?: string;
+  dbStmtHash?: string;
 }
 
 // v0.10.275 — chstore.TraceNode / TraceServiceSummary / TraceAnalysis birebir.
@@ -8777,6 +8783,10 @@ export interface DBStmtDetail {
   // Bucket width of the trend series in seconds (5m-grain multiple) —
   // densify sparse buckets against [fromNs, toNs] with this step.
   trendBucketSec?: number;
+  // v0.10.1525 — kaynağın kova ızgarası (60 = db_statement_summary_1m, ≤ 6 sa
+  // pencere; 300 = 5m) — ızgara başı buna hizalanır. Yoksa (eski sunucu) 300.
+  trendGrainSec?: number;
+  trendSource?: 'db_statement_summary_1m' | 'db_statement_summary_5m';
   callers: DBStmtCaller[] | null;
   exemplars: { slowTraceId?: string; errorTraceId?: string } | null;
 }

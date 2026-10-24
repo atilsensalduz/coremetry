@@ -29,12 +29,12 @@ func TestTraceRouteLivesInRegistry(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(src)
-	for _, want := range []string{`"GET /api/traces/{id}"`, `key := "trace:v3:" + id`, `out["analysis"] = chstore.BuildTraceAnalysis(spans, capped)`} {
+	for _, want := range []string{`"GET /api/traces/{id}"`, `key := "trace:v4:" + id`, `chstore.StampDBSpanIdentity(spans)`, `chstore.StampDBSpanIdentity(rows)`, `out["analysis"] = chstore.BuildTraceAnalysis(spans, capped)`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("trace_routes.go eksik: %q", want)
 		}
 	}
-	if strings.Contains(body, `"trace:v2:"`) {
+	if strings.Contains(body, `"trace:v2:"`) || strings.Contains(body, `"trace:v3:"`) {
 		t.Error("eski cache anahtarı kalmış")
 	}
 }

@@ -329,6 +329,12 @@ type SpanRow struct {
 	HTTPRoute          string            `json:"httpRoute,omitempty"`
 	HTTPStatus         uint16            `json:"httpStatus,omitempty"`
 	PeerService        string            `json:"peerService,omitempty"`
+	// v0.10.1525 — DB span kimliği (db_span_identity.go): Databases sayfalarının
+	// üçlüsü + ifade kimliği, YALNIZ trace yükünde damgalanır
+	// (StampDBSpanIdentity). Ingest INSERT'i bu alanları anmaz.
+	DBInstance string `json:"dbInstance,omitempty"`
+	DBName     string `json:"dbName,omitempty"`
+	DBStmtHash string `json:"dbStmtHash,omitempty"`
 }
 
 type LogRow struct {

@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { DependenciesTable, type DepRow } from '@/components/DependenciesTable';
 import { depRowMatches, normalizeDepSearch } from '@/lib/depRowFilter';
 import { databaseDetailHref, legacyDatabaseRowTarget } from '@/pages/databases/databaseParam';
+import { useT } from '@/lib/i18n';
 import { receiverHorizonNotice, spanHorizonNotice } from '@/pages/databases/horizonNotice';
 import { rowProblemSummary } from '@/pages/databases/databaseProblems';
 import { api } from '@/lib/api';
@@ -55,6 +56,7 @@ import { PageShell } from '@/components/ui/PageShell';
 // vs receiver-driven) from colliding in one list; each
 // audience scans the panel that matches their question.
 export default function DatabasesPage() {
+  const tr = useT(); // v0.10.1525 — "All statements" / "Tüm sorgular"
   const [range, setRange] = useUrlRange(DEFAULT_RANGE_PRESET);
   // v0.9.86 (operatör talebi) — db tipi (?dbsys=) + db.name (?dbname=)
   // filtreleri. URL source-of-truth (replace:true, yabancı paramlar
@@ -334,8 +336,8 @@ export default function DatabasesPage() {
               color: 'var(--accent2)', textDecoration: 'none',
               display: 'inline-flex', alignItems: 'center', gap: 6,
             }}
-            title="Cross-service slow-query catalog — what's burning the most DB time globally">
-            <Turtle size={14} strokeWidth={1.75} /> Slow queries →
+            title="Every statement class across services, sorted by total DB time (server-side, all pages)">
+            <Turtle size={14} strokeWidth={1.75} /> {tr('stmt.allStatements')} →
           </Link>
         </div>
         {/* v0.9.405 (desen paritesi) — Spinner yerine tablo iskeleti:
@@ -511,7 +513,7 @@ export default function DatabasesPage() {
                 title={`En pahalı ifadeler${dbname ? ` · ${dbname}` : dbsys ? ` · ${dbsys}` : ''} (ilk 10)`}
                 subtitle="Toplam süreye göre; satır tıkı ifade detayını açar ("
                 code="?stmt="
-                tail=" derin-linklenebilir). Tam katalog: Slow queries →" />
+                tail={` derin-linklenebilir). Tam katalog: ${tr('stmt.allStatements')} →`} />
               {/* v0.9.874 (tutarlılık denetimi MT12) — ÖNCE KAP, SONRA
                   PRİMİTİF. Bu tablo `.tbl` sınıfıyla çiziliyordu; o sınıf
                   globals.css'te TANIMSIZ (ölü sınıf, okuyanı yanıltıyordu)

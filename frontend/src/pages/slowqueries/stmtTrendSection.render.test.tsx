@@ -76,9 +76,9 @@ describe('StmtTrendSection — standart zaman grafiği (v0.10.1058)', () => {
   it('üç CorePanelMulti: başlık + birim + rol', async () => {
     const panels = await render(<StmtTrendSection detail={detail()} />);
     expect(panels.map(p => [p.title, p.unit, p.items[0].role])).toEqual([
-      ['Calls / s', 'reqps', 'data'],
-      ['Errors / 5m', 'short', 'error'],
-      ['P95 latency', 'ms', 'data'],
+      ['Calls / s · 5 dk', 'reqps', 'data'],
+      ['Errors / min · 5 dk', 'short', 'error'],
+      ['P95 latency · 5 dk', 'ms', 'data'],
     ]);
     for (const p of panels) expect(p.height).toBe(150);
   });
@@ -90,12 +90,26 @@ describe('StmtTrendSection — standart zaman grafiği (v0.10.1058)', () => {
       [0, 300, 600, 900, 1200, 1500].map(o => (T0 + o) * 1e9));
     // 600 çağrı / 300 s = 2 req/s; boş kova 0.
     expect(calls.map(p => p.value)).toEqual([2, 0, 0, 1, 0, 0]);
-    expect(panels[1].items[0].series[0].points[0]).toEqual({ time: T0 * 1e9, value: 3 });
+    // v0.10.1525 — hata dakika başı: 3 / 5 dk.
+    expect(panels[1].items[0].series[0].points[0]).toEqual({ time: T0 * 1e9, value: 0.6 });
     const p95 = panels[2].items[0].series[0].points;
     expect(p95[0].value).toBe(11);
     expect(Number.isNaN(p95[1].value)).toBe(true); // ölçülmemiş → boşluk
     // Eksen: ızgara başı (from'un 5 dk tabanı) → to, unix sn.
     expect(panels[0].xRange).toEqual({ from: T0, to: T0 + 1800 });
+  });
+
+  it('v0.10.1525 — 1 dk kaynak: başlık "1 dk", ızgara 1 dk tabanından', async () => {
+    const panels = await render(<StmtTrendSection detail={detail({
+      fromNs: (T0 + 150) * 1e9, toNs: (T0 + 600) * 1e9,
+      trend: [{ tsNs: (T0 + 120) * 1e9, calls: 120, errors: 2, avgMs: 2, p95Ms: 9 }],
+      trendBucketSec: 60, trendGrainSec: 60, trendSource: 'db_statement_summary_1m',
+    })} />);
+    expect(panels.map(p => p.title)).toEqual(['Calls / s · 1 dk', 'Errors / min · 1 dk', 'P95 latency · 1 dk']);
+    const calls = panels[0].items[0].series[0].points;
+    expect(calls[0]).toEqual({ time: (T0 + 120) * 1e9, value: 2 });
+    expect(panels[1].items[0].series[0].points[0].value).toBe(2);
+    expect(panels[0].xRange).toEqual({ from: T0 + 120, to: T0 + 600 });
   });
 
   it('tek senkron grubu + zoom kancaları üç grafiğe de iner', async () => {

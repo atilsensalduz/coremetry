@@ -7,7 +7,7 @@ description: Coremetry ClickHouse guardrails — decision tree for new tables/MV
 
 Ölçek sayımları kayar — kullanmadan önce yeniden say: span MV'leri
 `canonicalMVs()` (`internal/chstore/store.go`; taban 2026-09-26: 22 →
-2026-10-04: 23, `db_summary_1m` eklendi),
+2026-10-04: 23, `db_summary_1m` eklendi → v0.10.1525: +`db_statement_summary_1m`),
 operatör katmanı `grep -ci 'CREATE MATERIALIZED VIEW' migrations/*.sql`
 (taban: 16). Prod dış Distributed CH (2 shard × 2 replica), lokal chc-0/chc-1.
 
@@ -229,9 +229,11 @@ Alternatif (yıkıcı olmayan): inner-table `ALTER` + `MODIFY QUERY` —
 > |---|---|---|---|---|
 > | spanmetrics | `spanmetrics_1m` (+10s/1s) | `operation_summary_5m` | 30g | `selectMetricTier` (metricresolve.go) |
 > | db (v0.10.1095) | `db_summary_1m` | `db_summary_5m` | **7g** | `dbTrendGrainFor` (db_detail_trend.go): pencere ≤ 3 sa **ve** `sourceCovers(priorSrcDBSummary1m)` → 1m, aksi 5m |
+> | statement (v0.10.1525) | `db_statement_summary_1m` | `db_statement_summary_5m` | **7g** | `dbStmtTrendGrainFor` (dbstmt_detail.go): pencere ≤ 6 sa **ve** `sourceCovers(priorSrcDBStmtSummary1m)` → 1m, aksi 5m. ORDER BY **stmt_hash ile başlar** (kardeşten farklı — filtre öznesi); `mvGuardedOff` kapısı kardeşle aynı |
 >
-> `db_summary_1m` yalnız /database detay grafiklerini besler; karolar, /databases sparkline'ı,
-> db-health ve Statement detayı 5m'de. Geriye dolmaz — okuyucu ilk kovayı ölçer, kapsamıyorsa 5m.
+> `db_summary_1m` yalnız /database detay grafiklerini besler; karolar, /databases sparkline'ı ve
+> db-health 5m'de. `db_statement_summary_1m` yalnız Statement detayının TRENDİNİ besler (özet /
+> çağıranlar / exemplar 5m). İkisi de geriye dolmaz — okuyucu ilk kovayı ölçer, kapsamıyorsa 5m.
 
 ### DAR vs GENİŞ
 

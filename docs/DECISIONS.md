@@ -11655,3 +11655,44 @@ monte olur ve kayıtlı görünüm listesini bir kez daha çeker (ucuz PG okumas
 
 **Geri alma.** Varsayılan: `STRIP_STAT_DEFAULT = 'p50'` + iki test. Satır: `<SavedViewsBar page="traces" right={…Reset/CSV…} />`
 geri. Tamamı: `git revert <sha>` + yeni etiket; yalnız frontend, şema yok.
+
+
+## 2026-10-24 — v0.10.1525 — DB span → Databases/sorgu linkleri; "Tüm sorgular" sunucu sıralı; Statement trendi 1 dk
+
+**Bağlam.** Operatör (prod ekran görüntüleri): (1) Trace span detayında DATABASE grubu (db.system, db.name, db.statement,
+server.address…) düz metin — `service.name` gibi kendi sayfasına gitsin; (2) ifade sayfalarının kırıntısı/başlığı "Top statements"
+ama liste eşiksiz; (3) Statement detayının Calls/s · Errors · P95 grafikleri 5 dk kova — "düzgün/doğru değil".
+
+**Karar 1 — kimlik sunucuda.** Databases detayının kimliği üçlü (system, instance, dbName) ve `instance` altı basamaklı bir coalesce;
+ifade kimliği `xxHash64(normalize(db.statement))`. İkisini ön yüzde yeniden türetmek (xxHash64 + RE2 semantiğinin TS kopyası)
+ikinci bir normalleştirici olurdu → reddedildi. Ayrı bir arama ucu da reddedildi (span başına tur). Seçilen: trace yükü
+(`/api/traces/{id}`, bundle) her DB span'ine `dbInstance` / `dbName` / `dbStmtHash` damgalar (`chstore.StampDBSpanIdentity`;
+zincir db_summary_5m/1m DDL'inden test edilir, hash `DBStmtHash` — dbstmt.go parite sözleşmesi). Önbellek anahtarları
+`trace:v4`, `trace-bundle:v2`. Ön yüz (`lib/dbSpanLinks.ts`) yalnız damgayı okur: db.system → `/databases?dbsys=`,
+db.name/db.namespace/server.address/db.connection_string → `/database` (Databases listesinin `databaseDetailHref`'i),
+db.statement/db.query.text → `/databases/statement?stmt=<hash>|<system>`, db.sql.table → ifade listesi `?q=<tablo>` (SQL araması).
+Damgasız span'de link yok. Başlık satırında "Database'de aç" · "Sorgu detayı" çifti; pencere span ±15 dk. Kopya düğmeleri yerinde.
+
+**Karar 2 — "Tüm sorgular".** Liste zaten top-N değildi (v0.10.1162 sunucu sayfalı, eşiksiz); ama kolon sıralaması yalnız yüklü 200
+satırı istemcide diziyordu. Artık DataTable `serverSort`: `/api/databases/statements?sort=&dir=` beyaz listeli (`totalMs` varsayılan
+↓, count/avg/p50/p95/p99/max/errors/service/engine/db), MV yolunda ORDER BY + LIMIT/OFFSET, ham yolda (≤ 500 tavanlı) Go'da aynı
+anahtar. FE↔BE anahtar listesi Go testinde eşlenir. Başlık + kırıntı + üç giriş linki `stmt.allStatements` ("All statements" /
+"Tüm sorgular"); /database detayındaki ilk-10 kartı gerçekten top-N olduğu için "Top statements" kaldı.
+
+**Karar 3 — 1 dk ikiz MV.** `db_statement_summary_1m` (canonicalMVs sonu, TTL 7 g, yalnız trend'in dört state'i, ORDER BY
+**stmt_hash ile başlar** — filtre öznesi; kardeş `(db_system, db_name, service, stmt_hash)` ile başlıyor ve 1 dk hacimde pencerenin
+tüm ifadelerini tarardı). db_summary_1m emsali: `mvGuardedOff` (db_stmt_hash kapısı) + defansif drop, highVolumeTables +
+defaultShardPolicy + tablesWithoutTraceID gün-bir, purge listesi; geriye dolmaz, `sourceCovers(priorSrcDBStmtSummary1m)` ilk kovayı
+ölçer, kapsamıyorsa / tablo yoksa (küme kipinde ertelenmiş DDL) sessizce 5m → iki boot gerekmez. Seçici `dbStmtTrendGrainFor`:
+pencere ≤ 6 sa ve kapsıyor → 60 sn kova (≤ 360 nokta < LIMIT 400), aksi 5m + bugünkü kabalaşma. Özet/çağıranlar/exemplar 5m'de.
+Yük `trendGrainSec`/`trendSource` taşır; ızgara başı ona hizalı; başlıklar "· 1 dk"/"· 5 dk"; Errors dakika başına. Ham span okuması
+(≤ 6 sa) reddedildi: `spans` ORDER BY (service, time) stmt_hash'i budamaz, 6 sa = tüm DB span'lerinin db_stmt_hash kolonu.
+Yerel ölçüm (clickhouse local, 20 M span, 2 000 ifade × 6 sa): 1m MV 668 k satır vs 5m 134 k (5×), disk 110 MB vs 107 MB (+%3 —
+tDigest state'i baskın); tek ifade 6 sa trend okuması 1m'de 1 granül / 8 192 satır, 5m kardeşte 17 granül / 134 k satır.
+
+**Bedeller.** Ingest'te DB span'i başına bir MV satırı daha (1 dk kova, ~5× 5m satır sayısı, 7 g). 1m tablosu kurulduğu andan dolar;
+ilk ≤ 6 sa pencerelerde 5m görünür. Trace yükü DB span'i başına ≤ 3 kısa alan + 8 KiB'lık tek normalleştirme geçişi.
+
+**Geri alma.** `git revert <sha>` + yeni etiket. MV'yi kaldırmak için ek olarak (küme kipinde inner önce):
+`DROP TABLE IF EXISTS db_statement_summary_1m [ON CLUSTER …] SETTINGS max_table_size_to_drop=0` (+ `_local`); okuyucu tablo
+yokken zaten 5m'e düşer, yani revert'siz drop da güvenli.
