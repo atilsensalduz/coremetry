@@ -3062,7 +3062,7 @@ export const api = {
   // v0.10.1491 — operasyon kartı (R3 trace yarısı): son ≤200 trace'ten
   // derinlik ≤3 çağrı ağacı. İki ham geçiş + MV, sunucu önbelleği 60 sn;
   // açılışta çekilir, yoklanmaz.
-  operationCard: (params: { service: string; path: string; from: number; to: number; sig?: '1'; entry?: 'rpc'; env?: string; cluster?: string; sample?: 'random' }, signal?: AbortSignal) =>
+  operationCard: (params: { service: string; path: string; from: number; to: number; sig?: '1'; entry?: 'rpc'; env?: string; cluster?: string; sample?: 'random'; code?: '1' }, signal?: AbortSignal) =>
     get<OperationCardPayload>(`/api/endpoints/operation-card?${qs(params)}`, signal),
   // v0.9.839 — "Who calls this endpoint" (operator ask). Same columns
   // as the /databases caller table. SAMPLED: no MV pairs route with

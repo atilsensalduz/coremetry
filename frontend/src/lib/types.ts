@@ -6114,8 +6114,63 @@ export interface OperationCardPayload {
   tree: OpCallTree | null;
   treeError?: string;
   windowEdgesNote?: string;
-  /** R4 yuvası (kod yarısı) — bugün her zaman null. */
-  code: null;
+  /** Kod yarısı (v0.10.1506, R4) — yalnız `code=1` isteğinde dolu, aksi hâlde null. */
+  code: OperationCardCode | null;
+}
+
+// OperationCardCode — v0.10.1506 (operasyon kartı R4, kod yarısı).
+// Go: internal/api/operation_card_code.go operationCardCodeDTO +
+// internal/devops/operation_card*.go OperationCardEntry / DTOField /
+// CallSite. Kod GÖVDESİ YOK (karar 8): yalnız konum (dosya:satır, DevOps
+// linki), imza, DTO alan adı + tipi, çağrı yerinin alıcı.metot'u ve koddaki
+// literal rota / topic.
+export interface OperationCardEntry {
+  path: string;
+  fromLine: number;
+  toLine: number;
+  /** Tek satırlık imza (gövde değil). */
+  signature: string;
+  url?: string;
+  /** operation (op kodu anotasyonu) | route (HTTP mapping) | rpc (gRPC ImplBase). */
+  found: 'operation' | 'route' | 'rpc' | string;
+}
+export interface DTOField {
+  owner: string;
+  name: string;
+  type: string;
+  /** Tipi bir uygulama tipi: alanları ayrıca (owner = o tip) listelenir. */
+  nested?: boolean;
+}
+export interface CallSite {
+  path: string;
+  line: number;
+  kind: 'http' | 'grpc' | 'db' | 'messaging' | string;
+  /** alıcı.metot — "paymentsClient.authorize". */
+  callee: string;
+  /** Koddaki LİTERAL rota / topic (yoksa yok). */
+  target?: string;
+  /** @FeignClient(name) — servis adı ipucu. */
+  service?: string;
+  /** tree.children indeksi; -1 = trace'te eşleşen çağrı yok. */
+  matchedChild: number;
+  url?: string;
+}
+export interface OperationCardCode {
+  /** devops CodeOutcome (ok | partial | tree-miss | repo-unresolved | catalog-error |
+   *  unconfigured | deadline | …) ya da 'search-off' (Code Search kapalı). */
+  outcome: string;
+  reason?: string;
+  repo?: string;
+  branch?: string;
+  source?: string;
+  browseUrl?: string;
+  version?: string;
+  commit?: string;
+  entry: OperationCardEntry | null;
+  request: DTOField[];
+  response: DTOField[];
+  callSites: CallSite[];
+  stats: { fetched: number; searches: number };
 }
 
 // EndpointCallers — v0.9.839. "Who calls this endpoint", the panel the

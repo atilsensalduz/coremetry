@@ -36,10 +36,11 @@ package api
 // CH hatası loga, viewer'a değil), pencere sayısı okunamazsa windowEdges []
 // + not. 500 yalnız iptalde (writeErr → 499).
 //
-// R4 YUVASI. `code` alanı bugün HEP null; kod yarısı (devops.FetchOperation-
-// Card, Azure Code Search def:/ref:/class: filtreleri — plan sonundaki
-// operatör kararı) ?code=1 dalında bu alana gelecek. Anahtar code bayrağını
-// şimdiden taşır ki R4 açıldığında eski girdi yeni cevabı zehirlemesin.
+// R4 (v0.10.1506). `code` alanı code=1 isteğinde kod yarısını taşır
+// (operation_card_code.go: devops.FetchOperationCard, Azure Code Search
+// def:/class: filtreleri — plan sonundaki operatör kararı); aksi hâlde null.
+// Anahtar code bayrağını taşır: iki cevap ayrı önbellek girdisidir ve
+// code=1 trace yarısını code=0 girdisinden okur (CH'ye ikinci kez gitmez).
 
 import (
 	"context"
@@ -75,7 +76,7 @@ type operationCardParams struct {
 	Entry         string // http | rpc
 	Env, Cluster  string
 	Sample        string // slow | random
-	Code          bool   // R4 yuvası
+	Code          bool   // R4: kod yarısı (operation_card_code.go)
 	From, To      time.Time
 	Clamped       bool
 }
@@ -160,8 +161,9 @@ type operationCardPayload struct {
 	TreeError string              `json:"treeError,omitempty"`
 	// WindowEdgesNote — pencere sayısı neden yok (şekil kipi / okuma hatası).
 	WindowEdgesNote string `json:"windowEdgesNote,omitempty"`
-	// Code — R4 yuvası (kod yarısı). R3'te her zaman null.
-	Code any `json:"code"`
+	// Code — kod yarısı (v0.10.1506, R4; operation_card_code.go): yalnız
+	// code=1 isteğinde dolu, aksi hâlde null. Kod GÖVDESİ taşımaz.
+	Code *operationCardCodeDTO `json:"code"`
 }
 
 // operationCardReader — kartın iki okuyucusu (*chstore.Store; testte sahte).
@@ -244,6 +246,9 @@ func (s *Server) getOperationCard(w http.ResponseWriter, r *http.Request) {
 	}
 	s.serveCached(w, r, operationCardKey(p), operationCardTTL, func(ctx context.Context) (any, error) {
 		// Verilen ctx kullanılır (v0.8.319: istek bağlamı SWR tazelemesini öldürür).
+		if p.Code {
+			return s.operationCardWithCode(ctx, p)
+		}
 		return buildOperationCard(ctx, s.store, p)
 	})
 }

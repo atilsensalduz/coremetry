@@ -355,6 +355,12 @@ type MethodWindow struct {
 	Body string
 	// Lines — metodun TAM satır sayısı (pencere kırpıldıysa > pencere).
 	Lines int
+	// Header / BodyLine (v0.10.1506, operasyon kartı R4) — bildirimin
+	// anotasyonsuz başlığı (değiştiriciler + tip + ad + parametreler, '{'
+	// öncesi; ham kaynak) ve gövdeyi açan '{' satırı. Kart imzayı ve çağrı
+	// yerlerinin MUTLAK satırını bunlardan kurar; mevcut çağıranlar okumaz.
+	Header   string
+	BodyLine int
 }
 
 // Truncated — pencere metodun tamamını taşımıyor mu?
@@ -426,7 +432,7 @@ func methodWindowFrom(src, masked string, annoStart, declStart, maxLines int) (M
 		to = from + maxLines - 1
 	}
 	w := CodeWindow{FromLine: from, ToLine: to, Content: numberedLines(lines, from, to)}
-	return MethodWindow{Window: w, Body: src[open+1 : closeAt], Lines: total}, true
+	return MethodWindow{Window: w, Body: src[open+1 : closeAt], Lines: total, Header: src[declStart:open], BodyLine: lineAt(src, open)}, true
 }
 
 // AnnotatedMethodWindow — SAF, tablo-testli (v0.10.1330): kaynakta

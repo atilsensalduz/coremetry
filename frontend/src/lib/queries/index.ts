@@ -65,7 +65,7 @@ export { useOperatorEvents, useDeleteOperatorEvent, useNotificationLog } from '.
 export { useInbox, useInboxCount } from './inbox';
 export { useProfiles, useProfileHotspots } from './profiles';
 export { useSlowQueries, useDBStatements, useDBStmtDetail } from './databases';
-export { useEndpoints, useEndpointDetail, useEndpointSplit, useEndpointDownstream, useEndpointCallers, useOperationCard } from './endpoints';
+export { useEndpoints, useEndpointDetail, useEndpointSplit, useEndpointDownstream, useEndpointCallers, useOperationCard, useOperationCardCode } from './endpoints';
 export { useMessagingClients, useServiceKafkaClients, useKafkaClientsTab } from './messaging';
 export {
   useEntityClusters, useEntityEnabled, useEntities, useEntity, useEntityServices, useEntityMetrics, useEntityContainers, useEntityLatency,

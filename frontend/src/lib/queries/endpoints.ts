@@ -110,3 +110,20 @@ export function useOperationCard(
     staleTime: 60_000,
   });
 }
+
+// v0.10.1506 — operasyon kartının KOD yarısı (R4): aynı uç `code=1`. Azure
+// DevOps okuması (≤4 Code Search + ≤8 dosya) — YALNIZ "Kod" bölümü açılınca
+// (open=false → 0 istek; ES/DevOps maliyet disiplini), staleTime sunucu
+// TTL'i. Yanıt kod gövdesi taşımaz.
+export function useOperationCardCode(
+  params: Parameters<typeof api.operationCard>[0] | null,
+  open: boolean,
+) {
+  const p = params ? { ...params, code: '1' as const } : null;
+  return useQuery({
+    queryKey: ['endpoints', 'operation-card', 'code', p],
+    queryFn: async ({ signal }) => api.operationCard(p!, signal),
+    enabled: open && p !== null,
+    staleTime: 60_000,
+  });
+}

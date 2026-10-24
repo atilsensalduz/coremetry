@@ -12,6 +12,7 @@ import { serviceHref } from '@/lib/serviceHref';
 import type { OpCallEdge } from '@/lib/types';
 import type { EndpointRef } from './endpointParam';
 import { OPCARD_ANCHOR } from './links';
+import { OperationCardCodeSection } from './OperationCardCodeSection';
 import {
   opCallTreeCols, targetLabel, kindGlyph, errBadgeClass, indentPx, windowEdgesLine,
 } from './opCallTreeCols';
@@ -30,20 +31,21 @@ import {
 // Durumlar tablonun İÇİNDE (T12): yükleniyor / hata / boş (iki ayrı boş:
 // örneklemde trace yok ≠ trace var ama alt çağrı yok).
 //
-// R4 YUVASI: kod yarısı (giriş metodu imzası, istek/cevap alan adları +
-// tipleri, çağrı yerleri) bu kartın altına `data-opcard-slot="code"`
-// bölmesine gelecek; bugün yalnız dürüst bir satır.
+// R4 (v0.10.1506): kod yarısı (giriş metodu imzası, istek/cevap alan adları
+// + tipleri, çağrı yerleri) kartın altındaki "Kod" açılır bölümünde
+// (OperationCardCodeSection, `data-opcard-slot="code"`); açılmadan istek yok.
 export function OperationCardSection({ refObj, entry, from, to, env, cluster }: {
   refObj: EndpointRef; entry?: 'rpc'; from: number; to: number; env?: string; cluster?: string;
 }) {
   const tr = useT();
-  const q = useOperationCard({
+  const params = useMemo(() => ({
     service: refObj.service, path: refObj.path, from, to,
     ...(refObj.sig ? { sig: '1' as const } : {}),
     ...(entry ? { entry } : {}),
     ...(env ? { env } : {}),
     ...(cluster ? { cluster } : {}),
-  });
+  }), [refObj.service, refObj.path, refObj.sig, from, to, entry, env, cluster]);
+  const q = useOperationCard(params);
   const d = q.data;
   const tree = d?.tree ?? null;
   const rows = useMemo(() => tree?.children ?? [], [tree]);
@@ -107,7 +109,7 @@ export function OperationCardSection({ refObj, entry, from, to, env, cluster }: 
             <DataTableHead dt={dt} />
             <tbody>
               {!showRows ? <DataTableState dt={dt} {...tableState} /> : dt.sortedRows.map(r => (
-                <tr key={r.key} data-depth={r.depth}>
+                <tr key={r.key} data-depth={r.depth} data-opcard-key={r.key}>
                   <td title={r.target}>
                     <span className="dt-trunc" style={{ paddingLeft: indentPx(r.depth) }}>
                       <span aria-hidden="true" style={{ color: 'var(--text3)', marginRight: 6 }}>
@@ -151,10 +153,8 @@ export function OperationCardSection({ refObj, entry, from, to, env, cluster }: 
             {d?.windowEdgesNote && <div>{d.windowEdgesNote}</div>}
           </div>
         )}
-        {/* R4 YUVASI — kod yarısı (devops.FetchOperationCard) buraya gelir. */}
-        <div data-opcard-slot="code" style={{ fontSize: 10.5, color: 'var(--text3)', marginTop: 8, borderTop: '1px dashed var(--border)', paddingTop: 6 }}>
-          {tr('endpoint.opcard.codeSlot')}
-        </div>
+        {/* v0.10.1506 — R4 kod yarısı: "Kod" açılır bölümü (açılınca code=1). */}
+        <OperationCardCodeSection params={params} treeRows={tree?.children} />
       </Card>
     </div>
   );

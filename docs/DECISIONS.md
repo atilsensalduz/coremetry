@@ -11119,3 +11119,34 @@ zaman aşımı / bellek / geçersiz / genel), sunucu metni ayrıntıda kalır. C
 değişmedi. MV yolu (çipsiz) değişmedi: kök operasyonu gösterir; ham yol daraltmada servisin giriş operasyonunu — bilinen fark.
 
 **Geri alma.** `git revert <sha>` + yeni etiket. Kalıcı veri/şema yok.
+## 2026-10-24 — v0.10.1506 — Operasyon kartı R4: kod yarısı (giriş metodu, DTO alanları, çağrı yerleri)
+
+**Karar.** `/endpoint` "Kod ve çağrılar" kartına "Kod" açılır bölümü geldi (plan-operation-card §2.3.2, R4; operatör
+"3'ü yap", 2026-10-24). Aynı uç, `GET /api/endpoints/operation-card?…&code=1` (yeni rota yok, api.go değişmedi):
+`internal/api/operation_card_code.go` depoyu `buildOperationCodeContext` ile AYNI kararla çözer (katalog pini
+fail-closed → ad konvansiyonu), `devops.FetchOperationCard` (`internal/devops/operation_card*.go`) giriş metodunu bulur
+(op kodu anotasyonu → HTTP rotası `RouteMethodWindow` ile DOĞRULANMIŞ Spring/JAX-RS mapping'i → gRPC `SvcImplBase`),
+imzadan istek/cevap DTO'larının alan ADI + TİPİNİ (bir seviye iç içe), giriş gövdesi + ≤3 çağrılandan çağrı yerlerini
+(http/grpc/db/messaging, dosya:satır, alıcı.metot, yalnız rota/topic biçimli literal, @FeignClient adı + mapping yolu)
+çıkarır ve trace yarısının giriş-çocuklarıyla eşler (`MatchCallSitesToChildren`: literal/Feign/grpc metot kanıtı, yoksa
+türünde tek-tek; belirsiz → -1). Trace yarısı code=0 önbellek girdisinden okunur, CH'ye ikinci kez gidilmez.
+
+**Code Search kod öğesi filtreleri (operatör kararı 2026-10-23 gece).** Tek sorgu kurucusu `devops.BuildCodeQuery`
+(`code_query.go`): `def:/ref:/class:/interface:/field:/method:` yalnız Java tanımlayıcısı alır (aksi HATA), düz metin
+her zaman tırnaklı ve içindeki `"`/`\`/kontrol karakterleri boşluk — telemetriden ya da koddan gelen hiçbir parça
+`repo:`/`proj:`/işleç ekleyemez. DTO dosyası: ağaçta `Tip.java` (ücretsiz) → `class:Tip` → düz metin; çağrılan dosyası
+ağaçta yoksa `def:metot "Tip"`. "Bu metodu kim kullanıyor?" (`ref:`) ve sohbet `search_code` `kind` kipi sonraki sürümde.
+
+**Sınırlar.** Kart başına ≤4 Code Search + ≤8 dosya, toplam `operationDeadline` (≤15 sn); devops sonucu 10 dk süreç-içi
+önbellekte, anahtar tüm girdiler (sunucu/koleksiyon/proje/depo/okunan ref/giriş türü/op/yöntem/rota/bütçe; çocuklar
+anahtarda değil, eşleme her istekte). API cevabı 60 sn `serveCached` (`code` bayrağı anahtarda). FE yalnız bölüm
+açılınca ister (kapalıyken 0 istek).
+
+**Gövde tarayıcıya gitmez (karar 8).** `operationCardCodeDTO` yalnız konum/imza/alan adı+tipi/alıcı.metot/literal
+taşır; `OperationCardCode.Windows` (satır numaralı kaynak) DTO'ya hiç kopyalanmaz, yalnız R5 anlatımı için (localOnly
+profil) bekler. R4 hiçbir modele istek atmaz. Pin: `TestOperationCardCodePayloadCarriesNoCodeBodies` (fixture'daki
+dize/SQL/payload/ilklendirici sabitleri JSON'da yok). Code Search kapalı → `outcome: search-off` + dürüst satır, DevOps'a
+0 istek; DevOps yok → `unconfigured`; katalog okunamadı → `catalog-error`, 0 istek.
+
+**Geri alma.** `git revert <sha>` + yeni etiket. Şema/ayar yok; önbellek girdileri 60 sn / 10 dk'da söner. FE bölümü
+kodla gider; code=1 isteği eski sunucuda `code: null` döner (bölüm "giriş bulunamadı" der, kırılmaz).

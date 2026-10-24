@@ -15,12 +15,15 @@ import type { OperationCardPayload, OpCallTree } from '@/lib/types';
 interface FakeQuery<T> { data: T | undefined; isPending: boolean; isError: boolean }
 let cardQ: FakeQuery<OperationCardPayload> = { data: undefined, isPending: true, isError: false };
 let lastParams: unknown = null;
+const codeOpen: boolean[] = [];
 
 vi.mock('@/lib/queries', async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
   return {
     ...mod,
     useOperationCard: (p: unknown) => { lastParams = p; return { ...cardQ, refetch: () => Promise.resolve() }; },
+    // v0.10.1506 — "Kod" bölümü kapalıyken sorgu devre dışı (ayrı testi: OperationCardCodeSection.test.tsx).
+    useOperationCardCode: (_p: unknown, open: boolean) => { codeOpen.push(open); return { data: undefined, isPending: true, isError: false }; },
   };
 });
 
@@ -136,6 +139,10 @@ describe('OperationCardSection — dolu', () => {
     expect(el.textContent).toMatch(/\+4/);
     expect(el.textContent).toMatch(/200/); // örneklem başlığı
     expect(el.querySelector('[data-opcard-slot="code"]')).not.toBeNull();
+    // Kod yarısı açılmadan istenmez; ağaç satırları odak anahtarı taşır.
+    expect(codeOpen.length).toBeGreaterThan(0);
+    expect(codeOpen.every(o => o === false)).toBe(true);
+    expect(rows[0].getAttribute('data-opcard-key')).toBe('svc');
   });
 
   it('kimlik parametreleri hook\'a gider (sig, entry=rpc, env, cluster)', () => {
