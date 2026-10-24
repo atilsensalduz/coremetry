@@ -10991,3 +10991,18 @@ localStorage yedeği kaldırıldı: param yokken sayfa her zaman satırlarla aç
 
 **Geri alma.** `git revert <sha>` + yeni etiket. URL sözleşmesi aynı (`panel=patterns|templates`); eski kurulum aynı
 linkleri panel açık olarak açar. Kaybolan tek şey localStorage'daki "panel açık kalsın" tercihi (geri alınca yeniden okunur).
+
+## 2026-10-24 — v0.10.1500 — CI: links_test /logs panel pin + sre byte-identical testi zamandan bağımsız
+
+**Karar.** Yalnız test; üretim kodu değişmedi. (1) v0.10.1499 `?panel=` okumasını `parseLogsView`'a (pages/logs/logsView.ts)
+taşıdı; Go ölü-param kapısı `TestLinkParamsAreActuallyReadByTheTargetPages` hâlâ Logs.tsx'te `parseLogsPanel(searchParams.get
+('panel'))` arıyordu ve 1499'un main CI + Release Gate'ini kırdı. Pin iki halkayı da çiviler: Logs.tsx paramı
+`parseLogsView` ile okur, logsView.ts daraltıcı `parseLogsPanel`'e iner. (2) `TestContextPackFlagOffRecordByteIdentical`
+(v0.10.1494) iki kaydı bayt bayt karşılaştırırken duvar saati ölçümü olan `durationMs` alanlarını (adım + kanıt) da
+karşılaştırıyordu; CI'da 1 ms ⇄ 0 ms farkıyla ara ara düşüyordu (1496/1497 Release Gate). Karşılaştırma öncesi iki
+kayıtta da `durationMs` 0'a sabitlenir; diğer zaman alanları enjekte edilen sabit saatten gelir.
+
+**Ders.** FE dilimlerinde de `go test ./...` koşulur: Go testleri frontend kaynağını pinleyebiliyor (internal/ai/insight,
+internal/api *_pin testleri).
+
+**Geri alma.** `git revert <sha>` (yalnız test dosyaları).

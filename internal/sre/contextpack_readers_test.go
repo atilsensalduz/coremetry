@@ -8,6 +8,7 @@ package sre
 import (
 	"context"
 	"errors"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -123,7 +124,15 @@ func TestContextPackFlagOffRecordByteIdentical(t *testing.T) {
 	}
 	b, _ := Encode(*withReaders)
 	// Summary.CallID / ExchangeID her koşuda rastgele — karşılaştırma dışında.
+	// v0.10.1500 — süre alanları DUVAR SAATİ ölçümüdür (adım ve kanıt
+	// `durationMs`): CI'da bir koşu 1 ms, diğeri 0 ms ölçebiliyordu ve test
+	// zaman yüzünden düşüyordu (v0.10.1496/1497 Release Gate). Karşılaştırma
+	// önce ikisini de 0'a sabitler; içerik (kanıt, sorgu, satır sayısı) aynen
+	// karşılaştırılır, üretim kodu değişmedi. Diğer zaman alanları (`at`,
+	// pencereler) enjekte edilen sabit saatten (t0) gelir — normalleştirilmez.
+	durationMs := regexp.MustCompile(`"durationMs":\d+`)
 	strip := func(s string, inv *Investigation) string {
+		s = durationMs.ReplaceAllString(s, `"durationMs":0`)
 		return strings.NewReplacer(inv.Summary.CallID, "", inv.Summary.ExchangeID, "").Replace(s)
 	}
 	if strip(a, plain) != strip(b, withReaders) {

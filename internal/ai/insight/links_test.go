@@ -578,10 +578,18 @@ func TestLinkParamsAreActuallyReadByTheTargetPages(t *testing.T) {
 		},
 		{
 			// v0.10.449 — `panel` bir GÖRÜNÜM ipucu: süzgeç okuyucusunda değil,
-			// sayfa okur (parseLogsPanel). Kart yazıyorsa sayfa okumalı.
+			// sayfa okur. Kart yazıyorsa sayfa okumalı.
+			// v0.10.1499 (Discover dilim 2) — panel görünüm anahtarı oldu: sayfa
+			// paramı parseLogsView ile okur, o da daraltıcı parseLogsPanel'e
+			// iner (pages/logs/logsView.ts). İki halka da çivili.
 			src:   "../../../frontend/src/pages/Logs.tsx",
-			reads: []string{`parseLogsPanel(searchParams.get('panel'))`},
-			note:  "/logs ?panel= okuyucusu (C8)",
+			reads: []string{`parseLogsView(searchParams.get('panel'))`},
+			note:  "/logs ?panel= okuyucusu (C8 → görünüm anahtarı)",
+		},
+		{
+			src:   "../../../frontend/src/pages/logs/logsView.ts",
+			reads: []string{`return parseLogsPanel(panel) ?? 'logs';`},
+			note:  "/logs görünüm okuyucusu parseLogsPanel'e iner",
 		},
 		{
 			// v0.9.1377 — pin TAŞINDI. v0.9.1374 ifade çekmecesini emekli
