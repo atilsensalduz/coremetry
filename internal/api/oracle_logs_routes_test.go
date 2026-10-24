@@ -96,3 +96,25 @@ func TestOracleLogsKeyCarriesAllInputs(t *testing.T) {
 		t.Errorf("önek: %s", base)
 	}
 }
+
+// v0.10.1493 (operatör-bildirimli) — body kolonu eşlenmemiş kaynakta Mesaj
+// sütunu boştu; kodlar yazılır, dolu body korunur.
+func TestOracleRowBodyFallsBackToCodes(t *testing.T) {
+	cases := []struct {
+		name string
+		in   chstore.OracleErrorRow
+		want string
+	}{
+		{"dolu body korunur", chstore.OracleErrorRow{Body: "ORA-01555", ChannelCode: "060203"}, "ORA-01555"},
+		{"üç kod + tip", chstore.OracleErrorRow{ChannelCode: "060203", OperationCode: "LOGIN_REGISTER", ErrorCode: "MCA-00070", ErrorType: "TFAIL"},
+			"channel.code=060203 · operation.code=LOGIN_REGISTER · error.code=MCA-00070 (TFAIL)"},
+		{"yalnız tip", chstore.OracleErrorRow{OperationCode: "OP", ErrorType: "TFAIL"}, "operation.code=OP · error.code=TFAIL"},
+		{"boşluk body boş sayılır", chstore.OracleErrorRow{Body: "  ", ErrorCode: "E1"}, "error.code=E1"},
+		{"hiçbiri yok", chstore.OracleErrorRow{}, ""},
+	}
+	for _, c := range cases {
+		if got := oracleRowBody(c.in); got != c.want {
+			t.Errorf("%s: got %q want %q", c.name, got, c.want)
+		}
+	}
+}

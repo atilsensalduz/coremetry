@@ -115,7 +115,7 @@ func oracleLogRowFromStore(r chstore.OracleErrorRow, sourceName string) oracleLo
 		Timestamp:          r.Time.UnixNano(),
 		Severity:           r.SeverityNum,
 		SeverityText:       r.SeverityText,
-		Body:               r.Body,
+		Body:               oracleRowBody(r),
 		ServiceName:        name,
 		TraceID:            r.TraceID,
 		SpanID:             r.SpanID,
@@ -123,6 +123,34 @@ func oracleLogRowFromStore(r chstore.OracleErrorRow, sourceName string) oracleLo
 		ResourceAttributes: res,
 		Origin:             "oracle",
 	}
+}
+
+// oracleRowBody — SAF (v0.10.1493, operatör-bildirimli): kaynakta body
+// kolonu eşlenmemişse Mesaj sütunu yalnız "oracle" rozetiyle boş
+// kalıyordu. Boş body yerine satırı tanıtan kodlar yazılır: kanal,
+// operasyon, hata (tip). Dolu body olduğu gibi kalır.
+func oracleRowBody(r chstore.OracleErrorRow) string {
+	if strings.TrimSpace(r.Body) != "" {
+		return r.Body
+	}
+	var parts []string
+	add := func(k, v string) {
+		if v = strings.TrimSpace(v); v != "" {
+			parts = append(parts, k+"="+v)
+		}
+	}
+	add("channel.code", r.ChannelCode)
+	add("operation.code", r.OperationCode)
+	errCode := strings.TrimSpace(r.ErrorCode)
+	if t := strings.TrimSpace(r.ErrorType); t != "" {
+		if errCode == "" {
+			errCode = t
+		} else {
+			errCode += " (" + t + ")"
+		}
+	}
+	add("error.code", errCode)
+	return strings.Join(parts, " · ")
 }
 
 // oracleSourceNames — id → ad; ad yoksa id düşer (satır adsız kalmaz).
