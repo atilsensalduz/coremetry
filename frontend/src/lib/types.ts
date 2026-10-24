@@ -5521,6 +5521,35 @@ export interface TimeRange {
 
 // ── Aggregation ──────────────────────────────────────────────────────────────
 
+// v0.10.1511 — /traces header column filter popover (GET /api/traces/column-values).
+// Mirrors chstore.TraceColumnValue: one value of a list column with the number
+// of traces carrying it inside the current window + filters. Never null
+// (server returns []).
+export interface TraceColumnValue {
+  value: string;
+  count: number;
+}
+
+// Query of one popover read. Scope fields are the Aggregated tab's params
+// (same names, same server parsing); col/key/q/limit pick the column.
+export interface TraceColumnValuesParams {
+  col: 'service' | 'operation' | 'attr';
+  key?: string;
+  q?: string;
+  limit?: number;
+  from: number;
+  to: number;
+  service?: string;
+  search?: string;
+  hasError?: boolean;
+  minMs?: string;
+  maxMs?: string;
+  env?: string;
+  cluster?: string;
+  filters?: string;
+  filterGroup?: string;
+}
+
 export interface AggregateRow {
   groupKey: string;
   groupExtra?: string;

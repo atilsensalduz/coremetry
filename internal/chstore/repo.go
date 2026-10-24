@@ -4346,54 +4346,10 @@ func (s *Store) GetTraceAggregate(ctx context.Context, f AggregateFilter) ([]Agg
 	}
 
 	// Per-trace stats first (subquery), then group across traces.
-	var wc whereClause
-	if !f.From.IsZero() {
-		// v0.5.356 — same bucket alignment as GetTraces above:
-		// keep the aggregate-view's window in sync with the
-		// operations table that surfaces operation-by-operation
-		// counts from the 5-min bucketed MV. Without this,
-		// click-from-operation → aggregate-view also missed the
-		// bucket-overlap traces.
-		fromAligned := f.From
-		if !f.To.IsZero() && f.To.Sub(f.From) > 5*time.Minute {
-			fromAligned = f.From.Truncate(5 * time.Minute)
-		}
-		wc.add("time >= ?", fromAligned)
-	}
-	if !f.To.IsZero() {
-		wc.add("time <= ?", f.To)
-	}
-	if f.Service != "" {
-		wc.add("service_name = ?", f.Service)
-	}
-	// v0.5.369 — search moved to inner HAVING below (cross-
-	// service trace-level match). See GetTraces commentary for
-	// the root-cause rationale.
-	// v0.10.258 — aynı sınıf: hata yüklemi başka span-düzeyi yüklem
-	// (search / attr filtreleri) varken WHERE'de kalırsa aynı span hem
-	// hata hem aranan olmak zorunda; iç HAVING'e taşınır (aşağıda).
-	if f.HasError && aggHasErrorSpanLocal(f) {
-		wc.add("status_code = 'error'")
-	}
-	// v0.8.383 — env narrowing, always ANDed (see AggregateFilter.Env).
-	if f.Env != "" {
-		wc.add("deploy_env = ?", f.Env)
-	}
-	// v0.9.943 (B3) — cluster narrowing. clusterExpr(): terfi edilmiş
-	// kolon varsa o, yoksa 6-anahtar derive — /services, /endpoints ve
-	// /databases ile AYNI soru. BOŞKEN conjunct YOK (H15).
-	addClusterConjunct(&wc, s.clusterExpr(), f.Cluster)
-	// v0.10.349 — 341'in ikizi: arama iç HAVING'de TRACE düzeyi, çip WHERE'de
-	// SPAN düzeyi → aynı span tuzağı. Arama varken çipler iç HAVING'e
-	// (aggregateChipHaving); arama yokken WHERE (indeks budaması, aynı SQL).
-	chipTraceLevel, chipHaving, chipArgs := aggregateChipHaving(f)
-	if !chipTraceLevel {
-		if f.FilterRoot != nil {
-			ApplyFilterGroup(&wc, *f.FilterRoot)
-		} else {
-			ApplyFilters(&wc, f.Filters)
-		}
-	}
+	// v0.10.1511 (trace column filters) — WHERE + trace-level inner HAVING now
+	// come from aggregateInnerWhere, shared with GetTraceColumnValues so the
+	// header-filter counts read the SAME scope as this tab (byte-identical SQL).
+	wc, innerHaving, innerHavingArgs := aggregateInnerWhere(f, s.clusterExpr())
 
 	// Pick the grouping expression. Every form uses anyIf to grab
 	// the root span's value ((parent_id = '' OR parent_id = '0000000000000000')), matching Uptrace-
@@ -4454,15 +4410,7 @@ func (s *Store) GetTraceAggregate(ctx context.Context, f AggregateFilter) ([]Agg
 	// page-load forever.
 	// v0.8.x — ALL-tokens free-text match (see searchPredicate). Computed once
 	// so the inner-HAVING SQL and its args stay in lockstep on token count.
-	searchSQL, searchArgs := searchPredicate(f.Search)
-	searchHaving := ""
-	if searchSQL != "" {
-		searchHaving = " AND countIf(" + searchSQL + ") > 0"
-	}
-	if f.HasError && !aggHasErrorSpanLocal(f) {
-		searchHaving += " AND " + traceHasErrorHaving // v0.10.258 — trace-düzeyi hata
-	}
-	searchHaving += chipHaving // v0.10.349 — çipler trace düzeyi (arama varken)
+	searchHaving := innerHaving // search + trace-level error + chips (aggregateInnerWhere)
 	sql := `
 		SELECT group_key, group_extra,
 		       count()                                   AS trace_count,
@@ -4499,9 +4447,8 @@ func (s *Store) GetTraceAggregate(ctx context.Context, f AggregateFilter) ([]Agg
 	args := []any{windowMin}
 	args = append(args, groupArgs...)
 	args = append(args, wc.args...)
-	// v0.8.x — one bind per search token in the inner HAVING (ALL-tokens).
-	args = append(args, searchArgs...)
-	args = append(args, chipArgs...) // v0.10.349 — iç HAVING'deki çip yüklemleri (metin sırasıyla)
+	// v0.8.x search tokens, then v0.10.349 chip predicates (inner HAVING order).
+	args = append(args, innerHavingArgs...)
 	postFilter := ""
 	if f.MinMs > 0 {
 		postFilter += " AND avg_ms >= ?"
@@ -5902,6 +5849,72 @@ func BuildFilterGroupWhere(g FilterGroup) (string, []any) {
 		return "", nil
 	}
 	return wc.sql(), wc.args
+}
+
+// aggregateInnerWhere — SAF (v0.10.1511, trace column filters): the raw
+// aggregate path's span WHERE plus the trace-level inner-HAVING suffix
+// (search tokens, trace-level error, chips-at-trace-level when searching).
+// Extracted verbatim from GetTraceAggregate so GetTraceColumnValues reads
+// the SAME scope — "one rule in two places drifts" (v0.9.943 B3). Arg order:
+// wc.args for the WHERE; innerArgs = search tokens then chip predicates.
+func aggregateInnerWhere(f AggregateFilter, clusterExpr string) (wc whereClause, searchHaving string, innerArgs []any) {
+	if !f.From.IsZero() {
+		// v0.5.356 — same bucket alignment as GetTraces above:
+		// keep the aggregate-view's window in sync with the
+		// operations table that surfaces operation-by-operation
+		// counts from the 5-min bucketed MV. Without this,
+		// click-from-operation → aggregate-view also missed the
+		// bucket-overlap traces.
+		fromAligned := f.From
+		if !f.To.IsZero() && f.To.Sub(f.From) > 5*time.Minute {
+			fromAligned = f.From.Truncate(5 * time.Minute)
+		}
+		wc.add("time >= ?", fromAligned)
+	}
+	if !f.To.IsZero() {
+		wc.add("time <= ?", f.To)
+	}
+	if f.Service != "" {
+		wc.add("service_name = ?", f.Service)
+	}
+	// v0.5.369 — search moved to inner HAVING below (cross-
+	// service trace-level match). See GetTraces commentary for
+	// the root-cause rationale.
+	// v0.10.258 — aynı sınıf: hata yüklemi başka span-düzeyi yüklem
+	// (search / attr filtreleri) varken WHERE'de kalırsa aynı span hem
+	// hata hem aranan olmak zorunda; iç HAVING'e taşınır (aşağıda).
+	if f.HasError && aggHasErrorSpanLocal(f) {
+		wc.add("status_code = 'error'")
+	}
+	// v0.8.383 — env narrowing, always ANDed (see AggregateFilter.Env).
+	if f.Env != "" {
+		wc.add("deploy_env = ?", f.Env)
+	}
+	// v0.9.943 (B3) — cluster narrowing. clusterExpr(): terfi edilmiş
+	// kolon varsa o, yoksa 6-anahtar derive — /services, /endpoints ve
+	// /databases ile AYNI soru. BOŞKEN conjunct YOK (H15).
+	addClusterConjunct(&wc, clusterExpr, f.Cluster)
+	// v0.10.349 — 341'in ikizi: arama iç HAVING'de TRACE düzeyi, çip WHERE'de
+	// SPAN düzeyi → aynı span tuzağı. Arama varken çipler iç HAVING'e
+	// (aggregateChipHaving); arama yokken WHERE (indeks budaması, aynı SQL).
+	chipTraceLevel, chipHaving, chipArgs := aggregateChipHaving(f)
+	if !chipTraceLevel {
+		if f.FilterRoot != nil {
+			ApplyFilterGroup(&wc, *f.FilterRoot)
+		} else {
+			ApplyFilters(&wc, f.Filters)
+		}
+	}
+	searchSQL, searchArgs := searchPredicate(f.Search)
+	if searchSQL != "" {
+		searchHaving = " AND countIf(" + searchSQL + ") > 0"
+	}
+	if f.HasError && !aggHasErrorSpanLocal(f) {
+		searchHaving += " AND " + traceHasErrorHaving // v0.10.258 — trace-düzeyi hata
+	}
+	searchHaving += chipHaving // v0.10.349 — çipler trace düzeyi (arama varken)
+	innerArgs = append(append([]any{}, searchArgs...), chipArgs...)
+	return wc, searchHaving, innerArgs
 }
 
 // aggregateGroupExpr — /traces "Aggregated" sekmesinin gruplama ifadesi,

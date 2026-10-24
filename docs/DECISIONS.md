@@ -11232,3 +11232,41 @@ admin kapılı ve GET admin'e açık; salt okunur kip bu kapılar gevşerse yazm
 
 **Geri alma.** `git revert <sha>` + yeni etiket (yalnız UI). Bayrağı kapatmak için UI'den ya da
 `PUT /api/settings/sre/contextpack {"enabled":false}` (≤30 s tüm pod'larda).
+
+
+## 2026-10-24 — v0.10.1511 — /traces liste başlığında Excel tarzı kolon filtreleri
+
+**İstek (prod kullanıcısı, operatör onayı 2026-10-24).** "Bu tip tabloda excellerdeki gibi filtrelenebilme özelliği olsa
+fena olmaz, aynı fonksiyon kodu içeren trace'leri filtrelemek iyi olabilir."
+
+**Karar.** Filtrelenebilir her başlıkta (Service, Name, Status, Duration ve kullanıcının eklediği her attribute kolonu —
+FUNCTION_CODE, CHANNEL_CODE, openshift.cluster.name, http.status_code…) küçük bir huni düğmesi; açılan Popover sunucudan
+o kolonun en sık değerlerini trace sayısıyla getirir, sunucu taraflı arama (180 ms debounce) ile uzun kuyruğa ulaşılır.
+Her değerde + (`k = v`), − (`k != v`, tekrar eden hariç tutmalar `NOT IN`), işaret kutusu + Uygula (`k IN (…)`); başlıkta
+etkin-filtre göstergesi ve Temizle. Yazım MEVCUT filtre modeline gider (saf `pages/traces/colFilter.ts`): Service →
+`service` yuvası (çoklu / hariç → `service.name` çipi), Name → `op` yuvası (çoklu / hariç → `operation` çipi), Status →
+`hasError`, Duration → `minMs`/`maxMs`, attribute → çip. Yeni URL parametresi YOK; paylaşım linkleri ve kayıtlı görünümler
+filtre çubuğunun yazdığıyla aynı. Gruplu OR kurucusunda çip yazan kolonlar devre dışı (AND yaprağı OR'un anlamını değiştirirdi).
+Excel anlamı: bir kolonun değer listesi o kolonun KENDİ yüklemi temizlenerek kapsanır (diğer bütün filtreler geçerli).
+
+**Uç: `GET /api/traces/column-values`** (yeni dosya `internal/api/trace_column_values.go`, chstore
+`trace_column_values.go`). Neden mevcutlar değil: `/api/attribute-values` filtre-kör (yalnız pencere) — sayılar ekrandaki
+listeyle çelişirdi; `/api/traces/aggregate` dört quantile + kök servise göre satır bölme + MV yolunda ham spans üzerinde
+`in_raw` DISTINCT ödüyor ve GroupAttr dalı cluster / http.status_code gibi tipli kolonları listenin hücresinden farklı yerden
+okuyordu. Paylaşılan (kopyalanmayan): span WHERE + trace düzeyi iç HAVING `aggregateInnerWhere`'den (GetTraceAggregate'ten
+bayt bayt çıkarıldı — Aggregated sekmesiyle aynı kapsam), yerleşik grup anahtarları `aggregateGroupExpr`'den (v0.10.1505 kök
+düşüş yolu dahil). Attribute değeri listenin hücresiyle aynı sırada çözülür (cluster takma adı → terfi kolonu → tipli kolon →
+diziler), kök-öncelikli + en erken taşıyan span. http.status_code'da 0 = hücrenin "—"si, değer olarak listelenmez.
+Sınırlar: zaman sınırlı WHERE, iç küme en yeni 200k trace, dış LIMIT ≤ 100, max_execution_time 15; Service/Name filtresizken
+`trace_summary_5m` (MV-first). serveCached 30 s, anahtar kanonik ham sorgu (limit önce kelepçelenir). FE yalnız popover
+AÇILINCA çeker (React Query `enabled`, anahtar bütün girdiler, signal iletilir).
+
+**Bilinen sınır — hariç tutma span düzeyinde.** Filtre modelinin `!=`'i bugün "değeri farklı OLAN bir span"dır; çok
+span'li bir trace'te anahtarı taşımayan span'ler (`'' != v`) koşulu sağladığından − attribute kolonlarında trace'i
+genellikle ELEMEZ. − düğmesi operatörün onayladığı `field != value` yazımını uygular ve ipucunda bunu söyler; gerçek trace
+düzeyi hariç tutma (anti-join: `trace_id NOT IN (pencere + k = v)`) GetTraces'in hızlı yollarına dokunduğu için ayrı onaylı
+iş olarak öneriliyor. + ve çoklu seçim trace düzeyinde doğrudur.
+
+**Geri alma.** `git revert <sha>` + yeni etiket. Kalıcı veri/şema yok; `aggregateInnerWhere` çıkarımı davranış değiştirmez
+(TestHasErrorHavingWiredInBothLists + aggregate testleri). Yalnız UI'yi kapatmak için Traces.tsx'te `renderHeadLabel`
+satırını kaldırmak yeter.

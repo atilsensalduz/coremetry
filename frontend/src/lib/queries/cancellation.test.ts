@@ -61,7 +61,7 @@ const HEAVY: { file: string; hooks: string[] }[] = [
   // v0.10.672 — kiosk bundle: span taraması (≤20 s) + ES pivot + Oracle tek
   // istekte; kiosk penceresi kapanınca ya da limit değişince eski istek
   // kesilmeli.
-  { file: 'trace.ts', hooks: ['api.traceBundle('] },
+  { file: 'trace.ts', hooks: ['api.traceBundle(', 'api.traceColumnValues('] }, // v0.10.1511 — header column filter popover
   // v0.10.968 — Trace › Metrics toplu uç: dilim başına 2 Thanos range + 6 instant
   // sorgu; sekme/pencere değişince uçuştaki istek kesilmeli.
   { file: 'tracePodMetrics.ts', hooks: ['api.tracePodMetrics('] },

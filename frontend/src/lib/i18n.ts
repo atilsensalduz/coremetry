@@ -503,6 +503,26 @@ const EN: Catalog = {
   'logs.dv.colReset':         'Reset columns',
   'logs.dv.export':           'Export loaded rows',
   // v0.10.1502 END
+  // v0.10.1511 — /traces header column filters (pages/traces/ColumnFilter.tsx)
+  'traces.colFilter.filterBy': 'Filter by',
+  'traces.colFilter.filtered': 'Filtered',
+  'traces.colFilter.clear': 'Clear',
+  'traces.colFilter.errorsOnly': 'Only traces with an error span',
+  'traces.colFilter.min': 'Min',
+  'traces.colFilter.max': 'Max',
+  'traces.colFilter.minOverMax': 'Min is greater than max',
+  'traces.colFilter.apply': 'Apply',
+  'traces.colFilter.search': 'Search values…',
+  'traces.colFilter.error': 'Could not load values',
+  'traces.colFilter.noMatch': 'No value matches the search in this window',
+  'traces.colFilter.empty': 'No values in this window and filters',
+  'traces.colFilter.include': 'Include',
+  'traces.colFilter.includeTip': 'Only traces with this value (=)',
+  'traces.colFilter.exclude': 'Exclude',
+  'traces.colFilter.excludeTip': 'Exclude this value (≠, span-level: a trace still matches if another span differs)',
+  'traces.colFilter.topN': 'Top {n} by trace count — search to find others',
+  'traces.colFilter.counts': 'Trace counts in this window and filters',
+  'traces.colFilter.orBlocked': 'Column filters add AND chips; switch the filter builder back to AND to use them.',
 };
 
 const TR: Catalog = {
@@ -971,6 +991,26 @@ const TR: Catalog = {
   'endpoint.opcard.gatewayChip': 'gateway: {op}',
   'endpoint.opcard.gatewayHint': 'Bunun yerine gateway\'in ({gw}) operasyon kartını aç',
   // v0.10.1491 END
+  // v0.10.1511 — /traces header column filters (pages/traces/ColumnFilter.tsx)
+  'traces.colFilter.filterBy': 'Filtrele:',
+  'traces.colFilter.filtered': 'Filtreli',
+  'traces.colFilter.clear': 'Temizle',
+  'traces.colFilter.errorsOnly': 'Yalnız hatalı span içeren trace\'ler',
+  'traces.colFilter.min': 'En az',
+  'traces.colFilter.max': 'En çok',
+  'traces.colFilter.minOverMax': 'En az, en çoktan büyük',
+  'traces.colFilter.apply': 'Uygula',
+  'traces.colFilter.search': 'Değer ara…',
+  'traces.colFilter.error': 'Değerler yüklenemedi',
+  'traces.colFilter.noMatch': 'Bu pencerede aramaya uyan değer yok',
+  'traces.colFilter.empty': 'Bu pencere ve filtrelerde değer yok',
+  'traces.colFilter.include': 'Dahil et',
+  'traces.colFilter.includeTip': 'Yalnız bu değeri taşıyan trace\'ler (=)',
+  'traces.colFilter.exclude': 'Hariç tut',
+  'traces.colFilter.excludeTip': 'Bu değeri hariç tut (≠, span düzeyi: başka bir span farklıysa trace yine eşleşir)',
+  'traces.colFilter.topN': 'Trace sayısına göre ilk {n} — diğerleri için ara',
+  'traces.colFilter.counts': 'Bu pencere ve filtrelerdeki trace sayıları',
+  'traces.colFilter.orBlocked': 'Kolon filtreleri AND çipi ekler; kullanmak için filtre kurucusunu AND\'e çevirin.',
 };
 
 const CATALOGS: Record<Lang, Catalog> = { en: EN, tr: TR };

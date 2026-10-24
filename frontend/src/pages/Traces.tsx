@@ -64,6 +64,8 @@ import { mergeTraceExtras, missingExtraKeys } from '@/lib/traceExtrasMerge';
 // testli (traceColumns.ts). İkisi de karar; mekanik değil.
 import { DEFAULT_TRACE_COLUMNS, FIXED_COLS, traceColumnOrder } from '@/lib/traceColumns';
 import { opChipFor, opCellText, opCellTitle } from './traces/opPick'; // v0.10.752
+import { ColumnFilter, type ColumnFilterScope } from './traces/ColumnFilter'; // v0.10.1511 — header column filters
+import { applyColFilter, colFilterKind, colFilterStatus, type ColFilterAction, type ColFilterState } from './traces/colFilter';
 import { aggRowsOf, aggErrorHeadline } from './traces/aggResult'; // v0.10.1505 — boş cevap ≠ hata
 import { traceIdIdentityText } from './traces/emptyReason'; // v0.10.753
 import { legacyTraceIdRedirect, traceIdJump } from './traces/traceIdJump'; // v0.10.1423
@@ -1107,6 +1109,62 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
   // resize'lı genişlikler; saf çekirdek, Endpoints ile aynı).
   const leftOffs = stickyLeftOffsets(dt.visibleColumns, dt.colWidths, ATTR_W);
 
+  // ── v0.10.1511 — header column filters (Excel-style ▾; prod user request,
+  // operator approval 2026-10-24). The popover writes into the EXISTING
+  // filter model through the pure applyColFilter (pages/traces/colFilter.ts):
+  // service / op / hasError / minMs / maxMs + the chip list (grouped mode:
+  // the group's top-level leaves). No new URL params — the URL effect above
+  // serialises the result, so chips and share links are the filter bar's own.
+  const colState: ColFilterState = {
+    service: filter.service, op: filter.op, hasError: filter.hasError,
+    minMs: filter.minMs, maxMs: filter.maxMs,
+    filters: grouped ? (advGroup?.filters ?? []) : advFilters,
+  };
+  const onColAction = (colId: string, a: ColFilterAction) => {
+    const next = applyColFilter(colState, colId, a);
+    const patch = { service: next.service, op: next.op, hasError: next.hasError, minMs: next.minMs, maxMs: next.maxMs };
+    setFilter(f => ({ ...f, ...patch }));
+    setDraft(d => ({ ...d, ...patch }));
+    if (grouped) setAdvGroup(g => (g ? { ...g, filters: next.filters } : g));
+    else setAdvFilters(next.filters);
+    setPage(0);
+  };
+  // Excel semantics: a column's value list is scoped by every OTHER filter —
+  // its own predicate is cleared first, so the operator can widen a pick.
+  const colScope = (colId: string): ColumnFilterScope => {
+    const sc = applyColFilter(colState, colId, { kind: 'clear' });
+    const leaves = [...sc.filters, ...opChipFor(sc.op)];
+    const groupParam = grouped && advGroup ? encodeFilterGroup({ ...advGroup, filters: sc.filters }) : '';
+    return {
+      from: listRangeNs.from, to: listRangeNs.to,
+      service: sc.service || undefined,
+      search: effectiveTraceSearch(filter),
+      hasError: sc.hasError || undefined,
+      minMs: sc.minMs || undefined,
+      maxMs: sc.maxMs || undefined,
+      env: env || undefined,
+      cluster: clusterScope || undefined,
+      filterGroup: groupParam || undefined,
+      filters: groupParam ? undefined : (leaves.length ? JSON.stringify(leaves) : undefined),
+    };
+  };
+  // A grouped OR builder can't take a top-level AND leaf without changing
+  // its meaning — the chip-writing columns say so instead of guessing.
+  const colChipBlocked = grouped && advGroup?.join === 'OR';
+  const renderColHead = (c: { id: string; label: string }) => {
+    if (!colFilterKind(c.id)) return c.label;
+    const kind = colFilterKind(c.id);
+    return (
+      <span className="tcf-th">
+        <span className="tcf-th-l">{c.label}</span>
+        <ColumnFilter colId={c.id} label={c.label} status={colFilterStatus(colState, c.id)}
+          scope={colScope(c.id)} onAction={a => onColAction(c.id, a)}
+          chipBlocked={(kind === 'service' || kind === 'operation' || kind === 'attr') && colChipBlocked}
+          durationMin={filter.minMs} durationMax={filter.maxMs} />
+      </span>
+    );
+  };
+
   // Sync the shared table's sort → the SERVER query. The header click flips
   // dt.sort; we translate it into the server sort/order + reset the page. Guard
   // on a genuine difference so we don't loop with our own initialSort.
@@ -1607,6 +1665,7 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
               height="auto"
               scrollResetKey={`${page}|${sort}|${order}`}
               rowHeight={ROW_H}
+              renderHeadLabel={renderColHead}
               getRowKey={(t) => t.traceId}
               renderRow={(t) => {
                 const href = traceHref(t.traceId, { pageRange: range });

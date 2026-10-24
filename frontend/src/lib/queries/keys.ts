@@ -164,6 +164,10 @@ export const keys = {
     // basamağı + dilimin ns/pod listesi (sunucu anahtarıyla aynı girdiler).
     podMetrics:  (cv: string, from: number, to: number, mdp: number, podsParam: string) =>
                    ['traces', 'pod-metrics', cv, from, to, mdp, podsParam] as const,
+    // v0.10.1511 — header column filter: EVERY request input is in the key
+    // (the params object itself — col, key, q, limit, window, scope).
+    columnValues: (p: import('@/lib/types').TraceColumnValuesParams) =>
+                   ['traces', 'column-values', p] as const,
   },
 
   deploys: {

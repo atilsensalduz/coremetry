@@ -6209,3 +6209,29 @@ a.cell-link--block { display: block; overflow: hidden; text-overflow: ellipsis; 
   .ld-tbar-right { margin-left: 0; }
 }
 /* ── v0.10.1498 END ──────────────────────────────────────────────────── */
+
+/* ── v0.10.1511 — /traces header column filter (tcf-*, pages/traces/ColumnFilter.tsx) ── */
+.tcf-th { display: inline-flex; align-items: center; gap: var(--sp-1); max-width: calc(100% - 14px); vertical-align: middle; }
+.tcf-th-l { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.tcf-btn { flex: none; color: var(--text3); opacity: .55; }
+th:hover .tcf-btn, .tcf-btn:focus-visible, .tcf-btn[aria-expanded="true"] { opacity: 1; }
+.tcf-btn.is-active { color: var(--accent2); opacity: 1; }
+.tcf-panel { display: flex; flex-direction: column; gap: var(--sp-3); }
+.tcf-head { display: flex; align-items: center; gap: var(--sp-3); }
+.tcf-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text2); font-size: var(--fs-xs); }
+.tcf-list { display: flex; flex-direction: column; max-height: 280px; overflow: auto; margin: 0 calc(-1 * var(--sp-2)); }
+.tcf-row { display: flex; align-items: center; gap: var(--sp-2); padding: 2px var(--sp-2); border-radius: var(--radius-xs); }
+.tcf-row:hover { background: var(--accent-soft); }
+.tcf-row.is-excluded .tcf-v { text-decoration: line-through; color: var(--text3); }
+.tcf-row--check { cursor: pointer; padding: var(--sp-2); }
+.tcf-val { display: flex; align-items: center; gap: var(--sp-2); flex: 1; min-width: 0; cursor: pointer; }
+.tcf-val input, .tcf-row--check input { accent-color: var(--accent); flex: none; }
+.tcf-v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.tcf-n { flex: none; font-variant-numeric: tabular-nums; color: var(--text3); font-size: var(--fs-xs); min-width: 36px; text-align: right; }
+.tcf-state { padding: var(--sp-4) var(--sp-2); color: var(--text3); font-size: var(--fs-xs); text-align: center; }
+.tcf-err { color: var(--err); }
+.tcf-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+.tcf-hint, .tcf-note { color: var(--text3); font-size: var(--fs-xs); margin: 0; }
+.tcf-dur { display: flex; align-items: flex-end; gap: var(--sp-3); }
+.tcf-dur-f { display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--text3); }
+.tcf-dur-f input { width: 84px; }

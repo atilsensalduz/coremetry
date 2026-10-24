@@ -775,6 +775,11 @@ export const api = {
   // (not a TracesParams field) so the response type stays honest.
   tracesExtras: (p: { traceIds: string; extraAttrs: string; from: number; to: number }) =>
     get<TracesExtrasResponse>(`/api/traces?${qs(p)}`),
+  // v0.10.1511 — /traces header column filter: top values of one list column in
+  // the current window + filters, server-side `q` search (trace_column_values.go).
+  // signal: the popover closing / the query changing cancels the CH read.
+  traceColumnValues: (p: import('./types').TraceColumnValuesParams, signal?: AbortSignal) =>
+    get<import('./types').TraceColumnValue[]>(`/api/traces/column-values?${qs(p)}`, signal),
   tracesAggregate: (params: AggregateParams) =>
     get<AggregateRow[] | null>(`/api/traces/aggregate?${qs(params)}`),
   // Span-relationship / structural query (Gap 3). Parent + child predicate

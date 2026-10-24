@@ -98,6 +98,13 @@ export const IconSearch = (p: IconProps) => (
   </Svg>
 );
 
+// v0.10.1511 — /traces header column filter (funnel; Lucide "filter" geometry).
+export const IconFilter = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M3 4h18l-7 8.5V19l-4 2v-8.5L3 4z" />
+  </Svg>
+);
+
 export const IconDownload = (p: IconProps) => (
   <Svg {...p}>
     <path d="M12 3v12" />

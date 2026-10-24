@@ -68,11 +68,14 @@ export interface VirtualTableProps<T> {
   // buradan geçer (CTA / Link satırın içinde); `colSpan` (P-2) geçilemez,
   // dt'yi VirtualTable verir.
   state?: Omit<DataTableStateProps<T>, 'dt' | 'leading' | 'trailing'>;
+  // v0.10.1511 — DataTableHead's `renderLabel` hook, passed through (Traces
+  // header column filters). The pure core's `label: string` stays.
+  renderHeadLabel?: (c: DataTable<T>['columns'][number]) => ReactNode;
 }
 
 export function VirtualTable<T>({
   dt, height, rowHeight = ROW_H, overscan = 12,
-  leading, leadingHead, renderRow, getRowKey, rowClassName, onRowClick,
+  leading, leadingHead, renderRow, getRowKey, rowClassName, onRowClick, renderHeadLabel,
   className, state, scrollResetKey,
 }: VirtualTableProps<T>) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -125,7 +128,7 @@ export function VirtualTable<T>({
       {/* v0.10.939 (tablo standardı T10) — sabit düzen sınıftan (`table.dt`). */}
       <table {...dt.tableProps} aria-rowcount={rows.length}>
         <DataTableColgroup dt={dt} leading={leading} />
-        <DataTableHead dt={dt} leading={leadingHead} />
+        <DataTableHead dt={dt} leading={leadingHead} renderLabel={renderHeadLabel} />
         <tbody>
           {rows.length === 0 ? (
             // v0.10.939 (tablo standardı T12) — boş/yükleniyor/hata TABLONUN içinde.

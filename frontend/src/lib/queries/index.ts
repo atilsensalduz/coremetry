@@ -58,7 +58,7 @@ export {
 } from './slos';
 export { useEventStream } from './eventStream';
 export { useExemplar, useExemplarFetcher } from './spans';
-export { useTraceBundle } from './trace'; // v0.10.672 — kiosk bundle
+export { useTraceBundle, useTraceColumnValues } from './trace'; // v0.10.672 — kiosk bundle; v0.10.1511 column filter
 export { useTracePodMetricsChunks } from './tracePodMetrics'; // v0.10.968 — Trace › Metrics toplu uç
 export { useUsers, useCustomRoles } from './users';
 export { useOperatorEvents, useDeleteOperatorEvent, useNotificationLog } from './events';
