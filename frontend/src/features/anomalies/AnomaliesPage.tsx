@@ -86,8 +86,9 @@ const EXC_COLS: ColumnDef<ExceptionGroup>[] = [
   // eski 168 px tam damgayı (173 px isteyen) zaten 5 px kesiyordu.
   { id: 'priority',    label: 'Prio',        sortValue: g => g.priority ?? '', naturalDir: 'desc', width: 68, minWidth: 64, priority: 1 },
   { id: 'state',       label: 'State',       sortValue: g => g.state,       naturalDir: 'desc', width: 140, minWidth: 140, priority: 1 },
-  { id: 'type',        label: 'Exception',   sortValue: g => g.type,        naturalDir: 'asc', flex: true, minWidth: 200, priority: 1 },
+  // v0.10.1512 (operatör: "Service ile exception yer değiştirebilir") — Servis önce.
   { id: 'service',     label: 'Service',     sortValue: g => g.service,     naturalDir: 'asc',  width: 170, minWidth: 120, priority: 1 },
+  { id: 'type',        label: 'Exception',   sortValue: g => g.type,        naturalDir: 'asc', flex: true, minWidth: 200, priority: 1 },
   { id: 'occurrences', label: 'Occurrences', sortValue: g => g.occurrences, numeric: true,      width: 100, minWidth: 92, priority: 2 },
   { id: 'firstSeen',   label: 'First seen',  sortValue: g => g.firstSeen,   width: 136, minWidth: 136, priority: 4 },
   { id: 'lastSeen',    label: 'Last seen',   sortValue: g => g.lastSeen,    width: 136, minWidth: 136, priority: 3 },
@@ -664,6 +665,40 @@ export default function ProblemsPage() {
                       </td>
                       <td className="row-cell"><Link to={excHref} replace className="row-link" onClick={e => e.stopPropagation()}>{g.priority ? <PriorityBadge p={g.priority} reason={g.priorityReason} /> : <span style={{ color: 'var(--text3)' }}>—</span>}</Link></td>
                       <td className="row-cell"><Link to={excHref} replace className="row-link" onClick={e => e.stopPropagation()}><StateBadge s={g.state} /></Link></td>
+                      <td>
+                        {/* v0.10.1512 (operatör) — Servis, Exception'ın solunda. */}
+                        {/* v0.9.966 — grubun KENDİ ömrü (firstSeen→
+                            lastSeen). ProblemDetail aynı satır tipi için
+                            zaten bu pencereyi kullanıyor; listeden ve
+                            detaydan açılan servis sayfası aynı zamana
+                            bakmalı. */}
+                        {ora && isSyntheticOracleService(g.service) ? (
+                          // v0.10.1092 — servisi çözülemeyen Oracle grubu: sentetik ad, link yok.
+                          <span className="mono cell-faint" title="Trace → servis çözümü bu operasyon için servis bulamadı">{g.service}</span>
+                        ) : (
+                          <Link to={serviceHref(g.service, { range: { fromNs: g.firstSeen, toNs: g.lastSeen } })}
+                            onClick={e => e.stopPropagation()}
+                            className="mono">
+                            {g.service}
+                          </Link>
+                        )}
+                        {/* v0.10.1092 — Oracle grubu: etkilenen servislerin ilk 3'ü (baskın yukarıda). */}
+                        {ora && (g.oracle?.serviceCount ?? 0) > 1 && (
+                          <div className="cell-faint" title={(g.oracle?.services ?? []).map(sv => sv.name).join(', ')}
+                            style={{ marginTop: 2, fontSize: 10.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            +{(g.oracle?.serviceCount ?? 1) - 1} servis
+                          </div>
+                        )}
+                        {/* v0.10.949 — aynı exception aynı anda N serviste (Inbox ile aynı işaret). */}
+                        {spread && (
+                          <div className="cell-faint" title={spreadTitle(spread.n, spread.partners, floorMeta.spreadWindowMin)}
+                            style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2, fontSize: 10.5, whiteSpace: 'nowrap' }}>
+                            <span className="dot" aria-hidden="true"
+                              style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor', flex: 'none' }} />
+                            {spread.n} servis
+                          </div>
+                        )}
+                      </td>
                       <td className="row-cell">
                         <Link to={excHref} replace className="row-link" onClick={e => e.stopPropagation()}>
                         {/* v0.10.1084 — başlık hücresi Problems kuyruğuyla ORTAK
@@ -700,39 +735,6 @@ export default function ProblemsPage() {
                           detailMono={!ora}
                           ai={g.aiSummary ? stripMarkdown(g.aiSummary) : undefined} />
                         </Link>
-                      </td>
-                      <td>
-                        {/* v0.9.966 — grubun KENDİ ömrü (firstSeen→
-                            lastSeen). ProblemDetail aynı satır tipi için
-                            zaten bu pencereyi kullanıyor; listeden ve
-                            detaydan açılan servis sayfası aynı zamana
-                            bakmalı. */}
-                        {ora && isSyntheticOracleService(g.service) ? (
-                          // v0.10.1092 — servisi çözülemeyen Oracle grubu: sentetik ad, link yok.
-                          <span className="mono cell-faint" title="Trace → servis çözümü bu operasyon için servis bulamadı">{g.service}</span>
-                        ) : (
-                          <Link to={serviceHref(g.service, { range: { fromNs: g.firstSeen, toNs: g.lastSeen } })}
-                            onClick={e => e.stopPropagation()}
-                            className="mono">
-                            {g.service}
-                          </Link>
-                        )}
-                        {/* v0.10.1092 — Oracle grubu: etkilenen servislerin ilk 3'ü (baskın yukarıda). */}
-                        {ora && (g.oracle?.serviceCount ?? 0) > 1 && (
-                          <div className="cell-faint" title={(g.oracle?.services ?? []).map(sv => sv.name).join(', ')}
-                            style={{ marginTop: 2, fontSize: 10.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            +{(g.oracle?.serviceCount ?? 1) - 1} servis
-                          </div>
-                        )}
-                        {/* v0.10.949 — aynı exception aynı anda N serviste (Inbox ile aynı işaret). */}
-                        {spread && (
-                          <div className="cell-faint" title={spreadTitle(spread.n, spread.partners, floorMeta.spreadWindowMin)}
-                            style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2, fontSize: 10.5, whiteSpace: 'nowrap' }}>
-                            <span className="dot" aria-hidden="true"
-                              style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor', flex: 'none' }} />
-                            {spread.n} servis
-                          </div>
-                        )}
                       </td>
                       <td className="num row-cell cell-strong cell-err">
                         <Link to={excHref} replace className="row-link" onClick={e => e.stopPropagation()}>{fmtNum(Number(g.occurrences))}</Link>

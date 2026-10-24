@@ -176,6 +176,6 @@ describe('kaynak pinleri — çip tıkı kapsamla gönderilir', () => {
     const l = src('../LogTable.tsx');
     expect(l).toContain('if (!subject) return null;');
     expect(l).not.toContain('useInAiDrawer');
-    expect(l).toContain('{!l.origin && <LogLineExplain l={l} />}');
+    expect(l).toContain('{!l.origin && !hideTraceColumn && <LogLineExplain l={l} />}'); // v0.10.1512 — trace bağlamında yok
   });
 });

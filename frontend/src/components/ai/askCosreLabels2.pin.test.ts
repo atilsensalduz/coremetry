@@ -91,3 +91,11 @@ describe('Ask CoSRE etiketleri — log / log-spike / kompakt anomali (v0.10.1338
     expect(aiSubjectTopic(line)).toBe('Log satırını açıkla');
   });
 });
+
+// v0.10.1512 (operatör) — trace bağlamındaki log tablosunda satır ✨'i yok;
+// /logs ve servis log sekmesi (hideTraceColumn=false) düğmeyi korur.
+describe('LogTable satır ✨ trace bağlamında gizli', () => {
+  it('LogLineExplain yalnız hideTraceColumn=false iken çizilir', () => {
+    expect(read('components/LogTable.tsx')).toContain('{!l.origin && !hideTraceColumn && <LogLineExplain l={l} />}');
+  });
+});

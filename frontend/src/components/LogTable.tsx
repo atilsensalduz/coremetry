@@ -625,8 +625,11 @@ function LogRow({
                 </Button>
               )}
               {/* v0.10.1291 — ✨ satırı açıkla (sunucu logstore'dan yeniden okur);
-                  span-event / Oracle satırları logstore'da yok → buton yok. */}
-              {!l.origin && <LogLineExplain l={l} />}
+                  span-event / Oracle satırları logstore'da yok → buton yok.
+                  v0.10.1512 (operatör: "buradaki ask cosre gerek yok") — trace
+                  bağlamında (hideTraceColumn: trace sayfası, kiosk, public) yok:
+                  sayfanın kendi "CoSRE'ye sor"u trace'i zaten kapsar. */}
+              {!l.origin && !hideTraceColumn && <LogLineExplain l={l} />}
               {/* v0.9.1248 — kalıcı doküman linki (Kibana artığı): yalnız
                   /logs geçirir; ts+id çifti mevcut context ucuyla çözülür. */}
               {permalink && (
