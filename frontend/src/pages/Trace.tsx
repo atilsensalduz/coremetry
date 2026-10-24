@@ -559,8 +559,11 @@ function TraceDetailInner() {
         {/* Başlık kartı. Satır 1: solda breadcrumb · operasyon/rota başlığı (mono,
             ellipsis + title) · servis rozeti, trace id + kopyala, durum; sağda ölçü
             kümesi (TraceMeasures; ≤1280px'te başlığın altına iner). Satır 2 (ince
-            çizgi): kimlik çipleri (OPERASYON / FUNCTION / CHANNEL — ui/IdentityChip)
-            solda; operasyon kartı çipi + birincil "CoSRE'ye sor" sağda. */}
+            çizgi): kimlik çipleri (OPERASYON / FUNCTION / CHANNEL — ui/IdentityChip).
+            v0.10.1522 (operatör, prod: "üstteki bar çok büyük… Ask CoSRE solda, Log
+            İzleme sağda") — kart sıkıştı (başlık + meta tek satır, küçük ölçüler) ve
+            kartın altındaki ayrı dış link satırı kalktı: TEK eylem satırı, solda
+            birincil "CoSRE'ye sor" + operasyon kartı çipleri, sağda dış link düğmeleri. */}
         <section className="trace-summary trace-hdr" aria-label={tr('trace.hdr.summary')}>
           <div className="trace-hdr__row1">
             <div className="trace-hdr__ident">
@@ -571,22 +574,24 @@ function TraceDetailInner() {
                 <span className="crumbs__sep" aria-hidden="true">›</span>
                 <span className="crumbs__cur">trace</span>
               </nav>
-              <h2 className="trace-hdr__title" title={root ? displaySpanName(root) : id}>{root ? displaySpanName(root) : 'Trace'}</h2>
-              <div className="trace-hdr__meta">
-                {root && <SvcBadge name={root.serviceName} />}
-                <code className="trace-hdr__id">{id}</code>
-                <CopyButton value={id} title="Copy trace ID" />
-                {spans && spans.length > 0 && (
-                  <>
-                    {/* v0.10.922 (sade palet adım 1) — K5: sağlıklı trace NÖTR; yeşil
-                        "OK" rozeti kalktı, görsel sinyal yalnız sapmada (ERROR). Kelime
-                        ekran okuyucuya kalır (sr-only) — bilgi renge/yokluğa bırakılmaz. */}
-                    {hasErr
-                      ? <span className="badge b-err">ERROR</span>
-                      : <span className="sr-only">OK</span>}
-                    {errSpans > 0 && <span className="cell-hint">{errSpans} error span{errSpans === 1 ? '' : 's'}</span>}
-                  </>
-                )}
+              <div className="trace-hdr__headline">
+                <h2 className="trace-hdr__title" title={root ? displaySpanName(root) : id}>{root ? displaySpanName(root) : 'Trace'}</h2>
+                <div className="trace-hdr__meta">
+                  {root && <SvcBadge name={root.serviceName} />}
+                  <code className="trace-hdr__id">{id}</code>
+                  <CopyButton value={id} title="Copy trace ID" />
+                  {spans && spans.length > 0 && (
+                    <>
+                      {/* v0.10.922 (sade palet adım 1) — K5: sağlıklı trace NÖTR; yeşil
+                          "OK" rozeti kalktı, görsel sinyal yalnız sapmada (ERROR). Kelime
+                          ekran okuyucuya kalır (sr-only) — bilgi renge/yokluğa bırakılmaz. */}
+                      {hasErr
+                        ? <span className="badge b-err">ERROR</span>
+                        : <span className="sr-only">OK</span>}
+                      {errSpans > 0 && <span className="cell-hint">{errSpans} error span{errSpans === 1 ? '' : 's'}</span>}
+                    </>
+                  )}
+                </div>
               </div>
             </div>
             {/* v0.10.678 / v0.10.1347 — süre şeridin okunan sayısı, ölçüler sağa dayalı;
@@ -608,35 +613,47 @@ function TraceDetailInner() {
                 <OracleOperationChip spans={spans} pageRange={range} oracleRows={chipOracleRows} />
                 <TraceEntryCodes spans={spans} pageRange={range} />{/* v0.10.1497 */}
               </div>
-              <div className="trace-hdr__ask">
-                {/* v0.10.1491 — operasyon kartı çipi: kök span'in rotası (yoksa
-                    span adı, entry=rpc) → /endpoint#opcard, trace başlangıcı ±30 dk
-                    penceresiyle. Sohbet değil, sayfa; istemci/üretici kökte yok. */}
-                {/* v0.10.1503 — çip seçilen servisi yazar; gateway atlandıysa ipucu
-                    bunu söyler ve ikincil "gateway: <op>" bağlantısı gateway'in kartına gider. */}
-                {opCardRef && opCardPick && root && (
-                  <Link className="chip" data-testid="trace-opcard-chip"
-                    to={operationCardHref(opCardRef, { range: windowRangeParam({ fromNs: root.startTime - 18e11, toNs: root.startTime + 18e11 }) })}
-                    title={opCardPick.gateway
-                      ? tr('endpoint.opcard.chipInnerHint').replace('{svc}', opCardPick.service).replace('{gw}', opCardPick.gateway.service)
-                      : tr('endpoint.opcard.chipHint')}>
-                    <span className="k">⇄</span><b>{tr('endpoint.opcard.chip')}</b>
-                    <span data-testid="trace-opcard-svc"> · {opCardPick.service}</span>
-                  </Link>
-                )}
-                {opCardPick?.gateway && root && (
-                  <Link className="chip" data-testid="trace-opcard-gateway"
-                    to={operationCardHref(opCardPick.gateway, { range: windowRangeParam({ fromNs: root.startTime - 18e11, toNs: root.startTime + 18e11 }) })}
-                    title={tr('endpoint.opcard.gatewayHint').replace('{gw}', opCardPick.gateway.service)}>
-                    {tr('endpoint.opcard.gatewayChip').replace('{op}', opCardPick.gateway.path)}
-                  </Link>
-                )}
-                {/* v0.9.477 — tek sağ-kenar AI çekmecesi (?ai=trace:<id>). v0.9.1166 —
-                    sayfanın TEK ana eylemi (dolu aksan). v0.10.944 — görünen ad
-                    "CoSRE'ye sor" / "Ask CoSRE" (i18n); ipucu title'da. */}
-                <AIExplainButton subject={{ kind: 'trace', id }} emphasis="strong"
-                  title={tr('ai.askCosreTraceHint')}
-                  label={<><IconSparkles /> <span className="trace-hdr__ask-label">{tr('ai.askCosre')}</span></>} />
+              <div className="trace-hdr__actrow" data-testid="trace-hdr-actions">
+                <div className="trace-hdr__ask">
+                  {/* v0.9.477 — tek sağ-kenar AI çekmecesi (?ai=trace:<id>). v0.9.1166 —
+                      sayfanın TEK ana eylemi (dolu aksan). v0.10.944 — görünen ad
+                      "CoSRE'ye sor" / "Ask CoSRE" (i18n); ipucu title'da. v0.10.1522 —
+                      eylem satırının EN SOLUNDA. */}
+                  <AIExplainButton subject={{ kind: 'trace', id }} emphasis="strong"
+                    title={tr('ai.askCosreTraceHint')}
+                    label={<><IconSparkles /> <span className="trace-hdr__ask-label">{tr('ai.askCosre')}</span></>} />
+                  {/* v0.10.1491 — operasyon kartı çipi: kök span'in rotası (yoksa
+                      span adı, entry=rpc) → /endpoint#opcard, trace başlangıcı ±30 dk
+                      penceresiyle. Sohbet değil, sayfa; istemci/üretici kökte yok. */}
+                  {/* v0.10.1503 — çip seçilen servisi yazar; gateway atlandıysa ipucu
+                      bunu söyler ve ikincil "gateway: <op>" bağlantısı gateway'in kartına gider. */}
+                  {opCardRef && opCardPick && root && (
+                    <Link className="chip" data-testid="trace-opcard-chip"
+                      to={operationCardHref(opCardRef, { range: windowRangeParam({ fromNs: root.startTime - 18e11, toNs: root.startTime + 18e11 }) })}
+                      title={opCardPick.gateway
+                        ? tr('endpoint.opcard.chipInnerHint').replace('{svc}', opCardPick.service).replace('{gw}', opCardPick.gateway.service)
+                        : tr('endpoint.opcard.chipHint')}>
+                      <span className="k">⇄</span><b>{tr('endpoint.opcard.chip')}</b>
+                      <span data-testid="trace-opcard-svc"> · {opCardPick.service}</span>
+                    </Link>
+                  )}
+                  {opCardPick?.gateway && root && (
+                    <Link className="chip" data-testid="trace-opcard-gateway"
+                      to={operationCardHref(opCardPick.gateway, { range: windowRangeParam({ fromNs: root.startTime - 18e11, toNs: root.startTime + 18e11 }) })}
+                      title={tr('endpoint.opcard.gatewayHint').replace('{gw}', opCardPick.gateway.service)}>
+                      {tr('endpoint.opcard.gatewayChip').replace('{op}', opCardPick.gateway.path)}
+                    </Link>
+                  )}
+                </div>
+                {/* v0.10.345 — dış link düğmeleri (Settings → Dış linkler): şablon
+                    trace'in span attribute'larından çözülürse etkin, değilse eksikleri
+                    söyleyen pasif düğme. Yeni sekmede açılır. v0.10.346 — satırın EN
+                    SAĞINDA; renk ayardan (aracın marka rengi), yazı --on-accent.
+                    v0.10.1522 — kartın altındaki ayrı satırdan eylem satırının sağına
+                    taşındı (boşsa :empty gizler). */}
+                <div className="trace-extlinks">
+                  <ExternalLinkButtons spans={spans ?? []} traceId={id} selectedSpanId={selectedId} />
+                </div>
               </div>
             </div>
           )}
@@ -719,15 +736,8 @@ function TraceDetailInner() {
                 pivotu span detayındaki k8s attribute linklerinde (v0.10.150,
                 SpanDetail k8sAttrHref + SpanK8sSection) — kapı:
                 pages/traceNoPodsStrip.test.ts. */}
-            {/* v0.10.345 — dış link düğmeleri (Settings → Dış linkler): şablon
-                trace'in span attribute'larından çözülürse etkin, değilse eksikleri
-                söyleyen pasif düğme. Yeni sekmede açılır. v0.10.346 — satırın EN
-                SAĞINDA; renk ayardan (aracın marka rengi), yazı --on-accent.
-                v0.10.1514 — "CoSRE'ye sor" ve operasyon kartı çipi başlık kartının
-                ikinci satırına taşındı; burada yalnız dış linkler (boşsa :empty gizler). */}
-            <div className="trace-extlinks">
-              <ExternalLinkButtons spans={spans ?? []} traceId={id} selectedSpanId={selectedId} />
-            </div>
+            {/* v0.10.1522 — dış link düğmeleri başlık kartının eylem satırına
+                (sağda, "CoSRE'ye sor" ile aynı hizada) taşındı; burada ayrı satır yok. */}
 
             {/* Trace vs Logs (Uptrace-style) — uses the shared
                 .tab-strip pattern so it visually matches Settings,

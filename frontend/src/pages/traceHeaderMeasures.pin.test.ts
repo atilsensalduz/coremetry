@@ -55,7 +55,10 @@ describe('trace başlığı: ölçüler sağa dayalı kümede (v0.10.1347)', () 
   // başlık · rozet · id + kopyala · ERROR · hatalı span), SAĞDA TraceMeasures
   // (SÜRE · KRİTİK YOL · SPAN · BAŞLANGIÇ); satır 2'de kimlik çipleri, sağda
   // operasyon kartı + CoSRE'ye sor. Sıra ve yerleşim burada çivili.
-  it('/trace — satır 1: kimlik solda, TraceMeasures sağda; satır 2: çipler, sonra kart + CoSRE', () => {
+  // v0.10.1522 (operatör, prod: "üstteki bar çok büyük… Ask CoSRE solda, Log
+  // İzleme sağda") — başlık + meta tek satır (.trace-hdr__headline); satır 2'de
+  // çiplerin altında TEK eylem satırı: CoSRE → kart → gateway → dış linkler.
+  it('/trace — satır 1: kimlik solda, TraceMeasures sağda; satır 2: çipler, sonra eylem satırı', () => {
     const row1 = trace.indexOf('<div className="trace-hdr__row1">');
     const ident = trace.indexOf('<div className="trace-hdr__ident">');
     const meas = trace.indexOf('<TraceMeasures totalNs={totalNs}');
@@ -71,6 +74,11 @@ describe('trace başlığı: ölçüler sağa dayalı kümede (v0.10.1347)', () 
       '<span className="badge b-err">ERROR</span>', 'error span{errSpans'].map(n => trace.indexOf(n, ident));
     for (const i of order) { expect(i).toBeGreaterThan(ident); expect(i).toBeLessThan(meas); }
     for (let k = 1; k < order.length; k++) expect(order[k]).toBeGreaterThan(order[k - 1]);
+    // Başlık ve meta (rozet · id · durum) aynı satırda: ikisi de headline içinde.
+    const headline = trace.indexOf('<div className="trace-hdr__headline">', ident);
+    expect(headline).toBeGreaterThan(order[0]);
+    expect(headline).toBeLessThan(order[1]);
+    expect(trace.indexOf('<div className="trace-hdr__meta">', headline)).toBeLessThan(order[2]);
     // Başlık: ellipsis + tam ad title'da.
     expect(trace).toContain('<h2 className="trace-hdr__title" title={root ? displaySpanName(root) : id}>');
     // Ölçüler sayfanın elindeki veriden: kritik yol kök duvar süresi, span/servis sayısı.
@@ -78,18 +86,23 @@ describe('trace başlığı: ölçüler sağa dayalı kümede (v0.10.1347)', () 
     for (const n of ['criticalPath.rootWallNs', 'criticalPath?.spanCount', 'spanCount={spans.length}', 'svcCount={svcCount}', 'startNs={root?.startTime}']) {
       expect(m).toContain(n);
     }
-    // Satır 2: çip listesi → sağ küme (kart çipi, gateway, CoSRE).
+    // Satır 2: çip listesi → eylem satırı (solda CoSRE, kart çipi, gateway;
+    // sağda dış linkler).
     const ops = trace.indexOf('<div className="trace-summary__ops" role="list"');
+    const act = trace.indexOf('<div className="trace-hdr__actrow" data-testid="trace-hdr-actions">');
     const ask = trace.indexOf('<div className="trace-hdr__ask">');
     expect(ops).toBeGreaterThan(row2);
-    expect(ask).toBeGreaterThan(ops);
+    expect(act).toBeGreaterThan(ops);
+    expect(ask).toBeGreaterThan(act);
     const card = trace.indexOf('data-testid="trace-opcard-chip"');
     const gw = trace.indexOf('data-testid="trace-opcard-gateway"');
     const cosre = trace.indexOf("<AIExplainButton subject={{ kind: 'trace', id }} emphasis=\"strong\"");
-    expect(card).toBeGreaterThan(ask);
+    expect(cosre).toBeGreaterThan(ask);
+    expect(card).toBeGreaterThan(cosre);
     expect(gw).toBeGreaterThan(card);
-    expect(cosre).toBeGreaterThan(gw);
     expect(trace.indexOf('<AIExplainButton', cosre + 1), 'tek CoSRE düğmesi').toBe(-1);
+    // Eski 1514 yerleşimi (CoSRE sağ kümenin sonunda) geri gelmez.
+    expect(trace).not.toMatch(/trace-opcard-gateway[\s\S]{0,800}<AIExplainButton subject=\{\{ kind: 'trace'/);
     // Compare / Logs / Metrics / Share gri alanda (kartın DIŞINDA, önünde) kalır.
     const actions = trace.indexOf('<span className="crumbs-actions">{traceActions}</span>');
     expect(actions).toBeGreaterThan(-1);
@@ -98,6 +111,23 @@ describe('trace başlığı: ölçüler sağa dayalı kümede (v0.10.1347)', () 
     expect(trace).not.toContain('<span className="trace-summary__measures">');
     expect(trace).not.toContain('Critical path · {criticalPath.spanCount}');
     expect(trace).not.toContain("style={{ color: 'var(--text2)', fontSize: 12 }}>{spans.length} spans");
+  });
+
+  it('/trace eylem satırı — CoSRE (AIExplainButton) dış link düğmesinden ÖNCE; dış linkler kartın İÇİNDE, altta ayrı satır yok', () => {
+    const sec = trace.indexOf('<section className="trace-summary trace-hdr"');
+    const secEnd = trace.indexOf('</section>', sec);
+    const act = trace.indexOf('<div className="trace-hdr__actrow" data-testid="trace-hdr-actions">');
+    expect(act).toBeGreaterThan(sec);
+    const cosre = trace.indexOf('<AIExplainButton', act);
+    const ext = trace.indexOf('<div className="trace-extlinks">', act);
+    const btns = trace.indexOf('<ExternalLinkButtons spans={spans ?? []} traceId={id} selectedSpanId={selectedId} />', act);
+    expect(cosre, 'CoSRE eylem satırında').toBeGreaterThan(act);
+    expect(ext, 'dış linkler CoSRE\'den sonra (sağda)').toBeGreaterThan(cosre);
+    expect(btns).toBeGreaterThan(ext);
+    expect(btns, 'dış linkler başlık kartının içinde').toBeLessThan(secEnd);
+    // Tek çağrı yeri: kartın altındaki ayrı .trace-extlinks satırı kalktı.
+    expect(trace.split('<ExternalLinkButtons ').length - 1).toBe(1);
+    expect(trace.split('<div className="trace-extlinks">').length - 1).toBe(1);
   });
 
   it('/trace ölçü bileşeni — SÜRE · KRİTİK YOL · SPAN · BAŞLANGIÇ bu sırayla, i18n etiketli', () => {
@@ -126,6 +156,18 @@ describe('trace başlığı: ölçüler sağa dayalı kümede (v0.10.1347)', () 
     expect(block).toMatch(/\.trace-hdr__id \{[^}]*overflow-wrap: anywhere/);
     expect(block).toMatch(/\.trace-hdr__title \{[^}]*text-overflow: ellipsis/);
     expect(block).toContain('.trace-extlinks:empty { display: none; }');
+    // v0.10.1522 — sıkı kart: başlık --fs-lg, ölçü sayısı --fs-xl (≈18px, eski
+    // 1.2×xl değil), etiket --fs-3xs, kimlik çipi 26px; eylem satırında dış
+    // linkler sağa dayalı, ≤640px'te sola iner.
+    expect(block).toMatch(/\.trace-hdr__title \{[^}]*font-size: var\(--fs-lg\)/);
+    expect(block).toMatch(/\.trace-measures dd \{[^}]*font-size: var\(--fs-xl\)/);
+    expect(block).not.toContain('calc(var(--fs-xl) * 1.2)');
+    expect(block).toMatch(/\.trace-measures dt \{[^}]*font-size: var\(--fs-3xs\)/);
+    expect(block).toMatch(/\.idchip \{[^}]*min-height: calc\(var\(--hit-min\) \+ var\(--sp-1\)\)/);
+    expect(block).toMatch(/\.trace-hdr__headline \{[^}]*display: flex[^}]*flex-wrap: wrap/);
+    expect(block).toMatch(/\.trace-hdr__actrow \{[^}]*display: flex[^}]*flex-wrap: wrap/);
+    expect(block).toMatch(/\.trace-hdr__actrow > \.trace-extlinks \{[^}]*margin-left: auto/);
+    expect(m640![1]).toMatch(/\.trace-hdr__actrow > \.trace-extlinks \{[^}]*margin-left: 0/);
     // Yalnız token: blokta hex/rgb renk yok.
     expect(block).not.toMatch(/#[0-9a-fA-F]{3,8}\b|rgba?\(/);
   });

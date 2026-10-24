@@ -6256,48 +6256,57 @@ th:hover .tcf-btn, .tcf-btn:focus-visible, .tcf-btn[aria-expanded="true"] { opac
    Metrics / Share gri alanda (.crumbs-row) kalır. ≤1280px: ölçüler başlığın
    altına iner; ≤640px: çipler sarar, hiçbir şey yana kaymaz. Kiosk ve public
    trace v0.10.1347 kümesini (.trace-summary__measures) kullanmaya devam eder.
+   v0.10.1522 (operatör, prod: "üstteki bar çok büyük") — kart sıkıştı: başlık
+   --fs-lg ve meta aynı satırda (.trace-hdr__headline), ölçü sayısı --fs-xl,
+   etiket --fs-3xs, çip 26px; satır 2 altında TEK eylem satırı
+   (.trace-hdr__actrow): solda "CoSRE'ye sor" + operasyon kartı çipleri, sağda
+   dış link düğmeleri (.trace-extlinks — eskiden kartın altında ayrı satırdı).
    Pin: pages/traceHeaderMeasures.pin.test.ts. */
-.trace-hdr { flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: var(--sp-6); padding: var(--sp-7) var(--sp-8); border-radius: var(--radius); }
+.trace-hdr { flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: var(--sp-4); padding: var(--sp-5) var(--sp-7); border-radius: var(--radius); }
 .trace-hdr__actions { justify-content: flex-end; }
-.trace-hdr__row1 { display: flex; align-items: flex-start; gap: var(--sp-8); min-width: 0; }
-.trace-hdr__ident { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: var(--sp-3); }
-.trace-hdr__crumbs { margin-bottom: 0; font-size: var(--fs-sm); color: var(--text2); }
+.trace-hdr__row1 { display: flex; align-items: center; gap: var(--sp-7); min-width: 0; }
+.trace-hdr__ident { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+.trace-hdr__crumbs { margin-bottom: 0; font-size: var(--fs-xs); color: var(--text2); }
 .trace-hdr__crumbs .crumbs__cur { font-weight: 400; }
-.trace-hdr__title { margin: 0; min-width: 0; font-family: var(--font-mono); font-size: var(--fs-xl); font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.trace-hdr__meta { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-4); min-width: 0; }
+.trace-hdr__headline { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2) var(--sp-5); min-width: 0; }
+.trace-hdr__title { margin: 0; flex: 0 1 auto; min-width: 0; max-width: 100%; font-family: var(--font-mono); font-size: var(--fs-lg); font-weight: 600; line-height: 1.3; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trace-hdr__meta { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-3); min-width: 0; }
 .trace-hdr__meta > .cell-hint { margin-left: 0; }
 .trace-hdr__id { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--text2); overflow-wrap: anywhere; min-width: 0; }
-.trace-measures { margin: 0; flex-shrink: 0; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--sp-2) var(--sp-8); text-align: right; }
-.trace-measures__item { display: flex; flex-direction: column; justify-content: flex-start; gap: var(--sp-1); min-width: 0; }
-.trace-measures dt { font-size: var(--fs-2xs); font-weight: 600; letter-spacing: 0.06em; color: var(--text2); white-space: nowrap; }
-.trace-measures dd { margin: 0; font-family: var(--font-mono); font-size: calc(var(--fs-xl) * 1.2); font-weight: 600; line-height: 1.2; color: var(--text); font-variant-numeric: tabular-nums; letter-spacing: 0; white-space: nowrap; }
-.trace-measures dd.trace-measures__start { font-size: var(--fs-md); padding-top: var(--sp-2); }
+.trace-measures { margin: 0; flex-shrink: 0; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--sp-1) var(--sp-7); text-align: right; }
+.trace-measures__item { display: flex; flex-direction: column; justify-content: flex-start; gap: 0; min-width: 0; }
+.trace-measures dt { font-size: var(--fs-3xs); font-weight: 600; letter-spacing: 0.05em; line-height: 1.4; color: var(--text2); white-space: nowrap; }
+.trace-measures dd { margin: 0; font-family: var(--font-mono); font-size: var(--fs-xl); font-weight: 600; line-height: 1.2; color: var(--text); font-variant-numeric: tabular-nums; letter-spacing: 0; white-space: nowrap; }
+.trace-measures dd.trace-measures__start { font-size: var(--fs-sm); padding-top: var(--sp-1); }
 .trace-measures dd.trace-measures__none { color: var(--text3); }
-.trace-measures__unit { font-size: var(--fs-md); font-weight: 400; color: var(--text2); }
-.trace-hdr__row2 { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-4) var(--sp-6); padding-top: var(--sp-6); border-top: 1px solid var(--divider); min-width: 0; }
-.trace-hdr__row2 > .trace-summary__ops { flex: 1 1 auto; flex-basis: auto; min-width: 0; gap: var(--sp-4); }
-.trace-hdr__ask { margin-left: auto; display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-4); min-width: 0; }
-.trace-hdr__ask > .chip { min-height: calc(var(--hit-min) + var(--sp-4)); padding: 0 var(--sp-6); border-radius: var(--radius-sm); font-size: var(--fs-md); text-decoration: none; }
-.trace-hdr__ask-label { margin-left: var(--sp-3); }
-.trace-extlinks { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: var(--sp-4); margin-bottom: var(--sp-5); }
+.trace-measures__unit { font-size: var(--fs-sm); font-weight: 400; color: var(--text2); }
+.trace-hdr__row2 { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-3) var(--sp-4); padding-top: var(--sp-4); border-top: 1px solid var(--divider); min-width: 0; }
+.trace-hdr__row2 > .trace-summary__ops { flex: 1 1 100%; flex-basis: 100%; min-width: 0; gap: var(--sp-3); }
+/* Eylem satırı: solda CoSRE + kart çipleri, sağda dış linkler (margin-left:auto). */
+.trace-hdr__actrow { flex: 1 1 100%; display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-3) var(--sp-4); min-width: 0; }
+.trace-hdr__ask { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-3); min-width: 0; }
+.trace-hdr__ask > .chip { min-height: calc(var(--hit-min) + var(--sp-2)); padding: 0 var(--sp-5); border-radius: var(--radius-sm); font-size: var(--fs-sm); text-decoration: none; }
+.trace-hdr__ask-label { margin-left: var(--sp-2); }
+.trace-extlinks { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: var(--sp-3); min-width: 0; max-width: 100%; }
+.trace-hdr__actrow > .trace-extlinks { margin-left: auto; }
 .trace-extlinks:empty { display: none; }
 /* Kimlik çipi — etiket · değer · ipucu · kopyala hücreleri tek çerçevede. */
-.idchip { display: inline-flex; align-items: stretch; max-width: 100%; min-width: 0; min-height: calc(var(--hit-min) + var(--sp-2)); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; background: var(--bg1); font-size: var(--fs-sm); }
-.idchip__label { display: inline-flex; align-items: center; flex-shrink: 0; padding: 0 var(--sp-4); background: var(--bg2); color: var(--text2); font-size: var(--fs-2xs); font-weight: 600; letter-spacing: 0.06em; border-right: 1px solid var(--divider); white-space: nowrap; }
-.idchip__val { display: block; align-self: center; min-width: 0; padding: 0 var(--sp-5); font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.idchip { display: inline-flex; align-items: stretch; max-width: 100%; min-width: 0; min-height: calc(var(--hit-min) + var(--sp-1)); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; background: var(--bg1); font-size: var(--fs-sm); }
+.idchip__label { display: inline-flex; align-items: center; flex-shrink: 0; padding: 0 var(--sp-3); background: var(--bg2); color: var(--text2); font-size: var(--fs-2xs); font-weight: 600; letter-spacing: 0.06em; border-right: 1px solid var(--divider); white-space: nowrap; }
+.idchip__val { display: block; align-self: center; min-width: 0; padding: 0 var(--sp-4); font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 a.idchip__val { text-decoration: none; }
 a.idchip__val:hover { color: var(--accent2); text-decoration: underline; }
-.idchip__hint { display: inline-flex; align-items: center; flex-shrink: 0; padding: 0 var(--sp-4); font-size: var(--fs-xs); color: var(--text2); background: var(--bg2); border-left: 1px solid var(--divider); white-space: nowrap; }
+.idchip__hint { display: inline-flex; align-items: center; flex-shrink: 0; padding: 0 var(--sp-3); font-size: var(--fs-xs); color: var(--text2); background: var(--bg2); border-left: 1px solid var(--divider); white-space: nowrap; }
 .idchip__hint.is-warn { color: var(--warn); background: var(--warn-bg); }
 .idchip > button.copy-btn.idchip__copy { flex-shrink: 0; margin: 0; padding: 0 var(--sp-4); min-width: var(--hit-min); border: 0; border-left: 1px solid var(--divider); border-radius: 0; font-size: var(--fs-sm); line-height: 1; }
 @media (max-width: 1280px) {
-  .trace-hdr__row1 { flex-direction: column; align-items: stretch; gap: var(--sp-5); }
+  .trace-hdr__row1 { flex-direction: column; align-items: stretch; gap: var(--sp-3); }
   .trace-measures { justify-content: flex-start; text-align: left; }
 }
 @media (max-width: 640px) {
-  .trace-hdr { padding: var(--sp-5) var(--sp-6); }
-  .trace-measures { gap: var(--sp-4) var(--sp-7); }
+  .trace-hdr { padding: var(--sp-4) var(--sp-5); }
+  .trace-measures { gap: var(--sp-2) var(--sp-6); }
   .trace-hdr__row2 > .trace-summary__ops { flex-basis: 100%; }
-  .trace-hdr__ask { margin-left: 0; }
+  .trace-hdr__actrow > .trace-extlinks { margin-left: 0; justify-content: flex-start; }
 }
 /* ── v0.10.1514 END ──────────────────────────────────────────────────── */

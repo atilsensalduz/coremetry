@@ -11545,3 +11545,27 @@ taşındı — yüksek hacimdeki ikizleri artık aday (bilinçli davranış değ
 
 **Geri alma.** Taban: `behavior.highVolumeErrorFloor=false` (v0.10.1070 davranışı). Tamamı: `git revert <sha>` + yeni etiket; şema yok.
 
+
+## 2026-10-24 — v0.10.1522 — Trace başlığı sıkıştırıldı; CoSRE + dış linkler tek eylem satırında
+
+**Bağlam.** v0.10.1514 (trace başlığı A) prod ekran görüntüsü üzerine operatör: "Üstteki bar çok büyük olmuş. Biraz daha fontlar
+küçülebilir ve Log İzleme ile Ask CoSRE aynı hizada olabilir — Ask CoSRE solda, Log İzleme sağda." Kart dört-beş satıra yayılıyordu
+(breadcrumb, xl başlık, meta, ~22px ölçüler; çipler + sarılan kart/CoSRE satırı) ve dış link düğmesi kartın ALTINDA ayrı bir satırdı.
+
+**Seçenekler.** (a) CoSRE'yi kimlik çipleriyle aynı satırın soluna almak — reddedildi: çipler uzunken CoSRE "solda" değil ortada kalır.
+(b) Dış linkleri gri eylem alanına (Compare/Logs/Share) taşımak — reddedildi: operatör ikisini aynı hizada istedi. (c) **Kart içinde
+tek eylem satırı** — seçildi.
+
+**Karar.** Satır 1: breadcrumb (--fs-xs) altında başlık (--fs-lg) + meta (rozet · id · kopyala · ERROR) AYNI satırda
+(`.trace-hdr__headline`, sarabilir); sağda ölçüler --fs-xl (eski 1.2×xl ≈ 22px), etiket --fs-3xs, birim --fs-sm. Satır 2 (ince
+çizgi): kimlik çipleri (26px, 12px değer) tam genişlik; altında `.trace-hdr__actrow`: solda birincil "CoSRE'ye sor", operasyon
+kartı ve gateway çipleri (28px), sağda (`margin-left: auto`) `.trace-extlinks` — ExternalLinkButtons'ın tek çağrı yeri; kartın
+altındaki ayrı satır kalktı. Dolgu/boşluklar bir basamak küçüldü; yalnız token. 1440px'te kart 3 sıkı satır (~150px).
+≤1280px ölçüler başlığın altına iner; ≤640px dış linkler sola iner, yana kayma yok. Davranış, testid, aria, linkler aynı; kiosk ve
+public trace dokunulmadı. Pin: `pages/traceHeaderMeasures.pin.test.ts` (yeni: eylem satırında AIExplainButton dış linklerden ÖNCE,
+dış linkler kartın içinde ve tek çağrı yeri; CSS boyut pinleri).
+
+**Bedeller.** Dış link yapılandırılmamışsa eylem satırında yalnız CoSRE + kart çipleri kalır (sağ taraf boş — :empty gizler).
+Çipler yoksa satır 2'de yalnız eylem satırı görünür.
+
+**Geri alma.** `git revert <sha>` + yeni etiket; yalnız frontend (Trace.tsx, globals.css `v0.10.1514` bloğu, pin testi), şema yok.
