@@ -6274,9 +6274,16 @@ th:hover .tcf-btn, .tcf-btn:focus-visible, .tcf-btn[aria-expanded="true"] { opac
    hemen ardından solda "Trace ID: <12 hex>…" + kopyala + durum. Alt çizgi
    şeritten satıra geçti (sekme düğmesinin -1px bindirmesi aynen çalışır);
    ≤640px satır sarar, yana kayma yok. Kartta .trace-hdr__idrow kalktı.
+   v0.10.1528 (operatör, prod: "Trace id beyaz alanda değil. Sol üstte Compare
+   trace ile aynı hizada gri alanda") — .trace-tabrow geri alındı (sekme şeridi
+   1527 öncesi hâlinde, alt çizgisi şeritte). .trace-hdr__trace gri eylem
+   satırının (.crumbs-row.trace-hdr__actions) SOL ucunda; düğmeler
+   (.crumbs-actions margin-left:auto) sağa dayalı. Satır sarar; ≤640px'te id
+   kendi satırında önce gelir. Yana kayma yok.
    Pin: pages/traceHeaderMeasures.pin.test.ts. */
 .trace-hdr { flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: var(--sp-4); padding: var(--sp-5) var(--sp-7); border-radius: var(--radius); }
-.trace-hdr__actions { justify-content: flex-end; }
+.trace-hdr__actions { justify-content: flex-start; flex-wrap: wrap; gap: var(--sp-3) var(--sp-4); }
+.trace-hdr__actions > .crumbs-actions { flex-shrink: 1; min-width: 0; justify-content: flex-end; }
 .trace-hdr__row1 { display: flex; align-items: center; gap: var(--sp-7); min-width: 0; }
 .trace-hdr__ident { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
 .trace-hdr__crumbs { margin-bottom: 0; font-size: var(--fs-xs); color: var(--text2); }
@@ -6292,12 +6299,10 @@ th:hover .tcf-btn, .tcf-btn:focus-visible, .tcf-btn[aria-expanded="true"] { opac
 .trace-measures dd.trace-measures__none { color: var(--text3); }
 .trace-measures__unit { font-size: inherit; font-weight: 400; color: var(--text2); }
 .trace-hdr__row2 { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-3) var(--sp-4); padding-top: var(--sp-4); border-top: 1px solid var(--divider); min-width: 0; }
-/* Kimlik çipleri satırı (sarar); trace id artık sekme satırında (v0.10.1527). */
+/* Kimlik çipleri satırı (sarar); trace id gri eylem satırında (v0.10.1528). */
 .trace-hdr__row2 > .trace-summary__ops { flex: 1 1 100%; min-width: 0; gap: var(--sp-3); }
-/* Sekme satırı: Trace | Logs | Metrics + hemen ardından solda trace id grubu. */
-.trace-tabrow { display: flex; align-items: stretch; flex-wrap: wrap; gap: 0 var(--sp-6); margin-bottom: 10px; border-bottom: 1px solid var(--border); min-width: 0; }
-.trace-tabrow > .tab-strip { margin-bottom: 0; border-bottom: 0; flex-wrap: wrap; min-width: 0; }
-.trace-hdr__trace { align-self: center; display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-start; gap: var(--sp-3); min-width: 0; max-width: 100%; padding: var(--sp-2) 0; }
+/* Gri eylem satırının sol ucu: "Trace ID: <12 hex>…" + kopyala + durum. */
+.trace-hdr__trace { flex: 0 1 auto; display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-start; gap: var(--sp-3); min-width: 0; max-width: 100%; }
 .trace-hdr__idlabel { font-size: var(--fs-xs); color: var(--text2); white-space: nowrap; }
 .trace-hdr__trace > .cell-hint { margin-left: 0; }
 /* Eylem satırı: solda CoSRE + kart çipleri, sağda dış linkler (margin-left:auto). */
@@ -6324,7 +6329,7 @@ a.idchip__val:hover { color: var(--accent2); text-decoration: underline; }
 @media (max-width: 640px) {
   .trace-hdr { padding: var(--sp-4) var(--sp-5); }
   .trace-measures { gap: var(--sp-2) var(--sp-6); }
-  .trace-tabrow { gap: 0 var(--sp-4); }
+  .trace-hdr__actions > .trace-hdr__trace { flex-basis: 100%; }
   .trace-hdr__actrow > .trace-extlinks { margin-left: 0; justify-content: flex-start; }
 }
 /* ── v0.10.1514 END ──────────────────────────────────────────────────── */

@@ -551,17 +551,38 @@ function TraceDetailInner() {
         {/* v0.10.1514 (trace başlığı A, operatör onayı "A iyi" 2026-10-24) — Compare /
             Logs / Metrics / Share / Export / Kiosk gri alanda AYNEN kalır (yalnız
             breadcrumb başlık kartına girdi). */}
-        {traceActions && (
-          <div className="crumbs-row trace-hdr__actions">
-            <span className="crumbs-actions">{traceActions}</span>
+        {/* v0.10.1528 (operatör, prod 2026-10-24: "Trace id beyaz alanda değil. Sol üstte
+            Compare trace ile aynı hizada gri alanda olabilir") — trace id grubu gri eylem
+            satırının SOL ucunda; düğmeler sağa dayalı kalır (.crumbs-actions margin-left:auto).
+            Satır id URL'den bilindiği an çizilir (yükleniyor / bulunamadı / yaşlandı dahil);
+            ERROR rozeti ve hatalı span sayısı yalnız span yüklendiğinde. "Trace ID: <ilk 12
+            hex>…", tam id title'da, kopyala TAM id'yi kopyalar. ≤640px satır sarar, id önce
+            kendi satırında. */}
+        <div className="crumbs-row trace-hdr__actions">
+          <div className="trace-hdr__trace" role="group" data-testid="trace-hdr-traceid" aria-label={tr('trace.hdr.traceStatus')}>
+            <span className="trace-hdr__idlabel">{tr('trace.hdr.traceId')}:</span>
+            <code className="trace-hdr__id" title={id}>{id.length > 12 ? `${id.slice(0, 12)}…` : id}</code>
+            <CopyButton value={id} title="Copy trace ID" />
+            {spans && spans.length > 0 && (
+              <>
+                {/* v0.10.922 (sade palet adım 1) — K5: sağlıklı trace NÖTR; yeşil
+                    "OK" rozeti kalktı, görsel sinyal yalnız sapmada (ERROR). Kelime
+                    ekran okuyucuya kalır (sr-only) — bilgi renge/yokluğa bırakılmaz. */}
+                {hasErr
+                  ? <span className="badge b-err">ERROR</span>
+                  : <span className="sr-only">OK</span>}
+                {errSpans > 0 && <span className="cell-hint">{errSpans} error span{errSpans === 1 ? '' : 's'}</span>}
+              </>
+            )}
           </div>
-        )}
+          {traceActions && <span className="crumbs-actions">{traceActions}</span>}
+        </div>
         {/* Başlık kartı. Satır 1: solda breadcrumb · servis rozeti + operasyon/rota
             başlığı (mono, ellipsis + title, tek satır); sağda ölçü kümesi
             (TraceMeasures; ≤1280px'te başlığın altına iner). Satır 2 (ince çizgi):
             kimlik çipleri (OPERASYON / FUNCTION / CHANNEL — ui/IdentityChip), altında
-            eylem satırı. Trace id + kopyala + durum v0.10.1527'den beri kartta DEĞİL,
-            sekme satırında (Trace | Logs | Metrics yanında).
+            eylem satırı. Trace id + kopyala + durum kartta DEĞİL: v0.10.1528'den beri
+            gri eylem satırının solunda (1527'deki sekme satırı yerleşimi geri alındı).
             v0.10.1522 (operatör, prod: "üstteki bar çok büyük… Ask CoSRE solda, Log
             İzleme sağda") — kart sıkıştı (başlık + meta tek satır, küçük ölçüler) ve
             kartın altındaki ayrı dış link satırı kalktı: TEK eylem satırı, solda
@@ -736,12 +757,7 @@ function TraceDetailInner() {
             {/* Trace vs Logs (Uptrace-style) — uses the shared
                 .tab-strip pattern so it visually matches Settings,
                 Exceptions inbox, and Status Page admin tabs. */}
-            {/* v0.10.1527 — sekme satırı: Trace | Logs | Metrics, hemen ardından SOLDA
-                "Trace ID: <ilk 12 hex>…" (tam id title'da, kopyala TAM id'yi kopyalar) +
-                ERROR rozeti + hatalı span sayısı. Grup tablist'in DIŞINDA (ARIA: tablist
-                yalnız sekme taşır); alt çizgi satırın kendisinde. ≤640px satır sarar. */}
-            <div className="trace-tabrow">
-            <TabStrip ariaLabel="Trace görünümü" value={tab} onChange={setTab} tabs={[
+            <TabStrip ariaLabel="Trace görünümü" value={tab} onChange={setTab} style={{ marginBottom: 10 }} tabs={[
               { key: 'trace', label: <>Trace <span style={{ color: 'var(--text3)', marginLeft: 4 }}>{spans.length}</span></> },
               // v0.8.407 — count covers ES logs + span-event rows once fetched;
               // before the lazy ES fetch a ● hints that the trace already
@@ -755,19 +771,6 @@ function TraceDetailInner() {
               // v0.10.913 — pod sayısı span'lardan (ek sorgu yok); pod'suz trace'te "—".
               { key: 'metrics', label: <>Metrics <span style={{ color: 'var(--text3)', marginLeft: 4 }}>{tracePodCount > 0 ? `${tracePodCount} pod` : '—'}</span></> },
             ]} />
-              <div className="trace-hdr__trace" role="group" data-testid="trace-hdr-traceid" aria-label={tr('trace.hdr.traceStatus')}>
-                <span className="trace-hdr__idlabel">{tr('trace.hdr.traceId')}:</span>
-                <code className="trace-hdr__id" title={id}>{id.length > 12 ? `${id.slice(0, 12)}…` : id}</code>
-                <CopyButton value={id} title="Copy trace ID" />
-                {/* v0.10.922 (sade palet adım 1) — K5: sağlıklı trace NÖTR; yeşil
-                    "OK" rozeti kalktı, görsel sinyal yalnız sapmada (ERROR). Kelime
-                    ekran okuyucuya kalır (sr-only) — bilgi renge/yokluğa bırakılmaz. */}
-                {hasErr
-                  ? <span className="badge b-err">ERROR</span>
-                  : <span className="sr-only">OK</span>}
-                {errSpans > 0 && <span className="cell-hint">{errSpans} error span{errSpans === 1 ? '' : 's'}</span>}
-              </div>
-            </div>
 
             {tab === 'trace' && (
               <>

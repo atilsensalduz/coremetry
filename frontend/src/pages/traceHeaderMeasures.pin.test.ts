@@ -79,9 +79,9 @@ describe('trace başlığı: ölçüler sağa dayalı kümede (v0.10.1347)', () 
     const hlEnd = trace.indexOf('</div>', order[3]);
     expect(trace.slice(headline, hlEnd)).not.toMatch(/CopyButton|trace-hdr__id|b-err|errSpans/);
     expect(trace).not.toContain('trace-hdr__meta');
-    // Trace id + kopyala + durum satır 1'de DEĞİL (ölçülerden önce görünmez).
+    // Trace id + kopyala + durum satır 1'de DEĞİL (v0.10.1528 — kartın önündeki gri satırda).
     for (const n of ['<code className="trace-hdr__id"', '<CopyButton value={id}', '<span className="badge b-err">ERROR</span>', 'error span{errSpans']) {
-      expect(trace.indexOf(n), `${n} satır 1'de olmamalı`).toBeGreaterThan(meas);
+      expect(trace.indexOf(n), `${n} satır 1'de olmamalı`).toBeLessThan(row1);
     }
     // Başlık: ellipsis + tam ad title'da.
     expect(trace).toContain('<h2 className="trace-hdr__title" title={root ? displaySpanName(root) : id}>');
@@ -91,7 +91,7 @@ describe('trace başlığı: ölçüler sağa dayalı kümede (v0.10.1347)', () 
       expect(m).toContain(n);
     }
     // Satır 2: kimlik çipleri → eylem satırı (solda CoSRE, kart çipi, gateway;
-    // sağda dış linkler). v0.10.1527 — trace id grubu kartta DEĞİL (sekme satırında).
+    // sağda dış linkler). v0.10.1528 — trace id grubu kartta DEĞİL (gri eylem satırında).
     const ops = trace.indexOf('<div className="trace-summary__ops" role="list"');
     const act = trace.indexOf('<div className="trace-hdr__actrow" data-testid="trace-hdr-actions">');
     const ask = trace.indexOf('<div className="trace-hdr__ask">');
@@ -108,7 +108,7 @@ describe('trace başlığı: ölçüler sağa dayalı kümede (v0.10.1347)', () 
     // Eski 1514 yerleşimi (CoSRE sağ kümenin sonunda) geri gelmez.
     expect(trace).not.toMatch(/trace-opcard-gateway[\s\S]{0,800}<AIExplainButton subject=\{\{ kind: 'trace'/);
     // Compare / Logs / Metrics / Share gri alanda (kartın DIŞINDA, önünde) kalır.
-    const actions = trace.indexOf('<span className="crumbs-actions">{traceActions}</span>');
+    const actions = trace.indexOf('{traceActions && <span className="crumbs-actions">{traceActions}</span>}');
     expect(actions).toBeGreaterThan(-1);
     expect(actions).toBeLessThan(trace.indexOf('<section className="trace-summary trace-hdr"'));
     // Eski tek satır şerit ve gri alandaki yinelenen kritik yol metni geri gelmez.
@@ -117,46 +117,62 @@ describe('trace başlığı: ölçüler sağa dayalı kümede (v0.10.1347)', () 
     expect(trace).not.toContain("style={{ color: 'var(--text2)', fontSize: 12 }}>{spans.length} spans");
   });
 
-  it('/trace sekme satırı (v0.10.1527) — "Trace ID: <12 hex>…" + kopyala (TAM id) + ERROR + hatalı span, Trace | Logs | Metrics ile aynı satırda, solda', () => {
+  it('/trace gri eylem satırı (v0.10.1528) — "Trace ID: <12 hex>…" + kopyala (TAM id) + ERROR + hatalı span, Compare trace ile aynı satırda SOLDA; kartta ve sekme satırında değil', () => {
+    // Operatör (prod 2026-10-24): "Trace id beyaz alanda değil. Sol üstte Compare
+    // trace ile aynı hizada gri alanda olabilir".
+    const row = trace.indexOf('<div className="crumbs-row trace-hdr__actions">');
+    const tid = trace.indexOf('<div className="trace-hdr__trace" role="group" data-testid="trace-hdr-traceid" aria-label={tr(\'trace.hdr.traceStatus\')}>');
+    const btns = trace.indexOf('{traceActions && <span className="crumbs-actions">{traceActions}</span>}');
     const sec = trace.indexOf('<section className="trace-summary trace-hdr"');
     const secEnd = trace.indexOf('</section>', sec);
-    const row = trace.indexOf('<div className="trace-tabrow">');
-    const strip = trace.indexOf('<TabStrip ariaLabel="Trace görünümü"', row);
-    const stripEnd = trace.indexOf(']} />', strip);
-    const tid = trace.indexOf('<div className="trace-hdr__trace" role="group" data-testid="trace-hdr-traceid" aria-label={tr(\'trace.hdr.traceStatus\')}>');
-    expect(row, 'sekme satırı kartın altında').toBeGreaterThan(secEnd);
-    expect(strip).toBeGreaterThan(row);
-    expect(tid, 'trace id grubu sekmelerden SONRA').toBeGreaterThan(stripEnd);
-    // Grup sekme satırının içinde: satırın kapanışı gruptan sonra, sekme içeriğinden önce.
-    const groupEnd = trace.indexOf('</div>\n            </div>', tid);
-    expect(groupEnd).toBeGreaterThan(tid);
-    expect(groupEnd).toBeLessThan(trace.indexOf("{tab === 'trace' && (", tid));
-    // Kartta (section) trace id / kopyala / durum YOK; eski kimlik satırı kalktı.
-    const card = trace.slice(sec, secEnd);
-    expect(card).not.toMatch(/trace-hdr-traceid|trace-hdr__id\b|CopyButton value=\{id\}|b-err|errSpans|trace-hdr__idrow/);
-    expect(trace).not.toContain('trace-hdr__idrow');
-    // Grup sırası: etiket → kısaltılmış id (tam id title'da) → kopyala (TAM id) → ERROR → hatalı span.
+    expect(row, 'gri eylem satırı yok').toBeGreaterThan(-1);
+    expect(tid, 'trace id grubu gri satırın içinde, ilk öğe').toBeGreaterThan(row);
+    expect(btns, 'eylem düğmeleri id grubundan SONRA (sağda)').toBeGreaterThan(tid);
+    expect(sec, 'gri satır kartın önünde').toBeGreaterThan(btns);
+    // Gri satır span beklemeden çizilir (yükleniyor / bulunamadı / yaşlandı):
+    // satırın önünde span / traceActions koşulu yok; koşul yalnız düğmelerde.
+    const pre = trace.slice(trace.lastIndexOf('*/}', row), row);
+    expect(pre).not.toMatch(/traceActions &&|spans &&/);
+    const groupEnd = trace.indexOf('{traceActions && <span', tid);
+    const group = trace.slice(tid, groupEnd);
+    // Sıra: etiket → kısaltılmış id (tam id title'da) → kopyala (TAM id) → ERROR → hatalı span.
     const seq = ["<span className=\"trace-hdr__idlabel\">{tr('trace.hdr.traceId')}:</span>",
       '<code className="trace-hdr__id" title={id}>{id.length > 12 ? `${id.slice(0, 12)}…` : id}</code>',
       '<CopyButton value={id} title="Copy trace ID" />',
-      '<span className="badge b-err">ERROR</span>', '<span className="sr-only">OK</span>', 'error span{errSpans'].map(n => trace.indexOf(n, tid));
-    for (const i of seq) { expect(i).toBeGreaterThan(tid); expect(i).toBeLessThan(groupEnd); }
+      '{spans && spans.length > 0 && (',
+      '<span className="badge b-err">ERROR</span>', '<span className="sr-only">OK</span>', 'error span{errSpans'].map(n => group.indexOf(n));
+    for (const i of seq) expect(i).toBeGreaterThan(-1);
     for (let k = 1; k < seq.length; k++) expect(seq[k]).toBeGreaterThan(seq[k - 1]);
+    // Etiket / id / kopyala span koşulundan ÖNCE (span'siz de görünür); durum koşulun içinde.
+    expect(group.slice(0, seq[3])).not.toMatch(/spans/);
     for (const n of ['<code className="trace-hdr__id"', '<CopyButton value={id}', 'error span{errSpans', 'data-testid="trace-hdr-traceid"']) {
       expect(trace.split(n).length - 1, n).toBe(1);
     }
     // Kopyala kısaltılmış metni değil tam id'yi alır.
     expect(trace).not.toMatch(/<CopyButton value=\{id\.slice/);
+    // Kartta (section) trace id / kopyala / durum YOK; eski kimlik satırı kalktı.
+    const card = trace.slice(sec, secEnd);
+    expect(card).not.toMatch(/trace-hdr-traceid|trace-hdr__id\b|CopyButton value=\{id\}|b-err|errSpans|trace-hdr__idrow/);
+    expect(trace).not.toContain('trace-hdr__idrow');
+    // Sekme satırında değil: 1527 .trace-tabrow kalktı, şerit 1527 öncesi hâlinde.
+    expect(trace).not.toContain('trace-tabrow');
+    expect(css).not.toContain('.trace-tabrow {');
+    expect(css).not.toContain('.trace-tabrow > .tab-strip');
+    expect(trace).toContain('<TabStrip ariaLabel="Trace görünümü" value={tab} onChange={setTab} style={{ marginBottom: 10 }} tabs={[');
     // i18n etiketi iki dilde.
     const i18n = read('../lib/i18n.ts');
     expect(i18n.split("'trace.hdr.traceId':").length - 1).toBe(2);
-    // CSS: satır sarar, alt çizgi satırda (şeritte değil), grup sola dayalı (margin-left:auto yok).
+    // CSS: gri satır sarar, id solda (margin-left:auto yok), düğmeler sağa dayalı;
+    // ≤640px'te id kendi satırında önce.
     const b = css.indexOf('v0.10.1514 BEGIN — trace başlığı');
     const block = css.slice(b, css.indexOf('v0.10.1514 END', b));
-    expect(block).toMatch(/\.trace-tabrow \{[^}]*display: flex[^}]*flex-wrap: wrap[^}]*border-bottom: 1px solid var\(--border\)/);
-    expect(block).toMatch(/\.trace-tabrow > \.tab-strip \{[^}]*margin-bottom: 0; border-bottom: 0/);
+    expect(block).toMatch(/\.trace-hdr__actions \{[^}]*justify-content: flex-start[^}]*flex-wrap: wrap/);
+    expect(block).toMatch(/\.trace-hdr__actions > \.crumbs-actions \{[^}]*min-width: 0[^}]*justify-content: flex-end/);
     expect(block).toMatch(/\.trace-hdr__trace \{[^}]*justify-content: flex-start/);
     expect(block).not.toMatch(/\.trace-hdr__trace \{[^}]*margin-left: auto/);
+    expect(css).toMatch(/\.crumbs-actions \{[^}]*margin-left: auto/);
+    const m640 = /@media \(max-width: 640px\) \{([\s\S]*?)\n\}/.exec(block);
+    expect(m640![1]).toMatch(/\.trace-hdr__actions > \.trace-hdr__trace \{[^}]*flex-basis: 100%/);
   });
 
   it('/trace eylem satırı — CoSRE (AIExplainButton) dış link düğmesinden ÖNCE; dış linkler kartın İÇİNDE, altta ayrı satır yok', () => {
@@ -196,7 +212,7 @@ describe('trace başlığı: ölçüler sağa dayalı kümede (v0.10.1347)', () 
     const m640 = /@media \(max-width: 640px\) \{([\s\S]*?)\n\}/.exec(block);
     expect(m640, '640px katmanı yok').toBeTruthy();
     expect(block).toMatch(/\.trace-hdr__row2 > \.trace-summary__ops \{[^}]*flex: 1 1 100%/);
-    expect(m640![1]).toMatch(/\.trace-tabrow \{/);
+    expect(m640![1]).toMatch(/\.trace-hdr__actions > \.trace-hdr__trace \{/);
     // Taşmayan çip: kök max-width 100%, değer ellipsis; id kelime ortasından kırılır.
     expect(block).toMatch(/\.idchip \{[^}]*max-width: 100%/);
     expect(block).toMatch(/\.idchip__val \{[^}]*text-overflow: ellipsis/);

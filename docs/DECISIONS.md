@@ -11757,3 +11757,21 @@ ve redis+mongodb kök-kalır vakaları ve sınıflandırıcı tablo testi eklend
 
 **Geri alma.** `git revert <sha>` + yeni etiket. Yalnız seçiciyi geri almak: `isOwnWorkSpan`'ı `isDbSpan(s) || isMessagingSpan(s)`,
 `isForward`'ı `kindOf(s) === 'client' && !isOwnWorkSpan(s)` yap; yeni tablo vakaları kırmızıya döner.
+
+## 2026-10-24 — v0.10.1528 — Trace id gri eylem satırında, Compare trace ile aynı hizada solda
+
+**Bağlam.** Operatör (v0.10.1527 sonrası): "Trace id beyaz alanda değil. Sol üstte Compare trace ile aynı hizada gri alanda
+olabilir, veya altta Trace/Logs/Metrics hizasında sağa dayalı yine gri alanda." 1527'nin sekme satırı yerleşimi kastedilen
+değildi; ayrıca id yalnız span yüklenince görünüyordu.
+
+**Karar.** İlk seçenek alındı. `.trace-hdr__trace` grubu (`data-testid="trace-hdr-traceid"`, aria-label aynen) kartın önündeki
+gri eylem satırının (`.crumbs-row.trace-hdr__actions` — Compare trace / Logs / Metrics / Share / Export JSON / Kiosk,
+v0.10.354/360 yerleşimi) SOL ucunda; düğmeler `.crumbs-actions` (margin-left:auto) ile sağa dayalı kalır. Biçim "Trace ID: <ilk 12
+hex>…", tam id `title`'da, kopyala TAM id'yi kopyalar; ERROR rozeti ve "N error span" yalnız span yüklenince. Gri satır artık id
+URL'den bilindiği an çizilir (yükleniyor / bulunamadı / yaşlanmış durumda da id görünür — 1527'nin bilinen bedeli kalktı);
+düğmeler yine yalnız span varken. `.trace-tabrow` kaldırıldı, `<TabStrip>` 1527 öncesi hâlinde (kendi alt çizgisi,
+`marginBottom: 10`). Kart üç satır: başlık + ölçüler, kimlik çipleri, eylem satırı. Gri satır sarar; ≤640px'te id kendi
+satırında önce, düğmeler altında sağa dayalı; yana kayma yok. Kiosk / public trace dokunulmadı. Pin:
+`pages/traceHeaderMeasures.pin.test.ts`.
+
+**Geri alma.** `git revert <sha>` + yeni etiket (1527'nin sekme satırı yerleşimine döner). Pin testi ilgili vakayı işaretler.
