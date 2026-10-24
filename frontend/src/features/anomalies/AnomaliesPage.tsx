@@ -86,7 +86,8 @@ const EXC_COLS: ColumnDef<ExceptionGroup>[] = [
   // eski 168 px tam damgayı (173 px isteyen) zaten 5 px kesiyordu.
   { id: 'priority',    label: 'Prio',        sortValue: g => g.priority ?? '', naturalDir: 'desc', width: 68, minWidth: 64, priority: 1 },
   { id: 'state',       label: 'State',       sortValue: g => g.state,       naturalDir: 'desc', width: 140, minWidth: 140, priority: 1 },
-  // v0.10.1512 (operatör: "Service ile exception yer değiştirebilir") — Servis önce.
+  // v0.10.1512 (operatör: "Service ile exception yer değiştirebilir") — Servis önce
+  // (kolon + satır hücresi aynı sırada; hücre yorumu v0.10.1513'te buraya taşındı).
   { id: 'service',     label: 'Service',     sortValue: g => g.service,     naturalDir: 'asc',  width: 170, minWidth: 120, priority: 1 },
   { id: 'type',        label: 'Exception',   sortValue: g => g.type,        naturalDir: 'asc', flex: true, minWidth: 200, priority: 1 },
   { id: 'occurrences', label: 'Occurrences', sortValue: g => g.occurrences, numeric: true,      width: 100, minWidth: 92, priority: 2 },
@@ -666,7 +667,6 @@ export default function ProblemsPage() {
                       <td className="row-cell"><Link to={excHref} replace className="row-link" onClick={e => e.stopPropagation()}>{g.priority ? <PriorityBadge p={g.priority} reason={g.priorityReason} /> : <span style={{ color: 'var(--text3)' }}>—</span>}</Link></td>
                       <td className="row-cell"><Link to={excHref} replace className="row-link" onClick={e => e.stopPropagation()}><StateBadge s={g.state} /></Link></td>
                       <td>
-                        {/* v0.10.1512 (operatör) — Servis, Exception'ın solunda. */}
                         {/* v0.9.966 — grubun KENDİ ömrü (firstSeen→
                             lastSeen). ProblemDetail aynı satır tipi için
                             zaten bu pencereyi kullanıyor; listeden ve
