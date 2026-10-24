@@ -6167,4 +6167,24 @@ a.cell-link--block { display: block; overflow: hidden; text-overflow: ellipsis; 
 .ld-viewbar { display: flex; align-items: center; gap: var(--sp-4); margin: 0 0 var(--sp-4); }
 .lp-panel.lp-embedded { padding: var(--sp-4) var(--sp-5); margin-bottom: var(--sp-4); }
 .lp-toolbar { margin-left: auto; display: inline-flex; align-items: center; gap: var(--sp-3); flex-shrink: 0; }
+/* v0.10.1501 (dilim 3) — alan listesi yapışkan 264px ızgara kolonu (kendi
+   kaydırması; v0.8.286 "varsayılan kapalı" ≥1280px'te tersine — operatör
+   onayı), kompakt histogram başlığı: "N hits" + seviye çipleri + kırılım. */
+.ld-body { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--sp-5); align-items: start; }
+.ld-body > .ld-main { min-width: 0; }
+.ld-fields {
+  width: 264px; box-sizing: border-box; position: sticky; top: var(--controls-h, 0px);
+  max-height: calc(100vh - var(--controls-h, 0px) - 96px); overflow-y: auto;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg1); padding: var(--sp-4);
+}
+.lh-left { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-4); min-width: 0; }
+.lh-hint { font-family: var(--font-mono); }
+.ld-hits { font-size: var(--fs-sm); font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ld-levels { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-3); }
+.ld-levels-note { font-size: var(--fs-xs); color: var(--text3); }
+.ld-levels-note.is-err { color: var(--err); }
+@media (max-width: 640px) {
+  .ld-body:has(> .ld-fields) { grid-template-columns: minmax(0, 1fr); }
+  .ld-fields { width: auto; position: static; max-height: 50vh; }
+}
 /* ── v0.10.1498 END ──────────────────────────────────────────────────── */

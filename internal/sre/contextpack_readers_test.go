@@ -130,9 +130,14 @@ func TestContextPackFlagOffRecordByteIdentical(t *testing.T) {
 	// önce ikisini de 0'a sabitler; içerik (kanıt, sorgu, satır sayısı) aynen
 	// karşılaştırılır, üretim kodu değişmedi. Diğer zaman alanları (`at`,
 	// pencereler) enjekte edilen sabit saatten (t0) gelir — normalleştirilmez.
-	durationMs := regexp.MustCompile(`"durationMs":\d+`)
+	// v0.10.1501 — normalleştirme her iç içe düzeyde (JSON üstünde): tüm
+	// `durationMs` / `wallMs` 0'a, tüm `callId` / `exchangeId` boşa — rastgele
+	// kimlik summary dışında başka bir kanıtta da görünse yakalanır.
+	timing := regexp.MustCompile(`"(durationMs|wallMs)":-?[0-9.eE+-]+`)
+	ids := regexp.MustCompile(`"(callId|exchangeId)":"[^"]*"`)
 	strip := func(s string, inv *Investigation) string {
-		s = durationMs.ReplaceAllString(s, `"durationMs":0`)
+		s = timing.ReplaceAllString(s, `"$1":0`)
+		s = ids.ReplaceAllString(s, `"$1":""`)
 		return strings.NewReplacer(inv.Summary.CallID, "", inv.Summary.ExchangeID, "").Replace(s)
 	}
 	if strip(a, plain) != strip(b, withReaders) {

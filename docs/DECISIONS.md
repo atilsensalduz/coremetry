@@ -11006,3 +11006,26 @@ kayıtta da `durationMs` 0'a sabitlenir; diğer zaman alanları enjekte edilen s
 internal/api *_pin testleri).
 
 **Geri alma.** `git revert <sha>` (yalnız test dosyaları).
+
+## 2026-10-24 — v0.10.1501 — /logs Kibana-Discover dilim 3: alan listesi açık başlar + kompakt histogram
+
+**Karar.** Operatör onayı (2026-10-24, "Alan listesi açık başlasın") **v0.8.286'nın "alan paneli varsayılan KAPALI"
+kararını ≥1280px için tersine çevirir.** `fieldsPanelOpen(stored, wide)` (LogFieldsPanel): saklı `'1'` açık, saklı `'0'`
+kapalı (operatörün kapatması her genişlikte kazanır), tercih yoksa `useMediaQuery('(min-width: 1280px)')`. Yeni
+`lib/useMediaQuery.ts` (useNarrow'un genellenmiş hâli; `useIsNarrow` artık bunun üstünde tek satır, eşik 640 aynı).
+Panel yapışkan 264px ızgara kolonu (`.ld-body` / `.ld-fields`, `top: var(--controls-h)`, kendi kaydırması); 1280'in
+altında varsayılan bugünkü ince ray; telefonda açılırsa üstte tam genişlik. `LogsHistogram` `height` (varsayılan 140 —
+servis Logs sekmesi ve anomali çekmecesi bayt bayt aynı; /logs 96) ve `headerLeft` yuvası aldı: "N hits" (liste toplamı;
+ES alt sınırında "10,000+"; desen görünümünde/canlıda gösterilmez) + seviye çipleri + kırılım seçicisi tek başlık
+satırında. Ayrı seviye satırı ve "kırılım" etiketi kalktı (seçici `aria-label="Histogram kırılımı"` korunur); başlık
+yüklenirken de çizilir, çipler kaybolmaz.
+
+**Ek (CI).** v0.10.1500'ün sre bayt-özdeşlik testi normalleştirmesi genişletildi: karşılaştırma öncesi her iç içe düzeyde
+tüm `durationMs` / `wallMs` 0'a, tüm `callId` / `exchangeId` boşa (1497 Release yeniden koşusunda kanıt `durationMs` 7 ⇄ 0
+ve rastgele kimlikler farklıydı). Yalnız test; üretim kodu değişmedi.
+
+**ES-maliyet.** Panel açık bağlanınca alan istatistiği (`logsFieldStats`) hiç çağrılmaz — yalnız akordeon açılınca
+(v0.8.255 kuralı); alan listesi (`logsFields`) tam bir kez (`LogFieldsPanel.defaultOpen.test.tsx` kilidi).
+
+**Geri alma.** `git revert <sha>` + yeni etiket; ya da yalnız varsayılanı geri almak için `fieldsPanelOpen`'da `return
+wide` → `return false`. Saklı tercihler (`logs.fieldsPanel.open`) iki yönde de geçerli.

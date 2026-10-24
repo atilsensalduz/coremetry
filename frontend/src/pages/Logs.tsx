@@ -1036,6 +1036,90 @@ function LogsInner() {
       returnFocusRef: narrowRef,
     };
 
+  // Level facet chips (prototype LogsView .logbar/.facet/.lvl).
+  // Each chip drives the EXISTING min-severity filter
+  // (filter.severity) and carries a live count from the
+  // per-severity timeseries query. Clicking a chip commits
+  // its severity floor immediately + resets paging (facet =
+  // a filter action, Kibana-style); clicking the active chip
+  // (or All) returns to All severities. Active chip = accent
+  // ring. The level label renders as the canonical severity
+  // badge so the operator's colour memory carries over from
+  // the table + histogram. (Replaces the old severity
+  // <select> in the toolbar.)
+  // v0.10.1501 (Discover dilim 3) — ayrı seviye satırı kalktı: çipler histogram
+  // başlığının sol yuvasında (headerLeft), "N hits" ile yan yana.
+  const levelChips = (() => {
+    // The active chip = the highest-severity chip whose floor
+    // is ≤ the current severity floor, so e.g. severity=17
+    // lights ERROR, severity=9 lights INFO. 0 = All.
+    const activeKey = filter.severity <= 0 ? 'all'
+      : (LVL_FACETS.find(f => filter.severity >= f.min)?.key ?? 'all');
+    const setSeverity = (min: number) => {
+      const next = min === filter.severity ? 0 : min; // toggle off → All
+      setFilter(f => ({ ...f, severity: next }));
+      setDraft(d => ({ ...d, severity: next }));
+      // v0.8.546 — the chip has to reach the URL like every other
+      // filter does; without this the level lives only in memory and
+      // Share copies a link that opens on All levels.
+      writeUrl({ ...filter, severity: next }, filters);
+      resetPaging();
+    };
+    // v0.10.924 — buton bütünlüğü Faz 2: elle boyanan
+    // `span role=button` (chipBase/onStyle) yerine Chip atomu —
+    // `active` aria-pressed'i de basıyor, Enter/Space yerel.
+    // v0.10.925 — bileşen DEĞİL, render fonksiyonu: render içinde
+    // tanımlanan bileşen her render'da yeni tiptir → çip yeniden
+    // bağlanır ve klavyeyle seçince odak kaybolurdu.
+    const levelChip = (keyName: string, count: number, title: string, children: ReactNode) => {
+      const on = activeKey === keyName;
+      return (
+        <Chip key={keyName} pill active={on}
+          title={title}
+          onClick={() => setSeverity(keyName === 'all' ? 0 : LVL_FACETS.find(f => f.key === keyName)!.min)}>
+          {children}
+          <span style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 10.5, color: on ? 'var(--accent2)' : 'var(--text3)',
+          }}>
+            {facetLoading ? '·' : count.toLocaleString()}
+          </span>
+        </Chip>
+      );
+    };
+    return (
+      <div role="group" aria-label="Filter by log level" className="ld-levels">
+        {levelChip('all', facetCounts.all, 'Show all severities',
+          <span style={{ color: activeKey === 'all' ? 'var(--accent2)' : 'var(--text2)' }}>All</span>)}
+        {LVL_FACETS.map(f => levelChip(f.key, facetCounts[f.key] ?? 0,
+          `Show ${f.label} and above (min severity ${f.min})`,
+          <span className={`badge ${
+            f.key === 'error' ? 'b-err'
+            : f.key === 'warn' ? 'b-warn'
+            : f.key === 'info' ? 'b-info'
+            : 'b-gray'}`}>{f.label}</span>))}
+        {!volumeEnabled && (
+          <span className="ld-levels-note">
+            counts need a bounded time range
+          </span>
+        )}
+        {(chipsFromHistogram ? histTotals === null : volumeQ.isError) && (
+          <span className="ld-levels-note is-err">
+            level counts unavailable
+          </span>
+        )}
+      </div>
+    );
+  })();
+
+  // v0.10.1501 — "N hits": liste sorgusunun toplamı (ES track_total_hits
+  // tavanında alt sınır → "10,000+"; CH'de gerçek count()). Pager'ın `count`
+  // beyanıyla aynı kaynak. Desen görünümünde ve canlı kuyrukta liste koşmaz →
+  // sayı yok (uydurulmaz).
+  const hitsLabel = !live && staticQ.data && view === 'logs'
+    ? `${total.toLocaleString()}${staticQ.data.totalIsLowerBound ? '+' : ''} hits`
+    : '';
+
   return (
     <>
       {/* Changing the time range MUST reset the keyset cursor: a token
@@ -1094,83 +1178,6 @@ function LogsInner() {
           traceHint={traceHint} onUseTraceHint={applyTraceHint} />
         <LogsNotices live={live} env={env} team={filter.team} hasTrace={filter.hasTrace}
           data={staticQ.data} />
-        {/* Level facet chips (prototype LogsView .logbar/.facet/.lvl).
-            Each chip drives the EXISTING min-severity filter
-            (filter.severity) and carries a live count from the
-            per-severity timeseries query. Clicking a chip commits
-            its severity floor immediately + resets paging (facet =
-            a filter action, Kibana-style); clicking the active chip
-            (or All) returns to All severities. Active chip = accent
-            ring. The level label renders as the canonical severity
-            badge so the operator's colour memory carries over from
-            the table + histogram. (Replaces the old severity
-            <select> in the toolbar.) */}
-        {(() => {
-          // The active chip = the highest-severity chip whose floor
-          // is ≤ the current severity floor, so e.g. severity=17
-          // lights ERROR, severity=9 lights INFO. 0 = All.
-          const activeKey = filter.severity <= 0 ? 'all'
-            : (LVL_FACETS.find(f => filter.severity >= f.min)?.key ?? 'all');
-          const setSeverity = (min: number) => {
-            const next = min === filter.severity ? 0 : min; // toggle off → All
-            setFilter(f => ({ ...f, severity: next }));
-            setDraft(d => ({ ...d, severity: next }));
-            // v0.8.546 — the chip has to reach the URL like every other
-            // filter does; without this the level lives only in memory and
-            // Share copies a link that opens on All levels.
-            writeUrl({ ...filter, severity: next }, filters);
-            resetPaging();
-          };
-          // v0.10.924 — buton bütünlüğü Faz 2: elle boyanan
-          // `span role=button` (chipBase/onStyle) yerine Chip atomu —
-          // `active` aria-pressed'i de basıyor, Enter/Space yerel.
-          // v0.10.925 — bileşen DEĞİL, render fonksiyonu: render içinde
-          // tanımlanan bileşen her render'da yeni tiptir → çip yeniden
-          // bağlanır ve klavyeyle seçince odak kaybolurdu.
-          const levelChip = (keyName: string, count: number, title: string, children: ReactNode) => {
-            const on = activeKey === keyName;
-            return (
-              <Chip key={keyName} pill active={on}
-                title={title}
-                onClick={() => setSeverity(keyName === 'all' ? 0 : LVL_FACETS.find(f => f.key === keyName)!.min)}>
-                {children}
-                <span style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: 10.5, color: on ? 'var(--accent2)' : 'var(--text3)',
-                }}>
-                  {facetLoading ? '·' : count.toLocaleString()}
-                </span>
-              </Chip>
-            );
-          };
-          return (
-            <div role="group" aria-label="Filter by log level"
-              style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                flexWrap: 'wrap', marginBottom: 12,
-              }}>
-              {levelChip('all', facetCounts.all, 'Show all severities',
-                <span style={{ color: activeKey === 'all' ? 'var(--accent2)' : 'var(--text2)' }}>All</span>)}
-              {LVL_FACETS.map(f => levelChip(f.key, facetCounts[f.key] ?? 0,
-                `Show ${f.label} and above (min severity ${f.min})`,
-                <span className={`badge ${
-                  f.key === 'error' ? 'b-err'
-                  : f.key === 'warn' ? 'b-warn'
-                  : f.key === 'info' ? 'b-info'
-                  : 'b-gray'}`}>{f.label}</span>))}
-              {!volumeEnabled && (
-                <span style={{ fontSize: 11, color: 'var(--text3)' }}>
-                  counts need a bounded time range
-                </span>
-              )}
-              {(chipsFromHistogram ? histTotals === null : volumeQ.isError) && (
-                <span style={{ fontSize: 11, color: 'var(--err)' }}>
-                  level counts unavailable
-                </span>
-              )}
-            </div>
-          );
-        })()}
 
         {/* Fields panel (Discover revamp step 2) to the left of the
             histogram + table. Replaces the old "ƒ Fields" chip row —
@@ -1179,7 +1186,7 @@ function LogsInner() {
             (lazy fieldstats fetch on expand only), pill actions and
             add/remove-column. The right side keeps everything that
             was here before, unchanged. */}
-        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+        <div className="ld-body">
           <LogFieldsPanel
             fields={fields}
             fieldsTotal={fieldsTotal}
@@ -1191,7 +1198,7 @@ function LogsInner() {
             onPillExclude={excludeFromRow}
             onExists={existsFromPanel}
             windowTotal={total} />
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="ld-main">
 
         {/* v0.9.1248 — kalıcı link çözülemedi notu: sessiz düşme yok. */}
         {docMiss && (
@@ -1216,7 +1223,14 @@ function LogsInner() {
           onSeries={setHistTotals}
           onSeriesPick={addFromRow} /* v0.10.503 (B8) — lejant ⊕ → pill */
           spikeSubject={spikeSubject} /* v0.10.1284 — ✨ Artışı açıkla */
-          paused={teamGate} /* v0.10.1477 — takım kararı beklenirken fetch yok */ />
+          paused={teamGate} /* v0.10.1477 — takım kararı beklenirken fetch yok */
+          height={96} /* v0.10.1501 — Discover yoğunluğu; diğer çağıranlar 140 */
+          headerLeft={(
+            <>
+              {hitsLabel && <span className="ld-hits" data-testid="logs-hits">{hitsLabel}</span>}
+              {levelChips}
+            </>
+          )} />
 
         {/* v0.10.1499 (Discover dilim 2) — görünüm anahtarı: Logs | Desenler |
             Şablonlar, mevcut `?panel=` üzerinde (yeni param yok, replace:true).

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
 import { DisclosureButton } from '@/components/ui/DisclosureButton';
 import { getRaw, setRaw } from '@/lib/storage';
+import { useMediaQuery, WIDE_QUERY } from '@/lib/useMediaQuery'; // v0.10.1501
 import { liftBadge } from '@/lib/logFieldLift'; // v0.10.509 (C5)
 import type { CSSProperties } from 'react';
 
@@ -197,6 +198,18 @@ const POPULAR_FIELDS: readonly string[] = [
   'throwable',
 ];
 
+// fieldsPanelOpen — v0.10.1501 (/logs Kibana-Discover dilim 3, operatör
+// onayı 2026-10-24: "Alan listesi açık başlasın"). v0.8.286'nın "varsayılan
+// KAPALI" kararını tersine çevirir: geniş ekranda (≥1280px) panel açık başlar.
+// Saklı tercih HER ZAMAN kazanır — '0' (operatör kapattı) kapalı, '1' açık;
+// tercih yoksa genişliğe göre. 1280'in altında varsayılan kapalı ray (bugünkü
+// davranış). SAF; LogFieldsPanel.defaultOpen.test.tsx çiviliyor.
+export function fieldsPanelOpen(stored: string | null, wide: boolean): boolean {
+  if (stored === '1') return true;
+  if (stored === '0') return false;
+  return wide;
+}
+
 export function LogFieldsPanel({
   fields, fieldsTotal, types, columns, scope, onToggleColumn, onPillAdd, onPillExclude,
   onExists, windowTotal,
@@ -218,10 +231,14 @@ export function LogFieldsPanel({
   onExists?: (key: string, negated: boolean) => void;
   windowTotal?: number;
 }) {
-  // v0.8.286 (operator-reported "sürekli durmasın") — the fields rail is now
-  // CLOSED by default so /logs opens with a full-width table; the thin "ƒ Fields"
-  // affordance summons it, and the choice persists ('1' = keep open).
-  const [open, setOpen] = useState<boolean>(() => getRaw(OPEN_KEY) === '1');
+  // v0.8.286 (operator-reported "sürekli durmasın") — the fields rail was
+  // CLOSED by default; the thin "ƒ Fields" affordance summons it, and the
+  // choice persists ('1' = keep open, '0' = keep closed).
+  // v0.10.1501 — operatör onayıyla tersine: ≥1280px'te tercih yoksa AÇIK
+  // (fieldsPanelOpen). Tık her zaman açık bir tercih yazar.
+  const wide = useMediaQuery(WIDE_QUERY);
+  const [stored, setStored] = useState<string | null>(() => getRaw(OPEN_KEY));
+  const open = fieldsPanelOpen(stored, wide);
   // v0.10.509 (C5) — "Hatalıyı ayıran": kalıcı; açıkken genişletilen alan
   // için iki fieldstats (hata seçimi + taban). Kapalıyken ek istek yok.
   const [lift, setLift] = useState<boolean>(() => getRaw(LIFT_KEY) === '1');
@@ -229,7 +246,8 @@ export function LogFieldsPanel({
   const [needle, setNeedle] = useState('');
   const [expandedField, setExpandedField] = useState<string | null>(null);
   const toggleOpen = () => {
-    setOpen(v => { setRaw(OPEN_KEY, v ? '0' : '1'); return !v; });
+    const next = open ? '0' : '1';
+    setRaw(OPEN_KEY, next); setStored(next);
   };
 
   const selectedSet = useMemo(() => new Set(columns), [columns]);
@@ -319,12 +337,9 @@ export function LogFieldsPanel({
   );
 
   return (
-    <div style={{
-      width: 250, flex: '0 0 250px', alignSelf: 'flex-start',
-      border: '1px solid var(--border)', borderRadius: 8,
-      background: 'var(--bg1)', padding: 8,
-      maxHeight: '70vh', overflowY: 'auto',
-    }}>
+    // v0.10.1501 — yapışkan 264px ızgara kolonu, kendi kaydırması (`.ld-fields`,
+    // globals.css v0.10.1498 bloğu): tablo kayarken alan listesi yerinde kalır.
+    <div className="ld-fields" role="complementary" aria-label="Log fields">
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
         <input
           placeholder="Filter fields…"

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef } from 'react';
+import { useEffect, useMemo, useState, useRef, type ReactNode } from 'react';
 import { api } from '@/lib/api';
 import { logsBucketSec } from '@/lib/chartStep';
 import { severityBandOf } from '@/lib/severityBand';
@@ -115,7 +115,7 @@ export function histogramFeedsChips(bd: LogsBreakdown, severityFloor: number): b
   return severityFloor === 0 && bd === 'severity';
 }
 
-export function LogsHistogram({ range, filter, onRangeSelect, onZoomReset, onSeries, breakdown, onBreakdown, onSeriesPick, spikeSubject, paused }: {
+export function LogsHistogram({ range, filter, onRangeSelect, onZoomReset, onSeries, breakdown, onBreakdown, onSeriesPick, spikeSubject, paused, height = 140, headerLeft }: {
   range: { from?: number; to?: number };
   filter: Filter;
   // Drag-select a horizontal span → called with the selection as unix-ns
@@ -145,6 +145,13 @@ export function LogsHistogram({ range, filter, onRangeSelect, onZoomReset, onSer
   spikeSubject?: AISubject;
   // v0.10.1477 — true iken fetch YOK (ebeveynin süzgeç kararı bekleniyor).
   paused?: boolean;
+  // v0.10.1501 (/logs Discover dilim 3) — grafik yüksekliği (px). Varsayılan
+  // 140 = servis Logs sekmesi + anomali çekmecesi bayt bayt eski; /logs ~96.
+  height?: number;
+  // v0.10.1501 — başlığın SOL yuvası (/logs: "N hits" + seviye çipleri; ayrı
+  // seviye satırı kalktı). Verilirse başlık yüklenirken de çizilir — çipler
+  // ilk fetch'i beklerken kaybolmaz (gövde yer tutucu kalır).
+  headerLeft?: ReactNode;
 }) {
   const [data, setData] = useState<Series[] | null | undefined>(undefined);
   // v0.9.358 — the per-band series this chart ALREADY fetches, exposed to the
@@ -219,16 +226,29 @@ export function LogsHistogram({ range, filter, onRangeSelect, onZoomReset, onSer
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [data, filter.severity, bd, themeTick]);
 
-  if (data === undefined) return <div style={{ height: 104, marginBottom: 10 }} />;
+  if (data === undefined && !headerLeft) return <div style={{ height: 104, marginBottom: 10 }} />;
   // v0.9.1220 review — hata/boş durumda TAMAMEN kaybolmak, kırılım
   // seçicisini de götürüyordu: ?breakdown=service'te hatalı/boş bir
   // pencereye düşen operatörün seviyeye dönecek UI'ı kalmıyordu. Seçici
   // taşıyan kullanımda gövde yerine tek satırlık dürüst not çizilir;
   // seçicisiz kullanımlar (servis sekmesi, anomali çekmecesi) eski
   // davranışta (hiç çizme).
-  const degraded = data === null ? 'histogram yüklenemedi'
+  const degraded = data === undefined ? 'yükleniyor…'
+    : data === null ? 'histogram yüklenemedi'
     : times.length === 0 ? 'bu pencerede seri yok' : '';
   if (degraded && !onBreakdown) return null;
+
+  // v0.10.1501 — "kırılım" satır etiketi kalktı (başlık tek satır); seçicinin
+  // adı aria-label + title'da. Sabit küçük küme → düz select.
+  const breakdownSelect = onBreakdown && (
+    <select value={bd} aria-label="Histogram kırılımı" title="Histogram kırılımı"
+      onChange={e => onBreakdown(parseBreakdown(e.target.value))}
+      style={{ fontSize: 10, padding: '1px 4px' }}>
+      {BREAKDOWNS.map(b => (
+        <option key={b} value={b}>{BREAKDOWN_LABEL[b]}</option>
+      ))}
+    </select>
+  );
 
   return (
     <div style={{
@@ -236,29 +256,19 @@ export function LogsHistogram({ range, filter, onRangeSelect, onZoomReset, onSer
       borderRadius: 6, padding: 8, marginBottom: 10,
     }}>
       <div style={{
-        display: 'flex', justifyContent: onBreakdown ? 'space-between' : 'flex-end',
-        alignItems: 'center', marginBottom: 4,
+        display: 'flex', justifyContent: onBreakdown || headerLeft ? 'space-between' : 'flex-end',
+        alignItems: 'center', marginBottom: 4, gap: 8, flexWrap: 'wrap',
         fontSize: 10, color: 'var(--text-faint)',
-        fontFamily: 'var(--font-mono)',
+        fontFamily: headerLeft ? undefined : 'var(--font-mono)',
       }}>
+        {headerLeft && <div className="lh-left">{headerLeft}{onBreakdown && breakdownSelect}</div>}
         {/* v0.9.1220 — kırılım seçicisi (Kibana "Break down by"). Sabit
             küçük küme → düz select (frontend-conventions §3); v0.9.1250'de
             4 eksene çıktı, hâlâ picker eşiğinin altında. */}
-        {onBreakdown && (
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            kırılım
-            <select value={bd} aria-label="Histogram kırılımı"
-              onChange={e => onBreakdown(parseBreakdown(e.target.value))}
-              style={{ fontSize: 10, padding: '1px 4px' }}>
-              {BREAKDOWNS.map(b => (
-                <option key={b} value={b}>{BREAKDOWN_LABEL[b]}</option>
-              ))}
-            </select>
-          </label>
-        )}
+        {!headerLeft && onBreakdown && breakdownSelect}
         {/* The hand-drawn version's only hint that it was draggable was a
             crosshair cursor. Say it. */}
-        <span>
+        <span className={headerLeft ? 'lh-hint' : undefined}>
           {spikeSubject && !degraded && (
             <>
               <AIExplainButton size="xs" subject={spikeSubject}
@@ -286,11 +296,12 @@ export function LogsHistogram({ range, filter, onRangeSelect, onZoomReset, onSer
               : 'hover = detay'}
         </span>
       </div>
+      {data === undefined && <div style={{ height }} aria-hidden="true" />}
       {!degraded && (
         <TimeChart
           times={times}
           series={series}
-          height={140}
+          height={height}
           rightUnit="%"
           fmtRight={fmtPct}
           onBrush={onRangeSelect

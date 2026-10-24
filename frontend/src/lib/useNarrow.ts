@@ -17,33 +17,16 @@
 // mount testlerinde bugünkü (masaüstü) davranış aynen sürer, yeni bir
 // test kurulumu gerekmez.
 
-import { useEffect, useState } from 'react';
+import { useMediaQuery } from './useMediaQuery';
 
 // D2'nin telefon katmanıyla AYNI sayı — globals.css `@media (max-width: 640px)`.
 export const NARROW_MAX_PX = 640;
 
 export const NARROW_QUERY = `(max-width: ${NARROW_MAX_PX}px)`;
 
-function readNarrow(): boolean {
-  if (typeof window === 'undefined') return false;
-  if (typeof window.matchMedia !== 'function') return false;
-  return window.matchMedia(NARROW_QUERY).matches;
-}
-
 // useIsNarrow — telefon genişliğinde mi. Yeniden boyutlandırmada
-// (ve cihaz döndürmede) güncellenir.
+// (ve cihaz döndürmede) güncellenir. v0.10.1501 — gövde genel
+// useMediaQuery'ye taşındı (lib/useMediaQuery.ts); davranış aynı.
 export function useIsNarrow(): boolean {
-  const [narrow, setNarrow] = useState(readNarrow);
-  useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
-    const mq = window.matchMedia(NARROW_QUERY);
-    const apply = () => setNarrow(mq.matches);
-    apply();
-    // `addEventListener` Safari 14+ ve tüm modern tarayıcılarda var;
-    // depoda başka bir MediaQueryList dinleyicisi yok, eski API için
-    // geriye-uyum şimi EKLENMİYOR (CLAUDE.md).
-    mq.addEventListener('change', apply);
-    return () => mq.removeEventListener('change', apply);
-  }, []);
-  return narrow;
+  return useMediaQuery(NARROW_QUERY);
 }
