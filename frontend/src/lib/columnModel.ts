@@ -184,3 +184,24 @@ export function orderColumnsByModel<C extends { id: string }>(columns: C[], mode
   }
   return out;
 }
+
+/**
+ * moveColumnOnto — v0.10.1516 (/traces sütun sırası): başlık sürükle-bırak'ın
+ * saf çekirdeği. `dragId`, `targetId`nin bulunduğu konuma taşınır
+ * (moveColumnTo splice anlamı: sağa sürüklenen hedefin ARKASINA, sola
+ * sürüklenen ÖNÜNE düşer — tablo düzenleyicilerinin alışılmış davranışı).
+ * Sabit (pinned) kolon sürüklenemez ve hedef olamaz; böylece sola sabit
+ * kolonların önüne hiçbir şey giremez (stickyLeftOffsets kümülatif
+ * zinciri baştaki kesintisiz sabit diziye dayanır). Bilinmeyen id / aynı
+ * id / sabit → sıra AYNEN (aynı referans) döner.
+ */
+export function moveColumnOnto(order: readonly string[], dragId: string, targetId: string, pinned: ReadonlySet<string>): readonly string[] {
+  if (dragId === targetId || pinned.has(dragId) || pinned.has(targetId)) return order;
+  const from = order.indexOf(dragId);
+  const to = order.indexOf(targetId);
+  if (from < 0 || to < 0) return order;
+  const next = order.slice();
+  next.splice(from, 1);
+  next.splice(to, 0, dragId);
+  return next;
+}

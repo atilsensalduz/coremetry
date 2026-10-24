@@ -3,7 +3,7 @@ import {
   type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject,
 } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { orderColumnsByModel, type ColumnModel } from '@/lib/columnModel';
+import { moveColumnOnto, orderColumnsByModel, type ColumnModel } from '@/lib/columnModel';
 import { EMPTY_SELECTION, toggleRow, rangeSelect, selectAll, pruneSelection, type SelectionState } from '@/lib/rowSelection';
 import { useTableNav, type TableNav } from '@/lib/useTableNav';
 import { useShortcuts } from '@/lib/keyboard';
@@ -226,6 +226,23 @@ export interface DataTable<T> {
   setColumnShown: (id: string, shown: boolean) => void;
   /** DataTableColgroup'un ölçüm kanalı: kap genişliği + leading/trailing px. */
   reportLayout: (containerPx: number, fixedPx: number) => void;
+  /** v0.10.1516 — kolon sırası (yalnız `reorderable` + columnModel.onChange
+   *  verilmiş tabloda; diğer tablolarda null ve başlık sürüklenmez). */
+  reorder: DataTableReorder | null;
+}
+
+// v0.10.1516 (/traces sütun sırası) — sürükle-bırak + sıfırlama sözleşmesi.
+// Sıra columnModel'de yaşar (sayfa sahibi: URL/LS/sunucu tercihi); primitif
+// yalnız değişikliği `columnModel.onChange`a iletir. Sabit kolonlar
+// (`stickyLeft` ve `kind: 'actions'`) taşınmaz ve hedef olmaz.
+export interface DataTableReorder {
+  canMove: (id: string) => boolean;
+  /** `id`yi `targetId`nin konumuna taşır (moveColumnOnto). */
+  moveOnto: (id: string, targetId: string) => void;
+  /** Sıra bildirilen kolon sırasına eşit mi. */
+  isDefault: boolean;
+  /** Bildirilen kolon sırasına döner (gizli küme korunur). */
+  reset: () => void;
 }
 
 export interface DataTableSelection<T> {
@@ -247,7 +264,7 @@ export interface DataTableServer {
   onSort?: (s: SortState) => void;
 }
 
-export function useDataTable<T>({ storageKey, columns: declaredColumns, rows, initialSort, persistSort = true, sortIds, sortUrlKey, sortUrlOmitInitial = false, serverSort, onSortChange, urlSortFallback, onOpen, searchRef, columnModel, selection: selectionOpt, server, getRowHref, rowLinkReplace = false }: {
+export function useDataTable<T>({ storageKey, columns: declaredColumns, rows, initialSort, persistSort = true, sortIds, sortUrlKey, sortUrlOmitInitial = false, serverSort, onSortChange, urlSortFallback, onOpen, searchRef, columnModel, reorderable = false, selection: selectionOpt, server, getRowHref, rowLinkReplace = false }: {
   storageKey: string;
   columns: ColumnDef<T>[];
   rows: T[];
@@ -289,6 +306,11 @@ export function useDataTable<T>({ storageKey, columns: declaredColumns, rows, in
   sortUrlOmitInitial?: boolean;
   /** v0.10.249 — sıra/gizli modeli (lib/columnModel). Genişlik imzası bildirilen kolonlardan. */
   columnModel?: { value: ColumnModel | null; onChange?: (next: ColumnModel) => void };
+  // v0.10.1516 — OPT-IN kolon sırası: başlıklar sürüklenebilir (HTML5 DnD),
+  // ⋯ menüsüne "Sütun sırasını sıfırla" gelir. columnModel.onChange şart;
+  // verilmeyen tablolar bayt bayt eski davranışta. Genişlik imzası
+  // (layoutSig) BİLDİRİLEN kolonlardan — sıra değişince genişlikler kalır.
+  reorderable?: boolean;
   /** v0.10.249 — satır seçimi; getRowId zorunlu (indeks anahtarı sıralamada kırılır). */
   selection?: { mode: 'single' | 'multi'; getRowId: (row: T) => string; value?: ReadonlySet<string>; onChange?: (ids: ReadonlySet<string>) => void };
   /** v0.10.249 — sunucu sayfalama/sıralama demeti. */
@@ -715,11 +737,31 @@ export function useDataTable<T>({ storageKey, columns: declaredColumns, rows, in
     [visible, hiddenColumnIds],
   );
 
+  // v0.10.1516 — sıra sözleşmesi (yalnız opt-in tabloda).
+  const onModelChange = columnModel?.onChange;
+  const reorder = useMemo<DataTableReorder | null>(() => {
+    if (!reorderable || !onModelChange) return null;
+    const pinned = new Set(declaredColumns.filter(c => c.stickyLeft || c.kind === 'actions').map(c => c.id));
+    const declaredIds = declaredColumns.map(c => c.id);
+    const base: ColumnModel = modelValue ?? { v: 1, order: declaredIds, hidden: [], sig: storageKey };
+    // Görünür sıra (orderColumnsByModel) + modelde olmayan gizliler sonda.
+    const current = [...columns.map(c => c.id), ...base.order.filter(id => !columns.some(c => c.id === id))];
+    return {
+      canMove: id => !pinned.has(id) && declaredIds.includes(id),
+      moveOnto: (id, targetId) => {
+        const next = moveColumnOnto(current, id, targetId, pinned);
+        if (next !== current) onModelChange({ ...base, order: [...next] });
+      },
+      isDefault: columns.map(c => c.id).join(',') === declaredIds.filter(id => columns.some(c => c.id === id)).join(','),
+      reset: () => onModelChange({ ...base, order: declaredIds }),
+    };
+  }, [reorderable, onModelChange, declaredColumns, modelValue, columns, storageKey]);
+
   return {
     storageKey, columns, visibleColumns: visible, narrow, sortedRows, sort, toggleSort, setSort, colWidths, startResize, resizeBy, resetLayout, nav, rowProps,
     allColumns: declaredColumns, selection: selectionApi, server: server ?? null, getRowHref: getRowHref ?? null,
     tableProps: TABLE_PROPS, cellProps, rowLink,
-    fit, hiddenColumnIds, shownColumns, forcedShown, setColumnShown, reportLayout,
+    fit, hiddenColumnIds, shownColumns, forcedShown, setColumnShown, reportLayout, reorder,
   };
 }
 
@@ -972,6 +1014,14 @@ export function DataTableHead<T>({ dt, leading, trailing, renderLabel, stickyLef
   // son GÖRÜNEN başlıkta.
   const cols = dt.shownColumns;
   const menuHostId = cols.some(c => c.kind !== 'actions') ? cols[cols.length - 1]?.id : undefined;
+  // v0.10.1516 — opt-in sürükle-bırak (dt.reorder). Sürüklenen id + üzerinde
+  // durulan hedef; hedef `dt-drop-before|after` çizgisi taşır. Boyut
+  // tutamağı / başlıktaki düğme (v0.10.1511 huni, ⋯) üzerinde başlayan bir
+  // basış sürükleme BAŞLATMAZ: pointerdown kaynağı yakalanır, dragstart iptal.
+  const [drag, setDrag] = useState<{ id: string; over: string | null } | null>(null);
+  const noDragRef = useRef(false);
+  const ro = dt.reorder;
+  const order = cols.map(c => c.id);
   return (
     // v0.9.928 — başlık da tablonun kimliğini taşıyor: bir kolona tıklayıp
     // sıralamak "bu tabloyla çalışıyorum" demektir ve j/k sahipliği o tıkla
@@ -1008,9 +1058,35 @@ export function DataTableHead<T>({ dt, leading, trailing, renderLabel, stickyLef
           const leftOff = c.stickyLeft
             ? stickyLeftOffsets(dt.shownColumns, dt.colWidths, DEFAULT_W)[c.id]
             : undefined;
+          const movable = !!ro && !actions && ro.canMove(c.id);
+          const dropSide = drag && drag.over === c.id && drag.id !== c.id
+            ? (order.indexOf(drag.id) > order.indexOf(c.id) ? 'dt-drop-before' : 'dt-drop-after')
+            : '';
+          const thCls = [cls, movable ? 'dt-reorderable' : '', dropSide].filter(Boolean).join(' ');
           return (
             <th key={c.id}
-                className={cls || undefined}
+                className={thCls || undefined}
+                draggable={movable || undefined}
+                onPointerDownCapture={movable ? (e) => {
+                  noDragRef.current = !!(e.target as Element | null)?.closest?.('.col-resize-handle, button, input, .dt-menu');
+                } : undefined}
+                onDragStart={movable ? (e) => {
+                  if (noDragRef.current) { e.preventDefault(); return; }
+                  e.dataTransfer.effectAllowed = 'move';
+                  e.dataTransfer.setData('text/plain', c.id);
+                  setDrag({ id: c.id, over: null });
+                } : undefined}
+                onDragOver={movable && drag && drag.id !== c.id ? (e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'move';
+                  if (drag.over !== c.id) setDrag({ id: drag.id, over: c.id });
+                } : undefined}
+                onDrop={movable && drag ? (e) => {
+                  e.preventDefault();
+                  ro!.moveOnto(drag.id, c.id);
+                  setDrag(null);
+                } : undefined}
+                onDragEnd={movable ? () => setDrag(null) : undefined}
                 aria-label={thLabel}
                 onClick={sortable ? () => dt.toggleSort(c.id) : undefined}
                 // v0.10.249 — klavye: sıralanabilir başlık odaklanır; Enter/Space

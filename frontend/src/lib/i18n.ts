@@ -507,6 +507,13 @@ const EN: Catalog = {
   'logs.dv.colAddPlaceholder': 'Add a column — filter loaded fields…',
   'logs.dv.colNoMatch':       'No matching field in the loaded list',
   'logs.dv.colReset':         'Reset columns',
+  // v0.10.1516 — /traces Sütunlar ▾ (sütun sırası).
+  'traces.cols.trigger':      'Columns',
+  'traces.cols.title':        'Column order — drag a header or use ↑ ↓ here',
+  'traces.cols.shown':        'Column order',
+  'traces.cols.pinned':       'Start time stays first (pinned while scrolling sideways)',
+  'traces.cols.builtinFixed': 'Built-in column — can be moved, not removed',
+  'traces.cols.reset':        'Reset order',
   'logs.dv.export':           'Export loaded rows',
   // v0.10.1502 END
   // v0.10.1511 — /traces header column filters (pages/traces/ColumnFilter.tsx)
@@ -559,6 +566,12 @@ const TR: Catalog = {
   'logs.dv.colAddPlaceholder': 'Sütun ekle — yüklenmiş alanları süz…',
   'logs.dv.colNoMatch':       'Yüklenmiş listede eşleşen alan yok',
   'logs.dv.colReset':         'Sütunları sıfırla',
+  'traces.cols.trigger':      'Sütunlar',
+  'traces.cols.title':        'Sütun sırası — başlığı sürükle ya da burada ↑ ↓ kullan',
+  'traces.cols.shown':        'Sütun sırası',
+  'traces.cols.pinned':       'Start time hep ilk sırada (yatay kaydırmada sabit)',
+  'traces.cols.builtinFixed': 'Yerleşik sütun — taşınabilir, kaldırılamaz',
+  'traces.cols.reset':        'Sırayı sıfırla',
   'logs.dv.export':           'Yüklenen satırları indir',
   // v0.10.1502 END
   // v0.10.1477 — /logs takım süzgeci

@@ -11326,3 +11326,42 @@ Overview, Exceptions'ta aç) aynen; team_exceptions rotasının çipleri değiş
 
 **Geri alma.** `git revert <sha>` + yeni etiket; şema/ayar yok. Starters önbellek anahtarı v6'dan v5'e
 dönünce eski kayıtlar 60 s içinde düşer.
+
+## 2026-10-24 — v0.10.1516 — /traces kullanıcı sütun sırası (sürükle-bırak + Sütunlar ▾)
+
+**Bağlam.** v0.10.1511'in Excel tarzı kolon filtrelerinin devamı (operatör isteği 2026-10-24: "kolon sıralamasını da
+değiştirebilsin isteyen kullanıcılar"). Sıra iki yoldan değişir: liste başlığını sürükle-bırak (HTML5 DnD) ve klavye
+eşi olarak araç satırındaki **Sütunlar ▾** (↑/↓, attribute kolonlarında ×, "Sırayı sıfırla").
+
+**Karar — primitif opt-in, sayfa sahibi.** `useDataTable` yeni `reorderable` bayrağı (columnModel.onChange şart) →
+`dt.reorder` (`canMove/moveOnto/isDefault/reset`); `DataTableHead` taşınabilir başlığı `draggable` yapar, bırakma hedefine
+2 px accent çizgi basar, ⋯ menüsüne "Sütun sırasını sıfırla" ekler. Bayrak verilmeyen ~120 tablo bayt bayt aynı
+(`dt.reorder` null, draggable yok). Sabit kolon (`stickyLeft`, `kind: 'actions'`) sürüklenmez ve hedef olmaz; boyut
+tutamağı / başlıktaki düğmede (huni, ⋯) başlayan basış sürükleme başlatmaz. Saf çekirdek `moveColumnOnto`
+(lib/columnModel). Sıra `columnModel` üzerinden uygulanır; BİLDİRİLEN kolonlar varsayılan sırada kalır, yani sıraya duyarlı
+genişlik imzası (columnLayoutSig) değişmez — sürüklenmiş genişlikler sırayla birlikte taşınır. Hücreler `dt.visibleColumns`
+üzerinden çizilir (başlıkla aynı dizi), v0.10.1511 hunisi `renderLabel` ile kolonuyla taşınır. Sunucu sıralaması aynen.
+
+**Start time sabit.** v0.10.220 operatör kararı (zaman damgası en solda) + v0.10.723 stickyLeft: `stickyLeftOffsets`
+baştaki kesintisiz sabit diziyi zincirler; ortaya taşınan sabit kolon zincirden düşerdi. `time` taşınmaz, önüne hiçbir şey
+geçemez (resolveTraceOrder onu her durumda başa koyar).
+
+**Kalıcılık — yeni URL parametresi yok.** Kolon kümesi zaten `cols=`'ta yaşıyordu; sıra AYNI parametreye biner:
+varsayılan sırada `cols=` eski biçim (yalnız attribute'lar — eski linkler aynen), özel sırada tam sıra (yerleşik id'ler
+dahil; okurken yerleşik id görülürse tam sıradır — yerleşik id'ler zaten attribute adı olamıyordu, çift anahtar olurdu).
+Tarayıcı: yeni `traces-col-order` anahtarı (varsayılandayken silinir); attribute listesi `traces-extra-cols`'ta AYNEN
+(geri dönüşte eski kod yerleşik id'yi attribute sanmasın). Sunucu tercihi `traces-list` modeli v0.10.251'den beri tam
+`order` taşıyordu (traceColumnOrder yazılıyordu) — artık gerçek sıra; eski kayıtlar varsayılana çözülür. Öncelik
+değişmedi: URL > sunucu > localStorage > varsayılan. Yeni eklenen attribute, sıradaki son attribute'un (yoksa Name'in)
+yanına düşer; kaldırılan sıradan sessizce çıkar.
+
+**Seçici genelleştirildi, ikincisi yazılmadı.** /logs'un v0.10.1502 LogsColumnPicker gövdesi `ui/ColumnsPicker`'a
+taşındı (barrel'da; `.ld-cols-*` → `.colpick-*`); LogsColumnPicker ekleme yuvasını veren ince sarmalayıcı, /traces
+`pages/traces/TracesColumnPicker` ekleme yuvasız kullanır (ekleme ColumnManager'da). Sabit satırın ↑/↓'u ve onun
+hemen altındakinin ↑'su devre dışı.
+
+**Geri alma.** `git revert <sha>` + yeni etiket. Şema/sunucu değişikliği yok. Revert sonrası: özel sıralı bir `cols=`
+linki eski kodda yerleşik id'leri attribute sanar (çift kolon) — linkler geçici, varsayılan sıralı linkler etkilenmez;
+`traces-col-order` anahtarı eski kodda okunmaz (zararsız); sunucu modelindeki özel sıra eski kodda yalnız attribute
+listesi olarak okunur (yerleşikler süzülür). Yalnız sürüklemeyi kapatmak için Traces.tsx'te `reorderable: true` satırını
+kaldırmak yeter (Sütunlar ▾ çalışmaya devam eder).

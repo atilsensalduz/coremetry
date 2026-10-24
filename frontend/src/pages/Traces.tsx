@@ -62,7 +62,8 @@ import { Combobox } from '@/components/Combobox';
 import { mergeTraceExtras, missingExtraKeys } from '@/lib/traceExtrasMerge';
 // v0.9.841 — kolon SIRASI ve varsayılan attr seti tek yerde, saf ve
 // testli (traceColumns.ts). İkisi de karar; mekanik değil.
-import { DEFAULT_TRACE_COLUMNS, FIXED_COLS, traceColumnOrder } from '@/lib/traceColumns';
+import { DEFAULT_TRACE_COLUMNS, FIXED_COLS, decodeTraceCols, encodeTraceCols, isDefaultTraceOrder, resolveTraceOrder, splitTraceOrder, traceColumnOrder } from '@/lib/traceColumns';
+import { TracesColumnPicker } from './traces/TracesColumnPicker'; // v0.10.1516 — sütun sırası
 import { opChipFor, opCellText, opCellTitle } from './traces/opPick'; // v0.10.752
 import { ColumnFilter, type ColumnFilterScope } from './traces/ColumnFilter'; // v0.10.1511 — header column filters
 import { applyColFilter, colFilterKind, colFilterStatus, type ColFilterAction, type ColFilterState } from './traces/colFilter';
@@ -178,6 +179,9 @@ const COL_W: Record<string, number> = {
 };
 const ATTR_W = 130;
 const EXTRA_COLS_LS_KEY = 'traces-extra-cols';
+// v0.10.1516 — kullanıcı sütun sırası (tam sıra; varsayılandayken anahtar yok).
+// Attribute listesi EXTRA_COLS_LS_KEY'de aynen kalır (geri dönüş güvenli).
+const COL_ORDER_LS_KEY = 'traces-col-order';
 // Shared value-suggestion seeds for the advanced filter builders (flat +
 // grouped). Hoisted so both render paths use the identical hints.
 // v0.10.264 — hızlı çipler (mockup A); son kullanılanlar tarayıcı-yerel.
@@ -389,8 +393,10 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
     // precedence chain is UNCHANGED: the URL-write effect below
     // re-serialises whichever source won, so the URL stays the
     // shareable source of truth after mount.
+    // v0.10.1516 — `cols=` tam sıra da taşıyabilir (yerleşik id içerir);
+    // attribute listesi decodeTraceCols'tan, sıra aşağıdaki colOrder'da.
     const url = (searchParams.get('cols') ?? '').split(',').map(s => s.trim()).filter(Boolean);
-    if (url.length) return url;
+    if (url.length) return decodeTraceCols(url).extras;
     try {
       const stored: unknown = JSON.parse(localStorage.getItem(EXTRA_COLS_LS_KEY) ?? 'null');
       if (Array.isArray(stored)) {
@@ -400,11 +406,41 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
     } catch { /* corrupt storage → default */ }
     return DEFAULT_TRACE_COLUMNS;
   });
+  // v0.10.1516 — kullanıcı sütun sırası (null = varsayılan traceColumnOrder).
+  // Öncelik extraCols ile AYNI: URL `cols=` (tam sıra biçimi) > sunucu >
+  // localStorage > varsayılan. Çizilen sıra `colOrderIds` (resolveTraceOrder:
+  // kaldırılan attribute düşer, yeni eklenen varsayılan komşusunun yanına).
+  const [colOrder, setColOrder] = useState<string[] | null>(() => {
+    const url = (searchParams.get('cols') ?? '').split(',').map(s => s.trim()).filter(Boolean);
+    if (url.length) return decodeTraceCols(url).order;
+    try {
+      const stored: unknown = JSON.parse(localStorage.getItem(COL_ORDER_LS_KEY) ?? 'null');
+      if (Array.isArray(stored)) {
+        const ids = stored.filter((c): c is string => typeof c === 'string' && c !== '');
+        if (ids.length) return ids;
+      }
+    } catch { /* corrupt storage → default */ }
+    return null;
+  });
+  const colOrderIds = useMemo(() => resolveTraceOrder(extraCols, colOrder), [extraCols, colOrder]);
+  // Tek yazım yolu (başlık sürükle-bırak, Sütunlar ▾, sıfırla): çizilen sıradan
+  // attribute listesi + (varsayılan değilse) tam sıra.
+  const applyColOrder = useCallback((next: readonly string[]) => {
+    const st = splitTraceOrder(resolveTraceOrder(extraCols, next));
+    setExtraCols(prev => (prev.join(',') === st.extras.join(',') ? prev : st.extras));
+    setColOrder(st.order);
+  }, [extraCols]);
   // Persist every column-selection change (add AND remove) so the next
   // fresh /traces visit restores it without a URL.
   useEffect(() => {
     try { localStorage.setItem(EXTRA_COLS_LS_KEY, JSON.stringify(extraCols)); } catch { /* private mode */ }
   }, [extraCols]);
+  useEffect(() => {
+    try {
+      if (isDefaultTraceOrder(colOrderIds)) localStorage.removeItem(COL_ORDER_LS_KEY);
+      else localStorage.setItem(COL_ORDER_LS_KEY, JSON.stringify(colOrderIds));
+    } catch { /* private mode */ }
+  }, [colOrderIds]);
   // v0.10.251 — sunucu tercihi (/api/preferences/traces-list, audit §11).
   // Öncelik: URL ?cols= > sunucu > localStorage > varsayılan. URL'de cols
   // yokken sunucu modeli BİR KEZ benimsenir (prefs çözülünce); değişimler
@@ -423,15 +459,18 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
     const fixed = new Set<string>(FIXED_COLS);
     const extras = prefs.model.order.filter(id => !fixed.has(id) && !prefs.model!.hidden.includes(id)).slice(0, 8);
     if (extras.length) setExtraCols(extras);
+    // v0.10.1516 — sunucu modelinin `order`ı tam sıradır (v0.10.251'den beri
+    // traceColumnOrder yazılıyordu → eski kayıtlar varsayılana çözülür).
+    setColOrder(splitTraceOrder(resolveTraceOrder(extras.length ? extras : extraCols, prefs.model.order)).order);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefs.model]);
   useEffect(() => {
     if (!prefsAdopted.current) return;
-    const fixed = new Set<string>(FIXED_COLS);
-    const serverExtras = prefs.model ? prefs.model.order.filter(id => !fixed.has(id)) : null;
-    if (serverExtras && serverExtras.join(',') === extraCols.join(',')) return;
-    prefs.save({ v: 1, order: traceColumnOrder(extraCols), hidden: [], sig: 'traces-list' });
+    // v0.10.1516 — karşılaştırma TAM sıra üzerinden (attribute kümesi + sıra).
+    if (prefs.model && prefs.model.order.join(',') === colOrderIds.join(',')) return;
+    prefs.save({ v: 1, order: colOrderIds, hidden: [], sig: 'traces-list' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [extraCols]);
+  }, [colOrderIds]);
 
 
   // Header viz mode + interaction state.
@@ -528,14 +567,16 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
       // single source of truth and the backend's prefer-filterGroup rule is moot.
       ['filters',  advGroupParam ? '' : encodeFilters(advFilters)],
       ['filterGroup', advGroupParam],
-      ['cols',     colsOwned ? extraCols.join(',') : (new URLSearchParams(window.location.search).get('cols') ?? '')],
+      // v0.10.1516 — varsayılan sırada yalnız attribute'lar (eski biçim), özel
+      // sırada tam sıra (encodeTraceCols); yeni parametre yok.
+      ['cols',     colsOwned ? encodeTraceCols(colOrderIds).join(',') : (new URLSearchParams(window.location.search).get('cols') ?? '')],
     ]);
     const target = qs ? `?${qs}` : '';
     if (typeof window !== 'undefined' && target !== window.location.search) {
       onSelfWrite(target); // v0.10.1218 — kendi yankımız remount etmesin
       navigate(`/traces${target}`, { preventScrollReset: true, replace: true });
     }
-  }, [range, env, view, viz, sort, order, page, groupBy, groupAttr, aggSort, aggOrder, debouncedHaving, filter, advFilters, advGroupParam, extraCols, colsOwned, navigate, onSelfWrite]);
+  }, [range, env, view, viz, sort, order, page, groupBy, groupAttr, aggSort, aggOrder, debouncedHaving, filter, advFilters, advGroupParam, extraCols, colOrderIds, colsOwned, navigate, onSelfWrite]);
 
   // ── List fetch ───────────────────────────────────────────────────────────
   // v0.9.636 — pencere TEK yerde hizalanıyor: liste, hacim şeridi ve
@@ -1049,7 +1090,17 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
   // Duration · Status · Spans · Start time (mockup onayı 2026-09-01;
   // attr'ların kimlik alanlarından hemen sonra durması korundu).
   // v0.10.220 — operatör: Start time EN SOLDA; kalan sıra aynen.
+  // v0.10.1516 — kullanıcı sırası columnModel'den (aşağıda); BİLDİRİLEN
+  // kolonlar varsayılan sırada kalır ki genişlik imzası (columnLayoutSig,
+  // sıraya duyarlı) sürüklemede değişmesin — genişlikler sırayla birlikte
+  // taşınır, sıfırlanmaz.
+  // Hücreler renderRow'da `dt.visibleColumns` üzerinden çizilir (başlıkla aynı
+  // kullanıcı sırası; v0.10.1511 huni başlıkla birlikte taşınır).
   const colIds = useMemo(() => traceColumnOrder(extraCols), [extraCols]);
+  const colModel = useMemo(() => ({
+    value: { v: 1 as const, order: colOrderIds, hidden: [], sig: 'traces-list' },
+    onChange: (m: { order: string[] }) => applyColOrder(m.order),
+  }), [colOrderIds, applyColOrder]);
   const columns: DataTableColumn<TraceRow>[] = useMemo(() =>
     colIds.map(id => {
       const server = SERVER_SORTABLE[id];
@@ -1090,6 +1141,10 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
     // "en yeni önce" bir tercih değil sayfanın anlamı: localStorage'daki eski
     // başlık tıklaması yeni ziyareti ezmesin. URL `s_traces-list` yine kazanır.
     persistSort: false,
+    // v0.10.1516 — başlık sürükle-bırak (opt-in primitif bayrağı); Start time
+    // stickyLeft olduğu için primitif onu sabit sayar.
+    columnModel: colModel,
+    reorderable: true,
     onOpen: (t) => openTrace(t),
     // v0.10.251 — sunucu demeti: j son satırda sonraki sayfa, k ilk satırda
     // önceki (onPageBoundary v0.9.1018 — bu sayfa hiç bağlamamıştı).
@@ -1598,6 +1653,9 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
                 header auto-renders the sortable/resizable data columns, so the
                 add/remove affordances live here above the table. */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+              <TracesColumnPicker order={colOrderIds} labelOf={id => COL_LABEL[id] ?? id}
+                onChange={applyColOrder}
+                onRemove={id => setExtraCols(extraCols.filter(x => x !== id))} />
               <ColumnManager cols={extraCols}
                 onAdd={k => { if (!extraCols.includes(k) && extraCols.length < 8) setExtraCols([...extraCols, k]); }} />
               {/* v0.10.143 (DETAY SAYFALARI adım 6) — Kubernetes kolon seti tek tıkla;
@@ -1671,7 +1729,7 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
                 const href = traceHref(t.traceId, { pageRange: range });
                 return (
                   <Fragment>
-                    {colIds.map(id => {
+                    {dt.visibleColumns.map(({ id }) => {
                       // v0.10.330 — K8s hücreleri artık düz metin (kendi <a>'sı yok) → satır
                       // linkine diğer hücreler gibi sarılır; ölü hücre kalmaz.
                       const ownLink = false;

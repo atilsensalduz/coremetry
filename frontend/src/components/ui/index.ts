@@ -73,6 +73,10 @@ export type { ButtonGroupSize } from './buttonGroupContext';
 export { Tooltip } from './Tooltip';
 export type { TooltipProps } from './Tooltip';
 
+// v0.10.1516 — Sütunlar ▾ (sırala/kaldır/sıfırla); /logs + /traces.
+export { ColumnsPicker } from './ColumnsPicker';
+export type { ColumnsPickerItem, ColumnsPickerLabels, ColumnsPickerProps } from './ColumnsPicker';
+
 // Tabs — REMOVED v0.9.904. A typed `.tab-strip` wrapper existed here
 // from the design-system push but never gained a single consumer: all
 // 11 `.tab-strip` surfaces write the plain `<div className="tab-strip">`

@@ -93,6 +93,9 @@ export function DataTableHeadMenu<T>({ dt }: { dt: DataTable<T> }) {
     // etkilenmez. v0.10.1068 — geri açılan kolonları da otomatiğe bırakır.
     // Kayıtlı bir şey yoksa devre dışı.
     { key: 'reset', label: 'Kolonları sıfırla', onSelect: dt.resetLayout, disabled: Object.keys(dt.colWidths).length === 0 && forcedCols.length === 0 },
+    // v0.10.1516 — opt-in kolon sırası (`reorderable`): sıra ayrı sıfırlanır
+    // (genişlik sıfırlaması sırayı, sıra sıfırlaması genişliği bozmaz).
+    ...(dt.reorder ? [{ key: 'reset-order', label: 'Sütun sırasını sıfırla', onSelect: dt.reorder.reset, disabled: dt.reorder.isDefault }] : []),
   ];
 
   useLayoutEffect(() => {

@@ -1529,6 +1529,14 @@ thead th .col-resize-handle {
   cursor: col-resize; user-select: none; touch-action: none;
 }
 thead th .col-resize-handle:hover { background: var(--accent); opacity: .5; }
+/* v0.10.1516 — opt-in kolon sırası (useDataTable `reorderable`): sürüklenebilir
+   başlık `grab`; bırakma hedefi, kolonun düşeceği kenarda 2 px'lik accent
+   çizgi (dolgu yok — tablo standardı: renk yalnız seçim/odak). Çizgi inset
+   box-shadow: `th`nin overflow:hidden'ı kırpmaz, genişliği değiştirmez. */
+thead th.dt-reorderable { cursor: grab; }
+thead th.dt-reorderable.sortable { cursor: pointer; }
+thead th.dt-drop-before { box-shadow: inset 2px 0 0 var(--accent); }
+thead th.dt-drop-after { box-shadow: inset -2px 0 0 var(--accent); }
 /* v0.10.939 (tablo standardı S8) — başlık satırının ⋯ menüsü ("Kolonları
    sıfırla", ui/DataTable/HeadMenu.tsx). YENİ hücre yok ve YER AYRILMAZ:
    tetik son görünür başlığın (`th.dt-menu-host`) sağ ucuna mutlak konumla
@@ -6196,14 +6204,16 @@ a.cell-link--block { display: block; overflow: hidden; text-overflow: ellipsis; 
 .ld-tbar-note { color: var(--text2); }
 .ld-tbar-note.is-warn { color: var(--warn); }
 .ld-tbar-right { margin-left: auto; display: inline-flex; align-items: center; flex-wrap: wrap; gap: var(--sp-3); }
-.ld-cols-head { font-size: var(--fs-xs); color: var(--text2); }
-.ld-cols-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-1); max-height: 240px; overflow-y: auto; }
-.ld-cols-row { display: flex; align-items: center; gap: var(--sp-2); }
-.ld-cols-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-sm); }
-.ld-cols-add { display: flex; flex-wrap: wrap; gap: var(--sp-2); max-height: 160px; overflow-y: auto; }
-.ld-cols-cand { font-family: var(--font-mono); }
-.ld-cols-none { color: var(--text3); font-size: var(--fs-xs); }
-.ld-cols-fixed { display: inline-block; width: 22px; text-align: center; color: var(--text3); font-size: var(--fs-xs); }
+/* v0.10.1516 — ui/ColumnsPicker (Sütunlar ▾; /logs v0.10.1502'den genelleştirildi,
+   /traces de kullanır). Eski ad `.ld-cols-*`. */
+.colpick-head { font-size: var(--fs-xs); color: var(--text2); }
+.colpick-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-1); max-height: 240px; overflow-y: auto; }
+.colpick-row { display: flex; align-items: center; gap: var(--sp-2); }
+.colpick-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-sm); }
+.colpick-add { display: flex; flex-wrap: wrap; gap: var(--sp-2); max-height: 160px; overflow-y: auto; }
+.colpick-cand { font-family: var(--font-mono); }
+.colpick-none { color: var(--text3); font-size: var(--fs-xs); }
+.colpick-fixed { display: inline-block; width: 22px; text-align: center; color: var(--text3); font-size: var(--fs-xs); }
 @media (max-width: 640px) {
   .ld-narrow { flex-basis: 100%; }
   .ld-tbar-right { margin-left: 0; }

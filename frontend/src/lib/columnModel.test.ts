@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   defaultColumnModel, reconcileColumnModel, visibleColumnIds, toggleHidden, moveColumnTo,
-  parseColsParam, modelFromVisible, resolveColumnModel, serializeColumnModel, parseColumnModel, orderColumnsByModel,
+  parseColsParam, modelFromVisible, resolveColumnModel, serializeColumnModel, parseColumnModel, orderColumnsByModel, moveColumnOnto,
   type ColumnModel,
 } from './columnModel';
 
@@ -94,5 +94,20 @@ describe('orderColumnsByModel', () => {
     const model: ColumnModel = { v: 1, order: ['c', 'zzz', 'a', 'b'], hidden: ['b'], sig: 's' };
     expect(orderColumnsByModel(declared, model).map(c => c.id)).toEqual(['c', 'a', 'd']);
     expect(orderColumnsByModel(declared, null)).toBe(declared);
+  });
+});
+
+describe('moveColumnOnto (v0.10.1516)', () => {
+  const pinned = new Set(['time']);
+  const order = ['time', 'a', 'b', 'c'];
+  it('sağa: hedefin arkasına; sola: hedefin önüne', () => {
+    expect(moveColumnOnto(order, 'a', 'c', pinned)).toEqual(['time', 'b', 'c', 'a']);
+    expect(moveColumnOnto(order, 'c', 'a', pinned)).toEqual(['time', 'c', 'a', 'b']);
+  });
+  it('sabit / bilinmeyen / aynı id → aynı referans', () => {
+    expect(moveColumnOnto(order, 'time', 'b', pinned)).toBe(order);
+    expect(moveColumnOnto(order, 'b', 'time', pinned)).toBe(order);
+    expect(moveColumnOnto(order, 'zz', 'b', pinned)).toBe(order);
+    expect(moveColumnOnto(order, 'b', 'b', pinned)).toBe(order);
   });
 });
