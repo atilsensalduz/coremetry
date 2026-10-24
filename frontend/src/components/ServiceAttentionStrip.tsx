@@ -20,7 +20,9 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { fmtAgoNs } from '@/lib/utils';
-import { attentionRows, inboxItemHref } from '@/lib/inboxHref';
+import { attentionRows, inboxItemHref, serviceInboxHref } from '@/lib/inboxHref';
+import { useProblemVerdicts } from '@/lib/queries';
+import { verdictIndex, filterByVerdictView } from '@/lib/problemVerdict';
 import { PriorityBadge } from '@/components/ui/PriorityBadge';
 import type { InboxItem, Problem } from '@/lib/types';
 
@@ -101,15 +103,21 @@ export function ServiceAttentionStrip({ service, fallbackProblems }: {
     staleTime: 30_000,
     refetchInterval: 30_000,
   });
+  // v0.10.1508 — Inbox'ın varsayılan (triage) görünümü "problem değil"
+  // işaretli imzaları gizler; şerit de aynısını yapar, yoksa "N açık konu"
+  // linkin açtığı listeden fazla sayardı. Kararlar okunamazsa dizin boş:
+  // hiçbir satır gizlenmez (Inbox'la aynı güvenli taraf).
+  const verdictsQ = useProblemVerdicts();
   if (q.isPending) return null;
 
   // api.inbox 204/boş gövdede null dönebilir — "yok" ile "okunamadı" ayrı.
   const degraded = q.isError || !q.data;
   const items = !q.data
     ? fallbackProblems.filter(p => p.status === 'open').map(problemToItem)
-    : q.data.items;
+    : filterByVerdictView(q.data.items, verdictIndex(verdictsQ.data?.verdicts), 'triage');
   const { rows, hidden, sloCount } = attentionRows(items);
-  const inboxHref = `/inbox?service=${encodeURIComponent(service)}&status=open`;
+  // v0.10.1508 — şeridin kapsamı linkte AÇIK (tüm öncelikler, tüm ortamlar).
+  const inboxHref = serviceInboxHref(service);
   const sloNote = sloCount > 0 && (
     <span className="svc-att-slo">
       <span className="svc-att-slo-ico">◉</span>

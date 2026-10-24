@@ -11168,3 +11168,24 @@ hiç üretmediği için dokunulmadı. Önceden yazılmış Problem açıklamalar
 
 **Geri alma.** `git revert <sha>` + yeni etiket; ya da `shownSourceReason` gerekçeyi aynen döndürsün (FE'de
 `alertSourceReason`'daki `VM_NOT_CONFIGURED_REASON` koşulu kaldırılsın). Şema/ayar yok.
+
+## 2026-10-24 — v0.10.1508 — Servis şeridi "Inbox'ta gör": linkin kapsamı şeridinkiyle aynı
+
+**Operatör bildirimi (prod).** Servis sayfası şeridi "4 açık konu" (P1 EXCEPTION ×2, P2 exception, …) gösterirken
+"Inbox'ta gör →" Problems/Inbox'ı "No open alerts — all clear!" ve boş kuyrukla açtı.
+
+**Kök neden.** Şerit `/api/inbox`'u `service + status=open` ile okur: env YOK, öncelik süzgeci YOK (sunucu varsayılanı
+hepsi). Link yalnız `?service=&status=open` taşıyordu; Inbox geri kalanı kendi varsayılanından aldı: **yalnız P1**
+(v0.10.1081) ve localStorage'daki **yapışkan `?env=`** (useUrlEnv). Env seçiliyken sunucu satırları "son 1 saatte o
+env'de span üreten servisler" kümesine daraltır (EnvScopeKeepsRow); servis o kümede değilse dört satır da düşer. "No open
+alerts" ayrı bölümün (alert kuralları) doğru boş durumudur — dört satır exception'dı. Ek fark: Inbox varsayılan (triage)
+görünümü "problem değil" işaretli imzaları gizler, şerit gizlemiyordu.
+
+**Karar.** Tek yardımcı `serviceInboxHref(service)` = `/inbox?service=<s>&prio=P1,P2,P3&env=` — açık-boş `env=`
+resolveEnv'de "tüm ortamlar"dır ve yapışkan seçimi diriltmez; status/kind varsayılanları zaten open/hepsi. Şerit ve
+servis haritası çekmecesinin "Open problems" linki bunu kullanır. Şerit Inbox'ın triage görünümünü uygular
+(`filterByVerdictView(…, 'triage')`; kararlar okunamazsa hiçbir satır gizlenmez). Gidiş-dönüş testi linki Inbox'ın kendi
+codec'leri ve Inbox.tsx'ten okunan sabitlerle çözer; yapışkan env varken de şeridin kapsamını vermeli.
+Inbox varsayılanları (yalnız P1, yapışkan env) değişmedi.
+
+**Geri alma.** `git revert <sha>` + yeni etiket. Kalıcı veri/şema yok.

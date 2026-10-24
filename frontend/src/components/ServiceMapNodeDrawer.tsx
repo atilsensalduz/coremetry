@@ -8,6 +8,7 @@ import { tracesPivotHref } from '@/lib/pivotHref';
 import { logsHref } from '@/lib/logsUrl';
 import { windowRangeParam } from '@/lib/urlState';
 import { fmtNum, fmtFixed } from '@/lib/utils';
+import { serviceInboxHref } from '@/lib/inboxHref'; // v0.10.1508 — şeritle aynı servis kapsamı
 import type { TimeRange } from '@/lib/types';
 
 // ServiceMapNodeDrawer — v0.9.1112 (Faz 5 "harita salt görselden giriş
@@ -86,7 +87,7 @@ export function ServiceMapNodeDrawer({ service, range, fromNs, toNs, onClose }: 
                   <span style={{ color: 'var(--text3)' }}>Open problems</span>
                   <span>
                     <Link className="badge b-err" style={{ textDecoration: 'none' }}
-                      to={`/inbox?service=${encodeURIComponent(service)}`}
+                      to={serviceInboxHref(service)}
                       title="Inbox'ta bu servisin açık problemleri">
                       {s.openProblems}
                     </Link>

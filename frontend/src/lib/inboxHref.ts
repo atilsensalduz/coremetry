@@ -27,6 +27,21 @@ export function anomalyDetailHref(id: string): string {
   return `/inbox?anomaly=${encodeURIComponent(id)}`;
 }
 
+// serviceInboxHref — v0.10.1508 (operator-reported, prod): servis sayfası
+// şeridi "4 açık konu" (P1 ×2, P2, …) derken "Inbox'ta gör →" "No open
+// alerts" + boş kuyruk açıyordu. Şerit /api/inbox'u servis + open ile, ENV'SİZ
+// ve TÜM ÖNCELİKLERLE okuyor; link ise `?service=&status=open` taşıyordu ve
+// Inbox geri kalanını kendi varsayılanlarından aldı: yalnız P1 (v0.10.1081)
+// ve localStorage'daki yapışkan ?env= (useUrlEnv; sunucu "son 1 saatte o
+// env'de koşan servis" kümesine daraltır). Link artık şeridin kapsamını AÇIK
+// yazar: tüm öncelikler + açık-boş `env=` ("tüm ortamlar", resolveEnv
+// yapışkan seçimi DİRİLTMEZ). status varsayılanı zaten open; kind varsayılanı
+// zaten hepsi. Gidiş-dönüş testi: inboxHref.serviceLink.test.ts.
+export const SERVICE_INBOX_PRIO = 'P1,P2,P3';
+export function serviceInboxHref(service: string): string {
+  return `/inbox?service=${encodeURIComponent(service)}&prio=${SERVICE_INBOX_PRIO}&env=`;
+}
+
 export function inboxItemHref(it: InboxItem): string | null {
   if (it.kind === 'problem' && it.problem) {
     return `/problems?problem=${encodeURIComponent(it.problem.id)}`;
