@@ -9,6 +9,8 @@ import { droppedPatternCount, formatBatchPatterns, parseBatchPatterns } from './
 import { ServiceSlowdownSubsection } from './ServiceSlowdownSubsection'; // v0.10.1091
 import { REDSourceSubsection } from './REDSourceSubsection'; // v0.10.1478
 import { CalendarSubsection } from './CalendarSubsection'; // v0.10.1483
+import { ErrorRampSubsection } from './ErrorRampSubsection';
+import { errorRampErrors, withErrorRampDefaults } from './errorRamp';
 
 // ── Anomaly promotion tab ───────────────────────────────────────
 //
@@ -335,6 +337,14 @@ function SensitivitySection() {
 
   const save = async () => {
     if (!cfg) return;
+    // Teknik hata yükselişi: sunucu aralık dışı değeri sessizce VARSAYILANA
+    // döndürür (kelepçelemez) — kayıttan ÖNCE reddet, operatör yazdığının
+    // kaydedildiğini sanmasın.
+    const rampErrs = Object.keys(errorRampErrors(cfg.errorRamp));
+    if (rampErrs.length > 0) {
+      setFlash({ kind: 'err', text: 'Kaydedilmedi — teknik hata yükselişi alanlarından biri aralık dışında.' });
+      return;
+    }
     setBusy(true); setFlash(null);
     try {
       // Sunucu kelepçeleyip KAYDEDİLENİ döndürüyor; onu state'e yazmak
@@ -355,6 +365,8 @@ function SensitivitySection() {
         ...(cfg.serviceSlowdown
           ? { serviceSlowdown: { ...cfg.serviceSlowdown, enabled: cfg.serviceSlowdown.enabled !== false } }
           : {}),
+        // Teknik hata yükselişi — bölüm daima tam gider, enabled AÇIK boolean.
+        errorRamp: withErrorRampDefaults(cfg.errorRamp),
       });
       setCfg(saved);
       setBatchText(formatBatchPatterns(saved.batchServicePatterns));
@@ -563,6 +575,9 @@ function SensitivitySection() {
               gelmedi" → "Onay"). Operasyon gecikmesinin yanında, aynı Kaydet. */}
           <ServiceSlowdownSubsection value={cfg.serviceSlowdown}
             onChange={serviceSlowdown => setCfg({ ...cfg, serviceSlowdown })} />
+          {/* Sürekli teknik hata (5xx) yükselişi (v0.10.1518 kuralının vidaları). */}
+          <ErrorRampSubsection value={cfg.errorRamp}
+            onChange={errorRamp => setCfg({ ...cfg, errorRamp })} />
           {/* v0.10.1483 — takvim etkileri: özel günler mevsimsel baseline'ı ve
               tatil/yarım günde istek hızı düşüşü terfisini değiştirir; aynı Kaydet. */}
           <CalendarSubsection value={cfg.calendar}

@@ -11495,3 +11495,22 @@ eksik status'u "—" + ipucu "yanıt yok / HTTP dışı span" çizer (tablo, Agg
 önerileri). `http.status_code = 0` süzgeci anlamını korur ("status'u olmayan span'ler", Go testiyle pinli).
 
 **Geri alma.** git revert + yeni etiket; şema değişikliği yok.
+
+## 2026-10-24 — v0.10.1520 — errorRamp ayar formu (Settings › Anomaly › Dedektör hassasiyeti)
+
+**Bağlam.** v0.10.1518'in sürekli teknik hata (5xx) yükselişi kuralı (`anomaly_sensitivity.errorRamp`) yalnız API'den
+ayarlanabiliyordu; form bölümü göstermiyordu (GET → PUT yayılımı alanı koruyordu). Operatör onaylı takip.
+
+**Karar.** Dedektör hassasiyeti bölümüne, yaygın yavaşlamanın altına "Sürekli teknik hata (5xx) yükselişi" alt bölümü
+(`ErrorRampSubsection.tsx`, aynı Kaydet; CalendarSubsection/REDSourceSubsection deseni): açma kutusu, süreklilik
+(× 5 dk, dakika olarak gösterilir), artış katı, oran tabanı (%), hata hızı tabanı (hata/sn). Türkçe metin: ne yakalar
+(5xx = teknik hata, yüksek hacimde tabana göre sürekli yükseliş, %1 tabanının gizlediği), neyi yok sayar (4xx, kısa
+sıçrama, olağan günlük yükseliş, düşük hacim), karar kaynağı (VM varsa VM). Kayıt bölümü daima TAM ve `enabled` açık
+boolean gönderir.
+`NormalizeErrorRamp` aralık dışı değeri kelepçelemez, sessizce VARSAYILANA döndürür — bu yüzden form aralık dışını
+(ve kesirli kova sayısını, boş alanı) satır içinde işaretler ve Kaydet gövde GÖNDERMEZ. Aralıklar tek dosyada
+(`pages/settings/errorRamp.ts`), Go tarafı o dosyayı okuyup `errRamp*` sabitleriyle karşılaştırır
+(`TestErrorRampUIBoundsMirrorNormalize`) — biri değişirse CI kırılır.
+
+**Geri alma.** `git revert <sha>` + yeni etiket (yalnız FE + test; şema/ayar biçimi değişmedi, kayıtlı blob aynen okunur).
+

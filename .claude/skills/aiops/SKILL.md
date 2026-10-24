@@ -183,6 +183,10 @@ aynı `anomaly:<svc>:error_rate` satırı; `absFloor`'u DÜŞÜRME (v0.9.180 gü
 `vmOnlyServices` + replay ucu `GET /api/settings/anomaly-red-source/explain?service=&metric=&from=&to=` (tek servis,
 ≤ 12 sa, her adımda kaynak + ilk durduran kapı; `anomaly_explain.go`, karar `evaluateAnomaly`'nin kendisi). Yeni bir
 kapı eklerken `decideBlocker` ikizini de güncelle (`TestDecideBlockerMatchesDecideAnomaly`).
+**errorRamp ayar formu (v0.10.1520):** Settings › Anomaly › Dedektör hassasiyeti › "Sürekli teknik hata (5xx) yükselişi"
+(`pages/settings/ErrorRampSubsection.tsx`, aynı Kaydet). `NormalizeErrorRamp` aralık dışını KELEPÇELEMEZ, varsayılana döndürür
+→ form aralık dışını kayıttan ÖNCE reddeder; aralıklar `pages/settings/errorRamp.ts` `ERROR_RAMP_BOUNDS` — Go
+`errRamp*Lo/Hi` ile birebir, pin `chstore/anomaly_sensitivity_error_ramp_ui_pin_test.go` (birini değiştirirsen ikisini).
 **Alarm kuralı kaynağı (v0.10.1489):** `evaluateOne` ölçüsünü `anomaly_sensitivity.alertSource` = `auto` (varsayılan)
 iken kural×servis başına VM'in örneklenmemiş HTTP/gRPC histogramından, kuralın KENDİ penceresiyle alır (anlık sorgu,
 t = şimdi − 2 dk; `internal/anomaly/alert_vm*.go`, seçim `alertVMState.decide` → SAF `pickAlertSource`); taşıma metrikleri

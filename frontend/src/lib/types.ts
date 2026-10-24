@@ -9256,6 +9256,23 @@ export interface AnomalyMetricSensitivity {
 
 /** v0.10.1091 — yaygın yavaşlama hızlı yolunun vidaları (Go
  *  chstore.ServiceSlowdownConfig). Aralık dışı değer sunucuda varsayılana döner. */
+// v0.10.1518 — sürekli teknik hata (5xx) yükselişi kuralının vidaları
+// (backend: chstore.ErrorRampConfig). Aralıklar chstore.NormalizeErrorRamp ile
+// birebir (aralık dışı değer sunucuda VARSAYILANA döner, kelepçelenmez) —
+// tek kaynak pages/settings/errorRamp.ts ERROR_RAMP_BOUNDS (Go pin testi var).
+export interface ErrorRampConfig {
+  /** Yok = AÇIK; okuma `!== false`. */
+  enabled?: boolean;
+  /** Oranın eşik üstünde kalması gereken ardışık tamamlanmış 5 dk kova (vars. 6, 2–24). */
+  windowBuckets: number;
+  /** Kova oranı ≥ bu kat × taban medyanı (vars. 2, 1.2–50). */
+  ratioFactor: number;
+  /** Kova oranının mutlak tabanı, yüzde (vars. 0.2, 0.01–50). */
+  minRatioPct: number;
+  /** Kova başına teknik hata hızı tabanı, hata/sn (vars. 1, 0.05–100000). */
+  minErrorsPerSec: number;
+}
+
 export interface ServiceSlowdownConfig {
   /** Yok = AÇIK; okuma `!== false`. */
   enabled?: boolean;
@@ -9333,6 +9350,10 @@ export interface AnomalySensitivityConfig {
   // onaylı). Bölüm yoksa sunucu varsayılanlarla doldurur; enabled okuması
   // `!== false` (backend *bool, yok = AÇIK).
   serviceSlowdown?: ServiceSlowdownConfig;
+  // v0.10.1518 — teknik hata (5xx) oranının SÜREKLİ yükselişi kuralı
+  // (`anomaly:<svc>:error_rate` satırını açar). Bölüm yoksa (eski backend)
+  // sunucu varsayılanları; enabled okuması `!== false` (backend *bool, yok = AÇIK).
+  errorRamp?: ErrorRampConfig;
   // v0.10.1483 — mevsimsel baseline'ların takvim etkileri (özel günler +
   // otomatik ay sonu). Bölüm yoksa (eski backend) takvim yok.
   calendar?: AnomalyCalendarConfig;
