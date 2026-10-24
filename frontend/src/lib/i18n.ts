@@ -224,16 +224,12 @@ const EN: Catalog = {
   'cosre.cap.service.prompt':   '@| traces, errors and latency in the last hour?',
   'cosre.cap.operation':        'I can dig into failing technical operations — type the operation name',
   'cosre.cap.operation.prompt': 'Why is the | operation failing?',
-  'cosre.cap.navigate':         'I can tell you where to look and take you to the right page',
-  'cosre.cap.navigate.prompt':  'Where should I look to investigate |?',
   // v0.10.1382 — data-grounded choices under the rows (/api/copilot/starters).
   // v0.10.1404 — the P1 row became the latest-exceptions row.
   'cosre.cap.exceptions':        'I can look at your team’s latest exceptions', // v0.10.1472
   'cosre.cap.exceptions.prompt': 'My team’s exceptions?',
-  'cosre.cap.exceptions.all':    'All recent exceptions',
+  'cosre.cap.exceptions.searchTitle': 'Pick a team — opens the Exceptions page filtered by that team', // v0.10.1515
   'cosre.cap.choices':          'Ready-made choices',
-  'cosre.cap.fleet':            'fleet-wide',
-  'cosre.cap.fleet.title':      'No team resolved — the fleet’s current hot spots',
   'cosre.cap.search.service':   'Search services…', // v0.10.1390
   'cosre.cap.search.operation': 'Search operations…', // v0.10.1390
   // v0.10.1402 — Takımım kartı (en üstte): takım seçici + üç eylem çipi.
@@ -763,8 +759,6 @@ const TR: Catalog = {
   'cosre.cap.service.prompt':   '@| servisinin son 1 saatteki trace\'leri, hataları ve gecikmesi?',
   'cosre.cap.operation':        'Hata veren teknik operasyonları inceleyebilirim — operasyon adını yaz',
   'cosre.cap.operation.prompt': '| operasyonu neden hata veriyor?',
-  'cosre.cap.navigate':         'Nereye bakman gerektiğini söyleyip ilgili sayfaya yönlendirebilirim',
-  'cosre.cap.navigate.prompt':  '| sorununu incelemek için nereye bakmalıyım?',
   // v0.10.1382 (operatör: "hazır soruları seçilebilir halde getirsek") — satırların
   // altındaki canlı veriden seçenekler (/api/copilot/starters); p1/deploy satırı
   // yalnız o grupta öğe varken.
@@ -772,10 +766,8 @@ const TR: Catalog = {
   // satırı yerine en son exception grupları; şablon takım exception sorusu.
   'cosre.cap.exceptions':        'Takımının son exception\'larına bakabilirim', // v0.10.1472 (operatör)
   'cosre.cap.exceptions.prompt': 'Takımımın exception\'ları?',
-  'cosre.cap.exceptions.all':    'Tüm son exception\'lar',
+  'cosre.cap.exceptions.searchTitle': 'Takım seç — Exceptions sayfası o takımla süzülü açılır', // v0.10.1515 (operatör)
   'cosre.cap.choices':          'Hazır seçenekler',
-  'cosre.cap.fleet':            'filo geneli',
-  'cosre.cap.fleet.title':      'Takımın çözülemedi — filonun şu anki sıcak noktaları',
   'cosre.cap.search.service':   'Servis ara…', // v0.10.1390
   'cosre.cap.search.operation': 'Operasyon ara…', // v0.10.1390
   // v0.10.1402 (operatör: "Alttaki takımımın servisleri exceptionları yukarıda

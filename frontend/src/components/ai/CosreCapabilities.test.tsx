@@ -20,10 +20,15 @@
 //       çipi TEK bir sohbet içi açıklama turu gönderir (explainAsk {kind:
 //       'exception', id: <parmak izi>}), "Tüm son exception'lar" takım
 //       exception sorusunu (LLM'siz yönlenir: TestStarterQuestionsRoute).
+//   (8) v0.10.1515 (operatör 2026-10-24) — "Nereye bakman gerektiğini…" satırı
+//       YOK; exceptions kartında "filo geneli" / grup çipleri / "Tüm son
+//       exception'lar" YOK (sunucu eski şekilde grup gönderse bile); yerinde
+//       kullanıcının takımıyla dolu TeamPicker; takım seçmek sohbet turu
+//       GÖNDERMEDEN /problems?owner=<takım> (ya da sre) adresine gider.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 vi.hoisted(() => {
@@ -41,9 +46,9 @@ import { ConfirmProvider } from '@/components/ui/ConfirmDialog';
 import { CopilotChat } from '@/components/CopilotChat';
 import { __resetCopilotEnabledCache } from './useCopilotEnabled';
 import {
-  capabilityItems, splitCaret, tCosre, COSRE_LANG,
-  groupForCapability, starterAsk, allExceptionsQuestion, serviceHealthQuestion, operationErrorQuestion,
+  capabilityItems, splitCaret, tCosre, COSRE_LANG, serviceHealthQuestion, operationErrorQuestion,
 } from './capabilityHints';
+import { readExceptionsTeamFilter } from '@/lib/exceptionsTeamHref';
 import type { CopilotStarterGroup } from '@/lib/types';
 
 let host: HTMLDivElement;
@@ -82,8 +87,9 @@ afterEach(() => {
 
 describe('capabilityHints — saf', () => {
   it('wiki satırı yalnız bayrakla ve en başta', () => {
-    expect(capabilityItems(false).map(i => i.kind)).toEqual(['team', 'service', 'operation', 'navigate']);
-    expect(capabilityItems(true).map(i => i.kind)).toEqual(['team', 'wiki', 'service', 'operation', 'navigate']);
+    // v0.10.1515 — navigate satırı yok; exceptions satırı koşulsuz, en sonda.
+    expect(capabilityItems(false).map(i => i.kind)).toEqual(['team', 'service', 'operation', 'exceptions']);
+    expect(capabilityItems(true).map(i => i.kind)).toEqual(['team', 'wiki', 'service', 'operation', 'exceptions']);
   });
 
   it('splitCaret: | imleç yeri, işaretsiz metinde imleç sonda', () => {
@@ -117,57 +123,23 @@ describe('capabilityHints — saf', () => {
   });
 });
 
-// v0.10.1382 — gruplu başlangıç seçenekleri (sentetik adlar).
-// v0.10.1390 — sunucu yalnız p1 + deploys grubu döner. v0.10.1402 — yalnız p1.
-// v0.10.1404 — yalnız exceptions (en son açık exception grupları).
+// v0.10.1382 — gruplu başlangıç seçenekleri (sentetik adlar). v0.10.1515 —
+// sunucu artık grup üretmez; ESKİ şekilde gelen yanıt (önbellek / sürüm geçişi)
+// da çip çizdirmez: bu grup o durumun fikstürü.
 const ORA_FP = 'ora:00000000000000a1';
-const SPAN_FP = 'fp-orders-0001';
-const GROUPS: CopilotStarterGroup[] = [
+const LEGACY_GROUPS: CopilotStarterGroup[] = [
   { kind: 'exceptions', fleet: true, items: [
-    { chip: 'ORDERS_GET_X · orders-api', title: 'ORA-00060 · ORDERS_GET_X · orders-api', question: 'ORDERS_GET_X · orders-api grubunu açıkla',
-      kind: 'exception', explainAsk: { kind: 'exception', id: ORA_FP, src: 'starter' } },
-    { chip: 'SocketTimeoutException · orders-api', title: 'java.net.SocketTimeoutException · orders-api',
-      question: 'SocketTimeoutException · orders-api grubunu açıkla', kind: 'exception', explainAsk: { kind: 'exception', id: SPAN_FP, src: 'starter' } },
+    { chip: 'SQLIntegrityConstraintViolationException · orders-api', question: 'q1', kind: 'exception', explainAsk: { kind: 'exception', id: ORA_FP, src: 'starter' } },
+    { chip: '503 · batch-manager', question: 'q2', kind: 'exception', explainAsk: { kind: 'exception', id: 'fp-batch-0001', src: 'starter' } },
   ] },
 ];
 
-describe('capabilityHints — v0.10.1382 gruplar (saf)', () => {
-  it('exceptions satırı yalnız öğeli grupla; sıra team → operasyon → exceptions → navigate (v0.10.1404: p1 yok)', () => {
-    expect(capabilityItems(false, GROUPS).map(i => i.kind)).toEqual(['team', 'service', 'operation', 'exceptions', 'navigate']);
-    expect(capabilityItems(true, GROUPS).map(i => i.kind)).toEqual(['team', 'wiki', 'service', 'operation', 'exceptions', 'navigate']);
-    expect(capabilityItems(false, [{ kind: 'exceptions', items: [] }]).map(i => i.kind)).not.toContain('exceptions');
-    expect(capabilityItems(true, GROUPS).map(i => i.kind)).not.toContain('p1');
-    expect(groupForCapability('navigate', GROUPS)).toBeUndefined();
-    expect(groupForCapability('team', GROUPS)).toBeUndefined();
-    expect(groupForCapability('exceptions', GROUPS)?.fleet).toBe(true);
-  });
-
-  it('v0.10.1390 — servis/operasyon satırının sunucu grubu yok (yalnız arama kutusu)', () => {
-    expect(groupForCapability('service', GROUPS)).toBeUndefined();
-    expect(groupForCapability('operation', GROUPS)).toBeUndefined();
-  });
-
+describe('capabilityHints — başlangıç cümleleri (saf)', () => {
   it('v0.10.1390 — arama kutularının cümleleri (LLM\'siz yönlenir: TestStarterQuestionsRoute)', () => {
     expect(serviceHealthQuestion('orders-api')).toBe('orders-api sağlığı nasıl?');
     expect(operationErrorQuestion('INSURANCE_DOC_PDF')).toBe('INSURANCE_DOC_PDF operasyonu neden hata veriyor?');
     // Şablon satırının doldurduğu kalıpla aynı.
     expect(splitCaret(tCosre('cosre.cap.operation.prompt')).text).toBe(operationErrorQuestion(''));
-  });
-
-  it('v0.10.1404 — exception çipi: sohbet içi açıklama turu (explainAsk), görünen metin etiket + kısa id', () => {
-    expect(starterAsk(GROUPS[0].items[0])).toEqual({
-      text: 'ORDERS_GET_X · orders-api grubunu açıkla · ora:00000000…',
-      so: { explainAsk: { kind: 'exception', id: ORA_FP, src: 'starter' } },
-    });
-    expect(starterAsk(GROUPS[0].items[1]).so).toEqual({ explainAsk: { kind: 'exception', id: SPAN_FP, src: 'starter' } });
-    // Niyetsiz öğe düz cümlesini gönderir.
-    expect(starterAsk({ chip: 'a', question: 'a?', kind: 'exception' })).toEqual({ text: 'a?' });
-  });
-
-  it('v0.10.1404 — "Tüm son exception\'lar": takım kapsamlıysa adı geçen takım, filo ise iyelik', () => {
-    // v0.10.1409 — takım adıyla soru katalogda olmayan takımda problems'e düşüyordu;
-    // çip her zaman iyelikle sorar (my_exceptions, LLM'siz).
-    expect(allExceptionsQuestion()).toBe('Takımımın exception\'ları?');
   });
 
   it('istemci URL\'si sorgu dizesini ? ile ayırır; v0.10.1390 — range_s yok', async () => {
@@ -192,8 +164,8 @@ describe('capabilityHints — v0.10.1382 gruplar (saf)', () => {
   });
 
   it('anahtarlar iki katalogda da var; kaldırılan anahtarlar yok', () => {
-    for (const k of ['cosre.cap.exceptions', 'cosre.cap.exceptions.prompt', 'cosre.cap.exceptions.all',
-      'cosre.cap.choices', 'cosre.cap.fleet', 'cosre.cap.fleet.title', 'cosre.cap.search.service', 'cosre.cap.search.operation']) {
+    for (const k of ['cosre.cap.exceptions', 'cosre.cap.exceptions.prompt', 'cosre.cap.exceptions.searchTitle',
+      'cosre.cap.choices', 'cosre.cap.search.service', 'cosre.cap.search.operation', 'cosre.cap.search.team']) {
       expect(t(k, 'en'), k).not.toBe(k);
       expect(t(k, 'tr'), k).not.toBe(k);
       expect(t(k, 'tr'), k).not.toBe(t(k, 'en'));
@@ -201,18 +173,29 @@ describe('capabilityHints — v0.10.1382 gruplar (saf)', () => {
     expect(tCosre('cosre.cap.search.service')).toBe('Servis ara…');
     expect(tCosre('cosre.cap.search.operation')).toBe('Operasyon ara…');
     expect(tCosre('cosre.cap.exceptions')).toBe('Takımının son exception\'larına bakabilirim'); // v0.10.1472
-    expect(tCosre('cosre.cap.exceptions.all')).toBe('Tüm son exception\'lar');
     for (const gone of ['cosre.cap.pickService', 'cosre.cap.pickService.placeholder', 'cosre.cap.deploy', 'cosre.cap.deploy.prompt',
-      'cosre.cap.p1', 'cosre.cap.p1.prompt']) {
+      'cosre.cap.p1', 'cosre.cap.p1.prompt',
+      // v0.10.1515 — navigate satırı ve exceptions kartının filo çipleri
+      'cosre.cap.navigate', 'cosre.cap.navigate.prompt', 'cosre.cap.exceptions.all', 'cosre.cap.fleet', 'cosre.cap.fleet.title']) {
       expect(t(gone, 'tr'), gone).toBe(gone);
+      expect(t(gone, 'en'), gone).toBe(gone);
     }
   });
 });
 
+// v0.10.1515 — gezinme gözlemcisi (takım seçimi → Exceptions sayfası).
+let here = '';
+function Where() {
+  const l = useLocation();
+  here = l.pathname + l.search;
+  return null;
+}
+
 function shell() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return (
-    <MemoryRouter>
+    <MemoryRouter initialEntries={['/services']}>
+      <Where />
       <QueryClientProvider client={qc}>
         <AuthProvider>
           <ConfirmProvider>
@@ -241,9 +224,10 @@ describe('CopilotChat çekmecesi — yetenek ipucu', () => {
     vi.spyOn(api, 'copilotConfig').mockResolvedValue({ enabled: true, model: 'm' });
     setUserLang('tr');
     await openDrawer();
-    expect(rows().map(b => b.dataset.cap)).toEqual(['team', 'service', 'operation', 'navigate']);
+    expect(rows().map(b => b.dataset.cap)).toEqual(['team', 'service', 'operation', 'exceptions']);
     expect(document.body.querySelector('[data-chip="wiki"]')).toBeNull();
     expect(document.body.textContent).toContain('Hata veren teknik operasyonları inceleyebilirim');
+    expect(document.body.textContent).not.toContain('Nereye bakman gerektiğini'); // v0.10.1515
   });
 
   it('wiki açık: wiki satırı + çip; tıklama doldurur, GÖNDERMEZ', async () => {
@@ -251,7 +235,7 @@ describe('CopilotChat çekmecesi — yetenek ipucu', () => {
     const send = vi.spyOn(api, 'copilotChat').mockResolvedValue(undefined as never);
     setUserLang('tr');
     await openDrawer();
-    expect(rows().map(b => b.dataset.cap)).toEqual(['team', 'wiki', 'service', 'operation', 'navigate']);
+    expect(rows().map(b => b.dataset.cap)).toEqual(['team', 'wiki', 'service', 'operation', 'exceptions']);
     expect(document.body.textContent).toContain('Kurum wiki’sinde arayabilirim');
 
     const wikiRow = rows().find(b => b.dataset.cap === 'wiki')!;
@@ -289,8 +273,8 @@ describe('CopilotChat çekmecesi — yetenek ipucu', () => {
     expect(textarea()?.value).toBe('@wiki BSA cache refresh en sık karşılaşılan hatalar nelerdir?');
     await act(async () => { rows().find(b => b.dataset.cap === 'operation')!.click(); });
     expect(textarea()?.value).toBe(' operasyonu neden hata veriyor?');
-    await act(async () => { rows().find(b => b.dataset.cap === 'navigate')!.click(); });
-    expect(textarea()?.value).toBe(' sorununu incelemek için nereye bakmalıyım?');
+    await act(async () => { rows().find(b => b.dataset.cap === 'exceptions')!.click(); });
+    expect(textarea()?.value).toBe('Takımımın exception\'ları?');
 
     const chip = document.body.querySelector<HTMLButtonElement>('[data-chip="wiki"]');
     expect(chip?.textContent).toContain('Wikide ara');
@@ -321,56 +305,73 @@ describe('CopilotChat çekmecesi — v0.10.1382 / v0.10.1390 başlangıçlar', (
     return msgs[msgs.length - 1].text;
   };
 
-  it('servis/operasyon satırında çip ve "filo geneli" YOK, arama kutusu her zaman görünür; exception çipi TEK açıklama turu gönderir', async () => {
+  it('v0.10.1515 — exceptions kartı: filo çipleri YOK (eski şekilli yanıtta bile), takım seçici kullanıcının takımıyla dolu', async () => {
     vi.spyOn(api, 'copilotConfig').mockResolvedValue({ enabled: true, model: 'm' });
-    vi.spyOn(api, 'copilotStarters').mockResolvedValue({ groups: GROUPS } as never);
-    const send = vi.spyOn(api, 'copilotChat').mockResolvedValue(undefined as never);
+    vi.spyOn(api, 'copilotStarters').mockResolvedValue({ groups: LEGACY_GROUPS, team: 'orders-team' } as never);
+    const meta = vi.spyOn(api, 'servicesMetadata').mockResolvedValue({} as never);
     setUserLang('en');
     await openDrawer();
-    expect(rows().map(b => b.dataset.cap)).toEqual(['team', 'service', 'operation', 'exceptions', 'navigate']);
-    expect(document.body.querySelector('[data-cap="p1"]')).toBeNull();
-    expect(document.body.textContent).not.toContain('P1 problemlerinin');
-    expect(document.body.textContent).toContain('Takımının son exception\'larına bakabilirim');
+    expect(rows().map(b => b.dataset.cap)).toEqual(['team', 'service', 'operation', 'exceptions']);
+    const body = document.body.textContent ?? '';
+    expect(body).toContain('Takımının son exception\'larına bakabilirim');
+    for (const gone of ['filo geneli', 'SQLIntegrityConstraintViolationException', '503 · batch-manager', 'Tüm son exception\'lar',
+      'Nereye bakman gerektiğini', 'P1 problemlerinin', 'başka bir servis', 'teknik hataları']) {
+      expect(body, gone).not.toContain(gone);
+    }
+    expect(document.body.querySelector('[data-starter]')).toBeNull();
+    expect(document.body.querySelector('[data-cap-choices="exceptions"]')).toBeNull();
     expect(document.body.querySelector('[data-cap-choices="service"]')).toBeNull();
     expect(document.body.querySelector('[data-cap-choices="operation"]')).toBeNull();
-    expect(document.body.querySelector('[data-chip="pick-service"]')).toBeNull();
-    expect(document.body.textContent).not.toContain('başka bir servis');
-    expect(document.body.textContent).not.toContain('teknik hataları');
-    // UI dili EN iken de sohbetin dili (TR).
+    // UI dili EN iken de sohbetin dili (TR); Takımım kartıyla aynı seçici.
     expect(search('service')?.placeholder).toBe('Servis ara…');
     expect(search('operation')?.placeholder).toBe('Operasyon ara…');
-    // "filo geneli" yalnız exceptions grubunda (v0.10.1404: p1 grubu kalktı).
-    const svcItem = search('service')!.closest('.cosre-cap__item')!;
-    expect(svcItem.textContent).not.toContain('filo geneli');
-    expect(document.body.querySelector('[data-cap-choices="exceptions"]')?.textContent).toContain('filo geneli');
-    // İki grup çipi (kısa etiket, title = tam) + sonda "Tüm son exception'lar".
-    const excChips = choices('exceptions');
-    expect(excChips.map(b => b.textContent)).toEqual(['ORDERS_GET_X · orders-api', 'SocketTimeoutException · orders-api', 'Tüm son exception\'lar']);
-    expect(excChips[0].title).toBe('ORA-00060 · ORDERS_GET_X · orders-api');
-    expect(excChips[2].dataset.starter).toBe('exceptions-all');
-
-    await act(async () => { excChips[0].click(); });
-    await act(async () => { await new Promise(r => setTimeout(r, 10)); });
-    expect(send).toHaveBeenCalledTimes(1);
-    const args = send.mock.calls[0] as unknown[];
-    expect(lastSent(send)).toBe('ORDERS_GET_X · orders-api grubunu açıkla · ora:00000000…');
-    // Yapısal açıklama niyeti (v0.10.1400 yolu) son argüman; gezinme yok.
-    expect(args[20]).toEqual({ kind: 'exception', id: ORA_FP, src: 'starter' });
+    const exc = search('exceptions')!;
+    expect(exc.placeholder).toBe('Takım ara…');
+    expect(exc.value).toBe('orders-team');
+    expect(search('team')?.value).toBe('orders-team');
+    // Kart açılırken servis kataloğu ÇEKİLMEZ (yalnız seçimde).
+    expect(meta).not.toHaveBeenCalled();
   });
 
-  it('v0.10.1409 — "Tüm son exception\'lar" takım bilinse de iyelikle sorar (my_exceptions)', async () => {
+  it('v0.10.1515 — takım seçimi Exceptions sayfasına takım süzgeçli GİDER, sohbet turu göndermez; sayfa okuyucusu takımı geri okur', async () => {
     vi.spyOn(api, 'copilotConfig').mockResolvedValue({ enabled: true, model: 'm' });
-    vi.spyOn(api, 'copilotStarters').mockResolvedValue({ groups: [{ ...GROUPS[0], fleet: false }], team: 'orders-team' } as never);
+    vi.spyOn(api, 'copilotStarters').mockResolvedValue({ groups: [], team: 'orders-team' } as never);
+    const names = vi.spyOn(api, 'copilotScopeNames').mockResolvedValue({ names: ['Platform-SRE'] } as never);
+    vi.spyOn(api, 'servicesMetadata').mockResolvedValue({
+      'orders-api': { service: 'orders-api', ownerTeam: 'orders-team', sreTeam: 'platform-sre' },
+    } as never);
     const send = vi.spyOn(api, 'copilotChat').mockResolvedValue(undefined as never);
     await openDrawer();
-    const all = document.body.querySelector<HTMLButtonElement>('[data-starter="exceptions-all"]')!;
-    expect(document.body.querySelector('[data-cap-choices="exceptions"]')?.textContent).not.toContain('filo geneli');
-    await act(async () => { all.click(); });
-    await act(async () => { await new Promise(r => setTimeout(r, 10)); });
-    expect(send).toHaveBeenCalledTimes(1);
-    expect(lastSent(send)).toBe('Takımımın exception\'ları?');
-    const args = send.mock.calls[0] as unknown[];
-    expect(args[20]).toBeUndefined(); // açıklama niyeti YOK — guided router
+    expect(here).toBe('/services');
+    const input = search('exceptions')!;
+    await type(input, 'plat');
+    await settle();
+    expect(names).toHaveBeenCalledWith('team', 'plat');
+    await key(input, 'ArrowDown');
+    await key(input, 'Enter');
+    await settle(40);
+    expect(send).not.toHaveBeenCalled();
+    // Yalnız SRE ekseninde geçen takım → ?sre=, katalogdaki yazımla.
+    expect(here).toBe('/problems?sre=platform-sre&s_exception-inbox-v2=lastSeen.desc');
+    const sp = new URLSearchParams(here.slice(here.indexOf('?') + 1));
+    expect(readExceptionsTeamFilter(sp)).toEqual({ owner: '', sre: 'platform-sre' });
+  });
+
+  it('v0.10.1515 — önseçili takımda Enter: sunucuda birebir doğrulanınca ?owner= ile gider', async () => {
+    vi.spyOn(api, 'copilotConfig').mockResolvedValue({ enabled: true, model: 'm' });
+    vi.spyOn(api, 'copilotStarters').mockResolvedValue({ groups: [], team: 'orders-team' } as never);
+    vi.spyOn(api, 'copilotScopeNames').mockResolvedValue({ names: ['orders-team'] } as never);
+    vi.spyOn(api, 'servicesMetadata').mockResolvedValue({
+      'orders-api': { service: 'orders-api', ownerTeam: 'orders-team' },
+    } as never);
+    const send = vi.spyOn(api, 'copilotChat').mockResolvedValue(undefined as never);
+    await openDrawer();
+    const input = search('exceptions')!;
+    await key(input, 'Enter');
+    await settle(40);
+    expect(send).not.toHaveBeenCalled();
+    expect(here).toBe('/problems?owner=orders-team&s_exception-inbox-v2=lastSeen.desc');
+    expect(readExceptionsTeamFilter(new URL(here, 'http://x').searchParams).owner).toBe('orders-team');
   });
 
   it('servis kutusu: listeden seçim HEMEN gönderir "<svc> sağlığı nasıl?"', async () => {
@@ -438,7 +439,7 @@ describe('CopilotChat çekmecesi — v0.10.1382 / v0.10.1390 başlangıçlar', (
     await openDrawer();
     expect(st).toHaveBeenCalled();
     expect(typeof st.mock.calls[0][0]).toBe('string');
-    expect(rows().map(b => b.dataset.cap)).toEqual(['team', 'service', 'operation', 'navigate']);
+    expect(rows().map(b => b.dataset.cap)).toEqual(['team', 'service', 'operation', 'exceptions']);
     expect(search('service')).not.toBeNull();
     expect(search('operation')).not.toBeNull();
     await act(async () => { rows().find(b => b.dataset.cap === 'operation')!.click(); });

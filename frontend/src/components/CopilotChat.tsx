@@ -840,7 +840,7 @@ export function CopilotChat({ launcher: launcherProp = true, variant = 'drawer' 
                     operasyon satırlarında çip yok, her zaman görünen arama kutusu;
                     seçim de askChip ile gönderir. */}
                 {/* v0.10.1402 — en üstte Takımım kartı (takım seçici + üç çip). */}
-                <CosreCapabilities wiki={wikiOn} groups={starters.groups} team={starters.team} onPrefill={prefill} onAsk={askChip} />
+                <CosreCapabilities wiki={wikiOn} team={starters.team} onPrefill={prefill} onAsk={askChip} />
                 {/* v0.9.652 — başlangıç çipleri (operatör isteği). v0.10.1402 —
                     "Takımımın …" çipleri Takımım kartına taşındı; burada bağlam,
                     yol şablonu ve wiki çipi kalır. */}

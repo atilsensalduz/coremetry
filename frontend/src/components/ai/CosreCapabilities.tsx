@@ -1,16 +1,20 @@
 import { useState } from 'react';
-import { BookOpen, Bug, Compass, Search, Users, Workflow, type LucideIcon } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
+import { BookOpen, Bug, Search, Users, Workflow, type LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Chip } from '@/components/ui/Chip';
 import { ServicePicker } from '@/components/ServicePicker';
 import { OperationPicker } from '@/components/OperationPicker';
 import { TeamPicker } from '@/components/TeamPicker';
 import { api } from '@/lib/api';
-import type { CopilotStarterGroup } from '@/lib/types';
+import { keys } from '@/lib/queries';
+import type { ServiceMetadata } from '@/lib/types';
+import { exceptionsTeamAxis, exceptionsTeamHref } from '@/lib/exceptionsTeamHref';
 import type { ChatSendOpts } from './useChatThread';
 import {
-  allExceptionsQuestion, capabilityItems, groupForCapability, operationErrorQuestion, readStoredTeam,
-  serviceHealthQuestion, splitCaret, starterAsk, TEAM_ASKS, teamCardQuestion, teamPickQuestion, tCosre as t,
+  capabilityItems, operationErrorQuestion, readStoredTeam,
+  serviceHealthQuestion, splitCaret, TEAM_ASKS, teamCardQuestion, teamPickQuestion, tCosre as t,
   writeStoredTeam, type CapabilityKind,
 } from './capabilityHints';
 
@@ -62,18 +66,27 @@ import {
 // geneli"). Grup çipi SOHBET İÇİ açıklama turu başlatır (starterAsk →
 // send(text, {explainAsk}); gezinme yok, çekmece özne kipi yok); sonda "Tüm son
 // exception'lar" takım exception cevabını ister (allExceptionsQuestion).
+//
+// v0.10.1515 (operatör 2026-10-24) — "Nereye bakman gerektiğini söyleyip
+// ilgili sayfaya yönlendirebilirim" satırı KALKTI. Exceptions kartında "filo
+// geneli" etiketi, son exception grubu çipleri ve "Tüm son exception'lar"
+// KALKTI (sunucu grubu da: /api/copilot/starters artık yalnız takımı döner).
+// Yerlerinde Takımım kartının sunucu-aramalı TeamPicker'ı ("Takım ara…"),
+// kullanıcının takımıyla dolu. Takım seçmek sohbet turu GÖNDERMEZ: Exceptions
+// sayfasına (/problems) o takımla süzülü, son görülme sıralı GİDER
+// (exceptionsTeamHref; owner/sre ekseni servis kataloğundan — sunucunun
+// teamExceptionsAxis kuralı; katalog yalnız seçim anında, RQ önbelleğinden
+// ya da tek istekle okunur, kart açılırken DEĞİL).
 const ICON: Record<CapabilityKind, LucideIcon> = {
   team: Users,
   wiki: BookOpen,
   service: Search,
   operation: Workflow,
   exceptions: Bug,
-  navigate: Compass,
 };
 
-export function CosreCapabilities({ wiki, groups = [], team: serverTeam = '', onPrefill, onAsk }: {
+export function CosreCapabilities({ wiki, team: serverTeam = '', onPrefill, onAsk }: {
   wiki: boolean;
-  groups?: readonly CopilotStarterGroup[];
   /** v0.10.1402 — sunucunun çözdüğü kullanıcı takımı (Takımım varsayılanı). */
   team?: string;
   onPrefill: (text: string, caret: number) => void;
@@ -87,6 +100,10 @@ export function CosreCapabilities({ wiki, groups = [], team: serverTeam = '', on
   const [picked, setPicked] = useState<string | null>(readStoredTeam);
   const [teamText, setTeamText] = useState<string | null>(null);
   const team = (picked ?? serverTeam).trim();
+  // v0.10.1515 — exceptions kartının takım kutusu (null = varsayılan takımı göster).
+  const [excText, setExcText] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const qc = useQueryClient();
   const chooseTeam = (name: string) => {
     setPicked(name);
     setTeamText(null);
@@ -131,14 +148,33 @@ export function CosreCapabilities({ wiki, groups = [], team: serverTeam = '', on
       .catch(() => onPrefill(q, q.length));
   };
 
+  // v0.10.1515 — exceptions kartı: seçim (ya da sunucuda birebir doğrulanan
+  // Enter) Exceptions sayfasına takım süzgeçli gider; sohbet turu yok.
+  const goExceptions = (name: string) => {
+    void qc.fetchQuery({
+      queryKey: keys.services.metadata,
+      queryFn: async () => (await api.servicesMetadata()) ?? {},
+      staleTime: 60_000,
+    })
+      .catch(() => undefined)
+      .then(cat => {
+        const r = exceptionsTeamAxis(cat as Record<string, ServiceMetadata> | undefined, name);
+        navigate(exceptionsTeamHref(r.name, r.axis));
+      });
+  };
+  const commitExcTeam = (v?: string) => {
+    const name = (v ?? excText ?? team).trim();
+    if (!name) return;
+    if (v !== undefined) { goExceptions(name); return; }
+    api.copilotScopeNames('team', name)
+      .then(r => { if (r.names.includes(name)) goExceptions(name); })
+      .catch(() => undefined);
+  };
+
   return (
     <div className="cosre-cap" role="list" aria-label={t('cosre.cap.aria')}>
-      {capabilityItems(wiki, groups).map(it => {
+      {capabilityItems(wiki).map(it => {
         const Icon = ICON[it.kind];
-        const group = groupForCapability(it.kind, groups);
-        const items = onAsk ? (group?.items ?? []) : [];
-        // v0.10.1404 — exceptions satırının son çipi (grup kapsamıyla aynı takım).
-        const allExcQ = it.kind === 'exceptions' ? allExceptionsQuestion() : '';
         return (
           <div role="listitem" key={it.kind} className={`cosre-cap__item${it.kind === 'team' ? ' cosre-cap__item--team' : ''}`}>
             <Button variant="ghost" size="sm" className="cosre-cap__row"
@@ -176,23 +212,10 @@ export function CosreCapabilities({ wiki, groups = [], team: serverTeam = '', on
                   placeholder={t('cosre.cap.search.operation')} width="100%" />
               </div>
             )}
-            {items.length > 0 && (
-              <div className="cosre-cap__choices" role="group" aria-label={t('cosre.cap.choices')} data-cap-choices={it.kind}>
-                {group?.fleet && (
-                  <span className="cosre-cap__fleet" title={t('cosre.cap.fleet.title')}>{t('cosre.cap.fleet')}</span>
-                )}
-                {items.map(st => (
-                  <Chip key={st.explainAsk?.id ?? st.question} pill size="sm" tone="neutral"
-                    data-starter={st.kind} title={st.title || st.question}
-                    onClick={() => { const a = starterAsk(st); onAsk?.(a.text, a.so); }}>
-                    {st.chip}
-                  </Chip>
-                ))}
-                {allExcQ && (
-                  <Chip pill size="sm" tone="accent" data-starter="exceptions-all" title={allExcQ} onClick={() => send(allExcQ)}>
-                    {t('cosre.cap.exceptions.all')}
-                  </Chip>
-                )}
+            {it.kind === 'exceptions' && (
+              <div className="cosre-cap__picker" data-cap-search="exceptions">
+                <TeamPicker value={excText ?? team} onChange={setExcText} onEnter={commitExcTeam}
+                  placeholder={t('cosre.cap.search.team')} title={t('cosre.cap.exceptions.searchTitle')} width="100%" />
               </div>
             )}
           </div>

@@ -109,6 +109,29 @@ type chatFollowup struct {
 	// turu olarak + bu yapısal niyeti context.explainAsk olarak gönderir
 	// (chat_explain_turn.go) — açıklama sohbet içinde akar, çekmece açılmaz.
 	ExplainAsk *chatExplainAsk `json:"explainAsk,omitempty"`
+	// Pick — v0.10.1515 (operatör: "Alttaki chipler çok çıkıyor, gerek yok
+	// servis servis yazmasına"): SEÇİCİ çipi. Tık mesaj GÖNDERMEZ, satır içi
+	// sunucu-aramalı servis seçici açar (adaylar önce); seçilen servisle
+	// Template doldurulur ve o cümle Scope + seçilen servisle gönderilir.
+	Pick *followupPick `json:"pick,omitempty"`
+}
+
+// followupPick — v0.10.1515: seçici çipinin yükü. Template "{service}" yer
+// tutucusunu taşır (fillPickTemplate); Services takım cevabının servisleri
+// (hata oranı azalan), seçicide ilk sırada.
+type followupPick struct {
+	Kind     string   `json:"kind"` // "service"
+	Template string   `json:"template"`
+	Services []string `json:"services,omitempty"`
+}
+
+// pickServicePlaceholder — Template'teki servis yer tutucusu (FE
+// followupPick.ts PICK_SERVICE_PLACEHOLDER ile aynı).
+const pickServicePlaceholder = "{service}"
+
+// fillPickTemplate — SAF: seçici çipinin seçimle gönderdiği cümle.
+func fillPickTemplate(tpl, svc string) string {
+	return strings.ReplaceAll(tpl, pickServicePlaceholder, strings.TrimSpace(svc))
 }
 
 var (
@@ -537,7 +560,7 @@ func withAnswerFollowups(ans map[string]any, chips []chatFollowup) map[string]an
 	ans["followups"] = chips
 	var texts []string
 	for _, c := range chips {
-		if c.Action == nil && c.Href == "" && c.ExplainAsk == nil { // v0.10.1331 — link çipi eski istemcide metin olarak gönderilmez; v0.10.1400 — açıklama çipi de (niyetsiz metin yönlenmez)
+		if c.Action == nil && c.Href == "" && c.ExplainAsk == nil && c.Pick == nil { // v0.10.1331 — link çipi eski istemcide metin olarak gönderilmez; v0.10.1400 — açıklama çipi de (niyetsiz metin yönlenmez); v0.10.1515 — seçici çipi de (etiketi soru değil)
 			texts = append(texts, c.Text)
 		}
 	}

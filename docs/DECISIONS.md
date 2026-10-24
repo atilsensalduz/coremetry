@@ -11294,3 +11294,35 @@ Pin: `pages/traceHeaderMeasures.pin.test.ts`, `IdentityChip.contract`, `TraceMea
 `OracleOperationChip.render` (TraceEntryCodes dahil).
 
 **Geri alma.** `git revert <sha>` + yeni etiket. Şema/ayar/API yok; yalnız ön yüz.
+
+
+## 2026-10-24 — v0.10.1515 — CoSRE karşılama: exceptions kartında takım seçici + takım cevabında genel seçici çipleri
+
+**Karar 1 (karşılama paneli).** Operatör isteği: "Nereye bakman gerektiğini söyleyip ilgili sayfaya
+yönlendirebilirim" satırı (`navigate`) ve i18n anahtarları kaldırıldı. "Takımının son exception'larına
+bakabilirim" kartında "filo geneli" etiketi, son exception grubu çipleri ve "Tüm son exception'lar" kaldırıldı;
+onları besleyen sunucu okuması da (`/api/copilot/starters` exceptions grubu: exception_groups + env üyeliği +
+yayılım okumaları) kaldırıldı — uç artık CH'ye gitmez, yalnız kullanıcının takımını döner (`groups: []`
+geriye uyum için; önbellek anahtarı v6). Kartın yerine Takımım kartının sunucu-aramalı `TeamPicker`'ı
+("Takım ara…", kullanıcının takımıyla dolu). Takım seçmek sohbet turu GÖNDERMEZ, Exceptions sayfasına
+gider: `/problems?<owner|sre>=<takım>&s_exception-inbox-v2=lastSeen.desc` (`lib/exceptionsTeamHref.ts`).
+Eksen sunucunun `teamExceptionsAxis` kuralıyla aynı: takım en az bir serviste owner ise `owner`, yalnız SRE
+ise `sre`, katalogda yoksa `owner`; ad katalogdaki yazımla (sayfanın açılır listesi seçili görünür). Servis
+kataloğu yalnız seçim anında okunur (RQ önbelleği `keys.services.metadata`, yoksa tek istek), kart açılırken
+değil. Sayfanın takım süzgeci okuyucusu aynı dosyaya taşındı (`readExceptionsTeamFilter`) ve gidiş-dönüş
+testi yazıcıyı o okuyucuya bağlar; Go `TestExceptionsPageLinkParamsAreRead` pini yeni yeri izler.
+
+**Karar 2 (takım cevabının çipleri).** Operatör: "Alttaki chipler çok çıkıyor, gerek yok servis servis
+yazmasına." Takım servis cevabının (team_services / my_services) servis başına çipleri (6 "↳ <svc>" + özetin
+detay/exception/deploy adımları, en çok 10) kaldırıldı; `teamSummaryChips`, `teamSummaryRank`,
+`teamServiceAskChips` silindi. Yerlerinde iki genel SEÇİCİ çipi (`teamServicePickChips`): "Bir servisin
+sağlığını analiz et" (`{service} sağlığı nasıl?` → service_health) ve "Bir servisin exception'ları"
+(`{service} teknik hataları?` → service_exceptions) — eski çiplerin cümleleri, ikisi de LLM'siz yönlenir.
+Yeni `chatFollowup.pick` yükü {kind: service, template, services}: adaylar cevabın servisleri (hata oranı
+azalan, en çok 15). FE'de tık mesaj göndermez, satır içi `ServicePicker` açar (yeni `preferred` prop'u:
+adaylar listenin başında, arama tüm servislerde, yeni istek yok); seçim cümleyi kapsam (env) + seçilen
+servisle gönderir. Seçici çipi eski istemcinin `suggestions`'ına girmez. Cevap linkleri (Servisler · takım,
+Overview, Exceptions'ta aç) aynen; team_exceptions rotasının çipleri değişmedi.
+
+**Geri alma.** `git revert <sha>` + yeni etiket; şema/ayar yok. Starters önbellek anahtarı v6'dan v5'e
+dönünce eski kayıtlar 60 s içinde düşer.

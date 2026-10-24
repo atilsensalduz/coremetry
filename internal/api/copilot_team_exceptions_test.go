@@ -368,11 +368,19 @@ func TestTeamExceptionPresenceSignal(t *testing.T) {
 func TestExceptionsPageLinkParamsAreRead(t *testing.T) {
 	page := readRepoFile(t, "../../frontend/src/features/anomalies/AnomaliesPage.tsx")
 	for _, pin := range []string{
-		"searchParams.get('owner')", "searchParams.get('sre')", "parseOracleFacet(searchParams.get('oracle'))",
+		"readExceptionsTeamFilter(searchParams)", "parseOracleFacet(searchParams.get('oracle'))",
 		"sortUrlKey: '" + excPageSortParam + "'", "'lastSeen'", "useUrlEnv()",
 	} {
 		if !strings.Contains(page, pin) {
 			t.Errorf("AnomaliesPage.tsx %q okumuyor — link ölü param taşır", pin)
+		}
+	}
+	// v0.10.1515 — takım süzgeci okuyucusu lib/exceptionsTeamHref.ts'e taşındı
+	// (CoSRE karşılamasındaki takım seçicisinin linkiyle ortak).
+	teamRd := readRepoFile(t, "../../frontend/src/lib/exceptionsTeamHref.ts")
+	for _, pin := range []string{"sp.get('owner')", "sp.get('sre')", "'" + excPageSortParam + "'", "'" + excPageSortLastSeen + "'"} {
+		if !strings.Contains(teamRd, pin) {
+			t.Errorf("exceptionsTeamHref.ts %q içermiyor — link ölü param taşır", pin)
 		}
 	}
 	env := readRepoFile(t, "../../frontend/src/lib/useUrlEnv.ts")

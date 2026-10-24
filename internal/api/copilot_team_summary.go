@@ -17,6 +17,11 @@ package api
 // "<svc> deploy etkisi" → "<svc> son deploy etkisi?". Her cümle guided
 // router'da LLM'siz yönlenir (TestFollowupTemplatesRouteGuided).
 //
+// v0.10.1515 (operatör: "Alttaki chipler çok çıkıyor, gerek yok servis servis
+// yazmasına") — servis başına takip adımları (teamSummaryChips + sıralayıcı
+// teamSummaryRank) KALDIRILDI; takım cevabının çipleri artık iki genel seçici
+// çipi (copilot_team_overview.go teamServicePickChips). Özet bloğu aynen.
+//
 // Bütçe: üç okuma PARALEL, her biri kendi 3 s zaman aşımıyla; biri düşerse
 // yalnız o bölüm "OKUNAMADI" der (soft-fail) — okunmuş ama boş bölüm "yok"
 // der. İkisi ASLA karışmaz: okunamayan veri "sorun yok" diye anlatılırsa
@@ -48,7 +53,6 @@ const (
 	teamSumExGroupLimit  = 5
 	teamSumP1Rows        = 3
 	teamSumDeployRows    = 5
-	teamSumChipServices  = 2
 	teamSumChipLabelRune = 40
 )
 
@@ -243,88 +247,8 @@ func renderTeamSummaryTR(team string, nSvcs int, t teamSummary, rangeS int64, en
 		}
 	}
 	b.WriteString("KURAL: takım özetini kısaca ver (P1 varsa önce onu); OKUNAMADI yazan bölümü \"yok\" diye ANLATMA, " +
-		"okunamadığını söyle. Cevabın altındaki çipler servis detayına, exception'larına ve deploy etkisine iniyor.\n")
+		"okunamadığını söyle. Cevabın altındaki çipler bir servis seçtirip sağlığına ya da exception'larına iniyor.\n")
 	return b.String()
-}
-
-// teamSummaryRank — SAF: çip servis sırası. base sırası (takım RED'inde hata
-// oranı, my_services'te katalog) eşitlik bozucu; önce P1 sayısı, sonra açık
-// problem, sonra exception oluşumu. rerank=false → base AYNEN (takım
-// cevabının "en kötü servis" iddiası RED'den; çipler onunla aynı servisi
-// göstersin).
-func teamSummaryRank(base []string, t teamSummary, rerank bool) []string {
-	out := append([]string(nil), base...)
-	if !rerank {
-		return out
-	}
-	exc := map[string]uint64{}
-	for _, e := range t.Exceptions {
-		exc[e.Service] += e.Occurrences
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		a, b := out[i], out[j]
-		if t.P1BySvc[a] != t.P1BySvc[b] {
-			return t.P1BySvc[a] > t.P1BySvc[b]
-		}
-		if t.OpenBySvc[a] != t.OpenBySvc[b] {
-			return t.OpenBySvc[a] > t.OpenBySvc[b]
-		}
-		return exc[a] > exc[b]
-	})
-	return out
-}
-
-// teamSummaryChips — SAF: ilk teamSumChipServices servis için "<svc> detayı"
-// + "<svc> exception'ları"; deploy bulunduysa (önce bu servislerden, yoksa
-// takımın en yeni deploy'u) "<svc> deploy etkisi" ilk servisin ardına. En çok
-// max. Her Text guided router'da pinli niyete yönlenir; kapsam servis + env.
-func teamSummaryChips(ranked []string, t teamSummary, env string, max int) []chatFollowup {
-	var top []string
-	for _, s := range ranked {
-		if len(top) >= teamSumChipServices {
-			break
-		}
-		if fuServiceRe.MatchString(s) {
-			top = append(top, s)
-		}
-	}
-	if len(top) == 0 {
-		return nil
-	}
-	scope := func(svc string) *chatScope { return &chatScope{Services: []string{svc}, Env: env} }
-	lbl := func(svc, suffix string) string { return starterTrunc(svc, teamSumChipLabelRune) + suffix }
-	var deploySvc string
-	if t.DeploysOK {
-		for _, d := range t.Deploys { // en yeni önce; önce üst servislerden biri
-			for _, s := range top {
-				if d.Service == s && deploySvc == "" {
-					deploySvc = s
-				}
-			}
-		}
-		if deploySvc == "" {
-			for _, d := range t.Deploys {
-				if fuServiceRe.MatchString(d.Service) {
-					deploySvc = d.Service
-					break
-				}
-			}
-		}
-	}
-	var out []chatFollowup
-	for i, s := range top {
-		out = append(out,
-			chatFollowup{Text: serviceReportChip(s), Label: lbl(s, " detayı"), Kind: fuKindReport, Scope: scope(s)},
-			chatFollowup{Text: s + " teknik hataları?", Label: lbl(s, " exception'ları"), Kind: fuKindExceptions, Scope: scope(s)},
-		)
-		if i == 0 && deploySvc != "" {
-			out = append(out, chatFollowup{Text: deploySvc + " son deploy etkisi?", Label: lbl(deploySvc, " deploy etkisi"), Kind: fuKindDeploy, Scope: scope(deploySvc)})
-		}
-	}
-	if len(out) > max {
-		out = out[:max]
-	}
-	return out
 }
 
 // readTeamSummary — üç sınırlı okuma paralel; her biri kendi zaman aşımıyla
@@ -393,10 +317,9 @@ func (s *Server) readTeamSummary(ctx context.Context, team string, svcs []string
 }
 
 // teamSummaryBlock — guided takım bundle'larının ortak kancası: okur, ⚙
-// adımını emit eder, kanıt bloğunu döndürür ve rotaya servis çiplerini
-// yazar. rerank: çip sırası özetten mi (my_services) yoksa base'den mi
-// (takım RED sırası).
-func (s *Server) teamSummaryBlock(ctx context.Context, emit func(string, any), route *guidedRoute, team string, svcs, base []string, from, to time.Time, rangeS int64, rerank bool) string {
+// adımını emit eder, kanıt bloğunu döndürür. v0.10.1515 — servis çipi
+// yazmaz (takım cevabının çipleri teamOverviewBlock'ta).
+func (s *Server) teamSummaryBlock(ctx context.Context, emit func(string, any), route *guidedRoute, team string, svcs []string, from, to time.Time, rangeS int64) string {
 	if len(svcs) == 0 {
 		return ""
 	}
@@ -404,6 +327,5 @@ func (s *Server) teamSummaryBlock(ctx context.Context, emit func(string, any), r
 	t := s.readTeamSummary(ctx, team, svcs, route.Env, from, to)
 	blk := renderTeamSummaryTR(team, len(svcs), t, rangeS, route.Env, time.Now())
 	emitGuidedStepResult(emit, n, "team_summary", blk, nil)
-	route.TeamFollowups = teamSummaryChips(teamSummaryRank(base, t, rerank), t, route.Env, guidedFollowupMax)
 	return blk
 }

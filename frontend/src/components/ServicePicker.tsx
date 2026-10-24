@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import { api } from '@/lib/api';
 import { Combobox } from '@/components/Combobox';
+import { mergePreferred } from '@/lib/pickerPreferred'; // v0.10.1515
 import { usePickerSearch } from '@/components/usePickerSearch';
 import { getPickerRecents } from '@/lib/pickerRecents';
 
@@ -51,7 +52,7 @@ export function shouldAutoCommit(prev: string, next: string, isKnownOption: bool
  * users understand they're seeing a subset and need to type to narrow.
  */
 export function ServicePicker({
-  value, onChange, placeholder, width, onEnter, shortcutSearch, optionMeta, dataTour,
+  value, onChange, placeholder, width, onEnter, shortcutSearch, optionMeta, dataTour, preferred,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -80,11 +81,19 @@ export function ServicePicker({
   optionMeta?: (name: string) => string | undefined;
   // v0.10.1336 — rehberli tur çapası; Combobox sarmalayıcısına geçer.
   dataTour?: string;
+  // v0.10.1515 — listenin BAŞINA konan adaylar (çağıranın zaten elindeki,
+  // küçük liste: CoSRE takım cevabının servisleri). Sorguya uyanlar önce,
+  // ardından sunucu araması; YENİ İSTEK YOK (mergePreferred).
+  preferred?: readonly string[];
 }) {
   // v0.10.1089 — debounce + sunucu araması ortak kancada (davranış aynı:
   // 180 ms, /api/service-names, 200 satır); kanca durum ve sıra bekçisi ekler.
   const search = usePickerSearch(value, '', q =>
-    api.serviceNames(q, 200).then(r => ({ items: r.names, total: r.total })));
+    api.serviceNames(q, 200).then(r => {
+      if (!preferred?.length) return { items: r.names, total: r.total };
+      const items = mergePreferred(preferred, q, r.names);
+      return { items, total: r.total + (items.length - r.names.length) };
+    }));
   const opts = search.items;
   const total = search.total;
   // Remembers what the user typed character-by-character. When

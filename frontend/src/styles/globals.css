@@ -3295,7 +3295,6 @@ button.cosre-cap__row > .row { align-items: flex-start; min-width: 0; }
   padding: 0 var(--sp-4) var(--sp-2) 27px; min-width: 0;
 }
 .cosre-cap__choices .btn-chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cosre-cap__fleet { color: var(--text3); font-size: var(--fs-xs); }
 .cosre-cap__picker { padding: 0 var(--sp-4) var(--sp-2) 27px; min-width: 0; }
 .cb-row-empty {
   color: var(--text3);
@@ -5575,6 +5574,7 @@ tbody td.tpm-more-cell { color: var(--text2); }
 
 /* Takip çipleri + composer */
 .cm-followups { display: flex; gap: var(--sp-3); flex-wrap: wrap; padding: 0 var(--sp-7) var(--sp-4); width: 100%; box-sizing: border-box; }
+.cm-followups__pick { flex-basis: 100%; max-width: 360px; min-width: 0; } /* v0.10.1515 — seçici çipinin satır içi servis seçicisi */
 .cm-composer { padding: var(--sp-4) var(--sp-7) var(--sp-7); }
 .cm-composer__box {
   display: flex; align-items: flex-end; gap: var(--sp-4); padding: var(--sp-3) var(--sp-3) var(--sp-3) var(--sp-5);

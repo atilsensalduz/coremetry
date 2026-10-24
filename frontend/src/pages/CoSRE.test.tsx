@@ -133,7 +133,7 @@ describe('/cosre bağımsız sohbet sayfası', () => {
     await tick();
     const caps = Array.from(document.querySelectorAll<HTMLButtonElement>('.cosre-page__body button[data-cap]'));
     // v0.10.1402 — Takımım kartı en başta (tam sayfada da aynı bileşen).
-    expect(caps.map(b => b.dataset.cap)).toEqual(['team', 'wiki', 'service', 'operation', 'navigate']);
+    expect(caps.map(b => b.dataset.cap)).toEqual(['team', 'wiki', 'service', 'operation', 'exceptions']);
     expect(document.querySelector('.cosre-page__body [data-chip="wiki"]')).not.toBeNull();
     // Prod hatası (v0.10.1130): UI dili burada EN (kullanıcı seçimi yok, marka
     // isteği ağa çıkmaz → İngilizce varsayılan) ama ipuçları karşılamayla aynı
@@ -147,31 +147,27 @@ describe('/cosre bağımsız sohbet sayfası', () => {
     expect(caps[0].title).toBe('Kutuya örnek bir soru yazar — düzenleyip gönder');
   });
 
-  // v0.10.1404 (operatör: "P1 yerine en son exception'lara yönlendirsin.") — tam
-  // sayfada da P1 kartı yok; "Son exception gruplarına bakabilirim" + grup
-  // çipleri + "Tüm son exception'lar". Grup çipi sohbet içi açıklama turu.
-  it('v0.10.1404 — en son exception grupları kartı (P1 kartı yok); çip açıklama turu gönderir', async () => {
+  // v0.10.1404 — P1 kartı yerine exceptions kartı. v0.10.1515 (operatör
+  // 2026-10-24) — navigate satırı yok; exceptions kartında filo çipleri yok
+  // (eski şekilli yanıtta bile), yerinde takım seçici.
+  it('v0.10.1515 — exceptions kartı takım seçicili, çipsiz; navigate satırı yok', async () => {
     vi.spyOn(api, 'me').mockResolvedValue({ id: 'u1', email: 'op@example.test', role: 'viewer' } as never);
     vi.spyOn(api, 'copilotStarters').mockResolvedValue({ team: 'orders-team', groups: [{ kind: 'exceptions', items: [
-      { chip: 'ORDERS_GET_X · orders-api', title: 'ORA-00060 · ORDERS_GET_X · orders-api', question: 'ORDERS_GET_X · orders-api grubunu açıkla',
-        kind: 'exception', explainAsk: { kind: 'exception', id: 'ora:00000000000000a1', src: 'starter' } },
+      { chip: 'ORDERS_GET_X · orders-api', question: 'q', kind: 'exception', explainAsk: { kind: 'exception', id: 'ora:00000000000000a1', src: 'starter' } },
     ] }] } as never);
-    const send = vi.spyOn(api, 'copilotChat').mockResolvedValue(undefined as never);
     await renderAt('/cosre');
     await tick();
     const caps = Array.from(document.querySelectorAll<HTMLButtonElement>('.cosre-page__body button[data-cap]'));
-    expect(caps.map(b => b.dataset.cap)).toEqual(['team', 'service', 'operation', 'exceptions', 'navigate']);
+    expect(caps.map(b => b.dataset.cap)).toEqual(['team', 'service', 'operation', 'exceptions']);
     const body = document.querySelector('.cosre-page__body')!.textContent ?? '';
     expect(body).toContain('Takımının son exception\'larına bakabilirim');
     expect(body).not.toContain('P1 problemlerinin');
-    const chips = Array.from(document.querySelectorAll<HTMLButtonElement>('.cosre-page__body [data-cap-choices="exceptions"] button'));
-    expect(chips.map(b => b.textContent)).toEqual(['ORDERS_GET_X · orders-api', 'Tüm son exception\'lar']);
-    await act(async () => { chips[0].click(); });
-    await tick();
-    expect(send).toHaveBeenCalledTimes(1);
-    const args = send.mock.calls[0] as unknown[];
-    expect(args[20]).toEqual({ kind: 'exception', id: 'ora:00000000000000a1', src: 'starter' });
-    expect(here.startsWith('/cosre')).toBe(true); // gezinme yok
+    expect(body).not.toContain('ORDERS_GET_X');
+    expect(body).not.toContain('Nereye bakman gerektiğini');
+    expect(document.querySelector('.cosre-page__body [data-cap-choices="exceptions"]')).toBeNull();
+    const picker = document.querySelector<HTMLInputElement>('.cosre-page__body [data-cap-search="exceptions"] input');
+    expect(picker?.placeholder).toBe('Takım ara…');
+    expect(picker?.value).toBe('orders-team');
   });
 
   it('custom-rol kısıtlı kullanıcı /cosre\'de kalır (ilk izinli sayfaya ışınlanmaz)', async () => {

@@ -3476,7 +3476,8 @@ func (s *Server) guidedTeamServicesBundle(ctx context.Context, emit func(string,
 	// takip adımları; çip sırası RED sırası (en kötü servis aynı kalır).
 	// v0.10.1397 — my_services da bu gövdeden geçiyor; onun özet çipleri
 	// eskisi gibi P1 → açık problem sırasıyla (rerank), team_services RED sırası.
-	b.WriteString(s.teamSummaryBlock(ctx, emit, route, team, svcs, names, from, to, rangeS, route.Intent == guidedMyServices))
+	// v0.10.1515 — özet servis çipi yazmaz (iki genel seçici çipi teamOverviewBlock'ta).
+	b.WriteString(s.teamSummaryBlock(ctx, emit, route, team, svcs, from, to, rangeS))
 	// v0.10.1397 — deterministik servis listesi + son exception grupları +
 	// "Özellikle kontrol etmek istediğin bir servis var mı?" (route.AnswerTail)
 	// ve servis başına çipler; özet çiplerinden SONRA (onları öne ekler).

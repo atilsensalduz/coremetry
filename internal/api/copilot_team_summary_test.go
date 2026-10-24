@@ -162,40 +162,6 @@ func TestRenderTeamSummaryOkunamadiVsYok(t *testing.T) {
 	}
 }
 
-func TestTeamSummaryChipsAndRank(t *testing.T) {
-	var sum teamSummary
-	teamSummaryFromProblems(&sum, []chstore.Problem{{Service: "orders-api", Priority: "P1"}}, false)
-	teamSummaryFromDeploys(&sum, []chstore.RecentDeployEntry{{Service: "orders-api", Version: "1.0.1"}}, []string{"checkout-service", "orders-api", "billing"}, false)
-	teamSummaryFromExceptions(&sum, nil)
-	base := []string{"billing", "checkout-service", "orders-api"}
-	// rerank=false → base aynen (takım RED sırası).
-	if got := teamSummaryRank(base, sum, false); strings.Join(got, ",") != "billing,checkout-service,orders-api" {
-		t.Fatalf("rerank=false sırayı bozdu: %v", got)
-	}
-	// rerank=true → P1'li servis öne; eşitlikte base sırası.
-	ranked := teamSummaryRank(base, sum, true)
-	if strings.Join(ranked, ",") != "orders-api,billing,checkout-service" {
-		t.Fatalf("rerank: %v", ranked)
-	}
-	chips := teamSummaryChips(ranked, sum, "prod", guidedFollowupMax)
-	wantLabels := "orders-api detayı|orders-api exception'ları|orders-api deploy etkisi|billing detayı"
-	if strings.Join(fuLabels(chips), "|") != wantLabels {
-		t.Fatalf("çipler %v", fuLabels(chips))
-	}
-	if chips[0].Text != "orders-api servisini analiz et" || chips[2].Text != "orders-api son deploy etkisi?" || chips[0].Scope.Env != "prod" {
-		t.Fatalf("çip metinleri %v", fuTexts(chips))
-	}
-	// Deploy yoksa / okunamadıysa deploy çipi yok, iki servis × iki çip.
-	noDep := teamSummary{}
-	c2 := teamSummaryChips([]string{"checkout-service", "orders-api", "billing"}, noDep, "", guidedFollowupMax)
-	if strings.Join(fuTexts(c2), "|") != "checkout-service servisini analiz et|checkout-service teknik hataları?|orders-api servisini analiz et|orders-api teknik hataları?" {
-		t.Fatalf("deploysuz çipler %v", fuTexts(c2))
-	}
-	if teamSummaryChips(nil, sum, "", 4) != nil {
-		t.Fatal("servissiz çip")
-	}
-}
-
 func TestTeamSummaryKeyHashesAllInputs(t *testing.T) {
 	to := time.Date(2026, 10, 19, 12, 0, 30, 0, time.UTC)
 	from := to.Add(-time.Hour)

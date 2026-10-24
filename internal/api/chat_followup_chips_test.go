@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/cilcenk/coremetry/internal/auth"
-	"github.com/cilcenk/coremetry/internal/chstore"
 	"github.com/cilcenk/coremetry/internal/mcptools"
 	"github.com/cilcenk/coremetry/internal/sre"
 )
@@ -312,9 +311,25 @@ func TestFollowupTemplatesRouteGuided(t *testing.T) {
 			t.Errorf("kaynak takibi %+v → %s/%q", c, r.Intent, r.Service)
 		}
 	}
-	team := teamSummary{DeploysOK: true, Deploys: []chstore.RecentDeployEntry{{Service: "payments", Version: "1.2.0"}}}
-	for _, c := range teamSummaryChips([]string{"checkout-service", "payments"}, team, "", guidedFollowupMax) {
-		checkStep(c, c.Scope.Services[0])
+	// v0.10.1515 — takım cevabının genel seçici çipleri: seçimle doldurulan
+	// cümle pinli niyete, seçilen servise ve kapsam yolunda da router'a düşer.
+	pickPinned := map[string]guidedIntent{fuKindTeamPickHealth: guidedServiceHealth, fuKindTeamPickExceptions: guidedServiceExceptions}
+	for _, c := range teamServicePickChips([]string{"checkout-service", "payments"}, "prod") {
+		want, ok := pickPinned[c.Kind]
+		if !ok || c.Pick == nil {
+			t.Fatalf("seçici çipi türü %q pinsiz / yüksüz: %+v", c.Kind, c)
+		}
+		for _, svc := range c.Pick.Services {
+			q := fillPickTemplate(c.Pick.Template, svc)
+			if r := routeGuidedIntent(q, fuServices, fuEnvs, nil, ""); r.Intent != want || r.Service != svc {
+				t.Errorf("%q → %s/%q, want %s/%q", q, r.Intent, r.Service, want, svc)
+			}
+			sc := chatScope{Env: c.Scope.Env, Services: []string{svc}}
+			_, rest := cleanScopedQuestion(q)
+			if pl := planChatScope("", sc, q, rest, fuServices, fuEnvs); pl.Kind != "" {
+				t.Errorf("%s: kapsam planı router'ı atladı: %+v", c.Kind, pl)
+			}
+		}
 	}
 
 	// Aksiyon çipi: metin router'a GİTMEZ (yönlenmiyor — bu yüzden aksiyon);

@@ -13,7 +13,6 @@ import {
 } from './explainTurn';
 import { AI_KINDS, formatAiParam } from '@/lib/aiSubject'; // v0.10.1435 — formatAiParam
 import { endpointAskQuestion } from './drawerChat';
-import { starterAsk } from './capabilityHints';
 import { hasCompletedExchange, persistMessages, restoreTurns } from './chatPersist';
 import { followupSendOpts } from './followupSend';
 import { contextStarter } from '@/lib/chatContext';
@@ -98,10 +97,6 @@ describe('explainAskFor — tür başına (v0.10.1405)', () => {
     expect(explainAskSubject({ kind: 'problem', id: 'p-1' })).toEqual({ kind: 'problem', id: 'p-1' });
     expect(explainAskSubject({ kind: 'span', id: TRACE })).toBeNull();
     expect(explainAskSubject({ kind: 'service-health', id: 'x', subject: 'charts:x:1:2:all' })).toBeNull(); // tür uyuşmaz
-  });
-  it('başlangıç öğesi (exception) yolu değişmedi', () => {
-    expect(starterAsk({ chip: 'ORD-200 · orders-api', question: 'q', kind: 'exception', explainAsk: { kind: 'exception', id: 'ora:00000000000000b2', src: 'starter' } } as never))
-      .toEqual({ text: 'ORD-200 · orders-api grubunu açıkla · ora:00000000…', so: { explainAsk: { kind: 'exception', id: 'ora:00000000000000b2', src: 'starter' } } });
   });
 });
 

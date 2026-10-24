@@ -17,9 +17,6 @@
 // COSRE_LANG yerine useT'ye geçilir; o güne kadar burada KULLANILMAZ.
 
 import { t, type Lang } from '@/lib/i18n';
-import type { CopilotStarter, CopilotStarterGroup, CopilotStarterGroupKind } from '@/lib/types';
-import type { ChatSendOpts } from './useChatThread';
-import { explainAskFor, explainAskSubject, explainTurnSendOpts } from './explainTurn';
 
 /** CoSRE sohbet yüzeyinin dili — karşılama metinleriyle aynı (sabit Türkçe). */
 export const COSRE_LANG: Lang = 'tr';
@@ -38,7 +35,11 @@ export function tCosre(key: string): string {
 // `p1` satırı yerine `exceptions`: en son açık exception grupları; grup çipi
 // sohbet içi açıklama turu başlatır (starterAsk), sonuna "Tüm son
 // exception'lar" (allExceptionsQuestion).
-export type CapabilityKind = 'team' | 'wiki' | 'service' | 'operation' | 'exceptions' | 'navigate';
+// v0.10.1515 (operatör 2026-10-24) — `navigate` satırı ("Nereye bakman
+// gerektiğini söyleyip ilgili sayfaya yönlendirebilirim") KALKTI; exceptions
+// satırı artık sunucu grubuna bağlı değil (çipler ve "filo geneli" kalktı,
+// yerinde takım seçici → Exceptions sayfası): her zaman, en sonda.
+export type CapabilityKind = 'team' | 'wiki' | 'service' | 'operation' | 'exceptions';
 
 export interface CapabilityItem {
   kind: CapabilityKind;
@@ -53,26 +54,6 @@ const WIKI: CapabilityItem = { kind: 'wiki', labelKey: 'cosre.cap.wiki', promptK
 const SERVICE: CapabilityItem = { kind: 'service', labelKey: 'cosre.cap.service', promptKey: 'cosre.cap.service.prompt' };
 const OPERATION: CapabilityItem = { kind: 'operation', labelKey: 'cosre.cap.operation', promptKey: 'cosre.cap.operation.prompt' };
 const EXCEPTIONS: CapabilityItem = { kind: 'exceptions', labelKey: 'cosre.cap.exceptions', promptKey: 'cosre.cap.exceptions.prompt' };
-const NAVIGATE: CapabilityItem = { kind: 'navigate', labelKey: 'cosre.cap.navigate', promptKey: 'cosre.cap.navigate.prompt' };
-
-/**
- * v0.10.1382 — yetenek satırı → sunucu grubu (wiki/navigate grupsuz).
- * v0.10.1390 — servis/operasyon satırlarının grubu yok: altlarında yalnız
- * arama kutusu (CosreCapabilities SEARCH_ROWS).
- * v0.10.1402 — deploys grubu kalktı; yalnız p1.
- * v0.10.1404 — p1 yerine exceptions.
- */
-const GROUP_OF: Partial<Record<CapabilityKind, CopilotStarterGroupKind>> = {
-  exceptions: 'exceptions',
-};
-
-/** SAF — v0.10.1382: satırın sunucu grubu (öğesi yoksa undefined). */
-export function groupForCapability(kind: CapabilityKind, groups: readonly CopilotStarterGroup[]): CopilotStarterGroup | undefined {
-  const g = GROUP_OF[kind];
-  if (!g) return undefined;
-  const hit = groups.find(x => x.kind === g);
-  return hit && hit.items.length > 0 ? hit : undefined;
-}
 
 /**
  * SAF — görünen satırlar; wiki satırı yalnız `wiki` true iken.
@@ -81,13 +62,13 @@ export function groupForCapability(kind: CapabilityKind, groups: readonly Copilo
  * v0.10.1402 — Takımım kartı her zaman EN BAŞTA (wiki'den de önce); deploy
  * satırı kalktı.
  * v0.10.1404 — p1 satırının yerinde (aynı koşulla) exceptions satırı.
+ * v0.10.1515 — navigate satırı kalktı; exceptions satırı koşulsuz (takım
+ * seçicisi veriye bağlı değil).
  */
-export function capabilityItems(wiki: boolean, groups: readonly CopilotStarterGroup[] = []): CapabilityItem[] {
+export function capabilityItems(wiki: boolean): CapabilityItem[] {
   const out: CapabilityItem[] = [TEAM];
   if (wiki) out.push(WIKI);
-  out.push(SERVICE, OPERATION);
-  if (groupForCapability('exceptions', groups)) out.push(EXCEPTIONS);
-  out.push(NAVIGATE);
+  out.push(SERVICE, OPERATION, EXCEPTIONS);
   return out;
 }
 
@@ -172,34 +153,6 @@ export function serviceHealthQuestion(name: string): string {
  */
 export function operationErrorQuestion(op: string): string {
   return `${op} operasyonu neden hata veriyor?`;
-}
-
-/**
- * SAF — v0.10.1404: başlangıç öğesi → gönderilecek metin + send seçenekleri.
- * Exception grubu öğesi (explainAsk) SOHBET İÇİ açıklama turu başlatır —
- * v0.10.1400 yapısal yolu (explainAskFor + send(text, {explainAsk})); gezinme
- * ve çekmece özne kipi YOK. Görünen metin "<kısa etiket> grubunu açıkla · <id>".
- * Niyetsiz öğe düz cümlesini gönderir.
- */
-export function starterAsk(st: CopilotStarter): { text: string; so?: ChatSendOpts } {
-  if (st.explainAsk) {
-    // v0.10.1405 — öznesi niyetten (kodek ya da {kind, id}); gönderim seçenekleri tek yerden.
-    const x = explainAskFor(explainAskSubject(st.explainAsk), st.explainAsk.src || 'starter', st.chip);
-    if (x) return { text: x.userText, so: explainTurnSendOpts(x) };
-  }
-  return { text: st.question };
-}
-
-/**
- * SAF — v0.10.1404: exceptions satırının "Tüm son exception'lar" çipi → takım
- * exception cevabı (en son görülen önce, Exceptions'ta takım süzgeçli link).
- * v0.10.1409 — her zaman iyelik ("Takımımın exception'ları?" → my_exceptions):
- * takım adıyla soru, takım yönlendiricinin takım kataloğunda yoksa problems'e
- * düşüyordu. Kartın takımı zaten sunucunun kullanıcı için çözdüğü takım; iyelik
- * aynı takımı kimlikten çözer ve her zaman LLM'siz yönlenir.
- */
-export function allExceptionsQuestion(): string {
-  return teamCardQuestion('exceptions', '');
 }
 
 /** SAF — `|` imleç işaretini söker; işaret yoksa imleç metnin sonunda. */

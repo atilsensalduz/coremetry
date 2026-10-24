@@ -7630,6 +7630,12 @@ export interface ChatFollowup {
   label?: string;
   /** v0.10.1400 — AÇIKLAMA çipi: tık `text`i + bu niyeti (context.explainAsk) gönderir; açıklama sohbet içinde. */
   explainAsk?: ChatExplainAsk;
+  /**
+   * v0.10.1515 — SEÇİCİ çipi: tık mesaj göndermez, satır içi servis seçicisi
+   * açar (`services` önce, arama tüm servislerde); seçim `template`deki
+   * "{service}"i doldurup o cümleyi gönderir (components/ai/followupPick.ts).
+   */
+  pick?: { kind: 'service' | string; template: string; services?: string[] };
 }
 
 // One streamed event from the chat SSE. `step` = a tool the model
@@ -10262,7 +10268,6 @@ export interface CopilotStartersResponse {
   groups: CopilotStarterGroup[];
   team?: string;
   env?: string;
-  envScope?: 'exceptions';
 }
 
 // ── Problem affected entities (v0.10.707, mirrors Go api.affectedEntity) ──

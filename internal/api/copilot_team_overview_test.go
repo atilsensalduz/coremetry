@@ -17,6 +17,7 @@ package api
 // yönlenir; my_services aynı gövdeden geçer ve ek cevap metnine girer.
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -198,44 +199,72 @@ func TestRenderTeamOverviewLatestExceptions(t *testing.T) {
 	}
 }
 
-// B — "hangi servis?" çipleri: etiket servis adı, metin "<svc> sağlığı nasıl?",
-// router'da LLM'siz service_health; uygunsuz adlar atlanır, tavan 6.
-func TestTeamServiceAskChipsRouteServiceHealth(t *testing.T) {
-	names := []string{"checkout-service", "oracle:eu-src", "bad name", "payment-service", "checkout-service",
-		"mobile-bff", "ledger-service", "auth-service", "mobile-bff-uat", "orders-api"}
-	chips := teamServiceAskChips(names, "prod", teamOverviewChipMax)
-	want := []string{"checkout-service", "payment-service", "mobile-bff", "ledger-service", "auth-service", "mobile-bff-uat"}
-	if len(chips) != len(want) {
-		t.Fatalf("çipler %v; want %v", fuLabels(chips), want)
+// v0.10.1515 (operatör: "Alttaki chipler çok çıkıyor, gerek yok servis servis
+// yazmasına") — 40 servisli takımda bile İKİ genel seçici çipi; servis başına
+// çip yok. Adaylar uygun adlar, sıra korunur, tavan tablonun satır tavanı;
+// seçimle doldurulan cümle eski çiplerinkiyle aynı ve LLM'siz yönlenir.
+func TestTeamServicePickChips(t *testing.T) {
+	names := []string{"checkout-service", "oracle:eu-src", "bad name", "payment-service", "checkout-service"}
+	for i := 0; i < 40; i++ {
+		names = append(names, fmt.Sprintf("svc-%02d", i))
 	}
+	chips := teamServicePickChips(names, "prod")
+	if len(chips) != 2 {
+		t.Fatalf("çip sayısı %d (%v); want 2", len(chips), fuLabels(chips))
+	}
+	wantKinds := []string{fuKindTeamPickHealth, fuKindTeamPickExceptions}
+	wantLabels := []string{"Bir servisin sağlığını analiz et", "Bir servisin exception'ları"}
+	wantTpl := []string{"{service} sağlığı nasıl?", "{service} teknik hataları?"}
 	for i, c := range chips {
-		if c.Label != want[i] || c.Text != want[i]+" sağlığı nasıl?" || c.Kind != fuKindTeamService {
-			t.Errorf("çip %d: %+v", i, c)
+		if c.Kind != wantKinds[i] || c.Label != wantLabels[i] || c.Pick == nil || c.Pick.Kind != "service" || c.Pick.Template != wantTpl[i] {
+			t.Fatalf("çip %d: %+v", i, c)
 		}
-		if c.Scope == nil || c.Scope.Env != "prod" || len(c.Scope.Services) != 1 || c.Scope.Services[0] != want[i] {
-			t.Errorf("kapsam servis+env olmalı: %+v", c.Scope)
+		if strings.Contains(c.Label, "checkout-service") || strings.Contains(c.Text, "checkout-service") {
+			t.Errorf("genel çip servis adı taşımamalı: %+v", c)
 		}
-		r := routeGuidedIntent(c.Text, guidedTestServices, guidedTestEnvs, teamTestTeams, "")
-		if r.Intent != guidedServiceHealth || r.Service != want[i] {
-			t.Errorf("çip %q LLM'siz service_health'e yönlenmiyor: %s/%s", c.Text, r.Intent, r.Service)
+		if c.Scope == nil || c.Scope.Env != "prod" || len(c.Scope.Services) != 0 {
+			t.Errorf("kapsam yalnız env: %+v", c.Scope)
+		}
+		got := c.Pick.Services
+		if len(got) != teamPickCandidateMax || got[0] != "checkout-service" || got[1] != "payment-service" || got[2] != "svc-00" {
+			t.Errorf("adaylar %v", got)
 		}
 	}
-	// Servis çipleri + özet adımları birlikte taşınır (tavan 6+4); exception
-	// rotalarının tavanı değişmedi.
-	summary := []chatFollowup{
-		{Text: serviceReportChip("checkout-service"), Label: "checkout-service detayı", Kind: fuKindReport},
-		{Text: "checkout-service teknik hataları?", Label: "checkout-service exception'ları", Kind: fuKindExceptions},
-		{Text: serviceReportChip("payment-service"), Label: "payment-service detayı", Kind: fuKindReport},
-		{Text: "payment-service teknik hataları?", Label: "payment-service exception'ları", Kind: fuKindExceptions},
+	// Seçimle gönderilen cümleler eski çiplerinki ve LLM'siz yönlenir.
+	if q := fillPickTemplate(chips[0].Pick.Template, "checkout-service"); q != "checkout-service sağlığı nasıl?" {
+		t.Fatalf("sağlık cümlesi %q", q)
 	}
-	all := append(append([]chatFollowup(nil), chips...), summary...)
+	if q := fillPickTemplate(chips[1].Pick.Template, " payment-service "); q != "payment-service teknik hataları?" {
+		t.Fatalf("exception cümlesi %q", q)
+	}
+	for i, want := range []guidedIntent{guidedServiceHealth, guidedServiceExceptions} {
+		q := fillPickTemplate(chips[i].Pick.Template, "checkout-service")
+		if r := routeGuidedIntent(q, guidedTestServices, guidedTestEnvs, teamTestTeams, ""); r.Intent != want || r.Service != "checkout-service" {
+			t.Errorf("%q → %s/%s; want %s", q, r.Intent, r.Service, want)
+		}
+	}
+	// Env yoksa kapsam yok; uygun ad yoksa çip yok.
+	if c := teamServicePickChips([]string{"orders-api"}, ""); len(c) != 2 || c[0].Scope != nil {
+		t.Errorf("env'siz: %+v", c)
+	}
+	if c := teamServicePickChips([]string{"oracle:x", "bad name"}, "prod"); c != nil {
+		t.Errorf("uygunsuz adlarla çip: %+v", c)
+	}
+	// Takım rotalarında tavan 2; exception rotalarının tavanı değişmedi.
+	many := append(append([]chatFollowup(nil), chips...), chatFollowup{Text: "x teknik hataları?", Kind: fuKindExceptions},
+		chatFollowup{Text: "y teknik hataları?", Kind: fuKindExceptions}, chatFollowup{Text: "z teknik hataları?", Kind: fuKindExceptions})
 	for _, in := range []guidedIntent{guidedTeamServices, guidedMyServices} {
-		if got := guidedFollowups(guidedRoute{Intent: in, Team: "platform", TeamFollowups: all}, nil); len(got) != teamOverviewFollowupMax {
-			t.Errorf("%s: %d çip; want %d (%v)", in, len(got), teamOverviewFollowupMax, fuLabels(got))
+		if got := guidedFollowups(guidedRoute{Intent: in, Team: "platform", TeamFollowups: many}, nil); len(got) != 2 || got[0].Pick == nil {
+			t.Errorf("%s: %v", in, fuLabels(got))
 		}
 	}
-	if got := guidedFollowups(guidedRoute{Intent: guidedTeamExceptions, Team: "platform", TeamFollowups: all}, nil); len(got) != guidedFollowupMax {
+	if got := guidedFollowups(guidedRoute{Intent: guidedTeamExceptions, Team: "platform", TeamFollowups: many}, nil); len(got) != guidedFollowupMax {
 		t.Errorf("team_exceptions tavanı değişmemeli: %d", len(got))
+	}
+	// Eski istemci: seçici çipi suggestions'a girmez (etiketi soru değil).
+	ev := withAnswerFollowups(map[string]any{}, chips)
+	if _, ok := ev["suggestions"]; ok {
+		t.Errorf("seçici çipi suggestions'a girdi: %v", ev["suggestions"])
 	}
 }
 

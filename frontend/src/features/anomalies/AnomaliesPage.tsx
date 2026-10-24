@@ -19,6 +19,7 @@ import { api, type UserRow } from '@/lib/api';
 import { useUrlEnv } from '@/lib/useUrlEnv';
 import { fmtNum, tsCompact, tsLong } from '@/lib/utils';
 import { teamOptionsCI } from '@/lib/teamOptions';
+import { readExceptionsTeamFilter } from '@/lib/exceptionsTeamHref'; // v0.10.1515
 import { useDataTable, DataTableColgroup, DataTableHead, DataTableState, type ColumnDef, type DataTableStateProps } from '@/components/ui/DataTable';
 import type {
   ExceptionGroup, ExceptionGroupState, ExceptionSample,
@@ -179,8 +180,9 @@ export default function ProblemsPage() {
     next.delete('page');
     return next;
   }, { replace: true });
-  const ownerTeam = searchParams.get('owner') || '';
-  const sreTeam   = searchParams.get('sre')   || '';
+  // v0.10.1515 — okuyucu lib/exceptionsTeamHref'te (CoSRE takım seçicisinin
+  // linkiyle gidiş-dönüş testi orada).
+  const { owner: ownerTeam, sre: sreTeam } = readExceptionsTeamFilter(searchParams);
   // v0.10.1092 — "Oracle" çipi (?oracle=only|exclude); yok = Oracle grupları DAHİL.
   const oracleFacet = parseOracleFacet(searchParams.get('oracle'));
   // v0.10.1108 — kullanıcıya görünen ad (rozet / soluk satır / çip): branding

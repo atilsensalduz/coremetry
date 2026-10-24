@@ -42,6 +42,18 @@ package api
 //     servis adı, metin "<svc> sağlığı nasıl?", router'da LLM'siz
 //     service_health), ardından v0.10.1383 özet çipleri (detay/exception/deploy).
 //
+// v0.10.1515 (operatör 2026-10-24: "Alttaki chipler çok çıkıyor, gerek yok
+// servis servis yazmasına. Sadece 'sağlığı analiz et' ve 'exception'ları' —
+// bir servisin diyerek genel başlıklarda servis seçmesi sağlanabilir.") —
+// servis başına çipler (6 "↳ <svc>" + özetin detay/exception/deploy adımları,
+// en çok 10) KALDIRILDI. Yerlerinde İKİ genel SEÇİCİ çipi (teamServicePickChips):
+// "Bir servisin sağlığını analiz et" ve "Bir servisin exception'ları". Tık
+// satır içi sunucu-aramalı servis seçicisini açar — adaylar bu cevabın
+// servisleri (hata oranı azalan, tablo sırası), arama tüm servislerde; seçim
+// eski çiplerin cümlesini gönderir ("<svc> sağlığı nasıl?" → service_health,
+// "<svc> teknik hataları?" → service_exceptions; ikisi de LLM'siz). Cevap
+// linkleri (Servisler · takım, Overview, Exceptions'ta aç) aynen.
+//
 // Kanıta da kısa bir not girer: model tabloyu/listeyi tekrar yazmasın, soruyu
 // sormasın (renderTeamServicesEvidenceTR KURAL'ı ile aynı söz).
 
@@ -61,17 +73,24 @@ const (
 	// teamOverviewListMax — tabloda gösterilen servis satırı tavanı (kanıtın
 	// satır tavanıyla aynı sayı: iki liste aynı "+N daha" sınırını söyler).
 	teamOverviewListMax = teamServicesMaxRows
-	// teamOverviewChipMax — "hangi servis?" çip sayısı.
-	teamOverviewChipMax = 6
 	// teamOverviewExcMax — son exception grupları bölümünde gösterilen grup.
 	teamOverviewExcMax = 5
-	// teamOverviewFollowupMax — takım servis cevabının çip tavanı: servis
-	// çipleri + v0.10.1383 özet adımları (guidedFollowupMax).
-	teamOverviewFollowupMax = teamOverviewChipMax + guidedFollowupMax
+	// teamOverviewFollowupMax — takım servis cevabının çip tavanı. v0.10.1515 —
+	// yalnız iki genel seçici çipi (eskiden 6 servis çipi + 4 özet adımı).
+	teamOverviewFollowupMax = 2
 	// teamOverviewClosingQ — kapanış sorusu (operatörün cümlesi).
 	teamOverviewClosingQ = "Özellikle kontrol etmek istediğin bir servis var mı?"
-	// fuKindTeamService — "hangi servis?" çipi (servis sağlığına iner).
-	fuKindTeamService = "team_service"
+	// v0.10.1515 — genel seçici çipleri: tür, görünen etiket, seçimle gönderilen
+	// cümlenin şablonu (eski "↳ <svc>" ve "↳ <svc> exception'ları" çiplerinin
+	// cümleleri) ve aday tavanı (tablonun satır tavanı).
+	fuKindTeamPickHealth     = "team_pick_health"
+	fuKindTeamPickExceptions = "team_pick_exceptions"
+	teamPickHealthLabel      = "Bir servisin sağlığını analiz et"
+	teamPickExcLabel         = "Bir servisin exception'ları"
+	teamPickHealthTemplate   = pickServicePlaceholder + " sağlığı nasıl?"
+	teamPickExcTemplate      = pickServicePlaceholder + " teknik hataları?"
+	teamPickCandidateMax     = teamServicesMaxRows
+	pickKindService          = "service"
 	// Servisler sayfasının takım süzgeci URL anahtarları
 	// (frontend/src/lib/servicesUrlSpec.ts SERVICES_URL_SPEC).
 	servicesPageOwnerParam = "ownerTeam"
@@ -134,7 +153,7 @@ func (s *Server) teamOverviewBlock(ctx context.Context, emit func(string, any), 
 	}
 	v.ServicesHref, _ = teamServicesPageHref(team, axis)
 	route.AnswerTail = renderTeamOverviewTR(v)
-	route.TeamFollowups = append(teamServiceAskChips(in.Names, route.Env, teamOverviewChipMax), route.TeamFollowups...)
+	route.TeamFollowups = teamServicePickChips(in.Names, route.Env) // v0.10.1515 — servis başına çip yok
 	return teamOverviewEvidenceTR(v)
 }
 
@@ -186,15 +205,17 @@ func teamServicesAnswerLinks(route guidedRoute) []guidedAnswerLink {
 	return links
 }
 
-// teamServiceAskChips — SAF: "hangi servis?" çipleri — ilk max uygun servis
-// için etiket = servis adı, metin = "<svc> sağlığı nasıl?" (router'da LLM'siz
-// service_health), kapsam servis + env. Uygunsuz ad (boşluk, sentetik önek,
-// fuServiceRe dışı) atlanır; aynı ad bir kez.
-func teamServiceAskChips(names []string, env string, max int) []chatFollowup {
-	var out []chatFollowup
+// teamServicePickChips — v0.10.1515 SAF: takım servis cevabının İKİ genel
+// seçici çipi. Adaylar: names'in uygun adları (boşluksuz, sentetik öneksiz,
+// fuServiceRe), sıra korunur (hata oranı azalan), tekrar yok, en çok
+// teamPickCandidateMax. Uygun aday yoksa çip yok (seçici yine tüm servislerde
+// arar ama takım cevabının bağlamı kalmaz — boş çip şeridi dürüst). Kapsam
+// yalnız env; servis seçimle eklenir (FE).
+func teamServicePickChips(names []string, env string) []chatFollowup {
+	var cands []string
 	seen := map[string]bool{}
 	for _, n := range names {
-		if len(out) >= max {
+		if len(cands) >= teamPickCandidateMax {
 			break
 		}
 		svc := strings.TrimSpace(n)
@@ -202,12 +223,23 @@ func teamServiceAskChips(names []string, env string, max int) []chatFollowup {
 			continue
 		}
 		seen[svc] = true
-		out = append(out, chatFollowup{
-			Text: svc + " sağlığı nasıl?", Label: starterTrunc(svc, teamSumChipLabelRune),
-			Kind: fuKindTeamService, Scope: &chatScope{Services: []string{svc}, Env: env},
-		})
+		cands = append(cands, svc)
 	}
-	return out
+	if len(cands) == 0 {
+		return nil
+	}
+	mk := func(kind, label, tpl string) chatFollowup {
+		c := chatFollowup{Text: label, Label: label, Kind: kind,
+			Pick: &followupPick{Kind: pickKindService, Template: tpl, Services: append([]string(nil), cands...)}}
+		if env != "" {
+			c.Scope = &chatScope{Env: env}
+		}
+		return c
+	}
+	return []chatFollowup{
+		mk(fuKindTeamPickHealth, teamPickHealthLabel, teamPickHealthTemplate),
+		mk(fuKindTeamPickExceptions, teamPickExcLabel, teamPickExcTemplate),
+	}
 }
 
 // mdCell — SAF: markdown tablo hücresi (boru ve satır sonu kaçışı).
