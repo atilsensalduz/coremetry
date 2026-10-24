@@ -6,7 +6,7 @@ import type { LogRow, SpanRow, TimeRange } from '@/lib/types';
 import { functionCodeTracesHref } from '@/lib/pivotHref';
 import {
   traceFunctionCodes, exactTraceOperation, pickTraceOperation, oracleOperationTitle,
-  exactOperationTitle, dictionaryOperationLabel,
+  exactOperationTitle, dictionaryOperationLabel, traceEntryCodes,
 } from '@/lib/oracleFunctionOps';
 
 // OracleOperationChip — v0.10.1003 (kuyruk: "operasyon adını trace sayfasında
@@ -78,6 +78,37 @@ export function OracleOperationChip({ spans, pageRange, oracleRows }: {
           link tıklaması aynı fonksiyon kodunun trace'lerine gitmeye devam eder. */}
       <CopyButton value={pick.main} title="Operasyon adını kopyala" />
       {pick.others.length > 0 ? ` (+${pick.others.length})` : ''}
+    </span>
+  );
+}
+
+// TraceEntryCodes — v0.10.1497 (operatör: "function code / channel code
+// bilgilerini yukarıda operasyonun yanında yazabiliriz"). Kök → giriş →
+// herhangi span'deki İLK fonksiyon ve kanal kodu; etiket span'deki anahtar
+// yazımıdır (uydurma ad yok). Fonksiyon kodu tıklanınca aynı kodun diğer
+// trace'leri (operasyon çipiyle aynı hedef); ikisi de kopyalanabilir.
+export function TraceEntryCodes({ spans, pageRange }: { spans: SpanRow[]; pageRange: TimeRange }) {
+  const { functionCode: fc, channelCode: cc } = useMemo(() => traceEntryCodes(spans), [spans]);
+  if (!fc && !cc) return null;
+  return (
+    <span className="cell-hint" data-trace-codes="">
+      {fc && (
+        <>
+          {fc.key}:{' '}
+          <Link className="sec mono op-chip" title="Bu fonksiyon kodunun diğer trace'leri"
+            to={functionCodeTracesHref({ window: pageRange, attrKey: fc.key, codes: [fc.code] })}>
+            {fc.code}
+          </Link>
+          <CopyButton value={fc.code} title="Fonksiyon kodunu kopyala" />
+        </>
+      )}
+      {fc && cc && ' · '}
+      {cc && (
+        <>
+          {cc.key}: <span className="mono">{cc.code}</span>
+          <CopyButton value={cc.code} title="Kanal kodunu kopyala" />
+        </>
+      )}
     </span>
   );
 }

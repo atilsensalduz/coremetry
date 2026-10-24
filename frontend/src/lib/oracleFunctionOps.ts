@@ -36,6 +36,39 @@ export function traceFunctionCodes(spans: Pick<SpanRow, 'attributes'>[] | null |
   return out;
 }
 
+/** v0.10.1497 — kanal kodu anahtar yazımları (span'de görüldüğü gibi). */
+export const CHANNEL_CODE_KEYS = ['CHANNEL_CODE', 'channel_code', 'channel.code'] as const;
+
+export interface TraceEntryCode { key: string; code: string }
+
+/**
+ * v0.10.1497 (operatör: "function code / channel code yukarıda operasyonun
+ * yanında yazsın") — trace başlığında gösterilecek fonksiyon + kanal kodu.
+ * Öncelik: kök span → giriş (server/consumer) span'leri → herhangi bir span
+ * (zaman sırasıyla); her tür için İLK bulunan, anahtar yazımı korunur.
+ */
+export function traceEntryCodes(
+  spans: Pick<SpanRow, 'parentSpanId' | 'startTime' | 'kind' | 'attributes'>[] | null | undefined,
+): { functionCode: TraceEntryCode | null; channelCode: TraceEntryCode | null } {
+  const sp = [...(spans ?? [])].sort((a, b) => a.startTime - b.startTime);
+  const root = sp.find(s => !s.parentSpanId) ?? sp[0];
+  const ordered = [
+    ...(root ? [root] : []),
+    ...sp.filter(s => s !== root && isEntryKind(s.kind)),
+    ...sp.filter(s => s !== root && !isEntryKind(s.kind)),
+  ];
+  const first = (keys: readonly string[]): TraceEntryCode | null => {
+    for (const s of ordered) {
+      for (const key of keys) {
+        const code = (s.attributes?.[key] ?? '').trim();
+        if (code) return { key, code };
+      }
+    }
+    return null;
+  };
+  return { functionCode: first(FUNCTION_CODE_KEYS), channelCode: first(CHANNEL_CODE_KEYS) };
+}
+
 export interface TraceOracleOperation {
   key: string;
   code: string;

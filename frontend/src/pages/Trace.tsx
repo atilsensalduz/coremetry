@@ -43,7 +43,7 @@ import type { ExternalLink, LogRow, SpanRow, TimeRange, TraceAnalysis, TraceLink
 import { TraceWaterfall, TraceServiceBreakdown } from '@/components/TraceWaterfall';
 import { SpanDetail } from '@/components/SpanDetail';
 import { TraceHonesty } from '@/components/traces/TraceHonesty';
-import { OracleOperationChip } from '@/components/traces/OracleOperationChip';
+import { OracleOperationChip, TraceEntryCodes } from '@/components/traces/OracleOperationChip';
 import { traceFunctionCodes } from '@/lib/oracleFunctionOps';
 // v0.8.550 — this file used to OWN the strongest of the three hand-rolled
 // clipboard copies (it alone fell back when writeText rejected). That
@@ -593,6 +593,7 @@ function TraceDetailInner() {
                   v0.10.1347: kendi tam genişlik satırında (boşsa :empty gizler). */}
               <div className="trace-summary__ops">
                 <OracleOperationChip spans={spans} pageRange={range} oracleRows={chipOracleRows} />
+                <TraceEntryCodes spans={spans} pageRange={range} />{/* v0.10.1497 */}
               </div>
               {/* v0.10.354 (operatör) — Compare / Logs / Share / Export JSON ve kritik
                   yol özeti beyaz şeritten çıktı: Topbar'daki gri alana (actions). */}

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { traceFunctionCodes, traceOracleOperations, oracleOperationTitle, functionCodeLabel, functionCodeTitle, pickTraceOperation, exactTraceOperation, exactOperationTitle, type TraceOperationPick, type OracleOpRow } from './oracleFunctionOps';
+import { traceFunctionCodes, traceOracleOperations, oracleOperationTitle, functionCodeLabel, functionCodeTitle, pickTraceOperation, exactTraceOperation, exactOperationTitle, traceEntryCodes, type TraceOperationPick, type OracleOpRow } from './oracleFunctionOps';
 import type { OracleFunctionCodesResponse, SpanRow } from './types';
 
 // v0.10.1003 — trace sayfasında Oracle operasyon adı: span'lerdeki FUNCTION_CODE
@@ -164,5 +164,32 @@ describe('pickTraceOperation', () => {
     expect(exactOperationTitle(o)).toBe(`Kaynak: bu trace'in kendi Oracle hata satırları (operation.code, 2 satır) — kesin. Bu trace'teki diğer operasyonlar: ${INQ}.`);
     expect(exactOperationTitle({ source: 'span', main: TRX, others: [], key: 'operation.code', where: 'root' }))
       .toBe("Kaynak: kök span attribute'u operation.code — kesin.");
+  });
+});
+
+// v0.10.1497 (operatör) — trace başlığındaki fonksiyon/kanal kodu: kök önce,
+// sonra giriş span'i, sonra herhangi biri; anahtar yazımı korunur.
+describe('traceEntryCodes', () => {
+  const s = (o: { parentSpanId?: string; startTime: number; kind?: string; attributes?: Record<string, string> }) =>
+    ({ parentSpanId: '', kind: 'internal', attributes: {}, ...o });
+  it('kök span kazanır; kanal kodu ayrı aranır', () => {
+    const r = traceEntryCodes([
+      s({ parentSpanId: 'r', startTime: 2, kind: 'producer', attributes: { function_code: 'CHILD1', channel_code: '060201' } }),
+      s({ startTime: 1, kind: 'server', attributes: { FUNCTION_CODE: 'ROOT1' } }),
+    ]);
+    expect(r).toEqual({ functionCode: { key: 'FUNCTION_CODE', code: 'ROOT1' }, channelCode: { key: 'channel_code', code: '060201' } });
+  });
+  it('giriş span\'i iç span\'den önce', () => {
+    const r = traceEntryCodes([
+      s({ startTime: 1, kind: 'server' }),
+      s({ parentSpanId: 'a', startTime: 2, kind: 'internal', attributes: { function_code: 'INNER' } }),
+      s({ parentSpanId: 'a', startTime: 3, kind: 'consumer', attributes: { function_code: 'ENTRY', 'channel.code': ' 0602 ' } }),
+    ]);
+    expect(r.functionCode).toEqual({ key: 'function_code', code: 'ENTRY' });
+    expect(r.channelCode).toEqual({ key: 'channel.code', code: '0602' });
+  });
+  it('kod yoksa ikisi de null', () => {
+    expect(traceEntryCodes([s({ startTime: 1 })])).toEqual({ functionCode: null, channelCode: null });
+    expect(traceEntryCodes(undefined)).toEqual({ functionCode: null, channelCode: null });
   });
 });
