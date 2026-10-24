@@ -11569,3 +11569,64 @@ dış linkler kartın içinde ve tek çağrı yeri; CSS boyut pinleri).
 Çipler yoksa satır 2'de yalnız eylem satırı görünür.
 
 **Geri alma.** `git revert <sha>` + yeni etiket; yalnız frontend (Trace.tsx, globals.css `v0.10.1514` bloğu, pin testi), şema yok.
+
+## 2026-10-24 — v0.10.1523 — Problem standardı + triage + bildirim politikası (program; dilim R1: çekirdek + gölge + replay)
+
+**Bağlam (Plan ajanı, origin/main v0.10.1519 üzerinde).** (1) "problem değil" imza başına KALICI gizleme (+ isteğe bağlı
+kalıcı bildirim susturma) → yanlış-negatif tuzağı; (2) bildirim önceliği ≠ Inbox önceliği (`forceNonExceptionP3` yalnız
+Inbox'ta); (3) yaş eskalasyonu yeni kanıt olmadan yeniden gönderir (+ staleCrit 4 sa → P1); (4) dedup problem kimliğine
+bağlı → flap = yeni konu, kural/anomali çözülme mesajı gitmez; (5) satır metni dedektör yazımı, karışık TR/EN, ham metrik
+adı; (6) triage düğmeleri yalnız detayda (v0.10.1323 "satırda düğme yok").
+
+**Operatör kararları (2026-10-24, önerilerle onaylı).**
+- D1: satır triage eylemleri hover/focus'ta; detay sayfasında ve toplu çubukta her zaman (yalnız bu iki eylem için
+  v0.10.1323'ü geçersiz kılar). (R2/R3)
+- D2: bildirim önceliği = görünüm önceliği (`forceNonExceptionP3` + istisna listesi); `anomalyPriority` ≥5× → P1 emekli,
+  ortak merdiven.
+- D3: gürültü tekrarı 12 sa; baypas: öncelik yükseldi, etki ≥ 2×, yüksek güvenli P1.
+- D4: triage işaretleri değerlendirme etiketi DEĞİL; "Gerçek problem" yalnız incident_cases TASLAĞI açabilir; sohbet
+  oyları dışarıda (pinli).
+- D5: mevcut kalıcı "problem değil" işaretleri görünümden gizlemeye devam eder; bildirim susturmaları ZAMAN SINIRLI +
+  baypaslı olur; kalıcı gizleme yalnız yönetici.
+- D6: etki tabanları — hata ≥30 başarısız / 5 dk YA DA ≥ %1; gecikme p99 ≥ +300 ms VE ≥30 çağrı / 5 dk; trafik düşüşü
+  ≥ %40 VE ≥100 taban çağrı. Asla yalnız yüzde (yüzde kolu yalnız çağrı tabanı ölçülüp geçilmişken).
+- D7: P3 özeti 09:00 ve 16:00 yerel (calendar.timezone).
+- D8: enforce'tan önce 7 gün gölge; geçiş kriteri onaylı incident_cases ve "Gerçek problem" işaretlerinde %100 recall.
+- D9: bildirimler tamamen Türkçe.
+- D10: düşük güvenli satır görünür ama aşağıda sıralanır, asla bildirilmez.
+- D11: editor ve admin işaretleyebilir.
+- D12: örneklenmiş span-yalnız sinyal en çok "medium"; VM-karar kuralı p99_ms / request_rate'e genişler (R6).
+- D13: Oracle grup rozeti "Oracle hata"; "Teknik hata" yalnız 5xx.
+
+**Dilimler.** R1 çekirdek + gölge + replay (bu sürüm, GÖRÜNÜR DEĞİŞİKLİK YOK) · R2 satır + detay başlığı UI · R3 triage
+gerekçeleri + etkileri · R4 TR şablon + yaşam döngüsü (AÇILDI/GÜNCELLEME/YENİDEN BAŞLADI/ÇÖZÜLDÜ, parmak izi başına tek
+konu) · R5 enforce + P3 özeti + ayar UI · R6 dedektör kapı birleşmesi. Her dilimden sonra operatör onayı.
+
+**R1 kararı.**
+- `chstore.StandardizeProblem` / `StandardizeException` / `StandardizeAnomalyEvent` / `StandardizeIncident` (SAF,
+  `problem_standard.go`): Family, Subject, Operation, Türkçe Headline (≤ 90), Impact, Since, Evidence (+ kaynak),
+  Confidence, NextStep, Context, Notify. Gerçekler (`StdFacts`) çağırandan; manşet RuleID öneki + Problem alanlarından,
+  açıklama ayrıştırılmaz (yalnız "kaynak: …" işareti; işaret dizgileri `chstore.REDEvidence*` TEK tanım, dedektör
+  `red_vm_select.go` bunları kullanır).
+- Kapılar G1–G7 + güven (`signal_gates.go`, SAF): low = G1–G4'te ölçülmüş başarısızlık; high = başarısızlık yok +
+  örneklenmemiş kaynak + büyüklük ≥ bigBreach + takvim işareti yok (+ runtime etkisi doğrulanmış); kalan medium.
+  Bilinmiyor düşürmez, bildirimi tutmaz. LLM / oy / karar skora girmez.
+- `chstore.NotifiableAt` (D2/D3/D5/D6/D10, SAF) + `notify_policy` blobu (system_settings; boot + 30 sn tazeleme; varsayılan
+  `mode=shadow`, `p3=digest`, `digestTimes=[09:00,16:00]`, `noiseDedupeHours=12`, D6 tabanları; admin GET/PUT
+  `/api/admin/notify-policy`, audit `notify.policy`; UI yok).
+- Gölge: `notify/policy_shadow.go` — SendProblemAlert'te "problem değil" kapısından sonra (ve exception P1 anonsunda)
+  çıplak çağrı + goroutine; notification_log `channel_kind='policy'`, `related_kind='policy'`, `error=would_send|hold:<kod>`,
+  problem durumu başına saatte en çok bir satır. GÖNDERİMİ DEĞİŞTİRMEZ (`TestShadowNeverChangesSends`). `enforce` R1'de
+  shadow ile aynı. `policy` satırları /events, problem bildirim geçmişi, watchers ve kanal sağlığından SQL'de dışlı; dedup
+  kapıları related_kind ile süzdüğü için görmez.
+- Replay: `GET /api/admin/notify-policy/replay?days=14` (≤ 30, admin, serveCached 5 dk, okumalar LIMIT +
+  max_execution_time 20, tek toplu service_summary_5m okuması): aile başına önce / sonra (= önce ∩ bar) / kapı başına tutma /
+  30 dk flap / "problem değil" ve RECALL listesi (bar'ın tuttuğu her "Gerçek problem" işareti ve onaylı vaka kaynağı).
+
+**Bedeller.** Gölge, açılış başına en çok bir küçük service_summary_5m okuması (2 kova, 5 sn) ve notification_log'a
+saatte en çok bir satır ekler. Replay yaklaşık: öncelik ilk gönderimin konu etiketinden, değer problemin son değeri,
+trafik açılış öncesi kova. Görünüm önceliği D2 gereği birçok anomali satırını P3 (özet) yapar — gölge ölçüm tam olarak
+bunu sayar; enforce kararı R5'te recall ve sayılar görülünce.
+
+**Geri alma.** Gölgeyi durdurmak: `PUT /api/admin/notify-policy {"mode":"off"}` (gönderim zaten değişmiyor). Tamamı:
+`git revert <sha>` + yeni etiket; şema yok, `notify_policy` blobu ve `policy` satırları okunmadan kalır (90 gün TTL).

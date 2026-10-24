@@ -64,6 +64,13 @@ const (
 	NotifyUnmatchedChannelName = "unmatched"
 )
 
+// notifyNotShadowCond — v0.10.1523 (Problem standardı R1): gölge karar
+// satırlarını (channel_kind='policy', NotifyShadowChannelKind) gönderim
+// okuyucularından dışlayan literal koşul. Üç okuyucu: /events listesi,
+// related_id okuması (problem bildirim geçmişi + watchers) ve kanal sağlığı
+// (yoksa Settings → Kanallar'da hayalet "policy/shadow" kanalı belirirdi).
+const notifyNotShadowCond = "channel_kind != '" + NotifyShadowChannelKind + "'"
+
 // InsertNotificationLog appends one send record. Fire-and-forget from
 // the notify funnel — the caller logs-and-continues on error so a
 // record failure never blocks (or re-fires) the notification itself.
@@ -155,6 +162,12 @@ func buildNotificationLogQuery(from, to time.Time, kind string, limit, offset in
 	}
 	conds := []string{"sent_at >= ?", "sent_at < ?"}
 	args := []any{from, to}
+	// v0.10.1523 (Problem standardı R1) — gölge karar satırları gönderim değil:
+	// /events listesi onları göstermez (açıkça kind=policy istenmedikçe).
+	// Literal koşul: bağ argümanı sayısı değişmez.
+	if kind != NotifyShadowChannelKind {
+		conds = append(conds, notifyNotShadowCond)
+	}
 	if kind != "" {
 		conds = append(conds, "channel_kind = ?")
 		args = append(args, kind)
@@ -233,6 +246,7 @@ func buildNotificationLogRelatedQuery(relatedIDs []string, since time.Time, limi
 		       related_kind, related_id, ok, error
 		FROM notification_log
 		WHERE sent_at >= ?
+		  AND ` + notifyNotShadowCond + `
 		  AND related_id IN (` + strings.Join(holders, ",") + `)
 		ORDER BY sent_at DESC
 		LIMIT ?
@@ -343,6 +357,7 @@ func buildChannelHealthQuery(since time.Time, limit int) (string, []any) {
 		FROM notification_log
 		WHERE sent_at >= ?
 		  AND channel_kind != ?
+		  AND ` + notifyNotShadowCond + `
 		ORDER BY sent_at DESC
 		LIMIT ?
 		SETTINGS max_execution_time = 10`

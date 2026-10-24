@@ -562,6 +562,8 @@ func (e *ExceptionNotifier) sendExceptionMail(ctx context.Context, tc chstore.Te
 		Type:   "email",
 		Config: cfg,
 	}
+	// v0.10.1523 (Problem standardı R1) — P1 anonsunun da gölge kararı (gönderim değişmez).
+	e.n.shadowNotifyPolicy(ctx, exceptionGroupProblem(g, g.State, "P1", "P1 anonsu"))
 	if err := e.n.sendOne(ctx, ch, exceptionAsProblem(g), "exception", g.Fingerprint); err != nil {
 		log.Printf("[exception-notifier] %s (%s → %d rcpt): %v", g.Type, g.Service, len(to), err)
 		return false

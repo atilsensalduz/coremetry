@@ -1607,6 +1607,8 @@ func main() {
 	// varsayılanlarda kalır (yani v0.9.838 öncesi davranış).
 	srv.LoadProblemPriority(ctx)
 	go srv.StartProblemPriorityRefresh(ctx, 30*time.Second)
+	srv.LoadNotifyPolicy(ctx) // v0.10.1523 — notify_policy (Problem standardı R1, gölge kip)
+	go srv.StartNotifyPolicyRefresh(ctx, 30*time.Second)
 	srv.LoadAIChatRetention(ctx) // v0.10.561 — sohbet arşivi saklama (ai_chat_retention)
 	go srv.StartAIChatRetentionRefresh(ctx, 30*time.Second)
 	// v0.9.797 — metrik route dışlama kuralları, AYNI kablo. Derlenmiş set

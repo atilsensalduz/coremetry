@@ -472,6 +472,34 @@ de notification_log'a, v0.9.1344). Her üretici paketi kendi önekini pinler
 (`anomaly/notify_kind_pin_test.go`, `evaluator/notify_kind_pin_test.go`). Kanal
 şablonu/ayrıntısı bu skill'in DIŞI.
 
+**Problem standardı + bildirim politikası (R1 v0.10.1523, operatör 2026-10-24, DECISIONS "Problem standardı").**
+Her Problem / exception grubu / anomali olayı / incident TEK yapıya iner: SAF `chstore.StandardizeProblem` /
+`StandardizeException` / `StandardizeAnomalyEvent` / `StandardizeIncident` (`problem_standard.go`) → Family, Subject,
+Operation, Türkçe Headline (≤ 90), Impact (birincil ölçü + D6 taban ölçüleri `Floor`, doğrulanmış çağıranlar), Since,
+Evidence (kaynak `vm|span|db_mv|probe|exception|oracle|self|external|rule`, örneklenmiş mi), Confidence, NextStep, Context.
+Gerçekler (`StdFacts`) ÇAĞIRANDAN: trafik, topoloji doğrulaması, takvim, batch, deploy — okuma çekirdekte YOK. Kanıt
+kaynağı açıklamadaki "kaynak: …" işaretinden; işaret dizgileri TEK tanım `chstore.REDEvidence*` (dedektör
+`red_vm_select.go` bunları kullanır — metni değiştirirsen ikisi birlikte). Manşet açıklamayı AYRIŞTIRMAZ, RuleID önekinden
+(`classifyProblem`); YENİ ÖNEK = `classifyProblem` satırı + `TestStandardizeProblemGolden` satırı.
+Güven `signal_gates.go` G1–G7 (trafik / sürdürme / VM karar / topoloji / deploy=bağlam / takvim=bir basamak indirir /
+batch=bağlam): low = G1–G4'te ÖLÇÜLMÜŞ başarısızlık; high = başarısızlık yok + örneklenmemiş kaynak (D12) + büyüklük ≥
+bigBreach + takvim işareti yok + runtime etkisi doğrulanmış; kalan medium. **Bilinmiyor ASLA düşürmez**
+(`TestUnknownGateNeverLowers`); oy / karar / LLM skora GİRMEZ (`TestConfidenceIgnoresVotesAndVerdicts`).
+Bildirim kararı SAF `chstore.NotifiableAt(std, prio, hist, policy, nowLocal)`: prio = GÖRÜNÜM önceliği
+(`NotifyViewPriority`, `forceNonExceptionP3With` ikizi — pin `api/notify_policy_test.go`); sıra kalıcı gizleme → P3
+(özet 09:00/16:00 | kapalı | anında) → ölçülmüş kapı (`gate:G*`) → etki tabanı (hata ≥30/5dk YA DA ≥%1 yalnız ≥30 çağrı
+ölçülüyken; gecikme +300 ms VE ≥30 çağrı; düşüş ≥%40 VE ≥100 taban) → "problem değil" penceresi (12 sa, mevcut kalıcı
+işaretler de ZAMAN SINIRLI) → tekrar penceresi (12 sa) → sessiz saat (yalnız P2); baypas: öncelik yükseldi / etki ≥ 2× /
+yüksek güvenli P1. **R1'de gönderim DEĞİŞMEZ:** `notify/policy_shadow.go` SendProblemAlert'te "problem değil"
+kapısından SONRA çıplak çağrı + goroutine → notification_log `channel_kind='policy'`, `related_kind='policy'`,
+`error = would_send | hold:<kod>` (saatte bir kez / anahtar); pin `TestShadowNeverChangesSends`. `policy` satırları
+/events, problem bildirim geçmişi, watchers ve kanal sağlığından SQL'de dışlı (`notifyNotShadowCond`); dedup kapıları
+related_kind ile süzdüğü için görmez. `enforce` R1'de shadow ile aynı (kablo R5). Replay: `GET
+/api/admin/notify-policy/replay?days=14` (admin, ≤ 30 gün, serveCached 5 dk, `chstore.FoldNotifyReplay` SAF): aile başına
+önce / sonra (= önce ∩ bar) / kapı başına tutma / 30 dk flap / "problem değil" + RECALL listesi ("Gerçek problem"
+işaretli ya da onaylı incident_cases kaynağı olup bar'ın tuttuğu HER öğe). Dilimler: R2 satır + başlık UI, R3 triage
+gerekçeleri, R4 TR şablon + yaşam döngüsü, R5 enforce + özet + ayar UI, R6 dedektör kapı birleşmesi.
+
 ## 10. AI açıklama (problem/exception tarafı)
 
 | Yüzey | Prompt kurucu | Sistem promptu |
@@ -487,10 +515,13 @@ affordance'ı `s.copilotExplain(r, …)` üzerinden, `s.copilot.Explain` DOĞRUD
 değil. Golden pinler: `anomaly/prompt_golden_test.go`, `rootcause_prompt_test.go`,
 `copilot/prompt_problem_test.go`, `autoexplain_gate_test.go`.
 
-## 11. Ayar deseni (yedi anahtar)
+## 11. Ayar deseni (sekiz anahtar)
 
 `anomaly_tracked` · `anomaly_sensitivity` · `anomaly_promotion` · `problem_priority`
-· `problem_escalation` · `exception_triage` (v0.10.1092 `oracleP1MinOccurrences`, 0/yok = 5000) · `self_health` — hepsi
+· `problem_escalation` · `exception_triage` (v0.10.1092 `oracleP1MinOccurrences`, 0/yok = 5000) · `self_health`
+· `notify_policy` (Problem standardı R1: `mode` off|shadow|enforce, varsayılan **shadow**; `p3` digest|off|immediate;
+`digestTimes` ["09:00","16:00"]; `quietHours` yalnız P2; `noiseDedupeHours` 12; `impactFloors` D6; admin GET/PUT
+`/api/admin/notify-policy`, audit `notify.policy`; UI R5'te) — hepsi
 `system_settings` JSON blobu: `Default*` / `Normalize*` / `Get*` (hataya
 varsayılana düşer) + boot `Load*` + 30 s `Start*Refresh` + sıcak yol için paket
 düzeyi atomic. Varsayılanı TRUE olan her bayrak `*bool` (AttachToIncident,
@@ -558,6 +589,6 @@ v0.10.1072 — inbox istisna listesi taşıdığı için).
 
 - 21 saklanan kural-id ailesi (v0.10.1073 `db-health:`, v0.10.1091 `svc-slowdown:` dahil) + 2 notify-only = `internal/{anomaly,evaluator,monitor}` test-dışı dosyalarda `RuleID:` / `ruleID :=`.
 - 15 arka plan döngüsü = AIOps paketleri + `main.go`'da `NewLeaderHolder` / `time.NewTicker` sahipleri (v0.10.1287: 13 → 15 — AI SRE üreticisi + drain/orkestratör; Job başlatıcı operatör kararıyla yok).
-- 7 ayar anahtarı = `internal/chstore/{anomaly_tracked,anomaly_sensitivity,anomaly_promotion,problem_priority,problem_escalation,exception_triage,selfhealth}.go` içindeki `const *Key`.
+- 8 ayar anahtarı = `internal/chstore/{anomaly_tracked,anomaly_sensitivity,anomaly_promotion,problem_priority,problem_escalation,exception_triage,selfhealth,notify_policy}.go` içindeki `const *Key`.
 - 12 state tablosu = `store.go`'da problems|anomaly_*|root_cause_hypotheses|rca_verdicts|incident*|exception_groups|events|notification_log CREATE'leri.
 - Kaynak: `docs/DECISIONS.md:385-436` (Anomali/Problems kararları), `docs/INCIDENTS.md:285-299`, planlar `docs/plans/spec-anomaly-clustering.md`, `anomaly-rootcause.md`.

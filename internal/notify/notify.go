@@ -260,6 +260,10 @@ type Notifier struct {
 	pvAt    time.Time
 	pvMute  bool
 	pvNoise map[string]struct{}
+
+	// shadow — v0.10.1523 (Problem standardı R1) yeni bildirim barının gölge
+	// ölçümü (policy_shadow.go). Gönderimi DEĞİŞTİRMEZ.
+	shadow policyShadow
 }
 
 // maintenanceSilenced reports whether any active maintenance
@@ -500,6 +504,10 @@ func (n *Notifier) SendProblemAlert(ctx context.Context, p chstore.Problem) {
 		log.Printf("[notify] marked \"problem değil\" — skipping fan-out: %s · %s", sig, p.RuleName)
 		return
 	}
+	// v0.10.1523 (Problem standardı R1) — yeni bildirim barının GÖLGE kararı
+	// (notification_log channel_kind='policy'). Dönüşü yok, arka planda koşar,
+	// aşağıdaki hiçbir şeyi değiştirmez (policy_shadow.go).
+	n.shadowNotifyPolicy(ctx, p)
 	// Service catalog row — shared by the team-routing mail below AND
 	// the per-channel match predicates, so it loads before either.
 	var md *chstore.ServiceMetadata

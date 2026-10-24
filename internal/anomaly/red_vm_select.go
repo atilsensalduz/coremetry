@@ -28,6 +28,8 @@ import (
 	"math"
 	"sort"
 	"time"
+
+	"github.com/cilcenk/coremetry/internal/chstore"
 )
 
 const (
@@ -68,19 +70,21 @@ type redSourceUsed struct {
 }
 
 // redSourceEvidenceTR — SAF: Problem açıklamasına / olay ayrıntısına eklenen
-// kaynak satırı. Operatörün prod'da arayacağı metin budur.
+// kaynak satırı. Operatörün prod'da arayacağı metin budur. v0.10.1523 (Problem
+// standardı R1): işaret dizgileri chstore'da TEK tanım — StandardizeProblem
+// aynı sabitlerle kaynağı geri okur (chstore.ParseEvidenceSource).
 func redSourceEvidenceTR(u redSourceUsed) string {
 	if u.Hold {
-		return "kaynak: VictoriaMetrics — bu tik beklemede: " + u.Reason
+		return chstore.REDEvidenceVMHold + u.Reason
 	}
 	if u.VM {
-		s := "kaynak: VictoriaMetrics (örneklenmemiş)"
+		s := chstore.REDEvidenceVM
 		if u.Family != "" {
 			s += " · " + u.Family + " sunucu histogramı"
 		}
 		return s
 	}
-	s := "kaynak: span (örneklenmiş)"
+	s := chstore.REDEvidenceSpan
 	if r := shownSourceReason(u.Reason); r != "" {
 		s += " — VM kullanılmadı: " + r
 	}
