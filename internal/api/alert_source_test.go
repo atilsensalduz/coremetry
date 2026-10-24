@@ -7,7 +7,6 @@ package api
 import (
 	"encoding/json"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -69,7 +68,7 @@ func TestAlertPreviewSeriesStatesSource(t *testing.T) {
 	st := &fakeAlertRuleSeriesStore{pts: []chstore.AlertMetricPoint{{T: 1, V: &v}}}
 	alertRuleSeriesStoreOf = func(*Server) alertRuleSeriesStore { return st }
 	srv := &Server{cache: &fakeCache{}, l1: newL1Cache(8), stats: newCacheStats()}
-	// VM'siz okuyucu (yapılandırılmamış) → span + gerekçe.
+	// VM'siz okuyucu (yapılandırılmamış) → span, gerekçe gizli.
 	rd := anomaly.NewAlertVMReader(chstore.DefaultAnomalySensitivity)
 	alertVMReaderPtr.Store(rd)
 	call := func(q string) *httptest.ResponseRecorder {
@@ -91,7 +90,8 @@ func TestAlertPreviewSeriesStatesSource(t *testing.T) {
 	if st.gotQuery.WindowSec != 600 || st.gotQuery.Service != "orders-api" || body.WindowSec != 600 {
 		t.Fatalf("taslağın penceresi: %+v / %+v", st.gotQuery, body)
 	}
-	if body.Source == nil || body.Source.VM || !strings.Contains(body.Source.Evidence, "kaynak: span (örneklenmiş) — VM kullanılmadı: VictoriaMetrics yapılandırılmamış") {
+	// VM hiç yapılandırılmamış → gerekçe gürültü, gizli; etiket kalır (2026-10-24).
+	if body.Source == nil || body.Source.VM || body.Source.Evidence != "kaynak: span (örneklenmiş)" || body.Source.Reason != "" {
 		t.Fatalf("kaynak: %+v", body.Source)
 	}
 }

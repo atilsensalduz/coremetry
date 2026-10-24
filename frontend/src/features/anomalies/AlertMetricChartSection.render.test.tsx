@@ -194,12 +194,12 @@ describe('AlertMetricChartSection', () => {
     expect(el.querySelector('[data-alert-source]')?.textContent).toMatch(/source: unknown|kaynak: bilinmiyor/);
   });
 
-  it('span kaynağı: rozet "span (örneklenmiş)" + gerekçe görünür', async () => {
+  it('span kaynağı, VM yapılandırılmamış: rozet "span (örneklenmiş)", gerekçe gizli (2026-10-24)', async () => {
     m.mode = 'vm';
     const el = await mount(prob());
     const src = el.querySelector('[data-alert-source]')?.textContent ?? '';
     expect(src).toContain('kaynak: span (örneklenmiş)');
-    expect(src).toContain('VM kullanılmadı: VictoriaMetrics yapılandırılmamış');
+    expect(src).not.toContain('VM kullanılmadı');
     expect(el.querySelector('[data-alert-below-floor]')).toBeNull();
   });
 });

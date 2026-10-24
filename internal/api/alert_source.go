@@ -60,7 +60,9 @@ type alertSourceView struct {
 }
 
 func newAlertSourceView(src anomaly.AlertSource) *alertSourceView {
-	return &alertSourceView{VM: src.VM, Family: src.Family, Reason: src.Reason, Evidence: src.Evidence()}
+	// Reason gösterilen gerekçedir: VM hiç yapılandırılmamışsa boş (rozet
+	// "VM kullanılmadı: …" yazmaz; operatör 2026-10-24).
+	return &alertSourceView{VM: src.VM, Family: src.Family, Reason: src.ShownReason(), Evidence: src.Evidence()}
 }
 
 // alertSourceKeyPart — SAF: önbellek anahtarının kaynak girdileri (ayar kipi +

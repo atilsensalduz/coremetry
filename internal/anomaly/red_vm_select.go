@@ -64,10 +64,24 @@ func redSourceEvidenceTR(u redSourceUsed) string {
 		return s
 	}
 	s := "kaynak: span (örneklenmiş)"
-	if u.Reason != "" {
-		s += " — VM kullanılmadı: " + u.Reason
+	if r := shownSourceReason(u.Reason); r != "" {
+		s += " — VM kullanılmadı: " + r
 	}
 	return s
+}
+
+// shownSourceReason — SAF (operatör 2026-10-24): VM HİÇ yapılandırılmamış
+// kurulumda "VictoriaMetrics yapılandırılmamış" gerekçesi gürültüdür — her
+// kanıt satırında / rozette tekrarlanan, operatörün bilinçli tercihi. Yalnız
+// O gerekçe gizlenir; "kaynak: span (örneklenmiş)" etiketi kalır. VM
+// yapılandırılmış ama kullanılamamışsa (okunamadı, seri yok, aile yok, kaynak
+// ayarı span …) gerekçe GÖRÜNÜR kalır — orada operatörün bilmesi gereken bir
+// sapma var. Durum ucu (REDSourceStats / AlertVMStats) gerekçeyi aynen taşır.
+func shownSourceReason(reason string) string {
+	if reason == redReasonNotConfigured {
+		return ""
+	}
+	return reason
 }
 
 // withREDEvidence — SAF: açıklamaya kaynak satırı (boşsa aynen).

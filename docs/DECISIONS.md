@@ -11150,3 +11150,21 @@ dize/SQL/payload/ilklendirici sabitleri JSON'da yok). Code Search kapalı → `o
 
 **Geri alma.** `git revert <sha>` + yeni etiket. Şema/ayar yok; önbellek girdileri 60 sn / 10 dk'da söner. FE bölümü
 kodla gider; code=1 isteği eski sunucuda `code: null` döner (bölüm "giriş bulunamadı" der, kırılmaz).
+## 2026-10-24 — v0.10.1507 — Kaynak satırı: "VM yapılandırılmamış" gerekçesi gizli
+
+**Karar.** v0.10.1478/1489'dan beri anomali ve alarm kanıt satırları, alarm grafiği ve önizleme rozeti span'e düşüşün
+gerekçesini yazıyor ("kaynak: span (örneklenmiş) — VM kullanılmadı: VictoriaMetrics yapılandırılmamış"). VM'i hiç
+kurmamış kurulumda bu gerekçe her Problem açıklamasında ve rozette tekrarlanan gürültü (operatör onayı 2026-10-24).
+`anomaly.shownSourceReason` (SAF) YALNIZ `redReasonNotConfigured`'ı boşaltır; `redSourceEvidenceTR` (anomali kanıtı,
+`AlertSource.Evidence` → evaluator Problem açıklaması, bildirim, CoSRE'nin okuduğu açıklama) ve yeni
+`AlertSource.ShownReason` (API `alertSourceView.reason` → FE `AlertSourceBadge`) bunu okur. FE'de `alertSourceReason`
+aynı kuralı savunma katmanı olarak uygular. "kaynak: span (örneklenmiş)" etiketi KALIR.
+
+**Görünür kalanlar.** VM yapılandırılmış ama kullanılamadıysa her gerekçe aynen: okunamadı (≠ yok), seri yok, aile yok,
+durum etiketi yok, seri yetersiz, kaynak ayarı span, pencere/bütçe. Durum ucu (`REDSourceStats` / `AlertVMStats`)
+gerekçeyi değiştirmeden taşır — orası yapılandırma teşhis yüzeyi. Seçim kararı (`pickREDSource` / `pickAlertSource`)
+değişmedi; yalnız metin. CoSRE baseline okuyucusunun `sourceNote`'u (metrik seam'i, VM yoksa CH'ye düşer) bu gerekçeyi
+hiç üretmediği için dokunulmadı. Önceden yazılmış Problem açıklamaları eski metni taşır (kalıcı metin yeniden yazılmaz).
+
+**Geri alma.** `git revert <sha>` + yeni etiket; ya da `shownSourceReason` gerekçeyi aynen döndürsün (FE'de
+`alertSourceReason`'daki `VM_NOT_CONFIGURED_REASON` koşulu kaldırılsın). Şema/ayar yok.

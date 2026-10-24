@@ -29,3 +29,15 @@ export function alertSourceLabel(s: AlertSourceInfo): string {
   if (s.vm) return `kaynak: VictoriaMetrics (örneklenmemiş)${s.family ? ` · ${s.family}` : ''}`;
   return 'kaynak: span (örneklenmiş)';
 }
+
+// VM_NOT_CONFIGURED_REASON — Go anomaly.redReasonNotConfigured ile aynı metin.
+export const VM_NOT_CONFIGURED_REASON = 'VictoriaMetrics yapılandırılmamış';
+
+// alertSourceReason — rozetin yanında yazan gerekçe (operatör 2026-10-24): VM
+// HİÇ yapılandırılmamışsa gürültü → null; VM yapılandırılmış ama kullanılamamışsa
+// (okunamadı, seri yok, aile yok …) gerekçe görünür. Sunucu da bu gerekçeyi
+// boşaltır (AlertSource.ShownReason); burası savunma katmanı.
+export function alertSourceReason(s: AlertSourceInfo): string | null {
+  if (s.vm || !s.reason || s.reason === VM_NOT_CONFIGURED_REASON) return null;
+  return s.reason;
+}

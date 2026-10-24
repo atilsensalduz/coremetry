@@ -51,9 +51,6 @@ func TestREDSourceEvidenceTR(t *testing.T) {
 	if got := redSourceEvidenceTR(redSourceUsed{VM: true, Family: "HTTP"}); got != "kaynak: VictoriaMetrics (örneklenmemiş) · HTTP sunucu histogramı" {
 		t.Errorf("VM kanıtı: %q", got)
 	}
-	if got := redSourceEvidenceTR(redSourceUsed{Reason: redReasonNotConfigured}); got != "kaynak: span (örneklenmiş) — VM kullanılmadı: VictoriaMetrics yapılandırılmamış" {
-		t.Errorf("span kanıtı: %q", got)
-	}
 	if got := redSourceEvidenceTR(redSourceUsed{}); got != "kaynak: span (örneklenmiş)" {
 		t.Errorf("gerekçesiz span: %q", got)
 	}
@@ -468,5 +465,39 @@ func TestBehaviorRowsSplitBySource(t *testing.T) {
 	d := encodeBehaviorDetails(behaviorCandidate{Metric: "p99_ms", Source: redSourceVM})
 	if !strings.Contains(d, `"source":"vm"`) {
 		t.Errorf("olay ayrıntısı kaynağı taşımalı: %s", d)
+	}
+}
+
+// TestSourceReasonHiddenOnlyWhenVMNotConfigured — operatör 2026-10-24: VM hiç
+// yapılandırılmamış kurulumda "VM kullanılmadı: VictoriaMetrics
+// yapılandırılmamış" gürültü; gizlenir. VM yapılandırılmış ama kullanılamamışsa
+// (okunamadı, seri yok, aile yok, ölçülemiyor, kaynak ayarı span) gerekçe kalır.
+func TestSourceReasonHiddenOnlyWhenVMNotConfigured(t *testing.T) {
+	cases := []struct {
+		name   string
+		src    AlertSource
+		wantEv string
+		shown  string
+	}{
+		{"vm yapılandırılmamış", SpanAlertSource(redReasonNotConfigured), "kaynak: span (örneklenmiş)", ""},
+		{"vm okunamadı", SpanAlertSource(redReasonVMError + ": timeout"), "kaynak: span (örneklenmiş) — VM kullanılmadı: " + redReasonVMError + ": timeout", redReasonVMError + ": timeout"},
+		{"seri yok", SpanAlertSource(redReasonNoService), "kaynak: span (örneklenmiş) — VM kullanılmadı: " + redReasonNoService, redReasonNoService},
+		{"aile yok", SpanAlertSource(redReasonNoFamily), "kaynak: span (örneklenmiş) — VM kullanılmadı: " + redReasonNoFamily, redReasonNoFamily},
+		{"durum etiketi yok", SpanAlertSource(redReasonNoStatus), "kaynak: span (örneklenmiş) — VM kullanılmadı: " + redReasonNoStatus, redReasonNoStatus},
+		{"seri yetersiz", SpanAlertSource(redReasonShort), "kaynak: span (örneklenmiş) — VM kullanılmadı: " + redReasonShort, redReasonShort},
+		{"kaynak ayarı span", SpanAlertSource(redReasonSpanSetting), "kaynak: span (örneklenmiş) — VM kullanılmadı: " + redReasonSpanSetting, redReasonSpanSetting},
+		{"gerekçesiz", AlertSource{}, "kaynak: span (örneklenmiş)", ""},
+		{"vm", AlertSource{VM: true, Family: "gRPC"}, "kaynak: VictoriaMetrics (örneklenmemiş) · gRPC sunucu histogramı", ""},
+	}
+	for _, c := range cases {
+		if got := c.src.Evidence(); got != c.wantEv {
+			t.Errorf("%s: kanıt %q, beklenen %q", c.name, got, c.wantEv)
+		}
+		if got := redSourceEvidenceTR(redSourceUsed(c.src)); got != c.wantEv {
+			t.Errorf("%s: anomali kanıtı %q", c.name, got)
+		}
+		if got := c.src.ShownReason(); got != c.shown {
+			t.Errorf("%s: gösterilen gerekçe %q, beklenen %q", c.name, got, c.shown)
+		}
 	}
 }

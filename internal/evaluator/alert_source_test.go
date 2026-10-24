@@ -191,8 +191,13 @@ func TestProblemDescriptionCarriesSourceLine(t *testing.T) {
 	if !strings.HasSuffix(vm, "kaynak: VictoriaMetrics (örneklenmemiş) · HTTP sunucu histogramı.") {
 		t.Errorf("VM satırı: %q", vm)
 	}
+	// VM hiç yapılandırılmamış → gerekçe gizli (2026-10-24); başka gerekçe görünür.
 	sp := anomaly.WithAlertSourceEvidence(describeProblem(r, "svc", 7), anomaly.SpanAlertSource("VictoriaMetrics yapılandırılmamış"))
-	if !strings.HasSuffix(sp, "kaynak: span (örneklenmiş) — VM kullanılmadı: VictoriaMetrics yapılandırılmamış.") {
+	if !strings.HasSuffix(sp, "kaynak: span (örneklenmiş).") || strings.Contains(sp, "VM kullanılmadı") {
 		t.Errorf("span satırı: %q", sp)
+	}
+	fail := anomaly.WithAlertSourceEvidence(describeProblem(r, "svc", 7), anomaly.SpanAlertSource("VictoriaMetrics okunamadı (okunamadı ≠ yok): timeout"))
+	if !strings.HasSuffix(fail, "kaynak: span (örneklenmiş) — VM kullanılmadı: VictoriaMetrics okunamadı (okunamadı ≠ yok): timeout.") {
+		t.Errorf("hata satırı: %q", fail)
 	}
 }

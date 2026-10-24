@@ -293,6 +293,15 @@ func (s AlertSource) Evidence() string {
 	return redSourceEvidenceTR(redSourceUsed(s))
 }
 
+// ShownReason — SAF: kullanıcıya gösterilen gerekçe (shownSourceReason; VM
+// hiç yapılandırılmamışsa ""). Rozet / API cevabı bunu okur.
+func (s AlertSource) ShownReason() string {
+	if s.VM {
+		return ""
+	}
+	return shownSourceReason(s.Reason)
+}
+
 // Label — SAF: kısa rozet ("vm" | "span") — durum sayımı.
 func (s AlertSource) Label() string {
 	if s.VM {
