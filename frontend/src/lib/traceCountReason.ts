@@ -28,6 +28,11 @@ const HINTS: Record<Reason, string> = {
   'service+filter':
     'Servis filtresi ile hata/kök filtresi birlikteyken toplam ucuza sayılamıyor. ' +
     'İkisinden birini kaldırınca toplam görünür.',
+  // NOT HAS: liste MV yolunda adayları sınırlı bir probla eler; pencere
+  // geneli sayım tam pencere anti-join'i ister.
+  'trace-exclude':
+    'Trace düzeyi hariç tutma (NOT HAS) açıkken toplam ucuza sayılamıyor: sayım tüm penceredeki eşleşen span\'leri tarar. ' +
+    'Hariç tutmayı kaldırınca toplam görünür.',
 };
 
 /** traceCountReasonHint — ret sebebini operatör diline çevirir. */

@@ -79,6 +79,11 @@ type TraceErrorHistogram struct {
 // yalnız servis / ortam / küme kapsamı (traceErrScopeOnlyEligible). Uygun
 // değilse şerit metric-batch'te kalır (frontend errorStripEligible aynası).
 func TraceErrorHistogramEligible(f TraceFilter) bool {
+	if traceFilterHasExcludes(f) {
+		// Trace-level NOT HAS: the strip stays on metric-batch, which carries
+		// the list's anti-join (spanMetricBatchWhere; FE errorStripEligible).
+		return false
+	}
 	if traceErrScopeOnlyEligible(f) {
 		return true
 	}

@@ -55,6 +55,7 @@ const (
 	traceCountReasonRawPath  = "raw-path-filter" // filtre MV'yi zaten kapatıyor
 	traceCountReasonDuration = "duration-filter" // minMs/maxMs: ucuz şekil yok
 	traceCountReasonSvcAgg   = "service+filter"  // servis + post-agg kombinasyonu
+	traceCountReasonExclude  = "trace-exclude"   // NOT HAS: liste aday probu, sayım ucuz değil
 )
 
 // traceCountPlan — hangi kaynaktan, hangi yüklemlerle sayılacak.
@@ -88,6 +89,12 @@ func traceCountPlan(f TraceFilter, def TraceRootDef, entryCol bool) (source stri
 	// LIMIT erken duramaz ve maliyet pencereye bağlanır.
 	if f.MinMs > 0 || f.MaxMs > 0 {
 		return "", nil, nil, traceCountReasonDuration
+	}
+	// Trace-level NOT HAS: the MV list drops excluded candidates with a
+	// bounded probe (trace_exclude.go); a DISTINCT over the window would need
+	// the window-wide anti-join, i.e. the expensive scan the badge avoids.
+	if len(f.Excludes) > 0 {
+		return "", nil, nil, traceCountReasonExclude
 	}
 	// Servis + post-agg filtre: liste bunu iki tabloyu bağlayan bir
 	// alt-sorguyla karşılıyor (serviceSubquery). Aynısını sayımda
@@ -147,6 +154,7 @@ func buildTraceCountSQL(source string, preds []string) string {
 // CountTracesCapped — listeyle AYNI evreni tavana kadar sayar.
 func (s *Store) CountTracesCapped(ctx context.Context, f TraceFilter) (TraceCount, error) {
 	// v0.10.124 — liste ile AYNI kapı: MV boşluğunda plan ham yola düşer.
+	f = hoistTraceExcludes(f) // listeyle aynı NOT HAS ayrımı
 	f.MVGap = s.TraceMVGap(ctx, f.From, f.To)
 	source, preds, args, reason := traceCountPlan(f, s.TraceRootDef(), s.hasTraceEntrySvcCol) // v0.10.861 — listeyle aynı kök tanımı
 	if reason != "" {

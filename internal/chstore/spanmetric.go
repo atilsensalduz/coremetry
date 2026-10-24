@@ -873,10 +873,16 @@ func spanMetricBatchWhere(f SpanMetricBatchFilter, winK, effWin int) whereClause
 	if !f.To.IsZero() {
 		wc.add("time <= ?", f.To)
 	}
-	ApplyFilters(&wc, f.Filters)
-	if f.FilterRoot != nil { // v0.10.655 — grup yüklemi düz filtrelerle AND
-		ApplyFilterGroup(&wc, *f.FilterRoot)
+	// Trace-level NOT HAS (trace_exclude.go): the /traces strip counts the
+	// spans of the traces the list keeps — the list's own anti-join, not a
+	// span-level NOT IN. Here flat filters and the group are AND'ed (no
+	// supersede), so both are hoisted.
+	excl, flat, root := hoistNotHas(f.Filters, f.FilterRoot, false)
+	ApplyFilters(&wc, flat)
+	if root != nil { // v0.10.655 — grup yüklemi düz filtrelerle AND
+		ApplyFilterGroup(&wc, *root)
 	}
+	addTraceExcludeConjunct(&wc, excl, f.From, f.To, promotedCols())
 	// v0.10.484 — /traces Root / Errors bayrakları (tablo ile aynı küme).
 	if f.RootOnly {
 		// v0.10.611 — kolon parent_id (parent_span_id YOK, prod CH 47).

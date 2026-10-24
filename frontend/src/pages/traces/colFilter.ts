@@ -17,14 +17,19 @@ import type { FilterExpr } from '@/lib/types';
 //              v0.10.752); exclude / multi → an `operation` chip.
 //   status     errors on/off → `hasError`.
 //   duration   min/max → `minMs` / `maxMs`.
-//   attribute  `<key> = v` / `<key> != v` (repeated excludes merge into
-//              NOT IN) / `<key> IN (…)`. Every write first drops the chips
-//              this column owns, so a column carries at most one predicate.
+//   attribute  `<key> = v` / `<key> NOT HAS [v…]` / `<key> IN (…)`. Every
+//              write first drops the chips this column owns, so a column
+//              carries at most one predicate.
 //
-// Semantics are the filter model's own (trace-level: a trace matches when
-// one of its spans matches the chip). That is exactly right for include /
-// multi. For exclude it inherits today's `!=` meaning — "a span whose value
-// differs" — see docs/DECISIONS.md v0.10.1511.
+// Include / multi: a trace matches when one of its spans matches the chip.
+// Exclude (every column kind, service and operation included) writes the
+// TRACE-level `NOT HAS` — "the trace has NO span with this value" — and
+// repeated excludes merge into the same chip. It used to write `!=` / NOT IN,
+// whose meaning is span-level ("a span whose value differs"), so a multi-span
+// trace carrying the value in a child span stayed in the list. `!=` itself is
+// unchanged (saved views / shared links keep their answer); a legacy `!=` /
+// NOT IN chip on the column still reads as excluded and is folded into the
+// NOT HAS chip on the next exclude. docs/DECISIONS.md (trace-level negation).
 
 export type ColFilterKind = 'service' | 'operation' | 'status' | 'duration' | 'attr';
 
@@ -93,7 +98,7 @@ function uniq(values: string[]): string[] {
 function excludedValues(filters: FilterExpr[], colId: string): string[] {
   const keys = ownedKeys(colId);
   return uniq(filters
-    .filter(f => keys.has(f.k.trim()) && (f.op === '!=' || f.op === 'NOT IN'))
+    .filter(f => keys.has(f.k.trim()) && (f.op === 'NOT HAS' || f.op === '!=' || f.op === 'NOT IN'))
     .flatMap(f => f.v));
 }
 
@@ -126,7 +131,7 @@ export function applyColFilter(s: ColFilterState, colId: string, a: ColFilterAct
       const v = a.value;
       if (!v) return s;
       const vals = uniq([...excludedValues(s.filters, colId), v]);
-      const chip: FilterExpr = vals.length === 1 ? { k: key, op: '!=', v: vals } : { k: key, op: 'NOT IN', v: vals };
+      const chip: FilterExpr = { k: key, op: 'NOT HAS', v: vals };
       return { ...base, filters: [...rest, chip] };
     }
     case 'multi': {
@@ -172,7 +177,7 @@ export function colFilterStatus(s: ColFilterState, colId: string): ColFilterStat
   const excluded = excludedValues(s.filters, colId);
   // Any other operator the operator typed by hand (LIKE, >, EXISTS…) still
   // marks the column as filtered — the clear option removes it too.
-  const other = mine.some(f => !['=', 'IN', '!=', 'NOT IN'].includes(f.op));
+  const other = mine.some(f => !['=', 'IN', '!=', 'NOT IN', 'NOT HAS'].includes(f.op));
   if (!selected.length && !excluded.length && !other) return none;
   const parts: string[] = [];
   if (selected.length) parts.push(selected.length > 2 ? `IN ${selected.length}` : `= ${selected.join(', ')}`);

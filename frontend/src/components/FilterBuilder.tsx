@@ -16,6 +16,9 @@ const NEEDS_VALUE: Record<FilterOp, boolean> = {
   '=': true, '!=': true,
   'LIKE': true, 'NOT LIKE': true,
   'IN': true, 'NOT IN': true,
+  // Trace-level exclusion — written by /traces (column filter / query box);
+  // not offered in this builder's op list, but a chip that carries it renders.
+  'NOT HAS': true,
   '>': true, '>=': true, '<': true, '<=': true,
   'EXISTS': false, 'NOT EXISTS': false,
 };
@@ -151,7 +154,7 @@ function DraftEditor({ draft, onSave, onCancel, suggestedValues, keyOptions, top
   const [range] = useUrlRange();
   const rangeNs = useMemo(() => timeRangeToNs(range), [range]);
   const needsValue = NEEDS_VALUE[local.op];
-  const isList = local.op === 'IN' || local.op === 'NOT IN';
+  const isList = local.op === 'IN' || local.op === 'NOT IN' || local.op === 'NOT HAS';
 
   // Esc cancels the inline editor — matches Modal.tsx / TimeRangePicker
   // muscle memory. Registered while the editor is mounted; the parent
@@ -306,6 +309,6 @@ function DraftEditor({ draft, onSave, onCancel, suggestedValues, keyOptions, top
 }
 
 function formatValues(v: string[], op: string): string {
-  if (op === 'IN' || op === 'NOT IN') return v.join(', ');
+  if (op === 'IN' || op === 'NOT IN' || op === 'NOT HAS') return v.join(', ');
   return v[0] ?? '';
 }

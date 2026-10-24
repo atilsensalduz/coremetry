@@ -22,6 +22,8 @@ describe('opFromShorthand', () => {
     expect(opFromShorthand('exists')).toBe('EXISTS');
     expect(opFromShorthand('∄')).toBe('NOT EXISTS');
     expect(opFromShorthand('>=')).toBe('>=');
+    expect(opFromShorthand('not has')).toBe('NOT HAS');
+    expect(opFromShorthand('!has')).toBe('NOT HAS');
     expect(opFromShorthand('??')).toBeNull();
     for (const op of FILTER_OPS) expect(OP_SHORT[op]).toBeTruthy();
   });
@@ -35,6 +37,10 @@ describe('parseInlineFilter', () => {
     expect(parseInlineFilter('duration >= 100')).toEqual({ k: 'duration', op: '>=', v: ['100'] });
     expect(parseInlineFilter('error.type exists')).toEqual({ k: 'error.type', op: 'EXISTS', v: [] });
     expect(parseInlineFilter('function_code ~ TRN')).toEqual({ k: 'function_code', op: 'LIKE', v: ['TRN'] });
+    // Trace-level exclusion: a list op (comma values), never confused with NOT IN.
+    expect(parseInlineFilter('function_code not has TRN01, TRN02')).toEqual({ k: 'function_code', op: 'NOT HAS', v: ['TRN01', 'TRN02'] });
+    expect(parseInlineFilter('function_code !has TRN01')).toEqual({ k: 'function_code', op: 'NOT HAS', v: ['TRN01'] });
+    expect(parseInlineFilter('channel_code not in WEB')).toEqual({ k: 'channel_code', op: 'NOT IN', v: ['WEB'] });
   });
   it('değer içindeki = korunur; boşluklu anahtar / eksik değer / boş → null', () => {
     expect(parseInlineFilter('http.route=/x?a=b')).toEqual({ k: 'http.route', op: '=', v: ['/x?a=b'] });
@@ -49,6 +55,7 @@ describe('chip / upsert / recent / rank', () => {
   it('chipValueLabel + splitListValues', () => {
     expect(chipValueLabel({ k: 'a', op: 'IN', v: ['x', 'y'] })).toBe('x, y');
     expect(chipValueLabel({ k: 'a', op: 'EXISTS', v: [] })).toBe('');
+    expect(chipValueLabel({ k: 'a', op: 'NOT HAS', v: ['x', 'y'] })).toBe('x, y');
     expect(splitListValues(' a, ,b ,a')).toEqual(['a', 'b']);
   });
   // v0.10.1093 — ifade kimliği çipi: ham 20 hane yerine statement detayının

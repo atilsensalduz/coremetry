@@ -187,6 +187,7 @@ func traceColumnValuesMVEligible(f TraceColumnValuesFilter) bool {
 	return (f.Column == "service" || f.Column == "operation") &&
 		sc.Search == "" && sc.Env == "" && sc.Cluster == "" &&
 		len(sc.Filters) == 0 && !sc.FilterRoot.hasPredicate() &&
+		len(sc.Excludes) == 0 && // trace-level NOT HAS → raw anti-join, like the list
 		sc.MinMs == 0 && sc.MaxMs == 0 &&
 		!sc.From.IsZero() && !sc.To.IsZero() &&
 		sc.To.Sub(sc.From) >= 5*time.Minute
@@ -238,6 +239,7 @@ func traceColumnValuesMVSQL(f TraceColumnValuesFilter, keyExpr string) (string, 
 // current window + filters, with trace counts. Never nil (JSON [] not null —
 // v0.10.1505 class).
 func (s *Store) GetTraceColumnValues(ctx context.Context, f TraceColumnValuesFilter) ([]TraceColumnValue, error) {
+	f.Scope = hoistAggExcludes(f.Scope) // the list's NOT HAS split (trace_exclude.go)
 	var sql string
 	var args []any
 	if traceColumnValuesMVEligible(f) && !s.TraceMVGap(ctx, f.Scope.From, f.Scope.To) {

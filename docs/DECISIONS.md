@@ -11267,6 +11267,9 @@ genellikle ELEMEZ. − düğmesi operatörün onayladığı `field != value` yaz
 düzeyi hariç tutma (anti-join: `trace_id NOT IN (pencere + k = v)`) GetTraces'in hızlı yollarına dokunduğu için ayrı onaylı
 iş olarak öneriliyor. + ve çoklu seçim trace düzeyinde doğrudur.
 
+> **Güncelleme v0.10.1517 — sınır KALKTI.** − artık trace düzeyi `NOT HAS` yazar (anti-join); `!=` span düzeyinde
+> aynen kalır. Ayrıntı: aşağıdaki "v0.10.1517 — /traces trace düzeyi hariç tutma" girdisi.
+
 **Geri alma.** `git revert <sha>` + yeni etiket. Kalıcı veri/şema yok; `aggregateInnerWhere` çıkarımı davranış değiştirmez
 (TestHasErrorHavingWiredInBothLists + aggregate testleri). Yalnız UI'yi kapatmak için Traces.tsx'te `renderHeadLabel`
 satırını kaldırmak yeter.
@@ -11365,3 +11368,70 @@ linki eski kodda yerleşik id'leri attribute sanar (çift kolon) — linkler ge�
 `traces-col-order` anahtarı eski kodda okunmaz (zararsız); sunucu modelindeki özel sıra eski kodda yalnız attribute
 listesi olarak okunur (yerleşikler süzülür). Yalnız sürüklemeyi kapatmak için Traces.tsx'te `reorderable: true` satırını
 kaldırmak yeter (Sütunlar ▾ çalışmaya devam eder).
+
+## 2026-10-24 — v0.10.1517 — /traces trace düzeyi hariç tutma (`NOT HAS`, anti-join)
+
+**İstek (operatör onaylı takip işi, 2026-10-24).** v0.10.1511'in bilinen sınırı: kolon filtresinin − düğmesi `k != v`
+(tekrarı `NOT IN`) yazıyordu ve filtre modelinde `!=` SPAN düzeyidir ("değeri farklı olan bir span var"); çok span'li
+bir trace'te anahtarı taşımayan span'ler (`'' != v`) koşulu sağladığı için `FUNCTION_CODE != X` çocuk span'inde X olan
+trace'i listede TUTUYORDU. Hedef: − = "trace'in pencerede bu değeri taşıyan HİÇBİR span'i yok".
+
+**Karar — `!=`'in anlamı DEĞİŞMEDİ; ayrı operatör `NOT HAS`.** `!=` / `NOT IN` kayıtlı görünümlerde, paylaşılan
+linklerde, Explore'da, alarm/DQL yüzeylerinde span düzeyinde kalır (hiçbir eski link cevabını değiştirmez). Kolon
+filtresinin − eylemi her kolon türünde (Service ve Name dahil) `k NOT HAS [v…]` yazar; tekrarlı hariç tutmalar AYNI
+çipte birleşir. Kolonda eski bir `!=` / `NOT IN` çipi varsa hâlâ "hariç" okunur ve bir sonraki −'de `NOT HAS`'e
+katlanır; başka anahtardaki elle yazılmış `!=`'e dokunulmaz. Sorgu kutusunda `k not has a, b` / `k !has a` yazılabilir
+(FilterBuilder op listesinde yok — Explore/Logs span yüzeyi). Service için anlam "X'e HİÇ dokunmayan trace'ler" —
++'nın ("X'in dokunduğu trace'ler") tam tümleyeni. Neden yeni anlam değil yeni operatör: `!=`'i trace düzeyine çevirmek
+her yüzeyde (span listesi, metrik, DQL) farklı bir soru sorardı ve eski linkler sessizce başka sonuç verirdi.
+
+**Yürütme (`internal/chstore/trace_exclude.go`).** Her Store girişi (GetTraces, CountTracesCapped, GetTraceAggregate,
+GetTraceColumnValues, teşhis sayımları) `NOT HAS` çiplerini Filters / düz-AND FilterRoot'tan `Excludes` alanına
+taşır (hoistTraceExcludes, idempotent) — span çipi yardımcıları (arama HAVING'i, servis yarı-birleşimi, kök/hata
+kararları, MV kapıları) onları hiç görmez. Pozitif yüklem include çipinin derleyicisinden (`k = v` / `k IN (…)`;
+terfi kolonu → tipli kolon → kvh bloom + dizi), birden çok çip tek alt sorguda OR.
+- **Ham yollar** (liste basamakları, Aggregated, column-values, /traces hacim şeridi metric-batch'i): tek koşul
+  `trace_id GLOBAL NOT IN (SELECT trace_id FROM spans WHERE <listenin penceresi> AND <eşleşme> ORDER BY time DESC
+  LIMIT 300000 SETTINGS max_execution_time = 15)`. trace_id trace içinde sabit olduğundan hariç trace'in TÜM span'leri
+  düşer, kalan trace bütün kalır — span kümesi değil trace kümesi daralır (Root / Errors / gruplama anlamı aynı).
+  Pencere yoksa alt sorgu yine sınırlı (son 24 sa, `now64()`).
+- **Tavan + sayfa bekçisi.** Küme en yeni 300k eşleşen span'le tavanlı (semi-join zinciriyle aynı bütçe). Tavan
+  aşılınca en eski eşleşen trace'ler kümeden kaçabilir — ÖLÇÜLDÜ: 24 sa, sort=duration, ~450k eşleşen trace → 50
+  satırın 11'i hâlâ X taşıyordu. Bu yüzden ham yolun döndürdüğü SAYFA (≤ limit+1 id) kesin probla (`trace_id IN
+  (sayfa) AND <eşleşme>`) süzülür; kaçak satır düşer → kısa sayfa, asla yanlış satır (aynı ölçüm: 39 satır, 0 kaçak).
+- **trace_summary_5m hızlı yolu AÇIK kalır.** `NOT HAS` tek başına MV'yi kapatmaz: 1. aşamanın aday id'leri
+  (≤ 6000) aynı probla süzülür (kesin, tavansız), hariç tutma bir post-agg yüklem sayılır (en yeni-N dilimi,
+  RankedWithin ilanı — Root / süre gibi). Toplam rozeti `trace-exclude` sebebiyle reddeder (pencere geneli sayım tam
+  anti-join ister). Errors şeridi (error-histogram) `NOT HAS` varken metric-batch'te kalır (FE errorStripEligible +
+  Go TraceErrorHistogramEligible aynası); metric-batch aynı anti-join'i taşır. Aggregated ve column-values MV yolunu
+  `Excludes` varken kapatır (ham anti-join) — popover sayıları listeyle aynı evren (canlı fikstür testi).
+- **Span düzeyi yüzeyler** (Explore span listesi, diğer span metrikleri, metric_points): `NOT HAS` = `NOT IN` (tek
+  span'in taşıyabileceği tek anlam). OR kökü / alt grup içinde 400 (FilterGroup.Validate) — OR altında sınırlı bir
+  anti-join şekli yok.
+
+**Ölçüm (lokal CH 26.3 tek düğüm, 1.5M trace × 5 span = 7.5M span / 24 sa, FUNCTION_CODE çocuk span'de, X = trace'lerin
+%30'u; terfi kolonu kapalı → kvh + dizi yolu, prod'da terfi kolonu daha ucuz; `refresh=1`, 3 koşunun sonuncusu).**
+
+| İstek | önce (`!=`, span düzeyi) | sonra (`NOT HAS`) |
+|---|---|---|
+| liste 1 sa | 56 ms · 0.99M satır · 58.6 MiB · ham yol · kaçak var | 45 ms · 0.16M · 10.5 MiB · MV + prob · 0 kaçak |
+| liste 24 sa | 76 ms · 1.29M · 78.2 MiB | 51 ms · 0.32M · 17.0 MiB |
+| liste + servis 24 sa | 44 ms · 2.00M · 51.0 MiB | 63 ms · 0.10M · 24.9 MiB |
+| liste + CHANNEL çipi 24 sa (ham) | 23 ms · 0.15M · 8.8 MiB | 34 ms · 0.30M · 12.4 MiB |
+| liste + çip, sort=duration 24 sa (en kötü) | 59 ms · 1.79M · 95 MiB · 26/50 kaçak | 160–180 ms · 3.7M · 170 MiB · 100 MiB bellek · 0 kaçak (39 satır) |
+| column-values 1 sa / 24 sa | 42 ms / 0.69–0.86 s | 51 ms / 0.69–0.90 s (200k-trace iç kümesi baskın, değişmedi) |
+
+Bütçe: liste < 200 ms sıcak; column-values 24 sa < 1 s soğuk (önceden de 200k iç küme sınırındaydı).
+
+**Testler.** `trace_exclude_test.go`: hoist tablosu (düz / AND kök / OR korunur / supersede / idempotent / çağıranın
+grubu değişmez), anti-join SQL (sınırlı pencere, ORDER BY + LIMIT + max_execution_time, `?` = argüman, kapsam öneki
+bayt bayt aynı, `!=` span düzeyinde), MV kapısı / post-agg / sayım sebebi / şerit uygunluğu, prob SQL'i, Aggregated +
+column-values + metric-batch WHERE'leri, Validate (değersiz, OR, alt grup, op_group), span düzeyi geri düşüş, sayfa
+bekçisi; canlı fikstür (clickhouse local): çocuk span'de X → elenir, kökte X → elenir, X yalnız pencere dışında →
+kalır, servis daraltmasıyla da elenir, kalan trace span kaybetmez, `!=` eski anlamı korur, column-values sayısı =
+liste satırı. FE: colFilter (NOT HAS yazımı, birleşme, eski çipin katlanması, URL gidiş-dönüş), filterQuery
+(`not has` / `!has` ayrıştırma, liste değeri), scopeParams (şerit kapısı).
+
+**Geri alma.** `git revert <sha>` + yeni etiket. Şema / ayar yok. Yalnız UI'yi eski yazıma döndürmek için
+`colFilter.ts` exclude dalında `op: 'NOT HAS'` → eski `!=` / `NOT IN` satırı; `NOT HAS` taşıyan paylaşılmış linkler
+sunucu tarafında çalışmaya devam eder (operatör kaldırılırsa API 400 verir — revert ile birlikte düşünülmeli).

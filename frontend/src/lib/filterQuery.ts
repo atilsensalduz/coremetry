@@ -7,19 +7,19 @@
 
 import type { FilterExpr, FilterOp } from './types';
 
-export const FILTER_OPS: FilterOp[] = ['=', '!=', 'LIKE', 'NOT LIKE', 'IN', 'NOT IN', '>', '>=', '<', '<=', 'EXISTS', 'NOT EXISTS'];
+export const FILTER_OPS: FilterOp[] = ['=', '!=', 'LIKE', 'NOT LIKE', 'IN', 'NOT IN', 'NOT HAS', '>', '>=', '<', '<=', 'EXISTS', 'NOT EXISTS'];
 
 export const OP_NEEDS_VALUE: Record<FilterOp, boolean> = {
   '=': true, '!=': true,
   'LIKE': true, 'NOT LIKE': true,
-  'IN': true, 'NOT IN': true,
+  'IN': true, 'NOT IN': true, 'NOT HAS': true,
   '>': true, '>=': true, '<': true, '<=': true,
   'EXISTS': false, 'NOT EXISTS': false,
 };
 
 /** Kısa görünüm (çip + op çubuğu): mockup'taki ≠ ~ ∃ yazımı. */
 export const OP_SHORT: Record<FilterOp, string> = {
-  '=': '=', '!=': '≠', 'LIKE': '~', 'NOT LIKE': '!~', 'IN': 'IN', 'NOT IN': 'NOT IN',
+  '=': '=', '!=': '≠', 'LIKE': '~', 'NOT LIKE': '!~', 'IN': 'IN', 'NOT IN': 'NOT IN', 'NOT HAS': 'NOT HAS',
   '>': '>', '>=': '>=', '<': '<', '<=': '<=', 'EXISTS': '∃', 'NOT EXISTS': '∄',
 };
 
@@ -29,9 +29,15 @@ const OP_ALIASES: Record<string, FilterOp> = {
   '~': 'LIKE', 'like': 'LIKE', 'contains': 'LIKE',
   '!~': 'NOT LIKE', 'not like': 'NOT LIKE', '!like': 'NOT LIKE',
   'in': 'IN', 'not in': 'NOT IN', '!in': 'NOT IN',
+  'not has': 'NOT HAS', '!has': 'NOT HAS',
   '>': '>', '>=': '>=', '<': '<', '<=': '<=', 'gt': '>', 'gte': '>=', 'lt': '<', 'lte': '<=',
   'exists': 'EXISTS', '∃': 'EXISTS', 'not exists': 'NOT EXISTS', '!exists': 'NOT EXISTS', '∄': 'NOT EXISTS',
 };
+
+/** isListOp — comma-separated multi-value ops (IN / NOT IN / NOT HAS). */
+export function isListOp(op: FilterOp): boolean {
+  return op === 'IN' || op === 'NOT IN' || op === 'NOT HAS';
+}
 
 /** opFromShorthand — yazılan op'u sözleşme op'una çevirir; bilinmeyen → null. */
 export function opFromShorthand(raw: string): FilterOp | null {
@@ -53,7 +59,7 @@ export function splitListValues(text: string): string[] {
 // Satır içi yazım: `key op value`. Op adayları uzun→kısa sırayla denenir ki
 // `>=` `>`'dan, `not in` `in`'den önce yakalansın. Değer içindeki `=`
 // (örn. `http.route=/x?a=b`) korunur: ayrım İLK op eşleşmesinden.
-const INLINE_OPS: string[] = ['not exists', 'not like', 'not in', 'exists', 'like', '!exists', '!like', '!in', '>=', '<=', '!=', '<>', '==', '!~', ' in ', '=', '~', '>', '<'];
+const INLINE_OPS: string[] = ['not exists', 'not like', 'not has', 'not in', 'exists', '!has', 'like', '!exists', '!like', '!in', '>=', '<=', '!=', '<>', '==', '!~', ' in ', '=', '~', '>', '<'];
 
 /**
  * parseInlineFilter — "http.route=/x", "channel_code in MOBILE,WEB",
@@ -89,7 +95,7 @@ export function parseInlineFilter(text: string): FilterExpr | null {
   const rest = s.slice(best.idx + best.len).trim();
   if (!OP_NEEDS_VALUE[best.op]) return { k: key, op: best.op, v: [] };
   if (!rest) return null;
-  const v = best.op === 'IN' || best.op === 'NOT IN' ? splitListValues(rest) : [rest];
+  const v = isListOp(best.op) ? splitListValues(rest) : [rest];
   if (v.length === 0) return null;
   return { k: key, op: best.op, v };
 }
@@ -97,7 +103,7 @@ export function parseInlineFilter(text: string): FilterExpr | null {
 /** chipValueLabel — çipte görünen değer; IN listesi virgülle, EXISTS boş. */
 export function chipValueLabel(f: FilterExpr): string {
   if (!OP_NEEDS_VALUE[f.op]) return '';
-  if (f.op === 'IN' || f.op === 'NOT IN') return f.v.join(', ');
+  if (isListOp(f.op)) return f.v.join(', ');
   return f.v[0] ?? '';
 }
 

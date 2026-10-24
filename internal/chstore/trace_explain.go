@@ -91,6 +91,7 @@ func countMatchingSpansSQL(whereSQL string) string {
 // v0.10.852 — capped: trace-düzeyi dal tavana (traceCountCap) çarptı; n tavana
 // kırpılmış döner. Span-düzeyi dal düz count(), hiç tavanlanmaz (capped=false).
 func (s *Store) CountMatchingSpans(ctx context.Context, f TraceFilter) (n uint64, capped bool, err error) {
+	f = hoistTraceExcludes(f) // trace-level NOT HAS → anti-join, as in the list
 	lf := f
 	lf.CandidateIDs = nil
 	// v0.10.341 — arama + çip: liste artık TRACE düzeyi (çipler HAVING'de);
@@ -190,7 +191,7 @@ func countMatchingTracesSQL(whereSQL, havingSQL string) string {
 func (s *Store) PromotedMismatch(ctx context.Context, f TraceFilter) ([]PromotedHostCount, error) {
 	byHost := map[string]*PromotedHostCount{}
 	run := func(noPromoted bool, name string, set func(c *PromotedHostCount, n uint64)) error {
-		lf := f
+		lf := hoistTraceExcludes(f)
 		lf.CandidateIDs = nil
 		lf.NoPromoted = noPromoted
 		lf.forceFiltersInWhere = true // span-düzeyi prob: çip WHERE'de kalır (v0.10.341)

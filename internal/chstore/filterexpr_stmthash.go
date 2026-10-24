@@ -106,14 +106,18 @@ func stmtHashFilterSQL(alias, op string, vs []string, colReady bool) (string, []
 // (v0.10.1117, filterexpr_routeshape.go) anahtarları burada ayrılır, gerisi
 // genel derleyiciye.
 func (f FilterExpr) spansSQL(alias string, promoted map[string]string) (string, []any, error) {
+	op := normOp(f.Op)
+	if op == OpNotHas { // span-level meaning of the trace exclusion (trace_exclude.go)
+		op = "NOT IN"
+	}
 	if f.Key == StmtHashFilterKey {
-		return stmtHashFilterSQL(alias, normOp(f.Op), f.Values, stmtHashColReady.Load())
+		return stmtHashFilterSQL(alias, op, f.Values, stmtHashColReady.Load())
 	}
 	if f.Key == OpGroupFilterKey {
-		return opGroupFilterSQL(alias, normOp(f.Op), f.Values, opGroupColReady.Load())
+		return opGroupFilterSQL(alias, op, f.Values, opGroupColReady.Load())
 	}
 	if isShapeFilterKey(f.Key) {
-		return shapeFilterSQL(f.Key, alias, normOp(f.Op), f.Values)
+		return shapeFilterSQL(f.Key, alias, op, f.Values)
 	}
 	return f.sql(alias, wellKnown, wellKnownResource, promoted, AttrIndexAvailable())
 }

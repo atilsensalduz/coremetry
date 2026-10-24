@@ -3992,6 +3992,9 @@ export type FilterOp =
   | '=' | '!='
   | 'LIKE' | 'NOT LIKE'
   | 'IN' | 'NOT IN'
+  // Trace-level exclusion (/traces only): "the trace has NO span with k ∈ v".
+  // `!=` / NOT IN stay span-level. Server: chstore/trace_exclude.go.
+  | 'NOT HAS'
   | '>' | '>=' | '<' | '<='
   | 'EXISTS' | 'NOT EXISTS';
 
@@ -9065,7 +9068,7 @@ export interface AnnotationsResponse {
 export interface TraceCountResponse {
   value: number;
   atLeast: boolean;
-  reason?: 'raw-path-filter' | 'duration-filter' | 'service+filter';
+  reason?: 'raw-path-filter' | 'duration-filter' | 'service+filter' | 'trace-exclude';
 }
 
 // v0.10.1082 — GET /api/traces/error-histogram zarfı (Go:

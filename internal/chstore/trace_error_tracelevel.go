@@ -65,6 +65,7 @@ func traceLevelErrorEligible(f TraceFilter) bool {
 // ortam, küme). Çipler, hata, arama, kök, süre ve id listeleri düşer.
 func traceErrScope(f TraceFilter) TraceFilter {
 	lf := withoutChips(f)
+	lf.Excludes = f.Excludes // trace-level NOT HAS narrows both sides' trace set
 	lf.Search = ""
 	lf.RequireServices, lf.RootOnly = nil, false
 	lf.TraceIDs, lf.CandidateIDs = nil, nil

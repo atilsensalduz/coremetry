@@ -27,13 +27,25 @@ describe('applyColFilter — attribute column', () => {
     s = applyColFilter(s, 'FUNCTION_CODE', { kind: 'include', value: 'B2' });
     expect(s.filters).toEqual([{ k: 'FUNCTION_CODE', op: '=', v: ['B2'] }]);
   });
-  it('exclude writes key != value; repeated excludes merge into NOT IN', () => {
+  // Trace-level negation (follow-up to v0.10.1511): − writes NOT HAS ("the
+  // trace has no span with this value"), never the span-level != / NOT IN.
+  it('exclude writes key NOT HAS [value]; repeated excludes merge into the same chip', () => {
     let s = applyColFilter(empty, 'CHANNEL_CODE', { kind: 'exclude', value: 'MOBILE' });
-    expect(s.filters).toEqual([{ k: 'CHANNEL_CODE', op: '!=', v: ['MOBILE'] }]);
+    expect(s.filters).toEqual([{ k: 'CHANNEL_CODE', op: 'NOT HAS', v: ['MOBILE'] }]);
     s = applyColFilter(s, 'CHANNEL_CODE', { kind: 'exclude', value: 'WEB' });
-    expect(s.filters).toEqual([{ k: 'CHANNEL_CODE', op: 'NOT IN', v: ['MOBILE', 'WEB'] }]);
+    expect(s.filters).toEqual([{ k: 'CHANNEL_CODE', op: 'NOT HAS', v: ['MOBILE', 'WEB'] }]);
     s = applyColFilter(s, 'CHANNEL_CODE', { kind: 'exclude', value: 'WEB' });
-    expect(s.filters).toEqual([{ k: 'CHANNEL_CODE', op: 'NOT IN', v: ['MOBILE', 'WEB'] }]);
+    expect(s.filters).toEqual([{ k: 'CHANNEL_CODE', op: 'NOT HAS', v: ['MOBILE', 'WEB'] }]);
+  });
+  it('a legacy != / NOT IN chip (old shared link) reads as excluded and folds into NOT HAS', () => {
+    const legacy = { ...empty, filters: [{ k: 'CHANNEL_CODE', op: 'NOT IN' as const, v: ['MOBILE', 'WEB'] }] };
+    expect(colFilterStatus(legacy, 'CHANNEL_CODE')).toMatchObject({ active: true, excluded: ['MOBILE', 'WEB'] });
+    const s = applyColFilter(legacy, 'CHANNEL_CODE', { kind: 'exclude', value: 'API' });
+    expect(s.filters).toEqual([{ k: 'CHANNEL_CODE', op: 'NOT HAS', v: ['MOBILE', 'WEB', 'API'] }]);
+    // A hand-typed `!=` on ANOTHER key is never rewritten.
+    const other = { ...empty, filters: [{ k: 'FUNCTION_CODE', op: '!=' as const, v: ['A'] }] };
+    expect(applyColFilter(other, 'CHANNEL_CODE', { kind: 'exclude', value: 'WEB' }).filters)
+      .toEqual([{ k: 'FUNCTION_CODE', op: '!=', v: ['A'] }, { k: 'CHANNEL_CODE', op: 'NOT HAS', v: ['WEB'] }]);
   });
   it('multi writes key IN (…); one value degrades to =; none clears', () => {
     expect(applyColFilter(empty, 'FUNCTION_CODE', { kind: 'multi', values: ['A', 'B', 'A'] }).filters)
@@ -64,7 +76,7 @@ describe('applyColFilter — service / operation / status / duration', () => {
     expect(s.filters).toEqual([]);
     s = applyColFilter(s, 'service', { kind: 'exclude', value: 'orders-api' });
     expect(s.service).toBe('');
-    expect(s.filters).toEqual([{ k: 'service.name', op: '!=', v: ['orders-api'] }]);
+    expect(s.filters).toEqual([{ k: 'service.name', op: 'NOT HAS', v: ['orders-api'] }]);
     s = applyColFilter(s, 'service', { kind: 'multi', values: ['a-api', 'b-api'] });
     expect(s.service).toBe('');
     expect(s.filters).toEqual([{ k: 'service.name', op: 'IN', v: ['a-api', 'b-api'] }]);

@@ -1985,10 +1985,18 @@ type TraceFilter struct {
 	// unaffected. An OR / nested group disqualifies the trace_summary MV
 	// fast-path exactly like Search / custom-attr does (see GetTraces gate).
 	FilterRoot *FilterGroup
-	Sort       string // "time" | "duration"
-	Order      string // "asc" | "desc"
-	Limit      int
-	Offset     int
+	// Excludes — trace-level NOT HAS chips (trace_exclude.go), hoisted out of
+	// Filters / FilterRoot by hoistTraceExcludes at every Store entry. Compiled
+	// as a trace_id anti-join (raw paths) or a candidate probe (MV path); it
+	// narrows the TRACE set, never the span set.
+	Excludes []FilterExpr
+	// excludeExact — OUT (GetTraces' page guard): set when the MV path already
+	// probe-verified every candidate, so the page guard is skipped.
+	excludeExact *bool
+	Sort         string // "time" | "duration"
+	Order        string // "asc" | "desc"
+	Limit        int
+	Offset       int
 	// RankedWithin, when non-nil, is an OUT param: the MV fast-path
 	// writes traceRecencySliceN into it when a non-time sort was
 	// ranked within the newest-N recency slice (v0.8.369,
@@ -2053,6 +2061,7 @@ func addClusterConjunct(wc *whereClause, clusterExpr, cluster string) {
 // the SQL-shape tests can run without a server. Callers pass
 // s.clusterExpr(); tests pass either constant.
 func buildGetTracesWhere(f TraceFilter, clusterExpr string) whereClause {
+	f = hoistTraceExcludes(f) // idempotent; Store entries already hoisted
 	var wc whereClause
 	if !f.From.IsZero() {
 		// v0.5.356 — operator-reported: clicking an operation on
@@ -2219,6 +2228,10 @@ func buildGetTracesWhere(f TraceFilter, clusterExpr string) whereClause {
 			ApplyFiltersWith(&wc, f.Filters, pm)
 		}
 	}
+	// Trace-level NOT HAS (trace_exclude.go): always-AND anti-join on
+	// trace_id, window = this WHERE's own window. Emits nothing without
+	// excludes, so every existing shape stays byte-identical.
+	addTraceExcludeConjunct(&wc, f.Excludes, f.From, f.To, pm)
 	return wc
 }
 
@@ -2443,7 +2456,16 @@ func (s *Store) traceDisplaySvcExpr() string {
 	return "if((" + root + " = '' OR " + root + " = 'unknown') AND argMinIfMerge(entry_service_state) != '', argMinIfMerge(entry_service_state), " + root + ")"
 }
 
-func (s *Store) GetTraces(ctx context.Context, f TraceFilter) ([]TraceRow, uint64, bool, error) {
+// GetTraces — the /traces list. Trace-level NOT HAS (trace_exclude.go): the
+// deferred page guard below makes the raw paths exact past the anti-join cap.
+func (s *Store) GetTraces(ctx context.Context, f TraceFilter) (gtRows []TraceRow, gtTotal uint64, gtHasMore bool, gtErr error) {
+	f = hoistTraceExcludes(f) // trace-level NOT HAS → f.Excludes (trace_exclude.go)
+	if len(f.Excludes) > 0 {
+		exact := false
+		f.excludeExact = &exact
+		guardF := f
+		defer func() { gtRows, gtErr = s.traceExcludePageGuard(ctx, guardF, exact, gtRows, gtErr) }()
+	}
 	// MV fast-path. Activates when:
 	//   • Window is ≥ 5 minutes (MVs are 5-min bucketed)
 	//   • No per-span filters that require raw access:
@@ -3716,7 +3738,7 @@ type noServiceSlice struct {
 func noServiceSlicePlan(f TraceFilter) noServiceSlice {
 	return noServiceSlice{
 		errorsPrefilter: f.HasError,
-		postAgg:         f.RootOnly || f.MinMs > 0 || f.MaxMs > 0,
+		postAgg:         f.RootOnly || f.MinMs > 0 || f.MaxMs > 0 || len(f.Excludes) > 0,
 	}
 }
 
@@ -3760,7 +3782,9 @@ func traceStage1Budget(offset, pageLimit, stage1Limit int) (int, bool) {
 // (RequireServices / Search / attr filters disqualify the MV path
 // upstream, so they never reach here.) Pure — table-tested.
 func tracePostAggFiltered(f TraceFilter) bool {
-	return f.HasError || f.RootOnly || f.MinMs > 0 || f.MaxMs > 0
+	// Excludes: the MV path drops excluded candidates after Stage 1
+	// (dropExcludedCandidates) — a post-Stage-1 predicate like Root.
+	return f.HasError || f.RootOnly || f.MinMs > 0 || f.MaxMs > 0 || len(f.Excludes) > 0
 }
 
 // traceHasErrorHaving — trace-düzeyi "hata var" yüklemi (GROUP BY trace_id
@@ -4153,6 +4177,25 @@ func (s *Store) getTracesFromMV(ctx context.Context, f TraceFilter) ([]TraceRow,
 		}
 	}
 
+	// Trace-level NOT HAS (trace_exclude.go): the candidates that carry a
+	// matching span in the window are dropped HERE, exactly (probe bounded by
+	// the id list) — the exclusion keeps the MV path instead of closing it.
+	if len(f.Excludes) > 0 && len(traceIDs) > 0 {
+		kept, err := s.dropExcludedCandidates(ctx, f, traceIDs)
+		if err != nil {
+			return nil, 0, false, err
+		}
+		f.Explain.note("trace-exclude=candidate-probe (%d → %d ids)", len(traceIDs), len(kept))
+		if f.excludeExact != nil {
+			*f.excludeExact = true // every Stage 2 id is probe-verified
+		}
+		if len(kept) == 0 {
+			return []TraceRow{}, 0, false, nil
+		}
+		traceIDs = kept
+		holders = chPlaceholders(len(kept))
+	}
+
 	traceIDClause := ""
 	var idArgs []any
 	// v0.10.265 — `trace_id GLOBAL IN (index GROUP BY trace_id)` dalı KALDIRILDI:
@@ -4241,9 +4284,12 @@ type AggregateFilter struct {
 	// when non-nil; flat-AND is byte-identical to the legacy path, OR /
 	// nested disqualifies the trace_summary MV fast-path.
 	FilterRoot *FilterGroup
-	Sort       string // "count"|"perMin"|"errorRate"|"avg"|"p50"|"p95"|"p99"|"max"|"name"
-	Order      string // "asc"|"desc"
-	Limit      int
+	// Excludes — trace-level NOT HAS chips (hoistAggExcludes; anti-join in
+	// aggregateInnerWhere). Non-empty disqualifies the MV fast-path.
+	Excludes []FilterExpr
+	Sort     string // "count"|"perMin"|"errorRate"|"avg"|"p50"|"p95"|"p99"|"max"|"name"
+	Order    string // "asc"|"desc"
+	Limit    int
 	// Having — v0.8.453 (B2-c): genel post-aggregate koşullar
 	// ("errorRate > 1 AND p95 > 500"). Yalnız compileHaving'in
 	// whitelist'inden geçer; MV fast-path'i diskalifiye ETMEZ (dış
@@ -4328,8 +4374,9 @@ func (s *Store) GetTraceAggregate(ctx context.Context, f AggregateFilter) ([]Agg
 	if f.Limit == 0 {
 		f.Limit = 100
 	}
+	f = hoistAggExcludes(f) // trace-level NOT HAS → anti-join (trace_exclude.go)
 	if (f.GroupBy == "service" || f.GroupBy == "operation" || f.GroupBy == "") &&
-		f.GroupAttr == "" && f.Search == "" &&
+		f.GroupAttr == "" && f.Search == "" && len(f.Excludes) == 0 &&
 		// v0.8.383 — env filter forces the raw path (no env dim in the MV).
 		// v0.9.943 — cluster aynı gerekçeyle (B3/H15); KOŞULLU.
 		f.Env == "" && f.Cluster == "" &&
@@ -5858,6 +5905,7 @@ func BuildFilterGroupWhere(g FilterGroup) (string, []any) {
 // the SAME scope — "one rule in two places drifts" (v0.9.943 B3). Arg order:
 // wc.args for the WHERE; innerArgs = search tokens then chip predicates.
 func aggregateInnerWhere(f AggregateFilter, clusterExpr string) (wc whereClause, searchHaving string, innerArgs []any) {
+	f = hoistAggExcludes(f) // idempotent
 	if !f.From.IsZero() {
 		// v0.5.356 — same bucket alignment as GetTraces above:
 		// keep the aggregate-view's window in sync with the
@@ -5905,6 +5953,8 @@ func aggregateInnerWhere(f AggregateFilter, clusterExpr string) (wc whereClause,
 			ApplyFilters(&wc, f.Filters)
 		}
 	}
+	// Trace-level NOT HAS — the list's own anti-join (same window rule).
+	addTraceExcludeConjunct(&wc, f.Excludes, f.From, f.To, promotedCols())
 	searchSQL, searchArgs := searchPredicate(f.Search)
 	if searchSQL != "" {
 		searchHaving = " AND countIf(" + searchSQL + ") > 0"

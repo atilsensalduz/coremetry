@@ -70,6 +70,7 @@ func rootScopeNarrowed(f TraceFilter) bool {
 // TÜM span'lerden kurmak için). Trace seçimi çoktan yapıldı.
 func withoutChips(f TraceFilter) TraceFilter {
 	f.Filters, f.FilterRoot = nil, nil
+	f.Excludes = nil // trace-level NOT HAS: selection done, no anti-join to re-pay
 	f.HasError = false
 	return f
 }

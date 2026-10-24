@@ -23,6 +23,9 @@ var allowedOps = map[string]bool{
 	"IN": true, "NOT IN": true,
 	">": true, ">=": true, "<": true, "<=": true,
 	"EXISTS": true, "NOT EXISTS": true,
+	// Trace-level exclusion (trace_exclude.go): hoisted into an anti-join by
+	// the trace builders; anywhere else it compiles as span-level NOT IN.
+	OpNotHas: true,
 }
 
 // wellKnownResource — RESOURCE attribute'undan dolan tipli kolonlar.
@@ -217,6 +220,12 @@ func (f FilterExpr) sql(alias string, wellKnown, resourceWellKnown, promoted map
 	}
 	if f.Key == "" {
 		return "", nil, fmt.Errorf("missing key")
+	}
+	// NOT HAS reaching a per-span compiler = a surface that is not trace-aware
+	// (or a span-level probe): the only meaning one span can carry is NOT IN.
+	// The trace builders hoist it first (hoistTraceExcludes → anti-join).
+	if op == OpNotHas {
+		op = "NOT IN"
 	}
 
 	// Resolve the LHS expression. Tempo-style prefixes pick the array:
@@ -702,10 +711,18 @@ func (f FilterExpr) Validate() error {
 		op = "="
 	}
 	if !allowedOps[op] {
-		return fmt.Errorf("invalid operator %q for key %q (allowed: =, !=, =~, !~, LIKE, NOT LIKE, IN, NOT IN, >, >=, <, <=, EXISTS, NOT EXISTS)", f.Op, f.Key)
+		return fmt.Errorf("invalid operator %q for key %q (allowed: =, !=, =~, !~, LIKE, NOT LIKE, IN, NOT IN, NOT HAS, >, >=, <, <=, EXISTS, NOT EXISTS)", f.Op, f.Key)
 	}
 	if strings.TrimSpace(f.Key) == "" {
 		return fmt.Errorf("filter with operator %q has no key", f.Op)
+	}
+	if op == OpNotHas {
+		// Trace-level exclusion: one or more values; the special keys below
+		// validate it as its positive form (the anti-join compiles `k IN (…)`).
+		if len(f.Values) == 0 {
+			return fmt.Errorf("op %s for key %q needs at least one value", OpNotHas, f.Key)
+		}
+		op = "IN"
 	}
 	// v0.10.1093 — ifade kimliği: yalnız eşitlik/küme + ondalık uint64.
 	if f.Key == StmtHashFilterKey {
@@ -741,6 +758,9 @@ func (g *FilterGroup) Validate() error {
 		return nil
 	}
 	if err := ValidateFilters(g.Filters); err != nil {
+		return fmt.Errorf("filterGroup: %w", err)
+	}
+	if err := validateNotHasPlacement(*g); err != nil {
 		return fmt.Errorf("filterGroup: %w", err)
 	}
 	for i, sub := range g.Groups {

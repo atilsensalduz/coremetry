@@ -61,6 +61,9 @@ describe('errorStripEligible — Go TraceErrorHistogramEligible aynası', () => 
     ['minMs', input({ minMs: '5' }), false],
     ['maxMs', input({ maxMs: '900' }), false],
     ['services', input({ requireServices: ['a', 'b'] }), false],
+    // Trace-level NOT HAS → metric-batch (it carries the list's anti-join).
+    ['NOT HAS çipi', input({}, { filtersEff: [{ k: 'function_code', op: 'NOT HAS', v: ['X'] }] }), false],
+    ['NOT HAS düz-AND grupta', input({}, { filtersEff: [], groupParam: '{"join":"AND","filters":[{"k":"function_code","op":"NOT HAS","v":["X"]}],"groups":[{"join":"OR","filters":[]}]}' }), false],
   ] as const)('%s → %s', (_n, i, want) => {
     expect(errorStripEligible(traceScopeParams(i))).toBe(want);
   });

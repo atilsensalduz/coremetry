@@ -25,7 +25,7 @@ import { useUrlRange } from '@/lib/useUrlRange';
 import { timeRangeToNs, fmtNum } from '@/lib/utils';
 import type { FilterExpr, FilterOp } from '@/lib/types';
 import {
-  FILTER_OPS, OP_NEEDS_VALUE, OP_SHORT, opFromShorthand, parseInlineFilter, splitListValues,
+  FILTER_OPS, OP_NEEDS_VALUE, OP_SHORT, isListOp, opFromShorthand, parseInlineFilter, splitListValues,
   chipValueLabel, chipDisplay, filterKey, upsertFilter, pushRecent, parseRecent, rankKeys, withExtraKeys,
 } from '@/lib/filterQuery';
 
@@ -204,7 +204,7 @@ export function FilterQueryBox({ value, onChange, suggestedValues, quick = [], r
   const pickOp = (d: Draft, op: FilterOp) => {
     if (!OP_NEEDS_VALUE[op]) { commit({ k: d.k, op, v: [] }, d.editing); return; }
     const keep = d.keep ?? [];
-    const isList = op === 'IN' || op === 'NOT IN';
+    const isList = isListOp(op);
     if (keep.length > 0 && (isList || keep.length === 1)) { commit({ k: d.k, op, v: keep }, d.editing); return; }
     // Değer yok (∃ → =) ya da liste tek değerli op'a iniyor: değer adımı, eldeki metinle.
     setDraft({ ...d, step: 'value', op, text: keep.join(', '), keep: undefined });
@@ -228,7 +228,7 @@ export function FilterQueryBox({ value, onChange, suggestedValues, quick = [], r
     const picked = valueOptions[hi]?.value;
     const raw = draft.text.trim() || picked || '';
     if (!raw) return;
-    const isList = draft.op === 'IN' || draft.op === 'NOT IN';
+    const isList = isListOp(draft.op);
     const v = isList ? splitListValues(raw) : [draft.text.trim() ? raw : picked ?? raw];
     if (v.length === 0) return;
     commit({ k: draft.k, op: draft.op, v }, draft.editing);
@@ -273,7 +273,7 @@ export function FilterQueryBox({ value, onChange, suggestedValues, quick = [], r
 
   const inputPlaceholder = !draft ? (placeholder ?? 'Filtre: anahtar yaz ya da http.route=/x')
     : draft.step === 'key' ? 'anahtar…' : draft.step === 'op' ? 'op (= ≠ ~ IN > < ∃)…'
-      : draft.op === 'IN' || draft.op === 'NOT IN' ? 'değerler, virgülle…' : 'değer…';
+      : isListOp(draft.op) ? 'değerler, virgülle…' : 'değer…';
 
   return (
     <div className="fq">
@@ -290,7 +290,7 @@ export function FilterQueryBox({ value, onChange, suggestedValues, quick = [], r
             {OP_NEEDS_VALUE[f.op] && (
               <span className="fq-v" onClick={e => { e.stopPropagation(); editChip(i); }}>
                 {d.value}
-                {(f.op === 'IN' || f.op === 'NOT IN') && f.v.length > 1 && <span className="fq-n">{f.v.length}</span>}
+                {isListOp(f.op) && f.v.length > 1 && <span className="fq-n">{f.v.length}</span>}
               </span>
             )}
             {/* v0.10.924 — buton bütünlüğü Faz 2: IconButton. `fq-x` birleşik
@@ -356,7 +356,7 @@ export function FilterQueryBox({ value, onChange, suggestedValues, quick = [], r
                 {valueOptions.map((r, i) => (
                   <div key={r.value} id={`${listId}-${i}`} role="option" aria-selected={i === hi} className={i === hi ? 'fq-opt sel' : 'fq-opt'}
                     onMouseEnter={() => setHi(i)}
-                    onMouseDown={e => { e.preventDefault(); const isList = draft.op === 'IN' || draft.op === 'NOT IN'; commit({ k: draft.k, op: draft.op, v: isList ? splitListValues(r.value) : [r.value] }, draft.editing); }}>
+                    onMouseDown={e => { e.preventDefault(); const isList = isListOp(draft.op); commit({ k: draft.k, op: draft.op, v: isList ? splitListValues(r.value) : [r.value] }, draft.editing); }}>
                     <span className="name mono">{r.value || '(boş)'}</span>
                     {r.count > 0 && (
                       <span className="cnt bar">

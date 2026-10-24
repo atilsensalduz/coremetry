@@ -12,6 +12,7 @@
 import type { TracesParams } from '@/lib/api';
 import type { FilterExpr } from '@/lib/types';
 import { effectiveTraceSearch } from '@/lib/traceSearchTerm';
+import { decodeFilters, decodeFilterGroup } from '@/lib/urlState';
 
 export interface TraceScopeInput {
   filter: {
@@ -67,11 +68,22 @@ export function traceScopeParams(i: TraceScopeInput): TraceScopeParams {
  */
 export function errorStripEligible(p: TraceScopeParams): boolean {
   if (!p.hasError) return false;
+  // Trace-level NOT HAS: the strip stays on metric-batch, which carries the
+  // list's anti-join (Go TraceErrorHistogramEligible mirrors this).
+  if (scopeHasTraceExclude(p)) return false;
   if (p.search || p.traceId) return false;
   if (p.minMs || p.maxMs) return false;
   if (p.services && p.services.length) return false;
   if (p.filters || p.filterGroup) return true;
   return !p.rootOnly;
+}
+
+/** scopeHasTraceExclude — SAF: does the scope carry a trace-level NOT HAS chip? */
+export function scopeHasTraceExclude(p: TraceScopeParams): boolean {
+  const flat = decodeFilters(p.filters);
+  const g = decodeFilterGroup(p.filterGroup);
+  const leaves = [...flat, ...(g ? [...g.filters, ...(g.groups ?? []).flatMap(s => s.filters)] : [])];
+  return leaves.some(f => f.op === 'NOT HAS');
 }
 
 /** errorStripScopeOnly — SAF (v0.10.1101): Errors şeridi çipsiz mi (③ kapsam kipi)? İpucu metni için. */
