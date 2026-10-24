@@ -37,6 +37,9 @@ interface KqlSearchInputProps {
   placeholder?: string;
   title?: string;
   width?: number | string;
+  // v0.10.1498 — sarmalayıcı span'e sınıf (/logs sorgu çubuğunda kutu
+  // kalan genişliği doldurur: `.ld-kql`). Verilmezse DOM eskisiyle aynı.
+  className?: string;
   // v0.9.291 — the page's current range, as a Go duration ("6h", "7d").
   // Bounds the ES term-dictionary walk behind the autocomplete: without
   // it the lookup prefix-scanned every index in retention on every
@@ -131,7 +134,7 @@ function quoteIfNeeded(v: string): string {
 
 export function KqlSearchInput({
   value, onChange, onSubmit, placeholder, title, width = 380, since, fields,
-  fieldsTotal, shortcutSearch, 'data-pc-lead': pcLead,
+  fieldsTotal, shortcutSearch, 'data-pc-lead': pcLead, className,
 }: KqlSearchInputProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [cursor, setCursor] = useState(0);
@@ -333,7 +336,7 @@ export function KqlSearchInput({
   };
 
   return (
-    <span style={{ position: 'relative', display: 'inline-block', width }}>
+    <span className={className} style={{ position: 'relative', display: 'inline-block', width }}>
       {/* Leading magnifier (Kibana-style). Decorative — clicks fall through to
           the input so the operator can click anywhere in the bar to focus. */}
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"

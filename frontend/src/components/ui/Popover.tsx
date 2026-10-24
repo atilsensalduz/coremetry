@@ -197,3 +197,19 @@ export function PopoverLinkItem({ to, onSelect, children }: { to: string; onSele
     </Link>
   );
 }
+
+// PopoverHrefItem — v0.10.1498 (/logs Share ▾ menüsü): DIŞ bağlantı satırı
+// ("↗ Discover in Elastic"). PopoverLinkItem SPA içi `<Link to>`'dur; Kibana
+// başka bir köken, react-router ona gidemez. Gerçek `<a href target=_blank>`
+// orta tık / ⌘-tık / "bağlantıyı kopyala"yı tarayıcıya bırakır (T7); görünüm
+// menü satırının aynısı (`.menuitem` tabanı yalnız ui/ içinde yazılır).
+export function PopoverHrefItem({ href, onSelect, title, children }: {
+  href: string; onSelect?: () => void; title?: string; children: ReactNode;
+}) {
+  return (
+    <a role="menuitem" className="menuitem" href={href} target="_blank" rel="noopener noreferrer"
+      title={title} onClick={onSelect}>
+      <span className="menuitem-label">{children}</span>
+    </a>
+  );
+}

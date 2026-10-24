@@ -10,7 +10,9 @@ const read = (p: string) => readFileSync(resolve(__dirname, p), 'utf8');
 describe('degraded log backend surfaces (B1)', () => {
   it('Logs.tsx: rozet + degraded boş durum + normal boş durum kapısı', () => {
     const src = read('./Logs.tsx');
-    expect(src).toContain("!live && !!staticQ.data?.degraded && (");
+    // v0.10.1498 — rozet LogsNotices'a taşındı (aynı kapı; `data` = staticQ.data).
+    expect(read('./logs/LogsNotices.tsx')).toContain("!live && !!data?.degraded && (");
+    expect(src).toContain('data={staticQ.data} />');
     // v0.10.967 — tablo standardı T12: degraded boş durumu artık tablonun
     // içinde hata satırı (⚠ + ↻ Retry); kapı aynı, metin logsState'te.
     expect(src).toContain('message: `Log backend yavaş — bu liste eksik:');

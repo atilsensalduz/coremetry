@@ -6,18 +6,13 @@ import { Link } from 'react-router-dom';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Topbar } from '@/components/Topbar';
-import { KqlSearchInput } from '@/components/KqlSearchInput';
 import { SavedViewsBar } from '@/components/SavedViewsBar';
 import { Spinner } from '@/components/Spinner';
-import { IconSparkles } from '@/components/icons';
 import { Combobox } from '@/components/Combobox';
-import { ServicePicker } from '@/components/ServicePicker';
-import { CopyButton } from '@/components/CopyButton';
 import { LogTable, DEFAULT_LOG_COLUMNS } from '@/components/LogTable';
 import type { DataTableStateProps } from '@/components/ui/DataTable';
 import { CorrelationContextDrawer } from '@/components/CorrelationContextDrawer';
 import { LogContextModal } from '@/components/LogContextModal';
-import { LogPillEditor } from '@/components/LogPillEditor';
 import {
   LogsHistogram, parseBreakdown, histogramFeedsChips, type LogsBreakdown,
 } from '@/components/LogsHistogram';
@@ -25,10 +20,8 @@ import { LogFieldsPanel } from '@/components/LogFieldsPanel';
 import { LogPatternsPanel, type PanelTab } from '@/components/LogPatternsPanel';
 import { Button } from '@/components/ui/Button';
 import { Chip } from '@/components/ui/Chip';
-import { LinkButton } from '@/components/ui/LinkButton';
 import { RenderedMarkdown } from '@/components/Markdown';
 import { Pager } from '@/components/Pager';
-import { ShareButton } from '@/components/ShareButton';
 import { buildKibanaURL, buildKQLFromFilter } from '@/lib/kibanaLink';
 import { logsUseTimeRange } from '@/lib/logsTraceWindow'; // v0.10.690
 import type { KibanaSettings } from '@/lib/types';
@@ -41,7 +34,7 @@ import { getRaw, setRaw } from '@/lib/storage';
 import { useTableNav } from '@/lib/useTableNav';
 import { api } from '@/lib/api';
 import { logsBucketSec } from '@/lib/chartStep';
-import { tsShort, timeRangeToNs, sevName, sevClass, rangeToSince, fmtClock } from '@/lib/utils';
+import { tsShort, timeRangeToNs, sevName, sevClass, rangeToSince } from '@/lib/utils';
 import { severityBandOf } from '@/lib/severityBand';
 import { accumulatePage, narrowLoaded } from '@/lib/logAccumulate';
 import { logsToCSV, logsToNDJSON, downloadText, exportFilename } from '@/lib/logsExport';
@@ -52,27 +45,17 @@ import {
 import type { LogFilter } from '@/lib/logFilters';
 import { logsUrlSig, writeLogsParams, readLogsUrlState, buildDocPermalink, parseDocParam, parseLogsPanel, logsUrlHasFilterState } from '@/lib/logsUrl';
 import { decideTeamAutoApply, isSameTeam, readTeamOptOut, writeTeamOptOut } from '@/lib/logsTeam';
-import { TeamPicker } from '@/components/TeamPicker';
 import { useAuth } from '@/components/AuthProvider';
 import { useT } from '@/lib/i18n';
 import type { LogsResponse, LogRow, TimeRange } from '@/lib/types';
-import { PageControls } from '@/components/ui/PageControls';
-import { EnterHint } from '@/components/ui/EnterHint';
 import { PageShell } from '@/components/ui/PageShell';
+import { LogsQueryBar } from './logs/LogsQueryBar';
+import { LogsFilterRow } from './logs/LogsFilterRow';
+import { LogsNotices } from './logs/LogsNotices';
+import { LogsAddFilterMenu, LogsShareMenu, LogsMoreMenu } from './logs/LogsActionsMenus';
+import { isDraftDirty, bareTraceIdOf } from './logs/logsQuery';
 
-// Share affordance — copies a link to the CURRENT filtered logs view.
-// Logs filters live entirely in the URL querystring (the same mechanism
-// SavedViewsBar persists), so the copied link reproduces the exact
-// slice — service, cluster, KQL, trace-id, time range — for any
-// signed-in operator who opens it. v0.8.102: open to every role,
-// viewers included. NOT a public/unauth link: logs aren't externalised,
-// so the recipient still authenticates to Coremetry. v0.8.540: was a
-// local LogShareButton copy; folded into the shared ShareButton, which
-// copies the same window.location.href. The label/title stay here
-// because the shared slice is what needs explaining on this page.
-const LOG_SHARE_TITLE =
-  'Copy a shareable link to this filtered logs view (filters are '
-  + 'encoded in the URL; recipients sign in to Coremetry to open it)';
+// v0.10.1498 — Share affordance (Copy link) moved into pages/logs/LogsActionsMenus.tsx (Share ▾).
 
 // Level facet chips (prototype LogsView .facet/.lvl) — each chip
 // drives the EXISTING min-severity filter (filter.severity). The
@@ -793,6 +776,38 @@ function LogsInner() {
     setDraft(empty); setFilter(empty); setFilters([]); resetPaging();
     writeUrl(empty, []);
   };
+  // v0.10.440 (B3) — sayfa-yerel ↻: göreli preset'in penceresi SON range
+  // değişiminde donar; tık pencereyi şimdiye taşır (nowTick memo bağımlılığı),
+  // özel aralıkta pencere sabittir → yalnız yeniden sorgular. Cursor sıfırlanır
+  // (v0.7.81). Otomatik aralık YOK — yalnız tık. v0.10.1498: Search ile aynı
+  // düğmede (LogsQueryBar), taslak = uygulanan iken; canlı kuyrukta çizilmez.
+  const refresh = () => {
+    resetPaging(); if (range.preset === 'custom') void staticQ.refetch(); else setNowTick(t => t + 1);
+  };
+  const draftDirty = isDraftDirty(draft, filter);
+  // v0.10.1498 — KQL kutusunda çıplak bir trace id → "trace olarak süz"
+  // önerisi (Trace ID kutusu artık + Filter ▾ içinde). Tık kutuyu boşaltır,
+  // id'yi trace kilidine yazar ve uygular (Search ile aynı yol).
+  const traceHint = bareTraceIdOf(draft.search);
+  const applyTraceHint = () => {
+    const next = { ...draft, search: '', traceId: traceHint, spanId: '' };
+    resetPaging(); setDraft(next); setFilter(next); writeUrl(next, filters);
+  };
+  // v0.9.302 — export what is ALREADY loaded (⋯ menüsünde, v0.10.1498). Zero
+  // backend calls; exports what the operator SEES, local narrow included.
+  const exportLoaded = (kind: 'csv' | 'ndjson') => {
+    if (kind === 'csv') downloadText(logsToCSV(logs), exportFilename('csv'), 'text/csv;charset=utf-8');
+    else downloadText(logsToNDJSON(logs), exportFilename('ndjson'), 'application/x-ndjson');
+  };
+  // v0.9.574 — Kibana derin linki: servis / trace-id / arama → KQL, pencere →
+  // zaman aralığı. v0.10.1071 / v0.10.1477 — desen ve takım süzgeci KQL'e
+  // çevrilemez (yüklem/değerler sunucuda); "aynı dilim" sözü tutmayacaksa
+  // bağlantı yok. Settings → Kibana boşsa buildKibanaURL null döner.
+  const kibanaHref = (filter.pattern || filter.team) ? null : buildKibanaURL(kibana, {
+    fromNs: from ?? undefined,
+    toNs: to ?? undefined,
+    kql: buildKQLFromFilter({ ...filter, search: compiledSearch }),
+  });
 
   // Commit a new pill set: state + paging + URL in one step. Every
   // pill mutation (add/negate/disable/remove) is an auto-apply —
@@ -1021,272 +1036,62 @@ function LogsInner() {
           the apply/reset/search/URL-sync handlers. (v0.7.81 fix) */}
       <Topbar title="Logs" range={range} onRangeChange={(r) => { setRange(r); resetPaging(); }} envApplies />
       <PageShell>
-        {/* v0.9.574 (operatör: "Discover'ı TR yazısının altında sağ üstte
-            olması gerekiyor") — Kibana derin linki Live-tail satırından
-            İÇERİK ALANININ SAĞ ÜSTÜNE taşındı. Orada bir eylem
-            düğmesiydi ve arama kontrollerinin arasında kayboluyordu;
-            asıl işi "buradan Kibana'ya geç" demek, yani sayfa
-            kimliğinin yanında duruyor.
-            Bağlamı aynen taşır: servis / trace-id / arama → KQL,
-            pencere → zaman aralığı. Settings → Kibana link boşsa
-            hiç çizilmez. */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <SavedViewsBar page="logs" />
-          </div>
-          {/* v0.9.1100 (F3.5) — ✨ desen anlatımı. Fetch YALNIZ tıkla
-              (ES-maliyet disiplini); pencere sunucuda rung'lanır. */}
-          {/* v0.10.1318 (K3) — açık panel bir DURUM: ikincil tint, dolgu değil. */}
-          <Button variant="secondary" size="sm" active={patternsOpen}
-            onClick={togglePatterns}
-            title="Penceredeki log desenleri (örneklemeli imza grupları)">
-            ≡ Desenler
-          </Button>
-          <Button variant="secondary" size="sm" disabled={aiPat.busy}
-            onClick={explainPatterns}
-            title="Seçili süzgeç ve penceredeki log desenlerini AI anlatır; filo geneli yeni/patlayan desenler ve sürekli gürültü şablonları ayrıca etiketlenir">
-            <IconSparkles /> Desenleri anlat
-          </Button>
-          {(() => {
-            // v0.10.1071 — desen süzgeci KQL'e çevrilemez (yüklem sunucuda,
-            // istemci token bilmez); desen etkinken Kibana bağlantısı başka bir
-            // dilimi açardı — "aynı dilim" sözü tutmayacaksa bağlantı çizilmez.
-            if (filter.pattern) return null;
-            // v0.10.1477 — takım süzgeci de KQL'e çevrilmez (değerler sunucuda
-            // çözülür); aynı dilim sözü tutmayacaksa bağlantı yok.
-            if (filter.team) return null;
-            const kql = buildKQLFromFilter({ ...filter, search: compiledSearch });
-            const href = buildKibanaURL(kibana, {
-              fromNs: from ?? undefined,
-              toNs: to ?? undefined,
-              kql,
-            });
-            if (!href) return null;
-            return (
-              <a href={href} target="_blank" rel="noopener"
-                className="sec"
-                title="Open the current filter slice in Elastic Discover"
-                style={{
-                  flexShrink: 0, fontSize: 12, padding: '5px 12px',
-                  textDecoration: 'none', color: 'var(--accent2)',
-                }}>
-                ↗ Discover in Elastic
-              </a>
-            );
-          })()}
-        </div>
-        {filter.traceId && (
-          <div className="trace-lock">
-            <span>Filtered to trace</span>
-            <code>{filter.traceId}</code>
-            {filter.spanId && (<>
-              <span>· span</span>
-              <code>{filter.spanId}</code>
-            </>)}
-            <Button variant="secondary" onClick={clearTraceLock}>✕ Clear</Button>
-          </div>
-        )}
-        {/* v0.10.1071 (operatör, prod ES: "Logları aç" grafiğin saydığından
-            başka satırlar gösterdi) — desen süzgeci ÇİP olarak, arama
-            kutusunda metin olarak DEĞİL: sunucu dedektörün yüklemini uygular
-            (anomali grafiğiyle aynı sayım), kutu boş ve düzenlenebilir kalır,
-            yazılan sorgu desenle AND'lenir. × yalnız deseni kaldırır. */}
-        {filter.pattern && (
-          <div className="trace-lock" data-testid="logs-pattern-chip">
-            <span>desen:</span>
-            <code title="Küratörlü log deseni — dedektörün eşleşme yüklemi sunucuda uygulanır">{filter.pattern}</code>
-            <Button variant="ghost" size="sm" onClick={clearPattern}
-              aria-label={`Desen süzgecini kaldır: ${filter.pattern}`}
-              title="Desen süzgecini kaldır (arama metni ve diğer süzgeçler kalır)">×</Button>
-          </div>
-        )}
-        {/* v0.10.1477 — takım süzgeci ÇİP olarak (desen çipinin eşi): sunucu
-            takımı ham etiket yazımlarına açar ve takım alan(lar)ında exact-term
-            OR uygular. "Değiştir" mevcut TeamPicker'ı açar; × süzgeci kaldırır
-            ve otomatik varsayılandan vazgeçmeyi hatırlar. */}
-        {filter.team && (
-          <div className="trace-lock" data-testid="logs-team-chip">
-            <span>{myTeamName && isSameTeam(filter.team, myTeamName) ? tr('logs.team.mine') : tr('logs.team.label')}:</span>
-            <code title={tr('logs.team.chipTitle')}>{filter.team}</code>
-            <Button variant="ghost" size="sm" data-testid="logs-team-change"
-              onClick={() => { setTeamDraft(filter.team); setTeamPickerOpen(o => !o); }}>{tr('logs.team.change')}</Button>
-            {teamPickerOpen && (
-              <TeamPicker value={teamDraft} onChange={setTeamDraft} width={190}
-                placeholder={tr('logs.team.pick')}
-                onEnter={v => { const t = (v ?? teamDraft).trim(); if (t) { setTeam(t); setTeamPickerOpen(false); } }} />
-            )}
-            <Button variant="ghost" size="sm" onClick={clearTeam}
-              aria-label={`${tr('logs.team.remove')}: ${filter.team}`}
-              title={tr('logs.team.removeTitle')}>×</Button>
-          </div>
-        )}
-        {!filter.team && !!myTeamName && !teamGate && (
-          <div style={{ marginBottom: 8 }}>
-            <Button variant="ghost" size="sm" data-testid="logs-team-apply"
-              title={tr('logs.team.applyTitle')}
-              onClick={() => setTeam(myTeamName)}>{tr('logs.team.mine')}: {myTeamName}</Button>
-          </div>
-        )}
-        <PageControls sticky>
-          <ServicePicker value={draft.service} onChange={v => setDraft({ ...draft, service: v })}
-            placeholder="Service…" width={170} onEnter={apply} />
-          {/* v0.5.471 — cluster selector. Populated from
-              /api/clusters (existing endpoint); typically 1-5
-              entries per install so a plain <select> is the
-              right shape — no server-debounced picker needed.
-              Empty option = all clusters. */}
-          {clusters.length > 0 && (
-            <select value={draft.cluster}
-              onChange={e => { setDraft(d => ({ ...d, cluster: e.target.value })); }}
-              title="Filter logs to a single k8s/openshift cluster"
-              style={{ width: 160 }}>
-              <option value="">All clusters</option>
-              {clusters.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
+        {/* v0.10.1498 (operatör onaylı taslak 2026-10-24, Kibana Discover) —
+            sayfanın üst kısmı üç parça: (1) sorgu çubuğu (Service · Cluster ·
+            KQL · Search/↻ + sağda + Filter ▾ · Live · Desenler · Saved ▾ ·
+            Share ▾ · ⋯), (2) etkin süzgeçlerin TEK satırı (trace kilidi, desen,
+            takım, with-trace, pill'ler, KQL ⓘ), (3) dürüstlük rozetleri.
+            Durumun tamamı burada; üç bileşen saf sunum (pages/logs/). Eskiden
+            Saved şeridi + Desenler/✨/Discover satırı + dört bant + pill şeridi +
+            "Uygulanan arama" bandı tabloyu ekranın yarısına itiyordu. */}
+        <LogsQueryBar
+          draft={draft} onDraft={setDraft}
+          clusters={clusters} autocompleteSince={autocompleteSince}
+          fields={fields} fieldsTotal={fieldsTotal}
+          onApply={apply} onRefresh={refresh} dirty={draftDirty} to={to}
+          live={live} onToggleLive={() => setLive(v => !v)} liveGap={liveGap}
+          addFilter={(
+            <LogsAddFilterMenu
+              traceIdDraft={draft.traceId} onTraceIdDraft={v => setDraft({ ...draft, traceId: v })}
+              onApply={apply}
+              hasTrace={filter.hasTrace} onToggleHasTrace={toggleHasTrace}
+              myTeamName={teamGate ? '' : myTeamName} teamActive={!!filter.team}
+              onApplyMyTeam={() => setTeam(myTeamName)}
+              onAddPill={f => applyPills([...filters, f])}
+              since={autocompleteSince} />
           )}
-          <KqlSearchInput
-            // v0.9.291 — the autocomplete's term-dictionary walk is
-            // bounded by the window the operator is actually looking at.
-            // Memoised: a bare rangeToSince(range) in JSX is the
-            // infinite-refetch shape (v0.5.184).
-            since={autocompleteSince}
-            // v0.9.955 (F4/Ö16) — ALAN ADI tamamlaması. Liste ZATEN
-            // burada (yan paneldeki "Available fields" ile AYNI state,
-            // tek /api/logs/fields turu): kutuya bağlamak sıfır ek ES
-            // maliyeti. Öncesinde operatör CHANNEL_CODE'un ES'teki tam
-            // yazımını dışarıdan bilmek zorundaydı ve yanlış yazımın
-            // bedeli sessizdi — sıfır satır "böyle log yok" diye
-            // okunuyordu, "adı farklı" diye değil.
-            fields={fields}
-            // v0.9.970 (Ö16 ikinci tur) — katalog 500'de kırpılıyor ve
-            // kırpma ALFABETİK. Yan panel bunu zaten "first N of M" diye
-            // söylüyordu; kutu söylemiyordu, yani kırpılmış bir alanı
-            // arayan operatör boş liste görüp "böyle alan yok" diye
-            // okuyordu. Aynı state, ek istek YOK.
-            fieldsTotal={fieldsTotal}
-            // v0.9.1003 (etkileşim denetimi O4) — `/` bu kutuya iner.
-            // İşaret konmadan önce GlobalShortcuts'ın fallback'i DOM
-            // sırasına düşüyordu ve bardaki ilk metin kutusu
-            // ServicePicker'dı: /logs'un varlık nedeni olan KQL araması
-            // kısayolla ulaşılamıyordu. Sayfa başına TEK işaret olmalı
-            // (querySelectorAll ilkini seçer).
-            shortcutSearch
-            // v0.9.1012 (M8/K2) — kısayol ipucu. Depoda `<kbd>` yalnız
-            // ShortcutsHelp'te vardı, yani yalnız kısayolu ZATEN bilenin
-            // gördüğü yerde; 39 arama kutusunun 0'ında ipucu yoktu.
-            // v0.9.1004 (M2/O5) — telefonda YÜZEYDE kalan kontrol bu.
-            // İşaretsizken PageControls'ın "ilk etkileşimli çocuk"
-            // heuristiği ServicePicker'ı seçiyordu ve /logs'un varlık
-            // nedeni olan KQL kutusu "Filtreler(N)" popover'ının
-            // arkasında kalıyordu.
-            data-pc-lead
-            value={draft.search}
-            onChange={v => setDraft({ ...draft, search: v })}
-            onSubmit={apply}
-            placeholder='Search… (KQL: level:error AND service.name:"checkout")'
-            title={'Free-text on body OR KQL/Lucene syntax (Elasticsearch backend).\n\n' +
-              'Examples:\n' +
-              '  level:error\n' +
-              '  service.name:"checkout-svc" AND NOT message:health\n' +
-              '  trace.id:c9ea*\n' +
-              '  message:"connection refused" AND k8s.namespace:prod\n\n' +
-              'Plain words match the body. Use double quotes for exact phrases.\n\n' +
-              'Field-aware autocomplete (v0.5.464): type `field:` and pick from the dropdown.'} />
-          {/* Trace ID filter — dedicated input next to search so
-              operators can paste a trace ID from a problem /
-              incident and see only its log lines. Mirrors the
-              ?traceId= URL param the deep-link routes already
-              use. The backend filter is an exact term match
-              against trace.id (ES) / trace_id (CH). Trimmed +
-              lowercased so a paste of `0xABC…` or whitespace
-              padding still works. */}
-          <input
-            placeholder="Trace ID"
-            aria-label="Filter logs by trace ID"
-            value={draft.traceId}
-            onChange={e => setDraft({ ...draft, traceId: e.target.value.trim().toLowerCase().replace(/^0x/, '') })}
-            onKeyDown={e => e.key === 'Enter' && apply()}
-            title="Filter logs to a single trace. An absolute (custom) range is honoured; with a relative range the server derives the trace's own window (falls back to full retention)."
-            className="mono"
-            style={{ width: 180, fontSize: 12 }} />
-          {/* v0.8.406 — operator ask: "sadece trace'i olan loglar".
-              Keeps only rows with a trace correlation, so every
-              visible line's Trace cell can pivot to /trace. Auto-
-              applies like the severity facet chips. */}
-          {/* v0.10.1318 (K3) — süzgeç açık/kapalı bir DURUM: accent tint
-              (`active` → aria-pressed + .is-active). Bu çubuğun TEK birincili Search. */}
-          <Button variant="secondary" active={filter.hasTrace}
-            onClick={toggleHasTrace}
-            title="Show only logs correlated with a trace — every row can pivot to its trace">
-            ◆ With trace
-          </Button>
-          {/* v0.10.1332 (operatör onaylı mockup "Filtre barı · Search son
-              filtrenin arkasında") — Search son filtrenin hemen arkasında
-              (md, üç barda tek boy) + "Enter ↵" ipucu; ardından boşluk ve
-              SAĞ KÜME: Reset · ↻ · Copy link · Live tail. Sağa itme tek
-              yerde (`.pc-right`), Live'ın satır-içi marginLeft'i kalktı.
-              Davranış aynı — yalnız yerleşim. */}
-          <span className="search-go">
-            <Button variant="primary" onClick={apply}>Search</Button>
-            <EnterHint title="Arama kutusunda (ve Trace ID kutusunda) Enter" />
-          </span>
-          <span className="pc-right">
-            <Button variant="secondary" onClick={reset}>Reset</Button>
-            {/* v0.10.440 (B3) — ↻ + tazelik: etiket PENCERE SONU (sorgulanan an),
-                fetch zamanı değil (cevap 15 sn sunucu önbelleğinden gelebilir).
-                Özel aralıkta pencere sabittir → yalnız yeniden sorgular. Canlı
-                kuyrukta pencere yok → çizilmez. */}
-            {!live && (
-              <Button variant="secondary" aria-label="Yenile"
-                onClick={() => { resetPaging(); if (range.preset === 'custom') void staticQ.refetch(); else setNowTick(t => t + 1); }}
-                title={to ? `Veri penceresi ${fmtClock(to / 1e6)} anında bitiyor — ↻ pencereyi şimdiye taşır ve yeniden sorgular` : 'Yeniden sorgula'}>
-                ↻{to ? ` ${fmtClock(to / 1e6)}` : ''}
+          menus={(
+            <>
+              {/* v0.10.1318 (K3) — açık panel bir DURUM: ikincil tint, dolgu değil. */}
+              <Button variant="secondary" active={patternsOpen}
+                onClick={togglePatterns}
+                title="Penceredeki log desenleri (örneklemeli imza grupları)">
+                ≡ Desenler
               </Button>
-            )}
-            <ShareButton label="Copy link" copiedLabel="Copied" title={LOG_SHARE_TITLE} />
-            {/* v0.10.1318 (K3) — canlı kuyruk bir KİP: tint + nabız noktası
-                (.live-on yalnız yerleşim), birincil dolgu değil. */}
-            <Button variant="secondary" active={live}
-              className={live ? 'live-on' : undefined}
-              onClick={() => setLive(v => !v)}
-              title="Stream the latest logs live (server-pushed; pauses when the tab is hidden)">
-              {live ? '⏸ Pause Live' : '▶ Live tail'}
-            </Button>
-            {live && liveGap && (
-              <span className="badge b-warn" title="A busy service produced more lines than one tick could read — narrow the filter to see them all.">
-                ⚠ high volume — some lines skipped
-              </span>
-            )}
-          </span>
-        </PageControls>
-
-        {/* v0.8.400 — HONEST env-filter chip (the v0.8.398 pattern:
-            state that the filter could NOT apply instead of silently
-            answering unfiltered). The ES backend sets envUnapplied when
-            ?env= was requested but no environment field resolved in the
-            index mapping (self-discovery over the candidate shapes came
-            up empty and none is configured in Settings → Elasticsearch).
-            Never set by the CH backend. */}
-        {!live && !!env && !!staticQ.data?.envUnapplied && (
-          <div style={{ marginBottom: 10 }}>
-            <span className="badge b-warn"
-              title={'The env filter could not be applied on this log source: no deployment-environment field was found in the index mapping (self-discovery probed resource.deployment.environment[.name], deployment.environment[.name], labels.deployment_environment, env, environment).\nThe rows below are UNFILTERED — all environments.\nFix: set the Environment field in Settings → Elasticsearch → Document field map.'}>
-              ⚠ env “{env}” not applied — this log source has no recognisable environment field
-            </span>
-          </div>
-        )}
-
-        {/* v0.10.1477 — HONEST team-filter chip (env çipinin eşi): takım alanı
-            yapılandırılmamış ya da CH backend'i → sonuçlar takıma göre
-            SÜZÜLMEMİŞ; sessiz "takımın logları" yerine söylenir. */}
-        {!live && !!filter.team && !!staticQ.data?.unappliedFilters?.includes('team') && (
-          <div style={{ marginBottom: 10 }} data-testid="logs-team-unapplied">
-            <span className="badge b-warn" title={tr('logs.team.unappliedTitle')}>
-              ⚠ {tr('logs.team.unapplied')}
-            </span>
-          </div>
-        )}
-
+              <SavedViewsBar page="logs" variant="compact" />
+              <LogsShareMenu kibanaHref={kibanaHref} />
+              <LogsMoreMenu onReset={reset}
+                onExplainPatterns={() => void explainPatterns()} explainBusy={aiPat.busy}
+                exportCount={data ? logs.length : 0} onExport={exportLoaded} />
+            </>
+          )} />
+        <LogsFilterRow
+          filter={filter}
+          onClearTrace={clearTraceLock} onClearPattern={clearPattern} onToggleHasTrace={toggleHasTrace}
+          myTeamName={myTeamName} teamGate={teamGate}
+          teamPickerOpen={teamPickerOpen} teamDraft={teamDraft} onTeamDraft={setTeamDraft}
+          onToggleTeamPicker={() => { setTeamDraft(filter.team); setTeamPickerOpen(o => !o); }}
+          onSetTeam={t => { setTeam(t); setTeamPickerOpen(false); }}
+          onClearTeam={clearTeam}
+          filters={filters} editPill={editPill} onEditPill={setEditPill}
+          onNegatePill={negatePill} onDisablePill={disablePill} onRemovePill={removePill}
+          onReplacePill={(i, next) => applyPills(replaceFilterAt(filters, i, next))}
+          onClearPills={() => applyPills([])}
+          since={autocompleteSince}
+          compiledSearch={compiledSearch}
+          traceHint={traceHint} onUseTraceHint={applyTraceHint} />
+        <LogsNotices live={live} env={env} team={filter.team} hasTrace={filter.hasTrace}
+          data={staticQ.data} />
         {/* Faz 0.5 — ham metin yerine markdown. Bkz. Shift.tsx'teki aynı
             düzeltme; pre-wrap kalkıyor çünkü RenderedMarkdown kendi blok
             düzenini kuruyor. AŞAĞIDAKİ "Query failed" hata kutusundaki
@@ -1308,130 +1113,6 @@ function LogsInner() {
 
         <LogPatternsPanel open={patternsOpen && !teamGate} onSearch={searchFromPattern} tab={panelTab} onTab={onPanelTab}
           params={{ ...filter, env, search: compiledSearch, from: from ?? undefined, to: to ?? undefined }} />
-
-        {/* v0.9.1084 — HONEST with-trace chip (EnvUnapplied ikizi;
-            operator-reported: prod'ta "with trace" hiç log getirmiyordu).
-            ES mapping'inde yapısal trace-id alanı yoksa exists filtresi
-            hiçbir doc'la eşleşemez — sessiz boş yerine neden söylenir.
-            Trace→log pivotları gövde eşleşmesiyle çalışmaya devam eder;
-            CH backend'i bu bayrağı asla set etmez. */}
-        {!live && filter.hasTrace && !!staticQ.data?.hasTraceUnapplied && (
-          <div style={{ marginBottom: 10 }}>
-            <span className="badge b-warn"
-              title={'The with-trace filter could not be applied on this log source: none of the structural trace-id fields (trace.id, trace_id, traceId, TraceId or a configured override) exist in the index mapping — the trace ids likely live only inside the log message body.\nTrace→log pivots keep working via body match; this filter cannot.\nFix: map a trace-id field in Settings → Elasticsearch → Document field map (if your pipeline emits one).'}>
-              ⚠ “with trace” not applied — this log source has no structural trace-id field
-            </span>
-          </div>
-        )}
-
-        {/* v0.9.288 — honesty envelope. Every ES log query carries a 10s
-            SOFT timeout, whose whole purpose is that ES returns what it
-            computed and says timed_out. Nothing decoded that field, so a
-            partial answer looked identical to a complete one — and at
-            10B docs/day a heavy search timing out is the realistic
-            outcome. Same chip language as the env warning above; absent
-            entirely on the CH backend, which has neither. */}
-        {!live && !!staticQ.data?.partial && (
-          <div style={{ marginBottom: 10 }}>
-            <span className="badge b-warn"
-              title={'Elasticsearch did not finish this query: it hit the soft timeout (10s) and/or lost shards, and returned the part it had computed.\nEVERY number on this page is a subset — the row count, the severity chips and the histogram above them.\nA dip in the chart may be this timeout rather than a drop in traffic.\nNarrow the window, add a service filter, or make the search more selective.'}>
-              ⚠ partial result — ES returned what it had computed
-              {(staticQ.data.shardsFailed ?? 0) > 0 &&
-                ` · ${staticQ.data.shardsFailed} shard${staticQ.data.shardsFailed === 1 ? '' : 's'} did not answer`}
-            </span>
-          </div>
-        )}
-        {/* v0.10.415 (log arama denetimi B1) — yavaş/erişilemeyen backend 200
-            {degraded} döner; eskiden liste "No logs found" gibi görünüyordu.
-            Sonuç 15 sn sunucu önbelleğinde (ES disiplini) → otomatik tekrar
-            yok, aşağıdaki boş durumda ↻ Retry var. Canlı kuyruk bu bayrağı
-            taşımaz (kardeş rozetler gibi !live). */}
-        {!live && !!staticQ.data?.degraded && (
-          <div style={{ marginBottom: 10 }}>
-            <span className="badge b-warn"
-              title={'Log backend zaman aşımı/erişilemezlik nedeniyle cevap vermedi; sunucu 5xx yerine boş liste + bu bayrakla döndü.\nBu SAYFADAKİ hiçbir sayı gerçek değil — satır sayısı, seviye çipleri, histogram.'}>
-              ⚠ log backend yavaş/erişilemez — bu liste eksik
-              {staticQ.data.reason ? ` (${staticQ.data.reason})` : ''}
-            </span>
-          </div>
-        )}
-
-        {/* Filter pill bar (Discover revamp step 1). One pill per
-            structured field filter; free text stays in the search
-            box. ≠ toggles NOT (red tone), ◐ disables without
-            removing (opacity + line-through, drops out of the
-            compiled query), × removes. All actions auto-apply. */}
-        {filters.length > 0 && (
-          <div role="group" aria-label="Active field filters"
-            style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-            {filters.map((f, i) => {
-              const tone = f.negated ? 'var(--err)' : 'var(--accent2)';
-              return (
-                <span key={`${f.exists ? 'E' : 'V'}\u0000${f.key}\u0000${f.value}\u0000${(f.values ?? []).join(',')}`} style={{
-                  position: 'relative',
-                  display: 'inline-flex', alignItems: 'center', gap: 5,
-                  padding: '3px 6px 3px 9px', borderRadius: 4, fontSize: 11.5,
-                  border: `1px solid ${f.negated ? 'var(--err)' : 'var(--border)'}`,
-                  background: f.negated ? 'transparent' : 'var(--accent-soft)',
-                  opacity: f.disabled ? 0.5 : 1,
-                }}>
-                  {/* v0.9.1219 — metne tıkla = yerinde düzenle (Kibana
-                      edit-filter). Silip yeniden ekleme devri kapandı.
-                      v0.10.924 — buton bütünlüğü Faz 2: `span role=button`
-                      yerine LinkButton (metin gibi görünür, gerçek düğme;
-                      Enter/Space yerel). Ton rengi durum olduğu için satır içi. */}
-                  <LinkButton
-                    onClick={() => setEditPill(editPill === i ? null : i)}
-                    title="Düzenle — alan/operatör/değer"
-                    style={{
-                      fontFamily: 'var(--font-mono)',
-                      color: tone,
-                      textDecoration: f.disabled ? 'line-through' : undefined,
-                    }}>
-                    {f.negated && <b>NOT </b>}
-                    {f.exists ? <>∃ {f.key}</>
-                      : f.op ? <>{f.key} {f.op === 'gte' ? '≥' : '≤'} {f.value}</>
-                      : f.values && f.values.length > 1
-                        ? <>{f.key} ∈ ({f.values.join(', ')})</>
-                        : <>{f.key}: {f.value}</>}
-                  </LinkButton>
-                  {editPill === i && (
-                    <LogPillEditor filter={f} since={autocompleteSince}
-                      onApply={next => { setEditPill(null); applyPills(replaceFilterAt(filters, i, next)); }}
-                      onCancel={() => setEditPill(null)} />
-                  )}
-                  <Button variant="ghost" size="sm" className={f.negated ? 'is-err' : undefined}
-                    onClick={() => negatePill(i)}
-                    title={f.negated ? 'Include (drop the NOT)' : 'Negate — exclude matching logs'}>≠</Button>
-                  <Button variant="ghost" size="sm"
-                    onClick={() => disablePill(i)}
-                    title={f.disabled ? 'Re-enable this filter' : 'Temporarily disable (keeps the pill)'}>◐</Button>
-                  <Button variant="ghost" size="sm"
-                    onClick={() => removePill(i)}
-                    title="Remove this filter">×</Button>
-                </span>
-              );
-            })}
-            <Button variant="secondary" size="sm"
-              onClick={() => applyPills([])}
-              title="Remove all field filters (free-text search stays)">
-              Clear all
-            </Button>
-          </div>
-        )}
-        {/* v0.10.418 (log arama denetimi B7) — UYGULANAN arama cümlesi:
-            compileSearch çıktısı, backend'e giden `search=` parametresinin
-            kendisi (servis/env/seviye/trace ayrı parametre — bu yalnız
-            arama cümlesi). Kutudaki taslak değil: Enter/Search'e dek
-            gecikir. Canlı kuyrukta da çizilir (aynı dize SSE'ye gider).
-            Pill barının DIŞINDA: yalnız serbest metinle de görünsün. */}
-        {compiledSearch && (
-          <div className="trace-lock" style={{ marginBottom: 10 }}>
-            <span>Uygulanan arama</span>
-            <code title={compiledSearch}>{compiledSearch}</code>
-            <CopyButton value={compiledSearch} title="Arama cümlesini kopyala (KQL/Lucene alt kümesi)" />
-          </div>
-        )}
 
         {/* Level facet chips (prototype LogsView .logbar/.facet/.lvl).
             Each chip drives the EXISTING min-severity filter
@@ -1585,31 +1266,6 @@ function LogsInner() {
                   {logs.length.toLocaleString()} of {loadedRows.length.toLocaleString()} loaded rows match
                 </span>
                 <Button variant="ghost" size="sm" onClick={() => setNarrow('')}>clear</Button>
-              </>
-            )}
-            {/* v0.9.302 — export what is ALREADY loaded. Zero backend
-                calls: these rows are in the page, and re-asking
-                Elasticsearch for bytes the browser holds would be the
-                most expensive way to produce a file. Exports what the
-                operator SEES — the local narrow filter included — so
-                the file matches the screen it came from. A synchronous
-                unbounded export is deliberately not offered. */}
-            {logs.length > 0 && (
-              <>
-                <span style={{ color: 'var(--text3)' }}>·</span>
-                <span style={{ color: 'var(--text3)' }}
-                  title={`Downloads the ${logs.length.toLocaleString()} rows currently in the page — not the whole query. Load more first if you need more, or narrow the query.`}>
-                  export
-                </span>
-                <Button variant="ghost" size="sm"
-                  onClick={() => downloadText(logsToCSV(logs), exportFilename('csv'), 'text/csv;charset=utf-8')}>
-                  CSV
-                </Button>
-                <Button variant="ghost" size="sm"
-                  title="One JSON object per line — unambiguous for bodies containing commas, quotes or newlines, and what log pipelines ingest."
-                  onClick={() => downloadText(logsToNDJSON(logs), exportFilename('ndjson'), 'application/x-ndjson')}>
-                  NDJSON
-                </Button>
               </>
             )}
             <span style={{ flex: 1 }} />

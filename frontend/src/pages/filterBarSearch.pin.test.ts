@@ -9,8 +9,7 @@
 //     mekanizma pageControlsCollapse.test'te mount ile çivili);
 //   · Traces: trace-id kutusunda "Go" düğmesi YOK (Enter + ✕ kaldı); filtre
 //     barında Search Root'tan sonra, boşluk + görünüm anahtarından önce;
-//   · Logs: Reset / ↻ / Copy link / Live tail Search'ten sonraki sağ kümede
-//     (`.pc-right`); Live'ın satır-içi marginLeft'i kalktı.
+//   · Logs: v0.10.1498'de Discover taslağıyla değişti (aşağıdaki blok).
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -94,28 +93,42 @@ describe('v0.10.1332 — Traces', () => {
   });
 });
 
-describe('v0.10.1332 — Logs filtre barı', () => {
-  const seg = bar(stripComments(read('pages/Logs.tsx')));
+// v0.10.1498 — /logs barı operatör onaylı Kibana-Discover taslağıyla
+// (2026-10-24, "Taslağı onaylıyorum") v0.10.1332 mockup'ının YERİNE geçti
+// (docs/DECISIONS.md). Çubukta yalnız sorgu: Service · Cluster · KQL ·
+// Search/↻ (tek birincil, md, Enter ipucu, telefonda pinli); sağ küme
+// PageControls `actions` yuvasında: + Filter ▾ · Live tail · menüler.
+describe('v0.10.1498 — Logs sorgu çubuğu (Discover taslağı)', () => {
+  const src = stripComments(read('pages/logs/LogsQueryBar.tsx'));
+  const seg = bar(src);
+  const kids = seg.slice(at(seg, '<ServicePicker'));
+  const actions = seg.slice(0, at(seg, '<ServicePicker'));
 
-  it('Search md + ipucu, son filtreden (◆ With trace) SONRA', () => {
-    expect(searchTag(seg)).not.toMatch(/size="sm"/);
-    expect(seg).toMatch(/<span className="search-go">\s*<Button variant="primary"(?:=>|[^>])*?>Search<\/Button>\s*<EnterHint /);
-    expect(at(seg, '◆ With trace')).toBeLessThan(at(seg, '>Search</Button>'));
+  it('çubuk sırası: Service → Cluster → KQL → Search/↻; başka filtre yok', () => {
+    const order = ['<ServicePicker', 'All clusters', '<KqlSearchInput', '<span className="search-go" data-pc-pin>']
+      .map(n => at(kids, n));
+    expect(order).toEqual([...order].sort((x, y) => x - y));
+    for (const n of ['Filter logs by trace ID', 'With trace', '>Reset<', '<ShareButton', 'Live tail', 'SavedViewsBar']) {
+      expect(kids, n).not.toContain(n);
+    }
   });
 
-  it('Reset · ↻ · Copy link · Live tail sağ kümede (.pc-right), Search\'ten SONRA', () => {
-    const a = at(seg, '<span className="pc-right">');
-    expect(a).toBeGreaterThan(at(seg, '>Search</Button>'));
-    // Sağ kümenin kapanışı: barın son `</span>`ı.
-    const group = seg.slice(a, seg.lastIndexOf('</span>'));
-    const order = ['>Reset</Button>', 'aria-label="Yenile"', 'label="Copy link"', "'▶ Live tail'"]
-      .map(n => at(group, n));
+  it('Search md + ipucu; ↻ aynı yuvada, ikisi de tek birincil', () => {
+    expect(searchTag(kids)).not.toMatch(/size="sm"/);
+    expect(kids).toMatch(/<span className="search-go" data-pc-pin>\s*\{refreshMode \? \(\s*<Button variant="primary" aria-label="Yenile"/);
+    expect(kids).toMatch(/: \(\s*<Button variant="primary" onClick=\{p\.onApply\}>Search<\/Button>\s*\)\}\s*<EnterHint /);
+    expect((kids.match(/variant="primary"/g) ?? []).length).toBe(2);
+  });
+
+  it('sağ küme actions yuvasında: + Filter → Live tail → menüler', () => {
+    const order = ['{p.addFilter}', "'▶ Live tail'", '{p.menus}'].map(n => at(actions, n));
     expect(order).toEqual([...order].sort((x, y) => x - y));
-    // Kümenin dışında (önünde) bu eylemler kalmadı.
-    const before = seg.slice(0, a);
-    for (const n of ['>Reset</Button>', 'aria-label="Yenile"', '<ShareButton', 'Live tail']) {
-      expect(before, n).not.toContain(n);
-    }
+    const page = stripComments(read('pages/Logs.tsx'));
+    const menus = page.slice(at(page, 'menus={('));
+    const m = ['<SavedViewsBar page="logs" variant="compact" />', '<LogsShareMenu', '<LogsMoreMenu']
+      .map(n => at(menus, n));
+    expect(m).toEqual([...m].sort((x, y) => x - y));
+    expect(page).toContain('addFilter={(\n            <LogsAddFilterMenu');
   });
 
   it('sağa itme tek yerde: barda satır-içi marginLeft: auto yok', () => {

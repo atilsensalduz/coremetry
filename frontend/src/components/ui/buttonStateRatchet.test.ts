@@ -103,9 +103,20 @@ describe('K3 — durum birincil dolgu değil (v0.10.1318)', () => {
       expect(f!.src, rel).toContain('active=');
       expect([...f!.src.matchAll(COND_PRIMARY)].length, rel).toBe(0);
     }
+    // v0.10.1498 — /logs anahtarları saf sunum bileşenlerine taşındı:
+    // ◆ With trace → + Filter ▾ (LogsActionsMenus), Live → LogsQueryBar.
+    // İkisi de `active` ile, koşullu birincil yok.
     const logs = FILES.find(x => x.rel === 'pages/Logs.tsx')!.src;
-    expect(logs).toContain('active={filter.hasTrace}');
-    expect(logs).toContain('active={live}');
+    expect(logs).toContain('active={patternsOpen}');
+    for (const [rel, needle] of [
+      ['pages/logs/LogsActionsMenus.tsx', 'active={p.hasTrace}'],
+      ['pages/logs/LogsQueryBar.tsx', 'active={p.live}'],
+    ] as const) {
+      const f = FILES.find(x => x.rel === rel);
+      expect(f, rel).toBeDefined();
+      expect(f!.src, rel).toContain(needle);
+      expect([...f!.src.matchAll(COND_PRIMARY)].length, rel).toBe(0);
+    }
     const pv = FILES.find(x => x.rel === 'components/ProblemVerdictActions.tsx')!.src;
     expect(pv).toContain("active={current?.verdict === 'real'}");
     expect(pv).toContain("active={current?.verdict === 'noise'}");

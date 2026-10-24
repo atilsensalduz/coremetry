@@ -191,10 +191,12 @@ describe('K5/K3 — açık kip seçim dilinde (.live-on, v0.10.1318)', () => {
     expect(dot).not.toMatch(/--(err|warn|ok)(-solid|-bg)?\b/);
   });
 
-  it('renk Button `active`ten gelir: Logs.tsx canlı kuyruk `active={live}`', () => {
-    const logs = readFileSync(resolve(__dirname, '../pages/Logs.tsx'), 'utf8');
-    expect(logs).toContain('active={live}');
-    expect(logs).not.toMatch(/variant=\{live \?/);
+  it('renk Button `active`ten gelir: /logs canlı kuyruk `active={p.live}`', () => {
+    // v0.10.1498 — Live düğmesi sorgu çubuğuna (pages/logs/LogsQueryBar.tsx).
+    const logs = readFileSync(resolve(__dirname, '../pages/logs/LogsQueryBar.tsx'), 'utf8');
+    expect(logs).toContain('active={p.live}');
+    expect(logs).not.toMatch(/variant=\{p?\.?live \?/);
+    expect(readFileSync(resolve(__dirname, '../pages/Logs.tsx'), 'utf8')).toContain('live={live} onToggleLive={() => setLive(v => !v)}');
     const tint = bodyOf('button.sec.is-active');
     expect(tint).toMatch(/color:\s*var\(--accent2\)/);
     expect(tint).toMatch(/background:\s*var\(--accent-bg\)/);

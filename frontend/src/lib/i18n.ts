@@ -445,9 +445,41 @@ const EN: Catalog = {
   'endpoint.opcard.chip':       'Operation card',
   'endpoint.opcard.chipHint':   'Open this operation\'s call tree (code & calls) on the endpoint page',
   // v0.10.1491 END
+  // v0.10.1498 — /logs Kibana-Discover sorgu çubuğu + süzgeç satırı
+  'logs.dv.addFilter':        '+ Filter',
+  'logs.dv.addFilterTitle':   'Trace ID, with-trace, my team and field filters',
+  'logs.dv.traceId':          'Trace ID (Enter applies)',
+  'logs.dv.fieldFilter':      '+ Field filter…',
+  'logs.dv.share':            'Share',
+  'logs.dv.copyLink':         'Copy link',
+  'logs.dv.linkCopied':       'Link copied — the time window is pinned to absolute times',
+  'logs.dv.more':             'More actions',
+  'logs.dv.exportNone':       'No loaded rows to export yet',
+  'logs.dv.appliedSearch':    'Applied search',
+  'logs.dv.withTrace':        'with trace',
+  'logs.dv.withTraceRemove':  'Remove the with-trace filter',
+  'logs.dv.asTrace':          'filter as trace',
+  'logs.dv.asTraceTitle':     'The search box holds a bare trace id — filter to that trace instead of a free-text match',
+  // v0.10.1498 END
 };
 
 const TR: Catalog = {
+  // v0.10.1498 — /logs Kibana-Discover sorgu çubuğu + süzgeç satırı
+  'logs.dv.addFilter':        '+ Süzgeç',
+  'logs.dv.addFilterTitle':   'Trace ID, trace\'li satırlar, takımım ve alan süzgeçleri',
+  'logs.dv.traceId':          'Trace ID (Enter uygular)',
+  'logs.dv.fieldFilter':      '+ Alan süzgeci…',
+  'logs.dv.share':            'Paylaş',
+  'logs.dv.copyLink':         'Bağlantıyı kopyala',
+  'logs.dv.linkCopied':       'Bağlantı kopyalandı — zaman penceresi mutlak zamana sabitlendi',
+  'logs.dv.more':             'Diğer eylemler',
+  'logs.dv.exportNone':       'Henüz indirilecek yüklenmiş satır yok',
+  'logs.dv.appliedSearch':    'Uygulanan arama',
+  'logs.dv.withTrace':        'trace\'li',
+  'logs.dv.withTraceRemove':  'Trace\'li satır süzgecini kaldır',
+  'logs.dv.asTrace':          'trace olarak süz',
+  'logs.dv.asTraceTitle':     'Arama kutusunda çıplak bir trace id var — serbest metin eşleşmesi yerine o trace\'e süz',
+  // v0.10.1498 END
   // v0.10.1477 — /logs takım süzgeci
   'logs.team.mine':           'Takımım',
   'logs.team.label':          'Takım',

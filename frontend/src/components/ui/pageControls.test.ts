@@ -183,8 +183,20 @@ describe('sticky bar #content ağacında', () => {
     // aynı garantiyi veriyor. Bu satır bu kapının D4'ü YAKALAMASIYLA
     // doğdu (AdminAudit tam da burada kırmızıya döndü) — kapı çalıştı.
     const SHELL_FROM_PARENT = /pages\/Admin[A-Za-z]*\.tsx$/;
+    // v0.10.1498 — /logs sorgu çubuğu saf sunum bileşeni
+    // (pages/logs/LogsQueryBar.tsx); kabuğu çağıran Logs.tsx basar. Muafiyet
+    // boşluk bırakmıyor: aşağıdaki assert Logs.tsx'in çubuğu <PageShell>
+    // İÇİNDE çizdiğini ayrıca çiviliyor.
+    const HOSTED_BY_PAGE: Record<string, string> = { 'pages/logs/LogsQueryBar.tsx': 'pages/Logs.tsx' };
+    for (const [child, page] of Object.entries(HOSTED_BY_PAGE)) {
+      const host = readFileSync(join(SRCDIR, page), 'utf8');
+      const shell = host.indexOf('<PageShell>');
+      expect(shell, `${page} kabuk basmıyor`).toBeGreaterThanOrEqual(0);
+      expect(host.indexOf('<LogsQueryBar'), `${child} ${page} kabuğunun İÇİNDE değil`).toBeGreaterThan(shell);
+    }
     const bad = users
       .filter(f => !SHELL_FROM_PARENT.test(f.p))
+      .filter(f => !Object.keys(HOSTED_BY_PAGE).some(k => f.p.endsWith(k)))
       .filter(f => {
         const at = HOSTS.map(h => f.src.indexOf(h)).filter(i => i >= 0);
         if (at.length === 0) return true;

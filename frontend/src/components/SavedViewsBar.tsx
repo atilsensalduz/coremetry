@@ -1,10 +1,12 @@
 import { savedViewTooLarge } from '@/lib/savedViewLimits';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/components/AuthProvider';
 import { Button } from '@/components/ui/Button';
 import { LinkButton } from '@/components/ui/LinkButton';
+import { MenuItem } from '@/components/ui/Menu';
+import { Popover } from '@/components/ui/Popover';
 import { useShortcuts, type Shortcut } from '@/lib/keyboard';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
@@ -34,12 +36,18 @@ function normaliseQS(qs: string): string {
 //   - Anyone signed in can save personal views.
 //   - Admins can flip "shared" so everyone on the team sees it.
 //   - You can only delete your own views (admins can delete any).
-export function SavedViewsBar({ page, right }: {
+export function SavedViewsBar({ page, right, variant = 'bar' }: {
   page: string;
   // v0.9.304 — trailing slot, right-aligned on the same line. /traces
   // parks Reset + CSV here: they are page-level actions, and the strip
   // they used to sit in was removed as a whole row (operator).
   right?: ReactNode;
+  // v0.10.1498 (/logs Kibana-Discover yeniden tasarımı) — 'compact': şerit
+  // yerine sorgu çubuğunda tek "Saved ▾" düğmesi + menü (uygula / sil /
+  // "＋ Save current view…" diyaloğu). Durum, kısayollar (1-9), "● modified"
+  // ve izinler şeritle AYNI çekirdekten; varsayılan 'bar' diğer sayfalarda
+  // BAYT BAYT eski hâl.
+  variant?: 'bar' | 'compact';
 }) {
   const confirm = useConfirm();
   const navigate = useNavigate();
@@ -48,6 +56,8 @@ export function SavedViewsBar({ page, right }: {
   const isAdmin = user?.role === 'admin';
 
   const [views, setViews] = useState<SavedView[] | undefined>(undefined);
+  const menuAnchorRef = useRef<HTMLButtonElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [showSaver, setShowSaver] = useState(false);
   const [name, setName] = useState('');
   const [shared, setShared] = useState(false);
@@ -162,6 +172,72 @@ export function SavedViewsBar({ page, right }: {
       toast.error(`Failed to delete view: ${msg}`);
     }
   };
+
+  if (variant === 'compact') {
+    const activeView = ordered.find(v => v.id === activeViewId);
+    const modifiedView = !activeView && lastAppliedViewId
+      ? ordered.find(v => v.id === lastAppliedViewId) : undefined;
+    return (
+      <>
+        <Button ref={menuAnchorRef} variant="secondary" aria-haspopup="menu" aria-expanded={menuOpen}
+          disabled={views === undefined}
+          title={activeView ? `Saved view: ${activeView.name}`
+            : modifiedView ? `Drifted from saved view "${modifiedView.name}" — open to restore`
+            : 'Saved views — apply, save or delete a filter combo'}
+          onClick={() => { setShowSaver(false); setMenuOpen(o => !o); }}>
+          <span className="ld-saved-label">
+            {activeView ? `✓ ${activeView.name}` : modifiedView ? `● ${modifiedView.name}` : 'Saved'}
+          </span> ▾
+        </Button>
+        <Popover anchorRef={menuAnchorRef} open={menuOpen} onClose={() => setMenuOpen(false)} kind="menu"
+          ariaLabel="Saved views" width={300}>
+          {ordered.length === 0 && (
+            <div className="ld-saved-empty">(none yet — Save current view to pin a filter combo)</div>
+          )}
+          {ordered.map((v, i) => {
+            const isActive = activeViewId === v.id;
+            const isModified = !isActive && lastAppliedViewId === v.id;
+            return (
+              <div key={v.id} className="ld-saved-row">
+                <MenuItem className="ld-saved-apply"
+                  icon={isActive ? '✓' : isModified ? '●' : v.ownerId === '' ? '★' : ''}
+                  onClick={() => { setMenuOpen(false); apply(v); }}
+                  title={`${v.ownerId === '' ? 'Team-shared view' : 'Your view'}${isModified ? ' · drifted; click to restore' : ''}${i < 9 ? ` · press ${i + 1}` : ''}`}>
+                  {v.name}
+                  {i < 9 && <kbd className="kbd">{i + 1}</kbd>}
+                </MenuItem>
+                {(v.ownerId === user?.id || isAdmin) && (
+                  <MenuItem danger className="ld-saved-del" aria-label={`Delete view ${v.name}`} title="Delete"
+                    onClick={() => { setMenuOpen(false); void remove(v); }}>×</MenuItem>
+                )}
+              </div>
+            );
+          })}
+          <div className="ld-menu-sep" role="separator" />
+          <MenuItem onClick={() => { setMenuOpen(false); setShowSaver(true); }}>＋ Save current view…</MenuItem>
+        </Popover>
+        <Popover anchorRef={menuAnchorRef} open={showSaver} onClose={() => setShowSaver(false)} kind="dialog"
+          ariaLabel="Save current view" width={300}>
+          <input
+            placeholder="Name…"
+            aria-label="Saved view name"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') void save(); }} />
+          {isAdmin && (
+            <label className="ld-saved-share">
+              <input type="checkbox" checked={shared}
+                onChange={e => setShared(e.target.checked)} />
+              Share with team
+            </label>
+          )}
+          <Button variant="primary" size="sm" onClick={() => void save()} disabled={!name.trim()}>
+            Save
+          </Button>
+        </Popover>
+      </>
+    );
+  }
 
   if (views === undefined) return null;
 

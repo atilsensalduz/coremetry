@@ -10950,3 +10950,27 @@ JSON'da mesaj dışı enum değerleri (status OK/FAILED) desenleri artık AYIRMA
 2000 JSON imzası test makinesinde ≪500 ms (uç bütçesi 2 s; ES sayfa okuması baskın).
 
 **Geri alma.** `git revert <sha>` + yeni etiket. Drain yeni kimlikleri 30 günde söner; eski kimlikler geri döner.
+
+## 2026-10-24 — v0.10.1498 — /logs Kibana-Discover dilim 1: sorgu çubuğu + tek süzgeç satırı + menüler
+
+**Karar.** Operatör onaylı taslak (2026-10-24, "Taslağı onaylıyorum"); 4 dilimlik planın ilki (`plan-logs-discover.md`).
+Bu taslak **v0.10.1332 "Filtre barı · Search son filtrenin arkasında" mockup pinini /logs için geçersiz kılar** (Services
+ve Traces barları o pinde kalır). Sorgu çubuğu (`pages/logs/LogsQueryBar.tsx`, PageControls sticky) yalnız Service · Cluster
+· KQL · [Search | ↻ HH:MM]: Search ile ↻ TEK birincil düğme (Kibana Update ⇄ Refresh) — taslak uygulanan süzgece eşitken
+(`isDraftDirty`, `pages/logs/logsQuery.ts`) "↻ <pencere sonu>" ve tık pencereyi şimdiye taşır, aksi hâlde "Search". Eylem
+yuvası (`actions`): `+ Filter ▾` (dialog: Trace ID — aria-label korunur, ◆ With trace, Takımım, yeni alan pill'i
+LogPillEditor ile) · Live tail · ≡ Desenler · `Saved ▾` (SavedViewsBar `variant="compact"`; varsayılan `bar` diğer
+sayfalarda bayt bayt aynı) · `Share ▾` (Copy link, ↗ Discover in Elastic — `PopoverHrefItem`, barrel'da; desen/takım
+etkinken yok) · `⋯` (Reset, ✨ Desenleri anlat, Export CSV/NDJSON). Trace kilidi, desen, takım, with-trace, pill'ler ve
+"Uygulanan arama" TEK satırda çip (`LogsFilterRow`); derlenmiş sorgu "KQL ⓘ" popover'ında, CopyButton'la. Beş dürüstlük
+rozeti `LogsNotices`'ta tek satır, metinler değişmedi. KQL kutusunda çıplak 32-hex → "trace olarak süz" (tek tık trace
+kilidi). Durumun tamamı Logs.tsx'te; yeni bileşenler saf sunum. CSS tek `v0.10.1498` ld-* bloğu.
+
+**Değişmeyenler.** URL parametresi eklenmedi/yeniden adlandırılmadı (`legacyUrls.test.ts` altın listesi: sig, okuma,
+yazma, panel/breakdown/asc/doc); yeni fetch/prefetch/poll yok; teamGate ve "Takımım" önerisi (testid) yerinde; her yetenek
+≤1 tık (`capabilityReach.test.tsx`). Kaynak pinleri yeni evlerine taşındı, zayıflatılmadan: filterBarSearch (Logs bloğu
+yeni düzene), buttonStateRatchet, k5HealthNeutral, Logs.refresh, Logs.effectiveQuery, Logs.degraded, insightHosts,
+pageControls (sticky host muafiyeti + Logs.tsx'in çubuğu PageShell İÇİNDE çizdiği assert'i).
+
+**Geri alma.** `git revert <sha>` + yeni etiket. Saf FE; URL sözleşmesi aynı olduğu için kayıtlı görünümler ve paylaşılan
+linkler iki yönde de çalışır. SavedViewsBar `variant` prop'u geri alınınca compact çağrısı da gider (tek tüketici /logs).

@@ -191,7 +191,10 @@ describe('log deseni — ızgara yuvası (streams.tsx)', () => {
     // silmek v0.9.1100'ü sessizce geri almak olurdu.
     const logs = read('pages/Logs.tsx');
     expect(logs, '/logs panel anlatıcısı kaldırılmış').toContain('explainLogPatterns');
-    expect(logs).toContain('Desenleri anlat');
+    // v0.10.1498 — düğme ⋯ menüsüne taşındı (pages/logs/LogsActionsMenus.tsx);
+    // sayfa eylemi menüye bağlıyor.
+    expect(logs).toContain('onExplainPatterns={() => void explainPatterns()}');
+    expect(read('pages/logs/LogsActionsMenus.tsx')).toContain('Desenleri anlat');
     // Ve /logs'a desen listesi GERİ GELMEDİ (ES maliyeti + v0.8.35 kararı).
     expect(logs, '/logs\'a desen listesi geri eklenmiş')
       .not.toContain('useLogPatternAnomalies');
