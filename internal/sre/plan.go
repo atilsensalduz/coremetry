@@ -34,6 +34,13 @@ const (
 	// TEMBEL node kontrolü (dalga 3; yalnız doygunluk hipotezi isterse).
 	stepEvents = "events"
 	stepNode   = "node"
+	// v0.10.1494 (CoSRE 2d) — Context Pack okuyucuları (yalnız
+	// sre_agent.contextpack.enabled ya da paketli değerlendirme tekrarı):
+	// hata özeti (dalga 1), baseline + deploy etkisi ve anomaliler (dalga 2:
+	// deploy satırları / bağımlılık kenarları dalga 1'den).
+	stepErrors    = "errors"
+	stepBaseline  = "baseline"
+	stepAnomalies = "anomalies"
 )
 
 // Adım tavanları (tasarım: dalga 1 15/3/8 s, dalga 2 15/15 s, anlatım 45 s;
@@ -48,6 +55,10 @@ const (
 	capSummary  = 45 * time.Second
 	capEvents   = 5 * time.Second
 	capNode     = 7 * time.Second
+	// v0.10.1494 — paket okuyucuları (baseline ≤ 5 okuma × 3 s alt tavan).
+	capErrors    = 8 * time.Second
+	capBaseline  = 12 * time.Second
+	capAnomalies = 5 * time.Second
 )
 
 // Belirtiler (anomaly.SymptomPlan sözlüğü).
@@ -76,6 +87,10 @@ type StepSpec struct {
 	// v0.10.1288 — olaylar / node adımlarının penceresi.
 	Events *eventsRequest
 	Node   *nodeRequest
+	// v0.10.1494 — Context Pack okuyucularının girdileri.
+	Errors    *errorsRequest
+	Baseline  *baselineRequest
+	Anomalies *anomaliesRequest
 }
 
 // eventsRequest — olaylar adımının girdisi. Targets (aşağı akış db:/ext:
@@ -186,6 +201,9 @@ type planInput struct {
 	// gerektirmese de eklenir (hipotez onlara bakar).
 	Verify    string
 	ProblemID string
+	// Pack — v0.10.1494: Context Pack açık (nil = kapalı → paket adımları
+	// planlanmaz, plan bayt bayt eski).
+	Pack *ContextPackSettings
 }
 
 // planSteps — SAF: problem + (varsa) sentezleyici hipotezi → adımlar.
@@ -246,6 +264,14 @@ func planSteps(p chstore.Problem, hyp *chstore.RootCauseHypothesis, in planInput
 	steps = append(steps, StepSpec{Name: stepEvents, Wave: 2, Cap: capEvents, Events: &eventsRequest{
 		Service: svc, ProblemID: firstNonEmpty(in.ProblemID, p.ID), From: evFrom, To: evTo,
 	}})
+	if pk := in.Pack; pk != nil && svc != "" {
+		steps = append(steps,
+			StepSpec{Name: stepErrors, Wave: 1, Cap: capErrors, Errors: &errorsRequest{Service: svc, From: from, To: to}},
+			StepSpec{Name: stepBaseline, Wave: 2, Cap: capBaseline, Baseline: &baselineRequest{Service: svc, Env: in.Env, From: from, To: to,
+				Kinds: append([]string(nil), pk.Baselines...), StartNs: start.UnixNano(), Now: in.Now.UTC()}},
+			StepSpec{Name: stepAnomalies, Wave: 2, Cap: capAnomalies, Anomalies: &anomaliesRequest{Service: svc, From: from, To: to, TopN: pk.TopAnomalies}},
+		)
+	}
 	return steps
 }
 

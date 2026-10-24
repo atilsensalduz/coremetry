@@ -196,6 +196,9 @@ type ReplayRequest struct {
 	ProblemStartedAt int64 // unix ns — çıpa (problemin StartedAt'i)
 	By               string
 	Now              time.Time
+	// ContextPack — v0.10.1494: tekrar Context Pack okuyucularıyla koşar
+	// (Investigation.Pack; canlı bayrak tekrarı etkilemez).
+	ContextPack bool
 }
 
 // replayInvestigation — SAF: tekrar işinin kuyruk kaydı. Çıpa problemin
@@ -211,7 +214,7 @@ func replayInvestigation(req ReplayRequest) Investigation {
 		Kind: KindReplay, State: StateQueued, Priority: req.Priority, Run: 1,
 		EnqueuedAt: now.UnixNano(), RequestBy: req.By, ProblemAt: req.ProblemStartedAt,
 		EvalRun: req.RunID, CaseID: req.CaseID, AsOf: asOf.UnixNano(),
-		Anchor: anchorFor(req.ProblemStartedAt, asOf),
+		Anchor: anchorFor(req.ProblemStartedAt, asOf), Pack: req.ContextPack,
 	}
 }
 

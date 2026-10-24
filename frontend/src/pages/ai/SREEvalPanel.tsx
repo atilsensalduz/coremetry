@@ -164,7 +164,7 @@ export function SREEvalPanel() {
                     <DataTableCell dt={runDt} col="top1" row={r} value={evalPct(r.score.top1Acc)} />
                     <DataTableCell dt={runDt} col="top3" row={r} value={evalPct(r.score.top3Acc)} />
                     <DataTableCell dt={runDt} col="coverage" row={r} value={coveragePct(r.score.coveragePct)} />
-                    <DataTableCell dt={runDt} col="mode" row={r}><Badge tone={r.loop ? 'info' : 'neutral'}>{runMode(r)}</Badge></DataTableCell>
+                    <DataTableCell dt={runDt} col="mode" row={r}><Badge tone={r.loop || r.contextPack ? 'info' : 'neutral'}>{runMode(r)}</Badge></DataTableCell>
                     <DataTableCell dt={runDt} col="base" row={r}>
                       {r.rerunOf
                         ? <Button variant="ghost" size="sm" className="mono" title="taban koşusunu seç"
@@ -272,8 +272,8 @@ function StartForm({ onStarted, enabled, selected }: { onStarted: (id: string) =
   const [limit, setLimit] = useState('20');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const submit = async (rerunOf?: string) => {
-    const v = rerunOf ? { rerunOf } : validateEvalForm(from, to, Number(limit));
+  const submit = async (rerunOf?: string, contextPack?: boolean) => {
+    const v = rerunOf ? { rerunOf, ...(contextPack ? { contextPack: true } : {}) } : validateEvalForm(from, to, Number(limit));
     if (typeof v === 'string') { setErr(v); return; }
     setBusy(true);
     setErr(null);
@@ -303,6 +303,14 @@ function StartForm({ onStarted, enabled, selected }: { onStarted: (id: string) =
               ? `Seçili koşunun (${selected.runId}) vaka kümesini aynı çıpalarla yeniden koştur — sonra taban ↔ yeni koşu karşılaştırılır (LLM çağrısı yok)`
               : 'seçili koşu bitmeden yeniden koşulamaz'}>
             Aynı kümeyi yeniden koş
+          </Button>
+        )}
+        {selected && (
+          <Button variant="secondary" size="sm" disabled={busy || !enabled || selected.state !== 'done'} onClick={() => { void submit(selected.runId, true); }}
+            title={selected.state === 'done'
+              ? `Seçili koşunun (${selected.runId}) kümesini Context Pack okuyucularıyla (baseline / anomaliler / hata özeti) yeniden koştur — deterministik, LLM çağrısı yok; sonra taban ↔ paketli koşu`
+              : 'seçili koşu bitmeden yeniden koşulamaz'}>
+            Bağlam paketiyle yeniden koş
           </Button>
         )}
       </Row>

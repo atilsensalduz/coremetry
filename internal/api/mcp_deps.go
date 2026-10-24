@@ -86,6 +86,10 @@ func (s *Server) mcpDeps() mcptools.Deps {
 		// v0.10.1293 (AI SRE Faz 4) — geri alma önerisinin Argo eki (sre_argo.go;
 		// GitOps sekmesiyle aynı kurucu, salt okuma).
 		ArgoApps: s.mcpArgoApps,
+		// v0.10.1494 (CoSRE 2d) — list_deployments satırının git kaynağı (rollback |
+		// redeploy_older); /rollouts listesiyle AYNI sarmalayıcı (Argo ayar kapısı +
+		// chstore.AttachRolloutOriginWith) → SRE DeployFacts da görür.
+		RolloutOrigin: s.attachRolloutOrigin,
 		// v0.10.1297 — build_link mutlak `url`'i yalnız PUBLIC_URL doluyken (host uydurulmaz).
 		PublicURL: s.publicBaseURL,
 		// v0.10.1434 (CoSRE araştırma PR 1) — operatörün kapattığı toolset'ler

@@ -60,6 +60,7 @@ describe('sreEvalView', () => {
     expect(detOutcomeText({ value: 'likely', confidence: 0.6, coverage: 1 })).toBe(DET_OUTCOME_LABEL.likely);
     expect(runMode({})).toBe('deterministik');
     expect(runMode({ loop: true })).toBe('döngü');
+    expect(runMode({ contextPack: true })).toBe('det. + paket'); // v0.10.1494
   });
   it('manşet bağımsız top-1: eski koşuda yok', () => {
     const score = { cases: 3, pending: 0, unmapped: 0, skipped: 0, errored: 0, noData: 0, scored: 3, top1Hits: 2, top3Hits: 3, top1Acc: 0.6667,

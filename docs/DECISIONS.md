@@ -10828,3 +10828,50 @@ hatası loga), MV okunamazsa `windowEdges:[]` + not. Yeni tablo/kolon/MV yok; MC
 
 **Geri alma.** `git revert <sha>` + yeni etiket: uç ve bölüm birlikte gider; önbellek girdileri 60 s'de söner, `#opcard`
 çapası sayfayı bozmaz. Şema değişikliği olmadığından veri tarafında iş yok.
+## 2026-10-24 — v0.10.1494 — CoSRE 2d: Context Pack okuyucuları (baseline · anomaliler · deploy kaynağı/etkisi · hata özeti)
+
+**Bağlam.** Program sırası operatör kararıyla değişti (2d, 2b'den önce: "döngü iyi veriyle beslenmeli"). A1 (v0.10.1462)
+anlatım girdisini `contextpack.go`'ya bayt bayt taşıdı; 2d paketi dört deterministik okuyucuyla doldurur. Plan:
+`cosre-contextpack-plan.md` §0.6, §1.3 (A2), §2; STOP C' = taban B ↔ paketli deterministik koşu (döngü yok).
+
+**Karar.** (1) **Bayrak** `system_settings["sre_agent.contextpack"]` `{enabled:false, maxTokens:2000 (512–8000),
+baselines:["previous","week_before"] (+"day_before"), topAnomalies:5 (1–10)}` — ayrı anahtar (sre_agent formu tüm blobu
+yazar), admin `GET/PUT /api/settings/sre/contextpack` (audit `settings.sre_agent_contextpack.update`), 30 s tazeleme.
+**Kapalı = bayt bayt eski**: paket adımları planlanmaz, okuyucular çağrılmaz, anlatım legacy 4 KB kesimi (testdata/narration
+altınları yeşil), kayıt `pack`/`contextPack` taşımaz. (2) **Okuyucular** (`internal/sre/readers_*.go`, yalnız okuma):
+`errors` (dalga 1) — `operation_summary_5m` top-3 hatalı operasyon + `GetExceptions` top-3 istisna grubu ve örnek trace
+(v0.10.1486'nın argMax örnek kaynağı; stack okunmaz); `baseline` (dalga 2) — servis RED'i şimdi vs önceki pencere / 7 gün
+önce (/ 1 gün önce), **metrik-önce** (Overview metrik kipi `Deps.ServiceMetricRED`, VM ya da CH metric_points,
+örneklenmemiş), metrik yoksa `service_summary_5m` span yedeği ve nedeni yazılır; bir koşuda TEK kaynak; pencere
+aritmetiği `mcptools.ReferenceWindow` (compare_periods ile tek yazım); takvim sınıfı farklıysa satır notu
+(`anomaly.CalendarDayClass`); batch serviste rate farkı bulgu değildir; bulgu: hata ≥ +%50 ve ≥ %1, p99 ≥ +%50 ve ≥ +50 ms ve
+≥ 100 ms. Aynı adım çıpaya en yakın deploy'un ±10 dk önce/sonra RED'ini **aynı kaynakla** okur (ham-span
+`ComputeDeployImpact` yerine — MV/metrik-önce; plandan bilinçli sapma). `anomalies` (dalga 2) — öznenin skor sıralı
+top-N `anomaly_events` olayı (SAF `anomalyRank` = tepe × 1/(1+yaş/30 dk)) + bağımlılık adımının ≤5 servis komşusunun
+eşzamanlı anomalileri (iki sınırlı sorgu). (3) **Rollout git kaynağı** (v0.10.1445) çekirdeği api kapanışından
+`chstore.AttachRolloutOriginWith`'e taşındı (davranış pinleri chstore'a taşındı); api'de ayar kapısı + sarmalayıcı kaldı;
+`mcptools.Deps.RolloutOrigin` (mcp_deps.go aynı sarmalayıcı) → `list_deployments` satırına EK `origin` /
+`origin_confidence` (yokken çıktı aynı; araç şeması/açıklaması değişmedi, MCP 74 + altın katalog yeşil) → SRE
+`DeployFacts.Origin`. (4) **Paket bölümleri** (`contextpack_sections.go`): BASELINE(2) · DEĞİŞİKLİKLER(2, kaynak +
+etki) · ANOMALİLER(4) · KOMŞULAR(4) · HATA ÖZETİ(5), hepsi "(veri)"; **öncelikli kırpma** `PackModePriority`
+(maxTokens × 4 bayt): en yüksek Priority'nin satırları sondan kırpılır ("… (+k satır kırpıldı)"), biten bölüm düşer,
+öncelik 0–1 dokunulmaz, son emniyet capBytes; künye `Investigation.ContextPack` (bölüm/bayt/kırpılan; metin değil).
+(5) **Skor paketi okumaz** (Score / planlama kontrolleri değişmedi; yeni kontrol ayrı /aiops kararı); oy / insan işareti /
+model güveni pakete girmez (korkuluk testleri bu dosyaları da tarar); yalnız öneri, localOnly değişmedi (paket kod/wiki
+gövdesi taşımaz). (6) **Değerlendirme**: `POST /api/sre/eval/runs {rerunOf, contextPack:true}` → tekrarlar paket
+okuyucularıyla, **LLM'siz** (künye deterministik üretilir); bayrak tekrarı ETKİLEMEZ (taban B bayrak açıkken de
+paketsiz). Koşu satırı `contextPack`, vaka `pack` özeti (token, kırpma, okuyucu veri/yok/hata); compare'de
+`pack` bloğu + kip farklıysa dürüstlük notu ("skor paketi okumaz → isabet Δ ≈ 0 beklenir; fark boyut/kırpma/kapsam").
+`evalCoverageSteps` değişmedi (kapsam B ile kıyaslanabilir). /ai'da "Bağlam paketiyle yeniden koş" düğmesi + Kip "det. +
+paket". Sohbet "KAYITLI ARAŞTIRMA" bloğu bu sürümde değişmedi (PR 5/6 katlar).
+
+**Operatör (STOP C').** (a) Taban B bitmiş olmalı. (b) Karşılaştırma: /ai › AI SRE değerlendirmesi → B'yi seç →
+"Bağlam paketiyle yeniden koş" (ya da `curl -XPOST /api/sre/eval/runs -d '{"rerunOf":"<B>","contextPack":true}'`) →
+bitince yeni koşuyu seç: "Taban → Bu koşu" bloğu kontrol/bağımsız Δ (≈0 beklenir), "Bağlam paketi" karosu
+(ort/en çok token, kırpılan vaka, okuyucu kapsamı). (c) Canlıda açmak: `PUT /api/settings/sre/contextpack
+{"enabled":true}` (isteğe bağlı `maxTokens`, `baselines`). Anlatım girdisi ≤8 KB'a çıkar (varsayılan 2000 token).
+
+**Geri alma.** `PUT /api/settings/sre/contextpack {"enabled":false}` (≤30 s tüm pod'lar) → davranış v0.10.1493 ile bayt
+bayt aynı (yeni kayıt alanları yok; eski kayıtlardaki `facts.baseline/anomalies/errors` + `contextPack` okunmaz).
+`list_deployments.origin` Argo entegrasyonu kapalıyken zaten yoktur. Tam: revert + yeni etiket (eski sürüm yeni JSON
+anahtarlarını yok sayar; blob okuyansız kalır).

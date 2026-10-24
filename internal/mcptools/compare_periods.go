@@ -202,6 +202,17 @@ func cpReferenceWindow(a comparePeriodsArgs, cur chstore.PeriodWindow) (chstore.
 	return ref, kind, cpCheckLen("referans penceresi", ref)
 }
 
+// ReferenceWindow — v0.10.1494 (CoSRE 2d): cpReferenceWindow'un dışa açık
+// ikizi (SRE baseline okuyucusu; aritmetik TEK yazım). kind ∈ previous |
+// day_before | week_before; custom burada yok (ref_*_iso ister).
+func ReferenceWindow(kind string, cur chstore.PeriodWindow) (chstore.PeriodWindow, error) {
+	if strings.EqualFold(strings.TrimSpace(kind), "custom") {
+		return chstore.PeriodWindow{}, fmt.Errorf("reference custom ReferenceWindow ile kullanılamaz")
+	}
+	ref, _, err := cpReferenceWindow(comparePeriodsArgs{Reference: kind}, cur)
+	return ref, err
+}
+
 // cpResolveEnv — SAF: ortam ayrımı. requested boşken servis >1 ortamda
 // görülüyorsa bad_args (ortamlar listelenir); requested verilmiş ama
 // görülmemişse yine bad_args (sonuç sessizce boş dönerdi). Dönen not, env

@@ -90,7 +90,7 @@ func narrate(ctx context.Context, rd readers, inv *Investigation, p chstore.Prob
 		st.State, st.Summary = StepError, "süre bütçesi doldu — AI özeti istenmedi"
 		return finish()
 	}
-	user := renderInvestigationTR(*inv, p, tzdefault.Location())
+	user, _ := narrationInput(*inv, p, tzdefault.Location(), packTokens(rd)) // v0.10.1494 — paket kapalı → renderInvestigationTR bayt bayt
 	known := []string{p.Service}
 	for _, f := range inv.Findings {
 		known = append(known, f.Name)
@@ -192,6 +192,12 @@ func stepLabelTR(n string) string {
 		return "olaylar"
 	case stepNode:
 		return "node baskısı"
+	case stepBaseline: // v0.10.1494 — Context Pack okuyucuları
+		return "baseline"
+	case stepAnomalies:
+		return "anomaliler"
+	case stepErrors:
+		return "hata özeti"
 	}
 	return n
 }

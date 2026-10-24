@@ -1339,7 +1339,8 @@ export const api = {
     get<import('./types').SREEvalRun>(`/api/sre/eval/runs/${encodeURIComponent(id)}`, signal),
   // v0.10.1450 — {rerunOf} = taban koşusunun dondurulmuş kümesi (pencere yok);
   // karşılaştırma viewer görür (15 s cache; 409 = vaka kümesi farklı).
-  startSREEval: (body: { from: number; to: number; limit: number } | { rerunOf: string }) =>
+  // v0.10.1494 — contextPack:true = tekrarlar Context Pack okuyucularıyla (deterministik).
+  startSREEval: (body: ({ from: number; to: number; limit: number } | { rerunOf: string }) & { contextPack?: boolean }) =>
     request<import('./types').SREEvalRun>(`/api/sre/eval/runs`,
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   sreEvalCompare: (base: string, cand: string, signal?: AbortSignal) =>

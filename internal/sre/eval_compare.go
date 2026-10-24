@@ -145,13 +145,15 @@ func evalDetOutcome(c EvalCase) *EvalDetOutcome {
 
 // EvalCompareRun — koşunun kimliği (karşılaştırma başlığı).
 type EvalCompareRun struct {
-	RunID      string `json:"runId"`
-	State      string `json:"state"`
-	RerunOf    string `json:"rerunOf,omitempty"`
-	Loop       bool   `json:"loop"`
-	Build      string `json:"build,omitempty"`
-	CreatedAt  int64  `json:"createdAt"`
-	FinishedAt int64  `json:"finishedAt,omitempty"`
+	RunID   string `json:"runId"`
+	State   string `json:"state"`
+	RerunOf string `json:"rerunOf,omitempty"`
+	Loop    bool   `json:"loop"`
+	// ContextPack — v0.10.1494: koşu paket okuyucularıyla (deterministik) koştu.
+	ContextPack bool   `json:"contextPack"`
+	Build       string `json:"build,omitempty"`
+	CreatedAt   int64  `json:"createdAt"`
+	FinishedAt  int64  `json:"finishedAt,omitempty"`
 }
 
 // EvalPairSide — bir vakanın bir koşudaki özeti.
@@ -264,7 +266,60 @@ type EvalCompare struct {
 	Calibration      EvalCalibrationPair `json:"calibration"`
 	Cost             EvalCostPair        `json:"cost"`
 	Agreement        EvalAgreement       `json:"agreement"`
-	Note             string              `json:"note"`
+	// Pack — v0.10.1494 (STOP C'): iki koşunun Context Pack özeti (paket kipi,
+	// boyut, kırpma, paket okuyucularının kapsamı).
+	Pack EvalPackPair `json:"pack"`
+	Note string       `json:"note"`
+}
+
+// EvalPackSide — bir koşunun paket özeti (yalnız künyeli vakalar).
+type EvalPackSide struct {
+	On           bool     `json:"on"`
+	Cases        int      `json:"cases"` // künyeli (paketli biten) vaka
+	AvgTokens    *float64 `json:"avgTokens"`
+	MaxTokens    int      `json:"maxTokens"`
+	TrimmedCases int      `json:"trimmedCases"`
+	ReaderData   int      `json:"readerData"`
+	ReaderNoData int      `json:"readerNoData"`
+	ReaderFailed int      `json:"readerFailed"`
+}
+
+// EvalPackPair — taban + aday.
+type EvalPackPair struct {
+	Base EvalPackSide `json:"base"`
+	Cand EvalPackSide `json:"cand"`
+}
+
+// EvalCompareNotePack — taban ile aday paket kipi farklıysa eklenir.
+const EvalCompareNotePack = " Paket kipi farklı: paketli koşuda deterministik okuyucular (baseline / anomaliler / hata özeti) ek adım olarak koştu ve anlatım paketi künyelendi; " +
+	"hipotez skoru bu sürümde paketi OKUMAZ — isabet Δ ≈ 0 beklenir, fark paket boyutu / kırpma / okuyucu kapsamındadır (LLM çağrısı yok)."
+
+// packSideOf — SAF.
+func packSideOf(r EvalRun) EvalPackSide {
+	s := EvalPackSide{On: r.ContextPack}
+	sum := 0
+	for _, c := range r.Cases {
+		p := c.Pack
+		if p == nil {
+			continue
+		}
+		s.Cases++
+		sum += p.EstTokens
+		if p.EstTokens > s.MaxTokens {
+			s.MaxTokens = p.EstTokens
+		}
+		if p.Trimmed {
+			s.TrimmedCases++
+		}
+		s.ReaderData += p.ReaderData
+		s.ReaderNoData += p.ReaderNoData
+		s.ReaderFailed += p.ReaderFailed
+	}
+	if s.Cases > 0 {
+		v := math.Round(float64(sum)/float64(s.Cases)*10) / 10
+		s.AvgTokens = &v
+	}
+	return s
 }
 
 // EvalCompareNote — ekranda değişmez dürüstlük beyanı (plan-pr2-eval §1).
@@ -284,7 +339,7 @@ func evalCaseKey(c EvalCase) string {
 }
 
 func compareRunOf(r EvalRun) EvalCompareRun {
-	return EvalCompareRun{RunID: r.RunID, State: r.State, RerunOf: r.RerunOf, Loop: r.Loop, Build: r.Build, CreatedAt: r.CreatedAt, FinishedAt: r.FinishedAt}
+	return EvalCompareRun{RunID: r.RunID, State: r.State, RerunOf: r.RerunOf, Loop: r.Loop, ContextPack: r.ContextPack, Build: r.Build, CreatedAt: r.CreatedAt, FinishedAt: r.FinishedAt}
 }
 
 func sideOf(c EvalCase) EvalPairSide {
@@ -398,6 +453,10 @@ func compareEvalRuns(base, cand EvalRun) (EvalCompare, error) {
 	if !base.SuggestionKnown {
 		out.Note += EvalCompareNoteLegacy
 	}
+	if base.ContextPack != cand.ContextPack {
+		out.Note += EvalCompareNotePack
+	}
+	out.Pack = EvalPackPair{Base: packSideOf(base), Cand: packSideOf(cand)}
 	candOrdered := make([]EvalCase, 0, len(base.Cases))
 	var indBase, indCand []EvalCase
 	top1N, top1D, detN, detD := 0, 0, 0, 0

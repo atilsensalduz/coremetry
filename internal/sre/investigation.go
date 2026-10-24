@@ -180,6 +180,12 @@ type Investigation struct {
 	// (32 hex; yalnız örneklenmişse — self-obs kapalı = boş). PR 3'te
 	// ai_investigations.trace_id kolonuna taşınır; PR 6 "Trace'te aç".
 	TraceID string `json:"traceId,omitempty"`
+	// Pack / ContextPack — v0.10.1494 (CoSRE 2d): bu koşu Context Pack
+	// okuyucularıyla mı koştu (canlı: sre_agent.contextpack.enabled; tekrar:
+	// koşu isteği) ve anlatım paketinin KÜNYESİ (bölüm / bayt / kırpılan; metin
+	// değil). Kapalı → ikisi de yok, kayıt bayt bayt eski.
+	Pack        bool      `json:"pack,omitempty"`
+	ContextPack *PackMeta `json:"contextPack,omitempty"`
 }
 
 // QueueKey — v0.10.1301: kuyruk anahtarı (satır kimliği

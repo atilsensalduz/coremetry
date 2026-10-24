@@ -30,6 +30,11 @@ import (
 // PackModeLegacy — tüm bölümler birleşir, sonra tek bayt kesimi (capBytes).
 const PackModeLegacy = "legacy"
 
+// PackModePriority — v0.10.1494 (CoSRE 2d): tavan aşılırsa en düşük öncelikli
+// (Priority en büyük) bölümün satırları sondan kırpılır, satırı kalmayan
+// bölüm düşer; öncelik 0–1 asla kırpılmaz (son emniyet capBytes).
+const PackModePriority = "priority"
+
 // PackSection — paketin tek bölümü. Text bölüm başlığını ve satır sonlarını
 // içerir; boş Text = bölüm yok.
 type PackSection struct {
@@ -55,6 +60,9 @@ type PackSectionMeta struct {
 	Key   string `json:"key"`
 	Bytes int    `json:"bytes"`
 	Rows  int    `json:"rows"`
+	// v0.10.1494 — öncelikli kipte kırpılan satır / düşen bölüm.
+	TrimmedRows int  `json:"trimmedRows,omitempty"`
+	Dropped     bool `json:"dropped,omitempty"`
 }
 
 // PackMeta — paketin künyesi (A1'de kayda yazılmaz; A2 bayrak açıkken yazar).
@@ -64,6 +72,9 @@ type PackMeta struct {
 	EstTokens int               `json:"estTokens"`
 	Capped    bool              `json:"capped,omitempty"`
 	Sections  []PackSectionMeta `json:"sections"`
+	// v0.10.1494 — öncelikli kip: tavan (bayt) ve kırpma oldu mu.
+	MaxBytes int  `json:"maxBytes,omitempty"`
+	Trimmed  bool `json:"trimmed,omitempty"`
 }
 
 // narrationBudget — anlatım girdisi: eski 4 KB tek kesim (renderMaxBytes).
@@ -81,6 +92,14 @@ func section(key string, prio int, text string) PackSection {
 // (serbest metin EN SONDA — veri talimat değildir). Damga loc diliminde
 // (nil → UTC).
 func BuildContextPack(inv Investigation, p chstore.Problem, loc *time.Location) ContextPack {
+	return BuildContextPackWith(inv, p, loc, false)
+}
+
+// BuildContextPackWith — v0.10.1494 (CoSRE 2d): withReaders=true → dört
+// okuyucunun bölümleri (baseline / değişiklikler / anomaliler / komşular /
+// hata özeti; contextpack_sections.go) adımlardan sonra, sentezleyiciden önce.
+// false → BuildContextPack ile bayt bayt aynı (altınlar).
+func BuildContextPackWith(inv Investigation, p chstore.Problem, loc *time.Location, withReaders bool) ContextPack {
 	if loc == nil {
 		loc = time.UTC
 	}
@@ -129,6 +148,11 @@ func BuildContextPack(inv Investigation, p chstore.Problem, loc *time.Location) 
 		b.WriteString("\n")
 	}
 	add("steps", 1, b.String())
+	if withReaders {
+		for _, s := range readerSections(inv, hm) {
+			add(s.Key, s.Priority, s.Text)
+		}
+	}
 
 	if sr := inv.SynthRef; sr != nil {
 		if sr.TopSuspect != "" {
@@ -209,6 +233,9 @@ func BuildSavedPack(problemRef string, s mcptools.InvestigationSummary, loc *tim
 // birleşir, sonra (MaxBytes > 0 ise) tek capBytes kesimi — UTF-8 rune
 // sınırında, "…\n" ile biter. Bölüm künyesi kesim ÖNCESİ boyutları taşır.
 func RenderTR(pack ContextPack, b PackBudget) (string, PackMeta) {
+	if b.Mode == PackModePriority {
+		return renderPriority(pack, b.MaxBytes)
+	}
 	meta := PackMeta{Mode: PackModeLegacy, Sections: []PackSectionMeta{}}
 	var sb strings.Builder
 	for _, s := range pack.Sections {

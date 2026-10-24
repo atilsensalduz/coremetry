@@ -8,6 +8,8 @@ package api
 //        v0.10.1450: {rerunOf:<runId>} → tabanın dondurulmuş vaka listesi aynı
 //        çıpalarla (pencere verilmez; 404 taban yok); koşu satırı sunucu
 //        sürümünü (build) taşır. loop:true → 400 (döngü değerlendirmesi 2c).
+//        v0.10.1494: contextPack:true → tekrarlar Context Pack okuyucularıyla
+//        (deterministik; koşu satırı contextPack taşır, compare bloğu gösterir).
 //        Karşılaştırma ucu ayrı dosyada (sre_eval_compare.go).
 //   GET  /api/sre/eval/runs          → son 50 koşu + ölçüler + canlı ilk
 //        hipoteze varış p50/p90 (viewer görür; serveCached 15 s).
@@ -168,6 +170,9 @@ func (s *Server) postSREEvalRun(w http.ResponseWriter, r *http.Request) {
 		Limit   int    `json:"limit"`
 		RerunOf string `json:"rerunOf"`
 		Loop    bool   `json:"loop"`
+		// v0.10.1494 (CoSRE 2d) — tekrarlar Context Pack okuyucularıyla
+		// (deterministik, LLM'siz); canlı bayraktan bağımsız.
+		ContextPack bool `json:"contextPack"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
@@ -186,7 +191,7 @@ func (s *Server) postSREEvalRun(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "döngü değerlendirmesi bu sürümde yok")
 		return
 	}
-	req := sre.EvalRunRequest{Limit: in.Limit, By: by, RerunOf: strings.TrimSpace(in.RerunOf), Build: s.buildVersion}
+	req := sre.EvalRunRequest{Limit: in.Limit, By: by, RerunOf: strings.TrimSpace(in.RerunOf), Build: s.buildVersion, ContextPack: in.ContextPack}
 	if in.From != 0 || in.To != 0 { // rerunOf ile pencere verilmez → sıfır zaman (NormalizeEvalRequest)
 		req.From, req.To = time.UnixMilli(in.From), time.UnixMilli(in.To)
 	}
@@ -215,7 +220,7 @@ func (s *Server) postSREEvalRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	details, _ := json.Marshal(map[string]any{"runId": run.RunID, "from": in.From, "to": in.To, "limit": run.Limit,
-		"found": run.Found, "queued": queued, "rerunOf": run.RerunOf, "loop": run.Loop, "build": run.Build})
+		"found": run.Found, "queued": queued, "rerunOf": run.RerunOf, "loop": run.Loop, "build": run.Build, "contextPack": run.ContextPack})
 	s.audit(r, "sre.eval.run", "sre-eval", run.RunID, string(details))
 	s.cacheInvalidate(r.Context(), sreEvalRunsKey)
 	s.cacheInvalidate(r.Context(), sreStatusKey)

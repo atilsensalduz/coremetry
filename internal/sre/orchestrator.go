@@ -75,6 +75,15 @@ type readers struct {
 	runbooks   func(ctx context.Context) ([]chstore.Runbook, error)
 	runbookURL func(ctx context.Context, p chstore.Problem) string
 	argo       func(ctx context.Context, service string) ([]mcptools.ArgoAppStatus, error)
+	// v0.10.1494 (CoSRE 2d) — Context Pack okuyucuları (readers_*.go) ve
+	// bayrak/bütçe. pack nil → CurrentContextPackSettings (varsayılan kapalı).
+	redMetric   mcptools.ServiceMetricREDReader
+	redSpan     func(ctx context.Context, service string, from, to time.Time) (chstore.ServiceWindowRED, error)
+	anomalies   func(ctx context.Context, f chstore.ListAnomalyEventsFilter) ([]chstore.AnomalyEvent, error)
+	errorOps    func(ctx context.Context, service string, from, to time.Time, limit int) ([]chstore.ErrorRank, error)
+	exceptions  func(ctx context.Context, f chstore.ExceptionFilter) ([]chstore.ExceptionRow, error)
+	sensitivity func() chstore.AnomalySensitivityConfig
+	pack        func() ContextPackSettings
 }
 
 // readersFrom — üretim okuyucuları: srv.MCPDeps() (sohbetle aynı kurucu).
@@ -98,8 +107,18 @@ func readersFrom(d mcptools.Deps, n Narrator, c cache.Cache, now func() time.Tim
 		narrator: n,
 		budget:   newLLMBudget(c, now),
 		settings: CurrentSettings,
+		// v0.10.1494 — paket okuyucuları: metrik RED (Overview metrik kipi;
+		// VM-first, örneklenmemiş) + bayrak.
+		redMetric: d.ServiceMetricRED,
+		pack:      CurrentContextPackSettings,
 	}
 	if st := d.Store; st != nil {
+		// v0.10.1494 — paket okuyucuları (hepsi okuma; MV-first ya da sınırlı).
+		r.redSpan = st.ServiceWindowRED
+		r.anomalies = st.ListAnomalyEvents
+		r.errorOps = st.TopErrorOperations
+		r.exceptions = st.GetExceptions
+		r.sensitivity = st.AnomalySensitivity
 		r.problem = st.GetProblem
 		r.hypothesis = func(ctx context.Context, id string) (*chstore.RootCauseHypothesis, error) {
 			return st.GetHypothesis(ctx, "problem", id)
@@ -189,6 +208,12 @@ func hasFacts(f *Facts, step string) bool {
 		return f.Events != nil
 	case stepNode:
 		return f.Node != nil
+	case stepBaseline:
+		return f.Baseline != nil
+	case stepAnomalies:
+		return f.Anomalies != nil
+	case stepErrors:
+		return f.Errors != nil
 	}
 	return false
 }
@@ -240,8 +265,14 @@ func runInvestigation(ctx context.Context, rd readers, inv *Investigation, check
 	if inv.Kind == KindVerify && IsHypothesisKind(inv.Hypothesis) {
 		verify = inv.Hypothesis
 	}
+	// v0.10.1494 (CoSRE 2d) — Context Pack: canlı koşuda bayraktan, tekrarda
+	// koşu isteğinden (inv.Pack, enqueue'da) — bayrak tekrarı DEĞİŞTİRMEZ.
+	pk := packFor(rd, inv)
+	if !replay {
+		inv.Pack = pk != nil
+	}
 	specs := planSteps(p, hyp, planInput{Env: inv.Env, Priority: inv.Priority, Anchor: inv.Anchor, StartNs: inv.ProblemAt, Now: planNow,
-		Verify: verify, ProblemID: inv.ProblemID})
+		Verify: verify, ProblemID: inv.ProblemID, Pack: pk})
 	inv.Anchor.Families = anomaly.PlanFamilies(p)
 	inv.Anchor.Symptom = symptomOf(inv.Anchor.Families)
 	if inv.Facts == nil {
@@ -286,6 +317,16 @@ func runInvestigation(ctx context.Context, rd readers, inv *Investigation, check
 					er.Targets = eventTargets(inv.Facts.Deps)
 					s.Events = &er
 				}
+				if s.Name == stepBaseline && s.Baseline != nil && inv.Facts.Deploys != nil {
+					br := *s.Baseline
+					br.Deploys = append([]DeployFact(nil), inv.Facts.Deploys.Rows...)
+					s.Baseline = &br
+				}
+				if s.Name == stepAnomalies && s.Anomalies != nil {
+					ar := *s.Anomalies
+					ar.Neighbors = neighborTargets(inv.Facts.Deps, inv.Service)
+					s.Anomalies = &ar
+				}
 				batch = append(batch, s)
 			}
 		}
@@ -302,6 +343,7 @@ func runInvestigation(ctx context.Context, rd readers, inv *Investigation, check
 	// Hipotezler + zaman çizelgesi: SAF, okuma yok; operatör işaretleri taşınır.
 	ev := evidenceFrom(inv)
 	inv.Hypotheses = carryHuman(Score(ev), inv.Hypotheses)
+	inv.ContextPack = packMetaFor(*inv, p, pk) // v0.10.1494 — künye (metin değil); kapalı → nil
 	if replay {
 		inv.Timeline = buildTimeline(ev, inv.ProblemID, planNow)
 		// v0.10.1301 — tekrar: öneri YOK (bugünün runbook / Argo durumunu
@@ -323,6 +365,7 @@ func runInvestigation(ctx context.Context, rd readers, inv *Investigation, check
 	// v0.10.1293 (Faz 4) — öneriler: YALNIZ METİN; anlatımdan ÖNCE (girdisine
 	// ≤2 öneri girer). Operatör işaretleri kimliğe göre taşınır.
 	inv.Recommendations = carryRecState(recommend(ctx, rd, inv, p), inv.Recommendations)
+	inv.ContextPack = packMetaFor(*inv, p, pk) // öneriler pakete girer: künye öneriden SONRA
 	checkpoint(inv)
 	if forced[stepSummary] || !fresh(inv.step(stepSummary), t0) || inv.Summary == nil {
 		// v0.10.1463 (D1) — anlatım sre.narrate span'ı içinde (trace.go).
@@ -457,6 +500,21 @@ func execStep(ctx context.Context, rd readers, service string, s StepSpec) stepO
 			o.facts = &Facts{Node: nodeFactsOf(nc)}
 		}
 		return o
+	case stepBaseline:
+		if s.Baseline == nil {
+			return skippedOutcome(s.Name, "baseline isteği yok")
+		}
+		return runBaseline(ctx, rd, *s.Baseline)
+	case stepAnomalies:
+		if s.Anomalies == nil {
+			return skippedOutcome(s.Name, "anomali isteği yok")
+		}
+		return runAnomalies(ctx, rd, *s.Anomalies)
+	case stepErrors:
+		if s.Errors == nil {
+			return skippedOutcome(s.Name, "hata özeti isteği yok")
+		}
+		return runErrors(ctx, rd, *s.Errors)
 	}
 	return skippedOutcome(s.Name, "bilinmeyen adım")
 }
@@ -484,11 +542,12 @@ func groupFindings(in []Finding) map[string][]Finding {
 // türleri, log artışı).
 var findingKindRank = map[string]int{
 	"k8s": 0, "deploy": 1, "pod": 2, "jvm": 3, "operation": 4, "function": 5,
-	"dependency": 6, "trace": 7, "log": 8, "node": 9,
+	"dependency": 6, "trace": 7, "log": 8, "node": 9, "baseline": 10,
 }
 
 // stepRank — aynı tür + seviyede adım sırası.
-var stepRank = map[string]int{stepSweep: 0, stepDeploys: 1, stepDeps: 2, stepPivot: 3, stepLogSpike: 4, stepEvents: 5, stepNode: 6}
+var stepRank = map[string]int{stepSweep: 0, stepDeploys: 1, stepDeps: 2, stepPivot: 3, stepLogSpike: 4, stepEvents: 5, stepNode: 6,
+	stepErrors: 7, stepBaseline: 8, stepAnomalies: 9}
 
 // mergeFindings — SAF: adım bulguları → kayıt bulguları (≤8). Sıra: seviye
 // (crit > warn > diğer) → tür → adım → adımın kendi sırası. Aynı (tür, ad)

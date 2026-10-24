@@ -12,9 +12,15 @@ import { Link } from 'react-router-dom';
 import { Badge, StatTile } from '@/components/ui';
 import { stopRowClick } from '@/lib/a11y';
 import { useSREEvalCompare } from '@/lib/queries/sreEval';
-import type { SREEvalCompareBlock, SREEvalPair, SREEvalPairSide } from '@/lib/types';
+import type { SREEvalCompareBlock, SREEvalPackSide, SREEvalPair, SREEvalPairSide } from '@/lib/types';
 import { useDataTable, DataTableHead, DataTableColgroup, DataTableCell, DataTableState, type ColumnDef, type DataTable } from '@/components/ui/DataTable';
 import { HYP_KIND_LABEL, PAIR_HIT_LABEL, categoryLabel, coveragePct, detOutcomeText, durationTR, evalDelta, evalPct, ratioText } from './sreEvalView';
+
+// v0.10.1494 — paketli tarafın özeti: ort./en çok token, kırpılan vaka, okuyucu kapsamı.
+function packSideText(s: SREEvalPackSide): string {
+  if (s.cases === 0) return 'künyeli vaka yok';
+  return `${s.cases} vaka · ort ${s.avgTokens ?? '—'} / en çok ${s.maxTokens} token · kırpılan ${s.trimmedCases} · okuyucu veri ${s.readerData} / yok ${s.readerNoData} / hata ${s.readerFailed}`;
+}
 
 const HIT_TONE = { top1: 'success', top3: 'info', miss: 'warning', unscored: 'neutral' } as const;
 const hitRank = (s: SREEvalPairSide) => (s.hit === 'top1' ? 3 : s.hit === 'top3' ? 2 : s.hit === 'miss' ? 1 : 0);
@@ -111,6 +117,14 @@ export function SREEvalCompare({ base, cand }: { base: string; cand: string }) {
               <span className="mono">{c.cost.cand.llmFree ? 'LLM 0' : `LLM ${c.cost.cand.llmCalls}`}</span>{' '}
               <span className="field-hint">{c.cost.cand.replayed} tekrar · süre {durationTR(c.cost.base.wallMs)} → {durationTR(c.cost.cand.wallMs)}</span>
             </StatTile>
+            {c.pack && (c.pack.base.on || c.pack.cand.on) && (
+              <StatTile label="Bağlam paketi (taban → bu)">
+                <span className="mono">{c.pack.base.on ? 'açık' : 'kapalı'} → {c.pack.cand.on ? 'açık' : 'kapalı'}</span>{' '}
+                <span className="field-hint">
+                  {packSideText(c.pack.cand.on ? c.pack.cand : c.pack.base)}
+                </span>
+              </StatTile>
+            )}
             <StatTile label="Uyum (top-1 / sonuç aynı)">
               <span className="mono">{ratioText(c.agreement.top1Same)} · {ratioText(c.agreement.detOutcomeSame)}</span>{' '}
               <span className="field-hint">{c.driftCases.length ? `kayma ${c.driftCases.length} vaka` : 'kayma yok'}</span>

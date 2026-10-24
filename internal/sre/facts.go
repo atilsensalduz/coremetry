@@ -35,6 +35,11 @@ type Facts struct {
 	Events  *EventFacts   `json:"events,omitempty"`
 	Node    *NodeFacts    `json:"node,omitempty"`
 	Argo    *ArgoFacts    `json:"argo,omitempty"` // v0.10.1310
+	// v0.10.1494 (CoSRE 2d) — Context Pack okuyucuları (yalnız bayrak açıkken;
+	// Score okumaz — anlatım paketi + değerlendirme künyesi).
+	Baseline  *BaselineFacts `json:"baseline,omitempty"`
+	Anomalies *AnomalyFacts  `json:"anomalies,omitempty"`
+	Errors    *ErrorFacts    `json:"errors,omitempty"`
 }
 
 // merge — SAF: src'nin dolu parçaları dst'ye.
@@ -69,6 +74,15 @@ func (f *Facts) merge(src *Facts) {
 	if src.Argo != nil {
 		f.Argo = src.Argo
 	}
+	if src.Baseline != nil {
+		f.Baseline = src.Baseline
+	}
+	if src.Anomalies != nil {
+		f.Anomalies = src.Anomalies
+	}
+	if src.Errors != nil {
+		f.Errors = src.Errors
+	}
 }
 
 // ProblemFacts — problem satırından (okuma zenginleştirmesi dahil).
@@ -91,6 +105,11 @@ type DeployFact struct {
 	Version string `json:"version,omitempty"`
 	Prev    string `json:"prev,omitempty"`
 	Status  string `json:"status,omitempty"`
+	// Origin / OriginConfidence — v0.10.1494 (CoSRE 2d): rollout satırının git
+	// kaynağı (rollback | redeploy_older | forward | unknown; list_deployments
+	// ChangeRow.Origin ← chstore.AttachRolloutOriginWith). Argo yoksa boş.
+	Origin           string `json:"origin,omitempty"`
+	OriginConfidence uint8  `json:"originConfidence,omitempty"`
 }
 
 // DeployFacts — [başlangıç − 2 sa, şimdi] değişiklikleri (≤10).
@@ -282,7 +301,7 @@ func deployFactsOf(dc mcptools.DeployCheck) *DeployFacts {
 			break
 		}
 		out.Rows = append(out.Rows, DeployFact{At: r.TimeUnixNs, Source: r.Source, Name: firstNonEmpty(r.Workload, r.Service),
-			Version: r.Version, Prev: r.PrevVersion, Status: r.Status})
+			Version: r.Version, Prev: r.PrevVersion, Status: r.Status, Origin: r.Origin, OriginConfidence: r.OriginConfidence})
 	}
 	return out
 }

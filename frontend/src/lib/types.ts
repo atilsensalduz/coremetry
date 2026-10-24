@@ -10352,6 +10352,26 @@ export interface SREInvestigation {
   timeline?: SRETimelineEvent[];
   /** v0.10.1293 — Faz 4: öneriler (YALNIZ METİN; ajan hiçbir şeyi uygulamaz). */
   recommendations?: SRERecommendation[];
+  /** v0.10.1494 — Context Pack: koşu paketli mi + anlatım paketinin künyesi (UI PR 6). */
+  pack?: boolean;
+  contextPack?: SREPackMeta;
+}
+// v0.10.1494 — Go: sre.PackMeta / PackSectionMeta (metin değil, künye).
+export interface SREPackSectionMeta {
+  key: string;
+  bytes: number;
+  rows: number;
+  trimmedRows?: number;
+  dropped?: boolean;
+}
+export interface SREPackMeta {
+  mode: 'legacy' | 'priority';
+  bytes: number;
+  estTokens: number;
+  capped?: boolean;
+  sections: SREPackSectionMeta[];
+  maxBytes?: number;
+  trimmed?: boolean;
 }
 // v0.10.1293 — Go: sre.Recommendation (AI SRE Faz 4: yalnız öneri — runbook
 // eşleme + geri alma metni). state: ajan hiçbir şeyi uygulamaz; ack =
@@ -10490,6 +10510,19 @@ export interface SREEvalCase {
   finishedAt?: number;
   /** v0.10.1450 — onaylayan CoSRE önerisini değiştirmeden kabul etti (etiket ajandan bağımsız değil). */
   acceptedSuggestion?: boolean;
+  /** v0.10.1494 — paketli tekrarın Context Pack özeti (Go: sre.EvalPackStat). */
+  pack?: SREEvalPackStat;
+}
+// v0.10.1494 — Go: sre.EvalPackStat.
+export interface SREEvalPackStat {
+  bytes: number;
+  estTokens: number;
+  trimmed?: boolean;
+  trimmedRows?: number;
+  dropped?: number;
+  readerData: number;
+  readerNoData: number;
+  readerFailed: number;
 }
 export interface SREEvalLive {
   runs: number;
@@ -10543,6 +10576,8 @@ export interface SREEvalRun {
   build?: string;
   /** vakaların öneri bayrağı hesaplandı (v0.10.1450+). */
   suggestionKnown?: boolean;
+  /** v0.10.1494 — tekrarlar Context Pack okuyucularıyla (deterministik) koştu. */
+  contextPack?: boolean;
 }
 // v0.10.1450 — Go: sre.EvalCompare (GET /api/sre/eval/compare?base=&cand=).
 export type SREEvalHit = 'top1' | 'top3' | 'miss' | 'unscored';
@@ -10606,9 +10641,22 @@ export interface SREEvalCompareRun {
   state: 'running' | 'done';
   rerunOf?: string;
   loop: boolean;
+  /** v0.10.1494 — Go her zaman gönderir; eski önbellek / test gövdesi için opsiyonel. */
+  contextPack?: boolean;
   build?: string;
   createdAt: number;
   finishedAt?: number;
+}
+// v0.10.1494 — Go: sre.EvalPackSide.
+export interface SREEvalPackSide {
+  on: boolean;
+  cases: number;
+  avgTokens: number | null;
+  maxTokens: number;
+  trimmedCases: number;
+  readerData: number;
+  readerNoData: number;
+  readerFailed: number;
 }
 export interface SREEvalCompare {
   base: SREEvalCompareRun;
@@ -10622,6 +10670,8 @@ export interface SREEvalCompare {
   calibration: { base: SREEvalCalibration; cand: SREEvalCalibration };
   cost: { base: SREEvalCost; cand: SREEvalCost };
   agreement: { top1Same: SREEvalRatio; detOutcomeSame: SREEvalRatio };
+  /** v0.10.1494 — Context Pack özeti (taban / aday). */
+  pack?: { base: SREEvalPackSide; cand: SREEvalPackSide };
   note: string;
 }
 export interface SREEvalRunsResponse {

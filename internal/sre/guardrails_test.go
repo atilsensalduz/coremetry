@@ -46,6 +46,9 @@ var mutatingAllow = map[string]string{
 	// Ajanın KENDİ süreç-içi ayar anlık görüntüsü (atomic); system_settings'e
 	// yalnız admin PUT ucu (SaveSettings → PutSetting) yazar.
 	"settings.go:SetSettings": "kendi süreç-içi ayar anlık görüntüsü (atomic)",
+	// v0.10.1494 (CoSRE 2d) — Context Pack bayrağının süreç-içi anlık görüntüsü
+	// (atomic); system_settings'e yalnız admin PUT (SaveContextPackSettings → PutSetting).
+	"contextpack_settings.go:SetContextPackSettings": "kendi süreç-içi paket ayarı anlık görüntüsü (atomic)",
 	// Redis koordinasyon anahtarları — ajanın kendi kalp atışı / sayaçları /
 	// soğuma kilidi (TTL'li, coremetry:sre:* önekli); telemetri ya da problem
 	// durumu değil.

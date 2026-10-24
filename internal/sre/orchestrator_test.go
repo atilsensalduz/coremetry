@@ -626,7 +626,10 @@ func TestOrchestratorReadOnly(t *testing.T) {
 			seen++
 			name := sel.Sel.Name
 			if !(strings.HasPrefix(name, "Get") || strings.HasPrefix(name, "Find") || strings.HasPrefix(name, "List") || strings.HasPrefix(name, "Count") ||
-				strings.HasPrefix(name, "EnrichProblemsFor") || name == "EnrichProblemsWithRunbooks") {
+				strings.HasPrefix(name, "EnrichProblemsFor") || name == "EnrichProblemsWithRunbooks" ||
+				// v0.10.1494 (CoSRE 2d) — Context Pack okuyucuları: MV pencere RED'i,
+				// MV hata sıralaması, yayınlanmış (atomic) duyarlılık ayarı — hepsi okuma.
+				name == "ServiceWindowRED" || name == "TopErrorOperations" || name == "AnomalySensitivity") {
 				t.Errorf("%s: st.%s — orkestratör yalnız okur", fset.Position(sel.Pos()), name)
 			}
 		}

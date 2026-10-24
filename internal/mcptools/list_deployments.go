@@ -51,6 +51,12 @@ type ChangeRow struct {
 	PrevVersion string `json:"prev_version,omitempty"`
 	Status      string `json:"status,omitempty"`
 	SpanCount   int64  `json:"span_count,omitempty"`
+	// Origin / OriginConfidence — v0.10.1494 (CoSRE 2d): rollout satırının git
+	// kaynağı (rollback | redeploy_older | forward | unknown; v0.10.1445
+	// chstore.AttachRolloutOriginWith). Yalnız Deps.RolloutOrigin bağlıysa ve
+	// Argo entegrasyonu açıksa dolar; yoksa alan YOK (çıktı bayt bayt eski).
+	Origin           string `json:"origin,omitempty"`
+	OriginConfidence uint8  `json:"origin_confidence,omitempty"`
 }
 
 // mergeChanges — SAF birleşim: inferred/event (servis-düzeyi) + rollout
@@ -82,10 +88,14 @@ func mergeChanges(inferred []chstore.RecentDeployEntry, rollouts []chstore.Rollo
 		if r.ImageTag != "" {
 			ver, prev = r.ImageTag, r.PrevImageTag
 		}
-		rows = append(rows, ChangeRow{
+		row := ChangeRow{
 			Source: "rollout", TimeUnixNs: r.StartedAt.UnixNano(), TimeISO: r.StartedAt.UTC().Format(time.RFC3339),
 			Cluster: r.ClusterID, Namespace: r.Namespace, Workload: r.Workload, Version: ver, PrevVersion: prev, Status: r.Status, SpanCount: r.SpanCount,
-		})
+		}
+		if r.Origin != nil { // v0.10.1494 — git kaynağı (Deps.RolloutOrigin doldurduysa)
+			row.Origin, row.OriginConfidence = string(r.Origin.Kind), r.Origin.Confidence
+		}
+		rows = append(rows, row)
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].TimeUnixNs > rows[j].TimeUnixNs })
 	if limit > 0 && len(rows) > limit {
@@ -122,6 +132,9 @@ func ListDeploymentsWindow(ctx context.Context, d Deps, a ListDeploymentsArgs, f
 		rolloutState = "unavailable"
 		notes = append(notes, "rollouts katmanı erişilemedi/kapalı (Settings → Rollouts): "+rerr.Error())
 		rollouts = nil
+	}
+	if d.RolloutOrigin != nil && len(rollouts) > 0 {
+		d.RolloutOrigin(ctx, rollouts) // v0.10.1494 — git kaynağı yerinde (soft-fail: hata → alan yok)
 	}
 	rows := mergeChanges(inferred, rollouts, service, includeInferred, limit)
 	counts := map[string]int{}

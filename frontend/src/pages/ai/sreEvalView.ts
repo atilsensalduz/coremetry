@@ -144,8 +144,9 @@ export function ratioText(r: SREEvalRatio | undefined): string {
 }
 
 /** Koşunun kipi (2c "döngü" doldurur). */
-export function runMode(r: Pick<SREEvalRun, 'loop'>): 'deterministik' | 'döngü' {
-  return r.loop ? 'döngü' : 'deterministik';
+export function runMode(r: Pick<SREEvalRun, 'loop' | 'contextPack'>): 'deterministik' | 'döngü' | 'det. + paket' {
+  if (r.loop) return 'döngü';
+  return r.contextPack ? 'det. + paket' : 'deterministik';
 }
 
 /** Manşet (bağımsız) top-1 metni; bayrak bilinmiyorsa null (eski koşu). */

@@ -307,6 +307,12 @@ type Deps struct {
 	// effectiveDisabled). ChatToolList süzer; Register süzmez (dış çağrı
 	// api/mcp_gate.go'da adlandırılmış retle döner).
 	ToolsetsDisabled func() map[string]bool
+	// RolloutOrigin — v0.10.1494 (CoSRE 2d): rollout satırlarına git kaynağı
+	// (rollback | redeploy_older | forward | unknown) YERİNDE ekler — api
+	// attachRolloutOrigin (Argo ayar kapısı + chstore.AttachRolloutOriginWith).
+	// list_deployments (→ SRE deploy adımı DeployFacts) okur; nil = ek yok,
+	// çıktı bayt bayt eski. Hata yutulur (sarmalayıcı loglar), liste döner.
+	RolloutOrigin func(ctx context.Context, rows []chstore.RolloutRow)
 }
 
 // ArgoAppStatus — v0.10.1293: Deps.ArgoApps satırı (uygulama + durum + iş

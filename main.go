@@ -1032,6 +1032,12 @@ func main() {
 		log.Printf("[sre] load persisted settings: %v", err)
 	}
 	cfgRefresh.Add("sre-agent", func(ctx context.Context) error { return sre.LoadSettings(ctx, store) })
+	// v0.10.1494 (CoSRE 2d) — Context Pack bayrağı (sre_agent.contextpack; varsayılan
+	// kapalı) — drain okur; api PUT ucu yayınlar. Ayrı anahtar, aynı 30 s tazeleme.
+	if err := sre.LoadContextPackSettings(ctx, store); err != nil {
+		log.Printf("[sre] load persisted contextpack settings: %v", err)
+	}
+	cfgRefresh.Add("sre-agent-contextpack", func(ctx context.Context) error { return sre.LoadContextPackSettings(ctx, store) })
 	// v0.10.1289 — CoSRE operatör kuralları (system_settings cosre_rules) HER
 	// rolde: sohbet (api) ve AI SRE anlatımı (sre/all) model çağrısına ekler.
 	if err := store.LoadCosreRules(ctx); err != nil {

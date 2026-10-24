@@ -182,6 +182,54 @@ type EvalCase struct {
 	// → bu vakanın etiketi ajandan bağımsız değil. Başlatmada vakadan, yeniden
 	// koşuda tabandan kopyalanır.
 	AcceptedSuggestion bool `json:"acceptedSuggestion,omitempty"`
+	// Pack — v0.10.1494: paketli tekrarın künye özeti (paketsiz → yok).
+	Pack *EvalPackStat `json:"pack,omitempty"`
+}
+
+// EvalPackStat — v0.10.1494 (CoSRE 2d): bir vakanın Context Pack künyesi +
+// paket okuyucularının kapsamı (baseline / anomaliler / hata özeti). Hipotez
+// skoru paketi OKUMAZ — bu ölçü isabet değil, paketin boyutu ve dolgusudur.
+type EvalPackStat struct {
+	Bytes        int  `json:"bytes"`
+	EstTokens    int  `json:"estTokens"`
+	Trimmed      bool `json:"trimmed,omitempty"`
+	TrimmedRows  int  `json:"trimmedRows,omitempty"`
+	Dropped      int  `json:"dropped,omitempty"`
+	ReaderData   int  `json:"readerData"`
+	ReaderNoData int  `json:"readerNoData"`
+	ReaderFailed int  `json:"readerFailed"`
+}
+
+// packReaderSteps — paket okuyucularının adım adları.
+var packReaderSteps = map[string]bool{stepBaseline: true, stepAnomalies: true, stepErrors: true}
+
+// evalPackStatOf — SAF: tekrar kaydı → paket özeti (künye yoksa nil).
+func evalPackStatOf(inv Investigation) *EvalPackStat {
+	if inv.ContextPack == nil {
+		return nil
+	}
+	m := inv.ContextPack
+	out := &EvalPackStat{Bytes: m.Bytes, EstTokens: m.EstTokens, Trimmed: m.Trimmed || m.Capped}
+	for _, s := range m.Sections {
+		out.TrimmedRows += s.TrimmedRows
+		if s.Dropped {
+			out.Dropped++
+		}
+	}
+	for _, s := range inv.Steps {
+		if !packReaderSteps[s.Name] {
+			continue
+		}
+		switch {
+		case s.State == StepError:
+			out.ReaderFailed++
+		case s.NoData:
+			out.ReaderNoData++
+		case s.State == StepOK || s.State == StepPartial:
+			out.ReaderData++
+		}
+	}
+	return out
 }
 
 // EvalRun — koşu satırının gövdesi.
@@ -206,6 +254,10 @@ type EvalRun struct {
 	// SuggestionKnown — vakaların AcceptedSuggestion bayrağı hesaplandı
 	// (v0.10.1450 öncesi koşularda false: "bağımsız" ayrımı bilinmez).
 	SuggestionKnown bool `json:"suggestionKnown,omitempty"`
+	// ContextPack — v0.10.1494 (CoSRE 2d, STOP C'): tekrarlar Context Pack
+	// okuyucularıyla (deterministik, LLM'siz) koştu. Canlı bayraktan BAĞIMSIZ:
+	// yalnız istekten gelir; taban B paketsiz kalır.
+	ContextPack bool `json:"contextPack,omitempty"`
 }
 
 // ── başlatma ────────────────────────────────────────────────────────────────
@@ -247,6 +299,8 @@ type EvalRunRequest struct {
 	Loop bool
 	// Build — sunucu sürümü (api doldurur).
 	Build string
+	// ContextPack — v0.10.1494: tekrarlar paket okuyucularıyla (deterministik).
+	ContextPack bool
 }
 
 // ValidEvalRunID — SAF: koşu kimliği alfabesi (base36 küçük harf / rakam, '-'
@@ -335,7 +389,7 @@ func StartEvalRun(ctx context.Context, st EvalStore, req EvalRunRequest, cfg Set
 	room := evalQueueRoom(cfg, queued)
 	run := EvalRun{RunID: newEvalRunID(now), State: EvalRunning, From: req.From.UnixNano(), To: req.To.UnixNano(),
 		Limit: req.Limit, By: req.By, CreatedAt: now.UnixNano(), Found: len(cases), Cases: make([]EvalCase, 0, len(cases)),
-		Build: req.Build, SuggestionKnown: true}
+		Build: req.Build, SuggestionKnown: true, ContextPack: req.ContextPack}
 	for _, c := range cases {
 		ec := EvalCase{CaseID: c.CaseID, ProblemID: c.SourceID, Service: c.Service, Category: c.Category,
 			FinalCause: truncRunes(strings.TrimSpace(c.FinalCause), evalCauseRunes), StartedAt: c.OpenedAt.UnixNano(), State: StateQueued,
@@ -362,7 +416,7 @@ func StartEvalRun(ctx context.Context, st EvalStore, req EvalRunRequest, cfg Set
 		} else {
 			ec.Reason = "problem satırı yok — çıpa vakanın açılışı"
 		}
-		room = enqueueEvalCase(ctx, st, run.RunID, &ec, priority, req.By, now, cfg, room)
+		room = enqueueEvalCase(ctx, st, run.RunID, &ec, priority, req.By, now, cfg, room, req.ContextPack)
 		run.Cases = append(run.Cases, ec)
 	}
 	run = finalizeEvalRun(run, now)
@@ -374,7 +428,7 @@ func StartEvalRun(ctx context.Context, st EvalStore, req EvalRunRequest, cfg Set
 
 // enqueueEvalCase — vakanın tekrar işini kuyruğa alır (ya da nedeniyle
 // atlar); kalan kuyruk payını döner. Başlatma ve yeniden koşu ortak yolu.
-func enqueueEvalCase(ctx context.Context, st EvalStore, runID string, ec *EvalCase, priority, by string, now time.Time, cfg Settings, room int) int {
+func enqueueEvalCase(ctx context.Context, st EvalStore, runID string, ec *EvalCase, priority, by string, now time.Time, cfg Settings, room int, pack bool) int {
 	switch {
 	case ec.Service == "" || ec.ProblemID == "" || ec.StartedAt <= 0:
 		ec.State, ec.Reason = CaseSkipped, evalReasonNoAnchor
@@ -382,7 +436,7 @@ func enqueueEvalCase(ctx context.Context, st EvalStore, runID string, ec *EvalCa
 		ec.State, ec.Reason = CaseSkipped, evalReasonQueueFull
 	default:
 		created, err := EnqueueReplay(ctx, st, ReplayRequest{RunID: runID, CaseID: ec.CaseID, ProblemID: ec.ProblemID,
-			DisplayID: ec.DisplayID, Service: ec.Service, Priority: priority, ProblemStartedAt: ec.StartedAt, By: by, Now: now}, cfg)
+			DisplayID: ec.DisplayID, Service: ec.Service, Priority: priority, ProblemStartedAt: ec.StartedAt, By: by, Now: now, ContextPack: pack}, cfg)
 		switch {
 		case err != nil:
 			ec.State, ec.Reason = CaseSkipped, truncRunes("kuyruğa alınamadı: "+err.Error(), 200)
@@ -418,10 +472,10 @@ func startEvalRerun(ctx context.Context, st EvalStore, req EvalRunRequest, cfg S
 	room := evalQueueRoom(cfg, queued)
 	run := EvalRun{RunID: newEvalRunID(now), State: EvalRunning, From: base.From, To: base.To, Limit: base.Limit, By: req.By,
 		CreatedAt: now.UnixNano(), Found: base.Found, Cases: rerunCases(base), RerunOf: base.RunID, Build: req.Build,
-		SuggestionKnown: base.SuggestionKnown}
+		SuggestionKnown: base.SuggestionKnown, ContextPack: req.ContextPack}
 	for i := range run.Cases {
 		if ec := &run.Cases[i]; ec.State == StateQueued {
-			room = enqueueEvalCase(ctx, st, run.RunID, ec, "", req.By, now, cfg, room)
+			room = enqueueEvalCase(ctx, st, run.RunID, ec, "", req.By, now, cfg, room, req.ContextPack)
 		}
 	}
 	run = finalizeEvalRun(run, now)
@@ -665,6 +719,7 @@ func mergeEvalCase(run EvalRun, inv Investigation, now time.Time) EvalRun {
 			c.State = inv.State
 			c.Top = caseTop(inv)
 			c.Coverage = caseCoverage(inv.Steps)
+			c.Pack = evalPackStatOf(inv) // v0.10.1494 — paketsiz tekrar → nil
 			c.FinishedAt = inv.FinishedAt
 			if inv.State == StateError {
 				c.Reason = truncRunes(firstNonEmpty(inv.Error, "tekrar tamamlanamadı"), 200)
