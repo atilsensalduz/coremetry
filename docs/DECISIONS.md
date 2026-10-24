@@ -11482,3 +11482,16 @@ edilmez; FE ayar formu yeni bölümü göstermez (GET → PUT yayılımı alanı
 
 **Geri alma.** Kural: `errorRamp.enabled=false`. VM katılığı + VM-yalnız servisler: `redSource=span` (v0.10.1477
 davranışı). Tamamı: `git revert <sha>` + yeni etiket. Şema yok.
+
+## 2026-10-24 — v0.10.1519 — http.status_code: "0" yerine "—" (yanıt yok / HTTP dışı span)
+
+**Operatör bildirimi (prod).** Traces listesinde http.status_code sütunu birçok satırda 0 gösteriyordu
+(11–18 s'lik çağrılar, Kafka producer span'leri). 0 bir HTTP kodu değil: sütun sayısal ve varsayılanı 0;
+status attribute'u olmayan her span (Kafka/DB/internal, yanıt alamayan HTTP çağrısı) 0 yazar. Liste
+ayrıca trace başına rastgele bir span'den okuyordu.
+
+**Karar.** Sunucu sütunu yalnız status taşıyan span'lerden okur, yoksa boş döner; FE (httpStatusDisplay)
+eksik status'u "—" + ipucu "yanıt yok / HTTP dışı span" çizer (tablo, Aggregated group-by, filtre
+önerileri). `http.status_code = 0` süzgeci anlamını korur ("status'u olmayan span'ler", Go testiyle pinli).
+
+**Geri alma.** git revert + yeni etiket; şema değişikliği yok.

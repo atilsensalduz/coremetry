@@ -3479,6 +3479,15 @@ var clusterAliasKeys = map[string]bool{
 	"resource.cluster": true, "resource.k8s.cluster.name": true, "resource.openshift.cluster.name": true,
 }
 
+// traceExtrasStatusAny — status column read from spans that carry one
+// (v0.10.1519; see traceExtrasProjection).
+const traceExtrasStatusAny = "anyIf(toString(http_status), http_status != 0)"
+
+var traceExtraStatusExpr = map[string]string{
+	"http.status_code":          traceExtrasStatusAny,
+	"http.response.status_code": traceExtrasStatusAny,
+}
+
 func traceExtrasProjection(attrs []string) (string, []any) {
 	sel := ""
 	args := []any{}
@@ -3499,6 +3508,17 @@ func traceExtrasProjection(attrs []string) (string, []any) {
 		}
 		if col, ok := promotedCols()[key]; ok {
 			sel += fmt.Sprintf(", anyIf(%s, %s != '') AS extra_%d", col, col, i)
+			continue
+		}
+		// v0.10.1519 (operator-reported): http_status is UInt16 DEFAULT 0, so
+		// every span WITHOUT a status attribute (Kafka/DB/internal spans, a
+		// client call that never got a response — timeout / reset) stores 0,
+		// and any() over the trace's spans could pick that 0 even when another
+		// span carried 200. Only spans that actually carry a status are read;
+		// none → '' (UI: "—", "yanıt yok / HTTP dışı span"). Filters keep the
+		// raw column, so `http.status_code = 0` still means what it did.
+		if expr, ok := traceExtraStatusExpr[key]; ok {
+			sel += fmt.Sprintf(", %s AS extra_%d", expr, i)
 			continue
 		}
 		if col, ok := WellKnownTraceCol[key]; ok {

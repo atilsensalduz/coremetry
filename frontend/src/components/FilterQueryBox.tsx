@@ -24,6 +24,7 @@ import { useAttributeKeys } from '@/lib/useAttributeKeys';
 import { useUrlRange } from '@/lib/useUrlRange';
 import { timeRangeToNs, fmtNum } from '@/lib/utils';
 import type { FilterExpr, FilterOp } from '@/lib/types';
+import { isHttpStatusKey, NO_HTTP_STATUS_TITLE } from '@/lib/httpStatusDisplay'; // v0.10.1519
 import {
   FILTER_OPS, OP_NEEDS_VALUE, OP_SHORT, isListOp, opFromShorthand, parseInlineFilter, splitListValues,
   chipValueLabel, chipDisplay, filterKey, upsertFilter, pushRecent, parseRecent, rankKeys, withExtraKeys,
@@ -357,7 +358,10 @@ export function FilterQueryBox({ value, onChange, suggestedValues, quick = [], r
                   <div key={r.value} id={`${listId}-${i}`} role="option" aria-selected={i === hi} className={i === hi ? 'fq-opt sel' : 'fq-opt'}
                     onMouseEnter={() => setHi(i)}
                     onMouseDown={e => { e.preventDefault(); const isList = isListOp(draft.op); commit({ k: draft.k, op: draft.op, v: isList ? splitListValues(r.value) : [r.value] }, draft.editing); }}>
-                    <span className="name mono">{r.value || '(boş)'}</span>
+                    {/* v0.10.1519 — http.status_code = 0: durumsuz span'ler (değer "0" aynen işlenir). */}
+                    {isHttpStatusKey(draft.k) && r.value === '0'
+                      ? <span className="name mono" title={NO_HTTP_STATUS_TITLE}>0 — {NO_HTTP_STATUS_TITLE}</span>
+                      : <span className="name mono">{r.value || '(boş)'}</span>}
                     {r.count > 0 && (
                       <span className="cnt bar">
                         <i style={{ width: `${Math.max(2, Math.round((r.count / (maxCount || 1)) * 72))}px` }} />

@@ -68,6 +68,7 @@ import { opChipFor, opCellText, opCellTitle } from './traces/opPick'; // v0.10.7
 import { ColumnFilter, type ColumnFilterScope } from './traces/ColumnFilter'; // v0.10.1511 — header column filters
 import { applyColFilter, colFilterKind, colFilterStatus, type ColFilterAction, type ColFilterState } from './traces/colFilter';
 import { aggRowsOf, aggErrorHeadline } from './traces/aggResult'; // v0.10.1505 — boş cevap ≠ hata
+import { httpStatusCell, httpStatusGroupLabel } from '@/lib/httpStatusDisplay'; // v0.10.1519
 import { traceIdIdentityText } from './traces/emptyReason'; // v0.10.753
 import { legacyTraceIdRedirect, traceIdJump } from './traces/traceIdJump'; // v0.10.1423
 import { opDisplayName } from '@/lib/opDisplayName'; // v0.10.756
@@ -1972,8 +1973,9 @@ function renderTraceCell(id: string, t: TraceRow, visibleMax: number, k8s?: { cl
       // (v0.9.243 — operator-reported: channel_code / function_code looked
       // smaller than OPERATION). `.mono` and `table` are both 12px; the old
       // inline fontSize:11 was the only thing making these cells odd.
-      const v = t.extras?.[id] ?? '';
-      return <span className="mono" style={{ color: v ? 'var(--text2)' : 'var(--text3)' }} title={v || ''}>{v || '—'}</span>;
+      // v0.10.1519 — http.status_code: durumsuz span (0 / boş) "—" + ipucu.
+      const c = httpStatusCell(id, t.extras?.[id]);
+      return <span className="mono" style={{ color: c.missing ? 'var(--text3)' : 'var(--text2)' }} title={c.title}>{c.text}</span>;
     }
   }
 }
@@ -2008,7 +2010,10 @@ function AggregateTable({ agg, groupBy, dt, onDrill, state }: {
               const missingRaw = a.traceCount - drillable;
               return (
                 <tr key={`${a.groupKey}|${a.groupExtra}`} {...rowActivation(() => onDrill(a))}>
-                  <td><b>{a.groupKey || '—'}</b></td>
+                  {/* v0.10.1519 — HTTP status grubunda '0' = durumsuz span'ler: "—" + ipucu (drill yine = 0). */}
+                  {groupBy === 'http_status'
+                    ? (() => { const l = httpStatusGroupLabel(a.groupKey); return <td title={l.title}><b>{l.text}</b></td>; })()
+                    : <td><b>{a.groupKey || '—'}</b></td>}
                   {groupBy !== 'service' && <td><SvcBadge name={a.groupExtra ?? ''} /></td>}
                   <td className="num">
                     {fmtNum(a.traceCount)}
