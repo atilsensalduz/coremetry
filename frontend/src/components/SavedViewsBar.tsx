@@ -36,7 +36,7 @@ function normaliseQS(qs: string): string {
 //   - Anyone signed in can save personal views.
 //   - Admins can flip "shared" so everyone on the team sees it.
 //   - You can only delete your own views (admins can delete any).
-export function SavedViewsBar({ page, right, variant = 'bar' }: {
+export function SavedViewsBar({ page, right, variant = 'bar', size }: {
   page: string;
   // v0.9.304 — trailing slot, right-aligned on the same line. /traces
   // parks Reset + CSV here: they are page-level actions, and the strip
@@ -48,6 +48,9 @@ export function SavedViewsBar({ page, right, variant = 'bar' }: {
   // ve izinler şeritle AYNI çekirdekten; varsayılan 'bar' diğer sayfalarda
   // BAYT BAYT eski hâl.
   variant?: 'bar' | 'compact';
+  // v0.10.1524 — compact tetikleyicinin boyu. /traces grafik başlığında Reset /
+  // CSV ile aynı `sm` rung'u; verilmezse atomun varsayılanı (/logs md, aynen).
+  size?: 'sm';
 }) {
   const confirm = useConfirm();
   const navigate = useNavigate();
@@ -179,7 +182,7 @@ export function SavedViewsBar({ page, right, variant = 'bar' }: {
       ? ordered.find(v => v.id === lastAppliedViewId) : undefined;
     return (
       <>
-        <Button ref={menuAnchorRef} variant="secondary" aria-haspopup="menu" aria-expanded={menuOpen}
+        <Button ref={menuAnchorRef} variant="secondary" size={size} aria-haspopup="menu" aria-expanded={menuOpen}
           disabled={views === undefined}
           title={activeView ? `Saved view: ${activeView.name}`
             : modifiedView ? `Drifted from saved view "${modifiedView.name}" — open to restore`

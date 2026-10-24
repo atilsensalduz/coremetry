@@ -91,6 +91,22 @@ describe('v0.10.1332 — Traces', () => {
     expect(iSearch).toBeLessThan(iSpacer);
     expect(iSpacer).toBeLessThan(iSeg);
   });
+
+  // v0.10.1524 (operatör: "'Saved: (none yet…) + Save current view' satırı
+  // kalksın") — ayrı şerit (variant 'bar') yok; tek compact "Saved ▾" Reset /
+  // CSV ile pageActions kümesinde, o küme grafik başlığının sağında (Volume
+  // headerRight + Latency sağ kümesi) ve grafiksiz görünümlerde şeridin sonunda.
+  it('kayıtlı görünümler: tek compact mount, Reset/CSV ile aynı küme, ayrı satır yok', () => {
+    const mounts = src.match(/<SavedViewsBar\b[^>]*\/>/g) ?? [];
+    expect(mounts).toEqual(['<SavedViewsBar page="traces" variant="compact" size="sm" />']);
+    expect(src).not.toMatch(/<SavedViewsBar[^>]*\bright=/);
+    const acts = src.slice(at(src, 'const pageActions = ('), at(src, '⬇ CSV'));
+    const order = ['<SavedViewsBar', '>Reset</Button>', '/api/traces/export.csv?'].map(n => at(acts, n));
+    expect(order).toEqual([...order].sort((x, y) => x - y));
+    expect((src.match(/\{pageActions\}/g) ?? []).length).toBe(3); // volume, latency, iskelet
+    expect(src).toMatch(/options=\{STRIP_STATS\.map\(st => \(\{ value: st, label: st \}\)\)\} \/>\s*\{pageActions\}/);
+    expect(bar(src)).toContain("{view !== 'list' && pageActions}");
+  });
 });
 
 // v0.10.1498 — /logs barı operatör onaylı Kibana-Discover taslağıyla

@@ -15,9 +15,14 @@ export const STRIP_STATS: readonly StripStat[] = ['p50', 'p95', 'p99'];
 // varsayılan p95 → p50. 513'ün gerekçesi (median kuyruğu saklar) geçerli
 // ama operatör tercihi gösterimde tipik süre; p95/p99 seçici ve URL ?rt=
 // aynen. p95 yazan eski linkler p95 göstermeye devam eder.
-export const STRIP_STAT_DEFAULT: StripStat = 'p50';
+// v0.10.1524 (operatör, 2026-10-24: "Default p99 olsun") — p50 → p99: başlık
+// "P99 AVG", çizgi ve Errors şeridi kuyruğu gösterir. Açık seçim kazanır:
+// ?rt=p50/p95 (ve onları taşıyan kayıtlı görünümler) aynen; p50 artık
+// varsayılan olmadığı için seçilince URL'ye ?rt=p50 yazılır. ?rt'siz eski
+// linkler/kayıtlı görünümler artık p99 açar (bilinçli). Saklanan tercih yok.
+export const STRIP_STAT_DEFAULT: StripStat = 'p99';
 
-/** URL/ham değer → istatistik; tanınmayan/boş → varsayılan (p50, v0.10.725). */
+/** URL/ham değer → istatistik; tanınmayan/boş → varsayılan (p99, v0.10.1524). */
 export function parseStripStat(raw: string | null | undefined): StripStat {
   return raw === 'p50' || raw === 'p95' || raw === 'p99' ? raw : STRIP_STAT_DEFAULT;
 }

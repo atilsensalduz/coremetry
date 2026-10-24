@@ -1,7 +1,7 @@
 // Traces.tsx — the trace explorer (Phase 1 Task B, Tempo/Datadog-grade).
 //
 // Rebuilt on the Phase-0 perf primitives + the OTel correlation layer:
-//   • Header viz: Volume (stacked ok+error bars + response-time line, p95 default + TOTAL/ERRORS/
+//   • Header viz: Volume (stacked ok+error bars + response-time line, p99 default (v0.10.1524) + TOTAL/ERRORS/
 //     ERROR RATE/P99 MAX stats) ↔ Latency (duration-vs-time scatter, log y,
 //     hover/click/drag-brush). Both derive from the live, filtered rows.
 //   • RED-from-traces panel (rate/errors/p99) over the same filtered set.
@@ -480,7 +480,7 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
   // kalsın") — toggle KALDIRILDI, şerit hep kompakt (130 px): Dynatrace
   // keeps this strip thin because the TABLE is the page.
   // v0.10.513 — yanıt-süresi çizgisinin istatistiği (p50/p95/p99), URL
-  // `?rt=`; varsayılan (p50, v0.10.725) URL'ye yazılmaz (stripStat.ts).
+  // `?rt=`; varsayılan (p99, v0.10.1524; önce p50 v0.10.725) URL'ye yazılmaz (stripStat.ts).
   const [stripStat, setStripStat] = useState<StripStat>(() => parseStripStat(searchParams.get('rt')));
   const [viz, setViz] = useState<'volume' | 'latency'>(() => searchParams.get('viz') === 'latency' ? 'latency' : 'volume');
 
@@ -577,7 +577,9 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
       onSelfWrite(target); // v0.10.1218 — kendi yankımız remount etmesin
       navigate(`/traces${target}`, { preventScrollReset: true, replace: true });
     }
-  }, [range, env, view, viz, sort, order, page, groupBy, groupAttr, aggSort, aggOrder, debouncedHaving, filter, advFilters, advGroupParam, extraCols, colOrderIds, colsOwned, navigate, onSelfWrite]);
+  // v0.10.1524 — stripStat bağımlılıkta: yoksa p50/p95 seçimi ?rt='ye ancak başka
+  // bir durum yazımıyla düşüyordu (paylaşılan link / kayıtlı görünüm p99 açardı).
+  }, [range, env, view, viz, stripStat, sort, order, page, groupBy, groupAttr, aggSort, aggOrder, debouncedHaving, filter, advFilters, advGroupParam, extraCols, colOrderIds, colsOwned, navigate, onSelfWrite]);
 
   // ── List fetch ───────────────────────────────────────────────────────────
   // v0.9.636 — pencere TEK yerde hizalanıyor: liste, hacim şeridi ve
@@ -800,7 +802,7 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
       aggs: [
         { name: 'count', agg: 'count' },
         { name: 'errors', agg: 'errors' },
-        // v0.10.513 — istatistik seçime bağlı (p95 varsayılan); dar rollup
+        // v0.10.513 — istatistik seçime bağlı (p99 varsayılan, v0.10.1524); dar rollup
         // fast-path p50/p95/p99'u aynı tDigest'ten servis eder.
         { name: 'rt', agg: stripStat, field: 'duration_ms' },
       ],
@@ -1308,6 +1310,47 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
       message: 'Bu pencerede grup yok — toplu görünüm gruplayacak en az bir trace ister; eşleşen satır olduğunu Traces sekmesinde doğrula ya da zaman aralığını genişlet.',
     };
 
+  // v0.9.304 (operatör) — "Errors N / Slow >1s / servis pill'leri" şeridi
+  // kalktı, Reset + CSV "Save current view" satırına taşınmıştı.
+  // v0.10.1524 (operatör, 2026-10-24: "'Saved: (none yet…) + Save current view'
+  // satırı kalksın, gereksiz yer alıyor") — o satır da kalktı: kayıtlı
+  // görünümler /logs'taki gibi tek "Saved ▾" menü düğmesi (SavedViewsBar
+  // variant="compact", v0.10.1498; liste, 1-9 kısayolları, ＋ Save current
+  // view…, ● modified aynı çekirdekten) ve Reset + CSV ile birlikte grafik
+  // başlığının SAĞ ucunda. Grafik başlığı olmayan görünümlerde (Aggregated /
+  // Shapes) aynı küme filtre şeridinin sonunda — her yetenek ≤ 1 tık
+  // (Traces.savedViewsReach.test.tsx).
+  const pageActions = (
+    <>
+      <SavedViewsBar page="traces" variant="compact" size="sm" />
+      <Button variant="secondary" size="sm" onClick={reset}>Reset</Button>
+      <a className="sec"
+      href={`/api/traces/export.csv?${(() => {
+        const { from, to } = exportRangeNs;
+        const p = new URLSearchParams();
+        p.set('from', String(from)); p.set('to', String(to));
+        if (filter.service)  p.set('service',  filter.service);
+        if (filter.search)   p.set('search',   filter.search);
+        if (filter.minMs)    p.set('minMs',    filter.minMs);
+        if (filter.maxMs)    p.set('maxMs',    filter.maxMs);
+        if (filter.hasError) p.set('hasError', 'true');
+        if (filter.rootOnly) p.set('rootOnly', 'true');
+        if (env) p.set('env', env); // v0.8.383 — export matches the on-screen env filter
+        if (clusterScope) p.set('cluster', clusterScope); // v0.9.943 (B3) — aynı gerekçe
+        if (filter.requireServices.length) p.set('services', filter.requireServices.join(','));
+        if (advFilters.length) p.set('filters', JSON.stringify(advFilters));
+        if (extraCols.length)  p.set('extraAttrs', extraCols.join(','));
+        if (sort)  p.set('sort', sort);
+        if (order) p.set('order', order);
+        return p.toString();
+      })()}`}
+      download title="Download up to 10k matching traces as CSV (postmortem / audit use)"
+      style={{ padding: '5px 10px', fontSize: 12, textDecoration: 'none', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--accent2)', background: 'var(--bg2)' }}>
+        ⬇ CSV
+      </a>
+    </>
+  );
+
   return (
     <>
       {/* v0.9.430 — Topbar seçimi out-of-band: hook yığını kendisi
@@ -1319,42 +1362,6 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
             üstteki Trace ID kutusu kalktı; operasyon kutusu trace id'ye atlar,
             function_id gibi kimlikleri arar (pages/traces/traceIdJump.ts). */}
 
-        {/* v0.9.304 (operatör) — "Errors N / Slow >1s / servis pill'leri"
-            şeridi TAMAMEN kaldırıldı; Reset ve CSV buraya, "Save current
-            view" ile aynı hizaya taşındı. O şerit bir satır yüksekliği
-            yiyordu ve içindekiler zaten istemci-taraflı kısayollardı —
-            sunucu filtreleri v0.9.303'te Search satırına gitmişti, geriye
-            kalan iki sayfa-seviyesi eylem için ayrı bir satır tutmanın
-            gerekçesi kalmamıştı. */}
-        <SavedViewsBar page="traces" right={
-          <>
-            <Button variant="secondary" size="sm" onClick={reset}>Reset</Button>
-            <a className="sec"
-            href={`/api/traces/export.csv?${(() => {
-              const { from, to } = exportRangeNs;
-              const p = new URLSearchParams();
-              p.set('from', String(from)); p.set('to', String(to));
-              if (filter.service)  p.set('service',  filter.service);
-              if (filter.search)   p.set('search',   filter.search);
-              if (filter.minMs)    p.set('minMs',    filter.minMs);
-              if (filter.maxMs)    p.set('maxMs',    filter.maxMs);
-              if (filter.hasError) p.set('hasError', 'true');
-              if (filter.rootOnly) p.set('rootOnly', 'true');
-              if (env) p.set('env', env); // v0.8.383 — export matches the on-screen env filter
-              if (clusterScope) p.set('cluster', clusterScope); // v0.9.943 (B3) — aynı gerekçe
-              if (filter.requireServices.length) p.set('services', filter.requireServices.join(','));
-              if (advFilters.length) p.set('filters', JSON.stringify(advFilters));
-              if (extraCols.length)  p.set('extraAttrs', extraCols.join(','));
-              if (sort)  p.set('sort', sort);
-              if (order) p.set('order', order);
-              return p.toString();
-            })()}`}
-            download title="Download up to 10k matching traces as CSV (postmortem / audit use)"
-            style={{ padding: '5px 10px', fontSize: 12, textDecoration: 'none', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--accent2)', background: 'var(--bg2)' }}>
-              ⬇ CSV
-            </a>
-          </>
-        } />
 
         {/* Header viz — Volume / Latency toggle (list view only; both derive
             from the live, filtered list rows).
@@ -1412,8 +1419,10 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
               // v0.9.301 — the skeleton must match the real card, or the
               // table jumps on every load. Tracks the persisted height.
               height: stripCollapsed ? 40 : 182, // v0.10.486 — kompakt yükseklikle hizalı; v0.10.513 tek yükseklik; v0.10.724 katlı
-              display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
               <Spinner />
+              {/* v0.10.1524 — ilk yüklemede de Saved ▾ / Reset / CSV ulaşılır. */}
+              <span style={{ position: 'absolute', top: 8, right: 12, display: 'inline-flex', alignItems: 'center', gap: 8 }}>{pageActions}</span>
             </div>
           ) : viz === 'volume' ? (
             // slimmer + recedes — it's the brush/overview "tool", not the
@@ -1438,6 +1447,7 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
                 <SegmentedControl size="sm" aria-label="Yanıt süresi istatistiği" value={stripStat} onChange={setStripStat}
                   title="Çizgi ve başlıktaki MAX bu istatistiği gösterir (URL ?rt=)"
                   options={STRIP_STATS.map(st => ({ value: st, label: st }))} />
+                {pageActions}
               </>} />
           ) : (
             <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, marginBottom: 10 }}>
@@ -1453,6 +1463,7 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
                 </span>
                 <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
                   {vizStats}
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>{pageActions}</span>
                 </span>
               </div>
               {!stripCollapsed && <LatencyScatter rows={displayRows} onOpen={openTrace} onBrush={applyBrush} onZoomReset={clearBrush} />}
@@ -1577,6 +1588,9 @@ function TracesPageInner({ onSelfWrite }: { onSelfWrite: (search: string) => voi
               )}
             </>
           )}
+          {/* v0.10.1524 — grafik başlığı yalnız Traces görünümünde; Aggregated /
+              Shapes'te Saved ▾ / Reset / CSV şeridin sonunda (yeni satır yok). */}
+          {view !== 'list' && pageActions}
 
         </PageControls>
 

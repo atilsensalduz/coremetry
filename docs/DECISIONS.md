@@ -11630,3 +11630,28 @@ bunu sayar; enforce kararı R5'te recall ve sayılar görülünce.
 
 **Geri alma.** Gölgeyi durdurmak: `PUT /api/admin/notify-policy {"mode":"off"}` (gönderim zaten değişmiyor). Tamamı:
 `git revert <sha>` + yeni etiket; şema yok, `notify_policy` blobu ve `policy` satırları okunmadan kalır (90 gün TTL).
+
+## 2026-10-24 — v0.10.1524 — /traces: varsayılan p99; ayrı "Saved:" satırı kalktı
+
+**Bağlam.** Operatör (prod /traces ekran görüntüsü): "Default p99 olsun; 'Saved: (none yet — Save current view…) + Save current
+view' satırı kalksın, gereksiz yer alıyor." Şerit istatistiğinin varsayılanı v0.10.725'ten beri p50'ydi (başlık "MEDIAN AVG");
+istatistik tek kaynaktan (`components/traces/stripStat.ts` `STRIP_STAT_DEFAULT`) okunuyor: başlık istatistiği, Volume'daki
+yanıt-süresi çizgisi, Errors şeridi histogramı ve Latency görünümünün başlık istatistiği. Saklanan (localStorage) tercih yok; tablo
+tarafında varsayılan bir yüzdelik yok (Aggregated üç yüzdeliği de gösterir, varsayılan sıra count).
+
+**Karar.** (1) `STRIP_STAT_DEFAULT = 'p99'`. Açık seçim kazanır: `?rt=p50|p95` (ve onu taşıyan kayıtlı görünüm/link) aynen; p50
+artık varsayılan olmadığı için seçilince `?rt=p50` yazılır. Yan düzeltme: URL yazıcı effect'inin bağımlılığında `stripStat` yoktu —
+seçim `?rt=`'ye ancak başka bir durum yazımıyla düşüyordu (paylaşılan link varsayılanı açardı). (2) Ayrı satır kalktı: /logs'un
+v0.10.1498 deseni — `SavedViewsBar variant="compact"` (yeni opsiyonel `size="sm"`, yalnız tetikleyici; /logs ve diğer sayfalar
+bayt bayt aynı) Reset + CSV ile bir `pageActions` kümesinde, grafik başlığının sağ ucunda (Volume headerRight, Latency sağ küme,
+ilk yükleme iskeleti). Grafik başlığı olmayan Aggregated / Shapes'te aynı küme filtre şeridinin sonunda — yeni satır yok. Liste,
+1-9 kısayolları, "＋ Save current view…", ✓/● durumu ≤ 1 tık. Pinler: `pages/Traces.savedViewsReach.test.tsx` (gerçek sayfa:
+varsayılan p99 + açık rt kazanır + rt URL'ye yazılır; erişim), `filterBarSearch.pin.test.ts` (tek compact mount, küme sırası),
+`stripStat.test.ts` / `volumeSeries.test.ts` varsayılan p99'a çevrildi.
+
+**Bedeller.** `?rt`'siz eski linkler ve kayıtlı görünümler artık p99 açar (bilinçli; p99 kova başına gürültülüdür, v0.10.513 notu).
+Kayıtlı görünümler artık bir tık arkada (boş-durum cümlesi menünün içinde). Görünüm/grafik kipi değişince compact bileşen yeniden
+monte olur ve kayıtlı görünüm listesini bir kez daha çeker (ucuz PG okuması).
+
+**Geri alma.** Varsayılan: `STRIP_STAT_DEFAULT = 'p50'` + iki test. Satır: `<SavedViewsBar page="traces" right={…Reset/CSV…} />`
+geri. Tamamı: `git revert <sha>` + yeni etiket; yalnız frontend, şema yok.
