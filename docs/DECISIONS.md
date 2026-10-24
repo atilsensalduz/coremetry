@@ -10974,3 +10974,20 @@ pageControls (sticky host muafiyeti + Logs.tsx'in çubuğu PageShell İÇİNDE �
 
 **Geri alma.** `git revert <sha>` + yeni etiket. Saf FE; URL sözleşmesi aynı olduğu için kayıtlı görünümler ve paylaşılan
 linkler iki yönde de çalışır. SavedViewsBar `variant` prop'u geri alınınca compact çağrısı da gider (tek tüketici /logs).
+
+## 2026-10-24 — v0.10.1499 — /logs Kibana-Discover dilim 2: Logs | Desenler | Şablonlar görünüm anahtarı
+
+**Karar.** Desenler paneli bir GÖRÜNÜM oldu: histogramın altında `SegmentedControl` (Logs | Desenler | Şablonlar) mevcut
+`?panel=` parametresini yazar (yok = Logs, replace:true; yeni param yok). Saf kurallar `pages/logs/logsView.ts`:
+`parseLogsView`, `effectiveLogsView` (canlı kuyruk Logs'u zorlar; desen görünümü seçmek kuyruğu durdurur), `writeLogsView`,
+`logsListEnabled` (statik liste sorgusu YALNIZ Logs görünümünde, canlı değilken ve takım kararı beklenmiyorken).
+`LogPatternsPanel` `embedded` kipi: kendi TabStrip'i yok, tablonun yerine oturur, `toolbar` yuvasında ✨ Desenleri anlat
+(⋯ menüsünden taşındı), `aside` yuvasında AI desen anlatımı kutusu. Desen/şablon satırı (ya da "Ara") `q`'yu yazar VE
+Logs görünümüne geçer — tek URL yazımı (`writeUrl(..., view)`); ⊕/⊖ desen görünümünde kalır. `logs.patterns.open`
+localStorage yedeği kaldırıldı: param yokken sayfa her zaman satırlarla açılır. Histogram ve seviye çipleri her görünümde.
+
+**Neden.** ES-maliyet: desen görünümünde tablo çizilmediği hâlde 100 satırlık liste `_search`'ü koşuyordu; artık
+`panel=patterns` derin linki liste çağrısı atmaz (`Logs.firstLoad.test`). Kibana Discover "Documents | Patterns" deseni.
+
+**Geri alma.** `git revert <sha>` + yeni etiket. URL sözleşmesi aynı (`panel=patterns|templates`); eski kurulum aynı
+linkleri panel açık olarak açar. Kaybolan tek şey localStorage'daki "panel açık kalsın" tercihi (geri alınca yeniden okunur).

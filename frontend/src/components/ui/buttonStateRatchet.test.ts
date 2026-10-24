@@ -107,7 +107,7 @@ describe('K3 — durum birincil dolgu değil (v0.10.1318)', () => {
     // ◆ With trace → + Filter ▾ (LogsActionsMenus), Live → LogsQueryBar.
     // İkisi de `active` ile, koşullu birincil yok.
     const logs = FILES.find(x => x.rel === 'pages/Logs.tsx')!.src;
-    expect(logs).toContain('active={patternsOpen}');
+    expect(logs).toContain('active={wrapLines}');
     for (const [rel, needle] of [
       ['pages/logs/LogsActionsMenus.tsx', 'active={p.hasTrace}'],
       ['pages/logs/LogsQueryBar.tsx', 'active={p.live}'],

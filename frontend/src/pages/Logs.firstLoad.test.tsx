@@ -35,6 +35,8 @@ vi.mock('@/lib/api', () => {
     },
     clusters: () => Promise.resolve({ clusters: [] }),
     logsFields: () => Promise.resolve({ fields: [], total: 0, types: {} }),
+    logsPatterns: () => Promise.resolve({ groups: [], sampled: 0, total: 0, cap: 2000, truncated: false, distinct: 0 }),
+    logsTemplates: () => Promise.resolve([]),
     getKibanaSettings: () => Promise.resolve(null),
     savedViews: () => Promise.resolve([]),
     serviceNames: () => Promise.resolve({ names: [], total: 0 }),
@@ -150,6 +152,23 @@ describe('/logs ilk yükleme süzgeçsiz istek atmaz (v0.10.1076)', () => {
     expect(m.logsCalls.at(-1)!.pattern).toBe('Disk full');
     expect(m.tsCalls.at(-1)!.search).toBe('later');
     expect(searchBoxValue()).toBe('later');
+  });
+
+  // v0.10.1499 (Discover dilim 2) — `panel=patterns` derin linki (anomali /
+  // problem → desen) desen GÖRÜNÜMÜNE iner: satır tablosu çizilmez, 100
+  // satırlık liste _search'ü HİÇ atılmaz; histogram bağlam olarak kalır.
+  it('panel=patterns: liste çağrısı yok, histogram süzgeçli; Logs görünümüne dönüş listeyi bir kez çeker', async () => {
+    await mountLogs(`/logs?panel=patterns&q=boom&range=${RANGE}`);
+    expect(m.logsCalls).toHaveLength(0);
+    expect(m.tsCalls.length).toBeGreaterThan(0);
+    expect(m.tsCalls.every(c => c.search === 'boom')).toBe(true);
+    const seg = host!.querySelector('[role="radiogroup"][aria-label="Logs görünümü"]')!;
+    const logsBtn = [...seg.querySelectorAll('button')].find(b => b.textContent === 'Logs') as HTMLButtonElement;
+    await act(async () => { logsBtn.click(); });
+    await settle();
+    expect(new URLSearchParams(window.location.search).has('panel')).toBe(false);
+    expect(m.logsCalls).toHaveLength(1);
+    expect(m.logsCalls[0].search).toBe('boom');
   });
 
   it('çıplak /logs: varsayılan liste ve histogram istekleri BİR kez', async () => {

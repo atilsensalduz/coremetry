@@ -172,4 +172,21 @@ describe('LogPatternsPanel', () => {
     expect(trend().className).toContain('sec');
     expect(trend().className).toContain('is-active');
   });
+  // v0.10.1499 (/logs Discover dilim 2) — gömülü kip: sayfanın görünüm
+  // anahtarı sekmeyi sürer (kendi TabStrip'i yok), araç çubuğu + aside yuvası
+  // çizilir, sekme prop'tan gelir ve yalnız o sekmenin sorgusu koşar.
+  it('embedded: TabStrip yok, toolbar + aside çizilir, tab prop’tan; şablon sekmesi yalnız şablon çeker', async () => {
+    const now = Date.now();
+    const el = render(<LogPatternsPanel embedded tab="templates" open onSearch={() => {}}
+      params={{ service: 'svc', from: (now - 5 * 3600 * 1000) * 1e6, to: now * 1e6 }}
+      toolbar={<span data-testid="tb">✨</span>} aside={<div data-testid="aside">AI</div>} />);
+    await act(async () => { await new Promise(r => setTimeout(r, 30)); });
+    expect(el.querySelector('.tab-strip')).toBeNull();
+    expect(el.querySelector('.lp-panel.lp-embedded')).not.toBeNull();
+    expect(el.querySelector('.lp-toolbar [data-testid="tb"]')).not.toBeNull();
+    expect(el.querySelector('[data-testid="aside"]')).not.toBeNull();
+    expect(logsTemplates).toHaveBeenCalledTimes(1);
+    expect(logsPatterns).not.toHaveBeenCalled();
+    expect(el.textContent).toContain('1 kalıcı şablon');
+  });
 });

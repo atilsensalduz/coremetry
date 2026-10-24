@@ -10,13 +10,13 @@
 //                 Takımım, + alan süzgeci (LogPillEditor, yeni pill).
 //   • Share ▾     (menu): Copy link · ↗ Discover in Elastic (desen/takım
 //                 etkinken çizilmez — aynı dilim sözü tutmaz, bugünkü kural).
-//   • ⋯           (menu): Reset · ✨ Desenleri anlat · Export CSV / NDJSON.
+//   • ⋯           (menu): Reset · Export CSV / NDJSON. (v0.10.1499: ✨ Desenleri
+//                 anlat desen görünümünün araç çubuğuna taşındı.)
 // Saf sunum: durum ve eylemler Logs.tsx'ten prop olarak gelir.
 import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { MenuItem } from '@/components/ui/Menu';
 import { Popover, PopoverHrefItem } from '@/components/ui/Popover';
-import { IconSparkles } from '@/components/icons';
 import { LogPillEditor } from '@/components/LogPillEditor';
 import type { LogFilter } from '@/lib/logFilters';
 import { copyToClipboard } from '@/lib/clipboard';
@@ -145,8 +145,6 @@ export function LogsShareMenu({ kibanaHref }: LogsShareMenuProps) {
 
 export interface LogsMoreMenuProps {
   onReset: () => void;
-  onExplainPatterns: () => void;
-  explainBusy: boolean;
   /** Sayfada görünen (yüklenmiş + yerel daraltılmış) satır sayısı. */
   exportCount: number;
   onExport: (kind: 'csv' | 'ndjson') => void;
@@ -174,11 +172,6 @@ export function LogsMoreMenu(p: LogsMoreMenuProps) {
       <Popover anchorRef={anchorRef} open={open} onClose={() => setOpen(false)} kind="menu"
         ariaLabel={tr('logs.dv.more')} width={260}>
         <MenuItem onClick={pick(p.onReset)} title="Clear every filter and the search box">Reset</MenuItem>
-        {/* v0.9.1100 (F3.5) — ✨ desen anlatımı. Fetch YALNIZ tıkla (ES-maliyet disiplini). */}
-        <MenuItem icon={<IconSparkles />} disabled={p.explainBusy} onClick={pick(p.onExplainPatterns)}
-          title="Seçili süzgeç ve penceredeki log desenlerini AI anlatır; filo geneli yeni/patlayan desenler ve sürekli gürültü şablonları ayrıca etiketlenir">
-          Desenleri anlat
-        </MenuItem>
         <div className="ld-menu-sep" role="separator" />
         <MenuItem disabled={p.exportCount === 0} title={exportTitle} onClick={pick(() => p.onExport('csv'))}>
           Export CSV ({n})

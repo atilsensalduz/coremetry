@@ -6,8 +6,9 @@
 // HER yetenek en çok BİR tıkla ulaşılır. Yüzeyde (0 tık): KQL kutusu, Service,
 // Search/↻, Live tail, Desenler, seviye çipleri ve menü tetikleyicileri. Tek
 // tık: + Filter ▾ (Trace ID, ◆ With trace, Takımım, alan süzgeci), Share ▾
-// (Copy link, ↗ Discover in Elastic), ⋯ (Reset, ✨ Desenleri anlat, Export
-// CSV/NDJSON), Saved ▾ (＋ Save current view…). Bir yetenek iki tık derine
+// (Copy link, ↗ Discover in Elastic), ⋯ (Reset, Export CSV/NDJSON), Saved ▾
+// (＋ Save current view…), görünüm anahtarı Desenler (✨ Desenleri anlat —
+// v0.10.1499) / Şablonlar. Bir yetenek iki tık derine
 // düşerse ya da kaybolursa bu dosya düşer.
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
@@ -26,6 +27,8 @@ vi.mock('@/lib/api', () => {
     clusters: () => Promise.resolve({ clusters: ['kxzone'] }),
     logsMyTeam: () => Promise.resolve({ team: 'orders-team', available: true, fields: ['labels.team'] }),
     logsFields: () => Promise.resolve({ fields: ['k8s.pod.name'], total: 1, types: {} }),
+    logsPatterns: () => Promise.resolve({ groups: [], sampled: 0, total: 0, cap: 2000, truncated: false, distinct: 0 }),
+    logsTemplates: () => Promise.resolve([]),
     getKibanaSettings: () => Promise.resolve({ enabled: true, baseUrl: 'https://kibana.example.test' }),
     savedViews: () => Promise.resolve([]),
     serviceNames: () => Promise.resolve({ names: [], total: 0 }),
@@ -159,13 +162,29 @@ describe('/logs — her yetenek ≤ 1 tık (v0.10.1498)', () => {
     expect(menuItems().some(t => t.includes('Discover in Elastic'))).toBe(false);
   });
 
-  it('⋯ (1 tık): Reset, Desenleri anlat, Export CSV / NDJSON', async () => {
+  it('⋯ (1 tık): Reset, Export CSV / NDJSON', async () => {
     await mountLogs(`/logs?range=${RANGE}`);
     await click(document.querySelector('button[aria-label="More actions"]'));
     const items = menuItems();
-    for (const n of ['Reset', 'Desenleri anlat', 'Export CSV', 'Export NDJSON']) {
+    for (const n of ['Reset', 'Export CSV', 'Export NDJSON']) {
       expect(items.some(t => t.includes(n)), n).toBe(true);
     }
+  });
+
+  it('görünüm anahtarı (1 tık): Desenler → ✨ Desenleri anlat; Şablonlar; Logs geri', async () => {
+    await mountLogs(`/logs?range=${RANGE}`);
+    const seg = () => document.querySelector('[role="radiogroup"][aria-label="Logs görünümü"]');
+    expect(seg()).not.toBeNull();
+    const opt = (t: string) => [...seg()!.querySelectorAll('button')].find(b => b.textContent === t);
+    await click(opt('Desenler'));
+    expect(new URLSearchParams(window.location.search).get('panel')).toBe('patterns');
+    expect(btn('Desenleri anlat')).toBeTruthy();
+    expect(document.querySelector('table.logtbl-dense')).toBeNull();
+    await click(opt('Şablonlar'));
+    expect(new URLSearchParams(window.location.search).get('panel')).toBe('templates');
+    await click(opt('Logs'));
+    expect(new URLSearchParams(window.location.search).has('panel')).toBe(false);
+    expect(document.querySelector('table.logtbl-dense')).not.toBeNull();
   });
 
   it('Saved ▾ (1 tık): ＋ Save current view…', async () => {

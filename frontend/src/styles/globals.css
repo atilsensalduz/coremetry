@@ -6162,4 +6162,9 @@ a.cell-link--block { display: block; overflow: hidden; text-overflow: ellipsis; 
   .ld-qbar .ld-kql { flex-basis: 100%; min-width: 0; }
   .ld-kql-btn { margin-left: 0; }
 }
+/* v0.10.1499 (dilim 2) — görünüm anahtarı (Logs | Desenler | Şablonlar) ve
+   tablonun yerine oturan gömülü desen paneli (LogPatternsPanel embedded). */
+.ld-viewbar { display: flex; align-items: center; gap: var(--sp-4); margin: 0 0 var(--sp-4); }
+.lp-panel.lp-embedded { padding: var(--sp-4) var(--sp-5); margin-bottom: var(--sp-4); }
+.lp-toolbar { margin-left: auto; display: inline-flex; align-items: center; gap: var(--sp-3); flex-shrink: 0; }
 /* ── v0.10.1498 END ──────────────────────────────────────────────────── */

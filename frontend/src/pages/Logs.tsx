@@ -17,9 +17,11 @@ import {
   LogsHistogram, parseBreakdown, histogramFeedsChips, type LogsBreakdown,
 } from '@/components/LogsHistogram';
 import { LogFieldsPanel } from '@/components/LogFieldsPanel';
-import { LogPatternsPanel, type PanelTab } from '@/components/LogPatternsPanel';
+import { LogPatternsPanel } from '@/components/LogPatternsPanel';
 import { Button } from '@/components/ui/Button';
 import { Chip } from '@/components/ui/Chip';
+import { SegmentedControl } from '@/components/ui/SegmentedControl';
+import { IconSparkles } from '@/components/icons';
 import { RenderedMarkdown } from '@/components/Markdown';
 import { Pager } from '@/components/Pager';
 import { buildKibanaURL, buildKQLFromFilter } from '@/lib/kibanaLink';
@@ -43,7 +45,7 @@ import {
   extractHighlightTerms, toggleExistsFilter, replaceFilterAt,
 } from '@/lib/logFilters';
 import type { LogFilter } from '@/lib/logFilters';
-import { logsUrlSig, writeLogsParams, readLogsUrlState, buildDocPermalink, parseDocParam, parseLogsPanel, logsUrlHasFilterState } from '@/lib/logsUrl';
+import { logsUrlSig, writeLogsParams, readLogsUrlState, buildDocPermalink, parseDocParam, logsUrlHasFilterState } from '@/lib/logsUrl';
 import { decideTeamAutoApply, isSameTeam, readTeamOptOut, writeTeamOptOut } from '@/lib/logsTeam';
 import { useAuth } from '@/components/AuthProvider';
 import { useT } from '@/lib/i18n';
@@ -54,6 +56,7 @@ import { LogsFilterRow } from './logs/LogsFilterRow';
 import { LogsNotices } from './logs/LogsNotices';
 import { LogsAddFilterMenu, LogsShareMenu, LogsMoreMenu } from './logs/LogsActionsMenus';
 import { isDraftDirty, bareTraceIdOf } from './logs/logsQuery';
+import { parseLogsView, effectiveLogsView, writeLogsView, logsListEnabled, type LogsView } from './logs/logsView';
 
 // v0.10.1498 — Share affordance (Copy link) moved into pages/logs/LogsActionsMenus.tsx (Share ▾).
 
@@ -217,26 +220,14 @@ function LogsInner() {
   const [teamDraft, setTeamDraft] = useState('');
   // teamAutoDone bir ref; kilitlendiğinde kapıyı açmak için bir render gerekir.
   const [, setTeamGateTick] = useState(0);
-  // v0.10.298 — "Desenler" paneli (log-search Dilim 2b): açık/kapalı kalıcı;
-  // fetch yalnız açıkken. Satır/"Ara" → türetilmiş sorgu serbest metne.
-  // v0.10.448 (log arama denetimi C8) — Desenler paneli URL'den de
-  // adreslenir: `?panel=patterns|templates` (görünüm ipucu; süzgeç
+  // v0.10.298 — "Desenler" paneli (log-search Dilim 2b); v0.10.448 (C8) —
+  // `?panel=patterns|templates` URL'den adreslenir (görünüm ipucu; süzgeç
   // kimliğine GİRMEZ — logsUrlSig'e girse her tık sayfalamayı sıfırlardı).
-  // Öncelik: URL varsa URL, yoksa localStorage (bugünkü varsayılan korunur:
-  // param yokken sabit tercih). Problem/anomali deep link'i desene iner.
-  // Görünür bedel: paylaşılan link paneli açık indirir (bir /patterns
-  // isteği), kayıtlı görünüm paneli açıp kapayınca "● modified" olur.
-  const urlPanel = parseLogsPanel(searchParams.get('panel'));
-  const [patternsOpen, setPatternsOpen] = useState<boolean>(() => urlPanel !== null || getRaw('logs.patterns.open') === '1');
-  const [panelTab, setPanelTab] = useState<PanelTab>(() => urlPanel ?? (getRaw('logs.patterns.tab') === 'templates' ? 'templates' : 'patterns'));
-  useEffect(() => { if (urlPanel) { setPatternsOpen(true); setPanelTab(urlPanel); } }, [urlPanel]);
-  const writePanelParam = (open: boolean, tab: PanelTab) => setSearchParams(prev => {
-    const next = new URLSearchParams(prev);
-    if (open) next.set('panel', tab); else next.delete('panel');
-    return next;
-  }, { replace: true });
-  const togglePatterns = () => setPatternsOpen(v => { setRaw('logs.patterns.open', v ? '0' : '1'); writePanelParam(!v, panelTab); return !v; });
-  const onPanelTab = (t: PanelTab) => { setPanelTab(t); if (patternsOpen) writePanelParam(true, t); };
+  // v0.10.1499 (Discover dilim 2) — panel bir GÖRÜNÜM oldu: Logs | Desenler |
+  // Şablonlar (pages/logs/logsView.ts). URL tek kaynak; yok = Logs. Eski
+  // desen paneli açık/kapalı localStorage yedeği KALDIRILDI: param yokken sayfa
+  // her zaman satırlarla açılır (paylaşılan link ne gösteriyorsa o).
+  const urlView = parseLogsView(searchParams.get('panel'));
   // v0.10.417 (log arama denetimi B5) — satır sarma; okuma yardımı, URL'e
   // girmez (narrow gibi), kalıcı (localStorage). Varsayılan KAPALI: tek
   // satır + … bugünkü davranış.
@@ -248,7 +239,9 @@ function LogsInner() {
   const searchFromPattern = (qStr: string, mode: 'replace' | 'and' | 'not' = 'replace') => {
     const search = mode === 'replace' ? qStr : mergePatternQuery(filter.search, qStr, mode === 'not');
     const next = { ...filter, search };
-    setFilter(next); setDraft(next); resetPaging(); writeUrl(next, filters);
+    // v0.10.1499 — satır / "Ara" (replace) sorguyu yazar VE Logs görünümüne
+    // geçer (tek URL yazımı); ⊕ / ⊖ desen görünümünde kalır (süzmeye devam).
+    setFilter(next); setDraft(next); resetPaging(); writeUrl(next, filters, undefined, mode === 'replace' ? 'logs' : undefined);
   };
   // v0.9.1100 (F3.5) — ✨ desen anlatımı durumu (Shift emsali).
   const [aiPat, setAiPat] = useState<{ busy: boolean; text: string | null; err: string | null }>({ busy: false, text: null, err: null });
@@ -348,6 +341,17 @@ function LogsInner() {
   // (v0.7.17 — the v0.7.15 SSE push tailer was reverted: its LIMIT-per-tick
   // fetch dropped logs on a busy service at 10B logs/day.)
   const [live, setLive] = useState(false);
+  // v0.10.1499 — görünüm (Logs | Desenler | Şablonlar). Canlı kuyruk Logs'u
+  // zorlar; desen görünümü seçmek kuyruğu durdurur, kuyruğu açmak Logs'a döner.
+  const view = effectiveLogsView(urlView, live);
+  const setView = (v: LogsView) => {
+    if (v !== 'logs') setLive(false);
+    setSearchParams(prev => writeLogsView(prev, v), { replace: true });
+  };
+  const toggleLive = () => {
+    if (!live && urlView !== 'logs') setSearchParams(prev => writeLogsView(prev, 'logs'), { replace: true });
+    setLive(v => !v);
+  };
   // v0.9.294 — "narrow within results". Ephemeral on purpose: it is a
   // reading aid over the current buffer, not part of the query, so it
   // does NOT go in the URL (a shared link must reproduce the QUERY, and
@@ -445,11 +449,16 @@ function LogsInner() {
   // filter tweak refines the view, no history entry per click) and
   // pre-stores the sig so the import effect above treats the
   // resulting searchParams change as a no-op.
-  const writeUrl = (f: typeof filter, pills: LogFilter[], cols?: string[]) => {
+  // v0.10.1499 — `view` verilirse görünüm (?panel=) AYNI yazımda değişir:
+  // aynı tikte iki setSearchParams birbirinin `prev`ini görmez.
+  const writeUrl = (f: typeof filter, pills: LogFilter[], cols?: string[], view?: LogsView) => {
     const filtersRaw = encodeFiltersParam(pills);
     const colsRaw = (prefs.model === undefined && !urlHadCols.current) ? '' : colsParam(cols ?? logCols);
     lastUrlSigRef.current = urlSig(f, filtersRaw, colsRaw);
-    setSearchParams(prev => writeLogsParams(prev, f, filtersRaw, colsRaw), { replace: true });
+    setSearchParams(prev => {
+      const next = writeLogsParams(prev, f, filtersRaw, colsRaw);
+      return view ? writeLogsView(next, view) : next;
+    }, { replace: true });
   };
 
   // Column mutations: state + standing preference + URL in one step.
@@ -544,7 +553,7 @@ function LogsInner() {
     spanId:  filter.spanId  || undefined,
     hasTrace: filter.hasTrace || undefined, // v0.8.406 — trace-only filter
     asc: asc || undefined, // v0.9.295 — oldest-first
-  }, { enabled: !live && !teamGate }); // v0.10.420 — canlıyken statik sorgu koşmaz; v0.10.1477 — takım kararı beklenirken de
+  }, { enabled: logsListEnabled(view, live, teamGate) }); // v0.10.420 — canlıyken statik sorgu koşmaz; v0.10.1477 — takım kararı beklenirken de; v0.10.1499 — desen görünümünde de (tablo çizilmez)
 
   // Level-facet counts. A per-severity timeseries query feeds the
   // toolbar facet chip badges (the duplicate Logs-local stacked-bar
@@ -1049,7 +1058,7 @@ function LogsInner() {
           clusters={clusters} autocompleteSince={autocompleteSince}
           fields={fields} fieldsTotal={fieldsTotal}
           onApply={apply} onRefresh={refresh} dirty={draftDirty} to={to}
-          live={live} onToggleLive={() => setLive(v => !v)} liveGap={liveGap}
+          live={live} onToggleLive={toggleLive} liveGap={liveGap}
           addFilter={(
             <LogsAddFilterMenu
               traceIdDraft={draft.traceId} onTraceIdDraft={v => setDraft({ ...draft, traceId: v })}
@@ -1062,16 +1071,9 @@ function LogsInner() {
           )}
           menus={(
             <>
-              {/* v0.10.1318 (K3) — açık panel bir DURUM: ikincil tint, dolgu değil. */}
-              <Button variant="secondary" active={patternsOpen}
-                onClick={togglePatterns}
-                title="Penceredeki log desenleri (örneklemeli imza grupları)">
-                ≡ Desenler
-              </Button>
               <SavedViewsBar page="logs" variant="compact" />
               <LogsShareMenu kibanaHref={kibanaHref} />
               <LogsMoreMenu onReset={reset}
-                onExplainPatterns={() => void explainPatterns()} explainBusy={aiPat.busy}
                 exportCount={data ? logs.length : 0} onExport={exportLoaded} />
             </>
           )} />
@@ -1092,28 +1094,6 @@ function LogsInner() {
           traceHint={traceHint} onUseTraceHint={applyTraceHint} />
         <LogsNotices live={live} env={env} team={filter.team} hasTrace={filter.hasTrace}
           data={staticQ.data} />
-        {/* Faz 0.5 — ham metin yerine markdown. Bkz. Shift.tsx'teki aynı
-            düzeltme; pre-wrap kalkıyor çünkü RenderedMarkdown kendi blok
-            düzenini kuruyor. AŞAĞIDAKİ "Query failed" hata kutusundaki
-            pre-wrap KALIYOR: o AI metni değil, ham backend hata gövdesi. */}
-        {(aiPat.busy || aiPat.text || aiPat.err) && (
-          <div style={{
-            padding: '12px 14px', marginBottom: 10, borderRadius: 6,
-            background: 'var(--bg2)', border: '1px solid var(--border)',
-            fontSize: 12.5, lineHeight: 1.55,
-          }}>
-            <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.4, color: 'var(--text2)', marginBottom: 6 }}>
-              AI DESEN ANLATIMI
-            </div>
-            {aiPat.busy && <Spinner />}
-            {aiPat.err && <span style={{ color: 'var(--err)' }}>{aiPat.err}</span>}
-            {aiPat.text && <RenderedMarkdown text={aiPat.text} />}
-          </div>
-        )}
-
-        <LogPatternsPanel open={patternsOpen && !teamGate} onSearch={searchFromPattern} tab={panelTab} onTab={onPanelTab}
-          params={{ ...filter, env, search: compiledSearch, from: from ?? undefined, to: to ?? undefined }} />
-
         {/* Level facet chips (prototype LogsView .logbar/.facet/.lvl).
             Each chip drives the EXISTING min-severity filter
             (filter.severity) and carries a live count from the
@@ -1238,6 +1218,55 @@ function LogsInner() {
           spikeSubject={spikeSubject} /* v0.10.1284 — ✨ Artışı açıkla */
           paused={teamGate} /* v0.10.1477 — takım kararı beklenirken fetch yok */ />
 
+        {/* v0.10.1499 (Discover dilim 2) — görünüm anahtarı: Logs | Desenler |
+            Şablonlar, mevcut `?panel=` üzerinde (yeni param yok, replace:true).
+            Desen görünümleri satır tablosunun YERİNE oturur ve liste sorgusu
+            o arada KOŞMAZ (logsListEnabled); histogram + seviye çipleri her
+            görünümde bağlamdır. Canlı kuyrukta desen görünümleri kapalı. */}
+        <div className="ld-viewbar">
+          <SegmentedControl<LogsView> aria-label="Logs görünümü" size="sm"
+            value={view} onChange={setView}
+            options={[
+              { value: 'logs', label: 'Logs', title: 'Satırlar (tablo)' },
+              { value: 'patterns', label: 'Desenler', disabled: live, title: live ? 'Canlı kuyrukta desen görünümü yok — kuyruğu durdur' : 'Penceredeki mesajlar imzaya göre gruplanır (örneklemeli)' },
+              { value: 'templates', label: 'Şablonlar', disabled: live, title: live ? 'Canlı kuyrukta şablon görünümü yok — kuyruğu durdur' : "Drain templater'ın kalıcı şablonları (5 dk'da ≤1000 satır örneklenir)" },
+            ]} />
+        </div>
+        {view !== 'logs' ? (
+          <LogPatternsPanel embedded open={!teamGate} onSearch={searchFromPattern} tab={view}
+            params={{ ...filter, env, search: compiledSearch, from: from ?? undefined, to: to ?? undefined }}
+            toolbar={(
+              /* v0.9.1100 (F3.5) — ✨ desen anlatımı; fetch YALNIZ tıkla (ES-maliyet disiplini). */
+              <Button variant="secondary" size="sm" disabled={aiPat.busy}
+                onClick={() => void explainPatterns()}
+                title="Seçili süzgeç ve penceredeki log desenlerini AI anlatır; filo geneli yeni/patlayan desenler ve sürekli gürültü şablonları ayrıca etiketlenir">
+                <IconSparkles /> Desenleri anlat
+              </Button>
+            )}
+            aside={(
+              <>
+            {/* Faz 0.5 — ham metin yerine markdown. Bkz. Shift.tsx'teki aynı
+                düzeltme; pre-wrap kalkıyor çünkü RenderedMarkdown kendi blok
+                düzenini kuruyor. AŞAĞIDAKİ "Query failed" hata kutusundaki
+                pre-wrap KALIYOR: o AI metni değil, ham backend hata gövdesi. */}
+            {(aiPat.busy || aiPat.text || aiPat.err) && (
+              <div style={{
+                padding: '12px 14px', marginBottom: 10, borderRadius: 6,
+                background: 'var(--bg2)', border: '1px solid var(--border)',
+                fontSize: 12.5, lineHeight: 1.55,
+              }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.4, color: 'var(--text2)', marginBottom: 6 }}>
+                  AI DESEN ANLATIMI
+                </div>
+                {aiPat.busy && <Spinner />}
+                {aiPat.err && <span style={{ color: 'var(--err)' }}>{aiPat.err}</span>}
+                {aiPat.text && <RenderedMarkdown text={aiPat.text} />}
+              </div>
+            )}
+              </>
+            )} />
+        ) : (<>
+
         {/* v0.9.294 — narrow within results. Sits directly above the
             table because it acts on the table, and it says LOADED in
             the placeholder: this filters the rows already in the page,
@@ -1351,6 +1380,7 @@ function LogsInner() {
               ) : undefined
             } />
         )}
+        </>)}
           </div>
         </div>
       </PageShell>

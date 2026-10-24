@@ -196,7 +196,7 @@ describe('K5/K3 — açık kip seçim dilinde (.live-on, v0.10.1318)', () => {
     const logs = readFileSync(resolve(__dirname, '../pages/logs/LogsQueryBar.tsx'), 'utf8');
     expect(logs).toContain('active={p.live}');
     expect(logs).not.toMatch(/variant=\{p?\.?live \?/);
-    expect(readFileSync(resolve(__dirname, '../pages/Logs.tsx'), 'utf8')).toContain('live={live} onToggleLive={() => setLive(v => !v)}');
+    expect(readFileSync(resolve(__dirname, '../pages/Logs.tsx'), 'utf8')).toContain('live={live} onToggleLive={toggleLive}');
     const tint = bodyOf('button.sec.is-active');
     expect(tint).toMatch(/color:\s*var\(--accent2\)/);
     expect(tint).toMatch(/background:\s*var\(--accent-bg\)/);

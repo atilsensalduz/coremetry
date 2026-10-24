@@ -10,7 +10,7 @@
 // pencerenin örneği, Şablonlar 5 dk'da ≤1000 satırlık örneklemeden
 // biriken kalıcı liste; totalCount pencere sayımı DEĞİL. Sekme yerel
 // tercih (panelin açık/kapalı durumu gibi); fetch yalnız aktif sekme için.
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { TabStrip } from '@/components/ui/TabStrip'; // v0.10.456 (D5)
 import { rowActivation } from '@/lib/a11y'; // v0.10.455 (dış denetim D3 dilim 3)
 import { useLogsPatterns, useLogsTemplates } from '@/lib/queries';
@@ -94,8 +94,17 @@ const TCOLS: ColumnDef<LogTemplate>[] = [
   { id: 'act', label: 'Eylemler', kind: 'actions', width: 64 },
 ];
 
-export function LogPatternsPanel({ params, open, onSearch, tab: tabProp, onTab }: {
+export function LogPatternsPanel({ params, open, onSearch, tab: tabProp, onTab, embedded = false, toolbar, aside }: {
   params: LogsParams;
+  /** v0.10.1499 (/logs Discover dilim 2) — sayfanın görünüm anahtarı
+   *  (Logs | Desenler | Şablonlar) sekmeyi sürer: kendi TabStrip'i çizilmez,
+   *  panel tablonun YERİNE oturur (kart boşluğu yok). Varsayılan false =
+   *  bağımsız panel, bayt bayt eski hâl. */
+  embedded?: boolean;
+  /** Başlık satırının sağ ucu (embedded: ✨ Desenleri anlat). */
+  toolbar?: ReactNode;
+  /** Başlığın altı, tablonun üstü (embedded: AI desen anlatımı kutusu). */
+  aside?: ReactNode;
   /** v0.10.448 (C8) — sekme dışarıdan (URL) sürülebilir; verilmezse localStorage. */
   tab?: PanelTab;
   onTab?: (t: PanelTab) => void;
@@ -160,12 +169,14 @@ export function LogPatternsPanel({ params, open, onSearch, tab: tabProp, onTab }
      globals.css'ten role=button işaretiyle gelir, işaret yalnız sorgusu olan
      (açılan) satırda. */
   return (
-    <div className="card lp-panel" style={{ padding: '10px 12px', marginBottom: 10 }}>
+    <div className={embedded ? 'card lp-panel lp-embedded' : 'card lp-panel'} style={embedded ? undefined : { padding: '10px 12px', marginBottom: 10 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-        <TabStrip ariaLabel="Log desenleri paneli" value={tab} onChange={switchTab} tabs={[
-          { key: 'patterns', label: 'Desenler', title: 'Penceredeki mesajlar imzaya göre gruplanır (örneklemeli)' },
-          { key: 'templates', label: 'Şablonlar', title: "Drain templater'ın kalıcı şablonları (5 dk'da ≤1000 satır örneklenir)" },
-        ]} />
+        {!embedded && (
+          <TabStrip ariaLabel="Log desenleri paneli" value={tab} onChange={switchTab} tabs={[
+            { key: 'patterns', label: 'Desenler', title: 'Penceredeki mesajlar imzaya göre gruplanır (örneklemeli)' },
+            { key: 'templates', label: 'Şablonlar', title: "Drain templater'ın kalıcı şablonları (5 dk'da ≤1000 satır örneklenir)" },
+          ]} />
+        )}
         {tab === 'patterns' && (
           <Button variant="secondary" active={trend} size="xs" onClick={toggleTrend} /* v0.10.1342 — açık/kapalı durum: active, birincil değil */
             title="Δ / YENİ: hemen önceki eşit pencerenin örneklemesiyle (tek ek sayfa, 500 satır) karşılaştırır — ipucu, kanıt değil">
@@ -200,7 +211,9 @@ export function LogPatternsPanel({ params, open, onSearch, tab: tabProp, onTab }
             </>
           )}
         </span>
+        {toolbar && <span className="lp-toolbar">{toolbar}</span>}
       </div>
+      {aside}
       {tab === 'patterns' && (
         <>
           <div className="table-wrap is-scroll">
