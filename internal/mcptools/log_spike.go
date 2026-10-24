@@ -1051,13 +1051,17 @@ func spikePatternInput(pt spikeJobOut, t spikeTotals, sFrom time.Time) (*spikeDi
 	}
 	cur := *pt.pats
 	cur.Groups = append([]logstore.SignatureGroup(nil), pt.pats.Groups...)
-	logstore.JoinPatternBaseline(&cur, pt.basePats)
+	// v0.10.1504 — iki örneklemin kategorik anahtar kararı farklı olabilir;
+	// taban, artış penceresinin SplitKeys'iyle yeniden kurulur (şablon
+	// kıyası aynı imza uzayında).
+	basePats := logstore.AlignPatternBaseline(&cur, pt.basePats)
+	logstore.JoinPatternBaseline(&cur, basePats)
 	if cur.Sampled == 0 || len(cur.Groups) == 0 {
 		dim.State, dim.Note = hopEmpty, "artış penceresinde örneklenen satır yok"
 		return nil, dim
 	}
 	dim.State = hopOK
-	notes := []string{fmt.Sprintf("örneklem: artış %d / taban %d satır; sayılar pencere toplamına ölçeklendi", cur.Sampled, pt.basePats.Sampled)}
+	notes := []string{fmt.Sprintf("örneklem: artış %d / taban %d satır; sayılar pencere toplamına ölçeklendi", cur.Sampled, basePats.Sampled)}
 	if cur.CoveredFromNs > 0 && cur.CoveredFromNs > sFrom.UnixNano() && cur.Sampled >= logSpikePatternSample {
 		notes = append(notes, "örneklem en yeni satırlardan; artışın yalnız "+time.Unix(0, cur.CoveredFromNs).UTC().Format("15:04:05")+" sonrasını kapsıyor")
 	}
@@ -1070,15 +1074,15 @@ func spikePatternInput(pt spikeJobOut, t spikeTotals, sFrom time.Time) (*spikeDi
 		raw[g.Template] = g.Count
 	}
 	bp := &logstore.FieldStatsResult{Field: "pattern", Total: t.B, Values: []logstore.FieldValueCount{}}
-	if pt.basePats.Sampled > 0 {
-		for _, g := range pt.basePats.Groups {
-			v := int64(math.Round(float64(g.Count) * float64(t.B) / float64(pt.basePats.Sampled)))
+	if basePats.Sampled > 0 {
+		for _, g := range basePats.Groups {
+			v := int64(math.Round(float64(g.Count) * float64(t.B) / float64(basePats.Sampled)))
 			bp.Values = append(bp.Values, logstore.FieldValueCount{Value: g.Template, Count: v})
 		}
 	}
 	in := &spikeDimInput{Dim: spikeDimPattern, Field: "pattern", Spike: sp, Base: bp, Raw: raw, RawMin: spikePatternMin}
-	if pt.basePats.Distinct > len(pt.basePats.Groups) {
-		in.BaseLimit = len(pt.basePats.Groups) // taban grup listesi kesik: yokluk "yeni" değil
+	if basePats.Distinct > len(basePats.Groups) {
+		in.BaseLimit = len(basePats.Groups) // taban grup listesi kesik: yokluk "yeni" değil
 	}
 	return in, dim
 }

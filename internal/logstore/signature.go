@@ -15,13 +15,20 @@ package logstore
 // Drain maskesiyle ORTAK yüklem), (2) gövde JSON nesnesiyse imza = sıralı
 // anahtar kümesi + mesaj alanının maskelenmiş metni; diğer değerler imzaya
 // GİRMEZ.
+//
+// v0.10.1504 (operatör): bu çöküş başarılı ve başarısız satırı da tek desene
+// topladı. Kısa kategorik değerler (status OK/FAILED, level, result, bool)
+// desen toplamında örneklem kardinalitesine göre imzada TUTULUR — karar
+// patterns.go'da (sigEnumKeys); satır başına NormalizeSignature değişmedi.
 
 import (
 	"encoding/json"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/cespare/xxhash/v2"
 )
@@ -68,6 +75,20 @@ type sigInfo struct {
 	sig   string
 	query string // PatternSearchQuery girdisi: JSON'da mesaj metni, değilse imza
 	level string // JSON gövdedeki seviye metni ("" = yok)
+	// js — v0.10.1504: gövde JSON nesnesiyse imzanın parçaları; desen
+	// toplamı (patterns.go) kategorik alanları örneklem kardinalitesine
+	// göre imzada TUTARAK yeniden çizer. nil = düz metin gövde.
+	js *sigJSON
+}
+
+// sigJSON — v0.10.1504: JSON gövde imzasının çizim girdisi.
+type sigJSON struct {
+	keys    []string // sıralı özgün anahtarlar
+	msgKey  string
+	msgText string // maskelenmiş mesaj metni
+	// cats — mesaj dışı alanlardan KATEGORİK aday olanların imzaya
+	// yazılacak hâli (`"FAILED"`, `true`); anahtar özgün addır.
+	cats map[string]string
 }
 
 func signatureOf(msg string) sigInfo {
@@ -124,7 +145,9 @@ func quotedValueIsID(v string) bool {
 
 // jsonSignature — gövde bir JSON NESNESİ ise: `{"a":<x>,"msg":"<maskeli>",…}`
 // (anahtarlar sıralı, mesaj alanı dışındaki her değer `<x>`). Kimlik
-// değerleri böylece imzaya hiç girmez.
+// değerleri böylece imzaya hiç girmez. Satır başına imza (NormalizeSignature)
+// kategorik değerleri de `<x>` yazar; onları tutma kararı örneklem
+// düzeyindedir (patterns.go, v0.10.1504) ve js.cats'ten okunur.
 func jsonSignature(s string) (sigInfo, bool) {
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(s), &m); err != nil || len(m) == 0 {
@@ -166,30 +189,93 @@ func jsonSignature(s string) (sigInfo, bool) {
 			break
 		}
 	}
+	js := &sigJSON{keys: keys, msgKey: msgKey, msgText: msgText}
+	for _, k := range keys {
+		if k == msgKey {
+			continue
+		}
+		if lit, ok := sigCategorical(m[k]); ok {
+			if js.cats == nil {
+				js.cats = make(map[string]string, 4)
+			}
+			js.cats[k] = lit
+		}
+	}
+	query := msgText
+	if msgKey == "" {
+		// Mesajsız gövde: arama anahtar adlarıyla (≥3 karakterli olanlar).
+		query = strings.Join(keys, " <x> ")
+	}
+	return sigInfo{sig: js.render(nil), query: query, level: level, js: js}, true
+}
+
+// render — imza metni; keep(k) true olan kategorik anahtarın değeri
+// yazılır, gerisi `<x>`. keep nil → v0.10.1496 imzası (tümü `<x>`).
+func (j *sigJSON) render(keep func(string) bool) string {
 	var b strings.Builder
 	b.WriteByte('{')
-	for i, k := range keys {
+	for i, k := range j.keys {
 		if i > 0 {
 			b.WriteByte(',')
 		}
 		kk, _ := json.Marshal(MaskIDTokens(k, "<x>"))
 		b.Write(kk)
 		b.WriteByte(':')
-		if k == msgKey {
+		if k == j.msgKey {
 			b.WriteByte('"')
-			b.WriteString(msgText)
+			b.WriteString(j.msgText)
 			b.WriteByte('"')
+		} else if lit, ok := j.cats[k]; ok && keep != nil && keep(k) {
+			b.WriteString(lit)
 		} else {
 			b.WriteString("<x>")
 		}
 	}
 	b.WriteByte('}')
-	query := msgText
-	if msgKey == "" {
-		// Mesajsız gövde: arama anahtar adlarıyla (≥3 karakterli olanlar).
-		query = strings.Join(keys, " <x> ")
+	return capSignature(b.String())
+}
+
+// sigEnumMaxLen — kategorik değer tavanı (rune).
+const sigEnumMaxLen = 24
+
+// sigCategorical — v0.10.1504 SAF: bir JSON değeri kısa kategorik belirteç
+// mi (status OK/FAILED, result, outcome, type, level, bool)? Evet ise
+// imzaya yazılacak literal. Dizge: boş değil, ≤24 rune, ≤2 sözcük, sayı
+// değil, maskeden değişmeden çıkar (kimlik / sayı / IP / tarih / hex
+// parçası yok — IsIDLikeToken dahil), JSON'da kaçış gerektiren karakter
+// yok. Sayı, null, nesne, dizi → hayır. Kardinalite kararı burada DEĞİL
+// (satır başına bilinmez): patterns.go örneklem üstünde verir.
+func sigCategorical(raw json.RawMessage) (string, bool) {
+	if len(raw) == 0 {
+		return "", false
 	}
-	return sigInfo{sig: capSignature(b.String()), query: query, level: level}, true
+	switch raw[0] {
+	case 't', 'f':
+		if b := string(raw); b == "true" || b == "false" {
+			return b, true
+		}
+		return "", false
+	case '"':
+	default:
+		return "", false
+	}
+	var v string
+	if json.Unmarshal(raw, &v) != nil || v == "" || utf8.RuneCountInString(v) > sigEnumMaxLen {
+		return "", false
+	}
+	if v != strings.TrimSpace(v) || strings.ContainsAny(v, "\"\\<>&\t\n\r") {
+		return "", false
+	}
+	if n := len(strings.Fields(v)); n == 0 || n > 2 {
+		return "", false
+	}
+	if _, err := strconv.ParseFloat(v, 64); err == nil {
+		return "", false
+	}
+	if IsIDLikeToken(v) || maskSignatureText(v, false) != v {
+		return "", false
+	}
+	return `"` + v + `"`, true
 }
 
 func capSignature(s string) string {

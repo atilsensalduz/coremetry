@@ -11065,3 +11065,36 @@ gider. Yeni istek, uç, ayar yok; istemci/üretici kökte çip yine yok.
 
 **Geri alma.** `git revert <sha>` + yeni etiket; ya da yalnız Trace.tsx'te `pickTraceOpCard(spans)` →
 `traceRootOpCardRef(root)` (eski kök davranışı; links.ts'teki fonksiyon değişmedi).
+
+## 2026-10-24 — v0.10.1504 — Desenler: kategorik JSON alanları deseni yeniden ayırır (status OK / FAILED)
+
+**Karar.** v0.10.1496'nın JSON-gövde imzası (sıralı anahtar kümesi + maskeli mesaj, diğer her değer `<x>`) başarılı ve
+başarısız satırı tek desende topluyordu. Operatör onayıyla (2026-10-24) desen toplamı İKİ geçişli oldu
+(`internal/logstore/patterns.go`): (1) satırlar İNCE imzayla toplanır — mesaj dışı her alanın değeri `sigCategorical`
+(signature.go, SAF) kısa kategorik belirteç sayarsa imzaya yazılır: dizge ya da bool, ≤24 rune, ≤2 sözcük, sayı değil,
+maskeden değişmeden çıkar (IsIDLikeToken / sayı / IP / tarih / hex yok), JSON kaçışı gerektirmez; anahtar başına örneklemde
+farklı değer (en çok 10 tutulur) ve satır sayılır. (2) `sigEnumKeys`: örneklemde **<10 farklı değer ve ≥2 satır** olan
+anahtarlar `SplitKeys` olur; ince gruplar bu anahtarlar dışındaki değerler `<x>`'e çekilerek birleştirilir
+(`buildPatternGroups`, ilk görülme sırasıyla — Sample/Query/SeverityText deterministik). Şablon okunur kalır:
+`{"msg":"…","request_id":<x>,"status":"FAILED"}`. Yanıta `splitKeys` (omitempty) eklendi. Maliyet O(satır + ince grup),
+yeni regex yok: 2000 satır ~30 ms (`TestGroupBySignature_EnumPerfBudget`, bütçe 500 ms; ucun bütçesi 2 s).
+
+**Taban hizalaması.** Kardinalite kararı örnekleme bağlı olduğundan Trend tabanı (`?baseline=1`, 500 satır) ve
+explain_log_spike tabanı başka `SplitKeys` bulabilir; hash/şablon birleşimi o zaman "yeni" yalancı pozitifleri üretirdi.
+`AlignPatternBaseline(cur, base)` tabanı İNCE gruplarından mevcut pencerenin anahtarlarıyla yeniden kurar;
+`JoinPatternBaseline` bunu kendisi çağırır, API (taban Distinct'i) ve log_spike (taban şablon sayımları) hizalanmış
+tabanı okur. İnce gruplar dışa açılmayan alandadır (JSON'a girmez).
+
+**Değişmeyenler.** Satır başına `NormalizeSignature` bayt bayt aynı (tümü `<x>`) — Problem zenginleştirmesi (influx
+enrich), team_logs ve kategorik alanı olmayan gövdelerin desen hash'leri değişmez. "Ara" sorgusu yalnız mesaj metni:
+alan:değer yazımı gövde JSON anahtarlarında iki backend'de de güvenilir değil (ES'te alan ancak ingest ayrıştırmışsa
+indekslidir, CH'de logql derleyicisi gövde anahtarını kolon/attribute sanır) — OK ve FAILED desenlerinin "Ara"sı aynı metni
+arar; satırlar gövdede ayırt edilir.
+
+**Drain (internal/templater) değişmedi.** Şablonlar `log_templates`'te kalıcıdır ve kimlikleri (hash) eğitim boyunca
+sabit olmalıdır; örneklem-kardinalitesine bağlı bir karar (her 5 dk'lık 1000 satırlık partide farklı çıkabilir) aynı
+satırı partiden partiye farklı şablona yazar, sayımlar ve şablon yaşam döngüsü (ilk görülme, "yeni şablon" sinyali)
+çalkalanırdı. Kalıcı bir anahtar-kardinalite sözlüğü ayrı bir tasarım işidir; Desenler paneli istenen ayrımı zaten verir.
+
+**Geri alma.** `git revert <sha>` + yeni etiket. Yalnız davranışı kapatmak için `sigEnumKeys` boş dönsün (ya da
+`patternEnumMaxDistinct = 0`): imzalar v0.10.1496'ya döner, `splitKeys` yanıttan düşer. Kalıcı veri/şema yok.

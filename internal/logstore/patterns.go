@@ -3,6 +3,7 @@ package logstore
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -23,6 +24,11 @@ import (
 // İmza: logstore.NormalizeSignature — Problem zenginleştirmesiyle (influx
 // enrich groupLogSignatures) AYNI fonksiyon; iki yüzey aynı "aynı log"
 // tanımını gösterir. Drain (templater) ayrı uzaydır.
+// v0.10.1504 — istisna: JSON gövdede kısa kategorik alanlar (status, level,
+// result…) örneklemde düşük kardinaliteliyse desen imzasında TUTULUR
+// (buildPatternGroups); Problem zenginleştirmesi satır başına imzayı
+// (tümü `<x>`) kullanmaya devam eder. Kategorik alanı olmayan gövdelerde iki
+// imza bayt bayt aynıdır.
 
 const (
 	PatternsSampleCap = 2000
@@ -77,6 +83,7 @@ func JoinPatternBaseline(cur *PatternsResult, base *PatternsResult) {
 	if cur == nil || base == nil {
 		return
 	}
+	base = AlignPatternBaseline(cur, base)
 	prev := make(map[string]int64, len(base.Groups))
 	for _, g := range base.Groups {
 		prev[g.Hash] = g.Count
@@ -122,6 +129,14 @@ type PatternsResult struct {
 	// bırakır).
 	CoveredFromNs int64 `json:"coveredFromNs,omitempty"`
 	CoveredToNs   int64 `json:"coveredToNs,omitempty"`
+	// SplitKeys — v0.10.1504: JSON gövdede değeri imzada TUTULAN kategorik
+	// anahtarlar (örneklemde <10 farklı değer, ≥2 satır; sıralı). Boş = tüm
+	// mesaj dışı değerler `<x>` (v0.10.1496 imzası).
+	SplitKeys []string `json:"splitKeys,omitempty"`
+	// fine — ince gruplar (tüm kategorik adaylar tutulmuş); taban hizalaması
+	// (AlignPatternBaseline) farklı SplitKeys'le yeniden birleştirir.
+	fine     []*sigAcc
+	maxGroup int
 	// v0.10.452 (C1) — Page'in dürüstlük zarfı (v0.9.288) buraya taşınır:
 	// ES'te Total ≥10k alt sınırdır, kısmi/shard hatası sayıyı eksiltir.
 	// "N hata logu" diye başlık atan yüzey bunları okumak zorunda.
@@ -164,13 +179,10 @@ func GroupBySignatureN(ctx context.Context, st Store, f Filter, limit, sampleCap
 	}
 	f.LeanSource = true // v0.10.500 (A4) — örnekleme yalnız body/zaman/severity okur
 	f.Offset, f.Cursor, f.Ascending = 0, "", false
-	type acc struct {
-		g     SignatureGroup
-		svcs  map[string]int64
-		query string // v0.10.1496 — JSON gövdede mesaj metni (anahtar kümesi değil)
-	}
-	groups := map[string]*acc{}
-	res := &PatternsResult{Cap: sampleCap}
+	groups := map[string]*sigAcc{} // ince imza → grup
+	var fine []*sigAcc             // ilk görülme sırası (deterministik birleşim)
+	stats := map[string]*sigEnumStat{}
+	res := &PatternsResult{Cap: sampleCap, maxGroup: limit}
 	for res.Sampled < sampleCap {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -218,28 +230,21 @@ func GroupBySignatureN(ctx context.Context, st Store, f Filter, limit, sampleCap
 				continue
 			}
 			sev, sevText, svcName := patternRowIdentity(rec, info.level, f.Service)
-			a, ok := groups[sig]
+			fineSig := sig
+			if info.js != nil {
+				fineSig = info.js.render(sigKeepAll)
+				countSigEnums(stats, info.js.cats)
+			}
+			a, ok := groups[fineSig]
 			if !ok {
-				a = &acc{g: SignatureGroup{
-					Hash: fmt.Sprintf("%016x", SignatureHash(sig)), Template: sig,
-					Sample: rec.Body, Severity: sev, SeverityText: sevText,
+				a = &sigAcc{g: SignatureGroup{
+					Template: fineSig, Sample: rec.Body, Severity: sev, SeverityText: sevText,
 					FirstSeen: rec.Timestamp, LastSeen: rec.Timestamp,
-				}, svcs: map[string]int64{}, query: info.query}
-				groups[sig] = a
+				}, svcs: map[string]int64{}, query: info.query, js: info.js}
+				groups[fineSig] = a
+				fine = append(fine, a)
 			}
-			a.g.Count++
-			if rec.Timestamp < a.g.FirstSeen {
-				a.g.FirstSeen = rec.Timestamp
-			}
-			if rec.Timestamp > a.g.LastSeen {
-				a.g.LastSeen = rec.Timestamp
-			}
-			if sev > a.g.Severity {
-				a.g.Severity, a.g.SeverityText = sev, sevText
-			}
-			if svcName != "" {
-				a.svcs[svcName]++
-			}
+			a.add(rec.Timestamp, sev, sevText, svcName, 1)
 		}
 		if len(page.Logs) == 0 || page.NextCursor == "" || len(page.Logs) < f.Limit {
 			break
@@ -250,9 +255,125 @@ func GroupBySignatureN(ctx context.Context, st Store, f Filter, limit, sampleCap
 	if res.Total < res.Sampled {
 		res.Total = res.Sampled
 	}
-	res.Distinct = len(groups)
-	out := make([]SignatureGroup, 0, len(groups))
-	for _, a := range groups {
+	res.SplitKeys = sigEnumKeys(stats)
+	res.fine = fine
+	res.Groups, res.Distinct = buildPatternGroups(fine, res.SplitKeys, limit)
+	return res, nil
+}
+
+// v0.10.1504 — kategorik JSON alanları (operatör: "status OK ve FAILED ayrı
+// desen olsun"). NormalizeSignature satır başınadır; bir alanın kategorik mi
+// yoksa yüksek kardinaliteli mi olduğu ancak ÖRNEKLEMDE görülür. İki geçiş:
+// (1) satırlar İNCE imzayla toplanır (her kategorik aday değeriyle), anahtar
+// başına farklı değer + satır sayılır; (2) sigEnumKeys'in seçtiği anahtarlar
+// dışındaki değerler `<x>`'e çekilip ince gruplar birleştirilir. Maliyet
+// O(satır + ince grup), regex yok; 2000 satırda ms düzeyi.
+const (
+	patternEnumMaxDistinct = 10 // anahtar bu sayıdan AZ farklı değer taşımalı
+	patternEnumMinLines    = 2  // ve en az bu kadar satırda görünmeli
+)
+
+// sigAcc — bir (ince ya da birleşik) desen grubunun birikimi.
+type sigAcc struct {
+	g     SignatureGroup
+	svcs  map[string]int64
+	query string   // v0.10.1496 — JSON gövdede mesaj metni (anahtar kümesi değil)
+	js    *sigJSON // nil = düz metin gövde
+}
+
+func (a *sigAcc) add(ts int64, sev uint8, sevText, svc string, n int64) {
+	a.g.Count += n
+	if ts < a.g.FirstSeen {
+		a.g.FirstSeen = ts
+	}
+	if ts > a.g.LastSeen {
+		a.g.LastSeen = ts
+	}
+	if sev > a.g.Severity {
+		a.g.Severity, a.g.SeverityText = sev, sevText
+	}
+	if svc != "" {
+		a.svcs[svc] += n
+	}
+}
+
+// sigEnumStat — anahtar başına örneklem sayacı. vals en çok
+// patternEnumMaxDistinct değer tutar (aşınca anahtar elenir; bellek sınırlı).
+type sigEnumStat struct {
+	lines int
+	vals  map[string]struct{}
+}
+
+func sigKeepAll(string) bool { return true }
+
+func countSigEnums(stats map[string]*sigEnumStat, cats map[string]string) {
+	for k, lit := range cats {
+		st := stats[k]
+		if st == nil {
+			st = &sigEnumStat{vals: map[string]struct{}{}}
+			stats[k] = st
+		}
+		st.lines++
+		if len(st.vals) < patternEnumMaxDistinct {
+			st.vals[lit] = struct{}{}
+		}
+	}
+}
+
+// sigEnumKeys — SAF: değeri imzada tutulacak anahtarlar (sıralı).
+func sigEnumKeys(stats map[string]*sigEnumStat) []string {
+	var keys []string
+	for k, st := range stats {
+		if st.lines >= patternEnumMinLines && len(st.vals) < patternEnumMaxDistinct {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// buildPatternGroups — ince grupları splitKeys'e göre birleştirir, sıralar,
+// limit'e kırpar. Dönen ikinci değer kırpmadan önceki grup sayısı. Birleşim
+// ince grupların ilk görülme sırasıyla yürür: Sample / Query / eşit
+// seviyede SeverityText tek geçişli toplamla aynı satırdan gelir.
+func buildPatternGroups(fine []*sigAcc, splitKeys []string, limit int) ([]SignatureGroup, int) {
+	keep := make(map[string]bool, len(splitKeys))
+	for _, k := range splitKeys {
+		keep[k] = true
+	}
+	keepFn := func(k string) bool { return keep[k] }
+	merged := map[string]*sigAcc{}
+	order := make([]*sigAcc, 0, len(fine))
+	for _, fa := range fine {
+		sig := fa.g.Template
+		if fa.js != nil {
+			sig = fa.js.render(keepFn)
+		}
+		m, ok := merged[sig]
+		if !ok {
+			g := fa.g
+			g.Template, g.Hash, g.Count = sig, fmt.Sprintf("%016x", SignatureHash(sig)), 0
+			g.Services, g.PrevCount, g.Ratio, g.New = nil, 0, 0, false
+			m = &sigAcc{g: g, svcs: map[string]int64{}, query: fa.query, js: fa.js}
+			merged[sig] = m
+			order = append(order, m)
+		}
+		m.g.Count += fa.g.Count
+		if fa.g.FirstSeen < m.g.FirstSeen {
+			m.g.FirstSeen = fa.g.FirstSeen
+		}
+		if fa.g.LastSeen > m.g.LastSeen {
+			m.g.LastSeen = fa.g.LastSeen
+		}
+		if fa.g.Severity > m.g.Severity {
+			m.g.Severity, m.g.SeverityText = fa.g.Severity, fa.g.SeverityText
+		}
+		for n, c := range fa.svcs {
+			m.svcs[n] += c
+		}
+	}
+	out := make([]SignatureGroup, 0, len(order))
+	for _, a := range order {
 		a.g.ServiceCount = len(a.svcs)
 		a.g.Query = PatternSearchQuery(a.query)
 		type sc struct {
@@ -286,11 +407,32 @@ func GroupBySignatureN(ctx context.Context, st Store, f Filter, limit, sampleCap
 		}
 		return out[i].Template < out[j].Template
 	})
+	distinct := len(out)
 	if len(out) > limit {
 		out = out[:limit]
 	}
-	res.Groups = out
-	return res, nil
+	return out, distinct
+}
+
+// AlignPatternBaseline — v0.10.1504: taban örneklemesinin SplitKeys'i
+// mevcut pencereninkinden farklıysa (kardinalite kararı örnekleme bağlı)
+// taban gruplarını mevcut pencerenin anahtarlarıyla ince gruplardan yeniden
+// kurar; böylece hash/şablon birleşimi aynı imza uzayında yapılır ve
+// "status OK" tabanda başka anahtar kümesiyle yazıldı diye "yeni"
+// görünmez. Aynıysa ya da ince grup yoksa base aynen döner (base
+// değiştirilmez; dönen yeni bir sonuçtur).
+func AlignPatternBaseline(cur, base *PatternsResult) *PatternsResult {
+	if cur == nil || base == nil || base.fine == nil || slices.Equal(cur.SplitKeys, base.SplitKeys) {
+		return base
+	}
+	limit := base.maxGroup
+	if limit <= 0 {
+		limit = patternsMaxGroups
+	}
+	out := *base
+	out.SplitKeys = append([]string(nil), cur.SplitKeys...)
+	out.Groups, out.Distinct = buildPatternGroups(base.fine, out.SplitKeys, limit)
+	return &out
 }
 
 // patternRowIdentity — v0.10.1496 (d), SAF: desen satırının seviye +

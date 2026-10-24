@@ -149,6 +149,7 @@ func (s *Server) getLogsPatterns(w http.ResponseWriter, r *http.Request) {
 					log.Printf("[logs] patterns baseline degraded (backend=%s, svc=%q): %v", s.logs.Backend(), f.Service, berr)
 					res.Baseline.Degraded, res.Baseline.Reason = true, "baseline sample failed"
 				} else {
+					base = logstore.AlignPatternBaseline(res, base) // v0.10.1504 — aynı SplitKeys uzayı
 					res.Baseline.Sampled, res.Baseline.Distinct, res.Baseline.Truncated = base.Sampled, base.Distinct, base.Truncated
 					logstore.JoinPatternBaseline(res, base)
 				}
