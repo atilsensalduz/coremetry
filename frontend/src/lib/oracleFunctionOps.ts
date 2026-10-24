@@ -240,7 +240,9 @@ export function exactOperationTitle(p: Exclude<TraceOperationPick, { source: 'di
   return `Kaynak: ${where} attribute'u ${p.key} — kesin.${others}`;
 }
 
-/** Sözlük adayının görünen etiketi — tahmin olduğu ve kaç aday olduğu yazının içinde. */
-export function dictionaryOperationLabel(o: TraceOracleOperation): string {
-  return `Operasyon (fonksiyon kodundan, ${o.total} aday):`;
+/** Sözlük adayının ipucu hücresi — tahmin olduğu ve kaç aday olduğu yazının içinde.
+ *  v0.10.1514: uzun "Operasyon (fonksiyon kodundan, N aday):" etiketinin yerine
+ *  kimlik çipinin amber hücresi; kaynağın uzun hâli oracleOperationTitle ipucunda. */
+export function dictionaryOperationHint(o: TraceOracleOperation): string {
+  return `tahmin · ${o.total} aday`;
 }

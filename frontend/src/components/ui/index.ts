@@ -129,3 +129,7 @@ export { Popover, PopoverLinkItem, PopoverHrefItem, type PopoverProps } from './
 // v0.10.1089 — seçicilerin ortak açılır listesi (Combobox → Service/Operation/MetricName picker).
 export { PickerPopover } from './PickerPopover';
 export type { PickerPopoverProps, PickerItem, PickerStatus } from './PickerPopover';
+
+// v0.10.1514 — iş kimliği çipi (etiket · değer · ipucu · kopyala); Trace başlığı satır 2.
+export { IdentityChip } from './IdentityChip';
+export type { IdentityChipProps } from './IdentityChip';

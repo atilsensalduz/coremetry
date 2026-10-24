@@ -14,7 +14,11 @@ import { Button } from '@/components/ui/Button';
  */
 // v0.10.1369 — `copiedTitle` (isteğe bağlı): kopyalandıktan sonraki ~1.5 sn
 // title + aria-label (ör. "Kopyalandı"); verilmezse davranış bugünkü.
-export function CopyButton({ value, title, copiedTitle }: { value: string; title?: string; copiedTitle?: string }) {
+// v0.10.1514 (trace başlığı A) — `cell`: kimlik çipinin (ui/IdentityChip) kopyala
+// HÜCRESİ. Satır-içi yerleşim yok (hücre CSS'i `.idchip__copy` ölçer) ve
+// erişilebilir ad `title`ın kendisi ("Operasyon adını kopyala"): üç çip yan
+// yana dururken üç tane "Copy" okumak hangisinin ne kopyaladığını söylemez.
+export function CopyButton({ value, title, copiedTitle, cell }: { value: string; title?: string; copiedTitle?: string; cell?: boolean }) {
   const [copied, setCopied] = useState(false);
 
   const onClick = async (e: React.MouseEvent) => {
@@ -32,6 +36,15 @@ export function CopyButton({ value, title, copiedTitle }: { value: string; title
   // yeşil kalır. Satır-içi yalnız eski `.copy-btn`in yerleşimi (margin/hiza)
   // ve glif ölçüsü (12px, line-height 1): ID/hash satırlarındaki ~25 çağrı
   // yerinde satır yüksekliği ve glif boyu değişmesin.
+  if (cell) {
+    const name = copied && copiedTitle ? copiedTitle : (title ?? 'Copy');
+    return (
+      <Button variant="ghost" size="xs" onClick={onClick} title={name} aria-label={name}
+        className={copied ? 'copy-btn idchip__copy is-ok' : 'copy-btn idchip__copy'}>
+        {copied ? '✓' : '⧉'}
+      </Button>
+    );
+  }
   return (
     <Button variant="ghost" size="xs"
       onClick={onClick}

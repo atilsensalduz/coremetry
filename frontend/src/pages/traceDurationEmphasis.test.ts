@@ -9,15 +9,18 @@ import { resolve } from 'node:path';
 // "· {fmtNs(totalNs)}" birleşik yazımı geri gelmez.
 const trace = readFileSync(resolve(__dirname, 'Trace.tsx'), 'utf8');
 const kiosk = readFileSync(resolve(__dirname, 'TraceKiosk.tsx'), 'utf8');
+// v0.10.1514 (trace başlığı A) — /trace'in süresi ölçü kümesi bileşeninde.
+const measures = readFileSync(resolve(__dirname, '../components/traces/TraceMeasures.tsx'), 'utf8');
 const css = readFileSync(resolve(__dirname, '../styles/globals.css'), 'utf8');
 
 describe('trace toplam süresi vurgusu (v0.10.678)', () => {
   it('Trace.tsx ve TraceKiosk.tsx süreyi ayrı, belirgin sınıfla çizer', () => {
-    for (const src of [trace, kiosk]) {
-      expect(src).toContain('className="trace-summary__dur"');
-      expect(src).toContain('{fmtNs(totalNs)}</span>');
-      expect(src).not.toContain("'s'} · {fmtNs(totalNs)}");
-    }
+    expect(kiosk).toContain('className="trace-summary__dur"');
+    expect(kiosk).toContain('{fmtNs(totalNs)}</span>');
+    // v0.10.1514 — /trace: TraceMeasures'ın SÜRE hücresi aynı sınıfı taşır.
+    expect(trace).toContain('<TraceMeasures totalNs={totalNs}');
+    expect(measures).toMatch(/<dd className="trace-summary__dur"[^>]*><Num text=\{fmtNs\(totalNs\)\} \/><\/dd>/);
+    for (const src of [trace, kiosk, measures]) expect(src).not.toContain("'s'} · {fmtNs(totalNs)}");
   });
   it('sınıf token tabanlı ve tabular-nums', () => {
     const i = css.indexOf('.trace-summary__dur {');

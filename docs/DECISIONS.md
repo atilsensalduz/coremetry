@@ -11270,3 +11270,27 @@ iş olarak öneriliyor. + ve çoklu seçim trace düzeyinde doğrudur.
 **Geri alma.** `git revert <sha>` + yeni etiket. Kalıcı veri/şema yok; `aggregateInnerWhere` çıkarımı davranış değiştirmez
 (TestHasErrorHavingWiredInBothLists + aggregate testleri). Yalnız UI'yi kapatmak için Traces.tsx'te `renderHeadLabel`
 satırını kaldırmak yeter.
+## 2026-10-24 — v0.10.1514 — Trace başlığı yeniden düzen (A): ölçü kümesi + tek kimlik çipi
+
+**Karar (operatör onayı "A iyi", 2026-10-24).** `/trace` özet şeridi iki satırlı karta döndü. Satır 1: solda
+breadcrumb · mono operasyon/rota başlığı (ellipsis + title) · servis rozeti, trace id + kopyala, durum; sağda
+`TraceMeasures` (`components/traces/`): SÜRE · KRİTİK YOL (kök duvar süresi, `lib/criticalPath`) · SPAN (+servis) ·
+BAŞLANGIÇ, büyük mono sayı + küçük etiket (i18n EN/TR). Hepsi yüklü span listesinden; yeni istek yok. Satır 2 (ince
+çizgi): OPERASYON / FUNCTION / CHANNEL tek anatomi — yeni atom `ui/IdentityChip` (etiket · değer [bağlantı] · ipucu ·
+kopyala; barrel'da). Sözlük yolu uzun "Operasyon (fonksiyon kodundan, N aday):" etiketi yerine amber "tahmin · N aday"
+hücresi (`dictionaryOperationHint`); kesin kaynakta "+N" nötr hücre; kaynak ipuçları (oracle/span/sözlük) metni aynen.
+CHANNEL artık çip; span anahtar yazımı (FUNCTION_CODE / channel_code) çipin title'ında. Sağda operasyon kartı çipi
+(+gateway) ve birincil "CoSRE'ye sor" (alt satırdan taşındı). Compare / Logs / Metrics / Share / Export / Kiosk gri
+alanda aynen; oradaki "Critical path · N spans · root X" metni ölçü kümesine taşındı (ipucu aynı, yinelenmesin diye).
+Sağlıklı trace'te yeşil "OK" rozeti YOK (v0.10.922 sade palet; mockup'ta vardı, sr-only kaldı). Dış link düğmeleri
+alt satırda yalnız (`.trace-extlinks:empty` boşsa gizli). `CopyButton` `cell` kipi: satır-içi stil yok, ad = başlık.
+
+**Neden.** Üç ayrı yazım (cell-hint + .op-chip, "FUNCTION_CODE:" metni, düz kanal) yan yana üç görünümdü; ölçüler
+küçük gri metindi. Kiosk ve public trace v0.10.1347 kümesini kullanmaya devam eder (dokunulmadı).
+
+**Yerleşim.** ≤1280px ölçüler başlığın altına, sola; ≤640px çipler sarar, değer ellipsis, id kelime ortasından kırılır,
+yana kayma yok. Tek işaretli CSS bloğu (globals.css `v0.10.1514 BEGIN/END`), yalnız token; `a.sec.op-chip` silindi.
+Pin: `pages/traceHeaderMeasures.pin.test.ts`, `IdentityChip.contract`, `TraceMeasures.render`,
+`OracleOperationChip.render` (TraceEntryCodes dahil).
+
+**Geri alma.** `git revert <sha>` + yeni etiket. Şema/ayar/API yok; yalnız ön yüz.

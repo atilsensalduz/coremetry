@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { traceFunctionCodes, traceOracleOperations, oracleOperationTitle, functionCodeLabel, functionCodeTitle, pickTraceOperation, exactTraceOperation, exactOperationTitle, traceEntryCodes, type TraceOperationPick, type OracleOpRow } from './oracleFunctionOps';
+import { traceFunctionCodes, traceOracleOperations, oracleOperationTitle, functionCodeLabel, functionCodeTitle, pickTraceOperation, exactTraceOperation, exactOperationTitle, traceEntryCodes, dictionaryOperationHint, type TraceOperationPick, type OracleOpRow } from './oracleFunctionOps';
 import type { OracleFunctionCodesResponse, SpanRow } from './types';
 
 // v0.10.1003 — trace sayfasında Oracle operasyon adı: span'lerdeki FUNCTION_CODE
@@ -158,6 +158,15 @@ describe('pickTraceOperation', () => {
   it('sözlük kapalıyken kesin kaynak yine çalışır; yedek hiçbir şey üretmez', () => {
     expect(pickTraceOperation([row(TRX, '', 1)], spans, undefined)?.source).toBe('oracle');
     expect(pickTraceOperation([], spans, { enabled: false, codes: {} })).toBeNull();
+  });
+  it('v0.10.1514 — sözlük adayının ipucu hücresi kısa: "tahmin · N aday"', () => {
+    const p = pickTraceOperation([], spans, dict);
+    expect(p?.source).toBe('dictionary');
+    if (p?.source !== 'dictionary') return;
+    expect(dictionaryOperationHint(p.candidates[0])).toBe('tahmin · 16 aday');
+    const chip = readFileSync(resolve(__dirname, '../components/traces/OracleOperationChip.tsx'), 'utf8');
+    expect(chip).toContain('hint={dictionaryOperationHint(o)} hintTone="warn" hintTitle={title}');
+    expect(chip).not.toContain('dictionaryOperationLabel');
   });
   it('ipucu metni kaynağı söyler', () => {
     const o = exactTraceOperation([row(TRX, 'r', 9), row(INQ, 'c1', 5)], spans)!;

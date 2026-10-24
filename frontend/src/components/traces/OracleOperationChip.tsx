@@ -1,12 +1,11 @@
 import { useMemo } from 'react';
-import { Link } from 'react-router-dom';
-import { CopyButton } from '@/components/CopyButton'; // v0.10.1418
+import { IdentityChip } from '@/components/ui/IdentityChip'; // v0.10.1514
 import { useOracleFunctionCodes } from '@/lib/queries';
 import type { LogRow, SpanRow, TimeRange } from '@/lib/types';
 import { functionCodeTracesHref } from '@/lib/pivotHref';
 import {
   traceFunctionCodes, exactTraceOperation, pickTraceOperation, oracleOperationTitle,
-  exactOperationTitle, dictionaryOperationLabel, traceEntryCodes,
+  exactOperationTitle, dictionaryOperationHint, traceEntryCodes,
 } from '@/lib/oracleFunctionOps';
 
 // OracleOperationChip — v0.10.1003 (kuyruk: "operasyon adını trace sayfasında
@@ -39,20 +38,21 @@ export function OracleOperationChip({ spans, pageRange, oracleRows }: {
     [oracleRows, spans, q.data]);
   if (!pick) return null;
 
+  // v0.10.1514 (trace başlığı A) — her aday/kaynak TEK kimlik çipi (ui/IdentityChip):
+  // OPERASYON etiketi · ad (bağlantı) · ipucu · kopyala. Uzun "Operasyon (fonksiyon
+  // kodundan, N aday):" etiketi amber ipucu hücresine indi ("tahmin · N aday");
+  // kaynak metni (kesin/tahmin, adaylar) kökün ve bağlantının ipucunda aynen kalır.
   if (pick.source === 'dictionary') {
     return (
       <>
         {pick.candidates.map(o => {
           const title = oracleOperationTitle(o);
           return (
-            <span key={o.code} className="cell-hint" title={title} data-op-source="dictionary">
-              {dictionaryOperationLabel(o)}{' '}
-              <Link className="sec mono op-chip" aria-label={`${o.operation} — ${title}`}
-                to={functionCodeTracesHref({ window: pageRange, attrKey: o.key, codes: [o.code] })}>
-                {o.operation}
-              </Link>
-              <CopyButton value={o.operation} title="Operasyon adını kopyala" />
-            </span>
+            <IdentityChip key={o.code} label="OPERASYON" value={o.operation} title={title} data-op-source="dictionary"
+              to={functionCodeTracesHref({ window: pageRange, attrKey: o.key, codes: [o.code] })}
+              valueLabel={`${o.operation} — ${title}`}
+              hint={dictionaryOperationHint(o)} hintTone="warn" hintTitle={title}
+              copyTitle="Operasyon adını kopyala" />
           );
         })}
       </>
@@ -60,55 +60,45 @@ export function OracleOperationChip({ spans, pageRange, oracleRows }: {
   }
 
   // Kesin kaynak: tek çip. Link hedefi değişmedi — trace'in (ilk) fonksiyon
-  // kodunun diğer trace'leri; trace kod taşımıyorsa ad düz metin.
+  // kodunun diğer trace'leri; trace kod taşımıyorsa ad düz metin. "+N" = bu
+  // trace'teki diğer operasyonlar (nötr ipucu hücresi; adlar kök ipucunda).
+  // v0.10.1418 (operatör: "Operasyon adı kopyalanabilir olsun") — kopyala hücresi.
   const title = exactOperationTitle(pick);
   const fc = codes[0];
   return (
-    <span className="cell-hint" title={fc ? `${title} Tıkla: bu fonksiyon kodunun diğer trace'leri.` : title} data-op-source={pick.source}>
-      Operasyon:{' '}
-      {fc ? (
-        <Link className="sec mono op-chip" aria-label={`${pick.main} — ${title}`}
-          to={functionCodeTracesHref({ window: pageRange, attrKey: fc.key, codes: [fc.code] })}>
-          {pick.main}
-        </Link>
-      ) : (
-        <span className="mono">{pick.main}<span className="sr-only"> — {title}</span></span>
-      )}
-      {/* v0.10.1418 (operatör: "Operasyon adı kopyalanabilir olsun") — kopyala düğmesi;
-          link tıklaması aynı fonksiyon kodunun trace'lerine gitmeye devam eder. */}
-      <CopyButton value={pick.main} title="Operasyon adını kopyala" />
-      {pick.others.length > 0 ? ` (+${pick.others.length})` : ''}
-    </span>
+    <IdentityChip label="OPERASYON" value={pick.main} data-op-source={pick.source}
+      title={fc ? `${title} Tıkla: bu fonksiyon kodunun diğer trace'leri.` : title}
+      to={fc ? functionCodeTracesHref({ window: pageRange, attrKey: fc.key, codes: [fc.code] }) : undefined}
+      valueLabel={fc ? `${pick.main} — ${title}` : undefined}
+      srNote={fc ? undefined : title}
+      hint={pick.others.length > 0 ? `+${pick.others.length}` : undefined}
+      hintTitle={pick.others.length > 0 ? `Bu trace'teki diğer operasyonlar: ${pick.others.join(', ')}` : undefined}
+      copyTitle="Operasyon adını kopyala" />
   );
 }
 
 // TraceEntryCodes — v0.10.1497 (operatör: "function code / channel code
 // bilgilerini yukarıda operasyonun yanında yazabiliriz"). Kök → giriş →
-// herhangi span'deki İLK fonksiyon ve kanal kodu; etiket span'deki anahtar
-// yazımıdır (uydurma ad yok). Fonksiyon kodu tıklanınca aynı kodun diğer
-// trace'leri (operasyon çipiyle aynı hedef); ikisi de kopyalanabilir.
+// herhangi span'deki İLK fonksiyon ve kanal kodu. Fonksiyon kodu tıklanınca
+// aynı kodun diğer trace'leri (operasyon çipiyle aynı hedef); ikisi de
+// kopyalanabilir. v0.10.1514 — ikisi de kimlik çipi (CHANNEL artık düz metin
+// değil); etiket FUNCTION / CHANNEL, span'deki anahtar yazımı (uydurma ad yok)
+// çipin ipucunda: "FUNCTION_CODE: SPE0112".
 export function TraceEntryCodes({ spans, pageRange }: { spans: SpanRow[]; pageRange: TimeRange }) {
   const { functionCode: fc, channelCode: cc } = useMemo(() => traceEntryCodes(spans), [spans]);
   if (!fc && !cc) return null;
   return (
-    <span className="cell-hint" data-trace-codes="">
+    <>
       {fc && (
-        <>
-          {fc.key}:{' '}
-          <Link className="sec mono op-chip" title="Bu fonksiyon kodunun diğer trace'leri"
-            to={functionCodeTracesHref({ window: pageRange, attrKey: fc.key, codes: [fc.code] })}>
-            {fc.code}
-          </Link>
-          <CopyButton value={fc.code} title="Fonksiyon kodunu kopyala" />
-        </>
+        <IdentityChip label="FUNCTION" value={fc.code} data-trace-codes="function" title={`${fc.key}: ${fc.code}`}
+          to={functionCodeTracesHref({ window: pageRange, attrKey: fc.key, codes: [fc.code] })}
+          valueTitle="Bu fonksiyon kodunun diğer trace'leri"
+          copyTitle="Fonksiyon kodunu kopyala" />
       )}
-      {fc && cc && ' · '}
       {cc && (
-        <>
-          {cc.key}: <span className="mono">{cc.code}</span>
-          <CopyButton value={cc.code} title="Kanal kodunu kopyala" />
-        </>
+        <IdentityChip label="CHANNEL" value={cc.code} data-trace-codes="channel" title={`${cc.key}: ${cc.code}`}
+          copyTitle="Kanal kodunu kopyala" />
       )}
-    </span>
+    </>
   );
 }

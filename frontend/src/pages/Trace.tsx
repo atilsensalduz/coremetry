@@ -45,6 +45,7 @@ import { TraceWaterfall, TraceServiceBreakdown } from '@/components/TraceWaterfa
 import { SpanDetail } from '@/components/SpanDetail';
 import { TraceHonesty } from '@/components/traces/TraceHonesty';
 import { OracleOperationChip, TraceEntryCodes } from '@/components/traces/OracleOperationChip';
+import { TraceMeasures } from '@/components/traces/TraceMeasures'; // v0.10.1514
 import { traceFunctionCodes } from '@/lib/oracleFunctionOps';
 // v0.8.550 — this file used to OWN the strongest of the three hand-rolled
 // clipboard copies (it alone fell back when writeText rejected). That
@@ -472,17 +473,9 @@ function TraceDetailInner() {
   const traceActions = spans && spans.length > 0 ? (
 
               <>
-                {/* Critical path summary — zincirin span sayısı + kök
-                    span'in duvar süresi. v0.10.944 — eski "toplam"
-                    (zincirdeki sürelerin TOPLAMI) kaldırıldı: halkalar iç
-                    içe, çocuk ebeveyninin süresinin içinde; toplamak aynı
-                    duvar saatini iki kez sayıyordu (lib/criticalPath.ts). */}
-                {criticalPath && criticalPath.spanCount > 0 && (
-                  <span style={{ fontSize: 11, color: 'var(--text2)', marginRight: 4, whiteSpace: 'nowrap' }}
-                    title={`Kritik yol: kökten yaprağa ${criticalPath.spanCount} span; kök span duvar süresi ${fmtNs(criticalPath.rootWallNs)}. İç içe span süreleri toplanmaz. Odaklamak için alttaki "Critical path focus" düğmesi.`}>
-                    Critical path · {criticalPath.spanCount} span{criticalPath.spanCount === 1 ? '' : 's'} · root {fmtNs(criticalPath.rootWallNs)}
-                  </span>
-                )}
+                {/* v0.10.1514 (trace başlığı A) — kritik yol özeti gri alandan
+                    başlığın ölçü kümesine (KRİTİK YOL, TraceMeasures) taşındı;
+                    ipucu metni aynen orada. */}
                 {/* Compare button — bumped to primary-accent in
                     v0.4.96 because the secondary-style version
                     blended into the action chip row and
@@ -555,55 +548,99 @@ function TraceDetailInner() {
             olmayan yeni sekmede de çalışır. Altında özet şeridi: servis
             rozeti, durum (+hatalı span sayısı), span · servis sayısı, süre,
             başlangıç, id — Dynatrace trace başlığı düzeni. */}
-        <div className="crumbs-row">
-          <nav className="crumbs" aria-label="Breadcrumb">
-            <Link to={traceBackHref(location.state)}>Traces</Link>
-            <span className="crumbs__sep" aria-hidden="true">›</span>
-            <span className="crumbs__cur" title={root ? displaySpanName(root) : id}>{root ? displaySpanName(root) : 'Trace'}</span>
-          </nav>
-          {traceActions && <span className="crumbs-actions">{traceActions}</span>}
-        </div>
-        <div className="trace-summary">
-          {root && <SvcBadge name={root.serviceName} />}
-          <code style={{ fontSize: 11, color: 'var(--text2)', background: 'var(--bg2)', padding: '2px 6px', borderRadius: 4 }}>
-            {id}<CopyButton value={id} title="Copy trace ID" />
-          </code>
+        {/* v0.10.1514 (trace başlığı A, operatör onayı "A iyi" 2026-10-24) — Compare /
+            Logs / Metrics / Share / Export / Kiosk gri alanda AYNEN kalır (yalnız
+            breadcrumb başlık kartına girdi). */}
+        {traceActions && (
+          <div className="crumbs-row trace-hdr__actions">
+            <span className="crumbs-actions">{traceActions}</span>
+          </div>
+        )}
+        {/* Başlık kartı. Satır 1: solda breadcrumb · operasyon/rota başlığı (mono,
+            ellipsis + title) · servis rozeti, trace id + kopyala, durum; sağda ölçü
+            kümesi (TraceMeasures; ≤1280px'te başlığın altına iner). Satır 2 (ince
+            çizgi): kimlik çipleri (OPERASYON / FUNCTION / CHANNEL — ui/IdentityChip)
+            solda; operasyon kartı çipi + birincil "CoSRE'ye sor" sağda. */}
+        <section className="trace-summary trace-hdr" aria-label={tr('trace.hdr.summary')}>
+          <div className="trace-hdr__row1">
+            <div className="trace-hdr__ident">
+              {/* v0.10.219 (D4) — "← Back" yerine breadcrumb; liste halkası satırın
+                  Link state'iyle gelen liste URL'sini korur. */}
+              <nav className="crumbs trace-hdr__crumbs" aria-label="Breadcrumb">
+                <Link to={traceBackHref(location.state)}>Traces</Link>
+                <span className="crumbs__sep" aria-hidden="true">›</span>
+                <span className="crumbs__cur">trace</span>
+              </nav>
+              <h2 className="trace-hdr__title" title={root ? displaySpanName(root) : id}>{root ? displaySpanName(root) : 'Trace'}</h2>
+              <div className="trace-hdr__meta">
+                {root && <SvcBadge name={root.serviceName} />}
+                <code className="trace-hdr__id">{id}</code>
+                <CopyButton value={id} title="Copy trace ID" />
+                {spans && spans.length > 0 && (
+                  <>
+                    {/* v0.10.922 (sade palet adım 1) — K5: sağlıklı trace NÖTR; yeşil
+                        "OK" rozeti kalktı, görsel sinyal yalnız sapmada (ERROR). Kelime
+                        ekran okuyucuya kalır (sr-only) — bilgi renge/yokluğa bırakılmaz. */}
+                    {hasErr
+                      ? <span className="badge b-err">ERROR</span>
+                      : <span className="sr-only">OK</span>}
+                    {errSpans > 0 && <span className="cell-hint">{errSpans} error span{errSpans === 1 ? '' : 's'}</span>}
+                  </>
+                )}
+              </div>
+            </div>
+            {/* v0.10.678 / v0.10.1347 — süre şeridin okunan sayısı, ölçüler sağa dayalı;
+                v0.10.1514 — büyük mono sayılar, kritik yol (kök duvar süresi) dahil. */}
+            {spans && spans.length > 0 && (
+              <TraceMeasures totalNs={totalNs}
+                criticalNs={criticalPath && criticalPath.spanCount > 0 ? criticalPath.rootWallNs : null}
+                criticalSpans={criticalPath?.spanCount ?? 0}
+                spanCount={spans.length} svcCount={svcCount} startNs={root?.startTime} />
+            )}
+          </div>
           {spans && spans.length > 0 && (
-            <>
-              {/* v0.10.922 (sade palet adım 1) — K5: sağlıklı trace NÖTR; yeşil
-                  "OK" rozeti kalktı, görsel sinyal yalnız sapmada (ERROR). Kelime
-                  ekran okuyucuya kalır (sr-only) — bilgi renge/yokluğa bırakılmaz. */}
-              {hasErr
-                ? <span className="badge b-err">ERROR</span>
-                : <span className="sr-only">OK</span>}
-              {errSpans > 0 && <span className="cell-hint">{errSpans} error span{errSpans === 1 ? '' : 's'}</span>}
-              {/* v0.10.678 (operatör: "trace'in toplam süresini daha net görebilsek") —
-                  süre gri sayım satırından ayrıldı; tarih gibi (v0.10.347) şeridin
-                  okunan sayısı. totalNs = ilk span başlangıcı → son span bitişi. */}
-              {/* v0.10.1347 (operatör: "Üstteki ms cinsinden süre ve tarih sağa
-                  dayalı olabilir") — kimlik/durum solda; ölçüler (süre · sayılar ·
-                  başlangıç) sağa dayalı küme. ≤640px'te sol kümenin altına iner. */}
-              <span className="trace-summary__measures">
-                <span className="trace-summary__dur" title="Trace toplam süresi: ilk span başlangıcından son span bitişine">⏱ {fmtNs(totalNs)}</span>
-                <span className="trace-summary__counts">{spans.length} spans · {svcCount} service{svcCount === 1 ? '' : 's'}</span>
-                {/* v0.10.347 (operatör: "en üstteki tarih daha belirgin olabilir") —
-                    trace zamanı ikincil gri yazı değil, şeridin okunan sayısı. */}
-                {root && <span className="trace-summary__start" title="Trace başlangıcı (kök span)">{tsLong(root.startTime)}</span>}
-              </span>
-              {/* v0.10.1003 — Oracle operasyon adı. v0.10.1329: önce bu trace'in kendi
+            <div className="trace-hdr__row2">
+              {/* v0.10.1003 / v0.10.1329 — Oracle operasyon adı: önce bu trace'in kendi
                   Oracle satırları / span attribute'u (kesin), yoksa FUNCTION_CODE
-                  sözlüğü etiketli yedek; hiçbiri yoksa hiçbir şey çizilmez.
-                  v0.10.1347: kendi tam genişlik satırında (boşsa :empty gizler). */}
-              <div className="trace-summary__ops">
+                  sözlüğü etiketli yedek; hiçbiri yoksa hiçbir şey çizilmez (:empty
+                  gizler). v0.10.1497 — fonksiyon/kanal kodu çipleri yanında. */}
+              <div className="trace-summary__ops" role="list" aria-label={tr('trace.hdr.identity')}>
                 <OracleOperationChip spans={spans} pageRange={range} oracleRows={chipOracleRows} />
                 <TraceEntryCodes spans={spans} pageRange={range} />{/* v0.10.1497 */}
               </div>
-              {/* v0.10.354 (operatör) — Compare / Logs / Share / Export JSON ve kritik
-                  yol özeti beyaz şeritten çıktı: Topbar'daki gri alana (actions). */}
-
-            </>
+              <div className="trace-hdr__ask">
+                {/* v0.10.1491 — operasyon kartı çipi: kök span'in rotası (yoksa
+                    span adı, entry=rpc) → /endpoint#opcard, trace başlangıcı ±30 dk
+                    penceresiyle. Sohbet değil, sayfa; istemci/üretici kökte yok. */}
+                {/* v0.10.1503 — çip seçilen servisi yazar; gateway atlandıysa ipucu
+                    bunu söyler ve ikincil "gateway: <op>" bağlantısı gateway'in kartına gider. */}
+                {opCardRef && opCardPick && root && (
+                  <Link className="chip" data-testid="trace-opcard-chip"
+                    to={operationCardHref(opCardRef, { range: windowRangeParam({ fromNs: root.startTime - 18e11, toNs: root.startTime + 18e11 }) })}
+                    title={opCardPick.gateway
+                      ? tr('endpoint.opcard.chipInnerHint').replace('{svc}', opCardPick.service).replace('{gw}', opCardPick.gateway.service)
+                      : tr('endpoint.opcard.chipHint')}>
+                    <span className="k">⇄</span><b>{tr('endpoint.opcard.chip')}</b>
+                    <span data-testid="trace-opcard-svc"> · {opCardPick.service}</span>
+                  </Link>
+                )}
+                {opCardPick?.gateway && root && (
+                  <Link className="chip" data-testid="trace-opcard-gateway"
+                    to={operationCardHref(opCardPick.gateway, { range: windowRangeParam({ fromNs: root.startTime - 18e11, toNs: root.startTime + 18e11 }) })}
+                    title={tr('endpoint.opcard.gatewayHint').replace('{gw}', opCardPick.gateway.service)}>
+                    {tr('endpoint.opcard.gatewayChip').replace('{op}', opCardPick.gateway.path)}
+                  </Link>
+                )}
+                {/* v0.9.477 — tek sağ-kenar AI çekmecesi (?ai=trace:<id>). v0.9.1166 —
+                    sayfanın TEK ana eylemi (dolu aksan). v0.10.944 — görünen ad
+                    "CoSRE'ye sor" / "Ask CoSRE" (i18n); ipucu title'da. */}
+                <AIExplainButton subject={{ kind: 'trace', id }} emphasis="strong"
+                  title={tr('ai.askCosreTraceHint')}
+                  label={<><IconSparkles /> <span className="trace-hdr__ask-label">{tr('ai.askCosre')}</span></>} />
+              </div>
+            </div>
           )}
-        </div>
+        </section>
 
         {spans === undefined && <Spinner />}
         {spans === null && <Empty icon="⚠" title="Failed to load trace" />}
@@ -682,54 +719,14 @@ function TraceDetailInner() {
                 pivotu span detayındaki k8s attribute linklerinde (v0.10.150,
                 SpanDetail k8sAttrHref + SpanK8sSection) — kapı:
                 pages/traceNoPodsStrip.test.ts. */}
-            <div style={{ marginBottom: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {/* v0.9.477 — satır-içi panel yerine tek sağ-kenar AI
-                  çekmecesi (?ai=trace:<id>); kanıt span'leri window
-                  köprüsüyle gelip waterfall'ı kutulamaya devam ediyor. */}
-              {/* v0.9.1166 (operatör) — sayfanın TEK ana eylemi: dolu
-                  aksan + md. Yanındaki "Compare with…" ikincil kalır, yani
-                  K4 (grup başına tek birincil) korunur; compare formu
-                  açıldığında kendi `Compare` submit'i alt SATIRA sarılır
-                  (width:100%), form-içi birincil ayrı bir gruptur. */}
-              {/* v0.10.944 (operatör) — görünen ad "CoSRE'ye sor" / "Ask CoSRE"
-                  (i18n); erişilebilir ad metinden gelir (ikon aria-hidden),
-                  ipucu title'da. Davranış aynı: ?ai=trace:<id>. */}
-              <AIExplainButton subject={{ kind: 'trace', id }} emphasis="strong"
-                title={tr('ai.askCosreTraceHint')}
-                label={<><IconSparkles /> <span style={{ marginLeft: 6 }}>{tr('ai.askCosre')}</span></>} />
-              {/* v0.10.1491 — operasyon kartı çipi: kök span'in rotası (yoksa
-                  span adı, entry=rpc) → /endpoint#opcard, trace başlangıcı ±30 dk
-                  penceresiyle. Sohbet değil, sayfa; istemci/üretici kökte yok. */}
-              {/* v0.10.1503 — çip seçilen servisi yazar; gateway atlandıysa ipucu
-                  bunu söyler ve ikincil "gateway: <op>" bağlantısı gateway'in kartına gider. */}
-              {opCardRef && opCardPick && root && (
-                <Link className="chip" data-testid="trace-opcard-chip"
-                  to={operationCardHref(opCardRef, { range: windowRangeParam({ fromNs: root.startTime - 18e11, toNs: root.startTime + 18e11 }) })}
-                  title={opCardPick.gateway
-                    ? tr('endpoint.opcard.chipInnerHint').replace('{svc}', opCardPick.service).replace('{gw}', opCardPick.gateway.service)
-                    : tr('endpoint.opcard.chipHint')}>
-                  <span className="k">⇄</span><b>{tr('endpoint.opcard.chip')}</b>
-                  <span data-testid="trace-opcard-svc"> · {opCardPick.service}</span>
-                </Link>
-              )}
-              {opCardPick?.gateway && root && (
-                <Link className="chip" data-testid="trace-opcard-gateway"
-                  to={operationCardHref(opCardPick.gateway, { range: windowRangeParam({ fromNs: root.startTime - 18e11, toNs: root.startTime + 18e11 }) })}
-                  title={tr('endpoint.opcard.gatewayHint').replace('{gw}', opCardPick.gateway.service)}>
-                  {tr('endpoint.opcard.gatewayChip').replace('{op}', opCardPick.gateway.path)}
-                </Link>
-              )}
-              {/* v0.10.347 (operatör) — alt "Compare with…" (AI karşılaştırma formu)
-                  KALDIRILDI: üst şeritteki "↔ Compare trace" zaten var, ikisi aynı
-                  soruyu iki yerde soruyordu. */}
-              {/* v0.10.345 — dış link düğmeleri (Settings → Dış linkler): şablon
-                  trace'in span attribute'larından çözülürse etkin, değilse eksikleri
-                  söyleyen pasif düğme. Yeni sekmede açılır. */}
-              {/* v0.10.346 (operatör) — dış linkler satırın EN SAĞINDA; renk ayardan
-                  (aracın marka rengi), yazı --on-accent. */}
-              <span style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <ExternalLinkButtons spans={spans ?? []} traceId={id} selectedSpanId={selectedId} />
-              </span>
+            {/* v0.10.345 — dış link düğmeleri (Settings → Dış linkler): şablon
+                trace'in span attribute'larından çözülürse etkin, değilse eksikleri
+                söyleyen pasif düğme. Yeni sekmede açılır. v0.10.346 — satırın EN
+                SAĞINDA; renk ayardan (aracın marka rengi), yazı --on-accent.
+                v0.10.1514 — "CoSRE'ye sor" ve operasyon kartı çipi başlık kartının
+                ikinci satırına taşındı; burada yalnız dış linkler (boşsa :empty gizler). */}
+            <div className="trace-extlinks">
+              <ExternalLinkButtons spans={spans ?? []} traceId={id} selectedSpanId={selectedId} />
             </div>
 
             {/* Trace vs Logs (Uptrace-style) — uses the shared
