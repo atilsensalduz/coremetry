@@ -5,8 +5,9 @@ import { fmtNs, tsLong } from '@/lib/utils';
 // Başlığın satır 1 sağındaki ölçü kümesi: SÜRE (ilk span başlangıcı → son
 // span bitişi) · KRİTİK YOL (kök span duvar süresi; lib/criticalPath — iç içe
 // süreler TOPLANMAZ) · SPAN (+ servis sayısı) · BAŞLANGIÇ. Hepsi sayfanın
-// zaten elindeki span listesinden türer; ek istek yok. Büyük mono sayı +
-// küçük birim, üstte küçük harfli etiket (<dl>: dt/dd çiftleri).
+// zaten elindeki span listesinden türer; ek istek yok. Mono sayı + ince
+// birim, üstte küçük harfli etiket (<dl>: dt/dd çiftleri). v0.10.1526 —
+// sayılar, BAŞLANGIÇ ve başlık TEK boyda (--fs-md; globals.css trace-hdr).
 // ≤1280px'te başlığın altına iner, sola dayanır (globals.css trace-hdr bloğu).
 
 /** "24.97ms" → ["24.97", "ms"]; sayı+birim biçiminde değilse birim boş. */
@@ -51,7 +52,7 @@ export function TraceMeasures({ totalNs, criticalNs, criticalSpans, spanCount, s
       </div>
       <div className="trace-measures__item">
         <dt>{tr('trace.hdr.start')}</dt>
-        <dd className="trace-measures__start" title="Trace başlangıcı (kök span)">{startNs ? tsLong(startNs) : '—'}</dd>
+        <dd title="Trace başlangıcı (kök span)">{startNs ? tsLong(startNs) : '—'}</dd>
       </div>
     </dl>
   );

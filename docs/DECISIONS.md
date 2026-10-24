@@ -11696,3 +11696,35 @@ ilk ≤ 6 sa pencerelerde 5m görünür. Trace yükü DB span'i başına ≤ 3 k
 **Geri alma.** `git revert <sha>` + yeni etiket. MV'yi kaldırmak için ek olarak (küme kipinde inner önce):
 `DROP TABLE IF EXISTS db_statement_summary_1m [ON CLUSTER …] SETTINGS max_table_size_to_drop=0` (+ `_local`); okuyucu tablo
 yokken zaten 5m'e düşer, yani revert'siz drop da güvenli.
+
+## 2026-10-24 — v0.10.1526 — Trace başlığı v3: servis + başlık yan yana, tek yazı boyu, trace id/durum kimlik satırında; gateway seçicisi DB/MQ'yu kendi iş sayar
+
+**Bağlam.** Operatör (prod ekran görüntüsü, v0.10.1522 sıkı başlık): "Service ismi POST yan yana olsun. Üstteki POST yazısı ve
+start time yazı büyüklükleri aynı değil; hepsi start time kadar olsa (biraz küçül) daha iyi olur. Traceid ve error status,
+channel/operation ile aynı hizada sağda olabilir." Aynı ekranda operasyon kartı çipi, kendi DB (SELECT/INSERT/UPDATE) ve MQ
+üretici span'leri olan bir kökü gateway sayıp tek HTTP çağrısı yaptığı OTP servisine gidiyordu.
+
+**Karar 1 — yerleşim.** Satır 1: breadcrumb, altında `.trace-hdr__headline` = servis rozeti (`.trace-hdr__svc`, ≤ %40, ellipsis)
++ başlık TEK satırda (`flex-wrap: nowrap`; başlık ellipsis + tam ad title'da); sağda ölçüler. `.trace-hdr__meta` kalktı.
+Satır 2'nin ilk satırı `.trace-hdr__idrow`: solda OPERASYON/FUNCTION/CHANNEL çipleri (esner, sarar), SAĞDA `.trace-hdr__trace`
+(`role="group"`, `data-testid="trace-hdr-traceid"`, margin-left:auto): trace id · kopyala · ERROR (sağlıklıda sr-only OK) ·
+"N error span". Trace id span yüklenmeden de görünür (eskiden de başlıktaydı). Eylem satırı (CoSRE solda, dış linkler sağda)
+aynen. ≤1280px ölçüler başlığın altına; ≤640px trace id grubu çiplerin altına, sola iner; yana kayma yok. Kiosk/public trace
+dokunulmadı.
+
+**Karar 2 — tek yazı boyu.** Başlık, ölçü sayıları ve BAŞLANGIÇ değeri `--fs-md` (13 px; önceden başlık 14, sayılar 18,
+BAŞLANGIÇ 12). Birim sayının boyunda ama ince/gri (`font-size: inherit`); etiketler `--fs-3xs` küçük harf kaldı.
+`.trace-measures__start` sınıfı kalktı (ayrı boy yok). Operatörün "start time kadar" ifadesi 12 px'i işaret ediyordu; 13 px,
+"biraz küçül" (başlık 14 → 13, sayılar 18 → 13) ile başlığın okunurluğu arasındaki uzlaşma. Daha küçük istenirse tek token.
+
+**Karar 3 — gateway seçicisi (traceOpCardPick.ts).** Kökün bu giriş altındaki kendi span'lerinden biri DB istemci span'i
+(`dbSystem` kolonu, `db.system` ya da `db.system.name` özniteliği) veya mesajlaşma span'i (`kind=producer` ya da
+`messaging.system`) ise servis saf yönlendirici DEĞİL: yapısal ve ad yolları kökü bırakır. Gateway = giriş + TEK alt servise
+HTTP/gRPC istemci span'leri + DB/MQ yok + öz süre ≤ %25 (ad eşleşirse ≤ %50 ve iç ara katman span'i serbest — ama DB/MQ yine
+yasak). Yalnız yapılandırılmış liste (`gatewayServices`, bugün ayarı yok) bunu geçersiz kılar. Bilinçli davranış değişikliği:
+v0.10.1503'teki "HTTP giriş → producer → consumer" vakası artık kökte kalır (MQ'ya yazmak iş mantığı). DB/MQ'su olmayan tek
+çağrılı BFF hâlâ yönlendirici sayılır (operatör: kabul).
+
+**Geri alma.** `git revert <sha>` + yeni etiket. Yalnız seçiciyi geri almak: `gatewayHop` içindeki
+`if (rest.some(isOwnWorkSpan)) return null;` satırı ve `isForward`'ın eski `client || producer` tanımı; tablo testleri
+(`traceOpCardPick.test.ts`) ilgili vakaları işaretler.

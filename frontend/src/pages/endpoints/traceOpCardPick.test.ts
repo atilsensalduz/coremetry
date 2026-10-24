@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pickTraceOpCard, entrySelfFraction, GATEWAY_NAME_RE, type OpCardPickSpan, type OpCardPick } from './traceOpCardPick';
+import { pickTraceOpCard, entrySelfFraction, isOwnWorkSpan, GATEWAY_NAME_RE, type OpCardPickSpan, type OpCardPick } from './traceOpCardPick';
 
 // v0.10.1503 — Trace operasyon kartı çipi: gateway kökü → ilk iç servis.
 const ms = 1e6;
@@ -56,14 +56,85 @@ describe('pickTraceOpCard', () => {
       want: { ref: { service: 'api-gateway', path: '/x' }, service: 'api-gateway', via: 'root' },
     },
     {
-      name: 'tüketici girişi: proxy üretici → consumer (span adı, entry=rpc)',
+      // v0.10.1526 — üretici span'i servisin KENDİ işi (MQ'ya yazmak iş mantığı):
+      // eskiden (v0.10.1503) proxy sayılıp tüketiciye gidiyordu.
+      name: 'üretici span\'i kendi iş: HTTP giriş → producer → consumer → kök kalır',
       spans: [
         sp({ spanId: 'r', serviceName: 'ingest-svc', kind: 'server', httpRoute: '/events', start: 0, end: 10 }),
         sp({ spanId: 'p', parentSpanId: 'r', serviceName: 'ingest-svc', kind: 'producer', name: 'order-events publish', start: 1, end: 9 }),
         sp({ spanId: 'k', parentSpanId: 'p', serviceName: 'billing-worker', kind: 'consumer', name: 'order-events process', start: 5, end: 50 }),
       ],
-      want: { ref: { service: 'billing-worker', path: 'order-events process', entry: 'rpc' }, service: 'billing-worker', via: 'structure',
-        gateway: { service: 'ingest-svc', path: '/events' } },
+      want: { ref: { service: 'ingest-svc', path: '/events' }, service: 'ingest-svc', via: 'root' },
+    },
+    {
+      name: 'gRPC yönlendirici → tek alt servis (span adı, entry=rpc)',
+      spans: [
+        sp({ spanId: 'r', serviceName: 'edge-svc', kind: 'server', httpRoute: '/pay', start: 0, end: 100 }),
+        sp({ spanId: 'c', parentSpanId: 'r', serviceName: 'edge-svc', kind: 'client', name: 'payments.Charge', attributes: { 'rpc.system': 'grpc' }, start: 1, end: 99 }),
+        sp({ spanId: 'i', parentSpanId: 'c', serviceName: 'payments-api', kind: 'server', name: 'payments.Charge', start: 2, end: 98 }),
+      ],
+      want: { ref: { service: 'payments-api', path: 'payments.Charge', entry: 'rpc' }, service: 'payments-api', via: 'structure',
+        gateway: { service: 'edge-svc', path: '/pay' } },
+    },
+    {
+      // v0.10.1526 — prod şekli (operatör 2026-10-24): kök kendi tablolarına
+      // SELECT/INSERT/UPDATE + MQ'ya üretici, ARTI tek HTTP istemci çağrısı
+      // (OTP servisine). Öz süre düşük ve tek alt servis — ama kendi işi var.
+      name: 'kök: DB (SELECT/INSERT/UPDATE) + MQ üretici + tek HTTP istemci → kök kalır',
+      spans: [
+        sp({ spanId: 'r', serviceName: 'atm-core', kind: 'server', name: 'POST /atm/core/inquiry', httpRoute: '/atm/core/inquiry', start: 0, end: 100 }),
+        sp({ spanId: 'd1', parentSpanId: 'r', serviceName: 'atm-core', kind: 'client', name: 'SELECT accounts', dbSystem: 'oracle', start: 1, end: 20 }),
+        sp({ spanId: 'd2', parentSpanId: 'r', serviceName: 'atm-core', kind: 'client', name: 'INSERT audit', dbSystem: 'oracle', start: 20, end: 30 }),
+        sp({ spanId: 'd3', parentSpanId: 'r', serviceName: 'atm-core', kind: 'client', name: 'UPDATE limits', attributes: { 'db.system': 'oracle' }, start: 30, end: 40 }),
+        sp({ spanId: 'm1', parentSpanId: 'r', serviceName: 'atm-core', kind: 'producer', name: 'ATM.EVENTS send', attributes: { 'messaging.system': 'ibmmq' }, start: 40, end: 45 }),
+        sp({ spanId: 'h', parentSpanId: 'r', serviceName: 'atm-core', kind: 'client', name: 'POST', start: 45, end: 99 }),
+        sp({ spanId: 'o', parentSpanId: 'h', serviceName: 'otp-api', kind: 'server', httpRoute: '/otp/send', start: 46, end: 98 }),
+      ],
+      want: { ref: { service: 'atm-core', path: '/atm/core/inquiry' }, service: 'atm-core', via: 'root' },
+    },
+    {
+      name: 'kök: yalnız DB span\'i (db.system.name, alt span altında) + tek HTTP istemci → kök kalır',
+      spans: [
+        sp({ spanId: 'r', serviceName: 'edge-svc', kind: 'server', httpRoute: '/x', start: 0, end: 100 }),
+        sp({ spanId: 'c', parentSpanId: 'r', serviceName: 'edge-svc', kind: 'client', start: 1, end: 99 }),
+        sp({ spanId: 'd', parentSpanId: 'c', serviceName: 'edge-svc', kind: 'client', name: 'SELECT', attributes: { 'db.system.name': 'postgresql' }, start: 2, end: 3 }),
+        sp({ spanId: 'i', parentSpanId: 'c', serviceName: 'orders-api', kind: 'server', httpRoute: '/orders', start: 4, end: 98 }),
+      ],
+      want: { ref: { service: 'edge-svc', path: '/x' }, service: 'edge-svc', via: 'root' },
+    },
+    {
+      name: 'kök: messaging.system istemci span\'i (Kafka send kind=client) + tek HTTP istemci → kök kalır',
+      spans: [
+        sp({ spanId: 'r', serviceName: 'edge-svc', kind: 'server', httpRoute: '/x', start: 0, end: 100 }),
+        sp({ spanId: 'k', parentSpanId: 'r', serviceName: 'edge-svc', kind: 'client', name: 'orders send', attributes: { 'messaging.system': 'kafka' }, start: 1, end: 2 }),
+        sp({ spanId: 'c', parentSpanId: 'r', serviceName: 'edge-svc', kind: 'client', start: 2, end: 99 }),
+        sp({ spanId: 'i', parentSpanId: 'c', serviceName: 'orders-api', kind: 'server', httpRoute: '/orders', start: 3, end: 98 }),
+      ],
+      want: { ref: { service: 'edge-svc', path: '/x' }, service: 'edge-svc', via: 'root' },
+    },
+    {
+      // Ad eşleşse de (gevşek yol) kendi DB işi olan servis gateway değil.
+      name: 'gateway adlı kök ama kendi DB span\'i var → kök kalır',
+      spans: [
+        sp({ spanId: 'r', serviceName: 'api-gateway', kind: 'server', httpRoute: '/x', start: 0, end: 100 }),
+        sp({ spanId: 'd', parentSpanId: 'r', serviceName: 'api-gateway', kind: 'client', name: 'SELECT tokens', dbSystem: 'redis', start: 0, end: 3 }),
+        sp({ spanId: 'c', parentSpanId: 'r', serviceName: 'api-gateway', kind: 'client', start: 3, end: 99 }),
+        sp({ spanId: 'i', parentSpanId: 'c', serviceName: 'orders-api', kind: 'server', httpRoute: '/orders', start: 4, end: 98 }),
+      ],
+      want: { ref: { service: 'api-gateway', path: '/x' }, service: 'api-gateway', via: 'root' },
+    },
+    {
+      // Saf BFF: yalnız tek HTTP istemci, DB/MQ yok, öz süre düşük → yönlendirici
+      // (operatör 2026-10-24: DB/MQ işi olmayan BFF yönlendirici sayılabilir).
+      name: 'BFF: yalnız tek HTTP istemci (DB/MQ yok) → alt servis (yönlendirici)',
+      spans: [
+        sp({ spanId: 'r', serviceName: 'mobile-bff', kind: 'server', httpRoute: '/qr/pay', start: 0, end: 100 }),
+        sp({ spanId: 'c', parentSpanId: 'r', serviceName: 'mobile-bff', kind: 'client', name: 'POST', start: 3, end: 97 }),
+        sp({ spanId: 'i', parentSpanId: 'c', serviceName: 'cards-switch', kind: 'server', httpRoute: '/switch/pay', start: 4, end: 96 }),
+        sp({ spanId: 'db', parentSpanId: 'i', serviceName: 'cards-switch', kind: 'client', name: 'SELECT', dbSystem: 'oracle', start: 10, end: 50 }),
+      ],
+      want: { ref: { service: 'cards-switch', path: '/switch/pay' }, service: 'cards-switch', via: 'structure',
+        gateway: { service: 'mobile-bff', path: '/qr/pay' } },
     },
     {
       name: 'ad sezgisi yalnız bağ bozucu: ara katman iç span + %40 öz süre, ad eşleşir → iç servis',
@@ -137,6 +208,16 @@ describe('pickTraceOpCard', () => {
       sp({ serviceName: 'a', kind: 'client', start: 90, end: 200 }),
     ])).toBeCloseTo(0.3);
     expect(entrySelfFraction(sp({ serviceName: 'a', kind: 'server', start: 5, end: 5 }), [])).toBe(0);
+  });
+  it('kendi iş sınıflandırıcısı: DB (kolon / db.system / db.system.name) ve mesajlaşma (producer / messaging.system)', () => {
+    const b = { serviceName: 'a', start: 0, end: 1 };
+    expect(isOwnWorkSpan(sp({ ...b, kind: 'client', dbSystem: 'oracle' }))).toBe(true);
+    expect(isOwnWorkSpan(sp({ ...b, kind: 'client', attributes: { 'db.system': 'mysql' } }))).toBe(true);
+    expect(isOwnWorkSpan(sp({ ...b, kind: 'client', attributes: { 'db.system.name': 'postgresql' } }))).toBe(true);
+    expect(isOwnWorkSpan(sp({ ...b, kind: 'PRODUCER' }))).toBe(true);
+    expect(isOwnWorkSpan(sp({ ...b, kind: 'client', attributes: { 'messaging.system': 'kafka' } }))).toBe(true);
+    expect(isOwnWorkSpan(sp({ ...b, kind: 'client', attributes: { 'http.request.method': 'POST' } }))).toBe(false);
+    expect(isOwnWorkSpan(sp({ ...b, kind: 'client', dbSystem: '  ' }))).toBe(false);
   });
   it('ad deseni listesi (zayıf sinyal)', () => {
     for (const s of ['api-gateway', 'apigw', 'nginx-ingress', 'envoy', 'kong', 'apisix', 'edge-proxy']) expect(GATEWAY_NAME_RE.test(s), s).toBe(true);

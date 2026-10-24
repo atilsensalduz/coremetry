@@ -556,10 +556,11 @@ function TraceDetailInner() {
             <span className="crumbs-actions">{traceActions}</span>
           </div>
         )}
-        {/* Başlık kartı. Satır 1: solda breadcrumb · operasyon/rota başlığı (mono,
-            ellipsis + title) · servis rozeti, trace id + kopyala, durum; sağda ölçü
-            kümesi (TraceMeasures; ≤1280px'te başlığın altına iner). Satır 2 (ince
-            çizgi): kimlik çipleri (OPERASYON / FUNCTION / CHANNEL — ui/IdentityChip).
+        {/* Başlık kartı. Satır 1: solda breadcrumb · servis rozeti + operasyon/rota
+            başlığı (mono, ellipsis + title, tek satır); sağda ölçü kümesi
+            (TraceMeasures; ≤1280px'te başlığın altına iner). Satır 2 (ince çizgi):
+            kimlik satırı — solda çipler (OPERASYON / FUNCTION / CHANNEL —
+            ui/IdentityChip), sağda trace id + kopyala + durum (v0.10.1526).
             v0.10.1522 (operatör, prod: "üstteki bar çok büyük… Ask CoSRE solda, Log
             İzleme sağda") — kart sıkıştı (başlık + meta tek satır, küçük ölçüler) ve
             kartın altındaki ayrı dış link satırı kalktı: TEK eylem satırı, solda
@@ -574,24 +575,12 @@ function TraceDetailInner() {
                 <span className="crumbs__sep" aria-hidden="true">›</span>
                 <span className="crumbs__cur">trace</span>
               </nav>
+              {/* v0.10.1526 (operatör, prod 2026-10-24: "Service ismi POST yan yana olsun")
+                  — servis rozeti başlığın SOLUNDA, aynı satırda (sarmaz; başlık ellipsis).
+                  Trace id + kopyala + durum kimlik satırının sağına taşındı. */}
               <div className="trace-hdr__headline">
+                {root && <span className="trace-hdr__svc"><SvcBadge name={root.serviceName} /></span>}
                 <h2 className="trace-hdr__title" title={root ? displaySpanName(root) : id}>{root ? displaySpanName(root) : 'Trace'}</h2>
-                <div className="trace-hdr__meta">
-                  {root && <SvcBadge name={root.serviceName} />}
-                  <code className="trace-hdr__id">{id}</code>
-                  <CopyButton value={id} title="Copy trace ID" />
-                  {spans && spans.length > 0 && (
-                    <>
-                      {/* v0.10.922 (sade palet adım 1) — K5: sağlıklı trace NÖTR; yeşil
-                          "OK" rozeti kalktı, görsel sinyal yalnız sapmada (ERROR). Kelime
-                          ekran okuyucuya kalır (sr-only) — bilgi renge/yokluğa bırakılmaz. */}
-                      {hasErr
-                        ? <span className="badge b-err">ERROR</span>
-                        : <span className="sr-only">OK</span>}
-                      {errSpans > 0 && <span className="cell-hint">{errSpans} error span{errSpans === 1 ? '' : 's'}</span>}
-                    </>
-                  )}
-                </div>
               </div>
             </div>
             {/* v0.10.678 / v0.10.1347 — süre şeridin okunan sayısı, ölçüler sağa dayalı;
@@ -603,16 +592,39 @@ function TraceDetailInner() {
                 spanCount={spans.length} svcCount={svcCount} startNs={root?.startTime} />
             )}
           </div>
-          {spans && spans.length > 0 && (
-            <div className="trace-hdr__row2">
+          <div className="trace-hdr__row2">
+            {/* v0.10.1526 — kimlik satırı: solda OPERASYON / FUNCTION / CHANNEL çipleri,
+                SAĞDA trace id + kopyala + ERROR rozeti + hatalı span sayısı (operatör:
+                "Traceid ve error status, channel/operation ile aynı hizada sağda").
+                Trace id span yüklenmeden de görünür; çipler ve durum yalnız span varken. */}
+            <div className="trace-hdr__idrow">
               {/* v0.10.1003 / v0.10.1329 — Oracle operasyon adı: önce bu trace'in kendi
                   Oracle satırları / span attribute'u (kesin), yoksa FUNCTION_CODE
                   sözlüğü etiketli yedek; hiçbiri yoksa hiçbir şey çizilmez (:empty
                   gizler). v0.10.1497 — fonksiyon/kanal kodu çipleri yanında. */}
-              <div className="trace-summary__ops" role="list" aria-label={tr('trace.hdr.identity')}>
-                <OracleOperationChip spans={spans} pageRange={range} oracleRows={chipOracleRows} />
-                <TraceEntryCodes spans={spans} pageRange={range} />{/* v0.10.1497 */}
+              {spans && spans.length > 0 && (
+                <div className="trace-summary__ops" role="list" aria-label={tr('trace.hdr.identity')}>
+                  <OracleOperationChip spans={spans} pageRange={range} oracleRows={chipOracleRows} />
+                  <TraceEntryCodes spans={spans} pageRange={range} />{/* v0.10.1497 */}
+                </div>
+              )}
+              <div className="trace-hdr__trace" role="group" data-testid="trace-hdr-traceid" aria-label={tr('trace.hdr.traceStatus')}>
+                <code className="trace-hdr__id">{id}</code>
+                <CopyButton value={id} title="Copy trace ID" />
+                {spans && spans.length > 0 && (
+                  <>
+                    {/* v0.10.922 (sade palet adım 1) — K5: sağlıklı trace NÖTR; yeşil
+                        "OK" rozeti kalktı, görsel sinyal yalnız sapmada (ERROR). Kelime
+                        ekran okuyucuya kalır (sr-only) — bilgi renge/yokluğa bırakılmaz. */}
+                    {hasErr
+                      ? <span className="badge b-err">ERROR</span>
+                      : <span className="sr-only">OK</span>}
+                    {errSpans > 0 && <span className="cell-hint">{errSpans} error span{errSpans === 1 ? '' : 's'}</span>}
+                  </>
+                )}
               </div>
+            </div>
+            {spans && spans.length > 0 && (
               <div className="trace-hdr__actrow" data-testid="trace-hdr-actions">
                 <div className="trace-hdr__ask">
                   {/* v0.9.477 — tek sağ-kenar AI çekmecesi (?ai=trace:<id>). v0.9.1166 —
@@ -655,8 +667,8 @@ function TraceDetailInner() {
                   <ExternalLinkButtons spans={spans ?? []} traceId={id} selectedSpanId={selectedId} />
                 </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </section>
 
         {spans === undefined && <Spinner />}

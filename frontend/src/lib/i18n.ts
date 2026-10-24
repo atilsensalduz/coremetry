@@ -475,6 +475,7 @@ const EN: Catalog = {
   // v0.10.1514 — trace başlığı (A): ölçü kümesi + kimlik satırı.
   'trace.hdr.summary':     'Trace summary',
   'trace.hdr.identity':    'Business identity',
+  'trace.hdr.traceStatus': 'Trace id and status',
   'trace.hdr.measures':    'Trace measures',
   'trace.hdr.duration':    'DURATION',
   'trace.hdr.critical':    'CRITICAL PATH',
@@ -1018,6 +1019,7 @@ const TR: Catalog = {
   // v0.10.1514 — trace başlığı (A): ölçü kümesi + kimlik satırı.
   'trace.hdr.summary':     'Trace özeti',
   'trace.hdr.identity':    'İş kimliği',
+  'trace.hdr.traceStatus': 'Trace kimliği ve durumu',
   'trace.hdr.measures':    'Trace ölçüleri',
   'trace.hdr.duration':    'SÜRE',
   'trace.hdr.critical':    'KRİTİK YOL',

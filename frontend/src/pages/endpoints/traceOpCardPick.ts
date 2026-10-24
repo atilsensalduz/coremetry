@@ -23,6 +23,15 @@ import { traceRootOpCardRef, type EndpointPivotRef, type OpCardSpanLike } from '
 // Normal servis (kendi mantığı olan BFF: birden çok alt servis, ya da
 // yüksek öz süre) → kök kalır.
 //
+// v0.10.1526 (operatör, prod 2026-10-24) — kendi DB span'leri (SELECT /
+// INSERT / UPDATE) ve MQ üretici span'leri olan bir kök + tek HTTP istemci
+// çağrısı gateway sayılıp çip alt servise gidiyordu. DB istemci span'i
+// (db.system dolu) ve mesajlaşma span'i (kind=producer ya da messaging.system
+// dolu) servisin KENDİ İŞİ: böyle bir span'i olan servis saf yönlendirici
+// DEĞİL — yapısal ve ad yolları kökü bırakır. Gateway = giriş + TEK alt
+// servise HTTP/gRPC istemci span'leri, DB/MQ yok, düşük öz süre. Yalnız
+// yapılandırılmış liste (1) bunu geçersiz kılar (operatörün açık beyanı).
+//
 // Zincir (ingress → api-gateway → servis) en çok MAX_HOPS adım yürünür.
 
 /** Seçicinin span'den okuduğu alanlar (SpanRow alt kümesi). */
@@ -31,6 +40,8 @@ export interface OpCardPickSpan extends OpCardSpanLike {
   parentSpanId: string;
   startTime: number; // unix ns
   endTime: number;   // unix ns
+  /** SpanRow.dbSystem — dolu ise DB istemci span'i (servisin kendi işi). */
+  dbSystem?: string;
 }
 
 export type OpCardPickVia = 'root' | 'config' | 'structure' | 'name';
@@ -55,7 +66,16 @@ const MAX_HOPS = 4;
 
 const kindOf = (s: OpCardPickSpan) => (s.kind || '').toLowerCase();
 const isEntry = (s: OpCardPickSpan) => { const k = kindOf(s); return k === 'server' || k === 'consumer'; };
-const isForward = (s: OpCardPickSpan) => { const k = kindOf(s); return k === 'client' || k === 'producer'; };
+const attr = (s: OpCardPickSpan, k: string) => (s.attributes?.[k] || '').trim();
+/** DB istemci span'i: db.system (kolon ya da öznitelik; semconv 1.26+ db.system.name). */
+export const isDbSpan = (s: OpCardPickSpan) =>
+  !!((s.dbSystem || '').trim() || attr(s, 'db.system') || attr(s, 'db.system.name'));
+/** Mesajlaşma span'i: üretici kind'ı ya da messaging.system (Kafka/MQ istemci olarak da yazılır). */
+export const isMessagingSpan = (s: OpCardPickSpan) => kindOf(s) === 'producer' || !!attr(s, 'messaging.system');
+/** Servisin KENDİ İŞİ sayılan span: DB ya da mesajlaşma. */
+export const isOwnWorkSpan = (s: OpCardPickSpan) => isDbSpan(s) || isMessagingSpan(s);
+/** Yönlendiren span: HTTP/gRPC istemci çağrısı (DB / MQ değil). */
+const isForward = (s: OpCardPickSpan) => kindOf(s) === 'client' && !isOwnWorkSpan(s);
 const byStart = (a: OpCardPickSpan, b: OpCardPickSpan) => a.startTime - b.startTime || (a.spanId < b.spanId ? -1 : a.spanId > b.spanId ? 1 : 0);
 
 /** Bir giriş span'i altındaki aynı-servis span'leri + ilk başka-servis giriş span'leri. */
@@ -107,6 +127,7 @@ export function gatewayHop(
   if (gatewayServices.includes(entry.serviceName)) return { next, via: 'config' };
   if (new Set(downstream.map(d => d.serviceName)).size !== 1) return null; // fan-out = kendi mantığı
   const rest = own.filter(s => s !== entry);
+  if (rest.some(isOwnWorkSpan)) return null; // kendi DB / MQ işi = saf yönlendirici değil
   const forwardOnly = rest.every(isForward);
   const self = entrySelfFraction(entry, children.get(entry.spanId) ?? []);
   if (forwardOnly && self <= GATEWAY_MAX_SELF_FRACTION) return { next, via: 'structure' };
