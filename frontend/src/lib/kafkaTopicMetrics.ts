@@ -51,15 +51,15 @@ export function kafkaTopicPanels(topic: string, service?: string): KafkaTopicPan
     ({ expr: `${agg} by (service_name, client_id) (${m}${s})`, legend });
   return [
     // ── Özet (stat) ──
-    { id: 'send_rate', kind: 'stat', side: 'producer', title: 'Üretim', unit: 'reqps',
+    { id: 'send_rate', kind: 'stat', side: 'producer', title: 'Produce', unit: 'reqps',
       hint: 'Bu topic\'e saniyede gönderilen kayıt (kafka_producer_record_send_rate, tüm üreticiler).',
-      queries: [{ expr: `sum(kafka_producer_record_send_rate${s})`, legend: 'üretim' }] },
+      queries: [{ expr: `sum(kafka_producer_record_send_rate${s})`, legend: 'produce' }] },
     { id: 'send_errors', kind: 'stat', side: 'producer', title: 'Gönderim hatası', unit: 'reqps',
       hint: 'Bu topic için saniyede başarısız gönderim (kafka_producer_record_error_rate). 0 dışı her değer hata.',
       queries: [{ expr: `sum(kafka_producer_record_error_rate${s})`, legend: 'hata' }], tone: anyIsBad },
-    { id: 'consume_rate', kind: 'stat', side: 'consumer', title: 'Tüketim', unit: 'reqps',
+    { id: 'consume_rate', kind: 'stat', side: 'consumer', title: 'Consume', unit: 'reqps',
       hint: 'Bu topic\'ten saniyede tüketilen kayıt (kafka_consumer_records_consumed_rate, tüm tüketiciler).',
-      queries: [{ expr: `sum(kafka_consumer_records_consumed_rate${s})`, legend: 'tüketim' }] },
+      queries: [{ expr: `sum(kafka_consumer_records_consumed_rate${s})`, legend: 'consume' }] },
     { id: 'max_lag', kind: 'stat', side: 'consumer', title: 'En yüksek lag', unit: '',
       hint: 'Bu topic\'in partition\'larında tüketicilerin gördüğü en yüksek lag (kafka_consumer_records_lag_max, kayıt).',
       queries: [{ expr: `max(kafka_consumer_records_lag_max${s})`, legend: 'lag' }], tone: ge(1000, 10000) },
@@ -70,11 +70,11 @@ export function kafkaTopicPanels(topic: string, service?: string): KafkaTopicPan
     // sayı aynı olmak zorunda değil". Üç soru: akış dengede mi, kim geride,
     // gönderim bozuk mu. Bayt/istemci sayısı grafiği yok (istemci tablosu ve
     // kartlar taşıyor).
-    { id: 'flow', kind: 'chart', side: 'producer', title: 'Üretim ↔ tüketim', unit: 'reqps',
-      hint: 'Topic toplamı: üretilen ve tüketilen kayıt/sn. Tüketim sürekli üretimin altındaysa lag büyür.',
+    { id: 'flow', kind: 'chart', side: 'producer', title: 'Produce ↔ Consume', unit: 'reqps',
+      hint: 'Topic toplamı: produce ve consume kayıt/sn. Consume sürekli produce altındaysa lag büyür.',
       queries: [
-        { expr: `sum(kafka_producer_record_send_rate${s})`, legend: 'üretim' },
-        { expr: `sum(kafka_consumer_records_consumed_rate${s})`, legend: 'tüketim' },
+        { expr: `sum(kafka_producer_record_send_rate${s})`, legend: 'produce' },
+        { expr: `sum(kafka_consumer_records_consumed_rate${s})`, legend: 'consume' },
       ] },
     { id: 'lag_by_client', kind: 'chart', side: 'consumer', title: 'Lag — servis / client', unit: '',
       hint: 'kafka_consumer_records_lag_max: her tüketici istemcinin bu topic\'te gördüğü en kötü partition lag\'i (kayıt). Partition ayrıntısı altta.',

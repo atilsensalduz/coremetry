@@ -102,10 +102,10 @@ export function kafkaPanels(s: KafkaScope): KafkaPanel[] {
       queries: [{ expr: `avg(kafka_producer_request_latency_avg${withM(p, 'node_id=""')})`, legend: 'avg latency' }], tone: ge(100, 500) },
 
     // ── Sağlık (açık): dört soru — akıyor mu, geride mi, yavaş mı, hata var mı ──
-    { id: 'flow', section: 'health', kind: 'chart', title: 'Akış — gönderilen / tüketilen kayıt /sn', unit: 'reqps',
+    { id: 'flow', section: 'health', kind: 'chart', title: 'Produce / Consume — kayıt /sn', unit: 'reqps',
       hint: 'İstemci düzeyi kafka_producer_record_send_rate ve kafka_consumer_records_consumed_rate (topic toplamı; çift sayım yok).',
-      queries: [byP('sum', 'kafka_producer_record_send_rate', `gönderim - ${CL}`, 'topic=""'),
-        byC('sum', 'kafka_consumer_records_consumed_rate', `tüketim - ${CL}`, 'topic=""')] },
+      queries: [byP('sum', 'kafka_producer_record_send_rate', `produce - ${CL}`, 'topic=""'),
+        byC('sum', 'kafka_consumer_records_consumed_rate', `consume - ${CL}`, 'topic=""')] },
     { id: 'lag', section: 'health', kind: 'chart', title: 'Tüketici lag (en kötü partition)', unit: '',
       hint: 'kafka_consumer_records_lag_max, istemci başına. 1.000 üstü sarı, 10.000 üstü kırmızı (Genel bakış eşiği).',
       queries: [byC('max', 'kafka_consumer_records_lag_max', CL)] },

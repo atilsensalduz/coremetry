@@ -23,7 +23,7 @@ describe('kafkaTopicPanels', () => {
   it('sade: 5 kart, 3 grafik', () => {
     expect(ps.filter(p => p.kind === 'stat').map(p => p.id)).toEqual(['send_rate', 'send_errors', 'consume_rate', 'max_lag', 'min_lead']);
     expect(ps.filter(p => p.kind === 'chart').map(p => p.id)).toEqual(['flow', 'lag_by_client', 'errors_by_client']);
-    expect(byId.flow.queries.map(q => q.legend)).toEqual(['üretim', 'tüketim']);
+    expect(byId.flow.queries.map(q => q.legend)).toEqual(['produce', 'consume']);
     expect(byId.lag_by_client.queries[0].expr).toBe('max by (service_name, client_id) (kafka_consumer_records_lag_max{topic="orders"})');
   });
   it('eşikler', () => {
