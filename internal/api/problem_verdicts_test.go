@@ -132,7 +132,9 @@ func TestNormalizeProblemVerdictInputR3(t *testing.T) {
 		{"gerekçesiz noise (R3 öncesi uyum)", problemVerdictInput{Signature: "e:a", Verdict: "noise"}, false, false,
 			func(v chstore.ProblemVerdict) bool { return v.Reason == "" && !v.Permanent }},
 		{"geçerli gerekçe", problemVerdictInput{Signature: "e:a", Verdict: "noise", Reason: "too_sensitive", Priority: "P2", Magnitude: 3.5}, false, false,
-			func(v chstore.ProblemVerdict) bool { return v.Reason == "too_sensitive" && v.Priority == "P2" && v.Magnitude == 3.5 }},
+			func(v chstore.ProblemVerdict) bool {
+				return v.Reason == "too_sensitive" && v.Priority == "P2" && v.Magnitude == 3.5
+			}},
 		{"bilinmeyen gerekçe", problemVerdictInput{Signature: "e:a", Verdict: "noise", Reason: "meh"}, false, true, nil},
 		{"other notsuz", problemVerdictInput{Signature: "e:a", Verdict: "noise", Reason: "other"}, false, true, nil},
 		{"other notlu", problemVerdictInput{Signature: "e:a", Verdict: "noise", Reason: "other", Note: " test ortamı "}, false, false,

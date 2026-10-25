@@ -229,10 +229,10 @@ func TestNotifyReplayTrafficPairsDedup(t *testing.T) {
 // v0.10.1532 (Problem standardı R4) — replay önceliği Türkçe başlıktan da okur.
 func TestSubjectPriorityTR(t *testing.T) {
 	cases := map[string]string{
-		"[CRITICAL][P1] svc — kural":               "P1",
-		"AÇILDI · [P2] svc: teknik hata arttı":     "P2",
-		"YENİDEN BAŞLADI · [P1] svc: x":            "P1",
-		"ÇÖZÜLDÜ · svc: x":                         "",
+		"[CRITICAL][P1] svc — kural":                "P1",
+		"AÇILDI · [P2] svc: teknik hata arttı":      "P2",
+		"YENİDEN BAŞLADI · [P1] svc: x":             "P1",
+		"ÇÖZÜLDÜ · svc: x":                          "",
 		"svc: [P1] kullanıcı metninde geçen etiket": "",
 	}
 	for in, want := range cases {
