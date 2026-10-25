@@ -21,7 +21,10 @@ import { hasGutter, parseFileHeader, stripMarker } from '@/lib/codeQuote';
 import { dedent } from '@/components/Markdown';
 
 // Kalın başlık (trace/exception) YA DA satır başı düz `Olası neden:` (problem).
-const VERDICT_HDR = /(?:\*\*\s*(?:kök\s*neden[^*]*|olası\s*neden[^*]*|root\s*cause[^*]*)\*\*\s*:?\s*|^[ \t]*(?:kök\s*neden|olası\s*neden|root\s*cause)\s*:\s*)/im;
+// v0.10.1543 (operatör: gemma4 cevabında Karar kutusu yoktu, qwen'de vardı) —
+// gemma başlığı markdown başlığı yazar (`### Kök Neden ve Sonraki Adım`);
+// o biçim de tanınır, iki model aynı kartı alır.
+const VERDICT_HDR = /(?:\*\*\s*(?:kök\s*neden[^*]*|olası\s*neden[^*]*|root\s*cause[^*]*)\*\*\s*:?\s*|^[ \t]*#{1,6}[ \t]+(?:\*\*)?\s*(?:kök\s*neden|olası\s*neden|root\s*cause)[^\n]*|^[ \t]*(?:kök\s*neden|olası\s*neden|root\s*cause)\s*:\s*)/im;
 
 function stripInline(s: string): string {
   return s.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/`([^`]+)`/g, '$1').replace(/^\s*[-*]\s+/, '').trim();

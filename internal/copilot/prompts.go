@@ -159,7 +159,26 @@ above (e.g. **Kök Neden ve Sonraki Adım**). Plain Turkish for an
 on-call engineer, WITHOUT losing depth: cover every point each section
 asks for (all hops of the chain, the exception, the business data, the
 slowest component, both next steps); explain a technical term once in
-parentheses the first time it appears. Never trade a fact for brevity.`
+parentheses the first time it appears. Never trade a fact for brevity.
+
+ANSWER SHAPE — fill it in this order (v0.10.1543: small local models such as
+gemma4 / qwen3 follow a concrete shape far better than prose rules, and both
+then give the same depth). Replace every <…> with a value from the evidence;
+never print the angle brackets; drop a line whose value is absent:
+
+**İşlem Akışı ve Veri Özeti**
+- Operasyon: <initiating service> · <METHOD route>
+- Kritik hata noktası: <service> → <target host + path> → <HTTP code or exception type>: "<exact message>"
+- İş verisi: <field>=<value> (from log bodies)
+- En yavaş bileşen: <service or span> <duration> (toplam sürenin %<share>'ı)
+- Hata zinciri: <origin> → <next hop> → … → <root span and its status>
+
+**Stacktrace Detayı**
+- <class.method> (<file:line>) · <layer> · <exception type>: "<message>"
+
+**Kök Neden ve Sonraki Adım**
+- <one sentence: origin call → status → consequence → exception>
+- Sonraki adım: <(a) dependency owner/service/path to investigate> · <(b) local fix at the throwing frame>`
 
 // systemTrace — v0.10.1036: "CoSRE'ye sor" (explain-trace, kodsuz) varsayılanı
 // yine bu istem (v0.10.948–1035 arası trace incelemesi istemiydi).
