@@ -1309,6 +1309,10 @@ export const api = {
   // v0.10.411 — AI bütçesi: tavanlar + son 24 saat kullanımı.
   aiBudget: () => get<import('./types').AIBudgetStatus>(`/api/ai/budget`),
   // v0.10.562 — Problem detayı insight şeridi (deterministik, 30 s cache).
+  // v0.10.1529 (Problem standardı R2) — detay başlığı; ref = InboxItem.id biçimi
+  // (problem:/exception:/anomaly:/incident:). null = bulunamadı.
+  problemStandard: (ref: string, signal?: AbortSignal) =>
+    get<import('./types').ProblemStandard | null>(`/api/problem-standard?ref=${encodeURIComponent(ref)}`, signal),
   problemInsight: (id: string, signal?: AbortSignal) =>
     get<import('./types').ProblemInsight>(`/api/problems/${encodeURIComponent(id)}/insight`, signal),
   // v0.10.707 — etkilenen varlıklar (çağıranlar ∪ pod'lar ∪ cluster'lar), 60 s cache; aç-üzerine-getir.

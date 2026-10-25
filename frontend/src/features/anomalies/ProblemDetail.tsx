@@ -71,6 +71,7 @@ import { useT } from '@/lib/i18n'; // v0.10.1326 — "Ask CoSRE" etiketi
 // v0.10.1032 — triyaj eylemleri tam sayfaya taşındı (çekmece atlanınca
 // "Gerçek problem / Problem değil" ve Assign… kaybolmasın).
 import { ProblemVerdictActions } from '@/components/ProblemVerdictActions';
+import { ProblemStandardHeader } from './ProblemStandardHeader'; // v0.10.1529
 import { problemVerdictSubject, exceptionVerdictSubject } from '@/lib/problemVerdict';
 
 // ProblemDetail — Variant B (Dynatrace problem feed) full-page details.
@@ -556,6 +557,10 @@ export function ProblemDetail({ group, isAdmin, onBack, onChanged }: {
         )}
       </div>
 
+      {/* v0.10.1529 (Problem standardı R2) — standart kartlar + neden/bağlam/
+          sonraki adım; başlık exception tipi olarak yukarıda kalır (showTitle=false). */}
+      <ProblemStandardHeader stdRef={`exception:${group.fingerprint}`} showTitle={false} />
+
       {/* Meta chips */}
       <div className="meta-row" style={{ marginBottom: 18 }}>
         {/* v0.9.740 (operatör): servis adı TIKLANABİLİR + ug/sy rozetleri. */}
@@ -972,8 +977,12 @@ export function AlertProblemDetail({ problem, isAdmin, onBack, onChanged }: {
       {/* v0.10.1054 — terfi Problem'i yineleniyorsa "ne zaman" satırına
           anomaliyle aynı tek ek (problemWhenLine); diğer her Problem'de metin
           bayt bayt aynı. Yeni bölüm yok. */}
-      <DetailSummary sentence={alertProblemSummary(problem)}
-        when={problemWhenLine(problem, endNs)} />
+      {/* v0.10.1529 (Problem standardı R2) — standart başlık (manşet + Etki ·
+          Ne zamandan beri · Güven · Kaynak + neden/bağlam/sonraki adım); yüklenene
+          ya da bulunamayana dek önceki tek cümlelik özet (fallback). */}
+      <ProblemStandardHeader stdRef={`problem:${problem.id}`}
+        fallback={<DetailSummary sentence={alertProblemSummary(problem)}
+          when={problemWhenLine(problem, endNs)} />} />
       <ProblemTriage problem={problem} isAdmin={isAdmin} onBack={onBack} onChanged={onChanged} />
 
       {/* v0.10.562 — deterministik insight şeridi (şüpheli · ilk anomali ·

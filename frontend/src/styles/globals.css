@@ -4274,6 +4274,36 @@ thead th:hover .th-remove, .th-remove:focus-visible { opacity: 1; }
 .pv-compact__q { font-weight: 600; color: var(--text2); }
 .pv-compact__state { color: var(--text3); }
 .pv-compact__hint { color: var(--text3); font-size: 11px; }
+/* v0.10.1529 (Problem standardı R2, D1) — liste satırının Karar hücresi:
+   düğmeler satır hover/focus'ta görünür; işaretli satırda (is-set) her zaman.
+   Dokunmatikte hover yok → her zaman görünür. opacity (display değil): satır
+   yüksekliği hover'da zıplamasın, Tab ile odak yine ulaşsın. */
+.pv-row { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; opacity: 0; transition: opacity 120ms; }
+tr:hover .pv-row, tr:focus-within .pv-row, .pv-row.is-set, .pv-row:focus-within { opacity: 1; }
+@media (hover: none) { .pv-row { opacity: 1; } }
+/* v0.10.1529 — standart satır hücreleri (pages/Inbox.tsx StdCells) ve detay
+   başlığı (features/anomalies/ProblemStandardHeader.tsx). */
+.std-subject { font-family: var(--font-mono); font-weight: 500; }
+.std-src { flex: none; font-size: 10px; font-weight: 600; padding: 0 5px; border-radius: var(--radius-xs);
+  background: var(--bg3); color: var(--text2); margin-right: 5px; }
+.std-ctx { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin-top: 2px;
+  font-size: 10.5px; color: var(--text3); min-width: 0; }
+.std-impact { font-size: 12px; min-width: 0; }
+.std-impact__main { font-family: var(--font-mono); font-weight: 500; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.std-impact__sub { color: var(--text3); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.std-head { display: flex; flex-direction: column; gap: 12px; margin: 4px 0 14px; }
+.std-head__title { margin: 0; font-size: 17px; font-weight: 600; color: var(--text); }
+/* Kartlar paylaşılan .grid-4 ızgarasında (1024 → 2, 640 → 1 kolon). */
+.std-head__cards { gap: 10px; }
+.std-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; background: var(--bg2); min-width: 0; }
+.std-card__label { font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; color: var(--text3); text-transform: uppercase; }
+.std-card__value { font-size: 18px; font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.std-card__value--mono { font-family: var(--font-mono); }
+.std-card__sub { font-size: 12px; color: var(--text2); overflow-wrap: anywhere; }
+.std-why { display: grid; grid-template-columns: 170px minmax(0, 1fr); row-gap: 6px; column-gap: 10px; font-size: 12.5px; }
+.std-why dt { color: var(--text3); font-weight: 600; }
+.std-why dd { margin: 0; color: var(--text); }
 /* Vertical dot-line timeline. */
 .pb-tl { list-style: none; margin: 0; padding: 0; }
 .pb-tl li { position: relative; padding: 0 0 14px 20px; font-size: 12px; }
@@ -6333,3 +6363,8 @@ a.idchip__val:hover { color: var(--accent2); text-decoration: underline; }
   .trace-hdr__actrow > .trace-extlinks { margin-left: 0; justify-content: flex-start; }
 }
 /* ── v0.10.1514 END ──────────────────────────────────────────────────── */
+
+/* v0.10.1529 — Problem standardı başlığı: telefonda etiket/değer alt alta. */
+@media (max-width: 640px) {
+  .std-why { grid-template-columns: minmax(0, 1fr); }
+}

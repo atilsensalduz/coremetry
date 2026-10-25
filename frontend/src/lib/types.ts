@@ -2853,6 +2853,43 @@ export interface InboxItem {
    *  problemlerin satırları sunucuda bu satıra katlanır (inbox_incident_fold.go).
    *  Yok = bilinmiyor / bağlı problem yok. */
   incident?: { id: string; severity: string; status: string; problemCount?: number };
+  /** v0.10.1529 (Problem standardı R2) — satırın standart biçimi
+   *  (Go chstore.ProblemStandard). Yok = hesaplanmadı; satır eski hücreye düşer. */
+  std?: ProblemStandard;
+}
+
+// ── Problem standardı (v0.10.1529, R2) ──────────────────────────────────
+// Go: internal/chstore/problem_standard.go + signal_gates.go. Tek biçim:
+// Inbox satırı ve üç detay sayfasının başlığı bunu çizer.
+export type StdConfidenceLevel = 'high' | 'medium' | 'low';
+/** pass | fail | unknown | na | context | flag */
+export type SignalGateStatus = 'pass' | 'fail' | 'unknown' | 'na' | 'context' | 'flag';
+export interface SignalGate { id: string; name: string; status: SignalGateStatus; note?: string }
+export interface StdMeasure { text: string; value: number; normal: number; unit?: string; ratio?: number }
+export interface StdImpact {
+  primary: StdMeasure;
+  failedPerMin?: number;
+  /** Yalnız topolojiyle doğrulanmış çağıranlar. */
+  callers?: string[];
+  known: boolean;
+}
+export interface StdSince {
+  startedAt: number; lastSeen?: number; durationSec: number; ongoing: boolean; episode?: number;
+}
+/** vm | span | db_mv | probe | exception | oracle | self | external | rule */
+export interface StdEvidence { sentence: string; source: string; sampled: boolean }
+export interface ProblemStandard {
+  family: string;
+  kind: string;
+  subject: string;
+  operation?: string;
+  headline: string;
+  impact: StdImpact;
+  since: StdSince;
+  evidence: StdEvidence;
+  confidence: { level: StdConfidenceLevel; gates: SignalGate[] };
+  nextStep: { text: string; href?: string };
+  context?: string[];
 }
 
 // Role hierarchy used everywhere. `editor` was introduced for the

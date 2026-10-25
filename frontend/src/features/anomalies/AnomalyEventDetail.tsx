@@ -13,6 +13,7 @@ import { IconSparkles } from '@/components/icons';
 import { useT } from '@/lib/i18n'; // v0.10.1338 — "Ask CoSRE" etiketi
 import { CosreChart } from '@/components/CosreChart';
 import { ProblemVerdictActions } from '@/components/ProblemVerdictActions';
+import { ProblemStandardHeader } from './ProblemStandardHeader'; // v0.10.1529
 import { api } from '@/lib/api';
 import { keys, useAnomalyEventByID, useLogPatternSeries } from '@/lib/queries';
 import { useEscLayer } from '@/lib/escLayer';
@@ -204,8 +205,11 @@ export function AnomalyEventDetail({ event, isAdmin, onBack }: {
 
       {/* Ne oldu + ne zaman. Log türlerinde cümle "bu desen" diyor — hangi
           desen olduğu hemen altında (sayı değil, kimlik). */}
-      <DetailSummary sentence={sentence} when={when}
-        detail={isLog && event.pattern ? event.pattern : undefined} />
+      {/* v0.10.1529 (Problem standardı R2) — standart başlık; yüklenene ya da
+          bulunamayana dek önceki özet (fallback). Desen kimliği başlığın altında. */}
+      <ProblemStandardHeader stdRef={`anomaly:${event.id}`}
+        fallback={<DetailSummary sentence={sentence} when={when}
+          detail={isLog && event.pattern ? event.pattern : undefined} />} />
       {/* Triyaj TEK satır, özetin hemen altında (alarm sayfasıyla aynı yer). */}
       <AnomalyTriage event={event} isAdmin={isAdmin} onBack={onBack} />
 

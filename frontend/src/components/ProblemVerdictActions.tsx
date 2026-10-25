@@ -36,9 +36,14 @@ type Props = {
    *  satır: soru + durum + iki düğme (+ işareti kaldır) + tek kısa cümle. Üç
    *  detay sayfası bunu kullanır; triyaj çekmecesi uzun biçimi korur. */
   compact?: boolean;
+  /** v0.10.1529 (Problem standardı R2, D1) — liste satırının Karar hücresi:
+   *  yalnız iki düğme (seçili olan `active`). Satır hover/focus'ta görünür
+   *  (globals.css `.pv-row`); işaretli satırda her zaman. Viewer yalnız
+   *  işaretli durumu okur. Satır tıkı (detay açma) burada tetiklenmez. */
+  row?: boolean;
 } & ({ item: InboxItem; subject?: undefined } | { subject: VerdictSubject | null; item?: undefined });
 
-export function ProblemVerdictActions({ item, subject, onDone, flush, compact }: Props) {
+export function ProblemVerdictActions({ item, subject, onDone, flush, compact, row }: Props) {
   const { user } = useAuth();
   const isEditor = user?.role === 'admin' || user?.role === 'editor';
   const q = useProblemVerdicts();
@@ -57,6 +62,31 @@ export function ProblemVerdictActions({ item, subject, onDone, flush, compact }:
   const stateText = current?.verdict === 'real' ? 'Gerçek problem olarak işaretli'
     : current?.verdict === 'noise' ? 'Problem değil olarak işaretli'
     : 'Henüz işaretlenmedi';
+
+  if (row) {
+    const label = item?.title ?? subj.label;
+    return (
+      <span className={current ? 'pv-row is-set' : 'pv-row'} onClick={e => e.stopPropagation()}>
+        {isEditor ? (
+          <>
+            <Button size="sm" variant="secondary" active={current?.verdict === 'real'}
+              aria-label={`Gerçek problem: ${label}`}
+              loading={set.isPending} disabled={current?.verdict === 'real'} onClick={() => write('real')}>
+              Gerçek problem
+            </Button>
+            <Button size="sm" variant="secondary" active={current?.verdict === 'noise'}
+              aria-label={`Problem değil: ${label}`}
+              loading={set.isPending} disabled={current?.verdict === 'noise'} onClick={() => write('noise')}>
+              Problem değil
+            </Button>
+          </>
+        ) : current ? (
+          <span className="pv-compact__state">{current.verdict === 'real' ? 'gerçek problem' : 'problem değil'}</span>
+        ) : null}
+        {set.isError && <span role="alert" className="field-error">Yazılamadı</span>}
+      </span>
+    );
+  }
 
   if (compact) {
     // Durum kısa: düğmenin kendisi seçili görünür; metin yalnız kim/ne

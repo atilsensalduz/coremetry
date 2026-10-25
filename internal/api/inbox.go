@@ -113,6 +113,13 @@ type InboxItem struct {
 	Exception *InboxExceptionRef `json:"exception,omitempty"`
 	Anomaly   *InboxAnomalyRef   `json:"anomaly,omitempty"`
 	Incident  *InboxIncidentRef  `json:"incident,omitempty"`
+
+	// Std — v0.10.1529 (Problem standardı R2): satırın standart biçimi
+	// (chstore.ProblemStandard; problem_standard.go attachInboxStandards).
+	// nil = hesaplanmadı (rozet ucu, eski önbellek); FE eski hücreye düşer.
+	Std *chstore.ProblemStandard `json:"std,omitempty"`
+	// stdSrc — Std'nin kaynak nesnesi; JSON'a çıkmaz.
+	stdSrc *inboxStdSrc
 }
 
 // InboxIncidentRef — v0.9.321. A declared Incident is the one triage object
@@ -953,6 +960,10 @@ func (s *Server) inboxView(q url.Values) (string, func(ctx context.Context) (any
 		// varsayılan görünümde kalır); bir satır yalnız birinde sayılır.
 		keptBySpread, keptRegressed := countFloorKept(items, minOcc, floorEx)
 
+		// v0.10.1529 (Problem standardı R2) — standart, tavandan ÖNCE tüm
+		// adaylarda: D10 sıralaması (düşük güven altta) tavanı da belirler.
+		s.attachInboxStandards(ctx, items, time.Now())
+
 		// Rank the WHOLE candidate set before the cap (v0.9.318 scan fix +
 		// v0.9.319 server sort) — inboxSortAndCap.
 		items, total := inboxSortAndCap(items, sortID, sortDir, limit)
@@ -1583,7 +1594,9 @@ func normalizeInboxSort(id, dir string) (string, string) {
 		// (v0.9.315) came back on the merged queue, and a column that can't be
 		// sorted on a triage list is half a column: "which of these is
 		// actually sustained" is the question the number exists to answer.
-		"occurrences":
+		"occurrences",
+		// v0.10.1529 — Güven kolonu (Problem standardı R2).
+		"confidence":
 	default:
 		id = inboxSortDefault
 	}
@@ -1633,6 +1646,10 @@ func sortInboxItems(items []InboxItem, id, dir string) {
 			if a.StartedAt != b.StartedAt {
 				return a.StartedAt < b.StartedAt
 			}
+		case "confidence":
+			if ra, rb := inboxConfidenceRank(a), inboxConfidenceRank(b); ra != rb {
+				return ra < rb
+			}
 		default: // priority
 			ra, rb := priorityRank(a.Priority), priorityRank(b.Priority)
 			if ra != rb {
@@ -1680,8 +1697,19 @@ func sortInboxItems(items []InboxItem, id, dir string) {
 // ÖNCE koştuğu için tavan yalnız P1'ler arasında ve ilk görülmeye göre
 // keser: en yeni P1 hiçbir zaman tavanın altında kalmaz
 // (inbox_first_seen_default_test.go çiviler).
+//
+// v0.10.1529 (Problem standardı D10: "düşük güvenli satır görünür ama aşağıda
+// sıralanır") — sıralamadan sonra KARARLI bölme: güveni ölçülmüş "low" satırlar
+// seçilen sıralamanın kendi düzeninde sona iner. Operatör Güven kolonuna göre
+// sıraladıysa bölme yok (kolonun kendisi o sırayı veriyor). Std'siz satır low
+// sayılmaz (bilinmiyor düşürmez), yani rozet ucu ve testler eski sırayı görür.
 func inboxSortAndCap(items []InboxItem, sortID, sortDir string, limit int) ([]InboxItem, int) {
 	sortInboxItems(items, sortID, sortDir)
+	if sortID != "confidence" {
+		sort.SliceStable(items, func(i, j int) bool {
+			return !inboxConfidenceLow(items[i]) && inboxConfidenceLow(items[j])
+		})
+	}
 	total := len(items)
 	if limit > 0 && len(items) > limit {
 		items = items[:limit]
@@ -1724,6 +1752,8 @@ func inboxPrimaryEqual(a, b InboxItem, id string) bool {
 		return inboxOccurrences(a) == inboxOccurrences(b)
 	case "firstSeen":
 		return a.StartedAt == b.StartedAt
+	case "confidence":
+		return inboxConfidenceRank(a) == inboxConfidenceRank(b)
 	default:
 		return priorityRank(a.Priority) == priorityRank(b.Priority)
 	}
@@ -1876,6 +1906,7 @@ func incidentToInbox(inc chstore.Incident) InboxItem {
 		Status:         inc.Status,
 		Clusters:       inc.Clusters,
 		Incident:       &InboxIncidentRef{ID: inc.ID, Severity: inc.Severity, Status: inc.Status},
+		stdSrc:         &inboxStdSrc{incident: &inc}, // v0.10.1529
 	}
 }
 
@@ -2003,6 +2034,7 @@ func problemToInbox(p chstore.Problem) InboxItem {
 			Value: p.Value, Threshold: p.Threshold,
 			EpisodeCount: p.EpisodeCount, FirstStartedAt: p.FirstStartedAt, // v0.10.1054
 		},
+		stdSrc: &inboxStdSrc{problem: &p}, // v0.10.1529
 	}
 }
 
@@ -2060,7 +2092,15 @@ func exceptionToInbox(g chstore.ExceptionGroup) InboxItem {
 			Fingerprint: g.Fingerprint, Type: g.Type, Message: g.Message,
 			Occurrences: g.Occurrences,
 		},
+		stdSrc: exceptionStdSrc(g, prio), // v0.10.1529
 	}
+}
+
+// exceptionStdSrc — v0.10.1529: standardın büyüklük kolu grubun P1'ini okur
+// (chstore.exceptionMagnitude); liste merdiveninin önceliği kopyaya yazılır.
+func exceptionStdSrc(g chstore.ExceptionGroup, prio string) *inboxStdSrc {
+	g.Priority = prio
+	return &inboxStdSrc{exception: &g}
 }
 
 // isHTTPErrorType — chstore.HTTPErrorTypeRe'nin Go tarafı; desen tek
@@ -2422,6 +2462,7 @@ func anomalyToInbox(e chstore.AnomalyEvent) InboxItem {
 			PeakRatio: e.PeakRatio, CurrentRatio: e.CurrentRatio,
 			EpisodeCount: e.EpisodeCount, FirstStartedAt: e.FirstStartedAt,
 		},
+		stdSrc: &inboxStdSrc{anomaly: &e}, // v0.10.1529
 	}
 }
 

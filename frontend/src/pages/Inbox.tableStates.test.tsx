@@ -110,7 +110,7 @@ describe('Inbox kuyruğu — durumlar tablonun içinde (v0.10.967)', () => {
   it('yükleniyor: başlık + iskelet satırı; tümünü seç kapalı', async () => {
     m.pending = true;
     const el = await mount();
-    expect(table(el).querySelector('thead')?.textContent).toContain('Priority');
+    expect(table(el).querySelector('thead')?.textContent).toContain('Öncelik'); // v0.10.1529
     const row = stateRow(el);
     expect(row?.dataset.dtState).toBe('loading');
     expect(selectAll(el).disabled).toBe(true);
@@ -227,7 +227,8 @@ describe('Inbox varsayılan şerit — dış kaynak satırı (v0.10.1026)', () =
     const ext = rowOf(el, 'OP_TRANSFER elapsed above band');
     expect(ext, 'dış kaynak satırı varsayılan listede çizilmeli').toBeTruthy();
     expect(ext!.querySelector('a[href^="/service"]'), 'ext: öznesine servis linki kuruldu').toBeNull();
-    const subjectCell = ext!.querySelectorAll('td')[3];
+    // v0.10.1529 — Service kolonu kalktı; std'siz satırda özne başlık hücresinin bağlam satırında.
+    const subjectCell = ext!.querySelectorAll('td')[2].querySelector('.std-ctx') as HTMLElement;
     expect(subjectCell.textContent).toContain('EXT');
     expect(subjectCell.textContent).toContain('orders-db · OP_TRANSFER');
     expect(subjectCell.querySelector('[title*="servis sayfası linki yok"]')).not.toBeNull();

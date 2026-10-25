@@ -12,7 +12,10 @@ const css = readFileSync(resolve(__dirname, '../styles/globals.css'), 'utf8');
 describe('Inbox tarih hücreleri (v0.10.736)', () => {
   it('iki damga hücresi sınıfta (satır-içi 11 px yok); yaş alt satırı sınıfta', () => {
     // v0.10.1068 — hücre tam damgayı `title`da taşır (yılsız gösterim).
-    expect((page.match(/<td className="mono ib-when"[ >]/g) ?? []).length).toBe(2);
+    // v0.10.1529 — "Ne zamandan beri" hücresi ib-when (metin satırı; damga yalnız
+    // std'siz yedekte mono span); Last seen mono ib-when.
+    expect((page.match(/<td className="mono ib-when"[ >]/g) ?? []).length).toBe(1);
+    expect((page.match(/<td className="ib-when"[ >]/g) ?? []).length).toBe(1);
     expect(page).not.toContain('<td className="mono" style={{ fontSize: 11 }}>');
     expect(page).toContain('<div className="ib-when__ago">');
   });
@@ -24,8 +27,9 @@ describe('Inbox tarih hücreleri (v0.10.736)', () => {
   // (tsCompact "03.10 06:26:09", tam damga title'da); 136 px'te kırpılmaz ve
   // taban = genişlik, yani sığdırma onu ezemez (gizler).
   it('kolon genişlikleri 13 px damgayı sığdırır', () => {
-    expect(page).toContain("{ id: 'firstSeen', label: 'First seen', sortValue: it => it.startedAt, naturalDir: 'desc', width: 136, minWidth: 136, priority: 4 }");
-    expect(page).toContain("{ id: 'lastSeen', label: 'Last seen', sortValue: it => it.lastSeen,        naturalDir: 'desc', width: 136, minWidth: 136, priority: 3 }");
+    // v0.10.1529 — first seen "Ne zamandan beri" oldu (aynı sıralama kimliği, 160 px).
+    expect(page).toContain("{ id: 'firstSeen', label: 'Ne zamandan beri', sortValue: it => it.startedAt, naturalDir: 'desc', width: 160, minWidth: 140, priority: 2 }");
+    expect(page).toContain("{ id: 'lastSeen', label: 'Last seen', sortValue: it => it.lastSeen,        naturalDir: 'desc', width: 136, minWidth: 136, priority: 4 }");
     expect((page.match(/\{tsCompact\(it\.(startedAt|lastSeen)\)\}/g) ?? []).length).toBe(2);
   });
 });

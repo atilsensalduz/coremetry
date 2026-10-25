@@ -52,6 +52,11 @@ import { Badge } from '@/components/ui/Badge';
 import type { SubjectLane } from '@/lib/types';
 import { useProblemVerdicts } from '@/lib/queries';
 import { ProblemVerdictPolicyBar } from '@/components/ProblemVerdictPolicyBar';
+import { ProblemVerdictActions } from '@/components/ProblemVerdictActions'; // v0.10.1529 — satır Karar hücresi (D1)
+import {
+  splitStdHeadline, stdSourceChip, stdSourceName, stdSamplingNote, stdImpactSecondary, stdSinceLine, stdDurationLine,
+  stdConfidenceTone, stdConfidenceRank, stdGateTitle, STD_CONFIDENCE_LABEL,
+} from '@/lib/problemStandardView'; // v0.10.1529 — Problem standardı R2
 import { verdictIndex, verdictOf, countNoise, filterByVerdictView, parseVerdictView, type VerdictView } from '@/lib/problemVerdict';
 
 // Facet vocab + defaults (v0.8.291) — both defaults are what the URL codec
@@ -97,7 +102,9 @@ const SORT_DEFAULT = { id: 'firstSeen', dir: 'desc' as const };
 // bayat bir `s_inbox` varsayılana düşer.
 // v0.10.1084 — 'source' kolonu kalktı (kaynak ikinci satırın başında); bayat
 // `s_inbox=source` varsayılana düşer (sunucu kimliği hâlâ tanır).
-const INBOX_SORT_IDS = ['priority', 'service', 'detail', 'occurrences', 'firstSeen', 'lastSeen', 'assignee'] as const;
+// v0.10.1529 — 'confidence' (Güven kolonu); 'service' kolonu kalktı ama kimlik
+// tanınmaya devam eder (bayat `s_inbox=service` linki sunucuda aynen sıralar).
+const INBOX_SORT_IDS = ['priority', 'service', 'detail', 'occurrences', 'firstSeen', 'lastSeen', 'assignee', 'confidence'] as const;
 const KIND_ALL: readonly InboxKind[] = ['problem', 'exception', 'httperror', 'anomaly', 'incident'];
 // v0.9.328 — operator: "Problems ilk açtığında exception görsün, kullanıcılar
 // ona göre tasarlar." Exceptions are the signal operators trust: a thrown
@@ -196,12 +203,22 @@ const PRIO_RANK: Record<string, number> = { P1: 3, P2: 2, P3: 1 };
 // durum çipi, soluk ayrıntı) · Service · Occurrences · First seen · Last seen ·
 // Assignee. Ayrı Source kolonu kalktı: kaynak ikinci satırın başında. Tabanlar
 // ve öncelikler v0.10.1068'deki gibi.
+// v0.10.1529 (Problem standardı R2; operatör 2026-10-25: "mockup + ikincil
+// kolonlar") — Öncelik · Ne bozuk · Etki · Ne zamandan beri · Güven · Karar,
+// sağda düşük öncelikli Occurrences · Last seen · Assignee (dar ekranda ilk
+// onlar düşer). Service kolonu kalktı: özne "Ne bozuk"un başında (mono),
+// takım çipleri ve yayılım üçüncü satırda. "Ne zamandan beri" first seen'in
+// sıralama kimliğini (`firstSeen`) devralır — v0.10.1081 varsayılan sıralaması
+// ve paylaşılan `s_inbox=firstSeen` linkleri aynen çalışır. Satırın std'si
+// yoksa (eski önbellek) hücreler v0.10.1084 biçimine düşer.
 const INBOX_COLS: DataTableColumn<InboxItem>[] = [
-  { id: 'priority', label: 'Priority', sortValue: it => PRIO_RANK[it.priority] ?? 0, naturalDir: 'desc', width: 84, minWidth: 80, priority: 1 },
+  { id: 'priority', label: 'Öncelik', sortValue: it => PRIO_RANK[it.priority] ?? 0, naturalDir: 'desc', width: 84, minWidth: 80, priority: 1 },
   // v0.9.648 — ESNEK kolon: başlık serbest metin ve en geniş olan.
-  // Sabit toplam 1330 → 950px, tablo sığıyor.
-  { id: 'detail',   label: 'Problem',  sortValue: it => inboxRowHeadline(it), naturalDir: 'asc', flex: true, minWidth: 240, priority: 1 },
-  { id: 'service',  label: 'Service',  sortValue: it => it.service,          naturalDir: 'asc', width: 190, minWidth: 140, priority: 1 },
+  { id: 'detail',   label: 'Ne bozuk',  sortValue: it => it.std?.headline ?? inboxRowHeadline(it), naturalDir: 'asc', flex: true, minWidth: 260, priority: 1 },
+  { id: 'impact',   label: 'Etki', width: 230, minWidth: 170, priority: 1 },
+  { id: 'firstSeen', label: 'Ne zamandan beri', sortValue: it => it.startedAt, naturalDir: 'desc', width: 160, minWidth: 140, priority: 2 },
+  { id: 'confidence', label: 'Güven', sortValue: it => stdConfidenceRank(it.std), naturalDir: 'desc', width: 92, minWidth: 84, priority: 2 },
+  { id: 'verdict',  label: 'Karar', width: 236, minWidth: 220, priority: 2 },
   // v0.9.331 — Occurrences is back. The operator insisted on keeping this
   // column on /problems (v0.9.315: "ben occurences kolonu kalkmasını
   // istemedim"); when the merged queue took over the Problems name in
@@ -210,16 +227,15 @@ const INBOX_COLS: DataTableColumn<InboxItem>[] = [
   // once. v0.10.1084 — incident satırında bağlı (katlanmış) problem sayısı.
   { id: 'occurrences', label: 'Occurrences',
     sortValue: it => it.exception?.occurrences ?? it.incident?.problemCount ?? 0,
-    naturalDir: 'desc', numeric: true, width: 110, minWidth: 96, priority: 2 },
+    naturalDir: 'desc', numeric: true, width: 110, minWidth: 96, priority: 3 },
   // v0.9.333 — First seen is its own column again (operator: "First seen ayrı
   // kolon olabilir, öyleydi"). It was folded into the Last seen cell as a
   // conditional "· ilk …" suffix, which meant it vanished whenever the two
   // timestamps matched and could never be sorted on. "What started first" is
   // the question that orders a cascade; "what fired last" is a different one.
   // v0.10.736 — 13 px mono damga ("16.09.2026 11:00:15" ≈ 150 px) sığsın: 150/170 → 168/180.
-  { id: 'firstSeen', label: 'First seen', sortValue: it => it.startedAt, naturalDir: 'desc', width: 136, minWidth: 136, priority: 4 },
-  { id: 'lastSeen', label: 'Last seen', sortValue: it => it.lastSeen,        naturalDir: 'desc', width: 136, minWidth: 136, priority: 3 },
-  { id: 'assignee', label: 'Assignee', sortValue: it => it.assignee ?? '',   naturalDir: 'asc', width: 150, minWidth: 110, priority: 3 },
+  { id: 'lastSeen', label: 'Last seen', sortValue: it => it.lastSeen,        naturalDir: 'desc', width: 136, minWidth: 136, priority: 4 },
+  { id: 'assignee', label: 'Assignee', sortValue: it => it.assignee ?? '',   naturalDir: 'asc', width: 150, minWidth: 110, priority: 4 },
 ];
 
 // v0.10.740 — varsayılan occurrence tabanı (sunucu inboxDefaultMinOcc ile aynı).
@@ -1183,95 +1199,124 @@ export default function InboxPage() {
                     <PriorityBadge p={it.priority} reason={it.priorityReason} />
                   </td>
                   <td>
-                    {/* v0.10.1084 (operatör: "Exceptions'taki format güzel") —
-                        Exceptions listesiyle ORTAK başlık hücresi: kalın cümle /
-                        exception tipi + satır içi durum çipleri, soluk ayrıntı
-                        (kaynak · kural · ölçü / mesaj), varsa AI özeti. */}
-                    <TriageTitleCell
-                      title={inboxRowHeadline(it)}
-                      titleNode={link
-                        ? <Link to={link.to} replace={link.replace} state={link.state} onClick={stopRowClick} className="cell-link">{inboxRowHeadline(it)}</Link>
-                        : undefined}
-                      code={isExcFamily(it)}
-                      chips={<RowChips it={it} real={verdictOf(it, verdicts) === 'real'} oraLabel={ora ? oraLabel : undefined} />}
-                      detail={ora ? oracleInboxDetail(it.exception!.message, oraLabel) : <DetailLine it={it} />}
-                      detailMono={isExcFamily(it)}
-                      detailTitle={isExcFamily(it) ? it.exception?.message : inboxRowLabel(it) ?? undefined}
-                      ai={it.aiSummary ? stripMarkdown(it.aiSummary) : undefined}
-                      aiAge={it.aiSummaryAt ? fmtAgoNs(it.aiSummaryAt) : undefined} />
+                    {/* v0.10.1084 — Exceptions listesiyle ORTAK başlık hücresi
+                        (TriageTitleCell). v0.10.1529 (Problem standardı R2) —
+                        std varsa: 1. satır özne (mono) · standart manşet, 2. satır
+                        kaynak çipi + kanıt cümlesi (exception ailesinde mesaj),
+                        3. satır bağlam + takım çipleri + yayılım. std yoksa
+                        v0.10.1084 biçimi aynen. */}
+                    {(() => {
+                      const head = it.std ? splitStdHeadline(it.std) : null;
+                      const titleText = it.std ? it.std.headline : inboxRowHeadline(it);
+                      const titleInner = head
+                        ? <>{head.subject && <><span className="std-subject">{head.subject}</span> · </>}{head.rest}</>
+                        : titleText;
+                      const detail = it.std
+                        ? <><span className="std-src" title={`Kaynak: ${stdSourceName(it.std.evidence.source)} · ${stdSamplingNote(it.std)}`}>{stdSourceChip(it.std)}</span>
+                            {ora ? oracleInboxDetail(it.exception!.message, oraLabel)
+                              : isExcFamily(it) ? <span className="mono">{it.exception?.message}</span>
+                                : it.std.evidence.sentence}</>
+                        : ora ? oracleInboxDetail(it.exception!.message, oraLabel) : <DetailLine it={it} />;
+                      return (
+                        <TriageTitleCell
+                          title={titleText}
+                          titleNode={link
+                            ? <Link to={link.to} replace={link.replace} state={link.state} onClick={stopRowClick} className="cell-link">{titleInner}</Link>
+                            : (head ? titleInner : undefined)}
+                          code={!it.std && isExcFamily(it)}
+                          chips={<RowChips it={it} real={verdictOf(it, verdicts) === 'real'} oraLabel={ora ? oraLabel : undefined} />}
+                          detail={detail}
+                          detailMono={!it.std && isExcFamily(it)}
+                          detailTitle={isExcFamily(it) ? it.exception?.message : (it.std?.evidence.sentence ?? inboxRowLabel(it) ?? undefined)}
+                          ai={it.aiSummary ? stripMarkdown(it.aiSummary) : undefined}
+                          aiAge={it.aiSummaryAt ? fmtAgoNs(it.aiSummaryAt) : undefined} />
+                      );
+                    })()}
+                    <div className="std-ctx">
+                      {!it.std && (
+                        // std'siz satır: özne başlıkta yok → v0.10.1084'teki gibi link.
+                        ora && isSyntheticOracleService(it.service) ? (
+                          <span className="mono cell-faint" title="Trace → servis çözümü bu operasyon için servis bulamadı">{it.service}</span>
+                        ) : (
+                          <SubjectLink service={it.service} subjectKind={it.subjectKind}
+                            href={serviceHref(it.service, { range: inboxItemWindow(it) })}
+                            onClick={e => e.stopPropagation()}
+                            emptyFallback={<span style={{ color: 'var(--text3)' }}>(none)</span>} />
+                        )
+                      )}
+                      {it.std?.context?.map(c => <span key={c}>{c}</span>)}
+                      {/* v0.10.949 — aynı exception aynı anda N serviste. */}
+                      {spread && (
+                        <span title={spreadTitle(spread.n, spread.partners, spreadWin)}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+                          <span className="dot" aria-hidden="true"
+                            style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor', flex: 'none' }} />
+                          {spread.n} servis
+                        </span>
+                      )}
+                      {it.ownerTeam && (
+                        <Chip size="xs" active={ownerFilter === it.ownerTeam}
+                          onClick={e => {
+                            e.stopPropagation();
+                            setOwnerFilter(ownerFilter === it.ownerTeam ? '' : (it.ownerTeam ?? ''));
+                          }}
+                          title={teamChipTitle(it, ownerFilter === it.ownerTeam
+                            ? `Clear owner filter`
+                            : `Filter inbox to owner ${it.ownerTeam}`)}>
+                          <Users size={11} strokeWidth={1.75} /> {it.teamsVia ? '≈ ' : ''}{it.ownerTeam}
+                        </Chip>
+                      )}
+                      {it.sreTeam && (
+                        <Chip size="xs" active={sreFilter === it.sreTeam}
+                          onClick={e => {
+                            e.stopPropagation();
+                            setSreFilter(sreFilter === it.sreTeam ? '' : (it.sreTeam ?? ''));
+                          }}
+                          title={teamChipTitle(it, sreFilter === it.sreTeam
+                            ? `Clear SRE filter`
+                            : `Filter inbox to SRE ${it.sreTeam}`)}>
+                          <Shield size={11} strokeWidth={1.75} /> {it.teamsVia ? '≈ ' : ''}{it.sreTeam}
+                        </Chip>
+                      )}
+                    </div>
                   </td>
                   <td>
-                    {/* v0.9.860 (UX denetimi K1) — satırın kendi olay
-                        penceresi taşınır; aksi hâlde servis sayfası
-                        "şimdi" açılır ve olay görünmez. */}
-                    {ora && isSyntheticOracleService(it.service) ? (
-                      // v0.10.1109 — servisi çözülemeyen Oracle grubu: sentetik ad, link yok (Exceptions ile aynı).
-                      <span className="mono cell-faint" title="Trace → servis çözümü bu operasyon için servis bulamadı">{it.service}</span>
-                    ) : (
-                    <SubjectLink service={it.service} subjectKind={it.subjectKind}
-                      href={serviceHref(it.service, { range: inboxItemWindow(it) })}
-                      onClick={e => e.stopPropagation()}
-                      style={{ fontWeight: 600 }}
-                      emptyFallback={<span style={{ color: 'var(--text3)' }}>(none)</span>} />
-                    )}
-                    {/* v0.10.949 — aynı exception aynı anda N serviste: tek
-                        satır nokta+metin, soluk (T9: renk yalnız sapan
-                        değerde; T11: ortakların tam listesi ipucunda). */}
-                    {spread && (
-                      <div className="cell-faint" title={spreadTitle(spread.n, spread.partners, spreadWin)}
-                        style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2, fontSize: 10.5, whiteSpace: 'nowrap' }}>
-                        <span className="dot" aria-hidden="true"
-                          style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor', flex: 'none' }} />
-                        {spread.n} servis
+                    {it.std ? (
+                      <div className="std-impact" title={it.std.impact.primary.text}>
+                        <div className="std-impact__main">{it.std.impact.primary.text}</div>
+                        {stdImpactSecondary(it.std) && <div className="std-impact__sub">{stdImpactSecondary(it.std)}</div>}
                       </div>
-                    )}
-                    {(it.ownerTeam || it.sreTeam) && (
-                      <div style={{ marginTop: 2, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                        {it.ownerTeam && (
-                          <Chip size="xs" active={ownerFilter === it.ownerTeam}
-                            onClick={e => {
-                              e.stopPropagation();
-                              setOwnerFilter(ownerFilter === it.ownerTeam ? '' : (it.ownerTeam ?? ''));
-                            }}
-                            title={teamChipTitle(it, ownerFilter === it.ownerTeam
-                              ? `Clear owner filter`
-                              : `Filter inbox to owner ${it.ownerTeam}`)}>
-                            <Users size={11} strokeWidth={1.75} /> {it.teamsVia ? '≈ ' : ''}{it.ownerTeam}
-                          </Chip>
-                        )}
-                        {it.sreTeam && (
-                          <Chip size="xs" active={sreFilter === it.sreTeam}
-                            onClick={e => {
-                              e.stopPropagation();
-                              setSreFilter(sreFilter === it.sreTeam ? '' : (it.sreTeam ?? ''));
-                            }}
-                            title={teamChipTitle(it, sreFilter === it.sreTeam
-                              ? `Clear SRE filter`
-                              : `Filter inbox to SRE ${it.sreTeam}`)}>
-                            <Shield size={11} strokeWidth={1.75} /> {it.teamsVia ? '≈ ' : ''}{it.sreTeam}
-                          </Chip>
-                        )}
-                      </div>
-                    )}
+                    ) : <span style={{ color: 'var(--text3)' }}>—</span>}
+                  </td>
+                  {/* v0.10.736 — 13 px mono damga sınıfta (ib-when). v0.10.1529 —
+                      "Ne zamandan beri": başlangıç + süre · sürüyor; tam damga title'da. */}
+                  <td className="ib-when" title={it.startedAt ? tsLong(it.startedAt) : undefined}>
+                    {it.std && it.std.since.startedAt
+                      ? <>
+                          {stdSinceLine(it.std)}
+                          <div className="ib-when__ago">{stdDurationLine(it.std)}</div>
+                        </>
+                      : it.startedAt
+                        ? <>
+                            <span className="mono">{tsCompact(it.startedAt)}</span>
+                            <div className="ib-when__ago">{fmtAgoNs(it.startedAt)}</div>
+                          </>
+                        : <span style={{ color: 'var(--text3)' }}>—</span>}
+                  </td>
+                  <td>
+                    {it.std
+                      ? <Badge tone={stdConfidenceTone(it.std.confidence.level)} title={stdGateTitle(it.std)}>
+                          {STD_CONFIDENCE_LABEL[it.std.confidence.level]}
+                        </Badge>
+                      : <span style={{ color: 'var(--text3)' }}>—</span>}
+                  </td>
+                  <td>
+                    {/* v0.10.1529 (D1) — satır triyajı hover/focus'ta (pv-row). */}
+                    <ProblemVerdictActions item={it} row />
                   </td>
                   <td className="num">
                     {/* v0.10.1084 — incident satırında katlanmış (bağlı) problem sayısı. */}
                     {inboxOccurrencesLabel(it) ?? <span style={{ color: 'var(--text3)' }}>—</span>}
-                  </td>
-                  {/* v0.10.736 (operatör: "tarih fontu biraz daha büyük olabilir")
-                      — 11 → 13 px (--fs-md), sınıfta; yaş satırı 11 px kalır. */}
-                  <td className="mono ib-when" title={it.startedAt ? tsLong(it.startedAt) : undefined}>
-                    {it.startedAt
-                      ? <>
-                          {tsCompact(it.startedAt)}
-                          {/* Age belongs to first-seen: "how long has this
-                              been going on" is read off the start, not the
-                              last hit. */}
-                          <div className="ib-when__ago">
-                            {fmtAgoNs(it.startedAt)}
-                          </div>
-                        </>
-                      : <span style={{ color: 'var(--text3)' }}>—</span>}
                   </td>
                   <td className="mono ib-when" title={tsLong(it.lastSeen)}>
                     {/* v0.9.333 — yaş ve ilk-görülme artık kendi kolonunda.
@@ -1350,6 +1395,7 @@ export default function InboxPage() {
 const CAP_SORT_LABEL: Record<string, string> = {
   priority: 'öncelik', firstSeen: 'ilk görülme', lastSeen: 'son görülme', occurrences: 'oluşum sayısı',
   service: 'servis', source: 'kaynak', detail: 'başlık', assignee: 'atanan',
+  confidence: 'güven', // v0.10.1529
 };
 function capSortLabel(id: string | null, dir: 'asc' | 'desc'): string {
   const name = CAP_SORT_LABEL[id ?? ''] ?? CAP_SORT_LABEL.priority;

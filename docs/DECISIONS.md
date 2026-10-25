@@ -11775,3 +11775,38 @@ satırında önce, düğmeler altında sağa dayalı; yana kayma yok. Kiosk / pu
 `pages/traceHeaderMeasures.pin.test.ts`.
 
 **Geri alma.** `git revert <sha>` + yeni etiket (1527'nin sekme satırı yerleşimine döner). Pin testi ilgili vakayı işaretler.
+
+## 2026-10-25 — v0.10.1529 — Problem standardı R2: standart satır + detay başlığı
+
+**Bağlam.** R1 (v0.10.1523) `chstore.ProblemStandard`'ı yalnız gölge bildirim politikasına verdi; ekran hâlâ dedektör
+cümlesini ve ayrı Service / First seen kolonlarını çiziyordu. Mockup "Problem standard mockup" (2026-10-24) R2'nin
+görsel sözleşmesi. **Operatör kararları (2026-10-25):** (1) kolonlar mockup + ikincil kolonlar; (2) başlık TÜM detay
+sayfalarında (alarm/anomali problemi, exception grubu, anomali olayı).
+
+**Karar.**
+- `/api/inbox` her satıra `std` (ProblemStandard) koyar — aday kümesinin TAMAMINDA, facet'lerden sonra, sıralama ve
+  tavandan ÖNCE (`attachInboxStandards`, `internal/api/problem_standard.go`). Problem satırlarında G1 trafiği TEK toplu
+  `service_summary_5m` okumasıyla (gölgeyle aynı kova çifti: açılıştan önceki tamamlanmış kova + bir saat önce); okuma
+  düşerse bilinmiyor (güveni düşürmez). Doğrulanmış çağıranlar R2'de okunmuyor: satır "çağıran" iddia etmez.
+- D10: `inboxSortAndCap` sıralamadan sonra KARARLI bölme yapar, ölçülmüş `low` güven sona iner (tavan da buna göre
+  keser); `sort=confidence` seçiliyse bölme yok. Std'siz satır low sayılmaz → rozet ucu ve eski testler aynı sırayı görür.
+  Yeni sunucu sıralama kimliği `confidence`.
+- `GET /api/problem-standard?ref=<problem|exception|anomaly|incident>:<id>` (kendi dosyası, kapısız okuma, serveCached
+  15 s = liste TTL'i; anahtar `pstd:v1:ref=`). Satırla aynı `attachInboxStandards` → satır ile başlık aynı güveni söyler.
+  Bulunamazsa `null` (başlık sessizce eski özete düşer).
+- FE kolonları: Öncelik · Ne bozuk (flex) · Etki · Ne zamandan beri · Güven · Karar | Occurrences (p3) · Last seen ·
+  Assignee (p4). Service kolonu kalktı: özne manşetin başında mono; takım çipleri, yayılım ve bağlam (deploy/takvim/batch/
+  tekrar — önceliği etkilemez) üçüncü satırda. "Ne zamandan beri" `firstSeen` kimliğini devralır (v0.10.1081 varsayılan
+  sıralaması ve `s_inbox=firstSeen` linkleri aynen). `s_inbox=service` sunucuda çalışmaya devam eder.
+- Karar hücresi (D1): `ProblemVerdictActions row` — iki düğme satır hover/focus'ta (`.pv-row`, opacity; dokunmatikte
+  hep görünür), işaretli satırda hep görünür; viewer yalnız durumu okur. "Problem değil ▾" gerekçe menüsü R3.
+- Detay: `ProblemStandardHeader` (manşet + Etki · Ne zamandan beri · Güven · Kaynak kartları + neden/bağlam/sonraki adım).
+  Alarm ve anomali olayında eski `DetailSummary` fallback (yüklenirken / bulunamazsa); exception detayında başlık tipi
+  kalır (`showTitle=false`). Sonraki adım sayfanın kendisine dönüyorsa (`/exceptions`, kendi `?anomaly=` / `?problem=`)
+  link çizilmez (`stdNextHref`).
+- Metin tek saf çekirdekten: `lib/problemStandardView.ts` (Türkçe ayrılma eki okunuşa göre: 06:05'ten, 06:30'dan).
+
+**Bedeller.** Liste soğuk yolunda en çok bir ek toplu `service_summary_5m` okuması (≤ 4000 çift, max_execution_time 20);
+15 s önbellek arkasında. Std hesabı saf ve aday başına O(1).
+
+**Geri alma.** `git revert <sha>` + yeni etiket; şema yok. FE std'siz satırda v0.10.1084 hücrelerine düşer.

@@ -166,6 +166,19 @@ export function useProblemInsight(id: string) {
   });
 }
 
+// v0.10.1529 (Problem standardı R2) — detay başlığının standardı. staleTime =
+// sunucu TTL (15 s); 'problems' ağacında: ack/resolve invalidation'ı ulaşır.
+// placeholderData: undefined — başka problemin başlığı bu sayfada görünmesin.
+export function useProblemStandard(ref: string | null) {
+  return useQuery({
+    queryKey: keys.problems.standard(ref ?? ''),
+    queryFn: ({ signal }) => api.problemStandard(ref!, signal),
+    enabled: !!ref,
+    staleTime: 15_000,
+    placeholderData: undefined,
+  });
+}
+
 // v0.10.1106 — terfi Problem'inin (`anomaly-auto:`) kaynak olay özeti: detayın
 // "Desen sayısı" grafiği ve desen log pivotu için. Yalnız terfi Problem'i
 // detayı açıkken (enabled — çağıran öneki sınar; kimliği sunucu ayrıştırır),

@@ -2,8 +2,9 @@
 //
 // Inbox.rowFormat — v0.10.1084 (operatör: "tekilleştir, Exceptions'taki format
 // güzel"). Problems kuyruğu satırı Exceptions listesinin biçiminde:
-//   • kolonlar: Priority · Problem · Service · Occurrences · First seen ·
-//     Last seen · Assignee (ayrı Source kolonu yok);
+//   • kolonlar (v0.10.1529, Problem standardı R2 — operatör "mockup + ikincil
+//     kolonlar"): Öncelik · Ne bozuk · Etki · Ne zamandan beri · Güven · Karar ·
+//     Occurrences · Last seen · Assignee (ayrı Source / Service kolonu yok);
 //   • başlık hücresi ORTAK bileşen (TriageTitleCell): 1. satır kalın başlık
 //     (incident/problem → olayın cümlesi, exception → tip; mono + hata rengi)
 //     + satır içi durum çipi, 2. satır soluk ayrıntı (kaynak · incident adı /
@@ -109,7 +110,7 @@ describe('Problems satırı — Exceptions biçimi (v0.10.1084)', () => {
   it('kolonlar Exceptions listesinin düzeninde; ayrı Source kolonu yok', async () => {
     const el = await mount();
     const heads = [...table(el).querySelectorAll('thead th')].map(th => th.textContent?.trim() ?? '');
-    const labels = ['Priority', 'Problem', 'Service', 'Occurrences', 'First seen', 'Last seen', 'Assignee'];
+    const labels = ['Öncelik', 'Ne bozuk', 'Etki', 'Ne zamandan beri', 'Güven', 'Karar', 'Occurrences', 'Last seen', 'Assignee'];
     let at = -1;
     for (const l of labels) {
       // Sıralama oku başlığın başında ya da sonunda olabilir (sayısal kolon).
@@ -118,6 +119,7 @@ describe('Problems satırı — Exceptions biçimi (v0.10.1084)', () => {
       at = i;
     }
     expect(heads.some(h => h.includes('Source'))).toBe(false);
+    expect(heads.some(h => h === 'Service' || h.startsWith('Service'))).toBe(false);
   });
 
   it('katlanmış incident: kalın cümle + durum çipi, soluk kaynak · ad, "2 problem", gerekçe yok', async () => {
@@ -130,8 +132,9 @@ describe('Problems satırı — Exceptions biçimi (v0.10.1084)', () => {
     expect(head.querySelector('.dt-trunc')?.textContent).toBe(SENT);
     expect(head.textContent).toContain('open'); // durum çipi başlık satırında
     expect(titleCell.querySelector('.triage-sub')?.textContent).toBe('Incident · db:couchbase@orders — DB health · couchbase');
-    expect(cells[3].textContent).toContain('orders'); // Service kolonu başlıktan SONRA
-    expect(cells[4].textContent).toBe('2 problem');
+    // v0.10.1529 — std'siz satırda özne başlık hücresinin bağlam satırında.
+    expect(titleCell.querySelector('.std-ctx')?.textContent).toContain('orders');
+    expect(cells[7].textContent).toBe('2 problem');
     expect(r.textContent).not.toContain('Declared incident');
     expect(r.textContent).not.toContain('kaynak önceliği korundu');
   });
@@ -146,7 +149,42 @@ describe('Problems satırı — Exceptions biçimi (v0.10.1084)', () => {
     const sub = cells[2].querySelector('.triage-sub')!;
     expect(sub.classList.contains('mono')).toBe(true);
     expect(sub.textContent).toBe('Read timed out');
-    expect(cells[4].textContent).toBe('42');
+    expect(cells[7].textContent).toBe('42');
+  });
+
+  it('v0.10.1529 — std satırı: özne mono · manşet, kaynak çipi + kanıt, etki, ne zamandan beri, güven, Karar', async () => {
+    const started = Date.now() * 1e6 - (5 * 3600 + 40 * 60) * 1e9;
+    m.items = [{
+      ...EXC, id: 'problem:p1', kind: 'problem', source: 'Alert rule', title: 'r', exception: undefined,
+      problem: { id: 'p1', ruleId: 'anomaly:mobile-bff:error_rate', metric: 'error_rate', value: 0.7, threshold: 0.05 },
+      service: 'mobile-bff', startedAt: started, lastSeen: started, status: 'open',
+      std: {
+        family: 'error', kind: 'anomaly.error_rate', subject: 'mobile-bff', headline: 'mobile-bff: teknik hata (5xx) sürekli artıyor',
+        impact: { primary: { text: '%0,7 hata · normal %0,05 (14×)', value: 0.7, normal: 0.05 }, known: true, failedPerMin: 420 },
+        since: { startedAt: started, durationSec: 5 * 3600 + 40 * 60, ongoing: true },
+        evidence: { sentence: '30 dk boyunca her 5 dk\'da eşiğin üstünde', source: 'vm', sampled: false },
+        confidence: { level: 'high', gates: [{ id: 'G1', name: 'trafik', status: 'pass' }] },
+        nextStep: { text: 'x' }, context: ['yakın deploy: v2.3.1'],
+      },
+    } as InboxItem];
+    const el = await mount();
+    const r = rowOf(el, 'teknik hata');
+    const cells = r.querySelectorAll('td');
+    const title = cells[2].querySelector('.triage-title .dt-trunc')!;
+    expect(title.querySelector('.std-subject')?.textContent).toBe('mobile-bff');
+    expect(title.textContent).toBe('mobile-bff · teknik hata (5xx) sürekli artıyor');
+    expect(cells[2].querySelector('.triage-sub .std-src')?.textContent).toBe('VM · örneklenmemiş');
+    expect(cells[2].querySelector('.triage-sub')?.textContent).toContain('eşiğin üstünde');
+    expect(cells[2].querySelector('.std-ctx')?.textContent).toContain('yakın deploy: v2.3.1');
+    expect(cells[3].querySelector('.std-impact__main')?.textContent).toBe('%0,7 hata · normal %0,05 (14×)');
+    expect(cells[3].querySelector('.std-impact__sub')?.textContent).toBe('~420 hatalı istek/dk');
+    expect(cells[4].textContent).toContain('beri');
+    expect(cells[4].textContent).toContain('5 sa 40 dk · sürüyor');
+    expect(cells[5].textContent).toBe('YÜKSEK');
+    // D1 — editor iki düğmeyi görür; satır hover/focus'ta görünür (pv-row).
+    const pv = cells[6].querySelector('.pv-row')!;
+    expect([...pv.querySelectorAll('button')].map(b => b.textContent)).toEqual(['Gerçek problem', 'Problem değil']);
+    expect(pv.classList.contains('is-set')).toBe(false);
   });
 
   it('iki liste AYNI başlık bileşenini kullanır (ikinci tasarım yok)', () => {
