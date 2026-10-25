@@ -108,7 +108,7 @@ export function KafkaTopicMetrics({ system, cluster, topic, range, win }: {
       </section>
 
       <section aria-label="İstemciler">
-        <h3 className="mtp-kafka-h">Bu topic&apos;e yazan / okuyan istemciler</h3>
+        <h3 className="mtp-kafka-h">Producer / consumer istemciler</h3>
         <ClientsTable rows={clients} range={range} />
       </section>
       <div className="field-hint">
@@ -141,7 +141,7 @@ function ClientsTable({ rows, range }: { rows: KafkaTopicClientRow[]; range: Tim
             <DataTableState dt={dt} kind="empty" message="İstemci yok" />
           ) : dt.sortedRows.map(r => (
             <tr key={r.key} className="cv-row">
-              <DataTableCell dt={dt} col="side" row={r} value={r.side === 'producer' ? 'Üretici' : 'Tüketici'} />
+              <DataTableCell dt={dt} col="side" row={r} value={r.side === 'producer' ? 'Producer' : 'Consumer'} />
               <DataTableCell dt={dt} col="service" row={r} title={r.service}>
                 <Link to={serviceHref(r.service, {
                   tab: 'messaging', range,

@@ -77,57 +77,62 @@ export function kafkaPanels(s: KafkaScope): KafkaPanel[] {
   // `extra`: Kafka aynı metriği istemci düzeyinde VE topic/node düzeyinde
   // yayınlar; istemci düzeyi `topic=""` / `node_id=""` ile seçilir, yoksa
   // toplam iki kez sayılır (panodaki sum bunu yapıyordu).
+  // v0.10.1544 (operatör ekranı: producer-1 seçiliyken hata/gecikme kartı
+  // "—") — istemci düzeyi seri her kurulumda yok; varsa o, yoksa `or` ile
+  // tüm seriler (o istemci için tek düzey vardır, çift sayım yine olmaz).
   const withM = (sel: string, extra?: string) => (extra ? sel.replace(/}$/, `, ${extra}}`) : sel);
-  const byC = (agg: string, m: string, legend: string, extra?: string): KafkaQuery => ({ expr: `${agg} by (client_id) (${m}${withM(c, extra)})`, legend });
-  const byP = (agg: string, m: string, legend: string, extra?: string): KafkaQuery => ({ expr: `${agg} by (client_id) (${m}${withM(p, extra)})`, legend });
+  const pref = (aggBy: string, m: string, sel: string, extra?: string) =>
+    (extra ? `${aggBy} (${m}${withM(sel, extra)}) or ${aggBy} (${m}${sel})` : `${aggBy} (${m}${sel})`);
+  const byC = (agg: string, m: string, legend: string, extra?: string): KafkaQuery => ({ expr: pref(`${agg} by (client_id)`, m, c, extra), legend });
+  const byP = (agg: string, m: string, legend: string, extra?: string): KafkaQuery => ({ expr: pref(`${agg} by (client_id)`, m, p, extra), legend });
   return [
     // ── Genel bakış (stat) ──
-    { id: 'consumer_conns', section: 'overview', kind: 'stat', title: 'Tüketici bağlantıları', unit: '',
+    { id: 'consumer_conns', section: 'overview', kind: 'stat', title: 'Consumer bağlantıları', unit: '',
       hint: 'Seçili pod / consumer client’lardaki toplam consumer connection sayısı (0 = bağlı değil).',
       queries: [{ expr: `sum(kafka_consumer_connection_count${c})`, legend: 'consumer conns' }], tone: zeroIsBad },
-    { id: 'producer_conns', section: 'overview', kind: 'stat', title: 'Üretici bağlantıları', unit: '',
+    { id: 'producer_conns', section: 'overview', kind: 'stat', title: 'Producer bağlantıları', unit: '',
       hint: 'Seçili pod / producer client’lardaki toplam producer connection sayısı (0 = bağlı değil).',
       queries: [{ expr: `sum(kafka_producer_connection_count${p})`, legend: 'producer conns' }], tone: zeroIsBad },
     { id: 'active_pods', section: 'overview', kind: 'stat', title: 'Aktif pod', unit: '',
       hint: 'Metrik gönderen (consumer ya da producer client’ı olan) pod sayısı.',
       queries: [{ expr: `count(count by (host_name) (kafka_consumer_connection_count${c}) or count by (host_name) (kafka_producer_connection_count${p}))`, legend: 'pods' }] },
-    { id: 'producer_errors', section: 'overview', kind: 'stat', title: 'Üretici kayıt hatası/sn', unit: '',
+    { id: 'producer_errors', section: 'overview', kind: 'stat', title: 'Producer kayıt hatası/sn', unit: '',
       hint: 'Producer record error rate toplamı. > 0 ise mesaj kaybı riski var.',
-      queries: [{ expr: `sum(kafka_producer_record_error_rate${withM(p, 'topic=""')})`, legend: 'errors/s' }], tone: ge(0.001, 1) },
-    { id: 'max_lag', section: 'overview', kind: 'stat', title: 'En yüksek tüketici lag', unit: '',
+      queries: [{ expr: pref('sum', 'kafka_producer_record_error_rate', p, 'topic=""'), legend: 'errors/s' }], tone: ge(0.001, 1) },
+    { id: 'max_lag', section: 'overview', kind: 'stat', title: 'En yüksek consumer lag', unit: '',
       hint: 'kafka_consumer_records_lag_max — en yüksek partition lag değeri.',
       queries: [{ expr: `max(kafka_consumer_records_lag_max${c})`, legend: 'max lag' }], tone: ge(1000, 10000) },
-    { id: 'producer_latency', section: 'overview', kind: 'stat', title: 'Üretici istek gecikmesi (ort.)', unit: 'ms',
+    { id: 'producer_latency', section: 'overview', kind: 'stat', title: 'Producer istek gecikmesi (ort.)', unit: 'ms',
       hint: 'Producer ortalama request latency (ms).',
-      queries: [{ expr: `avg(kafka_producer_request_latency_avg${withM(p, 'node_id=""')})`, legend: 'avg latency' }], tone: ge(100, 500) },
+      queries: [{ expr: pref('avg', 'kafka_producer_request_latency_avg', p, 'node_id=""'), legend: 'avg latency' }], tone: ge(100, 500) },
 
     // ── Sağlık (açık): dört soru — akıyor mu, geride mi, yavaş mı, hata var mı ──
     { id: 'flow', section: 'health', kind: 'chart', title: 'Produce / Consume — kayıt /sn', unit: 'reqps',
       hint: 'İstemci düzeyi kafka_producer_record_send_rate ve kafka_consumer_records_consumed_rate (topic toplamı; çift sayım yok).',
       queries: [byP('sum', 'kafka_producer_record_send_rate', `produce - ${CL}`, 'topic=""'),
         byC('sum', 'kafka_consumer_records_consumed_rate', `consume - ${CL}`, 'topic=""')] },
-    { id: 'lag', section: 'health', kind: 'chart', title: 'Tüketici lag (en kötü partition)', unit: '',
+    { id: 'lag', section: 'health', kind: 'chart', title: 'Consumer lag (en kötü partition)', unit: '',
       hint: 'kafka_consumer_records_lag_max, istemci başına. 1.000 üstü sarı, 10.000 üstü kırmızı (Genel bakış eşiği).',
       queries: [byC('max', 'kafka_consumer_records_lag_max', CL)] },
-    { id: 'latency', section: 'health', kind: 'chart', title: 'Gecikme — üretici istek / tüketici fetch (maks.)', unit: 'ms',
+    { id: 'latency', section: 'health', kind: 'chart', title: 'Gecikme — producer istek / consumer fetch (maks.)', unit: 'ms',
       hint: 'kafka_producer_request_latency_max ve kafka_consumer_fetch_latency_max (ms). Broker ya da ağ yavaşlığı burada görünür.',
-      queries: [byP('max', 'kafka_producer_request_latency_max', `üretici - ${CL}`, 'node_id=""'),
+      queries: [byP('max', 'kafka_producer_request_latency_max', `producer - ${CL}`, 'node_id=""'),
         byC('max', 'kafka_consumer_fetch_latency_max', `fetch - ${CL}`)] },
     { id: 'errors', section: 'health', kind: 'chart', title: 'Hata sinyalleri /sn', unit: '',
       hint: 'Gönderim hatası (record_error_rate), başarısız rebalance ve başarısız kimlik doğrulama (sayaçların 5 dk hızı). Hepsi 0 olmalı.',
       queries: [byP('sum', 'kafka_producer_record_error_rate', `gönderim hatası - ${CL}`, 'topic=""'),
         { expr: `sum by (client_id) (rate(kafka_consumer_failed_rebalance_total${c}[5m]))`, legend: `başarısız rebalance - ${CL}` },
-        { expr: `sum by (client_id) (rate(kafka_consumer_failed_authentication_total${c}[5m]))`, legend: `auth hatası (tüketici) - ${CL}` },
-        { expr: `sum by (client_id) (rate(kafka_producer_failed_authentication_total${p}[5m]))`, legend: `auth hatası (üretici) - ${CL}` }] },
+        { expr: `sum by (client_id) (rate(kafka_consumer_failed_authentication_total${c}[5m]))`, legend: `auth hatası (consumer) - ${CL}` },
+        { expr: `sum by (client_id) (rate(kafka_producer_failed_authentication_total${p}[5m]))`, legend: `auth hatası (producer) - ${CL}` }] },
 
     // ── Ayrıntı (kapalı, açılınca sorgu) ──
     { id: 'connections', section: 'detail', kind: 'chart', title: 'Açık bağlantı', unit: '',
       hint: 'kafka_consumer_connection_count / kafka_producer_connection_count. Sıfıra düşüş = broker\'a bağlı değil.',
-      queries: [byC('sum', 'kafka_consumer_connection_count', `tüketici - ${CL}`), byP('sum', 'kafka_producer_connection_count', `üretici - ${CL}`)] },
+      queries: [byC('sum', 'kafka_consumer_connection_count', `consumer - ${CL}`), byP('sum', 'kafka_producer_connection_count', `producer - ${CL}`)] },
     { id: 'rebalance', section: 'detail', kind: 'chart', title: 'Rebalance /saat', unit: '',
       hint: 'kafka_consumer_rebalance_rate_per_hour. Sürekli rebalance = tüketici gruptan düşüp geri giriyor (poll aralığı, pod yeniden başlatma).',
       queries: [byC('max', 'kafka_consumer_rebalance_rate_per_hour', CL)] },
-    { id: 'buffer', section: 'detail', kind: 'chart', title: 'Üretici buffer doluluğu %', unit: '%',
+    { id: 'buffer', section: 'detail', kind: 'chart', title: 'Producer buffer doluluğu %', unit: '%',
       hint: '1 − buffer_available_bytes / buffer_total_bytes. %100\'e yaklaşınca send() bloklanır.',
       queries: [{ expr: `100 * (1 - sum by (client_id) (kafka_producer_buffer_available_bytes${p}) / sum by (client_id) (kafka_producer_buffer_total_bytes${p}))`, legend: CL }] },
     { id: 'bytes', section: 'detail', kind: 'chart', title: 'Ağ trafiği (gelen / giden)', unit: 'bytes',

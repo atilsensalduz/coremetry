@@ -56,7 +56,7 @@ describe('ServiceMessagingTab', () => {
   });
   it('karolar + süzgeç seçenekleri; kapalı bölüm sorgu atmaz', async () => {
     const el = await mount();
-    expect(el.textContent).toContain('En yüksek tüketici lag');
+    expect(el.textContent).toContain('En yüksek consumer lag');
     expect([...el.querySelectorAll('option')].map(o => o.textContent)).toContain('pod-1');
     // v0.10.1540 — Ayrıntı kapalı (sorgu yok), Sağlık açık.
     expect(m.queries.some(q => q.includes('kafka_producer_buffer_available_bytes'))).toBe(false);

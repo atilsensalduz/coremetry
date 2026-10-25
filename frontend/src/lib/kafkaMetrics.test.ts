@@ -29,18 +29,19 @@ describe('kafkaPanels — pano paritesi', () => {
     expect(ps.filter(p => p.section === 'detail').map(p => p.id)).toEqual(['connections', 'rebalance', 'buffer', 'bytes', 'partition_lag']);
   });
   it('istemci + topic/node düzeyinde yayınlanan metrikler çift sayılmaz', () => {
+    // v0.10.1544 — istemci düzeyi yoksa `or` ile tüm seriler (kart "—" kalmaz).
     expect(byId.flow.queries.map(q => q.expr)).toEqual([
-      'sum by (client_id) (kafka_producer_record_send_rate{service_name="orders", topic=""})',
-      'sum by (client_id) (kafka_consumer_records_consumed_rate{service_name="orders", topic=""})',
+      'sum by (client_id) (kafka_producer_record_send_rate{service_name="orders", topic=""}) or sum by (client_id) (kafka_producer_record_send_rate{service_name="orders"})',
+      'sum by (client_id) (kafka_consumer_records_consumed_rate{service_name="orders", topic=""}) or sum by (client_id) (kafka_consumer_records_consumed_rate{service_name="orders"})',
     ]);
-    expect(byId.producer_errors.queries[0].expr).toBe('sum(kafka_producer_record_error_rate{service_name="orders", topic=""})');
-    expect(byId.producer_latency.queries[0].expr).toBe('avg(kafka_producer_request_latency_avg{service_name="orders", node_id=""})');
-    expect(byId.bytes.queries[1].expr).toBe('sum by (client_id) (kafka_producer_outgoing_byte_rate{service_name="orders", node_id=""})');
+    expect(byId.producer_errors.queries[0].expr).toBe('sum (kafka_producer_record_error_rate{service_name="orders", topic=""}) or sum (kafka_producer_record_error_rate{service_name="orders"})');
+    expect(byId.producer_latency.queries[0].expr).toBe('avg (kafka_producer_request_latency_avg{service_name="orders", node_id=""}) or avg (kafka_producer_request_latency_avg{service_name="orders"})');
+    expect(byId.bytes.queries[1].expr).toBe('sum by (client_id) (kafka_producer_outgoing_byte_rate{service_name="orders", node_id=""}) or sum by (client_id) (kafka_producer_outgoing_byte_rate{service_name="orders"})');
   });
   it('süzgeçler ek eşleyiciyle birleşir', () => {
     const f = kafkaPanels({ service: 'orders', host: 'p1', producer: 'pr' });
     expect(f.find(p => p.id === 'flow')!.queries[0].expr)
-      .toBe('sum by (client_id) (kafka_producer_record_send_rate{service_name="orders", host_name="p1", client_id="pr", topic=""})');
+      .toBe('sum by (client_id) (kafka_producer_record_send_rate{service_name="orders", host_name="p1", client_id="pr", topic=""}) or sum by (client_id) (kafka_producer_record_send_rate{service_name="orders", host_name="p1", client_id="pr"})');
   });
   it('kimlikler tekil, her panel bir bölümde', () => {
     expect(new Set(ps.map(p => p.id)).size).toBe(ps.length);
