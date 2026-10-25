@@ -259,3 +259,50 @@ func TestNoiseMarkOf(t *testing.T) {
 		t.Fatalf("işaret alanları taşınmalı: %+v", m)
 	}
 }
+
+// v0.10.1533 (Problem standardı R5, D7) — P3 özet slotu: bugünün geçmiş en yeni
+// slotu, son gönderilen değilse ve ≤ 2 sa geride kaldıysa.
+func TestDigestSlotDue(t *testing.T) {
+	times := []string{"16:00", "09:00"}
+	at := func(h, m int) time.Time { return time.Date(2026, 10, 25, h, m, 0, 0, time.UTC) }
+	cases := []struct {
+		name string
+		now  time.Time
+		last string
+		slot string
+		due  bool
+	}{
+		{"ilk slottan önce", at(8, 59), "", "", false},
+		{"09:00 tam", at(9, 0), "", "2026-10-25 09:00", true},
+		{"09:30, gönderilmemiş", at(9, 30), "2026-10-24 16:00", "2026-10-25 09:00", true},
+		{"09:30, gönderilmiş", at(9, 30), "2026-10-25 09:00", "2026-10-25 09:00", false},
+		{"11:30 — 2 sa'ten fazla geride, kovalanmaz", at(11, 30), "2026-10-24 16:00", "2026-10-25 09:00", false},
+		{"16:05", at(16, 5), "2026-10-25 09:00", "2026-10-25 16:00", true},
+		{"23:00", at(23, 0), "2026-10-25 09:00", "2026-10-25 16:00", false},
+	}
+	for _, c := range cases {
+		slot, due := DigestSlotDue(times, c.last, c.now)
+		if slot != c.slot || due != c.due {
+			t.Errorf("%s: %q %v, beklenen %q %v", c.name, slot, due, c.slot, c.due)
+		}
+	}
+	if _, due := DigestSlotDue(nil, "", at(9, 0)); due {
+		t.Error("slot yoksa özet yok")
+	}
+}
+
+func TestDigestItemFromRow(t *testing.T) {
+	q := `{"signature":"p:r|s","headline":"x"}`
+	if _, ok := digestItemFromRow("nd:p:r|s", "", "pending", NotifyDigestPage, q); !ok {
+		t.Fatal("geçerli sistem satırı")
+	}
+	if _, ok := digestItemFromRow("random", "", "pending", NotifyDigestPage, q); ok {
+		t.Fatal("kimlik imzadan türemeli")
+	}
+	if _, ok := digestItemFromRow("nd:p:r|s", "user1", "pending", NotifyDigestPage, q); ok {
+		t.Fatal("kişisel satır kuyruk sayılmaz")
+	}
+	if _, ok := digestItemFromRow("nd:p:r|s", "", "", NotifyDigestPage, q); ok {
+		t.Fatal("mezar taşı bekleyen sayılmaz")
+	}
+}

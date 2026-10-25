@@ -1530,6 +1530,10 @@ func main() {
 			return notify.OracleGroupRef{SourceID: st.Source.ID, SourceName: st.Source.Name, LastHour: st.LastHour}, true
 		})
 		go exNotifier.Start(ctx)
+		// v0.10.1533 (Problem standardı R5, D7) — P3 özeti: enforce kipinde
+		// özete düşen P3 bildirimleri günün özet saatlerinde tek mesajda gider
+		// (notify/digest.go). Lider kilitli; shadow/off kipinde kuyruk boş kalır.
+		go notifier.RunDigestLoop(ctx, lockImpl)
 	}
 
 	// ── Root-cause synthesizer (rc #2, v0.8.x) ───────────────────────────────

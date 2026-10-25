@@ -268,6 +268,9 @@ type Notifier struct {
 	// threads — v0.10.1532 (Problem standardı R4) bildirim konuları
 	// (lifecycle.go): imza → konu, kalıcı kaydın süreç-içi önbelleği.
 	threads threadBook
+
+	// enf — v0.10.1533 (Problem standardı R5) enforce kipinin defteri (enforce.go).
+	enf enforceBook
 }
 
 // maintenanceSilenced reports whether any active maintenance
@@ -512,6 +515,13 @@ func (n *Notifier) SendProblemAlert(ctx context.Context, p chstore.Problem) {
 	// (notification_log channel_kind='policy'). Dönüşü yok, arka planda koşar,
 	// aşağıdaki hiçbir şeyi değiştirmez (policy_shadow.go).
 	n.shadowNotifyPolicy(ctx, p)
+	// v0.10.1533 (Problem standardı R5) — enforce kipinde yeni bar GÖNDERİMİ
+	// yönetir (P3 → özet kuyruğu); shadow / off kipinde no-op. Konudan ÖNCE:
+	// tutulan açılış konu açmaz (enforce.go).
+	if ok, hold := n.enforceGate(ctx, p); !ok {
+		log.Printf("[notify] politika (enforce) tuttu: %s · %s → %s", p.ID, p.RuleName, hold)
+		return
+	}
 	// v0.10.1532 (Problem standardı R4) — Türkçe standart görünüm + konu
 	// (lifecycle.go / tr_template.go): kanallar ve ekip maili ctx'ten okur.
 	// `notify_policy.template: legacy` iken no-op (eski biçim bayt bayt).

@@ -2596,6 +2596,15 @@ export const api = {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     }),
   // v0.10.1016 — "problem değil" bildirimi de sustursun mu (yalnız admin).
+  // v0.10.1533 (Problem standardı R5) — bildirim politikası (admin).
+  notifyPolicy: () => get<import('./types').NotifyPolicy>('/api/admin/notify-policy'),
+  putNotifyPolicy: (body: Partial<import('./types').NotifyPolicy>) =>
+    request<import('./types').NotifyPolicy>('/api/admin/notify-policy', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    }),
+  notifyPolicyReplay: (days: number, signal?: AbortSignal) =>
+    get<import('./types').NotifyReplayReport>(`/api/admin/notify-policy/replay?days=${days}`, signal),
+  notifyDigest: () => get<{ items: import('./types').NotifyDigestItem[]; lastSlot: string }>('/api/admin/notify-digest'),
   putProblemVerdictPolicy: (muteNotifications: boolean) =>
     request<import('./types').ProblemVerdictsResponse>(`/api/problem-verdicts/policy`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ muteNotifications }),

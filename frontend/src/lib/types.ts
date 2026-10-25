@@ -11046,3 +11046,46 @@ export interface AlertVMSourceStats {
   families: { id: string; usable: boolean; reason?: string; services: number }[];
   sources?: Record<string, Record<string, number>>;
 }
+
+// ── Bildirim politikası (v0.10.1533, Problem standardı R5) ────────────────
+// Go: internal/chstore/notify_policy.go (+ notify_policy_replay.go,
+// notify_digest.go). Admin-only uçlar: /api/admin/notify-policy(/replay),
+// /api/admin/notify-digest.
+export type NotifyPolicyMode = 'off' | 'shadow' | 'enforce';
+export type NotifyP3Mode = 'digest' | 'off' | 'immediate';
+export interface NotifyImpactFloors {
+  errorFailed5m: number; errorPct: number; minCalls5m: number;
+  latencyP99DeltaMs: number; trafficDropPct: number; trafficMinBaselineCalls5m: number;
+}
+export interface NotifyPolicy {
+  mode: NotifyPolicyMode;
+  p3: NotifyP3Mode;
+  digestTimes: string[];
+  quietHours?: { from: string; to: string } | null;
+  noiseDedupeHours: number;
+  noiseMuteHours: number;
+  template?: 'tr' | 'legacy';
+  impactFloors: NotifyImpactFloors;
+  updatedBy?: string;
+  updatedAt?: number;
+}
+export interface NotifyReplayFamily {
+  family: string; opened: number; sentBefore: number; sendRowsBefore: number; wouldSendAfter: number;
+  holds: Record<string, number>; flapReopens: number; noiseMarked: number;
+}
+export interface NotifyReplayRecallCase {
+  reason: 'real_mark' | 'confirmed_case'; id: string; caseId?: string; signature?: string;
+  family: string; headline: string; priority: string; hold: string; startedAt: number;
+}
+export interface NotifyReplayReport {
+  from: number; to: number; days: number; policy: NotifyPolicy;
+  families: NotifyReplayFamily[]; totals: NotifyReplayFamily;
+  recall: { checked: number; held: number; pass: boolean; cases: NotifyReplayRecallCase[]; outOfFunnel: number; notFound: number };
+  shadow: Record<string, number>;
+  truncated: { problems: boolean; sends: boolean; traffic: boolean };
+  notes: string[];
+}
+export interface NotifyDigestItem {
+  signature: string; problemId: string; service: string; severity: string; priority: string; kind: string;
+  headline: string; impact: string; confidence: string; startedAt: number; queuedAt: number; count: number;
+}

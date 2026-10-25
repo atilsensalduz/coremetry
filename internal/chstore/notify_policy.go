@@ -3,6 +3,9 @@ package chstore
 // notify_policy.go — v0.10.1523 (Problem standardı R1): bildirim politikası
 // blobu (system_settings "notify_policy") + SAF bildirim kararı NotifiableAt.
 //
+// v0.10.1533 (R5): `enforce` kipi artık gönderimi yönetir (internal/notify/
+// enforce.go; P3 → özet kuyruğu, digest.go). Varsayılan yine `shadow` (D8).
+//
 // R1'DE HİÇBİR GÖNDERİM DEĞİŞMEZ. Karar yalnız GÖLGE kipte ölçülür
 // (internal/notify/policy_shadow.go notification_log'a channel_kind='policy'
 // satırı yazar) ve replay ucu (api/notify_policy_replay.go) geçmiş 14 günü

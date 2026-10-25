@@ -6382,3 +6382,10 @@ a.idchip__val:hover { color: var(--accent2); text-decoration: underline; }
 .nr-pop { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px; }
 .nr-reasons { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .nr-reason { display: flex; align-items: baseline; gap: 6px; font-size: 12px; cursor: pointer; }
+
+/* v0.10.1533 (Problem standardı R5) — Settings → Bildirim politikası
+   (pages/settings/NotifyPolicyTab.tsx). */
+.np-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px 16px; }
+.np-sub { font-size: 13px; font-weight: 600; margin: 16px 0 8px; }
+.np-recall { margin-top: 10px; font-size: 12px; color: var(--text); }
+.np-recall ul, .np-digest { margin: 6px 0 0; padding-left: 18px; font-size: 12px; }

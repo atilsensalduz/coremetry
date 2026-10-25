@@ -5,6 +5,7 @@ package api
 //
 //	GET /api/admin/notify-policy                 admin — kayıtlı notify_policy blobu
 //	PUT /api/admin/notify-policy                 admin — doğrula + kaydet + yayınla; audit notify.policy
+//	GET /api/admin/notify-digest                 admin — bekleyen P3 özet kalemleri (v0.10.1533, R5)
 //
 // Replay ucu (GET /api/admin/notify-policy/replay) kendi dosyasında:
 // notify_policy_replay.go.
@@ -12,9 +13,9 @@ package api
 // api.go BÜYÜMEZ (TestApiGoDoesNotGrow): rotalar bu dosyada, kayıt init()'te
 // registerRoutesExtra ile.
 //
-// Neden admin-only ve neden UI yok: R1 görünür değişiklik taşımaz; politika
-// varsayılanı `shadow` (gönderim değişmez) ve ayar ekranı R5'te gelir. Uçlar
-// operatörün prod'da replay'i koşup gölge ölçümü okuyabilmesi için.
+// Neden admin-only: politika tüm bildirimlerin kapısı. v0.10.1533 (R5) — ayar
+// ekranı Settings → Bildirim politikası (kip, P3 özeti, sessiz saat, tabanlar,
+// şablon + replay özeti); enforce'a geçiş yine yöneticinin kararı (D8).
 
 import (
 	"context"
@@ -34,6 +35,19 @@ func init() { registerRoutesExtra("notify-policy", (*Server).registerNotifyPolic
 func (s *Server) registerNotifyPolicyRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/admin/notify-policy", auth.RequireRole(auth.RoleAdmin, s.getNotifyPolicy))
 	mux.HandleFunc("PUT /api/admin/notify-policy", auth.RequireRole(auth.RoleAdmin, s.putNotifyPolicy))
+	mux.HandleFunc("GET /api/admin/notify-digest", auth.RequireRole(auth.RoleAdmin, s.getNotifyDigest))
+}
+
+// getNotifyDigest — bekleyen P3 özet kalemleri (önbelleksiz: kuyruk küçük,
+// ekran açıkken okunur; okuma LIMIT'li).
+func (s *Server) getNotifyDigest(w http.ResponseWriter, r *http.Request) {
+	items, err := s.store.ListDigestPending(r.Context())
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	last, _ := s.store.ReadDigestLast(r.Context())
+	writeJSON(w, map[string]any{"items": items, "lastSlot": last})
 }
 
 // LoadNotifyPolicy — boot hidrasyonu (main.go); okuma hatasında son iyi değer.
@@ -118,8 +132,8 @@ func (s *Server) putNotifyPolicy(w http.ResponseWriter, r *http.Request) {
 	chstore.SetNotifyPolicy(c)
 	saved := chstore.CurrentNotifyPolicy()
 	s.audit(r, "notify.policy", "notify_policy", chstore.NotifyPolicyKey,
-		fmt.Sprintf(`{"mode":%q,"p3":%q,"digestTimes":%q,"noiseDedupeHours":%g}`,
-			saved.Mode, saved.P3, strings.Join(saved.DigestTimes, ","), saved.NoiseDedupeHours))
+		fmt.Sprintf(`{"mode":%q,"p3":%q,"digestTimes":%q,"noiseDedupeHours":%g,"noiseMuteHours":%g,"template":%q}`,
+			saved.Mode, saved.P3, strings.Join(saved.DigestTimes, ","), saved.NoiseDedupeHours, saved.NoiseMuteHours, saved.Template))
 	log.Printf("[settings] notify_policy: mode=%s p3=%s", saved.Mode, saved.P3)
 	writeJSON(w, saved)
 }

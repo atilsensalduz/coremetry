@@ -11871,3 +11871,33 @@ problemlerin ilk bildirimi AÇILDI ile yeni konu açar.
 
 **Geri alma.** Davranışı anında: `PUT /api/admin/notify-policy {"template":"legacy", …}` (≤ 30 sn). Tamamı:
 `git revert <sha>` + yeni etiket; notify-thread satırları okunmadan kalır.
+
+## 2026-10-25 — v0.10.1533 — Problem standardı R5: enforce kablosu + P3 özeti + ayar ekranı
+
+**Bağlam.** Program dilimi R5 (D7 P3 özeti 09:00/16:00, D8 enforce'tan önce 7 gün gölge + %100 recall). Operatör
+2026-10-25: "R3 R4 R5 ve geri kalanları da yap". Varsayılan kip **shadow kalır**: enforce'a geçiş D8 gereği
+yöneticinin kararı (yeni ekrandan, replay kanıtıyla).
+
+**Karar.**
+- `notify/enforce.go` `enforceGate`: `mode=enforce` iken gölgenin ölçtüğü kararın AYNISI (`chstore.NotifiableAt`)
+  gönderim yolunda senkron. Sıra: mevcut kapılar → gölge → enforce → konu (R4) → fan-out. Tutulan açılış konu açmaz;
+  çözülme yalnız açılışı gitmiş konuya gider (`resolve:not_opened`; konu okunamazsa güvenli yön: gönder). D3 tekrar
+  penceresi gerçek gönderimlerle (süreç-içi defter). İmzasız kayıt (olay) politika dışı. Exception P1 anonsu da kapıdan
+  geçer. shadow / off kipinde no-op (test pinli).
+- D7: P3 → `chstore.EnqueueDigest` (saved_views `page='notify-digest'`, imza başına tek satır, tekrar sayacı);
+  kuyruğa yazılamazsa ANINDA gönderilir (kayıp yok). `notify/digest.go` lider kilitli (`notify-digest`) dakikada bir
+  bakar; slot kararı SAF (`chstore.DigestSlotDue`: bugünün geçmiş en yeni slotu, son gönderilen değil, ≤ 2 sa geride),
+  son slot `system_settings.notify_digest_last` (işaret gönderimden ÖNCE: çift özet kaçırılan özetten kötü). Hedef:
+  P3'ün anında gideceği her etkin kanal (MatchesProblem) + ekip yönlendirmesi; e-posta / Slack / Teams / Zoom. Webhook
+  ve WhatsApp özet almaz (notification_log "özet desteklenmiyor"). notification_log `related_kind='digest'`.
+- `GET /api/admin/notify-digest` (admin) bekleyen kalemler; PUT denetimi noiseMuteHours + template'i de yazar.
+- FE: Settings → **Bildirim politikası** (`pages/settings/NotifyPolicyTab.tsx`): kip, şablon, P3, özet saatleri, sessiz
+  saat (P2), tekrar / "problem değil" pencereleri, D6 tabanları; 14 günlük replay (aile başına bugün giden → yeni barla,
+  azalma, tutma nedenleri; düğmeyle, aç-üzerine-getir) + recall rozeti ve tutulacak gerçek olaylar listesi; özet kuyruğu.
+  Enforce kaydı her zaman onay ister; recall temiz değilse onay "tehlikeli" tonda ve metni söyler
+  (`lib/notifyPolicyForm.ts` `enforceReadiness`).
+
+**Bedeller.** enforce'ta açılış başına bir küçük service_summary_5m okuması (gölgeyle aynı). Özet: slot başına bir
+kuyruk okuması + kanal başına bir gönderim.
+
+**Geri alma.** `mode: shadow` (≤ 30 sn); bekleyen özet kalemleri yine bir sonraki slotta gider. Tamamı: `git revert`.

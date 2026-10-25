@@ -10,6 +10,7 @@ export const SETTINGS_TAB_INDEX: SettingsTabRef[] = [
   { slug: 'smtp', label: 'SMTP' },
   { slug: 'channels', label: 'Notification channels' },
   { slug: 'team-routing', label: 'Team routing' },
+  { slug: 'notify-policy', label: 'Bildirim politikası' }, // v0.10.1533 (Problem standardı R5)
   { slug: 'api-tokens', label: 'API Tokens' },
   { slug: 'maintenance', label: 'Maintenance windows' },
   { slug: 'ai', label: 'CoSRE' },

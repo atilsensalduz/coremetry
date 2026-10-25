@@ -50,6 +50,8 @@ var systemSavedViewPages = map[string]struct{}{
 	// v0.10.1532 — bildirim konusu (Problem standardı R4); yalnız notify
 	// paketi yazar (lifecycle.go).
 	NotifyThreadPage: {},
+	// v0.10.1533 — P3 özet kuyruğu (Problem standardı R5); yalnız notify yazar.
+	NotifyDigestPage: {},
 }
 
 // IsSystemSavedViewPage — SAF: page bir sistem sayfası mı (systemSavedViewPages).

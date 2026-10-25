@@ -18,6 +18,7 @@ import { IconLock } from '@/components/icons';
 import { SMTPTab } from './settings/SmtpTab';
 import { ChannelsTab } from './settings/ChannelsTab';
 import { TeamRoutingTab } from './settings/TeamRoutingTab';
+import { NotifyPolicyTab } from './settings/NotifyPolicyTab'; // v0.10.1533
 import { ApiTokensTab } from './settings/ApiTokensTab';
 import { MaintenanceTab } from './settings/MaintenanceTab';
 import { AITab } from './settings/AiTab';
@@ -64,6 +65,7 @@ const TAB_COMPS: Record<string, ComponentType> = {
   'smtp': SMTPTab,
   'channels': ChannelsTab,
   'team-routing': TeamRoutingTab,
+  'notify-policy': NotifyPolicyTab,
   'api-tokens': ApiTokensTab,
   'maintenance': MaintenanceTab,
   'ai': AITab,
