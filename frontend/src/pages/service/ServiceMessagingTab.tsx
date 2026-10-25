@@ -6,9 +6,7 @@
 // tablo testli); yürütme /api/metrics/promql (?metricsrc=vm, 30 sn sunucu
 // önbelleği) — HTTP Metrics sekmesiyle aynı yol (useHttpPromql).
 //
-// Maliyet disiplini: "Genel bakış" ve "Sağlık" (4 grafik) açık gelir;
-// "Ayrıntı" ve "Diğer pano panelleri" (v0.10.1545) KAPALI ve yalnız
-// açılınca sorgu atar (aç-üzerine-getir).
+// Bölümler (v0.10.1548) açık gelir; operatör kapattığı bölüm sorgu atmaz.
 // v0.10.1540 — 30 grafik → 9 (operatör: "sade, anlamlı"). Süzgeçler (pod / consumer / producer client) URL'de (?khost,
 // ?kcons, ?kprod); seçenekler süzgeçsiz anlık bağlantı serilerinden.
 // Servis VM'de hiç Kafka istemci metriği yazmıyorsa sekme bunu söyler
@@ -27,7 +25,9 @@ import { useThemeTick } from '@/lib/useThemeTick';
 import type { TimeRange } from '@/lib/types';
 
 const FILTER_SPEC = { khost: strParam(), kcons: strParam(), kprod: strParam() };
-const OPEN_BY_DEFAULT: KafkaSection[] = ['overview', 'health'];
+// v0.10.1548 (operatör: "paneller açık olsun ama series kısmı kapalı") — tüm
+// bölümler açık; seri lejantları kapalı (v0.10.1547), panel boyu kısa kalır.
+const OPEN_BY_DEFAULT: KafkaSection[] = ['overview', 'health', 'detail', 'more'];
 
 function itemsOf(panels: KafkaPanel[]): HttpPromqlItem[] {
   return panels.flatMap(p => p.queries.map((q, i) => ({ id: `${p.id}#${i}`, expr: q.expr, instant: false })));
