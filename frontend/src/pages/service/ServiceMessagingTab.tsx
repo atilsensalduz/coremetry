@@ -6,9 +6,9 @@
 // tablo testli); yürütme /api/metrics/promql (?metricsrc=vm, 30 sn sunucu
 // önbelleği) — HTTP Metrics sekmesiyle aynı yol (useHttpPromql).
 //
-// Maliyet disiplini: "Genel bakış" ve "Bağlantılar" açık gelir; Tüketici /
-// Üretici / Ağ bölümleri KAPALI ve yalnız açılınca sorgu atar (aç-üzerine-
-// getir). Süzgeçler (pod / consumer / producer client) URL'de (?khost,
+// Maliyet disiplini: "Genel bakış" ve "Sağlık" (4 grafik) açık gelir;
+// "Ayrıntı" KAPALI ve yalnız açılınca sorgu atar (aç-üzerine-getir).
+// v0.10.1540 — 30 grafik → 9 (operatör: "sade, anlamlı"). Süzgeçler (pod / consumer / producer client) URL'de (?khost,
 // ?kcons, ?kprod); seçenekler süzgeçsiz anlık bağlantı serilerinden.
 // Servis VM'de hiç Kafka istemci metriği yazmıyorsa sekme bunu söyler
 // (boş grafik ızgarası yerine).
@@ -26,7 +26,7 @@ import { useThemeTick } from '@/lib/useThemeTick';
 import type { TimeRange } from '@/lib/types';
 
 const FILTER_SPEC = { khost: strParam(), kcons: strParam(), kprod: strParam() };
-const OPEN_BY_DEFAULT: KafkaSection[] = ['overview', 'connections'];
+const OPEN_BY_DEFAULT: KafkaSection[] = ['overview', 'health'];
 
 function itemsOf(panels: KafkaPanel[]): HttpPromqlItem[] {
   return panels.flatMap(p => p.queries.map((q, i) => ({ id: `${p.id}#${i}`, expr: q.expr, instant: false })));
@@ -58,11 +58,9 @@ export function ServiceMessagingTab({ service, range }: { service: string; range
   const bySection = (s: KafkaSection) => panels.filter(p => p.section === s);
   // Bölüm başına ayrı kanca: kapalı bölüm sorgu atmaz (enabled=false).
   const ov = useHttpPromql(itemsOf(bySection('overview')), win, !noKafka);
-  const cn = useHttpPromql(itemsOf(bySection('connections')), win, !noKafka && open.has('connections'));
-  const cs = useHttpPromql(itemsOf(bySection('consumer')), win, !noKafka && open.has('consumer'));
-  const pr = useHttpPromql(itemsOf(bySection('producer')), win, !noKafka && open.has('producer'));
-  const nw = useHttpPromql(itemsOf(bySection('network')), win, !noKafka && open.has('network'));
-  const res: Record<KafkaSection, typeof ov> = { overview: ov, connections: cn, consumer: cs, producer: pr, network: nw };
+  const he = useHttpPromql(itemsOf(bySection('health')), win, !noKafka && open.has('health'));
+  const de = useHttpPromql(itemsOf(bySection('detail')), win, !noKafka && open.has('detail'));
+  const res: Record<KafkaSection, typeof ov> = { overview: ov, health: he, detail: de };
 
   if (opts.pending('cons') && opts.pending('prod')) return <Spinner />;
   if (opts.error('cons') && opts.error('prod')) {
@@ -137,8 +135,8 @@ export function ServiceMessagingTab({ service, range }: { service: string; range
         );
       })}
       <div className="field-hint">
-        Kaynak: VictoriaMetrics, “OTel Java - Kafka Client Metrics” panosunun sorguları (service_name=&quot;{service}&quot;).
-        Bağlantı / lag / rebalance metrikleri <span className="mono">topic</span> etiketi taşımaz — istemci düzeyindedir.
+        Kaynak: VictoriaMetrics, “OTel Java - Kafka Client Metrics” panosundan sadeleştirilmiş sorgular (service_name=&quot;{service}&quot;).
+        Grafikler istemci (client_id) başınadır, pod'lar toplanır; topic başına görünüm Messaging → topic sayfasında.
       </div>
     </div>
   );

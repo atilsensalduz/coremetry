@@ -58,7 +58,8 @@ describe('ServiceMessagingTab', () => {
     const el = await mount();
     expect(el.textContent).toContain('En yüksek tüketici lag');
     expect([...el.querySelectorAll('option')].map(o => o.textContent)).toContain('pod-1');
-    expect(m.queries.some(q => q.includes('kafka_producer_record_queue_time'))).toBe(false); // Üretici bölümü kapalı
-    expect(m.queries.some(q => q.includes('kafka_consumer_connection_creation_rate'))).toBe(true); // Bağlantılar açık
+    // v0.10.1540 — Ayrıntı kapalı (sorgu yok), Sağlık açık.
+    expect(m.queries.some(q => q.includes('kafka_producer_buffer_available_bytes'))).toBe(false);
+    expect(m.queries.some(q => q.includes('kafka_consumer_fetch_latency_max'))).toBe(true);
   });
 });
