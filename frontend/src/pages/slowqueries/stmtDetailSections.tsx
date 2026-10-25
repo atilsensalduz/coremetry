@@ -352,6 +352,12 @@ export function StmtExemplarsSection({ detail, range }: {
 // aynı yüklem), normalize SQL metni değil — gerekçe stmtIdentityTracesHref
 // başında. Servis daraltması yok; çağıranlar yalnız link başlığında.
 // `detail` beklemez: kimlik URL'de, pencere sayfada — yüklenirken de çalışır.
+// v0.10.1530 — Operator-reported (prod ekran görüntüsü): "Trace'ler ve hatalı
+// trace'ler yazıları gözükmüyor. Sağ üst köşede Alarm oluştur'da buton olarak
+// gözükse daha iyi olur." 12 px metin-link başlığın altında kayboluyordu; iki
+// pivot artık başlık satırında, "Alarm oluştur"un solunda `a.sec` düğmesi
+// (gezinme yapan düğme = <Link className="sec">, DrillButton deseni). Hatalı
+// pivot yalnız yazı renginde ayrışır (renk yalnız sapan değerde).
 export function StmtTracesPivotRow({ hash, system, range, callers }: {
   hash: string;
   system?: string;
@@ -366,13 +372,12 @@ export function StmtTracesPivotRow({ hash, system, range, callers }: {
     : '';
   const scope = `db_stmt_hash = ${hash}${system ? `, db.system = ${system}` : ''}, aynı zaman penceresi`;
   return (
-    <div data-testid="stmt-traces-row"
-      style={{ display: 'flex', gap: 16, fontSize: 12, flexWrap: 'wrap', marginBottom: 10 }}>
-      <Link to={allHref} style={{ color: 'var(--accent2)' }}
+    <div data-testid="stmt-traces-row" className="stmt-pivots">
+      <Link to={allHref} className="sec"
         title={`Bu ifade sınıfının span'ini taşıyan tüm trace'ler (${scope}).${callerNote}`}>
         Trace'ler →
       </Link>
-      <Link to={errHref} style={{ color: 'var(--err)' }}
+      <Link to={errHref} className="sec stmt-pivots__err"
         title={`Aynı küme, yalnız hatalı trace'ler (${scope}).${callerNote}`}>
         Hatalı trace'ler →
       </Link>

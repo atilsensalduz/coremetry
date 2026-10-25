@@ -6368,3 +6368,11 @@ a.idchip__val:hover { color: var(--accent2); text-decoration: underline; }
 @media (max-width: 640px) {
   .std-why { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* v0.10.1530 — statement detayı: trace pivotları başlık satırında düğme
+   (pages/slowqueries/stmtDetailSections.tsx StmtTracesPivotRow). margin-left
+   auto: satırın sağ grubu (pivotlar + Alarm oluştur + vs prior) buradan başlar.
+   Boyut "Alarm oluştur" (Button size=sm) ile hizalı. */
+.stmt-pivots { display: inline-flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+.stmt-pivots a.sec { font-size: 12px; padding: 3px 10px; white-space: nowrap; }
+.stmt-pivots a.sec.stmt-pivots__err { color: var(--err); }

@@ -125,17 +125,23 @@ export default function StatementDetailPage() {
             title={`Persistent statement identity (stmt_hash ${refObj.hash})`}>
             #{stmtShortId(refObj.hash)}
           </span>
+          {/* v0.10.1093 — sınıfın tüm trace'leri (operatör: "traces alanı
+              yok"). Kimlik URL'den; detail yüklenirken de tıklanabilir.
+              v0.10.1530 (operatör: "sağ üst köşede Alarm oluştur'da buton
+              olarak gözüksün") — başlık satırında, düğme olarak, sağa yaslı. */}
+          <StmtTracesPivotRow hash={refObj.hash} system={refObj.system || undefined}
+            range={range} callers={detail?.callers} />
           {/* v0.10.331 — bu ifade için hedefli alarm kuralı (editör/admin).
               v0.10.516 (operatör: "Alarm oluştur yazısı çok küçük") — xs → sm. */}
           {canEditRules && (
-            <Button variant="secondary" size="sm" style={{ marginLeft: 'auto' }} onClick={() => setAlertOpen(true)}
+            <Button variant="secondary" size="sm" onClick={() => setAlertOpen(true)}
               title="Bu ifade için eşik alarmı: p95/p99/max/avg süresi eşiği geçince Problem + DB sahibi/SRE maili">
               ⚠ Alarm oluştur
             </Button>
           )}
           <label style={{
             fontSize: 11, display: 'flex', alignItems: 'center', gap: 4,
-            cursor: 'pointer', marginLeft: canEditRules ? undefined : 'auto', whiteSpace: 'nowrap',
+            cursor: 'pointer', whiteSpace: 'nowrap',
           }}
             title="Compare current window against the immediately-preceding equal-length window. Adds a second backend read; off by default.">
             <input type="checkbox" checked={compare}
@@ -143,11 +149,6 @@ export default function StatementDetailPage() {
             vs prior
           </label>
         </div>
-
-        {/* v0.10.1093 — sınıfın tüm trace'leri (operatör: "traces alanı
-            yok"). Kimlik URL'den; detail yüklenirken de tıklanabilir. */}
-        <StmtTracesPivotRow hash={refObj.hash} system={refObj.system || undefined}
-          range={range} callers={detail?.callers} />
 
         <StmtText
           statement={detail?.statement || ''}

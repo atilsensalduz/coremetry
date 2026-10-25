@@ -81,7 +81,31 @@ describe('StmtTracesPivotRow', () => {
     expect(texts).toEqual(['slowest →', 'worst error →', "N+1 trace'leri →"]);
   });
 
-  it('StatementDetail satırı başlığın altında, kimlikle ve sayfa penceresiyle monte eder', () => {
+  // v0.10.1530 — Operator-reported (prod): "Trace'ler ve hatalı trace'ler
+  // yazıları gözükmüyor. Sağ üst köşede Alarm oluştur'da buton olarak gözükse
+  // daha iyi olur." Pivotlar düğme (a.sec) ve başlık satırında, Alarm'ın solunda.
+  it('v0.10.1530 — pivotlar a.sec düğmesi; satır sağa yaslı', () => {
+    const el = render(<StmtTracesPivotRow hash={HASH} range={{ preset: '1h' }} />);
+    const row = el.querySelector('[data-testid="stmt-traces-row"]')!;
+    expect(row.classList.contains('stmt-pivots')).toBe(true);
+    for (const a of row.querySelectorAll('a')) expect(a.classList.contains('sec')).toBe(true);
+    const css = readFileSync(resolve(__dirname, '../../styles/globals.css'), 'utf8');
+    expect(css).toMatch(/\.stmt-pivots \{[^}]*margin-left: auto/);
+  });
+
+  it('v0.10.1530 — StatementDetail: pivotlar başlık satırında, Alarm oluştur\'dan ÖNCE', () => {
+    const src = readFileSync(resolve(__dirname, '../StatementDetail.tsx'), 'utf8');
+    const title = src.indexOf('>Statement detail<');
+    const row = src.indexOf('<StmtTracesPivotRow');
+    const alarm = src.indexOf('⚠ Alarm oluştur');
+    expect(title).toBeGreaterThan(0);
+    expect(row).toBeGreaterThan(title);
+    expect(alarm).toBeGreaterThan(row);
+    // Alarm düğmesi kendi marginLeft:auto'sunu taşımaz (sağ grup pivotlarla başlar).
+    expect(src.slice(row, alarm + 40)).not.toContain("marginLeft: 'auto'");
+  });
+
+  it('StatementDetail satırı başlıkta, kimlikle ve sayfa penceresiyle monte eder', () => {
     const src = readFileSync(resolve(__dirname, '../StatementDetail.tsx'), 'utf8');
     expect(src).toMatch(/<StmtTracesPivotRow hash=\{refObj\.hash\}[\s\S]*?range=\{range\}/);
     // detail'in DIŞINDA (yüklenirken de görünür) ve StmtText'ten önce.
