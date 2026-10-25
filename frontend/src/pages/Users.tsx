@@ -241,7 +241,10 @@ export default function UsersPage() {
                           sighting only while it's still fresh, else "—". */}
                       {u.online ? (
                         <span>
-                          <span className="badge b-gray"
+                          {/* v0.10.1535 (operatör: "online user statüsü yeşildi gri oldu,
+                              beğenmedim") — K5 nötr kuralına bilinçli istisna: varlık
+                              (presence) yeşil (.b-online, k5HealthNeutral izin listesi). */}
+                          <span className="badge b-online"
                             title="Authenticated API activity in the last 5 minutes">
                             ● online
                           </span>

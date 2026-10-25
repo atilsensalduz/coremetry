@@ -31,3 +31,12 @@ describe('Users — Last seen hücresi', () => {
     expect((src.match(/tsRel\(u\.lastSeenAt\)/g) ?? []).length).toBe(2);
   });
 });
+
+// v0.10.1535 (operatör-raporlu) — online rozeti yeşil (b-online), gri değil.
+describe('online rozeti yeşil (v0.10.1535)', () => {
+  it('b-online sınıfı', () => {
+    const br = onlineBranch();
+    expect(br).toContain('className="badge b-online"');
+    expect(br).not.toMatch(/badge b-gray"\s*\n\s*title="Authenticated API activity/);
+  });
+});

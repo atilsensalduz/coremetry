@@ -6389,3 +6389,9 @@ a.idchip__val:hover { color: var(--accent2); text-decoration: underline; }
 .np-sub { font-size: 13px; font-weight: 600; margin: 16px 0 8px; }
 .np-recall { margin-top: 10px; font-size: 12px; color: var(--text); }
 .np-recall ul, .np-digest { margin: 6px 0 0; padding-left: 18px; font-size: 12px; }
+
+/* v0.10.1535 (operatör-raporlu: "Yeşil olabilir, online user statüsü yeşildi
+   gri oldu, beğenmedim") — kullanıcı varlığı (Users "● online") K5 nötr
+   kuralının istisnası: canlı varlık yeşil. Yalnız bu rozet; sağlık durumları
+   nötr kalır (k5HealthNeutral izin listesi). */
+.badge.b-online { background: var(--ok-bg); color: var(--ok); }

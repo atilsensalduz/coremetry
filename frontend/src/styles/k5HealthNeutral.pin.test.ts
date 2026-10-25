@@ -56,6 +56,8 @@ const ALLOW_OK = new Map<string, string>([
   // v0.10.1425 — HTTP method rozeti: POST yeşil, API araçlarının kategori eşlemesi (GET mavi, PUT/PATCH amber,
   // DELETE kırmızı). Sağlık/sapma değil, kategorik etiket; ui/MethodBadge tek kaynak.
   ['.badge.m-post',                       'HTTP method rozeti POST — kategori rengi (ui/MethodBadge), sağlık değil'],
+  // v0.10.1535 — operatör kararı (2026-10-25): kullanıcı varlığı "● online" yeşil (Users).
+  ['.badge.b-online',                     'kullanıcı varlığı (Users online rozeti) — operatör istisnası v0.10.1535'],
   // v0.10.929 (K5, lider kararı) — ölü .pb-tile.ok kuralı silindi, girdisi de.
 ]);
 
