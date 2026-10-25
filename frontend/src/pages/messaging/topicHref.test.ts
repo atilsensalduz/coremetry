@@ -7,7 +7,10 @@ import {
 describe('parseTopicTab', () => {
   it('bilinen değerler geçer', () => {
     expect(parseTopicTab('consumers')).toBe('consumers');
-    expect(parseTopicTab('clients')).toBe('clients');
+    expect(parseTopicTab('operations')).toBe('operations');
+    // v0.10.1539 — kalkan sekmeler eski linkte varsayılana düşer.
+    expect(parseTopicTab('clients')).toBe(MSG_TOPIC_DEFAULT_TAB);
+    expect(parseTopicTab('partitions')).toBe(MSG_TOPIC_DEFAULT_TAB);
     expect(parseTopicTab('spannames')).toBe('spannames');
   });
   it('boş / bilinmeyen değer VARSAYILANA düşer (sessiz boş gövde yok)', () => {
@@ -49,11 +52,11 @@ describe('messagingTopicHref', () => {
   });
   it('sekme verilirse yazılır; custom pencere token olarak geçer', () => {
     const href = messagingTopicHref({
-      system: 'kafka', cluster: 'c', destination: 'o', tab: 'clients',
+      system: 'kafka', cluster: 'c', destination: 'o', tab: 'operations',
       range: { preset: 'custom', fromMs: 1000, toMs: 2000 },
     });
     const sp = new URLSearchParams(href.slice(href.indexOf('?') + 1));
-    expect(sp.get('tab')).toBe('clients');
+    expect(sp.get('tab')).toBe('operations');
     expect(sp.get('range')).toBe('custom:1000-2000');
   });
   it('destination özel karakterleri kodlanır (alan sınırı uydurulamaz)', () => {

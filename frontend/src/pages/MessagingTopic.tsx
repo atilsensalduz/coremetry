@@ -27,18 +27,15 @@ import { lazy, Suspense, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Topbar } from '@/components/Topbar';
 import { PageShell } from '@/components/ui/PageShell';
-import { StatTile, TabStrip } from '@/components/ui';
+import { TabStrip } from '@/components/ui';
 import { Spinner, Empty } from '@/components/Spinner';
 import { LazyMount } from '@/components/LazyMount';
 import { useDataTable, DataTableHead, DataTableColgroup, DataTableCell, DataTableState, type ColumnDef } from '@/components/ui/DataTable';
 import { CallerSection } from '@/features/dependencies/CallerSection';
-import { KafkaClientsSection } from '@/features/dependencies/KafkaClientsSection';
-import { PartitionLagTable } from '@/features/dependencies/PartitionLagTable'; // v0.10.589
+import { KafkaTopicMetrics } from '@/features/dependencies/KafkaTopicMetrics'; // v0.10.1539
 import { kindSeries } from '@/features/dependencies/msgSeries';
-import { kafkaChartItems, kafkaDegradeTR } from '@/features/dependencies/kafkaClients';
 import { opLabelTR, isOpMissing, msgOperationRows, OP_MISSING_TITLE } from '@/features/dependencies/msgOperations';
-import { useMessagingClients, useMessagingTopicDetail } from '@/lib/queries/messaging';
-import { metricOnlyServices } from './messaging/metricOnlyServices';
+import { useMessagingTopicDetail } from '@/lib/queries/messaging';
 import { messagingTracesHref } from '@/lib/pivotHref';
 import { traceHref } from '@/lib/traceHref';
 import { navHref } from '@/lib/navHref';
@@ -52,13 +49,6 @@ import type { DBOpStat, MsgOperationStat, TimeRange } from '@/lib/types';
 // rotanın chunk'ı ~1 MB büyür ve grafik GÖRÜNMESE de ödenir.
 const CorePanelMultiLazy = lazy(() =>
   import('@/components/chart/corePanelEntry').then(m => ({ default: m.CorePanelMulti })));
-
-// msOrDash — v0.9.263 sözleşmesi: sunucunun GÖNDERMEDİĞİ süre '—', asla
-// "0.0 ms". Alanlar opsiyonel çünkü rolling deploy sırasında ısınmış önbellek
-// onları taşımayabiliyor ve 0.0 ms "anlık" diye okunur.
-function msOrDash(v?: number): string {
-  return v === undefined ? '—' : `${v.toFixed(1)} ms`;
-}
 
 export default function MessagingTopicPage() {
   const [params, setParams] = useSearchParams();
@@ -82,6 +72,7 @@ export default function MessagingTopicPage() {
   // timeRangeToNs YALNIZ memo içinde — çıplak JSX'te sonsuz refetch (v0.5.184).
   const { from, to } = useMemo(() => timeRangeToNs(range), [range]);
   const xRange = useMemo(() => ({ from: from / 1e9, to: to / 1e9 }), [from, to]);
+  const win = useMemo(() => ({ from, to }), [from, to]);
   const system = ref?.system ?? '';
   const cluster = ref?.cluster ?? '';
   const destination = ref?.destination ?? '';
@@ -92,12 +83,6 @@ export default function MessagingTopicPage() {
   const detailQ = useMessagingTopicDetail({
     system, cluster, destination, fromNs: from, toNs: to, enabled: !!ref,
   });
-  // AÇILIŞTA YALNIZ `set=chart` — iki soru. Beş soruluk çekmece kümesi bu
-  // sayfada hiç istenmiyor; istemci aileleri kendi sekmesini bekliyor.
-  const chartQ = useMessagingClients({
-    system, cluster, destination, fromNs: from, toNs: to, set: 'chart', enabled: !!ref,
-  });
-
   if (!ref) {
     return (
       <>
@@ -120,11 +105,6 @@ export default function MessagingTopicPage() {
   const producers = callers.filter(c => c.role === 'producer');
   const consumers = callers.filter(c => c.role === 'consumer');
   const others = callers.filter(c => c.role && c.role !== 'producer' && c.role !== 'consumer');
-  // v0.10.610 — span üretmeyip yalnız Kafka istemci metriğinde görülen servisler
-  // (609 keşfi, üst grafiğin set=chart cevabından; ek istek yok). Başlık ve
-  // sekme sayaçları bunları AYRI sayar — span satırı yok, RED sayısı uydurulmaz.
-  const metricOnlyProducers = metricOnlyServices(chartQ.data?.discoveredProducers, producers);
-  const metricOnlyConsumers = metricOnlyServices(chartQ.data?.discoveredConsumers, consumers);
   const msgOps = msgOperationRows(d?.operations);
   const topOps = d?.topOps ?? [];
   const e2e = d?.e2e;
@@ -160,68 +140,34 @@ export default function MessagingTopicPage() {
           </Link>
         </div>
 
-        {detailQ.isPending && <Spinner label="Topic detayı yükleniyor…" />}
+        {/* v0.10.1539 — ÖNCE METRİK (operatör: "topic'e girince kullanıcı önce
+            metrikleri görsün; ClickHouse'a gerek yok, doğrudan VM"): topic
+            etiketli Kafka istemci metrikleri, span detayından BAĞIMSIZ. */}
+        <KafkaTopicMetrics system={system} cluster={cluster} topic={destination} range={range} win={win} />
+
+        <h3 className="mtp-kafka-h mtp-span-h">Trace tarafı (span)</h3>
+        {detailQ.isPending && <Spinner label="Span detayı yükleniyor…" />}
         {d === null && (
-          <Empty icon="⚠" title="Detay sorgusu başarısız">
-            /api/messaging/detail isteği hata döndü. Pencereyi değiştirerek
-            yeniden dene ya da ClickHouse bağlantısını kontrol et.
+          <Empty icon="⚠" title="Span detayı alınamadı">
+            /api/messaging/detail isteği hata döndü; metrikler yukarıda.
           </Empty>
         )}
 
         {d && (
           <>
-            {/* SKOR ŞERİDİ — satırdaki sayılarla aynı, ama sayfa kendi başına
-                okunsun diye tekrarlanıyor (postmortem'e ekran görüntüsü
-                girdiğinde bağlam sayfada olmalı). */}
-            <div className="mtp-kpis">
-              <StatTile label="Span">{fmtNum(d.spanCount)}</StatTile>
-              <StatTile label="Hata %"
-                tone={d.errorRate > 5 ? 'err' : d.errorRate > 0 ? 'warn' : undefined}>
-                {`${d.errorRate.toFixed(2)} %`}
-              </StatTile>
-              <StatTile label="P50">{msOrDash(d.p50DurationMs)}</StatTile>
-              <StatTile label="P95">{msOrDash(d.p95DurationMs)}</StatTile>
-              <StatTile label="P99">{`${d.p99DurationMs.toFixed(1)} ms`}</StatTile>
-              {/* Uçtan uca p95 span gecikmesiyle AYNI BÜYÜKLÜK DEĞİL:
-                  produce→consume, span_links korelasyonu. Link yoksa '—' —
-                  sıfır yazmak "anında teslim" diye okunurdu. */}
-              <StatTile label="Uçtan uca P95">
-                {e2e && !e2e.linkless ? fmtNs(e2e.p95Ms * 1e6) : '—'}
-              </StatTile>
-            </div>
             <div className="mtp-cap">
-              üretici / tüketici <b>{producers.length}</b> / <b>{consumers.length}</b>
+              span üretici / tüketici <b>{producers.length}</b> / <b>{consumers.length}</b>
               {others.length > 0 && <> · diğer istemci <b>{others.length}</b></>}
-              {(metricOnlyProducers.length + metricOnlyConsumers.length) > 0 && (
-                <> · yalnız metrikte <b>{metricOnlyProducers.length + metricOnlyConsumers.length}</b>
-                  <span title="Span üretmeyen, yalnız Kafka istemci metriğinde (kafka-clients-metrics) görülen servisler"> (span üretmeyen istemci)</span></>
-              )}
-              {' '}· seçili pencere, <code className="mono">messaging_caller_summary_5m</code>
+              {' '}· {fmtNum(d.spanCount)} span · hata {d.errorRate.toFixed(2)} %
             </div>
-
-            <div className="grid-2 mtp-charts">
-              {/* SOL — üretim/tüketim hızı, METRİK tarafı (`set=chart`). */}
-              <div className="mtp-card">
-                <ChartPanel q={chartQ} xRange={xRange} syncKey={syncKey} />
-              </div>
-              {/* SAĞ — uçtan uca gecikme, SPAN tarafı. Çekmecedeki panelin
-                  ikizi; storageKey AYRI (msg-topic-e2e) ki iki yüzeyin
-                  sürüklenen genişlik/lejant durumu birbirine taşmasın. */}
-              <div className="mtp-card">
-                <E2EPanel e2e={e2e} range={range} xRange={xRange} syncKey={syncKey} />
-              </div>
+            <div className="mtp-card">
+              <E2EPanel e2e={e2e} range={range} xRange={xRange} syncKey={syncKey} />
             </div>
 
             <TabStrip ariaLabel="Topic sekmeleri" value={tab} onChange={setTab} tabs={[
-              { key: 'producers', label: <>Üreticiler<span className="tab-count">{producers.length}</span>
-                {metricOnlyProducers.length > 0 && <span className="tab-count" title="+ yalnız metrikte görülen (span üretmeyen) üretici">+{metricOnlyProducers.length}</span>}</> },
-              { key: 'consumers', label: <>Tüketiciler<span className="tab-count">{consumers.length}</span>
-                {metricOnlyConsumers.length > 0 && <span className="tab-count" title="+ yalnız metrikte görülen (span üretmeyen) tüketici">+{metricOnlyConsumers.length}</span>}</> },
+              { key: 'producers', label: <>Üreticiler<span className="tab-count">{producers.length}</span></> },
+              { key: 'consumers', label: <>Tüketiciler<span className="tab-count">{consumers.length}</span></> },
               { key: 'operations', label: <>Operasyonlar<span className="tab-count">{msgOps.length}</span></> },
-              { key: 'clients', label: 'Kafka istemcileri',
-                title: 'Metrik tarafı — bağlantı, gecikme, rebalance. Yalnız bu sekme seçilince istenir.' },
-              { key: 'partitions', label: "Partition'lar",
-                title: 'En kötü 20 partition: lag ve lead (metrik). Yalnız bu sekme seçilince istenir.' },
               { key: 'spannames', label: <>Span adları<span className="tab-count">{topOps.length}</span></> },
             ]} />
 
@@ -233,7 +179,6 @@ export default function MessagingTopicPage() {
                 tone="producer" range={range}
                 storageKey="msg-topic-producers" />
             )}
-            {tab === 'producers' && <MetricOnlyCallers names={metricOnlyProducers} what="üretici" />}
             {tab === 'consumers' && (
               <CallerSection
                 title={`Tüketiciler · ${consumers.length} satır`}
@@ -242,22 +187,7 @@ export default function MessagingTopicPage() {
                 tone="consumer" range={range}
                 storageKey="msg-topic-consumers" />
             )}
-            {tab === 'consumers' && <MetricOnlyCallers names={metricOnlyConsumers} what="tüketici" />}
             {tab === 'operations' && <OperationsTable rows={msgOps} />}
-            {/* Sekme seçili DEĞİLKEN bileşen hiç mount edilmiyor: VM sorgusu
-                ne kurulur ne de "arka planda hazır" tutulur. `enabled` de
-                geçiliyor — kapı iki katlı, çünkü ileride bir sekme önizlemesi
-                bileşeni erken mount ederse maliyet sessizce geri gelirdi. */}
-            {tab === 'clients' && (
-              <KafkaClientsSection
-                system={system} cluster={cluster} destination={destination}
-                range={range} xRange={xRange} syncKey={syncKey}
-                set="clients" enabled title="Kafka istemcileri" />
-            )}
-            {/* v0.10.589 — partition lag/lead; kendi set=partitions sorgusu, yalnız mount olunca. */}
-            {tab === 'partitions' && (
-              <PartitionLagTable system={system} cluster={cluster} destination={destination} range={range} />
-            )}
             {tab === 'spannames' && (
               <SpanNamesTable rows={topOps} range={range} system={system} destination={destination} />
             )}
@@ -265,41 +195,6 @@ export default function MessagingTopicPage() {
         )}
       </PageShell>
     </>
-  );
-}
-
-// ── üst grafik: üretim / tüketim (METRİK) ───────────────────────────────────
-
-function ChartPanel({ q, xRange, syncKey }: {
-  q: ReturnType<typeof useMessagingClients>;
-  xRange: { from: number; to: number };
-  syncKey?: string;
-}) {
-  if (q.isPending) {
-    return <div className="kc-line" role="status" aria-busy="true"><Spinner /> Üretim / tüketim…</div>;
-  }
-  const data = q.isError ? null : (q.data ?? null);
-  const degrade = kafkaDegradeTR(data);
-  // Seri yoksa <Empty> DEĞİL: bu bir sayfa değil, iki karodan biri. Boş-durum
-  // kutusu paneli sayfa boyunda bir "hata" gibi gösterirdi; çekmecedeki dil
-  // (tek satır soluk not) burada da doğru ölçek.
-  if (degrade || !data) {
-    return <div className="kc-line" title={data?.note}>◌ {degrade}</div>;
-  }
-  const { items, truncated } = kafkaChartItems(data.blocks);
-  const note = truncated ? `${data.note} · +${truncated} seri gösterilmiyor` : data.note;
-  return (
-    <LazyMount minHeight={190}>
-      <Suspense fallback={<div className="kc-fallback"><Spinner /></div>}>
-        <CorePanelMultiLazy
-          title={`Üretim / tüketim · METRİK (${data.source})`}
-          storageKey="msg-topic-rate"
-          height={170} xRange={xRange} syncKey={syncKey}
-          note={note}
-          emptyReason={items.length === 0 ? 'Bu pencerede kayıt/sn serisi yok' : undefined}
-          items={items} />
-      </Suspense>
-    </LazyMount>
   );
 }
 
@@ -495,18 +390,3 @@ function SpanNamesTable({ rows, range, system, destination }: {
   );
 }
 
-// MetricOnlyCallers — v0.10.610: span üretmeyip yalnız Kafka istemci
-// metriğinde görülen servisler. RED sayısı YOK (span yok); bağlantı/gecikme
-// için Kafka istemcileri sekmesi. Boşsa hiç çizilmez — CallerSection'ın
-// "span'i yok" mesajı tek başına doğru kalır.
-function MetricOnlyCallers({ names, what }: { names: string[]; what: 'üretici' | 'tüketici' }) {
-  if (names.length === 0) return null;
-  return (
-    <div className="mtp-cap">
-      Yalnız metrikte görülen {what} <b>{names.length}</b>{' — '}
-      {names.map((n, i) => <span key={n}>{i > 0 && ', '}<code className="mono">{n}</code></span>)}
-      {'. '}Bu servisler bu topic için span üretmiyor; kafka-clients metriği yayınlıyor.
-      Bağlantı, gecikme ve lag için <b>Kafka istemcileri</b> sekmesi.
-    </div>
-  );
-}

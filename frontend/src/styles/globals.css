@@ -6399,3 +6399,11 @@ a.idchip__val:hover { color: var(--accent2); text-decoration: underline; }
 /* v0.10.1536 — Service → Messaging sekmesi (pages/service/ServiceMessagingTab.tsx). */
 .svc-kafka-filters { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-bottom: 12px; }
 .svc-kafka-h { font-size: 13px; font-weight: 600; margin: 0 0 8px; }
+
+/* v0.10.1539 — topic sayfası: metrik önce (KafkaTopicMetrics, VM). */
+.mtp-kafka { margin: 12px 0 18px; }
+.mtp-kafka-stats { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); margin-bottom: 14px; }
+.mtp-kafka-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); margin-bottom: 14px; }
+.mtp-kafka-h { font-size: var(--fs-md); font-weight: 600; margin: 14px 0 8px; }
+.mtp-kafka-lag--alarm { border-left: 3px solid var(--warn); padding-left: 10px; }
+.mtp-span-h { color: var(--text3); border-top: 1px solid var(--border); padding-top: 14px; margin-top: 22px; }

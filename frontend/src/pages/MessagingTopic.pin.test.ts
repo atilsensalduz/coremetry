@@ -70,39 +70,32 @@ describe('URL sözleşmesi', () => {
   });
 });
 
-describe('maliyet disiplini — istemci metrik sorguları', () => {
-  it('açılışta YALNIZ set=chart', () => {
-    expect(page).toContain("set: 'chart', enabled: !!ref,");
-    // Açılışta ikinci bir istemci sorgusu (topic/clients) kurulmuyor.
+// v0.10.1539 — topic sayfası METRİK ÖNCE: topic etiketli Kafka istemci
+// metrikleri doğrudan VM'den (KafkaTopicMetrics), span detayından bağımsız;
+// eski set=chart / set=clients (servis kapsamlı, topic'siz) sorguları yok.
+describe('metrik önce (v0.10.1539)', () => {
+  const comp = readFileSync(new URL('../features/dependencies/KafkaTopicMetrics.tsx', import.meta.url), 'utf8');
+  it('metrik bölümü span detayından ÖNCE ve koşulsuz', () => {
+    const m = page.indexOf('<KafkaTopicMetrics system={system} cluster={cluster} topic={destination} range={range} win={win} />');
+    expect(m).toBeGreaterThan(-1);
+    expect(m).toBeLessThan(page.indexOf('{detailQ.isPending &&'));
+  });
+  it('servis kapsamlı istemci sorguları sayfada yok', () => {
+    expect(page).not.toContain('useMessagingClients');
+    expect(page).not.toContain('<KafkaClientsSection');
     expect(page).not.toContain("set: 'clients'");
-    expect(page).not.toContain("set: 'topic'");
+    expect(page).not.toContain("set: 'chart'");
   });
-  it('set=clients YALNIZ sekme seçilince: mount + enabled', () => {
-    const i = page.indexOf("{tab === 'clients' && (");
-    expect(i).toBeGreaterThan(-1);
-    const block = page.slice(i, i + 500);
-    expect(block).toContain('<KafkaClientsSection');
-    expect(block).toContain('set="clients" enabled');
-    // Bölüm koşulsuz mount edilirse maliyet sekmeden bağımsız ödenir.
-    expect(page.match(/<KafkaClientsSection/g)?.length ?? 0).toBe(1);
-  });
-  it('diğer sekmeler EK İSTEK yapmaz — veri tek detay yükünden', () => {
-    // Sayfada yalnız iki sorgu hook\'u var: detay + grafik.
+  it('veri tek detay yükünden + metrik bileşeni', () => {
     expect(page).toContain('const detailQ = useMessagingTopicDetail({');
-    expect(page).toContain('const chartQ = useMessagingClients({');
-    expect(page.match(/useMessagingClients\(\{/g)?.length ?? 0).toBe(1);
     expect(page.match(/useQuery\(/g)?.length ?? 0).toBe(0);
-    // Sekme gövdeleri açılış yükünden besleniyor.
     for (const src of ['d?.callers ?? []', 'msgOperationRows(d?.operations)', 'd?.topOps ?? []']) {
       expect(page).toContain(src);
     }
   });
-  it('set sorgu anahtarına girer ve tele yazılır', () => {
-    expect(queries).toContain("p.fromNs, p.toNs, p.set ?? '']");
-    expect(queries).toContain('api.messagingClients(p.system, p.cluster, p.destination, p.fromNs, p.toNs, signal, p.set)');
-    expect(api).toContain("+ (set ? `&set=${encodeURIComponent(set)}` : '')");
-    // Parametre yoksa tel bugünkü hâlinde: `set=` yazılmaz.
-    expect(api).toContain("set?: 'chart' | 'topic' | 'clients'");
+  it('lag bölümü partition tablosunu taşır', () => {
+    expect(comp).toContain('<section aria-label="Lag"');
+    expect(comp).toContain('<PartitionLagTable system={system} cluster={cluster} destination={topic} range={range} />');
   });
 });
 
@@ -133,7 +126,6 @@ describe('paylaşılan gövde — CallerSection', () => {
   });
   it('grafik panelleri AYRI storageKey (çekmece ikizini ezmesin)', () => {
     expect(page).toContain("storageKey=\"msg-topic-e2e\"");
-    expect(page).toContain("storageKey=\"msg-topic-rate\"");
     expect(drawer).toContain('storageKey="msg-drawer-e2e"');
   });
 });
@@ -151,20 +143,12 @@ describe('çekmeceden sayfaya kapı', () => {
   });
 });
 
-// v0.10.589 — Partition'lar sekmesi: set=partitions YALNIZ sekme bileşeninde
-// (fetch-on-open); sayfa açılışta onu istemez; sekme mount kapılı.
-describe('partitions sekmesi (v0.10.589)', () => {
+// v0.10.589 — set=partitions yalnız tablo bileşeninde; v0.10.1539'dan beri
+// tablo sekme değil, metrik bölümünün Lag kısmında.
+describe('partition tablosu', () => {
   const table = readFileSync(new URL('../features/dependencies/PartitionLagTable.tsx', import.meta.url), 'utf8');
   it("set: 'partitions' sayfada DEĞİL, yalnız tablo bileşeninde", () => {
     expect(page).not.toContain("set: 'partitions'");
     expect(table).toContain("set: 'partitions', enabled: true");
-  });
-  it('tablo yalnız sekme seçiliyken mount edilir', () => {
-    expect(page).toContain("{tab === 'partitions' && (");
-    expect(page).toContain('<PartitionLagTable system={system} cluster={cluster} destination={destination} range={range} />');
-  });
-  it('sekme kodekte tanımlı', () => {
-    const codec = readFileSync(new URL('./messaging/topicHref.ts', import.meta.url), 'utf8');
-    expect(codec).toContain("'partitions'");
   });
 });

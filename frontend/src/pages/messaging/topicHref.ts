@@ -20,10 +20,12 @@ import type { TimeRange } from '@/lib/types';
 export const MSG_TOPIC_PATH = '/messaging/topic';
 
 /** Sekme ekseni. Varsayılan `producers` — URL'de YAZILMAZ (Service.tsx deseni). */
-export type MsgTopicTab = 'producers' | 'consumers' | 'operations' | 'clients' | 'partitions' | 'spannames';
+// v0.10.1539 — 'clients' / 'partitions' sekmeleri kalktı: topic metrikleri ve
+// partition lag'i sayfanın üstünde (KafkaTopicMetrics); eski link varsayılana düşer.
+export type MsgTopicTab = 'producers' | 'consumers' | 'operations' | 'spannames';
 
 export const MSG_TOPIC_TABS: readonly MsgTopicTab[] = [
-  'producers', 'consumers', 'operations', 'clients', 'partitions', 'spannames',
+  'producers', 'consumers', 'operations', 'spannames',
 ];
 
 export const MSG_TOPIC_DEFAULT_TAB: MsgTopicTab = 'producers';
