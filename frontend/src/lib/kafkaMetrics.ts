@@ -29,7 +29,9 @@ export interface KafkaScope {
 // v0.10.1540 — operatör: "panoyu baz alarak daha anlamlı, sade grafikler;
 // sayı aynı olmak zorunda değil, bazıları çok detay". 30 grafik → 9: açık
 // "Sağlık" (akış, lag, gecikme, hata sinyalleri) + kapalı "Ayrıntı".
-export type KafkaSection = 'overview' | 'health' | 'detail';
+// v0.10.1545 — + 'more': panonun geri kalan panelleri (operatör: "diğer
+// paneller de olsun ama kapalı gelsin"), kapalı + aç-üzerine-getir.
+export type KafkaSection = 'overview' | 'health' | 'detail' | 'more';
 export type KafkaTone = 'err' | 'warn' | undefined;
 
 export interface KafkaQuery { expr: string; legend: string }
@@ -52,6 +54,7 @@ export const KAFKA_SECTIONS: { id: KafkaSection; title: string }[] = [
   { id: 'overview', title: 'Genel bakış' },
   { id: 'health', title: 'Sağlık' },
   { id: 'detail', title: 'Ayrıntı' },
+  { id: 'more', title: 'Diğer pano panelleri' },
 ];
 
 /** Seçici: service_name kesin; host/client yalnız seçiliyse (panonun "All"u). */
@@ -142,6 +145,55 @@ export function kafkaPanels(s: KafkaScope): KafkaPanel[] {
     { id: 'partition_lag', section: 'detail', kind: 'chart', title: 'Partition başına lag (en yüksek 10)', unit: '',
       hint: 'kafka_consumer_records_lag, topic-partition başına (pod\'lar arasında maks.).',
       queries: [{ expr: `topk(10, max by (topic, partition) (kafka_consumer_records_lag${c}))`, legend: '{{topic}}-{{partition}}' }] },
+
+    // ── Diğer pano panelleri (kapalı) — "OTel Java - Kafka Client Metrics"in
+    // Sağlık/Ayrıntı'da olmayan panelleri; client_id kırılımı, istemci + node
+    // düzeyinde yayınlananlar `or` yedekli (çift sayım yok). ──
+    { id: 'consumer_churn', section: 'more', kind: 'chart', title: 'Consumer bağlantı açma / kapama /sn', unit: '',
+      hint: 'Yeni kurulan / kapanan bağlantı oranı. Yüksek değer connection churn (reconnect fırtınası) işaretidir.',
+      queries: [byC('sum', 'kafka_consumer_connection_creation_rate', `açılan - ${CL}`, 'node_id=""'), byC('sum', 'kafka_consumer_connection_close_rate', `kapanan - ${CL}`, 'node_id=""')] },
+    { id: 'producer_churn', section: 'more', kind: 'chart', title: 'Producer bağlantı açma / kapama /sn', unit: '',
+      hint: 'Producer tarafında connection churn.',
+      queries: [byP('sum', 'kafka_producer_connection_creation_rate', `açılan - ${CL}`, 'node_id=""'), byP('sum', 'kafka_producer_connection_close_rate', `kapanan - ${CL}`, 'node_id=""')] },
+    { id: 'fetch_rate', section: 'more', kind: 'chart', title: 'Fetch /sn', unit: 'reqps',
+      hint: 'kafka_consumer_fetch_rate: saniyedeki fetch request sayısı.',
+      queries: [byC('sum', 'kafka_consumer_fetch_rate', CL)] },
+    { id: 'fetch_size', section: 'more', kind: 'chart', title: 'Fetch başına ortalama boyut', unit: 'bytes',
+      hint: 'kafka_consumer_fetch_size_avg — fetch başına ortalama byte.',
+      queries: [byC('avg', 'kafka_consumer_fetch_size_avg', CL, 'topic=""')] },
+    { id: 'fetch_throttle', section: 'more', kind: 'chart', title: 'Fetch kota kısıtı (throttle)', unit: 'ms',
+      hint: 'kafka_consumer_fetch_throttle_time_avg / _max. > 0 ise broker quota throttling uyguluyor.',
+      queries: [byC('avg', 'kafka_consumer_fetch_throttle_time_avg', `avg - ${CL}`), byC('max', 'kafka_consumer_fetch_throttle_time_max', `max - ${CL}`)] },
+    { id: 'rebalance_latency', section: 'more', kind: 'chart', title: 'Rebalance süresi (ort.)', unit: 'ms',
+      hint: 'kafka_consumer_rebalance_latency_avg (ms).',
+      queries: [byC('avg', 'kafka_consumer_rebalance_latency_avg', CL)] },
+    { id: 'assigned_partitions', section: 'more', kind: 'chart', title: 'Atanmış partition', unit: '',
+      hint: 'kafka_consumer_assigned_partitions.',
+      queries: [byC('sum', 'kafka_consumer_assigned_partitions', CL)] },
+    { id: 'last_rebalance', section: 'more', kind: 'chart', title: 'Son rebalance’tan beri', unit: 's',
+      hint: 'kafka_consumer_last_rebalance_seconds_ago.',
+      queries: [byC('max', 'kafka_consumer_last_rebalance_seconds_ago', CL)] },
+    { id: 'partition_assigned_latency', section: 'more', kind: 'chart', title: 'Partition atama süresi', unit: 'ms',
+      hint: 'kafka_consumer_partition_assigned_latency_avg / _max. Rebalance sonrası partition atama süresi.',
+      queries: [byC('avg', 'kafka_consumer_partition_assigned_latency_avg', `avg - ${CL}`), byC('max', 'kafka_consumer_partition_assigned_latency_max', `max - ${CL}`)] },
+    { id: 'queue_time', section: 'more', kind: 'chart', title: 'Producer kayıt kuyruk süresi', unit: 'ms',
+      hint: 'kafka_producer_record_queue_time_avg / _max (ms) — gönderilmeden önce buffer’da bekleme.',
+      queries: [byP('avg', 'kafka_producer_record_queue_time_avg', `avg - ${CL}`), byP('max', 'kafka_producer_record_queue_time_max', `max - ${CL}`)] },
+    { id: 'bufferpool_wait', section: 'more', kind: 'chart', title: 'Producer buffer pool bekleme süresi (toplam)', unit: '',
+      hint: 'kafka_producer_bufferpool_wait_time_total — buffer boşalmasını bekleyen toplam süre (artıyorsa gönderim bekliyor).',
+      queries: [byP('sum', 'kafka_producer_bufferpool_wait_time_total', CL)] },
+    { id: 'batch_size', section: 'more', kind: 'chart', title: 'Producer ortalama batch boyutu', unit: 'bytes',
+      hint: 'kafka_producer_batch_size_avg.',
+      queries: [byP('avg', 'kafka_producer_batch_size_avg', CL, 'topic=""')] },
+    { id: 'records_per_request', section: 'more', kind: 'chart', title: 'Producer istek başına kayıt (ort.)', unit: '',
+      hint: 'kafka_producer_records_per_request_avg.',
+      queries: [byP('avg', 'kafka_producer_records_per_request_avg', CL)] },
+    { id: 'io_ratio', section: 'more', kind: 'chart', title: 'İstemci I/O oranı', unit: '',
+      hint: 'kafka_*_io_ratio — I/O thread’inin I/O’da geçirdiği zaman oranı (0–1).',
+      queries: [byC('avg', 'kafka_consumer_io_ratio', `consumer - ${CL}`), byP('avg', 'kafka_producer_io_ratio', `producer - ${CL}`)] },
+    { id: 'request_rate', section: 'more', kind: 'chart', title: 'Broker istek /sn', unit: 'reqps',
+      hint: 'kafka_*_request_rate — broker’a giden istek oranı.',
+      queries: [byC('sum', 'kafka_consumer_request_rate', `consumer - ${CL}`, 'node_id=""'), byP('sum', 'kafka_producer_request_rate', `producer - ${CL}`, 'node_id=""')] },
   ];
 }
 

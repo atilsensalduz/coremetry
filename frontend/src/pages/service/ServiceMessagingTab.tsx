@@ -7,7 +7,8 @@
 // önbelleği) — HTTP Metrics sekmesiyle aynı yol (useHttpPromql).
 //
 // Maliyet disiplini: "Genel bakış" ve "Sağlık" (4 grafik) açık gelir;
-// "Ayrıntı" KAPALI ve yalnız açılınca sorgu atar (aç-üzerine-getir).
+// "Ayrıntı" ve "Diğer pano panelleri" (v0.10.1545) KAPALI ve yalnız
+// açılınca sorgu atar (aç-üzerine-getir).
 // v0.10.1540 — 30 grafik → 9 (operatör: "sade, anlamlı"). Süzgeçler (pod / consumer / producer client) URL'de (?khost,
 // ?kcons, ?kprod); seçenekler süzgeçsiz anlık bağlantı serilerinden.
 // Servis VM'de hiç Kafka istemci metriği yazmıyorsa sekme bunu söyler
@@ -60,7 +61,8 @@ export function ServiceMessagingTab({ service, range }: { service: string; range
   const ov = useHttpPromql(itemsOf(bySection('overview')), win, !noKafka);
   const he = useHttpPromql(itemsOf(bySection('health')), win, !noKafka && open.has('health'));
   const de = useHttpPromql(itemsOf(bySection('detail')), win, !noKafka && open.has('detail'));
-  const res: Record<KafkaSection, typeof ov> = { overview: ov, health: he, detail: de };
+  const mo = useHttpPromql(itemsOf(bySection('more')), win, !noKafka && open.has('more')); // v0.10.1545
+  const res: Record<KafkaSection, typeof ov> = { overview: ov, health: he, detail: de, more: mo };
 
   if (opts.pending('cons') && opts.pending('prod')) return <Spinner />;
   if (opts.error('cons') && opts.error('prod')) {

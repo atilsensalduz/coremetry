@@ -28,6 +28,22 @@ describe('kafkaPanels — pano paritesi', () => {
     expect(ps.filter(p => p.section === 'health').map(p => p.id)).toEqual(['flow', 'lag', 'latency', 'errors']);
     expect(ps.filter(p => p.section === 'detail').map(p => p.id)).toEqual(['connections', 'rebalance', 'buffer', 'bytes', 'partition_lag']);
   });
+  // v0.10.1545 — panonun geri kalanı "Diğer pano panelleri"nde (kapalı).
+  it('panodaki her metrik adı kapsanır', () => {
+    const all = ps.flatMap(p => p.queries.map(q => q.expr)).join(' ');
+    for (const m of [
+      'kafka_consumer_connection_creation_rate', 'kafka_consumer_connection_close_rate', 'kafka_consumer_fetch_rate',
+      'kafka_consumer_fetch_size_avg', 'kafka_consumer_fetch_latency_max', 'kafka_consumer_rebalance_rate_per_hour',
+      'kafka_consumer_rebalance_latency_avg', 'kafka_consumer_failed_rebalance_total', 'kafka_consumer_assigned_partitions',
+      'kafka_consumer_last_rebalance_seconds_ago', 'kafka_consumer_fetch_throttle_time_max', 'kafka_consumer_partition_assigned_latency_max',
+      'kafka_producer_request_latency_max', 'kafka_producer_record_queue_time_max', 'kafka_producer_buffer_available_bytes',
+      'kafka_producer_buffer_total_bytes', 'kafka_producer_bufferpool_wait_time_total', 'kafka_producer_batch_size_avg',
+      'kafka_producer_records_per_request_avg', 'kafka_consumer_incoming_byte_rate', 'kafka_producer_outgoing_byte_rate',
+      'kafka_consumer_io_ratio', 'kafka_producer_io_ratio', 'kafka_consumer_request_rate', 'kafka_producer_request_rate',
+      'kafka_consumer_failed_authentication_total', 'kafka_producer_failed_authentication_total',
+    ]) expect(all, m).toContain(m);
+    expect(ps.filter(p => p.section === 'more')).toHaveLength(15);
+  });
   it('istemci + topic/node düzeyinde yayınlanan metrikler çift sayılmaz', () => {
     // v0.10.1544 — istemci düzeyi yoksa `or` ile tüm seriler (kart "—" kalmaz).
     expect(byId.flow.queries.map(q => q.expr)).toEqual([
