@@ -59,6 +59,21 @@ const (
 // durum etiketi TAŞIMIYORSA (hata oranı VM'den ölçülemez) span karar verir.
 const vmStrictMetric = "error_rate"
 
+// vmStrict — v0.10.1534 (Problem standardı R6, D12: "VM-karar kuralı p99_ms /
+// request_rate'e genişler"). VM'in bildiği serviste örneklenmiş span üç RED
+// metriğinin HİÇBİRİNDE karar vermez: VM o tik karar veremiyorsa (ısınma,
+// okuma hatası, kısa seri) çift bekletilir (Hold). p99 kuyruk örneklemesinde
+// yavaş istekleri tutar (hatalar gibi), istek hızı örnekleme oranıyla oynar —
+// error_rate'in gerekçesinin aynısı. Tek istisna yalnız error_rate'te: servisin
+// VM'de durum etiketi yoksa hata oranı VM'den ölçülemez → span.
+func vmStrict(metric string) bool {
+	switch metric {
+	case vmStrictMetric, "p99_ms", "request_rate":
+		return true
+	}
+	return false
+}
+
 // redSourceUsed — çiftin kaynağı (kanıt).
 type redSourceUsed struct {
 	VM bool
@@ -311,7 +326,7 @@ func (v *vmREDView) metricOK(fi int, service, metric string) (bool, string) {
 	}
 	for _, k := range need {
 		ready := v.readyDet[fi][k]
-		if metric == vmStrictMetric {
+		if vmStrict(metric) { // v0.10.1534 — mevsimsel ısınma VM'den çıkarmaz
 			ready = v.readyConsec[fi][k]
 		}
 		if !ready {
@@ -363,7 +378,7 @@ func (v *vmREDView) seriesFor(service, metric string, dwell int) (vmSeries, redS
 		_, r := pickREDSource(in)
 		return vmSeries{}, redSourceUsed{Reason: r}
 	}
-	strict := metric == vmStrictMetric
+	strict := vmStrict(metric) // v0.10.1534 (D12)
 	fi, freason := v.famForMode(service, strict)
 	in.FamilyFound, in.FamilyReason = fi >= 0, freason
 	if !in.FamilyFound {

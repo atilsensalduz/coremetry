@@ -2466,6 +2466,17 @@ func anomalyToInbox(e chstore.AnomalyEvent) InboxItem {
 	}
 }
 
+// anomalyPriority — anomali OLAYININ kaynak önceliği.
+//
+// v0.10.1534 (Problem standardı R6, D2: "anomalyPriority ≥5× → P1 emekli,
+// ortak merdiven") — olay satırı artık P1 OLAMAZ. Eski merdiven (≥5× → P1,
+// ≥2× → P2) yalnız bu satıra özgüydü ve ortak merdivenden (chstore
+// computePriority: büyük ihlal = BigBreachRatio, varsayılan 2×) ayrışıyordu:
+// aynı sıçrama olay satırında P1, terfi etmiş Problem'de P2 okunabiliyordu.
+// Bir anomali P1'e YALNIZ Problem'e terfi ederek (anomaly-auto:, promotionGate)
+// ortak merdivenden çıkar. Görünüm önceliği zaten P3 (forceNonExceptionP3 —
+// olay satırının istisna kimliği yok); bu değişiklik kaynak önceliğini,
+// gerekçe metnini ve ciddiyet eşlemesini ortak merdivene hizalar.
 func anomalyPriority(e chstore.AnomalyEvent) (string, string) {
 	if e.Status == "cleared" {
 		return "P3", "cleared"
@@ -2473,14 +2484,19 @@ func anomalyPriority(e chstore.AnomalyEvent) (string, string) {
 	if math.IsNaN(e.PeakRatio) || e.PeakRatio <= 0 {
 		return "P3", "no signal"
 	}
-	switch {
-	case e.PeakRatio >= 5:
-		return "P1", fmt.Sprintf("%.1fx baseline", e.PeakRatio)
-	case e.PeakRatio >= 2:
+	if e.PeakRatio >= anomalyBigBreach() {
 		return "P2", fmt.Sprintf("%.1fx baseline", e.PeakRatio)
-	default:
-		return "P3", "mild"
 	}
+	return "P3", "mild"
+}
+
+// anomalyBigBreach — ortak merdivenin büyük ihlal oranı (problem_priority
+// vidası; kelepçeli, 0 / bozuk değer varsayılana döner).
+func anomalyBigBreach() float64 {
+	if r := chstore.CurrentProblemPriority().BigBreachRatio; r >= chstore.MinBigBreachRatio {
+		return r
+	}
+	return 2.0
 }
 
 // inboxMutedStatus — aktif susturmalı anomali satırının "all" görünümündeki

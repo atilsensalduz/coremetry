@@ -21,7 +21,9 @@ import (
 // koşulsuz taşımaya dönse de yeşil kalırdı.
 //
 // Mutasyon kontrolü: MergeAnomalyCarry koşulsuz taşımaya döndürülürse
-// "yeniden tetiklenme" satırı P1 / "66.0x baseline" döner ve test kırılır.
+// "yeniden tetiklenme" satırı "66.0x baseline" döner ve test kırılır.
+// v0.10.1534 (R6, D2) — olay satırı artık P1 olamaz (ortak merdiven, en çok
+// P2); iki vaka gerekçe metniyle (tepe oranı) ayrışır.
 func TestInboxAnomalyPriorityRefire(t *testing.T) {
 	day0 := time.Unix(1_700_000_000, 0)
 	stored := chstore.AnomalyEvent{
@@ -45,9 +47,9 @@ func TestInboxAnomalyPriorityRefire(t *testing.T) {
 		},
 		{
 			// Aynı bölüm (satır hâlâ aktif) — bugünkü davranış: tepe taşınır.
-			name:  "süren bölüm — tepe taşınır: P1",
+			name:  "süren bölüm — tepe taşınır (P2: D2, olay P1 olamaz)",
 			after: 2 * time.Minute, ratio: 3.2,
-			wantPrio: "P1", wantReason: "66.0x baseline",
+			wantPrio: "P2", wantReason: "66.0x baseline",
 			wantStart: day0.UnixNano(),
 		},
 	}
@@ -79,5 +81,24 @@ func TestInboxAnomalyPriorityRefire(t *testing.T) {
 				t.Errorf("InboxItem.Anomaly.PeakRatio satırın tepesini taşımıyor: %+v", item.Anomaly)
 			}
 		})
+	}
+}
+
+// v0.10.1534 (Problem standardı R6, D2) — anomali olayının ≥5× → P1 basamağı
+// emekli: ortak merdivenin büyük ihlal oranı (BigBreachRatio) üstü P2, altı P3.
+func TestAnomalyPriorityCommonLadder(t *testing.T) {
+	cases := []struct {
+		ratio float64
+		st    string
+		want  string
+	}{
+		{66, "active", "P2"}, {5, "active", "P2"}, {2, "active", "P2"}, {1.9, "active", "P3"},
+		{0, "active", "P3"}, {66, "cleared", "P3"},
+	}
+	for _, c := range cases {
+		got, _ := anomalyPriority(chstore.AnomalyEvent{PeakRatio: c.ratio, Status: c.st})
+		if got != c.want {
+			t.Errorf("ratio %v %s → %s, beklenen %s", c.ratio, c.st, got, c.want)
+		}
 	}
 }

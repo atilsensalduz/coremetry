@@ -86,11 +86,25 @@ func TestStrictErrorRateNeverFallsBackToSpan(t *testing.T) {
 			t.Errorf("%s: kanıt %q", c.name, redSourceEvidenceTR(u))
 		}
 	}
-	// p99 bu kurala tabi değil: ısınmada span'e düşer (eski davranış).
+	// v0.10.1534 (Problem standardı R6, D12) — p99_ms ve request_rate de bu
+	// kurala tabi: VM servisi biliyorsa ısınmada span'e DÜŞÜLMEZ (hold).
 	v := clone()
-	v.readyDet[0][vmKindP99] = false
-	if _, u := v.seriesFor(gwSvc, "p99_ms", 3); u.VM || u.Hold {
-		t.Errorf("p99 ısınmada span'e düşmeli: %+v", u)
+	v.readyConsec[0][vmKindP99], v.readyDet[0][vmKindP99] = false, false
+	if _, u := v.seriesFor(gwSvc, "p99_ms", 3); u.VM || !u.Hold {
+		t.Errorf("p99 ısınmada bekletilmeli (D12): %+v", u)
+	}
+	v = clone()
+	v.readyDet[0][vmKindP99] = false // yalnız mevsimsel eksik → VM'de kalır
+	if _, u := v.seriesFor(gwSvc, "p99_ms", 3); !u.VM {
+		t.Errorf("p99 mevsimsel ısınmada VM'de kalmalı: %+v", u)
+	}
+	v = clone()
+	v.readyConsec[0][vmKindCount], v.readyDet[0][vmKindCount] = false, false
+	if _, u := v.seriesFor(gwSvc, "request_rate", 3); u.VM || !u.Hold {
+		t.Errorf("request_rate ısınmada bekletilmeli (D12): %+v", u)
+	}
+	if _, u := base.seriesFor(gwSvc, "request_rate", 3); !u.VM {
+		t.Errorf("hazır görünümde request_rate VM'den: %+v", u)
 	}
 	// VM'in hiç bilmediği servis: span (karar span'de).
 	if _, u := base.seriesFor("legacy-svc", "error_rate", 3); u.VM || u.Hold {

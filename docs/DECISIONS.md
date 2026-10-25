@@ -11901,3 +11901,25 @@ yöneticinin kararı (yeni ekrandan, replay kanıtıyla).
 kuyruk okuması + kanal başına bir gönderim.
 
 **Geri alma.** `mode: shadow` (≤ 30 sn); bekleyen özet kalemleri yine bir sonraki slotta gider. Tamamı: `git revert`.
+
+## 2026-10-25 — v0.10.1534 — Problem standardı R6: dedektör kapı birleşmesi (D2 + D12)
+
+**Bağlam.** Programın son dilimi R6. Operatör 2026-10-25: "R3 R4 R5 ve geri kalanları da yap".
+
+**Karar.**
+- D12: VM-karar kuralı (`anomaly/red_vm_select.go` `vmStrict`) error_rate'ten `p99_ms` ve `request_rate`'e genişler —
+  VictoriaMetrics servisi biliyorsa örneklenmiş span üç RED metriğinin HİÇBİRİNDE karar vermez; VM o tik karar
+  veremiyorsa (ısınma / okuma hatası / kısa seri) çift bekletilir (Hold: yeni karar yok, açık satır tazelenir), mevsimsel
+  ısınma VM'den çıkarmaz (ardışık taban). Durum etiketi istisnası yalnız error_rate'te. Gerekçe error_rate'inkiyle aynı:
+  kuyruk örneklemesi yavaş istekleri (p99) ve istek hızını politikayla oynatır. "Örneklenmiş span-yalnız sinyal en çok
+  medium" R1'de güvende zaten vardı; G3 üç metriği zaten kapsıyordu.
+- D2: anomali OLAYININ "≥5× → P1" basamağı emekli (`api/inbox.go` `anomalyPriority`): ortak merdivenin büyük ihlal
+  oranı (`problem_priority.bigBreachRatio`, varsayılan 2×) üstü P2, altı P3. Anomali P1'i yalnız Problem'e terfi
+  ederek (anomaly-auto:, `promotionGate`) ortak merdivenden çıkar. Görünüm önceliği zaten P3'tü (olay satırının
+  istisna kimliği yok); değişen kaynak önceliği, gerekçe metni ve ciddiyet eşlemesi (critical artık olay satırında yok).
+- `/aiops` beceri haritası R3–R6 ile güncellendi.
+
+**Bedel.** VM'deki serviste p99 / istek hızı anomalisi VM ısınırken ya da okunamazken birkaç tik gecikebilir (Hold) —
+örneklenmiş span'den yanlış karar vermektense (D12).
+
+**Geri alma.** `git revert <sha>` + yeni etiket; şema / ayar yok.

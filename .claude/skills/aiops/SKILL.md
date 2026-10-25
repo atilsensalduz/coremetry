@@ -177,7 +177,7 @@ VM'li serviste DOĞRUDAN okuma — bindirilmiş haritayı oku.
 algılamadı"; 5xx = teknik hata, 4xx = iş hatası**):** (1) error_rate ani-sapma kolunun `absFloor` %1'i hacimli gateway'de
 saatlik rampayı susturuyordu → ek kol `anomaly_sensitivity.errorRamp` (nil = açık; oran tabanı yerine HATA HIZI tabanı),
 aynı `anomaly:<svc>:error_rate` satırı; `absFloor`'u DÜŞÜRME (v0.9.180 gürültüsü). Oran düz / hız yüksek AÇMAZ (yük).
-(2) error_rate'te VM karar kaynağı (`vmStrictMetric`): VM servisi biliyorsa span'e DÜŞÜLMEZ — karar veremediği tik
+(2) RED'de VM karar kaynağı (`vmStrict`: error_rate; v0.10.1534 R6 / D12 ile p99_ms + request_rate de): VM servisi biliyorsa span'e DÜŞÜLMEZ — karar veremediği tik
 `Hold` (karar yok, açık satır touch), mevsimsel eksikse VM ardışık tabanı; yalnız durum etiketsiz serviste span.
 (3) VM-yalnız servisler scan listesine (`mergeServices`). Teşhis: durum ucu `fallbacks` / `sources.*.hold` /
 `vmOnlyServices` + replay ucu `GET /api/settings/anomaly-red-source/explain?service=&metric=&from=&to=` (tek servis,
@@ -490,7 +490,14 @@ Bildirim kararı SAF `chstore.NotifiableAt(std, prio, hist, policy, nowLocal)`: 
 (özet 09:00/16:00 | kapalı | anında) → ölçülmüş kapı (`gate:G*`) → etki tabanı (hata ≥30/5dk YA DA ≥%1 yalnız ≥30 çağrı
 ölçülüyken; gecikme +300 ms VE ≥30 çağrı; düşüş ≥%40 VE ≥100 taban) → "problem değil" penceresi (12 sa, mevcut kalıcı
 işaretler de ZAMAN SINIRLI) → tekrar penceresi (12 sa) → sessiz saat (yalnız P2); baypas: öncelik yükseldi / etki ≥ 2× /
-yüksek güvenli P1. **R1'de gönderim DEĞİŞMEZ:** `notify/policy_shadow.go` SendProblemAlert'te "problem değil"
+yüksek güvenli P1. **R3 (v0.10.1531):** "problem değil" penceresi kendi vidası `noiseMuteHours` (168 sa), gerekçe kapalı
+kümesi `NoiseReasons`, kalıcı gizleme yalnız admin; bugünkü gönderim kapısı (`verdict_silence.go`) da `NoiseSilences` ile
+aynı kuralı okur. **R4 (v0.10.1532):** bildirimler `notify/tr_template.go` (std'den Türkçe) + `lifecycle.go` (AÇILDI /
+GÜNCELLEME / YENİDEN BAŞLADI / ÇÖZÜLDÜ, imza başına tek e-posta konusu, saved_views `notify-thread`); `template: legacy`
+geri dönüş. **R5 (v0.10.1533):** `mode=enforce` kararı `notify/enforce.go` senkron uygular (konudan ÖNCE; tutulan
+açılış konu açmaz, çözülmesi gitmez); P3 → `notify-digest` kuyruğu → `digest.go` lider kilitli özet. **R6
+(v0.10.1534):** anomali OLAYI kaynak önceliği ortak merdivende (`anomalyPriority`: ≥ BigBreachRatio → P2, P1 YOK —
+anomali P1'i yalnız terfi Problem'inden). **R1'de gönderim DEĞİŞMEZ:** `notify/policy_shadow.go` SendProblemAlert'te "problem değil"
 kapısından SONRA çıplak çağrı + goroutine → notification_log `channel_kind='policy'`, `related_kind='policy'`,
 `error = would_send | hold:<kod>` (saatte bir kez / anahtar); pin `TestShadowNeverChangesSends`. `policy` satırları
 /events, problem bildirim geçmişi, watchers ve kanal sağlığından SQL'de dışlı (`notifyNotShadowCond`); dedup kapıları
@@ -521,7 +528,8 @@ değil. Golden pinler: `anomaly/prompt_golden_test.go`, `rootcause_prompt_test.g
 · `problem_escalation` · `exception_triage` (v0.10.1092 `oracleP1MinOccurrences`, 0/yok = 5000) · `self_health`
 · `notify_policy` (Problem standardı R1: `mode` off|shadow|enforce, varsayılan **shadow**; `p3` digest|off|immediate;
 `digestTimes` ["09:00","16:00"]; `quietHours` yalnız P2; `noiseDedupeHours` 12; `impactFloors` D6; admin GET/PUT
-`/api/admin/notify-policy`, audit `notify.policy`; UI R5'te) — hepsi
+`/api/admin/notify-policy`, audit `notify.policy`; R3 `noiseMuteHours` 168; R4 `template` tr|legacy; UI R5:
+Settings → Bildirim politikası) — hepsi
 `system_settings` JSON blobu: `Default*` / `Normalize*` / `Get*` (hataya
 varsayılana düşer) + boot `Load*` + 30 s `Start*Refresh` + sıcak yol için paket
 düzeyi atomic. Varsayılanı TRUE olan her bayrak `*bool` (AttachToIncident,
