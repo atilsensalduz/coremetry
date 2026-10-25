@@ -6395,3 +6395,7 @@ a.idchip__val:hover { color: var(--accent2); text-decoration: underline; }
    kuralının istisnası: canlı varlık yeşil. Yalnız bu rozet; sağlık durumları
    nötr kalır (k5HealthNeutral izin listesi). */
 .badge.b-online { background: var(--ok-bg); color: var(--ok); }
+
+/* v0.10.1536 — Service → Messaging sekmesi (pages/service/ServiceMessagingTab.tsx). */
+.svc-kafka-filters { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-bottom: 12px; }
+.svc-kafka-h { font-size: 13px; font-weight: 600; margin: 0 0 8px; }

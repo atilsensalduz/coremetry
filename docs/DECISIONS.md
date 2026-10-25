@@ -11923,3 +11923,22 @@ kuyruk okuması + kanal başına bir gönderim.
 örneklenmiş span'den yanlış karar vermektense (D12).
 
 **Geri alma.** `git revert <sha>` + yeni etiket; şema / ayar yok.
+
+## 2026-10-25 — v0.10.1536 — Service → Messaging sekmesi (Kafka istemci metrikleri, Grafana panosu paritesi)
+
+**Bağlam.** Operatör (pano JSON'u ekli: "OTel Java - Kafka Client Metrics"): "Service sayfasında Messaging diye bir tab
+olsun ve bu dashboardtaki gibi metrikleri o servis için VictoriaMetrics'ten çeksin. Daha sonra messaging sayfasına da
+uyarlarız. Şu an oradaki metrikler gözükmüyor ya da hatalı gözüküyor."
+
+**Karar.** Sorgular panodakiyle BİREBİR (`frontend/src/lib/kafkaMetrics.ts`, tablo testli): VM'deki gerçek adlar
+(`kafka_consumer_*` / `kafka_producer_*`) ve etiketler (`service_name` kesin, `host_name`, `client_id`); panonun "All"u
+süzgeçsiz seçici. Mevcut istemci paneli (Infrastructure → Kafka, `vmetrics.KafkaServiceQuestions`) OTel nokta adlarıyla +
+çeviri katmanıyla sorduğu için "gözükmüyor / hatalı" şikâyetinin olası kaynağı; o panel bu sürümde DEĞİŞMEDİ (Messaging
+sayfası uyarlamasıyla birlikte ele alınacak). Yürütme mevcut `/api/metrics/promql` (?metricsrc=vm, 30 sn önbellek, HTTP
+Metrics sekmesiyle aynı yol) — yeni uç yok. Sekme: Genel bakış (6 karo, panonun eşik tonları) + Bağlantılar açık;
+Tüketici / Üretici / Ağ ve I/O kapalı, açılınca sorgu (aç-üzerine-getir). Süzgeçler URL'de (?khost, ?kcons, ?kprod),
+seçenekler süzgeçsiz anlık bağlantı serilerinden. Servis VM'de Kafka istemci metriği yazmıyorsa açık boş durum.
+Panonun iki eksenli grafikleri (fetch rate + size, rebalance rate + latency, partitions + son rebalance, batch size +
+records/request) tek birimli iki ayrı grafiğe bölündü (uPlot panelimiz tek eksen).
+
+**Geri alma.** `git revert <sha>`; yalnız FE.

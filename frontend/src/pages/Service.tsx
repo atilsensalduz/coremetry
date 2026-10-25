@@ -48,6 +48,7 @@ import { QueryError } from '@/components/QueryError';
 import type { DataTableStateProps } from '@/components/ui/DataTable';
 import { PageShell } from '@/components/ui/PageShell';
 import { ServiceHttpMetricsTab } from './service/ServiceHttpMetricsTab';
+import { ServiceMessagingTab } from './service/ServiceMessagingTab'; // v0.10.1536
 import { useRedFamily } from '@/lib/queries/httpMetrics';
 import { withPivotCtx, pivotCtxFromSearch, type PivotDim } from '@/lib/pivotContext';
 
@@ -65,7 +66,7 @@ const SERVICE_PIVOT_CARRY: readonly PivotDim[] = ['env', 'cluster'];
 // already lands on the same service-scoped /traces page (where the column is
 // sortable). A stale ?tab=traces link redirects there rather than 404ing to
 // the default tab.
-type ServiceTab = 'overview' | 'operations' | 'details' | 'logs' | 'topology' | 'infra' | 'gitops' | 'http';
+type ServiceTab = 'overview' | 'operations' | 'details' | 'logs' | 'topology' | 'infra' | 'gitops' | 'http' | 'messaging';
 
 // v0.10.929 (K5) — /service başlık noktası. Sağlıklı hâl nötr halka
 // (`.ov-dot.green` globals'ta artık soluk --border-strong halkası; ad tarihsel),
@@ -183,6 +184,7 @@ function ServiceDetailInner() {
     : (tabParam === 'infra' || tabParam === 'pods' || tabParam === 'metrics') ? 'infra'
     : tabParam === 'gitops' ? 'gitops'
     : tabParam === 'http' ? 'http' // v0.10.1244 — HTTP Metrics (VictoriaMetrics)
+    : tabParam === 'messaging' ? 'messaging' // v0.10.1536 — Kafka istemci metrikleri (VictoriaMetrics)
     : 'overview';
   // v0.9.212 — a bookmarked ?tab=traces would otherwise land silently on
   // Overview, which reads as "my link broke". Send it where the tab used to
@@ -606,6 +608,7 @@ function ServiceDetailInner() {
                 (iş yükü 24 sa, rollout 7 gün); sayfa aralığını okumaz. */}
             {tab === 'gitops' && <ServiceGitOpsTab service={svc} />}
             {tab === 'http' && <ServiceHttpMetricsTab service={svc} range={range} env={env} cluster={scopeCluster} />}
+            {tab === 'messaging' && <ServiceMessagingTab service={svc} range={range} />}
             {/* v0.9.63 — v0.9.62'nin sekme-tepesi RED üçlüsü OPERATÖR
                 KARARIYLA geri alındı ("gereksiz olmuş"): grafikler
                 Details'te (Performance) yaşar, Operations sekmesi
@@ -852,6 +855,7 @@ function TabStrip({ tab, onChange, opCount, httpHint }: {
     { key: 'infra',      label: 'Infrastructure' },
     { key: 'gitops',     label: 'GitOps' }, // v0.10.981
     { key: 'http',       label: 'HTTP Metrics', hint: httpHint }, // v0.10.1244; v0.10.1429 aile rozeti
+    { key: 'messaging',  label: 'Messaging' }, // v0.10.1536 — Kafka istemci metrikleri (Grafana panosu paritesi)
     { key: 'topology',   label: 'Topology' },
     { key: 'logs',       label: 'Logs' },
   ];
