@@ -29,7 +29,7 @@ func TestVerdictSignatureSharedWithChstore(t *testing.T) {
 	}
 	for _, w := range []string{
 		"chstore.RuleProblemVerdictSignature(p.RuleID, p.Service)",
-		"chstore.NoiseVerdictSignatures(list)",
+		"chstore.NoiseVerdictIndex(list)", // v0.10.1531 (R3) — küme yerine tam karar
 	} {
 		if !strings.Contains(string(src), w) {
 			t.Errorf("verdict_silence.go %q çağırmalı (kopya tanım yok)", w)

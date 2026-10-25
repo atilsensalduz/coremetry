@@ -55,15 +55,16 @@ func exceptionVerdictSignature(fingerprint string) string {
 	return "e:" + fingerprint
 }
 
-// noiseSignatureSet — SAF: karar listesi → "problem değil" imza kümesi.
-// v0.10.1027 — gövde chstore.NoiseVerdictSignatures'ta (ortak tanım).
-func noiseSignatureSet(list []chstore.ProblemVerdict) map[string]struct{} {
-	return chstore.NoiseVerdictSignatures(list)
+// noiseVerdictIndex — SAF: karar listesi → "problem değil" kararları.
+// v0.10.1531 (R3) — gövde chstore.NoiseVerdictIndex'te (ortak tanım; küme
+// yetmez: susturma işaretin zamanına, kalıcılığına ve öncelik/büyüklüğüne bakar).
+func noiseVerdictIndex(list []chstore.ProblemVerdict) map[string]chstore.ProblemVerdict {
+	return chstore.NoiseVerdictIndex(list)
 }
 
 // loadVerdictSilence — politika + (yalnız açıksa) karar listesi. Herhangi bir
 // okuma hatası = susturma yok.
-func (n *Notifier) loadVerdictSilence(ctx context.Context) (bool, map[string]struct{}) {
+func (n *Notifier) loadVerdictSilence(ctx context.Context) (bool, map[string]chstore.ProblemVerdict) {
 	pol, err := n.store.GetProblemVerdictPolicy(ctx)
 	if err != nil {
 		log.Printf("[notify] problem verdict policy fetch: %v", err)
@@ -77,24 +78,51 @@ func (n *Notifier) loadVerdictSilence(ctx context.Context) (bool, map[string]str
 		log.Printf("[notify] problem verdicts fetch: %v", err)
 		return false, nil
 	}
-	return true, noiseSignatureSet(list)
+	return true, noiseVerdictIndex(list)
 }
 
-// verdictSilenced — bu imza "problem değil" ve politika açık mı. Önbellek
+// verdictSilenced — bu imza "problem değil" işaretli, politika açık ve işaret
+// bu bildirimi hâlâ susturuyor mu (v0.10.1531 R3 / D5: kalıcı yönetici
+// gizlemesi her zaman; değilse yalnız noiseMuteHours içinde ve baypas yoksa —
+// chstore.NoiseSilences). std yalnız işaret bulunursa kurulur (tembel): imzasız
+// ya da işaretsiz bildirim için standart hesaplanmaz. Önbellek
 // verdictSilenceTTL'den eskiyse tazeler.
-func (n *Notifier) verdictSilenced(ctx context.Context, sig string) bool {
+func (n *Notifier) verdictSilenced(ctx context.Context, sig string, std func() (chstore.ProblemStandard, string)) bool {
 	if n == nil || n.store == nil || sig == "" {
 		return false
 	}
 	n.pvMu.Lock()
-	defer n.pvMu.Unlock()
 	if time.Since(n.pvAt) > verdictSilenceTTL {
 		n.pvMute, n.pvNoise = n.loadVerdictSilence(ctx)
 		n.pvAt = time.Now()
 	}
-	if !n.pvMute {
+	mute := n.pvMute
+	v, ok := n.pvNoise[sig]
+	n.pvMu.Unlock()
+	if !mute || !ok {
 		return false
 	}
-	_, ok := n.pvNoise[sig]
-	return ok
+	s, prio := chstore.ProblemStandard{}, ""
+	if std != nil {
+		s, prio = std()
+	}
+	return chstore.NoiseSilences(chstore.NoiseMarkOf(&v), s, prio, chstore.CurrentNotifyPolicy(), time.Now())
+}
+
+// problemSilenceStd — Problem için tembel standart (trafik okuması YOK: susturma
+// kararı gönderim yolunda bütçesiz; büyüklük / öncelik / güven kaydın kendisinden).
+func problemSilenceStd(p chstore.Problem) func() (chstore.ProblemStandard, string) {
+	return func() (chstore.ProblemStandard, string) {
+		return chstore.StandardizeProblem(p, chstore.StdFacts{Now: time.Now()}),
+			chstore.NotifyViewPriority(p, chstore.CurrentProblemPriority().InboxKeepSourcePriorityList())
+	}
+}
+
+// exceptionSilenceStd — exception grubu için tembel standart; prio grubun
+// merdiven önceliği (görünüm önceliğiyle aynı, D2).
+func exceptionSilenceStd(g chstore.ExceptionGroup, prio string) func() (chstore.ProblemStandard, string) {
+	return func() (chstore.ProblemStandard, string) {
+		g.Priority = prio
+		return chstore.StandardizeException(g, chstore.StdFacts{Now: time.Now()}), prio
+	}
 }

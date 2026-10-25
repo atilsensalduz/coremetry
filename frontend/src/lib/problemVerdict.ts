@@ -20,7 +20,7 @@
 // verdictSignature) — biri değişirse diğeri de değişmeli (Go testi pinler).
 
 import type {
-  AnomalyEvent, ExceptionGroup, InboxItem, Problem, ProblemVerdict, ProblemVerdictKind, ProblemVerdictPolicy,
+  AnomalyEvent, ExceptionGroup, InboxItem, NoiseReason, Problem, ProblemVerdict, ProblemVerdictKind, ProblemVerdictPolicy,
 } from '@/lib/types';
 
 // v0.10.1032 (operatör: "Anomali ve alert rule'lara girdiğimde drawer çıkıyor.
@@ -71,19 +71,46 @@ export interface VerdictSubject {
   label: string;
   kind: string;
   service: string;
+  /** v0.10.1531 (R3) — işaret anındaki görünüm önceliği ve standart büyüklük:
+   *  sunucu bildirim susturmasında baypas kıyası için saklar (öncelik yükseldi /
+   *  etki ≥ 2×). Bilinmiyorsa yok. */
+  priority?: string;
+  magnitude?: number;
+}
+
+/** v0.10.1531 — standart büyüklük (Go chstore.StdMagnitude): oran, yoksa değer. */
+export function stdMagnitudeOf(std: InboxItem['std']): number | undefined {
+  if (!std) return undefined;
+  const r = std.impact.primary.ratio ?? 0;
+  const m = r > 0 ? r : std.impact.primary.value;
+  return Number.isFinite(m) && m > 0 ? m : undefined;
 }
 
 /** Kuyruk satırından özne — etiket satırın başlığı (sunucu üretir). */
 export function inboxVerdictSubject(it: InboxItem): VerdictSubject | null {
   const signature = inboxSignature(it);
-  return signature ? { signature, label: it.title, kind: it.kind, service: it.service } : null;
+  return signature
+    ? { signature, label: it.title, kind: it.kind, service: it.service, priority: it.priority, magnitude: stdMagnitudeOf(it.std) }
+    : null;
+}
+
+/** v0.10.1531 (R3) — gerekçe etiketleri (menü sırası = Go chstore.NoiseReasons). */
+export const NOISE_REASONS: { id: NoiseReason; label: string; hint: string }[] = [
+  { id: 'expected', label: 'Beklenen davranış', hint: 'batch, bakım, test ya da planlı iş' },
+  { id: 'too_sensitive', label: 'Eşik fazla hassas', hint: 'gerçek bir bozulma yok, dedektör erken ötüyor' },
+  { id: 'known_accepted', label: 'Bilinen ve kabul edilmiş', hint: 'sorun biliniyor, takip ediliyor' },
+  { id: 'wrong_attribution', label: 'Yanlış atıf', hint: 'servis ya da kaynak yanlış' },
+  { id: 'other', label: 'Diğer', hint: 'not zorunlu' },
+];
+export function noiseReasonLabel(r: NoiseReason | undefined | ''): string {
+  return NOISE_REASONS.find(x => x.id === r)?.label ?? '';
 }
 
 /** Alarm problemi detayından özne. Etiket = kural adı (inbox.go problemToInbox
  *  satır başlığını da RuleName'den kurar). */
 export function problemVerdictSubject(p: Problem): VerdictSubject | null {
   const signature = problemSignature(p);
-  return signature ? { signature, label: p.ruleName, kind: 'problem', service: p.service } : null;
+  return signature ? { signature, label: p.ruleName, kind: 'problem', service: p.service, priority: p.priority || undefined } : null;
 }
 
 // HTTP hata grubu = çıplak 3 haneli tür; sunucudaki TEK tanım
@@ -122,7 +149,7 @@ export function verdictCoversNotifications(sig: string | null | undefined): bool
 export function verdictNotifyHint(sig: string | null | undefined, policy: ProblemVerdictPolicy | null | undefined): string {
   if (!verdictMutesNotifications(policy)) return 'bildirimleri susturmaz, geri alınabilir.';
   return verdictCoversNotifications(sig)
-    ? 'bu imzanın mail / kanal bildirimlerini de susturur (yönetici ayarı açık), geri alınabilir.'
+    ? 'bu imzanın mail / kanal bildirimlerini de susturur (yönetici ayarı açık) — v0.10.1531: süreli (varsayılan 7 gün; öncelik yükselir ya da etki 2 katına çıkarsa yine gelir), yönetici kalıcı gizleyebilir; geri alınabilir.'
     : 'anomali satırlarının bildirimi bu işaretten etkilenmez, geri alınabilir.';
 }
 
@@ -133,7 +160,7 @@ export function verdictCompactHint(sig: string | null | undefined, policy: Probl
   const core = 'Aynısı yeniden gelirse aynı sınıfa düşer; geri alınabilir.';
   if (!verdictMutesNotifications(policy)) return core;
   return verdictCoversNotifications(sig)
-    ? `${core} “Problem değil” bildirimini de susturur.`
+    ? `${core} “Problem değil” bildirimini de susturur (süreli; öncelik yükselirse yine gelir).`
     : `${core} Anomali bildirimini etkilemez.`;
 }
 

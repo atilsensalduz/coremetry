@@ -154,3 +154,23 @@ func TestBuildCasesSkipsExistingAndShortAndFillsSignals(t *testing.T) {
 		t.Errorf("exception vakası kodları tekil birleşmeli: %+v", x.ErrorCodes)
 	}
 }
+
+// v0.10.1531 (Problem standardı R3, D4) — "Gerçek problem" işaretli imzanın
+// kısa ömürlü problemi de taslak alır; işaretsiz kısa problem almaz.
+func TestProblemCaseEligibleMarked(t *testing.T) {
+	t0 := time.Date(2026, 10, 25, 10, 0, 0, 0, time.UTC)
+	short := chstore.ClosedProblemForCase{ID: "p1", RuleID: "anomaly:svc:error_rate", Service: "svc", Severity: "warning",
+		StartedAt: t0, ResolvedAt: t0.Add(2 * time.Minute)}
+	if ProblemCaseEligibleMarked(short, nil) {
+		t.Fatal("işaretsiz 2 dk'lık problem taslak almamalı")
+	}
+	real := map[string]bool{"p:anomaly:svc:error_rate|svc": true}
+	if !ProblemCaseEligibleMarked(short, real) {
+		t.Fatal("Gerçek problem işaretli imza taslak almalı")
+	}
+	other := short
+	other.Service = "other"
+	if ProblemCaseEligibleMarked(other, real) {
+		t.Fatal("işaret imzaya bağlı: başka servis taslak almaz")
+	}
+}

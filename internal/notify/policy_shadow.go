@@ -196,7 +196,8 @@ func (n *Notifier) shadowNoise(ctx context.Context, sig string) *chstore.NoiseMa
 	n.shadow.mu.Lock()
 	defer n.shadow.mu.Unlock()
 	if v, ok := n.shadow.noise[sig]; ok {
-		return &chstore.NoiseMark{At: v.At}
+		vv := v
+		return chstore.NoiseMarkOf(&vv)
 	}
 	return nil
 }

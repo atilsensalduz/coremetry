@@ -1,7 +1,8 @@
 import { useAuth } from '@/components/AuthProvider';
 import { Button } from '@/components/ui';
 import { useProblemVerdicts, useSetProblemVerdict } from '@/lib/queries';
-import { inboxVerdictSubject, verdictCompactHint, verdictIndex, verdictNotifyHint, type VerdictSubject } from '@/lib/problemVerdict';
+import { inboxVerdictSubject, noiseReasonLabel, verdictCompactHint, verdictIndex, verdictNotifyHint, type VerdictSubject } from '@/lib/problemVerdict';
+import { NoiseReasonButton, type NoiseReasonChoice } from '@/components/NoiseReasonButton'; // v0.10.1531 (R3)
 import type { InboxItem, ProblemVerdictKind } from '@/lib/types';
 import { useMemo } from 'react';
 
@@ -46,6 +47,7 @@ type Props = {
 export function ProblemVerdictActions({ item, subject, onDone, flush, compact, row }: Props) {
   const { user } = useAuth();
   const isEditor = user?.role === 'admin' || user?.role === 'editor';
+  const isAdmin = user?.role === 'admin';
   const q = useProblemVerdicts();
   const set = useSetProblemVerdict();
   const subj = item ? inboxVerdictSubject(item) : subject;
@@ -53,14 +55,23 @@ export function ProblemVerdictActions({ item, subject, onDone, flush, compact, r
   const current = useMemo(() => (sig ? verdictIndex(q.data?.verdicts).get(sig) : undefined), [q.data, sig]);
   if (!sig || !subj) return null;
 
-  const write = (verdict: ProblemVerdictKind | '') => {
+  // v0.10.1531 (R3) — "problem değil" gerekçeyle (NoiseReasonButton); işaret
+  // anındaki öncelik / büyüklük sunucudaki baypas kıyası için gider.
+  const write = (verdict: ProblemVerdictKind | '', noise?: NoiseReasonChoice) => {
     set.mutate(
-      { signature: sig, verdict, label: subj.label, kind: subj.kind, service: subj.service },
+      {
+        signature: sig, verdict, label: subj.label, kind: subj.kind, service: subj.service,
+        priority: subj.priority, magnitude: subj.magnitude,
+        ...(verdict === 'noise' && noise ? { reason: noise.reason, note: noise.note || undefined, permanent: noise.permanent || undefined } : {}),
+      },
       { onSuccess: () => onDone?.(verdict) },
     );
   };
+  const noiseDetail = current?.verdict === 'noise'
+    ? [noiseReasonLabel(current.reason), current.permanent ? 'kalıcı' : ''].filter(Boolean).join(' · ')
+    : '';
   const stateText = current?.verdict === 'real' ? 'Gerçek problem olarak işaretli'
-    : current?.verdict === 'noise' ? 'Problem değil olarak işaretli'
+    : current?.verdict === 'noise' ? `Problem değil olarak işaretli${noiseDetail ? ` (${noiseDetail})` : ''}${current.note ? ` — ${current.note}` : ''}`
     : 'Henüz işaretlenmedi';
 
   if (row) {
@@ -74,14 +85,13 @@ export function ProblemVerdictActions({ item, subject, onDone, flush, compact, r
               loading={set.isPending} disabled={current?.verdict === 'real'} onClick={() => write('real')}>
               Gerçek problem
             </Button>
-            <Button size="sm" variant="secondary" active={current?.verdict === 'noise'}
-              aria-label={`Problem değil: ${label}`}
-              loading={set.isPending} disabled={current?.verdict === 'noise'} onClick={() => write('noise')}>
-              Problem değil
-            </Button>
+            <NoiseReasonButton label="Problem değil" ariaLabel={`Problem değil: ${label}`} isAdmin={isAdmin}
+              active={current?.verdict === 'noise'} loading={set.isPending} disabled={current?.verdict === 'noise'}
+              onConfirm={c => write('noise', c)} />
+            {noiseDetail && <span className="pv-compact__state" title={current?.note || undefined}>{noiseDetail}</span>}
           </>
         ) : current ? (
-          <span className="pv-compact__state">{current.verdict === 'real' ? 'gerçek problem' : 'problem değil'}</span>
+          <span className="pv-compact__state">{current.verdict === 'real' ? 'gerçek problem' : `problem değil${noiseDetail ? ` · ${noiseDetail}` : ''}`}</span>
         ) : null}
         {set.isError && <span role="alert" className="field-error">Yazılamadı</span>}
       </span>
@@ -92,7 +102,7 @@ export function ProblemVerdictActions({ item, subject, onDone, flush, compact, r
     // Durum kısa: düğmenin kendisi seçili görünür; metin yalnız kim/ne
     // olduğunu söyler (viewer düğme görmediği için durumu buradan okur).
     const shortState = current?.verdict === 'real' ? 'gerçek problem'
-      : current?.verdict === 'noise' ? 'problem değil'
+      : current?.verdict === 'noise' ? `problem değil${noiseDetail ? ` · ${noiseDetail}` : ''}`
       : 'işaretlenmedi';
     return (
       <span className="pv-compact">
@@ -106,10 +116,9 @@ export function ProblemVerdictActions({ item, subject, onDone, flush, compact, r
               loading={set.isPending} disabled={current?.verdict === 'real'} onClick={() => write('real')}>
               Gerçek problem
             </Button>
-            <Button size="sm" variant="secondary" active={current?.verdict === 'noise'}
-              loading={set.isPending} disabled={current?.verdict === 'noise'} onClick={() => write('noise')}>
-              Problem değil
-            </Button>
+            <NoiseReasonButton label="Problem değil" isAdmin={isAdmin}
+              active={current?.verdict === 'noise'} loading={set.isPending} disabled={current?.verdict === 'noise'}
+              onConfirm={c => write('noise', c)} />
             {current && (
               <Button size="sm" variant="ghost" loading={set.isPending} onClick={() => write('')}>
                 İşareti kaldır
@@ -137,10 +146,9 @@ export function ProblemVerdictActions({ item, subject, onDone, flush, compact, r
             loading={set.isPending} disabled={current?.verdict === 'real'} onClick={() => write('real')}>
             Gerçek problem
           </Button>
-          <Button size="sm" variant="secondary" active={current?.verdict === 'noise'}
-            loading={set.isPending} disabled={current?.verdict === 'noise'} onClick={() => write('noise')}>
-            Problem değil
-          </Button>
+          <NoiseReasonButton label="Problem değil" isAdmin={isAdmin}
+            active={current?.verdict === 'noise'} loading={set.isPending} disabled={current?.verdict === 'noise'}
+            onConfirm={c => write('noise', c)} />
           {current && (
             <Button size="sm" variant="ghost" loading={set.isPending} onClick={() => write('')}>
               İşareti kaldır

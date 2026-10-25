@@ -11810,3 +11810,32 @@ sayfalarında (alarm/anomali problemi, exception grubu, anomali olayı).
 15 s önbellek arkasında. Std hesabı saf ve aday başına O(1).
 
 **Geri alma.** `git revert <sha>` + yeni etiket; şema yok. FE std'siz satırda v0.10.1084 hücrelerine düşer.
+
+## 2026-10-25 — v0.10.1531 — Problem standardı R3: "Problem değil" gerekçeleri + zaman sınırlı susturma
+
+**Bağlam.** R2 satır/başlık UI'sinden sonra program dilimi R3 (D1, D4, D5). Operatör 2026-10-25: "R3 R4 R5 ve geri
+kalanları da yap"; R3 önerisi (gerekçe menüsü, 7 günlük süreli susturma + baypas, kalıcı gizleme yalnız admin, gerçek
+işaret → vaka taslağı, toplu çubuk) bu onayla.
+
+**Karar.**
+- `chstore.ProblemVerdict` + saved_views gövdesi: `reason` (kapalı küme `NoiseReasons`: expected · too_sensitive ·
+  known_accepted · wrong_attribution · other), `note` (≤ 280; "other" zorunlu), `permanent` (yalnız admin — PUT 403),
+  `priority` + `magnitude` (işaret anındaki görünüm önceliği / standart büyüklük; baypas kıyası). Gerekçe yalnız "noise"te;
+  gerçek kararda düşer. Gerekçesiz eski işaretler geçerli kalır. Şema yok.
+- D5: `notify_policy.noiseMuteHours` (varsayılan 168 = 7 gün, 1–720; 0 = varsayılan) — "problem değil" penceresi R1'de
+  tekrar penceresini (12 sa) paylaşıyordu, artık kendi vidası. `NotifiableAt` ve bugünkü gönderim kapısı
+  (`notify/verdict_silence.go`, yönetici `muteNotifications` açıkken) AYNI kuralı okur: `chstore.NoiseSilences` — kalıcı →
+  her zaman; pencere dışı → susturmaz; pencere içinde baypas (öncelik yükseldi / etki ≥ 2× / yüksek güvenli P1) yoksa
+  susturur. Gönderim kapısında std trafik okumasız kurulur (bütçesiz yol). İşaret tek tanımdan: `chstore.NoiseMarkOf`
+  (gölge, replay, kapı). **Davranış değişikliği:** muteNotifications açık kurulumda eski işaretler 7 gün sonra bildirimi
+  susturmayı bırakır (D5'in kendisi); süresiz isteyen admin "kalıcı gizle"yi kullanır.
+- D4: "Gerçek problem" işaretli imzanın kapanan problemi süresinden bağımsız vaka TASLAĞI alır
+  (`cosrelearn.ProblemCaseEligibleMarked`; okuma düşerse eski uygunluk). İşaret değerlendirme etiketi değil.
+- FE: "Problem değil ▾" (`components/NoiseReasonButton.tsx`, Popover dialog) gerekçe + not + (admin) kalıcı gizle;
+  satır, kompakt ve uzun kiplerin üçü de; durum metni gerekçeyi gösterir. Toplu çubukta "Gerçek problem (n)" /
+  "Problem değil (n)" (D1; editor+; imza başına PUT, allSettled).
+
+**Bedeller.** Susturma kapısı yalnız işaretli imzada std kurar (saf). Gerekçeler FP programının dedektör başına isabet
+etiketi olacak.
+
+**Geri alma.** `git revert <sha>` + yeni etiket; `noiseMuteHours` blobda okunmadan kalır, gerekçe alanları gövdede yok sayılır.

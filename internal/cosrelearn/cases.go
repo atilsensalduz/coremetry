@@ -51,6 +51,45 @@ const (
 // CaseCategories — onay formunun kapalı kategori kümesi.
 var CaseCategories = []string{"deploy", "config", "capacity", "dependency", "code_bug", "infra", "data", "external", "noise", "other"}
 
+// verdictLister — isteğe bağlı yüzey (v0.10.1531, Problem standardı R3 / D4):
+// *chstore.Store karşılar. "Gerçek problem" işaretli imzanın kapanan problemi
+// süresinden bağımsız taslak alır. Okuma düşerse ya da depo bu yüzeyi
+// taşımıyorsa eski uygunluk kuralı aynen geçerli.
+type verdictLister interface {
+	ListProblemVerdicts(ctx context.Context) ([]chstore.ProblemVerdict, error)
+}
+
+// realVerdictSignatures — "Gerçek problem" imza kümesi (hata → boş küme).
+func realVerdictSignatures(ctx context.Context, st CaseStore) map[string]bool {
+	out := map[string]bool{}
+	vl, ok := st.(verdictLister)
+	if !ok {
+		return out
+	}
+	list, err := vl.ListProblemVerdicts(ctx)
+	if err != nil {
+		log.Printf("[cosrelearn] problem verdicts: %v — gerçek işaretleri uygunluğa girmedi", err)
+		return out
+	}
+	for _, v := range list {
+		if v.Verdict == chstore.ProblemVerdictReal {
+			out[v.Signature] = true
+		}
+	}
+	return out
+}
+
+// ProblemCaseEligibleMarked — SAF (v0.10.1531, D4): ProblemCaseEligible ya da
+// operatör imzayı "Gerçek problem" diye işaretlemiş. İşaret değerlendirme
+// etiketi DEĞİL (D4): yalnız taslağı açar; nihai neden yine insandan.
+func ProblemCaseEligibleMarked(p chstore.ClosedProblemForCase, real map[string]bool) bool {
+	if ProblemCaseEligible(p) {
+		return true
+	}
+	sig := chstore.RuleProblemVerdictSignature(p.RuleID, p.Service)
+	return sig != "" && real[sig]
+}
+
 // ProblemCaseEligible — SAF: kısa ömürlü gürültü vaka olmaz; kritik ya da
 // ≥5 dk süren problem olur.
 func ProblemCaseEligible(p chstore.ClosedProblemForCase) bool {
@@ -245,9 +284,10 @@ func BuildCases(ctx context.Context, st CaseStore, now time.Time) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	real := realVerdictSignatures(ctx, st) // v0.10.1531 (D4)
 	var drafts []chstore.IncidentCase
 	for _, p := range probs {
-		if ProblemCaseEligible(p) {
+		if ProblemCaseEligibleMarked(p, real) {
 			drafts = append(drafts, DraftFromProblem(p, now))
 		}
 	}

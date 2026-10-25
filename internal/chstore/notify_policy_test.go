@@ -62,9 +62,11 @@ func TestNotifiableAtTable(t *testing.T) {
 		{"P3 anında", npStd(StdFamilyRule, ConfidenceHigh, StdFloorMeasures{}, 3), "P3", NotifyHistory{}, p3imm, now, true, "", ""},
 		// D10: düşük güven görünür ama bildirilmez — tutma kodu kapıyı söyler.
 		{"low güven", lowStd, "P1", NotifyHistory{}, pol, now, false, NotifyHoldGatePrefix + "G2", ""},
-		// D3 / D5: "problem değil" penceresi 12 sa, baypaslı.
+		// D3 / D5: "problem değil" penceresi baypaslı. v0.10.1531 (R3): pencere
+		// noiseMuteHours (168 sa) — 13 sa'lik işaret artık hâlâ susturur.
 		{"işaret 1 sa önce", npStd(StdFamilyRule, ConfidenceMedium, StdFloorMeasures{}, 3), "P2", NotifyHistory{Noise: &NoiseMark{At: ago(time.Hour)}}, pol, now, false, NotifyHoldNoise, ""},
-		{"işaret 13 sa önce → bildirir (zaman sınırlı)", npStd(StdFamilyRule, ConfidenceMedium, StdFloorMeasures{}, 3), "P2", NotifyHistory{Noise: &NoiseMark{At: ago(13 * time.Hour)}}, pol, now, true, "", ""},
+		{"işaret 13 sa önce → hâlâ susar (R3: 7 gün)", npStd(StdFamilyRule, ConfidenceMedium, StdFloorMeasures{}, 3), "P2", NotifyHistory{Noise: &NoiseMark{At: ago(13 * time.Hour)}}, pol, now, false, NotifyHoldNoise, ""},
+		{"işaret 8 gün önce → bildirir (zaman sınırlı)", npStd(StdFamilyRule, ConfidenceMedium, StdFloorMeasures{}, 3), "P2", NotifyHistory{Noise: &NoiseMark{At: ago(8 * 24 * time.Hour)}}, pol, now, true, "", ""},
 		{"işaret gelecekte (replay) sayılmaz", npStd(StdFamilyRule, ConfidenceMedium, StdFloorMeasures{}, 3), "P2", NotifyHistory{Noise: &NoiseMark{At: now.Add(time.Hour).UnixNano()}}, pol, now, true, "", ""},
 		{"işaret + öncelik yükseldi", npStd(StdFamilyRule, ConfidenceMedium, StdFloorMeasures{}, 3), "P1", NotifyHistory{Noise: &NoiseMark{At: ago(time.Hour), Priority: "P2"}}, pol, now, true, "", "priority_up"},
 		{"kalıcı gizleme (yönetici)", npStd(StdFamilyRule, ConfidenceHigh, StdFloorMeasures{}, 9), "P1", NotifyHistory{Noise: &NoiseMark{At: ago(30 * 24 * time.Hour), Permanent: true}}, pol, now, false, NotifyHoldHidden, ""},
@@ -191,5 +193,69 @@ func TestNotifyViewPriority(t *testing.T) {
 	}
 	if got := NotifyViewPriority(Problem{RuleID: "anomaly:a:error_rate", Priority: "P1"}, []string{}); got != "P3" {
 		t.Errorf("boş liste: %s", got)
+	}
+}
+
+// v0.10.1531 (Problem standardı R3, D5) — "problem değil" susturması zaman
+// sınırlı (noiseMuteHours, varsayılan 7 gün) + baypaslı; kalıcı yalnız yönetici.
+func TestNoiseSilencesR3(t *testing.T) {
+	now := time.Date(2026, 10, 25, 12, 0, 0, 0, time.UTC)
+	pol := DefaultNotifyPolicy()
+	at := func(d time.Duration) int64 { return now.Add(-d).UnixNano() }
+	hi := ProblemStandard{Confidence: StdConfidence{Level: ConfidenceHigh}, Impact: StdImpact{Primary: StdMeasure{Ratio: 3}}}
+	cases := []struct {
+		name string
+		m    *NoiseMark
+		std  ProblemStandard
+		prio string
+		want bool
+	}{
+		{"işaret yok", nil, hi, "P2", false},
+		{"taze işaret, aynı öncelik", &NoiseMark{At: at(time.Hour), Priority: "P2", Magnitude: 3}, hi, "P2", true},
+		{"6 gün: hâlâ pencere içinde", &NoiseMark{At: at(6 * 24 * time.Hour), Priority: "P2", Magnitude: 3}, hi, "P2", true},
+		{"8 gün: pencere bitti", &NoiseMark{At: at(8 * 24 * time.Hour), Priority: "P2", Magnitude: 3}, hi, "P2", false},
+		{"kalıcı: 90 gün sonra da", &NoiseMark{At: at(90 * 24 * time.Hour), Permanent: true}, hi, "P1", true},
+		{"öncelik yükseldi → baypas", &NoiseMark{At: at(time.Hour), Priority: "P3", Magnitude: 3}, ProblemStandard{Impact: StdImpact{Primary: StdMeasure{Ratio: 3}}}, "P2", false},
+		{"etki 2× → baypas", &NoiseMark{At: at(time.Hour), Priority: "P2", Magnitude: 1.4}, hi, "P2", false},
+		{"yüksek güvenli P1 → baypas", &NoiseMark{At: at(time.Hour), Priority: "P1", Magnitude: 3}, hi, "P1", false},
+		{"gelecekteki işaret (saat kayması) susturmaz", &NoiseMark{At: now.Add(time.Hour).UnixNano()}, hi, "P2", false},
+	}
+	for _, c := range cases {
+		if got := NoiseSilences(c.m, c.std, c.prio, pol, now); got != c.want {
+			t.Errorf("%s: %v, beklenen %v", c.name, got, c.want)
+		}
+	}
+	// noiseMuteHours vidası: 24 sa'e indirilince 2 günlük işaret susturmaz.
+	pol.NoiseMuteHours = 24
+	if NoiseSilences(&NoiseMark{At: at(48 * time.Hour), Priority: "P2", Magnitude: 3}, hi, "P2", pol, now) {
+		t.Error("noiseMuteHours=24: 48 sa'lik işaret susturmamalı")
+	}
+}
+
+func TestNoiseMuteHoursValidateNormalize(t *testing.T) {
+	p := DefaultNotifyPolicy()
+	if p.NoiseMuteHours != 168 {
+		t.Fatalf("varsayılan 168 sa: %v", p.NoiseMuteHours)
+	}
+	p.NoiseMuteHours = 0 // R3 öncesi istemci alanı göndermez
+	if err := ValidateNotifyPolicy(p); err != nil {
+		t.Fatalf("0 = varsayılan kabul edilmeli: %v", err)
+	}
+	if NormalizeNotifyPolicy(p).NoiseMuteHours != 168 {
+		t.Fatal("0 → 168'e normalize")
+	}
+	p.NoiseMuteHours = 721
+	if ValidateNotifyPolicy(p) == nil {
+		t.Fatal("721 sa reddedilmeli (30 gün tavan)")
+	}
+}
+
+func TestNoiseMarkOf(t *testing.T) {
+	if NoiseMarkOf(nil) != nil || NoiseMarkOf(&ProblemVerdict{Verdict: ProblemVerdictReal}) != nil {
+		t.Fatal("gerçek karar / nil işaret üretmez")
+	}
+	m := NoiseMarkOf(&ProblemVerdict{Verdict: ProblemVerdictNoise, At: 5, Permanent: true, Priority: "P2", Magnitude: 3})
+	if m == nil || m.At != 5 || !m.Permanent || m.Priority != "P2" || m.Magnitude != 3 {
+		t.Fatalf("işaret alanları taşınmalı: %+v", m)
 	}
 }

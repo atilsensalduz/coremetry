@@ -183,7 +183,7 @@ describe('Problems satırı — Exceptions biçimi (v0.10.1084)', () => {
     expect(cells[5].textContent).toBe('YÜKSEK');
     // D1 — editor iki düğmeyi görür; satır hover/focus'ta görünür (pv-row).
     const pv = cells[6].querySelector('.pv-row')!;
-    expect([...pv.querySelectorAll('button')].map(b => b.textContent)).toEqual(['Gerçek problem', 'Problem değil']);
+    expect([...pv.querySelectorAll('button')].map(b => b.textContent)).toEqual(['Gerçek problem', 'Problem değil ▾']); // v0.10.1531 — gerekçe diyaloğu
     expect(pv.classList.contains('is-set')).toBe(false);
   });
 

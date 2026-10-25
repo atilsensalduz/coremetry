@@ -2739,7 +2739,16 @@ export interface ProblemVerdict {
   by?: string;
   /** unix ns */
   at: number;
+  /** v0.10.1531 (Problem standardı R3, D5) — yalnız "noise"te: gerekçe, not,
+   *  yönetici kalıcı gizlemesi; işaret anındaki öncelik / büyüklük (baypas kıyası). */
+  reason?: NoiseReason;
+  note?: string;
+  permanent?: boolean;
+  priority?: string;
+  magnitude?: number;
 }
+/** v0.10.1531 — "Problem değil" gerekçeleri (Go chstore.NoiseReasons, kapalı küme). */
+export type NoiseReason = 'expected' | 'too_sensitive' | 'known_accepted' | 'wrong_attribution' | 'other';
 /** v0.10.1016 — kararların görünüm DIŞINDAKİ etkisi (Go chstore.ProblemVerdictPolicy).
  *  muteNotifications açıkken "problem değil" imzaları mail / kanal bildirimi de üretmez. */
 export interface ProblemVerdictPolicy {
@@ -2756,6 +2765,12 @@ export interface ProblemVerdictInput {
   label?: string;
   kind?: string;
   service?: string;
+  /** v0.10.1531 (R3) — yalnız "noise"; permanent yalnız admin (sunucu 403). */
+  reason?: NoiseReason;
+  note?: string;
+  permanent?: boolean;
+  priority?: string;
+  magnitude?: number;
 }
 /** v0.10.747 — kanal başına olay türü süzgeci; sunucu chstore.NotifyKindsAll ile birebir (Inbox grameri). */
 export type NotifyKind = 'problem' | 'anomaly' | 'incident' | 'exception'; // exception: v0.10.782, kanal başına opt-in

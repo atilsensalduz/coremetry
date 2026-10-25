@@ -53,11 +53,12 @@ import type { SubjectLane } from '@/lib/types';
 import { useProblemVerdicts } from '@/lib/queries';
 import { ProblemVerdictPolicyBar } from '@/components/ProblemVerdictPolicyBar';
 import { ProblemVerdictActions } from '@/components/ProblemVerdictActions'; // v0.10.1529 — satır Karar hücresi (D1)
+import { NoiseReasonButton, type NoiseReasonChoice } from '@/components/NoiseReasonButton'; // v0.10.1531 — toplu triyaj
 import {
   splitStdHeadline, stdSourceChip, stdSourceName, stdSamplingNote, stdImpactSecondary, stdSinceLine, stdDurationLine,
   stdConfidenceTone, stdConfidenceRank, stdGateTitle, STD_CONFIDENCE_LABEL,
 } from '@/lib/problemStandardView'; // v0.10.1529 — Problem standardı R2
-import { verdictIndex, verdictOf, countNoise, filterByVerdictView, parseVerdictView, type VerdictView } from '@/lib/problemVerdict';
+import { verdictIndex, verdictOf, countNoise, filterByVerdictView, parseVerdictView, inboxVerdictSubject, type VerdictView } from '@/lib/problemVerdict';
 
 // Facet vocab + defaults (v0.8.291) — both defaults are what the URL codec
 // omits so a fresh link stays clean.
@@ -757,6 +758,27 @@ export default function InboxPage() {
     setBulkBusy(false);
   };
 
+  // v0.10.1531 (Problem standardı R3, D1) — toplu triyaj: seçili satırların
+  // imzalarına aynı karar. Toplu uç yok (karar imza başına tek satır,
+  // saved_views); istekler birlikte gider, biri düşerse kalanlar yazılır.
+  // İmzası olmayan satır (incident) sayılır ve atlanır. Son cevap tam liste
+  // olduğundan önbellek doğrudan tazelenir.
+  const verdictSubjects = pickedRows.map(inboxVerdictSubject).filter((x): x is NonNullable<typeof x> => !!x);
+  const bulkVerdict = async (verdict: 'real' | 'noise', noise?: NoiseReasonChoice) => {
+    setBulkBusy(true); setBulkNote(null);
+    const res = await Promise.allSettled(verdictSubjects.map(subj => api.putProblemVerdict({
+      signature: subj.signature, verdict, label: subj.label, kind: subj.kind, service: subj.service,
+      priority: subj.priority, magnitude: subj.magnitude,
+      ...(verdict === 'noise' && noise ? { reason: noise.reason, note: noise.note || undefined, permanent: noise.permanent || undefined } : {}),
+    })));
+    const ok = res.filter(r => r.status === 'fulfilled').length;
+    const label = verdict === 'real' ? 'gerçek problem' : 'problem değil';
+    setBulkNote(ok === res.length ? `${ok} satır “${label}” işaretlendi` : `${ok} işaretlendi, ${res.length - ok} istek başarısız`);
+    setPicked(new Set());
+    void qc.invalidateQueries({ queryKey: ['problem-verdicts'] });
+    setBulkBusy(false);
+  };
+
   // v0.9.330 — chips render SERVER counts, computed over the pre-facet,
   // pre-cap set. Counting the returned page is exactly how prod displayed
   // "Exceptions 0" on a queue that held thousands: the page was 300 incidents,
@@ -1056,6 +1078,18 @@ export default function InboxPage() {
                 onClick={bulkAcknowledge} loading={bulkBusy}>
                 {`Onayla (${ackable})`}
               </Button>
+              {/* v0.10.1531 (R3, D1) — toplu triyaj; yalnız editor/admin (sunucu da kapalı). */}
+              {isAdmin && (
+                <>
+                  <Button variant="secondary" size="sm" disabled={verdictSubjects.length === 0 || bulkBusy}
+                    onClick={() => { void bulkVerdict('real'); }}>
+                    {`Gerçek problem (${verdictSubjects.length})`}
+                  </Button>
+                  <NoiseReasonButton label={`Problem değil (${verdictSubjects.length})`} isAdmin={user?.role === 'admin'}
+                    disabled={verdictSubjects.length === 0 || bulkBusy}
+                    onConfirm={c => { void bulkVerdict('noise', c); }} />
+                </>
+              )}
               <Button variant="secondary" size="sm" disabled={bulkBusy}
                 onClick={() => { setPicked(new Set()); setBulkNote(null); }}>
                 Seçimi temizle

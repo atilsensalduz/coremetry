@@ -17,7 +17,9 @@ package chstore
 //	D3  gürültü tekrarı 12 sa; öncelik yükselirse, etki ≥ 2× ise ya da
 //	    yüksek güvenli P1 ise baypas
 //	D5  mevcut kalıcı "problem değil" işaretleri bildirimde ZAMAN SINIRLI
-//	    (noiseDedupeHours) + baypaslı; kalıcı gizleme yalnız yönetici (R3)
+//	    + baypaslı; kalıcı gizleme yalnız yönetici. v0.10.1531 (R3): pencere
+//	    kendi vidasında — noiseMuteHours (varsayılan 168 sa = 7 gün; R1'de
+//	    tekrar penceresi noiseDedupeHours'u paylaşıyordu)
 //	D6  etki tabanları — hata: ≥30 başarısız / 5 dk YA DA ≥ %1 (yüzde kolu
 //	    yalnız ≥30 çağrı ölçülmüşken: "asla yalnız yüzde"); gecikme: p99
 //	    ≥ +300 ms VE ≥30 çağrı / 5 dk; trafik düşüşü ≥ %40 VE ≥100 taban çağrı
@@ -88,14 +90,17 @@ type NotifyQuietHours struct {
 
 // NotifyPolicy — blob.
 type NotifyPolicy struct {
-	Mode             string             `json:"mode"`
-	P3               string             `json:"p3"`
-	DigestTimes      []string           `json:"digestTimes"`
-	QuietHours       *NotifyQuietHours  `json:"quietHours,omitempty"`
-	NoiseDedupeHours float64            `json:"noiseDedupeHours"`
-	ImpactFloors     NotifyImpactFloors `json:"impactFloors"`
-	UpdatedBy        string             `json:"updatedBy,omitempty"`
-	UpdatedAt        int64              `json:"updatedAt,omitempty"`
+	Mode             string            `json:"mode"`
+	P3               string            `json:"p3"`
+	DigestTimes      []string          `json:"digestTimes"`
+	QuietHours       *NotifyQuietHours `json:"quietHours,omitempty"`
+	NoiseDedupeHours float64           `json:"noiseDedupeHours"`
+	// NoiseMuteHours — v0.10.1531 (R3, D5): "problem değil" işaretinin
+	// bildirimi susturduğu süre (işaret anından). 0 = varsayılan (168).
+	NoiseMuteHours float64            `json:"noiseMuteHours"`
+	ImpactFloors   NotifyImpactFloors `json:"impactFloors"`
+	UpdatedBy      string             `json:"updatedBy,omitempty"`
+	UpdatedAt      int64              `json:"updatedAt,omitempty"`
 }
 
 // DefaultNotifyPolicy — varsayılan: GÖLGE.
@@ -105,6 +110,7 @@ func DefaultNotifyPolicy() NotifyPolicy {
 		P3:               NotifyP3Digest,
 		DigestTimes:      []string{"09:00", "16:00"},
 		NoiseDedupeHours: 12,
+		NoiseMuteHours:   168,
 		ImpactFloors: NotifyImpactFloors{
 			ErrorFailed5m:             30,
 			ErrorPct:                  1,
@@ -119,6 +125,7 @@ func DefaultNotifyPolicy() NotifyPolicy {
 const (
 	notifyDigestMax      = 6
 	notifyDedupeHoursMax = 168
+	notifyMuteHoursMax   = 720 // 30 gün; daha uzunu "kalıcı gizle"nin işi (yönetici)
 )
 
 // hhmmMinutes — SAF: "HH:MM" → gün içi dakika (settings.go parseHHMM).
@@ -158,6 +165,10 @@ func ValidateNotifyPolicy(p NotifyPolicy) error {
 	}
 	if p.NoiseDedupeHours < 1 || p.NoiseDedupeHours > notifyDedupeHoursMax {
 		return fmt.Errorf("noiseDedupeHours must be between 1 and %d", notifyDedupeHoursMax)
+	}
+	// 0 = alan gönderilmedi (R3 öncesi istemci) → varsayılan; aksi aralıkta.
+	if p.NoiseMuteHours != 0 && (p.NoiseMuteHours < 1 || p.NoiseMuteHours > notifyMuteHoursMax) {
+		return fmt.Errorf("noiseMuteHours must be between 1 and %d", notifyMuteHoursMax)
 	}
 	f := p.ImpactFloors
 	for name, v := range map[string]float64{
@@ -210,6 +221,9 @@ func NormalizeNotifyPolicy(p NotifyPolicy) NotifyPolicy {
 	}
 	if p.NoiseDedupeHours < 1 || p.NoiseDedupeHours > notifyDedupeHoursMax {
 		p.NoiseDedupeHours = d.NoiseDedupeHours
+	}
+	if p.NoiseMuteHours < 1 || p.NoiseMuteHours > notifyMuteHoursMax {
+		p.NoiseMuteHours = d.NoiseMuteHours
 	}
 	if p.ImpactFloors == (NotifyImpactFloors{}) {
 		p.ImpactFloors = d.ImpactFloors
@@ -487,15 +501,16 @@ func NotifiableAt(std ProblemStandard, prio string, hist NotifyHistory, pol Noti
 	if h := impactFloorHold(std, pol.ImpactFloors); h != "" {
 		return hold(h)
 	}
-	win := int64(pol.NoiseDedupeHours * float64(time.Hour))
 	nowNs := now.UnixNano()
-	if n := hist.Noise; n != nil && n.At > 0 && n.At <= nowNs && nowNs-n.At < win {
+	muteWin := int64(pol.NoiseMuteHours * float64(time.Hour)) // v0.10.1531 (R3)
+	if n := hist.Noise; n != nil && n.At > 0 && n.At <= nowNs && nowNs-n.At < muteWin {
 		if b := notifyBypass(std, prio, n.Priority, n.Magnitude); b != "" {
 			d.Bypass = b
 		} else {
 			return hold(NotifyHoldNoise)
 		}
 	}
+	win := int64(pol.NoiseDedupeHours * float64(time.Hour))
 	if l := hist.LastSend; l != nil && l.At > 0 && l.At <= nowNs && nowNs-l.At < win {
 		if b := notifyBypass(std, prio, l.Priority, l.Magnitude); b != "" {
 			d.Bypass = b
@@ -508,4 +523,29 @@ func NotifiableAt(std ProblemStandard, prio string, hist NotifyHistory, pol Noti
 	}
 	d.Notifiable = true
 	return d
+}
+
+// NoiseSilences — SAF (v0.10.1531, Problem standardı R3 / D5): "problem değil"
+// işareti bu bildirimi susturur mu. Bugünkü gönderim kapısı (notify
+// verdict_silence.go, yönetici muteNotifications politikası açıkken) bunu
+// çağırır; NotifiableAt'ın "noise" adımıyla AYNI kural:
+//
+//	kalıcı (yönetici)              → her zaman susturur
+//	işaret noiseMuteHours'tan eski → susturmaz (zaman sınırlı)
+//	pencere içinde                 → baypas yoksa susturur (öncelik yükseldi /
+//	                                 etki ≥ 2× / yüksek güvenli P1 → gider)
+func NoiseSilences(m *NoiseMark, std ProblemStandard, prio string, pol NotifyPolicy, now time.Time) bool {
+	if m == nil {
+		return false
+	}
+	if m.Permanent {
+		return true
+	}
+	pol = NormalizeNotifyPolicy(pol)
+	nowNs := now.UnixNano()
+	win := int64(pol.NoiseMuteHours * float64(time.Hour))
+	if m.At <= 0 || m.At > nowNs || nowNs-m.At >= win {
+		return false
+	}
+	return notifyBypass(std, prio, m.Priority, m.Magnitude) == ""
 }

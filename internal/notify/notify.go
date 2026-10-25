@@ -259,7 +259,7 @@ type Notifier struct {
 	pvMu    sync.Mutex
 	pvAt    time.Time
 	pvMute  bool
-	pvNoise map[string]struct{}
+	pvNoise map[string]chstore.ProblemVerdict // v0.10.1531 — zaman/kalıcılık/baypas için tam karar
 
 	// shadow — v0.10.1523 (Problem standardı R1) yeni bildirim barının gölge
 	// ölçümü (policy_shadow.go). Gönderimi DEĞİŞTİRMEZ.
@@ -500,7 +500,7 @@ func (n *Notifier) SendProblemAlert(ctx context.Context, p chstore.Problem) {
 	}
 	// v0.10.1016 — operatörün "problem değil" diye öğrettiği imza: politika
 	// AÇIKSA (varsayılan kapalı) hiçbir fan-out yok. Ayrıntı: verdict_silence.go.
-	if sig := verdictSignature(p); n.verdictSilenced(ctx, sig) {
+	if sig := verdictSignature(p); n.verdictSilenced(ctx, sig, problemSilenceStd(p)) {
 		log.Printf("[notify] marked \"problem değil\" — skipping fan-out: %s · %s", sig, p.RuleName)
 		return
 	}

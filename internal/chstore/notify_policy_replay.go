@@ -468,7 +468,8 @@ func FoldNotifyReplay(in NotifyReplayInput) NotifyReplayReport {
 		std := StandardizeProblem(pp, facts)
 		hist := NotifyHistory{LastSend: last[sig]}
 		if v, ok := noise[sig]; ok && sig != "" {
-			hist.Noise = &NoiseMark{At: v.At}
+			vv := v
+			hist.Noise = NoiseMarkOf(&vv)
 		}
 		dec := NotifiableAt(std, prio, hist, pol, start.In(loc))
 		if dec.Notifiable && sig != "" {
@@ -550,7 +551,8 @@ func FoldNotifyReplay(in NotifyReplayInput) NotifyReplayReport {
 			sig := "e:" + fp
 			hist := NotifyHistory{LastSend: exLast[sig]}
 			if v, ok := noise[sig]; ok {
-				hist.Noise = &NoiseMark{At: v.At}
+				vv := v
+				hist.Noise = NoiseMarkOf(&vv)
 				f.NoiseMarked++
 			}
 			dec := NotifiableAt(std, firstNonEmpty(g.Priority, "P3"), hist, pol, at.In(loc))

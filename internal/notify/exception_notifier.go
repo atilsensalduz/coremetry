@@ -380,7 +380,7 @@ passes:
 			}
 			// v0.10.1016 — "problem değil" grubu tik tavanını yemesin
 			// (SendProblemAlert zaten susturur; burada defter de kirlenmez).
-			if e.n.verdictSilenced(ctx, exceptionVerdictSignature(g.Fingerprint)) {
+			if e.n.verdictSilenced(ctx, exceptionVerdictSignature(g.Fingerprint), exceptionSilenceStd(g, prio)) {
 				continue
 			}
 			if oracleGroup && prio == "P1" {
@@ -498,8 +498,10 @@ func (e *ExceptionNotifier) run(ctx context.Context, tc chstore.TeamContacts) {
 			} else if !isP1ExceptionCandidate(g, gnow) {
 				continue
 			}
-			if e.n.verdictSilenced(ctx, exceptionVerdictSignature(g.Fingerprint)) {
-				continue // v0.10.1016 — "problem değil": P1 anonsu da susar
+			// v0.10.1016 — "problem değil": P1 anonsu da susar. v0.10.1531 (R3) —
+			// zaman sınırlı + baypaslı; anons adayı tanım gereği P1.
+			if e.n.verdictSilenced(ctx, exceptionVerdictSignature(g.Fingerprint), exceptionSilenceStd(g, "P1")) {
+				continue
 			}
 			if seen, herr := e.store.HasNotification(ctx, "exception", g.Fingerprint, teamRoutingChannelName); herr != nil || seen {
 				continue

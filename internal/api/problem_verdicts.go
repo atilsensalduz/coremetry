@@ -5,8 +5,11 @@ package api
 // öğretelim"). Depolama ve kavram: internal/chstore/problem_verdict.go.
 //
 //	GET /api/problem-verdicts         her rol — tüm kararlar (≤5000) + politika
-//	PUT /api/problem-verdicts         editor+ — {signature, verdict, label?, kind?, service?}
+//	PUT /api/problem-verdicts         editor+ — {signature, verdict, label?, kind?, service?,
+//	                                            reason?, note?, permanent?, priority?, magnitude?}
 //	                                            verdict: "real" | "noise" | "" (kaldır)
+//	                                            v0.10.1531 (R3): reason/note/permanent yalnız
+//	                                            "noise"te; permanent=true YALNIZ admin (403)
 //	PUT /api/problem-verdicts/policy  admin   — {muteNotifications} (v0.10.1016)
 //
 // Karar İMZAYA bağlıdır (aynı kural + servis / aynı exception grubu); FE imzayı
@@ -21,6 +24,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -43,6 +47,7 @@ const (
 	problemVerdictLabelMax = 200 // rune
 	problemVerdictFieldMax = 120 // rune (kind / service)
 	problemVerdictMaxBody  = 8 << 10
+	problemVerdictNoteMax  = 280 // rune (v0.10.1531)
 )
 
 type problemVerdictsResponse struct {
@@ -75,11 +80,22 @@ type problemVerdictInput struct {
 	Label     string `json:"label"`
 	Kind      string `json:"kind"`
 	Service   string `json:"service"`
+	// v0.10.1531 (Problem standardı R3, D5).
+	Reason    string  `json:"reason"`
+	Note      string  `json:"note"`
+	Permanent bool    `json:"permanent"`
+	Priority  string  `json:"priority"`
+	Magnitude float64 `json:"magnitude"`
 }
 
 // normalizeProblemVerdictInput — SAF (tablo testli): gövde → yazılacak karar.
 // clear=true: karar kaldırılır. Hata mesajı Türkçe ve alanı söyler.
-func normalizeProblemVerdictInput(in problemVerdictInput, by string, now time.Time) (v chstore.ProblemVerdict, clear bool, msg string) {
+// v0.10.1531 (R3): gerekçe kapalı kümeden (chstore.NoiseReasons) ya da boş;
+// "other" not ister; gerekçe/not/kalıcılık yalnız "noise"te (gerçek kararda
+// sessizce düşer); kalıcılık yönetici yetkisi (isAdmin) ister — rol kararı
+// burada ki tablo testi kapıyı da pinlesin. Öncelik yalnız P1/P2/P3,
+// büyüklük sonlu ve ≥ 0 (baypas kıyası; bozuk değer 0 = bilinmiyor).
+func normalizeProblemVerdictInput(in problemVerdictInput, by string, now time.Time, isAdmin ...bool) (v chstore.ProblemVerdict, clear bool, msg string) {
 	sig := strings.TrimSpace(in.Signature)
 	if !chstore.ValidProblemSignature(sig) {
 		return v, false, "signature geçersiz: p: (alarm kuralı), e: (exception grubu) ya da a: (anomali) önekiyle başlamalı"
@@ -91,13 +107,37 @@ func normalizeProblemVerdictInput(in problemVerdictInput, by string, now time.Ti
 	if !chstore.ValidProblemVerdict(verdict) {
 		return v, false, "verdict 'real', 'noise' ya da boş (kaldır) olmalı"
 	}
-	return chstore.ProblemVerdict{
+	out := chstore.ProblemVerdict{
 		Signature: sig, Verdict: verdict,
 		Label:   truncRunes(strings.TrimSpace(in.Label), problemVerdictLabelMax),
 		Kind:    truncRunes(strings.TrimSpace(in.Kind), problemVerdictFieldMax),
 		Service: truncRunes(strings.TrimSpace(in.Service), problemVerdictFieldMax),
 		By:      by, At: now.UnixNano(),
-	}, false, ""
+	}
+	switch p := strings.TrimSpace(in.Priority); p {
+	case "P1", "P2", "P3":
+		out.Priority = p
+	}
+	if m := in.Magnitude; m > 0 && !math.IsInf(m, 0) && !math.IsNaN(m) {
+		out.Magnitude = m
+	}
+	if verdict != chstore.ProblemVerdictNoise {
+		return out, false, ""
+	}
+	reason := strings.TrimSpace(in.Reason)
+	if !chstore.ValidNoiseReason(reason) {
+		return v, false, "reason geçersiz: " + strings.Join(chstore.NoiseReasons, " | ") + " ya da boş olmalı"
+	}
+	note := truncRunes(strings.TrimSpace(in.Note), problemVerdictNoteMax)
+	if reason == chstore.NoiseReasonOther && note == "" {
+		return v, false, "reason 'other' bir not (note) ister"
+	}
+	admin := len(isAdmin) > 0 && isAdmin[0]
+	if in.Permanent && !admin {
+		return v, false, "permanent (kalıcı gizleme) yalnız yönetici"
+	}
+	out.Reason, out.Note, out.Permanent = reason, note, in.Permanent
+	return out, false, ""
 }
 
 func (s *Server) getProblemVerdicts(w http.ResponseWriter, r *http.Request) {
@@ -116,9 +156,15 @@ func (s *Server) putProblemVerdict(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "geçersiz JSON: "+err.Error())
 		return
 	}
-	v, clear, msg := normalizeProblemVerdictInput(in, claimEmail(auth.FromContext(r.Context())), time.Now())
+	claims := auth.FromContext(r.Context())
+	isAdmin := claims != nil && claims.Role == auth.RoleAdmin
+	v, clear, msg := normalizeProblemVerdictInput(in, claimEmail(claims), time.Now(), isAdmin)
 	if msg != "" {
-		writeJSONError(w, http.StatusBadRequest, msg)
+		code := http.StatusBadRequest
+		if in.Permanent && !isAdmin {
+			code = http.StatusForbidden
+		}
+		writeJSONError(w, code, msg)
 		return
 	}
 	ctx := r.Context()
@@ -152,7 +198,8 @@ func (s *Server) putProblemVerdict(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.cacheInvalidatePrefix(ctx, problemVerdictCachePfx)
-	details, _ := json.Marshal(map[string]string{"signature": v.Signature, "verdict": v.Verdict, "kind": v.Kind, "service": v.Service, "label": v.Label})
+	details, _ := json.Marshal(map[string]any{"signature": v.Signature, "verdict": v.Verdict, "kind": v.Kind, "service": v.Service, "label": v.Label,
+		"reason": v.Reason, "note": v.Note, "permanent": v.Permanent}) // v0.10.1531 — gerekçe + kalıcılık denetimde
 	s.audit(r, "problem.verdict", "problem", v.Signature, string(details))
 	res, err := s.problemVerdictsPayload(ctx)
 	if err != nil {

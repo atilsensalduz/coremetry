@@ -4,7 +4,8 @@ import { resolve } from 'node:path';
 import { inboxSignature, verdictIndex, verdictOf, filterByVerdictView, countNoise, parseVerdictView,
   verdictMutesNotifications, verdictCoversNotifications, verdictNotifyHint, verdictCompactHint,
   problemSignature, exceptionSignature, anomalySignature,
-  inboxVerdictSubject, problemVerdictSubject, exceptionVerdictSubject, anomalyVerdictSubject } from './problemVerdict';
+  inboxVerdictSubject, problemVerdictSubject, exceptionVerdictSubject, anomalyVerdictSubject,
+  NOISE_REASONS, noiseReasonLabel, stdMagnitudeOf } from './problemVerdict';
 import type { AnomalyEvent, ExceptionGroup, InboxItem, Problem, ProblemVerdict } from './types';
 
 // v0.10.1015 — operatör: "Problems sekmesinde bütün hepsi gelsin, ben hangisi
@@ -48,6 +49,11 @@ describe('inboxSignature', () => {
 // detayda "problem değil" denen satır kuyrukta görünmeye devam eder.
 // Satırlar sunucunun eşlemesiyle kuruluyor (inbox.go problemToInbox /
 // exceptionToInbox / anomalyToInbox: aynı alanlar → aynı satır).
+// v0.10.1531 (R3) — özne artık öncelik + büyüklük de taşır (baypas kıyası;
+// satırda std'den, kayıtta yok): eşitlik KİMLİK alanlarında aranır.
+const idOf = (v: ReturnType<typeof inboxVerdictSubject>) =>
+  v && { signature: v.signature, label: v.label, kind: v.kind, service: v.service };
+
 describe('kayıttan imza = satırdan imza (alan alan eşitlik)', () => {
   const P = (ruleId: string, service: string, ruleName = 'High error rate'): Problem =>
     ({ id: 'p-1', ruleId, ruleName, service, metric: 'error_rate', value: 9, threshold: 1,
@@ -75,12 +81,12 @@ describe('kayıttan imza = satırdan imza (alan alan eşitlik)', () => {
   ])('problem %#', (p) => {
     const row = rowOfProblem(p);
     expect(problemSignature(p)).toBe(inboxSignature(row));
-    expect(problemVerdictSubject(p)).toEqual(inboxVerdictSubject(row));
+    expect(idOf(problemVerdictSubject(p))).toEqual(idOf(inboxVerdictSubject(row)));
   });
   it.each([G('9f8a7c'), G('404', '404', 'gw'), G('fp/with|pipe')])('exception %#', (g) => {
     const row = rowOfGroup(g);
     expect(exceptionSignature(g)).toBe(inboxSignature(row));
-    expect(exceptionVerdictSubject(g)).toEqual(inboxVerdictSubject(row));
+    expect(idOf(exceptionVerdictSubject(g))).toEqual(idOf(inboxVerdictSubject(row)));
   });
   it.each([
     A('log_pattern', 'checkout', 'ORA-00060'), A('trace_op', 'orders-api', 'POST /pay'),
@@ -89,7 +95,7 @@ describe('kayıttan imza = satırdan imza (alan alan eşitlik)', () => {
   ])('anomaly %#', (e) => {
     const row = rowOfAnomaly(e);
     expect(anomalySignature(e)).toBe(inboxSignature(row));
-    expect(anomalyVerdictSubject(e)).toEqual(inboxVerdictSubject(row));
+    expect(idOf(anomalyVerdictSubject(e))).toEqual(idOf(inboxVerdictSubject(row)));
   });
   it('öğretilemeyen kayıt: boş kural / parmak izi / tür → null (düğmeler çizilmez)', () => {
     expect(problemSignature(P('', 'svc'))).toBeNull();
@@ -201,7 +207,8 @@ describe('bildirim politikası', () => {
     expect(verdictCompactHint('p:r|s', undefined)).toBe(core);
     expect(verdictCompactHint('e:fp', { muteNotifications: false })).toBe(core);
     expect(verdictCompactHint('a:k|s|p', null)).toBe(core);
-    expect(verdictCompactHint('p:r|s', { muteNotifications: true })).toBe(`${core} “Problem değil” bildirimini de susturur.`);
+    // v0.10.1531 (R3) — susturma süreli + baypaslı; cümle bunu söyler.
+    expect(verdictCompactHint('p:r|s', { muteNotifications: true })).toBe(`${core} “Problem değil” bildirimini de susturur (süreli; öncelik yükselirse yine gelir).`);
     expect(verdictCompactHint('e:fp', { muteNotifications: true })).toContain('bildirimini de susturur');
     expect(verdictCompactHint('a:k|s|p', { muteNotifications: true })).toBe(`${core} Anomali bildirimini etkilemez.`);
   });
@@ -214,5 +221,30 @@ describe('bildirim politikası', () => {
     const store = readFileSync(resolve(__dirname, '../../../internal/chstore/problem_verdict.go'), 'utf8');
     expect(store).toContain('return "p:" + ruleID + "|" + subject');
     expect(go).toContain('return "e:" + fingerprint');
+  });
+});
+
+// v0.10.1531 (Problem standardı R3) — gerekçe kümesi Go chstore.NoiseReasons ile
+// aynı sırada; özne öncelik + standart büyüklüğü taşır (baypas kıyası).
+describe('R3 — gerekçeler ve özne', () => {
+  it('gerekçe kümesi sunucuyla aynı', () => {
+    const go = readFileSync(resolve(__dirname, '../../../internal/chstore/problem_verdict.go'), 'utf8');
+    const m = /NoiseReasons = \[\]string\{([^}]*)\}/.exec(go)!;
+    const ids: Record<string, string> = {};
+    for (const c of go.matchAll(/(NoiseReason\w+)\s*=\s*"([a-z_]+)"/g)) ids[c[1]] = c[2];
+    const goOrder = m[1].split(',').map(x => ids[x.trim()]);
+    expect(NOISE_REASONS.map(r => r.id)).toEqual(goOrder);
+    expect(noiseReasonLabel('too_sensitive')).toBe('Eşik fazla hassas');
+    expect(noiseReasonLabel('')).toBe('');
+  });
+  it('kuyruk özne: öncelik + büyüklük (oran, yoksa değer)', () => {
+    const base = { id: 'problem:p', kind: 'problem', source: '', priority: 'P2', priorityReason: '', severity: '', service: 's',
+      title: 't', description: '', startedAt: 1, lastSeen: 1, status: 'open',
+      problem: { id: 'p', ruleId: 'r', metric: 'm', value: 1, threshold: 1 } } as InboxItem;
+    expect(inboxVerdictSubject(base)).toMatchObject({ priority: 'P2', magnitude: undefined });
+    const std = (ratio: number, value: number) => ({ impact: { primary: { text: '', value, normal: 0, ratio }, known: true } }) as unknown as InboxItem['std'];
+    expect(stdMagnitudeOf(std(3, 9))).toBe(3);
+    expect(stdMagnitudeOf(std(0, 9))).toBe(9);
+    expect(stdMagnitudeOf(std(0, 0))).toBeUndefined();
   });
 });

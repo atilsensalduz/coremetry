@@ -6376,3 +6376,9 @@ a.idchip__val:hover { color: var(--accent2); text-decoration: underline; }
 .stmt-pivots { display: inline-flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
 .stmt-pivots a.sec { font-size: 12px; padding: 3px 10px; white-space: nowrap; }
 .stmt-pivots a.sec.stmt-pivots__err { color: var(--err); }
+
+/* v0.10.1531 (Problem standardı R3) — "Problem değil ▾" gerekçe diyaloğu
+   (components/NoiseReasonButton.tsx). */
+.nr-pop { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px; }
+.nr-reasons { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.nr-reason { display: flex; align-items: baseline; gap: 6px; font-size: 12px; cursor: pointer; }

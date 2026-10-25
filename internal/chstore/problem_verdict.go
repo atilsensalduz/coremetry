@@ -63,6 +63,55 @@ type ProblemVerdict struct {
 	Service   string `json:"service,omitempty"` // işaretlenen satırın öznesi (gösterim)
 	By        string `json:"by,omitempty"`
 	At        int64  `json:"at"` // unix ns
+
+	// v0.10.1531 (Problem standardı R3, D5) — "problem değil"in gerekçesi ve
+	// etkisi. Reason ∈ NoiseReasons ("" = R3 öncesi işaret, gerekçesiz).
+	// Permanent: yönetici kalıcı gizleme — bildirim HİÇ gitmez (NotifiableAt
+	// hold "hidden"); değilse susturma zaman sınırlı (notify_policy
+	// noiseMuteHours) ve baypaslı (öncelik yükseldi / etki ≥ 2× / yüksek
+	// güvenli P1). Priority / Magnitude: işaret anındaki görünüm önceliği ve
+	// standart büyüklük (baypas kıyası; bilinmiyorsa boş / 0).
+	Reason    string  `json:"reason,omitempty"`
+	Note      string  `json:"note,omitempty"`
+	Permanent bool    `json:"permanent,omitempty"`
+	Priority  string  `json:"priority,omitempty"`
+	Magnitude float64 `json:"magnitude,omitempty"`
+}
+
+// "Problem değil" gerekçeleri (R3). Gerekçe dedektör başına isabet ölçümünün
+// etiketidir: "too_sensitive" o dedektörün eşiğine, "wrong_attribution"
+// özne çözümüne işaret eder.
+const (
+	NoiseReasonExpected    = "expected"          // beklenen davranış (batch / bakım / test)
+	NoiseReasonSensitive   = "too_sensitive"     // eşik fazla hassas
+	NoiseReasonKnown       = "known_accepted"    // bilinen ve kabul edilmiş sorun
+	NoiseReasonAttribution = "wrong_attribution" // yanlış servis / kaynak atfı
+	NoiseReasonOther       = "other"             // diğer (not ile)
+)
+
+// NoiseReasons — kapalı küme (sıra = menü sırası).
+var NoiseReasons = []string{NoiseReasonExpected, NoiseReasonSensitive, NoiseReasonKnown, NoiseReasonAttribution, NoiseReasonOther}
+
+// ValidNoiseReason — SAF: "" (gerekçesiz, R3 öncesi uyum) ya da kapalı küme.
+func ValidNoiseReason(r string) bool {
+	if r == "" {
+		return true
+	}
+	for _, x := range NoiseReasons {
+		if x == r {
+			return true
+		}
+	}
+	return false
+}
+
+// NoiseMarkOf — SAF: karar → bildirim politikasının "problem değil" işareti
+// (gerçek karar / nil → nil). Tek tanım: gölge, replay ve gönderim kapısı.
+func NoiseMarkOf(v *ProblemVerdict) *NoiseMark {
+	if v == nil || v.Verdict != ProblemVerdictNoise {
+		return nil
+	}
+	return &NoiseMark{At: v.At, Permanent: v.Permanent, Priority: v.Priority, Magnitude: v.Magnitude}
 }
 
 // ValidProblemVerdict — SAF: yalnız iki karar.
@@ -116,6 +165,20 @@ func NoiseVerdictSignatures(list []ProblemVerdict) map[string]struct{} {
 	return out
 }
 
+// NoiseVerdictIndex — SAF (v0.10.1531, R3): karar listesi → "problem değil"
+// kararları (imza → karar). Küme yetmeyen yerler (bildirim susturması:
+// zaman, kalıcılık, işaret anındaki öncelik/büyüklük) bunu okur;
+// NoiseVerdictSignatures aynı süzgecin anahtar kümesidir.
+func NoiseVerdictIndex(list []ProblemVerdict) map[string]ProblemVerdict {
+	out := make(map[string]ProblemVerdict)
+	for _, v := range list {
+		if v.Verdict == ProblemVerdictNoise {
+			out[v.Signature] = v
+		}
+	}
+	return out
+}
+
 // problemVerdictIDPrefix — sistem karar satırlarının kimlik öneki. Genel
 // kayıtlı-görünüm ucu kimliği rastgele üretir (newRandID), bu öneki taşıyamaz.
 const problemVerdictIDPrefix = "pv:"
@@ -124,11 +187,16 @@ const problemVerdictIDPrefix = "pv:"
 func problemVerdictID(sig string) string { return problemVerdictIDPrefix + sig }
 
 type problemVerdictPayload struct {
-	Signature string `json:"signature"`
-	Label     string `json:"label,omitempty"`
-	Kind      string `json:"kind,omitempty"`
-	Service   string `json:"service,omitempty"`
-	By        string `json:"by,omitempty"`
+	Signature string  `json:"signature"`
+	Label     string  `json:"label,omitempty"`
+	Kind      string  `json:"kind,omitempty"`
+	Service   string  `json:"service,omitempty"`
+	By        string  `json:"by,omitempty"`
+	Reason    string  `json:"reason,omitempty"`    // v0.10.1531
+	Note      string  `json:"note,omitempty"`      // v0.10.1531
+	Permanent bool    `json:"permanent,omitempty"` // v0.10.1531
+	Priority  string  `json:"priority,omitempty"`  // v0.10.1531
+	Magnitude float64 `json:"magnitude,omitempty"` // v0.10.1531
 }
 
 // problemVerdictFromRow — SAF: saved_views satırı → karar. Bozuk gövde ya da
@@ -149,8 +217,18 @@ func problemVerdictFromRow(id, name, query string, createdAt time.Time) (Problem
 	if id != problemVerdictID(p.Signature) {
 		return ProblemVerdict{}, false
 	}
-	return ProblemVerdict{Signature: p.Signature, Verdict: name, Label: p.Label, Kind: p.Kind,
-		Service: p.Service, By: p.By, At: createdAt.UnixNano()}, true
+	v := ProblemVerdict{Signature: p.Signature, Verdict: name, Label: p.Label, Kind: p.Kind,
+		Service: p.Service, By: p.By, At: createdAt.UnixNano(),
+		Reason: p.Reason, Note: p.Note, Permanent: p.Permanent, Priority: p.Priority, Magnitude: p.Magnitude}
+	if v.Verdict != ProblemVerdictNoise || !ValidNoiseReason(v.Reason) {
+		// Gerekçe / kalıcılık yalnız "problem değil"de anlamlı; bozuk gerekçe
+		// kararı düşürmez, yalnız gerekçeyi boşaltır.
+		v.Reason, v.Permanent = "", v.Permanent && v.Verdict == ProblemVerdictNoise
+		if v.Verdict != ProblemVerdictNoise {
+			v.Note = ""
+		}
+	}
+	return v, true
 }
 
 // problemVerdictListSQL — ListProblemVerdicts okuması (testte pinli).
@@ -194,7 +272,8 @@ func (s *Store) ListProblemVerdicts(ctx context.Context) ([]ProblemVerdict, erro
 
 // SetProblemVerdict — imzanın kararını yazar (aynı imza → aynı satır).
 func (s *Store) SetProblemVerdict(ctx context.Context, v ProblemVerdict) error {
-	raw, err := json.Marshal(problemVerdictPayload{Signature: v.Signature, Label: v.Label, Kind: v.Kind, Service: v.Service, By: v.By})
+	raw, err := json.Marshal(problemVerdictPayload{Signature: v.Signature, Label: v.Label, Kind: v.Kind, Service: v.Service, By: v.By,
+		Reason: v.Reason, Note: v.Note, Permanent: v.Permanent, Priority: v.Priority, Magnitude: v.Magnitude})
 	if err != nil {
 		return err
 	}

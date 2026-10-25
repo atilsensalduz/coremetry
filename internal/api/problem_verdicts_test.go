@@ -116,3 +116,43 @@ func TestProblemVerdictRouteGates(t *testing.T) {
 		}
 	}
 }
+
+// v0.10.1531 (Problem standardı R3, D5) — "problem değil" gerekçesi, notu ve
+// kalıcılığı: kapalı küme, "other" not ister, kalıcılık yalnız yönetici,
+// gerçek kararda gerekçe/kalıcılık düşer.
+func TestNormalizeProblemVerdictInputR3(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	cases := []struct {
+		name    string
+		in      problemVerdictInput
+		admin   bool
+		wantMsg bool
+		check   func(v chstore.ProblemVerdict) bool
+	}{
+		{"gerekçesiz noise (R3 öncesi uyum)", problemVerdictInput{Signature: "e:a", Verdict: "noise"}, false, false,
+			func(v chstore.ProblemVerdict) bool { return v.Reason == "" && !v.Permanent }},
+		{"geçerli gerekçe", problemVerdictInput{Signature: "e:a", Verdict: "noise", Reason: "too_sensitive", Priority: "P2", Magnitude: 3.5}, false, false,
+			func(v chstore.ProblemVerdict) bool { return v.Reason == "too_sensitive" && v.Priority == "P2" && v.Magnitude == 3.5 }},
+		{"bilinmeyen gerekçe", problemVerdictInput{Signature: "e:a", Verdict: "noise", Reason: "meh"}, false, true, nil},
+		{"other notsuz", problemVerdictInput{Signature: "e:a", Verdict: "noise", Reason: "other"}, false, true, nil},
+		{"other notlu", problemVerdictInput{Signature: "e:a", Verdict: "noise", Reason: "other", Note: " test ortamı "}, false, false,
+			func(v chstore.ProblemVerdict) bool { return v.Note == "test ortamı" }},
+		{"kalıcı — editor reddedilir", problemVerdictInput{Signature: "e:a", Verdict: "noise", Reason: "expected", Permanent: true}, false, true, nil},
+		{"kalıcı — admin", problemVerdictInput{Signature: "e:a", Verdict: "noise", Reason: "expected", Permanent: true}, true, false,
+			func(v chstore.ProblemVerdict) bool { return v.Permanent }},
+		{"gerçek kararda gerekçe/kalıcılık düşer", problemVerdictInput{Signature: "e:a", Verdict: "real", Reason: "expected", Permanent: true, Note: "x"}, false, false,
+			func(v chstore.ProblemVerdict) bool { return v.Reason == "" && !v.Permanent && v.Note == "" }},
+		{"bozuk öncelik / büyüklük düşer", problemVerdictInput{Signature: "e:a", Verdict: "noise", Priority: "P9", Magnitude: -2}, false, false,
+			func(v chstore.ProblemVerdict) bool { return v.Priority == "" && v.Magnitude == 0 }},
+	}
+	for _, c := range cases {
+		v, _, msg := normalizeProblemVerdictInput(c.in, "op@x", now, c.admin)
+		if (msg != "") != c.wantMsg {
+			t.Errorf("%s: msg=%q", c.name, msg)
+			continue
+		}
+		if c.check != nil && !c.check(v) {
+			t.Errorf("%s: %+v", c.name, v)
+		}
+	}
+}
