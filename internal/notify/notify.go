@@ -264,6 +264,10 @@ type Notifier struct {
 	// shadow — v0.10.1523 (Problem standardı R1) yeni bildirim barının gölge
 	// ölçümü (policy_shadow.go). Gönderimi DEĞİŞTİRMEZ.
 	shadow policyShadow
+
+	// threads — v0.10.1532 (Problem standardı R4) bildirim konuları
+	// (lifecycle.go): imza → konu, kalıcı kaydın süreç-içi önbelleği.
+	threads threadBook
 }
 
 // maintenanceSilenced reports whether any active maintenance
@@ -508,6 +512,10 @@ func (n *Notifier) SendProblemAlert(ctx context.Context, p chstore.Problem) {
 	// (notification_log channel_kind='policy'). Dönüşü yok, arka planda koşar,
 	// aşağıdaki hiçbir şeyi değiştirmez (policy_shadow.go).
 	n.shadowNotifyPolicy(ctx, p)
+	// v0.10.1532 (Problem standardı R4) — Türkçe standart görünüm + konu
+	// (lifecycle.go / tr_template.go): kanallar ve ekip maili ctx'ten okur.
+	// `notify_policy.template: legacy` iken no-op (eski biçim bayt bayt).
+	ctx = n.prepareAlertView(ctx, p)
 	// Service catalog row — shared by the team-routing mail below AND
 	// the per-channel match predicates, so it loads before either.
 	var md *chstore.ServiceMetadata
@@ -1167,6 +1175,12 @@ func (n *Notifier) sendEmail(ctx context.Context, c chstore.NotificationChannel,
 	}
 
 	subject := alertTitle(p)
+	view := alertViewOf(ctx) // v0.10.1532 — Türkçe standart + tek konu
+	var hdrs []string
+	if view != nil {
+		subject = trEmailSubject(view)
+		hdrs = trThreadHeaders(view, p)
+	}
 
 	from := smtpCfg.From
 	fromHeader := from
@@ -1189,9 +1203,15 @@ func (n *Notifier) sendEmail(ctx context.Context, c chstore.NotificationChannel,
 	// v0.10.749 — "Sustur" bağlantısı alıcıya ÖZEL (jeton alıcının adresini
 	// taşır → audit "kim susturdu"), o yüzden imzalayıcı varsa her alıcıya
 	// AYRI mail. İmzalayıcı/public URL yoksa eski tek-mail yolu bayt-bayt.
+	bodies := func(ignore string) (string, string) {
+		if view != nil {
+			return n.buildEmailBodyTR(view, p, rc, ignore), n.buildEmailHTMLTR(view, p, rc, ignore)
+		}
+		return n.buildEmailBodyWith(p, rc, ignore), n.buildEmailHTMLWith(p, rc, ignore)
+	}
 	if n.ignoreURL(p, ec.Recipients[0]) == "" {
-		msg, err := composeAltEmail(fromHeader, ec.Recipients, subject,
-			n.buildEmailBody(p, rc), n.buildEmailHTML(p, rc))
+		plain, htm := bodies("")
+		msg, err := composeAltEmailH(fromHeader, ec.Recipients, subject, plain, htm, hdrs)
 		if err != nil {
 			return fmt.Errorf("compose email: %w", err)
 		}
@@ -1200,8 +1220,8 @@ func (n *Notifier) sendEmail(ctx context.Context, c chstore.NotificationChannel,
 	var errs []error
 	for _, rcpt := range ec.Recipients {
 		ignore := n.ignoreURL(p, rcpt)
-		msg, err := composeAltEmail(fromHeader, []string{rcpt}, subject,
-			n.buildEmailBodyWith(p, rc, ignore), n.buildEmailHTMLWith(p, rc, ignore))
+		plain, htm := bodies(ignore)
+		msg, err := composeAltEmailH(fromHeader, []string{rcpt}, subject, plain, htm, hdrs)
 		if err != nil {
 			return fmt.Errorf("compose email: %w", err)
 		}
@@ -1231,6 +1251,13 @@ func encodeSubject(s string) string {
 }
 
 func composeAltEmail(fromHeader string, to []string, subject, plain, htmlBody string) ([]byte, error) {
+	return composeAltEmailH(fromHeader, to, subject, plain, htmlBody, nil)
+}
+
+// composeAltEmailH — composeAltEmail + ek başlık satırları (v0.10.1532: konu
+// başlıkları Message-ID / In-Reply-To / References / Thread-Topic /
+// Importance). Her satır "Ad: değer"; CR/LF ayıklanır (CWE-93).
+func composeAltEmailH(fromHeader string, to []string, subject, plain, htmlBody string, extra []string) ([]byte, error) {
 	var alt bytes.Buffer
 	w := multipart.NewWriter(&alt)
 	// Her parça quoted-printable: (a) 8-bit UTF-8 gövde 7-bit-güvenli
@@ -1269,6 +1296,9 @@ func composeAltEmail(fromHeader string, to []string, subject, plain, htmlBody st
 	msg.WriteString("From: " + sanitizeHeader(fromHeader) + "\r\n")
 	msg.WriteString("To: " + strings.Join(sanTo, ", ") + "\r\n")
 	msg.WriteString("Subject: " + encodeSubject(subject) + "\r\n")
+	for _, h := range extra {
+		msg.WriteString(sanitizeHeader(h) + "\r\n")
+	}
 	msg.WriteString("MIME-Version: 1.0\r\n")
 	msg.WriteString("Content-Type: multipart/alternative; boundary=" + w.Boundary() + "\r\n")
 	msg.WriteString("\r\n")
@@ -1622,6 +1652,9 @@ func (n *Notifier) sendSlack(ctx context.Context, c chstore.NotificationChannel,
 	if sc.WebhookURL == "" {
 		return errors.New("channel has no webhook URL")
 	}
+	if v := alertViewOf(ctx); v != nil { // v0.10.1532 — Türkçe standart
+		return postJSON(ctx, sc.WebhookURL, n.slackBodyTR(v, c, p))
+	}
 	color := severityColor(p.Severity)
 	t := notifyStamp(p.StartedAt) // v0.10.758 — sunucu diliminde, etiketli (stamp.go)
 	fields := []map[string]any{
@@ -1690,6 +1723,9 @@ func (n *Notifier) sendTeams(ctx context.Context, c chstore.NotificationChannel,
 	}
 	if tc.WebhookURL == "" {
 		return errors.New("channel has no webhook URL")
+	}
+	if v := alertViewOf(ctx); v != nil { // v0.10.1532 — Türkçe standart
+		return postJSON(ctx, tc.WebhookURL, n.teamsBodyTR(v, c, p))
 	}
 	colour := strings.TrimPrefix(severityColor(p.Severity), "#")
 	t := notifyStamp(p.StartedAt) // v0.10.758 — sunucu diliminde, etiketli (stamp.go)
@@ -1877,6 +1913,9 @@ func (n *Notifier) sendZoomChat(ctx context.Context, c chstore.NotificationChann
 	}
 	if u := n.ignoreURL(p, channelWho(c)); u != "" { // v0.10.749
 		msg += "\n• Sustur: " + u
+	}
+	if v := alertViewOf(ctx); v != nil { // v0.10.1532 — Türkçe standart
+		msg = n.zoomTextTR(v, c, p)
 	}
 
 	payload := map[string]any{"message": msg}
@@ -2249,6 +2288,9 @@ func (n *Notifier) sendWhatsApp(ctx context.Context, c chstore.NotificationChann
 	endpoint := fmt.Sprintf("https://api.twilio.com/2010-04-01/Accounts/%s/Messages.json",
 		url.PathEscape(wc.AccountSid))
 	bodyText := buildWhatsAppText(p)
+	if v := alertViewOf(ctx); v != nil { // v0.10.1532 — Türkçe standart
+		bodyText = n.buildWhatsAppTextTR(v, p)
+	}
 
 	cli := &http.Client{Timeout: 10 * time.Second}
 	for _, to := range wc.To {

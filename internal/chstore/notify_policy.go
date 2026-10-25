@@ -49,6 +49,12 @@ const (
 	NotifyModeEnforce = "enforce"
 )
 
+// Bildirim şablonu (v0.10.1532, R4 / D9).
+const (
+	NotifyTemplateTR     = "tr"     // Türkçe standart şablon + yaşam döngüsü + tek konu (varsayılan)
+	NotifyTemplateLegacy = "legacy" // v0.10.1531 öncesi biçim (geri dönüş anahtarı)
+)
+
 // P3 davranışı.
 const (
 	NotifyP3Digest    = "digest"
@@ -97,10 +103,12 @@ type NotifyPolicy struct {
 	NoiseDedupeHours float64           `json:"noiseDedupeHours"`
 	// NoiseMuteHours — v0.10.1531 (R3, D5): "problem değil" işaretinin
 	// bildirimi susturduğu süre (işaret anından). 0 = varsayılan (168).
-	NoiseMuteHours float64            `json:"noiseMuteHours"`
-	ImpactFloors   NotifyImpactFloors `json:"impactFloors"`
-	UpdatedBy      string             `json:"updatedBy,omitempty"`
-	UpdatedAt      int64              `json:"updatedAt,omitempty"`
+	NoiseMuteHours float64 `json:"noiseMuteHours"`
+	// Template — v0.10.1532 (R4, D9): "tr" | "legacy"; "" = varsayılan (tr).
+	Template     string             `json:"template,omitempty"`
+	ImpactFloors NotifyImpactFloors `json:"impactFloors"`
+	UpdatedBy    string             `json:"updatedBy,omitempty"`
+	UpdatedAt    int64              `json:"updatedAt,omitempty"`
 }
 
 // DefaultNotifyPolicy — varsayılan: GÖLGE.
@@ -111,6 +119,7 @@ func DefaultNotifyPolicy() NotifyPolicy {
 		DigestTimes:      []string{"09:00", "16:00"},
 		NoiseDedupeHours: 12,
 		NoiseMuteHours:   168,
+		Template:         NotifyTemplateTR,
 		ImpactFloors: NotifyImpactFloors{
 			ErrorFailed5m:             30,
 			ErrorPct:                  1,
@@ -165,6 +174,11 @@ func ValidateNotifyPolicy(p NotifyPolicy) error {
 	}
 	if p.NoiseDedupeHours < 1 || p.NoiseDedupeHours > notifyDedupeHoursMax {
 		return fmt.Errorf("noiseDedupeHours must be between 1 and %d", notifyDedupeHoursMax)
+	}
+	switch p.Template {
+	case "", NotifyTemplateTR, NotifyTemplateLegacy:
+	default:
+		return fmt.Errorf("template must be tr|legacy")
 	}
 	// 0 = alan gönderilmedi (R3 öncesi istemci) → varsayılan; aksi aralıkta.
 	if p.NoiseMuteHours != 0 && (p.NoiseMuteHours < 1 || p.NoiseMuteHours > notifyMuteHoursMax) {
@@ -224,6 +238,9 @@ func NormalizeNotifyPolicy(p NotifyPolicy) NotifyPolicy {
 	}
 	if p.NoiseMuteHours < 1 || p.NoiseMuteHours > notifyMuteHoursMax {
 		p.NoiseMuteHours = d.NoiseMuteHours
+	}
+	if p.Template != NotifyTemplateLegacy {
+		p.Template = NotifyTemplateTR
 	}
 	if p.ImpactFloors == (NotifyImpactFloors{}) {
 		p.ImpactFloors = d.ImpactFloors

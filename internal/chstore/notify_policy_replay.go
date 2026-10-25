@@ -347,7 +347,9 @@ type NotifyReplayReport struct {
 	Notes     []string               `json:"notes"`
 }
 
-var subjectPrioRe = regexp.MustCompile(`\]\[(P[123])\]`)
+// v0.10.1532 (R4) — Türkçe başlık "AÇILDI · [P1] <manşet>" da tanınır
+// (notify.trChatTitle); eski "[CRITICAL][P1] …" biçimi aynen.
+var subjectPrioRe = regexp.MustCompile(`(?:\]|· )\[(P[123])\]`)
 var subjectSevRe = regexp.MustCompile(`^\[([A-Z]+)\]`)
 
 // subjectPriority — SAF: "[CRITICAL][P1] svc — …" → "P1" ("" = etiketsiz).

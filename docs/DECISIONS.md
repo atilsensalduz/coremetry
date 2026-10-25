@@ -11839,3 +11839,35 @@ işaret → vaka taslağı, toplu çubuk) bu onayla.
 etiketi olacak.
 
 **Geri alma.** `git revert <sha>` + yeni etiket; `noiseMuteHours` blobda okunmadan kalır, gerekçe alanları gövdede yok sayılır.
+
+## 2026-10-25 — v0.10.1532 — Problem standardı R4: Türkçe bildirim şablonu + yaşam döngüsü + tek konu
+
+**Bağlam.** Program dilimi R4 (D9 "bildirimler tamamen Türkçe"; "AÇILDI / GÜNCELLEME / YENİDEN BAŞLADI / ÇÖZÜLDÜ,
+parmak izi başına tek konu"). Operatör 2026-10-25: "R3 R4 R5 ve geri kalanları da yap".
+
+**Karar.**
+- Bildirim görünümü ekranla AYNI standarttan (`chstore.StandardizeProblem`): `notify/tr_template.go` —
+  ilk satır "DURUM · P1 · güven YÜKSEK" (önizleme), manşet, Etki · Ne zamandan beri · Güven · Kaynak · Neden ·
+  Bağlam (önceliği etkilemez) · Sonraki adım · Öncelik (gerekçe) · Runbook · Nöbet, "Teknik" satırı (kural · metrik ·
+  değer/eşik · ciddiyet) ve "Dedektör notu" (ham açıklama). E-posta (düz + Outlook-güvenli HTML), Slack/Mattermost,
+  Teams, Zoom, WhatsApp; ekip maili ve exception P1 anonsu da (hepsi sendOne → dispatch). **Webhook değişmez**
+  (operatör şablonu sözleşmedir). Görünüm SendProblemAlert'te bir kez kurulur ve ctx ile taşınır; görünüm yoksa
+  (Test gönder, runbook, legacy) eski biçim bayt bayt.
+- Yaşam döngüsü SAF (`notify/lifecycle.go` `nextLifecycle`): çözülme → ÇÖZÜLDÜ; konu yok → AÇILDI; konu ≤ 24 sa önce
+  çözülmüş → YENİDEN BAŞLADI (aynı konu); daha eski → yeni konu; açık konu → GÜNCELLEME (öncelik/ciddiyet
+  yükseldiyse kayıt yazılır; salınım yazmaz). Konu anahtarı = öğretme imzası (`verdictSignature`; imzasız → kimlik).
+- Konu kaydı `chstore.NotifyThread` → saved_views `page='notify-thread'` (sistem sayfası; yeni şema yok), yalnız durum
+  değişince yazılır; süreç-içi önbellek, okuma 3 sn tavanlı, hata bildirimi durdurmaz (en kötü yeni konuşma).
+- Tek konu: e-posta Konu satırı SABİT "Coremetry · <açılış manşeti>"; Message-ID kökü
+  `<cm-thread-<fnv64(imza)>-<açılış sn>@coremetry>` — AÇILDI kökün kendisi, diğerleri In-Reply-To + References ile köke
+  bağlı; Thread-Topic (Outlook). Durum/öncelik konu satırında DEĞİL (Outlook konuşmayı konuya göre gruplar); P1'de
+  `Importance: high` + `X-Priority: 1`. Ek başlıklar CR/LF'ten arındırılır (`composeAltEmailH`).
+- G1 trafiği yalnız konu geçişinde okunur (gölgeyle aynı kova çifti); her tik yeniden çağrılan açık problem CH okumaz.
+- Geri dönüş anahtarı: `notify_policy.template` = `tr` (varsayılan) | `legacy`.
+- notification_log konusu alıcının gördüğü başlık ("AÇILDI · [P1] <manşet>"); replay önceliği bu biçimden de okur.
+
+**Bedeller.** Geçiş başına bir saved_views yazımı + en çok bir küçük service_summary_5m okuması. Yükseltme anında açık
+problemlerin ilk bildirimi AÇILDI ile yeni konu açar.
+
+**Geri alma.** Davranışı anında: `PUT /api/admin/notify-policy {"template":"legacy", …}` (≤ 30 sn). Tamamı:
+`git revert <sha>` + yeni etiket; notify-thread satırları okunmadan kalır.

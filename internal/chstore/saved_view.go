@@ -47,6 +47,9 @@ var systemSavedViewPages = map[string]struct{}{
 	// v0.10.1301 — AI SRE Faz 5 değerlendirme koşuları; yalnız POST
 	// /api/sre/eval/runs (admin, denetimli) ve sre drain'i yazar.
 	SREEvalPage: {},
+	// v0.10.1532 — bildirim konusu (Problem standardı R4); yalnız notify
+	// paketi yazar (lifecycle.go).
+	NotifyThreadPage: {},
 }
 
 // IsSystemSavedViewPage — SAF: page bir sistem sayfası mı (systemSavedViewPages).

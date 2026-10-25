@@ -35,7 +35,7 @@ func (n *Notifier) recordNotification(ctx context.Context, c chstore.Notificatio
 		ChannelKind: c.Type,
 		ChannelName: c.Name,
 		Target:      channelTarget(c),
-		Subject:     notificationSubject(p),
+		Subject:     notificationSubjectCtx(ctx, p), // v0.10.1532 — alıcının gördüğü başlık
 		BodyPreview: preview(p.Description, 200),
 		RelatedKind: relKind,
 		RelatedID:   relID,
@@ -55,6 +55,12 @@ func (n *Notifier) recordNotification(ctx context.Context, c chstore.Notificatio
 // the log row reads the same as what the recipient saw.
 func notificationSubject(p chstore.Problem) string {
 	return alertTitle(p)
+}
+
+// notificationSubjectCtx — v0.10.1532: Türkçe görünüm varsa sohbet başlığı
+// (durum · [P] manşet — kanal listesinde ve /events'te aynı satır), yoksa eski.
+func notificationSubjectCtx(ctx context.Context, p chstore.Problem) string {
+	return alertTitleCtx(ctx, p)
 }
 
 // channelTarget extracts the human-facing destination for a channel —
