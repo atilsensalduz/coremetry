@@ -23,6 +23,7 @@ import {
   chatPlainText, parseChatBlocks, codeLineCount, definitionRows, diffLineKind, sanitizeFileName,
   CALLOUT_LABEL, CODE_COLLAPSE_LINES, type CalloutVariant, type ChatBlock,
 } from './chatMarkdown';
+import { promoteSectionHeads } from '@/components/sectionHeads'; // v0.10.1538
 import { parseInline, inlinePlain, type InlineNode } from './chatInline'; // v0.10.1137
 import { normalizeMathEscapes } from '@/components/mathEscapes'; // v0.10.1345
 import { buildLinkPolicy, classifyLink, EMPTY_POLICY, hostOf, toAppPath, UNVERIFIED_TITLE, type LinkPolicy } from './chatLinks'; // v0.10.1137
@@ -421,7 +422,7 @@ export function renderMessage(text: string, streaming = false, typed?: ChatTyped
   const typedCharts = opts?.charts === false ? NO_CHARTS : chartBlocks(typed);
   // v0.10.1345 — LaTeX sembolleri (`$\rightarrow$` → →) çözücüden ÖNCE, BİRİKMİŞ
   // metin üzerinde (delta değil): akışta sondaki yarım komut gizlenir, kod dokunulmaz.
-  const blocks = parseChatBlocks(normalizeMathEscapes(text, { streaming }), streaming);
+  const blocks = parseChatBlocks(promoteSectionHeads(normalizeMathEscapes(text, { streaming }), streaming), streaming);
   // Yedek dal İÇERİK YOKLUĞUNA bakıyor (bozuk chart bloğu bilinçli atlanır).
   if (blocks.length === 0) return <>{streaming && <Caret />}</>;
   return <>{renderBlocks(blocks, streaming, typedCharts, streaming, 'b')}</>;

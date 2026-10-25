@@ -4,6 +4,7 @@ import { DisclosureButton } from '@/components/ui/DisclosureButton';
 import { splitHeader, hasGutter, gutterLines, resourceLabel, isStackTrace, foldStack } from '@/lib/codeQuote';
 import { idLinkPattern, type IdLink, type IdLinkPattern } from '@/components/ai/inlineIdLinks';
 import { normalizeMathEscapes } from './mathEscapes';
+import { promoteSectionHeads } from './sectionHeads';
 import { MdTable } from '@/components/ai/MdTable'; // v0.10.1357 — sohbetle ortak GFM tablosu
 import { isRowLine, parseTableAt } from '@/components/ai/mdTableParse';
 import { plainCell } from '@/components/ai/mdTableCell';
@@ -54,7 +55,7 @@ export function RenderedMarkdown({ text, idLinks, anatomy, streaming }: {
 }) {
   const idPat = idLinkPattern(idLinks);
   const blocks: React.ReactNode[] = [];
-  const norm = normalizeMathEscapes(text, { streaming });
+  const norm = promoteSectionHeads(normalizeMathEscapes(text, { streaming }), streaming); // v0.10.1538
   const lines = norm.split('\n');
   // Akışta `\n` ile bitmeyen son satır YARIM (chatMarkdown.parseChatBlocks ile aynı tanım).
   const partial = streaming && !norm.endsWith('\n') ? lines.length - 1 : -1;
