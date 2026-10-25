@@ -57,7 +57,10 @@ export function PanelLegend({
         {open ? '▼' : '▶'} Series ({count})
       </Button>
       {open && (
-        <div style={{ overflowX: 'auto' }}>
+        // v0.10.1547 (operatör: "çok fazla series dönen var, panel aşağıya
+        // uzuyor; Grafana'daki gibi olsun") — Grafana tablo lejantı: sabit
+        // yükseklik + kaydırma + yapışkan başlık; panel boyu seri sayısından bağımsız.
+        <div className="cp-legend-scroll">
         <table style={{ width: '100%', marginTop: 4 }}>
           <thead><tr>
             {head('name', 'Seri', true)}

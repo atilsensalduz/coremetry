@@ -90,7 +90,7 @@ export function ServiceMessagingTab({ service, range }: { service: string; range
     return (
       <div key={p.id} title={p.hint}>
         <HttpChartPanel title={p.title} series={series} unit={p.unit} stepSec={step} loading={pending}
-          syncKey="svc-kafka" legendKey={`svc-kafka:${p.id}`} />
+          syncKey="svc-kafka" legendKey={`svc-kafka:${p.id}`} legendOpen={false} />
       </div>
     );
   };

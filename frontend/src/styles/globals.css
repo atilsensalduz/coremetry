@@ -6407,3 +6407,8 @@ a.idchip__val:hover { color: var(--accent2); text-decoration: underline; }
 .mtp-kafka-h { font-size: var(--fs-md); font-weight: 600; margin: 14px 0 8px; }
 .mtp-kafka-lag--alarm { border-left: 3px solid var(--warn); padding-left: 10px; }
 .mtp-span-h { color: var(--text3); border-top: 1px solid var(--border); padding-top: 14px; margin-top: 22px; }
+
+/* v0.10.1547 — grafik lejantı Grafana tablo lejantı gibi: sabit yükseklik,
+   kaydırma, yapışkan başlık (çok seri panel boyunu uzatmaz). */
+.cp-legend-scroll { overflow: auto; max-height: 184px; }
+.cp-legend-scroll thead th { position: sticky; top: 0; z-index: 1; background: var(--bg1); }

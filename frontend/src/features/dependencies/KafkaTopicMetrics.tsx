@@ -79,7 +79,7 @@ export function KafkaTopicMetrics({ system, cluster, topic, range, win }: {
     <div key={p.id} title={p.hint}>
       <HttpChartPanel title={p.title} series={p.queries.flatMap((q, i) => relabel(ch.data[`${p.id}#${i}`], q.legend))}
         unit={p.unit} stepSec={step} loading={p.queries.some((_, i) => ch.pending(`${p.id}#${i}`))}
-        syncKey={`mtp-kafka:${topic}`} legendKey={`mtp-kafka:${p.id}`} />
+        syncKey={`mtp-kafka:${topic}`} legendKey={`mtp-kafka:${p.id}`} legendOpen={false} />
     </div>
   );
   const byId = (id: string) => charts.find(p => p.id === id)!;

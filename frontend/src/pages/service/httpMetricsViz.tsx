@@ -189,7 +189,7 @@ const cssToken = (t: string) => getComputedStyle(document.documentElement).getPr
  * altında tek satır soluk açıklama (field-hint).
  */
 export function HttpChartPanel({
-  title, series, unit, stepSec, loading, syncKey, legendKey, right, note, regions, onZoom, onZoomReset,
+  title, series, unit, stepSec, loading, syncKey, legendKey, right, note, regions, onZoom, onZoomReset, legendOpen = true,
 }: {
   title: string; series: SpanMetricSeries[]; unit: string;
   /** Range sorgusunun adımı (sn) — `stepSeconds(windowSec)`; boşluk dolgusu buna göre. */
@@ -200,6 +200,8 @@ export function HttpChartPanel({
   regions?: ChartTimeRegion[];
   onZoom?: (fromUnixSec: number, toUnixSec: number) => void;
   onZoomReset?: () => void;
+  /** v0.10.1547 — seri lejantı varsayılan açık mı (Kafka panelleri kapalı ister). */
+  legendOpen?: boolean;
 }) {
   const drawn = fillStepGaps(series, stepSec);
   return (
@@ -207,7 +209,7 @@ export function HttpChartPanel({
       {loading ? <Spinner /> : series.length === 0
         ? <div className="field-hint">Bu pencerede veri yok.</div>
         : <MultiLineChart series={drawn} unit={unit} height={220} syncKey={syncKey} legendStorageKey={legendKey}
-            maxSeries={60} legendDefaultOpen regions={regions} onZoom={onZoom} onZoomReset={onZoomReset}
+            maxSeries={60} legendDefaultOpen={legendOpen} regions={regions} onZoom={onZoom} onZoomReset={onZoomReset}
             zeroBase={httpPanelZeroBase(unit)}
             seriesColors={httpSeriesColors(series.map(x => x.groupKey[0] ?? ''), cssToken)} />}
       {note && <div className="field-hint">{note}</div>}
