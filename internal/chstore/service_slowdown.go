@@ -81,6 +81,7 @@ type SvcSlowServiceRow struct {
 	HourCalls uint64  // önceki SvcSlowHourBuckets kova toplamı
 	CurP99Ms  float64 // cari kova servis p99'u (0 = ölçü yok)
 	BaseP95Ms float64 // önceki 24 sa servis p95'i — taban (0 = ölçü yok)
+	CurP95Ms  float64 // cari kova servis p95'i — yavaş pay (v0.10.1546)
 }
 
 // ServiceSlowdownOpsSpec — SAF: operasyon pivotunun girdileri. cur = cari
@@ -145,11 +146,17 @@ func svcSlowOpRowsOf(rows []OpP99Row) []SvcSlowOpRow {
 // başı, cur (saat sonu), cur (cari p99), cur (taban p95 sonu), taban başı,
 // cari kova sonu, [batch kalıpları], servisler (dizi), saat çağrı tabanı,
 // 100 × saat kovası, (100 − dropPct), cari çağrı tabanı, mutlak p99 tabanı,
-// p99 katı.
+// p95 tabanı (v0.10.1546), p99 katı.
 //
 // Çöküş kolu (inceleme B) ayrıca cari kovada ≥ MinCallsTotal çağrı VE servis
 // p99'u ≥ MinP99Ms ister: 150 → 60 çağrılık sessiz bir serviste tek 300 ms'lik
 // istek "−%60 + p99 3×" yapıyordu. Taban servis p95'i (operasyon kolu gibi).
+//
+// v0.10.1546 (operator-reported: "trafik çöktü ve yavaşladı — p99 6 sn",
+// grafikte p99 20–70 ms): çöküş kolu operasyon kolunun YAVAŞ PAY kuralını da
+// ister — cari kova servis p95'i ≥ SvcSlowP95Floor (MinP99Ms/2). Trafiği
+// düşmüş kovada TEK bir 6 sn'lik istek (Kafka timeout) p99'u tek başına çeker,
+// p95'i çekmez. p95 aynı tDigest birleştirmesinden (cur_q takma adı), ek bind yok.
 //
 // Çöküş koşulu tamsayı/ondalık çapraz çarpımla (bölme yok, NaN yok):
 //
@@ -165,14 +172,15 @@ func serviceSlowdownServicesSQL(batchCond string) string {
 		SELECT service_name,
 		       countMergeIf(span_count_state, time_bucket >= ?)                     AS cur_calls,
 		       countMergeIf(span_count_state, time_bucket >= ? AND time_bucket < ?) AS hour_calls,
-		       arrayElement(quantilesTDigestMergeIf(0.5, 0.95, 0.99)(duration_q_state, time_bucket >= ?), 3) / 1e6 AS cur_p99,
-		       arrayElement(quantilesTDigestMergeIf(0.5, 0.95, 0.99)(duration_q_state, time_bucket < ?), 2) / 1e6  AS base_p95
+		       arrayElement((quantilesTDigestMergeIf(0.5, 0.95, 0.99)(duration_q_state, time_bucket >= ?) AS cur_q), 3) / 1e6 AS cur_p99,
+		       arrayElement(quantilesTDigestMergeIf(0.5, 0.95, 0.99)(duration_q_state, time_bucket < ?), 2) / 1e6  AS base_p95,
+		       arrayElement(cur_q, 2) / 1e6 AS cur_p95
 		FROM service_summary_5m
 		WHERE time_bucket >= ? AND time_bucket < ?` + excl + `
 		GROUP BY service_name
 		HAVING service_name IN ?
 		    OR (hour_calls >= ? AND cur_calls * ? <= ? * hour_calls
-		        AND cur_calls >= ? AND cur_p99 >= ?
+		        AND cur_calls >= ? AND cur_p99 >= ? AND cur_p95 >= ?
 		        AND base_p95 > 0 AND cur_p99 >= ? * base_p95)
 		ORDER BY cur_p99 / base_p95 DESC
 		LIMIT ` + itoa(svcSlowServiceLimit) + `
@@ -192,7 +200,7 @@ func ServiceSlowdownServicesQuery(cur time.Time, cfg ServiceSlowdownConfig, sens
 	args = append(args, bargs...)
 	args = append(args, services,
 		uint64(cfg.MinCallsTotal)*SvcSlowHourBuckets, uint64(100*SvcSlowHourBuckets), 100-cfg.DropPct,
-		uint64(cfg.MinCallsTotal), cfg.MinP99Ms, SvcSlowCollapseP99Factor)
+		uint64(cfg.MinCallsTotal), cfg.MinP99Ms, SvcSlowP95Floor(cfg), SvcSlowCollapseP99Factor)
 	return serviceSlowdownServicesSQL(cond), args
 }
 
@@ -207,10 +215,10 @@ func (s *Store) ServiceSlowdownServices(ctx context.Context, cur time.Time, cfg 
 	out := []SvcSlowServiceRow{}
 	for rows.Next() {
 		var r SvcSlowServiceRow
-		if err := rows.Scan(&r.Service, &r.CurCalls, &r.HourCalls, &r.CurP99Ms, &r.BaseP95Ms); err != nil {
+		if err := rows.Scan(&r.Service, &r.CurCalls, &r.HourCalls, &r.CurP99Ms, &r.BaseP95Ms, &r.CurP95Ms); err != nil {
 			return nil, false, err
 		}
-		r.CurP99Ms, r.BaseP95Ms = finiteOrZero(r.CurP99Ms), finiteOrZero(r.BaseP95Ms)
+		r.CurP99Ms, r.BaseP95Ms, r.CurP95Ms = finiteOrZero(r.CurP99Ms), finiteOrZero(r.BaseP95Ms), finiteOrZero(r.CurP95Ms)
 		out = append(out, r)
 	}
 	if err := rows.Err(); err != nil {

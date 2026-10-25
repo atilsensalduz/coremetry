@@ -145,6 +145,7 @@ func svcSlowCollapse(s chstore.SvcSlowServiceRow, cfg chstore.ServiceSlowdownCon
 	return s.HourCalls >= uint64(cfg.MinCallsTotal)*chstore.SvcSlowHourBuckets &&
 		float64(s.CurCalls)*100*chstore.SvcSlowHourBuckets <= (100-cfg.DropPct)*hour &&
 		s.CurCalls >= uint64(cfg.MinCallsTotal) && s.CurP99Ms >= cfg.MinP99Ms &&
+		s.CurP95Ms >= chstore.SvcSlowP95Floor(cfg) && // v0.10.1546 — yavaş pay: tek yavaş istek açmaz
 		s.BaseP95Ms > 0 && s.CurP99Ms >= chstore.SvcSlowCollapseP99Factor*s.BaseP95Ms
 }
 

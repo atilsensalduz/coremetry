@@ -34,9 +34,14 @@ func sslOp(svc, op string, cur, base float64, calls uint64) chstore.SvcSlowOpRow
 }
 
 // sslSvcRow — servis özeti: cari çağrı, önceki saatin kova başı ortalaması,
-// cari p99 / taban p95.
+// cari p99 / taban p95. Cari p95 = p99 (yaygın yavaşlama); tek yavaş istek
+// vakası için sslSvcRowP95 (v0.10.1546).
 func sslSvcRow(svc string, cur, hourAvg uint64, p99, base float64) chstore.SvcSlowServiceRow {
-	return chstore.SvcSlowServiceRow{Service: svc, CurCalls: cur, HourCalls: hourAvg * chstore.SvcSlowHourBuckets, CurP99Ms: p99, BaseP95Ms: base}
+	return sslSvcRowP95(svc, cur, hourAvg, p99, p99, base)
+}
+
+func sslSvcRowP95(svc string, cur, hourAvg uint64, p99, p95, base float64) chstore.SvcSlowServiceRow {
+	return chstore.SvcSlowServiceRow{Service: svc, CurCalls: cur, HourCalls: hourAvg * chstore.SvcSlowHourBuckets, CurP99Ms: p99, BaseP95Ms: base, CurP95Ms: p95}
 }
 
 // sslQuantile — doğrusal enterpolasyonlu kuantil (tDigest'in küçük örneklemdeki
@@ -100,6 +105,12 @@ func TestSvcSlowClassify(t *testing.T) {
 		{"150 → 60 çağrı + tek 300 ms istek → çöküş yok", nil, []chstore.SvcSlowServiceRow{sslSvcRow(sslSvc, 60, 150, 300, 80)}, false, false, false},
 		{"yeterli hacim, −%60 ama p99 300 ms (< 5 s) → çöküş yok", nil, []chstore.SvcSlowServiceRow{sslSvcRow(sslSvc, 400, 1000, 300, 80)}, false, false, false},
 		{"CRM benzeri: p99 15 s, trafik −%40 → çöküş kolu açılır", nil, []chstore.SvcSlowServiceRow{sslSvcRow(sslSvc, 600, 1000, 15000, 140)}, true, false, true},
+		// v0.10.1546 operator-reported (bsa-deposit-commondepositmain-prod): trafik
+		// düşük kovada TEK 6 s'lik istek (Kafka timeout) p99'u çekti, p95 60 ms;
+		// "trafik çöktü ve yavaşladı — p99 6 sn" P1 açılıyordu.
+		{"çöküş + p99 6 s ama p95 60 ms (tek yavaş istek) → çöküş yok", nil, []chstore.SvcSlowServiceRow{sslSvcRowP95(sslSvc, 300, 1000, 6000, 60, 18)}, false, false, false},
+		{"çöküş + p99 6 s, p95 2.4 s (< 2.5 s yavaş pay) → çöküş yok", nil, []chstore.SvcSlowServiceRow{sslSvcRowP95(sslSvc, 300, 1000, 6000, 2400, 18)}, false, false, false},
+		{"çöküş + p99 6 s, p95 2.5 s → çöküş açılır", nil, []chstore.SvcSlowServiceRow{sslSvcRowP95(sslSvc, 300, 1000, 6000, 2500, 18)}, true, false, true},
 		{"iki kol birden", sslOps(4, 18200, 120, 80), []chstore.SvcSlowServiceRow{healthySvc}, true, true, true},
 	}
 	for _, c := range cases {

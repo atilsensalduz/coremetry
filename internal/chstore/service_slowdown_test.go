@@ -54,15 +54,16 @@ const goldenSvcSlowServicesSQL = `
 		SELECT service_name,
 		       countMergeIf(span_count_state, time_bucket >= ?)                     AS cur_calls,
 		       countMergeIf(span_count_state, time_bucket >= ? AND time_bucket < ?) AS hour_calls,
-		       arrayElement(quantilesTDigestMergeIf(0.5, 0.95, 0.99)(duration_q_state, time_bucket >= ?), 3) / 1e6 AS cur_p99,
-		       arrayElement(quantilesTDigestMergeIf(0.5, 0.95, 0.99)(duration_q_state, time_bucket < ?), 2) / 1e6  AS base_p95
+		       arrayElement((quantilesTDigestMergeIf(0.5, 0.95, 0.99)(duration_q_state, time_bucket >= ?) AS cur_q), 3) / 1e6 AS cur_p99,
+		       arrayElement(quantilesTDigestMergeIf(0.5, 0.95, 0.99)(duration_q_state, time_bucket < ?), 2) / 1e6  AS base_p95,
+		       arrayElement(cur_q, 2) / 1e6 AS cur_p95
 		FROM service_summary_5m
 		WHERE time_bucket >= ? AND time_bucket < ?
 		  AND NOT (positionCaseInsensitive(service_name, ?) > 0)
 		GROUP BY service_name
 		HAVING service_name IN ?
 		    OR (hour_calls >= ? AND cur_calls * ? <= ? * hour_calls
-		        AND cur_calls >= ? AND cur_p99 >= ?
+		        AND cur_calls >= ? AND cur_p99 >= ? AND cur_p95 >= ?
 		        AND base_p95 > 0 AND cur_p99 >= ? * base_p95)
 		ORDER BY cur_p99 / base_p95 DESC
 		LIMIT 1000
@@ -99,7 +100,7 @@ func TestServiceSlowdownServicesQueryGolden(t *testing.T) {
 	}
 	want := []any{svcSlowCur, svcSlowCur.Add(-time.Hour), svcSlowCur, svcSlowCur, svcSlowCur,
 		svcSlowCur.Add(-24 * time.Hour), svcSlowCur.Add(5 * time.Minute), "-batch", []string{"crm-svc"},
-		uint64(1200), uint64(1200), 60.0, uint64(100), 5000.0, 3.0}
+		uint64(1200), uint64(1200), 60.0, uint64(100), 5000.0, 2500.0, 3.0}
 	if !reflect.DeepEqual(args, want) {
 		t.Fatalf("argümanlar:\n got %#v\nwant %#v", args, want)
 	}
