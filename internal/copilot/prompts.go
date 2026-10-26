@@ -2040,7 +2040,7 @@ KURALLAR:
 // reddi cevap sanırdı.
 const ChatAnswerStyle = `
 
-CEVAP BİÇİMİ (sohbet arayüzü markdown çizer; kısa ve Türkçe yaz):
+CEVAP BİÇİMİ (sohbet arayüzü markdown çizer; Türkçe yaz; v0.10.1552: cevap sorunun gerektirdiği kadar EKSİKSİZ olsun, kısaltmak için bilgi atma):
 - İlk satır tek cümlelik özet: "**Özet:** …". Cevabın tamamı zaten tek cümleyse özet satırı yazma. Bulunamadı / bilgi yok cevabında da yazma — o cümleyle doğrudan başla.
 - Adım adım prosedür → numaralı liste (gerekirse "### Başlık" ile bölümle); karşılaştırma → tablo; tek tek olgular → madde işaretleri.
 - Komut, sorgu ve config → dil etiketli kod bloğu (` + fenceLit + `bash, ` + fenceLit + `yaml, ` + fenceLit + `sql). Bir DOSYANIN içeriğiyse yolunu ekle: ` + fenceLit + `yaml title=deploy/app.yaml
@@ -2586,7 +2586,9 @@ KURALLAR:
 - Operatörün sistemine dair hiçbir sayı, servis adı, hata ya da durum UYDURMA.
   Soru onun ortamına dairse ("şu servis neden yavaş" gibi) veriye bu cevapta
   erişemediğini söyle; cevabı genel ilkelerle sınırla.
-- Kısa ve öz yaz; emin değilsen bunu belirt, tahmini olgu gibi sunma.
+- Bilginin elverdiği ölçüde TAM cevap ver (v0.10.1552): teknik / nasıl yapılır sorusunda yollar, numaralı
+  adımlar, dil etiketli örnek kod ya da config ve nasıl doğrulanacağı; basit bilgi sorusunda doğrudan cevap.
+  Kısaltmak için bilgi atma. Emin değilsen bunu belirt, tahmini olgu gibi sunma.
 - latency, span, p99, timeout, deploy, trace gibi teknik terimleri ÇEVİRME.
 - ` + answerInTurkishLine
 
@@ -2629,7 +2631,7 @@ func SystemPromptWikiGeneral() string { return systemWikiGeneral }
 // `off_topic` dedi ve sunucu vetosu geçti: soru telemetriyle İLGİSİZ ("Türkiye'nin
 // başkenti neresidir"). TEK araçsız çağrı: tool yok, telemetri yok, RAG/wiki yok
 // — yalnız modelin genel bilgisi. systemGeneralChat'ten farkı: soru muğlak
-// telemetri sorusu değil, düpedüz genel bilgi; cevap öz olmalı (sunucu altına
+// telemetri sorusu değil, düpedüz genel bilgi; v0.10.1552'den beri cevap eksiksiz (sunucu altına
 // CoSRE çiplerini koyar). "Genel bilgi, telemetri değil" notu YALNIZ sunucudan
 // (offTopicGeneralNoteTR, cevabın ALTINDA) — v0.10.1485: model kendi notunu
 // YAZMAZ (prod: not iki kez çıkıyordu); yazarsa sunucu süzgeci
@@ -2646,8 +2648,9 @@ KURALLAR:
 - Cevabın genel bilgi olduğunu ya da Coremetry telemetrisinden gelmediğini YAZMA; bu notu sistem
   cevabın altına kendisi ekler. "Bu soru telemetriyle ilgili değil" gibi giriş ya da kapanış cümlesi kurma.
 - Uzunluk soruyla orantılı olsun: basit bilgi sorusuna 1-3 cümle; kod, adım adım nasıl yapılır
-  ya da açıklama isteyen soruya eksiksiz ama öz bir cevap. Gereksiz giriş, tekrar ve dolgu yok.
-- Markdown kullan; gerekirse kısa liste ya da adımlar.
+  ya da açıklama isteyen soruya modelin bilgisinin elverdiği ölçüde EKSİKSİZ, ayrıntılı bir cevap (yollar,
+  adımlar, örnek, sık hatalar; v0.10.1552). Gereksiz giriş, tekrar ve dolgu yok.
+- Markdown kullan; başlık, liste ve numaralı adımlarla düzenle.
 - Kod istenirse kodu çok satırlı, dil etiketli bir kod bloğunda ver (` + "```python, ```bash, ```sql" + ` gibi; blok ` + "```" + ` ile kapanır);
   kodu cümlenin içine tek satıra sıkıştırma. Kodun ardından ne yaptığını 1-3 cümleyle açıkla;
   yararlıysa kısa bir kullanım örneği ekle.

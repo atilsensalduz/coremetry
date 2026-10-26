@@ -18,3 +18,24 @@ func TestSystemPromptWikiGeneral(t *testing.T) {
 		t.Error("wiki genel istemi kısalık istememeli (operatör: detaylı anlatım)")
 	}
 }
+
+// v0.10.1552 — operatör: "Kısa ve öze yerine modelin genel yetkinliğince tam
+// cevabı alabilmeli kullanıcılar". Anlatım üreten sohbet istemleri kısalık
+// istemez; eksiksiz cevap ister.
+func TestChatPromptsAskForFullAnswers(t *testing.T) {
+	for name, p := range map[string]string{
+		"ChatAnswerStyle": ChatAnswerStyle, "GeneralChat": SystemPromptGeneralChat(),
+		"OffTopicGeneral": SystemPromptOffTopicGeneral(), "WikiGeneral": SystemPromptWikiGeneral(),
+	} {
+		for _, bad := range []string{"Kısa ve öz", "kısa ve Türkçe yaz", "eksiksiz ama öz"} {
+			if strings.Contains(p, bad) {
+				t.Errorf("%s %q içermemeli", name, bad)
+			}
+		}
+	}
+	for name, p := range map[string]string{"ChatAnswerStyle": ChatAnswerStyle, "GeneralChat": SystemPromptGeneralChat(), "OffTopicGeneral": SystemPromptOffTopicGeneral()} {
+		if !strings.Contains(p, "EKSİKSİZ") && !strings.Contains(p, "TAM cevap") {
+			t.Errorf("%s eksiksiz cevap istemeli", name)
+		}
+	}
+}
