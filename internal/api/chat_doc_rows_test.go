@@ -3,6 +3,7 @@ package api
 // chat_doc_rows_test.go — v0.10.1176 / v0.10.1183: tablo satırı kademesi.
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -68,8 +69,10 @@ func TestDocRowsWiring(t *testing.T) {
 	b, _ := os.ReadFile("copilot_chat.go")
 	src := string(b)
 	w, d, g := strings.Index(src, "s.wikiChatAnswer(ctx, emit, req.Messages, wikiTC)"), strings.Index(src, "s.docRowsAnswer(ctx, emit, req.Messages, true)"), strings.Index(src, "s.ragChatAnswer(ctx, emit, req.Messages")
-	if w < 0 || d < 0 || g < 0 || !(w < d && d < g) {
-		t.Fatal("sıra: wiki kademesi → sıkı satır kademesi → … → doküman adımı")
+	// v0.10.1551 — sıkı satır kademesi wiki'den ÖNCE (birebir hücre eşleşmesi
+	// varsa tüm satırlar; wiki anlatımı tek parçayı okuyordu).
+	if w < 0 || d < 0 || g < 0 || !(d < w && w < g) {
+		t.Fatal("sıra: sıkı satır kademesi → wiki kademesi → … → doküman adımı")
 	}
 	r, _ := os.ReadFile("rag.go")
 	if !strings.Contains(string(r), "s.docRowsAnswer(ctx, emit, msgs, false)") {
@@ -77,5 +80,29 @@ func TestDocRowsWiring(t *testing.T) {
 	}
 	if !hasLocalDocHit([]wiki.Hit{{ChunkRef: wiki.ChunkRef{WikiID: wiki.LocalWikiID}}}) || hasLocalDocHit(nil) {
 		t.Fatal("hasLocalDocHit")
+	}
+}
+
+// v0.10.1551 operator-reported: "CRMHouse ait vserver adreslerini getir" →
+// 16 satırın hepsi (CC Owner = CRMHouse); karışık harfli kimlik güçlü; değer
+// 50'den çok satırda da geçse (tek seçici değer) satırlar gelir.
+func TestDocRowsMixedCaseOwnerAllRows(t *testing.T) {
+	var b strings.Builder
+	for i := 1; i <= 80; i++ {
+		fmt.Fprintf(&b, "vserver · satır %d — Load Balancer: lb-%d_443 · Load Balancer IpAddress: 10.240.84.%d · Environment: PROD · CC Owner: CRMHouse · Application Name: Kampanya Datamarti\n", i+1, i, i)
+	}
+	b.WriteString("vserver · satır 99 — Load Balancer: other_443 · Load Balancer IpAddress: 10.0.0.1 · Environment: PROD · CC Owner: Payments\n")
+	chunks := []docRowChunk{{Title: "vserver_cc_iliskisi", Text: b.String()}}
+	rows, vals := matchDocRows(chunks, "CRMHouse ait vserver adreslerini getir", true)
+	if len(rows) != 80 || len(vals) != 1 || vals[0] != "crmhouse" {
+		t.Fatalf("satır %d, değerler %v", len(rows), vals)
+	}
+	for _, c := range []struct {
+		w    string
+		want bool
+	}{{"CRMHouse", true}, {"OrderService", true}, {"orderId", true}, {"Opentelemetry", false}, {"Kampanya", false}, {"prod", false}} {
+		if got := isMixedCaseIdent(c.w); got != c.want {
+			t.Errorf("isMixedCaseIdent(%q) = %v", c.w, got)
+		}
 	}
 }

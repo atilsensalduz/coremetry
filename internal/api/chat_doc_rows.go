@@ -30,9 +30,14 @@ import (
 )
 
 const (
-	docRowsChunkLimit = 200
-	docRowsMax        = 50
-	docRowsMaxCols    = 12
+	docRowsChunkLimit = 400
+	// v0.10.1551 (operatör: "CRMHouse ait vserver adreslerini getir" → 16 satırdan
+	// 1'i): kullanıcı "ilgili TÜM kayıtları" ister — çıktı tavanı 200.
+	docRowsMax = 200
+	// docRowsCommon — bu kadardan çok satırda geçen değer (PROD, Hayır) yaygın:
+	// başka seçici değer varken satır seçmez (v0.10.1183 kuralı, eski 50).
+	docRowsCommon  = 50
+	docRowsMaxCols = 12
 )
 
 // docRowMatch — eşleşen satır + kaynağı.
@@ -87,12 +92,33 @@ func rowNeedles(question string) []rowNeedle {
 			continue
 		}
 		seen[f] = true
-		out = append(out, rowNeedle{raw: w, folded: f, strong: ident || isAllCaps(w)})
+		out = append(out, rowNeedle{raw: w, folded: f, strong: ident || isAllCaps(w) || isMixedCaseIdent(w)})
 		if len(out) >= 8 {
 			break
 		}
 	}
 	return out
+}
+
+// isMixedCaseIdent — SAF (v0.10.1551): kelime içinde (ilk harften sonra)
+// büyük harf + küçük harf — PascalCase / camelCase kimlik (CRMHouse,
+// OrderService, orderId). Yalnız baş harfi büyük olağan kelime (Opentelemetry,
+// Kampanya) değildir.
+func isMixedCaseIdent(w string) bool {
+	rs := []rune(w)
+	lower, innerUpper, letters := false, false, 0
+	for i, r := range rs {
+		if !unicode.IsLetter(r) {
+			continue
+		}
+		letters++
+		if unicode.IsLower(r) {
+			lower = true
+		} else if unicode.IsUpper(r) && i > 0 {
+			innerUpper = true
+		}
+	}
+	return letters >= 3 && lower && innerUpper
 }
 
 func isAllCaps(w string) bool {
@@ -171,10 +197,21 @@ func matchDocRows(chunks []docRowChunk, question string, strict bool) ([]docRowM
 	}
 	var out []docRowMatch
 	var used []string
+	// v0.10.1551 — yaygın değer (PROD, Hayır) başka seçici değer varken satır
+	// seçmez; soruda YALNIZ yaygın değerler eşleştiyse ve değer GÜÇLÜ yazılmışsa
+	// ("CRMHouse'un 80 kaydı") onlar seçer — aksi hâlde istenen kayıtlar hiç
+	// gelmezdi. Küçük harfli genel kelime ("prod ortamındaki") yine seçmez.
+	selective := false
+	for _, n := range count {
+		if n <= docRowsCommon {
+			selective = true
+			break
+		}
+	}
 	for _, cd := range cands {
 		ok := false
 		for _, v := range cd.vals {
-			if count[v] <= docRowsMax { // yaygın değer (PROD, Hayır) satır seçmez
+			if count[v] <= docRowsCommon || (!selective && needleStrongIn(needles, v)) {
 				ok = true
 				if !containsStr(used, v) {
 					used = append(used, v)
