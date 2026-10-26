@@ -7,7 +7,8 @@ package api
 // Wiki kademesi "bulunamadı" dediğinde cevap orada BİTMEZ: genel sorular
 // anahtarı (ai.generalQuestions, varsayılan açık) ve zararlı-istek süzgeci
 // izin veriyorsa (offTopicGeneralEnabled — off_topic yolunun AYNI kapısı) tool'suz
-// TEK genel-bilgi çağrısı (chat-general yüzeyi, SystemPromptGeneralChat) akışla
+// TEK genel-bilgi çağrısı (chat-general yüzeyi; v0.10.1550'den beri ayrıntılı
+// teknik istem SystemPromptWikiGeneral — örnek kod/config, adımlar) akışla
 // cevaplar. Etiket sunucudan, modelden beklenmez: önce wiki'de olmadığı ve
 // cevabın kuruma özgü olmadığı yazılır. Wiki'nin bulduğu sayfa çipleri altta
 // kalır (ilgili sayfalar). Çağrıya wiki içeriği GİTMEZ — yalnız soru; hassas
@@ -46,7 +47,7 @@ func (s *Server) wikiGeneralFallback(ctx context.Context, question string, ans m
 	gi := emitStepChipOrigin(emit, gtool, intentStepArgs(question), "wiki")
 	t0 := time.Now()
 	emit("delta", map[string]string{"text": wikiGeneralNoteTR + "\n\n"})
-	raw, err := s.copilotStreamSurface(ctx, "chat-general", copilot.SystemPromptGeneralChat(), question,
+	raw, err := s.copilotStreamSurface(ctx, "chat-general", copilot.SystemPromptWikiGeneral(), question, // v0.10.1550 — ayrıntılı teknik istem
 		func(d string) { emit("delta", map[string]string{"text": d}) })
 	if err != nil {
 		emitStepEvidence(emit, gi, gtool, "", err)

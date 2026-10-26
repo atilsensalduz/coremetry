@@ -89,6 +89,7 @@ func promptRegistry() map[string]promptClass {
 		"Chat":            classTurkishNative,
 		"IntentClassify":  classTurkishNative, // v0.10.172 — JSON çıktı, Türkçe talimat (RCAVerdict emsali)
 		"GeneralChat":     classTurkishNative, // v0.10.194 — none → genel bilgi cevabı (tool'suz)
+		"WikiGeneral":     classTurkishNative, // v0.10.1550 — wiki bulunamadı → ayrıntılı genel teknik cevap
 		"OffTopicGeneral": classTurkishNative, // v0.10.1458 — off_topic → kısa genel cevap (tool'suz, anahtarlı)
 		"ChatRoundCap":    classTurkishNative,
 		"ChatAgentLoop":   classTurkishNative, // v0.10.482 — telemetri ajanı çekirdek döngüsü (Ek A, Türkçe/kısa)
@@ -130,6 +131,7 @@ func promptTexts() map[string]string {
 		"SlowQuery": SystemPromptSlowQuery(), "GuidedChat": SystemPromptGuidedChat(),
 		"IntentClassify":  SystemPromptIntentClassify(),
 		"GeneralChat":     SystemPromptGeneralChat(),
+		"WikiGeneral":     SystemPromptWikiGeneral(),
 		"OffTopicGeneral": SystemPromptOffTopicGeneral(), // v0.10.1458
 		"DrawerChat":      SystemPromptDrawerChat(), "Chat": SystemPromptChat(),
 		"ChatRoundCap": SystemPromptChatRoundCap(), "ChatAgentLoop": SystemPromptChatAgentLoop(),

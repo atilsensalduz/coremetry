@@ -86,6 +86,7 @@ var promptVersionRegistry = map[string]string{
 	"systemIntentClassify":       systemIntentClassify,
 	"IntentNoInstructionLine":    IntentNoInstructionLine,
 	"systemGeneralChat":          systemGeneralChat,
+	"systemWikiGeneral":          systemWikiGeneral,     // v0.10.1550
 	"systemOffTopicGeneral":      systemOffTopicGeneral, // v0.10.1458
 	"AnswerInTurkish":            AnswerInTurkish,
 

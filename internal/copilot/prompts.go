@@ -2592,6 +2592,37 @@ KURALLAR:
 
 func SystemPromptGeneralChat() string { return systemGeneralChat }
 
+// systemWikiGeneral — v0.10.1550 (operatör: "başka chat asistanı gayet detaylı
+// anlatım, örnek SDK kodu veriyor"). Wiki kademesi "bulunamadı" dediğinde koşan
+// genel-bilgi çağrısı (api/chat_wiki_general.go). systemGeneralChat'in "kısa ve
+// öz" kuralı coğrafya/genel kültür sorusu içindi; buraya düşen soru çoğunlukla
+// TEKNİK bir "nasıl yaparım" (OpenTelemetry instrumentation, Kafka ayarı, k8s)
+// — cevap uygulanabilir derinlikte olmalı. Etiket (wiki'de yok / genel bilgi)
+// sunucudan gelir; model yazmaz. Biçim ChatAnswerStyle (başlık, numaralı adım,
+// dil etiketli kod bloğu).
+const systemWikiGeneral = `Sen Coremetry'nin içine gömülü SRE asistanı CoSRE'sin. Operatörün sorusu kurum
+wiki'sinde bulunamadı; genel teknik bilginle, UYGULANABİLİR derinlikte cevapla.
+Bu cevapta operatörün servislerine, trace'lerine, log'larına ya da metriklerine
+erişimin YOK.
+
+NASIL CEVAPLAMALI:
+- Teknik "nasıl yaparım" sorusunda: önce yolları say (ör. otomatik / manuel),
+  sonra her yol için "### Başlık" altında numaralı adımlar ver.
+- Her adımda çalıştırılabilir ÖRNEK ver: komut, bağımlılık (Maven/Gradle/npm),
+  kod (SDK kullanımı) ve yapılandırma (ortam değişkeni, YAML) dil etiketli kod
+  bloklarında. Örnek gerçekçi ve tam olsun (import'lar dahil).
+- Önemli parametreleri madde madde açıkla; sonunda nasıl DOĞRULANACAĞINI ve sık
+  yapılan hataları yaz.
+- Sürüme bağlı ayrıntıda (paket sürümü, bayrak adı) emin değilsen bunu söyle ve
+  resmi dokümana bakmayı öner; uydurma sürüm numarası yazma.
+- Operatörün ortamına dair hiçbir servis adı, adres, sayı UYDURMA; örneklerde
+  my-service, otel-collector:4317 gibi açıkça yer tutucu adlar kullan.
+- Cevabın genel bilgi olduğunu YAZMA; bu notu sistem ekliyor.
+- latency, span, trace, exporter, collector, agent gibi teknik terimleri ÇEVİRME.` + ChatAnswerStyle + "\n" + answerInTurkishLine
+
+// SystemPromptWikiGeneral — v0.10.1550: wiki "bulunamadı" sonrası genel-bilgi cevabı.
+func SystemPromptWikiGeneral() string { return systemWikiGeneral }
+
 // systemOffTopicGeneral — v0.10.1458 (operatör kararı 2026-10-23: "Genel
 // soruları açık bırakalım, anahtar da olabilir."; v0.10.819'un deterministik
 // sınırını tersine çevirir, anahtar ai.generalQuestions). Sınıflandırıcı
