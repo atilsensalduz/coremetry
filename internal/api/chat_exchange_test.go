@@ -188,6 +188,7 @@ func TestExchangeRecordedForDeterministicGuidedTurn(t *testing.T) {
 
 func TestExchangeRecordedForWikiTierNotFound(t *testing.T) {
 	withWikiService(t, wiki.Config{Enabled: true}, &fakeWikiAPI{pages: map[string]string{"/Runbooks/Restart svc-orders": runbookText}})
+	setGeneralQuestions(t, false) // v0.10.1549 — kapalıyken LLM'siz ret (açık hâl: chat_wiki_general_test)
 	llm := noLLM(t)
 	s, _ := newLoopTestServer(t, llm, "u-w")
 	rec := withExchangeRecorder(s)

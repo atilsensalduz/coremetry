@@ -102,6 +102,7 @@ func TestEveryTierRecordsCosreInteraction(t *testing.T) {
 			name: "wiki (bulunamadı) — LLM'siz", tier: aisurface.TierWiki,
 			setup: func(t *testing.T) *loopLLM {
 				withWikiService(t, wiki.Config{Enabled: true}, &fakeWikiAPI{pages: map[string]string{"/Runbooks/Restart svc-orders": runbookText}})
+				setGeneralQuestions(t, false) // v0.10.1549 — açıkken genel bilgi cevabı (LLM'li)
 				return noLLM(t)
 			},
 			body: func() map[string]any {

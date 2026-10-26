@@ -243,8 +243,13 @@ func (s *Server) wikiChatAnswer(ctx context.Context, emit func(string, any), msg
 	emit("step", map[string]string{"label": "kurum wiki'si"})
 	exID := copilot.MetaFromContext(ctx).ExchangeID
 	if len(hits) == 0 {
-		emit("answer", map[string]any{"text": wikiNotFoundText(res, noTerms), "exchangeId": exID,
-			"sources": []any{}, "links": []guidedAnswerLink{}, "allowedLinks": []string{}})
+		ans := map[string]any{"text": wikiNotFoundText(res, noTerms), "exchangeId": exID,
+			"sources": []any{}, "links": []guidedAnswerLink{}, "allowedLinks": []string{}}
+		// v0.10.1549 — terimsiz soru ("aranabilir terim yok") genel cevaba gitmez.
+		if !noTerms {
+			s.wikiGeneralFallback(ctx, question, ans, emit)
+		}
+		emit("answer", ans)
 		return true, true
 	}
 	ans, used, err := s.wikiNarratedAnswer(ctx, w, question, wikiPriorTurns(msgs), hits, emit)
@@ -260,6 +265,8 @@ func (s *Server) wikiChatAnswer(ctx context.Context, emit func(string, any), msg
 	}
 	if text, _ := ans["text"].(string); !wikiDeclined(text) {
 		s.rememberWikiAnswer(ctx, text, wikiPageRefs(used))
+	} else {
+		s.wikiGeneralFallback(ctx, question, ans, emit) // v0.10.1549 — wiki'de yoksa genel bilgi
 	}
 	emit("answer", ans)
 	return true, true
